@@ -148,7 +148,6 @@ export interface DashboardInventoryRepositoryPort {
   readInventoryAvailabilityFacts(
     organizationId: string,
   ): Promise<DashboardInventoryAvailabilityFacts>;
-  countLowCtrThumbnails(organizationId: string): Promise<number>;
   findReviewCountsForProducts(
     organizationId: string,
     masterProductIds: readonly string[],

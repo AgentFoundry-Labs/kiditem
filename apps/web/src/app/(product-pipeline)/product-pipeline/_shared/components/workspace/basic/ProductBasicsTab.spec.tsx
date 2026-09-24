@@ -51,10 +51,8 @@ const completeBasicInfo: ProductBasics = {
   thumbnailUrls: ['https://cdn.example.com/source.jpg'],
   registrationImages: { primary: [], thumbnail: [], detail: [] },
   selectedThumbnailUrl: 'https://cdn.example.com/selected.jpg',
-  selectedThumbnailGenerationId: null,
-  selectedThumbnailGenerationCandidateId: null,
+  selectedThumbnailAssetId: null,
   selectedDetailPageGenerationId: 'detail-1',
-  selectedDetailPageArtifactId: null,
   selectedDetailPageRevisionId: null,
 };
 

@@ -1,73 +1,34 @@
 Before working in this directory, always read this document first rather than relying on memory.
 
-# web/thumbnail-ai — Thumbnail Analysis Dashboard
+# web/thumbnail-ai — Listing Thumbnail Evaluation And AI Edit
 
-`app/(product-pipeline)/product-pipeline/thumbnail-ai/` owns the six-tab
-thumbnail analysis dashboard, smart polling, batch analysis/cancel controls,
-and optimistic candidate selection UI.
+`app/(product-pipeline)/product-pipeline/thumbnail-ai/` owns two tabs: listing
+evaluation (score the representative image a mall shows) and AI edit (thumbnail
+jobs, their candidate assets, and adoption).
 
-Shared generation hooks live in
-`app/(product-pipeline)/product-pipeline/_shared/hooks/useThumbnailGenerations.ts`.
-
-## Owned Surfaces
-
-- Thumbnail dashboard tabs: unclassified, all, needs-fix, AI edit, history,
-  tracking
-- Thumbnail analysis and batch analysis controls
-- Batch cancel UI
-- Candidate select/apply/skip controls reused with thumbnail generation
-- Dashboard product rows and product-backed actions use active Coupang
-  channel-listing workspaces only. Sourcing-candidate/collected workspaces
-  remain provenance and must never surface in this route. This route does not
-  own a separate Wing image-sync action.
-
-## State + Data Flow
+## Data Flow
 
 ```text
-React Query hooks
-  -> apiClient /api/thumbnail-analysis/*
-  -> queryKeys.thumbnailAnalysis.*
-  -> smart refetchInterval while pending/generating rows exist
-  -> optimistic candidate mutation with rollback
+Listing evaluation
+  -> channelListingsApi.list (Channels listing query: id + thumbnailUrl)
+  -> POST /api/ai/listing-thumbnails/current   {listings:[{channelListingId,imageUrl}]}
+  -> POST /api/ai/listing-thumbnails/:id/evaluate {imageUrl, modelId}
+AI edit
+  -> _shared/hooks/useThumbnailJobs (jobs + candidate assets + workspace summary)
+  -> _shared/hooks/useRepresentativeImage (adopt, mall execution status)
 ```
 
-Batch progress is local UI state. Cancellation aborts the active request and
-stops remaining chunks; report server job cancellation only with an owner receipt.
+## Rules
 
-Thumbnail results and generations join on `contentWorkspaceId`. Tracking rows
-use `channelListingId`; collected-product entry keeps `sourceCandidateId` as
-provenance. Thumbnail requests, URLs, query keys, and local maps must not use
-`productId` or `masterId` as workspace aliases.
-
-## Cross-Route Dependencies
-
-- `@kiditem/shared` provides `ThumbnailAnalysisResult` and
-  `ThumbnailGenerationItem`.
-- Shared generation hook provides `useGenerationList`, `useSelectCandidate`,
-  `useApplyGeneration`, and `useSkipGeneration`.
-- `resolveImageUrl()` is the image URL normalization path.
-- Grade colors come from `../_shared/lib/thumbnail-grade.ts`.
-
-## Boundary Rules
-
-- All backend calls use `apiClient` and `queryKeys.thumbnailAnalysis.*`; no raw
-  `fetch`.
-- Polling uses `refetchInterval`; no `setInterval`, EventSource, or WebSocket.
-- Tab and pagination state stay local.
-- Mutations use explicit invalidation and `onSettled` to avoid races.
-- File upload uses `FileReader.readAsDataURL`; no form submission.
-- Do not add Canvas/image manipulation here; image work belongs to external API
-  flows.
-
-## Change Coupling
-
-- New tabs touch `page.tsx`, `ThumbnailFilterTabs.tsx`, and the tab component.
-- Polling cadence changes belong in the shared generation hook.
-- Batch cancel UX changes touch `page.tsx` refs plus the server cancel endpoint.
-- Optimistic updates should follow the existing `onMutate/onError/onSettled`
-  pattern.
+- Evaluation requires an operator-chosen model; never send a default model id.
+- Content never reads the Channels listing table; the page sends the listing id
+  and image URL it read from the Channels listing query.
+- Adoption is `PATCH /api/ai/content-workspaces/:id/current-thumbnail {assetId}`.
+  Jobs have no select/apply step and the page never writes a selected URL.
+- Polling uses React Query `refetchInterval` while a job is pending or running.
+- Evaluation runs one image at a time; do not fan out model calls in parallel.
 
 ## Regression Focus
 
-Tab, polling, cancellation, or optimistic-update changes need a focused
-regression spec for query-key and mutation behavior.
+Tab, evaluation, adoption, or polling changes need a focused spec in
+`__tests__/page.spec.tsx` or the shared hook specs.

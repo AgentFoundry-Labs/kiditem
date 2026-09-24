@@ -2,7 +2,9 @@
 
 import { findChannel } from '@kiditem/shared/channel-registry';
 import { ExternalLink, Store, Trash2 } from 'lucide-react';
-import { formatKRW } from '@/lib/utils';
+import { cn, formatKRW } from '@/lib/utils';
+import { listingStatePill } from '@/app/(channels)/_shared/mall-presentation';
+import { RegistrationStateBadge } from '@/app/(channels)/_shared/components/RegistrationStateBadge';
 import { ProductInboxCardShell } from '../../_shared/components/inbox/ProductInboxCardShell';
 import type { RegisteredChannelListing } from '../lib/channel-listings-api';
 
@@ -12,7 +14,7 @@ interface RegisteredListingCardProps {
   onOpen: (listing: RegisteredChannelListing) => void;
   onSelectedChange?: (id: string, selected: boolean) => void;
   /**
-   * ⚠️ 파괴적. 우리가 등록한 상품(`sourceCandidateId` 있음)에만 전달된다.
+   * ⚠️ 파괴적. 우리가 등록한 상품(`sourceRecordId` 있음)에만 전달된다.
    * 넘어오지 않으면 삭제 진입점 자체를 렌더하지 않는다.
    */
   onRequestDelete?: (listing: RegisteredChannelListing) => void;
@@ -29,6 +31,7 @@ export function RegisteredListingCard({
   const channelLabel = channelDisplayName(listing.channel);
   const accountLabel = listing.channelAccountName ?? '계정 미지정';
   const mappingLabel = mappingStatusLabel(listing.mappingStatus);
+  const listingPill = listingStatePill(listing.listingState ?? 'unknown', listing.status);
 
   return (
     <ProductInboxCardShell
@@ -49,9 +52,14 @@ export function RegisteredListingCard({
           <span className="w-fit rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-sm">
             {channelLabel}
           </span>
-          <span className="w-fit max-w-full rounded-full bg-emerald-500/90 px-2 py-0.5 text-[10px] font-bold text-white backdrop-blur-sm">
-            {listing.status || '등록'}
-          </span>
+          {/* 판매상품이 있는 리스팅은 등록 상태 reader 값을, 없으면 몰 상태를 우리 어휘·색으로 보인다(KID-320). */}
+          {listing.registration ? (
+            <RegistrationStateBadge account={listing.registration} className="max-w-full" />
+          ) : (
+            <span className={cn('w-fit max-w-full rounded-full px-2 py-0.5 text-[10px] font-bold backdrop-blur-sm', listingPill.tone)}>
+              {listingPill.label}
+            </span>
+          )}
           <span className="w-fit max-w-full rounded-full bg-white/90 px-2 py-0.5 text-[10px] font-bold text-slate-700 backdrop-blur-sm">
             {mappingLabel}
           </span>

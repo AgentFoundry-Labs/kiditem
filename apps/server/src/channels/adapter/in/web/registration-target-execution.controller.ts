@@ -1,3 +1,5 @@
+import { UseFilters } from '@nestjs/common';
+import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import { PrepareListingAvailabilityInputSchema, ReportListingAvailabilityInputSchema } from '@kiditem/shared/sales-product';
 import { BadRequestException, Body, ConflictException, Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { PrepareTargetExecutionInputSchema, ReportTargetExecutionInputSchema } from '@kiditem/shared/sales-product';
@@ -7,6 +9,7 @@ import type { AuthUser } from '../../../../auth/auth.types';
 import { REGISTRATION_EXECUTION_PORT, type RegistrationExecutionPort } from '../../../application/port/in/capability/registration-execution.port';
 import { RegistrationTargetException } from '../../../application/exception/registration-target.exception';
 
+@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels')
 export class RegistrationTargetExecutionController {
   constructor(@Inject(REGISTRATION_EXECUTION_PORT) private readonly executions: RegistrationExecutionPort) {}

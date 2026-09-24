@@ -9,11 +9,7 @@ import {
   extractSupplierOfferId,
   parseAllowedSupplierUrl,
 } from '../apps/server/src/sourcing/domain/supplier-source-url-policy';
-import { canonicalSourcingCandidateIdentity } from '../apps/server/src/sourcing/domain/sourcing-candidate-identity';
-import {
-  freezeProductRegistrationPayload,
-  type RegistrationSubmissionJson,
-} from '../apps/server/src/channels/domain/registration-submission-payload';
+import { canonicalSourceRecordIdentity } from '../apps/server/src/sourcing/domain/source-record-identity';
 import { ensureAbsoluteProductAbcFormulaForOrganization } from './data-migrations/ensure/absolute-product-abc-formula';
 
 export const GENERATED_DATABASE_MARKER = 'kiditem_agent_os_clean_cutover';
@@ -44,7 +40,6 @@ export const BROWSER_QA_FIXTURE_PROFILES = [
   'sourcing.candidate-denial.v1',
   'sourcing.scrape-failure.v1',
   'supply.purchase-order-submit.v1',
-  'channels.confirmed-listing.v1',
 ] as const;
 
 export type BrowserQaFixtureProfileId = (typeof BROWSER_QA_FIXTURE_PROFILES)[number];
@@ -52,10 +47,10 @@ export type BrowserQaFixtureProfileId = (typeof BROWSER_QA_FIXTURE_PROFILES)[num
 type BrowserQaProfileDefinition = {
   inputVariables: readonly string[];
   outputVariables: readonly string[];
-  includesCandidate?: boolean;
+  /** 수집한 원본 기록과 그 판매상품 초안(KID-313: 원본 하나에 초안 하나). */
+  includesSourcedDraft?: boolean;
   includesRecommendationWorkspace?: boolean;
   includesSupply?: boolean;
-  includesConfirmedListing?: boolean;
   createsFailureSupplierUrl?: boolean;
 };
 
@@ -74,8 +69,8 @@ const BROWSER_QA_PROFILE_DEFINITIONS: Record<
   },
   'products.listing-generation.v1': {
     inputVariables: [],
-    outputVariables: ['candidateRef'],
-    includesCandidate: true,
+    outputVariables: ['salesProductRef'],
+    includesSourcedDraft: true,
   },
   'runtime.two-turn-restart.v1': {
     inputVariables: [],
@@ -89,7 +84,7 @@ const BROWSER_QA_PROFILE_DEFINITIONS: Record<
   'sourcing.existing-candidate.v1': {
     inputVariables: [],
     outputVariables: ['supplierUrl'],
-    includesCandidate: true,
+    includesSourcedDraft: true,
   },
   'sourcing.candidate-denial.v1': {
     inputVariables: ['supplierUrl'],
@@ -105,31 +100,26 @@ const BROWSER_QA_PROFILE_DEFINITIONS: Record<
     outputVariables: ['purchaseOrderRef', 'externalOrderId'],
     includesSupply: true,
   },
-  'channels.confirmed-listing.v1': {
-    inputVariables: [],
-    outputVariables: [
-      'registrationExecutionRef',
-      'preparationRef',
-      'externalListingRef',
-      'wingVendorRef',
-    ],
-    includesConfirmedListing: true,
-  },
 };
 
-const BROWSER_QA_SELLPIA_INVENTORY_SKU = {
-  code: 'browser-qa-synthetic-sku',
-  name: 'Browser QA synthetic inventory SKU',
-  isActive: true,
+/**
+ * 발주 줄이 가리키는 재고 상품. 재고 정본은 셀피아 원천 식별(계정 · 상품 · 옵션 코드)의 마스터 상품이다(KID-275).
+ * 격리된 QA DB 는 데이터 마이그레이션을 돌리지 않아 KID 시퀀스가 없을 수 있으므로, 실데이터가 닿지 않는 끝자리의
+ * 고정 KID 를 쓴다.
+ */
+const BROWSER_QA_MASTER_PRODUCT = {
+  code: 'KID99999001',
+  sourceAccountKey: 'kiditem',
+  sourceProductCode: 'browser-qa-synthetic-sku',
+  sourceOptionCode: '',
+  name: 'Browser QA synthetic inventory item',
 } as const;
 
 const BROWSER_QA_SELLPIA_INVENTORY_STATE = {
   sourceOrigin: 'https://kiditem.sellpia.com',
   sourceAccountKey: 'kiditem',
-  refreshRequestedAt: null,
   refreshReason: null,
   requestedSyncScope: 'inventory',
-  syncNotBefore: null,
   activeSyncToken: null,
   activeSyncOwnerUserId: null,
   activeSyncStartedAt: null,
@@ -160,57 +150,12 @@ const BROWSER_QA_PURCHASE_ORDER_ITEM = {
   unitPriceCny: 1,
 } as const;
 
-const BROWSER_QA_CHANNEL_VENDOR_ID = 'browser-qa-vendor';
-
-type BrowserQaConfirmedListingPlan = {
-  contentWorkspace: {
-    id: string;
-    ownerType: 'sourcing_candidate';
-    displayName: string;
-    normalizedTitle: string;
-    status: 'active';
-    isDeleted: false;
-  };
-  channelAccount: {
-    id: string;
-    channel: 'coupang';
-    name: string;
-    externalAccountId: string;
-    vendorId: typeof BROWSER_QA_CHANNEL_VENDOR_ID;
-    status: 'active';
-    isPrimary: true;
-  };
-  productPreparation: {
-    id: string;
-    displayName: string;
-    status: 'submitting';
-    registrationInput: RegistrationSubmissionJson;
-    submissionKey: string;
-    submissionPayloadJson: RegistrationSubmissionJson;
-    submissionPayloadHash: string;
-    providerOutcome: 'uncertain';
-    reviewPayloadHash: string;
-    isDeleted: false;
-  };
-  productRegistrationExecution: {
-    id: string;
-    executionKind: 'create';
-    expectedProviderAccountId: typeof BROWSER_QA_CHANNEL_VENDOR_ID;
-    idempotencyKey: string;
-    requestHash: string;
-    submissionPayloadJson: RegistrationSubmissionJson;
-    submissionPayloadHash: string;
-    status: 'executing';
-    providerOutcome: 'uncertain';
-  };
-};
-
 type BrowserQaSyntheticSupplier = {
   sourceUrl: string;
   externalOfferId: string;
 };
 
-type BrowserQaSourcingCandidate = {
+type BrowserQaSourceRecord = {
   sourceUrl: string;
   sourcePlatform: 'ALIBABA_1688';
   externalOfferId: string;
@@ -218,8 +163,14 @@ type BrowserQaSourcingCandidate = {
   variantKeyNormalized: string;
   name: string;
   description: string;
-  status: 'sourced';
-  isDeleted: false;
+};
+
+type BrowserQaSalesProductDraft = {
+  name: string;
+  description: string;
+  status: 'draft';
+  sourcePlatform: 'ALIBABA_1688';
+  sourceUrl: string;
 };
 
 const BROWSER_QA_FIXTURE_HASH = 'b'.repeat(64);
@@ -330,15 +281,16 @@ export type BrowserQaSeedPlan = {
     role: string;
     status: string;
   };
-  sourcingCandidate?: BrowserQaSourcingCandidate;
-  sellpiaInventorySku?: typeof BROWSER_QA_SELLPIA_INVENTORY_SKU;
+  sourceRecord?: BrowserQaSourceRecord;
+  salesProductDraft?: BrowserQaSalesProductDraft;
+  masterProduct?: typeof BROWSER_QA_MASTER_PRODUCT;
   sellpiaInventoryState?: typeof BROWSER_QA_SELLPIA_INVENTORY_STATE & {
     lastVerifiedAt: Date;
     lastAttemptAt: Date;
   };
   purchaseOrder?: typeof BROWSER_QA_PURCHASE_ORDER & { externalOrderId: string };
   purchaseOrderItem?: typeof BROWSER_QA_PURCHASE_ORDER_ITEM;
-} & Partial<BrowserQaRecommendationPlan & BrowserQaConfirmedListingPlan>;
+} & Partial<BrowserQaRecommendationPlan>;
 
 export type BrowserQaSeedResult = {
   profile: BrowserQaFixtureProfileId;
@@ -346,19 +298,16 @@ export type BrowserQaSeedResult = {
   organizationId: string;
   userId: string;
   membershipId: string;
-  sourcingCandidateId?: string;
+  sourceRecordId?: string;
+  salesProductId?: string;
   evidenceIngestionRunId?: string;
   evidenceObservationId?: string;
   recommendationRunId?: string;
   recommendationItemId?: string;
   workspaceSnapshotId?: string;
-  sellpiaInventorySkuId?: string;
+  masterProductId?: string;
   purchaseOrderId?: string;
   purchaseOrderItemId?: string;
-  contentWorkspaceId?: string;
-  channelAccountId?: string;
-  productPreparationId?: string;
-  productRegistrationExecutionId?: string;
 };
 
 export type BrowserQaPasswordInput = {
@@ -571,72 +520,9 @@ export function createBrowserQaSeedPlan({
     },
   };
 
-  if (definition.includesConfirmedListing) {
+  if (definition.includesSourcedDraft) {
     const supplier = createBrowserQaSyntheticSupplier();
-    const preparationId = randomUUID();
-    const registrationExecutionId = randomUUID();
-    const submissionKey = `browser-qa-channel-${randomUUID()}`;
-    const channelAccountId = randomUUID();
-    const displayName = 'Browser QA confirmed listing';
-    const registrationInput = { optionLinks: [] };
-    const frozenSubmission = createBrowserQaConfirmedListingFrozenPayload({
-      channelAccountId,
-      displayName,
-      registrationInput,
-    });
-    return {
-      ...basePlan,
-      variables: {
-        registrationExecutionRef: registrationExecutionId,
-        preparationRef: preparationId,
-        externalListingRef: `browser-qa-listing-${randomUUID()}`,
-        wingVendorRef: BROWSER_QA_CHANNEL_VENDOR_ID,
-      },
-      sourcingCandidate: createBrowserQaSourcingCandidate(supplier),
-      contentWorkspace: {
-        id: randomUUID(),
-        ownerType: 'sourcing_candidate',
-        displayName: 'Browser QA channel workspace',
-        normalizedTitle: `browser-qa-channel-${supplier.externalOfferId}`,
-        status: 'active',
-        isDeleted: false,
-      },
-      channelAccount: {
-        id: channelAccountId,
-        channel: 'coupang',
-        name: 'Browser QA Coupang',
-        externalAccountId: 'browser-qa-coupang-account',
-        vendorId: BROWSER_QA_CHANNEL_VENDOR_ID,
-        status: 'active',
-        isPrimary: true,
-      },
-      productPreparation: {
-        id: preparationId,
-        displayName,
-        status: 'submitting',
-        registrationInput,
-        submissionKey,
-        submissionPayloadJson: frozenSubmission.payload,
-        submissionPayloadHash: frozenSubmission.hash,
-        providerOutcome: 'uncertain',
-        reviewPayloadHash: frozenSubmission.hash,
-        isDeleted: false,
-      },
-      productRegistrationExecution: {
-        id: registrationExecutionId,
-        executionKind: 'create',
-        expectedProviderAccountId: BROWSER_QA_CHANNEL_VENDOR_ID,
-        idempotencyKey: submissionKey,
-        requestHash: frozenSubmission.hash,
-        submissionPayloadJson: frozenSubmission.payload,
-        submissionPayloadHash: frozenSubmission.hash,
-        status: 'executing',
-        providerOutcome: 'uncertain',
-      },
-    };
-  }
-  if (definition.includesCandidate) {
-    const supplier = createBrowserQaSyntheticSupplier();
+    const sourceRecord = createBrowserQaSourceRecord(supplier);
     return {
       ...basePlan,
       variables: {
@@ -645,7 +531,14 @@ export function createBrowserQaSeedPlan({
           supplierUrl: supplier.sourceUrl,
         }),
       },
-      sourcingCandidate: createBrowserQaSourcingCandidate(supplier),
+      sourceRecord,
+      salesProductDraft: {
+        name: sourceRecord.name,
+        description: sourceRecord.description,
+        status: 'draft',
+        sourcePlatform: sourceRecord.sourcePlatform,
+        sourceUrl: sourceRecord.sourceUrl,
+      },
     };
   }
   if (definition.includesRecommendationWorkspace) {
@@ -664,7 +557,7 @@ export function createBrowserQaSeedPlan({
         ...planVariables,
         externalOrderId: resolvedExternalOrderId,
       },
-      sellpiaInventorySku: BROWSER_QA_SELLPIA_INVENTORY_SKU,
+      masterProduct: BROWSER_QA_MASTER_PRODUCT,
       sellpiaInventoryState: {
         ...BROWSER_QA_SELLPIA_INVENTORY_STATE,
         lastVerifiedAt: now,
@@ -760,49 +653,18 @@ export async function runBrowserQaSeed({
       membershipId: membership.id,
     };
 
-    if (plan.sourcingCandidate) {
-      const existingCandidate = await transaction.sourcingCandidate.findFirst({
-        where: {
-          organizationId: organization.id,
-          sourceUrl: plan.sourcingCandidate.sourceUrl,
-          sourcePlatform: plan.sourcingCandidate.sourcePlatform,
-          sourceIdentityHash: plan.sourcingCandidate.sourceIdentityHash,
-          isDeleted: false,
-        },
-        select: { id: true },
-      });
-      const sourcingCandidate = existingCandidate ?? await transaction.sourcingCandidate.create({
-        data: {
-          organizationId: organization.id,
-          triggeredByUserId: user.id,
-          ...plan.sourcingCandidate,
-        },
-        select: { id: true },
-      });
-      result.sourcingCandidateId = sourcingCandidate.id;
-      if (plan.profile === 'products.listing-generation.v1') {
-        result.variables.candidateRef = sourcingCandidate.id;
-      }
-    }
-
-    if (
-      plan.contentWorkspace
-      && plan.channelAccount
-      && plan.productPreparation
-      && plan.productRegistrationExecution
-      && result.sourcingCandidateId
-    ) {
-      const confirmedListing = await seedBrowserQaConfirmedListing({
+    if (plan.sourceRecord && plan.salesProductDraft) {
+      const sourced = await seedBrowserQaSourcedDraft({
         transaction,
         organizationId: organization.id,
         userId: user.id,
-        sourceCandidateId: result.sourcingCandidateId,
-        plan,
+        sourceRecord: plan.sourceRecord,
+        salesProductDraft: plan.salesProductDraft,
       });
-      Object.assign(result, confirmedListing);
-      result.variables.preparationRef = confirmedListing.productPreparationId;
-      result.variables.registrationExecutionRef =
-        confirmedListing.productRegistrationExecutionId;
+      Object.assign(result, sourced);
+      if (plan.profile === 'products.listing-generation.v1') {
+        result.variables.salesProductRef = sourced.salesProductId;
+      }
     }
 
     if (plan.recommendationRun) {
@@ -815,22 +677,26 @@ export async function runBrowserQaSeed({
     }
 
     if (
-      plan.sellpiaInventorySku
+      plan.masterProduct
       && plan.sellpiaInventoryState
       && plan.purchaseOrder
       && plan.purchaseOrderItem
     ) {
-      const sellpiaInventorySku = await transaction.sellpiaInventorySku.upsert({
+      const { code, ...masterProductFacts } = plan.masterProduct;
+      const masterProduct = await transaction.masterProduct.upsert({
         where: {
-          organizationId_code: {
+          organizationId_sourceAccountKey_sourceProductCode_sourceOptionCode: {
             organizationId: organization.id,
-            code: plan.sellpiaInventorySku.code,
+            sourceAccountKey: plan.masterProduct.sourceAccountKey,
+            sourceProductCode: plan.masterProduct.sourceProductCode,
+            sourceOptionCode: plan.masterProduct.sourceOptionCode,
           },
         },
-        update: plan.sellpiaInventorySku,
+        update: { name: masterProductFacts.name },
         create: {
           organizationId: organization.id,
-          ...plan.sellpiaInventorySku,
+          code,
+          ...masterProductFacts,
         },
         select: { id: true },
       });
@@ -852,7 +718,7 @@ export async function runBrowserQaSeed({
         where: {
           organizationId: organization.id,
           orderId: purchaseOrder.id,
-          sellpiaInventorySkuId: sellpiaInventorySku.id,
+          masterProductId: masterProduct.id,
         },
         select: { id: true },
       });
@@ -861,12 +727,12 @@ export async function runBrowserQaSeed({
           data: {
             organizationId: organization.id,
             orderId: purchaseOrder.id,
-            sellpiaInventorySkuId: sellpiaInventorySku.id,
+            masterProductId: masterProduct.id,
             ...plan.purchaseOrderItem,
           },
           select: { id: true },
         });
-      result.sellpiaInventorySkuId = sellpiaInventorySku.id;
+      result.masterProductId = masterProduct.id;
       result.purchaseOrderId = purchaseOrder.id;
       result.purchaseOrderItemId = purchaseOrderItem.id;
       result.variables.purchaseOrderRef = purchaseOrder.id;
@@ -877,129 +743,52 @@ export async function runBrowserQaSeed({
   });
 }
 
-async function seedBrowserQaConfirmedListing({
+/**
+ * 수집 경로가 남기는 모양 그대로 원본 기록과 그 초안 하나를 둔다(KID-313: 원본 하나에 초안 하나,
+ * 초안은 원본 id 만 들고 외래키는 없다). 다시 돌려도 같은 원본 · 초안을 쓴다.
+ */
+async function seedBrowserQaSourcedDraft({
   transaction,
   organizationId,
   userId,
-  sourceCandidateId,
-  plan,
+  sourceRecord,
+  salesProductDraft,
 }: {
   transaction: Prisma.TransactionClient;
   organizationId: string;
   userId: string;
-  sourceCandidateId: string;
-  plan: BrowserQaSeedPlan;
-}): Promise<Pick<
-  BrowserQaSeedResult,
-  | 'contentWorkspaceId'
-  | 'channelAccountId'
-  | 'productPreparationId'
-  | 'productRegistrationExecutionId'
->> {
-  if (
-    !plan.contentWorkspace
-    || !plan.channelAccount
-    || !plan.productPreparation
-    || !plan.productRegistrationExecution
-  ) {
-    throw new Error('Browser-QA confirmed-listing fixture plan is incomplete.');
-  }
-
-  const contentWorkspace = await transaction.contentWorkspace.create({
-    data: {
-      ...plan.contentWorkspace,
-      organizationId,
-      sourceCandidateId,
-      createdByUserId: userId,
-    },
-    select: { id: true },
-  });
-  const channelAccount = await transaction.channelAccount.upsert({
+  sourceRecord: BrowserQaSourceRecord;
+  salesProductDraft: BrowserQaSalesProductDraft;
+}): Promise<{ sourceRecordId: string; salesProductId: string }> {
+  const existingRecord = await transaction.sourceRecord.findFirst({
     where: {
-      organizationId_channel_externalAccountId: {
-        organizationId,
-        channel: plan.channelAccount.channel,
-        externalAccountId: plan.channelAccount.externalAccountId,
-      },
-    },
-    update: {
-      name: plan.channelAccount.name,
-      vendorId: plan.channelAccount.vendorId,
-      status: plan.channelAccount.status,
-      isPrimary: plan.channelAccount.isPrimary,
-    },
-    create: {
-      ...plan.channelAccount,
       organizationId,
+      sourcePlatform: sourceRecord.sourcePlatform,
+      sourceIdentityHash: sourceRecord.sourceIdentityHash,
     },
     select: { id: true },
   });
-  const frozenSubmission = createBrowserQaConfirmedListingFrozenPayload({
-    channelAccountId: channelAccount.id,
-    displayName: plan.productPreparation.displayName,
-    registrationInput: plan.productPreparation.registrationInput,
-  });
-  const productPreparation = await transaction.productPreparation.create({
+  const record = existingRecord ?? await transaction.sourceRecord.create({
     data: {
-      ...plan.productPreparation,
       organizationId,
-      sourceCandidateId,
-      channelAccountId: channelAccount.id,
-      sourceContentWorkspaceId: contentWorkspace.id,
-      registrationInput:
-        plan.productPreparation.registrationInput as Prisma.InputJsonValue,
-      submissionPayloadJson: frozenSubmission.payload as Prisma.InputJsonValue,
-      submissionPayloadHash: frozenSubmission.hash,
-      reviewPayloadHash: frozenSubmission.hash,
-      approvedAt: new Date(),
-      approvedByUserId: userId,
-      createdByUserId: userId,
+      triggeredByUserId: userId,
+      ...sourceRecord,
     },
     select: { id: true },
   });
-  const productRegistrationExecution =
-    await transaction.productRegistrationExecution.create({
-      data: {
-        ...plan.productRegistrationExecution,
-        organizationId,
-        productPreparationId: productPreparation.id,
-        channelAccountId: channelAccount.id,
-        requestHash: frozenSubmission.hash,
-        submissionPayloadJson: frozenSubmission.payload as Prisma.InputJsonValue,
-        submissionPayloadHash: frozenSubmission.hash,
-        requestedByUserId: userId,
-      },
-      select: { id: true },
-    });
-
-  return {
-    contentWorkspaceId: contentWorkspace.id,
-    channelAccountId: channelAccount.id,
-    productPreparationId: productPreparation.id,
-    productRegistrationExecutionId: productRegistrationExecution.id,
-  };
-}
-
-function createBrowserQaConfirmedListingFrozenPayload({
-  channelAccountId,
-  displayName,
-  registrationInput,
-}: {
-  channelAccountId: string;
-  displayName: string;
-  registrationInput: RegistrationSubmissionJson;
-}) {
-  return freezeProductRegistrationPayload({
-    channelAccountId,
-    displayName,
-    registrationInput,
-    selectedThumbnailUrl: null,
-    selectedThumbnailGenerationId: null,
-    selectedThumbnailGenerationCandidateId: null,
-    selectedDetailPageArtifactId: null,
-    selectedDetailPageRevisionId: null,
-    selectedDetailPageGenerationId: null,
+  const existingDraft = await transaction.salesProduct.findFirst({
+    where: { organizationId, sourceRecordId: record.id },
+    select: { id: true },
   });
+  const draft = existingDraft ?? await transaction.salesProduct.create({
+    data: {
+      organizationId,
+      sourceRecordId: record.id,
+      ...salesProductDraft,
+    },
+    select: { id: true },
+  });
+  return { sourceRecordId: record.id, salesProductId: draft.id };
 }
 
 function createBrowserQaRecommendationPlan(
@@ -1532,14 +1321,14 @@ function createBrowserQaSyntheticSupplier(): BrowserQaSyntheticSupplier {
   };
 }
 
-function createBrowserQaSourcingCandidate(
+function createBrowserQaSourceRecord(
   supplier: BrowserQaSyntheticSupplier,
-): BrowserQaSourcingCandidate {
+): BrowserQaSourceRecord {
   return {
     sourceUrl: supplier.sourceUrl,
     sourcePlatform: 'ALIBABA_1688',
     externalOfferId: supplier.externalOfferId,
-    sourceIdentityHash: canonicalSourcingCandidateIdentity({
+    sourceIdentityHash: canonicalSourceRecordIdentity({
       sourcePlatform: 'ALIBABA_1688',
       sourceUrl: supplier.sourceUrl,
       validatedExternalOfferId: supplier.externalOfferId,
@@ -1548,8 +1337,6 @@ function createBrowserQaSourcingCandidate(
     variantKeyNormalized: '',
     name: 'Browser QA fixture',
     description: 'Synthetic record for isolated Agent OS browser QA.',
-    status: 'sourced',
-    isDeleted: false,
   };
 }
 

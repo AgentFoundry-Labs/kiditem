@@ -5,6 +5,8 @@ interface ProductPipelineStatsProps {
   totalCount: number;
   draftLabel?: string;
   totalLabel?: string;
+  /** 수 묶음의 접근성 이름. */
+  ariaLabel?: string;
 }
 
 export function ProductPipelineStats({
@@ -12,9 +14,14 @@ export function ProductPipelineStats({
   totalCount,
   draftLabel = '등록 대기',
   totalLabel = '전체',
+  ariaLabel,
 }: ProductPipelineStatsProps) {
   return (
-    <div className="flex items-center gap-6 px-5 h-11 border-b border-slate-200 text-xs">
+    <div
+      role={ariaLabel ? 'group' : undefined}
+      aria-label={ariaLabel}
+      className="flex items-center gap-6 px-5 h-11 border-b border-slate-200 text-xs"
+    >
       <div className="flex items-baseline gap-1.5">
         <span className="text-slate-500">{draftLabel}</span>
         <span className="font-bold text-slate-900 text-sm tabular-nums">{draftCount}</span>

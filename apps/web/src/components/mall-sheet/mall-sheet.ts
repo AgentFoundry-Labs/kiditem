@@ -1,4 +1,7 @@
-import type { SalesProductMallSheet, SalesProductMallSheetCheck } from '@kiditem/shared/sales-product';
+import type {
+  SalesProductMallSheet,
+  SalesProductMallSheetCheck,
+} from '@kiditem/shared/sales-product';
 
 /** 분류가 없어 막힌 상품을 (몰 · 추천 분류)로 묶은 것. 한 번에 저장한다. */
 export interface MallSheetCategoryGroup {

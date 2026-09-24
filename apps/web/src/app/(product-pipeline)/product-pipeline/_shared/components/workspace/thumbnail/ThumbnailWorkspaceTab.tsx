@@ -7,7 +7,7 @@ import type { RegistrationThumbnailOption } from '@/app/(product-pipeline)/produ
 import { prepareImageUploadFile } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/lib/image-whitespace-crop';
 import { writeThumbnailEditorUpload } from '@/app/(product-pipeline)/product-pipeline/thumbnail-generation/edit/lib/upload-session';
 import { apiClient } from '@/lib/api-client';
-import { useSourcingThumbnailGenerations } from '../../../hooks/useGenerateSourcingThumbnail';
+import { useThumbnailGallery } from '../../../hooks/useRepresentativeImage';
 import { thumbnailGenerationEditHref } from '../../../lib/product-pipeline-routes';
 import ProductThumbnailResults from './ProductThumbnailResults';
 import ThumbnailSourcePicker from './ThumbnailSourcePicker';
@@ -17,8 +17,9 @@ import type { ProductEditState } from '../../../lib/product-workspace-types';
 interface ThumbnailWorkspaceTabProps {
   editData: ProductEditState;
   contentWorkspaceId?: string | null;
+  /** 이 화면의 판매상품 초안. 작업공간이 아직 없으면 편집기가 이 id 로 결과를 초안에 붙인다. */
+  salesProductId?: string | null;
   thumbnailUrl?: string | null;
-  thumbnailSourceCandidateId?: string | null;
   selectedRegistrationThumbnailUrl: string | null;
   /** 실제로 저장된 대표 썸네일. `등록 대표` 배지의 유일한 근거다(폴백 없음). */
   savedRepresentativeThumbnailUrl?: string | null;
@@ -36,8 +37,8 @@ interface ThumbnailWorkspaceTabProps {
 export default function ThumbnailWorkspaceTab({
   editData,
   contentWorkspaceId = null,
+  salesProductId = null,
   thumbnailUrl = null,
-  thumbnailSourceCandidateId = null,
   selectedRegistrationThumbnailUrl,
   savedRepresentativeThumbnailUrl = null,
   thumbnailPreviewImages,
@@ -68,25 +69,16 @@ export default function ThumbnailWorkspaceTab({
       editData.thumbnails[0] ??
       null,
   );
-  const thumbnailGenerations = useSourcingThumbnailGenerations({
-    sourceCandidateId: thumbnailSourceCandidateId,
-    contentWorkspaceId,
-  });
+  // 대표이미지 갤러리(업로드 · AI 후보 자산)는 이 작업공간의 것만 읽는다. 작업공간이 없으면 읽지 않는다.
+  const gallery = useThumbnailGallery(contentWorkspaceId);
+  const galleryAssets = useMemo(() => gallery.data ?? [], [gallery.data]);
   const sourceOptions = useMemo(
-    () =>
-      buildThumbnailSourceOptions({
-        sourceImageUrls: editData.thumbnails,
-        generations: thumbnailGenerations.data ?? [],
-      }),
-    [editData.thumbnails, thumbnailGenerations.data],
+    () => buildThumbnailSourceOptions({ sourceImageUrls: editData.thumbnails, galleryAssets }),
+    [editData.thumbnails, galleryAssets],
   );
   const resultOptions = useMemo(
-    () =>
-      getGeneratedThumbnailOptions({
-        sourceImageUrls: editData.thumbnails,
-        generations: thumbnailGenerations.data ?? [],
-      }),
-    [editData.thumbnails, thumbnailGenerations.data],
+    () => getGeneratedThumbnailOptions({ sourceImageUrls: editData.thumbnails, galleryAssets }),
+    [editData.thumbnails, galleryAssets],
   );
   const fallbackPreviewImages = useMemo(
     () => uniqueNonEmpty([selectedRegistrationThumbnailUrl, thumbnailUrl, editData.thumbnails[0]]),
@@ -153,8 +145,8 @@ export default function ThumbnailWorkspaceTab({
       productDescription: editData.name,
       extraParams: {
         uploadKey,
-        sourceCandidateId: thumbnailSourceCandidateId,
         contentWorkspaceId,
+        salesProductId: contentWorkspaceId ? null : salesProductId,
         fullPage: '1',
       },
     });
@@ -214,8 +206,8 @@ export default function ThumbnailWorkspaceTab({
     ({
       url,
       kind: 'source',
+      assetId: null,
       generatedGenerationId: null,
-      generatedCandidateId: null,
     } satisfies RegistrationThumbnailOption);
 
   /**

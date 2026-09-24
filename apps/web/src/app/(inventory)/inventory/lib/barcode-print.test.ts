@@ -10,8 +10,6 @@ const item: InventorySkuSnapshotItem = {
   barcode: '8801234567890',
   currentStock: 7,
   purchasePrice: 100,
-  salePrice: 200,
-  isActive: true,
   stockValue: 700,
   lastImportRunId: '00000000-0000-4000-8000-000000000002',
   lastImportedAt: '2026-07-11T01:00:00.000Z',

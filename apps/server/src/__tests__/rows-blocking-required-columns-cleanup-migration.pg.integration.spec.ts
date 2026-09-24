@@ -186,12 +186,20 @@ describe('v0.1.31:014 remove rows blocking required columns (PostgreSQL)', () =>
 
     expect(live.filter((link) => !declared.includes(link))).toEqual([]);
     // Pre-schema 014 still handles the Office KPI and legacy SKU tables;
-    // later v0.1.31 schema/cutover steps retire them.
+    // later v0.1.31 schema/cutover steps retire them. The Channels keys are
+    // Office 0.1.30 keys KID-297 replaced with scalar ids (OFFICE_ONLY_KEYS,
+    // plus the serp-capture key this release never declares as a key).
     expect(declared.filter((link) => !live.includes(link))).toEqual([
       'channel_account_daily_kpi_snapshots.raw_snapshot_id -> channel_scrape_snapshots',
+      'channel_ad_target_daily_snapshots.raw_snapshot_id -> channel_scrape_snapshots',
+      'channel_listing_options.last_import_run_id -> source_import_runs',
+      'channel_listings.last_import_run_id -> source_import_runs',
+      'channel_scrape_runs.source_import_run_id -> source_import_runs',
+      'channel_scrape_snapshots.source_import_run_id -> source_import_runs',
       'sellpia_inventory_skus.last_import_run_id -> source_import_runs',
     ]);
-    expect(live.length).toBeGreaterThan(40);
+    // 36 keys once the Channels boundary keeps scalar ids (KID-297).
+    expect(live.length).toBeGreaterThan(30);
   });
 
   it('deletes nothing on the pushed schema, where every table has its required column and every key its index', async () => {
@@ -510,7 +518,7 @@ describe('v0.1.31:014 unique keys on source_import_runs (PostgreSQL)', () => {
       WHERE i.indisunique AND ic.relname::text = ANY(${NEW_UNIQUE_KEYS}::text[])
     `;
     expect(unique.map((row) => row.name).sort()).toEqual([...NEW_UNIQUE_KEYS].sort());
-    expect(NEW_UNIQUE_KEYS).toHaveLength(42);
+    expect(NEW_UNIQUE_KEYS).toHaveLength(43);
   });
 
   it('on the Office 0.1.30 shape, keeps the newest run of each key, removes the rest with what they take along, and lets every key be created', async () => {
@@ -822,12 +830,33 @@ async function indexDefinitions(db: Db, names: readonly string[]): Promise<Recor
 }
 
 /** source_import_runs as Office 0.1.30 has it: none of the new keys, nor the columns only they index. */
+/**
+ * Keys the Office 0.1.30 schema has into import runs and raw snapshots that
+ * this release's schema no longer declares: the Channels boundary keeps only
+ * the id column and its index (KID-297, ADR-0013). 014 runs on the Office
+ * schema, where its row cleanup still follows them.
+ */
+const OFFICE_ONLY_KEYS = [
+  { table: 'channel_scrape_runs', column: 'source_import_run_id', references: IMPORT_RUNS },
+  { table: 'channel_listings', column: 'last_import_run_id', references: IMPORT_RUNS },
+  { table: 'channel_listing_options', column: 'last_import_run_id', references: IMPORT_RUNS },
+  { table: 'channel_ad_target_daily_snapshots', column: 'raw_snapshot_id', references: 'channel_scrape_snapshots' },
+] as const;
+
 async function officeImportRunShape(tx: Prisma.TransactionClient): Promise<void> {
   for (const index of IMPORT_RUN_KEYS) {
     await tx.$executeRaw`DROP INDEX ${Prisma.raw(`"${index}"`)}`;
   }
   for (const column of Object.keys(NEW_IMPORT_RUN_KEY_COLUMNS)) {
     await tx.$executeRaw`ALTER TABLE source_import_runs DROP COLUMN ${Prisma.raw(column)}`;
+  }
+  for (const key of OFFICE_ONLY_KEYS) {
+    await tx.$executeRaw`
+      ALTER TABLE ${Prisma.raw(key.table)}
+        ADD CONSTRAINT ${Prisma.raw(`office_${key.table}_${key.column}_fkey`)}
+        FOREIGN KEY (${Prisma.raw(key.column)}, organization_id)
+        REFERENCES ${Prisma.raw(key.references)} (id, organization_id) ON DELETE RESTRICT
+    `;
   }
 }
 

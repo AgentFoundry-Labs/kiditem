@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../../../../test-helpers/channel-fact-ports';
 import { describe, expect, it, vi } from 'vitest';
 import { PRODUCT_ABC_ABSOLUTE_V1_AD_SOURCE_POLICY_HASH } from '@kiditem/shared/product-abc';
 import {
@@ -181,7 +182,7 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
     const prisma = {
       $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
     };
-    const adapter = new ProfitabilityAdImportRepositoryAdapter(
+    const adapter = new ProfitabilityAdImportRepositoryAdapter(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).recipes, channelFactTestPorts(prisma as never).listings,
       prisma as never,
       {} as never,
     );
@@ -318,7 +319,7 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
     const prisma = {
       $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
     };
-    const adapter = new ProfitabilityAdImportRepositoryAdapter(prisma as never, {} as never);
+    const adapter = new ProfitabilityAdImportRepositoryAdapter(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).recipes, channelFactTestPorts(prisma as never).listings, prisma as never, {} as never);
 
     const generation = await adapter.readGeneration({ organizationId, sourceImportRunId });
     expect(Object.keys(generation!)).toEqual(['summary', 'allocations']);
@@ -468,7 +469,7 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
     const prisma = {
       $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
     };
-    const adapter = new ProfitabilityAdImportRepositoryAdapter(prisma as never, {} as never);
+    const adapter = new ProfitabilityAdImportRepositoryAdapter(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).recipes, channelFactTestPorts(prisma as never).listings, prisma as never, {} as never);
 
     await expect(adapter.readSourceStatus({ organizationId: complete.organizationId })).resolves.toMatchObject({
       latestAttempt: { state: 'COMPLETE' },
@@ -506,7 +507,7 @@ describe('ProfitabilityAdImportRepositoryAdapter', () => {
         const prisma = {
           $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) => callback(tx)),
         };
-        return new ProfitabilityAdImportRepositoryAdapter(prisma as never, {} as never)
+        return new ProfitabilityAdImportRepositoryAdapter(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).recipes, channelFactTestPorts(prisma as never).listings, prisma as never, {} as never)
           .readSourceStatus({ organizationId: run.organizationId });
       };
 

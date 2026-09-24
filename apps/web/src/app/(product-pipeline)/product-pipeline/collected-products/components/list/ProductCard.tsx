@@ -1,16 +1,16 @@
 'use client';
 
 import { Loader2, Sparkles, Wand2 } from 'lucide-react';
+import type { SalesProductListItem } from '@kiditem/shared/sales-product';
 import { cn } from '@/lib/utils';
-import { useKidsPlayfulInProgress } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import { ProductInboxCardShell } from '@/app/(product-pipeline)/product-pipeline/_shared/components/inbox/ProductInboxCardShell';
-import type { SourcedProduct } from '../../lib/sourcing-api';
-import { getInlineGenerationProgressLabel } from '../../lib/generation-progress-label';
+import { RegistrationStateBadge } from '@/app/(channels)/_shared/components/RegistrationStateBadge';
 import { sourcePlatformLabel } from '../../lib/source-platform-label';
-import SourcingStatusBadge from './SourcingStatusBadge';
 
 interface Props {
-  product: SourcedProduct;
+  /** 판매상품 초안 한 줄. 카드 id 는 초안 id 다(KID-310). */
+  product: SalesProductListItem;
+  /** 이 화면이 시작한 생성이 아직 도는가. 카드는 스스로 묻지 않는다 — 목록이 한 번에 묻는다. */
   isProcessing: boolean;
   isDeleting: boolean;
   selected?: boolean;
@@ -36,43 +36,24 @@ export default function ProductCard({
   quickProcessSelectedCount,
   isQuickProcessingSelected = false,
 }: Props) {
-  // KP 진행 중 row 가 있으면 카드 상단에 progress 배지 (다시 들어와도 유지).
-  const kpInProgress = useKidsPlayfulInProgress(product.id, {
-    sourceCandidateId: product.id,
-  });
-  const generateBusy = isQuickProcessingSelected || isProcessing || !!kpInProgress;
-
-  // 진행 중 라벨 — pipeline_step 별 다른 메시지 (사용자 가시성 강화)
-  // Trend/KIDITEM 생성 진행 중이면 그것 우선 (templateId 로 라벨 구분).
-  const inProgressTemplateLabel =
-    kpInProgress?.templateId === 'bold-vertical' ? 'KIDITEM DESIGN' : '트렌드 광고형 템플릿';
-  const progressLabel = kpInProgress
-    ? getInlineGenerationProgressLabel({
-        templateLabel: inProgressTemplateLabel,
-        imageProcessingStatus: kpInProgress.imageProcessingStatus,
-        rawInput: kpInProgress.rawInput,
-      })
-    : null;
-
-  const showProgress = (isProcessing || !!kpInProgress) && !!progressLabel;
+  const generateBusy = isQuickProcessingSelected || isProcessing;
   const sourceLabel = sourcePlatformLabel(product.sourcePlatform);
 
-  // 진행 중 overlay — 카드 상단에 보라색 진행 배지. 다른 페이지로 이동 후 돌아와도 시각적으로 식별 가능.
-  // KP 진행 중도 동일 표시 (DB status='pending'/'processing' 인 row 가 있으면).
-  const statusBanner = showProgress ? (
-    <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-center gap-1.5 bg-violet-600 px-2 py-1 text-[10px] font-semibold text-white shadow">
+  // 진행 중 overlay — 이 화면에서 시작한 생성만 표시한다. 다른 곳에서 시작한 생성은 그 상품의
+  // 작업공간 화면이 보여준다.
+  const statusBanner = isProcessing ? (
+    <div className="absolute top-0 left-0 right-0 z-20 flex items-center justify-center gap-1.5 bg-[var(--primary)] px-2 py-1 text-[10px] font-semibold text-[var(--primary-contrast)] shadow">
       <Loader2 size={10} className="animate-spin" />
-      {progressLabel}
+      생성 중
     </div>
   ) : null;
 
   return (
     <ProductInboxCardShell
       title={product.name}
-      thumbnailUrl={product.thumbnailUrl}
-      thumbnailUrls={product.thumbnailPreviewUrls}
+      thumbnailUrl={product.imageUrl}
       disabled={isDeleting}
-      highlighted={showProgress}
+      highlighted={isProcessing}
       statusBanner={statusBanner}
       selectionAction={onSelectedChange
         ? {
@@ -83,16 +64,24 @@ export default function ProductCard({
         : undefined}
       thumbnailTopLeft={
         <div className="flex flex-col gap-1">
-          <SourcingStatusBadge status={product.status} />
+          {product.salePrice === null && (
+            <span className="w-fit rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-bold text-amber-800">
+              판매가 미정
+            </span>
+          )}
           <span className="w-fit rounded-full bg-black/55 px-2 py-0.5 text-[10px] font-bold tracking-wide text-white backdrop-blur-sm">
             {sourceLabel}
           </span>
+          {/* 몰 등록 상태는 목록이 등록 상태 reader 에서 싣고 온다(KID-320). 아직 계정이 없으면 그리지 않는다. */}
+          {product.registrationAccounts.length > 0 && (
+            <RegistrationStateBadge accounts={product.registrationAccounts} />
+          )}
         </div>
       }
       deleteAction={{
         isDeleting,
         onDelete: () => onDelete(product.id),
-        title: '소싱 후보 삭제',
+        title: '수집상품 삭제',
       }}
       hoverAction={{
         icon: <Sparkles size={13} />,

@@ -10,7 +10,7 @@ import {
   readCompleteObservationProvenanceByIds,
   readCurrentObservationHeads,
   type CurrentObservationHead,
-} from '../../../read/source-evidence.reader';
+} from './source-evidence.reader';
 
 type ObservationRow = CurrentObservationHead;
 

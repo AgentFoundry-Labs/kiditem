@@ -1,4 +1,4 @@
-import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Get, Headers, Param, ParseUUIDPipe, Post, Put, Query, UseFilters } from '@nestjs/common';
 import { Throttle } from '@nestjs/throttler';
 import { parseRequiredIdempotencyKey } from '../../../../common/http/required-idempotency-key';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
@@ -6,16 +6,18 @@ import { CurrentUser } from '../../../../auth/decorators/current-user.decorator'
 import { SourcingExtensionIngestService } from '../../../application/service/sourcing-extension-ingest.service';
 import { SourcingService } from '../../../application/service/sourcing.service';
 import { parseAttemptToken, toPublicAttempt, toPublicStatus } from './sourcing-source-attempt-http';
+import { SourceRecordDuplicateFilter } from './source-record-duplicate.filter';
 import {
   CreateProductGenerationDto,
-  ListExtensionProductsQueryDto,
   RegisterManualProductDto,
   ScrapeUrlBodyDto,
   ScrapeUrlStatusQueryDto,
 } from './dto';
 import type { AuthUser } from '../../../../auth/auth.types';
 
+/** 수집 입구. 같은 원본의 두 번째 수집은 여기서 409 로 답한다(KID-313). */
 @Controller('sourcing')
+@UseFilters(SourceRecordDuplicateFilter)
 export class SourcingExtensionIngestController {
   constructor(
     private readonly sourcingService: SourcingService,
@@ -65,9 +67,8 @@ export class SourcingExtensionIngestController {
   async registerManualProduct(
     @Body() body: RegisterManualProductDto,
     @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
   ) {
-    return this.sourcingService.registerManualProduct(body, organizationId, user.id ?? null);
+    return this.sourcingService.registerManualProduct(body, organizationId);
   }
 
   @Post('product-generation')
@@ -101,13 +102,5 @@ export class SourcingExtensionIngestController {
     @CurrentOrganization() organizationId: string,
   ) {
     return this.sourcingService.scrapeUrlStatus(query.url.trim(), organizationId);
-  }
-
-  @Get('extension/products')
-  listProducts(
-    @Query() query: ListExtensionProductsQueryDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.sourcingService.listProducts(query, organizationId);
   }
 }

@@ -14,7 +14,6 @@ const completed: GenerationHistoryItem = {
   detailPageData: null,
   imageUrls: [],
   processedImages: {},
-  detailPageArtifactId: 'artifact-1',
   detailPageRevisionId: null,
   errorMessage: null,
   productId: null,
@@ -61,7 +60,6 @@ describe('detail generation rows', () => {
     const boldEntry: KidsPlayfulGenerationItem = {
       id: 'completed-1',
       productId: null,
-      sourceCandidateId: null,
       contentWorkspaceId: 'workspace-1',
       templateId: 'bold-vertical',
       productName: 'KIDITEM 생성 결과',

@@ -4,7 +4,7 @@ import type {
   SalesProductImageMirrorOutcome,
   SalesProductImageMirrorPort,
 } from '../../../application/port/out/storage/sales-product-image-mirror.port';
-import { isMirrorableImageUrl } from '../../../domain/sales-product-images';
+import { isMirrorableImageUrl } from '../../../domain/sales-product/sales-product-images';
 
 const FETCH_TIMEOUT_MS = 20_000;
 const MAX_IMAGE_BYTES = 15 * 1024 * 1024;

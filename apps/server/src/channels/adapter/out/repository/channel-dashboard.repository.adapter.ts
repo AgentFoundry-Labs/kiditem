@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { addDays, kstDayStart } from '../../../../common/kst';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../application/port/in/account/channel-account.port';
 import {
   readDailyOrderFacts,
   readListingOptionOrderFacts,
@@ -37,7 +38,11 @@ import type { ChannelDashboardRepositoryPort } from '../../../application/port/o
 
 @Injectable()
 export class ChannelDashboardRepositoryAdapter implements ChannelDashboardRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(CHANNEL_ACCOUNT_PORT)
+    private readonly channelAccounts: ChannelAccountPort,
+  ) {}
 
   async getSummary(organizationId: string): Promise<ChannelDashboardSummary> {
     const todayStart = kstDayStart(new Date());
@@ -46,6 +51,7 @@ export class ChannelDashboardRepositoryAdapter implements ChannelDashboardReposi
       const todayOrders = await readOrderWindowFacts(
         tx,
         { organizationId, from: todayStart, to: tomorrowStart },
+        this.channelAccounts,
       );
       const pendingAccept = await readOrderStatusCount(tx, organizationId, 'accept_wait');
       const lastSync = await tx.channelListing.findFirst({

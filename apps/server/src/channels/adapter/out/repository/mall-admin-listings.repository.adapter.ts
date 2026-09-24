@@ -1,6 +1,7 @@
 import {
   BadRequestException,
   ConflictException,
+  Inject,
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
@@ -22,10 +23,11 @@ import {
 } from '@kiditem/shared/source-import';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
+import { lockProductMapping } from '../../../../common/product-mapping-generation';
 import {
-  advanceProductMappingGeneration,
-  lockProductMapping,
-} from '../../../../common/product-mapping-generation';
+  CHANNELS_PRODUCT_MAPPING_GENERATION_PORT,
+  type ChannelsProductMappingGenerationPort,
+} from '../../../application/port/out/cross-domain/product-mapping-generation.port';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type { MallAdminListingsRepositoryPort } from '../../../application/port/out/repository/mall-admin-listings.repository.port';
@@ -34,16 +36,16 @@ import {
   resolveMallAdminRowCodes,
   mallAdminStatusCounts,
   mallAdminSubmissionProblem,
-} from '../../../domain/mall-admin-listings';
-import { readMallAccountRowIds } from '../../../read/mall-account-rows';
+} from '../../../domain/collection/mall-admin-listings';
+import { readMallAccountRowIds } from './mall-account-rows';
 import {
   MALL_ADMIN_LISTINGS_EXPIRED_MESSAGE,
   mallAdminListingsControl,
   mallAdminListingsRunWhere,
   readMallAdminListingsSource,
-} from '../../../read/mall-admin-listings.reader';
+} from './mall-admin-listings.reader';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
-import { deactivateSourceAbsence } from './source-scoped-absence';
+import { deactivateCatalogAbsence } from './catalog-absence';
 
 const SOURCE_TYPE = MALL_ADMIN_LISTINGS_SOURCE_TYPE;
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;
@@ -59,6 +61,8 @@ export class MallAdminListingsRepositoryAdapter implements MallAdminListingsRepo
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
+    @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
+    private readonly productMapping: ChannelsProductMappingGenerationPort,
   ) {}
 
   begin(input: Parameters<MallAdminListingsRepositoryPort['begin']>[0]) {
@@ -207,29 +211,40 @@ export class MallAdminListingsRepositoryAdapter implements MallAdminListingsRepo
           channelAccountId: plan.channelAccountId,
           lastImportRunId: run.id,
           rawSource: SOURCE_TYPE,
+          // 몰 관리자 목록은 판매가와 판매자코드를 내주지만 바코드·모델번호 칸은 없다.
+          unobservedOptionFields: ['barcode', 'modelNumber'],
           products,
         });
         mappingChanged = upserted.mappingIdentityChanged;
-        // 몰이 목록에 사진을 함께 주는 몰(온채널)은 그 주소를 리스팅에 남긴다. 신원 upsert 는
-        // 사진을 모르므로 여기서 값이 달라진 줄만 쓴다.
+        // 몰이 목록에 사진을 함께 주는 몰(온채널)은 그 주소를 리스팅에 남긴다 — 수집마다 새로 쓴다(KID-313 W3a).
+        // 몰의 대표이미지가 바뀌면 리스팅 사진도 바뀌고, 대표이미지 평가는 바뀐 사진에 새 행을 만든다.
+        // 신원 upsert 는 사진을 모르므로 여기서 값이 달라진 줄만 쓴다. 사진을 주지 않은 줄은 남긴 사진을 지우지 않는다.
         for (const product of products) {
           const listingId = upserted.listingIds.get(product.externalProductId);
           if (!listingId || !product.imageUrl) continue;
           await tx.channelListing.updateMany({
-            where: { id: listingId, organizationId: input.organizationId, imageUrl: null },
+            where: {
+              id: listingId,
+              organizationId: input.organizationId,
+              OR: [{ imageUrl: null }, { NOT: { imageUrl: product.imageUrl } }],
+            },
             data: { imageUrl: product.imageUrl },
           });
         }
       }
-      const deactivated = await deactivateSourceAbsence(tx, {
+      const present = products.map((product) => product.externalProductId);
+      const deactivated = await deactivateCatalogAbsence(tx, {
         organizationId: input.organizationId,
         channelAccountId: plan.channelAccountId,
-        sourceType: SOURCE_TYPE,
         sourceImportRunId: run.id,
-        externalIds: products.map((product) => product.externalProductId),
+        // 같은 몰 계정에 사방넷 수집이나 KidItem 등록이 만든 행이 함께 있다.
+        scope: { kind: 'source', sourceType: SOURCE_TYPE },
+        presentExternalProductIds: present,
+        // 이 원천은 리스팅 하나에 옵션 한 줄이고 둘의 외부 ID 가 같다.
+        presentExternalOptionIds: present,
       });
       mappingChanged ||= deactivated.listings > 0 || deactivated.options > 0;
-      if (mappingChanged) await advanceProductMappingGeneration(tx, input.organizationId);
+      if (mappingChanged) await this.productMapping.advance(tx, input.organizationId);
 
       const publication: MallAdminListingsPublication = {
         listings: products.length,

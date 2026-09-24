@@ -28,22 +28,10 @@ existing KID is preserved; an initially confirmed singleton may reuse the source
 KID. External sellerSku, provider identifiers and frozen execution evidence are
 not rewritten.
 
-After 020, `021_link_registration_targets` creates the minimal catalog shape if
-it never existed, then links saved registration preparations to selling products.
-It uses only explicit stored names, priced variants and option values; missing
-prices, conflicting common definitions, ambiguous option mappings or cross-organization
-references abort the transaction. Existing preparation UUIDs, settings, external
-identifiers and frozen execution rows/hashes remain unchanged. Already linked
-settings are not overwritten. Successful legacy preparations become reusable;
-explicitly cancelled or deleted settings stay closed.
-
-Legacy account overrides become registration targets with the same UUID. The old
-base-plus-extra and explicit-price-before-rate behavior is materialized once as
-final selected-option prices. No persistent price ratio or independent cost
-source is created. Prisma adds the remaining nullable/defaulted catalog columns
-and owner relations after this backfill. An abort keeps writers stopped; correct
-the ambiguous input with an explicit decision before retrying. This procedure
-was approved on 2026-09-22; it does not authorize running it on Office here.
+The follow-on registration-target, draft and content-workspace cutovers
+(`022`–`024`) were removed with KID-313 before promotion: Office's candidate,
+draft and workspace rows are discarded under the data-loss policy (ADR-0010)
+and collected again into source records and drafts.
 
 ## Execution and verification
 
@@ -68,9 +56,7 @@ Do not call migration modules manually against an operating database.
 The focused Testcontainers suite is
 `apps/server/src/channels/__tests__/selling-catalog-cutover.pg.integration.spec.ts`.
 It checks final-price conversion, repeatability, source-table removal ordering
-and rollback when an exact source mapping is missing. The companion
-`registration-target-cutover.pg.integration.spec.ts` covers saved preparation
-bootstrap, override conversion, frozen execution preservation and repeatability. Follow the shared cutover
+and rollback when an exact source mapping is missing. Follow the shared cutover
 runbook for the disposable local QA database and wider application checks.
 
 ## Recovery

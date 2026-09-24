@@ -1,6 +1,7 @@
 export * from './schemas/listing-availability-execution.js';
 export * from './schemas/registration-target-execution.js';
 export * from './schemas/registration-target.js';
+export * from './schemas/registration-state.js';
 export * from './schemas/sales-product.js';
 
 /**
@@ -16,24 +17,11 @@ const SPEC_UNIT = /^(?:(?:g|kg|mg|ml|l|cm|mm|m|p|ea|pcs)(?![a-z])|개입|개|매
  * 그 이름으로 등록된다(2026-09-20 실데이터에서 발견).
  */
 export function mallDisplayName(name: string): string {
-  return splitNamePriceCode(name).rest;
-}
-
-/**
- * 이름 앞에 붙은 소비자가(`6000초코파이…` → 6000). 가격 코드가 아니면 null.
- *
- * 스마트스토어 즉시할인처럼 소비자가를 읽어 쓰는 곳이 있어 이름 떼기와 같은 규칙으로 판단한다.
- */
-export function mallNamePriceCode(name: string): number | null {
-  return splitNamePriceCode(name).priceCode;
-}
-
-function splitNamePriceCode(name: string): { priceCode: number | null; rest: string } {
   const trimmed = name.trim();
   const match = /^(\d{3,})(?!\d)(\s*)(?=\S)/.exec(trimmed);
-  if (!match) return { priceCode: null, rest: trimmed };
+  if (!match) return trimmed;
   const rest = trimmed.slice(match[0].length);
   // 숫자에 단위가 바로 붙었으면 규격이다(`110g 초경량 …`).
-  if (!match[2] && SPEC_UNIT.test(rest)) return { priceCode: null, rest: trimmed };
-  return { priceCode: Number(match[1]), rest: rest.trim() || trimmed };
+  if (!match[2] && SPEC_UNIT.test(rest)) return trimmed;
+  return rest.trim() || trimmed;
 }

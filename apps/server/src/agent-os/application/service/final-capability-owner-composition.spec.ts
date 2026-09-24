@@ -11,11 +11,7 @@ import {
   registerFinalCapabilityCatalog,
 } from './final-capability-catalog-registrar.service';
 import type { AnalyticsAgentOverviewCapabilityPort } from '../../../analytics/dashboard/application/port/in/analytics-overview-capability.port';
-import type {
-  ChannelsFinalCapabilityPort,
-  ChannelsRegistrationReference,
-} from '../../../channels/application/port/in/capability/channels-final-capability.port';
-import type { ChannelsWingThumbnailCapabilityPort } from '../../../channels/application/port/in/capability/wing-thumbnail.port';
+import type { ChannelsRepresentativeImageCapabilityPort } from '../../../channels/application/port/in/capability/representative-image.port';
 import type { ProductsListingGenerationCapabilityPort } from '../../../products/application/port/in/capability/listing-generation.port';
 import type {
   SourcingFinalCapabilityPort,
@@ -44,11 +40,6 @@ function mutationContext(input: unknown) {
   return { ...context, ownerInputHash: canonicalOwnerInputHash(input) };
 }
 
-const registrationReference: ChannelsRegistrationReference = {
-  registrationExecutionId: identifiers.executionId,
-  preparationId: identifiers.preparationId,
-};
-
 const snapshot: SourcingSourceSnapshot = {
   sourceUrl: 'https://detail.1688.com/offer/1.html',
   platform: '1688',
@@ -68,15 +59,8 @@ function ownerCompositions() {
       freshness: { lastSync: '2026-08-25T00:00:00.000Z' },
     })),
   };
-  const channels: ChannelsFinalCapabilityPort = {
-    registerConfirmedListing: vi.fn(async () => ({
-      preparationId: identifiers.preparationId,
-      listingId: identifiers.candidateId,
-      status: 'registered' as const,
-    })),
-  };
-  const wing: ChannelsWingThumbnailCapabilityPort = {
-    submitWingThumbnail: vi.fn(async () => ({ success: true, screenshotPath: null })),
+  const wing: ChannelsRepresentativeImageCapabilityPort = {
+    submitRepresentativeImage: vi.fn(async () => ({ success: true as const, status: 'succeeded' as const, screenshotPath: null })),
   };
   const executions = {
     prepareTargetExecution: vi.fn(),
@@ -86,17 +70,17 @@ function ownerCompositions() {
   };
   const products: ProductsListingGenerationCapabilityPort = {
     createListingGenerationPackage: vi.fn(async () => ({
-      candidateId: identifiers.candidateId,
-      detailGenerationId: identifiers.candidateId,
+      salesProductId: identifiers.candidateId,
+      detailPageId: identifiers.candidateId,
       thumbnailGenerationId: identifiers.candidateId,
       contentWorkspaceId: identifiers.candidateId,
       href: `/product-pipeline/collected-products/${identifiers.candidateId}`,
     })),
   };
   const sourcing: SourcingFinalCapabilityPort = {
-    duplicateCheck: vi.fn(async () => ({ duplicate: false, candidateId: null })),
+    duplicateCheck: vi.fn(async () => ({ duplicate: false, candidateId: null, salesProductId: null })),
     scrapeProductUrl: vi.fn(async () => ({ snapshot })),
-    ingestCandidate: vi.fn(async () => ({ candidateId: identifiers.candidateId })),
+    ingestCandidate: vi.fn(async () => ({ candidateId: identifiers.candidateId, salesProductId: null })),
     createReviewBatch: vi.fn(async () => ({
       reviewBatchId: 'review-batch-1',
       itemCount: 1,
@@ -134,10 +118,10 @@ function ownerCompositions() {
   };
 
   return {
-    ports: { analytics, channels, wing, products, sourcing, supply },
+    ports: { analytics, wing, products, sourcing, supply },
     providers: [
       new AnalyticsCapabilityCompositionAdapter(analytics),
-      new ChannelsCapabilityCompositionAdapter(channels, wing, executions as never),
+      new ChannelsCapabilityCompositionAdapter(wing, executions as never),
       new ProductsCapabilityCompositionAdapter(products),
       new SourcingCapabilityCompositionAdapter(sourcing),
       new SupplyCapabilityCompositionAdapter(supply),
@@ -168,14 +152,14 @@ describe('owner capability composition', () => {
     }
   });
 
-  it('registers the exact 17 owner-local units and invokes their actual typed owner ports', async () => {
+  it('registers the exact 16 owner-local units and invokes their actual typed owner ports', async () => {
     const { ports, providers } = ownerCompositions();
     const registry = new AgentCapabilityRegistry();
 
     expect(providers.map((provider) => provider.compositions)).toHaveLength(5);
     expect(
       providers.flatMap((provider) => provider.compositions),
-    ).toHaveLength(17);
+    ).toHaveLength(16);
 
     registerFinalCapabilityCatalog(registry, providers);
     expect(registry.listDefinitions().map((definition) => definition.key)).toEqual(
@@ -186,15 +170,15 @@ describe('owner capability composition', () => {
       context,
       input: { period: 'today' },
     });
-    await registry.resolveImplementation('channels.submit_wing_thumbnail')!.invoke({
-      context: mutationContext({ generationId: 'generation-1' }),
-      input: { generationId: 'generation-1' },
+    await registry.resolveImplementation('channels.submit_representative_image')!.invoke({
+      context: mutationContext({ salesProductId: identifiers.candidateId }),
+      input: { salesProductId: identifiers.candidateId },
     });
     await registry
       .resolveImplementation('products.create_listing_generation_package')!
       .invoke({
-        context: mutationContext({ candidateId: identifiers.candidateId }),
-        input: { candidateId: identifiers.candidateId },
+        context: mutationContext({ salesProductId: identifiers.candidateId }),
+        input: { salesProductId: identifiers.candidateId },
       });
     await registry.resolveImplementation('sourcing.ingestCandidate')!.invoke({
       context: mutationContext({ snapshot }),
@@ -223,12 +207,13 @@ describe('owner capability composition', () => {
       organizationId: identifiers.organizationId,
       period: 'today',
     });
-    expect(ports.wing.submitWingThumbnail).toHaveBeenCalledWith(
+    expect(ports.wing.submitRepresentativeImage).toHaveBeenCalledWith(
       expect.objectContaining({
         organizationId: identifiers.organizationId,
         triggeredByUserId: identifiers.userId,
         ownerIdempotencyKey: context.ownerIdempotencyKey,
         requestHash: expect.stringMatching(/^[a-f0-9]{64}$/),
+        salesProductId: identifiers.candidateId,
       }),
     );
     expect(ports.products.createListingGenerationPackage).toHaveBeenCalledWith(
@@ -236,7 +221,7 @@ describe('owner capability composition', () => {
         organizationId: identifiers.organizationId,
         triggeredByUserId: identifiers.userId,
         idempotencyKey: context.ownerIdempotencyKey,
-        candidateId: identifiers.candidateId,
+        salesProductId: identifiers.candidateId,
       }),
     );
     expect(ports.sourcing.ingestCandidate).toHaveBeenCalledWith({

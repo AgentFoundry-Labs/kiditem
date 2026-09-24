@@ -16,10 +16,9 @@ const expectedKeys = [
   'analytics.readOverview',
   'channels.get_target_execution',
   'channels.prepare_target_execution',
-  'channels.register_confirmed_listing',
   'channels.report_target_execution',
   'channels.start_target_execution',
-  'channels.submit_wing_thumbnail',
+  'channels.submit_representative_image',
   'products.create_listing_generation_package',
   'sourcing.createReviewBatch',
   'sourcing.duplicateCheck',
@@ -36,10 +35,9 @@ const expectedOwnerInputPorts = {
   'analytics.readOverview': 'analytics.readOverview',
   'channels.get_target_execution': 'channels.getTargetExecution',
   'channels.prepare_target_execution': 'channels.prepareTargetExecution',
-  'channels.register_confirmed_listing': 'channels.registerConfirmedListing',
   'channels.report_target_execution': 'channels.reportTargetExecution',
   'channels.start_target_execution': 'channels.startTargetExecution',
-  'channels.submit_wing_thumbnail': 'channels.submitWingThumbnail',
+  'channels.submit_representative_image': 'channels.submitRepresentativeImage',
   'products.create_listing_generation_package':
     'products.createListingGenerationPackage',
   'sourcing.createReviewBatch': 'sourcing.createReviewBatch',
@@ -86,7 +84,7 @@ function compositionProvider(
 }
 
 describe('FinalCapabilityCatalogRegistrar', () => {
-  it('keeps the sorted 17-key catalog and its owner input ports exact', () => {
+  it('keeps the sorted 16-key catalog and its owner input ports exact', () => {
     expect(FINAL_CAPABILITY_DEFINITIONS.map((definition) => definition.key)).toEqual(
       expectedKeys,
     );

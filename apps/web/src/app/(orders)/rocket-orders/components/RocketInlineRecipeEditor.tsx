@@ -11,6 +11,7 @@ import {
 import type { RocketPurchasePreviewComponent } from "@kiditem/shared/rocket-purchase-preview";
 import { apiClient } from "@/lib/api-client";
 import { friendlyError } from "@/lib/api-error";
+import { recipeConflictMessage } from "@/lib/recipe-conflict";
 import { queryKeys } from "@/lib/query-keys";
 import { SellpiaOutOfStockToggle } from "@/components/SellpiaOutOfStockToggle";
 import { toast } from "sonner";
@@ -49,6 +50,9 @@ export function RocketInlineRecipeEditor({
     })),
   );
   const [draftTouched, setDraftTouched] = useState(false);
+  // The recipe this editor loaded. A refetch after the operator started editing must not replace
+  // it, or the save would pass the server's conflict check against another writer's newer recipe.
+  const [loadedRecipe, setLoadedRecipe] = useState(() => recipeOf(existingComponents));
   const candidateParams = useMemo(
     () =>
       new URLSearchParams({
@@ -87,6 +91,7 @@ export function RocketInlineRecipeEditor({
 
   useEffect(() => {
     if (!currentOption || draftTouched) return;
+    setLoadedRecipe(recipeOf(currentOption.inventoryComponents));
     setDraft(
       currentOption.inventoryComponents.map((component) => ({
         masterProductId: component.masterProductId,
@@ -107,7 +112,7 @@ export function RocketInlineRecipeEditor({
       }));
       await apiClient.put(
         `/api/channels/options/${channelListingOptionId}/inventory-components`,
-        { components },
+        { expectedComponents: loadedRecipe, components },
       );
       return { mode: hasExistingRecipe ? ("replaced" as const) : ("created" as const) };
     },
@@ -168,7 +173,9 @@ export function RocketInlineRecipeEditor({
   const errorMessage = product.error
     ? "현재 Sellpia 재고 구성을 불러오지 못했습니다."
     : save.error
-      ? (friendlyError(save.error) ?? "Sellpia 재고 구성을 저장하지 못했습니다.")
+      ? (recipeConflictMessage(save.error)
+        ?? friendlyError(save.error)
+        ?? "Sellpia 재고 구성을 저장하지 못했습니다.")
       : null;
 
   return (
@@ -403,4 +410,8 @@ export function RocketInlineRecipeEditor({
       </form>
     </section>
   );
+}
+
+function recipeOf(components: ReadonlyArray<{ masterProductId: string; quantity: number }>) {
+  return components.map(({ masterProductId, quantity }) => ({ masterProductId, quantity }));
 }

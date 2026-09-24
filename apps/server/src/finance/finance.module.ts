@@ -1,3 +1,5 @@
+import { ChannelCatalogModule } from '../channels/channel-catalog.module';
+import { AiListingContentQueryModule } from '../content/ai-listing-content-query.module';
 import { Module } from '@nestjs/common';
 import { AdvertisingModule } from '../advertising/advertising.module';
 import { AnalyticsModule } from '../analytics/analytics.module';
@@ -24,7 +26,7 @@ import { MasterProductContributionReadService } from './application/service/mast
 import { FinanceReportExportService } from './report-export/finance-report-export.service';
 
 @Module({
-  imports: [
+  imports: [AiListingContentQueryModule, ChannelCatalogModule,
     AnalyticsModule,
     AdvertisingModule,
     ChannelsModule,

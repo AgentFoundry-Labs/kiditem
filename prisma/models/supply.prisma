@@ -333,7 +333,6 @@ model RocketPurchaseConfirmation {
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization                   Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount                 ChannelAccount                           @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   sourceImportRun                SourceImportRun                          @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   confirmer                      User                                     @relation("RocketPurchaseConfirmationConfirmer", fields: [confirmedBy], references: [id], onDelete: Restrict)
   lines                          RocketPurchaseConfirmationLine[]
@@ -367,10 +366,9 @@ model RocketPurchaseConfirmationLine {
   collectedAt              DateTime? @map("collected_at") @db.Timestamptz
   createdAt                DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
-  organization         Organization                           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  confirmation         RocketPurchaseConfirmation             @relation(fields: [confirmationId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  channelListingOption ChannelListingOption?                  @relation(fields: [channelListingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  allocations          RocketPurchaseConfirmationAllocation[]
+  organization Organization                           @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  confirmation RocketPurchaseConfirmation             @relation(fields: [confirmationId, organizationId], references: [id, organizationId], onDelete: Cascade)
+  allocations  RocketPurchaseConfirmationAllocation[]
 
   @@unique([id, organizationId], map: "rocket_purchase_confirmation_lines_id_org_key")
   @@unique([confirmationId, poLineId], map: "rocket_purchase_confirmation_lines_confirmation_line_key")

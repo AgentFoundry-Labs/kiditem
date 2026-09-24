@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../../test-helpers/channel-fact-ports';
 import { describe, it, expect, vi } from "vitest";
 import { ProfitCalculationRepositoryAdapter } from "../adapter/out/repository/profit-calculation.repository.adapter";
 import type { PrismaService } from "../../../prisma/prisma.service";
@@ -99,7 +100,7 @@ function makePrisma(
           });
           return { quantity: component.quantity, masterProductId };
         });
-        optionRows.push({ id: optionId, inventoryComponents: components });
+        optionRows.push({ id: optionId, listingId: `listing-${optionId}`, listing: { channelAccountId: ACCOUNT_ID }, inventoryComponents: components });
       }
       return {
         orderId,
@@ -202,7 +203,7 @@ function makeAdapter(
     }),
     observedAt: null,
   });
-  return new ProfitCalculationRepositoryAdapter(
+  return new ProfitCalculationRepositoryAdapter(channelFactTestPorts(prisma as unknown as PrismaService).accounts, channelFactTestPorts(prisma as unknown as PrismaService).recipes,
     prisma as unknown as PrismaService,
     prisma.productTransactionalRead as unknown as ProductTransactionalReadPort,
   );
@@ -346,6 +347,7 @@ describe("ProfitCalculationRepositoryAdapter.calculateForRange — R-1 shipping 
           "refunded",
         ]),
       }),
+      expect.objectContaining({ findByIds: expect.any(Function) }),
     );
   });
 });

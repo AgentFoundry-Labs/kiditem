@@ -11,7 +11,8 @@ export interface BuildDirectDetailGenerationBodyInput {
   productName: string;
   productId?: string;
   contentWorkspaceId?: string | null;
-  contentGenerationId?: string;
+  /** 편집 중인 상세 페이지 — 다시 만들기의 출처로 남긴다(KID-313 W3b). */
+  detailPageId?: string;
   templateId?: string | null;
   seedHookText?: string;
   seedHookTitleSub?: string;
@@ -37,8 +38,8 @@ export interface DirectDetailGenerationBody {
   kcCertificationStatus?: 'unknown' | 'none' | 'exists';
   kcCertificationNumber?: string;
   sourceReferences?: Array<{
-    sourceType: 'content_generation';
-    sourceContentGenerationId: string;
+    sourceType: 'detail_page';
+    sourceDetailPageId: string;
     label: string;
   }>;
 }
@@ -99,11 +100,11 @@ export function buildDirectDetailGenerationBody(
   }
   const kcCertificationNumber = pickString(raw.kcCertificationNumber);
   if (kcCertificationNumber) body.kcCertificationNumber = kcCertificationNumber;
-  if (input.contentGenerationId) {
+  if (input.detailPageId) {
     body.sourceReferences = [
       {
-        sourceType: 'content_generation',
-        sourceContentGenerationId: input.contentGenerationId,
+        sourceType: 'detail_page',
+        sourceDetailPageId: input.detailPageId,
         label: 'editor-regenerate',
       },
     ];

@@ -18,7 +18,6 @@ import ProductBasicsTab, {
   type BasicDraft,
   type SelectedDetailPageSummary,
 } from './basic/ProductBasicsTab';
-import { MallRegisterValuesSection } from './basic/MallRegisterValuesSection';
 import type { EditTabType } from './detail/ProductEditTabs';
 import type { ProductEditState } from '../../lib/product-workspace-types';
 import type { GenerationHistoryItem } from '../../hooks/useGenerationHistory';
@@ -31,12 +30,9 @@ interface Props {
   costCny?: number | null;
   updateField: <K extends keyof ProductEditState>(field: K, value: ProductEditState[K]) => void;
   onCommitBasicInfo?: (input: UpdateProductBasicsInput) => Promise<void> | void;
-  /** 몰 등록 값 저장. 준비가 있어도 후보에만 저장한다. */
-  onCommitMallRegisterValues?: (input: UpdateProductBasicsInput) => Promise<void> | void;
   nameLength: number;
   productId: string;
   detailPreviewHtml: string;
-  editedHtml: string | null;
   templateCss: string;
   rawData: Record<string, unknown> | null;
   imageUrls: string[];
@@ -47,23 +43,21 @@ interface Props {
   selectedBoldVerticalId: string | null;
   /** 사용자가 생성 이력에서 고른 ContentAgent entry id. */
   selectedAgentId: string | null;
+  /** 이 화면의 콘텐츠 작업공간. 없으면(첫 생성 전) 콘텐츠를 읽지 않는다. */
   contentWorkspaceId?: string | null;
-  generationQueryProductId?: string | null;
-  generationQuerySourceCandidateId?: string | null;
-  generationQueryContentWorkspaceId?: string | null;
+  /** 이 화면의 판매상품 초안(등록상품 화면에는 없다). */
+  salesProductId?: string | null;
   hasSavedDetailPage?: boolean;
   savedDetailPageGenerationId?: string | null;
-  initialAgentHistory?: GenerationHistoryItem[];
+  agentHistory?: GenerationHistoryItem[];
   generationHistoryQueryEnabled?: boolean;
-  thumbnailSourceCandidateId?: string | null;
-  detailEditorSourceCandidateId?: string | null;
+  detailEditorSalesProductId?: string | null;
   detailEditorReturnHref?: string;
   onSelectKidsPlayful: (id: string | null) => void;
   onSelectBoldVertical: (id: string | null) => void;
   onSelectAgent: (id: string | null) => void;
   onApplyRegistrationDetailPage?: (input: {
     selectedDetailPageGenerationId: string;
-    selectedDetailPageArtifactId?: string | null;
     selectedDetailPageRevisionId?: string | null;
   }) => Promise<void> | void;
   selectedRegistrationThumbnailUrl: string | null;
@@ -90,11 +84,9 @@ export default function ProductTabContent({
   costCny = null,
   updateField,
   onCommitBasicInfo,
-  onCommitMallRegisterValues,
   nameLength,
   productId,
   detailPreviewHtml,
-  editedHtml,
   templateCss,
   rawData,
   imageUrls,
@@ -103,15 +95,12 @@ export default function ProductTabContent({
   selectedBoldVerticalId,
   selectedAgentId,
   contentWorkspaceId,
-  generationQueryProductId,
-  generationQuerySourceCandidateId,
-  generationQueryContentWorkspaceId,
+  salesProductId = null,
   hasSavedDetailPage,
   savedDetailPageGenerationId,
-  initialAgentHistory,
+  agentHistory,
   generationHistoryQueryEnabled = true,
-  thumbnailSourceCandidateId,
-  detailEditorSourceCandidateId,
+  detailEditorSalesProductId,
   detailEditorReturnHref,
   onSelectKidsPlayful,
   onSelectBoldVertical,
@@ -129,8 +118,6 @@ export default function ProductTabContent({
   selectedDetailPageSummary = null,
   onDetailPreviewHtmlChange,
 }: Props) {
-  const effectiveThumbnailSourceCandidateId =
-    thumbnailSourceCandidateId === undefined ? productId : thumbnailSourceCandidateId;
   const initialBasicDraft = useMemo(
     () => basicDraftFrom({ basicInfo, editData, costCny }),
     [
@@ -175,7 +162,7 @@ export default function ProductTabContent({
       updateField('tags', input.tags ?? []);
       // salePrice 가 payload 에 없으면 손대지 않은 값이라 서버 값이 그대로다.
       // 0 으로 덮으면 화면에서만 가격이 사라진다.
-      if (input.salePrice !== undefined) updateField('salePrice', input.salePrice);
+      if (input.salePrice != null) updateField('salePrice', input.salePrice);
       updateField('originalPrice', input.originalPrice ?? 0);
       updateField('discountRate', input.discountRate ?? 0);
       setIsBasicEditing(false);
@@ -255,16 +242,6 @@ export default function ProductTabContent({
             selectedDetailPageGenerationId={savedDetailPageGenerationId}
             selectedDetailPageSummary={selectedDetailPageSummary}
           />
-          {/* 몰별 등록 칸은 제 저장 버튼을 따로 가진다 — 등록 직전에 자주 고치는
-              값이라, 기본정보 `수정` 을 열어야만 고칠 수 있으면 손대지 않은
-              상품명·가격까지 함께 덮어쓰게 된다. */}
-          <MallRegisterValuesSection
-            basicInfo={basicInfo}
-            productName={editData.name}
-            salePrice={editData.salePrice}
-            onCommit={onCommitMallRegisterValues}
-            readOnly={!onCommitMallRegisterValues}
-          />
         </div>
       );
 
@@ -286,8 +263,8 @@ export default function ProductTabContent({
         <ThumbnailWorkspaceTab
           editData={editData}
           contentWorkspaceId={contentWorkspaceId}
+          salesProductId={salesProductId}
           thumbnailUrl={thumbnailUrl}
-          thumbnailSourceCandidateId={effectiveThumbnailSourceCandidateId}
           selectedRegistrationThumbnailUrl={selectedRegistrationThumbnailUrl}
           savedRepresentativeThumbnailUrl={savedRepresentativeThumbnailUrl}
           thumbnailPreviewImages={thumbnailPreviewImages}
@@ -304,18 +281,14 @@ export default function ProductTabContent({
         <DetailPageWorkspaceTab
           productId={productId}
           detailPreviewHtml={detailPreviewHtml}
-          editedHtml={editedHtml}
           templateCss={templateCss}
           hasSavedDetailPage={hasSavedDetailPage}
           savedDetailPageGenerationId={savedDetailPageGenerationId}
-          initialAgentHistory={initialAgentHistory}
+          agentHistory={agentHistory}
           generationHistoryQueryEnabled={generationHistoryQueryEnabled}
-          detailEditorSourceCandidateId={detailEditorSourceCandidateId}
+          detailEditorSalesProductId={detailEditorSalesProductId}
           detailEditorReturnHref={detailEditorReturnHref ?? thumbnailGenerationReturnHref}
           contentWorkspaceId={contentWorkspaceId}
-          generationQueryProductId={generationQueryProductId}
-          generationQuerySourceCandidateId={generationQuerySourceCandidateId}
-          generationQueryContentWorkspaceId={generationQueryContentWorkspaceId}
           selectedKidsPlayfulId={selectedKidsPlayfulId}
           selectedBoldVerticalId={selectedBoldVerticalId}
           selectedAgentId={selectedAgentId}

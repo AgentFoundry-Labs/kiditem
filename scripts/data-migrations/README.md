@@ -242,12 +242,30 @@ keys or unresolved supplier links. It never changes confirmed option recipes.
 Run only through the existing `data:migrate` cutover workflow; verify its recorded
 counts before schema contraction. Recovery follows the deployment data-loss policy.
 
-`018_consolidate_registration_execution` then imports legacy submission evidence
-into the Channels execution ledger before mirrored preparation columns are
-dropped. Conflicting frozen hashes/provider results abort the transaction;
-uncertain prior submissions remain reconciliation work, never fresh creates.
+The unpromoted registration-target, draft, content-workspace, edited-HTML and
+thumbnail-attempt cutovers (`022`–`026`) were removed with KID-313. The
+source-record / draft model replaces the rows they transformed, and Office's
+candidate, draft, workspace and thumbnail-attempt rows are discarded under the
+data-loss policy (ADR-0010) and rebuilt by collecting again.
 
-Preparation closure replaces stored submission status: 018 fills `closed_at`
-for terminal/archived drafts and rejects multiple remaining open drafts before
-the active-draft unique predicate changes. The current API projects submission
-state and the resulting listing from executions.
+### Content rows (0.1.31)
+
+`028_remove_content_rows_blocking_required_columns` runs pre-schema and empties
+`content_assets`, `detail_page_revisions` and `detail_page_image_render_intents`,
+whose Office 0.1.30 rows cannot hold the workspace or detail page column KID-313
+W3 makes required. It follows the Office keys into those tables (thumbnail
+selections, generation bookkeeping, rendered images and render intents go with
+the rows; workspace, preparation and artifact pointers are cleared), refuses a
+reach into an ADR-0010 kept table, and deletes nothing once `db push` has added
+the columns. The rows are discarded under the data-loss policy (ADR-0010) and
+content is made again on the sales product drafts.
+
+### Sales product status (0.1.31)
+
+`027_normalize_sales_product_status` runs post-schema and moves every
+`sales_products.status` to KID-313's three values, keeping
+`code IS NULL ⇔ status = 'draft'`: a row with no code becomes `draft`; a coded
+`unused` row becomes `archived`; a coded `draft`, `paused` or `sold_out` row
+becomes `active`. It covers every organization, reports each count, is a no-op on
+re-run, and refuses a status outside the retired Sabangnet vocabulary without
+changing any row.

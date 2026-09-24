@@ -1,3 +1,4 @@
+import { ChannelCatalogModule } from '../channels/channel-catalog.module';
 import { PRODUCT_SOURCE_BINDING_PORT } from './application/port/in/product-source-binding.port';
 import { CorrectProductSourceBindingUseCase } from './application/usecase/correct-product-source-binding.usecase';
 import { ProductSourceModule } from './product-source.module';
@@ -7,7 +8,7 @@ import { UpdateProductMetadataUseCase } from './application/usecase/update-produ
 import { Module } from '@nestjs/common';
 import { AnalyticsModule } from '../analytics/analytics.module';
 import { FinanceModule } from '../finance/finance.module';
-import { AiModule } from '../ai/ai.module';
+import { AiModule } from '../content/ai.module';
 import { ProductOperationsController } from './adapter/in/web/product-operations.controller';
 import { ProductAbcController } from './adapter/in/web/product-abc.controller';
 import { ProductOperationsRepositoryAdapter } from './adapter/out/persistence/product-operations.repository.adapter';
@@ -24,17 +25,15 @@ import { ProductsListingGenerationCapabilityAdapter } from './adapter/in/agent/p
 import { ProductsCapabilityCompositionAdapter } from './adapter/in/agent/products-capability-composition.adapter';
 import { PRODUCTS_LISTING_GENERATION_CAPABILITY_PORT } from './application/port/in/capability/listing-generation.port';
 import { PRODUCTS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capability/products-capability-composition.port';
-import { ChannelOptionRecipeModule } from '../channels/channel-option-recipe.module';
 
 @Module({
-  imports: [
+  imports: [ChannelCatalogModule,
     CategoriesModule,
     ProductSourceModule,
     AnalyticsModule,
     FinanceModule,
     AiModule,
     ProductAbcReadModule,
-    ChannelOptionRecipeModule,
   ],
   controllers: [ProductAbcController, ProductOperationsController],
   providers: [

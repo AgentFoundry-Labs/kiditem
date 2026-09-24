@@ -9,7 +9,7 @@
 //    제출은 2단계다: 폼 하단 '상품등록' → WING 확인 모달('판매요청 하시겠습니까?')의 '상품등록'.
 //    두 번째 클릭이 없으면 아무것도 등록되지 않는다. 자세한 DOM 은 CONFIRM_MODAL_SELECTOR 주석 참조.
 //
-// product 형태(WingProduct, wing-registration-flow.ts):
+// product 형태(WingProduct, apps/web/src/app/(channels)/_shared/adapters/coupang-wing/wing-registration-excel.ts):
 //   { categoryCell:"[64687] 생활용품>생활소품>열쇠고리/키홀더", productName, sellerProductName,
 //     brand, maker,
 //     searchKeyword, searchOptions:[{type,value}], additionalImageUrls:[], detailImageUrls:[],

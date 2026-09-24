@@ -3,7 +3,6 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { businessDateKey, kstInclusiveDaysStart, parseBusinessDate } from '../../../../common/kst';
 import {
-  declaredCoverageDateKeys,
   readComplete1688OfferHistoryRuns,
   readCompleteNaverKeywordHistoryRuns,
   readCompleteNaverPopularKeywordHistoryRuns,
@@ -11,7 +10,8 @@ import {
   readCompleteTiktokHistoryRuns,
   readCurrentCompleteRuns,
   readKeywordAnalysisFact,
-} from '../../../read/source-evidence.reader';
+} from './source-evidence.reader';
+import { declaredCoverageDateKeys } from '../../../domain/source-evidence-coverage';
 import type { Prisma } from '@prisma/client';
 import type {
   NaverKeywordSnapshotRow,

@@ -683,7 +683,6 @@ describe('dashboard inventory metricBasis', () => {
         verifiedAt: '2026-09-08T00:00:00.000Z',
       },
     });
-    repository.countLowCtrThumbnails.mockResolvedValue(0);
     repository.findReviewCountsForProducts.mockResolvedValue([]);
     return new DashboardInventoryService(repository);
   }

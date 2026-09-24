@@ -89,7 +89,9 @@ interface DetailPageEditorProps {
   templateCss: string;
   productName: string;
   productId?: string;
-  contentGenerationId?: string;
+  /** 수집상품 화면에서 연 에디터면 그 판매상품 초안 id — 템플릿 변경은 이 초안의 생성을 다시 시작한다. */
+  salesProductId?: string | null;
+  detailPageId?: string;
   contentWorkspaceId?: string | null;
   generationRawInput?: unknown;
   generationTemplateId?: string | null;
@@ -1712,14 +1714,14 @@ function ToolBtn({
 
 function EditorToolbar({
   productName,
-  productId,
+  salesProductId,
   templateCss,
   parsed,
   onSave,
   onClose,
 }: {
   productName: string;
-  productId?: string;
+  salesProductId?: string | null;
   templateCss: string;
   parsed: ParsedHtml;
   onSave: (html: string) => Promise<DetailPageEditorSaveResult | void> | DetailPageEditorSaveResult | void;
@@ -1739,15 +1741,15 @@ function EditorToolbar({
   const [selectedVisible, setSelectedVisible] = useState(true);
   const [templateModalOpen, setTemplateModalOpen] = useState(false);
 
-  // 템플릿 변경 — confirm 시 useGenerateDetailPage mutate (productId 기반).
+  // 템플릿 변경 — 판매상품 초안의 생성을 그 템플릿으로 다시 시작한다(KID-310).
   // 완료되면 새 draft_content 적재 → router.refresh 또는 사용자가 닫고 다시 진입해 확인.
   const { mutate: runRegenerate, isPending: regenerating } = useGenerateDetailPage(
-    productId ?? '',
+    salesProductId ?? '',
   );
 
   const handleTemplateChange = (templateId: string, mode: GenerateMode) => {
-    if (!productId) {
-      toast.error('productId 가 없어 템플릿 변경을 실행할 수 없습니다');
+    if (!salesProductId) {
+      toast.error('판매상품 초안에서 연 에디터에서만 템플릿을 바꿀 수 있습니다');
       return;
     }
     runRegenerate(
@@ -3380,7 +3382,7 @@ function RightPanel({
   onImageReplace,
   onImageClose,
   productId,
-  contentGenerationId,
+  detailPageId,
   contentWorkspaceId,
   generationRawInput,
   generationTemplateId,
@@ -3400,7 +3402,7 @@ function RightPanel({
   onImageReplace: () => void;
   onImageClose: () => void;
   productId?: string;
-  contentGenerationId?: string;
+  detailPageId?: string;
   contentWorkspaceId?: string | null;
   generationRawInput?: unknown;
   generationTemplateId?: string | null;
@@ -3441,7 +3443,7 @@ function RightPanel({
         productName,
         productId,
         contentWorkspaceId,
-        contentGenerationId,
+        detailPageId,
         templateId: generationTemplateId,
         seedHookText,
         seedHookTitleSub,
@@ -3500,7 +3502,7 @@ function RightPanel({
     aiFillLoading,
     colorGuideEnabled,
     colorImageUrls,
-    contentGenerationId,
+    detailPageId,
     contentWorkspaceId,
     generationRawInput,
     generationTemplateId,
@@ -3648,7 +3650,7 @@ function RightPanel({
             editor={editor}
             imageUrl={selectedImageSrc}
             productId={productId}
-            contentGenerationId={contentGenerationId}
+            detailPageId={detailPageId}
             isBusy={isBusy}
             onEditComplete={onImageEdited}
             onReplace={onImageReplace}
@@ -3940,7 +3942,8 @@ export default function DetailPageEditor({
   templateCss,
   productName,
   productId,
-  contentGenerationId,
+  salesProductId,
+  detailPageId,
   contentWorkspaceId,
   generationRawInput,
   generationTemplateId,
@@ -4276,7 +4279,7 @@ export default function DetailPageEditor({
         <WithEditor>
           <EditorToolbar
             productName={productName}
-            productId={productId}
+            salesProductId={salesProductId}
             templateCss={templateCss}
             parsed={parsed}
             onSave={onSave}
@@ -4371,7 +4374,7 @@ export default function DetailPageEditor({
                   lastSelectedImageComponentRef.current = null;
                 }}
                 productId={productId}
-                contentGenerationId={contentGenerationId}
+                detailPageId={detailPageId}
                 contentWorkspaceId={contentWorkspaceId}
                 generationRawInput={generationRawInput}
                 generationTemplateId={generationTemplateId}

@@ -42,7 +42,7 @@ export type SourcingTypedCollectionRecord =
   | { kind: 'keyword_suggestion_snapshot'; row: SourcingKeywordSuggestionFactUpsert }
   | { kind: 'naver_keyword_analysis_snapshot'; row: SourcingNaverKeywordAnalysisFactUpsert }
   | { kind: 'market_shadow_snapshot'; row: SourcingMarketShadowFactUpsert }
-  | { kind: 'extension_candidate'; row: SourcingExtensionCandidateProjection };
+  | { kind: 'extension_source_record'; row: SourcingExtensionSourceRecordProjection };
 
 interface EvidenceBackedSourceFact {
   organizationId: string;
@@ -85,7 +85,8 @@ export interface Sourcing1688OfferKeywordObservationUpsert
   evidenceRevision: number;
 }
 
-export interface SourcingExtensionCandidateProjection {
+/** 확장 수집 한 쪽(상세 · 설명)이 원본 기록에 싣는 사실. */
+export interface SourcingExtensionSourceRecordProjection {
   organizationId: string;
   pageType: 'detail' | 'description';
   sourceUrl: string;

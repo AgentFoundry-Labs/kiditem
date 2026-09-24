@@ -11,10 +11,19 @@ const workerSource = await readFile(
 );
 const FORM_URL = 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2';
 
+const gateSource = await readFile(
+  new URL('../../kiditem-os/shared/mall-form-submit-gate.js', import.meta.url), 'utf8',
+);
+function loadSubmitGate() {
+  const self = {};
+  new Function('self', gateSource)(self);
+  return self.KidItemMallFormSubmitGate;
+}
+
 function extractRegisterToWingForm() {
   const normalizedWorkerSource = workerSource.replace(/\r\n?/g, '\n');
   const start = normalizedWorkerSource.indexOf('async function registerToWingForm(message)');
-  const end = normalizedWorkerSource.indexOf('\n}\n\n/**', start) + 2;
+  const end = normalizedWorkerSource.indexOf('\n}\n', start) + 2;
   assert.ok(start >= 0 && end > start, 'registerToWingForm source must be extractable');
   return normalizedWorkerSource.slice(start, end);
 }
@@ -147,11 +156,12 @@ test('worker response exposes verified fill evidence at the top level', async ()
     },
     setTimeout(callback) { callback(); return 0; },
   });
+  context.KidItemMallFormSubmitGate = loadSubmitGate();
   vm.runInContext(extractRegisterToWingForm(), context, { filename: 'service-worker.registerToWingForm.js' });
 
   const result = await context.registerToWingForm({
     product: { productName: 'test' },
-    executionId: '33333333-3333-4333-8333-333333333333',
+    executionContext: { executionId: '33333333-3333-4333-8333-333333333333' },
     expectedVendorId: 'A00012345',
   });
 
@@ -181,11 +191,12 @@ test('manual form fill does not require an execution id before any provider subm
     },
     setTimeout(callback) { callback(); return 0; },
   });
+  context.KidItemMallFormSubmitGate = loadSubmitGate();
   vm.runInContext(extractRegisterToWingForm(), context, { filename: 'service-worker.registerToWingForm.js' });
 
   const result = await context.registerToWingForm({
     product: { productName: 'test' },
-    autoSubmit: false,
+    submit: false,
     expectedVendorId: 'A00012345',
   });
 
@@ -237,11 +248,12 @@ test('bootstraps the Wing runtime before navigation and form fill', async () => 
     },
     setTimeout(callback) { callback(); return 0; },
   });
+  context.KidItemMallFormSubmitGate = loadSubmitGate();
   vm.runInContext(extractRegisterToWingForm(), context, { filename: 'service-worker.registerToWingForm.js' });
 
   const result = await context.registerToWingForm({
     product: { productName: 'test' },
-    autoSubmit: false,
+    submit: false,
     expectedVendorId: 'A00012345',
   });
 
@@ -276,11 +288,12 @@ test('does not mutate the Wing DOM when main-world compatibility cannot be estab
     },
     setTimeout(callback) { callback(); return 0; },
   });
+  context.KidItemMallFormSubmitGate = loadSubmitGate();
   vm.runInContext(extractRegisterToWingForm(), context, { filename: 'service-worker.registerToWingForm.js' });
 
   const result = await context.registerToWingForm({
     product: { productName: 'test' },
-    autoSubmit: false,
+    submit: false,
     expectedVendorId: 'A00012345',
   });
 
@@ -313,11 +326,12 @@ test('does not navigate or fill when the early Wing runtime bootstrap fails', as
     },
     setTimeout(callback) { callback(); return 0; },
   });
+  context.KidItemMallFormSubmitGate = loadSubmitGate();
   vm.runInContext(extractRegisterToWingForm(), context, { filename: 'service-worker.registerToWingForm.js' });
 
   const result = await context.registerToWingForm({
     product: { productName: 'test' },
-    autoSubmit: false,
+    submit: false,
     expectedVendorId: 'A00012345',
   });
 

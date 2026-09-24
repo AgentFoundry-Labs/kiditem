@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { MallListingStateSchema, RegistrationAccountStateSchema } from './registration-state.js';
 
 /**
  * 몰별 상품등록·품절 송신의 전송 규격.
@@ -164,19 +165,9 @@ export type MallPreflightResponse = z.infer<typeof MallPreflightResponseSchema>;
  * 상품 × 몰 등록 현황 매트릭스.
  *
  * 행이 우리 상품, 열이 몰, 칸이 그 몰에서의 상태다. 판정 규칙은 서버 도메인
- * (`channels/domain/mall/mall-listing-state.ts`)이 소유하고 여기는 나르기만 한다.
+ * (`channels/domain/listing/mall-listing-state.ts`)이 소유하고 여기는 나르기만 한다.
  */
-export const MallListingStateSchema = z.enum([
-  'published',
-  'reviewing',
-  'preparing',
-  'error',
-  'paused',
-  'discontinued',
-  'unknown',
-  'unregistered',
-]);
-export type MallListingState = z.infer<typeof MallListingStateSchema>;
+export { MallListingStateSchema, type MallListingState } from './registration-state.js';
 
 export const MallListingMatrixColumnSchema = z.object({
   mallKey: z.string(),
@@ -216,7 +207,10 @@ export type MallListingMatrixColumn = z.infer<typeof MallListingMatrixColumnSche
 
 export const MallListingMatrixCellSchema = z.object({
   mallKey: z.string(),
+  /** 리스팅만으로 접은 몰 상태. 판매 상품이 있는 칸은 `registration` 이 화면의 배지다(KID-313 결정 11). */
   state: MallListingStateSchema,
+  /** 판매 상품 × 이 몰 계정의 등록 상태(등록 상태 reader). 판매 상품 없는 리스팅은 null. */
+  registration: RegistrationAccountStateSchema.nullable().default(null),
   /** 몰이 준 원문 상태. 우리 어휘로 접기 전 값이라 툴팁에 그대로 쓴다. */
   rawStatus: z.string().nullable(),
   externalId: z.string().nullable(),

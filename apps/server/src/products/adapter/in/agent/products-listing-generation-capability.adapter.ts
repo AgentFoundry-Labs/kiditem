@@ -2,7 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import {
   PRODUCT_GENERATION_AI_TRIGGER_PORT,
   type ProductGenerationAiTriggerPort,
-} from '../../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
+} from '../../../../content/application/port/in/generation/product-generation-ai-trigger.port';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import type {
   ProductsListingGenerationCapabilityPort,
@@ -28,7 +28,7 @@ export class ProductsListingGenerationCapabilityAdapter
       input.inputHash,
       capabilityInput(input),
     );
-    const result = await this.productGeneration.startForCandidate({
+    const result = await this.productGeneration.startForSalesProduct({
       ...generation,
       organizationId: input.organizationId,
       idempotencyKey: input.idempotencyKey,
@@ -36,8 +36,8 @@ export class ProductsListingGenerationCapabilityAdapter
       triggeredByUserId: input.triggeredByUserId ?? null,
     });
     return {
-      candidateId: result.candidateId,
-      detailGenerationId: result.detailGenerationId,
+      salesProductId: result.salesProductId,
+      detailPageId: result.detailPageId,
       thumbnailGenerationId: result.thumbnailGenerationId,
       contentWorkspaceId: result.contentWorkspaceId,
       href: result.href,
@@ -47,27 +47,40 @@ export class ProductsListingGenerationCapabilityAdapter
 
 function normalizeGenerationInput(input: ProductsListingGenerationInput) {
   return {
-    candidateId: input.candidateId,
-    productName: input.productName?.trim() ?? '',
-    imageUrls: input.imageUrls ?? [],
-    category: input.category ?? null,
-    description: input.description ?? null,
-    target: input.target ?? null,
-    thumbnailUrl: input.thumbnailUrl ?? null,
-    optionNames: input.optionNames ?? [],
+    salesProductId: input.salesProductId,
+    productBrief: {
+      productName: input.productName?.trim() ?? '',
+      imageUrls: input.imageUrls ?? [],
+      category: input.category ?? null,
+      description: input.description ?? null,
+      target: input.target ?? null,
+      thumbnailUrl: input.thumbnailUrl ?? null,
+      optionNames: input.optionNames ?? [],
+      productSize: input.productSize ?? null,
+      colorVariantStatus: input.colorVariantStatus ?? 'auto',
+      colorVariantNames: splitNames(input.colorVariantNames),
+      boxSetStatus: input.boxSetStatus ?? 'auto',
+      boxSetQuantity: parseCount(input.boxSetQuantity),
+    },
     templateId: input.templateId ?? 'bold-vertical',
     ageGroup: input.ageGroup ?? 'age-8-plus',
     detailImageCount: input.detailImageCount ?? '2',
     usageSectionMode: input.usageSectionMode ?? 'include',
     kcCertificationStatus: input.kcCertificationStatus ?? 'unknown',
     kcCertificationNumber: input.kcCertificationNumber ?? null,
-    productSize: input.productSize ?? null,
-    colorVariantStatus: input.colorVariantStatus ?? 'auto',
-    colorVariantNames: input.colorVariantNames ?? null,
-    boxSetStatus: input.boxSetStatus ?? 'auto',
-    boxSetQuantity: input.boxSetQuantity ?? null,
     task: input.task ?? 'all',
   };
+}
+
+/** 화면이 쉼표로 적어 보내는 색상 이름. 초안 컬럼과 같은 배열 모양으로 맞춘다. */
+function splitNames(value: string | null | undefined): string[] {
+  return [...new Set((value ?? '').split(',').map((name) => name.trim()).filter(Boolean))];
+}
+
+function parseCount(value: string | null | undefined): number | null {
+  if (!value) return null;
+  const count = Number.parseInt(value, 10);
+  return Number.isInteger(count) && count > 0 ? count : null;
 }
 
 function capabilityInput(input: ProductsListingGenerationInput): Record<string, unknown> {

@@ -1,3 +1,5 @@
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../channels/application/port/in/account/channel-account.port';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../channels/application/port/in/listing/channel-listing-query.port';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../prisma/prisma.service';
 import type { MulterFile } from '../../common/types';
@@ -82,6 +84,8 @@ interface DayRevenue {
 @Injectable()
 export class TrafficService {
   constructor(
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
     private readonly prisma: PrismaService,
     @Inject(AD_TRAFFIC_READ_PORT)
     private readonly trafficRead: AdTrafficReadPort,
@@ -95,6 +99,8 @@ export class TrafficService {
       file,
       organizationId,
       prisma: this.prisma,
+      accounts: this.channelAccounts,
+      listings: this.channelListings,
     });
   }
 

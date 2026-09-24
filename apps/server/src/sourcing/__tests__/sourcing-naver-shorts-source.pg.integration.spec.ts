@@ -1,3 +1,4 @@
+import { unusedSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
@@ -35,7 +36,7 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
     await prisma.$connect();
     history = new TrendCollectionRepositoryAdapter(prisma as never);
     const attempts = new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never,
-      new SourceFailureAlerts(prisma as never));
+      new SourceFailureAlerts(prisma as never), unusedSalesProductDraftPort);
     analysis = new NaverKeywordResearchService({ searchRelatedKeywords } as never,
       { compareSearchTrends } as never, { searchPopularKeywords }, { searchAutocompleteKeywords }, history,
       attempts as never);
@@ -43,7 +44,7 @@ describe('Naver/Shorts public collection owner (disposable PostgreSQL)', () => {
       { searchRelatedKeywords } as never, { compareSearchTrends } as never,
       { searchPopularKeywords }, { fetchTrending }, history,
       new SourcingBrowserSourceAttemptRepositoryAdapter(prisma as never,
-        new SourceFailureAlerts(prisma as never)) as never,
+        new SourceFailureAlerts(prisma as never), unusedSalesProductDraftPort) as never,
     );
   });
   afterAll(async () => prisma?.$disconnect());

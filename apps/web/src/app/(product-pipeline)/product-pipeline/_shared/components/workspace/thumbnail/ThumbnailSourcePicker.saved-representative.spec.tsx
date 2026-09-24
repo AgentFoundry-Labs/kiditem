@@ -8,7 +8,7 @@ import ThumbnailSourcePicker from './ThumbnailSourcePicker';
  * 회귀 배경: `ProductWorkspaceScreen` 이 편집용 선택값(`selectedRegistrationThumbnailUrl`)을
  * 배지 근거로 그대로 넘기고 있었고, 그 값은 저장된 대표가 없으면 첫 썸네일로 폴백했다.
  * 그래서 **한 번도 저장한 적 없는 이미지에 `등록 대표` 가 붙었고**, 사용자는 지정이 끝난
- * 줄 알았지만 DB(`ProductPreparation.selectedThumbnailUrl` /
+ * 줄 알았지만 DB(`RegistrationTarget.selectedThumbnailUrl` /
  * `content_workspace_thumbnail_selections`)에는 아무것도 없어 쿠팡 WING 추가이미지가
  * 계속 0/9 로 비었다.
  */

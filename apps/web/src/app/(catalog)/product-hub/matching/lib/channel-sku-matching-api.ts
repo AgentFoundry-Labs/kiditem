@@ -110,11 +110,9 @@ export function listRecipeComponentCandidates(input: {
 
 export type ProductInventoryMatchingSaveInput = {
   channelListingId: string;
-  options: Array<{
-    channelListingOptionId: string;
-    components: ReplaceChannelOptionInventoryInput['components'];
-  }>;
+  options: Array<{ channelListingOptionId: string } & ReplaceChannelOptionInventoryInput>;
 };
+
 
 export async function saveProductInventoryMatching(
   input: ProductInventoryMatchingSaveInput,
@@ -123,7 +121,7 @@ export async function saveProductInventoryMatching(
     left.channelListingOptionId.localeCompare(right.channelListingOptionId))) {
     await apiClient.put(
       `/api/channels/options/${encodeURIComponent(option.channelListingOptionId)}/inventory-components`,
-      { components: option.components },
+      { expectedComponents: option.expectedComponents, components: option.components },
     );
   }
 }

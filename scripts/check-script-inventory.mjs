@@ -14,6 +14,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-cross-owner-fk.mjs',
   'check-directory-architecture.mjs',
   'check-frontend-db-boundary.sh',
+  'check-hexagonal.mjs',
   'check-identifier-contracts.mjs',
   'check-operation-automation-cutover.mjs',
   'check-pr-reconstruction-contract.mjs',
@@ -21,6 +22,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-queryraw-tenancy.sh',
   'check-raw-snapshot-read-models.sh',
   'check-ledger-readers.mjs',
+  'check-mall-neutral.mjs',
   'check-schema-artifact-sync.mjs',
   'check-sourcing-long-running-actions.mjs',
   'check-script-inventory.mjs',
@@ -161,6 +163,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   }
   if (packageScripts['check:cross-owner-fk'] !== 'node scripts/check-cross-owner-fk.mjs') {
     missingPackageHooks.push('check:cross-owner-fk');
+  }
+  if (packageScripts['check:mall-neutral'] !== 'node scripts/check-mall-neutral.mjs') {
+    missingPackageHooks.push('check:mall-neutral');
   }
   if (packageScripts['deploy:office:local'] !== 'node scripts/office-deploy.mjs deploy') {
     missingPackageHooks.push('deploy:office:local');

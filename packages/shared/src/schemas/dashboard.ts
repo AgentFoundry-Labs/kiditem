@@ -287,7 +287,6 @@ export const WarningsSchema = z.object({
   highAdProducts: z.number(),
   outOfStockSkus: z.number().nullable(),
   mappingAttentionSkus: z.number(),
-  lowCtrProducts: z.number().optional(),
   lowReviewProducts: z.number().optional(),
   metricBasis: DashboardMetricBasisMapSchema.optional(),
 });
@@ -1064,5 +1063,4 @@ export type DashboardFindingProduct = z.infer<typeof DashboardFindingProductSche
 export type DashboardSalesDeclineItem = z.infer<typeof DashboardSalesDeclineItemSchema>;
 export type DashboardSalesDecline = z.infer<typeof DashboardSalesDeclineSchema>;
 export type DashboardReorderSuggestion = z.infer<typeof DashboardReorderSuggestionSchema>;
-export type DashboardRegistrationFailures = z.infer<typeof DashboardRegistrationFailuresSchema>;
 export type DashboardFindings = z.infer<typeof DashboardFindingsSchema>;

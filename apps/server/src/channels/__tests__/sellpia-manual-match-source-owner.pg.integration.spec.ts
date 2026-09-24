@@ -11,10 +11,11 @@ import {
   TEST_ORGANIZATION_ID,
   OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { ChannelProductMatchingController } from '../adapter/in/http/channel-product-matching.controller';
+import { ChannelProductMatchingController } from '../adapter/in/web/channel-product-matching.controller';
+import { CHANNEL_PRODUCT_MATCHING_PORT } from '../application/port/in/listing/channel-product-matching.port';
+import { SELLPIA_MANUAL_MATCH_PORT } from '../application/port/in/listing/sellpia-manual-match.port';
 import { SellpiaManualMatchRepositoryAdapter } from '../adapter/out/repository/sellpia-manual-match.repository.adapter';
-import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
-import { SellpiaManualMatchService } from '../application/service/sellpia-manual-match.service';
+import { SellpiaManualMatchService } from '../application/service/listing/sellpia-manual-match.service';
 import { lockProductSource } from '../../products/adapter/out/persistence/transaction/product-source-lock';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import {
@@ -44,9 +45,10 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
     const module = await Test.createTestingModule({
       controllers: [ChannelProductMatchingController],
       providers: [
-        { provide: ChannelProductMatchingService, useValue: {} },
+        // The controller injects the in-ports (KID-297); the module binds them to these services.
+        { provide: CHANNEL_PRODUCT_MATCHING_PORT, useValue: {} },
         {
-          provide: SellpiaManualMatchService,
+          provide: SELLPIA_MANUAL_MATCH_PORT,
           useValue: new SellpiaManualMatchService({} as never, owner),
         },
       ],

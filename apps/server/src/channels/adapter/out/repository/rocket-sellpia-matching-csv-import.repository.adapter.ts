@@ -8,9 +8,9 @@ import {
 } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
-import type { ImportRocketSellpiaMatchingCsvInput } from '../../../application/port/in/rocket-sellpia-matching-csv-import.port';
+import type { PersistRocketSellpiaMatchingCsvInput } from '../../../application/port/out/repository/rocket-sellpia-matching-csv-import.repository.port';
 import type { RocketSellpiaMatchingCsvImportRepositoryPort } from '../../../application/port/out/repository/rocket-sellpia-matching-csv-import.repository.port';
-import { ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE } from '../../../domain/catalog-source-identity';
+import { ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE } from '../../../domain/collection/catalog-source-identity';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
 import { rocketMatchingCsvRowsToCatalogProducts } from './rocket-sellpia-matching-csv.catalog';
 
@@ -21,7 +21,7 @@ export class RocketSellpiaMatchingCsvImportRepositoryAdapter
 implements RocketSellpiaMatchingCsvImportRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  importMatchingCsv(input: ImportRocketSellpiaMatchingCsvInput) {
+  importMatchingCsv(input: PersistRocketSellpiaMatchingCsvInput) {
     return this.prisma.$transaction(async (tx) => {
       const lockKey = `rocket-sellpia-matching-csv:${input.organizationId}:${input.channelAccountId}`;
       await tx.$queryRaw`
@@ -56,6 +56,8 @@ implements RocketSellpiaMatchingCsvImportRepositoryPort {
           channelAccountId: input.channelAccountId,
           lastImportRunId: duplicate.id,
           rawSource: ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
+          // 매칭 CSV 에는 판매가·모델번호 칸이 없다.
+          unobservedOptionFields: ['salePrice', 'modelNumber'],
           products: rocketMatchingCsvRowsToCatalogProducts(input.rows),
         });
         return CoupangRocketMatchingCsvImportResponseSchema.parse({
@@ -82,6 +84,8 @@ implements RocketSellpiaMatchingCsvImportRepositoryPort {
         channelAccountId: input.channelAccountId,
         lastImportRunId: sourceRun.id,
         rawSource: ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
+        // 매칭 CSV 에는 판매가·모델번호 칸이 없다.
+        unobservedOptionFields: ['salePrice', 'modelNumber'],
         products: rocketMatchingCsvRowsToCatalogProducts(input.rows),
       });
       const completed = await tx.sourceImportRun.update({

@@ -1,110 +1,40 @@
 import { describe, expect, it } from 'vitest';
-import {
-  buildThumbnailSourceOptions,
-  classifyProductWingStatus,
-  getGeneratedThumbnailOptions,
-  type ThumbnailWorkspaceGeneration,
-} from './thumbnail-workspace-state';
+import type { ContentAssetItem } from '@kiditem/shared/product-content';
+import { getGeneratedThumbnailOptions, thumbnailRegistrationState } from './thumbnail-workspace-state';
 
-const readyGeneration: ThumbnailWorkspaceGeneration = {
-  id: 'generation-ready',
-  status: 'succeeded',
-  phase: 'ready',
-  registrationStatus: null,
-  registrationError: null,
-  candidates: [{ id: 'candidate-1', url: 'https://cdn.example.com/generated.jpg' }],
+const aiAsset: ContentAssetItem = {
+  id: 'asset-ai',
+  contentWorkspaceId: '00000000-0000-4000-8000-000000000001',
+  source: 'ai',
+  role: 'thumbnail',
+  url: 'https://cdn.example.com/generated.jpg',
+  label: null,
+  sortOrder: 0,
+  width: null,
+  height: null,
+  thumbnailGenerationId: 'job-1',
+  isCurrentThumbnail: false,
+  createdAt: '2026-09-23T00:00:00.000Z',
 };
 
 describe('thumbnail workspace state', () => {
-  it('builds source options from source images and generated results without duplicates', () => {
-    expect(buildThumbnailSourceOptions({
-      sourceImageUrls: ['https://cdn.example.com/source.jpg'],
-      generations: [
-        readyGeneration,
-        {
-          ...readyGeneration,
-          id: 'generation-duplicate',
-          candidates: [{ id: 'candidate-2', url: 'https://cdn.example.com/source.jpg' }],
-        },
-      ],
-    })).toEqual([
-      {
-        url: 'https://cdn.example.com/source.jpg',
-        kind: 'source',
-        generatedGenerationId: null,
-        generatedCandidateId: null,
-      },
-      {
-        url: 'https://cdn.example.com/generated.jpg',
-        kind: 'generated',
-        generatedGenerationId: 'generation-ready',
-        generatedCandidateId: 'candidate-1',
-      },
-    ]);
-  });
-
-  it('returns generated thumbnail options only for the results section', () => {
+  it('returns only the AI candidates for the results section', () => {
     expect(getGeneratedThumbnailOptions({
       sourceImageUrls: ['https://cdn.example.com/source.jpg'],
-      generations: [readyGeneration],
+      galleryAssets: [aiAsset, { ...aiAsset, id: 'asset-upload', source: 'upload', url: 'https://cdn.example.com/upload.jpg', thumbnailGenerationId: null }],
     })).toEqual([
-      {
-        url: 'https://cdn.example.com/generated.jpg',
-        kind: 'generated',
-        generatedGenerationId: 'generation-ready',
-        generatedCandidateId: 'candidate-1',
-      },
+      { url: 'https://cdn.example.com/generated.jpg', kind: 'generated', assetId: 'asset-ai', generatedGenerationId: 'job-1' },
     ]);
   });
 
-  it('classifies single-product Wing status from applied generation rows', () => {
-    expect(classifyProductWingStatus({
-      hasContentWorkspace: false,
-      generations: [readyGeneration],
-    })).toEqual({ kind: 'disabled', label: '상품 등록 후 Wing 업로드 가능' });
-
-    expect(classifyProductWingStatus({
-      hasContentWorkspace: true,
-      generations: [{
-        ...readyGeneration,
-        id: 'generation-applied',
-        phase: 'applied',
-        registrationStatus: null,
-      }],
-    })).toEqual({
-      kind: 'pending',
-      label: 'Wing 등록 대기',
-      generationId: 'generation-applied',
-    });
-
-    expect(classifyProductWingStatus({
-      hasContentWorkspace: true,
-      generations: [{
-        ...readyGeneration,
-        id: 'generation-failed',
-        phase: 'applied',
-        registrationStatus: 'failed',
-        registrationError: 'image upload failed',
-      }],
-    })).toEqual({
-      kind: 'failed',
-      label: 'Wing 등록 실패',
-      generationId: 'generation-failed',
-      error: 'image upload failed',
-    });
-
-    expect(classifyProductWingStatus({
-      hasContentWorkspace: true,
-      generations: [{
-        ...readyGeneration,
-        id: 'generation-registered',
-        phase: 'applied',
-        registrationStatus: 'registered',
-      }],
-    })).toEqual({
-      kind: 'registered',
-      label: 'Wing 등록 완료',
-      generationId: 'generation-registered',
-    });
+  it('maps the Channels execution status to the screen registration state', () => {
+    expect(thumbnailRegistrationState('succeeded')).toBe('registered');
+    expect(thumbnailRegistrationState('failed')).toBe('failed');
+    expect(thumbnailRegistrationState('executing')).toBe('checking');
+    expect(thumbnailRegistrationState('reconciling')).toBe('checking');
+    expect(thumbnailRegistrationState('prepared')).toBe('checking');
+    expect(thumbnailRegistrationState('cancelled')).toBeNull();
+    expect(thumbnailRegistrationState(null)).toBeNull();
+    expect(thumbnailRegistrationState(undefined)).toBeNull();
   });
 });

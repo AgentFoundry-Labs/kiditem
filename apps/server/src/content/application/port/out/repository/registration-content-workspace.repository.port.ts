@@ -1,0 +1,56 @@
+import type { OwnerTransaction } from '../../../../../common/owner-transaction';
+import type {
+  CreateManualDetailPageInput,
+  CreateManualDetailPageResult,
+  EnsureSalesProductContentWorkspaceInput,
+  FindSalesProductContentWorkspaceInput,
+  ImportDetailPageInput,
+  ImportDetailPageResult,
+  RegistrableDetailPage,
+  RegistrationContentSelectionInput,
+  ResolvedRegistrationContentSelections,
+} from '../../in/workspace/registration-content-workspace.port';
+
+export const REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT = Symbol(
+  'REGISTRATION_CONTENT_WORKSPACE_REPOSITORY_PORT',
+);
+
+export interface RegistrationContentWorkspaceRepositoryPort {
+  findSalesProductWorkspaceId(
+    input: FindSalesProductContentWorkspaceInput,
+  ): Promise<string | null>;
+  resolveSourceSelections(
+    transaction: OwnerTransaction,
+    input: RegistrationContentSelectionInput,
+  ): Promise<ResolvedRegistrationContentSelections>;
+  validateSourceSelections(
+    transaction: OwnerTransaction | null,
+    input: RegistrationContentSelectionInput,
+  ): Promise<void>;
+  ensureSalesProductWorkspace(
+    transaction: OwnerTransaction,
+    input: EnsureSalesProductContentWorkspaceInput,
+  ): Promise<{ workspaceId: string }>;
+  readRegistrableDetailPage(input: {
+    organizationId: string;
+    salesProductId: string;
+    revisionId: string | null;
+  }): Promise<RegistrableDetailPage | null>;
+  readRegistrableDetailPages(input: {
+    organizationId: string;
+    requests: ReadonlyArray<{ salesProductId: string; revisionId: string | null }>;
+  }): Promise<ReadonlyMap<string, RegistrableDetailPage>>;
+  importDetailPage(
+    transaction: OwnerTransaction,
+    input: ImportDetailPageInput & { imageUrls: readonly string[] },
+  ): Promise<ImportDetailPageResult>;
+  createManualDetailPage(
+    input: CreateManualDetailPageInput & { imageUrls: readonly string[] },
+  ): Promise<CreateManualDetailPageResult>;
+  readImportedDetailImageUrls(input: { organizationId: string }): Promise<ReadonlyMap<string, readonly string[]>>;
+  rewriteImportedDetailImageUrls(input: {
+    organizationId: string;
+    salesProductId: string;
+    replacements: ReadonlyMap<string, string>;
+  }): Promise<{ revisionsUpdated: number }>;
+}

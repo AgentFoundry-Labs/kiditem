@@ -1,5 +1,5 @@
-import type { MallListingProfile } from '../../../../domain/mall/mall-listing-profile';
-import type { PreflightKc } from '../../../../domain/mall/mall-publish-preflight';
+import type { SalesProductKcStatus } from '@kiditem/shared/sales-product';
+import type { MallListingProfile } from '../../../../domain/account/mall-listing-profile';
 
 export const MALL_PUBLISHING_REPOSITORY_PORT = Symbol('MALL_PUBLISHING_REPOSITORY_PORT');
 
@@ -26,8 +26,10 @@ export interface PreflightProductRow {
   imageCount: number;
   salePrice: number | null;
   optionNames: string[];
-  /** 이 상품에 이어진 수집상품의 `rawData.manualBasics` KC 입력값. 이어진 수집상품이 없으면 null. */
-  kc: PreflightKc | null;
+  /** 판매상품이 들고 있는 인증 문서의 번호들. */
+  certificationNumbers: readonly string[];
+  /** KC 가 이 상품에 걸리는 방식. '해당 없음'은 번호 없이도 송신을 통과한다. */
+  kcStatus: SalesProductKcStatus;
   /** 발행된 셀피아 스냅샷의 재고. 재고 연결이 없으면 null(0 이 아니라 모른다). */
   stock: number | null;
 }
@@ -70,7 +72,11 @@ export interface MallMatrixQuery {
 
 /** 매트릭스 한 칸의 원재료. 판정은 도메인이 한다. */
 export interface MallMatrixListingRow {
+  /** 리스팅 id. 계정 줄이 가리키는 리스팅과 맞춰 칸의 등록 상태를 고른다. */
+  id: string;
   channelAccountId: string;
+  /** 리스팅의 판매 상품. 칸의 등록 상태를 읽는 열쇠다(KID-320). 없으면 null. */
+  salesProductId: string | null;
   status: string | null;
   externalId: string;
   category: string | null;

@@ -1,3 +1,10 @@
+import { realRegistrationStates } from '../../test-helpers/registration-state';
+import { ChannelAccountService } from '../application/service/account/channel-account.service';
+import { ChannelAccountPersistenceAdapter } from '../adapter/out/persistence/channel-account.persistence.adapter';
+import { CatalogIdentityService } from '../application/service/collection/catalog-identity.service';
+import { CatalogIdentityPersistenceAdapter } from '../adapter/out/persistence/catalog-identity.persistence.adapter';
+import { ChannelListingQueryService } from '../application/service/listing/channel-listing-query.service';
+import { ChannelListingQueryPersistenceAdapter } from '../adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { randomUUID } from 'node:crypto';
 import { type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -12,13 +19,13 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { RocketPoSourceController } from '../adapter/in/http/rocket-po-source.controller';
-import { RocketPoCatalogRepositoryAdapter } from '../adapter/out/repository/rocket-po-catalog.repository.adapter';
-import { RocketPoCatalogService } from '../application/service/rocket-po-catalog.service';
-import { readRocketPoSource } from '../read/rocket-po-catalog.reader';
-import { ROCKET_PO_CATALOG_PORT } from '../application/port/in/rocket-po-catalog.port';
+import { RocketPoSourceController } from '../../orders/adapter/in/web/rocket-po-source.controller';
+import { RocketPoCatalogRepositoryAdapter } from '../../orders/adapter/out/repository/rocket-po-catalog.repository.adapter';
+import { RocketPoCatalogService } from '../../orders/application/service/rocket-po-catalog.service';
+import { readRocketPoSource } from '../../orders/read/rocket-po-catalog.reader';
+import { ROCKET_PO_CATALOG_PORT } from '../../orders/application/port/in/rocket-po-catalog.port';
 import { RocketPurchasePreviewService } from '../../supply/application/service/rocket-purchase-preview.service';
-import { ChannelSkuAvailabilityService } from '../application/service/channel-sku-availability.service';
+import { ChannelSkuAvailabilityService } from '../application/service/listing/channel-sku-availability.service';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
 import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
 import { ProductAvailabilityUseCase } from '../../products/application/usecase/product-availability.usecase';
@@ -27,13 +34,15 @@ import { ProductCollectionFreshnessUseCase } from '../../products/application/us
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
-import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
+import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
 import { RocketWorkbookExportService } from '../../supply/application/service/rocket-purchase-confirmation.service';
 import { RocketPurchaseConfirmationTransactionAdapter } from '../../supply/adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter';
 import { RocketWorkbookProgressService } from '../../inventory/application/usecase/rocket-workbook-progress.service';
 import { RocketWorkbookProgressRepositoryAdapter } from '../../inventory/adapter/out/persistence/rocket-workbook-progress.repository.adapter';
 import { configureAgentRuntimeBodyParsers } from '../../common/http/agent-runtime-body-parser';
 import { FactConflictError } from '../../common/errors/fact-errors';
+import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const base = '/api/channels/rocket-po';
@@ -52,6 +61,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
   let app: INestApplication;
   let httpUrl: string;
   let catalog: RocketPoCatalogService;
+  let accounts: ChannelAccountService;
   beforeAll(async () => {
     prisma = makeTestPrisma().$extends({
       query: {
@@ -73,9 +83,13 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     }) as unknown as PrismaClient;
     await prisma.$connect();
     const alerts = new SourceFailureAlerts(prisma as never);
+    accounts = new ChannelAccountService(new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())), {} as never);
     const repository = new RocketPoCatalogRepositoryAdapter(
       prisma as never,
       alerts,
+      accounts,
+      new CatalogIdentityService(new CatalogIdentityPersistenceAdapter()),
+      new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never), { findForListings: async () => [] }, realRegistrationStates(prisma as never)),
     );
     catalog = new RocketPoCatalogService(repository);
     const module = await Test.createTestingModule({
@@ -148,8 +162,8 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       const availability = new ProductAvailabilityUseCase(
         new ProductAvailabilityRepositoryAdapter(prisma as never),
       );
-      const recipes = new ChannelOptionRecipeUseCase(
-        new ChannelOptionRecipeRepositoryAdapter(prisma as never, productTransactions),
+      const recipes = new ChannelOptionRecipeService(
+        new ChannelOptionRecipeRepositoryAdapter(prisma as never, productTransactions, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
       );
       const matching = new ChannelProductMatchingRepositoryAdapter(
         prisma as never,
@@ -246,6 +260,20 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       )?.rows,
     ).toEqual([]);
   });
+  it.each([
+    { parserVersion: 'unsupported-parser' },
+    { sourceType: 'another-owner-source' },
+    { status: 'running' },
+  ])('rejects saved snapshot whose explicit source reference no longer proves completion: %j', async (data) => {
+    const attempt = (await start()).body;
+    await finish(attempt).expect(200);
+    await prisma.sourceImportRun.update({ where: { id: attempt.attemptId }, data });
+    expect(await prisma.rocketPoCatalogSnapshot.count({ where: { sourceImportRunId: attempt.attemptId } })).toBe(1);
+    const scope = { organizationId: ORG, channelAccountId: ACCOUNT };
+    await expect(catalog.loadSavedCollection({ ...scope, sourceImportRunId: attempt.attemptId })).resolves.toBeNull();
+    await expect(catalog.listSavedPos({ ...scope, from: plan.from, to: plan.to })).resolves.toEqual([]);
+  });
+
   it('keeps a PO amount unknown when a listed line has no confirmed total', async () => {
     const attempt = (
       await start(randomUUID(), { ...plan, requireConfirmation: false })
@@ -334,7 +362,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
           organizationId: ORG,
           channelAccountId: ACCOUNT,
           now: new Date(now),
-        }),
+        }, accounts),
       );
 
     // At 2026-09-15 00:40 KST the required cutoff is 2026-09-14, the
@@ -600,7 +628,9 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         new RocketWorkbookProgressService(
           new RocketWorkbookProgressRepositoryAdapter(),
         ),
-       new ProductTransactionalReadRepositoryAdapter()),
+        new ProductTransactionalReadRepositoryAdapter(),
+        new ChannelOptionRecipeService(new ChannelOptionRecipeRepositoryAdapter(prisma as never, new ProductTransactionalReadRepositoryAdapter(), new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()))),
+      ),
       catalog,
     );
     const input = {

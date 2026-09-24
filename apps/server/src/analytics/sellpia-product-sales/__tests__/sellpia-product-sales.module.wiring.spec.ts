@@ -2,7 +2,7 @@ import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { ProductAbcReadModule } from '../../../products/product-abc-read.module';
 import { ProductCollectionRuntimeModule } from '../../../products/product-collection-runtime.module';
-import { AiModule } from '../../../ai/ai.module';
+import { AiModule } from '../../../content/ai.module';
 import { SellpiaProductSalesModule } from '../sellpia-product-sales.module';
 import { SellpiaProductSalesService } from '../sellpia-product-sales.service';
 import { SELLPIA_PRODUCT_DEPLETION_READ_PORT } from '../sellpia-product-depletion-read.port';

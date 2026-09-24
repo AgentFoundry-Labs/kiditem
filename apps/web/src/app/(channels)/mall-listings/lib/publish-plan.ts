@@ -4,6 +4,9 @@ import {
   type MallPublishItem,
   type MallSendOutcome,
 } from '../../_shared/mall-publish-adapter';
+import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
+import type { PublishTask, PublishTaskStatus } from '../../_shared/use-mall-publish-run';
+import { isLiveRegistrationState, registrationStateLabel } from '../../_shared/registration-account-state';
 
 /**
  * 송신 계획.
@@ -15,26 +18,6 @@ import {
  * 우리 경우 쪼개는 이유가 더 분명하다. 폼 자동채움은 브라우저 탭 하나를 점유하고
  * 최대 3분이 걸린다. 동시에 두 탭을 몰면 둘 다 깨진다.
  */
-
-export type PublishTaskStatus = 'pending' | 'running' | 'reconciling' | 'succeeded' | 'failed' | 'cancelled';
-
-export interface PublishTask {
-  id: string;
-  mallKey: string;
-  mallName: string;
-  /** Exact ChannelAccount used to freeze a target execution. Null means the mall has no configured account. */
-  channelAccountId: string | null;
-  items: MallPublishItem[];
-  /** 이 몰의 값 묶음. 실행기가 화면 상태를 다시 읽지 않도록 작업이 들고 간다. */
-  values: Record<string, string>;
-  /** 실제로 편집한 값만 실행 target에 override로 보낸다. */
-  adapterValues: Record<string, string>;
-  /** Explicitly selected saved registration settings, keyed by the original item ID. */
-  registrationTargetIdsByItem?: Record<string, string>;
-  status: PublishTaskStatus;
-  outcome: MallSendOutcome | null;
-  error: string | null;
-}
 
 /** 몰 기준으로 막힌 상품 한 건. 계획에 들어가지 않고 이유만 보여준다. */
 export interface PublishBlock {
@@ -60,10 +43,26 @@ export interface BuildPublishPlanInput {
   editedValuesByMall?: Readonly<Record<string, Readonly<Record<string, string>>>>;
   /** Exact account IDs returned with the selected mall targets. */
   channelAccountIds?: Readonly<Record<string, string | null | undefined>>;
-  /** Items with multiple saved settings for a mall/account must choose one before dispatch. */
-  registrationTargetSelectionRequiredByMall?: Readonly<Record<string, readonly string[]>>;
-  /** Explicit target choices, keyed by mall then original item ID. */
-  registrationTargetIdsByMall?: Readonly<Record<string, Readonly<Record<string, string>>>>;
+  /** 상품(candidateId) → 등록 상태 reader 의 계정별 상태. 목록이 싣고 온 값이다(KID-320). */
+  registrationAccountsByItem?: ReadonlyMap<string, readonly RegistrationAccountState[]>;
+}
+
+/**
+ * 그 몰 계정에 이미 등록됐거나 보내는 중이면 새 등록으로 보내지 않는다 — 같은 상품을 한 계정에 두 번
+ * 올리지 않게. 등록된 상품의 바뀐 값은 수정 실행이 보낸다.
+ */
+function registrationProblem(
+  accounts: readonly RegistrationAccountState[] | undefined,
+  channelAccountId: string | null | undefined,
+): string | null {
+  if (!channelAccountId) return null;
+  const account = accounts?.find((one) => one.channelAccountId === channelAccountId);
+  if (!account) return null;
+  if (account.state === 'registered') return '이 몰 계정에 이미 등록됨 — 바뀐 값은 수정으로 보냅니다.';
+  if (isLiveRegistrationState(account.state)) {
+    return `이 몰 계정으로 ${registrationStateLabel(account.state)} — 끝난 뒤 다시 고르세요.`;
+  }
+  return null;
 }
 
 function chunk<T>(items: readonly T[], size: number): T[][] {
@@ -90,15 +89,11 @@ export function buildPublishPlan(input: BuildPublishPlanInput): PublishPlan {
     const values = input.valuesByMall[adapter.mallKey] ?? {};
     const sendable: MallPublishItem[] = [];
 
+    const channelAccountId = input.channelAccountIds?.[adapter.mallKey];
     for (const item of input.items) {
-      const sourceProblem = itemSourceProblem(adapter, item);
+      const registered = registrationProblem(input.registrationAccountsByItem?.get(item.candidateId), channelAccountId);
+      const sourceProblem = registered ?? itemSourceProblem(adapter, item);
       const reasons = sourceProblem ? [sourceProblem] : adapter.validate(item, values);
-      const requiresTargetChoice = input.registrationTargetSelectionRequiredByMall?.[adapter.mallKey]
-        ?.includes(item.candidateId) ?? false;
-      const registrationTargetId = input.registrationTargetIdsByMall?.[adapter.mallKey]?.[item.candidateId];
-      if (requiresTargetChoice && !registrationTargetId) {
-        reasons.push('여러 등록 설정 중 사용할 설정을 선택하세요.');
-      }
       if (reasons.length > 0) {
         blocks.push({
           mallKey: adapter.mallKey,
@@ -122,10 +117,6 @@ export function buildPublishPlan(input: BuildPublishPlanInput): PublishPlan {
         items: group,
         values: { ...values },
         adapterValues: { ...(input.editedValuesByMall?.[adapter.mallKey] ?? {}) },
-        registrationTargetIdsByItem: Object.fromEntries(group.flatMap((item) => {
-          const targetId = input.registrationTargetIdsByMall?.[adapter.mallKey]?.[item.candidateId];
-          return targetId ? [[item.candidateId, targetId]] : [];
-        })),
         status: 'pending',
         outcome: null,
         error: null,

@@ -21,6 +21,7 @@ import {
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { WingRankSourceController } from '../../advertising/adapter/in/http/wing-rank-source.controller';
 import { WingRankSourceRepository } from '../../advertising/adapter/out/repository/wing-rank-source.repository';
 import { KeywordRankRepositoryAdapter } from '../../advertising/adapter/out/repository/keyword-rank.repository.adapter';
@@ -28,7 +29,12 @@ import { KeywordRankService } from '../../advertising/application/service/keywor
 import { WingSalesRankIngestHandler } from '../../advertising/application/service/wing-sales-rank-ingest.handler';
 import { ReadinessController } from '../readiness.controller';
 import { ReadinessService } from '../readiness.service';
+import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
+import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credentials/channel-credentials.adapter';
 import type { ReadinessResponse } from '@kiditem/shared/readiness';
+import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const base = '/api/ads/keyword-rank/wing';
 describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', () => {
@@ -37,7 +43,8 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const rank = new KeywordRankRepositoryAdapter(prisma as never);
+    const channelFacts = channelFactTestPorts(prisma as never);
+    const rank = new KeywordRankRepositoryAdapter(channelFacts.listings, channelFacts.recipes, prisma as never);
     const owner = new WingRankSourceRepository(
       prisma as never,
       new SourceFailureAlerts(prisma as never),
@@ -50,9 +57,13 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
       providers: [
         {
           provide: ReadinessService,
-          useValue: new ReadinessService(prisma as never, {
-            readPublished: async () => ({ channelAccountId: '', rows: [] }),
-          }),
+          useValue: new ReadinessService(
+            prisma as never,
+            new ChannelAccountService(
+              new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
+              new ChannelCredentialsAdapter(),
+            ),
+          ),
         },
         { provide: WingRankSourceRepository, useValue: owner },
       ],

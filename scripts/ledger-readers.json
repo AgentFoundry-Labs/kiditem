@@ -1,5 +1,5 @@
 {
-  "version": 1,
+  "version": 2,
   "scanRoots": [
     "apps/server/src",
     "apps/web/src",
@@ -8,9 +8,33 @@
   "prismaSchemaRoots": [
     "prisma"
   ],
+  "owners": {
+    "advertising": {
+      "root": "apps/server/src/advertising"
+    },
+    "channels": {
+      "root": "apps/server/src/channels"
+    },
+    "finance": {
+      "root": "apps/server/src/finance"
+    },
+    "orders": {
+      "root": "apps/server/src/orders"
+    },
+    "products": {
+      "root": "apps/server/src/products"
+    },
+    "sourcing": {
+      "root": "apps/server/src/sourcing"
+    },
+    "analytics": {
+      "root": "apps/server/src/analytics"
+    }
+  },
   "ledgers": [
     {
       "name": "Advertising target day",
+      "owner": "advertising",
       "table": "channel_ad_target_daily_snapshots",
       "prismaModel": "channelAdTargetDailySnapshot",
       "prismaType": "ChannelAdTargetDailySnapshot",
@@ -19,7 +43,6 @@
         "adTargetDailySnapshots",
         "channelAdTargetDailySnapshots"
       ],
-      "reader": "apps/server/src/advertising/read/ad-target-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/advertising/adapter/out/repository/daily-fact-helpers.ts",
@@ -46,6 +69,7 @@
     },
     {
       "name": "Channel listing daily facts",
+      "owner": "channels",
       "table": "channel_listing_daily_snapshots",
       "prismaModel": "channelListingDailySnapshot",
       "prismaType": "ChannelListingDailySnapshot",
@@ -53,7 +77,6 @@
         "channelListingDailySnapshots",
         "listingDailySnapshots"
       ],
-      "reader": "apps/server/src/channels/read/channel-listing-daily-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/analytics/traffic/traffic-upload.ts",
@@ -76,13 +99,13 @@
     },
     {
       "name": "Sellpia daily sales",
+      "owner": "analytics",
       "table": "sellpia_sales_daily_snapshots",
       "prismaModel": "sellpiaSalesDailySnapshot",
       "prismaType": "SellpiaSalesDailySnapshot",
       "relationNames": [
         "sellpiaSalesDailySnapshots"
       ],
-      "reader": "apps/server/src/analytics/sellpia-sales/read/sellpia-sales-daily-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/analytics/sellpia-sales/sellpia-sales-source.service.ts",
@@ -93,13 +116,13 @@
     },
     {
       "name": "Sellpia product monthly sales",
+      "owner": "analytics",
       "table": "sellpia_product_monthly_sales",
       "prismaModel": "sellpiaProductMonthlySales",
       "prismaType": "SellpiaProductMonthlySales",
       "relationNames": [
         "sellpiaProductMonthlySales"
       ],
-      "reader": "apps/server/src/analytics/sellpia-product-sales/read/sellpia-product-monthly-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/analytics/sellpia-product-sales/sellpia-profitability-source.service.ts",
@@ -114,13 +137,13 @@
     },
     {
       "name": "Finance settlements",
+      "owner": "finance",
       "table": "settlements",
       "prismaModel": "settlement",
       "prismaType": "Settlement",
       "relationNames": [
         "settlements"
       ],
-      "reader": "apps/server/src/finance/settlements/read/settlement-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/finance/settlements/settlements.service.ts",
@@ -131,6 +154,7 @@
     },
     {
       "name": "Orders canonical order",
+      "owner": "orders",
       "table": "orders",
       "prismaModel": "order",
       "prismaType": "Order",
@@ -138,7 +162,6 @@
         "order",
         "orders"
       ],
-      "reader": "apps/server/src/orders/read/order-facts.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/orders/adapter/out/transaction/coupang-direct-order-collection.transaction.adapter.ts",
@@ -149,6 +172,7 @@
     },
     {
       "name": "Orders canonical line item",
+      "owner": "orders",
       "table": "order_line_items",
       "prismaModel": "orderLineItem",
       "prismaType": "OrderLineItem",
@@ -156,7 +180,6 @@
         "lineItems",
         "orderLineItems"
       ],
-      "reader": "apps/server/src/orders/read/order-facts.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/orders/adapter/out/transaction/coupang-direct-order-collection.transaction.adapter.ts",
@@ -167,6 +190,7 @@
     },
     {
       "name": "Orders current complete review",
+      "owner": "orders",
       "table": "reviews",
       "prismaModel": "review",
       "prismaType": "Review",
@@ -174,7 +198,6 @@
         "reviewCollectionFacts",
         "reviews"
       ],
-      "reader": "apps/server/src/orders/read/review-facts.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/orders/adapter/out/repository/review-collection-source.repository.ts",
@@ -189,6 +212,7 @@
     },
     {
       "name": "Products source inventory",
+      "owner": "products",
       "table": "master_products",
       "prismaModel": "masterProduct",
       "prismaType": "MasterProduct",
@@ -196,7 +220,6 @@
         "masterProduct",
         "masterProducts"
       ],
-      "reader": "apps/server/src/products/adapter/out/persistence/read/product-source-availability.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/products/adapter/out/persistence/product-source-publication.repository.adapter.ts",
@@ -211,6 +234,7 @@
     },
     {
       "name": "Sourcing evidence ingestion run",
+      "owner": "sourcing",
       "table": "sourcing_evidence_ingestion_runs",
       "prismaModel": "sourcingEvidenceIngestionRun",
       "prismaType": "SourcingEvidenceIngestionRun",
@@ -219,17 +243,23 @@
         "sourcingEvidenceIngestionRuns",
         "triggeredSourcingEvidenceIngestionRuns"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.repository.adapter.ts",
           "reason": "Owns attempt admission, terminal publication, current-complete pointer replacement, and transaction-local validation."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Sourcing evidence observation",
+      "owner": "sourcing",
       "table": "sourcing_evidence_observations",
       "prismaModel": "sourcingEvidenceObservation",
       "prismaType": "SourcingEvidenceObservation",
@@ -238,17 +268,23 @@
         "observations",
         "sourcingEvidenceObservations"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
           "reason": "Inserts immutable observations and validates the inserted identities inside the source owner's terminal transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Sourcing Wing catalog product fact",
+      "owner": "sourcing",
       "table": "sourcing_wing_catalog_product_facts",
       "prismaModel": "sourcingWingCatalogProductFact",
       "prismaType": "SourcingWingCatalogProductFact",
@@ -257,7 +293,6 @@
         "wingCatalogProductFact",
         "wingCatalogProductFacts"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
@@ -268,10 +303,17 @@
           "reason": "Counts the staged keyword's current typed facts inside the source owner transaction to seal its exact accepted receipt."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Sourcing keyword suggestion fact",
+      "owner": "sourcing",
       "table": "sourcing_keyword_suggestion_facts",
       "prismaModel": "sourcingKeywordSuggestionFact",
       "prismaType": "SourcingKeywordSuggestionFact",
@@ -280,17 +322,23 @@
         "keywordSuggestionFacts",
         "sourcingKeywordSuggestionFacts"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
           "reason": "Publishes the schema-validated keyword suggestion snapshot with its evidence inside the source owner transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Sourcing Naver keyword analysis fact",
+      "owner": "sourcing",
       "table": "sourcing_naver_keyword_analysis_facts",
       "prismaModel": "sourcingNaverKeywordAnalysisFact",
       "prismaType": "SourcingNaverKeywordAnalysisFact",
@@ -299,17 +347,23 @@
         "naverKeywordAnalysisFacts",
         "sourcingNaverKeywordAnalysisFacts"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
           "reason": "Publishes the schema-validated Naver analysis snapshot with its evidence inside the source owner transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Sourcing market shadow fact",
+      "owner": "sourcing",
       "table": "sourcing_market_shadow_facts",
       "prismaModel": "sourcingMarketShadowFact",
       "prismaType": "SourcingMarketShadowFact",
@@ -318,17 +372,23 @@
         "marketShadowFacts",
         "sourcingMarketShadowFacts"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
           "reason": "Publishes the bounded market-shadow document with its evidence inside the source owner transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Sourcing 1688 offer keyword observation",
+      "owner": "sourcing",
       "table": "sourcing_1688_offer_keyword_observations",
       "prismaModel": "sourcing1688OfferKeywordObservation",
       "prismaType": "Sourcing1688OfferKeywordObservation",
@@ -337,119 +397,161 @@
         "offerKeywordObservations",
         "sourcing1688OfferKeywordObservations"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
           "reason": "Inserts typed 1688 rows inside the source owner's terminal publication transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Sourcing Naver keyword daily snapshot",
+      "owner": "sourcing",
       "table": "naver_keyword_daily_snapshots",
       "prismaModel": "naverKeywordDailySnapshot",
       "prismaType": "NaverKeywordDailySnapshot",
       "relationNames": [
         "naverKeywordDailySnapshots"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
           "reason": "Inserts typed Naver keyword rows inside the source owner's terminal publication transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Sourcing Naver popular keyword daily snapshot",
+      "owner": "sourcing",
       "table": "naver_popular_keyword_daily_snapshots",
       "prismaModel": "naverPopularKeywordDailySnapshot",
       "prismaType": "NaverPopularKeywordDailySnapshot",
       "relationNames": [
         "naverPopularKeywordDailySnapshots"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
           "reason": "Inserts typed Naver board rows inside the source owner's terminal publication transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Sourcing Shorts trend daily snapshot",
+      "owner": "sourcing",
       "table": "shorts_trend_daily_snapshots",
       "prismaModel": "shortsTrendDailySnapshot",
       "prismaType": "ShortsTrendDailySnapshot",
       "relationNames": [
         "shortsTrendDailySnapshots"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
           "reason": "Inserts typed Shorts rows inside the source owner's terminal publication transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Sourcing TikTok creative trend daily snapshot",
+      "owner": "sourcing",
       "table": "tiktok_creative_trend_daily_snapshots",
       "prismaModel": "tiktokCreativeTrendDailySnapshot",
       "prismaType": "TiktokCreativeTrendDailySnapshot",
       "relationNames": [
         "tiktokCreativeTrendDailySnapshots"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
           "reason": "Inserts typed TikTok rows inside the source owner's terminal publication transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Sourcing live commerce broadcast daily snapshot",
+      "owner": "sourcing",
       "table": "live_commerce_broadcast_daily_snapshots",
       "prismaModel": "liveCommerceBroadcastDailySnapshot",
       "prismaType": "LiveCommerceBroadcastDailySnapshot",
       "relationNames": [
         "liveCommerceBroadcastDailySnapshots"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
           "reason": "Inserts typed broadcast rows inside the source owner's terminal publication transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Sourcing live commerce product daily snapshot",
+      "owner": "sourcing",
       "table": "live_commerce_product_daily_snapshots",
       "prismaModel": "liveCommerceProductDailySnapshot",
       "prismaType": "LiveCommerceProductDailySnapshot",
       "relationNames": [
         "liveCommerceProductDailySnapshots"
       ],
-      "reader": "apps/server/src/sourcing/read/source-evidence.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.persistence.ts",
           "reason": "Inserts typed product rows inside the source owner's terminal publication transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Sourcing launch candidate",
+      "owner": "sourcing",
       "table": "sourcing_launch_candidates",
       "prismaModel": "sourcingLaunchCandidate",
       "prismaType": "SourcingLaunchCandidate",
@@ -459,17 +561,23 @@
         "launchCandidates",
         "sourcingLaunchCandidates"
       ],
-      "reader": "apps/server/src/sourcing/read/launch-candidate.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-launch-candidate.repository.adapter.ts",
           "reason": "Owns immutable launch-candidate publication and validates the current predecessor inside its transaction."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/launch-candidate.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Sourcing recommendation publication",
+      "owner": "sourcing",
       "table": "sourcing_recommendation_runs",
       "prismaModel": "sourcingRecommendationRun",
       "prismaType": "SourcingRecommendationRun",
@@ -477,17 +585,23 @@
         "recommendationRun",
         "sourcingRecommendationRuns"
       ],
-      "reader": "apps/server/src/sourcing/read/recommendation-publication.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-recommendation.repository.adapter.ts",
           "reason": "Owns immutable recommendation-run publication and idempotent winner resolution."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/recommendation-publication.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Sourcing validation publication",
+      "owner": "sourcing",
       "table": "sourcing_validation_episodes",
       "prismaModel": "sourcingValidationEpisode",
       "prismaType": "SourcingValidationEpisode",
@@ -496,17 +610,23 @@
         "validationEpisode",
         "validationEpisodes"
       ],
-      "reader": "apps/server/src/sourcing/read/validation-publication.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-validation.repository.adapter.ts",
           "reason": "Owns validation-episode publication, duplicate detection, and transaction-local receipt hydration."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/validation-publication.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Sourcing decision publication",
+      "owner": "sourcing",
       "table": "sourcing_decision_batches",
       "prismaModel": "sourcingDecisionBatch",
       "prismaType": "SourcingDecisionBatch",
@@ -515,17 +635,23 @@
         "requestedSourcingDecisionBatches",
         "sourcingDecisionBatches"
       ],
-      "reader": "apps/server/src/sourcing/read/decision-publication.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-decision-batch.repository.adapter.ts",
           "reason": "Owns immutable decision-batch publication, idempotency validation, and winner resolution."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/decision-publication.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
+        }
+      ]
     },
     {
       "name": "Coupang keyword SERP day",
+      "owner": "advertising",
       "table": "coupang_keyword_serp_daily_snapshots",
       "prismaModel": "coupangKeywordSerpDailySnapshot",
       "prismaType": "CoupangKeywordSerpDailySnapshot",
@@ -533,7 +659,6 @@
         "coupangKeywordSerpDailySnapshots",
         "keywordSerpDailyProjections"
       ],
-      "reader": "apps/server/src/advertising/read/keyword-rank-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/advertising/adapter/out/repository/keyword-rank.repository.adapter.ts",
@@ -544,6 +669,7 @@
     },
     {
       "name": "Coupang Wing sales rank day",
+      "owner": "advertising",
       "table": "coupang_wing_sales_rank_daily_snapshots",
       "prismaModel": "coupangWingSalesRankDailySnapshot",
       "prismaType": "CoupangWingSalesRankDailySnapshot",
@@ -551,7 +677,6 @@
         "coupangWingSalesRankDailySnapshots",
         "wingRankDailyProjections"
       ],
-      "reader": "apps/server/src/advertising/read/keyword-rank-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/advertising/adapter/out/repository/keyword-rank.repository.adapter.ts",
@@ -562,6 +687,7 @@
     },
     {
       "name": "Coupang keyword rank day",
+      "owner": "advertising",
       "table": "coupang_keyword_rank_daily_snapshots",
       "prismaModel": "coupangKeywordRankDailySnapshot",
       "prismaType": "CoupangKeywordRankDailySnapshot",
@@ -569,7 +695,6 @@
         "coupangKeywordRankDailySnapshots",
         "keywordRankDailyProjections"
       ],
-      "reader": "apps/server/src/advertising/read/keyword-rank-facts.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/advertising/adapter/out/repository/keyword-rank.repository.adapter.ts",
@@ -580,6 +705,7 @@
     },
     {
       "name": "Master product ABC evaluations",
+      "owner": "products",
       "table": "master_product_abc_evaluations",
       "prismaModel": "masterProductAbcEvaluation",
       "prismaType": "MasterProductAbcEvaluation",
@@ -590,7 +716,6 @@
         "abcEvaluation",
         "evaluations"
       ],
-      "reader": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/products/adapter/out/persistence/master-product-abc.repository.adapter.ts",
@@ -601,6 +726,7 @@
     },
     {
       "name": "Advertising listing-product monthly allocations",
+      "owner": "advertising",
       "table": "channel_ad_listing_product_monthly_facts",
       "prismaModel": "channelAdListingProductMonthlyFact",
       "prismaType": "ChannelAdListingProductMonthlyFact",
@@ -608,7 +734,6 @@
         "channelAdListingProductMonthlyFacts",
         "adListingProductMonthlyFacts"
       ],
-      "reader": "apps/server/src/advertising/read/monthly-ad-allocation.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/advertising/adapter/out/repository/profitability-ad-import.repository.adapter.ts",
@@ -619,50 +744,48 @@
     },
     {
       "name": "Rocket PO catalog snapshot",
+      "owner": "orders",
       "table": "rocket_po_catalog_snapshots",
       "prismaModel": "rocketPoCatalogSnapshot",
       "prismaType": "RocketPoCatalogSnapshot",
       "relationNames": [
         "rocketPoCatalogSnapshot",
-        "rocketPoCatalogSnapshots",
         "snapshot"
       ],
-      "reader": "apps/server/src/channels/read/rocket-po-catalog.reader.ts",
       "ownerPublications": [
         {
-          "path": "apps/server/src/channels/adapter/out/repository/rocket-po-catalog-snapshot.repository.ts",
-          "reason": "Channels publishes one normalized Rocket PO snapshot within the fenced source-owner completion transaction."
+          "path": "apps/server/src/orders/adapter/out/repository/rocket-po-catalog-snapshot.repository.ts",
+          "reason": "Orders publishes one normalized Rocket PO snapshot within the fenced source-owner completion transaction."
         }
       ],
       "legacyReaders": []
     },
     {
       "name": "Rocket PO catalog line",
+      "owner": "orders",
       "table": "rocket_po_catalog_lines",
       "prismaModel": "rocketPoCatalogLine",
       "prismaType": "RocketPoCatalogLine",
       "relationNames": [
-        "lines",
-        "rocketPoCatalogLines"
+        "lines"
       ],
-      "reader": "apps/server/src/channels/read/rocket-po-catalog.reader.ts",
       "ownerPublications": [
         {
-          "path": "apps/server/src/channels/adapter/out/repository/rocket-po-catalog-snapshot.repository.ts",
-          "reason": "Channels publishes validated Rocket PO lines with their owning snapshot in the source-owner completion transaction."
+          "path": "apps/server/src/orders/adapter/out/repository/rocket-po-catalog-snapshot.repository.ts",
+          "reason": "Orders publishes validated Rocket PO lines with their owning snapshot in the source-owner completion transaction."
         }
       ],
       "legacyReaders": []
     },
     {
       "name": "Coupang shipment date summary",
+      "owner": "orders",
       "table": "coupang_shipment_date_summaries",
       "prismaModel": "coupangShipmentDateSummary",
       "prismaType": "CoupangShipmentDateSummary",
       "relationNames": [
         "coupangShipmentDateSummaries"
       ],
-      "reader": "apps/server/src/orders/shipments/read/coupang-shipment-date-summary.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/orders/shipments/adapter/out/persistence/coupang-shipment-date-summary.repository.adapter.ts",
@@ -673,22 +796,399 @@
     },
     {
       "name": "Product registration execution",
+      "owner": "channels",
       "table": "product_registration_executions",
       "prismaModel": "productRegistrationExecution",
       "prismaType": "ProductRegistrationExecution",
       "relationNames": [
         "productRegistrationExecutions",
-        "requestedProductRegistrationExecutions",
         "executions"
       ],
-      "reader": "apps/server/src/channels/read/registration-execution.reader.ts",
       "ownerPublications": [
         {
           "path": "apps/server/src/channels/adapter/out/repository/registration-execution.repository.adapter.ts",
           "reason": "Channels owns the submission fence: it creates, leases, reconciles and finalizes one execution per draft and channel account, and re-reads the rows it just wrote inside that transaction (ADR-0014)."
+        },
+        {
+          "path": "apps/server/src/channels/adapter/out/persistence/thumbnail-execution.persistence.adapter.ts",
+          "reason": "KID-305: Channels owns the Wing representative-image upload; it creates, reports and dismisses only `thumbnail_update` executions under a per-generation advisory lock."
         }
       ],
-      "legacyReaders": []
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/channels/adapter/out/repository/registration-execution-ledger.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-320: owner-local ledger queries (unresolved composition options, prepared registration recipes, failure counts, frozen option references), read-only, no mutation rights. KID-324 absorbs it into the owner adapter's own methods."
+        }
+      ]
+    }
+  ],
+  "importExceptions": [
+    {
+      "from": "apps/server/src/advertising/adapter/in/http/ad-campaign-source.controller.ts",
+      "to": "apps/server/src/advertising/adapter/out/repository/ad-campaign-source.repository.ts",
+      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "from": "apps/server/src/advertising/adapter/in/http/ad-keyword-source.controller.ts",
+      "to": "apps/server/src/advertising/adapter/out/repository/ad-keyword-source.repository.ts",
+      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "from": "apps/server/src/advertising/adapter/in/http/keyword-serp-source.controller.ts",
+      "to": "apps/server/src/advertising/adapter/out/repository/keyword-serp-source.repository.ts",
+      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "from": "apps/server/src/advertising/adapter/in/http/seller-identity-source.controller.ts",
+      "to": "apps/server/src/advertising/adapter/out/repository/seller-identity-source.repository.ts",
+      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "from": "apps/server/src/advertising/adapter/in/http/wing-rank-source.controller.ts",
+      "to": "apps/server/src/advertising/adapter/out/repository/wing-rank-source.repository.ts",
+      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/advertising/adapter/out/repository/ad-action.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/advertising/adapter/out/repository/ad-listing.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/advertising/adapter/out/repository/ad-strategy-context.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/advertising/adapter/out/repository/keyword-rank.repository.adapter.ts"
+    },
+    {
+      "from": "apps/server/src/agent-os/adapter/in/http/runtime/agent-mcp-http.controller.ts",
+      "to": "apps/server/src/agent-os/adapter/out/runtime/gateway/gateway-mcp-runtime.registry.ts",
+      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "from": "apps/server/src/agent-os/adapter/in/http/runtime/gateway-control.controller.ts",
+      "to": "apps/server/src/agent-os/adapter/out/runtime/gateway/gateway-command.queue.ts",
+      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "from": "apps/server/src/agent-os/adapter/in/http/runtime/gateway-control.controller.ts",
+      "to": "apps/server/src/agent-os/adapter/out/runtime/gateway/gateway-event-handler.service.ts",
+      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "from": "apps/server/src/agent-os/adapter/in/http/runtime/gateway-control.controller.ts",
+      "to": "apps/server/src/agent-os/adapter/out/runtime/gateway/gateway-installation-bearer.service.ts",
+      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "from": "apps/server/src/agent-os/adapter/in/http/runtime/gateway-control.controller.ts",
+      "to": "apps/server/src/agent-os/adapter/out/runtime/gateway/gateway-readiness.service.ts",
+      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "from": "apps/server/src/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.ts",
+      "to": "apps/server/src/agent-os/adapter/out/runtime/gateway/gateway-mcp-runtime.registry.ts",
+      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "from": "apps/server/src/agent-os/application/service/capability-invocation.service.ts",
+      "to": "apps/server/src/agent-os/application/service/capability-mutation-dispatcher.service.ts",
+      "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/content/adapter/out/repository/thumbnail-generation-ledger.query.ts"
+    },
+    {
+      "from": "apps/server/src/content/application/service/detail-page-ai.service.ts",
+      "to": "apps/server/src/content/application/service/detail-page-ai.types.ts",
+      "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "to": "apps/server/src/core/read/source-import-run.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/collection-freshness.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/orders/read/review-facts.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-inventory.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-inventory.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/core/read/source-import-run.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-sales.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/orders/read/order-facts.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-sales.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/orders/read/order-facts.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-trend.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/advertising/read/ad-target-facts.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/profit-calculation.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/orders/read/order-facts.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/profit-calculation.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/advertising/read/ad-target-facts.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/wing-traffic-aggregation.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/orders/read/order-facts.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/analytics/dashboard/adapter/out/repository/wing-traffic-aggregation.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/orders/read/order-facts.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/analytics/statistics/statistics.service.ts"
+    },
+    {
+      "to": "apps/server/src/orders/read/order-facts.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/analytics/supplier-stats/supplier-stats.service.ts"
+    },
+    {
+      "from": "apps/server/src/auth/adapter/in/cli/auth-admin.ts",
+      "to": "apps/server/src/auth/adapter/out/prisma/prisma-auth.repository.ts",
+      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "to": "apps/server/src/orders/read/order-facts.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-301",
+      "from": "apps/server/src/channels/adapter/out/repository/channel-dashboard.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/orders/read/order-facts.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-301",
+      "from": "apps/server/src/channels/adapter/out/repository/mall-publishing.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/advertising/read/ad-target-facts.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/common/per-listing-profit.ts"
+    },
+    {
+      "to": "apps/server/src/orders/read/order-facts.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/common/per-listing-profit.ts"
+    },
+    {
+      "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/common/per-listing-profit.ts"
+    },
+    {
+      "to": "apps/server/src/advertising/read/monthly-ad-allocation.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/finance/adapter/out/repository/master-product-contribution.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/analytics/sellpia-product-sales/read/sellpia-product-monthly-facts.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/finance/adapter/out/repository/master-product-contribution.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/advertising/read/ad-target-facts.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/finance/services/sales-analysis-scraper.service.ts"
+    },
+    {
+      "to": "apps/server/src/orders/read/order-facts.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/finance/services/sales-analysis-scraper.service.ts"
+    },
+    {
+      "to": "apps/server/src/core/read/source-import-run.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/orders/adapter/out/repository/order-collection-source.repository.ts"
+    },
+    {
+      "to": "apps/server/src/products/adapter/out/persistence/product-transactional-read.repository.adapter.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/orders/services/reviews.service.ts"
+    },
+    {
+      "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/orders/services/reviews.service.ts"
+    },
+    {
+      "to": "apps/server/src/channels/adapter/out/persistence/channel-listing-daily-facts.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/products/adapter/out/persistence/product-operations-data-status.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/orders/read/order-facts.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/products/adapter/out/persistence/product-operations-data-status.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/advertising/read/ad-target-facts.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/products/adapter/out/persistence/product-operations.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/channels/adapter/out/persistence/channel-listing-daily-facts.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/products/adapter/out/persistence/product-operations.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/orders/read/order-facts.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/products/adapter/out/persistence/product-operations.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/channels/adapter/out/persistence/channel-listing-daily-facts.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/products/adapter/out/persistence/selling-master-product.query.ts"
+    },
+    {
+      "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/products/application/port/out/persistence/master-product-abc.repository.port.ts"
+    },
+    {
+      "to": "apps/server/src/advertising/read/ad-target-facts.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/readiness/readiness.service.ts"
+    },
+    {
+      "to": "apps/server/src/advertising/read/keyword-rank-facts.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/readiness/readiness.service.ts"
+    },
+    {
+      "to": "apps/server/src/analytics/sellpia-sales/read/sellpia-sales-daily-facts.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/readiness/readiness.service.ts"
+    },
+    {
+      "to": "apps/server/src/channels/adapter/out/repository/completed-catalog-run.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/readiness/readiness.service.ts"
+    },
+    {
+      "from": "apps/server/src/sourcing/application/service/sourcing-browser-source-attempt.service.ts",
+      "to": "apps/server/src/sourcing/application/service/sourcing-1688-source-attempt.mapper.ts",
+      "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "from": "apps/server/src/sourcing/application/service/sourcing-live-commerce-source-attempt.service.ts",
+      "to": "apps/server/src/sourcing/application/service/sourcing-live-commerce-source-attempt.mapper.ts",
+      "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "from": "apps/server/src/sourcing/application/service/sourcing-shadow-signal.service.ts",
+      "to": "apps/server/src/sourcing/application/service/sourcing-shadow-signal.evaluation.ts",
+      "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "from": "apps/server/src/sourcing/application/service/sourcing-tiktok-source-attempt.service.ts",
+      "to": "apps/server/src/sourcing/application/service/sourcing-tiktok-source-attempt.mapper.ts",
+      "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
+      "removeWith": "KID-324"
+    },
+    {
+      "to": "apps/server/src/sourcing/adapter/out/repository/decision-publication.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/supply/adapter/out/repository/supply-sourcing-procurement.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/sourcing/adapter/out/repository/launch-candidate.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/supply/adapter/out/repository/supply-sourcing-procurement.repository.adapter.ts"
+    },
+    {
+      "to": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "removeWith": "KID-324",
+      "from": "apps/server/src/supply/adapter/out/repository/supply-sourcing-procurement.repository.adapter.ts"
     }
   ]
 }

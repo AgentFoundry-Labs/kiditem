@@ -1,3 +1,4 @@
+import { profitCatalogTestReaders } from '../../../test-helpers/channel-fact-ports';
 import { NotFoundException } from '@nestjs/common';
 import { beforeEach, describe, it, expect, vi } from 'vitest';
 import {
@@ -129,7 +130,7 @@ describe('SalesAnalysisScraperService.getDataSources', () => {
   it('reports empty ranges when nothing has been ingested', async () => {
     const prisma = makePrisma();
     const trafficRead = makeTrafficRead();
-    const service = new SalesAnalysisScraperService(prisma, trafficRead);
+    const service = new SalesAnalysisScraperService(prisma, trafficRead, profitCatalogTestReaders(prisma as never).accounts);
     const result = await service.getDataSources(ORG);
     expect(result.wing.dateCount).toBe(0);
     expect(result.ads.dateCount).toBe(0);
@@ -152,7 +153,7 @@ describe('SalesAnalysisScraperService.getDataSources', () => {
         observedAt.toISOString(),
       )),
     );
-    const service = new SalesAnalysisScraperService(makePrisma(), trafficRead);
+    const service = new SalesAnalysisScraperService(makePrisma(), trafficRead, profitCatalogTestReaders(makePrisma() as never).accounts);
 
     const result = await service.getDataSources(ORG);
     expect(result.wing.firstDate).toBe('2026-04-18');
@@ -169,12 +170,12 @@ describe('SalesAnalysisScraperService.getDataSources', () => {
     expect(result.ads.dateCount).toBe(2);
     expect(result.ads.lastSyncedAt).toBe(observedAt.toISOString());
     expect(result.ads.missingDates).toEqual(['2026-04-18']);
-    expect(readAdWindowFacts).toHaveBeenCalledWith(TX, { organizationId: ORG });
+    expect(readAdWindowFacts).toHaveBeenCalledWith(TX, { organizationId: ORG }, expect.objectContaining({ readProviderIdentities: expect.any(Function) }));
     expect(trafficRead.readPublished).toHaveBeenCalledWith({ organizationId: ORG });
   });
 
   it('reports orders=0 with null range when no completed collection published an order', async () => {
-    const service = new SalesAnalysisScraperService(makePrisma(), makeTrafficRead());
+    const service = new SalesAnalysisScraperService(makePrisma(), makeTrafficRead(), profitCatalogTestReaders(makePrisma() as never).accounts);
     const result = await service.getDataSources(ORG);
     expect(result.orders).toEqual({ count: 0, firstDate: null, lastDate: null });
   });
@@ -187,7 +188,7 @@ describe('SalesAnalysisScraperService.getDataSources', () => {
       to: new Date('2026-04-30T15:00:00.000Z'), // 2026-05-01 00:00 KST, exclusive
     });
     const prisma = makePrisma();
-    const service = new SalesAnalysisScraperService(prisma, makeTrafficRead());
+    const service = new SalesAnalysisScraperService(prisma, makeTrafficRead(), profitCatalogTestReaders(prisma as never).accounts);
 
     const result = await service.getDataSources(ORG);
 

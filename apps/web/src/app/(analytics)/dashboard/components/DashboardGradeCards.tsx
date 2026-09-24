@@ -77,7 +77,7 @@ export function DashboardGradeCards({
     unit: '개',
     suffix: flowOf(grade),
     note: profitOf(grade),
-    href: `/product-hub?abcGrade=${grade}`,
+    href: `/product-hub?abcGrade=${grade}&activeStatus=all`,
   });
 
   return (
@@ -101,7 +101,7 @@ export function DashboardGradeCards({
               : formatNumber(unclassifiedProductCount),
             unit: '개',
             note: '공식 ABC 근거가 아직 없는 상품',
-            href: '/product-hub?abcGrade=unclassified',
+            href: '/product-hub?abcGrade=unclassified&activeStatus=all',
           },
           {
             key: 'abcReady',

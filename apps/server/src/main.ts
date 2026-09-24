@@ -14,6 +14,7 @@ import { NestExpressApplication } from '@nestjs/platform-express';
 const cookieParser = require('cookie-parser') as () => import('express').RequestHandler;
 import { ApiApplicationModule } from './api-application.module';
 import { GlobalExceptionFilter } from './common/filters/global-exception.filter';
+import { ChannelBusinessExceptionFilter } from './channels/adapter/in/web/channel-business-exception.filter';
 import { requireWebOrigin } from './common/config/web-origin';
 import { configureAgentRuntimeBodyParsers } from './common/http/agent-runtime-body-parser';
 import { configureApiGlobalPrefix } from './common/http/agent-runtime-route';
@@ -60,7 +61,7 @@ async function bootstrap() {
     whitelist: true,
     transform: true,
   }));
-  app.useGlobalFilters(new GlobalExceptionFilter());
+  app.useGlobalFilters(new GlobalExceptionFilter(), new ChannelBusinessExceptionFilter());
 
   // 이미지는 S3-호환 스토리지(MinIO/R2/S3)에서 직접 서빙 (StorageService 참조)
   const port = Number(process.env.PORT) || 4000;

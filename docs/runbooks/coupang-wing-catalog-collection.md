@@ -202,7 +202,7 @@ Run focused automated checks from the repository root:
 
 ```bash
 rtk proxy npm exec --workspace=packages/shared -- vitest run src/schemas/coupang-catalog-snapshot.spec.ts src/schemas/coupang-catalog-browser.spec.ts src/schemas/collection-start.spec.ts
-rtk proxy npm exec --workspace=apps/server -- vitest run src/channels/application/service/__tests__/channel-catalog-collection.service.spec.ts src/channels/adapter/in/http/__tests__/channel-catalog-collection.controller.spec.ts src/channels/adapter/in/http/__tests__/channel-catalog-source.controller.spec.ts
+rtk proxy npm exec --workspace=apps/server -- vitest run src/channels/application/service/collection/__tests__/channel-catalog-collection.service.spec.ts src/channels/adapter/in/web/__tests__/channel-catalog-collection.controller.spec.ts src/channels/adapter/in/web/__tests__/channel-catalog-source.controller.spec.ts
 rtk proxy npm run test:integration --workspace=apps/server -- src/channels/__tests__/channel-catalog-owner.pg.integration.spec.ts src/channels/__tests__/channel-catalog-staging.pg.integration.spec.ts
 rtk proxy npm exec --workspace=apps/web -- vitest run 'src/app/(product-pipeline)/product-pipeline/registered-products' src/components/readiness
 rtk proxy npm run build --workspace=apps/web

@@ -1,10 +1,8 @@
 import { Injectable } from '@nestjs/common';
 import { businessDateKey, kstInclusiveDaysStart } from '../../../../common/kst';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import {
-  declaredCoverageDateKeys,
-  readCompleteLiveCommerceHistoryRuns,
-} from '../../../read/source-evidence.reader';
+import { readCompleteLiveCommerceHistoryRuns } from './source-evidence.reader';
+import { declaredCoverageDateKeys } from '../../../domain/source-evidence-coverage';
 import type {
   LiveCommerceBroadcastSnapshotRow,
   LiveCommerceProductSnapshotRow,

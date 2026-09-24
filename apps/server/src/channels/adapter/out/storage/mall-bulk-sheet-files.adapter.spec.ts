@@ -1,9 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
-import { MALL_BULK_SHEETS } from '../../../domain/mall-bulk-sheet/mall-bulk-sheet-registry';
-import { MallCategoryLookup } from '../../../domain/mall-bulk-sheet/mall-sheet-categories';
-import { resolveFixedValues, type MallBulkSheetSpec } from '../../../domain/mall-bulk-sheet/mall-bulk-sheet';
-import { toMallSheetProduct, type MallSheetSourceProduct } from '../../../domain/mall-bulk-sheet/mall-sheet-product';
+import { MALL_BULK_SHEETS } from '../../../domain/registration/bulk-sheet/mall-bulk-sheet-registry';
+import { MallCategoryLookup } from '../../../domain/registration/bulk-sheet/mall-sheet-categories';
+import { resolveFixedValues, type MallBulkSheetSpec } from '../../../domain/registration/bulk-sheet/mall-bulk-sheet';
+import { toMallSheetProduct, type MallSheetSourceProduct } from '../../../domain/registration/bulk-sheet/mall-sheet-product';
 import { MallBulkSheetFilesAdapter } from './mall-bulk-sheet-files.adapter';
 
 const adapter = new MallBulkSheetFilesAdapter();
@@ -22,51 +22,26 @@ function sample(): MallSheetSourceProduct {
     ['icecream-mall', '아이스크림몰 > 유치원 > 브랜드마켓 > 장난감/완구'],
   ].map(([mallKey, path]) => ({
     mallKey: mallKey!,
-    salePrice: null,
-    priceRateBp: null,
-    name: null,
-    detailHtml: null,
-    promoText: null,
     adapterValues: { sabangnetCategoryPath: path! },
   }));
   // 아트공구(카페24)는 분류표가 없어 몰별 값의 분류 번호를 그대로 쓴다.
   overrides.push({
     mallKey: 'art09',
-    salePrice: null,
-    priceRateBp: null,
-    name: null,
-    detailHtml: null,
-    promoText: null,
     adapterValues: { categoryCode: '29' },
   });
   // 온채널은 공급가를 사람이 정한다(판매가에서 역산하지 않는다).
   overrides.push({
     mallKey: 'onch',
-    salePrice: null,
-    priceRateBp: null,
-    name: null,
-    detailHtml: null,
-    promoText: null,
     adapterValues: { sabangnetCategoryPath: '출산/육아 > 완구/인형 > 감각발달완구 > 비눗방울', supplyPrice: '3200' },
   });
   // 스마트스토어는 분류표가 없어 몰별 값의 카테고리 번호를 그대로 쓴다.
   overrides.push({
     mallKey: 'smartstore',
-    salePrice: null,
-    priceRateBp: null,
-    name: null,
-    detailHtml: null,
-    promoText: null,
     adapterValues: { categoryCode: '50003307' },
   });
   // 티쳐몰은 이름표가 없어 몰별 값의 분류 번호를 그대로 쓴다.
   overrides.push({
     mallKey: 'teacher-mall',
-    salePrice: null,
-    priceRateBp: null,
-    name: null,
-    detailHtml: null,
-    promoText: null,
     adapterValues: { sabangnetCategoryPath: '티처몰 > 학급운영 > 놀이활동 > 교육완구' },
   });
   return {
@@ -80,7 +55,8 @@ function sample(): MallSheetSourceProduct {
     modelNo: null,
     originCountry: '중국',
     keywords: ['비눗방울', '버블건', '물놀이', '여름완구', '어린이날'],
-    taxType: 'taxable',
+    status: 'active' as const,
+  taxType: 'taxable',
     salePrice: 5900,
     tagPrice: null,
     imageUrls: ['https://pic.sabangnet.co.kr/product_image/1.jpg'],

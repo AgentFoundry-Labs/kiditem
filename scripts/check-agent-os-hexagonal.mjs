@@ -10,9 +10,9 @@ const CHANNELS_AGENT_ADAPTER_ROOT =
   "/apps/server/src/channels/adapter/in/agent/";
 const OWNER_DOMAINS = new Set([
   "advertising",
-  "ai",
   "analytics",
   "channels",
+  "content",
   "finance",
   "inventory",
   "orders",

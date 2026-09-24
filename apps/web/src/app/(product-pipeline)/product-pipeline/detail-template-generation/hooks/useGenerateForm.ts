@@ -8,18 +8,17 @@ import type {
   DetailImageCount,
   DetailPageAgeGroup,
   DetailPageTemplateId,
-  ThumbnailGenerationItem,
+  ThumbnailJobListResponse,
 } from '@kiditem/shared/ai';
+import type { ThumbnailJob } from '@kiditem/shared/product-content';
 import { API_BASE } from '@/lib/api';
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { useContentWorkspaceImages } from '../../_shared/hooks/useContentWorkspaceImages';
 import {
-  collectedProductDetailHref,
   detailPageEditorHref,
-  registeredProductDetailHref,
 } from '../../_shared/lib/product-pipeline-routes';
-import { contentWorkspacesApi } from '../../_shared/lib/content-workspaces-api';
+import { contentWorkspacesApi, contentWorkspaceLabel } from '../../_shared/lib/content-workspaces-api';
 import { moveSafetyLabelImagesToEnd } from '../lib/detail-page-image-order';
 import {
   buildAgeGroupInstruction,
@@ -74,7 +73,7 @@ export interface GenerationDialogState {
   productName: string;
   templateId: GenerateTemplateId;
   generationId?: string;
-  detailGenerationId?: string | null;
+  detailPageId?: string | null;
   thumbnailGenerationId?: string | null;
   editorUrl?: string;
   errorMessage?: string | null;
@@ -126,7 +125,7 @@ interface UseGenerateFormOptions {
 export interface OpenGenerationDialogInput {
   productName: string;
   templateId: GenerateTemplateId;
-  detailGenerationId: string | null;
+  detailPageId: string | null;
   thumbnailGenerationId: string | null;
   editorUrl: string;
 }
@@ -145,7 +144,6 @@ export function resolveGenerateOwnerInputs(
       initialTitle: '',
       initialContentWorkspaceId: null,
       sourceReferences: [] as NonNullable<KidsPlayfulGenerateBody['sourceReferences']>,
-      primarySourceCandidateId: null,
     };
   }
 
@@ -153,16 +151,12 @@ export function resolveGenerateOwnerInputs(
   const initialTitle = searchParams.get('title') ?? '';
   const initialContentWorkspaceId = searchParams.get('contentWorkspaceId');
   const sourceReferences = getGenerateSourceReferences(searchParams, productId);
-  const primarySourceCandidateId =
-    sourceReferences.find((reference) => reference.sourceType === 'sourcing_candidate')
-      ?.sourceCandidateId ?? null;
 
   return {
     productId,
     initialTitle,
     initialContentWorkspaceId,
     sourceReferences,
-    primarySourceCandidateId,
   };
 }
 
@@ -173,7 +167,6 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     initialTitle,
     initialContentWorkspaceId,
     sourceReferences,
-    primarySourceCandidateId,
   } = resolveGenerateOwnerInputs(
     new URLSearchParams(searchParams.toString()),
     options.ownerBindingMode ?? 'allow-url',
@@ -231,10 +224,10 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
   );
   const thumbnailStatusQuery = useQuery({
     queryKey: ['thumbnail-generation', generationDialog?.thumbnailGenerationId ?? 'noop'],
-    queryFn: () =>
-      apiClient.get<ThumbnailGenerationItem>(
-        `/api/thumbnail-analysis/generations/${generationDialog?.thumbnailGenerationId}`,
-      ),
+    queryFn: async () =>
+      (await apiClient.get<ThumbnailJobListResponse>(
+        `/api/ai/thumbnail-jobs/${generationDialog?.thumbnailGenerationId}`,
+      )).items[0] ?? null,
     enabled: Boolean(generationDialog?.open && generationDialog.thumbnailGenerationId),
     refetchInterval: (query) => {
       const item = query.state.data;
@@ -266,7 +259,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
     setGenerationDialog((prev) => {
       if (!prev?.open || prev.generationId !== item.id) return prev;
       if (prev.thumbnailGenerationId) return prev;
-      const editorUrl = buildGenerationEditorUrl(item, primarySourceCandidateId);
+      const editorUrl = buildGenerationEditorUrl(item);
       if (
         prev.phase === phase &&
         prev.editorUrl === editorUrl &&
@@ -282,14 +275,14 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
         errorMessage: item.imageProcessingError,
       };
     });
-  }, [generationStatusQuery.data, primarySourceCandidateId]);
+  }, [generationStatusQuery.data]);
 
   useEffect(() => {
     setGenerationDialog((prev) => {
       if (!prev?.open) return prev;
       const nextPhase = resolveProductGenerationDialogPhase({
         currentPhase: prev.phase,
-        detailGenerationId: prev.detailGenerationId ?? prev.generationId ?? null,
+        detailPageId: prev.detailPageId ?? prev.generationId ?? null,
         detail: generationStatusQuery.data,
         thumbnailGenerationId: prev.thumbnailGenerationId ?? null,
         thumbnail: thumbnailStatusQuery.data,
@@ -338,7 +331,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
         status: 'exists',
         checkedTitle: title,
         workspaceId: result.workspace.id,
-        workspaceTitle: result.workspace.displayName,
+        workspaceTitle: contentWorkspaceLabel(result.workspace),
       });
       toast.info('같은 상품명의 기존 이력이 있습니다.');
     } catch (err) {
@@ -362,7 +355,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
       const input = latest && typeof latest === 'object'
         ? latest as Record<string, unknown>
         : {};
-      setRawTitle(pickString(input.rawTitle) ?? workspace.displayName);
+      setRawTitle(pickString(input.rawTitle) ?? contentWorkspaceLabel(workspace));
       setRawCategory(pickString(input.rawCategory) ?? '');
       setRawDescription(pickString(input.rawDescription) ?? '');
       setRawOptions(pickString(input.rawOptions) ?? '');
@@ -388,9 +381,9 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
       setKcCertificationNumber(pickString(input.kcCertificationNumber) ?? '');
       setDuplicateWorkspace({
         status: 'loaded',
-        checkedTitle: workspace.displayName,
+        checkedTitle: contentWorkspaceLabel(workspace),
         workspaceId: workspace.id,
-        workspaceTitle: workspace.displayName,
+        workspaceTitle: contentWorkspaceLabel(workspace),
       });
       toast.success('기존 최신 이력을 불러왔습니다.');
     } catch (err) {
@@ -554,7 +547,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
               ...prev,
               phase: nextPhase,
               generationId: generated.id,
-              editorUrl: buildGenerationEditorUrl(generated, primarySourceCandidateId),
+              editorUrl: buildGenerationEditorUrl(generated),
               errorMessage: generated.imageProcessingError,
             }
           : {
@@ -564,7 +557,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
               productName: title,
               templateId: selectedTemplateId,
               generationId: generated.id,
-              editorUrl: buildGenerationEditorUrl(generated, primarySourceCandidateId),
+              editorUrl: buildGenerationEditorUrl(generated),
               errorMessage: generated.imageProcessingError,
             },
       );
@@ -605,16 +598,16 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
       startedAt,
       productName: input.productName,
       templateId: input.templateId,
-      detailGenerationId: input.detailGenerationId,
+      detailPageId: input.detailPageId,
       thumbnailGenerationId: input.thumbnailGenerationId,
-      generationId: input.detailGenerationId ?? undefined,
+      generationId: input.detailPageId ?? undefined,
       editorUrl: input.editorUrl,
       errorMessage: null,
       description: '상품 작업공간을 만들고 상세페이지와 썸네일 생성을 시작했습니다.',
       progress:
-        input.detailGenerationId && input.thumbnailGenerationId ? 0.25 : 0.15,
+        input.detailPageId && input.thumbnailGenerationId ? 0.25 : 0.15,
       progressLabel:
-        input.detailGenerationId && input.thumbnailGenerationId
+        input.detailPageId && input.thumbnailGenerationId
           ? '상세페이지 · 썸네일 생성 중'
           : '생성 작업 상태 확인 중',
     });
@@ -711,7 +704,7 @@ function generationStatusToDialogPhase(
 }
 
 function thumbnailStatusToDialogPhase(
-  status: ThumbnailGenerationItem['status'] | undefined,
+  status: ThumbnailJob['status'] | undefined,
 ): GenerationDialogPhase | null {
   if (status === 'pending' || status === 'running') return 'started';
   if (status === 'succeeded') return 'completed';
@@ -722,14 +715,14 @@ function thumbnailStatusToDialogPhase(
 
 export function resolveProductGenerationDialogPhase(input: {
   currentPhase: GenerationDialogPhase;
-  detailGenerationId: string | null;
+  detailPageId: string | null;
   detail?: KidsPlayfulGenerationItem;
   thumbnailGenerationId: string | null;
-  thumbnail?: ThumbnailGenerationItem;
+  thumbnail?: Pick<ThumbnailJob, 'status'> | null;
 }): GenerationDialogPhase | null {
   if (input.currentPhase === 'cancelled') return null;
 
-  const detailPhase = input.detailGenerationId
+  const detailPhase = input.detailPageId
     ? generationStatusToDialogPhase(input.detail?.imageProcessingStatus)
     : 'completed';
   const thumbnailPhase = input.thumbnailGenerationId
@@ -743,21 +736,12 @@ export function resolveProductGenerationDialogPhase(input: {
   return null;
 }
 
-function buildGenerationEditorUrl(
-  item: KidsPlayfulGenerationItem,
-  sourceCandidateId?: string | null,
-): string | undefined {
-  const candidateId = item.sourceCandidateId ?? sourceCandidateId ?? null;
-  const contentWorkspaceId = item.contentWorkspaceId ?? null;
-  const returnTo = candidateId
-    ? collectedProductDetailHref(candidateId)
-    : contentWorkspaceId
-      ? registeredProductDetailHref(contentWorkspaceId)
-      : null;
-  if (candidateId) {
-    return detailPageEditorHref({ candidateId, generationId: item.id, returnTo });
-  }
-  return detailPageEditorHref({ generationId: item.id, returnTo });
+/**
+ * 생성 이력은 판매상품 초안 id 도 리스팅 id 도 모른다 — 작업공간 id 로 화면 주소를 만들지 않는다
+ * (닫으면 기본 목록으로 간다, KID-310).
+ */
+function buildGenerationEditorUrl(item: KidsPlayfulGenerationItem): string | undefined {
+  return detailPageEditorHref({ generationId: item.id });
 }
 
 function mergeSourceReferences(
@@ -771,7 +755,7 @@ function mergeSourceReferences(
       ref.sourceType,
       ref.sourceCandidateId ?? '',
       ref.contentAssetId ?? '',
-      ref.sourceContentGenerationId ?? '',
+      ref.sourceDetailPageId ?? '',
       ref.label ?? '',
     ].join(':');
     if (seen.has(key)) continue;

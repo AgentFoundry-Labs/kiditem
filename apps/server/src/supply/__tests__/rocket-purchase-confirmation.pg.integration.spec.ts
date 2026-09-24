@@ -1,4 +1,6 @@
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ChannelOptionRecipeService } from '../../channels/application/service/listing/channel-option-recipe.service';
+import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -16,6 +18,8 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import type { PrismaClient } from '@prisma/client';
 import type { RocketWorkbookDecisionRequest } from '@kiditem/shared/rocket-purchase-preview';
 import type { RocketWorkbookExportTransactionPort } from '../application/port/out/transaction/rocket-purchase-confirmation.transaction.port';
+import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const CHANNEL_ACCOUNT_ID = '21000000-0000-4000-8000-000000000001';
 const SOURCE_IMPORT_RUN_ID = '21000000-0000-4000-8000-000000000002';
@@ -33,12 +37,16 @@ describe('Rocket workbook export transaction (PG integration)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    const products = new ProductTransactionalReadRepositoryAdapter();
     adapter = new RocketPurchaseConfirmationTransactionAdapter(
       prisma as unknown as PrismaService,
       new RocketWorkbookProgressService(
         new RocketWorkbookProgressRepositoryAdapter(),
       ),
-      new ProductTransactionalReadRepositoryAdapter(),
+      products,
+      new ChannelOptionRecipeService(
+        new ChannelOptionRecipeRepositoryAdapter(prisma as never, products, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
+      ),
     );
   });
 

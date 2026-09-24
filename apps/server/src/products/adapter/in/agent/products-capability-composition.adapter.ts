@@ -31,8 +31,8 @@ export class ProductsCapabilityCompositionAdapter
             inputHash: requiredOwnerInputHash(context),
           }),
         resourceRef: (output) => ({
-          kind: 'sourcing_candidate',
-          id: output.candidateId,
+          kind: 'sales_product',
+          id: output.salesProductId,
         }),
       }),
     ];

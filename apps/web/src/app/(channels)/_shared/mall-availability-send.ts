@@ -1,3 +1,5 @@
+import { z } from 'zod';
+import { ReportListingAvailabilityInputSchema } from '@kiditem/shared/sales-product';
 import {
   detectOrderCollectionExtensionId,
   detectOrderCollectionExtensionRuntime,
@@ -249,7 +251,15 @@ export function summarizeLiveAvailability(options: readonly MallLiveOption[], ma
   };
 }
 
+const WingAvailabilityEvidenceSchema = z.object({
+  externalListingId: z.string().min(1),
+  providerAccountId: z.string().min(1),
+  observedOptionStocks: ReportListingAvailabilityInputSchema.shape.evidence.shape.observedOptionStocks.unwrap(),
+}).strict();
+export type WingAvailabilityEvidence = z.infer<typeof WingAvailabilityEvidenceSchema>;
+
 export interface MallAvailabilitySendResult {
+  wingEvidence?: WingAvailabilityEvidence[];
   /** 몰에 실제로 보낸 건수. 반영됐다는 뜻은 아니다. */
   sent: number;
   failed: number;
@@ -299,6 +309,7 @@ export function availabilityOutcome(result: MallAvailabilitySendResult): MallAva
 }
 
 interface SendResponse {
+  wingEvidence?: unknown;
   success?: boolean;
   sent?: number;
   failed?: number;
@@ -364,6 +375,7 @@ export async function sendMallAvailability(
   const total = { sent: 0, failed: 0, confirmed: 0, already: 0, rocket: 0, confirmedKnown: true, requestOnly: false };
   let listShown: boolean | null | undefined;
   const warnings: string[] = [];
+  const wingEvidence: WingAvailabilityEvidence[] = [];
   for (let start = 0; start < codes.length; start += chunkSize) {
     const chunk = codes.slice(start, start + chunkSize);
     let response: SendResponse;
@@ -376,6 +388,12 @@ export async function sendMallAvailability(
       total.failed += optionCount(codes.slice(start));
       warnings.push(`${codes.length}개 중 ${start}개까지 보내고 멈췄습니다 — ${message}`);
       break;
+    }
+    if (mallKey === 'coupang' && Array.isArray(response.wingEvidence)) {
+      for (const value of response.wingEvidence) {
+        const parsed = WingAvailabilityEvidenceSchema.safeParse(value);
+        if (parsed.success && chunk.includes(parsed.data.externalListingId)) wingEvidence.push(parsed.data);
+      }
     }
     total.sent += response.sent ?? 0;
     total.failed += response.failed ?? 0;
@@ -395,6 +413,21 @@ export async function sendMallAvailability(
     }
   }
 
+  if (mallKey === 'coupang' && options.executionContext) {
+    const exactProof = codes.every((code) => {
+      const selected = options.optionCodes?.[code] ?? [];
+      const proofs = wingEvidence.filter((entry) => entry.externalListingId === code);
+      if (selected.length === 0 || proofs.length !== 1
+        || proofs[0].providerAccountId !== options.executionContext?.expectedProviderAccountId) return false;
+      const observations = proofs[0].observedOptionStocks;
+      const ids = new Set(observations.map((option) => option.externalOptionId));
+      return observations.length === selected.length && ids.size === selected.length
+        && selected.every((id) => ids.has(id))
+        && observations.every((option) => options.resume ? option.stock > 0 : option.stock === 0);
+    });
+    if (!exactProof || total.rocket > 0) total.confirmedKnown = false;
+  }
+
   const summary: string[] = [];
   if (total.already > 0) {
     // 재고로 품절을 거는 몰은 재고로, 판매상태로 거는 몰은 상태로 말한다.
@@ -410,6 +443,7 @@ export async function sendMallAvailability(
     requestOnly: total.requestOnly,
     confirmed: total.confirmedKnown ? total.confirmed : null,
     warnings: [...summary, ...new Set(warnings)],
+    ...(mallKey === 'coupang' && wingEvidence.length > 0 ? { wingEvidence } : {}),
     ...(listShown !== undefined ? { listShown } : {}),
   };
 }

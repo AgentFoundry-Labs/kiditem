@@ -17,7 +17,7 @@ import type { AiSuggestion } from '../lib/ai-suggestions';
  */
 
 const PER_PAGE = 2;
-const REORDER_HREF = '/product-hub?inventoryFocus=reorder';
+const REORDER_HREF = '/product-hub?inventoryFocus=reorder&activeStatus=all';
 
 const BADGE_TONE: Record<AiSuggestion['badge'], string> = {
   발주: 'bg-red-50 text-red-600 ring-red-100',

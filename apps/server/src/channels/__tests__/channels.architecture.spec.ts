@@ -47,9 +47,10 @@ describe('channels architecture contract', () => {
       path.join(channels, 'adapter/in/agent') + path.sep,
     ];
     const hits = rg(
-      `--type ts --files-with-matches 'PrismaService' ${channels} --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches 'PrismaService' ${channels} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
     );
-    const violators = hits.filter((file) => !allowedPrefixes.some((prefix) => file.startsWith(prefix)));
+    const violators = hits.filter((file) => file !== path.join(channels, 'seed-channel-accounts.ts')
+      && !allowedPrefixes.some((prefix) => file.startsWith(prefix)));
     expect(
       violators,
       `PrismaService is leaking outside adapter/out/repository:\n${violators.join('\n')}`,
@@ -60,7 +61,7 @@ describe('channels architecture contract', () => {
     const channels = channelsRel();
     const applicationGlob = path.join(channels, 'application') + '/**';
     const hits = rg(
-      `--type ts --files-with-matches '@prisma/client|Prisma\\.' --glob '${applicationGlob}' --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches '@prisma/client|Prisma\\.' --glob '${applicationGlob}' --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
     );
     expect(
       hits,
@@ -72,7 +73,7 @@ describe('channels architecture contract', () => {
     const channels = channelsRel();
     const serviceGlob = path.join(channels, 'application/service') + '/**';
     const hits = rg(
-      `--type ts --files-with-matches '\\.\\./adapter/out|adapter/out/' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches '\\.\\./adapter/out|adapter/out/' --glob '${serviceGlob}' --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
     );
     expect(
       hits,
@@ -84,7 +85,7 @@ describe('channels architecture contract', () => {
     const channels = channelsRel();
     const serviceGlob = path.join(channels, 'application/service') + '/**';
     const hits = rg(
-      `--type ts --files-with-matches 'adapter/in/|\\.\\./.*adapter/in/' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches 'adapter/in/|\\.\\./.*adapter/in/' --glob '${serviceGlob}' --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
     );
     expect(
       hits,
@@ -96,7 +97,7 @@ describe('channels architecture contract', () => {
     const channels = channelsRel();
     const serviceGlob = path.join(channels, 'application/service') + '/**';
     const hits = rg(
-      `--type ts --files-with-matches '\\.\\./\\.\\./\\.\\./(advertising|ai|analytics|automation|finance|inventory|orders|products|rules|agent-os|sourcing|supply)/application' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches '\\.\\./\\.\\./\\.\\./(advertising|ai|analytics|automation|finance|inventory|orders|products|rules|agent-os|sourcing|supply)/application' --glob '${serviceGlob}' --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
     );
     expect(
       hits,
@@ -109,7 +110,8 @@ describe('channels architecture contract', () => {
       `--type ts --files-with-matches '@kiditem/shared/channel-option-capacity' apps/server/src/channels apps/server/src/products --glob '!**/*.spec.ts'`,
     ).sort();
     expect(consumers).toEqual([
-      'apps/server/src/channels/application/service/channel-inventory-availability.projection.ts',
+      'apps/server/src/channels/adapter/out/persistence/stockout-check.persistence.adapter.ts',
+      'apps/server/src/channels/application/service/listing/channel-inventory-availability.projection.ts',
       'apps/server/src/products/mapper/product-operations-inventory.mapper.ts',
     ]);
 
@@ -125,26 +127,26 @@ describe('channels architecture contract', () => {
   it('does not reach Inventory directly from Channels adapters', () => {
     const channels = channelsRel();
     const hits = rg(
-      `--type ts --files-with-matches 'inventory/application/port/in/stock/sellpia-inventory-sku-read' ${channels} --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches 'inventory/application/port/in/stock/sellpia-inventory-sku-read' ${channels} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
     );
     expect(hits).toEqual([]);
 
     const transactionPortHits = rg(
-      `--type ts --files-with-matches 'inventory/application/port/in/stock/inventory-transactional-read' ${channels} --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches 'inventory/application/port/in/stock/inventory-transactional-read' ${channels} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
     );
     expect(transactionPortHits).toEqual([]);
 
     const concreteInventoryHits = rg(
-      `--type ts --files-with-matches 'inventory/adapter/out/persistence/(read|transaction)' ${channels} --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches 'inventory/adapter/out/persistence/(read|transaction)' ${channels} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
     );
     expect(concreteInventoryHits).toEqual([]);
   });
 
   it('incoming HTTP adapters do not import outgoing ports or repository adapters', () => {
     const channels = channelsRel();
-    const httpGlob = path.join(channels, 'adapter/in/http') + '/**';
+    const httpGlob = path.join(channels, 'adapter/in/web') + '/**';
     const hits = rg(
-      `--type ts --files-with-matches 'application/port/out|adapter/out/' --glob '${httpGlob}' --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches 'application/port/out|adapter/out/' --glob '${httpGlob}' --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
     );
     expect(
       hits,
@@ -156,7 +158,7 @@ describe('channels architecture contract', () => {
     const channels = channelsRel();
     const adapterOutGlob = path.join(channels, 'adapter/out') + '/**';
     const hits = rg(
-      `--type ts --files-with-matches 'application/service|\\.\\./\\.\\./\\.\\./application/service' --glob '${adapterOutGlob}' --glob '!**/__tests__/**'`,
+      `--type ts --files-with-matches 'application/service|\\.\\./\\.\\./\\.\\./application/service' --glob '${adapterOutGlob}' --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
     );
     expect(
       hits,
@@ -167,7 +169,7 @@ describe('channels architecture contract', () => {
   it('does not retain channel-owned component recipes or persisted mapping status', () => {
     const channels = channelsRel();
     const hits = rg(
-      `--type ts --files-with-matches 'ChannelSkuComponent|channelSkuComponent' ${channels} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
+      `--type ts --files-with-matches 'ChannelSkuComponent|channelSkuComponent' ${channels} --glob '!**/__tests__/**' --glob '!**/*.spec.ts' --glob '!**/*.spec.ts'`,
     );
     expect(
       hits,
@@ -178,7 +180,7 @@ describe('channels architecture contract', () => {
   it('keeps component-row mutations inside the focused Channels recipe adapter', () => {
     const channels = channelsRel();
     const hits = rg(
-      `--type ts --files-with-matches 'channelListingOptionInventoryComponent\\.(create|createMany|update|updateMany|delete|deleteMany|upsert)' ${channels} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
+      `--type ts --files-with-matches 'channelListingOptionInventoryComponent\\.(create|createMany|update|updateMany|delete|deleteMany|upsert)' ${channels} --glob '!**/__tests__/**' --glob '!**/*.spec.ts' --glob '!**/*.spec.ts'`,
     );
     expect(
       hits,

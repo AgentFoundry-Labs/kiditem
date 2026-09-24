@@ -410,6 +410,9 @@ export const UNIQUE_KEYS_WITHOUT_CLEANUP: Readonly<Record<string, string>> = Obj
   sellpia_product_monthly_sales_legacy_identity_key: OFFICE_UNIQUE_SAME_COLUMNS,
   shipment_date_summary_baseline_date_key: OFFICE_UNIQUE_SAME_COLUMNS,
   reviews_org_platform_external_legacy_key: OFFICE_UNIQUE_SAME_COLUMNS,
+  content_workspaces_direct_title_unique:
+    'Office 0.1.30 already holds the direct_detail_page workspace titles unique under the old '
+    + 'source_candidate_id IS NULL predicate, and the new predicate names the same rows.',
   sourcing_1688_offer_keyword_observations_identity_key:
     'Office 0.1.30 already holds every column of this key but ingestion_run_id unique.',
   sourcing_evidence_ingestion_runs_org_source_idempotency_key:

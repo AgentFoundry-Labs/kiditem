@@ -154,7 +154,6 @@ const inventory = {
     highAdProducts: 2,
     outOfStockSkus: 7,
     mappingAttentionSkus: 4,
-    lowCtrProducts: 0,
     lowReviewProducts: 0,
   },
 };
@@ -257,7 +256,7 @@ describe('Dashboard headline cards keep unknown values unknown', () => {
 
     const soon = await screen.findByTestId('headline-stockSoon');
     await waitFor(() => expect(soon).toHaveTextContent('78'));
-    expect(soon.closest('a')).toHaveAttribute('href', '/product-hub?inventoryFocus=reorder');
+    expect(soon.closest('a')).toHaveAttribute('href', '/product-hub?inventoryFocus=reorder&activeStatus=all');
     expect(screen.getByTestId('headline-stockOut')).toHaveTextContent('4');
     expect(screen.getByTestId('headline-stockMatching')).toHaveTextContent('3');
     const loss = screen.getByTestId('headline-lossProducts');

@@ -7,7 +7,7 @@ function listingFixture(overrides: Partial<RegisteredChannelListing> = {}): Regi
     id: 'listing-1',
     listingName: '자석 다트게임',
     thumbnailUrl: 'https://cdn.example.com/product.jpg',
-    detailPageArtifactId: null,
+    imageUrl: null, salesProductId: null,
     detailPageRevisionId: null,
     channel: 'coupang',
     channelAccountId: 'account-1',
@@ -18,7 +18,7 @@ function listingFixture(overrides: Partial<RegisteredChannelListing> = {}): Regi
     category: null,
     brand: null,
     manufacturer: null,
-    sourceCandidateId: 'candidate-1',
+    sourceRecordId: 'candidate-1',
     contentWorkspaceId: 'workspace-1',
     status: 'active',
     exposureStatus: 'visible',
@@ -40,7 +40,7 @@ describe('registeredListingWorkspaceHref', () => {
   it('does not fall back to source or content-workspace identities', () => {
     expect(registeredListingWorkspaceHref(listingFixture({
       contentWorkspaceId: null,
-      sourceCandidateId: 'candidate-1',
+      sourceRecordId: 'candidate-1',
     }))).toBe('/product-pipeline/registered-products/listing-1');
   });
 });

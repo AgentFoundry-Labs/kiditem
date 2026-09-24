@@ -28,7 +28,8 @@ export interface OptionRowDraft {
   values: string[];
   alias: string;
   barcode: string;
-  salePrice: number;
+  /** 판매가. 아직 정하지 않은 초안 옵션은 null(미정)이고, 편집기를 열었다고 0원이 되지 않는다. */
+  salePrice: number | null;
   normalPrice: number | null;
   supplyStatus: SalesProductOptionSupplyStatus;
   safetyStock: number | null;
@@ -44,9 +45,11 @@ export interface OptionTableDraft {
 }
 
 export const BASIC_FIELDS = [
-  'name', 'shortName', 'ownCode', 'modelName', 'modelNo', 'brand', 'manufacturer', 'originCountry', 'status',
+  'name', 'shortName', 'ownCode', 'modelName', 'modelNo', 'brand', 'manufacturer', 'originCountry',
   'taxType', 'deliveryFeeType', 'deliveryFee', 'keywords', 'imageUrls',
-  'detailHtml', 'noticeCategory', 'noticeValues', 'certifications', 'adminMemo',
+  'noticeCategory', 'noticeValues', 'certifications', 'kcStatus', 'adminMemo',
+  // KID-310: 수집·직접 작성 초안이 채우는 칸(전에는 후보에만 있었다).
+  'description', 'targetAudience', 'ageGroup', 'productSize', 'colorVariantNames', 'boxSetQuantity',
 ] as const;
 export type BasicField = (typeof BASIC_FIELDS)[number];
 export type BasicsDraft = Pick<SalesProduct, BasicField>;
@@ -63,16 +66,16 @@ export function basicsFromProduct(product: SalesProduct): BasicsDraft {
 
 export function optionsFromProduct(product: SalesProduct): OptionTableDraft {
   const activeOptions = product.options.filter((option) => option.supplyStatus !== 'unused');
-  const baseSalePrice = activeOptions.length > 0
-    ? Math.min(...activeOptions.map((option) => option.salePrice))
-    : 0;
+  // 기준가는 가격을 정한 판매 옵션 중 가장 싼 값이다. 아직 정하지 않은 옵션(null)은 기준에 넣지 않고 null 로 둔다.
+  const pricedActive = activeOptions.flatMap((option) => option.salePrice === null ? [] : [option.salePrice]);
+  const baseSalePrice = pricedActive.length > 0 ? Math.min(...pricedActive) : 0;
   return {
     axes: [...product.optionAxes],
     baseSalePrice,
     rows: product.options.map((option) => ({
       rowKey: nextRowKey(),
       id: option.id,
-      optionCode: option.optionCode,
+      optionCode: option.optionCode ?? undefined,
       values: [...option.values],
       alias: option.alias ?? '',
       barcode: option.barcode ?? '',
@@ -95,7 +98,8 @@ export function setBaseSalePrice(draft: OptionTableDraft, nextBase: number): Opt
     baseSalePrice: base,
     rows: draft.rows.map((row) => row.supplyStatus === 'unused'
       ? row
-      : { ...row, salePrice: Math.max(0, row.salePrice + delta) }),
+      // 미정(null) 줄은 사람이 기준가를 정할 때 그 기준가로 정해진다.
+      : { ...row, salePrice: row.salePrice === null ? base : Math.max(0, row.salePrice + delta) }),
   };
 }
 
@@ -112,8 +116,9 @@ export function setOptionExtraPrice(
   };
 }
 
-export function optionExtraPrice(row: OptionRowDraft, draft: OptionTableDraft): number {
-  return row.salePrice - draft.baseSalePrice;
+/** 기준가 대비 추가금액. 판매가가 미정(null)인 줄은 추가금액도 없다(null). */
+export function optionExtraPrice(row: OptionRowDraft, draft: OptionTableDraft): number | null {
+  return row.salePrice === null ? null : row.salePrice - draft.baseSalePrice;
 }
 
 export function commonNormalPrice(draft: OptionTableDraft): { value: number | null; mixed: boolean } {
@@ -132,16 +137,29 @@ export function setCommonNormalPrice(draft: OptionTableDraft, normalPrice: numbe
   };
 }
 
-/** 저장할 기본 칸 — 바뀐 것만. 없으면 null. */
+/**
+ * 저장할 기본 칸 — 바뀐 것만. 없으면 null. 상태는 편집 칸이 아니다(KID-313): 판매 상품(`active`)을
+ * 보관하라는 요청(`archive`)만 `status: 'archived'` 로 보낸다. 초안은 보관하지 않고 지운다.
+ */
 export function basicsPatch(
   product: SalesProduct,
   draft: BasicsDraft,
+  request: { archive?: boolean } = {},
 ): Omit<SalesProductUpdateInput, 'expectedVersion'> | null {
-  const patch: Record<string, unknown> = {};
+  const patch: Omit<SalesProductUpdateInput, 'expectedVersion'> = {};
   for (const field of BASIC_FIELDS) {
-    if (JSON.stringify(product[field]) !== JSON.stringify(draft[field])) patch[field] = draft[field];
+    if (JSON.stringify(product[field]) !== JSON.stringify(draft[field])) copyBasic(patch, draft, field);
   }
-  return Object.keys(patch).length > 0 ? (patch as Omit<SalesProductUpdateInput, 'expectedVersion'>) : null;
+  if (request.archive && product.status === 'active') patch.status = 'archived';
+  return Object.keys(patch).length > 0 ? patch : null;
+}
+
+function copyBasic<K extends BasicField>(
+  patch: Pick<Omit<SalesProductUpdateInput, 'expectedVersion'>, K>,
+  draft: BasicsDraft,
+  field: K,
+): void {
+  patch[field] = draft[field];
 }
 
 export function optionsChanged(product: SalesProduct, draft: OptionTableDraft): boolean {
@@ -206,7 +224,7 @@ export function emptyRow(
     values,
     alias: '',
     barcode: '',
-    salePrice: defaults.salePrice ?? 0,
+    salePrice: defaults.salePrice ?? null,
     normalPrice: defaults.normalPrice ?? null,
     supplyStatus: 'selling',
     safetyStock: null,

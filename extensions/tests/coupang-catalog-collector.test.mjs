@@ -832,3 +832,13 @@ test('caps stage chunks at 20 products even when byte size permits more', () => 
   assert.deepEqual(JSON.parse(JSON.stringify(chunks.map((chunk) => chunk.products.length))), [20, 1]);
   assert.deepEqual(JSON.parse(JSON.stringify(chunks.map((chunk) => chunk.startOrdinal))), [0, 20]);
 });
+
+
+test('preserves provider registrationType on both catalog option raw shapes', () => {
+  const helper = loadHelper();
+  for (const registrationType of ['NORMAL', 'RFM']) {
+    const source = { sellerProductId: 123, items: [{ vendorItemId: 456, sellerProductItemId: 789, registrationType }] };
+    assert.equal(helper.buildCatalogProduct(source).options[0].raw.registrationType, registrationType);
+    assert.equal(helper.buildCatalogDetailProduct(source).options[0].raw.registrationType, registrationType);
+  }
+});

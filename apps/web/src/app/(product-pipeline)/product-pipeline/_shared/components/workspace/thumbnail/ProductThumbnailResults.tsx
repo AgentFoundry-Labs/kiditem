@@ -90,7 +90,7 @@ export default function ProductThumbnailResults({
             const alreadyAdded = previewImageUrlSet.has(option.url);
             return (
               <div
-                key={`${option.generatedCandidateId ?? option.url}`}
+                key={`${option.assetId ?? option.url}`}
                 className="overflow-hidden rounded-lg border border-slate-200 bg-white transition hover:border-violet-300"
               >
                 <button

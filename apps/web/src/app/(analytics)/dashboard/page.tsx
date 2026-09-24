@@ -908,11 +908,11 @@ export default function Dashboard() {
     {
       key: 'stockSoon', label: '발주 검토', value: count(reorderProductCount), unit: '개',
       note: '기존 소진 분석 · 매출 연결 상품', alert: (reorderProductCount ?? 0) > 0,
-      href: '/product-hub?inventoryFocus=reorder',
+      href: '/product-hub?inventoryFocus=reorder&activeStatus=all',
     },
     {
       key: 'stockOut', label: '품절 상품', value: count(outOfStockCount), unit: '개',
-      alert: (outOfStockCount ?? 0) > 0, href: '/product-hub?inventoryFocus=out_of_stock',
+      alert: (outOfStockCount ?? 0) > 0, href: '/product-hub?inventoryFocus=out_of_stock&activeStatus=all',
     },
     {
       key: 'stockMatching', label: '매칭 확인 필요', value: count(mappingAttentionCount), unit: '개',

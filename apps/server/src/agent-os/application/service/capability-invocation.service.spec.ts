@@ -444,7 +444,7 @@ describe('CapabilityInvocationService', () => {
       approvalDecidedByUserId: USER_ID,
       approvalDecidedAt: new Date(now - 1),
     };
-    const ownerResult = completedResult();
+    const ownerResult = { ...completedResult(), output: { candidateId: '00000000-0000-4000-8000-000000000004', salesProductId: null } };
     const result = receiptFrom(ownerResult);
     const succeeded = {
       ...pending,

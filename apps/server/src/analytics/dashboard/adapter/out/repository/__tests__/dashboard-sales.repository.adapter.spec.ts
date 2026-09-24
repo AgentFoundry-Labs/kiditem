@@ -1,3 +1,5 @@
+import { profitCatalogTestReaders } from '../../../../../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts } from '../../../../../../test-helpers/channel-fact-ports';
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
@@ -44,6 +46,12 @@ vi.mock(
   }),
 );
 
+type SalesAdapterArgs = ConstructorParameters<typeof DashboardSalesRepositoryAdapter>;
+function salesRepository(prisma: SalesAdapterArgs[3], products: SalesAdapterArgs[4], abc: SalesAdapterArgs[5]) {
+  const facts = channelFactTestPorts(prisma);
+  return new DashboardSalesRepositoryAdapter(facts.accounts, facts.listings, facts.recipes, prisma, products, abc, profitCatalogTestReaders(prisma as never).content);
+}
+
 const mockedReadProductAbcPublication = vi.mocked(readProductAbcPublication);
 const mockedReadOrderLineWindowFacts = vi.mocked(readOrderLineWindowFacts);
 const mockedReadSellpiaFacts = vi.mocked(readCurrentSellpiaProductMonthlyFacts);
@@ -88,8 +96,10 @@ const prismaWith = (topProductRows: unknown[]) => {
       ? [
           {
             id: `option-${index}`,
+            listingId: row.listingId,
             listing: {
               id: row.listingId,
+              channelAccountId: `account-${index}`,
               externalId: row.listingId,
               channelName: row.organization,
               displayName: row.name,
@@ -214,8 +224,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
       mappingGeneration: "5",
       calculatedAt: "2026-07-01T00:00:00.000Z",
     };
-    const repository = new DashboardSalesRepositoryAdapter(
-      prismaWith([
+    const repository = salesRepository(prismaWith([
         {
           id: "listing-1",
           listingId: "listing-1",
@@ -225,10 +234,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
           revenue: 10_000,
           quantity: 1,
         },
-      ]),
-      inventoryTransactionalRead(),
-      productAbcRead(),
-    );
+      ]), inventoryTransactionalRead(), productAbcRead());
     mockedReadProductAbcPublication.mockResolvedValue({
       currentFormulaRevision: 1,
       currentMappingGeneration: "5",
@@ -258,8 +264,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
   it.each([null, { abcGrade: "A", economicScore: 95 }])(
     "does not expose an official grade without a complete stored evaluation: %j",
     async (abcEvaluation) => {
-      const repository = new DashboardSalesRepositoryAdapter(
-        prismaWith([
+      const repository = salesRepository(prismaWith([
           {
             id: "listing-1",
             listingId: "listing-1",
@@ -270,10 +275,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
             revenue: 10_000,
             quantity: 1,
           },
-        ]),
-        inventoryTransactionalRead(),
-        productAbcRead(),
-      );
+        ]), inventoryTransactionalRead(), productAbcRead());
 
       const result = await repository.fetchTopProducts(
         "11111111-1111-4111-8111-111111111111",
@@ -303,8 +305,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
     ] as const;
 
     it("withholds profit for a line that settles against no listing", async () => {
-      const repository = new DashboardSalesRepositoryAdapter(
-        prismaWith([
+      const repository = salesRepository(prismaWith([
           {
             id: "line-sku:53889600",
             listingId: null,
@@ -314,10 +315,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
             revenue: 1_474_200,
             quantity: 12,
           },
-        ]),
-        inventoryTransactionalRead(),
-        productAbcRead(),
-      );
+        ]), inventoryTransactionalRead(), productAbcRead());
 
       const [row] = await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);
 
@@ -339,7 +337,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
           quantity: 1,
         },
       ]);
-      const repository = new DashboardSalesRepositoryAdapter(prisma, inventoryTransactionalRead(), productAbcRead());
+      const repository = salesRepository(prisma, inventoryTransactionalRead(), productAbcRead());
 
       await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);
 
@@ -364,7 +362,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
           quantity: 1,
         },
       ]);
-      const repository = new DashboardSalesRepositoryAdapter(prisma, inventoryTransactionalRead(), productAbcRead());
+      const repository = salesRepository(prisma, inventoryTransactionalRead(), productAbcRead());
       const settled = vi
         .spyOn(
           repository as unknown as {
@@ -388,8 +386,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
     });
 
     it("withholds profit for a ranked listing the helper had no answer for", async () => {
-      const repository = new DashboardSalesRepositoryAdapter(
-        prismaWith([
+      const repository = salesRepository(prismaWith([
           {
             id: "listing-1",
             listingId: "listing-1",
@@ -399,10 +396,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
             revenue: 10_000,
             quantity: 1,
           },
-        ]),
-        inventoryTransactionalRead(),
-        productAbcRead(),
-      );
+        ]), inventoryTransactionalRead(), productAbcRead());
 
       const [row] = await repository.fetchTopProducts(ORGANIZATION_ID, ...JULY);
 
@@ -470,11 +464,7 @@ describe("DashboardSalesRepositoryAdapter", () => {
       mappingGeneration: "5",
       calculatedAt: "2026-09-01T00:00:00.000Z",
     });
-    const repository = () => new DashboardSalesRepositoryAdapter(
-      prismaWith([]),
-      inventoryTransactionalRead(),
-      productAbcRead(),
-    );
+    const repository = () => salesRepository(prismaWith([]), inventoryTransactionalRead(), productAbcRead());
 
     beforeEach(() => mockedReadSellpiaFacts.mockReset());
 

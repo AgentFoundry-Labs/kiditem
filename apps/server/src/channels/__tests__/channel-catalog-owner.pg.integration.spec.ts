@@ -1,3 +1,7 @@
+import { realRegistrationStates } from '../../test-helpers/registration-state';
+import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
+import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
+import { ListingContentQueryRepositoryAdapter } from '../../content/adapter/out/repository/listing-content-query.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import { type INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -13,26 +17,26 @@ import {
 } from '../../test-helpers/real-prisma';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { readProductSaleAgeEvidence } from '../../common/product-sale-age';
-import { ChannelCatalogCollectionController } from '../adapter/in/http/channel-catalog-collection.controller';
-import { ChannelCatalogSourceController } from '../adapter/in/http/channel-catalog-source.controller';
+import { ChannelCatalogCollectionController } from '../adapter/in/web/channel-catalog-collection.controller';
+import { ChannelCatalogSourceController } from '../adapter/in/web/channel-catalog-source.controller';
 import {
   ChannelCatalogCollectionService,
   hashCatalogChunkPayload,
-} from '../application/service/channel-catalog-collection.service';
+} from '../application/service/collection/channel-catalog-collection.service';
 import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
 import { ChannelCatalogPublicationRepositoryAdapter } from '../adapter/out/repository/channel-catalog-publication.repository.adapter';
-import { AiCatalogMediaPublicationRepositoryAdapter } from '../../ai/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
+import { AiCatalogMediaPublicationRepositoryAdapter } from '../../content/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { CHANNEL_CATALOG_COLLECTION_PORT } from '../application/port/in/channel-catalog-collection.port';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { ChannelListingQueryService } from '../application/service/channel-listing-query.service';
-import { ChannelListingRepositoryAdapter } from '../adapter/out/repository/channel-listing.repository.adapter';
+import { ChannelListingQueryService } from '../application/service/listing/channel-listing-query.service';
+import { ChannelListingQueryPersistenceAdapter } from '../adapter/out/persistence/channel-listing-query.persistence.adapter';
 import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
-import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
-import { countPublishedCatalogListings } from '../read/completed-catalog-run';
+import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
+import { countPublishedCatalogListings } from '../adapter/out/repository/completed-catalog-run';
 import { SellpiaManualMatchRepositoryAdapter } from '../adapter/out/repository/sellpia-manual-match.repository.adapter';
 import { lockProductMapping } from '../../common/product-mapping-generation';
 import type { PrismaClient } from '@prisma/client';
@@ -45,6 +49,10 @@ import {
   productAbcSaleAgeDays,
 } from '@kiditem/shared/product-abc';
 import type { SellpiaManualMatchSnapshot } from '@kiditem/shared/sellpia-manual-match';
+import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
+
+const channelIntegrity = new ChannelIntegrityAdapter();
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const OTHER_ACCOUNT = '22222222-2222-4222-8222-222222222222';
@@ -59,7 +67,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
   let listings: ChannelListingQueryService;
   let matching: ChannelProductMatchingRepositoryAdapter;
   let manualMatch: SellpiaManualMatchRepositoryAdapter;
-  let recipes: ChannelOptionRecipeUseCase;
+  let recipes: ChannelOptionRecipeService;
   let expireAfterCatalogWrite = false;
   beforeAll(async () => {
     prisma = makeTestPrisma().$extends({
@@ -76,10 +84,10 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     }) as unknown as PrismaClient;
     await prisma.$connect();
     alerts = new SourceFailureAlerts(prisma as never);
-    listings = new ChannelListingQueryService(new ChannelListingRepositoryAdapter(prisma as never));
+    listings = new ChannelListingQueryService(new ChannelListingQueryPersistenceAdapter(prisma as never), new ListingContentQueryRepositoryAdapter(prisma as never), realRegistrationStates(prisma as never));
     const productTransactions = new ProductTransactionalReadRepositoryAdapter();
-    recipes = new ChannelOptionRecipeUseCase(
-      new ChannelOptionRecipeRepositoryAdapter(prisma as never, productTransactions),
+    recipes = new ChannelOptionRecipeService(
+      new ChannelOptionRecipeRepositoryAdapter(prisma as never, productTransactions, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
     );
     matching = new ChannelProductMatchingRepositoryAdapter(
       prisma as never,
@@ -94,13 +102,14 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     );
     const publisher = new ChannelCatalogPublicationRepositoryAdapter(
       prisma as never,
-      new AiCatalogMediaPublicationRepositoryAdapter(),
+      new AiCatalogMediaPublicationRepositoryAdapter(makeChannelListingQuery(prisma)),
       alerts,
       recipes,
+    new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
     const owner = new ChannelCatalogCollectionService(
       new ChannelCatalogCollectionRepositoryAdapter(prisma as never, alerts, publisher),
-      publisher,
+      publisher, channelIntegrity,
     );
     const module = await Test.createTestingModule({
       controllers: [ChannelCatalogCollectionController, ChannelCatalogSourceController],
@@ -185,7 +194,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       .send({
         kind: payload.kind,
         sequence,
-        checksum: hashCatalogChunkPayload(payload),
+        checksum: hashCatalogChunkPayload(payload, channelIntegrity.sha256),
         itemCount: 'items' in payload
           ? payload.items.length
           : 'products' in payload
@@ -497,17 +506,13 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
         status: 'active',
         isDeleted: false,
       },
-      select: {
-        contentGenerationGroups: {
-          where: { groupType: 'workspace_assets' },
-          select: { id: true },
-        },
-      },
+      select: { id: true },
     });
     return prisma.contentAsset.findMany({
       where: {
         organizationId: ORG,
-        originGenerationGroupId: { in: workspace.contentGenerationGroups.map((group) => group.id) },
+        contentWorkspaceId: workspace.id,
+        source: 'catalog',
       },
       orderBy: { url: 'asc' },
       select: { id: true, url: true, role: true, sortOrder: true, metadata: true, isDeleted: true },
@@ -1056,7 +1061,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     expect((await start(randomUUID(), 'wing-inventory-v1', 'basics').expect(201)).body.state).toBe('RUNNING');
   });
   it('refuses a workbook import while the account browser import hands off to or runs its details stage, naming the root', async () => {
-    const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts, recipes);
+    const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts, recipes, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
     const claim = () => importer.claimCoupangWingImport({
       organizationId: ORG,
       userId: USER,
@@ -1213,7 +1218,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     // One import runs per account: a browser import begins only once the file
     // import that claimed the account went stale, and that file import's later
     // publication still fences the browser snapshot out.
-    const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts, recipes);
+    const importer = new ChannelCatalogImportRepositoryAdapter(prisma as never, alerts, recipes, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
     const claim = await importer.claimCoupangWingImport({
       organizationId: ORG,
       userId: USER,

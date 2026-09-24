@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
 import type { INestApplication } from '@nestjs/common';
 import { Test } from '@nestjs/testing';
@@ -40,7 +41,7 @@ describe('Retained rank ordered admission/read incoming HTTP + PostgreSQL', () =
     prisma = makeTestPrisma();
     await prisma.$connect();
     const alerts = new SourceFailureAlerts(prisma as never);
-    const rank = new KeywordRankRepositoryAdapter(prisma as never);
+    const rank = new KeywordRankRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never);
     const service = new KeywordRankService(rank);
     const module = await Test.createTestingModule({
       controllers: [

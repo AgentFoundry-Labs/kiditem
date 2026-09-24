@@ -1,183 +1,163 @@
-import { render, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it, vi, beforeEach } from 'vitest';
+import type { ReactNode } from 'react';
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
+import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import { apiClient } from '@/lib/api-client';
 import ThumbnailsPage from '../page';
 
-const generation = {
-  id: '33333333-3333-4333-8333-333333333333',
-  contentWorkspaceId: '22222222-2222-4222-8222-222222222222',
-  status: 'succeeded',
-  phase: 'generated',
-  candidates: [],
-  selectedUrl: null,
-  originalUrl: 'https://cdn.example.com/source.jpg',
-  createdAt: '2026-05-08T00:00:00.000Z',
-  contentWorkspace: {
-    id: '22222222-2222-4222-8222-222222222222',
-    name: '검증용 상품',
-    imageUrl: 'https://cdn.example.com/source.jpg',
-    coupangProductId: null,
-    category: null,
-  },
-};
+// 서버 API 는 웹의 외부 경계라 apiClient 만 바꾼다.
+vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn(), put: vi.fn(), patch: vi.fn(), delete: vi.fn() } }));
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() } }));
 
-const failedGeneration = {
-  ...generation,
-  id: '44444444-4444-4444-8444-444444444444',
-  status: 'failed',
-  phase: null,
-  errorMessage: 'fetch failed',
-};
-
-const mockSearchParams = vi.hoisted(() => ({
-  value: new URLSearchParams(),
-  replace: vi.fn(),
-}));
-
+const searchParams = vi.hoisted(() => ({ value: new URLSearchParams() }));
 vi.mock('next/navigation', () => ({
-  useSearchParams: () => mockSearchParams.value,
+  useSearchParams: () => searchParams.value,
   usePathname: () => '/product-pipeline/thumbnail-ai',
-  useRouter: () => ({ replace: mockSearchParams.replace }),
+  useRouter: () => ({ replace: vi.fn(), push: vi.fn() }),
 }));
 
-vi.mock('sonner', () => ({
-  toast: { info: vi.fn(), success: vi.fn(), error: vi.fn() },
-}));
+const L1 = '00000000-0000-4000-8000-0000000000d1';
+const L2 = '00000000-0000-4000-8000-0000000000d2';
+const L3 = '00000000-0000-4000-8000-0000000000d3';
+const W1 = '00000000-0000-4000-8000-000000000001';
+const J1 = '00000000-0000-4000-8000-0000000000a1';
+const A1 = '00000000-0000-4000-8000-0000000000b1';
 
-vi.mock('../../_shared/components/thumbnails/DetailModal', () => ({
-  DetailModal: ({ gen }: { gen: { id: string } | null }) => <div data-testid="detail-modal">generation:{gen?.id}</div>,
-}));
+// 몰이 보고한 대표이미지(imageUrl)와 우리 작업공간의 대표이미지(thumbnailUrl)는 다르다 — 평가는 몰 것을 본다.
+const listing = (id: string, listingName: string, imageUrl: string | null) => ({
+  id, listingName, imageUrl, thumbnailUrl: `https://cdn/ours-${id.slice(-2)}.png`, detailPageRevisionId: null, channel: 'coupang', channelAccountId: null,
+  channelAccountName: '본점', externalId: id.slice(-2), channelName: listingName, category: null, brand: null, manufacturer: null,
+  channelPrice: null, salesProductId: null, sourceRecordId: null, contentWorkspaceId: W1, status: 'active', exposureStatus: null, optionCount: 1,
+  mappingStatus: 'matched', createdAt: '2026-09-23T00:00:00.000Z', updatedAt: '2026-09-23T00:00:00.000Z',
+});
 
-vi.mock('../hooks/useThumbnailAnalysis', () => ({
-  useAnalysisList: () => ({
-    data: { total: 0, allResults: [], unclassified: [] },
-    isLoading: false,
-    isError: false,
-    error: null,
-    refetch: vi.fn(),
-  }),
-}));
+const evaluation = {
+  id: '00000000-0000-4000-8000-0000000000f1', channelListingId: L1, imageUrl: 'https://mall/a.jpg', grade: 'C', score: 62,
+  details: { suggestions: ['상품을 더 크게'] }, method: 'vision_model', modelId: 'gemini-3.1-flash-lite', evaluatedAt: '2026-09-23T01:00:00.000Z',
+};
 
-vi.mock('../../_shared/hooks/useThumbnailGenerations', () => ({
-  useGenerationList: () => ({
-    data: [generation, failedGeneration],
-    refetch: vi.fn(),
-  }),
-}));
+function renderPage() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  const wrapper = ({ children }: { children: ReactNode }) => <QueryClientProvider client={client}>{children}</QueryClientProvider>;
+  return render(<ThumbnailsPage />, { wrapper });
+}
 
-vi.mock('../hooks/useThumbnailTracking', () => ({
-  useTrackingList: () => ({
-    data: { items: [], total: 0 },
-    isLoading: false,
-  }),
-}));
+beforeEach(() => {
+  vi.clearAllMocks();
+  searchParams.value = new URLSearchParams();
+  vi.mocked(apiClient.get).mockImplementation(async (href: string) => {
+    if (href.startsWith('/api/channels/listings')) {
+      return { items: [listing(L1, '곰돌이 우산', 'https://mall/a.jpg'), listing(L2, '토끼 컵', 'https://mall/b.jpg'), listing(L3, '사진 없는 컵', null)], total: 3, page: 1, limit: 50, marketCounts: [] };
+    }
+    if (href.startsWith('/api/ai/thumbnail-jobs')) {
+      return {
+        items: [{ id: J1, contentWorkspaceId: W1, status: 'succeeded', method: 'edit', prompt: null, errorMessage: null, attemptCount: 1, createdAt: '2026-09-23T00:00:00.000Z', updatedAt: '2026-09-23T00:00:00.000Z' }],
+        candidates: [{ id: A1, contentWorkspaceId: W1, source: 'ai', role: 'thumbnail', url: 'https://cdn/a1.png', label: null, sortOrder: 0, width: null, height: null, thumbnailGenerationId: J1, isCurrentThumbnail: false, createdAt: '2026-09-23T00:00:00.000Z' }],
+        workspaces: [{ id: W1, salesProductId: null, name: '곰돌이 우산', imageUrl: null }],
+        total: 1,
+      };
+    }
+    return { items: [] };
+  });
+  vi.mocked(apiClient.post).mockImplementation(async (href: string) => {
+    if (href === '/api/ai/listing-thumbnails/current') {
+      return { evaluations: [evaluation], summary: { evaluated: 1, unevaluated: 1, byGrade: { S: 0, A: 0, B: 0, C: 1, D: 0, F: 0 } } };
+    }
+    return { evaluation: { ...evaluation, channelListingId: L2, imageUrl: 'https://mall/b.jpg', grade: 'A', score: 88 }, imageSpec: null };
+  });
+});
+afterEach(cleanup);
 
-vi.mock('../hooks/useBatchAnalysis', () => ({
-  useBatchAnalysis: () => ({
-    run: vi.fn(),
-    isBatchRunning: false,
-    batchDone: 0,
-    batchTotal: 0,
-    elapsed: 0,
-    cancel: vi.fn(),
-  }),
-}));
+describe('thumbnail AI page', () => {
+  it('has only the listing evaluation and AI edit tabs', async () => {
+    renderPage();
 
-vi.mock('../hooks/useThumbnailActions', () => ({
-  useThumbnailActions: () => ({
-    aiResults: {},
-    aiAnalyzingId: null,
-    mergeAiResults: vi.fn(),
-    editSingle: vi.fn(),
-    editBatch: vi.fn(),
-    runAiAnalysis: vi.fn(),
-    selectCandidate: vi.fn(),
-    openCoupangEdit: vi.fn(),
-    skipGeneration: vi.fn(),
-    deleteGeneration: vi.fn(),
-  }),
-}));
-
-vi.mock('@/components/ui/EmptyState', () => ({
-  EmptyState: ({ message }: { message: string }) => <div>{message}</div>,
-  ErrorState: ({ message }: { message: string }) => <div>{message}</div>,
-}));
-vi.mock('@/components/ui/PageSkeleton', () => ({
-  default: () => <div>loading</div>,
-}));
-vi.mock('@/components/ui/ConfirmDialog', () => ({
-  ConfirmDialog: () => null,
-}));
-
-vi.mock('../components/ThumbnailHeader', () => ({
-  ThumbnailHeader: () => <div />,
-}));
-vi.mock('../components/BatchProgressBanner', () => ({
-  BatchProgressBanner: () => <div />,
-}));
-vi.mock('../components/GradeDistributionDonut', () => ({
-  GradeDistributionDonut: () => <div />,
-}));
-vi.mock('../components/AiActionCenter', () => ({
-  AiActionCenter: () => <div />,
-}));
-vi.mock('../components/ComplianceCard', () => ({
-  ComplianceCard: () => <div />,
-}));
-vi.mock('../components/AnalyticsCard', () => ({
-  AnalyticsCard: () => <div />,
-}));
-vi.mock('../components/PipelineVisualization', () => ({
-  PipelineVisualization: () => <div />,
-}));
-vi.mock('../components/ThumbnailMainTabs', () => ({
-  ThumbnailMainTabs: () => <div />,
-}));
-vi.mock('../components/UnclassifiedTab', () => ({
-  UnclassifiedTab: () => <div />,
-}));
-vi.mock('../components/ScanResultsTab', () => ({
-  ScanResultsTab: () => <div />,
-}));
-vi.mock('../components/AiEditTab', () => ({
-  AiEditTab: ({ editFilter }: { editFilter: string }) => <div data-testid="ai-edit-tab">filter:{editFilter}</div>,
-}));
-vi.mock('../components/HistoryTab', () => ({ HistoryTab: () => <div /> }));
-vi.mock('../components/InspectionDrawer', () => ({
-  InspectionDrawer: () => <div />,
-}));
-
-describe('ThumbnailsPage deep links', () => {
-  beforeEach(() => {
-    mockSearchParams.value = new URLSearchParams();
-    mockSearchParams.replace.mockReset();
+    expect(await screen.findByRole('tab', { name: /리스팅 평가/ })).toBeTruthy();
+    expect(screen.getByRole('tab', { name: /AI 편집/ })).toBeTruthy();
+    expect(screen.getAllByRole('tab')).toHaveLength(2);
+    expect(screen.queryByText(/추적|분석 이력|미분류/)).toBeNull();
   });
 
-  it('opens the matching generation when generationId is provided in the URL', async () => {
-    mockSearchParams.value = new URLSearchParams(`generationId=${generation.id}`);
+  it('reads the evaluation of each listing image the mall shows and its grade summary', async () => {
+    renderPage();
 
-    render(<ThumbnailsPage />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('detail-modal')).toHaveTextContent(`generation:${generation.id}`);
+    const row = await screen.findByTestId(`listing-evaluation-${L1}`);
+    await waitFor(() => expect(within(row).getByText('C')).toBeTruthy());
+    expect(within(row).getByText('62점')).toBeTruthy();
+    expect(within(screen.getByTestId(`listing-evaluation-${L2}`)).getByText('미평가')).toBeTruthy();
+    expect(apiClient.post).toHaveBeenCalledWith('/api/ai/listing-thumbnails/current', {
+      listings: [
+        { channelListingId: L1, imageUrl: 'https://mall/a.jpg' },
+        { channelListingId: L2, imageUrl: 'https://mall/b.jpg' },
+        { channelListingId: L3, imageUrl: null },
+      ],
     });
   });
 
-  it('opens failed generation deep links on the failed edit filter', async () => {
-    mockSearchParams.value = new URLSearchParams(`generationId=${failedGeneration.id}`);
+  it('cannot evaluate a listing whose mall reported no representative image', async () => {
+    renderPage();
 
-    render(<ThumbnailsPage />);
-
-    await waitFor(() => {
-      expect(screen.getByTestId('detail-modal')).toHaveTextContent(`generation:${failedGeneration.id}`);
-    });
-    expect(screen.getByTestId('ai-edit-tab')).toHaveTextContent('filter:failed');
+    const row = await screen.findByTestId(`listing-evaluation-${L3}`);
+    fireEvent.change(screen.getByRole('combobox', { name: '평가 모델' }), { target: { value: 'gemini-3.1-flash-lite' } });
+    expect(within(row).getByText('몰 대표이미지 없음')).toBeTruthy();
+    expect((within(row).getByRole('button', { name: '평가' }) as HTMLButtonElement).disabled).toBe(true);
   });
 
-  it('opens the AI edit tab from returnTo query params', async () => {
-    mockSearchParams.value = new URLSearchParams('tab=ai-edit&editFilter=ready');
+  it('evaluates a listing image only after the operator picks a model', async () => {
+    renderPage();
 
-    render(<ThumbnailsPage />);
+    const row = await screen.findByTestId(`listing-evaluation-${L2}`);
+    const evaluate = within(row).getByRole('button', { name: '평가' });
+    expect((evaluate as HTMLButtonElement).disabled).toBe(true);
 
-    expect(screen.getByTestId('ai-edit-tab')).toHaveTextContent('filter:ready');
+    fireEvent.change(screen.getByRole('combobox', { name: '평가 모델' }), { target: { value: 'gemini-3.1-flash-lite' } });
+    fireEvent.click(within(screen.getByTestId(`listing-evaluation-${L2}`)).getByRole('button', { name: '평가' }));
+
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(`/api/ai/listing-thumbnails/${L2}/evaluate`, {
+      imageUrl: 'https://mall/b.jpg',
+      modelId: 'gemini-3.1-flash-lite',
+    }));
+  });
+
+  it('evaluates a page of listings one by one and reads the current evaluations once afterwards', async () => {
+    const base = vi.mocked(apiClient.post).getMockImplementation()!;
+    vi.mocked(apiClient.post).mockImplementation(async (href: string, body?: unknown) => (
+      href === '/api/ai/listing-thumbnails/current'
+        ? { evaluations: [], summary: { evaluated: 0, unevaluated: 2, byGrade: { S: 0, A: 0, B: 0, C: 0, D: 0, F: 0 } } }
+        : base(href, body)
+    ));
+    renderPage();
+    const currentPosts = () => vi.mocked(apiClient.post).mock.calls.filter(([href]) => href === '/api/ai/listing-thumbnails/current').length;
+    await waitFor(() => expect(currentPosts()).toBe(1));
+
+    fireEvent.change(screen.getByRole('combobox', { name: '평가 모델' }), { target: { value: 'gemini-3.1-flash-lite' } });
+    fireEvent.click(await screen.findByRole('button', { name: /미평가 2개 평가/ }));
+
+    await waitFor(() => expect(vi.mocked(apiClient.post).mock.calls.filter(([href]) => String(href).endsWith('/evaluate'))).toHaveLength(2));
+    await waitFor(() => expect(currentPosts()).toBe(2));
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    expect(currentPosts()).toBe(2);
+  });
+
+  it('waits for the operator to stop typing before searching listings', async () => {
+    renderPage();
+    await screen.findByTestId(`listing-evaluation-${L1}`);
+    const searched = () => vi.mocked(apiClient.get).mock.calls.filter(([href]) => String(href).includes('search=%EC%BB%B5')).length;
+
+    fireEvent.change(screen.getByRole('textbox', { name: '리스팅 검색' }), { target: { value: '컵' } });
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(searched()).toBe(0);
+
+    await waitFor(() => expect(searched()).toBe(1));
+  });
+
+  it('adopts an AI candidate as the workspace representative image from the AI edit tab', async () => {
+    searchParams.value = new URLSearchParams('tab=ai-edit');
+    vi.mocked(apiClient.patch).mockResolvedValue({ id: A1, isCurrentThumbnail: true });
+    renderPage();
+
+    fireEvent.click(await screen.findByRole('button', { name: '대표이미지로 채택' }));
+
+    await waitFor(() => expect(apiClient.patch).toHaveBeenCalledWith(`/api/ai/content-workspaces/${W1}/current-thumbnail`, { assetId: A1 }));
   });
 });

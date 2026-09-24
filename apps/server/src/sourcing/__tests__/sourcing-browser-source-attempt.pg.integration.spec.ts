@@ -1,3 +1,4 @@
+import { unusedSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
 import { createHash } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
@@ -359,7 +360,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
     };
     const failingOwner = new SourcingBrowserSourceAttemptRepositoryAdapter(
       prisma as unknown as PrismaService,
-      alerts,
+      alerts, unusedSalesProductDraftPort
     );
     const { attempt } = await failingOwner.beginAttempt(beginInput('alert-rollback'));
 
@@ -895,7 +896,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
 function createOwner(prisma: PrismaClient): SourcingBrowserSourceAttemptRepositoryAdapter {
   return new SourcingBrowserSourceAttemptRepositoryAdapter(
     prisma as unknown as PrismaService,
-    new SourceFailureAlerts(prisma as never),
+    new SourceFailureAlerts(prisma as never), unusedSalesProductDraftPort
   );
 }
 

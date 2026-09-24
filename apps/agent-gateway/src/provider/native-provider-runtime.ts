@@ -21,7 +21,9 @@ import type { ProcessSupervisor, SupervisedProcess } from '../platform/process-s
 import { gatewayProviderInvocation, providerEnvironment } from './provider-command';
 import type { ProviderConversationPort } from './provider-conversation.port';
 
-const CLAUDE_MODELS = Object.freeze(['claude-opus-4-6', 'claude-sonnet-4-5']);
+// Current-generation Claude CLI models the Gateway may launch. Bump with the
+// runtime train; replace the Opus entry with the Opus 5.5 ID once it ships.
+const CLAUDE_MODELS = Object.freeze(['claude-opus-5', 'claude-sonnet-5']);
 const CLAUDE_REASONING_EFFORTS = Object.freeze(['low', 'medium', 'high', 'xhigh', 'max']);
 
 /**
@@ -137,7 +139,7 @@ export function codexProviderReadiness(catalog: readonly CodexModelCapability[])
   }
 }
 
-/** Claude 2.1.245 documents these five exact effort values; no effort default exists. */
+/** The Claude CLI accepts the five API effort levels; the Gateway sends one explicitly on every launch. */
 export function claudeProviderReadiness(): ProviderReadiness {
   return ProviderReadinessSchema.parse({
     runtime: 'claude_cli',

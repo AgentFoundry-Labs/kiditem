@@ -1,3 +1,5 @@
+import { profitCatalogTestReaders } from '../../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts, channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
 import { describe, it, expect, afterEach, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
@@ -126,6 +128,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     await prisma.$connect();
     const m = await Test.createTestingModule({
       providers: [
+        ...channelFactTestProviders,
         DashboardSalesService,
         DashboardSalesRepositoryAdapter,
         WingTrafficAggregationRepositoryAdapter,
@@ -1221,7 +1224,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     const REQUESTED = ['2026-03-01', '2026-03-02', '2026-03-03'];
 
     function buildAdapter(): ProfitCalculationRepositoryAdapter {
-      return new ProfitCalculationRepositoryAdapter(
+      return new ProfitCalculationRepositoryAdapter(channelFactTestPorts(prisma as unknown as PrismaService).accounts, channelFactTestPorts(prisma as unknown as PrismaService).recipes,
         prisma as unknown as PrismaService,
         new ProductTransactionalReadRepositoryAdapter(),
       );
@@ -1402,7 +1405,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         },
       });
       await publishedRows();
-      const failed = await new ProfitCalculationRepositoryAdapter(
+      const failed = await new ProfitCalculationRepositoryAdapter(channelFactTestPorts(broken as unknown as PrismaService).accounts, channelFactTestPorts(broken as unknown as PrismaService).recipes,
         broken as unknown as PrismaService,
         new ProductTransactionalReadRepositoryAdapter(),
       )
@@ -1558,18 +1561,18 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
 
     async function profitEverywhere() {
       const client = prisma as unknown as PrismaService;
-      const card = await new ProfitCalculationRepositoryAdapter(
+      const card = await new ProfitCalculationRepositoryAdapter(channelFactTestPorts(client).accounts, channelFactTestPorts(client).recipes,
         client,
         new ProductTransactionalReadRepositoryAdapter(),
       )
         .calculateForRange(TEST_ORGANIZATION_ID, periodOf(FROM, TO, { anchor: AFTER }));
-      const topProducts = await new DashboardSalesRepositoryAdapter(
+      const topProducts = await new DashboardSalesRepositoryAdapter(channelFactTestPorts(client).accounts, channelFactTestPorts(client).listings, channelFactTestPorts(client).recipes,
         client,
         new ProductTransactionalReadRepositoryAdapter(),
-        productAbcRead(prisma),
+        productAbcRead(prisma), profitCatalogTestReaders(client as never).content
       )
         .fetchTopProducts(TEST_ORGANIZATION_ID, FROM, TO);
-      const profitLoss = await new ProfitLossService(client, new ProductTransactionalReadRepositoryAdapter())
+      const profitLoss = await new ProfitLossService(client, new ProductTransactionalReadRepositoryAdapter(), profitCatalogTestReaders(client as never).accounts, profitCatalogTestReaders(client as never).listings, profitCatalogTestReaders(client as never).recipes, profitCatalogTestReaders(client as never).content)
         .findAll(TEST_ORGANIZATION_ID, 2026, 3, AFTER);
       return {
         card: card.netProfit,

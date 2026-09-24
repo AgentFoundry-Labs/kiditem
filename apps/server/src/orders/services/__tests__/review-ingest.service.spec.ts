@@ -10,7 +10,6 @@ interface PrismaMock {
     upsert: ReturnType<typeof vi.fn>;
     findMany: ReturnType<typeof vi.fn>;
   };
-  channelListingOption: { findMany: ReturnType<typeof vi.fn> };
   $transaction: ReturnType<typeof vi.fn>;
 }
 
@@ -20,7 +19,6 @@ function makePrismaMock(): PrismaMock {
       upsert: vi.fn((args: unknown) => args),
       findMany: vi.fn().mockResolvedValue([]),
     },
-    channelListingOption: { findMany: vi.fn().mockResolvedValue([]) },
     $transaction: vi.fn(),
   };
   prisma.$transaction.mockImplementation(async (operation: unknown) => {
@@ -30,6 +28,10 @@ function makePrismaMock(): PrismaMock {
     return Promise.all(operation as Promise<unknown>[]);
   });
   return prisma;
+}
+
+function makeChannelListings() {
+  return { readOptionCandidates: vi.fn().mockResolvedValue([]) };
 }
 
 function makeItem(overrides: Partial<ReviewIngestItem> = {}): ReviewIngestItem {
@@ -54,10 +56,11 @@ function makeItem(overrides: Partial<ReviewIngestItem> = {}): ReviewIngestItem {
 describe('ReviewIngestService.ingest', () => {
   it('links a review to the listing that owns the crawled vendorItemId', async () => {
     const prisma = makePrismaMock();
-    prisma.channelListingOption.findMany.mockResolvedValue([
-      { externalOptionId: '5347669049', listingId: LISTING_ID },
+    const channelListings = makeChannelListings();
+    channelListings.readOptionCandidates.mockResolvedValue([
+      { externalOptionId: '5347669049', optionId: 'option-1', listingId: LISTING_ID, accountId: 'account-1', itemName: 'Option' },
     ]);
-    const svc = new ReviewIngestService(prisma as never);
+    const svc = new ReviewIngestService(prisma as never, channelListings as never);
 
     const res = await svc.ingest(ORGANIZATION_ID, {
       platform: 'coupang',
@@ -73,6 +76,10 @@ describe('ReviewIngestService.ingest', () => {
     });
     const upsertArgs = prisma.review.upsert.mock.calls[0][0];
     expect(upsertArgs.create.listingId).toBe(LISTING_ID);
+    expect(channelListings.readOptionCandidates).toHaveBeenCalledWith(
+      expect.any(Object),
+      { organizationId: ORGANIZATION_ID, channel: 'coupang', externalOptionIds: ['5347669049'] },
+    );
     expect(upsertArgs.where.organizationId_platform_externalReviewId).toEqual({
       organizationId: ORGANIZATION_ID,
       platform: 'coupang',
@@ -82,7 +89,7 @@ describe('ReviewIngestService.ingest', () => {
 
   it('keeps an unmatched review with a null listing instead of dropping it', async () => {
     const prisma = makePrismaMock();
-    const svc = new ReviewIngestService(prisma as never);
+    const svc = new ReviewIngestService(prisma as never, makeChannelListings() as never);
 
     const res = await svc.ingest(ORGANIZATION_ID, {
       platform: 'coupang',
@@ -100,7 +107,7 @@ describe('ReviewIngestService.ingest', () => {
     prisma.review.findMany.mockResolvedValue([
       { externalReviewId: '962186164' },
     ]);
-    const svc = new ReviewIngestService(prisma as never);
+    const svc = new ReviewIngestService(prisma as never, makeChannelListings() as never);
 
     const res = await svc.ingest(ORGANIZATION_ID, {
       platform: 'coupang',
@@ -112,7 +119,7 @@ describe('ReviewIngestService.ingest', () => {
 
   it('collapses duplicates inside one batch so the transaction cannot self-conflict', async () => {
     const prisma = makePrismaMock();
-    const svc = new ReviewIngestService(prisma as never);
+    const svc = new ReviewIngestService(prisma as never, makeChannelListings() as never);
 
     const res = await svc.ingest(ORGANIZATION_ID, {
       platform: 'coupang',
@@ -125,18 +132,20 @@ describe('ReviewIngestService.ingest', () => {
     expect(prisma.review.upsert.mock.calls[0][0].update.rating).toBe(5);
   });
 
-  it('scopes the option lookup to the caller organization', async () => {
+  it('leaves an option ambiguous across accounts unlinked', async () => {
     const prisma = makePrismaMock();
-    const svc = new ReviewIngestService(prisma as never);
+    const channelListings = makeChannelListings();
+    channelListings.readOptionCandidates.mockResolvedValue([
+      { externalOptionId: '5347669049', optionId: 'option-1', listingId: LISTING_ID, accountId: 'account-1', itemName: 'Option A' },
+      { externalOptionId: '5347669049', optionId: 'option-2', listingId: '22222222-2222-4222-8222-222222222222', accountId: 'account-2', itemName: 'Option B' },
+    ]);
+    const svc = new ReviewIngestService(prisma as never, channelListings as never);
 
     await svc.ingest(ORGANIZATION_ID, {
       platform: 'coupang',
       items: [makeItem()],
     });
 
-    expect(prisma.channelListingOption.findMany.mock.calls[0][0].where).toEqual({
-      organizationId: ORGANIZATION_ID,
-      externalOptionId: { in: ['5347669049'] },
-    });
+    expect(prisma.review.upsert.mock.calls[0][0].create.listingId).toBeNull();
   });
 });

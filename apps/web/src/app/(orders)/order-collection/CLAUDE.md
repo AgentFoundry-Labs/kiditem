@@ -27,8 +27,8 @@ convenience history.
   re-read on that signal and on window focus. Do not keep a mount-only snapshot:
   file actions, previews, and `신규` read that list.
 - Reading today's and `신규` counts from that browser store is temporary. One
-  browser holds them, so another device or a cleared browser sees none. KID-234
-  moves the counts to the Orders reader; until it lands, do not add a new count
+  browser holds them, so another device or a cleared browser sees none. The counts
+  move to the Orders reader later; until then, do not add a new count
   on this store.
 - A mall whose auto-login is blocked (`mall-login-block`) is off limits to every
   automatic driver — the agent loop and this screen's 자동감지 both skip it, and
@@ -41,12 +41,12 @@ convenience history.
 - 어느 소유자의 시도인지(`run.sourceOwner`)는 수집기 안까지 그대로 들고 간다. 수집기가 run 을
   다시 만들 때 이 칸을 빠뜨리면 쿠팡직배송 시도가 몰 소유자에게 가고, 몰 쪽에는 그 시도가
   없으므로 `ORDER_COLLECTION_ATTEMPT_NOT_FOUND` 로 끝난다 — 진짜 원인은 가려진 채 그 문구만
-  뜬다(2026-09-21 라이브).
+  뜬다.
 - 우리 API 가 스스로 막은 요청은 몰의 실패가 아니다. `isApiThrottledMessage` 로 가려
   `ThrottlerException: Too Many Requests` 대신 무슨 일인지 말하고, 로그인 문제로 적지
-  않는다 — 그렇게 적으면 멀쩡한 몰에 다시 로그인하러 가게 된다(2026-09-21 라이브).
+  않는다 — 그렇게 적으면 멀쩡한 몰에 다시 로그인하러 가게 된다.
 - 자동 감지는 운영자가 켤 때만 돈다. 간격만 저장하고 켜짐은 저장하지 않는다 — 새로고침 ·
-  탭 복원 · 서버 재시작 뒤에는 사람이 다시 켠다(KID-106 Q1). 자동 운전 고리도 같다.
+  탭 복원 · 서버 재시작 뒤에는 사람이 다시 켠다. 자동 운전 고리도 같다.
 - Discovery distinguishes ready, incompatible, and absent states. Preserve
   versioned failure evidence; only explicit authenticated empty evidence is a
   successful zero.

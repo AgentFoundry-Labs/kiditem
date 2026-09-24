@@ -3,6 +3,7 @@ import {
   ChannelSkuAvailabilityItemSchema,
   ChannelSkuAvailabilityListResponseSchema,
   ChannelSkuAvailabilityQuerySchema,
+  isChannelSkuOutOfStock,
 } from './channel-sku-availability';
 
 const accountId = '11111111-1111-4111-8111-111111111111';
@@ -12,6 +13,33 @@ const productId = '44444444-4444-4444-8444-444444444444';
 const inventorySkuId = '55555555-5555-4555-8555-555555555555';
 
 describe('direct channel option availability contracts', () => {
+  it('accepts mixed confirmed composition without a single listing product summary', () => {
+    expect(ChannelSkuAvailabilityItemSchema.parse(item({
+      masterProductId: null, recipeStatus: 'matched', mappingStatus: 'matched',
+      sellableStock: 9, components: [component()],
+    })).sku.sellableStock).toBe(9);
+  });
+  it('compares known complete sets to the threshold, including equality', () => {
+    const value = item({ masterProductId: productId, recipeStatus: 'matched', mappingStatus: 'matched', sellableStock: 3, components: [component()] });
+    value.sku.safetyStock = 3;
+    expect(isChannelSkuOutOfStock(value)).toBe(true);
+    value.sku.sellableStock = 4;
+    expect(isChannelSkuOutOfStock(value)).toBe(false);
+    value.sku.sellableStock = null;
+    expect(isChannelSkuOutOfStock(value)).toBe(false);
+    value.sku.sellableStock = 0;
+    value.sku.mappingStatus = 'needs_review';
+    expect(isChannelSkuOutOfStock(value)).toBe(false);
+  });
+  it('rejects a numeric capacity for unknown composition', () => {
+    const value = item({ masterProductId: null, recipeStatus: 'review_required', mappingStatus: 'needs_review', sellableStock: 0, components: [component()] });
+    expect(ChannelSkuAvailabilityItemSchema.safeParse(value).success).toBe(false);
+  });
+  it.each([-1, 0.5, 2_147_483_648])('rejects invalid stored threshold %s', (threshold) => {
+    const value = item({ masterProductId: productId, recipeStatus: 'matched', mappingStatus: 'matched', sellableStock: 3, components: [component()] });
+    value.sku.safetyStock = threshold;
+    expect(ChannelSkuAvailabilityItemSchema.safeParse(value).success).toBe(false);
+  });
   it('keeps an unlinked channel option stock unknown', () => {
     const parsed = ChannelSkuAvailabilityItemSchema.parse(item({
       masterProductId: null,
@@ -113,6 +141,7 @@ function item(overrides: {
       barcode: null,
       modelNumber: null,
       salePrice: 12_000,
+      safetyStock: 0,
       status: 'active',
       mappingStatus: overrides.mappingStatus,
       sellableStock: overrides.sellableStock,

@@ -22,13 +22,13 @@ describe('ConversationPreferenceStore', () => {
     const store = new ConversationPreferenceStore({ stateRoot: await fixtureRoot(), platform: 'macos' });
 
     await store.set({ context: 'general', runtime: 'codex_cli', model: 'gpt-5.6', reasoningEffort: 'medium' });
-    await store.set({ context: 'sourcing', runtime: 'claude_cli', model: 'claude-opus-4-6', reasoningEffort: 'high' });
+    await store.set({ context: 'sourcing', runtime: 'claude_cli', model: 'claude-opus-5', reasoningEffort: 'high' });
 
     await expect(store.read()).resolves.toEqual({
       schemaVersion: 1,
       contexts: {
         general: { codex_cli: { model: 'gpt-5.6', reasoningEffort: 'medium' } },
-        sourcing: { claude_cli: { model: 'claude-opus-4-6', reasoningEffort: 'high' } },
+        sourcing: { claude_cli: { model: 'claude-opus-5', reasoningEffort: 'high' } },
       },
     });
   });
@@ -39,7 +39,7 @@ describe('ConversationPreferenceStore', () => {
 
     await Promise.all([
       store.set({ context: 'general', runtime: 'codex_cli', model: 'gpt-5.6', reasoningEffort: 'medium' }),
-      store.set({ context: 'sourcing', runtime: 'claude_cli', model: 'claude-opus-4-6', reasoningEffort: 'high' }),
+      store.set({ context: 'sourcing', runtime: 'claude_cli', model: 'claude-opus-5', reasoningEffort: 'high' }),
     ]);
     const first = store.set({ context: 'general', runtime: 'codex_cli', model: 'gpt-5.6', reasoningEffort: 'low' });
     const second = store.set({ context: 'general', runtime: 'codex_cli', model: 'gpt-5.7', reasoningEffort: 'xhigh' });
@@ -51,14 +51,14 @@ describe('ConversationPreferenceStore', () => {
       schemaVersion: 1,
       contexts: {
         general: { codex_cli: { model: 'gpt-5.7', reasoningEffort: 'xhigh' } },
-        sourcing: { claude_cli: { model: 'claude-opus-4-6', reasoningEffort: 'high' } },
+        sourcing: { claude_cli: { model: 'claude-opus-5', reasoningEffort: 'high' } },
       },
     });
     await expect(store.read()).resolves.toEqual({
       schemaVersion: 1,
       contexts: {
         general: { codex_cli: { model: 'gpt-5.7', reasoningEffort: 'xhigh' } },
-        sourcing: { claude_cli: { model: 'claude-opus-4-6', reasoningEffort: 'high' } },
+        sourcing: { claude_cli: { model: 'claude-opus-5', reasoningEffort: 'high' } },
       },
     });
   });

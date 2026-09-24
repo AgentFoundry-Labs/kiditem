@@ -1,22 +1,21 @@
 'use client';
 
 import Link from 'next/link';
-import { useRouter } from 'next/navigation';
 import { use, useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowLeft, Save, Undo2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeft, Save } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   SALES_PRODUCT_DELIVERY_FEE_TYPES,
-  SALES_PRODUCT_STATUSES,
   SALES_PRODUCT_TAX_TYPES,
   type SalesProduct,
 } from '@kiditem/shared/sales-product';
 import { isApiError } from '@/lib/api-error';
+import { KC_STATUS_SELECT_OPTIONS, kcStatusFromSelectValue, kcStatusSelectValue } from '@/lib/kc-status';
 import { cn } from '@/lib/utils';
-import { useStore } from '@/store/useStore';
 import { ChannelListingsSection } from '../components/ChannelListingsSection';
 import { ChannelOverridesSection } from '../components/ChannelOverridesSection';
+import { ContentDetailSection } from '../components/ContentDetailSection';
 import { OptionTableEditor } from '../components/OptionTableEditor';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import {
@@ -38,7 +37,6 @@ import {
   SALES_PRODUCT_STATUS_TONE,
   TAX_TYPE_LABEL,
 } from '../lib/sales-product-labels';
-import { salesProductDemoteState } from '../lib/sales-product-demote';
 
 const SECTIONS = [
   { id: 'basics', label: '기본 정보' },
@@ -97,7 +95,9 @@ function Editor({ product }: { product: SalesProduct }) {
   const [basics, setBasics] = useState<BasicsDraft>(() => basicsFromProduct(product));
   const [options, setOptions] = useState<OptionTableDraft>(() => optionsFromProduct(product));
   const commonTagPrice = commonNormalPrice(options);
-  const patch = useMemo(() => basicsPatch(product, basics), [product, basics]);
+  // 상태는 고치는 칸이 아니다 — 판매 상품을 보관하는 요청만 둔다(KID-313).
+  const [archive, setArchive] = useState(false);
+  const patch = useMemo(() => basicsPatch(product, basics, { archive }), [product, basics, archive]);
   const optionsDirty = useMemo(() => optionsChanged(product, options), [product, options]);
   const problems = useMemo(() => optionTableProblems(options), [options]);
   const dirty = patch !== null || optionsDirty;
@@ -121,6 +121,8 @@ function Editor({ product }: { product: SalesProduct }) {
     onSuccess: (next) => {
       queryClient.setQueryData(salesProductKeys.detail(product.id), next);
       void queryClient.invalidateQueries({ queryKey: [...salesProductKeys.all, 'list'] });
+      // 판매상품 쓰기는 version 을 올려 몰 계정별 "변경됨"을 바꿀 수 있다 — 등록 상태도 다시 읽는다(KID-320).
+      void queryClient.invalidateQueries({ queryKey: salesProductKeys.registrationState(product.id) });
       toast.success('저장했습니다.');
     },
     onError: (error) => toast.error(isApiError(error) ? error.detail : '저장하지 못했습니다.'),
@@ -129,63 +131,23 @@ function Editor({ product }: { product: SalesProduct }) {
   const set = <K extends keyof BasicsDraft>(key: K, value: BasicsDraft[K]) =>
     setBasics((current) => ({ ...current, [key]: value }));
 
-  // 수집상품으로 되돌리기 — 수집상품에서 만든 판매상품만. 지우지 않고 내려 두어, 다시 올리면 같은 코드로 되살아난다.
-  const router = useRouter();
-  const showConfirm = useStore((store) => store.showConfirm);
-  const demoteState = salesProductDemoteState(product);
-  const demote = useMutation({
-    mutationFn: () => salesProductApi.demoteToCandidate(product.id, product.version),
-    onSuccess: (next) => {
-      queryClient.setQueryData(salesProductKeys.detail(product.id), next);
-      void queryClient.invalidateQueries({ queryKey: [...salesProductKeys.all, 'list'] });
-      toast.success(`${product.code}을(를) 수집상품으로 되돌렸습니다.`);
-      router.push('/product-hub/sales-products');
-    },
-    onError: (error) => toast.error(isApiError(error) ? error.detail : '수집상품으로 되돌리지 못했습니다.'),
-  });
-  const askDemote = () => showConfirm({
-    title: '수집상품으로 되돌릴까요?',
-    message: `${product.code} ${product.name}이(가) 판매상품 목록과 몰 대량등록에서 빠집니다. 지우지는 않아서 코드와 몰별 값이 남고, `
-      + '수집상품 화면에서 다시 [몰 대량등록]을 누르면 그대로 되살아납니다.',
-    confirmText: '되돌리기',
-    onConfirm: () => demote.mutate(),
-  });
-
   return (
     <div className="space-y-5 pb-24">
       <BackLink />
       <header className="flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-2 text-xs text-slate-500">
-            <span className="font-mono">판매상품코드 {product.code}</span>
+            {/* 판매 결정 전 초안은 코드가 없다(KID 발급 시점 B) — 빈 칸 대신 분명히 미발급이라 말한다. */}
+            <span className="font-mono">판매상품코드 {product.code ?? '미발급'}</span>
             {product.sabangnetGoodsNo && <span>· 사방넷 품번 {product.sabangnetGoodsNo}</span>}
             <span className={cn('rounded-full px-2 py-0.5 font-semibold', SALES_PRODUCT_STATUS_TONE[product.status])}>
-              {demoteState.kind === 'demoted' ? '수집상품으로 되돌림' : SALES_PRODUCT_STATUS_LABEL[product.status]}
+              {SALES_PRODUCT_STATUS_LABEL[product.status]}
             </span>
-            {product.sourceCandidateId && <span>· 수집상품에서 만듦</span>}
+            {product.sourceRecordId && <span>· 수집상품에서 만듦</span>}
           </div>
           <h1 className="page-title mt-1 truncate" title={product.name}>{product.name}</h1>
         </div>
-        {(demoteState.kind === 'ready' || demoteState.kind === 'blocked') && (
-          <button
-            type="button"
-            className="btn-secondary inline-flex shrink-0 items-center gap-1.5 disabled:opacity-50"
-            disabled={demoteState.kind === 'blocked' || dirty || demote.isPending}
-            title={demoteState.kind === 'blocked' ? demoteState.reason : dirty ? '고친 내용을 저장한 뒤 되돌리세요.' : undefined}
-            onClick={askDemote}
-          >
-            <Undo2 size={16} aria-hidden />
-            {demote.isPending ? '되돌리는 중…' : '수집상품으로 되돌리기'}
-          </button>
-        )}
       </header>
-
-      {demoteState.kind === 'demoted' && (
-        <p className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-600">
-          수집상품으로 되돌린 판매상품입니다 — 판매상품 목록과 몰 대량등록에서 빠져 있습니다. 수집상품 화면에서 이 상품을 골라
-          [몰 대량등록]을 누르면 같은 코드({product.code})와 몰별 값 그대로 다시 올라옵니다.
-        </p>
-      )}
 
       <nav aria-label="편집 칸" className="sticky top-0 z-10 -mx-1 flex flex-wrap gap-1 bg-slate-50/90 px-1 py-2 backdrop-blur">
         {SECTIONS.map((section) => (
@@ -221,11 +183,14 @@ function Editor({ product }: { product: SalesProduct }) {
           <Field label="원산지(제조국)">
             <input value={basics.originCountry ?? ''} onChange={(event) => set('originCountry', event.target.value || null)} className={inputClass} />
           </Field>
-          <Field label="상태">
-            <select value={basics.status} onChange={(event) => set('status', event.target.value as BasicsDraft['status'])} className={inputClass}>
-              {SALES_PRODUCT_STATUSES.map((status) => <option key={status} value={status}>{SALES_PRODUCT_STATUS_LABEL[status]}</option>)}
-            </select>
-          </Field>
+          {product.status === 'active' && (
+            <Field label="상태">
+              <select value={archive ? 'archived' : 'active'} onChange={(event) => setArchive(event.target.value === 'archived')} className={inputClass}>
+                <option value="active">{SALES_PRODUCT_STATUS_LABEL.active}</option>
+                <option value="archived">{SALES_PRODUCT_STATUS_LABEL.archived}</option>
+              </select>
+            </Field>
+          )}
           <Field label="검색어(쉼표로)" wide>
             <input
               value={basics.keywords.join(', ')}
@@ -237,6 +202,40 @@ function Editor({ product }: { product: SalesProduct }) {
               {basics.keywords.length}개
               {basics.keywords.length < 5 && ' — 온채널 대량등록은 5개 이상이 필요합니다.'}
             </p>
+          </Field>
+          {/* KID-310: 수집·직접 작성 초안이 채우는 칸 — 전에는 후보에만 있어 여기서 못 고쳤다. */}
+          <Field label="상품 설명" wide>
+            <textarea
+              value={basics.description}
+              onChange={(event) => set('description', event.target.value)}
+              rows={3}
+              className={inputClass}
+            />
+          </Field>
+          <Field label="주요 타겟">
+            <input value={basics.targetAudience ?? ''} onChange={(event) => set('targetAudience', event.target.value || null)} className={inputClass} />
+          </Field>
+          <Field label="사용 연령">
+            <input value={basics.ageGroup ?? ''} onChange={(event) => set('ageGroup', event.target.value || null)} className={inputClass} />
+          </Field>
+          <Field label="제품 사이즈">
+            <input value={basics.productSize ?? ''} onChange={(event) => set('productSize', event.target.value || null)} className={inputClass} />
+          </Field>
+          <Field label="색상 구성(쉼표로)">
+            <input
+              value={basics.colorVariantNames.join(', ')}
+              onChange={(event) => set('colorVariantNames', event.target.value.split(',').map((word) => word.trim()).filter(Boolean))}
+              className={inputClass}
+            />
+          </Field>
+          <Field label="박스 묶음 수량">
+            <input
+              type="number"
+              min={1}
+              value={basics.boxSetQuantity ?? ''}
+              onChange={(event) => set('boxSetQuantity', event.target.value === '' ? null : Math.max(1, Math.round(Number(event.target.value))))}
+              className={cn(inputClass, 'text-right tabular-nums')}
+            />
           </Field>
         </div>
       </Section>
@@ -301,13 +300,26 @@ function Editor({ product }: { product: SalesProduct }) {
       </Section>
 
       <Section id="detail" title="상세">
-        <DetailEditor value={basics.detailHtml ?? ''} onChange={(value) => set('detailHtml', value || null)} />
+        <ContentDetailSection salesProductId={product.id} />
       </Section>
 
       <Section id="notice" title="고시 · 인증">
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           <Field label="고시 분류코드(사방넷 속성분류)">
             <input value={basics.noticeCategory ?? ''} onChange={(event) => set('noticeCategory', event.target.value || null)} className={inputClass} />
+          </Field>
+          <Field label="KC 인증 상태">
+            {/* 수집상품 기본 정보와 같은 고르기 칸이다(KID-310 c). 저장 값 unknown 은 '확인 필요'. */}
+            <select
+              aria-label="KC 인증 상태"
+              value={kcStatusSelectValue(basics.kcStatus)}
+              onChange={(event) => set('kcStatus', kcStatusFromSelectValue(event.target.value))}
+              className={inputClass}
+            >
+              {KC_STATUS_SELECT_OPTIONS.map((option) => (
+                <option key={option.value} value={option.value}>{option.label}</option>
+              ))}
+            </select>
           </Field>
           <Field label="인증">
             <p className="py-1.5 text-sm text-slate-700">
@@ -461,25 +473,6 @@ function ImagesEditor({ value, onChange }: { value: string[]; onChange: (value: 
         <input value={draft} onChange={(event) => setDraft(event.target.value)} placeholder="이미지 주소(https://…)" className={cn(inputClass, 'max-w-lg')} />
         <button type="submit" className="btn-secondary btn-sm">더하기</button>
       </form>
-    </div>
-  );
-}
-
-function DetailEditor({ value, onChange }: { value: string; onChange: (value: string) => void }) {
-  const [preview, setPreview] = useState(false);
-  return (
-    <div className="space-y-2">
-      <div className="flex gap-1">
-        <button type="button" className={cn('tab', !preview ? 'tab-active' : 'tab-inactive')} onClick={() => setPreview(false)}>HTML</button>
-        <button type="button" className={cn('tab', preview ? 'tab-active' : 'tab-inactive')} onClick={() => setPreview(true)}>미리보기</button>
-      </div>
-      {preview ? (
-        <div className="max-h-[480px] overflow-y-auto rounded-lg border border-slate-200 p-3">
-          <iframe title="상세 미리보기" sandbox="" srcDoc={value} className="h-[440px] w-full" />
-        </div>
-      ) : (
-        <textarea value={value} onChange={(event) => onChange(event.target.value)} rows={8} className={cn(inputClass, 'font-mono text-xs')} />
-      )}
     </div>
   );
 }

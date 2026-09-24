@@ -7,9 +7,7 @@ function renderToolbar(overrides: Partial<ComponentProps<typeof SourcingToolbar>
   const props: ComponentProps<typeof SourcingToolbar> = {
     showScrapeInput: false,
     onToggleScrapeInput: vi.fn(),
-    sort: 'newest',
     pageSize: 20,
-    onSortChange: vi.fn(),
     onPageSizeChange: vi.fn(),
     sourceFilter: 'all',
     onSourceFilterChange: vi.fn(),
@@ -35,9 +33,17 @@ describe('SourcingToolbar source tabs', () => {
       'aria-pressed',
       'true',
     );
-    expect(screen.getByRole('button', { name: '전체 후보' })).toHaveAttribute(
+    expect(screen.getByRole('button', { name: '전체' })).toHaveAttribute(
       'aria-pressed',
       'false',
     );
+  });
+});
+
+describe('SourcingToolbar sort', () => {
+  it('offers no sort control because the draft list has one server order', () => {
+    renderToolbar();
+
+    expect(screen.queryByRole('combobox', { name: '상품 정렬' })).toBeNull();
   });
 });

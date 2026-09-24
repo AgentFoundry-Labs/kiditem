@@ -59,7 +59,11 @@ export function createKidItemAgentOsMcpServer(
   );
 
   server.registerTool('capability_catalog_search', {
-    description: 'Search all currently discoverable KidItem capability contracts.',
+    description:
+      'Search the capability catalog the current turn may use and return each match with its key, owner domain, ' +
+      'description and strict input/output schema. Call it before the first capability_invoke of a turn and again ' +
+      'when a task moves to another owner domain; an empty query lists everything. It reads only: it invokes ' +
+      'nothing and omits capabilities the acting Agent is not admitted to.',
     inputSchema: CapabilityMcpWireInputSchemas.capability_catalog_search,
     outputSchema: CapabilityMcpWireOutputSchemas.capability_catalog_search,
   }, async ({ query }) => {
@@ -72,7 +76,11 @@ export function createKidItemAgentOsMcpServer(
   });
 
   server.registerTool('capability_invoke', {
-    description: 'Invoke one capability using its strict owner-domain input schema.',
+    description:
+      'Invoke exactly one capability by key with an input that validates against the schema returned by ' +
+      'capability_catalog_search. Reads return bounded data; mutations return a durable invocation receipt ' +
+      '(invocationId, status, resourceRefs), never the mutated rows or a UI href. It does not approve anything ' +
+      '(approval happens only in the KidItem web app), and an invalid input fails before any owner code runs.',
     inputSchema: CapabilityMcpWireInputSchemas.capability_invoke,
     outputSchema: CapabilityMcpWireOutputSchemas.capability_invoke,
   }, async (input) => invokeCapability(
@@ -82,7 +90,10 @@ export function createKidItemAgentOsMcpServer(
   ));
 
   server.registerTool('invocation_status', {
-    description: 'Read the durable receipt for one exact mutation admission.',
+    description:
+      'Read the current status of one earlier mutation by its invocationId: admitted, executing, succeeded, failed ' +
+      'or awaiting approval, plus the resourceRefs it produced. Use it to follow up a capability_invoke that ' +
+      'returned a receipt; it is not for reads, and it never re-runs or re-submits the mutation.',
     inputSchema: CapabilityMcpWireInputSchemas.invocation_status,
     outputSchema: CapabilityMcpWireOutputSchemas.invocation_status,
   }, async ({ invocationId }) => {
@@ -96,7 +107,9 @@ export function createKidItemAgentOsMcpServer(
   });
 
   server.registerTool('readiness_probe', {
-    description: 'Verify the exact stateless MCP v2 capability runtime contract.',
+    description:
+      'Report the MCP server protocol version, runtime train and whether the active turn is bound. Use it only ' +
+      'to diagnose a failing session; it carries no business data and needs no input.',
     inputSchema: CapabilityMcpWireInputSchemas.readiness_probe,
     outputSchema: CapabilityMcpWireOutputSchemas.readiness_probe,
   }, async () => {

@@ -21,11 +21,13 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { MallAdminListingsController } from '../adapter/in/http/mall-admin-listings.controller';
+import { MallAdminListingsController } from '../adapter/in/web/mall-admin-listings.controller';
 import { MallAdminListingsRepositoryAdapter } from '../adapter/out/repository/mall-admin-listings.repository.adapter';
 import { MALL_ADMIN_LISTINGS_PORT } from '../application/port/in/mall-admin-listings.port';
-import { MallAdminListingsService } from '../application/service/mall-admin-listings.service';
-import { completedCatalogRunWhere } from '../read/completed-catalog-run';
+import { MallAdminListingsService } from '../application/service/collection/mall-admin-listings.service';
+import { completedCatalogRunWhere } from '../adapter/out/repository/completed-catalog-run';
+import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const KIDKIDS = '11111111-1111-4111-8111-111111111111';
 const KIDKIDS_LATER = '11111111-1111-4111-8111-111111111112';
@@ -88,6 +90,7 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
     const repository = new MallAdminListingsRepositoryAdapter(
       prisma as never,
       new SourceFailureAlerts(prisma as never),
+    new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
     );
     const module = await Test.createTestingModule({
       controllers: [MallAdminListingsController],
@@ -316,6 +319,18 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
     await expect(prisma.sourceImportRun.count({
       where: completedCatalogRunWhere(ORG, KIDKIDS),
     })).resolves.toBe(1);
+  });
+
+  it('refreshes the listing image on every import so a changed mall image reaches the listing (KID-313 W3a)', async () => {
+    await complete([row({ imageUrl: 'https://mall.example.com/first.jpg' })]);
+    await complete([row({ imageUrl: 'https://mall.example.com/second.jpg' })]);
+    await expect(prisma.channelListing.findFirstOrThrow({ where: { organizationId: ORG, externalId: '1098464' }, select: { imageUrl: true } }))
+      .resolves.toEqual({ imageUrl: 'https://mall.example.com/second.jpg' });
+
+    // 사진을 주지 않는 목록은 남긴 사진을 지우지 않는다.
+    await complete([row()]);
+    await expect(prisma.channelListing.findFirstOrThrow({ where: { organizationId: ORG, externalId: '1098464' }, select: { imageUrl: true } }))
+      .resolves.toEqual({ imageUrl: 'https://mall.example.com/second.jpg' });
   });
 
   it('keeps a product whose detail name could not be read, and counts it', async () => {

@@ -2,7 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type {
   ParsedWingCatalogRow,
   ParsedWingCatalogSkippedRow,
-} from '../../../application/service/coupang-wing-workbook.parser';
+} from '../documents/coupang-wing/workbook.parser';
 import { buildCoupangWingSnapshotCoverage } from './coupang-wing-snapshot';
 
 describe('buildCoupangWingSnapshotCoverage', () => {

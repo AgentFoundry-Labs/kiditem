@@ -29,7 +29,8 @@ describe('ScrapeUrlInput', () => {
         source: { ready: false, latestAttempt: null, latestComplete: null, actualCutoffAt: null, errorCode: null, errorMessage: null },
         status: 'collected',
         candidateId: 'candidate-1',
-        href: '/product-pipeline/collected-products/candidate-1',
+        salesProductId: 'sales-product-1',
+        href: '/product-pipeline/collected-products/sales-product-1',
       },
     });
 
@@ -38,10 +39,38 @@ describe('ScrapeUrlInput', () => {
     expect(button).toBeDisabled();
     expect(screen.getByRole('link', { name: '기존 상품 열기' })).toHaveAttribute(
       'href',
-      '/product-pipeline/collected-products/candidate-1',
+      '/product-pipeline/collected-products/sales-product-1',
     );
     fireEvent.click(button);
     expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it('links a duplicate refusal to the draft that already holds the source', () => {
+    renderInput({
+      error: '이미 수집한 원본입니다.',
+      errorLink: { href: '/product-pipeline/collected-products/draft-1', label: '기존 판매 상품 열기' },
+    });
+
+    expect(screen.getByText('이미 수집한 원본입니다.')).toBeInTheDocument();
+    expect(screen.getByRole('link', { name: '기존 판매 상품 열기' })).toHaveAttribute(
+      'href',
+      '/product-pipeline/collected-products/draft-1',
+    );
+  });
+
+  it('shows no link when the collected product has no draft to open', () => {
+    renderInput({
+      duplicate: {
+        source: { ready: false, latestAttempt: null, latestComplete: null, actualCutoffAt: null, errorCode: null, errorMessage: null },
+        status: 'collected',
+        candidateId: 'candidate-1',
+        salesProductId: null,
+        href: null,
+      },
+    });
+
+    expect(screen.getByText('이미 수집된 URL입니다.')).toBeInTheDocument();
+    expect(screen.queryByRole('link', { name: '기존 상품 열기' })).toBeNull();
   });
 
   it('shows failed refresh and the actual previous complete cutoff', () => {

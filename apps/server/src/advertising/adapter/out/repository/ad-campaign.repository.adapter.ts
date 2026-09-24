@@ -1,9 +1,10 @@
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
 // Campaign, product target, keyword and trend reads, composed from the
 // advertising target-day ledger's reader (`read/ad-target-facts`). This
 // adapter owns the Repeatable Read transactions that combine a reader with
 // the published campaign roster; it never queries the ledger itself.
 
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { addDays } from '../../../../common/kst';
@@ -30,7 +31,8 @@ const REPEATABLE_READ = {
 
 @Injectable()
 export class AdCampaignRepositoryAdapter implements AdCampaignRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(private readonly prisma: PrismaService,
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort) {}
 
   async findCampaignSnapshot(organizationId: string, period: AdPeriod) {
     const window = halfOpenPeriod(period);
@@ -38,7 +40,7 @@ export class AdCampaignRepositoryAdapter implements AdCampaignRepositoryPort {
       rollups: (await readCampaignWindowRollups(tx, {
         organizationId,
         ...window,
-      })) as CampaignRollup[],
+      }, this.channelAccounts)) as CampaignRollup[],
       currentSweeps: await this.findLatestCompleteCampaignSweeps(tx, organizationId),
     }), REPEATABLE_READ);
   }
@@ -100,7 +102,7 @@ export class AdCampaignRepositoryAdapter implements AdCampaignRepositoryPort {
         organizationId,
         ...window,
         ...(campaign ? { campaign } : {}),
-      })) as ProductTargetRollup[],
+      }, this.channelAccounts)) as ProductTargetRollup[],
       REPEATABLE_READ,
     );
   }
@@ -135,7 +137,7 @@ export class AdCampaignRepositoryAdapter implements AdCampaignRepositoryPort {
         organizationId,
         from: dateRange.from,
         to: addDays(dateRange.to, 1),
-      }),
+      }, this.channelAccounts),
       REPEATABLE_READ,
     );
   }

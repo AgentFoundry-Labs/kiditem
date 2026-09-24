@@ -1,4 +1,8 @@
-import { readListingProductIds } from '../../../read/listing-product-summary.reader';
+import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
+import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
+import type { ChannelRecipeFactQueries } from '../../../application/port/in/channel-option-recipe.port';
+import { readListingProductIds } from './listing-product-summary.reader';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import {
   BadRequestException,
@@ -8,24 +12,29 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import {
-  advanceProductMappingGeneration,
-  lockProductMapping,
-} from '../../../../common/product-mapping-generation';
+import { lockProductMapping } from '../../../../common/product-mapping-generation';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionalReadPort,
 } from '../../../../products/application/port/in/product-transactional-read.port';
+import {
+  CHANNELS_PRODUCT_MAPPING_GENERATION_PORT,
+  type ChannelsProductMappingGenerationPort,
+} from '../../../application/port/out/cross-domain/product-mapping-generation.port';
 import type {
   ChannelOptionRecipeRepositoryPort,
 } from '../../../application/port/out/persistence/channel-option-recipe.repository.port';
 import type {
   ChannelOptionRecipeMutation,
   ChannelRecipeComponentInput,
+  ConfirmedCompositionTransition,
 } from '../../../application/port/in/channel-option-recipe.port';
-import { readPreparedRegistrationRecipes } from '../../../read/registration-execution.reader';
-import { preparedRegistrationRecipe } from '../../../domain/registration-item-code';
-import { hashRegistrationSubmissionPayload } from '../../../domain/registration-submission-payload';
+import { readPreparedRegistrationRecipes } from '../repository/registration-execution-ledger.reader';
+import { preparedRegistrationRecipe } from '../../../domain/registration/registration-item-code';
+import { hashRegistrationSubmissionPayload } from '../../../domain/registration/registration-submission-payload';
+import { ListingException } from '../../../application/exception/listing.exception';
+
+const channelIntegrity = new ChannelIntegrityAdapter();
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
@@ -36,52 +45,103 @@ implements ChannelOptionRecipeRepositoryPort {
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly productTransactionalRead: ProductTransactionalReadPort,
+    @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
+    private readonly productMapping: ChannelsProductMappingGenerationPort,
   ) {}
 
-  async replaceConfirmedCompositionInTransaction(transaction: object, input: {
-    organizationId: string; channelListingOptionId: string; salesProductOptionId: string;
-    kidItemCode: string; components: readonly ChannelRecipeComponentInput[];
-  }): Promise<void> {
-    const tx = transaction as Prisma.TransactionClient;
-    await lockProductMapping(tx, input.organizationId);
-    const commonOption = await tx.salesProductOption.findFirst({
-      where: { id: input.salesProductOptionId, organizationId: input.organizationId, optionCode: input.kidItemCode },
-      select: { id: true, components: { select: { masterProductId: true, quantity: true } } },
+  readListingProductSummaries(transaction: Parameters<ChannelRecipeFactQueries['readListingProductSummaries']>[0], input: Parameters<ChannelRecipeFactQueries['readListingProductSummaries']>[1]) {
+    return readListingProductIds(ownerTransactionClient(transaction), input);
+  }
+
+  async readConfirmedCompositions(transaction: Parameters<ChannelRecipeFactQueries['readConfirmedCompositions']>[0], input: Parameters<ChannelRecipeFactQueries['readConfirmedCompositions']>[1]) {
+    if ([input.accountIds, input.optionIds, input.listingIds].some(ids => ids?.length === 0)) return [];
+    const rows = await ownerTransactionClient(transaction).channelListingOption.findMany({
+      where: { organizationId: input.organizationId,
+        ...(input.optionIds ? { id: { in: [...input.optionIds] } } : {}),
+        ...(input.listingIds ? { listingId: { in: [...input.listingIds] } } : {}),
+        ...(input.activeOnly ? { isActive: true } : {}),
+        listing: { organizationId: input.organizationId,
+          ...(input.accountIds ? { channelAccountId: { in: [...input.accountIds] } } : {}),
+          ...(input.activeOnly ? { isActive: true } : {}) } },
+      select: { id: true, listingId: true, listing: { select: { channelAccountId: true } },
+        inventoryComponents: { where: { organizationId: input.organizationId },
+          select: { masterProductId: true, quantity: true }, orderBy: { masterProductId: 'asc' } } },
+      orderBy: { id: 'asc' },
     });
-    if (!commonOption || !sameRecipe(commonOption.components, input.components)) {
-      throw new BadRequestException('Confirmed composition does not match its frozen common option identity');
-    }
-    await validateRecipeTargetsInTransaction(tx, input, this.productTransactionalRead);
-    const option = await tx.channelListingOption.findFirst({
-      where: { id: input.channelListingOptionId, organizationId: input.organizationId },
+    return rows.map(row => ({ optionId: row.id, listingId: row.listingId,
+      accountId: row.listing.channelAccountId, components: row.inventoryComponents }));
+  }
+
+  async findListingsBySourceProducts(transaction: Parameters<ChannelRecipeFactQueries['findListingsBySourceProducts']>[0], input: Parameters<ChannelRecipeFactQueries['findListingsBySourceProducts']>[1]) {
+    if (input.masterProductIds.length === 0) return [];
+    const tx = ownerTransactionClient(transaction);
+    const rows = await tx.channelListing.findMany({
+      where: { organizationId: input.organizationId, ...(input.activeOnly ? { isActive: true } : {}),
+        options: { some: { organizationId: input.organizationId,
+          inventoryComponents: { some: { organizationId: input.organizationId, masterProductId: { in: [...input.masterProductIds] } } } } } },
       select: { id: true },
     });
-    if (!option) throw new NotFoundException('Channel listing option was not found');
-    await tx.channelListingOptionInventoryComponent.deleteMany({
-      where: { organizationId: input.organizationId, channelListingOptionId: input.channelListingOptionId },
+    const summaries = await readListingProductIds(tx, { organizationId: input.organizationId, listingIds: rows.map(row => row.id) });
+    const requested = new Set(input.masterProductIds);
+    return rows.flatMap(row => {
+      const masterProductId = summaries.get(row.id) ?? null;
+      return masterProductId !== null && requested.has(masterProductId) ? [{ listingId: row.id, masterProductId }] : [];
     });
-    if (input.components.length > 0) await tx.channelListingOptionInventoryComponent.createMany({
-      data: input.components.map(component => ({ ...component, organizationId: input.organizationId, channelListingOptionId: input.channelListingOptionId })),
-    });
-    await tx.channelListingOption.update({
-      where: { id: input.channelListingOptionId, organizationId: input.organizationId },
-      data: { salesProductOptionId: input.salesProductOptionId, kidItemCode: input.kidItemCode },
-    });
-    await advanceProductMappingGeneration(tx, input.organizationId);
+  }
+
+  async replaceConfirmedCompositionsInTransaction(transaction: OwnerTransaction, input: {
+    organizationId: string; transitions: readonly ConfirmedCompositionTransition[];
+  }): Promise<void> {
+    if (input.transitions.length === 0) return;
+    const tx = ownerTransactionClient(transaction);
+    await lockProductMapping(tx, input.organizationId);
+    let mappingChanged = false;
+    for (const transition of input.transitions) {
+      const commonOption = await tx.salesProductOption.findFirst({
+        where: { id: transition.salesProductOptionId, organizationId: input.organizationId, optionCode: transition.kidItemCode },
+        select: { id: true, components: { select: { masterProductId: true, quantity: true } } },
+      });
+      if (!commonOption || !sameRecipe(commonOption.components, transition.components)) {
+        throw new BadRequestException('Confirmed composition does not match its frozen common option identity');
+      }
+      await validateRecipeTargetsInTransaction(
+        tx, { organizationId: input.organizationId, components: transition.components }, this.productTransactionalRead,
+      );
+      const option = await tx.channelListingOption.findFirst({
+        where: { id: transition.channelListingOptionId, organizationId: input.organizationId },
+        select: { id: true, salesProductOptionId: true, kidItemCode: true,
+          inventoryComponents: { where: { organizationId: input.organizationId }, select: { masterProductId: true, quantity: true } } },
+      });
+      if (!option) throw new NotFoundException('Channel listing option was not found');
+      if (!sameRecipe(option.inventoryComponents, transition.components)) {
+        await tx.channelListingOptionInventoryComponent.deleteMany({
+          where: { organizationId: input.organizationId, channelListingOptionId: option.id },
+        });
+        if (transition.components.length > 0) await tx.channelListingOptionInventoryComponent.createMany({
+          data: transition.components.map(component => ({ ...component, organizationId: input.organizationId, channelListingOptionId: option.id })),
+        });
+        mappingChanged = true;
+      }
+      if (option.salesProductOptionId !== transition.salesProductOptionId || option.kidItemCode !== transition.kidItemCode) {
+        await tx.channelListingOption.update({
+          where: { id: option.id, organizationId: input.organizationId },
+          data: { salesProductOptionId: transition.salesProductOptionId, kidItemCode: transition.kidItemCode },
+        });
+        mappingChanged = true;
+      }
+    }
+    if (mappingChanged) await this.productMapping.advance(tx, input.organizationId);
   }
 
   replaceRecipe(input: {
     organizationId: string;
     channelListingOptionId: string;
+    /** The recipe the caller loaded; a different current recipe is a conflict. */
+    expectedComponents: readonly ChannelRecipeComponentInput[];
     components: readonly ChannelRecipeComponentInput[];
   }) {
     return this.prisma.$transaction(async (tx) => {
       await lockProductMapping(tx, input.organizationId);
-      await validateRecipeTargetsInTransaction(
-        tx,
-        input,
-        this.productTransactionalRead,
-      );
       const option = await tx.channelListingOption.findFirst({
         where: {
           id: input.channelListingOptionId,
@@ -98,6 +158,11 @@ implements ChannelOptionRecipeRepositoryPort {
         },
       });
       if (!option) throw new NotFoundException('Channel listing option was not found');
+      if (!sameRecipe(option.inventoryComponents, input.expectedComponents)) {
+        throw new ListingException('conflict', 'The option recipe changed after it was loaded');
+      }
+      // A stale request is a conflict first, even when it names a since-deleted product.
+      await validateRecipeTargetsInTransaction(tx, input, this.productTransactionalRead);
       const recipeChanged = !sameRecipe(option.inventoryComponents, input.components);
       if (recipeChanged) {
         await tx.channelListingOptionInventoryComponent.deleteMany({
@@ -124,7 +189,7 @@ implements ChannelOptionRecipeRepositoryPort {
         organizationId: input.organizationId, listingIds: [option.listingId],
       })).get(option.listingId) ?? null;
       if (recipeChanged || codeChanged) {
-        await advanceProductMappingGeneration(tx, input.organizationId);
+        await this.productMapping.advance(tx, input.organizationId);
       }
       return { masterProductId };
     }, TRANSACTION_OPTIONS);
@@ -150,20 +215,20 @@ implements ChannelOptionRecipeRepositoryPort {
     mutations: readonly ChannelOptionRecipeMutation[];
   }) {
     return this.prisma.$transaction(
-      (tx) => this.applyPreservingRecipesInTransaction(tx, input),
+      (tx) => this.applyPreservingRecipesInTransaction(ownerTransaction(tx), input),
       TRANSACTION_OPTIONS,
     );
   }
 
   async applyPreservingRecipesInTransaction(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: {
       organizationId: string;
       mutations: readonly ChannelOptionRecipeMutation[];
     },
   ) {
     if (input.mutations.length === 0) return emptyResult();
-    const tx = transaction as Prisma.TransactionClient;
+    const tx = ownerTransactionClient(transaction);
     await lockProductMapping(tx, input.organizationId);
     const optionIds = input.mutations.map((mutation) => mutation.channelListingOptionId);
     const options = await tx.channelListingOption.findMany({
@@ -228,8 +293,8 @@ implements ChannelOptionRecipeRepositoryPort {
         const option = optionById.get(mutation.channelListingOptionId)!;
         const historicalRegistration = facts.some((fact) => {
           if (fact.channelListingId !== option.listingId || !fact.submissionPayloadJson) return false;
-          const hash = hashRegistrationSubmissionPayload(fact.submissionPayloadJson);
-          if (hash !== fact.submissionPayloadHash || hash !== fact.requestHash) return false;
+          const hash = hashRegistrationSubmissionPayload(fact.submissionPayloadJson, channelIntegrity.sha256);
+          if (hash !== fact.submissionPayloadHash) return false;
           const recipe = preparedRegistrationRecipe(fact.submissionPayloadJson);
           return recipe !== null
             && recipe.kidItemCode === mutation.preparedKidItemCode
@@ -315,7 +380,7 @@ implements ChannelOptionRecipeRepositoryPort {
       previousProducts.get(id) == null && currentProducts.get(id) != null).length;
     const mappingChanged = applied.length > 0 || codeChanged;
     if (mappingChanged) {
-      await advanceProductMappingGeneration(tx, input.organizationId);
+      await this.productMapping.advance(tx, input.organizationId);
     }
     return {
       changedOptionCount: applied.length,
@@ -360,13 +425,13 @@ implements ChannelOptionRecipeRepositoryPort {
   }
 
   async clearListingRecipesInTransaction(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: {
       organizationId: string;
       channelListingId: string;
     },
   ) {
-    const tx = transaction as Prisma.TransactionClient;
+    const tx = ownerTransactionClient(transaction);
     await lockProductMapping(tx, input.organizationId);
     const listing = await tx.channelListing.findFirst({
       where: {
@@ -401,7 +466,7 @@ implements ChannelOptionRecipeRepositoryPort {
     }
     const mappingChanged = changedOptionIds.length > 0;
     if (mappingChanged) {
-      await advanceProductMappingGeneration(tx, input.organizationId);
+      await this.productMapping.advance(tx, input.organizationId);
     }
     return {
       changedOptionCount: changedOptionIds.length,

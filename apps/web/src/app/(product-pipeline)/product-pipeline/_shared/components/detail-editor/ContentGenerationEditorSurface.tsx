@@ -36,13 +36,14 @@ interface EditedHtmlResponse {
 }
 
 export function ContentGenerationEditorSurface({
-  generationId,
+  detailPageId,
   closeHref,
-  candidateId,
+  salesProductId,
 }: {
-  generationId: string;
+  detailPageId: string;
   closeHref: string;
-  candidateId?: string | null;
+  /** 수집상품 화면에서 열었으면 그 판매상품 초안 id — 저장 뒤 그 화면 값을 새로 읽는다. */
+  salesProductId?: string | null;
 }) {
   const router = useRouter();
   const queryClient = useQueryClient();
@@ -50,12 +51,12 @@ export function ContentGenerationEditorSurface({
     data: entry,
     isLoading: isEntryLoading,
     error: entryError,
-  } = useKidsPlayfulOne(generationId);
+  } = useKidsPlayfulOne(detailPageId);
   const { data: editedHtmlRow, isLoading: isEditedHtmlLoading } = useQuery({
-    queryKey: queryKeys.productContent.generationEditedHtml(generationId),
+    queryKey: queryKeys.productContent.generationEditedHtml(detailPageId),
     queryFn: () =>
       apiClient.get<EditedHtmlResponse>(
-        `/api/ai/detail-page/${encodeURIComponent(generationId)}/edited-html`,
+        `/api/ai/detail-page/${encodeURIComponent(detailPageId)}/edited-html`,
       ),
   });
   const { data: templateCss = '' } = useQuery({
@@ -103,21 +104,19 @@ export function ContentGenerationEditorSurface({
   const handleSave = async (html: string) => {
     try {
       const saved = await apiClient.post<EditedHtmlResponse>(
-        `/api/ai/detail-page/${encodeURIComponent(generationId)}/edited-html`,
+        `/api/ai/detail-page/${encodeURIComponent(detailPageId)}/edited-html`,
         { html },
       );
       toast.success('상세페이지 저장 완료');
       await Promise.all([
         queryClient.invalidateQueries({ queryKey: queryKeys.productContent.all }),
         queryClient.invalidateQueries({
-          queryKey: queryKeys.productContent.generationEditedHtml(generationId),
+          queryKey: queryKeys.productContent.generationEditedHtml(detailPageId),
         }),
-        ...(candidateId
+        ...(salesProductId
           ? [
-              queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(candidateId) }),
-              queryClient.invalidateQueries({
-                queryKey: [...queryKeys.sourcing.detail(candidateId), 'history'],
-              }),
+              queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.workspace(salesProductId) }),
+              queryClient.invalidateQueries({ queryKey: queryKeys.contentWorkspaces.forSalesProduct(salesProductId) }),
             ]
           : []),
       ]);
@@ -141,11 +140,11 @@ export function ContentGenerationEditorSurface({
       }),
     ]);
     const params = new URLSearchParams();
-    if (candidateId) params.set('sourceCandidateId', candidateId);
+    if (salesProductId) params.set('salesProductId', salesProductId);
     if (closeHref) params.set('returnTo', closeHref);
     const suffix = params.toString() ? `?${params.toString()}` : '';
     router.replace(`/product-pipeline/detail-pages/${nextGenerationId}/editor${suffix}`);
-  }, [candidateId, closeHref, queryClient, router]);
+  }, [closeHref, queryClient, router, salesProductId]);
 
   if (isEntryLoading || isEditedHtmlLoading || isEntryProcessing) {
     return <EditorLoadingScreen />;
@@ -157,7 +156,7 @@ export function ContentGenerationEditorSurface({
         error={error ?? '편집할 상세페이지 작업물을 찾을 수 없습니다.'}
         onRetry={() =>
           queryClient.invalidateQueries({
-            queryKey: queryKeys.productContent.detailGeneration(generationId),
+            queryKey: queryKeys.productContent.detailGeneration(detailPageId),
           })
         }
         onClose={handleClose}
@@ -173,7 +172,8 @@ export function ContentGenerationEditorSurface({
           templateCss={templateCss}
           productName={entry.productName ?? ''}
           productId={entry.productId ?? undefined}
-          contentGenerationId={generationId}
+          salesProductId={salesProductId}
+          detailPageId={detailPageId}
           contentWorkspaceId={entry.contentWorkspaceId ?? null}
           generationRawInput={entry.rawInput}
           generationTemplateId={entry.templateId}

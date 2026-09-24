@@ -13,15 +13,18 @@ const response: TargetExecutionResult = {
   externalListingId: null, result: null,
   payload: {
     targetId: id(5), targetVersion: 1, channelAccountId: id(6), kind: 'register',
-    channelListingId: null, applyCompositionTemplate: false, registrationInput: {}, supplyPrices: [],
+    channelListingId: null, applyCompositionTemplate: false, registrationInput: {}, adapterPayload: {}, detailPage: null,
     product: {
-      id: id(7), code: 'KID00000001', ownCode: null, sabangnetGoodsNo: null, sourceCandidateId: null,
+      id: id(7), code: 'KID00000001', ownCode: null, sabangnetGoodsNo: null, sourceRecordId: null,
+      sourcePlatform: null, sourceUrl: null,
       name: '테스트 상품', shortName: null, englishName: null, printName: null, modelName: null,
       modelNo: null, brand: null, manufacturer: null, originCountry: null, originRegion: null,
-      keywords: [], standardCategory: null, status: 'active', taxType: 'taxable',
-      deliveryFeeType: null, deliveryFee: null, optionAxes: [], stockManaged: false, optionsLocked: false,
-      imageUrls: [], detailHtml: null, extraDetailHtml: [], noticeCategory: null, noticeValues: [],
-      certifications: [], importDeclarationNo: null, adminMemo: null, version: 1,
+      keywords: [], standardCategory: null, description: '', targetAudience: null, ageGroup: null,
+      productSize: null, colorVariantNames: [], boxSetQuantity: null, registrationDefaults: null,
+      status: 'active', taxType: 'taxable',
+      deliveryFeeType: null, deliveryFee: null, optionAxes: [], stockManaged: false,
+      imageUrls: [], noticeCategory: null, noticeValues: [],
+      certifications: [], kcStatus: 'unknown' as const, importDeclarationNo: null, adminMemo: null, version: 1,
       createdAt: '2026-01-01T00:00:00.000Z', updatedAt: '2026-01-01T00:00:00.000Z',
       options: [], channelOverrides: [], channelListings: [],
     },
@@ -34,7 +37,7 @@ function setup() {
     getTargetExecution: vi.fn().mockResolvedValue(response),
     reportTargetExecution: vi.fn().mockResolvedValue(response) };
   const port = methods as unknown as RegistrationExecutionPort;
-  const adapter = new ChannelsCapabilityCompositionAdapter({} as never, {} as never, port);
+  const adapter = new ChannelsCapabilityCompositionAdapter({} as never, port);
   const capability = (key: string) => adapter.compositions.find(item => item.definition.key === `channels.${key}`)!.implementation;
   return { methods, capability, web: new RegistrationTargetExecutionController(port) };
 }

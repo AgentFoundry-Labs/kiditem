@@ -1,0 +1,432 @@
+import { NotFoundException } from '@nestjs/common';
+import { describe, expect, it, vi } from 'vitest';
+import { ChannelNotFoundError } from '../../../../domain/exception/channel-business-error';
+import type { ChannelRecipeSuggestionContext } from '../../../port/out/repository/channel-recipe-suggestion-context.repository.port';
+import { ChannelRecipeSuggestionService } from '../channel-recipe-suggestion.service';
+
+const organizationId = '00000000-0000-4000-8000-000000000001';
+const optionId = '00000000-0000-4000-8000-000000000002';
+
+describe('ChannelRecipeSuggestionService', () => {
+  it('uses Sellpia manual-match quantity as the authoritative physical-unit recipe', async () => {
+    const context: ChannelRecipeSuggestionContext = {
+      channelListingOptionId: optionId,
+      masterProductId: '00000000-0000-4000-8000-000000000004',
+      options: [{
+        channelListingOptionId: optionId,
+        listingName: '샤이니무지개칼라링(12개입)/매직스프링/완구',
+        itemName: null,
+        sellerSku: null,
+        modelNumber: null,
+        barcode: null,
+      }],
+      existingComponents: [],
+    };
+    const sellpiaSku = {
+      masterProductId: '00000000-0000-4000-8000-000000000005',
+      code: '634-1',
+      name: '1500샤이니무지개칼라링',
+      optionName: null,
+      barcode: '8806384822403',
+      currentStock: 1270,
+    };
+    const repository = { getContext: vi.fn().mockResolvedValue(context) };
+    const evidence = {
+      findByCodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([sellpiaSku]),
+    };
+    const manualMatches = {
+      findByNormalizedAliases: vi.fn().mockResolvedValue([{
+        masterProductId: sellpiaSku.masterProductId,
+        aliasTitle: context.options[0].listingName,
+        normalizedAlias: '샤이니무지개칼라링12개입매직스프링완구',
+        itemCount: 12,
+        matchedType: 'M',
+        evidenceCount: 1,
+      }]),
+    };
+    const service = new ChannelRecipeSuggestionService(
+      repository as never,
+      evidence as never,
+      manualMatches as never,
+    );
+
+    await expect(service.suggest(organizationId, optionId)).resolves.toMatchObject({
+      status: 'confirmed_manual_match_alias',
+      automationDecision: 'auto_apply',
+      recommendedQuantity: 12,
+      proposals: [{
+        masterProductId: sellpiaSku.masterProductId,
+        code: '634-1',
+        recommendedQuantity: 12,
+      }],
+    });
+    expect(manualMatches.findByNormalizedAliases).toHaveBeenCalledWith(
+      organizationId,
+      ['샤이니무지개칼라링12개입매직스프링완구'],
+    );
+  });
+
+  it('strips a leading Sellpia price code and reads an unmarked exact name as one unit (KID-246)', async () => {
+    const repository = { getContext: vi.fn() };
+    const sellpiaSku = {
+      masterProductId: '00000000-0000-4000-8000-000000000051',
+      code: '10451-1',
+      name: '3500꿀사과슬랑이',
+      optionName: null,
+      barcode: null,
+      currentStock: 13,
+    };
+    const evidence = {
+      findByCodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([sellpiaSku]),
+    };
+    const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
+
+    await expect(service.suggestRegistration(organizationId, {
+      channelListingOptionId: optionId,
+      listingName: '꿀사과슬랑이',
+      itemName: null,
+    })).resolves.toMatchObject({
+      channelListingOptionId: optionId,
+      masterProductId: null,
+      // 이름이 그 상품 이름과 글자까지 같고(가격 접두만 다름) 어디에도 묶음 표기가 없으면
+      // 낱개 하나다(사장님 2026-09-17). 차감수량은 등록 화면에서 사람이 바꿀 수 있다.
+      status: 'high_confidence_name',
+      automationDecision: 'auto_apply',
+      recommendedQuantity: 1,
+      proposals: [{
+        masterProductId: sellpiaSku.masterProductId,
+        code: '10451-1',
+        name: '3500꿀사과슬랑이',
+        currentStock: 13,
+      }],
+    });
+    expect(repository.getContext).not.toHaveBeenCalled();
+  });
+
+  it('batches code, typed barcode, and product-name evidence across all options linked to the variant', async () => {
+    const context = {
+      channelListingOptionId: optionId,
+      masterProductId: '00000000-0000-4000-8000-000000000004',
+      options: [{
+        channelListingOptionId: optionId, listingName: '키즈 식판', itemName: '기본',
+        sellerSku: 'SP-001', modelNumber: 'MODEL-001', barcode: '0012-3456-7890',
+      }],
+      existingComponents: [],
+    };
+    const repository = { getContext: vi.fn().mockResolvedValue(context) };
+    const evidence = {
+      findByCodes: vi.fn().mockResolvedValue([{
+        masterProductId: '00000000-0000-4000-8000-000000000005', code: 'SP-001',
+        name: '키즈 식판', optionName: null, barcode: '001234567890', currentStock: 8,
+      }]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([]),
+    };
+    const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
+
+    const result = await service.suggest(organizationId, optionId);
+
+    // 몰 상품코드 칸의 셀피아 코드가 맞으면 묶음 표기가 없어도 1개다(사장님 2026-09-19 "코드가 맞으면 1개로 잇는다").
+    expect(result.status).toBe('unique_code');
+    expect(evidence.findByCodes).toHaveBeenCalledWith(organizationId, ['MODEL-001', 'SP-001']);
+    expect(evidence.findByNormalizedBarcodes).toHaveBeenCalledWith(organizationId, ['001234567890']);
+    expect(evidence.findByNormalizedNames).toHaveBeenCalledWith(organizationId, ['키즈식판']);
+    expect(result.proposals[0]?.requiresQuantityConfirmation).toBe(false);
+    expect(result.recommendedQuantity).toBe(1);
+  });
+
+  it('retains an incompatible barcode candidate as a blocking conflict', async () => {
+    const context = {
+      channelListingOptionId: optionId,
+      masterProductId: '00000000-0000-4000-8000-000000000004',
+      options: [{
+        channelListingOptionId: optionId,
+        listingName: '키즈 식판',
+        itemName: null,
+        sellerSku: null,
+        modelNumber: null,
+        barcode: '001234567890',
+      }],
+      existingComponents: [],
+    };
+    const rejectedBarcodeSku = {
+      masterProductId: '00000000-0000-4000-8000-000000000005',
+      code: 'SP-BAD',
+      name: '전혀 다른 상품',
+      optionName: null,
+      barcode: '001234567890',
+      currentStock: 8,
+    };
+    const validNameSku = {
+      masterProductId: '00000000-0000-4000-8000-000000000006',
+      code: 'SP-GOOD',
+      name: '키즈 식판',
+      optionName: null,
+      barcode: null,
+      currentStock: 8,
+    };
+    const repository = { getContext: vi.fn().mockResolvedValue(context) };
+    const evidence = {
+      findByCodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([rejectedBarcodeSku]),
+      findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([validNameSku]),
+    };
+    const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
+
+    const result = await service.suggest(organizationId, optionId);
+    expect(result).toMatchObject({
+      status: 'identifier_name_mismatch',
+      automationDecision: 'operator_review',
+    });
+    expect(result.proposals.map(({ masterProductId }) => masterProductId))
+      .toEqual([
+        rejectedBarcodeSku.masterProductId,
+        validNameSku.masterProductId,
+      ]);
+  });
+
+  it('keeps barcode evidence when no comparable listing name is available', async () => {
+    const context = {
+      channelListingOptionId: optionId,
+      masterProductId: '00000000-0000-4000-8000-000000000004',
+      options: [{
+        channelListingOptionId: optionId,
+        listingName: null,
+        itemName: null,
+        sellerSku: null,
+        modelNumber: null,
+        barcode: '001234567890',
+      }],
+      existingComponents: [],
+    };
+    const barcodeSku = {
+      masterProductId: '00000000-0000-4000-8000-000000000007',
+      code: 'SP-UNKNOWN-NAME',
+      name: '알 수 없는 상품',
+      optionName: null,
+      barcode: '001234567890',
+      currentStock: 8,
+    };
+    const repository = { getContext: vi.fn().mockResolvedValue(context) };
+    const evidence = {
+      findByCodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([barcodeSku]),
+      findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([]),
+    };
+    const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
+
+    await expect(service.suggest(organizationId, optionId)).resolves.toMatchObject({
+      status: 'quantity_review',
+      automationDecision: 'quantity_review',
+      proposals: [{ masterProductId: barcodeSku.masterProductId }],
+    });
+  });
+
+  it('classifies a strict product-and-option match as automatic', async () => {
+    const context = {
+      channelListingOptionId: optionId,
+      masterProductId: '00000000-0000-4000-8000-000000000004',
+      options: [{
+        channelListingOptionId: optionId,
+        listingName: ' 키즈 식판 ',
+        itemName: '블루 1개',
+        sellerSku: null,
+        modelNumber: null,
+        barcode: null,
+      }],
+      existingComponents: [],
+    };
+    const repository = { getContext: vi.fn().mockResolvedValue(context) };
+    const evidence = {
+      findByCodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedNames: vi.fn().mockResolvedValue([{
+        masterProductId: '00000000-0000-4000-8000-000000000005',
+        code: 'SP-001',
+        name: '키즈 식판',
+        optionName: '블루 1개',
+        barcode: null,
+        currentStock: 8,
+      }]),
+      listActiveForMatching: vi.fn().mockResolvedValue([]),
+    };
+    const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
+
+    await expect(service.suggest(organizationId, optionId)).resolves.toMatchObject({
+      status: 'exact_name_option',
+      automationDecision: 'auto_apply',
+      recommendedQuantity: 1,
+    });
+  });
+
+  it('keeps duplicate typed barcodes ambiguous and detects code/name disagreement', async () => {
+    const context: ChannelRecipeSuggestionContext = {
+      channelListingOptionId: optionId,
+      masterProductId: '00000000-0000-4000-8000-000000000004',
+      options: [{
+        channelListingOptionId: optionId,
+        listingName: '키즈 식판',
+        itemName: null,
+        sellerSku: null,
+        modelNumber: null,
+        barcode: '001234567890',
+      }],
+      existingComponents: [],
+    };
+    const repository = { getContext: vi.fn().mockResolvedValue(context) };
+    const barcodeSku = {
+      masterProductId: '00000000-0000-4000-8000-000000000005',
+      code: 'SP-001', name: '키즈 식판', optionName: null,
+      barcode: '001234567890', currentStock: 8,
+    };
+    const evidence = {
+      findByCodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([
+        barcodeSku,
+        { ...barcodeSku, masterProductId: '00000000-0000-4000-8000-000000000006', code: 'SP-002' },
+      ]),
+      findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([]),
+    };
+    const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
+    await expect(service.suggest(organizationId, optionId)).resolves.toMatchObject({
+      status: 'ambiguous', automationDecision: 'blocked',
+    });
+
+    context.options[0]!.sellerSku = 'SP-CODE';
+    context.options[0]!.barcode = null;
+    evidence.findByCodes.mockResolvedValue([{
+      ...barcodeSku,
+      masterProductId: '00000000-0000-4000-8000-000000000007',
+      code: 'SP-CODE',
+    }]);
+    evidence.findByNormalizedBarcodes.mockResolvedValue([]);
+    evidence.findByNormalizedNames.mockResolvedValue([barcodeSku]);
+    await expect(service.suggest(organizationId, optionId)).resolves.toMatchObject({
+      status: 'conflict', automationDecision: 'blocked',
+    });
+  });
+
+  it('deduplicates exact evidence and loads active name candidates once per context batch', async () => {
+    const repository = { getContext: vi.fn() };
+    const evidence = {
+      findByCodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([]),
+    };
+    const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
+    const sharedOption = {
+      channelListingOptionId: optionId,
+      listingName: '키즈 식판', itemName: '기본', sellerSku: 'SP-001',
+      modelNumber: null, barcode: '001234567890',
+    };
+
+    const results = await service.suggestBatch(organizationId, [
+      {
+        masterProductId: '00000000-0000-4000-8000-000000000004',
+        selectedChannelListingOptionIds: [optionId],
+        allLinkedOptions: [sharedOption],
+        existingComponents: [],
+      },
+      {
+        masterProductId: '00000000-0000-4000-8000-000000000007',
+        selectedChannelListingOptionIds: ['00000000-0000-4000-8000-000000000008'],
+        allLinkedOptions: [{ ...sharedOption, channelListingOptionId: '00000000-0000-4000-8000-000000000008' }],
+        existingComponents: [],
+      },
+    ]);
+
+    expect(results).toHaveLength(2);
+    expect(evidence.findByCodes).toHaveBeenCalledOnce();
+    expect(evidence.findByNormalizedBarcodes).toHaveBeenCalledOnce();
+    expect(evidence.findByNormalizedNames).toHaveBeenCalledOnce();
+    expect(evidence.listActiveForMatching).toHaveBeenCalledOnce();
+  });
+
+  it('auto-applies one unique high-confidence active-inventory name candidate', async () => {
+    const context = {
+      channelListingOptionId: optionId,
+      masterProductId: '00000000-0000-4000-8000-000000000004',
+      options: [{
+        channelListingOptionId: optionId,
+        listingName: '동물인형 목욕타올 1p 어린이 샤워 타올',
+        itemName: '1개', sellerSku: null, modelNumber: null, barcode: null,
+      }],
+      existingComponents: [],
+    };
+    const repository = { getContext: vi.fn().mockResolvedValue(context) };
+    const evidence = {
+      findByCodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([{
+        masterProductId: '00000000-0000-4000-8000-000000000005',
+        code: '914-1', name: '동물인형목욕타올', optionName: null,
+        barcode: null, currentStock: 8,
+      }]),
+    };
+    const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
+
+    await expect(service.suggest(organizationId, optionId)).resolves.toMatchObject({
+      status: 'high_confidence_name', automationDecision: 'auto_apply',
+      recommendedQuantity: 1,
+    });
+  });
+
+  it('cross-checks an exact code candidate against the channel product name', async () => {
+    const context = {
+      channelListingOptionId: optionId,
+      masterProductId: '00000000-0000-4000-8000-000000000004',
+      options: [{
+        channelListingOptionId: optionId,
+        listingName: '스타워즈 합체 광선검', itemName: '단품',
+        sellerSku: null, modelNumber: '9726-1', barcode: null,
+      }],
+      existingComponents: [],
+    };
+    const wrongSku = {
+      masterProductId: '00000000-0000-4000-8000-000000000005',
+      code: '9726-1', name: '입체 오리 청소 세트', optionName: null,
+      barcode: null, currentStock: 8,
+    };
+    const repository = { getContext: vi.fn().mockResolvedValue(context) };
+    const evidence = {
+      findByCodes: vi.fn().mockResolvedValue([wrongSku]),
+      findByNormalizedBarcodes: vi.fn().mockResolvedValue([]),
+      findByNormalizedNames: vi.fn().mockResolvedValue([]),
+      listActiveForMatching: vi.fn().mockResolvedValue([wrongSku]),
+    };
+    const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
+
+    await expect(service.suggest(organizationId, optionId)).resolves.toMatchObject({
+      status: 'identifier_name_mismatch', automationDecision: 'operator_review',
+    });
+  });
+
+  it('does not query Inventory when the scoped context is missing', async () => {
+    const repository = { getContext: vi.fn().mockResolvedValue(null) };
+    const evidence = {
+      findByCodes: vi.fn(),
+      findByNormalizedBarcodes: vi.fn(),
+      findByNormalizedNames: vi.fn(),
+      listActiveForMatching: vi.fn(),
+    };
+    const service = new ChannelRecipeSuggestionService(repository as never, evidence as never);
+
+    await expect(service.suggest(organizationId, optionId)).rejects.toBeInstanceOf(ChannelNotFoundError);
+    expect(evidence.findByCodes).not.toHaveBeenCalled();
+    expect(evidence.findByNormalizedBarcodes).not.toHaveBeenCalled();
+    expect(evidence.findByNormalizedNames).not.toHaveBeenCalled();
+    expect(evidence.listActiveForMatching).not.toHaveBeenCalled();
+  });
+});

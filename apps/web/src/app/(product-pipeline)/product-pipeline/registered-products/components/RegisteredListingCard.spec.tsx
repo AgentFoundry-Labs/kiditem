@@ -8,7 +8,7 @@ function listingFixture(overrides: Partial<RegisteredChannelListing> = {}): Regi
     id: 'listing-1',
     listingName: '자석 다트게임',
     thumbnailUrl: 'https://cdn.example.com/product.jpg',
-    detailPageArtifactId: null,
+    imageUrl: null, salesProductId: null,
     detailPageRevisionId: null,
     channel: 'coupang',
     channelAccountId: 'account-1',
@@ -19,9 +19,10 @@ function listingFixture(overrides: Partial<RegisteredChannelListing> = {}): Regi
     category: null,
     brand: null,
     manufacturer: null,
-    sourceCandidateId: 'candidate-1',
+    sourceRecordId: 'candidate-1',
     contentWorkspaceId: 'workspace-1',
     status: 'active',
+    listingState: 'published',
     exposureStatus: 'visible',
     optionCount: 2,
     mappingStatus: 'matched',
@@ -32,6 +33,67 @@ function listingFixture(overrides: Partial<RegisteredChannelListing> = {}): Regi
 }
 
 describe('RegisteredListingCard', () => {
+  it('shows the account registration state from the reader, not the raw listing status', () => {
+    render(
+      <RegisteredListingCard
+        listing={listingFixture({
+          status: 'APPROVED',
+          salesProductId: 'sales-product-1',
+          registration: {
+            channelAccountId: '00000000-0000-4000-8000-000000000001',
+            channel: 'coupang',
+            channelAccountName: '쿠팡 본계정',
+            registrationTargetId: null,
+            channelListingId: '00000000-0000-4000-8000-0000000000c1',
+            externalListingId: 'seller-product-1',
+            listingState: 'published',
+            listingRawStatus: 'APPROVED',
+            listingActive: true,
+            state: 'registered',
+            soldOut: true,
+            changedSinceRegistration: true,
+            selectedThumbnailAssetId: null,
+            selectedDetailPageRevisionId: null,
+            lastExecution: null,
+          },
+        })}
+        onOpen={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText('등록됨')).toBeInTheDocument();
+    expect(screen.getByText('품절')).toBeInTheDocument();
+    expect(screen.queryByText(/변경됨/)).not.toBeInTheDocument();
+    expect(screen.queryByText('APPROVED')).not.toBeInTheDocument();
+  });
+
+  it('keeps the mall pill (반려) beside 등록됨 and marks a taken-down listing', () => {
+    const registration = {
+      channelAccountId: '00000000-0000-4000-8000-000000000001', channel: 'coupang', channelAccountName: '쿠팡 본계정',
+      registrationTargetId: null, channelListingId: '00000000-0000-4000-8000-0000000000c1', externalListingId: 'seller-product-1',
+      listingState: 'error' as const, listingRawStatus: '반려', listingActive: true, state: 'registered' as const,
+      soldOut: false, changedSinceRegistration: false, selectedThumbnailAssetId: null, selectedDetailPageRevisionId: null, lastExecution: null,
+    };
+    const { unmount } = render(<RegisteredListingCard listing={listingFixture({ salesProductId: 'sales-product-1', registration })} onOpen={vi.fn()} />);
+    expect(screen.getByText('등록됨')).toBeInTheDocument();
+    expect(screen.getByText('반려')).toBeInTheDocument();
+    unmount();
+
+    render(<RegisteredListingCard listing={listingFixture({ salesProductId: 'sales-product-1', registration: { ...registration, listingActive: false } })} onOpen={vi.fn()} />);
+    expect(screen.getByText('등록됨 · 내림')).toBeInTheDocument();
+  });
+
+  it('shows the folded mall state in Korean with its own tone for a listing without a sales product', () => {
+    render(<RegisteredListingCard listing={listingFixture({ status: 'APPROVED', listingState: 'published', registration: null })} onOpen={vi.fn()} />);
+    expect(screen.getByText('등록')).toHaveClass('bg-emerald-600');
+    expect(screen.queryByText('APPROVED')).not.toBeInTheDocument();
+  });
+
+  it('colours a reviewing listing differently from a published one', () => {
+    render(<RegisteredListingCard listing={listingFixture({ status: 'REVIEWING', listingState: 'reviewing', registration: null })} onOpen={vi.fn()} />);
+    expect(screen.getByText('검수중')).toHaveClass('bg-sky-600');
+  });
+
   it('renders listing-owned content and mapping state', () => {
     const onOpen = vi.fn();
 

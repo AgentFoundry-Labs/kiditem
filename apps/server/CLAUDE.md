@@ -45,10 +45,12 @@ owns its identity and mutation rules.
 - Application code does not import concrete `adapter/out/**`
   implementations or another owner's service. Prisma belongs in outgoing
   persistence adapters or a documented legacy CRUD exception.
-- `read/` ledger readers are pure functions of the caller's transaction with no
-  adapter, application, NestJS, or lock use. Signal a missing, conflicting, or
-  unselectable fact with `common/errors/fact-errors`; an integrity failure
-  stays a plain `Error`.
+- Owner persistence adapters implement fact queries behind public capabilities;
+  a dedicated reader per ledger is optional (ADR-0021). Existing `read/` helpers
+  remain internal pure transaction functions. Preserve organization, completed
+  generation, coverage, and required lock evidence at the query boundary.
+  Signal a missing, conflicting, or unselectable fact with
+  `common/errors/fact-errors`; an integrity failure stays a plain `Error`.
 - `<owner>/transaction/` (not the `application/port/out/transaction/` lane)
   exports plain lock and fence functions that run in the caller's transaction.
   A reader takes the lock evidence and only verifies it.

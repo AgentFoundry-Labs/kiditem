@@ -39,7 +39,6 @@ model CoupangDirectTransportReceipt {
   createdAt                    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   organization               Organization                        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount             ChannelAccount                      @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   effectSourceImportRun      SourceImportRun                     @relation("CoupangDirectTransportReceiptEffectSource", fields: [effectSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   rocketPurchaseConfirmation RocketPurchaseConfirmation?         @relation(fields: [rocketPurchaseConfirmationId, organizationId], references: [id, organizationId], onDelete: Restrict)
   consumptions               CoupangDirectTransportConsumption[]
@@ -178,7 +177,6 @@ model Order {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  channelAccount  ChannelAccount   @relation(fields: [channelAccountId, organizationId], references: [id, organizationId], onDelete: Restrict)
   sourceImportRun SourceImportRun? @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   lineItems       OrderLineItem[]
 
@@ -219,9 +217,8 @@ model OrderLineItem {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
-  organization  Organization          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  order         Order                 @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  listingOption ChannelListingOption? @relation(fields: [listingOptionId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  order        Order        @relation(fields: [orderId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
   @@unique([id, organizationId])
   @@unique([orderId, externalLineId])
@@ -297,7 +294,6 @@ model Review {
 
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   sourceImportRun SourceImportRun? @relation("ReviewCollectionFacts", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  listing         ChannelListing?  @relation(fields: [listingId], references: [id], onDelete: SetNull)
 
   @@unique([organizationId, platform, externalReviewId], map: "reviews_org_platform_external_legacy_key", where: raw("source_import_run_id IS NULL"))
   @@unique([organizationId, sourceImportRunId, platform, externalReviewId], map: "reviews_org_source_run_external_key", where: raw("source_import_run_id IS NOT NULL"))
@@ -370,4 +366,80 @@ model CoupangShipmentDateSummary {
   @@index([sourceImportRunId, organizationId])
   @@index([organizationId])
   @@map("coupang_shipment_date_summaries")
+}
+
+/// @namespace Orders
+/// @describe RocketPoCatalogSnapshot canonical state owned by orders.
+/// @namespace Channels
+/// @describe Completed Coupang Rocket PO collection evidence that can be reopened without another provider collection. Inventory capacity is never stored here.
+model RocketPoCatalogSnapshot {
+  id                String @id @default(uuid()) @db.Uuid
+  organizationId    String @map("organization_id") @db.Uuid
+  channelAccountId  String @map("channel_account_id") @db.Uuid
+  sourceImportRunId String @map("source_import_run_id") @db.Uuid
+  collectionRunId   String @map("collection_run_id") @db.Uuid
+
+  vendorId       String @map("vendor_id")
+  listPagesRead  Int    @map("list_pages_read")
+  totalListPages Int    @map("total_list_pages")
+  detailPoCount  Int    @map("detail_po_count")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  lines RocketPoCatalogLine[]
+
+  sourceImportRun SourceImportRun       @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+
+  @@unique([id, organizationId], map: "rocket_po_catalog_snapshots_id_org_key")
+  @@unique([sourceImportRunId, organizationId], map: "rocket_po_catalog_snapshots_run_org_key")
+  @@unique([organizationId, channelAccountId, collectionRunId], map: "rocket_po_catalog_snapshots_org_account_collection_key")
+  @@index([organizationId, channelAccountId, createdAt])
+  @@index([channelAccountId])
+  @@index([sourceImportRunId])
+  @@map("rocket_po_catalog_snapshots")
+}
+
+/// @namespace Orders
+/// @describe RocketPoCatalogLine canonical state owned by orders.
+/// @namespace Channels
+/// @describe Normalized Rocket PO line and confirmation-workbook evidence owned by one completed catalog snapshot.
+model RocketPoCatalogLine {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  snapshotId     String @map("snapshot_id") @db.Uuid
+
+  poLineId            String   @map("po_line_id")
+  poNumber            String   @map("po_number")
+  vendorId            String   @map("vendor_id")
+  productNo           String   @map("product_no")
+  barcode             String
+  productName         String   @map("product_name")
+  orderQty            Int      @map("order_qty")
+  plannedDeliveryDate DateTime @map("planned_delivery_date") @db.Date
+  poStatusCode        String?  @map("po_status_code")
+  businessDateBasis   String?  @map("business_date_basis")
+  center              String?
+  inboundType         String?  @map("inbound_type")
+  poStatus            String?  @map("po_status")
+  returnManager       String?  @map("return_manager")
+  returnContact       String?  @map("return_contact")
+  returnAddress       String?  @map("return_address")
+  purchasePrice       Int?     @map("purchase_price")
+  supplyPrice         Int?     @map("supply_price")
+  vat                 Int?
+  totalPurchase       Int?     @map("total_purchase")
+  poRegisteredAt      String?  @map("po_registered_at")
+  xdock               String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  snapshot RocketPoCatalogSnapshot @relation(fields: [snapshotId, organizationId], references: [id, organizationId], onDelete: Cascade)
+
+  @@unique([snapshotId, poLineId], map: "rocket_po_catalog_lines_snapshot_line_key")
+  @@index([snapshotId])
+  @@index([organizationId, plannedDeliveryDate])
+  @@index([organizationId, poNumber])
+  @@map("rocket_po_catalog_lines")
 }

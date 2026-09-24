@@ -6,10 +6,16 @@ const Uuid = z.string().uuid();
 export const PRODUCTS_CAPABILITIES = [
   {
     key: 'products.create_listing_generation_package', ownerDomain: 'products', ownerInputPort: 'products.createListingGenerationPackage',
-    description: 'Start deterministic listing generation for an existing sourcing candidate.',
+    description:
+      'Start listing-content generation (detail page and/or thumbnail, per task) for an existing selling-product ' +
+      'draft; optional fields override the brief the draft already holds (name, category, target, options, age ' +
+      'group, KC status, size, colours, box set, template). The result is the detail page id, the thumbnail ' +
+      'generation id, the content workspace id and the editor href (each id is null when that part was not ' +
+      'requested). It enqueues work and returns immediately; it does not register the ' +
+      'product on any mall and a draft that does not exist is refused.',
     resultSummary: '상품 등록용 생성 작업을 시작했습니다.',
     inputSchema: z.object({
-      candidateId: Uuid,
+      salesProductId: Uuid,
       productName: z.string().trim().max(500).nullable().optional(), imageUrls: z.array(z.string().url()).max(40).optional(),
       category: z.string().trim().max(200).nullable().optional(), description: z.string().trim().max(20_000).nullable().optional(),
       target: z.string().trim().max(1_000).nullable().optional(), thumbnailUrl: z.string().url().nullable().optional(),
@@ -22,8 +28,8 @@ export const PRODUCTS_CAPABILITIES = [
       task: z.enum(['all', 'detail', 'thumbnail']).optional(),
     }).strict(),
     outputSchema: z.object({
-      candidateId: Uuid,
-      detailGenerationId: Uuid.nullable(),
+      salesProductId: Uuid,
+      detailPageId: Uuid.nullable(),
       thumbnailGenerationId: Uuid.nullable(),
       contentWorkspaceId: Uuid.nullable(),
       href: z.string().min(1),

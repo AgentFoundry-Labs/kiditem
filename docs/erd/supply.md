@@ -112,7 +112,7 @@ erDiagram
   RocketPurchaseConfirmation {
     String id PK
     String organizationId FK
-    String channelAccountId FK
+    String channelAccountId
     String sourceImportRunId FK
     String idempotencyKey
     String requestHash
@@ -150,7 +150,7 @@ erDiagram
     Int orderQuantity
     Int confirmedQuantity
     String shortageReason
-    String channelListingOptionId FK
+    String channelListingOptionId
     String collectedOrderLineItemId
     DateTime collectedAt
     DateTime createdAt
@@ -276,13 +276,11 @@ erDiagram
 | PurchaseOrderItem | organization | references external | Core | Organization |
 | PurchaseOrderSubmissionAttempt | organization | references external | Core | Organization |
 | PurchaseOrderSubmissionAttempt | reconciler | references external | Core | User |
-| RocketPurchaseConfirmation | channelAccount | references external | Core | ChannelAccount |
 | RocketPurchaseConfirmation | confirmer | references external | Core | User |
 | RocketPurchaseConfirmation | organization | references external | Core | Organization |
 | RocketPurchaseConfirmation | rocketPurchaseConfirmation | referenced by external | Orders | CoupangDirectTransportReceipt |
 | RocketPurchaseConfirmation | sourceImportRun | references external | Core | SourceImportRun |
 | RocketPurchaseConfirmationAllocation | organization | references external | Core | Organization |
-| RocketPurchaseConfirmationLine | channelListingOption | references external | Core | ChannelListingOption |
 | RocketPurchaseConfirmationLine | organization | references external | Core | Organization |
 | RocketPurchaseConfirmationTransmission | organization | references external | Core | Organization |
 | RocketPurchaseConfirmationTransmission | sourceImportRun | references external | Core | SourceImportRun |

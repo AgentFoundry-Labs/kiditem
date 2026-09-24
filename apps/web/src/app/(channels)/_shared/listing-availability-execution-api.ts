@@ -14,6 +14,7 @@ export interface ListingAvailabilityExecutionContext {
   executionId: string;
   payloadHash: string;
   leaseToken: string;
+  expectedProviderAccountId?: string;
 }
 
 export const listingAvailabilityExecutionKeys = {

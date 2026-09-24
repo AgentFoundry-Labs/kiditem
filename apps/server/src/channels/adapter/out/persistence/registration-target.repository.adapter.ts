@@ -1,28 +1,40 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import {
+  PRODUCT_TRANSACTIONAL_READ_PORT,
+  type ProductTransactionalReadPort,
+} from '../../../../products/application/port/in/product-transactional-read.port';
+import { ensureSalesProductCodesInTransaction } from './sales-product-code-rows';
 import { RegistrationTargetException } from '../../../application/exception/registration-target.exception';
 import type {
-  RegistrationTargetCreateInput,
+  RegistrationMallInput,
   RegistrationTargetResolveInput,
   RegistrationTargetUpdateInput,
 } from '@kiditem/shared/sales-product';
+import {
+  RegistrationMallInputError,
+  emptyRegistrationMallInput,
+  normalizeRegistrationMallInput,
+} from '../../../domain/registration/registration-mall-input';
+import {
+  REGISTRATION_CONTENT_WORKSPACE_PORT,
+  type RegistrationContentWorkspacePort,
+} from '../../../../content/application/port/in/workspace/registration-content-workspace.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import type {
+  RegistrationTargetCreateRecord,
   RegistrationTargetRecord,
   RegistrationTargetRepositoryPort,
 } from '../../../application/port/out/persistence/registration-target.repository.port';
+import { ZodError } from 'zod';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
 const TARGET_INCLUDE = {
   selectedOptions: {
     orderBy: { sortOrder: 'asc' as const },
-    select: {
-      salesProductOptionId: true,
-      salePrice: true,
-      normalPrice: true,
-      supplyPrice: true,
-    },
+    select: { salesProductOptionId: true },
   },
   salesProduct: {
     select: {
@@ -39,55 +51,70 @@ const TARGET_INCLUDE = {
       },
     },
   },
-} satisfies Prisma.ProductPreparationInclude;
+} satisfies Prisma.RegistrationTargetInclude;
 
-type TargetRow = Prisma.ProductPreparationGetPayload<{ include: typeof TARGET_INCLUDE }>;
+type TargetRow = Prisma.RegistrationTargetGetPayload<{ include: typeof TARGET_INCLUDE }>;
 type Tx = Prisma.TransactionClient;
 
 @Injectable()
 export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
+    private readonly productTransactionalRead: ProductTransactionalReadPort,
+    /** 고른 대표이미지 자산 · 상세 revision 이 이 상품 작업공간의 것인지 Content 가 본다. */
+    @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
+    private readonly contentWorkspaces: RegistrationContentWorkspacePort,
+  ) {}
+
+  /** 셀피아 단품 id → 코드. KID 발급이 단품 하나짜리 구성의 원천 코드를 다시 쓸 때만 읽는다. */
+  private async readMasterProductCodes(
+    tx: Tx,
+    organizationId: string,
+    masterProductIds: readonly string[],
+  ): Promise<ReadonlyMap<string, string>> {
+    if (masterProductIds.length === 0) return new Map();
+    const identities = await this.productTransactionalRead.readSourceIdentities(
+      { client: tx },
+      { organizationId, selector: { kind: 'ids', values: [...masterProductIds] } },
+    );
+    return new Map(identities.map((identity) => [identity.masterProductId, identity.code]));
+  }
 
   async resolve(organizationId: string, input: RegistrationTargetResolveInput): Promise<string> {
     return this.prisma.$transaction(async (tx) => {
       const product = await validateReferences(tx, organizationId, input.salesProductId, input.channelAccountId, {
         allowArchivedProduct: true,
       });
-      const candidates = await tx.productPreparation.findMany({
+      // 상품 × 몰 계정당 활성 설정은 하나다(부분 유일키). 고를 것이 없으니 찾거나 만든다.
+      const existing = await tx.registrationTarget.findFirst({
         where: {
           organizationId,
           salesProductId: input.salesProductId,
           channelAccountId: input.channelAccountId,
-          closedAt: null,
-          isDeleted: false,
-          ...(input.targetId ? { id: input.targetId } : {}),
+          archivedAt: null,
         },
         select: { id: true },
-        take: 2,
       });
-      if (input.targetId && candidates.length === 0) {
-        throw new RegistrationTargetException('not_found', '이 상품과 쇼핑몰의 설정을 찾지 못했습니다.');
-      }
-      if (candidates.length > 1) {
-        throw new RegistrationTargetException('conflict', '이 쇼핑몰에 여러 판매 설정이 있습니다. 사용할 설정을 선택하세요.');
-      }
-      if (candidates[0]) return candidates[0].id;
+      if (existing) return existing.id;
       if (product.status === 'archived') {
         throw new RegistrationTargetException('invalid', '보관된 판매상품에는 새 등록 설정을 만들 수 없습니다.');
       }
+      // 첫 등록 설정을 만드는 순간이 곧 판매 결정이다 — 여기서 KID 를 발급한다(KID-310).
+      // 발급은 트랜잭션 밖 시퀀스라 되돌아오지 않는다: 거절할 이유는 모두 이 앞에서 본다.
+      await ensureSalesProductCodesInTransaction(tx, organizationId, input.salesProductId,
+        (ids) => this.readMasterProductCodes(tx, organizationId, ids));
       const options = await tx.salesProductOption.findMany({
         where: { organizationId, salesProductId: input.salesProductId, supplyStatus: { not: 'unused' } },
         orderBy: [{ sortOrder: 'asc' }, { optionCode: 'asc' }],
         select: { id: true },
       });
-      const created = await tx.productPreparation.create({
+      const created = await tx.registrationTarget.create({
         data: {
           organizationId,
           salesProductId: input.salesProductId,
           channelAccountId: input.channelAccountId,
-          sourceCandidateId: product.sourceCandidateId,
-          displayName: null,
-          registrationInput: {},
+          registrationInput: emptyRegistrationMallInput() as Prisma.InputJsonValue,
           selectedOptions: options.length === 0 ? undefined : {
             createMany: { data: options.map((option, sortOrder) => ({
               salesProductOptionId: option.id,
@@ -102,11 +129,11 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
   }
 
   async list(organizationId: string, salesProductId: string): Promise<RegistrationTargetRecord[]> {
-    const rows = await this.prisma.productPreparation.findMany({
+    const rows = await this.prisma.registrationTarget.findMany({
       where: {
         organizationId,
         salesProductId,
-        isDeleted: false,
+        archivedAt: null,
       },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
       include: TARGET_INCLUDE,
@@ -115,18 +142,37 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
   }
 
   async get(organizationId: string, targetId: string): Promise<RegistrationTargetRecord | null> {
-    const row = await this.prisma.productPreparation.findFirst({
+    const row = await this.prisma.registrationTarget.findFirst({
       where: {
         id: targetId,
         organizationId,
-        isDeleted: false,
+        archivedAt: null,
       },
       include: TARGET_INCLUDE,
     });
     return row ? toRecord(row) : null;
   }
 
-  async create(organizationId: string, input: RegistrationTargetCreateInput): Promise<string> {
+  /**
+   * 상품 × 몰 계정당 등록 설정은 하나다(ADR-0022). 이미 있으면 부분 유일키가 막는데, 그것을
+   * 데이터베이스 오류로 흘려보내면 화면이 왜 막혔는지 말하지 못한다.
+   */
+  async create(organizationId: string, input: RegistrationTargetCreateRecord): Promise<string> {
+    try {
+      return await this.createTarget(organizationId, input);
+    } catch (error) {
+      if (error && typeof error === 'object' && (error as { code?: unknown }).code === 'P2002') {
+        throw new RegistrationTargetException(
+          'conflict',
+          '이 판매상품과 몰 계정에는 이미 등록 설정이 있습니다. 기존 설정을 고쳐주세요.',
+        );
+      }
+      throw error;
+    }
+  }
+
+  private async createTarget(organizationId: string, input: RegistrationTargetCreateRecord): Promise<string> {
+    const registrationInput = mallInputOrInvalid(input.registrationInput);
     return this.prisma.$transaction(async (tx) => {
       await validateReferences(tx, organizationId, input.salesProductId, input.channelAccountId);
       await validateSelectedOptions(tx, {
@@ -135,13 +181,12 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         selectedOptions: input.selectedOptions,
       });
 
-      const created = await tx.productPreparation.create({
+      const created = await tx.registrationTarget.create({
         data: {
           organizationId,
           salesProductId: input.salesProductId,
           channelAccountId: input.channelAccountId,
-          displayName: input.displayName,
-          registrationInput: input.registrationInput as Prisma.InputJsonValue,
+          registrationInput: registrationInput as Prisma.InputJsonValue,
           selectedOptions: input.selectedOptions.length === 0
             ? undefined
             : {
@@ -149,9 +194,6 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
                 data: input.selectedOptions.map((option, sortOrder) => ({
                   salesProductOptionId: option.salesProductOptionId,
                   sortOrder,
-                  salePrice: option.salePrice,
-                  normalPrice: option.normalPrice,
-                  supplyPrice: option.supplyPrice,
                 })),
               },
             },
@@ -162,22 +204,61 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
     }, TRANSACTION_OPTIONS);
   }
 
+  /**
+   * 이 몰에 더 보내지 않기로 한다.
+   *
+   * 준비 · 실행 중인 제출이 있으면 거절한다 — 나간 제출의 근거가 되는 설정을 치우면 그 결과를
+   * 어디에 이어 붙일지 알 수 없다. 지난 실행 이력은 보관해도 그대로 남는다.
+   */
+  async archive(organizationId: string, targetId: string): Promise<void> {
+    await this.prisma.$transaction(async (tx) => {
+      await tx.$queryRaw(Prisma.sql`
+        SELECT id FROM registration_targets
+        WHERE id = ${targetId}::uuid AND organization_id = ${organizationId}::uuid
+        FOR UPDATE
+      `);
+      const current = await tx.registrationTarget.findFirst({
+        where: { id: targetId, organizationId, archivedAt: null },
+        select: { id: true },
+      });
+      if (!current) throw new RegistrationTargetException('not_found', '등록 설정을 찾지 못했습니다.');
+      const live = await tx.productRegistrationExecution.count({
+        where: {
+          organizationId,
+          registrationTargetId: targetId,
+          status: { in: ['prepared', 'executing', 'reconciling'] },
+        },
+      });
+      if (live > 0) {
+        throw new RegistrationTargetException(
+          'conflict',
+          'An active execution must be resolved before archiving its target.',
+        );
+      }
+      await tx.registrationTarget.updateMany({
+        where: { id: targetId, organizationId, archivedAt: null },
+        data: { archivedAt: new Date() },
+      });
+    });
+  }
+
   async update(
     organizationId: string,
     targetId: string,
     input: RegistrationTargetUpdateInput,
   ): Promise<void> {
+    const registrationInput = mallInputOrInvalid(input.registrationInput);
     await this.prisma.$transaction(async (tx) => {
       await tx.$queryRaw(Prisma.sql`
-        SELECT id FROM product_preparations
+        SELECT id FROM registration_targets
         WHERE id = ${targetId}::uuid AND organization_id = ${organizationId}::uuid
         FOR UPDATE
       `);
-      const current = await tx.productPreparation.findFirst({
+      const current = await tx.registrationTarget.findFirst({
         where: {
           id: targetId,
           organizationId,
-          isDeleted: false,
+          archivedAt: null,
         },
         select: {
           id: true,
@@ -196,9 +277,23 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         throw new RegistrationTargetException('conflict', '등록 설정이 다른 곳에서 변경되었습니다.');
       }
 
-      await validateReferences(tx, organizationId, current.salesProductId, current.channelAccountId, {
+      const product = await validateReferences(tx, organizationId, current.salesProductId, current.channelAccountId, {
         allowArchivedProduct: true,
       });
+      if (input.selectedThumbnailAssetId || input.selectedDetailPageRevisionId) {
+        const handle = ownerTransaction(tx);
+        const { workspaceId } = await this.contentWorkspaces.ensureSalesProductWorkspace(handle, {
+          organizationId,
+          salesProductId: current.salesProductId,
+          createdByUserId: null,
+        });
+        await this.contentWorkspaces.validateSourceSelections(handle, {
+          organizationId,
+          sourceWorkspaceId: workspaceId,
+          selectedThumbnailAssetId: input.selectedThumbnailAssetId,
+          selectedDetailPageRevisionId: input.selectedDetailPageRevisionId,
+        });
+      }
       const existingOptionIds = new Set(
         current.selectedOptions.map((option) => option.salesProductOptionId),
       );
@@ -209,16 +304,17 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         existingOptionIds,
       });
 
-      const updated = await tx.productPreparation.updateMany({
+      const updated = await tx.registrationTarget.updateMany({
         where: {
           id: current.id,
           organizationId,
-          isDeleted: false,
+          archivedAt: null,
           version: input.expectedVersion,
         },
         data: {
-          displayName: input.displayName,
-          registrationInput: input.registrationInput as Prisma.InputJsonValue,
+          registrationInput: registrationInput as Prisma.InputJsonValue,
+          selectedThumbnailAssetId: input.selectedThumbnailAssetId,
+          selectedDetailPageRevisionId: input.selectedDetailPageRevisionId,
           version: { increment: 1 },
         },
       });
@@ -226,22 +322,19 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         throw new RegistrationTargetException('conflict', '등록 설정이 다른 곳에서 변경되었습니다.');
       }
 
-      await tx.productPreparationOption.deleteMany({
+      await tx.registrationTargetOption.deleteMany({
         where: {
           organizationId,
-          productPreparationId: current.id,
+          registrationTargetId: current.id,
         },
       });
       if (input.selectedOptions.length > 0) {
-        await tx.productPreparationOption.createMany({
+        await tx.registrationTargetOption.createMany({
           data: input.selectedOptions.map((option, sortOrder) => ({
             organizationId,
-            productPreparationId: current.id,
+            registrationTargetId: current.id,
             salesProductOptionId: option.salesProductOptionId,
             sortOrder,
-            salePrice: option.salePrice,
-            normalPrice: option.normalPrice,
-            supplyPrice: option.supplyPrice,
           })),
         });
       }
@@ -255,7 +348,7 @@ async function validateReferences(
   salesProductId: string,
   channelAccountId: string,
   options: { allowArchivedProduct?: boolean } = {},
-): Promise<{ status: string; sourceCandidateId: string | null }> {
+): Promise<{ name: string; status: string; sourceRecordId: string | null }> {
   // Serialize new references with option archive/delete/composition planning.
   await tx.$queryRaw(Prisma.sql`
     SELECT id FROM sales_products
@@ -272,7 +365,7 @@ async function validateReferences(
 
   const product = await tx.salesProduct.findFirst({
     where: { id: salesProductId, organizationId },
-    select: { id: true, status: true, sourceCandidateId: true },
+    select: { id: true, name: true, status: true, sourceRecordId: true },
   });
   if (!product) {
     throw new RegistrationTargetException('invalid', '판매상품이 이 조직에 속하지 않습니다.');
@@ -288,7 +381,7 @@ async function validateReferences(
   if (!account) {
     throw new RegistrationTargetException('invalid', '활성 채널 계정이 이 조직에 속하지 않습니다.');
   }
-  return { status: product.status, sourceCandidateId: product.sourceCandidateId };
+  return { name: product.name, status: product.status, sourceRecordId: product.sourceRecordId };
 }
 
 async function validateSelectedOptions(
@@ -296,7 +389,7 @@ async function validateSelectedOptions(
   input: {
     organizationId: string;
     salesProductId: string;
-    selectedOptions: RegistrationTargetCreateInput['selectedOptions'];
+    selectedOptions: RegistrationTargetCreateRecord['selectedOptions'];
     existingOptionIds?: ReadonlySet<string>;
   },
 ): Promise<void> {
@@ -330,14 +423,10 @@ function toRecord(row: TargetRow): RegistrationTargetRecord {
     salesProductId: row.salesProductId,
     channelAccountId: row.channelAccountId,
     version: row.version,
-    displayName: row.displayName,
-    registrationInput: asRecord(row.registrationInput),
-    selectedOptions: row.selectedOptions.map((option) => ({
-      salesProductOptionId: option.salesProductOptionId,
-      salePrice: option.salePrice,
-      normalPrice: option.normalPrice,
-      supplyPrice: option.supplyPrice,
-    })),
+    registrationInput: normalizeRegistrationMallInput(row.registrationInput),
+    selectedThumbnailAssetId: row.selectedThumbnailAssetId,
+    selectedDetailPageRevisionId: row.selectedDetailPageRevisionId,
+    selectedOptions: row.selectedOptions.map((option) => ({ salesProductOptionId: option.salesProductOptionId })),
     product: {
       name: row.salesProduct.name,
       options: row.salesProduct.options.map((option) => ({
@@ -351,9 +440,16 @@ function toRecord(row: TargetRow): RegistrationTargetRecord {
   };
 }
 
-function asRecord(value: Prisma.JsonValue): Record<string, unknown> {
-  if (value && typeof value === 'object' && !Array.isArray(value)) {
-    return value as Record<string, unknown>;
+/** 몰 값 규칙과 스키마(값 길이 · 모양)를 등록 설정의 400 으로 바꾼다. 거절한 키 이름이 메시지에 있다. */
+function mallInputOrInvalid(raw: unknown): RegistrationMallInput {
+  try {
+    return normalizeRegistrationMallInput(raw);
+  } catch (error) {
+    if (error instanceof RegistrationMallInputError) throw new RegistrationTargetException('invalid', error.message);
+    if (error instanceof ZodError) {
+      const keys = [...new Set(error.issues.map((issue) => issue.path.join('.')))];
+      throw new RegistrationTargetException('invalid', `등록 설정의 몰 값이 올바르지 않습니다(${keys.join(', ')}).`);
+    }
+    throw error;
   }
-  return {};
 }

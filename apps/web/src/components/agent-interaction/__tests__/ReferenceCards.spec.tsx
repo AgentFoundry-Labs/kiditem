@@ -23,13 +23,20 @@ describe('Agent result reference cards', () => {
     expect(screen.queryByText('v7')).not.toBeInTheDocument();
   });
 
-  it('links a sourcing candidate only to its verified detail route', () => {
+  it('links a sales product draft to its collected-product route', () => {
+    renderWithQuery(<ResourceReferenceCard reference={{ kind: 'sales_product', id: 'product/123', version: null }} />);
+
+    expect(screen.getByRole('heading', { name: '판매상품 초안' })).toBeVisible();
+    expect(screen.getByRole('link', { name: '판매상품 초안 열기' }))
+      .toHaveAttribute('href', '/product-pipeline/collected-products/product%2F123');
+    expect(screen.queryByText('product/123')).not.toBeInTheDocument();
+  });
+
+  it('shows a sourcing candidate without a link, because the screen opens by draft', () => {
     renderWithQuery(<ResourceReferenceCard reference={{ kind: 'sourcing_candidate', id: 'candidate/123', version: null }} />);
 
     expect(screen.getByRole('heading', { name: '소싱 후보' })).toBeVisible();
-    expect(screen.getByRole('link', { name: '소싱 후보 열기' }))
-      .toHaveAttribute('href', '/product-pipeline/collected-products/candidate%2F123');
-    expect(screen.queryByText('candidate/123')).not.toBeInTheDocument();
+    expect(screen.queryByRole('link')).not.toBeInTheDocument();
   });
 
   it('keeps an unknown resource kind as a safe non-action card', () => {

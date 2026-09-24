@@ -16,12 +16,13 @@ const target = {
   salesProductId: PRODUCT_ID,
   channelAccountId: ACCOUNT_ID,
   version: 3,
-  displayName: null,
-  registrationInput: { provider: 'document' },
-  selectedOptions: [{ salesProductOptionId: OPTION_ID, salePrice: null, normalPrice: 12_000, supplyPrice: null }],
+  registrationInput: { mallCategory: null, mallFields: {}, adapter: {} },
+  selectedThumbnailAssetId: null,
+  selectedDetailPageRevisionId: null,
+  selectedOptions: [{ salesProductOptionId: OPTION_ID }],
   resolved: {
     name: '동물 블록',
-    options: [{ salesProductOptionId: OPTION_ID, code: '100-0001', values: ['파랑'], salePrice: 5900, normalPrice: 12_000, supplyPrice: null }],
+    options: [{ salesProductOptionId: OPTION_ID, code: '100-0001', values: ['파랑'], salePrice: 5900, normalPrice: 12_000 }],
   },
 };
 
@@ -38,37 +39,30 @@ describe('registration target API', () => {
     );
   });
 
-  it('resolves a common default or an explicitly selected target', async () => {
+  it('resolves the target for a product and an account', async () => {
     vi.mocked(apiClient.post).mockResolvedValue(target);
 
     await registrationTargetApi.resolve({ salesProductId: PRODUCT_ID, channelAccountId: ACCOUNT_ID });
-    await registrationTargetApi.resolve({ salesProductId: PRODUCT_ID, channelAccountId: ACCOUNT_ID, targetId: TARGET_ID });
 
     expect(apiClient.post).toHaveBeenNthCalledWith(1, '/api/channels/registration-targets/resolve', {
       salesProductId: PRODUCT_ID, channelAccountId: ACCOUNT_ID,
     });
-    expect(apiClient.post).toHaveBeenNthCalledWith(2, '/api/channels/registration-targets/resolve', {
-      salesProductId: PRODUCT_ID, channelAccountId: ACCOUNT_ID, targetId: TARGET_ID,
-    });
   });
 
-  it('writes nullable overrides, selected option order, and provider document', async () => {
-    vi.mocked(apiClient.post).mockResolvedValue(target);
+  it('writes the mall values, selected content ids and selected option order through update only', async () => {
     vi.mocked(apiClient.put).mockResolvedValue(target);
 
     const editable = {
-      displayName: '파랑 블록',
-      registrationInput: { provider: 'document' },
-      selectedOptions: [{ salesProductOptionId: OPTION_ID, salePrice: null, normalPrice: 12_000, supplyPrice: 2500 }],
+      registrationInput: { mallCategory: { key: '완구>블록', label: null }, mallFields: { supplyPrice: '2500' }, adapter: {} },
+      selectedThumbnailAssetId: null,
+      selectedDetailPageRevisionId: null,
+      selectedOptions: [{ salesProductOptionId: OPTION_ID }],
     };
-    await registrationTargetApi.create({ ...editable, salesProductId: PRODUCT_ID, channelAccountId: ACCOUNT_ID });
     await registrationTargetApi.update(TARGET_ID, { ...editable, expectedVersion: 3 });
 
-    expect(apiClient.post).toHaveBeenCalledWith('/api/channels/registration-targets', {
-      ...editable,
-      salesProductId: PRODUCT_ID,
-      channelAccountId: ACCOUNT_ID,
-    });
+    // 설정이 생기는 길은 resolve 하나다(KID-313) — 값을 채워 만드는 create 경로는 없다.
+    expect(registrationTargetApi).not.toHaveProperty('create');
+    expect(apiClient.post).not.toHaveBeenCalled();
     expect(apiClient.put).toHaveBeenCalledWith(`/api/channels/registration-targets/${TARGET_ID}`, {
       ...editable,
       expectedVersion: 3,

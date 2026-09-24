@@ -63,8 +63,6 @@ export const InventorySkuSnapshotItemSchema = z.object({
   barcode: z.string().nullable(),
   currentStock: z.number().int().nonnegative(),
   purchasePrice: z.number().int().nonnegative().nullable(),
-  salePrice: z.number().int().nonnegative().nullable(),
-  isActive: z.boolean(),
   stockValue: z.number().int().nonnegative().nullable(),
   lastImportRunId: z.string().uuid().nullable(),
   lastImportedAt: zIsoDate.nullable(),

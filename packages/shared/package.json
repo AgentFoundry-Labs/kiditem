@@ -35,6 +35,11 @@
       "import": "./dist/channel-listing.js",
       "require": "./dist/channel-listing.cjs"
     },
+    "./thumbnail-execution": {
+      "types": "./dist/thumbnail-execution.d.ts",
+      "import": "./dist/thumbnail-execution.js",
+      "require": "./dist/thumbnail-execution.cjs"
+    },
     "./registration-execution": {
       "types": "./dist/registration-execution.d.ts",
       "import": "./dist/registration-execution.js",
@@ -388,6 +393,12 @@
       ],
       "mall-admin-listings": [
         "dist/mall-admin-listings.d.ts"
+      ],
+      "registration-execution": [
+        "dist/registration-execution.d.ts"
+      ],
+      "thumbnail-execution": [
+        "dist/thumbnail-execution.d.ts"
       ],
       "sales-product": [
         "dist/sales-product.d.ts"

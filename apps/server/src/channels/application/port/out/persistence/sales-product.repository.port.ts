@@ -1,78 +1,72 @@
+import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type {
   SalesProduct,
   SalesProductCertification,
   SalesProductDeliveryFeeType,
   SalesProductListQuery,
+  SalesProductKcStatus,
+  SalesProductListItem,
   SalesProductListResponse,
   SalesProductStatus,
   SalesProductTaxType,
 } from '@kiditem/shared/sales-product';
-import type { ExistingSalesProductOption, SalesProductOptionReplacementPlan } from '../../../../domain/sales-product';
-import type { LinkCandidateListing, LinkCandidateProduct, SalesProductLinkPlan } from '../../../../domain/sales-product-links';
+export type SalesProductListPage = Omit<SalesProductListResponse, 'items'> & {
+  items: Omit<SalesProductListItem, 'registrationAccounts'>[];
+};
+
+import type { ExistingSalesProductOption, SalesProductOptionReplacementPlan } from '../../../../domain/sales-product/sales-product';
+import type { LinkCandidateListing, LinkCandidateProduct, SalesProductLinkPlan } from '../../../../domain/sales-product/sales-product-links';
 import type {
   MallPriceAdoptionWrite,
   MallPriceCandidateListingOption,
   MallPriceCandidateProduct,
-} from '../../../../domain/sales-product-mall-prices';
-import type { CoupangCatalogFacts } from '../../../../domain/mall-bulk-sheet/coupang-catalog-edit';
-import type { MallSheetSourceProduct } from '../../../../domain/mall-bulk-sheet/mall-sheet-product';
+} from '../../../../domain/sales-product/sales-product-mall-prices';
+import type { CoupangCatalogFacts } from '../../../../domain/registration/bulk-sheet/coupang-catalog-edit';
+import type { MallSheetSourceProduct } from '../../../../domain/registration/bulk-sheet/mall-sheet-product';
+import type { SalesProductBasicsRecord } from '../../../../domain/sales-product/sales-product-basics';
 
 export const SALES_PRODUCT_REPOSITORY_PORT = Symbol('SALES_PRODUCT_REPOSITORY_PORT');
 
-/** 판매상품 기본 칸(옵션 제외). 저장소는 값을 그대로 쓴다 — 검증은 서비스가 끝낸다. */
-export interface SalesProductBasicsRecord {
-  name: string;
-  ownCode: string | null;
-  shortName: string | null;
-  englishName: string | null;
-  printName: string | null;
-  modelName: string | null;
-  modelNo: string | null;
-  brand: string | null;
-  manufacturer: string | null;
-  originCountry: string | null;
-  originRegion: string | null;
-  keywords: string[];
-  standardCategory: string | null;
-  status: SalesProductStatus;
-  taxType: SalesProductTaxType;
-  deliveryFeeType: SalesProductDeliveryFeeType | null;
-  deliveryFee: number | null;
-  stockManaged: boolean;
-  imageUrls: string[];
-  detailHtml: string | null;
-  extraDetailHtml: string[];
-  noticeCategory: string | null;
-  noticeValues: string[];
-  certifications: SalesProductCertification[];
-  importDeclarationNo: string | null;
-  adminMemo: string | null;
-}
+/** 판매상품 기본 칸 — 도메인이 정한 모양 그대로다(다시 가져오기 병합이 같은 칸을 센다). */
+export type { SalesProductBasicsRecord };
 
 export interface SalesProductCreateRecord extends SalesProductBasicsRecord {
-  code: string;
+  /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 null 이다. */
+  code: string | null;
   sabangnetGoodsNo: string | null;
   optionAxes: string[];
-  sourceRaw: Record<string, string> | null;
-  /** 수집상품에서 만든 판매상품이면 그 수집상품 id. */
-  sourceCandidateId?: string | null;
+  sourceRaw: Record<string, unknown> | null;
+  /** 이 초안을 만든 원본 기록(SourceRecord) id. 직접 작성 · 사방넷은 없다. */
+  sourceRecordId?: string | null;
+  /** 원천 장터와 주소. 초안을 만들 때만 쓰고 바꾸지 않는다. */
+  sourcePlatform?: string | null;
+  sourceUrl?: string | null;
 }
 
-/** 수집상품에서 만든 판매상품 — 다시 올릴 때 새로 만들지 않고 쓰는 데 필요한 것만. */
-export interface SalesProductFromCandidateRecord {
-  id: string;
-  code: string;
-  version: number;
-  status: SalesProductStatus;
+/** 다시 가져오기가 병합하는 지금 판매상품: 기본 칸과, 지난 가져오기의 원문(없으면 null). */
+export interface SalesProductImportCurrent {
+  fingerprint: string;
   imageUrls: string[];
-  detailHtml: string | null;
+  basics: SalesProductBasicsRecord;
+  sourceRaw: unknown;
 }
 
 export interface SalesProductOptionState {
   productId: string;
-  productCode: string;
+  productCode: string | null;
+  productName: string;
+  status: SalesProductStatus;
   version: number;
   options: ExistingSalesProductOption[];
+}
+
+/** 초안 삭제 가부를 정하는 사실. 줄을 잠근 뒤 읽는다. */
+export interface SalesProductDraftDeletionFacts {
+  status: SalesProductStatus;
+  hasCode: boolean;
+  sourceRecordId: string | null;
+  hasListing: boolean;
+  hasLiveExecution: boolean;
 }
 
 export interface SabangnetImportProductWrite {
@@ -86,18 +80,20 @@ export interface SabangnetImportProductWrite {
     channelAccountId: string;
     data: SalesProductChannelOverrideRecord;
   }[];
+  /**
+   * 상품 상세. 상품과 같은 트랜잭션에서 Content 의 `imported` revision 으로 넘긴다(KID-313 W2).
+   * `digest` 는 원문에 남기는 상세설명 디지스트(KID-304 `#digest:상품상세설명`) — 같으면 revision 을 만들지 않는다.
+   * 추가상품상세설명은 보내는 곳이 없어 가져오지 않는다.
+   */
+  detail: { html: string; digest: string } | null;
 }
 
+/**
+ * 사방넷 몰별 값 줄에서 등록 대상에 두는 몰 전용 값. 이름 · 가격 · 상세 · 홍보문 · 고시는 상품 사실이라
+ * 등록 대상에 두지 않는다(KID-313 W2).
+ */
 export interface SalesProductChannelOverrideRecord {
-  /** Import-only exact source option identity and resolved final price, never a live ratio. */
-  optionPrices?: readonly { sabangnetOptionCode: string; salePrice: number }[];
-  salePrice: number | null;
-  priceRateBp: number | null;
-  costPrice: number | null;
-  name: string | null;
-  detailHtml: string | null;
-  promoText: string | null;
-  noticeCategory: string | null;
+  /** 재고분할퍼센트 — 몰 전용 칸(`mallFields.stockPercent`). */
   stockPercent: number | null;
   /** 없으면(undefined) 지금 값을 그대로 둔다. 사람이 몰별 값을 고쳐도 옮겨 온 사방넷 값이 지워지지 않게. */
   adapterValues?: Record<string, string> | null;
@@ -114,15 +110,30 @@ export interface SalesProductImportResult {
 export interface SalesProductRepositoryPort {
   /** Allocate from the shared noncycling KID sequence, never from existing row maxima. */
   allocateCode(organizationId: string): Promise<string>;
+  /**
+   * 팔기로 정한 시점에 KID 를 채운다(상품 + 파는 단품 전부). 이미 있으면 그대로 두는 멱등 연산이고,
+   * 판매상품 줄을 잠근 채 한 트랜잭션에서 끝난다. `transaction` 을 주면 그 안에서 한다 — 직접 작성은
+   * 삽입과 발급이 한 커밋이다(KID-313).
+   */
+  ensureCodes(
+    organizationId: string,
+    salesProductId: string,
+    transaction?: OwnerTransaction,
+  ): Promise<{ code: string; issued: number }>;
+  /** 배치판. 몰 엑셀 한 파일이 상품마다 트랜잭션을 여는 것을 막는다 — 한 번에 한 트랜잭션이다. */
+  ensureCodesForMany(organizationId: string, salesProductIds: readonly string[]): Promise<number>;
   readMasterProductCodes(organizationId: string, ids: readonly string[]): Promise<Map<string, string>>;
-  list(organizationId: string, query: SalesProductListQuery): Promise<SalesProductListResponse>;
-  get(organizationId: string, salesProductId: string): Promise<SalesProduct | null>;
+  /** 목록 한 쪽. 계정별 등록 상태는 없다 — 유스케이스가 등록 상태 reader 로 한 번에 채운다(KID-320). */
+  list(organizationId: string, query: SalesProductListQuery): Promise<SalesProductListPage>;
+  get(organizationId: string, salesProductId: string, transaction?: OwnerTransaction): Promise<SalesProduct | null>;
   /** 이 조직에서 쓴 판매상품코드 중 `K` 다음 번호를 고를 때 쓴다. */
   listCodesWithPrefix(organizationId: string, prefix: string): Promise<string[]>;
+  /** `transaction` 을 주면 그 트랜잭션에서 쓴다 — 수집은 후보와 초안이 한 커밋이다. */
   create(
     organizationId: string,
     record: SalesProductCreateRecord,
     plan: SalesProductOptionReplacementPlan,
+    transaction?: OwnerTransaction,
   ): Promise<string>;
   /** 버전이 다르면 false. 없는 상품이면 NotFound. */
   updateBasics(
@@ -164,18 +175,21 @@ export interface SalesProductRepositoryPort {
     organizationId: string,
     plan: Pick<SalesProductLinkPlan, 'listingLinks' | 'optionLinks'>,
   ): Promise<{ listings: number; options: number }>;
-  /** 가져오기 미리보기: 코드별 내용 해시와 지금 사진 주소(이미 옮긴 사진을 알아보려고). */
+  /** 가져오기 미리보기: 코드별 내용 해시와 지금 값(이미 옮긴 사진 · 사람이 고친 칸을 알아보려고). */
   readImportFingerprints(
     organizationId: string,
     codes: readonly string[],
-  ): Promise<Map<string, { fingerprint: string; imageUrls: string[] }>>;
-  /** 몰 가격 가져오기 후보: 판매상품(단품 추가금액 · 몰별 값)과 이어진 활성 몰 옵션의 가격. */
+  ): Promise<Map<string, SalesProductImportCurrent>>;
+  /** 몰 가격 가져오기 후보: 판매상품(버전 · 단품 판매가)과 이어진 활성 몰 옵션의 가격. */
   readMallPriceCandidates(organizationId: string): Promise<{
-    products: (MallPriceCandidateProduct & { code: string; name: string })[];
+    products: (MallPriceCandidateProduct & { code: string | null; name: string })[];
     listingOptions: MallPriceCandidateListingOption[];
   }>;
-  /** 명시한 대상·버전에 옵션별 최종가를 반영한다. 없거나 바뀐 대상은 거부한다. */
-  setChannelOverrideSalePrices(
+  /**
+   * 채택한 몰 가격을 판매 상품 단품 판매가로 쓴다(KID-313 W2). 판매 상품 버전이 같을 때만 쓰고 버전을 올린다.
+   * 버전이 다르거나 그 상품의 단품이 아니면 모두 되돌린다.
+   */
+  applyMallPriceAdoption(
     organizationId: string,
     writes: readonly MallPriceAdoptionWrite[],
   ): Promise<number>;
@@ -197,15 +211,13 @@ export interface SalesProductRepositoryPort {
   /** 가져오기: 자체상품코드 → 판매상품코드(이미 있는 것만). */
   findCodesByOwnCodes(organizationId: string, ownCodes: readonly string[]): Promise<Map<string, string>>;
   /** 사진 옮기기: 이 조직 판매상품의 사진 주소와 버전. */
-  listImageUrls(organizationId: string): Promise<{ id: string; code: string; version: number; imageUrls: string[]; detailHtml: string | null; extraDetailHtml: string[] }[]>;
+  listImageUrls(organizationId: string): Promise<{ id: string; code: string | null; version: number; imageUrls: string[] }[]>;
   /** 버전이 같을 때만 사진 주소를 바꾸고 버전을 올린다. 버전이 다르면 false. */
   replaceImageUrls(input: {
     organizationId: string;
     salesProductId: string;
     expectedVersion: number;
     imageUrls: string[];
-    detailHtml?: string | null;
-    extraDetailHtml?: string[];
   }): Promise<boolean>;
   /**
    * 쿠팡상품정보 수정요청: 윙 옵션 ID → 그 옵션과 이어진 우리 단품 · 판매상품이 아는 값.
@@ -215,8 +227,8 @@ export interface SalesProductRepositoryPort {
     organizationId: string,
     optionIds: readonly string[],
   ): Promise<CoupangCatalogFacts[]>;
-  /** 몰 엑셀: 이 조직의 판매상품(없는 id 는 빠진다), 코드 순. */
-  readMallSheetProducts(organizationId: string, salesProductIds: readonly string[]): Promise<MallSheetSourceProduct[]>;
+  /** 몰 엑셀: 이 조직의 판매상품(없는 id 는 빠진다), 코드 순. 상세 HTML 은 Content 가 따로 준다(KID-313 W2). */
+  readMallSheetProducts(organizationId: string, salesProductIds: readonly string[]): Promise<Omit<MallSheetSourceProduct, 'detailHtml'>[]>;
   /**
    * 몰 엑셀: 이 몰들에 아직 없는 판매중 판매상품 — 그 몰 상품과 이어지지 않았고 사방넷이 그 몰에 보낸 적도 없는 것.
    * `maybeListed` 는 이어지지 않았지만 사방넷이 보낸 적이 있어 뺀 수.
@@ -229,11 +241,22 @@ export interface SalesProductRepositoryPort {
   listMallCategoryPaths(
     organizationId: string,
   ): Promise<{ salesProductId: string; mallKey: string; path: string; name: string }[]>;
-  /** 수집상품 id → 그 수집상품에서 만든 판매상품(있는 것만, 수집상품으로 되돌린 것 포함). */
-  findBySourceCandidates(
+  /** 이 원본 기록을 가리키는 판매 상품과 그 상태(원본 하나에 상품 하나). 없으면 null. */
+  findForSourceRecord(
     organizationId: string,
-    candidateIds: readonly string[],
-  ): Promise<Map<string, SalesProductFromCandidateRecord>>;
+    sourceRecordId: string,
+    transaction?: OwnerTransaction,
+  ): Promise<{ salesProductId: string; status: SalesProductStatus } | null>;
+  /** 초안 삭제: 판매상품 줄을 잠그고 삭제 가부의 사실을 읽는다. 없는 상품(다른 조직 포함)이면 null. */
+  readDraftDeletionFacts(
+    transaction: OwnerTransaction,
+    organizationId: string,
+    salesProductId: string,
+  ): Promise<SalesProductDraftDeletionFacts | null>;
+  /** 초안 줄 · 옵션 · 등록 설정 · 이 상품만 쓰던 공개 사진을 지운다. */
+  deleteDraftRows(transaction: OwnerTransaction, organizationId: string, salesProductId: string): Promise<void>;
+  /** 초안 삭제와 원본 기록 · 작업공간 정리를 한 커밋에 묶는다. 트랜잭션은 persistence 만 연다. */
+  runInTransaction<T>(work: (transaction: OwnerTransaction) => Promise<T>): Promise<T>;
   /** 우리 저장소 주소 → 몰이 읽는 공개 복사본(있는 것만). */
   readPublicImages(organizationId: string, sourceUrls: readonly string[]): Promise<Map<string, string>>;
   /** 공개 복사본을 저장한다(같은 주소면 바꾼다). 쓴 수. */
@@ -242,8 +265,8 @@ export interface SalesProductRepositoryPort {
     images: readonly { sourceUrl: string; publicUrl: string; host: string }[],
   ): Promise<number>;
   /**
-   * 상품 × 몰 계정의 몰별 값에 `categoryPath` 하나만 쓴다(다른 칸은 그대로, 줄이 없으면 만든다). 쓴 줄 수. 없는 판매상품
-   * id 는 건너뛴다.
+   * 상품 × 몰 계정의 등록 설정에 `categoryPath` 하나만 쓴다(다른 칸은 그대로, 설정이 없으면 만든다). 쓴 줄 수.
+   * 상품 × 몰 계정당 활성 설정은 하나라 고를 것이 없다.
    */
   setMallCategoryPaths(
     organizationId: string,

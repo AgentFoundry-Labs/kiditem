@@ -1,5 +1,6 @@
 import { type ReactNode } from 'react';
 import type { ProductBasics } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
+import { KC_STATUS_SELECT_OPTIONS, kcStatusFromSelectValue, kcStatusSelectValue } from '@/lib/kc-status';
 import { cn, formatDateTime } from '@/lib/utils';
 import {
   parseMoney,
@@ -247,10 +248,9 @@ export default function ProductBasicsTab({
                   onChange={(event) => onDraftChange('kcCertificationStatus', event.target.value)}
                   className={fieldClassName}
                 >
-                  <option value="">미입력</option>
-                  <option value="unknown">확인 필요</option>
-                  <option value="none">없음</option>
-                  <option value="exists">있음</option>
+                  {KC_STATUS_SELECT_OPTIONS.map((option) => (
+                    <option key={option.value} value={option.value}>{option.label}</option>
+                  ))}
                 </select>
                 <input
                   aria-label="KC 인증번호"
@@ -712,10 +712,8 @@ function ageGroupLabel(value: string): string {
 }
 
 function kcStatusLabel(value: string): string {
-  if (value === 'unknown') return '확인 필요';
-  if (value === 'none') return '없음';
-  if (value === 'exists') return '있음';
-  return '미입력';
+  return KC_STATUS_SELECT_OPTIONS.find((option) => option.value === kcStatusSelectValue(kcStatusFromSelectValue(value)))?.label
+    ?? '확인 필요';
 }
 
 /** 사방넷 배송비구분과 같은 뜻. */

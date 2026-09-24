@@ -1,3 +1,5 @@
+import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { createHash, randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
@@ -25,7 +27,7 @@ import {
 } from '../application/port/in/ad-traffic-source.port';
 import { currentBusinessDate } from '../domain/business-date';
 import type { AdsConfig } from '../domain/model/strategy-types';
-import { readListingTrafficWindowFacts } from '../../channels/read/channel-listing-daily-facts';
+import { readListingTrafficWindowFacts } from '../../channels/adapter/out/persistence/channel-listing-daily-facts';
 import { WingTrafficAggregationRepositoryAdapter } from '../../analytics/dashboard/adapter/out/repository/wing-traffic-aggregation.repository.adapter';
 import type { INestApplication } from '@nestjs/common';
 
@@ -120,7 +122,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     alerts = new SourceFailureAlerts(prisma as never);
-    owner = new AdTrafficSourceRepository(prisma as never, alerts);
+    owner = new AdTrafficSourceRepository(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).listings, prisma as never, alerts);
     const module = await Test.createTestingModule({
       controllers: [AdTrafficSourceController],
       providers: [
@@ -490,7 +492,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       revenue: 180,
     });
 
-    const dashboard = new WingTrafficAggregationRepositoryAdapter(prisma as never);
+    const dashboard = new WingTrafficAggregationRepositoryAdapter(channelFactTestPorts(prisma as never).listings, prisma as never, profitCatalogTestReaders(prisma as never).accounts);
     await expect(dashboard.aggregateTraffic(ORG, {
       sourceClass: 'closed_day_clipped',
       selectedDates: [plan.startDate, populatedDate],
@@ -1096,7 +1098,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         row('2001', { visitors: 5, views: 9, cartAdds: 1, orders: 1, salesQty: 1, revenue: 90 }),
       ]);
 
-      const context = await new AdStrategyContextRepositoryAdapter(prisma as never, new ProductTransactionalReadRepositoryAdapter()).loadStrategyContext(
+      const context = await new AdStrategyContextRepositoryAdapter(channelFactTestPorts(prisma as never).recipes, channelFactTestPorts(prisma as never).listings, prisma as never, new ProductTransactionalReadRepositoryAdapter(), profitCatalogTestReaders(prisma as never).accounts, profitCatalogTestReaders(prisma as never).content).loadStrategyContext(
         ORG,
         { from: businessDate, to: new Date(businessDate.getTime() + DAY_MS) },
         '7d',
@@ -1149,20 +1151,16 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     it('publishes zero traffic for a listing KidItem registered from its registration day', async () => {
       const plan = range(3);
       const registrationDate = dateShift(plan.startDate, 1);
-      const candidate = await prisma.sourcingCandidate.create({
-        data: {
-          organizationId: ORG,
-          sourceUrl: 'https://example.com/kiditem-registered',
-          sourcePlatform: 'test',
-          name: 'KidItem registered',
-        },
+      // 등록 provenance 는 판매상품 초안이다(KID-310) — 후보가 아니라 초안이 리스팅을 만든다.
+      const draft = await prisma.salesProduct.create({
+        data: { organizationId: ORG, name: 'KidItem registered' },
       });
       // KidItem's registration creates the listing without Wing's createdOn.
       const listing = await prisma.channelListing.create({
         data: {
           organizationId: ORG,
           channelAccountId: accountId,
-          sourceCandidateId: candidate.id,
+          salesProductId: draft.id,
           externalId: 'EXT-KIDITEM-REGISTERED',
           // Noon KST on the registration day, before the collection starts.
           createdAt: new Date(`${registrationDate}T03:00:00.000Z`),
@@ -1423,7 +1421,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         measured.$on('query', (event) => statements.push(event.query));
         const startedAt = performance.now();
         try {
-          await new AdTrafficSourceRepository(
+          await new AdTrafficSourceRepository(channelFactTestPorts(measured as never).accounts, channelFactTestPorts(measured as never).listings,
             measured as never,
             new SourceFailureAlerts(measured as never),
           ).finalizeAttempt({
@@ -1602,7 +1600,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     const statements: string[] = [];
     measured.$on('query', (event) => statements.push(event.query));
     try {
-      const measuredOwner = new AdTrafficSourceRepository(
+      const measuredOwner = new AdTrafficSourceRepository(channelFactTestPorts(measured as never).accounts, channelFactTestPorts(measured as never).listings,
         measured as never,
         new SourceFailureAlerts(measured as never),
       );

@@ -13,7 +13,7 @@ export interface ImageEditTaskInput {
   preset: string;
   user_prompt: string;
   productId?: string;
-  contentGenerationId?: string;
+  detailPageId?: string;
 }
 
 export interface ImageCropInput {

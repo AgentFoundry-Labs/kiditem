@@ -13,7 +13,12 @@ import { downloadBlob } from '@/lib/browser-download';
 import { isApiError } from '@/lib/api-error';
 import { cn } from '@/lib/utils';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
-import { mallSheetCategoryGroups, readStoredFixed, storeFixed, type MallSheetCategoryGroup } from './mall-sheet';
+import {
+  mallSheetCategoryGroups,
+  readStoredFixed,
+  storeFixed,
+  type MallSheetCategoryGroup,
+} from './mall-sheet';
 import { uploadPublicImages, type PublicImageUploadProgress } from './public-image-upload';
 
 const MALL_LABEL: Record<string, string> = {
@@ -57,10 +62,10 @@ export function MallSheetDialog({
   }, [sheet, fixedBySheet]);
 
   const runCheck = useMutation({
-    mutationFn: () => salesProductApi.checkMallSheet(
-      sheet!.sheetKey,
-      preset ? { fixed, salesProductIds: [...preset] } : { fixed },
-    ),
+    mutationFn: () => salesProductApi.checkMallSheet(sheet!.sheetKey, {
+      fixed,
+      ...(preset ? { salesProductIds: [...preset] } : {}),
+    }),
     onSuccess: (result) => {
       setCheck(result);
       setSelected(new Set(result.products.filter((product) => product.problems.length === 0).map((product) => product.salesProductId)));
@@ -83,8 +88,9 @@ export function MallSheetDialog({
       const ids = check!.products.map((product) => product.salesProductId).filter((id) => selected.has(id));
       const size = sheet!.maxProducts;
       for (let start = 0; start < ids.length; start += size) {
+        const batch = ids.slice(start, start + size);
         const { blob, fileName } = await salesProductApi.downloadMallSheet(sheet!.sheetKey, {
-          salesProductIds: ids.slice(start, start + size),
+          salesProductIds: batch,
           fixed,
         });
         downloadBlob(blob, fileName);
@@ -201,7 +207,8 @@ export function MallSheetDialog({
 
         <div className="flex items-center justify-between gap-3 border-t border-slate-100 px-6 py-4">
           <p className="text-sm text-slate-500">
-            {check ? <>고른 상품 <b className="tabular-nums text-slate-800">{chosen}</b>개{files > 1 ? ` · 파일 ${files}개로 나눠 받습니다` : ''}</> : '먼저 확인을 눌러 주세요.'}
+            {!check && '먼저 확인을 눌러 주세요.'}
+            {check && <>고른 상품 <b className="tabular-nums text-slate-800">{chosen}</b>개{files > 1 ? ` · 파일 ${files}개로 나눠 받습니다` : ''}</>}
           </p>
           <div className="flex gap-2">
             <button type="button" className="btn-secondary" onClick={onClose}>닫기</button>

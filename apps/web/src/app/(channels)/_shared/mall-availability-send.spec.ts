@@ -411,3 +411,20 @@ describe('품절 문장', () => {
     expect(mallSoldOutNote('kakao')).toBeNull();
   });
 });
+
+
+describe('Wing execution observation transport', () => {
+  it('requires exact normal-option proof before showing a confirmed count', async () => {
+    bridge.detectOrderCollectionExtensionId.mockResolvedValue('extension');
+    bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({ status: 'ready' });
+    const evidence = { externalListingId: '123', providerAccountId: 'vendor-1',
+      observedOptionStocks: [{ externalOptionId: '456', stock: 0, registrationType: 'NORMAL' }] };
+    for (const proof of [[], [evidence]]) {
+      bridge.sendToExtension.mockResolvedValue({ success: true, sent: 1, failed: 0, confirmed: 1, wingEvidence: proof });
+      const sent = await sendMallAvailability('coupang', ['123'], { optionCodes: { 123: ['456'] },
+        executionContext: { executionId: 'e', payloadHash: 'h', leaseToken: 'l', expectedProviderAccountId: 'vendor-1' } });
+      expect(sent.confirmed).toBe(proof.length ? 1 : null);
+      expect(sent.wingEvidence ?? []).toEqual(proof);
+    }
+  });
+});

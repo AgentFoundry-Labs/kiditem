@@ -17,26 +17,28 @@ import { buildProductGenerationPayload } from '../lib/product-generation-payload
 interface ProductGenerationResponse {
   ok: boolean;
   candidateId: string;
+  /** 만든 판매상품 초안. 수집상품 화면은 이 id 로 연다(KID-310). */
+  salesProductId: string;
   href: string;
-  detailGenerationId: string | null;
+  detailPageId: string | null;
   thumbnailGenerationId: string | null;
   contentWorkspaceId: string | null;
 }
 
 export async function cancelProductGenerationChildren(input: {
-  detailGenerationId: string | null;
+  detailPageId: string | null;
   thumbnailGenerationId: string | null;
 }): Promise<void> {
   const cancellations: Promise<unknown>[] = [];
-  if (input.detailGenerationId) {
+  if (input.detailPageId) {
     cancellations.push(apiClient.post(
-      `/api/ai/detail-page/${encodeURIComponent(input.detailGenerationId)}/cancel`,
+      `/api/ai/detail-page/${encodeURIComponent(input.detailPageId)}/cancel`,
       { reason: '사용자 요청' },
     ));
   }
   if (input.thumbnailGenerationId) {
     cancellations.push(apiClient.post(
-      `/api/thumbnail-analysis/generations/${encodeURIComponent(input.thumbnailGenerationId)}/cancel`,
+      `/api/ai/thumbnail-jobs/${encodeURIComponent(input.thumbnailGenerationId)}/cancel`,
       { reason: '사용자 요청' },
     ));
   }
@@ -48,7 +50,7 @@ export function useProductGenerateWorkflow() {
   const queryClient = useQueryClient();
   const [templateId, setTemplateId] = useState<GenerateTemplateId>('bold-vertical');
   const [isRegisteringCandidate, setIsRegisteringCandidate] = useState(false);
-  const [createdCandidateId, setCreatedCandidateId] = useState<string | null>(null);
+  const [createdSalesProductId, setCreatedSalesProductId] = useState<string | null>(null);
   const pendingRequest = useRef<{ fingerprint: string; idempotencyKey: string } | null>(null);
   const form = useGenerateForm({
     successDescription: '생성 요청 후 수집 상품 화면에서 진행 상태를 확인할 수 있습니다.',
@@ -114,14 +116,14 @@ export function useProductGenerateWorkflow() {
         { headers: { 'Idempotency-Key': idempotencyKey } },
       );
       pendingRequest.current = null;
-      setCreatedCandidateId(response.candidateId);
+      setCreatedSalesProductId(response.salesProductId);
       await queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
       form.openGenerationDialog({
         productName: title,
         templateId: selectedTemplateId,
-        detailGenerationId: response.detailGenerationId,
+        detailPageId: response.detailPageId,
         thumbnailGenerationId: response.thumbnailGenerationId,
-        editorUrl: collectedProductDetailHref(response.candidateId),
+        editorUrl: collectedProductDetailHref(response.salesProductId),
       });
     } catch (err) {
       form.setError(isApiError(err) ? err.detail : '상품 생성 요청에 실패했습니다.');
@@ -133,11 +135,9 @@ export function useProductGenerateWorkflow() {
   const handleGenerationDialogAction = async () => {
     const phase = generationDialog?.phase;
     const isCompleted = phase === 'completed';
-    const candidateId = generationDialog?.editorUrl
-      ? new URL(generationDialog.editorUrl, 'http://kiditem.local').searchParams.get('sourceCandidateId')
-      : null;
-    const targetCandidateId = candidateId ?? createdCandidateId;
-    const targetUrl = targetCandidateId ? collectedProductDetailHref(targetCandidateId) : COLLECTED_PRODUCTS_ROOT;
+    const targetUrl = createdSalesProductId
+      ? collectedProductDetailHref(createdSalesProductId)
+      : COLLECTED_PRODUCTS_ROOT;
 
     form.closeGenerationDialog();
 
@@ -160,10 +160,10 @@ export function useProductGenerateWorkflow() {
 
   const handleGenerationDialogCancel = async () => {
     const state = generationDialog;
-    if (!state || (!state.detailGenerationId && !state.thumbnailGenerationId)) return;
+    if (!state || (!state.detailPageId && !state.thumbnailGenerationId)) return;
     try {
       await cancelProductGenerationChildren({
-        detailGenerationId: state.detailGenerationId ?? null,
+        detailPageId: state.detailPageId ?? null,
         thumbnailGenerationId: state.thumbnailGenerationId ?? null,
       });
       form.markGenerationDialogCancelled();
@@ -175,7 +175,7 @@ export function useProductGenerateWorkflow() {
         queryClient.invalidateQueries({
           queryKey: queryKeys.productContent.detailGenerationsAll('bold-vertical'),
         }),
-        queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.all }),
+        queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailJobs.all }),
       ]);
     } catch (err) {
       form.setError(isApiError(err) ? err.detail : '상품 생성 중단 요청에 실패했습니다.');

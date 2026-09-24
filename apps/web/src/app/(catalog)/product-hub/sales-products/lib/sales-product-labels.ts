@@ -5,22 +5,21 @@ import type {
   SalesProductTaxType,
 } from '@kiditem/shared/sales-product';
 
-/** 사방넷에서 쓰던 말 그대로 — 사장님이 익숙한 이름. */
+/**
+ * 판매상품 상태는 셋이다(KID-313). 품절 · 일시중지는 상품이 아니라 옵션 공급상태와 몰 쪽 상태가
+ * 말한다.
+ */
 export const SALES_PRODUCT_STATUS_LABEL: Record<SalesProductStatus, string> = {
-  draft: '대기중',
-  active: '공급중',
-  paused: '일시중지',
-  sold_out: '완전품절',
-  unused: '미사용',
-  archived: '삭제',
+  /** KID 를 아직 받지 않은 초안. */
+  draft: '초안(미발급)',
+  active: '판매 중',
+  /** 판매를 접은 판매 상품. 되돌리지 않는다. */
+  archived: '보관',
 };
 
 export const SALES_PRODUCT_STATUS_TONE: Record<SalesProductStatus, string> = {
   draft: 'bg-sky-100 text-sky-800',
   active: 'bg-emerald-100 text-emerald-800',
-  paused: 'bg-amber-100 text-amber-800',
-  sold_out: 'bg-rose-100 text-rose-800',
-  unused: 'bg-slate-100 text-slate-500',
   archived: 'bg-slate-200 text-slate-500',
 };
 

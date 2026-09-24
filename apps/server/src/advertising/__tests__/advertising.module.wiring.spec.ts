@@ -1,3 +1,5 @@
+import { AiListingContentQueryModule } from '../../content/ai-listing-content-query.module';
+import { ChannelCatalogModule } from '../../channels/channel-catalog.module';
 import { ProductCollectionRuntimeModule } from '../../products/product-collection-runtime.module';
 import 'reflect-metadata';
 import { readFileSync } from 'node:fs';
@@ -6,7 +8,7 @@ import { describe, expect, it } from 'vitest';
 import { AdvertisingModule } from '../advertising.module';
 import { PrismaModule } from '../../prisma/prisma.module';
 import { AlertsModule } from '../../alerts/alerts.module';
-import { AiModule } from '../../ai/ai.module';
+import { AiModule } from '../../content/ai.module';
 import { ChannelsModule } from '../../channels/channels.module';
 import { AdvertisingProfitabilityReadModule } from '../advertising-profitability-read.module';
 
@@ -14,6 +16,8 @@ describe('AdvertisingModule retained wiring', () => {
   it('uses direct Advertising source owners without an Operations dependency', () => {
     const imports = Reflect.getMetadata('imports', AdvertisingModule) ?? [];
     expect(imports).toEqual([
+      AiListingContentQueryModule,
+      ChannelCatalogModule,
       ProductCollectionRuntimeModule,
       PrismaModule,
       AlertsModule,

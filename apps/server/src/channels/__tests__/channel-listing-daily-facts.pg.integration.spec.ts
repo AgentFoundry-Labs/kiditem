@@ -1,3 +1,4 @@
+import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { WingTrafficAggregationRepositoryAdapter } from '../../analytics/dashboard/adapter/out/repository/wing-traffic-aggregation.repository.adapter';
@@ -12,7 +13,7 @@ import {
   readLatestListingSaleStatusFacts,
   readLatestListingStateFacts,
   readListingTrafficWindowFacts,
-} from '../read/channel-listing-daily-facts';
+} from '../adapter/out/persistence/channel-listing-daily-facts';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 
@@ -500,8 +501,7 @@ describe('listing daily facts reader (PG integration)', () => {
 
     try {
       await publicationLocked.promise;
-      const repository = new WingTrafficAggregationRepositoryAdapter(
-        prisma as unknown as PrismaService,
+      const repository = new WingTrafficAggregationRepositoryAdapter(profitCatalogTestReaders(prisma as unknown as PrismaService).listings, prisma as unknown as PrismaService, profitCatalogTestReaders(prisma as unknown as PrismaService).accounts
       );
       const reading = repository.aggregateTraffic(TEST_ORGANIZATION_ID, {
         sourceClass: 'closed_day_clipped',
@@ -692,20 +692,16 @@ describe('listing daily facts reader (PG integration)', () => {
 
     it('keeps the dates before the registration day of a listing KidItem registered after the attempt', async () => {
       const { accountId } = await collectedAccount('KIDITEM-REGISTERED');
-      const candidate = await prisma.sourcingCandidate.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          sourceUrl: 'https://example.com/kiditem-registered-late',
-          sourcePlatform: 'test',
-          name: 'KidItem registered late',
-        },
+      // 등록 provenance 는 판매상품 초안이다(KID-310).
+      const draft = await prisma.salesProduct.create({
+        data: { organizationId: TEST_ORGANIZATION_ID, name: 'KidItem registered late' },
       });
       // KidItem's registration creates the listing without Wing's createdOn.
       await prisma.channelListing.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
           channelAccountId: accountId,
-          sourceCandidateId: candidate.id,
+          salesProductId: draft.id,
           externalId: 'KIDITEM-REGISTERED-LATE',
           createdAt: afterStart,
         },

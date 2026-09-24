@@ -23,7 +23,9 @@ describe('selling catalog cutover (PostgreSQL)', () => {
     await prisma.$executeRaw`ALTER TABLE sales_products DROP COLUMN IF EXISTS sale_price`;
     await prisma.$executeRaw`ALTER TABLE sales_products DROP COLUMN IF EXISTS tag_price`;
     await prisma.$executeRaw`ALTER TABLE sales_product_options DROP COLUMN IF EXISTS extra_price`;
-    await prisma.$executeRaw`ALTER TABLE sales_product_options ALTER COLUMN sale_price SET NOT NULL`;
+    // 되돌릴 것은 이 spec 이 흉내 낸 옛 모양이지 그 시절의 NOT NULL 이 아니다. 지금 스키마의
+    // 판매가는 비어 있을 수 있다(초안) — 여기서 NOT NULL 로 세우면 같은 컨테이너에서 뒤에
+    // 도는 spec 의 초안 단품 저장이 전부 깨진다.
     await prisma.$executeRaw`DROP TABLE sellpia_inventory_skus`;
     await prisma.$executeRaw`ALTER TABLE sales_product_option_components DROP COLUMN sellpia_inventory_sku_id`;
     await prisma.$executeRaw`ALTER TABLE sales_product_option_components ALTER COLUMN master_product_id SET NOT NULL`;

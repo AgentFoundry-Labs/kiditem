@@ -23,4 +23,7 @@ presses only for a mall whose register button and result screen were verified (`
 and only when the fill left no warnings or manual steps; otherwise the form stays open for a person.
 Pressed (`submitted`), accepted by the mall, and published (found by a re-read) remain separate facts, and
 an approval-bound mall is not published until it approves. Irreversible states such as deletion or a
-sale ban are still never pressed.
+sale ban are still never pressed. A registration that submits all the way runs through the Channels
+execution fence ([ADR-0014](0014-channels-owns-the-registration-execution-fence.md)), from the mall wizard
+or a registration-target execution; the quick register on the product list only fills the form and
+never presses (KID-322).

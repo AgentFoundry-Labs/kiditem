@@ -1,3 +1,5 @@
+import { RocketPoSourceModule } from './rocket-po-source.module';
+import { ChannelCatalogModule } from '../channels/channel-catalog.module';
 import { ShipmentsModule } from './shipments/shipments.module';
 import { Module } from '@nestjs/common';
 import { AlertsModule } from '../alerts/alerts.module';
@@ -10,9 +12,7 @@ import { ReviewsController } from './controllers/reviews.controller';
 import { ReviewsService } from './services/reviews.service';
 import { ReviewIngestService } from './services/review-ingest.service';
 import { OrderCollectionController } from './controllers/order-collection.controller';
-import { OrderCollectionMallAccountController } from './controllers/order-collection-mall-account.controller';
 import { OrderCollectionService } from './services/order-collection.service';
-import { OrderCollectionMallAccountService } from './services/order-collection-mall-account.service';
 import { CoupangDirectshipService } from './coupang-directship/coupang-directship.service';
 import { CoupangDirectPoSnapshotService } from './services/coupang-direct-po-snapshot.service';
 import { ReturnTransfersController } from './return-transfers/return-transfers.controller';
@@ -36,13 +36,12 @@ import { REVIEW_COLLECTION_SOURCE_PORT } from './application/port/in/review-coll
 import { ReviewCollectionSourceRepository } from './adapter/out/repository/review-collection-source.repository';
 
 @Module({
-  imports: [AlertsModule, PrismaModule, SupplyModule, ShipmentsModule, ProductSourceModule],
+  imports: [RocketPoSourceModule, ChannelCatalogModule, AlertsModule, PrismaModule, SupplyModule, ShipmentsModule, ProductSourceModule],
   controllers: [
     OrdersController,
     OrderCollectionController,
     OrderCollectionSourceController,
     SellpiaShipmentTrackingSourceController,
-    OrderCollectionMallAccountController,
     ReviewsController,
     ReturnTransfersController,
     SellpiaOrderTransmissionController,
@@ -50,7 +49,6 @@ import { ReviewCollectionSourceRepository } from './adapter/out/repository/revie
   providers: [
     OrdersService,
     OrderCollectionService,
-    OrderCollectionMallAccountService,
     CoupangDirectPoSnapshotService,
     CoupangDirectshipService,
     ReviewsService,

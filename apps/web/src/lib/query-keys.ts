@@ -251,16 +251,33 @@ export const queryKeys = {
     all: ['thumbnails'] as const,
     list: (params: Record<string, string>) => [...queryKeys.thumbnails.all, 'list', params] as const,
   },
-  thumbnailAnalysis: {
-    all: ['thumbnailAnalysis'] as const,
-    list: (params: Record<string, string>) => [...queryKeys.thumbnailAnalysis.all, 'list', params] as const,
-    summary: () => [...queryKeys.thumbnailAnalysis.all, 'summary'] as const,
-    generations: (params?: Record<string, string>) => [...queryKeys.thumbnailAnalysis.all, 'generations', params] as const,
-    tracking: () => [...queryKeys.thumbnailAnalysis.all, 'tracking'] as const,
+  /** 대표이미지 생성 job 목록(`/api/ai/thumbnail-jobs`) — job · 후보 자산 · 작업공간 요약. */
+  thumbnailJobs: {
+    all: ['thumbnailJobs'] as const,
+    list: (params?: Record<string, string>) => [...queryKeys.thumbnailJobs.all, 'list', params] as const,
+    detail: (id: string) => [...queryKeys.thumbnailJobs.all, 'detail', id] as const,
+  },
+  /** 몰이 보여 주는 리스팅 대표이미지의 평가(Content 소유). */
+  listingThumbnailEvaluations: {
+    all: ['listingThumbnailEvaluations'] as const,
+    current: (listings: ReadonlyArray<{ channelListingId: string; imageUrl: string | null }>) =>
+      [...queryKeys.listingThumbnailEvaluations.all, 'current', listings.map((listing) => `${listing.channelListingId}:${listing.imageUrl ?? ''}`)] as const,
+  },
+  /** 대표이미지 몰 반영 실행(Channels 소유). 판매상품마다 가장 최근 실행. */
+  thumbnailExecutions: {
+    all: ['thumbnailExecutions'] as const,
+    latest: (salesProductIds: readonly string[]) => [...queryKeys.thumbnailExecutions.all, 'latest', [...salesProductIds]] as const,
+    listingChoices: (salesProductId: string) => [...queryKeys.thumbnailExecutions.all, 'listingChoices', salesProductId] as const,
   },
   channelAccounts: {
     all: ['channelAccounts'] as const,
     active: () => [...queryKeys.channelAccounts.all, 'active'] as const,
+  },
+  /** 몰 어댑터 확인 창의 기본값(판매상품 × 몰). 저장된 몰 값이 바뀌면 다시 읽는다. */
+  registrationConfirmation: {
+    all: ['registrationConfirmation'] as const,
+    defaults: (mallKey: string, salesProductId: string, savedInputs: readonly unknown[]) =>
+      [...queryKeys.registrationConfirmation.all, mallKey, salesProductId, savedInputs] as const,
   },
   channelSkuMappings: {
     all: ['channelSkuMappings'] as const,
@@ -357,7 +374,6 @@ export const queryKeys = {
     intelligenceProcurementIntents: () =>
       [...queryKeys.sourcing.intelligence(), 'procurement-intents'] as const,
     list: (params: Record<string, string>) => [...queryKeys.sourcing.all, 'list', params] as const,
-    detail: (id: string) => [...queryKeys.sourcing.all, 'detail', id] as const,
     preview: (id: string) => [...queryKeys.sourcing.all, 'preview', id] as const,
     scrapeUrlStatus: (url: string) => [...queryKeys.sourcing.all, 'scrape-url-status', url] as const,
     liveNaverMarket: () => [...queryKeys.sourcing.all, 'market', 'naver-live'] as const,
@@ -407,7 +423,7 @@ export const queryKeys = {
       [...queryKeys.sourcing.all, 'competitors', 'collection-status', runId] as const,
   },
   productContent: {
-    all: ['content-archive'] as const,
+    all: ['product-content'] as const,
     cards: (params: Record<string, string>) =>
       [...queryKeys.productContent.all, 'cards', params] as const,
     workspaces: (params: Record<string, string>) =>
@@ -416,29 +432,24 @@ export const queryKeys = {
       [...queryKeys.productContent.all, 'product-workspace', id, params] as const,
     groupWorkspace: (id: string, params?: Record<string, string>) =>
       [...queryKeys.productContent.all, 'group-workspace', id, params] as const,
-    sourcingLinks: (id: string, params?: Record<string, string>) =>
-      [...queryKeys.productContent.all, 'sourcing-links', id, params] as const,
     detail: (id: string) => [...queryKeys.productContent.all, 'detail', id] as const,
     preview: (id: string) => [...queryKeys.productContent.all, 'preview', id] as const,
-    editedHtml: (id: string) => [...queryKeys.productContent.all, 'edited-html', id] as const,
     generationEditedHtml: (id: string) =>
       [...queryKeys.productContent.all, 'generation-edited-html', id] as const,
+    detailPageRevisions: (id: string) =>
+      [...queryKeys.productContent.all, 'detail-page-revisions', id] as const,
     detailGenerationsAll: (templateId: 'kids-playful' | 'bold-vertical') =>
       [templateId === 'bold-vertical' ? 'bold-generations' : 'kp-generations'] as const,
     detailGenerations: (
       templateId: 'kids-playful' | 'bold-vertical',
       scope?: {
         productId?: string | null;
-        sourceCandidateId?: string | null;
         contentWorkspaceId?: string | null;
       },
     ) => {
       const root = templateId === 'bold-vertical' ? 'bold-generations' : 'kp-generations';
       if (scope?.contentWorkspaceId) {
         return [root, { contentWorkspaceId: scope.contentWorkspaceId }] as const;
-      }
-      if (scope?.sourceCandidateId) {
-        return [root, { sourceCandidateId: scope.sourceCandidateId }] as const;
       }
       if (templateId === 'kids-playful' && scope?.productId) {
         return [root, { productId: scope.productId }] as const;
@@ -451,11 +462,27 @@ export const queryKeys = {
     detailGeneration: (id: string) => ['kp-generations', 'one', id] as const,
     detailGenerationNoop: () => ['kp-generations', 'one', 'noop'] as const,
   },
+  /** 수집상품 화면 — 판매상품 초안 id 로 연다(KID-310 · ADR-0022). */
+  collectedProducts: {
+    all: ['collected-products'] as const,
+    /** 초안 + 원천 기록(수집상품)의 원천 사실. 등록용 사진은 `contentWorkspaces.registrationMedia`. */
+    workspace: (salesProductId: string) =>
+      [...queryKeys.collectedProducts.all, 'workspace', salesProductId] as const,
+    /** 목록 화면이 시작한 생성의 진행 — 종류마다 목록 하나. */
+    startedProgress: (kind: 'detail' | 'thumbnail') =>
+      [...queryKeys.collectedProducts.all, 'started-progress', kind] as const,
+  },
   contentWorkspaces: {
     all: ['content-workspaces'] as const,
     list: (params: Record<string, string>) =>
       [...queryKeys.contentWorkspaces.all, 'list', params] as const,
     detail: (id: string) => [...queryKeys.contentWorkspaces.all, 'detail', id] as const,
+    forSalesProduct: (salesProductId: string) =>
+      [...queryKeys.contentWorkspaces.all, 'sales-product', salesProductId] as const,
+    registrationMedia: (salesProductId: string) =>
+      [...queryKeys.contentWorkspaces.all, 'sales-product', salesProductId, 'registration-media'] as const,
+    /** 대표이미지 갤러리(업로드 · AI 후보 자산). */
+    thumbnailGallery: (id: string) => [...queryKeys.contentWorkspaces.all, 'thumbnail-gallery', id] as const,
     duplicate: (title: string) =>
       [...queryKeys.contentWorkspaces.all, 'duplicate', title] as const,
   },

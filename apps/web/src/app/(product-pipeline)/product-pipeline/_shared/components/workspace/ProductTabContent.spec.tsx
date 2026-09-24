@@ -11,32 +11,8 @@ vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: pushMock }),
 }));
 
-vi.mock('./detail/ThumbnailGrid', () => ({
-  default: ({
-    onOpenThumbnailEditor,
-    onOpenThumbnailGeneration,
-  }: {
-    onOpenThumbnailEditor?: () => void;
-    onOpenThumbnailGeneration?: () => void;
-  }) => (
-    <div>
-      <button type="button" data-testid="thumbnail-generation" onClick={onOpenThumbnailGeneration}>
-        thumbnail-generation
-      </button>
-      <button type="button" data-testid="thumbnail-editor" onClick={onOpenThumbnailEditor}>
-        thumbnail-editor
-      </button>
-    </div>
-  ),
-}));
-
 vi.mock('./detail/TagEditor', () => ({
   default: () => <div data-testid="tag-editor" />,
-}));
-
-vi.mock('../../hooks/useGenerateSourcingThumbnail', () => ({
-  useGenerateSourcingThumbnail: () => ({ isPending: false, mutateAsync: vi.fn() }),
-  useSourcingThumbnailGenerations: () => ({ data: [] }),
 }));
 
 vi.mock('./thumbnail/ThumbnailWorkspaceTab', () => ({
@@ -58,8 +34,8 @@ vi.mock('./thumbnail/ThumbnailWorkspaceTab', () => ({
 }));
 
 vi.mock('./detail/DetailPageWorkspaceTab', () => ({
-  default: ({ initialAgentHistory = [] }: { initialAgentHistory?: unknown[] }) => (
-    <div data-testid="detail-page-workspace-tab">{initialAgentHistory.length}</div>
+  default: ({ agentHistory = [] }: { agentHistory?: unknown[] }) => (
+    <div data-testid="detail-page-workspace-tab">{agentHistory.length}</div>
   ),
 }));
 
@@ -81,7 +57,6 @@ const baseProps = {
   activeTab: 'basic' as const,
   detailPreviewHtml: '',
   editData,
-  editedHtml: null,
   imageUrls: [],
   nameLength: 5,
   onSelectAgent: vi.fn(),
@@ -94,7 +69,7 @@ const baseProps = {
   selectedKidsPlayfulId: null,
   selectedRegistrationThumbnailUrl: null,
   thumbnailPreviewImages: [],
-  initialAgentHistory: [],
+  agentHistory: [],
   templateCss: '',
   thumbnailGenerationReturnHref: '/product-pipeline/collected-products/candidate-1',
   thumbnailUrl: null,
@@ -139,10 +114,8 @@ const basicInfo = {
   rocketUnitCost: 0,
   thumbnailUrls: ['https://cdn.example.com/product.jpg'],
   selectedThumbnailUrl: null,
-  selectedThumbnailGenerationId: null,
-  selectedThumbnailGenerationCandidateId: null,
+  selectedThumbnailAssetId: null,
   selectedDetailPageGenerationId: null,
-  selectedDetailPageArtifactId: null,
   selectedDetailPageRevisionId: null,
 };
 
@@ -176,7 +149,7 @@ describe('ProductTabContent', () => {
       <ProductTabContent
         {...baseProps}
         activeTab="detail"
-        initialAgentHistory={[
+        agentHistory={[
           {
             id: 'generation-1',
             generatedTitle: '등록 상품 이력',
@@ -185,7 +158,6 @@ describe('ProductTabContent', () => {
             detailPageData: null,
             imageUrls: [],
             processedImages: {},
-            detailPageArtifactId: 'artifact-1',
             detailPageRevisionId: null,
             errorMessage: null,
             productId: null,
@@ -199,7 +171,7 @@ describe('ProductTabContent', () => {
   });
 
   it('does not expose thumbnail generation actions in the basic tab', () => {
-    render(<ProductTabContent {...baseProps} thumbnailSourceCandidateId="candidate-1" />);
+    render(<ProductTabContent {...baseProps} contentWorkspaceId="workspace-1" />);
 
     expect(screen.queryByTestId('thumbnail-generation')).not.toBeInTheDocument();
     expect(screen.queryByTestId('thumbnail-editor')).not.toBeInTheDocument();

@@ -52,7 +52,7 @@ describe('master-product operations final schema contract', () => {
   });
 
   it('stores one direct positive component recipe per channel option and MasterProduct', () => {
-    const component = modelBlock(core, 'ChannelListingOptionInventoryComponent');
+    const component = modelBlock(channels, 'ChannelListingOptionInventoryComponent');
     expectFields(component, [
       'organizationId',
       'channelListingOptionId',
@@ -89,11 +89,12 @@ describe('master-product operations final schema contract', () => {
     assert.doesNotMatch(core, /inventorySkus\s+SellpiaInventorySku\[\]/);
   });
 
-  it('keeps sourcing references on listings while option recipes own product mapping', () => {
-    const listing = modelBlock(core, 'ChannelListing');
-    const option = modelBlock(core, 'ChannelListingOption');
-    assert.match(listing, /^\s*sourceCandidateId\s+String\?/m);
-    assert.match(listing, /@@index\(\[sourceCandidateId\]/);
+  it('reaches sourcing through the selling product while option recipes own product mapping', () => {
+    const listing = modelBlock(channels, 'ChannelListing');
+    const option = modelBlock(channels, 'ChannelListingOption');
+    assert.match(listing, /^\s*salesProductId\s+String\?/m);
+    assert.doesNotMatch(listing, /^\s*sourceCandidateId\s+/m);
+    assert.match(listing, /@@index\(\[organizationId, salesProductId\]/);
     rejectFields(listing, ['masterProductId', 'masterProduct', 'originatedMasterProduct']);
     assert.match(option, /^\s*inventoryComponents\s+ChannelListingOptionInventoryComponent\[\]/m);
     rejectFields(option, ['productVariantId', 'mappingStatus']);

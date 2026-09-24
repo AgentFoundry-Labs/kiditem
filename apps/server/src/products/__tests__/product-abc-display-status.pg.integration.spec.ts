@@ -1,12 +1,12 @@
-import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
-import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { snapshotStatusOf } from '../../test-helpers/dashboard-basis-assertions';
 import {
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
   productAbcDisplayStatus,
 } from '@kiditem/shared/product-abc';
+import { snapshotStatusOf } from '../../test-helpers/dashboard-basis-assertions';
+import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
+import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { DashboardInventoryRepositoryAdapter } from '../../analytics/dashboard/adapter/out/repository/dashboard-inventory.repository.adapter';
@@ -20,6 +20,7 @@ import { ProductAvailabilityRepositoryAdapter } from '../adapter/out/persistence
 import { ProductAvailabilityUseCase } from '../application/usecase/product-availability.usecase';
 import { ProductSourceReadRepositoryAdapter } from '../adapter/out/persistence/product-source-read.repository.adapter';
 import { ProductSourceReadUseCase } from '../application/usecase/product-source-read.usecase';
+import { channelFactTestPorts, profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository.adapter';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/persistence/product-operations-data-status.repository.adapter';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository.adapter';
@@ -70,13 +71,22 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     const prismaService = prisma as unknown as PrismaService;
+    const channelFacts = channelFactTestPorts(prismaService);
+    const profitCatalogReaders = profitCatalogTestReaders(prismaService);
+    const channelAccounts = channelFacts.accounts;
     const alerts = new SourceFailureAlerts(prismaService);
     sellpia = new SellpiaProfitabilitySourceService(
       prismaService,
       alerts,
       new ProductTransactionalReadRepositoryAdapter(),
     );
-    advertising = new ProfitabilityAdImportRepositoryAdapter(prismaService, alerts);
+    advertising = new ProfitabilityAdImportRepositoryAdapter(
+      channelFacts.accounts,
+      channelFacts.recipes,
+      channelFacts.listings,
+      prismaService,
+      alerts,
+    );
     evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prismaService, new ProductTransactionalReadRepositoryAdapter());
     inventory = new ProductAvailabilityUseCase(
       new ProductAvailabilityRepositoryAdapter(prismaService),
@@ -90,12 +100,16 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
     );
     dashboard = new DashboardInventoryService(
       new DashboardInventoryRepositoryAdapter(
+        channelFacts.recipes,
+        channelFacts.listings,
         prismaService,
         productAbc,
         // The panel's rows come from the alerts module, not from this adapter.
         alerts,
         new ProductTransactionalReadRepositoryAdapter(),
         new ProductSourceReadUseCase(new ProductSourceReadRepositoryAdapter(prismaService)),
+        channelFacts.accounts,
+        profitCatalogReaders.content,
       ),
     );
     sellpiaInventory = new SellpiaProductInventoryReader(
@@ -112,6 +126,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
         new ProductSourceReadUseCase(
           new ProductSourceReadRepositoryAdapter(prismaService),
         ),
+        channelAccounts,
       ),
       inventory,
       { findByMasterProductIds: async () => new Map() } as never,
@@ -120,6 +135,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
         prismaService,
         evidence,
         new ProductTransactionalReadRepositoryAdapter(),
+        channelAccounts,
       ),
       { readContribution: async () => null } as never,
       new SellpiaMasterProductProfitFactReader(prismaService),

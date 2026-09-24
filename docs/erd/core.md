@@ -11,8 +11,6 @@
 |---|---|---|
 | AuthSession | `auth_sessions` | Revocable KidItem-owned browser and extension authentication session. Only a SHA-256 token hash is persisted. |
 | CategoryMapping | `category_mappings` | - |
-| ChannelAccount | `channel_accounts` | Marketplace/store account such as Coupang Wing or Naver SmartStore. Operational channel ownership is distinct from the SaaS organization. |
-| ChannelListingOption | `channel_listing_options` | One sellable SKU under a channel listing. |
 | LegalEntity | `legal_entities` | Legal/business entity under an organization. This stores tax, invoice, and settlement identity separately from the SaaS organization boundary. |
 | Organization | `organizations` | - |
 | OrganizationMembership | `organization_memberships` | B2B customer/workspace membership. A user may belong to multiple organizations; this row supplies request organization and role. |
@@ -38,40 +36,6 @@ erDiagram
     String coupangCategoryId
     String coupangCategoryName
     String keywords
-    Boolean isActive
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ChannelAccount {
-    String id PK
-    String organizationId FK
-    String channel
-    String name
-    String externalAccountId
-    String sellerId
-    String vendorId
-    String status
-    Boolean isPrimary
-    Json config
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ChannelListingOption {
-    String salesProductOptionId FK
-    String id PK
-    String listingId FK
-    String organizationId FK
-    String externalOptionId
-    String kidItemCode
-    String itemName
-    Int salePrice
-    String sellerSku
-    String barcode
-    String modelNumber
-    String status
-    Json attributesJson
-    Json rawJson
-    String lastImportRunId FK
     Boolean isActive
     DateTime createdAt
     DateTime updatedAt
@@ -114,7 +78,7 @@ erDiagram
     String organizationId FK
     String sourceType
     String rankKeyword
-    String channelAccountId FK
+    String channelAccountId
     String fileName
     String fileHash
     String status
@@ -162,14 +126,10 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  ChannelAccount o|--o{ SourceImportRun : "channelAccount"
   Organization ||--o{ CategoryMapping : "organization"
-  Organization ||--o{ ChannelAccount : "organization"
-  Organization ||--o{ ChannelListingOption : "organization"
   Organization ||--o{ LegalEntity : "organization"
   Organization ||--o{ OrganizationMembership : "organization"
   Organization ||--o{ SourceImportRun : "organization"
-  SourceImportRun o|--o{ ChannelListingOption : "lastImportRun"
   User ||--o{ AuthSession : "user"
   User o|--o{ OrganizationMembership : "invitedBy"
   User ||--o{ OrganizationMembership : "user"
@@ -180,82 +140,29 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
-| ChannelAccount | channelAccount | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
-| ChannelAccount | channelAccount | referenced by external | Channels | ChannelAdTargetDailySnapshot |
-| ChannelAccount | channelAccount | referenced by external | Channels | ChannelListing |
-| ChannelAccount | channelAccount | referenced by external | Channels | ChannelListingDeletionOperation |
-| ChannelAccount | channelAccount | referenced by external | Channels | ChannelScrapeRun |
-| ChannelAccount | channelAccount | referenced by external | Channels | ProductPreparation |
-| ChannelAccount | channelAccount | referenced by external | Channels | ProductRegistrationExecution |
-| ChannelAccount | channelAccount | referenced by external | Channels | RocketPoCatalogSnapshot |
-| ChannelAccount | channelAccount | referenced by external | Orders | CoupangDirectTransportReceipt |
-| ChannelAccount | channelAccount | referenced by external | Orders | Order |
-| ChannelAccount | channelAccount | referenced by external | Supply | RocketPurchaseConfirmation |
-| ChannelAccount | targetChannelAccount | referenced by external | Sourcing | SourcingLaunchCandidate |
-| ChannelListingOption | channelListingOption | referenced by external | Channels | ChannelListingOptionInventoryComponent |
-| ChannelListingOption | channelListingOption | referenced by external | Supply | RocketPurchaseConfirmationLine |
-| ChannelListingOption | listing | references external | Channels | ChannelListing |
-| ChannelListingOption | listingOption | referenced by external | Advertising | AdAction |
-| ChannelListingOption | listingOption | referenced by external | Channels | ChannelAdTargetDailySnapshot |
-| ChannelListingOption | listingOption | referenced by external | Channels | ChannelListingOptionDailySnapshot |
-| ChannelListingOption | listingOption | referenced by external | Channels | ChannelScrapeSnapshot |
-| ChannelListingOption | listingOption | referenced by external | Orders | OrderLineItem |
-| ChannelListingOption | salesProductOption | references external | Channels | SalesProductOption |
 | Organization | organization | referenced by external | Advertising | AdAction |
+| Organization | organization | referenced by external | Advertising | ChannelAdListingProductMonthlyFact |
+| Organization | organization | referenced by external | Advertising | ChannelAdTargetDailySnapshot |
+| Organization | organization | referenced by external | Advertising | CoupangKeywordRankDailySnapshot |
+| Organization | organization | referenced by external | Advertising | CoupangKeywordSerpDailySnapshot |
+| Organization | organization | referenced by external | Advertising | CoupangKeywordTracker |
+| Organization | organization | referenced by external | Advertising | CoupangRepresentativeKeywordOverride |
+| Organization | organization | referenced by external | Advertising | CoupangWingSalesRankDailySnapshot |
+| Organization | organization | referenced by external | Advertising | CoupangWingTrackedProduct |
+| Organization | organization | referenced by external | Advertising | CoupangWingTrackedProductDailySnapshot |
 | Organization | organization | referenced by external | AgentOS | CapabilityInvocation |
 | Organization | organization | referenced by external | AI | AiDirectJob |
 | Organization | organization | referenced by external | AI | AiUsageRecord |
 | Organization | organization | referenced by external | AI | ContentAsset |
-| Organization | organization | referenced by external | AI | ContentGeneration |
-| Organization | organization | referenced by external | AI | ContentGenerationAssetUsage |
-| Organization | organization | referenced by external | AI | ContentGenerationGroup |
-| Organization | organization | referenced by external | AI | ContentGenerationSource |
 | Organization | organization | referenced by external | AI | ContentWorkspace |
-| Organization | organization | referenced by external | AI | ContentWorkspaceThumbnailSelection |
-| Organization | organization | referenced by external | AI | DetailPageArtifact |
+| Organization | organization | referenced by external | AI | DetailPage |
 | Organization | organization | referenced by external | AI | DetailPageImageArtifact |
 | Organization | organization | referenced by external | AI | DetailPageImageRenderIntent |
 | Organization | organization | referenced by external | AI | DetailPageRevision |
-| Organization | organization | referenced by external | AI | Thumbnail |
-| Organization | organization | referenced by external | AI | ThumbnailAnalysis |
+| Organization | organization | referenced by external | AI | ListingThumbnailEvaluation |
 | Organization | organization | referenced by external | AI | ThumbnailGeneration |
-| Organization | organization | referenced by external | AI | ThumbnailGenerationCandidate |
-| Organization | organization | referenced by external | AI | ThumbnailGenerationEvent |
-| Organization | organization | referenced by external | AI | ThumbnailGenerationInputImage |
-| Organization | organization | referenced by external | AI | ThumbnailRegistrationAttempt |
-| Organization | organization | referenced by external | AI | ThumbnailTracking |
-| Organization | organization | referenced by external | AI | ThumbnailTrackingDailySnapshot |
-| Organization | organization | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
-| Organization | organization | referenced by external | Channels | ChannelAdTargetDailySnapshot |
-| Organization | organization | referenced by external | Channels | ChannelListing |
-| Organization | organization | referenced by external | Channels | ChannelListingDailySnapshot |
-| Organization | organization | referenced by external | Channels | ChannelListingDeletionOperation |
-| Organization | organization | referenced by external | Channels | ChannelListingOptionDailySnapshot |
-| Organization | organization | referenced by external | Channels | ChannelListingOptionInventoryComponent |
-| Organization | organization | referenced by external | Channels | ChannelRegistrationOwnerIdempotencyReceipt |
-| Organization | organization | referenced by external | Channels | ChannelScrapeChunk |
-| Organization | organization | referenced by external | Channels | ChannelScrapeRun |
-| Organization | organization | referenced by external | Channels | ChannelScrapeSnapshot |
-| Organization | organization | referenced by external | Channels | CoupangKeywordRankDailySnapshot |
-| Organization | organization | referenced by external | Channels | CoupangKeywordSerpDailySnapshot |
-| Organization | organization | referenced by external | Channels | CoupangKeywordTracker |
-| Organization | organization | referenced by external | Channels | CoupangRepresentativeKeywordOverride |
-| Organization | organization | referenced by external | Channels | CoupangWingSalesRankDailySnapshot |
-| Organization | organization | referenced by external | Channels | CoupangWingTrackedProduct |
-| Organization | organization | referenced by external | Channels | CoupangWingTrackedProductDailySnapshot |
-| Organization | organization | referenced by external | Channels | ProductPreparation |
-| Organization | organization | referenced by external | Channels | ProductPreparationOption |
-| Organization | organization | referenced by external | Channels | ProductRegistrationExecution |
-| Organization | organization | referenced by external | Channels | RocketPoCatalogLine |
-| Organization | organization | referenced by external | Channels | RocketPoCatalogSnapshot |
-| Organization | organization | referenced by external | Channels | SalesProduct |
-| Organization | organization | referenced by external | Channels | SalesProductOption |
-| Organization | organization | referenced by external | Channels | SalesProductOptionComponent |
-| Organization | organization | referenced by external | Channels | SalesProductPublicImage |
-| Organization | organization | referenced by external | Channels | SellpiaManualMatchAlias |
-| Organization | organization | referenced by external | Channels | SellpiaManualMatchSnapshot |
-| Organization | organization | referenced by external | Channels | SellpiaProductMonthlySales |
-| Organization | organization | referenced by external | Channels | SellpiaSalesDailySnapshot |
+| Organization | organization | referenced by external | Analytics | SellpiaProductMonthlySales |
+| Organization | organization | referenced by external | Analytics | SellpiaSalesDailySnapshot |
 | Organization | organization | referenced by external | Finance | SalesPlan |
 | Organization | organization | referenced by external | Inventory | ReturnTransfer |
 | Organization | organization | referenced by external | Inventory | StockTransfer |
@@ -278,14 +185,14 @@ erDiagram
 | Organization | organization | referenced by external | Products | MasterProductAbcFormulaVersion |
 | Organization | organization | referenced by external | Products | MasterProductAbcGradeHistory |
 | Organization | organization | referenced by external | Products | SellpiaInventoryState |
-| Organization | organization | referenced by external | Sourcing | CandidateImage |
 | Organization | organization | referenced by external | Sourcing | LiveCommerceBroadcastDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | LiveCommerceProductDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | NaverKeywordDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | NaverPopularKeywordDailySnapshot |
 | Organization | organization | referenced by external | Sourcing | ShortsTrendDailySnapshot |
+| Organization | organization | referenced by external | Sourcing | SourceRecord |
+| Organization | organization | referenced by external | Sourcing | SourceRecordImage |
 | Organization | organization | referenced by external | Sourcing | Sourcing1688OfferKeywordObservation |
-| Organization | organization | referenced by external | Sourcing | SourcingCandidate |
 | Organization | organization | referenced by external | Sourcing | SourcingCollectionSourceControl |
 | Organization | organization | referenced by external | Sourcing | SourcingDecisionBatch |
 | Organization | organization | referenced by external | Sourcing | SourcingDecisionBatchItem |
@@ -331,7 +238,6 @@ erDiagram
 | SourceImportRun | advertisingSourceImportRun | referenced by external | Products | MasterProductAbcEvaluation |
 | SourceImportRun | effectSourceImportRun | referenced by external | Orders | CoupangDirectTransportReceipt |
 | SourceImportRun | lastCompletedImportRun | referenced by external | Products | SellpiaInventoryState |
-| SourceImportRun | lastImportRun | referenced by external | Channels | ChannelListing |
 | SourceImportRun | nextAdvertisingSourceImportRun | referenced by external | Products | MasterProductAbcGradeHistory |
 | SourceImportRun | nextSellpiaSourceImportRun | referenced by external | Products | MasterProductAbcGradeHistory |
 | SourceImportRun | previousAdvertisingSourceImportRun | referenced by external | Products | MasterProductAbcGradeHistory |
@@ -339,51 +245,41 @@ erDiagram
 | SourceImportRun | publishedAdvertisingSourceImportRun | referenced by external | Products | MasterProductAbcFormulaState |
 | SourceImportRun | publishedSellpiaSourceImportRun | referenced by external | Products | MasterProductAbcFormulaState |
 | SourceImportRun | sellpiaSourceImportRun | referenced by external | Products | MasterProductAbcEvaluation |
-| SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelAdListingProductMonthlyFact |
-| SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelAdTargetDailySnapshot |
-| SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelScrapeRun |
-| SourceImportRun | sourceImportRun | referenced by external | Channels | ChannelScrapeSnapshot |
-| SourceImportRun | sourceImportRun | referenced by external | Channels | CoupangKeywordRankDailySnapshot |
-| SourceImportRun | sourceImportRun | referenced by external | Channels | CoupangKeywordSerpDailySnapshot |
-| SourceImportRun | sourceImportRun | referenced by external | Channels | CoupangWingSalesRankDailySnapshot |
-| SourceImportRun | sourceImportRun | referenced by external | Channels | RocketPoCatalogSnapshot |
-| SourceImportRun | sourceImportRun | referenced by external | Channels | SellpiaProductMonthlySales |
-| SourceImportRun | sourceImportRun | referenced by external | Channels | SellpiaSalesDailySnapshot |
+| SourceImportRun | sourceImportRun | referenced by external | Advertising | ChannelAdListingProductMonthlyFact |
+| SourceImportRun | sourceImportRun | referenced by external | Advertising | ChannelAdTargetDailySnapshot |
+| SourceImportRun | sourceImportRun | referenced by external | Advertising | CoupangKeywordRankDailySnapshot |
+| SourceImportRun | sourceImportRun | referenced by external | Advertising | CoupangKeywordSerpDailySnapshot |
+| SourceImportRun | sourceImportRun | referenced by external | Advertising | CoupangWingSalesRankDailySnapshot |
+| SourceImportRun | sourceImportRun | referenced by external | Analytics | SellpiaProductMonthlySales |
+| SourceImportRun | sourceImportRun | referenced by external | Analytics | SellpiaSalesDailySnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | CoupangDirectTransportConsumption |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | CoupangShipmentDateSummary |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | Order |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | OrderCollectionArtifact |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | Review |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | ReviewCollectionChunk |
+| SourceImportRun | sourceImportRun | referenced by external | Orders | RocketPoCatalogSnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmation |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmationTransmission |
 | User | activeSyncOwner | referenced by external | Products | SellpiaInventoryState |
-| User | actor | referenced by external | AI | ThumbnailGenerationEvent |
 | User | approvalDecidedByUser | referenced by external | AgentOS | CapabilityInvocation |
-| User | approvedByUser | referenced by external | Channels | ProductPreparation |
 | User | claimedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | confirmer | referenced by external | Supply | RocketPurchaseConfirmation |
 | User | createdBy | referenced by external | AI | DetailPageImageArtifact |
 | User | createdByUser | referenced by external | AI | ContentAsset |
 | User | createdByUser | referenced by external | AI | ContentWorkspace |
-| User | createdByUser | referenced by external | AI | ContentWorkspaceThumbnailSelection |
-| User | createdByUser | referenced by external | AI | DetailPageArtifact |
 | User | createdByUser | referenced by external | AI | DetailPageRevision |
-| User | createdByUser | referenced by external | Channels | ProductPreparation |
 | User | createdByUser | referenced by external | Sourcing | SourcingLaunchCandidate |
 | User | creator | referenced by external | Orders | SellpiaOrderTransmissionIntent |
 | User | initiatingUser | referenced by external | AgentOS | CapabilityInvocation |
 | User | reconciler | referenced by external | Orders | SellpiaOrderTransmissionIntentReconciliation |
 | User | reconciler | referenced by external | Supply | PurchaseOrderSubmissionAttempt |
-| User | rejectedByUser | referenced by external | Sourcing | SourcingCandidate |
 | User | requestedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | requestedBy | referenced by external | Sourcing | SourcingReviewBatch |
-| User | requestedByUser | referenced by external | Channels | ChannelListingDeletionOperation |
-| User | requestedByUser | referenced by external | Channels | ProductRegistrationExecution |
 | User | requestedByUser | referenced by external | Sourcing | SourcingDecisionBatch |
 | User | requestedByUser | referenced by external | Supply | ProcurementTestIntent |
 | User | reviewedByUser | referenced by external | Supply | ProcurementTestIntent |
-| User | triggeredByUser | referenced by external | AI | ContentGeneration |
+| User | triggeredByUser | referenced by external | AI | DetailPage |
 | User | triggeredByUser | referenced by external | AI | ThumbnailGeneration |
-| User | triggeredByUser | referenced by external | Sourcing | SourcingCandidate |
+| User | triggeredByUser | referenced by external | Sourcing | SourceRecord |
 | User | triggeredByUser | referenced by external | Sourcing | SourcingEvidenceIngestionRun |

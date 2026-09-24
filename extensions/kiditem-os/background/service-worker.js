@@ -18,6 +18,8 @@ importScripts(
   "domain-registry.js",
   // 몰·마켓 채널 목록. `packages/shared/src/channel-registry.ts` 에서 생성한 사본이다.
   "../shared/channel-registry.js",
+  // 몰 폼 [등록] 관문(KID-322) — 몰 폼 등록 모듈보다 먼저 싣는다.
+  "../shared/mall-form-submit-gate.js",
   // 공용 파운데이션 — 도메인마다 사본을 싣던 것을 정본 하나로 통일했다.
   "environment-context.js",
   "collection-session.js",

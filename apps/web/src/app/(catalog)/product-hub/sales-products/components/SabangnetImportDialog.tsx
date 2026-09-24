@@ -212,8 +212,13 @@ function ImportPreview({
                       <span className="block font-medium text-slate-800">{change.name}</span>
                       <span className="block text-xs text-slate-500">
                         {change.code} · 원천키 {change.sourceKey} · 버전 {change.expectedVersion}
-                        {change.changed ? ' · 바뀐 내용 있음' : ' · 바뀐 내용 없음'}
+                        {change.baselineOnly
+                          ? ' · 기준값만 갱신'
+                          : change.changed ? ' · 바뀐 내용 있음' : ' · 바뀐 내용 없음'}
                       </span>
+                      {reimportFieldSummary(change) && (
+                        <span className="block text-xs text-slate-600">{reimportFieldSummary(change)}</span>
+                      )}
                     </span>
                   </label>
                 </li>
@@ -275,4 +280,26 @@ function LinkSummary({ links, dryRun }: { links: SalesProductLinkResult; dryRun:
       )}
     </dl>
   );
+}
+
+/** 다시 가져오기가 지키는 사람 편집값과 파일 값으로 바꾸는 칸을 한 줄로 말한다. 같은 묶음의 칸은 한 번만 쓴다. */
+const REIMPORT_FIELD_LABELS: Record<string, string> = {
+  name: '상품명', shortName: '약어', englishName: '영문명', printName: '출력명', modelName: '모델명', modelNo: '모델NO',
+  brand: '브랜드', manufacturer: '제조사', originCountry: '원산지', originRegion: '원산지', keywords: '검색어',
+  standardCategory: '표준분류', description: '설명', targetAudience: '대상', ageGroup: '연령', productSize: '크기',
+  colorVariantNames: '색상', boxSetQuantity: '입수', registrationDefaults: '등록 기본값', status: '상태',
+  taxType: '과세', deliveryFeeType: '배송비', deliveryFee: '배송비', stockManaged: '재고관리', imageUrls: '사진',
+  noticeCategory: '고시', noticeValues: '고시',
+  certifications: 'KC', kcStatus: 'KC', importDeclarationNo: '수입신고번호', adminMemo: '메모',
+};
+
+function fieldLabels(fields: readonly string[]): string {
+  return [...new Set(fields.map((field) => REIMPORT_FIELD_LABELS[field] ?? field))].join('·');
+}
+
+function reimportFieldSummary(change: { preserved: readonly string[]; updated: readonly string[] }): string {
+  return [
+    change.preserved.length > 0 ? `편집값 유지: ${fieldLabels(change.preserved)}` : null,
+    change.updated.length > 0 ? `갱신: ${fieldLabels(change.updated)}` : null,
+  ].filter(Boolean).join(' · ');
 }

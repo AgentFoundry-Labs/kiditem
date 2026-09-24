@@ -4,7 +4,6 @@ import { join } from 'node:path';
 import { describe, it } from 'node:test';
 
 const repoRoot = process.cwd();
-const core = readFileSync(join(repoRoot, 'prisma/models/core.prisma'), 'utf8');
 const channels = readFileSync(join(repoRoot, 'prisma/models/channels.prisma'), 'utf8');
 
 function modelBlock(source, modelName) {
@@ -15,25 +14,27 @@ function modelBlock(source, modelName) {
 
 describe('channel Sellpia final schema contract', () => {
   it('retains channel account provider identity and collection configuration', () => {
-    const account = modelBlock(core, 'ChannelAccount');
+    const account = modelBlock(channels, 'ChannelAccount');
     for (const field of ['externalAccountId', 'sellerId', 'vendorId', 'config']) {
       assert.match(account, new RegExp(`^\\s*${field}\\s+`, 'm'));
     }
   });
 
-  it('requires account-owned parent listings with source-candidate identity', () => {
-    const listing = modelBlock(core, 'ChannelListing');
+  it('requires account-owned parent listings that reach their source through the selling product', () => {
+    const listing = modelBlock(channels, 'ChannelListing');
     assert.match(listing, /^\s*channelAccountId\s+String\s+/m);
-    assert.match(listing, /^\s*sourceCandidateId\s+String\?/m);
+    // 원천은 판매상품이 가리킨다(KID-310) — 몰 상품에 후보 칸을 두지 않는다.
+    assert.match(listing, /^\s*salesProductId\s+String\?/m);
+    assert.doesNotMatch(listing, /^\s*sourceCandidateId\s+/m);
     assert.match(listing, /^\s*rawJson\s+Json\?/m);
     assert.match(listing, /^\s*lastImportRunId\s+String\?/m);
-    assert.match(listing, /@@index\(\[sourceCandidateId\]\)/);
+    assert.match(listing, /@@index\(\[organizationId, salesProductId\]\)/);
     assert.doesNotMatch(listing, /^\s*(?:masterProductId|masterId|channel|channelPrice|currentStock|barcode|purchasePrice|salePrice)\s+/m);
     assert.match(listing, /@@unique\(\[organizationId, channelAccountId, externalId\]\)/);
   });
 
   it('keeps marketplace option metadata independent from physical stock and variants', () => {
-    const option = modelBlock(core, 'ChannelListingOption');
+    const option = modelBlock(channels, 'ChannelListingOption');
     for (const field of [
       'externalOptionId',
       'itemName',
@@ -51,15 +52,15 @@ describe('channel Sellpia final schema contract', () => {
   });
 
   it('stores the inventory consumption recipe only on the channel listing option', () => {
-    const component = modelBlock(core, 'ChannelListingOptionInventoryComponent');
+    const component = modelBlock(channels, 'ChannelListingOptionInventoryComponent');
     for (const field of ['channelListingOptionId', 'masterProductId', 'quantity']) {
       assert.match(component, new RegExp(`^\\s*${field}\\s+`, 'm'));
     }
     assert.match(component, /@@unique\(\[channelListingOptionId, masterProductId\]\)/);
     assert.doesNotMatch(channels, /model ChannelSkuComponent\b/);
     assert.doesNotMatch(channels, /channel_sku_components/);
-    assert.doesNotMatch(core, /model ProductVariant\b/);
-    assert.doesNotMatch(core, /model ProductVariantComponent\b/);
+    assert.doesNotMatch(channels, /model ProductVariant\b/);
+    assert.doesNotMatch(channels, /model ProductVariantComponent\b/);
   });
 
   it('retains raw channel scrape evidence for selective reset replay', () => {

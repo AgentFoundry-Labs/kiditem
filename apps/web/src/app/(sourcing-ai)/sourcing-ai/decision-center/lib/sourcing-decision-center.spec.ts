@@ -396,7 +396,7 @@ function launchCandidate(
     candidateKey: 'candidate-key',
     version: 1,
     identityHash: 'identity-hash',
-    sourceCandidateId: null,
+    sourceRecordId: null,
     supplierOfferSkuSnapshotId: 'offer-1',
     targetChannelAccountId: 'channel-1',
     productConceptVersionKey: 'magnetic-blocks:v1',

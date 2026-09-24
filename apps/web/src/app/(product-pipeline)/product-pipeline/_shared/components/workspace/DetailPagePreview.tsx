@@ -56,7 +56,7 @@ import {
   withDetailPreviewBridge,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/preview-sandbox';
 import { detailPageEditorHref } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/product-pipeline-routes';
-import { useGenerationHistory, type GenerationHistoryItem } from '../../hooks/useGenerationHistory';
+import type { GenerationHistoryItem } from '../../hooks/useGenerationHistory';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
 import type { ProductRegistrationPreviewData } from './preview/product-registration-preview';
@@ -64,18 +64,18 @@ import type { ProductRegistrationPreviewData } from './preview/product-registrat
 interface Props {
   productId: string;
   detailPreviewHtml: string;
-  editedHtml?: string | null;
   templateCss: string;
   hasSavedDetailPage?: boolean;
   savedDetailPageGenerationId?: string | null;
-  initialAgentHistory?: GenerationHistoryItem[];
-  generationHistoryQueryEnabled?: boolean;
-  detailEditorSourceCandidateId?: string | null;
+  /** 작업공간 이력(에이전트 생성). 화면이 작업공간에서 읽어 넘긴다. */
+  agentHistory?: GenerationHistoryItem[];
+  detailEditorSalesProductId?: string | null;
   detailEditorReturnHref: string;
   mobilePreviewData: ProductRegistrationPreviewData;
   onPreviewHtmlChange?: (html: string | null) => void;
 }
 
+const EMPTY_AGENT_HISTORY: GenerationHistoryItem[] = [];
 const MAX_MINIMAP_WIDTH = 200; // px — 우선 가로 200px 시도, 페이지가 길면 더 좁게
 const FULL_PREVIEW_WIDTH = 720; // px — 쿠팡 상세페이지 기준 미리보기 폭
 const VIEWPORT_HEIGHT_VH = 82; // vh — 우측 iframe 높이
@@ -152,13 +152,11 @@ function renderGenerationEntryHtml(entry: KidsPlayfulGenerationItem, templateCss
 export default function DetailPagePreview({
   productId,
   detailPreviewHtml,
-  editedHtml = null,
   templateCss,
   hasSavedDetailPage,
   savedDetailPageGenerationId = null,
-  initialAgentHistory,
-  generationHistoryQueryEnabled = true,
-  detailEditorSourceCandidateId,
+  agentHistory = EMPTY_AGENT_HISTORY,
+  detailEditorSalesProductId,
   detailEditorReturnHref,
   onPreviewHtmlChange,
 }: Props) {
@@ -171,12 +169,6 @@ export default function DetailPagePreview({
   );
   const [downloadContentHeight, setDownloadContentHeight] = useState(
     INITIAL_PREVIEW_LAYOUT.contentHeight,
-  );
-
-  const { data: agentHistory = [] } = useGenerationHistory(
-    productId,
-    initialAgentHistory,
-    { enabled: generationHistoryQueryEnabled },
   );
 
   const latestCompletedAgentEntry = useMemo(
@@ -212,16 +204,16 @@ export default function DetailPagePreview({
   });
   const editorHref = useMemo(() => {
     const generationId = effectiveDetailPageGenerationId;
-    if (!generationId && !detailEditorSourceCandidateId) return null;
+    if (!generationId && !detailEditorSalesProductId) return null;
     return detailPageEditorHref({
-      candidateId: detailEditorSourceCandidateId,
+      salesProductId: detailEditorSalesProductId,
       generationId,
       returnTo: detailEditorReturnHref,
     });
-  }, [detailEditorReturnHref, detailEditorSourceCandidateId, effectiveDetailPageGenerationId]);
+  }, [detailEditorReturnHref, detailEditorSalesProductId, effectiveDetailPageGenerationId]);
 
   const hasCurrentSavedDetailPage =
-    hasSavedDetailPage ?? Boolean(effectiveDetailPageGenerationId || editedHtml);
+    hasSavedDetailPage ?? Boolean(effectiveDetailPageGenerationId);
 
   const savedDetailHtml = useMemo(() => {
     if (!hasCurrentSavedDetailPage) return null;
@@ -245,13 +237,9 @@ export default function DetailPagePreview({
     if (effectiveDetailPageGenerationId) {
       return null;
     }
-    if (isRenderableDetailHtml(editedHtml)) {
-      return ensureStyledDetailHtml(editedHtml, templateCss);
-    }
     return ensureStyledDetailHtml(detailPreviewHtml, templateCss);
   }, [
     detailPreviewHtml,
-    editedHtml,
     hasCurrentSavedDetailPage,
     effectiveDetailPageGenerationId,
     savedAgentEntry,
@@ -263,11 +251,9 @@ export default function DetailPagePreview({
   // ⚡ 깜빡임 방지: 의미적으로 같은 컨텐츠인 동안 srcDoc 안 갱신.
   const previewKey = effectiveDetailPageGenerationId
     ? `saved:${effectiveDetailPageGenerationId}:${selectedAgentEditedHtml?.savedAt ?? 'generated'}`
-    : editedHtml
-      ? `edited:${editedHtml.length}`
-      : hasCurrentSavedDetailPage
-        ? `default:${detailPreviewHtml.length}`
-        : 'empty';
+    : hasCurrentSavedDetailPage
+      ? `default:${detailPreviewHtml.length}`
+      : 'empty';
   const effectivePreviewHtml = useMemo(() => {
     return savedDetailHtml;
     // eslint-disable-next-line react-hooks/exhaustive-deps

@@ -6,6 +6,7 @@ import {
   type MallSendOutcome,
 } from './mall-publish-adapter';
 import { targetRegistrationExecutionApi } from './registration-execution-api';
+import { isApiError } from '@/lib/api-error';
 import type {
   PrepareTargetExecutionInput,
   TargetExecutionResult,
@@ -83,37 +84,31 @@ function recordValue(value: unknown): Record<string, unknown> {
     : {};
 }
 
-function stringValues(value: unknown): Record<string, string> {
-  return directRegistrationValues(recordValue(value));
+/** 어댑터 namespace 값: 글자 · 숫자 · 참거짓은 글자로, 안에 든 객체 · 배열은 그 키 아래 JSON 글자로 둔다. */
+function adapterNamespaceValues(input: Record<string, unknown>): Record<string, string> {
+  const values = directRegistrationValues(input);
+  for (const [key, value] of Object.entries(input)) {
+    if (value !== null && typeof value === 'object') values[key] = JSON.stringify(value);
+  }
+  return values;
 }
 
 /**
- * The legacy #554 editor stores its saved fields as
- * `mallRegisterShared` + `mallRegisterValues[mallKey]`. Target documents may
- * use that shape as well as the provider's direct scalar fields. Keep both
- * paths at this boundary so a target does not silently fall back to live UI
- * defaults when it is executed later.
+ * 등록 대상이 몰에 넘기는 값(KID-313): 몰 카테고리 · 몰 전용 칸(`mallFields`) · 이 채널의 어댑터 namespace
+ * (`adapter[mallKey]`). `registrationInput` 에서 다른 것은 읽지 않는다 — 상품 사실은 동결된 판매상품에서 온다.
  */
 function targetRegistrationValues(
-  input: Record<string, unknown>,
+  input: TargetExecutionSnapshot['registrationInput'],
   mallKey: string,
 ): Record<string, string> {
-  const mallRegisterValues = recordValue(input.mallRegisterValues);
+  const category = recordValue(input.mallCategory);
   return {
-    ...stringValues(input.mallRegisterShared),
-    ...stringValues(recordValue(mallRegisterValues[mallKey])),
-    ...stringValues(recordValue(input[mallKey])),
-    ...stringValues(input.adapterValues),
-    ...directRegistrationValues(input),
+    ...(typeof category.key === 'string'
+      ? { mallCategoryKey: category.key, mallCategoryLabel: typeof category.label === 'string' ? category.label : '' }
+      : {}),
+    ...directRegistrationValues(recordValue(input.mallFields)),
+    ...adapterNamespaceValues(recordValue(recordValue(input.adapter)[mallKey])),
   };
-}
-
-function frozenSupplyPrice(snapshot: TargetExecutionSnapshot): string | undefined {
-  const prices = snapshot.supplyPrices
-    .map((entry) => entry.supplyPrice)
-    .filter((price): price is number => price !== null);
-  if (prices.length === 0 || new Set(prices).size !== 1) return undefined;
-  return String(prices[0]);
 }
 
 /**
@@ -127,23 +122,17 @@ export function valuesForTargetExecution(
   _adapter: MallPublishAdapter,
 ): Record<string, string> {
   const override = snapshot.product.channelOverrides.find((item) => item.mallKey === mallKey);
-  const targetValues = targetRegistrationValues(snapshot.registrationInput, mallKey);
-  const targetSupply = frozenSupplyPrice(snapshot);
-  const supportsSupplyPrice = Object.hasOwn(snapshot.adapterDefaults ?? {}, 'supplyPrice');
   return {
     ...(snapshot.adapterDefaults ?? {}),
     ...(override?.adapterValues ?? {}),
-    ...(supportsSupplyPrice && targetSupply && targetValues.supplyPrice === undefined
-      ? { supplyPrice: targetSupply }
-      : {}),
-    ...targetValues,
+    ...targetRegistrationValues(snapshot.registrationInput, mallKey),
     ...(snapshot.adapterValues ?? {}),
   };
 }
 
 export function itemForTargetExecution(
   snapshot: TargetExecutionSnapshot,
-  execution: Pick<TargetExecutionResult, 'executionId' | 'payloadHash' | 'leaseToken'>,
+  execution: Pick<TargetExecutionResult, 'executionId' | 'payloadHash' | 'leaseToken' | 'expectedProviderAccountId'>,
 ): MallPublishItem {
   const firstOption = snapshot.product.options[0];
   if (!execution.leaseToken) throw new Error('등록 실행 lease가 없습니다. 외부 송신을 시작하지 않았습니다.');
@@ -159,6 +148,7 @@ export function itemForTargetExecution(
       payloadHash: execution.payloadHash,
       leaseToken: execution.leaseToken,
       snapshot,
+      expectedProviderAccountId: execution.expectedProviderAccountId ?? null,
     },
   };
 }
@@ -215,9 +205,11 @@ function reportOutcome(
   adapter: MallPublishAdapter,
   sent: MallSendOutcome,
 ): {
-  outcome: 'not_submitted' | 'uncertain' | 'submitted' | 'awaiting_approval';
+  outcome: 'not_submitted' | 'uncertain' | 'submitted' | 'awaiting_approval' | 'confirmed';
   evidence: {
     externalListingId?: string;
+    providerAccountId?: string;
+    observedUrl?: string;
     observedStatus: string;
     message?: string;
   };
@@ -244,6 +236,18 @@ function reportOutcome(
         observedStatus: 'submission_rejected',
         ...(sent.productNo ? { externalListingId: sent.productNo } : {}),
         ...(sent.error ? { message: sent.error } : {}),
+      },
+    };
+  }
+  // 몰 화면이 새 상품번호와 몰 계정을 보여 줬으면 확인으로 보고한다. 맞는 증거인지는 서버가 판정한다.
+  if (sent.providerEvidence) {
+    return {
+      outcome: 'confirmed',
+      evidence: {
+        externalListingId: sent.providerEvidence.externalListingId,
+        providerAccountId: sent.providerEvidence.providerAccountId,
+        ...(sent.providerEvidence.observedUrl ? { observedUrl: sent.providerEvidence.observedUrl } : {}),
+        observedStatus: 'confirmed',
       },
     };
   }
@@ -340,14 +344,38 @@ export async function executeTargetRegistration(
 
   const sentForDisplay: MallSendOutcome = { ...sent, confirmed: false };
   const report = reportOutcome(input.adapter, sentForDisplay);
-  const reported = await client.report(started.executionId, {
-    leaseToken: started.leaseToken!,
-    payloadHash: started.payloadHash,
-    outcome: report.outcome,
-    evidence: {
-      channelAccountId: started.payload.channelAccountId,
+  const reportWith = (outcome: typeof report.outcome, evidence: typeof report.evidence) =>
+    client.report(started.executionId, {
+      leaseToken: started.leaseToken!,
+      payloadHash: started.payloadHash,
+      outcome,
+      evidence: {
+        channelAccountId: started.payload.channelAccountId,
+        ...evidence,
+      },
+    });
+  try {
+    const reported = await reportWith(report.outcome, report.evidence);
+    return { execution: reported, outcome: sentForDisplay, adapterCalled: true };
+  } catch (error) {
+    // 몰은 받았는데 서버가 자동 확인을 거절하면(409) 같은 증거로 `submitted` 를 다시 보고해
+    // 실행을 재조정 대기로 옮긴다. 몰 상품 id 가 남아 확인 창에서 마무리할 수 있다. 전송 오류는 그대로 던진다.
+    if (report.outcome !== 'confirmed' || !isApiError(error) || error.status !== 409) throw error;
+    const reported = await reportWith('submitted', {
       ...report.evidence,
-    },
-  });
-  return { execution: reported, outcome: sentForDisplay, adapterCalled: true };
+      observedStatus: 'submitted',
+      message: error.detail,
+    });
+    return {
+      execution: reported,
+      outcome: {
+        ...sentForDisplay,
+        ok: false,
+        warnings: [...sentForDisplay.warnings, CONFIRMATION_REJECTED_WARNING],
+      },
+      adapterCalled: true,
+    };
+  }
 }
+
+const CONFIRMATION_REJECTED_WARNING = '몰에는 올라갔지만 확인이 거절됐습니다 — 확인 창에서 마무리하세요';

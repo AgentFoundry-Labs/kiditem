@@ -74,26 +74,46 @@ function reportInput(
   };
 }
 
+function wingConfirmation(execution: ListingAvailabilityExecution, result: MallAvailabilitySendResult | null) {
+  if (execution.payload.mallKey !== 'coupang' || !execution.expectedProviderAccountId
+    || !result || result.failed > 0 || result.requestOnly) return null;
+  const evidence = result.wingEvidence?.filter((entry) => entry.externalListingId === execution.payload.externalListingId) ?? [];
+  if (evidence.length !== 1 || evidence[0].providerAccountId !== execution.expectedProviderAccountId) return null;
+  const observed = evidence[0].observedOptionStocks;
+  const wanted = execution.payload.optionCodes;
+  const ids = new Set(observed.map((option) => option.externalOptionId));
+  if (wanted.length === 0 || observed.length !== wanted.length || ids.size !== observed.length
+    || wanted.some((id) => !ids.has(id)) || observed.some((option) => option.registrationType !== 'NORMAL'
+      || !Number.isSafeInteger(option.stock) || option.stock < 0
+      || (execution.payload.kind === 'sold_out' ? option.stock !== 0 : option.stock === 0))) return null;
+  return evidence[0];
+}
+
 async function recordTransportAttempt(
   client: ListingAvailabilityExecutionClient,
   execution: ListingAvailabilityExecution,
   result: MallAvailabilitySendResult | null,
   transportError: string | null,
 ): Promise<ListingAvailabilityExecution> {
-  const outcome: ReportListingAvailabilityInput['outcome'] = transportError
+  const confirmation = transportError ? null : wingConfirmation(execution, result);
+  const outcome: ReportListingAvailabilityInput['outcome'] = confirmation ? 'confirmed' : transportError
     ? 'uncertain'
     : result?.requestOnly
       ? 'awaiting_approval'
       : (result?.sent ?? 0) > 0
         ? 'submitted'
         : 'uncertain';
-  const message = transportError
+  const message = confirmation ? '지정된 몰 계정에서 모든 대상 옵션의 재고를 다시 읽어 확인했습니다.' : transportError
     ? `브라우저 전송 결과를 확인할 수 없습니다: ${transportError}`
     : result?.requestOnly
       ? `관리자 승인 요청 전송 건수 ${result.sent}, 실패 ${result.failed}`
       : `전송 건수 ${result?.sent ?? 0}, 실패 ${result?.failed ?? 0}; 몰 계정과 실제 상태를 확인해야 합니다.`;
   const input = reportInput(execution, outcome, message);
   if (!input) return execution;
+  if (confirmation) {
+    input.evidence.providerAccountId = confirmation.providerAccountId;
+    input.evidence.observedOptionStocks = confirmation.observedOptionStocks;
+  }
   try {
     return await client.report(execution.executionId, input);
   } catch {
@@ -143,6 +163,7 @@ export async function executeListingAvailability(
     executionId: started.executionId,
     payloadHash: started.payloadHash,
     leaseToken: started.leaseToken,
+    ...(started.expectedProviderAccountId ? { expectedProviderAccountId: started.expectedProviderAccountId } : {}),
   };
   let transportResult: MallAvailabilitySendResult | null = null;
   let transportError: string | null = null;

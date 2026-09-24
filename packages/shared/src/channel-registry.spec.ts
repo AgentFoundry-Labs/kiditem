@@ -93,6 +93,13 @@ describe('채널 레지스트리', () => {
     expect(channelRegistersListings(findChannel('toss')!)).toBe(true);
   });
 
+  it('⭐ 옵션 단위로 품절을 보내는 채널은 쿠팡 WING 뿐이고, 나머지는 리스팅 단위다', () => {
+    expect(CHANNEL_REGISTRY.filter((entry) => entry.soldOutScope === 'option').map((entry) => entry.key))
+      .toEqual(['coupang']);
+    expect(CHANNEL_REGISTRY.every((entry) => entry.soldOutScope === 'option' || entry.soldOutScope === 'listing'))
+      .toBe(true);
+  });
+
   it('⭐ 로고가 없는 채널은 원폴라리스뿐이고, 나머지는 공식 파비콘 경로다', () => {
     expect(CHANNEL_REGISTRY.filter((entry) => entry.logo === null).map((entry) => entry.key))
       .toEqual(['one-polaris']);

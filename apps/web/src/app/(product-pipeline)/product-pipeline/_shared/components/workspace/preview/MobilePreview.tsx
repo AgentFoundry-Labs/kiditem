@@ -339,7 +339,7 @@ function PdpView({
         <p className="pt-1 text-[10px] text-slate-400 line-through">{formatKRW(originalPrice)}원</p>
         <div className="flex items-baseline gap-1.5">
           <span className="text-xl font-extrabold" style={{ color: '#CB1D2A' }}>
-            {discountRate}%
+            {shownDiscountRate(discountRate, originalPrice, salePrice)}%
           </span>
           <span className="text-xl font-extrabold text-slate-900">{formatKRW(salePrice)}원</span>
         </div>
@@ -351,7 +351,7 @@ function PdpView({
             <span>🚀</span>로켓배송
           </span>
           <span className="text-[10px] text-slate-700">
-            <span className="font-bold">내일(수)</span> 도착 보장
+            <span className="font-bold">{tomorrowLabel()}</span> 도착 보장
           </span>
         </div>
       </div>
@@ -390,7 +390,7 @@ function PdpView({
       <div className="bg-slate-50 border-t border-slate-100 px-3 py-2.5 space-y-1">
         <div className="flex items-center justify-between">
           <span className="text-[10px] text-slate-500">도착 보장</span>
-          <span className="text-[10px] font-bold text-slate-800">내일(수) 도착</span>
+          <span className="text-[10px] font-bold text-slate-800">{tomorrowLabel()} 도착</span>
         </div>
         <div className="flex items-center justify-between">
           <span className="text-[10px] text-slate-500">무료반품</span>
@@ -556,7 +556,7 @@ function SearchView({
               <span className="font-bold text-slate-700">{rating}</span>
               <span className="text-slate-400">({formatKRW(reviewCount)})</span>
             </div>
-            <span className="text-[9px] text-slate-500">내일(수) 도착 보장</span>
+            <span className="text-[9px] text-slate-500">{tomorrowLabel()} 도착 보장</span>
           </div>
         </div>
 
@@ -647,4 +647,18 @@ function ListView({
       </div>
     </>
   );
+}
+
+/** 미리보기의 도착 보장 문구. 쿠팡 로켓은 내일 도착이므로 오늘(KST) 기준 다음 날 요일을 쓴다 — "수" 고정이 아니다. */
+export function tomorrowLabel(now: Date = new Date()): string {
+  const kst = new Date(now.getTime() + 9 * 60 * 60 * 1000);
+  const tomorrow = (kst.getUTCDay() + 1) % 7;
+  return `내일(${['일', '월', '화', '수', '목', '금', '토'][tomorrow]})`;
+}
+
+/** 할인율을 비워 두면 정상가 → 판매가에서 계산한다. 정상가가 없거나 판매가 이상이면 0. */
+export function shownDiscountRate(discountRate: number, originalPrice: number, salePrice: number): number {
+  if (discountRate > 0) return Math.round(discountRate);
+  if (originalPrice > 0 && salePrice > 0 && originalPrice > salePrice) return Math.round((1 - salePrice / originalPrice) * 100);
+  return 0;
 }

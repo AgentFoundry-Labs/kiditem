@@ -1,7 +1,7 @@
 import type {
   ChannelListingListResult,
   ChannelListingQuery,
-} from '../out/repository/channel-listing.repository.port';
+} from './listing/channel-listing-query.port';
 
 /**
  * The minimum channel read needed by the fixed Finance report export.

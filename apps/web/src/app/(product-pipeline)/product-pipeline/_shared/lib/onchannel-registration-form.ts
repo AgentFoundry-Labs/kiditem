@@ -298,7 +298,7 @@ export function onchannelFormFromDraft(
   // 뒤 단계에서 생성되므로 첫 화면에서 전부 채워지지 않는다.
   manualSteps.push('약관동의까지 하고 기본 정보 화면으로 넘겨 뒀습니다. 가격/옵션 화면도 확인하세요.');
   manualSteps.push('등록만 하면 익일 23:59에 삭제됩니다. 반드시 승인 요청까지 하세요.');
-  manualSteps.push('값이 맞는지 확인한 뒤 화면에서 직접 등록하세요. 자동 제출하지 않습니다.');
+  manualSteps.push('값이 맞는지 확인하세요. 폼만 채웠고 [등록]은 누르지 않았습니다.');
 
   return {
     url: ONCHANNEL_REGISTER_URL,

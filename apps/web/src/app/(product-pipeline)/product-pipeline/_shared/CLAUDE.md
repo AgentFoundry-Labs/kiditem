@@ -13,9 +13,10 @@ hooks, route builders, preview helpers, and content workspace API wrappers.
 - Use React Query hooks for backend state and `refetchInterval` for polling.
 - Keep preview/sandbox/route/status helpers pure and covered by focused tests.
 - Content workspace and generation identity must preserve the distinction
-  between product, source candidate, content workspace, and generation ids.
-- Thumbnail ownership uses `contentWorkspaceId`; `sourceCandidateId` remains
-  provenance and `channelListingId` remains the marketplace listing identity.
+  between product, sales product, content workspace, and generation ids.
+- Thumbnail ownership and history scoping use only `contentWorkspaceId` — do not reintroduce `sourceCandidateId` as a query/ownership
+  parameter; it remains row-level provenance only. `channelListingId` remains
+  the marketplace listing identity.
 
 ## Boundary Rules
 

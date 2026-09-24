@@ -1,4 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
+import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import {
   ChannelProductMatchingRepositoryAdapter as ChannelProductMatchingRepositoryAdapterImpl,
 } from './channel-product-matching.repository.adapter';
@@ -12,13 +14,13 @@ class ChannelProductMatchingRepositoryAdapter
     const wrapped = withPublishedInventory(prisma);
     super(wrapped as never, productTransactionalRead(wrapped) as never, productSourceRead(wrapped) as never, {
       applyPreservingRecipesInTransaction: async (
-        transaction: object,
+        transaction: OwnerTransaction,
         input: {
           organizationId: string;
           mutations: readonly ChannelOptionRecipeMutation[];
         },
       ) => {
-        const tx = transaction as {
+        const tx = ownerTransactionClient(transaction) as {
           channelListingOptionInventoryComponent?: {
             create(input: unknown): Promise<unknown>;
           };
@@ -159,6 +161,7 @@ function withPublishedInventory(prisma: unknown) {
     };
     store.sourceImportRun ??= {
       findFirst: vi.fn().mockResolvedValue({ id: 'inventory-run' }),
+      findMany: vi.fn().mockResolvedValue([]),
     };
     store.productRegistrationExecution ??= {
       findMany: vi.fn().mockResolvedValue([]),
@@ -720,6 +723,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
             options: [unlinkedOption({
               modelNumber: 'MODEL-1',
               salePrice: 12_345,
+              safetyStock: 7,
             })],
           }),
         ]),
@@ -732,6 +736,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
       option: {
         modelNumber: 'MODEL-1',
         salePrice: 12_345,
+        safetyStock: 7,
       },
       inventoryComponents: [],
     });
@@ -750,7 +755,10 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
       return [...query.where.id!.in].reverse().map((id) => ({ ...base, id }));
     });
     const repository = new ChannelProductMatchingRepositoryAdapter({
-      $transaction: vi.fn(async (callback) => callback({ channelListing: { findMany } })),
+      $transaction: vi.fn(async (callback) => callback({
+        channelListing: { findMany },
+        sourceImportRun: { findMany: vi.fn().mockResolvedValue([]) },
+      })),
     } as never);
 
     const rows = await repository.listAvailabilityRows(organizationId, {});
@@ -764,6 +772,7 @@ describe('ChannelProductMatchingRepositoryAdapter matching counts', () => {
     const findMany = vi.fn().mockResolvedValue([]);
     const repository = new ChannelProductMatchingRepositoryAdapter({
       channelListing: { findMany },
+      sourceImportRun: { findMany: vi.fn().mockResolvedValue([]) },
     } as never);
 
     await repository.listAvailabilityRows(organizationId, {});
@@ -832,6 +841,7 @@ type OptionFixture = {
   barcode: string | null;
   modelNumber: string | null;
   salePrice: number | null;
+  safetyStock: number;
   status: string | null;
   updatedAt: Date;
   inventoryComponents: ReturnType<typeof component>[];
@@ -841,6 +851,7 @@ function unlinkedOption(overrides: {
   status?: string | null;
   modelNumber?: string | null;
   salePrice?: number | null;
+  safetyStock?: number;
 } = {}): OptionFixture {
   return {
     id: 'option-unlinked',
@@ -850,6 +861,7 @@ function unlinkedOption(overrides: {
     barcode: null,
     modelNumber: overrides.modelNumber ?? null,
     salePrice: overrides.salePrice ?? null,
+    safetyStock: overrides.safetyStock ?? 0,
     status: overrides.status ?? null,
     updatedAt: new Date('2026-07-17T00:00:00.000Z'),
     inventoryComponents: [],

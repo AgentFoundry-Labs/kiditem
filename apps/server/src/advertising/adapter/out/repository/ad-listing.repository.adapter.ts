@@ -1,4 +1,6 @@
-import { readListingProductIds } from '../../../../channels/read/listing-product-summary.reader';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
+import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
 // Product identity and published grade hydrated through a scoped channel link.
 
 import { Inject, Injectable, Optional } from '@nestjs/common';
@@ -18,6 +20,8 @@ import type {
 @Injectable()
 export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
   constructor(
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
+    @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly channelRecipes: ChannelOptionRecipePort,
     private readonly prisma: PrismaService,
     @Optional()
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
@@ -57,20 +61,8 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     organizationId: string,
     ids: string[],
   ): Promise<ScopedAdListingSnapshot> {
-    const listingRows = await tx.channelListing.findMany({
-      where: {
-        id: { in: ids },
-        organizationId,
-        isActive: true,
-      },
-      select: {
-        id: true,
-        externalId: true,
-        channelName: true,
-        displayName: true,
-      },
-    });
-    const summaries = await readListingProductIds(tx, { organizationId, listingIds: listingRows.map((row) => row.id) });
+    const listingRows = await this.channelListings.readDisplayFacts(ownerTransaction(tx), { organizationId, listingIds: ids, activeOnly: true });
+    const summaries = await this.channelRecipes.readListingProductSummaries(ownerTransaction(tx), { organizationId, listingIds: listingRows.map((row) => row.id) });
     const listings = listingRows.map((row) => ({ ...row, masterProductId: summaries.get(row.id) ?? null }));
     const masterProductIds = [...new Set(listings.flatMap((listing) =>
       listing.masterProductId ? [listing.masterProductId] : []))];
@@ -125,11 +117,8 @@ export class AdListingRepositoryAdapter implements AdListingRepositoryPort {
     listingId: string,
     organizationId: string,
   ): Promise<boolean> {
-    const row = await this.prisma.channelListing.findFirst({
-      where: { id: listingId, organizationId, isActive: true },
-      select: { id: true },
-    });
-    return row != null;
+    const row = await this.channelListings.readDisplayFacts(ownerTransaction(this.prisma), { organizationId, listingIds: [listingId], activeOnly: true });
+    return row.length === 1;
   }
 }
 

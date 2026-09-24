@@ -26,15 +26,16 @@ export default function DetailPageGenerationEditorPage() {
 function DetailPageGenerationEditorPageContent() {
   const params = useParams();
   const search = useSearchParams();
-  const generationId = params.generationId as string;
+  // 경로 조각 이름은 옛 `generationId` 지만 값은 상세 페이지(`DetailPage`) id 다.
+  const detailPageId = params.generationId as string;
   const closeHref = normalizeProductPipelineReturnTo(search.get('returnTo')) ?? REGISTERED_PRODUCTS_ROOT;
-  const candidateId = search.get('sourceCandidateId');
+  const salesProductId = search.get('salesProductId');
 
   return (
     <ContentGenerationEditorSurface
-      generationId={generationId}
+      detailPageId={detailPageId}
       closeHref={closeHref}
-      candidateId={candidateId}
+      salesProductId={salesProductId}
     />
   );
 }

@@ -1,5 +1,6 @@
 import type { MallProductDraft } from '../../(product-pipeline)/product-pipeline/_shared/lib/mall-product-draft';
 import type { TargetExecutionSnapshot } from '@kiditem/shared/sales-product';
+import type { ChannelDelivery } from '@kiditem/shared/channel-registry';
 
 /**
  * 몰 등록 어댑터.
@@ -30,8 +31,11 @@ export const MALL_VALUE_ORIGIN_LABEL: Record<MallValueOrigin, string> = {
   override: '이번 송신',
 };
 
-/** 어댑터가 몰에 닿는 방식. 화면이 소요 시간과 사람 개입을 이 값으로 안내한다. */
-export type MallPublishMode = 'form' | 'excel' | 'api';
+/**
+ * 어댑터가 몰에 닿는 방식 — 채널 레지스트리 `delivery` 의 말을 그대로 쓴다(form · sheet · api, KID-321).
+ * 화면이 소요 시간과 사람 개입을 이 값으로 안내한다.
+ */
+export type MallPublishMode = Exclude<ChannelDelivery, 'none'>;
 
 /** 화면이 그려야 하는 입력칸 하나. 어댑터가 자기 것을 선언한다. */
 export interface MallFieldSpec {
@@ -82,6 +86,12 @@ export interface MallPublishItem {
   thumbnailUrl: string | null;
   /** 어디서 온 상품인가. 없으면 수집상품이다(ADR-0014 이전과 같다). */
   source?: 'candidate' | 'sales_product';
+  /**
+   * `source: 'candidate'` 일 때 이 후보의 판매상품 초안 id. 수집 시점부터 있다(ADR-0022) —
+   * 만들 필요 없이 그대로 등록 설정을 연다. `source: 'sales_product'` 항목은 `candidateId` 가
+   * 이미 판매상품 id라 비워 둔다.
+   */
+  salesProductId?: string | null;
   /** 판매상품의 쓰는 단품 수. 둘 이상이면 옵션을 채우는 몰에만 보낸다. */
   optionCount?: number;
   /**
@@ -94,28 +104,54 @@ export interface MallPublishItem {
     payloadHash: string;
     leaseToken: string;
     snapshot: TargetExecutionSnapshot;
+    /** 준비가 얼린 몰 계정 식별자(쿠팡 vendorId 같은). 몰 화면이 같은 계정인지 확인하는 데 쓴다. */
+    expectedProviderAccountId?: string | null;
   };
+}
+
+/** 폼만 채울 때(등록 실행 없이) 어댑터가 몰 계정을 알아야 하면 넘기는 계정 행. */
+export interface MallSendChannelAccount {
+  id: string;
+  vendorId?: string | null;
+  externalAccountId?: string | null;
 }
 
 export interface MallSendInput {
   items: readonly MallPublishItem[];
   values: Readonly<Record<string, string>>;
+  /** 확인 창에서 고른 계정. 등록 실행이 있으면 실행이 얼린 계정이 이긴다. */
+  channelAccount?: MallSendChannelAccount;
 }
 
-/** Keep the target lease alongside the explicit #554 submit intent. */
-export function mallFormExecutionOptions(item: MallPublishItem): {
-  submit: true;
-  executionContext?: { executionId: string; payloadHash: string; leaseToken: string };
-} {
+/**
+ * 이 항목의 판매상품 초안 id. 수집상품 항목은 초안 id 를 `salesProductId` 에, 판매상품 항목은
+ * `candidateId` 자리에 싣는다(P2 가 이 둘을 하나로 모은다). 수집상품 쪽 준비 경로도 초안 id 로
+ * 읽는다(KID-310) — 후보 id 로 대신 읽지 않는다.
+ */
+export function publishItemSalesProductId(item: MallPublishItem): string {
+  const salesProductId = item.source === 'sales_product' ? item.candidateId : item.salesProductId;
+  if (!salesProductId) throw new Error('이 수집상품에 연결된 판매상품 초안이 없습니다.');
+  return salesProductId;
+}
+
+/**
+ * 확장 폼 채우기의 제출 관문(KID-322). [등록] 은 등록 대상 실행이 살아 있을 때만 — `submit: true` 는
+ * 실행 컨텍스트와 함께만 나간다. 실행이 없는 빠른 등록은 폼만 채운다(`submit: false`). 확장도 같은
+ * 규칙으로 컨텍스트 없는 `submit` 을 무시한다.
+ */
+export type MallFormExecutionOptions =
+  | { submit: false }
+  | { submit: true; executionContext: { executionId: string; payloadHash: string; leaseToken: string } };
+
+export function mallFormExecutionOptions(item: MallPublishItem): MallFormExecutionOptions {
+  if (!item.targetExecution) return { submit: false };
   return {
     submit: true,
-    ...(item.targetExecution ? {
-      executionContext: {
-        executionId: item.targetExecution.executionId,
-        payloadHash: item.targetExecution.payloadHash,
-        leaseToken: item.targetExecution.leaseToken,
-      },
-    } : {}),
+    executionContext: {
+      executionId: item.targetExecution.executionId,
+      payloadHash: item.targetExecution.payloadHash,
+      leaseToken: item.targetExecution.leaseToken,
+    },
   };
 }
 
@@ -139,6 +175,34 @@ export interface MallSendOutcome {
   manualSteps: string[];
   warnings: string[];
   error?: string;
+  /**
+   * 몰 화면이 보여 준 등록 증거(몰 계정 식별자 · 새 상품번호). 있으면 등록 실행이 `confirmed` 로 보고하고,
+   * 증거가 이 실행의 계정 · 형식에 맞는지는 서버의 채널 어댑터가 판정한다. 웹은 판정하지 않는다.
+   */
+  providerEvidence?: {
+    providerAccountId: string;
+    externalListingId: string;
+    observedUrl?: string;
+  };
+}
+
+/**
+ * 몰에 보내기 전에 사람이 한 번 확인해야 하는 어댑터의 확인 창(KID-321). 확인 창은 어댑터가 요구할 때만 뜬다 —
+ * 공통 `RegistrationConfirmDialog` 가 계정 선택 · 셀피아 연결 · 이 칸들을 그리고, 몰 이름은 모른다.
+ */
+export interface MallConfirmationSpec {
+  /** 확인 창에만 있는 상품별 칸. 값은 등록 대상의 이 몰 값(`adapterTargetInput`)으로 저장된다. */
+  fields: readonly MallFieldSpec[];
+  /** 셀피아 재고 상품을 골라 등록 실행 준비의 `adapterValues.sellpiaInventorySkuId` 로 넘기는가. */
+  sellpiaMatch: boolean;
+  /** 확인 창 기본값과 사람이 검증할 설명(추천 근거 등). */
+  loadDefaults(input: {
+    salesProductId: string;
+    /** 이 몰 계정 행들의 등록 대상에 저장된 이 몰 값. 없으면 빈 배열. */
+    savedInputs: readonly Record<string, unknown>[];
+  }): Promise<{ values: Record<string, string>; notes: string[] }>;
+  /** 확인 창 값 검증. 빈 배열이면 통과다. */
+  validate(values: Readonly<Record<string, string>>): string[];
 }
 
 export interface MallPublishAdapter {
@@ -182,6 +246,15 @@ export interface MallPublishAdapter {
   /** 몰 기준으로 이 상품이 부족한 지점. 비어 있어야 보낼 수 있다. */
   validate(item: MallPublishItem, values: Readonly<Record<string, string>>): string[];
   send(input: MallSendInput): Promise<MallSendOutcome>;
+  /** 이 몰에 확인 창이 필요한가. 없으면 버튼이 바로 보낸다. */
+  confirmation?: MallConfirmationSpec;
+  /**
+   * 등록 실행 전에 등록 대상의 이 몰 값(`registrationInput.adapter[mallKey]`)으로 저장할 것(ADR-0020).
+   * 몰 전용 값만 담는다 — 상품 사실은 판매상품이 정본이다. 저장할 것이 없으면 null.
+   */
+  adapterTargetInput?(values: Readonly<Record<string, string>>): Record<string, unknown> | null;
+  /** 이 몰(어댑터)이 돌려받은 영어 거절을 사람 말로 옮긴다. 모르는 문구는 그대로 둔다. */
+  describeError?(message: string): string;
 }
 
 /** 어댑터 기본값으로 채운 값 묶음. 화면 진입 시 한 번 만든다. */

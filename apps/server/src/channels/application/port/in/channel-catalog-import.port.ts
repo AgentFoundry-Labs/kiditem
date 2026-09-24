@@ -1,9 +1,9 @@
 import type { CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
-import type { ParsedWingCatalogWorkbook } from '../../service/coupang-wing-workbook.parser';
 
 export const CHANNEL_CATALOG_IMPORT_PORT = Symbol('CHANNEL_CATALOG_IMPORT_PORT');
 
-export type ImportCoupangWingCatalogInput = ParsedWingCatalogWorkbook & {
+export type ImportCoupangWingCatalogInput = {
+  bytes: Uint8Array;
   organizationId: string;
   userId: string;
   channelAccountId: string;

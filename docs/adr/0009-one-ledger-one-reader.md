@@ -81,3 +81,7 @@ evidence that migration or schema deletion is complete.
 [ADR-0015](0015-inventory-reads-use-a-transaction-port.md) supersedes the
 reader-location and direct-import convention for Inventory only, preserving
 the single reader and caller-owned transaction through its published port.
+
+[ADR-0021](0021-owner-capabilities-replace-dedicated-readers.md) supersedes the
+dedicated-reader requirements and, for Channels-related references, automatic
+platform FK exceptions. Evidence, organization, and transaction guarantees remain.

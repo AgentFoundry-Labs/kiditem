@@ -36,9 +36,7 @@ import {
   stripSrcDocScripts,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/preview-sandbox';
 import {
-  collectedProductDetailHref,
   detailPageEditorHref,
-  registeredProductDetailHref,
 } from '@/app/(product-pipeline)/product-pipeline/_shared/lib/product-pipeline-routes';
 import {
   ensureStyledDetailHtml,
@@ -349,17 +347,9 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
   const isPreviewLoading = isEntryLoading || templateCss == null || !editedHtmlLoaded;
   const editorHref = useMemo(
     () => {
-      const sourceCandidateId = sourceCandidateIdFromGeneration(previewEntry);
-      const returnTo = sourceCandidateId
-        ? collectedProductDetailHref(sourceCandidateId)
-        : previewEntry.contentWorkspaceId
-          ? registeredProductDetailHref(previewEntry.contentWorkspaceId)
-          : null;
-      return detailPageEditorHref({
-        candidateId: sourceCandidateId,
-        generationId: previewEntry.id,
-        returnTo,
-      });
+      // 생성 이력은 판매상품 초안 id 도 리스팅 id 도 모른다 — 작업공간 id 로 화면 주소를 만들지
+      // 않는다(닫으면 기본 목록으로 간다, KID-310).
+      return detailPageEditorHref({ generationId: previewEntry.id });
     },
     [previewEntry],
   );
@@ -527,23 +517,4 @@ function FullscreenViewer({ entry, onClose }: FullscreenViewerProps) {
       />
     </div>
   );
-}
-
-function sourceCandidateIdFromGeneration(entry: KidsPlayfulGenerationItem): string | null {
-  if (entry.sourceCandidateId) return entry.sourceCandidateId;
-  const rawInput = entry.rawInput;
-  if (!rawInput || typeof rawInput !== 'object') return null;
-  const sourceReferences = (rawInput as { sourceReferences?: unknown }).sourceReferences;
-  if (!Array.isArray(sourceReferences)) return null;
-  for (const ref of sourceReferences) {
-    if (
-      ref &&
-      typeof ref === 'object' &&
-      (ref as { sourceType?: unknown }).sourceType === 'sourcing_candidate' &&
-      typeof (ref as { sourceCandidateId?: unknown }).sourceCandidateId === 'string'
-    ) {
-      return (ref as { sourceCandidateId: string }).sourceCandidateId;
-    }
-  }
-  return null;
 }

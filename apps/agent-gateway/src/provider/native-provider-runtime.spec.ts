@@ -57,8 +57,8 @@ describe('Gateway runtime train verification', () => {
       runtime: 'claude_cli',
       reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'],
       modelReasoningEfforts: [
-        { model: 'claude-opus-4-6', reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
-        { model: 'claude-sonnet-4-5', reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+        { model: 'claude-opus-5', reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
+        { model: 'claude-sonnet-5', reasoningEfforts: ['low', 'medium', 'high', 'xhigh', 'max'] },
       ],
     });
     expect(codexProviderReadiness([

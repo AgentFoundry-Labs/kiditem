@@ -33,7 +33,7 @@ export interface AiSuggestionInput {
   unlinkedProducts: number | null;
 }
 
-const REORDER_HREF = '/product-hub?inventoryFocus=reorder';
+const REORDER_HREF = '/product-hub?inventoryFocus=reorder&activeStatus=all';
 
 function daysLabel(daysLeft: number): string {
   return daysLeft <= 0 ? '오늘' : `${daysLeft}일 후`;
@@ -79,7 +79,7 @@ export function buildAiSuggestions(input: AiSuggestionInput): AiSuggestion[] {
       figure: `${formatNumber(input.stock.outOfStockCount)}개`,
       figureNote: '품절 상품',
       imageUrl: null,
-      action: { label: '재고 확인', href: '/product-hub?inventoryFocus=out_of_stock' },
+      action: { label: '재고 확인', href: '/product-hub?inventoryFocus=out_of_stock&activeStatus=all' },
     });
   }
 

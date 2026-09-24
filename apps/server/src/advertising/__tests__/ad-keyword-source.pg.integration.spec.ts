@@ -1,3 +1,4 @@
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -45,7 +46,7 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
         },
       },
     });
-    owner = new AdKeywordSourceRepository(observed as never, alerts);
+    owner = new AdKeywordSourceRepository(channelFactTestPorts(observed as never).accounts, channelFactTestPorts(observed as never).listings, observed as never, alerts);
     const module = await Test.createTestingModule({
       controllers: [AdKeywordSourceController],
       providers: [{ provide: AdKeywordSourceRepository, useValue: owner }],
@@ -887,7 +888,7 @@ describe('Ad keyword source incoming HTTP + disposable PostgreSQL', () => {
         },
       },
     });
-    const reading = new AdKeywordSourceRepository(readClient as never, alerts).source(
+    const reading = new AdKeywordSourceRepository(channelFactTestPorts(readClient as never).accounts, channelFactTestPorts(readClient as never).listings, readClient as never, alerts).source(
       ORG,
       accountId,
     );

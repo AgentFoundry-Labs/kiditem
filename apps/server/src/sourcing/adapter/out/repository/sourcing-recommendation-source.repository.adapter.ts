@@ -5,7 +5,7 @@ import { addDays } from '../../../../common/kst';
 import {
   readCurrent1688OfferSnapshots,
   readLatestWingCatalogPublicationFacts,
-} from '../../../read/source-evidence.reader';
+} from './source-evidence.reader';
 import type {
   SourcingCoupangObservationSource,
   SourcingOfferObservationSource,

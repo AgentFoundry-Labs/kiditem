@@ -18,6 +18,7 @@ function loadModule() {
   };
   context.globalThis = context;
   vm.createContext(context);
+  vm.runInContext(readFileSync(path.join(repoRoot, 'extensions/kiditem-os/shared/mall-form-submit-gate.js'), 'utf8'), context);
   vm.runInContext(readFileSync(modulePath, 'utf8'), context, { filename: modulePath });
   return context.self.KidItemMallFormRegister;
 }

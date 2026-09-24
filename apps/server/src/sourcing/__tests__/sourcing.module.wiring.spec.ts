@@ -1,10 +1,8 @@
 import "reflect-metadata";
 import { readFileSync } from "node:fs";
 import { describe, expect, it } from "vitest";
-import { ChannelsFinalCapabilityAdapter } from "../../channels/adapter/in/agent/channels-final-capability.adapter";
 import { ChannelsCapabilityCompositionAdapter } from "../../channels/adapter/in/agent/channels-capability-composition.adapter";
 import { ChannelsFinalCapabilityModule } from "../../channels/channels-final-capability.module";
-import { CHANNELS_FINAL_CAPABILITY_PORT } from "../../channels/application/port/in/capability/channels-final-capability.port";
 import { CHANNELS_CAPABILITY_COMPOSITION_PORT } from "../../channels/application/port/in/capability/channels-capability-composition.port";
 import { SourcingFinalCapabilityAdapter } from "../adapter/in/agent/sourcing-final-capability.adapter";
 import { SourcingCapabilityCompositionAdapter } from "../adapter/in/agent/sourcing-capability-composition.adapter";
@@ -103,23 +101,15 @@ describe("Sourcing final capability wiring", () => {
     expect(composition).not.toContain("PrismaService");
   });
 
-  it("keeps canonical Channels mutations behind the Channels-owned final port", () => {
+  it("keeps the Channels capability composition in the Channels-owned module", () => {
     const channelsEntries = providers(ChannelsFinalCapabilityModule);
     const sourcingEntries = providers(SourcingModule);
 
-    expect(channelsEntries).toContain(ChannelsFinalCapabilityAdapter);
     expect(channelsEntries).toContain(ChannelsCapabilityCompositionAdapter);
-    expect(binding(channelsEntries, CHANNELS_FINAL_CAPABILITY_PORT)).toEqual({
-      provide: CHANNELS_FINAL_CAPABILITY_PORT,
-      useExisting: ChannelsFinalCapabilityAdapter,
-    });
     expect(binding(channelsEntries, CHANNELS_CAPABILITY_COMPOSITION_PORT)).toEqual({
       provide: CHANNELS_CAPABILITY_COMPOSITION_PORT,
       useExisting: ChannelsCapabilityCompositionAdapter,
     });
-    expect(sourcingEntries).not.toContain(ChannelsFinalCapabilityAdapter);
-    expect(
-      binding(sourcingEntries, CHANNELS_FINAL_CAPABILITY_PORT),
-    ).toBeUndefined();
+    expect(sourcingEntries).not.toContain(ChannelsCapabilityCompositionAdapter);
   });
 });

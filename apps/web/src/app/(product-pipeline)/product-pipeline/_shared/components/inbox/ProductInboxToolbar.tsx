@@ -17,9 +17,10 @@ interface ProductInboxToolbarProps<TabKey extends string, SortKey extends string
   tabs: ReadonlyArray<ToolbarTab<TabKey>>;
   activeTab: TabKey;
   onTabChange: (tab: TabKey) => void;
-  sort: SortKey;
-  sortOptions: ReadonlyArray<ToolbarOption<SortKey>>;
-  onSortChange: (sort: SortKey) => void;
+  /** 정렬을 고를 수 없는 목록(서버가 한 순서로만 준다)은 비운다. */
+  sort?: SortKey;
+  sortOptions?: ReadonlyArray<ToolbarOption<SortKey>>;
+  onSortChange?: (sort: SortKey) => void;
   pageSize: number;
   pageSizeOptions?: number[];
   onPageSizeChange: (pageSize: number) => void;
@@ -62,6 +63,7 @@ export function ProductInboxToolbar<TabKey extends string, SortKey extends strin
       </div>
 
       <div className="flex items-center gap-1.5 text-xs">
+        {sort !== undefined && sortOptions && onSortChange && (
         <label className="relative">
           <select
             value={sort}
@@ -77,6 +79,7 @@ export function ProductInboxToolbar<TabKey extends string, SortKey extends strin
           </select>
           <ChevronDown size={12} className="pointer-events-none absolute right-2 top-1/2 -translate-y-1/2 text-slate-400" />
         </label>
+        )}
         <label className="relative">
           <select
             value={pageSize}

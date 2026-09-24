@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import type { SalesProduct } from '@kiditem/shared/sales-product';
 import {
   addMissingCombinations,
+  BASIC_FIELDS,
   basicsFromProduct,
   basicsPatch,
   commonNormalPrice,
@@ -23,7 +24,9 @@ function product(overrides: Partial<SalesProduct> = {}): SalesProduct {
     code: '100300',
     ownCode: null,
     sabangnetGoodsNo: '100300',
-    sourceCandidateId: null,
+    sourceRecordId: null,
+    sourcePlatform: null,
+    sourceUrl: null,
     name: '애니멀 만능패드',
     shortName: null,
     englishName: null,
@@ -36,16 +39,21 @@ function product(overrides: Partial<SalesProduct> = {}): SalesProduct {
     originRegion: null,
     keywords: ['패드'],
     standardCategory: null,
+    description: '',
+    targetAudience: null,
+    ageGroup: null,
+    productSize: null,
+    colorVariantNames: [],
+    boxSetQuantity: null,
+    registrationDefaults: null,
+    kcStatus: 'unknown',
     status: 'active',
     taxType: 'taxable',
     deliveryFeeType: 'collect_or_prepay',
     deliveryFee: 3000,
     optionAxes: ['색상'],
     stockManaged: false,
-    optionsLocked: false,
     imageUrls: [],
-    detailHtml: null,
-    extraDetailHtml: [],
     noticeCategory: null,
     noticeValues: [],
     certifications: [],
@@ -75,6 +83,7 @@ function product(overrides: Partial<SalesProduct> = {}): SalesProduct {
           quantity: 1,
           currentStock: 12,
         }],
+        referenceCost: null,
         linkedChannelOptionCount: 2,
       },
     ],
@@ -95,6 +104,37 @@ describe('sales product editor draft', () => {
     expect(basicsPatch(current, basicsFromProduct(current))).toBeNull();
     expect(basicsPatch(current, draft)).toEqual({ keywords: ['패드', '만능패드'] });
     expect(commonNormalPrice(optionsFromProduct(current))).toEqual({ value: 9000, mixed: false });
+  });
+
+  // KID-313: 상태는 편집 칸이 아니다. 판매 상품을 보관하는 것만 요청하고, 초안은 보관하지 않고 지운다.
+  it('never sends a status field — it asks to archive only an active product', () => {
+    expect(BASIC_FIELDS).not.toContain('status');
+    const active = product({ status: 'active' });
+    expect(basicsPatch(active, basicsFromProduct(active), { archive: true })).toEqual({ status: 'archived' });
+    expect(basicsPatch(active, { ...basicsFromProduct(active), brand: '새 브랜드' }, { archive: true }))
+      .toEqual({ brand: '새 브랜드', status: 'archived' });
+    expect(basicsPatch(active, basicsFromProduct(active), { archive: false })).toBeNull();
+
+    const draft = product({ status: 'draft', code: null });
+    expect(basicsPatch(draft, basicsFromProduct(draft), { archive: true })).toBeNull();
+    const archived = product({ status: 'archived' });
+    expect(basicsPatch(archived, basicsFromProduct(archived), { archive: true })).toBeNull();
+  });
+
+  // KID-310: 수집·직접 작성 초안이 채우는 칸 — 전에는 후보에만 있어 이 편집기에서 못 고쳤다.
+  it('편집기가 설명·대상·연령·크기·색상·묶음 칸도 바뀐 것만 보낸다', () => {
+    const current = product({
+      description: '실내용 놀이 매트',
+      targetAudience: '유아',
+      ageGroup: '3세 이상',
+      productSize: '100x100cm',
+      colorVariantNames: ['핑크', '블루'],
+      boxSetQuantity: 2,
+    });
+    const draft = { ...basicsFromProduct(current), productSize: '120x120cm', boxSetQuantity: 3 };
+
+    expect(basicsPatch(current, basicsFromProduct(current))).toBeNull();
+    expect(basicsPatch(current, draft)).toEqual({ productSize: '120x120cm', boxSetQuantity: 3 });
   });
 
   it('adds only missing combinations and keeps the linked row as it was', () => {
@@ -132,6 +172,7 @@ describe('sales product editor draft', () => {
           optionKey: '노랑',
           salePrice: 5900,
           normalPrice: null,
+          referenceCost: null,
           linkedChannelOptionCount: 0,
           components: [],
         }),
@@ -144,6 +185,45 @@ describe('sales product editor draft', () => {
     expect(optionsChanged(current, table)).toBe(false);
     expect(optionsPayload(table, current.version).options.map((row) => [row.salePrice, row.normalPrice]))
       .toEqual([[0, 9000], [5900, null]]);
+  });
+
+  it('keeps an undecided (null) sale price as null — opening the editor never turns 미정 into 0원', () => {
+    const current = product({
+      options: [
+        option({ salePrice: null }),
+        option({
+          id: '33333333-3333-4333-8333-333333333333',
+          optionCode: '100300-0002',
+          values: ['노랑'],
+          optionKey: '노랑',
+          salePrice: 5900,
+          linkedChannelOptionCount: 0,
+          components: [],
+        }),
+      ],
+    });
+    const table = optionsFromProduct(current);
+
+    expect(table.baseSalePrice).toBe(5900);
+    expect(table.rows.map((row) => row.salePrice)).toEqual([null, 5900]);
+    expect(optionsChanged(current, table)).toBe(false);
+    expect(optionsPayload(table, current.version).options.map((row) => row.salePrice)).toEqual([null, 5900]);
+  });
+
+  it('prices an undecided row at the base only when the operator edits the base', () => {
+    const current = product({ options: [option({ salePrice: null })] });
+    const table = optionsFromProduct(current);
+    expect(table.baseSalePrice).toBe(0);
+
+    const changed = setBaseSalePrice(table, 7900);
+    expect(changed.rows.map((row) => row.salePrice)).toEqual([7900]);
+  });
+
+  it('lets the hub edit the KC status like the workspace basics', () => {
+    expect(BASIC_FIELDS).toContain('kcStatus');
+    const current = product({ kcStatus: 'unknown' });
+    const draft = { ...basicsFromProduct(current), kcStatus: 'exists' as const };
+    expect(basicsPatch(current, draft)).toEqual({ kcStatus: 'exists' });
   });
 
   it('uses a zero base when every option is unused and preserves those final prices', () => {
@@ -166,6 +246,7 @@ describe('sales product editor draft', () => {
           optionKey: '노랑',
           salePrice: 150,
           normalPrice: 350,
+          referenceCost: null,
           linkedChannelOptionCount: 0,
           components: [],
         }),
@@ -197,6 +278,7 @@ describe('sales product editor draft', () => {
           values: ['노랑'],
           optionKey: '노랑',
           salePrice: 150,
+          referenceCost: null,
           linkedChannelOptionCount: 0,
           components: [],
         }),
@@ -220,6 +302,7 @@ describe('sales product editor draft', () => {
           values: ['노랑'],
           optionKey: '노랑',
           normalPrice: null,
+          referenceCost: null,
           linkedChannelOptionCount: 0,
           components: [],
         }),

@@ -1,6 +1,6 @@
 import { fireEvent, render, screen } from '@testing-library/react';
 import { describe, expect, it, vi } from 'vitest';
-import type { ThumbnailGenerationItem } from '@kiditem/shared/ai';
+import type { ThumbnailJobView } from '../../../_shared/hooks/useThumbnailJobs';
 import { DirectUploadJobsSection } from './DirectUploadJobsSection';
 
 const mocks = vi.hoisted(() => ({
@@ -9,43 +9,40 @@ const mocks = vi.hoisted(() => ({
   directGeneration: {
     id: 'direct-generation-1',
     contentWorkspaceId: 'workspace-direct',
-    sourceCandidateId: null,
-    originalUrl: 'https://example.com/input.png',
-    candidates: [
-      {
-        id: 'candidate-1',
-        url: 'https://example.com/generated.png',
-        filename: 'generated.png',
-        storageKey: null,
-        sortOrder: 0,
-      },
-    ],
-    selectedUrl: null,
     status: 'succeeded',
-    phase: 'ready',
-    grade: 'F',
-    score: 0,
     method: 'generate',
-    editAnalysis: null,
-    inputMeta: { productName: 'Uploaded toy', mode: 'edit' },
+    prompt: null,
     errorMessage: null,
+    attemptCount: 1,
     createdAt: '2026-05-18T00:00:00.000Z',
-    contentWorkspace: {
-      id: 'workspace-direct',
-      name: 'Uploaded toy',
-      imageUrl: 'https://example.com/input.png',
-      coupangProductId: null,
-      category: null,
-    },
-  } satisfies ThumbnailGenerationItem,
+    updatedAt: '2026-05-18T00:00:00.000Z',
+    candidates: [{
+      id: 'asset-1',
+      contentWorkspaceId: 'workspace-direct',
+      source: 'ai',
+      role: 'thumbnail',
+      url: 'https://example.com/generated.png',
+      label: null,
+      sortOrder: 0,
+      width: null,
+      height: null,
+      thumbnailGenerationId: 'direct-generation-1',
+      isCurrentThumbnail: false,
+      createdAt: '2026-05-18T00:00:00.000Z',
+    }],
+    adoptedCandidate: null,
+    // 직접 업로드 작업공간은 이름이 없다 — 서버가 job 의 상품명으로 부른다.
+    workspace: { id: 'workspace-direct', salesProductId: null, name: 'Uploaded toy', imageUrl: 'https://example.com/input.png' },
+  } satisfies ThumbnailJobView,
 }));
 
 vi.mock('next/navigation', () => ({
   useRouter: () => ({ push: mocks.push }),
 }));
 
-vi.mock('../../../_shared/hooks/useThumbnailGenerations', () => ({
-  useGenerationList: (params: unknown) => {
+vi.mock('../../../_shared/hooks/useThumbnailJobs', async (importOriginal) => ({
+  ...(await importOriginal<typeof import('../../../_shared/hooks/useThumbnailJobs')>()),
+  useThumbnailJobs: (params: unknown) => {
     mocks.listParams = params;
     return { data: [mocks.directGeneration], isLoading: false };
   },

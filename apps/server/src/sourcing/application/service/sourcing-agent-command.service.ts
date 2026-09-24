@@ -1,13 +1,18 @@
-import { createHash, randomUUID } from 'node:crypto';
+import { collectedDraftHref } from '../../domain/collected-draft-href';
 import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
 import {
-  SOURCING_CANDIDATE_REPOSITORY_PORT,
-  type SourcingCandidateRepositoryPort,
-} from '../port/out/repository/sourcing-candidate.repository.port';
+  SOURCE_RECORD_REPOSITORY_PORT,
+  type SourceRecordRepositoryPort,
+} from '../port/out/repository/source-record.repository.port';
 import {
   SOURCING_AGENT_GATEWAY_PORT,
   type SourcingAgentGatewayPort,
 } from '../port/out/runtime/sourcing-agent.gateway.port';
+import {
+  SALES_PRODUCT_DRAFT_PORT,
+  type SalesProductDraftFacts,
+  type SalesProductDraftPort,
+} from '../port/out/cross-domain/sales-product-draft.port';
 import type {
   CreateProductGenerationCommand,
   RegisterManualProductCommand,
@@ -24,39 +29,49 @@ function uniqueNonEmptyStrings(values: string[]): string[] {
   return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
-function collectedCandidateHref(candidateId: string): string {
-  return `/product-pipeline/collected-products/${encodeURIComponent(candidateId)}`;
+/** 화면이 쉼표로 적어 보내는 색상 이름. 초안 컬럼과 같은 배열 모양으로 맞춘다. */
+function splitNames(value: string | null | undefined): string[] {
+  return uniqueNonEmptyStrings((value ?? '').split(','));
 }
 
+function parseCount(value: string | number | null | undefined): number | null {
+  if (value === null || value === undefined || value === '') return null;
+  const count = typeof value === 'number' ? value : Number.parseInt(value, 10);
+  return Number.isInteger(count) && count > 0 ? count : null;
+}
+
+
+/**
+ * 직접 작성 — 사람이 적은 상품 정보로 초안을 만든다(KID-313). 원천에서 가져온 것이 아니라 원본 기록은
+ * 없다(`sourceRecordId = null`, `sourcePlatform = KIDITEM_PRODUCT_REGISTRATION`). 초안은 사람이 적은
+ * 칸을 그대로 받는다.
+ */
 @Injectable()
 export class SourcingAgentCommandService {
   constructor(
-    @Inject(SOURCING_CANDIDATE_REPOSITORY_PORT)
-    private readonly candidates: SourcingCandidateRepositoryPort,
+    @Inject(SOURCE_RECORD_REPOSITORY_PORT)
+    private readonly records: SourceRecordRepositoryPort,
     @Inject(SOURCING_AGENT_GATEWAY_PORT)
     private readonly agentGateway: SourcingAgentGatewayPort,
+    @Inject(SALES_PRODUCT_DRAFT_PORT)
+    private readonly drafts: SalesProductDraftPort,
   ) {}
 
+  /** 상품 등록 초안 하나(원본 기록 없음). */
   async registerManualProduct(
     data: RegisterManualProductCommand,
     organizationId: string,
-    triggeredByUserId: string | null,
-    idempotencyKey?: string,
   ) {
-    const candidateInput = this.manualProductCandidateInput(
-      data,
-      organizationId,
-      triggeredByUserId,
-      idempotencyKey,
+    const facts = manualDraftFacts(data);
+    const { salesProductId } = await this.records.runInTransaction(
+      (transaction) => this.drafts.createDraft(transaction, organizationId, facts),
     );
-    const candidate = await this.candidates.upsertSourced(candidateInput);
-
     return {
       ok: true,
-      message: '상품 등록 후보가 생성되었습니다.',
+      message: '상품 등록 초안이 생성되었습니다.',
       product_count: 1,
-      candidateId: candidate.id,
-      href: collectedCandidateHref(candidate.id),
+      salesProductId,
+      href: collectedDraftHref(salesProductId),
     };
   }
 
@@ -66,20 +81,15 @@ export class SourcingAgentCommandService {
     triggeredByUserId: string | null,
     coordinate: ProductGenerationRequestCoordinate,
   ) {
-    const candidateInput = this.manualProductCandidateInput(
-      data,
-      organizationId,
-      triggeredByUserId,
-      coordinate.idempotencyKey,
-    );
-    let candidate: { candidateId: string };
+    const facts = manualDraftFacts(data);
+    let salesProductId: string;
     try {
-      candidate = await this.candidates.upsertSourcedWithIdempotencyReceipt({
-        ...candidateInput,
+      ({ salesProductId } = await this.records.runOnce({
+        organizationId,
         capabilityKey: 'sourcing.product_generation',
         idempotencyKey: coordinate.idempotencyKey,
         requestHash: coordinate.requestHash,
-      });
+      }, (transaction) => this.drafts.createDraft(transaction, organizationId, facts)));
     } catch (error) {
       if (error instanceof Error && error.message === 'owner_idempotency_input_conflict') {
         throw new ConflictException('product_generation_idempotency_conflict');
@@ -94,7 +104,7 @@ export class SourcingAgentCommandService {
       const uploaded = await this.agentGateway.registerUploadedDetailPage({
         organizationId,
         triggeredByUserId,
-        candidateId: candidate.candidateId,
+        salesProductId,
         productName: data.title.trim(),
         detailPageImageUrls,
       });
@@ -102,9 +112,9 @@ export class SourcingAgentCommandService {
         ok: true,
         message: '올린 상세페이지로 상품을 등록했습니다.',
         product_count: 1,
-        candidateId: uploaded.candidateId,
+        salesProductId: uploaded.salesProductId,
         href: uploaded.href,
-        detailGenerationId: uploaded.detailGenerationId,
+        detailPageId: uploaded.detailPageId,
         thumbnailGenerationId: null,
         contentWorkspaceId: uploaded.contentWorkspaceId,
       };
@@ -119,132 +129,112 @@ export class SourcingAgentCommandService {
       triggeredByUserId,
       idempotencyKey: coordinate.idempotencyKey,
       requestHash: coordinate.requestHash,
-      candidateId: candidate.candidateId,
-      productName: data.title.trim(),
-      category: data.category ?? null,
-      description: data.description ?? null,
-      target: data.target ?? null,
-      imageUrls: uniqueNonEmptyStrings(data.imageUrls),
-      thumbnailUrl: representativeThumbnailUrl,
-      optionNames: uniqueNonEmptyStrings(data.optionNames ?? []),
+      salesProductId,
+      // 직접 작성은 원본 기록이 없다.
+      sourceCandidateId: null,
+      productBrief: {
+        productName: data.title.trim(),
+        category: data.category ?? null,
+        description: data.description ?? null,
+        target: data.target ?? null,
+        imageUrls: uniqueNonEmptyStrings(data.imageUrls),
+        thumbnailUrl: representativeThumbnailUrl,
+        optionNames: uniqueNonEmptyStrings(data.optionNames ?? []),
+        productSize: data.productSize ?? null,
+        colorVariantStatus: data.colorVariantStatus ?? 'auto',
+        colorVariantNames: splitNames(data.colorVariantNames),
+        boxSetStatus: data.boxSetStatus ?? 'auto',
+        boxSetQuantity: parseCount(data.boxSetQuantity),
+      },
       templateId: data.templateId ?? 'bold-vertical',
       ageGroup: data.ageGroup ?? 'age-8-plus',
       detailImageCount: data.detailImageCount ?? '2',
       usageSectionMode: data.usageSectionMode ?? 'include',
       kcCertificationStatus: data.kcCertificationStatus ?? 'unknown',
       kcCertificationNumber: data.kcCertificationNumber ?? null,
-      productSize: data.productSize ?? null,
-      colorVariantStatus: data.colorVariantStatus ?? 'auto',
-      colorVariantNames: data.colorVariantNames ?? null,
-      boxSetStatus: data.boxSetStatus ?? 'auto',
-      boxSetQuantity: data.boxSetQuantity ?? null,
     });
     return {
       ok: true,
       message: '상품 생성 작업이 시작되었습니다.',
       product_count: 1,
-      candidateId: candidate.candidateId,
+      salesProductId: ai.salesProductId,
       href: ai.href,
-      detailGenerationId: ai.detailGenerationId,
+      detailPageId: ai.detailPageId,
       thumbnailGenerationId: ai.thumbnailGenerationId,
       contentWorkspaceId: ai.contentWorkspaceId,
     };
   }
+}
 
-  private manualProductCandidateInput(
-    data: RegisterManualProductCommand,
-    organizationId: string,
-    triggeredByUserId: string | null,
-    idempotencyKey?: string,
-  ) {
-    const title = data.title.trim();
-    const imageUrls = uniqueNonEmptyStrings(data.imageUrls);
-    if (!title) throw new BadRequestException('상품명을 입력해 주세요.');
-    if (imageUrls.length === 0) throw new BadRequestException('상품 이미지를 1장 이상 추가해 주세요.');
-
-    const thumbnailUrls = uniqueNonEmptyStrings(data.thumbnailUrls ?? []).slice(0, 10);
-    const thumbnailUrl = typeof data.thumbnailUrl === 'string' && data.thumbnailUrl.trim()
-      ? data.thumbnailUrl.trim()
-      : thumbnailUrls[0] ?? imageUrls[0];
-    const allThumbnailUrls = uniqueNonEmptyStrings([thumbnailUrl, ...thumbnailUrls]).slice(0, 10);
-    const primaryImageUrl = imageUrls.includes(thumbnailUrl) ? thumbnailUrl : imageUrls[0];
-    const category = typeof data.category === 'string' && data.category.trim()
-      ? data.category.trim()
-      : null;
-    const description = typeof data.description === 'string' && data.description.trim()
-      ? data.description.trim()
-      : '';
-    const optionNames = uniqueNonEmptyStrings(data.optionNames ?? []);
-    const keywords = uniqueNonEmptyStrings(data.keywords ?? []).slice(0, 10);
-    const identityHash = idempotencyKey
-      ? createHash('sha256').update(idempotencyKey).digest('hex')
-      : null;
-    const sourceUrl = identityHash
-      ? `kiditem://manual-product-registration/${identityHash}`
-      : `kiditem://manual-product-registration/${randomUUID()}`;
-    return {
-      organizationId,
-      sourceUrl,
-      sourcePlatform: MANUAL_PRODUCT_REGISTRATION_PLATFORM,
-      sourceIdentityHash: identityHash,
-      rawData: {
-        source: 'kiditem_product_registration',
-        title,
-        category,
-        description,
-        target: data.target ?? null,
-        ageGroup: data.ageGroup ?? null,
-        kcCertificationStatus: data.kcCertificationStatus ?? null,
-        kcCertificationNumber: data.kcCertificationNumber ?? null,
-        productSize: data.productSize ?? null,
-        colorVariantStatus: data.colorVariantStatus ?? null,
-        colorVariantNames: data.colorVariantNames ?? null,
-        boxSetStatus: data.boxSetStatus ?? null,
-        boxSetQuantity: data.boxSetQuantity ?? null,
-        // 사방넷 신규등록과 같은 칸 — 상품 등록 초안에서 받은 값이 판매상품까지 간다.
-        salePrice: positiveOrNull(data.salePrice),
-        tagPrice: positiveOrNull(data.tagPrice),
-        costPrice: positiveOrNull(data.costPrice),
-        brand: trimmedOrNull(data.brand),
-        manufacturer: trimmedOrNull(data.manufacturer),
-        originCountry: trimmedOrNull(data.originCountry),
-        modelName: trimmedOrNull(data.modelName),
-        ownCode: trimmedOrNull(data.ownCode),
-        taxType: data.taxType === 'tax_free' ? 'tax_free' : null,
-        deliveryFee: typeof data.deliveryFee === 'number' && data.deliveryFee >= 0 ? Math.round(data.deliveryFee) : null,
-        deliveryFeeType: trimmedOrNull(data.deliveryFeeType),
-        certificationIssuer: trimmedOrNull(data.certificationIssuer),
-        certificationField: trimmedOrNull(data.certificationField),
-        thumbnailUrl,
-        thumbnailUrls: allThumbnailUrls,
-        imageUrls,
-        optionNames,
-        keywords,
-      },
-      name: title,
-      description,
-      category,
-      tags: optionNames,
-      thumbnailUrl,
-      imageUrl: thumbnailUrl,
-      costCny: null,
-      triggeredByUserId,
-      images: imageUrls.map((url, index) => ({
-        url,
-        role: 'product',
-        label: null,
-        sortOrder: index,
-        source: 'kiditem-product-registration',
-        isPrimary: url === primaryImageUrl,
-      })),
-    };
-  }
-
+/**
+ * 사람이 적은 상품 정보 → 초안의 첫 값. 원본 기록이 없으니 여기서 넘기지 않은 칸은 초안에서 비어 있고,
+ * 사람이 수집상품 화면에서 채운다.
+ */
+function manualDraftFacts(data: RegisterManualProductCommand): SalesProductDraftFacts {
+  const title = data.title.trim();
+  const imageUrls = uniqueNonEmptyStrings(data.imageUrls);
+  if (!title) throw new BadRequestException('상품명을 입력해 주세요.');
+  if (imageUrls.length === 0) throw new BadRequestException('상품 이미지를 1장 이상 추가해 주세요.');
+  const thumbnailUrl = typeof data.thumbnailUrl === 'string' && data.thumbnailUrl.trim()
+    ? data.thumbnailUrl.trim()
+    : uniqueNonEmptyStrings(data.thumbnailUrls ?? [])[0] ?? imageUrls[0];
+  const primaryFirst = imageUrls.includes(thumbnailUrl!)
+    ? [thumbnailUrl!, ...imageUrls.filter((url) => url !== thumbnailUrl)]
+    : imageUrls;
+  const kcNumber = trimmedOrNull(data.kcCertificationNumber);
+  // 인증 번호를 적었으면 인증이 있는 것이다 — 번호 없이 '있음'만 고른 경우도 그대로 둔다.
+  const kcStatus = kcNumber ? 'exists'
+    : data.kcCertificationStatus === 'exists' || data.kcCertificationStatus === 'none'
+      ? data.kcCertificationStatus
+      : 'unknown';
+  return {
+    sourceRecordId: null,
+    name: title,
+    description: typeof data.description === 'string' ? data.description.trim() : '',
+    imageUrls: primaryFirst,
+    sourcePlatform: MANUAL_PRODUCT_REGISTRATION_PLATFORM,
+    sourceUrl: null,
+    optionNames: uniqueNonEmptyStrings(data.optionNames ?? []),
+    basics: {
+      standardCategory: trimmedOrNull(data.category ?? undefined),
+      targetAudience: trimmedOrNull(data.target ?? undefined),
+      ageGroup: trimmedOrNull(data.ageGroup ?? undefined),
+      productSize: trimmedOrNull(data.productSize ?? undefined),
+      colorVariantNames: splitNames(data.colorVariantNames),
+      boxSetQuantity: parseCount(data.boxSetQuantity),
+      brand: trimmedOrNull(data.brand),
+      manufacturer: trimmedOrNull(data.manufacturer),
+      originCountry: trimmedOrNull(data.originCountry),
+      modelName: trimmedOrNull(data.modelName),
+      keywords: uniqueNonEmptyStrings(data.keywords ?? []).slice(0, 10),
+      kcStatus,
+      ownCode: trimmedOrNull(data.ownCode),
+      taxType: data.taxType === 'tax_free' ? 'tax_free' : 'taxable',
+      deliveryFeeType: deliveryFeeTypeOrNull(data.deliveryFeeType),
+      deliveryFee: typeof data.deliveryFee === 'number' && Number.isFinite(data.deliveryFee) && data.deliveryFee >= 0
+        ? Math.round(data.deliveryFee)
+        : null,
+      certifications: kcNumber
+        ? [{ number: kcNumber, issuer: trimmedOrNull(data.certificationIssuer), field: trimmedOrNull(data.certificationField) }]
+        : [],
+    },
+    salePrice: positiveOrNull(data.salePrice),
+    normalPrice: positiveOrNull(data.tagPrice),
+  };
 }
 
 /** 0 이하 · 숫자가 아니면 null. 사방넷 가격 칸은 "안 적음"과 0원을 구분한다. */
 function positiveOrNull(value: number | undefined): number | null {
   return typeof value === 'number' && Number.isFinite(value) && value > 0 ? Math.round(value) : null;
+}
+
+const DELIVERY_FEE_TYPES = ['free', 'collect', 'prepay', 'collect_or_prepay'] as const;
+
+function deliveryFeeTypeOrNull(value: string | undefined): (typeof DELIVERY_FEE_TYPES)[number] | null {
+  const text = value?.trim();
+  return (DELIVERY_FEE_TYPES as readonly string[]).includes(text ?? '')
+    ? text as (typeof DELIVERY_FEE_TYPES)[number]
+    : null;
 }
 
 function trimmedOrNull(value: string | undefined): string | null {

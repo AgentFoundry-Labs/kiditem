@@ -27,7 +27,7 @@ Before working in this directory, always read this document first rather than re
   through `npm run data:migrate` after the read-only preflight and writer-stop
   gate in `docs/runbooks/operation-automation-cutover.md`. It deletes only
   retired generic rows and skips tables the database no longer has; the
-  KID-90 schema drop removed `action_tasks` with its rows.
+  schema drop removed `action_tasks` with its rows.
 
 ## Verification
 

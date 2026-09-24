@@ -1,4 +1,11 @@
 import { ShipmentsModule } from '../shipments/shipments.module';
+import { RocketPoSourceModule } from '../rocket-po-source.module';
+import { RocketPoSourceController } from '../adapter/in/web/rocket-po-source.controller';
+import { RocketPoCatalogService } from '../application/service/rocket-po-catalog.service';
+import { RocketPoCatalogRepositoryAdapter } from '../adapter/out/repository/rocket-po-catalog.repository.adapter';
+import { ROCKET_PO_CATALOG_PORT } from '../application/port/in/rocket-po-catalog.port';
+import { ROCKET_PO_CATALOG_REPOSITORY_PORT } from '../application/port/out/repository/rocket-po-catalog.repository.port';
+import { ChannelCatalogModule } from '../../channels/channel-catalog.module';
 import 'reflect-metadata';
 import { describe, expect, it } from 'vitest';
 import { AlertsModule } from '../../alerts/alerts.module';
@@ -21,7 +28,6 @@ import { SellpiaOrderTransmissionService } from '../application/service/sellpia-
 import { OrderCollectionController } from '../controllers/order-collection.controller';
 import { OrderCollectionSourceController } from '../controllers/order-collection-source.controller';
 import { SellpiaShipmentTrackingSourceController } from '../controllers/sellpia-shipment-tracking-source.controller';
-import { OrderCollectionMallAccountController } from '../controllers/order-collection-mall-account.controller';
 import { OrdersController } from '../controllers/orders.controller';
 import { ReviewsController } from '../controllers/reviews.controller';
 import { SellpiaOrderTransmissionController } from '../controllers/sellpia-order-transmission.controller';
@@ -32,7 +38,6 @@ import { ReturnTransfersService } from '../return-transfers/return-transfers.ser
 import { ReviewCollectionSourceRepository } from '../adapter/out/repository/review-collection-source.repository';
 import { CoupangDirectPoSnapshotService } from '../services/coupang-direct-po-snapshot.service';
 import { OrderCollectionService } from '../services/order-collection.service';
-import { OrderCollectionMallAccountService } from '../services/order-collection-mall-account.service';
 import { OrdersService } from '../services/orders.service';
 import { ReviewIngestService } from '../services/review-ingest.service';
 import { ReviewsService } from '../services/reviews.service';
@@ -45,6 +50,8 @@ describe('OrdersModule owner wiring', () => {
     const exports: unknown[] = Reflect.getMetadata('exports', OrdersModule) ?? [];
 
     expect(imports).toEqual([
+      RocketPoSourceModule,
+      ChannelCatalogModule,
       AlertsModule,
       PrismaModule,
       SupplyModule,
@@ -56,7 +63,6 @@ describe('OrdersModule owner wiring', () => {
       OrderCollectionController,
       OrderCollectionSourceController,
       SellpiaShipmentTrackingSourceController,
-      OrderCollectionMallAccountController,
       ReviewsController,
       ReturnTransfersController,
       SellpiaOrderTransmissionController,
@@ -64,7 +70,6 @@ describe('OrdersModule owner wiring', () => {
     expect(providers).toEqual([
       OrdersService,
       OrderCollectionService,
-      OrderCollectionMallAccountService,
       CoupangDirectPoSnapshotService,
       CoupangDirectshipService,
       ReviewsService,
@@ -107,5 +112,20 @@ describe('OrdersModule owner wiring', () => {
       },
     ]);
     expect(exports).toEqual([]);
+  });
+
+  it('keeps Rocket PO collection and account claims in the Orders owner module', () => {
+    const controllers: unknown[] = Reflect.getMetadata('controllers', RocketPoSourceModule) ?? [];
+    const providers: unknown[] = Reflect.getMetadata('providers', RocketPoSourceModule) ?? [];
+    const exports: unknown[] = Reflect.getMetadata('exports', RocketPoSourceModule) ?? [];
+
+    expect(controllers).toEqual([RocketPoSourceController]);
+    expect(providers).toEqual([
+      RocketPoCatalogService,
+      RocketPoCatalogRepositoryAdapter,
+      { provide: ROCKET_PO_CATALOG_PORT, useExisting: RocketPoCatalogService },
+      { provide: ROCKET_PO_CATALOG_REPOSITORY_PORT, useExisting: RocketPoCatalogRepositoryAdapter },
+    ]);
+    expect(exports).toEqual([ROCKET_PO_CATALOG_PORT]);
   });
 });

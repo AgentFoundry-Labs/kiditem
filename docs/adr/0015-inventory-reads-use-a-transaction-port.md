@@ -9,3 +9,7 @@ Products consumers need a stable capability without importing persistence implem
 This supersedes only [ADR-0009](0009-one-ledger-one-reader.md)'s reader location and direct-import convention for Products source inventory. Its one-ledger/one-reader, organization scope and consumer-write prohibitions remain; other domains retain their existing reader convention. The manifest and negative boundary tests enforce both paths.
 
 Products lists all current organization rows without per-row snapshot membership or elapsed-time gates. Purchase and Rocket calculations separately require an exact successfully published Sellpia collection attempt, with generation and transaction fences preserved.
+
+[ADR-0021](0021-owner-capabilities-replace-dedicated-readers.md) supersedes the
+dedicated-reader requirements and, for Channels-related references, automatic
+platform FK exceptions. Evidence, organization, and transaction guarantees remain.

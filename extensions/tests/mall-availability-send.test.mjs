@@ -162,6 +162,8 @@ const WING_LIST = 'https://wing.coupang.com/vendor-inventory/list';
 const CHANGE_PATH = '/tenants/seller-web/vendorinventory/stock-manager/remain-change/request';
 
 function wingMall({
+  providerIdentity = 'vendor-1',
+  identityAfter = providerIdentity,
   tabUrl = 'https://wing.coupang.com/tenants/cs/product/review',
   products = {},
   reject = {},
@@ -185,6 +187,7 @@ function wingMall({
   const log = { tabs: [], active: [], removed: [], reads: [], changes: [], sleeps: [], updated: [], reloaded: [], queries: [], listReads: [] };
   const limits = { reads: throttle.reads ?? 0, posts: throttle.posts ?? 0 };
   let stale = null;
+  let identityReads = 0;
   const chrome = {
     tabs: {
       create: async ({ url, active }) => { log.tabs.push(url); log.active.push(active); return { id: 7 }; },
@@ -200,6 +203,10 @@ function wingMall({
     },
     scripting: {
       executeScript: async ({ func, args }) => {
+        if (func.name === 'verifyWingAvailabilityAccount') {
+          const vendorId = identityReads++ === 0 ? providerIdentity : identityAfter;
+          return [{ result: { ok: vendorId === args[0], vendorId } }];
+        }
         if (func.name === 'listStockCellOnPage') {
           const [product] = args;
           log.listReads.push(product);
@@ -2777,4 +2784,33 @@ test('⭐ 키즈노트 가격은 가격 일괄수정(균일가 · 선택한 상�
   ]);
   assert.ok(result.warnings[0].includes('본사 승인 전까지'), result.warnings.join(' / '));
   assert.ok(result.warnings.some((warning) => warning.includes('1,200원으로 바뀌어')), result.warnings.join(' / '));
+});
+
+
+test('Wing execution proof contains reread normal option stock and a verified session identity', async () => {
+  const { api, log } = wingMall({ products: { 123: [{ vendorItemId: 456, stockQuantity: 9 }] } });
+  const result = await api.send({ mallKey: 'coupang', codes: ['123'], options: { 123: ['456'] },
+    executionContext: { expectedProviderAccountId: 'vendor-1' } });
+  assert.equal(log.changes[0][0].inventoryQuantity, 0);
+  assert.deepEqual(plain(result.wingEvidence), [{ externalListingId: '123', providerAccountId: 'vendor-1',
+    observedOptionStocks: [{ externalOptionId: '456', stock: 0, registrationType: 'NORMAL' }] }]);
+});
+
+test('Wing account mismatch blocks stock writes and account drift cannot produce confirmation', async () => {
+  for (const identity of [{ providerIdentity: 'other' }, { identityAfter: 'other' }]) {
+    const { api, log } = wingMall({ ...identity, products: { 123: [{ vendorItemId: 456, stockQuantity: 9 }] } });
+    const result = await api.send({ mallKey: 'coupang', codes: ['123'], executionContext: { expectedProviderAccountId: 'vendor-1' } });
+    if (identity.providerIdentity) { assert.equal(result.success, false); assert.equal(log.changes.length, 0); }
+    else assert.deepEqual(plain(result.wingEvidence), []);
+  }
+});
+
+test('Wing proof excludes RFM and unknown classification or unknown stock instead of inventing normal zero', async () => {
+  const { api } = wingMall({ products: { 123: [
+    { vendorItemId: 456, stockQuantity: 0, registrationType: 'RFM' },
+    { vendorItemId: 457, stockQuantity: 0, registrationType: null },
+    { vendorItemId: 458, stockQuantity: null },
+  ] } });
+  const result = await api.send({ mallKey: 'coupang', codes: ['123'], executionContext: { expectedProviderAccountId: 'vendor-1' } });
+  assert.deepEqual(plain(result.wingEvidence[0].observedOptionStocks), []);
 });

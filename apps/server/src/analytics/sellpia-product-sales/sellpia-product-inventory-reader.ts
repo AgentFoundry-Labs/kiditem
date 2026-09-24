@@ -3,7 +3,7 @@ import {
   CATALOG_DISPLAY_MEDIA_PORT,
   type CatalogDisplayMediaPort,
   type CatalogDisplayMediaTarget,
-} from '../../ai/application/port/in/workspace/catalog-display-media.port';
+} from '../../content/application/port/in/workspace/catalog-display-media.port';
 import {
   PRODUCT_AVAILABILITY_PORT,
   type ProductAvailabilityPort,

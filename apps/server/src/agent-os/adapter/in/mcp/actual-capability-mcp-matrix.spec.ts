@@ -26,8 +26,7 @@ import {
   type CapabilityMcpDependencies,
 } from './kiditem-agent-os-mcp-server';
 import type { AnalyticsAgentOverviewCapabilityPort } from '../../../../analytics/dashboard/application/port/in/analytics-overview-capability.port';
-import type { ChannelsFinalCapabilityPort } from '../../../../channels/application/port/in/capability/channels-final-capability.port';
-import type { ChannelsWingThumbnailCapabilityPort } from '../../../../channels/application/port/in/capability/wing-thumbnail.port';
+import type { ChannelsRepresentativeImageCapabilityPort } from '../../../../channels/application/port/in/capability/representative-image.port';
 import type { ProductsListingGenerationCapabilityPort } from '../../../../products/application/port/in/capability/listing-generation.port';
 import type {
   SourcingFinalCapabilityPort,
@@ -85,7 +84,9 @@ const targetExecutionResult = {
       code: 'TOY-1',
       ownCode: null,
       sabangnetGoodsNo: null,
-      sourceCandidateId: null,
+      sourceRecordId: null,
+      sourcePlatform: null,
+      sourceUrl: null,
       name: 'Toy',
       shortName: null,
       englishName: null,
@@ -98,19 +99,24 @@ const targetExecutionResult = {
       originRegion: null,
       keywords: [],
       standardCategory: null,
+      description: '',
+      targetAudience: null,
+      ageGroup: null,
+      productSize: null,
+      colorVariantNames: [],
+      boxSetQuantity: null,
+      registrationDefaults: null,
       status: 'active' as const,
       taxType: 'taxable' as const,
       deliveryFeeType: null,
       deliveryFee: null,
       optionAxes: [],
       stockManaged: false,
-      optionsLocked: false,
       imageUrls: [],
-      detailHtml: null,
-      extraDetailHtml: [],
       noticeCategory: null,
       noticeValues: [],
       certifications: [],
+      kcStatus: 'unknown' as const,
       importDeclarationNo: null,
       adminMemo: null,
       version: 1,
@@ -134,8 +140,9 @@ const targetExecutionResult = {
       channelOverrides: [],
       channelListings: [],
     },
+    detailPage: null,
     registrationInput: {},
-    supplyPrices: [{ salesProductOptionId: SALES_PRODUCT_OPTION_ID, supplyPrice: null }],
+    adapterPayload: {},
   },
   leaseToken: null,
   maySubmit: false,
@@ -159,15 +166,6 @@ const scenarios: readonly InvocationScenario[] = [
     kind: 'register',
     applyCompositionTemplate: false,
   }, targetExecutionResult),
-  scenario('channels.register_confirmed_listing', 'channels.registerConfirmedListing', 'medium', {
-    registrationExecutionId: OPERATION_ID,
-    preparationId: PREPARATION_ID,
-    externalListingId: 'listing-1',
-    confirmationEvidence: {
-      wingVendorId: 'vendor-1',
-      wingIdentitySource: 'dom:data-vendor-id',
-    },
-  }, { preparationId: PREPARATION_ID, listingId: CANDIDATE_ID, status: 'registered' }),
   scenario('channels.report_target_execution', 'channels.reportTargetExecution', 'medium', {
     executionId: OPERATION_ID,
     leaseToken: CHANNEL_ACCOUNT_ID,
@@ -178,13 +176,14 @@ const scenarios: readonly InvocationScenario[] = [
   scenario('channels.start_target_execution', 'channels.startTargetExecution', 'medium', {
     executionId: OPERATION_ID,
   }, targetExecutionResult),
-  scenario('channels.submit_wing_thumbnail', 'channels.submitWingThumbnail', 'high', { generationId: 'generation-1' }, {
+  scenario('channels.submit_representative_image', 'channels.submitRepresentativeImage', 'high', { salesProductId: 'sales-product-1' }, {
     success: true,
+    status: 'succeeded',
     screenshotPath: null,
   }),
-  scenario('products.create_listing_generation_package', 'products.createListingGenerationPackage', 'medium', { candidateId: CANDIDATE_ID }, {
-    candidateId: CANDIDATE_ID,
-    detailGenerationId: CANDIDATE_ID,
+  scenario('products.create_listing_generation_package', 'products.createListingGenerationPackage', 'medium', { salesProductId: CANDIDATE_ID }, {
+    salesProductId: CANDIDATE_ID,
+    detailPageId: CANDIDATE_ID,
     thumbnailGenerationId: CANDIDATE_ID,
     contentWorkspaceId: CANDIDATE_ID,
     href: `/product-pipeline/collected-products/${CANDIDATE_ID}`,
@@ -197,8 +196,9 @@ const scenarios: readonly InvocationScenario[] = [
   scenario('sourcing.duplicateCheck', 'sourcing.duplicateCheck', 'none', { sourceUrl: SOURCE_URL }, {
     duplicate: false,
     candidateId: null,
+    salesProductId: null,
   }),
-  scenario('sourcing.ingestCandidate', 'sourcing.ingestCandidate', 'medium', { snapshot }, { candidateId: CANDIDATE_ID }),
+  scenario('sourcing.ingestCandidate', 'sourcing.ingestCandidate', 'medium', { snapshot }, { candidateId: CANDIDATE_ID, salesProductId: null }),
   scenario('sourcing.inspectRecommendationRun', 'sourcing.inspectRecommendationRun', 'none', {
     recommendationRunId: RECOMMENDATION_RUN_ID,
   }, {
@@ -240,7 +240,7 @@ const scenarios: readonly InvocationScenario[] = [
 ];
 
 describe('actual capability MCP wire matrix', () => {
-  it('discovers and invokes all 17 owner compositions with active-turn authority and code-owned responsibility profiles', async () => {
+  it('discovers and invokes all 16 owner compositions with active-turn authority and code-owned responsibility profiles', async () => {
     const runtime = matrixRuntime();
     try {
       const catalog = await call(runtime.handler, 'tools/call', {
@@ -262,7 +262,7 @@ describe('actual capability MCP wire matrix', () => {
         expect.any(SupplyCapabilityCompositionAdapter),
       ]);
       expect(runtime.compositionProviders.flatMap((provider) => provider.compositions))
-        .toHaveLength(17);
+        .toHaveLength(16);
 
       for (const entry of scenarios) {
         expect(entry.definition.ownerInputPort).toBe(entry.expectedOwnerInputPort);
@@ -485,18 +485,11 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
       },
     ),
   };
-  const channels: ChannelsFinalCapabilityPort = {
-    registerConfirmedListing: typedOwnerPortMethod(
+  const wing: ChannelsRepresentativeImageCapabilityPort = {
+    submitRepresentativeImage: typedOwnerPortMethod(
       typedOwnerPortCalls,
-      'channels.register_confirmed_listing',
-      { preparationId: PREPARATION_ID, listingId: CANDIDATE_ID, status: 'registered' as const },
-    ),
-  };
-  const wing: ChannelsWingThumbnailCapabilityPort = {
-    submitWingThumbnail: typedOwnerPortMethod(
-      typedOwnerPortCalls,
-      'channels.submit_wing_thumbnail',
-      { success: true, screenshotPath: null },
+      'channels.submit_representative_image',
+      { success: true as const, status: 'succeeded' as const, screenshotPath: null },
     ),
   };
   const executions = {
@@ -526,8 +519,8 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
       typedOwnerPortCalls,
       'products.create_listing_generation_package',
       {
-        candidateId: CANDIDATE_ID,
-        detailGenerationId: CANDIDATE_ID,
+        salesProductId: CANDIDATE_ID,
+        detailPageId: CANDIDATE_ID,
         thumbnailGenerationId: CANDIDATE_ID,
         contentWorkspaceId: CANDIDATE_ID,
         href: `/product-pipeline/collected-products/${CANDIDATE_ID}`,
@@ -538,7 +531,7 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
     duplicateCheck: typedOwnerPortMethod(
       typedOwnerPortCalls,
       'sourcing.duplicateCheck',
-      { duplicate: false, candidateId: null },
+      { duplicate: false, candidateId: null, salesProductId: null },
     ),
     scrapeProductUrl: typedOwnerPortMethod(
       typedOwnerPortCalls,
@@ -548,7 +541,7 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
     ingestCandidate: typedOwnerPortMethod(
       typedOwnerPortCalls,
       'sourcing.ingestCandidate',
-      { candidateId: CANDIDATE_ID },
+      { candidateId: CANDIDATE_ID, salesProductId: null },
     ),
     createReviewBatch: typedOwnerPortMethod(
       typedOwnerPortCalls,
@@ -597,7 +590,7 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
 
   return [
     new AnalyticsCapabilityCompositionAdapter(analytics),
-    new ChannelsCapabilityCompositionAdapter(channels, wing, executions as never),
+    new ChannelsCapabilityCompositionAdapter(wing, executions as never),
     new ProductsCapabilityCompositionAdapter(products),
     new SourcingCapabilityCompositionAdapter(sourcing),
     new SupplyCapabilityCompositionAdapter(supply),
@@ -668,19 +661,17 @@ function expectedTypedOwnerPortCall(
     }
     case 'channels.get_target_execution':
       return [ORGANIZATION_ID, input.executionId, USER_ID];
-    case 'channels.register_confirmed_listing':
-      return { context: mutationContext(), input };
     case 'channels.report_target_execution': {
       const { executionId, ...report } = input;
       return [ORGANIZATION_ID, executionId, USER_ID, report];
     }
     case 'channels.start_target_execution':
       return [ORGANIZATION_ID, input.executionId, USER_ID];
-    case 'channels.submit_wing_thumbnail': {
+    case 'channels.submit_representative_image': {
       const context = mutationContext();
       return {
         organizationId: context.organizationId,
-        generationId: input.generationId,
+        salesProductId: input.salesProductId,
         triggeredByUserId: context.initiatingUserId,
         ownerIdempotencyKey: context.ownerIdempotencyKey,
         requestHash: context.ownerInputHash,

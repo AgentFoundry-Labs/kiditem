@@ -15,7 +15,7 @@ it.each(['saved receipt', 'approval response'])('ignores historical Operation re
       summary: '발주서를 제출했습니다.',
       resourceRefs: [
         { kind: 'purchase_order', id: 'purchase/order?1', version: null },
-        { kind: 'sourcing_candidate', id: 'candidate/1', version: null },
+        { kind: 'sales_product', id: 'product/1', version: null },
         { kind: 'unknown_resource', id: 'opaque-1', version: null },
       ],
       // Deliberate negative fixture: persisted legacy operation refs are not rendered.
@@ -53,7 +53,7 @@ it.each(['saved receipt', 'approval response'])('ignores historical Operation re
   expect(screen.getByRole('heading', { name: '업무 실행 승인' })).toBeVisible();
   expect(screen.getByText('승인한 업무가 완료되었습니다.')).toBeVisible();
   expect(screen.getByRole('link', { name: '발주서 열기' })).toHaveAttribute('href', '/purchase-orders?orderId=purchase%2Forder%3F1');
-  expect(screen.getByRole('link', { name: '소싱 후보 열기' })).toHaveAttribute('href', '/product-pipeline/collected-products/candidate%2F1');
+  expect(screen.getByRole('link', { name: '판매상품 초안 열기' })).toHaveAttribute('href', '/product-pipeline/collected-products/product%2F1');
   expect(screen.getByRole('heading', { name: '업무 결과' })).toBeVisible();
   expect(screen.queryByText(operationId)).not.toBeInTheDocument();
   expect(screen.queryByText('do not render')).not.toBeInTheDocument();

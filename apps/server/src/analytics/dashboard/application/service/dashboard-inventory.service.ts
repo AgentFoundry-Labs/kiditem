@@ -63,14 +63,12 @@ export class DashboardInventoryService {
         totalActiveProducts,
         perListingMetrics,
         inventoryFacts,
-        lowCtrProducts,
       ] = await Promise.all([
         this.repository.readProductAbcFacts(organizationId),
         this.repository.findUnreadAlerts(organizationId, 10),
         this.repository.countActiveProducts(organizationId),
         this.repository.fetchPerListingMetrics(organizationId, perListingPeriod),
         this.repository.readInventoryAvailabilityFacts(organizationId),
-        this.repository.countLowCtrThumbnails(organizationId),
       ]);
       const aGradeReviewRows = await this.repository.findReviewCountsForProducts(
         organizationId,
@@ -168,7 +166,6 @@ export class DashboardInventoryService {
         highAdProducts,
         outOfStockSkus: inventoryFacts.outOfStockSkus,
         mappingAttentionSkus,
-        lowCtrProducts,
         lowReviewProducts,
       } satisfies Warnings;
 

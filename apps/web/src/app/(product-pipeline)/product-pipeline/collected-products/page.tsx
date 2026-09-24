@@ -3,16 +3,14 @@
 import { useRef, useState } from 'react';
 import { useRouter } from 'next/navigation';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { REGISTRATION_ALREADY_REGISTERED_CODE, type SalesProductListItem } from '@kiditem/shared/sales-product';
 import { FileSpreadsheet, Loader2, RefreshCw, Store, Wand2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  useAllGenerationsInProgress,
-  useKidsPlayfulGenerationCancel,
-} from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import { MallSheetDialog } from '@/components/mall-sheet/MallSheetDialog';
 import { Pagination } from '@/components/ui/Pagination';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
+import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
   collectedProductDetailHref,
@@ -21,7 +19,6 @@ import {
 } from '../_shared/lib/product-pipeline-routes';
 import { ProductPipelineHeader } from '../_shared/components/inbox/ProductPipelineHeader';
 import { ProductPipelineStats } from '../_shared/components/inbox/ProductPipelineStats';
-import { GenerationProgressBannerStack } from '../_shared/components/workspace/GenerationProgressBanner';
 import {
   KIDSNOTE_CATEGORY_PRESET,
   KIDSNOTE_DEFAULT_CATEGORY,
@@ -30,34 +27,29 @@ import {
 import ProductList from './components/list/ProductList';
 import ScrapeUrlInput from './components/list/ScrapeUrlInput';
 import SourcingToolbar from './components/list/SourcingToolbar';
-import { useProcessingIds } from './hooks/useProcessingIds';
 import { useScrapeUrl } from './hooks/useScrapeUrl';
-import { useWingRegistrationPreparation } from './hooks/useWingRegistrationPreparation';
-import { registrationExecutionApi } from '../../../(channels)/_shared/registration-execution-api';
 import {
-  candidatesApi,
-  isInProgress,
-  productsApi,
+  useStartedGenerationProgress,
+  type StartedGeneration,
+} from './hooks/useStartedGenerationProgress';
+import {
   searchSellpiaInventorySkus,
-  type QuickProcessTask,
-  type SourcingSort,
+  salesProductGenerationApi,
+  type SalesProductGenerationTask,
 } from './lib/sourcing-api';
-import WingRegistrationConfirmDialog from './components/wing/WingRegistrationConfirmDialog';
+import { getMallPublishAdapter } from '../../../(channels)/_shared/adapters';
 import {
   downloadWingExcel,
-  generateWingExcelForCandidates,
-  isConfirmedWingRegistration,
-  submitWingRegistration,
-  translateWingError,
-  waitForRegisteredListing,
-  type WingRegistrationDraft,
-  type WingRegistrationOverrides,
-  type WingSellpiaSelection,
-} from './lib/wing-registration-flow';
+  generateWingExcelForSalesProducts,
+} from '../../../(channels)/_shared/adapters/coupang-wing/wing-excel-export';
+import {
+  RegistrationConfirmDialog,
+  type RegistrationConfirmation,
+} from '../../../(channels)/_shared/RegistrationConfirmDialog';
+import { useMallPublishRun } from '../../../(channels)/_shared/use-mall-publish-run';
+import { registrationRunNotice } from './lib/registration-run-notice';
 import { MallQuickRegisterRows } from './components/MallQuickRegisterRows';
 import { useMallQuickRegister } from './hooks/useMallQuickRegister';
-import { useCandidateMallSheet } from './hooks/useCandidateMallSheet';
-import type { CandidateSalesProductsOutcome } from './lib/candidate-sales-products';
 import {
   emptyStateCopyForSourceFilter,
   platformForSourceFilter,
@@ -69,118 +61,112 @@ export default function SourcingPage() {
   const queryClient = useQueryClient();
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
-  const [sort, setSort] = useState<SourcingSort>('newest');
   const [sourceFilter, setSourceFilter] = useState<SourcingSourceFilter>('all');
-  const [selectedIds, setSelectedIds] = useState<Set<string>>(() => new Set());
+  // 고른 카드는 페이지를 넘겨도 남는다. 묶음 작업(몰 대량등록 · 삭제 · AI 작업)은 이 선택에서
+  // id 를 얻는다 — 지금 페이지에서 찾으면 다른 페이지에서 고른 상품이 빠진다(S5).
+  const [selected, setSelected] = useState<Map<string, SalesProductListItem>>(() => new Map());
+  const selectedIds = new Set(selected.keys());
   const [deletingIds, setDeletingIds] = useState<Set<string>>(() => new Set());
   const [quickProcessModalOpen, setQuickProcessModalOpen] = useState(false);
   const [quickProcessTargetIds, setQuickProcessTargetIds] = useState<string[]>([]);
   const [quickProcessingIds, setQuickProcessingIds] = useState<Set<string>>(() => new Set());
   const pendingQuickProcessKeys = useRef(new Map<string, string>());
+  // 이 화면이 시작한 생성. 진행은 이 목록의 생성 id 로만 본다 — 카드는 묻지 않는다.
+  const [startedGenerations, setStartedGenerations] = useState<StartedGeneration[]>([]);
+  const startedProgress = useStartedGenerationProgress(startedGenerations);
   const [wingGenerating, setWingGenerating] = useState(false);
-  // 등록 확인 모달의 초안. `null` 이면 모달이 닫혀 있다. 초안이 있다는 것은
-  // 카테고리 추론과 상세설명 렌더가 이미 성공했다는 뜻이다.
-  const [wingDraft, setWingDraft] = useState<WingRegistrationDraft | null>(null);
-  const [wingSubmitting, setWingSubmitting] = useState(false);
-  const [wingSubmissionError, setWingSubmissionError] = useState<string | null>(null);
-  const wingPreparation = useWingRegistrationPreparation({
-    onReady: (draft) => {
-      setWingSubmissionError(null);
-      setWingDraft(draft);
-    },
-    onError: (message) => toast.error(message),
-  });
+  // 확인 창이 필요한 몰(어댑터 `confirmation`)의 확인 창. `null` 이면 닫혀 있다.
+  const [confirmMallKey, setConfirmMallKey] = useState<string | null>(null);
+  const [confirmSubmitting, setConfirmSubmitting] = useState(false);
+  const [confirmError, setConfirmError] = useState<string | null>(null);
+  // 등록 실행은 등록 마법사와 같은 실행 훅을 쓴다 — 준비 → 시작 → 어댑터 → 결과(KID-321).
+  const publishRun = useMallPublishRun();
 
-  // 몰 대량등록: 고른 수집상품 → 판매상품(이미 만든 것은 그대로) → 몰 대량등록 창.
-  const mallSheet = useCandidateMallSheet();
+  // 몰 대량등록: 고른 카드가 곧 판매상품 초안이라 만들 것 없이 그 id 로 창을 연다.
+  const [mallSheetSalesProductIds, setMallSheetSalesProductIds] = useState<string[] | null>(null);
 
   const scrape = useScrapeUrl();
   const platform = platformForSourceFilter(sourceFilter);
 
+  // 수집상품 한 줄 = 몰에 올라가기 전의 판매상품 한 줄(KID-310 · ADR-0022). 판매가를 정한 뒤에도
+  // 몰에 오를 때까지 남아야 등록 · 몰 대량등록을 여기서 한다 — `status` 로 거르지 않는다.
+  // 원천 기록(수집상품)은 목록이 읽지 않는다. 폴링하지 않는다 — 진행 중 생성은 이 화면이 시작한
+  // 것만 한 줄로 따로 본다.
+  const listQuery = { focus: 'preparing' as const, sourcePlatform: platform, page, limit: pageSize };
   const { data: productData, isLoading, isPlaceholderData } = useQuery({
-    queryKey: queryKeys.sourcing.list({
-      page: String(page),
-      limit: String(pageSize),
-      sort,
-      source: sourceFilter,
-    }),
-    queryFn: () => productsApi.list({ page, limit: pageSize, sort, platform }),
+    queryKey: salesProductKeys.list(listQuery),
+    queryFn: () => salesProductApi.list(listQuery),
     placeholderData: previousData => previousData,
-    // 후보 inbox 는 sourced 상태가 작업 대상이다. 진행 중 AI 생성은 별도 배너 쿼리가 맡는다.
-    refetchInterval: (query) => {
-      const items = query.state.data?.items ?? [];
-      return items.some((p) => isInProgress(p.status)) ? 10000 : false;
-    },
   });
   const isRefreshing = isPlaceholderData;
 
   const products = productData?.items ?? [];
   const total = productData?.total ?? 0;
 
-  const { processingIds } = useProcessingIds(products);
-  const quickProcessTargetIdSet = new Set(quickProcessTargetIds);
-  const quickProcessTargetProducts = products.filter((product) => quickProcessTargetIdSet.has(product.id));
+  const quickProcessTargetProducts = quickProcessTargetIds
+    .map((id) => selected.get(id) ?? products.find((product) => product.id === id))
+    .filter((product): product is SalesProductListItem => Boolean(product))
+    .map((product) => ({ id: product.id, name: product.name, thumbnailUrl: product.imageUrl }));
   // 몰별 등록은 어댑터 레지스트리가 그린다. 값은 상품 상세에 저장된 것을 읽는다 —
   // 모달은 값을 묻지 않고 버튼만 세운다.
   const mallRegister = useMallQuickRegister({
-    candidateId: quickProcessTargetIds[0] ?? null,
+    salesProductId: quickProcessTargetIds[0] ?? null,
     enabled: quickProcessModalOpen,
   });
-  const displayedProcessingIds = new Set([...processingIds, ...quickProcessingIds]);
+  const displayedProcessingIds = new Set([...startedProgress.runningSalesProductIds, ...quickProcessingIds]);
 
   const deleteMutation = useMutation({
-    mutationFn: async (ids: string[]) => {
-      const results = await Promise.allSettled(
-        ids.map((id) => candidatesApi.delete(id).then(() => id)),
-      );
-      const succeededIds = results
-        .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
+    mutationFn: async (items: SalesProductListItem[]) => {
+      const ids = items.map((item) => item.id);
+      const results = await Promise.allSettled(items.map(deleteCollectedDraft));
+      const deleted = results
+        .filter((result): result is PromiseFulfilledResult<CollectedDraftDeletion> => result.status === 'fulfilled')
         .map((result) => result.value);
+      const succeededIds = deleted.map((result) => result.salesProductId);
       const failures = results.flatMap((result, index) =>
         result.status === 'rejected'
           ? [{ id: ids[index]!, reason: result.reason as unknown }]
           : [],
       );
       return {
+        deleted,
         succeededIds,
         failedIds: failures.map((failure) => failure.id),
         firstFailure: failures[0]?.reason,
       };
     },
-    onMutate: (ids) => {
-      setDeletingIds((prev) => new Set([...prev, ...ids]));
+    onMutate: (items) => {
+      setDeletingIds((prev) => new Set([...prev, ...items.map((item) => item.id)]));
     },
-    onSuccess: ({ succeededIds, failedIds, firstFailure }) => {
-      setSelectedIds((prev) => {
-        const next = new Set(prev);
+    onSuccess: ({ deleted, succeededIds, failedIds, firstFailure }) => {
+      reportCollectedDraftDeletions(deleted);
+      setSelected((prev) => {
+        const next = new Map(prev);
         succeededIds.forEach((id) => next.delete(id));
         return next;
       });
+      queryClient.invalidateQueries({ queryKey: salesProductKeys.all });
       queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-      succeededIds.forEach((id) => {
-        queryClient.invalidateQueries({ queryKey: queryKeys.productContent.sourcingLinks(id) });
-        queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations({ sourceCandidateId: id }) });
-      });
       if (failedIds.length > 0) {
         toast.error(
           failedIds.length === 1 && isApiError(firstFailure)
             ? firstFailure.detail
-            : `${failedIds.length}개 소싱 후보 삭제에 실패했습니다.`,
+            : `${failedIds.length}개 수집상품 삭제에 실패했습니다.`,
         );
       }
     },
-    onError: (err) => toast.error(isApiError(err) ? err.detail : '소싱 후보 삭제에 실패했습니다.'),
-    onSettled: (_data, _err, ids) => {
+    onError: (err) => toast.error(isApiError(err) ? err.detail : '수집상품 삭제에 실패했습니다.'),
+    onSettled: (_data, _err, items) => {
       setDeletingIds((prev) => {
         const next = new Set(prev);
-        ids.forEach((id) => next.delete(id));
+        items.forEach((item) => next.delete(item.id));
         return next;
       });
     },
   });
 
   const quickProcessMutation = useMutation({
-    mutationFn: async ({ ids, task }: { ids: string[]; task: QuickProcessTask }) => {
+    mutationFn: async ({ ids, task }: { ids: string[]; task: SalesProductGenerationTask }) => {
       const uniqueIds = [...new Set(ids)];
       const results = await Promise.allSettled(
         uniqueIds.map((id) => {
@@ -188,31 +174,44 @@ export default function SourcingPage() {
           const idempotencyKey = pendingQuickProcessKeys.current.get(requestKey)
             ?? createSecureRandomUuid();
           pendingQuickProcessKeys.current.set(requestKey, idempotencyKey);
-          return candidatesApi.quickProcess(id, task, idempotencyKey).then(() => id);
+          return salesProductGenerationApi.start(id, task, idempotencyKey).then((response) => ({
+            salesProductId: id,
+            detailPageId: response.detailPageId,
+            thumbnailGenerationId: response.thumbnailGenerationId,
+            startedAt: Date.now(),
+          }));
         }),
       );
-      const succeededIds = results
-        .filter((result): result is PromiseFulfilledResult<string> => result.status === 'fulfilled')
+      const started = results
+        .filter((result): result is PromiseFulfilledResult<StartedGeneration> => result.status === 'fulfilled')
         .map((result) => result.value);
+      const succeededIds = started.map((item) => item.salesProductId);
       const failedIds = uniqueIds.filter((id) => !succeededIds.includes(id));
-      return { succeededIds, failedIds };
+      return { started, succeededIds, failedIds };
     },
     onMutate: ({ ids }) => {
       setQuickProcessingIds((prev) => new Set([...prev, ...ids]));
     },
-    onSuccess: ({ succeededIds, failedIds }, { task }) => {
+    onSuccess: ({ started, succeededIds, failedIds }, { task }) => {
       const taskLabel = quickProcessTaskLabel(task);
+      if (started.length > 0) {
+        const restarted = new Set(succeededIds);
+        setStartedGenerations((prev) => [
+          ...prev.filter((item) => !restarted.has(item.salesProductId)),
+          ...started,
+        ]);
+        queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.startedProgress('detail') });
+        queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.startedProgress('thumbnail') });
+      }
       if (succeededIds.length > 0) {
         succeededIds.forEach((id) => pendingQuickProcessKeys.current.delete(`${task}:${id}`));
-        setSelectedIds((prev) => {
-          const next = new Set(prev);
+        setSelected((prev) => {
+          const next = new Map(prev);
           succeededIds.forEach((id) => next.delete(id));
           return next;
         });
-        queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
         succeededIds.forEach((id) => {
-          queryClient.invalidateQueries({ queryKey: queryKeys.productContent.sourcingLinks(id) });
-          queryClient.invalidateQueries({ queryKey: queryKeys.thumbnailAnalysis.generations({ sourceCandidateId: id }) });
+          queryClient.invalidateQueries({ queryKey: queryKeys.contentWorkspaces.forSalesProduct(id) });
         });
         toast.success(`${succeededIds.length}개 상품의 ${taskLabel} 작업을 시작했습니다.`);
       }
@@ -232,13 +231,12 @@ export default function SourcingPage() {
     },
   });
 
-  const sourcedCount = products.filter((p) => p.status === 'sourced').length;
 
   const runWingRegister = async (ids: string[]): Promise<boolean> => {
     if (ids.length === 0 || wingGenerating) return false;
     setWingGenerating(true);
     try {
-      const { bytes, fileName, productCount } = await generateWingExcelForCandidates(ids);
+      const { bytes, fileName, productCount } = await generateWingExcelForSalesProducts(ids);
       downloadWingExcel(bytes, fileName);
       toast.success(`${productCount}개 상품의 쿠팡 WING 일괄등록 엑셀을 만들었어요`, {
         description: '저장된 WING 카테고리 사용 · 상세페이지는 포함되지 않으므로 WING에서 추가하세요.',
@@ -258,142 +256,114 @@ export default function SourcingPage() {
     }
   };
 
-  const wingErrorMessage = (err: unknown, fallback: string): string =>
-    translateWingError(isApiError(err) ? err.detail : err instanceof Error ? err.message : fallback);
+  const errorMessage = (err: unknown, fallback: string): string =>
+    isApiError(err) ? err.detail : err instanceof Error ? err.message : fallback;
 
-  // 모달(단일 작업) = 엑셀이 아니라 WING 상품등록 페이지를 열어 직접 채우는 방식.
-  //
-  // 확장으로 넘기기 전에 등록 확인 모달을 한 번 거친다. 노출상품명·옵션·가격·재고는
-  // WING 폼이 열린 뒤에는 고치기 어려우므로 여기서 확정받는다.
-  const handleModalWingRegister = () => {
-    const ids = [...quickProcessTargetIds];
-    if (ids.length === 0 || wingGenerating || wingPreparation.isPreparing) return;
-    setWingSubmissionError(null);
-    wingPreparation.start(ids[0]);
+  const closeConfirmation = () => {
+    if (confirmSubmitting) return;
+    setConfirmMallKey(null);
+    setConfirmError(null);
   };
 
-  // 사용자가 고친 값(`overrides`)을 그대로 넘긴다. 초안의 원본 payload 를 보내면
-  // 모달이 장식이 된다 — `submitWingRegistration` 이 override 를 반영해 전송한다.
-  const handleWingConfirm = async (
-    overrides: WingRegistrationOverrides,
-    autoSubmit: boolean,
-    channelAccountId: string,
-    sellpiaSelection: WingSellpiaSelection,
-  ) => {
-    if (!wingDraft || wingSubmitting) return;
-    const candidateId = wingDraft.candidateId;
-    setWingSubmissionError(null);
-    setWingSubmitting(true);
+  // 확인 창의 결정: 폼 채우기는 빠른 등록 훅이, 등록 실행은 등록 마법사와 같은 실행 훅이 맡는다.
+  const handleConfirmation = async (confirmation: RegistrationConfirmation) => {
+    const mallKey = confirmMallKey;
+    const adapter = mallKey ? getMallPublishAdapter(mallKey) : null;
+    if (!mallKey || !adapter || confirmSubmitting) return;
+    setConfirmError(null);
+    setConfirmSubmitting(true);
+    const registeringSalesProductId = confirmation.submit ? quickProcessTargetIds[0] ?? null : null;
     try {
-      const result = await submitWingRegistration(
-        wingDraft,
-        overrides,
-        autoSubmit,
-        channelAccountId,
-        sellpiaSelection,
-      );
-      const executionId = result.submission.executionId;
-      if (!executionId) throw new Error('WING 등록 실행 ID를 확인하지 못했습니다.');
-
-      // 신규 등록은 확장이 확인한 WING 계정 증거로 확정한다. 준비 단계에서 이미
-      // 동기화된 리스팅을 찾았다면 서버가 frozen한 내부 리스팅으로 확정한다.
-      if (isConfirmedWingRegistration(result.submission)) {
-        const externalListingId = result.submission.externalListingId;
-        try {
-          await completeExternalWingRegistration({
-            candidateId,
-            executionId,
-            externalListingId,
-            evidence: result.submission.evidence,
-          });
-        } catch (err) {
-          await registrationExecutionApi.markUnresolved(
-            candidateId,
-            executionId,
-            { reason: 'completion_failed', message: wingErrorMessage(err, '알 수 없는 오류') },
-          ).catch(() => undefined);
-          toast.warning('쿠팡 등록은 됐지만 등록상품 목록 반영에 실패했어요', {
-            description: `등록상품ID ${externalListingId} — 쿠팡 WING에서 등록 상태를 확인해 주세요. (${wingErrorMessage(err, '알 수 없는 오류')})`,
-          });
-        }
-      } else if (result.submission.attempted) {
-        toast.warning('상품등록 결과를 확인하지 못했어요', {
-          description:
-            result.submission.error
-            ?? '열린 WING 탭에서 등록 여부를 직접 확인해 주세요.',
+      if (!confirmation.submit) {
+        await mallRegister.fillConfirmed(mallKey, {
+          values: confirmation.values,
+          channelAccount: confirmation.channelAccount,
         });
-      } else {
-        toast.success('쿠팡 WING 상품등록 페이지를 열고 자동 입력을 시작했어요', {
-          description:
-            quickProcessTargetIds.length > 1
-              ? '단일 직접 등록은 1개씩 진행됩니다 (첫 상품). 열린 WING 탭에서 확인 후 등록하세요.'
-              : '확인한 값으로 자동 입력됩니다. 열린 WING 탭에서 최종 확인 후 등록하세요.',
-        });
+        setConfirmMallKey(null);
+        return;
       }
-      setWingDraft(null);
-      setWingSubmissionError(null);
+      const item = mallRegister.item;
+      if (!item) throw new Error('보낼 상품을 아직 읽지 못했습니다.');
+      const [task] = await publishRun.start([{
+        id: `${mallKey}#0`,
+        mallKey,
+        mallName: adapter.mallName,
+        channelAccountId: confirmation.channelAccount.id,
+        items: [item],
+        values: confirmation.values,
+        adapterValues: confirmation.adapterValues,
+        status: 'pending',
+        outcome: null,
+        error: null,
+      }]);
+      if (!task) return;
+      // 이미 그 몰 계정에 올라간 상품이라 울타리가 새 등록을 거절했다 — 확인 창을 닫고 그 몰 줄에 적는다(KID-320 S7).
+      if (task.errorCode === REGISTRATION_ALREADY_REGISTERED_CODE) {
+        mallRegister.recordOutcome({
+          mallKey,
+          mallName: adapter.mallName,
+          status: 'already_registered',
+          message: task.error ?? '이미 이 몰 계정에 등록된 상품입니다.',
+          manualSteps: [],
+        });
+        toast.error(`${adapter.mallName}에 이미 등록된 상품이에요`);
+        setConfirmMallKey(null);
+        return;
+      }
+      const notice = registrationRunNotice(task);
+      const toastOptions = notice.description ? { description: notice.description } : {};
+      if (notice.tone === 'success') toast.success(notice.title, toastOptions);
+      else if (notice.tone === 'warning') toast.warning(notice.title, toastOptions);
+      else toast.error(notice.title, toastOptions);
+      if (notice.tone === 'error') {
+        setConfirmError(notice.description ?? notice.title);
+        return;
+      }
+      setConfirmMallKey(null);
       setQuickProcessModalOpen(false);
       setQuickProcessTargetIds([]);
+      if (notice.registered) {
+        await queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
+        router.push(REGISTERED_PRODUCTS_ROOT);
+      }
     } catch (err) {
-      const message = wingErrorMessage(err, '쿠팡 WING 직접 등록에 실패했습니다.');
-      setWingSubmissionError(message);
+      const message = adapter.describeError?.(errorMessage(err, '등록에 실패했습니다.')) ?? errorMessage(err, '등록에 실패했습니다.');
+      setConfirmError(message);
       toast.error(message);
     } finally {
-      setWingSubmitting(false);
+      setConfirmSubmitting(false);
+      // 등록 실행은 울타리를 열었을 수 있다 — 결과와 무관하게 등록 상태와 목록을 다시 읽는다(KID-320).
+      if (registeringSalesProductId) {
+        void queryClient.invalidateQueries({ queryKey: salesProductKeys.registrationState(registeringSalesProductId) });
+        void queryClient.invalidateQueries({ queryKey: [...salesProductKeys.all, 'list'] });
+      }
     }
   };
 
-  const completeExternalWingRegistration = async ({
-    candidateId,
-    executionId,
-    externalListingId,
-    evidence,
-  }: {
-    candidateId: string;
-    executionId: string;
-    externalListingId: string;
-    evidence?: Record<string, unknown>;
-  }) => {
-    await registrationExecutionApi.confirm(candidateId, {
-      executionId,
-      externalListingId,
-      evidence,
-    });
-    await queryClient.invalidateQueries({ queryKey: queryKeys.channelListings.all });
-    const listed = await waitForRegisteredListing(externalListingId);
-    if (listed) {
-      toast.success('쿠팡에 등록하고 등록상품 목록에 올렸어요', {
-        description: `등록상품ID ${externalListingId} — 등록상품 화면으로 이동합니다.`,
-      });
-      router.push(REGISTERED_PRODUCTS_ROOT);
-    } else {
-      toast.warning('등록은 됐지만 등록상품 목록에서 아직 확인되지 않아요', {
-        description: `등록상품ID ${externalListingId} — 등록상품 화면에서 새로고침해 주세요.`,
-      });
-    }
-    setWingDraft(null);
-    setQuickProcessModalOpen(false);
-    setQuickProcessTargetIds([]);
-  };
-
-  const setItemSelected = (id: string, selected: boolean) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
-      if (selected) next.add(id);
+  const setItemSelected = (id: string, isSelected: boolean) => {
+    const item = products.find((product) => product.id === id);
+    setSelected((prev) => {
+      const next = new Map(prev);
+      if (isSelected && item) next.set(id, item);
       else next.delete(id);
       return next;
     });
   };
 
-  const toggleVisibleSelection = (selected: boolean) => {
-    setSelectedIds((prev) => {
-      const next = new Set(prev);
+  const toggleVisibleSelection = (isSelected: boolean) => {
+    setSelected((prev) => {
+      const next = new Map(prev);
       products.forEach((product) => {
-        if (selected) next.add(product.id);
+        if (isSelected) next.set(product.id, product);
         else next.delete(product.id);
       });
       return next;
     });
+  };
+
+  const deleteById = (id: string) => {
+    const item = selected.get(id) ?? products.find((product) => product.id === id);
+    if (item) deleteMutation.mutate([item]);
   };
 
   const openQuickProcessModal = (id: string) => {
@@ -403,7 +373,6 @@ export default function SourcingPage() {
 
   const closeQuickProcessModal = () => {
     if (quickProcessMutation.isPending) return;
-    wingPreparation.cancel();
     setQuickProcessModalOpen(false);
     setQuickProcessTargetIds([]);
   };
@@ -412,25 +381,29 @@ export default function SourcingPage() {
     <div className="flex flex-col h-full bg-slate-50">
       <ProductPipelineHeader />
 
-      {/* productId 없이 호출 — Trend/KIDITEM 전체에서 진행 중인 첫 entry 반환 */}
-      <GenerationInProgressBannerSlot products={products} />
+      {(startedProgress.runningDetailCount > 0 || startedProgress.runningThumbnailCount > 0) && (
+        <div
+          className="flex items-center gap-2 border-b border-[var(--border)] bg-[var(--primary-soft)] px-5 py-2 text-sm font-semibold text-[var(--primary)]"
+          role="status"
+          aria-live="polite"
+        >
+          <Loader2 size={14} className="animate-spin" />
+          {startedGenerationProgressLabel(startedProgress.runningDetailCount, startedProgress.runningThumbnailCount)}
+        </div>
+      )}
 
       <ProductPipelineStats
-        draftLabel="등록 대기"
-        totalLabel="전체 후보"
-        draftCount={sourcedCount}
-        totalCount={total}
+        ariaLabel="수집상품 수"
+        totalLabel="판매가 미정"
+        totalCount={productData?.summary.draft ?? 0}
+        draftLabel="몰 등록 전"
+        draftCount={total}
       />
 
       <SourcingToolbar
         showScrapeInput={scrape.showScrapeInput}
         onToggleScrapeInput={scrape.toggleScrapeInput}
-        sort={sort}
         pageSize={pageSize}
-        onSortChange={(nextSort) => {
-          setSort(nextSort);
-          setPage(1);
-        }}
         onPageSizeChange={(nextPageSize) => {
           setPageSize(nextPageSize);
           setPage(1);
@@ -455,6 +428,7 @@ export default function SourcingPage() {
             isCheckingDuplicate={scrape.isCheckingDuplicate}
             duplicate={scrape.duplicate}
             error={scrape.scrapeError}
+            errorLink={scrape.scrapeErrorLink}
             success={scrape.scrapeSuccess}
             inputRef={scrape.scrapeInputRef}
           />
@@ -469,18 +443,11 @@ export default function SourcingPage() {
             <div className="flex flex-wrap items-center gap-2">
               <button
                 type="button"
-                onClick={() => mallSheet.start([...selectedIds])}
-                disabled={mallSheet.preparing}
+                onClick={() => setMallSheetSalesProductIds([...selectedIds])}
                 className="inline-flex h-9 items-center gap-2 rounded-lg border border-orange-300 bg-white px-4 text-sm font-black text-orange-900 transition hover:bg-orange-100 disabled:cursor-not-allowed disabled:opacity-60"
               >
-                {mallSheet.preparing ? (
-                  <Loader2 size={15} className="animate-spin" />
-                ) : (
-                  <FileSpreadsheet size={15} />
-                )}
-                {mallSheet.preparing
-                  ? `판매상품 만드는 중 ${mallSheet.progress?.done ?? 0}/${mallSheet.progress?.total ?? selectedIds.size}`
-                  : '몰 대량등록'}
+                <FileSpreadsheet size={15} />
+                몰 대량등록
               </button>
               <button
                 type="button"
@@ -514,12 +481,12 @@ export default function SourcingPage() {
           selectedIds={selectedIds}
           isDeletingSelected={deleteMutation.isPending}
           emptyState={emptyStateCopyForSourceFilter(sourceFilter)}
-          onDelete={(id) => deleteMutation.mutate([id])}
-          onDeleteSelected={() => deleteMutation.mutate([...selectedIds])}
+          onDelete={deleteById}
+          onDeleteSelected={() => deleteMutation.mutate([...selected.values()])}
           onSelectVisible={toggleVisibleSelection}
           onSelectedChange={setItemSelected}
           onNavigate={(id) => router.push(collectedProductDetailHref(id))}
-          onOpenEditor={(id) => router.push(collectedProductEditorHref({ candidateId: id }))}
+          onOpenEditor={(id) => router.push(collectedProductEditorHref({ salesProductId: id }))}
           onOpenQuickProcess={openQuickProcessModal}
           isQuickProcessingSelected={quickProcessMutation.isPending}
         />
@@ -535,11 +502,12 @@ export default function SourcingPage() {
         targetCount={quickProcessTargetIds.length}
         targetProducts={quickProcessTargetProducts}
         isSubmitting={quickProcessMutation.isPending}
-        wingRegistering={wingGenerating || wingPreparation.isPreparing}
-        wingRegisteringMessage={wingPreparation.message}
         onClose={closeQuickProcessModal}
         onConfirm={(task) => quickProcessMutation.mutate({ ids: quickProcessTargetIds, task })}
-        onWingRegister={handleModalWingRegister}
+        onOpenConfirmation={(mallKey) => {
+          setConfirmError(null);
+          setConfirmMallKey(mallKey);
+        }}
         mallRegister={mallRegister}
         mallDetailHref={
           quickProcessTargetIds[0]
@@ -548,24 +516,21 @@ export default function SourcingPage() {
         }
       />
 
-      {mallSheet.outcome && (
+      {mallSheetSalesProductIds && (
         <MallSheetDialog
-          salesProductIds={mallSheet.outcome.products.map((product) => product.salesProductId)}
-          intro={<CandidateSalesProductsIntro outcome={mallSheet.outcome} />}
-          onClose={mallSheet.close}
+          salesProductIds={mallSheetSalesProductIds}
+          intro="선택한 수집상품의 판매상품 초안을 몰 양식으로 만듭니다."
+          onClose={() => setMallSheetSalesProductIds(null)}
         />
       )}
 
-      <WingRegistrationConfirmDialog
-        draft={wingDraft}
-        isSubmitting={wingSubmitting}
-        submissionError={wingSubmissionError}
-        onCancel={() => {
-          if (wingSubmitting) return;
-          setWingDraft(null);
-          setWingSubmissionError(null);
-        }}
-        onConfirm={handleWingConfirm}
+      <RegistrationConfirmDialog
+        adapter={confirmMallKey ? getMallPublishAdapter(confirmMallKey) : null}
+        salesProductId={quickProcessTargetIds[0] ?? null}
+        isSubmitting={confirmSubmitting}
+        submissionError={confirmError}
+        onCancel={closeConfirmation}
+        onConfirm={(confirmation) => { void handleConfirmation(confirmation); }}
         onSearchSellpia={searchSellpiaInventorySkus}
       />
     </div>
@@ -573,38 +538,14 @@ export default function SourcingPage() {
 }
 
 /** 몰 대량등록 창 머리 — 고른 수집상품으로 판매상품을 몇 개 만들었고 무엇을 뺐는지. */
-function CandidateSalesProductsIntro({ outcome }: { outcome: CandidateSalesProductsOutcome }) {
-  return (
-    <div className="space-y-1">
-      <p>
-        수집상품으로 판매상품 <b className="tabular-nums">{outcome.products.length}</b>개를 준비했습니다
-        {' '}(새로 만듦 <span className="tabular-nums">{outcome.created}</span> · 이미 있던 것 <span className="tabular-nums">{outcome.reused}</span>).
-        {' '}판매상품 화면에서 고칠 수 있습니다.
-      </p>
-      {outcome.withoutDetail.length > 0 && (
-        <p className="text-amber-700">
-          상세페이지가 없어 상세설명 없이 만든 상품 {outcome.withoutDetail.length}개는 몰 엑셀에서 막힙니다 — 상세페이지를 저장한 뒤 다시 누르면 채웁니다.
-        </p>
-      )}
-      {outcome.skipped.length > 0 && (
-        <p className="text-amber-700" title={outcome.skipped.map((item) => `${item.name}: ${item.reason}`).join('\n')}>
-          만들지 않은 수집상품 {outcome.skipped.length}개 — {outcome.skipped[0]!.name}: {outcome.skipped[0]!.reason}
-        </p>
-      )}
-    </div>
-  );
-}
-
 function QuickProcessSelectedDialog({
   open,
   targetCount,
   targetProducts,
   isSubmitting,
-  wingRegistering,
-  wingRegisteringMessage,
   onClose,
   onConfirm,
-  onWingRegister,
+  onOpenConfirmation,
   mallRegister,
   mallDetailHref,
 }: {
@@ -612,11 +553,10 @@ function QuickProcessSelectedDialog({
   targetCount: number;
   targetProducts: Array<{ id: string; name: string; thumbnailUrl: string | null }>;
   isSubmitting: boolean;
-  wingRegistering: boolean;
-  wingRegisteringMessage: string | null;
   onClose: () => void;
-  onConfirm: (task: QuickProcessTask) => void;
-  onWingRegister: () => void;
+  onConfirm: (task: SalesProductGenerationTask) => void;
+  /** 확인 창이 필요한 몰을 눌렀다. 화면이 그 몰의 확인 창을 연다. */
+  onOpenConfirmation: (mallKey: string) => void;
   mallRegister: ReturnType<typeof useMallQuickRegister>;
   mallDetailHref: string | null;
 }) {
@@ -712,33 +652,27 @@ function QuickProcessSelectedDialog({
           </div>
 
           <div className="mt-3 border-t border-slate-100 pt-3">
-            {/* 쿠팡 WING 도 같은 줄로 선다. 예전에는 혼자 주황색 큰 버튼이었는데
-                실제로 다른 것은 마지막 확인 한 단계뿐이라, 그 사실만 줄 안에 적고
-                생김새는 나머지 몰과 같게 뒀다. */}
+            {/* 확인 창이 필요한 몰(쿠팡 WING)도 같은 줄로 선다. 다른 것은 누르면 확인 창이 뜬다는 것뿐이다. */}
             <MallQuickRegisterRows
               readiness={mallRegister.readiness}
+              registrationAccounts={mallRegister.registrationAccounts}
               results={mallRegister.results}
               runningMallKeys={mallRegister.runningMallKeys}
               isLoading={mallRegister.isLoading}
               disabled={targetCount === 0 || isSubmitting}
               detailHref={mallDetailHref}
               targetCount={targetCount}
-              wing={{
-                row: mallRegister.wingReadiness,
-                busy: wingRegistering,
-                busyLabel: wingRegisteringMessage ?? '등록 준비 중',
-                result: null,
-              }}
+              confirmationMallKeys={mallRegister.confirmationMallKeys}
               onRunOne={(mallKey) => {
-                if (mallKey === mallRegister.wingReadiness.mallKey) onWingRegister();
+                if (mallRegister.confirmationMallKeys.includes(mallKey)) onOpenConfirmation(mallKey);
                 else void mallRegister.runMalls([mallKey]);
               }}
               onRunSelected={async (mallKeys) => {
-                // 폼 몰을 먼저 다 채우고 쿠팡을 마지막에 연다. 확인 창이 떠 있는 채로
+                // 폼 몰을 먼저 다 채우고 확인 창을 마지막에 연다. 확인 창이 떠 있는 채로
                 // 뒤에서 탭이 열리면 사람이 어느 창을 보는지 알 수 없다.
-                const wingKey = mallRegister.wingReadiness.mallKey;
-                await mallRegister.runMalls(mallKeys.filter((key) => key !== wingKey));
-                if (mallKeys.includes(wingKey)) onWingRegister();
+                const confirmKeys = mallKeys.filter((key) => mallRegister.confirmationMallKeys.includes(key));
+                await mallRegister.runMalls(mallKeys.filter((key) => !confirmKeys.includes(key)));
+                if (confirmKeys[0]) onOpenConfirmation(confirmKeys[0]);
               }}
             />
           </div>
@@ -777,44 +711,35 @@ function QuickProcessTaskButton({
   );
 }
 
-function quickProcessTaskLabel(task: QuickProcessTask): string {
+function quickProcessTaskLabel(task: SalesProductGenerationTask): string {
   if (task === 'detail') return '상세페이지 생성';
   if (task === 'thumbnail') return '썸네일 생성';
   return '상세페이지와 썸네일 생성';
 }
 
+interface CollectedDraftDeletion {
+  salesProductId: string;
+}
+
 /**
- * 리스트 페이지 상단 진행 배너 슬롯.
- *
- * `useAllGenerationsInProgress(null)` 는 productId 필터 없이 Trend+KIDITEM 전체 list polling
- * → 진행 중인 모든 entry 반환 → 다건이면 stacked 배너로 모두 표시.
+ * 수집상품 카드 하나를 지운다 — 초안과 그 원본 기록이 한 번에 지워진다(KID-313,
+ * `DELETE /api/products/sales-products/:id`). 판매 상품이거나 몰에 올라가 있으면 서버가 409 로
+ * 이유를 알려 주고, 그 이유가 그대로 오류로 보인다.
  */
-function GenerationInProgressBannerSlot({
-  products,
-}: {
-  products: Array<{ id: string; name: string }>;
-}) {
-  const inProgressEntries = useAllGenerationsInProgress(null);
-  const cancelGeneration = useKidsPlayfulGenerationCancel();
-  if (inProgressEntries.length === 0) return null;
+async function deleteCollectedDraft(item: SalesProductListItem): Promise<CollectedDraftDeletion> {
+  await salesProductApi.deleteDraft(item.id);
+  return { salesProductId: item.id };
+}
 
-  const entries = inProgressEntries.map((e) => {
-    const product = e.productId ? products.find((p) => p.id === e.productId) : null;
-    return {
-      id: e.id,
-      templateId: e.templateId,
-      status: e.imageProcessingStatus,
-      productName: product?.name ?? e.productName ?? '',
-      rawInput: e.rawInput,
-    };
-  });
+function reportCollectedDraftDeletions(deleted: readonly CollectedDraftDeletion[]): void {
+  if (deleted.length > 0) toast.success(`${deleted.length}개 수집상품을 지웠습니다.`);
+}
 
-  return (
-    <GenerationProgressBannerStack
-      entries={entries}
-      onCancel={async (entry) => {
-        await cancelGeneration.mutateAsync(entry.id);
-      }}
-    />
-  );
+/** 이 화면이 시작한 AI 작업 진행 한 줄. */
+function startedGenerationProgressLabel(detailCount: number, thumbnailCount: number): string {
+  const parts = [
+    ...(detailCount > 0 ? [`상세페이지 ${detailCount}개`] : []),
+    ...(thumbnailCount > 0 ? [`썸네일 ${thumbnailCount}개`] : []),
+  ];
+  return `AI 작업 진행 중 — ${parts.join(' · ')}`;
 }

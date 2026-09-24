@@ -2,8 +2,8 @@ import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { readCurrentComplete1688OfferSnapshotsByIds } from '../../../read/source-evidence.reader';
-import { readValidationEpisodesForReviewItems } from '../../../read/validation-publication.reader';
+import { readCurrentComplete1688OfferSnapshotsByIds } from './source-evidence.reader';
+import { readValidationEpisodesForReviewItems } from './validation-publication.reader';
 import type {
   CreateReviewBatchCommand,
   CreateReviewBatchResult,

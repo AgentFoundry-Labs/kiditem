@@ -2,7 +2,7 @@ import type {
   ChannelProductMatchingCounts,
   ChannelProductMatchingQueueRow,
 } from '@kiditem/shared/channel-product-matching';
-import type { ChannelProductCandidate } from '../../../../domain/channel-product-candidate-ranking';
+import type { ChannelProductCandidate } from '../../../../domain/listing/channel-product-candidate-ranking';
 
 export type ChannelProductMatchingQuery = Readonly<{
   channelAccountId?: string;
@@ -43,6 +43,7 @@ export type ChannelAvailabilityRepositoryRow = Readonly<{
     barcode: string | null;
     modelNumber: string | null;
     salePrice: number | null;
+    safetyStock: number;
     status: string | null;
     updatedAt: Date;
   };
@@ -94,6 +95,7 @@ export const CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT = Symbol(
 );
 
 export interface ChannelProductMatchingRepositoryPort {
+  updateSafetyStock(organizationId: string, optionId: string, safetyStock: number): Promise<boolean>;
   listQueue(
     organizationId: string,
     query: ChannelProductMatchingQuery,

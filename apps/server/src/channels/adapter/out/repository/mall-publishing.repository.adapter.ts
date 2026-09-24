@@ -1,3 +1,5 @@
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { CHANNEL_LISTING_CONTENT_PORT, type ChannelListingContentPort } from '../../../application/port/out/content/listing-content.port';
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
@@ -11,11 +13,10 @@ import {
 } from '../../../../products/application/port/in/product-source-read.port';
 import { readOrderCountsByChannelAccount } from '../../../../orders/read/order-facts.reader';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { MALL_ACCOUNT_ROW_ORDER } from '../../../read/mall-account-rows';
-import { readMallListingProfile } from '../../../domain/mall/mall-listing-profile';
-import { PUBLISHED_LISTING_STATUSES } from '../../../domain/mall/mall-listing-state';
-import { withListingProductSummary } from '../../../domain/listing-product-summary';
-import type { PreflightKc } from '../../../domain/mall/mall-publish-preflight';
+import { MALL_ACCOUNT_ROW_ORDER } from './mall-account-rows';
+import { readMallListingProfile } from '../../../domain/account/mall-listing-profile';
+import { PUBLISHED_LISTING_STATUSES } from '../../../domain/listing/mall-listing-state';
+import { withListingProductSummary } from '../../../domain/listing/listing-product-summary';
 import type {
   MallAccountRow,
   MallListingAccountRow,
@@ -36,30 +37,6 @@ import type {
  * 곳에 생기는 순간 "어느 쪽이 진실인가"를 매번 판정해야 한다.
  */
 const ORDER_COLLECTION_CONFIG_KEY = 'orderCollection';
-/** 여러 몰이 함께 쓰는 등록 칸 중 안전인증번호(`mallRegisterShared.certNumber`). */
-const SHARED_CERT_NUMBER_KEY = 'certNumber';
-
-/** 리스팅에 붙은 콘텐츠에서 대표 이미지 하나. 없으면 null. */
-function firstListingImageUrl(
-  listings: readonly {
-    contentWorkspaces: readonly {
-      contentGenerationGroups: readonly {
-        originatingAssets: readonly { url: string }[];
-      }[];
-    }[];
-  }[],
-): string | null {
-  for (const listing of listings) {
-    for (const workspace of listing.contentWorkspaces) {
-      for (const group of workspace.contentGenerationGroups) {
-        const asset = group.originatingAssets[0];
-        if (asset?.url) return asset.url;
-      }
-    }
-  }
-  return null;
-}
-
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
@@ -74,24 +51,6 @@ function readString(value: unknown): string | null {
 function hasStoredLogin(config: Prisma.JsonValue | null): boolean {
   const scoped = asRecord(asRecord(config)?.[ORDER_COLLECTION_CONFIG_KEY]);
   return Boolean(readString(scoped?.loginId)) && scoped?.password != null;
-}
-
-/**
- * 수집상품 초안(`rawData.manualBasics`)의 KC 입력값.
- *
- * 운영자가 상품 기본 탭에서 실제로 입력하는 곳이 이것뿐이다(KID-107 Q5). 몰 공통 칸의
- * 안전인증번호도 같은 번호라 번호가 비면 그쪽을 본다.
- */
-function readManualKc(rawData: Prisma.JsonValue): PreflightKc {
-  const raw = asRecord(rawData) ?? {};
-  const manual = asRecord(raw.manualBasics) ?? {};
-  const shared = asRecord(manual.mallRegisterShared) ?? {};
-  return {
-    status: readString(manual.kcCertificationStatus) ?? readString(raw.kcCertificationStatus),
-    number: readString(manual.kcCertificationNumber)
-      ?? readString(raw.kcCertificationNumber)
-      ?? readString(shared[SHARED_CERT_NUMBER_KEY]),
-  };
 }
 
 /** 한 번에 묶어 읽을 리스팅 수. 중첩 관계까지 붙는 조회라 넉넉히 낮게 잡는다. */
@@ -118,6 +77,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
     private readonly productSourceRead: ProductSourceReadPort,
     @Inject(PRODUCT_AVAILABILITY_PORT)
     private readonly productAvailability: ProductAvailabilityPort,
+    @Inject(CHANNEL_LISTING_CONTENT_PORT) private readonly content: ChannelListingContentPort,
   ) {}
 
   async listMallAccounts(organizationId: string): Promise<MallAccountRow[]> {
@@ -178,7 +138,8 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         select: {
           id: true,
           updatedAt: true,
-          sourceCandidate: { select: { isDeleted: true, rawData: true } },
+          // KC 는 판매상품의 인증 문서에서만 읽는다(KID-310) — 후보 3단 조인을 걷어냈다.
+          salesProduct: { select: { certifications: true, kcStatus: true } },
           options: {
             where: { organizationId },
             select: {
@@ -221,9 +182,13 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       const prices = options
         .map((option) => option.salePrice)
         .filter((price): price is number => typeof price === 'number' && price > 0);
-      const candidate = productListings
-        .map((listing) => listing.sourceCandidate)
-        .find((entry) => entry && !entry.isDeleted) ?? null;
+      const certificationNumbers = [...new Set(productListings
+        .flatMap((listing) => certificationNumbersOf(listing.salesProduct?.certifications)))];
+      // 여러 몰 상품이 한 판매상품을 가리키므로 'KC 해당 없음'은 그렇게 말한 상품이 하나라도
+      // 있으면 성립한다. 인증 번호를 모으는 방식과 같다.
+      const kcStatus = productListings.some((listing) => listing.salesProduct?.kcStatus === 'none')
+        ? 'none' as const
+        : certificationNumbers.length > 0 ? 'exists' as const : 'unknown' as const;
       return {
         masterProductId: record.masterProductId,
         code: record.code,
@@ -232,7 +197,8 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         // 대표가는 최저가로 본다. 등록 시 실제 가격은 옵션별로 다시 정한다.
         salePrice: prices.length > 0 ? Math.min(...prices) : null,
         optionNames,
-        kc: candidate ? readManualKc(candidate.rawData) : null,
+        certificationNumbers,
+        kcStatus,
         // 재고 연결이 없는 것과 재고가 0 인 것은 다른 사실이다.
         stock: stockByMaster.get(record.masterProductId) ?? null,
       };
@@ -399,7 +365,9 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
         where: { ...listingScope, id: { in: ids } },
         select: {
         id: true,
+        salesProductId: true,
         channelAccountId: true,
+        channelAccount: { select: { channel: true } },
         status: true,
         externalId: true,
         rawJson: true,
@@ -414,32 +382,15 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
             },
           },
         },
-        // 상품 사진의 유일한 원천. 마스터의 `imageUrls` 는 비어 있고
-        // 리스팅에 붙은 콘텐츠 워크스페이스만 대표 이미지를 들고 있다.
-        contentWorkspaces: {
-          where: { isDeleted: false },
-          take: 1,
-          select: {
-            contentGenerationGroups: {
-              take: 3,
-              select: {
-                originatingAssets: {
-                  where: {
-                    isDeleted: false,
-                    assetType: 'image',
-                    role: { in: ['primary', 'thumbnail'] },
-                  },
-                  take: 1,
-                  select: { url: true },
-                },
-              },
-            },
-          },
-        },
         },
       })))
       .map((listing) => withListingProductSummary(listing))
       .filter((listing) => listing.masterProductId !== null);
+    const contentRows = await chunked(listingRows.map(row => row.id), MATRIX_LISTING_CHUNK, ids => {
+      const selected = new Set(ids);
+      return this.content.findForListings({ organizationId, listings: listingRows.filter(row => selected.has(row.id)).map(row => ({ id: row.id, channel: row.channelAccount.channel, salesProductId: row.salesProductId })) });
+    });
+    const imageByListing = new Map(contentRows.map(row => [row.listingId, row.workspaceImageUrl]));
     const listingByMasterProductId = groupListingRowsByMasterProductId(listingRows);
     const listedIds = new Set(listingByMasterProductId.keys());
     const filtered = identities.filter((identity) => {
@@ -469,14 +420,14 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       code: record.code,
       sellpiaCode: record.code,
       name: record.name,
-      imageUrl: firstListingImageUrl(
-        listingByMasterProductId.get(record.masterProductId) ?? [],
-      ),
+      imageUrl: (listingByMasterProductId.get(record.masterProductId) ?? []).map(listing => imageByListing.get(listing.id)).find(Boolean) ?? null,
       // 재고 연결이 없는 것과 재고가 0 인 것은 다른 사실이다.
       stock: stockByMaster.get(record.masterProductId) ?? null,
       updatedAt: latestListingUpdatedAt.get(record.masterProductId) ?? new Date(0),
       listings: (listingByMasterProductId.get(record.masterProductId) ?? []).map((listing) => ({
+        id: listing.id,
         channelAccountId: listing.channelAccountId,
+        salesProductId: listing.salesProductId,
         status: listing.status,
         externalId: listing.externalId,
         category: listing.category,
@@ -559,4 +510,13 @@ function storefrontProductIdOf(raw: unknown): string | null {
   const value = (raw as Record<string, unknown>).productId;
   if (typeof value === 'number' && Number.isSafeInteger(value)) return String(value);
   return typeof value === 'string' && /^\d{1,15}$/.test(value) ? value : null;
+}
+
+
+/** 판매상품 인증 문서(JSON) 에서 번호만 꺼낸다. 모양이 다르면 없는 것으로 본다. */
+function certificationNumbersOf(certifications: unknown): string[] {
+  if (!Array.isArray(certifications)) return [];
+  return certifications
+    .map((entry) => (entry && typeof entry === 'object' ? (entry as { number?: unknown }).number : null))
+    .filter((number): number is string => typeof number === 'string' && number.trim().length > 0);
 }

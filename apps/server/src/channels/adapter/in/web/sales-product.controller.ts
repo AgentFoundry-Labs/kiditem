@@ -1,3 +1,5 @@
+import { UseFilters } from '@nestjs/common';
+import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import type { ZodType, output } from 'zod';
 import {
   BadRequestException,
@@ -23,20 +25,18 @@ import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { SALES_PRODUCT_PORT, type SalesProductPort } from '../../../application/port/in/sales-product.port';
-import { SabangnetProductImportService } from '../../../application/usecase/sabangnet-product-import.service';
-import { SalesProductLinkService } from '../../../application/usecase/sales-product-link.service';
-import { SalesProductImageService } from '../../../application/usecase/sales-product-image.service';
-import { SalesProductMallPriceService } from '../../../application/usecase/sales-product-mall-price.service';
-import { SalesProductMallSheetService } from '../../../application/usecase/sales-product-mall-sheet.service';
-import { SalesProductCoupangCatalogService } from '../../../application/usecase/sales-product-coupang-catalog.service';
+import { SABANGNET_PRODUCT_IMPORT_PORT, type SabangnetProductImportPort } from "../../../application/port/in/collection/sabangnet-product-import.port";
+import { SALES_PRODUCT_LINK_PORT, type SalesProductLinkPort } from "../../../application/port/in/sales-product/sales-product-link.port";
+import { SALES_PRODUCT_IMAGE_PORT, type SalesProductImagePort } from "../../../application/port/in/sales-product/sales-product-image.port";
+import { SALES_PRODUCT_MALL_PRICE_PORT, type SalesProductMallPricePort } from "../../../application/port/in/sales-product/sales-product-mall-price.port";
+import { SALES_PRODUCT_MALL_SHEET_PORT, type SalesProductMallSheetPort } from "../../../application/port/in/sales-product/sales-product-mall-sheet.port";
+import { SALES_PRODUCT_COUPANG_CATALOG_PORT, type SalesProductCoupangCatalogPort } from "../../../application/port/in/sales-product/sales-product-coupang-catalog.port";
 import {
   SabangnetImportSelectionSchema,
   SalesProductCreateInputSchema,
   SalesProductUpdateInputSchema,
   SalesProductOptionsReplaceInputSchema,
   SalesProductListQuerySchema,
-  SalesProductFromCandidatesRequestSchema,
-  SalesProductDemoteRequestSchema,
 
   type SabangnetImportSelection,
 } from '@kiditem/shared/sales-product';
@@ -55,25 +55,20 @@ const WORKBOOK_EXTENSIONS = /\.(xlsx|xls)$/i;
  * 판매상품 · 단품(ADR-0014). 조직은 세션에서만 온다. 사방넷 엑셀 가져오기는 `dryRun=true` 로 먼저
  * 무엇이 바뀔지 보고, 같은 파일로 다시 불러 확정한다.
  */
+@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('products/sales-products')
 export class SalesProductController {
   constructor(
     @Inject(SALES_PRODUCT_PORT) private readonly salesProducts: SalesProductPort,
-    private readonly sabangnetImport: SabangnetProductImportService,
-    private readonly links: SalesProductLinkService,
-    private readonly images: SalesProductImageService,
-    private readonly mallPrices: SalesProductMallPriceService,
-    private readonly mallSheets: SalesProductMallSheetService,
-    private readonly coupangCatalog: SalesProductCoupangCatalogService,
+    @Inject(SABANGNET_PRODUCT_IMPORT_PORT) private readonly sabangnetImport: SabangnetProductImportPort,
+    @Inject(SALES_PRODUCT_LINK_PORT) private readonly links: SalesProductLinkPort,
+    @Inject(SALES_PRODUCT_IMAGE_PORT) private readonly images: SalesProductImagePort,
+    @Inject(SALES_PRODUCT_MALL_PRICE_PORT) private readonly mallPrices: SalesProductMallPricePort,
+    @Inject(SALES_PRODUCT_MALL_SHEET_PORT) private readonly mallSheets: SalesProductMallSheetPort,
+    @Inject(SALES_PRODUCT_COUPANG_CATALOG_PORT) private readonly coupangCatalog: SalesProductCoupangCatalogPort,
   ) {}
 
   /** 몰 대량등록 엑셀 목록 — 몰마다 고정값 칸과 기본값. */
-  @Get('from-candidate/:candidateId')
-  findByCandidate(@CurrentOrganization() organizationId: string,
-    @Param('candidateId', new ParseUUIDPipe()) candidateId: string) {
-    return this.salesProducts.findByCandidate(organizationId, candidateId);
-  }
-
   @Get('mall-sheets')
   mallSheetList() {
     return this.mallSheets.list();
@@ -258,15 +253,6 @@ export class SalesProductController {
     return this.salesProducts.create(organizationId, parseInput(SalesProductCreateInputSchema, body));
   }
 
-  /** 수집상품 화면의 몰 대량등록 — 고른 수집상품을 판매상품으로 만든다(이미 만든 것은 그대로 쓴다). */
-  @Post('from-candidates')
-  createFromCandidates(
-    @CurrentOrganization() organizationId: string,
-    @Body() body: unknown,
-  ) {
-    return this.salesProducts.createFromCandidates(organizationId, parseInput(SalesProductFromCandidatesRequestSchema, body));
-  }
-
   @Post('imports/sabangnet')
   @UseInterceptors(
     FilesInterceptor('files', 6, {
@@ -302,14 +288,13 @@ export class SalesProductController {
     return this.salesProducts.get(organizationId, salesProductId);
   }
 
-  /** 수집상품에서 만든 판매상품을 수집상품으로 되돌린다(지우지 않고 `archived`, 다시 올리면 되살아난다). */
-  @Post(':salesProductId/demote')
-  demoteToCandidate(
+  /** 초안 삭제 — 원본 기록과 작업공간까지 한 커밋이다. 판매 상품은 보관한다(KID-313). */
+  @Delete(':salesProductId')
+  deleteDraft(
     @CurrentOrganization() organizationId: string,
     @Param('salesProductId', new ParseUUIDPipe()) salesProductId: string,
-    @Body() body: unknown,
   ) {
-    return this.salesProducts.demoteToCandidate(organizationId, salesProductId, parseInput(SalesProductDemoteRequestSchema, body));
+    return this.salesProducts.deleteDraft(organizationId, salesProductId);
   }
 
   @Patch(':salesProductId')

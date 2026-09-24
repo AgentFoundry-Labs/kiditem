@@ -1,8 +1,8 @@
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import {
-  prepareSavedCandidateDetailImage,
+  prepareSavedDetailImage,
   requireRenderedDetailImage,
-} from '../../collected-products/lib/wing-registration-flow';
+} from '../../collected-products/lib/detail-page-image-api';
 import { productsApi } from '../../collected-products/lib/sourcing-api';
 import {
   kidsnoteFormFromDraft,
@@ -110,10 +110,10 @@ export async function fillKidsnoteRegistrationForm(
  * 등록되는 것이 등록을 멈추는 것보다 나쁘다.
  */
 export async function prepareKidsnoteRegistration(
-  candidateId: string,
+  salesProductId: string,
 ): Promise<{ draft: MallProductDraft; detailImageUrl: string }> {
-  const detail = await productsApi.getDetail(candidateId);
-  const rendered = await prepareSavedCandidateDetailImage(candidateId, detail);
+  const detail = await productsApi.getDetail(salesProductId);
+  const rendered = await prepareSavedDetailImage(detail);
   const detailImageUrl = requireRenderedDetailImage(rendered);
   const draft = candidateToMallProductDraft({
     detail,

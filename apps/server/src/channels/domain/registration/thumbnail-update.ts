@@ -1,0 +1,158 @@
+import type { OperationStatus, ProviderOutcome } from '@kiditem/shared/registration-execution';
+import type { ThumbnailAccountResolutionReason, ThumbnailExecutionReportRequest } from '@kiditem/shared/thumbnail-execution';
+
+/**
+ * 대표이미지 몰 반영 실행의 동결 내용(KID-313 W3a). 실행이 만들어질 때 한 번 정해지고 바뀌지 않는다.
+ * 올리는 것은 판매 상품 작업공간의 자산 하나다 — `assetId` · `contentWorkspaceId` 는 Content 소유 기록의 id 일 뿐
+ * 외래키가 아니다. 실행의 정체는 (판매 상품, 계정, 자산)이다.
+ */
+export type ThumbnailUpdatePayload = Readonly<{
+  kind: 'thumbnail_update';
+  salesProductId: string;
+  assetId: string;
+  contentWorkspaceId: string;
+  channelListingId: string | null;
+  productName: string;
+  image: Readonly<{ url: string; sha256: string }>;
+}>;
+
+/** 대표이미지 반영 실행 하나의 정체. 살아 있는 실행은 이 셋마다 하나다. */
+export type ThumbnailUpdateSubject = Readonly<{
+  salesProductId: string;
+  channelAccountId: string;
+  assetId: string;
+}>;
+
+/**
+ * 몰 관리자에서 상품을 찾는 이름. listing 이름이 있으면 그 이름(URL 인코딩은 두 번까지 푼다),
+ * 없으면 판매 상품 이름이다. 둘 다 비면 빈 문자열이고 호출자가 거절한다.
+ */
+export function thumbnailProductName(listingChannelName: string | null, salesProductName: string | null): string {
+  const listingName = listingChannelName?.trim();
+  return decodeProductName(listingName || salesProductName || '');
+}
+
+function decodeProductName(value: string): string {
+  let current = value.trim();
+  if (!/%[0-9A-Fa-f]{2}/.test(current)) return current;
+  for (let i = 0; i < 2; i += 1) {
+    try {
+      const decoded = decodeURIComponent(current).trim();
+      if (decoded === current) return decoded;
+      current = decoded;
+    } catch {
+      return current;
+    }
+  }
+  return current;
+}
+
+/**
+ * 어느 계정의 실행인지(KID-321, 몰 중립). listing 이 있으면 그 계정이다. 판매상품에 대표이미지 반영을
+ * 지원하는 채널의 listing 이 여럿이면 고르지 않고 거절한다(운영자가 listing 을 고른다). listing 이
+ * 하나도 없을 때만 조직의 활성 계정 중 그 능력(registry `representativeImage`)이 있는 계정이 하나인지
+ * 본다 — 둘 이상이면 역시 listing 을 골라야 한다. 채널 키는 여기 들어오지 않는다.
+ */
+export type ThumbnailAccountResolution =
+  | Readonly<{ ok: true; channelAccountId: string }>
+  | Readonly<{ ok: false; reason: ThumbnailAccountResolutionReason }>;
+
+export function resolveThumbnailAccount(input: {
+  listingAccountId: string | null;
+  /** 고르지 않았을 때 판매상품의 살아 있는 listing 수(대표이미지 반영을 지원하는 채널만 셈). 모르면 0 으로 본다. */
+  productListingCount?: number;
+  /** 대표이미지 반영을 지원하는 채널의 활성 계정 id 들. */
+  activeAccountIds: readonly string[];
+}): ThumbnailAccountResolution {
+  if (input.listingAccountId) return { ok: true, channelAccountId: input.listingAccountId };
+  if ((input.productListingCount ?? 0) > 1) return { ok: false, reason: 'ambiguous_listing' };
+  const accounts = [...new Set(input.activeAccountIds)];
+  if (accounts.length === 0) return { ok: false, reason: 'no_account' };
+  if (accounts.length > 1) return { ok: false, reason: 'ambiguous_account' };
+  return { ok: true, channelAccountId: accounts[0]! };
+}
+
+/**
+ * 대표이미지 반영 실행이 쓰는 멱등 키 이름공간. 같은 표(`product_registration_executions`)의 다른
+ * 실행 입구는 클라이언트가 이 접두사의 키를 보내면 거절한다 — 두 이름공간이 같은 unique 키에서
+ * 부딪히지 않게.
+ */
+export const THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX = 'thumbnail_update:';
+
+export function isReservedExecutionIdempotencyKey(idempotencyKey: string): boolean {
+  return idempotencyKey.trim().startsWith(THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX);
+}
+
+/**
+ * 실행 멱등 키. Agent 호출은 그 호출의 owner 키로 다시 와도 같은 실행이고, 화면 호출은
+ * 누를 때마다 새 실행이다 — 이름은 (판매 상품, 계정, 자산) 뒤에 한 번 쓰는 값을 붙인다. 같은 셋에 살아 있는
+ * 실행이 있으면 저장소가 막는다.
+ */
+export function thumbnailUpdateIdempotencyKey(input: {
+  subject: ThumbnailUpdateSubject;
+  ownerIdempotencyKey: string | null;
+  nonce: string;
+}): string {
+  const { salesProductId, channelAccountId, assetId } = input.subject;
+  return input.ownerIdempotencyKey
+    ? `${THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX}${input.ownerIdempotencyKey}`
+    : `${THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX}${salesProductId}:${channelAccountId}:${assetId}:${input.nonce}`;
+}
+
+/**
+ * 살아 있는 실행 검사를 한 줄로 세우는 잠금의 대상(판매 상품 + 계정 + 자산). 생성 job id 가 아니다.
+ * 조직은 잠그는 쪽이 열쇠 앞에 붙인다 — 조직 없는 열쇠로는 잠글 수 없다.
+ */
+export function thumbnailUpdateLiveSubject(input: ThumbnailUpdateSubject): string {
+  return `${input.salesProductId}:${input.channelAccountId}:${input.assetId}`;
+}
+
+export type ThumbnailReportTransition = Readonly<{
+  status: Extract<OperationStatus, 'succeeded' | 'failed' | 'reconciling'>;
+  providerOutcome: Extract<ProviderOutcome, 'succeeded' | 'definitive_failure' | 'uncertain'>;
+  errorCode: 'thumbnail_rejected' | 'thumbnail_outcome_unknown' | 'thumbnail_awaiting_confirmation' | null;
+  errorMessage: string | null;
+}>;
+
+export const THUMBNAIL_AWAITING_CONFIRMATION_MESSAGE = '몰 수정 화면에 올렸습니다 — 몰에서 저장한 뒤 반영됨으로 표시하세요';
+
+/**
+ * 확장 · runner 보고의 전이. 올린 것은 저장이 아니므로 성공이 아니다 — 운영자 확인을 기다리는
+ * `reconciling` 이다. 성공은 운영자 확인(`thumbnailConfirmationTransition`)으로만 된다.
+ */
+export function thumbnailReportTransition(report: ThumbnailExecutionReportRequest): ThumbnailReportTransition {
+  switch (report.outcome) {
+    case 'uploaded_pending_save':
+      return {
+        status: 'reconciling',
+        providerOutcome: 'uncertain',
+        errorCode: 'thumbnail_awaiting_confirmation',
+        errorMessage: THUMBNAIL_AWAITING_CONFIRMATION_MESSAGE,
+      };
+    case 'definitive_failure':
+      return { status: 'failed', providerOutcome: 'definitive_failure', errorCode: 'thumbnail_rejected', errorMessage: report.error };
+    case 'uncertain':
+      return { status: 'reconciling', providerOutcome: 'uncertain', errorCode: 'thumbnail_outcome_unknown', errorMessage: report.error };
+    default: {
+      const unreachable: never = report;
+      throw new Error(`Unknown thumbnail report: ${JSON.stringify(unreachable)}`);
+    }
+  }
+}
+
+/** 보고를 받을 수 있는 상태. 끝난 실행에 온 보고는 거절한다(`reconciling` 은 한 번 더 받는다). */
+export const THUMBNAIL_REPORTABLE_STATUSES = ['executing', 'reconciling'] as const satisfies readonly OperationStatus[];
+
+export function acceptsThumbnailReport(status: OperationStatus): boolean {
+  return (THUMBNAIL_REPORTABLE_STATUSES as readonly OperationStatus[]).includes(status);
+}
+
+/**
+ * 운영자의 "반영됨으로 표시". Wing 에서 저장한 것을 사람이 확인한 것만 성공이다. 올린 뒤 기다리는
+ * (`reconciling`) 실행만 받는다 — 아직 올리지도 않은 `executing` 은 확인할 것이 없다.
+ */
+export const THUMBNAIL_CONFIRMABLE_STATUSES = ['reconciling'] as const satisfies readonly OperationStatus[];
+
+export function thumbnailConfirmationTransition(): ThumbnailReportTransition {
+  return { status: 'succeeded', providerOutcome: 'succeeded', errorCode: null, errorMessage: null };
+}

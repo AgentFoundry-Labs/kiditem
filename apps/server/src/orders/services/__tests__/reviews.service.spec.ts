@@ -32,8 +32,7 @@ vi.mock('../../../products/adapter/out/persistence/read/product-abc-publication.
 
 describe('ReviewsService', () => {
   const tx = {
-    channelListing: { findMany: vi.fn() },
-    channelListingOption: { findMany: vi.fn() },
+    organization: { findUnique: vi.fn() },
   };
   const products = {
     readSourceIdentities: vi.fn(),
@@ -41,11 +40,22 @@ describe('ReviewsService', () => {
   const prisma = {
     $transaction: vi.fn((callback: (client: typeof tx) => unknown) => callback(tx)),
   };
+  const channelListings = { readDisplayFacts: vi.fn(), readOptionCandidates: vi.fn() };
+  const channelRecipes = {
+    readListingProductSummaries: vi.fn(),
+    readConfirmedCompositions: vi.fn(),
+  };
+  const channelAccounts = { findByIds: vi.fn(async () => []) };
 
   beforeEach(() => {
     vi.clearAllMocks();
     prisma.$transaction.mockImplementation((callback) => callback(tx));
     products.readSourceIdentities.mockResolvedValue([]);
+    channelListings.readDisplayFacts.mockResolvedValue([]);
+    channelListings.readOptionCandidates.mockResolvedValue([]);
+    channelRecipes.readListingProductSummaries.mockResolvedValue(new Map());
+    channelRecipes.readConfirmedCompositions.mockResolvedValue([]);
+    tx.organization.findUnique.mockResolvedValue({ name: '회사' });
     vi.mocked(readObservedOrderBounds).mockResolvedValue({
       from: new Date('2026-04-01T00:00:00.000Z'),
       to: new Date('2026-05-01T00:00:00.000Z'),
@@ -78,18 +88,28 @@ describe('ReviewsService', () => {
       revenue: 20_000,
       quantity: 1,
     }]);
-    tx.channelListing.findMany.mockResolvedValue([
+    channelListings.readDisplayFacts.mockResolvedValue([
       display('listing-low', '낮은 리뷰 상품'),
       display('listing-top', '상위 리뷰 상품', 'master-top'),
     ]);
+    channelRecipes.readListingProductSummaries.mockResolvedValue(new Map([
+      ['listing-low', null],
+      ['listing-top', 'master-top'],
+    ]));
     products.readSourceIdentities.mockResolvedValue([
       sourceProduct('master-top', '상품 source name'),
     ]);
-    tx.channelListingOption.findMany.mockResolvedValue([
-      { id: 'option-top', listingId: 'listing-top' },
+    channelRecipes.readConfirmedCompositions.mockResolvedValue([
+      { optionId: 'option-top', listingId: 'listing-top', accountId: 'account-1', components: [] },
     ]);
 
-    const result = await new ReviewsService(prisma as never, products as never).list('organization-1', {
+    const result = await new ReviewsService(
+      prisma as never,
+      products as never,
+      channelListings as never,
+      channelRecipes as never,
+      channelAccounts as never,
+    ).list('organization-1', {
       page: 1,
       limit: 1,
       filter: 'all',
@@ -111,6 +131,11 @@ describe('ReviewsService', () => {
         selector: { kind: 'ids', values: ['master-top'] },
       },
     );
+    expect(channelListings.readDisplayFacts).toHaveBeenCalledWith(expect.any(Object), {
+      organizationId: 'organization-1',
+      listingIds: ['listing-low', 'listing-top'],
+      activeOnly: true,
+    });
   });
 
   it('keeps listing order counts null before any order observation', async () => {
@@ -129,9 +154,15 @@ describe('ReviewsService', () => {
       missingDates: ['2026-04-01'],
       sourceCoverage: [],
     });
-    tx.channelListing.findMany.mockResolvedValue([display('listing-1', '상품')]);
+    channelListings.readDisplayFacts.mockResolvedValue([display('listing-1', '상품')]);
 
-    const result = await new ReviewsService(prisma as never, products as never).list('organization-1', {});
+    const result = await new ReviewsService(
+      prisma as never,
+      products as never,
+      channelListings as never,
+      channelRecipes as never,
+      channelAccounts as never,
+    ).list('organization-1', {});
 
     expect(result.items[0]?.orderCount).toBeNull();
   });
@@ -153,10 +184,14 @@ describe('computeSummary', () => {
 function display(id: string, productName: string, masterProductId: string | null = null) {
   return {
     id,
+    externalId: `external-${id}`,
+    accountId: 'account-1',
     channelName: productName,
     displayName: null,
-    options: [{ inventoryComponents: masterProductId ? [{ masterProductId }] : [] }],
-    organization: { name: '회사' },
+    category: null,
+    imageUrl: null,
+    firstActiveSellerSku: null,
+    masterProductId,
   };
 }
 

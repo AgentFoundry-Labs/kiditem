@@ -1,5 +1,8 @@
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import { randomUUID } from 'node:crypto';
-import {
+import { Inject,
   BadRequestException,
   ConflictException,
   Injectable,
@@ -39,7 +42,7 @@ import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempo
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import { isNewerAttempt } from '../../../../common/current-row';
 import { lockListingTraffic } from '../../../../common/listing-traffic-lock';
-import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
+import { resolveCoupangVendorId } from '../../../../channels/domain/account/coupang-account-identity';
 import {
   addDays,
   businessDateKey,
@@ -326,6 +329,7 @@ function trafficMetrics(row: TrafficRow) {
  * rows in the application.
  */
 type ZeroTrafficPublication = {
+  accountListingIds: readonly string[];
   channelAccountId: string;
   /** Confirmed days with the capture time of their first page. */
   days: ReadonlyArray<Readonly<{ businessDate: string; observedAt: Date }>>;
@@ -420,11 +424,8 @@ function zeroTrafficSql(
           JOIN confirmed_day ON confirmed_day.business_date = daily.business_date
           -- Only this account's listings, active or not, carry its attempts'
           -- rows or take its zeros.
-          JOIN channel_listings AS account_listing
-            ON account_listing.id = daily.listing_id
-           AND account_listing.organization_id = ${organizationId}::uuid
-           AND account_listing.channel_account_id = ${zero.channelAccountId}::uuid
           WHERE daily.organization_id = ${organizationId}::uuid
+            AND daily.listing_id = ANY(${[...zero.accountListingIds]}::uuid[])
         ) AS fact
       ),
       reset_fact AS (
@@ -632,6 +633,8 @@ async function upsertDailyFactPublication(
 @Injectable()
 export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTrafficReadPort {
   constructor(
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
   ) {}
@@ -1580,23 +1583,15 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       return pageOne ? [{ businessDate, observedAt: new Date(pageOne.capturedAt) }] : [];
     });
     // The account's active listings: the catalog Wing may reset and zero.
-    const catalogListings = await tx.$queryRaw<Array<{
-      id: string;
-      externalId: string;
-      createdAt: Date;
-      createdOn: string | null;
-      sourceCandidateId: string | null;
-    }>>`
-      SELECT id,
-             external_id AS "externalId",
-             created_at AS "createdAt",
-             raw_json ->> 'createdOn' AS "createdOn",
-             source_candidate_id AS "sourceCandidateId"
-      FROM channel_listings
-      WHERE organization_id = ${row.organizationId}::uuid
-        AND channel_account_id = ${row.channelAccountId}::uuid
-        AND is_active = TRUE
-    `;
+    const accountCatalog = await this.channelListings.readCatalogFacts(ownerTransaction(tx), {
+      organizationId: row.organizationId, accountIds: [row.channelAccountId!],
+    });
+    const catalogListings = accountCatalog.filter(listing => listing.isActive).map(listing => ({
+      ...listing,
+      createdOn: listing.rawJson && typeof listing.rawJson === 'object' && !Array.isArray(listing.rawJson)
+        && typeof (listing.rawJson as Record<string, unknown>).createdOn === 'string'
+        ? (listing.rawJson as Record<string, string>).createdOn : null,
+    }));
     const aggregates = new Map<string, ListingAggregate>();
     let matchedCount = 0;
     let unmatchedCount = 0;
@@ -1666,6 +1661,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     // left out, from each listing's first zero date.
     await upsertDailyFactPublication(tx, row.organizationId, reportedFacts, publishedAt, {
       channelAccountId: row.channelAccountId!,
+      accountListingIds: accountCatalog.map(listing => listing.id),
       days,
       catalog: catalogListings.map((listing) => ({
         listingId: listing.id,
@@ -1698,21 +1694,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
   }
 
   private async listingMap(tx: Tx, row: SourceRun): Promise<ListingMap> {
-    const listings = await tx.channelListing.findMany({
-      where: {
-        organizationId: row.organizationId,
-        channelAccountId: row.channelAccountId!,
-        isActive: true,
-      },
-      select: {
-        id: true,
-        externalId: true,
-        options: {
-          where: { organizationId: row.organizationId, isActive: true },
-          select: { id: true, externalOptionId: true },
-        },
-      },
-    });
+    const listings = await this.channelListings.readCatalogFacts(ownerTransaction(tx), { organizationId: row.organizationId, accountIds: [row.channelAccountId!], activeOnly: true });
     return {
       channelAccountId: row.channelAccountId!,
       externalIdMap: new Map(listings.map((listing) => [listing.externalId, { listingId: listing.id }])),
@@ -1734,15 +1716,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
   }
 
   private async primaryAccount(tx: Tx, organizationId: string, accountId?: string) {
-    return tx.channelAccount.findFirst({
-      where: {
-        organizationId,
-        channel: 'coupang',
-        status: 'active',
-        ...(accountId ? { id: accountId } : {}),
-      },
-      orderBy: [{ isPrimary: 'desc' }, { updatedAt: 'desc' }, { id: 'asc' }],
-    });
+    return this.channelAccounts.resolveActiveProvider(ownerTransaction(tx), { organizationId, accountId, channel: 'coupang' });
   }
 
   private async accountMatches(tx: Tx, row: SourceRun): Promise<boolean> {

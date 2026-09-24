@@ -22,8 +22,6 @@ function makeSku(index: number): InventorySkuSnapshotItem {
     barcode: null,
     currentStock: index,
     purchasePrice: 100,
-    salePrice: 200,
-    isActive: true,
     stockValue: index * 100,
     lastImportRunId: RUN_ID,
     lastImportedAt: '2026-07-11T01:00:00.000Z',

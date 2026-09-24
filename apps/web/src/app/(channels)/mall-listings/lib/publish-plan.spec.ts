@@ -1,10 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
-import {
-  buildPublishPlan,
-  collectManualSteps,
-  summarizePublishRun,
-  type PublishTask,
-} from './publish-plan';
+import { buildPublishPlan, collectManualSteps, summarizePublishRun } from './publish-plan';
+import type { PublishTask } from '../../_shared/use-mall-publish-run';
 import type {
   MallPublishAdapter,
   MallPublishItem,
@@ -142,36 +138,30 @@ describe('buildPublishPlan', () => {
     expect(plan.tasks[0]?.adapterValues).not.toHaveProperty('categoryPath');
   });
 
-  it('blocks an item until one of its multiple account settings is explicitly selected', () => {
+  it('이미 그 몰 계정에 등록됐거나 보내는 중인 상품은 기본으로 빼고 이유를 남긴다(KID-320)', () => {
+    const account = (state: string) => ({
+      channelAccountId: 'channel-account-id', channel: 'kidsnote', channelAccountName: '키즈노트',
+      registrationTargetId: null, channelListingId: null, externalListingId: null,
+      listingState: null, listingRawStatus: null, listingActive: false, state,
+      soldOut: false, changedSinceRegistration: false, selectedThumbnailAssetId: null,
+      selectedDetailPageRevisionId: null, lastExecution: null,
+    });
     const plan = buildPublishPlan({
-      items: [item('a')],
-      adapters: [adapter({ mallKey: 'kidsnote' })],
+      items: [item('a'), item('b'), item('c'), item('d')],
+      adapters: [adapter({ mallKey: 'kidsnote', mallName: '키즈노트' })],
       valuesByMall: {},
-      channelAccountIds: { kidsnote: 'account-1' },
-      registrationTargetSelectionRequiredByMall: { kidsnote: ['a'] },
+      channelAccountIds: { kidsnote: 'channel-account-id' },
+      registrationAccountsByItem: new Map([
+        ['a', [account('registered')]],
+        ['b', [account('submitting')]],
+        ['c', [account('failed')]],
+      ] as never),
     });
 
-    expect(plan.tasks).toHaveLength(0);
-    expect(plan.sendCount).toBe(0);
-    expect(plan.blocks).toMatchObject([{
-      mallKey: 'kidsnote',
-      candidateId: 'a',
-      reasons: ['여러 등록 설정 중 사용할 설정을 선택하세요.'],
-    }]);
-  });
-
-  it('freezes the exact explicitly selected registration target on the task', () => {
-    const plan = buildPublishPlan({
-      items: [item('a'), item('b')],
-      adapters: [adapter({ mallKey: 'kidsnote', batchSize: 1 })],
-      valuesByMall: {},
-      registrationTargetSelectionRequiredByMall: { kidsnote: ['a', 'b'] },
-      registrationTargetIdsByMall: { kidsnote: { a: 'target-a', b: 'target-b' } },
-    });
-
-    expect(plan.tasks.map((entry) => entry.registrationTargetIdsByItem)).toEqual([
-      { a: 'target-a' },
-      { b: 'target-b' },
+    expect(plan.tasks.flatMap((task) => task.items.map((one) => one.candidateId))).toEqual(['c', 'd']);
+    expect(plan.blocks).toEqual([
+      expect.objectContaining({ candidateId: 'a', reasons: ['이 몰 계정에 이미 등록됨 — 바뀐 값은 수정으로 보냅니다.'] }),
+      expect.objectContaining({ candidateId: 'b', reasons: ['이 몰 계정으로 전송 중 — 끝난 뒤 다시 고르세요.'] }),
     ]);
   });
 

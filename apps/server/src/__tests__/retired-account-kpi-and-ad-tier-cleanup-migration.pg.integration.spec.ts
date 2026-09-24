@@ -74,9 +74,11 @@ describe('v0.1.31:013 remove retired account KPI and ad tier rows (PostgreSQL)',
         AND conrelid::regclass::text <> 'channel_account_daily_kpi_snapshots'
       ORDER BY 1
     `;
-    // The migration's NOT EXISTS list names exactly these tables.
+    // The migration's NOT EXISTS list names these tables plus
+    // channel_ad_target_daily_snapshots, whose raw_snapshot_id lost its
+    // cross-owner key (Advertising -> Channels) in KID-297 (ADR-0013); the
+    // migration runs before that schema, so its check still reads the column.
     expect(references).toEqual([
-      { table_name: 'channel_ad_target_daily_snapshots', on_delete: 'r' },
       { table_name: 'channel_listing_daily_snapshots', on_delete: 'r' },
       { table_name: 'channel_listing_option_daily_snapshots', on_delete: 'r' },
     ]);

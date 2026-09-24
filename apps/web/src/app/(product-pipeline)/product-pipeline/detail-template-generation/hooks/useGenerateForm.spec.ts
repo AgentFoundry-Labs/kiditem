@@ -85,7 +85,6 @@ describe('resolveGenerateOwnerInputs', () => {
       initialTitle: '',
       initialContentWorkspaceId: null,
       sourceReferences: [],
-      primarySourceCandidateId: null,
     });
   });
 
@@ -102,7 +101,6 @@ describe('resolveGenerateOwnerInputs', () => {
         sourceType: 'sourcing_candidate',
         sourceCandidateId: 'candidate-1',
       }],
-      primarySourceCandidateId: 'candidate-1',
     });
   });
 });
@@ -112,30 +110,9 @@ describe('resolveProductGenerationDialogPhase', () => {
     expect(
       resolveProductGenerationDialogPhase({
         currentPhase: 'started',
-        detailGenerationId: null,
+        detailPageId: null,
         thumbnailGenerationId: 'thumbnail-1',
-        thumbnail: {
-          id: 'thumbnail-1',
-          contentWorkspaceId: 'workspace-1',
-          sourceCandidateId: null,
-          originalUrl: null,
-          candidates: [],
-          selectedUrl: null,
-          status: 'succeeded',
-          phase: 'ready',
-          grade: 'A',
-          score: 90,
-          method: 'generate',
-          editAnalysis: null,
-          createdAt: '2026-07-29T00:00:00.000Z',
-          contentWorkspace: {
-            id: 'workspace-1',
-            name: '테스트 상품',
-            imageUrl: null,
-            coupangProductId: null,
-            category: null,
-          },
-        },
+        thumbnail: { status: 'succeeded' },
       }),
     ).toBe('completed');
   });

@@ -1,4 +1,6 @@
-import { readListingProductIds } from '../../../../channels/read/listing-product-summary.reader';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
+import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
 // Coupang keyword rank tracking persistence adapter.
 //
 // Tracker mutations use `updateMany`/`deleteMany` with `(id, organizationId)`
@@ -56,6 +58,8 @@ const sourceProvenanceSelect = {
 @Injectable()
 export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
   constructor(
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
+    @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly channelRecipes: ChannelOptionRecipePort,
     private readonly prisma: PrismaService,
     @Optional()
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
@@ -167,32 +171,8 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     tx: Prisma.TransactionClient,
     organizationId: string,
   ): Promise<OwnVendorItem[]> {
-    const optionRows = await tx.channelListingOption.findMany({
-      where: {
-        organizationId,
-        isActive: true,
-        listing: {
-          isActive: true,
-          channelAccount: { channel: "coupang" },
-        },
-      },
-      orderBy: [{ updatedAt: "desc" }],
-      select: {
-        externalOptionId: true,
-        sellerSku: true,
-        itemName: true,
-        listing: {
-          select: {
-            externalId: true,
-            channelName: true,
-            displayName: true,
-            category: true,
-            id: true,
-          },
-        },
-      },
-    });
-    const summaries = await readListingProductIds(tx, { organizationId, listingIds: [...new Set(optionRows.map((row) => row.listing.id))] });
+    const optionRows = await this.channelListings.readCatalogFacts(ownerTransaction(tx), { organizationId, channels: ['coupang'], activeOnly: true }).then(rows => rows.flatMap(listing => listing.options.map(option => ({ ...option, listing }))).sort((a, b) => b.updatedAt.getTime() - a.updatedAt.getTime()));
+    const summaries = await this.channelRecipes.readListingProductSummaries(ownerTransaction(tx), { organizationId, listingIds: [...new Set(optionRows.map((row) => row.listing.id))] });
     const rows = optionRows.map((row) => ({ ...row, listing: { ...row.listing, masterProductId: summaries.get(row.listing.id) ?? null } }));
     const masterProductIds = [...new Set(rows.flatMap((row) =>
       row.listing.masterProductId ? [row.listing.masterProductId] : []))];
@@ -274,18 +254,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     organizationId: string,
     vendorItemId: string,
   ): Promise<boolean> {
-    const row = await this.prisma.channelListingOption.findFirst({
-      where: {
-        organizationId,
-        externalOptionId: vendorItemId,
-        isActive: true,
-        listing: {
-          isActive: true,
-          channelAccount: { channel: "coupang" },
-        },
-      },
-      select: { id: true },
-    });
+    const row = await this.channelListings.readCatalogFacts(ownerTransaction(this.prisma), { organizationId, channels: ['coupang'], activeOnly: true }).then(rows => rows.some(listing => listing.options.some(option => option.externalOptionId === vendorItemId)));
     return Boolean(row);
   }
 

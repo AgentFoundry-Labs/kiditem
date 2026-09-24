@@ -1,99 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { readListingProductIds } from '../../../read/listing-product-summary.reader';
+import { readListingProductIds } from '../persistence/listing-product-summary.reader';
 import { listingRawJsonReplacementSql } from './channel-listing-raw-json';
 
 const UPSERT_BATCH_SIZE = 500;
 
-export type ChannelCatalogIdentityOption = {
-  externalOptionId: string;
-  optionName: string | null;
-  salePrice: number | null;
-  sellerSku: string | null;
-  barcode: string | null;
-  modelNumber: string | null;
-  skuStatus: string | null;
-  attributes: unknown;
-  raw: Record<string, unknown>;
-  media?: readonly ChannelCatalogIdentityMedia[];
-};
-
-export type ChannelCatalogIdentityMedia = {
-  sourceUrl: string;
-  role: 'primary' | 'detail' | 'option';
-  sortOrder: number;
-  externalOptionId: string | null;
-};
-
-export type ChannelCatalogIdentityProduct = {
-  externalProductId: string;
-  registeredName: string | null;
-  displayName: string | null;
-  category: string | null;
-  manufacturer: string | null;
-  brand: string | null;
-  productStatus: string | null;
-  raw: Record<string, unknown>;
-  media?: readonly ChannelCatalogIdentityMedia[];
-  options: ChannelCatalogIdentityOption[];
-};
-
-export type ChannelCatalogIdentityUpsertInput = {
-  organizationId: string;
-  channelAccountId: string;
-  products: ChannelCatalogIdentityProduct[];
-  lastImportRunId: string | null;
-  rawSource: string;
-};
-
-export type ChannelCatalogDetailIdentityOption = {
-  externalOptionId: string;
-  vendorItemId?: string | null;
-  sellerProductItemId?: string | null;
-  externalVendorSku?: string | null;
-  barcode?: string | null;
-  modelNumber?: string | null;
-  attributes?: unknown;
-  documentIds: string[];
-  raw?: Record<string, unknown>;
-};
-
-export type ChannelCatalogDetailIdentityProduct = {
-  externalProductId: string;
-  documents: Array<{ id: string; kind: string; value?: unknown }>;
-  raw?: Record<string, unknown>;
-  options: ChannelCatalogDetailIdentityOption[];
-};
-
-export type ChannelCatalogIdentityUpsertResult = {
-  mappingIdentityChanged: boolean;
-  changes: {
-    createdProductCount: number;
-    updatedProductCount: number;
-    createdSkuCount: number;
-    updatedSkuCount: number;
-  };
-  externalProductIds: string[];
-  externalOptionIds: string[];
-  identityRemaps: Array<{
-    listingId: string;
-    oldExternalOptionId: string;
-    newExternalOptionId: string;
-  }>;
-  listingIds: Map<string, string>;
-  persistedListings: PersistedChannelCatalogListing[];
-};
-
-export type PersistedChannelCatalogListing = {
-  id: string;
-  externalProductId: string;
-  masterProductId: string | null;
-  options: Array<{
-    id: string;
-    externalOptionId: string;
-  }>;
-};
+import type { ChannelCatalogIdentityOption, ChannelCatalogIdentityMedia, ChannelCatalogIdentityProduct, ChannelCatalogBasicsUpsertInput, ChannelCatalogIdentityUpsertInput, ChannelCatalogUnobservedOptionField, ChannelCatalogDetailIdentityOption, ChannelCatalogDetailIdentityProduct, ChannelCatalogIdentityUpsertResult, PersistedChannelCatalogListing } from '../../../domain/collection/catalog-identities';
+export type { ChannelCatalogIdentityOption, ChannelCatalogIdentityMedia, ChannelCatalogIdentityProduct, ChannelCatalogBasicsUpsertInput, ChannelCatalogIdentityUpsertInput, ChannelCatalogUnobservedOptionField, ChannelCatalogDetailIdentityOption, ChannelCatalogDetailIdentityProduct, ChannelCatalogIdentityUpsertResult, PersistedChannelCatalogListing } from '../../../domain/collection/catalog-identities';
 
 /**
  * Publish the complete Wing inventory-list stage without touching fields
@@ -103,7 +17,7 @@ export type PersistedChannelCatalogListing = {
  */
 export async function upsertChannelCatalogBasics(
   tx: Prisma.TransactionClient,
-  input: ChannelCatalogIdentityUpsertInput,
+  input: ChannelCatalogBasicsUpsertInput,
 ): Promise<ChannelCatalogIdentityUpsertResult> {
   const externalProductIds = input.products.map((product) => product.externalProductId);
   const externalOptionIds = input.products.flatMap((product) =>
@@ -177,6 +91,7 @@ export async function upsertChannelCatalogBasics(
         manufacturer: product.manufacturer,
         brand: product.brand,
         productStatus: product.productStatus,
+        imageUrl: primaryImageUrl(product),
         rawJson: {
           ...product.raw,
           source: input.rawSource,
@@ -187,7 +102,7 @@ export async function upsertChannelCatalogBasics(
       INSERT INTO channel_listings (
         id, organization_id, channel_account_id, external_id,
         channel_name, display_name, category, manufacturer, brand,
-        status, raw_json, last_import_run_id, is_active, created_at, updated_at
+        status, image_url, raw_json, last_import_run_id, is_active, created_at, updated_at
       )
       SELECT
         (record->>'id')::uuid,
@@ -200,6 +115,7 @@ export async function upsertChannelCatalogBasics(
         record->>'manufacturer',
         record->>'brand',
         record->>'productStatus',
+        record->>'imageUrl',
         record->'rawJson',
         ${input.lastImportRunId}::uuid,
         TRUE,
@@ -214,6 +130,7 @@ export async function upsertChannelCatalogBasics(
         manufacturer = COALESCE(EXCLUDED.manufacturer, channel_listings.manufacturer),
         brand = COALESCE(EXCLUDED.brand, channel_listings.brand),
         status = COALESCE(EXCLUDED.status, channel_listings.status),
+        image_url = COALESCE(EXCLUDED.image_url, channel_listings.image_url),
         raw_json = COALESCE(channel_listings.raw_json, '{}'::jsonb) || EXCLUDED.raw_json,
         last_import_run_id = EXCLUDED.last_import_run_id,
         is_active = TRUE,
@@ -650,6 +567,17 @@ export async function updateChannelCatalogDetails(
   };
 }
 
+/**
+ * 몰이 보고한 대표이미지(`channel_listings.image_url`) = 이번 수집이 준 카탈로그 `primary` 사진 중 첫 번째
+ * (KID-313 W3 리뷰 M3). 리스팅 대표이미지 평가가 이것을 본다. 사진을 주지 않은 수집은 남긴 값을 지우지 않는다.
+ */
+function primaryImageUrl(product: ChannelCatalogIdentityProduct): string | null {
+  const primary = (product.media ?? [])
+    .filter((item) => item.role === 'primary' && item.sourceUrl.trim())
+    .sort((left, right) => left.sortOrder - right.sortOrder)[0];
+  return primary?.sourceUrl ?? null;
+}
+
 function jsonRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? value as Record<string, unknown>
@@ -1076,6 +1004,52 @@ function stableJson(value: unknown): string {
   return JSON.stringify(String(value));
 }
 
+/**
+ * 옵션 칸마다 "이번 관측으로 덮는 식"과 "저장값을 지키는 식". 칸 이름이 닫힌 union 이고
+ * SQL 조각이 여기 한 번만 적히므로 식별자가 입력으로 새지 않는다.
+ */
+const OPTION_COLUMN_SQL: Record<
+  ChannelCatalogUnobservedOptionField,
+  { observed: Prisma.Sql; kept: Prisma.Sql }
+> = {
+  optionName: {
+    observed: Prisma.sql`EXCLUDED.item_name`,
+    kept: Prisma.sql`channel_listing_options.item_name`,
+  },
+  salePrice: {
+    observed: Prisma.sql`EXCLUDED.sale_price`,
+    kept: Prisma.sql`channel_listing_options.sale_price`,
+  },
+  sellerSku: {
+    observed: Prisma.sql`EXCLUDED.seller_sku`,
+    kept: Prisma.sql`channel_listing_options.seller_sku`,
+  },
+  barcode: {
+    observed: Prisma.sql`EXCLUDED.barcode`,
+    kept: Prisma.sql`channel_listing_options.barcode`,
+  },
+  modelNumber: {
+    observed: Prisma.sql`EXCLUDED.model_number`,
+    kept: Prisma.sql`channel_listing_options.model_number`,
+  },
+  skuStatus: {
+    observed: Prisma.sql`EXCLUDED.status`,
+    kept: Prisma.sql`channel_listing_options.status`,
+  },
+};
+
+/**
+ * 원천이 읽지 않는다고 선언한 칸은 저장된 관측값을 그대로 두고, 그 밖의 칸은 이번 관측으로
+ * 덮는다.
+ */
+function observedOptionColumn(
+  input: ChannelCatalogIdentityUpsertInput,
+  field: ChannelCatalogUnobservedOptionField,
+): Prisma.Sql {
+  const column = OPTION_COLUMN_SQL[field];
+  return input.unobservedOptionFields.includes(field) ? column.kept : column.observed;
+}
+
 export async function upsertChannelCatalogIdentities(
   tx: Prisma.TransactionClient,
   input: ChannelCatalogIdentityUpsertInput,
@@ -1141,12 +1115,12 @@ export async function upsertChannelCatalogIdentities(
   for (let offset = 0; offset < input.products.length; offset += UPSERT_BATCH_SIZE) {
     const payload = JSON.stringify(input.products
       .slice(offset, offset + UPSERT_BATCH_SIZE)
-      .map((product) => ({ id: randomUUID(), ...product })));
+      .map((product) => ({ id: randomUUID(), ...product, imageUrl: primaryImageUrl(product) })));
     await tx.$executeRaw`
       INSERT INTO channel_listings (
         id, organization_id, channel_account_id, external_id,
         channel_name, display_name, category, manufacturer, brand,
-        status, raw_json, last_import_run_id, is_active, created_at, updated_at
+        status, image_url, raw_json, last_import_run_id, is_active, created_at, updated_at
       )
       SELECT
         (record->>'id')::uuid,
@@ -1159,6 +1133,7 @@ export async function upsertChannelCatalogIdentities(
         record->>'manufacturer',
         record->>'brand',
         record->>'productStatus',
+        record->>'imageUrl',
         record->'raw',
         ${input.lastImportRunId}::uuid,
         TRUE,
@@ -1173,6 +1148,7 @@ export async function upsertChannelCatalogIdentities(
         manufacturer = COALESCE(EXCLUDED.manufacturer, channel_listings.manufacturer),
         brand = COALESCE(EXCLUDED.brand, channel_listings.brand),
         status = COALESCE(EXCLUDED.status, channel_listings.status),
+        image_url = COALESCE(EXCLUDED.image_url, channel_listings.image_url),
         raw_json = ${listingRawJsonReplacementSql},
         last_import_run_id = COALESCE(
           EXCLUDED.last_import_run_id,
@@ -1240,12 +1216,12 @@ export async function upsertChannelCatalogIdentities(
       FROM jsonb_array_elements(${payload}::jsonb) AS record
       ON CONFLICT (listing_id, external_option_id)
       DO UPDATE SET
-        item_name = EXCLUDED.item_name,
-        sale_price = EXCLUDED.sale_price,
-        seller_sku = EXCLUDED.seller_sku,
-        barcode = EXCLUDED.barcode,
-        model_number = EXCLUDED.model_number,
-        status = EXCLUDED.status,
+        item_name = ${observedOptionColumn(input, 'optionName')},
+        sale_price = ${observedOptionColumn(input, 'salePrice')},
+        seller_sku = ${observedOptionColumn(input, 'sellerSku')},
+        barcode = ${observedOptionColumn(input, 'barcode')},
+        model_number = ${observedOptionColumn(input, 'modelNumber')},
+        status = ${observedOptionColumn(input, 'skuStatus')},
         attributes_json = EXCLUDED.attributes_json,
         raw_json = EXCLUDED.raw_json,
         last_import_run_id = COALESCE(

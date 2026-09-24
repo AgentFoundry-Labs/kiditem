@@ -1,4 +1,4 @@
-import { ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE } from '../../../domain/catalog-source-identity';
+import { ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE } from '../../../domain/collection/catalog-source-identity';
 import type { ChannelCatalogIdentityProduct } from './channel-catalog-identity-upsert';
 
 export type RocketMatchingCsvCatalogRow = {

@@ -11,7 +11,7 @@ const { productWorkspaceProps, routerPushMock, listing, contentWorkspace } = vi.
     id: 'listing-1',
     listingName: '자석 다트게임',
     thumbnailUrl: 'https://cdn.example.com/listing.png',
-    detailPageArtifactId: null,
+    imageUrl: null, salesProductId: null,
     detailPageRevisionId: null,
     channel: 'coupang',
     channelAccountId: 'account-1',
@@ -19,7 +19,7 @@ const { productWorkspaceProps, routerPushMock, listing, contentWorkspace } = vi.
     externalId: 'seller-product-1',
     channelName: '쿠팡 등록명',
     channelPrice: 21900,
-    sourceCandidateId: 'candidate-1',
+    sourceRecordId: 'candidate-1',
     contentWorkspaceId: 'listing-workspace-1',
     status: 'active',
     exposureStatus: 'visible',
@@ -29,14 +29,6 @@ const { productWorkspaceProps, routerPushMock, listing, contentWorkspace } = vi.
     brand: '키드아이템',
     manufacturer: '키드아이템 제조사',
     providerDetail: {
-      category: '완구',
-      brand: '키드아이템',
-      manufacturer: '키드아이템 제조사',
-      sourceDetail: {
-        documents: [{ id: 'contents-1', kind: 'contents', value: '<p>공급자 원문</p>' }],
-        options: [],
-      },
-      options: [],
       media: [{
         sourceUrl: 'https://cdn.example.com/provider.png',
         role: 'primary',
@@ -50,37 +42,34 @@ const { productWorkspaceProps, routerPushMock, listing, contentWorkspace } = vi.
   contentWorkspace: {
     id: 'listing-workspace-1',
     ownerType: 'channel_listing',
-    sourceCandidateId: 'candidate-1',
+    sourceRecordId: 'candidate-1',
     channelListingId: 'listing-1',
-    originWorkspaceId: 'candidate-workspace-1',
-    displayName: '자석 다트게임 콘텐츠',
-    normalizedTitle: '자석다트게임콘텐츠',
+    normalizedTitle: null,
     status: 'active',
     href: '/product-pipeline/registered-products/listing-1',
-    generationCount: 1,
-    latestGenerationId: 'generation-1',
-    latestStatus: 'completed',
-    currentDetailPageArtifactId: 'artifact-1',
+    detailPageCount: 1,
+    latestDetailPageId: 'generation-1',
+    latestStatus: 'ready',
+    currentDetailPageId: 'generation-1',
     currentDetailPageRevisionId: 'revision-1',
-    currentDetailPageGenerationId: 'generation-1',
-    currentThumbnailSelection: {
-      id: 'selection-1',
-      contentAssetId: 'asset-1',
+    currentThumbnailAsset: {
+      id: 'asset-1',
       url: 'https://cdn.example.com/workspace.png',
     },
     createdAt: '2026-07-13T00:00:00.000Z',
     updatedAt: '2026-07-13T01:00:00.000Z',
     history: [{
       id: 'generation-1',
-      contentType: 'detail_page',
-      status: 'completed',
-      generatedTitle: '자석 다트게임',
+      source: 'generated',
+      status: 'ready',
+      title: '자석 다트게임',
       templateId: 'kids-playful',
       generationInput: {},
       detailPageData: null,
       imageUrls: ['https://cdn.example.com/detail.png'],
       processedImages: {},
-      detailPageArtifactId: 'artifact-1',
+      currentRevisionId: 'revision-1',
+      errorMessage: null,
       href: '/product-pipeline/detail-pages/generation-1/editor',
       createdAt: '2026-07-13T00:00:00.000Z',
       updatedAt: '2026-07-13T01:00:00.000Z',
@@ -139,13 +128,14 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
     };
     expect(props).toEqual(expect.objectContaining({
       productId: 'listing-1',
-      contentWorkspaceId: 'listing-workspace-1',
+      listingContentWorkspaceId: 'listing-workspace-1',
       detailGenerationEnabled: true,
-      showCandidateActions: false,
-      thumbnailSourceCandidateId: null,
     }));
-    expect(initialWorkspaceData.product.status).toBe('sourced');
-    expect(initialWorkspaceData.product.contentWorkspaceId).toBe('listing-workspace-1');
+    // 리스팅에서 만든 값에는 원천 기록이 없다 — 소싱 판단을 지어내지 않는다.
+    expect(initialWorkspaceData.product).not.toHaveProperty('status');
+    expect(initialWorkspaceData.product.sourceRecordId).toBeNull();
+    // 작업공간 id 는 화면 값에 싣지 않고 prop(`contentWorkspaceId`)으로만 넘긴다.
+    expect(initialWorkspaceData.product).not.toHaveProperty('contentWorkspaceId');
     expect(initialWorkspaceData.product).not.toHaveProperty('promotedMasterId');
     expect(initialWorkspaceData.product).not.toHaveProperty('promoted_master_id');
     expect(initialWorkspaceData.product.raw_data).toEqual(expect.objectContaining({
@@ -170,7 +160,6 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
     expect(props?.initialAgentHistory).toEqual([
       expect.objectContaining({
         id: 'generation-1',
-        detailPageArtifactId: 'artifact-1',
         detailPageRevisionId: 'revision-1',
         detailPageData: expect.objectContaining({
           title: '저장된 자석 다트게임 상세페이지',
@@ -179,13 +168,9 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
     ]);
     expect(initialWorkspaceData.product.basicInfo).toEqual(expect.objectContaining({
       selectedDetailPageGenerationId: 'generation-1',
-      selectedDetailPageArtifactId: 'artifact-1',
       selectedDetailPageRevisionId: 'revision-1',
     }));
     expect(screen.getByText('저장된 자석 다트게임 상세페이지')).toBeInTheDocument();
-    expect(screen.getByText('쿠팡 원천 상세 정보')).toBeInTheDocument();
-    expect(screen.getAllByText(/공급자 원문/).some((element) => element.tagName === 'PRE')).toBe(true);
-    expect(screen.getByRole('link', { name: 'https://cdn.example.com/provider.png' })).toBeInTheDocument();
     expect(screen.queryByText('생성된 상세페이지가 없습니다')).not.toBeInTheDocument();
 
     const openDetailGeneration = props?.onOpenDetailTemplateGeneration as (() => void) | undefined;
@@ -196,11 +181,49 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
     ));
   });
 
+  it('gives the header this listing account\'s registration state from the listing summary (KID-320)', () => {
+    const registration = {
+      channelAccountId: '00000000-0000-4000-8000-000000000001',
+      channel: 'coupang',
+      channelAccountName: '쿠팡 본계정',
+      registrationTargetId: null,
+      channelListingId: '00000000-0000-4000-8000-0000000000c1',
+      externalListingId: 'seller-product-1',
+      listingState: 'published' as const,
+      listingRawStatus: '승인완료',
+      listingActive: true,
+      state: 'registered' as const,
+      soldOut: false,
+      changedSinceRegistration: true,
+      selectedThumbnailAssetId: null,
+      selectedDetailPageRevisionId: null,
+      lastExecution: null,
+    };
+    (listing as unknown as RegisteredChannelListing).registration = registration;
+    try {
+      render(<RegisteredWorkspaceDetailPage />);
+      const product = (productWorkspaceProps.at(-1)?.initialWorkspaceData as { product: Record<string, unknown> }).product;
+      expect(product.registrationAccounts).toEqual([registration]);
+      expect(product).not.toHaveProperty('registrationState');
+    } finally {
+      (listing as unknown as RegisteredChannelListing).registration = undefined;
+    }
+  });
+
+  it('leaves the registration state empty for a listing without a sales product', () => {
+    render(<RegisteredWorkspaceDetailPage />);
+    const product = (productWorkspaceProps.at(-1)?.initialWorkspaceData as { product: Record<string, unknown> }).product;
+    expect(product.registrationAccounts).toEqual([]);
+  });
+
   it('renders an explicit uncaptured price without replacing it with zero', () => {
     (listing as unknown as RegisteredChannelListing).channelPrice = null;
     render(<RegisteredWorkspaceDetailPage />);
 
-    expect(screen.getByText('판매가: 미수집')).toBeInTheDocument();
+    const basics = (productWorkspaceProps.at(-1)?.initialWorkspaceData as { product: { basicInfo: { salePrice: number | null; originalPrice: number | null } } }).product.basicInfo;
+    expect(basics.salePrice).toBeNull();
+    expect(basics.originalPrice).toBeNull();
+    expect((productWorkspaceProps.at(-1)?.initialWorkspaceData as { product: { price_krw: number | null } }).product.price_krw).toBeNull();
     (listing as unknown as RegisteredChannelListing).channelPrice = 21900;
   });
 });

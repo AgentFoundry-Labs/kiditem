@@ -10,11 +10,15 @@ import {
 } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type {
-  RegistrationTargetCreateInput,
+  RegistrationMallInput,
   RegistrationTargetResolveInput,
   RegistrationTargetUpdateInput,
 } from '@kiditem/shared/sales-product';
+import type { RegistrationTargetCreateRecord } from '../application/port/out/persistence/registration-target.repository.port';
 import type { PrismaClient } from '@prisma/client';
+import { productTransactionalRead } from './product-transactional-read.fake';
+import { realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
+import { ownerTransaction } from '../../prisma/owner-transaction';
 
 describe('registration target repository (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -23,7 +27,11 @@ describe('registration target repository (PostgreSQL)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    repository = new RegistrationTargetRepositoryAdapter(prisma as unknown as PrismaService);
+    repository = new RegistrationTargetRepositoryAdapter(
+      prisma as unknown as PrismaService,
+      productTransactionalRead(),
+      realRegistrationContentWorkspace(prisma),
+    );
   });
 
   afterAll(async () => {
@@ -35,42 +43,30 @@ describe('registration target repository (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
   });
 
-  it('creates multiple targets for one product and account and resolves canonical option prices', async () => {
+  /**
+   * 상품 × 몰 계정당 등록 설정은 하나다(KID-310 · ADR-0022). 행사용 등록은 같은 원천 재고를
+   * 쓰는 **다른 판매상품**이지 같은 상품의 둘째 설정이 아니다.
+   */
+  it('refuses a second active target for one product and account, and resolves canonical option prices', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
     const first = await repository.create(TEST_ORGANIZATION_ID, createInput({
       salesProductId: productId,
       channelAccountId: accountId,
-      selectedOptions: [{
-        salesProductOptionId: options[0]!.id,
-        salePrice: null,
-        normalPrice: null,
-        supplyPrice: null,
-      }],
-    }));
-    const second = await repository.create(TEST_ORGANIZATION_ID, createInput({
-      salesProductId: productId,
-      channelAccountId: accountId,
-      displayName: '기획전',
-      selectedOptions: [{
-        salesProductOptionId: options[0]!.id,
-        salePrice: 2_500,
-        normalPrice: 4_000,
-        supplyPrice: 1_900,
-      }],
+      selectedOptions: [{ salesProductOptionId: options[0]!.id }],
     }));
 
-    expect(second).not.toBe(first);
+    await expect(repository.create(TEST_ORGANIZATION_ID, createInput({
+      salesProductId: productId,
+      channelAccountId: accountId,
+      selectedOptions: [selected(options[0]!.id)],
+    }))).rejects.toThrow();
+
     await expect(repository.list(TEST_ORGANIZATION_ID, productId)).resolves.toEqual([
       expect.objectContaining({
         id: first,
         version: 1,
-        selectedOptions: [{
-          salesProductOptionId: options[0]!.id,
-          salePrice: null,
-          normalPrice: null,
-          supplyPrice: null,
-        }],
+        selectedOptions: [{ salesProductOptionId: options[0]!.id }],
         product: expect.objectContaining({
           options: expect.arrayContaining([expect.objectContaining({
             id: options[0]!.id,
@@ -79,17 +75,43 @@ describe('registration target repository (PostgreSQL)', () => {
           })]),
         }),
       }),
-      expect.objectContaining({
-        id: second,
-        displayName: '기획전',
-        selectedOptions: [{
-          salesProductOptionId: options[0]!.id,
-          salePrice: 2_500,
-          normalPrice: 4_000,
-          supplyPrice: 1_900,
-        }],
-      }),
     ]);
+  });
+
+  it('creates an active target after the prior target is archived', async () => {
+    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
+    const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    const previousTargetId = await repository.create(TEST_ORGANIZATION_ID, createInput({
+      salesProductId: productId,
+      channelAccountId: accountId,
+      selectedOptions: [selected(options[0]!.id)],
+    }));
+    const archivedAt = new Date('2026-09-21T00:10:00.000Z');
+
+    await prisma.registrationTarget.update({
+      where: { id: previousTargetId },
+      data: { archivedAt },
+    });
+
+    const replacementTargetId = await repository.create(TEST_ORGANIZATION_ID, createInput({
+      salesProductId: productId,
+      channelAccountId: accountId,
+      selectedOptions: [selected(options[0]!.id)],
+    }));
+
+    expect(replacementTargetId).not.toBe(previousTargetId);
+    await expect(prisma.registrationTarget.count({
+      where: { organizationId: TEST_ORGANIZATION_ID, salesProductId: productId },
+    })).resolves.toBe(2);
+    await expect(prisma.registrationTarget.findUniqueOrThrow({ where: { id: previousTargetId } }))
+      .resolves.toMatchObject({ archivedAt });
+    await expect(repository.list(TEST_ORGANIZATION_ID, productId)).resolves.toEqual([
+      expect.objectContaining({ id: replacementTargetId }),
+    ]);
+    await expect(repository.resolve(TEST_ORGANIZATION_ID, {
+      salesProductId: productId,
+      channelAccountId: accountId,
+    })).resolves.toBe(replacementTargetId);
   });
 
   it('serializes concurrent resolves so one product-account pair creates one default target', async () => {
@@ -108,14 +130,10 @@ describe('registration target repository (PostgreSQL)', () => {
     expect(targets[0]).toMatchObject({
       id: targetIds[0],
       channelAccountId: accountId,
-      displayName: null,
-      registrationInput: {},
-      selectedOptions: options.map((option) => ({
-        salesProductOptionId: option.id,
-        salePrice: null,
-        normalPrice: null,
-        supplyPrice: null,
-      })),
+      registrationInput: { mallCategory: null, mallFields: {}, adapter: {} },
+      selectedThumbnailAssetId: null,
+      selectedDetailPageRevisionId: null,
+      selectedOptions: options.map((option) => ({ salesProductOptionId: option.id })),
     });
   });
 
@@ -127,12 +145,11 @@ describe('registration target repository (PostgreSQL)', () => {
       channelAccountId: accountId,
       selectedOptions: [selected(options[0]!.id)],
     }));
-    await repository.update(TEST_ORGANIZATION_ID, targetId, {
+    await repository.update(TEST_ORGANIZATION_ID, targetId, updateInput({
       expectedVersion: 1,
-      displayName: '기존 쇼핑몰 설정',
-      registrationInput: { mallCategory: 'existing-category' },
-      selectedOptions: [selected(options[1]!.id, { salePrice: 4_500, normalPrice: 5_500, supplyPrice: 2_100 })],
-    });
+      registrationInput: mallInput({ mallCategory: { key: 'existing-category', label: null } }),
+      selectedOptions: [selected(options[1]!.id)],
+    }));
 
     await expect(repository.resolve(TEST_ORGANIZATION_ID, {
       salesProductId: productId,
@@ -140,14 +157,8 @@ describe('registration target repository (PostgreSQL)', () => {
     })).resolves.toBe(targetId);
     await expect(repository.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({
       version: 2,
-      displayName: '기존 쇼핑몰 설정',
-      registrationInput: { mallCategory: 'existing-category' },
-      selectedOptions: [{
-        salesProductOptionId: options[1]!.id,
-        salePrice: 4_500,
-        normalPrice: 5_500,
-        supplyPrice: 2_100,
-      }],
+      registrationInput: { mallCategory: { key: 'existing-category', label: null } },
+      selectedOptions: [{ salesProductOptionId: options[1]!.id }],
     });
   });
 
@@ -166,7 +177,7 @@ describe('registration target repository (PostgreSQL)', () => {
     })).rejects.toMatchObject({ code: 'invalid' });
   });
 
-  it('requires explicit target selection when multiple settings exist and fences targetId identity', async () => {
+  it('keeps exactly one active setting per product and account, and resolves it without a choice', async () => {
     const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const otherAccountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
     const firstProduct = await createProduct(prisma, TEST_ORGANIZATION_ID);
@@ -176,12 +187,15 @@ describe('registration target repository (PostgreSQL)', () => {
       channelAccountId: accountId,
       selectedOptions: [selected(firstProduct.options[0]!.id)],
     }));
-    const secondTargetId = await repository.create(TEST_ORGANIZATION_ID, createInput({
+
+    // 행사용 등록은 별도 판매상품으로 만든다 — 같은 상품 × 몰에 설정을 둘 둘 수 없다.
+    await expect(repository.create(TEST_ORGANIZATION_ID, createInput({
       salesProductId: firstProduct.productId,
       channelAccountId: accountId,
-      displayName: '두 번째 설정',
       selectedOptions: [selected(firstProduct.options[1]!.id)],
-    }));
+    }))).rejects.toBeTruthy();
+
+    // 다른 계정 · 다른 상품은 자기 설정을 가진다.
     const otherAccountTargetId = await repository.create(TEST_ORGANIZATION_ID, createInput({
       salesProductId: firstProduct.productId,
       channelAccountId: otherAccountId,
@@ -192,50 +206,26 @@ describe('registration target repository (PostgreSQL)', () => {
       channelAccountId: accountId,
       selectedOptions: [selected(secondProduct.options[0]!.id)],
     }));
+    expect(new Set([firstTargetId, otherAccountTargetId, otherProductTargetId]).size).toBe(3);
 
     await expect(repository.resolve(TEST_ORGANIZATION_ID, {
       salesProductId: firstProduct.productId,
       channelAccountId: accountId,
-    })).rejects.toMatchObject({ code: 'conflict' });
-    await expect(repository.resolve(TEST_ORGANIZATION_ID, {
-      salesProductId: firstProduct.productId,
-      channelAccountId: accountId,
-      targetId: secondTargetId,
-    })).resolves.toBe(secondTargetId);
-    await expect(repository.resolve(TEST_ORGANIZATION_ID, {
-      salesProductId: firstProduct.productId,
-      channelAccountId: accountId,
-      targetId: randomUUID(),
-    })).rejects.toMatchObject({ code: 'not_found' });
-    await expect(repository.resolve(TEST_ORGANIZATION_ID, {
-      salesProductId: firstProduct.productId,
-      channelAccountId: accountId,
-      targetId: otherAccountTargetId,
-    })).rejects.toMatchObject({ code: 'not_found' });
-    await expect(repository.resolve(TEST_ORGANIZATION_ID, {
-      salesProductId: firstProduct.productId,
-      channelAccountId: accountId,
-      targetId: otherProductTargetId,
-    })).rejects.toMatchObject({ code: 'not_found' });
-    await expect(repository.resolve(TEST_ORGANIZATION_ID, {
-      salesProductId: firstProduct.productId,
-      channelAccountId: accountId,
-      targetId: firstTargetId,
     })).resolves.toBe(firstTargetId);
 
-    await prisma.productPreparation.update({
+    // 보관한 뒤에는 같은 자리에 새 설정을 만든다.
+    await prisma.registrationTarget.update({
       where: { id: firstTargetId },
-      data: { closedAt: new Date() },
+      data: { archivedAt: new Date() },
     });
-    await expect(repository.resolve(TEST_ORGANIZATION_ID, {
+    const replacement = await repository.resolve(TEST_ORGANIZATION_ID, {
       salesProductId: firstProduct.productId,
       channelAccountId: accountId,
-    })).resolves.toBe(secondTargetId);
-    await expect(repository.resolve(TEST_ORGANIZATION_ID, {
-      salesProductId: firstProduct.productId,
-      channelAccountId: accountId,
-      targetId: firstTargetId,
-    })).rejects.toMatchObject({ code: 'not_found' });
+    });
+    expect(replacement).not.toBe(firstTargetId);
+    await expect(repository.list(TEST_ORGANIZATION_ID, firstProduct.productId))
+      .resolves.not.toEqual(expect.arrayContaining([expect.objectContaining({ id: firstTargetId })]));
+    await expect(repository.get(TEST_ORGANIZATION_ID, firstTargetId)).resolves.toBeNull();
   });
 
   it('does not inherit unused options or create new targets for an archived product', async () => {
@@ -251,12 +241,7 @@ describe('registration target repository (PostgreSQL)', () => {
       channelAccountId: accountId,
     });
     await expect(repository.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({
-      selectedOptions: [{
-        salesProductOptionId: options[1]!.id,
-        salePrice: null,
-        normalPrice: null,
-        supplyPrice: null,
-      }],
+      selectedOptions: [{ salesProductOptionId: options[1]!.id }],
     });
 
     const allUnusedProduct = await createProduct(prisma, TEST_ORGANIZATION_ID);
@@ -300,7 +285,7 @@ describe('registration target repository (PostgreSQL)', () => {
       data: {
         id: executionId,
         organizationId: TEST_ORGANIZATION_ID,
-        productPreparationId: targetId,
+        registrationTargetId: targetId,
         channelAccountId: accountId,
         executionKind: 'create',
         idempotencyKey: `target-test-${executionId}`,
@@ -312,21 +297,16 @@ describe('registration target repository (PostgreSQL)', () => {
       },
     });
 
-    const update: RegistrationTargetUpdateInput = {
+    const update = updateInput({
       expectedVersion: 1,
-      displayName: '수정된 대상',
-      registrationInput: { wingCategoryKey: '123' },
-      selectedOptions: [selected(options[1]!.id, { salePrice: 4_500 })],
-    };
+      registrationInput: mallInput({ adapter: { coupang: { wingCategoryKey: '123' } } }),
+      selectedOptions: [selected(options[1]!.id)],
+    });
     await expect(repository.update(TEST_ORGANIZATION_ID, targetId, update)).resolves.toBeUndefined();
     await expect(repository.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({
       version: 2,
-      displayName: '수정된 대상',
-      registrationInput: { wingCategoryKey: '123' },
-      selectedOptions: [{
-        salesProductOptionId: options[1]!.id,
-        salePrice: 4_500,
-      }],
+      registrationInput: { adapter: { coupang: { wingCategoryKey: '123' } } },
+      selectedOptions: [{ salesProductOptionId: options[1]!.id }],
     });
     await expect(repository.update(TEST_ORGANIZATION_ID, targetId, update))
       .rejects.toMatchObject({ code: 'conflict' });
@@ -367,41 +347,124 @@ describe('registration target repository (PostgreSQL)', () => {
       selectedOptions: [selected(options[0]!.id)],
     }))).rejects.toMatchObject({ code: 'invalid' });
 
-    await expect(repository.update(TEST_ORGANIZATION_ID, targetId, {
+    await expect(repository.update(TEST_ORGANIZATION_ID, targetId, updateInput({
       expectedVersion: 1,
-      displayName: '보존된 선택',
-      registrationInput: {},
       selectedOptions: [selected(options[0]!.id)],
-    })).resolves.toBeUndefined();
+    }))).resolves.toBeUndefined();
     await expect(repository.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({
       version: 2,
       selectedOptions: [{ salesProductOptionId: options[0]!.id }],
       product: { options: expect.arrayContaining([expect.objectContaining({ id: options[0]!.id })]) },
     });
   });
+
+  it('refuses product facts in the mall values and names the keys', async () => {
+    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
+    const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    const targetId = await repository.resolve(TEST_ORGANIZATION_ID, { salesProductId: productId, channelAccountId: accountId });
+
+    const refusal = repository.update(TEST_ORGANIZATION_ID, targetId, updateInput({
+      expectedVersion: 1,
+      registrationInput: { name: '몰 전용 이름', salePrice: 9_900, mallFields: {} } as never,
+      selectedOptions: [selected(options[0]!.id)],
+    }));
+    await expect(refusal).rejects.toMatchObject({ code: 'invalid' });
+    await expect(refusal).rejects.toThrow(/name, salePrice/);
+    await expect(repository.create(TEST_ORGANIZATION_ID, createInput({
+      salesProductId: productId,
+      channelAccountId: await createAccount(prisma, TEST_ORGANIZATION_ID),
+      registrationInput: { detailHtml: '<p>몰 상세</p>' } as never,
+    }))).rejects.toMatchObject({ code: 'invalid' });
+    await expect(repository.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({ version: 1 });
+  });
+
+  it('refuses a product fact inside mallFields by name and a value over 20 000 characters as invalid, not a crash', async () => {
+    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
+    const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    const targetId = await repository.resolve(TEST_ORGANIZATION_ID, { salesProductId: productId, channelAccountId: accountId });
+
+    const fact = repository.update(TEST_ORGANIZATION_ID, targetId, updateInput({
+      expectedVersion: 1,
+      registrationInput: { mallCategory: null, mallFields: { salePrice: 9_900 }, adapter: {} },
+      selectedOptions: [selected(options[0]!.id)],
+    }));
+    await expect(fact).rejects.toMatchObject({ code: 'invalid' });
+    await expect(fact).rejects.toThrow(/salePrice/);
+    await expect(repository.update(TEST_ORGANIZATION_ID, targetId, updateInput({
+      expectedVersion: 1,
+      registrationInput: { mallCategory: null, mallFields: { detailTop: 'a'.repeat(20_001) }, adapter: {} },
+      selectedOptions: [selected(options[0]!.id)],
+    }))).rejects.toMatchObject({ code: 'invalid' });
+    await expect(repository.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({ version: 1 });
+  });
+
+  it('stores the selected content ids only when they belong to the product\'s own workspace', async () => {
+    const accountId = await createAccount(prisma, TEST_ORGANIZATION_ID);
+    const { productId, options } = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    const other = await createProduct(prisma, TEST_ORGANIZATION_ID);
+    const content = realRegistrationContentWorkspace(prisma);
+    const importDetail = (salesProductId: string) => prisma.$transaction(async (tx) => {
+      await content.ensureSalesProductWorkspace(ownerTransaction(tx), {
+        organizationId: TEST_ORGANIZATION_ID, salesProductId, createdByUserId: null,
+      });
+      return content.importDetailPage(ownerTransaction(tx), {
+        organizationId: TEST_ORGANIZATION_ID, salesProductId, source: 'sabangnet',
+        html: '<p>상세</p>', digest: `digest-${salesProductId}`, createdByUserId: null,
+      });
+    });
+    const own = await importDetail(productId);
+    const foreign = await importDetail(other.productId);
+    const ownRevisionId = own.kind === 'appended' ? own.revisionId : '';
+    const foreignRevisionId = foreign.kind === 'appended' ? foreign.revisionId : '';
+    const targetId = await repository.resolve(TEST_ORGANIZATION_ID, { salesProductId: productId, channelAccountId: accountId });
+
+    await repository.update(TEST_ORGANIZATION_ID, targetId, updateInput({
+      expectedVersion: 1,
+      selectedDetailPageRevisionId: ownRevisionId,
+      selectedOptions: [selected(options[0]!.id)],
+    }));
+    await expect(repository.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({
+      version: 2,
+      selectedDetailPageRevisionId: ownRevisionId,
+      selectedThumbnailAssetId: null,
+    });
+    await expect(repository.update(TEST_ORGANIZATION_ID, targetId, updateInput({
+      expectedVersion: 2,
+      selectedDetailPageRevisionId: foreignRevisionId,
+      selectedOptions: [selected(options[0]!.id)],
+    }))).rejects.toThrow('Selected detail revision is not source-owned.');
+    await expect(repository.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({
+      version: 2,
+      selectedDetailPageRevisionId: ownRevisionId,
+    });
+  });
 });
 
-function createInput(overrides: Partial<RegistrationTargetCreateInput>): RegistrationTargetCreateInput {
+function createInput(overrides: Partial<RegistrationTargetCreateRecord>): RegistrationTargetCreateRecord {
   return {
     salesProductId: overrides.salesProductId!,
     channelAccountId: overrides.channelAccountId!,
-    displayName: overrides.displayName ?? null,
-    registrationInput: overrides.registrationInput ?? {},
+    registrationInput: overrides.registrationInput ?? mallInput(),
     selectedOptions: overrides.selectedOptions ?? [],
   };
 }
 
-function selected(
-  salesProductOptionId: string,
-  overrides: Partial<RegistrationTargetCreateInput['selectedOptions'][number]> = {},
-) {
+function mallInput(overrides: Partial<RegistrationMallInput> = {}): RegistrationMallInput {
+  return { mallCategory: null, mallFields: {}, adapter: {}, ...overrides };
+}
+
+function updateInput(overrides: Partial<RegistrationTargetUpdateInput> & { expectedVersion: number }): RegistrationTargetUpdateInput {
   return {
-    salesProductOptionId,
-    salePrice: null,
-    normalPrice: null,
-    supplyPrice: null,
+    registrationInput: mallInput(),
+    selectedThumbnailAssetId: null,
+    selectedDetailPageRevisionId: null,
+    selectedOptions: [],
     ...overrides,
   };
+}
+
+function selected(salesProductOptionId: string) {
+  return { salesProductOptionId };
 }
 
 async function createAccount(prisma: PrismaClient, organizationId: string): Promise<string> {

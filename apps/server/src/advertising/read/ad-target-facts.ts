@@ -1,3 +1,5 @@
+import type { ChannelAccountPort } from '../../channels/application/port/in/account/channel-account.port';
+import { ownerTransaction } from '../../prisma/owner-transaction';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import {
   Prisma,
@@ -58,12 +60,12 @@ import {
 export async function advertisingApplies(
   tx: Prisma.TransactionClient,
   organizationId: string,
+  accounts: Pick<ChannelAccountPort, 'readProviderIdentities'>,
 ): Promise<boolean> {
-  const account = await tx.channelAccount.findFirst({
-    where: { organizationId, channel: AD_SWEEP_CHANNEL, status: AD_SWEEP_ACCOUNT_STATUS },
-    select: { id: true },
+  const identities = await accounts.readProviderIdentities(ownerTransaction(tx), {
+    organizationId, channel: AD_SWEEP_CHANNEL,
   });
-  return account !== null;
+  return identities.some(account => account.status === AD_SWEEP_ACCOUNT_STATUS);
 }
 
 
@@ -71,13 +73,17 @@ export async function advertisingApplies(
  * The organization's active Coupang accounts. A date is an organization-level
  * measurement only when every applicable account declared it complete.
  */
-const ACTIVE_AD_ACCOUNTS_CTE = (organizationId: string) => Prisma.sql`
-    SELECT id
-    FROM channel_accounts
-    WHERE organization_id = ${organizationId}::uuid
-      AND channel = ${AD_SWEEP_CHANNEL}
-      AND status = ${AD_SWEEP_ACCOUNT_STATUS}
-`;
+const ACTIVE_AD_ACCOUNTS_CTE = async (
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  accounts: Pick<ChannelAccountPort, 'readProviderIdentities'>,
+) => {
+  const identities = await accounts.readProviderIdentities(ownerTransaction(tx), {
+    organizationId, channel: AD_SWEEP_CHANNEL,
+  });
+  const ids = identities.filter(account => account.status === AD_SWEEP_ACCOUNT_STATUS).map(account => account.id);
+  return Prisma.sql`SELECT unnest(${ids}::uuid[]) AS id`;
+};
 
 /**
  * Completed campaign sweeps for applicable accounts, whose terminal coverage
@@ -280,9 +286,10 @@ type DayRow = {
 export async function readAdWindowFacts(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; from?: Date; to?: Date },
+  accounts: Pick<ChannelAccountPort, 'readProviderIdentities'>,
 ): Promise<AdWindowFacts> {
   const rows = await tx.$queryRaw<DayRow[]>(Prisma.sql`
-    WITH active_accounts AS (${ACTIVE_AD_ACCOUNTS_CTE(input.organizationId)}), -- organization_id bound above
+    WITH active_accounts AS (${await ACTIVE_AD_ACCOUNTS_CTE(tx, input.organizationId, accounts)}), -- organization_id bound above
     sweeps AS (${SWEEPS_CTE(input.organizationId)}), -- organization_id bound above
     measured AS (${measuredTargetRows(input.organizationId, input.from, input.to)}),
     covered AS (${coveredDates(input.from, input.to)}),
@@ -410,9 +417,10 @@ type ListingRow = {
 export async function readListingAdWindowFacts(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; from?: Date; to?: Date },
+  accounts: Pick<ChannelAccountPort, 'readProviderIdentities'>,
 ): Promise<readonly AdListingWindowFacts[]> {
   const rows = await tx.$queryRaw<ListingRow[]>(Prisma.sql`
-    WITH active_accounts AS (${ACTIVE_AD_ACCOUNTS_CTE(input.organizationId)}), -- organization_id bound above
+    WITH active_accounts AS (${await ACTIVE_AD_ACCOUNTS_CTE(tx, input.organizationId, accounts)}), -- organization_id bound above
     sweeps AS (${SWEEPS_CTE(input.organizationId)}), -- organization_id bound above
     measured AS (${measuredTargetRows(input.organizationId, input.from, input.to)}),
     covered AS (${coveredDates(input.from, input.to)})
@@ -449,9 +457,10 @@ export async function readListingAdWindowFacts(
 export async function readLatestAdDate(
   tx: Prisma.TransactionClient,
   organizationId: string,
+  accounts: Pick<ChannelAccountPort, 'readProviderIdentities'>,
 ): Promise<Date | null> {
   const rows = await tx.$queryRaw<{ business_date: Date | null }[]>(Prisma.sql`
-    WITH active_accounts AS (${ACTIVE_AD_ACCOUNTS_CTE(organizationId)}), -- organization_id bound above
+    WITH active_accounts AS (${await ACTIVE_AD_ACCOUNTS_CTE(tx, organizationId, accounts)}), -- organization_id bound above
     sweeps AS (${SWEEPS_CTE(organizationId)}), -- organization_id bound above
     covered AS (${coveredDates()})
     SELECT MAX(business_date) AS business_date FROM covered
@@ -468,9 +477,10 @@ export async function readLatestAdDate(
 export async function readAdEvidenceCutoff(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; closedDay: Date },
+  accounts: Pick<ChannelAccountPort, 'readProviderIdentities'>,
 ): Promise<Date> {
   const rows = await tx.$queryRaw<{ requested_end: Date | null; confirmed_end: Date | null }[]>(Prisma.sql`
-    WITH active_accounts AS (${ACTIVE_AD_ACCOUNTS_CTE(input.organizationId)}), -- organization_id bound above
+    WITH active_accounts AS (${await ACTIVE_AD_ACCOUNTS_CTE(tx, input.organizationId, accounts)}), -- organization_id bound above
     sweeps AS (${SWEEPS_CTE(input.organizationId)}) -- organization_id bound above
     SELECT latest.requested_end, latest.window_end AS confirmed_end
     FROM active_accounts a
@@ -520,9 +530,10 @@ export type AdCampaignWindowRollup = Readonly<{
 export async function readCampaignWindowRollups(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; from: Date; to: Date },
+  accounts: Pick<ChannelAccountPort, 'readProviderIdentities'>,
 ): Promise<AdCampaignWindowRollup[]> {
   return tx.$queryRaw<AdCampaignWindowRollup[]>(Prisma.sql`
-    WITH active_accounts AS (${ACTIVE_AD_ACCOUNTS_CTE(input.organizationId)}), -- organization_id bound above
+    WITH active_accounts AS (${await ACTIVE_AD_ACCOUNTS_CTE(tx, input.organizationId, accounts)}), -- organization_id bound above
     sweeps AS (${SWEEPS_CTE(input.organizationId)}), -- organization_id bound above
     measured AS (${measuredTargetRows(input.organizationId, input.from, input.to)}),
     ${CAMPAIGN_DAILY_CTES},
@@ -599,9 +610,10 @@ export async function readProductWindowRollups(
     to: Date;
     campaign?: { channelAccountId: string; campaignIdentity: string };
   },
+  accounts: Pick<ChannelAccountPort, 'readProviderIdentities'>,
 ): Promise<AdProductWindowRollup[]> {
   return tx.$queryRaw<AdProductWindowRollup[]>(Prisma.sql`
-    WITH active_accounts AS (${ACTIVE_AD_ACCOUNTS_CTE(input.organizationId)}), -- organization_id bound above
+    WITH active_accounts AS (${await ACTIVE_AD_ACCOUNTS_CTE(tx, input.organizationId, accounts)}), -- organization_id bound above
     sweeps AS (${SWEEPS_CTE(input.organizationId)}), -- organization_id bound above
     measured AS (${measuredTargetRows(input.organizationId, input.from, input.to)}),
     scoped AS (
@@ -711,9 +723,10 @@ export type AdCurrentTargetRow = Readonly<{
 export async function readCurrentAdTargetRows(
   tx: Prisma.TransactionClient,
   organizationId: string,
+  accounts: Pick<ChannelAccountPort, 'readProviderIdentities'>,
 ): Promise<AdCurrentTargetRow[]> {
   return tx.$queryRaw<AdCurrentTargetRow[]>(Prisma.sql`
-    WITH active_accounts AS (${ACTIVE_AD_ACCOUNTS_CTE(organizationId)}), -- organization_id bound above
+    WITH active_accounts AS (${await ACTIVE_AD_ACCOUNTS_CTE(tx, organizationId, accounts)}), -- organization_id bound above
     sweeps AS (${SWEEPS_CTE(organizationId)}), -- organization_id bound above
     measured AS (${measuredTargetRows(organizationId, undefined, undefined, { currentGenerationOnly: true })})
     SELECT DISTINCT ON (target_key)

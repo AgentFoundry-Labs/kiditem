@@ -24,7 +24,7 @@ interface ImageSelectionPanelProps {
   editor: any;
   imageUrl: string;
   productId?: string;
-  contentGenerationId?: string;
+  detailPageId?: string;
   isBusy: MutableRefObject<boolean>;
   onEditComplete: (newImageUrl: string, component?: any) => void;
   onReplace: () => void;
@@ -143,7 +143,7 @@ export function ImageSelectionPanel({
   editor,
   imageUrl,
   productId,
-  contentGenerationId,
+  detailPageId,
   isBusy,
   onEditComplete,
   onReplace,
@@ -454,7 +454,7 @@ export function ImageSelectionPanel({
       <AIImageEditPanel
         imageUrl={currentImageUrl}
         productId={productId}
-        contentGenerationId={contentGenerationId}
+        detailPageId={detailPageId}
         isBusy={isBusy}
         onEditComplete={handleEditComplete}
         onReplace={onReplace}

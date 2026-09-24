@@ -16,6 +16,11 @@ import {
   type OrderCollectionSourceStatus,
 } from '@kiditem/shared/order-collection-source';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { PrismaService } from '../../prisma/prisma.service';
+import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
+import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credentials/channel-credentials.adapter';
+import type { ChannelAccountPort } from '../../channels/application/port/in/account/channel-account.port';
 import {
   ORDER_COLLECTION_SOURCE_PORT,
   orderCollectionJsonSubmission,
@@ -27,10 +32,11 @@ import { CoupangDirectshipService } from '../coupang-directship/coupang-directsh
 import { CoupangDirectPoSnapshotService } from '../services/coupang-direct-po-snapshot.service';
 import { OrderCollectionService } from '../services/order-collection.service';
 import { MALL_CHANNELS } from '@kiditem/shared/channel-registry';
-import { OrderCollectionMallAccountService } from '../services/order-collection-mall-account.service';
 import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from '../application/port/in/coupang-direct-order-collection.port';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
+import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const BASE = '/api/orders/collection';
 const ART09_BODY = {
@@ -46,6 +52,7 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
   let app: INestApplication;
   let httpUrl: string;
   let owner: OrderCollectionSourceRepository;
+  let channelAccounts: ChannelAccountPort;
   let alerts: SourceFailureAlerts;
   let conversion: ReturnType<typeof art09Conversion>;
   let convertArt09Orders: ReturnType<typeof vi.fn>;
@@ -56,7 +63,9 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     alerts = new SourceFailureAlerts(prisma as never);
-    owner = new OrderCollectionSourceRepository(prisma as never, alerts);
+    const accountPersistence = new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
+    channelAccounts = new ChannelAccountService(accountPersistence, new ChannelCredentialsAdapter());
+    owner = new OrderCollectionSourceRepository(prisma as never, alerts, channelAccounts);
     conversion = art09Conversion();
     convertArt09Orders = vi.fn().mockReturnValue(conversion);
     convertHaebeopOrders = vi.fn().mockReturnValue(conversion);
@@ -420,7 +429,11 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
     const upsert = vi.spyOn(failingAlerts, 'recordTerminalOutcome').mockRejectedValueOnce(
       new Error('alert persistence failed'),
     );
-    const failingOwner = new OrderCollectionSourceRepository(prisma as never, failingAlerts);
+    const failingOwner = new OrderCollectionSourceRepository(
+      prisma as never,
+      failingAlerts,
+      channelAccounts,
+    );
 
     try {
       await expect(failingOwner.failAttempt({
@@ -681,14 +694,12 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
         config: { rocketNote: 'kept' },
       },
     });
-    const accounts = new OrderCollectionMallAccountService(prisma as never);
-
-    await accounts.update(ORG, 'toss', {
+    await channelAccounts.update(ORG, 'toss', {
       loginId: 'toss-user',
       password: 'toss-password',
       siteUrl: 'https://toss.example.com',
     });
-    await accounts.update(ORG, 'coupang-direct', {
+    await channelAccounts.update(ORG, 'coupang-direct', {
       loginId: 'supplier-user',
       password: 'supplier-password',
       siteUrl: 'https://supplier.coupang.com',
@@ -715,7 +726,7 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
       rocketNote: 'kept',
       orderCollection: { loginId: 'supplier-user' },
     });
-    expect(await accounts.getPassword(ORG, 'coupang-direct'))
+    expect(await channelAccounts.getPassword(ORG, 'coupang-direct'))
       .toEqual({ key: 'coupang-direct', password: 'supplier-password' });
     expect(await prisma.channelAccount.count({ where: { channel: 'order_collection' } })).toBe(0);
     expect(await prisma.channelAccount.count({ where: { organizationId: ORG, channel: 'rocket' } })).toBe(1);

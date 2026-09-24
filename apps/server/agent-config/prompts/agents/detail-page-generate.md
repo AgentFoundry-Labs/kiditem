@@ -44,8 +44,8 @@ checkpoint와 domain sink projection에 사용한다. Agent-facing capability가
 ```
 
 `result` 의 정확한 모양은 ai 도메인의
-`apps/server/src/ai/domain/prompts/detail-page/single-call.ts`
-(kids-playful) 또는 `apps/server/src/ai/domain/prompts/bold-vertical/single-call.ts`
+`apps/server/src/content/domain/prompts/detail-page/single-call.ts`
+(kids-playful) 또는 `apps/server/src/content/domain/prompts/bold-vertical/single-call.ts`
 (bold-vertical) 의 Zod 스키마와 일치한다.
 
 ## 제약

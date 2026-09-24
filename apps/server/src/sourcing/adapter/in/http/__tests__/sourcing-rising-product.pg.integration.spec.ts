@@ -8,6 +8,7 @@ import { SourcingWorkspaceSnapshotRepositoryAdapter } from '../../../out/reposit
 import { SourcingRisingProductService } from '../../../../application/service/sourcing-rising-product.service';
 import { SourcingRisingProductController } from '../sourcing-rising-product.controller';
 import { kstBusinessDate } from '../../../../../common/kst';
+import { channelFactTestPorts } from '../../../../../test-helpers/channel-fact-ports';
 import type { PrismaClient } from '@prisma/client';
 
 describe('RisingProducts direct owner HTTP and stored snapshots (PostgreSQL)', () => {
@@ -16,8 +17,13 @@ describe('RisingProducts direct owner HTTP and stored snapshots (PostgreSQL)', (
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
+    const channelFacts = channelFactTestPorts(prisma as never);
     controller = new SourcingRisingProductController(new SourcingRisingProductService(
-      new CoupangMomentumAdapter(new CoupangMomentumReadService(new KeywordRankRepositoryAdapter(prisma as never))),
+      new CoupangMomentumAdapter(new CoupangMomentumReadService(new KeywordRankRepositoryAdapter(
+        channelFacts.listings,
+        channelFacts.recipes,
+        prisma as never,
+      ))),
       new TrendCollectionRepositoryAdapter(prisma as never),
       new SourcingWorkspaceSnapshotRepositoryAdapter(prisma as never),
     ));

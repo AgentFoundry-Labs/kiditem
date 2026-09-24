@@ -166,12 +166,25 @@ export async function setupChannelListing(
   });
 
   if (master.imageUrls[0]) {
-    await prisma.thumbnail.create({
+    // 리스팅 대표이미지 = 리스팅 작업공간의 현재 대표이미지 자산(KID-313 W3a).
+    const workspace = await prisma.contentWorkspace.create({
+      data: { organizationId: opts.organizationId, ownerType: 'channel_listing', channelListingId: listing.id },
+      select: { id: true },
+    });
+    const asset = await prisma.contentAsset.create({
       data: {
         organizationId: opts.organizationId,
-        listingId: listing.id,
-        imageUrl: master.imageUrls[0],
+        contentWorkspaceId: workspace.id,
+        source: 'catalog',
+        assetKey: `seed-listing-thumbnail:${listing.id}`,
+        url: master.imageUrls[0],
+        role: 'primary',
       },
+      select: { id: true },
+    });
+    await prisma.contentWorkspace.update({
+      where: { id: workspace.id },
+      data: { currentThumbnailAssetId: asset.id },
     });
   }
 

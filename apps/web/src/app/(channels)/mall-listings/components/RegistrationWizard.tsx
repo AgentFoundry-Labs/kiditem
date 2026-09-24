@@ -2,16 +2,12 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
+import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
 import { AlertCircle, ArrowLeft, ArrowRight, RotateCcw, Send } from 'lucide-react';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatNumber } from '@/lib/utils';
-import { ensureCandidateSalesProduct } from '@/lib/candidate-sales-product-registration';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
-import { registrationTargetApi } from '@/lib/registration-target-api';
-import { prepareSavedCandidateDetailImage } from '../../../(product-pipeline)/product-pipeline/collected-products/lib/wing-registration-flow';
-import { salesProductInputFromCandidate } from '../../../(product-pipeline)/product-pipeline/collected-products/lib/candidate-sales-products';
-import { productsApi } from '../../../(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
 import { mallPublishingApi } from '../../_shared/mall-publishing-api';
 import { MALL_REGISTRATION_ADAPTERS, getMallPublishAdapter } from '../../_shared/adapters';
 import {
@@ -24,13 +20,11 @@ import { buildPublishPlan, summarizePublishRun } from '../lib/publish-plan';
 import {
   detectMallFormSubmitMalls,
 } from '../../../(product-pipeline)/product-pipeline/_shared/lib/mall-form-registration-api';
-import { useMallPublishRun } from '../hooks/use-mall-publish-run';
+import { useMallPublishRun } from '../../_shared/use-mall-publish-run';
 import { StepProducts } from './StepProducts';
 import { StepMalls } from './StepMalls';
 import { StepValues } from './StepValues';
 import { StepDispatch } from './StepDispatch';
-import type { RegistrationTarget } from '@kiditem/shared/sales-product';
-
 const PAGE_SIZE = 25;
 
 type ProductSource = 'sales_product' | 'candidate';
@@ -70,10 +64,11 @@ export function RegistrationWizard() {
   const [step, setStep] = useState(1);
   const [page, setPage] = useState(1);
   const [selectedItems, setSelectedItems] = useState<Map<string, MallPublishItem>>(new Map());
+  // 고른 상품의 등록 상태 — 고를 때 그 쪽 목록이 싣고 온 계정별 상태다(KID-320). 이미 등록된 계정은 계획이 뺀다.
+  const [selectedRegistration, setSelectedRegistration] = useState<Map<string, readonly RegistrationAccountState[]>>(new Map());
   const [selectedMalls, setSelectedMalls] = useState<ReadonlySet<string>>(new Set());
   const [valuesByMall, setValuesByMall] = useState(initialValues);
   const [editedValuesByMall, setEditedValuesByMall] = useState<Record<string, Record<string, string>>>({});
-  const [registrationTargetIdsByMall, setRegistrationTargetIdsByMall] = useState<Record<string, Record<string, string>>>({});
   const [activeMallKey, setActiveMallKey] = useState('');
 
   const run = useMallPublishRun();
@@ -82,9 +77,10 @@ export function RegistrationWizard() {
   const [source, setSource] = useState<ProductSource>('sales_product');
   const [search, setSearch] = useState('');
 
+  // 수집상품은 KID 를 아직 받지 않은 판매상품 초안이다(KID-313) — 원본 기록 목록은 화면에 없다.
   const productsQuery = useQuery({
-    queryKey: queryKeys.sourcing.list({ page: String(page), limit: String(PAGE_SIZE), surface: 'mall-listings' }),
-    queryFn: () => productsApi.list({ page, limit: PAGE_SIZE }),
+    queryKey: salesProductKeys.list({ page, limit: PAGE_SIZE, focus: 'preparing' }),
+    queryFn: () => salesProductApi.list({ page, limit: PAGE_SIZE, focus: 'preparing' }),
     placeholderData: keepPreviousData,
     enabled: source === 'candidate',
   });
@@ -125,10 +121,20 @@ export function RegistrationWizard() {
       : (productsQuery.data?.items ?? []).map((product) => ({
         candidateId: product.id,
         name: product.name,
-        salePrice: product.price_krw ?? null,
-        thumbnailUrl: product.thumbnailUrl ?? null,
+        salePrice: product.salePrice,
+        thumbnailUrl: product.imageUrl,
         source: 'candidate' as const,
+        // 수집상품 한 줄이 곧 판매상품 초안이다(ADR-0022) — 등록은 이 id 를 그대로 연다.
+        salesProductId: product.id,
       })),
+    [source, productsQuery.data, salesQuery.data],
+  );
+
+  const pageRegistration = useMemo(
+    () => new Map<string, readonly RegistrationAccountState[]>(
+      ((source === 'sales_product' ? salesQuery.data?.items : productsQuery.data?.items) ?? [])
+        .map((product) => [product.id, product.registrationAccounts]),
+    ),
     [source, productsQuery.data, salesQuery.data],
   );
 
@@ -136,7 +142,20 @@ export function RegistrationWizard() {
     setSource(next);
     setPage(1);
     setSelectedItems(new Map());
+    setSelectedRegistration(new Map());
   }, []);
+
+  const rememberRegistration = useCallback((candidateIds: readonly string[], selected: boolean) => {
+    setSelectedRegistration((current) => {
+      const next = new Map(current);
+      for (const candidateId of candidateIds) {
+        const accounts = pageRegistration.get(candidateId);
+        if (selected && accounts) next.set(candidateId, accounts);
+        else next.delete(candidateId);
+      }
+      return next;
+    });
+  }, [pageRegistration]);
 
   const items = useMemo(() => [...selectedItems.values()], [selectedItems]);
 
@@ -148,69 +167,24 @@ export function RegistrationWizard() {
     [selectedMalls],
   );
 
-  const registrationTargetChoicesQuery = useQuery({
-    queryKey: ['mall-listings', 'registration-target-choices', items
-      .map((item) => `${item.source ?? 'candidate'}:${item.candidateId}`)
-      .sort()],
-    enabled: step === 3 && items.length > 0 && adapters.some((adapter) => adapter.mode === 'form'),
-    queryFn: async () => Promise.all(items.map(async (item) => {
-      const salesProduct = item.source === 'sales_product'
-        ? null
-        : await salesProductApi.findByCandidate(item.candidateId);
-      const salesProductId = item.source === 'sales_product' ? item.candidateId : salesProduct?.id;
-      if (!salesProductId) return { candidateId: item.candidateId, targets: [] as RegistrationTarget[] };
-      return {
-        candidateId: item.candidateId,
-        targets: await registrationTargetApi.list(salesProductId),
-      };
-    })),
-  });
-
-  const registrationTargetsByItem = useMemo(
-    () => Object.fromEntries((registrationTargetChoicesQuery.data ?? []).map((entry) => [entry.candidateId, entry.targets])),
-    [registrationTargetChoicesQuery.data],
-  );
-  const registrationTargetSelectionRequiredByMall = useMemo(() => Object.fromEntries(adapters.map((adapter) => {
-    if (adapter.mode !== 'form') return [adapter.mallKey, [] as string[]];
-    const accountId = (targetsQuery.data ?? []).find((target) => target.manifest.key === adapter.mallKey)?.channelAccountId;
-    const requiredItemIds = accountId
-      ? items.filter((item) => (registrationTargetsByItem[item.candidateId] ?? [])
-        .filter((target) => target.channelAccountId === accountId).length > 1)
-        .map((item) => item.candidateId)
-      : [];
-    return [adapter.mallKey, requiredItemIds];
-  })), [adapters, items, registrationTargetsByItem, targetsQuery.data]);
-  const validRegistrationTargetIdsByMall = useMemo(() => Object.fromEntries(adapters.map((adapter) => {
-    const accountId = (targetsQuery.data ?? []).find((target) => target.manifest.key === adapter.mallKey)?.channelAccountId;
-    const ids = Object.fromEntries(items.flatMap((item) => {
-      const selectedId = registrationTargetIdsByMall[adapter.mallKey]?.[item.candidateId];
-      const existsForAccount = (registrationTargetsByItem[item.candidateId] ?? [])
-        .some((target) => target.id === selectedId && target.channelAccountId === accountId);
-      return selectedId && existsForAccount ? [[item.candidateId, selectedId]] : [];
-    }));
-    return [adapter.mallKey, ids];
-  })), [adapters, items, registrationTargetIdsByMall, registrationTargetsByItem, targetsQuery.data]);
-
   const plan = useMemo(
     () => buildPublishPlan({
       items,
       adapters,
       valuesByMall,
       editedValuesByMall,
-      registrationTargetSelectionRequiredByMall,
-      registrationTargetIdsByMall: validRegistrationTargetIdsByMall,
       channelAccountIds: Object.fromEntries((targetsQuery.data ?? []).map((target) => [
         target.manifest.key,
         target.channelAccountId,
       ])),
+      registrationAccountsByItem: selectedRegistration,
     }),
     [
+      selectedRegistration,
       items,
       adapters,
       valuesByMall,
       editedValuesByMall,
-      registrationTargetSelectionRequiredByMall,
-      validRegistrationTargetIdsByMall,
       targetsQuery.data,
     ],
   );
@@ -222,6 +196,7 @@ export function RegistrationWizard() {
   const hasFormAdapter = adapters.some((adapter) => adapter.mode === 'form');
 
   const toggleProduct = useCallback((candidateId: string) => {
+    const selecting = !selectedItems.has(candidateId);
     setSelectedItems((current) => {
       const next = new Map(current);
       if (next.has(candidateId)) {
@@ -232,19 +207,21 @@ export function RegistrationWizard() {
       if (found) next.set(candidateId, found);
       return next;
     });
-  }, [pageItems]);
+    rememberRegistration([candidateId], selecting);
+  }, [pageItems, rememberRegistration, selectedItems]);
 
   const toggleAllOnPage = useCallback(() => {
+    const allSelected = pageItems.length > 0 && pageItems.every((item) => selectedItems.has(item.candidateId));
     setSelectedItems((current) => {
       const next = new Map(current);
-      const allSelected = pageItems.length > 0 && pageItems.every((item) => next.has(item.candidateId));
       for (const item of pageItems) {
         if (allSelected) next.delete(item.candidateId);
         else next.set(item.candidateId, item);
       }
       return next;
     });
-  }, [pageItems]);
+    rememberRegistration(pageItems.map((item) => item.candidateId), !allSelected);
+  }, [pageItems, rememberRegistration, selectedItems]);
 
   const toggleMall = useCallback((mallKey: string) => {
     setSelectedMalls((current) => {
@@ -267,25 +244,6 @@ export function RegistrationWizard() {
     }));
   }, []);
 
-  const selectRegistrationTarget = useCallback((mallKey: string, candidateId: string, targetId: string) => {
-    setRegistrationTargetIdsByMall((current) => ({
-      ...current,
-      [mallKey]: { ...(current[mallKey] ?? {}), [candidateId]: targetId },
-    }));
-  }, []);
-
-  const ensureCandidateForRegistration = useCallback(async (candidateId: string) => (
-    ensureCandidateSalesProduct(candidateId, async (id) => {
-      const detail = await productsApi.getDetail(id);
-      const rendered = await prepareSavedCandidateDetailImage(id, detail).catch(() => null);
-      return salesProductInputFromCandidate(detail, rendered?.status === 'ready' ? rendered.imageUrl : null);
-    }, {
-      findByCandidate: salesProductApi.findByCandidate,
-      update: salesProductApi.update,
-      createFromCandidates: salesProductApi.createFromCandidates,
-    })
-  ), []);
-
   const restart = useCallback(() => {
     run.reset();
     setStep(1);
@@ -297,7 +255,7 @@ export function RegistrationWizard() {
       : step === 2 ? adapters.length > 0
         : step === 3 ? plan.sendCount > 0
           && missingByMall.length === 0
-          && (!hasFormAdapter || (targetsQuery.isSuccess && registrationTargetChoicesQuery.isSuccess))
+          && (!hasFormAdapter || targetsQuery.isSuccess)
           : false;
 
   return (
@@ -313,13 +271,6 @@ export function RegistrationWizard() {
       {source === 'sales_product' && salesQuery.isError ? (
         <ErrorBox error={salesQuery.error} fallback="판매상품을 불러오지 못했습니다." />
       ) : null}
-      {step === 3 && registrationTargetChoicesQuery.isError ? (
-        <ErrorBox error={registrationTargetChoicesQuery.error} fallback="기존 등록 설정을 확인하지 못했습니다." />
-      ) : null}
-      {step === 3 && hasFormAdapter && registrationTargetChoicesQuery.isLoading ? (
-        <p role="status" className="text-xs text-slate-500">기존 등록 설정을 확인하고 있습니다.</p>
-      ) : null}
-
       {step === 1 ? (
         <StepProducts
           source={source}
@@ -330,6 +281,7 @@ export function RegistrationWizard() {
             setPage(1);
           }}
           items={pageItems}
+          registrationByItem={pageRegistration}
           total={(source === 'sales_product' ? salesQuery.data?.total : productsQuery.data?.total) ?? 0}
           page={page}
           limit={PAGE_SIZE}
@@ -358,12 +310,8 @@ export function RegistrationWizard() {
           activeMallKey={activeMallKey || adapters[0]?.mallKey || ''}
           valuesByMall={valuesByMall}
           blocks={plan.blocks}
-          channelAccountId={targetsQuery.data?.find((target) => target.manifest.key === (activeMallKey || adapters[0]?.mallKey))?.channelAccountId ?? null}
-          registrationTargetsByItem={registrationTargetsByItem}
-          selectedRegistrationTargetIds={registrationTargetIdsByMall[activeMallKey || adapters[0]?.mallKey || ''] ?? {}}
           onSelectMall={setActiveMallKey}
           onChangeValue={changeValue}
-          onSelectRegistrationTarget={(candidateId, targetId) => selectRegistrationTarget(activeMallKey || adapters[0]?.mallKey || '', candidateId, targetId)}
         />
       ) : null}
 
@@ -383,7 +331,7 @@ export function RegistrationWizard() {
         onNext={() => setStep((current) => Math.min(4, current + 1))}
         onSend={() => {
           setStep(4);
-          void run.start(plan.tasks, { ensureCandidateSalesProduct: ensureCandidateForRegistration });
+          void run.start(plan.tasks);
         }}
         onCancel={run.cancel}
         onRestart={restart}
@@ -524,7 +472,7 @@ function ActionBar({
               className="inline-flex items-center gap-1.5 rounded-lg bg-purple-600 px-4 py-2 text-sm font-medium text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Send size={14} />
-              {formatNumber(sendCount)}건 보내기
+              {formatNumber(sendCount)}건 등록 실행
             </button>
           ) : null}
 

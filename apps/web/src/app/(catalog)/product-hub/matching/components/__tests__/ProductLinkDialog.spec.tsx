@@ -5,7 +5,11 @@ import {
   useRecipeComponentCandidates,
   useSaveProductInventoryMatching,
 } from '../../hooks/useChannelSkuMappings';
+import { toast } from 'sonner';
+import { ApiError } from '@/lib/api-error';
 import { ProductLinkDialog } from '../ProductLinkDialog';
+
+vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
 vi.mock('../../hooks/useChannelSkuMappings', () => ({
   useRecipeComponentCandidates: vi.fn(),
@@ -48,6 +52,7 @@ describe('<ProductLinkDialog>', () => {
       channelListingId: '11111111-1111-4111-8111-111111111111',
       options: [{
         channelListingOptionId: '44444444-4444-4444-8444-444444444444',
+        expectedComponents: [],
         components: [{
           masterProductId: '66666666-6666-4666-8666-666666666666',
           quantity: 10,
@@ -74,6 +79,7 @@ describe('<ProductLinkDialog>', () => {
       channelListingId: '11111111-1111-4111-8111-111111111111',
       options: [{
         channelListingOptionId: '44444444-4444-4444-8444-444444444444',
+        expectedComponents: [],
         components: [{
           masterProductId: '66666666-6666-4666-8666-666666666666',
           quantity: 2,
@@ -106,6 +112,7 @@ describe('<ProductLinkDialog>', () => {
     await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({
       options: [{
         channelListingOptionId: '77777777-7777-4777-8777-777777777777',
+        expectedComponents: [],
         components: [{
           masterProductId: '66666666-6666-4666-8666-666666666666',
           quantity: 3,
@@ -144,12 +151,53 @@ describe('<ProductLinkDialog>', () => {
     await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({
       options: [{
         channelListingOptionId: '44444444-4444-4444-8444-444444444444',
+        expectedComponents: [{ masterProductId: '66666666-6666-4666-8666-666666666666', quantity: 1 }],
         components: [{
           masterProductId: '66666666-6666-4666-8666-666666666666',
           quantity: 4,
         }],
       }],
     })));
+  });
+
+  it('sends the recipe it loaded even after a refetch replaced it under a dirty draft', async () => {
+    const component = {
+      id: '88888888-8888-4888-8888-888888888888',
+      masterProductId: '66666666-6666-4666-8666-666666666666',
+      code: 'SP-100',
+      name: '우산 낱개',
+      optionName: null,
+      barcode: null,
+      currentStock: 80,
+      quantity: 1,
+    };
+    const loaded = optionRow(true);
+    loaded.option.inventoryComponents = [component];
+    const { rerender } = render(<ProductLinkDialog open onOpenChange={vi.fn()} row={productRow(true)} options={[loaded]} />);
+
+    fireEvent.change(screen.getByRole('spinbutton', { name: 'SP-100 차감 수량' }), { target: { value: '4' } });
+    const refetched = optionRow(true);
+    refetched.option.inventoryComponents = [{ ...component, quantity: 3 }];
+    rerender(<ProductLinkDialog open onOpenChange={vi.fn()} row={productRow(true)} options={[refetched]} />);
+    fireEvent.click(screen.getByRole('button', { name: '재고 매칭 저장' }));
+
+    await waitFor(() => expect(save).toHaveBeenCalledWith(expect.objectContaining({
+      options: [{
+        channelListingOptionId: '44444444-4444-4444-8444-444444444444',
+        expectedComponents: [{ masterProductId: '66666666-6666-4666-8666-666666666666', quantity: 1 }],
+        components: [{ masterProductId: '66666666-6666-4666-8666-666666666666', quantity: 4 }],
+      }],
+    })));
+  });
+
+  it('asks the operator to refresh when the recipe changed elsewhere', async () => {
+    save.mockRejectedValueOnce(new ApiError(409, 'Conflict', 'recipe changed'));
+    render(<ProductLinkDialog open onOpenChange={vi.fn()} row={productRow()} options={[optionRow()]} />);
+
+    fireEvent.click(screen.getByRole('button', { name: 'SP-100 재고 선택' }));
+    fireEvent.click(screen.getByRole('button', { name: '재고 매칭 저장' }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('다른 곳에서 구성이 바뀌었습니다. 새로고침 후 다시 적용하세요.'));
   });
 });
 

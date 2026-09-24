@@ -1,3 +1,5 @@
+import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { describe, it, expect, beforeAll, afterAll, beforeEach, vi } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { ConflictException } from '@nestjs/common';
@@ -1013,9 +1015,9 @@ describe('AdAction flow (PG integration)', () => {
           },
         },
       });
-      const rejecting = new AdActionRepositoryAdapter(
+      const rejecting = new AdActionRepositoryAdapter(channelFactTestPorts(racing as never).listings, channelFactTestPorts(racing as never).recipes,
         racing as never,
-        new AdListingRepositoryAdapter(prisma as never),
+        new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(racing as never).accounts
       );
 
       expect(await refusal(rejecting.rejectAdActions([action.id], TEST_ORGANIZATION_ID)))
@@ -1048,9 +1050,9 @@ describe('AdAction flow (PG integration)', () => {
           },
         },
       });
-      const rejecting = new AdActionRepositoryAdapter(
+      const rejecting = new AdActionRepositoryAdapter(channelFactTestPorts(racing as never).listings, channelFactTestPorts(racing as never).recipes,
         racing as never,
-        new AdListingRepositoryAdapter(prisma as never),
+        new AdListingRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never), profitCatalogTestReaders(racing as never).accounts
       );
       try {
         return await rejecting.rejectAdActions([actionId], TEST_ORGANIZATION_ID);
@@ -1447,7 +1449,7 @@ describe('AdAction flow (PG integration)', () => {
       expect(otherCount).toBe(0);
     });
 
-    it('#12 composite tenant FK rejects cross-tenant listing references', async () => {
+    it('#12 a snapshot naming another organization listing never carries that listing into an action — listing facts are read inside the organization (ADR-0013: no cross-owner FK)', async () => {
       const local = await seedListingWithOption({
         organizationId: TEST_ORGANIZATION_ID,
         abcGrade: 'A',
@@ -1455,21 +1457,28 @@ describe('AdAction flow (PG integration)', () => {
       const foreign = await seedListingWithOption({
         organizationId: OTHER_ORGANIZATION_ID,
         abcGrade: 'A',
+        externalIdSuffix: '-foreign',
       });
-      await expect(
-        seedSnapshot({
-          organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: local.listing.channelAccountId,
-          listingId: foreign.listing.id,
-          listingOptionId: foreign.listingOption.id,
-          optionId: foreign.option.id,
-          pageType: 'keyword',
-          externalId: 'CORRUPT-KW',
-          keyword: 'corrupt keyword',
-          spend: 6000,
-          conversions: 0,
-        }),
-      ).rejects.toThrow(/foreign key/i);
+      // 광고 표는 Channels 리스팅을 외래키 없이 id 로만 가리킨다. 섞인 id 가 들어와도 광고 owner 는 조직 안의
+      // 리스팅 · 옵션 사실만 이어 붙이므로, 키워드 규칙이 만든 액션에는 남의 리스팅이 실리지 않는다.
+      await seedSnapshot({
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: local.listing.channelAccountId,
+        listingId: foreign.listing.id,
+        listingOptionId: foreign.listingOption.id,
+        optionId: foreign.option.id,
+        pageType: 'keyword',
+        externalId: 'CORRUPT-KW',
+        keyword: 'corrupt keyword',
+        spend: 6000,
+        conversions: 0,
+      });
+
+      const result = await adActionService.generateActions(TEST_ORGANIZATION_ID);
+
+      expect(result.generated).toBe(1);
+      const actions = await prisma.adAction.findMany({ select: { organizationId: true, listingId: true, listingOptionId: true } });
+      expect(actions).toEqual([{ organizationId: TEST_ORGANIZATION_ID, listingId: null, listingOptionId: null }]);
     });
 
     it('#13 markRunning on another tenant id → NotFoundException', async () => {

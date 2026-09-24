@@ -4,7 +4,7 @@ import {
   PRODUCT_SOURCE_READ_PORT,
   type ProductSourceReadPort,
 } from '../../../../products/application/port/in/product-source-read.port';
-import { withListingProductSummary } from '../../../domain/listing-product-summary';
+import { withListingProductSummary } from '../../../domain/listing/listing-product-summary';
 import type {
   ChannelRecipeSuggestionContext,
   ChannelRecipeSuggestionContextRepositoryPort,

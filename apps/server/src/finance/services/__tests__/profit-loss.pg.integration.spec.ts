@@ -1,3 +1,4 @@
+import { channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
 import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';
 import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { randomUUID } from 'node:crypto';
@@ -269,6 +270,7 @@ describe('ProfitLossService (PG integration — live aggregation)', () => {
 
     const m = await Test.createTestingModule({
       providers: [
+        ...channelFactTestProviders,
         { provide: PRODUCT_TRANSACTIONAL_READ_PORT, useClass: ProductTransactionalReadRepositoryAdapter },
         ProfitLossService,
         { provide: PrismaService, useValue: prisma },

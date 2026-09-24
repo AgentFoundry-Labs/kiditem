@@ -1,5 +1,8 @@
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import { randomUUID } from 'node:crypto';
-import {
+import { Inject,
   BadRequestException,
   ConflictException,
   Injectable,
@@ -16,7 +19,7 @@ import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { businessDateKey, evidenceCutoffDate, parseBusinessDate } from '../../../../common/kst';
 import { canonicalOwnerInputHash as hash } from '../../../../common/owner-idempotency-key';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
-import { resolveCoupangVendorId } from '../../../../channels/domain/coupang-account-identity';
+import { resolveCoupangVendorId } from '../../../../channels/domain/account/coupang-account-identity';
 import { currentBusinessDate, toBusinessDate } from '../../../domain/business-date';
 import {
   matchListingFromRow,
@@ -122,6 +125,8 @@ export class WingItemwinnerKpiSourceRepository
   implements WingItemwinnerKpiSourcePort, WingItemwinnerKpiReadPort
 {
   constructor(
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
   ) {}
@@ -565,7 +570,6 @@ export class WingItemwinnerKpiSourceRepository
             sourceImportRunId: row.id,
             source: SNAPSHOT_SOURCE,
             pageType: PAGE_TYPE,
-            sourceImportRun: { status: SOURCE_IMPORT_RUN_COMPLETED_STATUS, sourceType: WING_ITEMWINNER_SOURCE },
           },
           orderBy: [{ observedAt: 'desc' }, { id: 'desc' }],
           select: { id: true, businessDate: true, observedAt: true, normalizedJson: true },
@@ -752,15 +756,7 @@ export class WingItemwinnerKpiSourceRepository
 
   /** The named active Coupang account, or the primary one when none is named. */
   private async account(tx: Tx, organizationId: string, channelAccountId?: string) {
-    return tx.channelAccount.findFirst({
-      where: {
-        organizationId,
-        channel: 'coupang',
-        status: 'active',
-        ...(channelAccountId ? { id: channelAccountId } : {}),
-      },
-      orderBy: [{ isPrimary: 'desc' }, { updatedAt: 'desc' }, { id: 'asc' }],
-    });
+    return this.channelAccounts.resolveActiveProvider(ownerTransaction(tx), { organizationId, channel: 'coupang', accountId: channelAccountId });
   }
 
   /** The frozen account is still active with the vendor identity it was admitted with. */
@@ -774,20 +770,9 @@ export class WingItemwinnerKpiSourceRepository
   }
 
   private async listingMap(tx: Tx, organizationId: string, channelAccountId: string): Promise<ListingMap> {
-    const [options, listings] = await Promise.all([
-      tx.channelListingOption.findMany({
-        where: {
-          organizationId,
-          isActive: true,
-          listing: { organizationId, channelAccountId, isActive: true },
-        },
-        select: { id: true, externalOptionId: true, listingId: true },
-      }),
-      tx.channelListing.findMany({
-        where: { organizationId, channelAccountId, isActive: true },
-        select: { id: true, externalId: true },
-      }),
-    ]);
+    const catalog = await this.channelListings.readCatalogFacts(ownerTransaction(tx), { organizationId, accountIds: [channelAccountId], activeOnly: true });
+    const listings = catalog;
+    const options = catalog.flatMap(listing => listing.options.map(option => ({ ...option, listingId: listing.id })));
     const listingById = new Map(listings.map((listing) => [listing.id, listing]));
     const externalOptionIdMap = new Map<string, { listingId: string; listingOptionId: string; externalId: string }>();
     for (const option of options) {

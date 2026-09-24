@@ -59,7 +59,7 @@ export interface SourcingLaunchCandidate {
   candidateKey: string;
   version: number;
   identityHash: string;
-  sourceCandidateId: string | null;
+  sourceRecordId: string | null;
   supplierOfferSkuSnapshotId: string;
   targetChannelAccountId: string;
   productConceptVersionKey: string;

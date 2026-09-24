@@ -17,11 +17,10 @@ const { fillKidsnoteMock, prepareKidsnoteMock, generateWingExcelMock, downloadWi
     generateWingExcelMock: vi.fn(),
     downloadWingExcelMock: vi.fn(),
   }));
-const { resolveTargetMock, targetHistoryMock, executeTargetMock, ensureCandidateMock } = vi.hoisted(() => ({
+const { resolveTargetMock, targetHistoryMock, executeTargetMock } = vi.hoisted(() => ({
   resolveTargetMock: vi.fn(),
   targetHistoryMock: vi.fn(),
   executeTargetMock: vi.fn(),
-  ensureCandidateMock: vi.fn(),
 }));
 
 // 등록현황은 쿠팡 칸의 지금 재고를 확장으로 읽는다. 몰에 닿는 그 한 단계만 막는다.
@@ -46,6 +45,30 @@ vi.mock('@tanstack/react-query', () => ({
     if (queryKey.includes('registration-target-choices')) {
       return { data: [], isLoading: false, isSuccess: true, isError: false, error: null };
     }
+    // 수집 상품 탭은 KID 를 아직 받지 않은 판매상품 초안 목록이다(KID-313).
+    if (queryKey.includes('sales-products') && JSON.stringify(queryKey).includes('preparing')) {
+      const draft = (id: string, name: string, salePrice: number | null) => ({
+        id, code: null, ownCode: null, sourceRecordId: null, sourcePlatform: '1688', sourceUrl: null, name,
+        status: 'draft', salePrice, imageUrl: null, optionAxes: [], optionCount: 1, sellingOptionCount: 1,
+        unlinkedOptionCount: 1, channelListingCount: 0, updatedAt: '2026-09-19T00:00:00.000Z',
+      });
+      return {
+        data: {
+          items: [
+            draft('sp-c1', '킬러볼 스피너 키링', 2280),
+            draft('sp-c2', '공룡 물총', 3500),
+            draft('sp-c3', '판매가 없는 상품', 0),
+          ],
+          total: 3,
+          page: 1,
+          limit: 25,
+          summary: { total: 3, withOptions: 0, withUnlinkedOptions: 3, unregistered: 0, draft: 3 },
+        },
+        isLoading: false,
+        isError: false,
+        error: null,
+      };
+    }
     if (queryKey.includes('sales-products')) {
       return {
         data: {
@@ -53,18 +76,26 @@ vi.mock('@tanstack/react-query', () => ({
             {
               id: 's1', code: '100300', ownCode: null, name: '애니멀 만능패드', status: 'active', salePrice: 5900,
               imageUrl: null, optionAxes: ['색상'], optionCount: 3, sellingOptionCount: 3, unlinkedOptionCount: 0,
-              channelListingCount: 0, channelOverrideCount: 0, updatedAt: '2026-09-19T00:00:00.000Z',
+              channelListingCount: 0, updatedAt: '2026-09-19T00:00:00.000Z',
+              registrationAccounts: [],
             },
             {
               id: 's2', code: '100017', ownCode: null, name: '투명우산 그리기', status: 'active', salePrice: 2880,
               imageUrl: null, optionAxes: [], optionCount: 1, sellingOptionCount: 1, unlinkedOptionCount: 0,
-              channelListingCount: 0, channelOverrideCount: 0, updatedAt: '2026-09-19T00:00:00.000Z',
+              channelListingCount: 0, updatedAt: '2026-09-19T00:00:00.000Z',
+              registrationAccounts: [{
+                channelAccountId: '11111111-1111-4111-8111-111111111111', channel: 'kidsnote', channelAccountName: '키즈노트',
+                registrationTargetId: null, channelListingId: null, externalListingId: null,
+                listingState: null, listingRawStatus: null, listingActive: false, state: 'registered',
+                soldOut: false, changedSinceRegistration: false, selectedThumbnailAssetId: null,
+                selectedDetailPageRevisionId: null, lastExecution: null,
+              }],
             },
           ],
           total: 2,
           page: 1,
           limit: 25,
-          summary: { total: 2, withOptions: 1, withUnlinkedOptions: 0 },
+          summary: { total: 2, withOptions: 1, withUnlinkedOptions: 0, unregistered: 0 },
         },
         isLoading: false,
         isError: false,
@@ -84,9 +115,10 @@ vi.mock('@tanstack/react-query', () => ({
     return {
       data: {
         items: [
-          { id: 'c1', name: '킬러볼 스피너 키링', price_krw: 2280, thumbnailUrl: null },
-          { id: 'c2', name: '공룡 물총', price_krw: 3500, thumbnailUrl: null },
-          { id: 'c3', name: '판매가 없는 상품', price_krw: 0, thumbnailUrl: null },
+          // 수집 시점부터 판매상품 초안이 있다(ADR-0022) — 목록 항목이 이미 그 id를 안다.
+          { id: 'c1', name: '킬러볼 스피너 키링', price_krw: 2280, thumbnailUrl: null, salesProductId: 'sp-c1' },
+          { id: 'c2', name: '공룡 물총', price_krw: 3500, thumbnailUrl: null, salesProductId: 'sp-c2' },
+          { id: 'c3', name: '판매가 없는 상품', price_krw: 0, thumbnailUrl: null, salesProductId: 'sp-c3' },
         ],
         total: 3,
       },
@@ -110,10 +142,6 @@ vi.mock('../_shared/target-registration-execution', () => ({
   isActiveTargetExecution: (execution: { status: string }) => ['prepared', 'executing', 'reconciling'].includes(execution.status),
 }));
 
-vi.mock('@/lib/candidate-sales-product-registration', () => ({
-  ensureCandidateSalesProduct: ensureCandidateMock,
-}));
-
 vi.mock('../../(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api', () => ({
   productsApi: { list: vi.fn() },
 }));
@@ -123,8 +151,8 @@ vi.mock('../../(product-pipeline)/product-pipeline/_shared/lib/kidsnote-registra
   fillKidsnoteRegistrationForm: fillKidsnoteMock,
 }));
 
-vi.mock('../../(product-pipeline)/product-pipeline/collected-products/lib/wing-registration-flow', () => ({
-  generateWingExcelForCandidates: generateWingExcelMock,
+vi.mock('../_shared/adapters/coupang-wing/wing-excel-export', () => ({
+  generateWingExcelForSalesProducts: generateWingExcelMock,
   downloadWingExcel: downloadWingExcelMock,
 }));
 
@@ -174,7 +202,7 @@ function publishTarget(key: string, name: string, channelAccountId: string | nul
 }
 
 const publishTargets = [
-  publishTarget('coupang', '쿠팡(마켓플레이스)', null),
+  publishTarget('coupang', '쿠팡(마켓플레이스)', '99999999-9999-4999-8999-999999999999'),
   publishTarget('kidsnote', '키즈노트', '11111111-1111-4111-8111-111111111111'),
 ];
 
@@ -186,6 +214,12 @@ function goToWizard(source: 'candidate' | 'sales_product' = 'candidate') {
 
 function selectProduct(name: string) {
   fireEvent.click(screen.getByRole('checkbox', { name: `${name} 선택` }));
+}
+
+/** 쿠팡 WING 은 카테고리를 골라야 보낼 수 있다 — 값 단계에서 그 몰을 열어 고른다. */
+function pickWingCategory() {
+  fireEvent.click(screen.getByRole('button', { name: /^쿠팡 WING/ }));
+  fireEvent.change(screen.getByDisplayValue('카테고리를 선택하세요'), { target: { value: '64687' } });
 }
 
 function goNext() {
@@ -205,7 +239,6 @@ beforeEach(() => {
   });
   resolveTargetMock.mockResolvedValue({ id: 'target-id', version: 1 });
   targetHistoryMock.mockResolvedValue([]);
-  ensureCandidateMock.mockImplementation(async (candidateId: string) => ({ id: `sales-${candidateId}` }));
   executeTargetMock.mockResolvedValue({
     execution: { executionId: 'execution-id', status: 'reconciling', providerOutcome: 'uncertain' },
     outcome: {
@@ -234,6 +267,20 @@ describe('판매상품에서 등록 (ADR-0014)', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
     goNext();
     expect(screen.getByText(/옵션 3개 상품입니다\. 키즈노트 옵션 채우기가 아직 없어 보내지 않습니다\./)).toBeInTheDocument();
+  });
+});
+
+describe('새 등록 — 등록 상태(KID-320)', () => {
+  it('상품 줄에 등록 상태 요약을 보이고, 이미 그 계정에 등록된 상품은 기본으로 보내지 않는다', () => {
+    render(<MallListingsPage />);
+    goToWizard('sales_product');
+    expect(screen.getByText('1몰 등록')).toBeInTheDocument();
+    selectProduct('애니멀 만능패드');
+    selectProduct('투명우산 그리기');
+    goNext();
+    fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
+    goNext();
+    expect(screen.getByText(/이 몰 계정에 이미 등록됨/)).toBeInTheDocument();
   });
 });
 
@@ -301,17 +348,17 @@ describe('상품 등록 (N × M)', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '쿠팡 WING 선택' }));
     fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
     goNext();
+    pickWingCategory();
 
-    fireEvent.click(screen.getByRole('button', { name: /4건 보내기/ }));
+    fireEvent.click(screen.getByRole('button', { name: /4건 등록 실행/ }));
 
+    // 쿠팡 WING 도 폼 몰이다(KID-321) — 몰마다 상품 1건씩, 모두 등록 대상 실행을 지난다. 엑셀을 만들지 않는다.
     await waitFor(() => {
-      expect(executeTargetMock).toHaveBeenCalledTimes(2);
+      expect(executeTargetMock).toHaveBeenCalledTimes(4);
     });
-    // 엑셀은 파일 하나에 2건, 폼은 1건씩 2번. 작업은 3개다.
-    expect(generateWingExcelMock).toHaveBeenCalledTimes(1);
-    expect(generateWingExcelMock).toHaveBeenCalledWith(['c1', 'c2'], expect.anything());
-    expect(downloadWingExcelMock).toHaveBeenCalledTimes(1);
-    expect(resolveTargetMock).toHaveBeenCalledTimes(2);
+    expect(generateWingExcelMock).not.toHaveBeenCalled();
+    expect(downloadWingExcelMock).not.toHaveBeenCalled();
+    expect(resolveTargetMock).toHaveBeenCalledTimes(4);
   });
 
   it('보냈다고 등록됐다고 말하지 않는다', async () => {
@@ -321,7 +368,7 @@ describe('상품 등록 (N × M)', () => {
     goNext();
     fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
     goNext();
-    fireEvent.click(screen.getByRole('button', { name: /1건 보내기/ }));
+    fireEvent.click(screen.getByRole('button', { name: /1건 등록 실행/ }));
 
     await waitFor(() => {
       expect(screen.getByText('결과 확인 필요')).toBeInTheDocument();
@@ -344,12 +391,14 @@ describe('상품 등록 (N × M)', () => {
     fireEvent.click(screen.getByRole('checkbox', { name: '쿠팡 WING 선택' }));
     fireEvent.click(screen.getByRole('checkbox', { name: '키즈노트 선택' }));
     goNext();
-    fireEvent.click(screen.getByRole('button', { name: /2건 보내기/ }));
+    pickWingCategory();
+    fireEvent.click(screen.getByRole('button', { name: /2건 등록 실행/ }));
 
+    // 두 몰 모두 같은 실패를 보이고, 첫 몰의 실패가 둘째 몰을 멈추지 않는다.
     await waitFor(() => {
-      expect(screen.getByText('확장을 새로고침하세요')).toBeInTheDocument();
+      expect(screen.getAllByText('확장을 새로고침하세요')).toHaveLength(2);
     });
-    expect(generateWingExcelMock).toHaveBeenCalledTimes(1);
+    expect(executeTargetMock).toHaveBeenCalledTimes(2);
     // 요약 카드 라벨과 작업 줄의 상태, 둘 다 '실패' 로 나온다.
     expect(screen.getAllByText('실패').length).toBeGreaterThanOrEqual(2);
   });
@@ -440,6 +489,49 @@ describe('등록 현황 (상품 × 몰 매트릭스)', () => {
     // 상품 2개 × 키즈노트 열 = 미등록 칸 2개. 필터 버튼의 '미등록'과 섞이지 않게
     // 표 안에서만 센다.
     expect(within(table).getAllByText('미등록')).toHaveLength(2);
+  });
+
+  it('판매상품이 있는 칸은 등록 상태 reader 의 계정 배지를, 없는 칸은 리스팅 상태를 보인다(KID-320)', () => {
+    withMatrix();
+    const rows = (matrixData as { rows: { cells: Record<string, unknown>[] }[] }).rows;
+    rows[0]!.cells[0] = {
+      ...rows[0]!.cells[0],
+      registration: {
+        channelAccountId: '99999999-9999-4999-8999-999999999999', channel: 'coupang', channelAccountName: '쿠팡',
+        registrationTargetId: null, channelListingId: null, externalListingId: '16290876620',
+        listingState: 'published', listingRawStatus: '승인완료', listingActive: true, state: 'registered',
+        soldOut: true, changedSinceRegistration: true, selectedThumbnailAssetId: null,
+        selectedDetailPageRevisionId: null, lastExecution: null,
+      },
+    };
+    render(<MallListingsPage />);
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('등록됨')).toBeInTheDocument();
+    expect(within(table).getByText('품절')).toBeInTheDocument();
+    expect(within(table).queryByText(/변경됨/)).not.toBeInTheDocument();
+    // 판매상품 없는 칸(두 번째 줄)은 리스팅 상태 그대로다.
+    expect(within(table).getByText('확인필요')).toBeInTheDocument();
+  });
+
+  it('몰이 아직 승인하지 않은 리스팅은 등록됨 옆에 미승인을 그대로 보인다 — 초록 등록됨으로 덮지 않는다', () => {
+    withMatrix();
+    const rows = (matrixData as { rows: { cells: Record<string, unknown>[] }[] }).rows;
+    rows[0]!.cells[0] = {
+      ...rows[0]!.cells[0],
+      state: 'reviewing',
+      rawStatus: '승인대기',
+      registration: {
+        channelAccountId: '99999999-9999-4999-8999-999999999999', channel: 'coupang', channelAccountName: '쿠팡',
+        registrationTargetId: null, channelListingId: null, externalListingId: '16290876620',
+        listingState: 'reviewing', listingRawStatus: '승인대기', listingActive: true, state: 'registered',
+        soldOut: false, changedSinceRegistration: false, selectedThumbnailAssetId: null,
+        selectedDetailPageRevisionId: null, lastExecution: null,
+      },
+    };
+    render(<MallListingsPage />);
+    const table = screen.getByRole('table');
+    expect(within(table).getByText('등록됨')).toBeInTheDocument();
+    expect(within(table).getByText('미승인')).toBeInTheDocument();
   });
 
   it('리스팅을 안 가져온 몰은 열에 미수집이 붙고 아래에 설명이 나온다', () => {

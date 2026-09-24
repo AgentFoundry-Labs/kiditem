@@ -1,498 +1,249 @@
-import { useEffect, useRef, useState } from 'react';
+'use client';
+
+import { useMemo, useState } from 'react';
 import Link from 'next/link';
-import { AlertTriangle, CheckCircle, Loader2, Wand2, XCircle, Zap, type LucideIcon } from 'lucide-react';
+import { CheckCircle, Loader2, RotateCcw, Square, Trash2, X } from 'lucide-react';
 import { toast } from 'sonner';
-import type { RecomposeVariantKey, ThumbnailAnalysisResult, ThumbnailGenerationItem } from '@kiditem/shared/ai';
-import { isActive, isApplied, isReady } from '../../_shared/lib/thumbnail-status';
-import { useDeleteGeneration, useReEditGeneration } from '../../_shared/hooks/useThumbnailGenerations';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { ProductCard } from '../../_shared/components/thumbnails/ProductCard';
-import { RecomposeVariantPicker } from '../../_shared/components/thumbnails/RecomposeVariantPicker';
+import { isApiError } from '@/lib/api-error';
+import { resolveImageUrl } from '@/lib/resolve-url';
+import { cn } from '@/lib/utils';
 import { ThumbnailStatusBadge } from '../../_shared/components/thumbnails/ThumbnailStatusBadge';
-import { buildEditHref } from '@/app/(product-pipeline)/product-pipeline/thumbnail-generation/edit/lib/build-edit-href';
-import { ReadyGenerationSection } from './ReadyGenerationSection';
+import { useAdoptThumbnail } from '../../_shared/hooks/useRepresentativeImage';
+import {
+  thumbnailJobTitle,
+  useCancelThumbnailJob,
+  useDeleteThumbnailCandidate,
+  useDeleteThumbnailJob,
+  useReEditThumbnailJob,
+  useThumbnailJobs,
+  type ThumbnailJobListItem,
+} from '../../_shared/hooks/useThumbnailJobs';
+import {
+  isThumbnailJobActive,
+  isThumbnailJobAdopted,
+  isThumbnailJobAwaitingAdoption,
+  isThumbnailJobEnded,
+} from '../../_shared/lib/thumbnail-status';
+import { thumbnailGenerationEditHref } from '../../_shared/lib/product-pipeline-routes';
 
-type EditFilter = 'pending' | 'generating' | 'ready' | 'applied' | 'failed';
+export type AiEditFilter = 'generating' | 'ready' | 'adopted' | 'failed';
 
-interface AiEditTabProps {
-  generations: ThumbnailGenerationItem[];
-  pendingProducts: ThumbnailAnalysisResult[];
-  editFilter: EditFilter;
-  onChangeFilter: (f: EditFilter) => void;
-  editJobsPending: boolean;
-  wingRegisteringIds: Set<string>;
-  onSelectGen: (g: ThumbnailGenerationItem) => void;
-  /**
-   * 단일 상품 편집. variantKey 가 지정되면 사용자가 카드에서 명시적으로 고른 레이아웃,
-   * 없으면 서버 기본값(auto)으로 진행.
-   */
-  onEditSingle: (contentWorkspaceId: string, variantKey?: RecomposeVariantKey) => void;
-  onEditBatch: (contentWorkspaceIds: string[]) => void;
-  onSelectCandidate: (id: string, url: string) => void;
-  onOpenCoupangEdit: (g: ThumbnailGenerationItem) => void;
-}
+const FILTERS: Array<{ key: AiEditFilter; label: string; match: (job: ThumbnailJobListItem) => boolean }> = [
+  { key: 'ready', label: '후보 선택', match: isThumbnailJobAwaitingAdoption },
+  { key: 'generating', label: '생성중', match: isThumbnailJobActive },
+  { key: 'adopted', label: '채택됨', match: isThumbnailJobAdopted },
+  { key: 'failed', label: '실패 · 중단', match: isThumbnailJobEnded },
+];
 
-const byNewestGen = (a: ThumbnailGenerationItem, b: ThumbnailGenerationItem) =>
+const byNewest = (a: ThumbnailJobListItem, b: ThumbnailJobListItem) =>
   new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
 
-const byNewestAnalysis = (a: ThumbnailAnalysisResult, b: ThumbnailAnalysisResult) => {
-  const ta = a.createdAt ? new Date(a.createdAt).getTime() : 0;
-  const tb = b.createdAt ? new Date(b.createdAt).getTime() : 0;
-  return tb - ta;
-};
+function errorMessage(error: unknown, fallback: string): string {
+  if (isApiError(error)) return error.detail;
+  return error instanceof Error ? error.message : fallback;
+}
 
-export function AiEditTab({
-  generations,
-  pendingProducts,
-  editFilter,
-  onChangeFilter,
-  editJobsPending,
-  wingRegisteringIds,
-  onSelectGen,
-  onEditSingle,
-  onEditBatch,
-  onSelectCandidate,
-  onOpenCoupangEdit,
-}: AiEditTabProps) {
-  const generatingGens = generations.filter((g) => isActive(g)).sort(byNewestGen);
-  const readyGens = generations.filter((g) => isReady(g)).sort(byNewestGen);
-  const appliedGens = generations.filter((g) => isApplied(g)).sort(byNewestGen);
-  const failedGens = generations.filter((g) => g.status === 'failed' || g.status === 'cancelled').sort(byNewestGen);
-  const sortedPendingProducts = [...pendingProducts].sort(byNewestAnalysis);
-
-  // 생성중 탭에 머물러 있는데 모든 generation 이 완료되면 → 선택 대기 탭으로 자동 전환
-  const prevGeneratingCount = useRef(generatingGens.length);
-  useEffect(() => {
-    const prev = prevGeneratingCount.current;
-    const curr = generatingGens.length;
-    if (editFilter === 'generating' && prev > 0 && curr === 0 && readyGens.length > 0) {
-      onChangeFilter('ready');
-      toast.success(`생성 완료 — 선택 대기로 이동 (${readyGens.length}개)`);
-    }
-    prevGeneratingCount.current = curr;
-  }, [editFilter, generatingGens.length, readyGens.length, onChangeFilter]);
-
-  const deleteMutation = useDeleteGeneration();
-  const [deleteTarget, setDeleteTarget] = useState<ThumbnailGenerationItem | null>(null);
-  const handleDelete = (g: ThumbnailGenerationItem) => setDeleteTarget(g);
-  const confirmDelete = () => {
-    if (!deleteTarget) return;
-    const id = deleteTarget.id;
-    // optimistic 삭제 → 다이얼로그 즉시 닫고 UI 바로 업데이트
-    setDeleteTarget(null);
-    deleteMutation.mutate(id, {
-      onSuccess: () => toast.success('삭제되었습니다'),
-      onError: () => toast.error('삭제 실패'),
-    });
-  };
-
-  const filterCards: Array<{
-    key: EditFilter;
-    label: string;
-    count: number;
-    color: string;
-    desc: string;
-    icon: LucideIcon;
-  }> = [
-    {
-      key: 'pending',
-      label: '대기 중',
-      count: pendingProducts.length,
-      color: '#f59e0b',
-      desc: '편집 시작 전',
-      icon: AlertTriangle,
-    },
-    {
-      key: 'generating',
-      label: '생성 중',
-      count: generatingGens.length,
-      color: '#3182f6',
-      desc: 'AI 처리 중',
-      icon: Loader2,
-    },
-    {
-      key: 'ready',
-      label: '선택 대기',
-      count: readyGens.length,
-      color: '#7048e8',
-      desc: '이미지 선택 필요',
-      icon: Wand2,
-    },
-    {
-      key: 'applied',
-      label: '적용 완료',
-      count: appliedGens.length,
-      color: '#00c471',
-      desc: '쿠팡 반영',
-      icon: CheckCircle,
-    },
-    {
-      key: 'failed',
-      label: '실패',
-      count: failedGens.length,
-      color: '#ef4444',
-      desc: '재시도 필요',
-      icon: XCircle,
-    },
-  ];
+/**
+ * AI 편집 job 과 그 후보(KID-313 W3a). 후보를 채택하면 작업공간의 대표이미지가 그 자산이 된다 — job 에는 선택 ·
+ * 적용 단계가 없다. 몰 반영은 썸네일 생성 허브의 등록 대기에서 한다.
+ */
+export function AiEditTab({ filter, onChangeFilter }: { filter: AiEditFilter; onChangeFilter: (filter: AiEditFilter) => void }) {
+  const { data = [], isLoading } = useThumbnailJobs({ scope: 'all', limit: 200 });
+  const counts = useMemo(
+    () => Object.fromEntries(FILTERS.map((entry) => [entry.key, data.filter(entry.match).length])) as Record<AiEditFilter, number>,
+    [data],
+  );
+  const active = FILTERS.find((entry) => entry.key === filter) ?? FILTERS[0];
+  const jobs = useMemo(() => data.filter(active.match).sort(byNewest), [data, active]);
+  const [deleteTarget, setDeleteTarget] = useState<ThumbnailJobListItem | null>(null);
+  const deleteJob = useDeleteThumbnailJob();
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
-        {filterCards.map((s) => {
-          const isActive = editFilter === s.key;
-          return (
-            <button
-              key={s.key}
-              onClick={() => onChangeFilter(s.key)}
-              className="rounded-2xl px-4 py-4 flex items-center gap-3 text-left transition-all"
-              style={{
-                background: isActive ? `${s.color}12` : 'var(--thumb-card-bg)',
-                border: `2px solid ${isActive ? s.color : 'var(--thumb-border-subtle)'}`,
-                boxShadow: isActive ? `0 0 0 1px ${s.color}30` : 'var(--thumb-shadow-sm)',
-              }}
-            >
-              <div
-                className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0"
-                style={{ background: `${s.color}15` }}
-              >
-                <s.icon size={18} style={{ color: s.color }} />
-              </div>
-              <div>
-                <div
-                  className="text-[22px] font-black tabular-nums leading-none"
-                  style={{
-                    color: s.count > 0 ? s.color : 'var(--thumb-text-disabled)',
-                  }}
-                >
-                  {s.count}
-                </div>
-                <div className="text-[12px] font-bold mt-0.5" style={{ color: 'var(--thumb-text-secondary)' }}>
-                  {s.label}
-                </div>
-                <div className="text-[11px]" style={{ color: 'var(--thumb-text-quaternary)' }}>
-                  {s.desc}
-                </div>
-              </div>
-            </button>
-          );
-        })}
+      <div role="group" aria-label="AI 편집 상태" className="flex flex-wrap gap-1.5">
+        {FILTERS.map((entry) => (
+          <button
+            key={entry.key}
+            type="button"
+            aria-pressed={entry.key === active.key}
+            onClick={() => onChangeFilter(entry.key)}
+            className={cn(
+              'rounded-lg border px-3 py-1.5 text-xs font-semibold',
+              entry.key === active.key
+                ? 'border-primary bg-primary text-white'
+                : 'border-slate-200 bg-white text-slate-600 hover:border-primary hover:text-primary',
+            )}
+          >
+            {entry.label} {counts[entry.key]}
+          </button>
+        ))}
       </div>
 
-      {editFilter === 'pending' && (
-        <PendingSection
-          products={sortedPendingProducts}
-          editJobsPending={editJobsPending}
-          onEditSingle={onEditSingle}
-          onEditBatch={onEditBatch}
-          onChangeFilter={onChangeFilter}
-        />
-      )}
-
-      {editFilter === 'generating' && (
-        <GeneratingSection generations={generatingGens} onSelectGen={onSelectGen} onDelete={handleDelete} />
-      )}
-
-      {editFilter === 'ready' && (
-        <ReadyGenerationSection
-          generations={readyGens}
-          wingRegisteringIds={wingRegisteringIds}
-          onSelectCandidate={onSelectCandidate}
-          onOpenCoupangEdit={onOpenCoupangEdit}
-          onDelete={handleDelete}
-        />
-      )}
-
-      {editFilter === 'applied' && (
-        <AppliedSection generations={appliedGens} onSelectGen={onSelectGen} onDelete={handleDelete} />
-      )}
-
-      {editFilter === 'failed' && (
-        <FailedSection
-          generations={failedGens}
-          onSelectGen={onSelectGen}
-          onDelete={handleDelete}
-          onChangeFilter={onChangeFilter}
-        />
+      {isLoading ? (
+        <div className="flex justify-center py-12 text-slate-400"><Loader2 size={18} className="animate-spin" /></div>
+      ) : jobs.length === 0 ? (
+        <p className="rounded-xl border border-dashed border-slate-200 py-12 text-center text-sm text-slate-500">
+          {active.label} 작업이 없습니다
+        </p>
+      ) : (
+        <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+          {jobs.map((job) => (
+            <AiEditJobCard key={job.id} job={job} onDelete={() => setDeleteTarget(job)} />
+          ))}
+        </div>
       )}
 
       <ConfirmDialog
-        open={!!deleteTarget}
-        onOpenChange={(v) => !v && setDeleteTarget(null)}
+        open={Boolean(deleteTarget)}
+        onOpenChange={(open) => !open && setDeleteTarget(null)}
         tone="danger"
-        title="생성 결과를 삭제할까요?"
-        description={
-          deleteTarget ? (
-            <>
-              <span className="font-semibold text-[var(--text-primary,#0f172a)]">
-                {deleteTarget.contentWorkspace?.name ?? '이 상품'}
-              </span>
-              의 AI 생성 결과가 영구 삭제됩니다. 복구할 수 없습니다.
-            </>
-          ) : null
-        }
+        title="AI 편집 작업을 삭제할까요?"
+        description={deleteTarget ? `${thumbnailJobTitle(deleteTarget)} 의 작업과 후보가 삭제됩니다. 대표이미지로 채택한 후보가 있으면 삭제할 수 없습니다.` : null}
         confirmText="삭제"
         cancelText="취소"
-        onConfirm={confirmDelete}
+        onConfirm={() => {
+          if (!deleteTarget) return;
+          const id = deleteTarget.id;
+          setDeleteTarget(null);
+          deleteJob.mutate(id, {
+            onSuccess: () => toast.success('삭제되었습니다'),
+            onError: (error) => toast.error(errorMessage(error, '삭제 실패')),
+          });
+        }}
       />
     </div>
   );
 }
 
-function PendingSection({
-  products,
-  editJobsPending,
-  onEditSingle,
-  onEditBatch,
-  onChangeFilter,
-}: {
-  products: ThumbnailAnalysisResult[];
-  editJobsPending: boolean;
-  onEditSingle: (contentWorkspaceId: string, variantKey?: RecomposeVariantKey) => void;
-  onEditBatch: (contentWorkspaceIds: string[]) => void;
-  onChangeFilter: (f: EditFilter) => void;
-}) {
-  const startBatchAndNavigate = (contentWorkspaceIds: string[], label: string) => {
-    if (contentWorkspaceIds.length === 0) return;
-    onEditBatch(contentWorkspaceIds);
-    toast.success(`${label} — 생성 중 탭으로 이동`);
-    // 생성중 탭으로 자동 전환 — 폴링 3초로 진행상황 확인 가능
-    onChangeFilter('generating');
-  };
-
-  /**
-   * 단일 상품 클릭 — 분석 시점에 저장된 recompose 분류 결과를 사용해서 카드 안에서 바로 variant 선택.
-   * 박스/상품 동일 케이스에서만 picker 가 옵션 버튼을 노출하고, 그 외엔 분류 뱃지만 표시.
-   */
-  const startSingle = (product: ThumbnailAnalysisResult, variantKey?: RecomposeVariantKey) => {
-    if (!product.contentWorkspaceId) return;
-    onEditSingle(product.contentWorkspaceId, variantKey);
-  };
+function AiEditJobCard({ job, onDelete }: { job: ThumbnailJobListItem; onDelete: () => void }) {
+  const adopt = useAdoptThumbnail();
+  const removeCandidate = useDeleteThumbnailCandidate();
+  const reEdit = useReEditThumbnailJob();
+  const cancel = useCancelThumbnailJob();
+  const title = thumbnailJobTitle(job);
+  const running = isThumbnailJobActive(job);
 
   return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <span className="text-[13px] font-bold" style={{ color: '#f59e0b' }}>
-          대기 중 — 편집 시작 전 ({products.length})
-        </span>
-        <span className="text-[11px]" style={{ color: 'var(--thumb-text-quaternary)' }}>
-          이미지 클릭 = 쿠팡 썸네일 변환 자동 실행
-        </span>
-        <div className="flex-1" />
-        <button
-          onClick={() =>
-            startBatchAndNavigate(
-              products
-                .map((p) => p.contentWorkspaceId)
-                .filter((id): id is string => Boolean(id)),
-              `${products.length}개 편집 시작`,
-            )
-          }
-          disabled={products.length === 0 || editJobsPending}
-          className="flex items-center gap-2 px-4 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-40"
-          style={{ background: '#7048e8' }}
-        >
-          {editJobsPending ? <Loader2 size={13} className="animate-spin" /> : <Zap size={13} />}
-          전체 편집 시작
-        </button>
-      </div>
-      {products.length === 0 ? (
-        <div className="py-12 text-center text-sm" style={{ color: 'var(--thumb-text-quaternary)' }}>
-          대기 중인 상품이 없습니다
+    <article className="rounded-xl border border-slate-200 bg-white p-4">
+      <header className="flex items-start justify-between gap-2">
+        <div className="min-w-0">
+          <h3 className="truncate text-sm font-semibold text-slate-900">{title}</h3>
+          <div className="mt-1 flex items-center gap-1.5">
+            <ThumbnailStatusBadge job={job} />
+            {job.registrationStatus === 'registered' && (
+              <span className="text-[10px] font-semibold text-emerald-700">몰 반영됨</span>
+            )}
+          </div>
+          {job.errorMessage && <p className="mt-1 truncate text-xs text-rose-600" title={job.errorMessage}>{job.errorMessage}</p>}
         </div>
-      ) : (
-        <div className="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
-          {products.map((p) => (
-            <div key={p.contentWorkspaceId} className="flex flex-col gap-1.5">
-              <ProductCard
-                imageUrl={p.imageUrl}
-                name={p.productName}
-                badge={
-                  <span className="inline-flex items-center gap-0.5 px-1.5 py-0.5 rounded-md text-[10px] font-bold bg-amber-100 text-amber-700">
-                    {p.grade}
-                  </span>
-                }
-                onClick={() => startSingle(p)}
-              />
-              {p.recompose && (
-                <RecomposeVariantPicker
-                  classification={p.recompose}
-                  loading={editJobsPending}
-                  onSelect={(variantKey) => startSingle(p, variantKey)}
-                  layout="card"
-                />
-              )}
-              <Link
-                href={buildEditHref({
-                  contentWorkspaceId: p.contentWorkspaceId,
-                  imageUrl: p.imageUrl,
-                })}
-                onClick={(e) => e.stopPropagation()}
-              >
-                <button className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-100">
-                  <Wand2 size={10} /> 편집 화면으로
+        <div className="flex shrink-0 items-center gap-1">
+          <Link
+            href={thumbnailGenerationEditHref({ generationId: job.id, subjectParams: { contentWorkspaceId: job.contentWorkspaceId } })}
+            className="rounded-md border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600 hover:border-primary hover:text-primary"
+          >
+            편집 화면
+          </Link>
+          {running ? (
+            <button
+              type="button"
+              aria-label="AI 편집 중단"
+              disabled={cancel.isPending}
+              onClick={() => cancel.mutate(job.id, { onError: (error) => toast.error(errorMessage(error, '중단 실패')) })}
+              className="rounded-md border border-rose-200 p-1 text-rose-600 hover:bg-rose-50 disabled:opacity-50"
+            >
+              <Square size={13} />
+            </button>
+          ) : (
+            <>
+              {!job.adoptedCandidate && (
+                <button
+                  type="button"
+                  aria-label="다시 편집"
+                  disabled={reEdit.isPending}
+                  onClick={() => reEdit.mutate({ id: job.id }, { onError: (error) => toast.error(errorMessage(error, '다시 편집 실패')) })}
+                  className="rounded-md border border-slate-200 p-1 text-slate-600 hover:border-primary hover:text-primary disabled:opacity-50"
+                >
+                  <RotateCcw size={13} />
                 </button>
-              </Link>
-            </div>
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function GeneratingSection({
-  generations,
-  onSelectGen,
-  onDelete,
-}: {
-  generations: ThumbnailGenerationItem[];
-  onSelectGen: (g: ThumbnailGenerationItem) => void;
-  onDelete: (g: ThumbnailGenerationItem) => void;
-}) {
-  return (
-    <div className="space-y-3">
-      <div className="flex items-center gap-2">
-        <div className="w-2 h-2 rounded-full bg-blue-500 animate-pulse" />
-        <span className="text-[13px] font-bold" style={{ color: '#3182f6' }}>
-          생성 중 ({generations.length})
-        </span>
-      </div>
-      {generations.length === 0 ? (
-        <div className="py-12 text-center text-sm" style={{ color: 'var(--thumb-text-quaternary)' }}>
-          생성 중인 작업이 없습니다
-        </div>
-      ) : (
-        <div className="grid grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-3">
-          {generations.map((g) => (
-            <ProductCard
-              key={g.id}
-              imageUrl={g.originalUrl ?? g.contentWorkspace?.imageUrl ?? null}
-              name={g.contentWorkspace?.name ?? ''}
-              badge={<ThumbnailStatusBadge status={g.status} phase={g.phase ?? null} />}
-              overlay="generating"
-              onClick={() => onSelectGen(g)}
-              onDelete={() => onDelete(g)}
-              deleteLabel="생성 취소 / 삭제"
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function AppliedSection({
-  generations,
-  onSelectGen,
-  onDelete,
-}: {
-  generations: ThumbnailGenerationItem[];
-  onSelectGen: (g: ThumbnailGenerationItem) => void;
-  onDelete: (g: ThumbnailGenerationItem) => void;
-}) {
-  return (
-    <div className="space-y-3">
-      <span className="text-[13px] font-bold" style={{ color: '#00c471' }}>
-        적용 완료 ({generations.length})
-      </span>
-      {generations.length === 0 ? (
-        <div className="py-12 text-center text-sm" style={{ color: 'var(--thumb-text-quaternary)' }}>
-          적용 완료된 항목이 없습니다
-        </div>
-      ) : (
-        <div className="grid grid-cols-4 md:grid-cols-6 xl:grid-cols-8 gap-3">
-          {generations.map((g) => (
-            <ProductCard
-              key={g.id}
-              imageUrl={g.selectedUrl ?? g.originalUrl ?? g.contentWorkspace?.imageUrl ?? null}
-              name={g.contentWorkspace?.name ?? ''}
-              badge={<ThumbnailStatusBadge status={g.status} phase={g.phase ?? null} />}
-              overlay="applied"
-              onClick={() => onSelectGen(g)}
-              onDelete={() => onDelete(g)}
-            />
-          ))}
-        </div>
-      )}
-    </div>
-  );
-}
-
-function FailedSection({
-  generations,
-  onSelectGen,
-  onDelete,
-  onChangeFilter,
-}: {
-  generations: ThumbnailGenerationItem[];
-  onSelectGen: (g: ThumbnailGenerationItem) => void;
-  onDelete: (g: ThumbnailGenerationItem) => void;
-  onChangeFilter: (f: EditFilter) => void;
-}) {
-  const reEditMutation = useReEditGeneration();
-
-  return (
-    <div className="space-y-3">
-      <span className="text-[13px] font-bold" style={{ color: '#ef4444' }}>
-        실패 ({generations.length})
-      </span>
-      {generations.length === 0 ? (
-        <div className="py-12 text-center text-sm" style={{ color: 'var(--thumb-text-quaternary)' }}>
-          실패한 작업이 없습니다
-        </div>
-      ) : (
-        <div className="grid grid-cols-3 md:grid-cols-4 xl:grid-cols-5 gap-3">
-          {generations.map((g) => (
-            <div key={g.id} className="flex flex-col gap-1.5">
-              <ProductCard
-                imageUrl={g.originalUrl ?? g.contentWorkspace?.imageUrl ?? null}
-                name={g.contentWorkspace?.name ?? ''}
-                badge={<ThumbnailStatusBadge status={g.status} phase={g.phase ?? null} />}
-                onClick={() => onSelectGen(g)}
-                onDelete={() => onDelete(g)}
-              />
-              <div
-                className="min-h-[32px] rounded-lg border border-red-100 bg-red-50 px-2 py-1.5 text-[11px] leading-4 text-red-700 line-clamp-2"
-                title={g.errorMessage ?? undefined}
-              >
-                {g.errorMessage ?? (g.status === 'cancelled' ? '사용자 또는 시스템에 의해 취소됨' : '생성 실패')}
-              </div>
+              )}
               <button
                 type="button"
-                onClick={() => {
-                  reEditMutation.mutate(g.id, {
-                    onSuccess: () => toast.success('재생성을 요청했습니다'),
-                    onError: () => {
-                      toast.error('재생성 요청 실패');
-                      onChangeFilter('failed');
-                    },
-                  });
-                  onChangeFilter('generating');
-                }}
-                disabled={reEditMutation.isPending}
-                className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-red-600 text-white hover:bg-red-700 disabled:opacity-50"
+                aria-label="작업 삭제"
+                onClick={onDelete}
+                className="rounded-md border border-slate-200 p-1 text-slate-500 hover:border-rose-300 hover:text-rose-600"
               >
-                {reEditMutation.isPending ? <Loader2 size={10} className="animate-spin" /> : <Wand2 size={10} />}
-                다시 생성
+                <Trash2 size={13} />
               </button>
-              {g.contentWorkspaceId && (
-                <Link
-                  href={buildEditHref({
-                    contentWorkspaceId: g.contentWorkspaceId,
-                    generationId: g.id,
-                    imageUrl: g.contentWorkspace?.imageUrl,
-                  })}
-                >
-                  <button className="w-full flex items-center justify-center gap-1.5 px-2 py-1.5 rounded-lg text-[11px] font-semibold transition-colors bg-purple-50 text-purple-700 hover:bg-purple-100 border border-purple-100">
-                    <Wand2 size={10} /> 편집 화면으로
-                  </button>
-                </Link>
-              )}
-            </div>
-          ))}
+            </>
+          )}
         </div>
-      )}
-    </div>
+      </header>
+
+      {running ? (
+        <div className="mt-3 flex h-24 items-center justify-center rounded-lg bg-slate-50 text-slate-400">
+          <Loader2 size={18} className="animate-spin" />
+        </div>
+      ) : job.candidates.length > 0 ? (
+        <ul className="mt-3 grid grid-cols-3 gap-2">
+          {job.candidates.map((candidate) => {
+            const src = resolveImageUrl(candidate.url);
+            return (
+              <li key={candidate.id} className="group relative">
+                <div
+                  className={cn(
+                    'aspect-square overflow-hidden rounded-lg border bg-slate-50',
+                    candidate.isCurrentThumbnail ? 'border-emerald-500 ring-2 ring-emerald-200' : 'border-slate-200',
+                  )}
+                >
+                  {src && (
+                    // eslint-disable-next-line @next/next/no-img-element
+                    <img src={src} alt="" className="h-full w-full object-cover" />
+                  )}
+                </div>
+                {candidate.isCurrentThumbnail ? (
+                  <p className="mt-1 flex items-center justify-center gap-1 text-[11px] font-semibold text-emerald-700">
+                    <CheckCircle size={11} aria-hidden /> 대표이미지
+                  </p>
+                ) : (
+                  <div className="mt-1 flex items-center gap-1">
+                    <button
+                      type="button"
+                      disabled={adopt.isPending}
+                      onClick={() =>
+                        adopt.mutate(
+                          { contentWorkspaceId: job.contentWorkspaceId, assetId: candidate.id },
+                          {
+                            onSuccess: () => toast.success('대표이미지로 채택했습니다'),
+                            onError: (error) => toast.error(errorMessage(error, '채택 실패')),
+                          },
+                        )
+                      }
+                      className="flex-1 rounded-md bg-primary px-1.5 py-1 text-[11px] font-semibold text-white hover:bg-[var(--primary-hover)] disabled:opacity-50"
+                    >
+                      대표이미지로 채택
+                    </button>
+                    <button
+                      type="button"
+                      aria-label="후보 삭제"
+                      disabled={removeCandidate.isPending}
+                      onClick={() =>
+                        removeCandidate.mutate(
+                          { jobId: job.id, assetId: candidate.id },
+                          { onError: (error) => toast.error(errorMessage(error, '후보 삭제 실패')) },
+                        )
+                      }
+                      className="rounded-md border border-slate-200 p-1 text-slate-500 hover:text-rose-600 disabled:opacity-50"
+                    >
+                      <X size={11} />
+                    </button>
+                  </div>
+                )}
+              </li>
+            );
+          })}
+        </ul>
+      ) : null}
+    </article>
   );
 }

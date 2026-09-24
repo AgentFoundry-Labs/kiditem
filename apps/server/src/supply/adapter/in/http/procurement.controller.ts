@@ -36,7 +36,7 @@ import {
 import {
   ROCKET_PO_CATALOG_PORT,
   type RocketPoCatalogPort,
-} from '../../../../channels/application/port/in/rocket-po-catalog.port';
+} from '../../../../orders/application/port/in/rocket-po-catalog.port';
 import { ListPurchaseOrdersQueryDto, PurchaseOrderActionBodyDto } from './dto';
 import type { Response } from 'express';
 import type { AuthUser } from '../../../../auth/auth.types';

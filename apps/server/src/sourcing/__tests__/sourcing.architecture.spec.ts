@@ -29,11 +29,6 @@ const OTHER_OWNERS =
  */
 const KNOWN_VIOLATIONS: readonly { file: string; specifier: string; removeWith: string }[] = [
   // Takes the channels transaction type from channels application/port/out.
-  {
-    file: 'application/service/sourcing-workspace-archive.service.ts',
-    specifier: '../../../channels/application/port/out/transaction/repository-transaction',
-    removeWith: 'KID-328',
-  },
   // Takes launch-candidate status constants from application/port/out.
   {
     file: 'adapter/in/http/dto/sourcing-intelligence.dto.ts',

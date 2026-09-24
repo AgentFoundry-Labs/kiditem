@@ -1,8 +1,9 @@
+import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
 import { randomUUID } from 'node:crypto';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { CatalogDisplayMediaRepositoryAdapter } from '../../ai/adapter/out/repository/catalog-display-media.repository.adapter';
-import { CatalogDisplayMediaService } from '../../ai/application/service/catalog-display-media.service';
+import { CatalogDisplayMediaRepositoryAdapter } from '../../content/adapter/out/repository/catalog-display-media.repository.adapter';
+import { CatalogDisplayMediaService } from '../../content/application/service/catalog-display-media.service';
 import { lockProductMapping } from '../../common/product-mapping-generation';
 import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
@@ -17,10 +18,13 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
-import { ChannelProductMatchingService } from '../application/service/channel-product-matching.service';
+import { ChannelProductMatchingService } from '../application/service/listing/channel-product-matching.service';
+import { ChannelSkuAvailabilityService } from '../application/service/listing/channel-sku-availability.service';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
-import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
-import { readListingProductIds } from '../read/listing-product-summary.reader';
+import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
+import { ChannelsProductMappingGenerationAdapter } from '../adapter/out/products/product-mapping-generation.adapter';
+import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
+import { readListingProductIds } from '../adapter/out/persistence/listing-product-summary.reader';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { Prisma, PrismaClient } from '@prisma/client';
 
@@ -42,21 +46,23 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       prismaService,
       new ProductTransactionalReadRepositoryAdapter(),
       new ProductSourceReadRepositoryAdapter(prismaService),
-      new ChannelOptionRecipeUseCase(
+      new ChannelOptionRecipeService(
         new ChannelOptionRecipeRepositoryAdapter(
           prismaService,
           new ProductTransactionalReadRepositoryAdapter(),
+          new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
         ),
       ),
     );
     service = new ChannelProductMatchingService(
       repository,
       new CatalogDisplayMediaService(
-        new CatalogDisplayMediaRepositoryAdapter(prismaService),
+        new CatalogDisplayMediaRepositoryAdapter(prismaService, makeChannelListingQuery(prisma)),
       ),
       new ProductAvailabilityUseCase(
         new ProductAvailabilityRepositoryAdapter(prismaService),
       ),
+      { log: () => undefined, warn: () => undefined },
     );
   });
 
@@ -877,10 +883,11 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
       prisma as unknown as PrismaService,
       productRead,
       new ProductSourceReadRepositoryAdapter(prisma as unknown as PrismaService),
-      new ChannelOptionRecipeUseCase(
+      new ChannelOptionRecipeService(
         new ChannelOptionRecipeRepositoryAdapter(
           prisma as unknown as PrismaService,
           new ProductTransactionalReadRepositoryAdapter(),
+          new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
         ),
       ),
     );
@@ -976,6 +983,32 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     const rows = await repository.listAvailabilityRows(TEST_ORGANIZATION_ID, {});
 
     expect(rows.map((row) => row.option.id)).toEqual([activeOption.id]);
+  });
+
+  it('stores option safety stock through the public capability with organization isolation and unchanged source facts', async () => {
+    const product = await createProduct('THRESHOLD', 'Threshold source');
+    await createInventorySku('THRESHOLD', 6, product.id);
+    const listing = await createListing({ displayName: 'Threshold listing' });
+    const option = await createOption(listing.id, {});
+    const sibling = await createOption(listing.id, {});
+    await prisma.channelListingOptionInventoryComponent.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id,
+      masterProductId: product.id, quantity: 2,
+    } });
+    const inventory = new ProductAvailabilityUseCase(new ProductAvailabilityRepositoryAdapter(prisma as unknown as PrismaService));
+    const availability = new ChannelSkuAvailabilityService(repository, inventory);
+    expect(option.safetyStock).toBe(0);
+    await expect(availability.updateSafetyStock(OTHER_ORGANIZATION_ID, option.id, 9))
+      .rejects.toMatchObject({ code: 'not_found' });
+    await expect(availability.updateSafetyStock(TEST_ORGANIZATION_ID, option.id, -1))
+      .rejects.toMatchObject({ code: 'invalid' });
+    await expect(availability.updateSafetyStock(TEST_ORGANIZATION_ID, option.id, 3))
+      .resolves.toEqual({ channelListingOptionId: option.id, safetyStock: 3 });
+    const [projected] = await availability.findByChannelSkuIds(TEST_ORGANIZATION_ID, [option.id]);
+    expect(projected?.sku).toMatchObject({ safetyStock: 3, sellableStock: 3 });
+    expect((await prisma.channelListingOption.findUniqueOrThrow({ where: { id: sibling.id } })).safetyStock).toBe(0);
+    expect((await prisma.masterProduct.findUniqueOrThrow({ where: { id: product.id } })).currentStock).toBe(6);
+    expect(await prisma.productRegistrationExecution.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).toBe(0);
   });
 
   async function nextGeneratedCode() {

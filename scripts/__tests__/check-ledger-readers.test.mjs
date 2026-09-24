@@ -22,6 +22,134 @@ function runScanner(root) {
   });
 }
 
+test('allows owner persistence reads without registering each file', () => {
+  const root = mkdtempSync(path.join(tmpdir(), 'kiditem-ledger-owner-boundary-'));
+
+  try {
+    write(
+      root,
+      'scripts/ledger-readers.json',
+      JSON.stringify({
+        version: 2,
+        scanRoots: ['apps/server/src'],
+        prismaSchemaRoots: ['prisma'],
+        owners: {
+          advertising: { root: 'apps/server/src/advertising' },
+          channels: { root: 'apps/server/src/channels' },
+        },
+        ledgers: [
+          {
+            name: 'Advertising target day',
+            owner: 'advertising',
+            table: 'channel_ad_target_daily_snapshots',
+            prismaModel: 'channelAdTargetDailySnapshot',
+            prismaType: 'ChannelAdTargetDailySnapshot',
+            relationNames: [],
+            ownerPublications: [
+              {
+                path: 'apps/server/src/advertising/adapter/out/repository/registered-publication.ts',
+                reason: 'Existing exact publication path in this fixture.',
+              },
+            ],
+            legacyReaders: [],
+          },
+        ],
+      }),
+    );
+    write(
+      root,
+      'prisma/models/channels.prisma',
+      `model ChannelAdTargetDailySnapshot {
+  id String @id
+}
+`,
+    );
+    write(
+      root,
+      'apps/server/src/advertising/adapter/out/persistence/new-query.ts',
+      'await tx.channelAdTargetDailySnapshot.findMany({});\n',
+    );
+    write(
+      root,
+      'apps/server/src/advertising/shipments/read/nested-query.ts',
+      'await tx.channelAdTargetDailySnapshot.findMany({});\n',
+    );
+    write(
+      root,
+      'apps/server/src/advertising/adapter/out/repository/registered-publication.ts',
+      'await tx.channelAdTargetDailySnapshot.findMany({});\n',
+    );
+    write(
+      root,
+      'apps/server/src/advertising/adapter/out/repository/unregistered-query.ts',
+      'await tx.channelAdTargetDailySnapshot.findMany({});\n',
+    );
+    write(
+      root,
+      'apps/server/src/advertising/application/direct-query.ts',
+      'await tx.channelAdTargetDailySnapshot.findMany({});\n',
+    );
+    write(
+      root,
+      'apps/server/src/advertising/application/read/nested-application-query.ts',
+      'await tx.channelAdTargetDailySnapshot.findMany({});\n',
+    );
+    write(
+      root,
+      'apps/server/src/channels/adapter/out/persistence/wrong-owner-query.ts',
+      'await tx.channelAdTargetDailySnapshot.findMany({});\n',
+    );
+    write(
+      root,
+      'apps/server/src/advertising/adapter/out/persistence/unregistered-write.ts',
+      "await tx.channelAdTargetDailySnapshot.create({ data: { id: 'new' } });\n",
+    );
+
+    const rejected = runScanner(root);
+    const output = `${rejected.stdout}\n${rejected.stderr}`;
+    assert.equal(rejected.status, 1, output);
+    assert.doesNotMatch(output, /new-query\.ts.*Prisma delegate access/);
+    assert.doesNotMatch(output, /nested-query\.ts.*Prisma delegate access/);
+    assert.doesNotMatch(
+      output,
+      /registered-publication\.ts.*Prisma delegate access/,
+    );
+    assert.match(output, /unregistered-query\.ts.*Prisma delegate access/);
+    assert.match(output, /application\/direct-query\.ts.*Prisma delegate access/);
+    assert.match(
+      output,
+      /application\/read\/nested-application-query\.ts.*Prisma delegate access/,
+    );
+    assert.match(output, /wrong-owner-query\.ts.*Prisma delegate access/);
+    assert.match(output, /unregistered-write\.ts.*Prisma delegate mutation/);
+
+    rmSync(path.join(root, 'apps/server/src/advertising/application/direct-query.ts'));
+    rmSync(
+      path.join(
+        root,
+        'apps/server/src/advertising/application/read/nested-application-query.ts',
+      ),
+    );
+    rmSync(
+      path.join(root, 'apps/server/src/channels/adapter/out/persistence/wrong-owner-query.ts'),
+    );
+    rmSync(
+      path.join(root, 'apps/server/src/advertising/adapter/out/repository/unregistered-query.ts'),
+    );
+    rmSync(
+      path.join(root, 'apps/server/src/advertising/adapter/out/persistence/unregistered-write.ts'),
+    );
+    assert.doesNotThrow(() => {
+      execFileSync(process.execPath, [scanner, '--root', root], {
+        encoding: 'utf8',
+        stdio: 'pipe',
+      });
+    });
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test('rejects undeclared Prisma and raw SQL ledger reads, then passes after removal', () => {
   const root = mkdtempSync(path.join(tmpdir(), 'kiditem-ledger-readers-'));
 
@@ -30,12 +158,16 @@ test('rejects undeclared Prisma and raw SQL ledger reads, then passes after remo
       root,
       'scripts/ledger-readers.json',
       JSON.stringify({
-        version: 1,
+        version: 2,
         scanRoots: ['apps/server/src'],
         prismaSchemaRoots: ['prisma'],
+        owners: {
+          advertising: { root: 'apps/server/src/advertising' },
+        },
         ledgers: [
           {
             name: 'Advertising target day',
+            owner: 'advertising',
             table: 'channel_ad_target_daily_snapshots',
             prismaModel: 'channelAdTargetDailySnapshot',
             prismaType: 'ChannelAdTargetDailySnapshot',
@@ -44,7 +176,6 @@ test('rejects undeclared Prisma and raw SQL ledger reads, then passes after remo
               'adTargetDailySnapshots',
               'channelAdTargetDailySnapshots',
             ],
-            reader: 'apps/server/src/advertising/read/ad-target-reader.ts',
             ownerPublications: [
               {
                 path: 'apps/server/src/advertising/write/ad-target-owner.ts',
@@ -124,7 +255,7 @@ model ChannelAdTargetDailySnapshot {
     );
     write(
       root,
-      'apps/server/src/advertising/read/unregistered-consumer.ts',
+      'apps/server/src/advertising/application/unregistered-consumer.ts',
       'tx.channelAdTargetDailySnapshot.findMany({});\n',
     );
     write(
@@ -293,7 +424,7 @@ model ChannelAdTargetDailySnapshot {
     assert.match(failedOutput, /prisma-consumer\.ts.*Prisma delegate access/);
     assert.match(
       failedOutput,
-      /advertising\/read\/unregistered-consumer\.ts.*Prisma delegate access/,
+      /advertising\/application\/unregistered-consumer\.ts.*Prisma delegate access/,
     );
     assert.match(failedOutput, /raw-sql-consumer\.ts.*raw SQL read/);
     assert.match(
@@ -387,7 +518,7 @@ model ChannelAdTargetDailySnapshot {
     rmSync(
       path.join(
         root,
-        'apps/server/src/advertising/read/unregistered-consumer.ts',
+        'apps/server/src/advertising/application/unregistered-consumer.ts',
       ),
     );
     rmSync(path.join(root, 'apps/server/src/raw-sql-consumer.ts'));
@@ -626,17 +757,21 @@ test('rejects relation names that drift from the Prisma schema', () => {
       root,
       'scripts/ledger-readers.json',
       JSON.stringify({
-        version: 1,
+        version: 2,
         scanRoots: ['apps/server/src'],
         prismaSchemaRoots: ['prisma'],
+        owners: {
+          advertising: { root: 'apps/server/src/advertising' },
+        },
         ledgers: [
           {
             name: 'Advertising target day',
+            owner: 'advertising',
             table: 'channel_ad_target_daily_snapshots',
             prismaModel: 'channelAdTargetDailySnapshot',
             prismaType: 'ChannelAdTargetDailySnapshot',
             relationNames: ['channelAdTargetDailySnapshots'],
-            reader: 'apps/server/src/advertising/read/ad-target-reader.ts',
+            ownerPublications: [],
           },
         ],
       }),

@@ -11,8 +11,8 @@ import {
 import {
   readCompleteObservationProvenanceByIds,
   readCurrentObservationHeads,
-} from '../read/source-evidence.reader';
-import { readCurrentCompleteRuns } from '../read/source-evidence.reader';
+} from '../adapter/out/repository/source-evidence.reader';
+import { readCurrentCompleteRuns } from '../adapter/out/repository/source-evidence.reader';
 import { LiveCommerceRepositoryAdapter } from '../adapter/out/repository/live-commerce.repository.adapter';
 import { TrendCollectionRepositoryAdapter } from '../adapter/out/repository/trend-collection.repository.adapter';
 import { SourcingLaunchCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-launch-candidate.repository.adapter';

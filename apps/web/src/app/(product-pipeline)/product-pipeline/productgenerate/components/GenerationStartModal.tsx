@@ -44,7 +44,7 @@ export default function GenerationStartModal({ state, onClose, onAction, onCance
     Boolean(onCancel) &&
     Boolean(
       state.generationId ||
-        state.detailGenerationId ||
+        state.detailPageId ||
         state.thumbnailGenerationId,
     );
 

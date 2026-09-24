@@ -1,3 +1,4 @@
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../channels/application/port/in/account/channel-account.port';
 import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
@@ -45,6 +46,7 @@ export class SalesAnalysisScraperService {
     private readonly prisma: PrismaService,
     @Inject(AD_TRAFFIC_READ_PORT)
     private readonly adTrafficRead: AdTrafficReadPort,
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
   ) {}
 
   async getDataSources(
@@ -123,7 +125,7 @@ export class SalesAnalysisScraperService {
    */
   private readMeasuredAdDates(organizationId: string) {
     return this.prisma.$transaction(
-      (tx) => readAdWindowFacts(tx, { organizationId }),
+      (tx) => readAdWindowFacts(tx, { organizationId }, this.channelAccounts),
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
   }

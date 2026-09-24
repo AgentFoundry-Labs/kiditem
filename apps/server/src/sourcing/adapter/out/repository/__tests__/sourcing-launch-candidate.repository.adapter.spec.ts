@@ -7,7 +7,7 @@ describe('SourcingLaunchCandidateRepositoryAdapter', () => {
     tx.sourcingLaunchCandidate.findFirst
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null);
-    tx.sourcingCandidate.findFirst.mockResolvedValueOnce({
+    tx.sourceRecord.findFirst.mockResolvedValueOnce({
       id: 'source-candidate-1',
     });
     tx.sourcingLaunchCandidate.create.mockResolvedValueOnce(launchRow());
@@ -69,7 +69,7 @@ describe('SourcingLaunchCandidateRepositoryAdapter', () => {
       duplicate: true,
       record: { id: 'launch-1', identityHash: 'a'.repeat(64) },
     });
-    expect(tx.sourcingCandidate.findFirst).not.toHaveBeenCalled();
+    expect(tx.sourceRecord.findFirst).not.toHaveBeenCalled();
     expect(tx.channelAccount.findFirst).not.toHaveBeenCalled();
     expect(tx.sourcingLaunchCandidate.create).not.toHaveBeenCalled();
   });
@@ -77,19 +77,18 @@ describe('SourcingLaunchCandidateRepositoryAdapter', () => {
   it('rejects a source candidate outside the organization before writing', async () => {
     const tx = launchTx();
     tx.sourcingLaunchCandidate.findFirst.mockResolvedValueOnce(null);
-    tx.sourcingCandidate.findFirst.mockResolvedValueOnce(null);
+    tx.sourceRecord.findFirst.mockResolvedValueOnce(null);
     const repository = new SourcingLaunchCandidateRepositoryAdapter(
       transactionPrisma(tx) as never,
     );
 
     const result = await repository.createVersion(command());
 
-    expect(result).toEqual({ kind: 'source_candidate_not_found' });
-    expect(tx.sourcingCandidate.findFirst).toHaveBeenCalledWith({
+    expect(result).toEqual({ kind: 'source_record_not_found' });
+    expect(tx.sourceRecord.findFirst).toHaveBeenCalledWith({
       where: {
         id: 'source-candidate-1',
         organizationId: 'org-1',
-        isDeleted: false,
       },
       select: { id: true },
     });
@@ -121,7 +120,7 @@ describe('SourcingLaunchCandidateRepositoryAdapter', () => {
         identityHash: 'a'.repeat(64),
       },
     });
-    expect(tx.sourcingCandidate.findFirst).not.toHaveBeenCalled();
+    expect(tx.sourceRecord.findFirst).not.toHaveBeenCalled();
     expect(tx.sourcingLaunchCandidate.create).not.toHaveBeenCalled();
   });
 
@@ -130,7 +129,7 @@ describe('SourcingLaunchCandidateRepositoryAdapter', () => {
     tx.sourcingLaunchCandidate.findFirst
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ id: 'launch-1', revision: 1 });
-    tx.sourcingCandidate.findFirst.mockResolvedValueOnce({
+    tx.sourceRecord.findFirst.mockResolvedValueOnce({
       id: 'source-candidate-1',
     });
     tx.sourcingLaunchCandidate.create.mockResolvedValueOnce(
@@ -171,17 +170,17 @@ describe('SourcingLaunchCandidateRepositoryAdapter', () => {
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce(null);
     tx.sourcingLaunchCandidate.create.mockResolvedValueOnce(
-      launchRow({ sourceCandidateId: null }),
+      launchRow({ sourceRecordId: null }),
     );
     const repository = new SourcingLaunchCandidateRepositoryAdapter(
       transactionPrisma(tx) as never,
     );
 
-    await repository.createVersion(command({ sourceCandidateId: null }));
+    await repository.createVersion(command({ sourceRecordId: null }));
 
-    expect(tx.sourcingCandidate.findFirst).not.toHaveBeenCalled();
+    expect(tx.sourceRecord.findFirst).not.toHaveBeenCalled();
     expect(tx.sourcingLaunchCandidate.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({ sourceCandidateId: null }),
+      data: expect.objectContaining({ sourceRecordId: null }),
     });
   });
 
@@ -201,7 +200,7 @@ function launchTx() {
     channelAccount: {
       findFirst: vi.fn().mockResolvedValue({ id: 'channel-account-1' }),
     },
-    sourcingCandidate: { findFirst: vi.fn() },
+    sourceRecord: { findFirst: vi.fn() },
     sourcingLaunchCandidate: {
       findFirst: vi.fn(),
       create: vi.fn(),
@@ -214,7 +213,7 @@ function command(overrides: Record<string, unknown> = {}) {
     organizationId: 'org-1',
     candidateKey: 'series-1',
     identityHash: 'a'.repeat(64),
-    sourceCandidateId: 'source-candidate-1',
+    sourceRecordId: 'source-candidate-1',
     supplierOfferSkuSnapshotId: 'offer-snapshot-1',
     targetChannelAccountId: 'channel-account-1',
     productConceptVersionKey: 'concept:pencil-case:v3',
@@ -258,7 +257,7 @@ function launchRow(overrides: Record<string, unknown> = {}) {
   return {
     id: 'launch-1',
     organizationId: 'org-1',
-    sourceCandidateId: 'source-candidate-1',
+    sourceRecordId: 'source-candidate-1',
     supplierOfferSkuSnapshotId: 'offer-snapshot-1',
     targetChannelAccountId: 'channel-account-1',
     supersedesLaunchCandidateId: null,

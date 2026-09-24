@@ -29,19 +29,19 @@ describe('MallQuickRegisterRows', () => {
   /** 값이 다 찬 상태 — 폼 몰 전부가 준비됨. */
   const allReady = () => mallRegisterReadiness(item, values('문구>팬시', '1800'));
 
-  const wingRow = (overrides: Partial<MallReadiness> = {}) => ({
-    row: {
-      mallKey: 'coupang',
-      mallName: '쿠팡 WING',
-      ready: true,
-      reasons: [],
-      missingFieldLabels: [],
-      summary: [],
-      ...overrides,
-    } as MallReadiness,
-    busy: false,
-    busyLabel: null,
-    result: null,
+  /** 확인 창이 필요한 몰(쿠팡 WING) 줄 — 훅이 다른 몰 줄 앞에 세운다. */
+  const confirmRow = (overrides: Partial<MallReadiness> = {}): MallReadiness => ({
+    mallKey: 'coupang',
+    mallName: '쿠팡 WING',
+    ready: true,
+    reasons: [],
+    missingFieldLabels: [],
+    summary: [],
+    ...overrides,
+  });
+  const withConfirmRow = () => ({
+    readiness: [confirmRow(), ...allReady()],
+    confirmationMallKeys: ['coupang'],
   });
 
   function renderRows(overrides: Partial<Parameters<typeof MallQuickRegisterRows>[0]> = {}) {
@@ -53,7 +53,7 @@ describe('MallQuickRegisterRows', () => {
       disabled: false,
       detailHref: '/product-pipeline/collected-products/c1',
       targetCount: 1,
-      wing: null,
+      confirmationMallKeys: [] as string[],
       onRunSelected: vi.fn(),
       onRunOne: vi.fn(),
       ...overrides,
@@ -76,20 +76,40 @@ describe('MallQuickRegisterRows', () => {
     }
   });
 
+  it('폼 채우기라고만 말한다 — 등록은 등록 실행에서 한다(KID-322)', () => {
+    renderRows();
+    expect(screen.getByText(/폼만 채웁니다 · \[등록\]은 누르지 않습니다/)).toBeInTheDocument();
+    expect(document.body.textContent).not.toMatch(/직접 등록하세요|몰에 등록/);
+  });
+
   it('주인공 버튼은 아래 하나다 — 줄 버튼은 보조다', () => {
     // 예전에는 같은 초록 버튼이 여덟 개 늘어서서, 어디를 누를지가 무엇을 고를지를 덮었다.
     renderRows();
-    expect(screen.getAllByRole('button', { name: /몰에 등록$/ })).toHaveLength(1);
+    expect(screen.getAllByRole('button', { name: /^선택한 \d+개 몰 폼 채우기$/ })).toHaveLength(1);
     for (const adapter of QUICK_REGISTER_ADAPTERS) {
-      expect(screen.getByRole('button', { name: `${adapter.mallName}만 등록` }))
+      expect(screen.getByRole('button', { name: `${adapter.mallName} 폼 채우기` }))
         .toBeInTheDocument();
     }
+  });
+
+  it('등록 실행 울타리가 이미 등록됐다고 거절한 몰은 그 줄에 "이미 등록됨"과 몰 상품을 적는다', () => {
+    renderRows({
+      readiness: withConfirmRow().readiness,
+      confirmationMallKeys: ['coupang'],
+      results: {
+        coupang: { mallKey: 'coupang', mallName: '쿠팡 WING', status: 'already_registered', message: '이미 이 몰 계정에 등록된 상품입니다(몰 상품 kk-9).', manualSteps: [] },
+      },
+    });
+    const row = rowOf('쿠팡 WING');
+    expect(within(row).getByText('이미 등록됨')).toBeInTheDocument();
+    expect(within(row).queryByText('실패')).not.toBeInTheDocument();
+    expect(screen.getByText(/몰 상품 kk-9/)).toBeInTheDocument();
   });
 
   describe('몰 하나만 등록', () => {
     it('그 몰키만 넘긴다 — 선택과 무관하다', () => {
       const props = renderRows();
-      fireEvent.click(screen.getByRole('button', { name: '도매꾹만 등록' }));
+      fireEvent.click(screen.getByRole('button', { name: '도매꾹 폼 채우기' }));
       expect(props.onRunOne).toHaveBeenCalledWith('domeggook');
       expect(props.onRunSelected).not.toHaveBeenCalled();
     });
@@ -97,25 +117,25 @@ describe('MallQuickRegisterRows', () => {
     it('체크를 풀어 둔 몰도 혼자서는 보낼 수 있다', () => {
       const props = renderRows();
       fireEvent.click(screen.getByLabelText('도매꾹'));
-      fireEvent.click(screen.getByRole('button', { name: '도매꾹만 등록' }));
+      fireEvent.click(screen.getByRole('button', { name: '도매꾹 폼 채우기' }));
       expect(props.onRunOne).toHaveBeenCalledWith('domeggook');
     });
 
     it('버튼을 눌러도 체크가 토글되지 않는다', () => {
       const props = renderRows();
       const ready = props.readiness.filter((row) => row.ready).length;
-      fireEvent.click(screen.getByRole('button', { name: '도매꾹만 등록' }));
+      fireEvent.click(screen.getByRole('button', { name: '도매꾹 폼 채우기' }));
       expect(screen.getByText(`${ready}/${ready}개 몰 선택`)).toBeInTheDocument();
     });
 
     it('막힌 몰은 혼자서도 못 보낸다', () => {
       renderRows({ readiness: mallRegisterReadiness(item, values()) });
-      expect(screen.getByRole('button', { name: '11번가만 등록' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: '11번가 폼 채우기' })).toBeDisabled();
     });
 
     it('한 몰이 도는 동안에는 다 잠근다 — 탭을 하나만 쓴다', () => {
       renderRows({ runningMallKeys: ['kidsnote'] });
-      expect(screen.getByRole('button', { name: '도매꾹만 등록' })).toBeDisabled();
+      expect(screen.getByRole('button', { name: '도매꾹 폼 채우기' })).toBeDisabled();
     });
 
     it('이미 보낸 몰은 다시 로 바뀐다', () => {
@@ -127,15 +147,25 @@ describe('MallQuickRegisterRows', () => {
           },
         },
       });
-      expect(screen.getByRole('button', { name: '키즈노트만 등록' })).toHaveTextContent('다시');
-      expect(screen.getByRole('button', { name: '도매꾹만 등록' })).toHaveTextContent('등록');
+      expect(screen.getByRole('button', { name: '키즈노트 폼 채우기' })).toHaveTextContent('다시');
+      expect(screen.getByRole('button', { name: '도매꾹 폼 채우기' })).toHaveTextContent('폼 채우기');
     });
 
-    it('쿠팡 WING 도 혼자 보낼 수 있다', () => {
-      const props = renderRows({ wing: wingRow() });
-      fireEvent.click(screen.getByRole('button', { name: '쿠팡 WING만 등록' }));
-      expect(props.onRunOne).toHaveBeenCalledWith('coupang');
+  });
+
+  it('몰 줄마다 그 몰 계정의 등록 상태를 폼 채움 배지 옆에 보인다(KID-320)', () => {
+    renderRows({
+      registrationAccounts: [{
+        channelAccountId: '00000000-0000-4000-8000-000000000001', channel: 'kidsnote', channelAccountName: '키즈노트',
+        registrationTargetId: null, channelListingId: null, externalListingId: null, listingState: null, listingRawStatus: null, listingActive: false, state: 'registered',
+        soldOut: false, changedSinceRegistration: true, selectedThumbnailAssetId: null,
+        selectedDetailPageRevisionId: null, lastExecution: null,
+      }],
     });
+    const row = rowOf('키즈노트').parentElement as HTMLElement;
+    expect(within(row).getByText('등록됨')).toBeInTheDocument();
+    expect(within(row).queryByText(/변경됨/)).not.toBeInTheDocument();
+    expect(within(row).getByText('대기')).toBeInTheDocument();
   });
 
   it('값을 묻는 칸이 없다 — 값은 상품 상세에 있다', () => {
@@ -148,7 +178,7 @@ describe('MallQuickRegisterRows', () => {
     const props = renderRows();
     const ready = props.readiness.filter((row) => row.ready).length;
     expect(screen.getByText(`${ready}/${ready}개 몰 선택`)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: `선택한 ${ready}개 몰에 등록` })).toBeEnabled();
+    expect(screen.getByRole('button', { name: `선택한 ${ready}개 몰 폼 채우기` })).toBeEnabled();
   });
 
   it('체크를 풀면 개수와 버튼 글자가 함께 줄어든다', () => {
@@ -156,14 +186,14 @@ describe('MallQuickRegisterRows', () => {
     const ready = props.readiness.filter((row) => row.ready).length;
     fireEvent.click(screen.getByLabelText('키즈노트'));
     expect(screen.getByText(`${ready - 1}/${ready}개 몰 선택`)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: `선택한 ${ready - 1}개 몰에 등록` }))
+    expect(screen.getByRole('button', { name: `선택한 ${ready - 1}개 몰 폼 채우기` }))
       .toBeInTheDocument();
   });
 
   it('고른 몰만 보낸다 — 뺀 몰은 넘기지 않는다', () => {
     const props = renderRows();
     fireEvent.click(screen.getByLabelText('키즈노트'));
-    fireEvent.click(screen.getByRole('button', { name: /몰에 등록/ }));
+    fireEvent.click(screen.getByRole('button', { name: /^선택한 \d+개 몰 폼 채우기$/ }));
     expect(props.sentMallKeys()).not.toContain('kidsnote');
     expect(props.sentMallKeys()).toContain('domeggook');
   });
@@ -171,7 +201,7 @@ describe('MallQuickRegisterRows', () => {
   it('전체 선택을 풀면 버튼이 잠긴다 — 0개는 보낼 것이 없다', () => {
     renderRows();
     fireEvent.click(screen.getByLabelText('전체 선택'));
-    expect(screen.getByRole('button', { name: '선택한 0개 몰에 등록' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '선택한 0개 몰 폼 채우기' })).toBeDisabled();
   });
 
   describe('막힌 몰', () => {
@@ -253,42 +283,42 @@ describe('MallQuickRegisterRows', () => {
     });
   });
 
-  describe('쿠팡 WING 줄', () => {
-    it('다른 몰과 같은 줄로 서고 맨 위에 온다', () => {
-      renderRows({ wing: wingRow() });
+  describe('확인 창이 필요한 몰 줄', () => {
+    it('다른 몰과 같은 줄로 서고, 훅이 준 순서대로 맨 위에 온다', () => {
+      renderRows(withConfirmRow());
       const boxes = screen.getAllByRole('checkbox');
       // [0] 은 전체 선택이라 그 다음이 첫 줄이다.
       expect(boxes[1]).toHaveAttribute('aria-label', '쿠팡 WING');
     });
 
-    it('이 몰만 다른 점을 줄 안에 적는다', () => {
-      renderRows({ wing: wingRow() });
-      expect(screen.getByText('확인 창에서 검토 후 등록')).toBeInTheDocument();
-      expect(screen.getByText(/쿠팡 WING 은 맨 마지막에 확인 창이 뜹니다/)).toBeInTheDocument();
+    it('이 몰만 다른 점(확인 창)을 줄 안에 적는다 — 몰 이름을 박지 않는다', () => {
+      renderRows(withConfirmRow());
+      expect(within(rowOf('쿠팡 WING')).getByText('확인 창에서 계정 · 값을 정한 뒤 보냅니다')).toBeInTheDocument();
+      expect(screen.getByText(/확인 창이 필요한 몰은 맨 마지막에 확인 창이 뜹니다/)).toBeInTheDocument();
     });
 
-    it('선택 개수에 포함되고 보낼 때 함께 넘어간다', () => {
+    it('선택 개수에 포함되고 보낼 때 함께 넘어간다 — 확인 창은 화면이 연다', () => {
       const before = renderRows();
       const base = before.readiness.filter((row) => row.ready).length;
       cleanup();
 
-      const props = renderRows({ wing: wingRow() });
+      const props = renderRows(withConfirmRow());
       expect(screen.getByText(`${base + 1}/${base + 1}개 몰 선택`)).toBeInTheDocument();
-      fireEvent.click(screen.getByRole('button', { name: /몰에 등록/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^선택한 \d+개 몰 폼 채우기$/ }));
       expect(props.sentMallKeys()).toContain('coupang');
     });
 
     it('빼고 보낼 수 있다 — 쿠팡만 나중에 하고 싶을 때', () => {
-      const props = renderRows({ wing: wingRow() });
+      const props = renderRows(withConfirmRow());
       fireEvent.click(screen.getByLabelText('쿠팡 WING'));
-      fireEvent.click(screen.getByRole('button', { name: /몰에 등록/ }));
+      fireEvent.click(screen.getByRole('button', { name: /^선택한 \d+개 몰 폼 채우기$/ }));
       expect(props.sentMallKeys()).not.toContain('coupang');
     });
 
-    it('준비 중에는 제 문구를 배지에 쓴다', () => {
-      renderRows({ wing: { ...wingRow(), busy: true, busyLabel: '상세페이지 생성 중' } });
-      expect(screen.getByText('상세페이지 생성 중')).toBeInTheDocument();
-      expect(screen.getByRole('button', { name: '몰을 열어 채우는 중' })).toBeDisabled();
+    it('혼자 보낼 때는 확인 창을 연다 — 폼 채우기와 등록 실행은 확인 창에서 고른다', () => {
+      const props = renderRows(withConfirmRow());
+      fireEvent.click(screen.getByRole('button', { name: '쿠팡 WING 확인 창 열기' }));
+      expect(props.onRunOne).toHaveBeenCalledWith('coupang');
     });
   });
 

@@ -76,10 +76,9 @@ describe("AGENT_DEFINITIONS", () => {
       channel_operations: [
         "channels.get_target_execution",
         "channels.prepare_target_execution",
-        "channels.register_confirmed_listing",
         "channels.report_target_execution",
         "channels.start_target_execution",
-        "channels.submit_wing_thumbnail",
+        "channels.submit_representative_image",
       ],
       advertising: [],
     });

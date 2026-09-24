@@ -1,5 +1,5 @@
 import { recomputeRoas } from './util/ratio-recompute';
-import { channelAccountSalesCosts } from '../../channels/domain/channel-account-sales-costs';
+import { channelAccountSalesCosts } from '../../channels/domain/account/channel-account-sales-costs';
 import type { AdActionTargetType } from './model/strategy-types';
 import type { LatestTargetRow } from '../application/port/out/repository/ad-action.repository.port';
 

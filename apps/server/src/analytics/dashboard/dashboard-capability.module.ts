@@ -1,3 +1,5 @@
+import { AiListingContentQueryModule } from '../../content/ai-listing-content-query.module';
+import { ChannelCatalogModule } from '../../channels/channel-catalog.module';
 import { SellpiaProductSalesModule } from '../sellpia-product-sales/sellpia-product-sales.module';
 import { DashboardFindingsService } from './application/service/dashboard-findings.service';
 import { DashboardFindingsRepositoryAdapter } from './adapter/out/repository/dashboard-findings.repository.adapter';
@@ -58,7 +60,7 @@ const dashboardServices = [
 ];
 
 @Module({
-  imports: [SellpiaProductSalesModule, PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, ProductCollectionRuntimeModule],
+  imports: [AiListingContentQueryModule, ChannelCatalogModule, SellpiaProductSalesModule, PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, ProductCollectionRuntimeModule],
   providers: [
     ...repositoryAdapters,
     ...dashboardServices,

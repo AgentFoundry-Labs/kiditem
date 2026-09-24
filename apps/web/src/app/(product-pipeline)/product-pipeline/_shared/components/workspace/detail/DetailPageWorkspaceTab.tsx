@@ -13,7 +13,6 @@ import {
   useKidsPlayfulGenerationList,
 } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import {
-  useGenerationHistory,
   useGenerationHistoryDelete,
 } from '../../../hooks/useGenerationHistory';
 import { contentWorkspacesApi } from '../../../lib/content-workspaces-api';
@@ -30,16 +29,14 @@ import type { ProductRegistrationPreviewData } from '../preview/product-registra
 interface DetailPageWorkspaceTabProps {
   productId: string;
   detailPreviewHtml: string;
-  editedHtml?: string | null;
   templateCss: string;
   hasSavedDetailPage?: boolean;
   savedDetailPageGenerationId?: string | null;
-  initialAgentHistory?: GenerationHistoryItem[];
+  /** 작업공간 이력(에이전트 생성). 화면이 작업공간에서 읽어 넘긴다. */
+  agentHistory?: GenerationHistoryItem[];
   generationHistoryQueryEnabled?: boolean;
+  /** 이 화면의 콘텐츠 작업공간. 상세 이력은 이 작업공간 안에서만 읽는다. */
   contentWorkspaceId?: string | null;
-  generationQueryProductId?: string | null;
-  generationQuerySourceCandidateId?: string | null;
-  generationQueryContentWorkspaceId?: string | null;
   selectedKidsPlayfulId: string | null;
   selectedBoldVerticalId: string | null;
   selectedAgentId: string | null;
@@ -48,10 +45,9 @@ interface DetailPageWorkspaceTabProps {
   onSelectAgent: (id: string | null) => void;
   onApplyRegistrationDetailPage?: (input: {
     selectedDetailPageGenerationId: string;
-    selectedDetailPageArtifactId?: string | null;
     selectedDetailPageRevisionId?: string | null;
   }) => Promise<void> | void;
-  detailEditorSourceCandidateId?: string | null;
+  detailEditorSalesProductId?: string | null;
   detailEditorReturnHref: string;
   mobilePreviewData: ProductRegistrationPreviewData;
   onPreviewHtmlChange?: (html: string | null) => void;
@@ -60,17 +56,13 @@ interface DetailPageWorkspaceTabProps {
 export default function DetailPageWorkspaceTab({
   productId,
   detailPreviewHtml,
-  editedHtml,
   templateCss,
   hasSavedDetailPage,
   savedDetailPageGenerationId,
-  initialAgentHistory,
+  agentHistory = [],
   generationHistoryQueryEnabled = true,
   contentWorkspaceId = null,
-  generationQueryProductId,
-  generationQuerySourceCandidateId = null,
-  generationQueryContentWorkspaceId = null,
-  detailEditorSourceCandidateId,
+  detailEditorSalesProductId,
   detailEditorReturnHref,
   mobilePreviewData,
   onPreviewHtmlChange,
@@ -80,24 +72,19 @@ export default function DetailPageWorkspaceTab({
   onApplyRegistrationDetailPage,
 }: DetailPageWorkspaceTabProps) {
   const queryClient = useQueryClient();
-  const { data: agentHistory = [] } = useGenerationHistory(
-    productId,
-    initialAgentHistory,
-    { enabled: generationHistoryQueryEnabled },
-  );
-  const effectiveGenerationQueryProductId = generationQueryProductId ?? productId;
-  const { data: kidsPlayfulEntries = [] } = useKidsPlayfulGenerationList(effectiveGenerationQueryProductId, {
-    enabled: generationHistoryQueryEnabled,
-    sourceCandidateId: generationQuerySourceCandidateId,
-    contentWorkspaceId: generationQueryContentWorkspaceId,
+  // 상세 이력은 이 작업공간 안에서만 읽는다(B2). 작업공간이 없으면 읽지 않는다 — 없는 필터로
+  // 물으면 조직의 다른 상품 상세페이지가 이 상품의 이력처럼 보이고, 지우면 그것이 지워진다.
+  const contentQueriesEnabled = generationHistoryQueryEnabled && !!contentWorkspaceId;
+  const { data: kidsPlayfulEntries = [] } = useKidsPlayfulGenerationList(null, {
+    enabled: contentQueriesEnabled,
+    contentWorkspaceId,
   });
-  const { data: boldEntries = [] } = useBoldVerticalGenerationList(effectiveGenerationQueryProductId, {
-    enabled: generationHistoryQueryEnabled,
-    sourceCandidateId: generationQuerySourceCandidateId,
-    contentWorkspaceId: generationQueryContentWorkspaceId,
+  const { data: boldEntries = [] } = useBoldVerticalGenerationList(null, {
+    enabled: contentQueriesEnabled,
+    contentWorkspaceId,
   });
   const deleteKidsPlayful = useKidsPlayfulGenerationDelete();
-  const deleteAgent = useGenerationHistoryDelete(productId);
+  const deleteAgent = useGenerationHistoryDelete();
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
   const [applyingKey, setApplyingKey] = useState<string | null>(null);
   const [duplicatingKey, setDuplicatingKey] = useState<string | null>(null);
@@ -117,17 +104,12 @@ export default function DetailPageWorkspaceTab({
 
   const invalidateDetailVersionQueries = async () => {
     await Promise.all([
-      queryClient.invalidateQueries({
-        queryKey: [...queryKeys.sourcing.detail(productId), 'history'],
-      }),
+      queryClient.invalidateQueries({ queryKey: queryKeys.contentWorkspaces.all }),
       queryClient.invalidateQueries({
         queryKey: queryKeys.productContent.detailGenerationsAll('kids-playful'),
       }),
       queryClient.invalidateQueries({
         queryKey: queryKeys.productContent.detailGenerationsAll('bold-vertical'),
-      }),
-      queryClient.invalidateQueries({
-        queryKey: queryKeys.productContent.sourcingLinks(productId, { limit: '8' }),
       }),
     ]);
   };
@@ -159,7 +141,6 @@ export default function DetailPageWorkspaceTab({
       }
       await onApplyRegistrationDetailPage?.({
         selectedDetailPageGenerationId: row.id,
-        selectedDetailPageArtifactId: row.agentItem?.detailPageArtifactId ?? null,
         selectedDetailPageRevisionId: row.agentItem?.detailPageRevisionId ?? null,
       });
       setSelectedKey(row.key);
@@ -248,13 +229,11 @@ export default function DetailPageWorkspaceTab({
             <DetailPagePreview
               productId={productId}
               detailPreviewHtml={detailPreviewHtml}
-              editedHtml={editedHtml}
               templateCss={templateCss}
               hasSavedDetailPage={hasSavedDetailPage}
               savedDetailPageGenerationId={selectedPreviewGenerationId}
-              initialAgentHistory={initialAgentHistory}
-              generationHistoryQueryEnabled={generationHistoryQueryEnabled}
-              detailEditorSourceCandidateId={detailEditorSourceCandidateId}
+              agentHistory={agentHistory}
+              detailEditorSalesProductId={detailEditorSalesProductId}
               detailEditorReturnHref={detailEditorReturnHref}
               mobilePreviewData={mobilePreviewData}
               onPreviewHtmlChange={onPreviewHtmlChange}

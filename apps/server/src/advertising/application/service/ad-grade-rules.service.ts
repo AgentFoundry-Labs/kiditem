@@ -3,7 +3,7 @@ import type { AdStrategyAction, AdIssues, ChannelStateSignal } from '@kiditem/sh
 import { deriveProductAdvertisingStatus } from '@kiditem/shared/product-operations';
 import type { GradeRulesInput, AdIssuesInput, HydratedListing } from '../../domain/model/strategy-types';
 import { hydratedListingToSummary } from '../../mapper/ad-listing.mapper';
-import { channelAccountSalesCosts } from '../../../channels/domain/channel-account-sales-costs';
+import { channelAccountSalesCosts } from '../../../channels/domain/account/channel-account-sales-costs';
 
 type Priority = 'urgent' | 'high' | 'medium' | 'low';
 

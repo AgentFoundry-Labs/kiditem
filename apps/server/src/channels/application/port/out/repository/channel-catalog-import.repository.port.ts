@@ -2,7 +2,7 @@ import type { CoupangWingCatalogImportResponse } from '@kiditem/shared/source-im
 import type {
   ParsedWingCatalogRow,
   ParsedWingCatalogSkippedRow,
-} from '../../../service/coupang-wing-workbook.parser';
+} from '../documents/channel-document.models';
 
 export type ChannelCatalogImportClaim =
   | { kind: 'started'; runId: string; attemptToken: string }

@@ -1,3 +1,5 @@
+import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
+import { makeChannelListingQuery, makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import type { PrismaClient } from '@prisma/client';
 import {
@@ -5,7 +7,7 @@ import {
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
 } from '@kiditem/shared/product-abc';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { findAutoBatchCandidates } from '../../ai/adapter/out/repository/thumbnail-generation-ledger.query';
+import { findAutoBatchCandidates } from '../../content/adapter/out/repository/thumbnail-generation-ledger.query';
 import { buildPerListingProfit } from '../../common/per-listing-profit';
 import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ReviewsService } from '../../orders/services/reviews.service';
@@ -78,24 +80,23 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
       masterProductId: officialA.id,
       quantity: 1,
     } });
-    await prisma.thumbnail.createMany({ data: [
-      { organizationId: ORG, listingId: listing.id, imageUrl: 'https://example.com/a.jpg' },
-      { organizationId: ORG, listingId: staleListing.id, imageUrl: 'https://example.com/stale.jpg' },
-    ] });
     const workspace = await prisma.contentWorkspace.create({ data: {
       organizationId: ORG,
       ownerType: 'channel_listing',
       channelListingId: listing.id,
-      displayName: 'Official A workspace',
-      normalizedTitle: 'official-a-workspace',
     } });
-    await prisma.contentWorkspace.create({ data: {
+    const staleWorkspace = await prisma.contentWorkspace.create({ data: {
       organizationId: ORG,
       ownerType: 'channel_listing',
       channelListingId: staleListing.id,
-      displayName: 'Stale cache workspace',
-      normalizedTitle: 'stale-cache-workspace',
     } });
+    // 리스팅 대표이미지는 리스팅 작업공간의 현재 대표이미지 자산이다(KID-313 W3a).
+    for (const [row, url] of [[workspace, 'https://example.com/a.jpg'], [staleWorkspace, 'https://example.com/stale.jpg']] as const) {
+      const asset = await prisma.contentAsset.create({ data: {
+        organizationId: ORG, contentWorkspaceId: row.id, source: 'catalog', assetKey: `seed:${row.id}`, url, role: 'primary',
+      } });
+      await prisma.contentWorkspace.update({ where: { id: row.id }, data: { currentThumbnailAssetId: asset.id } });
+    }
     await seedOfficialEvaluation(prisma, officialA.id);
 
     const reviewRun = await prisma.sourceImportRun.create({ data: {
@@ -134,9 +135,9 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
       endDate: '2026-08-31',
     });
 
-    await expect(findAutoBatchCandidates(prisma as never, ORG, 10))
+    await expect(findAutoBatchCandidates(prisma as never, ORG, 10, makeChannelListingQuery(prisma), makeChannelRecipes(prisma)))
       .resolves.toEqual([{ id: workspace.id }]);
-    await expect(new ReviewsService(prisma as never).list(ORG, {}))
+    await expect(new ReviewsService(prisma as never, new ProductTransactionalReadRepositoryAdapter(), makeChannelListingQuery(prisma), makeChannelRecipes(prisma), profitCatalogTestReaders(prisma as never).accounts).list(ORG, {}))
       .resolves.toMatchObject({ items: [{ listingId: listing.id, grade: 'A' }] });
     await expect(buildPerListingProfit(
       prisma as never,
@@ -145,6 +146,7 @@ describe('published ABC dependent consumers (PostgreSQL)', () => {
       new Date('2026-09-01T00:00:00.000Z'),
       { hasAdAccount: true, publishedDates: 31, accountSpend: 0, coversWindow: true },
       new ProductTransactionalReadRepositoryAdapter(),
+      profitCatalogTestReaders(prisma as never),
     )).resolves.toEqual([
       expect.objectContaining({ listingId: listing.id, grade: 'A' }),
     ]);

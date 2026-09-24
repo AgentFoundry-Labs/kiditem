@@ -7,15 +7,23 @@ import { describe, expect, it } from 'vitest';
 import { ApiApplicationModule } from '../api-application.module';
 import { AgentOsInteractionHttpModule } from '../agent-os/agent-os-interaction-http.module';
 import { AgentOsHttpModule } from '../agent-os/agent-os-http.module';
-import { DetailPageEditorController } from '../ai/adapter/in/http/detail-page-editor.controller';
-import { ImageAiController } from '../ai/adapter/in/http/image-ai.controller';
-import { ThumbnailAnalysisGenerationReviewController } from '../ai/adapter/in/http/thumbnail-analysis-generation-review.controller';
+import { DetailPageEditorController } from '../content/adapter/in/http/detail-page-editor.controller';
+import { ImageAiController } from '../content/adapter/in/http/image-ai.controller';
+import { ThumbnailJobReviewController } from '../content/adapter/in/http/thumbnail-job-review.controller';
 import { inspectStaticApplicationRootPolicy } from './application-root-policy';
 
-type ModuleLike = Function | { module: Function; imports?: ModuleLike[] };
+type ModuleLike =
+  | Function
+  | { module: Function; imports?: ModuleLike[] }
+  // 서로의 공개 계약만 부르는 두 owner 사이의 순환(Channels ↔ AI)은 forwardRef 로 푼다.
+  | { forwardRef: () => ModuleLike };
 const serverSource = join(__dirname, '..');
 
-function moduleClass(module: ModuleLike): Function { return typeof module === 'function' ? module : module.module; }
+function moduleClass(module: ModuleLike): Function {
+  if (typeof module === 'function') return module;
+  if ('forwardRef' in module) return moduleClass(module.forwardRef());
+  return module.module;
+}
 function graph(root: ModuleLike): Set<ModuleLike> {
   const seen = new Set<ModuleLike>();
   const visit = (current: ModuleLike | undefined): void => {
@@ -23,7 +31,8 @@ function graph(root: ModuleLike): Set<ModuleLike> {
     if (seen.has(current)) return;
     seen.add(current);
     const imports = Reflect.getMetadata(MODULE_METADATA.IMPORTS, moduleClass(current)) ?? [];
-    for (const item of [...imports, ...(typeof current === 'function' ? [] : current.imports ?? [])]) visit(item as ModuleLike | undefined);
+    const nested = typeof current === 'function' || 'forwardRef' in current ? [] : current.imports ?? [];
+    for (const item of [...imports, ...nested]) visit(item as ModuleLike | undefined);
   };
   visit(root);
   return seen;
@@ -39,7 +48,7 @@ describe('final application-root topology', () => {
     expect(controllers).toEqual(expect.arrayContaining([
       DetailPageEditorController,
       ImageAiController,
-      ThumbnailAnalysisGenerationReviewController,
+      ThumbnailJobReviewController,
     ]));
     expect(modules.map((module) => module.name)).not.toContain('OperationCancellationModule');
     expect(existsSync(join(serverSource, 'operation-cancellation/operation-cancellation.module.ts'))).toBe(false);

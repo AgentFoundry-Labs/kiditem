@@ -139,7 +139,11 @@ function fakeRepository(rows: Map<string, ReturnType<typeof sourceRun>>) {
     recordTerminalOutcome: vi.fn(),
   };
   return {
-    repository: new OrderCollectionSourceRepository(prisma as never, alerts as never),
+    repository: new OrderCollectionSourceRepository(
+      prisma as never,
+      alerts as never,
+      { resolveMallIdentities: vi.fn() } as never,
+    ),
     artifacts,
     updates,
   };

@@ -11,8 +11,8 @@ describe('Rocket purchase boundary', () => {
     const sourcePaths = [
       'src/supply/adapter/in/http/dto/purchase-order-action.dto.ts',
       'src/supply/adapter/in/http/procurement.controller.ts',
-      'src/channels/application/port/in/rocket-po-catalog.port.ts',
-      'src/channels/application/service/rocket-po-catalog.service.ts',
+      'src/orders/application/port/in/rocket-po-catalog.port.ts',
+      'src/orders/application/service/rocket-po-catalog.service.ts',
     ];
     const sources = sourcePaths
       .map((path) => readFileSync(resolve(serverRoot, path), 'utf8'))

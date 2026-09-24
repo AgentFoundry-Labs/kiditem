@@ -1,0 +1,99 @@
+import { describe, expect, it, vi } from 'vitest';
+import { CatalogDisplayMediaRepositoryAdapter } from './catalog-display-media.repository.adapter';
+
+describe('CatalogDisplayMediaRepositoryAdapter', () => {
+  it('returns active provider assets across channels and performs no write', async () => {
+    const findMany = vi.fn(async () => [{
+      channelListingId: 'listing-1',
+      channelListing: { channelAccount: { channel: 'coupang' } },
+      assets: [
+          asset('provider-option', 'https://cdn.example/option.jpg', 'option', {
+            sourceType: 'coupang_catalog', externalOptionId: 'option-1', active: true,
+          }),
+          asset('provider-primary', 'https://cdn.example/primary.jpg', 'primary', {
+            sourceType: 'coupang_catalog', active: true,
+          }),
+          asset('inactive', 'https://cdn.example/inactive.jpg', 'primary', {
+            sourceType: 'coupang_catalog', active: false,
+          }),
+          asset('custom', 'https://cdn.example/custom.jpg', 'primary', { sourceType: 'custom' }),
+      ],
+    }, {
+      channelListingId: 'listing-2',
+      channelListing: { channelAccount: { channel: 'naver' } },
+      assets: [
+          asset('naver-primary', 'https://cdn.example/naver.jpg', 'primary', {
+            sourceType: 'channel_catalog', channel: 'naver', active: true,
+          }),
+      ],
+    }]);
+    const tx = { contentWorkspace: { findMany } };
+    const prisma = { ...tx, $transaction: async (read: (value: unknown) => unknown) => read(tx) };
+    const adapter = new CatalogDisplayMediaRepositoryAdapter(prisma as never, { readCatalogFacts: async () => [{ id: 'listing-1', channel: 'coupang' }, { id: 'listing-2', channel: 'naver' }] } as never);
+
+    const result = await adapter.findCandidates({
+      organizationId: 'org-1',
+      channelListingIds: ['listing-1', 'listing-1', 'listing-2'],
+    });
+
+    expect(result).toEqual([
+      expect.objectContaining({
+        id: 'provider-option', externalOptionId: 'option-1', role: 'option',
+        channel: 'coupang',
+      }),
+      expect.objectContaining({
+        id: 'provider-primary', externalOptionId: null, role: 'primary',
+        channel: 'coupang',
+      }),
+      expect.objectContaining({
+        id: 'naver-primary', externalOptionId: null, role: 'primary',
+        channel: 'naver',
+      }),
+    ]);
+    expect(findMany).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({
+        organizationId: 'org-1',
+        ownerType: 'channel_listing',
+        channelListingId: { in: ['listing-1', 'listing-2'] },
+      }),
+    }));
+    expect(Object.keys(prisma.contentWorkspace)).toEqual(['findMany']);
+  });
+
+  it('reads every normalized option association from a shared asset', async () => {
+    const optionIds = Array.from({ length: 73 }, (_, index) => `option-${index + 1}`);
+    const findMany = vi.fn(async () => [{
+      channelListingId: 'listing-1',
+      channelListing: { channelAccount: { channel: 'coupang' } },
+      assets: [asset('shared', 'https://cdn.example/shared.jpg', 'option', {
+          sourceType: 'channel_catalog',
+          channel: 'coupang',
+          externalOptionIds: [...optionIds].reverse(),
+          active: true,
+      })],
+    }]);
+    const adapter = new CatalogDisplayMediaRepositoryAdapter({
+      $transaction: async (read: (value: unknown) => unknown) => read({ contentWorkspace: { findMany } }),
+    } as never, { readCatalogFacts: async () => [{ id: 'listing-1', channel: 'coupang' }] } as never);
+
+    const result = await adapter.findCandidates({
+      organizationId: 'org-1',
+      channelListingIds: ['listing-1'],
+    });
+
+    expect(result).toEqual([expect.objectContaining({
+      id: 'shared',
+      externalOptionId: null,
+      externalOptionIds: [...optionIds].sort((left, right) => left.localeCompare(right)),
+    })]);
+  });
+});
+
+function asset(
+  id: string,
+  url: string,
+  role: 'primary' | 'option',
+  metadata: Record<string, unknown>,
+) {
+  return { id, url, role, sortOrder: 0, metadata };
+}

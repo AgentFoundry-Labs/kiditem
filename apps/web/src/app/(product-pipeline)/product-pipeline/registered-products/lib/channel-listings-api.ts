@@ -1,8 +1,10 @@
+import type { MallListingState } from '@kiditem/shared/sales-product';
 import {
   CoupangCatalogCollectionRunSchema,
   CoupangCatalogStageSchema,
   type CoupangCatalogStage,
 } from '@kiditem/shared/coupang-catalog-snapshot';
+import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
 import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
 
@@ -50,8 +52,10 @@ export type RegisteredListingSort = 'newest' | 'oldest' | 'name_asc';
 export interface RegisteredChannelListing {
   id: string;
   listingName: string;
+  /** 우리 작업공간의 현재 대표이미지. */
   thumbnailUrl: string | null;
-  detailPageArtifactId: string | null;
+  /** 몰이 보고한 대표이미지(수집마다 갱신). 리스팅 대표이미지 평가가 본다. */
+  imageUrl: string | null;
   detailPageRevisionId: string | null;
   channel: string;
   channelAccountId: string | null;
@@ -62,40 +66,27 @@ export interface RegisteredChannelListing {
   brand: string | null;
   manufacturer: string | null;
   channelPrice: number | null;
-  sourceCandidateId: string | null;
+  salesProductId: string | null;
+  sourceRecordId: string | null;
   contentWorkspaceId: string | null;
   status: string | null;
   exposureStatus: string | null;
   optionCount: number;
   mappingStatus: 'matched' | 'unmatched' | 'needs_review';
+  /**
+   * 이 리스팅 계정에서 판매상품의 등록 상태 — 등록 상태 reader 값(KID-320). 판매상품 없는 리스팅이거나
+   * 옛 응답이면 null/없음이고, 그때만 몰 원문 상태를 보인다.
+   */
+  registration?: RegistrationAccountState | null;
+  /** 몰 원문 `status` 를 접은 상태. 옛 응답이면 없음 → `unknown` 으로 그린다. */
+  listingState?: MallListingState;
   createdAt: string;
   updatedAt: string;
   providerDetail?: RegisteredChannelListingProviderDetail;
 }
 
+/** 웹은 공급자 원문 중 사진 주소만 읽는다(등록 상품 상세 이미지). 나머지 원문 필드는 서버 응답에 남지만 여기서는 안 본다. */
 export interface RegisteredChannelListingProviderDetail {
-  category: string | null;
-  brand: string | null;
-  manufacturer: string | null;
-  sourceDetail: {
-    documents: Array<Record<string, unknown>>;
-    options: Array<{
-      externalOptionId: string;
-      documentIds: string[];
-    }>;
-  } | null;
-  options: Array<{
-    externalOptionId: string;
-    itemName: string | null;
-    vendorItemId: string | null;
-    sellerProductItemId: string | null;
-    salePrice: number | null;
-    sellerSku: string | null;
-    barcode: string | null;
-    modelNumber: string | null;
-    status: string | null;
-    attributes: unknown;
-  }>;
   media: Array<{
     sourceUrl: string;
     role: string;

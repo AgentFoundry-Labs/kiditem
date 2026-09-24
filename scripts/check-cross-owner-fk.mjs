@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 // Guards ADR-0013: a reference to another owner's row is a plain id column with
-// an index and no Prisma `@relation`. Organization/user scope, relations inside
-// one owner, and SourceImportRun keep their foreign keys. The remaining
+// an index and no Prisma `@relation`. ADR-0021 makes Channels-related scope and
+// attempt references explicit migration exceptions too; same-owner constraints
+// remain. Other owners retain ADR-0013's platform exceptions. The remaining
 // cross-owner relations live on the allowlist in scripts/cross-owner-fk.json and
 // leave it only by deletion.
 import { readFileSync, readdirSync } from 'node:fs';
@@ -33,19 +34,12 @@ function parseArguments(argv) {
   return { root };
 }
 
-/** Owner of every model a schema file declares, before config overrides. */
-export function parseModelOwners(fileName, source) {
-  const owner = path.basename(fileName, '.prisma');
-  const owners = new Map();
-
-  for (const line of source.split('\n')) {
-    const trimmed = line.trim();
-    if (trimmed.startsWith('//')) continue;
-    const declaration = MODEL_DECLARATION.exec(trimmed);
-    if (declaration) owners.set(declaration[1], owner);
-  }
-
-  return owners;
+/** Declared names only; storage location never determines business ownership. */
+export function parseDeclaredModels(source) {
+  return new Set(source.split('\n').flatMap((line) => {
+    const declaration = MODEL_DECLARATION.exec(line.trim());
+    return declaration ? [declaration[1]] : [];
+  }));
 }
 
 /**
@@ -55,7 +49,6 @@ export function parseModelOwners(fileName, source) {
  * than the schema has and still printing PASS.
  */
 export function parseRelationEdges(fileName, source) {
-  const defaultOwner = path.basename(fileName, '.prisma');
   const file = `${MODELS_DIR}/${path.basename(fileName)}`;
   const lines = source.split('\n');
   const edges = [];
@@ -93,7 +86,6 @@ export function parseRelationEdges(fileName, source) {
 
     edges.push({
       file,
-      defaultOwner,
       model,
       field,
       target,
@@ -122,13 +114,8 @@ function relationKey(sourceOwner, sourceModel, targetOwner, targetModel) {
  * Sorts every relation into scope, kept, intra-owner, or cross-owner, then
  * reconciles the cross-owner ones against the allowlist in both directions.
  */
-export function classifyRelations({ edges, config, modelOwners }) {
-  const declared = modelOwners ?? new Map();
-  for (const edge of edges) {
-    if (!declared.has(edge.model)) declared.set(edge.model, edge.defaultOwner);
-  }
-
-  const overrides = config.owners ?? {};
+export function classifyRelations({ edges, config }) {
+  const owners = config.owners ?? {};
   const scopeTargets = new Set(config.scopeTargets ?? []);
   const keptTargets = new Set(config.keptTargets ?? []);
   // One entry covers one relation, so a second `@relation` between the same two
@@ -138,32 +125,39 @@ export function classifyRelations({ edges, config, modelOwners }) {
     remaining.set(key, (remaining.get(key) ?? 0) + 1);
   }
 
-  const ownerOf = (model) => overrides[model] ?? declared.get(model) ?? null;
+  const ownerOf = (model) => owners[model] ?? null;
 
   const classifications = [];
   const summary = { total: 0, scope: 0, kept: 0, intra: 0, cross: 0 };
   const unlisted = [];
   const unknownTargets = [];
+  const unknownSources = [];
 
   for (const edge of edges) {
     summary.total += 1;
-
-    if (scopeTargets.has(edge.target)) {
+    const sourceOwner = ownerOf(edge.model);
+    const targetOwner = ownerOf(edge.target);
+    if (sourceOwner === null) {
+      unknownSources.push(edge);
+      classifications.push({ ...edge, kind: 'unknown' });
+      continue;
+    }
+    if (targetOwner === null) {
+      unknownTargets.push(edge);
+      classifications.push({ ...edge, kind: 'unknown' });
+      continue;
+    }
+    // Scope is a business-owner boundary, not the Prisma filename. Only the
+    // migrated Channels boundary loses the legacy platform-target exemptions.
+    const channelsBoundary = sourceOwner === 'channels' || targetOwner === 'channels';
+    if (!channelsBoundary && scopeTargets.has(edge.target)) {
       summary.scope += 1;
       classifications.push({ ...edge, kind: 'scope' });
       continue;
     }
-    if (keptTargets.has(edge.target)) {
+    if (!channelsBoundary && keptTargets.has(edge.target)) {
       summary.kept += 1;
       classifications.push({ ...edge, kind: 'kept' });
-      continue;
-    }
-
-    const sourceOwner = ownerOf(edge.model);
-    const targetOwner = ownerOf(edge.target);
-    if (targetOwner === null) {
-      unknownTargets.push(edge);
-      classifications.push({ ...edge, kind: 'unknown' });
       continue;
     }
 
@@ -187,7 +181,7 @@ export function classifyRelations({ edges, config, modelOwners }) {
     .map(([key]) => key)
     .sort();
 
-  return { classifications, summary, unlisted, stale, unknownTargets };
+  return { classifications, summary, unlisted, stale, unknownTargets, unknownSources };
 }
 
 /**
@@ -216,8 +210,13 @@ export function loadConfig(root) {
   if (config.version !== 1) {
     throw new Error(`${CONFIG_FILE} version must be 1`);
   }
-  if (config.owners === null || typeof config.owners !== 'object') {
+  if (!config.owners || typeof config.owners !== 'object' || Array.isArray(config.owners)) {
     throw new Error(`${CONFIG_FILE} needs an object "owners"`);
+  }
+  for (const [model, owner] of Object.entries(config.owners)) {
+    if (typeof owner !== 'string' || !/^[a-z][a-z0-9-]*$/.test(owner)) {
+      throw new Error(`${CONFIG_FILE}: invalid owner for model ${model}`);
+    }
   }
   for (const key of ['scopeTargets', 'keptTargets', 'allowlist']) {
     if (!Array.isArray(config[key])) {
@@ -233,14 +232,12 @@ export function inspectCrossOwnerRelations({ root, config }) {
     .filter((name) => name.endsWith('.prisma'))
     .sort();
 
-  const modelOwners = new Map();
+  const declaredModels = new Set();
   const edges = [];
   const unparsed = [];
   for (const name of files) {
     const source = readFileSync(path.join(modelsDir, name), 'utf8');
-    for (const [model, owner] of parseModelOwners(name, source)) {
-      modelOwners.set(model, owner);
-    }
+    for (const model of parseDeclaredModels(source)) declaredModels.add(model);
     const parsed = parseRelationEdges(name, source);
     edges.push(...parsed.edges);
     unparsed.push(...parsed.unparsed);
@@ -248,11 +245,12 @@ export function inspectCrossOwnerRelations({ root, config }) {
 
   const unknownNames = findUnknownConfigNames(
     config,
-    new Set(modelOwners.keys()),
+    declaredModels,
   );
 
   return {
-    ...classifyRelations({ edges, config, modelOwners }),
+    ...classifyRelations({ edges, config }),
+    missingOwners: [...declaredModels].filter((model) => !config.owners[model]),
     unparsed,
     unknownNames,
   };
@@ -275,6 +273,8 @@ function main() {
     result.unlisted.length > 0 ||
     result.stale.length > 0 ||
     result.unknownTargets.length > 0 ||
+    result.unknownSources.length > 0 ||
+    result.missingOwners.length > 0 ||
     result.unparsed.length > 0 ||
     result.unknownNames.length > 0;
 
@@ -303,6 +303,12 @@ function main() {
         `${entry.file}:${entry.line} could not read this @relation; write it on one line`,
       );
     }
+    for (const model of result.missingOwners) {
+      console.error(`${CONFIG_FILE}: no owner for model ${model}; declare its canonical business owner`);
+    }
+    for (const edge of result.unknownSources) {
+      console.error(`${edge.file}:${edge.line} ${edge.model}.${edge.field}: no owner for model ${edge.model}`);
+    }
     for (const edge of result.unknownTargets) {
       console.error(
         `${edge.file}:${edge.line} ${edge.model}.${edge.field}: no owner for model ${edge.target}; add it to "owners" in ${CONFIG_FILE}`,
@@ -314,7 +320,7 @@ function main() {
 
   const { total, scope, kept, intra, cross } = result.summary;
   console.log(
-    `check:cross-owner-fk PASS (${total} relations: ${scope} scope, ${kept} SourceImportRun, ${intra} intra-owner, ${cross} cross-owner allowlisted)`,
+    `check:cross-owner-fk PASS (${total} relations: ${scope} scope, ${kept} SourceImportRun, ${intra} intra-owner, ${cross} cross-owner transitional allowlisted)`,
   );
 }
 

@@ -35,9 +35,20 @@ function optionDraftsFor(execution: TargetExecutionResult): Record<string, Optio
   return Object.fromEntries([...optionIds].map((optionId) => [optionId, { externalOptionId: '', sellerSku: '' }]));
 }
 
+/**
+ * 실행이 기존 몰 상품에 다시 보낸 것이면 준비 때 어댑터가 얼린 그 상품번호로 시작한다. 몰 계정 식별자는
+ * 채우지 않는다 — 운영자가 몰 관리자에서 본 값을 동결된 계정과 대조하는 것이 이 칸의 일이다.
+ */
+function frozenExistingListingId(execution: TargetExecutionResult): string {
+  const existing = execution.payload.adapterPayload?.existingChannelListing;
+  if (!existing || typeof existing !== 'object') return '';
+  const externalListingId = (existing as Record<string, unknown>).externalListingId;
+  return typeof externalListingId === 'string' ? externalListingId.trim() : '';
+}
+
 function initialDraft(execution: TargetExecutionResult): ConfirmationDraft {
   return {
-    externalListingId: '',
+    externalListingId: frozenExistingListingId(execution),
     observedUrl: '',
     observedStatus: '',
     providerAccountId: '',

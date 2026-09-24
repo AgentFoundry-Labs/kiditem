@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { sourcingWingCatalogKeywordIdentity } from '@kiditem/shared/sourcing';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
@@ -22,7 +22,11 @@ import {
   type SourcingWingCatalogReceipt,
 } from '../../../application/port/out/repository/sourcing-browser-source-attempt.repository.port';
 import { persistBrowserSourceAttemptFacts } from './sourcing-browser-source-attempt.persistence';
-import { upsertSourcedCandidateIn } from './sourcing-candidate-upsert.transaction';
+import { admitSourceRecordWithDraftIn } from './source-record-admission.transaction';
+import {
+  SALES_PRODUCT_DRAFT_PORT,
+  type SalesProductDraftPort,
+} from '../../../application/port/out/cross-domain/sales-product-draft.port';
 import type { SourcingCollectionPermit } from '../../../application/port/out/repository/sourcing-collection.repository.port';
 
 const MAX_ATTEMPT_TTL_MS = 30 * 60_000;
@@ -45,6 +49,9 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: SourceFailureAlerts,
+    // 수집이 입장시킨 원본 기록의 초안은 같은 커밋에서 Channels 가 만든다(KID-313).
+    @Inject(SALES_PRODUCT_DRAFT_PORT)
+    private readonly drafts: SalesProductDraftPort,
   ) {}
 
   async readScrapeUrlAttemptByKey(input: { organizationId: string; sourceKey: string; idempotencyKey: string; requestFingerprint: string }) {
@@ -249,7 +256,7 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
       if (receipts.some((receipt) => receipt.sequence > input.sequence)) {
         throw new ConflictException('SOURCE_CHUNK_OUT_OF_ORDER');
       }
-      await persistBrowserSourceAttemptFacts(tx, toPermit(attempt), input.output, now);
+      await persistBrowserSourceAttemptFacts(tx, toPermit(attempt), input.output, now, this.drafts);
       const acceptedCount = await tx.sourcingWingCatalogProductFact.count({
         where: {
           organizationId: input.organizationId,
@@ -296,8 +303,8 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
     const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
     assertToken(attempt, input.attemptToken);
     assertPlanChecksum(attempt, input.planChecksum);
-    if (scrape && (scrape.candidate.organizationId !== input.organizationId
-      || scrape.candidate.sourceUrl !== parsePlan(attempt.attemptPlan).sourceUrl
+    if (scrape && (scrape.sourceRecord.organizationId !== input.organizationId
+      || scrape.sourceRecord.sourceUrl !== parsePlan(attempt.attemptPlan).sourceUrl
       || !['1688.scrape_url', 'alibaba.scrape_url'].includes(attempt.sourceKey)
     )) {
       throw new ConflictException('SOURCE_SCRAPE_CANDIDATE_MISMATCH');
@@ -350,6 +357,7 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
       toPermit(attempt),
       input.output,
       now,
+      this.drafts,
     );
     const acceptedCount = receipts
       ? receipts.reduce((sum, receipt) =>
@@ -358,9 +366,11 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
           0,
           input.output.discoveredCount - input.output.rejectedCount - persisted.staleDiscardedCount,
         );
-    const candidate = scrape ? await upsertSourcedCandidateIn(tx, scrape.candidate) : null;
-    const scrapeUrlResult = candidate ? { candidateId: candidate.id,
-      href: `/product-pipeline/collected-products/${encodeURIComponent(candidate.id)}` } : undefined;
+    // 원본 기록과 그 초안은 이 종료 트랜잭션에서 함께 생긴다. 같은 원본이 이미 있으면 입장이 거절하고
+    // 이 트랜잭션 전체가 되돌아간다(KID-313).
+    const scrapeUrlResult = scrape
+      ? await admitSourceRecordWithDraftIn(tx, scrape.sourceRecord, this.drafts)
+      : undefined;
     await tx.sourcingEvidenceIngestionRun.updateMany({
       where: {
         organizationId: attempt.organizationId,
@@ -458,6 +468,13 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
   }
 }
 
+function storedScrapeUrlResult(value: unknown): { sourceRecordId: string; salesProductId: string } | undefined {
+  const result = value as { sourceRecordId?: unknown; salesProductId?: unknown } | null;
+  return typeof result?.sourceRecordId === 'string' && typeof result.salesProductId === 'string'
+    ? { sourceRecordId: result.sourceRecordId, salesProductId: result.salesProductId }
+    : undefined;
+}
+
 function qualityReport(attempt: AttemptRow): Record<string, unknown> {
   return (attempt.qualityReport ?? {}) as Record<string, unknown>;
 }
@@ -537,7 +554,7 @@ export function toAttempt(attempt: AttemptRow, now: Date): SourcingBrowserSource
     errorMessage: isReadTimeExpiry ? ATTEMPT_EXPIRED_MESSAGE : attempt.errorMessage,
     completedAt: attempt.completedAt,
     ...(state === 'COMPLETE' && attempt.sourceKey.endsWith('.scrape_url') && quality?.scrapeUrlResult
-      ? { scrapeUrlResult: quality.scrapeUrlResult as { candidateId: string; href: string } } : {}),
+      ? { scrapeUrlResult: storedScrapeUrlResult(quality.scrapeUrlResult) } : {}),
   };
 }
 

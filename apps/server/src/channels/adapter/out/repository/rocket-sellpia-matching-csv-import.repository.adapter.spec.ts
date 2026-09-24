@@ -1,6 +1,6 @@
 import { NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import type { ImportRocketSellpiaMatchingCsvInput } from '../../../application/port/in/rocket-sellpia-matching-csv-import.port';
+import type { PersistRocketSellpiaMatchingCsvInput } from '../../../application/port/out/repository/rocket-sellpia-matching-csv-import.repository.port';
 
 const { upsertChannelCatalogIdentities } = vi.hoisted(() => ({
   upsertChannelCatalogIdentities: vi.fn(),
@@ -12,7 +12,7 @@ vi.mock('./channel-catalog-identity-upsert', () => ({
 
 import { RocketSellpiaMatchingCsvImportRepositoryAdapter } from './rocket-sellpia-matching-csv-import.repository.adapter';
 
-const input: ImportRocketSellpiaMatchingCsvInput = {
+const input: PersistRocketSellpiaMatchingCsvInput = {
   organizationId: '00000000-0000-4000-8000-000000000010',
   userId: '00000000-0000-4000-8000-000000000011',
   channelAccountId: '00000000-0000-4000-8000-000000000012',

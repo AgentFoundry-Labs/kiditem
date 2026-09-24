@@ -5,7 +5,7 @@
 import type {
   ProductGenerationAiRequest,
   ProductGenerationAiResult,
-} from '../../../../../ai/application/port/in/generation/product-generation-ai-trigger.port';
+} from '../../../../../content/application/port/in/generation/product-generation-ai-trigger.port';
 
 export const SOURCING_AGENT_GATEWAY_PORT = Symbol('SOURCING_AGENT_GATEWAY_PORT');
 
@@ -15,14 +15,15 @@ export type SourcingStartProductGenerationResult = ProductGenerationAiResult;
 export interface SourcingRegisterUploadedDetailPageRequest {
   organizationId: string;
   triggeredByUserId: string | null;
-  candidateId: string;
+  /** 상세페이지가 걸리는 판매상품 초안. 콘텐츠 작업공간은 초안이 가진다(KID-310). */
+  salesProductId: string;
   productName: string;
   detailPageImageUrls: string[];
 }
 
 export interface SourcingRegisterUploadedDetailPageResult {
-  candidateId: string;
-  detailGenerationId: string;
+  salesProductId: string;
+  detailPageId: string;
   contentWorkspaceId: string;
   href: string;
 }

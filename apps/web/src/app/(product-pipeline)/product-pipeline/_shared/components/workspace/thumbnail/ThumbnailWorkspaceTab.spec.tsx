@@ -13,16 +13,22 @@ vi.mock('next/navigation', () => ({
   useSearchParams: () => searchParamsMock(),
 }));
 
-vi.mock('../../../hooks/useGenerateSourcingThumbnail', () => ({
-  useSourcingThumbnailGenerations: () => ({
+vi.mock('../../../hooks/useRepresentativeImage', () => ({
+  useThumbnailGallery: () => ({
     data: [
       {
-        id: 'generation-1',
-        status: 'succeeded',
-        phase: 'ready',
-        registrationStatus: null,
-        registrationError: null,
-        candidates: [{ id: 'candidate-1', url: 'https://cdn.example.com/generated.jpg' }],
+        id: 'asset-ai-1',
+        contentWorkspaceId: 'workspace-1',
+        source: 'ai',
+        role: 'thumbnail',
+        url: 'https://cdn.example.com/generated.jpg',
+        label: null,
+        sortOrder: 0,
+        width: null,
+        height: null,
+        thumbnailGenerationId: 'generation-1',
+        isCurrentThumbnail: false,
+        createdAt: '2026-09-23T00:00:00.000Z',
       },
     ],
     isLoading: false,
@@ -55,13 +61,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={{ ...editData, thumbnails: [] }}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={[]}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -74,13 +79,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -91,19 +95,64 @@ describe('ThumbnailWorkspaceTab', () => {
     expect(pushMock.mock.calls[0][0]).toContain('fullPage=1');
   });
 
+  it('opens the editor for a draft without a workspace yet with the sales-product id (f08a10b95)', () => {
+    render(
+      <ThumbnailWorkspaceTab
+        editData={editData}
+        contentWorkspaceId={null}
+        salesProductId="sales-product-1"
+        thumbnailUrl={null}
+        selectedRegistrationThumbnailUrl={null}
+        thumbnailPreviewImages={editData.thumbnails}
+        onPreviewThumbnail={vi.fn()}
+        onThumbnailPreviewImagesChange={vi.fn()}
+        onSaveThumbnailConfiguration={vi.fn()}
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '썸네일 미리보기 이미지 1' }));
+    fireEvent.click(screen.getByRole('button', { name: /선택 이미지 편집하기/ }));
+    const href = new URL(pushMock.mock.calls[0][0], 'http://kiditem.local');
+    expect(href.searchParams.get('salesProductId')).toBe('sales-product-1');
+    expect(href.searchParams.has('contentWorkspaceId')).toBe(false);
+  });
+
+  it('prefers the existing workspace over the sales-product id', () => {
+    render(
+      <ThumbnailWorkspaceTab
+        editData={editData}
+        contentWorkspaceId="workspace-1"
+        salesProductId="sales-product-1"
+        thumbnailUrl={null}
+        selectedRegistrationThumbnailUrl={null}
+        thumbnailPreviewImages={editData.thumbnails}
+        onPreviewThumbnail={vi.fn()}
+        onThumbnailPreviewImagesChange={vi.fn()}
+        onSaveThumbnailConfiguration={vi.fn()}
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole('button', { name: '썸네일 미리보기 이미지 1' }));
+    fireEvent.click(screen.getByRole('button', { name: /선택 이미지 편집하기/ }));
+    const href = new URL(pushMock.mock.calls[0][0], 'http://kiditem.local');
+    expect(href.searchParams.get('contentWorkspaceId')).toBe('workspace-1');
+    expect(href.searchParams.has('salesProductId')).toBe(false);
+  });
+
   it('shows only product-scoped result and status language', () => {
     render(
       <ThumbnailWorkspaceTab
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -122,13 +171,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={onPreviewThumbnail}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -149,13 +197,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl="https://cdn.example.com/source.jpg"
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={onPreviewThumbnail}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -171,13 +218,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={onPreviewThumbnail}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -195,13 +241,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={onThumbnailPreviewImagesChange}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -221,13 +266,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={onPreviewThumbnail}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -256,13 +300,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={onSaveThumbnailConfiguration}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -274,8 +317,8 @@ describe('ThumbnailWorkspaceTab', () => {
       selectedThumbnail: {
         url: 'https://cdn.example.com/source.jpg',
         kind: 'source',
+        assetId: null,
         generatedGenerationId: null,
-        generatedCandidateId: null,
       },
     });
   });
@@ -288,13 +331,12 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={editData}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={editData.thumbnails}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={onSaveThumbnailConfiguration}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -305,8 +347,8 @@ describe('ThumbnailWorkspaceTab', () => {
       selectedThumbnail: {
         url: 'https://cdn.example.com/source.jpg',
         kind: 'source',
+        assetId: null,
         generatedGenerationId: null,
-        generatedCandidateId: null,
       },
     });
   });
@@ -323,13 +365,12 @@ describe('ThumbnailWorkspaceTab', () => {
         }}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl="https://cdn.example.com/source.jpg"
         thumbnailPreviewImages={['https://cdn.example.com/source.jpg', 'https://cdn.example.com/other.jpg']}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={onThumbnailPreviewImagesChange}
         onSaveThumbnailConfiguration={onSaveThumbnailConfiguration}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -345,8 +386,8 @@ describe('ThumbnailWorkspaceTab', () => {
       selectedThumbnail: {
         url: 'https://cdn.example.com/other.jpg',
         kind: 'source',
+        assetId: null,
         generatedGenerationId: null,
-        generatedCandidateId: null,
       },
     });
   });
@@ -360,7 +401,6 @@ describe('ThumbnailWorkspaceTab', () => {
         }}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl="https://cdn.example.com/source.jpg"
         // 배지는 편집용 선택값이 아니라 **저장된 대표**만 근거로 삼는다.
         savedRepresentativeThumbnailUrl="https://cdn.example.com/source.jpg"
@@ -368,7 +408,7 @@ describe('ThumbnailWorkspaceTab', () => {
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -392,14 +432,13 @@ describe('ThumbnailWorkspaceTab', () => {
         editData={{ ...editData, thumbnails: previewImages }}
         contentWorkspaceId={null}
         thumbnailUrl="https://cdn.example.com/other.jpg"
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         savedRepresentativeThumbnailUrl="https://cdn.example.com/source.jpg"
         thumbnailPreviewImages={previewImages}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={vi.fn()}
         onSaveThumbnailConfiguration={onSaveThumbnailConfiguration}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 
@@ -424,13 +463,12 @@ describe('ThumbnailWorkspaceTab', () => {
         }}
         contentWorkspaceId={null}
         thumbnailUrl={null}
-        thumbnailSourceCandidateId="candidate-1"
         selectedRegistrationThumbnailUrl={null}
         thumbnailPreviewImages={['https://cdn.example.com/source.jpg']}
         onPreviewThumbnail={vi.fn()}
         onThumbnailPreviewImagesChange={onThumbnailPreviewImagesChange}
         onSaveThumbnailConfiguration={vi.fn()}
-        thumbnailGenerationReturnHref="/product-pipeline/collected-products/candidate-1"
+        thumbnailGenerationReturnHref="/product-pipeline/collected-products/sales-product-1"
       />,
     );
 

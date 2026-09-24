@@ -3,43 +3,30 @@ import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import type React from 'react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import ProductEditHeader from './ProductEditHeader';
-import type {
-  CandidateRegistrationState,
-  ProductBasics,
-  ProductPreparationSelection,
-} from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
+import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
+import type { ProductBasics } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
 import { queryKeys } from '@/lib/query-keys';
+import { salesProductKeys } from '@/lib/sales-product-api';
 
 const {
-  createPreparationDraftMock,
-  ensureCandidateSalesProductMock,
+  resolveRegistrationTargetMock,
   listAccountsMock,
-  rejectMock,
   toastSuccessMock,
 } = vi.hoisted(() => ({
-  createPreparationDraftMock: vi.fn(),
-  ensureCandidateSalesProductMock: vi.fn(),
+  resolveRegistrationTargetMock: vi.fn(),
   listAccountsMock: vi.fn(),
-  rejectMock: vi.fn(),
   toastSuccessMock: vi.fn(),
 }));
 
 // 네트워크만 막는다. 등록 상태 환산 같은 순수 함수는 진짜 것을 쓴다 — 가짜로 두면
 // 화면이 무엇을 믿는지 테스트가 대신 정해 버린다.
-vi.mock(
-  '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api',
-  async (importOriginal) => ({
-    ...(await importOriginal<Record<string, unknown>>()),
-    candidatesApi: {
-      createPreparationDraft: (...args: unknown[]) => createPreparationDraftMock(...args),
-      reject: (...args: unknown[]) => rejectMock(...args),
-    },
-  }),
-);
-
-vi.mock('@/lib/candidate-sales-product-registration', () => ({
-  candidateSalesProductGap: vi.fn().mockReturnValue(null),
-  ensureCandidateSalesProduct: (...args: unknown[]) => ensureCandidateSalesProductMock(...args),
+vi.mock('@/lib/registration-target-api', () => ({
+  registrationTargetApi: {
+    resolve: (...args: unknown[]) => resolveRegistrationTargetMock(...args),
+  },
+  registrationTargetKeys: {
+    all: ['registration-targets'] as const,
+  },
 }));
 
 vi.mock('@/app/(product-pipeline)/product-pipeline/registered-products/lib/channel-listings-api', () => ({
@@ -95,10 +82,8 @@ const basicInfo: ProductBasics = {
   rocketUnitCost: 9000,
   thumbnailUrls: ['https://cdn.example.com/source.png'],
   selectedThumbnailUrl: 'https://cdn.example.com/generated-thumb.png',
-  selectedThumbnailGenerationId: '22222222-2222-4222-8222-222222222222',
-  selectedThumbnailGenerationCandidateId: '33333333-3333-4333-8333-333333333333',
+  selectedThumbnailAssetId: '33333333-3333-4333-8333-333333333333',
   selectedDetailPageGenerationId: '44444444-4444-4444-8444-444444444444',
-  selectedDetailPageArtifactId: '55555555-5555-4555-8555-555555555555',
   selectedDetailPageRevisionId: '66666666-6666-4666-8666-666666666666',
   mallRegisterValues: { '11st': { categoryPath: '문구>팬시' } },
   mallRegisterShared: { certNumber: 'CB123R456-7001' },
@@ -121,21 +106,43 @@ function renderWithQueryClient(ui: React.ReactElement) {
   };
 }
 
-function renderHeader(
-  productPreparation: ProductPreparationSelection | null = null,
-  registrationState: CandidateRegistrationState | null = null,
-) {
+const MAIN_ACCOUNT = '11111111-1111-4111-8111-111111111111';
+const ROCKET_ACCOUNT = '22222222-2222-4222-8222-222222222222';
+
+function account(
+  channelAccountId: string,
+  state: RegistrationAccountState['state'],
+  overrides: Partial<RegistrationAccountState> = {},
+): RegistrationAccountState {
+  return {
+    channelAccountId,
+    channel: 'coupang',
+    channelAccountName: channelAccountId === MAIN_ACCOUNT ? '쿠팡 본계정' : '쿠팡 로켓 계정',
+    registrationTargetId: '77777777-7777-4777-8777-777777777777',
+    channelListingId: null,
+    externalListingId: null,
+    listingState: null,
+    listingRawStatus: null,
+    listingActive: false,
+    state,
+    soldOut: false,
+    changedSinceRegistration: false,
+    selectedThumbnailAssetId: null,
+    selectedDetailPageRevisionId: null,
+    lastExecution: null,
+    ...overrides,
+  };
+}
+
+function renderHeader(registrationAccounts: RegistrationAccountState[] = []) {
   return renderWithQueryClient(
     <ProductEditHeader
       productName="자석 다트게임"
       productId="candidate-1"
-      status="sourced"
-      productPreparation={productPreparation}
-      registrationState={registrationState}
+      salesProductId="sales-product-1"
+      registrationAccounts={registrationAccounts}
       basicInfo={basicInfo}
       selectedThumbnailUrl={basicInfo.selectedThumbnailUrl}
-      selectedThumbnailGenerationId={basicInfo.selectedThumbnailGenerationId}
-      selectedThumbnailGenerationCandidateId={basicInfo.selectedThumbnailGenerationCandidateId}
       selectedDetailPageGenerationId={basicInfo.selectedDetailPageGenerationId}
       isEditComplete={false}
       isLocked={false}
@@ -148,10 +155,8 @@ function renderHeader(
 
 describe('ProductEditHeader preparation draft action', () => {
   beforeEach(() => {
-    createPreparationDraftMock.mockReset();
-    ensureCandidateSalesProductMock.mockReset();
+    resolveRegistrationTargetMock.mockReset();
     listAccountsMock.mockReset();
-    rejectMock.mockReset();
     toastSuccessMock.mockReset();
     listAccountsMock.mockResolvedValue([
       {
@@ -168,15 +173,21 @@ describe('ProductEditHeader preparation draft action', () => {
         externalAccountId: 'vendor-rocket',
       },
     ]);
-    ensureCandidateSalesProductMock.mockResolvedValue({});
   });
 
-  it('creates a draft for the explicitly selected account and stays in the candidate workspace', async () => {
-    createPreparationDraftMock.mockResolvedValue({
-      preparationId: '77777777-7777-4777-8777-777777777777',
-      status: 'draft',
+  it('resolves (creates or reuses) the registration target for the explicitly selected account and stays in the candidate workspace', async () => {
+    resolveRegistrationTargetMock.mockResolvedValue({
+      id: '77777777-7777-4777-8777-777777777777',
+      salesProductId: 'sales-product-1',
+      channelAccountId: '22222222-2222-4222-8222-222222222222',
+      version: 1,
+      displayName: null,
+      registrationInput: {},
+      selectedOptions: [],
+      resolved: { name: '자석 다트게임', options: [] },
     });
-    renderHeader();
+    const { queryClient } = renderHeader();
+    const invalidate = vi.spyOn(queryClient, 'invalidateQueries');
 
     fireEvent.click(screen.getByRole('button', { name: '제품 등록 준비' }));
     const accountSelect = await screen.findByLabelText('등록 채널 계정');
@@ -188,45 +199,16 @@ describe('ProductEditHeader preparation draft action', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '등록 준비 저장' }));
 
-    await waitFor(() => expect(createPreparationDraftMock).toHaveBeenCalledWith(
-      'candidate-1',
-      expect.objectContaining({
-        channelAccountId: '22222222-2222-4222-8222-222222222222',
-        displayName: '자석 다트게임',
-        registrationInput: expect.objectContaining({
-          name: '자석 다트게임',
-          category: '완구',
-          salePrice: 21900,
-        }),
-        selectedThumbnailUrl: 'https://cdn.example.com/generated-thumb.png',
-        selectedThumbnailGenerationId: '22222222-2222-4222-8222-222222222222',
-        selectedThumbnailGenerationCandidateId: '33333333-3333-4333-8333-333333333333',
-        selectedDetailPageGenerationId: '44444444-4444-4444-8444-444444444444',
-        selectedDetailPageArtifactId: '55555555-5555-4555-8555-555555555555',
-        selectedDetailPageRevisionId: '66666666-6666-4666-8666-666666666666',
-      }),
-    ));
-    expect(ensureCandidateSalesProductMock).toHaveBeenCalledWith(
-      'candidate-1',
-      expect.any(Function),
-      expect.objectContaining({
-        findByCandidate: expect.any(Function),
-        update: expect.any(Function),
-        createFromCandidates: expect.any(Function),
-      }),
-    );
-    expect(ensureCandidateSalesProductMock.mock.invocationCallOrder[0]).toBeLessThan(
-      createPreparationDraftMock.mock.invocationCallOrder[0]!,
-    );
-    const request = createPreparationDraftMock.mock.calls[0]?.[1];
-    expect(request?.registrationInput).not.toHaveProperty('selectedThumbnailGenerationId');
-    // 몰 등록 값은 후보에만 산다 — 준비로 복사하지 않는다.
-    expect(request?.registrationInput).not.toHaveProperty('mallRegisterValues');
-    expect(request?.registrationInput).not.toHaveProperty('mallRegisterShared');
-    expect(request).not.toHaveProperty('options');
-    expect(request).not.toHaveProperty('skipPostPromotionHooks');
-    expect(request).not.toHaveProperty('masterId');
-    expect(await screen.findByText('등록 준비됨')).toBeInTheDocument();
+    // 판매상품 초안은 수집 시점부터 있다(ADR-0022) — 만들지 않고 이 초안 × 고른
+    // 계정의 등록 설정을 열거나(이미 있으면) 그대로 돌려받는다.
+    await waitFor(() => expect(resolveRegistrationTargetMock).toHaveBeenCalledWith({
+      salesProductId: 'sales-product-1',
+      channelAccountId: '22222222-2222-4222-8222-222222222222',
+    }));
+    // 상태는 등록 상태 reader 가 다시 답한다 — 화면이 '준비됨' 을 지어내지 않는다.
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({
+      queryKey: salesProductKeys.registrationState('sales-product-1'),
+    }));
     expect(screen.getByText('자석 다트게임')).toBeInTheDocument();
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
   });
@@ -243,77 +225,63 @@ describe('ProductEditHeader preparation draft action', () => {
   });
 
   /**
-   * 등록이 어디까지 갔는가는 울타리가 답한다(ADR-0014). 초안 행의 `status` 는 거울이라
-   * 울타리와 어긋날 수 있고, 어긋난 거울을 믿으면 이미 마켓에 올라간 상품에 '제품 등록
-   * 준비' 버튼이 다시 열린다.
+   * 등록이 어디까지 갔는가는 등록 상태 reader 가 계정별로 답한다(KID-320). 한 몰에 올라갔어도 다른 몰은 준비할
+   * 수 있어야 한다 — 버튼은 열어 두고, 이미 올라간 계정은 대화상자가 계정마다 막는다(W4 리뷰 S2).
    */
-  it('⭐ believes the registration fence over a stale preparation mirror', () => {
-    renderHeader({
-      id: '77777777-7777-4777-8777-777777777777',
-      sourceCandidateId: 'candidate-1',
-      channelAccountId: '22222222-2222-4222-8222-222222222222',
-      sourceContentWorkspaceId: '88888888-8888-4888-8888-888888888888',
-      channelListingId: null,
-      status: 'draft',
-      selectedThumbnailUrl: null,
-      selectedThumbnailGenerationId: null,
-      selectedThumbnailGenerationCandidateId: null,
-      selectedDetailPageGenerationId: null,
-      selectedDetailPageArtifactId: null,
-      selectedDetailPageRevisionId: null,
-      updatedAt: '2026-07-13T00:00:00.000Z',
-    }, 'registered');
+  it('⭐ shows the only account\'s state and still offers preparation for the other malls when it is registered', async () => {
+    renderHeader([account(ROCKET_ACCOUNT, 'registered', { changedSinceRegistration: true })]);
 
-    expect(screen.getByText('제품 등록됨')).toBeInTheDocument();
-    expect(screen.queryByText('등록 준비됨')).not.toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '제품 등록 준비' })).not.toBeInTheDocument();
+    expect(screen.getByText('등록됨')).toBeInTheDocument();
+    expect(screen.queryByText(/변경됨/)).not.toBeInTheDocument();
+    const button = screen.getByRole('button', { name: '제품 등록 준비' });
+    expect(button).toBeEnabled();
+
+    fireEvent.click(button);
+    const registered = await screen.findByRole('option', { name: /쿠팡 로켓 계정/ });
+    expect(registered).toBeDisabled();
   });
 
-  /** 울타리가 아직 아무것도 없다고 하면 초안이 있어도 반려·재준비 길은 열려 있다. */
-  it('⭐ keeps the candidate actions open while the fence says nothing was submitted', () => {
-    renderHeader(null, 'none');
-    expect(screen.getByRole('button', { name: '제품 등록 준비' })).toBeInTheDocument();
+  /** 아무 계정에도 보내지 않았으면 등록 준비 길은 열려 있다. 반려는 없다(KID-313). */
+  it('⭐ keeps preparation open while no account has anything', () => {
+    renderHeader([]);
+    expect(screen.getByRole('button', { name: '제품 등록 준비' })).toBeEnabled();
+    expect(screen.queryByRole('button', { name: /반려/ })).not.toBeInTheDocument();
   });
 
-  it('shows registration state from the preparation instead of candidate status', () => {
-    renderHeader({
-      id: '77777777-7777-4777-8777-777777777777',
-      sourceCandidateId: 'candidate-1',
-      channelAccountId: '22222222-2222-4222-8222-222222222222',
-      sourceContentWorkspaceId: '88888888-8888-4888-8888-888888888888',
-      channelListingId: '99999999-9999-4999-8999-999999999999',
-      status: 'registered',
-      selectedThumbnailUrl: null,
-      selectedThumbnailGenerationId: null,
-      selectedThumbnailGenerationCandidateId: null,
-      selectedDetailPageGenerationId: null,
-      selectedDetailPageArtifactId: null,
-      selectedDetailPageRevisionId: null,
-      updatedAt: '2026-07-13T00:00:00.000Z',
-    });
+  /** 연결한 몰 계정이 하나도 없으면 버튼은 열려 있고 대화상자가 그 사실을 말한다 — "모두 막힘"이 아니다(KID-330). */
+  it('keeps preparation open when the active-account list is empty even though every known state is blocked', async () => {
+    listAccountsMock.mockResolvedValue([]);
+    renderHeader([account(MAIN_ACCOUNT, 'registered')]);
+    const button = screen.getByRole('button', { name: '제품 등록 준비' });
 
-    expect(screen.getByText('제품 등록됨')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '제품 등록 준비' })).not.toBeInTheDocument();
+    fireEvent.click(button);
+    expect(await screen.findByText(/사용할 수 있는 채널 계정이 없습니다/)).toBeInTheDocument();
+    expect(button).toBeEnabled();
+    expect(button).not.toHaveAttribute('title', '모든 몰 계정이 이미 등록됐거나 진행 중입니다.');
   });
 
-  it('does not treat an accountless content preparation as registration state', () => {
-    renderHeader({
-      id: '77777777-7777-4777-8777-777777777777',
-      sourceCandidateId: 'candidate-1',
-      channelAccountId: null,
-      sourceContentWorkspaceId: '88888888-8888-4888-8888-888888888888',
-      channelListingId: null,
-      status: 'draft',
-      selectedThumbnailUrl: null,
-      selectedThumbnailGenerationId: null,
-      selectedThumbnailGenerationCandidateId: null,
-      selectedDetailPageGenerationId: null,
-      selectedDetailPageArtifactId: null,
-      selectedDetailPageRevisionId: null,
-      updatedAt: '2026-07-13T00:00:00.000Z',
-    });
+  it('keeps preparation open for the other malls while one account is live', () => {
+    renderHeader([account(ROCKET_ACCOUNT, 'submitting')]);
 
-    expect(screen.getByRole('button', { name: '제품 등록 준비' })).toBeInTheDocument();
-    expect(screen.queryByText('등록 준비됨')).not.toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '제품 등록 준비' })).toBeEnabled();
+    expect(screen.getByText('전송 중')).toBeInTheDocument();
+  });
+
+  it('opens preparation again for a failed account', () => {
+    renderHeader([account(ROCKET_ACCOUNT, 'failed')]);
+
+    expect(screen.getByText('실패')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '제품 등록 준비' })).toBeEnabled();
+  });
+
+  it('summarises several accounts and does not offer an already registered one in the picker', async () => {
+    renderHeader([account(MAIN_ACCOUNT, 'registered'), account(ROCKET_ACCOUNT, 'unregistered')]);
+
+    expect(screen.getByText('1몰 등록')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '제품 등록 준비' }));
+    const registered = await screen.findByRole('option', { name: '쿠팡 본계정 · coupang (등록됨)' });
+    expect(registered).toBeDisabled();
+    expect(screen.getByRole('option', { name: '쿠팡 로켓 계정 · coupang' })).toBeEnabled();
   });
 });

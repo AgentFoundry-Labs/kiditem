@@ -1,3 +1,5 @@
+import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import request from 'supertest';
@@ -33,7 +35,7 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     alerts = new SourceFailureAlerts(prisma as never);
-    owner = new AdCampaignSourceRepository(prisma as never, alerts);
+    owner = new AdCampaignSourceRepository(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).listings, prisma as never, alerts);
     const module = await Test.createTestingModule({
       controllers: [AdCampaignSourceController],
       providers: [{ provide: AdCampaignSourceRepository, useValue: owner }],
@@ -310,10 +312,10 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
   it('a completed sweep is what the listing-day ad reader calls measured: every declared date, with the published spend', async () => {
     const a = await full();
     // Staged facts are private until the terminal publication.
-    expect((await readAdWindowFacts(prisma, { organizationId: ORG })).days).toEqual([]);
+    expect((await readAdWindowFacts(prisma, { organizationId: ORG }, profitCatalogTestReaders(prisma as never).accounts)).days).toEqual([]);
     await finish(a, 201);
 
-    const facts = await readAdWindowFacts(prisma, { organizationId: ORG });
+    const facts = await readAdWindowFacts(prisma, { organizationId: ORG }, profitCatalogTestReaders(prisma as never).accounts);
 
     // The plan declared 31 business dates; the last one was published as an
     // explicit empty day, which is a measured zero rather than a gap.
@@ -533,7 +535,7 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     const heldDayBefore = held.plan.businessDates[1];
     await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: held.attemptId } }))
       .resolves.toMatchObject({ coverageEndDate: new Date(`${heldDayBefore}T00:00:00.000Z`) });
-    const heldDays = (await readAdWindowFacts(prisma as never, { organizationId: ORG })).days;
+    const heldDays = (await readAdWindowFacts(prisma as never, { organizationId: ORG }, profitCatalogTestReaders(prisma as never).accounts)).days;
     expect(heldDays.at(-1)).toMatchObject({ businessDate: heldDayBefore, spend: 12 });
     expect(heldDays.map((row) => row.businessDate)).not.toContain(held.plan.endDate);
     // Nothing newer can be collected until Coupang reports the closed day.
@@ -546,7 +548,7 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     await finish(reported, 201);
     await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: reported.attemptId } }))
       .resolves.toMatchObject({ coverageEndDate: new Date(`${reported.plan.endDate}T00:00:00.000Z`) });
-    expect((await readAdWindowFacts(prisma as never, { organizationId: ORG })).days.at(-1))
+    expect((await readAdWindowFacts(prisma as never, { organizationId: ORG }, profitCatalogTestReaders(prisma as never).accounts)).days.at(-1))
       .toMatchObject({ businessDate: reported.plan.endDate, spend: 12 });
   });
   it('confirms a zero closed day after a zero day, because the account was not advertising', async () => {
@@ -554,7 +556,7 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     await finish(quiet, 201);
     await expect(prisma.sourceImportRun.findUniqueOrThrow({ where: { id: quiet.attemptId } }))
       .resolves.toMatchObject({ coverageEndDate: new Date(`${quiet.plan.endDate}T00:00:00.000Z`) });
-    expect((await readAdWindowFacts(prisma as never, { organizationId: ORG })).days.at(-1))
+    expect((await readAdWindowFacts(prisma as never, { organizationId: ORG }, profitCatalogTestReaders(prisma as never).accounts)).days.at(-1))
       .toMatchObject({ businessDate: quiet.plan.endDate, spend: 0 });
   });
   it('holds a one-day manual report of the closed day that shows no spend', async () => {
@@ -685,7 +687,7 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
         },
       },
     });
-    const reading = new AdCampaignSourceRepository(readClient as never, alerts).source(
+    const reading = new AdCampaignSourceRepository(channelFactTestPorts(readClient as never).accounts, channelFactTestPorts(readClient as never).listings, readClient as never, alerts).source(
       ORG,
       accountId,
     );
@@ -880,8 +882,8 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     ).expect(200);
     await finish(firstManual, 201);
 
-    const campaignReader = new AdCampaignRepositoryAdapter(prisma as never);
-    const actionReader = new AdActionRepositoryAdapter(prisma as never, {} as never);
+    const campaignReader = new AdCampaignRepositoryAdapter(prisma as never, profitCatalogTestReaders(prisma as never).accounts);
+    const actionReader = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never, {} as never, profitCatalogTestReaders(prisma as never).accounts);
     expect((await campaignReader.findCampaignSnapshot(ORG, '7d')).rollups).toMatchObject([
       { spend: 77 },
     ]);

@@ -13,16 +13,17 @@ This folder owns four surfaces:
   per-option source template, and reusable Channels registration targets (ADR-0020). Saving sends only
   changed fields; options follow the basics save with the returned version.
   The shared mall bulk-sheet dialog (`src/components/mall-sheet/`) downloads
-  filled mall templates; the operator uploads them to the mall. The editor
-  sends a sales product made from a collected product back to 수집상품
-  (archived, revived by promoting it again).
+  filled mall templates; the operator uploads them to the mall. A sales
+  product is a draft from the moment its source is collected (ADR-0022) — there is no candidate-to-sales-product promotion and no demote
+  action in this editor. Its code (KID) issues lazily at the first sell
+  decision, so a still-undecided draft shows 미발급 instead of a code.
 
 ## State Contract
 
-- The list is the operating centre (사장님 2026-09-21): one row is 상품 · 등급 ·
-  재고 · 월 평균 · 매출 · 판매 · 원가 · 매출총이익 · 총이익률 for the current
-  month. The traffic columns (방문 · 조회 · 장바구니 · 주문 · 광고비율) were
-  removed; the row still carries those fields, the table no longer shows them.
+- The list is the operating centre: one row is 상품 · 등급 · 재고 · 월 평균 ·
+  매출 · 판매 · 원가 · 매출총이익 · 총이익률 for the current month. Traffic
+  fields (방문 · 조회 · 장바구니 · 주문 · 광고비율) stay on the row for the
+  product page and are not columns of this table.
 - 월 평균 is how many units leave in a month — the Sellpia owner's own
   `depletion.monthlyOutflow`, the same average that decides 가용재고 N개월 and
   발주 필요, so the row cannot disagree with itself. It sits beside 재고 because
@@ -33,7 +34,7 @@ This folder owns four surfaces:
   how many complete months the average covered. A product that sold nothing in
   every complete month but is selling this month reads 신상품, not 0 — 0 would
   claim a speed the product has never had; the average starts once a whole month
-  exists (사장님 2026-09-21). The row picks that word from two published facts,
+  exists. The row picks that word from two published facts,
   the way the grade cell picks its own; it computes no number from them.
 - A fact appears once in a row. 등급 lives only in the 등급 column — the row
   carries no second badge beside the name; that column is also the way into the
@@ -43,7 +44,7 @@ This folder owns four surfaces:
   nothing that another cell already says.
 - 등급이 없는 칸은 왜 없는지를 한 마디로 말한다 — 미연결 · 수집 전 · 광고 전 ·
   관찰 중, derived by `productAbcDisplayStatus` from the row's own `abc` read
-  (사장님 2026-09-21); a blank beside a large revenue reads as a bug. A graded
+  — a blank beside a large revenue reads as a bug. A graded
   product shows only its letter.
 - 카테고리가 없으면 칩을 그리지 않는다. '미분류' 라는 말은 ABC 등급으로 읽혔다.
 - 원가 is the cost of what sold — Σ(팔린 개수 × 매입 단가) — never the month's
@@ -57,7 +58,7 @@ This folder owns four surfaces:
   never re-sort a page in the browser. Changing sort returns to page 1, and the
   command-center summary reads its own unsorted query, so it never moves.
 - 줄 세우기 칸은 표 바로 위에 눌러서 고르는 칸으로 그린다 — 브라우저 기본
-  `select` 는 머리글 구석에 있어 보이지 않았다(사장님 2026-09-21). Options come
+  `select` 는 머리글 구석에 있어 보이지 않는다. Options come
   from `SORT_OPTIONS`; the chips follow the 광고 상태 group's spec.
 - Filters, period, and page are URL-authoritative. Command-center counts use a
   dedicated unfiltered operating-catalog summary and do not change with row

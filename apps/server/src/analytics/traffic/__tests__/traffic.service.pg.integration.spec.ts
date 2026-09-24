@@ -1,3 +1,4 @@
+import { channelFactTestPorts, channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
@@ -117,12 +118,13 @@ describe('TrafficService (PG integration) — daily facts', () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
-    trafficOwner = new AdTrafficSourceRepository(
+    trafficOwner = new AdTrafficSourceRepository(channelFactTestPorts(prismaService).accounts, channelFactTestPorts(prismaService).listings,
       prismaService,
       new SourceFailureAlerts(prismaService),
     );
     const m = await Test.createTestingModule({
       providers: [
+        ...channelFactTestProviders,
         TrafficService,
         { provide: PrismaService, useValue: prisma },
         { provide: AD_TRAFFIC_READ_PORT, useValue: trafficOwner },

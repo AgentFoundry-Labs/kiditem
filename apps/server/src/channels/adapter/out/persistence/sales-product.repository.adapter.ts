@@ -1,5 +1,10 @@
-import { readSalesProductOptionExecutionCounts } from '../../../read/registration-execution.reader';
+import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import { resolveUnitCost } from '../../../../products/domain/option-pricing-resolver';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
+import { readSalesProductOptionExecutionCounts } from '../repository/registration-execution-ledger.reader';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
+import { ensureSalesProductCodesInTransaction } from './sales-product-code-rows';
+import { SalesProductStatusError, assertStatusInvariant } from '../../../domain/sales-product/sales-product-status';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
@@ -7,8 +12,9 @@ import {
   type SalesProduct,
   type SalesProductCertification,
   type SalesProductDeliveryFeeType,
+  type SalesProductKcStatus,
   type SalesProductListQuery,
-  type SalesProductListResponse,
+  type RegistrationMallInput,
   type SalesProductOptionSupplyStatus,
   type SalesProductStatus,
   type SalesProductTaxType,
@@ -23,30 +29,42 @@ import {
   salesProductImportFingerprint,
   type PlannedOptionWrite,
   type SalesProductOptionReplacementPlan,
-} from '../../../domain/sales-product';
+} from '../../../domain/sales-product/sales-product';
 import type {
   LinkCandidateListing,
   LinkCandidateProduct,
   SalesProductLinkPlan,
-} from '../../../domain/sales-product-links';
+} from '../../../domain/sales-product/sales-product-links';
 import type {
   MallPriceAdoptionWrite,
   MallPriceCandidateListingOption,
   MallPriceCandidateProduct,
-} from '../../../domain/sales-product-mall-prices';
-import type { CoupangCatalogFacts } from '../../../domain/mall-bulk-sheet/coupang-catalog-edit';
-import type { MallSheetSourceProduct } from '../../../domain/mall-bulk-sheet/mall-sheet-product';
+} from '../../../domain/sales-product/sales-product-mall-prices';
+import type { CoupangCatalogFacts } from '../../../domain/registration/bulk-sheet/coupang-catalog-edit';
+import type { MallSheetSourceProduct } from '../../../domain/registration/bulk-sheet/mall-sheet-product';
+import {
+  REGISTRATION_CONTENT_WORKSPACE_PORT,
+  type RegistrationContentWorkspacePort,
+} from '../../../../content/application/port/in/workspace/registration-content-workspace.port';
+import {
+  CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT,
+  type ChannelRegistrableDetailPagePort,
+} from '../../../application/port/out/content/registrable-detail-page.port';
 import {
   REGISTRATION_TARGET_REPOSITORY_PORT,
+  type RegistrationTargetRecord,
   type RegistrationTargetRepositoryPort,
 } from '../../../application/port/out/persistence/registration-target.repository.port';
+import { emptyRegistrationMallInput, normalizeRegistrationMallInput } from '../../../domain/registration/registration-mall-input';
 import type {
   SabangnetImportProductWrite,
   SalesProductBasicsRecord,
   SalesProductChannelOverrideRecord,
   SalesProductCreateRecord,
-  SalesProductFromCandidateRecord,
+  SalesProductDraftDeletionFacts,
+  SalesProductImportCurrent,
   SalesProductImportResult,
+  SalesProductListPage,
   SalesProductOptionState,
   SalesProductRepositoryPort,
 } from '../../../application/port/out/persistence/sales-product.repository.port';
@@ -85,24 +103,18 @@ const DETAIL_INCLUDE = {
     },
   },
   registrationTargets: {
-    where: { isDeleted: false },
+    where: { archivedAt: null },
     orderBy: [{ createdAt: 'asc' as const }, { id: 'asc' as const }],
     select: {
       id: true,
       channelAccountId: true,
       version: true,
-      displayName: true,
       registrationInput: true,
       updatedAt: true,
       channelAccount: { select: { channel: true, name: true } },
       selectedOptions: {
         orderBy: { sortOrder: 'asc' as const },
-        select: {
-          salesProductOptionId: true,
-          salePrice: true,
-          normalPrice: true,
-          supplyPrice: true,
-        },
+        select: { salesProductOptionId: true },
       },
     },
   },
@@ -135,16 +147,53 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     private readonly productTransactionalRead: ProductTransactionalReadPort,
     @Inject(REGISTRATION_TARGET_REPOSITORY_PORT)
     private readonly registrationTargets: RegistrationTargetRepositoryPort,
+    /** 판매 상품마다 활성 콘텐츠 작업공간은 하나이고 상품과 같은 트랜잭션에서 생긴다(KID-313 W2). */
+    @Inject(REGISTRATION_CONTENT_WORKSPACE_PORT)
+    private readonly contentWorkspaces: RegistrationContentWorkspacePort,
+    /** 사방넷 상세는 상품과 같은 트랜잭션에서 Content 의 `imported` revision 으로 넘긴다(KID-313 W2). */
+    @Inject(CHANNEL_REGISTRABLE_DETAIL_PAGE_PORT)
+    private readonly detailPages: ChannelRegistrableDetailPagePort,
   ) {}
 
   async allocateCode(_organizationId: string): Promise<string> {
     return this.prisma.$transaction((tx) => allocateKidItemCode(tx));
   }
 
-  async list(organizationId: string, query: SalesProductListQuery): Promise<SalesProductListResponse> {
+  async ensureCodes(
+    organizationId: string,
+    salesProductId: string,
+    transaction?: OwnerTransaction,
+  ): Promise<{ code: string; issued: number }> {
+    const issue = (tx: Tx) => ensureSalesProductCodesInTransaction(tx, organizationId, salesProductId,
+      (ids) => readMasterProductCodesInTransaction(this.productTransactionalRead, tx, organizationId, ids));
+    return transaction
+      ? issue(ownerTransactionClient(transaction) as Tx)
+      : this.prisma.$transaction(issue, TRANSACTION_OPTIONS);
+  }
+
+  async ensureCodesForMany(organizationId: string, salesProductIds: readonly string[]): Promise<number> {
+    const ids = [...new Set(salesProductIds)];
+    if (ids.length === 0) return 0;
+    return this.prisma.$transaction(
+      async (tx) => {
+        let issued = 0;
+        for (const salesProductId of ids) {
+          const result = await ensureSalesProductCodesInTransaction(tx, organizationId, salesProductId,
+            (componentIds) => readMasterProductCodesInTransaction(this.productTransactionalRead, tx, organizationId, componentIds));
+          issued += result.issued;
+        }
+        return issued;
+      },
+      TRANSACTION_OPTIONS,
+    );
+  }
+
+  async list(organizationId: string, query: SalesProductListQuery): Promise<SalesProductListPage> {
     const base: Prisma.SalesProductWhereInput = {
       organizationId,
       status: query.status ?? { not: 'archived' },
+      // 원천 탭(1688 · 쿠팡 · 사방넷)은 초안에 복사된 값으로 거른다 — Sourcing 조인이 없다.
+      ...(query.sourcePlatform ? { sourcePlatform: query.sourcePlatform } : {}),
     };
     const search = query.query?.trim();
     const searchWhere: Prisma.SalesProductWhereInput = search
@@ -162,15 +211,34 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     const withUnlinked: Prisma.SalesProductWhereInput = {
       options: { some: { supplyStatus: { not: 'unused' }, components: { none: {} } } },
     };
+    /**
+     * 미등록 = KID 를 받은 판매 상품 중 어느 몰에도 올라간 적 없는 것. 수집상품에서 만든 것과 직접
+     * 만든 것을 가리지 않는다. 초안은 KID 가 없어 몰에 갈 수 없으니 여기 오지 않는다(KID-313).
+     *
+     * 몰에서 내린(비활성) 상품은 돌아오지 않는다 — 비활성화는 등록된 상태에서 내린 것이지 등록하지
+     * 않은 것이 아니다(사장님 2026-09-23).
+     */
+    const unregistered: Prisma.SalesProductWhereInput = {
+      status: 'active',
+      channelListings: { none: {} },
+    };
+    /** KID 를 아직 받지 않은 초안. 수집상품 화면이 이것만 보인다(KID-313). */
+    const draftOnly: Prisma.SalesProductWhereInput = { status: 'draft' };
+    const preparing = draftOnly;
     const focusWhere = query.focus === 'with_options'
       ? withOptions
-      : query.focus === 'unlinked' ? withUnlinked : {};
+      : query.focus === 'unlinked'
+        ? withUnlinked
+        : query.focus === 'unregistered' ? unregistered
+          : query.focus === 'preparing' ? preparing : {};
     const where: Prisma.SalesProductWhereInput = { AND: [base, searchWhere, focusWhere] };
-    const [total, summaryTotal, summaryWithOptions, summaryUnlinked, rows] = await Promise.all([
+    const [total, summaryTotal, summaryWithOptions, summaryUnlinked, summaryUnregistered, summaryDraft, rows] = await Promise.all([
       this.prisma.salesProduct.count({ where }),
       this.prisma.salesProduct.count({ where: base }),
       this.prisma.salesProduct.count({ where: { AND: [base, withOptions] } }),
       this.prisma.salesProduct.count({ where: { AND: [base, withUnlinked] } }),
+      this.prisma.salesProduct.count({ where: { AND: [base, unregistered] } }),
+      this.prisma.salesProduct.count({ where: { AND: [base, draftOnly] } }),
       this.prisma.salesProduct.findMany({
         where,
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
@@ -180,6 +248,9 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           id: true,
           code: true,
           ownCode: true,
+          sourceRecordId: true,
+          sourcePlatform: true,
+          sourceUrl: true,
           name: true,
           status: true,
           imageUrls: true,
@@ -191,7 +262,6 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           _count: {
             select: {
               channelListings: { where: { isActive: true } },
-              registrationTargets: { where: { isDeleted: false } },
             },
           },
         },
@@ -202,6 +272,9 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         id: row.id,
         code: row.code,
         ownCode: row.ownCode,
+        sourceRecordId: row.sourceRecordId,
+        sourcePlatform: row.sourcePlatform,
+        sourceUrl: row.sourceUrl,
         name: row.name,
         status: row.status as SalesProductStatus,
         salePrice: minimumOptionPrice(row.options),
@@ -212,7 +285,6 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         unlinkedOptionCount: row.options.filter((option) =>
           option.supplyStatus !== 'unused' && option._count.components === 0).length,
         channelListingCount: row._count.channelListings,
-        channelOverrideCount: row._count.registrationTargets,
         updatedAt: row.updatedAt,
       })),
       total,
@@ -222,36 +294,23 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         total: summaryTotal,
         withOptions: summaryWithOptions,
         withUnlinkedOptions: summaryUnlinked,
+        unregistered: summaryUnregistered,
+        draft: summaryDraft,
       },
     };
   }
 
-  async get(organizationId: string, salesProductId: string): Promise<SalesProduct | null> {
-    const result = await this.prisma.$transaction(async (tx) => {
-      const context = { client: tx };
-      const lock = await this.productTransactionalRead.lock(context, organizationId);
-      const row = await tx.salesProduct.findFirst({
-        where: { id: salesProductId, organizationId },
-        include: DETAIL_INCLUDE,
-      });
-      if (!row) return null;
-
-      const masterProductIds = [...new Set(row.options.flatMap((option) =>
-        option.components.map((component) => component.masterProductId)))];
-      if (masterProductIds.length === 0) {
-        return { row, identities: [], availability: null };
-      }
-
-      const identities = await this.productTransactionalRead.readSourceIdentities(context, {
-        organizationId,
-        selector: { kind: 'ids', values: masterProductIds },
-      });
-      const availability = await this.productTransactionalRead.readAvailability(context, lock, {
-        organizationId,
-        masterProductIds,
-      });
-      return { row, identities, availability };
-    }, TRANSACTION_OPTIONS);
+  async get(
+    organizationId: string,
+    salesProductId: string,
+    transaction?: OwnerTransaction,
+  ): Promise<SalesProduct | null> {
+    const read = (tx: Tx) => this.readDetail(tx, organizationId, salesProductId);
+    // 부르는 쪽이 트랜잭션을 쥐고 있으면 그 안에서 읽는다 — 아직 커밋되지 않은 초안은
+    // 다른 연결에서 보이지 않는다.
+    const result = transaction
+      ? await read(ownerTransactionClient(transaction) as Tx)
+      : await this.prisma.$transaction(read, TRANSACTION_OPTIONS);
     if (!result) return null;
     const identityById = new Map(result.identities.map((identity) => [identity.masterProductId, identity]));
     const stockById = new Map((result.availability?.items ?? []).map((item) =>
@@ -259,12 +318,38 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     return toSalesProduct(result.row, identityById, stockById);
   }
 
+  private async readDetail(tx: Tx, organizationId: string, salesProductId: string) {
+    const context = { client: tx };
+    const lock = await this.productTransactionalRead.lock(context, organizationId);
+    const row = await tx.salesProduct.findFirst({
+      where: { id: salesProductId, organizationId },
+      include: DETAIL_INCLUDE,
+    });
+    if (!row) return null;
+
+    const masterProductIds = [...new Set(row.options.flatMap((option) =>
+      option.components.map((component) => component.masterProductId)))];
+    if (masterProductIds.length === 0) {
+      return { row, identities: [], availability: null };
+    }
+
+    const identities = await this.productTransactionalRead.readSourceIdentities(context, {
+      organizationId,
+      selector: { kind: 'ids', values: masterProductIds },
+    });
+    const availability = await this.productTransactionalRead.readAvailability(context, lock, {
+      organizationId,
+      masterProductIds,
+    });
+    return { row, identities, availability };
+  }
+
   async listCodesWithPrefix(organizationId: string, prefix: string): Promise<string[]> {
     const rows = await this.prisma.salesProduct.findMany({
       where: { organizationId, code: { startsWith: prefix } },
       select: { code: true },
     });
-    return rows.map((row) => row.code);
+    return rows.flatMap((row) => row.code ? [row.code] : []);
   }
 
   async readMasterProductCodes(
@@ -286,16 +371,27 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     organizationId: string,
     record: SalesProductCreateRecord,
     plan: SalesProductOptionReplacementPlan,
+    transaction?: OwnerTransaction,
   ): Promise<string> {
+    assertRecordStatus(record);
+    const write = async (tx: Tx) => {
+      const product = await tx.salesProduct.create({
+        data: { organizationId, ...createData(record) },
+        select: { id: true },
+      });
+      await writeOptions(tx, organizationId, product.id, plan.writes);
+      await this.contentWorkspaces.ensureSalesProductWorkspace(ownerTransaction(tx), {
+        organizationId,
+        salesProductId: product.id,
+        createdByUserId: null,
+      });
+      return product.id;
+    };
     try {
-      return await this.prisma.$transaction(async (tx) => {
-        const product = await tx.salesProduct.create({
-          data: { organizationId, ...createData(record) },
-          select: { id: true },
-        });
-        await writeOptions(tx, organizationId, product.id, plan.writes);
-        return product.id;
-      }, TRANSACTION_OPTIONS);
+      // 수집은 후보와 초안을 한 커밋에 넣는다 — 부르는 쪽 트랜잭션을 그대로 쓴다.
+      return transaction
+        ? await write(ownerTransactionClient(transaction) as Tx)
+        : await this.prisma.$transaction(write, TRANSACTION_OPTIONS);
     } catch (error) {
       throw translateUniqueViolation(error);
     }
@@ -308,11 +404,16 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     patch: Partial<SalesProductBasicsRecord>,
   ): Promise<boolean> {
     try {
-      const updated = await this.prisma.salesProduct.updateMany({
-        where: { id: salesProductId, organizationId, version: expectedVersion },
-        data: { ...basicsData(patch), version: { increment: 1 } },
-      });
-      if (updated.count === 1) return true;
+      const updated = await this.prisma.$transaction(async (tx) => {
+        const written = await tx.salesProduct.updateMany({
+          where: { id: salesProductId, organizationId, version: expectedVersion },
+          data: { ...basicsData(patch), version: { increment: 1 } },
+        });
+        if (written.count !== 1) return false;
+        if (patch.status !== undefined) await assertStoredStatus(tx, organizationId, salesProductId);
+        return true;
+      }, TRANSACTION_OPTIONS);
+      if (updated) return true;
     } catch (error) {
       throw translateUniqueViolation(error);
     }
@@ -329,6 +430,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         sabangnetGoodsNo: true,
         ownCode: true,
         code: true,
+        name: true,
+        status: true,
         version: true,
         options: {
           select: {
@@ -336,6 +439,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
             optionCode: true,
             sabangnetOptionCode: true,
             optionKey: true,
+            salePrice: true,
             supplyStatus: true,
             components: {
               orderBy: { createdAt: 'asc' },
@@ -351,12 +455,15 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     return {
       productId: row.id,
       productCode: row.code,
+      productName: row.name,
+      status: row.status as SalesProductStatus,
       version: row.version,
       options: row.options.map((option) => ({
         id: option.id,
         optionCode: option.optionCode,
         sabangnetOptionCode: option.sabangnetOptionCode,
         optionKey: option.optionKey,
+        salePrice: option.salePrice,
         supplyStatus: option.supplyStatus as SalesProductOptionSupplyStatus,
         components: option.components.map((component) => ({
           masterProductId: component.masterProductId,
@@ -382,6 +489,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         sabangnetGoodsNo: true,
         ownCode: true,
         code: true,
+        name: true,
+        status: true,
           version: true,
           options: {
             select: {
@@ -389,6 +498,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
               optionCode: true,
               sabangnetOptionCode: true,
               optionKey: true,
+              salePrice: true,
               supplyStatus: true,
               components: {
                 orderBy: { createdAt: 'asc' },
@@ -404,12 +514,15 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         const state: SalesProductOptionState = {
           productId: row.id,
       productCode: row.code,
+      productName: row.name,
+      status: row.status as SalesProductStatus,
           version: row.version,
           options: row.options.map((option) => ({
             id: option.id,
             optionCode: option.optionCode,
             sabangnetOptionCode: option.sabangnetOptionCode,
             optionKey: option.optionKey,
+            salePrice: option.salePrice,
             supplyStatus: option.supplyStatus as SalesProductOptionSupplyStatus,
             components: option.components.map((component) => ({
               masterProductId: component.masterProductId,
@@ -596,8 +709,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
   async readImportFingerprints(
     organizationId: string,
     codes: readonly string[],
-  ): Promise<Map<string, { fingerprint: string; imageUrls: string[] }>> {
-    const fingerprints = new Map<string, { fingerprint: string; imageUrls: string[] }>();
+  ): Promise<Map<string, SalesProductImportCurrent>> {
+    const fingerprints = new Map<string, SalesProductImportCurrent>();
     const owners = new Map<string, string>();
     for (let start = 0; start < codes.length; start += 500) {
       const rows = await this.prisma.salesProduct.findMany({
@@ -627,7 +740,12 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         for (const key of [row.sabangnetGoodsNo, row.ownCode].filter((key): key is string => !!key && codes.includes(key))) {
           if (owners.has(key) && owners.get(key) !== row.id) throw new ConflictException('Ambiguous source product identity.');
           owners.set(key, row.id);
-          fingerprints.set(key, { fingerprint, imageUrls: row.imageUrls });
+          fingerprints.set(key, {
+            fingerprint,
+            imageUrls: row.imageUrls,
+            basics: importBasics(row),
+            sourceRaw: row.sourceRaw,
+          });
         }
       }
     }
@@ -635,7 +753,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
   }
 
   async readMallPriceCandidates(organizationId: string): Promise<{
-    products: (MallPriceCandidateProduct & { code: string; name: string })[];
+    products: (MallPriceCandidateProduct & { code: string | null; name: string })[];
     listingOptions: MallPriceCandidateListingOption[];
   }> {
     const [products, listingOptions] = await Promise.all([
@@ -645,24 +763,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           id: true,
           code: true,
           name: true,
+          version: true,
           options: { select: { id: true, salePrice: true, normalPrice: true } },
-          registrationTargets: {
-            where: { isDeleted: false },
-            select: {
-              id: true,
-              channelAccountId: true,
-              version: true,
-              selectedOptions: {
-                orderBy: { sortOrder: 'asc' },
-                select: {
-                  salesProductOptionId: true,
-                  salePrice: true,
-                  normalPrice: true,
-                  supplyPrice: true,
-                },
-              },
-            },
-          },
         },
       }),
       this.prisma.$queryRaw<{ channel_account_id: string; sales_product_option_id: string; sale_price: number | null }[]>(Prisma.sql`
@@ -675,11 +777,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       `),
     ]);
     return {
-      products: products.map(({ registrationTargets, ...product }) => ({
-        ...product,
-        options: product.options,
-        targets: registrationTargets,
-      })),
+      products,
       listingOptions: listingOptions.map((row) => ({
         channelAccountId: row.channel_account_id,
         salesProductOptionId: row.sales_product_option_id,
@@ -688,85 +786,57 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     };
   }
 
-  async setChannelOverrideSalePrices(
+  /**
+   * 몰 가격 채택을 판매 상품 단품 판매가로 쓴다(KID-313 W2). 한 트랜잭션이다 — 한 줄이라도 버전이 다르거나
+   * 그 상품의 단품이 아니면 아무것도 쓰지 않는다.
+   */
+  async applyMallPriceAdoption(
     organizationId: string,
     writes: readonly MallPriceAdoptionWrite[],
   ): Promise<number> {
     if (!Array.isArray(writes)) throw new ConflictException('가격 반영 목록이 올바르지 않습니다.');
-    const adoptionWrites = writes as readonly MallPriceAdoptionWrite[];
-    const targetIds = new Set<string>();
-    for (const write of adoptionWrites) {
-      if (typeof write !== 'object' || write === null || Array.isArray(write)) {
-        throw new ConflictException('가격 반영 줄이 올바르지 않습니다.');
+    const productIds = new Set<string>();
+    for (const write of writes) {
+      if (typeof write?.salesProductId !== 'string' || write.salesProductId.trim().length === 0) {
+        throw new ConflictException('가격을 반영할 판매상품이 없습니다.');
       }
-      if (typeof write.targetId !== 'string' || write.targetId.trim().length === 0) {
-        throw new ConflictException('가격을 반영할 등록 대상이 없습니다.');
-      }
-      if (targetIds.has(write.targetId)) {
-        throw new ConflictException('같은 등록 대상에 가격 반영 줄이 여러 개입니다.');
-      }
-      targetIds.add(write.targetId);
+      if (productIds.has(write.salesProductId)) throw new ConflictException('같은 판매상품에 가격 반영 줄이 여러 개입니다.');
+      productIds.add(write.salesProductId);
       if (!Number.isSafeInteger(write.expectedVersion) || write.expectedVersion < 0) {
-        throw new ConflictException('등록 대상 버전이 올바르지 않습니다.');
-      }
-      if (!Number.isSafeInteger(write.salePrice) || write.salePrice < 0 || write.salePrice > MAX_MONEY) {
-        throw new ConflictException('대표 판매가가 올바르지 않습니다.');
+        throw new ConflictException('판매상품 버전이 올바르지 않습니다.');
       }
       if (!Array.isArray(write.optionPrices) || write.optionPrices.length === 0) {
-        throw new ConflictException('옵션별 최종 판매가가 없습니다.');
+        throw new ConflictException('옵션 판매가가 없습니다.');
       }
       const optionIds = new Set<string>();
       for (const optionPrice of write.optionPrices) {
-        if (typeof optionPrice !== 'object' || optionPrice === null || Array.isArray(optionPrice)) {
-          throw new ConflictException('옵션별 최종 판매가가 올바르지 않습니다.');
-        }
-        if (typeof optionPrice.salesProductOptionId !== 'string' || optionPrice.salesProductOptionId.trim().length === 0) {
-          throw new ConflictException('옵션별 최종 판매가의 단품이 올바르지 않습니다.');
-        }
-        if (optionIds.has(optionPrice.salesProductOptionId)) {
-          throw new ConflictException('같은 단품의 최종 판매가가 여러 개입니다.');
+        if (typeof optionPrice?.salesProductOptionId !== 'string' || optionIds.has(optionPrice.salesProductOptionId)) {
+          throw new ConflictException('같은 단품의 판매가가 여러 개이거나 단품이 없습니다.');
         }
         optionIds.add(optionPrice.salesProductOptionId);
         if (!Number.isSafeInteger(optionPrice.salePrice) || optionPrice.salePrice < 0 || optionPrice.salePrice > MAX_MONEY) {
-          throw new ConflictException('옵션별 최종 판매가가 올바르지 않습니다.');
+          throw new ConflictException('옵션 판매가가 올바르지 않습니다.');
         }
       }
     }
 
-    for (let start = 0; start < adoptionWrites.length; start += MALL_VALUES_CHUNK) {
-      const chunk = adoptionWrites.slice(start, start + MALL_VALUES_CHUNK);
-      for (const write of chunk) {
-        const target = await this.registrationTargets.get(organizationId, write.targetId);
-        if (!target) throw new ConflictException('등록 대상이 다른 곳에서 삭제되었습니다.');
-        if (target.salesProductId !== write.salesProductId || target.channelAccountId !== write.channelAccountId) {
-          throw new ConflictException('등록 대상이 다른 상품 또는 몰 계정에 속합니다.');
-        }
-        if (target.version !== write.expectedVersion) {
-          throw new ConflictException('등록 대상이 다른 곳에서 변경되었습니다.');
-        }
-        const selectedOptionIds = new Set(target.selectedOptions.map((option) => option.salesProductOptionId));
-        const byOption = new Map(write.optionPrices.map((option) => [option.salesProductOptionId, option.salePrice]));
-        for (const optionId of byOption.keys()) {
-          if (!selectedOptionIds.has(optionId)) {
-            throw new ConflictException('등록 대상에 선택되지 않은 단품의 가격은 반영할 수 없습니다.');
-          }
-        }
-        await this.registrationTargets.update(organizationId, target.id, {
-          expectedVersion: write.expectedVersion,
-          displayName: target.displayName,
-          registrationInput: target.registrationInput,
-          selectedOptions: target.selectedOptions.map((option) => ({
-            salesProductOptionId: option.salesProductOptionId,
-            salePrice: byOption.has(option.salesProductOptionId)
-              ? byOption.get(option.salesProductOptionId)!
-              : option.salePrice,
-            normalPrice: option.normalPrice,
-            supplyPrice: option.supplyPrice,
-          })),
+    await this.prisma.$transaction(async (tx) => {
+      for (const write of writes) {
+        const bumped = await tx.salesProduct.updateMany({
+          where: { id: write.salesProductId, organizationId, version: write.expectedVersion },
+          data: { version: { increment: 1 } },
         });
+        if (bumped.count !== 1) throw new ConflictException('판매상품이 다른 곳에서 변경되었습니다.');
+        for (const optionPrice of write.optionPrices) {
+          const updated = await tx.salesProductOption.updateMany({
+            where: { id: optionPrice.salesProductOptionId, organizationId, salesProductId: write.salesProductId },
+            data: { salePrice: optionPrice.salePrice },
+          });
+          if (updated.count !== 1) throw new ConflictException('그 판매상품의 단품이 아닙니다.');
+        }
       }
-    }
-    return adoptionWrites.length;
+    }, TRANSACTION_OPTIONS);
+    return writes.length;
   }
 
   async readProductIdsByCodes(organizationId: string, codes: readonly string[]): Promise<Map<string, string>> {
@@ -802,10 +872,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         const merged = { ...kept, ...write.values };
         if (sameStringRecord(current, merged)) continue;
         await this.registrationTargets.update(organizationId, target.id, {
-          expectedVersion: target.version,
-          displayName: target.displayName,
-          registrationInput: mergeTargetMallValues(target.registrationInput, merged),
-          selectedOptions: target.selectedOptions,
+          ...editableTarget(target),
+          registrationInput: withMallFields(target.registrationInput, merged),
         });
         written += 1;
       }
@@ -817,8 +885,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     organizationId: string,
     mallKey: string,
   ): Promise<{ path: string; title: string | null; count: number }[]> {
-    const rows = await this.prisma.productPreparation.findMany({
-      where: { organizationId, isDeleted: false, channelAccount: { channel: mallKey } },
+    const rows = await this.prisma.registrationTarget.findMany({
+      where: { organizationId, archivedAt: null, channelAccount: { channel: mallKey } },
       select: { registrationInput: true },
     });
     const grouped = new Map<string, { title: string | null; count: number }>();
@@ -845,7 +913,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         where: { organizationId, ownCode: { in: ownCodes.slice(start, start + 500) } },
         select: { code: true, ownCode: true },
       });
-      for (const row of rows) if (row.ownCode) codes.set(row.ownCode, row.code);
+      for (const row of rows) if (row.ownCode && row.code) codes.set(row.ownCode, row.code);
     }
     return codes;
   }
@@ -854,11 +922,9 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     organizationId: string,
   ): Promise<{
     id: string;
-    code: string;
+    code: string | null;
     version: number;
     imageUrls: string[];
-    detailHtml: string | null;
-    extraDetailHtml: string[];
   }[]> {
     return this.prisma.salesProduct.findMany({
       where: { organizationId },
@@ -867,8 +933,6 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         code: true,
         version: true,
         imageUrls: true,
-        detailHtml: true,
-        extraDetailHtml: true,
       },
       orderBy: { code: 'asc' },
     });
@@ -879,15 +943,11 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     salesProductId: string;
     expectedVersion: number;
     imageUrls: string[];
-    detailHtml?: string | null;
-    extraDetailHtml?: string[];
   }): Promise<boolean> {
     const result = await this.prisma.salesProduct.updateMany({
       where: { id: input.salesProductId, organizationId: input.organizationId, version: input.expectedVersion },
       data: {
         imageUrls: input.imageUrls,
-        ...(input.detailHtml !== undefined ? { detailHtml: input.detailHtml } : {}),
-        ...(input.extraDetailHtml !== undefined ? { extraDetailHtml: input.extraDetailHtml } : {}),
         version: { increment: 1 },
       },
     });
@@ -950,7 +1010,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
   async readMallSheetProducts(
     organizationId: string,
     salesProductIds: readonly string[],
-  ): Promise<MallSheetSourceProduct[]> {
+  ): Promise<Omit<MallSheetSourceProduct, 'detailHtml'>[]> {
     if (salesProductIds.length === 0) return [];
     const rows = await this.prisma.salesProduct.findMany({
       where: { organizationId, id: { in: [...salesProductIds] } },
@@ -960,6 +1020,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         code: true,
         ownCode: true,
         name: true,
+        status: true,
         brand: true,
         manufacturer: true,
         modelName: true,
@@ -968,7 +1029,6 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         keywords: true,
         taxType: true,
         imageUrls: true,
-        detailHtml: true,
         noticeCategory: true,
         certifications: true,
         optionAxes: true,
@@ -978,16 +1038,16 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           select: { id: true, optionCode: true, values: true, salePrice: true, normalPrice: true, barcode: true, supplyStatus: true },
         },
         registrationTargets: {
-          where: { isDeleted: false, closedAt: null },
+          where: { archivedAt: null },
           orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
           select: {
             id: true,
             channelAccountId: true,
-            displayName: true,
             registrationInput: true,
+            selectedDetailPageRevisionId: true,
             selectedOptions: {
               orderBy: { sortOrder: 'asc' },
-              select: { salesProductOptionId: true, salePrice: true, normalPrice: true, supplyPrice: true },
+              select: { salesProductOptionId: true },
             },
             channelAccount: { select: { channel: true } },
           },
@@ -999,6 +1059,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       code: row.code,
       ownCode: row.ownCode,
       name: row.name,
+      status: row.status as SalesProductStatus,
       brand: row.brand,
       manufacturer: row.manufacturer,
       modelName: row.modelName,
@@ -1009,7 +1070,6 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       salePrice: minimumOptionPrice(row.options),
       tagPrice: commonPrice(row.options.map((option) => option.normalPrice)),
       imageUrls: row.imageUrls,
-      detailHtml: row.detailHtml,
       noticeCategory: row.noticeCategory,
       certificationNumbers: parseCertifications(row.certifications).map((item) => item.number),
       optionAxes: row.optionAxes,
@@ -1047,7 +1107,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           take: 1,
         },
         registrationTargets: {
-          where: { channelAccountId: { in: accountIds }, isDeleted: false },
+          where: { channelAccountId: { in: accountIds }, archivedAt: null },
           select: { id: true },
           take: 1,
         },
@@ -1063,8 +1123,8 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
   async listMallCategoryPaths(
     organizationId: string,
   ): Promise<{ salesProductId: string; mallKey: string; path: string; name: string }[]> {
-    const rows = await this.prisma.productPreparation.findMany({
-      where: { organizationId, isDeleted: false },
+    const rows = await this.prisma.registrationTarget.findMany({
+      where: { organizationId, archivedAt: null },
       select: {
         salesProductId: true,
         registrationInput: true,
@@ -1074,7 +1134,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     });
     return rows.flatMap((row) => {
       const values = targetMallValues(row.registrationInput);
-      const path = values.categoryPath?.trim() || values.sabangnetCategoryPath?.trim() || '';
+      const path = targetMallCategory(row.registrationInput)?.trim() || values.sabangnetCategoryPath?.trim() || '';
       return path
         ? [{ salesProductId: row.salesProductId, mallKey: row.channelAccount.channel, path, name: row.salesProduct.name }]
         : [];
@@ -1089,17 +1149,16 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     for (let start = 0; start < writes.length; start += MALL_VALUES_CHUNK) {
       const chunk = writes.slice(start, start + MALL_VALUES_CHUNK);
       for (const write of chunk) {
+        // 상품 × 몰 계정당 설정은 하나다 — `resolve` 가 조직 · 상품 · 몰 계정 소속을 확인하고 찾거나 만든다.
         const targetId = await this.registrationTargets.resolve(organizationId, {
-          salesProductId: write.salesProductId, channelAccountId: write.channelAccountId,
+          salesProductId: write.salesProductId,
+          channelAccountId: write.channelAccountId,
         });
         const target = await this.registrationTargets.get(organizationId, targetId);
         if (!target) throw new NotFoundException('등록 설정을 찾을 수 없습니다.');
-        const values = { ...targetMallValues(target.registrationInput), categoryPath: write.path };
         await this.registrationTargets.update(organizationId, target.id, {
-          expectedVersion: target.version,
-          displayName: target.displayName,
-          registrationInput: mergeTargetMallValues(target.registrationInput, values),
-          selectedOptions: target.selectedOptions,
+          ...editableTarget(target),
+          registrationInput: { ...target.registrationInput, mallCategory: { key: write.path, label: null } },
         });
         written += 1;
       }
@@ -1107,23 +1166,89 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     return written;
   }
 
-  async findBySourceCandidates(
+  async findForSourceRecord(
     organizationId: string,
-    candidateIds: readonly string[],
-  ): Promise<Map<string, SalesProductFromCandidateRecord>> {
-    if (candidateIds.length === 0) return new Map();
-    const rows = await this.prisma.salesProduct.findMany({
-      where: { organizationId, sourceCandidateId: { in: [...candidateIds] } },
-      select: { id: true, code: true, version: true, status: true, imageUrls: true, detailHtml: true, sourceCandidateId: true },
+    sourceRecordId: string,
+    transaction?: OwnerTransaction,
+  ): Promise<{ salesProductId: string; status: SalesProductStatus } | null> {
+    const client = transaction ? ownerTransactionClient(transaction) as Tx : this.prisma;
+    const row = await client.salesProduct.findFirst({
+      where: { organizationId, sourceRecordId },
+      select: { id: true, status: true },
     });
-    return new Map(rows.map((row) => [row.sourceCandidateId!, {
-      id: row.id,
-      code: row.code,
-      version: row.version,
-      status: row.status as SalesProductStatus,
-      imageUrls: row.imageUrls,
-      detailHtml: row.detailHtml,
-    }]));
+    return row ? { salesProductId: row.id, status: row.status as SalesProductStatus } : null;
+  }
+
+  async readDraftDeletionFacts(
+    transaction: OwnerTransaction,
+    organizationId: string,
+    salesProductId: string,
+  ): Promise<SalesProductDraftDeletionFacts | null> {
+    const tx = ownerTransactionClient(transaction) as Tx;
+    const locked = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
+      SELECT id FROM sales_products
+      WHERE id = ${salesProductId}::uuid AND organization_id = ${organizationId}::uuid
+      FOR UPDATE
+    `);
+    if (locked.length !== 1) return null;
+    const product = await tx.salesProduct.findFirstOrThrow({
+      where: { id: salesProductId, organizationId },
+      select: { status: true, code: true, sourceRecordId: true },
+    });
+    const [listingCount, liveExecutionCount] = await Promise.all([
+      // 내린 몰 상품도 이 줄을 가리킨다(외래키 Restrict) — 활성 여부를 가리지 않고 센다.
+      tx.channelListing.count({ where: { organizationId, salesProductId } }),
+      tx.productRegistrationExecution.count({
+        where: {
+          organizationId,
+          status: { in: ['prepared', 'executing', 'reconciling'] },
+          preparation: { salesProductId },
+        },
+      }),
+    ]);
+    return {
+      status: product.status as SalesProductStatus,
+      hasCode: product.code !== null,
+      sourceRecordId: product.sourceRecordId,
+      hasListing: listingCount > 0,
+      hasLiveExecution: liveExecutionCount > 0,
+    };
+  }
+
+  /**
+   * 초안 줄을 지운다 — 옵션 · 구성(외래키가 함께 지운다), 등록 설정과 그 옵션 선택, 이 상품만 쓰던
+   * 공개 사진. 부르는 쪽이 `readDraftDeletionFacts` 로 줄을 잠그고 삭제 가부를 정한 뒤에 부른다.
+   */
+  async deleteDraftRows(transaction: OwnerTransaction, organizationId: string, salesProductId: string): Promise<void> {
+    const tx = ownerTransactionClient(transaction) as Tx;
+    const product = await tx.salesProduct.findFirstOrThrow({
+      where: { id: salesProductId, organizationId },
+      select: { imageUrls: true },
+    });
+    const sharedImages = product.imageUrls.length === 0 ? [] : await tx.salesProduct.findMany({
+      where: { organizationId, id: { not: salesProductId }, imageUrls: { hasSome: product.imageUrls } },
+      select: { imageUrls: true },
+    });
+    const stillShown = new Set(sharedImages.flatMap((row) => row.imageUrls));
+    const ownImages = product.imageUrls.filter((url) => !stillShown.has(url));
+    try {
+      await tx.registrationTarget.deleteMany({ where: { organizationId, salesProductId } });
+      if (ownImages.length > 0) {
+        await tx.salesProductPublicImage.deleteMany({ where: { organizationId, sourceUrl: { in: ownImages } } });
+      }
+      await tx.salesProduct.deleteMany({ where: { id: salesProductId, organizationId } });
+    } catch (error) {
+      if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
+        // 거절 사유를 미리 본 뒤에도 남는 참조: 등록 설정을 붙든 끝난 등록 실행 기록, 또는 다른 몰
+        // 상품의 옵션이 이 초안의 단품을 가리키는 연결.
+        throw new ConflictException('끝난 등록 실행 기록이나 몰 상품 옵션이 이 초안을 가리키고 있어 지우지 않았습니다.');
+      }
+      throw error;
+    }
+  }
+
+  runInTransaction<T>(work: (transaction: OwnerTransaction) => Promise<T>): Promise<T> {
+    return this.prisma.$transaction((tx) => work(ownerTransaction(tx)), TRANSACTION_OPTIONS);
   }
 
   async readPublicImages(organizationId: string, sourceUrls: readonly string[]): Promise<Map<string, string>> {
@@ -1167,7 +1292,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           for (const write of chunk) {
             const existing = await tx.salesProduct.findFirst({
               where: { organizationId, ...(write.create.sabangnetGoodsNo ? { sabangnetGoodsNo: write.create.sabangnetGoodsNo } : { ownCode: write.create.ownCode }) },
-              select: { id: true, version: true },
+              select: { id: true, version: true, status: true },
             });
             let productId: string;
             if (existing && (write.mode === 'preserve' || !write.existingProductId)) {
@@ -1184,16 +1309,21 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
                 where: { id: existing.id, organizationId, version: write.expectedVersion },
                 data: {
                   ...basicsData(write.create),
-                  sabangnetGoodsNo: write.create.sabangnetGoodsNo,
+                  // 보관은 되돌리지 않는다(KID-313) — 사방넷이 공급중이라 해도 보관한 상품은 보관이다.
+                  status: existing.status === 'archived' ? 'archived' : write.create.status,
+                  // 바깥 식별자는 빈 값으로 덮지 않는다 — 품번코드 없이 온 줄(대량등록 양식)도 지금 품번을 지킨다.
+                  sabangnetGoodsNo: write.create.sabangnetGoodsNo ?? undefined,
                   optionAxes: write.create.optionAxes,
-                  sourceRaw: write.create.sourceRaw ?? Prisma.JsonNull,
+                  sourceRaw: (write.create.sourceRaw as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
                   version: { increment: 1 },
                 },
               });
               await applyPlan(tx, organizationId, existing.id, write.plan);
+              await assertStoredStatus(tx, organizationId, existing.id);
               productId = existing.id;
               result.updated += 1;
             } else {
+              assertRecordStatus(write.create);
               const product = await tx.salesProduct.create({
                 data: { organizationId, ...createData(write.create) },
                 select: { id: true },
@@ -1202,19 +1332,36 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
               productId = product.id;
               result.created += 1;
             }
+            // 판매 상품마다 활성 작업공간은 하나다 — 옮긴 상품도 같은 트랜잭션에서 만든다(KID-313 W2).
+            await this.contentWorkspaces.ensureSalesProductWorkspace(ownerTransaction(tx), {
+              organizationId,
+              salesProductId: productId,
+              createdByUserId: null,
+            });
+            // 상세는 새로 만들거나 사람이 고른 상품에만 쌓는다. 사람이 고친 revision 은 덮지 않는다.
+            if (write.mode === 'upsert' && write.detail) {
+              await this.detailPages.importFromSource(ownerTransaction(tx), {
+                organizationId,
+                salesProductId: productId,
+                source: 'sabangnet',
+                html: write.detail.html,
+                digest: write.detail.digest,
+                createdByUserId: null,
+              });
+            }
             for (const override of write.overrides) {
-              const targetCount = await tx.productPreparation.count({
+              const targetCount = await tx.registrationTarget.count({
                 where: {
                   organizationId,
                   salesProductId: productId,
                   channelAccountId: override.channelAccountId,
-                  isDeleted: false,
+                  archivedAt: null,
                 },
               });
-              // Reimport never replaces an operator-edited target. A target is
-              // materialized only when this account has no existing target.
-              // Multiple targets are valid. Recollection does not choose or
-              // replace any of them, so no ambiguity needs resolving here.
+              // Reimport never replaces an operator-edited target. A product has
+              // at most one active target per channel account, so the import
+              // materializes one only when this account has none; an existing
+              // target keeps whatever the operator put in it.
               if (targetCount !== 0) continue;
               await materializeImportedTarget(
                 tx,
@@ -1243,9 +1390,15 @@ function basicsData(record: Partial<SalesProductBasicsRecord>): Prisma.SalesProd
   ([
     'name', 'ownCode', 'shortName', 'englishName', 'printName', 'modelName', 'modelNo', 'brand', 'manufacturer',
     'originCountry', 'originRegion', 'keywords', 'standardCategory', 'status', 'taxType', 'deliveryFeeType',
-    'deliveryFee', 'stockManaged', 'imageUrls', 'detailHtml',
-    'extraDetailHtml', 'noticeCategory', 'noticeValues', 'importDeclarationNo', 'adminMemo',
+    'deliveryFee', 'stockManaged', 'imageUrls', 'noticeCategory', 'noticeValues', 'importDeclarationNo', 'adminMemo',
+    'description', 'targetAudience', 'ageGroup', 'productSize', 'colorVariantNames', 'boxSetQuantity',
+    'kcStatus',
   ] as const).forEach(assign);
+  if (record.registrationDefaults !== undefined) {
+    data.registrationDefaults = record.registrationDefaults === null
+      ? Prisma.JsonNull
+      : (record.registrationDefaults as Prisma.InputJsonValue);
+  }
   if (record.certifications !== undefined) {
     data.certifications = record.certifications.length > 0
       ? (record.certifications as Prisma.InputJsonValue)
@@ -1261,8 +1414,10 @@ function createData(record: SalesProductCreateRecord): Omit<Prisma.SalesProductU
     name: record.name,
     sabangnetGoodsNo: record.sabangnetGoodsNo,
     optionAxes: record.optionAxes,
-    sourceRaw: record.sourceRaw ?? Prisma.JsonNull,
-    sourceCandidateId: record.sourceCandidateId ?? null,
+    sourceRaw: (record.sourceRaw as Prisma.InputJsonValue | undefined) ?? Prisma.JsonNull,
+    sourceRecordId: record.sourceRecordId ?? null,
+    sourcePlatform: record.sourcePlatform ?? null,
+    sourceUrl: record.sourceUrl ?? null,
   };
 }
 
@@ -1304,113 +1459,43 @@ async function writeOptions(
   }
 }
 
-/** 사방넷 override DTO를 새 등록 대상의 옵션별 최종가로 한 번만 물질화한다. */
+/**
+ * 사방넷 몰별 값 줄로 이 몰 계정의 첫 등록 대상을 한 번만 만든다. 몰 전용 값만 두고, 파는 단품을 모두
+ * 고른다 — 이름 · 가격 · 상세는 판매 상품에서 읽는다(KID-313 W2).
+ */
 async function materializeImportedTarget(
   tx: Tx,
   organizationId: string,
   salesProductId: string,
   channelAccountId: string,
-  data: Partial<SalesProductChannelOverrideRecord>,
+  data: SalesProductChannelOverrideRecord,
 ): Promise<void> {
   const account = await tx.channelAccount.count({ where: { id: channelAccountId, organizationId, status: 'active' } });
   if (account !== 1) throw new NotFoundException('몰 계정을 찾지 못했습니다.');
   const options = await tx.salesProductOption.findMany({
     where: { organizationId, salesProductId, supplyStatus: { not: 'unused' } },
     orderBy: [{ sortOrder: 'asc' }, { optionCode: 'asc' }],
-    select: { id: true, sabangnetOptionCode: true },
+    select: { id: true },
   });
-  const salePricesByOptionId = resolveImportedOptionPrices(options, data);
-  await tx.productPreparation.create({
+  // 가져오기가 만드는 등록 설정도 사람이 고친 것과 같은 규칙을 지난다 — 계획이 이미 못 받는 칸을 뺐다.
+  const registrationInput = normalizeRegistrationMallInput({
+    ...emptyRegistrationMallInput(),
+    mallFields: {
+      ...(data.stockPercent !== null ? { stockPercent: data.stockPercent } : {}),
+      ...(isStringRecord(data.adapterValues) ? data.adapterValues : {}),
+    },
+  });
+  await tx.registrationTarget.create({
     data: {
       organizationId,
       salesProductId,
       channelAccountId,
-      displayName: data.name ?? null,
-      registrationInput: importedRegistrationInput(data) as Prisma.InputJsonValue,
+      registrationInput: registrationInput as Prisma.InputJsonValue,
       selectedOptions: options.length === 0
         ? undefined
-        : {
-          createMany: {
-            data: options.map((option, sortOrder) => ({
-              salesProductOptionId: option.id,
-              sortOrder,
-              // Import writes already contain the resolved source price for
-              // each exact bootstrap option. Never flatten a scalar price
-              // across options or silently inherit a canonical price.
-              salePrice: salePricesByOptionId.get(option.id) ?? null,
-              normalPrice: null,
-              supplyPrice: null,
-            })),
-          },
-        },
+        : { createMany: { data: options.map((option, sortOrder) => ({ salesProductOptionId: option.id, sortOrder })) } },
     },
   });
-}
-
-function resolveImportedOptionPrices(
-  options: readonly { id: string; sabangnetOptionCode: string | null }[],
-  data: Partial<SalesProductChannelOverrideRecord>,
-): Map<string, number> {
-  const pricesByOptionId = new Map<string, number>();
-  const optionPrices = data.optionPrices;
-  const hasScalarPrice = data.salePrice !== undefined && data.salePrice !== null;
-  const hasRate = data.priceRateBp !== undefined && data.priceRateBp !== null;
-  if (optionPrices === undefined) {
-    if (hasScalarPrice || hasRate) {
-      throw new ConflictException('가격 비율만으로는 단품별 최종 판매가를 물질화할 수 없습니다. 최종 판매가를 다시 보내 주세요.');
-    }
-    return pricesByOptionId;
-  }
-  if (!Array.isArray(optionPrices)) {
-    throw new ConflictException('단품별 최종 판매가 형식이 올바르지 않습니다.');
-  }
-
-  const optionBySourceCode = new Map<string, { id: string }>();
-  for (const option of options) {
-    if (!option.sabangnetOptionCode) continue;
-    if (optionBySourceCode.has(option.sabangnetOptionCode)) {
-      throw new ConflictException(`사방넷 단품코드가 판매상품 안에서 겹칩니다: ${option.sabangnetOptionCode}`);
-    }
-    optionBySourceCode.set(option.sabangnetOptionCode, { id: option.id });
-  }
-  const seenSourceCodes = new Set<string>();
-  for (const entry of optionPrices) {
-    if (!entry || typeof entry.sabangnetOptionCode !== 'string' || entry.sabangnetOptionCode.trim() !== entry.sabangnetOptionCode) {
-      throw new ConflictException('단품별 최종 판매가에 사방넷 단품코드가 없습니다.');
-    }
-    const sourceCode = entry.sabangnetOptionCode;
-    if (!sourceCode || seenSourceCodes.has(sourceCode)) {
-      throw new ConflictException(`단품별 최종 판매가에 사방넷 단품코드가 겹칩니다: ${sourceCode || '(빈 값)'}`);
-    }
-    seenSourceCodes.add(sourceCode);
-    const option = optionBySourceCode.get(sourceCode);
-    if (!option) {
-      throw new ConflictException(`가져온 단품코드를 현재 판매상품에서 찾을 수 없습니다: ${sourceCode}`);
-    }
-    if (typeof entry.salePrice !== 'number'
-      || !Number.isSafeInteger(entry.salePrice)
-      || entry.salePrice < 0
-      || entry.salePrice > MAX_MONEY) {
-      throw new ConflictException(`단품 최종 판매가가 올바르지 않습니다: ${sourceCode}`);
-    }
-    pricesByOptionId.set(option.id, entry.salePrice);
-  }
-  for (const option of options) {
-    if (!option.sabangnetOptionCode || !seenSourceCodes.has(option.sabangnetOptionCode)) {
-      throw new ConflictException(`가져온 단품별 최종 판매가에 현재 단품이 빠졌습니다: ${option.sabangnetOptionCode ?? option.id}`);
-    }
-  }
-  return pricesByOptionId;
-}
-
-function importedRegistrationInput(data: Partial<SalesProductChannelOverrideRecord>): Record<string, unknown> {
-  const input: Record<string, unknown> = {};
-  if (data.detailHtml !== undefined) input.detailHtml = data.detailHtml;
-  if (data.promoText !== undefined) input.promoText = data.promoText;
-  if (data.noticeCategory !== undefined) input.noticeCategory = data.noticeCategory;
-  if (data.stockPercent !== undefined) input.stockPercent = data.stockPercent;
-  if (isStringRecord(data.adapterValues)) input.mallRegisterValues = data.adapterValues;
-  return input;
 }
 
 /**
@@ -1521,7 +1606,26 @@ function compositionKey(components: readonly { masterProductId: string; quantity
   return JSON.stringify(components.map(item => [item.masterProductId, item.quantity]).sort((a, b) => String(a[0]).localeCompare(String(b[0]))));
 }
 
+/** 저장 직전: 상태와 KID 가 맞는지(`code IS NULL ⇔ draft`). */
+function assertRecordStatus(record: { name: string; code: string | null; status: SalesProductStatus }): void {
+  try {
+    assertStatusInvariant(record);
+  } catch (error) {
+    throw translateUniqueViolation(error);
+  }
+}
+
+/** 쓴 직후: 저장된 줄의 상태와 KID 가 맞는지. 어긋나면 던져 트랜잭션을 되돌린다. */
+async function assertStoredStatus(tx: Tx, organizationId: string, salesProductId: string): Promise<void> {
+  const row = await tx.salesProduct.findFirstOrThrow({
+    where: { id: salesProductId, organizationId },
+    select: { name: true, code: true, status: true },
+  });
+  assertRecordStatus({ ...row, status: row.status as SalesProductStatus });
+}
+
 function translateUniqueViolation(error: unknown): unknown {
+  if (error instanceof SalesProductStatusError) return new ConflictException(error.message);
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
     const target = JSON.stringify(error.meta?.target ?? '');
     if (target.includes('option_code')) return new ConflictException('단품코드가 다른 판매상품과 겹칩니다.');
@@ -1545,7 +1649,7 @@ function parseCertifications(value: Prisma.JsonValue | null): SalesProductCertif
 
 function toSalesProduct(
   row: SalesProductDetailRow,
-  identityById: Map<string, { code: string; name: string; optionName: string | null }>,
+  identityById: Map<string, { code: string; name: string; optionName: string | null; purchasePrice: number | null }>,
   stockById: Map<string, number>,
 ): SalesProduct {
   return {
@@ -1553,7 +1657,9 @@ function toSalesProduct(
     code: row.code,
     ownCode: row.ownCode,
     sabangnetGoodsNo: row.sabangnetGoodsNo,
-    sourceCandidateId: row.sourceCandidateId,
+    sourceRecordId: row.sourceRecordId,
+    sourcePlatform: row.sourcePlatform,
+    sourceUrl: row.sourceUrl,
     name: row.name,
     shortName: row.shortName,
     englishName: row.englishName,
@@ -1566,19 +1672,24 @@ function toSalesProduct(
     originRegion: row.originRegion,
     keywords: row.keywords,
     standardCategory: row.standardCategory,
+    description: row.description,
+    targetAudience: row.targetAudience,
+    ageGroup: row.ageGroup,
+    productSize: row.productSize,
+    colorVariantNames: row.colorVariantNames,
+    boxSetQuantity: row.boxSetQuantity,
+    registrationDefaults: (row.registrationDefaults as Record<string, unknown> | null) ?? null,
     status: row.status as SalesProductStatus,
     taxType: row.taxType as SalesProductTaxType,
     deliveryFeeType: (row.deliveryFeeType as SalesProductDeliveryFeeType | null) ?? null,
     deliveryFee: row.deliveryFee,
     optionAxes: row.optionAxes,
     stockManaged: row.stockManaged,
-    optionsLocked: row.optionsLocked,
     imageUrls: row.imageUrls,
-    detailHtml: row.detailHtml,
-    extraDetailHtml: row.extraDetailHtml,
     noticeCategory: row.noticeCategory,
     noticeValues: row.noticeValues,
     certifications: parseCertifications(row.certifications),
+    kcStatus: row.kcStatus as SalesProductKcStatus,
     importDeclarationNo: row.importDeclarationNo,
     adminMemo: row.adminMemo,
     version: row.version,
@@ -1607,11 +1718,18 @@ function toSalesProduct(
           currentStock: stockById.get(component.masterProductId) ?? null,
         };
       }),
+      // Products 가 정한 원가 규칙을 그대로 쓴다 — 원천 매입가가 하나라도 없으면 계산 불가다.
+      referenceCost: resolveUnitCost({
+        inventoryComponents: option.components.map((component) => ({
+          quantity: component.quantity,
+          purchasePrice: identityById.get(component.masterProductId)?.purchasePrice ?? null,
+        })),
+      }),
       linkedChannelOptionCount: option._count.channelListingOptions,
     })),
     // Legacy readers receive only an unambiguous derived projection. There is
     // no channel-overrides persistence layer anymore.
-    channelOverrides: projectCompatibilityOverrides(row.registrationTargets),
+    channelOverrides: projectCompatibilityOverrides(row.registrationTargets, row.options),
     channelListings: row.channelListings.map((listing) => ({
       id: listing.id,
       channelAccountId: listing.channelAccountId,
@@ -1624,6 +1742,43 @@ function toSalesProduct(
       options: listing.options,
     })),
   } satisfies SalesProduct;
+}
+
+function importBasics(row: Prisma.SalesProductGetPayload<Record<string, never>>): SalesProductBasicsRecord {
+  return {
+    name: row.name,
+    ownCode: row.ownCode,
+    shortName: row.shortName,
+    englishName: row.englishName,
+    printName: row.printName,
+    modelName: row.modelName,
+    modelNo: row.modelNo,
+    brand: row.brand,
+    manufacturer: row.manufacturer,
+    originCountry: row.originCountry,
+    originRegion: row.originRegion,
+    keywords: row.keywords,
+    standardCategory: row.standardCategory,
+    description: row.description,
+    targetAudience: row.targetAudience,
+    ageGroup: row.ageGroup,
+    productSize: row.productSize,
+    colorVariantNames: row.colorVariantNames,
+    boxSetQuantity: row.boxSetQuantity,
+    registrationDefaults: (row.registrationDefaults as Record<string, unknown> | null) ?? null,
+    status: row.status as SalesProductStatus,
+    taxType: row.taxType as SalesProductTaxType,
+    deliveryFeeType: (row.deliveryFeeType as SalesProductDeliveryFeeType | null) ?? null,
+    deliveryFee: row.deliveryFee,
+    stockManaged: row.stockManaged,
+    imageUrls: row.imageUrls,
+    noticeCategory: row.noticeCategory,
+    noticeValues: row.noticeValues,
+    certifications: parseCertifications(row.certifications),
+    kcStatus: row.kcStatus as SalesProductKcStatus,
+    importDeclarationNo: row.importDeclarationNo,
+    adminMemo: row.adminMemo,
+  };
 }
 
 function sameStringRecord(left: Record<string, string>, right: Record<string, string>): boolean {
@@ -1643,15 +1798,33 @@ function isStringRecord(value: unknown): value is Record<string, string> {
   return isJsonRecord(value) && Object.values(value).every((item) => typeof item === 'string');
 }
 
+/** 등록 대상의 몰 전용 칸 중 글자 값 — 몰 시트 · 사방넷 몰 값이 읽는 모양이다. */
 function targetMallValues(value: unknown): Record<string, string> {
-  const input = asJsonRecord(value);
-  const nested = isStringRecord(input.mallRegisterValues) ? input.mallRegisterValues : null;
-  if (nested) return nested;
-  return isStringRecord(input.adapterValues) ? input.adapterValues : {};
+  const fields = asJsonRecord(asJsonRecord(value).mallFields);
+  return Object.fromEntries(Object.entries(fields).filter((entry): entry is [string, string] => typeof entry[1] === 'string'));
 }
 
-function mergeTargetMallValues(current: unknown, values: Record<string, string>): Record<string, unknown> {
-  return { ...asJsonRecord(current), mallRegisterValues: values };
+/** 사람이 고른 이 몰의 카테고리 경로(`mallCategory.key`). */
+function targetMallCategory(value: unknown): string | null {
+  const category = asJsonRecord(asJsonRecord(value).mallCategory);
+  return typeof category.key === 'string' ? category.key : null;
+}
+
+/** 글자 칸을 통째로 바꾸고 숫자 · 참거짓 칸은 그대로 둔다. */
+function withMallFields(input: RegistrationMallInput, values: Record<string, string>): RegistrationMallInput {
+  const kept = Object.fromEntries(Object.entries(input.mallFields).filter(([, value]) => typeof value !== 'string'));
+  return { ...input, mallFields: { ...kept, ...values } };
+}
+
+/** update 가 받는 편집 값 그대로 — 바꿀 칸만 덮어 쓴다. */
+function editableTarget(target: RegistrationTargetRecord) {
+  return {
+    expectedVersion: target.version,
+    registrationInput: target.registrationInput,
+    selectedThumbnailAssetId: target.selectedThumbnailAssetId,
+    selectedDetailPageRevisionId: target.selectedDetailPageRevisionId,
+    selectedOptions: target.selectedOptions,
+  };
 }
 
 function commonPrice(values: readonly (number | null)[]): number | null {
@@ -1660,36 +1833,35 @@ function commonPrice(values: readonly (number | null)[]): number | null {
   return new Set(known).size === 1 ? known[0]! : null;
 }
 
+/**
+ * 옛 화면이 읽는 몰별 값 요약. 등록 대상은 이름 · 가격 · 홍보문 · 고시를 갖지 않으므로(KID-313 W2) 판매가는
+ * 고른 단품의 판매 상품 가격이 하나로 모일 때 그 값이다.
+ */
 function projectCompatibilityOverrides(
   targets: readonly {
     id: string;
     channelAccountId: string;
     version: number;
-    displayName: string | null;
     registrationInput: unknown;
     updatedAt: Date;
     channelAccount: { channel: string; name: string };
-    selectedOptions: readonly { salePrice: number | null }[];
+    selectedOptions: readonly { salesProductOptionId: string }[];
   }[],
+  options: readonly { id: string; salePrice: number | null }[],
 ): SalesProduct['channelOverrides'] {
+  const priceById = new Map(options.map((option) => [option.id, option.salePrice]));
   const countByAccount = new Map<string, number>();
   for (const target of targets) countByAccount.set(target.channelAccountId, (countByAccount.get(target.channelAccountId) ?? 0) + 1);
   return targets.filter((target) => countByAccount.get(target.channelAccountId) === 1).map((target) => {
-    const input = asJsonRecord(target.registrationInput);
     const values = targetMallValues(target.registrationInput);
+    const stockPercent = asJsonRecord(asJsonRecord(target.registrationInput).mallFields).stockPercent;
     return {
       id: target.id,
       channelAccountId: target.channelAccountId,
       mallKey: target.channelAccount.channel,
       mallName: target.channelAccount.name,
-      salePrice: commonPrice(target.selectedOptions.map((option) => option.salePrice)),
-      priceRateBp: null,
-      costPrice: null,
-      name: target.displayName,
-      detailHtml: typeof input.detailHtml === 'string' ? input.detailHtml : null,
-      promoText: typeof input.promoText === 'string' ? input.promoText : null,
-      noticeCategory: typeof input.noticeCategory === 'string' ? input.noticeCategory : null,
-      stockPercent: typeof input.stockPercent === 'number' ? input.stockPercent : null,
+      salePrice: commonPrice(target.selectedOptions.map((option) => priceById.get(option.salesProductOptionId) ?? null)),
+      stockPercent: typeof stockPercent === 'number' ? stockPercent : null,
       adapterValues: Object.keys(values).length > 0 ? values : null,
       version: target.version,
       updatedAt: target.updatedAt,
@@ -1700,15 +1872,9 @@ function projectCompatibilityOverrides(
 function projectMallSheetOverrides(
   targets: readonly {
     id: string;
-    channelAccountId: string;
-    displayName: string | null;
     registrationInput: unknown;
-    selectedOptions: readonly {
-      salesProductOptionId: string;
-      salePrice: number | null;
-      normalPrice: number | null;
-      supplyPrice: number | null;
-    }[];
+    selectedDetailPageRevisionId: string | null;
+    selectedOptions: readonly { salesProductOptionId: string }[];
     channelAccount: { channel: string };
   }[],
 ): MallSheetSourceProduct['overrides'] {
@@ -1716,24 +1882,10 @@ function projectMallSheetOverrides(
     mallKey: target.channelAccount.channel,
     targetId: target.id,
     selectedOptionIds: target.selectedOptions.map((option) => option.salesProductOptionId),
-    salePrice: commonPrice(target.selectedOptions.map((option) => option.salePrice)),
-    priceRateBp: null,
-    name: target.displayName,
-    detailHtml: textValue(target.registrationInput, 'detailHtml'),
-    promoText: textValue(target.registrationInput, 'promoText'),
-    optionPrices: target.selectedOptions.map((option) => ({
-      salesProductOptionId: option.salesProductOptionId,
-      salePrice: option.salePrice,
-      normalPrice: option.normalPrice,
-      supplyPrice: option.supplyPrice,
-    })),
+    categoryPath: targetMallCategory(target.registrationInput),
     adapterValues: targetMallValues(target.registrationInput),
+    selectedDetailPageRevisionId: target.selectedDetailPageRevisionId,
   }));
-}
-
-function textValue(value: unknown, key: string): string | null {
-  const item = asJsonRecord(value)[key];
-  return typeof item === 'string' ? item : null;
 }
 
 function groupIds<T>(items: readonly T[], key: (item: T) => string, value: (item: T) => string): Map<string, string[]> {
@@ -1756,6 +1908,24 @@ function sabangnetImageUrls(sourceRaw: Prisma.JsonValue | null): string[] {
 }
 
 /** Listing/sheet transport projection; canonical prices remain on each option. */
-function minimumOptionPrice(options: readonly { salePrice: number }[]): number {
-  return options.length > 0 ? Math.min(...options.map(option => option.salePrice)) : 0;
+/** 팔 옵션 중 가장 싼 값. 초안이라 아직 정하지 않았으면 null 이다 — 0 은 공짜라는 뜻이라 쓰지 않는다. */
+function minimumOptionPrice(options: readonly { salePrice: number | null }[]): number | null {
+  const prices = options.map((option) => option.salePrice).filter((price): price is number => price !== null);
+  return prices.length > 0 ? Math.min(...prices) : null;
+}
+
+
+/** 셀피아 단품 id → 코드. KID 발급이 단품 하나짜리 구성의 원천 코드를 다시 쓸 때만 읽는다. */
+async function readMasterProductCodesInTransaction(
+  reader: ProductTransactionalReadPort,
+  tx: Tx,
+  organizationId: string,
+  masterProductIds: readonly string[],
+): Promise<ReadonlyMap<string, string>> {
+  if (masterProductIds.length === 0) return new Map();
+  const identities = await reader.readSourceIdentities(
+    { client: tx },
+    { organizationId, selector: { kind: 'ids', values: [...masterProductIds] } },
+  );
+  return new Map(identities.map((identity) => [identity.masterProductId, identity.code]));
 }

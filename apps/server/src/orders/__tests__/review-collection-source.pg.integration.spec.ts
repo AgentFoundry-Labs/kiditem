@@ -1,3 +1,4 @@
+import { realRegistrationStates } from '../../test-helpers/registration-state';
 import { randomUUID } from 'node:crypto';
 import { Test } from '@nestjs/testing';
 import { json } from 'express';
@@ -24,11 +25,45 @@ import {
 import { ReviewsController } from '../controllers/reviews.controller';
 import { ReviewIngestService } from '../services/review-ingest.service';
 import { ReviewsService } from '../services/reviews.service';
+import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { ChannelListingQueryService } from '../../channels/application/service/listing/channel-listing-query.service';
+import { ChannelListingQueryPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-listing-query.persistence.adapter';
+import { ChannelOptionRecipeService } from '../../channels/application/service/listing/channel-option-recipe.service';
+import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository.adapter';
+import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
+import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';
+import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credentials/channel-credentials.adapter';
 import type { INestApplication } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
+import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
+import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const BASE = '/api/reviews';
 const REVIEW_OPTION = 'VENDOR-ITEM-1';
+
+function channelListingQueries(prisma: PrismaClient) {
+  return new ChannelListingQueryService(
+    new ChannelListingQueryPersistenceAdapter(prisma as never),
+    { findForListings: async () => [] },
+    realRegistrationStates(prisma),
+  );
+}
+
+function createReviewsService(prisma: PrismaClient) {
+  const products = new ProductTransactionalReadRepositoryAdapter();
+  return new ReviewsService(
+    prisma as never,
+    products,
+    channelListingQueries(prisma),
+    new ChannelOptionRecipeService(
+      new ChannelOptionRecipeRepositoryAdapter(prisma as never, products, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
+    ),
+    new ChannelAccountService(
+      new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
+      new ChannelCredentialsAdapter(),
+    ),
+  );
+}
 
 describe('Coupang review collection source owner over disposable PostgreSQL', () => {
   let prisma: PrismaClient;
@@ -41,7 +76,7 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
     prisma = makeTestPrisma();
     await prisma.$connect();
     const alerts = new SourceFailureAlerts(prisma as never);
-    reviewIngest = new ReviewIngestService(prisma as never);
+    reviewIngest = new ReviewIngestService(prisma as never, channelListingQueries(prisma));
     owner = new ReviewCollectionSourceRepository(prisma as never, alerts, reviewIngest);
     const module = await Test.createTestingModule({
       controllers: [ReviewsController],
@@ -186,7 +221,7 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
     expect(facts.every((fact) => fact.sourceImportRunId)).toBe(true);
     expect(facts.every((fact) => fact.listingId)).toBe(true);
 
-    const service = new ReviewsService(prisma as never);
+    const service = createReviewsService(prisma);
     const visible = await service.listItems(ORG, {});
     expect(visible.items.map((item) => item.content)).toEqual(
       expect.arrayContaining(['old generation', 'new generation']),
@@ -255,7 +290,7 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
     await completeWindow(prior, 1);
     await complete(prior);
 
-    const service = new ReviewsService(prisma as never);
+    const service = createReviewsService(prisma);
     const priorVisible = await service.listItems(ORG, {});
     const priorListingId = priorVisible.items[0]?.listingId;
     expect(priorListingId).toBeTruthy();
@@ -472,7 +507,7 @@ describe('Coupang review collection source owner over disposable PostgreSQL', ()
       data: { importedAt: identicalImportedAt },
     });
 
-    const visible = await new ReviewsService(prisma as never).listItems(ORG, {});
+    const visible = await createReviewsService(prisma).listItems(ORG, {});
     expect(visible.items.map((item) => item.content)).toEqual(['newer publication']);
   });
 

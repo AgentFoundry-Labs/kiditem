@@ -40,7 +40,6 @@ type SendState =
  */
 export function ChannelListingsSection({ product }: { product: SalesProduct }) {
   const [onlyDiffering, setOnlyDiffering] = useState(false);
-  const [selectedTargets, setSelectedTargets] = useState<Record<string, string>>({});
   const queryClient = useQueryClient();
   const targetsQuery = useQuery({
     queryKey: registrationTargetKeys.list(product.id),
@@ -51,12 +50,10 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
   const rows = useMemo<ListingPriceRow[]>(() => {
     const optionById = new Map(product.options.map((option) => [option.id, option]));
     return product.channelListings.map((listing) => {
-      const accountTargets = (targetsQuery.data ?? []).filter((candidate) => candidate.channelAccountId === listing.channelAccountId);
-      const target = accountTargets.length === 1
-        ? accountTargets[0]
-        : accountTargets.find((candidate) => candidate.id === selectedTargets[listing.id]);
-      const resolution = resolveTargetPrice(listing, targetsQuery.data ?? [], target?.id);
+      // 상품 × 몰 계정당 등록 설정은 하나뿐이다(사용자 결정 01:12) — 고를 것이 없다.
+      const resolution = resolveTargetPrice(listing, targetsQuery.data ?? []);
       const candidates = resolution.candidates;
+      const target = candidates[0];
       const differing: ListingPriceRow['differing'] = [];
       let unknownPrices = 0;
       let single: ListingPriceRow['single'] = null;
@@ -69,7 +66,8 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
         }
         const resolved = target?.resolved.options.find(row => row.salesProductOptionId === option.id);
         const expected = resolved?.salePrice ?? (candidates.length === 0 ? option.salePrice : undefined);
-        if (expected === undefined) continue;
+        // 아직 가격을 정하지 않은 초안 옵션(null)은 비교할 기준이 없다 — 모르는 값과 같게 건너뛴다.
+        if (expected == null) continue;
         if (listing.options.length === 1) single = { mallPrice: channelOption.salePrice, expected };
         if (channelOption.salePrice !== expected) {
           differing.push({
@@ -84,7 +82,7 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
         const expected = option && target
           ? target.resolved.options.find((row) => row.salesProductOptionId === option.id)?.salePrice
           : candidates.length === 0 ? option?.salePrice : undefined;
-        if (option && expected !== undefined) {
+        if (option && expected != null) {
           single = {
             mallPrice: null,
             expected,
@@ -93,7 +91,7 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
       }
       return { listing, differing, unknownPrices, single, candidates, target };
     });
-  }, [product, targetsQuery.data, selectedTargets]);
+  }, [product, targetsQuery.data]);
   const [sendStates, setSendStates] = useState<Record<string, SendState>>({});
 
   const sendPrice = async (
@@ -116,7 +114,6 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
       const result = await executeTargetMallPrice({
         salesProductId: product.id,
         channelAccountId: listing.channelAccountId,
-        ...(target ? { targetId: target.id } : {}),
         expectedPrice,
         listingId: listing.id,
         mallKey: listing.mallKey,
@@ -195,24 +192,8 @@ export function ChannelListingsSection({ product }: { product: SalesProduct }) {
                 <td className={cn('px-3 py-2 text-xs tabular-nums', differing.length > 0 ? 'text-amber-800' : 'text-slate-500')}>
                   {targetsQuery.isPending ? '등록 설정을 읽는 중…' : targetsQuery.isError ? '등록 설정 조회 실패' : candidates.length === 0 ? (
                     listing.options.length === 1 && single ? `공통 판매가 ${formatWon(single.expected)}` : '공통 판매가 기준'
-                  ) : candidates.length === 1 ? (
-                    <span className="mb-1 block text-slate-500">{target?.displayName || target?.resolved.name || '등록 설정 1개'}</span>
                   ) : (
-                    <select
-                      aria-label={`${listing.externalId} 등록 설정`}
-                      className="mb-1 block w-full rounded border border-slate-200 bg-white p-1 text-slate-700"
-                      value={selectedTargets[listing.id] ?? ''}
-                      disabled={sendStates[listing.id]?.status === 'sending'}
-                      onChange={(event) => {
-                        setSelectedTargets(current => ({ ...current, [listing.id]: event.target.value }));
-                        setSendStates(({ [listing.id]: _dropped, ...rest }) => rest);
-                      }}
-                    >
-                      <option value="">등록 설정 선택</option>
-                      {candidates.map(candidate => <option key={candidate.id} value={candidate.id}>
-                        {candidate.displayName ?? candidate.resolved.name} · {candidate.id.slice(0, 8)}
-                      </option>)}
-                    </select>
+                    <span className="mb-1 block text-slate-500">{target?.resolved.name || '등록 설정 1개'}</span>
                   )}
                   {!target ? null : differing.length > 0 ? (
                     <ul className="space-y-0.5">

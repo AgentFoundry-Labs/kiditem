@@ -11,22 +11,26 @@ import {
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
-import { ChannelOptionRecipeUseCase } from '../application/usecase/channel-option-recipe.usecase';
-import { readListingProductIds } from '../read/listing-product-summary.reader';
+import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
+import { ChannelsProductMappingGenerationAdapter } from '../adapter/out/products/product-mapping-generation.adapter';
+import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
+import { ListingException } from '../application/exception/listing.exception';
+import { readListingProductIds } from '../adapter/out/persistence/listing-product-summary.reader';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 
 describe('Channels channel-option recipe mutation boundary (PG integration)', () => {
   let prisma: PrismaClient;
-  let recipes: ChannelOptionRecipeUseCase;
+  let recipes: ChannelOptionRecipeService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    recipes = new ChannelOptionRecipeUseCase(
+    recipes = new ChannelOptionRecipeService(
       new ChannelOptionRecipeRepositoryAdapter(
         prisma as unknown as PrismaService,
         new ProductTransactionalReadRepositoryAdapter(),
+        new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
       ),
     );
   });
@@ -118,6 +122,81 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
     await expect(readGeneration()).resolves.toBe(0n);
   });
 
+  it('lets exactly one of two concurrent replacements from the same loaded recipe win', async () => {
+    const product = await createProduct('CONCURRENT', 12);
+    const { options } = await createListing(1);
+    const option = options[0]!;
+    const loaded = [{ masterProductId: product.id, quantity: 1 }];
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id, ...loaded[0]! },
+    });
+    const replacements = [2, 3].map(quantity => [{ masterProductId: product.id, quantity }]);
+
+    const results = await Promise.allSettled(replacements.map(components => recipes.replaceRecipe({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelListingOptionId: option.id,
+      expectedComponents: loaded,
+      components,
+    })));
+
+    const winners = results.flatMap((result, index) => result.status === 'fulfilled' ? [index] : []);
+    expect(winners).toHaveLength(1);
+    const loser = results.find(result => result.status === 'rejected') as PromiseRejectedResult;
+    expect(loser.reason).toBeInstanceOf(ListingException);
+    expect(loser.reason).toMatchObject({ code: 'conflict' });
+    await expect(prisma.channelListingOptionInventoryComponent.findMany({
+      where: { channelListingOptionId: option.id },
+      select: { masterProductId: true, quantity: true },
+    })).resolves.toEqual(replacements[winners[0]!]);
+    await expect(readGeneration()).resolves.toBe(1n);
+  });
+
+  it('rejects a replacement whose loaded recipe is stale without writing anything', async () => {
+    const product = await createProduct('STALE', 12);
+    const { options } = await createListing(1);
+    const option = options[0]!;
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id, masterProductId: product.id, quantity: 2 },
+    });
+
+    await expect(recipes.replaceRecipe({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelListingOptionId: option.id,
+      expectedComponents: [],
+      components: [{ masterProductId: product.id, quantity: 5 }],
+    })).rejects.toMatchObject({ code: 'conflict' });
+    await expect(prisma.channelListingOptionInventoryComponent.findMany({
+      where: { channelListingOptionId: option.id },
+      select: { masterProductId: true, quantity: true },
+    })).resolves.toEqual([{ masterProductId: product.id, quantity: 2 }]);
+    expect(await prisma.channelListingOption.findUniqueOrThrow({ where: { id: option.id } }))
+      .toMatchObject({ kidItemCode: null });
+    await expect(readGeneration()).resolves.toBe(0n);
+  });
+
+  it('answers a stale replacement with a conflict even when it names a since-deleted product', async () => {
+    const current = await createProduct('CURRENT', 12);
+    const deleted = await createProduct('DELETED', 4);
+    const { options } = await createListing(1);
+    const option = options[0]!;
+    await prisma.channelListingOptionInventoryComponent.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id, masterProductId: current.id, quantity: 2 },
+    });
+    await prisma.masterProduct.delete({ where: { id: deleted.id } });
+
+    await expect(recipes.replaceRecipe({
+      organizationId: TEST_ORGANIZATION_ID,
+      channelListingOptionId: option.id,
+      expectedComponents: [],
+      components: [{ masterProductId: deleted.id, quantity: 1 }],
+    })).rejects.toMatchObject({ code: 'conflict' });
+    await expect(prisma.channelListingOptionInventoryComponent.findMany({
+      where: { channelListingOptionId: option.id },
+      select: { masterProductId: true, quantity: true },
+    })).resolves.toEqual([{ masterProductId: current.id, quantity: 2 }]);
+    await expect(readGeneration()).resolves.toBe(0n);
+  });
+
   it('issues a separate bundle code when a singleton recipe changes without rewriting seller SKU', async () => {
     const product = await createProduct('CODE-TRANSITION', 8);
     const { options } = await createListing(1);
@@ -126,9 +205,10 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
       where: { id: option.id },
       data: { sellerSku: 'ORIGINAL-MALL-CODE' },
     });
-    const replace = (quantity: number) => recipes.replaceRecipe({
+    const replace = async (quantity: number) => recipes.replaceRecipe({
       organizationId: TEST_ORGANIZATION_ID,
       channelListingOptionId: option.id,
+      expectedComponents: await loadedRecipe(option.id),
       components: [{ masterProductId: product.id, quantity }],
     });
     await replace(1);
@@ -154,8 +234,9 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
     await prisma.channelListingOption.update({
       where: { id: option.id }, data: { sellerSku: 'UNCHANGED-EXTERNAL' },
     });
-    const replace = (components: Array<{ masterProductId: string; quantity: number }>) =>
-      recipes.replaceRecipe({ organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id, components });
+    const replace = async (components: Array<{ masterProductId: string; quantity: number }>) =>
+      recipes.replaceRecipe({ organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id,
+        expectedComponents: await loadedRecipe(option.id), components });
     const read = () => prisma.channelListingOption.findUniqueOrThrow({ where: { id: option.id } });
     await replace([{ masterProductId: first.id, quantity: 2 }]);
     expect((await read()).kidItemCode).not.toBe(first.code);
@@ -189,6 +270,7 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
     await expect(recipes.replaceRecipe({
       organizationId: TEST_ORGANIZATION_ID,
       channelListingOptionId: options[0]!.id,
+      expectedComponents: [],
       components: [{ masterProductId: deletedId, quantity: 1 }],
     })).rejects.toBeInstanceOf(BadRequestException);
     expect(await prisma.channelListingOptionInventoryComponent.count()).toBe(0);
@@ -231,7 +313,7 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
         expectedMasterProductId: product.id,
         components: [{ masterProductId: product.id, quantity: 0 }],
       }],
-    })).toThrow(BadRequestException);
+    })).toThrow(ListingException);
     await expect(recipes.applyPreservingRecipes({
       organizationId: OTHER_ORGANIZATION_ID,
       mutations: [{
@@ -302,6 +384,13 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
         },
       })));
     return { listing, options };
+  }
+
+  function loadedRecipe(channelListingOptionId: string) {
+    return prisma.channelListingOptionInventoryComponent.findMany({
+      where: { organizationId: TEST_ORGANIZATION_ID, channelListingOptionId },
+      select: { masterProductId: true, quantity: true },
+    });
   }
 
   async function readGeneration(): Promise<bigint> {

@@ -1,3 +1,6 @@
+import { ownerTransaction } from '../../../../../prisma/owner-transaction';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../../channels/application/port/in/account/channel-account.port';
+import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../../channels/application/port/in/channel-option-recipe.port';
 // Period profit aggregation — v2 I3 canonical on `OrderLineItem.totalPrice`
 // (not `Order.totalPrice`). The Plan A.5 schema removed `Order.product` and
 // `Order.quantity`; revenue/costs sum per line item.
@@ -50,7 +53,7 @@ import {
   resolveOrderLineSalesCosts,
   resolveUnitCost,
   type OrderLineSalesCosts,
-} from '../../../../../common/option-pricing-resolver';
+} from '../../../../../products/domain/option-pricing-resolver';
 import type {
   DailyProfitMetrics,
   ProfitCostIncompleteReason,
@@ -77,6 +80,8 @@ export class ProfitCalculationRepositoryAdapter
   private readonly logger = new Logger(ProfitCalculationRepositoryAdapter.name);
 
   constructor(
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
+    @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly channelRecipes: ChannelOptionRecipePort,
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
@@ -334,8 +339,8 @@ export class ProfitCalculationRepositoryAdapter
     const from = new Date(`${requestedDates[0]}T00:00:00.000Z`);
     const to = addDays(new Date(`${requestedDates[requestedDates.length - 1]}T00:00:00.000Z`), 1);
     try {
-      const applies = await advertisingApplies(tx, organizationId);
-      const facts = await readAdWindowFacts(tx, { organizationId, from, to });
+      const applies = await advertisingApplies(tx, organizationId, this.channelAccounts);
+      const facts = await readAdWindowFacts(tx, { organizationId, from, to }, this.channelAccounts);
       return { rows: facts.days, hasAdAccount: applies };
     } catch (error) {
       throw new AdEvidenceReadFailure(error);
@@ -376,26 +381,14 @@ export class ProfitCalculationRepositoryAdapter
         from: period.queryWindow.from,
         to: period.queryWindow.to,
         excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
-      });
+      }, this.channelAccounts);
       const optionIds = [...new Set(facts.orders.flatMap((order) =>
         order.lines.flatMap((line) => line.listingOptionId ? [line.listingOptionId] : [])))];
-      const options = await tx.channelListingOption.findMany({
-        where: { organizationId, id: { in: optionIds } },
-        select: {
-          id: true,
-          inventoryComponents: {
-            where: { organizationId },
-            select: { quantity: true, masterProductId: true },
-          },
-        },
-      });
+      const options = await this.channelRecipes.readConfirmedCompositions(ownerTransaction(tx), { organizationId, optionIds }).then(rows => rows.map(row => ({ id: row.optionId, inventoryComponents: row.components })));
       // The order's channel account decides whether a commission and other
       // per-sale cost apply to its lines (KID-114).
       const accountIds = [...new Set(facts.orders.map((order) => order.channelAccountId))];
-      const accounts = await tx.channelAccount.findMany({
-        where: { organizationId, id: { in: accountIds } },
-        select: { id: true, channel: true },
-      });
+      const accounts = await this.channelAccounts.findByIds(ownerTransaction(tx), { organizationId, accountIds });
       const accountById = new Map(accounts.map((account) => [account.id, account]));
       const masterProductIds = [...new Set(options.flatMap((option) =>
         option.inventoryComponents.map((component) => component.masterProductId)))];

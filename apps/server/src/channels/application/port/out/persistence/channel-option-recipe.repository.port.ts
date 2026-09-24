@@ -1,22 +1,25 @@
+import type { OwnerTransaction } from '../../../../../common/owner-transaction';
+import type { ChannelRecipeFactQueries } from '../../in/channel-option-recipe.port';
 import type {
   ChannelOptionRecipeMutation,
   ChannelRecipeComponentInput,
   ChannelRecipeMutationResult,
+  ConfirmedCompositionTransition,
 } from '../../in/channel-option-recipe.port';
 
 export const CHANNEL_OPTION_RECIPE_REPOSITORY_PORT = Symbol(
   'CHANNEL_OPTION_RECIPE_REPOSITORY_PORT',
 );
 
-export interface ChannelOptionRecipeRepositoryPort {
-  /** Called only by the execution owner after a confirmed external composition transition. */
-  replaceConfirmedCompositionInTransaction(transaction: object, input: {
-    organizationId: string; channelListingOptionId: string; salesProductOptionId: string;
-    kidItemCode: string; components: readonly ChannelRecipeComponentInput[];
+export interface ChannelOptionRecipeRepositoryPort extends ChannelRecipeFactQueries {
+  replaceConfirmedCompositionsInTransaction(transaction: OwnerTransaction, input: {
+    organizationId: string; transitions: readonly ConfirmedCompositionTransition[];
   }): Promise<void>;
   replaceRecipe(input: {
     organizationId: string;
     channelListingOptionId: string;
+    /** The recipe the caller loaded; a different current recipe is a conflict. */
+    expectedComponents: readonly ChannelRecipeComponentInput[];
     components: readonly ChannelRecipeComponentInput[];
   }): Promise<{ masterProductId: string | null }>;
   validateRecipeTargets(input: {
@@ -29,14 +32,14 @@ export interface ChannelOptionRecipeRepositoryPort {
     mutations: readonly ChannelOptionRecipeMutation[];
   }): Promise<ChannelRecipeMutationResult>;
   applyPreservingRecipesInTransaction(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: {
       organizationId: string;
       mutations: readonly ChannelOptionRecipeMutation[];
     },
   ): Promise<ChannelRecipeMutationResult>;
   clearListingRecipesInTransaction(
-    transaction: object,
+    transaction: OwnerTransaction,
     input: {
       organizationId: string;
       channelListingId: string;

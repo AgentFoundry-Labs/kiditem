@@ -9,7 +9,7 @@ loadable extension roots.
 
 `shared/collection-session.js` and `shared/environment-context.js` are the
 canonical shared adapters. Edit them there and use
-`scripts/sync-collection-session-adapters.mjs` to update the loadable copies.
+`extensions/scripts/sync-collection-session-adapters.mjs` to update the loadable copies.
 Node tests stay in `extensions/tests/` because Chrome rejects unpacked roots
 containing test-style underscore paths.
 

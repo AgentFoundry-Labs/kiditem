@@ -11,7 +11,6 @@ import type {
 export type TargetPriceSelectionReason =
   | 'ready'
   | 'no-target'
-  | 'multiple-targets'
   | 'listing-option-unlinked'
   | 'target-option-unselected';
 
@@ -51,11 +50,14 @@ const ACTIVE_EXECUTION_STATUSES = new Set<TargetExecutionResult['status']>([
   'reconciling',
 ]);
 
-/** Resolve a price-update target only through the listing's exact channel account and option link. */
+/**
+ * Resolve a price-update target only through the listing's exact channel account and option link.
+ *
+ * 상품 × 몰 계정당 등록 설정은 하나뿐이다(부분 유일키, 사용자 결정 01:12) — 고를 것이 없다.
+ */
 export function resolveTargetPrice(
   listing: SalesProduct['channelListings'][number],
   targets: readonly RegistrationTarget[],
-  selectedTargetId?: string,
 ): TargetPriceResolution {
   const candidates = targets.filter((target) => target.channelAccountId === listing.channelAccountId);
   if (candidates.length === 0) {
@@ -68,15 +70,9 @@ export function resolveTargetPrice(
     return { candidates: [...candidates], reason: 'listing-option-unlinked', selection: null };
   }
 
-  const target = selectedTargetId
-    ? candidates.find((candidate) => candidate.id === selectedTargetId)
-    : candidates.length === 1 ? candidates[0] : undefined;
+  const target = candidates[0];
   if (!target) {
-    return {
-      candidates: [...candidates],
-      reason: candidates.length > 1 ? 'multiple-targets' : 'no-target',
-      selection: null,
-    };
+    return { candidates: [...candidates], reason: 'no-target', selection: null };
   }
 
   const targetOption = target.resolved.options.find((option) => option.salesProductOptionId === salesProductOptionId);
@@ -131,6 +127,10 @@ export function frozenMallPriceRequest(
   const productOption = execution.payload.product.options.find((option) => option.id === salesProductOptionId);
   if (!productOption) {
     throw new Error('동결된 실행의 판매상품 옵션을 확인할 수 없습니다.');
+  }
+  // 몰 가격 보내기는 이미 등록된(= 가격이 있는) 상품만 다룬다 — 초안(가격 null)은 여기 닿지 않는다.
+  if (productOption.salePrice == null) {
+    throw new Error('동결된 실행의 판매가가 비어 있습니다.');
   }
   return {
     code: listing.externalId,
@@ -262,7 +262,6 @@ export async function executeTargetMallPrice(
   input: {
     salesProductId: string;
     channelAccountId: string;
-    targetId?: string;
     expectedPrice: number;
     listingId: string;
     mallKey: string;
@@ -275,7 +274,6 @@ export async function executeTargetMallPrice(
   const target = await resolveTarget({
     salesProductId: input.salesProductId,
     channelAccountId: input.channelAccountId,
-    ...(input.targetId ? { targetId: input.targetId } : {}),
   });
   if (target.channelAccountId !== input.channelAccountId || target.salesProductId !== input.salesProductId) {
     throw new Error('몰별 등록 설정의 상품과 계정을 확인할 수 없습니다.');

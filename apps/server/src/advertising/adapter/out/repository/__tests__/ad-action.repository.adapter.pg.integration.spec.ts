@@ -1,3 +1,5 @@
+import { profitCatalogTestReaders } from '../../../../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts } from '../../../../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -132,13 +134,13 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
 
     await lockReady;
 
-    const firstRepository = new AdActionRepositoryAdapter(
+    const firstRepository = new AdActionRepositoryAdapter(channelFactTestPorts(firstPrisma as never).listings, channelFactTestPorts(firstPrisma as never).recipes,
       firstPrisma as never,
-      {} as never,
+      {} as never, profitCatalogTestReaders(firstPrisma as never).accounts
     );
-    const secondRepository = new AdActionRepositoryAdapter(
+    const secondRepository = new AdActionRepositoryAdapter(channelFactTestPorts(secondPrisma as never).listings, channelFactTestPorts(secondPrisma as never).recipes,
       secondPrisma as never,
-      {} as never,
+      {} as never, profitCatalogTestReaders(secondPrisma as never).accounts
     );
     const competingCalls = [
       firstRepository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]),
@@ -179,7 +181,7 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
 
   it('keeps one open pause_keyword proposal across duplicates in a run and a serial rerun', async () => {
     const candidate = pauseCandidate((await seedKeywordTarget()).id);
-    const repository = new AdActionRepositoryAdapter(observerPrisma as never, {} as never);
+    const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts);
 
     const first = await repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [
       candidate,
@@ -198,7 +200,7 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
 
   it('keeps an approved keyword pause open until the operator closes it, and proposes the keyword again once it is closed (KID-138 decision A)', async () => {
     const candidate = pauseCandidate((await seedKeywordTarget()).id);
-    const repository = new AdActionRepositoryAdapter(observerPrisma as never, {} as never);
+    const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts);
     const propose = () => repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]);
 
     const [confirmed] = await propose();
@@ -226,7 +228,7 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
 
   it('blocks a keyword only with the proposal the keyword read shows: an older approved pause behind a newer rejected proposal neither shows nor blocks (KID-138 review)', async () => {
     const candidate = pauseCandidate((await seedKeywordTarget()).id);
-    const repository = new AdActionRepositoryAdapter(observerPrisma as never, {} as never);
+    const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts);
     const propose = () => repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]);
     const shown = async () =>
       (await repository.findKeywordPauseProposals(TEST_ORGANIZATION_ID)).map(
@@ -285,7 +287,7 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
 
   it('never blocks a keyword the keyword read does not show, whatever its latest proposal holds (KID-138 review)', async () => {
     const adTargetDailyId = (await seedKeywordTarget()).id;
-    const repository = new AdActionRepositoryAdapter(observerPrisma as never, {} as never);
+    const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts);
     const keywordProposal = async (
       targetLabel: string,
       approvalStatus: string,
@@ -346,7 +348,7 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
 
   it('releases a keyword whose approved pause ran before decision A, and keeps one whose earlier attempt failed', async () => {
     const adTargetDailyId = (await seedKeywordTarget()).id;
-    const repository = new AdActionRepositoryAdapter(observerPrisma as never, {} as never);
+    const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts);
     const paused = { ...pauseCandidate(adTargetDailyId), targetLabel: '이미 끈 키워드' };
     const unpaused = { ...pauseCandidate(adTargetDailyId), targetLabel: '못 끈 키워드' };
     // Before decision A the extension still executed keyword pauses. Executors
@@ -436,7 +438,7 @@ describe('AdActionRepositoryAdapter reviews under row locks (PG integration)', (
 
     try {
       await locked;
-      const rejecting = new AdActionRepositoryAdapter(rejectingPrisma as never, {} as never)
+      const rejecting = new AdActionRepositoryAdapter(channelFactTestPorts(rejectingPrisma as never).listings, channelFactTestPorts(rejectingPrisma as never).recipes, rejectingPrisma as never, {} as never, profitCatalogTestReaders(rejectingPrisma as never).accounts)
         .rejectAdActions([proposal.id], TEST_ORGANIZATION_ID, {
           expectedApprovalStatus: 'pending_review',
         });

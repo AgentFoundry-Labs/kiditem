@@ -17,7 +17,7 @@ import type {
   SourcingBaselineDecision,
   SourcingRecommendationDecision,
 } from '../../../domain/recommendation-decision-policy';
-import { readCurrentSupportingObservation } from '../../../read/source-evidence.reader';
+import { readCurrentSupportingObservation } from './source-evidence.reader';
 import {
   decisionBatchInclude,
   decisionItemInclude,
@@ -25,7 +25,7 @@ import {
   readExactDecisionBatch,
   readExactDecisionBatchItem,
   readLatestDecisionBatch,
-} from '../../../read/decision-publication.reader';
+} from './decision-publication.reader';
 
 const DECISION_POLICY_KEY = 'sourcing-recommendation';
 

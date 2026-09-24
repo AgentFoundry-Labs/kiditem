@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
+import { RegistrationAccountStateSchema } from './registration-state.js';
 
 /**
  * 판매상품(사방넷 품번)과 단품(옵션) 계약 — ADR-0014.
@@ -8,7 +9,14 @@ import { zIsoDate } from './common.js';
  * 아니고, 단품의 셀피아 구성은 선언이다(연결한 채널 옵션의 빈 레시피를 채울 때만 복사된다).
  */
 
-export const SALES_PRODUCT_STATUSES = ['draft', 'active', 'paused', 'sold_out', 'unused', 'archived'] as const;
+/**
+ * 판매상품 상태는 셋뿐이고 저장 열 하나다(KID-313).
+ *
+ * `draft` 는 KID 가 없는 초안, `active` 는 KID 를 발급한 판매 상품, `archived` 는 판매를 접은 판매 상품이다.
+ * `draft` → `active` 는 KID 발급으로만 바뀌고 되돌아가지 않는다. 품절 · 일시중지는 상품이 아니라
+ * 옵션(`supplyStatus`)과 몰 열의 상태다. 초안은 보관하지 않고 지운다.
+ */
+export const SALES_PRODUCT_STATUSES = ['draft', 'active', 'archived'] as const;
 export const SalesProductStatusSchema = z.enum(SALES_PRODUCT_STATUSES);
 export type SalesProductStatus = z.infer<typeof SalesProductStatusSchema>;
 
@@ -19,6 +27,18 @@ export type SalesProductOptionSupplyStatus = z.infer<typeof SalesProductOptionSu
 export const SALES_PRODUCT_TAX_TYPES = ['taxable', 'tax_free', 'zero_rated', 'unknown'] as const;
 export const SalesProductTaxTypeSchema = z.enum(SALES_PRODUCT_TAX_TYPES);
 export type SalesProductTaxType = z.infer<typeof SalesProductTaxTypeSchema>;
+
+/**
+ * KC 인증이 이 상품에 어떻게 걸리는가.
+ *
+ * `unknown` 은 아직 아무도 확인하지 않았다는 뜻이고, `none` 은 KC 대상이 아니라고 사람이 말해
+ * 둔 것이다. `exists` 는 있다고 말했을 뿐이라 인증 문서의 번호가 따로 있어야 송신을 통과한다.
+ * 인증 문서(`certifications`)가 KC 사실의 정본이고 이 칸은 '없음'을 말하는 자리다 —
+ * 고시 · KC 를 어느 모델에 둘지는 KID-168 이 정하며, 이 칸은 그 결정을 대신하지 않는다.
+ */
+export const SALES_PRODUCT_KC_STATUSES = ['unknown', 'none', 'exists'] as const;
+export const SalesProductKcStatusSchema = z.enum(SALES_PRODUCT_KC_STATUSES);
+export type SalesProductKcStatus = z.infer<typeof SalesProductKcStatusSchema>;
 
 export const SALES_PRODUCT_DELIVERY_FEE_TYPES = ['free', 'collect', 'prepay', 'collect_or_prepay'] as const;
 export const SalesProductDeliveryFeeTypeSchema = z.enum(SALES_PRODUCT_DELIVERY_FEE_TYPES);
@@ -100,7 +120,8 @@ export const SalesProductOptionInputSchema = z.object({
   values: z.array(optionText).max(SALES_PRODUCT_MAX_OPTION_AXES),
   alias: optionalText(100),
   barcode: optionalText(60),
-  salePrice: money,
+  /** 초안은 판매가가 아직 없다. 비어 있으면 상품이 `draft` 로 내려간다. */
+  salePrice: money.nullable().default(null),
   normalPrice: money.nullable().default(null),
   supplyStatus: SalesProductOptionSupplyStatusSchema.default('selling'),
   safetyStock: z.number().int().min(0).max(1_000_000).nullable().optional(),
@@ -161,17 +182,25 @@ export const SalesProductBasicsInputSchema = z.object({
   originRegion: optionalText(50),
   keywords: z.array(requiredText(60)).max(30).default([]),
   standardCategory: optionalText(40),
-  status: SalesProductStatusSchema.default('active'),
+  /** 상세설명 본문(사람이 쓰는 글). 몰 상세 HTML 은 Content 의 상세 페이지 revision 이 정본이다(KID-313 W2). */
+  description: z.string().max(20_000).default(''),
+  targetAudience: optionalText(200),
+  ageGroup: optionalText(100),
+  productSize: optionalText(200),
+  colorVariantNames: z.array(requiredText(60)).max(30).default([]),
+  boxSetQuantity: z.number().int().min(1).max(100_000).nullable().optional(),
+  /** 몰 공통 등록 문서 입력값. 몰별 값은 RegistrationTarget.registrationInput 이다. */
+  registrationDefaults: z.record(z.string(), z.unknown()).nullable().optional(),
   taxType: SalesProductTaxTypeSchema.default('taxable'),
   deliveryFeeType: SalesProductDeliveryFeeTypeSchema.nullable().optional(),
   deliveryFee: money.nullable().optional(),
   stockManaged: z.boolean().default(false),
   imageUrls: z.array(requiredText(1000)).max(30).default([]),
-  detailHtml: z.string().max(200_000).nullable().optional(),
-  extraDetailHtml: z.array(z.string().max(200_000)).max(3).default([]),
   noticeCategory: optionalText(10),
   noticeValues: z.array(z.string().max(1000)).max(40).default([]),
   certifications: z.array(SalesProductCertificationSchema).max(10).default([]),
+  /** KC 가 이 상품에 어떻게 걸리는가. '해당 없음'은 여기서만 말할 수 있다. */
+  kcStatus: SalesProductKcStatusSchema.default('unknown'),
   importDeclarationNo: optionalText(60),
   adminMemo: optionalText(2000),
 }).strict();
@@ -185,19 +214,15 @@ export const SalesProductCreateInputSchema = SalesProductBasicsInputSchema.exten
 }).strict().superRefine(refineOptionSet);
 export type SalesProductCreateInput = z.input<typeof SalesProductCreateInputSchema>;
 
+/**
+ * 상태는 사람이 `archived`(보관)로만 바꾼다(KID-313). `draft` → `active` 는 KID 발급이 하고
+ * 되돌아가는 길은 없다 — 초안은 보관하지 않고 지운다.
+ */
 export const SalesProductUpdateInputSchema = SalesProductBasicsInputSchema.partial().extend({
   expectedVersion: z.number().int().min(1),
+  status: z.literal('archived').optional(),
 }).strict();
 export type SalesProductUpdateInput = z.input<typeof SalesProductUpdateInputSchema>;
-
-/**
- * 수집상품으로 되돌리기 — 수집상품에서 만든 판매상품을 `archived` 로 내린다(코드 · 몰별 값은 남긴다). 같은 수집상품을
- * 다시 판매상품으로 올리면 이 판매상품이 되살아난다.
- */
-export const SalesProductDemoteRequestSchema = z.object({
-  expectedVersion: z.number().int().min(1),
-}).strict();
-export type SalesProductDemoteRequest = z.input<typeof SalesProductDemoteRequestSchema>;
 
 /** 옵션 전체 교체. 연결된 단품은 지우지 않고 `unused` 로 남긴다. */
 export const SalesProductOptionsReplaceInputSchema = OptionSetSchema.extend({
@@ -217,17 +242,25 @@ export type SalesProductOptionComponent = z.infer<typeof SalesProductOptionCompo
 
 export const SalesProductOptionSchema = z.object({
   id: z.string().uuid(),
-  optionCode: z.string(),
+  /** 발급된 KID. 초안의 단품은 비어 있다. */
+  optionCode: z.string().nullable(),
   values: z.array(z.string()),
   optionKey: z.string(),
   alias: z.string().nullable(),
   barcode: z.string().nullable(),
-  salePrice: money,
+  /** 초안은 아직 정하지 않아 비어 있다. */
+  salePrice: money.nullable(),
   normalPrice: money.nullable(),
   supplyStatus: SalesProductOptionSupplyStatusSchema,
   safetyStock: z.number().int().nullable(),
   sortOrder: z.number().int(),
   components: z.array(SalesProductOptionComponentSchema),
+  /**
+   * 참고 원가(원). 구성 원천 상품의 지금 매입가 × 수량의 합이다. 구성이 없거나 매입가가 빠진
+   * 원천이 하나라도 있으면 null(계산 불가). 읽기 전용 표시이며 손익 · ABC 계산과 무관하다.
+   */
+  // 이 칸이 생기기 전에 동결한 실행 payload 도 읽히도록 비어 있으면 null 이다.
+  referenceCost: z.number().int().nullable().default(null),
   /** 이 단품에 연결된 몰 옵션 수. 연결된 단품은 지우지 않는다. */
   linkedChannelOptionCount: z.number().int().min(0),
 });
@@ -239,12 +272,6 @@ export const SalesProductChannelOverrideSchema = z.object({
   mallKey: z.string(),
   mallName: z.string(),
   salePrice: z.number().int().nullable(),
-  priceRateBp: z.number().int().nullable(),
-  costPrice: z.number().int().nullable(),
-  name: z.string().nullable(),
-  detailHtml: z.string().nullable(),
-  promoText: z.string().nullable(),
-  noticeCategory: z.string().nullable(),
   stockPercent: z.number().int().nullable(),
   adapterValues: z.record(z.string(), z.string()).nullable(),
   version: z.number().int(),
@@ -274,11 +301,15 @@ export type SalesProductChannelListing = z.infer<typeof SalesProductChannelListi
 
 export const SalesProductSchema = z.object({
   id: z.string().uuid(),
-  code: z.string(),
+  /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 비어 있다(화면은 '미발급'). */
+  code: z.string().nullable(),
   ownCode: z.string().nullable(),
   sabangnetGoodsNo: z.string().nullable(),
-  /** 수집상품에서 만든 판매상품이면 그 수집상품 id. 이 판매상품만 수집상품으로 되돌릴 수 있다. */
-  sourceCandidateId: z.string().uuid().nullable(),
+  /** 이 상품을 만든 원본 기록(SourceRecord) id. 직접 작성 · 사방넷 상품은 없다. 초안을 지우면 함께 지워진다. */
+  sourceRecordId: z.string().uuid().nullable(),
+  /** 원천 장터(`1688` · `coupang` · `sabangnet` …). 초안을 만들 때 복사하고 바꾸지 않는다. */
+  sourcePlatform: z.string().nullable(),
+  sourceUrl: z.string().nullable(),
   name: z.string(),
   shortName: z.string().nullable(),
   englishName: z.string().nullable(),
@@ -291,19 +322,24 @@ export const SalesProductSchema = z.object({
   originRegion: z.string().nullable(),
   keywords: z.array(z.string()),
   standardCategory: z.string().nullable(),
+  description: z.string(),
+  targetAudience: z.string().nullable(),
+  ageGroup: z.string().nullable(),
+  productSize: z.string().nullable(),
+  colorVariantNames: z.array(z.string()),
+  boxSetQuantity: z.number().int().nullable(),
+  registrationDefaults: z.record(z.string(), z.unknown()).nullable(),
   status: SalesProductStatusSchema,
   taxType: SalesProductTaxTypeSchema,
   deliveryFeeType: SalesProductDeliveryFeeTypeSchema.nullable(),
   deliveryFee: z.number().int().nullable(),
   optionAxes: z.array(z.string()),
   stockManaged: z.boolean(),
-  optionsLocked: z.boolean(),
   imageUrls: z.array(z.string()),
-  detailHtml: z.string().nullable(),
-  extraDetailHtml: z.array(z.string()),
   noticeCategory: z.string().nullable(),
   noticeValues: z.array(z.string()),
   certifications: z.array(SalesProductCertificationSchema),
+  kcStatus: SalesProductKcStatusSchema,
   importDeclarationNo: z.string().nullable(),
   adminMemo: z.string().nullable(),
   version: z.number().int(),
@@ -318,8 +354,14 @@ export type SalesProduct = z.infer<typeof SalesProductSchema>;
 export const SalesProductListQuerySchema = z.object({
   query: z.string().trim().max(200).optional(),
   status: SalesProductStatusSchema.optional(),
-  /** `with_options`: 단품이 둘 이상 · `unlinked`: 셀피아 연결이 빠진 단품이 있는 상품. */
-  focus: z.enum(['all', 'with_options', 'unlinked']).default('all'),
+  /** 원천 장터 탭(수집상품 화면의 1688 · 쿠팡 · 사방넷). 초안에 복사된 값으로 거른다. */
+  sourcePlatform: z.string().trim().max(40).optional(),
+  /**
+   * `with_options`: 단품이 둘 이상 · `unlinked`: 셀피아 연결이 빠진 단품이 있는 상품 ·
+   * `unregistered`: KID 를 받은 판매 상품(`active`) 중 아직 어느 몰에도 올라가지 않은 것 ·
+   * `preparing`: 수집상품 화면 — 초안(`draft`, KID 없음)만(KID-313).
+   */
+  focus: z.enum(['all', 'with_options', 'unlinked', 'unregistered', 'preparing']).default('all'),
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(50),
 });
@@ -327,11 +369,17 @@ export type SalesProductListQuery = z.infer<typeof SalesProductListQuerySchema>;
 
 export const SalesProductListItemSchema = z.object({
   id: z.string().uuid(),
-  code: z.string(),
+  /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 비어 있다. */
+  code: z.string().nullable(),
   ownCode: z.string().nullable(),
+  /** 이 상품을 만든 원본 기록(SourceRecord) id. */
+  sourceRecordId: z.string().uuid().nullable(),
+  sourcePlatform: z.string().nullable(),
+  sourceUrl: z.string().nullable(),
   name: z.string(),
   status: SalesProductStatusSchema,
-  salePrice: z.number().int(),
+  /** 팔 옵션 중 가장 싼 값. 초안이라 아직 정하지 않았으면 null. */
+  salePrice: z.number().int().nullable(),
   imageUrl: z.string().nullable(),
   optionAxes: z.array(z.string()),
   optionCount: z.number().int(),
@@ -339,7 +387,8 @@ export const SalesProductListItemSchema = z.object({
   /** 셀피아 구성이 비어 있는 단품 수(미사용 제외). */
   unlinkedOptionCount: z.number().int(),
   channelListingCount: z.number().int(),
-  channelOverrideCount: z.number().int(),
+  /** 몰 계정별 등록 상태(KID-313 결정 11). 화면은 이것만 읽고 실행 · 리스팅 표를 조합하지 않는다. */
+  registrationAccounts: z.array(RegistrationAccountStateSchema),
   updatedAt: zIsoDate,
 });
 export type SalesProductListItem = z.infer<typeof SalesProductListItemSchema>;
@@ -353,6 +402,10 @@ export const SalesProductListResponseSchema = z.object({
     total: z.number().int(),
     withOptions: z.number().int(),
     withUnlinkedOptions: z.number().int(),
+    /** 아직 어느 몰에도 올라가지 않은 판매상품 수. */
+    unregistered: z.number().int(),
+    /** KID 를 아직 받지 않은 초안 수. */
+    draft: z.number().int(),
   }),
 });
 export type SalesProductListResponse = z.infer<typeof SalesProductListResponseSchema>;
@@ -422,6 +475,12 @@ export const SabangnetImportPreviewSchema = z.object({
     sourceKey: z.string(),
     expectedVersion: z.number().int().positive(),
     changed: z.boolean(),
+    /** 판매상품 값은 그대로이고 다음 가져오기가 비교할 저장된 원문(기준값)만 바뀐다. */
+    baselineOnly: z.boolean(),
+    /** 파일 값이 달랐지만 지난 가져오기 뒤 사람이 고쳐서 지킨 칸(판매상품 필드 이름). */
+    preserved: z.array(z.string()),
+    /** 사람이 고치지 않아 파일 값으로 바꾸는 칸. */
+    updated: z.array(z.string()),
   })),
   files: z.array(z.object({ name: z.string(), kind: SabangnetWorkbookKindSchema, rows: z.number().int() })),
   products: z.object({
@@ -511,20 +570,19 @@ export const SalesProductMallCategoriesSchema = z.object({
 });
 export type SalesProductMallCategories = z.infer<typeof SalesProductMallCategoriesSchema>;
 
-// ── 몰 가격을 몰별 값으로 가져오기 ─────────────────────────────────────
+// ── 몰 가격을 판매 상품 단품 판매가로 가져오기(KID-313 W2) ──────────────────
 
 /**
- * 몰 가격을 몰별 값으로 가져오지 못한 까닭.
- * - `options_disagree`: 같은 몰에서 옵션 · 몰 상품마다 맞출 판매가가 다르다(몰별 값은 몰 하나에 판매가 하나).
- * - `below_extra_price`: 몰 가격이 단품 추가금액보다 작아 몰별 판매가가 0 이하가 된다.
+ * 몰 가격을 단품 판매가로 가져오지 못한 까닭.
+ * - `options_disagree`: 같은 단품이 몰 · 몰 상품마다 다른 값으로 팔린다(단품 판매가는 하나다).
  */
-export const SALES_PRODUCT_MALL_PRICE_CONFLICT_REASONS = ['options_disagree', 'below_extra_price'] as const;
+export const SALES_PRODUCT_MALL_PRICE_CONFLICT_REASONS = ['options_disagree'] as const;
 export const SalesProductMallPriceConflictReasonSchema = z.enum(SALES_PRODUCT_MALL_PRICE_CONFLICT_REASONS);
 
 export const SalesProductMallPriceAdoptionSchema = z.object({
   /** false 면 미리보기 — 쓰지 않았다. */
   applied: z.boolean(),
-  /** 몰별 판매가를 몰 가격으로 바꿀(바꾼) 상품 × 몰. */
+  /** 단품 판매가를 몰 가격으로 바꿀(바꾼) 상품의 가격 근거 상품 × 몰. */
   pairs: z.number().int(),
   products: z.number().int(),
   /** 이미 같은 상품 × 몰. */
@@ -623,7 +681,8 @@ export const SalesProductMallSheetCheckSchema = z.object({
   maybeListed: z.number().int(),
   products: z.array(z.object({
     salesProductId: z.string().uuid(),
-    code: z.string(),
+    /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 비어 있고, 파일을 만들 때 발급된다. */
+    code: z.string().nullable(),
     name: z.string(),
     /** 파일에 들어갈 행 수(쿠팡은 단품마다 한 줄). 못 넣는 상품은 0. */
     rows: z.number().int(),
@@ -674,7 +733,6 @@ export const CoupangCatalogChangeSchema = z.object({
   before: z.string(),
   after: z.string(),
 });
-export type CoupangCatalogChange = z.infer<typeof CoupangCatalogChangeSchema>;
 
 export const CoupangCatalogRowSchema = z.object({
   /** 윙 옵션 ID. 한 줄은 상품이 아니라 옵션 하나다. */
@@ -687,7 +745,6 @@ export const CoupangCatalogRowSchema = z.object({
   changes: z.array(CoupangCatalogChangeSchema),
   conflicts: z.array(CoupangCatalogChangeSchema),
 });
-export type CoupangCatalogRow = z.infer<typeof CoupangCatalogRowSchema>;
 
 /**
  * 올린 파일로 무엇을 채울지 — 파일은 만들지 않는다. 채우는 것은 **비어 있는 칸**뿐이고,
@@ -710,36 +767,6 @@ export const CoupangCatalogPlanResultSchema = z.object({
   samples: z.array(CoupangCatalogRowSchema),
 });
 export type CoupangCatalogPlanResult = z.infer<typeof CoupangCatalogPlanResultSchema>;
-
-// ── 수집상품 → 판매상품(수집상품 화면에서 몰 대량등록) ─────────────────────────
-
-export const SALES_PRODUCT_FROM_CANDIDATES_MAX = 200;
-
-/**
- * 수집상품 여러 개를 판매상품으로 만든다. 화면이 수집상품의 몰 공통 등록 초안으로 판매상품 내용을 만들어 보낸다. 같은
- * 수집상품에서 이미 만든 판매상품이 있으면 새로 만들지 않고 그것을 쓴다(사람이 고친 값은 덮지 않고, 비어 있는 사진 ·
- * 상세설명만 채운다).
- */
-export const SalesProductFromCandidatesRequestSchema = z.object({
-  items: z.array(z.object({
-    candidateId: z.string().uuid(),
-    product: SalesProductCreateInputSchema,
-  }).strict()).min(1).max(SALES_PRODUCT_FROM_CANDIDATES_MAX),
-}).strict();
-export type SalesProductFromCandidatesRequest = z.input<typeof SalesProductFromCandidatesRequestSchema>;
-
-export const SalesProductFromCandidatesResultSchema = z.object({
-  products: z.array(z.object({
-    candidateId: z.string().uuid(),
-    salesProductId: z.string().uuid(),
-    code: z.string(),
-    /** 이번에 새로 만들었는가(false 면 이미 있던 판매상품). */
-    created: z.boolean(),
-  })),
-  created: z.number().int(),
-  reused: z.number().int(),
-});
-export type SalesProductFromCandidatesResult = z.infer<typeof SalesProductFromCandidatesResultSchema>;
 
 // ── 몰이 읽을 공개 사진 복사본 ───────────────────────────────────────────────
 

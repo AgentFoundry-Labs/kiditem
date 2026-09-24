@@ -1,4 +1,8 @@
-import { readListingProductIds } from '../../../../channels/read/listing-product-summary.reader';
+import { AI_LISTING_CONTENT_QUERY_PORT, type ListingContentQueryPort } from '../../../../content/application/port/in/workspace/listing-content-query.port';
+import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
+import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 // Hydrates every input the strategy sub-services need from
 // `ChannelListingDailySnapshot` and friends. The adapter does NOT fetch
 // `AdsConfig` — the application service passes it in as a parameter so
@@ -10,10 +14,6 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { addDays, businessDateKey, kstInclusiveDaysStart, type KstQueryWindow } from '../../../../common/kst';
 import { readListingAdWindowFacts } from '../../../read/ad-target-facts';
 import { currentRowTieBreakSql } from '../../../../common/current-row';
-import {
-  readListingTrafficWindowFacts,
-  readLatestListingStateFacts,
-} from '../../../../channels/read/channel-listing-daily-facts';
 import { readPublishedProductAbcGrades } from '../../../../products/adapter/out/persistence/read/product-abc-publication.reader';
 import {
   buildPerListingMetricsCoverage,
@@ -44,9 +44,13 @@ export class AdStrategyContextRepositoryAdapter
   implements AdStrategyContextRepositoryPort
 {
   constructor(
+    @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly channelRecipes: ChannelOptionRecipePort,
+    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
     private readonly prisma: PrismaService,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly inventoryTransactionalRead: ProductTransactionalReadPort,
+    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
+    @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
   ) {}
 
   async loadStrategyContext(
@@ -83,13 +87,13 @@ export class AdStrategyContextRepositoryAdapter
       organizationId,
       from: range.from,
       to: windowEnd,
-    });
+    }, this.channelAccounts);
 
     const listingIds = uniqueIds([
       ...adAgg.map((a) => a.listingId),
     ]);
     const listingIdSet = new Set(listingIds);
-    const trafficAgg = await readListingTrafficWindowFacts(tx, {
+    const trafficAgg = await this.channelListings.readTrafficWindow(ownerTransaction(tx), {
       organizationId,
       from: range.from,
       to: windowEnd,
@@ -107,7 +111,7 @@ export class AdStrategyContextRepositoryAdapter
       tx,
       organizationId,
       profitWindow.from,
-      profitWindow.to,
+      profitWindow.to, this.channelAccounts
     );
     const coverage = await buildPerListingMetricsCoverage(
       tx,
@@ -116,7 +120,7 @@ export class AdStrategyContextRepositoryAdapter
       profitWindow.to,
       accountAdEvidence,
       listingIdSet,
-      this.inventoryTransactionalRead,
+      this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent }
     );
     const channelStateByListing = await this.loadChannelStateByListingIn(
       tx,
@@ -197,7 +201,7 @@ export class AdStrategyContextRepositoryAdapter
       winnerGapPrice: number | null;
     };
 
-    const listingDailies = await readLatestListingStateFacts(tx, { organizationId, listingIds });
+    const listingDailies = await this.channelListings.readLatestState(ownerTransaction(tx), { organizationId, listingIds });
     const optionDailies = primaryListingOptionIds.length === 0
       ? [] as OptionDailyRow[]
       : await tx.$queryRaw<OptionDailyRow[]>(Prisma.sql`
@@ -282,36 +286,8 @@ export class AdStrategyContextRepositoryAdapter
     listingIds: string[],
   ): Promise<HydratedListing[]> {
     if (listingIds.length === 0) return [];
-    const listingRows = await tx.channelListing.findMany({
-      where: {
-        id: { in: listingIds },
-        organizationId,
-        isActive: true,
-      },
-      select: {
-        id: true,
-        externalId: true,
-        channelName: true,
-        displayName: true,
-        channelAccount: { select: { channel: true } },
-        options: {
-          where: { isActive: true },
-          orderBy: [
-            { createdAt: 'asc' },
-            { externalOptionId: 'asc' },
-            { id: 'asc' },
-          ],
-          // Purchase cost is the confirmed recipe priced at the Sellpia
-          // purchase price, applied from Channels availability; option cost
-          // columns are not a cost source (KID-114).
-          select: {
-            id: true,
-            salePrice: true,
-          },
-        },
-      },
-    });
-    const summaries = await readListingProductIds(tx, { organizationId, listingIds: listingRows.map((row) => row.id) });
+    const listingRows = await this.channelListings.readCatalogFacts(ownerTransaction(tx), { organizationId, listingIds, activeOnly: true }).then(rows => rows.map(row => ({ ...row, channelAccount: { channel: row.channel }, options: row.options.sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || a.externalOptionId.localeCompare(b.externalOptionId) || a.id.localeCompare(b.id)) })));
+    const summaries = await this.channelRecipes.readListingProductSummaries(ownerTransaction(tx), { organizationId, listingIds: listingRows.map((row) => row.id) });
     const rows = listingRows.map((row) => ({ ...row, masterProductId: summaries.get(row.id) ?? null }));
     const masterProductIds = [...new Set(rows.flatMap((row) =>
       row.masterProductId ? [row.masterProductId] : []))];

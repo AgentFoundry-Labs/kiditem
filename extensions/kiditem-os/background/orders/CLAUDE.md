@@ -51,7 +51,7 @@ registration, and Coupang cookie-overflow recovery.
 - Registration presses a mall's own register button only when the web asks
   `submit: true`, that mall's form spec declares a verified `submit`, and the
   fill left no warnings or manual steps
-  ([ADR-0015](../../../../docs/adr/0015-mall-registrations-submit-all-the-way.md)).
+  ([ADR-0019](../../../../docs/adr/0019-mall-registrations-submit-all-the-way.md)).
   Report pressed, accepted, and refused separately; publication is a later
   re-read. Never press delete, sale-ban, or other irreversible controls.
 ## Collection Contract
@@ -88,8 +88,8 @@ registration, and Coupang cookie-overflow recovery.
 ## Mall Admin Listing Import
 
 - `orders.mall_admin_listings` (Channels owner) reads registered products
-  directly from a mall admin for malls Sabangnet does not carry (KID-246 step
-  2). One import is one attempt for one mall account; the frozen plan names the
+  directly from a mall admin for malls Sabangnet does not carry. One import is
+  one attempt for one mall account; the frozen plan names the
   mall, its origin, and its page-size cap. It opens only list and read-only
   product-view screens, never save, approval, or delete.
 - The reader lives in `mall-admin-listings.js`, keyed by mall in `READERS`.
@@ -109,7 +109,7 @@ registration, and Coupang cookie-overflow recovery.
   the run. 떠리몰 (Shopby partner admin) calls the list screen's admin API
   (`admin-api.e-ncp.com`) from inside the partner page with the partner
   cookie token and the list screen as `ClientLocation` (omitting it is a 403);
-  the token never leaves that page. Malls that Sabangnet used to carry (도매꾹,
+  the token never leaves that page. Malls collected through their own admin (도매꾹,
   키즈노트, 11번가, 지마켓·옥션, 카카오, 롯데ON, 스마트스토어, 티쳐몰) need
   `mallAdminListingsMallsV2` and must emit Sabangnet's product-code shape (ESM
   `{site}_{master}`; other numbers go in `alternateCodes`) so existing recipes
@@ -143,9 +143,9 @@ This guide inherits the extension verification gate; run the focused
 ## 세션 정리는 나눠 보낸다
 
 웹 앱이 닫히면 보관된 세션마다 소유자에게 `/control` 을 읽어 정리한다. 끝났는데도 지워지지
-않은 세션이 쌓이면 그 수만큼 읽기가 한꺼번에 날아간다. 2026-09-21 라이브에서 40개가 몰려 API
-분당 한도(600)를 통째로 먹었고, 읽기가 429 로 실패하니 세션을 지우지도 못해 다음 정리 때 같은
-40개를 다시 쏘는 고리가 됐다 — 정리하는 일 자체가 한도에 막혀 영원히 줄지 않았다.
+않은 세션이 쌓이면 그 수만큼 읽기가 한꺼번에 날아가 API 분당 한도(600)를 먹고, 읽기가 429 로
+실패하면 세션을 지우지도 못해 다음 정리 때 같은 묶음을 다시 쏘는 고리가 된다 — 정리하는 일
+자체가 한도에 막혀 줄지 않는다.
 
 그래서 `web-app-collection-lifetime` 은 `CANCEL_CONCURRENCY` 만큼만 동시에 묻고, 묶음이
 끝나야 다음 묶음을 연다. 정리 경로에 요청을 더할 때는 이 예산을 먼저 따진다.
@@ -158,7 +158,7 @@ This guide inherits the extension verification gate; run the focused
 
 404 를 `SOURCE_OWNER_UNAVAILABLE` 로 두면 세션이 남고, 정리할 때마다 같은 시도를 다시 읽어 또
 404 를 받는다. 세션은 보관 기간이 끝날 때까지 사라지지 않고, 운영자는 누를 때마다
-`ORDER_COLLECTION_ATTEMPT_NOT_FOUND` 만 본다(2026-09-21 라이브, 쿠팡직배송).
+`ORDER_COLLECTION_ATTEMPT_NOT_FOUND` 만 본다.
 
 읽기가 다른 이유로 실패한 것(5xx · 끊김 · 429)은 여전히 `SOURCE_OWNER_UNAVAILABLE` 이다.
 그때는 서버가 아직 답을 못 한 것이지 시도가 없는 것이 아니다.
@@ -169,7 +169,7 @@ This guide inherits the extension verification gate; run the focused
 돈다. 쿠팡직배송은 제 소유자(`orders.coupang_directship`)가 따로 있어서 그 시도가 몰 쪽에는
 없다. 그래서 감싸면 몰 경로 조회가 404(`ORDER_COLLECTION_ATTEMPT_NOT_FOUND`)로 끝나고, 시도를
 빼고 보내면 `Owner attempt ID is required` 로 막힌다 — 어느 쪽이든 **로그인 문턱에서 수집이
-끝난다**(2026-09-21 라이브, 09-18부터 30번 연속 실패의 원인).
+끝난다**.
 
 그래서 `coupang-direct` 는 로그인만 시키고, 시도의 마무리는 제 소유자가 한다. 소유자가 따로
 있는 수집을 더할 때도 같다.

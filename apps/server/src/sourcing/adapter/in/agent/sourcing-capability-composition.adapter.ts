@@ -31,10 +31,13 @@ export class SourcingCapabilityCompositionAdapter
             context: { organizationId: context.organizationId },
             input,
           }),
+        // 운영자가 여는 것은 판매상품 초안이다. 초안이 없으면 원천 기록만 가리킨다(열 화면 없음).
         resourceRef: (output) =>
-          output.candidateId
-            ? { kind: 'sourcing_candidate', id: output.candidateId }
-            : null,
+          output.salesProductId
+            ? { kind: 'sales_product', id: output.salesProductId }
+            : output.candidateId
+              ? { kind: 'sourcing_candidate', id: output.candidateId }
+              : null,
       }),
       defineCapabilityComposition(sourcingCapability('sourcing.scrapeProductUrl'), this.sourcing, {
         capabilityKey: 'sourcing.scrapeProductUrl',
@@ -57,10 +60,9 @@ export class SourcingCapabilityCompositionAdapter
             context: sourcingMutationContext(context),
             input,
           }),
-        resourceRef: (output) => ({
-          kind: 'sourcing_candidate',
-          id: output.candidateId,
-        }),
+        resourceRef: (output) => output.salesProductId
+          ? { kind: 'sales_product', id: output.salesProductId }
+          : { kind: 'sourcing_candidate', id: output.candidateId },
       }),
       defineCapabilityComposition(sourcingCapability('sourcing.retrieveWorkspaceEvidence'), this.sourcing, {
         capabilityKey: 'sourcing.retrieveWorkspaceEvidence',

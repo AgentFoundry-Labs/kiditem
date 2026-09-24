@@ -40,12 +40,12 @@ function wrapper(queryClient: QueryClient) {
 
 function makeGeneration(
   imageProcessingStatus: KidsPlayfulGenerationItem['imageProcessingStatus'],
+  contentWorkspaceId: string | null = null,
 ): KidsPlayfulGenerationItem {
   return {
     id: 'generation-245',
     productId: null,
-    sourceCandidateId: 'candidate-245',
-    contentWorkspaceId: null,
+    contentWorkspaceId,
     templateId: 'kids-playful',
     productName: '매직 큐브 퍼즐',
     rawInput: {
@@ -99,6 +99,23 @@ describe('GenerationCompletionWatcher', () => {
     expect(mockPush).toHaveBeenCalledWith(
       expect.stringContaining('/product-pipeline/detail-pages/generation-245/editor'),
     );
+  });
+
+  it('does not send the editor back to a registered-product page built from a content workspace id', async () => {
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
+    });
+    mockGenerationLists.kids = [makeGeneration('processing', 'workspace-1')];
+    const view = render(<GenerationCompletionWatcher />, { wrapper: wrapper(queryClient) });
+
+    mockGenerationLists.kids = [makeGeneration('completed', 'workspace-1')];
+    view.rerender(<GenerationCompletionWatcher />);
+
+    await waitFor(() => expect(toast.success).toHaveBeenCalled());
+    const toastOptions = vi.mocked(toast.success).mock.calls[0][1] as unknown as { action: { onClick: () => void } };
+    toastOptions.action.onClick();
+    // 등록상품 화면 주소는 리스팅 id 로 연다 — 작업공간 id 로 만들면 열리지 않는 주소가 된다.
+    expect(mockPush).toHaveBeenCalledWith('/product-pipeline/detail-pages/generation-245/editor');
   });
 
   it('shows a failure toast with the source error', async () => {

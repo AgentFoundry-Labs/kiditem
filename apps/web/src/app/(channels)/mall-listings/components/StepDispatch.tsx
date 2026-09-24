@@ -2,12 +2,8 @@
 
 import { AlertTriangle, Check, CircleDashed, Loader2, MinusCircle, X } from 'lucide-react';
 import { cn, formatNumber } from '@/lib/utils';
-import {
-  collectManualSteps,
-  summarizePublishRun,
-  type PublishTask,
-  type PublishTaskStatus,
-} from '../lib/publish-plan';
+import { collectManualSteps, summarizePublishRun } from '../lib/publish-plan';
+import type { PublishTask, PublishTaskStatus } from '../../_shared/use-mall-publish-run';
 
 const STATUS_META: Record<PublishTaskStatus, { label: string; tone: string; icon: typeof Check }> = {
   pending: { label: '대기', tone: 'text-slate-400', icon: CircleDashed },

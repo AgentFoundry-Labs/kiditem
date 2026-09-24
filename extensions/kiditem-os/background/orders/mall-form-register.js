@@ -6701,9 +6701,11 @@
         ...selfUploadWarnings,
         ...detailWarnings,
       ];
-      // 웹이 [등록]까지 부탁했고(ADR-0015) 폼을 다 채웠을 때만 누른다. 채우다 남긴 경고와 사람이 할 일은 모두 막는 이유다.
+      // 웹이 [등록]까지 부탁했고(ADR-0015) 등록 대상 실행 컨텍스트가 있으며(KID-322) 폼을 다 채웠을 때만 누른다.
+      // 컨텍스트 없는 `submit` 은 폼 채우기로만 끝난다. 채우다 남긴 경고와 사람이 할 일은 모두 막는 이유다.
       let submission = null;
-      if (message.submit === true && outcome.ok === true) {
+      const pressRegister = root.KidItemMallFormSubmitGate.shouldPressRegister({ submit: message.submit, executionContext });
+      if (pressRegister && outcome.ok === true) {
         submission = await submitRegistration(tab.id, spec, [...fillWarnings, ...form.manualSteps]);
         // 몰이 받았으면 대량 등록이 탭을 쌓지 않게 닫는다. 받지 않았거나 모르면 사람이 보도록 남긴다.
         if (submission.submitted && submission.accepted === true) {
@@ -6718,6 +6720,7 @@
         submitted: submission?.submitted === true,
         ...(submission?.submitted ? { accepted: submission.accepted, productNo: submission.productNo, mallMessage: submission.mallMessage } : {}),
         ...(submission && !submission.submitted ? { submitSkipped: submission.reason } : {}),
+        ...(message.submit === true && !pressRegister ? { submitSkipped: "execution_context_required" } : {}),
         mall: message.mall,
         steps: outcome.steps || [],
         warnings: [...fillWarnings, ...loginWarnings],

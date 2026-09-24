@@ -1,9 +1,9 @@
 import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { loadMallLoginCredentials } from '@/lib/mall-login-credentials';
 import {
-  prepareSavedCandidateDetailImage,
+  prepareSavedDetailImage,
   requireRenderedDetailImage,
-} from '../../collected-products/lib/wing-registration-flow';
+} from '../../collected-products/lib/detail-page-image-api';
 import { productsApi } from '../../collected-products/lib/sourcing-api';
 import {
   candidateToMallProductDraft,
@@ -190,10 +190,10 @@ export async function fillMallRegistrationForm(
  * 멈춘다 — 대표이미지나 수집 원본으로 대체하지 않는다.
  */
 export async function prepareMallRegistration(
-  candidateId: string,
+  salesProductId: string,
 ): Promise<{ draft: MallProductDraft; detailImageUrl: string }> {
-  const detail = await productsApi.getDetail(candidateId);
-  const rendered = await prepareSavedCandidateDetailImage(candidateId, detail);
+  const detail = await productsApi.getDetail(salesProductId);
+  const rendered = await prepareSavedDetailImage(detail);
   const detailImageUrl = requireRenderedDetailImage(rendered);
   const draft = candidateToMallProductDraft({
     detail,

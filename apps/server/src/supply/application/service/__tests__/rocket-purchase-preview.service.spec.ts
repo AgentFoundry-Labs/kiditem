@@ -2,7 +2,7 @@ import { readFileSync } from 'node:fs';
 import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { RocketPurchasePreviewService } from '../rocket-purchase-preview.service';
-import type { RocketPoCatalogPort } from '../../../../channels/application/port/in/rocket-po-catalog.port';
+import type { RocketPoCatalogPort } from '../../../../orders/application/port/in/rocket-po-catalog.port';
 import type { ChannelSkuAvailabilityPort } from '../../../../channels/application/port/in/channel-sku-availability.port';
 import type { ProductCollectionFreshnessGatePort } from '../../../../products/application/port/in/product-collection-freshness-gate.port';
 

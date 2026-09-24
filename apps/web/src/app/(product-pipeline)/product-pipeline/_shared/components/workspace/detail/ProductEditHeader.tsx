@@ -1,6 +1,6 @@
 'use client';
 
-import { useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import {
@@ -10,62 +10,47 @@ import {
   Image as ImageIcon,
   Loader2,
   Sparkles,
-  XCircle,
 } from 'lucide-react';
 import type { DetailPageTemplateId } from '@kiditem/shared/ai';
-import type { SourcingCandidateStatus } from '@kiditem/shared/sourcing';
+import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
 import { cn } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
-import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
+import { registrationTargetApi, registrationTargetKeys } from '@/lib/registration-target-api';
+import { salesProductKeys } from '@/lib/sales-product-api';
 import {
-  ensureCandidateSalesProduct,
-  type CandidateSalesProductRegistrationDeps,
-} from '@/lib/candidate-sales-product-registration';
+  canPrepareRegistration,
+  registrationStateLabel,
+} from '@/app/(channels)/_shared/registration-account-state';
+import { RegistrationStateBadge } from '@/app/(channels)/_shared/components/RegistrationStateBadge';
 import { useKidsPlayfulInProgress } from '@/app/(product-pipeline)/product-pipeline/detail-template-generation/hooks/useKidsPlayfulGenerate';
 import { useGenerateDetailPage, type GenerateMode } from '@/app/(product-pipeline)/product-pipeline/_shared/hooks/useGenerateDetailPage';
 import { useKidsPlayfulFromSourcing } from '../../../hooks/useKidsPlayfulFromSourcing';
 import TemplateSelectionModal from '@/app/(product-pipeline)/product-pipeline/_shared/components/detail-page/TemplateSelectionModal';
-import {
-  candidatesApi,
-  productsApi,
-  registrationStateFromPreparation,
-  type CandidateRegistrationState,
-  type ProductBasics,
-  type ProductPreparationSelection,
-} from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
-import { salesProductInputFromCandidate } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/candidate-sales-products';
-import { prepareSavedCandidateDetailImage } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/wing-registration-flow';
+import type { ProductBasics } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/sourcing-api';
 import {
   channelListingsApi,
 } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/channel-listings-api';
 import { getInlineGenerationProgressLabel } from '@/app/(product-pipeline)/product-pipeline/collected-products/lib/generation-progress-label';
 import ProductPreparationDraftDialog from './ProductPreparationDraftDialog';
 
-const CANDIDATE_SALES_PRODUCT_DEPS: CandidateSalesProductRegistrationDeps = {
-  findByCandidate: salesProductApi.findByCandidate,
-  update: salesProductApi.update,
-  createFromCandidates: salesProductApi.createFromCandidates,
-};
-
 interface ProductEditHeaderProps {
   productName: string;
   productId: string;
-  status?: SourcingCandidateStatus;
-  productPreparation?: ProductPreparationSelection | null;
-  /** 울타리가 답하는 등록 상태. 구버전 응답에서만 `null` 이다. */
-  registrationState?: CandidateRegistrationState | null;
+  /** 이 화면의 판매상품 초안 id(ADR-0022) — 등록 설정과 생성은 이 id 로 연다. */
+  salesProductId?: string | null;
+  /** 초안을 만든 원본 기록. 상세페이지 생성이 출처로 적는다. 직접 작성 초안은 없다. */
+  sourceRecordId?: string | null;
+  /** 몰 계정별 등록 상태 — Channels 등록 상태 reader 값 그대로다(KID-320). */
+  registrationAccounts?: readonly RegistrationAccountState[];
   isEditComplete: boolean;
   isLocked: boolean;
   basicInfo?: ProductBasics | null;
   costCny?: number | null;
   selectedThumbnailUrl?: string | null;
-  selectedThumbnailGenerationId?: string | null;
-  selectedThumbnailGenerationCandidateId?: string | null;
   selectedDetailPageGenerationId?: string | null;
   detailGenerationContentWorkspaceId?: string | null;
   detailGenerationEnabled?: boolean;
-  showCandidateActions?: boolean;
   onOpenDetailTemplateGeneration?: () => void;
   onToggleEditComplete: () => void;
   onToggleLocked: () => void;
@@ -77,17 +62,14 @@ interface ProductEditHeaderProps {
 export default function ProductEditHeader({
   productName,
   productId,
-  status = 'sourced',
-  productPreparation = null,
-  registrationState = null,
+  salesProductId = null,
+  sourceRecordId = null,
+  registrationAccounts = NO_ACCOUNTS,
   basicInfo = null,
   selectedThumbnailUrl = null,
-  selectedThumbnailGenerationId = null,
-  selectedThumbnailGenerationCandidateId = null,
   selectedDetailPageGenerationId = null,
   detailGenerationContentWorkspaceId = null,
   detailGenerationEnabled = true,
-  showCandidateActions = true,
   onOpenDetailTemplateGeneration,
   onBack,
   rawData = null,
@@ -96,60 +78,52 @@ export default function ProductEditHeader({
   const queryClient = useQueryClient();
   const [modalOpen, setModalOpen] = useState(false);
   const [preparationDialogOpen, setPreparationDialogOpen] = useState(false);
-  const [rejectReason, setRejectReason] = useState('');
-  const [rejectInputOpen, setRejectInputOpen] = useState(false);
-  const { mutate: runGenerate, isPending } = useGenerateDetailPage(productId);
+  const { mutate: runGenerate, isPending } = useGenerateDetailPage(salesProductId ?? '');
   const kp = useKidsPlayfulFromSourcing();
-  const kpInProgress = useKidsPlayfulInProgress(productId, {
-    enabled: detailGenerationEnabled && !onOpenDetailTemplateGeneration,
-    sourceCandidateId: detailGenerationContentWorkspaceId ? null : productId,
+  // 진행 중 생성은 이 초안의 작업공간 안에서만 찾는다. 작업공간이 없으면 찾을 것도 없다 —
+  // 후보 id 나 조직 전체 목록으로 대신 묻지 않는다(KID-310).
+  const kpInProgress = useKidsPlayfulInProgress(null, {
+    enabled: detailGenerationEnabled && !onOpenDetailTemplateGeneration && !!detailGenerationContentWorkspaceId,
     contentWorkspaceId: detailGenerationContentWorkspaceId,
   });
-  const generateBusy = isPending || kp.isPending || !!kpInProgress;
+  // 첫 생성은 서버가 초안의 작업공간을 만든다. 그 작업공간을 다시 읽기 전에는 진행 조회가 돌지
+  // 않으므로, 그동안 버튼을 막아 두 번째 유료 생성을 시작하지 못하게 한다(작업공간이 오면 풀린다).
+  const [awaitingDraftWorkspace, setAwaitingDraftWorkspace] = useState(false);
+  useEffect(() => {
+    if (detailGenerationContentWorkspaceId) setAwaitingDraftWorkspace(false);
+  }, [detailGenerationContentWorkspaceId]);
+  const generateBusy = isPending || kp.isPending || !!kpInProgress || awaitingDraftWorkspace;
   const accountsQuery = useQuery({
     queryKey: queryKeys.channelAccounts.active(),
     queryFn: () => channelListingsApi.listAccounts(),
     enabled: preparationDialogOpen,
   });
 
+  /**
+   * "제품 등록 준비" = 이 판매상품 초안 × 고른 몰 계정의 등록 설정을 연다.
+   *
+   * 초안은 수집 시점부터 있으므로(KID-310 · ADR-0022) 여기서 만들 것이 없다 — 이름·
+   * 썸네일·상세페이지·판매가는 전부 초안 자체에 이미 있다(판매상품 편집이 정본).
+   * 같은 상품 × 몰 계정에 이미 설정이 있으면 서버가 그 설정을 그대로 돌려준다
+   * (부분 유일키, 사용자 결정 01:12) — 골라야 할 것이 없다.
+   */
   const createPreparationDraftMutation = useMutation({
     mutationFn: async (channelAccountId: string) => {
-      await ensureCandidateSalesProduct(
-        productId,
-        async (candidateId) => {
-          const detail = await productsApi.getDetail(candidateId);
-          const rendered = await prepareSavedCandidateDetailImage(candidateId, detail).catch(() => null);
-          return salesProductInputFromCandidate(
-            detail,
-            rendered?.status === 'ready' ? rendered.imageUrl : null,
-            {
-              name: productName === '(상품명 없음)' ? undefined : productName,
-              salePrice: basicInfo?.salePrice,
-            },
-          );
-        },
-        CANDIDATE_SALES_PRODUCT_DEPS,
-      );
-      void queryClient.invalidateQueries({ queryKey: salesProductKeys.all });
-      return candidatesApi.createPreparationDraft(productId, {
-        channelAccountId,
-        displayName: productName,
-        registrationInput: preparationRegistrationInput(productName, basicInfo),
-        selectedThumbnailUrl,
-        selectedThumbnailGenerationId,
-        selectedThumbnailGenerationCandidateId,
-        selectedDetailPageGenerationId,
-        selectedDetailPageArtifactId: basicInfo?.selectedDetailPageArtifactId ?? null,
-        selectedDetailPageRevisionId: basicInfo?.selectedDetailPageRevisionId ?? null,
-      });
+      if (!salesProductId) {
+        throw new Error('이 후보에 연결된 판매상품 초안을 찾지 못했습니다.');
+      }
+      return registrationTargetApi.resolve({ salesProductId, channelAccountId });
     },
-    onSuccess: (data) => {
+    onSuccess: (target) => {
       setPreparationDialogOpen(false);
       toast.success('제품 등록 준비를 저장했습니다.', {
-        description: `준비 ID: ${data.preparationId}`,
+        description: `등록 설정 ID: ${target.id}`,
       });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
+      queryClient.invalidateQueries({ queryKey: queryKeys.collectedProducts.workspace(productId) });
+      queryClient.invalidateQueries({ queryKey: registrationTargetKeys.all });
+      if (salesProductId) {
+        queryClient.invalidateQueries({ queryKey: salesProductKeys.registrationState(salesProductId) });
+      }
     },
     onError: (err) => {
       toast.error(
@@ -158,61 +132,70 @@ export default function ProductEditHeader({
     },
   });
 
-  const rejectMutation = useMutation({
-    mutationFn: (reason: string | undefined) =>
-      candidatesApi.reject(productId, reason && reason.trim() ? reason.trim() : undefined),
-    onSuccess: () => {
-      toast.success('소싱 후보를 반려했습니다.');
-      setRejectInputOpen(false);
-      setRejectReason('');
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.all });
-      queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.detail(productId) });
-    },
-    onError: (err) => {
-      toast.error(isApiError(err) ? err.detail : '반려 처리에 실패했습니다.');
-    },
-  });
   const handleConfirm = (templateId: string, mode: GenerateMode) => {
+    if (!salesProductId) {
+      toast.error('판매상품 초안이 없어 상세페이지를 만들 수 없습니다.');
+      return;
+    }
     if (templateId === 'kids-playful' || templateId === 'bold-vertical') {
-      kp.trigger({
-        sourceCandidateId: productId,
-        productId: null,
+      const firstGeneration = !detailGenerationContentWorkspaceId;
+      if (firstGeneration) setAwaitingDraftWorkspace(true);
+      void kp.trigger({
+        salesProductId,
+        // Content 의 생성 출처 칸 이름은 W3 가 바꾼다 — 값은 원본 기록 id 다.
+        sourceCandidateId: sourceRecordId,
         contentWorkspaceId: detailGenerationContentWorkspaceId,
         productName,
         rawData,
         templateId: templateId as DetailPageTemplateId,
         generationMode: templateId === 'kids-playful' ? 'full' : mode,
         imageUrls,
+      }).then((result) => {
+        if (!result) {
+          // 시작하지 못했다(입력 부족 · 요청 실패) — 다시 누를 수 있게 푼다.
+          setAwaitingDraftWorkspace(false);
+          return;
+        }
+        void queryClient.invalidateQueries({
+          queryKey: queryKeys.contentWorkspaces.forSalesProduct(salesProductId),
+        });
       });
       return;
     }
     runGenerate({ mode, templateId });
   };
 
-  const accountScopedPreparation = productPreparation?.channelAccountId ? productPreparation : null;
-  const preparationStatus = accountScopedPreparation?.status ??
-    createPreparationDraftMutation.data?.status ?? null;
-  const preparationId = accountScopedPreparation?.id ??
-    createPreparationDraftMutation.data?.preparationId ?? null;
   /**
-   * 등록이 어디까지 갔는가는 울타리가 답한다(ADR-0014). 초안 행의 `status` 는 거울이라
-   * 울타리와 어긋날 수 있고, 어긋난 거울을 믿으면 이미 마켓에 올라간 상품에 '제품 등록
-   * 준비' 버튼이 다시 열린다. 울타리 값이 없는 구버전 응답에서만 거울로 환산한다.
+   * 등록이 어디까지 갔는가는 Channels 등록 상태 reader 가 계정별로 답한다(KID-320) — 화면은 실행 이력이나
+   * 등록 설정 행으로 상태를 짓지 않는다. 배지는 '고른 계정' 기준이다: 방금 준비한 계정, 아니면 계정이
+   * 하나뿐일 때 그 계정. 고른 계정이 없으면(계정이 없거나 여럿) 상품 요약 배지다.
+   *
+   * "제품 등록 준비"는 준비할 수 있는 계정이 하나라도 있으면 연다 — 한 몰에 올라갔거나 보내는 중이어도 다른 몰은
+   * 준비할 수 있다. 등록됐거나 진행 중인 계정은 대화상자가 계정마다 막는다(`unavailableAccounts`).
    */
-  const fenceState = registrationState ?? registrationStateFromPreparation(preparationStatus);
-  const registrationStarted = fenceState !== 'none';
-  // 방금 만든 초안은 아직 울타리를 열지 않았다(`none`). "초안이 있다"는 사실은 초안
-  // 행이 답하고, "등록이 시작됐다"는 울타리가 답한다 — 둘 다 만족해야 다시 준비한다.
-  const canCreatePreparation = status === 'sourced' &&
-    !registrationStarted &&
-    (preparationStatus === null || preparationStatus === 'cancelled') &&
-    !createPreparationDraftMutation.isPending &&
-    !rejectMutation.isPending;
-  const canReject = status === 'sourced' && !registrationStarted && preparationStatus === null &&
-    !createPreparationDraftMutation.isPending && !rejectMutation.isPending;
-  const registrationBadge = registrationStarted
-    ? registrationStateLabel(fenceState)
-    : preparationStatus === 'draft' ? '등록 준비됨' : null;
+  const selectedAccount = useMemo(() => {
+    const resolvedAccountId = createPreparationDraftMutation.data?.channelAccountId ?? null;
+    if (resolvedAccountId) {
+      return registrationAccounts.find((account) => account.channelAccountId === resolvedAccountId) ?? null;
+    }
+    return registrationAccounts.length === 1 ? registrationAccounts[0] : null;
+  }, [createPreparationDraftMutation.data?.channelAccountId, registrationAccounts]);
+  const unavailableAccounts = useMemo(() => {
+    const reasons: Record<string, string> = {};
+    for (const account of registrationAccounts) {
+      if (!canPrepareRegistration(account.state)) reasons[account.channelAccountId] = registrationStateLabel(account.state);
+    }
+    return reasons;
+  }, [registrationAccounts]);
+  // 계정 목록은 대화상자를 열 때 읽는다. 읽은 뒤 계정이 하나라도 있고 전부 막혔을 때만 버튼을 닫는다.
+  // 계정이 0개면 버튼은 열려 있고 대화상자가 "사용할 수 있는 채널 계정이 없습니다"를 말한다(KID-330).
+  const noPreparableAccount = accountsQuery.data !== undefined
+    && accountsQuery.data.length > 0
+    && accountsQuery.data.every((account) => account.id in unavailableAccounts);
+  const preparationBlockedReason = noPreparableAccount
+    ? '모든 몰 계정이 이미 등록됐거나 진행 중입니다.'
+    : null;
+  const canCreatePreparation = preparationBlockedReason === null && !createPreparationDraftMutation.isPending;
   const hasRegistrationThumbnail = !!selectedThumbnailUrl;
   const hasRegistrationDetailPage = !!selectedDetailPageGenerationId;
   const registrationAssetsTitle = [
@@ -241,20 +224,11 @@ export default function ProductEditHeader({
           <p className="text-[10px] text-slate-400 truncate font-mono">
             {productId.slice(0, 8)}
           </p>
-          {registrationBadge && (
-            <span
-              className={cn(
-                'text-[10px] font-bold',
-                fenceState === 'failed' ? 'text-rose-600' : 'text-emerald-600',
-              )}
-              title={preparationId ? `제품 등록 준비 ${preparationId}` : undefined}
-            >
-              {registrationBadge}
-            </span>
-          )}
-          {status === 'rejected' && (
-            <span className="text-[10px] font-bold text-rose-600">반려됨</span>
-          )}
+          {selectedAccount ? (
+            <RegistrationStateBadge account={selectedAccount} />
+          ) : registrationAccounts.length > 0 ? (
+            <RegistrationStateBadge accounts={registrationAccounts} />
+          ) : null}
         </div>
       </div>
 
@@ -347,77 +321,33 @@ export default function ProductEditHeader({
           </>
         )}
 
-        {showCandidateActions && status === 'sourced' && (
-          <>
-            {!registrationStarted
-              && (preparationStatus === null || preparationStatus === 'cancelled') && (
-              <button
-                type="button"
-                onClick={() => setPreparationDialogOpen(true)}
-                disabled={!canCreatePreparation}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors',
-                  canCreatePreparation
-                    ? 'bg-emerald-600 hover:bg-emerald-700'
-                    : 'cursor-not-allowed bg-emerald-300',
-                )}
-                title={`채널별 제품 등록 준비\n${registrationAssetsTitle}`}
-              >
-                {createPreparationDraftMutation.isPending ? (
-                  <Loader2 size={12} className="animate-spin" />
-                ) : (
-                  <CheckCircle2 size={12} />
-                )}
-                제품 등록 준비
-              </button>
+        {/* 등록 준비는 판매상품 초안 화면에만 있다 — 등록상품(리스팅) 화면에는 초안이 없다. */}
+        {salesProductId && (
+          <button
+            type="button"
+            onClick={() => setPreparationDialogOpen(true)}
+            disabled={!canCreatePreparation}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors',
+              canCreatePreparation
+                ? 'bg-emerald-600 hover:bg-emerald-700'
+                : 'cursor-not-allowed bg-emerald-300',
             )}
-            {preparationStatus === null && !registrationStarted && (
-              <button
-                type="button"
-                onClick={() => setRejectInputOpen((v) => !v)}
-                disabled={!canReject}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-md border px-3 py-1.5 text-xs font-semibold transition-colors',
-                  canReject
-                    ? 'border-rose-200 text-rose-600 hover:bg-rose-50'
-                    : 'cursor-not-allowed border-rose-100 text-rose-300',
-                )}
-                title="후보 반려"
-              >
-                <XCircle size={12} />
-                반려
-              </button>
+            title={preparationBlockedReason ?? `채널별 제품 등록 준비\n${registrationAssetsTitle}`}
+          >
+            {createPreparationDraftMutation.isPending ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <CheckCircle2 size={12} />
             )}
-            {preparationStatus === null && !registrationStarted && rejectInputOpen && (
-              <div className="flex items-center gap-1.5">
-                <input
-                  type="text"
-                  value={rejectReason}
-                  onChange={(e) => setRejectReason(e.target.value)}
-                  placeholder="반려 사유 (선택)"
-                  className="h-7 rounded-md border border-slate-200 px-2 text-xs text-slate-700 focus:outline-none focus:ring-1 focus:ring-rose-300"
-                />
-                <button
-                  type="button"
-                  onClick={() => rejectMutation.mutate(rejectReason)}
-                  disabled={rejectMutation.isPending}
-                  className="inline-flex items-center gap-1 rounded-md bg-rose-600 px-2 py-1 text-[11px] font-semibold text-white shadow-sm hover:bg-rose-700 disabled:opacity-50"
-                >
-                  {rejectMutation.isPending ? (
-                    <Loader2 size={11} className="animate-spin" />
-                  ) : (
-                    <Sparkles size={11} />
-                  )}
-                  확인
-                </button>
-              </div>
-            )}
-          </>
+            제품 등록 준비
+          </button>
         )}
 
         <ProductPreparationDraftDialog
           open={preparationDialogOpen}
           accounts={accountsQuery.data ?? []}
+          unavailableAccounts={unavailableAccounts}
           isLoading={accountsQuery.isLoading}
           isSubmitting={createPreparationDraftMutation.isPending}
           errorMessage={accountsQuery.error
@@ -433,39 +363,4 @@ export default function ProductEditHeader({
   );
 }
 
-function preparationRegistrationInput(
-  productName: string,
-  basicInfo: ProductBasics | null,
-): Record<string, unknown> {
-  if (!basicInfo) return { name: productName };
-  const {
-    selectedThumbnailUrl: _selectedThumbnailUrl,
-    selectedThumbnailGenerationId: _selectedThumbnailGenerationId,
-    selectedThumbnailGenerationCandidateId: _selectedThumbnailGenerationCandidateId,
-    selectedDetailPageGenerationId: _selectedDetailPageGenerationId,
-    selectedDetailPageArtifactId: _selectedDetailPageArtifactId,
-    selectedDetailPageRevisionId: _selectedDetailPageRevisionId,
-    thumbnailPreviewUrls: _thumbnailPreviewUrls,
-    // 몰 등록 값은 후보에만 산다 — 준비로 복사하면 아무도 읽지 않는 옛 사본이 된다.
-    mallRegisterValues: _mallRegisterValues,
-    mallRegisterShared: _mallRegisterShared,
-    ...registrationInput
-  } = basicInfo;
-  return { ...registrationInput, name: productName };
-}
-
-/** 울타리 상태를 사장님이 읽을 한 줄로. `none` 은 배지를 세우지 않는다. */
-function registrationStateLabel(state: CandidateRegistrationState): string | null {
-  switch (state) {
-    case 'preparing':
-      return '등록 준비됨';
-    case 'confirming':
-      return '마켓 등록 중';
-    case 'registered':
-      return '제품 등록됨';
-    case 'failed':
-      return '등록 실패';
-    case 'none':
-      return null;
-  }
-}
+const NO_ACCOUNTS: readonly RegistrationAccountState[] = [];
