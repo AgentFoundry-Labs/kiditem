@@ -58,7 +58,7 @@ The skills' triage roles map onto both:
 | Role | Linear |
 | --- | --- |
 | `needs-triage` | Triage |
-| `needs-info` | Human Input |
+| `needs-info` | Triage, with a comment naming what is missing |
 | `ready-for-agent` | Ready without `HITL` |
 | `ready-for-human` | Ready with `HITL` |
 | `wontfix` | Canceled |
@@ -66,8 +66,9 @@ The skills' triage roles map onto both:
 | `enhancement` | `Feature` or `Improvement` |
 
 In Progress means claimed; In Review means a PR or verification is pending;
-Blocked means started work waiting on a dependency; Duplicate and Done close
-the issue. Backlog and Todo stay empty.
+Duplicate and Done close the issue. Backlog and Todo stay empty. There is no
+Human Input or Blocked status: a person's turn is `HITL` on a Ready issue, and
+a dependency is a blocked-by relation on a Ready issue.
 
 - Open an issue only for work worth tracking on its own: a defect an
   operator meets, a rule or contract change, a decision someone must make, or
@@ -90,8 +91,9 @@ the issue. Backlog and Todo stay empty.
   decision) with replies under it instead of a flat list. Code-review
   findings live on the PR's Linear review as diff threads and are resolved
   there; the issue keeps one summary line.
-- Triage each issue to Ready, Human Input, Canceled, or Duplicate, with exactly
-  one of `Bug`, `Feature`, or `Improvement`.
+- Triage each issue to Ready, Canceled, or Duplicate, with exactly one of
+  `Bug`, `Feature`, or `Improvement`. An issue that cannot be judged yet stays
+  in Triage with a comment naming what is missing.
 - An accepted issue that waits on another stays in Ready with a blocked-by
   relation.
 - The remaining labels are `HITL`; the areas `Backend`, `Frontend`,
