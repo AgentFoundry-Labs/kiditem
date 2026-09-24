@@ -1,11 +1,9 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
   Headers,
   Inject,
-  NotFoundException,
   Post,
   Query,
   Res,
@@ -13,6 +11,7 @@ import {
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
+import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { FileInterceptor } from '@nestjs/platform-express';
 import {
   ROCKET_SAVED_PO_RESPONSE_PROFILE,
@@ -150,7 +149,7 @@ export class ProcurementController {
       try {
         request = JSON.parse(body.requestJson!);
       } catch {
-        throw new BadRequestException('Rocket workbook conversion request JSON is invalid.');
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'REQUEST_JSON_INVALID' } });
       }
       const result = await this.rocketWorkbooks.convertWorkbook({
         request,
@@ -171,12 +170,12 @@ export class ProcurementController {
       return new StreamableFile(result.bytes);
     }
     if (body.action === 'exportRocketWorkbook') {
-      if (!workbook) throw new BadRequestException('Rocket workbook file is required.');
+      if (!workbook) throw new KiditemInvalidValueError('SUPPLY_ROCKET_WORKBOOK_FILE_INVALID', { details: { reason: 'WORKBOOK_FILE_REQUIRED' } });
       let request: unknown;
       try {
         request = JSON.parse(body.requestJson!);
       } catch {
-        throw new BadRequestException('Rocket workbook request JSON is invalid.');
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'REQUEST_JSON_INVALID' } });
       }
       return this.rocketWorkbooks.exportWorkbook({
         organizationId,
@@ -223,7 +222,7 @@ export class ProcurementController {
         channelAccountId,
         sourceImportRunId: body.sourceImportRunId!,
       });
-      if (!snapshot) throw new NotFoundException('Saved Rocket PO collection not found');
+      if (!snapshot) throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'saved_rocket_po_collection' } });
       if (responseProfile !== ROCKET_SAVED_PO_RESPONSE_PROFILE) return snapshot;
       // Channels owns the snapshot, Supply owns workbook evidence. Compose here so the
       // operator can separate lines that are new since their last Excel.
@@ -234,7 +233,7 @@ export class ProcurementController {
       });
       return { ...snapshot, exportedPoLineIds } satisfies RocketSavedPoCollection;
     }
-    throw new BadRequestException(`Unknown action: ${body.action}`);
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'ACTION_UNKNOWN', action: body.action } });
   }
 }
 

@@ -1,8 +1,5 @@
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-} from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import {
   ROCKET_CONFIRMATION_REQUEST_STATUSES,
   RocketPurchasePreviewRequestSchema,
@@ -46,7 +43,9 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
     request: RocketPurchasePreviewRequest;
   }): Promise<RocketPurchasePreviewResponse> {
     const parsed = RocketPurchasePreviewRequestSchema.safeParse(input.request);
-    if (!parsed.success) throw new BadRequestException('ROCKET_PREVIEW_REQUEST_INVALID');
+    if (!parsed.success) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'ROCKET_PREVIEW_REQUEST_INVALID' }, cause: parsed.error });
+    }
     const catalog = await this.catalog.readComplete({
       organizationId: input.organizationId,
       channelAccountId: parsed.data.channelAccountId,
@@ -54,7 +53,9 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
     });
     const { sourceImportRunId: _sourceId, inventoryAttemptId, ...decisionFields } = parsed.data;
     const decision = RocketPurchasePreviewDecisionSchema.safeParse({ ...decisionFields, collection: catalog.collection, rows: catalog.rows });
-    if (!decision.success) throw new BadRequestException(decision.error.message);
+    if (!decision.success) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'ROCKET_PREVIEW_DECISION_INVALID' }, cause: decision.error });
+    }
     const request = decision.data;
     const selectedRows = previewRowsForScope(request);
 
@@ -140,7 +141,10 @@ function translatePreviewPolicy<T>(operation: () => T): T {
     return operation();
   } catch (error) {
     if (error instanceof RocketPreviewQuantityExceededError) {
-      throw new BadRequestException(error.message);
+      throw new KiditemInvalidValueError('SUPPLY_ROCKET_QUANTITY_EXCEEDED', {
+        details: { poLineId: error.poLineId, editedQuantity: error.editedQuantity, maxQuantity: error.maxQuantity },
+        cause: error,
+      });
     }
     throw error;
   }

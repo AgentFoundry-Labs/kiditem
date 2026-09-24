@@ -1,4 +1,4 @@
-import { KiditemPreconditionError } from '@kiditem/shared/errors';
+import { KiditemError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import { z } from 'zod';
 import {
   ROCKET_SHORTAGE_REASONS,
@@ -104,7 +104,9 @@ export async function buildRocketConfirmationWorkbook(input: {
       });
     }
     if (!workbookRow) {
-      throw new Error('Rocket workbook result is missing a collected PO line.');
+      throw new KiditemPreconditionError('SUPPLY_ROCKET_TEMPLATE_MISMATCH', {
+        details: { reason: 'WORKBOOK_LINE_MISSING', poLineId: source.poLineId },
+      });
     }
     workbookQuantity += workbookRow.workbookQuantity;
     if (workbookRow.workbookQuantity < source.orderQty) shortRows += 1;
@@ -185,7 +187,7 @@ export async function fillRocketConfirmationWorkbook(input: {
   restoreDefaultThemeWhenTemplateOmitsIt(workbook);
   const sheet = workbook.getWorksheet(PRODUCT_SHEET);
   if (!sheet) {
-    throw new Error(`Rocket confirmation template is missing the ${PRODUCT_SHEET} sheet.`);
+    throw new KiditemPreconditionError('SUPPLY_ROCKET_TEMPLATE_MISMATCH', { details: { reason: 'TEMPLATE_SHEET_MISSING' } });
   }
 
   let headerRow = -1;
@@ -203,11 +205,11 @@ export async function fillRocketConfirmationWorkbook(input: {
     }
   }
   if (headerRow < 0) {
-    throw new Error('Rocket confirmation template is missing the 발주번호 header.');
+    throw new KiditemPreconditionError('SUPPLY_ROCKET_TEMPLATE_MISMATCH', { details: { reason: 'TEMPLATE_HEADER_MISSING', header: '발주번호' } });
   }
   for (const header of TEMPLATE_MATCH_HEADERS) {
     if (!headerIndex.has(header)) {
-      throw new Error(`Rocket confirmation template is missing the ${header} header.`);
+      throw new KiditemPreconditionError('SUPPLY_ROCKET_TEMPLATE_MISMATCH', { details: { reason: 'TEMPLATE_HEADER_MISSING', header } });
     }
   }
 
@@ -223,7 +225,7 @@ export async function fillRocketConfirmationWorkbook(input: {
       .map((column) => plainCellValue(sheet.getCell(row, column).value));
     if (values.every(isBlankCellValue)) continue;
     if (values.some(isBlankCellValue)) {
-      throw new Error('Rocket confirmation template rows do not match the collected source evidence.');
+      throw new KiditemPreconditionError('SUPPLY_ROCKET_TEMPLATE_MISMATCH', { details: { reason: 'TEMPLATE_ROWS_MISMATCH' } });
     }
     const key = sourceMatchKey(values[0], values[1], values[2]);
     const matchingRows = templateRowsByKey.get(key) ?? [];
@@ -232,7 +234,7 @@ export async function fillRocketConfirmationWorkbook(input: {
     templateRowCount += 1;
   }
   if (templateRowCount !== input.sourceRows.length) {
-    throw new Error('Rocket confirmation template rows do not match the collected source evidence.');
+    throw new KiditemPreconditionError('SUPPLY_ROCKET_TEMPLATE_MISMATCH', { details: { reason: 'TEMPLATE_ROWS_MISMATCH' } });
   }
 
   const occurrenceByKey = new Map<string, number>();
@@ -246,7 +248,7 @@ export async function fillRocketConfirmationWorkbook(input: {
     const templateRow = templateRowsByKey.get(key)?.[occurrence];
     const workbookRow = workbookByLineId.get(source.poLineId);
     if (templateRow === undefined || !workbookRow) {
-      throw new Error('Rocket workbook template rows do not match the collected source evidence.');
+      throw new KiditemPreconditionError('SUPPLY_ROCKET_TEMPLATE_MISMATCH', { details: { reason: 'TEMPLATE_ROWS_MISMATCH' } });
     }
     sheet.getCell(templateRow, quantityColumn).value = workbookRow.workbookQuantity;
     sheet.getCell(templateRow, reasonColumn).value = workbookRow.shortageReason;
@@ -277,7 +279,7 @@ async function createWorkbook(): Promise<Workbook> {
     default?: { Workbook?: WorkbookConstructor };
   };
   const ExcelWorkbook = module.Workbook ?? module.default?.Workbook;
-  if (!ExcelWorkbook) throw new Error('Excel workbook generator is unavailable.');
+  if (!ExcelWorkbook) throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'EXCEL_GENERATOR_UNAVAILABLE' } });
   return new ExcelWorkbook();
 }
 
@@ -337,7 +339,7 @@ function validateWorkbookRows(
     || workbookByLineId.size !== sourceRows.length
     || sourceRows.some(({ poLineId }) => !workbookByLineId.has(poLineId))
   ) {
-    throw new Error('Rocket workbook rows do not match the collected source evidence.');
+    throw new KiditemPreconditionError('SUPPLY_ROCKET_TEMPLATE_MISMATCH', { details: { reason: 'WORKBOOK_ROWS_MISMATCH' } });
   }
   return workbookByLineId;
 }

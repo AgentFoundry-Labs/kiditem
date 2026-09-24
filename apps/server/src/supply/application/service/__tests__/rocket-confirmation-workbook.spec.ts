@@ -245,15 +245,15 @@ describe('fillRocketConfirmationWorkbook', () => {
     await expect(fillRocketConfirmationWorkbook({
       ...input,
       template: templateBytes({ includeReasonHeader: false }),
-    })).rejects.toThrow(/납품부족사유/);
+    })).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_TEMPLATE_MISMATCH', details: { reason: 'TEMPLATE_HEADER_MISSING', header: '납품부족사유' } });
     await expect(fillRocketConfirmationWorkbook({
       ...input,
       template: templateBytes({ productNo: 'WRONG' }),
-    })).rejects.toThrow(/match/i);
+    })).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_TEMPLATE_MISMATCH', details: { reason: 'TEMPLATE_ROWS_MISMATCH' } });
     await expect(fillRocketConfirmationWorkbook({
       ...input,
       template: templateBytes({ includeExtraRow: true }),
-    })).rejects.toThrow(/match/i);
+    })).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_TEMPLATE_MISMATCH', details: { reason: 'TEMPLATE_ROWS_MISMATCH' } });
   });
 
   it('matches duplicate source identifiers by occurrence order', async () => {

@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { RocketWorkbookExportService } from '../rocket-purchase-confirmation.service';
 
@@ -172,7 +171,7 @@ describe('RocketWorkbookExportService', () => {
 
     await expect(service.convertWorkbook({
       request: { sourceRows: [], workbookRows: [], unexpected: true },
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'CONVERSION_REQUEST_INVALID' } });
     expect(deps.transactions.exportWorkbook).not.toHaveBeenCalled();
   });
 
@@ -344,7 +343,7 @@ describe('RocketWorkbookExportService', () => {
         editedQuantities: { [poLineId]: 0 },
       },
       artifactBytes,
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_COLLECTION_INCOMPLETE' });
     expect(deps.transactions.exportWorkbook).not.toHaveBeenCalled();
   });
 
@@ -383,7 +382,7 @@ describe('RocketWorkbookExportService', () => {
         editedQuantities: { [poLineId]: 0 },
       },
       artifactBytes,
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_RECIPE_REQUIRED' });
     expect(deps.transactions.exportWorkbook).not.toHaveBeenCalled();
   });
 
