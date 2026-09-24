@@ -23,7 +23,7 @@ function fail(status: number, description: string): Response {
   return new Response(JSON.stringify({ ok: false, error_code: status, description }), { status });
 }
 
-const payload = encodeConfirmPayload({ action: 'approve', no: 1, organizationId: ORG, keyPrefix: itemKeyPrefix('ab'.repeat(32)) });
+const payload = encodeConfirmPayload({ action: 'approve', no: 1, organizationId: ORG, keyPrefix: itemKeyPrefix('ab'.repeat(32)), version: 0 });
 const message: ConfirmMessage = {
   lines: [[{ text: '⬜ 1. ' }, { text: '슬라임 <대용량> & 키트', bold: true }], [{ text: '1688에서 보기', href: 'https://detail.1688.com/offer/1.html?a=1&b="2"' }]],
   buttons: [[{ label: '✅ 1 승인', payload }]],

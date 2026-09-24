@@ -36,11 +36,19 @@ const text = (lines: ReturnType<typeof renderConfirmPage>['lines']) =>
   lines.map((line) => line.map((segment) => segment.text).join('')).join('\n');
 
 describe('사장님 컨펌 보고 규칙', () => {
-  it('⭐ 버튼 값은 번호 · 조직 · 상품만 싣고, 서명을 붙여도 텔레그램 64바이트 안에 든다', () => {
-    const payload = encodeConfirmPayload({ action: 'approve', no: 40, organizationId: ORG, keyPrefix: itemKeyPrefix(KEY_A) });
+  it('⭐ 버튼 값은 번호 · 조직 · 상품 · 그린 때의 버전을 싣고, 가장 긴 값에 서명을 붙여도 텔레그램 64바이트 안에 든다', () => {
+    // 가장 긴 경우: 번호 1295(base36 2자), 버전 Int 최댓값(base36 6자).
+    const ref = { action: 'approve' as const, no: 1295, organizationId: ORG, keyPrefix: itemKeyPrefix(KEY_A), version: 2_147_483_647 };
+    const payload = encodeConfirmPayload(ref);
     // 어댑터가 '.' + 서명 10자를 붙인다.
     expect(Buffer.byteLength(`${payload}.0123456789`, 'utf8')).toBeLessThanOrEqual(64);
-    expect(decodeConfirmPayload(payload)).toEqual({ action: 'approve', no: 40, organizationId: ORG, keyPrefix: itemKeyPrefix(KEY_A) });
+    expect(decodeConfirmPayload(payload)).toEqual(ref);
+    expect(decodeConfirmPayload(encodeConfirmPayload({ ...ref, no: 40, version: 0 }))).toEqual({ ...ref, no: 40, version: 0 });
+  });
+
+  it('버전이 없는 예전 버튼 값(k1)은 읽지 않는다', () => {
+    const organization = Buffer.from(ORG.replaceAll('-', ''), 'hex').toString('base64url');
+    expect(decodeConfirmPayload(['k1', 'a', '1', organization, itemKeyPrefix(KEY_A)].join('.'))).toBeNull();
   });
 
   it('모르는 모양의 버튼 값은 읽지 않는다', () => {
@@ -67,9 +75,9 @@ describe('사장님 컨펌 보고 규칙', () => {
 
   it('⭐ 대기 후보에는 승인 · 반려, 결정된 후보에는 되돌리기, 빠진 후보에는 안내 버튼이 달린다', () => {
     const entries: ConfirmEntry[] = [
-      { no: 1, keyPrefix: itemKeyPrefix(KEY_A), candidate: candidate(KEY_A), state: 'pending' },
-      { no: 2, keyPrefix: itemKeyPrefix(KEY_B), candidate: candidate(KEY_B), state: 'approved' },
-      { no: 3, keyPrefix: itemKeyPrefix('ef'.repeat(32)), candidate: null, state: 'pending' },
+      { no: 1, keyPrefix: itemKeyPrefix(KEY_A), candidate: candidate(KEY_A), state: 'pending', version: 0 },
+      { no: 2, keyPrefix: itemKeyPrefix(KEY_B), candidate: candidate(KEY_B), state: 'approved', version: 4 },
+      { no: 3, keyPrefix: itemKeyPrefix('ef'.repeat(32)), candidate: null, state: 'pending', version: 0 },
     ];
     const page = renderConfirmPage(ORG, entries);
 
@@ -77,6 +85,11 @@ describe('사장님 컨펌 보고 규칙', () => {
       ['approve', 'reject'],
       ['undo'],
       ['info'],
+    ]);
+    expect(page.buttons.map((row) => row.map((button) => decodeConfirmPayload(button.payload)?.version))).toEqual([
+      [0, 0],
+      [4],
+      [0],
     ]);
     const body = text(page.lines);
     expect(body).toContain('⬜ 1. 말랑 슬라임 키트 <대용량>');
@@ -91,8 +104,8 @@ describe('사장님 컨펌 보고 규칙', () => {
 
   it('⭐ 메시지의 버튼만으로 그 메시지가 담은 번호와 상품을 되찾는다 — 조직이 섞이면 버린다', () => {
     const page = renderConfirmPage(ORG, [
-      { no: 2, keyPrefix: itemKeyPrefix(KEY_B), candidate: candidate(KEY_B), state: 'rejected' },
-      { no: 1, keyPrefix: itemKeyPrefix(KEY_A), candidate: candidate(KEY_A), state: 'pending' },
+      { no: 2, keyPrefix: itemKeyPrefix(KEY_B), candidate: candidate(KEY_B), state: 'rejected', version: 2 },
+      { no: 1, keyPrefix: itemKeyPrefix(KEY_A), candidate: candidate(KEY_A), state: 'pending', version: 0 },
     ]);
     const payloads = page.buttons.flat().map((button) => button.payload);
     expect(entriesFromPayloads(payloads)).toEqual({
@@ -103,7 +116,7 @@ describe('사장님 컨펌 보고 규칙', () => {
       ],
     });
 
-    const foreign = encodeConfirmPayload({ action: 'approve', no: 3, organizationId: OTHER_ORG, keyPrefix: itemKeyPrefix(KEY_A) });
+    const foreign = encodeConfirmPayload({ action: 'approve', no: 3, organizationId: OTHER_ORG, keyPrefix: itemKeyPrefix(KEY_A), version: 0 });
     expect(entriesFromPayloads([...payloads, foreign])).toBeNull();
     expect(entriesFromPayloads([])).toBeNull();
   });

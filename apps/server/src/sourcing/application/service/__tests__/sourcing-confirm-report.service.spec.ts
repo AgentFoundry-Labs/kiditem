@@ -72,16 +72,22 @@ function setup(options: {
   return { service, messenger, recommendations, reviews };
 }
 
-function button(action: 'approve' | 'reject' | 'undo', no: number, index: number, overrides: Partial<Extract<ConfirmMessengerEvent, { kind: 'button' }>> = {}) {
-  const payloadFor = (act: 'approve' | 'reject' | 'undo', n: number, i: number) =>
-    encodeConfirmPayload({ action: act, no: n, organizationId: ORG, keyPrefix: itemKeyPrefix(keyOf(i)) });
+function button(
+  action: 'approve' | 'reject' | 'undo',
+  no: number,
+  index: number,
+  overrides: Partial<Extract<ConfirmMessengerEvent, { kind: 'button' }>> = {},
+  version = 0,
+) {
+  const payloadFor = (act: 'approve' | 'reject' | 'undo', n: number, i: number, v = 0) =>
+    encodeConfirmPayload({ action: act, no: n, organizationId: ORG, keyPrefix: itemKeyPrefix(keyOf(i)), version: v });
   return {
     kind: 'button' as const,
     replyToken: 'cb-1',
     chatId: '987654321',
     messageId: 55,
     authorized: true,
-    payload: payloadFor(action, no, index),
+    payload: payloadFor(action, no, index, version),
     messagePayloads: [payloadFor('approve', 1, 1), payloadFor('reject', 1, 1), payloadFor('approve', 2, 2), payloadFor('reject', 2, 2)],
     ...overrides,
   };
@@ -146,18 +152,45 @@ describe('SourcingConfirmReportService', () => {
     ]);
   });
 
-  it('⭐ 웹에서 먼저 바꿔 버전이 어긋나면 최신 버전으로 한 번만 다시 쓴다', async () => {
+  it('⭐ 보고 버튼에는 그린 때의 선택 버전을 싣는다', async () => {
+    const { service, messenger } = setup({ items: 2, selections: [{ itemKey: keyOf(2), state: 'neutral', version: 3 }] });
+
+    await service.sendReport(ORG);
+
+    const page = messenger.sendReport.mock.calls[1]![0];
+    expect(page.buttons.map((row) => row.map((entry) => decodeConfirmPayload(entry.payload)?.version))).toEqual([
+      [0, 0],
+      [3, 3],
+    ]);
+  });
+
+  it('⭐ 버튼 버전이 지금 버전과 같으면 그 버전으로 반영한다', async () => {
     const { service, reviews } = setup({ selections: [{ itemKey: keyOf(1), state: 'neutral', version: 3 }] });
+
+    await service.handleEvent(button('reject', 1, 1, {}, 3));
+
+    expect(reviews.saveSelection.mock.calls.map(([input]) => [input.state, input.expectedVersion])).toEqual([['removed', 3]]);
+  });
+
+  it('⭐ 웹에서 먼저 결정해 버전이 어긋나면 반영하지 않고 그렇다고 답한다', async () => {
+    const { service, messenger, reviews } = setup({ selections: [{ itemKey: keyOf(1), state: 'selected', version: 4 }] });
+
+    await service.handleEvent(button('reject', 1, 1, {}, 3));
+
+    expect(reviews.saveSelection).not.toHaveBeenCalled();
+    expect(messenger.answer).toHaveBeenCalledWith('cb-1', '웹에서 이미 결정돼 반영하지 않았습니다');
+  });
+
+  it('⭐ 쓰는 사이에 버전이 바뀌면(REVIEW_SELECTION_VERSION_CONFLICT) 다시 쓰지 않는다', async () => {
+    const { service, messenger, reviews } = setup({ selections: [{ itemKey: keyOf(1), state: 'neutral', version: 3 }] });
     reviews.saveSelection.mockRejectedValueOnce(
       new ConflictException({ code: 'REVIEW_SELECTION_VERSION_CONFLICT', currentVersion: 4 }),
     );
 
-    await service.handleEvent(button('reject', 1, 1));
+    await service.handleEvent(button('reject', 1, 1, {}, 3));
 
-    expect(reviews.saveSelection.mock.calls.map(([input]) => [input.state, input.expectedVersion])).toEqual([
-      ['removed', 3],
-      ['removed', 4],
-    ]);
+    expect(reviews.saveSelection).toHaveBeenCalledTimes(1);
+    expect(messenger.answer).toHaveBeenCalledWith('cb-1', '웹에서 이미 결정돼 반영하지 않았습니다');
   });
 
   it('⭐ 허락되지 않은 사람이나 서명이 틀린 버튼은 아무것도 쓰지 않는다', async () => {
@@ -281,7 +314,7 @@ describe('SourcingConfirmReportService', () => {
 
     it('⭐ 버튼 값의 조직이 묶인 조직과 다르면 반영하지 않는다', async () => {
       const { service, messenger, reviews, recommendations } = setup();
-      const foreign = encodeConfirmPayload({ action: 'approve', no: 1, organizationId: OTHER_ORG, keyPrefix: itemKeyPrefix(keyOf(1)) });
+      const foreign = encodeConfirmPayload({ action: 'approve', no: 1, organizationId: OTHER_ORG, keyPrefix: itemKeyPrefix(keyOf(1)), version: 0 });
 
       await service.handleEvent(button('approve', 1, 1, { payload: foreign }));
 

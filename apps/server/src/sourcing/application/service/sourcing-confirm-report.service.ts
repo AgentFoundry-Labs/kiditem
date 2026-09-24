@@ -106,6 +106,7 @@ interface Board {
   byPrefix: Map<string, BoardItem | null>;
 }
 
+const STALE_ANSWER = '웹에서 이미 결정돼 반영하지 않았습니다';
 const ORGANIZATION_NOT_BOUND = 'TELEGRAM_ORGANIZATION_NOT_BOUND';
 /** 채팅 설정 토큰. 대문자 · 숫자 8자, 10분 동안 한 번만 쓴다. */
 const SETUP_TOKEN_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789';
@@ -121,8 +122,8 @@ type TextEvent = Extract<ConfirmMessengerEvent, { kind: 'text' }>;
  * 사장님 컨펌 — 최종 후보 리스트를 텔레그램으로 보고하고, 버튼 답장을 최종 선택에 남긴다.
  *
  * 결정은 최종 선택 화면이 쓰는 그 자리(`final` 선택)에 쓴다. 승인은 `selected`, 반려는
- * `removed`, 되돌리기는 `neutral` 이다. 버전이 어긋나면(웹에서 먼저 바꿨으면) 최신 버전을
- * 다시 읽어 한 번만 다시 쓴다. 누를 때마다 최신 추천에서 상품을 다시 찾으므로, 보고 뒤에
+ * `removed`, 되돌리기는 `neutral` 이다. 버튼에 실린 버전이 지금 버전과 다르면(웹에서 먼저
+ * 결정했으면) 반영하지 않고 그렇다고 답한다. 누를 때마다 최신 추천에서 상품을 다시 찾으므로, 보고 뒤에
  * 추천이 새로 계산돼도 같은 상품이면 새 추천에 반영되고 빠진 상품이면 빠졌다고 답한다.
  */
 @Injectable()
@@ -230,6 +231,7 @@ export class SourcingConfirmReportService {
           keyPrefix: item.keyPrefix,
           candidate: item.candidate,
           state: item.state,
+          version: item.version,
         }));
         await this.messenger.sendReport(renderConfirmPage(organizationId, entries));
         messages += 1;
@@ -308,7 +310,13 @@ export class SourcingConfirmReportService {
       return;
     }
 
-    const changed = await this.decide(ref.organizationId, board.runId, item, selectionStateFor(ref.action));
+    const outcome = await this.decide(ref.organizationId, board.runId, item, ref.version, selectionStateFor(ref.action));
+    if (outcome === 'stale') {
+      await this.safeAnswer(event.replyToken, STALE_ANSWER);
+      await this.rewritePage(event, ref.organizationId, await this.loadBoard(ref.organizationId));
+      return;
+    }
+    const changed = outcome === 'written';
     await this.safeAnswer(event.replyToken, `${ref.no}번 ${ANSWER[ref.action]}`);
     await this.rewritePage(event, ref.organizationId, changed ? await this.loadBoard(ref.organizationId) : board);
     if (changed) this.logger.log(`텔레그램 컨펌 반영: ${ref.action} (run ${board.runId})`);
@@ -334,31 +342,32 @@ export class SourcingConfirmReportService {
     return true;
   }
 
-  /** 최종 선택에 결정을 쓴다. 이미 같은 상태면 쓰지 않는다. */
+  /**
+   * 최종 선택에 결정을 쓴다. 버튼을 그린 뒤 선택 버전이 바뀌었으면(웹에서 먼저 결정했으면) 쓰지
+   * 않는다 — 사장님이 본 적 없는 상태를 덮어쓰지 않게. 이미 같은 상태면 쓰지 않는다.
+   */
   private async decide(
     organizationId: string,
     recommendationRunId: string,
     item: BoardItem,
+    renderedVersion: number,
     state: ConfirmSelectionState,
-  ): Promise<boolean> {
-    if (item.selectionState === state) return false;
-    let expectedVersion = item.version;
-    for (let attempt = 0; ; attempt += 1) {
-      try {
-        await this.reviews.saveSelection({
-          organizationId,
-          workspaceKey: 'final',
-          recommendationRunId,
-          itemKey: item.itemKey,
-          state,
-          expectedVersion,
-        });
-        return true;
-      } catch (error) {
-        const currentVersion = conflictVersion(error);
-        if (currentVersion === null || attempt > 0) throw error;
-        expectedVersion = currentVersion;
-      }
+  ): Promise<'written' | 'unchanged' | 'stale'> {
+    if (item.version !== renderedVersion) return 'stale';
+    if (item.selectionState === state) return 'unchanged';
+    try {
+      await this.reviews.saveSelection({
+        organizationId,
+        workspaceKey: 'final',
+        recommendationRunId,
+        itemKey: item.itemKey,
+        state,
+        expectedVersion: item.version,
+      });
+      return 'written';
+    } catch (error) {
+      if (isVersionConflict(error)) return 'stale';
+      throw error;
     }
   }
 
@@ -368,7 +377,7 @@ export class SourcingConfirmReportService {
     if (!page || page.organizationId !== organizationId) return;
     const entries: ConfirmEntry[] = page.refs.map(({ no, keyPrefix }) => {
       const item = board?.byPrefix.get(keyPrefix) ?? null;
-      return { no, keyPrefix, candidate: item?.candidate ?? null, state: item?.state ?? 'pending' };
+      return { no, keyPrefix, candidate: item?.candidate ?? null, state: item?.state ?? 'pending', version: item?.version ?? 0 };
     });
     try {
       await this.messenger.editReport(event.messageId, renderConfirmPage(organizationId, entries));
@@ -463,12 +472,10 @@ function toCandidate(item: SourcingRecommendationPresenterItem): ConfirmCandidat
   };
 }
 
-function conflictVersion(error: unknown): number | null {
-  if (!(error instanceof ConflictException)) return null;
+function isVersionConflict(error: unknown): boolean {
+  if (!(error instanceof ConflictException)) return false;
   const response = error.getResponse();
-  if (typeof response !== 'object' || response === null) return null;
-  const { code, currentVersion } = response as { code?: unknown; currentVersion?: unknown };
-  return code === 'REVIEW_SELECTION_VERSION_CONFLICT' && typeof currentVersion === 'number' ? currentVersion : null;
+  return typeof response === 'object' && response !== null && (response as { code?: unknown }).code === 'REVIEW_SELECTION_VERSION_CONFLICT';
 }
 
 function describeError(error: unknown): string {

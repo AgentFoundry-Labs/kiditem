@@ -4,10 +4,11 @@
  * 이 파일은 메신저를 모른다. 보고 한 장의 줄 · 굵게 · 링크 · 버튼만 정하고, 실제 서식과
  * 서명은 메신저 어댑터가 붙인다.
  *
- * 버튼 값에는 상태를 싣지 않는다. 누를 때마다 최신 추천과 최종 선택에서 다시 읽으므로, 웹에서
- * 먼저 고른 상품이나 새로 계산된 추천도 그대로 반영된다. 버튼 값이 싣는 것은 "몇 번 · 어느
- * 조직 · 어느 상품" 뿐이다. 텔레그램 버튼 값은 64바이트까지라 상품 열쇠(64자)를 통째로
- * 넣을 수 없어, 열쇠 앞 8바이트만 싣고 최신 후보 안에서 겹치지 않을 때만 찾는다.
+ * 버튼 값이 싣는 것은 "몇 번 · 어느 조직 · 어느 상품 · 그린 때의 선택 버전" 이다. 누를 때마다
+ * 최신 추천과 최종 선택에서 다시 읽고, 그린 뒤 선택 버전이 바뀌었으면(웹에서 먼저 결정했으면)
+ * 반영하지 않는다. 텔레그램 버튼 값은 64바이트까지라 상품 열쇠(64자)를 통째로 넣을 수 없어,
+ * 열쇠 앞 8바이트만 싣고 최신 후보 안에서 겹치지 않을 때만 찾는다. 가장 긴 값(번호 1295 ·
+ * 버전 Int 최댓값)에 서명 11자를 붙여도 60바이트다.
  */
 
 export type ConfirmSelectionState = 'neutral' | 'selected' | 'removed';
@@ -19,7 +20,9 @@ export const CONFIRM_REPORT_MAX_ITEMS = 40;
 /** 메시지 한 장에 담는 후보 수. 버튼 줄이 화면을 넘지 않을 만큼. */
 export const CONFIRM_PAGE_SIZE = 8;
 
-const PAYLOAD_VERSION = 'k1';
+const PAYLOAD_VERSION = 'k2';
+/** 최종 선택 버전(PostgreSQL Int)의 상한. */
+const MAX_SELECTION_VERSION = 2_147_483_647;
 const ACTION_CODE: Readonly<Record<ConfirmAction, string>> = { approve: 'a', reject: 'r', undo: 'u', info: 'i' };
 const CODE_ACTION: Readonly<Record<string, ConfirmAction>> = { a: 'approve', r: 'reject', u: 'undo', i: 'info' };
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -50,6 +53,8 @@ export interface ConfirmButtonRef {
   no: number;
   organizationId: string;
   keyPrefix: string;
+  /** 버튼을 그린 때의 최종 선택 버전. 선택이 없으면 0. */
+  version: number;
 }
 
 /** 보고에 적는 후보 한 줄의 재료. */
@@ -72,6 +77,8 @@ export interface ConfirmEntry {
   /** 최신 추천에서 빠진 상품이면 `null`. */
   candidate: ConfirmCandidate | null;
   state: ConfirmItemState;
+  /** 그리는 때의 최종 선택 버전. 선택이 없으면 0. */
+  version: number;
 }
 
 export function confirmItemState(state: ConfirmSelectionState | null | undefined): ConfirmItemState {
@@ -97,14 +104,22 @@ export function encodeConfirmPayload(ref: ConfirmButtonRef): string {
   if (!Number.isInteger(ref.no) || ref.no < 1 || ref.no > 1295) throw new RangeError('confirm item number out of range');
   if (!UUID.test(ref.organizationId)) throw new TypeError('organizationId must be a UUID');
   if (!/^[A-Za-z0-9_-]{11}$/.test(ref.keyPrefix)) throw new TypeError('keyPrefix must be 11 base64url characters');
+  if (!Number.isInteger(ref.version) || ref.version < 0 || ref.version > MAX_SELECTION_VERSION) {
+    throw new RangeError('confirm selection version out of range');
+  }
   const organization = Buffer.from(ref.organizationId.replaceAll('-', ''), 'hex').toString('base64url');
-  return [PAYLOAD_VERSION, ACTION_CODE[ref.action], ref.no.toString(36), organization, ref.keyPrefix].join('.');
+  return [PAYLOAD_VERSION, ACTION_CODE[ref.action], ref.no.toString(36), organization, ref.keyPrefix, ref.version.toString(36)].join(
+    '.',
+  );
 }
 
 export function decodeConfirmPayload(payload: string): ConfirmButtonRef | null {
   const parts = payload.split('.');
-  if (parts.length !== 5 || parts[0] !== PAYLOAD_VERSION) return null;
-  const [, code, no36, organization, keyPrefix] = parts as [string, string, string, string, string];
+  if (parts.length !== 6 || parts[0] !== PAYLOAD_VERSION) return null;
+  const [, code, no36, organization, keyPrefix, version36] = parts as [string, string, string, string, string, string];
+  if (!/^[0-9a-z]{1,6}$/.test(version36)) return null;
+  const version = Number.parseInt(version36, 36);
+  if (version > MAX_SELECTION_VERSION) return null;
   const action = CODE_ACTION[code];
   const no = Number.parseInt(no36, 36);
   if (!action || !/^[0-9a-z]{1,2}$/.test(no36) || !Number.isInteger(no) || no < 1) return null;
@@ -112,7 +127,7 @@ export function decodeConfirmPayload(payload: string): ConfirmButtonRef | null {
   const hex = Buffer.from(organization, 'base64url').toString('hex');
   if (hex.length !== 32) return null;
   const organizationId = `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
-  return { action, no, organizationId, keyPrefix };
+  return { action, no, organizationId, keyPrefix, version };
 }
 
 /**
@@ -147,7 +162,7 @@ export function renderConfirmPage(organizationId: string, entries: readonly Conf
   const buttons: ConfirmButton[][] = [];
   const button = (action: ConfirmAction, entry: ConfirmEntry, label: string): ConfirmButton => ({
     label,
-    payload: encodeConfirmPayload({ action, no: entry.no, organizationId, keyPrefix: entry.keyPrefix }),
+    payload: encodeConfirmPayload({ action, no: entry.no, organizationId, keyPrefix: entry.keyPrefix, version: entry.version }),
   });
 
   for (const entry of entries) {
