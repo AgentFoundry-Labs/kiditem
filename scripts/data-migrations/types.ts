@@ -39,4 +39,6 @@ export type RetiredDataMigration = {
     id: string;
     path: string;
   }>;
+  /** Why a promoted migration retires with no replacement (then `replacementMigrations` is empty). */
+  noReplacementReason?: string;
 };
