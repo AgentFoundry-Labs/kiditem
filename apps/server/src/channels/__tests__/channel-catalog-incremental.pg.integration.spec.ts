@@ -178,6 +178,17 @@ describe('Wing catalog incremental sync and rawJson sections (PG integration)', 
     await expect(listingRow('P2')).resolves.toMatchObject({ isActive: true });
   });
 
+  it('엑셀로 처음 만든 리스팅에도 판매상태·승인상태 평면 키가 있어 판매상태 읽기가 동작한다', async () => {
+    await writeExcel([excelRow('P-EXCEL', { skuStatus: '판매중', productStatus: '승인완료' })]);
+    const row = await listingRow('P-EXCEL');
+    expect(row.rawJson).toMatchObject({
+      source: 'coupang_wing_catalog',
+      saleStatus: '판매중',
+      productStatus: '승인완료',
+      catalogExcel: { row: { 등록상품ID: 'P-EXCEL' } },
+    });
+  });
+
   it('목록은 list 구역에, 상세는 detail 구역에 쓰고 평면 modifiedOn·detailDocuments는 쓰지 않는다', async () => {
     await writeBasics([basicProduct('P1', { modifiedOn: '2026-09-01T10:00:00', createdOn: '2026-01-02 03:04:05', saleStatus: 'ONSALE', listOnly: 1 })]);
     await writeDetails([detailProduct('P1')]);

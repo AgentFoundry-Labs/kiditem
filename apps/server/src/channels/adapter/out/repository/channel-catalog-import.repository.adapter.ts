@@ -79,7 +79,10 @@ type CanonicalParent = Pick<
   | 'brand'
   | 'productStatus'
   | 'rawJson'
->;
+> & {
+  /** 상품의 첫 옵션 줄 가운데 비지 않은 `판매상태`. */
+  saleStatus: string | null;
+};
 
 @Injectable()
 export class ChannelCatalogImportRepositoryAdapter
@@ -242,7 +245,14 @@ implements ChannelCatalogImportRepositoryPort {
           raw: rawSectionPatch(
             'catalogExcel',
             excelSection(input.observedAt, parent.rawJson),
-            { source: SOURCE_TYPE, externalProductId: parent.externalProductId },
+            {
+              source: SOURCE_TYPE,
+              externalProductId: parent.externalProductId,
+              // 판매상태·승인상태 평면 키는 Products·Analytics가 판매상태로 읽는다: 엑셀로 처음 만든
+              // 리스팅에도 둔다. 빈 칸은 싣지 않아 저장값을 지우지 않는다.
+              ...(parent.saleStatus ? { saleStatus: parent.saleStatus } : {}),
+              ...(parent.productStatus ? { productStatus: parent.productStatus } : {}),
+            },
           ),
           options: optionsByProduct.get(parent.externalProductId) ?? [],
         })),
@@ -481,6 +491,7 @@ function canonicalParentRows(rows: ParsedWingCatalogRow[]): CanonicalParent[] {
         manufacturer: row.manufacturer,
         brand: row.brand,
         productStatus: row.productStatus,
+        saleStatus: row.skuStatus,
         rawJson: row.rawJson,
       });
       continue;
@@ -491,6 +502,7 @@ function canonicalParentRows(rows: ParsedWingCatalogRow[]): CanonicalParent[] {
     existing.manufacturer ??= row.manufacturer;
     existing.brand ??= row.brand;
     existing.productStatus ??= row.productStatus;
+    existing.saleStatus ??= row.skuStatus;
   }
   return [...parents.values()];
 }
