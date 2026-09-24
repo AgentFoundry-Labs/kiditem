@@ -189,6 +189,8 @@ describe('integration test runtime contract', () => {
     expect(jobLines).toContain('node-version: 22');
     expect(jobLines.filter((line) => line.startsWith('run:') || line.startsWith('npm '))).toEqual([
       'run: npm ci --ignore-scripts',
+      'run: npm rebuild better-sqlite3',
+      'run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep',
       'run: npx prisma generate',
       'run: |',
       'npm run build --workspace=packages/copilotkit-sqlite-runner',

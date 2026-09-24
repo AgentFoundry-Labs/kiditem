@@ -87,6 +87,14 @@ jobs:
       - name: Install dependencies without repository lifecycle scripts
         run: npm ci --ignore-scripts
 
+      - name: Build the SQLite native binding
+        # --ignore-scripts skips its install script; the runner specs open a real database.
+        run: npm rebuild better-sqlite3
+
+      - name: Install ripgrep
+        # Architecture specs scan sources with rg.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
+
       - name: Generate Prisma client
         env:
           # prisma.config.ts resolves DATABASE_URL at load; generate never connects.
