@@ -23,7 +23,19 @@ const HEXAGONAL_DOMAINS = ['channels', 'sourcing', 'content', 'orders'];
 // scanner. Each entry allows exactly one { file, specifier } pair (file is
 // relative to apps/server/src) until the ticket in removeWith deletes it; an
 // entry whose violation no longer occurs fails as stale.
-export const KNOWN_VIOLATIONS = [];
+export const KNOWN_VIOLATIONS = [
+  // Orders services read their own ledger helpers directly until the read port lands.
+  { owner: 'orders', file: 'orders/application/service/orders.service.ts', specifier: '../../adapter/out/persistence/read/order-facts.reader', removeWith: 'KID-334' },
+  { owner: 'orders', file: 'orders/application/service/return-transfers/return-transfers.service.ts', specifier: '../../../adapter/out/persistence/read/order-facts.reader', removeWith: 'KID-334' },
+  { owner: 'orders', file: 'orders/application/service/reviews.service.ts', specifier: '../../adapter/out/persistence/read/review-facts.reader', removeWith: 'KID-334' },
+  { owner: 'orders', file: 'orders/application/service/reviews.service.ts', specifier: '../../adapter/out/persistence/read/order-facts.reader', removeWith: 'KID-334' },
+  // Orders services take incoming DTOs and Products adapters until KID-335.
+  { owner: 'orders', file: 'orders/application/service/return-transfers/return-transfers.service.ts', specifier: '../../../adapter/in/web/return-transfers/dto', removeWith: 'KID-335' },
+  { owner: 'orders', file: 'orders/application/service/reviews.service.ts', specifier: '../../adapter/in/web/dto/list-reviews.dto', removeWith: 'KID-335' },
+  { owner: 'orders', file: 'orders/application/service/reviews.service.ts', specifier: '../../adapter/in/web/dto/list-review-items.dto', removeWith: 'KID-335' },
+  { owner: 'orders', file: 'orders/application/service/reviews.service.ts', specifier: '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter', removeWith: 'KID-335' },
+  { owner: 'orders', file: 'orders/application/service/reviews.service.ts', specifier: '../../../products/adapter/out/persistence/read/product-abc-publication.reader', removeWith: 'KID-335' },
+];
 
 function domainOwner(file) {
   for (const owner of HEXAGONAL_DOMAINS) {
