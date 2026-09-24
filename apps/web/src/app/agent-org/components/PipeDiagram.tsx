@@ -425,9 +425,12 @@ function TelegramNode({ node, confirm, now }: { node: DiagramExternalNode; confi
           <div className="flex flex-1 flex-col gap-1 text-[11px] leading-snug text-slate-400">
             {status && !status.configured ? (
               <>
-                <span>서버 설정에 컨펌용 봇 토큰을 넣으면 켜집니다.</span>
+                <span>서버 설정에 컨펌용 봇 토큰과 쓸 조직을 넣으면 켜집니다.</span>
                 <code className="truncate rounded bg-white/[0.05] px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
                   SOURCING_CONFIRM_TELEGRAM_BOT_TOKEN
+                </code>
+                <code className="truncate rounded bg-white/[0.05] px-1.5 py-0.5 font-mono text-[10px] text-slate-300">
+                  SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID
                 </code>
               </>
             ) : status && !status.chatConfigured ? (

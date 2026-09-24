@@ -11,6 +11,7 @@ const ENV_KEYS = [
   'SOURCING_CONFIRM_TELEGRAM_CHAT_ID',
   'SOURCING_CONFIRM_TELEGRAM_ALLOWED_USER_IDS',
   'SOURCING_CONFIRM_TELEGRAM_POLLING',
+  'SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID',
 ] as const;
 const ORIGINAL_ENV = Object.fromEntries(ENV_KEYS.map((key) => [key, process.env[key]]));
 
@@ -34,6 +35,7 @@ describe('TelegramConfirmMessengerAdapter', () => {
     process.env.SOURCING_CONFIRM_TELEGRAM_CHAT_ID = CHAT_ID;
     delete process.env.SOURCING_CONFIRM_TELEGRAM_ALLOWED_USER_IDS;
     delete process.env.SOURCING_CONFIRM_TELEGRAM_POLLING;
+    process.env.SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID = ORG;
   });
 
   afterEach(() => {
@@ -48,11 +50,31 @@ describe('TelegramConfirmMessengerAdapter', () => {
   it('설정이 없으면 보고도 답장 받기도 꺼져 있다', () => {
     delete process.env.SOURCING_CONFIRM_TELEGRAM_BOT_TOKEN;
     delete process.env.SOURCING_CONFIRM_TELEGRAM_CHAT_ID;
-    expect(new TelegramConfirmMessengerAdapter().setup()).toEqual({ configured: false, chatConfigured: false, listening: false });
+    expect(new TelegramConfirmMessengerAdapter().setup()).toEqual({
+      configured: false,
+      chatConfigured: false,
+      listening: false,
+      organizationId: ORG,
+    });
 
     process.env.SOURCING_CONFIRM_TELEGRAM_BOT_TOKEN = TOKEN;
     process.env.SOURCING_CONFIRM_TELEGRAM_POLLING = '0';
-    expect(new TelegramConfirmMessengerAdapter().setup()).toEqual({ configured: true, chatConfigured: false, listening: false });
+    expect(new TelegramConfirmMessengerAdapter().setup()).toEqual({
+      configured: true,
+      chatConfigured: false,
+      listening: false,
+      organizationId: ORG,
+    });
+  });
+
+  it('⭐ 묶을 조직(SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID)이 없거나 UUID 가 아니면 답장 받기를 켜지 않는다', () => {
+    expect(new TelegramConfirmMessengerAdapter().setup()).toMatchObject({ listening: true, organizationId: ORG });
+
+    delete process.env.SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID;
+    expect(new TelegramConfirmMessengerAdapter().setup()).toMatchObject({ listening: false, organizationId: null });
+
+    process.env.SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID = 'not-a-uuid';
+    expect(new TelegramConfirmMessengerAdapter().setup()).toMatchObject({ listening: false, organizationId: null });
   });
 
   it('⭐ 보고는 설정된 채팅으로, 글자는 HTML 로 이스케이프하고 버튼 값에는 서명을 붙인다', async () => {

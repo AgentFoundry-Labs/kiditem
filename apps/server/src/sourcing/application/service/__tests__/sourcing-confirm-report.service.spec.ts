@@ -10,6 +10,7 @@ import type { ConfirmMessengerEvent } from '../../port/out/provider/sourcing-con
 import { SourcingConfirmReportService } from '../sourcing-confirm-report.service';
 
 const ORG = '00000000-0000-4000-8000-000000000001';
+const OTHER_ORG = '00000000-0000-4000-8000-000000000002';
 const RUN_ID = '00000000-0000-4000-8000-000000000010';
 const keyOf = (index: number) => index.toString(16).padStart(2, '0').repeat(32);
 
@@ -32,6 +33,7 @@ function setup(options: {
   selections?: Array<{ itemKey: string; state: 'neutral' | 'selected' | 'removed'; version: number }>;
   configured?: boolean;
   chatConfigured?: boolean;
+  boundOrganizationId?: string | null;
 } = {}) {
   const items = Array.from({ length: options.items ?? 3 }, (_, index) => presenterItem(index + 1));
   let selections = options.selections ?? [];
@@ -40,6 +42,7 @@ function setup(options: {
       configured: options.configured ?? true,
       chatConfigured: options.chatConfigured ?? true,
       listening: true,
+      organizationId: options.boundOrganizationId === undefined ? ORG : options.boundOrganizationId,
     })),
     identity: vi.fn(async () => ({ username: 'kiditem_confirm_bot' })),
     sendReport: vi.fn(async (_message: ConfirmMessage) => ({ messageId: 1 })),
@@ -191,5 +194,63 @@ describe('SourcingConfirmReportService', () => {
     expect(messenger.reply).toHaveBeenCalledTimes(1);
     expect(bodyText(messenger.reply.mock.calls[0]![1])).toContain('이 채팅의 ID는 424242 입니다.');
     await expect(service.status(ORG)).resolves.toMatchObject({ setupChatId: '424242', chatConfigured: false });
+  });
+
+  describe('env 조직 바인딩', () => {
+    it('⭐ 묶인 조직이 아니면 보내기 · 상태를 403 TELEGRAM_ORGANIZATION_NOT_BOUND 로 거절한다', async () => {
+      const { service, messenger, recommendations } = setup();
+
+      for (const call of [() => service.sendReport(OTHER_ORG), () => service.status(OTHER_ORG)]) {
+        const error = await call().then(() => null, (caught: unknown) => caught);
+        expect(error).toMatchObject({ status: 403 });
+        expect((error as { getResponse(): unknown }).getResponse()).toMatchObject({ code: 'TELEGRAM_ORGANIZATION_NOT_BOUND' });
+      }
+      expect(messenger.sendReport).not.toHaveBeenCalled();
+      expect(recommendations.latest).not.toHaveBeenCalled();
+    });
+
+    it('⭐ 버튼 값의 조직이 묶인 조직과 다르면 반영하지 않는다', async () => {
+      const { service, messenger, reviews, recommendations } = setup();
+      const foreign = encodeConfirmPayload({ action: 'approve', no: 1, organizationId: OTHER_ORG, keyPrefix: itemKeyPrefix(keyOf(1)) });
+
+      await service.handleEvent(button('approve', 1, 1, { payload: foreign }));
+
+      expect(recommendations.latest).not.toHaveBeenCalled();
+      expect(reviews.saveSelection).not.toHaveBeenCalled();
+      expect(messenger.editReport).not.toHaveBeenCalled();
+    });
+
+    it('묶인 조직은 보내기 · 상태 · 버튼이 그대로 된다', async () => {
+      const { service, reviews } = setup();
+
+      const status = await service.status(ORG);
+      expect(status).toMatchObject({ configured: true });
+      // 묶인 조직 ID는 서버 설정이다. 상태 응답에 싣지 않는다.
+      expect(status).not.toHaveProperty('organizationId');
+      await expect(service.sendReport(ORG)).resolves.toMatchObject({ runId: RUN_ID });
+      await service.handleEvent(button('approve', 1, 1));
+      expect(reviews.saveSelection).toHaveBeenCalledTimes(1);
+    });
+
+    it('⭐ 조직 설정이 없으면 텔레그램 전체가 꺼진다 — 보내기 503, 상태는 꺼짐, 버튼 · /start 무시', async () => {
+      const { service, messenger, reviews, recommendations } = setup({ boundOrganizationId: null, chatConfigured: false });
+
+      await expect(service.sendReport(ORG)).rejects.toMatchObject({ status: 503 });
+      await expect(service.status(ORG)).resolves.toMatchObject({
+        configured: false,
+        chatConfigured: false,
+        listening: false,
+        botUsername: null,
+        setupChatId: null,
+        candidates: null,
+      });
+      await service.handleEvent(button('approve', 1, 1));
+      await service.handleEvent({ kind: 'text', chatId: '424242', authorized: false, text: '/start' });
+
+      expect(recommendations.latest).not.toHaveBeenCalled();
+      expect(reviews.saveSelection).not.toHaveBeenCalled();
+      expect(messenger.reply).not.toHaveBeenCalled();
+      expect(messenger.identity).not.toHaveBeenCalled();
+    });
   });
 });

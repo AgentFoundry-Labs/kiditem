@@ -312,6 +312,7 @@ describe('사장님 컨펌 텔레그램 칸', () => {
     );
     let box = screen.getByRole('region', { name: '텔레그램 컨펌 보고' });
     expect(within(box).getByText('SOURCING_CONFIRM_TELEGRAM_BOT_TOKEN')).toBeInTheDocument();
+    expect(within(box).getByText('SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID')).toBeInTheDocument();
     expect(within(box).queryByRole('button')).toBeNull();
 
     rerender(

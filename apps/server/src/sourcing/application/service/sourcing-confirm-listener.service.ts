@@ -14,7 +14,7 @@ const STOP = -1;
 /**
  * 컨펌 보고의 버튼 답장을 받아 반영하는 루프. API 서버 프로세스에서만 돈다.
  *
- * 봇 토큰이 없거나 `SOURCING_CONFIRM_TELEGRAM_POLLING=0` 이면 켜지 않는다. 한 바퀴는 긴
+ * 봇 토큰이나 묶을 조직이 없거나 `SOURCING_CONFIRM_TELEGRAM_POLLING=0` 이면 켜지 않는다. 한 바퀴는 긴
  * 요청 하나라 답장이 없으면 그냥 기다린다. 토큰이 틀리면 멈추고(다시 해도 소용없다), 같은 봇을
  * 다른 곳이 읽으면 잠시 물러났다가 다시 묻는다. 답장 하나를 처리하다 실패해도 다음 답장은
  * 계속 받는다.
@@ -33,7 +33,15 @@ export class SourcingConfirmListenerService implements OnApplicationBootstrap, O
   ) {}
 
   onApplicationBootstrap(): void {
-    if (!this.messenger.setup().listening) return;
+    const setup = this.messenger.setup();
+    if (!setup.listening) {
+      this.logger.log(
+        setup.configured && setup.organizationId !== null
+          ? '텔레그램 컨펌 답장 받기가 꺼져 있습니다(SOURCING_CONFIRM_TELEGRAM_POLLING=0).'
+          : '텔레그램 컨펌이 꺼져 있습니다 — SOURCING_CONFIRM_TELEGRAM_BOT_TOKEN · SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID 설정이 필요합니다.',
+      );
+      return;
+    }
     this.controller = new AbortController();
     this.loop = this.run(this.controller.signal);
     this.logger.log('텔레그램 컨펌 답장을 받기 시작합니다.');

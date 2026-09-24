@@ -1,6 +1,7 @@
 import {
   BadGatewayException,
   ConflictException,
+  ForbiddenException,
   Inject,
   Injectable,
   Logger,
@@ -93,6 +94,8 @@ interface Board {
   byPrefix: Map<string, BoardItem | null>;
 }
 
+const ORGANIZATION_NOT_BOUND = 'TELEGRAM_ORGANIZATION_NOT_BOUND';
+
 type ButtonEvent = Extract<ConfirmMessengerEvent, { kind: 'button' }>;
 type TextEvent = Extract<ConfirmMessengerEvent, { kind: 'text' }>;
 
@@ -120,6 +123,8 @@ export class SourcingConfirmReportService {
 
   async status(organizationId: string): Promise<SourcingConfirmReportStatus> {
     const setup = this.messenger.setup();
+    if (setup.organizationId === null) return disabledStatus();
+    assertBound(setup.organizationId, organizationId);
     const [botUsername, board] = await Promise.all([
       setup.configured
         ? this.messenger.identity().then((me) => me.username, () => null)
@@ -129,7 +134,9 @@ export class SourcingConfirmReportService {
     const count = (state: ConfirmItemState) => board?.items.filter((item) => item.state === state).length ?? 0;
     return {
       channel: 'telegram',
-      ...setup,
+      configured: setup.configured,
+      chatConfigured: setup.chatConfigured,
+      listening: setup.listening,
       botUsername,
       setupChatId: setup.chatConfigured ? null : this.setupChatId,
       lastReport: this.lastReports.get(organizationId) ?? null,
@@ -148,6 +155,12 @@ export class SourcingConfirmReportService {
 
   async sendReport(organizationId: string): Promise<SourcingConfirmReportSendResult> {
     const setup = this.messenger.setup();
+    if (setup.organizationId === null) {
+      throw new ServiceUnavailableException(
+        '텔레그램 보고를 쓰려면 서버에 SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID 설정이 필요합니다.',
+      );
+    }
+    assertBound(setup.organizationId, organizationId);
     if (!setup.configured) {
       throw new ServiceUnavailableException(
         '텔레그램 보고를 쓰려면 서버에 SOURCING_CONFIRM_TELEGRAM_BOT_TOKEN 설정이 필요합니다.',
@@ -221,7 +234,9 @@ export class SourcingConfirmReportService {
   private async handleText(event: TextEvent): Promise<void> {
     const command = event.text.trim().split(/\s+/)[0]?.split('@')[0]?.toLowerCase();
     if (command !== '/start' && command !== '/id') return;
-    if (!this.messenger.setup().chatConfigured) {
+    const setup = this.messenger.setup();
+    if (setup.organizationId === null) return;
+    if (!setup.chatConfigured) {
       this.setupChatId = event.chatId;
       await this.messenger.reply(event.chatId, renderSetupReply(event.chatId));
       return;
@@ -237,6 +252,12 @@ export class SourcingConfirmReportService {
     const ref = event.payload ? decodeConfirmPayload(event.payload) : null;
     if (!ref) {
       await this.safeAnswer(event.replyToken, '버튼을 읽지 못했습니다. 새 보고를 보내 주세요.');
+      return;
+    }
+    const bound = this.messenger.setup().organizationId;
+    if (bound === null || ref.organizationId !== bound) {
+      // 봇 하나는 한 조직만 쓴다. 다른 조직의 버튼 값은 서명이 맞아도 반영하지 않는다.
+      this.logger.warn('묶인 조직이 아닌 텔레그램 컨펌 버튼을 반영하지 않았습니다.');
       return;
     }
     if (ref.action === 'info') {
@@ -337,6 +358,29 @@ export class SourcingConfirmReportService {
     for (const item of items) byPrefix.set(item.keyPrefix, byPrefix.has(item.keyPrefix) ? null : item);
     return { runId: envelope.data.runId, generatedAt: envelope.generatedAt, items, byPrefix };
   }
+}
+
+/** 봇이 묶인 조직이 아니면 거절한다. 보내기 · 상태 · 설정은 그 조직의 사람만 한다. */
+function assertBound(bound: string, organizationId: string): void {
+  if (bound === organizationId.toLowerCase()) return;
+  throw new ForbiddenException({
+    code: ORGANIZATION_NOT_BOUND,
+    message: '텔레그램 컨펌 봇은 다른 조직에 연결돼 있어 이 조직에서는 쓸 수 없습니다.',
+  });
+}
+
+/** 묶을 조직이 설정되지 않았을 때. 텔레그램 컨펌은 어느 조직에도 꺼져 있다. */
+function disabledStatus(): SourcingConfirmReportStatus {
+  return {
+    channel: 'telegram',
+    configured: false,
+    chatConfigured: false,
+    listening: false,
+    botUsername: null,
+    setupChatId: null,
+    lastReport: null,
+    candidates: null,
+  };
 }
 
 function toCandidate(item: SourcingRecommendationPresenterItem): ConfirmCandidate {

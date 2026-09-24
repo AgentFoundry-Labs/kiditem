@@ -27,6 +27,7 @@ const MAX_RETRY_WAIT_MS = 10_000;
 const MAX_CALLBACK_BYTES = 64;
 const SIGNATURE_LENGTH = 10;
 const SIGNING_CONTEXT = 'kiditem.sourcing-confirm.callback.v1';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 type JsonRecord = Record<string, unknown>;
 
@@ -35,6 +36,7 @@ interface TelegramConfig {
   chatId: string | null;
   allowedUserIds: ReadonlySet<string>;
   pollingDisabled: boolean;
+  organizationId: string | null;
 }
 
 /** 편집한 내용이 이미 같을 때. 실패가 아니다. */
@@ -62,7 +64,8 @@ export class TelegramConfirmMessengerAdapter implements SourcingConfirmMessenger
     return {
       configured: config.token !== null,
       chatConfigured: config.chatId !== null,
-      listening: config.token !== null && !config.pollingDisabled,
+      listening: config.token !== null && config.organizationId !== null && !config.pollingDisabled,
+      organizationId: config.organizationId,
     };
   }
 
@@ -213,11 +216,13 @@ function readConfig(): TelegramConfig {
     .split(/[\s,]+/)
     .map((value) => value.trim())
     .filter((value) => /^\d+$/.test(value));
+  const organizationId = process.env.SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID?.trim().toLowerCase() || null;
   return {
     token,
     chatId: chatId && /^-?\d+$/.test(chatId) ? chatId : null,
     allowedUserIds: new Set(allowed),
     pollingDisabled: process.env.SOURCING_CONFIRM_TELEGRAM_POLLING?.trim() === '0',
+    organizationId: organizationId && UUID.test(organizationId) ? organizationId : null,
   };
 }
 
