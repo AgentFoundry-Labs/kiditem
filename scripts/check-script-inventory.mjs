@@ -52,6 +52,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
 
 const SUPPORT_FILES = new Set([
   '.server-type-baseline.txt',
+  '.web-type-baseline.txt',
   '.shared-interface-names-baseline.txt',
   '.shared-root-imports-baseline.txt',
   '.tenant-scope-allowlist.txt',
