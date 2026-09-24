@@ -155,6 +155,37 @@ describe('workspace thumbnail gallery (PG integration)', () => {
     ]);
   });
 
+  it('shows an AI candidate saved into the preview list once, as the saved upload entry, and sends it once', async () => {
+    const { salesProductId, workspaceId } = await seedDraftWorkspace();
+    const candidate = await seedAiCandidate(workspaceId, 'https://cdn.example.com/ai-1.png');
+    await saveGallery(workspaceId, ['https://cdn.example.com/ai-1.png', 'https://cdn.example.com/upload.png']);
+
+    const gallery = await service.listThumbnailGallery({
+      organizationId: TEST_ORGANIZATION_ID,
+      contentWorkspaceId: workspaceId,
+    });
+    expect(gallery.map((item) => [item.url, item.source])).toEqual(expect.arrayContaining([
+      ['https://cdn.example.com/ai-1.png', 'upload'],
+      ['https://cdn.example.com/upload.png', 'upload'],
+    ]));
+    expect(gallery).toHaveLength(2);
+    await expect(registrationThumbnails(salesProductId)).resolves.toEqual([
+      'https://cdn.example.com/ai-1.png',
+      'https://cdn.example.com/upload.png',
+    ]);
+
+    // 같은 사진을 AI 후보 쪽으로 채택하면 갤러리의 한 줄이 채택으로 보인다.
+    await service.adoptCurrentThumbnail({ organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId: workspaceId, assetId: candidate.id });
+    const adopted = await service.listThumbnailGallery({ organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId: workspaceId });
+    expect(adopted.filter((item) => item.url === 'https://cdn.example.com/ai-1.png')).toEqual([
+      expect.objectContaining({ id: candidate.id, isCurrentThumbnail: true }),
+    ]);
+    await expect(registrationThumbnails(salesProductId)).resolves.toEqual([
+      'https://cdn.example.com/ai-1.png',
+      'https://cdn.example.com/upload.png',
+    ]);
+  });
+
   it('rejects adopting an asset that belongs to another workspace or organization', async () => {
     const own = await seedDraftWorkspace();
     const other = await seedDraftWorkspace();

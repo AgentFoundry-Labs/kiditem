@@ -134,7 +134,7 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
       orderBy: [{ createdAt: 'desc' }, { sortOrder: 'asc' }, { id: 'asc' }],
       select: assetRowSelect,
     });
-    return rows.map(toAssetRow);
+    return oneRowPerGalleryUrl(rows.map(toAssetRow));
   }
 
   async listThumbnailCandidates(input: {
@@ -327,6 +327,23 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
       return { urls: [...input.urls] };
     });
   }
+}
+
+/**
+ * 미리보기 목록에 넣은 AI 후보는 같은 주소의 업로드 줄이 하나 더 생긴다(저장 목록이 곧 몰 추가이미지라서).
+ * 갤러리는 주소마다 한 줄만 보인다 — 채택된 줄이 있으면 그것, 아니면 저장 목록에 든 업로드 줄. 자리는 그 주소가
+ * 처음 나온 곳(새것부터)을 지킨다.
+ */
+function oneRowPerGalleryUrl<T extends { url: string; source: string; isCurrentThumbnail: boolean }>(rows: readonly T[]): T[] {
+  const rank = (row: T) => (row.isCurrentThumbnail ? 2 : row.source === 'upload' ? 1 : 0);
+  const byUrl = new Map<string, T>();
+  for (const row of rows) {
+    const key = row.url.trim();
+    const kept = byUrl.get(key);
+    if (!kept || rank(row) > rank(kept)) byUrl.set(key, row);
+  }
+  // Map 은 처음 넣은 키의 자리를 지키므로 줄을 바꿔 넣어도 순서가 그대로다.
+  return [...byUrl.values()];
 }
 
 async function lockActiveWorkspace(
