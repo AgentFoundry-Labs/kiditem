@@ -422,7 +422,8 @@ describe("Sellpia authoritative final-schema contract", () => {
     const inserts = [...catalogIdentityUpsert.matchAll(
       /INSERT INTO channel_listings \([\s\S]*?ON CONFLICT[\s\S]*?DO UPDATE SET[\s\S]*?updated_at = NOW\(\)/g,
     )].map((match) => match[0]);
-    assert.ok(inserts.length > 0, "Expected the catalog ChannelListing bulk upserts");
+    // `upsertChannelCatalogBasics` 와 `upsertChannelCatalogIdentities` 두 곳이다. 하나가 늘거나 줄면 이 계약을 다시 본다.
+    assert.equal(inserts.length, 2, "Expected exactly the two catalog ChannelListing bulk upserts");
     for (const insert of inserts) {
       assert.doesNotMatch(insert, /^\s*channel,?$/m);
       assert.doesNotMatch(insert, /^\s*is_deleted,?$/m);
