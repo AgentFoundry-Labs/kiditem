@@ -1244,6 +1244,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
       runId: claim.runId,
       attemptToken: claim.attemptToken,
       skippedRows: [],
+      observedAt: new Date().toISOString(),
       rows: [
         {
           rowNumber: 2,
@@ -1260,6 +1261,9 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
           modelNumber: null,
           barcode: null,
           attributesJson: [],
+          searchTags: [],
+          exposedProductId: null,
+          adult: null,
           rawJson: {},
         },
       ],

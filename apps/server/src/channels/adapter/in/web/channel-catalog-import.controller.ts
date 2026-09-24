@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import {
   BadRequestException,
+  Body,
   Controller,
   Inject,
   Param,
@@ -39,6 +40,7 @@ export class ChannelCatalogImportController {
     @CurrentOrganization() organizationId: string,
     @CurrentUser() user: AuthUser,
     @UploadedFile() file: UploadedWorkbookFile | undefined,
+    @Body('observedAt') observedAt?: string,
   ) {
     if (!file?.buffer) {
       throw new BadRequestException('Coupang Wing workbook file is required');
@@ -51,6 +53,7 @@ export class ChannelCatalogImportController {
       fileName: file.originalname,
       fileHash,
       bytes: file.buffer,
+      ...(typeof observedAt === 'string' ? { observedAt } : {}),
     });
   }
 }

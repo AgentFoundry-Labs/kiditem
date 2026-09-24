@@ -190,6 +190,8 @@ describe('upsertChannelCatalogIdentities', () => {
       'EXCLUDED.barcode',
       'channel_listing_options.model_number',
       'EXCLUDED.status',
+      // 엑셀 밖 원천은 옵션 raw를 통째로 바꾼다(`rawJsonWrite` 기본값 replace).
+      'EXCLUDED.raw_json',
     ]);
   });
 

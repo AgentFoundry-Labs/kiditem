@@ -35,6 +35,9 @@ const input: ParsedInput = {
     modelNumber: 'MODEL-1',
     barcode: '001234567890',
     attributesJson: [],
+    searchTags: [],
+    exposedProductId: null,
+    adult: null,
     rawJson: { 등록상품ID: 'P-001', '옵션 ID': 'S-001' },
   }],
   skippedRows: [{
@@ -159,8 +162,26 @@ describe('ChannelCatalogImportService', () => {
       attemptToken,
       rows: input.rows,
       skippedRows: input.skippedRows,
+      observedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T/),
     });
     expect(result).toBe(response);
+  });
+
+  it('stores the export request time as the snapshot time and rejects an unreadable one before a run starts (KID-349)', async () => {
+    const repository = makeRepository();
+    repository.claimCoupangWingImport.mockResolvedValue({ kind: 'started', runId, attemptToken });
+    repository.upsertCoupangWingCatalog.mockResolvedValue(response);
+    const service = new ChannelCatalogImportService(repository, documents);
+
+    await service.importCoupangWing({ ...workbookInput(input), observedAt: '2026-09-24T18:00:00+09:00' });
+    expect(repository.upsertCoupangWingCatalog).toHaveBeenCalledWith(expect.objectContaining({
+      observedAt: '2026-09-24T09:00:00.000Z',
+    }));
+
+    repository.claimCoupangWingImport.mockClear();
+    await expect(service.importCoupangWing({ ...workbookInput(input), observedAt: '어제' }))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'CATALOG_EXCEL_OBSERVED_AT_INVALID' } });
+    expect(repository.claimCoupangWingImport).not.toHaveBeenCalled();
   });
 
   it.each([

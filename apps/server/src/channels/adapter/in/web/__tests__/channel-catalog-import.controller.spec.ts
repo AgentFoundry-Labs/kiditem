@@ -43,7 +43,8 @@ describe('ChannelCatalogImportController', () => {
   it('uses ParseUUIDPipe for the account and accepts no organization body/query input', () => {
     const source = readFileSync(__filename.replace(/__tests__\/[^/]+$/, 'channel-catalog-import.controller.ts'), 'utf8');
     expect(source).toContain("@Param('channelAccountId', new ParseUUIDPipe())");
-    expect(source).not.toContain('@Body(');
+    // 본문에서 받는 값은 엑셀 스냅샷 기준 시각 하나뿐이다 (KID-349).
+    expect(source.match(/@Body\([^)]*\)/g)).toEqual(["@Body('observedAt')"]);
     expect(source).not.toContain('@Query(');
   });
 

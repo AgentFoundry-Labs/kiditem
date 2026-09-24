@@ -1,6 +1,8 @@
 import { CHANNEL_DOCUMENTS_PORT, type ChannelDocumentsPort } from '../../port/out/documents/channel-documents.port';
 import { ChannelInputError as BadRequestException, ChannelConflictError as ConflictException } from '../../../domain/exception/channel-business-error';
 import type { CoupangWingCatalogImportResponse } from '@kiditem/shared/source-import';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
+import { z } from 'zod';
 import {
   type ChannelCatalogImportPort,
   type ImportCoupangWingCatalogInput,
@@ -21,6 +23,7 @@ export class ChannelCatalogImportService implements ChannelCatalogImportPort {
   async importCoupangWing(
     input: ImportCoupangWingCatalogInput,
   ): Promise<CoupangWingCatalogImportResponse> {
+    const observedAt = excelObservedAt(input.observedAt);
     const parsed = this.documents.parseWingWorkbook(input.bytes);
     if (parsed.rows.length === 0) {
       throw new BadRequestException(
@@ -53,6 +56,7 @@ export class ChannelCatalogImportService implements ChannelCatalogImportPort {
         attemptToken: claim.attemptToken,
         rows: parsed.rows,
         skippedRows: parsed.skippedRows,
+        observedAt,
       });
     } catch (error) {
       try {
@@ -68,4 +72,18 @@ export class ChannelCatalogImportService implements ChannelCatalogImportPort {
       throw error;
     }
   }
+}
+
+const ObservedAtSchema = z.string().datetime({ offset: true });
+
+/** 엑셀 스냅샷 기준 시각. 미래 시각이나 ISO가 아닌 값은 받지 않는다. */
+function excelObservedAt(value: string | undefined): string {
+  if (value === undefined || value === '') return new Date().toISOString();
+  const parsed = ObservedAtSchema.safeParse(value);
+  if (!parsed.success || Date.parse(parsed.data) > Date.now() + 60_000) {
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+      details: { reason: 'CATALOG_EXCEL_OBSERVED_AT_INVALID', field: 'observedAt' },
+    });
+  }
+  return new Date(parsed.data).toISOString();
 }

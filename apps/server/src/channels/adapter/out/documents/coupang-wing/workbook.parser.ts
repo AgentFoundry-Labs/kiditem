@@ -34,6 +34,9 @@ type NormalizedParentField = Exclude<keyof ParsedWingCatalogRow,
   | 'modelNumber'
   | 'barcode'
   | 'attributesJson'
+  | 'searchTags'
+  | 'exposedProductId'
+  | 'adult'
   | 'rawJson'>;
 
 const PARENT_FIELD_BY_HEADER: Record<ParentHeader, NormalizedParentField> = {
@@ -153,7 +156,10 @@ export function parseCoupangWingWorkbook(
       skuStatus: nullableText(rawJson['판매상태']),
       modelNumber: nullableText(rawJson['모델번호']),
       barcode: nullableText(rawJson['바코드']),
-      attributesJson: searchAttributes(rawJson),
+      attributesJson: [...searchAttributes(rawJson), ...purchaseAttributes(rawJson)],
+      searchTags: searchTags(rawJson['검색어']),
+      exposedProductId: nullableText(rawJson['노출상품ID']),
+      adult: adultFlag(rawJson['성인상품여부(Y/N)']),
       rawJson,
     });
   }
@@ -171,16 +177,45 @@ export function parseCoupangWingWorkbook(
   return { rows, skippedRows, headers };
 }
 
-function searchAttributes(
-  rawJson: Record<string, unknown>,
-): Array<{ type: string; value: string }> {
-  const attributes: Array<{ type: string; value: string }> = [];
+type ParsedAttribute = ParsedWingCatalogRow['attributesJson'][number];
+
+function searchAttributes(rawJson: Record<string, unknown>): ParsedAttribute[] {
+  const attributes: ParsedAttribute[] = [];
   for (let index = 1; index <= 100; index += 1) {
     const type = nullableText(rawJson[`검색옵션유형${index}`]);
     const value = nullableText(rawJson[`검색옵션값${index}`]);
-    if (type && value) attributes.push({ type, value });
+    if (type && value) attributes.push({ kind: 'search', type, value });
   }
   return attributes;
+}
+
+/**
+ * 구매옵션 칸의 헤더는 `[속성ID]이름\n(필수)`다(줄바꿈은 `normalizeHeader`가 공백으로 접는다).
+ * 칸 값이 이 옵션 줄의 구매속성 값이다. 빈 칸은 싣지 않는다 (KID-349).
+ */
+const PURCHASE_OPTION_HEADER = /^\[([^\]\s]+)\]\s*(.+?)(?:\s*\((?:필수|선택)\))?$/;
+
+function purchaseAttributes(rawJson: Record<string, unknown>): ParsedAttribute[] {
+  const attributes: ParsedAttribute[] = [];
+  for (const [header, cell] of Object.entries(rawJson)) {
+    const match = PURCHASE_OPTION_HEADER.exec(header);
+    const value = nullableText(cell);
+    if (!match || !value) continue;
+    attributes.push({ kind: 'purchase', type: match[2]!.trim(), value, attributeTypeId: match[1]! });
+  }
+  return attributes;
+}
+
+function searchTags(value: unknown): string[] {
+  const tags = cellText(value).split(',').map((tag) => tag.trim()).filter(Boolean);
+  return [...new Set(tags)];
+}
+
+function adultFlag(value: unknown): boolean | null {
+  const normalized = cellText(value).trim().toUpperCase();
+  if (normalized === 'Y') return true;
+  if (normalized === 'N') return false;
+  return null;
 }
 
 function readWorkbook(buffer: Buffer): XLSX.WorkBook {

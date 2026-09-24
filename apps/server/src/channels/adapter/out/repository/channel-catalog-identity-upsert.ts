@@ -13,6 +13,7 @@ import {
 import {
   attributesFromWire,
   mergeAttributesByKind,
+  type StoredListingAttribute,
   type WireListingAttribute,
 } from '../../../domain/collection/channel-listing-attributes';
 
@@ -1132,8 +1133,16 @@ function observedOptionColumn(
   field: ChannelCatalogUnobservedOptionField,
 ): Prisma.Sql {
   const column = OPTION_COLUMN_SQL[field];
-  return input.unobservedOptionFields.includes(field) ? column.kept : column.observed;
+  if (input.unobservedOptionFields.includes(field)) return column.kept;
+  // 구역 쓰기(엑셀)에서는 빈 칸이 "못 봤다"이다: 저장된 관측값을 지우지 않는다 (KID-349).
+  if (input.rawJsonWrite === 'section') return Prisma.sql`COALESCE(${column.observed}, ${column.kept})`;
+  return column.observed;
 }
+
+const REPLACE_LISTING_RAW_SQL = listingRawJsonReplacementSql;
+const MERGE_LISTING_RAW_SQL = Prisma.sql`COALESCE(channel_listings.raw_json, '{}'::jsonb) || EXCLUDED.raw_json`;
+const REPLACE_OPTION_RAW_SQL = Prisma.sql`EXCLUDED.raw_json`;
+const MERGE_OPTION_RAW_SQL = Prisma.sql`COALESCE(channel_listing_options.raw_json, '{}'::jsonb) || EXCLUDED.raw_json`;
 
 export async function upsertChannelCatalogIdentities(
   tx: Prisma.TransactionClient,
@@ -1161,10 +1170,12 @@ export async function upsertChannelCatalogIdentities(
         id: true,
         externalOptionId: true,
         isActive: true,
+        attributesJson: true,
         listing: { select: { externalId: true } },
       },
     }),
   ]);
+  const sectionWrite = input.rawJsonWrite === 'section';
   const existingProductIds = new Set(existingListings.map(({ externalId }) => externalId));
   const existingOptionIds = new Set(existingOptions.map(({ externalOptionId }) =>
     externalOptionId));
@@ -1234,7 +1245,7 @@ export async function upsertChannelCatalogIdentities(
         brand = COALESCE(EXCLUDED.brand, channel_listings.brand),
         status = COALESCE(EXCLUDED.status, channel_listings.status),
         image_url = COALESCE(EXCLUDED.image_url, channel_listings.image_url),
-        raw_json = ${listingRawJsonReplacementSql},
+        raw_json = ${sectionWrite ? MERGE_LISTING_RAW_SQL : REPLACE_LISTING_RAW_SQL},
         last_import_run_id = COALESCE(
           EXCLUDED.last_import_run_id,
           channel_listings.last_import_run_id
@@ -1260,11 +1271,17 @@ export async function upsertChannelCatalogIdentities(
   const options = input.products.flatMap((product) => {
     const listingId = listingIds.get(product.externalProductId);
     if (!listingId) throw new ConflictException('Published listing ID is missing');
-    return product.options.map((option) => ({
+    return product.options.map(({ attributeMergeKinds, ...option }) => ({
       id: randomUUID(),
       listingId,
       ...option,
-      attributesJson: option.attributes,
+      attributesJson: sectionWrite
+        ? mergeAttributesByKind(
+          existingOptionByExternalId.get(option.externalOptionId)?.attributesJson ?? [],
+          option.attributes as StoredListingAttribute[],
+          attributeMergeKinds ?? [],
+        )
+        : option.attributes,
       rawJson: {
         ...option.raw,
         source: input.rawSource,
@@ -1308,7 +1325,7 @@ export async function upsertChannelCatalogIdentities(
         model_number = ${observedOptionColumn(input, 'modelNumber')},
         status = ${observedOptionColumn(input, 'skuStatus')},
         attributes_json = EXCLUDED.attributes_json,
-        raw_json = EXCLUDED.raw_json,
+        raw_json = ${sectionWrite ? MERGE_OPTION_RAW_SQL : REPLACE_OPTION_RAW_SQL},
         last_import_run_id = COALESCE(
           EXCLUDED.last_import_run_id,
           channel_listing_options.last_import_run_id
