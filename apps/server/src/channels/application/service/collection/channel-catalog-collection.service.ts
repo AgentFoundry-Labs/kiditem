@@ -34,26 +34,22 @@ import {
 } from '../../port/out/repository/channel-catalog-publication.port';
 import type { ChannelCatalogCollectionPort } from '../../port/in/channel-catalog-collection.port';
 import {
-  assembleCompleteSnapshot,
   assembleFullDetailsSnapshot,
   assembleListingBasicsSnapshot,
   inspectChunks,
   jsonRecord,
   missingDiscoverySequences,
-  missingHydratedProductIds,
   missingStageProductIds,
   missingDetailTargetIds,
   detailTargetProductIds,
   isDetailRefetchPlan,
   stringValue,
-  type CanonicalProduct,
   type InspectedChunks,
 } from '../../../domain/collection/catalog-chunk-snapshot';
 import {
   hashCatalogChunkPayload,
   hashCatalogChunkReceipts,
   hashCatalogStageSnapshot,
-  hashCoupangCatalogSnapshot,
 } from '../../../domain/collection/catalog-collection-hash';
 
 export class ChannelCatalogCollectionService implements ChannelCatalogCollectionPort {
@@ -81,7 +77,7 @@ export class ChannelCatalogCollectionService implements ChannelCatalogCollection
       channelAccountId: input.channelAccountId,
       idempotencyKey: parseRequest(z.string().uuid(), input.idempotencyKey),
       collectorVersion: request.collectorVersion,
-      ...(request.stage ? { stage: request.stage } : {}),
+      stage: request.stage,
       ...(request.expectedBasicAttemptId
         ? { expectedBasicAttemptId: parseRequest(z.string().uuid(), request.expectedBasicAttemptId) }
         : {}),
@@ -125,7 +121,7 @@ export class ChannelCatalogCollectionService implements ChannelCatalogCollection
     run: ChannelCatalogCollectionWithChunks,
   ) {
     const plan = CoupangCatalogCollectionPlanSchema.safeParse(run.plan);
-    const stage = run.stage ?? (plan.success ? stageFromPlan(plan.data) : 'full');
+    const stage = run.stage;
     if (!plan.success || stage !== 'basics' || !plan.data.detailsIdempotencyKey)
       return Promise.resolve<ChannelCatalogCollectionWithChunks | null>(null);
     return this.repository.getOwnedDetailsChild({
@@ -205,15 +201,11 @@ export class ChannelCatalogCollectionService implements ChannelCatalogCollection
       jsonRecord(run.metaJson)?.snapshotHash !== request.snapshotHash
     )
       throw new ConflictException('Completed collection has a different snapshot hash');
-    const stage = run.stage ?? stageFromPlan(run.plan);
+    const stage = run.stage;
     const snapshot = stage === 'basics'
       ? assembleListingBasicsSnapshot(run.chunks)
-      : stage === 'details'
-        ? assembleFullDetailsSnapshot(run.chunks, run.plan)
-        : assembleCompleteSnapshot(run.chunks);
-    const serverHash = stage === 'full'
-      ? hashCoupangCatalogSnapshot(snapshot.products as CanonicalProduct[], (value) => this.integrity.sha256(value))
-      : hashCatalogStageSnapshot(snapshot.products, (value) => this.integrity.sha256(value));
+      : assembleFullDetailsSnapshot(run.chunks, run.plan);
+    const serverHash = hashCatalogStageSnapshot(snapshot.products, (value) => this.integrity.sha256(value));
     if (request.snapshotHash !== serverHash) {
       throw new BadRequestException('Snapshot hash does not match the server canonical snapshot');
     }
@@ -227,7 +219,7 @@ export class ChannelCatalogCollectionService implements ChannelCatalogCollection
       attemptToken: input.attemptToken,
       snapshotHash: serverHash,
       chunkSetHash: hashCatalogChunkReceipts(run.chunks, (value) => this.integrity.sha256(value)),
-      ...(stage !== 'full' ? { stage } : {}),
+      stage,
     });
     return this.getStatus(input);
   }
@@ -283,7 +275,7 @@ function buildCollectionStatus(
   const publication = jsonRecord(metadata.publication);
   const effective = effectiveState(run);
   const plan = CoupangCatalogCollectionPlanSchema.parse(run.plan);
-  const stage = run.stage ?? stageFromPlan(plan);
+  const stage = run.stage;
   const rootAttemptId = plan.rootAttemptId ?? (
     stage === 'details' ? plan.basicAttemptId ?? run.id : run.id
   );
@@ -311,15 +303,9 @@ function buildCollectionStatus(
     phase === 'ready_to_finalize' && hasFullPayload
       ? stage === 'basics'
         ? hashCatalogStageSnapshot(assembleListingBasicsSnapshot(run.chunks).products, sha256)
-        : stage === 'details'
-          ? hashCatalogStageSnapshot(assembleFullDetailsSnapshot(run.chunks, plan).products, sha256)
-          : hashCoupangCatalogSnapshot(assembleCompleteSnapshot(run.chunks).products, sha256)
+        : hashCatalogStageSnapshot(assembleFullDetailsSnapshot(run.chunks, plan).products, sha256)
       : null;
-  const products = stage === 'basics'
-    ? state.basicProducts
-    : stage === 'details'
-      ? state.detailProducts
-      : state.products;
+  const products = stage === 'basics' ? state.basicProducts : state.detailProducts;
   // 상세도 종료 트랜잭션에서만 반영된다 (KID-348): 반영 수는 완료 뒤에만 센다.
   const completed = run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS;
   const quality = CoupangCatalogCollectionQualitySchema.safeParse(metadata.quality);
@@ -345,7 +331,7 @@ function buildCollectionStatus(
       publishedMediaCount: completed ? state.mediaCount : 0,
       publishedChunks: completed
         ? run.chunks.filter((chunk) => chunk.kind === (
-          stage === 'basics' ? 'listing_basics' : stage === 'details' ? 'full_details' : 'product_details'
+          stage === 'basics' ? 'listing_basics' : 'full_details'
         )).length
         : 0,
       firstPublishedAt: completed ? (run.finishedAt?.toISOString() ?? null) : null,
@@ -353,14 +339,12 @@ function buildCollectionStatus(
     },
     missing: {
       discoverySequences: missingDiscoverySequences(state),
-      productIds: stage === 'full'
-        ? missingHydratedProductIds(state)
-        : stage === 'details'
-          ? missingDetailTargetIds(detailTargetProductIds(plan, state.discovered), products)
-          : missingStageProductIds(
-            state.discovered,
-            products,
-          ).split(', ').filter(Boolean),
+      productIds: stage === 'details'
+        ? missingDetailTargetIds(detailTargetProductIds(plan, state.discovered), products)
+        : missingStageProductIds(
+          state.discovered,
+          products,
+        ).split(', ').filter(Boolean),
     },
     snapshotHash:
       typeof metadata.snapshotHash === 'string' ? metadata.snapshotHash : readySnapshotHash,
@@ -429,7 +413,7 @@ function countMedia(
 function derivePhase(
   status: string,
   state: InspectedChunks,
-  stage: CoupangCatalogStage = 'full',
+  stage: CoupangCatalogStage,
   plan?: ReturnType<typeof CoupangCatalogCollectionPlanSchema.parse>,
 ): CoupangCatalogCollectionPhase {
   if (status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) return 'finished';
@@ -438,21 +422,12 @@ function derivePhase(
   }
   if (!state.manifest || !state.confirmation || missingDiscoverySequences(state).length > 0)
     return 'discovery';
-  const products = stage === 'basics'
-    ? state.basicProducts
-    : stage === 'details'
-      ? state.detailProducts
-      : state.products;
+  const products = stage === 'basics' ? state.basicProducts : state.detailProducts;
   const expected = stage === 'details' && plan
     ? detailTargetProductIds(plan, state.discovered).length
     : state.manifest.totalItems;
   if (products.length < expected) return 'hydration';
   return 'ready_to_finalize';
-}
-
-function stageFromPlan(rawPlan: unknown): CoupangCatalogStage {
-  const plan = CoupangCatalogCollectionPlanSchema.safeParse(rawPlan);
-  return plan.success ? plan.data.stage ?? 'full' : 'full';
 }
 
 function parseRequest<T>(schema: ZodType<T>, value: unknown): T {

@@ -38,7 +38,7 @@ export function readCoupangCatalogCollectionLink(
   const parsed = z.object({
     attemptId: CoupangCatalogCollectionRunSchema.shape.attemptId,
     channelAccountId: CoupangCatalogCollectionRunSchema.shape.channelAccountId,
-    stage: CoupangCatalogStageSchema.default('full'),
+    stage: CoupangCatalogStageSchema,
   }).safeParse({
     attemptId: query.get('collectionAttempt'),
     channelAccountId: query.get('channelAccountId'),

@@ -29,6 +29,7 @@ describe('ChannelCatalogCollectionController', () => {
     const controller = new ChannelCatalogCollectionController(port);
     const request = {
       collectorVersion: 'wing-inventory-v1',
+      stage: 'basics' as const,
     };
 
     await controller.start(ACCOUNT_ID, ORGANIZATION_ID, { id: USER_ID } as never, request, RUN_ID);

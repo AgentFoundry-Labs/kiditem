@@ -12,10 +12,11 @@ describe('Coupang catalog progress', () => {
     expect(buildCoupangCatalogProgress(
       run,
       Date.parse('2026-07-14T01:00:00.000Z'),
+      'details',
     )).toMatchObject({
       discoveredLabel: '목록 발견 1,228 / 1,228',
       hydratedLabel: '상세 수집 80 / 1,228',
-      publishedLabel: '전체 수집 후 한 번에 반영',
+      publishedLabel: '상세는 모두 받은 뒤 한 번에 반영',
       publicationDetailsLabel: '수집 중에는 기존 상품 데이터 유지',
       rateLabel: '수집 1.3개/분',
       etaLabel: '상세 수집 예상 14시간 21분',
@@ -57,7 +58,7 @@ describe('Coupang catalog progress', () => {
       phase: 'ready_to_finalize',
     });
     expect(buildCoupangCatalogProgress(run, Date.parse('2026-07-14T00:30:00Z')))
-      .toMatchObject({ percent: 99, publishedLabel: '전체 수집 후 한 번에 반영', etaLabel: null });
+      .toMatchObject({ percent: 99, publishedLabel: '기본 목록 완료 후 반영', etaLabel: null });
     expect(buildCoupangCatalogProgress({ ...run, phase: 'finished' }, 0).percent).toBe(99);
   });
 
@@ -74,7 +75,7 @@ describe('Coupang catalog progress', () => {
 
     expect(progress.percent).toBe(100);
     expect(progress.etaLabel).toBeNull();
-    expect(progress.publishedLabel).toBe('DB 반영 10 / 10');
+    expect(progress.publishedLabel).toBe('기본 목록 보강 완료 10 / 10');
     expect(progress.publicationDetailsLabel).toBe('옵션 20개 · 이미지 30개 반영');
     expect(progress.rateLabel).toBeNull();
   });
@@ -154,6 +155,7 @@ function collectionRun(
       collectorVersion: 'wing-inventory-v1', vendorId: 'A001',
       listUrl: 'https://wing.coupang.com/list', detailUrl: 'https://wing.coupang.com/detail',
       publicationRevision: '0',
+      stage: 'basics',
       ...(overrides.detailTargetProductIds ? { detailTargetProductIds: overrides.detailTargetProductIds } : {}),
     },
     phase: overrides.phase ?? 'hydration',

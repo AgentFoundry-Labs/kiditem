@@ -30,11 +30,10 @@ import {
   catalogAlertKey,
   catalogPublicationRevision,
   catalogWhere,
-  CATALOG_LEGACY_DETAIL_URL,
-  CATALOG_LEGACY_LIST_URL,
   CATALOG_STAGED_DETAIL_URL,
   CATALOG_STAGED_LIST_URL,
   CATALOG_STAGING_SOURCE,
+  CATALOG_BROWSER_SOURCES,
   catalogSourceForStage,
   assertExpectedDetailsBasis,
   liveCatalogImport,
@@ -75,18 +74,14 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
   // that admits a pending details child so the stop can end the import.
   private async admitOrResume(tx: Prisma.TransactionClient, input: StartInput) {
     await lockCatalogAccount(tx, input);
-    const stage = input.stage ?? 'full';
+    const stage = input.stage;
     const refetchProductIds = stage === 'details' && input.detailProductIds
       ? [...new Set(input.detailProductIds)]
       : null;
-    // `stage` is additive. Keep the legacy full-catalog fingerprint byte
-    // for omitted/explicit full requests so an in-flight pre-stage run can
-    // still be recovered with the same idempotency key. Named staged
-    // attempts get their own fingerprint and source type.
     const requestFingerprint = hashCatalogChunkPayload({
       channelAccountId: input.channelAccountId,
       collectorVersion: input.collectorVersion,
-      ...(stage !== 'full' ? { stage } : {}),
+      stage,
       ...(stage === 'details'
         ? { expectedBasicAttemptId: input.expectedBasicAttemptId ?? null }
         : {}),
@@ -95,9 +90,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
     const existing = await tx.sourceImportRun.findFirst({
       where: {
         organizationId: input.organizationId,
-        sourceType: {
-          in: [catalogSourceForStage('full'), catalogSourceForStage('basics'), catalogSourceForStage('details')],
-        },
+        sourceType: { in: CATALOG_BROWSER_SOURCES },
         idempotencyKey: input.idempotencyKey,
       },
     });
@@ -213,8 +206,8 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
     const plan = {
       collectorVersion: input.collectorVersion,
       stage,
-      listUrl: stage === 'full' ? CATALOG_LEGACY_LIST_URL : CATALOG_STAGED_LIST_URL,
-      detailUrl: stage === 'full' ? CATALOG_LEGACY_DETAIL_URL : CATALOG_STAGED_DETAIL_URL,
+      listUrl: CATALOG_STAGED_LIST_URL,
+      detailUrl: CATALOG_STAGED_DETAIL_URL,
       channelAccountId: input.channelAccountId,
       vendorId,
       publicationRevision: (await catalogPublicationRevision(tx, input, stage)).toString(),
@@ -254,7 +247,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
         sourceImportRunId: owner.id,
         channel: 'coupang',
         source: CATALOG_STAGING_SOURCE,
-        pageType: stage === 'basics' ? 'catalog_listing_basics' : stage === 'details' ? 'catalog_full_details' : 'catalog_full_snapshot',
+        pageType: stage === 'basics' ? 'catalog_listing_basics' : 'catalog_full_details',
         parserVersion: input.collectorVersion,
       },
     });
@@ -276,9 +269,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
           organizationId: input.organizationId,
           channelAccountId: input.channelAccountId,
           parserVersion: CATALOG_PARSER,
-          sourceType: {
-            in: [catalogSourceForStage('full'), catalogSourceForStage('basics'), catalogSourceForStage('details')],
-          },
+          sourceType: { in: CATALOG_BROWSER_SOURCES },
         },
         select: { id: true, sourceType: true, status: true, plan: true, expiresAt: true },
       });
@@ -326,7 +317,7 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
         organizationId: input.organizationId,
         channelAccountId: input.channelAccountId,
         parserVersion: CATALOG_PARSER,
-        sourceType: { in: [catalogSourceForStage('full'), catalogSourceForStage('basics')] },
+        sourceType: catalogSourceForStage('basics'),
       },
       orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
       select: { id: true },
@@ -440,10 +431,10 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
       return readOwned(tx, { ...input, stage, includePayload: false });
     });
   }
-  private async saveFailure(tx: Prisma.TransactionClient, input: FailInput) {
+  private async saveFailure(tx: Prisma.TransactionClient, input: FailInput & { stage: CoupangCatalogStage }) {
     const changed = await tx.sourceImportRun.updateMany({
       where: {
-        ...catalogWhere(input, input.stage ?? 'full'),
+        ...catalogWhere(input, input.stage),
         id: input.runId,
         status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
         attemptToken: input.attemptToken,
@@ -461,13 +452,13 @@ export class ChannelCatalogCollectionRepositoryAdapter implements ChannelCatalog
     await this.alerts.recordTerminalOutcome(tx, {
         code: input.error.code,
         organizationId: input.organizationId,
-        dedupeKey: catalogAlertKey(input.channelAccountId, input.stage ?? 'full'),
-        sourceType: catalogSourceForStage(input.stage ?? 'full'),
+        dedupeKey: catalogAlertKey(input.channelAccountId, input.stage),
+        sourceType: catalogSourceForStage(input.stage),
         attemptId: input.runId,
         title: 'Wing catalog collection failed',
         message: input.error.message,
         href: `/product-pipeline/registered-products?collectionAttempt=${input.runId}&channelAccountId=${input.channelAccountId}`
-          + (input.stage && input.stage !== 'full' ? `&collectionStage=${input.stage}` : ''),
+          + `&collectionStage=${input.stage}`,
       });
   }
 
@@ -566,7 +557,7 @@ async function readOwned(tx: Prisma.TransactionClient, input: OwnedInput) {
       id: input.runId,
       ...(input.stage
         ? { sourceType: catalogSourceForStage(input.stage) }
-        : { sourceType: { in: [catalogSourceForStage('full'), catalogSourceForStage('basics'), catalogSourceForStage('details')] } }),
+        : { sourceType: { in: CATALOG_BROWSER_SOURCES } }),
     },
   });
   if (!owner) throw new NotFoundException('Catalog attempt not found');
@@ -675,7 +666,7 @@ async function ownerStage(
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
       parserVersion: CATALOG_PARSER,
-      sourceType: { in: [catalogSourceForStage('full'), catalogSourceForStage('basics'), catalogSourceForStage('details')] },
+      sourceType: { in: CATALOG_BROWSER_SOURCES },
     },
     select: { sourceType: true },
   });
@@ -684,9 +675,7 @@ async function ownerStage(
 }
 
 function sourceStage(sourceType: string): CoupangCatalogStage {
-  if (sourceType === catalogSourceForStage('basics')) return 'basics';
-  if (sourceType === catalogSourceForStage('details')) return 'details';
-  return 'full';
+  return sourceType === catalogSourceForStage('basics') ? 'basics' : 'details';
 }
 
 function assertCatalogChunkKindForStage(
@@ -695,9 +684,7 @@ function assertCatalogChunkKindForStage(
 ): void {
   const allowed = stage === 'basics'
     ? ['discovery_page', 'listing_basics', 'manifest_confirmation']
-    : stage === 'details'
-      ? ['discovery_page', 'full_details', 'detail_manifest_confirmation', 'deletion_confirmation']
-      : ['discovery_page', 'product_details', 'manifest_confirmation'];
+    : ['discovery_page', 'full_details', 'detail_manifest_confirmation', 'deletion_confirmation'];
   if (!allowed.includes(kind)) {
     throw new ConflictException(`Catalog chunk kind ${kind} is not valid for ${stage} stage`);
   }
@@ -795,7 +782,7 @@ function compactChunkProjection(kind: string, payload: unknown): Record<string, 
       }),
     };
   }
-  if (kind === 'listing_basics' || kind === 'product_details' || kind === 'full_details') {
+  if (kind === 'listing_basics' || kind === 'full_details') {
     const products = Array.isArray(record.products) ? record.products : [];
     return {
       kind,

@@ -3,7 +3,7 @@
  * supplies `sha256`, so this module stays free of crypto and runtime IO; the
  * collection service and the catalog repository adapters share it (KID-258).
  */
-import type { CanonicalProduct, CatalogCollectionChunk } from './catalog-chunk-snapshot';
+import type { CatalogCollectionChunk } from './catalog-chunk-snapshot';
 
 export function hashCatalogChunkPayload(payload: unknown, sha256: (value: string) => string): string {
   return sha256(stableStringify(payload));
@@ -21,11 +21,6 @@ export function hashCatalogChunkReceipts(chunks: CatalogCollectionChunk[], sha25
       }))
       .sort((a, b) => a.kind.localeCompare(b.kind) || a.sequence - b.sequence), sha256,
   );
-}
-
-export function hashCoupangCatalogSnapshot(products: CanonicalProduct[], sha256: (value: string) => string): string {
-  const canonical = [...products].sort((a, b) => a.ordinal - b.ordinal);
-  return sha256(stableStringify({ version: 1, products: canonical }));
 }
 
 export function hashCatalogStageSnapshot(products: Array<{ ordinal: number; product: unknown }>, sha256: (value: string) => string): string {

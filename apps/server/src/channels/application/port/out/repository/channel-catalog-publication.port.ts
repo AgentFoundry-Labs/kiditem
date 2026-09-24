@@ -20,7 +20,7 @@ export interface ChannelCatalogPublicationPort {
     attemptToken: string;
     snapshotHash: string;
     chunkSetHash: string;
-    stage?: CoupangCatalogStage;
+    stage: CoupangCatalogStage;
   }): Promise<ChannelCatalogPublicationResult>;
 }
 

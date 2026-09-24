@@ -320,7 +320,7 @@ describe('readiness 상품 받기 control', () => {
     const view = renderCard();
 
     expect(await screen.findByText('상세 수집 3 / 10')).toBeInTheDocument();
-    expect(screen.getByText('전체 상세 수집 중')).toBeInTheDocument();
+    expect(screen.getByText('변경된 상품 상세 수집 중')).toBeInTheDocument();
     expect(view.onCollect).not.toHaveBeenCalled();
   });
 

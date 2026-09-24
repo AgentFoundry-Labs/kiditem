@@ -7,7 +7,6 @@ import {
   type CoupangCatalogBasicProductV1,
   type CoupangCatalogCollectionQuality,
   type CoupangCatalogDetailProductV1,
-  type CoupangCatalogProductV1,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS, SOURCE_IMPORT_RUN_RUNNING_STATUS } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -24,7 +23,6 @@ import {
 } from '../../../application/port/out/cross-domain/product-mapping-generation.port';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import {
-  assembleCompleteSnapshot,
   assembleFullDetailsSnapshot,
   assembleListingBasicsSnapshot,
   inspectChunks,
@@ -38,7 +36,6 @@ import {
   hashCatalogStageSnapshot,
   hashCatalogChunkPayload,
   hashCatalogChunkReceipts,
-  hashCoupangCatalogSnapshot,
 } from '../../../domain/collection/catalog-collection-hash';
 import {
   assertCatalogWritable,
@@ -49,7 +46,6 @@ import {
   lockCatalogAccount,
   lockCatalogAttempt,
 } from './channel-catalog-attempt-fence';
-import { deactivateCatalogAbsence } from './catalog-absence';
 import {
   planCatalogDetailTargets,
   withUnfinishedDetailTargets,
@@ -59,7 +55,6 @@ import { readListingRawSections } from '../../../domain/collection/channel-listi
 import {
   updateChannelCatalogDetails,
   upsertChannelCatalogBasics,
-  upsertChannelCatalogIdentities,
 } from './channel-catalog-identity-upsert';
 import {
   CHANNEL_OPTION_RECIPE_PORT,
@@ -95,7 +90,7 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
 
   publish(input: PublishInput): Promise<ChannelCatalogPublicationResult> {
     return this.prisma.$transaction(async (tx) => {
-      const stage = input.stage ?? 'full';
+      const stage = input.stage;
       await lockProductMapping(tx, input.organizationId);
       await lockCatalogAccount(tx, input);
       const sourceRun = await lockCatalogAttempt(tx, {
@@ -218,86 +213,53 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
           basicManifestHash: plan.basicManifestHash,
         };
       } else {
-        const snapshot = stage === 'basics'
-          ? assembleListingBasicsSnapshot(chunks)
-          : assembleCompleteSnapshot(chunks);
+        const snapshot = assembleListingBasicsSnapshot(chunks);
         const products = snapshot.products;
-        const snapshotHash = stage === 'basics'
-          ? hashCatalogStageSnapshot(products, channelIntegrity.sha256)
-          : hashCoupangCatalogSnapshot(products, channelIntegrity.sha256);
+        const snapshotHash = hashCatalogStageSnapshot(products, channelIntegrity.sha256);
         if (snapshotHash !== input.snapshotHash) {
           throw new ConflictException('Staged catalog snapshot changed before publication');
         }
         optionCount = products.reduce((sum, item) => sum + item.product.options.length, 0);
         // 상세 대상은 이번 목록이 쓰기 전의 저장값과 비교해야 한다 (KID-348).
-        const detailPlan = stage === 'basics'
-          ? withUnfinishedDetailTargets(
-              planCatalogDetailTargets({
-                listed: products.map(({ product }) => ({
-                  externalProductId: product.externalProductId,
-                  modifiedOn: textValue(product.raw.modifiedOn),
-                })),
-                stored: await readStoredCatalogListings(tx, input),
-              }),
-              products.map(({ product }) => product.externalProductId),
-              await unfinishedPreviousDetailTargets(tx, input, sourceRun.id),
-            )
-          : null;
-        const upserted = stage === 'basics'
-          ? await upsertCoupangCatalogBasicsRows(tx, this.media, {
-              organizationId: input.organizationId,
-              userId: input.userId,
-              channelAccountId: input.channelAccountId,
-              products,
-              lastImportRunId: sourceRun.id,
-              publicationReference: { type: 'source_import_run', id: sourceRun.id },
-            })
-          : await upsertCoupangCatalogRows(tx, this.media, {
-              organizationId: input.organizationId,
-              userId: input.userId,
-              channelAccountId: input.channelAccountId,
-              products,
-              lastImportRunId: sourceRun.id,
-              publicationReference: { type: 'source_import_run', id: sourceRun.id },
-            });
+        const detailPlan = withUnfinishedDetailTargets(
+          planCatalogDetailTargets({
+            listed: products.map(({ product }) => ({
+              externalProductId: product.externalProductId,
+              modifiedOn: textValue(product.raw.modifiedOn),
+            })),
+            stored: await readStoredCatalogListings(tx, input),
+          }),
+          products.map(({ product }) => product.externalProductId),
+          await unfinishedPreviousDetailTargets(tx, input, sourceRun.id),
+        );
+        const upserted = await upsertCoupangCatalogBasicsRows(tx, this.media, {
+          organizationId: input.organizationId,
+          userId: input.userId,
+          channelAccountId: input.channelAccountId,
+          products,
+          lastImportRunId: sourceRun.id,
+          publicationReference: { type: 'source_import_run', id: sourceRun.id },
+        });
         await applyRegisteredOptionRecipes(ownerTransaction(tx), this.recipes, {
           organizationId: input.organizationId,
           channelListingIds: upserted.listingIds,
         });
         // 목록 단계는 사라진 상품을 끄지 않는다: 삭제 확인을 거친 상세 단계 종료만 바꾼다 (KID-348).
-        const absence = stage === 'basics'
-          ? { listings: 0, options: 0 }
-          : await deactivateCatalogAbsence(tx, {
-              organizationId: input.organizationId,
-              channelAccountId: input.channelAccountId,
-              sourceImportRunId: sourceRun.id,
-              scope: { kind: 'account' },
-              presentExternalProductIds: upserted.externalProductIds,
-              presentExternalOptionIds: upserted.externalOptionIds,
-            });
-        if (upserted.mappingIdentityChanged || absence.listings > 0 || absence.options > 0) {
+        if (upserted.mappingIdentityChanged) {
           await this.productMapping.advance(tx, input.organizationId);
         }
         result = {
           sourceImportRunId: sourceRun.id,
           duplicate: false,
-          changes: {
-            ...upserted.changes,
-            deactivatedProductCount: absence.listings,
-            deactivatedSkuCount: absence.options,
-          },
+          changes: upserted.changes,
         };
         qualityReport = {
           snapshotHash: input.snapshotHash,
           chunkSetHash: input.chunkSetHash,
           publication: result,
-          ...(stage === 'basics'
-            ? {
-                basicManifestHash: hashCatalogChunkPayload(snapshot.manifest, channelIntegrity.sha256),
-                productIds: products.map((item) => item.product.externalProductId),
-                ...detailPlan,
-              }
-            : {}),
+          basicManifestHash: hashCatalogChunkPayload(snapshot.manifest, channelIntegrity.sha256),
+          productIds: products.map((item) => item.product.externalProductId),
+          ...detailPlan,
         };
       }
       const publicationSequence = await allocatePublicationSequence(
@@ -432,56 +394,6 @@ async function applyCatalogDetails(
       ...media,
       deactivatedProductCount: 0,
       deactivatedSkuCount: 0,
-    },
-  };
-}
-
-async function upsertCoupangCatalogRows(
-  tx: Prisma.TransactionClient,
-  mediaPublisher: CatalogMediaPublicationPort,
-  input: {
-    organizationId: string;
-    userId: string;
-    channelAccountId: string;
-    products: Array<{ ordinal: number; product: CoupangCatalogProductV1 }>;
-    lastImportRunId: string;
-    publicationReference: {
-      type: 'source_import_run';
-      id: string;
-    };
-  },
-) {
-  const identities = await upsertChannelCatalogIdentities(tx, {
-    organizationId: input.organizationId,
-    channelAccountId: input.channelAccountId,
-    // 윙 브라우저 수집은 옵션 칸을 모두 읽는다 (CoupangCatalogOptionV1).
-    unobservedOptionFields: [],
-    products: input.products.map(({ product }) => product),
-    lastImportRunId: input.lastImportRunId,
-    rawSource: 'coupang_catalog_browser',
-  });
-  const media = await mediaPublisher.publishProviderMedia({
-    transaction: tx,
-    organizationId: input.organizationId,
-    userId: input.userId,
-    publicationReference: input.publicationReference,
-    listings: input.products.map(({ product }) => ({
-      listingId: identities.listingIds.get(product.externalProductId)!,
-      channel: CHANNEL,
-      displayName: product.displayName ?? product.registeredName ?? product.externalProductId,
-      media: [...product.media, ...product.options.flatMap((option) => option.media)],
-    })),
-  });
-  return {
-    listingIds: [...identities.listingIds.values()],
-    mappingIdentityChanged: identities.mappingIdentityChanged,
-    externalProductIds: identities.externalProductIds,
-    externalOptionIds: identities.externalOptionIds,
-    changes: {
-      ...identities.changes,
-      deactivatedProductCount: 0,
-      deactivatedSkuCount: 0,
-      ...media,
     },
   };
 }

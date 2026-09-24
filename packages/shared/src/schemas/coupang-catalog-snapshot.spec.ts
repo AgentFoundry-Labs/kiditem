@@ -8,8 +8,8 @@ import {
   CoupangCatalogDetailProductV1Schema,
   CoupangCatalogDiscoveryPageV1Schema,
   CoupangCatalogManifestConfirmationV1Schema,
-  CoupangCatalogProductDetailsChunkV1Schema,
-  CoupangCatalogProductV1Schema,
+  CoupangCatalogBasicProductV1Schema,
+  CoupangCatalogListingBasicsChunkV1Schema,
   PutCoupangCatalogChunkRequestSchema,
   StartCoupangCatalogCollectionRequestSchema,
 } from './coupang-catalog-snapshot';
@@ -61,8 +61,8 @@ const manifest = {
 
 describe('Coupang catalog snapshot contracts', () => {
   it('accepts single-option and multi-option products', () => {
-    expect(CoupangCatalogProductV1Schema.parse(product).options).toHaveLength(1);
-    const parsed = CoupangCatalogProductV1Schema.parse({
+    expect(CoupangCatalogBasicProductV1Schema.parse(product).options).toHaveLength(1);
+    const parsed = CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       options: [
         product.options[0],
@@ -79,44 +79,44 @@ describe('Coupang catalog snapshot contracts', () => {
   });
 
   it('rejects blank identities and duplicate option IDs', () => {
-    expect(() => CoupangCatalogProductV1Schema.parse({
+    expect(() => CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       externalProductId: ' ',
     })).toThrow();
-    expect(() => CoupangCatalogProductV1Schema.parse({
+    expect(() => CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       options: [product.options[0], product.options[0]],
     })).toThrow(/duplicate externalOptionId/i);
-    expect(() => CoupangCatalogProductV1Schema.parse({
+    expect(() => CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       options: [{ ...product.options[0], salePrice: -1 }],
     })).toThrow();
   });
 
   it('rejects media assigned to an option outside its owner', () => {
-    expect(() => CoupangCatalogProductV1Schema.parse({
+    expect(() => CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       options: [{
         ...product.options[0],
         media: [{ ...media, role: 'option', externalOptionId: '99999' }],
       }],
     })).toThrow(/media externalOptionId/i);
-    expect(() => CoupangCatalogProductV1Schema.parse({
+    expect(() => CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       media: [{ ...media, role: 'option', externalOptionId: '99999' }],
     })).toThrow(/unknown option/i);
   });
 
   it('accepts only HTTP(S) provider URLs and bounded cardinality', () => {
-    expect(() => CoupangCatalogProductV1Schema.parse({
+    expect(() => CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       media: [{ ...media, sourceUrl: 'javascript:alert(1)' }],
     })).toThrow();
-    expect(() => CoupangCatalogProductV1Schema.parse({
+    expect(() => CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       media: Array.from({ length: 101 }, (_, sortOrder) => ({ ...media, sortOrder })),
     })).toThrow();
-    expect(() => CoupangCatalogProductV1Schema.parse({
+    expect(() => CoupangCatalogBasicProductV1Schema.parse({
       ...product,
       options: Array.from({ length: 501 }, (_, index) => ({
         ...product.options[0],
@@ -257,10 +257,10 @@ describe('Coupang catalog snapshot contracts', () => {
     })).toThrow(/duplicate externalProductId/i);
   });
 
-  it('requires deterministic contiguous product-detail ordinals', () => {
-    const chunk = CoupangCatalogProductDetailsChunkV1Schema.parse({
+  it('requires deterministic contiguous listing-basics ordinals', () => {
+    const chunk = CoupangCatalogListingBasicsChunkV1Schema.parse({
       version: 1,
-      kind: 'product_details',
+      kind: 'listing_basics',
       startOrdinal: 0,
       products: [
         { ordinal: 0, product },
@@ -268,10 +268,27 @@ describe('Coupang catalog snapshot contracts', () => {
       ],
     });
     expect(chunk.products).toHaveLength(2);
-    expect(() => CoupangCatalogProductDetailsChunkV1Schema.parse({
+    expect(() => CoupangCatalogListingBasicsChunkV1Schema.parse({
       ...chunk,
       products: [chunk.products[0], { ...chunk.products[1], ordinal: 2 }],
     })).toThrow(/contiguous/i);
+  });
+
+  it('removes the legacy full stage and its product_details chunk (KID-348)', () => {
+    expect(() => StartCoupangCatalogCollectionRequestSchema.parse({
+      collectorVersion: 'wing-inventory-v1',
+      stage: 'full',
+    })).toThrow();
+    expect(() => StartCoupangCatalogCollectionRequestSchema.parse({
+      collectorVersion: 'wing-inventory-v1',
+    })).toThrow();
+    expect(() => PutCoupangCatalogChunkRequestSchema.parse({
+      kind: 'product_details',
+      sequence: 1,
+      checksum,
+      itemCount: 1,
+      payload: { version: 1, kind: 'product_details', startOrdinal: 0, products: [{ ordinal: 0, product }] },
+    })).toThrow();
   });
 
   it('validates all chunk kinds, checksums, and route sequences', () => {
@@ -319,6 +336,7 @@ describe('Coupang catalog snapshot contracts', () => {
   it('validates start and resumable status responses', () => {
     expect(StartCoupangCatalogCollectionRequestSchema.parse({
       collectorVersion: 'wing-inventory-v1',
+      stage: 'basics',
     }).collectorVersion).toBe('wing-inventory-v1');
     expect(() => StartCoupangCatalogCollectionRequestSchema.parse({
       clientRunKey: 'not-a-uuid',
@@ -331,7 +349,7 @@ describe('Coupang catalog snapshot contracts', () => {
       idempotencyKey: clientRunKey,
       state: 'RUNNING',
       expiresAt: '2026-07-15T00:00:00.000Z',
-      plan: { channelAccountId: accountId, vendorId: 'V1', collectorVersion: 'wing-inventory-v1', listUrl: 'https://wing.coupang.com/list', detailUrl: 'https://wing.coupang.com/detail', publicationRevision: '0' },
+      plan: { stage: 'basics', channelAccountId: accountId, vendorId: 'V1', collectorVersion: 'wing-inventory-v1', listUrl: 'https://wing.coupang.com/list', detailUrl: 'https://wing.coupang.com/detail', publicationRevision: '0' },
       phase: 'hydration',
       collectorVersion: 'wing-inventory-v1',
       manifest,

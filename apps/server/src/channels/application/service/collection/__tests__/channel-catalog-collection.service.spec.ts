@@ -5,7 +5,6 @@ import { ChannelCatalogCollectionService } from '../channel-catalog-collection.s
 import {
   hashCatalogChunkPayload,
   hashCatalogStageSnapshot,
-  hashCoupangCatalogSnapshot,
 } from '../../../../domain/collection/catalog-collection-hash';
 import type { ChannelCatalogCollectionRepositoryPort } from '../../../port/out/repository/channel-catalog-collection.repository.port';
 import type { ChannelCatalogPublicationPort } from '../../../port/out/repository/channel-catalog-publication.port';
@@ -39,6 +38,7 @@ describe('ChannelCatalogCollectionService', () => {
       idempotencyKey: CLIENT_RUN_KEY,
       request: {
         collectorVersion: 'wing-inventory-v1',
+        stage: 'basics',
       },
     });
 
@@ -48,6 +48,7 @@ describe('ChannelCatalogCollectionService', () => {
       channelAccountId: ACCOUNT_ID,
       idempotencyKey: CLIENT_RUN_KEY,
       collectorVersion: 'wing-inventory-v1',
+      stage: 'basics',
     });
     expect(result).toMatchObject({
       attemptId: RUN_ID,
@@ -452,6 +453,7 @@ describe('ChannelCatalogCollectionService', () => {
                 phase: 'hydration',
               }
             : null,
+        stage: 'details' as const,
         plan: {
           ...runRecord().plan,
           stage: 'details' as const,
@@ -516,6 +518,7 @@ describe('ChannelCatalogCollectionService', () => {
     });
     const fullRun = {
       ...runRecord(),
+      stage: 'details' as const,
       plan: {
         ...runRecord().plan,
         stage: 'details' as const,
@@ -612,10 +615,7 @@ describe('ChannelCatalogCollectionService', () => {
 
   it('exposes the server canonical hash when a resumable snapshot is ready', async () => {
     const repository = makeRepository();
-    const productWithSaleStatus = withSaleStatus(
-      productChunk(0, ['P-1']).payload.products[0]!,
-      '판매중',
-    );
+    const stagedProduct = productChunk(0, ['P-1']).payload.products[0]!;
     const chunks = [
       discoveryChunk(
         1,
@@ -639,15 +639,12 @@ describe('ChannelCatalogCollectionService', () => {
     const result = await service.getStatus(ownedInput());
 
     expect(result.phase).toBe('ready_to_finalize');
-    expect(result.snapshotHash).toBe(hashCoupangCatalogSnapshot([productWithSaleStatus], channelIntegrity.sha256));
+    expect(result.snapshotHash).toBe(hashCatalogStageSnapshot([stagedProduct], channelIntegrity.sha256));
   });
 
   it('publishes one complete canonical snapshot with the server-computed hash', async () => {
     const repository = makeRepository();
-    const productWithSaleStatus = withSaleStatus(
-      productChunk(0, ['P-1']).payload.products[0]!,
-      '판매중',
-    );
+    const stagedProduct = productChunk(0, ['P-1']).payload.products[0]!;
     const chunks = [
       discoveryChunk(
         1,
@@ -668,7 +665,7 @@ describe('ChannelCatalogCollectionService', () => {
     repository.getOwnedRunWithChunks.mockResolvedValue(runWithChunks(chunks));
     const publisher = makePublisher();
     const service = new ChannelCatalogCollectionService(repository, publisher, channelIntegrity);
-    const snapshotHash = hashCoupangCatalogSnapshot([productWithSaleStatus], channelIntegrity.sha256);
+    const snapshotHash = hashCatalogStageSnapshot([stagedProduct], channelIntegrity.sha256);
 
     await service.finalize({
       ...ownedInput(),
@@ -794,7 +791,9 @@ function runRecord() {
     collectionRunId: RUN_ID,
     attemptToken: CLIENT_RUN_KEY,
     expiresAt: new Date('2099-01-01T00:00:00Z'),
+    stage: 'basics' as 'basics' | 'details',
     plan: {
+      stage: 'basics' as 'basics' | 'details',
       collectorVersion: 'wing-inventory-v1',
       listUrl: 'https://wing.coupang.com/list',
       detailUrl: 'https://wing.coupang.com/detail',
@@ -833,6 +832,7 @@ function stagedReadyRun(stage: 'basics' | 'details') {
   const base = runRecord();
   return {
     ...base,
+    stage,
     plan: {
       ...base.plan,
       stage,
@@ -1134,13 +1134,13 @@ function productChunk(startOrdinal: number, productIds: string[]) {
   }));
   return {
     id: `products-${startOrdinal}`,
-    kind: 'product_details',
+    kind: 'listing_basics',
     sequence: startOrdinal + 1,
     checksum: 'b'.repeat(64),
     itemCount: products.length,
     payload: {
       version: 1 as const,
-      kind: 'product_details' as const,
+      kind: 'listing_basics' as const,
       startOrdinal,
       products,
     },
@@ -1162,18 +1162,3 @@ function confirmationChunk(manifest = onePageManifest()) {
   };
 }
 
-function withSaleStatus(
-  product: ReturnType<typeof productChunk>['payload']['products'][number],
-  saleStatus: string | null,
-) {
-  return {
-    ...product,
-    product: {
-      ...product.product,
-      raw: {
-        ...product.product.raw,
-        saleStatus,
-      },
-    },
-  };
-}
