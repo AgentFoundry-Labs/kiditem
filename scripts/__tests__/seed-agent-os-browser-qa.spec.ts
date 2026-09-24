@@ -1,4 +1,3 @@
-import { ChannelIntegrityAdapter } from '../../apps/server/src/channels/adapter/out/integrity/channel-integrity.adapter';
 import { EventEmitter } from 'node:events';
 import { existsSync, readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
@@ -9,9 +8,6 @@ import {
   parseAllowedSupplierUrl,
 } from '../../apps/server/src/sourcing/domain/supplier-source-url-policy';
 import { canonicalSourceRecordIdentity } from '../../apps/server/src/sourcing/domain/source-record-identity';
-import { freezeProductRegistrationPayload } from '../../apps/server/src/channels/domain/registration/registration-submission-payload';
-
-const channelIntegrity = new ChannelIntegrityAdapter();
 
 const { ensureFormula } = vi.hoisted(() => ({ ensureFormula: vi.fn() }));
 vi.mock('../data-migrations/ensure/absolute-product-abc-formula', () => ({
@@ -234,63 +230,24 @@ describe('isolated Agent OS browser-QA seed', () => {
     });
     expect(supply.purchaseOrder.externalOrderId).toBeTruthy();
 
-    const channel = seed.createBrowserQaSeedPlan({
-      profile: 'channels.confirmed-listing.v1',
+    expect(seed.BROWSER_QA_FIXTURE_PROFILES).not.toContain('channels.confirmed-listing.v1');
+
+    const listing = seed.createBrowserQaSeedPlan({
+      profile: 'products.listing-generation.v1',
       email: 'browser.qa@example.test',
       passwordHash,
       now,
     });
-    expect(channel).toMatchObject({
-      profile: 'channels.confirmed-listing.v1',
-      sourcingCandidate: { sourcePlatform: 'ALIBABA_1688' },
-      contentWorkspace: {
-        ownerType: 'sourcing_candidate',
-        status: 'active',
-      },
-      channelAccount: {
-        channel: 'coupang',
-        vendorId: 'browser-qa-vendor',
-        status: 'active',
-      },
-      productPreparation: {
-        status: 'submitting',
-        providerOutcome: 'uncertain',
-      },
-      productRegistrationExecution: {
-        status: 'executing',
-        providerOutcome: 'uncertain',
-        expectedProviderAccountId: 'browser-qa-vendor',
-      },
-      variables: {
-        registrationExecutionRef:
-          channel.productRegistrationExecution.id,
-        preparationRef: channel.productPreparation.id,
-        externalListingRef: expect.stringMatching(/^browser-qa-listing-/),
-        wingVendorRef: 'browser-qa-vendor',
+    expect(listing).toMatchObject({
+      sourceRecord: { sourcePlatform: 'ALIBABA_1688' },
+      salesProductDraft: {
+        status: 'draft',
+        sourcePlatform: 'ALIBABA_1688',
+        sourceUrl: listing.sourceRecord.sourceUrl,
+        name: listing.sourceRecord.name,
       },
     });
-    const frozenChannelPayload = freezeProductRegistrationPayload(
-      channel.productRegistrationExecution.submissionPayloadJson, channelIntegrity.sha256,
-    );
-    expect(frozenChannelPayload.payload).toMatchObject({
-      channelAccountId: channel.channelAccount.id,
-      displayName: channel.productPreparation.displayName,
-      registrationInput: channel.productPreparation.registrationInput,
-      selectedThumbnailUrl: null,
-      selectedThumbnailGenerationId: null,
-      selectedThumbnailGenerationCandidateId: null,
-      selectedDetailPageArtifactId: null,
-      selectedDetailPageRevisionId: null,
-      selectedDetailPageGenerationId: null,
-    });
-    expect(channel.productPreparation.submissionPayloadHash)
-      .toBe(frozenChannelPayload.hash);
-    expect(channel.productPreparation.reviewPayloadHash)
-      .toBe(frozenChannelPayload.hash);
-    expect(channel.productRegistrationExecution.requestHash)
-      .toBe(frozenChannelPayload.hash);
-    expect(channel.productRegistrationExecution.submissionPayloadHash)
-      .toBe(frozenChannelPayload.hash);
+    expect(listing).not.toHaveProperty('sourcingCandidate');
   });
 
   it('generates stable per-plan synthetic supplier identities through the Sourcing allowlist', async () => {
@@ -312,28 +269,28 @@ describe('isolated Agent OS browser-QA seed', () => {
     ];
 
     for (const plan of candidatePlans) {
-      const supplier = parseAllowedSupplierUrl(plan.sourcingCandidate.sourceUrl);
+      const supplier = parseAllowedSupplierUrl(plan.sourceRecord.sourceUrl);
       const offerId = extractSupplierOfferId(supplier);
 
       expect(supplier.platform).toBe('1688');
-      expect(plan.sourcingCandidate.sourceUrl).toBe(supplier.normalizedUrl);
-      expect(plan.sourcingCandidate.sourcePlatform).toBe('ALIBABA_1688');
-      expect(plan.sourcingCandidate.externalOfferId).toBe(offerId);
-      expect(plan.sourcingCandidate.sourceIdentityHash).toBe(canonicalSourceRecordIdentity({
+      expect(plan.sourceRecord.sourceUrl).toBe(supplier.normalizedUrl);
+      expect(plan.sourceRecord.sourcePlatform).toBe('ALIBABA_1688');
+      expect(plan.sourceRecord.externalOfferId).toBe(offerId);
+      expect(plan.sourceRecord.sourceIdentityHash).toBe(canonicalSourceRecordIdentity({
         sourcePlatform: 'ALIBABA_1688',
         sourceUrl: supplier.normalizedUrl,
         validatedExternalOfferId: offerId,
-        variantKeyNormalized: plan.sourcingCandidate.variantKeyNormalized,
+        variantKeyNormalized: plan.sourceRecord.variantKeyNormalized,
       }));
     }
-    expect(candidatePlans[0].variables.supplierUrl).toBe(candidatePlans[0].sourcingCandidate.sourceUrl);
+    expect(candidatePlans[0].variables.supplierUrl).toBe(candidatePlans[0].sourceRecord.sourceUrl);
 
     const replay = seed.createBrowserQaSeedPlan({
       profile: 'sourcing.existing-candidate.v1',
       email: 'browser.qa@example.test',
       passwordHash,
     });
-    expect(replay.sourcingCandidate.sourceUrl).not.toBe(candidatePlans[0].sourcingCandidate.sourceUrl);
+    expect(replay.sourceRecord.sourceUrl).not.toBe(candidatePlans[0].sourceRecord.sourceUrl);
 
     const recommendationPlans = [
       seed.createBrowserQaSeedPlan({
@@ -359,17 +316,18 @@ describe('isolated Agent OS browser-QA seed', () => {
       .not.toBe(recommendationPlans[1].evidenceObservation.sourceUrl);
   });
 
-  it('returns the runtime supplier URL written to the existing candidate fixture', async () => {
+  it('returns the runtime supplier URL written to the existing source record and its draft', async () => {
     const seed = await loadSeed();
     if (!seed) return;
 
-    const candidateFindFirst = vi.fn().mockResolvedValue(null);
-    const candidateCreate = vi.fn().mockResolvedValue({ id: 'candidate-id' });
+    const recordCreate = vi.fn().mockResolvedValue({ id: 'source-record-id' });
+    const draftCreate = vi.fn().mockResolvedValue({ id: 'sales-product-id' });
     const transaction = {
       organization: { upsert: vi.fn().mockResolvedValue({ id: 'organization-id' }) },
       user: { upsert: vi.fn().mockResolvedValue({ id: 'user-id' }) },
       organizationMembership: { upsert: vi.fn().mockResolvedValue({ id: 'membership-id' }) },
-      sourcingCandidate: { findFirst: candidateFindFirst, create: candidateCreate },
+      sourceRecord: { findFirst: vi.fn().mockResolvedValue(null), create: recordCreate },
+      salesProduct: { findFirst: vi.fn().mockResolvedValue(null), create: draftCreate },
     };
     const prisma = {
       $transaction: async (action: (tx: typeof transaction) => Promise<unknown>) => action(transaction),
@@ -382,40 +340,39 @@ describe('isolated Agent OS browser-QA seed', () => {
       password: 'interactive-only-password',
       hashPassword: async () => 'scrypt$16384$fixture$hash',
     });
-    const createdCandidate = candidateCreate.mock.calls[0]?.[0]?.data;
-    const supplier = parseAllowedSupplierUrl(createdCandidate.sourceUrl);
+    const createdRecord = recordCreate.mock.calls[0]?.[0]?.data;
+    const supplier = parseAllowedSupplierUrl(createdRecord.sourceUrl);
 
     expect(result).toMatchObject({
-      sourcingCandidateId: 'candidate-id',
-      variables: { supplierUrl: createdCandidate.sourceUrl },
+      sourceRecordId: 'source-record-id',
+      salesProductId: 'sales-product-id',
+      variables: { supplierUrl: createdRecord.sourceUrl },
     });
-    expect(createdCandidate.externalOfferId).toBe(extractSupplierOfferId(supplier));
+    expect(createdRecord).toMatchObject({
+      organizationId: 'organization-id',
+      triggeredByUserId: 'user-id',
+      externalOfferId: extractSupplierOfferId(supplier),
+    });
+    expect(draftCreate.mock.calls[0]?.[0]?.data).toMatchObject({
+      organizationId: 'organization-id',
+      sourceRecordId: 'source-record-id',
+      status: 'draft',
+      sourceUrl: createdRecord.sourceUrl,
+    });
   });
 
-  it('persists a coherent frozen confirmed-listing fixture and returns only safe prompt references', async () => {
+  it('hands the listing-generation case the seeded draft id and reuses an existing record and draft', async () => {
     const seed = await loadSeed();
     if (!seed) return;
 
+    const recordCreate = vi.fn();
+    const draftCreate = vi.fn();
     const transaction = {
       organization: { upsert: vi.fn().mockResolvedValue({ id: 'organization-id' }) },
       user: { upsert: vi.fn().mockResolvedValue({ id: 'user-id' }) },
       organizationMembership: { upsert: vi.fn().mockResolvedValue({ id: 'membership-id' }) },
-      sourcingCandidate: {
-        findFirst: vi.fn().mockResolvedValue(null),
-        create: vi.fn().mockResolvedValue({ id: 'candidate-id' }),
-      },
-      contentWorkspace: {
-        create: vi.fn().mockResolvedValue({ id: 'workspace-id' }),
-      },
-      channelAccount: {
-        upsert: vi.fn().mockResolvedValue({ id: 'channel-account-id' }),
-      },
-      productPreparation: {
-        create: vi.fn().mockResolvedValue({ id: 'preparation-id' }),
-      },
-      productRegistrationExecution: {
-        create: vi.fn().mockResolvedValue({ id: 'registration-execution-id' }),
-      },
+      sourceRecord: { findFirst: vi.fn().mockResolvedValue({ id: 'source-record-id' }), create: recordCreate },
+      salesProduct: { findFirst: vi.fn().mockResolvedValue({ id: 'sales-product-id' }), create: draftCreate },
     };
     const prisma = {
       $transaction: async (action: (tx: typeof transaction) => Promise<unknown>) =>
@@ -424,82 +381,23 @@ describe('isolated Agent OS browser-QA seed', () => {
 
     const result = await seed.runBrowserQaSeed({
       prisma,
-      profile: 'channels.confirmed-listing.v1',
+      profile: 'products.listing-generation.v1',
       email: 'browser.qa@example.test',
       password: 'interactive-only-password',
       hashPassword: async () => 'scrypt$16384$fixture$hash',
     });
 
-    expect(transaction.contentWorkspace.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        organizationId: 'organization-id',
-        sourceCandidateId: 'candidate-id',
-        createdByUserId: 'user-id',
-      }),
+    expect(transaction.salesProduct.findFirst).toHaveBeenCalledWith({
+      where: { organizationId: 'organization-id', sourceRecordId: 'source-record-id' },
       select: { id: true },
     });
-    expect(transaction.productPreparation.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        organizationId: 'organization-id',
-        sourceCandidateId: 'candidate-id',
-        channelAccountId: 'channel-account-id',
-        sourceContentWorkspaceId: 'workspace-id',
-        approvedByUserId: 'user-id',
-        createdByUserId: 'user-id',
-        status: 'submitting',
-        providerOutcome: 'uncertain',
-      }),
-      select: { id: true },
-    });
-    expect(transaction.productRegistrationExecution.create).toHaveBeenCalledWith({
-      data: expect.objectContaining({
-        organizationId: 'organization-id',
-        productPreparationId: 'preparation-id',
-        channelAccountId: 'channel-account-id',
-        requestedByUserId: 'user-id',
-        status: 'executing',
-        providerOutcome: 'uncertain',
-        expectedProviderAccountId: 'browser-qa-vendor',
-      }),
-      select: { id: true },
-    });
-    const persistedPreparation = transaction.productPreparation.create.mock.calls[0][0].data;
-    const persistedExecution =
-      transaction.productRegistrationExecution.create.mock.calls[0][0].data;
-    const frozenPersistedPayload = freezeProductRegistrationPayload(
-      persistedExecution.submissionPayloadJson, channelIntegrity.sha256,
-    );
-    expect(frozenPersistedPayload.payload).toMatchObject({
-      channelAccountId: 'channel-account-id',
-      displayName: persistedPreparation.displayName,
-      registrationInput: persistedPreparation.registrationInput,
-    });
-    expect(persistedPreparation.submissionPayloadHash)
-      .toBe(frozenPersistedPayload.hash);
-    expect(persistedPreparation.reviewPayloadHash)
-      .toBe(frozenPersistedPayload.hash);
-    expect(persistedExecution.requestHash).toBe(frozenPersistedPayload.hash);
-    expect(persistedExecution.submissionPayloadHash)
-      .toBe(frozenPersistedPayload.hash);
+    expect(recordCreate).not.toHaveBeenCalled();
+    expect(draftCreate).not.toHaveBeenCalled();
     expect(result).toMatchObject({
-      sourcingCandidateId: 'candidate-id',
-      contentWorkspaceId: 'workspace-id',
-      channelAccountId: 'channel-account-id',
-      productPreparationId: 'preparation-id',
-      productRegistrationExecutionId: 'registration-execution-id',
-      variables: {
-        registrationExecutionRef: expect.any(String),
-        preparationRef: expect.any(String),
-        externalListingRef: expect.stringMatching(/^browser-qa-listing-/),
-        wingVendorRef: 'browser-qa-vendor',
-      },
+      sourceRecordId: 'source-record-id',
+      salesProductId: 'sales-product-id',
     });
-    expect(Object.keys(result.variables).sort()).toEqual([
-      'externalListingRef',
-      'preparationRef',
-      'registrationExecutionRef',
-      'wingVendorRef',
-    ]);
+    expect(result.variables).toEqual({ salesProductRef: 'sales-product-id' });
   });
 
   it('seeds no business rows for the auth-only general-chat profile', async () => {
@@ -511,8 +409,8 @@ describe('isolated Agent OS browser-QA seed', () => {
     const organizationUpsert = vi.fn().mockResolvedValue({ id: 'organization-id' });
     const userUpsert = vi.fn().mockResolvedValue({ id: 'user-id' });
     const membershipUpsert = vi.fn().mockResolvedValue({ id: 'membership-id' });
-    const candidateFindFirst = vi.fn();
-    const candidateCreate = vi.fn();
+    const recordFindFirst = vi.fn();
+    const draftCreate = vi.fn();
     const sellpiaInventorySkuUpsert = vi.fn();
     const sellpiaInventoryStateUpsert = vi.fn();
     const purchaseOrderFindFirst = vi.fn();
@@ -527,7 +425,8 @@ describe('isolated Agent OS browser-QA seed', () => {
       organization: { upsert: organizationUpsert },
       user: { upsert: userUpsert },
       organizationMembership: { upsert: membershipUpsert },
-      sourcingCandidate: { findFirst: candidateFindFirst, create: candidateCreate },
+      sourceRecord: { findFirst: recordFindFirst, create: vi.fn() },
+      salesProduct: { findFirst: vi.fn(), create: draftCreate },
       sellpiaInventorySku: { upsert: sellpiaInventorySkuUpsert },
       sellpiaInventoryState: { upsert: sellpiaInventoryStateUpsert },
       purchaseOrder: {
@@ -588,8 +487,8 @@ describe('isolated Agent OS browser-QA seed', () => {
       userId: 'user-id',
       membershipId: 'membership-id',
     });
-    expect(candidateFindFirst).not.toHaveBeenCalled();
-    expect(candidateCreate).not.toHaveBeenCalled();
+    expect(recordFindFirst).not.toHaveBeenCalled();
+    expect(draftCreate).not.toHaveBeenCalled();
     expect(sellpiaInventorySkuUpsert).not.toHaveBeenCalled();
     expect(sellpiaInventoryStateUpsert).not.toHaveBeenCalled();
     expect(purchaseOrderFindFirst).not.toHaveBeenCalled();

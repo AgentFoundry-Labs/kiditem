@@ -15,7 +15,7 @@
     "id": "products.listing-generation.v1",
     "resetProfile": "products.listing-generation.v1",
     "disposable": true,
-    "variables": ["candidateRef"]
+    "variables": ["salesProductRef"]
   },
   {
     "id": "runtime.two-turn-restart.v1",

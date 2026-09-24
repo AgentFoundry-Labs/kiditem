@@ -5,7 +5,7 @@
   "messages": [
     {
       "id": "initial",
-      "promptTemplate": "기존 소싱 후보 {{candidateRef}}를 바탕으로 상품 등록 준비를 시작해 주세요. 실제 생성 작업을 시작하기 전에 제 확인을 받아 주세요."
+      "promptTemplate": "판매상품 초안 {{salesProductRef}}를 바탕으로 상품 등록 준비를 시작해 주세요. 실제 생성 작업을 시작하기 전에 제 확인을 받아 주세요."
     }
   ],
   "target": {
