@@ -35,6 +35,15 @@ export const KNOWN_VIOLATIONS = [
   { owner: 'orders', file: 'orders/application/service/reviews.service.ts', specifier: '../../adapter/in/web/dto/list-review-items.dto', removeWith: 'KID-335' },
   { owner: 'orders', file: 'orders/application/service/reviews.service.ts', specifier: '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter', removeWith: 'KID-335' },
   { owner: 'orders', file: 'orders/application/service/reviews.service.ts', specifier: '../../../products/adapter/out/persistence/read/product-abc-publication.reader', removeWith: 'KID-335' },
+  // Finance services read settlement and Orders ledger helpers until KID-334.
+  { owner: 'finance', file: 'finance/application/service/settlement/settlements.service.ts', specifier: '../../../adapter/out/persistence/read/settlement/settlement-facts', removeWith: 'KID-334' },
+  { owner: 'finance', file: 'finance/application/service/sales-analysis/sales-analysis-scraper.service.ts', specifier: '../../../../orders/adapter/out/persistence/read/order-facts.reader', removeWith: 'KID-334' },
+  // Finance services take incoming DTOs until KID-335.
+  { owner: 'finance', file: 'finance/application/service/report-export/finance-report-export.service.ts', specifier: '../../../adapter/in/web/report-export/dto/report-export-query.dto', removeWith: 'KID-335' },
+  { owner: 'finance', file: 'finance/application/service/report-export/finance-report-export.service.ts', specifier: '../../../adapter/in/web/report-export/dto/profit-loss-export-query.dto', removeWith: 'KID-335' },
+  { owner: 'finance', file: 'finance/application/service/sales-plan/sales-plans.service.ts', specifier: '../../../adapter/in/web/sales-plan/dto', removeWith: 'KID-335' },
+  { owner: 'finance', file: 'finance/application/service/settlement/settlements.service.ts', specifier: '../../../adapter/in/web/settlement/dto', removeWith: 'KID-335' },
+  { owner: 'finance', file: 'finance/application/service/supplier-payment/supplier-payments.service.ts', specifier: '../../../adapter/in/web/supplier-payment/dto', removeWith: 'KID-335' },
 ];
 
 function domainOwner(file) {
