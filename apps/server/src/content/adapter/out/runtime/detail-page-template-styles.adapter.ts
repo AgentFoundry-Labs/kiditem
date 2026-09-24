@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { KiditemError } from '@kiditem/shared/errors';
 import { readFileSync } from 'node:fs';
 import { createRequire } from 'node:module';
 import type { DetailPageTemplateStylesPort } from '../../../application/port/out/runtime';
@@ -9,7 +10,7 @@ function loadCompiledTemplateCss(): string {
   const stylesheetPath = nodeRequire.resolve('@kiditem/templates/styles.css');
   const css = readFileSync(stylesheetPath, 'utf8').trim();
   if (!css) {
-    throw new Error(`Detail-page template stylesheet is empty: ${stylesheetPath}`);
+    throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'TEMPLATE_STYLESHEET_EMPTY' }, cause: stylesheetPath });
   }
   return css;
 }

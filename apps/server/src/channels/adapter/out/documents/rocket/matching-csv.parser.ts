@@ -1,6 +1,6 @@
-import { BadRequestException } from '@nestjs/common';
 
 import type { ParsedRocketSellpiaMatchingCsvRow, ParsedRocketSellpiaMatchingCsv } from '../../../../application/port/out/documents/channel-document.models';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 export type { ParsedRocketSellpiaMatchingCsvRow, ParsedRocketSellpiaMatchingCsv } from '../../../../application/port/out/documents/channel-document.models';
 
 const REQUIRED_HEADERS = [
@@ -24,14 +24,12 @@ export function parseRocketSellpiaMatchingCsv(
   const records = parseCsvRecords(buffer.toString('utf8'));
   const headerRecord = records.shift();
   if (!headerRecord) {
-    throw new BadRequestException('로켓-셀피아 매칭 CSV가 비어 있습니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'MATCHING_CSV_EMPTY' }, message: '로켓-셀피아 매칭 CSV가 비어 있습니다.' });
   }
   const headers = headerRecord.values.map((value) => value.replace(/^\uFEFF/u, '').trim());
   const missing = REQUIRED_HEADERS.filter((header) => !headers.includes(header));
   if (missing.length > 0) {
-    throw new BadRequestException(
-      `로켓-셀피아 매칭 CSV 필수 컬럼을 찾을 수 없습니다: ${missing.join(', ')}`,
-    );
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'MATCHING_CSV_COLUMNS_MISSING' }, message: `로켓-셀피아 매칭 CSV 필수 컬럼을 찾을 수 없습니다: ${missing.join(', ')}` });
   }
   const externalSkuIds = new Set<string>();
   const rows = records.flatMap((record) => {
@@ -42,9 +40,7 @@ export function parseRocketSellpiaMatchingCsv(
     if (Object.values(rawJson).every((value) => value.length === 0)) return [];
     const externalSkuId = requiredText(rawJson.skuId, record.rowNumber, 'skuId');
     if (externalSkuIds.has(externalSkuId)) {
-      throw new BadRequestException(
-        `로켓-셀피아 매칭 CSV에 중복된 skuId가 있습니다: ${externalSkuId}`,
-      );
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'MATCHING_CSV_SKU_DUPLICATE' }, message: `로켓-셀피아 매칭 CSV에 중복된 skuId가 있습니다: ${externalSkuId}` });
     }
     externalSkuIds.add(externalSkuId);
     return [{
@@ -66,7 +62,7 @@ export function parseRocketSellpiaMatchingCsv(
     }];
   });
   if (rows.length === 0) {
-    throw new BadRequestException('로켓-셀피아 매칭 CSV에 가져올 상품이 없습니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'MATCHING_CSV_NO_ROWS' }, message: '로켓-셀피아 매칭 CSV에 가져올 상품이 없습니다.' });
   }
   return { headers, rows };
 }
@@ -74,9 +70,7 @@ export function parseRocketSellpiaMatchingCsv(
 function requiredText(value: string | undefined, rowNumber: number, field: string): string {
   const normalized = optionalText(value);
   if (normalized) return normalized;
-  throw new BadRequestException(
-    `로켓-셀피아 매칭 CSV ${rowNumber}행의 ${field} 값이 비어 있습니다.`,
-  );
+  throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'MATCHING_CSV_FIELD_EMPTY', row: rowNumber, field }, message: `로켓-셀피아 매칭 CSV ${rowNumber}행의 ${field} 값이 비어 있습니다.` });
 }
 
 function optionalText(value: string | undefined): string | null {
@@ -121,7 +115,7 @@ function parseCsvRecords(value: string): Array<{ rowNumber: number; values: stri
     }
     field += char;
   }
-  if (quoted) throw new BadRequestException('로켓-셀피아 매칭 CSV의 따옴표 형식이 올바르지 않습니다.');
+  if (quoted) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'MATCHING_CSV_QUOTE_INVALID' }, message: '로켓-셀피아 매칭 CSV의 따옴표 형식이 올바르지 않습니다.' });
   if (field.length > 0 || values.length > 0) {
     values.push(field);
     if (values.some((entry) => entry.length > 0)) records.push({ rowNumber, values });

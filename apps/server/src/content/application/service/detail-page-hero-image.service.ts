@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable, Logger, ServiceUnavailableException } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { KiditemExternalError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import { isSafetyLabelImageUrl } from '../../domain/detail-page-image-order';
 import {
   buildColorGuidePrompt,
@@ -111,7 +112,7 @@ export class DetailPageHeroImageService {
   async generateHeroBanner(input: GenerateHeroBannerInput): Promise<string> {
     const images = await this.fetchInputImages(input.imageUrls, 4, input.signal);
     if (images.length === 0) {
-      throw new ServiceUnavailableException('detail_page_hero_image_no_inputs');
+      throw new KiditemPreconditionError('CONTENT_GENERATION_INPUT_MISSING', { details: { reason: 'detail_page_hero_image_no_inputs' } });
     }
 
     const generated = await this.media.generateImage({
@@ -133,7 +134,7 @@ export class DetailPageHeroImageService {
   async generateColorGuideImage(input: GenerateDetailSectionImageInput): Promise<string> {
     const images = await this.fetchInputImages(input.imageUrls, 8, input.signal);
     if (images.length === 0) {
-      throw new ServiceUnavailableException('detail_page_color_image_no_inputs');
+      throw new KiditemPreconditionError('CONTENT_GENERATION_INPUT_MISSING', { details: { reason: 'detail_page_color_image_no_inputs' } });
     }
 
     const generated = await this.media.generateImage({
@@ -155,7 +156,7 @@ export class DetailPageHeroImageService {
   async generateHeroProductImage(input: GenerateSizeGuideImageInput): Promise<string> {
     const images = await this.fetchInputImages(input.imageUrls, 8, input.signal);
     if (images.length === 0) {
-      throw new ServiceUnavailableException('detail_page_hero_product_image_no_inputs');
+      throw new KiditemPreconditionError('CONTENT_GENERATION_INPUT_MISSING', { details: { reason: 'detail_page_hero_product_image_no_inputs' } });
     }
 
     const generated = await this.media.generateImage({
@@ -177,7 +178,7 @@ export class DetailPageHeroImageService {
   async inferColorSubtitle(input: InferColorSubtitleInput): Promise<string> {
     const images = await this.fetchInputImages(input.imageUrls, 8, input.signal);
     if (images.length === 0) {
-      throw new ServiceUnavailableException('detail_page_color_subtitle_no_inputs');
+      throw new KiditemPreconditionError('CONTENT_GENERATION_INPUT_MISSING', { details: { reason: 'detail_page_color_subtitle_no_inputs' } });
     }
 
     const text = await this.media.completeVisionJson({
@@ -188,13 +189,13 @@ export class DetailPageHeroImageService {
     });
     input.signal?.throwIfAborted();
     if (!text) {
-      throw new ServiceUnavailableException('detail_page_color_subtitle_returned_no_text');
+      throw new KiditemExternalError('CONTENT_GENERATION_FAILED', { details: { reason: 'detail_page_color_subtitle_returned_no_text' } });
     }
 
     const parsed = this.parseJsonObject(text);
     const subtitle = typeof parsed.subtitle === 'string' ? parsed.subtitle.trim() : '';
     if (!subtitle) {
-      throw new ServiceUnavailableException('detail_page_color_subtitle_empty');
+      throw new KiditemExternalError('CONTENT_GENERATION_FAILED', { details: { reason: 'detail_page_color_subtitle_empty' } });
     }
     return subtitle.slice(0, 80);
   }
@@ -247,7 +248,7 @@ export class DetailPageHeroImageService {
   async generateDetailCutImage(input: GenerateDetailSectionImageInput): Promise<string> {
     const images = await this.fetchInputImages(input.imageUrls, 8, input.signal);
     if (images.length === 0) {
-      throw new ServiceUnavailableException('detail_page_detail_image_no_inputs');
+      throw new KiditemPreconditionError('CONTENT_GENERATION_INPUT_MISSING', { details: { reason: 'detail_page_detail_image_no_inputs' } });
     }
 
     const generated = await this.media.generateImage({
@@ -269,7 +270,7 @@ export class DetailPageHeroImageService {
   async generateUsageGuideImage(input: GenerateUsageGuideImageInput): Promise<string> {
     const images = await this.fetchInputImages(input.imageUrls, 6, input.signal);
     if (images.length === 0) {
-      throw new ServiceUnavailableException('detail_page_usage_image_no_inputs');
+      throw new KiditemPreconditionError('CONTENT_GENERATION_INPUT_MISSING', { details: { reason: 'detail_page_usage_image_no_inputs' } });
     }
 
     const generated = await this.media.generateImage({
@@ -291,7 +292,7 @@ export class DetailPageHeroImageService {
   async generateSizeGuideImage(input: GenerateSizeGuideImageInput): Promise<string> {
     const images = await this.fetchInputImages(input.imageUrls, 8, input.signal);
     if (images.length === 0) {
-      throw new ServiceUnavailableException('detail_page_size_image_no_inputs');
+      throw new KiditemPreconditionError('CONTENT_GENERATION_INPUT_MISSING', { details: { reason: 'detail_page_size_image_no_inputs' } });
     }
 
     const generated = await this.media.generateImage({
@@ -495,7 +496,7 @@ export class DetailPageHeroImageService {
 function requireExplicitModel(model: string | undefined): string {
   const selected = model?.trim();
   if (!selected) {
-    throw new ServiceUnavailableException('detail_page_media_model_not_configured');
+    throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'DETAIL_PAGE_MEDIA_MODEL_MISSING' } });
   }
   return selected;
 }

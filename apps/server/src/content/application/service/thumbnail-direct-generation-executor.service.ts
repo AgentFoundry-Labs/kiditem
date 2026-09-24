@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { KiditemExternalError } from '@kiditem/shared/errors';
 import type {
   ThumbnailGenerateDirectInput,
   ThumbnailGenerateDirectOutput,
@@ -47,7 +48,7 @@ export class ThumbnailDirectGenerationExecutorService {
           });
 
     if (candidates.length === 0) {
-      throw new Error('Gemini image generation returned no candidates.');
+      throw new KiditemExternalError('CONTENT_GENERATION_FAILED', { details: { reason: 'THUMBNAIL_RETURNED_NO_CANDIDATES' } });
     }
 
     return {

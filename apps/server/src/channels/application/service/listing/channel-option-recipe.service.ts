@@ -1,6 +1,6 @@
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import type { ChannelRecipeFactQueries } from '../../port/in/channel-option-recipe.port';
-import { ListingException } from '../../exception/listing.exception';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import {
   type ChannelOptionRecipeMutation,
   type ChannelOptionRecipePort,
@@ -35,11 +35,11 @@ implements ChannelOptionRecipePort {
     const optionIds = new Set<string>();
     for (const transition of input.transitions) {
       if (optionIds.has(transition.channelListingOptionId)) {
-        throw new ListingException('invalid', 'Each channel listing option may appear only once');
+        throw new KiditemInvalidValueError('CHANNELS_OPTION_RECIPE_INVALID', { details: { reason: 'DUPLICATE_OPTION' } });
       }
       optionIds.add(transition.channelListingOptionId);
       validateComponents(transition.components);
-      if (!/^KID[0-9]{8}$/.test(transition.kidItemCode)) throw new ListingException('invalid', 'Invalid KID item code');
+      if (!/^KID[0-9]{8}$/.test(transition.kidItemCode)) throw new KiditemInvalidValueError('CHANNELS_OPTION_RECIPE_INVALID', { details: { reason: 'KID_CODE_INVALID' } });
     }
     return this.repository.replaceConfirmedCompositionsInTransaction(transaction, input);
   }
@@ -100,11 +100,11 @@ function validateMutations(mutations: readonly ChannelOptionRecipeMutation[]): v
   const optionIds = new Set<string>();
   for (const mutation of mutations) {
     if (optionIds.has(mutation.channelListingOptionId)) {
-      throw new ListingException('invalid', 'Each channel listing option may appear only once');
+      throw new KiditemInvalidValueError('CHANNELS_OPTION_RECIPE_INVALID', { details: { reason: 'DUPLICATE_OPTION' } });
     }
     optionIds.add(mutation.channelListingOptionId);
     if (mutation.preparedKidItemCode !== undefined && !/^KID[0-9]{8}$/.test(mutation.preparedKidItemCode)) {
-      throw new ListingException('invalid', 'Invalid prepared KID item code');
+      throw new KiditemInvalidValueError('CHANNELS_OPTION_RECIPE_INVALID', { details: { reason: 'PREPARED_KID_CODE_INVALID' } });
     }
     validateComponents(mutation.components);
   }
@@ -114,10 +114,10 @@ function validateComponents(components: readonly ChannelRecipeComponentInput[]):
   const masterProductIds = new Set<string>();
   for (const component of components) {
     if (!Number.isSafeInteger(component.quantity) || component.quantity <= 0) {
-      throw new ListingException('invalid', 'Every inventory component quantity must be a positive integer');
+      throw new KiditemInvalidValueError('CHANNELS_OPTION_RECIPE_INVALID', { details: { reason: 'COMPONENT_QUANTITY_INVALID' } });
     }
     if (masterProductIds.has(component.masterProductId)) {
-      throw new ListingException('invalid', 'Inventory component MasterProduct IDs must be distinct');
+      throw new KiditemInvalidValueError('CHANNELS_OPTION_RECIPE_INVALID', { details: { reason: 'COMPONENT_DUPLICATE' } });
     }
     masterProductIds.add(component.masterProductId);
   }

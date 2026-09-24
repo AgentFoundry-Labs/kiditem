@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
@@ -14,7 +13,6 @@ import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence
 import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
 import { ChannelsProductMappingGenerationAdapter } from '../adapter/out/products/product-mapping-generation.adapter';
 import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
-import { ListingException } from '../application/exception/listing.exception';
 import { readListingProductIds } from '../adapter/out/persistence/listing-product-summary.reader';
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -169,8 +167,8 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
     const winners = results.flatMap((result, index) => result.status === 'fulfilled' ? [index] : []);
     expect(winners).toHaveLength(1);
     const loser = results.find(result => result.status === 'rejected') as PromiseRejectedResult;
-    expect(loser.reason).toBeInstanceOf(ListingException);
-    expect(loser.reason).toMatchObject({ code: 'conflict' });
+    // 웹 recipe-conflict는 409로 "다른 곳에서 바뀜"을 판단한다.
+    expect(loser.reason).toMatchObject({ code: 'CHANNELS_OPTION_RECIPE_STALE', kind: 'conflict', httpStatus: 409 });
     await expect(prisma.channelListingOptionInventoryComponent.findMany({
       where: { channelListingOptionId: option.id },
       select: { masterProductId: true, quantity: true },
@@ -191,7 +189,7 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
       channelListingOptionId: option.id,
       expectedComponents: [],
       components: [{ masterProductId: product.id, quantity: 5 }],
-    })).rejects.toMatchObject({ code: 'conflict' });
+    })).rejects.toMatchObject({ code: 'CHANNELS_OPTION_RECIPE_STALE', httpStatus: 409 });
     await expect(prisma.channelListingOptionInventoryComponent.findMany({
       where: { channelListingOptionId: option.id },
       select: { masterProductId: true, quantity: true },
@@ -216,7 +214,7 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
       channelListingOptionId: option.id,
       expectedComponents: [],
       components: [{ masterProductId: deleted.id, quantity: 1 }],
-    })).rejects.toMatchObject({ code: 'conflict' });
+    })).rejects.toMatchObject({ code: 'CHANNELS_OPTION_RECIPE_STALE', httpStatus: 409 });
     await expect(prisma.channelListingOptionInventoryComponent.findMany({
       where: { channelListingOptionId: option.id },
       select: { masterProductId: true, quantity: true },
@@ -293,13 +291,13 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
           components: [{ masterProductId: deletedId, quantity: 1 }],
         },
       ],
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'CHANNELS_OPTION_RECIPE_INVALID', kind: 'validation' });
     await expect(recipes.replaceRecipe({
       organizationId: TEST_ORGANIZATION_ID,
       channelListingOptionId: options[0]!.id,
       expectedComponents: [],
       components: [{ masterProductId: deletedId, quantity: 1 }],
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'CHANNELS_OPTION_RECIPE_INVALID', kind: 'validation' });
     expect(await prisma.channelListingOptionInventoryComponent.count()).toBe(0);
     expect(await prisma.channelListingOption.findMany({
       where: { id: { in: options.map(({ id }) => id) } },
@@ -322,7 +320,7 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
           preparedKidItemCode: 'KID12345678',
           components: [{ masterProductId, quantity: 2 }],
         }],
-      })).rejects.toBeInstanceOf(BadRequestException);
+      })).rejects.toMatchObject({ code: 'CHANNELS_OPTION_RECIPE_INVALID', kind: 'validation' });
       expect(await prisma.channelListingOptionInventoryComponent.count()).toBe(0);
       expect(await prisma.channelListingOption.findUniqueOrThrow({ where: { id: options[0]!.id } }))
         .toMatchObject({ kidItemCode: null });
@@ -340,14 +338,14 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
         expectedMasterProductId: product.id,
         components: [{ masterProductId: product.id, quantity: 0 }],
       }],
-    })).toThrow(ListingException);
+    })).toThrow(expect.objectContaining({ code: 'CHANNELS_OPTION_RECIPE_INVALID', kind: 'validation' }));
     await expect(recipes.applyPreservingRecipes({
       organizationId: OTHER_ORGANIZATION_ID,
       mutations: [{
         channelListingOptionId: options[0]!.id,
         components: [{ masterProductId: product.id, quantity: 1 }],
       }],
-    })).rejects.toBeInstanceOf(NotFoundException);
+    })).rejects.toMatchObject({ code: 'CHANNELS_LISTING_NOT_FOUND', kind: 'not_found' });
     expect(await prisma.channelListingOptionInventoryComponent.count()).toBe(0);
   });
 

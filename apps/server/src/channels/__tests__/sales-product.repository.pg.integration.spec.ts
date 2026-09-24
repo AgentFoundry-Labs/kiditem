@@ -1,6 +1,5 @@
 import { realRegistrableDetailPages, realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
 import { randomUUID } from 'node:crypto';
-import { ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { SalesProductRepositoryAdapter } from '../adapter/out/persistence/sales-product.repository.adapter';
@@ -95,14 +94,14 @@ describe('sales product repository mall price adoption (PostgreSQL)', () => {
     await expect(repository.applyMallPriceAdoption(TEST_ORGANIZATION_ID, [write({
       ...base, expectedVersion: version - 1,
       optionPrices: [{ salesProductOptionId: options[0]!.id, salePrice: 1_000 }],
-    })])).rejects.toThrow('판매상품이 다른 곳에서 변경되었습니다.');
+    })])).rejects.toMatchObject({ code: 'CHANNELS_SALES_PRODUCT_STALE', details: { reason: 'VERSION_CHANGED' } });
     await expect(repository.applyMallPriceAdoption(TEST_ORGANIZATION_ID, [write({
       ...base, optionPrices: [{ salesProductOptionId: other.options[0]!.id, salePrice: 1_000 }],
-    })])).rejects.toThrow(ConflictException);
+    })])).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'OPTION_NOT_OF_PRODUCT' } });
     await expect(repository.applyMallPriceAdoption(TEST_ORGANIZATION_ID, [write({
       salesProductId: foreign.productId, expectedVersion: 1, channelAccountIds: [accountId],
       optionPrices: [{ salesProductOptionId: foreign.options[0]!.id, salePrice: 1_000 }],
-    })])).rejects.toThrow(ConflictException);
+    })])).rejects.toMatchObject({ code: 'CHANNELS_SALES_PRODUCT_STALE', details: { reason: 'VERSION_CHANGED' } });
     await expect(repository.applyMallPriceAdoption(TEST_ORGANIZATION_ID, [write({
       ...base, optionPrices: [{ salesProductOptionId: options[0]!.id, salePrice: 1_000_000_001 }],
     })])).rejects.toThrow('옵션 판매가가 올바르지 않습니다.');
@@ -648,7 +647,7 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
     expect(archived.status).toBe('archived');
 
     await expect(service.update(TEST_ORGANIZATION_ID, draft.productId, { expectedVersion: 1, status: 'archived' }))
-      .rejects.toThrow('초안');
+      .rejects.toMatchObject({ code: 'CHANNELS_SALES_PRODUCT_DRAFT_NOT_ARCHIVABLE', kind: 'conflict' });
     await expect(service.update(TEST_ORGANIZATION_ID, selling.productId, { expectedVersion: archived.version, status: 'active' }))
       .rejects.toThrow('판매상품 내용이 올바르지 않습니다.');
     expect((await prisma.salesProduct.findUniqueOrThrow({ where: { id: draft.productId } })).status).toBe('draft');
@@ -668,7 +667,9 @@ describe('sales product preparation list and reuse (PostgreSQL)', () => {
       sabangnetGoodsNo: null,
       optionAxes: [],
       sourceRaw: null,
-    }, { writes: [], retireIds: [], deleteIds: [] })).rejects.toThrow('어긋납니다');
+    }, { writes: [], retireIds: [], deleteIds: [] })).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED', details: { reason: 'SALES_PRODUCT_STATUS_INVARIANT' }, message: expect.stringContaining('어긋납니다'),
+    });
 
     expect(await prisma.salesProduct.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).toBe(0);
   });
@@ -1064,7 +1065,7 @@ describe('Sabangnet reimport keeps operator edits (PostgreSQL)', () => {
     await expect(service.import(TEST_ORGANIZATION_ID, file({ 상품명: '바뀐 이름' }), false, [{
       salesProductId: imported.id,
       expectedVersion: imported.version,
-    }])).rejects.toThrow(/Ambiguous source product identity/);
+    }])).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'SOURCE_PRODUCT_IDENTITY_AMBIGUOUS' } });
     const after = await product();
     expect(after).toMatchObject({ name: '투명우산 그리기', version: imported.version, ownCode: OWN_CODE });
   });

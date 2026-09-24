@@ -1,6 +1,7 @@
 import { readCoupangCatalogSheet, applyCoupangCatalogEdits } from './coupang-wing/catalog-edit.adapter';
 import type { CoupangCatalogEdit } from '../../../domain/registration/bulk-sheet/coupang-catalog-edit';
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import type { ChannelDocumentsPort } from '../../../application/port/out/documents/channel-documents.port';
 import { parseCoupangWingWorkbook } from './coupang-wing/workbook.parser';
 import { parseRocketSellpiaMatchingCsv } from './rocket/matching-csv.parser';
@@ -17,7 +18,9 @@ export class ChannelsDocumentsAdapter implements ChannelDocumentsPort {
   parseSabangnetWorkbook(bytes: Uint8Array, name: string) {
     try { return parseSabangnetWorkbook(Buffer.from(bytes), decodeFileName(name)); }
     catch (error) {
-      if (error instanceof SabangnetWorkbookFormatError) throw new BadRequestException(error.message);
+      if (error instanceof SabangnetWorkbookFormatError) {
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'SABANGNET_WORKBOOK_FORMAT' }, message: error.message });
+      }
       throw error;
     }
   }

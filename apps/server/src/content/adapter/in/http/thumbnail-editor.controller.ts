@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, NotFoundException, Post } from '@nestjs/common';
+import { Body, Controller, Post } from '@nestjs/common';
+import { KiditemInvalidValueError, KiditemNotFoundError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
@@ -54,7 +55,9 @@ export class ThumbnailEditorController {
     try {
       subject = resolveThumbnailGenerationSubject(body);
     } catch (error) {
-      if (error instanceof ThumbnailGenerationSubjectError) throw new BadRequestException(error.message);
+      if (error instanceof ThumbnailGenerationSubjectError) {
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'THUMBNAIL_SUBJECT_INVALID' }, message: error.message });
+      }
       throw error;
     }
     // 초안에서 연 편집은 초안의 작업공간에 묶는다. 판매상품이 이 조직 것인지는 작업공간 보장이 확인한다.
@@ -70,12 +73,12 @@ export class ThumbnailEditorController {
       ? await this.generationService.findWorkspaceForThumbnailEditor(workspaceId, organizationId)
       : null;
     if (workspaceId && !workspace) {
-      throw new NotFoundException(`ContentWorkspace ${workspaceId} not found`);
+      throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'workspace' } });
     }
 
     const inputs = await this.resolveInputs(body, organizationId);
     if (inputs.length === 0) {
-      throw new BadRequestException('상품 사진이 필요합니다');
+      throw new KiditemPreconditionError('CONTENT_GENERATION_INPUT_MISSING', { details: { reason: 'PRODUCT_PHOTO_REQUIRED' } });
     }
 
     const editCase = inferThumbnailEditCase(body);

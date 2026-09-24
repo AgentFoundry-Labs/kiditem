@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { KiditemError } from '@kiditem/shared/errors';
 import {
   CATALOG_DISPLAY_MEDIA_PORT,
   type CatalogDisplayMedia,
@@ -75,7 +76,7 @@ function assertUniqueRequestKeys(requests: readonly CatalogDisplayMediaRequest[]
   const seen = new Set<string>();
   for (const request of requests) {
     if (seen.has(request.key)) {
-      throw new Error(`Duplicate catalog display media request key: ${request.key}`);
+      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'CATALOG_MEDIA_REQUEST_KEY_DUPLICATE', key: request.key } });
     }
     seen.add(request.key);
   }

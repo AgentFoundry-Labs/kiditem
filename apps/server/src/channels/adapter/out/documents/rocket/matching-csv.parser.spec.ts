@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import { parseRocketSellpiaMatchingCsv } from './matching-csv.parser';
 
@@ -50,6 +49,6 @@ describe('parseRocketSellpiaMatchingCsv', () => {
     expect(() => parseRocketSellpiaMatchingCsv(Buffer.from([
       '쿠팡공급사_상품명,바코드,vendorItemId',
       '테스트,8806384883947,78399258325',
-    ].join('\n')))).toThrow(BadRequestException);
+    ].join('\n')))).toThrow(expect.objectContaining({ code: 'VALIDATION_FAILED', details: { reason: 'MATCHING_CSV_COLUMNS_MISSING' } }));
   });
 });

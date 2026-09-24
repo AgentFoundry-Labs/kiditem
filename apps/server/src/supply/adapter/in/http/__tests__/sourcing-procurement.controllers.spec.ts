@@ -57,7 +57,7 @@ describe('sourcing procurement HTTP adapters', () => {
     const controller = new SupplierOfferSnapshotsController(procurement);
 
     await expect(controller.get('org-1', 'snapshot-1')).rejects.toMatchObject({
-      status: 404,
+      code: 'NOT_FOUND', httpStatus: 404, details: { reason: 'supplier_offer_snapshot' },
     });
     expect(procurement.findOfferSnapshot).toHaveBeenCalledWith({
       organizationId: 'org-1', id: 'snapshot-1',

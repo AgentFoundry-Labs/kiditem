@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { DetailPageEditorController } from './detail-page-editor.controller';
 
@@ -10,7 +9,7 @@ describe('DetailPageEditorController.list', () => {
     const service = { list: vi.fn() };
     const controller = new DetailPageEditorController(service as never);
 
-    expect(() => controller.list(ORG, undefined, undefined, 'candidate-1')).toThrow(BadRequestException);
+    expect(() => controller.list(ORG, undefined, undefined, 'candidate-1')).toThrow(expect.objectContaining({ code: 'VALIDATION_FAILED', details: { reason: 'FILTER_REMOVED', field: 'sourceCandidateId' } }));
     expect(service.list).not.toHaveBeenCalled();
   });
 

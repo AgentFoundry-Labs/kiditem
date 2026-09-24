@@ -1,6 +1,6 @@
 import { realRegistrationStates } from '../../test-helpers/registration-state';
 import { randomUUID } from 'node:crypto';
-import { ConflictException, NotFoundException } from '@nestjs/common';
+import { NotFoundException } from '@nestjs/common';
 import { Prisma, type PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { makeChannelListingQuery, makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
@@ -290,7 +290,7 @@ describe('AI content ownership constraints (PG integration)', () => {
           ...selections,
         },
       });
-    })).rejects.toThrow('Selected detail revision is not source-owned.');
+    })).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'DETAIL_REVISION_NOT_OWNED' } });
 
     expect(await prisma.registrationTarget.count({
       where: { organizationId: TEST_ORGANIZATION_ID },
@@ -365,7 +365,7 @@ describe('AI content ownership constraints (PG integration)', () => {
 
     releaseLock();
     await adoption;
-    await expect(deletion).rejects.toBeInstanceOf(ConflictException);
+    await expect(deletion).rejects.toMatchObject({ code: 'CONTENT_ASSET_IN_USE', details: { reason: 'ADOPTED_REPRESENTATIVE_IMAGE' } });
     expect(deletionState).toBe('blocked');
     await expect(prisma.thumbnailGeneration.findUniqueOrThrow({
       where: { id: generation.id },

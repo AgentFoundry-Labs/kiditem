@@ -1,3 +1,5 @@
+import { KiditemError } from '@kiditem/shared/errors';
+
 export type PreparedRegistrationRecipe = Readonly<{
   kidItemCode: string;
   masterProductId: string;
@@ -23,7 +25,7 @@ export function preparedRegistrationRecipe(payload: unknown): PreparedRegistrati
     || typeof match.sellpiaInventorySkuId !== 'string'
     || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-8][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(match.sellpiaInventorySkuId)
     || !Number.isSafeInteger(match.quantity) || Number(match.quantity) <= 0) {
-    throw new Error('Frozen registration item code or source recipe is invalid');
+    throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'FROZEN_ITEM_CODE_INVALID' } });
   }
   return { kidItemCode: code, masterProductId: match.sellpiaInventorySkuId, quantity: Number(match.quantity) };
 }

@@ -2,7 +2,7 @@
 import type { RegistrationTarget, RegistrationTargetResolveInput, RegistrationTargetUpdateInput } from '@kiditem/shared/sales-product';
 import type { RegistrationTargetPort } from '../../port/in/registration-target.port';
 import { REGISTRATION_TARGET_REPOSITORY_PORT, type RegistrationTargetRecord, type RegistrationTargetRepositoryPort } from '../../port/out/persistence/registration-target.repository.port';
-import { RegistrationTargetException } from '../../exception/registration-target.exception';
+import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 
 
 export class RegistrationTargetUseCase implements RegistrationTargetPort {
@@ -17,7 +17,7 @@ export class RegistrationTargetUseCase implements RegistrationTargetPort {
   }
   async get(organizationId: string, targetId: string): Promise<RegistrationTarget> {
     const target = await this.repository.get(organizationId, targetId);
-    if (!target) throw new RegistrationTargetException('not_found', '등록 설정을 찾지 못했습니다.');
+    if (!target) throw new KiditemNotFoundError('CHANNELS_REGISTRATION_TARGET_NOT_FOUND');
     return resolveTarget(target);
   }
   async archive(organizationId: string, targetId: string): Promise<void> {
@@ -39,7 +39,7 @@ function resolveTarget(record: RegistrationTargetRecord): RegistrationTarget {
       name: product.name,
       options: record.selectedOptions.map(selection => {
         const option = byId.get(selection.salesProductOptionId);
-        if (!option) throw new RegistrationTargetException('invalid', '선택한 옵션이 해당 판매상품에 없습니다.');
+        if (!option) throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '선택한 옵션이 해당 판매상품에 없습니다.' });
         return {
           salesProductOptionId: option.id, code: option.code, values: option.values,
           salePrice: option.salePrice,

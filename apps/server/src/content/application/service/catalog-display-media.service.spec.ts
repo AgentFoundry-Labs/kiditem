@@ -80,7 +80,7 @@ describe('CatalogDisplayMediaService', () => {
         { key: 'duplicate', candidates: [] },
         { key: 'duplicate', candidates: [] },
       ],
-    })).rejects.toThrow('Duplicate catalog display media request key: duplicate');
+    })).rejects.toMatchObject({ code: 'INTERNAL_ERROR', details: { reason: 'CATALOG_MEDIA_REQUEST_KEY_DUPLICATE', key: 'duplicate' } });
   });
 });
 

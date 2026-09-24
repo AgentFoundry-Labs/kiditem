@@ -1,8 +1,5 @@
-import { UseFilters } from '@nestjs/common';
-import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import type { ZodType, output } from 'zod';
 import {
-  BadRequestException,
   Body,
   Inject,
   Controller,
@@ -21,6 +18,7 @@ import {
   UploadedFiles,
   UseInterceptors,
 } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { FileInterceptor, FilesInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
@@ -55,7 +53,6 @@ const WORKBOOK_EXTENSIONS = /\.(xlsx|xls)$/i;
  * 판매상품 · 단품(ADR-0014). 조직은 세션에서만 온다. 사방넷 엑셀 가져오기는 `dryRun=true` 로 먼저
  * 무엇이 바뀔지 보고, 같은 파일로 다시 불러 확정한다.
  */
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('products/sales-products')
 export class SalesProductController {
   constructor(
@@ -130,7 +127,7 @@ export class SalesProductController {
       limits: { fileSize: MAX_WORKBOOK_SIZE },
       fileFilter: (_req, file, cb) => {
         if (WORKBOOK_EXTENSIONS.test(file.originalname)) return cb(null, true);
-        cb(new BadRequestException('윙에서 내려받은 쿠팡상품정보 엑셀(.xlsx) 파일만 받습니다.'), false);
+        cb(new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_WORKBOOK_FILE_TYPE' }, message: '윙에서 내려받은 쿠팡상품정보 엑셀(.xlsx) 파일만 받습니다.' }), false);
       },
     }),
   )
@@ -153,7 +150,7 @@ export class SalesProductController {
       limits: { fileSize: MAX_WORKBOOK_SIZE },
       fileFilter: (_req, file, cb) => {
         if (WORKBOOK_EXTENSIONS.test(file.originalname)) return cb(null, true);
-        cb(new BadRequestException('윙에서 내려받은 쿠팡상품정보 엑셀(.xlsx) 파일만 받습니다.'), false);
+        cb(new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_WORKBOOK_FILE_TYPE' }, message: '윙에서 내려받은 쿠팡상품정보 엑셀(.xlsx) 파일만 받습니다.' }), false);
       },
     }),
   )
@@ -206,7 +203,7 @@ export class SalesProductController {
     @CurrentOrganization() organizationId: string,
     @Query('mallKey') mallKey?: string,
   ) {
-    if (!mallKey?.trim()) throw new BadRequestException('mallKey 가 필요합니다.');
+    if (!mallKey?.trim()) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'MALL_KEY_REQUIRED' }, message: '몰을 골라 주세요.' });
     return this.salesProducts.mallCategories(organizationId, mallKey.trim());
   }
 
@@ -259,7 +256,7 @@ export class SalesProductController {
       limits: { fileSize: MAX_WORKBOOK_SIZE },
       fileFilter: (_req, file, cb) => {
         if (WORKBOOK_EXTENSIONS.test(file.originalname)) return cb(null, true);
-        cb(new BadRequestException('사방넷에서 내려받은 엑셀(.xlsx) 파일만 받습니다.'), false);
+        cb(new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'SABANGNET_WORKBOOK_FILE_TYPE' }, message: '사방넷에서 내려받은 엑셀(.xlsx) 파일만 받습니다.' }), false);
       },
     }),
   )
@@ -274,7 +271,7 @@ export class SalesProductController {
       try {
         selections = SabangnetImportSelectionSchema.parse(JSON.parse(applyExisting));
       } catch {
-        throw new BadRequestException('applyExisting 는 버전이 포함된 JSON 선택 목록이어야 합니다.');
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'APPLY_EXISTING_INVALID' }, message: '기존 상품에 반영할 선택 목록이 올바르지 않습니다. 새로고침한 뒤 다시 골라 주세요.' });
       }
     }
     return this.sabangnetImport.import(organizationId, files ?? [], dryRun !== 'false', selections);
@@ -321,7 +318,7 @@ export class SalesProductController {
 function optionalInt(value: string | undefined): number | undefined {
   if (value === undefined || value === '') return undefined;
   const parsed = Number(value);
-  if (!Number.isInteger(parsed) || parsed < 0) throw new BadRequestException('limit · skip 은 0 이상의 정수입니다.');
+  if (!Number.isInteger(parsed) || parsed < 0) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'PAGINATION_INVALID' }, message: '조회 범위는 0 이상의 정수여야 합니다.' });
   return parsed;
 }
 
@@ -332,6 +329,11 @@ function contentDisposition(fileName: string): string {
 
 function parseInput<T extends ZodType>(schema: T, value: unknown): output<T> {
   const parsed = schema.safeParse(value);
-  if (!parsed.success) throw new BadRequestException(parsed.error.issues.map((issue) => issue.message).join("; "));
+  if (!parsed.success) {
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+      details: { reason: 'REQUEST_INVALID' },
+      message: parsed.error.issues.map((issue) => issue.message).join('; '),
+    });
+  }
   return parsed.data;
 }

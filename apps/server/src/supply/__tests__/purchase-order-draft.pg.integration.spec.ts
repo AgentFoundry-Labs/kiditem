@@ -93,7 +93,7 @@ describe('purchase-order draft idempotency (PG integration)', () => {
         ...command,
         requestHash: 'b'.repeat(64),
       }),
-    ).rejects.toThrow('purchase_order_draft_idempotency_conflict');
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'PURCHASE_ORDER_DRAFT_IDEMPOTENCY_CONFLICT' } });
   });
 });
 

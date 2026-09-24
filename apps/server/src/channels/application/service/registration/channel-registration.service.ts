@@ -4,7 +4,7 @@ import type {
   ExternalProductRegistrationPreflightResult,
 } from '../../port/in/registration/channel-registration.port';
 import type { ListingRegistrationPersistencePort } from '../../port/out/persistence/listing-registration.persistence.port';
-import { RegistrationTargetException } from '../../exception/registration-target.exception';
+import { KiditemInvalidValueError, KiditemPreconditionError } from '@kiditem/shared/errors';
 
 export interface RegistrationRecipeSuggestions {
   suggestRegistration(organizationId: string, input: { channelListingOptionId: string; listingName: string; itemName: string | null }): Promise<ChannelRecipeSuggestionResponse>;
@@ -30,9 +30,7 @@ export class ChannelRegistrationService implements ChannelRegistrationPort {
         !Number.isSafeInteger(input.selectedQuantity) ||
         (input.selectedQuantity ?? 0) <= 0
       ) {
-        throw new RegistrationTargetException('conflict',
-          "셀피아 상품의 판매 1개당 차감수량을 1 이상의 정수로 입력하세요.",
-        );
+        throw new KiditemInvalidValueError('CHANNELS_SELLPIA_DEDUCTION_REQUIRED');
       }
       return this.finishPreflight(
         input,
@@ -51,9 +49,7 @@ export class ChannelRegistrationService implements ChannelRegistrationPort {
     const quantity =
       proposal?.recommendedQuantity ?? suggestion.recommendedQuantity;
     if (!proposal || !Number.isSafeInteger(quantity) || (quantity ?? 0) <= 0) {
-      throw new RegistrationTargetException('conflict',
-        "등록 전에 셀피아 상품을 연결하고 차감수량을 확인하세요.",
-      );
+      throw new KiditemPreconditionError('CHANNELS_SELLPIA_MATCH_REQUIRED');
     }
     return this.finishPreflight(input, toSellpiaMatch(proposal, quantity!));
   }
@@ -85,9 +81,7 @@ export class ChannelRegistrationService implements ChannelRegistrationPort {
     await this.repository.assertActiveRegistrationAccount(input);
     const externalVendorSku = input.externalVendorSku.trim();
     if (!externalVendorSku) {
-      throw new RegistrationTargetException('conflict',
-        "A real Sellpia SKU code is required before registration.",
-      );
+      throw new KiditemPreconditionError('CHANNELS_SELLPIA_MATCH_REQUIRED', { details: { reason: 'SELLPIA_SKU_REQUIRED' } });
     }
     return this.repository.findExistingActiveListingBySellerSku({
       organizationId: input.organizationId,

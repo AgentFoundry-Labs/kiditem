@@ -1,5 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -198,12 +197,12 @@ describe('workspace thumbnail gallery (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       contentWorkspaceId: own.workspaceId,
       assetId: foreign.id,
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'ASSET_NOT_IN_WORKSPACE' } });
     await expect(service.adoptCurrentThumbnail({
       organizationId: OTHER_ORGANIZATION_ID,
       contentWorkspaceId: other.workspaceId,
       assetId: foreign.id,
-    })).rejects.toBeInstanceOf(NotFoundException);
+    })).rejects.toMatchObject({ code: 'CONTENT_NOT_FOUND', details: { reason: 'workspace' } });
 
     const workspaces = await prisma.contentWorkspace.findMany({
       where: { id: { in: [own.workspaceId, other.workspaceId] } },
@@ -226,12 +225,12 @@ describe('workspace thumbnail gallery (PG integration)', () => {
     });
 
     for (const role of ['detail_source', 'detail_image']) {
-      await expect(adopt(own.workspaceId, (await photo(own.workspaceId, role)).id)).rejects.toBeInstanceOf(BadRequestException);
+      await expect(adopt(own.workspaceId, (await photo(own.workspaceId, role)).id)).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'ASSET_NOT_IN_WORKSPACE' } });
     }
-    await expect(adopt(own.workspaceId, (await photo(own.workspaceId, 'primary', 'catalog')).id)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(adopt(own.workspaceId, (await photo(own.workspaceId, 'primary', 'catalog')).id)).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'ASSET_NOT_IN_WORKSPACE' } });
     const catalogPrimary = await photo(listingWorkspace.id, 'primary', 'catalog');
     await expect(adopt(listingWorkspace.id, catalogPrimary.id)).resolves.toMatchObject({ id: catalogPrimary.id });
-    await expect(adopt(listingWorkspace.id, (await photo(listingWorkspace.id, 'detail', 'catalog')).id)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(adopt(listingWorkspace.id, (await photo(listingWorkspace.id, 'detail', 'catalog')).id)).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'ASSET_NOT_IN_WORKSPACE' } });
     expect((await prisma.contentWorkspace.findUniqueOrThrow({ where: { id: own.workspaceId } })).currentThumbnailAssetId).toBeNull();
   });
 
@@ -290,7 +289,7 @@ describe('workspace thumbnail gallery (PG integration)', () => {
       assetId: asset.id,
     });
 
-    await expect(service.deleteAsset(TEST_ORGANIZATION_ID, asset.id)).rejects.toMatchObject({ status: 409 });
+    await expect(service.deleteAsset(TEST_ORGANIZATION_ID, asset.id)).rejects.toMatchObject({ code: 'CONTENT_ASSET_IN_USE', httpStatus: 409 });
   });
 
   it('refuses to write a gallery into another organization workspace', async () => {
@@ -301,7 +300,7 @@ describe('workspace thumbnail gallery (PG integration)', () => {
       contentWorkspaceId: workspaceId,
       createdByUserId: null,
       thumbnailUrls: ['https://cdn.example.com/thumb-a.png'],
-    })).rejects.toBeInstanceOf(NotFoundException);
+    })).rejects.toMatchObject({ code: 'CONTENT_NOT_FOUND', details: { reason: 'workspace' } });
 
     await expect(
       prisma.contentAsset.count({ where: { organizationId: OTHER_ORGANIZATION_ID } }),

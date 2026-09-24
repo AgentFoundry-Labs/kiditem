@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import {
   assertHttpUrl,
   assertSupportedMime as assertSupportedMimeImpl,
@@ -24,8 +25,19 @@ function asBadRequest(error: unknown): never {
   // URL guards now throw `PublicUrlError` (shared with products domain);
   // MIME / data-URL guards still throw `ThumbnailImageSourceError`. Both must
   // surface as 400 BadRequest at the HTTP boundary.
-  if (error instanceof ThumbnailImageSourceError || error instanceof PublicUrlError) {
-    throw new BadRequestException(error.message);
+  if (error instanceof ThumbnailImageSourceError) {
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+      details: { reason: 'IMAGE_MIME_UNSUPPORTED' },
+      message: '지원하지 않는 이미지 형식입니다. 다른 이미지로 다시 시도해 주세요.',
+      cause: error,
+    });
+  }
+  if (error instanceof PublicUrlError) {
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+      details: { reason: 'IMAGE_URL_NOT_ALLOWED' },
+      message: '이 이미지 주소는 쓸 수 없습니다. 공개된 이미지 주소인지 확인해 주세요.',
+      cause: error,
+    });
   }
   throw error;
 }
@@ -115,12 +127,12 @@ export class ThumbnailImageFetcherService {
       const response = await fetch(url, requestInit);
       if (response.status >= 300 && response.status < 400) {
         const location = response.headers.get('location');
-        if (!location) throw new BadRequestException('image url redirect missing location');
+        if (!location) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'IMAGE_FETCH_FAILED', step: 'redirect' }, message: '이미지를 가져오지 못했습니다. 이미지 주소를 확인해 주세요.' });
         url = new URL(location, url).toString();
         continue;
       }
       if (!response.ok) {
-        throw new BadRequestException(`image fetch failed: ${response.status}`);
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'IMAGE_FETCH_FAILED', providerStatus: response.status }, message: '이미지를 가져오지 못했습니다. 이미지 주소를 확인해 주세요.' });
       }
       const mimeType = (response.headers.get('content-type') ?? 'image/jpeg')
         .split(';')[0]
@@ -130,7 +142,7 @@ export class ThumbnailImageFetcherService {
       const buffer = await readResponseBytes(response, MAX_FETCH_BYTES, requestInit.signal ?? undefined);
       return { buffer, mimeType, storageKey: initialOwnKey ?? this.storage.extractKey(url) };
     }
-    throw new BadRequestException('image url redirected too many times');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'IMAGE_FETCH_FAILED', step: 'redirect_limit' }, message: '이미지를 가져오지 못했습니다. 이미지 주소를 확인해 주세요.' });
   }
 
   async fetchTrustedStorageImage(

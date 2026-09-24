@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
-import { BadRequestException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -122,7 +121,7 @@ describe('detail page editor (PG integration)', () => {
   it('duplicates a page into a new human page whose copy becomes the current detail, and refuses a page with nothing saved', async () => {
     const workspaceId = await workspace();
     const pageId = await readyGeneratedPage(workspaceId);
-    await expect(editor.duplicateVersion(pageId, TEST_ORGANIZATION_ID, TEST_USER_ID)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(editor.duplicateVersion(pageId, TEST_ORGANIZATION_ID, TEST_USER_ID)).rejects.toMatchObject({ code: 'CONTENT_REVISION_REQUIRED', details: { reason: 'DUPLICATE_SOURCE_UNSAVED' } });
 
     await editor.saveEditedHtml(pageId, TEST_ORGANIZATION_ID, RENDERABLE('<p>원본</p>'));
     const copy = await editor.duplicateVersion(pageId, TEST_ORGANIZATION_ID, TEST_USER_ID);
@@ -196,8 +195,8 @@ describe('detail page editor (PG integration)', () => {
     const pageId = await readyGeneratedPage(workspaceId);
     await editor.remove(pageId, TEST_ORGANIZATION_ID);
 
-    await expect(editor.getById(pageId, TEST_ORGANIZATION_ID)).rejects.toThrow('Detail page not found');
-    await expect(editor.saveEditedHtml(pageId, TEST_ORGANIZATION_ID, RENDERABLE('<p>x</p>'))).rejects.toThrow('Detail page not found');
-    await expect(editor.getEditedHtml(randomUUID(), TEST_ORGANIZATION_ID)).rejects.toThrow('Detail page not found');
+    await expect(editor.getById(pageId, TEST_ORGANIZATION_ID)).rejects.toMatchObject({ code: 'CONTENT_NOT_FOUND', details: { reason: 'detail_page' } });
+    await expect(editor.saveEditedHtml(pageId, TEST_ORGANIZATION_ID, RENDERABLE('<p>x</p>'))).rejects.toMatchObject({ code: 'CONTENT_NOT_FOUND', details: { reason: 'detail_page' } });
+    await expect(editor.getEditedHtml(randomUUID(), TEST_ORGANIZATION_ID)).rejects.toMatchObject({ code: 'CONTENT_NOT_FOUND', details: { reason: 'detail_page' } });
   });
 });

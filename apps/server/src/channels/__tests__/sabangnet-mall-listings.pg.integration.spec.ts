@@ -25,6 +25,8 @@ import { SabangnetMallListingsService } from '../application/service/collection/
 import { completedCatalogRunWhere } from '../adapter/out/repository/completed-catalog-run';
 import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
 import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
+import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
+import { ChannelBusinessExceptionFilter } from '../adapter/in/web/channel-business-exception.filter';
 
 const KIDSNOTE = '11111111-1111-4111-8111-111111111111';
 const KIDSNOTE_LATER = '11111111-1111-4111-8111-111111111112';
@@ -117,6 +119,7 @@ describe('Sabangnet mall listings owner — public HTTP + disposable PG', () => 
         next();
       },
     );
+    app.useGlobalFilters(new GlobalExceptionFilter(), new ChannelBusinessExceptionFilter());
     await app.init();
     await app.listen(0, '127.0.0.1');
     httpUrl = await app.getUrl();

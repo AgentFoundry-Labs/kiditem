@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Delete, Get, Inject, Param, ParseUUIDPipe, Post, Query, UseFilters } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import {
   ThumbnailExecutionPrepareRequestSchema,
   ThumbnailExecutionReportRequestSchema,
@@ -11,10 +12,8 @@ import {
   CHANNELS_THUMBNAIL_EXECUTION_PORT,
   type ChannelsThumbnailExecutionPort,
 } from '../../../application/port/in/thumbnail-execution.port';
-import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 
 /** 대표이미지 몰 반영 — 확장 경로의 준비 · 보고 · 다시 보내기, 운영자 표시, 상태 읽기 · 실패 치우기. */
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels/thumbnail-executions')
 export class ThumbnailExecutionController {
   constructor(@Inject(CHANNELS_THUMBNAIL_EXECUTION_PORT) private readonly executions: ChannelsThumbnailExecutionPort) {}
@@ -22,7 +21,7 @@ export class ThumbnailExecutionController {
   @Post()
   async prepare(@CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser, @Body() body: unknown) {
     const parsed = ThumbnailExecutionPrepareRequestSchema.safeParse(body);
-    if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
+    if (!parsed.success) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'REQUEST_INVALID' }, cause: parsed.error });
     return this.executions.prepare({ organizationId, requestedByUserId: user?.id ?? null, ...parsed.data });
   }
 
@@ -34,7 +33,7 @@ export class ThumbnailExecutionController {
     @Body() body: unknown,
   ) {
     const parsed = ThumbnailExecutionReportRequestSchema.safeParse(body);
-    if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
+    if (!parsed.success) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'REQUEST_INVALID' }, cause: parsed.error });
     return this.executions.report({ organizationId, requestedByUserId: user?.id ?? null, executionId, report: parsed.data });
   }
 
@@ -79,7 +78,7 @@ export class ThumbnailExecutionController {
     const parsed = ThumbnailExecutionStatusQuerySchema.safeParse({
       salesProductIds: (salesProductIds ?? '').split(',').map((id) => id.trim()).filter(Boolean),
     });
-    if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
+    if (!parsed.success) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'REQUEST_INVALID' }, cause: parsed.error });
     return { items: await this.executions.listLatest({ organizationId, salesProductIds: parsed.data.salesProductIds }) };
   }
 

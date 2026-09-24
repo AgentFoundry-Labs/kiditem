@@ -1,4 +1,5 @@
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemConflictError, KiditemInvalidValueError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import {
   PRODUCT_GENERATION_CONTEXT_REPOSITORY_PORT,
   type ProductGenerationContextRepositoryPort,
@@ -39,9 +40,8 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
   ): Promise<ProductGenerationAiResult> {
     const idempotencyKey = input.idempotencyKey?.trim();
     const requestHash = input.requestHash?.trim();
-    if (!idempotencyKey || !requestHash) {
-      throw new Error('product_generation_idempotency_required');
-    }
+    if (!idempotencyKey) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'IDEMPOTENCY_KEY_REQUIRED' } });
+    if (!requestHash) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'INPUT_HASH_REQUIRED' } });
     return this.startClaimed(input, { idempotencyKey, requestHash });
   }
 
@@ -56,7 +56,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
     input: RegisterUploadedDetailPageRequest,
   ): Promise<RegisterUploadedDetailPageResult> {
     const productName = input.productName.trim();
-    if (!productName) throw new ConflictException('product_generation_product_name_required');
+    if (!productName) throw new KiditemPreconditionError('CONTENT_GENERATION_INPUT_MISSING', { details: { reason: 'PRODUCT_NAME_REQUIRED' } });
     const workspace = await this.contentWorkspaces.ensureForGeneration({
       organizationId: input.organizationId,
       triggeredByUserId: input.triggeredByUserId,
@@ -104,10 +104,10 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
       existingChildren.thumbnail,
     ].filter((child): child is NonNullable<typeof child> => Boolean(child));
     if (existingChildHashes.some((child) => child.isDeleted)) {
-      throw new ConflictException('product_generation_idempotency_conflict');
+      throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'PRODUCT_GENERATION_IDEMPOTENCY_CONFLICT' } });
     }
     if (existingChildHashes.some((child) => child.requestHash !== coordinate.requestHash)) {
-      throw new ConflictException('product_generation_idempotency_conflict');
+      throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'PRODUCT_GENERATION_IDEMPOTENCY_CONFLICT' } });
     }
     const href = salesProductHref(input.salesProductId);
     const includeDetailPage = input.task !== 'thumbnail';
@@ -132,7 +132,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
     }
     const brief = input.productBrief;
     const productName = brief.productName.trim();
-    if (!productName) throw new ConflictException('product_generation_product_name_required');
+    if (!productName) throw new KiditemPreconditionError('CONTENT_GENERATION_INPUT_MISSING', { details: { reason: 'PRODUCT_NAME_REQUIRED' } });
 
     const imageUrls = brief.imageUrls.filter(Boolean);
     const rawDescription = buildProductGenerationDescription(brief);

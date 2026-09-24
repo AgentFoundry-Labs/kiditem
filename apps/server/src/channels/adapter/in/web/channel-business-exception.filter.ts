@@ -1,12 +1,9 @@
 import { ArgumentsHost, Catch, type ExceptionFilter } from '@nestjs/common';
 import { KiditemError, resolveErrorCode, type KiditemErrorCode } from '@kiditem/shared/errors';
-import { ChannelAccountException } from '../../../application/exception/channel-account.exception';
-import { RegistrationTargetException } from '../../../application/exception/registration-target.exception';
 import { ListingException } from '../../../application/exception/listing.exception';
 import { GlobalExceptionFilter } from '../../../../common/filters/global-exception.filter';
 import { ChannelBusinessError, type ChannelErrorKind } from '../../../domain/exception/channel-business-error';
 
-type ChannelApplicationException = ChannelAccountException | RegistrationTargetException | ListingException;
 
 const KIND_CODES: Record<ChannelErrorKind, KiditemErrorCode> = {
   invalid: 'VALIDATION_FAILED',
@@ -17,10 +14,9 @@ const KIND_CODES: Record<ChannelErrorKind, KiditemErrorCode> = {
   forbidden: 'FORBIDDEN',
 };
 
-const APPLICATION_CODES: Record<'account' | 'listing' | 'target', Record<'invalid' | 'not_found' | 'conflict', KiditemErrorCode>> = {
-  account: { invalid: 'CHANNELS_ACCOUNT_INVALID', not_found: 'CHANNELS_ACCOUNT_NOT_FOUND', conflict: 'DB_CONFLICT' },
-  listing: { invalid: 'VALIDATION_FAILED', not_found: 'CHANNELS_LISTING_NOT_FOUND', conflict: 'DB_CONFLICT' },
-  target: { invalid: 'VALIDATION_FAILED', not_found: 'NOT_FOUND', conflict: 'CHANNELS_REGISTRATION_TARGET_CONFLICT' },
+/** 수집 catalog identity(KID-338)가 아직 던지는 ListingException의 대응표. */
+const LISTING_CODES: Record<'invalid' | 'not_found' | 'conflict', KiditemErrorCode> = {
+  invalid: 'VALIDATION_FAILED', not_found: 'CHANNELS_LISTING_NOT_FOUND', conflict: 'DB_CONFLICT',
 };
 
 const HANGUL = /[가-힣]/;
@@ -31,14 +27,14 @@ const koreanOnly = (message: string) => (HANGUL.test(message) ? message : undefi
  * 영어 문장은 레지스트리 문장으로. `details.code`가 등록 코드로 풀리면 그 코드, 아니면 kind 기본 코드에
  * 원래 코드를 `details.reason`으로 남긴다.
  */
-@Catch(ChannelAccountException, RegistrationTargetException, ListingException, ChannelBusinessError)
+@Catch(ListingException, ChannelBusinessError)
 export class ChannelBusinessExceptionFilter implements ExceptionFilter {
-  catch(error: ChannelApplicationException | ChannelBusinessError, host: ArgumentsHost) {
+  catch(error: ListingException | ChannelBusinessError, host: ArgumentsHost) {
     new GlobalExceptionFilter().catch(toKiditemError(error), host);
   }
 }
 
-export function toKiditemError(error: ChannelApplicationException | ChannelBusinessError): KiditemError {
+export function toKiditemError(error: ListingException | ChannelBusinessError): KiditemError {
   if (error instanceof ChannelBusinessError) {
     const { code: rawCode, message: _message, ...rest } = error.details;
     const resolved = resolveErrorCode(rawCode);
@@ -49,6 +45,5 @@ export function toKiditemError(error: ChannelApplicationException | ChannelBusin
       cause: error,
     });
   }
-  const family = error instanceof ChannelAccountException ? 'account' : error instanceof ListingException ? 'listing' : 'target';
-  return new KiditemError(APPLICATION_CODES[family][error.code], { message: koreanOnly(error.message), cause: error });
+  return new KiditemError(LISTING_CODES[error.code], { message: koreanOnly(error.message), cause: error });
 }

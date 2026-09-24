@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
-import { BadRequestException } from '@nestjs/common';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   makeTestPrisma,
@@ -100,7 +99,7 @@ describe('detail page mall render (PG integration)', () => {
 
     await expect(render.prepare({
       organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID, contentWorkspaceId: workspaceId, detailPageRevisionId: other.current.revisionId,
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'DETAIL_REVISION_NOT_OWNED' } });
   });
 
   it('answers missing for a workspace without a saved detail and serves a claimed intent the bound revision document', async () => {

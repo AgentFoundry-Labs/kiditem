@@ -1,5 +1,5 @@
-import { ConflictException } from '@nestjs/common';
 import { randomUUID } from 'node:crypto';
+import { KiditemConflictError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import type { PrismaService } from '../../../../prisma/prisma.service';
 import type { ThumbnailEditorCandidate } from '../../../domain/model/thumbnail-editor';
@@ -90,7 +90,7 @@ async function assertCandidatesNotAdopted(
     select: { id: true },
   });
   if (adopted) {
-    throw new ConflictException('The adopted representative image cannot be changed through its thumbnail job.');
+    throw new KiditemConflictError('CONTENT_ASSET_IN_USE', { details: { reason: 'ADOPTED_REPRESENTATIVE_IMAGE' } });
   }
 }
 

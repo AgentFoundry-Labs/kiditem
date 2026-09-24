@@ -14,7 +14,7 @@ import {
 } from '../../port/out/repository/channel-product-matching.repository.port';
 import { projectChannelInventoryComponents } from './channel-inventory-availability.projection';
 import { decideStockout } from '../../../domain/listing/stockout-policy';
-import { ListingException } from '../../exception/listing.exception';
+import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 
 export class ChannelSkuAvailabilityService implements ChannelSkuAvailabilityPort {
   constructor(
@@ -24,10 +24,10 @@ export class ChannelSkuAvailabilityService implements ChannelSkuAvailabilityPort
 
   async updateSafetyStock(organizationId: string, optionId: string, safetyStock: number) {
     if (!Number.isSafeInteger(safetyStock) || safetyStock < 0 || safetyStock > 2_147_483_647) {
-      throw new ListingException('invalid', '안전재고는 0 이상의 정수여야 합니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '안전재고는 0 이상의 정수여야 합니다.' });
     }
     if (!await this.repository.updateSafetyStock(organizationId, optionId, safetyStock)) {
-      throw new ListingException('not_found', '몰 옵션을 찾을 수 없습니다.');
+      throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND', { details: { reason: 'LISTING_OPTION_NOT_FOUND' } });
     }
     return { channelListingOptionId: optionId, safetyStock };
   }

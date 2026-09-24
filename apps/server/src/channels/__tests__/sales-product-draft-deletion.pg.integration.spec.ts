@@ -197,7 +197,7 @@ describe('sales product draft deletion (PostgreSQL)', () => {
       organizationId: TEST_ORGANIZATION_ID, code: 'KID00000200', status: 'active', name: '판매 상품',
     } });
     await expect(useCase.deleteDraft(TEST_ORGANIZATION_ID, selling.id)).rejects.toMatchObject({
-      kind: 'conflict', details: { reason: 'not_draft', message: '판매 중인 상품이라 지우지 않고 보관합니다.' },
+      code: 'CHANNELS_SALES_PRODUCT_DRAFT_DELETE_REFUSED', kind: 'conflict', details: { reason: 'not_draft' },
     });
 
     const admitted = await records.admit(sourceRecord(), drafts());
@@ -209,7 +209,7 @@ describe('sales product draft deletion (PostgreSQL)', () => {
       externalId: `ext-${randomUUID()}`, isActive: true,
     } });
     await expect(useCase.deleteDraft(TEST_ORGANIZATION_ID, admitted.salesProductId)).rejects.toMatchObject({
-      kind: 'conflict', details: { reason: 'listing', message: '몰 상품과 이어져 있어 초안을 지우지 않았습니다.' },
+      code: 'CHANNELS_SALES_PRODUCT_DRAFT_DELETE_REFUSED', kind: 'conflict', details: { reason: 'listing' },
     });
 
     expect(await prisma.salesProduct.count()).toBe(2);
@@ -227,7 +227,7 @@ describe('sales product draft deletion (PostgreSQL)', () => {
     } });
 
     await expect(useCase.deleteDraft(TEST_ORGANIZATION_ID, admitted.salesProductId)).rejects.toMatchObject({
-      kind: 'conflict', details: { reason: 'listing', message: '몰 상품과 이어져 있어 초안을 지우지 않았습니다.' },
+      code: 'CHANNELS_SALES_PRODUCT_DRAFT_DELETE_REFUSED', kind: 'conflict', details: { reason: 'listing' },
     });
     expect(await prisma.salesProduct.count({ where: { id: admitted.salesProductId } })).toBe(1);
     expect(await prisma.sourceRecord.count()).toBe(1);
@@ -247,7 +247,7 @@ describe('sales product draft deletion (PostgreSQL)', () => {
     } });
 
     await expect(useCase.deleteDraft(TEST_ORGANIZATION_ID, admitted.salesProductId)).rejects.toMatchObject({
-      kind: 'conflict', details: { reason: 'live_execution', message: '등록 실행이 남아 있어 초안을 지우지 않았습니다.' },
+      code: 'CHANNELS_SALES_PRODUCT_DRAFT_DELETE_REFUSED', kind: 'conflict', details: { reason: 'live_execution' },
     });
 
     expect(await prisma.salesProduct.findUniqueOrThrow({ where: { id: admitted.salesProductId } })).toMatchObject({ status: 'draft' });
@@ -266,7 +266,7 @@ describe('sales product draft deletion (PostgreSQL)', () => {
     await prisma.$executeRaw`UPDATE sales_products SET status = 'draft' WHERE id = ${legacy.id}::uuid`;
 
     await expect(useCase.deleteDraft(TEST_ORGANIZATION_ID, legacy.id)).rejects.toMatchObject({
-      kind: 'conflict', details: { reason: 'not_draft' },
+      code: 'CHANNELS_SALES_PRODUCT_DRAFT_DELETE_REFUSED', kind: 'conflict', details: { reason: 'not_draft' },
     });
 
     expect(await prisma.salesProduct.findUniqueOrThrow({ where: { id: legacy.id } })).toMatchObject({ code: 'KID00000077' });
@@ -292,7 +292,7 @@ describe('sales product draft deletion (PostgreSQL)', () => {
   it('never deletes another organization draft or its source record', async () => {
     const theirs = await records.admit(sourceRecord(OTHER_ORGANIZATION_ID), drafts());
 
-    await expect(useCase.deleteDraft(TEST_ORGANIZATION_ID, theirs.salesProductId)).rejects.toMatchObject({ kind: 'not_found' });
+    await expect(useCase.deleteDraft(TEST_ORGANIZATION_ID, theirs.salesProductId)).rejects.toMatchObject({ code: 'CHANNELS_SALES_PRODUCT_NOT_FOUND', kind: 'not_found' });
 
     expect(await prisma.salesProduct.count({ where: { organizationId: OTHER_ORGANIZATION_ID } })).toBe(1);
     expect(await prisma.sourceRecord.count({ where: { organizationId: OTHER_ORGANIZATION_ID } })).toBe(1);

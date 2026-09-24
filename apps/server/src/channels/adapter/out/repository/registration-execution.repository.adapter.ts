@@ -1,14 +1,13 @@
 import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
 import { randomUUID } from 'node:crypto';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import {
-  BadRequestException,
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException,
-  Optional,
-} from '@nestjs/common';
-import { KiditemConflictError } from '@kiditem/shared/errors';
+  KiditemConflictError,
+  KiditemError,
+  KiditemInvalidValueError,
+  KiditemNotFoundError,
+  KiditemPreconditionError,
+} from '@kiditem/shared/errors';
 import { Prisma, type ProductRegistrationExecution } from '@prisma/client';
 import {
   PrepareListingAvailabilityInputSchema,
@@ -107,7 +106,7 @@ export class RegistrationExecutionRepositoryAdapter
     });
     if (!execution) return null;
     if (execution.requestedByUserId !== input.requestedByUserId) {
-      throw new ConflictException('Listing availability execution belongs to a different actor.');
+      throw new KiditemConflictError('CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT', { details: { reason: 'ACTOR_MISMATCH' } });
     }
     return listingAvailabilityResult(execution, false);
   }
@@ -119,14 +118,14 @@ export class RegistrationExecutionRepositoryAdapter
   }): Promise<ListingAvailabilityExecution> {
     assertClientIdempotencyKey(input.request.idempotencyKey);
     const parsedRequest = PrepareListingAvailabilityInputSchema.safeParse(input.request);
-    if (!parsedRequest.success) throw new ConflictException('Listing availability request is invalid.');
+    if (!parsedRequest.success) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'AVAILABILITY_REQUEST_INVALID' } });
     const request = parsedRequest.data;
     if (request.stockoutPolicy && request.kind !== 'sold_out') {
-      throw new ConflictException('Inventory stockout policy cannot resume sales.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'STOCKOUT_POLICY_ON_RESUME' } });
     }
     const optionCodes = [...(request.optionCodes ?? [])].sort();
     if (new Set(optionCodes).size !== optionCodes.length) {
-      throw new ConflictException('Listing availability option codes must be unique.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'DUPLICATE_OPTION_CODES' } });
     }
     const intentHash = listingAvailabilityIntentHash({ ...request, optionCodes });
 
@@ -146,7 +145,7 @@ export class RegistrationExecutionRepositoryAdapter
             AND organization_id = ${input.organizationId}::uuid
           FOR UPDATE
         `);
-        if (lockedAccount.length !== 1) throw new NotFoundException('Channel account not found.');
+        if (lockedAccount.length !== 1) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
         const account = await tx.channelAccount.findFirst({
           where: {
             id: request.channelAccountId,
@@ -155,11 +154,11 @@ export class RegistrationExecutionRepositoryAdapter
           },
           select: { id: true, channel: true, vendorId: true, externalAccountId: true },
         });
-        if (!account) throw new ConflictException('Listing availability requires an active channel account.');
+        if (!account) throw new KiditemPreconditionError('CHANNELS_ACCOUNT_INACTIVE');
         const byOption = assertListingAvailabilitySupported(account.channel, request.kind) === 'option';
         const adapter = this.adapters.get(account.channel);
         if (byOption && !adapter.providerAccountId(account)) {
-          throw new ConflictException('Option-level availability requires a verified provider account identity.');
+          throw new KiditemPreconditionError('CHANNELS_PREFLIGHT_FAILED', { details: { reason: 'PROVIDER_ACCOUNT_IDENTITY_MISSING' } });
         }
 
         const lockedListing = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
@@ -170,7 +169,7 @@ export class RegistrationExecutionRepositoryAdapter
             AND is_active = TRUE
           FOR UPDATE
         `);
-        if (lockedListing.length !== 1) throw new NotFoundException('Active channel listing not found.');
+        if (lockedListing.length !== 1) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND');
         const listing = await tx.channelListing.findFirst({
           where: {
             id: lockedListing[0]!.id,
@@ -181,7 +180,7 @@ export class RegistrationExecutionRepositoryAdapter
           },
           select: { id: true, externalId: true },
         });
-        if (!listing) throw new ConflictException('Channel listing changed during availability preparation.');
+        if (!listing) throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'LISTING_CHANGED' } });
 
         if (optionCodes.length > 0) {
           await tx.$queryRaw(Prisma.sql`
@@ -203,11 +202,11 @@ export class RegistrationExecutionRepositoryAdapter
           select: { externalOptionId: true, rawJson: true },
         });
         if (optionCodes.length > 0 && options.length !== optionCodes.length) {
-          throw new ConflictException('One or more availability option codes do not belong to the active listing.');
+          throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'OPTION_NOT_IN_LISTING' } });
         }
 
         // 옵션 단위 몰은 살아 있는 옵션 전부를 얼리고, 몰이 판매자 재고를 받지 않는 옵션은 거절한다.
-        if (byOption) assertAvailabilityOptionSupport(adapter, options);
+        if (byOption) assertAvailabilityOptionSupport(adapter, options, 'CHANNELS_PREFLIGHT_FAILED');
         const frozenOptionCodes = byOption
           ? options.map((option) => option.externalOptionId).sort()
           : optionCodes;
@@ -267,7 +266,7 @@ export class RegistrationExecutionRepositoryAdapter
       },
       select: { id: true },
     });
-    if (!listing) throw new NotFoundException('Channel listing not found.');
+    if (!listing) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND');
     const executions = await this.prisma.productRegistrationExecution.findMany({
       where: {
         organizationId: input.organizationId,
@@ -294,14 +293,14 @@ export class RegistrationExecutionRepositoryAdapter
       const execution = await tx.productRegistrationExecution.findFirst({
         where: { id: input.executionId, organizationId: input.organizationId, ...LISTING_AVAILABILITY_ROW },
       });
-      if (!execution) throw new NotFoundException('Listing availability execution not found.');
+      if (!execution) throw new KiditemNotFoundError('CHANNELS_EXECUTION_NOT_FOUND');
       if (execution.requestedByUserId !== input.requestedByUserId) {
-        throw new ConflictException('Listing availability execution belongs to a different actor.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_FENCE_LOST', { details: { reason: 'ACTOR_MISMATCH' } });
       }
       const snapshot = listingAvailabilitySnapshot(execution);
       const scope = await lockListingAvailabilityScope(tx, input.organizationId, snapshot);
       if (scope.account.status !== 'active' || !scope.listing.isActive) {
-        throw new ConflictException('Listing availability execution account or listing is no longer active.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'ACCOUNT_OR_LISTING_INACTIVE' } });
       }
 
       const fresh = execution.status === 'prepared'
@@ -318,7 +317,7 @@ export class RegistrationExecutionRepositoryAdapter
       await assertFrozenAvailabilityOptions(tx, input.organizationId, snapshot, this.adapters.get(snapshot.mallKey));
       if (snapshot.stockoutPolicy) {
         if (!input.assertInventoryStockout) {
-          throw new ConflictException('Inventory stockout requires a transactional eligibility check.');
+          throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'STOCKOUT_ELIGIBILITY_CHECK_MISSING' } });
         }
         await input.assertInventoryStockout(ownerTransaction(tx), snapshot);
       }
@@ -349,37 +348,37 @@ export class RegistrationExecutionRepositoryAdapter
       const execution = await tx.productRegistrationExecution.findFirst({
         where: { id: input.executionId, organizationId: input.organizationId, ...LISTING_AVAILABILITY_ROW },
       });
-      if (!execution) throw new NotFoundException('Listing availability execution not found.');
+      if (!execution) throw new KiditemNotFoundError('CHANNELS_EXECUTION_NOT_FOUND');
       if (execution.requestedByUserId !== input.requestedByUserId) {
-        throw new ConflictException('Listing availability execution belongs to a different actor.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_FENCE_LOST', { details: { reason: 'ACTOR_MISMATCH' } });
       }
       const snapshot = listingAvailabilitySnapshot(execution);
       if (input.report.payloadHash !== execution.submissionPayloadHash) {
-        throw new ConflictException('Listing availability payload hash does not match the frozen snapshot.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_FENCE_LOST', { details: { reason: 'PAYLOAD_HASH_MISMATCH' } });
       }
       if (input.report.evidence.channelAccountId !== execution.channelAccountId) {
-        throw new ConflictException('Listing availability evidence belongs to another account.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'EVIDENCE_ACCOUNT_MISMATCH' } });
       }
       const reportedExternalId = input.report.evidence.externalListingId?.trim();
       if (reportedExternalId && reportedExternalId !== snapshot.externalListingId) {
-        throw new ConflictException('Listing availability provider identity differs from the frozen listing.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'PROVIDER_LISTING_MISMATCH' } });
       }
 
       if (isTerminalTargetExecution(execution)) {
         if (listingAvailabilityTerminalReplayMatches(execution, snapshot, input.report)) {
           return listingAvailabilityResult(execution, false);
         }
-        throw new ConflictException('Listing availability execution is already terminal.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_TERMINAL');
       }
       if (!['prepared', 'executing', 'reconciling'].includes(execution.status)
         || !execution.leaseToken
         || execution.leaseToken !== input.report.leaseToken) {
-        throw new ConflictException('Listing availability execution lease is stale or missing.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_FENCE_LOST', { details: { reason: 'LEASE_STALE' } });
       }
 
       const scope = await lockListingAvailabilityScope(tx, input.organizationId, snapshot);
       if (scope.listing.externalId !== snapshot.externalListingId) {
-        throw new ConflictException('Canonical listing identity changed during availability execution.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'LISTING_IDENTITY_CHANGED' } });
       }
       assertListingAvailabilityAccount(execution, snapshot, scope.account, this.adapters);
       await assertTargetProviderEvidence(tx, execution, input.report, this.adapters, null);
@@ -411,7 +410,7 @@ export class RegistrationExecutionRepositoryAdapter
         data.providerOutcome = 'uncertain';
       } else {
         if (scope.account.status !== 'active') {
-          throw new ConflictException('Confirmed listing availability requires an active channel account.');
+          throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'ACCOUNT_INACTIVE' } });
         }
         if (!byOption && input.report.evidence.observedStatus !== undefined) {
           const updatedListing = await tx.channelListing.updateMany({
@@ -424,7 +423,7 @@ export class RegistrationExecutionRepositoryAdapter
             data: { status: input.report.evidence.observedStatus },
           });
           if (updatedListing.count !== 1) {
-            throw new ConflictException('Canonical listing changed during availability confirmation.');
+            throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'LISTING_CHANGED' } });
           }
         }
         data.externalListingId = snapshot.externalListingId;
@@ -494,7 +493,7 @@ export class RegistrationExecutionRepositoryAdapter
         assertTargetRequestMatchesSnapshot(input.request, intent);
         // Refuse before any provider call: a confirmation could not record an option without its KID.
         if (intent.product.options.some((option) => option.optionCode === null)) {
-          throw new ConflictException('A KID must be issued before registration for every selected sales product option.');
+          throw new KiditemPreconditionError('CHANNELS_KID_REQUIRED');
         }
 
         await tx.$queryRaw(Prisma.sql`
@@ -522,14 +521,14 @@ export class RegistrationExecutionRepositoryAdapter
           },
         });
         if (!target) {
-          throw new NotFoundException('Registration target not found.');
+          throw new KiditemNotFoundError('CHANNELS_REGISTRATION_TARGET_NOT_FOUND');
         }
         if (target.version !== input.request.expectedVersion
           || target.version !== intent.targetVersion) {
-          throw new ConflictException('Registration target changed while it was being prepared.');
+          throw new KiditemConflictError('CHANNELS_REGISTRATION_TARGET_STALE', { details: { reason: 'TARGET_VERSION_CHANGED' } });
         }
         if (target.channelAccountId !== intent.channelAccountId) {
-          throw new ConflictException('Registration target account does not match the frozen execution.');
+          throw new KiditemConflictError('CHANNELS_REGISTRATION_TARGET_STALE', { details: { reason: 'TARGET_ACCOUNT_CHANGED' } });
         }
 
         const account = await tx.channelAccount.findFirst({
@@ -540,7 +539,7 @@ export class RegistrationExecutionRepositoryAdapter
           },
           select: { id: true, channel: true, vendorId: true, externalAccountId: true },
         });
-        if (!account) throw new ConflictException('Registration target account is not active.');
+        if (!account) throw new KiditemPreconditionError('CHANNELS_ACCOUNT_INACTIVE');
         const adapter = this.adapters.get(account.channel);
 
         await tx.$queryRaw(Prisma.sql`
@@ -560,13 +559,13 @@ export class RegistrationExecutionRepositoryAdapter
         });
         if (!product || product.id !== intent.product.id
           || product.version !== intent.product.version) {
-          throw new ConflictException('Sales product changed while the execution was being prepared.');
+          throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'SALES_PRODUCT_CHANGED' } });
         }
 
         const targetOptionIds = target.selectedOptions.map((option) => option.salesProductOptionId);
         const snapshotOptionIds = intent.product.options.map((option) => option.id);
         if (!sameStringArray(targetOptionIds, snapshotOptionIds)) {
-          throw new ConflictException('Registration target options changed while the execution was being prepared.');
+          throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'TARGET_OPTIONS_CHANGED' } });
         }
         const options = await tx.salesProductOption.findMany({
           where: {
@@ -577,15 +576,15 @@ export class RegistrationExecutionRepositoryAdapter
           select: { id: true, supplyStatus: true },
         });
         if (options.length !== new Set(snapshotOptionIds).size) {
-          throw new ConflictException('Frozen registration options no longer belong to the sales product.');
+          throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'OPTIONS_LEFT_PRODUCT' } });
         }
         // 새 등록은 KID 를 받은 판매 상품(active)만 연다 — 초안은 코드가 없고 보관은 판매를 접었다(KID-313).
         if (intent.kind === 'register' && !canStartRegistration(product.status as SalesProductStatus)) {
-          throw new ConflictException('Only a selling product with a KID can start a new registration.');
+          throw new KiditemPreconditionError('CHANNELS_SALES_PRODUCT_NOT_SELLING');
         }
         if (intent.kind === 'register'
           && options.some((option) => option.supplyStatus === 'unused')) {
-          throw new ConflictException('Unused sales product options cannot start a new registration.');
+          throw new KiditemPreconditionError('CHANNELS_PREFLIGHT_FAILED', { details: { reason: 'UNUSED_OPTION_SELECTED' } });
         }
 
         // 새 리스팅을 만드는 register 만 막는다 — 몰 상품을 이름으로 가리키는 register 는 그 리스팅에 다시 보내는 것이다.
@@ -602,7 +601,7 @@ export class RegistrationExecutionRepositoryAdapter
             },
             select: { id: true },
           });
-          if (!listing) throw new ConflictException('Registration listing does not belong to the target account.');
+          if (!listing) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND');
         }
 
         // 몰마다 다른 실행 시점 사실은 채널 어댑터가 이 트랜잭션 안에서 얼린다(KID-321). 대상에는 쓰지 않는다.
@@ -685,10 +684,10 @@ export class RegistrationExecutionRepositoryAdapter
       const execution = await tx.productRegistrationExecution.findFirst({
         where: { id: input.executionId, organizationId: input.organizationId, ...TARGET_EXECUTION_ROW },
       });
-      if (!execution) throw new NotFoundException('Registration execution not found.');
+      if (!execution) throw new KiditemNotFoundError('CHANNELS_EXECUTION_NOT_FOUND');
       assertTargetExecutionRow(execution);
       if (execution.requestedByUserId !== input.requestedByUserId) {
-        throw new ConflictException('Registration execution belongs to a different actor.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_FENCE_LOST', { details: { reason: 'ACTOR_MISMATCH' } });
       }
 
       const fresh = execution.status === 'prepared'
@@ -704,7 +703,7 @@ export class RegistrationExecutionRepositoryAdapter
 
       const snapshot = targetExecutionSnapshot(execution);
       if (snapshot.kind !== execution.executionKind || snapshot.channelListingId !== execution.channelListingId) {
-        throw new ConflictException('Registration execution scope does not match its frozen snapshot.');
+        throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'SNAPSHOT_SCOPE_MISMATCH' } });
       }
       // Keep prepareTarget's target -> account -> product -> option order.
       // The execution lock serializes starts; owner row locks keep edits from
@@ -722,7 +721,7 @@ export class RegistrationExecutionRepositoryAdapter
       if (!target || target.version !== snapshot.targetVersion
         || target.channelAccountId !== snapshot.channelAccountId
         || target.salesProductId !== snapshot.product.id) {
-        throw new ConflictException('Registration target changed after execution preparation.');
+        throw new KiditemConflictError('CHANNELS_REGISTRATION_TARGET_STALE', { details: { reason: 'TARGET_CHANGED' } });
       }
       await tx.$queryRaw(Prisma.sql`
         SELECT id FROM channel_accounts
@@ -733,10 +732,10 @@ export class RegistrationExecutionRepositoryAdapter
         where: { id: target.channelAccountId, organizationId: input.organizationId, status: 'active' },
         select: { id: true, channel: true, vendorId: true, externalAccountId: true },
       });
-      if (!account) throw new ConflictException('Registration target account is not active.');
+      if (!account) throw new KiditemPreconditionError('CHANNELS_ACCOUNT_INACTIVE');
       const providerIdentity = this.adapters.get(account.channel).providerAccountId(account);
       if (providerIdentity !== execution.expectedProviderAccountId) {
-        throw new ConflictException('Registration target provider account changed after execution preparation.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'PROVIDER_ACCOUNT_CHANGED' } });
       }
       await tx.$queryRaw(Prisma.sql`
         SELECT id FROM sales_products
@@ -749,11 +748,11 @@ export class RegistrationExecutionRepositoryAdapter
       });
       if (!product || product.version !== snapshot.product.version || product.status !== snapshot.product.status
         || (snapshot.kind === 'register' && !canStartRegistration(product.status as SalesProductStatus))) {
-        throw new ConflictException('Sales product changed after execution preparation.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'SALES_PRODUCT_CHANGED' } });
       }
       const snapshotOptionIds = snapshot.product.options.map(option => option.id);
       if (!sameStringArray(target.selectedOptions.map(option => option.salesProductOptionId), snapshotOptionIds)) {
-        throw new ConflictException('Registration target options changed after execution preparation.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'TARGET_OPTIONS_CHANGED' } });
       }
       if (snapshotOptionIds.length > 0) {
         await tx.$queryRaw(Prisma.sql`
@@ -770,10 +769,10 @@ export class RegistrationExecutionRepositoryAdapter
       if (options.length !== new Set(snapshotOptionIds).size || options.some(option =>
         option.supplyStatus !== snapshot.product.options.find(frozen => frozen.id === option.id)?.supplyStatus
         || (snapshot.kind === 'register' && option.supplyStatus === 'unused'))) {
-        throw new ConflictException('Sales product options changed after execution preparation.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'SALES_PRODUCT_OPTIONS_CHANGED' } });
       }
       if (snapshot.kind !== 'register' && !snapshot.channelListingId) {
-        throw new ConflictException('This execution requires an active channel listing.');
+        throw new KiditemPreconditionError('CHANNELS_PREFLIGHT_FAILED', { details: { reason: 'LISTING_REQUIRED' } });
       }
       if (snapshot.channelListingId) {
         await tx.$queryRaw(Prisma.sql`
@@ -787,7 +786,7 @@ export class RegistrationExecutionRepositoryAdapter
             channelAccountId: target.channelAccountId, isActive: true },
           select: { id: true },
         });
-        if (!listing) throw new ConflictException('Registration listing is no longer active in the target account.');
+        if (!listing) throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'LISTING_INACTIVE' } });
       }
       await assertFrozenTargetOptionTransitions(tx, input.organizationId, snapshot, target.channelAccountId);
       if (snapshot.kind === 'composition_change') {
@@ -797,7 +796,7 @@ export class RegistrationExecutionRepositoryAdapter
             id: { in: optionIds }, isActive: true },
         });
         if (activeOptions !== optionIds.length) {
-          throw new ConflictException('Frozen composition options are no longer active.');
+          throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'COMPOSITION_OPTIONS_INACTIVE' } });
         }
       }
 
@@ -826,7 +825,7 @@ export class RegistrationExecutionRepositoryAdapter
       where: { id: input.targetId, organizationId: input.organizationId },
       select: { id: true },
     });
-    if (!target) throw new NotFoundException('Registration target not found.');
+    if (!target) throw new KiditemNotFoundError('CHANNELS_REGISTRATION_TARGET_NOT_FOUND');
     const executions = await this.prisma.productRegistrationExecution.findMany({
       where: {
         organizationId: input.organizationId,
@@ -853,7 +852,7 @@ export class RegistrationExecutionRepositoryAdapter
         ...TARGET_EXECUTION_ROW,
       },
     });
-    if (!execution) throw new NotFoundException('Registration execution not found.');
+    if (!execution) throw new KiditemNotFoundError('CHANNELS_EXECUTION_NOT_FOUND');
     assertTargetExecutionRow(execution);
     return targetExecutionResult(execution, false);
   }
@@ -869,41 +868,41 @@ export class RegistrationExecutionRepositoryAdapter
       const execution = await tx.productRegistrationExecution.findFirst({
         where: { id: input.executionId, organizationId: input.organizationId, ...TARGET_EXECUTION_ROW },
       });
-      if (!execution) throw new NotFoundException('Registration execution not found.');
+      if (!execution) throw new KiditemNotFoundError('CHANNELS_EXECUTION_NOT_FOUND');
       assertTargetExecutionRow(execution);
       if (execution.requestedByUserId !== input.requestedByUserId) {
-        throw new ConflictException('Registration execution belongs to a different actor.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_FENCE_LOST', { details: { reason: 'ACTOR_MISMATCH' } });
       }
 
       const snapshot = targetExecutionSnapshot(execution);
       if (input.report.payloadHash !== execution.submissionPayloadHash) {
-        throw new ConflictException('Registration execution payload hash does not match the frozen snapshot.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_FENCE_LOST', { details: { reason: 'PAYLOAD_HASH_MISMATCH' } });
       }
       if (input.report.evidence.channelAccountId !== execution.channelAccountId) {
-        throw new ConflictException('Registration execution evidence belongs to another account.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'EVIDENCE_ACCOUNT_MISMATCH' } });
       }
 
       if (isTerminalTargetExecution(execution)) {
         if (targetTerminalReplayMatches(execution, input.report)) {
           return targetExecutionResult(execution, false);
         }
-        throw new ConflictException('Registration execution is already terminal.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_TERMINAL');
       }
       if (!['prepared', 'executing', 'reconciling'].includes(execution.status)
         || !execution.leaseToken
         || execution.leaseToken !== input.report.leaseToken) {
-        throw new ConflictException('Registration execution lease is stale or missing.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_FENCE_LOST', { details: { reason: 'LEASE_STALE' } });
       }
 
       const externalListingId = input.report.evidence.externalListingId?.trim() || null;
       if (execution.externalListingId
         && externalListingId
         && execution.externalListingId !== externalListingId) {
-        throw new ConflictException('Registration execution provider identity changed.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'PROVIDER_LISTING_CHANGED' } });
       }
       if (input.report.outcome === 'not_submitted'
         && (execution.externalListingId !== null || execution.providerSubmissionId !== null || externalListingId !== null)) {
-        throw new ConflictException('A registration with provider identity cannot be reported as not submitted.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'SUBMITTED_WITH_PROVIDER_IDENTITY' } });
       }
 
       await assertTargetProviderEvidence(tx, execution, input.report, this.adapters, externalListingId);
@@ -929,7 +928,7 @@ export class RegistrationExecutionRepositoryAdapter
       } else {
         const confirmedListingId = externalListingId ?? execution.externalListingId;
         if (!confirmedListingId) {
-          throw new ConflictException('Confirmed registration requires a provider listing identity.');
+          throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'PROVIDER_LISTING_MISSING' } });
         }
         const resolved = await resolveTargetConfirmationListing(
           tx,
@@ -985,7 +984,7 @@ export class RegistrationExecutionRepositoryAdapter
     const handle = ownerTransaction(tx);
     const recipe = preparedRegistrationRecipe(snapshot);
     if (recipe) {
-      if (!this.recipes) throw new ConflictException('Channel option recipe capability is unavailable.');
+      if (!this.recipes) throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'RECIPE_CAPABILITY_UNAVAILABLE' } });
       await applyPreparedRecipeToOptions(handle, this.recipes, { organizationId, channelListingId: resolved.listingId, recipe });
     }
   }
@@ -994,7 +993,7 @@ export class RegistrationExecutionRepositoryAdapter
 /** 몰이 품절 · 재개를 받는 단위(`option` · `listing`). 받는 길이 없으면 거절한다. */
 function assertListingAvailabilitySupported(channel: string, kind: 'sold_out' | 'resume'): 'option' | 'listing' {
   const capability = getListingAvailabilityCapability(channel, kind);
-  if (!capability) throw new ConflictException(`The channel has no verified ${kind} route.`);
+  if (!capability) throw new KiditemPreconditionError('CHANNELS_MALL_UNSUPPORTED', { details: { reason: 'AVAILABILITY_ROUTE_MISSING' } });
   return capability.axis;
 }
 
@@ -1012,10 +1011,12 @@ function optionRegistrationType(rawJson: Prisma.JsonValue | null): string | null
 function assertAvailabilityOptionSupport(
   adapter: ChannelAdapter,
   options: Array<{ externalOptionId: string; rawJson: Prisma.JsonValue | null }>,
+  /** 준비 때는 송신 전 점검 실패, 얼린 뒤 다시 볼 때는 준비 후 변경(409)으로 답한다. */
+  refusal: 'CHANNELS_PREFLIGHT_FAILED' | 'CHANNELS_EXECUTION_STALE',
 ): void {
-  if (options.length === 0) throw new ConflictException('Option-level availability requires active options.');
+  if (options.length === 0) throw new KiditemError(refusal, { details: { reason: 'NO_ACTIVE_OPTIONS' } });
   if (options.some((option) => adapter.availabilityOption({ registrationType: optionRegistrationType(option.rawJson) }) === 'excluded')) {
-    throw new ConflictException('One or more options do not accept seller stock changes on this channel.');
+    throw new KiditemError(refusal, { details: { reason: 'OPTION_REFUSES_SELLER_STOCK' } });
   }
 }
 
@@ -1025,10 +1026,13 @@ function assertListingAvailabilityAccount(
   account: { id: string; channel: string; vendorId: string | null; externalAccountId: string | null },
   adapters: ChannelAdapterRegistryPort,
 ): void {
-  assertListingAvailabilitySupported(account.channel, snapshot.kind);
+  // 준비 뒤에는 몰 경로가 사라진 것도 준비 후 변경이다(보고 경로는 409로 답한다).
+  if (!getListingAvailabilityCapability(account.channel, snapshot.kind)) {
+    throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'AVAILABILITY_ROUTE_MISSING' } });
+  }
   const identity = adapters.get(account.channel).providerAccountId(account);
   if (account.channel !== snapshot.mallKey || identity !== execution.expectedProviderAccountId) {
-    throw new ConflictException('Listing availability provider account changed after preparation.');
+    throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'PROVIDER_ACCOUNT_CHANGED' } });
   }
 }
 
@@ -1045,9 +1049,9 @@ async function assertFrozenAvailabilityOptions(
     select: { externalOptionId: true, rawJson: true },
   });
   if (options.length !== snapshot.optionCodes.length) {
-    throw new ConflictException('Frozen availability options are no longer active.');
+    throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'FROZEN_OPTIONS_INACTIVE' } });
   }
-  assertAvailabilityOptionSupport(adapter, options);
+  assertAvailabilityOptionSupport(adapter, options, 'CHANNELS_EXECUTION_STALE');
 }
 
 /** 옵션 단위 확인: 얼린 옵션 전부를 몰에서 다시 읽은 재고가 있어야 하고, 모두 보낼 수 있는 옵션이어야 한다. */
@@ -1064,7 +1068,7 @@ function assertOptionAvailabilityConfirmation(
     || observations.some((option) => adapter.availabilityOption({ registrationType: option.registrationType ?? null }) !== 'sendable'
       || !Number.isSafeInteger(option.stock) || option.stock < 0
       || (snapshot.kind === 'sold_out' ? option.stock !== 0 : option.stock === 0))) {
-    throw new ConflictException('Option-level confirmation requires a matching stock reread for every frozen sendable option.');
+    throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'OPTION_STOCK_REREAD_MISMATCH' } });
   }
 }
 
@@ -1087,7 +1091,7 @@ function freezeListingAvailabilitySnapshot(snapshot: ListingAvailabilitySnapshot
   hash: string;
 } {
   const parsed = ListingAvailabilitySnapshotSchema.safeParse(snapshot);
-  if (!parsed.success) throw new ConflictException('Listing availability snapshot is invalid.');
+  if (!parsed.success) throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'AVAILABILITY_SNAPSHOT_INVALID' } });
   const frozen = freezeProductRegistrationPayload(
     parsed.data as unknown as RegistrationSubmissionJson, channelIntegrity.sha256,
   );
@@ -1104,10 +1108,10 @@ function listingAvailabilitySnapshot(
     || !['sold_out', 'resume'].includes(execution.executionKind)
     || !execution.submissionPayloadJson
     || !execution.submissionPayloadHash) {
-    throw new ConflictException('Execution is not a listing availability execution.');
+    throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'NOT_AVAILABILITY_EXECUTION' } });
   }
   const parsed = ListingAvailabilitySnapshotSchema.safeParse(execution.submissionPayloadJson);
-  if (!parsed.success) throw new ConflictException('Listing availability snapshot is invalid.');
+  if (!parsed.success) throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'AVAILABILITY_SNAPSHOT_INVALID' } });
   const frozen = freezeListingAvailabilitySnapshot(parsed.data);
   if (frozen.hash !== execution.submissionPayloadHash
     || frozen.payload.channelListingId !== execution.channelListingId
@@ -1115,7 +1119,7 @@ function listingAvailabilitySnapshot(
     || frozen.payload.kind !== execution.executionKind
     || (execution.externalListingId !== null
       && execution.externalListingId !== frozen.payload.externalListingId)) {
-    throw new ConflictException('Listing availability snapshot does not match its execution row.');
+    throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'AVAILABILITY_SNAPSHOT_ROW_MISMATCH' } });
   }
   return frozen.payload;
 }
@@ -1127,7 +1131,7 @@ function listingAvailabilityResult(
   const snapshot = listingAvailabilitySnapshot(execution);
   if (!['prepared', 'executing', 'reconciling', 'succeeded', 'failed', 'cancelled'].includes(execution.status)
     || !['not_attempted', 'uncertain', 'succeeded', 'definitive_failure'].includes(execution.providerOutcome)) {
-    throw new ConflictException('Listing availability execution has an unsupported lifecycle state.');
+    throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'UNSUPPORTED_LIFECYCLE_STATE' } });
   }
   return {
     executionId: execution.id,
@@ -1154,7 +1158,7 @@ function assertListingAvailabilityReplayIdentity(
     || !['sold_out', 'resume'].includes(execution.executionKind)
     || execution.requestedByUserId !== requestedByUserId
     || execution.requestHash !== requestHash) {
-    throw new ConflictException('Listing availability idempotency key belongs to a different request.');
+    throw new KiditemConflictError('CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT', { details: { reason: 'REQUEST_MISMATCH' } });
   }
 }
 
@@ -1172,12 +1176,12 @@ async function lockListingAvailabilityScope(
       AND organization_id = ${organizationId}::uuid
     FOR UPDATE
   `);
-  if (lockedAccount.length !== 1) throw new NotFoundException('Channel account not found.');
+  if (lockedAccount.length !== 1) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
   const account = await tx.channelAccount.findFirst({
     where: { id: snapshot.channelAccountId, organizationId },
     select: { id: true, status: true, channel: true, vendorId: true, externalAccountId: true },
   });
-  if (!account) throw new NotFoundException('Channel account not found.');
+  if (!account) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
 
   const lockedListing = await tx.$queryRaw<Array<{ id: string }>>(Prisma.sql`
     SELECT id FROM channel_listings
@@ -1187,7 +1191,7 @@ async function lockListingAvailabilityScope(
       AND external_id = ${snapshot.externalListingId}
     FOR UPDATE
   `);
-  if (lockedListing.length !== 1) throw new NotFoundException('Channel listing not found.');
+  if (lockedListing.length !== 1) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND');
   const listing = await tx.channelListing.findFirst({
     where: {
       id: snapshot.channelListingId,
@@ -1197,7 +1201,7 @@ async function lockListingAvailabilityScope(
     },
     select: { id: true, externalId: true, isActive: true },
   });
-  if (!listing) throw new NotFoundException('Channel listing not found.');
+  if (!listing) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND');
   return { account, listing };
 }
 
@@ -1220,13 +1224,13 @@ function listingAvailabilityTerminalReplayMatches(
 /** 클라이언트가 보낸 멱등 키. 대표이미지 반영의 이름공간은 받지 않는다. */
 function assertClientIdempotencyKey(idempotencyKey: string): void {
   if (isReservedExecutionIdempotencyKey(idempotencyKey)) {
-    throw new BadRequestException('Registration idempotency key uses a reserved prefix.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'RESERVED_IDEMPOTENCY_KEY' } });
   }
 }
 
 function assertTargetExecutionRow(execution: ProductRegistrationExecution): void {
   if (execution.registrationTargetId === null) {
-    throw new ConflictException('Listing availability execution is not a registration-target execution.');
+    throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'NOT_TARGET_EXECUTION' } });
   }
 }
 
@@ -1259,7 +1263,7 @@ function freezeTargetExecutionSnapshot(snapshot: TargetExecutionSnapshot): {
 } {
   const parsed = TargetExecutionSnapshotSchema.safeParse(snapshot);
   if (!parsed.success) {
-    throw new ConflictException('Registration execution snapshot is invalid.');
+    throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'TARGET_SNAPSHOT_INVALID' } });
   }
   const frozen = freezeProductRegistrationPayload(
     parsed.data as unknown as RegistrationSubmissionJson, channelIntegrity.sha256,
@@ -1274,21 +1278,21 @@ function targetExecutionSnapshot(
   execution: ProductRegistrationExecution,
 ): TargetExecutionSnapshot {
   if (!execution.submissionPayloadJson || !execution.submissionPayloadHash) {
-    throw new ConflictException('Registration execution snapshot is missing.');
+    throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'TARGET_SNAPSHOT_MISSING' } });
   }
   const parsed = TargetExecutionSnapshotSchema.safeParse(execution.submissionPayloadJson);
   if (!parsed.success) {
-    throw new ConflictException('Registration execution snapshot is invalid.');
+    throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'TARGET_SNAPSHOT_INVALID' } });
   }
   const frozen = freezeProductRegistrationPayload(
     parsed.data as unknown as RegistrationSubmissionJson, channelIntegrity.sha256,
   );
   if (frozen.hash !== execution.submissionPayloadHash) {
-    throw new ConflictException('Registration execution snapshot hash does not match its JSON.');
+    throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'TARGET_SNAPSHOT_HASH_MISMATCH' } });
   }
   if (parsed.data.targetId !== execution.registrationTargetId
     || parsed.data.channelAccountId !== execution.channelAccountId) {
-    throw new ConflictException('Registration execution snapshot identity does not match its row.');
+    throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'TARGET_SNAPSHOT_ROW_MISMATCH' } });
   }
   return parsed.data;
 }
@@ -1300,7 +1304,7 @@ function targetExecutionResult(
   const snapshot = targetExecutionSnapshot(execution);
   if (!['prepared', 'executing', 'reconciling', 'succeeded', 'failed', 'cancelled'].includes(execution.status)
     || !['not_attempted', 'uncertain', 'succeeded', 'definitive_failure'].includes(execution.providerOutcome)) {
-    throw new ConflictException('Registration execution has an unsupported lifecycle state.');
+    throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'UNSUPPORTED_LIFECYCLE_STATE' } });
   }
   return {
     executionId: execution.id,
@@ -1350,7 +1354,7 @@ function assertTargetRequestMatchesSnapshot(
     || hashRegistrationSubmissionPayload(snapshot.adapterValues ?? {}, channelIntegrity.sha256) !== hashRegistrationSubmissionPayload(request.adapterValues ?? {}, channelIntegrity.sha256)
     || !sameStringArray(snapshot.updateFields ?? [], request.updateFields ?? [])
     || !sameOptionTransitions(snapshot.optionTransitions ?? [], request.optionTransitions ?? [])) {
-    throw new ConflictException('Registration execution request does not match its snapshot.');
+    throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'REQUEST_SNAPSHOT_MISMATCH' } });
   }
 }
 
@@ -1366,7 +1370,7 @@ function assertTargetReplayIdentity(
   if (execution.registrationTargetId !== input.targetId
     || execution.requestedByUserId !== input.requestedByUserId
     || execution.requestHash !== targetExecutionIntentHash(input.targetId, input.request)) {
-    throw new ConflictException('Registration execution idempotency key belongs to a different request.');
+    throw new KiditemConflictError('CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT', { details: { reason: 'REQUEST_MISMATCH' } });
   }
 }
 
@@ -1415,12 +1419,6 @@ function targetTerminalReplayMatches(
     && externalListingId === null;
 }
 
-const EVIDENCE_REJECTIONS = {
-  account_mismatch: 'Provider account evidence does not match the selected account.',
-  untrusted_url: 'Observed provider URL is outside the registered admin origin.',
-  invalid_listing_id: 'Provider listing identity does not match the channel listing id format.',
-  missing_account: 'Confirmed registration requires the frozen provider account identity.',
-} as const;
 
 /**
  * 몰이 보여 준 증거가 이 실행의 계정 · 몰 관리자 화면 · 몰 상품 id 형식에 맞는가 — 판정은 그 계정 채널의
@@ -1445,18 +1443,18 @@ async function assertTargetProviderEvidence(
     where: { id: execution.channelAccountId, organizationId: execution.organizationId },
     select: { id: true, channel: true, vendorId: true, externalAccountId: true },
   });
-  if (!account) throw new ConflictException('Registration execution account no longer exists.');
+  if (!account) throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'ACCOUNT_GONE' } });
   const adapter = adapters.get(account.channel);
   const decision = adapter.validateConfirmationEvidence(execution.expectedProviderAccountId, {
     providerAccountId, observedUrl, externalListingId,
   });
   // 확인이 아닌 보고는 계정 식별자를 빼도 된다 — 있는 값만 맞으면 된다.
   if (!decision.ok && (confirmed || decision.reason !== 'missing_account')) {
-    throw new ConflictException(EVIDENCE_REJECTIONS[decision.reason]);
+    throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: decision.reason } });
   }
   if (!confirmed || providerAccountId !== null || observedUrl !== null) return;
   if (!targetPriorProviderEvidence(execution, adapter)) {
-    throw new ConflictException('Confirmed registration requires provider account or trusted product evidence.');
+    throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'TRUSTED_EVIDENCE_MISSING' } });
   }
 }
 
@@ -1530,12 +1528,12 @@ async function assertFrozenTargetOptionTransitions(
   const transitions = snapshot.optionTransitions ?? [];
   if (snapshot.kind !== 'composition_change') {
     if (transitions.length > 0) {
-      throw new ConflictException('Option transitions are only valid for composition changes.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'TRANSITIONS_NOT_ALLOWED' } });
     }
     return;
   }
   if (!snapshot.channelListingId || transitions.length === 0) {
-    throw new ConflictException('Composition changes require frozen channel option transitions.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'TRANSITIONS_REQUIRED' } });
   }
 
   const oldIds = transitions.map((transition) => transition.channelListingOptionId);
@@ -1543,7 +1541,7 @@ async function assertFrozenTargetOptionTransitions(
   if (new Set(oldIds).size !== oldIds.length
     || new Set(newIds).size !== newIds.length
     || newIds.some((id) => !snapshot.product.options.some((option) => option.id === id))) {
-    throw new ConflictException('Frozen option transitions are not a valid product option mapping.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'TRANSITIONS_INVALID' } });
   }
 
   await tx.$queryRaw(Prisma.sql`
@@ -1562,7 +1560,7 @@ async function assertFrozenTargetOptionTransitions(
     },
     select: { id: true },
   });
-  if (!listing) throw new ConflictException('Frozen composition listing does not belong to the target account.');
+  if (!listing) throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'COMPOSITION_LISTING_NOT_IN_ACCOUNT' } });
 
   const rows = await tx.channelListingOption.findMany({
     where: {
@@ -1573,7 +1571,7 @@ async function assertFrozenTargetOptionTransitions(
     select: { id: true },
   });
   if (rows.length !== oldIds.length) {
-    throw new ConflictException('Frozen composition option no longer belongs to the selected listing.');
+    throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'COMPOSITION_OPTION_NOT_IN_LISTING' } });
   }
 }
 
@@ -1591,7 +1589,7 @@ async function resolveTargetConfirmationListing(
     },
     select: { id: true, channel: true },
   });
-  if (!account) throw new ConflictException('Registration execution account no longer exists.');
+  if (!account) throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'ACCOUNT_GONE' } });
 
   const existingIdentity = await tx.channelListing.findFirst({
     where: {
@@ -1623,20 +1621,20 @@ async function resolveTargetConfirmationListing(
     })
     : null;
   if (snapshot.channelListingId && !frozenListing) {
-    throw new ConflictException('Frozen registration listing no longer belongs to the target account.');
+    throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'FROZEN_LISTING_GONE' } });
   }
   if (frozenListing && frozenListing.externalId !== externalListingId) {
-    throw new ConflictException('Provider listing identity does not match the frozen listing.');
+    throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'PROVIDER_LISTING_MISMATCH' } });
   }
   if (frozenListing && existingIdentity && frozenListing.id !== existingIdentity.id) {
-    throw new ConflictException('Provider listing identity resolves to another canonical listing.');
+    throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'PROVIDER_LISTING_OTHER_CANONICAL' } });
   }
 
   let listingId = existingIdentity?.id ?? null;
   const created = listingId === null;
   if (!listingId) {
     if (snapshot.kind === 'composition_change') {
-      throw new ConflictException('Composition changes require an existing channel listing.');
+      throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'COMPOSITION_LISTING_UNKNOWN' } });
     }
     const created = await tx.channelListing.create({
       data: {
@@ -1660,9 +1658,9 @@ async function resolveTargetConfirmationListing(
       },
       select: { id: true, salesProductId: true },
     });
-    if (!existing) throw new ConflictException('Canonical registration listing disappeared during confirmation.');
+    if (!existing) throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'CANONICAL_LISTING_GONE' } });
     if (existing.salesProductId && existing.salesProductId !== snapshot.product.id) {
-      throw new ConflictException('Canonical listing is already linked to another sales product.');
+      throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'LISTING_OF_OTHER_PRODUCT' } });
     }
     const data: Prisma.ChannelListingUpdateManyMutationInput = {
       ...(existing.salesProductId ? {} : { salesProductId: snapshot.product.id }),
@@ -1680,7 +1678,7 @@ async function resolveTargetConfirmationListing(
         data,
       });
       if (updated.count !== 1) {
-        throw new ConflictException('Canonical registration listing changed during confirmation.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'CANONICAL_LISTING_CHANGED' } });
       }
     }
   }
@@ -1691,16 +1689,16 @@ async function resolveTargetConfirmationListing(
   const commonOptionIds = evidenceOptions.map((option) => option.salesProductOptionId);
   if (new Set(externalOptionIds).size !== externalOptionIds.length
     || new Set(commonOptionIds).size !== commonOptionIds.length) {
-    throw new ConflictException('Provider option identity evidence contains duplicates.');
+    throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'DUPLICATE_OPTION_EVIDENCE' } });
   }
   for (const option of evidenceOptions) {
     if (!optionById.has(option.salesProductOptionId)) {
-      throw new ConflictException('Provider option identity is not in the frozen sales product.');
+      throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'OPTION_NOT_IN_PRODUCT' } });
     }
   }
 
   if (snapshot.applyCompositionTemplate && !sameStringSet(commonOptionIds, [...optionById.keys()])) {
-    throw new ConflictException('Template application requires provider identities for every selected option.');
+    throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'TEMPLATE_OPTIONS_INCOMPLETE' } });
   }
 
   if (snapshot.kind === 'composition_change') {
@@ -1722,7 +1720,7 @@ async function resolveTargetConfirmationListing(
       },
     });
     if (localOptions.length !== transitions.length || evidenceOptions.length !== transitions.length) {
-      throw new ConflictException('Confirmed composition must report every frozen option transition.');
+      throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'COMPOSITION_TRANSITIONS_INCOMPLETE' } });
     }
     const localByExternalId = new Map(localOptions.map((option) => [option.externalOptionId, option]));
     const confirmedOptions = evidenceOptions.map((evidence) => {
@@ -1731,7 +1729,7 @@ async function resolveTargetConfirmationListing(
       const commonOption = optionById.get(evidence.salesProductOptionId);
       if (!localOption || !transition || !commonOption
         || transition.salesProductOptionId !== commonOption.id) {
-        throw new ConflictException('Provider option identity does not match the frozen composition transition.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'COMPOSITION_TRANSITION_MISMATCH' } });
       }
       return { localOption, commonOption };
     });
@@ -1739,7 +1737,7 @@ async function resolveTargetConfirmationListing(
       confirmedOptions.map((option) => option.localOption.id),
       transitions.map((transition) => transition.channelListingOptionId),
     )) {
-      throw new ConflictException('Confirmed composition omitted a frozen option transition.');
+      throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'COMPOSITION_TRANSITION_OMITTED' } });
     }
     return { listingId, created, options: confirmedOptions };
   }
@@ -1762,7 +1760,7 @@ async function resolveTargetConfirmationListing(
     });
     if (existing) {
       if (existing.salesProductOptionId && existing.salesProductOptionId !== commonOption.id) {
-        throw new ConflictException('Canonical listing option is already linked to another sales product option.');
+        throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'OPTION_LINKED_ELSEWHERE' } });
       }
       let localOption = existing;
       if (!existing.salesProductOptionId) {
@@ -1775,7 +1773,7 @@ async function resolveTargetConfirmationListing(
           data: { salesProductOptionId: commonOption.id },
         });
         if (updated.count !== 1) {
-          throw new ConflictException('Canonical listing option changed during confirmation.');
+          throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'CANONICAL_OPTION_CHANGED' } });
         }
         localOption = { ...existing, salesProductOptionId: commonOption.id };
       }
@@ -1815,10 +1813,10 @@ async function applyTargetConfirmationRecipes(
   const applyTemplate = snapshot.applyCompositionTemplate;
   if (!compositionChange && !applyTemplate) return;
   if (compositionChange && report.evidence.options?.length === 0) {
-    throw new ConflictException('Confirmed composition requires provider option identity evidence.');
+    throw new KiditemConflictError('CHANNELS_EXECUTION_EVIDENCE_REJECTED', { details: { reason: 'COMPOSITION_OPTION_EVIDENCE_MISSING' } });
   }
   if (!compositionChange && resolved.options.length === 0) return;
-  if (!recipes) throw new ConflictException('Channel option recipe capability is unavailable.');
+  if (!recipes) throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'RECIPE_CAPABILITY_UNAVAILABLE' } });
 
   if (compositionChange) {
     await recipes.replaceConfirmedCompositionsInTransaction(tx, {
@@ -1861,7 +1859,7 @@ async function applyTargetConfirmationRecipes(
 /** A confirmed recipe carries the common option's issued KID; an empty code is never sent. */
 function issuedKidItemCode(option: TargetProductOption): string {
   if (option.optionCode === null) {
-    throw new ConflictException('A KID must be issued for every sales product option before confirmation.');
+    throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'KID_NOT_ISSUED_AT_CONFIRMATION' } });
   }
   return option.optionCode;
 }
@@ -1888,9 +1886,8 @@ async function assertAccountNotRegistered(
     select: { externalId: true },
   });
   if (listing) {
-    throw new ConflictException({
-      code: REGISTRATION_ALREADY_REGISTERED_CODE,
-      message: `이미 이 몰 계정에 등록된 상품입니다(몰 상품 ${listing.externalId}).`,
+    throw new KiditemConflictError(REGISTRATION_ALREADY_REGISTERED_CODE, {
+      details: { existing: { externalListingId: listing.externalId } },
     });
   }
   const [succeeded] = await tx.$queryRaw<{ id: string; external_listing_id: string | null }[]>(Prisma.sql`
@@ -1914,7 +1911,8 @@ async function assertAccountNotRegistered(
     LIMIT 1
   `);
   if (succeeded) {
-    const name = succeeded.external_listing_id ? `몰 상품 ${succeeded.external_listing_id}` : `실행 ${succeeded.id}`;
-    throw new ConflictException({ code: REGISTRATION_ALREADY_REGISTERED_CODE, message: `이미 이 몰 계정에 등록된 상품입니다(${name}).` });
+    throw new KiditemConflictError(REGISTRATION_ALREADY_REGISTERED_CODE, {
+      details: { existing: { externalListingId: succeeded.external_listing_id, executionId: succeeded.id } },
+    });
   }
 }

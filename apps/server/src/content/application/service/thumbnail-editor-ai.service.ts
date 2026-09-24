@@ -1,11 +1,6 @@
 import { randomUUID } from 'node:crypto';
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  Logger,
-  ServiceUnavailableException,
-} from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { KiditemExternalError, KiditemInvalidValueError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import {
   COMPLIANCE_SUGGESTIONS_HEADER,
   CREATIVE_PROMPT,
@@ -234,10 +229,10 @@ export class ThumbnailEditorAiService {
     model: string | undefined,
     signal?: AbortSignal,
   ): Promise<ThumbnailEditorCandidate[]> {
-    if (inputs.length === 0) throw new BadRequestException('상품 사진이 필요합니다');
+    if (inputs.length === 0) throw new KiditemPreconditionError('CONTENT_GENERATION_INPUT_MISSING', { details: { reason: 'PRODUCT_PHOTO_REQUIRED' } });
     signal?.throwIfAborted();
     if (!model?.trim()) {
-      throw new ServiceUnavailableException('thumbnail_image_model_not_configured');
+      throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'IMAGE_MODEL_MISSING' } });
     }
 
     // The asset directory may be missing; in that case `referenceParts` is an
@@ -290,7 +285,7 @@ export class ThumbnailEditorAiService {
         ?.text
         .slice(0, 300);
       this.logger.warn(`Gemini image response had no inline image. text=${text ?? '(empty)'}`);
-      throw new ServiceUnavailableException('thumbnail_ai_returned_no_image');
+      throw new KiditemExternalError('CONTENT_GENERATION_FAILED', { details: { reason: 'THUMBNAIL_RETURNED_NO_IMAGE' } });
     }
     return candidates;
   }
@@ -385,7 +380,7 @@ export class ThumbnailEditorAiService {
     this.imageFetcher.assertSupportedMime(mimeType);
     const buffer = Buffer.from(match[2], 'base64');
     if (buffer.length > MAX_FETCH_BYTES) {
-      throw new BadRequestException('image too large');
+      throw new KiditemInvalidValueError('CONTENT_IMAGE_TOO_LARGE');
     }
     return { buffer, mimeType };
   }

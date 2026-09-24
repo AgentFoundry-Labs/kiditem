@@ -1,7 +1,7 @@
 import type { SalesProductMallSheetPort, MallSheetFile } from "../../port/in/sales-product/sales-product-mall-sheet.port";
 export type { MallSheetFile } from "../../port/in/sales-product/sales-product-mall-sheet.port";
 import type { ChannelActivityPort } from '../../port/out/alerts/channel-activity.port';
-import { ChannelInputError as BadRequestException, ChannelNotFoundError as NotFoundException } from '../../../domain/exception/channel-business-error';
+import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import {
   SalesProductDraftError,
   requireConfirmedPrice,
@@ -189,9 +189,9 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
     const spec = this.spec(sheetKey);
     const request = parseRequest(body);
     const ids = request.salesProductIds ?? [];
-    if (ids.length === 0) throw new BadRequestException('엑셀에 넣을 판매상품을 골라 주세요.');
+    if (ids.length === 0) throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '엑셀에 넣을 판매상품을 골라 주세요.' });
     if (ids.length > spec.maxProducts) {
-      throw new BadRequestException(`${spec.label}은(는) 한 파일에 ${spec.maxProducts}개까지 받습니다. 나눠서 받으세요.`);
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: `${spec.label}은(는) 한 파일에 ${spec.maxProducts}개까지 받습니다. 나눠서 받으세요.` });
     }
     const preflight = await this.readSources(organizationId, ids, spec.mallKeys);
     // 등록 동결 · 품절 송신과 같은 게이트다. 판매가를 정하지 않은 초안은 몰 파일에 들어가지 않는다.
@@ -202,9 +202,11 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
     const sources = await this.readSources(organizationId, ids, spec.mallKeys);
     const context = await this.context(spec, request, sources, organizationId);
     const missingFixed = missingFixedFields(spec, context.fixed);
-    if (missingFixed.length) throw new BadRequestException(`비어 있는 고정값: ${missingFixed.join(', ')}`);
+    if (missingFixed.length) throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: `비어 있는 고정값: ${missingFixed.join(', ')}` });
 
-    if (sources.length !== new Set(ids).size) throw new NotFoundException('없는 판매상품이 섞여 있습니다.');
+    if (sources.length !== new Set(ids).size) {
+      throw new KiditemNotFoundError('CHANNELS_SALES_PRODUCT_NOT_FOUND', { details: { reason: 'SOME_PRODUCTS_MISSING' } });
+    }
     const rows: MallSheetRow[] = [];
     const blocked: string[] = [];
     for (const source of sources) {
@@ -213,7 +215,7 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
       else rows.push(...result.rows);
     }
     if (blocked.length) {
-      throw new BadRequestException(`엑셀에 넣을 수 없는 상품이 있습니다: ${blocked.slice(0, 5).join(' / ')}`);
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: `엑셀에 넣을 수 없는 상품이 있습니다: ${blocked.slice(0, 5).join(' / ')}` });
     }
     const buffer = await this.files.write(spec.template, rows);
     const fileName = `${spec.label.replace(/\s+/g, '')}_대량등록_${kstDate()}_${sources.length}개.${spec.template.bookType}`;
@@ -225,11 +227,11 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
   async assignCategory(organizationId: string, body: unknown): Promise<SalesProductMallCategoryAssignResult> {
     const parsed = SalesProductMallCategoryAssignRequestSchema.safeParse(body ?? {});
     if (!parsed.success) {
-      throw new BadRequestException(parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', '));
+      throw new KiditemInvalidValueError('VALIDATION_FAILED');
     }
     const { mallKey, path, salesProductIds } = parsed.data;
     const account = (await this.repository.listChannelAccounts(organizationId)).find((item) => item.channel === mallKey);
-    if (!account) throw new BadRequestException(`'${mallKey}' 몰 계정이 없습니다.`);
+    if (!account) throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: `'${mallKey}' 몰 계정이 없습니다.` });
     const ids = [...new Set(salesProductIds)];
     const written = await this.repository.setMallCategoryPaths(
       organizationId,
@@ -242,7 +244,7 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
 
   private spec(sheetKey: string): MallBulkSheetSpec {
     const spec = findMallBulkSheet(sheetKey);
-    if (!spec) throw new NotFoundException(`몰 엑셀 '${sheetKey}' 이 없습니다.`);
+    if (!spec) throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'MALL_SHEET_UNKNOWN' } });
     return spec;
   }
 
@@ -272,7 +274,7 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
         })),
       });
     } catch (error) {
-      if (error instanceof SalesProductDraftError) throw new BadRequestException(error.message);
+      if (error instanceof SalesProductDraftError) throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: error.message, cause: error });
       throw error;
     }
   }
@@ -310,7 +312,7 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
   /** 이 판매상품들의 사진 중 몰이 못 읽고 공개 복사본도 없는 주소 — 확장이 올린다. */
   async pendingPublicImages(organizationId: string, body: unknown): Promise<SalesProductPublicImagePending> {
     const parsed = SalesProductPublicImagePendingRequestSchema.safeParse(body ?? {});
-    if (!parsed.success) throw new BadRequestException('판매상품을 골라 주세요.');
+    if (!parsed.success) throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '판매상품을 골라 주세요.' });
     // 시트를 모르는 자리라 현재 revision 에, 어느 등록 대상이든 고른 revision 들을 더해 본다 — 예전 revision 을 고른
     // 시트도 여기서 올린 사진으로 풀린다.
     const products = await this.repository.readMallSheetProducts(organizationId, parsed.data.salesProductIds);
@@ -330,9 +332,9 @@ export class SalesProductMallSheetService implements SalesProductMallSheetPort {
   /** 확장이 공개 저장소에 올린 사진 주소를 저장한다. 판매상품의 사진 주소는 그대로 둔다. */
   async savePublicImages(organizationId: string, body: unknown): Promise<{ saved: number }> {
     const parsed = SalesProductPublicImageSaveRequestSchema.safeParse(body ?? {});
-    if (!parsed.success) throw new BadRequestException('올린 사진 주소가 올바르지 않습니다.');
+    if (!parsed.success) throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '올린 사진 주소가 올바르지 않습니다.' });
     const images = parsed.data.images.filter((image) => isPublicImageUrl(image.publicUrl));
-    if (images.length !== parsed.data.images.length) throw new BadRequestException('공개 주소가 아닌 사진이 섞여 있습니다.');
+    if (images.length !== parsed.data.images.length) throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '공개 주소가 아닌 사진이 섞여 있습니다.' });
     const saved = await this.repository.savePublicImages(organizationId, images);
     this.logger.log(`공개 사진 복사본 org=${organizationId} ${saved}장`);
     return { saved };
@@ -376,7 +378,7 @@ function categoryStates(
 function parseRequest(body: unknown): SalesProductMallSheetRequest {
   const parsed = SalesProductMallSheetRequestSchema.safeParse(body ?? {});
   if (!parsed.success) {
-    throw new BadRequestException(parsed.error.issues.map((issue) => `${issue.path.join('.')}: ${issue.message}`).join(', '));
+    throw new KiditemInvalidValueError('VALIDATION_FAILED');
   }
   return parsed.data;
 }

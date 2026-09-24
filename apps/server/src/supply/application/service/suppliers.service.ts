@@ -1,4 +1,5 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemNotFoundError } from '@kiditem/shared/errors';
 import {
   SUPPLIER_REPOSITORY_PORT,
   type SupplierCreateCommand,
@@ -24,7 +25,7 @@ export class SuppliersService {
   async update(id: string, organizationId: string, command: SupplierUpdateCommand) {
     const updated = await this.suppliers.updateScoped(id, organizationId, command);
     if (!updated) {
-      throw new BadRequestException('거래처를 찾을 수 없습니다');
+      throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'supplier' } });
     }
 
     return updated;
@@ -33,7 +34,7 @@ export class SuppliersService {
   async delete(id: string, organizationId: string) {
     const deleted = await this.suppliers.deleteScoped(id, organizationId);
     if (!deleted) {
-      throw new BadRequestException('거래처를 찾을 수 없습니다');
+      throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'supplier' } });
     }
     return { ok: true };
   }

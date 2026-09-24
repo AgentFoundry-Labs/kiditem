@@ -1,6 +1,5 @@
 import { readFileSync } from 'node:fs';
 import { describe, it, expect, vi, beforeEach } from 'vitest';
-import { BadRequestException } from '@nestjs/common';
 import { ROCKET_SAVED_PO_RESPONSE_PROFILE } from '@kiditem/shared/rocket-purchase-preview';
 import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
 import { ProcurementService } from '../application/service/procurement.service';
@@ -84,7 +83,7 @@ describe('ProcurementService — PO status lifecycle', () => {
     );
   });
 
-  it('maps repository supplier ownership failure to BadRequestException', async () => {
+  it('maps repository supplier ownership failure to a Korean validation refusal', async () => {
     vi.mocked(procurement.createDraft).mockResolvedValue({
       ok: false,
       reason: 'supplier_not_found',
@@ -96,7 +95,7 @@ describe('ProcurementService — PO status lifecycle', () => {
         supplierId: 'supplier-2',
         items: [{ productName: 'Widget', masterProductId: 'sellpia-sku-1', quantity: 10, unitPriceCny: 50 }],
       }),
-    ).rejects.toThrow(BadRequestException);
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'SUPPLIER_NOT_FOUND' } });
 
     expect(procurement.createDraft).toHaveBeenCalledOnce();
   });
@@ -113,7 +112,10 @@ describe('ProcurementService — PO status lifecycle', () => {
         supplierName: 'Other Supplier',
         items: [{ productName: 'Widget', masterProductId: 'sellpia-sku-2', quantity: 10, unitPriceCny: 50 }],
       }),
-    ).rejects.toThrow('발주 항목의 상품을 찾을 수 없거나 권한이 없습니다: sellpia-sku-2');
+    ).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED',
+      details: { reason: 'MASTER_PRODUCT_NOT_FOUND', masterProductIds: ['sellpia-sku-2'] },
+    });
 
     expect(procurement.createDraft).toHaveBeenCalledOnce();
   });
@@ -149,7 +151,7 @@ describe('ProcurementService — PO status lifecycle', () => {
 
     await expect(
       service.updateStatus('organization-1', 'po-1', 'ordered'),
-    ).rejects.toThrow('submit');
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'SUBMIT_ACTION_REQUIRED' } });
     expect(procurement.updateStatusScoped).not.toHaveBeenCalled();
   });
 
@@ -189,17 +191,19 @@ describe('ProcurementService — PO status lifecycle', () => {
     );
   });
 
-  it('invalid transition draft→received → throws BadRequestException', async () => {
+  it('invalid transition draft→received → refuses with the purchase status code', async () => {
     vi.mocked(procurement.findScopedStatus).mockResolvedValue({ id: 'po-1', status: 'draft' });
 
-    await expect(service.updateStatus('organization-1', 'po-1', 'received')).rejects.toThrow(BadRequestException);
+    await expect(service.updateStatus('organization-1', 'po-1', 'received')).rejects.toMatchObject({
+      code: 'SUPPLY_PURCHASE_STATUS_INVALID', details: { reason: 'TRANSITION_INVALID', from: 'draft', to: 'received' },
+    });
     expect(procurement.updateStatusScoped).not.toHaveBeenCalled();
   });
 
   it('updateStatus wrong organization → not found, no mutation', async () => {
     vi.mocked(procurement.findScopedStatus).mockResolvedValue(null);
 
-    await expect(service.updateStatus('organization-1', 'po-1', 'pending')).rejects.toThrow(BadRequestException);
+    await expect(service.updateStatus('organization-1', 'po-1', 'pending')).rejects.toMatchObject({ code: 'NOT_FOUND', details: { reason: 'purchase_order' } });
 
     expect(procurement.updateStatusScoped).not.toHaveBeenCalled();
   });
@@ -218,23 +222,23 @@ describe('ProcurementService — PO status lifecycle', () => {
     expect(result).toEqual({ id: 'po-1', status: 'draft' });
   });
 
-  it('delete non-draft PO → throws BadRequestException', async () => {
+  it('delete non-draft PO → refuses with the purchase status code', async () => {
     transaction.deletePurchaseOrder.mockResolvedValue({ kind: 'not_deletable' });
 
-    await expect(service.delete('organization-1', 'po-1')).rejects.toThrow(BadRequestException);
+    await expect(service.delete('organization-1', 'po-1')).rejects.toMatchObject({ code: 'SUPPLY_PURCHASE_STATUS_INVALID', details: { reason: 'NOT_DELETABLE' } });
   });
 
   it('delete wrong organization → not found, no mutation', async () => {
     transaction.deletePurchaseOrder.mockResolvedValue({ kind: 'not_found' });
 
-    await expect(service.delete('organization-1', 'po-1')).rejects.toThrow(BadRequestException);
+    await expect(service.delete('organization-1', 'po-1')).rejects.toMatchObject({ code: 'NOT_FOUND', details: { reason: 'purchase_order' } });
   });
 
   it('delete pending PO with unresolved provider intent → rejects without deletion', async () => {
     transaction.deletePurchaseOrder.mockResolvedValue({ kind: 'unresolved_attempt' });
 
     await expect(service.delete('organization-1', 'po-1'))
-      .rejects.toThrow('외부 주문 시도');
+      .rejects.toMatchObject({ code: 'SUPPLY_SUBMISSION_RECONCILIATION_REQUIRED' });
   });
 });
 

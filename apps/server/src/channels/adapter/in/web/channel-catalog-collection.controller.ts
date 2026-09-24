@@ -1,5 +1,3 @@
-import { UseFilters } from '@nestjs/common';
-import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import {
   BadRequestException,
   Body,
@@ -30,7 +28,6 @@ import {
 } from '../../../application/port/in/channel-catalog-collection.port';
 import type { AuthUser } from '../../../../auth/auth.types';
 
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels/accounts/:channelAccountId/catalog-imports/coupang-wing/attempts')
 export class ChannelCatalogCollectionController {
   constructor(

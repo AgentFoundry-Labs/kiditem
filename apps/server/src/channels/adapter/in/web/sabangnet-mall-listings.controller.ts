@@ -1,5 +1,3 @@
-import { UseFilters } from '@nestjs/common';
-import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import {
   BadRequestException,
   Body,
@@ -26,7 +24,6 @@ import {
 } from '../../../application/port/in/sabangnet-mall-listings.port';
 
 /** 사방넷 송신 기록으로 몰 등록 상품을 가져오는 원천(KID-246). */
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels/sabangnet-listings')
 export class SabangnetMallListingsController {
   constructor(

@@ -1,6 +1,4 @@
 import { Inject } from '@nestjs/common';
-import { UseFilters } from '@nestjs/common';
-import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import { Controller, Get, Query } from '@nestjs/common';
 import type {
   MallAdapterManifestView,
@@ -24,7 +22,6 @@ import {
  * 전부 읽기다. 이 컨트롤러의 어떤 경로도 몰에 요청을 보내지 않고, 몰 계정 행도 쓰지
  * 않는다 — 몰 계정은 쇼핑몰 계정 화면(Orders)이 만들고 고친다.
  */
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels/mall-publishing')
 export class MallPublishingController {
   constructor(@Inject(MALL_PUBLISHING_PORT) private readonly mallPublishing: MallPublishingPort) {}

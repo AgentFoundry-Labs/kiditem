@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { KiditemExternalError } from '@kiditem/shared/errors';
 import { AiDirectJobWorkerService } from '../ai-direct-job-worker.service';
 import type { AiDirectJobRecord } from '../../port/out/repository/ai-direct-job.repository.port';
 
@@ -184,6 +185,22 @@ describe('AiDirectJobWorkerService', () => {
       }),
     );
     expect(processor.projectFailure).not.toHaveBeenCalled();
+  });
+
+  it('keeps the stored message and logs the KiditemError details it cannot store', async () => {
+    const { worker, repository, processor } = makeWorker();
+    const warn = vi.spyOn((worker as unknown as { logger: { warn: () => void } }).logger, 'warn').mockImplementation(() => undefined);
+    processor.execute.mockRejectedValueOnce(new KiditemExternalError('CONTENT_GENERATION_FAILED', {
+      details: { reason: 'detail_page_color_subtitle_empty' },
+    }));
+
+    await worker.tick(NOW);
+
+    expect(repository.failOrReschedule).toHaveBeenCalledWith(expect.objectContaining({
+      errorCode: 'CONTENT_GENERATION_FAILED',
+      errorMessage: 'AI 생성에 실패했습니다. 잠시 뒤 다시 시도해 주세요.',
+    }));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining('detail_page_color_subtitle_empty'));
   });
 
   it('rejects invalid provider output before checkpointing without retrying', async () => {

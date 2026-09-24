@@ -41,11 +41,80 @@ describe('error registry (ADR-0023)', () => {
     expect(ERROR_DEFINITIONS.SUPPLY_SUBMISSION_RECONCILIATION_REQUIRED.owner).toBe('supply');
     // 확장이 응답 body.code를 철자 그대로 읽는 코드는 접두 없이 등록한다(ads-report.js 실행 보고 거절,
     // order-collection-server-converter.js 변환 결과). 확장 재설계(KID-338)가 옮기면 접두를 붙인다.
-    const wireSpellings = new Set(['NO_NEW_ORDERS', 'EXECUTION_REPORT_MANUAL_ACTION', 'EXECUTION_TASK_NOT_LATEST', 'EXECUTION_TASK_EXPIRED', 'EXECUTION_REPORT_INVALID_TRANSITION']);
+    // 웹 use-mall-publish-run·collected-products 화면이 REGISTRATION_ALREADY_REGISTERED 철자를 비교한다
+    // (shared registration-state REGISTRATION_ALREADY_REGISTERED_CODE).
+    const wireSpellings = new Set(['NO_NEW_ORDERS', 'EXECUTION_REPORT_MANUAL_ACTION', 'EXECUTION_TASK_NOT_LATEST', 'EXECUTION_TASK_EXPIRED', 'EXECUTION_REPORT_INVALID_TRANSITION', 'REGISTRATION_ALREADY_REGISTERED']);
     for (const code of ERROR_CODES) {
       const { owner } = ERROR_DEFINITIONS[code];
       if (['common', 'auth', 'extension', 'inventory'].includes(owner) || wireSpellings.has(code)) continue;
       expect(code, code).toMatch(new RegExp(`^${owner.toUpperCase()}_`));
+    }
+  });
+
+  it('answers every registration execution report refusal with 409 so the web can re-report confirmed as submitted', () => {
+    // 웹 target-registration-execution은 confirmed 보고 거절을 status 409로 판단하고, recipe-conflict는
+    // 레시피 충돌을 409로 판단한다(KID-341·342).
+    const reportRefusals = [
+      'CHANNELS_EXECUTION_FENCE_LOST',
+      'CHANNELS_EXECUTION_TERMINAL',
+      'CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT',
+      'CHANNELS_EXECUTION_STALE',
+      'CHANNELS_EXECUTION_EVIDENCE_REJECTED',
+      'CHANNELS_REGISTRATION_TARGET_STALE',
+      'CHANNELS_OPTION_RECIPE_STALE',
+      'REGISTRATION_ALREADY_REGISTERED',
+    ] as const;
+    for (const code of reportRefusals) {
+      expect(ERROR_DEFINITIONS[code].kind, code).toBe('conflict');
+      expect(ERROR_DEFINITIONS[code].httpStatus, code).toBe(409);
+    }
+    expect(ERROR_DEFINITIONS.REGISTRATION_ALREADY_REGISTERED.owner).toBe('channels');
+    expect(ERROR_DEFINITIONS.CHANNELS_EXECUTION_NOT_FOUND.httpStatus).toBe(404);
+    expect(ERROR_DEFINITIONS.CHANNELS_REGISTRATION_TARGET_NOT_FOUND.httpStatus).toBe(404);
+    expect(ERROR_DEFINITIONS.CHANNELS_ACCOUNT_INACTIVE.httpStatus).toBe(422);
+    expect(ERROR_DEFINITIONS.CHANNELS_KID_REQUIRED.httpStatus).toBe(422);
+    expect(ERROR_DEFINITIONS.CHANNELS_SALES_PRODUCT_NOT_SELLING.httpStatus).toBe(422);
+    expect(ERROR_DEFINITIONS.CHANNELS_OPTION_RECIPE_INVALID.httpStatus).toBe(400);
+  });
+
+  it('keeps the specific operator guidance the old channel sentences gave', () => {
+    expect(ERROR_DEFINITIONS.CHANNELS_PREFLIGHT_FAILED.text).toBe('송신 전 점검을 통과하지 못했습니다. 점검 사유를 확인한 뒤 다시 시도해 주세요.');
+    expect(ERROR_DEFINITIONS.CHANNELS_SELLPIA_MATCH_REQUIRED.text).toBe('등록 전에 셀피아 상품을 연결하고 차감수량을 확인해 주세요.');
+  });
+
+  it('registers content and supply codes with the kind the operator flow needs (KID-343)', () => {
+    const expected = {
+      CONTENT_MODEL_NOT_CONFIGURED: ['content', 'external', 503, false],
+      CONTENT_GENERATION_INPUT_MISSING: ['content', 'precondition', 422, false],
+      CONTENT_IMAGE_TOO_LARGE: ['content', 'validation', 400, false],
+      CONTENT_NOT_FOUND: ['content', 'not_found', 404, false],
+      CONTENT_SELECTION_INVALID: ['content', 'validation', 400, false],
+      CONTENT_ASSET_IN_USE: ['content', 'conflict', 409, false],
+      CONTENT_REVISION_REQUIRED: ['content', 'precondition', 422, false],
+      SUPPLY_PROCUREMENT_REFERENCE_INVALID: ['supply', 'validation', 400, false],
+      SUPPLY_DECISION_EXPIRED: ['supply', 'expired', 409, false],
+      SUPPLY_OFFER_SNAPSHOT_EXPIRED: ['supply', 'expired', 409, false],
+      SUPPLY_PURCHASE_STATUS_INVALID: ['supply', 'conflict', 409, false],
+      SUPPLY_PURCHASE_LEGACY_ORDER: ['supply', 'precondition', 422, false],
+      SUPPLY_PURCHASE_PROVIDER_FAILED: ['supply', 'external', 502, false],
+      SUPPLY_ROCKET_RECIPE_REQUIRED: ['supply', 'precondition', 422, false],
+      SUPPLY_ROCKET_PREVIEW_CHANGED: ['supply', 'conflict', 409, true],
+      SUPPLY_ROCKET_WORKFLOW_ACTIVE: ['supply', 'in_progress', 409, false],
+      SUPPLY_ROCKET_PROBE_REQUIRED: ['supply', 'precondition', 422, false],
+      SUPPLY_ROCKET_WORKBOOK_FILE_INVALID: ['supply', 'validation', 400, false],
+      SUPPLY_ROCKET_TEMPLATE_MISMATCH: ['supply', 'precondition', 422, false],
+      SUPPLY_ROCKET_QUANTITY_EXCEEDED: ['supply', 'validation', 400, false],
+      AGENT_OS_OWNER_INPUT_HASH_REQUIRED: ['agent_os', 'validation', 400, false],
+      AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED: ['agent_os', 'validation', 400, false],
+      CHANNELS_SELLPIA_MATCH_REQUIRED: ['channels', 'precondition', 422, false],
+      CHANNELS_SELLPIA_DEDUCTION_REQUIRED: ['channels', 'validation', 400, false],
+      CHANNELS_SELLPIA_SKU_UNAVAILABLE: ['channels', 'precondition', 422, false],
+      CHANNELS_SELLPIA_SKU_AMBIGUOUS: ['channels', 'conflict', 409, false],
+      CHANNELS_SERVER_AUTOMATION_BLOCKED: ['channels', 'precondition', 422, false],
+    } as const;
+    for (const [code, [owner, kind, httpStatus, retryable]] of Object.entries(expected)) {
+      expect(isKiditemErrorCode(code), code).toBe(true);
+      expect(ERROR_DEFINITIONS[code as keyof typeof expected], code).toMatchObject({ owner, kind, httpStatus, retryable });
     }
   });
 

@@ -7,7 +7,7 @@ import {
   type OrderCollectionMall,
   type OrderCollectionMallKey,
 } from '../../../domain/account/mall-account-identity';
-import { ChannelAccountException } from '../../exception/channel-account.exception';
+import { KiditemError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import type { ChannelAccountFactQueries } from '../../port/in/account/channel-account.port';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { UpdateMallListingProfileSchema, type UpdateCoupangAccountSettings } from '@kiditem/shared/channel-account';
@@ -134,10 +134,10 @@ export class ChannelAccountService implements ChannelAccountPort {
       const rows = await accounts.list();
       const existing = pickOrderCollectionMallAccounts(rows).get(mall.key) ?? null;
       if (!existing && identity.kind === 'shared') {
-        throw new ChannelAccountException(
-          'invalid',
-          `${mall.name} 로그인은 ${identity.channel} 채널 계정에 저장합니다. 그 채널 계정을 먼저 연결하세요.`,
-        );
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+          details: { reason: 'SHARED_CHANNEL_ACCOUNT_MISSING' },
+          message: `${mall.name} 로그인은 ${identity.channel} 채널 계정에 저장합니다. 그 채널 계정을 먼저 연결하세요.`,
+        });
       }
 
       const existingConfig = toJsonRecord(existing?.config);
@@ -192,20 +192,17 @@ export class ChannelAccountService implements ChannelAccountPort {
     const parsed = UpdateMallListingProfileSchema.safeParse(input);
     if (!parsed.success) {
       const issue = parsed.error.issues[0];
-      throw new ChannelAccountException(
-        'invalid',
-        `등록 기본값 입력이 올바르지 않습니다${issue ? ` — ${issue.path.join('.') || '본문'}: ${issue.message}` : ''}`,
-      );
+      // 영어 zod 문장은 운영자에게 보내지 않는다 — 틀린 칸 이름만 싣는다.
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+        message: `등록 기본값 입력이 올바르지 않습니다${issue ? `(${issue.path.join('.') || '본문'})` : ''}.`,
+      });
     }
 
     const saved = await this.persistence.withMallAccounts(organizationId, async (accounts) => {
       const rows = await accounts.list();
       const existing = pickOrderCollectionMallAccounts(rows).get(mall.key) ?? null;
       if (!existing) {
-        throw new ChannelAccountException(
-          'not_found',
-          `${mall.name} 계정이 없습니다. 쇼핑몰 계정 화면에서 로그인을 먼저 저장하세요.`,
-        );
+        throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
       }
       const existingConfig = toJsonRecord(existing.config);
       const config = {
@@ -237,7 +234,7 @@ export class ChannelAccountService implements ChannelAccountPort {
 
 function findMall(mallKey: string): OrderCollectionMall {
   const mall = findOrderCollectionMall(mallKey);
-  if (!mall) throw new ChannelAccountException('invalid', '지원하지 않는 몰입니다.');
+  if (!mall) throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '지원하지 않는 몰입니다.' });
   return mall;
 }
 
@@ -287,17 +284,17 @@ function toMallAccount(
 
 function normalizeMallKeyOrder(value: unknown): OrderCollectionMallKey[] {
   if (!Array.isArray(value)) {
-    throw new ChannelAccountException('invalid', '몰 순서는 배열이어야 합니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '몰 순서는 배열이어야 합니다.' });
   }
   const keys: OrderCollectionMallKey[] = [];
   const seen = new Set<string>();
   for (const entry of value) {
     if (typeof entry !== 'string') {
-      throw new ChannelAccountException('invalid', '몰 키는 문자열이어야 합니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '몰 키는 문자열이어야 합니다.' });
     }
     const key = findMall(entry).key;
     if (seen.has(key)) {
-      throw new ChannelAccountException('invalid', '몰 순서에 같은 몰이 두 번 들어 있습니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '몰 순서에 같은 몰이 두 번 들어 있습니다.' });
     }
     seen.add(key);
     keys.push(key);
@@ -320,7 +317,7 @@ function encryptPassword(
 
 function mapCredentialKeyError(error: unknown): never {
   if (error instanceof Error && error.name === 'CoupangCredentialCryptoError') {
-    throw new ChannelAccountException('invalid', '채널 계정 암호화 키가 필요합니다.');
+    throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'CREDENTIAL_KEY_MISSING' }, cause: error });
   }
   throw error;
 }

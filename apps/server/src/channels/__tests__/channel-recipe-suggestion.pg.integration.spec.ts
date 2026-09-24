@@ -14,7 +14,6 @@ import {
 import { SellpiaRecipeEvidenceAdapter } from '../adapter/out/inventory/sellpia-recipe-evidence.adapter';
 import { ChannelRecipeSuggestionContextRepositoryAdapter } from '../adapter/out/repository/channel-recipe-suggestion-context.repository.adapter';
 import { ChannelRecipeSuggestionService } from '../application/service/listing/channel-recipe-suggestion.service';
-import { ChannelNotFoundError } from '../domain/exception/channel-business-error';
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const OTHER_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -65,7 +64,7 @@ describe('ChannelRecipeSuggestionService (PG integration)', () => {
       proposals: [{ masterProductId: sku.id }],
     });
     await expect(service.suggest(TEST_ORGANIZATION_ID, foreign.id))
-      .rejects.toBeInstanceOf(ChannelNotFoundError); // 도메인 예외; HTTP 404 는 ChannelBusinessExceptionFilter 가 맡는다
+      .rejects.toMatchObject({ code: 'CHANNELS_LISTING_NOT_FOUND', kind: 'not_found' });
     expect(await prisma.channelListingOptionInventoryComponent.count()).toBe(beforeComponents);
   });
 

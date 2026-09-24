@@ -22,7 +22,7 @@ import { ChannelAdapterRegistryAdapter } from '../adapter/out/channel/channel-ad
 import { channelAdapters } from './channel-adapters';
 import { CoupangChannelAdapter } from '../adapter/out/channel/coupang/coupang-channel.adapter';
 import type { RepresentativeImageRunnerPort } from '../application/port/out/automation/representative-image-runner.port';
-import { ChannelBusinessError } from '../domain/exception/channel-business-error';
+import { mapException, toEnvelope } from '../../common/filters/global-exception.filter';
 import { THUMBNAIL_AWAITING_CONFIRMATION_MESSAGE as AWAITING } from '../domain/registration/thumbnail-update';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
@@ -43,11 +43,11 @@ function fakeRunner() {
   return runner;
 }
 
-async function rejection(promise: Promise<unknown>): Promise<{ kind: string; message: string }> {
+/** 거절을 HTTP 봉투의 code · details.reason으로 읽는다(main.ts와 같은 전역 필터 매핑, KID-342). */
+async function rejection(promise: Promise<unknown>): Promise<{ code: string; reason?: unknown }> {
   try { await promise; } catch (error) {
-    if (error instanceof ChannelBusinessError) return { kind: error.kind, message: error.message };
-    const status = (error as { getStatus?: () => number }).getStatus?.();
-    return { kind: String(status ?? 'error'), message: (error as Error).message };
+    const envelope = toEnvelope(mapException(error));
+    return { code: envelope.code, ...(envelope.details?.reason !== undefined ? { reason: envelope.details.reason } : {}) };
   }
   throw new Error('expected a rejection');
 }
@@ -202,8 +202,8 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     const settled = await Promise.allSettled([service.prepare(input), service.prepare(input)]);
     expect(settled.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     const refused = settled.find((result) => result.status === 'rejected') as PromiseRejectedResult;
-    expect(refused.reason).toMatchObject({ kind: 'conflict', message: '이 대표이미지는 이미 반영 중입니다' });
-    expect(await rejection(service.prepare(input))).toEqual({ kind: 'conflict', message: '이 대표이미지는 이미 반영 중입니다' });
+    expect(refused.reason).toMatchObject({ code: 'CHANNELS_THUMBNAIL_EXECUTION_ACTIVE', details: { reason: 'IMAGE_LIVE' } });
+    expect(await rejection(service.prepare(input))).toMatchObject({ code: 'CHANNELS_THUMBNAIL_EXECUTION_ACTIVE', reason: 'IMAGE_LIVE' });
     expect(await prisma.productRegistrationExecution.count({ where: { organizationId: ORG, executionKind: 'thumbnail_update' } })).toBe(1);
   });
 
@@ -217,7 +217,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     await expect(service.listLatest({ organizationId: ORG, salesProductIds: [product.id] }))
       .resolves.toMatchObject([{ status: 'reconciling', providerOutcome: 'uncertain', error: 'port closed' }]);
     expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: product.id })))
-      .toEqual({ kind: 'conflict', message: '이 대표이미지는 이미 반영 중입니다' });
+      .toMatchObject({ code: 'CHANNELS_THUMBNAIL_EXECUTION_ACTIVE', reason: 'IMAGE_LIVE' });
 
     await expect(report({ outcome: 'uploaded_pending_save' })).resolves.toMatchObject({ success: false, status: 'reconciling' });
     await expect(service.confirmApplied({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId }))
@@ -225,10 +225,10 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     await expect(service.listLatest({ organizationId: ORG, salesProductIds: [product.id] }))
       .resolves.toMatchObject([{ status: 'succeeded', providerOutcome: 'succeeded', error: null }]);
 
-    expect(await rejection(report({ outcome: 'definitive_failure', error: 'late' }))).toMatchObject({ kind: 'conflict' });
+    expect(await rejection(report({ outcome: 'definitive_failure', error: 'late' }))).toMatchObject({ code: 'CHANNELS_EXECUTION_TERMINAL' });
     expect(await rejection(service.report({
       organizationId: ORG, requestedByUserId: USER, executionId: randomUUID(), report: { outcome: 'uploaded_pending_save' },
-    }))).toMatchObject({ kind: 'not_found' });
+    }))).toMatchObject({ code: 'CHANNELS_EXECUTION_NOT_FOUND' });
   });
 
   it('accepts the operator confirmation only after an upload is waiting for it', async () => {
@@ -236,9 +236,9 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     const prepared = await service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: product.id });
     const confirm = () => service.confirmApplied({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId });
 
-    expect(await rejection(confirm())).toMatchObject({ kind: 'conflict' });
+    expect(await rejection(confirm())).toMatchObject({ code: 'STATE_CONFLICT', reason: 'NOT_ACCEPTING_REPORT' });
     await service.report({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId, report: { outcome: 'definitive_failure', error: '로그인 필요' } });
-    expect(await rejection(confirm())).toMatchObject({ kind: 'conflict' });
+    expect(await rejection(confirm())).toMatchObject({ code: 'CHANNELS_EXECUTION_TERMINAL' });
     expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId } })).toMatchObject({ status: 'failed' });
   });
 
@@ -275,7 +275,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     expect(runner.calls).toBe(1);
     expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: first.executionId } }))
       .toMatchObject({ ownerIdempotencyKey: owner.ownerIdempotencyKey, requestHash: owner.requestHash, idempotencyKey: `thumbnail_update:${owner.ownerIdempotencyKey}` });
-    expect(await rejection(service.runOnServer({ ...input, owner: { ...owner, requestHash: 'b'.repeat(64) } }))).toMatchObject({ kind: 'conflict' });
+    expect(await rejection(service.runOnServer({ ...input, owner: { ...owner, requestHash: 'b'.repeat(64) } }))).toMatchObject({ code: 'DB_CONFLICT', reason: 'owner_idempotency_key_conflict' });
   });
 
   it('answers an owner replay first: before the production block, the Content reads and the account and image checks', async () => {
@@ -303,7 +303,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     expect(await rejection(service.runOnServer({
       organizationId: ORG, requestedByUserId: USER, salesProductId: second.product.id,
       owner: { ownerIdempotencyKey, requestHash: canonicalOwnerInputHash({ salesProductId: second.product.id }) },
-    }))).toMatchObject({ kind: 'conflict' });
+    }))).toMatchObject({ code: 'DB_CONFLICT', reason: 'owner_idempotency_key_conflict' });
     expect(runner.calls).toBe(1);
     expect(await prisma.productRegistrationExecution.count({ where: { executionKind: 'thumbnail_update' } })).toBe(1);
   });
@@ -317,7 +317,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     await expect(service.runOnServer(input)).rejects.toThrow('playwriter exited');
     await expect(service.listLatest({ organizationId: ORG, salesProductIds: [product.id] }))
       .resolves.toMatchObject([{ status: 'reconciling', providerOutcome: 'uncertain', error: 'playwriter exited' }]);
-    expect(await rejection(service.runOnServer(input))).toEqual({ kind: 'unavailable', message: 'representative_image_reconciliation_pending' });
+    expect(await rejection(service.runOnServer(input))).toMatchObject({ code: 'SERVICE_UNAVAILABLE', reason: 'RECONCILIATION_PENDING' });
     expect(runner.calls).toBe(1);
   });
 
@@ -329,18 +329,18 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
 
     runner.blocked = true;
     expect(await rejection(service.runOnServer({ organizationId: ORG, requestedByUserId: null, salesProductId: product.id, owner: null })))
-      .toEqual({ kind: 'unavailable', message: '스테이징/운영에서는 대표이미지를 Chrome 확장 프로그램으로만 반영할 수 있습니다.' });
+      .toMatchObject({ code: 'CHANNELS_SERVER_AUTOMATION_BLOCKED' });
     expect(runner.calls).toBe(1);
   });
 
   it('keeps executions, reports and the latest list inside one organization', async () => {
     const mine = await listingAsset();
     const theirs = await listingAsset(OTHER_ORGANIZATION_ID);
-    expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: theirs.product.id }))).toMatchObject({ kind: 'not_found' });
+    expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: theirs.product.id }))).toMatchObject({ code: 'NOT_FOUND' });
     const prepared = await service.prepare({ organizationId: OTHER_ORGANIZATION_ID, requestedByUserId: null, salesProductId: theirs.product.id });
 
     expect(await rejection(service.report({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId, report: { outcome: 'uploaded_pending_save' } })))
-      .toMatchObject({ kind: 'not_found' });
+      .toMatchObject({ code: 'CHANNELS_EXECUTION_NOT_FOUND' });
     await expect(service.listLatest({ organizationId: ORG, salesProductIds: [theirs.product.id, mine.product.id] })).resolves.toEqual([]);
     await expect(service.listLatest({ organizationId: OTHER_ORGANIZATION_ID, salesProductIds: [theirs.product.id] }))
       .resolves.toMatchObject([{ executionId: prepared.executionId, status: 'executing' }]);
@@ -378,7 +378,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     const concurrent = await Promise.allSettled([service.prepare(secondInput), service.prepare(secondInput)]);
     expect(concurrent.map((result) => result.status)).toEqual(['rejected', 'rejected']);
     expect(await rejection(service.prepare(secondInput)))
-      .toEqual({ kind: 'conflict', message: '이 listing 에 반영 중인 대표이미지가 있습니다' });
+      .toMatchObject({ code: 'CHANNELS_THUMBNAIL_EXECUTION_ACTIVE', reason: 'LISTING_BUSY' });
 
     await service.markNotApplied({ organizationId: ORG, requestedByUserId: USER, executionId: first.executionId });
     await expect(service.prepare(secondInput)).resolves.toMatchObject({ salesProductId: product.id, assetId: second.id });
@@ -402,7 +402,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     const prepared = await service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: product.id });
     await uploadAndConfirm(prepared.executionId);
     expect(await rejection(service.markNotApplied({ organizationId: ORG, requestedByUserId: USER, executionId: prepared.executionId })))
-      .toMatchObject({ kind: 'conflict' });
+      .toMatchObject({ code: 'CHANNELS_EXECUTION_TERMINAL' });
     expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId } }))
       .toMatchObject({ status: 'succeeded' });
   });
@@ -414,8 +414,8 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
 
     await expect(service.resend({ organizationId: ORG, executionId: prepared.executionId })).resolves.toEqual(prepared);
     await uploadAndConfirm(prepared.executionId);
-    expect(await rejection(service.resend({ organizationId: ORG, executionId: prepared.executionId }))).toMatchObject({ kind: 'conflict' });
-    expect(await rejection(service.resend({ organizationId: OTHER_ORGANIZATION_ID, executionId: prepared.executionId }))).toMatchObject({ kind: 'not_found' });
+    expect(await rejection(service.resend({ organizationId: ORG, executionId: prepared.executionId }))).toMatchObject({ code: 'CHANNELS_EXECUTION_TERMINAL' });
+    expect(await rejection(service.resend({ organizationId: OTHER_ORGANIZATION_ID, executionId: prepared.executionId }))).toMatchObject({ code: 'CHANNELS_EXECUTION_NOT_FOUND' });
   });
 
   describe('account resolution', () => {
@@ -427,7 +427,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
 
       const many = await productAsset({ listings: 2 });
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: many.product.id })))
-        .toEqual({ kind: 'invalid', message: '대표이미지를 반영할 listing 이 여럿입니다 — listing을 고르세요' });
+        .toMatchObject({ code: 'VALIDATION_FAILED', reason: 'ambiguous_listing' });
       const picked = await service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: many.product.id, channelListingId: many.listings[1]!.id });
       expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: picked.executionId } }))
         .toMatchObject({ channelAccountId: many.listings[1]!.channelAccountId, channelListingId: null, submissionPayloadJson: expect.objectContaining({ channelListingId: many.listings[1]!.id }) });
@@ -448,7 +448,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
       await prisma.channelListing.update({ where: { id: unnamed.listing.id }, data: { channelName: null } });
       await prisma.salesProduct.update({ where: { id: unnamed.product.id }, data: { name: '  ' } });
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: unnamed.product.id })))
-        .toEqual({ kind: 'invalid', message: '몰 등록 상품명을 찾을 수 없습니다' });
+        .toMatchObject({ code: 'CHANNELS_PREFLIGHT_FAILED', reason: 'PRODUCT_NAME_MISSING' });
     });
 
     it('names the choice with a machine code and lists the product Coupang listings the operator can pick', async () => {
@@ -459,7 +459,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
       });
 
       await expect(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: product.product.id }))
-        .rejects.toMatchObject({ kind: 'invalid', details: { code: 'ambiguous_listing' } });
+        .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'ambiguous_listing' } });
       const choices = await service.listingChoices({ organizationId: ORG, salesProductId: product.product.id });
       expect(choices.map((choice) => choice.channelListingId).sort()).toEqual(product.listings.map((listing) => listing.id).sort());
       expect(choices.find((choice) => choice.channelListingId === product.listings[0]!.id)).toMatchObject({
@@ -474,20 +474,20 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
         data: { organizationId: ORG, channelAccountId: product.listings[0]!.channelAccountId, externalId: randomUUID(), salesProductId: product.product.id },
       });
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: product.product.id })))
-        .toEqual({ kind: 'invalid', message: '대표이미지를 반영할 listing 이 여럿입니다 — listing을 고르세요' });
+        .toMatchObject({ code: 'VALIDATION_FAILED', reason: 'ambiguous_listing' });
       expect(await prisma.productRegistrationExecution.count({ where: { executionKind: 'thumbnail_update' } })).toBe(0);
     });
 
     it('falls back to the single active Coupang account and refuses none or several', async () => {
       const none = await productAsset();
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: none.product.id })))
-        .toEqual({ kind: 'invalid', message: '대표이미지를 반영할 수 있는 계정이 없습니다' });
+        .toMatchObject({ code: 'VALIDATION_FAILED', reason: 'no_account' });
 
       await prisma.channelAccount.create({ data: { organizationId: ORG, channel: 'coupang', name: 'inactive', status: 'inactive' } });
       await prisma.channelAccount.create({ data: { organizationId: ORG, channel: 'rocket', name: 'rocket', status: 'active' } });
       await coupangAccount(OTHER_ORGANIZATION_ID);
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: none.product.id })))
-        .toEqual({ kind: 'invalid', message: '대표이미지를 반영할 수 있는 계정이 없습니다' });
+        .toMatchObject({ code: 'VALIDATION_FAILED', reason: 'no_account' });
 
       const only = await coupangAccount();
       const prepared = await service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: none.product.id });
@@ -497,7 +497,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
 
       await coupangAccount();
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: none.product.id })))
-        .toEqual({ kind: 'invalid', message: '대표이미지를 반영할 수 있는 계정이 여럿입니다 — listing을 고르세요' });
+        .toMatchObject({ code: 'VALIDATION_FAILED', reason: 'ambiguous_account' });
     });
 
     /** KID-321: 계정 결정은 채널 키가 아니라 registry `representativeImage` 능력을 읽는다. */
@@ -516,7 +516,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
       const bare = await productAsset();
       await prisma.channelAccount.updateMany({ where: { organizationId: ORG, channel: 'coupang' }, data: { status: 'inactive' } });
       await expect(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: bare.product.id }))
-        .rejects.toMatchObject({ kind: 'invalid', message: '대표이미지를 반영할 수 있는 계정이 없습니다', details: { code: 'no_account' } });
+        .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'no_account' } });
     });
 
     it('accepts a picked listing only when it is an active representative-image listing of this product', async () => {
@@ -529,9 +529,9 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
       const pick = (salesProductId: string, channelListingId: string) =>
         rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId, channelListingId }));
 
-      expect(await pick(product.product.id, other.listings[0]!.id)).toMatchObject({ kind: 'invalid' });
-      expect(await pick(product.product.id, theirs.listing.id)).toMatchObject({ kind: 'invalid' });
-      expect(await pick(product.product.id, inactive.id)).toMatchObject({ kind: 'invalid' });
+      expect(await pick(product.product.id, other.listings[0]!.id)).toMatchObject({ code: 'VALIDATION_FAILED' });
+      expect(await pick(product.product.id, theirs.listing.id)).toMatchObject({ code: 'VALIDATION_FAILED' });
+      expect(await pick(product.product.id, inactive.id)).toMatchObject({ code: 'VALIDATION_FAILED' });
       await expect(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: product.product.id, channelListingId: product.listing.id }))
         .resolves.toMatchObject({ salesProductId: product.product.id });
     });
@@ -552,10 +552,10 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
       const prepared = await service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: product.id, assetId: candidate.id });
       expect(prepared).toMatchObject({ salesProductId: product.id, assetId: candidate.id });
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: product.id, assetId: foreign.asset.id })))
-        .toMatchObject({ kind: '400' });
+        .toMatchObject({ code: 'CONTENT_SELECTION_INVALID' });
       // 다른 자산이라 (상품, 계정, 자산) 이 다르지만 같은 listing 이므로 기다린다.
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: product.id, assetId: asset.id })))
-        .toEqual({ kind: 'conflict', message: '이 listing 에 반영 중인 대표이미지가 있습니다' });
+        .toMatchObject({ code: 'CHANNELS_THUMBNAIL_EXECUTION_ACTIVE', reason: 'LISTING_BUSY' });
     });
 
     it('uses the asset the registration target chose for that account before the workspace representative image', async () => {
@@ -578,7 +578,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
       const { product, workspace } = await listingAsset();
       await prisma.contentWorkspace.update({ where: { id: workspace.id }, data: { currentThumbnailAssetId: null } });
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: product.id })))
-        .toMatchObject({ kind: '404' });
+        .toMatchObject({ code: 'CONTENT_NOT_FOUND' });
       expect(await prisma.productRegistrationExecution.count({ where: { executionKind: 'thumbnail_update' } })).toBe(0);
     });
   });

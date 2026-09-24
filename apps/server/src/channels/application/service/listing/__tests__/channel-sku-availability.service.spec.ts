@@ -112,14 +112,14 @@ describe('ChannelSkuAvailabilityService', () => {
 
   it.each([-1, 0.5, NaN, Infinity, 2_147_483_648])('rejects invalid safety stock %s without writing', async (value) => {
     const { service, repository } = dependencies();
-    await expect(service.updateSafetyStock(organizationId, optionId, value)).rejects.toMatchObject({ code: 'invalid' });
+    await expect(service.updateSafetyStock(organizationId, optionId, value)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
     expect(repository.updateSafetyStock).not.toHaveBeenCalled();
   });
 
   it('reports an option outside the organization as not found', async () => {
     const { service, repository } = dependencies();
     repository.updateSafetyStock.mockResolvedValue(false);
-    await expect(service.updateSafetyStock(organizationId, optionId, 0)).rejects.toMatchObject({ code: 'not_found' });
+    await expect(service.updateSafetyStock(organizationId, optionId, 0)).rejects.toMatchObject({ code: 'CHANNELS_LISTING_NOT_FOUND', kind: 'not_found' });
   });
   it('calculates sellable capacity from the direct channel-option recipe and common availability', async () => {
     const { inventory, service } = dependencies();

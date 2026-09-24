@@ -125,7 +125,7 @@ describe('purchase-order submission transaction (PG integration)', () => {
     await expect(adapter.prepare({
       ...input,
       requestHash: 'b'.repeat(64),
-    })).rejects.toThrow('different canonical input');
+    })).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'IDEMPOTENCY_KEY_REUSED' } });
     expect(await prisma.purchaseOrderSubmissionAttempt.count({
       where: { organizationId: TEST_ORGANIZATION_ID, purchaseOrderId: ORDER_ID },
     })).toBe(1);
@@ -211,7 +211,7 @@ describe('purchase-order submission transaction (PG integration)', () => {
       purchaseOrderId: ORDER_ID,
       userId: TEST_USER_ID,
       idempotencyKey: '   ',
-    })).rejects.toThrow('idempotency');
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IDEMPOTENCY_KEY_REQUIRED' } });
 
     expect(await prisma.purchaseOrder.findUniqueOrThrow({ where: { id: ORDER_ID } }))
       .toMatchObject({ status: 'draft' });

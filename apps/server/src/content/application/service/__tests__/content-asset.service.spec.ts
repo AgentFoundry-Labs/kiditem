@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import type { ContentAssetLibraryRepositoryPort } from '../../port/out/repository/content-asset-library.repository.port';
 import { ContentAssetService } from '../content-asset.service';
@@ -240,7 +239,7 @@ describe('ContentAssetService.replaceWorkspaceThumbnailGallery', () => {
       contentWorkspaceId: WORKSPACE,
       createdByUserId: null,
       thumbnailUrls: Array.from({ length: 21 }, (_, i) => `https://cdn.example.com/${i}.png`),
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'THUMBNAIL_GALLERY_TOO_MANY', max: 20 } });
     expect(repo.replaceWorkspaceThumbnailGallery).not.toHaveBeenCalled();
   });
 });

@@ -1,6 +1,7 @@
 import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
-import { ConflictException, Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemConflictError, KiditemError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
@@ -165,7 +166,7 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
       readProductGenerationRequestHash(existing.inputMeta) !==
         input.productGenerationIdentity.requestHash
     ) {
-      throw new ConflictException('product_generation_idempotency_conflict');
+      throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'PRODUCT_GENERATION_IDEMPOTENCY_CONFLICT' } });
     }
     const directJob = await scope.aiDirectJob.findFirst({
       where: {
@@ -176,7 +177,7 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
       select: { id: true, status: true },
     });
     if (!directJob) {
-      throw new Error(`Missing thumbnail AI direct job for ${existing.id}.`);
+      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'THUMBNAIL_DIRECT_JOB_MISSING', generationId: existing.id } });
     }
     return {
       status: 'existing',

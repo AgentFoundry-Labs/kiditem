@@ -107,7 +107,7 @@ describe('ProductGenerationAiService', () => {
     const { service } = makeService();
 
     await expect(service.startForSalesProduct(request({ idempotencyKey: undefined })))
-      .rejects.toThrow('product_generation_idempotency_required');
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IDEMPOTENCY_KEY_REQUIRED' } });
   });
 
   it('returns direct child ids and workspace without an operation aggregate', async () => {
@@ -226,7 +226,7 @@ describe('ProductGenerationAiService', () => {
     const { service, detailPages, thumbnails, editorAi } = makeService({ contextRepository });
 
     await expect(service.startForSalesProduct(request({ task: 'detail' })))
-      .rejects.toThrow('product_generation_idempotency_conflict');
+      .rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'PRODUCT_GENERATION_IDEMPOTENCY_CONFLICT' } });
     expect(detailPages.generate).not.toHaveBeenCalled();
     expect(editorAi.resolveInputImage).not.toHaveBeenCalled();
     expect(thumbnails.enqueueSalesProductGeneration).not.toHaveBeenCalled();
@@ -245,7 +245,7 @@ describe('ProductGenerationAiService', () => {
     const { service, detailPages, thumbnails, editorAi } = makeService({ contextRepository });
 
     await expect(service.startForSalesProduct(request({ task: 'thumbnail' })))
-      .rejects.toThrow('product_generation_idempotency_conflict');
+      .rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'PRODUCT_GENERATION_IDEMPOTENCY_CONFLICT' } });
     expect(detailPages.generate).not.toHaveBeenCalled();
     expect(editorAi.resolveInputImage).not.toHaveBeenCalled();
     expect(thumbnails.enqueueSalesProductGeneration).not.toHaveBeenCalled();
@@ -378,7 +378,7 @@ describe('ProductGenerationAiService', () => {
     await expect(service.startForSalesProduct(request({
       task: 'detail',
       requestHash: 'b'.repeat(64),
-    }))).rejects.toThrow('product_generation_idempotency_conflict');
+    }))).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'PRODUCT_GENERATION_IDEMPOTENCY_CONFLICT' } });
     expect(detailPages.generate).not.toHaveBeenCalled();
   });
 

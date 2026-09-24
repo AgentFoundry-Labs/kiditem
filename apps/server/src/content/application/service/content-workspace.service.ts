@@ -1,4 +1,5 @@
-import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemNotFoundError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import {
   CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
   type ContentWorkspaceDetailPageSnapshot,
@@ -135,7 +136,7 @@ export class ContentWorkspaceService {
     workspaceId: string,
   ): Promise<ContentWorkspaceSummary> {
     const row = await this.repository.getById({ organizationId, workspaceId });
-    if (!row) throw new NotFoundException('Content workspace not found');
+    if (!row) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'workspace' } });
     return this.toSummary(row);
   }
 
@@ -172,7 +173,7 @@ export class ContentWorkspaceService {
       workspaceId,
       archivedAt,
     });
-    if (archivedWorkspaces === 0) throw new NotFoundException('Content workspace not found');
+    if (archivedWorkspaces === 0) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'workspace' } });
     return { ok: true, archivedWorkspaces };
   }
 
@@ -186,8 +187,8 @@ export class ContentWorkspaceService {
     detailPageId: string;
   }): Promise<ContentWorkspaceSummary> {
     const page = await this.detailPages.findById({ organizationId: input.organizationId, detailPageId: input.detailPageId });
-    if (!page || page.contentWorkspaceId !== input.workspaceId) throw new NotFoundException('Detail page not found');
-    if (!page.currentRevisionId) throw new BadRequestException('Detail page has no saved revision yet');
+    if (!page || page.contentWorkspaceId !== input.workspaceId) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'detail_page' } });
+    if (!page.currentRevisionId) throw new KiditemPreconditionError('CONTENT_REVISION_REQUIRED');
     const revisionId = page.currentRevisionId;
     await this.detailPages.runInTransaction((transaction) => this.detailPages.setCurrentRevision(transaction, {
       organizationId: input.organizationId,

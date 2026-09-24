@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import {
   PRODUCT_GENERATION_AI_TRIGGER_PORT,
   type ProductGenerationAiTriggerPort,
@@ -99,7 +100,7 @@ function requiredInputHash(value: string, input: unknown): string {
     !/^[a-f0-9]{64}$/.test(value)
     || value !== canonicalOwnerInputHash(input)
   ) {
-    throw new Error('owner_input_hash_required');
+    throw new KiditemInvalidValueError('AGENT_OS_OWNER_INPUT_HASH_REQUIRED');
   }
   return value;
 }

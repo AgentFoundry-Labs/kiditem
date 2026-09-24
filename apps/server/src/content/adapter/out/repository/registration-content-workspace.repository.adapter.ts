@@ -1,11 +1,6 @@
 import { isRepresentativeAsset } from './representative-asset';
-import {
-  BadRequestException,
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemConflictError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
@@ -83,7 +78,7 @@ export class RegistrationContentWorkspaceRepositoryAdapter
       select: { id: true },
     });
     if (!workspace) {
-      if (input.revisionId) throw new BadRequestException('Selected detail revision is not source-owned.');
+      if (input.revisionId) throw new KiditemInvalidValueError('CONTENT_SELECTION_INVALID', { details: { reason: 'DETAIL_REVISION_NOT_OWNED' } });
       return null;
     }
     const revision = input.revisionId
@@ -126,7 +121,7 @@ export class RegistrationContentWorkspaceRepositoryAdapter
       if (request.revisionId) {
         const revision = chosenById.get(request.revisionId);
         if (!workspace || !revision || revision.detailPage.contentWorkspaceId !== workspace.id) {
-          throw new BadRequestException('Selected detail revision is not source-owned.');
+          throw new KiditemInvalidValueError('CONTENT_SELECTION_INVALID', { details: { reason: 'DETAIL_REVISION_NOT_OWNED' } });
         }
         pages.set(request.salesProductId, toRegistrableDetailPage(workspace.id, revision));
         continue;
@@ -200,7 +195,7 @@ export class RegistrationContentWorkspaceRepositoryAdapter
         where: { organizationId: input.organizationId, contentWorkspaceId: workspace.id, isDeleted: false },
       });
       if (workspace.currentRevisionId || livePages > 0) {
-        throw new ConflictException('이미 상세 페이지가 있습니다. 그 상세를 고쳐 저장하세요.');
+        throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'DETAIL_PAGE_ALREADY_EXISTS' } });
       }
       const page = await this.detailPages.create(transaction, {
         organizationId: input.organizationId,
@@ -321,7 +316,7 @@ export class RegistrationContentWorkspaceRepositoryAdapter
       },
       select: { id: true, currentThumbnailAssetId: true },
     });
-    if (!source) throw new NotFoundException('Source content workspace not found.');
+    if (!source) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'workspace' } });
     return source;
   }
 }
@@ -353,7 +348,7 @@ async function lockActiveContentAsset(
     FOR UPDATE
   `);
   if (rows.length !== 1) {
-    throw new BadRequestException('Selected thumbnail asset is no longer available.');
+    throw new KiditemInvalidValueError('CONTENT_SELECTION_INVALID', { details: { reason: 'THUMBNAIL_ASSET_UNAVAILABLE' } });
   }
 }
 
@@ -381,7 +376,7 @@ async function assertOwnedThumbnailAsset(
     select: { id: true, role: true, source: true, contentWorkspace: { select: { ownerType: true } } },
   });
   if (!asset || !isRepresentativeAsset(asset.contentWorkspace.ownerType, asset)) {
-    throw new BadRequestException('Selected thumbnail asset is not source-owned.');
+    throw new KiditemInvalidValueError('CONTENT_SELECTION_INVALID', { details: { reason: 'THUMBNAIL_ASSET_NOT_OWNED' } });
   }
 }
 
@@ -399,7 +394,7 @@ async function findOwnedRevision(
     },
     select: REVISION_SELECT,
   });
-  if (!revision) throw new BadRequestException('Selected detail revision is not source-owned.');
+  if (!revision) throw new KiditemInvalidValueError('CONTENT_SELECTION_INVALID', { details: { reason: 'DETAIL_REVISION_NOT_OWNED' } });
   return revision;
 }
 
@@ -452,6 +447,6 @@ async function lockSalesProductWorkspace(
     FOR UPDATE
   `);
   const workspace = locked[0];
-  if (!workspace) throw new NotFoundException('Sales product content workspace not found.');
+  if (!workspace) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'workspace' } });
   return workspace;
 }

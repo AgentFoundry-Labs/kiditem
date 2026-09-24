@@ -49,7 +49,7 @@ describe('Channels cross-owner fact query contracts', () => {
       { id: 'a', listingId: 'one', externalOptionId: 'duplicate', listing: { externalId: 'first' } },
       { id: 'b', listingId: 'two', externalOptionId: 'duplicate', listing: { externalId: 'second' } },
     ] as never);
-    await expect(listings.readExternalIdentities(transaction, { organizationId: 'org', accountId: 'account', optionExternalIds: ['duplicate'], activeOnly: true })).rejects.toThrow('ambiguous');
+    await expect(listings.readExternalIdentities(transaction, { organizationId: 'org', accountId: 'account', optionExternalIds: ['duplicate'], activeOnly: true })).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'OPTION_IDENTITY_AMBIGUOUS' } });
   });
 
   it('keeps historical inactive catalog facts and uses the caller transaction', async () => {
@@ -65,7 +65,7 @@ describe('Channels cross-owner fact query contracts', () => {
 
   it('locks only the requested active organization owner and rejects a missing owner', async () => {
     const { tx, listings, transaction } = fixture();
-    await expect(listings.lockActiveOwner(transaction, { organizationId: 'org', listingId: 'listing' })).rejects.toThrow('not found');
+    await expect(listings.lockActiveOwner(transaction, { organizationId: 'org', listingId: 'listing' })).rejects.toMatchObject({ code: 'CHANNELS_LISTING_NOT_FOUND' });
     const sql = tx.$queryRaw.mock.calls[0]![0] as { sql: string; values: unknown[] };
     expect(sql.sql).toContain('FOR UPDATE');
     expect(sql.sql).toContain('is_active = true');

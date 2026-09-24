@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { REGISTRATION_EXECUTION_PORT, type RegistrationExecutionPort } from '../../../application/port/in/capability/registration-execution.port';
 import {
   defineCapabilityComposition,
@@ -64,7 +65,7 @@ function requiredOwnerInputHash(
   context: CapabilityExecutionContext,
 ): string {
   if (!context.ownerInputHash?.match(/^[a-f0-9]{64}$/)) {
-    throw new Error('owner_input_hash_required');
+    throw new KiditemInvalidValueError('AGENT_OS_OWNER_INPUT_HASH_REQUIRED');
   }
   return context.ownerInputHash;
 }
@@ -73,7 +74,7 @@ function requiredOwnerIdempotencyKey(
   context: CapabilityExecutionContext,
 ): string {
   if (!context.ownerIdempotencyKey?.trim()) {
-    throw new Error('owner_idempotency_key_required');
+    throw new KiditemInvalidValueError('AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED');
   }
   return context.ownerIdempotencyKey;
 }

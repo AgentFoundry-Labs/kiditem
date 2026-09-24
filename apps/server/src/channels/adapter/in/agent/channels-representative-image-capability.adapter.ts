@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { KiditemConflictError } from '@kiditem/shared/errors';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import type {
   ChannelsRepresentativeImageCapabilityPort,
@@ -34,7 +35,7 @@ export class ChannelsRepresentativeImageCapabilityAdapter
         ...(input.assetId ? { assetId: input.assetId } : {}),
       })
     ) {
-      throw new Error('owner_idempotency_key_conflict');
+      throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'OWNER_IDEMPOTENCY_KEY_CONFLICT' } });
     }
     return this.run(input);
   }

@@ -25,6 +25,8 @@ import {
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { INestApplication } from '@nestjs/common';
+import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
+import { ChannelBusinessExceptionFilter } from '../adapter/in/web/channel-business-exception.filter';
 
 const ACCOUNT_ID = '71000000-0000-4000-8000-000000000001';
 const SOURCE_TYPE = 'sellpia_product_manual_match';
@@ -69,6 +71,7 @@ describe('Sellpia manual-match source owner (PostgreSQL)', () => {
         next();
       },
     );
+    app.useGlobalFilters(new GlobalExceptionFilter(), new ChannelBusinessExceptionFilter());
     await app.init();
     await app.listen(0, '127.0.0.1');
     httpUrl = await app.getUrl();

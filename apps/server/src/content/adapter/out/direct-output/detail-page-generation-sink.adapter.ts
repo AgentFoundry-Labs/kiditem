@@ -1,4 +1,5 @@
-import { ConflictException, Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { isKiditemError } from '@kiditem/shared/errors';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import type { DetailPageDirectOutputSinkPort } from '../../../application/port/out/sink/detail-page-direct-output-sink.port';
 import {
@@ -72,7 +73,7 @@ export class DetailPageGenerationSinkAdapter implements DetailPageDirectOutputSi
         });
       } catch (error) {
         // 확인과 잠금 사이에 취소 · 다른 결과가 먼저 끝냈다.
-        if (error instanceof ConflictException) return false;
+        if (lostTerminalRace(error)) return false;
         throw error;
       }
       await recordDetailPageAssets(ownerTransactionClient(transaction), {
@@ -121,7 +122,7 @@ export class DetailPageGenerationSinkAdapter implements DetailPageDirectOutputSi
         });
         return true;
       } catch (error) {
-        if (error instanceof ConflictException) return false;
+        if (lostTerminalRace(error)) return false;
         throw error;
       }
     });
@@ -129,6 +130,11 @@ export class DetailPageGenerationSinkAdapter implements DetailPageDirectOutputSi
       this.logger.log(`detail_page_generate applied failure → detail page ${page.id} failed (code=${input.errorCode} request=${input.requestId}).`);
     }
   }
+}
+
+/** 확인과 잠금 사이에 다른 결과·취소가 먼저 페이지를 끝냈다 — 상태 전이 거절(STATE_CONFLICT). */
+function lostTerminalRace(error: unknown): boolean {
+  return isKiditemError(error) && error.code === 'STATE_CONFLICT';
 }
 
 function pickProductName(

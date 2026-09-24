@@ -63,7 +63,7 @@ describe('Channels Web and Agent execution boundary', () => {
       } })).rejects.toThrow();
     }
     await expect(capability('prepare_target_execution').invoke({ context: { ...context, ownerIdempotencyKey: undefined },
-      input: { targetId: id(5), expectedVersion: 1, kind: 'register' } })).rejects.toThrow('owner_idempotency_key_required');
+      input: { targetId: id(5), expectedVersion: 1, kind: 'register' } })).rejects.toMatchObject({ code: 'AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED' });
     expect(methods.prepareTargetExecution).not.toHaveBeenCalled();
   });
 

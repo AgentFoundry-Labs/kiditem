@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 
 export type CoupangWingInventoryExportProduct = Record<string, unknown>;
 
@@ -24,15 +25,15 @@ export class CoupangWingInventoryExportService {
     requestedFileName?: string,
   ): CoupangWingInventoryExportResult {
     if (!Array.isArray(products) || products.length === 0) {
-      throw new BadRequestException('다운로드할 Wing 상품이 없습니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_PRODUCTS_REQUIRED' }, message: '다운로드할 Wing 상품이 없습니다.' });
     }
     if (requestedFileName !== undefined && !/^wing-inventory_\d{4}-\d{2}-\d{2}_\d{2}\.\d{2}\.xls$/.test(requestedFileName)) {
-      throw new BadRequestException('Wing 상품목록 파일명이 유효하지 않습니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_FILE_NAME_INVALID' }, message: 'Wing 상품목록 파일명이 유효하지 않습니다.' });
     }
 
     const rows = products.map((product, index) => {
       if (!isRecord(product)) {
-        throw new BadRequestException(`Wing 상품 행 ${index + 1}이 유효하지 않습니다.`);
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_PRODUCT_ROW_INVALID', row: index + 1 }, message: `Wing 상품 행 ${index + 1}이 유효하지 않습니다.` });
       }
       return product;
     });

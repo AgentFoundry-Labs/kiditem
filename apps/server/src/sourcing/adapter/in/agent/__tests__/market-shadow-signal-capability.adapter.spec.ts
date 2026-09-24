@@ -14,7 +14,7 @@ describe('MarketShadowSignalCapabilityAdapter', () => {
   it('rejects a missing owner key before source admission', async () => {
     const service = { collect: vi.fn() };
     const adapter = new MarketShadowSignalCapabilityAdapter(service as never);
-    await expect(adapter.collectShadowSignals({ organizationId: 'org-1' } as never)).rejects.toThrow('owner_idempotency_key_required');
+    await expect(adapter.collectShadowSignals({ organizationId: 'org-1' } as never)).rejects.toMatchObject({ code: 'AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED' });
     expect(service.collect).not.toHaveBeenCalled();
   });
 });

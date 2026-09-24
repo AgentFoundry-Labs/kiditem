@@ -1,4 +1,4 @@
-import { BadRequestException } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 
 export async function readResponseBytes(
   response: Response,
@@ -9,7 +9,7 @@ export async function readResponseBytes(
   const declaredBytes = Number(response.headers.get('content-length'));
   if (Number.isFinite(declaredBytes) && declaredBytes > maxBytes) {
     await response.body?.cancel();
-    throw new BadRequestException('image too large');
+    throw new KiditemInvalidValueError('CONTENT_IMAGE_TOO_LARGE');
   }
   if (!response.body) return Buffer.alloc(0);
 
@@ -29,7 +29,7 @@ export async function readResponseBytes(
       totalBytes += value.byteLength;
       if (totalBytes > maxBytes) {
         await reader.cancel('image too large');
-        throw new BadRequestException('image too large');
+        throw new KiditemInvalidValueError('CONTENT_IMAGE_TOO_LARGE');
       }
       chunks.push(Buffer.from(value));
     }

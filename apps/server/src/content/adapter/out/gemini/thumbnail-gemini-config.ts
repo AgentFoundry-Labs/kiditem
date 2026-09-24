@@ -1,4 +1,4 @@
-import { ServiceUnavailableException } from '@nestjs/common';
+import { KiditemExternalError } from '@kiditem/shared/errors';
 
 const DEPRECATED_IMAGE_MODELS = new Map<string, string>([
   ['gemini-2.5-flash-image-preview', 'gemini-3.1-flash-image'],
@@ -14,42 +14,42 @@ const DEPRECATED_ANALYSIS_MODELS = new Map<string, string>([
 
 export function requireGeminiApiKey(): string {
   const apiKey = process.env.GEMINI_API_KEY;
-  if (!apiKey) throw new ServiceUnavailableException('thumbnail_ai_not_configured');
+  if (!apiKey) throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'GEMINI_API_KEY_MISSING', env: 'GEMINI_API_KEY' } });
   return apiKey;
 }
 
 export function requireGeminiImageModel(): string {
   const model = process.env.AI_IMAGE_MODEL?.trim();
-  if (!model) throw new ServiceUnavailableException('thumbnail_ai_image_model_not_configured');
+  if (!model) throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'IMAGE_MODEL_MISSING', env: 'AI_IMAGE_MODEL' } });
   const replacement = DEPRECATED_IMAGE_MODELS.get(model);
   if (replacement) {
-    throw new ServiceUnavailableException(
-      `AI_IMAGE_MODEL ${model} is deprecated or unavailable. Set AI_IMAGE_MODEL=${replacement}.`,
-    );
+    throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', {
+      details: { reason: 'IMAGE_MODEL_DEPRECATED', env: 'AI_IMAGE_MODEL', model, replacement },
+    });
   }
   return model;
 }
 
 export function requireGeminiVisionModel(): string {
   const model = process.env.AI_IMAGE_ANALYSIS_MODEL?.trim();
-  if (!model) throw new ServiceUnavailableException('thumbnail_ai_vision_model_not_configured');
+  if (!model) throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'VISION_MODEL_MISSING', env: 'AI_IMAGE_ANALYSIS_MODEL' } });
   const replacement = DEPRECATED_ANALYSIS_MODELS.get(model);
   if (replacement) {
-    throw new ServiceUnavailableException(
-      `AI_IMAGE_ANALYSIS_MODEL ${model} is deprecated or unavailable. Set AI_IMAGE_ANALYSIS_MODEL=${replacement}.`,
-    );
+    throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', {
+      details: { reason: 'VISION_MODEL_DEPRECATED', env: 'AI_IMAGE_ANALYSIS_MODEL', model, replacement },
+    });
   }
   return model;
 }
 
 export function requireGeminiVerifyModel(): string {
   const model = process.env.AI_IMAGE_ANALYSIS_VERIFY_MODEL?.trim();
-  if (!model) throw new ServiceUnavailableException('thumbnail_ai_verify_model_not_configured');
+  if (!model) throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'VERIFY_MODEL_MISSING', env: 'AI_IMAGE_ANALYSIS_VERIFY_MODEL' } });
   const replacement = DEPRECATED_ANALYSIS_MODELS.get(model);
   if (replacement) {
-    throw new ServiceUnavailableException(
-      `AI_IMAGE_ANALYSIS_VERIFY_MODEL ${model} is deprecated or unavailable. Set AI_IMAGE_ANALYSIS_VERIFY_MODEL=${replacement}.`,
-    );
+    throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', {
+      details: { reason: 'VERIFY_MODEL_DEPRECATED', env: 'AI_IMAGE_ANALYSIS_VERIFY_MODEL', model, replacement },
+    });
   }
   return model;
 }

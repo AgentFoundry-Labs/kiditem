@@ -289,8 +289,8 @@ describe('ContentWorkspaceService', () => {
     });
     const input = { organizationId: ORG, workspaceId: WORKSPACE_ID, detailPageId: DETAIL_PAGE_ID };
 
-    await expect(service(repo, foreign).selectCurrentDetailPage(input)).rejects.toThrow('Detail page not found');
-    await expect(service(repo, unsaved).selectCurrentDetailPage(input)).rejects.toThrow('Detail page has no saved revision yet');
+    await expect(service(repo, foreign).selectCurrentDetailPage(input)).rejects.toMatchObject({ code: 'CONTENT_NOT_FOUND', details: { reason: 'detail_page' } });
+    await expect(service(repo, unsaved).selectCurrentDetailPage(input)).rejects.toMatchObject({ code: 'CONTENT_REVISION_REQUIRED' });
     expect(foreign.setCurrentRevision).not.toHaveBeenCalled();
     expect(unsaved.setCurrentRevision).not.toHaveBeenCalled();
   });

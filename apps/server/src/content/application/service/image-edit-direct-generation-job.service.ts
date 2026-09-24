@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
+import { KiditemError } from '@kiditem/shared/errors';
 import {
   AI_DIRECT_JOB_REPOSITORY_PORT,
   type AiDirectJobRepositoryPort,
@@ -83,7 +84,7 @@ export class ImageEditDirectGenerationJobService {
       jobId: taskId,
     });
     if (!released) {
-      throw new Error(`Failed to release image-edit AI direct job ${taskId}.`);
+      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DIRECT_JOB_RELEASE_FAILED', jobId: taskId } });
     }
     this.worker.wake();
     return { taskId };

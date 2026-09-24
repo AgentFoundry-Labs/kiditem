@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Delete,
@@ -10,6 +9,7 @@ import {
   Post,
   Query,
 } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { Throttle } from '@nestjs/throttler';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
@@ -34,7 +34,7 @@ export class DetailPageEditorController {
   ) {
     // 거르지 못하는 필터를 조용히 무시하면 조직 전체의 최근 상세페이지가 한 상품의 이력처럼 보인다.
     if (sourceCandidateId !== undefined) {
-      throw new BadRequestException('sourceCandidateId는 제거되었습니다. contentWorkspaceId를 사용하세요');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'FILTER_REMOVED', field: 'sourceCandidateId' }, message: 'sourceCandidateId는 제거되었습니다. contentWorkspaceId를 사용하세요' });
     }
     return this.service.list(organizationId, {
       contentWorkspaceId,

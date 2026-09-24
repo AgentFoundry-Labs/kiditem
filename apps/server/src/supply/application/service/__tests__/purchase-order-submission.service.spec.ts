@@ -190,7 +190,7 @@ describe('PurchaseOrderSubmissionService', () => {
 
     await expect(service.submit(submissionInput({
       idempotencyKey: '   ',
-    }))).rejects.toThrow('idempotency');
+    }))).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IDEMPOTENCY_KEY_REQUIRED' } });
 
     expect(transaction.prepareDraft).not.toHaveBeenCalled();
     expect(procurement.getPurchaseOrderCheckoutSnapshot).not.toHaveBeenCalled();
@@ -202,7 +202,7 @@ describe('PurchaseOrderSubmissionService', () => {
 
     await expect(service.submit(submissionInput({
       requestHash: canonicalOwnerInputHash({ purchaseOrderId: 'different-order' }),
-    }))).rejects.toThrow('canonical input');
+    }))).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'INPUT_HASH_REQUIRED' } });
 
     expect(transaction.prepareDraft).not.toHaveBeenCalled();
     expect(procurement.getPurchaseOrderCheckoutSnapshot).not.toHaveBeenCalled();
@@ -318,7 +318,7 @@ describe('PurchaseOrderSubmissionService', () => {
     );
 
     await expect(service.submit(submissionInput()))
-      .rejects.toThrow('1688 checkout provider failed with status 422.');
+      .rejects.toMatchObject({ code: 'SUPPLY_PURCHASE_PROVIDER_FAILED', details: { reason: 'provider_rejected' } });
     expect(transaction.completeProviderFailure).toHaveBeenCalledWith({
       organizationId: 'org-1',
       purchaseOrderId: ORDER_ID,

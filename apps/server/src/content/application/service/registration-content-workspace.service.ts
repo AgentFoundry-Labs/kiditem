@@ -1,5 +1,6 @@
 import type { OwnerTransaction } from '../../../common/owner-transaction';
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import {
   REGISTRATION_CONTENT_WORKSPACE_PORT,
   type CreateManualDetailPageInput,
@@ -92,7 +93,7 @@ export class RegistrationContentWorkspaceService
   }
 
   createManualDetailPage(input: CreateManualDetailPageInput): Promise<CreateManualDetailPageResult> {
-    if (!input.html.trim()) throw new BadRequestException('상세 HTML 을 넣어 주세요.');
+    if (!input.html.trim()) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'DETAIL_HTML_REQUIRED' }, message: '상세 HTML 을 넣어 주세요.' });
     return this.repository.createManualDetailPage({ ...input, imageUrls: extractImageSrcs(input.html) });
   }
 

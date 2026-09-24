@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { KiditemError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
@@ -60,7 +61,7 @@ export class AiDirectJobRepositoryAdapter
   ): Promise<AiDirectJobRecord> {
     const payload = AiDirectJobEnvelopeSchema.parse(input.payload);
     if (payload.jobType !== input.jobType) {
-      throw new Error('AI direct job payload type does not match jobType.');
+      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DIRECT_JOB_PAYLOAD_TYPE_MISMATCH' } });
     }
     const row = await scope.aiDirectJob.create({
       data: {
@@ -82,7 +83,7 @@ export class AiDirectJobRepositoryAdapter
   ): Promise<AiDirectJobRecord> {
     const payload = AiDirectJobEnvelopeSchema.parse(input.payload);
     if (payload.jobType !== 'thumbnail_reedit') {
-      throw new Error('AI direct re-edit payload type does not match jobType.');
+      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DIRECT_JOB_PAYLOAD_TYPE_MISMATCH' } });
     }
     const createData = {
       id: input.id,

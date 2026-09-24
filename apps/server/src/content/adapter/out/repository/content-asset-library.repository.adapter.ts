@@ -1,5 +1,6 @@
 import { isRepresentativeAsset } from './representative-asset';
-import { BadRequestException, Inject, Injectable, NotFoundException, Optional } from '@nestjs/common';
+import { Inject, Injectable, Optional } from '@nestjs/common';
+import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import type { ContentAssetSource } from '@kiditem/shared/product-content';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -122,7 +123,7 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
       where: { id: input.contentWorkspaceId, organizationId: input.organizationId, isDeleted: false },
       select: { id: true },
     });
-    if (!workspace) throw new NotFoundException('Content workspace not found.');
+    if (!workspace) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'workspace' } });
     const rows = await this.prisma.contentAsset.findMany({
       where: {
         organizationId: input.organizationId,
@@ -161,7 +162,7 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
   }): Promise<ContentAssetRow> {
     return this.prisma.$transaction(async (tx) => {
       if (!await lockActiveWorkspace(tx, input.organizationId, input.contentWorkspaceId)) {
-        throw new NotFoundException('Content workspace not found.');
+        throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'workspace' } });
       }
       const owned = await tx.$queryRaw<Array<{ id: string; role: string | null; source: string }>>(Prisma.sql`
         SELECT id, role, source
@@ -177,7 +178,7 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
         select: { ownerType: true },
       });
       if (owned.length !== 1 || !isRepresentativeAsset(workspace.ownerType, owned[0]!)) {
-        throw new BadRequestException('The asset is not an image of this content workspace.');
+        throw new KiditemInvalidValueError('CONTENT_SELECTION_INVALID', { details: { reason: 'ASSET_NOT_IN_WORKSPACE' } });
       }
       await tx.contentWorkspace.updateMany({
         where: { id: input.contentWorkspaceId, organizationId: input.organizationId, isDeleted: false },
@@ -279,7 +280,7 @@ export class ContentAssetLibraryRepositoryAdapter implements ContentAssetLibrary
   ): Promise<{ urls: string[] }> {
     return this.prisma.$transaction(async (tx) => {
       if (!await lockActiveWorkspace(tx, input.organizationId, input.contentWorkspaceId)) {
-        throw new NotFoundException('Content workspace not found.');
+        throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'workspace' } });
       }
       const keptKeys: string[] = [];
       for (const [index, url] of input.urls.entries()) {

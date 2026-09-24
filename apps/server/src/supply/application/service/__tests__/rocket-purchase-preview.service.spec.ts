@@ -1,5 +1,4 @@
 import { readFileSync } from 'node:fs';
-import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { RocketPurchasePreviewService } from '../rocket-purchase-preview.service';
 import type { RocketPoCatalogPort } from '../../../../orders/application/port/in/rocket-po-catalog.port';
@@ -141,7 +140,7 @@ describe('RocketPurchasePreviewService', () => {
     const { inventoryAttemptId: _omitted, ...withoutCollection } = reference(request());
     await expect(previewService(deps).preview({
       organizationId, userId, request: withoutCollection as ReturnType<typeof reference>,
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'ROCKET_PREVIEW_REQUEST_INVALID' } });
     expect(deps.catalog.readComplete).not.toHaveBeenCalled();
   });
 
@@ -221,6 +220,18 @@ describe('RocketPurchasePreviewService', () => {
       sourceImportRunId: '66666666-6666-4666-8666-666666666666',
     });
     expect(result.rows.map(({ poLineId: resultLineId }) => resultLineId)).toEqual([poLineId]);
+  });
+
+  it('refuses a strict edit above the line capacity with the quantity code and the line in details', async () => {
+    const deps = dependencies();
+    const source = { ...request(), editedQuantities: { [poLineId]: 5 } };
+
+    await expect(previewService(deps).preview({
+      organizationId, userId, request: reference(source),
+    })).rejects.toMatchObject({
+      code: 'SUPPLY_ROCKET_QUANTITY_EXCEEDED',
+      details: { poLineId, editedQuantity: 5, maxQuantity: 4 },
+    });
   });
 
   it('does not return calculations when collection is running, failed or cancelled', async () => {

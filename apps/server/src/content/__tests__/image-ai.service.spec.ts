@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { NotFoundException } from '@nestjs/common';
 import { ImageAiService } from '../application/service/image-ai.service';
 import type { ImageEditDirectGenerationJobService } from '../application/service/image-edit-direct-generation-job.service';
 
@@ -146,7 +145,7 @@ describe('ImageAiService', () => {
 
     await expect(
       service.getEditTask(ORGANIZATION_ID, 'missing-job'),
-    ).rejects.toThrow(NotFoundException);
+    ).rejects.toMatchObject({ code: 'CONTENT_NOT_FOUND', details: { reason: 'image_edit_task' } });
   });
 
   it('cancels direct image AI tasks without creating an Agent OS cancellation', async () => {

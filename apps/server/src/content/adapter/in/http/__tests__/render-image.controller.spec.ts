@@ -128,7 +128,7 @@ describe('RenderImageController', () => {
         outputWidth: 2400,
       },
       res as never,
-    )).rejects.toThrow('render scale too large');
+    )).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'RENDER_SCALE_INVALID' } });
 
     expect(page.screenshot).not.toHaveBeenCalled();
     expect(puppeteer.launch).not.toHaveBeenCalled();
@@ -151,7 +151,7 @@ describe('RenderImageController', () => {
         outputWidth: 1440,
       },
       res as never,
-    )).rejects.toThrow('render output too large');
+    )).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'RENDER_OUTPUT_TOO_LARGE' } });
 
     expect(page.screenshot).not.toHaveBeenCalled();
     expect(browser.close).toHaveBeenCalled();

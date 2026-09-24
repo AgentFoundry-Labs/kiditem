@@ -193,7 +193,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
       purchaseOrderId: ORDER_ID,
       userId: 'user-1',
       idempotencyKey: '   ',
-    })).rejects.toThrow('idempotency');
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IDEMPOTENCY_KEY_REQUIRED' } });
     expect(tx.purchaseOrder.updateMany).not.toHaveBeenCalled();
   });
 
@@ -303,7 +303,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
     await expect(adapter.prepare({
       ...prepareInput(),
       requestHash: undefined as never,
-    })).rejects.toThrow('request hash');
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'INPUT_HASH_REQUIRED' } });
 
     expect(tx.$queryRaw).not.toHaveBeenCalled();
     expect(tx.purchaseOrderSubmissionAttempt.create).not.toHaveBeenCalled();
@@ -422,7 +422,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
     await expect(adapter.prepare({
       ...prepareInput(),
       requestHash: 'b'.repeat(64),
-    })).rejects.toThrow('different canonical input');
+    })).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'IDEMPOTENCY_KEY_REUSED' } });
     expect(tx.purchaseOrderSubmissionAttempt.create).not.toHaveBeenCalled();
   });
 });

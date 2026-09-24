@@ -1,5 +1,5 @@
 import 'reflect-metadata';
-import { BadRequestException, RequestMethod } from '@nestjs/common';
+import { RequestMethod } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import type { ChannelsThumbnailExecutionPort } from '../../../application/port/in/thumbnail-execution.port';
 import { ThumbnailExecutionController } from './thumbnail-execution.controller';
@@ -30,12 +30,12 @@ describe('ThumbnailExecutionController', () => {
 
   it('rejects bodies and queries outside the shared contract before the owner runs', async () => {
     const controller = new ThumbnailExecutionController(unreachable);
-    await expect(controller.prepare(ORG, user, { salesProductId: 'nope' })).rejects.toBeInstanceOf(BadRequestException);
-    await expect(controller.prepare(ORG, user, { salesProductId: PRODUCT, organizationId: ORG })).rejects.toBeInstanceOf(BadRequestException);
-    await expect(controller.report(ORG, user, PRODUCT, { outcome: 'maybe' })).rejects.toBeInstanceOf(BadRequestException);
-    await expect(controller.report(ORG, user, PRODUCT, { outcome: 'definitive_failure' })).rejects.toBeInstanceOf(BadRequestException);
-    await expect(controller.listLatest(ORG, undefined)).rejects.toBeInstanceOf(BadRequestException);
-    await expect(controller.listLatest(ORG, `${PRODUCT},bad`)).rejects.toBeInstanceOf(BadRequestException);
+    await expect(controller.prepare(ORG, user, { salesProductId: 'nope' })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'REQUEST_INVALID' } });
+    await expect(controller.prepare(ORG, user, { salesProductId: PRODUCT, organizationId: ORG })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'REQUEST_INVALID' } });
+    await expect(controller.report(ORG, user, PRODUCT, { outcome: 'maybe' })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'REQUEST_INVALID' } });
+    await expect(controller.report(ORG, user, PRODUCT, { outcome: 'definitive_failure' })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'REQUEST_INVALID' } });
+    await expect(controller.listLatest(ORG, undefined)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'REQUEST_INVALID' } });
+    await expect(controller.listLatest(ORG, `${PRODUCT},bad`)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'REQUEST_INVALID' } });
   });
 
   it('passes the organization from the session and splits the sales product id list', async () => {

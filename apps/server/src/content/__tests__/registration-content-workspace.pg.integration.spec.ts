@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import { Prisma, type PrismaClient } from '@prisma/client';
-import { ConflictException, NotFoundException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -192,14 +191,14 @@ describe('registration content workspace (PG integration)', () => {
 
     await expect(content.createManualDetailPage({
       organizationId: TEST_ORGANIZATION_ID, salesProductId, html: '<p>또 쓴 상세</p>', createdByUserId: TEST_USER_ID,
-    })).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'DETAIL_PAGE_ALREADY_EXISTS' } });
     await expect(prisma.detailPageRevision.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).resolves.toBe(1);
   });
 
   it('has no manual first detail page for a product without a workspace', async () => {
     await expect(content.createManualDetailPage({
       organizationId: TEST_ORGANIZATION_ID, salesProductId: randomUUID(), html: '<p>상세</p>', createdByUserId: null,
-    })).rejects.toBeInstanceOf(NotFoundException);
+    })).rejects.toMatchObject({ code: 'CONTENT_NOT_FOUND', details: { reason: 'workspace' } });
   });
 
   it('reads the revision a target selected instead of the current one', async () => {
@@ -255,11 +254,11 @@ describe('registration content workspace (PG integration)', () => {
         { salesProductId: foreign.salesProductId, revisionId: null },
         { salesProductId: own.salesProductId, revisionId: foreignRevisionId },
       ],
-    })).rejects.toThrow('Selected detail revision is not source-owned.');
+    })).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'DETAIL_REVISION_NOT_OWNED' } });
     await expect(content.readRegistrableDetailPages({
       organizationId: TEST_ORGANIZATION_ID,
       requests: [{ salesProductId: randomUUID(), revisionId: foreignRevisionId }],
-    })).rejects.toThrow('Selected detail revision is not source-owned.');
+    })).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'DETAIL_REVISION_NOT_OWNED' } });
   });
 
   it('has no detail for a product without a revision', async () => {
@@ -295,13 +294,13 @@ describe('registration content workspace (PG integration)', () => {
     }))).resolves.toBeUndefined();
     await expect(content.validateSourceSelections(null, select({
       selectedThumbnailAssetId: foreignAsset, selectedDetailPageRevisionId: null,
-    }))).rejects.toThrow('Selected thumbnail asset is not source-owned.');
+    }))).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'THUMBNAIL_ASSET_NOT_OWNED' } });
     await expect(content.validateSourceSelections(null, select({
       selectedThumbnailAssetId: null, selectedDetailPageRevisionId: foreignRevisionId,
-    }))).rejects.toThrow('Selected detail revision is not source-owned.');
+    }))).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'DETAIL_REVISION_NOT_OWNED' } });
     await expect(content.readRegistrableDetailPage({
       organizationId: TEST_ORGANIZATION_ID, salesProductId: own.salesProductId, revisionId: foreignRevisionId,
-    })).rejects.toThrow('Selected detail revision is not source-owned.');
+    })).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'DETAIL_REVISION_NOT_OWNED' } });
   });
 
   it('rejects a detail-page photo of the source workspace as the selected thumbnail', async () => {
@@ -314,7 +313,7 @@ describe('registration content workspace (PG integration)', () => {
     await expect(content.validateSourceSelections(null, {
       organizationId: TEST_ORGANIZATION_ID, sourceWorkspaceId: own.workspaceId,
       selectedThumbnailAssetId: detailPhoto.id, selectedDetailPageRevisionId: null,
-    })).rejects.toThrow('Selected thumbnail asset is not source-owned.');
+    })).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'THUMBNAIL_ASSET_NOT_OWNED' } });
   });
 
   it('waits for the selected asset lock and rejects an asset deleted meanwhile', async () => {
@@ -346,7 +345,7 @@ describe('registration content workspace (PG integration)', () => {
     releaseDelete();
 
     await expect(deletion).resolves.toBeUndefined();
-    await expect(resolve).rejects.toThrow('Selected thumbnail asset is no longer available.');
+    await expect(resolve).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'THUMBNAIL_ASSET_UNAVAILABLE' } });
     expect(observation).toBe('blocked');
   });
 });

@@ -1,9 +1,5 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Inject,
-  Injectable,
-} from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { isKiditemError, KiditemConflictError, KiditemInvalidValueError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import {
   isRocketWorkbookBlockingReason,
   RocketWorkbookAbandonRequestSchema,
@@ -50,16 +46,16 @@ implements RocketWorkbookExportPort {
   }) {
     const parsed = RocketConfirmationWorkbookConversionRequestSchema.safeParse(input.request);
     if (!parsed.success) {
-      throw new BadRequestException('Rocket workbook conversion request is invalid.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'CONVERSION_REQUEST_INVALID' }, cause: parsed.error });
     }
     const templateFileName = input.templateFileName ?? parsed.data.templateFileName;
     if (input.templateBytes !== undefined && !templateFileName) {
-      throw new BadRequestException('Rocket workbook template filename is required.');
+      throw new KiditemInvalidValueError('SUPPLY_ROCKET_WORKBOOK_FILE_INVALID', { details: { reason: 'TEMPLATE_FILENAME_REQUIRED' } });
     }
     if (input.templateBytes !== undefined
       && (input.templateBytes.byteLength === 0
         || input.templateBytes.byteLength > 10 * 1024 * 1024)) {
-      throw new BadRequestException('Rocket workbook template must be between 1 byte and 10 MiB.');
+      throw new KiditemInvalidValueError('SUPPLY_ROCKET_WORKBOOK_FILE_INVALID', { details: { reason: 'TEMPLATE_SIZE_INVALID' } });
     }
     const now = parsed.data.now ? new Date(parsed.data.now) : undefined;
     try {
@@ -73,7 +69,7 @@ implements RocketWorkbookExportPort {
         });
       }
       if (templateFileName) {
-        throw new BadRequestException('Rocket workbook template file is missing.');
+        throw new KiditemInvalidValueError('SUPPLY_ROCKET_WORKBOOK_FILE_INVALID', { details: { reason: 'TEMPLATE_FILE_MISSING' } });
       }
       return await buildRocketConfirmationWorkbook({
         sourceRows: parsed.data.sourceRows,
@@ -81,10 +77,8 @@ implements RocketWorkbookExportPort {
         now,
       });
     } catch (error) {
-      if (error instanceof BadRequestException) throw error;
-      throw new BadRequestException(
-        error instanceof Error ? error.message : 'Rocket workbook conversion failed.',
-      );
+      if (isKiditemError(error)) throw error;
+      throw new KiditemInvalidValueError('SUPPLY_ROCKET_WORKBOOK_FILE_INVALID', { cause: error });
     }
   }
 
@@ -99,7 +93,7 @@ implements RocketWorkbookExportPort {
     const { sourceImportRunId, inventoryAttemptId, ...decisionFields } = publicRequest;
     const request = RocketWorkbookDecisionRequestSchema.parse({ ...decisionFields, collection: source.collection, rows: source.rows });
     if (input.artifactBytes.byteLength === 0 || input.artifactBytes.byteLength > 10 * 1024 * 1024) {
-      throw new BadRequestException('Rocket workbook artifact must be between 1 byte and 10 MiB.');
+      throw new KiditemInvalidValueError('SUPPLY_ROCKET_WORKBOOK_FILE_INVALID', { details: { reason: 'ARTIFACT_SIZE_INVALID' } });
     }
     const { selectedPoLineIds } = request;
     const preview = await this.previewPort.preview({
@@ -114,9 +108,7 @@ implements RocketWorkbookExportPort {
       } satisfies RocketPurchasePreviewRequest,
     });
     if (!preview.catalog) {
-      throw new BadRequestException(
-        'A complete Rocket PO collection is required before workbook export.',
-      );
+      throw new KiditemPreconditionError('SUPPLY_ROCKET_COLLECTION_INCOMPLETE');
     }
     const selectedLineIds = new Set(
       selectedPoLineIds ?? request.rows.map(({ poLineId }) => poLineId),
@@ -124,14 +116,10 @@ implements RocketWorkbookExportPort {
     const selectedPreviewRows = preview.rows.filter(({ poLineId }) =>
       selectedLineIds.has(poLineId));
     if (selectedPreviewRows.length !== selectedLineIds.size) {
-      throw new ConflictException(
-        'Selected Rocket workbook rows changed before export.',
-      );
+      throw new KiditemConflictError('SUPPLY_ROCKET_PREVIEW_CHANGED', { details: { reason: 'SELECTED_ROWS_CHANGED' } });
     }
     if (selectedPreviewRows.some(({ reason }) => isRocketWorkbookBlockingReason(reason))) {
-      throw new BadRequestException(
-        'Every Rocket workbook line requires a confirmed product recipe.',
-      );
+      throw new KiditemPreconditionError('SUPPLY_ROCKET_RECIPE_REQUIRED');
     }
     const decisionRequest = RocketWorkbookDecisionRequestSchema.parse({
       ...request,

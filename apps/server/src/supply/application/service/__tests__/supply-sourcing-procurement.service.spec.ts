@@ -294,9 +294,45 @@ describe('SupplySourcingProcurementService', () => {
         requestedPurchaseUnits: 6,
       }),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'minimum_order_quantity_not_met' }),
+      code: 'VALIDATION_FAILED',
+      details: { reason: 'minimum_order_quantity_not_met' },
     });
     expect(repo.createTestIntent).not.toHaveBeenCalled();
+  });
+
+  it('refuses an expired offer snapshot with the snapshot-expired code, not a generic validation failure', async () => {
+    const repo = repository({
+      findOfferSnapshot: vi.fn().mockResolvedValue(snapshot({ validUntil: new Date('2000-01-01T00:00:00.000Z') })),
+    });
+    const service = new SupplySourcingProcurementService(repo);
+
+    await expect(
+      service.createTestIntent({
+        organizationId: 'org-1',
+        requestedByUserId: 'user-1',
+        idempotencyKey: 'test-order-expired',
+        intentType: 'test_order',
+        sourceRecommendationArtifactId: 'decision-1',
+        decisionBatchItemId: 'decision-1',
+        supplierOfferSkuSnapshotId: snapshot().id,
+        launchCandidateId: 'launch-1',
+        selectedPriceTierId: snapshot().priceTiers[0].id,
+        requestedPurchaseUnits: 10,
+      }),
+    ).rejects.toMatchObject({ code: 'SUPPLY_OFFER_SNAPSHOT_EXPIRED', httpStatus: 409, details: { reason: 'offer_snapshot_expired' } });
+    expect(repo.createTestIntent).not.toHaveBeenCalled();
+  });
+
+  it('refuses a blank web idempotency key as a validation failure, not an agent contract error', async () => {
+    const service = new SupplySourcingProcurementService(repository());
+
+    await expect(service.createTestIntent({
+      organizationId: 'org-1',
+      requestedByUserId: 'user-1',
+      idempotencyKey: '   ',
+      intentType: 'rfq',
+      supplierOfferSkuSnapshotId: snapshot().id,
+    } as never)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IDEMPOTENCY_KEY_REQUIRED' } });
   });
 
   it('turns a structural idempotency hash mismatch into conflict', async () => {
@@ -318,7 +354,7 @@ describe('SupplySourcingProcurementService', () => {
         selectedPriceTierId: snapshot().priceTiers[0].id,
         requestedPurchaseUnits: 10,
       }),
-    ).rejects.toMatchObject({ status: 409 });
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'IDEMPOTENCY_KEY_REUSED' } });
   });
 
   it('returns an existing duplicate before applying current offer expiry', async () => {
@@ -386,6 +422,33 @@ describe('SupplySourcingProcurementService', () => {
     );
   });
 
+  it('refuses a replayed idempotency key whose request changed with the idempotency conflict code', async () => {
+    const existing = intent({
+      requestedByUserId: 'user-1',
+      idempotencyKey: 'test-order-1',
+      supplierOfferSkuSnapshot: snapshot(),
+    });
+    const replay = (requestedPurchaseUnits: number) => new SupplySourcingProcurementService(repository({
+      findTestIntentByIdempotencyKey: vi.fn().mockResolvedValue(existing),
+    })).createTestIntent({
+      organizationId: 'org-1',
+      requestedByUserId: 'user-1',
+      idempotencyKey: 'test-order-1',
+      intentType: 'test_order',
+      sourceRecommendationArtifactId: existing.sourceRecommendationArtifactId,
+      decisionBatchItemId: existing.decisionBatchItemId,
+      supplierOfferSkuSnapshotId: existing.supplierOfferSkuSnapshotId,
+      launchCandidateId: existing.launchCandidateId,
+      selectedPriceTierId: snapshot().priceTiers[0].id,
+      requestedPurchaseUnits,
+    });
+
+    // 같은 선택이지만 저장된 요청 확인값과 다르다.
+    await expect(replay(10)).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'IDEMPOTENCY_KEY_REUSED' } });
+    // 저장된 결정으로는 풀 수 없는 선택(MOQ 미만)도 같은 요청 번호 재사용 충돌이다.
+    await expect(replay(6)).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'IDEMPOTENCY_KEY_REUSED' } });
+  });
+
   it('does not expose an existing idempotent intent to a different actor', async () => {
     const existing = intent({
       requestedByUserId: 'user-owner',
@@ -407,7 +470,7 @@ describe('SupplySourcingProcurementService', () => {
       launchCandidateId: 'launch-1',
       selectedPriceTierId: snapshot().priceTiers[0].id,
       requestedPurchaseUnits: 10,
-    })).rejects.toMatchObject({ status: 409 });
+    })).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'IDEMPOTENCY_KEY_REUSED' } });
     expect(repo.findOfferSnapshot).not.toHaveBeenCalled();
     expect(repo.createTestIntent).not.toHaveBeenCalled();
   });

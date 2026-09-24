@@ -224,8 +224,8 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
         requestHash: 'b'.repeat(64),
         kind: 'detail_page',
       });
-      await expect(open(firstRepository, driftIdentity)).rejects.toThrow(
-        'product_generation_idempotency_conflict',
+      await expect(open(firstRepository, driftIdentity)).rejects.toMatchObject(
+        { code: 'STATE_CONFLICT', details: { reason: 'PRODUCT_GENERATION_IDEMPOTENCY_CONFLICT' } },
       );
     } finally {
       await otherPrisma.$disconnect();
@@ -318,8 +318,8 @@ describe('AiDirectJobRepositoryAdapter (PG integration)', () => {
         requestHash: 'b'.repeat(64),
         kind: 'thumbnail',
       });
-      await expect(open(firstRepository, driftIdentity)).rejects.toThrow(
-        'product_generation_idempotency_conflict',
+      await expect(open(firstRepository, driftIdentity)).rejects.toMatchObject(
+        { code: 'STATE_CONFLICT', details: { reason: 'PRODUCT_GENERATION_IDEMPOTENCY_CONFLICT' } },
       );
     } finally {
       await otherPrisma.$disconnect();

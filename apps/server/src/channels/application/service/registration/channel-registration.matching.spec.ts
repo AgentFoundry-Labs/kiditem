@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { RegistrationTargetException } from '../../exception/registration-target.exception';
 import { ChannelRegistrationService } from './channel-registration.service';
 
 describe('ChannelRegistrationService registration matching', () => {
@@ -150,9 +149,9 @@ describe('ChannelRegistrationService registration matching', () => {
       listingName: '알 수 없는 상품',
       itemName: null,
     })).rejects.toMatchObject({
-      name: 'RegistrationTargetException',
-      code: 'conflict',
-    } satisfies Partial<RegistrationTargetException>);
+      code: 'CHANNELS_SELLPIA_MATCH_REQUIRED',
+      kind: 'precondition',
+    });
     expect(persistence.findExistingActiveListingBySellerSku).not.toHaveBeenCalled();
   });
 });

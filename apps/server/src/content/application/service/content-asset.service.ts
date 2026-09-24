@@ -1,10 +1,5 @@
-import {
-  BadRequestException,
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemConflictError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import type { ContentAssetItem } from '@kiditem/shared/product-content';
 import {
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
@@ -133,9 +128,10 @@ export class ContentAssetService implements SalesProductContentAssetPort {
       urls.push(url);
     }
     if (urls.length > MAX_WORKSPACE_THUMBNAIL_GALLERY) {
-      throw new BadRequestException(
-        `Thumbnail gallery accepts at most ${MAX_WORKSPACE_THUMBNAIL_GALLERY} images.`,
-      );
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+        details: { reason: 'THUMBNAIL_GALLERY_TOO_MANY', max: MAX_WORKSPACE_THUMBNAIL_GALLERY },
+        message: `대표이미지 갤러리에는 최대 ${MAX_WORKSPACE_THUMBNAIL_GALLERY}장까지 담을 수 있습니다.`,
+      });
     }
     const result = await this.repository.replaceWorkspaceThumbnailGallery({
       organizationId: input.organizationId,
@@ -173,11 +169,9 @@ export class ContentAssetService implements SalesProductContentAssetPort {
       contentAssetId,
       deletedAt: new Date(),
     });
-    if (result.status === 'not_found') throw new NotFoundException('Content asset not found.');
+    if (result.status === 'not_found') throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'asset' } });
     if (result.status === 'in_use') {
-      throw new ConflictException(
-        'Content asset is the representative image or is used by a current detail page.',
-      );
+      throw new KiditemConflictError('CONTENT_ASSET_IN_USE', { details: { reason: 'REPRESENTATIVE_OR_CURRENT_DETAIL' } });
     }
     return { ok: true };
   }

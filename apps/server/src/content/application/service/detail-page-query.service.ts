@@ -1,6 +1,7 @@
 import { createHash, randomUUID } from 'node:crypto';
 import type { DetailPageWithRevisions } from '@kiditem/shared/product-content';
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { KiditemInvalidValueError, KiditemNotFoundError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import { moveSafetyLabelImagesToEnd } from '../../domain/detail-page-image-order';
 import { buildUploadedDetailPageHtml } from '../../domain/detail-page/uploaded-detail-page';
 import type { DetailPageGenerationDto, DetailPageTemplateId } from './detail-page-ai.types';
@@ -45,7 +46,7 @@ export class DetailPageQueryService {
   ): Promise<DetailPageGenerationDto[]> {
     const { contentWorkspaceId, templateId } = query;
     if (templateId && templateId !== 'kids-playful' && templateId !== 'bold-vertical') {
-      throw new BadRequestException('invalid templateId');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'TEMPLATE_ID_INVALID' }, message: '지원하지 않는 상세페이지 템플릿입니다.' });
     }
     const rows = await this.detailPages.listByWorkspace({
       organizationId,
@@ -58,14 +59,14 @@ export class DetailPageQueryService {
 
   async getById(id: string, organizationId: string): Promise<DetailPageGenerationDto> {
     const row = await this.detailPages.findById({ detailPageId: id, organizationId });
-    if (!row) throw new NotFoundException('Detail page not found');
+    if (!row) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'detail_page' } });
     return this.toDto(row);
   }
 
   /** 상세 페이지 하나와 그 revision 이력(새 것부터). 이 페이지의 현재가 몰로 가는 현재인지도 말한다. */
   async getWithRevisions(id: string, organizationId: string): Promise<DetailPageWithRevisions> {
     const page = await this.detailPages.findById({ organizationId, detailPageId: id });
-    if (!page) throw new NotFoundException('Detail page not found');
+    if (!page) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'detail_page' } });
     const [revisions, workspaceCurrent] = await Promise.all([
       this.detailPages.listRevisions({ organizationId, detailPageId: id }),
       this.detailPages.findWorkspaceRevision({ organizationId, contentWorkspaceId: page.contentWorkspaceId, revisionId: null }),
@@ -97,7 +98,7 @@ export class DetailPageQueryService {
   async remove(id: string, organizationId: string): Promise<{ ok: true }> {
     const deleted = await this.detailPages.runInTransaction((transaction) =>
       this.detailPages.markDeleted(transaction, { organizationId, detailPageId: id }));
-    if (!deleted) throw new NotFoundException('Detail page not found');
+    if (!deleted) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'detail_page' } });
     return { ok: true };
   }
 
@@ -107,10 +108,10 @@ export class DetailPageQueryService {
     title: string,
   ): Promise<{ ok: true }> {
     const normalizedTitle = title.trim();
-    if (!normalizedTitle) throw new BadRequestException('title is required');
+    if (!normalizedTitle) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'TITLE_REQUIRED' }, message: '제목을 넣어 주세요.' });
     const renamed = await this.detailPages.runInTransaction((transaction) =>
       this.detailPages.rename(transaction, { organizationId, detailPageId: id, title: normalizedTitle }));
-    if (!renamed) throw new NotFoundException('Detail page not found');
+    if (!renamed) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'detail_page' } });
     return { ok: true };
   }
 
@@ -124,11 +125,11 @@ export class DetailPageQueryService {
     triggeredByUserId: string | null,
   ): Promise<DetailPageGenerationDto> {
     const source = await this.detailPages.findById({ organizationId, detailPageId: id });
-    if (!source) throw new NotFoundException('Detail page not found');
+    if (!source) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'detail_page' } });
     const sourceRevision = source.currentRevisionId
       ? await this.detailPages.findRevision({ organizationId, revisionId: source.currentRevisionId })
       : null;
-    if (!sourceRevision) throw new BadRequestException('저장한 상세페이지가 있어야 복제할 수 있습니다.');
+    if (!sourceRevision) throw new KiditemPreconditionError('CONTENT_REVISION_REQUIRED', { details: { reason: 'DUPLICATE_SOURCE_UNSAVED' } });
 
     const duplicated = await this.detailPages.runInTransaction(async (transaction) => {
       const page = await this.detailPages.create(transaction, {
@@ -167,12 +168,7 @@ export class DetailPageQueryService {
     title: string;
     imageUrls: readonly string[];
   }): Promise<{ id: string; contentWorkspaceId: string }> {
-    let html: string;
-    try {
-      html = buildUploadedDetailPageHtml({ title: input.title, imageUrls: input.imageUrls });
-    } catch (error) {
-      throw new BadRequestException(error instanceof Error ? error.message : '상세페이지를 만들지 못했습니다.');
-    }
+    const html = buildUploadedDetailPageHtml({ title: input.title, imageUrls: input.imageUrls });
     const title = input.title.trim().slice(0, 80) || '상세페이지';
     // 사진을 먼저 옮기고(실패하면 페이지도 없다), 페이지와 그 revision 을 한 트랜잭션에 넣는다(W3 리뷰 S9).
     const detailPageId = randomUUID();
@@ -214,10 +210,10 @@ export class DetailPageQueryService {
     savedByUserId: string | null = null,
   ): Promise<{ html: string; savedAt: string; assetUrlMap: Record<string, string> }> {
     if (!isRenderableDetailHtml(html)) {
-      throw new BadRequestException('렌더링 가능한 상세페이지 HTML만 저장할 수 있습니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'DETAIL_HTML_NOT_RENDERABLE' }, message: '렌더링 가능한 상세페이지 HTML만 저장할 수 있습니다.' });
     }
     const page = await this.detailPages.findById({ organizationId, detailPageId: id });
-    if (!page) throw new NotFoundException('Detail page not found');
+    if (!page) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'detail_page' } });
     const prepared = await this.prepareEditedHtml(organizationId, id, html);
     const revision = await this.detailPages.runInTransaction((transaction) =>
       this.detailPages.appendRevision(transaction, {
@@ -249,7 +245,7 @@ export class DetailPageQueryService {
     organizationId: string,
   ): Promise<{ html: string | null; savedAt: string | null }> {
     const page = await this.detailPages.findById({ organizationId, detailPageId: id });
-    if (!page) throw new NotFoundException('Detail page not found');
+    if (!page) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'detail_page' } });
     const revision = page.currentRevisionId
       ? await this.detailPages.findRevision({ organizationId, revisionId: page.currentRevisionId })
       : null;

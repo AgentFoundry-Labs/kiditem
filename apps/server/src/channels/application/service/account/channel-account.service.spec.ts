@@ -1,5 +1,4 @@
 import { describe, expect, it, vi } from 'vitest';
-import { ChannelAccountException } from '../../exception/channel-account.exception';
 import type { MallAccountRecord, MallAccountWrite } from '../../port/out/persistence/channel-account.persistence.port';
 import { ChannelAccountService } from './channel-account.service';
 
@@ -127,7 +126,7 @@ describe('ChannelAccountService', () => {
     const missing = makeService([]);
     await expect(missing.service.update(ORGANIZATION_ID, 'coupang-direct', {
       loginId: 'supplier-id',
-    })).rejects.toBeInstanceOf(ChannelAccountException);
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'SHARED_CHANNEL_ACCOUNT_MISSING' }, message: expect.stringContaining('채널 계정을 먼저 연결하세요') });
     expect(missing.rows()).toHaveLength(0);
 
     const fixture = makeService([
@@ -174,9 +173,9 @@ describe('ChannelAccountService', () => {
       const fixture = makeService([mallRow('onch', { orderCollection: { loginId: 'keep' } })]);
 
       await expect(fixture.service.updateListingProfile(ORGANIZATION_ID, 'onch', { loginId: 'x' }))
-        .rejects.toMatchObject({ name: 'ChannelAccountException', code: 'invalid' });
+        .rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
       await expect(fixture.service.updateListingProfile(ORGANIZATION_ID, 'onch', { shipping: 'text' }))
-        .rejects.toMatchObject({ name: 'ChannelAccountException', code: 'invalid' });
+        .rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
       expect(fixture.rows()[0]?.config).toEqual({ orderCollection: { loginId: 'keep' } });
     });
 
@@ -184,7 +183,7 @@ describe('ChannelAccountService', () => {
       const fixture = makeService([]);
 
       await expect(fixture.service.updateListingProfile(ORGANIZATION_ID, 'onch', { categoryCode: '12' }))
-        .rejects.toMatchObject({ name: 'ChannelAccountException', code: 'not_found' });
+        .rejects.toMatchObject({ code: 'CHANNELS_ACCOUNT_NOT_FOUND', kind: 'not_found' });
       expect(fixture.rows()).toHaveLength(0);
     });
 
@@ -221,12 +220,25 @@ describe('ChannelAccountService', () => {
     });
   });
 
+  it('answers a missing credential encryption key as an internal error, not as operator input', async () => {
+    const fixture = makeService([]);
+    const cryptoError = Object.assign(new Error('KIDITEM_CREDENTIAL_KEY missing'), { name: 'CoupangCredentialCryptoError' });
+    const persistence = (fixture.service as unknown as { persistence: unknown }).persistence;
+    const service = new ChannelAccountService(persistence as never, {
+      isEncrypted: () => false,
+      encrypt: () => { throw cryptoError; },
+      decrypt: () => '',
+    } as never, () => FIXED_NOW);
+    await expect(service.update(ORGANIZATION_ID, 'onch', { loginId: 'id', password: 'secret' }))
+      .rejects.toMatchObject({ code: 'INTERNAL_ERROR', details: { reason: 'CREDENTIAL_KEY_MISSING' } });
+  });
+
   it('rejects unknown malls and duplicate order keys through the public exception contract', async () => {
     const fixture = makeService([]);
     await expect(fixture.service.update(ORGANIZATION_ID, 'unknown', {}))
-      .rejects.toMatchObject({ name: 'ChannelAccountException', code: 'invalid' });
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
     await expect(fixture.service.reorder(ORGANIZATION_ID, ['onch', 'onch']))
-      .rejects.toMatchObject({ name: 'ChannelAccountException', code: 'invalid' });
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
   });
 });
 

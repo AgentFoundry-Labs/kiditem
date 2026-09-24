@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { RocketWorkbookExportService } from '../rocket-purchase-confirmation.service';
 
@@ -172,8 +171,25 @@ describe('RocketWorkbookExportService', () => {
 
     await expect(service.convertWorkbook({
       request: { sourceRows: [], workbookRows: [], unexpected: true },
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'CONVERSION_REQUEST_INVALID' } });
     expect(deps.transactions.exportWorkbook).not.toHaveBeenCalled();
+  });
+
+  it('keeps the workbook refusal code instead of rewrapping it as an English bad request', async () => {
+    const deps = dependencies();
+    const service = new RocketWorkbookExportService(
+      deps.preview as never,
+      deps.transactions as never,
+      deps.catalog as never,
+    );
+    const { confirmation: _confirmation, ...withoutConfirmation } = request().rows[0]!;
+
+    await expect(service.convertWorkbook({
+      request: {
+        sourceRows: [withoutConfirmation],
+        workbookRows: [{ poLineId, workbookQuantity: 2, shortageReason: '협력사 재고부족 - 수요예측 오류' }],
+      },
+    })).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_TEMPLATE_MISMATCH', details: { reason: 'CONFIRMATION_METADATA_MISSING' } });
   });
 
   it('does not persist a workbook when the inventory collection has not completed', async () => {
@@ -327,7 +343,7 @@ describe('RocketWorkbookExportService', () => {
         editedQuantities: { [poLineId]: 0 },
       },
       artifactBytes,
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_COLLECTION_INCOMPLETE' });
     expect(deps.transactions.exportWorkbook).not.toHaveBeenCalled();
   });
 
@@ -366,7 +382,7 @@ describe('RocketWorkbookExportService', () => {
         editedQuantities: { [poLineId]: 0 },
       },
       artifactBytes,
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_RECIPE_REQUIRED' });
     expect(deps.transactions.exportWorkbook).not.toHaveBeenCalled();
   });
 

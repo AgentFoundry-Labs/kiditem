@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { TREND_COLLECTION_PORT, type TrendCollectionPort } from '../../../application/port/in/trend-collection.port';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import { SourcingScrapeUrlService } from '../../../application/service/sourcing-scrape-url.service';
@@ -139,7 +140,7 @@ export class SourcingFinalCapabilityAdapter implements SourcingFinalCapabilityPo
 }
 
 function requiredIdempotency(input: { ownerIdempotencyKey?: string }): string {
-  if (!input.ownerIdempotencyKey?.trim()) throw new Error('owner_idempotency_key_required');
+  if (!input.ownerIdempotencyKey?.trim()) throw new KiditemInvalidValueError('AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED');
   return input.ownerIdempotencyKey;
 }
 

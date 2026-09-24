@@ -1,4 +1,5 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
@@ -203,7 +204,7 @@ function assertValidOwnerShape(input: EnsureContentWorkspaceInput): void {
       ? !hasSalesProduct && hasListing && !hasTitle
       : !hasSalesProduct && !hasListing && hasTitle;
   if (!valid) {
-    throw new BadRequestException('Content workspace owner fields do not match ownerType.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WORKSPACE_OWNER_FIELDS_MISMATCH' } });
   }
 }
 

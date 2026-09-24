@@ -8,6 +8,7 @@ import {
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
+import { isKiditemError } from '@kiditem/shared/errors';
 import { AiDirectJobCheckpointSchema } from '../../domain/direct-job/ai-direct-job.schema';
 import {
   AI_DIRECT_JOB_REPOSITORY_PORT,
@@ -127,6 +128,12 @@ export class AiDirectJobWorkerService
           error,
           controller.signal.reason === 'provider_timeout',
         );
+        if (isKiditemError(error) && error.details) {
+          // 원장에는 코드와 문장만 남는다 — 진단값(details)은 로그로 남긴다.
+          this.logger.warn(
+            `${job.jobType} job ${job.id} failed with ${error.code}: details=${JSON.stringify(error.details)}`,
+          );
+        }
         const willRetry = normalized.retryable && job.attempts < job.maxAttempts;
         const delay = this.config.retryDelaysMs[
           Math.min(Math.max(job.attempts - 1, 0), this.config.retryDelaysMs.length - 1)

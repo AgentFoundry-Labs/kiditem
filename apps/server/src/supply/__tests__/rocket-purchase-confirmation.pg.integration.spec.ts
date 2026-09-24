@@ -191,7 +191,7 @@ describe('Rocket workbook export transaction (PG integration)', () => {
 
     await expect(
       adapter.exportWorkbook(confirmationInput(key, 3)),
-    ).rejects.toThrow(/idempotency/i);
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'IDEMPOTENCY_KEY_REUSED' } });
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(1);
   });
 
@@ -201,7 +201,7 @@ describe('Rocket workbook export transaction (PG integration)', () => {
 
     await expect(
       adapter.exportWorkbook(confirmationInput(key, 2, '고양1센터')),
-    ).rejects.toThrow(/idempotency/i);
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'IDEMPOTENCY_KEY_REUSED' } });
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(1);
   });
 
@@ -238,7 +238,7 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       adapter.exportWorkbook(
         confirmationInput('21000000-0000-4000-8000-000000000013', 2),
       ),
-    ).rejects.toThrow(/generation/i);
+    ).rejects.toMatchObject({ code: 'SELLPIA_SYNC_REQUIRED', details: { reason: 'INVENTORY_GENERATION_CHANGED' } });
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(0);
   });
 
@@ -262,7 +262,7 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       adapter.exportWorkbook(
         confirmationInput('21000000-0000-4000-8000-000000000014', 2),
       ),
-    ).rejects.toThrow(/recipe/i);
+    ).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_PREVIEW_CHANGED', details: { reason: 'RECIPE_CHANGED' } });
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(0);
   });
 
@@ -275,7 +275,7 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       },
     });
 
-    await expect(adapter.exportWorkbook(input)).rejects.toThrow(/recipe/i);
+    await expect(adapter.exportWorkbook(input)).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_PREVIEW_CHANGED', details: { reason: 'RECIPE_CHANGED' } });
     expect(await prisma.rocketPurchaseConfirmation.count()).toBe(0);
   });
 
@@ -458,7 +458,7 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       adapter.exportWorkbook(
         confirmationInput('21000000-0000-4000-8000-000000000053', 2),
       ),
-    ).rejects.toThrow(/must complete/);
+    ).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_WORKFLOW_ACTIVE' });
     await expect(
       adapter.getActiveWorkflow({ organizationId: TEST_ORGANIZATION_ID }),
     ).resolves.toMatchObject({ exportId: created.exportId });
@@ -521,7 +521,7 @@ describe('Rocket workbook export transaction (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
       exportId: created.exportId,
-    })).rejects.toThrow(/Fresh SHIPMENT and MILKRUN collection probes/);
+    })).rejects.toMatchObject({ code: 'SUPPLY_ROCKET_PROBE_REQUIRED' });
     await expect(prisma.rocketPurchaseConfirmation.findUniqueOrThrow({
       where: { id: created.exportId },
       select: { releasedAt: true },

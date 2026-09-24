@@ -5,7 +5,7 @@ import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/
 import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
 import type { TargetExecutionIntent } from '../application/port/out/repository/registration-execution.repository.port';
 import { randomUUID } from 'node:crypto';
-import { ConflictException } from '@nestjs/common';
+import { ERROR_DEFINITIONS, type KiditemErrorCode } from '@kiditem/shared/errors';
 import type { PrismaClient } from '@prisma/client';
 import { REGISTRATION_ALREADY_REGISTERED_CODE, type PrepareTargetExecutionInput, type ReportTargetExecutionInput } from '@kiditem/shared/sales-product';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -17,6 +17,19 @@ import {
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
+import type { INestApplication } from '@nestjs/common';
+import { Test } from '@nestjs/testing';
+import type { NextFunction, Request, Response } from 'express';
+import request from 'supertest';
+import { ErrorResponseSchema } from '@kiditem/shared/errors';
+import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
+import { ChannelBusinessExceptionFilter } from '../adapter/in/web/channel-business-exception.filter';
+import { RegistrationTargetController } from '../adapter/in/web/registration-target.controller';
+import { RegistrationTargetExecutionController } from '../adapter/in/web/registration-target-execution.controller';
+import { REGISTRATION_TARGET_PORT } from '../application/port/in/registration-target.port';
+import { REGISTRATION_EXECUTION_PORT } from '../application/port/in/capability/registration-execution.port';
+import { RegistrationTargetUseCase } from '../application/service/registration/registration-target.usecase';
+import { RegistrationExecutionService } from '../application/service/registration/registration-execution.service';
 
 const MALL_ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 const SECOND_ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
@@ -81,12 +94,12 @@ describe('registration execution fence (PG integration)', () => {
   it('refuses a target on an archived product and prepares a registration only for a selling product with a KID', async () => {
     await prisma.salesProduct.update({ where: { id: SALES_PRODUCT_ID }, data: { status: 'archived' } });
     await expect(targets.resolve(TEST_ORGANIZATION_ID, { salesProductId: SALES_PRODUCT_ID, channelAccountId: MALL_ACCOUNT_ID }))
-      .rejects.toThrow('보관된 판매상품');
+      .rejects.toMatchObject(refused('VALIDATION_FAILED'));
 
     await prisma.salesProduct.update({ where: { id: SALES_PRODUCT_ID }, data: { status: 'active' } });
     const targetId = await resolveTarget(MALL_ACCOUNT_ID);
     await prisma.salesProduct.update({ where: { id: SALES_PRODUCT_ID }, data: { status: 'draft', code: null } });
-    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toThrow('Only a selling product with a KID');
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toMatchObject(refused('CHANNELS_SALES_PRODUCT_NOT_SELLING'));
     expect(await prisma.productRegistrationExecution.count()).toBe(0);
   });
 
@@ -121,8 +134,8 @@ describe('registration execution fence (PG integration)', () => {
     // 남은 실행은 판매상품을 통해 원천 기록에 닿는다 — 실행 행이 원천을 열쇠로 갖지 않는다.
     await expect(prisma.salesProduct.findUniqueOrThrow({ where: { id: SALES_PRODUCT_ID }, select: { sourceRecordId: true } }))
       .resolves.toEqual({ sourceRecordId: candidateId });
-    await expect(start(prepared.executionId)).rejects.toBeInstanceOf(ConflictException);
-    await expect(resolveTarget(SECOND_ACCOUNT_ID)).rejects.toThrow('보관된 판매상품');
+    await expect(start(prepared.executionId)).rejects.toMatchObject(refused('CHANNELS_EXECUTION_STALE'));
+    await expect(resolveTarget(SECOND_ACCOUNT_ID)).rejects.toMatchObject(refused('VALIDATION_FAILED'));
   });
 
   it('admits one live execution per target: another intent conflicts until the first closes as not submitted', async () => {
@@ -146,15 +159,17 @@ describe('registration execution fence (PG integration)', () => {
     await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toMatchObject({ code: 'CHANNELS_LISTING_EXECUTION_ACTIVE' });
     // 결과를 모르는 제출은 "제출 안 됨"으로 되돌릴 수 없다 — 몰 식별자가 있으면 거절된다.
     await report(prepared.executionId, started, 'submitted', { externalListingId: 'kk-9' });
-    await expect(report(prepared.executionId, started, 'not_submitted', {})).rejects.toBeInstanceOf(ConflictException);
+    await expect(report(prepared.executionId, started, 'not_submitted', {})).rejects.toMatchObject(refused('CHANNELS_EXECUTION_EVIDENCE_REJECTED'));
 
     await expect(report(prepared.executionId, started, 'confirmed', { externalListingId: 'kk-9' }))
       .resolves.toMatchObject({ status: 'succeeded' });
     await expect(prisma.registrationTarget.findUniqueOrThrow({ where: { id: targetId }, select: { archivedAt: true } }))
       .resolves.toEqual({ archivedAt: null });
     // 이미 등록된 계정에 새 register 는 열리지 않는다 — 몰에 올라간 리스팅을 이름으로 말한다(KID-320 S7).
-    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toThrow(ConflictException);
-    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toThrow('kk-9');
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toMatchObject({
+      ...refused(REGISTRATION_ALREADY_REGISTERED_CODE),
+      details: { existing: { externalListingId: 'kk-9' } },
+    });
   });
 
   it('refuses a new register when the account already has an active listing of the product, naming it, before any intent', async () => {
@@ -164,9 +179,10 @@ describe('registration execution fence (PG integration)', () => {
     });
 
     const refusal = await prepare(targetId, MALL_ACCOUNT_ID).catch((error: unknown) => error);
-    expect(refusal).toBeInstanceOf(ConflictException);
-    expect((refusal as ConflictException).message).toContain('catalog-77');
-    expect((refusal as ConflictException).getResponse()).toMatchObject({ code: REGISTRATION_ALREADY_REGISTERED_CODE });
+    expect(refusal).toMatchObject({
+      ...refused(REGISTRATION_ALREADY_REGISTERED_CODE),
+      details: { existing: { externalListingId: 'catalog-77' } },
+    });
     expect(await prisma.productRegistrationExecution.count()).toBe(0);
     // 다른 계정은 막지 않는다.
     await expect(prepare(await resolveTarget(SECOND_ACCOUNT_ID), SECOND_ACCOUNT_ID)).resolves.toMatchObject({ status: 'prepared' });
@@ -192,11 +208,11 @@ describe('registration execution fence (PG integration)', () => {
 
     // 카탈로그가 아직 가져오지 않은 성공 실행(kk-41)은 실행만으로 막는다.
     await row('register', 'succeeded', 2, 'kk-41');
-    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toThrow('kk-41');
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toMatchObject({ details: { existing: { externalListingId: 'kk-41' } } });
 
     // 취소는 몰에 아무것도 하지 않았으므로 앞선 성공을 지우지 않는다.
     await row('register', 'cancelled', 3);
-    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toThrow('kk-41');
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toMatchObject({ details: { existing: { externalListingId: 'kk-41' } } });
   });
 
   it('replays concurrent same-key preparations as one execution and grants one lease to concurrent starts', async () => {
@@ -213,6 +229,54 @@ describe('registration execution fence (PG integration)', () => {
     const targetId = await resolveTarget(WING_ACCOUNT_ID);
     await expect(prepare(targetId, WING_ACCOUNT_ID)).rejects.toThrow('vendor identity');
     expect(await prisma.productRegistrationExecution.count()).toBe(0);
+  });
+
+  describe('over HTTP with main.ts filters (KID-341)', () => {
+    let app: INestApplication;
+    beforeAll(async () => {
+      const moduleRef = await Test.createTestingModule({
+        controllers: [RegistrationTargetController, RegistrationTargetExecutionController],
+        providers: [
+          { provide: REGISTRATION_TARGET_PORT, useFactory: () => new RegistrationTargetUseCase(targets) },
+          {
+            provide: REGISTRATION_EXECUTION_PORT,
+            // 보고 · 조회는 저장소만 쓴다. 준비에 쓰는 판매상품 · 콘텐츠 포트는 이 경로에 닿지 않는다.
+            useFactory: () => new RegistrationExecutionService(repository, {} as never, {} as never, {} as never, {} as never, {} as never),
+          },
+        ],
+      }).compile();
+      app = moduleRef.createNestApplication({ logger: false });
+      app.setGlobalPrefix('api');
+      app.use((req: Request, _res: Response, next: NextFunction) => {
+        req.authUser = { id: TEST_USER_ID, organizationId: TEST_ORGANIZATION_ID } as Request['authUser'];
+        next();
+      });
+      app.useGlobalFilters(new GlobalExceptionFilter(), new ChannelBusinessExceptionFilter());
+      await app.init();
+    });
+    afterAll(async () => app?.close());
+
+    it('answers a missing registration target with 404 CHANNELS_REGISTRATION_TARGET_NOT_FOUND', async () => {
+      const response = await request(app.getHttpServer()).get(`/api/channels/registration-targets/${randomUUID()}`).expect(404);
+      expect(ErrorResponseSchema.parse(response.body)).toMatchObject({ code: 'CHANNELS_REGISTRATION_TARGET_NOT_FOUND', kind: 'not_found' });
+    });
+
+    it('refuses a confirmed report from another mall account with 409 CHANNELS_EXECUTION_EVIDENCE_REJECTED and its reason', async () => {
+      const targetId = await resolveTarget(MALL_ACCOUNT_ID);
+      const prepared = await prepare(targetId, MALL_ACCOUNT_ID);
+      const started = await start(prepared.executionId);
+      const response = await request(app.getHttpServer())
+        .post(`/api/channels/registration-executions/${prepared.executionId}/result`)
+        .send({
+          leaseToken: started.leaseToken, payloadHash: started.payloadHash, outcome: 'confirmed',
+          evidence: { channelAccountId: MALL_ACCOUNT_ID, providerAccountId: 'seller-9', observedUrl: `${KIDKIDS_ADMIN}/goods/kk-1`, externalListingId: 'kk-1' },
+        })
+        .expect(409);
+      // 웹은 confirmed 보고 거절을 409로 판단해 submitted로 다시 보고한다(target-registration-execution.ts).
+      expect(ErrorResponseSchema.parse(response.body)).toMatchObject({
+        statusCode: 409, code: 'CHANNELS_EXECUTION_EVIDENCE_REJECTED', kind: 'conflict', details: { reason: 'account_mismatch' },
+      });
+    });
   });
 
   async function createProduct(id: string, optionId: string, name: string, sourceRecordId: string | null) {
@@ -302,3 +366,8 @@ describe('registration execution fence (PG integration)', () => {
     };
   }
 });
+
+/** 거절은 등록 코드와 그 kind로 단언한다(문장 단언 금지, KID-341). */
+function refused(code: KiditemErrorCode) {
+  return { code, kind: ERROR_DEFINITIONS[code].kind };
+}

@@ -1,6 +1,5 @@
 import { ConflictException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { RegistrationTargetException } from '../../exception/registration-target.exception';
 import { ChannelRegistrationService } from './channel-registration.service';
 
 describe('ChannelRegistrationService browser registration boundary', () => {
@@ -69,7 +68,22 @@ describe('ChannelRegistrationService browser registration boundary', () => {
       organizationId: 'org-1',
       channelAccountId: 'account-1',
       externalVendorSku: '  ',
-    })).rejects.toThrow('real Sellpia SKU code is required');
+    })).rejects.toMatchObject({ code: 'CHANNELS_SELLPIA_MATCH_REQUIRED', details: { reason: 'SELLPIA_SKU_REQUIRED' } });
     expect(repository.findExistingActiveListingBySellerSku).not.toHaveBeenCalled();
+  });
+
+  it('asks for a whole deduction quantity when the operator picked a Sellpia product', async () => {
+    const recipes = { resolveSelectedRegistrationSku: vi.fn().mockResolvedValue({ masterProductId: 'mp-1', code: 'SP-1', name: '셀피아' }) };
+    const service = new ChannelRegistrationService({} as never, recipes as never);
+
+    await expect(service.preflightExternalProductRegistration({
+      organizationId: 'org-1',
+      channelAccountId: 'account-1',
+      channelListingOptionId: 'candidate-1',
+      listingName: '상품',
+      itemName: null,
+      selectedSellpiaInventorySkuId: 'mp-1',
+      selectedQuantity: 0,
+    } as never)).rejects.toMatchObject({ code: 'CHANNELS_SELLPIA_DEDUCTION_REQUIRED', kind: 'validation' });
   });
 });

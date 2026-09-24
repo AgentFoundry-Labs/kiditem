@@ -1,7 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import {
+  codeMessageCount,
   englishLiteralCount,
+  isSource,
+  literalBaselineFailures,
+  readLiteralBaseline,
   extensionCodeViolations,
   rawRenderViolations,
   renderBaselineFailure,
@@ -87,4 +91,43 @@ test('the raw-render count is a ceiling: it may shrink, never grow', () => {
   assert.deepEqual(renderBaselineFailure(79, 79), null);
   assert.deepEqual(renderBaselineFailure(70, 79), null);
   assert.match(renderBaselineFailure(80, 79), /raw error rendering grew: 80 > baseline 79/);
+});
+
+test('code-spelled exception messages are counted separately from English sentences', () => {
+  const entries = [{ file: 'x.ts', source: [
+    "throw new ConflictException('ATTEMPT_FENCE_LOST');",
+    "throw new BadRequestException('Order collection expired.');",
+    "throw new Error('CATALOG_TOKEN_MISMATCH');",
+    "throw new NotFoundException('상품을 찾을 수 없습니다.');",
+    "throw new ConflictException(`ATTEMPT_${x}`);",
+    "throw new ConflictException('ok');",
+  ].join('\n') }];
+  assert.equal(codeMessageCount(entries), 2);
+  assert.equal(englishLiteralCount(entries), 1);
+  assert.equal(codeMessageCount([{ file: 'y.ts', source: "throw new ConflictException('ATTEMPT_FENCE_LOST');" }]), 1);
+});
+
+test('a registered code spelled as an exception message still counts: the shape itself must migrate', () => {
+  assert.equal(codeMessageCount([{ file: 'z.ts', source: "throw new NotFoundException('NOT_FOUND');" }]), 1);
+});
+
+test('the literal baseline reads key=value lines and the old one-integer file as english', () => {
+  assert.deepEqual(readLiteralBaseline('english=735\ncode-message=650\n'), { english: 735, codeMessage: 650 });
+  assert.deepEqual(readLiteralBaseline('747\n'), { english: 747, codeMessage: 0 });
+  assert.throws(() => readLiteralBaseline('english=abc\n'));
+  assert.throws(() => readLiteralBaseline('abc'));
+});
+
+test('either literal count growing by one fails; shrinking only notes', () => {
+  const baseline = { english: 10, codeMessage: 20 };
+  assert.deepEqual(literalBaselineFailures({ english: 10, codeMessage: 20 }, baseline), []);
+  assert.deepEqual(literalBaselineFailures({ english: 9, codeMessage: 19 }, baseline), []);
+  assert.match(literalBaselineFailures({ english: 11, codeMessage: 20 }, baseline)[0], /English exception literals grew: 11 > baseline 10/);
+  assert.match(literalBaselineFailures({ english: 10, codeMessage: 21 }, baseline)[0], /code-spelled exception messages grew: 21 > baseline 20/);
+});
+
+test('server test helpers are test code, not source', () => {
+  assert.equal(isSource('/r/apps/server/src/test-helpers/pg.ts'), false);
+  assert.equal(isSource('/r/apps/server/src/orders/order.service.ts'), true);
+  assert.equal(isSource('/r/apps/server/src/orders/order.service.spec.ts'), false);
 });

@@ -1,4 +1,5 @@
-import { BadRequestException, Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { KiditemNotFoundError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import type { ThumbnailJobListResponse } from '@kiditem/shared/ai';
 import type { ThumbnailJob } from '@kiditem/shared/product-content';
 import { resolveWorkspaceThumbnailSource } from '../../domain/thumbnail-workspace-source';
@@ -81,7 +82,7 @@ export class ThumbnailGenerationService {
       reason: 'Thumbnail generation cancelled by user.',
     });
     if (cancellation.status === 'not_found') {
-      throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
+      throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'thumbnail_generation' } });
     }
     return this.findOne(id, organizationId);
   }
@@ -116,7 +117,7 @@ export class ThumbnailGenerationService {
   ): Promise<{ ok: true; generationDeleted: boolean; remaining: number }> {
     const result = await this.ledger.removeCandidate({ id, organizationId, assetId });
     if (!result) {
-      throw new NotFoundException('해당 후보를 찾을 수 없습니다');
+      throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'thumbnail_candidate' } });
     }
     return { ok: true, ...result };
   }
@@ -136,10 +137,10 @@ export class ThumbnailGenerationService {
     for (const contentWorkspaceId of contentWorkspaceIds) {
       const workspace = byId.get(contentWorkspaceId);
       if (!workspace) {
-        throw new NotFoundException(`ContentWorkspace ${contentWorkspaceId} not found`);
+        throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'workspace' } });
       }
       const sourceUrl = resolveWorkspaceThumbnailSource(workspace);
-      if (!sourceUrl) throw new BadRequestException('상품 원본 이미지가 필요합니다');
+      if (!sourceUrl) throw new KiditemPreconditionError('CONTENT_GENERATION_INPUT_MISSING', { details: { reason: 'PRODUCT_PHOTO_REQUIRED' } });
 
       const active = await this.ledger.findActiveJobForWorkspace(workspace.id, organizationId, method);
       if (active) {
@@ -175,7 +176,7 @@ export class ThumbnailGenerationService {
     variantKey: 'auto' | 'with-box' | 'no-box' | null,
   ): Promise<{ ok: true }> {
     const change = await this.ledger.resetGenerationForReEdit({ id, organizationId, purpose, variantKey });
-    if (!change) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
+    if (!change) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'thumbnail_generation' } });
     await this.generationJobs.scheduleEditJob(id, organizationId, purpose, variantKey);
     return { ok: true };
   }
@@ -255,6 +256,6 @@ export class ThumbnailGenerationService {
 
   private async assertGenerationOwned(id: string, organizationId: string): Promise<void> {
     const existing = await this.ledger.findGenerationProjectionStatus({ generationId: id, organizationId });
-    if (!existing) throw new NotFoundException(`ThumbnailGeneration ${id} not found`);
+    if (!existing) throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'thumbnail_generation' } });
   }
 }

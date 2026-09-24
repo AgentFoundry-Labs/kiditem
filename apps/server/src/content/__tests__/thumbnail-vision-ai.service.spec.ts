@@ -1,5 +1,4 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { ServiceUnavailableException } from '@nestjs/common';
 // eslint-disable-next-line @typescript-eslint/no-require-imports
 const sharp: typeof import('sharp')['default'] = require('sharp');
 import type { ComplianceScores } from '@kiditem/shared/ai';
@@ -190,7 +189,7 @@ describe('ThumbnailVisionAiService failure and fetch behavior', () => {
           category: null,
         },
       ]),
-    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    ).rejects.toMatchObject({ code: 'CONTENT_MODEL_NOT_CONFIGURED' });
   });
 
   it('propagates pre-aborted quality analysis instead of returning an empty map', async () => {
@@ -253,7 +252,7 @@ describe('ThumbnailVisionAiService failure and fetch behavior', () => {
           category: null,
         },
       ]),
-    ).rejects.toBeInstanceOf(ServiceUnavailableException);
+    ).rejects.toMatchObject({ code: 'CONTENT_MODEL_NOT_CONFIGURED' });
   });
 
   it('uses trusted storage fetches for image spec probing', async () => {

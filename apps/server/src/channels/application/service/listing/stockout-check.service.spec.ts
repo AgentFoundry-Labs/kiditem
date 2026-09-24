@@ -32,7 +32,7 @@ describe('explicit inventory stockout', () => {
     const row = subject({ options: [option('a', capacity === null ? null : 0)] });
     if (capacity === undefined) row.options[0]!.compositionUnconfirmed = true;
     const f = fixture(row);
-    await expect(f.service.prepare('org', null, { listingId: 'listing', idempotencyKey: 'key' })).rejects.toThrow('unknown');
+    await expect(f.service.prepare('org', null, { listingId: 'listing', idempotencyKey: 'key' })).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'unknown' } });
     expect(f.prepareListingAvailability).not.toHaveBeenCalled();
   });
   it.each([['healthy', 1, 'in_stock'], ['unknown', null, 'unknown']] as const)('holds a whole listing with a %s sibling', async (_name, capacity, decision) => {
@@ -47,7 +47,7 @@ describe('explicit inventory stockout', () => {
     { activeExecutions: [{ id: 'other', idempotencyKey: 'other' }], decision: 'active_execution' },
   ])('does not prepare $decision subjects', async ({ decision, ...patch }) => {
     const f = fixture(subject(patch));
-    await expect(f.service.prepare('org', null, { listingId: 'listing', idempotencyKey: 'key' })).rejects.toThrow(decision);
+    await expect(f.service.prepare('org', null, { listingId: 'listing', idempotencyKey: 'key' })).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: decision } });
     expect(f.prepareListingAvailability).not.toHaveBeenCalled();
   });
   /**
@@ -61,7 +61,7 @@ describe('explicit inventory stockout', () => {
 
     expect(await f.service.preview('org', ['listing'])).toMatchObject([{ decision: 'draft' }]);
     await expect(f.service.prepare('org', null, { listingId: 'listing', idempotencyKey: 'key' }))
-      .rejects.toThrow('draft');
+      .rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'draft' } });
     expect(f.prepareListingAvailability).not.toHaveBeenCalled();
   });
 
@@ -80,7 +80,7 @@ describe('explicit inventory stockout', () => {
     expect(await f.service.prepare('org', 'actor', { listingId: 'listing', idempotencyKey: 'key' })).toBe(receipt);
     expect(f.readSubjects).not.toHaveBeenCalled();
     expect(f.prepareListingAvailability).not.toHaveBeenCalled();
-    await expect(f.service.prepare('org', 'actor', { listingId: 'other', idempotencyKey: 'key' })).rejects.toThrow('another availability intent');
+    await expect(f.service.prepare('org', 'actor', { listingId: 'other', idempotencyKey: 'key' })).rejects.toMatchObject({ code: 'CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT' });
   });
   it('rechecks in the provided transaction, ignoring only its own execution', async () => {
     const row = subject({ activeExecutions: [{ id: 'own', idempotencyKey: 'key' }] }); const f = fixture(row);
@@ -88,10 +88,10 @@ describe('explicit inventory stockout', () => {
     await f.service.assertEligible(tx, 'org', snapshot(row), 'own');
     expect(f.readSubjects).toHaveBeenCalledWith('org', ['listing'], tx);
     row.options[0]!.capacity = 1;
-    await expect(f.service.assertEligible(tx, 'org', snapshot(row), 'own')).rejects.toThrow('in_stock');
+    await expect(f.service.assertEligible(tx, 'org', snapshot(row), 'own')).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'in_stock' } });
     row.options[0]!.capacity = 0;
-    await expect(f.service.assertEligible(tx, 'org', snapshot(row, ['changed']), 'own')).rejects.toThrow('targets changed');
+    await expect(f.service.assertEligible(tx, 'org', snapshot(row, ['changed']), 'own')).rejects.toMatchObject({ code: 'CHANNELS_EXECUTION_STALE', details: { reason: 'STOCKOUT_TARGETS_CHANGED' } });
     row.activeExecutions.push({ id: 'other', idempotencyKey: 'other' });
-    await expect(f.service.assertEligible(tx, 'org', snapshot(row), 'own')).rejects.toThrow('active_execution');
+    await expect(f.service.assertEligible(tx, 'org', snapshot(row), 'own')).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'active_execution' } });
   });
 });

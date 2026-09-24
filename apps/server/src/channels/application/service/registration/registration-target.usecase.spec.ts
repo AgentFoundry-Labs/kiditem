@@ -92,6 +92,6 @@ describe('registration target public port', () => {
       expectedVersion: target.version, registrationInput: emptyMallInput,
       selectedThumbnailAssetId: null, selectedDetailPageRevisionId: null,
       selectedOptions: [{ salesProductOptionId: 'other-product-option' }],
-    })).rejects.toThrow('선택한 옵션이 해당 판매상품에 없습니다.');
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
   });
 });

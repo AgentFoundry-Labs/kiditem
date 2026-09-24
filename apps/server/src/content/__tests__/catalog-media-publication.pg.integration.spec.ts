@@ -888,8 +888,8 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     await publish(foreignListingId, [media('foreign', 'primary')], OTHER_ORG, OTHER_USER);
     const before = await assets();
     const foreignBefore = await assets(OTHER_ORG);
-    await expect(publish(foreignListingId, [media('bad', 'primary')])).rejects.toThrow(
-      'Channel listing owner not found.',
+    await expect(publish(foreignListingId, [media('bad', 'primary')])).rejects.toMatchObject(
+      { code: 'CHANNELS_LISTING_NOT_FOUND' },
     );
     expect(await assets()).toEqual(before);
     expect(await assets(OTHER_ORG)).toEqual(foreignBefore);

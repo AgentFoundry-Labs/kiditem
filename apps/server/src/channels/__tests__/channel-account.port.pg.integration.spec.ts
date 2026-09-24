@@ -117,7 +117,7 @@ describe('ChannelAccountPort + disposable Postgres', () => {
   it('does not create a shared Rocket row during mall login updates or reactivate a paused row', async () => {
     await expect(port.update(TEST_ORGANIZATION_ID, 'coupang-direct', {
       loginId: 'supplier-login',
-    })).rejects.toMatchObject({ name: 'ChannelAccountException', code: 'invalid' });
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'SHARED_CHANNEL_ACCOUNT_MISSING' }, message: expect.stringContaining('채널 계정을 먼저 연결하세요') });
     await expect(prisma.channelAccount.count({ where: { organizationId: TEST_ORGANIZATION_ID } }))
       .resolves.toBe(0);
 

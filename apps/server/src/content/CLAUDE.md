@@ -96,6 +96,9 @@ lives in [docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
 - Channels' registration-state reader reads Content only through
   `CONTENT_REGISTRATION_FACTS_PORT` (`content-registration-facts.module.ts`):
   the product workspace's current detail revision id and thumbnail asset id.
+- Throw `Kiditem*Error` with a registered `CONTENT_*` or common code (ADR-0023).
+  `AiDirectJob.errorCode` spellings (`direct_ai_*`, `model_required`) are ledger
+  values the retry policy reads, not HTTP codes.
 - Model selection is explicit. Asset deletion/GC rejects active generation
   usage and current-thumbnail references.
 - Generation-control changes update shared type/tuple, HTTP DTO, web payload,

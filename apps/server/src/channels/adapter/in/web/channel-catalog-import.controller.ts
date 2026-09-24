@@ -1,5 +1,3 @@
-import { UseFilters } from '@nestjs/common';
-import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import { createHash } from 'node:crypto';
 import {
   BadRequestException,
@@ -25,7 +23,6 @@ type UploadedWorkbookFile = {
   originalname: string;
 };
 
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels/accounts/:channelAccountId/catalog-imports/coupang-wing')
 export class ChannelCatalogImportController {
   constructor(

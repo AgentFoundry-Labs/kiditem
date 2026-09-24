@@ -1,8 +1,8 @@
-import { ServiceUnavailableException } from '@nestjs/common';
 import type {
   AiDirectJobModels,
   AiDirectJobType,
 } from '../../domain/direct-job/ai-direct-job.schema';
+import { KiditemError, KiditemExternalError } from '@kiditem/shared/errors';
 
 export interface AiDirectJobRuntimeConfig {
   workerEnabled: boolean;
@@ -65,17 +65,13 @@ export function resolveAiDirectJobRuntimeConfig(
     5_000,
   );
   if (workerMaxIntervalMs < workerIntervalMs) {
-    throw new Error(
-      'AI direct job maximum interval must be at least the minimum interval.',
-    );
+    throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DIRECT_JOB_MAX_INTERVAL_TOO_SMALL' } });
   }
   if (workerErrorMaxIntervalMs < workerIntervalMs) {
-    throw new Error(
-      'AI direct job error maximum interval must be at least the minimum interval.',
-    );
+    throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DIRECT_JOB_ERROR_INTERVAL_TOO_SMALL' } });
   }
   if (leaseHeartbeatMs >= leaseMs) {
-    throw new Error('AI direct job heartbeat must be shorter than the lease.');
+    throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DIRECT_JOB_HEARTBEAT_NOT_SHORTER_THAN_LEASE' } });
   }
   return {
     workerEnabled: env.AI_DIRECT_JOB_WORKER_ENABLED !== '0',
@@ -93,21 +89,17 @@ export function resolveAiDirectJobRuntimeConfig(
 function requireEnv(name: string, env: NodeJS.ProcessEnv): string {
   const value = env[name]?.trim();
   if (!value) {
-    throw Object.assign(
-      new ServiceUnavailableException(
-        `${name} is required for direct AI jobs.`,
-      ),
-      { code: 'model_required' },
-    );
+    throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', {
+      details: { reason: 'DIRECT_JOB_MODEL_MISSING' },
+      cause: name,
+    });
   }
   const replacement = DEPRECATED_DIRECT_AI_MODELS.get(value);
   if (replacement) {
-    throw Object.assign(
-      new ServiceUnavailableException(
-        `${name} ${value} is deprecated or unavailable. Set ${name}=${replacement}.`,
-      ),
-      { code: 'model_required' },
-    );
+    throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', {
+      details: { reason: 'DIRECT_JOB_MODEL_DEPRECATED', model: value, replacement },
+      cause: name,
+    });
   }
   return value;
 }
@@ -116,9 +108,7 @@ function positiveInt(raw: string | undefined, fallback: number): number {
   if (raw === undefined || raw.trim() === '') return fallback;
   const parsed = Number(raw);
   if (!Number.isInteger(parsed) || parsed <= 0) {
-    throw new Error(
-      `AI direct job runtime value must be a positive integer: ${raw}`,
-    );
+    throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DIRECT_JOB_RUNTIME_VALUE_INVALID', value: raw } });
   }
   return parsed;
 }

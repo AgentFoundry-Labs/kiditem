@@ -1,10 +1,6 @@
 import { readUnresolvedCompositionOptionIds } from "./registration-execution-ledger.reader";
-import {
-  BadRequestException,
-  Inject,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -314,7 +310,7 @@ implements ChannelProductMatchingRepositoryPort {
   }): Promise<void> {
     await this.prisma.$transaction(async (tx) => {
       if (!this.recipeMutations) {
-        throw new Error('Channels recipe mutation owner is unavailable');
+        throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'RECIPE_MUTATION_OWNER_UNAVAILABLE' } });
       }
       if (input.masterProductId === null) {
         await this.recipeMutations.clearListingRecipesInTransaction(ownerTransaction(tx), {
@@ -328,12 +324,10 @@ implements ChannelProductMatchingRepositoryPort {
           listingIds: [input.channelListingId],
         });
         if (!summaries.has(input.channelListingId)) {
-          throw new NotFoundException('Channel listing was not found');
+          throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND');
         }
         if (summaries.get(input.channelListingId) !== input.masterProductId) {
-          throw new BadRequestException(
-            'MasterProduct link is derived from complete option inventory recipes',
-          );
+          throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'PRODUCT_LINK_DERIVED_FROM_RECIPES' } });
         }
       }
     }, TRANSACTION_OPTIONS);
@@ -527,7 +521,7 @@ implements ChannelProductMatchingRepositoryPort {
         }
       }
       if (mutations.length > 0 && !this.recipeMutations) {
-        throw new Error('Channels recipe mutation capability is not configured');
+        throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'RECIPE_MUTATION_CAPABILITY_UNAVAILABLE' } });
       }
       const result = mutations.length > 0
         ? await this.recipeMutations!.applyPreservingRecipesInTransaction(ownerTransaction(tx), {

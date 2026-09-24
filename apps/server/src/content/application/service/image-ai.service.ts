@@ -1,8 +1,5 @@
-import {
-  Injectable,
-  InternalServerErrorException,
-  NotFoundException,
-} from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { KiditemError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { ImageEditDirectGenerationJobService } from './image-edit-direct-generation-job.service';
 
 /**
@@ -47,14 +44,14 @@ export class ImageAiService {
       });
     } catch (error) {
       if (error instanceof Error) throw error;
-      throw new InternalServerErrorException(String(error));
+      throw new KiditemError('INTERNAL_ERROR', { cause: error });
     }
   }
 
   async getEditTask(organizationId: string, taskId: string) {
     const status = await this.imageEditJobs.getStatus(organizationId, taskId);
     if (!status) {
-      throw new NotFoundException(`image edit task not found: ${taskId}`);
+      throw new KiditemNotFoundError('CONTENT_NOT_FOUND', { details: { reason: 'image_edit_task' } });
     }
     return status;
   }

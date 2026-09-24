@@ -124,14 +124,14 @@ describe('registration target execution public capability', () => {
 
   it('rejects a stale target version before preparing a new submission', async () => {
     const { service, executions } = setup();
-    await expect(service.prepareTargetExecution('org', 'target', 'actor', { ...request, expectedVersion: 2 })).rejects.toThrow('등록 설정이 변경');
+    await expect(service.prepareTargetExecution('org', 'target', 'actor', { ...request, expectedVersion: 2 })).rejects.toMatchObject({ code: 'CHANNELS_REGISTRATION_TARGET_STALE', kind: 'conflict' });
     expect(executions.prepareTarget).not.toHaveBeenCalled();
   });
 
   it('rejects an empty selection and a selection from another product', async () => {
     const { service, target, executions } = setup();
     target.selectedOptions = [];
-    await expect(service.prepareTargetExecution('org', 'target', 'actor', request)).rejects.toThrow('옵션을 선택');
+    await expect(service.prepareTargetExecution('org', 'target', 'actor', request)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
     target.selectedOptions = [{ salesProductOptionId: 'foreign-option' }];
     await expect(service.prepareTargetExecution('org', 'target', 'actor', request)).rejects.toThrow('해당 판매상품');
     expect(executions.prepareTarget).not.toHaveBeenCalled();
@@ -165,7 +165,7 @@ describe('registration target execution public capability', () => {
     product.channelListings = [];
     await expect(service.prepareTargetExecution('org', 'target', 'actor', {
       ...update, updateFields: ['salePrice'],
-    })).rejects.toThrow('단일 옵션');
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
     product.channelListings = [{ id: 'listing', channelAccountId: 'account', mallKey: 'naver',
       options: [{ salesProductOptionId: 'b', salePrice: 3500 }] }] as SalesProduct['channelListings'];
     await expect(service.prepareTargetExecution('org', 'target', 'actor', {

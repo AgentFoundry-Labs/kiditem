@@ -68,6 +68,6 @@ describe("ListingRegistrationPersistenceAdapter browser registration", () => {
         channelAccountId: "account-1",
         sellerSku: "10451-1",
       }),
-    ).rejects.toThrow("multiple active channel listings");
+    ).rejects.toMatchObject({ code: 'CHANNELS_SELLPIA_SKU_AMBIGUOUS' });
   });
 });

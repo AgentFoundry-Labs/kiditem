@@ -1,5 +1,5 @@
 import type { ChannelOptionRecipeCandidatePort } from "../../port/in/listing/channel-option-recipe-candidate.port";
-import { ChannelInputError as BadRequestException } from '../../../domain/exception/channel-business-error';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import {
   ProductRecipeComponentCandidateListResponseSchema,
   ProductRecipeComponentCandidateQuerySchema,
@@ -27,10 +27,7 @@ export class ChannelOptionRecipeCandidateService implements ChannelOptionRecipeC
   ): Promise<ProductRecipeComponentCandidateListResponse> {
     const parsed = ProductRecipeComponentCandidateQuerySchema.safeParse(rawQuery);
     if (!parsed.success) {
-      throw new BadRequestException({
-        message: 'Invalid recipe component candidate query',
-        errors: parsed.error.flatten(),
-      });
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'RECIPE_CANDIDATE_QUERY_INVALID' } });
     }
 
     const rows = await this.availability.searchCandidates({

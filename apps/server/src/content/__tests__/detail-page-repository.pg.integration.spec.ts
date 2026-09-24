@@ -1,6 +1,5 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
-import { BadRequestException, ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
@@ -96,14 +95,14 @@ describe('detail page repository (PG integration)', () => {
     expect(page).toMatchObject({ source: 'generated', status: 'pending', currentRevisionId: null, generationResult: {} });
 
     // ready 는 결과를 쓰는 길로만 온다 — 상태만 바꾸는 길은 없다.
-    await expect(setStatus(page.id, 'ready')).rejects.toBeInstanceOf(ConflictException);
+    await expect(setStatus(page.id, 'ready')).rejects.toMatchObject({ code: 'INTERNAL_ERROR', details: { reason: 'DETAIL_PAGE_READY_WITHOUT_RESULT' } });
     const complete = () => prisma.$transaction((tx) => pages.completeGeneration(ownerTransaction(tx), {
       organizationId: TEST_ORGANIZATION_ID,
       detailPageId: page.id,
       title: '말랑 장화',
       generationResult: { templateId: 'bold-vertical', result: { hook: { text: '말랑' } }, processedImages: {} },
     }));
-    await expect(complete()).rejects.toBeInstanceOf(ConflictException);
+    await expect(complete()).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'DETAIL_PAGE_STATUS_TRANSITION' } });
 
     await setStatus(page.id, 'processing');
     await complete();
@@ -116,7 +115,7 @@ describe('detail page repository (PG integration)', () => {
       generationResult: { templateId: 'bold-vertical', result: { hook: { text: '말랑' } } },
     });
     // 두 번째 완료는 끝난 페이지를 건드리지 않는다.
-    await expect(complete()).rejects.toBeInstanceOf(ConflictException);
+    await expect(complete()).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'DETAIL_PAGE_STATUS_TRANSITION' } });
 
     // 웹이 처음 그린 HTML 이 generated revision 이 되고, 사람 편집이 없는 워크스페이스의 현재가 된다.
     const revision = await append(page.id, { revisionType: 'generated', html: '<p>생성 상세</p>', imageUrls: ['https://cdn.example/a.jpg'] });
@@ -140,9 +139,9 @@ describe('detail page repository (PG integration)', () => {
       .resolves.toMatchObject({ status: 'pending', errorMessage: null });
 
     const manual = await create(workspaceId, { source: 'manual', status: 'ready', templateId: null });
-    await expect(setStatus(manual.id, 'pending')).rejects.toBeInstanceOf(ConflictException);
+    await expect(setStatus(manual.id, 'pending')).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'DETAIL_PAGE_STATUS_TRANSITION' } });
     // 생성이 아닌 페이지는 처음부터 ready 이고, 생성 페이지를 ready 로 만들어 두고 시작할 수 없다.
-    await expect(create(workspaceId, { status: 'ready' })).rejects.toBeInstanceOf(ConflictException);
+    await expect(create(workspaceId, { status: 'ready' })).rejects.toMatchObject({ code: 'INTERNAL_ERROR', details: { reason: 'DETAIL_PAGE_INITIAL_STATUS' } });
   });
 
   it('never lets a machine revision replace a human edit as the workspace current, but keeps it in history', async () => {
@@ -218,7 +217,7 @@ describe('detail page repository (PG integration)', () => {
 
     await expect(prisma.$transaction((tx) => pages.setCurrentRevision(ownerTransaction(tx), {
       organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId: workspaceId, revisionId: foreign.id,
-    }))).rejects.toBeInstanceOf(BadRequestException);
+    }))).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID', details: { reason: 'DETAIL_REVISION_NOT_OWNED' } });
     expect(await workspaceCurrent(workspaceId)).toBe(first.id);
     await expect(pages.findRevision({ organizationId: TEST_ORGANIZATION_ID, revisionId: foreign.id }))
       .resolves.toMatchObject({ contentWorkspaceId: foreignWorkspaceId, html: '<p>남의 것</p>' });
@@ -270,6 +269,20 @@ describe('detail page repository (PG integration)', () => {
       contentWorkspaceId: workspaceId,
       replacements: new Map([[source, 'https://storage.example/1.jpg']]),
     }))).resolves.toEqual({ revisionsUpdated: 0 });
+  });
+
+  it('answers false, not an error, when the page to delete is already gone', async () => {
+    const workspaceId = await workspace();
+    const page = await create(workspaceId, { source: 'manual', status: 'ready', templateId: null });
+    const markDeleted = () => prisma.$transaction((tx) => pages.markDeleted(ownerTransaction(tx), {
+      organizationId: TEST_ORGANIZATION_ID, detailPageId: page.id,
+    }));
+
+    await expect(markDeleted()).resolves.toBe(true);
+    await expect(markDeleted()).resolves.toBe(false);
+    await expect(prisma.$transaction((tx) => pages.markDeleted(ownerTransaction(tx), {
+      organizationId: TEST_ORGANIZATION_ID, detailPageId: randomUUID(),
+    }))).resolves.toBe(false);
   });
 
   it('soft-deletes a page and falls the workspace current back to another live page', async () => {

@@ -1,12 +1,6 @@
 import { createHash } from 'node:crypto';
-import {
-  BadRequestException,
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemConflictError, KiditemError, KiditemNotFoundError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import { Prisma, type RocketPurchaseConfirmationLine } from '@prisma/client';
 import {
   RocketWorkbookDecisionRequestSchema,
@@ -100,9 +94,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
       );
       if (existing) {
         if (existing.requestHash !== requestHash) {
-          throw new ConflictException(
-            'Rocket workbook idempotency key was already used for a different decision.',
-          );
+          throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'IDEMPOTENCY_KEY_REUSED' } });
         }
         const refreshed = await this.refreshWorkflow(
           tx,
@@ -125,9 +117,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
         ? await this.refreshWorkflow(tx, input.organizationId, active)
         : null;
       if (refreshedActive && refreshedActive.status !== 'completed') {
-        throw new ConflictException(
-          'A previous Rocket workbook workflow must complete before creating another workbook.',
-        );
+        throw new KiditemConflictError('SUPPLY_ROCKET_WORKFLOW_ACTIVE', { details: { exportId: refreshedActive.record.id } });
       }
 
       await assertSourceArtifact(tx, {
@@ -147,9 +137,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
         ({ workbookQuantity }) => workbookQuantity > 0,
       );
       if (hasPositiveQuantity && input.preview.inventoryGeneration === null) {
-        throw new ConflictException(
-          'A collected Sellpia inventory generation is required for a positive workbook.',
-        );
+        throw new KiditemPreconditionError('SELLPIA_SYNC_REQUIRED', { details: { reason: 'INVENTORY_GENERATION_REQUIRED' } });
       }
       await assertInventoryGeneration(
         tx,
@@ -262,7 +250,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
       !record.artifactContentType ||
       !record.artifactBytes
     ) {
-      throw new NotFoundException('Rocket workbook artifact not found.');
+      throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'rocket_workbook_artifact' } });
     }
     return {
       fileName: record.artifactFileName,
@@ -284,7 +272,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
         select: exportSelect,
       });
       if (!existing)
-        throw new NotFoundException('Rocket workbook export not found.');
+        throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'rocket_workbook_export' } });
       const refreshed = await this.refreshWorkflow(
         tx,
         input.organizationId,
@@ -294,9 +282,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
         return exportResponse(refreshed.record, true);
       }
       if (!canAbandon(refreshed.record, refreshed.status)) {
-        throw new ConflictException(
-          'Fresh SHIPMENT and MILKRUN collection probes must prove that no matching Coupang order exists.',
-        );
+        throw new KiditemPreconditionError('SUPPLY_ROCKET_PROBE_REQUIRED');
       }
       const completed = await tx.rocketPurchaseConfirmation.update({
         where: { id: existing.id },
@@ -399,9 +385,7 @@ async function assertActiveActor(
     select: { id: true },
   });
   if (!membership) {
-    throw new UnauthorizedException(
-      'Active organization membership is required.',
-    );
+    throw new KiditemError('AUTH_REQUIRED', { details: { reason: 'ACTOR_NOT_ACTIVE' } });
   }
 }
 
@@ -425,9 +409,7 @@ async function assertSourceArtifact(
     select: { id: true },
   });
   if (!run) {
-    throw new BadRequestException(
-      'Completed Rocket PO source artifact not found.',
-    );
+    throw new KiditemPreconditionError('SUPPLY_ROCKET_COLLECTION_INCOMPLETE', { details: { reason: 'SOURCE_ARTIFACT_NOT_COMPLETE' } });
   }
 }
 
@@ -458,9 +440,7 @@ async function assertInventoryGeneration(
     current.snapshot.generation !== generation ||
     current.items.length !== masterProductIds.length
   ) {
-    throw new ConflictException(
-      'Sellpia inventory generation changed before Rocket workbook export.',
-    );
+    throw new KiditemPreconditionError('SELLPIA_SYNC_REQUIRED', { details: { reason: 'INVENTORY_GENERATION_CHANGED' } });
   }
 }
 
@@ -472,26 +452,20 @@ function buildDecisions(
     previewRows.map((row) => [row.poLineId, row]),
   );
   if (previewByLineId.size !== request.rows.length) {
-    throw new ConflictException(
-      'Rocket preview rows changed before workbook export.',
-    );
+    throw new KiditemConflictError('SUPPLY_ROCKET_PREVIEW_CHANGED', { details: { reason: 'PREVIEW_ROWS_CHANGED' } });
   }
   return request.rows.map((requestRow) => {
     const source = previewByLineId.get(requestRow.poLineId);
     const workbookQuantity = request.editedQuantities[requestRow.poLineId]!;
     if (!source || source.editedQuantity !== workbookQuantity) {
-      throw new ConflictException(
-        'Rocket preview quantity changed before workbook export.',
-      );
+      throw new KiditemConflictError('SUPPLY_ROCKET_PREVIEW_CHANGED', { details: { reason: 'PREVIEW_QUANTITY_CHANGED' } });
     }
     if (
       !source.channelListingOptionId ||
       source.components.length === 0 ||
       source.components.some((component) => component.currentStock === null)
     ) {
-      throw new ConflictException(
-        'Every Rocket workbook line requires a current confirmed recipe.',
-      );
+      throw new KiditemPreconditionError('SUPPLY_ROCKET_RECIPE_REQUIRED', { details: { poLineId: requestRow.poLineId } });
     }
     return {
       source,
@@ -545,9 +519,7 @@ async function assertCurrentRecipes(
       !option ||
       JSON.stringify(option.components) !== JSON.stringify(expected)
     ) {
-      throw new ConflictException(
-        'Channel option inventory recipe changed after Rocket preview.',
-      );
+      throw new KiditemConflictError('SUPPLY_ROCKET_PREVIEW_CHANGED', { details: { reason: 'RECIPE_CHANGED' } });
     }
   }
 }
@@ -575,7 +547,7 @@ function exportResponse(
     !record.artifactSha256 ||
     !record.artifactBytes
   ) {
-    throw new ConflictException('Rocket workbook artifact is incomplete.');
+    throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'WORKBOOK_ARTIFACT_INCOMPLETE' } });
   }
   const lines = [...record.lines].sort((left, right) =>
     left.poLineId.localeCompare(right.poLineId),

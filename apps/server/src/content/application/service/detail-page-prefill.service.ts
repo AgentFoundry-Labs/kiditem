@@ -1,10 +1,5 @@
-import {
-  BadRequestException,
-  HttpException,
-  HttpStatus,
-  Inject,
-  Injectable,
-} from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemError, KiditemExternalError } from '@kiditem/shared/errors';
 import { z } from 'zod';
 import type { PrefillDetailPageInput } from './detail-page-requests';
 import {
@@ -76,14 +71,11 @@ export class DetailPagePrefillService {
     organizationId: string,
   ): Promise<DetailPagePrefillDto> {
     if (!organizationId) {
-      throw new BadRequestException('organization context is required');
+      throw new KiditemError('NO_ORGANIZATION_CONTEXT');
     }
     const model = process.env.AI_TEXT_MODEL;
     if (!model) {
-      throw new HttpException(
-        'AI_TEXT_MODEL이 설정되지 않았습니다.',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'TEXT_MODEL_MISSING' } });
     }
 
     const imageCount = dto.imageUrls?.length ?? 0;

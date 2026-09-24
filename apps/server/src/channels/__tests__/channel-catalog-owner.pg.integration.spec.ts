@@ -49,6 +49,8 @@ import {
 import type { SellpiaManualMatchSnapshot } from '@kiditem/shared/sellpia-manual-match';
 import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
 import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
+import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
+import { ChannelBusinessExceptionFilter } from '../adapter/in/web/channel-business-exception.filter';
 
 const channelIntegrity = new ChannelIntegrityAdapter();
 
@@ -128,6 +130,7 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
         next();
       },
     );
+    app.useGlobalFilters(new GlobalExceptionFilter(), new ChannelBusinessExceptionFilter());
     await app.init();
     // Keep one real listener for the whole fixture. Passing an unbound
     // HttpServer to supertest makes each request lazily listen/close it; the
@@ -1264,7 +1267,8 @@ describe('Wing catalog owner HTTP + disposable PG', () => {
     const before = await visible();
     expect(before.items.map((row) => row.externalId)).toEqual(['FILE']);
     const late = await finish(ready.permit, ready.hash).expect(409);
-    expect(late.body.message).toContain('superseded');
+    // main.ts와 같은 전역 필터 아래에서는 영어 문장이 봉투에 실리지 않는다. 전용 코드는 KID-338(수집 시도 fence).
+    expect(late.body).toMatchObject({ statusCode: 409, code: 'STATE_CONFLICT' });
     expect(await visible()).toEqual(before);
   });
   it('checks fixed expiry after waiting for the mapping lock and after media work before terminal CAS', async () => {

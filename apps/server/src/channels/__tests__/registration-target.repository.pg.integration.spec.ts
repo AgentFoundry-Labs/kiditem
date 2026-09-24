@@ -170,11 +170,11 @@ describe('registration target repository (PostgreSQL)', () => {
     await expect(repository.resolve(OTHER_ORGANIZATION_ID, {
       salesProductId: productId,
       channelAccountId: accountId,
-    })).rejects.toMatchObject({ code: 'invalid' });
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
     await expect(repository.resolve(TEST_ORGANIZATION_ID, {
       salesProductId: productId,
       channelAccountId: otherAccountId,
-    })).rejects.toMatchObject({ code: 'invalid' });
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
   });
 
   it('keeps exactly one active setting per product and account, and resolves it without a choice', async () => {
@@ -262,12 +262,12 @@ describe('registration target repository (PostgreSQL)', () => {
     await expect(repository.resolve(TEST_ORGANIZATION_ID, {
       salesProductId: archivedProduct.productId,
       channelAccountId: accountId,
-    })).rejects.toMatchObject({ code: 'invalid' });
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
     await expect(repository.create(TEST_ORGANIZATION_ID, createInput({
       salesProductId: archivedProduct.productId,
       channelAccountId: accountId,
       selectedOptions: [selected(archivedProduct.options[0]!.id)],
-    }))).rejects.toMatchObject({ code: 'invalid' });
+    }))).rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
     await expect(repository.list(TEST_ORGANIZATION_ID, archivedProduct.productId)).resolves.toEqual([]);
   });
 
@@ -309,7 +309,7 @@ describe('registration target repository (PostgreSQL)', () => {
       selectedOptions: [{ salesProductOptionId: options[1]!.id }],
     });
     await expect(repository.update(TEST_ORGANIZATION_ID, targetId, update))
-      .rejects.toMatchObject({ code: 'conflict' });
+      .rejects.toMatchObject({ code: 'CHANNELS_REGISTRATION_TARGET_STALE', kind: 'conflict' });
 
     await expect(prisma.productRegistrationExecution.findUniqueOrThrow({
       where: { id: executionId },
@@ -330,7 +330,7 @@ describe('registration target repository (PostgreSQL)', () => {
       salesProductId: productId,
       channelAccountId: accountId,
       selectedOptions: [selected(options[0]!.id)],
-    }))).rejects.toMatchObject({ code: 'invalid' });
+    }))).rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
 
     const targetId = await repository.create(TEST_ORGANIZATION_ID, createInput({
       salesProductId: productId,
@@ -345,7 +345,7 @@ describe('registration target repository (PostgreSQL)', () => {
       salesProductId: productId,
       channelAccountId: accountId,
       selectedOptions: [selected(options[0]!.id)],
-    }))).rejects.toMatchObject({ code: 'invalid' });
+    }))).rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
 
     await expect(repository.update(TEST_ORGANIZATION_ID, targetId, updateInput({
       expectedVersion: 1,
@@ -368,13 +368,13 @@ describe('registration target repository (PostgreSQL)', () => {
       registrationInput: { name: '몰 전용 이름', salePrice: 9_900, mallFields: {} } as never,
       selectedOptions: [selected(options[0]!.id)],
     }));
-    await expect(refusal).rejects.toMatchObject({ code: 'invalid' });
+    await expect(refusal).rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
     await expect(refusal).rejects.toThrow(/name, salePrice/);
     await expect(repository.create(TEST_ORGANIZATION_ID, createInput({
       salesProductId: productId,
       channelAccountId: await createAccount(prisma, TEST_ORGANIZATION_ID),
       registrationInput: { detailHtml: '<p>몰 상세</p>' } as never,
-    }))).rejects.toMatchObject({ code: 'invalid' });
+    }))).rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
     await expect(repository.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({ version: 1 });
   });
 
@@ -388,13 +388,13 @@ describe('registration target repository (PostgreSQL)', () => {
       registrationInput: { mallCategory: null, mallFields: { salePrice: 9_900 }, adapter: {} },
       selectedOptions: [selected(options[0]!.id)],
     }));
-    await expect(fact).rejects.toMatchObject({ code: 'invalid' });
+    await expect(fact).rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
     await expect(fact).rejects.toThrow(/salePrice/);
     await expect(repository.update(TEST_ORGANIZATION_ID, targetId, updateInput({
       expectedVersion: 1,
       registrationInput: { mallCategory: null, mallFields: { detailTop: 'a'.repeat(20_001) }, adapter: {} },
       selectedOptions: [selected(options[0]!.id)],
-    }))).rejects.toMatchObject({ code: 'invalid' });
+    }))).rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
     await expect(repository.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({ version: 1 });
   });
 
@@ -432,7 +432,7 @@ describe('registration target repository (PostgreSQL)', () => {
       expectedVersion: 2,
       selectedDetailPageRevisionId: foreignRevisionId,
       selectedOptions: [selected(options[0]!.id)],
-    }))).rejects.toThrow('Selected detail revision is not source-owned.');
+    }))).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID' });
     await expect(repository.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({
       version: 2,
       selectedDetailPageRevisionId: ownRevisionId,

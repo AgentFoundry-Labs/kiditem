@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { SalesProductController } from '../sales-product.controller';
 
@@ -43,7 +42,7 @@ describe('SalesProductController Sabangnet import selection', () => {
     const { value, sabangnetImport } = controller();
 
     expect(() => value.importSabangnet(ORGANIZATION_ID, [], 'true', '{bad json'))
-      .toThrow(BadRequestException);
+      .toThrow(expect.objectContaining({ code: 'VALIDATION_FAILED', details: { reason: 'APPLY_EXISTING_INVALID' } }));
     expect(sabangnetImport.import).not.toHaveBeenCalled();
   });
 });

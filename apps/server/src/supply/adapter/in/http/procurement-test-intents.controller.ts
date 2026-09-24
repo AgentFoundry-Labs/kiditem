@@ -2,11 +2,11 @@ import {
   Controller,
   Get,
   Inject,
-  NotFoundException,
   Param,
   ParseUUIDPipe,
   Query,
 } from '@nestjs/common';
+import { KiditemNotFoundError } from '@kiditem/shared/errors';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import {
   SUPPLY_SOURCING_PROCUREMENT_PORT,
@@ -36,9 +36,7 @@ export class ProcurementTestIntentsController {
   ) {
     const intent = await this.procurement.getTestIntent({ organizationId, id });
     if (!intent) {
-      throw new NotFoundException(
-        'Procurement test intent was not found in the active organization.',
-      );
+      throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'procurement_test_intent' } });
     }
     return intent;
   }

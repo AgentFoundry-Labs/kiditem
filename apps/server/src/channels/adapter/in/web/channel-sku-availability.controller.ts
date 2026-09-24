@@ -1,11 +1,10 @@
-import { Body, Controller, Get, Inject, Param, Patch, ParseUUIDPipe, Query, UseFilters } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, Patch, ParseUUIDPipe, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import {
   CHANNEL_SKU_AVAILABILITY_PORT,
   type ChannelSkuAvailabilityPort,
 } from '../../../application/port/in/channel-sku-availability.port';
 import { IsInt, Max, Min } from 'class-validator';
-import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 
 class UpdateSafetyStockDto {
   @IsInt()
@@ -16,7 +15,6 @@ class UpdateSafetyStockDto {
 
 import { ChannelSkuAvailabilityQueryDto } from './dto/channel-sku-availability-query.dto';
 
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels/sku-availability')
 export class ChannelSkuAvailabilityController {
   constructor(

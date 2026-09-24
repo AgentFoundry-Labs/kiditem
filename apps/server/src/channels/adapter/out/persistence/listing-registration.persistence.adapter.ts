@@ -1,8 +1,5 @@
-import {
-  ConflictException,
-  Injectable,
-  NotFoundException,
-} from "@nestjs/common";
+import { KiditemConflictError, KiditemNotFoundError } from '@kiditem/shared/errors';
+import { Injectable } from "@nestjs/common";
 import { PrismaService } from "../../../../prisma/prisma.service";
 import type { ListingRegistrationPersistencePort } from "../../../application/port/out/persistence/listing-registration.persistence.port";
 
@@ -26,7 +23,7 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
       },
       select: { channel: true, vendorId: true, externalAccountId: true },
     });
-    if (!account) throw new NotFoundException("Marketplace account not found.");
+    if (!account) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
     return account;
   }
 
@@ -57,9 +54,7 @@ export class ListingRegistrationPersistenceAdapter implements ListingRegistratio
       take: 2,
     });
     if (listings.length > 1) {
-      throw new ConflictException(
-        `Sellpia SKU '${input.sellerSku}' resolved to multiple active channel listings.`,
-      );
+      throw new KiditemConflictError('CHANNELS_SELLPIA_SKU_AMBIGUOUS', { details: { sellerSku: input.sellerSku } });
     }
     const listing = listings[0];
     return listing

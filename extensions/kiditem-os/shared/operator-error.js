@@ -253,6 +253,20 @@
       "text": "사용할 AI 모델을 선택해 주세요.",
       "retryable": false
     },
+    "AGENT_OS_OWNER_INPUT_HASH_REQUIRED": {
+      "owner": "agent_os",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "요청 내용 확인값이 없습니다. 요청을 처음부터 다시 보내 주세요.",
+      "retryable": false
+    },
+    "AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED": {
+      "owner": "agent_os",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "요청 번호가 없습니다. 요청을 처음부터 다시 보내 주세요.",
+      "retryable": false
+    },
     "CHANNELS_ACCOUNT_NOT_FOUND": {
       "owner": "channels",
       "kind": "not_found",
@@ -299,7 +313,175 @@
       "owner": "channels",
       "kind": "precondition",
       "httpStatus": 422,
-      "text": "송신 전 점검을 통과하지 못했습니다. 표시된 항목을 고쳐 주세요.",
+      "text": "송신 전 점검을 통과하지 못했습니다. 점검 사유를 확인한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SELLPIA_MATCH_REQUIRED": {
+      "owner": "channels",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "등록 전에 셀피아 상품을 연결하고 차감수량을 확인해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SELLPIA_DEDUCTION_REQUIRED": {
+      "owner": "channels",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "셀피아 상품의 판매 1개당 차감수량을 1 이상의 정수로 입력해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SELLPIA_SKU_UNAVAILABLE": {
+      "owner": "channels",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "선택한 셀피아 상품을 현재 조직의 활성 재고에서 찾을 수 없습니다. 셀피아 재고를 다시 수집하거나 다른 상품을 골라 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SELLPIA_SKU_AMBIGUOUS": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "같은 셀피아 상품이 이 몰 계정의 여러 상품에 연결돼 있습니다. 몰 상품 연결을 확인해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_ACCOUNT_INACTIVE": {
+      "owner": "channels",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "몰 계정이 비활성 상태입니다. 쇼핑몰 계정 화면에서 활성화한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_KID_REQUIRED": {
+      "owner": "channels",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "판매상품에 KID가 아직 없습니다. 등록 설정을 먼저 만든 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SALES_PRODUCT_NOT_SELLING": {
+      "owner": "channels",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "판매 중인 판매상품이 아닙니다. 판매상품 상태를 확인한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_REGISTRATION_TARGET_NOT_FOUND": {
+      "owner": "channels",
+      "kind": "not_found",
+      "httpStatus": 404,
+      "text": "등록 설정을 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_REGISTRATION_TARGET_STALE": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "등록 설정이 그사이 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.",
+      "retryable": true
+    },
+    "CHANNELS_EXECUTION_NOT_FOUND": {
+      "owner": "channels",
+      "kind": "not_found",
+      "httpStatus": 404,
+      "text": "몰 작업 기록을 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_EXECUTION_FENCE_LOST": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "이 몰 작업은 더 이상 이 요청이 진행할 수 없습니다. 새로고침한 뒤 다시 시작해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_EXECUTION_TERMINAL": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "이미 끝난 몰 작업입니다. 새로고침해 결과를 확인해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "같은 요청 번호로 다른 내용의 몰 작업이 이미 있습니다. 새로고침한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_EXECUTION_STALE": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "준비한 뒤 상품·계정이 바뀌어 이 몰 작업을 진행할 수 없습니다. 다시 준비해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_EXECUTION_EVIDENCE_REJECTED": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "몰에서 확인한 결과가 이 몰 작업과 맞지 않아 반영하지 않았습니다. 몰 화면을 확인해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_OPTION_RECIPE_STALE": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "옵션 구성이 그사이 바뀌었습니다. 새로고침한 뒤 다시 저장해 주세요.",
+      "retryable": true
+    },
+    "CHANNELS_THUMBNAIL_EXECUTION_ACTIVE": {
+      "owner": "channels",
+      "kind": "in_progress",
+      "httpStatus": 409,
+      "text": "이 상품의 대표이미지를 이미 몰에 반영하는 중입니다. 끝나거나 반영 안 됨으로 표시한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SERVER_AUTOMATION_BLOCKED": {
+      "owner": "channels",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "이 환경에서는 대표이미지를 크롬 확장 프로그램으로만 반영할 수 있습니다. 확장 프로그램에서 반영해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SALES_PRODUCT_NOT_FOUND": {
+      "owner": "channels",
+      "kind": "not_found",
+      "httpStatus": 404,
+      "text": "판매상품을 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SALES_PRODUCT_STALE": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "다른 곳에서 먼저 고쳤습니다. 새로 불러온 뒤 다시 저장해 주세요.",
+      "retryable": true
+    },
+    "CHANNELS_SALES_PRODUCT_DRAFT_DELETE_REFUSED": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "이 판매상품은 초안으로 지울 수 없습니다. 판매 중이거나 몰 상품·등록 실행과 이어진 상품은 보관해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SALES_PRODUCT_DRAFT_NOT_ARCHIVABLE": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "초안은 보관할 수 없습니다. 쓰지 않을 초안은 삭제해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_OPTION_RECIPE_INVALID": {
+      "owner": "channels",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "옵션 구성이 올바르지 않습니다. 구성 상품과 수량을 확인해 주세요.",
+      "retryable": false
+    },
+    "REGISTRATION_ALREADY_REGISTERED": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "이미 이 몰 계정에 등록된 상품입니다. 몰 상품 목록을 확인해 주세요.",
       "retryable": false
     },
     "NO_NEW_ORDERS": {
@@ -428,6 +610,97 @@
       "text": "로켓 발주 수집이 끝나지 않았습니다. 수집을 마친 뒤 다시 시도해 주세요.",
       "retryable": false
     },
+    "SUPPLY_PROCUREMENT_REFERENCE_INVALID": {
+      "owner": "supply",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "공급 제안·결정 참조가 이 조직의 기록과 맞지 않습니다. 선택한 공급 제안과 결정을 확인해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_DECISION_EXPIRED": {
+      "owner": "supply",
+      "kind": "expired",
+      "httpStatus": 409,
+      "text": "결정 배치가 만료됐거나 더 이상 진행할 수 없습니다. 새 결정을 만든 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_OFFER_SNAPSHOT_EXPIRED": {
+      "owner": "supply",
+      "kind": "expired",
+      "httpStatus": 409,
+      "text": "공급 제안 스냅숏이 만료됐습니다. 공급 제안을 다시 수집한 뒤 시도해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_PURCHASE_STATUS_INVALID": {
+      "owner": "supply",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "지금 발주 상태에서는 이 작업을 할 수 없습니다. 새로고침한 뒤 발주 상태를 확인해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_PURCHASE_LEGACY_ORDER": {
+      "owner": "supply",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "예전 방식으로 만든 발주라 제출할 수 없습니다. 발주를 새로 만든 뒤 제출해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_PURCHASE_PROVIDER_FAILED": {
+      "owner": "supply",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "발주처가 주문을 받지 않았습니다. 발주처 화면에서 원인을 확인한 뒤 다시 제출해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_ROCKET_RECIPE_REQUIRED": {
+      "owner": "supply",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "옵션 구성이 확정되지 않은 로켓 발주 줄이 있습니다. 옵션 구성을 확정한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_ROCKET_PREVIEW_CHANGED": {
+      "owner": "supply",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "로켓 발주 미리보기가 그사이 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.",
+      "retryable": true
+    },
+    "SUPPLY_ROCKET_WORKFLOW_ACTIVE": {
+      "owner": "supply",
+      "kind": "in_progress",
+      "httpStatus": 409,
+      "text": "진행 중인 로켓 발주 확정 작업이 있습니다. 끝내거나 중단한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_ROCKET_PROBE_REQUIRED": {
+      "owner": "supply",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "쿠팡 주문이 없다는 것을 확인해야 중단할 수 있습니다. 택배·밀크런 주문을 새로 수집한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_ROCKET_WORKBOOK_FILE_INVALID": {
+      "owner": "supply",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "로켓 발주 엑셀 파일이 올바르지 않습니다. 파일을 확인한 뒤 다시 올려 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_ROCKET_TEMPLATE_MISMATCH": {
+      "owner": "supply",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "로켓 발주 확정 양식이 수집한 발주와 맞지 않습니다. 확장 프로그램을 새로고침하고 발주를 다시 수집해 주세요.",
+      "retryable": false
+    },
+    "SUPPLY_ROCKET_QUANTITY_EXCEEDED": {
+      "owner": "supply",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "확정 수량이 발주 수량이나 가능한 재고보다 많습니다. 수량을 줄여 주세요.",
+      "retryable": false
+    },
     "SOURCING_NOT_FOUND": {
       "owner": "sourcing",
       "kind": "not_found",
@@ -469,6 +742,55 @@
       "httpStatus": 502,
       "text": "선택한 AI 모델을 지금 쓸 수 없습니다.",
       "retryable": true
+    },
+    "CONTENT_MODEL_NOT_CONFIGURED": {
+      "owner": "content",
+      "kind": "external",
+      "httpStatus": 503,
+      "text": "AI 모델이 설정되지 않았습니다. 관리자에게 알려 주세요.",
+      "retryable": false
+    },
+    "CONTENT_GENERATION_INPUT_MISSING": {
+      "owner": "content",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "AI 생성에 필요한 이미지나 상품 정보가 없습니다. 먼저 채운 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CONTENT_IMAGE_TOO_LARGE": {
+      "owner": "content",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "이미지 파일이 너무 큽니다. 더 작은 이미지로 다시 올려 주세요.",
+      "retryable": false
+    },
+    "CONTENT_NOT_FOUND": {
+      "owner": "content",
+      "kind": "not_found",
+      "httpStatus": 404,
+      "text": "콘텐츠를 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CONTENT_SELECTION_INVALID": {
+      "owner": "content",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "선택한 이미지나 상세페이지를 이 작업에 쓸 수 없습니다. 다시 선택해 주세요.",
+      "retryable": false
+    },
+    "CONTENT_ASSET_IN_USE": {
+      "owner": "content",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "쓰고 있는 이미지라 지울 수 없습니다. 대표이미지나 진행 중인 생성에서 먼저 빼 주세요.",
+      "retryable": false
+    },
+    "CONTENT_REVISION_REQUIRED": {
+      "owner": "content",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "저장된 상세페이지가 없습니다. 상세페이지를 먼저 저장해 주세요.",
+      "retryable": false
     },
     "EXECUTION_REPORT_MANUAL_ACTION": {
       "owner": "advertising",

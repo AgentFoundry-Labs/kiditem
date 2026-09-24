@@ -1,4 +1,5 @@
-import { HttpException, HttpStatus, Inject, Injectable, Logger } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
+import { KiditemExternalError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import {
   BoldVerticalGenerationSchema,
   BOLD_VERTICAL_SYSTEM,
@@ -50,10 +51,7 @@ export class DetailPageDirectGenerationExecutorService {
   }): Promise<DetailPageGenerateDirectOutput> {
     input.signal?.throwIfAborted();
     if (!input.textModel.trim()) {
-      throw new HttpException(
-        'AI_TEXT_MODEL이 설정되지 않았습니다.',
-        HttpStatus.INTERNAL_SERVER_ERROR,
-      );
+      throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'TEXT_MODEL_MISSING' } });
     }
 
     const {
@@ -83,10 +81,7 @@ export class DetailPageDirectGenerationExecutorService {
 
     if (generationMode === 'image') {
       if (existingResult === undefined) {
-        throw new HttpException(
-          'image-only detail generation requires an existing detail-page result.',
-          HttpStatus.BAD_REQUEST,
-        );
+        throw new KiditemPreconditionError('CONTENT_REVISION_REQUIRED', { details: { reason: 'IMAGE_ONLY_BASE_REQUIRED' } });
       }
       const schema = isBoldVertical
         ? BoldVerticalGenerationSchema
