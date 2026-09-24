@@ -19,10 +19,8 @@ import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { readProductSaleAgeEvidence } from '../../common/product-sale-age';
 import { ChannelCatalogCollectionController } from '../adapter/in/web/channel-catalog-collection.controller';
 import { ChannelCatalogSourceController } from '../adapter/in/web/channel-catalog-source.controller';
-import {
-  ChannelCatalogCollectionService,
-  hashCatalogChunkPayload,
-} from '../application/service/collection/channel-catalog-collection.service';
+import { ChannelCatalogCollectionService } from '../application/service/collection/channel-catalog-collection.service';
+import { hashCatalogChunkPayload } from '../domain/collection/catalog-collection-hash';
 import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
 import { ChannelCatalogPublicationRepositoryAdapter } from '../adapter/out/repository/channel-catalog-publication.repository.adapter';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../../content/adapter/out/repository/ai-catalog-media-publication.repository.adapter';

@@ -17,7 +17,7 @@ import {
 import {
   SOURCING_ECONOMICS_STATUSES,
   SOURCING_GATE_STATUSES,
-} from '../../../../application/port/out/repository/sourcing-launch-candidate.repository.port';
+} from '../../../../domain/launch-candidate-status';
 
 const POSTGRES_INT_MIN = -2_147_483_648;
 const POSTGRES_INT_MAX = 2_147_483_647;

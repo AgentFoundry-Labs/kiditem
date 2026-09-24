@@ -27,15 +27,7 @@ const OTHER_OWNERS =
  * violating import in the same file still fails, and an entry whose import is
  * gone fails as stale.
  */
-const KNOWN_VIOLATIONS: readonly { file: string; specifier: string; removeWith: string }[] = [
-  // Takes the channels transaction type from channels application/port/out.
-  // Takes launch-candidate status constants from application/port/out.
-  {
-    file: 'adapter/in/http/dto/sourcing-intelligence.dto.ts',
-    specifier: '../../../../application/port/out/repository/sourcing-launch-candidate.repository.port',
-    removeWith: 'KID-328',
-  },
-];
+const KNOWN_VIOLATIONS: readonly { file: string; specifier: string; removeWith: string }[] = [];
 
 /** `file:line:text` hits → the file and the module specifier the line imports. */
 function importOf(hit: string): { file: string; specifier: string | null } {

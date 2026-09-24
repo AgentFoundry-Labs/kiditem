@@ -1,13 +1,11 @@
+import type {
+  SourcingEconomicsStatus,
+  SourcingGateStatus,
+} from '../../../../domain/launch-candidate-status';
+
 export const SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT = Symbol(
   'SourcingLaunchCandidateRepositoryPort',
 );
-
-export const SOURCING_GATE_STATUSES = ['not_evaluated', 'unknown', 'passed', 'blocked'] as const;
-export type SourcingGateStatus = (typeof SOURCING_GATE_STATUSES)[number];
-
-export const SOURCING_ECONOMICS_STATUSES = ['unknown', 'known', 'blocked'] as const;
-export type SourcingEconomicsStatus =
-  (typeof SOURCING_ECONOMICS_STATUSES)[number];
 
 export interface SourcingLaunchCandidateRecord {
   id: string;

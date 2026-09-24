@@ -1,64 +1,24 @@
-import { execSync } from 'node:child_process';
+import { readdirSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
+import { importFromPattern, ownerSource, scanSource } from '../../test-helpers/architecture-rg';
 
-const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const AI_ROOT = path.resolve(__dirname, '..');
+const { at, importers, ownerFiles } = ownerSource(AI_ROOT);
+const OTHER_OWNERS = 'channels|products|sourcing';
 
-function rg(args: string): string[] {
-  try {
-    const out = execSync(`rg ${args}`, { cwd: REPO_ROOT, encoding: 'utf8' });
-    return out
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
-  } catch (err: unknown) {
-    if ((err as { status?: number }).status === 1) return [];
-    throw err;
-  }
-}
+/** Outbound persistence adapters: the only places allowed to reach Prisma. */
+const ALLOWED_PRISMA_PREFIXES = ['adapter/out/direct-output/', 'adapter/out/repository/'];
 
-function aiRel(...segments: string[]): string {
-  return path.join(path.relative(REPO_ROOT, AI_ROOT), ...segments);
-}
-
-const PR2A_CONTENT_PRISMA_DEBT: string[] = [];
-
-const PR2B_THUMBNAIL_PRISMA_DEBT: string[] = [];
-
-const PR2A_ADAPTER_IMPORT_DEBT: string[] = [];
-
-const PR2B_ADAPTER_IMPORT_DEBT: string[] = [];
-
-const ALLOWED_PRISMA_PREFIXES = [
-  aiRel('adapter/out/direct-output') + path.sep,
-  aiRel('adapter/out/repository') + path.sep,
-  // Transactional advisory locking is an outbound persistence adapter, not
-  // application Prisma access.
-  aiRel('adapter/out/transaction') + path.sep,
-];
-
-const PRISMA_ALLOWLIST = new Set([
-  ...PR2A_CONTENT_PRISMA_DEBT,
-  ...PR2B_THUMBNAIL_PRISMA_DEBT,
-  aiRel('adapter/in/http/thumbnail-editor.controller.ts'),
-  aiRel('adapter/out/products/master-catalog.adapter.ts'),
-]);
-
-const ADAPTER_IMPORT_ALLOWLIST = new Set([
-  ...PR2A_ADAPTER_IMPORT_DEBT,
-  ...PR2B_ADAPTER_IMPORT_DEBT,
-]);
-
-function withoutAllowedPrefixes(files: string[], prefixes: string[]): string[] {
-  return files.filter((file) => !prefixes.some((prefix) => file.startsWith(prefix)));
-}
+/** Module specifiers that reach Prisma: the generated client or the Nest PrismaService. */
+const PRISMA_SPECIFIER = String.raw`@prisma/client|[^'"]*prisma/prisma\.service`;
 
 describe('ai architecture ratchet', () => {
   it('keeps AI incoming ports grouped under capability directories', () => {
-    const directInPorts = rg(`--files ${aiRel('application/port/in')} --glob '*.port.ts'`).filter(
-      (file) => path.dirname(file) === aiRel('application/port/in'),
-    );
+    const directInPorts = scanSource({
+      roots: [at('application/port/in')],
+      relativeTo: AI_ROOT,
+    }).hits.filter((file) => file.endsWith('.port.ts') && path.dirname(file) === 'application/port/in');
 
     expect(
       directInPorts,
@@ -66,13 +26,9 @@ describe('ai architecture ratchet', () => {
     ).toEqual([]);
   });
 
-  it('does not add new Prisma client leaks outside documented PR 2A/2B seams', () => {
-    const ai = aiRel();
-    const hits = rg(
-      `--type ts --files-with-matches 'PrismaService|@prisma/client|Prisma\\.' ${ai} --glob '!**/__tests__/**'`,
-    );
-    const violators = withoutAllowedPrefixes(hits, ALLOWED_PRISMA_PREFIXES).filter(
-      (file) => !PRISMA_ALLOWLIST.has(file),
+  it('does not add new Prisma client leaks outside the outbound persistence adapters', () => {
+    const violators = importers([AI_ROOT], PRISMA_SPECIFIER).filter(
+      (file) => !ALLOWED_PRISMA_PREFIXES.some((prefix) => file.startsWith(prefix)),
     );
 
     expect(
@@ -81,40 +37,29 @@ describe('ai architecture ratchet', () => {
     ).toEqual([]);
   });
 
-  it('tracks the PR 2A content/detail-page application Prisma debt exactly', () => {
-    const hits = rg(
-      `--type ts --files-with-matches 'PrismaService|@prisma/client|Prisma\\.' ${aiRel(
-        'application',
-      )} --glob '!**/__tests__/**'`,
-    );
-    const remainingPr2A = hits.filter((file) => PR2A_CONTENT_PRISMA_DEBT.includes(file)).sort();
+  it('keeps the application layer Prisma-free', () => {
+    const hits = importers([at('application')], PRISMA_SPECIFIER);
 
     expect(
-      remainingPr2A,
-      'when a PR 2A file moves behind a port, shrink PR2A_CONTENT_PRISMA_DEBT in this test',
-    ).toEqual([...PR2A_CONTENT_PRISMA_DEBT].sort());
+      hits,
+      `application ports/services must stay Prisma-free; Prisma belongs in outgoing adapters:\n${hits.join('\n')}`,
+    ).toEqual([]);
   });
 
   it('keeps application services free of new concrete adapter imports', () => {
-    const hits = rg(
-      `--type ts --files-with-matches '\\.\\./.*adapter/(out|in)|adapter/(out|in)/' ${aiRel(
-        'application/service',
-      )} ${aiRel('application/port')} --glob '!**/__tests__/**'`,
+    const hits = importers(
+      [at('application/service'), at('application/port')],
+      String.raw`[^'"]*adapter/(?:out|in)/`,
     );
-    const violators = hits.filter((file) => !ADAPTER_IMPORT_ALLOWLIST.has(file));
 
     expect(
-      violators,
-      `application code should depend on application ports/DTOs, not concrete adapters:\n${violators.join('\n')}`,
+      hits,
+      `application code should depend on application ports/DTOs, not concrete adapters:\n${hits.join('\n')}`,
     ).toEqual([]);
   });
 
   it('keeps application services behind the image storage port', () => {
-    const hits = rg(
-      `--type ts --files-with-matches 'common/storage/storage.service|StorageService' ${aiRel(
-        'application/service',
-      )} --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('application/service')], String.raw`[^'"]*common/storage/storage\.service`);
 
     expect(
       hits,
@@ -123,11 +68,7 @@ describe('ai architecture ratchet', () => {
   });
 
   it('keeps Gemini SDK calls inside outgoing adapters', () => {
-    const hits = rg(
-      `--type ts --files-with-matches '@google/genai|GoogleGenAI|Modality' ${aiRel(
-        'application',
-      )} ${aiRel('domain')} --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('application'), at('domain')], '@google/genai');
 
     expect(
       hits,
@@ -136,11 +77,20 @@ describe('ai architecture ratchet', () => {
   });
 
   it('keeps application service specs on port seams instead of concrete repository adapters', () => {
-    const hits = rg(
-      `--type ts --files-with-matches 'adapter/out/repository' ${aiRel(
-        'application/service/__tests__',
-      )}`,
-    );
+    // scanSource always excludes test sources, so this rule over specs walks
+    // application/service itself: every `__tests__/` file and co-located
+    // `*.spec.ts`/`*.test.ts`, at any depth. A spec reaches a concrete
+    // repository adapter by importing it or by `vi.mock`-ing its module path.
+    const serviceDir = at('application/service');
+    const repositoryImport = new RegExp(importFromPattern(String.raw`[^'"]*adapter/out/repository`), 'm');
+    const repositoryMock = /\bvi\.(?:do)?[mM]ock\(\s*['"][^'"]*adapter\/out\/repository/;
+    const hits = readdirSync(serviceDir, { recursive: true, encoding: 'utf8' })
+      .filter((file) => /(?:^|\/)__tests__\/.*\.ts$|\.(?:spec|test)\.ts$/.test(file))
+      .filter((file) => {
+        const source = readFileSync(path.join(serviceDir, file), 'utf8');
+        return repositoryImport.test(source) || repositoryMock.test(source);
+      })
+      .sort();
 
     expect(
       hits,
@@ -149,10 +99,9 @@ describe('ai architecture ratchet', () => {
   });
 
   it('keeps thumbnail repository internals out of the legacy Prisma helper folder', () => {
-    const hits = rg(
-      `--type ts --files-with-matches '../prisma/(thumbnail-generation|thumbnail-analysis|master-image-select)' ${aiRel(
-        'adapter/out/repository',
-      )} --glob '!**/__tests__/**'`,
+    const hits = importers(
+      [at('adapter/out/repository')],
+      String.raw`[^'"]*\.\./prisma/(?:thumbnail-generation|thumbnail-analysis|master-image-select)`,
     );
 
     expect(
@@ -162,8 +111,8 @@ describe('ai architecture ratchet', () => {
   });
 
   it('does not leave legacy thumbnail Prisma helper files under adapter/out/prisma', () => {
-    const files = rg(
-      `--files ${aiRel('adapter/out')} --glob 'prisma/thumbnail-*.query.ts' --glob 'prisma/thumbnail-*.persistence.ts' --glob 'prisma/master-image-select.preset.ts'`,
+    const files = ownerFiles().filter((file) =>
+      /^adapter\/out\/prisma\/(?:thumbnail-.*\.(?:query|persistence)\.ts|master-image-select\.preset\.ts)$/.test(file),
     );
 
     expect(
@@ -173,11 +122,7 @@ describe('ai architecture ratchet', () => {
   });
 
   it('keeps incoming HTTP adapters out of outgoing ports and repository adapters', () => {
-    const hits = rg(
-      `--type ts --files-with-matches 'application/port/out|adapter/out/' --glob '${aiRel(
-        'adapter/in/http/**',
-      )}' --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('adapter/in/http')], String.raw`[^'"]*(?:application/port/out|adapter/out)/`);
 
     expect(
       hits,
@@ -185,16 +130,15 @@ describe('ai architecture ratchet', () => {
     ).toEqual([]);
   });
 
-  it('documents the remaining outgoing adapter dependency on another owner service', () => {
-    const hits = rg(
-      `--type ts --files-with-matches 'channels/application/service|products/application/service|sourcing/application/service' ${aiRel(
-        'adapter/out',
-      )} --glob '!**/__tests__/**'`,
-    ).sort();
+  it('keeps outgoing adapters off other owners\' application services', () => {
+    const hits = importers(
+      [at('adapter/out')],
+      String.raw`(?:\.\./)+(?:${OTHER_OWNERS})/application/service/`,
+    );
 
     expect(
       hits,
-      'replace this with owner-side incoming ports in PR 2A',
+      `outgoing adapters must reach other owners through their published ports:\n${hits.join('\n')}`,
     ).toEqual([]);
   });
 });

@@ -28,7 +28,10 @@ or candidate registry still runs it; the byte, baseline, and replacement checks
 still apply. The baseline may be a commit that only `release/office` contains,
 so fetch that branch before running the guard. Registrations removed before
 `retired.json` existed (v0.1.0–v0.1.3 and `v0.1.7:002` in #325, `v0.1.21:001`
-in #481) are exempt and have no entries.
+in #481) are exempt and have no entries. `v0.1.25:004` (#559) is retired with no
+replacement: it looks up rows by a unique key the current schema no longer has,
+Office already recorded running it, and a fresh database has no rows for it to
+rekey.
 
 ## Layout
 
