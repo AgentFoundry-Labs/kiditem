@@ -216,7 +216,12 @@ describe('isolated Agent OS browser-QA seed', () => {
       externalOrderId: 'qa-external-order-opaque',
     });
     expect(supply).toMatchObject({
-      sellpiaInventorySku: { isActive: true },
+      masterProduct: {
+        sourceAccountKey: 'kiditem',
+        sourceProductCode: 'browser-qa-synthetic-sku',
+        sourceOptionCode: '',
+        code: expect.stringMatching(/^KID\d{8}$/),
+      },
       sellpiaInventoryState: {
         lastVerifiedAt: now,
         requestedGeneration: 1n,
@@ -411,7 +416,7 @@ describe('isolated Agent OS browser-QA seed', () => {
     const membershipUpsert = vi.fn().mockResolvedValue({ id: 'membership-id' });
     const recordFindFirst = vi.fn();
     const draftCreate = vi.fn();
-    const sellpiaInventorySkuUpsert = vi.fn();
+    const masterProductUpsert = vi.fn();
     const sellpiaInventoryStateUpsert = vi.fn();
     const purchaseOrderFindFirst = vi.fn();
     const purchaseOrderCreate = vi.fn();
@@ -427,7 +432,7 @@ describe('isolated Agent OS browser-QA seed', () => {
       organizationMembership: { upsert: membershipUpsert },
       sourceRecord: { findFirst: recordFindFirst, create: vi.fn() },
       salesProduct: { findFirst: vi.fn(), create: draftCreate },
-      sellpiaInventorySku: { upsert: sellpiaInventorySkuUpsert },
+      masterProduct: { upsert: masterProductUpsert },
       sellpiaInventoryState: { upsert: sellpiaInventoryStateUpsert },
       purchaseOrder: {
         findFirst: purchaseOrderFindFirst,
@@ -489,7 +494,7 @@ describe('isolated Agent OS browser-QA seed', () => {
     });
     expect(recordFindFirst).not.toHaveBeenCalled();
     expect(draftCreate).not.toHaveBeenCalled();
-    expect(sellpiaInventorySkuUpsert).not.toHaveBeenCalled();
+    expect(masterProductUpsert).not.toHaveBeenCalled();
     expect(sellpiaInventoryStateUpsert).not.toHaveBeenCalled();
     expect(purchaseOrderFindFirst).not.toHaveBeenCalled();
     expect(purchaseOrderCreate).not.toHaveBeenCalled();
@@ -600,11 +605,12 @@ describe('isolated Agent OS browser-QA seed', () => {
     const purchaseOrderItemFindFirst = vi.fn()
       .mockResolvedValueOnce(null)
       .mockResolvedValueOnce({ id: 'purchase-order-item-id' });
+    const purchaseOrderItemCreate = vi.fn().mockResolvedValue({ id: 'purchase-order-item-id' });
     const transaction = {
       organization: { upsert: vi.fn().mockResolvedValue({ id: 'organization-id' }) },
       user: { upsert: vi.fn().mockResolvedValue({ id: 'user-id' }) },
       organizationMembership: { upsert: vi.fn().mockResolvedValue({ id: 'membership-id' }) },
-      sellpiaInventorySku: { upsert: vi.fn().mockResolvedValue({ id: 'inventory-sku-id' }) },
+      masterProduct: { upsert: vi.fn().mockResolvedValue({ id: 'master-product-id' }) },
       sellpiaInventoryState: { upsert: vi.fn().mockResolvedValue({ organizationId: 'organization-id' }) },
       purchaseOrder: {
         findFirst: purchaseOrderFindFirst,
@@ -614,7 +620,7 @@ describe('isolated Agent OS browser-QA seed', () => {
       },
       purchaseOrderItem: {
         findFirst: purchaseOrderItemFindFirst,
-        create: vi.fn().mockResolvedValue({ id: 'purchase-order-item-id' }),
+        create: purchaseOrderItemCreate,
       },
     };
     const prisma = {
@@ -663,6 +669,13 @@ describe('isolated Agent OS browser-QA seed', () => {
       }),
     }));
     expect(purchaseOrderUpsert).not.toHaveBeenCalled();
+    // 발주 줄은 지금 재고 정본인 마스터 상품을 가리킨다(KID-275). 옛 셀피아 SKU id 는 쓰지 않는다.
+    expect(first).toMatchObject({ masterProductId: 'master-product-id' });
+    expect(purchaseOrderItemFindFirst).toHaveBeenCalledWith(expect.objectContaining({
+      where: expect.objectContaining({ masterProductId: 'master-product-id' }),
+    }));
+    expect(purchaseOrderItemCreate.mock.calls[0]?.[0]?.data).toMatchObject({ masterProductId: 'master-product-id' });
+    expect(purchaseOrderItemCreate.mock.calls[0]?.[0]?.data).not.toHaveProperty('legacySellpiaInventorySkuId');
   });
 
   it('guards reset to the validated Testcontainer target before executing a destructive statement', async () => {
@@ -713,7 +726,7 @@ describe('isolated Agent OS browser-QA seed', () => {
       organizationId: 'organization-id',
       userId: 'user-id',
       membershipId: 'membership-id',
-      sellpiaInventorySkuId: 'inventory-sku-id',
+      masterProductId: 'master-product-id',
       purchaseOrderId: 'purchase-order-id',
       purchaseOrderItemId: 'purchase-order-item-id',
     };

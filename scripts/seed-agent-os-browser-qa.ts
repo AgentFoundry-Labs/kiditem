@@ -102,19 +102,24 @@ const BROWSER_QA_PROFILE_DEFINITIONS: Record<
   },
 };
 
-const BROWSER_QA_SELLPIA_INVENTORY_SKU = {
-  code: 'browser-qa-synthetic-sku',
-  name: 'Browser QA synthetic inventory SKU',
-  isActive: true,
+/**
+ * 발주 줄이 가리키는 재고 상품. 재고 정본은 셀피아 원천 식별(계정 · 상품 · 옵션 코드)의 마스터 상품이다(KID-275).
+ * 격리된 QA DB 는 데이터 마이그레이션을 돌리지 않아 KID 시퀀스가 없을 수 있으므로, 실데이터가 닿지 않는 끝자리의
+ * 고정 KID 를 쓴다.
+ */
+const BROWSER_QA_MASTER_PRODUCT = {
+  code: 'KID99999001',
+  sourceAccountKey: 'kiditem',
+  sourceProductCode: 'browser-qa-synthetic-sku',
+  sourceOptionCode: '',
+  name: 'Browser QA synthetic inventory item',
 } as const;
 
 const BROWSER_QA_SELLPIA_INVENTORY_STATE = {
   sourceOrigin: 'https://kiditem.sellpia.com',
   sourceAccountKey: 'kiditem',
-  refreshRequestedAt: null,
   refreshReason: null,
   requestedSyncScope: 'inventory',
-  syncNotBefore: null,
   activeSyncToken: null,
   activeSyncOwnerUserId: null,
   activeSyncStartedAt: null,
@@ -278,7 +283,7 @@ export type BrowserQaSeedPlan = {
   };
   sourceRecord?: BrowserQaSourceRecord;
   salesProductDraft?: BrowserQaSalesProductDraft;
-  sellpiaInventorySku?: typeof BROWSER_QA_SELLPIA_INVENTORY_SKU;
+  masterProduct?: typeof BROWSER_QA_MASTER_PRODUCT;
   sellpiaInventoryState?: typeof BROWSER_QA_SELLPIA_INVENTORY_STATE & {
     lastVerifiedAt: Date;
     lastAttemptAt: Date;
@@ -300,7 +305,7 @@ export type BrowserQaSeedResult = {
   recommendationRunId?: string;
   recommendationItemId?: string;
   workspaceSnapshotId?: string;
-  sellpiaInventorySkuId?: string;
+  masterProductId?: string;
   purchaseOrderId?: string;
   purchaseOrderItemId?: string;
 };
@@ -552,7 +557,7 @@ export function createBrowserQaSeedPlan({
         ...planVariables,
         externalOrderId: resolvedExternalOrderId,
       },
-      sellpiaInventorySku: BROWSER_QA_SELLPIA_INVENTORY_SKU,
+      masterProduct: BROWSER_QA_MASTER_PRODUCT,
       sellpiaInventoryState: {
         ...BROWSER_QA_SELLPIA_INVENTORY_STATE,
         lastVerifiedAt: now,
@@ -672,22 +677,26 @@ export async function runBrowserQaSeed({
     }
 
     if (
-      plan.sellpiaInventorySku
+      plan.masterProduct
       && plan.sellpiaInventoryState
       && plan.purchaseOrder
       && plan.purchaseOrderItem
     ) {
-      const sellpiaInventorySku = await transaction.sellpiaInventorySku.upsert({
+      const { code, ...masterProductFacts } = plan.masterProduct;
+      const masterProduct = await transaction.masterProduct.upsert({
         where: {
-          organizationId_code: {
+          organizationId_sourceAccountKey_sourceProductCode_sourceOptionCode: {
             organizationId: organization.id,
-            code: plan.sellpiaInventorySku.code,
+            sourceAccountKey: plan.masterProduct.sourceAccountKey,
+            sourceProductCode: plan.masterProduct.sourceProductCode,
+            sourceOptionCode: plan.masterProduct.sourceOptionCode,
           },
         },
-        update: plan.sellpiaInventorySku,
+        update: { name: masterProductFacts.name },
         create: {
           organizationId: organization.id,
-          ...plan.sellpiaInventorySku,
+          code,
+          ...masterProductFacts,
         },
         select: { id: true },
       });
@@ -709,7 +718,7 @@ export async function runBrowserQaSeed({
         where: {
           organizationId: organization.id,
           orderId: purchaseOrder.id,
-          sellpiaInventorySkuId: sellpiaInventorySku.id,
+          masterProductId: masterProduct.id,
         },
         select: { id: true },
       });
@@ -718,12 +727,12 @@ export async function runBrowserQaSeed({
           data: {
             organizationId: organization.id,
             orderId: purchaseOrder.id,
-            sellpiaInventorySkuId: sellpiaInventorySku.id,
+            masterProductId: masterProduct.id,
             ...plan.purchaseOrderItem,
           },
           select: { id: true },
         });
-      result.sellpiaInventorySkuId = sellpiaInventorySku.id;
+      result.masterProductId = masterProduct.id;
       result.purchaseOrderId = purchaseOrder.id;
       result.purchaseOrderItemId = purchaseOrderItem.id;
       result.variables.purchaseOrderRef = purchaseOrder.id;
