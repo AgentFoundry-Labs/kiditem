@@ -16,7 +16,10 @@ const builtins = new Set(builtinModules.map(name => name.replace(/^node:/, '')))
 // absorbed into domain/. A bare top-level service/ (sibling to adapter/,
 // application/, domain/) is the pre-hexagonal shape; application/service/ is
 // the correct nested location and is not matched by this check.
-const RETIRED_TOP_LEVEL_DIRS = new Set(['read', 'mapper', 'service']);
+// KID-311 vacated the flat controllers/, services/ and dto/ lanes in orders,
+// finance, advertising and products; they are retired for every scanned
+// domain so a vacated folder cannot silently return.
+const RETIRED_TOP_LEVEL_DIRS = new Set(['read', 'mapper', 'service', 'controllers', 'services', 'dto']);
 const HEXAGONAL_DOMAINS = ['channels', 'sourcing', 'content', 'orders', 'finance', 'advertising', 'products'];
 
 // KID-311: pure-layer adapter imports that predate an owner's move into the
@@ -57,6 +60,25 @@ export const KNOWN_VIOLATIONS = [
   // Products categories service takes incoming DTOs until KID-335.
   { owner: 'products', file: 'products/application/service/category/categories.service.ts', specifier: '../../../adapter/in/web/category/dto', removeWith: 'KID-335' },
 ];
+
+// Every entry must name a scanned owner, a file under that owner, a non-empty
+// specifier and a KID ticket that deletes it; duplicates are refused. An
+// entry that fails this shape would otherwise pass silently (KID-311 review).
+export function knownViolationShapeErrors(known) {
+  const errors = [];
+  const seen = new Set();
+  known.forEach((entry, index) => {
+    const label = `KNOWN_VIOLATIONS[${index}]`;
+    if (!HEXAGONAL_DOMAINS.includes(entry.owner)) errors.push(`${label}: owner ${JSON.stringify(entry.owner)} is not a scanned domain`);
+    else if (typeof entry.file !== 'string' || !entry.file.startsWith(`${entry.owner}/`)) errors.push(`${label}: file must start with ${entry.owner}/`);
+    if (typeof entry.specifier !== 'string' || entry.specifier === '') errors.push(`${label}: specifier is required`);
+    if (!/^KID-\d+$/.test(entry.removeWith ?? '')) errors.push(`${label}: removeWith must be KID-<n>`);
+    const key = `${entry.file} -> ${entry.specifier}`;
+    if (seen.has(key)) errors.push(`${label}: duplicate entry ${key}`);
+    seen.add(key);
+  });
+  return errors;
+}
 
 function domainOwner(file) {
   for (const owner of HEXAGONAL_DOMAINS) {
@@ -129,7 +151,7 @@ function hexagonalFindings(file, source) {
 // entries: [{ file, source }] with file relative to apps/server/src.
 export function evaluateHexagonal(entries, known = KNOWN_VIOLATIONS) {
   const used = new Set();
-  const errors = [];
+  const errors = knownViolationShapeErrors(known);
   for (const { file, source } of entries) {
     for (const finding of hexagonalFindings(file, source)) {
       const index = finding.specifier === undefined ? -1 : known.findIndex(entry =>

@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { evaluateHexagonal, hexagonalBoundaryViolations } from '../check-hexagonal.mjs';
+import { evaluateHexagonal, hexagonalBoundaryViolations, knownViolationShapeErrors, KNOWN_VIOLATIONS } from '../check-hexagonal.mjs';
 
 const file = 'apps/server/src/channels/application/service/listing/list.service.ts';
 test('rejects framework, concrete adapter and Node dependencies in application', () => {
@@ -130,7 +130,9 @@ test('a known violation that no longer occurs fails as stale (KID-311)', () => {
 
 test('a known violation cannot allow a non-adapter rule or another owner (KID-311)', () => {
   const usecase = 'orders/application/usecase/a.ts';
-  assert.equal(evaluateHexagonal([{ file: usecase, source: '' }], [{ ...listed, file: usecase, specifier: '' }]).length, 2);
+  const usecaseErrors = evaluateHexagonal([{ file: usecase, source: '' }], [{ ...listed, file: usecase, specifier: '' }]);
+  assert.equal(usecaseErrors.length, 3);
+  assert.match(usecaseErrors[0], /specifier is required/);
   const channels = 'channels/application/service/listing/a.ts';
   assert.ok(evaluateHexagonal([{ file: channels, source: readerImport }], [{ ...listed, file: channels }]).length >= 2);
 });
@@ -151,4 +153,35 @@ test('advertising joins the scanner (KID-311)', () => {
 test('products joins the scanner (KID-311)', () => {
   assert.ok(hexagonalBoundaryViolations('apps/server/src/products/mapper/product-abc-evaluation.mapper.ts', '').length);
   assert.ok(hexagonalBoundaryViolations('apps/server/src/products/read/product-abc-publication.reader.ts', '').length);
+});
+
+test('a known violation must name a scanned owner, a file under it, a specifier and a KID ticket (KID-311)', () => {
+  assert.deepEqual(knownViolationShapeErrors(KNOWN_VIOLATIONS), []);
+  const bad = [
+    { ...listed, owner: 'analytics', specifier: 'a' },
+    { ...listed, file: 'finance/application/service/a.ts' },
+    { ...listed, specifier: '' },
+    { ...listed, removeWith: undefined, specifier: 'b' },
+    { ...listed, removeWith: 'later', specifier: 'c' },
+    listed,
+    listed,
+  ];
+  const errors = knownViolationShapeErrors(bad);
+  assert.equal(errors.length, 6);
+  assert.match(errors[0], /owner "analytics" is not a scanned domain/);
+  assert.match(errors[1], /file must start with orders\//);
+  assert.match(errors[2], /specifier is required/);
+  assert.match(errors[3], /removeWith must be KID-<n>/);
+  assert.match(errors[4], /removeWith must be KID-<n>/);
+  assert.match(errors[5], /duplicate entry/);
+  const evaluated = evaluateHexagonal([{ file: ordersService, source: readerImport }], [{ ...listed, removeWith: undefined }]);
+  assert.match(evaluated[0], /removeWith must be KID-<n>/);
+});
+
+test('the vacated controllers/, services/ and dto/ lanes are retired for every scanned domain (KID-311)', () => {
+  for (const path of ['orders/services/x.service.ts', 'orders/controllers/x.controller.ts', 'finance/dto/x.dto.ts', 'products/services/x.ts', 'channels/controllers/x.ts']) {
+    assert.ok(hexagonalBoundaryViolations(`apps/server/src/${path}`, '').length, path);
+  }
+  assert.deepEqual(hexagonalBoundaryViolations('apps/server/src/orders/adapter/in/web/dto/x.dto.ts', ''), []);
+  assert.deepEqual(hexagonalBoundaryViolations('apps/server/src/orders/coupang-directship/services/x.ts', ''), []);
 });
