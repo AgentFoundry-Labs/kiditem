@@ -24,6 +24,7 @@ import {
   TEST_USER_ID,
 } from '../../../../../test-helpers/real-prisma';
 import { MallPublishingRepositoryAdapter } from '../mall-publishing.repository.adapter';
+import { MallListingMatrixCellSchema } from '@kiditem/shared/mall-publishing';
 import { MallPublishingService } from '../../../../application/service/registration/mall-publishing.service';
 import { realRegistrationStates } from '../../../../../test-helpers/registration-state';
 
@@ -748,6 +749,10 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
         registration: { channelAccountId: COUPANG_ACCOUNT, registrationTargetId: target.id, state: 'registered' },
       });
       expect(cell(unlinkedMaster.id)).toMatchObject({ state: 'published', registration: null });
+      // 계약 고정: 실제 칸이 엄격한 공유 스키마를 그대로 지난다.
+      for (const entry of [cell(linkedMaster.id), cell(unlinkedMaster.id)]) {
+        expect(MallListingMatrixCellSchema.strict().parse(entry)).toEqual(entry);
+      }
     });
 
     it('gives a cell of an older listing on the same account no registration row of the newer listing', async () => {

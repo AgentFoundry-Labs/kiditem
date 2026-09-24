@@ -14,6 +14,9 @@ import { ChannelListingQueryPersistenceAdapter } from '../adapter/out/persistenc
 import { ListingContentQueryRepositoryAdapter } from '../../content/adapter/out/repository/listing-content-query.repository.adapter';
 import { realDraftDeletionPorts } from '../../test-helpers/sales-product-draft-port';
 import type { PrismaService } from '../../prisma/prisma.service';
+import { RegistrationAccountStateSchema, SalesProductListItemSchema, SalesProductRegistrationStateSchema } from '@kiditem/shared/sales-product';
+import { ChannelRegistrationExecutionController } from '../adapter/in/web/channel-registration-execution.controller';
+import type { ChannelListingSummary } from '../application/port/in/listing/channel-listing-query.port';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -426,6 +429,35 @@ describe('registration state facts (PostgreSQL)', () => {
 
       const list = await new SalesProductUseCase(salesProducts, ...realDraftDeletionPorts(prisma), reader).list(ORG, { focus: 'unregistered' });
       expect(list.items.map((row) => row.id)).not.toContain(item.id);
+    });
+
+    it('answers the real state route, list item and listing summary in the strict shared contract', async () => {
+      const mall = await account('몰');
+      const catalogMall = await account('카탈로그 몰');
+      const item = await product();
+      const itemContent = await content(item.id);
+      const itemTarget = await target(item.id, mall);
+      const itemListing = await listing(item.id, mall);
+      await listing(item.id, catalogMall, { status: '판매중지', isActive: false });
+      await execution({ registrationTargetId: itemTarget.id, channelAccountId: mall, kind: 'register', status: 'succeeded', payload: frozenPayload(1, 1, itemContent.revisionId, itemContent.assetId) });
+
+      const route = await new ChannelRegistrationExecutionController(reader).registrationState(item.id, ORG);
+      expect(SalesProductRegistrationStateSchema.parse(route)).toEqual(route);
+      expect(route.accounts).toHaveLength(2);
+
+      const list = await new SalesProductUseCase(salesProducts, ...realDraftDeletionPorts(prisma), reader).list(ORG, {});
+      const listItem = list.items.find((row) => row.id === item.id)!;
+      expect(SalesProductListItemSchema.strict().parse(listItem)).toEqual(listItem);
+
+      const db = prisma as unknown as PrismaService;
+      const listings = await new ChannelListingQueryService(
+        new ChannelListingQueryPersistenceAdapter(db),
+        new ListingContentQueryRepositoryAdapter(db),
+        reader,
+      ).list(ORG, {});
+      const summary: ChannelListingSummary = listings.items.find((row) => row.id === itemListing.id)!;
+      expect(summary.registration).not.toBeNull();
+      expect(RegistrationAccountStateSchema.parse(summary.registration)).toEqual(summary.registration);
     });
 
     it('gives an older listing on the same account no registration row of the newer listing', async () => {

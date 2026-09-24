@@ -44,8 +44,8 @@ type AvailabilityRow = {
 };
 
 /**
- * 등록 상태 reader 의 Channels 행 읽기(KID-320). `product_registration_executions` 를 상태용으로 읽는 등록된
- * reader 다(ADR-0009, `scripts/ledger-readers.json`). 판정은 `RegistrationStateService` 가 도메인 규칙으로 한다.
+ * 등록 상태 reader 의 Channels 행 읽기(KID-320). `product_registration_executions` 를 owner 영속 어댑터 자리
+ * (`adapter/out/persistence`)에서 읽기만 한다 — 쓰기 권한은 없다. 판정은 `RegistrationStateService` 가 도메인 규칙으로 한다.
  *
  * 상품 수와 무관하게 쿼리 일곱 번이다 — 상품 · 설정 · 리스팅 · 계정, 그리고 대상별 최신 등록성 실행,
  * 대상별 마지막 성공 문서 전송 실행(register · composition_change)이 얼린 값, (대상 · 리스팅)별 최신 가용성 실행을
