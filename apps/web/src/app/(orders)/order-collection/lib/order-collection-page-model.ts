@@ -4,6 +4,7 @@ import { formatNumber } from '@/lib/utils';
 import type { OrderCollectionFailureCode } from './order-collection-extension';
 import type { StoredOrderCollectionFile } from './order-generated-file-store';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
+import { isApiError } from '@/lib/api-error';
 
 export type ConversionState = 'idle' | 'ready' | 'converting' | 'success' | 'error';
 export type ConversionHistoryItem = StoredOrderCollectionFile;
@@ -242,20 +243,38 @@ export function collectionAttentionNotice(
   sourceName: string,
   value: unknown,
   message: string,
+  evidence: string = message,
 ): Readonly<{ tone: 'warning' | 'error'; message: string }> {
-  const kind = classifyOrderCollectionFailure(value, message);
+  const kind = classifyOrderCollectionFailure(value, evidence);
   if (kind === 'login') return { tone: 'warning', message: `로그인 필요 · ${sourceName} · ${message}` };
   if (kind === 'auth') return { tone: 'warning', message: `인증 필요 · ${sourceName} · ${message}` };
   return { tone: 'error', message };
 }
 
 /**
+ * 분류·특정 문장 판정에 쓰는 원문(KID-117). `friendlyError`는 화면용 한국어 한 문장이라 원인을 지운다 —
+ * 확장의 `Failed to fetch`, 서버의 사유 코드(`details.reason`), 우리 API 한도(429)는 여기서 읽는다.
+ */
+export function orderCollectionFailureEvidence(error: unknown): string {
+  if (isApiError(error)) {
+    return [
+      error.details.reason,
+      error.status === 429 ? 'Too Many Requests (429)' : null,
+      error.message,
+    ].filter(Boolean).join(' · ');
+  }
+  return error instanceof Error ? error.message : '';
+}
+
+/**
  * 사용자에게 그대로 보여주면 원인도 조치도 알 수 없는 raw 오류를 안내 문구로 바꾼다.
- * 그 외 메시지는 몰이 알려준 내용이 더 정확하므로 손대지 않는다.
+ * 판정은 `message`(원문, `orderCollectionFailureEvidence`)로 하고, 특별한 경우가 아니면 `display`
+ * (화면용 한국어, 없으면 `message`)를 그대로 쓴다.
  */
 export function mallCollectionFailureMessage(
   mallName: string,
   message: string,
+  display: string = message,
 ): string {
   if (isApiThrottledMessage(message)) {
     return `요청이 한꺼번에 몰려 ${mallName} 수집을 잠시 미뤘습니다. 잠시 뒤 다시 수집해주세요.`;
@@ -266,7 +285,7 @@ export function mallCollectionFailureMessage(
   if (/ORDER_COLLECTION_ATTEMPT_NOT_FOUND|ATTEMPT_MISSING/i.test(message)) {
     return `${mallName} 수집이 KidItem 내부 오류로 멈췄습니다(시도를 찾지 못함). 개발에 알려 주세요.`;
   }
-  if (!isNetworkFailureMessage(message)) return message;
+  if (!isNetworkFailureMessage(message)) return display;
   return `${mallName} 연결이 끊겼습니다. 로그인 상태(또는 네트워크)를 확인한 뒤 다시 수집해주세요.`;
 }
 

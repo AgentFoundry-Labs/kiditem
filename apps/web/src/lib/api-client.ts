@@ -1,7 +1,7 @@
 import { ZodType, ZodTypeDef, ZodError } from 'zod';
 import { getApiBase } from './api';
-import { FieldErrorSchema, resolveErrorCode, type FieldError } from '@kiditem/shared/errors';
-import { ApiError, type ApiErrorDetails } from './api-error';
+import { resolveErrorCode } from '@kiditem/shared/errors';
+import { ApiError, apiErrorFromBody } from './api-error';
 import { notifyAuthRequired } from './auth/browser-auth';
 import { composeRequestSignal } from './request-deadline';
 
@@ -129,18 +129,6 @@ async function read401Code(
   }
 }
 
-/**
- * How long `Retry-After` says to wait, in either form the header allows: whole
- * seconds, or an HTTP date. A moment already past means nothing is left to
- * wait for; a header the client cannot read leaves the caller its own cadence.
- */
-function retryAfterDetail(res: Response): { retryAfterMs?: number } {
-  const header = res.headers.get('Retry-After')?.trim();
-  if (!header) return {};
-  if (/^\d+$/.test(header)) return { retryAfterMs: Number(header) * 1_000 };
-  const until = Date.parse(header);
-  return Number.isNaN(until) ? {} : { retryAfterMs: Math.max(0, until - Date.now()) };
-}
 
 async function consumeResponse<T>(
   res: Response,
@@ -380,49 +368,5 @@ export const apiClient = {
     fetchRaw(path, init),
 };
 
-/**
- * 오류 응답 → `ApiError`. ADR-0023 봉투(`code`·`kind`·`message`·`errors`·`details`)를 읽고, 옛 봉투
- * (`error`·영어 `message`·최상위 `attemptId`/`existing`)는 `resolveErrorCode(body.code ?? body.error)`로
- * 이행한다. 문장이 한국어가 아니면 `ApiError`가 코드의 레지스트리 문장으로 바꾼다.
- */
-function apiErrorFromBody(res: Response, body: unknown): ApiError {
-  const record = (body && typeof body === 'object' ? body : {}) as Record<string, unknown>;
-  const details = (record.details && typeof record.details === 'object' ? record.details : {}) as Record<string, unknown>;
-  const rawCode = typeof record.code === 'string' ? record.code : typeof record.error === 'string' ? record.error : null;
-  const attemptId = details.attemptId ?? record.attemptId;
-  const reason = details.reason ?? record.reason;
-  const parsed: ApiErrorDetails = {
-    ...(typeof attemptId === 'string' && attemptId ? { attemptId } : {}),
-    ...(typeof reason === 'string' && reason ? { reason } : {}),
-    ...existingSalesProductDetail(details.existing ?? record.existing),
-    ...retryAfterDetail(res),
-  };
-  return new ApiError(
-    res.status,
-    rawCode,
-    typeof record.message === 'string' ? record.message : null,
-    parsed,
-    fieldErrors(record.errors),
-  );
-}
 
-function fieldErrors(value: unknown): FieldError[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((item) => {
-    const parsed = FieldErrorSchema.safeParse(item);
-    return parsed.success ? [parsed.data] : [];
-  });
-}
 
-/** 중복 거절(409)이 가리키는 기존 판매 상품. 화면이 그 초안으로 가는 링크를 낸다(KID-313). */
-function existingSalesProductDetail(
-  existing: unknown,
-): { existingSalesProductId?: string; existingSalesProductStatus?: string } {
-  if (!existing || typeof existing !== 'object') return {};
-  const { salesProductId, salesProductStatus } = existing as Record<string, unknown>;
-  if (typeof salesProductId !== 'string' || !salesProductId) return {};
-  return {
-    existingSalesProductId: salesProductId,
-    ...(typeof salesProductStatus === 'string' && salesProductStatus ? { existingSalesProductStatus: salesProductStatus } : {}),
-  };
-}

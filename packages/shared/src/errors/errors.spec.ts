@@ -39,9 +39,12 @@ describe('error registry (ADR-0023)', () => {
     expect(ERROR_DEFINITIONS.ATTEMPT_EXPIRED.owner).toBe('common');
     expect(ERROR_DEFINITIONS.CHANNELS_LISTING_EXECUTION_ACTIVE.owner).toBe('channels');
     expect(ERROR_DEFINITIONS.SUPPLY_SUBMISSION_RECONCILIATION_REQUIRED.owner).toBe('supply');
+    // 확장이 응답 body.code를 철자 그대로 읽는 코드는 접두 없이 등록한다(ads-report.js 실행 보고 거절,
+    // order-collection-server-converter.js 변환 결과). 확장 재설계(KID-338)가 옮기면 접두를 붙인다.
+    const wireSpellings = new Set(['NO_NEW_ORDERS', 'EXECUTION_REPORT_MANUAL_ACTION', 'EXECUTION_TASK_NOT_LATEST', 'EXECUTION_TASK_EXPIRED', 'EXECUTION_REPORT_INVALID_TRANSITION']);
     for (const code of ERROR_CODES) {
       const { owner } = ERROR_DEFINITIONS[code];
-      if (['common', 'auth', 'extension', 'inventory'].includes(owner)) continue;
+      if (['common', 'auth', 'extension', 'inventory'].includes(owner) || wireSpellings.has(code)) continue;
       expect(code, code).toMatch(new RegExp(`^${owner.toUpperCase()}_`));
     }
   });

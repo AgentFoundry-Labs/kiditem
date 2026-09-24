@@ -114,7 +114,7 @@ export const ERROR_DEFINITIONS = {
   MALL_LOGIN_REQUIRED: def('extension', 'precondition', '몰에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도해 주세요.'),
   MALL_LOGIN_PAGE_UNREACHABLE: def('extension', 'external', '몰 로그인 페이지를 열지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   MALL_CONTRACT_CHANGED: def('extension', 'external', '몰 화면이 바뀌어 읽지 못했습니다. 개발자에게 알려 주세요.'),
-  SOURCE_SNAPSHOT_INVALID: def('extension', 'external', '수집 결과가 올바르지 않아 저장하지 않았습니다. 다시 수집해 주세요.', { retryable: true }),
+  SOURCE_SNAPSHOT_INVALID: def('extension', 'validation', '수집 결과가 올바르지 않아 저장하지 않았습니다. 다시 수집해 주세요.'),
   EXTENSION_UNKNOWN_FAILURE: def('extension', 'internal', '확장 프로그램 작업이 실패했습니다. 다시 시도해 주세요.', { retryable: true }),
 
   // Agent OS · Gateway
@@ -131,6 +131,8 @@ export const ERROR_DEFINITIONS = {
   CHANNELS_PREFLIGHT_FAILED: def('channels', 'precondition', '송신 전 점검을 통과하지 못했습니다. 표시된 항목을 고쳐 주세요.'),
 
   // orders
+  // 확장 order-collection-server-converter.js가 body.code를 그대로 저장한다 — 철자 고정(접두 없음).
+  NO_NEW_ORDERS: def('orders', 'validation', '새로 들어온 주문이 없습니다.'),
   ORDERS_NO_SELECTION: def('orders', 'validation', '처리할 주문을 선택해 주세요.'),
   ORDERS_UNKNOWN_ACTION: def('orders', 'validation', '지원하지 않는 주문 작업입니다.'),
   ORDERS_CONTINUATION_REJECTED: def('orders', 'conflict', '주문 수집을 이어갈 수 없습니다. 다시 시작해 주세요.', { retryable: true }),
@@ -164,6 +166,11 @@ export const ERROR_DEFINITIONS = {
   CONTENT_MODEL_UNAVAILABLE: def('content', 'external', '선택한 AI 모델을 지금 쓸 수 없습니다.', { retryable: true }),
 
   // advertising · analytics · finance
+  // 확장 content/coupang/ads-report.js가 실행 보고 거절의 body.code를 그대로 읽는다 — 철자 고정(접두 없음).
+  EXECUTION_REPORT_MANUAL_ACTION: def('advertising', 'conflict', '자동 실행하지 않는 액션이라 실행 보고를 받지 않았습니다. 광고센터에서 직접 처리해 주세요.'),
+  EXECUTION_TASK_NOT_LATEST: def('advertising', 'conflict', '실행 보고를 반영할 수 없습니다. 보고한 실행 시도가 이 액션의 최신 시도가 아닙니다.'),
+  EXECUTION_TASK_EXPIRED: def('advertising', 'conflict', '실행 보고를 반영할 수 없습니다. 실행 기한이 지나 이 실행 시도를 실패로 닫았습니다.'),
+  EXECUTION_REPORT_INVALID_TRANSITION: def('advertising', 'conflict', '실행 보고를 반영할 수 없습니다. 최근 실행 작업 상태와 맞지 않습니다.'),
   ADVERTISING_RESULT_UNREADABLE: def('advertising', 'external', '광고센터 결과를 읽지 못했습니다. 잠시 뒤 다시 수집해 주세요.', { retryable: true }),
   ANALYTICS_QUERY_FAILED: def('analytics', 'internal', '통계를 계산하지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   FINANCE_QUERY_FAILED: def('finance', 'internal', '재무 데이터를 읽지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),

@@ -224,6 +224,40 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
   });
 
   /**
+   * KID-117 리뷰 M2. 분류와 특정 문장은 원문·코드로 판정하고, 한국어 choke point(`friendlyError`)는 표시에만 쓴다.
+   * 그렇지 않으면 확장의 연결 끊김이 "오류"로, 서버의 시도 분실이 일반 문장으로, 우리 요청 한도가 고장으로 읽힌다.
+   */
+  it.each([
+    ['확장의 "Failed to fetch"는 로그인 필요로', new TypeError('Failed to fetch'), 'login', '키즈노트 연결이 끊겼습니다'],
+    [
+      '서버가 시도를 모르면 내부 오류 문장으로(안심시키는 말로 덮지 않는다)',
+      new ApiError(404, 'NOT_FOUND', 'Not Found', { reason: 'ORDER_COLLECTION_ATTEMPT_NOT_FOUND' }),
+      'error',
+      '키즈노트 수집이 KidItem 내부 오류로 멈췄습니다(시도를 찾지 못함)',
+    ],
+    ['우리 API 한도(429)는 잠시 미룬 것으로', new ApiError(429, 'RATE_LIMITED', null), 'error', '요청이 한꺼번에 몰려 키즈노트 수집을 잠시 미뤘습니다'],
+  ] as const)('⭐ %s', async (_name, failure, kind, text) => {
+    const logActivity = vi.fn();
+    const kidsnote = mall('kidsnote', '키즈노트');
+    mocks.collectMall.mockRejectedValue(failure);
+    const { result } = renderHook(
+      () => useAllMarketplaceOrderCollection({
+        mallAccounts: [kidsnote],
+        rocketChannelAccountId: null,
+        addGeneratedFile: vi.fn(),
+        logActivity,
+      }),
+      { wrapper },
+    );
+
+    await act(async () => {
+      await result.current.collectAll();
+    });
+
+    expect(logActivity).toHaveBeenCalledWith(kind, '키즈노트', expect.stringContaining(text));
+  });
+
+  /**
    * KID-170 D1. 이 조직에 계정 행이 없는 몰은 owner 가 시작을 받지 못한다. 그것을
    * 실패로 세면 전체 수집이 "1개 성공, 10개 실패"로 끝나 운영자가 고장으로 읽는다.
    */

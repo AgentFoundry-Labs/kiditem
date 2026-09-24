@@ -44,6 +44,7 @@ import {
   classifyOrderCollectionFailure,
   isBrowserCollectableMall,
   mallCollectionFailureMessage,
+  orderCollectionFailureEvidence,
   orderCollectionBatchNotice,
   todayYmd,
   type ConversionHistoryItem,
@@ -231,11 +232,13 @@ export function useAllMarketplaceOrderCollection({
         // 운영자 중단이 이 절차를 끊었으면 terminal 은 owner 취소의 몫이다.
         // 여기서 실패를 먼저 보내면 `COLLECTION_FAILED` 실패 알림이 남는다(KID-159).
         const stopped = activeRun?.signal?.aborted === true;
+        const evidence = orderCollectionFailureEvidence(error);
         const message = mallCollectionFailureMessage(
           account.name,
-          friendlyError(error) ?? '브라우저 수집 실패',
+          evidence,
+          friendlyError(error, '브라우저 수집 실패') ?? '브라우저 수집 실패',
         );
-        const failureKind = classifyOrderCollectionFailure(error, message);
+        const failureKind = classifyOrderCollectionFailure(error, evidence || message);
         const attentionKind = failureKind === 'auth' || failureKind === 'login'
           ? failureKind
           : null;
@@ -342,7 +345,8 @@ export function useAllMarketplaceOrderCollection({
         }
         toast.error(mallCollectionFailureMessage(
           account.name,
-          friendlyError(error) ?? '브라우저 수집 실패',
+          orderCollectionFailureEvidence(error),
+          friendlyError(error, '브라우저 수집 실패') ?? '브라우저 수집 실패',
         ));
       },
     );
