@@ -1,46 +1,27 @@
-import { describe, expect, it } from 'vitest';
-import { execSync } from 'node:child_process';
+import { readFileSync } from 'node:fs';
 import path from 'node:path';
+import { describe, expect, it } from 'vitest';
+import { importFromPattern, scanSource } from '../../test-helpers/architecture-rg';
 
-const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const SUPPLY_ROOT = path.resolve(__dirname, '..');
 
-function rg(args: string): string[] {
-  try {
-    const out = execSync(`rg ${args}`, { cwd: REPO_ROOT, encoding: 'utf8' });
-    return out
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
-  } catch (err: unknown) {
-    if ((err as { status?: number }).status === 1) return [];
-    throw err;
-  }
+function at(...segments: string[]): string {
+  return path.join(SUPPLY_ROOT, ...segments);
 }
 
-function supplyRel(): string {
-  return path.relative(REPO_ROOT, SUPPLY_ROOT);
+/** Files under `roots` whose import/export lines name a module matching `specifier`. */
+function importers(roots: string[], specifier: string): string[] {
+  return [...scanSource({ roots, pattern: importFromPattern(specifier), relativeTo: SUPPLY_ROOT }).hits];
 }
 
 describe('supply architecture contract', () => {
   it('PrismaService is imported only under repository adapters and approved locked transactions', () => {
-    const supply = supplyRel();
-    const allowedPrefix = path.join(supply, 'adapter/out/repository') + path.sep;
     const allowedTransactions = new Set([
-      path.join(
-        supply,
-        'adapter/out/transaction/purchase-order-submission.transaction.adapter.ts',
-      ),
-      path.join(
-        supply,
-        'adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter.ts',
-      ),
+      'adapter/out/transaction/purchase-order-submission.transaction.adapter.ts',
+      'adapter/out/transaction/rocket-purchase-confirmation.transaction.adapter.ts',
     ]);
-    const hits = rg(
-      `--type ts --files-with-matches 'PrismaService' ${supply} --glob '!**/__tests__/**'`,
-    );
-    const violators = hits.filter(
-      (file) => !file.startsWith(allowedPrefix) && !allowedTransactions.has(file),
+    const violators = importers([SUPPLY_ROOT], String.raw`[^'"]*prisma/prisma\.service`).filter(
+      (file) => !file.startsWith('adapter/out/repository/') && !allowedTransactions.has(file),
     );
     expect(
       violators,
@@ -49,11 +30,7 @@ describe('supply architecture contract', () => {
   });
 
   it('application layer does not import Prisma client or expose Prisma types', () => {
-    const supply = supplyRel();
-    const applicationGlob = path.join(supply, 'application') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '@prisma/client|Prisma\\.' --glob '${applicationGlob}' --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('application')], '@prisma/client');
     expect(
       hits,
       `application ports/services must stay Prisma-free; Prisma belongs in outgoing adapters:\n${hits.join('\n')}`,
@@ -61,11 +38,7 @@ describe('supply architecture contract', () => {
   });
 
   it('application/service/** does not import HTTP adapter DTOs', () => {
-    const supply = supplyRel();
-    const serviceGlob = path.join(supply, 'application/service') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches 'adapter/in/|\\.\\./.*adapter/in/' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('application/service')], String.raw`[^'"]*adapter/in/`);
     expect(
       hits,
       `application services must expose application command/input types, not HTTP DTOs:\n${hits.join('\n')}`,
@@ -73,11 +46,7 @@ describe('supply architecture contract', () => {
   });
 
   it('application/service/** does not import adapter/out/**', () => {
-    const supply = supplyRel();
-    const serviceGlob = path.join(supply, 'application/service') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '\\.\\./.*adapter/out|adapter/out/' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('application/service')], String.raw`[^'"]*adapter/out/`);
     expect(
       hits,
       `application services must depend on application/port/out/*, not concrete adapter/out/** files:\n${hits.join('\n')}`,
@@ -85,11 +54,7 @@ describe('supply architecture contract', () => {
   });
 
   it('incoming HTTP adapters do not import outgoing ports or repository adapters', () => {
-    const supply = supplyRel();
-    const httpGlob = path.join(supply, 'adapter/in/http') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches 'application/port/out|adapter/out/' --glob '${httpGlob}' --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('adapter/in/http')], String.raw`[^'"]*(?:application/port/out|adapter/out)/`);
     expect(
       hits,
       `incoming adapters must call application services, not outgoing ports/adapters:\n${hits.join('\n')}`,
@@ -97,13 +62,10 @@ describe('supply architecture contract', () => {
   });
 
   it('no legacy flat transitional exception remains documented', () => {
-    const supply = supplyRel();
-    const hits = rg(
-      `--type md --files-with-matches 'transitional flat|transitional legacy CRUD|Transitional Exceptions' ${path.join(supply, 'CLAUDE.md')}`,
-    );
+    const guide = readFileSync(path.join(SUPPLY_ROOT, 'CLAUDE.md'), 'utf8');
     expect(
-      hits,
-      `supply is no longer transitional-flat after closeout; update scoped guidance:\n${hits.join('\n')}`,
-    ).toEqual([]);
+      guide,
+      'supply is no longer transitional-flat after closeout; update scoped guidance',
+    ).not.toMatch(/transitional flat|transitional legacy CRUD|Transitional Exceptions/);
   });
 });

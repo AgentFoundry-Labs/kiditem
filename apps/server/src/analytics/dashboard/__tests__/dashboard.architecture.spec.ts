@@ -1,6 +1,6 @@
-import { describe, it, expect } from 'vitest';
-import { execSync } from 'node:child_process';
 import path from 'node:path';
+import { describe, it, expect } from 'vitest';
+import { importFromPattern, scanSource } from '../../../test-helpers/architecture-rg';
 
 // Architecture guard tests freeze the analytics/dashboard port/adapter
 // contract. Mirrors the advertising architecture spec:
@@ -34,34 +34,32 @@ import path from 'node:path';
 // owner domain consumes dashboard use cases today. The controller injects
 // application services directly while that remains true.
 
-const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const DASHBOARD_ROOT = path.resolve(__dirname, '..');
+const OTHER_OWNERS =
+  'automation|ai|channels|finance|inventory|orders|products|sourcing|rules|agent-os|advertising';
 
-function rg(args: string): string[] {
-  try {
-    const out = execSync(`rg ${args}`, { cwd: REPO_ROOT, encoding: 'utf8' });
-    return out
-      .split('\n')
-      .map((l) => l.trim())
-      .filter(Boolean);
-  } catch (err: unknown) {
-    if ((err as { status?: number }).status === 1) return [];
-    throw err;
-  }
+function at(...segments: string[]): string {
+  return path.join(DASHBOARD_ROOT, ...segments);
 }
 
-function dashboardRel(): string {
-  return path.relative(REPO_ROOT, DASHBOARD_ROOT);
+/** Files under `roots` whose import/export lines name a module matching `specifier`. */
+function importers(roots: string[], specifier: string): string[] {
+  return [...scanSource({ roots, pattern: importFromPattern(specifier), relativeTo: DASHBOARD_ROOT }).hits];
+}
+
+/** Files under `roots` whose source matches `pattern` anywhere (code-usage rules). */
+function matching(roots: string[], pattern: string): string[] {
+  return [...scanSource({ roots, pattern, relativeTo: DASHBOARD_ROOT }).hits];
+}
+
+function ownerFiles(): string[] {
+  return [...scanSource({ roots: [DASHBOARD_ROOT], relativeTo: DASHBOARD_ROOT }).hits];
 }
 
 describe('analytics/dashboard architecture contract', () => {
   it('PrismaService is imported only under dashboard/adapter/out/repository/**', () => {
-    const dash = dashboardRel();
-    const allowedPrefix = path.join(dash, 'adapter/out/repository') + path.sep;
-    const hits = rg(
-      `--type ts --files-with-matches 'PrismaService' ${dash} --glob '!**/__tests__/**'`,
-    );
-    const violators = hits.filter((file) => !file.startsWith(allowedPrefix));
+    const violators = importers([DASHBOARD_ROOT], String.raw`[^'"]*prisma/prisma\.service`)
+      .filter((file) => !file.startsWith('adapter/out/repository/'));
     expect(
       violators,
       `PrismaService is leaking outside adapter/out/repository:\n${violators.join('\n')}`,
@@ -69,10 +67,7 @@ describe('analytics/dashboard architecture contract', () => {
   });
 
   it('no *persistence.ts files survive under apps/server/src/analytics/dashboard', () => {
-    const dash = dashboardRel();
-    const hits = rg(
-      `--type ts --files --glob '${path.join(dash, '**', '*persistence.ts')}'`,
-    );
+    const hits = ownerFiles().filter((file) => file.endsWith('persistence.ts'));
     expect(
       hits,
       `\`*persistence.ts\` is migration-waypoint naming only — switch to repository adapters:\n${hits.join('\n')}`,
@@ -80,11 +75,7 @@ describe('analytics/dashboard architecture contract', () => {
   });
 
   it('application layer does not import Prisma client or expose Prisma types', () => {
-    const dash = dashboardRel();
-    const applicationGlob = path.join(dash, 'application') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '@prisma/client|Prisma\\.' --glob '${applicationGlob}' --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('application')], '@prisma/client');
     expect(
       hits,
       `application ports/services must stay Prisma-free; Prisma belongs in outgoing adapters:\n${hits.join('\n')}`,
@@ -92,11 +83,7 @@ describe('analytics/dashboard architecture contract', () => {
   });
 
   it('application/service/** does not import adapter/out/**', () => {
-    const dash = dashboardRel();
-    const serviceGlob = path.join(dash, 'application/service') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '\\.\\./adapter/out|adapter/out/' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('application/service')], String.raw`[^'"]*adapter/out/`);
     expect(
       hits,
       `application services must depend on application/port/out/*, not concrete adapter/out/** files:\n${hits.join('\n')}`,
@@ -104,11 +91,7 @@ describe('analytics/dashboard architecture contract', () => {
   });
 
   it('incoming HTTP adapters do not import outgoing ports or repository adapters', () => {
-    const dash = dashboardRel();
-    const httpGlob = path.join(dash, 'adapter/in/http') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches 'application/port/out|adapter/out/' --glob '${httpGlob}' --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('adapter/in/http')], String.raw`[^'"]*(?:application/port/out|adapter/out)/`);
     expect(
       hits,
       `incoming adapters must call application services, not outgoing ports/adapters:\n${hits.join('\n')}`,
@@ -116,36 +99,31 @@ describe('analytics/dashboard architecture contract', () => {
   });
 
   it('application/service/** does not import other owner-domain services directly', () => {
-    const dash = dashboardRel();
-    const serviceGlob = path.join(dash, 'application/service') + '/**';
-    // Cross-owner-domain reach must go through a local cross-domain port +
-    // adapter bridge. The grep targets relative paths that climb out of
-    // analytics and into another owner domain's application layer.
-    const hits = rg(
-      `--type ts --files-with-matches '\\.\\./\\.\\./\\.\\./(automation|ai|channels|finance|inventory|orders|products|sourcing|rules|agent-os|advertising)/application' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
-    );
+    // Another owner's published application/port/in/** interface is allowed
+    // (apps/server/CLAUDE.md, Module Boundaries); anything else in its
+    // application layer is not.
+    const hits = scanSource({
+      roots: [at('application/service')],
+      pattern: importFromPattern(String.raw`(?:\.\./)+(?:${OTHER_OWNERS})/application/`),
+      mode: 'lines',
+      relativeTo: DASHBOARD_ROOT,
+    }).hits.filter((line) => !/\/application\/port\/in\//.test(line));
     expect(
       hits,
-      `application services must reach other owner domains through application/port/out/cross-domain/* ports:\n${hits.join('\n')}`,
+      `application services must reach other owner domains through ports:\n${hits.join('\n')}`,
     ).toEqual([]);
   });
 
   it('domain layer is free of Nest/Prisma/HTTP coupling', () => {
-    const dash = dashboardRel();
-    const domainGlob = path.join(dash, 'domain') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '@nestjs|@prisma/client|PrismaService|adapter/in/http|\\.dto'\
-       --glob '${domainGlob}' --glob '!**/__tests__/**'`,
+    const hits = importers(
+      [at('domain')],
+      String.raw`@nestjs|@prisma/client|[^'"]*prisma\.service|[^'"]*adapter/in/http|[^'"]*\.dto['"]`,
     );
     expect(hits, `domain code is importing infrastructure:\n${hits.join('\n')}`).toEqual([]);
   });
 
   it('domain layer does not depend on application contracts', () => {
-    const dash = dashboardRel();
-    const domainGlob = path.join(dash, 'domain') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches 'application/' --glob '${domainGlob}' --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('domain')], String.raw`[^'"]*application/`);
     expect(
       hits,
       `domain code must stay inward-facing and not import application contracts:\n${hits.join('\n')}`,
@@ -153,10 +131,9 @@ describe('analytics/dashboard architecture contract', () => {
   });
 
   it('outgoing port contracts do not import concrete helpers or adapters', () => {
-    const dash = dashboardRel();
-    const portGlob = path.join(dash, 'application/port/out') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches 'adapter/out|common/per-listing-profit|PrismaService|@prisma/client' --glob '${portGlob}' --glob '!**/__tests__/**'`,
+    const hits = importers(
+      [at('application/port/out')],
+      String.raw`[^'"]*adapter/out|[^'"]*common/per-listing-profit|[^'"]*prisma\.service|@prisma/client`,
     );
     expect(
       hits,
@@ -165,10 +142,7 @@ describe('analytics/dashboard architecture contract', () => {
   });
 
   it('names Sellpia stock reads after the final MasterProduct owner', () => {
-    const dash = dashboardRel();
-    const hits = rg(
-      `--type ts --files-with-matches 'OutOfStockInventorySku' ${dash} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
-    );
+    const hits = matching([DASHBOARD_ROOT], 'OutOfStockInventorySku');
     expect(
       hits,
       `dashboard stock reads must not retain the retired InventorySku owner name:\n${hits.join('\n')}`,
@@ -176,16 +150,9 @@ describe('analytics/dashboard architecture contract', () => {
   });
 
   it('no legacy top-level dto/, util/, helpers/, or adapter/out/prisma/ folders remain', () => {
-    const dash = dashboardRel();
-    const dtoHits = rg(`--type ts --files --glob '${path.join(dash, 'dto', '**', '*.ts')}'`);
-    const utilHits = rg(`--type ts --files --glob '${path.join(dash, 'util', '**', '*.ts')}'`);
-    const helpersHits = rg(
-      `--type ts --files --glob '${path.join(dash, 'helpers', '**', '*.ts')}'`,
+    const violators = ownerFiles().filter((file) =>
+      ['dto/', 'util/', 'helpers/', 'adapter/out/prisma/'].some((prefix) => file.startsWith(prefix)),
     );
-    const prismaHits = rg(
-      `--type ts --files --glob '${path.join(dash, 'adapter/out/prisma', '**', '*.ts')}'`,
-    );
-    const violators = [...dtoHits, ...utilHits, ...helpersHits, ...prismaHits];
     expect(
       violators,
       `Legacy folders detected — move to hex layout (adapter/in/http/dto/, domain/util/, adapter/out/repository/):\n${violators.join('\n')}`,
@@ -193,8 +160,7 @@ describe('analytics/dashboard architecture contract', () => {
   });
 
   it('no services/ folder under dashboard — application code lives in application/service/', () => {
-    const dash = dashboardRel();
-    const hits = rg(`--type ts --files --glob '${path.join(dash, 'services', '**', '*.ts')}'`);
+    const hits = ownerFiles().filter((file) => file.startsWith('services/'));
     expect(
       hits,
       `dashboard has no legacy services/ facade; new logic belongs in application/service/:\n${hits.join('\n')}`,
@@ -202,10 +168,9 @@ describe('analytics/dashboard architecture contract', () => {
   });
 
   it('composes Orders and Inventory through their canonical readers', () => {
-    const dash = dashboardRel();
-    const adapterGlob = path.join(dash, 'adapter/out/repository') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '(prisma|tx)\\.(order|sellpiaInventorySku)|FROM orders|JOIN order_line_items|FROM sellpia_inventory_skus' --glob '${adapterGlob}' --glob '!**/__tests__/**'`,
+    const hits = matching(
+      [at('adapter/out/repository')],
+      String.raw`(prisma|tx)\.(order|sellpiaInventorySku)|FROM orders|JOIN order_line_items|FROM sellpia_inventory_skus`,
     );
     expect(
       hits,
@@ -214,9 +179,9 @@ describe('analytics/dashboard architecture contract', () => {
   });
 
   it('does not retain the Wing dashboard KPI blob reader', () => {
-    const dash = dashboardRel();
-    const hits = rg(
-      `--type ts --files-with-matches 'WING_AD_SUMMARY_REPOSITORY_PORT|WingAdSummaryRepositoryAdapter|rawAdSummary|adSummary|wingAdData|mappingStatusCounts|confirmedUntil' ${dash} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
+    const hits = matching(
+      [DASHBOARD_ROOT],
+      'WING_AD_SUMMARY_REPOSITORY_PORT|WingAdSummaryRepositoryAdapter|rawAdSummary|adSummary|wingAdData|mappingStatusCounts|confirmedUntil',
     );
     expect(
       hits,
@@ -225,9 +190,9 @@ describe('analytics/dashboard architecture contract', () => {
   });
 
   it('reads collection completion through the Core provenance reader', () => {
-    const dash = dashboardRel();
-    const hits = rg(
-      `--type ts --files-with-matches 'sourceImportRun[[:space:]]*\\.|(FROM|JOIN|UPDATE|INTO)[[:space:]]+"?source_import_runs' ${dash} --glob '!**/__tests__/**' --glob '!**/*.spec.ts'`,
+    const hits = matching(
+      [DASHBOARD_ROOT],
+      String.raw`sourceImportRun[[:space:]]*\.|(FROM|JOIN|UPDATE|INTO)[[:space:]]+"?source_import_runs`,
     );
     expect(
       hits,

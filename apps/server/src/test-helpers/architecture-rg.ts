@@ -89,3 +89,14 @@ export function scanSource(options: ScanSourceOptions): ScanSourceResult {
   ]);
   return { scanned: files.length, hits: stripPrefix(hits, options.relativeTo).sort() };
 }
+
+/**
+ * `rg` regex for a static import or re-export whose module specifier starts
+ * with `specifier` (itself a regex fragment, for example
+ * `(\.\./)+adapter/out/`). It matches `import … from`, `export … from`, a bare
+ * `import '…'`, and the closing `} from '…'` line of a multi-line import, so a
+ * comment or string that merely names the module is not a hit.
+ */
+export function importFromPattern(specifier: string): string {
+  return String.raw`^\s*(?:(?:import|export)\b.*\bfrom\s+|import\s+|\}\s*from\s+)['"]` + `(?:${specifier})`;
+}

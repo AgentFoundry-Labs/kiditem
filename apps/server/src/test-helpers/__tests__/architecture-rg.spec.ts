@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { scanSource } from '../architecture-rg';
+import { importFromPattern, scanSource } from '../architecture-rg';
 
 // The helper exists so an architecture rule can never pass because rg looked at
 // nothing (KID-258). These cases plant a violation and expect the rule to see it.
@@ -84,5 +84,35 @@ describe('scanSource', () => {
     mkdirSync(empty);
     expect(() => scanSource({ roots: [empty], pattern: 'x' })).toThrow(/no TypeScript source/);
     expect(() => scanSource({ roots: [], pattern: 'x' })).toThrow(/roots must not be empty/);
+  });
+
+  it('matches module specifiers on import and export lines only, not in comments or strings', () => {
+    writeFileSync(
+      path.join(root, 'application', 'service', 'commented.service.ts'),
+      [
+        "// Prisma belongs in adapters; never import from '@prisma/client' here.",
+        "const note = \"from '@prisma/client'\";",
+        'export const commented = note;',
+        '',
+      ].join('\n'),
+    );
+    writeFileSync(
+      path.join(root, 'application', 'service', 'multiline.service.ts'),
+      ['import {', '  Prisma,', "} from '@prisma/client';", 'export const multiline = Prisma;', ''].join('\n'),
+    );
+    writeFileSync(
+      path.join(root, 'application', 'service', 'reexport.service.ts'),
+      "export type { AdAction } from '@prisma/client';\n",
+    );
+    const result = scanSource({
+      roots: [root],
+      pattern: importFromPattern(String.raw`@prisma/client`),
+      relativeTo: root,
+    });
+    expect(result.hits).toEqual([
+      'application/service/dirty.service.ts',
+      'application/service/multiline.service.ts',
+      'application/service/reexport.service.ts',
+    ]);
   });
 });

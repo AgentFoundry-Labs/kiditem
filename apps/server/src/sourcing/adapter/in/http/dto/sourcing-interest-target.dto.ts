@@ -2,7 +2,7 @@ import { IsIn, IsOptional, IsString, MaxLength } from 'class-validator';
 import type {
   SourcingInterestTargetSource,
   SourcingInterestTargetType,
-} from '../../../../application/port/out/repository/sourcing-interest-target.repository.port';
+} from '../../../../domain/sourcing-interest-target';
 
 const TARGET_TYPES: SourcingInterestTargetType[] = [
   'keyword',

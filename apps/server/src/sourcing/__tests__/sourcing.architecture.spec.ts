@@ -1,7 +1,7 @@
-import { execSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
+import { importFromPattern, scanSource } from '../../test-helpers/architecture-rg';
 
 // Architecture guard tests freeze the sourcing port/adapter contract:
 //
@@ -16,24 +16,36 @@ import { describe, it, expect } from 'vitest';
 //   - No legacy top-level `dto/`, `services/`, or `adapter/out/prisma/`
 //     folders remain.
 
-const REPO_ROOT = path.resolve(__dirname, '../../../../..');
 const SOURCING_ROOT = path.resolve(__dirname, '..');
+const OTHER_OWNERS =
+  'automation|ai|channels|finance|inventory|orders|products|rules|agent-os|analytics|advertising';
 
-function rg(args: string): string[] {
-  try {
-    const out = execSync(`rg ${args}`, { cwd: REPO_ROOT, encoding: 'utf8' });
-    return out
-      .split('\n')
-      .map((line) => line.trim())
-      .filter(Boolean);
-  } catch (err: unknown) {
-    if ((err as { status?: number }).status === 1) return [];
-    throw err;
-  }
+/**
+ * Known violations in files PR #557 also edits. Each entry names its removal
+ * issue; an entry whose violation is gone fails as stale.
+ */
+const KNOWN_VIOLATIONS: Record<string, string> = {
+  // removeWith: KID-328 — takes the channels transaction type from channels application/port/out.
+  'application/service/sourcing-workspace-archive.service.ts': 'KID-328',
+  // removeWith: KID-328 — takes launch-candidate status constants from application/port/out.
+  'adapter/in/http/dto/sourcing-intelligence.dto.ts': 'KID-328',
+};
+
+function at(...segments: string[]): string {
+  return path.join(SOURCING_ROOT, ...segments);
 }
 
-function sourcingRel(): string {
-  return path.relative(REPO_ROOT, SOURCING_ROOT);
+function importers(roots: string[], specifier: string): string[] {
+  return [...scanSource({ roots, pattern: importFromPattern(specifier), relativeTo: SOURCING_ROOT }).hits];
+}
+
+function ownerFiles(): string[] {
+  return [...scanSource({ roots: [SOURCING_ROOT], relativeTo: SOURCING_ROOT }).hits];
+}
+
+/** Splits hits into new violations and the known entries this rule still sees. */
+function unexpected(hits: readonly string[]): string[] {
+  return hits.filter((file) => !(file.split(':')[0]! in KNOWN_VIOLATIONS));
 }
 
 describe('sourcing architecture contract', () => {
@@ -44,12 +56,8 @@ describe('sourcing architecture contract', () => {
   });
 
   it('PrismaService is imported only under sourcing/adapter/out/repository/**', () => {
-    const sourcing = sourcingRel();
-    const allowedPrefix = path.join(sourcing, 'adapter/out/repository') + path.sep;
-    const hits = rg(
-      `--type ts --files-with-matches 'PrismaService' ${sourcing} --glob '!**/__tests__/**'`,
-    );
-    const violators = hits.filter((file) => !file.startsWith(allowedPrefix));
+    const violators = importers([SOURCING_ROOT], String.raw`[^'"]*prisma/prisma\.service`)
+      .filter((file) => !file.startsWith('adapter/out/repository/'));
     expect(
       violators,
       `PrismaService is leaking outside adapter/out/repository:\n${violators.join('\n')}`,
@@ -57,11 +65,7 @@ describe('sourcing architecture contract', () => {
   });
 
   it('application layer does not import Prisma client or expose Prisma types', () => {
-    const sourcing = sourcingRel();
-    const applicationGlob = path.join(sourcing, 'application') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '@prisma/client|Prisma\\.' --glob '${applicationGlob}' --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('application')], '@prisma/client');
     expect(
       hits,
       `application ports/services must stay Prisma-free; Prisma belongs in outgoing adapters:\n${hits.join('\n')}`,
@@ -69,11 +73,7 @@ describe('sourcing architecture contract', () => {
   });
 
   it('application/service/** does not import adapter/out/**', () => {
-    const sourcing = sourcingRel();
-    const serviceGlob = path.join(sourcing, 'application/service') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '\\.\\./adapter/out|adapter/out/' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('application/service')], String.raw`[^'"]*adapter/out/`);
     expect(
       hits,
       `application services must depend on application/port/out/*, not concrete adapter/out/** files:\n${hits.join('\n')}`,
@@ -81,11 +81,7 @@ describe('sourcing architecture contract', () => {
   });
 
   it('application/service/** does not import HTTP adapter DTOs', () => {
-    const sourcing = sourcingRel();
-    const serviceGlob = path.join(sourcing, 'application/service') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches 'adapter/in/|\\.\\./.*adapter/in/' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('application/service')], String.raw`[^'"]*adapter/in/`);
     expect(
       hits,
       `application services must expose application command/input types, not HTTP DTOs:\n${hits.join('\n')}`,
@@ -93,14 +89,19 @@ describe('sourcing architecture contract', () => {
   });
 
   it('application/service/** does not import other owner-domain services directly', () => {
-    const sourcing = sourcingRel();
-    const serviceGlob = path.join(sourcing, 'application/service') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches '\\.\\./\\.\\./\\.\\./(automation|ai|channels|finance|inventory|orders|products|rules|agent-os|analytics|advertising)/application' --glob '${serviceGlob}' --glob '!**/__tests__/**'`,
-    );
+    // Another owner's published application/port/in/** interface is allowed
+    // (apps/server/CLAUDE.md, Module Boundaries); anything else in its
+    // application layer is not.
+    const hits = scanSource({
+      roots: [at('application/service')],
+      pattern: importFromPattern(String.raw`(?:\.\./)+(?:${OTHER_OWNERS})/application/`),
+      mode: 'lines',
+      relativeTo: SOURCING_ROOT,
+    }).hits.filter((line) => !/\/application\/port\/in\//.test(line));
+    const violators = unexpected(hits);
     expect(
-      hits,
-      `application services must reach other owner domains through ports, not services:\n${hits.join('\n')}`,
+      violators,
+      `application services must reach other owner domains through ports, not services:\n${violators.join('\n')}`,
     ).toEqual([]);
     expect(existsSync(path.join(
       SOURCING_ROOT,
@@ -109,27 +110,31 @@ describe('sourcing architecture contract', () => {
   });
 
   it('incoming HTTP adapters do not import outgoing ports or repository adapters', () => {
-    const sourcing = sourcingRel();
-    const httpGlob = path.join(sourcing, 'adapter/in/http') + '/**';
-    const hits = rg(
-      `--type ts --files-with-matches 'application/port/out|adapter/out/' --glob '${httpGlob}' --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([at('adapter/in/http')], String.raw`[^'"]*(?:application/port/out|adapter/out)/`);
+    const violators = unexpected(hits);
     expect(
-      hits,
-      `incoming adapters must call application services, not outgoing ports/adapters:\n${hits.join('\n')}`,
+      violators,
+      `incoming adapters must call application services, not outgoing ports/adapters:\n${violators.join('\n')}`,
     ).toEqual([]);
   });
 
+  it('keeps each known violation entry live until its removal issue lands', () => {
+    const stillViolating = new Set([
+      ...scanSource({
+        roots: [at('application/service')],
+        pattern: importFromPattern(String.raw`(?:\.\./)+(?:${OTHER_OWNERS})/application/port/out/`),
+        relativeTo: SOURCING_ROOT,
+      }).hits,
+      ...importers([at('adapter/in/http')], String.raw`[^'"]*(?:application/port/out|adapter/out)/`),
+    ]);
+    const stale = Object.keys(KNOWN_VIOLATIONS).filter((file) => !stillViolating.has(file));
+    expect(stale, `remove fixed entries from KNOWN_VIOLATIONS:\n${stale.join('\n')}`).toEqual([]);
+  });
+
   it('no legacy top-level dto/, services/, or adapter/out/prisma/ folders remain', () => {
-    const sourcing = sourcingRel();
-    const dtoHits = rg(`--type ts --files --glob '${path.join(sourcing, 'dto', '**', '*.ts')}'`);
-    const serviceHits = rg(
-      `--type ts --files --glob '${path.join(sourcing, 'services', '**', '*.ts')}'`,
+    const violators = ownerFiles().filter((file) =>
+      ['dto/', 'services/', 'adapter/out/prisma/'].some((prefix) => file.startsWith(prefix)),
     );
-    const prismaHits = rg(
-      `--type ts --files --glob '${path.join(sourcing, 'adapter/out/prisma', '**', '*.ts')}'`,
-    );
-    const violators = [...dtoHits, ...serviceHits, ...prismaHits];
     expect(
       violators,
       `Legacy folders detected — use adapter/in/http/dto/, application/service/, and adapter/out/repository/:\n${violators.join('\n')}`,
@@ -151,10 +156,7 @@ describe('sourcing architecture contract', () => {
   });
 
   it('keeps local CLI subprocess execution out of the Sourcing owner domain', () => {
-    const sourcing = sourcingRel();
-    const hits = rg(
-      `--type ts --files-with-matches 'node:child_process' ${sourcing} --glob '!**/__tests__/**'`,
-    );
+    const hits = importers([SOURCING_ROOT], String.raw`(?:node:)?child_process['"]`);
     expect(
       hits,
       `Sourcing must use Agent OS for local CLI execution:\n${hits.join('\n')}`,
