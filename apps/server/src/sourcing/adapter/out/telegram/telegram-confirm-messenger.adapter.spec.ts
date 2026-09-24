@@ -96,6 +96,57 @@ describe('TelegramConfirmMessengerAdapter', () => {
     expect(Buffer.byteLength(data, 'utf8')).toBeLessThanOrEqual(64);
   });
 
+  it('⭐ 가장 긴 버튼 값(번호 1295 · 버전 Int 최댓값)도 서명을 붙여 64바이트 안에 든다', async () => {
+    const longest = encodeConfirmPayload({
+      action: 'approve',
+      no: 1295,
+      organizationId: ORG,
+      keyPrefix: itemKeyPrefix('ab'.repeat(32)),
+      version: 2_147_483_647,
+    });
+    const fetchMock = vi.fn(async () => ok({ message_id: 78 }));
+    globalThis.fetch = fetchMock as typeof fetch;
+
+    await new TelegramConfirmMessengerAdapter().sendReport({ lines: [[{ text: '·' }]], buttons: [[{ label: '✅ 1295 승인', payload: longest }]] });
+
+    const body = JSON.parse(String((fetchMock.mock.calls[0] as unknown as [string, RequestInit])[1].body));
+    const data = body.reply_markup.inline_keyboard[0][0].callback_data as string;
+    expect(data.startsWith(`${longest}.`)).toBe(true);
+    expect(Buffer.byteLength(data, 'utf8')).toBeLessThanOrEqual(64);
+  });
+
+  it('⭐ 서명은 그대로 두고 버전 칸만 바꾼 버튼 값은 읽지 않는다', async () => {
+    const sendMock = vi.fn(async () => ok({ message_id: 77 }));
+    globalThis.fetch = sendMock as typeof fetch;
+    const adapter = new TelegramConfirmMessengerAdapter();
+    await adapter.sendReport(message);
+    const signed = JSON.parse(String((sendMock.mock.calls[0] as unknown as [string, RequestInit])[1].body)).reply_markup
+      .inline_keyboard[0][0].callback_data as string;
+    // k2.a.1.<조직>.<키>.<버전>.<서명> — 버전 칸(끝에서 두 번째)만 바꾼다.
+    const parts = signed.split('.');
+    expect(parts.at(-2)).toBe('0');
+    parts[parts.length - 2] = 'zz';
+    const forged = parts.join('.');
+
+    globalThis.fetch = vi.fn(async () =>
+      ok([
+        {
+          update_id: 20,
+          callback_query: {
+            id: 'cb-20',
+            from: { id: Number(CHAT_ID) },
+            data: forged,
+            message: { message_id: 77, chat: { id: Number(CHAT_ID) }, reply_markup: { inline_keyboard: [[{ text: '✅ 1 승인', callback_data: signed }]] } },
+          },
+        },
+      ]),
+    ) as typeof fetch;
+
+    const result = await adapter.receive(new AbortController().signal);
+    const event = result.kind === 'ok' ? result.events[0] : undefined;
+    expect(event).toMatchObject({ kind: 'button', authorized: true, payload: null });
+  });
+
   it('⭐ 실패해도 토큰은 오류 문구에 싣지 않는다', async () => {
     globalThis.fetch = vi.fn(async () => {
       throw new TypeError(`fetch failed https://api.telegram.org/bot${TOKEN}/sendMessage`);

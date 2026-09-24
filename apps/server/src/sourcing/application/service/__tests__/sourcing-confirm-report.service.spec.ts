@@ -281,6 +281,8 @@ describe('SourcingConfirmReportService', () => {
       const { expiresAt } = await service.issueSetupToken(ORG);
 
       await expect(service.status(ORG, 'admin')).resolves.toMatchObject({ setupTokenExpiresAt: expiresAt });
+      // 토큰이 아직 기다리는 중에도 다른 역할에는 싣지 않는다.
+      await expect(service.status(ORG, 'member')).resolves.toMatchObject({ setupTokenExpiresAt: null });
       const { token } = await service.issueSetupToken(ORG);
       await service.handleEvent(start('424242', `/start ${token}`));
 
@@ -290,6 +292,19 @@ describe('SourcingConfirmReportService', () => {
         setupChatId: null,
         setupTokenExpiresAt: null,
       });
+    });
+
+    it('⭐ 토큰을 새로 받으면 이전 토큰은 쓸 수 없다', async () => {
+      const { service } = setup({ chatConfigured: false });
+      const first = await service.issueSetupToken(ORG);
+      let second = await service.issueSetupToken(ORG);
+      while (second.token === first.token) second = await service.issueSetupToken(ORG);
+
+      await service.handleEvent(start('111111', `/start ${first.token}`));
+      await expect(service.status(ORG, 'owner')).resolves.toMatchObject({ setupChatId: null });
+
+      await service.handleEvent(start('222222', `/start ${second.token}`));
+      await expect(service.status(ORG, 'owner')).resolves.toMatchObject({ setupChatId: '222222' });
     });
 
     it('설정 토큰은 묶인 조직만 발급한다', async () => {
