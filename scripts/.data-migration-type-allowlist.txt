@@ -1,0 +1,9 @@
+# Data-migration type-gate allowlist (scripts/check-data-migration-types.mjs)
+#
+# Each non-comment line: <repo-relative-path> <exact-error-count> <reason>
+#
+# Only for a promoted migration whose source must stay byte-identical and which
+# cannot be retired yet. The count must match exactly, and an entry whose file
+# has no errors fails, so remove the line when the migration is retired.
+
+scripts/data-migrations/v0.1.25/004_rekey_ad_campaign_product_targets.ts 1 promoted in 0.1.25; Office recorded it and a fresh DB has no legacy rows, so the stale unique key never executes; retire when the release-contract guard accepts a retirement without replacement (KID-262 파생)
