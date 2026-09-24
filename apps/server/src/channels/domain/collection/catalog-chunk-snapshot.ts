@@ -19,6 +19,7 @@ import {
   type CoupangCatalogProductV1,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import type { ZodType } from 'zod';
+import { KiditemConflictError } from '@kiditem/shared/errors';
 import { ChannelInputError as BadRequestException, ChannelConflictError as ConflictException } from '../exception/channel-business-error';
 import { stableStringify } from './catalog-collection-hash';
 import type { CatalogDeletionConfirmation } from './catalog-deletion-confirmation';
@@ -197,7 +198,9 @@ function applyCompactProjection(
       const externalProductId = stringValue(item?.externalProductId);
       const outcome = item?.outcome;
       if (!externalProductId || (outcome !== 'deleted' && outcome !== 'present' && outcome !== 'not_found')) {
-        throw new ConflictException('Stored deletion confirmation receipt is invalid');
+        throw new KiditemConflictError('STATE_CONFLICT', {
+          details: { reason: 'CATALOG_DELETION_RECEIPT_INVALID', sequence: chunk.sequence },
+        });
       }
       state.deletionConfirmations.push({ externalProductId, outcome });
     }
