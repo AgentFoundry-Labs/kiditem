@@ -9,7 +9,7 @@ import { Prisma } from '@prisma/client';
 import { resolveChannelListingSaleStatus } from '@kiditem/shared/channel-listing';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
-import { lockProductMapping } from '../../../../common/product-mapping-generation';
+import { lockProductMapping } from '../../../../products/transaction/product-mapping-lock';
 import {
   readCompletedCatalogRunIds,
   publishedCatalogOptionWhere,

@@ -45,7 +45,7 @@ const MAPPING_ONLY_STATE = {
 
 /**
  * The server's advisory lock keys for one organization, in the order the
- * server takes them (`apps/server/src/common/product-mapping-generation.ts`
+ * server takes them (`apps/server/src/products/transaction/product-mapping-lock.ts`
  * and `MasterProductAbcRepositoryAdapter.publish`).
  *
  * Publication takes four locks: Sellpia profitability, Coupang ad

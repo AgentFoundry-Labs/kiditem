@@ -147,7 +147,7 @@ describe('ensure:absolute_product_abc_formula', () => {
       'kiditem.master-product-abc:org-1',
     ]);
 
-    const mapping = readRepoFile('apps/server/src/common/product-mapping-generation.ts');
+    const mapping = readRepoFile('apps/server/src/products/transaction/product-mapping-lock.ts');
     expect(mapping).toContain("const PRODUCT_MAPPING_LOCK_PREFIX = 'kiditem.product-mapping:';");
     expect(mapping).toMatch(/pg_advisory_xact_lock\(\s*hashtextextended\(\$\{lockKey\}, 0\)\s*\)/);
 

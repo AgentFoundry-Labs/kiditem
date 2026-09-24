@@ -23,7 +23,7 @@ import type {
 } from '../../../application/port/out/repository/channel-catalog-import.repository.port';
 import type { ParsedWingCatalogRow } from '../documents/coupang-wing/workbook.parser';
 import { resolveCoupangVendorId } from '../../../domain/account/coupang-account-identity';
-import { lockProductMapping } from '../../../../common/product-mapping-generation';
+import { lockProductMapping } from '../../../../products/transaction/product-mapping-lock';
 import {
   CHANNELS_PRODUCT_MAPPING_GENERATION_PORT,
   type ChannelsProductMappingGenerationPort,

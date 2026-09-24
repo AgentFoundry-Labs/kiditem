@@ -4,7 +4,7 @@ import {
   ProductAbcFormulaPayloadSchema,
   type ProductAbcFormulaPayload,
 } from '@kiditem/shared/product-abc';
-import { lockProductMapping } from '../../../../common/product-mapping-generation';
+import { lockProductMapping } from '../../../transaction/product-mapping-lock';
 import { readProductSaleAgeEvidence } from '../../../../common/product-sale-age';
 import { businessDateKey, parseBusinessDate } from '../../../../common/kst';
 import { PrismaService } from '../../../../prisma/prisma.service';

@@ -4,7 +4,7 @@ import {
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
 } from '@kiditem/shared/product-abc';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { lockProductMapping } from '../../common/product-mapping-generation';
+import { lockProductMapping } from '../transaction/product-mapping-lock';
 import { advanceProductMappingGeneration } from '../adapter/out/persistence/product-mapping-generation';
 import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
 import {

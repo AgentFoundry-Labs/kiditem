@@ -11,7 +11,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { ProductSourceConflictError } from '../../../application/exception/product-source.error';
 import { applySourceFacts, type MasterProduct as MasterProductDomain } from '../../../domain/master-product';
 import { evaluateSellpiaInventoryQuality } from '../../../domain/policy/product-source-quality.policy';
-import { lockProductMapping } from '../../../../common/product-mapping-generation';
+import { lockProductMapping } from '../../../transaction/product-mapping-lock';
 import { advanceProductMappingGeneration } from './product-mapping-generation';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { lockProductSource } from './transaction/product-source-lock';

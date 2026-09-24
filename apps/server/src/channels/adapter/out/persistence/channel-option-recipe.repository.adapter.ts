@@ -12,7 +12,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { lockProductMapping } from '../../../../common/product-mapping-generation';
+import { lockProductMapping } from '../../../../products/transaction/product-mapping-lock';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionalReadPort,

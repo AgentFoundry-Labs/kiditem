@@ -85,6 +85,32 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
     await expect(readGeneration()).resolves.toBe(1n);
   });
 
+  /**
+   * 같은 조직의 매핑 변경 두 건이 동시에 와도 Products 의 매핑 잠금(`products/transaction/product-mapping-lock`)이
+   * 줄을 세워 둘 다 반영되고 세대는 두 번 오른다(KID-111). 잠금이 없으면 upsert 경합으로 한 번만 오르거나 깨진다.
+   */
+  it('applies two concurrent mapping changes of one organization and advances the generation twice', async () => {
+    const product = await createProduct('CONCURRENT', 5);
+    const first = await createListing(1);
+    const second = await createListing(1);
+    const change = (optionId: string) => recipes.applyPreservingRecipes({
+      organizationId: TEST_ORGANIZATION_ID,
+      mutations: [{
+        channelListingOptionId: optionId,
+        expectedMasterProductId: product.id,
+        components: [{ masterProductId: product.id, quantity: 1 }],
+      }],
+    });
+
+    const results = await Promise.all([change(first.options[0]!.id), change(second.options[0]!.id)]);
+
+    expect(results.map((result) => result.changedOptionCount)).toEqual([1, 1]);
+    await expect(prisma.channelListingOptionInventoryComponent.count({
+      where: { channelListingOptionId: { in: [first.options[0]!.id, second.options[0]!.id] } },
+    })).resolves.toBe(2);
+    await expect(readGeneration()).resolves.toBe(2n);
+  });
+
   it('preserves an existing confirmed recipe and reports the conflicting option', async () => {
     const first = await createProduct('CONFIRMED', 8);
     const second = await createProduct('CANDIDATE', 11);
