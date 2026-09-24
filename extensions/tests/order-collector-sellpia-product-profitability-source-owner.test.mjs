@@ -86,6 +86,10 @@ function createFixture({
   collectUntilStopped = false,
   holdFailure = false,
   parkBeforeCompletion = false,
+  holdCompletion = null,
+  unresolvedCompletion = false,
+  lostCompletion = false,
+  failReadsAfterCompletion = 0,
 } = {}) {
   const context = vm.createContext({
     Date,
@@ -129,6 +133,8 @@ function createFixture({
   const failureRelease = deferred();
   const completionParked = deferred();
   const completionRelease = deferred();
+  const completionHeld = deferred();
+  const completionHoldRelease = deferred();
   const sessionApi = sessions;
   if (failProgressUpdate) {
     sessionApi.progress = async () => {
@@ -149,6 +155,7 @@ function createFixture({
     [restartAttemptId, control('RUNNING', { attemptId: restartAttemptId, attemptToken: restartAttemptToken })],
   ]);
   let completeCalls = 0;
+  let readsAfterCompletion = 0;
 
   const owner = context.KidItemSellpiaProductProfitabilitySourceOwner.create({
     chrome,
@@ -158,6 +165,10 @@ function createFixture({
       const method = init.method || 'GET';
       const id = decodeURIComponent(path.slice(`${sourcePath}/`.length).split('/')[0]);
       const current = attempts.get(id);
+      if (method === 'GET' && completeCalls > 0 && readsAfterCompletion < failReadsAfterCompletion) {
+        readsAfterCompletion += 1;
+        throw new Error('owner read temporarily unavailable');
+      }
       if (method === 'GET' && path.endsWith('/status')) {
         const statusResponse = statusResponses.get(id);
         if (statusResponse) return statusResponse();
@@ -179,12 +190,21 @@ function createFixture({
       if (route === 'complete') {
         completeCalls += 1;
         bodies.push(JSON.parse(init.body));
+        if (holdCompletion && completeCalls === 1) {
+          completionHeld.resolve();
+          await completionHoldRelease.promise;
+          if (holdCompletion === 'unavailable') {
+            return response({ message: 'owner completion is unavailable' }, 503);
+          }
+        }
+        if (unresolvedCompletion && id === attemptId) throw new Error('completion transport failed');
         attempts.set(id, control('COMPLETE', {
           attemptId: id,
           attemptToken: current.attemptToken,
           generation: '8',
         }));
         if (loseCompletionAck && completeCalls === 1) throw new Error('completion reply lost');
+        if (lostCompletion && id === attemptId) throw new Error('completion reply lost');
         return response(attempts.get(id));
       }
       if (route === 'fail') {
@@ -226,6 +246,8 @@ function createFixture({
     releaseFailure: failureRelease.resolve,
     completionParked: completionParked.promise,
     releaseCompletion: completionRelease.resolve,
+    completionHeld: completionHeld.promise,
+    releaseHeldCompletion: completionHoldRelease.resolve,
     // cancelOrdersCollectionSession fences the local session, then cancels through the owner.
     operatorStop: async (target) => {
       await sessionApi.requestCancellation(target.attemptId, target.environmentId);
@@ -576,4 +598,87 @@ test('an operator stop after the post-collect check releases the environment wit
 
   const restart = await fixture.owner.run({ environmentId: 'office', attemptId: restartAttemptId });
   assertStoppedThenRestarted(fixture, restart);
+});
+
+// A stop must leave exactly one owner /fail on the stopped attempt and release
+// the environment, even when it overlaps a terminal request already in flight.
+function assertOneCancelThenRestarted(fixture, restart) {
+  const stopped = fixture.attempt(attemptId);
+  assert.equal(stopped.state, 'FAILED');
+  assert.equal(stopped.errorCode, 'COLLECTION_CANCELLED');
+  assert.equal(restart.attemptId, restartAttemptId);
+  assert.equal(restart.terminalState, 'COMPLETE');
+  const stoppedWrites = fixture.ownerWrites.filter((write) => write.attemptId === attemptId);
+  assert.equal(stoppedWrites.filter((write) => write.route === 'fail').length, 1);
+  assert.deepEqual(stoppedWrites.filter((write) => write.afterEnd), []);
+}
+
+test('an operator stop during the completion retry loop still ends the attempt with one /fail', async () => {
+  const fixture = createFixture({ holdCompletion: 'unavailable' });
+  const running = fixture.owner.run({ environmentId: 'office', attemptId });
+  await fixture.completionHeld;
+
+  // Fence first, exactly as the web stop does, then join the in-flight completion.
+  await fixture.sessions.requestCancellation(attemptId, 'office');
+  const stopping = fixture.owner.cancel({ environmentId: 'office', attemptId });
+  fixture.releaseHeldCompletion();
+  await running;
+  await stopping;
+
+  const restart = await fixture.owner.run({ environmentId: 'office', attemptId: restartAttemptId });
+  assertOneCancelThenRestarted(fixture, restart);
+});
+
+test('an operator stop that joins a completion the owner accepts leaves the attempt COMPLETE and releases the environment', async () => {
+  const fixture = createFixture({ holdCompletion: 'accept' });
+  const running = fixture.owner.run({ environmentId: 'office', attemptId });
+  await fixture.completionHeld;
+
+  await fixture.sessions.requestCancellation(attemptId, 'office');
+  const stopping = fixture.owner.cancel({ environmentId: 'office', attemptId });
+  fixture.releaseHeldCompletion();
+  await running;
+  const stopped = await stopping;
+
+  assert.equal(stopped.terminalState, 'COMPLETE');
+  assert.equal(fixture.attempt(attemptId).state, 'COMPLETE');
+  const restart = await fixture.owner.run({ environmentId: 'office', attemptId: restartAttemptId });
+  assert.equal(restart.attemptId, restartAttemptId);
+  assert.equal(restart.terminalState, 'COMPLETE');
+  // The completion won the race, so the stop sends no /fail.
+  assert.deepEqual(
+    fixture.ownerWrites.filter((write) => write.attemptId === attemptId && write.route === 'fail'),
+    [],
+  );
+});
+
+test('an operator stop after an unresolved completion ends the still-RUNNING attempt', async () => {
+  const fixture = createFixture({ unresolvedCompletion: true });
+  const unresolved = await fixture.owner.run({ environmentId: 'office', attemptId });
+  assert.equal(unresolved.errorCode, 'SOURCE_OWNER_UNAVAILABLE');
+  assert.equal(fixture.attempt(attemptId).state, 'RUNNING');
+
+  await fixture.operatorStop({ environmentId: 'office', attemptId });
+
+  const restart = await fixture.owner.run({ environmentId: 'office', attemptId: restartAttemptId });
+  assertOneCancelThenRestarted(fixture, restart);
+});
+
+test('an operator stop after an unresolved completion releases a COMPLETE attempt for the next collection', async () => {
+  const fixture = createFixture({ lostCompletion: true, failReadsAfterCompletion: 3 });
+  const unresolved = await fixture.owner.run({ environmentId: 'office', attemptId });
+  assert.equal(unresolved.errorCode, 'SOURCE_OWNER_UNAVAILABLE');
+  assert.equal(fixture.attempt(attemptId).state, 'COMPLETE');
+
+  const stopped = await fixture.operatorStop({ environmentId: 'office', attemptId });
+  assert.equal(stopped.terminalState, 'COMPLETE');
+
+  const restart = await fixture.owner.run({ environmentId: 'office', attemptId: restartAttemptId });
+  assert.equal(restart.attemptId, restartAttemptId);
+  assert.equal(restart.terminalState, 'COMPLETE');
+  // The stop must not turn an owner completion into a failure.
+  assert.deepEqual(
+    fixture.ownerWrites.filter((write) => write.attemptId === attemptId && write.route === 'fail'),
+    [],
+  );
 });
