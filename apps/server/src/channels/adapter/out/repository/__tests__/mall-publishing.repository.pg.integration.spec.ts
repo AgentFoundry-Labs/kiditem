@@ -749,5 +749,43 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       });
       expect(cell(unlinkedMaster.id)).toMatchObject({ state: 'published', registration: null });
     });
+
+    it('gives a cell of an older listing on the same account no registration row of the newer listing', async () => {
+      await seedSellpiaSourceState();
+      await publishSellpiaSnapshot([
+        'SP-611,원목 블록,5,8800000000611,100,200',
+        'SP-612,나무 기차,5,8800000000612,100,200',
+      ]);
+      const olderMaster = await sellpiaSku('SP-611');
+      const newerMaster = await sellpiaSku('SP-612');
+      const salesProduct = await prisma.salesProduct.create({
+        data: { organizationId: TEST_ORGANIZATION_ID, code: 'KID-611', status: 'active', name: '원목 블록' },
+      });
+      const listingIds: string[] = [];
+      for (const [externalId, master, status, updatedAt] of [
+        ['EXT-611', olderMaster, '승인반려', new Date('2026-09-20T00:00:00Z')],
+        ['EXT-612', newerMaster, '승인완료', new Date('2026-09-22T00:00:00Z')],
+      ] as const) {
+        const listing = await prisma.channelListing.create({
+          data: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: COUPANG_ACCOUNT, externalId, status, salesProductId: salesProduct.id, updatedAt },
+        });
+        listingIds.push(listing.id);
+        const option = await prisma.channelListingOption.create({
+          data: { listingId: listing.id, organizationId: TEST_ORGANIZATION_ID, externalOptionId: `${externalId}-O`, itemName: '기본' },
+        });
+        await prisma.channelListingOptionInventoryComponent.create({
+          data: { organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id, masterProductId: master.id, quantity: 1 },
+        });
+      }
+      const service = new MallPublishingService(repository, {} as never, realRegistrationStates(prisma));
+
+      const matrix = await service.listingMatrix(TEST_ORGANIZATION_ID, { page: 1, limit: 10 });
+
+      const cell = (masterProductId: string) => matrix.rows
+        .find((row) => row.masterProductId === masterProductId)?.cells
+        .find((entry) => entry.mallKey === 'coupang');
+      expect(cell(newerMaster.id)).toMatchObject({ registration: { channelListingId: listingIds[1], state: 'registered' } });
+      expect(cell(olderMaster.id)).toMatchObject({ state: 'error', rawStatus: '승인반려', registration: null });
+    });
   });
 });

@@ -17,11 +17,14 @@ import type { MallListingState } from '../listing/mall-listing-state';
  *     리스팅), 취소 · 없음 → 미등록.
  *
  * 품절은 몰이 보고한 리스팅 상태가 먼저다(fence 가 확인할 때 리스팅 상태를 함께 쓰고, 그 뒤 수집이 몰 사실로
- * 덮어쓴다) — 몰 상태를 모르면(`unknown`) 우리가 마지막으로 보낸 가용성 실행의 성공만 근거가 된다. 재전송 필요는 등록됨일 때만, 마지막 성공 등록성 실행이 얼린 값(상품 · 등록 설정 version, 상세
- * revision id, 대표이미지 자산 id)과 지금 값이 다르면 true 다.
+ * 덮어쓴다) — 몰 상태를 모르면(`unknown`) 우리가 마지막으로 보낸 가용성 실행의 성공만 근거가 된다. 재전송 필요는 등록됨일 때만, 마지막 성공
+ * 문서 전송 실행(register · composition_change)이 얼린 값(상품 · 등록 설정 version, 상세 revision id, 대표이미지 자산 id)과
+ * 지금 값이 다르면 true 다. 가격만 보내는 `update` 는 기준을 바꾸지 않는다 — 몰에는 여전히 옛 문서가 있다.
  */
 
 export const LISTING_SHAPING_EXECUTION_KINDS = ['register', 'update', 'composition_change'] as const;
+/** 상품 문서 전체(상세 · 대표이미지 포함)를 얼려 보내는 실행. 재전송 필요의 기준은 이 kind 의 마지막 성공뿐이다. */
+export const DOCUMENT_BASELINE_EXECUTION_KINDS = ['register', 'composition_change'] as const;
 export const AVAILABILITY_EXECUTION_KINDS = ['sold_out', 'resume'] as const;
 
 export type ListingShapingExecution = Readonly<{
@@ -57,7 +60,7 @@ export type RegistrationAccountInputs = Readonly<{
   }> | null;
   /** 가장 최근 등록성 실행. 없으면 null. */
   latestListingShaping: ListingShapingExecution | null;
-  /** 가장 최근에 성공한 등록성 실행이 얼린 값. 없으면 null. */
+  /** 가장 최근에 성공한 문서 전송 실행(`DOCUMENT_BASELINE_EXECUTION_KINDS`)이 얼린 값. 없으면 null. */
   lastSucceededFrozen: FrozenRegistrationFacts | null;
   /** 가장 최근 가용성 실행. 없으면 null. */
   latestAvailability: Readonly<{ kind: string; status: string }> | null;

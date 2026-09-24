@@ -220,6 +220,7 @@ describe('listingMatrix — 칸', () => {
       mallAccounts: [mallAccount()],
       matrixProducts: [product({
         listings: [{
+          id: 'listing-1',
           storefrontProductId: null,
           salesProductId: null,
           channelAccountId: 'acc-coupang',
@@ -247,6 +248,7 @@ describe('listingMatrix — 칸', () => {
       mallAccounts: [mallAccount(), mallAccount({ mallKey: 'rocket', channelAccountId: 'acc-rocket' })],
       matrixProducts: [product({
         listings: [{
+          id: 'listing-1',
           storefrontProductId: null,
           salesProductId: null,
           channelAccountId: 'acc-coupang', status: '승인완료',
@@ -267,6 +269,7 @@ describe('listingMatrix — 칸', () => {
       mallAccounts: [mallAccount()],
       matrixProducts: [product({
         listings: [{
+          id: 'listing-1',
           storefrontProductId: null,
           salesProductId: null,
           channelAccountId: 'acc-coupang', status: '활성',

@@ -373,9 +373,11 @@ export class MallPublishingService implements MallPublishingPort {
           listingStatus: listing?.status ?? null,
         });
         resolvedStates.push(resolved.state);
+        // 계정 줄이 리스팅을 가리키면 이 칸의 리스팅일 때만 싣는다 — 옛 리스팅이 새 리스팅의 상태를 빌리지 않는다.
         const registration = listing?.salesProductId
           ? registrations.get(listing.salesProductId)?.accounts
-            .find((account) => account.channelAccountId === listing.channelAccountId) ?? null
+            .find((account) => account.channelAccountId === listing.channelAccountId
+              && (account.channelListingId === null || account.channelListingId === listing.id)) ?? null
           : null;
         return {
           mallKey: column.mallKey,

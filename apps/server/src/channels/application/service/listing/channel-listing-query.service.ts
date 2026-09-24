@@ -99,10 +99,14 @@ function positiveInteger(value: number | undefined, fallback: number): number {
   return Number.isFinite(value) && value && value > 0 ? Math.floor(value) : fallback;
 }
 
-/** 리스팅의 판매 상품 × 이 계정 줄. 판매 상품이 없거나 그 계정 줄이 없으면 null. */
+/**
+ * 리스팅의 판매 상품 × 이 계정 줄. 계정 줄이 리스팅을 가리키면 그 리스팅일 때만 싣는다 — 같은 계정의 옛
+ * 리스팅이 새 리스팅의 상태를 빌리지 않는다. 판매 상품이 없거나 맞는 줄이 없으면 null.
+ */
 function withRegistration(item: ChannelListingSummary, registrations: ReadonlyMap<string, SalesProductRegistrationView>): ChannelListingSummary {
   const accounts = item.salesProductId ? registrations.get(item.salesProductId)?.accounts : undefined;
-  const registration = accounts?.find(account => account.channelAccountId === item.channelAccountId) ?? null;
+  const registration = accounts?.find(account => account.channelAccountId === item.channelAccountId
+    && (account.channelListingId === null || account.channelListingId === item.id)) ?? null;
   return { ...item, registration };
 }
 

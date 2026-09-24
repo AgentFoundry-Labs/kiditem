@@ -3,6 +3,7 @@ import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   AVAILABILITY_EXECUTION_KINDS,
+  DOCUMENT_BASELINE_EXECUTION_KINDS,
   LISTING_SHAPING_EXECUTION_KINDS,
   type FrozenRegistrationFacts,
 } from '../../../domain/registration/registration-account-state';
@@ -47,7 +48,9 @@ type AvailabilityRow = {
  * reader 다(ADR-0009, `scripts/ledger-readers.json`). 판정은 `RegistrationStateService` 가 도메인 규칙으로 한다.
  *
  * 상품 수와 무관하게 쿼리 일곱 번이다 — 상품 · 설정 · 리스팅 · 계정, 그리고 대상별 최신 등록성 실행,
- * 대상별 마지막 성공 등록성 실행이 얼린 값, (대상 · 리스팅)별 최신 가용성 실행을 `DISTINCT ON` 으로 한 번씩.
+ * 대상별 마지막 성공 문서 전송 실행(register · composition_change)이 얼린 값, (대상 · 리스팅)별 최신 가용성 실행을
+ * `DISTINCT ON` 으로 한 번씩. 리스팅은 계정마다 가장 최근 것을 활성 여부와 상관없이 읽는다 — 2026-09-23 사용자 결정
+ * "비활성화는 등록된 상태에서 내린 것".
  */
 @Injectable()
 export class RegistrationStateRepositoryAdapter implements RegistrationStatePersistencePort {
@@ -71,7 +74,7 @@ export class RegistrationStateRepositoryAdapter implements RegistrationStatePers
         select: { id: true, salesProductId: true, channelAccountId: true, version: true, selectedThumbnailAssetId: true, selectedDetailPageRevisionId: true },
       }),
       this.prisma.channelListing.findMany({
-        where: { organizationId, salesProductId: { in: productIds }, isActive: true },
+        where: { organizationId, salesProductId: { in: productIds } },
         orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
         select: { id: true, salesProductId: true, channelAccountId: true, externalId: true, status: true, isActive: true },
       }),
@@ -168,7 +171,7 @@ export class RegistrationStateRepositoryAdapter implements RegistrationStatePers
       FROM product_registration_executions
       WHERE organization_id = ${organizationId}::uuid
         AND registration_target_id = ANY(${[...targetIds]}::uuid[])
-        AND execution_kind IN (${Prisma.join([...LISTING_SHAPING_EXECUTION_KINDS])})
+        AND execution_kind IN (${Prisma.join([...DOCUMENT_BASELINE_EXECUTION_KINDS])})
         AND status = 'succeeded'
       ORDER BY registration_target_id, created_at DESC, id DESC
     `);

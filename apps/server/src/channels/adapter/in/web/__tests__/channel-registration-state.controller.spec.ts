@@ -12,7 +12,7 @@ describe('ChannelRegistrationExecutionController.registrationState', () => {
   it('answers the per-account registration state in the shared contract shape', async () => {
     const account = {
       channelAccountId: ACCOUNT, channel: 'mall-a', channelAccountName: '몰 A', registrationTargetId: TARGET,
-      channelListingId: null, externalListingId: null, state: 'submitting', soldOut: false, changedSinceRegistration: false,
+      channelListingId: null, externalListingId: null, listingState: null, listingRawStatus: null, listingActive: false, state: 'submitting', soldOut: false, changedSinceRegistration: false,
       selectedThumbnailAssetId: null, selectedDetailPageRevisionId: null,
       lastExecution: { id: EXECUTION, kind: 'register', status: 'executing', providerOutcome: 'not_attempted', createdAt: '2026-09-24T00:00:00.000Z', completedAt: null },
     };

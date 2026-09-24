@@ -425,6 +425,7 @@ export class MallPublishingRepositoryAdapter implements MallPublishingRepository
       stock: stockByMaster.get(record.masterProductId) ?? null,
       updatedAt: latestListingUpdatedAt.get(record.masterProductId) ?? new Date(0),
       listings: (listingByMasterProductId.get(record.masterProductId) ?? []).map((listing) => ({
+        id: listing.id,
         channelAccountId: listing.channelAccountId,
         salesProductId: listing.salesProductId,
         status: listing.status,

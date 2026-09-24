@@ -223,11 +223,28 @@ describe('registration state facts (PostgreSQL)', () => {
     const read = await facts.readFacts(ORG, [item.id, foreign.id]);
 
     expect(read.has(foreign.id)).toBe(false);
-    expect(read.get(item.id)!.accounts).toEqual([expect.objectContaining({
-      channelAccountId: archivedWithListing,
+    const byAccount = new Map(read.get(item.id)!.accounts.map((row) => [row.channelAccountId, row]));
+    expect(byAccount.size).toBe(2);
+    expect(byAccount.get(archivedWithListing)).toMatchObject({
       target: null,
-      listing: expect.objectContaining({ id: oldListing.id }),
+      listing: { id: oldListing.id, isActive: true },
       latestListingShaping: null,
+    });
+    // 내린 리스팅도 그 계정의 리스팅이다 — 2026-09-23 사용자 결정 "비활성화는 등록된 상태에서 내린 것".
+    expect(byAccount.get(archivedOnly)).toMatchObject({ target: null, listing: { isActive: false }, latestListingShaping: null });
+  });
+
+  it('reads the newest listing of an account whether or not it is still active', async () => {
+    const mall = await account('몰');
+    const item = await product();
+    await listing(item.id, mall);
+    const newer = await listing(item.id, mall, { isActive: false, status: '판매중지' });
+
+    const read = (await facts.readFacts(ORG, [item.id])).get(item.id)!;
+
+    expect(read.accounts).toEqual([expect.objectContaining({
+      channelAccountId: mall,
+      listing: { id: newer.id, externalId: newer.externalId, status: '판매중지', isActive: false },
     })]);
   });
 
@@ -324,11 +341,11 @@ describe('registration state facts (PostgreSQL)', () => {
       expect(await states(cancelledProduct.id)).toEqual([expect.objectContaining({ state: 'unregistered' })]);
     });
 
-    it('turns sold out on with a succeeded sold_out and off with a succeeded resume; a thumbnail_update changes nothing', async () => {
+    it('reads sold out from the mall-reported listing status first; the availability execution speaks only while that status is unknown', async () => {
       const mall = await account('몰');
       const item = await product();
       const itemTarget = await target(item.id, mall);
-      const itemListing = await listing(item.id, mall);
+      const itemListing = await listing(item.id, mall, { status: 'observed' });
       await execution({ registrationTargetId: itemTarget.id, channelAccountId: mall, kind: 'register', status: 'succeeded' });
       await execution({ registrationTargetId: itemTarget.id, channelAccountId: mall, channelListingId: itemListing.id, kind: 'sold_out', status: 'succeeded' });
       expect(await states(item.id)).toEqual([expect.objectContaining({ state: 'registered', soldOut: true })]);
@@ -336,6 +353,11 @@ describe('registration state facts (PostgreSQL)', () => {
       await execution({ registrationTargetId: itemTarget.id, channelAccountId: mall, channelListingId: itemListing.id, kind: 'resume', status: 'succeeded' });
       await execution({ registrationTargetId: null, channelAccountId: mall, channelListingId: itemListing.id, kind: 'thumbnail_update', status: 'failed', providerOutcome: 'definitive_failure' });
       expect(await states(item.id)).toEqual([expect.objectContaining({ state: 'registered', soldOut: false, lastExecution: expect.objectContaining({ kind: 'register' }) })]);
+
+      // 그 뒤 수집이 몰의 판매중을 적으면, 우리가 보낸 sold_out 보다 몰이 맞다.
+      await execution({ registrationTargetId: itemTarget.id, channelAccountId: mall, channelListingId: itemListing.id, kind: 'sold_out', status: 'succeeded' });
+      await prisma.channelListing.update({ where: { id: itemListing.id }, data: { status: '승인완료' } });
+      expect(await states(item.id)).toEqual([expect.objectContaining({ soldOut: false, listingState: 'published' })]);
     });
 
     it('needs a re-send after a product write or a different detail revision, never for values an update did not freeze', async () => {
@@ -367,6 +389,61 @@ describe('registration state facts (PostgreSQL)', () => {
       const thirdListing = await listing(third.id, mall);
       await execution({ registrationTargetId: thirdTarget.id, channelAccountId: mall, channelListingId: thirdListing.id, kind: 'update', status: 'succeeded', payload: { targetVersion: 1, product: { version: 1 }, detailPage: null, adapterPayload: {} } });
       expect((await states(third.id))[0]).toMatchObject({ state: 'registered', changedSinceRegistration: false });
+    });
+
+    it('keeps the re-send flag after a price-only update — the baseline is the last succeeded register or composition_change', async () => {
+      const mall = await account('몰');
+      const item = await product();
+      const itemContent = await content(item.id);
+      const itemTarget = await target(item.id, mall);
+      const itemListing = await listing(item.id, mall);
+      await execution({ registrationTargetId: itemTarget.id, channelAccountId: mall, kind: 'register', status: 'succeeded', payload: frozenPayload(1, 1, itemContent.revisionId, itemContent.assetId) });
+      const revisionB = await itemContent.revision();
+      await prisma.registrationTarget.update({ where: { id: itemTarget.id }, data: { selectedDetailPageRevisionId: revisionB.id } });
+      expect((await states(item.id))[0].changedSinceRegistration).toBe(true);
+
+      // 가격만 고친 update 가 성공해도 몰에는 여전히 옛 상세가 있다.
+      await execution({ registrationTargetId: itemTarget.id, channelAccountId: mall, channelListingId: itemListing.id, kind: 'update', status: 'succeeded', payload: { targetVersion: 1, product: { version: 1 }, detailPage: null, adapterPayload: {} } });
+      expect((await states(item.id))[0]).toMatchObject({ state: 'registered', changedSinceRegistration: true });
+
+      // 구성 변경은 전체 문서를 다시 얼리므로 새 기준이 된다.
+      await execution({ registrationTargetId: itemTarget.id, channelAccountId: mall, channelListingId: itemListing.id, kind: 'composition_change', status: 'succeeded', payload: frozenPayload(1, 1, revisionB.id, itemContent.assetId) });
+      expect((await states(item.id))[0].changedSinceRegistration).toBe(false);
+    });
+
+    it('reads a taken-down catalog listing as registered and not active, agreeing with the 미등록 tab', async () => {
+      const mall = await account('몰');
+      const item = await product();
+      const takenDown = await listing(item.id, mall, { status: '판매중지', isActive: false });
+
+      expect(await states(item.id)).toEqual([expect.objectContaining({
+        channelAccountId: mall,
+        state: 'registered',
+        channelListingId: takenDown.id,
+        listingActive: false,
+        listingRawStatus: '판매중지',
+      })]);
+
+      const list = await new SalesProductUseCase(salesProducts, ...realDraftDeletionPorts(prisma), reader).list(ORG, { focus: 'unregistered' });
+      expect(list.items.map((row) => row.id)).not.toContain(item.id);
+    });
+
+    it('gives an older listing on the same account no registration row of the newer listing', async () => {
+      const mall = await account('몰');
+      const item = await product();
+      const older = await listing(item.id, mall, { status: '승인반려' });
+      const newer = await listing(item.id, mall);
+
+      const db = prisma as unknown as PrismaService;
+      const listings = await new ChannelListingQueryService(
+        new ChannelListingQueryPersistenceAdapter(db),
+        new ListingContentQueryRepositoryAdapter(db),
+        reader,
+      ).list(ORG, {});
+      const byId = new Map(listings.items.map((row) => [row.id, row]));
+      expect(byId.get(newer.id)?.registration).toMatchObject({ channelListingId: newer.id, listingState: 'published' });
+      // 옛 리스팅은 새 리스팅의 상태를 빌리지 않는다 — 자기 몰 상태(status)만 말한다.
+      expect(byId.get(older.id)).toMatchObject({ status: '승인반려', registration: null });
     });
 
     it('carries the per-account state on sales product list items and on listing summaries', async () => {

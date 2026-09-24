@@ -101,8 +101,8 @@ describe('ChannelListingQueryService', () => {
   });
 
   it('carries the registration state of the listing\'s own account, read once for the page', async () => {
-    const own = { channelAccountId: 'account-1', state: 'registered' };
-    const other = { channelAccountId: 'account-2', state: 'failed' };
+    const own = { channelAccountId: 'account-1', channelListingId: 'active-listing', state: 'registered' };
+    const other = { channelAccountId: 'account-2', channelListingId: null, state: 'failed' };
     const states = makeStates([other, own]);
     const service = new ChannelListingQueryService(makePersistence(), makeContent(), states);
 
