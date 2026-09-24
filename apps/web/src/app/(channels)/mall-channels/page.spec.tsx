@@ -25,6 +25,8 @@ let mallAccounts: unknown;
 /** 재고 owner 의 셀피아 스냅샷 요약 — 맨 위 대시보드가 읽는다. */
 let sellpiaSnapshot: unknown;
 
+const coupangSettings = { configured: true, vendorId: 'A00057379', status: 'active', updatedAt: null };
+
 vi.mock('@tanstack/react-query', () => ({
   useQuery: ({ queryKey }: { queryKey: readonly unknown[] }) => ({
     data: queryKey.includes('manifests')
@@ -33,7 +35,9 @@ vi.mock('@tanstack/react-query', () => ({
         ? mallAccounts
         : queryKey.includes('sellpia-skus')
           ? sellpiaSnapshot
-          : overview,
+          : queryKey.includes('coupangAccount')
+            ? coupangSettings
+            : overview,
     isLoading: false,
     isError: false,
     error: null,
@@ -219,6 +223,11 @@ describe('쇼핑몰 현황 — 맨 위 요약', () => {
     for (const label of ['클레임수집', '문의수집', '문의답변', '상품수정', '재고송신']) {
       expect(screen.getByRole('img', { name: `${label} 4곳 중 0곳 됨, 3곳 아직, 1곳 불가` })).toBeInTheDocument();
     }
+  });
+
+  it('쿠팡 WING 줄은 쿠팡 계정 설정의 vendorId 를 계정으로 보인다 — 주문수집 몰 계정이 아니어도 "계정 없음"이 아니다', () => {
+    render(<MallChannelsPage />);
+    expect(screen.getByText('A00057379')).toBeInTheDocument();
   });
 
   it('예전 띠의 고정 글자와 되풀이 숫자는 없다', () => {

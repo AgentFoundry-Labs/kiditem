@@ -8,6 +8,8 @@ import { isApiError } from '@/lib/api-error';
 import { formatNumber } from '@/lib/utils';
 import { queryKeys } from '@/lib/query-keys';
 import { orderMallAccountApi } from '@/lib/order-mall-account-api';
+import { apiClient } from '@/lib/api-client';
+import { CoupangAccountSettingsSchema } from '@kiditem/shared/channel-account';
 import { MallAccountSettingsDialog } from '../../(orders)/mall-settings/components/MallAccountSettingsDialog';
 import { MALL_ACCOUNT_SETTINGS_PARAM, mallAccountKeyFor } from '../_shared/mall-account-settings-link';
 import { SabangnetListingsImport } from '../_shared/SabangnetListingsImport';
@@ -58,13 +60,23 @@ export default function MallChannelsPage() {
     queryKey: queryKeys.orders.collectionMalls(),
     queryFn: () => orderMallAccountApi.list(),
   });
+  // 쿠팡 WING 은 주문수집 몰 계정이 아니라 쿠팡 계정 설정(vendorId)이다 — 그 줄도 계정 있음으로 그린다.
+  const coupangQuery = useQuery({
+    queryKey: queryKeys.coupangAccount.settings(),
+    queryFn: () => apiClient.getParsed('/api/channels/coupang/account', CoupangAccountSettingsSchema),
+  });
   const accounts = useMemo((): ReadonlyMap<string, ChannelAccountInfo> | null => {
     if (!Array.isArray(accountsQuery.data)) return accountsQuery.isError ? new Map() : null;
-    return new Map(accountsQuery.data.map((account) => [
+    const map = new Map<string, ChannelAccountInfo>(accountsQuery.data.map((account) => [
       account.key,
       { loginId: account.loginId ?? null, enabled: account.enabled, siteUrl: account.siteUrl ?? null },
     ]));
-  }, [accountsQuery.data, accountsQuery.isError]);
+    const coupang = coupangQuery.data;
+    if (coupang?.configured && coupang.vendorId) {
+      map.set('coupang', { loginId: coupang.vendorId, enabled: true, siteUrl: 'https://wing.coupang.com' });
+    }
+    return map;
+  }, [accountsQuery.data, accountsQuery.isError, coupangQuery.data]);
 
   return (
     <div className="space-y-6">
