@@ -12,6 +12,7 @@ const activeListing: ChannelListingSummary = {
   imageUrl: null,
   detailPageRevisionId: null,
   registration: null,
+  listingState: 'published',
   channel: 'coupang',
   channelAccountId: 'account-1',
   channelAccountName: 'Wing',

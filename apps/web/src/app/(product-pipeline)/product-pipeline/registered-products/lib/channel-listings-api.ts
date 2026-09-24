@@ -1,3 +1,4 @@
+import type { MallListingState } from '@kiditem/shared/sales-product';
 import {
   CoupangCatalogCollectionRunSchema,
   CoupangCatalogStageSchema,
@@ -77,6 +78,8 @@ export interface RegisteredChannelListing {
    * 옛 응답이면 null/없음이고, 그때만 몰 원문 상태를 보인다.
    */
   registration?: RegistrationAccountState | null;
+  /** 몰 원문 `status` 를 접은 상태. 옛 응답이면 없음 → `unknown` 으로 그린다. */
+  listingState?: MallListingState;
   createdAt: string;
   updatedAt: string;
   providerDetail?: RegisteredChannelListingProviderDetail;

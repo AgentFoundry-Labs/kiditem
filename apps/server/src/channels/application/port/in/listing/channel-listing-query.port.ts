@@ -1,3 +1,4 @@
+import type { MallListingState } from '../../../../domain/listing/mall-listing-state';
 import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type {
@@ -62,6 +63,8 @@ export interface ChannelListingSummary {
   detailPageRevisionId: string | null;
   /** 이 리스팅의 판매 상품 × 계정 등록 상태(등록 상태 reader). 판매 상품 없는 리스팅은 null. */
   registration: RegistrationAccountState | null;
+  /** 몰이 보고한 `status` 를 우리 어휘로 접은 상태(`mall-listing-state.ts`). 화면은 원문 대신 이 값으로 라벨·색을 고른다. */
+  listingState: MallListingState;
   channel: string;
   channelAccountId: string | null;
   channelAccountName: string | null;

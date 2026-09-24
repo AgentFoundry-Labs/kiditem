@@ -1,3 +1,4 @@
+import { resolveMallListingState } from '../../../domain/listing/mall-listing-state';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { readRegistrationFailureCounts } from '../repository/registration-execution-ledger.reader';
 import type { ChannelListingFactQueries } from '../../../application/port/in/listing/channel-listing-query.port';
@@ -332,6 +333,7 @@ function toSummary(
     detailPageRevisionId: null,
     // 등록 상태는 서비스가 등록 상태 reader 로 채운다(KID-320).
     registration: null,
+    listingState: resolveMallListingState({ hasListing: true, listingStatus: row.status }).state,
     channel: row.channelAccount.channel,
     channelAccountId: row.channelAccountId,
     channelAccountName: row.channelAccount.name,

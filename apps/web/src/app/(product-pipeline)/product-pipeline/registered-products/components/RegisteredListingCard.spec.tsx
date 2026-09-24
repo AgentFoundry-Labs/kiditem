@@ -22,6 +22,7 @@ function listingFixture(overrides: Partial<RegisteredChannelListing> = {}): Regi
     sourceRecordId: 'candidate-1',
     contentWorkspaceId: 'workspace-1',
     status: 'active',
+    listingState: 'published',
     exposureStatus: 'visible',
     optionCount: 2,
     mappingStatus: 'matched',
@@ -82,9 +83,15 @@ describe('RegisteredListingCard', () => {
     expect(screen.getByText('등록됨 · 내림')).toBeInTheDocument();
   });
 
-  it('falls back to the raw listing status only for a listing without a sales product', () => {
-    render(<RegisteredListingCard listing={listingFixture({ status: 'APPROVED', registration: null })} onOpen={vi.fn()} />);
-    expect(screen.getByText('APPROVED')).toBeInTheDocument();
+  it('shows the folded mall state in Korean with its own tone for a listing without a sales product', () => {
+    render(<RegisteredListingCard listing={listingFixture({ status: 'APPROVED', listingState: 'published', registration: null })} onOpen={vi.fn()} />);
+    expect(screen.getByText('등록')).toHaveClass('bg-emerald-600');
+    expect(screen.queryByText('APPROVED')).not.toBeInTheDocument();
+  });
+
+  it('colours a reviewing listing differently from a published one', () => {
+    render(<RegisteredListingCard listing={listingFixture({ status: 'REVIEWING', listingState: 'reviewing', registration: null })} onOpen={vi.fn()} />);
+    expect(screen.getByText('검수중')).toHaveClass('bg-sky-600');
   });
 
   it('renders listing-owned content and mapping state', () => {
