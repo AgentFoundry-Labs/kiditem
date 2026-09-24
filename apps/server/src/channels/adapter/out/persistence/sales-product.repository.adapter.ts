@@ -1,4 +1,4 @@
-import { KiditemConflictError } from '@kiditem/shared/errors';
+import { KiditemConflictError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { resolveUnitCost } from '../../../../products/domain/option-pricing-resolver';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
@@ -6,7 +6,7 @@ import { readSalesProductOptionExecutionCounts } from '../repository/registratio
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { ensureSalesProductCodesInTransaction } from './sales-product-code-rows';
 import { SalesProductStatusError, assertStatusInvariant } from '../../../domain/sales-product/sales-product-status';
-import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
   SalesProductCertificationSchema,
@@ -419,7 +419,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       throw translateUniqueViolation(error);
     }
     const exists = await this.prisma.salesProduct.count({ where: { id: salesProductId, organizationId } });
-    if (!exists) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+    if (!exists) throw new KiditemNotFoundError('CHANNELS_SALES_PRODUCT_NOT_FOUND');
     return false;
   }
 
@@ -795,28 +795,28 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
     organizationId: string,
     writes: readonly MallPriceAdoptionWrite[],
   ): Promise<number> {
-    if (!Array.isArray(writes)) throw new ConflictException('가격 반영 목록이 올바르지 않습니다.');
+    if (!Array.isArray(writes)) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'PRICE_WRITES_INVALID' }, message: '가격 반영 목록이 올바르지 않습니다.' });
     const productIds = new Set<string>();
     for (const write of writes) {
       if (typeof write?.salesProductId !== 'string' || write.salesProductId.trim().length === 0) {
-        throw new ConflictException('가격을 반영할 판매상품이 없습니다.');
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'PRICE_WRITE_PRODUCT_MISSING' }, message: '가격을 반영할 판매상품이 없습니다.' });
       }
-      if (productIds.has(write.salesProductId)) throw new ConflictException('같은 판매상품에 가격 반영 줄이 여러 개입니다.');
+      if (productIds.has(write.salesProductId)) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'PRICE_WRITE_DUPLICATE' }, message: '같은 판매상품에 가격 반영 줄이 여러 개입니다.' });
       productIds.add(write.salesProductId);
       if (!Number.isSafeInteger(write.expectedVersion) || write.expectedVersion < 0) {
-        throw new ConflictException('판매상품 버전이 올바르지 않습니다.');
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'PRICE_WRITE_VERSION_INVALID' }, message: '판매상품 버전이 올바르지 않습니다.' });
       }
       if (!Array.isArray(write.optionPrices) || write.optionPrices.length === 0) {
-        throw new ConflictException('옵션 판매가가 없습니다.');
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'OPTION_PRICES_REQUIRED' }, message: '옵션 판매가가 없습니다.' });
       }
       const optionIds = new Set<string>();
       for (const optionPrice of write.optionPrices) {
         if (typeof optionPrice?.salesProductOptionId !== 'string' || optionIds.has(optionPrice.salesProductOptionId)) {
-          throw new ConflictException('같은 단품의 판매가가 여러 개이거나 단품이 없습니다.');
+          throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'OPTION_PRICE_DUPLICATE' }, message: '같은 단품의 판매가가 여러 개이거나 단품이 없습니다.' });
         }
         optionIds.add(optionPrice.salesProductOptionId);
         if (!Number.isSafeInteger(optionPrice.salePrice) || optionPrice.salePrice < 0 || optionPrice.salePrice > MAX_MONEY) {
-          throw new ConflictException('옵션 판매가가 올바르지 않습니다.');
+          throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'OPTION_PRICE_INVALID' }, message: '옵션 판매가가 올바르지 않습니다.' });
         }
       }
     }
@@ -827,13 +827,13 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           where: { id: write.salesProductId, organizationId, version: write.expectedVersion },
           data: { version: { increment: 1 } },
         });
-        if (bumped.count !== 1) throw new ConflictException('판매상품이 다른 곳에서 변경되었습니다.');
+        if (bumped.count !== 1) throw new KiditemConflictError('CHANNELS_SALES_PRODUCT_STALE', { details: { reason: 'VERSION_CHANGED' } });
         for (const optionPrice of write.optionPrices) {
           const updated = await tx.salesProductOption.updateMany({
             where: { id: optionPrice.salesProductOptionId, organizationId, salesProductId: write.salesProductId },
             data: { salePrice: optionPrice.salePrice },
           });
-          if (updated.count !== 1) throw new ConflictException('그 판매상품의 단품이 아닙니다.');
+          if (updated.count !== 1) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'OPTION_NOT_OF_PRODUCT' }, message: '그 판매상품의 단품이 아닙니다.' });
         }
       }
     }, TRANSACTION_OPTIONS);
@@ -863,7 +863,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
         const targets = (await this.registrationTargets.list(organizationId, write.salesProductId))
           .filter((target) => target.channelAccountId === write.channelAccountId);
         if (targets.length > 1) {
-          throw new ConflictException('같은 몰 계정에 등록 대상이 여러 개라 사방넷 몰 값을 정할 수 없습니다.');
+          throw new KiditemConflictError('CHANNELS_REGISTRATION_TARGET_CONFLICT', { details: { reason: 'SABANGNET_TARGET_AMBIGUOUS' } });
         }
         if (targets.length === 0) continue;
         const target = targets[0]!;
@@ -1156,7 +1156,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
           channelAccountId: write.channelAccountId,
         });
         const target = await this.registrationTargets.get(organizationId, targetId);
-        if (!target) throw new NotFoundException('등록 설정을 찾을 수 없습니다.');
+        if (!target) throw new KiditemNotFoundError('CHANNELS_REGISTRATION_TARGET_NOT_FOUND');
         await this.registrationTargets.update(organizationId, target.id, {
           ...editableTarget(target),
           registrationInput: { ...target.registrationInput, mallCategory: { key: write.path, label: null } },
@@ -1242,7 +1242,7 @@ export class SalesProductRepositoryAdapter implements SalesProductRepositoryPort
       if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
         // 거절 사유를 미리 본 뒤에도 남는 참조: 등록 설정을 붙든 끝난 등록 실행 기록, 또는 다른 몰
         // 상품의 옵션이 이 초안의 단품을 가리키는 연결.
-        throw new ConflictException('끝난 등록 실행 기록이나 몰 상품 옵션이 이 초안을 가리키고 있어 지우지 않았습니다.');
+        throw new KiditemConflictError('CHANNELS_SALES_PRODUCT_DRAFT_DELETE_REFUSED', { details: { reason: 'REFERENCED_AFTER_CHECK' }, cause: error });
       }
       throw error;
     }
@@ -1472,7 +1472,7 @@ async function materializeImportedTarget(
   data: SalesProductChannelOverrideRecord,
 ): Promise<void> {
   const account = await tx.channelAccount.count({ where: { id: channelAccountId, organizationId, status: 'active' } });
-  if (account !== 1) throw new NotFoundException('몰 계정을 찾지 못했습니다.');
+  if (account !== 1) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
   const options = await tx.salesProductOption.findMany({
     where: { organizationId, salesProductId, supplyStatus: { not: 'unused' } },
     orderBy: [{ sortOrder: 'asc' }, { optionCode: 'asc' }],
@@ -1519,11 +1519,11 @@ async function applyPlan(
   for (const option of current) {
     const used = (executions.get(option.id) ?? 0) > 0 || option._count.channelListingOptions > 0;
     if (plan.deleteIds.includes(option.id) && (used || option._count.registrationSelections > 0)) {
-      throw new ConflictException('옵션에 새 연결 또는 실행 이력이 생겼습니다. 다시 불러오세요.');
+      throw new KiditemConflictError('CHANNELS_SALES_PRODUCT_STALE', { details: { reason: 'OPTION_HISTORY_CHANGED' } });
     }
     const write = plan.writes.find(item => item.id === option.id);
     if (write && used && option.components.length > 0 && compositionKey(option.components) !== compositionKey(write.components)) {
-      throw new ConflictException('사용한 옵션의 구성 변경에는 새 옵션이 필요합니다. 다시 불러오세요.');
+      throw new KiditemConflictError('CHANNELS_SALES_PRODUCT_STALE', { details: { reason: 'USED_OPTION_COMPOSITION_CHANGED' } });
     }
   }
   const updateIds = plan.writes.flatMap((write) => (write.id ? [write.id] : []));
@@ -1626,16 +1626,18 @@ async function assertStoredStatus(tx: Tx, organizationId: string, salesProductId
 }
 
 function translateUniqueViolation(error: unknown): unknown {
-  if (error instanceof SalesProductStatusError) return new ConflictException(error.message);
+  if (error instanceof SalesProductStatusError) {
+    return new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'SALES_PRODUCT_STATUS_INVARIANT' }, message: error.message, cause: error });
+  }
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002') {
     const target = JSON.stringify(error.meta?.target ?? '');
-    if (target.includes('option_code')) return new ConflictException('단품코드가 다른 판매상품과 겹칩니다.');
-    if (target.includes('own_code')) return new ConflictException('자체상품코드가 다른 판매상품과 겹칩니다.');
-    if (target.includes('code')) return new ConflictException('판매상품코드가 이미 있습니다.');
-    return new ConflictException('같은 값이 이미 있습니다.');
+    if (target.includes('option_code')) return new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'OPTION_CODE_DUPLICATE' }, message: '단품코드가 다른 판매상품과 겹칩니다.' });
+    if (target.includes('own_code')) return new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'OWN_CODE_DUPLICATE' }, message: '자체상품코드가 다른 판매상품과 겹칩니다.' });
+    if (target.includes('code')) return new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'SALES_PRODUCT_CODE_DUPLICATE' }, message: '판매상품코드가 이미 있습니다.' });
+    return new KiditemConflictError('DB_CONFLICT', { cause: error });
   }
   if (error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2003') {
-    return new ConflictException('몰 옵션에 연결된 단품은 지울 수 없습니다.');
+    return new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'OPTION_LINKED_TO_LISTING' }, message: '몰 옵션에 연결된 단품은 지울 수 없습니다.' });
   }
   return error;
 }

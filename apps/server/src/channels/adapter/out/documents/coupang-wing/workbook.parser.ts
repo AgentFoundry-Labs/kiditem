@@ -1,5 +1,5 @@
-import { BadRequestException } from '@nestjs/common';
 import * as XLSX from 'xlsx';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 
 import type { ParsedWingCatalogRow, ParsedWingCatalogSkippedRow, ParsedWingCatalogWorkbook } from '../../../../application/port/out/documents/channel-document.models';
 export type { ParsedWingCatalogRow, ParsedWingCatalogSkippedRow, ParsedWingCatalogWorkbook } from '../../../../application/port/out/documents/channel-document.models';
@@ -57,13 +57,13 @@ export function parseCoupangWingWorkbook(
   const workbook = readWorkbook(buffer);
   const sheet = workbook.Sheets.Template;
   if (!sheet) {
-    throw new BadRequestException('Coupang Wing Template 시트를 찾을 수 없습니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_TEMPLATE_SHEET_MISSING' }, message: 'Coupang Wing Template 시트를 찾을 수 없습니다.' });
   }
 
   repairWorksheetRef(sheet);
   const range = decodeWorksheetRange(sheet);
   if (!range) {
-    throw new BadRequestException('Coupang Wing Template 시트가 비어 있습니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_TEMPLATE_SHEET_EMPTY' }, message: 'Coupang Wing Template 시트가 비어 있습니다.' });
   }
 
   const header = findHeaderRow(sheet, range);
@@ -71,9 +71,7 @@ export function parseCoupangWingWorkbook(
     const missing = REQUIRED_HEADERS.filter(
       (required) => !header.headersByColumn.includes(required),
     );
-    throw new BadRequestException(
-      `Coupang Wing 필수 컬럼을 찾을 수 없습니다: ${missing.join(', ') || REQUIRED_HEADERS.join(', ')}`,
-    );
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_REQUIRED_COLUMNS_MISSING' }, message: `Coupang Wing 필수 컬럼을 찾을 수 없습니다: ${missing.join(', ') || REQUIRED_HEADERS.join(', ')}` });
   }
 
   expandMergedParentCells(sheet, header.headersByColumn, header.row, range.e.r);
@@ -161,17 +159,13 @@ export function parseCoupangWingWorkbook(
   }
 
   if (sourceRowCount === 0) {
-    throw new BadRequestException('Coupang Wing Template 시트가 비어 있습니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_TEMPLATE_SHEET_EMPTY' }, message: 'Coupang Wing Template 시트가 비어 있습니다.' });
   }
   if (rows.length > MAX_COUPANG_WING_IMPORT_ROWS) {
-    throw new BadRequestException(
-      `Coupang Wing 유효 행 수가 너무 많습니다. 최대 ${MAX_COUPANG_WING_IMPORT_ROWS}행까지 가져올 수 있습니다.`,
-    );
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_TOO_MANY_ROWS', max: MAX_COUPANG_WING_IMPORT_ROWS }, message: `Coupang Wing 유효 행 수가 너무 많습니다. 최대 ${MAX_COUPANG_WING_IMPORT_ROWS}행까지 가져올 수 있습니다.` });
   }
   if (validationErrors.length > 0) {
-    throw new BadRequestException(
-      `Coupang Wing 유효성 검사 실패: ${validationErrors.join('; ')}`,
-    );
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_ROWS_INVALID' }, message: `Coupang Wing 유효성 검사 실패: ${validationErrors.join('; ')}` });
   }
 
   return { rows, skippedRows, headers };
@@ -193,7 +187,7 @@ function readWorkbook(buffer: Buffer): XLSX.WorkBook {
   try {
     return XLSX.read(buffer, { type: 'buffer' });
   } catch {
-    throw new BadRequestException('Coupang Wing workbook을 읽을 수 없습니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_WORKBOOK_UNREADABLE' }, message: 'Coupang Wing 엑셀을 읽을 수 없습니다.' });
   }
 }
 

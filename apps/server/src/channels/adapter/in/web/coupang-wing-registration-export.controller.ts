@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Inject,
@@ -10,6 +9,7 @@ import {
   UploadedFile,
   UseInterceptors,
 } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
@@ -39,17 +39,17 @@ export class CoupangWingRegistrationExportController {
     @Res({ passthrough: true }) response: Response,
   ): StreamableFile {
     if (!template?.buffer) {
-      throw new BadRequestException('WING 양식 템플릿이 필요합니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_TEMPLATE_REQUIRED' }, message: 'WING 양식 템플릿이 필요합니다.' });
     }
     if (!productsPayload) {
-      throw new BadRequestException('등록할 상품이 없습니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_PRODUCTS_REQUIRED' }, message: '등록할 상품이 없습니다.' });
     }
 
     let products: unknown;
     try {
       products = JSON.parse(productsPayload);
     } catch {
-      throw new BadRequestException('WING 상품 데이터가 유효한 JSON이 아닙니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_PRODUCTS_JSON_INVALID' }, message: 'WING 상품 데이터가 유효한 JSON이 아닙니다.' });
     }
 
     const requestedFileName = typeof fileName === 'string' ? fileName : undefined;

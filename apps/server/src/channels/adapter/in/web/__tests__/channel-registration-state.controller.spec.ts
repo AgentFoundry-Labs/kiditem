@@ -1,4 +1,3 @@
-import { NotFoundException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
 import { SalesProductRegistrationStateSchema } from '@kiditem/shared/sales-product';
 import { ChannelRegistrationExecutionController } from '../channel-registration-execution.controller';
@@ -30,6 +29,6 @@ describe('ChannelRegistrationExecutionController.registrationState', () => {
     const controller = new ChannelRegistrationExecutionController(
       { readForSalesProducts: vi.fn().mockResolvedValue(new Map()) } as never,
     );
-    await expect(controller.registrationState(PRODUCT, 'org-1')).rejects.toBeInstanceOf(NotFoundException);
+    await expect(controller.registrationState(PRODUCT, 'org-1')).rejects.toMatchObject({ code: 'CHANNELS_SALES_PRODUCT_NOT_FOUND' });
   });
 });

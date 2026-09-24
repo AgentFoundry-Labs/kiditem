@@ -1,4 +1,5 @@
-import { Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Query } from '@nestjs/common';
+import { Controller, Get, Inject, Param, ParseUUIDPipe, Query } from '@nestjs/common';
+import { KiditemNotFoundError } from '@kiditem/shared/errors';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
 import {
   CHANNEL_LISTING_QUERY_PORT,
@@ -19,7 +20,7 @@ export class ChannelListingController {
     @Param('listingId', new ParseUUIDPipe()) listingId: string,
   ) {
     const workspace = await this.listings.getWorkspace(organizationId, listingId);
-    if (!workspace) throw new NotFoundException('등록 상품을 찾을 수 없습니다.');
+    if (!workspace) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND');
     return workspace;
   }
 

@@ -3,7 +3,8 @@ import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { readRegistrationFailureCounts } from '../repository/registration-execution-ledger.reader';
 import type { ChannelListingFactQueries } from '../../../application/port/in/listing/channel-listing-query.port';
 import { readListingTrafficWindowFacts, readLatestListingStateFacts, readLatestListingSaleStatusFacts } from './channel-listing-daily-facts';
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { KiditemConflictError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
@@ -147,7 +148,7 @@ export class ChannelListingQueryPersistenceAdapter implements ChannelListingQuer
       }) : [];
     const seen = new Set<string>();
     for (const option of options) {
-      if (seen.has(option.externalOptionId)) throw new ConflictException('Channel option identity is ambiguous within the account.');
+      if (seen.has(option.externalOptionId)) throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'OPTION_IDENTITY_AMBIGUOUS' } });
       seen.add(option.externalOptionId);
     }
     return [
@@ -210,7 +211,7 @@ export class ChannelListingQueryPersistenceAdapter implements ChannelListingQuer
         AND listing.is_active = true
       FOR UPDATE OF listing
     `);
-    if (rows.length !== 1) throw new NotFoundException('Channel listing owner not found.');
+    if (rows.length !== 1) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND');
     return rows[0]!;
   }
   async assertOwnedIds(transaction: Parameters<ChannelListingFactQueries['assertOwnedIds']>[0], input: Parameters<ChannelListingFactQueries['assertOwnedIds']>[1]) {
@@ -219,7 +220,7 @@ export class ChannelListingQueryPersistenceAdapter implements ChannelListingQuer
     const count = await ownerTransactionClient(transaction).channelListing.count({
       where: { organizationId: input.organizationId, id: { in: ids } },
     });
-    if (count !== ids.length) throw new NotFoundException('Channel listing owner not found.');
+    if (count !== ids.length) throw new KiditemNotFoundError('CHANNELS_LISTING_NOT_FOUND');
   }
 
 

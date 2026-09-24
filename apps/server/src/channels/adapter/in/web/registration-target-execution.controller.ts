@@ -1,6 +1,6 @@
 import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { PrepareListingAvailabilityInputSchema, ReportListingAvailabilityInputSchema } from '@kiditem/shared/sales-product';
-import { BadRequestException, Body, Controller, Get, Inject, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
+import { Body, Controller, Get, Inject, Param, ParseUUIDPipe, Post, Query } from '@nestjs/common';
 import { PrepareTargetExecutionInputSchema, ReportTargetExecutionInputSchema } from '@kiditem/shared/sales-product';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
@@ -14,7 +14,7 @@ export class RegistrationTargetExecutionController {
   @Post('listing-availability-executions')
   prepareListing(@CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser, @Body() body: unknown) {
     const parsed = PrepareListingAvailabilityInputSchema.safeParse(body);
-    if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
+    if (!parsed.success) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'REQUEST_INVALID' }, cause: parsed.error });
     return this.executions.prepareListingAvailability(organizationId, user.id ?? null, parsed.data);
   }
   @Get('listing-availability-executions')
@@ -31,7 +31,7 @@ export class RegistrationTargetExecutionController {
   reportListing(@CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser,
     @Param('id', new ParseUUIDPipe()) id: string, @Body() body: unknown) {
     const parsed = ReportListingAvailabilityInputSchema.safeParse(body);
-    if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
+    if (!parsed.success) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'REQUEST_INVALID' }, cause: parsed.error });
     return this.executions.reportListingAvailability(organizationId, user.id ?? null, id, parsed.data);
   }
 
@@ -45,7 +45,7 @@ export class RegistrationTargetExecutionController {
   prepare(@CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser,
     @Param('id', new ParseUUIDPipe()) targetId: string, @Body() body: unknown) {
     const parsed = PrepareTargetExecutionInputSchema.safeParse(body);
-    if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
+    if (!parsed.success) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'REQUEST_INVALID' }, cause: parsed.error });
     return this.executions.prepareTargetExecution(organizationId, targetId, user.id ?? null, parsed.data);
   }
 
@@ -65,7 +65,7 @@ export class RegistrationTargetExecutionController {
   report(@CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser,
     @Param('id', new ParseUUIDPipe()) executionId: string, @Body() body: unknown) {
     const parsed = ReportTargetExecutionInputSchema.safeParse(body);
-    if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
+    if (!parsed.success) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'REQUEST_INVALID' }, cause: parsed.error });
     return this.executions.reportTargetExecution(organizationId, executionId, user.id ?? null, parsed.data);
   }
 }

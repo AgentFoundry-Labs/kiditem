@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Controller, Delete, Get, Inject, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
+import { Body, Controller, Delete, Get, Inject, Param, ParseUUIDPipe, Post, Put, Query } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { RegistrationTargetResolveInputSchema, RegistrationTargetUpdateInputSchema } from '@kiditem/shared/sales-product';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { REGISTRATION_TARGET_PORT, type RegistrationTargetPort } from '../../../application/port/in/registration-target.port';
@@ -20,13 +21,19 @@ export class RegistrationTargetController {
   @Post('resolve')
   resolve(@CurrentOrganization() organizationId: string, @Body() body: unknown) {
     const parsed = RegistrationTargetResolveInputSchema.safeParse(body);
-    if (!parsed.success) throw new BadRequestException(parsed.error.flatten());
+    if (!parsed.success) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'REQUEST_INVALID' }, cause: parsed.error });
     return this.targets.resolve(organizationId, parsed.data);
   }
   @Put(':id')
   update(@CurrentOrganization() organizationId: string, @Param('id', new ParseUUIDPipe()) id: string, @Body() body: unknown) {
     const parsed = RegistrationTargetUpdateInputSchema.safeParse(body);
-    if (!parsed.success) throw new BadRequestException(productFactRefusal(body) ?? parsed.error.flatten());
+    if (!parsed.success) {
+      const refusal = productFactRefusal(body);
+      if (refusal) {
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'PRODUCT_FACT_KEYS', keys: refusal.keys }, message: refusal.message });
+      }
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'REQUEST_INVALID' }, cause: parsed.error });
+    }
     return this.targets.update(organizationId, id, parsed.data);
   }
   /** 이 몰에 더 보내지 않는다. 살아 있는 제출이 있으면 거절한다. */

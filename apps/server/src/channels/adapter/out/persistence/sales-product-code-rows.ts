@@ -1,5 +1,5 @@
-import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { KiditemConflictError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { planKidIssue } from '../../../domain/sales-product/sales-product-code';
 import { SalesProductStatusError, statusAfterKidIssued } from '../../../domain/sales-product/sales-product-status';
@@ -24,7 +24,7 @@ export async function ensureSalesProductCodesInTransaction(
     WHERE id = ${salesProductId}::uuid AND organization_id = ${organizationId}::uuid
     FOR UPDATE
   `);
-  if (locked.length !== 1) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+  if (locked.length !== 1) throw new KiditemNotFoundError('CHANNELS_SALES_PRODUCT_NOT_FOUND');
   const product = await tx.salesProduct.findFirstOrThrow({
     where: { id: salesProductId, organizationId },
     select: {
@@ -81,7 +81,9 @@ function issuedStatus(name: string, status: SalesProductStatus): 'active' {
   try {
     return statusAfterKidIssued({ name, status });
   } catch (error) {
-    if (error instanceof SalesProductStatusError) throw new ConflictException(error.message);
+    if (error instanceof SalesProductStatusError) {
+      throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'KID_ALREADY_ISSUED' }, cause: error });
+    }
     throw error;
   }
 }

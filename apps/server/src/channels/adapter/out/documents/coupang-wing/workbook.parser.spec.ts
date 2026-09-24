@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it } from 'vitest';
 import * as XLSX from 'xlsx';
 import {
@@ -99,8 +98,8 @@ function errorMessage(run: () => unknown): string {
   try {
     run();
   } catch (error) {
-    expect(error).toBeInstanceOf(BadRequestException);
-    return (error as BadRequestException).message;
+    expect(error).toMatchObject({ code: 'VALIDATION_FAILED' });
+    return (error as Error).message;
   }
   throw new Error('Expected parser to reject the workbook');
 }

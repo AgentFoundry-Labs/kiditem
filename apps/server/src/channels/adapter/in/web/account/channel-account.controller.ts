@@ -1,4 +1,5 @@
-import { BadRequestException, Body, Inject, Controller, Get, Patch } from '@nestjs/common';
+import { Body, Inject, Controller, Get, Patch } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import {
   UpdateCoupangAccountSettingsSchema,
   type CoupangAccountSettings,
@@ -29,7 +30,7 @@ export class ChannelAccountController {
       vendorId: body.vendorId,
     });
     if (!parsed.success) {
-      throw new BadRequestException('쿠팡 계정 설정 입력값을 확인하세요.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'COUPANG_SETTINGS_INVALID' }, message: '쿠팡 계정 설정 입력값을 확인하세요.' });
     }
     return this.channelAccounts.upsertCoupangSettings(organizationId, parsed.data);
   }

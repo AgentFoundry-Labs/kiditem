@@ -1,4 +1,5 @@
-import { BadRequestException, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import * as XLSX from 'xlsx';
 
 const BASE_SHEET = '기본';
@@ -77,10 +78,10 @@ export class CoupangWingRegistrationExportService {
     requestedFileName?: string,
   ): CoupangWingRegistrationExportResult {
     if (!templateBuffer.length) {
-      throw new BadRequestException('WING 양식 템플릿이 필요합니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_TEMPLATE_REQUIRED' }, message: 'WING 양식 템플릿이 필요합니다.' });
     }
     if (!Array.isArray(products) || products.length === 0) {
-      throw new BadRequestException('등록할 상품이 없습니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_PRODUCTS_REQUIRED' }, message: '등록할 상품이 없습니다.' });
     }
 
     const normalizedProducts = products.map((product, index) =>
@@ -89,7 +90,7 @@ export class CoupangWingRegistrationExportService {
     const workbook = readWorkbook(templateBuffer);
     const sheet = workbook.Sheets[BASE_SHEET];
     if (!sheet)
-      throw new BadRequestException(`양식에 "${BASE_SHEET}" 시트가 없습니다.`);
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_TEMPLATE_SHEET_MISSING' }, message: `양식에 "${BASE_SHEET}" 시트가 없습니다.` });
 
     const grid = XLSX.utils.sheet_to_json<string[]>(sheet, {
       header: 1,
@@ -130,19 +131,17 @@ function readWorkbook(templateBuffer: Buffer): XLSX.WorkBook {
   try {
     return XLSX.read(templateBuffer, { type: 'buffer' });
   } catch {
-    throw new BadRequestException('WING 양식 템플릿을 읽을 수 없습니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_TEMPLATE_UNREADABLE' }, message: 'WING 양식 템플릿을 읽을 수 없습니다.' });
   }
 }
 
 function normalizeProduct(value: unknown, index: number): WingProduct {
   if (!isRecord(value)) {
-    throw new BadRequestException(`상품 ${index + 1}이 유효하지 않습니다.`);
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_PRODUCT_INVALID', product: index + 1 }, message: `상품 ${index + 1}이 유효하지 않습니다.` });
   }
   const variants = Array.isArray(value.variants) ? value.variants : [];
   if (variants.length === 0) {
-    throw new BadRequestException(
-      `상품 "${String(value.productName ?? '')}" 에 variant(SKU) 가 없습니다.`,
-    );
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_VARIANTS_REQUIRED' }, message: `상품 "${String(value.productName ?? '')}" 에 variant(SKU) 가 없습니다.` });
   }
   return {
     categoryCell: stringValue(value.categoryCell),
@@ -167,9 +166,7 @@ function normalizeVariant(
   variantIndex: number,
 ): WingVariant {
   if (!isRecord(value)) {
-    throw new BadRequestException(
-      `상품 ${productIndex + 1}의 variant ${variantIndex + 1}이 유효하지 않습니다.`,
-    );
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_VARIANT_INVALID', product: productIndex + 1, variant: variantIndex + 1 }, message: `상품 ${productIndex + 1}의 variant ${variantIndex + 1}이 유효하지 않습니다.` });
   }
   return {
     purchaseOptions: optionsValue(value.purchaseOptions) ?? [],
@@ -256,9 +253,7 @@ function assertBaseSheetLayout(headerRow: string[]): void {
   for (const [index, expected] of checks) {
     const actual = String(headerRow[index] ?? '').trim();
     if (actual !== expected) {
-      throw new BadRequestException(
-        `WING 양식 레이아웃 불일치: 컬럼 ${index} 는 "${expected}" 여야 하는데 "${actual}" 입니다. 양식 버전이 바뀌었는지 확인하세요.`,
-      );
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_TEMPLATE_LAYOUT_MISMATCH', column: index }, message: `WING 양식 레이아웃 불일치: 컬럼 ${index} 는 "${expected}" 여야 하는데 "${actual}" 입니다. 양식 버전이 바뀌었는지 확인하세요.` });
     }
   }
 }
@@ -272,7 +267,7 @@ function normalizeFileName(requestedFileName?: string): string {
     /[\r\n/\\]/.test(requestedFileName) ||
     !requestedFileName.toLowerCase().endsWith('.xlsx')
   ) {
-    throw new BadRequestException('WING 출력 파일명이 유효하지 않습니다.');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_FILE_NAME_INVALID' }, message: 'WING 출력 파일명이 유효하지 않습니다.' });
   }
   return requestedFileName;
 }
@@ -309,9 +304,7 @@ function numberValue(
 ): number {
   const parsed = typeof value === 'number' ? value : Number(value);
   if (!Number.isFinite(parsed) || parsed < 0) {
-    throw new BadRequestException(
-      `상품 ${productIndex + 1}의 variant ${variantIndex + 1} ${field} 값을 읽을 수 없습니다.`,
-    );
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'WING_VARIANT_FIELD_UNREADABLE', product: productIndex + 1, variant: variantIndex + 1, field }, message: `상품 ${productIndex + 1}의 variant ${variantIndex + 1} ${field} 값을 읽을 수 없습니다.` });
   }
   return parsed;
 }

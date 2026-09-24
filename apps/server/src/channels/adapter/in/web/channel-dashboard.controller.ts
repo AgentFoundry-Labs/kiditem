@@ -1,4 +1,5 @@
 import { Inject } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { CHANNEL_DASHBOARD_PORT, type ChannelDashboardPort } from "../../../application/port/in/listing/channel-dashboard.port";
 import { addDays, kstDayStart, parseBusinessDate } from '../../../../common/kst';
@@ -16,12 +17,12 @@ export class ChannelDashboardController {
     const requestedFrom = fromStr ? parseBusinessDate(fromStr) : null;
     const requestedTo = toStr ? parseBusinessDate(toStr) : null;
     if ((fromStr !== undefined && !requestedFrom) || (toStr !== undefined && !requestedTo)) {
-      throw new BadRequestException('날짜는 유효한 YYYY-MM-DD 형식이어야 합니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'DATE_INVALID' }, message: '날짜는 유효한 YYYY-MM-DD 형식이어야 합니다.' });
     }
     const from = requestedFrom ? kstDayStart(requestedFrom) : defaultFrom;
     const to = requestedTo ? addDays(kstDayStart(requestedTo), 1) : defaultTo;
     if (from.getTime() >= to.getTime()) {
-      throw new BadRequestException('from은 to보다 이후일 수 없습니다.');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'DATE_RANGE_INVALID' }, message: '시작일은 종료일보다 늦을 수 없습니다.' });
     }
     return { from, to };
   }

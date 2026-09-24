@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ChannelDashboardController } from '../channel-dashboard.controller';
 
@@ -24,11 +23,11 @@ describe('ChannelDashboardController date ranges', () => {
     await expect(controller.getRevenueTrend(
       ORGANIZATION_ID,
       { from: '2026-02-30', to: '2026-03-02' },
-    )).rejects.toBeInstanceOf(BadRequestException);
+    )).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'DATE_INVALID' } });
     await expect(controller.getRevenueTrend(
       ORGANIZATION_ID,
       { from: '2026-03-03', to: '2026-03-02' },
-    )).rejects.toBeInstanceOf(BadRequestException);
+    )).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'DATE_RANGE_INVALID' } });
     expect(service.getRevenueTrend).not.toHaveBeenCalled();
   });
 

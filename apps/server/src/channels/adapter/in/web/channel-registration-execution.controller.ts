@@ -1,4 +1,5 @@
-import { Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe } from '@nestjs/common';
+import { Controller, Get, Inject, Param, ParseUUIDPipe } from '@nestjs/common';
+import { KiditemNotFoundError } from '@kiditem/shared/errors';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import {
   REGISTRATION_STATE_PORT,
@@ -27,7 +28,7 @@ export class ChannelRegistrationExecutionController {
     @CurrentOrganization() organizationId: string,
   ): Promise<SalesProductRegistrationState> {
     const view = (await this.registrations.readForSalesProducts(organizationId, [salesProductId])).get(salesProductId);
-    if (!view) throw new NotFoundException('판매상품을 찾지 못했습니다.');
+    if (!view) throw new KiditemNotFoundError('CHANNELS_SALES_PRODUCT_NOT_FOUND');
     return { accounts: view.accounts };
   }
 }
