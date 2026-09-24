@@ -13,9 +13,8 @@ vi.mock('@/hooks/use-trend-source-collection', () => ({
   useTrendSourceCollection: mocks.useAction,
 }));
 
-
-vi.mock('../lib/live-naver-market', () => ({
-  fetchPersistedNaverMarket: mocks.fetchNaver,
+vi.mock('../lib/trend-collection-api', () => ({
+  fetchNaverKeywordTrends: mocks.fetchNaver,
 }));
 
 vi.mock('../lib/live-sns-market', () => ({
@@ -40,12 +39,7 @@ function renderRadar() {
 describe('TrendRadarSection Naver source boundary', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    mocks.fetchNaver.mockResolvedValue({
-      source: 'naver-persisted-snapshot',
-      generatedAt: '',
-      opportunities: [],
-      warnings: [],
-    });
+    mocks.fetchNaver.mockResolvedValue({ days: 30, keywords: [] });
     mocks.useAction.mockReturnValue({
       control: {
         state: 'idle', statusRead: 'current', running: null, canStop: false, notice: null,

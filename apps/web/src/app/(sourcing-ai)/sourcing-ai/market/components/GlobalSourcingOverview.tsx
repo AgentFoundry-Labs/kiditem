@@ -24,7 +24,10 @@ import {
   type TrendSourceCollection,
 } from '@/hooks/use-trend-source-collection';
 import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
-import { fetchPersistedNaverMarket } from '../lib/live-naver-market';
+import {
+  selectPersistedNaverMarket,
+  type LiveNaverMarketResult,
+} from '../lib/live-naver-market';
 import {
   buildCrossMarketTopics,
   type CrossMarketTopicOpportunity,
@@ -37,6 +40,7 @@ import {
 } from '../lib/global-sourcing-sources';
 import {
   fetch1688HotProducts,
+  fetchNaverKeywordTrends,
   fetchShortsTrends,
   type Hot1688OfferView,
   type ShortsTrendView,
@@ -49,7 +53,9 @@ const NAVER_TREND_SOURCES = ['naver'] as const;
 export function GlobalSourcingOverview() {
   const naverQuery = useQuery({
     queryKey: queryKeys.sourcing.trendNaverKeywords(NAVER_SNAPSHOT_DAYS),
-    queryFn: fetchPersistedNaverMarket,
+    // The cache keeps the raw snapshot other screens read under this key; the overview derives its view.
+    queryFn: () => fetchNaverKeywordTrends(NAVER_SNAPSHOT_DAYS),
+    select: selectPersistedNaverMarket,
     staleTime: 10 * 60 * 1000,
   });
   const naverSource = useTrendSourceCollection({ sources: NAVER_TREND_SOURCES });
@@ -283,7 +289,7 @@ function KoreaSignals({
   warnings,
   collection,
 }: {
-  items: Awaited<ReturnType<typeof fetchPersistedNaverMarket>>['opportunities'];
+  items: LiveNaverMarketResult['opportunities'];
   generatedAt: string | null;
   loading: boolean;
   error: boolean;

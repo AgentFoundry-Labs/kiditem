@@ -44,7 +44,8 @@ import {
   type TrendDecision,
   type TrendSource,
 } from '../lib/market-intelligence';
-import { fetchPersistedNaverMarket } from '../lib/live-naver-market';
+import { selectPersistedNaverMarket } from '../lib/live-naver-market';
+import { fetchNaverKeywordTrends } from '../lib/trend-collection-api';
 import { fetchLiveSnsMarket } from '../lib/live-sns-market';
 
 const NAVER_TREND_SOURCES = ['naver'] as const;
@@ -134,7 +135,9 @@ export function TrendRadarSection() {
 
   const liveNaverQuery = useQuery({
     queryKey: queryKeys.sourcing.trendNaverKeywords(NAVER_SNAPSHOT_DAYS),
-    queryFn: fetchPersistedNaverMarket,
+    // The cache keeps the raw snapshot other screens read under this key; the radar derives its view.
+    queryFn: () => fetchNaverKeywordTrends(NAVER_SNAPSHOT_DAYS),
+    select: selectPersistedNaverMarket,
     enabled: channelView === 'domestic',
     staleTime: 10 * 60 * 1000,
   });

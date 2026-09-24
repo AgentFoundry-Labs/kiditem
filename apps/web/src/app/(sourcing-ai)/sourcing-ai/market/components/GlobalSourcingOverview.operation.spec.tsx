@@ -15,12 +15,9 @@ vi.mock('@/hooks/use-trend-source-collection', () => ({
 }));
 
 
-vi.mock('../lib/live-naver-market', () => ({
-  fetchPersistedNaverMarket: mocks.fetchNaver,
-}));
-
 vi.mock('../lib/trend-collection-api', () => ({
   fetch1688HotProducts: vi.fn().mockResolvedValue({ offers: [], capturedAt: null }),
+  fetchNaverKeywordTrends: mocks.fetchNaver,
   fetchShortsTrends: vi.fn().mockResolvedValue({ items: [], capturedAt: null }),
 }));
 
@@ -37,12 +34,7 @@ function renderOverview() {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  mocks.fetchNaver.mockResolvedValue({
-    source: 'naver-persisted-snapshot',
-    generatedAt: '',
-    opportunities: [],
-    warnings: [],
-  });
+  mocks.fetchNaver.mockResolvedValue({ days: 30, keywords: [] });
   mocks.useAction.mockReturnValue({
     control: {
       state: 'idle', statusRead: 'current', running: null, canStop: false, notice: null,
