@@ -211,7 +211,7 @@ describe('purchase-order submission transaction (PG integration)', () => {
       purchaseOrderId: ORDER_ID,
       userId: TEST_USER_ID,
       idempotencyKey: '   ',
-    })).rejects.toMatchObject({ code: 'AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED' });
+    })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IDEMPOTENCY_KEY_REQUIRED' } });
 
     expect(await prisma.purchaseOrder.findUniqueOrThrow({ where: { id: ORDER_ID } }))
       .toMatchObject({ status: 'draft' });

@@ -40,8 +40,8 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
   ): Promise<ProductGenerationAiResult> {
     const idempotencyKey = input.idempotencyKey?.trim();
     const requestHash = input.requestHash?.trim();
-    if (!idempotencyKey) throw new KiditemInvalidValueError('AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED');
-    if (!requestHash) throw new KiditemInvalidValueError('AGENT_OS_OWNER_INPUT_HASH_REQUIRED');
+    if (!idempotencyKey) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'IDEMPOTENCY_KEY_REQUIRED' } });
+    if (!requestHash) throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'INPUT_HASH_REQUIRED' } });
     return this.startClaimed(input, { idempotencyKey, requestHash });
   }
 

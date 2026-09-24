@@ -300,6 +300,41 @@ describe('SupplySourcingProcurementService', () => {
     expect(repo.createTestIntent).not.toHaveBeenCalled();
   });
 
+  it('refuses an expired offer snapshot with the snapshot-expired code, not a generic validation failure', async () => {
+    const repo = repository({
+      findOfferSnapshot: vi.fn().mockResolvedValue(snapshot({ validUntil: new Date('2000-01-01T00:00:00.000Z') })),
+    });
+    const service = new SupplySourcingProcurementService(repo);
+
+    await expect(
+      service.createTestIntent({
+        organizationId: 'org-1',
+        requestedByUserId: 'user-1',
+        idempotencyKey: 'test-order-expired',
+        intentType: 'test_order',
+        sourceRecommendationArtifactId: 'decision-1',
+        decisionBatchItemId: 'decision-1',
+        supplierOfferSkuSnapshotId: snapshot().id,
+        launchCandidateId: 'launch-1',
+        selectedPriceTierId: snapshot().priceTiers[0].id,
+        requestedPurchaseUnits: 10,
+      }),
+    ).rejects.toMatchObject({ code: 'SUPPLY_OFFER_SNAPSHOT_EXPIRED', httpStatus: 409, details: { reason: 'offer_snapshot_expired' } });
+    expect(repo.createTestIntent).not.toHaveBeenCalled();
+  });
+
+  it('refuses a blank web idempotency key as a validation failure, not an agent contract error', async () => {
+    const service = new SupplySourcingProcurementService(repository());
+
+    await expect(service.createTestIntent({
+      organizationId: 'org-1',
+      requestedByUserId: 'user-1',
+      idempotencyKey: '   ',
+      intentType: 'rfq',
+      supplierOfferSkuSnapshotId: snapshot().id,
+    } as never)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IDEMPOTENCY_KEY_REQUIRED' } });
+  });
+
   it('turns a structural idempotency hash mismatch into conflict', async () => {
     const repo = repository({
       createTestIntent: vi.fn().mockResolvedValue({ kind: 'idempotency_conflict' }),

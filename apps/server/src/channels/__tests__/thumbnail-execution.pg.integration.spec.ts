@@ -552,7 +552,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
       const prepared = await service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: product.id, assetId: candidate.id });
       expect(prepared).toMatchObject({ salesProductId: product.id, assetId: candidate.id });
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: product.id, assetId: foreign.asset.id })))
-        .toMatchObject({ code: 'VALIDATION_FAILED' });
+        .toMatchObject({ code: 'CONTENT_SELECTION_INVALID' });
       // 다른 자산이라 (상품, 계정, 자산) 이 다르지만 같은 listing 이므로 기다린다.
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: product.id, assetId: asset.id })))
         .toMatchObject({ code: 'CHANNELS_THUMBNAIL_EXECUTION_ACTIVE', reason: 'LISTING_BUSY' });
@@ -578,7 +578,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
       const { product, workspace } = await listingAsset();
       await prisma.contentWorkspace.update({ where: { id: workspace.id }, data: { currentThumbnailAssetId: null } });
       expect(await rejection(service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: product.id })))
-        .toMatchObject({ code: 'NOT_FOUND' });
+        .toMatchObject({ code: 'CONTENT_NOT_FOUND' });
       expect(await prisma.productRegistrationExecution.count({ where: { executionKind: 'thumbnail_update' } })).toBe(0);
     });
   });

@@ -171,7 +171,7 @@ function optionalString(value: string | null | undefined): string | null {
 function cleanKey(value: string): string {
   const key = value.trim();
   if (!key) {
-    throw new KiditemInvalidValueError('AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'IDEMPOTENCY_KEY_REQUIRED' } });
   }
   return key;
 }
@@ -194,7 +194,7 @@ function requiredCanonicalRequestHash(input: SubmitPurchaseOrderInput): string {
     !/^[a-f0-9]{64}$/.test(input.requestHash)
     || input.requestHash !== canonicalOwnerInputHash(businessInput)
   ) {
-    throw new KiditemInvalidValueError('AGENT_OS_OWNER_INPUT_HASH_REQUIRED', { details: { reason: 'REQUEST_HASH_MISMATCH' } });
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'INPUT_HASH_REQUIRED' } });
   }
   return input.requestHash;
 }

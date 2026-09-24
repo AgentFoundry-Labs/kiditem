@@ -588,7 +588,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
         ...input,
         request: { ...input.request, editedQuantities: { unknown: 1 } },
       }),
-    ).rejects.toThrow(/unknown/i);
+    ).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'ROCKET_PREVIEW_DECISION_INVALID' } });
   });
   it('official workbook loads canonical source and preserves exact-byte replay through the existing Supply interface', async () => {
     const a = (await start()).body;

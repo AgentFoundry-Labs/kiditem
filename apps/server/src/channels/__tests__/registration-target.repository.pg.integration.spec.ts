@@ -432,7 +432,7 @@ describe('registration target repository (PostgreSQL)', () => {
       expectedVersion: 2,
       selectedDetailPageRevisionId: foreignRevisionId,
       selectedOptions: [selected(options[0]!.id)],
-    }))).rejects.toThrow('Selected detail revision is not source-owned.');
+    }))).rejects.toMatchObject({ code: 'CONTENT_SELECTION_INVALID' });
     await expect(repository.get(TEST_ORGANIZATION_ID, targetId)).resolves.toMatchObject({
       version: 2,
       selectedDetailPageRevisionId: ownRevisionId,

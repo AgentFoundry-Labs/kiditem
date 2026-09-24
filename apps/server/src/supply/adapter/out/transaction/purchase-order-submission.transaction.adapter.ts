@@ -554,13 +554,13 @@ async function promoteExpiredPrepared(
 
 function assertNormalizedIdempotencyKey(value: string): void {
   if (!value || value !== value.trim()) {
-    throw new KiditemInvalidValueError('AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED', { details: { reason: 'IDEMPOTENCY_KEY_NOT_NORMALIZED' } });
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'IDEMPOTENCY_KEY_REQUIRED' } });
   }
 }
 
 function assertRequestHash(value: string): void {
   if (!/^[a-f0-9]{64}$/.test(value)) {
-    throw new KiditemInvalidValueError('AGENT_OS_OWNER_INPUT_HASH_REQUIRED', { details: { reason: 'REQUEST_HASH_NOT_CANONICAL' } });
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'INPUT_HASH_REQUIRED' } });
   }
 }
 

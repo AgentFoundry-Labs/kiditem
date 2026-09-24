@@ -190,7 +190,7 @@ describe('PurchaseOrderSubmissionService', () => {
 
     await expect(service.submit(submissionInput({
       idempotencyKey: '   ',
-    }))).rejects.toMatchObject({ code: 'AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED' });
+    }))).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IDEMPOTENCY_KEY_REQUIRED' } });
 
     expect(transaction.prepareDraft).not.toHaveBeenCalled();
     expect(procurement.getPurchaseOrderCheckoutSnapshot).not.toHaveBeenCalled();
@@ -202,7 +202,7 @@ describe('PurchaseOrderSubmissionService', () => {
 
     await expect(service.submit(submissionInput({
       requestHash: canonicalOwnerInputHash({ purchaseOrderId: 'different-order' }),
-    }))).rejects.toMatchObject({ code: 'AGENT_OS_OWNER_INPUT_HASH_REQUIRED', details: { reason: 'REQUEST_HASH_MISMATCH' } });
+    }))).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'INPUT_HASH_REQUIRED' } });
 
     expect(transaction.prepareDraft).not.toHaveBeenCalled();
     expect(procurement.getPurchaseOrderCheckoutSnapshot).not.toHaveBeenCalled();

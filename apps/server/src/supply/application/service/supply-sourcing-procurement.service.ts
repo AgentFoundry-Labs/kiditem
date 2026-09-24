@@ -427,16 +427,19 @@ function offerSnapshotRecord(
   }
 }
 
-/** 조달 정책 거절을 VALIDATION_FAILED로 옮긴다 — 정책 철자는 details.reason에 그대로 싣는다. */
+/** 조달 정책 거절을 등록 코드로 옮긴다 — 만료는 SUPPLY_OFFER_SNAPSHOT_EXPIRED, 나머지는 VALIDATION_FAILED. 정책 철자는 details.reason. */
 function policyRefusal(error: unknown): unknown {
   if (!(error instanceof SourcingProcurementPolicyError)) return error;
+  if (error.code === 'offer_snapshot_expired') {
+    return new KiditemConflictError('SUPPLY_OFFER_SNAPSHOT_EXPIRED', { details: { reason: error.code }, cause: error });
+  }
   return new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: error.code }, cause: error });
 }
 
 function cleanIdempotencyKey(value: string): string {
   const key = value.trim();
   if (!key || key.length > 300) {
-    throw new KiditemInvalidValueError('AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED', { details: { reason: 'IDEMPOTENCY_KEY_LENGTH', max: 300 } });
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'IDEMPOTENCY_KEY_REQUIRED', max: 300 } });
   }
   return key;
 }

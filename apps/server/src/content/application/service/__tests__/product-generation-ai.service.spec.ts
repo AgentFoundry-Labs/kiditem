@@ -107,7 +107,7 @@ describe('ProductGenerationAiService', () => {
     const { service } = makeService();
 
     await expect(service.startForSalesProduct(request({ idempotencyKey: undefined })))
-      .rejects.toMatchObject({ code: 'AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED' });
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'IDEMPOTENCY_KEY_REQUIRED' } });
   });
 
   it('returns direct child ids and workspace without an operation aggregate', async () => {
