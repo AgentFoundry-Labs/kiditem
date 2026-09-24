@@ -1,5 +1,3 @@
-import { UseFilters } from '@nestjs/common';
-import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import { Controller, Get, Inject, Param, ParseUUIDPipe } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import {
@@ -7,7 +5,6 @@ import {
   type ChannelCatalogCollectionPort,
 } from '../../../application/port/in/channel-catalog-collection.port';
 
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels/accounts/:channelAccountId/catalog-imports/coupang-wing')
 export class ChannelCatalogSourceController {
   constructor(

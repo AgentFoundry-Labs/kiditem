@@ -1,5 +1,3 @@
-import { UseFilters } from '@nestjs/common';
-import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import type { ZodType, output } from 'zod';
 import {
   BadRequestException,
@@ -55,7 +53,6 @@ const WORKBOOK_EXTENSIONS = /\.(xlsx|xls)$/i;
  * 판매상품 · 단품(ADR-0014). 조직은 세션에서만 온다. 사방넷 엑셀 가져오기는 `dryRun=true` 로 먼저
  * 무엇이 바뀔지 보고, 같은 파일로 다시 불러 확정한다.
  */
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('products/sales-products')
 export class SalesProductController {
   constructor(

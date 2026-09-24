@@ -1,5 +1,4 @@
-import { ChannelBusinessExceptionFilter } from '../channel-business-exception.filter';
-import { BadRequestException, Body, Inject, UseFilters, Controller, Get, Patch } from '@nestjs/common';
+import { BadRequestException, Body, Inject, Controller, Get, Patch } from '@nestjs/common';
 import {
   UpdateCoupangAccountSettingsSchema,
   type CoupangAccountSettings,
@@ -9,7 +8,6 @@ import { Roles } from '../../../../../auth/decorators/roles.decorator';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort, type MallAccount, type MallAccountPassword, type UpdateMallAccountInput } from '../../../../application/port/in/account/channel-account.port';
 import { UpdateCoupangAccountSettingsDto } from '../dto/index';
 
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels/coupang/account')
 export class ChannelAccountController {
   constructor(@Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort) {}

@@ -1,5 +1,3 @@
-import { UseFilters } from '@nestjs/common';
-import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import {
   Body,
   Controller,
@@ -18,7 +16,6 @@ import {
 import { ChannelOptionRecipeCandidateQueryDto, ReplaceChannelOptionRecipeDto } from './dto/channel-option-recipe.dto';
 import { CHANNEL_OPTION_RECIPE_CANDIDATE_PORT, type ChannelOptionRecipeCandidatePort } from "../../../application/port/in/listing/channel-option-recipe-candidate.port";
 
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels')
 export class ChannelOptionRecipeController {
   constructor(

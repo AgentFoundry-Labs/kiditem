@@ -1,5 +1,3 @@
-import { UseFilters } from '@nestjs/common';
-import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import {
   BadRequestException,
   Body,
@@ -26,7 +24,6 @@ import {
 } from '../../../application/port/in/mall-admin-listings.port';
 
 /** 몰 관리자 화면에서 등록 상품을 직접 가져오는 원천(KID-246 2단계). */
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels/mall-admin-listings')
 export class MallAdminListingsController {
   constructor(

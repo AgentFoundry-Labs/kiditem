@@ -1,4 +1,6 @@
 import 'reflect-metadata';
+import { readFileSync } from 'node:fs';
+import { resolve } from 'node:path';
 import { type ArgumentsHost, Logger } from '@nestjs/common';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
@@ -15,6 +17,8 @@ import { ListingException } from '../../../application/exception/listing.excepti
 import { RegistrationTargetException } from '../../../application/exception/registration-target.exception';
 import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import { ChannelListingController } from './listing/channel-listing.controller';
+import { RegistrationTargetController } from './registration-target.controller';
+import { RegistrationTargetExecutionController } from './registration-target-execution.controller';
 
 function responseHost() {
   const json = vi.fn();
@@ -73,9 +77,12 @@ describe('ChannelBusinessExceptionFilter HTTP contract', () => {
     expect(json.mock.calls[0][0]).toEqual({ statusCode, code, kind: ERROR_DEFINITIONS[code].kind, message, errors: [] });
   });
 
-  it('keeps the listing routes behind the HTTP exception mapping', () => {
-    const filters = Reflect.getMetadata('__exceptionFilters__', ChannelListingController);
-    expect(filters).toContain(ChannelBusinessExceptionFilter);
+  it('is registered once globally in main.ts, so channel controllers carry no local copy', () => {
+    const main = readFileSync(resolve(__dirname, '../../../../main.ts'), 'utf8');
+    expect(main).toMatch(/useGlobalFilters\(new GlobalExceptionFilter\(\), new ChannelBusinessExceptionFilter\(\)\)/);
+    for (const controller of [ChannelListingController, RegistrationTargetController, RegistrationTargetExecutionController]) {
+      expect(Reflect.getMetadata('__exceptionFilters__', controller), controller.name).toBeUndefined();
+    }
   });
 
   it('resolves the owner code, keeps the attempt identity and drops private context', () => {

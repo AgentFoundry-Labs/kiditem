@@ -1,5 +1,3 @@
-import { UseFilters } from '@nestjs/common';
-import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import {
   Body,
   Controller,
@@ -13,7 +11,6 @@ import type { Response } from 'express';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CHANNEL_DOCUMENT_EXPORT_PORT, type ChannelDocumentExportPort } from '../../../application/port/in/registration/channel-document-export.port';
 
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels/coupang-wing')
 export class CoupangWingInventoryExportController {
   constructor(

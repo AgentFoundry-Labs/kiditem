@@ -1,13 +1,10 @@
 import { Inject } from '@nestjs/common';
-import { UseFilters } from '@nestjs/common';
-import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import { BadRequestException, Controller, Get, Query } from '@nestjs/common';
 import { CHANNEL_DASHBOARD_PORT, type ChannelDashboardPort } from "../../../application/port/in/listing/channel-dashboard.port";
 import { addDays, kstDayStart, parseBusinessDate } from '../../../../common/kst';
 import { CoupangDateRangeQueryDto } from './dto/index';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('coupang-dashboard')
 export class ChannelDashboardController {
   constructor(@Inject(CHANNEL_DASHBOARD_PORT) private readonly service: ChannelDashboardPort) {}

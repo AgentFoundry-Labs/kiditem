@@ -1,6 +1,4 @@
 import { Inject } from '@nestjs/common';
-import { UseFilters } from '@nestjs/common';
-import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import {
   BadRequestException,
   Body,
@@ -22,7 +20,6 @@ import {
   ChannelProductMatchingQueryDto,
 } from './dto/channel-product-matching-query.dto';
 
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels/product-mappings')
 export class ChannelProductMatchingController {
   constructor(

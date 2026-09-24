@@ -7,6 +7,8 @@ import { ROLES_METADATA_KEY } from '../../../../../../auth/decorators/roles.deco
 import { CHANNEL_ACCOUNT_PORT } from '../../../../../application/port/in/account/channel-account.port';
 import { ChannelAccountException } from '../../../../../application/exception/channel-account.exception';
 import { OrderCollectionMallAccountController } from '../order-collection-mall-account.controller';
+import { GlobalExceptionFilter } from '../../../../../../common/filters/global-exception.filter';
+import { ChannelBusinessExceptionFilter } from '../../channel-business-exception.filter';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 
@@ -75,6 +77,8 @@ async function mallAccountApp(accounts: unknown): Promise<INestApplication> {
     req.authUser = { id: 'user-1', organizationId: ORGANIZATION_ID } as Request['authUser'];
     next();
   });
+  // main.ts와 같은 전역 등록.
+  app.useGlobalFilters(new GlobalExceptionFilter(), new ChannelBusinessExceptionFilter());
   await app.init();
   return app;
 }

@@ -44,6 +44,7 @@ import { FactConflictError } from '../../common/errors/fact-errors';
 import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
 import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
+import { ChannelBusinessExceptionFilter } from '../adapter/in/web/channel-business-exception.filter';
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 const base = '/api/channels/rocket-po';
@@ -115,7 +116,7 @@ describe('Rocket owner public HTTP + disposable PG', () => {
       },
     );
     // KidItem 오류(인증 401 등)를 운영 main.ts와 같은 봉투로 낸다(ADR-0023).
-    app.useGlobalFilters(new GlobalExceptionFilter());
+    app.useGlobalFilters(new GlobalExceptionFilter(), new ChannelBusinessExceptionFilter());
     await app.init();
     await app.listen(0, '127.0.0.1');
     httpUrl = await app.getUrl();

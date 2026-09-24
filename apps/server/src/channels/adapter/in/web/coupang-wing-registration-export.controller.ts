@@ -1,5 +1,3 @@
-import { UseFilters } from '@nestjs/common';
-import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import {
   BadRequestException,
   Body,
@@ -22,7 +20,6 @@ type UploadedTemplateFile = {
   originalname: string;
 };
 
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels/coupang-wing')
 export class CoupangWingRegistrationExportController {
   constructor(

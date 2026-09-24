@@ -131,6 +131,21 @@ export const ERROR_DEFINITIONS = {
   CHANNELS_LISTING_NOT_FOUND: def('channels', 'not_found', '몰 상품을 찾을 수 없습니다.'),
   CHANNELS_MALL_UNSUPPORTED: def('channels', 'precondition', '이 몰은 아직 지원하지 않는 작업입니다.', { httpStatus: 501 }),
   CHANNELS_PREFLIGHT_FAILED: def('channels', 'precondition', '송신 전 점검을 통과하지 못했습니다. 표시된 항목을 고쳐 주세요.'),
+  CHANNELS_ACCOUNT_INACTIVE: def('channels', 'precondition', '몰 계정이 비활성 상태입니다. 쇼핑몰 계정 화면에서 활성화한 뒤 다시 시도해 주세요.'),
+  CHANNELS_KID_REQUIRED: def('channels', 'precondition', '판매상품에 KID가 아직 없습니다. 등록 설정을 먼저 만든 뒤 다시 시도해 주세요.'),
+  CHANNELS_SALES_PRODUCT_NOT_SELLING: def('channels', 'precondition', '판매 중인 판매상품이 아닙니다. 판매상품 상태를 확인한 뒤 다시 시도해 주세요.'),
+  CHANNELS_REGISTRATION_TARGET_NOT_FOUND: def('channels', 'not_found', '등록 설정을 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.'),
+  CHANNELS_REGISTRATION_TARGET_STALE: def('channels', 'conflict', '등록 설정이 그사이 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.', { retryable: true }),
+  CHANNELS_EXECUTION_NOT_FOUND: def('channels', 'not_found', '몰 작업 기록을 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.'),
+  CHANNELS_EXECUTION_FENCE_LOST: def('channels', 'conflict', '이 몰 작업은 더 이상 이 요청이 진행할 수 없습니다. 새로고침한 뒤 다시 시작해 주세요.'),
+  CHANNELS_EXECUTION_TERMINAL: def('channels', 'conflict', '이미 끝난 몰 작업입니다. 새로고침해 결과를 확인해 주세요.'),
+  CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT: def('channels', 'conflict', '같은 요청 번호로 다른 내용의 몰 작업이 이미 있습니다. 새로고침한 뒤 다시 시도해 주세요.'),
+  CHANNELS_EXECUTION_STALE: def('channels', 'conflict', '준비한 뒤 상품·계정이 바뀌어 이 몰 작업을 진행할 수 없습니다. 다시 준비해 주세요.'),
+  CHANNELS_EXECUTION_EVIDENCE_REJECTED: def('channels', 'conflict', '몰에서 확인한 결과가 이 몰 작업과 맞지 않아 반영하지 않았습니다. 몰 화면을 확인해 주세요.'),
+  CHANNELS_OPTION_RECIPE_STALE: def('channels', 'conflict', '옵션 구성이 그사이 바뀌었습니다. 새로고침한 뒤 다시 저장해 주세요.', { retryable: true }),
+  CHANNELS_OPTION_RECIPE_INVALID: def('channels', 'validation', '옵션 구성이 올바르지 않습니다. 구성 상품과 수량을 확인해 주세요.'),
+  // 웹 use-mall-publish-run·collected-products 화면이 철자로 비교한다(shared registration-state) — 접두 없음.
+  REGISTRATION_ALREADY_REGISTERED: def('channels', 'conflict', '이미 이 몰 계정에 등록된 상품입니다. 몰 상품 목록을 확인해 주세요.'),
 
   // orders
   // 확장 order-collection-server-converter.js가 body.code를 그대로 저장한다 — 철자 고정(접두 없음).

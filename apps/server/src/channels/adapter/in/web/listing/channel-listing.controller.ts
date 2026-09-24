@@ -1,5 +1,3 @@
-import { UseFilters } from '@nestjs/common';
-import { ChannelBusinessExceptionFilter } from '../channel-business-exception.filter';
 import { Controller, Get, Inject, NotFoundException, Param, ParseUUIDPipe, Query } from '@nestjs/common';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
 import {
@@ -8,7 +6,6 @@ import {
 } from '../../../../application/port/in/listing/channel-listing-query.port';
 import { ChannelListingQueryDto } from './dto/channel-listing-query.dto';
 
-@UseFilters(ChannelBusinessExceptionFilter)
 @Controller('channels/listings')
 export class ChannelListingController {
   constructor(

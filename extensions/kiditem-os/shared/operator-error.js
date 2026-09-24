@@ -302,6 +302,104 @@
       "text": "송신 전 점검을 통과하지 못했습니다. 표시된 항목을 고쳐 주세요.",
       "retryable": false
     },
+    "CHANNELS_ACCOUNT_INACTIVE": {
+      "owner": "channels",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "몰 계정이 비활성 상태입니다. 쇼핑몰 계정 화면에서 활성화한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_KID_REQUIRED": {
+      "owner": "channels",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "판매상품에 KID가 아직 없습니다. 등록 설정을 먼저 만든 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SALES_PRODUCT_NOT_SELLING": {
+      "owner": "channels",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "판매 중인 판매상품이 아닙니다. 판매상품 상태를 확인한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_REGISTRATION_TARGET_NOT_FOUND": {
+      "owner": "channels",
+      "kind": "not_found",
+      "httpStatus": 404,
+      "text": "등록 설정을 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_REGISTRATION_TARGET_STALE": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "등록 설정이 그사이 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.",
+      "retryable": true
+    },
+    "CHANNELS_EXECUTION_NOT_FOUND": {
+      "owner": "channels",
+      "kind": "not_found",
+      "httpStatus": 404,
+      "text": "몰 작업 기록을 찾을 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_EXECUTION_FENCE_LOST": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "이 몰 작업은 더 이상 이 요청이 진행할 수 없습니다. 새로고침한 뒤 다시 시작해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_EXECUTION_TERMINAL": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "이미 끝난 몰 작업입니다. 새로고침해 결과를 확인해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "같은 요청 번호로 다른 내용의 몰 작업이 이미 있습니다. 새로고침한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_EXECUTION_STALE": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "준비한 뒤 상품·계정이 바뀌어 이 몰 작업을 진행할 수 없습니다. 다시 준비해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_EXECUTION_EVIDENCE_REJECTED": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "몰에서 확인한 결과가 이 몰 작업과 맞지 않아 반영하지 않았습니다. 몰 화면을 확인해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_OPTION_RECIPE_STALE": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "옵션 구성이 그사이 바뀌었습니다. 새로고침한 뒤 다시 저장해 주세요.",
+      "retryable": true
+    },
+    "CHANNELS_OPTION_RECIPE_INVALID": {
+      "owner": "channels",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "옵션 구성이 올바르지 않습니다. 구성 상품과 수량을 확인해 주세요.",
+      "retryable": false
+    },
+    "REGISTRATION_ALREADY_REGISTERED": {
+      "owner": "channels",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "이미 이 몰 계정에 등록된 상품입니다. 몰 상품 목록을 확인해 주세요.",
+      "retryable": false
+    },
     "NO_NEW_ORDERS": {
       "owner": "orders",
       "kind": "validation",
