@@ -248,6 +248,18 @@ source-record / draft model replaces the rows they transformed, and Office's
 candidate, draft, workspace and thumbnail-attempt rows are discarded under the
 data-loss policy (ADR-0010) and rebuilt by collecting again.
 
+### Content rows (0.1.31)
+
+`028_remove_content_rows_blocking_required_columns` runs pre-schema and empties
+`content_assets`, `detail_page_revisions` and `detail_page_image_render_intents`,
+whose Office 0.1.30 rows cannot hold the workspace or detail page column KID-313
+W3 makes required. It follows the Office keys into those tables (thumbnail
+selections, generation bookkeeping, rendered images and render intents go with
+the rows; workspace, preparation and artifact pointers are cleared), refuses a
+reach into an ADR-0010 kept table, and deletes nothing once `db push` has added
+the columns. The rows are discarded under the data-loss policy (ADR-0010) and
+content is made again on the sales product drafts.
+
 ### Sales product status (0.1.31)
 
 `027_normalize_sales_product_status` runs post-schema and moves every

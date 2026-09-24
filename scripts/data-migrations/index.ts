@@ -22,6 +22,7 @@ import { removeRetiredAccountKpiAndAdTierRowsMigration } from "./v0.1.31/013_rem
 import { backfillChannelListingImageFromDiscoveryMigration } from "./v0.1.31/014_backfill_channel_listing_image_from_discovery";
 import { activateAdFreeProductAbcFormula } from "./v0.1.31/016_activate_ad_free_product_abc_formula";
 import { removeRowsBlockingRequiredColumnsMigration } from "./v0.1.31/014_remove_rows_blocking_required_columns";
+import { removeContentRowsBlockingRequiredColumnsMigration } from "./v0.1.31/028_remove_content_rows_blocking_required_columns";
 import { closeStaleAdApprovalsAtCutoverMigration } from "./v0.1.31/015_close_stale_ad_approvals_at_cutover";
 import { migrateMasterProductInventoryCutoverMigration } from "./v0.1.31/016_master_product_inventory_cutover";
 import { simplifyProductReferencesMigration } from "./v0.1.31/017_simplify_product_references";
@@ -62,6 +63,8 @@ export const dataMigrations: readonly DataMigration[] = [
   removeRetiredAccountKpiAndAdTierRowsMigration,
   backfillChannelListingImageFromDiscoveryMigration,
   removeRowsBlockingRequiredColumnsMigration,
+  // 028 empties the content tables KID-313 W3 gives required columns; it needs nothing 014 leaves behind.
+  removeContentRowsBlockingRequiredColumnsMigration,
   closeStaleAdApprovalsAtCutoverMigration,
   // 019 captures template references before 016 removes the legacy source table.
   prepareSellingCatalogSourcesMigration,

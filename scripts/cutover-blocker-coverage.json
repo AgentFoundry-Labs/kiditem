@@ -63,6 +63,24 @@
     },
     {
       "train": "0.1.31",
+      "table": "content_assets",
+      "coveredBy": "v0.1.31:028_remove_content_rows_blocking_required_columns",
+      "note": "KID-313 W3 makes content_workspace_id (and source) required; Office 0.1.30 rows are discarded under ADR-0010 (022–026 removed) and 028 empties the table, which also clears its new foreign keys."
+    },
+    {
+      "train": "0.1.31",
+      "table": "detail_page_revisions",
+      "coveredBy": "v0.1.31:028_remove_content_rows_blocking_required_columns",
+      "note": "KID-313 W3 makes detail_page_id required; Office 0.1.30 rows are discarded under ADR-0010 (022–026 removed) and 028 empties the table, which also clears its new foreign keys."
+    },
+    {
+      "train": "0.1.31",
+      "table": "detail_page_image_render_intents",
+      "coveredBy": "v0.1.31:028_remove_content_rows_blocking_required_columns",
+      "note": "KID-313 W3 makes detail_page_id required; Office 0.1.30 rows are discarded under ADR-0010 (022–026 removed) and 028 empties the table, which also clears its new foreign keys."
+    },
+    {
+      "train": "0.1.31",
       "table": "sourcing_evidence_ingestion_runs",
       "coveredBy": "v0.1.31:014_remove_rows_blocking_required_columns",
       "note": "014 deletes every run written before is_current_complete, with the rows that depend on it."
