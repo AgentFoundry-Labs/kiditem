@@ -267,24 +267,6 @@ model ChannelListingOptionDailySnapshot {
   @@map("channel_listing_option_daily_snapshots")
 }
 
-/// @namespace Channels
-/// @describe Agent-triggered registration mutation receipt keyed by the exact Channels owner input, atomically retained with local listing resolution.
-model ChannelRegistrationOwnerIdempotencyReceipt {
-  id             String @id @default(uuid()) @db.Uuid
-  organizationId String @map("organization_id") @db.Uuid
-
-  capabilityKey       String @map("capability_key") @db.VarChar(120)
-  ownerIdempotencyKey String @map("owner_idempotency_key") @db.VarChar(128)
-  requestHash         String @map("request_hash") @db.VarChar(64)
-  resultJson          Json   @map("result_json") @db.JsonB
-
-  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
-
-  @@unique([organizationId, capabilityKey, ownerIdempotencyKey], map: "channel_registration_owner_receipts_org_capability_key")
-  @@index([organizationId])
-  @@map("channel_registration_owner_idempotency_receipts")
-}
-
 // ── 몰 작업 관찰 기록 ───────────────────────────────────────────────────────
 //
 // 몰 송신 프로필은 `ChannelAccount.config.listingProfile`, 고시·KC 는 수집상품 초안

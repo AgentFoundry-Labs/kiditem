@@ -29,7 +29,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [AgentOS](erd/agentos.md) | 1 |
 | [AI](erd/ai.md) | 10 |
 | [Analytics](erd/analytics.md) | 2 |
-| [Channels](erd/channels.md) | 19 |
+| [Channels](erd/channels.md) | 18 |
 | [Core](erd/core.md) | 7 |
 | [Finance](erd/finance.md) | 1 |
 | [Inventory](erd/inventory.md) | 3 |
@@ -73,7 +73,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelListingOption | Channels | `channel_listing_options` | ChannelListingOption canonical state owned by channels. |
 | ChannelListingOptionDailySnapshot | Channels | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
 | ChannelListingOptionInventoryComponent | Channels | `channel_listing_option_inventory_components` | ChannelListingOptionInventoryComponent canonical state owned by channels. |
-| ChannelRegistrationOwnerIdempotencyReceipt | Channels | `channel_registration_owner_idempotency_receipts` | Agent-triggered registration mutation receipt keyed by the exact Channels owner input, atomically retained with local listing resolution. |
 | ChannelScrapeChunk | Channels | `channel_scrape_chunks` | Browser catalog collection payloads kept in JSONB until an atomic publication succeeds. |
 | ChannelScrapeRun | Channels | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | Channels | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
@@ -467,15 +466,6 @@ erDiagram
     String channelListingOptionId FK
     String masterProductId
     Int quantity
-    DateTime createdAt
-  }
-  ChannelRegistrationOwnerIdempotencyReceipt {
-    String id PK
-    String organizationId
-    String capabilityKey
-    String ownerIdempotencyKey
-    String requestHash
-    Json resultJson
     DateTime createdAt
   }
   ChannelScrapeChunk {

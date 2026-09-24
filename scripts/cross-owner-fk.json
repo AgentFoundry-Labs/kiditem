@@ -16,7 +16,6 @@
     "ChannelListingOption": "channels",
     "ChannelListingOptionDailySnapshot": "channels",
     "ChannelListingOptionInventoryComponent": "channels",
-    "ChannelRegistrationOwnerIdempotencyReceipt": "channels",
     "ChannelScrapeChunk": "channels",
     "ChannelScrapeRun": "channels",
     "ChannelScrapeSnapshot": "channels",

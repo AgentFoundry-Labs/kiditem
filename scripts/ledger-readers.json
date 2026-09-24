@@ -252,7 +252,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -277,7 +277,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -306,7 +306,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -331,7 +331,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -356,7 +356,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -381,7 +381,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -406,7 +406,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -429,7 +429,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -452,7 +452,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -475,7 +475,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -498,7 +498,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -521,7 +521,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -544,7 +544,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -570,7 +570,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/launch-candidate.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -594,7 +594,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/recommendation-publication.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -619,7 +619,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/validation-publication.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -644,7 +644,7 @@
       "legacyReaders": [
         {
           "path": "apps/server/src/sourcing/adapter/out/repository/decision-publication.reader.ts",
-          "removeWith": "KID-309",
+          "removeWith": "KID-324",
           "reason": "KID-310: moved out of the retired owner read/ lane into adapter/out/repository; read-only, no mutation rights. KID-309 absorbs it into the owner adapter's own methods, so this file is a staging post, not its resting place."
         }
       ]
@@ -827,187 +827,187 @@
       "from": "apps/server/src/advertising/adapter/in/http/ad-campaign-source.controller.ts",
       "to": "apps/server/src/advertising/adapter/out/repository/ad-campaign-source.repository.ts",
       "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "from": "apps/server/src/advertising/adapter/in/http/ad-keyword-source.controller.ts",
       "to": "apps/server/src/advertising/adapter/out/repository/ad-keyword-source.repository.ts",
       "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "from": "apps/server/src/advertising/adapter/in/http/keyword-serp-source.controller.ts",
       "to": "apps/server/src/advertising/adapter/out/repository/keyword-serp-source.repository.ts",
       "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "from": "apps/server/src/advertising/adapter/in/http/seller-identity-source.controller.ts",
       "to": "apps/server/src/advertising/adapter/out/repository/seller-identity-source.repository.ts",
       "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "from": "apps/server/src/advertising/adapter/in/http/wing-rank-source.controller.ts",
       "to": "apps/server/src/advertising/adapter/out/repository/wing-rank-source.repository.ts",
       "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/advertising/adapter/out/repository/ad-action.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/advertising/adapter/out/repository/ad-listing.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/advertising/adapter/out/repository/ad-strategy-context.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/advertising/adapter/out/repository/keyword-rank.repository.adapter.ts"
     },
     {
       "from": "apps/server/src/agent-os/adapter/in/http/runtime/agent-mcp-http.controller.ts",
       "to": "apps/server/src/agent-os/adapter/out/runtime/gateway/gateway-mcp-runtime.registry.ts",
       "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "from": "apps/server/src/agent-os/adapter/in/http/runtime/gateway-control.controller.ts",
       "to": "apps/server/src/agent-os/adapter/out/runtime/gateway/gateway-command.queue.ts",
       "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "from": "apps/server/src/agent-os/adapter/in/http/runtime/gateway-control.controller.ts",
       "to": "apps/server/src/agent-os/adapter/out/runtime/gateway/gateway-event-handler.service.ts",
       "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "from": "apps/server/src/agent-os/adapter/in/http/runtime/gateway-control.controller.ts",
       "to": "apps/server/src/agent-os/adapter/out/runtime/gateway/gateway-installation-bearer.service.ts",
       "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "from": "apps/server/src/agent-os/adapter/in/http/runtime/gateway-control.controller.ts",
       "to": "apps/server/src/agent-os/adapter/out/runtime/gateway/gateway-readiness.service.ts",
       "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "from": "apps/server/src/agent-os/adapter/in/mcp/kiditem-agent-os-mcp-server.ts",
       "to": "apps/server/src/agent-os/adapter/out/runtime/gateway/gateway-mcp-runtime.registry.ts",
       "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "from": "apps/server/src/agent-os/application/service/capability-invocation.service.ts",
       "to": "apps/server/src/agent-os/application/service/capability-mutation-dispatcher.service.ts",
       "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/content/adapter/out/repository/thumbnail-generation-ledger.query.ts"
     },
     {
       "from": "apps/server/src/content/application/service/detail-page-ai.service.ts",
       "to": "apps/server/src/content/application/service/detail-page-ai.types.ts",
       "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "to": "apps/server/src/core/read/source-import-run.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/collection-freshness.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/orders/read/review-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-inventory.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-inventory.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/core/read/source-import-run.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-sales.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/orders/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-sales.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/orders/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/dashboard-trend.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/advertising/read/ad-target-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/profit-calculation.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/orders/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/profit-calculation.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/advertising/read/ad-target-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/wing-traffic-aggregation.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/orders/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/analytics/dashboard/adapter/out/repository/wing-traffic-aggregation.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/orders/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/analytics/statistics/statistics.service.ts"
     },
     {
       "to": "apps/server/src/orders/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/analytics/supplier-stats/supplier-stats.service.ts"
     },
     {
       "from": "apps/server/src/auth/adapter/in/cli/auth-admin.ts",
       "to": "apps/server/src/auth/adapter/out/prisma/prisma-auth.repository.ts",
       "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "to": "apps/server/src/orders/read/order-facts.reader.ts",
@@ -1024,169 +1024,169 @@
     {
       "to": "apps/server/src/advertising/read/ad-target-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/common/per-listing-profit.ts"
     },
     {
       "to": "apps/server/src/orders/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/common/per-listing-profit.ts"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/common/per-listing-profit.ts"
     },
     {
       "to": "apps/server/src/advertising/read/monthly-ad-allocation.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/finance/adapter/out/repository/master-product-contribution.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/analytics/sellpia-product-sales/read/sellpia-product-monthly-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/finance/adapter/out/repository/master-product-contribution.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/advertising/read/ad-target-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/finance/services/sales-analysis-scraper.service.ts"
     },
     {
       "to": "apps/server/src/orders/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/finance/services/sales-analysis-scraper.service.ts"
     },
     {
       "to": "apps/server/src/core/read/source-import-run.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/orders/adapter/out/repository/order-collection-source.repository.ts"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/product-transactional-read.repository.adapter.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/orders/services/reviews.service.ts"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/orders/services/reviews.service.ts"
     },
     {
       "to": "apps/server/src/channels/adapter/out/persistence/channel-listing-daily-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/products/adapter/out/persistence/product-operations-data-status.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/orders/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/products/adapter/out/persistence/product-operations-data-status.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/advertising/read/ad-target-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/products/adapter/out/persistence/product-operations.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/channels/adapter/out/persistence/channel-listing-daily-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/products/adapter/out/persistence/product-operations.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/orders/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/products/adapter/out/persistence/product-operations.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/channels/adapter/out/persistence/channel-listing-daily-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/products/adapter/out/persistence/selling-master-product.query.ts"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/products/application/port/out/persistence/master-product-abc.repository.port.ts"
     },
     {
       "to": "apps/server/src/advertising/read/ad-target-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/readiness/readiness.service.ts"
     },
     {
       "to": "apps/server/src/advertising/read/keyword-rank-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/readiness/readiness.service.ts"
     },
     {
       "to": "apps/server/src/analytics/sellpia-sales/read/sellpia-sales-daily-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/readiness/readiness.service.ts"
     },
     {
       "to": "apps/server/src/channels/adapter/out/repository/completed-catalog-run.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/readiness/readiness.service.ts"
     },
     {
       "from": "apps/server/src/sourcing/application/service/sourcing-browser-source-attempt.service.ts",
       "to": "apps/server/src/sourcing/application/service/sourcing-1688-source-attempt.mapper.ts",
       "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "from": "apps/server/src/sourcing/application/service/sourcing-live-commerce-source-attempt.service.ts",
       "to": "apps/server/src/sourcing/application/service/sourcing-live-commerce-source-attempt.mapper.ts",
       "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "from": "apps/server/src/sourcing/application/service/sourcing-shadow-signal.service.ts",
       "to": "apps/server/src/sourcing/application/service/sourcing-shadow-signal.evaluation.ts",
       "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "from": "apps/server/src/sourcing/application/service/sourcing-tiktok-source-attempt.service.ts",
       "to": "apps/server/src/sourcing/application/service/sourcing-tiktok-source-attempt.mapper.ts",
       "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
-      "removeWith": "KID-309"
+      "removeWith": "KID-324"
     },
     {
       "to": "apps/server/src/sourcing/adapter/out/repository/decision-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/supply/adapter/out/repository/supply-sourcing-procurement.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/sourcing/adapter/out/repository/launch-candidate.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/supply/adapter/out/repository/supply-sourcing-procurement.repository.adapter.ts"
     },
     {
       "to": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-309",
+      "removeWith": "KID-324",
       "from": "apps/server/src/supply/adapter/out/repository/supply-sourcing-procurement.repository.adapter.ts"
     }
   ]

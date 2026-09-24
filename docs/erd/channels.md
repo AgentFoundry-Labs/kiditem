@@ -15,7 +15,6 @@
 | ChannelListingOption | `channel_listing_options` | ChannelListingOption canonical state owned by channels. |
 | ChannelListingOptionDailySnapshot | `channel_listing_option_daily_snapshots` | 채널 listing option/vendor item 의 일별 정규화 상태. |
 | ChannelListingOptionInventoryComponent | `channel_listing_option_inventory_components` | ChannelListingOptionInventoryComponent canonical state owned by channels. |
-| ChannelRegistrationOwnerIdempotencyReceipt | `channel_registration_owner_idempotency_receipts` | Agent-triggered registration mutation receipt keyed by the exact Channels owner input, atomically retained with local listing resolution. |
 | ChannelScrapeChunk | `channel_scrape_chunks` | Browser catalog collection payloads kept in JSONB until an atomic publication succeeds. |
 | ChannelScrapeRun | `channel_scrape_runs` | 채널별 상품/광고/트래픽 스크래핑 실행 단위. 원본 row 는 ChannelScrapeSnapshot 에 저장. |
 | ChannelScrapeSnapshot | `channel_scrape_snapshots` | 채널 스크래퍼/API 가 본 원본 row. 매칭 실패/파서 변경 대비 rawJson 을 보존. |
@@ -159,15 +158,6 @@ erDiagram
     String channelListingOptionId FK
     String masterProductId
     Int quantity
-    DateTime createdAt
-  }
-  ChannelRegistrationOwnerIdempotencyReceipt {
-    String id PK
-    String organizationId
-    String capabilityKey
-    String ownerIdempotencyKey
-    String requestHash
-    Json resultJson
     DateTime createdAt
   }
   ChannelScrapeChunk {

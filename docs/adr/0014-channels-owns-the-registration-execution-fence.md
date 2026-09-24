@@ -7,8 +7,8 @@ status: accepted
 Registration crosses two owners: Sourcing prepares what to sell (candidate,
 draft, review) and until now also owned the submission fence
 (`product_registration_executions`: frozen payload, SHA-256, idempotency key,
-lease, provider result, `externalListingId`), while Channels owns the account,
-the resulting `ChannelListing` and the owner receipts, and
+lease, provider result, `externalListingId`), while Channels owns the account and
+the resulting `ChannelListing`, and
 the mall wizard's Wing path submitted without passing that fence at all. From
 now on Channels owns the execution fence: every submission to a channel
 account, whether Wing autoSubmit, a spreadsheet upload or an API mall, goes
@@ -16,7 +16,7 @@ through the one Channels fence, Sourcing stops at the draft and reads the
 execution back through the Channels reader to reflect candidate state, and a
 mall form fill without a submission returns only its current browser result. We chose this over
 keeping the fence in Sourcing because everything an execution row points at
-(account row, listing, receipt) is Channels state and the only Sourcing
+(account row, listing, and the execution row's own `ownerIdempotencyKey`) is Channels state and the only Sourcing
 reference is the draft id, so the fence belongs with the account it protects.
 
 ## Considered options
