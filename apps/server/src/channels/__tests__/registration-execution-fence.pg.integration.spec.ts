@@ -5,7 +5,7 @@ import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/
 import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
 import type { TargetExecutionIntent } from '../application/port/out/repository/registration-execution.repository.port';
 import { randomUUID } from 'node:crypto';
-import { ConflictException } from '@nestjs/common';
+import { ERROR_DEFINITIONS, type KiditemErrorCode } from '@kiditem/shared/errors';
 import type { PrismaClient } from '@prisma/client';
 import { REGISTRATION_ALREADY_REGISTERED_CODE, type PrepareTargetExecutionInput, type ReportTargetExecutionInput } from '@kiditem/shared/sales-product';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -86,7 +86,7 @@ describe('registration execution fence (PG integration)', () => {
     await prisma.salesProduct.update({ where: { id: SALES_PRODUCT_ID }, data: { status: 'active' } });
     const targetId = await resolveTarget(MALL_ACCOUNT_ID);
     await prisma.salesProduct.update({ where: { id: SALES_PRODUCT_ID }, data: { status: 'draft', code: null } });
-    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toThrow('Only a selling product with a KID');
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toMatchObject(refused('CHANNELS_SALES_PRODUCT_NOT_SELLING'));
     expect(await prisma.productRegistrationExecution.count()).toBe(0);
   });
 
@@ -121,7 +121,7 @@ describe('registration execution fence (PG integration)', () => {
     // 남은 실행은 판매상품을 통해 원천 기록에 닿는다 — 실행 행이 원천을 열쇠로 갖지 않는다.
     await expect(prisma.salesProduct.findUniqueOrThrow({ where: { id: SALES_PRODUCT_ID }, select: { sourceRecordId: true } }))
       .resolves.toEqual({ sourceRecordId: candidateId });
-    await expect(start(prepared.executionId)).rejects.toBeInstanceOf(ConflictException);
+    await expect(start(prepared.executionId)).rejects.toMatchObject(refused('CHANNELS_EXECUTION_STALE'));
     await expect(resolveTarget(SECOND_ACCOUNT_ID)).rejects.toThrow('보관된 판매상품');
   });
 
@@ -146,15 +146,17 @@ describe('registration execution fence (PG integration)', () => {
     await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toMatchObject({ code: 'CHANNELS_LISTING_EXECUTION_ACTIVE' });
     // 결과를 모르는 제출은 "제출 안 됨"으로 되돌릴 수 없다 — 몰 식별자가 있으면 거절된다.
     await report(prepared.executionId, started, 'submitted', { externalListingId: 'kk-9' });
-    await expect(report(prepared.executionId, started, 'not_submitted', {})).rejects.toBeInstanceOf(ConflictException);
+    await expect(report(prepared.executionId, started, 'not_submitted', {})).rejects.toMatchObject(refused('CHANNELS_EXECUTION_EVIDENCE_REJECTED'));
 
     await expect(report(prepared.executionId, started, 'confirmed', { externalListingId: 'kk-9' }))
       .resolves.toMatchObject({ status: 'succeeded' });
     await expect(prisma.registrationTarget.findUniqueOrThrow({ where: { id: targetId }, select: { archivedAt: true } }))
       .resolves.toEqual({ archivedAt: null });
     // 이미 등록된 계정에 새 register 는 열리지 않는다 — 몰에 올라간 리스팅을 이름으로 말한다(KID-320 S7).
-    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toThrow(ConflictException);
-    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toThrow('kk-9');
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toMatchObject({
+      ...refused(REGISTRATION_ALREADY_REGISTERED_CODE),
+      details: { existing: { externalListingId: 'kk-9' } },
+    });
   });
 
   it('refuses a new register when the account already has an active listing of the product, naming it, before any intent', async () => {
@@ -164,9 +166,10 @@ describe('registration execution fence (PG integration)', () => {
     });
 
     const refusal = await prepare(targetId, MALL_ACCOUNT_ID).catch((error: unknown) => error);
-    expect(refusal).toBeInstanceOf(ConflictException);
-    expect((refusal as ConflictException).message).toContain('catalog-77');
-    expect((refusal as ConflictException).getResponse()).toMatchObject({ code: REGISTRATION_ALREADY_REGISTERED_CODE });
+    expect(refusal).toMatchObject({
+      ...refused(REGISTRATION_ALREADY_REGISTERED_CODE),
+      details: { existing: { externalListingId: 'catalog-77' } },
+    });
     expect(await prisma.productRegistrationExecution.count()).toBe(0);
     // 다른 계정은 막지 않는다.
     await expect(prepare(await resolveTarget(SECOND_ACCOUNT_ID), SECOND_ACCOUNT_ID)).resolves.toMatchObject({ status: 'prepared' });
@@ -192,11 +195,11 @@ describe('registration execution fence (PG integration)', () => {
 
     // 카탈로그가 아직 가져오지 않은 성공 실행(kk-41)은 실행만으로 막는다.
     await row('register', 'succeeded', 2, 'kk-41');
-    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toThrow('kk-41');
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toMatchObject({ details: { existing: { externalListingId: 'kk-41' } } });
 
     // 취소는 몰에 아무것도 하지 않았으므로 앞선 성공을 지우지 않는다.
     await row('register', 'cancelled', 3);
-    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toThrow('kk-41');
+    await expect(prepare(targetId, MALL_ACCOUNT_ID)).rejects.toMatchObject({ details: { existing: { externalListingId: 'kk-41' } } });
   });
 
   it('replays concurrent same-key preparations as one execution and grants one lease to concurrent starts', async () => {
@@ -302,3 +305,8 @@ describe('registration execution fence (PG integration)', () => {
     };
   }
 });
+
+/** 거절은 등록 코드와 그 kind로 단언한다(문장 단언 금지, KID-341). */
+function refused(code: KiditemErrorCode) {
+  return { code, kind: ERROR_DEFINITIONS[code].kind };
+}

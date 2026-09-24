@@ -1,6 +1,7 @@
 import { realRegistrationContentWorkspace } from '../../test-helpers/registration-content-workspace';
 import { randomUUID } from 'node:crypto';
-import { BadRequestException, ConflictException, NotFoundException } from '@nestjs/common';
+import { BadRequestException } from '@nestjs/common';
+import { ERROR_DEFINITIONS, type KiditemErrorCode } from '@kiditem/shared/errors';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
 import { RegistrationTargetRepositoryAdapter } from '../adapter/out/persistence/registration-target.repository.adapter';
@@ -81,10 +82,10 @@ describe('registration target execution repository (PostgreSQL)', () => {
     const before = await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: thumbnail.id } });
     const ids = { organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, executionId: thumbnail.id };
 
-    await expect(repository.getTarget(ids)).rejects.toBeInstanceOf(NotFoundException);
-    await expect(repository.startTarget(ids)).rejects.toBeInstanceOf(NotFoundException);
+    await expect(repository.getTarget(ids)).rejects.toMatchObject(refused('CHANNELS_EXECUTION_NOT_FOUND'));
+    await expect(repository.startTarget(ids)).rejects.toMatchObject(refused('CHANNELS_EXECUTION_NOT_FOUND'));
     await expect(repository.reportTarget({ ...ids, report: { payloadHash: 'a'.repeat(64) } as unknown as ReportTargetExecutionInput }))
-      .rejects.toBeInstanceOf(NotFoundException);
+      .rejects.toMatchObject(refused('CHANNELS_EXECUTION_NOT_FOUND'));
     expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: thumbnail.id } })).toEqual(before);
   });
 
@@ -94,10 +95,10 @@ describe('registration target execution repository (PostgreSQL)', () => {
     await expect(repository.prepareListingAvailability({
       organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID,
       request: { channelAccountId: fixture.accountId, externalListingId: listing.externalId, kind: 'sold_out', optionCodes: ['option-1'], idempotencyKey: 'thumbnail_update:capability-invocation:x' },
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject(refused('VALIDATION_FAILED'));
     await expect(repository.findListingAvailabilityByKey({
       organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, idempotencyKey: 'thumbnail_update:capability-invocation:x',
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject(refused('VALIDATION_FAILED'));
     expect(await prisma.productRegistrationExecution.count()).toBe(0);
   });
 
@@ -112,8 +113,8 @@ describe('registration target execution repository (PostgreSQL)', () => {
     });
     const before = await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: thumbnail.id } });
     const ids = { organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, executionId: thumbnail.id };
-    await expect(repository.startListingAvailability(ids)).rejects.toBeInstanceOf(NotFoundException);
-    await expect(repository.reportListingAvailability({ ...ids, report: {} as never })).rejects.toBeInstanceOf(NotFoundException);
+    await expect(repository.startListingAvailability(ids)).rejects.toMatchObject(refused('CHANNELS_EXECUTION_NOT_FOUND'));
+    await expect(repository.reportListingAvailability({ ...ids, report: {} as never })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_NOT_FOUND'));
     expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: thumbnail.id } })).toEqual(before);
   });
 
@@ -123,10 +124,21 @@ describe('registration target execution repository (PostgreSQL)', () => {
       organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID,
       request: { ...requestFor('ignored'), idempotencyKey: 'thumbnail_update:capability-invocation:x', channelListingId: fixture.listingId! },
       snapshot: fixture.snapshot,
-    })).rejects.toBeInstanceOf(BadRequestException);
+    })).rejects.toMatchObject(refused('VALIDATION_FAILED'));
     expect(await prisma.productRegistrationExecution.count()).toBe(0);
   });
 
+  const START_FENCE_REFUSALS: Record<string, KiditemErrorCode> = {
+    'inactive account': 'CHANNELS_ACCOUNT_INACTIVE',
+    'provider identity': 'CHANNELS_EXECUTION_STALE',
+    'archived target': 'CHANNELS_REGISTRATION_TARGET_STALE',
+    'target version': 'CHANNELS_REGISTRATION_TARGET_STALE',
+    'product version': 'CHANNELS_EXECUTION_STALE',
+    'product status': 'CHANNELS_EXECUTION_STALE',
+    'option supply status': 'CHANNELS_EXECUTION_STALE',
+    'selected membership': 'CHANNELS_EXECUTION_STALE',
+    'inactive listing': 'CHANNELS_EXECUTION_STALE',
+  };
   it.each([
     'inactive account', 'provider identity', 'archived target', 'target version',
     'product version', 'product status', 'option supply status', 'selected membership', 'inactive listing',
@@ -145,7 +157,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
     if (change === 'option supply status') await prisma.salesProductOption.update({ where: { id: fixture.optionId }, data: { supplyStatus: 'unused' } });
     if (change === 'selected membership') await prisma.registrationTargetOption.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID, registrationTargetId: fixture.targetId } });
     if (change === 'inactive listing') await prisma.channelListing.update({ where: { id: fixture.listingId! }, data: { isActive: false } });
-    await expect(repository.startTarget({ organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, executionId: prepared.executionId })).rejects.toBeInstanceOf(ConflictException);
+    await expect(repository.startTarget({ organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, executionId: prepared.executionId })).rejects.toMatchObject(refused(START_FENCE_REFUSALS[change]!));
     expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId } })).toMatchObject({ status: 'prepared', providerOutcome: 'not_attempted', leaseToken: null, leaseClaimedAt: null, startedAt: null });
   });
 
@@ -156,7 +168,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
       request: { ...requestFor('composition-start-fence'), kind: 'composition_change', channelListingId: fixture.listingId!, optionTransitions },
       snapshot: { ...fixture.snapshot, kind: 'composition_change', optionTransitions } });
     await prisma.channelListingOption.update({ where: { id: fixture.listingOptionId! }, data: { isActive: false } });
-    await expect(repository.startTarget({ organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, executionId: prepared.executionId })).rejects.toThrow('no longer active');
+    await expect(repository.startTarget({ organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID, executionId: prepared.executionId })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_STALE'));
     expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId } })).toMatchObject({ status: 'prepared', providerOutcome: 'not_attempted', leaseToken: null });
   });
 
@@ -320,7 +332,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
       requestedByUserId: TEST_USER_ID,
       targetId: fixture.targetId,
       request: { ...request, kind: 'update' },
-    })).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT'));
   });
 
   it('freezes adapter defaults, including string zero keys and values, across live edits and replay', async () => {
@@ -376,7 +388,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
       requestedByUserId: TEST_USER_ID,
       request: { ...request, adapterDefaults: changedDefaults },
       snapshot: { ...changedSnapshot, adapterDefaults: changedDefaults },
-    })).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT'));
   });
 
   it('freezes explicit per-run adapter values and never writes them into reusable target settings', async () => {
@@ -404,7 +416,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
       requestedByUserId: TEST_USER_ID,
       request: { ...request, adapterValues: { ...adapterValues, deliveryType: '다른 실행 값' } },
       snapshot: { ...snapshot, adapterValues: { ...adapterValues, deliveryType: '다른 실행 값' } },
-    })).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT'));
     await expect(targets.get(TEST_ORGANIZATION_ID, fixture.targetId)).resolves.toMatchObject({
       registrationInput: { mallCategory: { key: 'category-1', label: null }, mallFields: {}, adapter: {} },
     });
@@ -437,7 +449,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
       requestedByUserId: TEST_USER_ID,
       request: { ...request, updateFields: undefined },
       snapshot: { ...snapshot, updateFields: undefined },
-    })).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT'));
     await expect(repository.findTargetReplay({
       organizationId: TEST_ORGANIZATION_ID,
       requestedByUserId: TEST_USER_ID,
@@ -494,7 +506,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
         outcome: 'confirmed',
         evidence,
       },
-    })).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_EVIDENCE_REJECTED'));
 
     await expect(prisma.channelListing.count({
       where: {
@@ -557,7 +569,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
           ...(providerAccountId ? { providerAccountId } : {}),
         },
       },
-    })).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_EVIDENCE_REJECTED'));
     await expect(prisma.channelListing.count({
       where: { organizationId: TEST_ORGANIZATION_ID, externalId: 'frozen-provider-listing-1' },
     })).resolves.toBe(0);
@@ -600,7 +612,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
         outcome: 'confirmed',
         evidence: { ...baseEvidence, providerAccountId: 'vendor-2' },
       },
-    })).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_EVIDENCE_REJECTED'));
     await expect(repository.reportTarget({
       organizationId: TEST_ORGANIZATION_ID,
       executionId: prepared.executionId,
@@ -664,7 +676,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
         outcome: 'submitted',
         evidence: { ...baseEvidence, providerAccountId: 'vendor-1' },
       },
-    })).rejects.toThrow('lease');
+    })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_FENCE_LOST'));
     await expect(repository.reportTarget({
       organizationId: TEST_ORGANIZATION_ID,
       executionId: prepared.executionId,
@@ -675,7 +687,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
         outcome: 'submitted',
         evidence: { ...baseEvidence, providerAccountId: 'vendor-1' },
       },
-    })).rejects.toThrow('payload hash');
+    })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_FENCE_LOST'));
     await expect(repository.reportTarget({
       organizationId: TEST_ORGANIZATION_ID,
       executionId: prepared.executionId,
@@ -686,7 +698,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
         outcome: 'confirmed',
         evidence: baseEvidence,
       },
-    })).rejects.toThrow('frozen provider account identity');
+    })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_EVIDENCE_REJECTED'));
 
     const submitted = await repository.reportTarget({
       organizationId: TEST_ORGANIZATION_ID,
@@ -968,7 +980,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
 
   it('refuses to prepare a composition change for an option whose KID was never issued', async () => {
     await expect(prepareTwoOptionCompositionChange(prisma, targets, repository, { unissuedSecondCode: true }))
-      .rejects.toThrow(/KID must be issued before registration/);
+      .rejects.toMatchObject(refused('CHANNELS_KID_REQUIRED'));
     await expect(prisma.productRegistrationExecution.count()).resolves.toBe(0);
   });
 
@@ -1005,8 +1017,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
       request: requestFor('target-unissued-create-1'),
       snapshot,
     });
-    await expect(prepare).rejects.toBeInstanceOf(ConflictException);
-    await expect(prepare).rejects.toThrow(/KID must be issued before registration/);
+    await expect(prepare).rejects.toMatchObject(refused('CHANNELS_KID_REQUIRED'));
     await expect(prisma.productRegistrationExecution.count()).resolves.toBe(0);
   });
 
@@ -1050,7 +1061,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
           options: [{ salesProductOptionId: fixture.optionId, externalOptionId: 'provider-option-unissued' }],
         },
       },
-    })).rejects.toThrow(/KID must be issued/);
+    })).rejects.toMatchObject(refused('STATE_CONFLICT'));
 
     await expect(prisma.channelListingOption.count({
       where: { organizationId: TEST_ORGANIZATION_ID, externalOptionId: 'provider-option-unissued' },
@@ -1183,7 +1194,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
       organizationId: OTHER_ORGANIZATION_ID,
       targetId: fixture.targetId,
       requestedByUserId: TEST_USER_ID,
-    })).rejects.toBeInstanceOf(NotFoundException);
+    })).rejects.toMatchObject(refused('CHANNELS_REGISTRATION_TARGET_NOT_FOUND'));
   });
 
   it('freezes listing-only availability, fences one submit, and updates only observed canonical status', async () => {
@@ -1228,18 +1239,18 @@ describe('registration target execution repository (PostgreSQL)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       executionId: prepared.executionId,
       requestedByUserId: TEST_USER_ID,
-    })).rejects.toBeInstanceOf(NotFoundException);
+    })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_NOT_FOUND'));
 
     await expect(repository.prepareListingAvailability({
       organizationId: TEST_ORGANIZATION_ID,
       requestedByUserId: TEST_USER_ID,
       request: { ...request, optionCodes: ['not-an-option'] },
-    })).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT'));
     await expect(repository.prepareListingAvailability({
       organizationId: TEST_ORGANIZATION_ID,
       requestedByUserId: randomUUID(),
       request,
-    })).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT'));
 
     const started = await repository.startListingAvailability({
       organizationId: TEST_ORGANIZATION_ID,
@@ -1267,7 +1278,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
           providerAccountId: 'wrong-vendor',
         },
       },
-    })).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_EVIDENCE_REJECTED'));
 
     const submitted = await repository.reportListingAvailability({
       organizationId: TEST_ORGANIZATION_ID,
@@ -1332,7 +1343,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
     await expect(repository.prepareListingAvailability({ organizationId: TEST_ORGANIZATION_ID,
       requestedByUserId: TEST_USER_ID, request: { channelAccountId: fixture.accountId,
         externalListingId: 'provider-listing-1', kind, optionCodes: [], idempotencyKey: `rocket-${kind}` },
-    })).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toMatchObject(refused('CHANNELS_MALL_UNSUPPORTED'));
     expect(await prisma.productRegistrationExecution.count({ where: { channelAccountId: fixture.accountId } })).toBe(0);
   });
 
@@ -1352,14 +1363,14 @@ describe('registration target execution repository (PostgreSQL)', () => {
         externalListingId: 'provider-listing-1', providerAccountId: 'vendor-1', observedStatus: '품절' } };
     const reportInput = { organizationId: TEST_ORGANIZATION_ID, requestedByUserId: TEST_USER_ID,
       executionId: prepared.executionId };
-    await expect(repository.reportListingAvailability({ ...reportInput, report })).rejects.toBeInstanceOf(ConflictException);
+    await expect(repository.reportListingAvailability({ ...reportInput, report })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_EVIDENCE_REJECTED'));
     for (const observations of [
       [{ externalOptionId: 'other-option', stock: 0, registrationType: 'NORMAL' as const }],
       [{ externalOptionId: 'provider-option-1', stock: 1, registrationType: 'NORMAL' as const }],
     ]) {
       await expect(repository.reportListingAvailability({ ...reportInput,
         report: { ...report, evidence: { ...report.evidence, observedOptionStocks: observations } },
-      })).rejects.toBeInstanceOf(ConflictException);
+      })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_EVIDENCE_REJECTED'));
     }
     const confirmed = await repository.reportListingAvailability({ ...reportInput,
       report: { ...report, evidence: { ...report.evidence, observedOptionStocks: [
@@ -1380,14 +1391,14 @@ describe('registration target execution repository (PostgreSQL)', () => {
         kind: 'resume' as const, optionCodes: [], idempotencyKey: 'wing-account-fence' } };
     await prisma.channelListingOption.updateMany({ where: { listingId: fixture.listingId! },
       data: { rawJson: { registrationType: 'RFM' } } });
-    await expect(repository.prepareListingAvailability(input)).rejects.toBeInstanceOf(ConflictException);
+    await expect(repository.prepareListingAvailability(input)).rejects.toMatchObject(refused('CHANNELS_PREFLIGHT_FAILED'));
     expect(await prisma.productRegistrationExecution.count({ where: { channelAccountId: fixture.accountId } })).toBe(0);
     await prisma.channelListingOption.updateMany({ where: { listingId: fixture.listingId! },
       data: { rawJson: { registrationType: 'NORMAL' } } });
     const prepared = await repository.prepareListingAvailability(input);
     await prisma.channelAccount.update({ where: { id: fixture.accountId }, data: { vendorId: 'another-vendor' } });
     await expect(repository.startListingAvailability({ organizationId: TEST_ORGANIZATION_ID,
-      requestedByUserId: TEST_USER_ID, executionId: prepared.executionId })).rejects.toBeInstanceOf(ConflictException);
+      requestedByUserId: TEST_USER_ID, executionId: prepared.executionId })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_STALE'));
     expect(await prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId },
       select: { status: true, leaseToken: true } })).toEqual({ status: 'prepared', leaseToken: null });
   });
@@ -1404,7 +1415,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
         optionCodes: [],
         idempotencyKey: 'listing-unsupported-rocket-1',
       },
-    })).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toMatchObject(refused('CHANNELS_MALL_UNSUPPORTED'));
 
     const targetRequest: PrepareTargetExecutionInput = {
       ...requestFor('shared-execution-contract-1'),
@@ -1426,7 +1437,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
         optionCodes: [],
         idempotencyKey: targetRequest.idempotencyKey,
       },
-    })).rejects.toBeInstanceOf(ConflictException);
+    })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT'));
     await expect(repository.listListingAvailability({
       organizationId: TEST_ORGANIZATION_ID,
       requestedByUserId: TEST_USER_ID,
@@ -1514,7 +1525,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
       requestedByUserId: TEST_USER_ID,
       channelAccountId: fixture.accountId,
       externalListingId: 'provider-listing-1',
-    })).rejects.toBeInstanceOf(NotFoundException);
+    })).rejects.toMatchObject(refused('CHANNELS_LISTING_NOT_FOUND'));
   });
 
   /**
@@ -1611,10 +1622,10 @@ describe('registration target execution repository (PostgreSQL)', () => {
           evidence: { channelAccountId: fixture.accountId, providerAccountId: 'vendor-1', observedUrl: WING_URL, externalListingId: WING_LISTING_ID, ...evidence },
         },
       });
-      await expect(report({ providerAccountId: 'vendor-9' })).rejects.toBeInstanceOf(ConflictException);
-      await expect(report({ providerAccountId: undefined })).rejects.toBeInstanceOf(ConflictException);
-      await expect(report({ observedUrl: 'https://www.coupang.com/vp/products/1' })).rejects.toBeInstanceOf(ConflictException);
-      await expect(report({ externalListingId: 'W-123' })).rejects.toBeInstanceOf(ConflictException);
+      await expect(report({ providerAccountId: 'vendor-9' })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_EVIDENCE_REJECTED'));
+      await expect(report({ providerAccountId: undefined })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_EVIDENCE_REJECTED'));
+      await expect(report({ observedUrl: 'https://www.coupang.com/vp/products/1' })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_EVIDENCE_REJECTED'));
+      await expect(report({ externalListingId: 'W-123' })).rejects.toMatchObject(refused('CHANNELS_EXECUTION_EVIDENCE_REJECTED'));
       expect(await prisma.channelListing.count({ where: { organizationId: TEST_ORGANIZATION_ID, channelAccountId: fixture.accountId } })).toBe(0);
       await expect(prisma.productRegistrationExecution.findUniqueOrThrow({ where: { id: prepared.executionId }, select: { status: true } }))
         .resolves.toEqual({ status: 'executing' });
@@ -2082,4 +2093,9 @@ async function prepareTwoOptionCompositionChange(
       },
     }),
   };
+}
+
+/** 거절은 등록 코드와 그 kind로 단언한다(문장 단언 금지, KID-341). */
+function refused(code: KiditemErrorCode) {
+  return { code, kind: ERROR_DEFINITIONS[code].kind };
 }
