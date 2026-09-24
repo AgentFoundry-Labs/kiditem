@@ -1,9 +1,6 @@
 import { isStationeryToyKeyword } from './stationery-toy-keyword';
 import type { TrendOpportunity } from './market-intelligence';
-import {
-  fetchNaverKeywordTrends,
-  type NaverKeywordTrendView,
-} from './trend-collection-api';
+import type { NaverKeywordTrendView } from './trend-collection-api';
 
 const MAX_TREND_CANDIDATES = 50;
 
@@ -42,14 +39,9 @@ export interface LiveNaverMarketResult {
 }
 
 /**
- * 화면은 이미 OperationRun 소유자가 저장한 네이버 일별 스냅샷만 읽는다.
- * 원천 수집은 명시적 `sourcing.collect_daily_trends` CTA 에서만 시작한다.
+ * 화면은 이미 저장된 네이버 일별 스냅샷(`fetchNaverKeywordTrends`)만 읽고, 이 함수로 기회 목록을 파생한다.
+ * 원천 수집은 명시적 수집 CTA 에서만 시작한다.
  */
-export async function fetchPersistedNaverMarket(): Promise<LiveNaverMarketResult> {
-  const snapshot = await fetchNaverKeywordTrends(30);
-  return buildPersistedNaverMarketResult(snapshot.keywords);
-}
-
 export function buildPersistedNaverMarketResult(
   keywords: NaverKeywordTrendView[],
 ): LiveNaverMarketResult {

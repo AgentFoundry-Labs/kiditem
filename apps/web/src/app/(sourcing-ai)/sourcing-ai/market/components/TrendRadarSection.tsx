@@ -44,7 +44,11 @@ import {
   type TrendDecision,
   type TrendSource,
 } from '../lib/market-intelligence';
-import { fetchPersistedNaverMarket } from '../lib/live-naver-market';
+import {
+  buildPersistedNaverMarketResult,
+  type LiveNaverMarketResult,
+} from '../lib/live-naver-market';
+import { fetchNaverKeywordTrends } from '../lib/trend-collection-api';
 import { fetchLiveSnsMarket } from '../lib/live-sns-market';
 
 const NAVER_TREND_SOURCES = ['naver'] as const;
@@ -126,6 +130,10 @@ const sourceMeta: Record<TrendSource, { label: string; className: string }> = {
 const pressable = 'transition-[transform,background-color,border-color,color] duration-150 ease-out active:scale-[0.97] motion-reduce:transform-none';
 const NAVER_SNAPSHOT_DAYS = 30;
 
+function selectNaverMarket(snapshot: Awaited<ReturnType<typeof fetchNaverKeywordTrends>>): LiveNaverMarketResult {
+  return buildPersistedNaverMarketResult(snapshot.keywords);
+}
+
 export function TrendRadarSection() {
   const [channelView, setChannelView] = useState<TrendChannelView>('domestic');
   const [category, setCategory] = useState<MarketCategory>('all');
@@ -134,7 +142,9 @@ export function TrendRadarSection() {
 
   const liveNaverQuery = useQuery({
     queryKey: queryKeys.sourcing.trendNaverKeywords(NAVER_SNAPSHOT_DAYS),
-    queryFn: fetchPersistedNaverMarket,
+    // The cache keeps the raw snapshot other screens read under this key; the radar derives its view.
+    queryFn: () => fetchNaverKeywordTrends(NAVER_SNAPSHOT_DAYS),
+    select: selectNaverMarket,
     enabled: channelView === 'domestic',
     staleTime: 10 * 60 * 1000,
   });
