@@ -14,9 +14,17 @@ owns its identity and mutation rules.
 - Global DTO validation uses whitelist and transform.
 - Controllers receive organization scope from
   `@CurrentOrganization()`; DTOs do not accept it.
-- Controllers do not use `as any`. Missing resources throw
-  `NotFoundException`, not HTTP-200 failure objects.
+- Controllers do not use `as any`. Missing resources throw a
+  `KiditemNotFoundError`, not HTTP-200 failure objects.
 - Apply the root single-resource organization fence to every read and mutation.
+- Errors are KidItem codes ([ADR-0023](../../docs/adr/0023-errors-are-kiditem-codes.md)):
+  throw a `KiditemError` subclass from `@kiditem/shared/errors` at the point
+  where the business flow cannot continue (domain or adapter); controllers do
+  not catch. Do not swallow errors with `try/catch`; wrap mall, Prisma and
+  Gateway failures as `KiditemExternalError(code, { cause })` and rethrow.
+  Responses carry no stack, raw text or variable names (log those with
+  `Logger`). A new code exists only once it is registered with its Korean
+  sentence in `ERROR_DEFINITIONS` (`npm run check:error-codes`).
 
 ## Module Boundaries
 
