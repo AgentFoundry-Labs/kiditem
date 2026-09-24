@@ -67,6 +67,7 @@ export function isMirrorableImageUrl(url: string): boolean {
  * 원래 주소 → 우리 저장소 위치. 옮길 수 없는 주소는 null이다.
  * query string은 같은 원본 변형을 구분해야 하므로 key hash에 포함한다.
  */
+// organization-scope: data — 조직 id는 저장소 키 경로의 일부다
 export function mirroredImageKey(organizationId: string, sourceUrl: string, sha256: (value: string) => string): string | null {
   const parsed = parseUrl(sourceUrl);
   if (!parsed || !isAllowedImageHost(parsed)) return null;
@@ -125,6 +126,7 @@ function unsupportedReason(url: string): string | null {
  * 상품 코드·참조 순으로 반환한다. 같은 주소는 한 번만 반환한다.
  */
 export function pendingMirrorImages(
+  // organization-scope: data — 저장소 키(mirroredImageKey)에만 들어간다
   organizationId: string,
   products: readonly SalesProductImageSnapshot[],
   sha256: (value: string) => string,
