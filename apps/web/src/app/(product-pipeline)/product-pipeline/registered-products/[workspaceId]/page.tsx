@@ -120,7 +120,8 @@ function channelListingToProductWorkspaceData(
     source_url: null,
     thumbnailUrl,
     thumbnail_url: thumbnailUrl,
-    price_krw: price,
+    // 몰이 안 준 판매가는 여기서도 null 이다(작업공간 편집 상태는 숫자만 받아 미리보기는 0 으로 그린다 — KID-314 화면 통합 때 함께).
+    price_krw: listing.channelPrice,
     cost_cny: null,
     image_count: imageUrls.length,
     is_processed: true,

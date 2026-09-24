@@ -77,7 +77,7 @@ export function DashboardGradeCards({
     unit: '개',
     suffix: flowOf(grade),
     note: profitOf(grade),
-    href: `/product-hub?abcGrade=${grade}`,
+    href: `/product-hub?abcGrade=${grade}&activeStatus=all`,
   });
 
   return (

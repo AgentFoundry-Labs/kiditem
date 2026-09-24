@@ -73,7 +73,7 @@ export default function MallChannelsPage() {
     ]));
     const coupang = coupangQuery.data;
     if (coupang?.configured && coupang.vendorId) {
-      map.set('coupang', { loginId: coupang.vendorId, enabled: true, siteUrl: 'https://wing.coupang.com' });
+      map.set('coupang', { loginId: coupang.vendorId, enabled: coupang.status === 'active', siteUrl: 'https://wing.coupang.com' });
     }
     return map;
   }, [accountsQuery.data, accountsQuery.isError, coupangQuery.data]);

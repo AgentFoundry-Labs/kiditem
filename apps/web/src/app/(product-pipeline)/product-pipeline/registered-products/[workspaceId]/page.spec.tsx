@@ -231,6 +231,7 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
     const basics = (productWorkspaceProps.at(-1)?.initialWorkspaceData as { product: { basicInfo: { salePrice: number | null; originalPrice: number | null } } }).product.basicInfo;
     expect(basics.salePrice).toBeNull();
     expect(basics.originalPrice).toBeNull();
+    expect((productWorkspaceProps.at(-1)?.initialWorkspaceData as { product: { price_krw: number | null } }).product.price_krw).toBeNull();
     (listing as unknown as RegisteredChannelListing).channelPrice = 21900;
   });
 });

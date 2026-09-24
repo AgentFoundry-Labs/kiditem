@@ -85,29 +85,8 @@ export interface RegisteredChannelListing {
   providerDetail?: RegisteredChannelListingProviderDetail;
 }
 
+/** 웹은 공급자 원문 중 사진 주소만 읽는다(등록 상품 상세 이미지). 나머지 원문 필드는 서버 응답에 남지만 여기서는 안 본다. */
 export interface RegisteredChannelListingProviderDetail {
-  category: string | null;
-  brand: string | null;
-  manufacturer: string | null;
-  sourceDetail: {
-    documents: Array<Record<string, unknown>>;
-    options: Array<{
-      externalOptionId: string;
-      documentIds: string[];
-    }>;
-  } | null;
-  options: Array<{
-    externalOptionId: string;
-    itemName: string | null;
-    vendorItemId: string | null;
-    sellerProductItemId: string | null;
-    salePrice: number | null;
-    sellerSku: string | null;
-    barcode: string | null;
-    modelNumber: string | null;
-    status: string | null;
-    attributes: unknown;
-  }>;
   media: Array<{
     sourceUrl: string;
     role: string;

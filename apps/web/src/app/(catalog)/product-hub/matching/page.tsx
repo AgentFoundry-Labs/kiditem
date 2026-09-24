@@ -85,11 +85,11 @@ export default function MatchingPage() {
   /**
    * 리스팅이 있는 몰은 전부 고를 수 있다.
    *
-   * 예전에는 계정 목록(`/api/channels/accounts`)만 읽어 쿠팡 · 로켓만 보여 줬다. 그 목록은
-   * `status: 'active'` 만 주는데 몰 계정 행은 `configured` 라, 사방넷 · 키드키즈 ·
+   * 예전에는 계정 목록(`/api/channels/accounts`)만 읽어 쿠팡 · 로켓만 보여 줬고, 사방넷 · 키드키즈 ·
    * 아이스크림몰에서 가져온 리스팅은 이어지지 않아도 사람이 확인할 화면이 아예 없었다
    * (사장님 2026-09-17). 그래서 대기열에 실제로 줄이 있는 계정을 함께 센다 — 가져온 몰은
-   * 상태와 상관없이 선다. 쿠팡을 앞에 두는 순서는 그대로다 — 가장 많이 보는 계정이다.
+   * 상태와 상관없이 선다(그 목록은 이제 `configured` 몰 계정도 준다, KID-330). 쿠팡을 앞에
+   * 두는 순서는 그대로다 — 가장 많이 보는 계정이다.
    */
   const channelAccounts = useMemo(() => {
     const byId = new Map<string, { id: string; channel: string; name: string }>();

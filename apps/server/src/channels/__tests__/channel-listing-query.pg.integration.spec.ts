@@ -46,6 +46,7 @@ describe('channel listing list (PG integration)', () => {
         channelAccountId: account.id,
         externalId: 'P-COLLECTED-ONLY',
         displayName: '수집으로만 생긴 상품',
+        status: 'ON_SALE',
         rawJson: { source: 'coupang_catalog_basics' },
       },
       select: { id: true, salesProductId: true },
@@ -56,6 +57,7 @@ describe('channel listing list (PG integration)', () => {
         channelAccountId: account.id,
         externalId: 'P-WITH-WORKSPACE',
         displayName: '작업공간이 있는 상품',
+        status: '승인반려',
       },
       select: { id: true },
     });
@@ -81,6 +83,11 @@ describe('channel listing list (PG integration)', () => {
     expect(bare.salesProductId).toBeNull();
     expect(listed.items.find((item) => item.externalId === 'P-COLLECTED-ONLY'))
       .toMatchObject({ sourceRecordId: null, contentWorkspaceId: null });
+    // 몰 원문 상태는 우리 어휘로 접혀 실린다(등록 상품 카드 · 매트릭스가 같은 값을 읽는다).
+    expect(listed.items.find((item) => item.externalId === 'P-COLLECTED-ONLY'))
+      .toMatchObject({ status: 'ON_SALE', listingState: 'published' });
+    expect(listed.items.find((item) => item.externalId === 'P-WITH-WORKSPACE'))
+      .toMatchObject({ status: '승인반려', listingState: 'error' });
   });
 
   it('hides another organizations listing on the same channel', async () => {
