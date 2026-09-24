@@ -234,7 +234,7 @@ describe('ProductEditHeader preparation draft action', () => {
     renderHeader([account(ROCKET_ACCOUNT, 'registered', { changedSinceRegistration: true })]);
 
     expect(screen.getByText('등록됨')).toBeInTheDocument();
-    expect(screen.getByText('변경됨 · 재전송 필요')).toBeInTheDocument();
+    expect(screen.queryByText(/변경됨/)).not.toBeInTheDocument();
     const button = screen.getByRole('button', { name: '제품 등록 준비' });
     expect(button).toBeEnabled();
 

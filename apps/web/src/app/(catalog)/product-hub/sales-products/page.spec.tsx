@@ -137,8 +137,8 @@ describe('판매상품 목록 화면', () => {
     });
     renderPage();
 
-    const badge = await screen.findByText('실패 · 2몰 등록 · 1 변경됨');
-    expect(badge).toHaveAttribute('title', '몰 A: 등록됨 · 변경됨 · 재전송 필요\n몰 B: 등록됨\n몰 C: 실패');
+    const badge = await screen.findByText('실패 · 2몰 등록');
+    expect(badge).toHaveAttribute('title', '몰 A: 등록됨\n몰 B: 등록됨\n몰 C: 실패');
     expect(screen.queryByText('3몰')).toBeNull();
   });
 

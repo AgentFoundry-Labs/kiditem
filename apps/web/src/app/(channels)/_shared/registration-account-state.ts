@@ -15,7 +15,7 @@ import { MALL_STOP_TONE, listingStatePill, type MallStopKind } from './mall-pres
 export type RegistrationTone = 'neutral' | 'progress' | 'success' | 'warning' | 'danger';
 
 export interface RegistrationBadge {
-  key: 'state' | 'listing' | 'soldOut' | 'changed';
+  key: 'state' | 'listing' | 'soldOut';
   label: string;
   tone: RegistrationTone;
   /**
@@ -51,8 +51,6 @@ const STATE_TONES: Record<RegistrationAccountStateValue, RegistrationTone> = {
   registered: 'success',
   failed: 'danger',
 };
-
-export const CHANGED_SINCE_REGISTRATION_LABEL = '변경됨 · 재전송 필요';
 
 export function registrationStateLabel(state: RegistrationAccountStateValue): string {
   return STATE_LABELS[state];
@@ -110,11 +108,14 @@ function listingBadge(account: RegistrationBadgeAccount): RegistrationBadge | nu
 }
 
 /**
- * 계정 한 줄의 배지: 상태, 몰이 발행하지 않은 리스팅이면 그 몰 상태, 그 위에 품절 · 변경됨(재전송 필요).
+ * 계정 한 줄의 배지: 상태, 몰이 발행하지 않은 리스팅이면 그 몰 상태, 그 위에 품절.
  *
  * "등록됨"이 초록인 것은 몰이 발행했다고 보고했거나(`published`) 울타리가 확인한 성공을 몰이 아직 돌려주지 않았을
  * 때(`listingState` null)뿐이다 — 성공은 몰 재조회로 확인된 것이다(`(channels)/CLAUDE.md`). 내린 리스팅은
  * "등록됨 · 내림"이다(2026-09-23 사용자 결정 "비활성화는 등록된 상태에서 내린 것").
+ *
+ * 서버가 주는 `changedSinceRegistration`(등록 뒤 값이 바뀜)은 칩으로 그리지 않는다 — 몰에 다시 보내는 실제
+ * 재전송이 없는 동안(KID-323) "재전송 필요"는 할 수 없는 일을 시킨다(사용자 2026-09-24).
  */
 export function registrationBadges(account: RegistrationBadgeAccount): RegistrationBadge[] {
   const badges: RegistrationBadge[] = [];
@@ -127,13 +128,10 @@ export function registrationBadges(account: RegistrationBadgeAccount): Registrat
     if (listing) badges.push(listing);
   }
   if (account.soldOut) badges.push({ key: 'soldOut', label: '품절', tone: 'danger', className: MALL_STOP_TONE.sold_out });
-  if (account.changedSinceRegistration) {
-    badges.push({ key: 'changed', label: CHANGED_SINCE_REGISTRATION_LABEL, tone: 'warning' });
-  }
   return badges;
 }
 
-/** 상품 하나를 배지 하나로: 살아 있는 실행 · 실패가 먼저, 그다음 등록 몰 수와 품절 · 변경됨 수. */
+/** 상품 하나를 배지 하나로: 살아 있는 실행 · 실패가 먼저, 그다음 등록 몰 수와 품절 수. 변경됨 수는 데이터로만 싣는다(KID-323). */
 export function productRegistrationSummary(
   accounts: readonly Pick<RegistrationAccountState, 'state' | 'soldOut' | 'changedSinceRegistration'>[],
 ): ProductRegistrationSummary {
@@ -145,9 +143,8 @@ export function productRegistrationSummary(
     leading,
     summary.registeredCount > 0 ? `${summary.registeredCount}몰 등록` : null,
     summary.soldOutCount > 0 ? `${summary.soldOutCount} 품절` : null,
-    summary.changedCount > 0 ? `${summary.changedCount} 변경됨` : null,
   ].filter((part): part is string => part !== null);
-  const tone = summary.state === 'registered' && (summary.changedCount > 0 || summary.soldOutCount > 0)
+  const tone = summary.state === 'registered' && summary.soldOutCount > 0
     ? 'warning'
     : registrationStateTone(summary.state);
   return {

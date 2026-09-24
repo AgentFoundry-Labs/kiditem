@@ -29,7 +29,7 @@ function Chip({ label, tone, className, title }: { label: string; tone: Registra
 }
 
 /**
- * 몰 등록 상태 배지 하나. `account` 면 그 계정의 상태 · 품절 · 변경됨 칩을, `accounts` 면 상품 요약 칩 하나를
+ * 몰 등록 상태 배지 하나. `account` 면 그 계정의 상태 · 몰 상태 · 품절 칩을, `accounts` 면 상품 요약 칩 하나를
  * 그린다(마우스를 올리면 계정별 줄). 모든 화면이 이 배지 하나를 쓴다(KID-320).
  */
 export function RegistrationStateBadge(props: RegistrationStateBadgeProps) {

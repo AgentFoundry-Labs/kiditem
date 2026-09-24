@@ -164,7 +164,7 @@ describe('MallQuickRegisterRows', () => {
     });
     const row = rowOf('키즈노트').parentElement as HTMLElement;
     expect(within(row).getByText('등록됨')).toBeInTheDocument();
-    expect(within(row).getByText('변경됨 · 재전송 필요')).toBeInTheDocument();
+    expect(within(row).queryByText(/변경됨/)).not.toBeInTheDocument();
     expect(within(row).getByText('대기')).toBeInTheDocument();
   });
 

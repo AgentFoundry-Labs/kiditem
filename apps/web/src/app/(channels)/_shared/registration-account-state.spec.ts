@@ -70,13 +70,12 @@ describe('registrationBadges', () => {
     ]);
   });
 
-  it('adds sold-out (red, like every sold-out cell) and needs-re-send after the state of a registered account', () => {
+  it('adds sold-out (red, like every sold-out cell) after the state and hides 변경됨 until a real re-send exists (KID-323)', () => {
     expect(registrationBadges(account({
       state: 'registered', listingState: 'published', listingRawStatus: '승인완료', listingActive: true, soldOut: true, changedSinceRegistration: true,
     }))).toEqual([
       { key: 'state', label: '등록됨', tone: 'success' },
       { key: 'soldOut', label: '품절', tone: 'danger', className: MALL_STOP_TONE.sold_out },
-      { key: 'changed', label: '변경됨 · 재전송 필요', tone: 'warning' },
     ]);
   });
 
@@ -111,7 +110,7 @@ describe('productRegistrationSummary', () => {
     expect(productRegistrationSummary([])).toMatchObject({ state: 'unregistered', label: '미등록', tone: 'neutral' });
   });
 
-  it('counts registered malls and names changed and sold-out ones', () => {
+  it('counts registered malls and names sold-out ones, never a 변경됨 count (KID-323 hides it)', () => {
     const summary = productRegistrationSummary([
       account({ state: 'registered', changedSinceRegistration: true }),
       account({ state: 'registered' }),
@@ -120,8 +119,9 @@ describe('productRegistrationSummary', () => {
     ]);
     expect(summary).toMatchObject({
       state: 'registered',
-      label: '3몰 등록 · 1 품절 · 1 변경됨',
+      label: '3몰 등록 · 1 품절',
       registeredCount: 3,
+      changedCount: 1,
       tone: 'warning',
     });
   });
@@ -131,6 +131,11 @@ describe('productRegistrationSummary', () => {
       account({ state: 'registered' }),
       account({ state: 'confirming' }),
     ])).toMatchObject({ state: 'confirming', label: '확인 대기 · 1몰 등록', tone: 'progress' });
+  });
+
+  it('keeps a registered product green when only 변경됨 is set', () => {
+    expect(productRegistrationSummary([account({ state: 'registered', changedSinceRegistration: true })]))
+      .toMatchObject({ label: '1몰 등록', tone: 'success', changedCount: 1 });
   });
 
   it('shows a failure when nothing is registered', () => {

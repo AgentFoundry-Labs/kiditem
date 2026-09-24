@@ -47,7 +47,8 @@ describe('ProductCard', () => {
       }),
     });
 
-    expect(screen.getByText('2몰 등록 · 1 변경됨')).toBeInTheDocument();
+    expect(screen.getByText('2몰 등록')).toBeInTheDocument();
+    expect(screen.queryByText(/변경됨/)).not.toBeInTheDocument();
   });
 
   it('shows no registration badge for a draft with no account yet', () => {

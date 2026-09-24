@@ -163,7 +163,8 @@ describe('<ChannelOverridesSection />', () => {
     renderSection(product, true);
 
     expect((await screen.findAllByText('등록됨')).length).toBeGreaterThan(0);
-    expect(screen.getAllByText('변경됨 · 재전송 필요').length).toBeGreaterThan(0);
+    // 변경됨은 실제 재전송(KID-323)이 생길 때까지 보이지 않는다.
+    expect(screen.queryByText(/변경됨/)).not.toBeInTheDocument();
     // 상태는 배지가 말한다 — 마지막 실행 줄은 그 실행의 시각만 적고 상태 말을 새로 짓지 않는다.
     expect(screen.getAllByText(/^마지막 실행 /).length).toBeGreaterThan(0);
     expect(screen.queryByText(/등록 결과 확인됨/)).not.toBeInTheDocument();

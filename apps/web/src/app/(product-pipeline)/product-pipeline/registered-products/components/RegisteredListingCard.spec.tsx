@@ -62,7 +62,7 @@ describe('RegisteredListingCard', () => {
 
     expect(screen.getByText('등록됨')).toBeInTheDocument();
     expect(screen.getByText('품절')).toBeInTheDocument();
-    expect(screen.getByText('변경됨 · 재전송 필요')).toBeInTheDocument();
+    expect(screen.queryByText(/변경됨/)).not.toBeInTheDocument();
     expect(screen.queryByText('APPROVED')).not.toBeInTheDocument();
   });
 

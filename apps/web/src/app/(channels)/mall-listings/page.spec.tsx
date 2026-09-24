@@ -507,7 +507,7 @@ describe('등록 현황 (상품 × 몰 매트릭스)', () => {
     const table = screen.getByRole('table');
     expect(within(table).getByText('등록됨')).toBeInTheDocument();
     expect(within(table).getByText('품절')).toBeInTheDocument();
-    expect(within(table).getByText('변경됨 · 재전송 필요')).toBeInTheDocument();
+    expect(within(table).queryByText(/변경됨/)).not.toBeInTheDocument();
     // 판매상품 없는 칸(두 번째 줄)은 리스팅 상태 그대로다.
     expect(within(table).getByText('확인필요')).toBeInTheDocument();
   });
