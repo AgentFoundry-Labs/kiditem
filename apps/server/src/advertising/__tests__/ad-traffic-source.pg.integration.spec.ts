@@ -1922,12 +1922,36 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       .expect(404);
   });
 
-  it('publishes a v1 attempt an earlier release admitted onto an item-winner day without taking its observation count or time', async () => {
+  /**
+   * v1 페이지 수집기는 운영에서 돌 수 없다(KID-232) — 확장이 v1 계획을 거절하고, 서버도 v1 모양
+   * 영수증을 스키마에서 거절하며 v1 계획으로 얼린 시도를 이어 받거나 발행하지 않는다.
+   */
+  it('refuses a v1-shaped page receipt at the schema before any write', async () => {
+    const plan = range();
+    const started = await begin(plan);
+
+    await upload(started.attempt, 0, {
+      key: `${started.attempt.attemptId}:page:1`,
+      capturedAt: `${plan.startDate}T01:00:00.000Z`,
+      url: plan.url,
+      startDate: plan.startDate,
+      endDate: plan.endDate,
+      period: 1,
+      pageIndex: 1,
+      proof: { expectedPages: 1, visitedPages: [1], terminalPageObserved: true, verified: true, complete: true },
+      data: [row('1001', { visitors: 7, views: 8, cartAdds: 2, orders: 1, salesQty: 2, revenue: 70 })],
+    }).expect(400);
+
+    await expect(prisma.channelScrapeChunk.count({ where: { organizationId: ORG } })).resolves.toBe(0);
+    await expect(prisma.channelScrapeSnapshot.count({
+      where: { organizationId: ORG, sourceImportRunId: started.attempt.attemptId },
+    })).resolves.toBe(0);
+  });
+
+  it('neither continues nor publishes an attempt an earlier release froze with a v1 plan', async () => {
     const plan = range();
     const businessDate = new Date(`${plan.startDate}T00:00:00.000Z`);
-    const itemWinnerObservedAt = new Date(`${plan.startDate}T05:00:00.000Z`);
     const started = await begin(plan);
-    // The v1 plan an earlier release froze for this attempt.
     await prisma.sourceImportRun.update({
       where: { id: started.attempt.attemptId },
       data: {
@@ -1945,263 +1969,37 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         },
       },
     });
-    // The item-winner source observed the listing's state three times that day.
-    const itemWinnerRun = await prisma.channelScrapeRun.create({
-      data: {
-        organizationId: ORG,
-        channelAccountId: accountId,
-        channel: 'coupang',
-        source: 'wing',
-        pageType: 'itemwinner',
-        businessDate,
-      },
-    });
-    const itemWinnerSnapshot = await prisma.channelScrapeSnapshot.create({
-      data: {
-        organizationId: ORG,
-        scrapeRunId: itemWinnerRun.id,
-        channel: 'coupang',
-        source: 'wing',
-        pageType: 'itemwinner',
-        businessDate,
-        observedAt: itemWinnerObservedAt,
-        externalId: 'EXT-TRAFFIC',
-        listingId,
-        matchStatus: 'matched_listing_only',
-        rawJson: { externalId: 'EXT-TRAFFIC' },
-      },
-    });
-    await prisma.channelListingDailySnapshot.update({
-      where: { organizationId_listingId_businessDate: { organizationId: ORG, listingId, businessDate } },
-      data: {
-        isOfferWinner: true,
-        sampleCount: 3,
-        lastObservedAt: itemWinnerObservedAt,
-        rawSnapshotId: itemWinnerSnapshot.id,
-      },
+
+    await upload(
+      started.attempt,
+      0,
+      dailyReceipt(started.attempt, plan, plan.startDate, 1, 1, [row('1001')]),
+    ).expect(404);
+    await request(httpUrl)
+      .post(`${base}/attempts/${started.attempt.attemptId}/complete`)
+      .set('x-test-org', ORG)
+      .set('X-Source-Attempt-Token', started.attempt.attemptToken)
+      .send({ manifestChecksum: 'a'.repeat(64) })
+      .expect(404);
+    await prisma.sourceImportRun.update({
+      where: { id: started.attempt.attemptId },
+      data: { status: 'completed', importedAt: new Date(), contentChecksum: 'a'.repeat(64) },
     });
 
-    await upload(started.attempt, 0, {
-      key: `${started.attempt.attemptId}:page:1`,
-      capturedAt: `${plan.startDate}T01:00:00.000Z`,
-      url: plan.url,
-      startDate: plan.startDate,
-      endDate: plan.endDate,
-      period: 1,
-      pageIndex: 1,
-      proof: {
-        expectedPages: 1,
-        visitedPages: [1],
-        terminalPageObserved: true,
-        verified: true,
-        complete: true,
-      },
-      data: [row('1001', { visitors: 7, views: 8, cartAdds: 2, orders: 1, salesQty: 2, revenue: 70 })],
-    }).expect(200);
-    await complete(started.attempt, 201);
-
-    await expect(prisma.channelListingDailySnapshot.findUniqueOrThrow({
-      where: { organizationId_listingId_businessDate: { organizationId: ORG, listingId, businessDate } },
-    })).resolves.toMatchObject({
-      trafficViews: 8,
-      trafficRevenue: 70,
-      trafficObservedAt: new Date(`${plan.startDate}T01:00:00.000Z`),
-      isOfferWinner: true,
-      sampleCount: 3,
-      lastObservedAt: itemWinnerObservedAt,
-      rawSnapshotId: itemWinnerSnapshot.id,
-    });
-  });
-
-  it('reads a seeded v1 period as exact legacy evidence without treating it as a daily READY source', async () => {
-    const plan = range();
-    const observedAt = new Date(`${plan.endDate}T03:00:00.000Z`);
-    const legacyPlan = {
-      sourceType: 'coupang_wing_traffic' as const,
-      parserVersion: 'wing-traffic-v1' as const,
-      channelAccountId: accountId,
-      expectedAdvertiserId: 'VENDOR-A',
-      startDate: plan.startDate,
-      endDate: plan.endDate,
-      businessDate: plan.endDate,
-      periodDays: 1,
-      targetUrl: WING_URL,
-    };
-    const legacyPayload = {
-      key: 'legacy:page:1',
-      capturedAt: observedAt.toISOString(),
-      url: WING_URL,
-      startDate: plan.startDate,
-      endDate: plan.endDate,
-      period: 1,
-      pageIndex: 1,
-      proof: {
-        expectedPages: 1,
-        visitedPages: [1],
-        terminalPageObserved: true,
-        verified: true,
-        complete: true,
-      },
-      data: [row('1001', { visitors: 7, views: 8, cartAdds: 2, orders: 1, salesQty: 2, revenue: 70 })],
-      kpis: { visitor: { numValue: 7 } },
-      summary: { visitors: 7, views: 8, orders: 1, revenue: 70 },
-      adSummary: { spend: 11 },
-    };
-    const sourceRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: ORG,
-        sourceType: 'coupang_wing_traffic',
-        channelAccountId: accountId,
-        status: 'completed',
-        parserVersion: 'wing-traffic-v1',
-        freshnessGeneration: 1n,
-        plan: legacyPlan,
-        rowCount: 1,
-        contentChecksum: digest(legacyPayload),
-        importedAt: observedAt,
-        lastVerifiedAt: observedAt,
-        coverageStartDate: new Date(`${plan.startDate}T00:00:00.000Z`),
-        coverageEndDate: new Date(`${plan.endDate}T00:00:00.000Z`),
-      },
-    });
-    const scrapeRun = await prisma.channelScrapeRun.create({
-      data: {
-        organizationId: ORG,
-        channelAccountId: accountId,
-        sourceImportRunId: sourceRun.id,
-        channel: 'coupang',
-        source: 'wing',
-        pageType: 'traffic',
-        parserVersion: 'wing-traffic-v1',
-        businessDate: new Date(`${plan.endDate}T00:00:00.000Z`),
-        periodStart: new Date(`${plan.startDate}T00:00:00.000Z`),
-        periodEnd: new Date(`${plan.endDate}T00:00:00.000Z`),
-        targetUrl: WING_URL,
-        period: '1',
-        status: 'complete',
-        finishedAt: observedAt,
-      },
-    });
-    const snapshot = await prisma.channelScrapeSnapshot.create({
-      data: {
-        organizationId: ORG,
-        sourceImportRunId: sourceRun.id,
-        scrapeRunId: scrapeRun.id,
-        channel: 'coupang',
-        source: 'wing',
-        pageType: 'traffic',
-        businessDate: new Date(`${plan.endDate}T00:00:00.000Z`),
-        observedAt,
-        externalId: 'EXT-TRAFFIC',
-        externalOptionId: '1001',
-        listingId,
-        listingOptionId: optionId,
-        matchStatus: 'matched',
-        rawJson: legacyPayload.data[0],
-        normalizedJson: legacyPayload.data[0],
-      },
-    });
-    const legacyReceipt = {
-      sequence: 0,
-      key: legacyPayload.key,
-      checksum: digest(legacyPayload),
-      pageIndex: 1,
-      expectedPages: 1,
-      rowCount: 1,
-      matchedCount: 1,
-      unmatchedCount: 0,
-      snapshotIds: [snapshot.id],
-      url: WING_URL,
-      startDate: plan.startDate,
-      endDate: plan.endDate,
-      terminalPageObserved: true,
-    };
-    await prisma.channelScrapeChunk.create({
-      data: {
-        organizationId: ORG,
-        scrapeRunId: scrapeRun.id,
-        kind: 'traffic_page',
-        sequence: 0,
-        checksum: digest(legacyPayload),
-        itemCount: 1,
-        payload: legacyPayload,
-        publicationJson: { receipt: legacyReceipt },
-      },
-    });
-    await prisma.channelListingDailySnapshot.update({
-      where: {
-        organizationId_listingId_businessDate: {
-          organizationId: ORG,
-          listingId,
-          businessDate: new Date(`${plan.endDate}T00:00:00.000Z`),
-        },
-      },
-      data: {
-        trafficVisitors: 7,
-        trafficViews: 8,
-        trafficCartAdds: 2,
-        trafficOrders: 1,
-        trafficSalesQty: 2,
-        trafficRevenue: 70,
-        trafficObservedAt: observedAt,
-      },
-    });
-    // A second captured listing whose daily row never recorded a traffic
-    // observation: the legacy read must drop it rather than borrow the row's
-    // unrelated `lastObservedAt`.
-    const unobservedListing = await prisma.channelListing.create({
-      data: { organizationId: ORG, channelAccountId: accountId, externalId: 'EXT-TRAFFIC-UNOBSERVED' },
-    });
-    await prisma.channelScrapeSnapshot.create({
-      data: {
-        organizationId: ORG,
-        sourceImportRunId: sourceRun.id,
-        scrapeRunId: scrapeRun.id,
-        channel: 'coupang',
-        source: 'wing',
-        pageType: 'traffic',
-        businessDate: new Date(`${plan.endDate}T00:00:00.000Z`),
-        observedAt,
-        externalId: 'EXT-TRAFFIC-UNOBSERVED',
-        externalOptionId: '1002',
-        listingId: unobservedListing.id,
-        matchStatus: 'matched',
-        rawJson: legacyPayload.data[0],
-        normalizedJson: legacyPayload.data[0],
-      },
-    });
-    await prisma.channelListingDailySnapshot.create({
-      data: {
-        organizationId: ORG,
-        listingId: unobservedListing.id,
-        channel: 'coupang',
-        externalId: 'EXT-TRAFFIC-UNOBSERVED',
-        businessDate: new Date(`${plan.endDate}T00:00:00.000Z`),
-        trafficVisitors: 3,
-        lastObservedAt: observedAt,
-        trafficObservedAt: null,
-      },
-    });
-    const published = await request(httpUrl)
+    await request(httpUrl)
       .get(`${base}/published`)
       .set('x-test-org', ORG)
       .query({ channelAccountId: accountId })
-      .expect(200);
-    expect(published.body).toMatchObject({
-      attemptId: sourceRun.id,
-      plan: { parserVersion: 'wing-traffic-v1', startDate: plan.startDate, endDate: plan.endDate },
-      rows: [{ listingId, businessDate: plan.endDate, traffic: { visitors: 7, views: 8, revenue: 70 } }],
-    });
-    expect(published.body.rows).toHaveLength(1);
-    // The Wing dashboard blob is retired; the legacy read no longer carries it.
-    expect(published.body).not.toHaveProperty('dashboard');
+      .expect(404);
     const status = await request(httpUrl)
       .get(`${base}/source`)
       .set('x-test-org', ORG)
       .query({ channelAccountId: accountId })
       .expect(200);
-    expect(status.body.ready).toBe(false);
-    expect(status.body.latestComplete).not.toBeNull();
+    expect(status.body).toMatchObject({ ready: false, latestAttempt: null, latestComplete: null });
+    await expect(prisma.channelListingDailySnapshot.findUnique({
+      where: { organizationId_listingId_businessDate: { organizationId: ORG, listingId, businessDate } },
+    })).resolves.not.toMatchObject({ trafficObservedAt: expect.any(Date) });
   });
 
   it('retains raw provider summaries and reports an unavailable ratio for zero denominators', async () => {

@@ -1,5 +1,6 @@
 import { Info } from 'lucide-react';
 import { periodBasisStatus, type DashboardPeriodBasis } from '@kiditem/shared/dashboard';
+import { periodDaysText } from '@/lib/period-days';
 import {
   financeCostInputState,
   type FinanceCostInputBasis,
@@ -92,12 +93,12 @@ export function FinanceBasisNotice({ basis }: { basis: FinanceBasisNoticeBasis }
     }
     if (periodBasisStatus(basis.revenue) !== 'complete') {
       messages.push(
-        `주문 수집 ${basis.revenue.includedDates.length}/${basis.revenue.targetDays}일 — 기간 합계와 비율은 모든 날짜가 수집된 뒤 표시합니다.`,
+        `주문 수집 ${periodDaysText(basis.revenue)} — 기간 합계와 비율은 모든 날짜가 수집된 뒤 표시합니다.`,
       );
     }
     if (basis.adCost && periodBasisStatus(basis.adCost) !== 'complete') {
       messages.push(
-        `쿠팡 광고 수집 ${basis.adCost.includedDates.length}/${basis.adCost.targetDays}일 — 광고비와 순이익은 광고가 모든 날짜에 수집된 뒤 표시합니다.`,
+        `쿠팡 광고 수집 ${periodDaysText(basis.adCost)} — 광고비와 순이익은 광고가 모든 날짜에 수집된 뒤 표시합니다.`,
       );
     }
     if (basis.costInputs) messages.push(...costInputMessages(basis.costInputs));

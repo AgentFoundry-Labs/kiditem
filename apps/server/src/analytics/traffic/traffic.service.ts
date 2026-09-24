@@ -256,8 +256,7 @@ export class TrafficService {
 function dailyPublication(
   published: AdTrafficSourcePublished,
 ): AdTrafficSourceDailyPublished | null {
-  // The shared publication type is a compatibility union. Legacy `rows`
-  // contain listing/period evidence and must never feed account daily reads.
+  // Only daily publications exist since the v1 lane was retired (KID-232).
   return 'accountDaily' in published ? published : null;
 }
 

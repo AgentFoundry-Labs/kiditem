@@ -4,6 +4,7 @@ import {
   AdTrafficSourceDailyPublishedSchema,
   AdTrafficSourceDailyPlanSchema,
   AdTrafficSourcePeriodReceiptInputSchema,
+  AdTrafficSourcePlanSchema,
   AdTrafficSourceReceiptInputSchema,
   AdTrafficSourceReceiptSchema,
   WING_TRAFFIC_MAX_COLLECTION_DAYS,
@@ -209,5 +210,38 @@ describe('Wing traffic daily v2 wire', () => {
 describe('Wing traffic published wire (KID-119)', () => {
   it('no longer carries the legacy exact-period evidence no reader consumed', () => {
     expect(AdTrafficSourceDailyPublishedSchema.shape).not.toHaveProperty('legacyExactPeriodEvidence');
+  });
+});
+
+/** v1 페이지 수집기는 운영에서 더 돌지 않는다(KID-232). v1 계획과 v1 모양 영수증은 계약이 거절한다. */
+describe('Wing traffic v1 wire is retired (KID-232)', () => {
+  const v1Plan = {
+    sourceType: 'coupang_wing_traffic',
+    parserVersion: 'wing-traffic-v1',
+    channelAccountId: '00000000-0000-4000-8000-000000000001',
+    expectedAdvertiserId: 'A',
+    startDate: '2026-08-01',
+    endDate: '2026-08-01',
+    businessDate: '2026-08-01',
+    periodDays: 1,
+    targetUrl: null,
+  };
+
+  it('refuses a v1 plan', () => {
+    expect(AdTrafficSourcePlanSchema.safeParse(v1Plan).success).toBe(false);
+  });
+
+  it('refuses a v1 page receipt that carries no daily or period kind', () => {
+    expect(AdTrafficSourceReceiptInputSchema.safeParse({
+      key: 'legacy:page:1',
+      capturedAt: '2026-08-01T01:00:00.000Z',
+      url: 'https://wing.coupang.com/tenants/business-insight/sales-analysis',
+      startDate: '2026-08-01',
+      endDate: '2026-08-01',
+      period: 1,
+      pageIndex: 1,
+      proof: { expectedPages: 1, visitedPages: [1], terminalPageObserved: true, verified: true, complete: true },
+      data: [],
+    }).success).toBe(false);
   });
 });

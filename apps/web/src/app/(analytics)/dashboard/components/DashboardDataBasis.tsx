@@ -12,6 +12,7 @@ import {
 } from '@kiditem/shared/dashboard';
 import { shiftBusinessDateKey } from '@kiditem/shared/common';
 import { cn } from '@/lib/utils';
+import { periodDaysText } from '@/lib/period-days';
 import { InfoDisclosure, type DisclosureTone } from '@/components/ui/InfoDisclosure';
 
 export type {
@@ -203,7 +204,7 @@ function snapshotCoverageText(basis: DashboardSnapshotBasis): string | null {
 
 function periodEvidenceText(basis: DashboardPeriodBasis): string {
   const status = periodBasisStatus(basis);
-  const evidence = `${status === 'complete' ? '집계 완료' : status === 'partial' ? '부분 집계' : status === 'unverified' ? '날짜 근거 확인 필요' : '데이터 없음'} · ${dateCount(basis)}/${basis.targetDays}일 · ${rangeText(basis)}`;
+  const evidence = `${status === 'complete' ? '집계 완료' : status === 'partial' ? '부분 집계' : status === 'unverified' ? '날짜 근거 확인 필요' : '데이터 없음'} · ${periodDaysText(basis)} · ${rangeText(basis)}`;
   const failure = queryFailureText(basis);
   return failure ? `${evidence} · ${failure}` : evidence;
 }
@@ -297,7 +298,7 @@ function periodRow(
     key,
     label,
     range: rangeText(basis),
-    days: `${dateCount(basis)}/${basis.targetDays}일`,
+    days: `${periodDaysText(basis)}`,
     includedDates: dateSpansText(basis.includedDates, basis.targetDays),
     missing: dateSpansText(periodBasisMissingDates(basis), basis.targetDays),
     sources: sourceText(basis.sources),
