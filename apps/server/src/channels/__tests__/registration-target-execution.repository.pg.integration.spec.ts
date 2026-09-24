@@ -784,6 +784,7 @@ describe('registration target execution repository (PostgreSQL)', () => {
     { channel: 'kidkids', origin: 'https://partner.kidkids.net', applyTemplate: false },
   ])('creates canonical listing and option links for a new $channel registration using its registered admin origin', async ({ channel, origin, applyTemplate }) => {
     const fixture = await createFixture(prisma, targets, { component: true, channel });
+    const generationBefore = await readGeneration(prisma);
     const request: PrepareTargetExecutionInput = {
       ...requestFor('target-new-listing-1'),
       applyCompositionTemplate: applyTemplate,
@@ -854,6 +855,9 @@ describe('registration target execution repository (PostgreSQL)', () => {
     expect(option.kidItemCode).toBe(fixture.snapshot.product.options[0].optionCode);
     expect(inventoryComponents).toHaveLength(applyTemplate ? 1 : 0);
     expect(execution.resultJson).toMatchObject({ outcome: 'confirmed' });
+    // 매핑 세대는 리스팅 ↔ 마스터 재고 레시피가 바뀔 때만 오른다. 레시피 없이 새 리스팅만 확정하면 ABC ·
+    // 광고 배분이 같은 답을 내므로 올리지 않는다(카탈로그 수집이 뒤에 같은 리스팅을 봐도 이미 있는 식별이다).
+    expect(await readGeneration(prisma)).toBe(generationBefore + (applyTemplate ? 1n : 0n));
   });
 
   it('rolls back canonical confirmation writes when the real recipe target validation fails', async () => {
