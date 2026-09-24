@@ -36,7 +36,7 @@ describe('cancelProductGenerationChildren', () => {
     apiPost.mockResolvedValue({ status: 'cancelled' });
 
     await cancelProductGenerationChildren({
-      detailGenerationId: 'detail-1',
+      detailPageId: 'detail-1',
       thumbnailGenerationId: 'thumbnail-1',
     });
 
@@ -93,7 +93,7 @@ describe('useProductGenerateWorkflow', () => {
         candidateId: 'candidate-1',
         salesProductId: 'sales-product-1',
         href: '/product-pipeline/collected-products/sales-product-1',
-        detailGenerationId: 'detail-1',
+        detailPageId: 'detail-1',
         thumbnailGenerationId: 'thumbnail-1',
         contentWorkspaceId: 'workspace-1',
       });
@@ -121,7 +121,7 @@ describe('useProductGenerateWorkflow', () => {
     expect(createRequestId).toHaveBeenCalledTimes(1);
     expect(useGenerateForm.mock.results[0]?.value.openGenerationDialog).toHaveBeenCalledWith(
       expect.objectContaining({
-        detailGenerationId: 'detail-1',
+        detailPageId: 'detail-1',
         thumbnailGenerationId: 'thumbnail-1',
         // 수집상품 화면은 판매상품 초안 id 로 연다 — 원천 기록 id 가 아니다(KID-310).
         editorUrl: '/product-pipeline/collected-products/sales-product-1',

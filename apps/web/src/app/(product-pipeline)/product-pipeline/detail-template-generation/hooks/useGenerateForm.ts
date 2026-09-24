@@ -73,7 +73,7 @@ export interface GenerationDialogState {
   productName: string;
   templateId: GenerateTemplateId;
   generationId?: string;
-  detailGenerationId?: string | null;
+  detailPageId?: string | null;
   thumbnailGenerationId?: string | null;
   editorUrl?: string;
   errorMessage?: string | null;
@@ -125,7 +125,7 @@ interface UseGenerateFormOptions {
 export interface OpenGenerationDialogInput {
   productName: string;
   templateId: GenerateTemplateId;
-  detailGenerationId: string | null;
+  detailPageId: string | null;
   thumbnailGenerationId: string | null;
   editorUrl: string;
 }
@@ -282,7 +282,7 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
       if (!prev?.open) return prev;
       const nextPhase = resolveProductGenerationDialogPhase({
         currentPhase: prev.phase,
-        detailGenerationId: prev.detailGenerationId ?? prev.generationId ?? null,
+        detailPageId: prev.detailPageId ?? prev.generationId ?? null,
         detail: generationStatusQuery.data,
         thumbnailGenerationId: prev.thumbnailGenerationId ?? null,
         thumbnail: thumbnailStatusQuery.data,
@@ -598,16 +598,16 @@ export function useGenerateForm(options: UseGenerateFormOptions = {}) {
       startedAt,
       productName: input.productName,
       templateId: input.templateId,
-      detailGenerationId: input.detailGenerationId,
+      detailPageId: input.detailPageId,
       thumbnailGenerationId: input.thumbnailGenerationId,
-      generationId: input.detailGenerationId ?? undefined,
+      generationId: input.detailPageId ?? undefined,
       editorUrl: input.editorUrl,
       errorMessage: null,
       description: '상품 작업공간을 만들고 상세페이지와 썸네일 생성을 시작했습니다.',
       progress:
-        input.detailGenerationId && input.thumbnailGenerationId ? 0.25 : 0.15,
+        input.detailPageId && input.thumbnailGenerationId ? 0.25 : 0.15,
       progressLabel:
-        input.detailGenerationId && input.thumbnailGenerationId
+        input.detailPageId && input.thumbnailGenerationId
           ? '상세페이지 · 썸네일 생성 중'
           : '생성 작업 상태 확인 중',
     });
@@ -715,14 +715,14 @@ function thumbnailStatusToDialogPhase(
 
 export function resolveProductGenerationDialogPhase(input: {
   currentPhase: GenerationDialogPhase;
-  detailGenerationId: string | null;
+  detailPageId: string | null;
   detail?: KidsPlayfulGenerationItem;
   thumbnailGenerationId: string | null;
   thumbnail?: Pick<ThumbnailJob, 'status'> | null;
 }): GenerationDialogPhase | null {
   if (input.currentPhase === 'cancelled') return null;
 
-  const detailPhase = input.detailGenerationId
+  const detailPhase = input.detailPageId
     ? generationStatusToDialogPhase(input.detail?.imageProcessingStatus)
     : 'completed';
   const thumbnailPhase = input.thumbnailGenerationId

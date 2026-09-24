@@ -58,7 +58,6 @@ interface Props {
   onSelectAgent: (id: string | null) => void;
   onApplyRegistrationDetailPage?: (input: {
     selectedDetailPageGenerationId: string;
-    selectedDetailPageArtifactId?: string | null;
     selectedDetailPageRevisionId?: string | null;
   }) => Promise<void> | void;
   selectedRegistrationThumbnailUrl: string | null;

@@ -11,7 +11,7 @@ implements ProductGenerationContextRepositoryPort {
 
   async findExistingChildren(input: {
     organizationId: string;
-    detailGenerationId: string;
+    detailPageId: string;
     thumbnailGenerationId: string;
   }): Promise<{
     detail: {
@@ -25,7 +25,7 @@ implements ProductGenerationContextRepositoryPort {
     const [detail, thumbnail] = await Promise.all([
       this.prisma.detailPage.findFirst({
         where: {
-          id: input.detailGenerationId,
+          id: input.detailPageId,
           organizationId: input.organizationId,
         },
         select: { id: true, generationInput: true, contentWorkspaceId: true, isDeleted: true },

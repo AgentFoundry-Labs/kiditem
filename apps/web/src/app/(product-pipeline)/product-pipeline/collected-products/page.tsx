@@ -176,7 +176,7 @@ export default function SourcingPage() {
           pendingQuickProcessKeys.current.set(requestKey, idempotencyKey);
           return salesProductGenerationApi.start(id, task, idempotencyKey).then((response) => ({
             salesProductId: id,
-            detailGenerationId: response.detailGenerationId,
+            detailPageId: response.detailPageId,
             thumbnailGenerationId: response.thumbnailGenerationId,
             startedAt: Date.now(),
           }));

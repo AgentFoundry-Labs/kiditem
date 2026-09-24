@@ -7,7 +7,7 @@ describe('SourcingAgentGatewayAdapter', () => {
     const productGeneration = {
       startForSalesProduct: vi.fn().mockResolvedValue({
         salesProductId: 'draft-1',
-        detailGenerationId: 'detail-1',
+        detailPageId: 'detail-1',
         thumbnailGenerationId: 'thumb-1',
         contentWorkspaceId: 'workspace-1',
         href: '/product-pipeline/collected-products/candidate-1',

@@ -173,7 +173,7 @@ export function ContentGenerationEditorSurface({
           productName={entry.productName ?? ''}
           productId={entry.productId ?? undefined}
           salesProductId={salesProductId}
-          contentGenerationId={generationId}
+          detailPageId={generationId}
           contentWorkspaceId={entry.contentWorkspaceId ?? null}
           generationRawInput={entry.rawInput}
           generationTemplateId={entry.templateId}

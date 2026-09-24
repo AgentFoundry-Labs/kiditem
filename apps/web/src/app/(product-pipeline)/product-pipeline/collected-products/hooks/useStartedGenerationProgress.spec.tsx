@@ -37,7 +37,7 @@ let client: QueryClient;
 function started(overrides: Partial<StartedGeneration> = {}): StartedGeneration {
   return {
     salesProductId: 'sales-product-1',
-    detailGenerationId: 'detail-1',
+    detailPageId: 'detail-1',
     thumbnailGenerationId: null,
     startedAt: 0,
     ...overrides,

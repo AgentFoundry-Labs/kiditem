@@ -37,7 +37,7 @@ export class ProductsListingGenerationCapabilityAdapter
     });
     return {
       salesProductId: result.salesProductId,
-      detailGenerationId: result.detailGenerationId,
+      detailPageId: result.detailPageId,
       thumbnailGenerationId: result.thumbnailGenerationId,
       contentWorkspaceId: result.contentWorkspaceId,
       href: result.href,

@@ -54,7 +54,6 @@ const completeBasicInfo: ProductBasics = {
   selectedThumbnailGenerationId: null,
   selectedThumbnailAssetId: null,
   selectedDetailPageGenerationId: 'detail-1',
-  selectedDetailPageArtifactId: null,
   selectedDetailPageRevisionId: null,
 };
 

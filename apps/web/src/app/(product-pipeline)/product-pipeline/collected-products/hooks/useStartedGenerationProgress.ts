@@ -8,7 +8,7 @@ import { queryKeys } from '@/lib/query-keys';
 /** 이 화면에서 AI 작업을 시작한 초안 하나와 서버가 돌려준 생성 id. */
 export interface StartedGeneration {
   salesProductId: string;
-  detailGenerationId: string | null;
+  detailPageId: string | null;
   thumbnailGenerationId: string | null;
   /** 시작 응답을 받은 시각(ms). 이보다 먼저 읽은 목록에는 이 생성이 아직 없을 수 있다. */
   startedAt: number;
@@ -34,7 +34,7 @@ const PROGRESS_KEYS: Record<Kind, readonly unknown[]> = {
 };
 
 function generationIdOf(item: StartedGeneration, kind: Kind): string | null {
-  return kind === 'detail' ? item.detailGenerationId : item.thumbnailGenerationId;
+  return kind === 'detail' ? item.detailPageId : item.thumbnailGenerationId;
 }
 
 /** 목록이 끝났다고 하기 전까지는 돈다. 시작 뒤에 읽은 목록에도 없으면 끝난 것으로 본다. */
@@ -80,7 +80,7 @@ function pollInterval(queryClient: QueryClient, kind: Kind, started: readonly St
  */
 export function useStartedGenerationProgress(started: readonly StartedGeneration[]) {
   const queryClient = useQueryClient();
-  const hasDetail = started.some((item) => item.detailGenerationId);
+  const hasDetail = started.some((item) => item.detailPageId);
   const hasThumbnail = started.some((item) => item.thumbnailGenerationId);
 
   const detailQuery = useQuery({

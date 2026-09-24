@@ -115,7 +115,7 @@ describe('ProductGenerationAiService', () => {
 
     await expect(service.startForSalesProduct(request())).resolves.toEqual({
       salesProductId: SALES_PRODUCT_ID,
-      detailGenerationId: CONTENT_GENERATION_ID,
+      detailPageId: CONTENT_GENERATION_ID,
       thumbnailGenerationId: THUMBNAIL_GENERATION_ID,
       contentWorkspaceId: WORKSPACE_ID,
       href: `/product-pipeline/collected-products/${SALES_PRODUCT_ID}`,
@@ -200,7 +200,7 @@ describe('ProductGenerationAiService', () => {
 
     await expect(service.startForSalesProduct(request())).resolves.toEqual({
       salesProductId: SALES_PRODUCT_ID,
-      detailGenerationId: CONTENT_GENERATION_ID,
+      detailPageId: CONTENT_GENERATION_ID,
       thumbnailGenerationId: THUMBNAIL_GENERATION_ID,
       contentWorkspaceId: WORKSPACE_ID,
       href: `/product-pipeline/collected-products/${SALES_PRODUCT_ID}`,
@@ -288,7 +288,7 @@ describe('ProductGenerationAiService', () => {
     expect(secondDetailIdentity).toEqual(firstDetailIdentity);
     expect(secondThumbnailIdentity).toEqual(firstThumbnailIdentity);
     expect(replay).toMatchObject({
-      detailGenerationId: firstDetailIdentity.generationId,
+      detailPageId: firstDetailIdentity.generationId,
       thumbnailGenerationId: firstThumbnailIdentity.generationId,
       contentWorkspaceId: WORKSPACE_ID,
     });
@@ -319,7 +319,7 @@ describe('ProductGenerationAiService', () => {
     const { service } = makeService({ detailPages, thumbnails });
 
     await expect(service.startForSalesProduct(request())).resolves.toMatchObject({
-      detailGenerationId: expect.any(String),
+      detailPageId: expect.any(String),
       thumbnailGenerationId: expect.any(String),
     });
     await expect(service.startForSalesProduct(request({ requestHash: 'b'.repeat(64) })))
@@ -330,15 +330,15 @@ describe('ProductGenerationAiService', () => {
     const childRequestHashes = new Map<string, string>();
     const contextRepository = generationContextRepository();
     contextRepository.findExistingChildren.mockImplementation(async (input: {
-      detailGenerationId: string;
+      detailPageId: string;
       thumbnailGenerationId: string;
     }) => {
-      const detailRequestHash = childRequestHashes.get(input.detailGenerationId);
+      const detailRequestHash = childRequestHashes.get(input.detailPageId);
       const thumbnailRequestHash = childRequestHashes.get(input.thumbnailGenerationId);
       return {
         detail: detailRequestHash
           ? {
-              generationId: input.detailGenerationId,
+              generationId: input.detailPageId,
               requestHash: detailRequestHash,
               contentWorkspaceId: WORKSPACE_ID,
             }
@@ -387,7 +387,7 @@ describe('ProductGenerationAiService', () => {
 
     await expect(service.startForSalesProduct(request({ task: 'detail' }))).resolves.toEqual({
       salesProductId: SALES_PRODUCT_ID,
-      detailGenerationId: CONTENT_GENERATION_ID,
+      detailPageId: CONTENT_GENERATION_ID,
       thumbnailGenerationId: null,
       contentWorkspaceId: WORKSPACE_ID,
       href: `/product-pipeline/collected-products/${SALES_PRODUCT_ID}`,

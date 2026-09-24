@@ -24,7 +24,7 @@ describe('ProductGenerationContextRepositoryAdapter', () => {
 
     await expect(repository.findExistingChildren({
       organizationId: 'org-1',
-      detailGenerationId: 'detail-1',
+      detailPageId: 'detail-1',
       thumbnailGenerationId: 'thumbnail-1',
     })).resolves.toEqual({
       detail: {

@@ -11,7 +11,7 @@ describe('ProductsListingGenerationCapabilityAdapter', () => {
     const productGeneration = {
       startForSalesProduct: vi.fn().mockResolvedValue({
         salesProductId,
-        detailGenerationId: '00000000-0000-4000-8000-000000000004',
+        detailPageId: '00000000-0000-4000-8000-000000000004',
         thumbnailGenerationId: '00000000-0000-4000-8000-000000000005',
         contentWorkspaceId: '00000000-0000-4000-8000-000000000006',
         href: `/product-pipeline/collected-products/${salesProductId}`,
@@ -43,7 +43,7 @@ describe('ProductsListingGenerationCapabilityAdapter', () => {
 
     await expect(adapter.createListingGenerationPackage(input)).resolves.toEqual({
       salesProductId,
-      detailGenerationId: '00000000-0000-4000-8000-000000000004',
+      detailPageId: '00000000-0000-4000-8000-000000000004',
       thumbnailGenerationId: '00000000-0000-4000-8000-000000000005',
       contentWorkspaceId: '00000000-0000-4000-8000-000000000006',
       href: `/product-pipeline/collected-products/${salesProductId}`,

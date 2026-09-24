@@ -117,7 +117,6 @@ const basicInfo = {
   selectedThumbnailGenerationId: null,
   selectedThumbnailAssetId: null,
   selectedDetailPageGenerationId: null,
-  selectedDetailPageArtifactId: null,
   selectedDetailPageRevisionId: null,
 };
 

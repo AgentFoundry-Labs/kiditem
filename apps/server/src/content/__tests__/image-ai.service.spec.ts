@@ -108,7 +108,7 @@ describe('ImageAiService', () => {
         preset: 'custom',
         user_prompt: '밝게',
         productId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
-        contentGenerationId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+        detailPageId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
       },
       ORGANIZATION_ID,
       USER_ID,
@@ -118,7 +118,7 @@ describe('ImageAiService', () => {
       expect.objectContaining({
         payload: expect.objectContaining({
           productId: 'bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb',
-          contentGenerationId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
+          detailPageId: 'aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa',
         }),
       }),
     );

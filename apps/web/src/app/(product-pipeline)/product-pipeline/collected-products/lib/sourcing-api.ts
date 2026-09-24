@@ -158,7 +158,6 @@ export interface ProductBasics {
   /** 초안 작업공간의 대표이미지 자산 id. */
   selectedThumbnailAssetId: string | null;
   selectedDetailPageGenerationId: string | null;
-  selectedDetailPageArtifactId: string | null;
   selectedDetailPageRevisionId: string | null;
 }
 
@@ -440,7 +439,6 @@ function productBasicsFromSalesProduct(
     selectedThumbnailGenerationId: media.currentThumbnail?.thumbnailGenerationId ?? null,
     selectedThumbnailAssetId: media.currentThumbnail?.assetId ?? null,
     selectedDetailPageGenerationId: null,
-    selectedDetailPageArtifactId: null,
     selectedDetailPageRevisionId: null,
   };
 }
@@ -622,7 +620,7 @@ export interface SalesProductGenerationStartResponse {
   sourceRecordId: string | null;
   salesProductId: string;
   href: string;
-  detailGenerationId: string | null;
+  detailPageId: string | null;
   thumbnailGenerationId: string | null;
   contentWorkspaceId: string | null;
 }

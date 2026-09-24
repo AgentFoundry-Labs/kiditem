@@ -168,7 +168,7 @@ export class SourcingService {
       sourceRecordId: draft.sourceRecordId,
       salesProductId: ai.salesProductId,
       href: ai.href,
-      detailGenerationId: ai.detailGenerationId,
+      detailPageId: ai.detailPageId,
       thumbnailGenerationId: ai.thumbnailGenerationId,
       contentWorkspaceId: ai.contentWorkspaceId,
     };

@@ -20,7 +20,7 @@ function makeGateway() {
     registerUploadedDetailPage: vi.fn(),
     startProductGeneration: vi.fn().mockResolvedValue({
       salesProductId: DRAFT_ID,
-      detailGenerationId: 'detail-1',
+      detailPageId: 'detail-1',
       thumbnailGenerationId: 'thumb-1',
       contentWorkspaceId: 'workspace-1',
       href: `/product-pipeline/collected-products/${DRAFT_ID}`,
@@ -117,7 +117,7 @@ describe('SourcingService — drafts without a source record, and generation fro
   it('createProductGeneration makes one draft under the owner receipt and delegates AI generation without a source record', async () => {
     gateway.startProductGeneration.mockResolvedValueOnce({
       salesProductId: DRAFT_ID,
-      detailGenerationId: 'detail-1',
+      detailPageId: 'detail-1',
       thumbnailGenerationId: 'thumb-1',
       contentWorkspaceId: 'workspace-1',
       href: `/product-pipeline/collected-products/${DRAFT_ID}`,
@@ -142,7 +142,7 @@ describe('SourcingService — drafts without a source record, and generation fro
     expect(result).toEqual(expect.objectContaining({
       ok: true,
       salesProductId: DRAFT_ID,
-      detailGenerationId: 'detail-1',
+      detailPageId: 'detail-1',
       thumbnailGenerationId: 'thumb-1',
     }));
     expect(records.runOnce).toHaveBeenCalledWith(expect.objectContaining({
@@ -187,7 +187,7 @@ describe('SourcingService — drafts without a source record, and generation fro
   it('startProductGeneration delegates generation for an existing draft and reads its source record only through the owner port', async () => {
     gateway.startProductGeneration.mockResolvedValueOnce({
       salesProductId: DRAFT_ID,
-      detailGenerationId: 'detail-1',
+      detailPageId: 'detail-1',
       thumbnailGenerationId: 'thumb-1',
       contentWorkspaceId: 'workspace-1',
       href: `/product-pipeline/collected-products/${DRAFT_ID}`,
@@ -245,7 +245,7 @@ describe('SourcingService — drafts without a source record, and generation fro
     expect(result).toEqual(expect.objectContaining({
       ok: true,
       sourceRecordId: SOURCE_RECORD_ID,
-      detailGenerationId: 'detail-1',
+      detailPageId: 'detail-1',
       thumbnailGenerationId: 'thumb-1',
     }));
   });
@@ -258,7 +258,7 @@ describe('SourcingService — drafts without a source record, and generation fro
     drafts.getDraft.mockResolvedValueOnce({ ...draftRow(), sourceRecordId: null });
     gateway.startProductGeneration.mockResolvedValueOnce({
       salesProductId: DRAFT_ID,
-      detailGenerationId: 'detail-1',
+      detailPageId: 'detail-1',
       thumbnailGenerationId: 'thumb-1',
       contentWorkspaceId: 'workspace-1',
       href: `/product-hub/sales-products/${DRAFT_ID}`,
@@ -299,7 +299,7 @@ describe('SourcingService — drafts without a source record, and generation fro
   it('startProductGeneration can request only thumbnail generation', async () => {
     gateway.startProductGeneration.mockResolvedValueOnce({
       salesProductId: DRAFT_ID,
-      detailGenerationId: null,
+      detailPageId: null,
       thumbnailGenerationId: 'thumb-1',
       contentWorkspaceId: null,
       href: `/product-pipeline/collected-products/${DRAFT_ID}`,
@@ -323,7 +323,7 @@ describe('SourcingService — drafts without a source record, and generation fro
 
     gateway.startProductGeneration.mockResolvedValueOnce({
       salesProductId: DRAFT_ID,
-      detailGenerationId: 'detail-2',
+      detailPageId: 'detail-2',
       thumbnailGenerationId: null,
       contentWorkspaceId: 'workspace-1',
       href: `/product-pipeline/collected-products/${DRAFT_ID}`,

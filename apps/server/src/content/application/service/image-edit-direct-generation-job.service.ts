@@ -22,7 +22,7 @@ export interface ImageEditDirectGenerationPayload {
   preset: string;
   user_prompt?: string;
   productId?: string;
-  contentGenerationId?: string;
+  detailPageId?: string;
 }
 
 export interface ImageEditDirectGenerationScheduleInput {

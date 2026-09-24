@@ -18,7 +18,7 @@ export interface ProductGenerationExistingThumbnailChild {
 export interface ProductGenerationContextRepositoryPort {
   findExistingChildren(input: {
     organizationId: string;
-    detailGenerationId: string;
+    detailPageId: string;
     thumbnailGenerationId: string;
   }): Promise<{
     detail: ProductGenerationExistingDetailChild | null;

@@ -72,7 +72,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
     });
     return {
       salesProductId: input.salesProductId,
-      detailGenerationId: created.id,
+      detailPageId: created.id,
       contentWorkspaceId: workspace.id,
       href: salesProductHref(input.salesProductId),
     };
@@ -96,7 +96,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
     });
     const existingChildren = await this.contextRepository.findExistingChildren({
       organizationId: input.organizationId,
-      detailGenerationId: detailProductGenerationIdentity.generationId,
+      detailPageId: detailProductGenerationIdentity.generationId,
       thumbnailGenerationId: thumbnailProductGenerationIdentity.generationId,
     });
     const existingChildHashes = [
@@ -118,7 +118,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
     if (detailAlreadyAdmitted && thumbnailAlreadyAdmitted) {
       return {
         salesProductId: input.salesProductId,
-        detailGenerationId: includeDetailPage
+        detailPageId: includeDetailPage
           ? existingChildren.detail?.generationId ?? null
           : null,
         thumbnailGenerationId: includeThumbnail
@@ -138,7 +138,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
     const rawDescription = buildProductGenerationDescription(brief);
     const rawOptions = brief.optionNames.join('\n');
 
-    let detailGenerationId: string | null = existingChildren.detail?.generationId ?? null;
+    let detailPageId: string | null = existingChildren.detail?.generationId ?? null;
     let contentWorkspaceId: string | null = existingChildren.detail?.contentWorkspaceId ?? null;
     if (includeDetailPage && !existingChildren.detail) {
       const detail = await this.detailPages.generate(
@@ -169,7 +169,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
         input.triggeredByUserId,
         detailProductGenerationIdentity,
       );
-      detailGenerationId = detail.id;
+      detailPageId = detail.id;
       contentWorkspaceId = detail.contentWorkspaceId ?? null;
     }
 
@@ -221,7 +221,7 @@ export class ProductGenerationAiService implements ProductGenerationAiTriggerPor
 
     return {
       salesProductId: input.salesProductId,
-      detailGenerationId,
+      detailPageId,
       thumbnailGenerationId,
       contentWorkspaceId,
       href,

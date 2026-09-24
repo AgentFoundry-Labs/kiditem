@@ -47,7 +47,7 @@ const scenarios: readonly ApprovalScenario[] = [
     input: { salesProductId: CANDIDATE_ID },
     output: {
       salesProductId: CANDIDATE_ID,
-      detailGenerationId: CANDIDATE_ID,
+      detailPageId: CANDIDATE_ID,
       thumbnailGenerationId: CANDIDATE_ID,
       contentWorkspaceId: CANDIDATE_ID,
       href: `/product-pipeline/collected-products/${CANDIDATE_ID}`,

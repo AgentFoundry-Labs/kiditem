@@ -41,5 +41,5 @@ export class ImageEditBodyDto {
   @IsString() preset: string;
   @IsString() @IsOptional() user_prompt?: string;
   @IsUUID() @IsOptional() productId?: string;
-  @IsUUID() @IsOptional() contentGenerationId?: string;
+  @IsUUID() @IsOptional() detailPageId?: string;
 }

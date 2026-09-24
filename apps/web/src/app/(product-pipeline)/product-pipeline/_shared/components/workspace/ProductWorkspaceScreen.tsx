@@ -364,7 +364,6 @@ export function ProductWorkspaceScreen({
   const selectDetailPageMutation = useMutation({
     mutationFn: (input: {
       selectedDetailPageGenerationId: string;
-      selectedDetailPageArtifactId?: string | null;
       selectedDetailPageRevisionId?: string | null;
     }) => {
       if (!effectiveContentWorkspaceId) {

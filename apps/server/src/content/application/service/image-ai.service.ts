@@ -25,7 +25,7 @@ export class ImageAiService {
       preset: string;
       user_prompt?: string;
       productId?: string;
-      contentGenerationId?: string;
+      detailPageId?: string;
     },
     organizationId: string,
     triggeredByUserId: string | null,
@@ -39,8 +39,8 @@ export class ImageAiService {
           preset: params.preset,
           user_prompt: params.user_prompt ?? '',
           ...(params.productId ? { productId: params.productId } : {}),
-          ...(params.contentGenerationId
-            ? { contentGenerationId: params.contentGenerationId }
+          ...(params.detailPageId
+            ? { detailPageId: params.detailPageId }
             : {}),
         },
         triggeredByUserId,

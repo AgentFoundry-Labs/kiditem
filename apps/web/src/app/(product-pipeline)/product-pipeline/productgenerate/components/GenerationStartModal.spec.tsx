@@ -9,7 +9,7 @@ const startedState: GenerationDialogState = {
   startedAt: '2026-05-17T00:00:00.000Z',
   productName: '테스트 상품',
   templateId: 'bold-vertical',
-  detailGenerationId: 'detail-generation-1',
+  detailPageId: 'detail-generation-1',
   progress: 0.6,
   progressLabel: '상세페이지 완료 · 썸네일 생성 중',
 };

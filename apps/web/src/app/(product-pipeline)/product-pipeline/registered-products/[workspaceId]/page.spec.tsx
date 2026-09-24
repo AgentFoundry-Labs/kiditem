@@ -176,7 +176,6 @@ describe('RegisteredWorkspaceDetailPage listing projection', () => {
     ]);
     expect(initialWorkspaceData.product.basicInfo).toEqual(expect.objectContaining({
       selectedDetailPageGenerationId: 'generation-1',
-      selectedDetailPageArtifactId: null,
       selectedDetailPageRevisionId: 'revision-1',
     }));
     expect(screen.getByText('저장된 자석 다트게임 상세페이지')).toBeInTheDocument();

@@ -33,7 +33,7 @@ export interface ProductsListingGenerationInput {
 
 export interface ProductsListingGenerationResult {
   salesProductId: string;
-  detailGenerationId: string | null;
+  detailPageId: string | null;
   thumbnailGenerationId: string | null;
   contentWorkspaceId: string | null;
   href: string;

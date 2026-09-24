@@ -91,7 +91,7 @@ interface DetailPageEditorProps {
   productId?: string;
   /** 수집상품 화면에서 연 에디터면 그 판매상품 초안 id — 템플릿 변경은 이 초안의 생성을 다시 시작한다. */
   salesProductId?: string | null;
-  contentGenerationId?: string;
+  detailPageId?: string;
   contentWorkspaceId?: string | null;
   generationRawInput?: unknown;
   generationTemplateId?: string | null;
@@ -3382,7 +3382,7 @@ function RightPanel({
   onImageReplace,
   onImageClose,
   productId,
-  contentGenerationId,
+  detailPageId,
   contentWorkspaceId,
   generationRawInput,
   generationTemplateId,
@@ -3402,7 +3402,7 @@ function RightPanel({
   onImageReplace: () => void;
   onImageClose: () => void;
   productId?: string;
-  contentGenerationId?: string;
+  detailPageId?: string;
   contentWorkspaceId?: string | null;
   generationRawInput?: unknown;
   generationTemplateId?: string | null;
@@ -3443,7 +3443,7 @@ function RightPanel({
         productName,
         productId,
         contentWorkspaceId,
-        detailPageId: contentGenerationId,
+        detailPageId,
         templateId: generationTemplateId,
         seedHookText,
         seedHookTitleSub,
@@ -3502,7 +3502,7 @@ function RightPanel({
     aiFillLoading,
     colorGuideEnabled,
     colorImageUrls,
-    contentGenerationId,
+    detailPageId,
     contentWorkspaceId,
     generationRawInput,
     generationTemplateId,
@@ -3650,7 +3650,7 @@ function RightPanel({
             editor={editor}
             imageUrl={selectedImageSrc}
             productId={productId}
-            contentGenerationId={contentGenerationId}
+            detailPageId={detailPageId}
             isBusy={isBusy}
             onEditComplete={onImageEdited}
             onReplace={onImageReplace}
@@ -3943,7 +3943,7 @@ export default function DetailPageEditor({
   productName,
   productId,
   salesProductId,
-  contentGenerationId,
+  detailPageId,
   contentWorkspaceId,
   generationRawInput,
   generationTemplateId,
@@ -4374,7 +4374,7 @@ export default function DetailPageEditor({
                   lastSelectedImageComponentRef.current = null;
                 }}
                 productId={productId}
-                contentGenerationId={contentGenerationId}
+                detailPageId={detailPageId}
                 contentWorkspaceId={contentWorkspaceId}
                 generationRawInput={generationRawInput}
                 generationTemplateId={generationTemplateId}

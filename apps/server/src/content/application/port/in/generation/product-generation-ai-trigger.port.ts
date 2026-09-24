@@ -54,7 +54,7 @@ export interface ProductGenerationAiRequest {
 
 export interface ProductGenerationAiResult {
   salesProductId: string;
-  detailGenerationId: string | null;
+  detailPageId: string | null;
   thumbnailGenerationId: string | null;
   contentWorkspaceId: string | null;
   href: string;
@@ -76,7 +76,7 @@ export interface RegisterUploadedDetailPageRequest {
 
 export interface RegisterUploadedDetailPageResult {
   salesProductId: string;
-  detailGenerationId: string;
+  detailPageId: string;
   contentWorkspaceId: string;
   href: string;
 }

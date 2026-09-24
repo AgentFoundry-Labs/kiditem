@@ -164,7 +164,7 @@ describe('Sourcing final owner idempotency receipt (PG integration)', () => {
   it('⭐ 직접 작성은 원본 기록 없이 초안 하나를 만들고, 같은 키의 재시도는 그 초안을 다시 쓴다', async () => {
     const gateway = {
       registerUploadedDetailPage: async (input: { salesProductId: string }) => ({
-        salesProductId: input.salesProductId, detailGenerationId: 'uploaded', contentWorkspaceId: null, href: '/x',
+        salesProductId: input.salesProductId, detailPageId: 'uploaded', contentWorkspaceId: null, href: '/x',
       }),
       startProductGeneration: async () => { throw new Error('not used'); },
     };
@@ -195,7 +195,7 @@ describe('Sourcing final owner idempotency receipt (PG integration)', () => {
   it('⭐ 직접 작성 폼에 적은 칸이 초안에 그대로 남는다 — 자체코드 · 과세 · 배송비 · 인증 · 가격', async () => {
     const gateway = {
       registerUploadedDetailPage: async (input: { salesProductId: string }) => ({
-        salesProductId: input.salesProductId, detailGenerationId: 'uploaded', contentWorkspaceId: null, href: '/x',
+        salesProductId: input.salesProductId, detailPageId: 'uploaded', contentWorkspaceId: null, href: '/x',
       }),
       startProductGeneration: async () => { throw new Error('not used'); },
     };

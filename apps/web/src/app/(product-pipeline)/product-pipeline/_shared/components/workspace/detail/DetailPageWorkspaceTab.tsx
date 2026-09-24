@@ -45,7 +45,6 @@ interface DetailPageWorkspaceTabProps {
   onSelectAgent: (id: string | null) => void;
   onApplyRegistrationDetailPage?: (input: {
     selectedDetailPageGenerationId: string;
-    selectedDetailPageArtifactId?: string | null;
     selectedDetailPageRevisionId?: string | null;
   }) => Promise<void> | void;
   detailEditorSalesProductId?: string | null;
@@ -142,7 +141,6 @@ export default function DetailPageWorkspaceTab({
       }
       await onApplyRegistrationDetailPage?.({
         selectedDetailPageGenerationId: row.id,
-        selectedDetailPageArtifactId: null,
         selectedDetailPageRevisionId: row.agentItem?.detailPageRevisionId ?? null,
       });
       setSelectedKey(row.key);

@@ -25,7 +25,7 @@ import {
 interface AIImageEditPanelProps {
   imageUrl: string;
   productId?: string;
-  contentGenerationId?: string;
+  detailPageId?: string;
   isBusy: React.MutableRefObject<boolean>;
   onEditComplete: (newImageUrl: string) => void;
   onReplace: () => void;
@@ -161,7 +161,7 @@ function isFullCrop(rect: CropRect): boolean {
 export function AIImageEditPanel({
   imageUrl,
   productId,
-  contentGenerationId,
+  detailPageId,
   isBusy,
   onEditComplete,
   onReplace,
@@ -273,7 +273,7 @@ export function AIImageEditPanel({
           preset: input.preset,
           user_prompt: input.userPrompt,
           productId,
-          contentGenerationId,
+          detailPageId,
         });
         activeTaskIdRef.current = taskId;
         if (cancelRequestedRef.current) {
@@ -305,7 +305,7 @@ export function AIImageEditPanel({
       }
     },
     [
-      contentGenerationId,
+      detailPageId,
       isBusy,
       onEditComplete,
       onGeneratingChange,

@@ -27,7 +27,6 @@ describe('RegistrationTarget shared contract', () => {
       selectedThumbnailUrl: 'https://cdn.example.com/thumb.png',
       selectedThumbnailGenerationId: null,
       selectedThumbnailGenerationCandidateId: null,
-      selectedDetailPageArtifactId: null,
       selectedDetailPageRevisionId: null,
       selectedDetailPageGenerationId: null,
       updatedAt: '2026-07-13T00:00:00.000Z',

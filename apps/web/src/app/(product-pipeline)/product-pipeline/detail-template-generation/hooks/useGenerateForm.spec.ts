@@ -110,7 +110,7 @@ describe('resolveProductGenerationDialogPhase', () => {
     expect(
       resolveProductGenerationDialogPhase({
         currentPhase: 'started',
-        detailGenerationId: null,
+        detailPageId: null,
         thumbnailGenerationId: 'thumbnail-1',
         thumbnail: { status: 'succeeded' },
       }),

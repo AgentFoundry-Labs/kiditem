@@ -20,19 +20,19 @@ interface ProductGenerationResponse {
   /** 만든 판매상품 초안. 수집상품 화면은 이 id 로 연다(KID-310). */
   salesProductId: string;
   href: string;
-  detailGenerationId: string | null;
+  detailPageId: string | null;
   thumbnailGenerationId: string | null;
   contentWorkspaceId: string | null;
 }
 
 export async function cancelProductGenerationChildren(input: {
-  detailGenerationId: string | null;
+  detailPageId: string | null;
   thumbnailGenerationId: string | null;
 }): Promise<void> {
   const cancellations: Promise<unknown>[] = [];
-  if (input.detailGenerationId) {
+  if (input.detailPageId) {
     cancellations.push(apiClient.post(
-      `/api/ai/detail-page/${encodeURIComponent(input.detailGenerationId)}/cancel`,
+      `/api/ai/detail-page/${encodeURIComponent(input.detailPageId)}/cancel`,
       { reason: '사용자 요청' },
     ));
   }
@@ -121,7 +121,7 @@ export function useProductGenerateWorkflow() {
       form.openGenerationDialog({
         productName: title,
         templateId: selectedTemplateId,
-        detailGenerationId: response.detailGenerationId,
+        detailPageId: response.detailPageId,
         thumbnailGenerationId: response.thumbnailGenerationId,
         editorUrl: collectedProductDetailHref(response.salesProductId),
       });
@@ -160,10 +160,10 @@ export function useProductGenerateWorkflow() {
 
   const handleGenerationDialogCancel = async () => {
     const state = generationDialog;
-    if (!state || (!state.detailGenerationId && !state.thumbnailGenerationId)) return;
+    if (!state || (!state.detailPageId && !state.thumbnailGenerationId)) return;
     try {
       await cancelProductGenerationChildren({
-        detailGenerationId: state.detailGenerationId ?? null,
+        detailPageId: state.detailPageId ?? null,
         thumbnailGenerationId: state.thumbnailGenerationId ?? null,
       });
       form.markGenerationDialogCancelled();

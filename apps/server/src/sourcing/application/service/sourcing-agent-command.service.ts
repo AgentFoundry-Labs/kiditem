@@ -114,7 +114,7 @@ export class SourcingAgentCommandService {
         product_count: 1,
         salesProductId: uploaded.salesProductId,
         href: uploaded.href,
-        detailGenerationId: uploaded.detailGenerationId,
+        detailPageId: uploaded.detailPageId,
         thumbnailGenerationId: null,
         contentWorkspaceId: uploaded.contentWorkspaceId,
       };
@@ -159,7 +159,7 @@ export class SourcingAgentCommandService {
       product_count: 1,
       salesProductId: ai.salesProductId,
       href: ai.href,
-      detailGenerationId: ai.detailGenerationId,
+      detailPageId: ai.detailPageId,
       thumbnailGenerationId: ai.thumbnailGenerationId,
       contentWorkspaceId: ai.contentWorkspaceId,
     };

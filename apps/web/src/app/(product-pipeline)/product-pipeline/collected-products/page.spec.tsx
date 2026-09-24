@@ -135,7 +135,7 @@ describe('수집상품 목록은 판매상품 초안 목록이다(KID-310)', () 
         candidateId: DRAFT_CANDIDATE_ID,
         salesProductId: DRAFT_ID,
         href: `/product-pipeline/collected-products/${DRAFT_ID}`,
-        detailGenerationId: 'detail-generation-1',
+        detailPageId: 'detail-generation-1',
         thumbnailGenerationId: 'thumbnail-generation-1',
         contentWorkspaceId: 'workspace-1',
       });
@@ -210,7 +210,7 @@ describe('수집상품 목록은 판매상품 초안 목록이다(KID-310)', () 
       candidateId: DRAFT_CANDIDATE_ID,
       salesProductId: DRAFT_ID,
       href: `/product-pipeline/collected-products/${DRAFT_ID}`,
-      detailGenerationId: 'detail-generation-1',
+      detailPageId: 'detail-generation-1',
       thumbnailGenerationId: 'thumbnail-generation-1',
       contentWorkspaceId: 'workspace-1',
     });

@@ -71,7 +71,7 @@ function ownerCompositions() {
   const products: ProductsListingGenerationCapabilityPort = {
     createListingGenerationPackage: vi.fn(async () => ({
       salesProductId: identifiers.candidateId,
-      detailGenerationId: identifiers.candidateId,
+      detailPageId: identifiers.candidateId,
       thumbnailGenerationId: identifiers.candidateId,
       contentWorkspaceId: identifiers.candidateId,
       href: `/product-pipeline/collected-products/${identifiers.candidateId}`,

@@ -107,7 +107,7 @@ describe('sourcing API', () => {
       candidateId: 'cand-1',
       salesProductId: 'sp-1',
       href: '/product-pipeline/collected-products/sp-1',
-      detailGenerationId: null,
+      detailPageId: null,
       thumbnailGenerationId: null,
       contentWorkspaceId: 'ws-1',
     });

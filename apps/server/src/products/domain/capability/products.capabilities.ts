@@ -28,7 +28,7 @@ export const PRODUCTS_CAPABILITIES = [
     }).strict(),
     outputSchema: z.object({
       salesProductId: Uuid,
-      detailGenerationId: Uuid.nullable(),
+      detailPageId: Uuid.nullable(),
       thumbnailGenerationId: Uuid.nullable(),
       contentWorkspaceId: Uuid.nullable(),
       href: z.string().min(1),

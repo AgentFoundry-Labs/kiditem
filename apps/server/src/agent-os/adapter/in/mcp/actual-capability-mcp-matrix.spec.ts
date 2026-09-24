@@ -182,7 +182,7 @@ const scenarios: readonly InvocationScenario[] = [
   }),
   scenario('products.create_listing_generation_package', 'products.createListingGenerationPackage', 'medium', { salesProductId: CANDIDATE_ID }, {
     salesProductId: CANDIDATE_ID,
-    detailGenerationId: CANDIDATE_ID,
+    detailPageId: CANDIDATE_ID,
     thumbnailGenerationId: CANDIDATE_ID,
     contentWorkspaceId: CANDIDATE_ID,
     href: `/product-pipeline/collected-products/${CANDIDATE_ID}`,
@@ -519,7 +519,7 @@ function realCompositionProviders(typedOwnerPortCalls: TypedOwnerPortCalls) {
       'products.create_listing_generation_package',
       {
         salesProductId: CANDIDATE_ID,
-        detailGenerationId: CANDIDATE_ID,
+        detailPageId: CANDIDATE_ID,
         thumbnailGenerationId: CANDIDATE_ID,
         contentWorkspaceId: CANDIDATE_ID,
         href: `/product-pipeline/collected-products/${CANDIDATE_ID}`,

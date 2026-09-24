@@ -23,7 +23,7 @@ export interface SourcingRegisterUploadedDetailPageRequest {
 
 export interface SourcingRegisterUploadedDetailPageResult {
   salesProductId: string;
-  detailGenerationId: string;
+  detailPageId: string;
   contentWorkspaceId: string;
   href: string;
 }

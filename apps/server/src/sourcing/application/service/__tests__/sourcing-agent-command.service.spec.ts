@@ -15,13 +15,13 @@ function createSubject() {
   const gateway = {
     registerUploadedDetailPage: vi.fn().mockResolvedValue({
       salesProductId: 'draft-1',
-      detailGenerationId: 'uploaded-1',
+      detailPageId: 'uploaded-1',
       contentWorkspaceId: 'workspace-1',
       href: '/product-pipeline/collected-products/draft-1',
     }),
     startProductGeneration: vi.fn().mockResolvedValue({
       salesProductId: 'draft-1',
-      detailGenerationId: 'detail-1',
+      detailPageId: 'detail-1',
       thumbnailGenerationId: 'thumbnail-1',
       contentWorkspaceId: 'workspace-1',
       href: '/product-pipeline/collected-products/draft-1',
@@ -77,7 +77,7 @@ describe('SourcingAgentCommandService', () => {
         detailPageImageUrls: ['https://example.com/detail-1.jpg', 'https://example.com/detail-2.jpg'],
       }),
     );
-    expect(result.detailGenerationId).toBe('uploaded-1');
+    expect(result.detailPageId).toBe('uploaded-1');
     // 썸네일도 만들지 않는다 — 생성이 돈 적이 없으니 null 이 사실이다.
     expect(result.thumbnailGenerationId).toBeNull();
   });

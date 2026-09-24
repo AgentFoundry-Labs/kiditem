@@ -289,8 +289,6 @@ function buildFallbackBasicInfo(input: {
     selectedThumbnailGenerationId: null,
     selectedThumbnailAssetId: null,
     selectedDetailPageGenerationId: input.selectedDetailPageGenerationId ?? null,
-    // 아티팩트는 KID-313 W3b 에서 사라졌다 — 상세는 상세 페이지 id 와 revision 으로 고른다.
-    selectedDetailPageArtifactId: null,
     selectedDetailPageRevisionId: input.selectedDetailPageRevisionId ?? null,
   };
 }
