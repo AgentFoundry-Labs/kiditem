@@ -74,7 +74,6 @@ describe('thumbnail job (PG integration)', () => {
   const succeed = (jobId: string, keys: string[]) => sink.applySuccess({
     organizationId: TEST_ORGANIZATION_ID,
     requestId: `request-${jobId}`,
-    runId: undefined,
     sourceResourceId: jobId,
     output: {
       candidates: keys.map((key) => ({

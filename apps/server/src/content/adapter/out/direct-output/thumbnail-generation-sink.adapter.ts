@@ -40,7 +40,6 @@ export class ThumbnailGenerationSinkAdapter
   async applySuccess(input: {
     organizationId: string;
     requestId: string;
-    runId: string | undefined;
     sourceResourceId: string | null;
     output: ThumbnailGenerateDirectOutput;
   }): Promise<void> {
@@ -69,7 +68,7 @@ export class ThumbnailGenerationSinkAdapter
       generationId: input.sourceResourceId,
       organizationId: input.organizationId,
       candidates,
-      projection: projectionMetadata(input.requestId, input.runId),
+      projection: projectionMetadata(input.requestId),
     });
     if (!applied) {
       this.logger.debug(
@@ -86,7 +85,6 @@ export class ThumbnailGenerationSinkAdapter
   async applyFailure(input: {
     organizationId: string;
     requestId: string;
-    runId: string | undefined;
     sourceResourceId: string | null;
     errorCode: string;
     errorMessage: string;
@@ -116,11 +114,7 @@ export class ThumbnailGenerationSinkAdapter
   }
 }
 
-function projectionMetadata(
-  requestId: string,
-  runId: string | undefined,
-): Record<string, unknown> {
-  void runId;
+function projectionMetadata(requestId: string): Record<string, unknown> {
   return {
     executionMode: 'direct_ai',
     aiJobId: requestId,

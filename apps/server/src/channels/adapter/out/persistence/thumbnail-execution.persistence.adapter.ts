@@ -11,7 +11,7 @@ import type {
 } from '../../../application/port/out/persistence/thumbnail-execution.persistence.port';
 import {
   acceptsThumbnailReport,
-  thumbnailUpdateLiveKey,
+  thumbnailUpdateLiveSubject,
   type ThumbnailReportTransition,
   type ThumbnailUpdatePayload,
 } from '../../../domain/registration/thumbnail-update';
@@ -129,14 +129,15 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
   > {
     try {
       return await this.prisma.$transaction(async (tx) => {
-        await lockSubject(tx, input.organizationId, thumbnailUpdateLiveKey({
-          organizationId: input.organizationId,
+        await lockThumbnailUpdate(tx, input.organizationId, thumbnailUpdateLiveSubject({
           salesProductId: input.payload.salesProductId,
           channelAccountId: input.channelAccountId,
           assetId: input.payload.assetId,
         }));
         // listing 은 행에 적지 않으므로 listing 하나에 살아 있는 반영 하나도 여기서 지킨다.
-        if (input.payload.channelListingId) await lockListing(tx, input.organizationId, input.payload.channelListingId);
+        if (input.payload.channelListingId) {
+          await lockThumbnailUpdate(tx, input.organizationId, `listing:${input.payload.channelListingId}`);
+        }
         const replay = await this.findReplay(tx, input);
         if (replay) return replay;
         const live = await tx.productRegistrationExecution.findFirst({
@@ -276,7 +277,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
 
   async dismissLatestFailed(input: { organizationId: string; salesProductId: string }): Promise<boolean> {
     return this.prisma.$transaction(async (tx) => {
-      await lockSubject(tx, input.organizationId, `thumbnail_update:${input.organizationId}:dismiss:${input.salesProductId}`);
+      await lockThumbnailUpdate(tx, input.organizationId, `dismiss:${input.salesProductId}`);
       const failed = await tx.productRegistrationExecution.findMany({
         where: {
           organizationId: input.organizationId,
@@ -317,21 +318,14 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
   }
 }
 
-/** 같은 (판매 상품, 계정, 자산)의 살아 있는 실행 검사 · 실패 치우기를 한 줄로 세운다. 열쇠에 조직이 들어 있다. */
-async function lockSubject(tx: Prisma.TransactionClient, organizationId: string, lockKey: string): Promise<void> {
-  if (!lockKey.startsWith(`thumbnail_update:${organizationId}:`)) {
-    throw new Error('thumbnail_update lock key must start with its organization id');
-  }
+/**
+ * 대표이미지 반영의 한 대상(살아 있는 실행 · listing · 실패 치우기)을 트랜잭션 동안 한 줄로 세운다.
+ * 열쇠는 여기서 조직 id 를 앞에 붙여 만든다 — 부르는 쪽은 조직 안의 대상만 넘긴다.
+ */
+async function lockThumbnailUpdate(tx: Prisma.TransactionClient, organizationId: string, subject: string): Promise<void> {
+  const lockKey = `thumbnail_update:${organizationId}:${subject}`;
   await tx.$queryRaw`
-    -- queryraw-tenancy-exempt: organization-scoped advisory lock; the key starts with the organization id.
-    SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
-  `;
-}
-
-async function lockListing(tx: Prisma.TransactionClient, organizationId: string, channelListingId: string): Promise<void> {
-  const lockKey = `thumbnail_update:${organizationId}:listing:${channelListingId}`;
-  await tx.$queryRaw`
-    -- queryraw-tenancy-exempt: organization-scoped advisory lock keyed by organization and listing.
+    -- queryraw-tenancy-exempt: organization-scoped advisory lock; the key is composed here from the organization id.
     SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
   `;
 }

@@ -4,7 +4,6 @@ import type { ImageStoragePort } from '../../../../application/port/out/storage/
 
 const ORG = '11111111-1111-1111-1111-111111111111';
 const REQUEST = '22222222-2222-2222-2222-222222222222';
-const RUN = '33333333-3333-3333-3333-333333333333';
 const GEN_ID = '44444444-4444-4444-4444-444444444444';
 
 const VALID_OUTPUT = {
@@ -49,7 +48,6 @@ describe('ThumbnailGenerationSinkAdapter', () => {
     await sink.applySuccess({
       organizationId: ORG,
       requestId: REQUEST,
-      runId: RUN,
       sourceResourceId: GEN_ID,
       output: VALID_OUTPUT,
     });
@@ -78,7 +76,6 @@ describe('ThumbnailGenerationSinkAdapter', () => {
     await sink.applySuccess({
       organizationId: ORG,
       requestId: REQUEST,
-      runId: RUN,
       sourceResourceId: GEN_ID,
       output: {
         candidates: [
@@ -115,7 +112,6 @@ describe('ThumbnailGenerationSinkAdapter', () => {
     await sink.applyFailure({
       organizationId: ORG,
       requestId: REQUEST,
-      runId: undefined,
       sourceResourceId: GEN_ID,
       errorCode: 'runtime_not_configured',
       errorMessage: 'no provider',
@@ -138,14 +134,12 @@ describe('ThumbnailGenerationSinkAdapter', () => {
     await sink.applySuccess({
       organizationId: ORG,
       requestId: REQUEST,
-      runId: undefined,
       sourceResourceId: null,
       output: VALID_OUTPUT,
     });
     await sink.applyFailure({
       organizationId: ORG,
       requestId: REQUEST,
-      runId: undefined,
       sourceResourceId: null,
       errorCode: 'runtime_failed',
       errorMessage: 'missing source row',
@@ -166,7 +160,6 @@ describe('ThumbnailGenerationSinkAdapter', () => {
     await sink.applySuccess({
       organizationId: otherOrganizationId,
       requestId: REQUEST,
-      runId: RUN,
       sourceResourceId: GEN_ID,
       output: VALID_OUTPUT,
     });
@@ -191,14 +184,12 @@ describe('ThumbnailGenerationSinkAdapter', () => {
     await sink.applySuccess({
       organizationId: ORG,
       requestId: REQUEST,
-      runId: RUN,
       sourceResourceId: GEN_ID,
       output: VALID_OUTPUT,
     });
     await sink.applyFailure({
       organizationId: ORG,
       requestId: REQUEST,
-      runId: RUN,
       sourceResourceId: GEN_ID,
       errorCode: 'provider_late_failure',
       errorMessage: 'late provider failure',

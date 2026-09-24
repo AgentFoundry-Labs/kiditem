@@ -21,9 +21,11 @@ describe('product pipeline DB model contract', () => {
     const model = extractModel(aiSchema, 'ContentWorkspace');
 
     assert.match(model, /@@map\("content_workspaces"\)/);
-    assert.match(model, /contentGenerations\s+ContentGeneration\[\]\s+@relation\("ContentGenerationContentWorkspace"\)/);
+    assert.match(model, /detailPages\s+DetailPage\[\]\s+@relation\("DetailPageContentWorkspace"\)/);
     assert.match(model, /thumbnailGenerations\s+ThumbnailGeneration\[\]\s+@relation\("ThumbnailGenerationContentWorkspace"\)/);
-    assert.match(model, /detailPageArtifacts\s+DetailPageArtifact\[\]\s+@relation\("DetailPageArtifactContentWorkspace"\)/);
+    assert.match(model, /assets\s+ContentAsset\[\]\s+@relation\("ContentAssetWorkspace"\)/);
+    // 옛 생성 · 아티팩트 표는 상세 페이지 하나로 합쳐졌다(KID-319).
+    assert.doesNotMatch(aiSchema, /model (?:ContentGeneration|DetailPageArtifact)\s+\{/);
     assert.doesNotMatch(aiSchema, /model RegistrationWorkspace\s+\{/);
     assert.doesNotMatch(aiSchema, /registrationWorkspaceId\s+String\?\s+@map\("registration_workspace_id"\)/);
   });
@@ -36,9 +38,9 @@ describe('product pipeline DB model contract', () => {
       'salesProductId',
       'channelAccountId',
       'archivedAt',
-      'displayName',
       'registrationInput',
-      'selectedThumbnailUrl',
+      'selectedThumbnailAssetId',
+      'selectedDetailPageRevisionId',
       'createdByUserId',
     ]) {
       assert.match(model, new RegExp(`^\\s*${field}\\s+`, 'm'));
@@ -67,15 +69,17 @@ describe('product pipeline DB model contract', () => {
       '@@index([organizationId, archivedAt])',
       '@@index([salesProductId, organizationId])',
       '@@index([channelAccountId])',
-      '@@index([selectedDetailPageArtifactId])',
       '@@index([selectedDetailPageRevisionId])',
-      '@@index([selectedDetailPageGenerationId])',
-      '@@index([selectedThumbnailGenerationId])',
-      '@@index([selectedThumbnailGenerationCandidateId])',
+      '@@index([selectedThumbnailAssetId])',
       '@@index([createdByUserId])',
     ]) {
       assert.ok(model.includes(index), `Expected RegistrationTarget to include ${index}`);
     }
+    // 등록 대상은 Content 의 revision · 자산 id 만 고른다 — 생성 job · 아티팩트 id 는 두지 않는다(KID-313 W2).
+    assert.doesNotMatch(
+      model,
+      /selectedDetailPageArtifactId|selectedDetailPageGenerationId|selectedThumbnailGenerationId|selectedThumbnailGenerationCandidateId|selectedThumbnailUrl|displayName/,
+    );
   });
 
   it('makes ChannelListing account-aware for multi-account marketplace listings', () => {

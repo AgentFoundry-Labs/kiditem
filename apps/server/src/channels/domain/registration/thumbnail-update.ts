@@ -99,9 +99,12 @@ export function thumbnailUpdateIdempotencyKey(input: {
     : `${THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX}${salesProductId}:${channelAccountId}:${assetId}:${input.nonce}`;
 }
 
-/** 살아 있는 실행 검사를 한 줄로 세우는 잠금 열쇠(조직 + 판매 상품 + 계정 + 자산). 생성 job id 가 아니다. */
-export function thumbnailUpdateLiveKey(input: ThumbnailUpdateSubject & { organizationId: string }): string {
-  return `${THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX}${input.organizationId}:${input.salesProductId}:${input.channelAccountId}:${input.assetId}`;
+/**
+ * 살아 있는 실행 검사를 한 줄로 세우는 잠금의 대상(판매 상품 + 계정 + 자산). 생성 job id 가 아니다.
+ * 조직은 잠그는 쪽이 열쇠 앞에 붙인다 — 조직 없는 열쇠로는 잠글 수 없다.
+ */
+export function thumbnailUpdateLiveSubject(input: ThumbnailUpdateSubject): string {
+  return `${input.salesProductId}:${input.channelAccountId}:${input.assetId}`;
 }
 
 export type ThumbnailReportTransition = Readonly<{

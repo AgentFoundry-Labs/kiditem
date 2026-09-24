@@ -16,7 +16,6 @@ export interface DetailPageDirectOutputSinkPort {
   applySuccess(input: {
     organizationId: string;
     requestId: string;
-    runId: string | undefined;
     /**
      * Downstream `ContentGeneration.id` when the generation is ledger-backed.
      */
@@ -27,7 +26,6 @@ export interface DetailPageDirectOutputSinkPort {
   applyFailure(input: {
     organizationId: string;
     requestId: string;
-    runId: string | undefined;
     sourceResourceId: string | null;
     errorCode: string;
     errorMessage: string;

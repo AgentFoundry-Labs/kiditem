@@ -24,10 +24,10 @@ const channels = readFileSync(
   join(repoRoot, "prisma/models/channels.prisma"),
   "utf8",
 );
-const wingCatalogRepository = readFileSync(
+const catalogIdentityUpsert = readFileSync(
   join(
     repoRoot,
-    "apps/server/src/channels/adapter/out/repository/channel-catalog-import.repository.adapter.ts",
+    "apps/server/src/channels/adapter/out/repository/channel-catalog-identity-upsert.ts",
   ),
   "utf8",
 );
@@ -418,14 +418,16 @@ describe("Sellpia authoritative final-schema contract", () => {
     assert.doesNotMatch(channels, /model ChannelSkuComponent\b/);
   });
 
-  it("keeps the Wing bulk upsert aligned with final ChannelListing columns", () => {
-    const insert = wingCatalogRepository.match(
-      /INSERT INTO channel_listings \([\s\S]*?ON CONFLICT[\s\S]*?DO UPDATE SET[\s\S]*?updated_at = NOW\(\)/,
-    )?.[0];
-    assert.ok(insert, "Expected the Wing ChannelListing bulk upsert");
-    assert.doesNotMatch(insert, /^\s*channel,?$/m);
-    assert.doesNotMatch(insert, /^\s*is_deleted,?$/m);
-    assert.doesNotMatch(insert, /\bdeleted_at\b/);
+  it("keeps the catalog ChannelListing bulk upserts aligned with final ChannelListing columns", () => {
+    const inserts = [...catalogIdentityUpsert.matchAll(
+      /INSERT INTO channel_listings \([\s\S]*?ON CONFLICT[\s\S]*?DO UPDATE SET[\s\S]*?updated_at = NOW\(\)/g,
+    )].map((match) => match[0]);
+    assert.ok(inserts.length > 0, "Expected the catalog ChannelListing bulk upserts");
+    for (const insert of inserts) {
+      assert.doesNotMatch(insert, /^\s*channel,?$/m);
+      assert.doesNotMatch(insert, /^\s*is_deleted,?$/m);
+      assert.doesNotMatch(insert, /\bdeleted_at\b/);
+    }
   });
 
   it("reads canonical Orders facts and the public Products ABC view for dashboard ranking", () => {

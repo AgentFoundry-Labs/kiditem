@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { PrismaService } from '../../prisma/prisma.service';
+import { ownerTransaction } from '../../prisma/owner-transaction';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -76,6 +77,35 @@ describe('ChannelAccountPersistenceAdapter mapping generation (PG integration)',
     await repository.upsertCoupangSettings(TEST_ORGANIZATION_ID, settings('B00000002', 'primary-only'));
     await expect(mappingGeneration()).resolves.toBe(2n);
   });
+
+  it.each(['coupang', 'rocket'] as const)(
+    'advances once when a %s account claims its provider identity — mapping generation is channel-neutral',
+    async (channel) => {
+      const account = await prisma.channelAccount.create({
+        data: { organizationId: TEST_ORGANIZATION_ID, channel, name: `${channel} account`, status: 'active' },
+        select: { id: true },
+      });
+      const before = await mappingGeneration();
+
+      await prisma.$transaction((tx) => repository.claimProviderIdentity(ownerTransaction(tx), {
+        organizationId: TEST_ORGANIZATION_ID,
+        accountId: account.id,
+        channel,
+        expectedVendorId: null,
+        vendorId: 'V00000001',
+      }));
+      await expect(mappingGeneration()).resolves.toBe(before + 1n);
+
+      await prisma.$transaction((tx) => repository.claimProviderIdentity(ownerTransaction(tx), {
+        organizationId: TEST_ORGANIZATION_ID,
+        accountId: account.id,
+        channel,
+        expectedVendorId: 'V00000001',
+        vendorId: 'V00000001',
+      }));
+      await expect(mappingGeneration()).resolves.toBe(before + 1n);
+    },
+  );
 
   function settings(vendorId: string, _suffix = 'initial') {
     return { vendorId };

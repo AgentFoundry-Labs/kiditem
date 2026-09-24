@@ -162,7 +162,6 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
         await this.thumbnailSink.applySuccess({
           organizationId: job.organizationId,
           requestId: directRequestId(job.id),
-          runId: undefined,
           sourceResourceId: job.sourceResourceId,
           output: ThumbnailGenerateDirectOutputSchema.parse(result),
         });
@@ -171,7 +170,6 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
         await this.detailPageSink.applySuccess({
           organizationId: job.organizationId,
           requestId: directRequestId(job.id),
-          runId: undefined,
           sourceResourceId: job.sourceResourceId,
           output: DetailPageGenerateDirectOutputSchema.parse(result),
         });
@@ -196,7 +194,6 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
         await this.thumbnailSink.applyFailure({
           organizationId: job.organizationId,
           requestId: directRequestId(job.id),
-          runId: undefined,
           sourceResourceId: job.sourceResourceId,
           errorCode: error.errorCode,
           errorMessage: error.errorMessage,
@@ -206,7 +203,6 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
         await this.detailPageSink.applyFailure({
           organizationId: job.organizationId,
           requestId: directRequestId(job.id),
-          runId: undefined,
           sourceResourceId: job.sourceResourceId,
           errorCode: error.errorCode,
           errorMessage: error.errorMessage,

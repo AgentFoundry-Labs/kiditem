@@ -157,7 +157,7 @@ describe('ChannelAccountPersistenceAdapter account identity', () => {
         findFirst: vi.fn().mockResolvedValue({ vendorId: null, externalAccountId: null }),
         updateMany: vi.fn().mockResolvedValue({ count: 1 }),
       },
-      masterProductAbcFormulaState: { upsert: vi.fn() },
+      masterProductAbcFormulaState: { upsert: vi.fn().mockResolvedValue({ mappingGeneration: 2n }) },
     };
     const persistence = new ChannelAccountPersistenceAdapter({} as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()));
 
@@ -182,8 +182,9 @@ describe('ChannelAccountPersistenceAdapter account identity', () => {
       },
       data: { vendorId: 'vendor-1' },
     });
-    expect(tx.$queryRaw).not.toHaveBeenCalled();
-    expect(tx.masterProductAbcFormulaState.upsert).not.toHaveBeenCalled();
+    // 매핑 세대는 채널과 무관하다 — 로켓 계정의 식별이 생겨도 쿠팡과 같이 한 번 올린다.
+    expect(tx.$queryRaw).toHaveBeenCalledOnce();
+    expect(tx.masterProductAbcFormulaState.upsert).toHaveBeenCalledOnce();
   });
 
   it('allows only exact idempotent claims when a provider identity already exists', async () => {
@@ -209,7 +210,7 @@ describe('ChannelAccountPersistenceAdapter account identity', () => {
     expect(tx.channelAccount.updateMany).not.toHaveBeenCalled();
   });
 
-  it('advances Coupang product mapping generation only after a successful identity claim', async () => {
+  it('advances product mapping generation after a successful identity claim', async () => {
     const tx = {
       $queryRaw: vi.fn(),
       channelAccount: {

@@ -240,9 +240,6 @@ export class DetailPageQueryService {
 
   /** 편집한 임시 사진을 영구 키로 옮긴 HTML 과 그 사진 목록. 저장소 쓰기라 트랜잭션 밖에서 먼저 한다. */
   private async prepareEditedHtml(organizationId: string, detailPageId: string, html: string) {
-    if (!isRenderableDetailHtml(html)) {
-      throw new BadRequestException('렌더링 가능한 상세페이지 HTML만 저장할 수 있습니다.');
-    }
     const promoted = await this.promoteEditableImageUrls({ organizationId, detailPageId, html });
     return { ...promoted, imageUrls: extractImageSrcs(promoted.html) };
   }

@@ -126,7 +126,7 @@ describe('detail page generation (PG integration)', () => {
 
   function succeed(detailPageId: string) {
     return sink.applySuccess({
-      organizationId: TEST_ORGANIZATION_ID, requestId: 'direct-ai:job', runId: undefined, sourceResourceId: detailPageId, output,
+      organizationId: TEST_ORGANIZATION_ID, requestId: 'direct-ai:job', sourceResourceId: detailPageId, output,
     });
   }
 
@@ -174,7 +174,7 @@ describe('detail page generation (PG integration)', () => {
     const workspaceId = await workspace();
     const failed = await open(workspaceId);
     await sink.applyFailure({
-      organizationId: TEST_ORGANIZATION_ID, requestId: 'direct-ai:job', runId: undefined,
+      organizationId: TEST_ORGANIZATION_ID, requestId: 'direct-ai:job',
       sourceResourceId: failed.page.id, errorCode: 'provider_error', errorMessage: '모델 오류',
     });
     await expect(pages.findById({ organizationId: TEST_ORGANIZATION_ID, detailPageId: failed.page.id }))

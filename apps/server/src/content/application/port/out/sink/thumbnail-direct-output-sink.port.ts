@@ -12,7 +12,6 @@ export interface ThumbnailDirectOutputSinkPort {
   applySuccess(input: {
     organizationId: string;
     requestId: string;
-    runId: string | undefined;
     /**
      * Downstream `ThumbnailGeneration.id` when the generation is ledger-backed.
      */
@@ -23,7 +22,6 @@ export interface ThumbnailDirectOutputSinkPort {
   applyFailure(input: {
     organizationId: string;
     requestId: string;
-    runId: string | undefined;
     sourceResourceId: string | null;
     errorCode: string;
     errorMessage: string;

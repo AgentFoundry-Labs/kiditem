@@ -158,7 +158,8 @@ export class ChannelAccountPersistenceAdapter implements ChannelAccountPersisten
     if (!vendorId) throw new BadRequestException('Provider vendor identity is required.');
 
     const tx = ownerTransactionClient(transaction);
-    if (input.channel === 'coupang') await lockProductMapping(tx, input.organizationId);
+    // 몰 판매자 식별이 바뀌면 리스팅 ↔ 마스터 매핑의 근거가 바뀐다. 매핑 세대는 채널과 무관하다.
+    await lockProductMapping(tx, input.organizationId);
 
     const where = {
       id: input.accountId,
@@ -200,9 +201,7 @@ export class ChannelAccountPersistenceAdapter implements ChannelAccountPersisten
       throw new ConflictException('Provider account identity changed before claim.');
     }
 
-    if (input.channel === 'coupang') {
-      await this.productMapping.advance(tx, input.organizationId);
-    }
+    await this.productMapping.advance(tx, input.organizationId);
   }
 
   async resolveMallIdentities(

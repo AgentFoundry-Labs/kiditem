@@ -167,7 +167,7 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
 
   it('selects latest complete coverage per keyword, including confirmed empty replacement', async () => {
     const sources = new SourcingRecommendationSourceRepositoryAdapter(prisma as never);
-    const read = () => sources.listLatestCoupangObservations({ organizationId, cutoffAt: new Date(), lookbackDays: 30, limit: 50 });
+    const read = async () => sources.listLatestCoupangObservations({ organizationId, cutoffAt: await databaseNow(), lookbackDays: 30, limit: 50 });
     const first = await begin('reader-first');
     await publish(first, [item]);
     await expect(read()).resolves.toMatchObject({ items: [{ productId: '123' }] });
@@ -209,7 +209,7 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
     await publish(await begin('v1-read'), [item]);
     await prisma.sourcingEvidenceObservation.updateMany({ data: { schemaVersion: 'coupang-wing-catalog/v1' } });
     await expect(controller.getWingCatalogSnapshot('A Pencil', organizationId)).resolves.toMatchObject({ items: [] });
-    await expect(sources.listLatestCoupangObservations({ organizationId, cutoffAt: new Date(), lookbackDays: 30, limit: 50 }))
+    await expect(sources.listLatestCoupangObservations({ organizationId, cutoffAt: await databaseNow(), lookbackDays: 30, limit: 50 }))
       .resolves.toEqual({ items: [], rejectedCount: 1 });
   });
 
@@ -224,7 +224,7 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
     } } });
     await expect(sources.listWingCatalogSnapshot({ organizationId, normalizedKeyword: 'a pencil', limit: 50 }))
       .resolves.toMatchObject({ items: [{ productId: '123' }], rejectedCount: 0 });
-    await expect(sources.listLatestCoupangObservations({ organizationId, cutoffAt: new Date(), lookbackDays: 30, limit: 50 }))
+    await expect(sources.listLatestCoupangObservations({ organizationId, cutoffAt: await databaseNow(), lookbackDays: 30, limit: 50 }))
       .resolves.toMatchObject({ items: [{ productId: '123' }], rejectedCount: 0 });
   });
 
@@ -244,7 +244,7 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
 
     await expect(sources.listWingCatalogSnapshot({ organizationId, normalizedKeyword: 'a pencil', limit: 50 }))
       .resolves.toEqual({ generatedAt: null, items: [], rejectedCount: 1 });
-    await expect(sources.listLatestCoupangObservations({ organizationId, cutoffAt: new Date(), lookbackDays: 30, limit: 50 }))
+    await expect(sources.listLatestCoupangObservations({ organizationId, cutoffAt: await databaseNow(), lookbackDays: 30, limit: 50 }))
       .resolves.toEqual({ items: [], rejectedCount: 1 });
   });
 
@@ -265,7 +265,7 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
 
     await expect(sources.listLatestCoupangObservations({
       organizationId,
-      cutoffAt: new Date(),
+      cutoffAt: await databaseNow(),
       lookbackDays: 30,
       limit: 50,
     })).resolves.toEqual({ items: [], rejectedCount: 2 });
@@ -281,7 +281,7 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
     });
     await expect(sources.listLatestCoupangObservations({
       organizationId,
-      cutoffAt: new Date(),
+      cutoffAt: await databaseNow(),
       lookbackDays: 30,
       limit: 50,
     })).resolves.toMatchObject({ items: [{ productId: '123' }], rejectedCount: 0 });
@@ -310,7 +310,7 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
 
     await expect(recommendationSources.listLatestCoupangObservations({
       organizationId,
-      cutoffAt: new Date(),
+      cutoffAt: await databaseNow(),
       lookbackDays: 30,
       limit: 50,
     })).resolves.toMatchObject({ items: [{ productId: '123' }], rejectedCount: 0 });
@@ -376,7 +376,7 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
       .resolves.toMatchObject({ items: [{ productId: 'manual-duplicate' }], rejectedCount: 0 });
     await expect(sources.listLatestCoupangObservations({
       organizationId,
-      cutoffAt: new Date(),
+      cutoffAt: await databaseNow(),
       lookbackDays: 30,
       limit: 50,
     })).resolves.toMatchObject({
@@ -392,6 +392,14 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
     });
   });
 
+  /**
+   * 발행 시각은 DB 시계로 찍힌다. 호스트 시계(`new Date()`)는 컨테이너보다 늦을 수 있어 방금 발행한 것을
+   * 잘라 버린다(전체 실행에서 간헐 실패). 읽기의 기준 시각도 같은 DB 시계에서 읽는다.
+   */
+  async function databaseNow(): Promise<Date> {
+    const [row] = await prisma.$queryRaw<Array<{ now: Date }>>`SELECT clock_timestamp() AS now`;
+    return row!.now;
+  }
   function begin(key: string, keywords = ['A Pencil']) {
     return controller.beginWingCatalog(organizationId, user as never, key, { ...input, keywords });
   }

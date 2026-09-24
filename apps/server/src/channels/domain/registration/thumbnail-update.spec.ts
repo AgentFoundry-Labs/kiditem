@@ -8,7 +8,7 @@ import {
   resolveThumbnailAccount,
   thumbnailReportTransition,
   thumbnailUpdateIdempotencyKey,
-  thumbnailUpdateLiveKey,
+  thumbnailUpdateLiveSubject,
 } from './thumbnail-update';
 
 describe('resolveThumbnailAccount', () => {
@@ -43,7 +43,7 @@ describe('thumbnailUpdateIdempotencyKey', () => {
   it('names a screen press by the product, account and asset it uploads, not by a generation job', () => {
     expect(thumbnailUpdateIdempotencyKey({ subject, ownerIdempotencyKey: null, nonce: 'n1' }))
       .toBe('thumbnail_update:p:a:x:n1');
-    expect(thumbnailUpdateLiveKey({ organizationId: 'o', ...subject })).toBe('thumbnail_update:o:p:a:x');
+    expect(thumbnailUpdateLiveSubject(subject)).toBe('p:a:x');
   });
 });
 

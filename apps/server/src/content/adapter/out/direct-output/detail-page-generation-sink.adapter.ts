@@ -32,7 +32,6 @@ export class DetailPageGenerationSinkAdapter implements DetailPageDirectOutputSi
   async applySuccess(input: {
     organizationId: string;
     requestId: string;
-    runId: string | undefined;
     sourceResourceId: string | null;
     output: DetailPageGenerateDirectOutput;
   }): Promise<void> {
@@ -99,7 +98,6 @@ export class DetailPageGenerationSinkAdapter implements DetailPageDirectOutputSi
   async applyFailure(input: {
     organizationId: string;
     requestId: string;
-    runId: string | undefined;
     sourceResourceId: string | null;
     errorCode: string;
     errorMessage: string;
