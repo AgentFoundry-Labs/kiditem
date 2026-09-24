@@ -1,4 +1,6 @@
 import { resolveMallListingState } from '../../../domain/listing/mall-listing-state';
+import { readListingRawSections, readOptionRawSections } from '../../../domain/collection/channel-listing-raw-sections';
+import { normalizeStoredAttributes } from '../../../domain/collection/channel-listing-attributes';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { readRegistrationFailureCounts } from '../repository/registration-execution-ledger.reader';
 import type { ChannelListingFactQueries } from '../../../application/port/in/listing/channel-listing-query.port';
@@ -358,16 +360,21 @@ function toSummary(
 }
 
 function buildProviderDetail(row: WorkspaceListingRow): ChannelListingProviderDetail {
-  const listingRaw = jsonRecord(row.rawJson);
-  const detailDocuments = detailDocumentsFromRaw(listingRaw);
-  const optionDocumentRefs = row.options.map((option) => ({
+  // 구역(KID-349)과 구역 이전 평면 키를 같은 모양으로 읽는다.
+  const listingDetail = readListingRawSections(row.rawJson).detail;
+  const optionDetails = row.options.map((option) => ({
     externalOptionId: option.externalOptionId,
-    documentIds: detailDocumentIdsFromRaw(option.rawJson),
+    detail: readOptionRawSections(option.rawJson).detail,
   }));
-  const hasDetailEvidence = hasOwn(listingRaw, 'detailDocuments')
-    || row.options.some((option) => hasOwn(jsonRecord(option.rawJson), 'detailDocumentIds'));
+  const hasDetailEvidence = listingDetail !== null || optionDetails.some(({ detail }) => detail !== null);
   const sourceDetail = hasDetailEvidence
-    ? { documents: detailDocuments, options: optionDocumentRefs }
+    ? {
+        documents: (listingDetail?.documents ?? []).map((document) => ({ ...document })),
+        options: optionDetails.map(({ externalOptionId, detail }) => ({
+          externalOptionId,
+          documentIds: detail?.documentIds ?? [],
+        })),
+      }
     : null;
   return {
     category: row.category,
@@ -386,35 +393,11 @@ function buildProviderDetail(row: WorkspaceListingRow): ChannelListingProviderDe
         barcode: option.barcode,
         modelNumber: option.modelNumber,
         status: option.status,
-        attributes: option.attributesJson ?? null,
+        attributes: normalizeStoredAttributes(option.attributesJson),
       };
     }),
     media: [],
   };
-}
-
-function detailDocumentsFromRaw(raw: Record<string, unknown> | null): Array<Record<string, unknown>> {
-  return Array.isArray(raw?.detailDocuments)
-    ? raw.detailDocuments.flatMap((value) => {
-        const document = jsonRecord(value);
-        return document && typeof document.id === 'string' && typeof document.kind === 'string'
-          && hasOwn(document, 'value')
-          ? [document]
-          : [];
-      })
-    : [];
-}
-
-function detailDocumentIdsFromRaw(rawValue: unknown): string[] {
-  const raw = jsonRecord(rawValue);
-  return Array.isArray(raw?.detailDocumentIds)
-    ? raw.detailDocumentIds.filter((value): value is string =>
-        typeof value === 'string' && value.trim().length > 0)
-    : [];
-}
-
-function hasOwn(value: Record<string, unknown> | null, key: string): boolean {
-  return value !== null && Object.prototype.hasOwnProperty.call(value, key);
 }
 
 function jsonRecord(value: unknown): Record<string, unknown> | null {

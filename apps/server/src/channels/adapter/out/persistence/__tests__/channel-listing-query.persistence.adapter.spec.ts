@@ -228,7 +228,7 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
         barcode: null,
         modelNumber: null,
         status: 'active',
-        attributesJson: { color: 'red' },
+        attributesJson: [{ type: 'color', value: 'red' }],
         rawJson: {
           vendorItemId: 'vendor-item-1',
           sellerProductItemId: 'seller-item-1',
@@ -263,7 +263,8 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
         barcode: null,
         modelNumber: null,
         status: 'active',
-        attributes: { color: 'red' },
+        // 구역 이전 {type, value} 속성은 구매속성으로 읽힌다 (KID-349).
+        attributes: [{ kind: 'purchase', attributeTypeId: null, name: 'color', value: 'red', exposed: null }],
       }],
       media: [],
     });

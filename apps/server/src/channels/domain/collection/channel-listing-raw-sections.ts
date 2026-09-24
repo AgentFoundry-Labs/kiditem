@@ -19,6 +19,8 @@ export type ListingRawSection = (typeof LISTING_RAW_SECTIONS)[number];
 /**
  * 구역 밖에 남는 평면 키. readiness·products·analytics·advertising·매칭이 읽는다
  * (`source`·`saleStatus`·`createdOn` 등). 여기 없는 키는 구역 안에만 쓴다.
+ * `saleStartedAt`은 Products 판매 기간 계산(`common/product-sale-age.ts`)이 평면으로 읽는다 —
+ * Wing 상세가 준다.
  */
 export const SHARED_LISTING_RAW_KEYS = [
   'source',
@@ -26,6 +28,7 @@ export const SHARED_LISTING_RAW_KEYS = [
   'createdOn',
   'saleStatus',
   'productStatus',
+  'saleStartedAt',
 ] as const;
 export type SharedListingRawKey = (typeof SHARED_LISTING_RAW_KEYS)[number];
 

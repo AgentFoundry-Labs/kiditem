@@ -3,6 +3,18 @@ import { ConflictException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { readListingProductIds } from '../persistence/listing-product-summary.reader';
 import { listingRawJsonReplacementSql } from './channel-listing-raw-json';
+import {
+  SHARED_LISTING_RAW_KEYS,
+  rawSectionPatch,
+  readListingRawSections,
+  readOptionRawSections,
+  type SharedListingRawKey,
+} from '../../../domain/collection/channel-listing-raw-sections';
+import {
+  attributesFromWire,
+  mergeAttributesByKind,
+  type WireListingAttribute,
+} from '../../../domain/collection/channel-listing-attributes';
 
 const UPSERT_BATCH_SIZE = 500;
 
@@ -80,6 +92,7 @@ export async function upsertChannelCatalogBasics(
     throw new ConflictException('Channel option identity is ambiguous');
   }
 
+  const observedAt = new Date().toISOString();
   for (let offset = 0; offset < input.products.length; offset += UPSERT_BATCH_SIZE) {
     const payload = JSON.stringify(input.products
       .slice(offset, offset + UPSERT_BATCH_SIZE)
@@ -92,11 +105,7 @@ export async function upsertChannelCatalogBasics(
         brand: product.brand,
         productStatus: product.productStatus,
         imageUrl: primaryImageUrl(product),
-        rawJson: {
-          ...product.raw,
-          source: input.rawSource,
-          externalProductId: product.externalProductId,
-        },
+        rawJson: basicsListingRawPatch(product, input.rawSource, observedAt),
       })));
     await tx.$executeRaw`
       INSERT INTO channel_listings (
@@ -191,15 +200,18 @@ export async function upsertChannelCatalogBasics(
         status: option.skuStatus,
         barcode: option.barcode,
         modelNumber: option.modelNumber,
-        attributesJson: option.attributes,
-        rawJson: mergeBasicOptionRaw(
-          jsonRecord(existing?.rawJson),
-          option.raw,
-          input.rawSource,
-          product.externalProductId,
-          externalOptionId,
-          existing?.externalOptionId ?? null,
-        ),
+        attributesJson: attributesFromWire(wireAttributes(option.attributes), 'purchase'),
+        rawJson: {
+          ...mergeBasicOptionRaw(
+            jsonRecord(existing?.rawJson),
+            pickKeys(option.raw, OPTION_IDENTITY_RAW_KEYS),
+            input.rawSource,
+            product.externalProductId,
+            externalOptionId,
+            existing?.externalOptionId ?? null,
+          ),
+          ...rawSectionPatch('list', { observedAt, raw: option.raw }),
+        },
       };
     });
   });
@@ -365,6 +377,7 @@ export async function updateChannelCatalogDetails(
       id: true,
       externalOptionId: true,
       rawJson: true,
+      attributesJson: true,
       listing: { select: { externalId: true } },
     },
   });
@@ -379,6 +392,7 @@ export async function updateChannelCatalogDetails(
       id: true,
       externalOptionId: true,
       rawJson: true,
+      attributesJson: true,
       listing: { select: { externalId: true } },
     },
   });
@@ -431,6 +445,7 @@ export async function updateChannelCatalogDetails(
   }
 
   const listingByExternalId = new Map(listings.map((listing) => [listing.externalId, listing]));
+  const observedAt = new Date().toISOString();
   const detailMerges = new Map<string, DetailMergeResult>();
   for (const product of input.products) {
     const listing = listingByExternalId.get(product.externalProductId);
@@ -442,6 +457,7 @@ export async function updateChannelCatalogDetails(
       product,
       input.rawSource,
       resolvedOptionByIncomingId,
+      observedAt,
     ));
   }
 
@@ -484,13 +500,15 @@ export async function updateChannelCatalogDetails(
     if (!resolved) throw new ConflictException('DETAIL_IDENTITY_CONFLICT');
     const detailMerge = detailMerges.get(product.externalProductId);
     if (!detailMerge) throw new ConflictException('DETAIL_DOCUMENT_MERGE_MISSING');
+    const incomingAttributes = attributesFromWire(wireAttributes(option.attributes), 'purchase');
     return {
       id: resolved.id,
-      attributesJson: option.attributes,
+      // 상세는 구매속성만 관측한다: 엑셀이 준 검색옵션은 그대로 둔다 (KID-349).
+      attributesJson: mergeAttributesByKind(resolved.attributesJson, incomingAttributes, ['purchase']),
       modelNumber: option.modelNumber,
       barcode: option.barcode,
       sellerSku: option.externalVendorSku,
-      hasAttributes: hasMeaningfulValue(option.attributes),
+      hasAttributes: incomingAttributes.length > 0,
       rawJson: mergeDetailOptionRaw(
         jsonRecord(resolved.rawJson),
         option,
@@ -498,6 +516,7 @@ export async function updateChannelCatalogDetails(
         product.externalProductId,
         detailMerge.optionDocumentIds.get(resolved.id) ?? [],
         resolved.externalOptionId,
+        observedAt,
       ),
     };
   }));
@@ -627,6 +646,7 @@ function mergeDetailState(
   product: ChannelCatalogDetailIdentityProduct,
   source: string,
   resolvedOptionByIncomingId: ReadonlyMap<string, DetailOptionRow>,
+  observedAt: string,
 ): DetailMergeResult {
   const documents: DetailDocument[] = [];
   const documentByKey = new Map<string, DetailDocument>();
@@ -652,7 +672,9 @@ function mergeDetailState(
     return document.id;
   };
 
-  for (const document of detailDocumentsFromRaw(existing)) addDocument(document);
+  for (const document of readListingRawSections(existing).detail?.documents ?? []) {
+    addDocument({ id: document.id, kind: document.kind, value: document.value });
+  }
   const incomingDocumentById = new Map<string, DetailDocument>();
   for (const rawDocument of product.documents) {
     if (rawDocument.value === undefined) continue;
@@ -670,7 +692,7 @@ function mergeDetailState(
   const oldRefsByOption = new Map<string, string[]>();
   for (const option of existingOptions) {
     oldRefsByOption.set(option.id, canonicalizeRefs(
-      jsonRecord(option.rawJson)?.detailDocumentIds,
+      readOptionRawSections(option.rawJson).detail?.documentIds,
       sourceIdToCanonicalId,
     ));
   }
@@ -718,13 +740,15 @@ function mergeDetailState(
     || !replacedDocumentIds.has(document.id));
   const incomingRaw = withoutKey(product.raw, 'detailDocuments');
   return {
-    listingRaw: {
-      ...(existing ?? {}),
-      ...incomingRaw,
-      source,
-      externalProductId: product.externalProductId,
-      detailDocuments: persistedDocuments,
-    },
+    listingRaw: rawSectionPatch(
+      'detail',
+      { observedAt, documents: persistedDocuments, raw: withoutKeys(incomingRaw, SHARED_LISTING_RAW_KEYS) },
+      {
+        ...(pickKeys(incomingRaw, SHARED_LISTING_RAW_KEYS) as Partial<Record<SharedListingRawKey, unknown>>),
+        source,
+        externalProductId: product.externalProductId,
+      },
+    ),
     optionDocumentIds,
   };
 }
@@ -736,20 +760,18 @@ function mergeDetailOptionRaw(
   externalProductId: string,
   detailDocumentIds: string[],
   canonicalExternalOptionId: string,
+  observedAt: string,
 ): Record<string, unknown> {
   const incoming = withoutKey(option.raw, 'detailDocumentIds');
   const result: Record<string, unknown> = {
     ...(existing ?? {}),
-    ...incoming,
+    ...pickKeys(incoming, OPTION_IDENTITY_RAW_KEYS),
     source,
     externalProductId,
   };
   for (const [key, value] of [
     ['vendorItemId', option.vendorItemId],
     ['sellerProductItemId', option.sellerProductItemId],
-    ['externalVendorSku', option.externalVendorSku],
-    ['barcode', option.barcode],
-    ['modelNumber', option.modelNumber],
   ] as const) {
     if (value !== undefined) result[key] = value;
   }
@@ -776,22 +798,20 @@ function mergeDetailOptionRaw(
     if (existingHasRelation && existingSource) result.externalOptionIdentitySource = existingSource;
     else delete result.externalOptionIdentitySource;
   }
-  result.detailDocumentIds = dedupe(detailDocumentIds);
-  return result;
-}
-
-function detailDocumentsFromRaw(raw: Record<string, unknown> | null): DetailDocument[] {
-  if (!Array.isArray(raw?.detailDocuments)) return [];
-  return raw.detailDocuments.flatMap((value) => {
-    const document = jsonRecord(value);
-    return typeof document?.id === 'string'
-      && document.id.trim().length > 0
-      && typeof document.kind === 'string'
-      && document.kind.trim().length > 0
-      && Object.prototype.hasOwnProperty.call(document, 'value')
-      ? [{ id: document.id, kind: document.kind, value: document.value }]
-      : [];
-  });
+  // 구역 이전 평면 키는 그대로 두면 읽기 함수가 새 구역보다 뒤에 본다. 쓰기는 구역에만 한다.
+  delete result.detailDocumentIds;
+  const detailRaw: Record<string, unknown> = withoutKeys(incoming, OPTION_IDENTITY_RAW_KEYS);
+  for (const [key, value] of [
+    ['externalVendorSku', option.externalVendorSku],
+    ['barcode', option.barcode],
+    ['modelNumber', option.modelNumber],
+  ] as const) {
+    if (value !== undefined) detailRaw[key] = value;
+  }
+  return {
+    ...result,
+    ...rawSectionPatch('detail', { observedAt, documentIds: dedupe(detailDocumentIds), raw: detailRaw }),
+  };
 }
 
 function canonicalizeRefs(value: unknown, sourceIdToCanonicalId: ReadonlyMap<string, string>): string[] {
@@ -989,6 +1009,71 @@ function withoutKey(
   const result = { ...value };
   delete result[key];
   return result;
+}
+
+/**
+ * 옵션 raw에서 구역 밖 평면으로 남기는 키. 옵션 식별(`resolveBasicOptionIdentity`·상세 식별),
+ * readiness의 식별 출처, 품절 송신의 `registrationType`이 평면으로 읽는다.
+ */
+const OPTION_IDENTITY_RAW_KEYS = [
+  'vendorItemId',
+  'vendorInventoryItemId',
+  'sellerProductItemId',
+  'registrationType',
+  'externalOptionIdentitySource',
+] as const;
+
+function pickKeys(
+  value: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): Record<string, unknown> {
+  const picked: Record<string, unknown> = {};
+  for (const key of keys) {
+    if (value && Object.prototype.hasOwnProperty.call(value, key)) picked[key] = value[key];
+  }
+  return picked;
+}
+
+function withoutKeys(
+  value: Record<string, unknown> | undefined,
+  keys: readonly string[],
+): Record<string, unknown> {
+  const result = { ...(value ?? {}) };
+  for (const key of keys) delete result[key];
+  return result;
+}
+
+/** Wing 목록 한 줄의 listing raw patch: 공유 평면 키 + `list` 구역 (KID-349). */
+function basicsListingRawPatch(
+  product: ChannelCatalogIdentityProduct,
+  source: string,
+  observedAt: string,
+): Record<string, unknown> {
+  const shared = pickKeys(product.raw, SHARED_LISTING_RAW_KEYS) as Partial<Record<SharedListingRawKey, unknown>>;
+  return rawSectionPatch('list', {
+    observedAt,
+    modifiedOn: meaningfulText(product.raw.modifiedOn),
+    createdOn: meaningfulText(product.raw.createdOn),
+    productStatus: product.productStatus ?? meaningfulText(product.raw.productStatus),
+    raw: withoutKeys(product.raw, SHARED_LISTING_RAW_KEYS),
+  }, { ...shared, source, externalProductId: product.externalProductId });
+}
+
+function wireAttributes(value: unknown): WireListingAttribute[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((item) => {
+    const record = jsonRecord(item);
+    const type = meaningfulText(record?.type);
+    const text = typeof record?.value === 'string' ? record.value : null;
+    if (!record || !type || text === null) return [];
+    return [{
+      type,
+      value: text,
+      ...(record.kind === 'purchase' || record.kind === 'search' ? { kind: record.kind } : {}),
+      ...(typeof record.attributeTypeId === 'string' ? { attributeTypeId: record.attributeTypeId } : {}),
+      ...(typeof record.exposed === 'boolean' ? { exposed: record.exposed } : {}),
+    }];
+  });
 }
 
 function stableJson(value: unknown): string {
