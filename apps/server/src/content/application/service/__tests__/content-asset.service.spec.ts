@@ -244,4 +244,3 @@ describe('ContentAssetService.replaceWorkspaceThumbnailGallery', () => {
     expect(repo.replaceWorkspaceThumbnailGallery).not.toHaveBeenCalled();
   });
 });
-

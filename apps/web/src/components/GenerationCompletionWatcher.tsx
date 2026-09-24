@@ -111,4 +111,3 @@ function showDetailGenerationToast(input: {
     duration: 10000,
   });
 }
-

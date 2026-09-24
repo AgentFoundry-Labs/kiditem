@@ -34,4 +34,3 @@ export interface RegistrationExecutionRepositoryPort {
   getTarget(input: { organizationId: string; executionId: string; requestedByUserId: string | null }): Promise<TargetExecutionResult>;
   reportTarget(input: { organizationId: string; executionId: string; requestedByUserId: string | null; report: ReportTargetExecutionInput }): Promise<TargetExecutionResult>;
 }
-

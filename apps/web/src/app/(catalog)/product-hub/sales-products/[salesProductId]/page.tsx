@@ -476,4 +476,3 @@ function ImagesEditor({ value, onChange }: { value: string[]; onChange: (value: 
     </div>
   );
 }
-

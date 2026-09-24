@@ -320,4 +320,3 @@ function isUniqueConstraint(error: unknown): boolean {
     (error as { code?: unknown }).code === 'P2002',
   );
 }
-

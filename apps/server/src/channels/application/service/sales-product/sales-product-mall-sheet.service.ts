@@ -389,5 +389,3 @@ function kstDate(): string {
 function byId(sources: readonly MallSheetSourceProduct[]): Map<string, MallSheetSourceProduct> {
   return new Map(sources.map((source) => [source.id, source]));
 }
-
-

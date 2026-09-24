@@ -1929,4 +1929,3 @@ async function readMasterProductCodesInTransaction(
   );
   return new Map(identities.map((identity) => [identity.masterProductId, identity.code]));
 }
-
