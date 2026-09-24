@@ -32,7 +32,7 @@ export function periodCoverageDaysText(basis: PeriodDaysBasis): string | null {
 
 /** Wing 트래픽 coverage(빠진 날짜 목록)를 같은 판단에 넣을 수 있는 기간 근거로 읽는다. */
 export function trafficCoverageBasis(
-  coverage: Pick<z.infer<typeof TrafficCoverageSchema>, 'from' | 'to' | 'targetDays' | 'missingDates'>,
+  coverage: z.infer<typeof TrafficCoverageSchema>,
 ): PeriodDaysBasis {
   const missing = new Set(coverage.missingDates);
   return {
