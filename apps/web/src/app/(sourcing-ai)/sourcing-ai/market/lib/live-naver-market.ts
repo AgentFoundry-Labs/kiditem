@@ -39,10 +39,6 @@ export interface LiveNaverMarketResult {
 }
 
 /**
- * 화면은 이미 저장된 네이버 일별 스냅샷(`fetchNaverKeywordTrends`)만 읽고, 이 함수로 기회 목록을 파생한다.
- * 원천 수집은 명시적 수집 CTA 에서만 시작한다.
- */
-/**
  * `trendNaverKeywords` 캐시는 원시 스냅샷을 담는다. 기회 목록이 필요한 화면은 이 함수를
  * React Query `select` 로 넘겨 파생한다(모듈 수준이라 참조가 안정적이다).
  */
@@ -50,6 +46,10 @@ export function selectPersistedNaverMarket(snapshot: { keywords: NaverKeywordTre
   return buildPersistedNaverMarketResult(snapshot.keywords);
 }
 
+/**
+ * 화면은 이미 저장된 네이버 일별 스냅샷(`fetchNaverKeywordTrends`)만 읽고, 이 함수로 기회 목록을 파생한다.
+ * 원천 수집은 명시적 수집 CTA 에서만 시작한다.
+ */
 export function buildPersistedNaverMarketResult(
   keywords: NaverKeywordTrendView[],
 ): LiveNaverMarketResult {
