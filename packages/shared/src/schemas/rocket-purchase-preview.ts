@@ -43,10 +43,15 @@ export const RocketPoSourceControlSchema = RocketPoSourceAttemptSchema.extend({
   attemptToken: z.string().uuid(),
 }).strict();
 export type RocketPoSourceControl = z.infer<typeof RocketPoSourceControlSchema>;
+/** 발행된 run 이 덮는 기간(양 끝 포함, KST 날짜). coverage 를 적지 않은 run 은 null — 지어내지 않는다. */
+export const RocketPoCoverageSchema = z.object({ from: isoDay, to: isoDay }).strict();
+export type RocketPoCoverage = z.infer<typeof RocketPoCoverageSchema>;
 export const RocketPoSourceSchema = z.object({
   ready: z.boolean(),
   latestAttempt: RocketPoSourceAttemptSchema.nullable(),
   latestComplete: RocketPoSourceAttemptSchema.nullable(),
+  /** `latestComplete` run 의 coverage 날짜(KID-126). */
+  latestCompleteCoverage: RocketPoCoverageSchema.nullable(),
 }).strict();
 export type RocketPoSource = z.infer<typeof RocketPoSourceSchema>;
 

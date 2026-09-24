@@ -95,8 +95,8 @@ function extensionMessages(action: string) {
 beforeEach(() => {
   vi.clearAllMocks();
   sources = {
-    [ACCOUNT_A]: { ready: false, latestAttempt: null, latestComplete: null },
-    [ACCOUNT_B]: { ready: false, latestAttempt: null, latestComplete: null },
+    [ACCOUNT_A]: { ready: false, latestAttempt: null, latestComplete: null, latestCompleteCoverage: null },
+    [ACCOUNT_B]: { ready: false, latestAttempt: null, latestComplete: null, latestCompleteCoverage: null },
   };
   vi.mocked(detectOrderCollectionExtensionRuntime).mockResolvedValue({
     status: 'ready',
@@ -114,7 +114,7 @@ beforeEach(() => {
   });
   vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
     if (path !== BEGIN_PATH) throw new Error(`unexpected POST ${path}`);
-    sources[ACCOUNT_A] = { ready: false, latestAttempt: attempt(ACCOUNT_A, 'RUNNING'), latestComplete: null };
+    sources[ACCOUNT_A] = { ready: false, latestAttempt: attempt(ACCOUNT_A, 'RUNNING'), latestComplete: null, latestCompleteCoverage: null };
     return { ...attempt(ACCOUNT_A, 'RUNNING'), attemptToken: '44444444-4444-4444-8444-444444444444' };
   });
 });
@@ -183,7 +183,7 @@ describe('Rocket PO collection control', () => {
 
   it('joins the collection the owner already runs for the account', async () => {
     vi.mocked(apiClient.post).mockImplementation(async () => {
-      sources[ACCOUNT_A] = { ready: false, latestAttempt: attempt(ACCOUNT_A, 'RUNNING'), latestComplete: null };
+      sources[ACCOUNT_A] = { ready: false, latestAttempt: attempt(ACCOUNT_A, 'RUNNING'), latestComplete: null, latestCompleteCoverage: null };
       throw new ApiError(409, 'Conflict', 'Conflict', {
         code: 'ATTEMPT_IN_PROGRESS',
         attemptId: ATTEMPT_ID,
@@ -198,14 +198,14 @@ describe('Rocket PO collection control', () => {
   });
 
   it('stops through the owner route when no extension holds the session', async () => {
-    sources[ACCOUNT_A] = { ready: false, latestAttempt: attempt(ACCOUNT_A, 'RUNNING'), latestComplete: null };
+    sources[ACCOUNT_A] = { ready: false, latestAttempt: attempt(ACCOUNT_A, 'RUNNING'), latestComplete: null, latestCompleteCoverage: null };
     vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
       if (path !== `${BEGIN_PATH}/${ATTEMPT_ID}/cancel`) throw new Error(`unexpected POST ${path}`);
       const cancelled = attempt(ACCOUNT_A, 'FAILED', ATTEMPT_ID, {
         errorCode: 'USER_CANCELLED',
         errorMessage: '운영자가 수집을 중단했습니다.',
       });
-      sources[ACCOUNT_A] = { ready: false, latestAttempt: cancelled, latestComplete: null };
+      sources[ACCOUNT_A] = { ready: false, latestAttempt: cancelled, latestComplete: null, latestCompleteCoverage: null };
       return cancelled;
     });
     renderControls(<RocketControl accountId={ACCOUNT_A} label="확인 패널" />);
@@ -236,6 +236,7 @@ describe('Rocket PO collection control', () => {
       ready: true,
       latestAttempt: attempt(ACCOUNT_A, 'COMPLETE'),
       latestComplete: attempt(ACCOUNT_A, 'COMPLETE'),
+      latestCompleteCoverage: null,
     };
     const { client } = renderControls(<RocketControl accountId={ACCOUNT_A} label="확인 패널" />);
     const savedListKey = [...queryKeys.orders.rocketSavedPoLists(), 'month'];
@@ -250,7 +251,7 @@ describe('Rocket PO collection control', () => {
     expect(client.getQueryState(dashboardCollectionsKey)?.isInvalidated).toBe(false);
 
     const next = attempt(ACCOUNT_A, 'COMPLETE', NEXT_ATTEMPT_ID);
-    sources[ACCOUNT_A] = { ready: true, latestAttempt: next, latestComplete: next };
+    sources[ACCOUNT_A] = { ready: true, latestAttempt: next, latestComplete: next, latestCompleteCoverage: null };
     await act(() => client.refetchQueries({ queryKey: queryKeys.orders.rocketPoSource(ACCOUNT_A) }));
 
     await waitFor(() => {
