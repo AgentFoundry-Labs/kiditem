@@ -1,5 +1,6 @@
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import type { PrismaClient } from '@prisma/client';
+import { PrismaClient } from '@prisma/client';
+import { PrismaPg } from '@prisma/adapter-pg';
 import {
   makeTestPrisma,
   resetDb,
@@ -467,7 +468,7 @@ describe('Wing catalog incremental browser sync (PG integration)', () => {
       })),
     }, 1);
 
-  async function runBasics(products: readonly SyncProduct[]) {
+  async function runBasics(products: readonly SyncProduct[], optionCount = 1) {
     const permit = await owner.start({
       ...scope(),
       userId: USER,
@@ -481,7 +482,7 @@ describe('Wing catalog incremental browser sync (PG integration)', () => {
         version: 1,
         kind: 'listing_basics',
         startOrdinal: start,
-        products: slice.map((product, index) => ({ ordinal: start + index, product: wireBasicProduct(product) })),
+        products: slice.map((product, index) => ({ ordinal: start + index, product: wireBasicProduct(product, optionCount) })),
       }, start + 1);
     }
     await put(permit, { version: 1, kind: 'manifest_confirmation', manifest: manifestOf(products.length) }, 1);
@@ -782,42 +783,76 @@ describe('Wing catalog incremental browser sync (PG integration)', () => {
     await expect(detailSection('P1')).resolves.toEqual(p1Before);
   });
 
-  it('상세 대상 320개를 한 번의 종료 트랜잭션으로 반영한다(시간 측정)', async () => {
+  it('상세 대상 320개(옵션 3 · 이미지 30 · 문서 약 50KB)를 한 번의 종료 트랜잭션으로 반영한다(시간 측정)', async () => {
     const products: SyncProduct[] = Array.from({ length: 320 }, (_, index) => ({
       id: `P${String(index).padStart(4, '0')}`,
       modifiedOn: '2026-09-01T00:00:00',
     }));
-    const basics = await runBasics(products);
+    const basics = await runBasics(products, 3);
     const details = await startDetails(basics, products);
     expect(details.plan.detailTargetProductIds).toHaveLength(320);
-    for (let start = 0; start < products.length; start += 20) {
+    // 청크는 1MB 상한이라 50KB 상품은 10개씩 보낸다.
+    for (let start = 0; start < products.length; start += 10) {
       await put(details, {
         version: 1,
         kind: 'full_details',
         startOrdinal: start,
-        products: products.slice(start, start + 20).map((product, index) => ({
+        products: products.slice(start, start + 10).map((product, index) => ({
           ordinal: start + index,
-          product: wireDetailProduct(product.id, '장난감'),
+          product: realisticDetailProduct(product.id),
         })),
       }, start + 1);
     }
     const status = await owner.getStatus({ ...scope(), runId: details.attemptId });
     expect(status).toMatchObject({ phase: 'ready_to_finalize', missing: { productIds: [] } });
-    const started = performance.now();
-    const completed = await owner.finalize({
-      ...scope(),
-      userId: USER,
-      runId: details.attemptId,
-      attemptToken: details.attemptToken,
-      request: { snapshotHash: status.snapshotHash! },
+
+    // makeTestPrisma가 이미 검증한 일회용 하네스 URL이다.
+    const measured = new PrismaClient({
+      adapter: new PrismaPg({ connectionString: process.env.DATABASE_URL! }),
+      log: [{ emit: 'event', level: 'query' }],
     });
-    const elapsedMs = Math.round(performance.now() - started);
-    process.stdout.write(`WING_DETAILS_FINALIZE_MEASUREMENT ${JSON.stringify({ targets: 320, elapsedMs })}\n`);
-    expect(completed.quality).toMatchObject({ detailTargets: 320, detailApplied: 320, detailUnchanged: 0 });
+    const statements: string[] = [];
+    measured.$on('query', (event) => { statements.push(event.query); });
+    const mappingGeneration = new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter());
+    const alerts = new SourceFailureAlerts(measured as never);
+    const measuredPublisher = new ChannelCatalogPublicationRepositoryAdapter(
+      measured as never,
+      new AiCatalogMediaPublicationRepositoryAdapter(makeChannelListingQuery(prisma)),
+      alerts,
+      new ChannelOptionRecipeService(new ChannelOptionRecipeRepositoryAdapter(
+        measured as never,
+        new ProductTransactionalReadRepositoryAdapter(),
+        mappingGeneration,
+      )),
+      mappingGeneration,
+    );
+    const measuredOwner = new ChannelCatalogCollectionService(
+      new ChannelCatalogCollectionRepositoryAdapter(measured as never, alerts),
+      measuredPublisher,
+      channelIntegrity,
+    );
+    try {
+      const started = performance.now();
+      const completed = await measuredOwner.finalize({
+        ...scope(),
+        userId: USER,
+        runId: details.attemptId,
+        attemptToken: details.attemptToken,
+        request: { snapshotHash: status.snapshotHash! },
+      });
+      const elapsedMs = Math.round(performance.now() - started);
+      process.stdout.write(`WING_DETAILS_FINALIZE_MEASUREMENT ${JSON.stringify({
+        targets: 320, options: 960, media: 9_600, documentBytesPerProduct: 50_000, elapsedMs, statements: statements.length,
+      })}\n`);
+      expect(completed.quality).toMatchObject({ detailTargets: 320, detailApplied: 320, detailUnchanged: 0 });
+      expect(completed.progress).toMatchObject({ publishedProducts: 320, publishedOptionCount: 960, publishedMediaCount: 9_600 });
+    } finally {
+      await measured.$disconnect();
+    }
     await expect(prisma.channelListing.count({
-      where: { organizationId: ORG, channelAccountId, rawJson: { path: ['detail', 'documents', '0', 'id'], string_starts_with: 'P' } },
+      where: { organizationId: ORG, channelAccountId, rawJson: { path: ['detail', 'documents', '0', 'kind'], equals: 'contents' } },
     })).resolves.toBe(320);
-  }, 120_000);
+  }, 180_000);
 
   it('상세 → 엑셀 뒤에 같은 상세를 다시 받아도 속성 순서 때문에 바뀐 것으로 세지 않는다', async () => {
     const products: SyncProduct[] = [{ id: 'P1', modifiedOn: '2026-09-01T00:00:00' }];
@@ -854,7 +889,21 @@ describe('Wing catalog incremental browser sync (PG integration)', () => {
   });
 });
 
-function wireBasicProduct(product: SyncProduct) {
+function wireBasicProduct(product: SyncProduct, optionCount = 1) {
+  const base = wireBasicProductWithOneOption(product);
+  if (optionCount === 1) return base;
+  return {
+    ...base,
+    options: Array.from({ length: optionCount }, (_, index) => ({
+      ...base.options[0]!,
+      externalOptionId: `${product.id}-O${index}`,
+      vendorItemId: `VI-${product.id}-${index}`,
+      raw: { vendorItemId: `VI-${product.id}-${index}` },
+    })),
+  };
+}
+
+function wireBasicProductWithOneOption(product: SyncProduct) {
   return {
     externalProductId: product.id,
     registeredName: product.id,
@@ -885,6 +934,48 @@ function wireBasicProduct(product: SyncProduct) {
     }],
     media: [],
     raw: product.modifiedOn ? { modifiedOn: product.modifiedOn } : {},
+  };
+}
+
+/**
+ * 실제에 가까운 상세: 옵션 3개, 상품당 이미지 30장(상세 24 · 옵션 6), 상세 문서 약 50KB.
+ */
+function realisticDetailProduct(id: string) {
+  const options = Array.from({ length: 3 }, (_, index) => `${id}-O${index}`);
+  const contents = `<div>${'상품 상세 설명 '.repeat(2_600)}</div>`;
+  return {
+    externalProductId: id,
+    options: options.map((externalOptionId, index) => ({
+      externalOptionId,
+      vendorItemId: `VI-${id}-${index}`,
+      sellerProductItemId: null,
+      barcode: `88000000${String(index).padStart(5, '0')}`,
+      attributes: [
+        { type: '색상', value: ['빨강', '파랑', '노랑'][index]!, attributeTypeId: '1001' },
+        { type: '수량', value: '1개', attributeTypeId: '2002' },
+      ],
+      documentIds: [`${id}-contents`, `${id}-notices`],
+      raw: { registrationType: 'NORMAL', originalPrice: 15_000, salePrice: 12_900 },
+    })),
+    documents: [
+      { id: `${id}-contents`, kind: 'contents' as const, value: contents },
+      { id: `${id}-notices`, kind: 'notices' as const, value: { 품명: '장난감', 제조국: '중국', 인증: 'KC' } },
+    ],
+    media: [
+      ...Array.from({ length: 24 }, (_, index) => ({
+        sourceUrl: `https://image.example/${id}/detail-${index}.jpg`,
+        role: 'detail' as const,
+        sortOrder: index,
+        externalOptionIds: options,
+      })),
+      ...Array.from({ length: 6 }, (_, index) => ({
+        sourceUrl: `https://image.example/${id}/option-${index}.jpg`,
+        role: 'option' as const,
+        sortOrder: 24 + index,
+        externalOptionIds: [options[index % 3]!],
+      })),
+    ],
+    raw: { status: 'APPROVED', saleStartedAt: '2026-01-01T00:00:00', itemCount: 3 },
   };
 }
 
