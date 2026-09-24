@@ -1,3 +1,4 @@
+import { KiditemConflictError } from '@kiditem/shared/errors';
 /**
  * Purchase order lifecycle: draft → pending → ordered → shipped → received.
  * `cancelled` is a terminal-only counter currently exposed by listings; the
@@ -26,7 +27,7 @@ export function isValidPurchaseOrderTransition(from: string, to: string): boolea
 
 export function assertValidPurchaseOrderTransition(from: string, to: string): void {
   if (!isValidPurchaseOrderTransition(from, to)) {
-    throw new Error(`Invalid purchase order transition: ${from} → ${to}`);
+    throw new KiditemConflictError('SUPPLY_PURCHASE_STATUS_INVALID', { details: { reason: 'TRANSITION_INVALID', from, to } });
   }
 }
 

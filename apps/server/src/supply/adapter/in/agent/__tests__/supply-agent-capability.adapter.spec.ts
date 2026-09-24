@@ -40,7 +40,7 @@ describe('SupplyAgentCapabilityAdapter', () => {
       purchaseOrderId: PURCHASE_ORDER_ID,
       inventoryAttemptId: INVENTORY_ATTEMPT_ID,
     };
-    await expect(adapter.submitPurchaseOrder(inputWithoutActor as never)).rejects.toThrow('authenticated actor');
+    await expect(adapter.submitPurchaseOrder(inputWithoutActor as never)).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
     await adapter.submitPurchaseOrder({ ...inputWithoutActor, userId: USER_ID });
     expect(submissions.submit).toHaveBeenCalledWith(expect.objectContaining({ organizationId: ORG_ID, userId: USER_ID, requestHash: inputHash }));
   });

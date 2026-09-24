@@ -1,4 +1,5 @@
-import { Inject, Injectable, UnauthorizedException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemError, KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { z } from 'zod';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import {
@@ -90,7 +91,7 @@ export class SupplyAgentCapabilityAdapter implements SupplyPurchaseOrderCapabili
   ): Promise<{ orderId: string; status: string }> {
     const organizationId = z.string().uuid().parse(input.organizationId);
     if (typeof input.userId !== 'string' || input.userId.length === 0) {
-      throw new UnauthorizedException('Purchase submission requires an authenticated actor.');
+      throw new KiditemError('AUTH_REQUIRED', { details: { reason: 'ACTOR_REQUIRED' } });
     }
     const userId = z.string().uuid().parse(input.userId);
     const idempotencyKey = z.string().min(1).parse(input.idempotencyKey);
@@ -142,7 +143,7 @@ function requiredInputHash(value: string, input: unknown): string {
     !/^[a-f0-9]{64}$/.test(value)
     || value !== canonicalOwnerInputHash(input)
   ) {
-    throw new Error('owner_input_hash_required');
+    throw new KiditemInvalidValueError('AGENT_OS_OWNER_INPUT_HASH_REQUIRED');
   }
   return value;
 }

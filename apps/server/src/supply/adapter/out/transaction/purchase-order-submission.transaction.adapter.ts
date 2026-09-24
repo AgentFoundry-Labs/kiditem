@@ -1,13 +1,5 @@
-import {
-  KiditemError,
-  KiditemPreconditionError,
-} from '@kiditem/shared/errors';
-import {
-  BadRequestException,
-  ConflictException,
-  Inject,
-  Injectable,
-} from '@nestjs/common';
+import { KiditemConflictError, KiditemError, KiditemInvalidValueError, KiditemPreconditionError } from '@kiditem/shared/errors';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { FactNotFoundError } from '../../../../common/errors/fact-errors';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -73,9 +65,7 @@ implements PurchaseOrderSubmissionTransactionPort {
 
       if (order.status === 'pending' || order.status === 'ordered') return order;
       if (order.status !== 'draft') {
-        throw new BadRequestException(
-          'Only draft or pending purchase orders may be submitted.',
-        );
+        throw new KiditemConflictError('SUPPLY_PURCHASE_STATUS_INVALID', { details: { reason: 'NOT_SUBMITTABLE', status: order.status } });
       }
 
       const updated = await tx.purchaseOrder.updateMany({
@@ -158,7 +148,7 @@ implements PurchaseOrderSubmissionTransactionPort {
         };
       }
       if (order.status !== 'pending') {
-        throw new BadRequestException('Only pending purchase orders may be submitted.');
+        throw new KiditemConflictError('SUPPLY_PURCHASE_STATUS_INVALID', { details: { reason: 'NOT_PENDING', status: order.status } });
       }
 
       if (!input.requiresProvider) {
@@ -174,7 +164,7 @@ implements PurchaseOrderSubmissionTransactionPort {
           },
         });
         if (updated.count !== 1) {
-          throw new ConflictException('Purchase order status changed during submission.');
+          throw new KiditemConflictError('SUPPLY_PURCHASE_STATUS_INVALID', { details: { reason: 'STATUS_CHANGED' } });
         }
         return {
           kind: 'providerless' as const,
@@ -203,9 +193,7 @@ implements PurchaseOrderSubmissionTransactionPort {
           latest.idempotencyKey === input.idempotencyKey
           && latest.requestHash !== input.requestHash
         ) {
-          throw new ConflictException(
-            'Purchase submission idempotency key conflicts with a different canonical input.',
-          );
+          throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'IDEMPOTENCY_KEY_REUSED' } });
         }
         const promoted = await promoteExpiredPrepared(
           tx,
@@ -566,17 +554,13 @@ async function promoteExpiredPrepared(
 
 function assertNormalizedIdempotencyKey(value: string): void {
   if (!value || value !== value.trim()) {
-    throw new BadRequestException(
-      'Purchase submission idempotency key must be normalized and nonblank.',
-    );
+    throw new KiditemInvalidValueError('AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED', { details: { reason: 'IDEMPOTENCY_KEY_NOT_NORMALIZED' } });
   }
 }
 
 function assertRequestHash(value: string): void {
   if (!/^[a-f0-9]{64}$/.test(value)) {
-    throw new BadRequestException(
-      'Purchase submission request hash must be a canonical SHA-256 receipt.',
-    );
+    throw new KiditemInvalidValueError('AGENT_OS_OWNER_INPUT_HASH_REQUIRED', { details: { reason: 'REQUEST_HASH_NOT_CANONICAL' } });
   }
 }
 
@@ -624,7 +608,7 @@ function toAttemptState(attempt: {
   createdAt?: Date;
 }): PurchaseOrderSubmissionAttemptState {
   if (!isAttemptStatus(attempt.status)) {
-    throw new ConflictException('Purchase submission attempt has an invalid status.');
+    throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'SUBMISSION_ATTEMPT_STATUS_UNKNOWN', status: attempt.status } });
   }
   return {
     id: attempt.id,

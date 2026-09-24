@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { KiditemError } from '@kiditem/shared/errors';
 import type {
   CreatePurchaseOrderDraftFromRecommendationInput,
   PurchaseOrderDraftPort,
@@ -15,7 +16,7 @@ function orderIdFromUnknown(order: unknown): string {
   ) {
     return order.id;
   }
-  throw new Error('Purchase order draft result did not include id.');
+  throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'PURCHASE_ORDER_DRAFT_ID_MISSING' } });
 }
 
 function statusFromUnknown(order: unknown): string {

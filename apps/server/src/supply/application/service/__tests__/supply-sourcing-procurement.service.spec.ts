@@ -294,7 +294,8 @@ describe('SupplySourcingProcurementService', () => {
         requestedPurchaseUnits: 6,
       }),
     ).rejects.toMatchObject({
-      response: expect.objectContaining({ code: 'minimum_order_quantity_not_met' }),
+      code: 'VALIDATION_FAILED',
+      details: { reason: 'minimum_order_quantity_not_met' },
     });
     expect(repo.createTestIntent).not.toHaveBeenCalled();
   });
@@ -318,7 +319,7 @@ describe('SupplySourcingProcurementService', () => {
         selectedPriceTierId: snapshot().priceTiers[0].id,
         requestedPurchaseUnits: 10,
       }),
-    ).rejects.toMatchObject({ status: 409 });
+    ).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'IDEMPOTENCY_KEY_REUSED' } });
   });
 
   it('returns an existing duplicate before applying current offer expiry', async () => {
@@ -434,7 +435,7 @@ describe('SupplySourcingProcurementService', () => {
       launchCandidateId: 'launch-1',
       selectedPriceTierId: snapshot().priceTiers[0].id,
       requestedPurchaseUnits: 10,
-    })).rejects.toMatchObject({ status: 409 });
+    })).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'IDEMPOTENCY_KEY_REUSED' } });
     expect(repo.findOfferSnapshot).not.toHaveBeenCalled();
     expect(repo.createTestIntent).not.toHaveBeenCalled();
   });

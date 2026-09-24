@@ -1,4 +1,5 @@
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import type {
   SourcingAgentWorkspaceMutationCapabilityPort,
   SourcingAgentWorkspaceReadCapabilityPort,
@@ -102,7 +103,7 @@ export class SourcingAgentWorkspaceMutationCapabilityService
     idempotencyKey: string;
     requestHash: string;
   }) {
-    if (!input.idempotencyKey.trim()) throw new Error('owner_idempotency_key_required');
+    if (!input.idempotencyKey.trim()) throw new KiditemInvalidValueError('AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED');
     if (input.requestHash !== canonicalOwnerInputHash(refreshValidationBusinessInput(input))) {
       throw new Error('owner_idempotency_input_conflict');
     }

@@ -56,7 +56,7 @@ describe('ChannelsRepresentativeImageCapabilityAdapter', () => {
     expect(() => adapter.submitRepresentativeImage({
       organizationId: ORGANIZATION_ID, salesProductId, assetId, ownerIdempotencyKey,
       requestHash: canonicalOwnerInputHash({ salesProductId }),
-    })).toThrow('owner_idempotency_key_conflict');
+    })).toThrow(expect.objectContaining({ code: 'STATE_CONFLICT', details: { reason: 'OWNER_IDEMPOTENCY_KEY_CONFLICT' } }));
     await adapter.submitRepresentativeImage({
       organizationId: ORGANIZATION_ID, salesProductId, assetId, ownerIdempotencyKey,
       requestHash: canonicalOwnerInputHash({ salesProductId, assetId }),
@@ -85,7 +85,7 @@ describe('ChannelsRepresentativeImageCapabilityAdapter', () => {
       salesProductId,
       ownerIdempotencyKey: 'caller-controlled-key',
       requestHash: canonicalOwnerInputHash({ salesProductId: 'other-product' }),
-    })).toThrow('owner_idempotency_key_conflict');
+    })).toThrow(expect.objectContaining({ code: 'STATE_CONFLICT', details: { reason: 'OWNER_IDEMPOTENCY_KEY_CONFLICT' } }));
     expect(executions.runOnServer).not.toHaveBeenCalled();
   });
 });

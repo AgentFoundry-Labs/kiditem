@@ -3,12 +3,12 @@ import {
   Controller,
   Get,
   Inject,
-  NotFoundException,
   Param,
   ParseUUIDPipe,
   Post,
   Query,
 } from '@nestjs/common';
+import { KiditemNotFoundError } from '@kiditem/shared/errors';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { Roles } from '../../../../auth/decorators/roles.decorator';
 import {
@@ -54,9 +54,7 @@ export class SupplierOfferSnapshotsController {
       id,
     });
     if (!snapshot) {
-      throw new NotFoundException(
-        'Supplier offer snapshot was not found in the active organization.',
-      );
+      throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'supplier_offer_snapshot' } });
     }
     return snapshot;
   }

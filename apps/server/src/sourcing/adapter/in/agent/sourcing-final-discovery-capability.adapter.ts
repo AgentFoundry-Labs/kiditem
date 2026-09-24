@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import {
   type SourcingFinalDiscoveryCapabilityPort,
@@ -78,7 +79,7 @@ export class SourcingFinalDiscoveryCapabilityAdapter implements SourcingFinalDis
     requestHash: string;
     snapshot: SourcingSourceSnapshot;
   }) {
-    if (!input.idempotencyKey.trim()) throw new Error('owner_idempotency_key_required');
+    if (!input.idempotencyKey.trim()) throw new KiditemInvalidValueError('AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED');
     if (input.requestHash !== canonicalOwnerInputHash({ snapshot: input.snapshot })) {
       throw new Error('owner_idempotency_input_conflict');
     }

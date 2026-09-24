@@ -1,4 +1,5 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemConflictError, KiditemInvalidValueError, KiditemNotFoundError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import {
   PROCUREMENT_REPOSITORY_PORT,
   type ProcurementRepositoryPort,
@@ -31,29 +32,34 @@ export class ProcurementService {
     if (result.ok) return result.order;
 
     if (result.reason === 'supplier_not_found') {
-      throw new BadRequestException('거래처를 찾을 수 없거나 권한이 없습니다');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+        details: { reason: 'SUPPLIER_NOT_FOUND' },
+        message: '거래처를 찾을 수 없거나 권한이 없습니다.',
+      });
     }
 
-    throw new BadRequestException(
-      `발주 항목의 상품을 찾을 수 없거나 권한이 없습니다: ${result.missingMasterProductIds.join(', ')}`,
-    );
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+      details: { reason: 'MASTER_PRODUCT_NOT_FOUND', masterProductIds: result.missingMasterProductIds },
+      message: '발주 항목의 상품을 찾을 수 없거나 권한이 없습니다.',
+    });
   }
 
   async updateStatus(organizationId: string, id: string, newStatus: string) {
     if (newStatus === 'ordered') {
-      throw new BadRequestException(
-        'Use the purchase-order submit action for pending → ordered transitions.',
-      );
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+        details: { reason: 'SUBMIT_ACTION_REQUIRED' },
+        message: '발주 확정은 발주 제출로만 할 수 있습니다.',
+      });
     }
     const order = await this.procurement.findScopedStatus(organizationId, id);
     if (!order) {
-      throw new BadRequestException('발주를 찾을 수 없습니다');
+      throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'purchase_order' } });
     }
 
     if (!isValidPurchaseOrderTransition(order.status, newStatus)) {
-      throw new BadRequestException(
-        `상태 전환 불가: ${order.status} → ${newStatus}`,
-      );
+      throw new KiditemConflictError('SUPPLY_PURCHASE_STATUS_INVALID', {
+        details: { reason: 'TRANSITION_INVALID', from: order.status, to: newStatus },
+      });
     }
 
     const updated = await this.procurement.updateStatusScoped(
@@ -66,7 +72,7 @@ export class ProcurementService {
       },
     );
     if (!updated) {
-      throw new BadRequestException('발주를 찾을 수 없습니다');
+      throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'purchase_order' } });
     }
     return updated;
   }
@@ -74,7 +80,7 @@ export class ProcurementService {
   async getPurchaseOrderCheckoutSnapshot(organizationId: string, id: string) {
     const order = await this.procurement.findCheckoutSnapshot(organizationId, id);
     if (!order) {
-      throw new BadRequestException('발주를 찾을 수 없습니다');
+      throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'purchase_order' } });
     }
     return order;
   }
@@ -85,17 +91,13 @@ export class ProcurementService {
       purchaseOrderId: id,
     });
     if (result.kind === 'not_found') {
-      throw new BadRequestException('발주를 찾을 수 없습니다');
+      throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'purchase_order' } });
     }
     if (result.kind === 'not_deletable') {
-      throw new BadRequestException(
-        '임시저장 또는 대기 상태의 발주만 삭제할 수 있습니다',
-      );
+      throw new KiditemConflictError('SUPPLY_PURCHASE_STATUS_INVALID', { details: { reason: 'NOT_DELETABLE' } });
     }
     if (result.kind === 'unresolved_attempt') {
-      throw new BadRequestException(
-        '미해결 외부 주문 시도가 있어 발주를 삭제할 수 없습니다',
-      );
+      throw new KiditemPreconditionError('SUPPLY_SUBMISSION_RECONCILIATION_REQUIRED', { details: { reason: 'UNRESOLVED_ATTEMPT' } });
     }
     return result.order;
   }

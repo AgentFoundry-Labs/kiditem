@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { defineCapabilityComposition } from '../../../../common/capability-composition';
 import { SUPPLY_CAPABILITIES } from '../../../domain/capability/supply.capabilities';
 import {
@@ -53,7 +54,7 @@ function requiredOwnerIdempotencyKey(context: {
   ownerIdempotencyKey?: string;
 }): string {
   if (!context.ownerIdempotencyKey?.trim()) {
-    throw new Error('owner_idempotency_key_required');
+    throw new KiditemInvalidValueError('AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED');
   }
   return context.ownerIdempotencyKey;
 }
@@ -62,7 +63,7 @@ function requiredOwnerInputHash(context: {
   ownerInputHash?: string;
 }): string {
   if (!context.ownerInputHash?.match(/^[a-f0-9]{64}$/)) {
-    throw new Error('owner_input_hash_required');
+    throw new KiditemInvalidValueError('AGENT_OS_OWNER_INPUT_HASH_REQUIRED');
   }
   return context.ownerInputHash;
 }

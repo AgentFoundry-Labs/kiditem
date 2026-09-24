@@ -1,4 +1,3 @@
-import { BadRequestException } from '@nestjs/common';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SuppliersService } from '../application/service/suppliers.service';
 import type { SupplierRepositoryPort } from '../application/port/out/repository/supplier.repository.port';
@@ -35,12 +34,12 @@ describe('SuppliersService — tenant-scoped mutations', () => {
     expect(result).toEqual(updated);
   });
 
-  it('maps missing supplier update results to BadRequestException', async () => {
+  it('maps missing supplier update results to not found', async () => {
     vi.mocked(suppliers.updateScoped).mockResolvedValue(null);
 
     await expect(
       service.update('supplier-1', 'organization-1', { name: 'Updated' }),
-    ).rejects.toThrow(BadRequestException);
+    ).rejects.toMatchObject({ code: 'NOT_FOUND', details: { reason: 'supplier' } });
 
     expect(suppliers.updateScoped).toHaveBeenCalledWith(
       'supplier-1',
@@ -58,10 +57,10 @@ describe('SuppliersService — tenant-scoped mutations', () => {
     expect(result).toEqual({ ok: true });
   });
 
-  it('maps missing supplier delete results to BadRequestException', async () => {
+  it('maps missing supplier delete results to not found', async () => {
     vi.mocked(suppliers.deleteScoped).mockResolvedValue(false);
 
-    await expect(service.delete('supplier-1', 'organization-1')).rejects.toThrow(BadRequestException);
+    await expect(service.delete('supplier-1', 'organization-1')).rejects.toMatchObject({ code: 'NOT_FOUND', details: { reason: 'supplier' } });
 
     expect(suppliers.deleteScoped).toHaveBeenCalledWith('supplier-1', 'organization-1');
   });

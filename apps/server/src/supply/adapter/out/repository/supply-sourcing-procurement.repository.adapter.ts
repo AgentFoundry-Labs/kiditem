@@ -1,4 +1,5 @@
 import { Injectable } from '@nestjs/common';
+import { KiditemError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
@@ -596,7 +597,7 @@ async function databaseClock(tx: Prisma.TransactionClient): Promise<Date> {
   // queryraw-tenancy-exempt: database clock only
   const at = rows[0]?.at;
   if (!(at instanceof Date) || Number.isNaN(at.getTime())) {
-    throw new Error('Database clock query returned no timestamp.');
+    throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DATABASE_CLOCK_MISSING' } });
   }
   return at;
 }

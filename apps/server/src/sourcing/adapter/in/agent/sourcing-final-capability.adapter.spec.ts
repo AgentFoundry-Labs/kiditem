@@ -33,9 +33,9 @@ describe('SourcingFinalCapabilityAdapter', () => {
     const withoutKey = { ...baseContext, ownerIdempotencyKey: undefined };
     await expect(adapter.ingestCandidate({ context: withoutKey as never, input: { snapshot: {
       sourceUrl: 'https://detail.1688.com/offer/1.html', platform: '1688', title: 'Toy', price: 1, currency: 'CNY', variantKeyNormalized: '', images: [], contentHash: 'a'.repeat(64),
-    } } })).rejects.toThrow('owner_idempotency_key_required');
-    await expect(adapter.refreshValidation({ context: withoutKey as never, input: { recommendationRunId: '00000000-0000-4000-8000-000000000007' } })).rejects.toThrow('owner_idempotency_key_required');
-    await expect(adapter.scrapeUrlWorkflow({ context: withoutKey as never, input: { sourceUrl: 'https://detail.1688.com/offer/1.html' } })).rejects.toThrow('owner_idempotency_key_required');
+    } } })).rejects.toMatchObject({ code: 'AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED' });
+    await expect(adapter.refreshValidation({ context: withoutKey as never, input: { recommendationRunId: '00000000-0000-4000-8000-000000000007' } })).rejects.toMatchObject({ code: 'AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED' });
+    await expect(adapter.scrapeUrlWorkflow({ context: withoutKey as never, input: { sourceUrl: 'https://detail.1688.com/offer/1.html' } })).rejects.toMatchObject({ code: 'AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED' });
     expect(mutations.refreshValidation).not.toHaveBeenCalled();
     expect(discovery.ingestCandidate).not.toHaveBeenCalled();
     expect(discovery.duplicateCheck).not.toHaveBeenCalled();

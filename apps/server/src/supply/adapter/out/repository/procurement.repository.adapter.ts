@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import { KiditemConflictError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
@@ -116,7 +117,7 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
       : null;
     if (existing) {
       if (existing.requestHash !== command.requestHash) {
-        throw new Error('purchase_order_draft_idempotency_conflict');
+        throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'PURCHASE_ORDER_DRAFT_IDEMPOTENCY_CONFLICT' } });
       }
       return { ok: true as const, order: existing };
     }
@@ -193,7 +194,7 @@ export class ProcurementRepositoryAdapter implements ProcurementRepositoryPort {
         include: { items: true, supplier: true },
       });
       if (!raced || raced.requestHash !== command.requestHash) {
-        throw new Error('purchase_order_draft_idempotency_conflict');
+        throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'PURCHASE_ORDER_DRAFT_IDEMPOTENCY_CONFLICT' } });
       }
       return { ok: true as const, order: raced };
     }

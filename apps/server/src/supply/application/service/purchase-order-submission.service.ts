@@ -1,5 +1,5 @@
-import { KiditemError, KiditemPreconditionError } from '@kiditem/shared/errors';
-import { BadRequestException, Inject, Injectable, Optional } from '@nestjs/common';
+import { KiditemError, KiditemExternalError, KiditemInvalidValueError, KiditemPreconditionError } from '@kiditem/shared/errors';
+import { Inject, Injectable, Optional } from '@nestjs/common';
 import { canonicalOwnerInputHash } from '../../../common/owner-idempotency-key';
 import {
   PRODUCT_COLLECTION_FRESHNESS_GATE_PORT,
@@ -59,9 +59,7 @@ implements PurchaseOrderSubmissionPort {
       ))),
     ];
     if (masterProductIds.length !== purchaseOrder.items.length) {
-      throw new BadRequestException(
-        'Purchase orders created before the MasterProduct cutover must be recreated before submission.',
-      );
+      throw new KiditemPreconditionError('SUPPLY_PURCHASE_LEGACY_ORDER');
     }
     const gate = await this.freshness.requireCollectedStock({
       organizationId: input.organizationId,
@@ -96,7 +94,7 @@ implements PurchaseOrderSubmissionPort {
     if (prepared.kind === 'providerless') return toResult(prepared.order);
     if (prepared.kind === 'existing') throw reconciliationRequired();
     if (!this.checkoutRuntime) {
-      throw new Error('Prepared provider submission has no checkout runtime.');
+      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'CHECKOUT_RUNTIME_MISSING' } });
     }
 
     try {
@@ -125,7 +123,7 @@ implements PurchaseOrderSubmissionPort {
           errorCode: error.code,
           errorMessage: message,
         });
-        throw error;
+        throw new KiditemExternalError('SUPPLY_PURCHASE_PROVIDER_FAILED', { details: { reason: error.code }, cause: error });
       }
 
       await this.transaction.markProviderUnknown({
@@ -173,9 +171,7 @@ function optionalString(value: string | null | undefined): string | null {
 function cleanKey(value: string): string {
   const key = value.trim();
   if (!key) {
-    throw new BadRequestException(
-      'Purchase submission idempotency key is required.',
-    );
+    throw new KiditemInvalidValueError('AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED');
   }
   return key;
 }
@@ -198,9 +194,7 @@ function requiredCanonicalRequestHash(input: SubmitPurchaseOrderInput): string {
     !/^[a-f0-9]{64}$/.test(input.requestHash)
     || input.requestHash !== canonicalOwnerInputHash(businessInput)
   ) {
-    throw new BadRequestException(
-      'Purchase submission request hash must match canonical input.',
-    );
+    throw new KiditemInvalidValueError('AGENT_OS_OWNER_INPUT_HASH_REQUIRED', { details: { reason: 'REQUEST_HASH_MISMATCH' } });
   }
   return input.requestHash;
 }
