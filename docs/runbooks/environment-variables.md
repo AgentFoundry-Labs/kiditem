@@ -265,14 +265,15 @@ same-origin `/api/*` routing.
 |---|---:|---|---|
 | `SOURCING_CONFIRM_TELEGRAM_BOT_TOKEN` | The owner confirms final sourcing candidates from Telegram | Sourcing Telegram confirm messenger adapter | Server-only bot token from @BotFather. Use a dedicated bot per environment; a bot token read by two processes (Local and Office, or the Claude Code bridge bot) makes Telegram cut one reader off with 409. Never expose it to the web, logs, or Agent OS prompts. Button values are signed with a key derived from this token. |
 | `SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID` | The owner confirms final sourcing candidates from Telegram | Sourcing confirm report service and listener | Organization UUID this bot serves. When empty or not a UUID, Telegram confirm is off for every organization (no report, no status, no polling). Other organizations get 403 `TELEGRAM_ORGANIZATION_NOT_BOUND`, and button values for another organization are ignored. |
-| `SOURCING_CONFIRM_TELEGRAM_CHAT_ID` | The confirm report is sent | Sourcing Telegram confirm messenger adapter | Numeric chat ID that receives reports. Leave empty, send `/start` to the bot, and the bot replies with the chat ID (the Agent Org Telegram box also shows it). |
+| `SOURCING_CONFIRM_TELEGRAM_CHAT_ID` | The confirm report is sent | Sourcing Telegram confirm messenger adapter | Numeric chat ID that receives reports. Leave empty, press "설정 토큰 발급" in the Agent Org Telegram box (owner/admin), send `/start <token>` to the bot within 10 minutes, and the bot replies with the chat ID (the box also shows it to owner/admin). A `/start` without the token gets no chat ID. |
 | `SOURCING_CONFIRM_TELEGRAM_ALLOWED_USER_IDS` | A group chat receives reports | Sourcing Telegram confirm messenger adapter | Optional comma-separated Telegram user IDs allowed to press approve/reject. When empty, only the owner of a 1:1 chat (chat ID = user ID) may decide. |
 | `SOURCING_CONFIRM_TELEGRAM_POLLING` | A process must not read button answers | Sourcing confirm listener | Optional; `0` stops this API process from long-polling Telegram. Office has no public HTTPS endpoint, so answers use long polling instead of a webhook. |
 
 Reports are sent only when a person presses "지금 보고 보내기" in Agent Org.
 Approve/reject/undo write the existing `final` review selection
-(`selected`/`removed`/`neutral`) with the same optimistic version check as the
-final-selection screen.
+(`selected`/`removed`/`neutral`) only when the selection version is still the
+one the button was drawn with; a selection changed on the web in between is not
+overwritten, and the bot answers that it was already decided there.
 
 Google Trends shadow collection uses the fixed official KR RSS feed and needs
 no credential. Both Google and LinkFox results are stored under

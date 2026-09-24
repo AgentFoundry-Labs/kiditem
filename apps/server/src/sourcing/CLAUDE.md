@@ -90,12 +90,20 @@ belong to Supply; supplier payments belong to Finance.
 
 ## Owner confirm report
 
-- Routes: `GET /api/sourcing/workspace/confirm-report/status` and
-  `POST /api/sourcing/workspace/confirm-report/telegram`.
-- The report sends only when an owner or admin asks. Telegram answers write the existing
-  `final` review selection through `SourcingReviewService` with its version
-  check, re-resolved against the latest recommendation run on every press.
-  Button values carry no state and are signed by the messenger adapter. The bot
+- Routes: `GET /api/sourcing/workspace/confirm-report/status`,
+  `POST /api/sourcing/workspace/confirm-report/telegram`, and
+  `POST /api/sourcing/workspace/confirm-report/telegram/setup-token`.
+- One bot serves the organization in `SOURCING_CONFIRM_TELEGRAM_ORGANIZATION_ID`;
+  without it Telegram confirm is off. Other organizations get 403
+  `TELEGRAM_ORGANIZATION_NOT_BOUND`, and their button values are ignored.
+- The report sends only when an owner or admin asks. A chat is proposed only by
+  `/start <token>` with the one-time setup token (in-process memory; Office
+  runs one API process). Chat ID and pending token reach owner and admin only.
+- Telegram answers write the existing `final` review selection through
+  `SourcingReviewService`, re-resolved against the latest recommendation run on
+  every press. Buttons carry the selection version they were drawn with; a
+  changed version is not written and is answered as decided on the web. Button
+  values are signed by the messenger adapter and fit the 64-byte limit. The bot
   token, chat, and allowed users stay server-side.
 
 ## Verification
