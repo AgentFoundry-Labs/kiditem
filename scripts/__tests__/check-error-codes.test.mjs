@@ -52,3 +52,24 @@ test('extension code literals resolve through the registry or the alias table', 
   assert.equal(hits.length, 1);
   assert.match(hits[0], /sellpia_made_up/);
 });
+
+test('raw rendering through optional chains, nested error objects and status rows is caught', () => {
+  const hits = rawRenderViolations([{ file: 'app/(x)/y.tsx', source: [
+    '<p>{taobaoCollection.error.message}</p>',
+    '<p>{source.data?.latestAttempt?.errorMessage}</p>',
+    '<span>{attempt.errorMessage ?? attempt.errorCode ?? "수집 실패"}</span>',
+    'const text = `실패: ${row.errorCode ?? \'UNKNOWN\'}`;',
+  ].join('\n') }]);
+  assert.equal(hits.length, 4);
+});
+
+test('presenter output, non-error detail fields and branching on a message are not raw rendering', () => {
+  assert.deepEqual(rawRenderViolations([{ file: 'app/(x)/ok.tsx', source: [
+    "<p>{attemptFailureText(attempt, 'coupang_reviews')}</p>",
+    "<p>{operatorReason(state.errorMessage, '실패')}</p>",
+    "toast.error(friendlyError(error, '저장하지 못했습니다.'));",
+    '<p>{check.detail}</p>',
+    "if (error.message === 'x') return null;",
+  ].join('\n') }]), []);
+});
+

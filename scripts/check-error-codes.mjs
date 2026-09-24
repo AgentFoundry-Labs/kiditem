@@ -14,9 +14,9 @@ import { fileURLToPath } from 'node:url';
 //      `scripts/.error-literal-baseline.txt` (regenerate with --write-baseline
 //      only when the count went down).
 //   3. rawRenderViolations — web JSX/toast code may not render `.detail`,
-//      `error.message` or `errorMessage` directly; it renders `friendlyError`
-//      / `operatorErrorText` output. (Skeleton: pattern list below; the
-//      implementer completes it with the allowlist of presenter files.)
+//      `error.message`, `errorMessage` or a raw `errorCode` directly; it renders
+//      `friendlyError` / `attemptFailureText` / `operatorReason` output. Only the
+//      two presenter files are allowlisted.
 //   4. extensionCodeViolations — extension `code: '<x>'` literals must resolve
 //      through the registry or its alias table. (Skeleton: reports only; the
 //      redesign session (KID-338) owns extension changes, so this check does
@@ -86,11 +86,18 @@ export function readBaseline(text) {
   return value;
 }
 
-// 3. Raw message rendering in the web (skeleton; implementer completes the presenter allowlist).
+// 3. Raw message rendering in the web. Screens render `friendlyError` / `attemptFailureText` /
+// `operatorReason` output (lib/api-error.ts, lib/operator-error.ts); these shapes put a raw server,
+// extension or thrown message on screen instead. A value merely compared or passed on is not caught.
 const RAW_RENDER_PATTERNS = [
+  // toast.x(error.message) / toast.x(err instanceof Error ? err.message : …)
   /toast(?:\.\w+)?\([^)]*\b(?:error|err|e)\.(?:message|detail)\b/g,
-  /\{\s*(?:error|err|e)\.(?:message|detail)\s*\}/g,
-  /\{\s*\w+\.errorMessage\s*\}/g,
+  // {error.message}, {mutation.error.message}, {e?.detail} in JSX or a template
+  /\{\s*(?:[\w]+\??\.)*(?:error|err|e)\??\.(?:message|detail)\s*\}/g,
+  // {attempt.errorMessage}, {source.data?.latestAttempt?.errorMessage}
+  /\{\s*(?:[\w]+\??\.)+errorMessage\s*\}/g,
+  // status rows that fall back from the message to the raw code
+  /errorMessage\s*\?\?\s*[\w.?]*errorCode\b/g,
   /errorCode\s*\?\?\s*['"]UNKNOWN['"]/g,
 ];
 export const RAW_RENDER_ALLOWLIST = new Set([

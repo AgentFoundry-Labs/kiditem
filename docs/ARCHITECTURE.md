@@ -207,6 +207,12 @@ extensions/          Browser extensions for sourcing / marketplace ingest
 exports. New or rebuilt domains add `@kiditem/shared/{domain}` entrypoints
 instead of expanding the root barrel.
 
+`@kiditem/shared/errors` is the one error registry (ADR-0023): every code a
+screen can see with its owner, kind, HTTP status and Korean sentence, the
+response envelope, `KiditemError`, and `operatorErrorText`. The extension reads
+the generated `extensions/kiditem-os/shared/operator-error.js`
+(`npm run check:operator-error-sync`).
+
 Exported Zod schema values use PascalCase `FooSchema`; exported TypeScript
 types use `export type Foo = z.infer<typeof FooSchema>`. Existing violations
 remain protected by the baseline checker until migrated, and new aliases should
@@ -328,7 +334,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/agent-os/adapter/out/history/sqlite` | Platform | Outbound SQLite Adapter for the completed-event history Interface, with its Implementation and OSS characterization specs. |
 | `apps/server/src/content` | Owner Domain | Image/text/detail-page/thumbnail AI providers, durable direct-job execution, content-workspace ownership/branching, and Agent OS output boundaries. |
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
-| `apps/server/src/alerts` | Owner Capability | Organization-scoped source-failure notification storage; source owners call its terminal-transaction API and consumers poll open/resolved alerts. |
+| `apps/server/src/alerts` | Owner Capability | Organization-scoped source-failure notification storage; source owners call its terminal-transaction API and consumers poll open/resolved alerts. The writer derives the Korean title and message from the terminal code (`operatorErrorText`), never from the producer's text. |
 | `apps/server/src/todo` | Owner Domain | Operator-written to-do list (`/api/todo`): who owes the work (operator or development), its area, and its status. Nothing derives it from other screens. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
 | `apps/server/src/alerts` | Platform Capability | Human notifications and transaction-scoped source failure upsert/resolution; no execution or freshness state. |
