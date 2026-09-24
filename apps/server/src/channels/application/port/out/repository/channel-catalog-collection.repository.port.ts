@@ -1,3 +1,4 @@
+import type { CatalogCollectionChunk } from '../../../../domain/collection/catalog-chunk-snapshot';
 import type {
   CoupangCatalogChunkKind,
   CoupangCatalogCollectionPauseRequest,
@@ -26,17 +27,7 @@ export interface ChannelCatalogCollectionRunRecord {
   sourceImportRunId: string | null;
 }
 
-export interface ChannelCatalogCollectionChunkRecord {
-  id: string;
-  kind: string;
-  sequence: number;
-  checksum: string;
-  itemCount: number;
-  /** Omitted by status reads; present when finalization needs the canonical payload. */
-  payload?: unknown;
-  publishedAt?: Date | null;
-  publicationJson?: unknown;
-}
+export type ChannelCatalogCollectionChunkRecord = CatalogCollectionChunk;
 
 export interface ChannelCatalogCollectionWithChunks extends ChannelCatalogCollectionRunRecord {
   chunks: ChannelCatalogCollectionChunkRecord[];

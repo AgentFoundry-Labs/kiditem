@@ -15,7 +15,7 @@ import {
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
-import { hashCatalogChunkPayload } from '../../../application/service/collection/channel-catalog-collection.service';
+import { hashCatalogChunkPayload } from '../../../domain/collection/catalog-collection-hash';
 import {
   CATALOG_DETAILS_SOURCE,
   CATALOG_PARSER,

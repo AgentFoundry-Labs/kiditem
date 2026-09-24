@@ -25,10 +25,8 @@ import { ProductAvailabilityUseCase } from '../../products/application/usecase/p
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { freezeProductRegistrationPayload } from '../domain/registration/registration-submission-payload';
-import {
-  ChannelCatalogCollectionService,
-  hashCatalogChunkPayload,
-} from '../application/service/collection/channel-catalog-collection.service';
+import { ChannelCatalogCollectionService } from '../application/service/collection/channel-catalog-collection.service';
+import { hashCatalogChunkPayload } from '../domain/collection/catalog-collection-hash';
 import type {
   CoupangCatalogProductV1,
   PutCoupangCatalogChunkRequest,

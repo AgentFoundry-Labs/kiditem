@@ -15,10 +15,8 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import {
-  ChannelCatalogCollectionService,
-  hashCatalogChunkPayload,
-} from '../application/service/collection/channel-catalog-collection.service';
+import { ChannelCatalogCollectionService } from '../application/service/collection/channel-catalog-collection.service';
+import { hashCatalogChunkPayload } from '../domain/collection/catalog-collection-hash';
 import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
 import { ChannelCatalogPublicationRepositoryAdapter } from '../adapter/out/repository/channel-catalog-publication.repository.adapter';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';

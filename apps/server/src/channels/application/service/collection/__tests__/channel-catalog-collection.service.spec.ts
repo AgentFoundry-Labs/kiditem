@@ -1,12 +1,12 @@
 import { ChannelIntegrityAdapter } from '../../../../adapter/out/integrity/channel-integrity.adapter';
 import { ChannelInputError as BadRequestException } from '../../../../domain/exception/channel-business-error';
 import { describe, expect, it, vi } from 'vitest';
+import { ChannelCatalogCollectionService } from '../channel-catalog-collection.service';
 import {
-  ChannelCatalogCollectionService,
   hashCatalogChunkPayload,
   hashCatalogStageSnapshot,
   hashCoupangCatalogSnapshot,
-} from '../channel-catalog-collection.service';
+} from '../../../../domain/collection/catalog-collection-hash';
 import type { ChannelCatalogCollectionRepositoryPort } from '../../../port/out/repository/channel-catalog-collection.repository.port';
 import type { ChannelCatalogPublicationPort } from '../../../port/out/repository/channel-catalog-publication.port';
 

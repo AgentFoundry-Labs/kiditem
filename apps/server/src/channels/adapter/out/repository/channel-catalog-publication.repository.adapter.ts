@@ -28,11 +28,13 @@ import {
   assembleCompleteSnapshot,
   assembleFullDetailsSnapshot,
   assembleListingBasicsSnapshot,
+} from '../../../domain/collection/catalog-chunk-snapshot';
+import {
   hashCatalogStageSnapshot,
   hashCatalogChunkPayload,
   hashCatalogChunkReceipts,
   hashCoupangCatalogSnapshot,
-} from '../../../application/service/collection/channel-catalog-collection.service';
+} from '../../../domain/collection/catalog-collection-hash';
 import {
   assertCatalogWritable,
   assertCatalogPublicationPlan,
