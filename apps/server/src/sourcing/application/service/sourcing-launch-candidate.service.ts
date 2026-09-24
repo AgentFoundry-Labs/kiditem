@@ -14,10 +14,12 @@ import {
   SOURCING_EVIDENCE_LEDGER_REPOSITORY_PORT,
   type SourcingEvidenceLedgerRepositoryPort,
 } from '../port/out/repository/sourcing-evidence-ledger.repository.port';
+import type {
+  SourcingEconomicsStatus,
+  SourcingGateStatus,
+} from '../../domain/launch-candidate-status';
 import {
   SOURCING_LAUNCH_CANDIDATE_REPOSITORY_PORT,
-  type SourcingEconomicsStatus,
-  type SourcingGateStatus,
   type SourcingLaunchCandidateRepositoryPort,
 } from '../port/out/repository/sourcing-launch-candidate.repository.port';
 
