@@ -27,6 +27,15 @@ owns its identity and mutation rules.
 - Prefer one deep owner interface over multiple one-to-one forwarding layers.
 - Domain code is pure: no NestJS, Prisma, HTTP/provider SDK, workflow runtime,
   filesystem, or panel/event infrastructure.
+- Organization scope is decided once, at the entrypoint. A domain function
+  that reads and writes no rows does not take `organizationId`; when the id is
+  data (a storage key, a label), mark the parameter
+  `// organization-scope: data — <reason>`. Verify with
+  `npm run check:domain-organization-scope`.
+- Key an advisory lock by organization when the guarded state is per
+  organization. A lock that is global by design carries
+  `queryraw-tenancy-exempt: global lock — <reason>` within eight lines of the
+  lock call; verify with `npm run check:idor`.
 - Incoming adapters live under `adapter/in/{web,agent,workflow,cli}` (existing `http` adapters move when their owner is refactored).
   Incoming ports describe capabilities, not caller types.
 - Application services depend on the narrowest

@@ -4,7 +4,6 @@ import { recordSellpiaRocketInventorySyncRelease } from "./v0.1.7/001_record_sel
 import { migrateRepresentativeKeywordOverrides } from "./v0.1.18/001_migrate_representative_keyword_overrides";
 import { dedupeDetailPageArtifacts } from "./v0.1.24/001_dedupe_detail_page_artifacts";
 import { repairAdCampaignTargetConversions } from "./v0.1.25/003_repair_ad_campaign_target_conversions";
-import { rekeyAdCampaignProductTargets } from "./v0.1.25/004_rekey_ad_campaign_product_targets";
 import { moveVariantRecipesToChannelOptions } from "./v0.1.30/003_move_variant_recipes_to_channel_options";
 import { resetSourcingDisplayState } from "./v0.1.30/005_reset_sourcing_display_state";
 import { resetAbsoluteProductAbc } from "./v0.1.31/001_reset_absolute_product_abc";
@@ -48,7 +47,6 @@ export const dataMigrations: readonly DataMigration[] = [
   migrateRepresentativeKeywordOverrides,
   dedupeDetailPageArtifacts,
   repairAdCampaignTargetConversions,
-  rekeyAdCampaignProductTargets,
   moveVariantRecipesToChannelOptions,
   resetSourcingDisplayState,
   resetAbsoluteProductAbc,

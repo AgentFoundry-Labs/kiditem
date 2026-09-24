@@ -278,6 +278,69 @@ test('accepts exact inactive lineage to an active replacement without recording 
   }
 });
 
+// KID-262: a promoted migration whose work no longer exists (Office recorded
+// it; a fresh database has no rows for it) may retire with a stated reason
+// instead of a replacement. An unpromoted migration is still fixed in place.
+function retireWithoutReplacement(fixture, { promotedVersion, reason }) {
+  const { replacementMigrations: _replacements, ...lineage } = fixture.retirement;
+  const entry = { ...lineage, replacementMigrations: [] };
+  if (reason !== undefined) entry.noReplacementReason = reason;
+  return analyzePrReleaseContract({
+    files: [
+      'scripts/data-migrations/index.ts',
+      'scripts/data-migrations/retired.json',
+    ],
+    prBody: 'Release decision: retire the promoted migration without a replacement',
+    rootVersion: '0.1.8',
+    baseVersion: '0.1.8',
+    migrationIndex: fixture.migrationIndex,
+    baseMigrationIndex: fixture.baseMigrationIndex,
+    promotedVersion,
+    retiredMigrations: [entry],
+    root: fixture.root,
+    head: fixture.head,
+    candidateBytesByPath: new Map([[fixture.migrationPath, fixture.migrationBytes]]),
+  });
+}
+
+test('accepts a promoted retirement without replacement when it states a reason', () => {
+  const fixture = createRetiredMigrationFixture();
+  try {
+    const result = retireWithoutReplacement(fixture, {
+      promotedVersion: '0.1.7',
+      reason: 'Office recorded it and a fresh database has no rows to rewrite',
+    });
+    assert.deepEqual(result.errors, []);
+  } finally {
+    destroyFixture(fixture);
+  }
+});
+
+test('rejects a retirement without replacement whose reason is empty or missing', () => {
+  const fixture = createRetiredMigrationFixture();
+  try {
+    for (const reason of [undefined, '', '   ']) {
+      const result = retireWithoutReplacement(fixture, { promotedVersion: '0.1.7', reason });
+      assert.match(result.errors.join('\n'), /noReplacementReason/, String(reason));
+    }
+  } finally {
+    destroyFixture(fixture);
+  }
+});
+
+test('rejects a retirement without replacement for a release that is not promoted', () => {
+  const fixture = createRetiredMigrationFixture();
+  try {
+    const result = retireWithoutReplacement(fixture, {
+      promotedVersion: '0.1.6',
+      reason: 'not promoted yet, so it must be fixed in place',
+    });
+    assert.match(result.errors.join('\n'), /without a replacement only when release v0\.1\.7 is at or below the promoted VERSION 0\.1\.6/);
+  } finally {
+    destroyFixture(fixture);
+  }
+});
+
 test('rejects inactive lineage with changed source bytes or an unregistered replacement', () => {
   const fixture = createRetiredMigrationFixture();
   try {

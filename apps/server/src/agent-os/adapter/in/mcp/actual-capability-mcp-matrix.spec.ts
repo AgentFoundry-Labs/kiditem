@@ -142,6 +142,7 @@ const targetExecutionResult = {
     },
     detailPage: null,
     registrationInput: {},
+    adapterPayload: {},
   },
   leaseToken: null,
   maySubmit: false,

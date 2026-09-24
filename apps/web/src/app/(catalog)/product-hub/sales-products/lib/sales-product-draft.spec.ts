@@ -25,6 +25,8 @@ function product(overrides: Partial<SalesProduct> = {}): SalesProduct {
     ownCode: null,
     sabangnetGoodsNo: '100300',
     sourceRecordId: null,
+    sourcePlatform: null,
+    sourceUrl: null,
     name: '애니멀 만능패드',
     shortName: null,
     englishName: null,

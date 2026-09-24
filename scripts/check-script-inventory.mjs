@@ -28,6 +28,8 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-script-inventory.mjs',
   'check-cutover-data-blockers.mjs',
   'check-cutover-blocker-coverage.mjs',
+  'check-data-migration-types.mjs',
+  'check-domain-organization-scope.mjs',
   'check-server-type-baseline.mjs',
   'check-shared-interface-names.mjs',
   'check-shared-root-imports.sh',
@@ -54,6 +56,8 @@ export const SCRIPT_INVENTORY = Object.freeze([
 
 const SUPPORT_FILES = new Set([
   '.server-type-baseline.txt',
+  '.web-type-baseline.txt',
+  '.domain-organization-scope-baseline.txt',
   '.shared-interface-names-baseline.txt',
   '.shared-root-imports-baseline.txt',
   '.tenant-scope-allowlist.txt',

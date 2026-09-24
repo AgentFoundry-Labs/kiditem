@@ -1,6 +1,7 @@
 import { render, screen } from '@testing-library/react';
 import { describe, expect, it } from 'vitest';
 import type { FinanceWindowTotals } from '@kiditem/shared/finance';
+import { AD_COST_TEXT_COLOR } from '@/lib/utils';
 import ProfitLossSummaryCards from './ProfitLossSummaryCards';
 
 const allocated: FinanceWindowTotals = {
@@ -45,5 +46,15 @@ describe('ProfitLossSummaryCards parts no product row carries', () => {
     expect(screen.getByText(
       '상품 행에 없는 금액 — 캠페인 합계와 상품별 광고비 차이 +200원. 상품 행은 각각 반올림해 합계와 몇 원 다를 수 있습니다.',
     )).toBeInTheDocument();
+  });
+});
+
+describe('ProfitLossSummaryCards ad spend tone', () => {
+  it('shows the total ad spend in the shared ad-cost tone, not the profit-filter orange', () => {
+    render(<ProfitLossSummaryCards totals={allocated} />);
+
+    const value = screen.getByText('총 광고비').nextElementSibling;
+    expect(value).toHaveClass(AD_COST_TEXT_COLOR);
+    expect(value).not.toHaveClass('text-orange-600');
   });
 });

@@ -4,10 +4,12 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import type {
-  MallAdminListingMallKey,
-  MallAdminListingRow,
-  MallAdminListingsSubmission,
+import {
+  MALL_ADMIN_LISTING_MALL_KEYS,
+  MALL_ADMIN_LISTING_READERS,
+  type MallAdminListingMallKey,
+  type MallAdminListingRow,
+  type MallAdminListingsSubmission,
 } from '@kiditem/shared/mall-admin-listings';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { configureAgentRuntimeBodyParsers } from '../../common/http/agent-runtime-body-parser';
@@ -199,20 +201,35 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
     });
 
     const source = (await readSource()).body;
-    expect(source.malls).toEqual([
-      {
-        mallKey: 'kidkids',
-        mallName: '키드키즈',
-        channelAccountId: KIDKIDS,
-        latestAttempt: expect.objectContaining({ attemptId: first.body.attemptId, state: 'RUNNING' }),
-        latestComplete: null,
-        latestPublication: null,
-      },
-      expect.objectContaining({
-        mallKey: 'icecream-mall',
-        latestAttempt: expect.objectContaining({ attemptId: icecream.body.attemptId }),
+    // 읽기기가 있는 몰은 모두 목록에 선다. 계정 행이 없는 몰은 channelAccountId null 로 선다.
+    expect(source.malls).toEqual(
+      MALL_ADMIN_LISTING_MALL_KEYS.map((mallKey) => {
+        if (mallKey === 'kidkids') {
+          return {
+            mallKey: 'kidkids',
+            mallName: '키드키즈',
+            channelAccountId: KIDKIDS,
+            latestAttempt: expect.objectContaining({ attemptId: first.body.attemptId, state: 'RUNNING' }),
+            latestComplete: null,
+            latestPublication: null,
+          };
+        }
+        if (mallKey === 'icecream-mall') {
+          return expect.objectContaining({
+            mallKey: 'icecream-mall',
+            latestAttempt: expect.objectContaining({ attemptId: icecream.body.attemptId }),
+          });
+        }
+        return {
+          mallKey,
+          mallName: MALL_ADMIN_LISTING_READERS[mallKey].mallName,
+          channelAccountId: null,
+          latestAttempt: null,
+          latestComplete: null,
+          latestPublication: null,
+        };
       }),
-    ]);
+    );
     expect(source.malls[0].latestAttempt).not.toHaveProperty('attemptToken');
   });
 
@@ -221,7 +238,7 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
     await start('boribori').expect(400);
     const otherSource = (await readSource(OTHER_ORG)).body;
     expect(otherSource.malls.map((mall: { channelAccountId: string | null }) => mall.channelAccountId))
-      .toEqual([null, null]);
+      .toEqual(MALL_ADMIN_LISTING_MALL_KEYS.map(() => null));
     const mine = await begin();
     await request(httpUrl)
       .get(`${base}/attempts/${mine.attemptId}`)

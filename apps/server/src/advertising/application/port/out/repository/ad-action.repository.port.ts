@@ -3,12 +3,12 @@
 // reports). Transaction-spanning writes are adapter-internal so
 // `application/service/**` never imports `Prisma.TransactionClient`.
 
-import type { AdAction } from '@prisma/client';
 import type {
   AdActionExpectedApprovalStatus,
   AdKeywordPauseProposal,
 } from '@kiditem/shared/advertising';
 import type { ActionCandidate } from '../../../../domain/ad-action-rules';
+import type { AdActionRow } from '../../../../domain/ad-action-row';
 import type { AdActionExecution } from '../../../../read/ad-action-execution';
 
 /** The execution words `read/ad-action-execution.ts` derives from the latest task. */
@@ -71,7 +71,7 @@ export interface AdActionReviewSummary {
 }
 
 /** An AdAction row with the execution words of its latest ExecutionTask. */
-export type AdActionRecord = Omit<AdAction, keyof AdActionExecution> &
+export type AdActionRecord = Omit<AdActionRow, keyof AdActionExecution> &
   AdActionExecution;
 
 export interface HydratedAdAction extends AdActionRecord {

@@ -29,14 +29,6 @@ const { productWorkspaceProps, routerPushMock, listing, contentWorkspace } = vi.
     brand: '키드아이템',
     manufacturer: '키드아이템 제조사',
     providerDetail: {
-      category: '완구',
-      brand: '키드아이템',
-      manufacturer: '키드아이템 제조사',
-      sourceDetail: {
-        documents: [{ id: 'contents-1', kind: 'contents', value: '<p>공급자 원문</p>' }],
-        options: [],
-      },
-      options: [],
       media: [{
         sourceUrl: 'https://cdn.example.com/provider.png',
         role: 'primary',

@@ -39,17 +39,13 @@ describe('registration target API', () => {
     );
   });
 
-  it('resolves a common default or an explicitly selected target', async () => {
+  it('resolves the target for a product and an account', async () => {
     vi.mocked(apiClient.post).mockResolvedValue(target);
 
     await registrationTargetApi.resolve({ salesProductId: PRODUCT_ID, channelAccountId: ACCOUNT_ID });
-    await registrationTargetApi.resolve({ salesProductId: PRODUCT_ID, channelAccountId: ACCOUNT_ID, targetId: TARGET_ID });
 
     expect(apiClient.post).toHaveBeenNthCalledWith(1, '/api/channels/registration-targets/resolve', {
       salesProductId: PRODUCT_ID, channelAccountId: ACCOUNT_ID,
-    });
-    expect(apiClient.post).toHaveBeenNthCalledWith(2, '/api/channels/registration-targets/resolve', {
-      salesProductId: PRODUCT_ID, channelAccountId: ACCOUNT_ID, targetId: TARGET_ID,
     });
   });
 

@@ -65,6 +65,54 @@ jobs:
           npm run build --workspace=apps/agent-gateway
           npm exec --workspace=apps/agent-gateway vitest -- run
 
+  unit_tests:
+    name: Shared and server unit tests
+    # PostgreSQL integration specs stay out: they need Testcontainers (develop-validation.yml).
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    steps:
+      - name: Checkout pull request head
+        uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6
+        with:
+          ref: ${{ github.event.pull_request.head.sha }}
+
+      - name: Use Node 22
+        uses: actions/setup-node@48b55a011bda9f5d6aeb4c2d9c7362e8dae4041e # v6
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies without repository lifecycle scripts
+        run: npm ci --ignore-scripts
+
+      - name: Build the SQLite native binding
+        # --ignore-scripts skips its install script; the runner specs open a real database.
+        run: npm rebuild better-sqlite3
+
+      - name: Install ripgrep
+        # Architecture specs scan sources with rg.
+        run: sudo apt-get update && sudo apt-get install -y --no-install-recommends ripgrep
+
+      - name: Generate Prisma client
+        env:
+          # prisma.config.ts resolves DATABASE_URL at load; generate never connects.
+          DATABASE_URL: postgresql://kiditem_ci:kiditem_ci@localhost:5432/kiditem_ci
+        run: npx prisma generate
+
+      - name: Build server workspace packages
+        # Server specs resolve @kiditem/shared from source; runner and templates resolve from dist.
+        run: |
+          npm run build --workspace=packages/copilotkit-sqlite-runner
+          npm run build --workspace=packages/templates
+
+      - name: Unit-test the shared package
+        run: npm exec --workspace=packages/shared vitest -- run
+
+      - name: Unit-test the server
+        run: npm exec --workspace=apps/server vitest -- run
+
   script_contract_checks:
     name: Script contract tests
     runs-on: ubuntu-latest

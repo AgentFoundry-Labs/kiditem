@@ -416,6 +416,31 @@ function lateLineageAdmissionErrors({
   return [];
 }
 
+/**
+ * A retirement may name no replacement only for a promoted migration whose work
+ * no longer exists anywhere (Office recorded it and a fresh database has no rows
+ * for it), and only with a written `noReplacementReason`. An unpromoted
+ * migration is still fixed in place.
+ */
+function noReplacementLineageErrors(entry, promotedVersion) {
+  if (!Array.isArray(entry.replacementMigrations) || entry.replacementMigrations.length > 0) {
+    return [];
+  }
+  const label = lineageSourcePath(entry) || '<missing>';
+  if (typeof entry.noReplacementReason !== 'string' || entry.noReplacementReason.trim() === '') {
+    return [
+      `${label} inactive lineage must name at least one replacement migration, or a non-empty noReplacementReason for a promoted release.`,
+    ];
+  }
+  const release = typeof entry.releaseVersion === 'string' ? entry.releaseVersion : '';
+  if (!isSemver(promotedVersion) || !isSemver(release) || compareSemver(release, promotedVersion) > 0) {
+    return [
+      `${label} may retire without a replacement only when release v${release || '<invalid>'} is at or below the promoted VERSION ${promotedVersion || '<unreadable>'}.`,
+    ];
+  }
+  return [];
+}
+
 function verifyRetiredMigrationLineage({
   entry,
   migrationIndex,
@@ -453,8 +478,12 @@ function verifyRetiredMigrationLineage({
     errors.push(`${entry.sourcePath} does not match its inactive lineage SHA-256.`);
   }
 
-  if (!Array.isArray(entry.replacementMigrations) || entry.replacementMigrations.length === 0) {
+  if (!Array.isArray(entry.replacementMigrations)) {
     errors.push(`${entry.sourcePath} inactive lineage must name at least one replacement migration.`);
+    return errors;
+  }
+  if (entry.replacementMigrations.length === 0) {
+    // Admitted (or rejected) by noReplacementLineageErrors before this check.
     return errors;
   }
   const replacementIds = new Set();
@@ -628,6 +657,11 @@ export function analyzePrReleaseContract({
   // base catalog nor removed by this change is late lineage for a promoted
   // migration whose registration already left without it.
   for (const entry of retiredMigrations) {
+    const noReplacementErrors = noReplacementLineageErrors(entry, promotedVersion);
+    if (noReplacementErrors.length > 0) {
+      errors.push(...noReplacementErrors);
+      continue;
+    }
     const isLateLineage =
       !baseRetirementByPath.has(entry.sourcePath) &&
       !removedPromotedPathSet.has(entry.sourcePath);

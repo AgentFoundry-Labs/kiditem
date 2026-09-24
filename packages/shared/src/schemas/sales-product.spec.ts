@@ -56,17 +56,17 @@ describe('sales product input contract', () => {
   it('rejects several options without a level, values that miss a level, and repeated options', () => {
     expect(SalesProductCreateInputSchema.safeParse({
       ...base,
-      options: [{ values: [] }, { values: [] }],
+      options: [{ values: [], salePrice: 5900 }, { values: [], salePrice: 5900 }],
     }).success).toBe(false);
     expect(SalesProductCreateInputSchema.safeParse({
       ...base,
       optionAxes: ['색상', '사이즈'],
-      options: [{ values: ['빨강'] }],
+      options: [{ values: ['빨강'], salePrice: 5900 }],
     }).success).toBe(false);
     expect(SalesProductCreateInputSchema.safeParse({
       ...base,
       optionAxes: ['색상'],
-      options: [{ values: ['빨강'] }, { values: [' 빨강 '] }],
+      options: [{ values: ['빨강'], salePrice: 5900 }, { values: [' 빨강 '], salePrice: 5900 }],
     }).success).toBe(false);
   });
 
@@ -74,19 +74,19 @@ describe('sales product input contract', () => {
     expect(SalesProductCreateInputSchema.safeParse({
       ...base,
       optionAxes: ['색상'],
-      options: [{ values: ['빨강:파랑'] }],
+      options: [{ values: ['빨강:파랑'], salePrice: 5900 }],
     }).success).toBe(false);
     expect(SalesProductCreateInputSchema.safeParse({
       ...base,
       optionAxes: ['색<상'],
-      options: [{ values: ['빨강'] }],
+      options: [{ values: ['빨강'], salePrice: 5900 }],
     }).success).toBe(false);
   });
 
   it('requires the version the operator read before replacing options', () => {
     expect(SalesProductOptionsReplaceInputSchema.safeParse({
       optionAxes: ['색상'],
-      options: [{ values: ['빨강'] }],
+      options: [{ values: ['빨강'], salePrice: 5900 }],
     }).success).toBe(false);
     expect(SalesProductOptionsReplaceInputSchema.parse({
       expectedVersion: 3,

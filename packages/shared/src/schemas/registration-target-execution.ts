@@ -69,7 +69,7 @@ export const TargetExecutionResultSchema = z.object({
   expectedProviderAccountId: z.string().nullable().optional(),
   result: z.unknown().nullable(),
   createdAt: zIsoDate.optional(),
-});
+}).strict();
 export type TargetExecutionResult = z.infer<typeof TargetExecutionResultSchema>;
 export const ReportTargetExecutionInputSchema = z.object({
   leaseToken: z.string().uuid(), payloadHash: z.string().min(1),

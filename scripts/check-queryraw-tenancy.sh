@@ -85,10 +85,20 @@ for file in "${FILES[@]}"; do
   fi
 
   file_failed=false
+  site_index=0
   for lineno in "${linenos[@]}"; do
+    site_index=$((site_index + 1))
     [ -z "$lineno" ] && continue
     end=$((lineno + 30))
     window=$(sed -n "${lineno},${end}p" "$file" 2>/dev/null || true)
+    # This site's own statement: up to the line before the next raw site, so a
+    # marker on a neighbouring statement cannot exempt this one.
+    site_end=$end
+    if [ "$site_index" -lt "${#linenos[@]}" ]; then
+      next_site=${linenos[$site_index]}
+      [ $((next_site - 1)) -lt "$site_end" ] && site_end=$((next_site - 1))
+    fi
+    site_window=$(sed -n "${lineno},${site_end}p" "$file" 2>/dev/null || true)
     # Advisory-lock keys are composed just above the statement that binds them.
     # This slice stops at the lock line: reaching past it would count an
     # organization mentioned by whatever code happens to follow.
@@ -118,10 +128,25 @@ for file in "${FILES[@]}"; do
     # wearing the marker fails, and so does a lock with no organization in
     # reach. It does not prove this key is the organization's; the reviewer who
     # wrote the marker does.
-    if echo "$window" | rg -q 'queryraw-tenancy-exempt:.*organization' \
-      && echo "$window" | rg -q 'pg_advisory_xact_lock' \
+    if echo "$site_window" | rg -q 'queryraw-tenancy-exempt:.*organization' \
+      && echo "$site_window" | rg -q 'pg_advisory_xact_lock' \
       && echo "$lock_key_lines" | rg -q 'organizationId|organization_id'; then
       continue
+    fi
+
+    # Exempt: a lock that is global by design (one key for every
+    # organization, KID-257). The marker must carry a reason after the dash,
+    # and a pg_advisory_xact_lock / pg_advisory_lock call must sit within
+    # eight lines of it, both inside this site's own statement, so a bare
+    # marker on ordinary SQL or on a neighbouring lock still fails.
+    global_marker_line=$(echo "$site_window" | rg -n 'queryraw-tenancy-exempt: global lock — \S' | head -n 1 | cut -d: -f1 || true)
+    if [ -n "$global_marker_line" ]; then
+      global_start=$((global_marker_line - 8))
+      [ "$global_start" -lt 1 ] && global_start=1
+      global_end=$((global_marker_line + 8))
+      if echo "$site_window" | sed -n "${global_start},${global_end}p" | rg -q 'pg_advisory_(xact_)?lock\('; then
+        continue
+      fi
     fi
 
     # Exempt: one authoritative transaction timestamp with no table or
@@ -149,7 +174,8 @@ if [ ${#FAILURES[@]} -gt 0 ]; then
   echo ""
   echo "Every raw SQL site must bind WHERE organization_id = \${organizationId}::uuid"
   echo "(Exemptions: FOR UPDATE row-lock on UUID PK, nextval() sequence, reviewed advisory lock"
-  echo " whose marker names the organization reason, with organizationId in the 8 lines up to the lock.)"
+  echo " whose marker names the organization reason, with organizationId in the 8 lines up to the lock,"
+  echo " or a global lock whose marker reads 'queryraw-tenancy-exempt: global lock — <reason>' within 8 lines of the lock.)"
   exit 1
 fi
 
