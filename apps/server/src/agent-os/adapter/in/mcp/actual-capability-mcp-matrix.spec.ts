@@ -671,7 +671,7 @@ function expectedTypedOwnerPortCall(
       const context = mutationContext();
       return {
         organizationId: context.organizationId,
-        generationId: input.generationId,
+        salesProductId: input.salesProductId,
         triggeredByUserId: context.initiatingUserId,
         ownerIdempotencyKey: context.ownerIdempotencyKey,
         requestHash: context.ownerInputHash,
