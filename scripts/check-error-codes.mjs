@@ -9,10 +9,14 @@ import { fileURLToPath } from 'node:url';
 //
 //   1. registeredCodeViolations — `new Kiditem*Error('CODE'` (and `code: 'CODE'`
 //      inside a KiditemError options object) must name a registry key.
-//   2. englishLiteralCount vs. baseline — `new *Exception('<English>')` and
-//      `throw new Error('<English>')` in the server may not grow beyond
-//      `scripts/.error-literal-baseline.txt` (regenerate with --write-baseline
-//      only when the count went down).
+//   2. englishLiteralCount / codeMessageCount vs. baseline — in the server,
+//      (a) English sentences in `new *Exception('<English>')` /
+//      `throw new Error('<English>')` and (b) code-spelled messages such as
+//      `new ConflictException('ATTEMPT_FENCE_LOST')` (KID-340; counted even
+//      when the spelling matches a registry key or alias, because the shape
+//      itself must become a KiditemError) may not grow beyond
+//      `scripts/.error-literal-baseline.txt` (`english=<n>` / `code-message=<n>`
+//      lines; regenerate with --write-baseline only when a count went down).
 //   3. rawRenderViolations vs. render baseline — web JSX/toast code that renders
 //      `.detail`, `error.message`, `errorMessage` or a raw `errorCode` directly
 //      may not grow beyond `scripts/.error-render-baseline.txt`; new code renders
@@ -43,7 +47,7 @@ export function walk(dir, predicate) {
   });
 }
 
-const isSource = (file) => /\.(ts|tsx|mjs|js)$/.test(file) && !/\.(spec|test)\.(ts|tsx|mjs|js)$/.test(file) && !/__tests__|\/tests\//.test(file);
+export const isSource = (file) => /\.(ts|tsx|mjs|js)$/.test(file) && !/\.(spec|test)\.(ts|tsx|mjs|js)$/.test(file) && !/__tests__|\/tests\/|\/test-helpers\//.test(file);
 
 /** Registry keys, read from the TypeScript source so the scanner has no build dependency. */
 export function readRegistryCodes(source = readFileSync(REGISTRY_FILE, 'utf8')) {
@@ -80,6 +84,40 @@ export function englishLiteralCount(entries) {
     }
   }
   return count;
+}
+
+// 2b. Code-spelled exception messages: `new ConflictException('ATTEMPT_FENCE_LOST')`.
+const CODE_SPELLED = /^[A-Z][A-Z0-9_.:-]{2,}$/;
+
+export function codeMessageCount(entries) {
+  let count = 0;
+  for (const { source } of entries) {
+    for (const re of [ENGLISH_EXCEPTION, ENGLISH_ERROR]) {
+      for (const match of source.matchAll(re)) if (CODE_SPELLED.test(match[2])) count += 1;
+    }
+  }
+  return count;
+}
+
+/** `english=<n>` / `code-message=<n>` lines; an old one-integer file is the English count. */
+export function readLiteralBaseline(text) {
+  const trimmed = text.trim();
+  if (/^\d+$/.test(trimmed)) return { english: Number.parseInt(trimmed, 10), codeMessage: 0 };
+  const values = {};
+  for (const line of trimmed.split('\n')) {
+    const match = line.trim().match(/^(english|code-message)=(\d+)$/);
+    if (!match) throw new Error(`literal baseline line must be english=<n> or code-message=<n>: ${line}`);
+    values[match[1]] = Number.parseInt(match[2], 10);
+  }
+  if (values.english === undefined) throw new Error('literal baseline needs an english=<n> line');
+  return { english: values.english, codeMessage: values['code-message'] ?? 0 };
+}
+
+export function literalBaselineFailures(counts, baseline) {
+  const failures = [];
+  if (counts.english > baseline.english) failures.push(`English exception literals grew: ${counts.english} > baseline ${baseline.english} (register a code with a Korean sentence instead)`);
+  if (counts.codeMessage > baseline.codeMessage) failures.push(`code-spelled exception messages grew: ${counts.codeMessage} > baseline ${baseline.codeMessage} (throw a KiditemError with a registered code instead)`);
+  return failures;
 }
 
 export function readBaseline(text) {
@@ -162,17 +200,18 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
 
   failures.push(...registeredCodeViolations(server, codes), ...registeredCodeViolations(web, codes));
 
-  const englishCount = englishLiteralCount(server);
+  const literalCounts = { english: englishLiteralCount(server), codeMessage: codeMessageCount(server) };
   if (writeBaseline) {
     const { writeFileSync } = await import('node:fs');
-    writeFileSync(BASELINE_FILE, `${englishCount}\n`);
-    console.log(`check:error-codes baseline written: ${englishCount}`);
+    writeFileSync(BASELINE_FILE, `english=${literalCounts.english}\ncode-message=${literalCounts.codeMessage}\n`);
+    console.log(`check:error-codes literal baseline written: english=${literalCounts.english} code-message=${literalCounts.codeMessage}`);
   } else if (!existsSync(BASELINE_FILE)) {
     failures.push(`missing ${path.relative(ROOT, BASELINE_FILE)} — run with --write-baseline once`);
   } else {
-    const baseline = readBaseline(readFileSync(BASELINE_FILE, 'utf8'));
-    if (englishCount > baseline) failures.push(`English exception literals grew: ${englishCount} > baseline ${baseline} (register a code with a Korean sentence instead)`);
-    else if (englishCount < baseline) console.log(`NOTE: English exception literals ${englishCount} < baseline ${baseline}; lower the baseline with --write-baseline`);
+    const baseline = readLiteralBaseline(readFileSync(BASELINE_FILE, 'utf8'));
+    failures.push(...literalBaselineFailures(literalCounts, baseline));
+    if (literalCounts.english < baseline.english) console.log(`NOTE: English exception literals ${literalCounts.english} < baseline ${baseline.english}; lower the baseline with --write-baseline`);
+    if (literalCounts.codeMessage < baseline.codeMessage) console.log(`NOTE: code-spelled exception messages ${literalCounts.codeMessage} < baseline ${baseline.codeMessage}; lower the baseline with --write-baseline`);
   }
 
   const rawRenders = rawRenderViolations(web);
@@ -193,5 +232,9 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
   if (extensionReport.length) console.log(`NOTE (KID-338 scope, not enforced): ${extensionReport.length} extension code literals are unregistered:\n  ${extensionReport.slice(0, 10).join('\n  ')}${extensionReport.length > 10 ? '\n  …' : ''}`);
 
   if (failures.length) { console.error(`check:error-codes FAIL\n${failures.join('\n')}`); process.exitCode = 1; }
-  else console.log(`check:error-codes PASS — ${codes.size} registered codes, ${aliases.size} aliases, ${englishCount} English exception literals (baseline ${existsSync(BASELINE_FILE) ? readFileSync(BASELINE_FILE, 'utf8').trim() : 'n/a'}), ${rawRenders.length} raw error renders (baseline ${existsSync(RENDER_BASELINE_FILE) ? readFileSync(RENDER_BASELINE_FILE, 'utf8').trim() : 'n/a'})`);
+  else {
+    const literalBaseline = existsSync(BASELINE_FILE) ? readLiteralBaseline(readFileSync(BASELINE_FILE, 'utf8')) : null;
+    const renderBaseline = existsSync(RENDER_BASELINE_FILE) ? readFileSync(RENDER_BASELINE_FILE, 'utf8').trim() : 'n/a';
+    console.log(`check:error-codes PASS — ${codes.size} registered codes, ${aliases.size} aliases, english exception literals ${literalCounts.english} (baseline ${literalBaseline?.english ?? 'n/a'}), code-spelled exception messages ${literalCounts.codeMessage} (baseline ${literalBaseline?.codeMessage ?? 'n/a'}), raw renders ${rawRenders.length} (baseline ${renderBaseline})`);
+  }
 }
