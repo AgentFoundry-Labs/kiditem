@@ -577,4 +577,3 @@ function numberRecord(value: unknown): Record<string, number> {
     ),
   );
 }
-

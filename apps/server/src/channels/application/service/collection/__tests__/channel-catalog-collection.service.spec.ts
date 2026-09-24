@@ -1161,4 +1161,3 @@ function confirmationChunk(manifest = onePageManifest()) {
     },
   };
 }
-
