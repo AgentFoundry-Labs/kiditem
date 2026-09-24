@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import {
   CoupangAccountSettingsSchema,
+  MALL_LISTING_PROFILE_FIELDS,
   MallListingProfileSchema,
   UpdateCoupangAccountSettingsSchema,
   UpdateMallListingProfileSchema,
@@ -64,5 +65,12 @@ describe('mall listing profile contract (KID-235)', () => {
     for (const field of ['loginId', 'password', 'enabled']) {
       expect(UpdateMallListingProfileSchema.safeParse({ [field]: 'x' }).success).toBe(false);
     }
+  });
+
+  it('labels every document key exactly once so the server and the account screen show the same fields', () => {
+    expect(MALL_LISTING_PROFILE_FIELDS.map((field) => field.key).sort())
+      .toEqual(Object.keys(MallListingProfileSchema.shape).sort());
+    expect(MALL_LISTING_PROFILE_FIELDS.filter((field) => field.kind === 'record').map((field) => field.label))
+      .toEqual(['배송비 정책', '반품·교환비', '출고지', '반품지']);
   });
 });

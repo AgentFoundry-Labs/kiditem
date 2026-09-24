@@ -1,3 +1,4 @@
+import type { MallListingProfile, UpdateMallListingProfile } from '@kiditem/shared/channel-account';
 import { apiClient } from '@/lib/api-client';
 
 export interface OrderCollectionMallAccount {
@@ -13,6 +14,10 @@ export interface OrderCollectionMallAccount {
   passwordUpdatedAt: string | null;
   /** 카드 순서. null 이면 기본 순서. */
   sortOrder?: number | null;
+  /** 계정 행 id. 행이 없으면 null — 등록 기본값은 행이 있어야 저장된다. */
+  channelAccountId?: string | null;
+  /** 등록 기본값 문서(`config.listingProfile`). 저장한 적 없으면 null (KID-235). */
+  listingProfile?: MallListingProfile | null;
   updatedAt: string | null;
 }
 
@@ -49,6 +54,17 @@ export const orderMallAccountApi = {
   ): Promise<OrderCollectionMallAccount> {
     return apiClient.patch<OrderCollectionMallAccount>(
       `/api/orders/collection/malls/${encodeURIComponent(mallKey)}`,
+      input,
+    );
+  },
+
+  /** 등록 기본값만 고친다 — 보낸 키만 바뀌고 나머지는 서버가 보존한다(KID-235). */
+  updateListingProfile(
+    mallKey: string,
+    input: UpdateMallListingProfile,
+  ): Promise<OrderCollectionMallAccount> {
+    return apiClient.patch<OrderCollectionMallAccount>(
+      `/api/orders/collection/malls/${encodeURIComponent(mallKey)}/listing-profile`,
       input,
     );
   },

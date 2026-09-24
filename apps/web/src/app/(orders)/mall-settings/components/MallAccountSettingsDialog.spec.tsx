@@ -15,6 +15,7 @@ import { MallAccountSettingsDialog } from './MallAccountSettingsDialog';
 let accounts: OrderCollectionMallAccount[];
 const mockUpdate = vi.fn();
 const mockPassword = vi.fn();
+const mockUpdateListingProfile = vi.fn();
 
 vi.mock('@tanstack/react-query', () => ({
   useQuery: () => ({ data: accounts, isLoading: false, isError: false, error: null }),
@@ -27,6 +28,7 @@ vi.mock('@/lib/order-mall-account-api', () => ({
     list: vi.fn(),
     update: (...args: unknown[]) => mockUpdate(...args),
     password: (...args: unknown[]) => mockPassword(...args),
+    updateListingProfile: (...args: unknown[]) => mockUpdateListingProfile(...args),
   },
 }));
 
@@ -52,6 +54,8 @@ function account(overrides: Partial<OrderCollectionMallAccount>): OrderCollectio
     memo: null,
     passwordUpdatedAt: null,
     updatedAt: null,
+    channelAccountId: 'row-kidsnote',
+    listingProfile: null,
     ...overrides,
   };
 }
@@ -63,6 +67,7 @@ beforeEach(() => {
   ];
   mockUpdate.mockReset().mockResolvedValue({});
   mockPassword.mockReset().mockResolvedValue({ key: 'kidsnote', password: 'saved-pass' });
+  mockUpdateListingProfile.mockReset().mockResolvedValue({});
 });
 
 describe('쇼핑몰 계정 설정 창', () => {
@@ -141,5 +146,94 @@ describe('쇼핑몰 계정 설정 창', () => {
   it('대상이 없으면 창이 없다', () => {
     render(<MallAccountSettingsDialog target={null} onClose={vi.fn()} />);
     expect(screen.queryByRole('dialog')).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * 등록 기본값(KID-235) — 몰 카드의 `needs_profile` 을 사람이 풀 수 있는 자리. 계정 저장과 따로 저장한다.
+ * 필드 · 라벨 · 순서는 서버 문서 정의(`MALL_LISTING_PROFILE_FIELDS`)와 같다.
+ */
+describe('쇼핑몰 계정 설정 창 — 등록 기본값', () => {
+  const LABELS = ['몰 카테고리 코드', '배송비 정책', '반품·교환비', '출고지', '반품지', 'A/S 연락처', '상품명 접두어', '상품명 접미어'];
+
+  it('⭐ 몰 하나의 창에 등록 기본값 절이 서버 문서와 같은 여덟 칸으로 선다', () => {
+    render(<MallAccountSettingsDialog target="kidsnote" onClose={vi.fn()} />);
+    const section = screen.getByRole('region', { name: '등록 기본값' });
+    expect(within(section).getAllByRole('textbox').map((input) => input.getAttribute('aria-label'))).toEqual(LABELS);
+    expect(within(section).getByRole('button', { name: '등록 기본값 저장' })).toBeDisabled();
+  });
+
+  it('⭐ 고친 칸만 보낸다 — 기록 항목은 { summary }, 비운 칸은 null', async () => {
+    accounts = [account({
+      listingProfile: {
+        shipping: null,
+        returnPolicy: { summary: '반품 5,000원' },
+        releaseAddress: null,
+        returnAddress: null,
+        asPhone: null,
+        categoryCode: null,
+        namePrefix: '[키드]',
+        nameSuffix: null,
+      },
+    })];
+    const user = userEvent.setup();
+    render(<MallAccountSettingsDialog target="kidsnote" onClose={vi.fn()} />);
+    const section = screen.getByRole('region', { name: '등록 기본값' });
+
+    expect(within(section).getByLabelText('반품·교환비')).toHaveValue('반품 5,000원');
+    await user.type(within(section).getByLabelText('몰 카테고리 코드'), '12345');
+    await user.type(within(section).getByLabelText('배송비 정책'), '기본 3,000원');
+    await user.clear(within(section).getByLabelText('반품·교환비'));
+    await user.clear(within(section).getByLabelText('상품명 접두어'));
+    await user.click(within(section).getByRole('button', { name: '등록 기본값 저장' }));
+
+    expect(mockUpdateListingProfile).toHaveBeenCalledWith('kidsnote', {
+      categoryCode: '12345',
+      shipping: { summary: '기본 3,000원' },
+      returnPolicy: null,
+      namePrefix: null,
+    });
+    expect(mockUpdate).not.toHaveBeenCalled();
+  });
+
+  it('summary 없이 저장된 기록은 읽기만 보이고, 덮어쓰기를 누른 뒤에만 새 값으로 바꾼다', async () => {
+    accounts = [account({
+      listingProfile: {
+        shipping: null,
+        returnPolicy: null,
+        releaseAddress: { zipCode: '10000' },
+        returnAddress: null,
+        asPhone: null,
+        categoryCode: null,
+        namePrefix: null,
+        nameSuffix: null,
+      },
+    })];
+    const user = userEvent.setup();
+    render(<MallAccountSettingsDialog target="kidsnote" onClose={vi.fn()} />);
+    const section = screen.getByRole('region', { name: '등록 기본값' });
+
+    expect(within(section).queryByLabelText('출고지')).not.toBeInTheDocument();
+    expect(within(section).getByText('{"zipCode":"10000"}')).toBeInTheDocument();
+    await user.click(within(section).getByRole('button', { name: '출고지 덮어쓰기' }));
+    await user.type(within(section).getByLabelText('출고지'), '서울 물류센터');
+    await user.click(within(section).getByRole('button', { name: '등록 기본값 저장' }));
+
+    expect(mockUpdateListingProfile).toHaveBeenCalledWith('kidsnote', {
+      releaseAddress: { summary: '서울 물류센터' },
+    });
+  });
+
+  it('계정 행이 없는 몰은 로그인부터 저장하라고 하고 저장을 막는다', () => {
+    accounts = [account({ channelAccountId: null, configured: false, loginId: null, hasPassword: false })];
+    render(<MallAccountSettingsDialog target="kidsnote" onClose={vi.fn()} />);
+    const section = screen.getByRole('region', { name: '등록 기본값' });
+    expect(within(section).getByText(/계정을 먼저 저장하면/)).toBeInTheDocument();
+    expect(within(section).getByRole('button', { name: '등록 기본값 저장' })).toBeDisabled();
+  });
+
+  it('`all` 표에는 등록 기본값 절이 없다', () => {
+    render(<MallAccountSettingsDialog target="all" onClose={vi.fn()} />);
+    expect(screen.queryByRole('region', { name: '등록 기본값' })).not.toBeInTheDocument();
   });
 });

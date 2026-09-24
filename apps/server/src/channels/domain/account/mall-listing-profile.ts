@@ -75,27 +75,11 @@ export function filledListingProfileFields(profile: MallListingProfile): MallPro
   return fields;
 }
 
-/** 문서의 필드 하나 — 화면 라벨과 입력 종류. 기록 항목의 내부 키는 정하지 않는다(소비자가 아직 없다). */
-export interface MallListingProfileFieldDefinition {
-  readonly key: keyof MallListingProfile;
-  readonly kind: 'record' | 'text';
-  readonly label: string;
-}
-
-/**
- * 등록 기본값 문서의 필드 정의 — 화면과 검증이 같이 쓴다. 순서는 화면 순서다.
- * 라벨은 송신 전 점검(`mall-publish-preflight.ts`)의 누락 문구와 같은 말을 쓴다.
- */
-export const MALL_LISTING_PROFILE_FIELDS: readonly MallListingProfileFieldDefinition[] = [
-  { key: 'categoryCode', kind: 'text', label: '몰 카테고리 코드' },
-  { key: 'shipping', kind: 'record', label: '배송비 정책' },
-  { key: 'returnPolicy', kind: 'record', label: '반품·교환비' },
-  { key: 'releaseAddress', kind: 'record', label: '출고지' },
-  { key: 'returnAddress', kind: 'record', label: '반품지' },
-  { key: 'asPhone', kind: 'text', label: 'A/S 연락처' },
-  { key: 'namePrefix', kind: 'text', label: '상품명 접두어' },
-  { key: 'nameSuffix', kind: 'text', label: '상품명 접미어' },
-];
+/** 필드 정의는 화면도 쓰므로 shared 계약에 있다 — 여기서는 도메인 이름으로 다시 내보낸다. */
+export {
+  MALL_LISTING_PROFILE_FIELDS,
+  type MallListingProfileFieldDefinition,
+} from '@kiditem/shared/channel-account';
 
 const EMPTY_LISTING_PROFILE: MallListingProfile = {
   shipping: null,

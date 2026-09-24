@@ -6,6 +6,7 @@ import {
   mallStopBadge,
   productMonogram,
   MALL_LISTING_STATE_PRESENTATION,
+  MALL_READINESS_LABEL,
   MALL_STOP_TONE,
 } from './mall-presentation';
 
@@ -104,5 +105,11 @@ describe('mallStopBadge · listingStatePill', () => {
     expect(listingStatePill('unknown', '미확인')).toMatchObject({ label: '확인필요', kind: null });
     expect(mallStopBadge('toString')).toBeNull();
     expect(mallStopBadge(null)).toBeNull();
+  });
+});
+
+describe('MALL_READINESS_LABEL', () => {
+  it('등록 기본값이 없는 몰은 어디서 채우는지 알려 준다 — 쇼핑몰 계정 설정 창에 칸이 생겼다(KID-235)', () => {
+    expect(MALL_READINESS_LABEL.needs_profile).toBe('등록 기본값 없음 — 쇼핑몰 계정 설정에서 입력');
   });
 });

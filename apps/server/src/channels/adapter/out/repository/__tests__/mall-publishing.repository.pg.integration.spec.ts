@@ -27,6 +27,11 @@ import { MallPublishingRepositoryAdapter } from '../mall-publishing.repository.a
 import { MallListingMatrixCellSchema } from '@kiditem/shared/mall-publishing';
 import { MallPublishingService } from '../../../../application/service/registration/mall-publishing.service';
 import { realRegistrationStates } from '../../../../../test-helpers/registration-state';
+import { ChannelAccountService } from '../../../../application/service/account/channel-account.service';
+import { ChannelAccountPersistenceAdapter } from '../../persistence/channel-account.persistence.adapter';
+import { ChannelCredentialsAdapter } from '../../credentials/channel-credentials.adapter';
+import { ChannelsProductMappingGenerationAdapter } from '../../products/product-mapping-generation.adapter';
+import { ProductMappingGenerationRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
 
 const KIDSNOTE_ACCOUNT = '30000000-0000-4000-8000-000000000001';
 const COUPANG_ACCOUNT = '30000000-0000-4000-8000-000000000002';
@@ -159,6 +164,76 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
     it('never creates an account row', async () => {
       await repository.listMallAccounts(TEST_ORGANIZATION_ID);
       expect(await prisma.channelAccount.count({ where: { organizationId: TEST_ORGANIZATION_ID } })).toBe(2);
+    });
+  });
+
+  /**
+   * 쇼핑몰 계정 화면이 저장한 등록 기본값이 같은 행을 읽는 몰 카드와 송신 전 점검에 그대로 닿는다(KID-235).
+   * 쓰는 쪽은 Channels 계정 서비스, 읽는 쪽은 몰 게시 서비스 — 둘 다 실제 DB 를 지난다.
+   */
+  describe('listing profile saved from the account screen (KID-235)', () => {
+    it('⭐ turns the mall card from needs_profile to ready and lets the category rule pass', async () => {
+      await prisma.channelAccount.update({
+        where: { id: KIDSNOTE_ACCOUNT },
+        data: {
+          config: {
+            orderCollection: {
+              loginId: 'kid-login',
+              password: { version: 1, algorithm: 'aes', iv: 'x', ciphertext: 'y', tag: 'z' },
+            },
+          },
+        },
+      });
+      const product = await prisma.masterProduct.create({
+        data: {
+          organizationId: TEST_ORGANIZATION_ID,
+          code: 'KID-235',
+          sourceAccountKey: 'kiditem',
+          sourceProductCode: 'KID-235',
+          sourceOptionCode: '',
+          name: '유아 원목 블록',
+          imageUrls: ['a.jpg'],
+        },
+      });
+      const publishing = new MallPublishingService(repository, {} as never, realRegistrationStates(prisma));
+      const accounts = new ChannelAccountService(
+        new ChannelAccountPersistenceAdapter(
+          prisma as unknown as PrismaService,
+          new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
+        ),
+        new ChannelCredentialsAdapter(),
+        () => new Date('2026-09-24T00:00:00.000Z'),
+      );
+      const kidsnoteCard = async () =>
+        (await publishing.listTargets(TEST_ORGANIZATION_ID)).find((target) => target.manifest.key === 'kidsnote');
+      const kidsnoteRules = async () => {
+        const response = await publishing.preflight(
+          TEST_ORGANIZATION_ID,
+          { mallKeys: ['kidsnote'], masterProductIds: [product.id], page: 1, limit: 10 },
+          new Date('2026-09-24T00:00:00.000Z'),
+        );
+        return response.products[0]?.results[0]?.violations.map((violation) => violation.rule) ?? [];
+      };
+
+      expect(await kidsnoteCard()).toMatchObject({ readiness: 'needs_profile', hasListingProfile: false });
+      expect(await kidsnoteRules()).toContain('mall_category_mapped');
+
+      await accounts.updateListingProfile(TEST_ORGANIZATION_ID, 'kidsnote', {
+        categoryCode: ' K-200 ',
+        shipping: { summary: '기본 3,000원' },
+        releaseAddress: { summary: '서울 물류센터' },
+        returnAddress: { summary: '서울 물류센터' },
+      });
+
+      expect(await kidsnoteCard()).toMatchObject({ readiness: 'ready', hasListingProfile: true });
+      const rules = await kidsnoteRules();
+      expect(rules).not.toContain('mall_category_mapped');
+      expect(rules).not.toContain('profile_selected');
+      const stored = await prisma.channelAccount.findUniqueOrThrow({ where: { id: KIDSNOTE_ACCOUNT } });
+      expect(stored.config).toMatchObject({
+        orderCollection: { loginId: 'kid-login' },
+        listingProfile: { categoryCode: 'K-200', shipping: { summary: '기본 3,000원' } },
+      });
     });
   });
 

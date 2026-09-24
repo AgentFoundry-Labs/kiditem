@@ -169,6 +169,58 @@ describe('ChannelAccountService', () => {
     expect(complete).toMatchObject({ configured: true, loginId: 'shop-id', supplierLoginId: 'supplier-id' });
   });
 
+  describe('updateListingProfile (KID-235)', () => {
+    it('refuses an input outside the listing profile document as invalid and writes nothing', async () => {
+      const fixture = makeService([mallRow('onch', { orderCollection: { loginId: 'keep' } })]);
+
+      await expect(fixture.service.updateListingProfile(ORGANIZATION_ID, 'onch', { loginId: 'x' }))
+        .rejects.toMatchObject({ name: 'ChannelAccountException', code: 'invalid' });
+      await expect(fixture.service.updateListingProfile(ORGANIZATION_ID, 'onch', { shipping: 'text' }))
+        .rejects.toMatchObject({ name: 'ChannelAccountException', code: 'invalid' });
+      expect(fixture.rows()[0]?.config).toEqual({ orderCollection: { loginId: 'keep' } });
+    });
+
+    it('refuses a mall without an account row as not_found instead of creating one', async () => {
+      const fixture = makeService([]);
+
+      await expect(fixture.service.updateListingProfile(ORGANIZATION_ID, 'onch', { categoryCode: '12' }))
+        .rejects.toMatchObject({ name: 'ChannelAccountException', code: 'not_found' });
+      expect(fixture.rows()).toHaveLength(0);
+    });
+
+    it('changes only the given fields and keeps orderCollection and the fields it did not send', async () => {
+      const password = encrypted('keep-secret');
+      const fixture = makeService([
+        mallRow('onch', {
+          rootSetting: 'keep-root',
+          orderCollection: { loginId: 'merchant', password, sortOrder: 2 },
+          listingProfile: { categoryCode: '12', releaseAddress: { summary: '서울 물류센터' }, namePrefix: '[키드]' },
+        }),
+      ]);
+
+      const saved = await fixture.service.updateListingProfile(ORGANIZATION_ID, 'onch', {
+        shipping: { summary: '기본 3,000원' },
+        namePrefix: '',
+      });
+
+      expect(saved.listingProfile).toEqual({
+        shipping: { summary: '기본 3,000원' },
+        returnPolicy: null,
+        releaseAddress: { summary: '서울 물류센터' },
+        returnAddress: null,
+        asPhone: null,
+        categoryCode: '12',
+        namePrefix: null,
+        nameSuffix: null,
+      });
+      expect(saved).toMatchObject({ loginId: 'merchant', hasPassword: true, sortOrder: 2 });
+      expect(fixture.rows()[0]?.config).toMatchObject({
+        rootSetting: 'keep-root',
+        orderCollection: { loginId: 'merchant', password, sortOrder: 2 },
+      });
+    });
+  });
+
   it('rejects unknown malls and duplicate order keys through the public exception contract', async () => {
     const fixture = makeService([]);
     await expect(fixture.service.update(ORGANIZATION_ID, 'unknown', {}))
