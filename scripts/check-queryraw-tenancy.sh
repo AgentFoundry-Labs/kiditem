@@ -124,6 +124,20 @@ for file in "${FILES[@]}"; do
       continue
     fi
 
+    # Exempt: a lock that is global by design (one key for every
+    # organization, KID-257). The marker must carry a reason after the dash,
+    # and a pg_advisory_xact_lock / pg_advisory_lock call must sit within
+    # eight lines of it, so a bare marker on ordinary SQL still fails.
+    global_marker_line=$(echo "$window" | rg -n 'queryraw-tenancy-exempt: global lock — \S' | head -n 1 | cut -d: -f1 || true)
+    if [ -n "$global_marker_line" ]; then
+      global_start=$((global_marker_line - 8))
+      [ "$global_start" -lt 1 ] && global_start=1
+      global_end=$((global_marker_line + 8))
+      if echo "$window" | sed -n "${global_start},${global_end}p" | rg -q 'pg_advisory_(xact_)?lock\('; then
+        continue
+      fi
+    fi
+
     # Exempt: one authoritative transaction timestamp with no table or
     # tenant-row access. The exact marker and clock function are both required.
     if echo "$window" | rg -q 'queryraw-tenancy-exempt: database clock only' \
@@ -149,7 +163,8 @@ if [ ${#FAILURES[@]} -gt 0 ]; then
   echo ""
   echo "Every raw SQL site must bind WHERE organization_id = \${organizationId}::uuid"
   echo "(Exemptions: FOR UPDATE row-lock on UUID PK, nextval() sequence, reviewed advisory lock"
-  echo " whose marker names the organization reason, with organizationId in the 8 lines up to the lock.)"
+  echo " whose marker names the organization reason, with organizationId in the 8 lines up to the lock,"
+  echo " or a global lock whose marker reads 'queryraw-tenancy-exempt: global lock — <reason>' within 8 lines of the lock.)"
   exit 1
 fi
 

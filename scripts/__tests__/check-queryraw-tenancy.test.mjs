@@ -200,3 +200,69 @@ test('leaves tests, specs and test-helpers to their own coverage', () => {
   });
   assert.equal(result.status, 0, result.stdout + result.stderr);
 });
+
+// KID-257: a lock that is global by design (one key for every organization)
+// is exempt only with a written reason next to the lock call.
+test('accepts a global advisory lock whose marker states the reason', () => {
+  const source = `export async function lockKidItemCodeSequence(tx) {
+  await tx.$queryRaw\`
+    -- queryraw-tenancy-exempt: global lock — KID item codes come from one database-wide sequence.
+    SELECT pg_advisory_xact_lock(hashtextextended('kid-item-code', 0))::text AS "lock"
+  \`;
+}
+`;
+  const result = scan({ 'global-code-lock.ts': source });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
+test('accepts a session-level global advisory lock with a reason', () => {
+  const source = `export async function lockMigrationRunner(tx) {
+  await tx.$executeRaw\`
+    -- queryraw-tenancy-exempt: global lock — one migration runner per database.
+    SELECT pg_advisory_lock(4242)
+  \`;
+}
+`;
+  const result = scan({ 'global-session-lock.ts': source });
+  assert.equal(result.status, 0, result.stdout + result.stderr);
+});
+
+test('rejects a global-lock marker without a reason', () => {
+  const source = `export async function lockEverything(tx) {
+  await tx.$queryRaw\`
+    -- queryraw-tenancy-exempt: global lock
+    SELECT pg_advisory_xact_lock(hashtextextended('everything', 0))::text AS "lock"
+  \`;
+}
+`;
+  const result = scan({ 'reasonless-global-lock.ts': source });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.ok(result.stdout.includes('reasonless-global-lock.ts'), result.stdout);
+});
+
+test('rejects a global-lock marker on raw SQL that takes no advisory lock', () => {
+  const source = `export async function readEverything(tx) {
+  await tx.$queryRaw\`
+    -- queryraw-tenancy-exempt: global lock — not really a lock.
+    SELECT id FROM channel_listings
+  \`;
+}
+`;
+  const result = scan({ 'global-marker-without-lock.ts': source });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+  assert.ok(result.stdout.includes('global-marker-without-lock.ts'), result.stdout);
+});
+
+test('rejects a global-lock marker more than eight lines from the lock call', () => {
+  const padding = Array.from({ length: 9 }, (_, i) => `    -- note ${i}`).join('\n');
+  const source = `export async function lockFarAway(tx) {
+  await tx.$queryRaw\`
+    -- queryraw-tenancy-exempt: global lock — reason far from the call.
+${padding}
+    SELECT pg_advisory_xact_lock(hashtextextended('far', 0))::text AS "lock"
+  \`;
+}
+`;
+  const result = scan({ 'far-global-lock.ts': source });
+  assert.equal(result.status, 1, result.stdout + result.stderr);
+});
