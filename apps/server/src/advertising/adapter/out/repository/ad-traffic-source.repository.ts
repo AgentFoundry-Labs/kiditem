@@ -332,8 +332,8 @@ type ZeroTrafficPublication = {
  *   attempt of this account published.
  * - A catalog listing without a row, or with a row no writer owns, gets a zero
  *   on every confirmed day from its first zero date.
- * - Another writer may own a row with a marker other than Wing's, or with
- *   pre-marker CSV metadata.
+ * - Another writer may own a row with a marker other than Wing's. The traffic
+ *   CSV upload lane is retired (KID-110), so a past CSV trace protects nothing.
  */
 function zeroTrafficSql(
   organizationId: string,
@@ -380,15 +380,13 @@ function zeroTrafficSql(
         SELECT fact.listing_id,
                fact.external_id,
                fact.business_date,
-               CASE WHEN fact.meta ? 'traffic.currentSource'
-                 THEN (fact.meta -> 'traffic.currentSource') IS DISTINCT FROM '"wing.traffic"'::jsonb
-                 ELSE fact.meta ? 'traffic.csv_upload'
-               END AS another_writer_may_own,
+               (fact.meta ? 'traffic.currentSource')
+                 AND (fact.meta -> 'traffic.currentSource') IS DISTINCT FROM '"wing.traffic"'::jsonb
+                 AS another_writer_may_own,
                (fact.meta -> 'traffic.currentSource') IS NOT DISTINCT FROM '"wing.traffic"'::jsonb
                  OR (
                    NOT (fact.meta ? 'traffic.currentSource')
                    AND (fact.meta ? 'wing.traffic')
-                   AND NOT (fact.meta ? 'traffic.csv_upload')
                  ) AS wing_is_current,
                (fact.meta = '{}'::jsonb AND fact.traffic_observed_at IS NOT NULL) AS observed_without_metadata,
                CASE WHEN jsonb_typeof(fact.meta -> 'wing.traffic' -> 'sourceAttemptId') = 'string'

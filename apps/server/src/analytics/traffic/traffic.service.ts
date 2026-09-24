@@ -1,8 +1,4 @@
-import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../channels/application/port/in/account/channel-account.port';
-import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../channels/application/port/in/listing/channel-listing-query.port';
 import { Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from '../../prisma/prisma.service';
-import type { MulterFile } from '../../common/types';
 import {
   addDays,
   businessDateKey,
@@ -23,9 +19,6 @@ import type {
   AdTrafficSourcePublished,
 } from '@kiditem/shared/advertising';
 import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
-import {
-  uploadTrafficStats as uploadTrafficStatsIngest,
-} from './traffic-upload';
 
 interface DateRange {
   from: string;
@@ -62,47 +55,17 @@ interface DayRevenue {
 
 /**
  * `TrafficService` reads the Advertising owner's published `accountDaily`
- * projection and writes operator-uploaded CSV/XLSX evidence. Legacy listing
- * rows and period-as-day values are never a read fallback for Wing metrics.
- *
- * Ingest path (`uploadTrafficStats`) — CSV/XLSX upload from the operator
- * console. Writes `ChannelListingDailySnapshot` directly with the same
- * overwrite-on-replay semantics the extension-sync ingest uses. Raw audit
- * lands in `ChannelScrapeSnapshot` via a single `ChannelScrapeRun`. The
- * traffic domain owns its own ingest entrypoint (controller route `POST
- * /api/traffic/upload`) — kept separate from advertising source-owner APIs because
- * the upload flow is operator-driven (not extension-pushed) and the
- * cross-domain service injection is forbidden by `apps/server/CLAUDE.md`.
- * Inline use of the same low-level Prisma primitives keeps the domain
- * boundary clean.
- *
- * Daily fact upsert keys on `(organizationId, listingId, businessDate)` matching
- * the unique index on `ChannelListingDailySnapshot`. Repeated uploads for
- * the same day overwrite the additive `traffic*` columns to the new total
- * (idempotent under operator re-uploads of the same period).
+ * projection. Legacy listing rows and period-as-day values are never a read
+ * fallback for Wing metrics. It writes nothing: the traffic CSV upload lane is
+ * retired (KID-110), so Advertising's Wing collection is the only listing-day
+ * traffic publisher.
  */
 @Injectable()
 export class TrafficService {
   constructor(
-    @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
-    @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
-    private readonly prisma: PrismaService,
     @Inject(AD_TRAFFIC_READ_PORT)
     private readonly trafficRead: AdTrafficReadPort,
   ) {}
-
-  async uploadTrafficStats(
-    file: MulterFile,
-    organizationId: string,
-  ) {
-    return uploadTrafficStatsIngest({
-      file,
-      organizationId,
-      prisma: this.prisma,
-      accounts: this.channelAccounts,
-      listings: this.channelListings,
-    });
-  }
 
   /** Period summary over owner-published account daily facts. */
   async getTrafficSummary(days: number, organizationId: string) {

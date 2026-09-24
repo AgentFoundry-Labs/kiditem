@@ -30,7 +30,6 @@ take mutation authority from them.
 - Metric formulas are changed only with a scoped plan and behavior tests. Raw
   snapshots are audit/replay evidence; reporting APIs read owner-published
   facts and projections.
-- Traffic CSV upload remains separate from advertising collection.
 - If an owner changes a read schema or mutation contract consumed by analytics,
   update the reader in the same change or record an explicit compatibility
   decision.

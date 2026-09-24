@@ -79,10 +79,6 @@
       ],
       "ownerPublications": [
         {
-          "path": "apps/server/src/analytics/traffic/traffic-upload.ts",
-          "reason": "Publishes validated listing-day CSV traffic into the canonical listing fact row inside the traffic owner's transaction."
-        },
-        {
           "path": "apps/server/src/advertising/adapter/out/repository/ad-traffic-source.repository.ts",
           "reason": "Publishes, resets, verifies, and reads back Wing traffic rows inside the source owner's fenced terminal workflow."
         },

@@ -445,14 +445,15 @@ export type AdTrafficSourcePublished = z.infer<typeof AdTrafficSourcePublishedSc
  * Which producer wrote the traffic values on a channel daily fact.
  *
  * Listing-level Wing projections are additive for views/cart adds/orders/sold
- * units/GMV, but their visitor values are not account unique visitors. CSV
- * uploads remain an explicit, independent listing-fact source.
+ * units/GMV, but their visitor values are not account unique visitors. Wing is
+ * the only listing-day traffic publisher since the traffic CSV upload lane was
+ * retired (KID-110); a past CSV trace names no writer.
  *
  * This names the writer and nothing else. Whether the row is a measurement at
  * all is the row's own `trafficObservedAt`: a day the source reported carries
  * the moment it was observed, and a day it never reported carries nothing.
  */
-export type DailyTrafficFactSource = 'wing' | 'csv_upload';
+export type DailyTrafficFactSource = 'wing';
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -464,12 +465,7 @@ export function dailyTrafficFactSource(metaJson: unknown): DailyTrafficFactSourc
   const root = record(metaJson);
   if (!root) return null;
   const marker = root['traffic.currentSource'];
-  if (marker === 'traffic.csv_upload') return 'csv_upload';
-  if (marker === 'wing.traffic') return 'wing';
-  if (marker !== undefined) return null;
-  // Rows written before the active-writer marker carry one namespace.
-  const wing = record(root['wing.traffic']) !== null || root.source === 'wing.traffic';
-  const csv = record(root['traffic.csv_upload']) !== null;
-  if (wing && csv) return null;
-  return wing ? 'wing' : csv ? 'csv_upload' : null;
+  if (marker !== undefined) return marker === 'wing.traffic' ? 'wing' : null;
+  // Rows written before the active-writer marker carry Wing's namespace.
+  return record(root['wing.traffic']) !== null || root.source === 'wing.traffic' ? 'wing' : null;
 }

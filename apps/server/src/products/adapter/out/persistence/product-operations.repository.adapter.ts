@@ -505,22 +505,17 @@ function toListItem(
     const facts = adFactsByListing.get(listing.id);
     return facts ? [facts] : [];
   });
-  const csvTrafficFacts = trafficFacts.filter(
-    (fact) => fact.source === 'csv_upload',
-  );
   const listedOnWing = row.channelListings.some(
     (listing) => listing.isActive
       && listing.channelAccount.channel === 'coupang'
       && listing.channelAccount.status === 'active',
   );
   const trafficStatus = periodBasisStatus(trafficCoverage.basis);
-  // Wing listing projections carry option/page visitors, not account UV.
-  // Product Hub may retain explicitly uploaded listing visitors, but never
-  // presents a sum of Wing option projections as unique visitors. Visitors
-  // stay a whole-window value, summed only when every day is covered.
-  const visitorCount = listedOnWing && trafficStatus === 'complete'
-    ? nullableTrafficMetricSum(csvTrafficFacts, (fact) => fact.visitors)
-    : null;
+  // Wing listing projections carry option/page visitors, not account UV, so
+  // Product Hub never presents their sum as unique visitors. The uploaded
+  // listing visitors that used to fill this were retired with the traffic CSV
+  // upload lane (KID-110): no listing visitor count is measured.
+  const visitorCount = null;
   // Views and cart adds sum the covered days. A covered day measures a listing
   // only through its row; a product with none has unmeasured traffic, not zero.
   const viewCount = listedOnWing && trafficStatus !== 'empty'

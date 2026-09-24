@@ -108,33 +108,25 @@ describe('Wing traffic daily v2 wire', () => {
   it('names the writer of a traffic fact from its namespace', () => {
     expect(dailyTrafficFactSource({ 'wing.traffic': { grain: 'listing_option_sum' } })).toBe('wing');
     expect(dailyTrafficFactSource({ source: 'wing.traffic', data: { periodDays: 7 } })).toBe('wing');
-    expect(dailyTrafficFactSource({
-      'traffic.csv_upload': { source: 'traffic_csv_upload', data: { fileName: 'traffic.csv' } },
-    })).toBe('csv_upload');
     expect(dailyTrafficFactSource(null)).toBeNull();
     expect(dailyTrafficFactSource({})).toBeNull();
   });
 
-  it('uses the explicit active writer marker when both namespaces are retained', () => {
-    const wing = { grain: 'listing_option_sum' };
-    const csv = { source: 'traffic_csv_upload', data: { fileName: 'traffic.csv' } };
+  it('uses the explicit active writer marker', () => {
     expect(dailyTrafficFactSource({
-      'traffic.currentSource': 'traffic.csv_upload', 'wing.traffic': wing, 'traffic.csv_upload': csv,
-    })).toBe('csv_upload');
-    expect(dailyTrafficFactSource({
-      'traffic.currentSource': 'wing.traffic', 'wing.traffic': wing, 'traffic.csv_upload': csv,
+      'traffic.currentSource': 'wing.traffic', 'wing.traffic': { grain: 'listing_option_sum' },
     })).toBe('wing');
+    expect(dailyTrafficFactSource({ 'traffic.currentSource': 'unknown' })).toBeNull();
   });
 
-  it('names no writer when retained namespaces have no marker or the marker is unknown', () => {
+  /** 트래픽 CSV 업로드 lane 은 없다(KID-110, 결정 c) — Wing 이 리스팅-일 트래픽의 유일한 작성자다. */
+  it('names Wing as the only writer and reads any other marker as no known writer', () => {
+    expect(dailyTrafficFactSource({ 'traffic.currentSource': 'traffic.future_source' })).toBeNull();
+    expect(dailyTrafficFactSource({ 'traffic.future_source': { data: {} } })).toBeNull();
     expect(dailyTrafficFactSource({
       'wing.traffic': { grain: 'listing_option_sum' },
-      'traffic.csv_upload': { source: 'traffic_csv_upload', data: {} },
-    })).toBeNull();
-    expect(dailyTrafficFactSource({
-      'traffic.currentSource': 'unknown',
-      'traffic.csv_upload': { source: 'traffic_csv_upload', data: {} },
-    })).toBeNull();
+      'traffic.future_source': { data: {} },
+    })).toBe('wing');
   });
 
   it('requires account summary evidence on the first daily page', () => {

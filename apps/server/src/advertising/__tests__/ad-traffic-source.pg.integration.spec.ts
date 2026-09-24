@@ -881,24 +881,21 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       });
     }
 
-    it('publishes zero traffic for a listing the catalog held before the collection started, and leaves a CSV day alone', async () => {
+    it('publishes zero traffic for a listing the catalog held before the collection started, and leaves another writer\'s day alone', async () => {
       const plan = range();
       const omitted = await catalogListing('EXT-OMITTED', registered());
-      const csvOwned = await catalogListing('EXT-CSV-OWNED', registered());
+      const otherOwned = await catalogListing('EXT-OTHER-OWNED', registered());
       await prisma.channelListingDailySnapshot.create({
         data: {
           organizationId: ORG,
-          listingId: csvOwned.id,
+          listingId: otherOwned.id,
           channel: 'coupang',
-          externalId: 'EXT-CSV-OWNED',
+          externalId: 'EXT-OTHER-OWNED',
           businessDate: new Date(`${plan.startDate}T00:00:00.000Z`),
           trafficViews: 7,
           trafficRevenue: 70,
           trafficObservedAt: new Date(`${plan.startDate}T03:00:00.000Z`),
-          metaJson: {
-            'traffic.currentSource': 'traffic.csv_upload',
-            'traffic.csv_upload': { source: 'traffic_csv_upload' },
-          },
+          metaJson: { 'traffic.currentSource': 'traffic.future_source' },
         },
       });
 
@@ -918,10 +915,10 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
           'wing.traffic': { businessDate: plan.startDate, sourceAttemptId: attempt.attemptId },
         },
       }]);
-      await expect(listingDays(csvOwned.id)).resolves.toMatchObject([{
+      await expect(listingDays(otherOwned.id)).resolves.toMatchObject([{
         trafficViews: 7,
         trafficRevenue: 70,
-        metaJson: { 'traffic.currentSource': 'traffic.csv_upload' },
+        metaJson: { 'traffic.currentSource': 'traffic.future_source' },
       }]);
     });
 
@@ -1299,20 +1296,9 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       await expect(listingDays(listing.id)).resolves.toEqual([]);
     });
 
-    it('leaves a day another writer may own alone: pre-marker CSV metadata, an unknown marker or a null marker', async () => {
+    it('leaves a day another writer may own alone: an unknown marker or a null marker', async () => {
       const plan = range();
       const seeded = [
-        {
-          externalId: 'EXT-PRE-MARKER-CSV-ONLY',
-          metaJson: { 'traffic.csv_upload': { source: 'traffic_csv_upload' } },
-        },
-        {
-          externalId: 'EXT-PRE-MARKER-AMBIGUOUS',
-          metaJson: {
-            'wing.traffic': { sourceAttemptId: 'earlier-attempt' },
-            'traffic.csv_upload': { source: 'traffic_csv_upload' },
-          },
-        },
         {
           externalId: 'EXT-UNKNOWN-MARKER',
           metaJson: { 'traffic.currentSource': 'traffic.future_source' },
@@ -1490,8 +1476,8 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       'wing.traffic': { sourceAttemptId: 'previous-wing-attempt' },
       'ad.campaign': { spend: 17 },
       'inventory.stock': { available: 4 },
-      'traffic.csv_upload': { fileName: 'traffic.csv' },
-      'traffic.currentSource': 'traffic.csv_upload',
+      'traffic.future_source': { writer: 'another' },
+      'traffic.currentSource': 'traffic.future_source',
     };
     await prisma.channelListingDailySnapshot.update({
       where: {
@@ -1536,8 +1522,8 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
         : index === 1
           ? {
               'wing.traffic': { sourceAttemptId: 'previous-wing-attempt' },
-              'traffic.csv_upload': { fileName: 'traffic.csv' },
-              'traffic.currentSource': 'traffic.csv_upload',
+              'traffic.future_source': { writer: 'another' },
+              'traffic.currentSource': 'traffic.future_source',
             }
           : { 'wing.traffic': { sourceAttemptId: 'previous-wing-attempt' } },
     }));
@@ -1553,11 +1539,11 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     });
 
     const omittedReset = extraListings[0]!;
-    const omittedCsv = extraListings[1]!;
+    const omittedOtherWriter = extraListings[1]!;
     const stagedRows = [
       row('1001', { visitors: 12, views: 24, cartAdds: 2, orders: 3, salesQty: 4, revenue: 120 }),
       ...extraListings
-        .filter((entry) => entry !== omittedReset && entry !== omittedCsv)
+        .filter((entry) => entry !== omittedReset && entry !== omittedOtherWriter)
         .map((entry, index) => row(entry.externalOptionId, {
           visitors: index + 1,
           views: (index + 1) * 2,
@@ -1637,7 +1623,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       metaJson: {
         'ad.campaign': { spend: 17 },
         'inventory.stock': { available: 4 },
-        'traffic.csv_upload': { fileName: 'traffic.csv' },
+        'traffic.future_source': { writer: 'another' },
         'traffic.currentSource': 'wing.traffic',
       },
     });
@@ -1666,14 +1652,14 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
       where: {
         organizationId_listingId_businessDate: {
           organizationId: ORG,
-          listingId: omittedCsv.listingId,
+          listingId: omittedOtherWriter.listingId,
           businessDate: new Date(`${plan.startDate}T00:00:00.000Z`),
         },
       },
     })).resolves.toMatchObject({
       trafficVisitors: 9,
       trafficRevenue: 4,
-      metaJson: { 'traffic.currentSource': 'traffic.csv_upload' },
+      metaJson: { 'traffic.currentSource': 'traffic.future_source' },
     });
   });
 
@@ -1746,7 +1732,7 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
     })).resolves.toMatchObject({ trafficVisitors: 99, trafficViews: 100, trafficRevenue: 990 });
   });
 
-  it('fails closed when a shared Wing/CSV row is explicitly marked CSV-current', async () => {
+  it('fails closed when a shared row is explicitly marked current for another writer', async () => {
     const plan = range();
     const firstAttempt = await collectOne(
       plan,
@@ -1770,8 +1756,8 @@ describe('Wing traffic source incoming HTTP + disposable PostgreSQL', () => {
             businessDate: plan.startDate,
             sourceAttemptId: firstAttempt.attemptId,
           },
-          'traffic.csv_upload': { source: 'traffic_csv_upload', data: { fileName: 'traffic.csv' } },
-          'traffic.currentSource': 'traffic.csv_upload',
+          'traffic.future_source': { source: 'traffic_future_source', data: { writer: 'another' } },
+          'traffic.currentSource': 'traffic.future_source',
         },
       },
     });
