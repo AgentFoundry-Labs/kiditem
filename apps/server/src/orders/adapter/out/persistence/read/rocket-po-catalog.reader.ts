@@ -4,6 +4,7 @@ import {
   RocketPoCollectionEvidenceSchema,
   RocketPoSourcePlanSchema,
   type RocketPoCatalogRow,
+  type RocketPoCoverage,
   type RocketPoSource,
   type RocketSavedPoSnapshot,
   type RocketSavedPoSummary,
@@ -107,6 +108,7 @@ export async function readRocketPoSource(
     }).ready,
     latestAttempt,
     latestComplete,
+    latestCompleteCoverage: complete ? coverageOf(complete) : null,
   };
 }
 
@@ -406,6 +408,14 @@ async function resolveIdentities(
     }
     return { poLineId: row.poLineId, channelSkuId };
   });
+}
+
+/** 발행 run 이 적은 coverage 날짜. 한쪽이라도 없으면 기간을 모른다(ADR-0006). */
+function coverageOf(
+  run: Pick<SourceImportRun, "coverageStartDate" | "coverageEndDate">,
+): RocketPoCoverage | null {
+  if (!run.coverageStartDate || !run.coverageEndDate) return null;
+  return { from: isoDay(run.coverageStartDate), to: isoDay(run.coverageEndDate) };
 }
 
 function publicAttempt(run: RocketPoAttemptRow, now: Date) {

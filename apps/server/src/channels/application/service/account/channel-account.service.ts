@@ -10,7 +10,12 @@ import {
 import { ChannelAccountException } from '../../exception/channel-account.exception';
 import type { ChannelAccountFactQueries } from '../../port/in/account/channel-account.port';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
-import type { UpdateCoupangAccountSettings } from '@kiditem/shared/channel-account';
+import { UpdateMallListingProfileSchema, type UpdateCoupangAccountSettings } from '@kiditem/shared/channel-account';
+import {
+  LISTING_PROFILE_CONFIG_KEY,
+  mergeMallListingProfile,
+  readMallListingProfile,
+} from '../../../domain/account/mall-listing-profile';
 import type { ChannelAccountListRow } from '../../../domain/account/channel-account';
 import type {
   ChannelAccountPort,
@@ -182,6 +187,37 @@ export class ChannelAccountService implements ChannelAccountPort {
     return toMallAccount(mall.key, mall.name, saved, this.credentials);
   }
 
+  async updateListingProfile(organizationId: string, mallKey: string, input: unknown): Promise<MallAccount> {
+    const mall = findMall(mallKey);
+    const parsed = UpdateMallListingProfileSchema.safeParse(input);
+    if (!parsed.success) {
+      const issue = parsed.error.issues[0];
+      throw new ChannelAccountException(
+        'invalid',
+        `등록 기본값 입력이 올바르지 않습니다${issue ? ` — ${issue.path.join('.') || '본문'}: ${issue.message}` : ''}`,
+      );
+    }
+
+    const saved = await this.persistence.withMallAccounts(organizationId, async (accounts) => {
+      const rows = await accounts.list();
+      const existing = pickOrderCollectionMallAccounts(rows).get(mall.key) ?? null;
+      if (!existing) {
+        throw new ChannelAccountException(
+          'not_found',
+          `${mall.name} 계정이 없습니다. 쇼핑몰 계정 화면에서 로그인을 먼저 저장하세요.`,
+        );
+      }
+      const existingConfig = toJsonRecord(existing.config);
+      const config = {
+        ...existingConfig,
+        [LISTING_PROFILE_CONFIG_KEY]: mergeMallListingProfile(readMallListingProfile(existingConfig), parsed.data),
+      };
+      return accounts.save({ operation: 'update', id: existing.id, config });
+    });
+
+    return toMallAccount(mall.key, mall.name, saved, this.credentials);
+  }
+
   async getPassword(organizationId: string, mallKey: string): Promise<MallAccountPassword> {
     const mall = findMall(mallKey);
     const rows = await this.persistence.listMallAccounts(organizationId);
@@ -244,6 +280,7 @@ function toMallAccount(
     memo: readString(orderCollection.memo),
     passwordUpdatedAt: readString(orderCollection.passwordUpdatedAt),
     sortOrder: readNumber(orderCollection.sortOrder),
+    listingProfile: readMallListingProfile(account?.config),
     updatedAt: account?.updatedAt.toISOString() ?? null,
   };
 }

@@ -21,7 +21,7 @@ import {
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { resolveCoupangVendorId } from '../../../../channels/domain/account/coupang-account-identity';
-import { lockProductMapping } from '../../../../common/product-mapping-generation';
+import { lockProductMapping } from '../../../../products/transaction/product-mapping-lock';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import {
   businessDateKey,

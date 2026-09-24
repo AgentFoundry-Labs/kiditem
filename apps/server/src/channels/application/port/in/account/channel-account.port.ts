@@ -2,6 +2,7 @@ import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type { MallChannelKey } from '@kiditem/shared/channel-registry';
 import type { CoupangAccountSettings, UpdateCoupangAccountSettings } from '@kiditem/shared/channel-account';
 import type { ChannelAccountListRow } from '../../../../domain/account/channel-account';
+import type { MallListingProfile } from '../../../../domain/account/mall-listing-profile';
 
 export const CHANNEL_ACCOUNT_PORT = Symbol('CHANNEL_ACCOUNT_PORT');
 
@@ -19,6 +20,8 @@ export interface MallAccount {
   passwordUpdatedAt: string | null;
   /** 주문수집 화면 카드 순서. null 이면 카탈로그 기본 순서. */
   sortOrder: number | null;
+  /** 등록 기본값 문서(`config.listingProfile`). 저장한 적 없으면 null (KID-235). */
+  listingProfile: MallListingProfile | null;
   updatedAt: string | null;
 }
 
@@ -50,6 +53,11 @@ export interface ChannelAccountPort extends ChannelAccountFactQueries {
   list(organizationId: string): Promise<MallAccount[]>;
   reorder(organizationId: string, mallKeys: unknown): Promise<MallAccount[]>;
   update(organizationId: string, mallKey: string, input: UpdateMallAccountInput): Promise<MallAccount>;
+  /**
+   * 등록 기본값 문서만 갱신한다(KID-235). 입력은 `UpdateMallListingProfileSchema` 로 검증하고, 계정 행이
+   * 없으면 거절한다 — 계정은 `update` 가 먼저 만든다. 다른 config 키(`orderCollection` 등)는 보존.
+   */
+  updateListingProfile(organizationId: string, mallKey: string, input: unknown): Promise<MallAccount>;
   getPassword(organizationId: string, mallKey: string): Promise<MallAccountPassword>;
   getCoupangSettings(organizationId: string): Promise<CoupangAccountSettings>;
   upsertCoupangSettings(organizationId: string, input: UpdateCoupangAccountSettings): Promise<CoupangAccountSettings>;

@@ -1505,9 +1505,9 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const { product, listings } = await productWithWingListings('KI-TRAFFIC-NO-COVERED-DAY', 2);
     const dates = closedWindowDates(7);
     const refusedDate = dates[6]!;
-    // One of the product's two listings has an uploaded row, so the reader
+    // One of the product's two listings has a row, so the reader
     // refuses the date instead of counting it as collected.
-    await seedCsvTraffic(listings[0]!, [refusedDate], { visitors: 9, views: 50, cartAdds: 5 });
+    await seedListingTraffic(listings[0]!, [refusedDate], { visitors: 9, views: 50, cartAdds: 5 });
 
     const page = await service.listProducts(TEST_ORGANIZATION_ID, {
       page: 1,
@@ -1539,10 +1539,10 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const dates = closedWindowDates(7);
     const coveredDates = dates.slice(0, 6);
     const refusedDate = dates[6]!;
-    // Both listings uploaded the first six days. Yesterday only the first one
+    // Both listings have the first six days. Yesterday only the first one
     // did, so the reader refuses yesterday but still returns that row.
-    await seedCsvTraffic(listings[0]!, dates, { visitors: 3, views: 5, cartAdds: 1 });
-    await seedCsvTraffic(listings[1]!, coveredDates, { visitors: 1, views: 2, cartAdds: 1 });
+    await seedListingTraffic(listings[0]!, dates, { visitors: 3, views: 5, cartAdds: 1 });
+    await seedListingTraffic(listings[1]!, coveredDates, { visitors: 1, views: 2, cartAdds: 1 });
 
     const page = await service.listProducts(TEST_ORGANIZATION_ID, {
       page: 1,
@@ -1753,7 +1753,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         trafficSalesQty: 0,
         trafficRevenue: 0,
         trafficObservedAt: new Date(`${date}T02:00:00.000Z`),
-        metaJson: { 'traffic.currentSource': 'traffic.csv_upload' },
+        metaJson: { 'traffic.currentSource': 'wing.traffic', 'wing.traffic': {} },
       })),
     });
 
@@ -1818,7 +1818,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         trafficSalesQty: 0,
         trafficRevenue: 0,
         trafficObservedAt: new Date(`${date}T02:00:00.000Z`),
-        metaJson: { 'traffic.currentSource': 'traffic.csv_upload' },
+        metaJson: { 'traffic.currentSource': 'wing.traffic', 'wing.traffic': {} },
       })),
     });
 
@@ -2217,7 +2217,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
   }
 
   /** One uploaded traffic row per date for one listing. */
-  function seedCsvTraffic(
+  function seedListingTraffic(
     listing: { id: string; externalId: string },
     dates: readonly string[],
     metrics: { visitors: number; views: number; cartAdds: number },
@@ -2233,7 +2233,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         trafficViews: metrics.views,
         trafficCartAdds: metrics.cartAdds,
         trafficObservedAt: new Date(`${date}T02:00:00.000Z`),
-        metaJson: { 'traffic.currentSource': 'traffic.csv_upload' },
+        metaJson: { 'traffic.currentSource': 'wing.traffic', 'wing.traffic': {} },
       })),
     });
   }

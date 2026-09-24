@@ -13,7 +13,6 @@ import { isApiError } from '@/lib/api-error';
 import { queryKeys } from '@/lib/query-keys';
 import CoupangTab from './components/CoupangTab';
 import AdsCsvUpload from './components/AdsCsvUpload';
-import TrafficUpload from './components/TrafficUpload';
 import ReportDownload from './components/ReportDownload';
 import PrinterSettings from './components/PrinterSettings';
 
@@ -64,8 +63,6 @@ export default function SettingsPage() {
       />
 
       <AdsCsvUpload />
-
-      <TrafficUpload />
 
       <ReportDownload />
 

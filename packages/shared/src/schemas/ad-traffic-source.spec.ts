@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import {
   AdTrafficSourceBeginSchema,
+  AdTrafficSourceDailyPublishedSchema,
   AdTrafficSourceDailyPlanSchema,
   AdTrafficSourcePeriodReceiptInputSchema,
+  AdTrafficSourcePlanSchema,
   AdTrafficSourceReceiptInputSchema,
   AdTrafficSourceReceiptSchema,
   WING_TRAFFIC_MAX_COLLECTION_DAYS,
@@ -106,33 +108,25 @@ describe('Wing traffic daily v2 wire', () => {
   it('names the writer of a traffic fact from its namespace', () => {
     expect(dailyTrafficFactSource({ 'wing.traffic': { grain: 'listing_option_sum' } })).toBe('wing');
     expect(dailyTrafficFactSource({ source: 'wing.traffic', data: { periodDays: 7 } })).toBe('wing');
-    expect(dailyTrafficFactSource({
-      'traffic.csv_upload': { source: 'traffic_csv_upload', data: { fileName: 'traffic.csv' } },
-    })).toBe('csv_upload');
     expect(dailyTrafficFactSource(null)).toBeNull();
     expect(dailyTrafficFactSource({})).toBeNull();
   });
 
-  it('uses the explicit active writer marker when both namespaces are retained', () => {
-    const wing = { grain: 'listing_option_sum' };
-    const csv = { source: 'traffic_csv_upload', data: { fileName: 'traffic.csv' } };
+  it('uses the explicit active writer marker', () => {
     expect(dailyTrafficFactSource({
-      'traffic.currentSource': 'traffic.csv_upload', 'wing.traffic': wing, 'traffic.csv_upload': csv,
-    })).toBe('csv_upload');
-    expect(dailyTrafficFactSource({
-      'traffic.currentSource': 'wing.traffic', 'wing.traffic': wing, 'traffic.csv_upload': csv,
+      'traffic.currentSource': 'wing.traffic', 'wing.traffic': { grain: 'listing_option_sum' },
     })).toBe('wing');
+    expect(dailyTrafficFactSource({ 'traffic.currentSource': 'unknown' })).toBeNull();
   });
 
-  it('names no writer when retained namespaces have no marker or the marker is unknown', () => {
+  /** 트래픽 CSV 업로드 lane 은 없다(KID-110, 결정 c) — Wing 이 리스팅-일 트래픽의 유일한 작성자다. */
+  it('names Wing as the only writer and reads any other marker as no known writer', () => {
+    expect(dailyTrafficFactSource({ 'traffic.currentSource': 'traffic.future_source' })).toBeNull();
+    expect(dailyTrafficFactSource({ 'traffic.future_source': { data: {} } })).toBeNull();
     expect(dailyTrafficFactSource({
       'wing.traffic': { grain: 'listing_option_sum' },
-      'traffic.csv_upload': { source: 'traffic_csv_upload', data: {} },
-    })).toBeNull();
-    expect(dailyTrafficFactSource({
-      'traffic.currentSource': 'unknown',
-      'traffic.csv_upload': { source: 'traffic_csv_upload', data: {} },
-    })).toBeNull();
+      'traffic.future_source': { data: {} },
+    })).toBe('wing');
   });
 
   it('requires account summary evidence on the first daily page', () => {
@@ -202,5 +196,44 @@ describe('Wing traffic daily v2 wire', () => {
     });
     expect(ack).toMatchObject({ kind: 'period_summary', capturedAt: period.capturedAt });
     expect('accountSummary' in ack).toBe(false);
+  });
+});
+
+describe('Wing traffic published wire (KID-119)', () => {
+  it('no longer carries the legacy exact-period evidence no reader consumed', () => {
+    expect(AdTrafficSourceDailyPublishedSchema.shape).not.toHaveProperty('legacyExactPeriodEvidence');
+  });
+});
+
+/** v1 페이지 수집기는 운영에서 더 돌지 않는다(KID-232). v1 계획과 v1 모양 영수증은 계약이 거절한다. */
+describe('Wing traffic v1 wire is retired (KID-232)', () => {
+  const v1Plan = {
+    sourceType: 'coupang_wing_traffic',
+    parserVersion: 'wing-traffic-v1',
+    channelAccountId: '00000000-0000-4000-8000-000000000001',
+    expectedAdvertiserId: 'A',
+    startDate: '2026-08-01',
+    endDate: '2026-08-01',
+    businessDate: '2026-08-01',
+    periodDays: 1,
+    targetUrl: null,
+  };
+
+  it('refuses a v1 plan', () => {
+    expect(AdTrafficSourcePlanSchema.safeParse(v1Plan).success).toBe(false);
+  });
+
+  it('refuses a v1 page receipt that carries no daily or period kind', () => {
+    expect(AdTrafficSourceReceiptInputSchema.safeParse({
+      key: 'legacy:page:1',
+      capturedAt: '2026-08-01T01:00:00.000Z',
+      url: 'https://wing.coupang.com/tenants/business-insight/sales-analysis',
+      startDate: '2026-08-01',
+      endDate: '2026-08-01',
+      period: 1,
+      pageIndex: 1,
+      proof: { expectedPages: 1, visitedPages: [1], terminalPageObserved: true, verified: true, complete: true },
+      data: [],
+    }).success).toBe(false);
   });
 });

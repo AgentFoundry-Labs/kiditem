@@ -18,7 +18,7 @@ import {
   type CatalogMediaPublicationPort,
 } from '../../../application/port/out/cross-domain/catalog-media-publication.port';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
-import { lockProductMapping } from '../../../../common/product-mapping-generation';
+import { lockProductMapping } from '../../../../products/transaction/product-mapping-lock';
 import {
   CHANNELS_PRODUCT_MAPPING_GENERATION_PORT,
   type ChannelsProductMappingGenerationPort,

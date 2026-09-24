@@ -10,7 +10,7 @@ import {
   type ProductInventoryStatus,
   type ProductOperationsInventoryFocus,
 } from '@kiditem/shared/product-operations';
-import { periodBasisStatus } from '@kiditem/shared/dashboard';
+import { partialPeriodDaysText } from '@/lib/period-days';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { cn, formatNumber } from '@/lib/utils';
 import { PAGE_SIZE, useProductHubPageState } from '../hooks/useProductHubPageState';
@@ -36,9 +36,8 @@ export default function ProductsPageContent({ headingLevel = 2 }: { headingLevel
   const trafficBasis = state.isPlaceholderData || state.errorMessage
     ? undefined
     : data?.items[0]?.metricsFreshness.traffic.basis;
-  const partialTrafficCaption = trafficBasis && periodBasisStatus(trafficBasis) === 'partial'
-    ? `조회·장바구니 부분 ${trafficBasis.includedDates.length}/${trafficBasis.targetDays}일`
-    : null;
+  const partialTrafficDays = trafficBasis ? partialPeriodDaysText(trafficBasis) : null;
+  const partialTrafficCaption = partialTrafficDays ? `조회·장바구니 ${partialTrafficDays}` : null;
   const monthlyYearMonth = state.isPlaceholderData || state.errorMessage
     ? currentKstYearMonth()
     : data?.items

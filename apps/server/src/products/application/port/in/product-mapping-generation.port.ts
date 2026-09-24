@@ -10,7 +10,8 @@ export const PRODUCT_MAPPING_GENERATION_PORT = Symbol(
  * selecting a formula or publishing any ABC output. Callers invoke this
  * only after a canonical mapping mutation has succeeded in that same
  * transaction (KID-310: replaces the direct `masterProductAbcFormulaState`
- * write other owners used to perform through `common/product-mapping-generation.ts`).
+ * write other owners used to perform through the retired common helper). The
+ * mapping lock itself is `products/transaction/product-mapping-lock.ts` (KID-111).
  */
 export interface ProductMappingGenerationPort {
   advanceMappingGeneration<TClient>(

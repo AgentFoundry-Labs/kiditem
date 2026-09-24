@@ -23,7 +23,6 @@ import {
   DashboardInventorySummarySchema,
   DashboardTrendItemSchema,
   type TrafficKpi,
-  periodBasisStatus,
 } from '@kiditem/shared/dashboard';
 import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
 import { MallListingMatrixResponseSchema } from '@kiditem/shared/mall-publishing';
@@ -37,6 +36,7 @@ import {
 import { apiClient } from '@/lib/api-client';
 import PageSkeleton from '@/components/ui/PageSkeleton';
 import { queryKeys } from '@/lib/query-keys';
+import { partialPeriodDaysText, periodCoverageDaysText, trafficCoverageBasis } from '@/lib/period-days';
 import { cn, formatKRW, formatNumber, formatDateTime, timeAgo } from '@/lib/utils';
 import ReadinessModal from '@/components/ReadinessModal';
 import {
@@ -565,9 +565,6 @@ export default function Dashboard() {
     : trafficKpi?.conversionRate ?? null;
   const trafficProviderConversionRate = trafficKpi?.providerConversionRate ?? null;
   const trafficCoverage = trafficKpi?.coverage ?? null;
-  const trafficCoverageComplete = trafficCoverage !== null
-    && trafficCoverage.targetDays > 0
-    && trafficCoverage.completedDays === trafficCoverage.targetDays;
   const trafficMismatchLabels = trafficMetricLabels
     .filter(([metric]) => trafficReconciliation(trafficKpi, metric) === 'MISMATCH')
     .map(([, label]) => label);
@@ -597,13 +594,12 @@ export default function Dashboard() {
     { key: 'orders', label: '주문', display: formatTrafficMetric(trafficOrders, '건'), rate: formatFunnelRate(trafficOrderCartRate), basis: readMetricBasis(effectiveSales, 'trafficKpi.orders'), rateBasis: readMetricBasis(effectiveSales, 'trafficKpi.orderCartRate') },
     { key: 'salesQty', label: '판매량', display: formatTrafficMetric(trafficSalesQty, '개'), rate: null, basis: readMetricBasis(effectiveSales, 'trafficKpi.salesQty'), rateBasis: null },
   ];
-  // "부분 N/M일" is the one phrase for partially collected, the same one the
-  // ad lane uses. Values carry their own date basis because Orders-owned steps
+  // "부분 N/M일" is the one phrase for partially collected (`@/lib/period-days`),
+  // judged by `periodBasisStatus` like every other period. Values carry their
+  // own date basis because Orders-owned steps
   // use the exact Orders × Wing listing/date intersection.
   const trafficCoverageLabel = trafficCoverage
-    ? trafficCoverageComplete
-      ? `${trafficCoverage.targetDays}/${trafficCoverage.targetDays}일`
-      : `부분 ${trafficCoverage.completedDays}/${trafficCoverage.targetDays}일`
+    ? periodCoverageDaysText(trafficCoverageBasis(trafficCoverage))
     : null;
   const trafficSourceNote = [
     trafficObservedAt ? formatDateTime(trafficObservedAt) : '미수집',
@@ -650,8 +646,8 @@ export default function Dashboard() {
   // A measured value never reads 미수집. When the baseline month has no source
   // but the selected range does, the range's own coverage is what to say.
   const revenueRangeBasis = readMetricBasis(effectiveSales, 'rangeKpi.revenue');
-  const revenueCoverageNote = revenueRangeBasis?.kind === 'period' && periodBasisStatus(revenueRangeBasis) === 'partial'
-    ? `부분 ${revenueRangeBasis.includedDates.length}/${revenueRangeBasis.targetDays}일`
+  const revenueCoverageNote = revenueRangeBasis?.kind === 'period'
+    ? partialPeriodDaysText(revenueRangeBasis)
     : null;
 
   // `revenueSource` describes the baseline month. A selected range publishes

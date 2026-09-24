@@ -4,7 +4,7 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { CatalogDisplayMediaRepositoryAdapter } from '../../content/adapter/out/repository/catalog-display-media.repository.adapter';
 import { CatalogDisplayMediaService } from '../../content/application/service/catalog-display-media.service';
-import { lockProductMapping } from '../../common/product-mapping-generation';
+import { lockProductMapping } from '../../products/transaction/product-mapping-lock';
 import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';

@@ -265,6 +265,60 @@ describe('purchase-order submission transaction (PG integration)', () => {
     });
   });
 
+  /**
+   * 서비스가 미리 읽은 셀피아 수집(펜스 · 검증 시각)이 제출 트랜잭션에 닿기 전에 바뀌면 거부한다(KID-112).
+   * 제출은 Products 의 `lockCollectionFence` 로 상태 행을 잠근 뒤 미리 읽은 값과 비교한다.
+   */
+  describe('Sellpia collection fence (KID-112)', () => {
+    it('refuses with 409 SELLPIA_SYNC_REQUIRED when the fence rotated after the preview', async () => {
+      const input = submissionInput('fence-rotated-key');
+      await prisma.sellpiaInventoryState.update({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        data: { freshnessFence: '20000000-0000-4000-8000-0000000000ff' },
+      });
+
+      await expect(adapter.prepare(input)).rejects.toMatchObject({ status: 409, code: 'SELLPIA_SYNC_REQUIRED' });
+      await expectNothingSubmitted();
+    });
+
+    it('refuses with 409 SELLPIA_SYNC_REQUIRED when lastVerifiedAt moved forward after the preview', async () => {
+      const input = submissionInput('verified-advanced-key');
+      await prisma.sellpiaInventoryState.update({
+        where: { organizationId: TEST_ORGANIZATION_ID },
+        data: { lastVerifiedAt: new Date(verifiedAt.getTime() + 60_000) },
+      });
+
+      await expect(adapter.prepare(input)).rejects.toMatchObject({ status: 409, code: 'SELLPIA_SYNC_REQUIRED' });
+      await expectNothingSubmitted();
+    });
+
+    it('ignores a fence rotation in another organization', async () => {
+      await prisma.sellpiaInventoryState.create({
+        data: {
+          organizationId: OTHER_ORGANIZATION_ID,
+          sourceAccountKey: 'kiditem',
+          lastVerifiedAt: verifiedAt,
+          requestedGeneration: 4n,
+          verifiedGeneration: 4n,
+          freshnessFence: FENCE,
+        },
+      });
+      const input = submissionInput('other-org-rotation-key');
+      await prisma.sellpiaInventoryState.update({
+        where: { organizationId: OTHER_ORGANIZATION_ID },
+        data: { freshnessFence: '20000000-0000-4000-8000-0000000000fe', lastVerifiedAt: new Date() },
+      });
+
+      await expect(adapter.prepare(input)).resolves.toMatchObject({ kind: 'created' });
+    });
+
+    async function expectNothingSubmitted() {
+      expect(await prisma.purchaseOrderSubmissionAttempt.count({ where: { purchaseOrderId: ORDER_ID } })).toBe(0);
+      expect(await prisma.purchaseOrder.findUniqueOrThrow({ where: { id: ORDER_ID } }))
+        .toMatchObject({ status: 'pending' });
+    }
+  });
+
   it('never sees or mutates another organization purchase order', async () => {
     await expect(adapter.prepare({
       ...submissionInput('cross-tenant-key'),

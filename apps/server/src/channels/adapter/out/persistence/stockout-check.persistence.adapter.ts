@@ -4,7 +4,7 @@ import { projectChannelOptionCapacity } from '@kiditem/shared/channel-option-cap
 import { ListingAvailabilitySnapshotSchema } from '@kiditem/shared/sales-product';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
-import { lockProductMapping } from '../../../../common/product-mapping-generation';
+import { lockProductMapping } from '../../../../products/transaction/product-mapping-lock';
 import { PRODUCT_TRANSACTIONAL_READ_PORT, type ProductTransactionalReadPort } from '../../../../products/application/port/in/product-transactional-read.port';
 import type { StockoutCheckPersistencePort, StockoutSubject } from '../../../application/port/out/persistence/stockout-check.persistence.port';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';

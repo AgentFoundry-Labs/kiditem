@@ -85,6 +85,33 @@ describe('Channels channel-option recipe mutation boundary (PG integration)', ()
     await expect(readGeneration()).resolves.toBe(1n);
   });
 
+  /**
+   * 같은 조직의 매핑 변경 두 건이 동시에 와도 둘 다 반영되고 세대는 두 번 오른다(KID-111 완료 조건).
+   * 이 스펙은 동작만 고정한다 — 세대 증가는 행 안에서 원자적이라 잠금을 꺼도 통과한다. 잠금 회귀는
+   * 아래 "두 동시 교체 중 하나만 이긴다" 스펙이 잡는다(독립 리뷰 2026-09-24 변이로 확인).
+   */
+  it('applies two concurrent mapping changes of one organization and advances the generation twice', async () => {
+    const product = await createProduct('CONCURRENT', 5);
+    const first = await createListing(1);
+    const second = await createListing(1);
+    const change = (optionId: string) => recipes.applyPreservingRecipes({
+      organizationId: TEST_ORGANIZATION_ID,
+      mutations: [{
+        channelListingOptionId: optionId,
+        expectedMasterProductId: product.id,
+        components: [{ masterProductId: product.id, quantity: 1 }],
+      }],
+    });
+
+    const results = await Promise.all([change(first.options[0]!.id), change(second.options[0]!.id)]);
+
+    expect(results.map((result) => result.changedOptionCount)).toEqual([1, 1]);
+    await expect(prisma.channelListingOptionInventoryComponent.count({
+      where: { channelListingOptionId: { in: [first.options[0]!.id, second.options[0]!.id] } },
+    })).resolves.toBe(2);
+    await expect(readGeneration()).resolves.toBe(2n);
+  });
+
   it('preserves an existing confirmed recipe and reports the conflicting option', async () => {
     const first = await createProduct('CONFIRMED', 8);
     const second = await createProduct('CANDIDATE', 11);

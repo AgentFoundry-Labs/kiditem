@@ -274,6 +274,23 @@ describe('Rocket owner public HTTP + disposable PG', () => {
     await expect(catalog.listSavedPos({ ...scope, from: plan.from, to: plan.to })).resolves.toEqual([]);
   });
 
+  /**
+   * 발행된 run 이 덮는 기간은 그 run 의 coverage 날짜다(KID-126). 쓰기만 하던 값을 읽기가 낸다.
+   * coverage 를 적지 않은 옛 run 은 기간을 지어내지 않고 null 이다(ADR-0006).
+   */
+  it('reads the coverage dates of the latest COMPLETE run and none when the run carries none', async () => {
+    expect((await readSource()).body.latestCompleteCoverage).toBeNull();
+    const a = (await start()).body;
+    await finish(a).expect(200);
+
+    expect((await readSource()).body.latestCompleteCoverage).toEqual({ from: plan.from, to: plan.to });
+
+    await prisma.sourceImportRun.update({
+      where: { id: a.attemptId },
+      data: { coverageStartDate: null, coverageEndDate: null },
+    });
+    expect((await readSource()).body.latestCompleteCoverage).toBeNull();
+  });
   it('keeps a PO amount unknown when a listed line has no confirmed total', async () => {
     const attempt = (
       await start(randomUUID(), { ...plan, requireConfirmation: false })

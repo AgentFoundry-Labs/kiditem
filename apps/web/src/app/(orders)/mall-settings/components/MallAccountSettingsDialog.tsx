@@ -7,6 +7,7 @@ import { isApiError } from '@/lib/api-error';
 import { cn, formatNumber } from '@/lib/utils';
 import { useMallAccountEditor } from '../hooks/use-mall-account-editor';
 import { MallAccountForm } from './MallAccountForm';
+import { MallListingProfileForm } from './MallListingProfileForm';
 import { MallAccountTable } from './MallAccountTable';
 
 /** 창이 여는 대상 — 몰 계정 키 하나, 또는 모든 몰(`all`). */
@@ -80,7 +81,7 @@ function SettingsBody({
           <Dialog.Description className="mt-1 text-xs text-slate-500">
             {target === 'all'
               ? '주문수집 · 송장등록 · 상품등록에 쓰는 쇼핑몰 계정입니다.'
-              : '아이디 · 비밀번호 · 사이트 주소를 바꾸고 로그인을 시험합니다.'}
+              : '아이디 · 비밀번호 · 사이트 주소와 등록 기본값을 바꾸고 로그인을 시험합니다.'}
           </Dialog.Description>
         </div>
         <div className="flex items-center gap-2">
@@ -145,19 +146,22 @@ function SettingsBody({
             </p>
           </div>
         ) : row ? (
-          <MallAccountForm
-            row={row}
-            revealed={editor.revealedKeys.has(row.account.key)}
-            revealing={editor.revealingKey === row.account.key}
-            saving={editor.savingKey === row.account.key}
-            testing={editor.loginTest.testingKey === row.account.key}
-            testBusy={editor.loginTest.testingKey !== null}
-            testResult={editor.loginTest.results[row.account.key]}
-            onChange={(patch) => editor.changeDraft(row.account.key, patch)}
-            onToggleReveal={() => void editor.toggleReveal(row.account.key, row.account.name)}
-            onSave={() => void editor.saveRow(row.account.key, row.account.name)}
-            onTestLogin={() => void editor.loginTest.test(row.account.key, row.account.name)}
-          />
+          <div className="space-y-4">
+            <MallAccountForm
+              row={row}
+              revealed={editor.revealedKeys.has(row.account.key)}
+              revealing={editor.revealingKey === row.account.key}
+              saving={editor.savingKey === row.account.key}
+              testing={editor.loginTest.testingKey === row.account.key}
+              testBusy={editor.loginTest.testingKey !== null}
+              testResult={editor.loginTest.results[row.account.key]}
+              onChange={(patch) => editor.changeDraft(row.account.key, patch)}
+              onToggleReveal={() => void editor.toggleReveal(row.account.key, row.account.name)}
+              onSave={() => void editor.saveRow(row.account.key, row.account.name)}
+              onTestLogin={() => void editor.loginTest.test(row.account.key, row.account.name)}
+            />
+            <MallListingProfileForm key={row.account.key} account={row.account} />
+          </div>
         ) : (
           <p className="text-sm text-slate-500">
             이 몰은 쇼핑몰 계정 목록에 없습니다 — 계정을 저장할 수 있는 몰은 주문수집이 아는 몰뿐입니다.

@@ -56,7 +56,7 @@ describe('listing daily facts reader (PG integration)', () => {
           views: 11,
           orders: 2,
           revenue: 25_000,
-          source: 'csv_upload',
+          source: 'wing',
         }),
         trafficRow({
           organizationId: TEST_ORGANIZATION_ID,
@@ -109,7 +109,7 @@ describe('listing daily facts reader (PG integration)', () => {
         businessDate: '2026-09-01',
         visitors: 7,
         views: 11,
-        source: 'csv_upload',
+        source: 'wing',
       },
       {
         listingId,
@@ -234,7 +234,7 @@ describe('listing daily facts reader (PG integration)', () => {
 
   it('still requires a row from every listing of an account without a completed attempt', async () => {
     const attempted = await seedListingWithAccount(TEST_ORGANIZATION_ID, 'ATTEMPTED');
-    const uploaded = await seedListingWithAccount(TEST_ORGANIZATION_ID, 'CSV-ONLY');
+    const unattempted = await seedListingWithAccount(TEST_ORGANIZATION_ID, 'UNATTEMPTED');
     const attempt = await seedTrafficAttempt({
       accountId: attempted.accountId,
       status: 'completed',
@@ -260,7 +260,7 @@ describe('listing daily facts reader (PG integration)', () => {
 
     const result = await readListingTrafficWindowFacts(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      listingIds: [attempted.listingId, uploaded.listingId],
+      listingIds: [attempted.listingId, unattempted.listingId],
       from: new Date('2026-09-01T00:00:00.000Z'),
       to: new Date('2026-09-02T00:00:00.000Z'),
     });
@@ -750,49 +750,6 @@ describe('listing daily facts reader (PG integration)', () => {
       });
     });
 
-    it('keeps the every-listing rule for a CSV-only account whatever its listings entered the catalog', async () => {
-      await collectedAccount('WING-BESIDE-CSV');
-      const csv = await seedListingWithAccount(TEST_ORGANIZATION_ID, 'CSV-ONLY');
-      const lateCsvListing = await catalogListing(csv.accountId, 'CSV-ONLY-LATE-LISTING', {
-        createdAt: afterStart,
-      });
-      await prisma.channelListingDailySnapshot.createMany({
-        data: [csv.listingId, lateCsvListing.id].flatMap((listingId) => confirmedDates.map((date) =>
-          trafficRow({
-            organizationId: TEST_ORGANIZATION_ID,
-            listingId,
-            date,
-            observedAt: new Date(`${date}T05:00:00.000Z`),
-            visitors: 1,
-            views: 2,
-            orders: 0,
-            revenue: 0,
-            source: 'csv_upload',
-          }))),
-      });
-
-      const uploaded = await readWindow();
-      expect(uploaded.coverage).toEqual({
-        includedDates: confirmedDates,
-        invalidDates: [],
-        missingDates: [],
-      });
-
-      await prisma.channelListingDailySnapshot.deleteMany({
-        where: {
-          organizationId: TEST_ORGANIZATION_ID,
-          listingId: lateCsvListing.id,
-          businessDate: new Date('2026-09-02T00:00:00.000Z'),
-        },
-      });
-      const withoutOneRow = await readWindow();
-      expect(withoutOneRow.coverage).toEqual({
-        includedDates: ['2026-09-01', '2026-09-03'],
-        invalidDates: ['2026-09-02'],
-        missingDates: [],
-      });
-    });
-
     it('counts the dates again once a newer attempt started after the late import', async () => {
       const { listingId, accountId } = await collectedAccount('RECOLLECTED');
       await catalogListing(accountId, 'LATE-THEN-RECOLLECTED', {
@@ -910,7 +867,7 @@ function trafficRow(input: {
   views: number;
   orders: number;
   revenue: number;
-  source?: 'csv_upload' | 'wing';
+  source?: 'wing';
   sourceAttemptId?: string;
 }) {
   return {
@@ -925,9 +882,7 @@ function trafficRow(input: {
     trafficOrders: input.orders,
     trafficRevenue: input.revenue,
     trafficObservedAt: input.observedAt,
-    ...(input.source === 'csv_upload' ? {
-      metaJson: { 'traffic.currentSource': 'traffic.csv_upload' },
-    } : input.source === 'wing' ? {
+    ...(input.source === 'wing' ? {
       metaJson: wingMetadata(input.sourceAttemptId),
     } : {}),
   };

@@ -24,7 +24,6 @@ function emptySummary(overrides: Partial<SellpiaProductSalesSummary> = {}): Sell
     reorderCount: 0,
     deadStockCount: 0,
     abcCounts: { A: 0, B: 0, C: 0 },
-    abcStatusCounts: { READY: 0, INSUFFICIENT_EVIDENCE: 0, SOURCE_UNMAPPED: 0, SELLPIA_SOURCE_STALE: 0, AD_SOURCE_STALE: 0 },
     abcContributionProfitByGrade: { A: 0, B: 0, C: 0 },
     classifiedProductCount: 0,
     unclassifiedProductCount: 0,

@@ -193,13 +193,6 @@ function summary(hasData: boolean): SellpiaProductSalesSummary {
     reorderCount: 0,
     deadStockCount: 0,
     abcCounts: { A: hasData ? 1 : 0, B: 0, C: 0 },
-    abcStatusCounts: {
-      READY: hasData ? 1 : 0,
-      INSUFFICIENT_EVIDENCE: 0,
-      SOURCE_UNMAPPED: hasData ? 1 : 0,
-      SELLPIA_SOURCE_STALE: 0,
-      AD_SOURCE_STALE: 0,
-    },
     abcContributionProfitByGrade: { A: hasData ? 120_000 : 0, B: 0, C: 0 },
     classifiedProductCount: hasData ? 1 : 0,
     unclassifiedProductCount: hasData ? 1 : 0,

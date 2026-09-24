@@ -100,9 +100,7 @@ function toColumnActions(manifest: MallAdapterManifest | null | undefined) {
  * 몰 한 곳의 등록 준비 상태. 무엇이 막고 있는지가 이 값 하나로 읽혀야 한다.
  *
  * 계정 행이 없거나 로그인이 저장돼 있지 않으면 `needs_account` 다 — 계정은 쇼핑몰 계정 화면이
- * 만든다. 등록 기본값 문서가 없으면 `needs_profile` 인데, 이것은 막는 상태가 아니다 — 그
- * 문서를 저장하는 화면이 아직 없어서(KID-235) 사람이 지금 할 수 있는 일이 없다. 송신 전
- * 점검(`profile_selected`)도 문서가 통째로 없는 것으로는 막지 않는다.
+ * 만든다. 등록 기본값 문서가 없으면 `needs_profile` 이다 — 막는 상태가 아니며, 쇼핑몰 계정 설정 창에서 입력한다(KID-235).
  */
 function mallReadiness(
   manifest: MallAdapterManifest,

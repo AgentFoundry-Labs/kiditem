@@ -482,6 +482,9 @@ export function RocketOrdersWorkspace({
             {rocketSource.data?.latestComplete?.actualCutoffAt && (
               <span> · 실제 수집 기준 <time dateTime={rocketSource.data.latestComplete.actualCutoffAt}>{rocketSource.data.latestComplete.actualCutoffAt}</time></span>
             )}
+            {rocketSource.data?.latestComplete && rocketSource.data.latestCompleteCoverage && (
+              <span> · 수집 기간 {rocketSource.data.latestCompleteCoverage.from} ~ {rocketSource.data.latestCompleteCoverage.to}</span>
+            )}
             {rocketSource.data?.latestAttempt?.state === 'RUNNING' && <span> · 수집 진행 중</span>}
             {rocketSourceRead === 'rechecking' && <span> · {COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</span>}
             {rocketSource.data?.latestAttempt?.state === 'FAILED' && (

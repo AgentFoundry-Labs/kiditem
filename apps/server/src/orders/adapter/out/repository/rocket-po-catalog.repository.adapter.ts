@@ -25,7 +25,7 @@ import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../commo
 import type { RocketPoCatalogRepositoryPort } from '../../../application/port/out/repository/rocket-po-catalog.repository.port';
 import {
   lockProductMapping,
-} from '../../../../common/product-mapping-generation';
+} from '../../../../products/transaction/product-mapping-lock';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';

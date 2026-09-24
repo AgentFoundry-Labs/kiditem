@@ -194,8 +194,8 @@ const ProductOperationsMetricFreshnessSchema = z.object({
  * Wing traffic freshness is the capture time and the period basis the views
  * and cart adds were summed over. Nothing derived from the basis travels
  * beside it (ADR-0006): views and cart adds are measured unless
- * `periodBasisStatus(basis)` is `empty`, and visitors only when it is
- * `complete`.
+ * `periodBasisStatus(basis)` is `empty`. Visitors have no producer since the
+ * CSV upload lane was removed (KID-110), so `visitorCount` is always null.
  */
 const ProductOperationsTrafficFreshnessSchema = z.object({
   capturedAt: zIsoDate.nullable(),

@@ -26,7 +26,7 @@ import {
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { businessDateKey, kstBusinessDate } from '../../../../common/kst';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
-import { lockProductMapping } from '../../../../common/product-mapping-generation';
+import { lockProductMapping } from '../../../../products/transaction/product-mapping-lock';
 import {
   CHANNELS_PRODUCT_MAPPING_GENERATION_PORT,
   type ChannelsProductMappingGenerationPort,

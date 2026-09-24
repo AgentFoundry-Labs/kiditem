@@ -8,7 +8,7 @@ import { channelLogoPath } from '@kiditem/shared/channel-registry';
 
 export const MALL_READINESS_LABEL: Record<MallPublishTarget['readiness'], string> = {
   ready: '송신 준비됨',
-  needs_profile: '등록 기본값 없음 — 송신에는 영향 없음',
+  needs_profile: '등록 기본값 없음 — 쇼핑몰 계정 설정에서 입력',
   needs_account: '계정 정보 필요',
   unsupported: '경로 미확인',
 };

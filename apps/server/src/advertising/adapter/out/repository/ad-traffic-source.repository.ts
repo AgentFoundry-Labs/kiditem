@@ -22,10 +22,7 @@ import {
   type AdTrafficSourceControl,
   type AdTrafficSourceDailyPlan,
   type AdTrafficSourceDailyReceiptInput,
-  type AdTrafficSourceLegacyReceiptInput,
-  type AdTrafficSourceLegacyPlan,
   type AdTrafficSourcePeriodReceiptInput,
-  type AdTrafficSourcePlan,
   type AdTrafficSourceReceipt,
   type AdTrafficSourceReceiptInput,
   type AdTrafficSourceStatus,
@@ -58,10 +55,6 @@ import {
   type ListingMap,
 } from '../../../domain/listing-match';
 import { omittedListingFirstZeroTrafficDate } from '../../../domain/wing-traffic-omission';
-import {
-  buildNamespacedMetaForCreate,
-  mergeNamespacedMetaJson,
-} from './daily-fact-helpers';
 import type {
   AdTrafficReadPort,
   AdTrafficSourcePort,
@@ -70,9 +63,7 @@ import type {
 const SOURCE_TYPE = 'coupang_wing_traffic';
 const SNAPSHOT_SOURCE = 'wing';
 const SNAPSHOT_PAGE_TYPE = 'traffic';
-const LEGACY_PARSER_VERSION = 'wing-traffic-v1';
 const PARSER_VERSION = 'wing-traffic-daily-v2';
-const LEGACY_RECEIPT_KIND = 'traffic_page';
 const RECEIPT_KIND = 'traffic_daily_v2';
 const WING_TRAFFIC_PATH = '/tenants/business-insight/sales-analysis';
 const EXPIRES_IN_MS = 30 * 60_000;
@@ -104,9 +95,11 @@ type DailyFactPublication = {
     revenue: number;
   };
 };
-function isDailyPlan(plan: AdTrafficSourcePlan): plan is AdTrafficSourceDailyPlan {
-  return plan.parserVersion === PARSER_VERSION;
-}
+/**
+ * Only daily-grain runs are this owner's attempts. The v1 page collector is retired (KID-232):
+ * a run an earlier release froze with a v1 plan is neither continued, published nor read.
+ */
+const DAILY_RUN = { sourceType: SOURCE_TYPE, parserVersion: PARSER_VERSION } as const;
 
 function isDailyReceipt(
   receipt: AdTrafficSourceReceiptInput,
@@ -120,20 +113,10 @@ function isPeriodReceipt(
   return 'kind' in receipt && receipt.kind === 'period_summary';
 }
 
-function isLegacyReceiptInput(
-  receipt: AdTrafficSourceReceiptInput,
-): receipt is AdTrafficSourceLegacyReceiptInput {
-  return !('kind' in receipt);
-}
-
 function isPageReceipt(
   receipt: AdTrafficSourceReceipt,
 ): receipt is Extract<AdTrafficSourceReceipt, { expectedPages: number }> {
   return 'expectedPages' in receipt;
-}
-
-function receiptChunkKind(plan: AdTrafficSourcePlan): string {
-  return isDailyPlan(plan) ? RECEIPT_KIND : LEGACY_RECEIPT_KIND;
 }
 
 function isWingTrafficUrl(value: string): boolean {
@@ -349,8 +332,8 @@ type ZeroTrafficPublication = {
  *   attempt of this account published.
  * - A catalog listing without a row, or with a row no writer owns, gets a zero
  *   on every confirmed day from its first zero date.
- * - Another writer may own a row with a marker other than Wing's, or with
- *   pre-marker CSV metadata.
+ * - Another writer may own a row with a marker other than Wing's. The traffic
+ *   CSV upload lane is retired (KID-110), so a past CSV trace protects nothing.
  */
 function zeroTrafficSql(
   organizationId: string,
@@ -397,15 +380,13 @@ function zeroTrafficSql(
         SELECT fact.listing_id,
                fact.external_id,
                fact.business_date,
-               CASE WHEN fact.meta ? 'traffic.currentSource'
-                 THEN (fact.meta -> 'traffic.currentSource') IS DISTINCT FROM '"wing.traffic"'::jsonb
-                 ELSE fact.meta ? 'traffic.csv_upload'
-               END AS another_writer_may_own,
+               (fact.meta ? 'traffic.currentSource')
+                 AND (fact.meta -> 'traffic.currentSource') IS DISTINCT FROM '"wing.traffic"'::jsonb
+                 AS another_writer_may_own,
                (fact.meta -> 'traffic.currentSource') IS NOT DISTINCT FROM '"wing.traffic"'::jsonb
                  OR (
                    NOT (fact.meta ? 'traffic.currentSource')
                    AND (fact.meta ? 'wing.traffic')
-                   AND NOT (fact.meta ? 'traffic.csv_upload')
                  ) AS wing_is_current,
                (fact.meta = '{}'::jsonb AND fact.traffic_observed_at IS NOT NULL) AS observed_without_metadata,
                CASE WHEN jsonb_typeof(fact.meta -> 'wing.traffic' -> 'sourceAttemptId') = 'string'
@@ -650,7 +631,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       const replay = await tx.sourceImportRun.findFirst({
         where: {
           organizationId: input.organizationId,
-          sourceType: SOURCE_TYPE,
+          ...DAILY_RUN,
           idempotencyKey: input.idempotencyKey,
         },
       });
@@ -809,40 +790,19 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         const runs = await tx.sourceImportRun.findMany({
           where: {
             organizationId: input.organizationId,
-            sourceType: SOURCE_TYPE,
+            ...DAILY_RUN,
             channelAccountId: account.id,
             status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
           },
           orderBy: [{ freshnessGeneration: 'desc' }, { createdAt: 'desc' }],
         });
         if (!runs.length) throw new NotFoundException('AD_TRAFFIC_SOURCE_MISSING');
-        const parsedRuns = runs.map((run) => ({ run, plan: AdTrafficSourcePlanSchema.parse(run.plan) }));
-        const dailyRuns = parsedRuns.filter(
-          (candidate): candidate is { run: typeof runs[number]; plan: AdTrafficSourceDailyPlan } =>
-            isDailyPlan(candidate.plan),
-        );
-        if (dailyRuns.length) {
-          const legacyRuns = parsedRuns.filter(
-            (candidate): candidate is { run: typeof runs[number]; plan: AdTrafficSourceLegacyPlan } =>
-              !isDailyPlan(candidate.plan),
-          );
-          return readDailyPublished(
-            tx,
-            account.id,
-            input.organizationId,
-            dailyRuns,
-            from,
-            to,
-            legacyRuns,
-          );
-        }
-        const legacy = parsedRuns[0]!;
-        return readLegacyPublished(
+        const dailyRuns = runs.map((run) => ({ run, plan: AdTrafficSourcePlanSchema.parse(run.plan) }));
+        return readDailyPublished(
           tx,
           account.id,
           input.organizationId,
-          legacy.run,
-          legacy.plan as AdTrafficSourceLegacyPlan,
+          dailyRuns,
           from,
           to,
         );
@@ -866,7 +826,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       }
       const run = await this.scrapeRun(tx, row);
       const plan = AdTrafficSourcePlanSchema.parse(row.plan);
-      const chunkKind = receiptChunkKind(plan);
+      const chunkKind = RECEIPT_KIND;
       const checksum = hash(input.receipt);
       const existingChunk = await tx.channelScrapeChunk.findFirst({
         where: {
@@ -905,101 +865,16 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
         return { __trafficUploadFailure: true, code: 'ADVERTISER_IDENTITY_MISMATCH' };
       }
 
-      if (isDailyPlan(plan)) {
-        return this.stageDailyReceipt(
-          tx,
-          row,
-          run,
-          plan,
-          entries,
-          input.receipt,
-          input.sequence,
-          checksum,
-        );
-      }
-
-      const legacyReceipt = input.receipt as AdTrafficSourceLegacyReceiptInput;
-      let effectivePlan = plan as AdTrafficSourceLegacyPlan;
-      if (!effectivePlan.targetUrl) {
-        effectivePlan = AdTrafficSourcePlanSchema.parse({
-          ...effectivePlan,
-          targetUrl: legacyReceipt.url,
-        }) as AdTrafficSourceLegacyPlan;
-        await tx.sourceImportRun.update({
-          where: { id: row.id, organizationId: input.organizationId },
-          data: { plan: json(effectivePlan) },
-        });
-      }
-      const map = await this.listingMap(tx, row);
-      const observedAt = new Date(input.receipt.capturedAt);
-      const snapshots: Prisma.ChannelScrapeSnapshotCreateManyInput[] = legacyReceipt.data.map((item) => {
-        const match = matchListingFromRow(item, map);
-        const externalId = pickStringField(item, [
-          'externalId',
-          'external_id',
-          'productId',
-          'coupangProductId',
-        ]);
-        const externalOptionId = pickStringField(item, [
-          'vendorItemId',
-          'vendor_item_id',
-          'itemId',
-        ]);
-        return {
-          id: randomUUID(),
-          organizationId: input.organizationId,
-          sourceImportRunId: row.id,
-          scrapeRunId: run.id,
-          channel: 'coupang',
-          source: SNAPSHOT_SOURCE,
-          pageType: SNAPSHOT_PAGE_TYPE,
-          businessDate: dateAtUtc(effectivePlan.businessDate),
-          observedAt,
-          externalId,
-          externalOptionId,
-          listingId: match.listingId,
-          listingOptionId: match.listingOptionId,
-          matchStatus: matchStatusOf(match),
-          matchReason: match.listingId ? null : 'traffic row did not match an active listing',
-          rowHash: hash(item),
-          rawJson: json(item),
-          normalizedJson: json(item),
-        } satisfies Prisma.ChannelScrapeSnapshotCreateManyInput;
-      });
-      if (snapshots.length) await tx.channelScrapeSnapshot.createMany({ data: snapshots });
-      const matchedCount = snapshots.filter((snapshot) => snapshot.listingId).length;
-      const receipt = AdTrafficSourceReceiptSchema.parse({
-        sequence: input.sequence,
-        key: legacyReceipt.key,
+      return this.stageDailyReceipt(
+        tx,
+        row,
+        run,
+        plan,
+        entries,
+        input.receipt,
+        input.sequence,
         checksum,
-        pageIndex: legacyReceipt.pageIndex,
-        expectedPages: legacyReceipt.proof.expectedPages,
-        rowCount: snapshots.length,
-        matchedCount,
-        unmatchedCount: snapshots.length - matchedCount,
-        snapshotIds: snapshots.map((snapshot) => snapshot.id),
-        url: legacyReceipt.url,
-        startDate: legacyReceipt.startDate,
-        endDate: legacyReceipt.endDate,
-        terminalPageObserved: legacyReceipt.proof.terminalPageObserved,
-      });
-      await tx.channelScrapeChunk.create({
-        data: {
-          organizationId: input.organizationId,
-          scrapeRunId: run.id,
-          kind: LEGACY_RECEIPT_KIND,
-          sequence: input.sequence,
-          checksum,
-          itemCount: snapshots.length,
-          payload: json(input.receipt),
-          publicationJson: json({ receipt }),
-        },
-      });
-      await tx.sourceImportRun.update({
-        where: { id: row.id, organizationId: input.organizationId },
-        data: { rowCount: { increment: snapshots.length } },
-      });
-      return receipt;
+      );
     });
     if ('__trafficUploadFailure' in result) {
       throw new ConflictException(result.code);
@@ -1385,7 +1260,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
     }
     const where = {
       organizationId,
-      sourceType: SOURCE_TYPE,
+      ...DAILY_RUN,
       channelAccountId: account.id,
     };
     const [latest, complete, allComplete] = await Promise.all([
@@ -1399,23 +1274,18 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       }),
       tx.sourceImportRun.findMany({
         where: { ...where, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
-        select: { plan: true, qualityReport: true },
+        select: { qualityReport: true },
       }),
     ]);
     const latestAttempt = latest ? await this.attemptView(tx, latest) : null;
     const latestComplete = complete ? await this.attemptView(tx, complete) : null;
     const expectedEnd = businessDateKey(evidenceCutoffDate());
     const coveredDailyDates = new Set(
-      allComplete.flatMap((candidate) => {
-        const plan = AdTrafficSourcePlanSchema.safeParse(candidate.plan);
-        return plan.success && isDailyPlan(plan.data)
-          ? declaredConfirmedDates(candidate.qualityReport)
-          : [];
-      }),
+      allComplete.flatMap((candidate) => declaredConfirmedDates(candidate.qualityReport)),
     );
     const ready = deriveSourceReadiness({
       latestAttempt,
-      latestComplete: latestComplete && isDailyPlan(latestComplete.plan)
+      latestComplete: latestComplete
         ? { actualCutoff: [...coveredDailyDates].sort().at(-1) ?? null }
         : null,
       requiredCutoff: expectedEnd,
@@ -1447,93 +1317,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
       rawJson: Prisma.JsonValue;
     }>,
   ) {
-    if (isDailyPlan(plan)) {
-      return this.publishDailyFacts(tx, row, plan, entries, snapshots);
-    }
-    let matchedCount = 0;
-    let unmatchedCount = 0;
-    for (const snapshot of snapshots) {
-      if (!snapshot.listingId) {
-        unmatchedCount += 1;
-        continue;
-      }
-      matchedCount += 1;
-      const raw = asRecord(snapshot.normalizedJson ?? snapshot.rawJson);
-      // The same integer contract as the daily path: an unparseable provider
-      // cell rejects the publication instead of becoming a measured 0.
-      const metrics = trafficMetrics(raw);
-      const traffic = {
-        trafficVisitors: metrics.visitors,
-        trafficViews: metrics.views,
-        trafficCartAdds: metrics.cartAdds,
-        trafficOrders: metrics.orders,
-        trafficSalesQty: metrics.salesQty,
-        trafficRevenue: metrics.revenue,
-      };
-      const visitors = traffic.trafficVisitors;
-      const providerConversionRate = visitors > 0
-        ? Math.round((traffic.trafficOrders / visitors) * 10000) / 100
-        : null;
-      const businessDate = snapshot.businessDate ?? dateAtUtc(plan.businessDate);
-      const metaJson = {
-        source: 'wing.traffic',
-        data: {
-          periodDays: plan.periodDays,
-          providerConversionRate,
-          url: plan.targetUrl,
-          startDate: plan.startDate,
-          endDate: plan.endDate,
-        },
-      } as const;
-      const existing = await tx.channelListingDailySnapshot.findUnique({
-        where: {
-          organizationId_listingId_businessDate: {
-            organizationId: row.organizationId,
-            listingId: snapshot.listingId,
-            businessDate,
-          },
-        },
-        select: { id: true },
-      });
-      const observedAt = snapshot.observedAt;
-      const daily = existing
-        ? await tx.channelListingDailySnapshot.update({
-            where: { id: existing.id },
-            // The row's observation count, time and raw snapshot record the
-            // listing-state observations; traffic changes only its own columns.
-            data: {
-              ...traffic,
-              trafficObservedAt: observedAt,
-            },
-            select: { id: true },
-          })
-        : await tx.channelListingDailySnapshot.create({
-            data: {
-              organizationId: row.organizationId,
-              listingId: snapshot.listingId,
-              channel: 'coupang',
-              externalId: snapshot.externalId ?? '',
-              businessDate,
-              sampleCount: 1,
-              firstObservedAt: observedAt,
-              lastObservedAt: observedAt,
-              rawSnapshotId: snapshot.id,
-              metaJson: buildNamespacedMetaForCreate(metaJson),
-              ...traffic,
-              trafficObservedAt: observedAt,
-            },
-            select: { id: true },
-          });
-      await mergeNamespacedMetaJson(
-        tx,
-        'channel_listing_daily_snapshots',
-        daily.id,
-        row.organizationId,
-        metaJson,
-      );
-    }
-
-    return { matchedCount, unmatchedCount };
+    return this.publishDailyFacts(tx, row, plan, entries, snapshots);
   }
 
   private async publishDailyFacts(
@@ -1740,7 +1524,7 @@ export class AdTrafficSourceRepository implements AdTrafficSourcePort, AdTraffic
 
   private async findOptional(tx: Tx, organizationId: string, attemptId: string) {
     return tx.sourceImportRun.findFirst({
-      where: { id: attemptId, organizationId, sourceType: SOURCE_TYPE },
+      where: { id: attemptId, organizationId, ...DAILY_RUN },
     });
   }
 
@@ -1795,12 +1579,11 @@ async function receiptEntriesForRun(tx: Tx, row: SourceRun): Promise<ReceiptEntr
     select: { id: true },
   });
   if (!run) return [];
-  const plan = AdTrafficSourcePlanSchema.parse(row.plan);
   const chunks = await tx.channelScrapeChunk.findMany({
     where: {
       organizationId: row.organizationId,
       scrapeRunId: run.id,
-      kind: receiptChunkKind(plan),
+      kind: RECEIPT_KIND,
     },
     orderBy: { sequence: 'asc' },
     select: { payload: true, publicationJson: true },
@@ -1811,100 +1594,6 @@ async function receiptEntriesForRun(tx: Tx, row: SourceRun): Promise<ReceiptEntr
   }));
 }
 
-async function readLegacyPublished(
-  tx: Tx,
-  channelAccountId: string,
-  organizationId: string,
-  run: SourceRun,
-  plan: AdTrafficSourceLegacyPlan,
-  from: Date | undefined,
-  to: Date | undefined,
-): Promise<AdTrafficSourcePublished> {
-  // The v1 publication is a period observation, not a daily source. Keep the
-  // compatibility read useful only for the exact interval that was captured;
-  // an arbitrary subrange must never turn that period's rows into daily facts.
-  const exactPeriodRequested =
-    (!from && !to)
-    || (from !== undefined
-      && to !== undefined
-      && businessDateKey(from) === plan.startDate
-      && businessDateKey(to) === plan.endDate);
-  if (!exactPeriodRequested) {
-    return AdTrafficSourcePublishedSchema.parse({
-      channelAccountId,
-      attemptId: run.id,
-      plan,
-      rows: [],
-    });
-  }
-
-  const snapshots = await tx.channelScrapeSnapshot.findMany({
-    where: {
-      organizationId,
-      sourceImportRunId: run.id,
-      source: SNAPSHOT_SOURCE,
-      pageType: SNAPSHOT_PAGE_TYPE,
-      listingId: { not: null },
-      businessDate: { not: null },
-    },
-    select: { listingId: true, externalId: true, businessDate: true },
-  });
-  const keys = new Set(
-    snapshots
-      .filter((snapshot): snapshot is typeof snapshot & { listingId: string; businessDate: Date } =>
-        !!snapshot.listingId && !!snapshot.businessDate)
-      .map((snapshot) => `${snapshot.listingId}:${businessDateKey(snapshot.businessDate)}`),
-  );
-  const listingIds = [...new Set(snapshots.flatMap((snapshot) => snapshot.listingId ? [snapshot.listingId] : []))];
-  const dailyRows = listingIds.length
-    ? await tx.channelListingDailySnapshot.findMany({
-        where: {
-          organizationId,
-          listingId: { in: listingIds },
-        },
-        select: {
-          listingId: true,
-          externalId: true,
-          businessDate: true,
-          trafficVisitors: true,
-          trafficViews: true,
-          trafficCartAdds: true,
-          trafficOrders: true,
-          trafficSalesQty: true,
-          trafficRevenue: true,
-          trafficObservedAt: true,
-        },
-      })
-    : [];
-  // A daily row without a traffic observation never measured traffic for
-  // this capture; its unrelated `lastObservedAt` is not evidence, so the row
-  // is not published.
-  const rows = dailyRows
-    .filter((daily): daily is typeof daily & { trafficObservedAt: Date } =>
-      daily.trafficObservedAt !== null
-      && keys.has(`${daily.listingId}:${businessDateKey(daily.businessDate)}`))
-    .map((daily) => ({
-      listingId: daily.listingId,
-      externalId: daily.externalId,
-      businessDate: businessDateKey(daily.businessDate),
-      observedAt: daily.trafficObservedAt.toISOString(),
-      traffic: {
-        visitors: daily.trafficVisitors,
-        views: daily.trafficViews,
-        cartAdds: daily.trafficCartAdds,
-        orders: daily.trafficOrders,
-        salesQty: daily.trafficSalesQty,
-        revenue: daily.trafficRevenue,
-      },
-    }));
-  return AdTrafficSourcePublishedSchema.parse({
-    channelAccountId,
-    attemptId: run.id,
-    plan,
-    rows,
-  });
-}
-
 async function readDailyPublished(
   tx: Tx,
   channelAccountId: string,
@@ -1912,7 +1601,6 @@ async function readDailyPublished(
   dailyRuns: Array<{ run: SourceRun; plan: AdTrafficSourceDailyPlan }>,
   from: Date | undefined,
   to: Date | undefined,
-  legacyRuns: Array<{ run: SourceRun; plan: AdTrafficSourceLegacyPlan }>,
 ): Promise<AdTrafficSourcePublished> {
   // A default read represents the complete set of dates currently covered by
   // complete v2 runs. Anchoring it to the newest run's interval would make an
@@ -2041,12 +1729,6 @@ async function readDailyPublished(
       }
     }
   }
-  const legacyExactPeriodEvidence = await readLegacyExactPeriodEvidence(
-    tx,
-    legacyRuns,
-    rangeStartText,
-    rangeEndText,
-  );
   const selectedIdSet = new Set(selectedRunIds);
   const outputCandidate = dailyRuns.find((candidate) => selectedIdSet.has(candidate.run.id))
     ?? dailyRuns[0]!;
@@ -2076,39 +1758,7 @@ async function readDailyPublished(
     reconciliation: buildReconciliation(accountDaily, periodSummary, {
       periodSummaryApplies: !incompleteDailyCoverage && !periodEvidenceIsStale,
     }),
-    legacyExactPeriodEvidence,
   });
-}
-
-async function readLegacyExactPeriodEvidence(
-  tx: Tx,
-  legacyRuns: Array<{ run: SourceRun; plan: AdTrafficSourceLegacyPlan }>,
-  startDate: string,
-  endDate: string,
-): Promise<Record<string, unknown> | null> {
-  const exact = legacyRuns.find(
-    (candidate) => candidate.plan.startDate === startDate && candidate.plan.endDate === endDate,
-  );
-  if (!exact) return null;
-  const entries = await receiptEntriesForRun(tx, exact.run);
-  const dashboard = dashboardPayload(entries);
-  if (!dashboard) return null;
-  return {
-    startDate,
-    endDate,
-    observedAt: dashboard.capturedAt.toISOString(),
-    sourceAttemptId: exact.run.id,
-    summary: {
-      kpis: dashboard.kpis,
-      summary: dashboard.summary,
-      adSummary: dashboard.adSummary,
-      period: exact.plan.periodDays,
-      startDate: exact.plan.startDate,
-      endDate: exact.plan.endDate,
-      timestamp: dashboard.capturedAt.toISOString(),
-    },
-    raw: dashboard.raw,
-  };
 }
 
 function runIsNewer(left: SourceRun, right: SourceRun): boolean {
@@ -2133,37 +1783,10 @@ function attemptView(row: SourceRun, entries: ReceiptEntry[]): AdTrafficSourceAt
   const isExpired = expired(row);
   const matchedRowCount = entries.reduce((sum, entry) => sum + entry.receipt.matchedCount, 0);
   const unmatchedRowCount = entries.reduce((sum, entry) => sum + entry.receipt.unmatchedCount, 0);
-  if (isDailyPlan(plan)) {
-    // v2 has an independent page count for every business date plus one
-    // period-summary receipt; a single scalar expectedPages is therefore not
-    // meaningful in the public attempt view. Coverage validation remains the
-    // authoritative terminal signal.
-    return AdTrafficSourceAttemptSchema.parse({
-      attemptId: row.id,
-      channelAccountId: row.channelAccountId,
-      state:
-        row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
-          ? 'COMPLETE'
-          : row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !isExpired
-            ? 'RUNNING'
-            : 'FAILED',
-      plan,
-      expiresAt: row.expiresAt?.toISOString() ?? new Date(0).toISOString(),
-      actualCutoffAt: row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS ? row.importedAt?.toISOString() ?? null : null,
-      manifestChecksum: hash({ plan, receipts: entries.map((entry) => entry.receipt) }),
-      rowCount: row.rowCount,
-      matchedRowCount,
-      unmatchedRowCount,
-      receiptCount: entries.length,
-      expectedPages: null,
-      terminalPageObserved: validateCoverage(plan, entries) === null,
-      errorCode: isExpired ? 'ATTEMPT_EXPIRED' : row.errorCode,
-      errorMessage: isExpired ? 'Wing traffic collection expired.' : row.errorMessage,
-    });
-  }
-  const pageReceipts = entries.map((entry) => entry.receipt).filter(isPageReceipt);
-  const expectedPages = pageReceipts[0]?.expectedPages ?? null;
-  const terminalPageObserved = pageReceipts.at(-1)?.terminalPageObserved ?? false;
+  // v2 has an independent page count for every business date plus one
+  // period-summary receipt; a single scalar expectedPages is therefore not
+  // meaningful in the public attempt view. Coverage validation remains the
+  // authoritative terminal signal.
   return AdTrafficSourceAttemptSchema.parse({
     attemptId: row.id,
     channelAccountId: row.channelAccountId,
@@ -2181,8 +1804,8 @@ function attemptView(row: SourceRun, entries: ReceiptEntry[]): AdTrafficSourceAt
     matchedRowCount,
     unmatchedRowCount,
     receiptCount: entries.length,
-    expectedPages,
-    terminalPageObserved,
+    expectedPages: null,
+    terminalPageObserved: validateCoverage(plan, entries) === null,
     errorCode: isExpired ? 'ATTEMPT_EXPIRED' : row.errorCode,
     errorMessage: isExpired ? 'Wing traffic collection expired.' : row.errorMessage,
   });
@@ -2194,153 +1817,120 @@ function validateReceipt(
   sequence: number,
   entries: ReceiptEntry[],
 ): string | null {
-  if (isDailyPlan(plan)) {
-    if (isDailyReceipt(receipt)) {
-      if (
-        receipt.providerVendorId !== plan.providerVendorId
-        || receipt.filterScope !== plan.filterScope
-        || !isWingTrafficUrl(receipt.url)
-        || (plan.targetUrl !== null && receipt.url !== plan.targetUrl)
-        || receipt.businessDate !== receipt.startDate
-        || receipt.businessDate !== receipt.endDate
-        || receipt.period !== 1
-      ) {
-        return 'SOURCE_RECEIPT_SCOPE_CONFLICT';
-      }
-      if (
-        receipt.accountSummary
-        && receipt.accountSummaryRaw
-        && !accountSummaryMatchesRaw(asRecord(receipt.accountSummary), receipt.accountSummaryRaw)
-      ) {
-        return 'TRAFFIC_ACCOUNT_SUMMARY_CONFLICT';
-      }
-      const dateIndex = plan.expectedDates.indexOf(receipt.businessDate);
-      if (dateIndex < 0) return 'SOURCE_RECEIPT_DATE_CONFLICT';
-      const expectedSequence = dateIndex * 100 + receipt.pageIndex - 1;
-      if (sequence !== expectedSequence) return 'SOURCE_RECEIPT_SEQUENCE_CONFLICT';
-      const sameDay = entries.filter(
-        (entry): entry is ReceiptEntry & { input: AdTrafficSourceDailyReceiptInput } =>
-          isDailyReceipt(entry.input) && entry.input.businessDate === receipt.businessDate,
-      );
-      if (sameDay.some((entry) => entry.input.pageIndex === receipt.pageIndex)) {
-        return 'SOURCE_RECEIPT_SEQUENCE_CONFLICT';
-      }
-      const expectedVisited = Array.from({ length: receipt.pageIndex }, (_, index) => index + 1);
-      const proof = receipt.proof;
-      if (
-        !proof.verified
-        || proof.expectedPages < receipt.pageIndex
-        || proof.visitedPages.length !== receipt.pageIndex
-        || proof.visitedPages.some((page, index) => page !== expectedVisited[index])
-        || (receipt.pageIndex < proof.expectedPages && (proof.complete || proof.terminalPageObserved))
-        || (receipt.pageIndex === proof.expectedPages && (!proof.complete || !proof.terminalPageObserved))
-        || (proof.explicitEmpty && (receipt.data.length > 0 || receipt.pageIndex !== 1 || proof.expectedPages !== 1))
-      ) {
-        return 'INCOMPLETE_TRAFFIC_COVERAGE';
-      }
-      if (sameDay.length && sameDay[0]!.input.proof.expectedPages !== proof.expectedPages) {
-        return 'SOURCE_RECEIPT_PAGE_COUNT_CONFLICT';
-      }
-      const priorOptionIds = new Set<string>();
-      for (const entry of sameDay) {
-        if (!isDailyReceipt(entry.input)) continue;
-        for (const item of entry.input.data) {
-          const optionId = pickStringField(item, [
-            'vendorItemId',
-            'vendor_item_id',
-            'itemId',
-            'externalOptionId',
-          ]);
-          if (optionId) priorOptionIds.add(optionId);
-        }
-      }
-      for (const item of receipt.data) {
+  if (isDailyReceipt(receipt)) {
+    if (
+      receipt.providerVendorId !== plan.providerVendorId
+      || receipt.filterScope !== plan.filterScope
+      || !isWingTrafficUrl(receipt.url)
+      || (plan.targetUrl !== null && receipt.url !== plan.targetUrl)
+      || receipt.businessDate !== receipt.startDate
+      || receipt.businessDate !== receipt.endDate
+      || receipt.period !== 1
+    ) {
+      return 'SOURCE_RECEIPT_SCOPE_CONFLICT';
+    }
+    if (
+      receipt.accountSummary
+      && receipt.accountSummaryRaw
+      && !accountSummaryMatchesRaw(asRecord(receipt.accountSummary), receipt.accountSummaryRaw)
+    ) {
+      return 'TRAFFIC_ACCOUNT_SUMMARY_CONFLICT';
+    }
+    const dateIndex = plan.expectedDates.indexOf(receipt.businessDate);
+    if (dateIndex < 0) return 'SOURCE_RECEIPT_DATE_CONFLICT';
+    const expectedSequence = dateIndex * 100 + receipt.pageIndex - 1;
+    if (sequence !== expectedSequence) return 'SOURCE_RECEIPT_SEQUENCE_CONFLICT';
+    const sameDay = entries.filter(
+      (entry): entry is ReceiptEntry & { input: AdTrafficSourceDailyReceiptInput } =>
+        isDailyReceipt(entry.input) && entry.input.businessDate === receipt.businessDate,
+    );
+    if (sameDay.some((entry) => entry.input.pageIndex === receipt.pageIndex)) {
+      return 'SOURCE_RECEIPT_SEQUENCE_CONFLICT';
+    }
+    const expectedVisited = Array.from({ length: receipt.pageIndex }, (_, index) => index + 1);
+    const proof = receipt.proof;
+    if (
+      !proof.verified
+      || proof.expectedPages < receipt.pageIndex
+      || proof.visitedPages.length !== receipt.pageIndex
+      || proof.visitedPages.some((page, index) => page !== expectedVisited[index])
+      || (receipt.pageIndex < proof.expectedPages && (proof.complete || proof.terminalPageObserved))
+      || (receipt.pageIndex === proof.expectedPages && (!proof.complete || !proof.terminalPageObserved))
+      || (proof.explicitEmpty && (receipt.data.length > 0 || receipt.pageIndex !== 1 || proof.expectedPages !== 1))
+    ) {
+      return 'INCOMPLETE_TRAFFIC_COVERAGE';
+    }
+    if (sameDay.length && sameDay[0]!.input.proof.expectedPages !== proof.expectedPages) {
+      return 'SOURCE_RECEIPT_PAGE_COUNT_CONFLICT';
+    }
+    const priorOptionIds = new Set<string>();
+    for (const entry of sameDay) {
+      if (!isDailyReceipt(entry.input)) continue;
+      for (const item of entry.input.data) {
         const optionId = pickStringField(item, [
           'vendorItemId',
           'vendor_item_id',
           'itemId',
           'externalOptionId',
         ]);
-        if (!optionId || !positiveWingOptionId(optionId)) return 'TRAFFIC_OPTION_IDENTITY_INVALID';
-        if (priorOptionIds.has(optionId)) return 'TRAFFIC_OPTION_DUPLICATE';
-        priorOptionIds.add(optionId);
-        try {
-          trafficMetrics(item);
-        } catch {
-          return 'TRAFFIC_METRIC_INVALID';
-        }
+        if (optionId) priorOptionIds.add(optionId);
       }
-      if (entries.some((entry) => entry.input.key === receipt.key)) {
-        return 'SOURCE_RECEIPT_KEY_CONFLICT';
-      }
-      return null;
     }
-    if (isPeriodReceipt(receipt)) {
-      // The period summary describes the dates this attempt confirmed, which can
-      // be fewer than the plan asked for when the provider has not published a
-      // later day yet. Here that only has to be a contiguous interval inside the
-      // plan; `validateCoverage` is where it must equal the confirmed set, since
-      // only the terminal submission knows what that set turned out to be.
-      const periodStart = plan.expectedDates.indexOf(receipt.startDate);
-      const periodEnd = plan.expectedDates.indexOf(receipt.endDate);
-      if (
-        // The sequence stays keyed to the plan so it is stable across attempts
-        // and cannot collide with a daily page's `dateIndex * 100 + pageIndex - 1`.
-        sequence !== plan.periodDays * 100
-        || receipt.providerVendorId !== plan.providerVendorId
-        || receipt.filterScope !== plan.filterScope
-        || periodStart < 0
-        || periodEnd < periodStart
-        || receipt.period !== periodEnd - periodStart + 1
-        || !isWingTrafficUrl(receipt.url)
-        || (plan.targetUrl !== null && receipt.url !== plan.targetUrl)
-      ) {
-        return 'SOURCE_RECEIPT_SCOPE_CONFLICT';
+    for (const item of receipt.data) {
+      const optionId = pickStringField(item, [
+        'vendorItemId',
+        'vendor_item_id',
+        'itemId',
+        'externalOptionId',
+      ]);
+      if (!optionId || !positiveWingOptionId(optionId)) return 'TRAFFIC_OPTION_IDENTITY_INVALID';
+      if (priorOptionIds.has(optionId)) return 'TRAFFIC_OPTION_DUPLICATE';
+      priorOptionIds.add(optionId);
+      try {
+        trafficMetrics(item);
+      } catch {
+        return 'TRAFFIC_METRIC_INVALID';
       }
-      if (!accountSummaryMatchesRaw(asRecord(receipt.accountSummary), receipt.accountSummaryRaw)) {
-        return 'TRAFFIC_ACCOUNT_SUMMARY_CONFLICT';
-      }
-      if (entries.some((entry) => entry.input.key === receipt.key)) {
-        return 'SOURCE_RECEIPT_KEY_CONFLICT';
-      }
-      if (entries.some((entry) => isPeriodReceipt(entry.input))) {
-        return 'SOURCE_RECEIPT_SEQUENCE_CONFLICT';
-      }
-      return null;
     }
-    return 'TRAFFIC_RECEIPT_KIND_CONFLICT';
+    if (entries.some((entry) => entry.input.key === receipt.key)) {
+      return 'SOURCE_RECEIPT_KEY_CONFLICT';
+    }
+    return null;
   }
-
-  if (!('pageIndex' in receipt) || !('proof' in receipt) || !('data' in receipt)) {
-    return 'TRAFFIC_RECEIPT_KIND_CONFLICT';
+  if (isPeriodReceipt(receipt)) {
+    // The period summary describes the dates this attempt confirmed, which can
+    // be fewer than the plan asked for when the provider has not published a
+    // later day yet. Here that only has to be a contiguous interval inside the
+    // plan; `validateCoverage` is where it must equal the confirmed set, since
+    // only the terminal submission knows what that set turned out to be.
+    const periodStart = plan.expectedDates.indexOf(receipt.startDate);
+    const periodEnd = plan.expectedDates.indexOf(receipt.endDate);
+    if (
+      // The sequence stays keyed to the plan so it is stable across attempts
+      // and cannot collide with a daily page's `dateIndex * 100 + pageIndex - 1`.
+      sequence !== plan.periodDays * 100
+      || receipt.providerVendorId !== plan.providerVendorId
+      || receipt.filterScope !== plan.filterScope
+      || periodStart < 0
+      || periodEnd < periodStart
+      || receipt.period !== periodEnd - periodStart + 1
+      || !isWingTrafficUrl(receipt.url)
+      || (plan.targetUrl !== null && receipt.url !== plan.targetUrl)
+    ) {
+      return 'SOURCE_RECEIPT_SCOPE_CONFLICT';
+    }
+    if (!accountSummaryMatchesRaw(asRecord(receipt.accountSummary), receipt.accountSummaryRaw)) {
+      return 'TRAFFIC_ACCOUNT_SUMMARY_CONFLICT';
+    }
+    if (entries.some((entry) => entry.input.key === receipt.key)) {
+      return 'SOURCE_RECEIPT_KEY_CONFLICT';
+    }
+    if (entries.some((entry) => isPeriodReceipt(entry.input))) {
+      return 'SOURCE_RECEIPT_SEQUENCE_CONFLICT';
+    }
+    return null;
   }
-  if (sequence !== receipt.pageIndex - 1) return 'SOURCE_RECEIPT_SEQUENCE_CONFLICT';
-  if (receipt.startDate !== plan.startDate || receipt.endDate !== plan.endDate) {
-    return 'SOURCE_RECEIPT_DATE_CONFLICT';
-  }
-  if (receipt.period !== plan.periodDays) return 'SOURCE_RECEIPT_PERIOD_CONFLICT';
-  if (plan.targetUrl && receipt.url !== plan.targetUrl) return 'SOURCE_RECEIPT_URL_CONFLICT';
-  if (entries.length !== sequence) return 'SOURCE_RECEIPT_SEQUENCE_CONFLICT';
-  const proof = receipt.proof;
-  const expectedVisited = Array.from({ length: receipt.pageIndex }, (_, index) => index + 1);
-  if (
-    !proof.verified
-    || proof.expectedPages < receipt.pageIndex
-    || proof.visitedPages.length !== receipt.pageIndex
-    || proof.visitedPages.some((page, index) => page !== expectedVisited[index])
-    || (receipt.pageIndex < proof.expectedPages && (proof.complete || proof.terminalPageObserved))
-    || (receipt.pageIndex === proof.expectedPages && (!proof.complete || !proof.terminalPageObserved))
-    || (proof.explicitEmpty && (receipt.data.length > 0 || receipt.pageIndex !== 1 || proof.expectedPages !== 1))
-  ) {
-    return 'INCOMPLETE_TRAFFIC_COVERAGE';
-  }
-  const firstPageReceipt = entries.map((entry) => entry.receipt).find(isPageReceipt);
-  if (firstPageReceipt && firstPageReceipt.expectedPages !== proof.expectedPages) {
-    return 'SOURCE_RECEIPT_PAGE_COUNT_CONFLICT';
-  }
-  const keys = entries.map((entry) => entry.input.key);
-  if (keys.includes(receipt.key)) return 'SOURCE_RECEIPT_KEY_CONFLICT';
-  return null;
+  return 'TRAFFIC_RECEIPT_KIND_CONFLICT';
 }
 
 /**
@@ -2365,7 +1955,6 @@ function confirmedDatesOf(
   plan: ReturnType<typeof AdTrafficSourcePlanSchema.parse>,
   entries: ReceiptEntry[],
 ): string[] {
-  if (!isDailyPlan(plan)) return [];
   const period = entries.map((entry) => entry.input).find(isPeriodReceipt);
   if (!period) return [];
   const start = plan.expectedDates.indexOf(period.startDate);
@@ -2390,114 +1979,51 @@ function providerBackedEmptyDatesOf(
 
 function validateCoverage(plan: ReturnType<typeof AdTrafficSourcePlanSchema.parse>, entries: ReceiptEntry[]): string | null {
   if (!entries.length) return 'INCOMPLETE_TRAFFIC_COVERAGE';
-  if (isDailyPlan(plan)) {
-    const daily = entries
-      .map((entry) => entry.input)
-      .filter((input): input is AdTrafficSourceDailyReceiptInput => isDailyReceipt(input));
-    const period = entries.find((entry) => isPeriodReceipt(entry.input));
-    if (!period || !isPeriodReceipt(period.input)) return 'INCOMPLETE_TRAFFIC_COVERAGE';
-    // A date outside the plan is still a scope conflict: the owner decides which
-    // window may be collected, and nothing here lets a client widen it.
-    const confirmed = confirmedDatesOf(plan, entries);
-    // Nothing confirmed is the one case that is still a flat failure — there is
-    // no measured date to publish.
-    if (!confirmed.length) return 'INCOMPLETE_TRAFFIC_COVERAGE';
-    // Stray pages for a date outside the declared window would otherwise be
-    // accepted and then silently dropped, which is how a half-collected day
-    // would come to look absent rather than incomplete. Every page has to belong
-    // to the window the collection says it confirmed.
-    const confirmedSet = new Set(confirmed);
-    if (daily.some((page) => !confirmedSet.has(page.businessDate))) {
-      return 'SOURCE_RECEIPT_SCOPE_CONFLICT';
-    }
-    for (const businessDate of confirmed) {
-      const pages = daily
-        .filter((page) => page.businessDate === businessDate)
-        .sort((left, right) => left.pageIndex - right.pageIndex);
-      if (!pages.length) return 'INCOMPLETE_TRAFFIC_COVERAGE';
-      const expectedPages = pages[0]!.proof.expectedPages;
-      if (pages.length !== expectedPages) return 'INCOMPLETE_TRAFFIC_COVERAGE';
-      for (const [index, page] of pages.entries()) {
-        const expectedVisited = Array.from({ length: index + 1 }, (_, value) => value + 1);
-        if (
-          page.pageIndex !== index + 1
-          || page.proof.expectedPages !== expectedPages
-          || !page.proof.verified
-          || page.proof.visitedPages.length !== expectedVisited.length
-          || page.proof.visitedPages.some((value, valueIndex) => value !== expectedVisited[valueIndex])
-          || (index === pages.length - 1
-            ? !page.proof.complete || !page.proof.terminalPageObserved
-            : page.proof.complete || page.proof.terminalPageObserved)
-        ) {
-          return 'INCOMPLETE_TRAFFIC_COVERAGE';
-        }
-      }
-      const rowCount = pages.reduce((sum, page) => sum + page.data.length, 0);
-      if (rowCount === 0 && !pages.every((page) => page.proof.explicitEmpty === true)) {
-        return 'EMPTY_TRAFFIC_PROOF_REQUIRED';
-      }
-    }
-    return null;
-  }
-  const pages = entries
+  const daily = entries
     .map((entry) => entry.input)
-    .filter((input): input is AdTrafficSourceLegacyReceiptInput => isLegacyReceiptInput(input));
-  const expectedPages = pages[0]!.proof.expectedPages;
-  if (pages.length !== expectedPages) return 'INCOMPLETE_TRAFFIC_COVERAGE';
-  for (const [index, page] of pages.entries()) {
-    const expectedVisited = Array.from({ length: index + 1 }, (_, value) => value + 1);
-    if (
-      page.pageIndex !== index + 1
-      || page.startDate !== plan.startDate
-      || page.endDate !== plan.endDate
-      || page.period !== plan.periodDays
-      || (plan.targetUrl && page.url !== plan.targetUrl)
-      || !page.proof.verified
-      || page.proof.expectedPages !== expectedPages
-      || page.proof.visitedPages.length !== expectedVisited.length
-      || page.proof.visitedPages.some((value, valueIndex) => value !== expectedVisited[valueIndex])
-      || (index === pages.length - 1
-        ? !page.proof.complete || !page.proof.terminalPageObserved
-        : page.proof.complete || page.proof.terminalPageObserved)
-    ) {
-      return 'INCOMPLETE_TRAFFIC_COVERAGE';
-    }
+    .filter((input): input is AdTrafficSourceDailyReceiptInput => isDailyReceipt(input));
+  const period = entries.find((entry) => isPeriodReceipt(entry.input));
+  if (!period || !isPeriodReceipt(period.input)) return 'INCOMPLETE_TRAFFIC_COVERAGE';
+  // A date outside the plan is still a scope conflict: the owner decides which
+  // window may be collected, and nothing here lets a client widen it.
+  const confirmed = confirmedDatesOf(plan, entries);
+  // Nothing confirmed is the one case that is still a flat failure — there is
+  // no measured date to publish.
+  if (!confirmed.length) return 'INCOMPLETE_TRAFFIC_COVERAGE';
+  // Stray pages for a date outside the declared window would otherwise be
+  // accepted and then silently dropped, which is how a half-collected day
+  // would come to look absent rather than incomplete. Every page has to belong
+  // to the window the collection says it confirmed.
+  const confirmedSet = new Set(confirmed);
+  if (daily.some((page) => !confirmedSet.has(page.businessDate))) {
+    return 'SOURCE_RECEIPT_SCOPE_CONFLICT';
   }
-  const rowCount = pages.reduce((sum, page) => sum + page.data.length, 0);
-  if (rowCount === 0 && !(pages.length === 1 && pages[0]!.proof.explicitEmpty === true)) {
-    return 'EMPTY_TRAFFIC_PROOF_REQUIRED';
+  for (const businessDate of confirmed) {
+    const pages = daily
+      .filter((page) => page.businessDate === businessDate)
+      .sort((left, right) => left.pageIndex - right.pageIndex);
+    if (!pages.length) return 'INCOMPLETE_TRAFFIC_COVERAGE';
+    const expectedPages = pages[0]!.proof.expectedPages;
+    if (pages.length !== expectedPages) return 'INCOMPLETE_TRAFFIC_COVERAGE';
+    for (const [index, page] of pages.entries()) {
+      const expectedVisited = Array.from({ length: index + 1 }, (_, value) => value + 1);
+      if (
+        page.pageIndex !== index + 1
+        || page.proof.expectedPages !== expectedPages
+        || !page.proof.verified
+        || page.proof.visitedPages.length !== expectedVisited.length
+        || page.proof.visitedPages.some((value, valueIndex) => value !== expectedVisited[valueIndex])
+        || (index === pages.length - 1
+          ? !page.proof.complete || !page.proof.terminalPageObserved
+          : page.proof.complete || page.proof.terminalPageObserved)
+      ) {
+        return 'INCOMPLETE_TRAFFIC_COVERAGE';
+      }
+    }
+    const rowCount = pages.reduce((sum, page) => sum + page.data.length, 0);
+    if (rowCount === 0 && !pages.every((page) => page.proof.explicitEmpty === true)) {
+      return 'EMPTY_TRAFFIC_PROOF_REQUIRED';
+    }
   }
   return null;
-}
-
-function dashboardPayload(entries: ReceiptEntry[]) {
-  const nonEmpty = <T extends Record<string, unknown>>(key: 'kpis' | 'summary' | 'adSummary') => {
-    const values = entries
-      .map((entry) => entry.input)
-      .filter((input): input is AdTrafficSourceLegacyReceiptInput => isLegacyReceiptInput(input))
-      .map((input) => input[key])
-      .filter((value): value is T => !!value && typeof value === 'object' && Object.keys(value).length > 0);
-    if (!values.length) return {} as T;
-    const first = values[0]!;
-    const firstHash = hash(first);
-    if (values.some((value) => hash(value) !== firstHash)) {
-      throw new ConflictException('TRAFFIC_DASHBOARD_SUMMARY_CONFLICT');
-    }
-    return first;
-  };
-  const kpis = nonEmpty('kpis');
-  const summary = nonEmpty('summary');
-  const adSummary = nonEmpty('adSummary');
-  const hasSignal = Object.keys(kpis).length > 0 || Object.keys(summary).length > 0 || Object.keys(adSummary).length > 0;
-  if (!hasSignal) return null;
-  const capturedAt = entries
-    .map((entry) => new Date(entry.input.capturedAt))
-    .sort((left, right) => right.getTime() - left.getTime())[0]!;
-  return {
-    kpis,
-    summary,
-    adSummary: Object.keys(adSummary).length ? adSummary : null,
-    capturedAt,
-    raw: { kpis, summary, adSummary: Object.keys(adSummary).length ? adSummary : null },
-  };
 }

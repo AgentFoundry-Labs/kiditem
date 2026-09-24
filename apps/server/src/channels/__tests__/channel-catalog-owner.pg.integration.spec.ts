@@ -36,7 +36,7 @@ import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence
 import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
 import { countPublishedCatalogListings } from '../adapter/out/repository/completed-catalog-run';
 import { SellpiaManualMatchRepositoryAdapter } from '../adapter/out/repository/sellpia-manual-match.repository.adapter';
-import { lockProductMapping } from '../../common/product-mapping-generation';
+import { lockProductMapping } from '../../products/transaction/product-mapping-lock';
 import type { PrismaClient } from '@prisma/client';
 import type {
   CoupangCatalogCollectionPermit,

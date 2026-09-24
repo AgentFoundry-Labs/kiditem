@@ -158,9 +158,12 @@ describe('StatisticsCategoriesResponseSchema and StatisticsGradesResponseSchema'
       rows: [{ category: '완구', name: '완구', revenue: null, orders: null, profit: null, productCount: null }],
       basis: windowBasis,
     }).rows[0]).toMatchObject({ revenue: null, orders: null, productCount: null });
-    expect(StatisticsGradesResponseSchema.parse({
-      rows: [{ grade: 'A', revenue: null, profit: null, count: null, productCount: null, adCost: null }],
+    const grade = StatisticsGradesResponseSchema.parse({
+      rows: [{ grade: 'A', revenue: null, profit: null, count: null, adCost: null }],
       basis: windowBasis,
-    }).rows[0]).toMatchObject({ revenue: null, count: null, productCount: null });
+    }).rows[0];
+    expect(grade).toMatchObject({ revenue: null, count: null });
+    // KID-119: a grade row counts its products once, in `count`; the duplicate `productCount` had no reader.
+    expect(grade).not.toHaveProperty('productCount');
   });
 });

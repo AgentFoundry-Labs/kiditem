@@ -48,20 +48,6 @@ export const AdTrafficSourceBeginSchema = z
     }
   });
 
-const legacyPlanSchema = z
-  .object({
-    sourceType: z.literal('coupang_wing_traffic'),
-    parserVersion: z.literal('wing-traffic-v1'),
-    channelAccountId: z.string().uuid(),
-    expectedAdvertiserId: id,
-    startDate: date,
-    endDate: date,
-    businessDate: date,
-    periodDays: z.number().int().positive().max(366),
-    targetUrl: z.string().url().max(2048).nullable(),
-  })
-  .strict();
-
 const dateRangeFields = {
   startDate: date,
   endDate: date,
@@ -133,13 +119,11 @@ const dailyPlanSchema = z
   });
 
 /**
- * The plan accepts both the historical page collector and the daily-grain
- * collector. New runs must use the latter; the legacy branch exists only so
- * old attempts can be resumed/read during the cutover.
+ * The daily-grain collector's plan. The historical page collector (`wing-traffic-v1`)
+ * is retired: a v1 plan no longer parses (KID-232).
  */
-export const AdTrafficSourcePlanSchema = z.union([legacyPlanSchema, dailyPlanSchema]);
+export const AdTrafficSourcePlanSchema = dailyPlanSchema;
 export const AdTrafficSourceDailyPlanSchema = dailyPlanSchema;
-export const AdTrafficSourceLegacyPlanSchema = legacyPlanSchema;
 
 export const AdTrafficPaginationProofSchema = z
   .object({
@@ -170,23 +154,6 @@ const receiptIdentity = {
   url: z.string().url().max(2048),
   providerVendorId: id,
 };
-
-const legacyReceiptInputSchema = z
-  .object({
-    key: id.max(160),
-    capturedAt: timestamp,
-    url: z.string().url().max(2048),
-    startDate: date,
-    endDate: date,
-    period: z.number().int().positive().max(366),
-    pageIndex: z.number().int().positive().max(100),
-    proof: AdTrafficPaginationProofSchema,
-    data: z.array(payload).max(5000),
-    kpis: payload.optional(),
-    summary: payload.optional(),
-    adSummary: payload.nullable().optional(),
-  })
-  .strict();
 
 const accountSummaryFields = {
   accountSummary: AdTrafficAccountSummarySchema,
@@ -248,30 +215,10 @@ const periodReceiptInputSchema = z
 
 export const AdTrafficSourceDailyReceiptInputSchema = dailyReceiptInputSchema;
 export const AdTrafficSourcePeriodReceiptInputSchema = periodReceiptInputSchema;
-export const AdTrafficSourceLegacyReceiptInputSchema = legacyReceiptInputSchema;
 export const AdTrafficSourceReceiptInputSchema = z.union([
   dailyReceiptInputSchema,
   periodReceiptInputSchema,
-  legacyReceiptInputSchema,
 ]);
-
-const legacyReceiptSchema = z
-  .object({
-    sequence: z.number().int().nonnegative(),
-    key: id,
-    checksum,
-    pageIndex: z.number().int().positive(),
-    expectedPages: z.number().int().positive(),
-    rowCount: z.number().int().nonnegative(),
-    matchedCount: z.number().int().nonnegative(),
-    unmatchedCount: z.number().int().nonnegative(),
-    snapshotIds: z.array(z.string().uuid()),
-    url: z.string().url().max(2048),
-    startDate: date,
-    endDate: date,
-    terminalPageObserved: z.boolean(),
-  })
-  .strict();
 
 const dailyReceiptSchema = z
   .object({
@@ -321,7 +268,6 @@ export const AdTrafficSourcePeriodReceiptSchema = periodReceiptSchema;
 export const AdTrafficSourceReceiptSchema = z.union([
   dailyReceiptSchema,
   periodReceiptSchema,
-  legacyReceiptSchema,
 ]);
 
 export const AdTrafficSourceAttemptSchema = z.object({
@@ -364,16 +310,6 @@ const trafficFields = {
   salesQty: metric,
   revenue: metric,
 };
-
-export const AdTrafficSourcePublishedRowSchema = z
-  .object({
-    listingId: z.string().uuid(),
-    externalId: z.string().nullable(),
-    businessDate: date,
-    observedAt: timestamp,
-    traffic: z.object(trafficFields).strict(),
-  })
-  .strict();
 
 const accountDailySchema = z
   .object({
@@ -464,16 +400,6 @@ const dailyPublishedSchema = z
     periodSummary: periodSummarySchema.nullable(),
     coverage: coverageSchema,
     reconciliation: reconciliationSchema,
-    legacyExactPeriodEvidence: payload.nullable(),
-  })
-  .strict();
-
-const legacyPublishedSchema = z
-  .object({
-    channelAccountId: z.string().uuid(),
-    attemptId: z.string().uuid(),
-    plan: legacyPlanSchema,
-    rows: z.array(AdTrafficSourcePublishedRowSchema),
   })
   .strict();
 
@@ -482,11 +408,7 @@ export const AdTrafficSourceOptionDailySchema = optionDailySchema;
 export const AdTrafficSourceCoverageSchema = coverageSchema;
 export const AdTrafficSourceReconciliationSchema = reconciliationSchema;
 export const AdTrafficSourceDailyPublishedSchema = dailyPublishedSchema;
-export const AdTrafficSourceLegacyPublishedSchema = legacyPublishedSchema;
-export const AdTrafficSourcePublishedSchema = z.union([
-  legacyPublishedSchema,
-  dailyPublishedSchema,
-]);
+export const AdTrafficSourcePublishedSchema = dailyPublishedSchema;
 
 export const AdTrafficSourceCompleteSchema = z
   .object({ manifestChecksum: checksum })
@@ -499,7 +421,6 @@ export const AdTrafficSourceFailureSchema = z
 export type AdTrafficSourceBegin = z.infer<typeof AdTrafficSourceBeginSchema>;
 export type AdTrafficSourcePlan = z.infer<typeof AdTrafficSourcePlanSchema>;
 export type AdTrafficSourceDailyPlan = z.infer<typeof AdTrafficSourceDailyPlanSchema>;
-export type AdTrafficSourceLegacyPlan = z.infer<typeof AdTrafficSourceLegacyPlanSchema>;
 export type AdTrafficPaginationProof = z.infer<typeof AdTrafficPaginationProofSchema>;
 export type AdTrafficAccountSummary = z.infer<typeof AdTrafficAccountSummarySchema>;
 export type AdTrafficSourceReceiptInput = z.infer<typeof AdTrafficSourceReceiptInputSchema>;
@@ -509,14 +430,10 @@ export type AdTrafficSourceDailyReceiptInput = z.infer<
 export type AdTrafficSourcePeriodReceiptInput = z.infer<
   typeof AdTrafficSourcePeriodReceiptInputSchema
 >;
-export type AdTrafficSourceLegacyReceiptInput = z.infer<
-  typeof AdTrafficSourceLegacyReceiptInputSchema
->;
 export type AdTrafficSourceReceipt = z.infer<typeof AdTrafficSourceReceiptSchema>;
 export type AdTrafficSourceAttempt = z.infer<typeof AdTrafficSourceAttemptSchema>;
 export type AdTrafficSourceControl = z.infer<typeof AdTrafficSourceControlSchema>;
 export type AdTrafficSourceStatus = z.infer<typeof AdTrafficSourceStatusSchema>;
-export type AdTrafficSourcePublishedRow = z.infer<typeof AdTrafficSourcePublishedRowSchema>;
 export type AdTrafficSourceAccountDaily = z.infer<typeof AdTrafficSourceAccountDailySchema>;
 export type AdTrafficSourceOptionDaily = z.infer<typeof AdTrafficSourceOptionDailySchema>;
 export type AdTrafficSourceCoverage = z.infer<typeof AdTrafficSourceCoverageSchema>;
@@ -528,14 +445,15 @@ export type AdTrafficSourcePublished = z.infer<typeof AdTrafficSourcePublishedSc
  * Which producer wrote the traffic values on a channel daily fact.
  *
  * Listing-level Wing projections are additive for views/cart adds/orders/sold
- * units/GMV, but their visitor values are not account unique visitors. CSV
- * uploads remain an explicit, independent listing-fact source.
+ * units/GMV, but their visitor values are not account unique visitors. Wing is
+ * the only listing-day traffic publisher since the traffic CSV upload lane was
+ * retired (KID-110); a past CSV trace names no writer.
  *
  * This names the writer and nothing else. Whether the row is a measurement at
  * all is the row's own `trafficObservedAt`: a day the source reported carries
  * the moment it was observed, and a day it never reported carries nothing.
  */
-export type DailyTrafficFactSource = 'wing' | 'csv_upload';
+export type DailyTrafficFactSource = 'wing';
 
 function record(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
@@ -547,12 +465,7 @@ export function dailyTrafficFactSource(metaJson: unknown): DailyTrafficFactSourc
   const root = record(metaJson);
   if (!root) return null;
   const marker = root['traffic.currentSource'];
-  if (marker === 'traffic.csv_upload') return 'csv_upload';
-  if (marker === 'wing.traffic') return 'wing';
-  if (marker !== undefined) return null;
-  // Rows written before the active-writer marker carry one namespace.
-  const wing = record(root['wing.traffic']) !== null || root.source === 'wing.traffic';
-  const csv = record(root['traffic.csv_upload']) !== null;
-  if (wing && csv) return null;
-  return wing ? 'wing' : csv ? 'csv_upload' : null;
+  if (marker !== undefined) return marker === 'wing.traffic' ? 'wing' : null;
+  // Rows written before the active-writer marker carry Wing's namespace.
+  return record(root['wing.traffic']) !== null || root.source === 'wing.traffic' ? 'wing' : null;
 }

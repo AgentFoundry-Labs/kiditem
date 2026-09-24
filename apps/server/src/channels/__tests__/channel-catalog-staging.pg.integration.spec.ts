@@ -24,7 +24,7 @@ import { ChannelOptionRecipeService } from '../application/service/listing/chann
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ChannelListingQueryService } from '../application/service/listing/channel-listing-query.service';
 import { ChannelListingQueryPersistenceAdapter } from '../adapter/out/persistence/channel-listing-query.persistence.adapter';
-import { lockProductMapping } from '../../common/product-mapping-generation';
+import { lockProductMapping } from '../../products/transaction/product-mapping-lock';
 import type {
   CoupangCatalogProductV1,
   PutCoupangCatalogChunkRequest,

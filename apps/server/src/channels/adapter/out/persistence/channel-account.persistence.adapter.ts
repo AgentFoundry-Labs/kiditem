@@ -9,7 +9,7 @@ import { Prisma } from '@prisma/client';
 import { MALL_CHANNELS } from '@kiditem/shared/channel-registry';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
-import { lockProductMapping } from '../../../../common/product-mapping-generation';
+import { lockProductMapping } from '../../../../products/transaction/product-mapping-lock';
 import {
   CHANNELS_PRODUCT_MAPPING_GENERATION_PORT,
   type ChannelsProductMappingGenerationPort,

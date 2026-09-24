@@ -249,7 +249,6 @@ export class StatisticsService {
           revenue: collected ? data.revenue : null,
           profit: collected ? totalOrUnavailable(data.profits) : null,
           count: collected ? data.productCount : null,
-          productCount: collected ? data.productCount : null,
           adCost: collected ? totalOrUnavailable(data.adCosts) : null,
         } satisfies StatisticsGradeRow)),
       basis: profitWindowBasis(facts),

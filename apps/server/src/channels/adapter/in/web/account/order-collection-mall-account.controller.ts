@@ -35,6 +35,17 @@ export class OrderCollectionMallAccountController {
     return this.accounts.reorder(organizationId, body?.mallKeys);
   }
 
+  /** 등록 기본값 문서만 고친다(KID-235). 계정 로그인은 `PATCH :mallKey` 가 따로 받는다. */
+  @Patch(':mallKey/listing-profile')
+  @Roles('owner', 'admin')
+  updateListingProfile(
+    @CurrentOrganization() organizationId: string,
+    @Param('mallKey') mallKey: string,
+    @Body() body: unknown,
+  ): Promise<MallAccount> {
+    return this.accounts.updateListingProfile(organizationId, mallKey, body);
+  }
+
   @Patch(':mallKey')
   @Roles('owner', 'admin')
   update(
