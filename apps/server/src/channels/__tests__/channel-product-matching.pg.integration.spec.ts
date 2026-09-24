@@ -999,9 +999,9 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
     const availability = new ChannelSkuAvailabilityService(repository, inventory);
     expect(option.safetyStock).toBe(0);
     await expect(availability.updateSafetyStock(OTHER_ORGANIZATION_ID, option.id, 9))
-      .rejects.toMatchObject({ code: 'not_found' });
+      .rejects.toMatchObject({ code: 'CHANNELS_LISTING_NOT_FOUND', kind: 'not_found' });
     await expect(availability.updateSafetyStock(TEST_ORGANIZATION_ID, option.id, -1))
-      .rejects.toMatchObject({ code: 'invalid' });
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
     await expect(availability.updateSafetyStock(TEST_ORGANIZATION_ID, option.id, 3))
       .resolves.toEqual({ channelListingOptionId: option.id, safetyStock: 3 });
     const [projected] = await availability.findByChannelSkuIds(TEST_ORGANIZATION_ID, [option.id]);

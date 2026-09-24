@@ -12,7 +12,6 @@ import {
   ChannelUnsupportedError,
 } from '../../../domain/exception/channel-business-error';
 import { ERROR_DEFINITIONS } from '@kiditem/shared/errors';
-import { ChannelAccountException } from '../../../application/exception/channel-account.exception';
 import { ListingException } from '../../../application/exception/listing.exception';
 import { ChannelBusinessExceptionFilter } from './channel-business-exception.filter';
 import { ChannelListingController } from './listing/channel-listing.controller';
@@ -64,15 +63,10 @@ describe('ChannelBusinessExceptionFilter HTTP contract', () => {
     expect(json.mock.calls[0][0]).toMatchObject({ code: 'DB_CONFLICT', message: ERROR_DEFINITIONS.DB_CONFLICT.text });
   });
 
-  it.each([
-    [new ChannelAccountException('not_found', 'Channel account not found'), 404, 'CHANNELS_ACCOUNT_NOT_FOUND', ERROR_DEFINITIONS.CHANNELS_ACCOUNT_NOT_FOUND.text],
-    [new ChannelAccountException('invalid', '계정 이름이 비어 있습니다.'), 400, 'CHANNELS_ACCOUNT_INVALID', '계정 이름이 비어 있습니다.'],
-    [new ChannelAccountException('conflict', 'duplicate'), 409, 'DB_CONFLICT', ERROR_DEFINITIONS.DB_CONFLICT.text],
-    [new ListingException('not_found', 'listing missing'), 404, 'CHANNELS_LISTING_NOT_FOUND', ERROR_DEFINITIONS.CHANNELS_LISTING_NOT_FOUND.text],
-  ] as const)('maps channel application exception case %#', (error, statusCode, code, message) => {
+  it('keeps the collection catalog identity refusal (ListingException, KID-338) readable as VALIDATION_FAILED', () => {
     const { host, json } = responseHost();
-    new ChannelBusinessExceptionFilter().catch(error, host);
-    expect(json.mock.calls[0][0]).toEqual({ statusCode, code, kind: ERROR_DEFINITIONS[code].kind, message, errors: [] });
+    new ChannelBusinessExceptionFilter().catch(new ListingException('invalid', '수집 상품 식별자가 비어 있거나 중복되었습니다.'), host);
+    expect(json.mock.calls[0][0]).toMatchObject({ statusCode: 400, code: 'VALIDATION_FAILED', kind: 'validation' });
   });
 
   it('is registered once globally in main.ts, so channel controllers carry no local copy', () => {

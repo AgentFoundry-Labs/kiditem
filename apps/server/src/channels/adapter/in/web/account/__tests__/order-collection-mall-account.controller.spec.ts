@@ -5,7 +5,7 @@ import request from 'supertest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { ROLES_METADATA_KEY } from '../../../../../../auth/decorators/roles.decorator';
 import { CHANNEL_ACCOUNT_PORT } from '../../../../../application/port/in/account/channel-account.port';
-import { ChannelAccountException } from '../../../../../application/exception/channel-account.exception';
+import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { OrderCollectionMallAccountController } from '../order-collection-mall-account.controller';
 import { GlobalExceptionFilter } from '../../../../../../common/filters/global-exception.filter';
 import { ChannelBusinessExceptionFilter } from '../../channel-business-exception.filter';
@@ -42,8 +42,8 @@ describe('OrderCollectionMallAccountController listing profile route (KID-235)',
   it('answers the writer exceptions with 400 and 404', async () => {
     const accounts = fakeAccounts();
     accounts.updateListingProfile
-      .mockRejectedValueOnce(new ChannelAccountException('invalid', '등록 기본값 입력이 올바르지 않습니다'))
-      .mockRejectedValueOnce(new ChannelAccountException('not_found', '계정이 없습니다'));
+      .mockRejectedValueOnce(new KiditemInvalidValueError('VALIDATION_FAILED', { message: '등록 기본값 입력이 올바르지 않습니다' }))
+      .mockRejectedValueOnce(new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND'));
     const server = await mallAccountApp(accounts);
 
     await request(server.getHttpServer()).patch('/api/orders/collection/malls/onch/listing-profile').send({ x: 1 }).expect(400);

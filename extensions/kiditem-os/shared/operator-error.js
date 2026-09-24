@@ -386,6 +386,20 @@
       "text": "옵션 구성이 그사이 바뀌었습니다. 새로고침한 뒤 다시 저장해 주세요.",
       "retryable": true
     },
+    "CHANNELS_THUMBNAIL_EXECUTION_ACTIVE": {
+      "owner": "channels",
+      "kind": "in_progress",
+      "httpStatus": 409,
+      "text": "이 상품의 대표이미지를 이미 몰에 반영하는 중입니다. 끝나거나 반영 안 됨으로 표시한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "CHANNELS_SERVER_AUTOMATION_BLOCKED": {
+      "owner": "channels",
+      "kind": "precondition",
+      "httpStatus": 503,
+      "text": "이 환경에서는 대표이미지를 크롬 확장 프로그램으로만 반영할 수 있습니다. 확장 프로그램에서 반영해 주세요.",
+      "retryable": false
+    },
     "CHANNELS_OPTION_RECIPE_INVALID": {
       "owner": "channels",
       "kind": "validation",

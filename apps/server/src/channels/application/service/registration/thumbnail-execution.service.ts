@@ -19,13 +19,13 @@ import type {
   ThumbnailExecutionPersistencePort,
   ThumbnailExecutionRow,
 } from '../../port/out/persistence/thumbnail-execution.persistence.port';
-import { FactConflictError, FactInputError, FactNotFoundError } from '../../../../common/errors/fact-errors';
 import {
-  ChannelConflictError,
-  ChannelInputError,
-  ChannelNotFoundError,
-  ChannelUnavailableError,
-} from '../../../domain/exception/channel-business-error';
+  KiditemConflictError,
+  KiditemExternalError,
+  KiditemInvalidValueError,
+  KiditemNotFoundError,
+  KiditemPreconditionError,
+} from '@kiditem/shared/errors';
 import { freezeProductRegistrationPayload, type RegistrationSubmissionJson } from '../../../domain/registration/registration-submission-payload';
 import {
   THUMBNAIL_CONFIRMABLE_STATUSES,
@@ -40,11 +40,7 @@ import {
   type ThumbnailUpdateSubject,
 } from '../../../domain/registration/thumbnail-update';
 
-export const SERVER_AUTOMATION_BLOCKED_MESSAGE = '스테이징/운영에서는 대표이미지를 Chrome 확장 프로그램으로만 반영할 수 있습니다.';
-const RECONCILIATION_PENDING = 'representative_image_reconciliation_pending';
 const UPLOAD_FAILED = 'representative image upload failed';
-const LISTING_BUSY_MESSAGE = '이 listing 에 반영 중인 대표이미지가 있습니다';
-const LIVE_MESSAGE = '이 대표이미지는 이미 반영 중입니다';
 export const OPERATOR_NOT_APPLIED_MESSAGE = '운영자가 반영되지 않았다고 표시함';
 
 const ACCOUNT_MESSAGES = {
@@ -78,7 +74,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       requestedAssetId: input.assetId ?? null,
       requestedListingId: input.channelListingId ?? null,
     });
-    const created = await owned(() => this.persistence.createExecuting({
+    const created = await this.persistence.createExecuting({
       organizationId: input.organizationId,
       requestedByUserId: input.requestedByUserId,
       channelAccountId: intent.channelAccountId,
@@ -87,9 +83,9 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       requestHash: intent.payloadHash,
       payload: intent.payload,
       payloadHash: intent.payloadHash,
-    }));
-    if (created.mode === 'listing_conflict') throw new ChannelConflictError(LISTING_BUSY_MESSAGE);
-    if (created.mode !== 'created') throw new ChannelConflictError(LIVE_MESSAGE);
+    });
+    if (created.mode === 'listing_conflict') throw thumbnailActive('LISTING_BUSY');
+    if (created.mode !== 'created') throw thumbnailActive('IMAGE_LIVE');
     return {
       executionId: created.executionId,
       salesProductId: intent.payload.salesProductId,
@@ -130,8 +126,13 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
 
   private async settle(input: Parameters<ThumbnailExecutionPersistencePort['applyReport']>[0]): Promise<ThumbnailExecutionResult> {
     const applied = await this.persistence.applyReport(input);
-    if (applied.mode === 'not_found') throw new ChannelNotFoundError('썸네일 반영 실행을 찾을 수 없습니다');
-    if (applied.mode === 'rejected') throw new ChannelConflictError(`이 실행은 지금 받을 수 없습니다(${applied.status})`);
+    if (applied.mode === 'not_found') throw new KiditemNotFoundError('CHANNELS_EXECUTION_NOT_FOUND');
+    if (applied.mode === 'rejected') {
+      // 끝난 실행은 끝났다고, 아직 그 보고를 받을 차례가 아니면 상태 충돌로 답한다.
+      throw TERMINAL_STATUSES.has(applied.status)
+        ? new KiditemConflictError('CHANNELS_EXECUTION_TERMINAL')
+        : new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'NOT_ACCEPTING_REPORT' } });
+    }
     return toResult(applied.execution);
   }
 
@@ -145,13 +146,13 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     // owner 키 재생이 먼저다: 운영 차단 · Content 읽기 · 계정 · 사진이 바뀌어도 기록된 영수증을 돌려준다.
     const { owner } = input;
     if (owner) {
-      const recorded = await owned(() => this.persistence.findOwnerReplay({
+      const recorded = await this.persistence.findOwnerReplay({
         organizationId: input.organizationId,
         idempotencyKey: `${THUMBNAIL_UPDATE_IDEMPOTENCY_PREFIX}${owner.ownerIdempotencyKey}`,
         ownerIdempotencyKey: owner.ownerIdempotencyKey,
         requestHash: owner.requestHash,
         salesProductId: input.salesProductId,
-      }));
+      });
       if (recorded) return replayReceipt(recorded);
     }
     const intent = await this.freezeIntent({
@@ -162,8 +163,8 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     });
     // runner 는 그 계정 채널의 어댑터가 들고 있다. 없거나 운영에서 막혔으면 실행을 만들지 않는다.
     const runner = this.adapters.get(intent.channel).representativeImage;
-    if (!runner || runner.isBlocked()) throw new ChannelUnavailableError(SERVER_AUTOMATION_BLOCKED_MESSAGE);
-    const created = await owned(() => this.persistence.createExecuting({
+    if (!runner || runner.isBlocked()) throw new KiditemPreconditionError('CHANNELS_SERVER_AUTOMATION_BLOCKED');
+    const created = await this.persistence.createExecuting({
       organizationId: input.organizationId,
       requestedByUserId: input.requestedByUserId,
       channelAccountId: intent.channelAccountId,
@@ -176,9 +177,9 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       requestHash: input.owner?.requestHash ?? intent.payloadHash,
       payload: intent.payload,
       payloadHash: intent.payloadHash,
-    }));
-    if (created.mode === 'live_conflict') throw new ChannelConflictError(LIVE_MESSAGE);
-    if (created.mode === 'listing_conflict') throw new ChannelConflictError(LISTING_BUSY_MESSAGE);
+    });
+    if (created.mode === 'live_conflict') throw thumbnailActive('IMAGE_LIVE');
+    if (created.mode === 'listing_conflict') throw thumbnailActive('LISTING_BUSY');
     if (created.mode === 'replay') return replayReceipt(created.execution);
 
     let outcome: Awaited<ReturnType<RepresentativeImageRunnerPort['upload']>>;
@@ -209,7 +210,7 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
       screenshotPath: outcome.outcome === 'uploaded_pending_save' ? outcome.screenshotPath : null,
       externalId: null,
     });
-    if (applied.mode !== 'applied') throw new ChannelConflictError('representative image execution changed.');
+    if (applied.mode !== 'applied') throw new KiditemConflictError('CHANNELS_EXECUTION_FENCE_LOST', { details: { reason: 'EXECUTION_CHANGED' } });
     return toResult(applied.execution);
   }
 
@@ -239,12 +240,12 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
 
   async resend(input: { organizationId: string; executionId: string }): Promise<ThumbnailExecutionPrepareResponse> {
     const live = await this.persistence.readLivePayload(input);
-    if (live.mode === 'not_found') throw new ChannelNotFoundError('썸네일 반영 실행을 찾을 수 없습니다');
-    if (live.mode === 'finished') throw new ChannelConflictError(`이 실행은 이미 끝났습니다(${live.status})`);
+    if (live.mode === 'not_found') throw new KiditemNotFoundError('CHANNELS_EXECUTION_NOT_FOUND');
+    if (live.mode === 'finished') throw new KiditemConflictError('CHANNELS_EXECUTION_TERMINAL');
     const { payload } = live;
     const image = await this.content.loadImage({ organizationId: input.organizationId, assetId: payload.assetId });
     if (image.sha256 !== payload.image.sha256) {
-      throw new ChannelConflictError('사진이 바뀌어 같은 반영을 다시 보낼 수 없습니다 — 반영 안 됨으로 표시한 뒤 새로 올리세요');
+      throw new KiditemConflictError('CHANNELS_EXECUTION_STALE', { details: { reason: 'IMAGE_CHANGED' } });
     }
     return {
       executionId: input.executionId,
@@ -282,15 +283,18 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
     image: ThumbnailImagePayload;
   }> {
     const { organizationId, salesProductId } = input;
-    const evidence = await owned(() => this.persistence.readAccountEvidence({
+    const evidence = await this.persistence.readAccountEvidence({
       organizationId,
       pickedListingId: input.requestedListingId,
       salesProductId,
-    }));
+    });
     const account = resolveThumbnailAccount(evidence);
-    if (!account.ok) throw new ChannelInputError({ message: ACCOUNT_MESSAGES[account.reason], code: account.reason });
+    // 웹 representative-image-execution은 details.reason === 'ambiguous_listing'으로 listing 선택을 연다 — 철자 고정.
+    if (!account.ok) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: ACCOUNT_MESSAGES[account.reason], details: { reason: account.reason } });
+    }
     const productName = thumbnailProductName(evidence.listingChannelName, evidence.salesProductName);
-    if (!productName) throw new ChannelInputError('몰 등록 상품명을 찾을 수 없습니다');
+    if (!productName) throw new KiditemPreconditionError('CHANNELS_PREFLIGHT_FAILED', { details: { reason: 'PRODUCT_NAME_MISSING' } });
     const selectedThumbnailAssetId = input.requestedAssetId
       ?? await this.persistence.findTargetThumbnailAssetId({ organizationId, salesProductId, channelAccountId: account.channelAccountId });
     const thumbnail: RegistrableThumbnail = await this.content.read({ organizationId, salesProductId, selectedThumbnailAssetId });
@@ -319,9 +323,9 @@ export class ThumbnailExecutionService implements ChannelsThumbnailExecutionPort
 /** 올리고 운영자 확인을 기다리는 실행은 그 영수증을 돌려준다. 결과 자체를 모르는 실행만 503 이다. */
 function replayReceipt(execution: ThumbnailExecutionRow): ThumbnailExecutionResult {
   if (execution.status === 'reconciling' && execution.lastErrorCode === 'thumbnail_outcome_unknown') {
-    throw new ChannelUnavailableError(RECONCILIATION_PENDING);
+    throw reconciliationPending();
   }
-  if (execution.status === 'executing') throw new ChannelUnavailableError(RECONCILIATION_PENDING);
+  if (execution.status === 'executing') throw reconciliationPending();
   return toResult(execution);
 }
 
@@ -338,14 +342,14 @@ function toResult(row: ThumbnailExecutionRow): ThumbnailExecutionResult {
   };
 }
 
-/** 저장소의 fact 오류를 Channels 업무 오류로 옮긴다(HTTP 로는 필터가 옮긴다). */
-async function owned<T>(run: () => Promise<T>): Promise<T> {
-  try {
-    return await run();
-  } catch (error) {
-    if (error instanceof FactNotFoundError) throw new ChannelNotFoundError(error.message);
-    if (error instanceof FactConflictError) throw new ChannelConflictError(error.message);
-    if (error instanceof FactInputError) throw new ChannelInputError(error.message);
-    throw error;
-  }
+const TERMINAL_STATUSES: ReadonlySet<string> = new Set(['succeeded', 'failed', 'cancelled']);
+
+/** 같은 상품 · listing 의 대표이미지 반영이 살아 있다. */
+function thumbnailActive(reason: 'LISTING_BUSY' | 'IMAGE_LIVE'): KiditemConflictError {
+  return new KiditemConflictError('CHANNELS_THUMBNAIL_EXECUTION_ACTIVE', { details: { reason } });
+}
+
+/** 결과 자체를 모르는 실행의 재생은 결과가 정해질 때까지 기다리게 한다(503). */
+function reconciliationPending(): KiditemExternalError {
+  return new KiditemExternalError('SERVICE_UNAVAILABLE', { details: { reason: 'RECONCILIATION_PENDING' } });
 }

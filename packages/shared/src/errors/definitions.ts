@@ -143,6 +143,9 @@ export const ERROR_DEFINITIONS = {
   CHANNELS_EXECUTION_STALE: def('channels', 'conflict', '준비한 뒤 상품·계정이 바뀌어 이 몰 작업을 진행할 수 없습니다. 다시 준비해 주세요.'),
   CHANNELS_EXECUTION_EVIDENCE_REJECTED: def('channels', 'conflict', '몰에서 확인한 결과가 이 몰 작업과 맞지 않아 반영하지 않았습니다. 몰 화면을 확인해 주세요.'),
   CHANNELS_OPTION_RECIPE_STALE: def('channels', 'conflict', '옵션 구성이 그사이 바뀌었습니다. 새로고침한 뒤 다시 저장해 주세요.', { retryable: true }),
+  CHANNELS_THUMBNAIL_EXECUTION_ACTIVE: def('channels', 'in_progress', '이 상품의 대표이미지를 이미 몰에 반영하는 중입니다. 끝나거나 반영 안 됨으로 표시한 뒤 다시 시도해 주세요.'),
+  // 개발 서버 전용 자동 반영 — 스테이징·운영은 확장 프로그램으로만 반영한다(503은 Agent 경로 계약).
+  CHANNELS_SERVER_AUTOMATION_BLOCKED: def('channels', 'precondition', '이 환경에서는 대표이미지를 크롬 확장 프로그램으로만 반영할 수 있습니다. 확장 프로그램에서 반영해 주세요.', { httpStatus: 503 }),
   CHANNELS_OPTION_RECIPE_INVALID: def('channels', 'validation', '옵션 구성이 올바르지 않습니다. 구성 상품과 수량을 확인해 주세요.'),
   // 웹 use-mall-publish-run·collected-products 화면이 철자로 비교한다(shared registration-state) — 접두 없음.
   REGISTRATION_ALREADY_REGISTERED: def('channels', 'conflict', '이미 이 몰 계정에 등록된 상품입니다. 몰 상품 목록을 확인해 주세요.'),
