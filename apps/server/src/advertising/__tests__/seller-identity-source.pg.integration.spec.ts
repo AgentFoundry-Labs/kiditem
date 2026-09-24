@@ -353,10 +353,12 @@ describe('Seller identity owner HTTP + PostgreSQL', () => {
     expect((await submit(first, identities(first)).expect(409)).body).toMatchObject({
       code: 'ATTEMPT_EXPIRED',
       message: '수집 시도가 만료됐습니다. 다시 시작해 주세요.',
+      details: { attemptId: first.attemptId },
     });
     expect((await submit({ ...first, attemptToken: first.attemptToken.replace(/.$/, (last: string) => (last === '0' ? '1' : '0')) }, identities(first)).expect(409)).body).toMatchObject({
       code: 'ATTEMPT_FENCE_LOST',
       message: '이 수집 시도는 더 이상 유효하지 않습니다. 다시 시작해 주세요.',
+      details: { attemptId: first.attemptId },
     });
     const next = (await start().expect(201)).body;
     expect(next.attemptId).not.toBe(first.attemptId);

@@ -211,6 +211,20 @@
       "text": "몰 화면이 바뀌어 읽지 못했습니다. 개발자에게 알려 주세요.",
       "retryable": false
     },
+    "SELLPIA_MANUAL_MATCH_LOGIN_REQUIRED": {
+      "owner": "extension",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "셀피아 로그인이 필요합니다. 열린 수동상품매칭 화면에서 로그인한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "SELLPIA_MANUAL_MATCH_TIMEOUT": {
+      "owner": "extension",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "셀피아 수동상품매칭 근거 수집 시간이 초과되었습니다.",
+      "retryable": true
+    },
     "SOURCE_SNAPSHOT_INVALID": {
       "owner": "extension",
       "kind": "validation",
@@ -525,10 +539,10 @@
     "search_extraction_failed": "SOURCING_SEARCH_EXTRACTION_FAILED",
     "gateway_provider_unavailable": "AGENT_OS_GATEWAY_UNAVAILABLE",
     "SOURCE_ATTEMPT_TERMINAL": "ATTEMPT_TERMINAL",
-    "sellpia_manual_match_login_required": "MALL_LOGIN_REQUIRED",
+    "sellpia_manual_match_login_required": "SELLPIA_MANUAL_MATCH_LOGIN_REQUIRED",
     "sellpia_manual_match_contract_drift": "MALL_CONTRACT_CHANGED",
     "sellpia_manual_match_invalid_snapshot": "SOURCE_SNAPSHOT_INVALID",
-    "sellpia_manual_match_timeout": "REQUEST_TIMEOUT",
+    "sellpia_manual_match_timeout": "SELLPIA_MANUAL_MATCH_TIMEOUT",
     "sellpia_manual_match_network_failed": "NETWORK_FAILED",
     "SOURCE_ATTEMPT_IN_PROGRESS": "ATTEMPT_IN_PROGRESS",
     "ROCKET_PO_COLLECTION_INCOMPLETE": "SUPPLY_ROCKET_COLLECTION_INCOMPLETE",

@@ -262,7 +262,7 @@ describe('ProductTrackingPage tracked-Wing source owner', () => {
       if (path !== `${BASE}/attempts`) throw new Error(`unexpected POST ${path}`);
       status = { ...status, latestAttempt: latestAttempt('RUNNING') };
       throw new ApiError(409, 'ATTEMPT_IN_PROGRESS', 'Conflict', {
-        
+
         attemptId: ATTEMPT_ID,
       });
     });

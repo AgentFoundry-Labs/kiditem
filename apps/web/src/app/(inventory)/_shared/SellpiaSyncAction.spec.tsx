@@ -193,7 +193,7 @@ describe('SellpiaSyncAction', () => {
       if (path !== BEGIN_PATH) throw new Error(`unexpected POST ${path}`);
       freshnessView = freshness('running');
       throw new ApiError(409, 'ATTEMPT_IN_PROGRESS', 'Conflict', {
-        
+
         attemptId: ATTEMPT_ID,
       });
     });

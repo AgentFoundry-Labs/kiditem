@@ -210,7 +210,7 @@ describe('Wing rank batch collection control', () => {
     vi.mocked(apiClient.post).mockImplementation(async () => {
       owner = current(KEY, ['COMPLETE', 'RUNNING']);
       throw new ApiError(409, 'ATTEMPT_IN_PROGRESS', 'Conflict', {
-        
+
         attemptId: IDS[1],
       });
     });

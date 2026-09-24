@@ -49,6 +49,11 @@ describe('error registry (ADR-0023)', () => {
     }
   });
 
+  it('keeps the specific Sellpia manual-match guidance the operator used to see', () => {
+    expect(operatorErrorText({ code: 'sellpia_manual_match_login_required' })).toContain('열린 수동상품매칭 화면에서 로그인');
+    expect(operatorErrorText({ code: 'sellpia_manual_match_timeout' })).toBe('셀피아 수동상품매칭 근거 수집 시간이 초과되었습니다.');
+  });
+
   it('resolves registered codes, extension aliases and loose spellings, and refuses the rest', () => {
     expect(resolveErrorCode('ATTEMPT_EXPIRED')).toBe('ATTEMPT_EXPIRED');
     expect(resolveErrorCode('collection_window_owner_conflict')).toBe('COLLECTION_WINDOW_OWNER_CONFLICT');

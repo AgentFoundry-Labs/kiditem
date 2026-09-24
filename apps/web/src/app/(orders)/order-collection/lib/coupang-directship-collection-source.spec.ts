@@ -113,7 +113,7 @@ describe('coupangDirectshipCollectionSource', () => {
     const { handOff, source } = adapter();
     vi.mocked(apiClient.post).mockRejectedValue(
       new ApiError(409, 'ATTEMPT_IN_PROGRESS', '이미 진행 중입니다.', {
-        
+
         attemptId: RUNNING_ATTEMPT_ID,
       }),
     );
@@ -164,7 +164,7 @@ describe('coupangDirectshipCollectionSource', () => {
       queryClient,
       CHANNEL_ACCOUNT_ID,
       new ApiError(409, 'ATTEMPT_IN_PROGRESS', '이미 진행 중입니다.', {
-        
+
         attemptId: RUNNING_ATTEMPT_ID,
       }),
     )).toBe(true);

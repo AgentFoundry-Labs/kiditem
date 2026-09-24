@@ -199,7 +199,7 @@ describe('ProductOperationsSourceCollections', () => {
         ready: false,
       };
       throw new ApiError(409, 'ATTEMPT_IN_PROGRESS', 'Conflict', {
-        
+
         attemptId: ATTEMPT_ID,
       });
     });

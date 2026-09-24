@@ -13,8 +13,9 @@ import { fileURLToPath } from 'node:url';
 //      `throw new Error('<English>')` in the server may not grow beyond
 //      `scripts/.error-literal-baseline.txt` (regenerate with --write-baseline
 //      only when the count went down).
-//   3. rawRenderViolations — web JSX/toast code may not render `.detail`,
-//      `error.message`, `errorMessage` or a raw `errorCode` directly; it renders
+//   3. rawRenderViolations vs. render baseline — web JSX/toast code that renders
+//      `.detail`, `error.message`, `errorMessage` or a raw `errorCode` directly
+//      may not grow beyond `scripts/.error-render-baseline.txt`; new code renders
 //      `friendlyError` / `attemptFailureText` / `operatorReason` output. Only the
 //      two presenter files are allowlisted.
 //   4. extensionCodeViolations — extension `code: '<x>'` literals must resolve
@@ -28,6 +29,7 @@ const SERVER_SRC = path.join(ROOT, 'apps/server/src');
 const WEB_SRC = path.join(ROOT, 'apps/web/src');
 const EXTENSION_SRC = path.join(ROOT, 'extensions/kiditem-os');
 const BASELINE_FILE = path.join(ROOT, 'scripts/.error-literal-baseline.txt');
+const RENDER_BASELINE_FILE = path.join(ROOT, 'scripts/.error-render-baseline.txt');
 const REGISTRY_FILE = path.join(ROOT, 'packages/shared/src/errors/definitions.ts');
 
 const HANGUL = /[가-힣]/;
@@ -90,8 +92,10 @@ export function readBaseline(text) {
 // `operatorReason` output (lib/api-error.ts, lib/operator-error.ts); these shapes put a raw server,
 // extension or thrown message on screen instead. A value merely compared or passed on is not caught.
 const RAW_RENDER_PATTERNS = [
-  // toast.x(error.message) / toast.x(err instanceof Error ? err.message : …)
-  /toast(?:\.\w+)?\([^)]*\b(?:error|err|e)\.(?:message|detail)\b/g,
+  // toast.x(error.message) / toast.x(err instanceof Error ? err.message : …), nested calls allowed
+  /toast(?:\.\w+)?\((?:[^()]|\([^()]*\))*?\b(?:error|err|e)\.(?:message|detail)\b/g,
+  // {x instanceof Error ? x.message : …} in JSX or a template, any variable name
+  /\{[^{}]*\b(\w+)\s+instanceof\s+Error\s*\?\s*\1\.message\b/g,
   // {error.message}, {mutation.error.message}, {e?.detail} in JSX or a template
   /\{\s*(?:[\w]+\??\.)*(?:error|err|e)\??\.(?:message|detail)\s*\}/g,
   // {attempt.errorMessage}, {source.data?.latestAttempt?.errorMessage}
@@ -105,12 +109,28 @@ export const RAW_RENDER_ALLOWLIST = new Set([
   'lib/operator-error.ts',
 ]);
 
+/** The raw-render count is a ceiling like check 2: screens move to the presenters, the count only shrinks. */
+export function renderBaselineFailure(count, baseline) {
+  return count > baseline
+    ? `raw error rendering grew: ${count} > baseline ${baseline} (render friendlyError / attemptFailureText / operatorReason output instead)`
+    : null;
+}
+
 export function rawRenderViolations(entries, allowlist = RAW_RENDER_ALLOWLIST) {
   const violations = [];
   for (const { file, source } of entries) {
     if (allowlist.has(file)) continue;
+    // One finding per rendered message: a toast argument can also match the `{…}` shape, so a match
+    // that ends where an earlier finding ends is the same message.
+    const seenEnds = new Set();
     for (const re of RAW_RENDER_PATTERNS) {
-      for (const match of source.matchAll(re)) violations.push(`${file}: renders a raw error message (${match[0].trim().slice(0, 60)})`);
+      for (const match of source.matchAll(re)) {
+        const end = match.index + match[0].length;
+        if (seenEnds.has(end)) continue;
+        seenEnds.add(end);
+        const line = source.slice(0, match.index).split('\n').length;
+        violations.push(`${file}:${line}: renders a raw error message (${match[0].trim().slice(0, 60)})`);
+      }
     }
   }
   return violations;
@@ -155,11 +175,23 @@ if (process.argv[1] && path.resolve(process.argv[1]) === fileURLToPath(import.me
     else if (englishCount < baseline) console.log(`NOTE: English exception literals ${englishCount} < baseline ${baseline}; lower the baseline with --write-baseline`);
   }
 
-  failures.push(...rawRenderViolations(web));
+  const rawRenders = rawRenderViolations(web);
+  if (writeBaseline) {
+    const { writeFileSync } = await import('node:fs');
+    writeFileSync(RENDER_BASELINE_FILE, `${rawRenders.length}\n`);
+    console.log(`check:error-codes raw-render baseline written: ${rawRenders.length}`);
+  } else if (!existsSync(RENDER_BASELINE_FILE)) {
+    failures.push(`missing ${path.relative(ROOT, RENDER_BASELINE_FILE)} — run with --write-baseline once`);
+  } else {
+    const renderBaseline = readBaseline(readFileSync(RENDER_BASELINE_FILE, 'utf8'));
+    const grew = renderBaselineFailure(rawRenders.length, renderBaseline);
+    if (grew) failures.push(grew, ...rawRenders);
+    else if (rawRenders.length < renderBaseline) console.log(`NOTE: raw error rendering ${rawRenders.length} < baseline ${renderBaseline}; lower the baseline with --write-baseline`);
+  }
 
   const extensionReport = extensionCodeViolations(extension, codes, aliases);
   if (extensionReport.length) console.log(`NOTE (KID-338 scope, not enforced): ${extensionReport.length} extension code literals are unregistered:\n  ${extensionReport.slice(0, 10).join('\n  ')}${extensionReport.length > 10 ? '\n  …' : ''}`);
 
   if (failures.length) { console.error(`check:error-codes FAIL\n${failures.join('\n')}`); process.exitCode = 1; }
-  else console.log(`check:error-codes PASS — ${codes.size} registered codes, ${aliases.size} aliases, ${englishCount} English exception literals (baseline ${existsSync(BASELINE_FILE) ? readFileSync(BASELINE_FILE, 'utf8').trim() : 'n/a'})`);
+  else console.log(`check:error-codes PASS — ${codes.size} registered codes, ${aliases.size} aliases, ${englishCount} English exception literals (baseline ${existsSync(BASELINE_FILE) ? readFileSync(BASELINE_FILE, 'utf8').trim() : 'n/a'}), ${rawRenders.length} raw error renders (baseline ${existsSync(RENDER_BASELINE_FILE) ? readFileSync(RENDER_BASELINE_FILE, 'utf8').trim() : 'n/a'})`);
 }

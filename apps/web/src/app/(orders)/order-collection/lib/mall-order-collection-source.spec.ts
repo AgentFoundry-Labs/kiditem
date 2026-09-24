@@ -301,7 +301,7 @@ describe('mallOrderCollectionSource', () => {
     const { handOff, source } = adapter();
     vi.mocked(apiClient.post).mockRejectedValue(
       new ApiError(409, 'ATTEMPT_IN_PROGRESS', '이미 진행 중입니다.', {
-        
+
         attemptId: RUNNING_ATTEMPT_ID,
       }),
     );
@@ -354,7 +354,7 @@ describe('mallOrderCollectionSource', () => {
     const { source } = adapter();
     vi.mocked(apiClient.post)
       .mockRejectedValueOnce(new ApiError(409, 'ATTEMPT_IN_PROGRESS', '이미 진행 중입니다.', {
-        
+
         attemptId: RUNNING_ATTEMPT_ID,
       }))
       .mockResolvedValueOnce(openedAttempt());

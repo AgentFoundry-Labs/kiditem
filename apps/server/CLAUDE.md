@@ -25,6 +25,8 @@ owns its identity and mutation rules.
   Responses carry no stack, raw text or variable names (log those with
   `Logger`). A new code exists only once it is registered with its Korean
   sentence in `ERROR_DEFINITIONS` (`npm run check:error-codes`).
+- Pass diagnostic identifiers of a fence or expiry (`attemptId`, `mallKey`)
+  through the `KiditemError` `details` or `cause`, not the sentence.
 
 ## Module Boundaries
 

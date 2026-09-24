@@ -1065,7 +1065,7 @@ describe('Advertising profitability source owner (PostgreSQL)', () => {
     expect(alert).toMatchObject({
       attemptId: expired.attemptId,
       status: 'OPEN',
-      message: '수집 시도가 만료됐습니다. 다시 시작해 주세요.',
+      message: '광고 수익성 수집이 결과를 저장하기 전에 만료되었습니다. 다시 수집해주세요.',
     });
     // The code travels in the attempt's `errorCode`; the line the operator reads is a sentence.
     expect(alert?.message).not.toMatch(/^[A-Z][A-Z0-9_]+:/);

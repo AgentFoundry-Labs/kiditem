@@ -223,16 +223,24 @@ describe('SourceFailureAlerts', () => {
     });
   });
 
-  it('keeps a Korean producer title and gives an unknown code the source-level sentence', async () => {
+  it('keeps a Korean producer title and sentence; an English one with an unknown code gets the source-level sentence', async () => {
     const { db, getRow } = makeDb();
     const alerts = new SourceFailureAlerts(db);
 
     await alerts.recordTerminalOutcome(db, failure(ATTEMPT_ID_2));
+    expect(getRow()).toMatchObject({ title: 'Sellpia 수익성 수집 실패', message: '공급가를 확인할 수 없습니다.' });
 
-    expect(getRow()).toMatchObject({
-      title: 'Sellpia 수익성 수집 실패',
-      message: '셀피아 수익성 수집 작업이 실패했습니다. 다시 시도해 주세요.',
-    });
+    const other = makeDb();
+    await new SourceFailureAlerts(other.db).recordTerminalOutcome(other.db, { ...failure(ATTEMPT_ID_2), message: 'supply price missing for SKU-1' });
+    expect(other.getRow()).toMatchObject({ message: '셀피아 수익성 수집 작업이 실패했습니다. 다시 시도해 주세요.' });
+  });
+
+  it('scrubs credentials from a kept Korean sentence and truncates it to the column', async () => {
+    const { db, getRow } = makeDb();
+    await new SourceFailureAlerts(db).recordTerminalOutcome(db, { ...failure(ATTEMPT_ID_2), message: `token=abcd1234 ${'가'.repeat(400)}` });
+    const written = getRow() as unknown as { message: string };
+    expect(written.message).not.toContain('abcd1234');
+    expect(written.message).toHaveLength(300);
   });
 
   it('lists and dismisses only alerts in the authenticated organization', async () => {

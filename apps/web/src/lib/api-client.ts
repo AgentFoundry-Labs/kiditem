@@ -367,6 +367,3 @@ export const apiClient = {
   fetchRaw: async (path: string, init?: RequestInit): Promise<Response> =>
     fetchRaw(path, init),
 };
-
-
-

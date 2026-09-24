@@ -4,6 +4,7 @@ import {
   englishLiteralCount,
   extensionCodeViolations,
   rawRenderViolations,
+  renderBaselineFailure,
   readBaseline,
   readRegistryCodes,
   registeredCodeViolations,
@@ -73,3 +74,17 @@ test('presenter output, non-error detail fields and branching on a message are n
   ].join('\n') }]), []);
 });
 
+test('nested-paren toasts and JSX `instanceof Error ? x.message` are raw rendering too', () => {
+  const hits = rawRenderViolations([{ file: 'app/(x)/nested.tsx', source: [
+    "toast.error(isApiError(e) ? e.message : e instanceof Error ? e.message : '실패');",
+    "toast.error(describe(err), { description: err instanceof Error ? err.message : '' });",
+    "<p>{saveError instanceof Error ? saveError.message : '저장 실패'}</p>",
+  ].join('\n') }]);
+  assert.equal(hits.length, 3);
+});
+
+test('the raw-render count is a ceiling: it may shrink, never grow', () => {
+  assert.deepEqual(renderBaselineFailure(79, 79), null);
+  assert.deepEqual(renderBaselineFailure(70, 79), null);
+  assert.match(renderBaselineFailure(80, 79), /raw error rendering grew: 80 > baseline 79/);
+});
