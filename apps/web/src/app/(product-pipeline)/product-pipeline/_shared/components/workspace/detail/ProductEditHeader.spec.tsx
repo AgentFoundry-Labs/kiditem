@@ -227,15 +227,20 @@ describe('ProductEditHeader preparation draft action', () => {
   });
 
   /**
-   * 등록이 어디까지 갔는가는 등록 상태 reader 가 계정별로 답한다(KID-320). 이미 몰에 올라간 계정에
-   * '제품 등록 준비' 버튼이 다시 열리면 안 된다.
+   * 등록이 어디까지 갔는가는 등록 상태 reader 가 계정별로 답한다(KID-320). 한 몰에 올라갔어도 다른 몰은 준비할
+   * 수 있어야 한다 — 버튼은 열어 두고, 이미 올라간 계정은 대화상자가 계정마다 막는다(W4 리뷰 S2).
    */
-  it('⭐ shows the only account\'s state and hides preparation when it is registered', () => {
+  it('⭐ shows the only account\'s state and still offers preparation for the other malls when it is registered', async () => {
     renderHeader([account(ROCKET_ACCOUNT, 'registered', { changedSinceRegistration: true })]);
 
     expect(screen.getByText('등록됨')).toBeInTheDocument();
     expect(screen.getByText('변경됨 · 재전송 필요')).toBeInTheDocument();
-    expect(screen.queryByRole('button', { name: '제품 등록 준비' })).not.toBeInTheDocument();
+    const button = screen.getByRole('button', { name: '제품 등록 준비' });
+    expect(button).toBeEnabled();
+
+    fireEvent.click(button);
+    const registered = await screen.findByRole('option', { name: /쿠팡 로켓 계정/ });
+    expect(registered).toBeDisabled();
   });
 
   /** 아무 계정에도 보내지 않았으면 등록 준비 길은 열려 있다. 반려는 없다(KID-313). */
@@ -245,12 +250,10 @@ describe('ProductEditHeader preparation draft action', () => {
     expect(screen.queryByRole('button', { name: /반려/ })).not.toBeInTheDocument();
   });
 
-  it('disables preparation with the reason while the selected account is live', () => {
+  it('keeps preparation open for the other malls while one account is live', () => {
     renderHeader([account(ROCKET_ACCOUNT, 'submitting')]);
 
-    const button = screen.getByRole('button', { name: '제품 등록 준비' });
-    expect(button).toBeDisabled();
-    expect(button).toHaveAttribute('title', expect.stringContaining('전송 중'));
+    expect(screen.getByRole('button', { name: '제품 등록 준비' })).toBeEnabled();
     expect(screen.getByText('전송 중')).toBeInTheDocument();
   });
 

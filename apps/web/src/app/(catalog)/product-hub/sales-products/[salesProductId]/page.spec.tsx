@@ -8,7 +8,11 @@ import SalesProductEditorPage from './page';
 const api = vi.hoisted(() => ({ get: vi.fn(), update: vi.fn(), replaceOptions: vi.fn() }));
 
 vi.mock('@/lib/sales-product-api', () => ({
-  salesProductKeys: { all: ['sales-products'], detail: (id: string) => ['sales-products', 'detail', id] },
+  salesProductKeys: {
+    all: ['sales-products'],
+    detail: (id: string) => ['sales-products', 'detail', id],
+    registrationState: (id: string) => ['sales-products', 'registration-state', id],
+  },
   salesProductApi: api,
 }));
 vi.mock('../components/ChannelListingsSection', () => ({ ChannelListingsSection: () => null }));
@@ -17,8 +21,10 @@ vi.mock('../components/ContentDetailSection', () => ({ ContentDetailSection: () 
 vi.mock('../components/OptionTableEditor', () => ({ OptionTableEditor: () => null }));
 vi.mock('sonner', () => ({ toast: { success: vi.fn(), error: vi.fn() } }));
 
+let client: QueryClient;
+
 async function renderEditor() {
-  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
+  client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   const params = Promise.resolve({ salesProductId: 'sp-1' });
   await act(async () => {
     render(
@@ -51,5 +57,15 @@ describe('판매상품 편집 — KC 인증 상태(KID-310 c)', () => {
     fireEvent.click(screen.getByRole('button', { name: /저장/ }));
 
     await waitFor(() => expect(api.update).toHaveBeenCalledWith('sp-1', { kcStatus: 'exists', expectedVersion: 4 }));
+  });
+
+  it('re-reads the registration state after a save — a product write can flip 변경됨', async () => {
+    await renderEditor();
+    const invalidate = vi.spyOn(client, 'invalidateQueries');
+
+    fireEvent.change(await screen.findByLabelText('KC 인증 상태'), { target: { value: 'exists' } });
+    fireEvent.click(screen.getByRole('button', { name: /저장/ }));
+
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith({ queryKey: ['sales-products', 'registration-state', 'sp-1'] }));
   });
 });

@@ -109,6 +109,9 @@ function accountState(overrides: Record<string, unknown> = {}) {
     registrationTargetId: TARGET_ID,
     channelListingId: null,
     externalListingId: null,
+    listingState: null,
+    listingRawStatus: null,
+    listingActive: false,
     state: 'unregistered',
     soldOut: false,
     changedSinceRegistration: false,
@@ -119,12 +122,15 @@ function accountState(overrides: Record<string, unknown> = {}) {
   };
 }
 
+let lastQueryClient: QueryClient;
+
 function serveRegistrationState(...accounts: ReturnType<typeof accountState>[]) {
   vi.mocked(salesProductApi.registrationState).mockResolvedValue({ accounts } as never);
 }
 
 function renderSection(value: SalesProduct = product, openAdvanced = false) {
   const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  lastQueryClient = queryClient;
   const rendered = render(
     <QueryClientProvider client={queryClient}>
       <ChannelOverridesSection product={value} />
@@ -158,8 +164,11 @@ describe('<ChannelOverridesSection />', () => {
 
     expect((await screen.findAllByText('등록됨')).length).toBeGreaterThan(0);
     expect(screen.getAllByText('변경됨 · 재전송 필요').length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/등록 · 등록 결과 확인됨/).length).toBeGreaterThan(0);
-    expect(screen.getAllByRole('link', { name: '몰에 올라간 상품에서 다시 보내기' })[0]).toHaveAttribute('href', '#listings');
+    // 상태는 배지가 말한다 — 마지막 실행 줄은 그 실행의 시각만 적고 상태 말을 새로 짓지 않는다.
+    expect(screen.getAllByText(/^마지막 실행 /).length).toBeGreaterThan(0);
+    expect(screen.queryByText(/등록 결과 확인됨/)).not.toBeInTheDocument();
+    // 재전송이 아직 없으니(KID-323) 몰에 올라간 상품으로 보내는 고리도 없다.
+    expect(screen.queryByRole('link', { name: /다시 보내기|몰에 올라간 상품/ })).not.toBeInTheDocument();
     expect(listRegistrationTargetExecutions).not.toHaveBeenCalled();
     expect(targetRegistrationExecutionApi.get).not.toHaveBeenCalled();
   });
@@ -397,7 +406,7 @@ describe('<ChannelOverridesSection />', () => {
     renderSection(product, true);
     await waitFor(() => expect(screen.getByRole('button', { name: '상태 확인' })).toBeEnabled());
     expect(screen.getAllByText('확인 대기').length).toBeGreaterThan(0);
-    expect(screen.getAllByText(/등록 · 결과 확인 중 · 재송신하지 않음/).length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/^마지막 실행 /).length).toBeGreaterThan(0);
     expect(targetRegistrationExecutionApi.get).toHaveBeenCalledWith('66666666-6666-4666-8666-666666666666');
     expect(listRegistrationTargetExecutions).not.toHaveBeenCalled();
     fireEvent.click(screen.getByRole('button', { name: '상태 확인' }));
@@ -405,6 +414,61 @@ describe('<ChannelOverridesSection />', () => {
     await waitFor(() => expect(executeTargetRegistration).toHaveBeenCalledWith(expect.objectContaining({
       existingExecution: activeExecution,
     })));
+  });
+
+  it('re-reads the live execution when the reader reports a new provider outcome on the same status', async () => {
+    vi.mocked(registrationTargetApi.list).mockResolvedValue([target]);
+    vi.mocked(salesProductApi.mallAccounts).mockResolvedValue([{
+      channelAccountId: ACCOUNT_ID, mallKey: 'smartstore', mallName: '스마트스토어 본계정',
+    }]);
+    const executing = (providerOutcome: string) => accountState({
+      state: providerOutcome === 'succeeded' ? 'confirming' : 'submitting',
+      lastExecution: {
+        id: EXECUTION_ID, kind: 'register', status: 'executing', providerOutcome,
+        createdAt: '2026-09-22T01:02:03.000Z', completedAt: null,
+      },
+    });
+    serveRegistrationState(executing('not_attempted'));
+    vi.mocked(targetRegistrationExecutionApi.get).mockResolvedValue({
+      executionId: EXECUTION_ID, targetId: TARGET_ID, channelAccountId: ACCOUNT_ID, status: 'executing', providerOutcome: 'not_attempted',
+      payloadHash: 'hash', payload: {
+        targetId: TARGET_ID, targetVersion: 2, channelAccountId: ACCOUNT_ID, kind: 'register', channelListingId: null,
+        applyCompositionTemplate: false, detailPage: null, registrationInput: {},
+        product: { id: PRODUCT_ID, name: '동물 블록', options: [{ id: OPTION_ONE, optionCode: '100-0001', values: ['파랑'] }] },
+      },
+      leaseToken: null, maySubmit: false, externalListingId: null, result: null, createdAt: '2026-09-22T01:02:03.000Z',
+    } as never);
+
+    renderSection(product, true);
+    await waitFor(() => expect(targetRegistrationExecutionApi.get).toHaveBeenCalledTimes(1));
+
+    serveRegistrationState(executing('succeeded'));
+    await lastQueryClient.invalidateQueries({ queryKey: ['sales-products', 'registration-state', PRODUCT_ID] });
+
+    await waitFor(() => expect(targetRegistrationExecutionApi.get).toHaveBeenCalledTimes(2));
+  });
+
+  it('re-reads the registration state after the simple and the advanced saves — both can flip 변경됨', async () => {
+    vi.mocked(registrationTargetApi.list).mockResolvedValue([target]);
+    vi.mocked(registrationTargetApi.resolve).mockResolvedValue(target);
+    vi.mocked(registrationTargetApi.update).mockResolvedValue(target);
+    vi.mocked(salesProductApi.mallAccounts).mockResolvedValue([{
+      channelAccountId: ACCOUNT_ID, mallKey: 'smartstore', mallName: '스마트스토어 본계정',
+    }]);
+    renderSection();
+    const invalidate = vi.spyOn(lastQueryClient, 'invalidateQueries');
+    const stateKey = { queryKey: ['sales-products', 'registration-state', PRODUCT_ID] };
+
+    fireEvent.change(await screen.findByLabelText('스마트스토어 본계정 몰 카테고리'), { target: { value: '완구>블록' } });
+    fireEvent.click(screen.getByRole('button', { name: '저장' }));
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith(stateKey));
+
+    invalidate.mockClear();
+    fireEvent.click(screen.getByText('추가 등록 설정'));
+    fireEvent.click(await screen.findByRole('button', { name: '1 / 2' }));
+    fireEvent.click(screen.getByRole('checkbox', { name: '100-0002 외부 송신 선택' }));
+    fireEvent.click(screen.getByRole('button', { name: '등록 대상 저장' }));
+    await waitFor(() => expect(invalidate).toHaveBeenCalledWith(stateKey));
   });
 
   it('records an explicit composition transition without calling the registration adapter', async () => {

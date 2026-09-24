@@ -76,9 +76,9 @@ preparation draft and no `{ preparationId, status }` response to render; the
 resolved target's id stands in for the old preparation id.
 
 The header reads per-account state from the Channels registration-state reader
-(`registrationAccounts`, KID-320). Preparation opens only for an unregistered or
-failed account; a live account disables it with the reason, and the account
-picker blocks accounts that are registered or live.
+(`registrationAccounts`, KID-320). The preparation button stays open while any
+account can be prepared; the account picker blocks each account that is
+registered or live.
 
 A product appears in registered-products only after a registration execution
 succeeds with a real `ChannelListing`; registered navigation uses the

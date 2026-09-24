@@ -121,6 +121,8 @@ function Editor({ product }: { product: SalesProduct }) {
     onSuccess: (next) => {
       queryClient.setQueryData(salesProductKeys.detail(product.id), next);
       void queryClient.invalidateQueries({ queryKey: [...salesProductKeys.all, 'list'] });
+      // 판매상품 쓰기는 version 을 올려 몰 계정별 "변경됨"을 바꿀 수 있다 — 등록 상태도 다시 읽는다(KID-320).
+      void queryClient.invalidateQueries({ queryKey: salesProductKeys.registrationState(product.id) });
       toast.success('저장했습니다.');
     },
     onError: (error) => toast.error(isApiError(error) ? error.detail : '저장하지 못했습니다.'),

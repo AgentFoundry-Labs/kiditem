@@ -20,7 +20,6 @@ import { registrationTargetApi, registrationTargetKeys } from '@/lib/registratio
 import { salesProductKeys } from '@/lib/sales-product-api';
 import {
   canPrepareRegistration,
-  isLiveRegistrationState,
   registrationStateLabel,
 } from '@/app/(channels)/_shared/registration-account-state';
 import { RegistrationStateBadge } from '@/app/(channels)/_shared/components/RegistrationStateBadge';
@@ -168,8 +167,11 @@ export default function ProductEditHeader({
 
   /**
    * 등록이 어디까지 갔는가는 Channels 등록 상태 reader 가 계정별로 답한다(KID-320) — 화면은 실행 이력이나
-   * 등록 설정 행으로 상태를 짓지 않는다. 버튼은 '고른 계정' 기준이다: 방금 준비한 계정, 아니면 계정이
-   * 하나뿐일 때 그 계정. 고른 계정이 없으면(계정이 없거나 여럿) 대화상자에서 계정마다 막는다.
+   * 등록 설정 행으로 상태를 짓지 않는다. 배지는 '고른 계정' 기준이다: 방금 준비한 계정, 아니면 계정이
+   * 하나뿐일 때 그 계정. 고른 계정이 없으면(계정이 없거나 여럿) 상품 요약 배지다.
+   *
+   * "제품 등록 준비"는 준비할 수 있는 계정이 하나라도 있으면 연다 — 한 몰에 올라갔거나 보내는 중이어도 다른 몰은
+   * 준비할 수 있다. 등록됐거나 진행 중인 계정은 대화상자가 계정마다 막는다(`unavailableAccounts`).
    */
   const selectedAccount = useMemo(() => {
     const resolvedAccountId = createPreparationDraftMutation.data?.channelAccountId ?? null;
@@ -178,14 +180,6 @@ export default function ProductEditHeader({
     }
     return registrationAccounts.length === 1 ? registrationAccounts[0] : null;
   }, [createPreparationDraftMutation.data?.channelAccountId, registrationAccounts]);
-  const selectedState = selectedAccount?.state ?? null;
-  const showPreparation = selectedState === null
-    || canPrepareRegistration(selectedState)
-    || isLiveRegistrationState(selectedState);
-  const preparationBlockedReason = selectedState && isLiveRegistrationState(selectedState)
-    ? `${selectedAccount?.channelAccountName ?? '이 몰 계정'} 등록이 ${registrationStateLabel(selectedState)}입니다 — 끝난 뒤 다시 준비할 수 있습니다.`
-    : null;
-  const canCreatePreparation = preparationBlockedReason === null && !createPreparationDraftMutation.isPending;
   const unavailableAccounts = useMemo(() => {
     const reasons: Record<string, string> = {};
     for (const account of registrationAccounts) {
@@ -193,6 +187,13 @@ export default function ProductEditHeader({
     }
     return reasons;
   }, [registrationAccounts]);
+  // 계정 목록은 대화상자를 열 때 읽는다. 읽은 뒤 모든 계정이 막혔을 때만 버튼을 닫는다.
+  const noPreparableAccount = accountsQuery.data !== undefined
+    && accountsQuery.data.every((account) => account.id in unavailableAccounts);
+  const preparationBlockedReason = noPreparableAccount
+    ? '모든 몰 계정이 이미 등록됐거나 진행 중입니다.'
+    : null;
+  const canCreatePreparation = preparationBlockedReason === null && !createPreparationDraftMutation.isPending;
   const hasRegistrationThumbnail = !!selectedThumbnailUrl;
   const hasRegistrationDetailPage = !!selectedDetailPageGenerationId;
   const registrationAssetsTitle = [
@@ -320,29 +321,25 @@ export default function ProductEditHeader({
 
         {/* 등록 준비는 판매상품 초안 화면에만 있다 — 등록상품(리스팅) 화면에는 초안이 없다. */}
         {salesProductId && (
-          <>
-            {showPreparation && (
-              <button
-                type="button"
-                onClick={() => setPreparationDialogOpen(true)}
-                disabled={!canCreatePreparation}
-                className={cn(
-                  'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors',
-                  canCreatePreparation
-                    ? 'bg-emerald-600 hover:bg-emerald-700'
-                    : 'cursor-not-allowed bg-emerald-300',
-                )}
-                title={preparationBlockedReason ?? `채널별 제품 등록 준비\n${registrationAssetsTitle}`}
-              >
-                {createPreparationDraftMutation.isPending ? (
-                  <Loader2 size={12} className="animate-spin" />
-                ) : (
-                  <CheckCircle2 size={12} />
-                )}
-                제품 등록 준비
-              </button>
+          <button
+            type="button"
+            onClick={() => setPreparationDialogOpen(true)}
+            disabled={!canCreatePreparation}
+            className={cn(
+              'inline-flex items-center gap-1.5 rounded-md px-3 py-1.5 text-xs font-semibold text-white shadow-sm transition-colors',
+              canCreatePreparation
+                ? 'bg-emerald-600 hover:bg-emerald-700'
+                : 'cursor-not-allowed bg-emerald-300',
             )}
-          </>
+            title={preparationBlockedReason ?? `채널별 제품 등록 준비\n${registrationAssetsTitle}`}
+          >
+            {createPreparationDraftMutation.isPending ? (
+              <Loader2 size={12} className="animate-spin" />
+            ) : (
+              <CheckCircle2 size={12} />
+            )}
+            제품 등록 준비
+          </button>
         )}
 
         <ProductPreparationDraftDialog

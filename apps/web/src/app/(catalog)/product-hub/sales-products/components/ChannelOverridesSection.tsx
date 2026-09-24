@@ -146,56 +146,30 @@ function isCompositionExecution(execution: TargetExecutionResult | undefined): b
   return execution?.payload.kind === 'composition_change';
 }
 
-function executionStatusLabel(execution: { status: string; providerOutcome: string }): string {
-  if (execution.status === 'prepared' && execution.providerOutcome === 'not_attempted') return '준비됨 · 외부 송신 대기';
-  if (execution.status === 'executing') return '송신 중 · 결과 확인 필요';
-  if (execution.status === 'reconciling') return '결과 확인 중 · 재송신하지 않음';
-  if (execution.status === 'succeeded') return '등록 결과 확인됨';
-  if (execution.status === 'failed' && execution.providerOutcome === 'definitive_failure') return '확정 실패';
-  if (execution.status === 'cancelled') return '취소됨';
-  return `${execution.status} · ${execution.providerOutcome}`;
-}
-
 function executionTimeLabel(createdAt: string | null): string {
   if (!createdAt) return '';
   const date = new Date(createdAt);
   return Number.isNaN(date.getTime()) ? '' : date.toLocaleString('ko-KR');
 }
 
-const EXECUTION_KIND_LABEL: Record<string, string> = {
-  register: '등록',
-  update: '수정',
-  composition_change: '구성 변경',
-};
-
-/** 등록 상태의 근거가 된 마지막 실행 한 줄 — 등록 상태 reader 가 준 값이다(KID-320). */
+/**
+ * 등록 상태의 근거가 된 마지막 실행 한 줄 — 등록 상태 reader 가 준 `lastExecution` 의 시각만 적는다(KID-320).
+ * 상태 말은 배지 하나가 한다. 실행 종류 · 상태를 여기서 다시 말로 지으면 배지와 갈라진다.
+ */
 function lastExecutionLine(account: RegistrationAccountState | undefined): string | null {
-  const execution = account?.lastExecution;
-  if (!execution) return null;
-  const kind = EXECUTION_KIND_LABEL[execution.kind] ?? execution.kind;
-  const time = executionTimeLabel(execution.createdAt);
-  return [`${kind} · ${executionStatusLabel(execution)}`, time].filter(Boolean).join(' · ');
+  const time = executionTimeLabel(account?.lastExecution?.createdAt ?? null);
+  return time ? `마지막 실행 ${time}` : null;
 }
 
-/** 계정 줄: 등록 상태 배지와 마지막 실행 한 줄. 재전송이 필요하면 몰에 올라간 상품의 수정 실행으로 보낸다. */
+/** 계정 줄: 등록 상태 배지와 마지막 실행 한 줄. */
 function AccountRegistrationState({ account }: { account: RegistrationAccountState | undefined }) {
   const line = lastExecutionLine(account);
   return (
     <div className="space-y-0.5">
       <RegistrationStateBadge account={account ?? UNREGISTERED} />
       {line && <p className="text-[11px] text-slate-500">{line}</p>}
-      {account?.changedSinceRegistration && (
-        <a href="#listings" className="block text-[11px] font-medium text-orange-700 hover:underline">
-          몰에 올라간 상품에서 다시 보내기
-        </a>
-      )}
     </div>
   );
-}
-
-/** 준비됨 · 송신 중 · 결과 확인 중 — `isActiveTargetExecution` 과 같은 규칙을 reader 의 글자 상태에 쓴다. */
-function isLiveExecutionStatus(status: string): boolean {
-  return isActiveTargetExecution({ status: status as TargetExecutionResult['status'], providerOutcome: 'not_attempted' });
 }
 
 const UNREGISTERED = {
@@ -307,6 +281,8 @@ export function ChannelOverridesSection({ product }: { product: SalesProduct }) 
     },
     onSuccess: (_saved, { account }) => {
       void queryClient.invalidateQueries({ queryKey: registrationTargetKeys.list(product.id) });
+      // 몰별 값이 바뀌면 등록 설정 version 이 올라 "변경됨"이 달라질 수 있다 — 등록 상태도 다시 읽는다.
+      void queryClient.invalidateQueries({ queryKey: salesProductKeys.registrationState(product.id) });
       setDrafts((current) => {
         const { [account.channelAccountId]: _savedDraft, ...rest } = current;
         return rest;
@@ -678,12 +654,20 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
   const rowAccounts = targetRows.map((target) => accountStateFor(registration.accounts, target, target.channelAccountId));
   const liveExecutionQueries = useQueries({
     queries: rowAccounts.map((account) => {
-      const execution = account?.lastExecution && isLiveExecutionStatus(account.lastExecution.status)
-        ? account.lastExecution
+      const last = account?.lastExecution ?? null;
+      const execution = last && isActiveTargetExecution({
+        status: last.status as TargetExecutionResult['status'],
+        providerOutcome: last.providerOutcome as TargetExecutionResult['providerOutcome'],
+      })
+        ? last
         : null;
       return {
-        // 상태가 키에 들어가 reader 가 상태 변화를 알릴 때만 다시 읽는다 — 이 읽기는 스스로 폴링하지 않는다.
-        queryKey: [...registrationExecutionKeys.execution(execution?.id ?? ''), execution?.status ?? null] as const,
+        // 상태 · 몰 결과가 키에 들어가 reader 가 둘 중 하나의 변화를 알릴 때만 다시 읽는다 — 이 읽기는 스스로 폴링하지 않는다.
+        queryKey: [
+          ...registrationExecutionKeys.execution(execution?.id ?? ''),
+          execution?.status ?? null,
+          execution?.providerOutcome ?? null,
+        ] as const,
         queryFn: () => targetRegistrationExecutionApi.get(execution!.id),
         enabled: execution !== null,
       };
@@ -718,6 +702,7 @@ function AdvancedChannelOverridesSettings({ product }: { product: SalesProduct }
     },
     onSuccess: (_next, { target }) => {
       void queryClient.invalidateQueries({ queryKey: registrationTargetKeys.list(product.id) });
+      void queryClient.invalidateQueries({ queryKey: salesProductKeys.registrationState(product.id) });
       if (target) {
         setDrafts((current) => {
           const { [target.id]: _saved, ...rest } = current;
