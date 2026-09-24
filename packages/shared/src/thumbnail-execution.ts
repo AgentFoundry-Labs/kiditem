@@ -17,7 +17,6 @@ export const ThumbnailExecutionPrepareRequestSchema = z.object({
   /** 판매상품에 쿠팡 listing 이 여럿일 때만 고른다. */
   channelListingId: z.string().uuid().optional(),
 }).strict();
-export type ThumbnailExecutionPrepareRequest = z.infer<typeof ThumbnailExecutionPrepareRequestSchema>;
 
 export const ThumbnailExecutionImageSchema = z.object({
   dataUrl: z.string().min(1),
@@ -87,10 +86,6 @@ export const ThumbnailExecutionListingChoiceSchema = z.object({
 }).strict();
 export type ThumbnailExecutionListingChoice = z.infer<typeof ThumbnailExecutionListingChoiceSchema>;
 
-export const ThumbnailExecutionListingChoiceListSchema = z.object({
-  items: z.array(ThumbnailExecutionListingChoiceSchema),
-}).strict();
-
 export const ThumbnailExecutionStatusQuerySchema = z.object({
   salesProductIds: z.array(z.string().uuid()).min(1).max(200),
 }).strict();
@@ -107,7 +102,3 @@ export const ThumbnailExecutionStatusSchema = z.object({
   screenshotPath: z.string().nullable(),
 }).strict();
 export type ThumbnailExecutionStatus = z.infer<typeof ThumbnailExecutionStatusSchema>;
-
-export const ThumbnailExecutionStatusListSchema = z.object({
-  items: z.array(ThumbnailExecutionStatusSchema),
-}).strict();

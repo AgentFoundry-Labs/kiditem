@@ -20,15 +20,6 @@ export function mallDisplayName(name: string): string {
   return splitNamePriceCode(name).rest;
 }
 
-/**
- * 이름 앞에 붙은 소비자가(`6000초코파이…` → 6000). 가격 코드가 아니면 null.
- *
- * 스마트스토어 즉시할인처럼 소비자가를 읽어 쓰는 곳이 있어 이름 떼기와 같은 규칙으로 판단한다.
- */
-export function mallNamePriceCode(name: string): number | null {
-  return splitNamePriceCode(name).priceCode;
-}
-
 function splitNamePriceCode(name: string): { priceCode: number | null; rest: string } {
   const trimmed = name.trim();
   const match = /^(\d{3,})(?!\d)(\s*)(?=\S)/.exec(trimmed);

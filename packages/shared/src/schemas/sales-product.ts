@@ -736,7 +736,6 @@ export const CoupangCatalogChangeSchema = z.object({
   before: z.string(),
   after: z.string(),
 });
-export type CoupangCatalogChange = z.infer<typeof CoupangCatalogChangeSchema>;
 
 export const CoupangCatalogRowSchema = z.object({
   /** 윙 옵션 ID. 한 줄은 상품이 아니라 옵션 하나다. */
@@ -749,7 +748,6 @@ export const CoupangCatalogRowSchema = z.object({
   changes: z.array(CoupangCatalogChangeSchema),
   conflicts: z.array(CoupangCatalogChangeSchema),
 });
-export type CoupangCatalogRow = z.infer<typeof CoupangCatalogRowSchema>;
 
 /**
  * 올린 파일로 무엇을 채울지 — 파일은 만들지 않는다. 채우는 것은 **비어 있는 칸**뿐이고,
