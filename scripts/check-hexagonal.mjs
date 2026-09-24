@@ -59,6 +59,9 @@ export const KNOWN_VIOLATIONS = [
   { owner: 'products', file: 'products/application/port/out/persistence/master-product-abc.repository.port.ts', specifier: '../../../../adapter/out/persistence/read/product-abc-publication.reader', removeWith: 'KID-334' },
   // Products categories service takes incoming DTOs until KID-335.
   { owner: 'products', file: 'products/application/service/category/categories.service.ts', specifier: '../../../adapter/in/web/category/dto', removeWith: 'KID-335' },
+  // Analytics statistics and supplier-stats services read the Orders ledger helper until KID-334.
+  { owner: 'analytics', file: 'analytics/application/service/statistics/statistics.service.ts', specifier: '../../../../orders/adapter/out/persistence/read/order-facts.reader', removeWith: 'KID-334' },
+  { owner: 'analytics', file: 'analytics/application/service/supplier-stats/supplier-stats.service.ts', specifier: '../../../../orders/adapter/out/persistence/read/order-facts.reader', removeWith: 'KID-334' },
 ];
 
 // Every entry must name a scanned owner, a file under that owner, a non-empty
