@@ -2027,4 +2027,3 @@ function validateCoverage(plan: ReturnType<typeof AdTrafficSourcePlanSchema.pars
   }
   return null;
 }
-
