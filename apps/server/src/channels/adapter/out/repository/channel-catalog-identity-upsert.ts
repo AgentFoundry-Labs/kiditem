@@ -704,7 +704,7 @@ function mergeDetailState(
     return document.id;
   };
 
-  for (const document of readListingRawSections(existing).detail?.documents ?? []) {
+  for (const document of readListingRawSections(existing, { externalProductId: product.externalProductId }).detail?.documents ?? []) {
     addDocument({ id: document.id, kind: document.kind, value: document.value });
   }
   const incomingDocumentById = new Map<string, DetailDocument>();
@@ -724,7 +724,7 @@ function mergeDetailState(
   const oldRefsByOption = new Map<string, string[]>();
   for (const option of existingOptions) {
     oldRefsByOption.set(option.id, canonicalizeRefs(
-      readOptionRawSections(option.rawJson).detail?.documentIds,
+      readOptionRawSections(option.rawJson, { externalProductId: product.externalProductId }).detail?.documentIds,
       sourceIdToCanonicalId,
     ));
   }

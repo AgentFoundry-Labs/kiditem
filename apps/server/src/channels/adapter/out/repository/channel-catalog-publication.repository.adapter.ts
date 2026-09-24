@@ -512,7 +512,7 @@ async function readStoredCatalogListings(
   `;
   return rows.map((row) => ({
     externalProductId: row.externalId,
-    listModifiedOn: readListingRawSections(row.raw).list?.modifiedOn ?? null,
+    listModifiedOn: readListingRawSections(row.raw, { externalProductId: row.externalId }).list?.modifiedOn ?? null,
     hasDetail: row.hasDetail,
     status: row.status,
   }));

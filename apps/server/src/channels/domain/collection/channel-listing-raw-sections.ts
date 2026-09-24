@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { stableStringify } from './catalog-collection-hash';
 
 /**
@@ -104,15 +105,47 @@ function text(value: unknown): string | null {
   return typeof value === 'string' && value.trim() ? value : null;
 }
 
-function section<T>(schema: z.ZodType<T>, value: unknown): T | null {
+/** 읽은 행이 어느 상품인지. 손상된 구역 오류에 싣는다. */
+export type RawSectionReadContext = { externalProductId?: string };
+
+/**
+ * 저장된 구역을 검증해 읽는다. 구역이 손상됐으면 추측하지 않고 등록 코드로 멈춘다 — 영어 Zod 오류가
+ * 화면·확장에 새지 않게 한다.
+ */
+function section<T>(
+  schema: z.ZodType<T>,
+  value: unknown,
+  name: ListingRawSection,
+  context: RawSectionReadContext,
+): T | null {
   if (value === undefined || value === null) return null;
-  return schema.parse(value);
+  const parsed = schema.safeParse(value);
+  if (parsed.success) return parsed.data;
+  throw new KiditemInvalidValueError('SOURCE_SNAPSHOT_INVALID', {
+    details: {
+      reason: 'CATALOG_RAW_SECTION_INVALID',
+      section: name,
+      ...(context.externalProductId ? { externalProductId: context.externalProductId } : {}),
+    },
+  });
+}
+
+/** 구역 이전 평면 문서 목록. 모양이 맞지 않는 항목은 옛 읽기처럼 건너뛴다. */
+function legacyDocuments(value: unknown[]): ListingDetailDocument[] {
+  return value.flatMap((item) => {
+    const parsed = ListingDetailDocumentSchema.safeParse(item);
+    return parsed.success && Object.prototype.hasOwnProperty.call(item, 'value') ? [parsed.data] : [];
+  });
+}
+
+function legacyDocumentIds(value: unknown[]): string[] {
+  return value.filter((id): id is string => typeof id === 'string' && id.trim().length > 0);
 }
 
 /** 구역이 있으면 구역을, 없으면 구역 이전 평면 키를 같은 모양으로 돌려준다. */
-export function readListingRawSections(raw: unknown): ListingRawSections {
+export function readListingRawSections(raw: unknown, context: RawSectionReadContext = {}): ListingRawSections {
   const flat = record(raw) ?? {};
-  const list = section(ListingListSectionSchema, flat.list)
+  const list = section(ListingListSectionSchema, flat.list, 'list', context)
     ?? (text(flat.modifiedOn) !== null || text(flat.createdOn) !== null
       ? {
         observedAt: null,
@@ -122,35 +155,35 @@ export function readListingRawSections(raw: unknown): ListingRawSections {
         raw: {},
       }
       : null);
-  const detail = section(ListingDetailSectionSchema, flat.detail)
+  const detail = section(ListingDetailSectionSchema, flat.detail, 'detail', context)
     ?? (Array.isArray(flat.detailDocuments)
       ? {
         observedAt: null,
-        documents: z.array(ListingDetailDocumentSchema).parse(flat.detailDocuments),
+        documents: legacyDocuments(flat.detailDocuments),
         raw: {},
       }
       : null);
   return {
     list,
     detail,
-    catalogExcel: section(CatalogExcelSectionSchema, flat.catalogExcel),
+    catalogExcel: section(CatalogExcelSectionSchema, flat.catalogExcel, 'catalogExcel', context),
   };
 }
 
-export function readOptionRawSections(raw: unknown): OptionRawSections {
+export function readOptionRawSections(raw: unknown, context: RawSectionReadContext = {}): OptionRawSections {
   const flat = record(raw) ?? {};
-  const detail = section(OptionDetailSectionSchema, flat.detail)
+  const detail = section(OptionDetailSectionSchema, flat.detail, 'detail', context)
     ?? (Array.isArray(flat.detailDocumentIds)
       ? {
         observedAt: null,
-        documentIds: z.array(z.string().min(1)).parse(flat.detailDocumentIds),
+        documentIds: legacyDocumentIds(flat.detailDocumentIds),
         raw: {},
       }
       : null);
   return {
-    list: section(OptionListSectionSchema, flat.list),
+    list: section(OptionListSectionSchema, flat.list, 'list', context),
     detail,
-    catalogExcel: section(CatalogExcelSectionSchema, flat.catalogExcel),
+    catalogExcel: section(CatalogExcelSectionSchema, flat.catalogExcel, 'catalogExcel', context),
   };
 }
 

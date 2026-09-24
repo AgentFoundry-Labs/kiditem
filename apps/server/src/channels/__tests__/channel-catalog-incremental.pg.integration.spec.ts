@@ -258,7 +258,8 @@ describe('Wing catalog incremental sync and rawJson sections (PG integration)', 
         rawJson: {
           source: 'coupang_catalog_details',
           modifiedOn: '2026-08-01T00:00:00',
-          detailDocuments: [{ id: 'OLD', kind: 'notices', value: { 품명: '옛 문서' } }],
+          // 옛 행에는 모양이 틀린 문서가 섞여 있을 수 있다: 읽기는 건너뛴다.
+          detailDocuments: [{ id: 'OLD', kind: 'notices', value: { 품명: '옛 문서' } }, { id: '', kind: 'notices' }],
         },
       },
       select: { id: true },

@@ -361,10 +361,10 @@ function toSummary(
 
 function buildProviderDetail(row: WorkspaceListingRow): ChannelListingProviderDetail {
   // 구역(KID-349)과 구역 이전 평면 키를 같은 모양으로 읽는다.
-  const listingDetail = readListingRawSections(row.rawJson).detail;
+  const listingDetail = readListingRawSections(row.rawJson, { externalProductId: row.externalId }).detail;
   const optionDetails = row.options.map((option) => ({
     externalOptionId: option.externalOptionId,
-    detail: readOptionRawSections(option.rawJson).detail,
+    detail: readOptionRawSections(option.rawJson, { externalProductId: row.externalId }).detail,
   }));
   const hasDetailEvidence = listingDetail !== null || optionDetails.some(({ detail }) => detail !== null);
   const sourceDetail = hasDetailEvidence

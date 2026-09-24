@@ -41,16 +41,32 @@ describe('readListingRawSections', () => {
     }
   });
 
-  it('rejects a malformed section instead of guessing', () => {
-    expect(() => readListingRawSections({ list: { modifiedOn: 3 } })).toThrow();
+  it('rejects a malformed section with a registered code naming the section and product', () => {
+    expect(() => readListingRawSections({ list: { modifiedOn: 3 } }, { externalProductId: 'P1' })).toThrow(
+      expect.objectContaining({
+        code: 'SOURCE_SNAPSHOT_INVALID',
+        details: { reason: 'CATALOG_RAW_SECTION_INVALID', section: 'list', externalProductId: 'P1' },
+      }),
+    );
+  });
+
+  it('skips malformed legacy flat documents the way the old reader did', () => {
+    expect(readListingRawSections({
+      detailDocuments: [{ id: 'd1', kind: 'contents', value: 'x' }, { id: '', kind: 'notices' }, 'junk', { kind: 'x', value: 1 }],
+    }).detail?.documents).toEqual([{ id: 'd1', kind: 'contents', value: 'x' }]);
   });
 });
 
 describe('readOptionRawSections', () => {
-  it('falls back to flat detailDocumentIds', () => {
-    expect(readOptionRawSections({ detailDocumentIds: ['d1'] }).detail).toEqual({
+  it('falls back to flat detailDocumentIds and skips malformed ids', () => {
+    expect(readOptionRawSections({ detailDocumentIds: ['d1', '', 7, null] }).detail).toEqual({
       observedAt: null, documentIds: ['d1'], raw: {},
     });
+  });
+  it('rejects a malformed option section with a registered code', () => {
+    expect(() => readOptionRawSections({ detail: { documentIds: 'd1' } })).toThrow(
+      expect.objectContaining({ code: 'SOURCE_SNAPSHOT_INVALID', details: { reason: 'CATALOG_RAW_SECTION_INVALID', section: 'detail' } }),
+    );
   });
 });
 
