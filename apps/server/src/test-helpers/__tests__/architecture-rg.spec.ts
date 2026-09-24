@@ -2,7 +2,7 @@ import { mkdtempSync, mkdirSync, rmSync, writeFileSync } from 'node:fs';
 import os from 'node:os';
 import path from 'node:path';
 import { afterEach, beforeEach, describe, expect, it } from 'vitest';
-import { importFromPattern, scanSource } from '../architecture-rg';
+import { importFromPattern, ownerSource, scanSource } from '../architecture-rg';
 
 // The helper exists so an architecture rule can never pass because rg looked at
 // nothing (KID-258). These cases plant a violation and expect the rule to see it.
@@ -142,6 +142,18 @@ describe('scanSource', () => {
       'application/service/lazy.service.ts',
       'application/service/required.service.ts',
       'application/service/typed.service.ts',
+    ]);
+  });
+
+  it('scopes paths, importers and file listings to one owner root', () => {
+    const owner = ownerSource(root);
+    expect(owner.at('application', 'service')).toBe(path.join(root, 'application', 'service'));
+    expect(owner.importers([owner.at('application')], '@prisma/client')).toEqual([
+      'application/service/dirty.service.ts',
+    ]);
+    expect(owner.ownerFiles()).toEqual([
+      'application/service/clean.service.ts',
+      'application/service/dirty.service.ts',
     ]);
   });
 });

@@ -104,3 +104,17 @@ export function importFromPattern(specifier: string): string {
     `(?:${specifier})`
   );
 }
+
+/** Owner-rooted shorthands shared by the architecture specs; results are relative to `ownerRoot`. */
+export function ownerSource(ownerRoot: string) {
+  return {
+    /** Absolute path of a directory inside the owner. */
+    at: (...segments: string[]): string => path.join(ownerRoot, ...segments),
+    /** Files under `roots` that import or reference a module matching `specifier`. */
+    importers: (roots: string[], specifier: string): string[] => [
+      ...scanSource({ roots, pattern: importFromPattern(specifier), relativeTo: ownerRoot }).hits,
+    ],
+    /** Every production file of the owner. */
+    ownerFiles: (): string[] => [...scanSource({ roots: [ownerRoot], relativeTo: ownerRoot }).hits],
+  };
+}

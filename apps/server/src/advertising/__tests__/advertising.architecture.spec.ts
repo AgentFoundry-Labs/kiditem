@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { importFromPattern, scanSource } from '../../test-helpers/architecture-rg';
+import { importFromPattern, ownerSource, scanSource } from '../../test-helpers/architecture-rg';
 
 // Architecture guard tests freeze the Advertising port/adapter contract:
 //
@@ -27,22 +27,9 @@ import { importFromPattern, scanSource } from '../../test-helpers/architecture-r
 //     while no `application/port/in/**` exists.
 
 const ADVERTISING_ROOT = path.resolve(__dirname, '..');
+const { at, importers, ownerFiles } = ownerSource(ADVERTISING_ROOT);
 const OTHER_OWNERS =
   'automation|ai|channels|finance|inventory|orders|products|sourcing|rules|agent-os|analytics';
-
-function at(...segments: string[]): string {
-  return path.join(ADVERTISING_ROOT, ...segments);
-}
-
-/** Files under `roots` whose import/export lines name a module matching `specifier`. */
-function importers(roots: string[], specifier: string): string[] {
-  return [...scanSource({ roots, pattern: importFromPattern(specifier), relativeTo: ADVERTISING_ROOT }).hits];
-}
-
-/** Every production file of the owner, relative to its root. */
-function ownerFiles(): string[] {
-  return [...scanSource({ roots: [ADVERTISING_ROOT], relativeTo: ADVERTISING_ROOT }).hits];
-}
 
 describe('Advertising architecture contract', () => {
   it('PrismaService is imported only under advertising/adapter/out/repository/**', () => {

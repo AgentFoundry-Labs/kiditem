@@ -1,18 +1,10 @@
 import { readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
-import { importFromPattern, scanSource } from '../../test-helpers/architecture-rg';
+import { ownerSource } from '../../test-helpers/architecture-rg';
 
 const SUPPLY_ROOT = path.resolve(__dirname, '..');
-
-function at(...segments: string[]): string {
-  return path.join(SUPPLY_ROOT, ...segments);
-}
-
-/** Files under `roots` whose import/export lines name a module matching `specifier`. */
-function importers(roots: string[], specifier: string): string[] {
-  return [...scanSource({ roots, pattern: importFromPattern(specifier), relativeTo: SUPPLY_ROOT }).hits];
-}
+const { at, importers } = ownerSource(SUPPLY_ROOT);
 
 describe('supply architecture contract', () => {
   it('PrismaService is imported only under repository adapters and approved locked transactions', () => {

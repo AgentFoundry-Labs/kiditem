@@ -1,7 +1,7 @@
 import { existsSync, readFileSync } from 'node:fs';
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { importFromPattern, scanSource } from '../../test-helpers/architecture-rg';
+import { importFromPattern, ownerSource, scanSource } from '../../test-helpers/architecture-rg';
 
 // Architecture guard tests freeze the sourcing port/adapter contract:
 //
@@ -17,6 +17,7 @@ import { importFromPattern, scanSource } from '../../test-helpers/architecture-r
 //     folders remain.
 
 const SOURCING_ROOT = path.resolve(__dirname, '..');
+const { at, importers, ownerFiles } = ownerSource(SOURCING_ROOT);
 const OTHER_OWNERS =
   'automation|ai|channels|finance|inventory|orders|products|rules|agent-os|analytics|advertising';
 
@@ -40,18 +41,6 @@ const KNOWN_VIOLATIONS: readonly { file: string; specifier: string; removeWith: 
     removeWith: 'KID-328',
   },
 ];
-
-function at(...segments: string[]): string {
-  return path.join(SOURCING_ROOT, ...segments);
-}
-
-function importers(roots: string[], specifier: string): string[] {
-  return [...scanSource({ roots, pattern: importFromPattern(specifier), relativeTo: SOURCING_ROOT }).hits];
-}
-
-function ownerFiles(): string[] {
-  return [...scanSource({ roots: [SOURCING_ROOT], relativeTo: SOURCING_ROOT }).hits];
-}
 
 /** `file:line:text` hits → the file and the module specifier the line imports. */
 function importOf(hit: string): { file: string; specifier: string | null } {

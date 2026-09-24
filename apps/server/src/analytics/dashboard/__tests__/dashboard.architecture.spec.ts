@@ -1,6 +1,6 @@
 import path from 'node:path';
 import { describe, it, expect } from 'vitest';
-import { importFromPattern, scanSource } from '../../../test-helpers/architecture-rg';
+import { importFromPattern, ownerSource, scanSource } from '../../../test-helpers/architecture-rg';
 
 // Architecture guard tests freeze the analytics/dashboard port/adapter
 // contract. Mirrors the advertising architecture spec:
@@ -35,25 +35,13 @@ import { importFromPattern, scanSource } from '../../../test-helpers/architectur
 // application services directly while that remains true.
 
 const DASHBOARD_ROOT = path.resolve(__dirname, '..');
+const { at, importers, ownerFiles } = ownerSource(DASHBOARD_ROOT);
 const OTHER_OWNERS =
   'automation|ai|channels|finance|inventory|orders|products|sourcing|rules|agent-os|advertising';
-
-function at(...segments: string[]): string {
-  return path.join(DASHBOARD_ROOT, ...segments);
-}
-
-/** Files under `roots` whose import/export lines name a module matching `specifier`. */
-function importers(roots: string[], specifier: string): string[] {
-  return [...scanSource({ roots, pattern: importFromPattern(specifier), relativeTo: DASHBOARD_ROOT }).hits];
-}
 
 /** Files under `roots` whose source matches `pattern` anywhere (code-usage rules). */
 function matching(roots: string[], pattern: string): string[] {
   return [...scanSource({ roots, pattern, relativeTo: DASHBOARD_ROOT }).hits];
-}
-
-function ownerFiles(): string[] {
-  return [...scanSource({ roots: [DASHBOARD_ROOT], relativeTo: DASHBOARD_ROOT }).hits];
 }
 
 describe('analytics/dashboard architecture contract', () => {
