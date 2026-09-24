@@ -15,7 +15,7 @@ describe('ChannelAccountPersistenceAdapter listActive', () => {
     await service.listActive('org-1');
 
     expect(prisma.channelAccount.findMany).toHaveBeenCalledWith({
-      where: { organizationId: 'org-1', status: 'active' },
+      where: { organizationId: 'org-1', status: { in: ['active', 'configured'] } },
       orderBy: [{ channel: 'asc' }, { isPrimary: 'desc' }, { name: 'asc' }],
       select: {
         id: true,

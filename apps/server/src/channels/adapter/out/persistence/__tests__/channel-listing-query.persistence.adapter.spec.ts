@@ -116,6 +116,7 @@ describe('ChannelListingQueryPersistenceAdapter', () => {
       imageUrl: 'https://mall.example/rep.jpg',
       detailPageRevisionId: null,
       registration: null,
+      listingState: 'published',
       channel: 'coupang',
       channelAccountId: 'account-1',
       channelAccountName: '쿠팡 본계정',
