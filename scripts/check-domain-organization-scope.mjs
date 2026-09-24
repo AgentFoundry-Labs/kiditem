@@ -69,7 +69,7 @@ export function findOrganizationScopeParameters(filePath, source) {
   return [...hits].sort((a, b) => a - b);
 }
 
-export function isScannedDomainSource(filePath, source) {
+export function isScannedDomainSource(source) {
   return !PERSISTENCE_IMPORT.test(source);
 }
 
@@ -78,7 +78,7 @@ export function analyzeDomainOrganizationScope({ files, baseline }) {
   const counts = new Map();
   const lines = new Map();
   for (const [filePath, source] of Object.entries(files).sort(([a], [b]) => a.localeCompare(b))) {
-    if (!isScannedDomainSource(filePath, source)) continue;
+    if (!isScannedDomainSource(source)) continue;
     const hits = findOrganizationScopeParameters(filePath, source);
     if (hits.length === 0) continue;
     counts.set(filePath, hits.length);
