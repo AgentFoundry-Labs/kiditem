@@ -404,7 +404,8 @@ test("an operator stop during the completion retry loop still ends the attempt w
   await fixture.sessions.requestCancellation(attemptId, "office");
   const stopping = fixture.owner.cancel({ environmentId: "office", attemptId });
   fixture.releaseHeldCompletion();
-  await running;
+  const interrupted = await running;
+  assert.equal(interrupted.errorCode, "COLLECTION_CANCELLED");
   await stopping;
 
   const restart = await fixture.owner.run({ environmentId: "office", attemptId: restartAttemptId });

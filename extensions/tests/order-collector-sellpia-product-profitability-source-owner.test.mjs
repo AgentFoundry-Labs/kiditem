@@ -613,6 +613,15 @@ function assertOneCancelThenRestarted(fixture, restart) {
   assert.deepEqual(stoppedWrites.filter((write) => write.afterEnd), []);
 }
 
+// The stop's single /fail must carry the stopped attempt's own token, in the
+// header and the body, which the stop re-reads from the owner control.
+function assertCancelCarriesAttemptToken(fixture) {
+  const fails = fixture.calls.filter((call) => call.path === `${sourcePath}/${attemptId}/fail`);
+  assert.equal(fails.length, 1);
+  assert.equal(fails[0].headers['x-source-attempt-token'], attemptToken);
+  assert.equal(JSON.parse(fails[0].body).attemptToken, attemptToken);
+}
+
 test('an operator stop during the completion retry loop still ends the attempt with one /fail', async () => {
   const fixture = createFixture({ holdCompletion: 'unavailable' });
   const running = fixture.owner.run({ environmentId: 'office', attemptId });
@@ -622,11 +631,13 @@ test('an operator stop during the completion retry loop still ends the attempt w
   await fixture.sessions.requestCancellation(attemptId, 'office');
   const stopping = fixture.owner.cancel({ environmentId: 'office', attemptId });
   fixture.releaseHeldCompletion();
-  await running;
+  const interrupted = await running;
+  assert.equal(interrupted.errorCode, 'COLLECTION_CANCELLED');
   await stopping;
 
   const restart = await fixture.owner.run({ environmentId: 'office', attemptId: restartAttemptId });
   assertOneCancelThenRestarted(fixture, restart);
+  assertCancelCarriesAttemptToken(fixture);
 });
 
 test('an operator stop that joins a completion the owner accepts leaves the attempt COMPLETE and releases the environment', async () => {
@@ -662,6 +673,7 @@ test('an operator stop after an unresolved completion ends the still-RUNNING att
 
   const restart = await fixture.owner.run({ environmentId: 'office', attemptId: restartAttemptId });
   assertOneCancelThenRestarted(fixture, restart);
+  assertCancelCarriesAttemptToken(fixture);
 });
 
 test('an operator stop after an unresolved completion releases a COMPLETE attempt for the next collection', async () => {
