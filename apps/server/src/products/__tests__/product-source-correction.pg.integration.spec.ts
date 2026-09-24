@@ -4,7 +4,7 @@ import type { PrismaClient } from '@prisma/client';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, OTHER_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository.adapter';
-import { CorrectProductSourceBindingUseCase } from '../application/usecase/correct-product-source-binding.usecase';
+import { CorrectProductSourceBindingUseCase } from '../application/service/correct-product-source-binding.usecase';
 import type { ProductQueryPort } from '../application/port/in/product-query.port';
 import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
 import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';

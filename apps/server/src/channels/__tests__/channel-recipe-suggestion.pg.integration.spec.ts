@@ -2,7 +2,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
-import { ProductAvailabilityUseCase } from '../../products/application/usecase/product-availability.usecase';
+import { ProductAvailabilityUseCase } from '../../products/application/service/product-availability.usecase';
 import type { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,

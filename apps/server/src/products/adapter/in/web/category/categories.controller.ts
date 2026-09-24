@@ -3,10 +3,10 @@ import {
   CoupangCategorySuggestionRequestSchema,
   type CoupangCategorySuggestionResponse,
 } from '@kiditem/shared/coupang-category';
-import { CategoriesService } from './categories.service';
-import { CoupangCategorySuggestionService } from './coupang-category-suggestion.service';
+import { CategoriesService } from '../../../../application/service/category/categories.service';
+import { CoupangCategorySuggestionService } from '../../../../application/service/category/coupang-category-suggestion.service';
 import { CreateCategoryDto, UpdateCategoryDto } from './dto';
-import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
+import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
 
 @Controller('categories')
 export class CategoriesController {

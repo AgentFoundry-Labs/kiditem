@@ -19,9 +19,9 @@ import { MasterProductContributionRepositoryAdapter } from '../../finance/adapte
 import { MasterProductContributionReadService } from '../../finance/application/service/master-product-contribution-read.service';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
 import { ProductAvailabilityRepositoryAdapter } from '../adapter/out/persistence/product-availability.repository.adapter';
-import { ProductAvailabilityUseCase } from '../application/usecase/product-availability.usecase';
+import { ProductAvailabilityUseCase } from '../application/service/product-availability.usecase';
 import { ProductSourceReadRepositoryAdapter } from '../adapter/out/persistence/product-source-read.repository.adapter';
-import { ProductSourceReadUseCase } from '../application/usecase/product-source-read.usecase';
+import { ProductSourceReadUseCase } from '../application/service/product-source-read.usecase';
 import {
   makeTestPrisma,
   resetDb,
@@ -33,10 +33,10 @@ import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/persistence/product-operations-data-status.repository.adapter';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository.adapter';
-import { RecalculateProductAbcUseCase } from '../application/usecase/recalculate-product-abc.usecase';
-import { ProductAbcReadUseCase } from '../application/usecase/product-abc-read.usecase';
+import { RecalculateProductAbcUseCase } from '../application/service/recalculate-product-abc.usecase';
+import { ProductAbcReadUseCase } from '../application/service/product-abc-read.usecase';
 import { ChannelOptionRecipeService } from '../../channels/application/service/listing/channel-option-recipe.service';
-import { ProductQueryUseCase } from '../application/usecase/product-query.usecase';
+import { ProductQueryUseCase } from '../application/service/product-query.usecase';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";

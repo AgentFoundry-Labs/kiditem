@@ -28,9 +28,9 @@ import { RocketPurchasePreviewService } from '../../supply/application/service/r
 import { ChannelSkuAvailabilityService } from '../application/service/listing/channel-sku-availability.service';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
 import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
-import { ProductAvailabilityUseCase } from '../../products/application/usecase/product-availability.usecase';
+import { ProductAvailabilityUseCase } from '../../products/application/service/product-availability.usecase';
 import { ProductCollectionFreshnessRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-freshness.repository.adapter';
-import { ProductCollectionFreshnessUseCase } from '../../products/application/usecase/product-collection-freshness.usecase';
+import { ProductCollectionFreshnessUseCase } from '../../products/application/service/product-collection-freshness.usecase';
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';

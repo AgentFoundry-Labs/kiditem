@@ -17,16 +17,16 @@ import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-produ
 import { SellpiaMasterProductProfitFactReader } from '../../analytics/sellpia-product-sales/sellpia-master-product-profit-fact.reader';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
 import { ProductAvailabilityRepositoryAdapter } from '../adapter/out/persistence/product-availability.repository.adapter';
-import { ProductAvailabilityUseCase } from '../application/usecase/product-availability.usecase';
+import { ProductAvailabilityUseCase } from '../application/service/product-availability.usecase';
 import { ProductSourceReadRepositoryAdapter } from '../adapter/out/persistence/product-source-read.repository.adapter';
-import { ProductSourceReadUseCase } from '../application/usecase/product-source-read.usecase';
+import { ProductSourceReadUseCase } from '../application/service/product-source-read.usecase';
 import { channelFactTestPorts, profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository.adapter';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/persistence/product-operations-data-status.repository.adapter';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository.adapter';
-import { RecalculateProductAbcUseCase } from '../application/usecase/recalculate-product-abc.usecase';
-import { ProductAbcReadUseCase } from '../application/usecase/product-abc-read.usecase';
-import { ProductQueryUseCase } from '../application/usecase/product-query.usecase';
+import { RecalculateProductAbcUseCase } from '../application/service/recalculate-product-abc.usecase';
+import { ProductAbcReadUseCase } from '../application/service/product-abc-read.usecase';
+import { ProductQueryUseCase } from '../application/service/product-query.usecase';
 import { productAbcEvidenceCutoff } from '../domain/product-abc-display-status';
 import {
   makeTestPrisma,

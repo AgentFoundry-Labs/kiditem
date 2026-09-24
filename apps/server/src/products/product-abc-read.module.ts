@@ -4,7 +4,7 @@ import { ProductCollectionRuntimeModule } from './product-collection-runtime.mod
 import { MasterProductAbcRepositoryAdapter } from './adapter/out/persistence/master-product-abc.repository.adapter';
 import { PRODUCT_ABC_READ_PORT } from './application/port/in/product-abc-read.port';
 import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from './application/port/out/persistence/master-product-abc.repository.port';
-import { ProductAbcReadUseCase } from './application/usecase/product-abc-read.usecase';
+import { ProductAbcReadUseCase } from './application/service/product-abc-read.usecase';
 
 /**
  * Products' ABC read seam, published on its own so consumers in other owner

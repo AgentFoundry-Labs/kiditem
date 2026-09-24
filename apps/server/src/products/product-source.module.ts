@@ -8,9 +8,9 @@ import { SellpiaCollectionController } from './adapter/in/web/sellpia-collection
 import { ProductSourceCollectionRepositoryAdapter } from './adapter/out/persistence/product-source-collection.repository.adapter';
 import { ProductSourcePublicationRepositoryAdapter } from './adapter/out/persistence/product-source-publication.repository.adapter';
 import { ProductSourceSnapshotRepositoryAdapter } from './adapter/out/persistence/product-source-snapshot.repository.adapter';
-import { ProductSourceSnapshotUseCase } from './application/usecase/product-source-snapshot.usecase';
-import { ProductExportUseCase } from './application/usecase/product-export.usecase';
-import { SellpiaCollectionUseCase } from './application/usecase/sellpia-collection.usecase';
+import { ProductSourceSnapshotUseCase } from './application/service/product-source-snapshot.usecase';
+import { ProductExportUseCase } from './application/service/product-export.usecase';
+import { SellpiaCollectionUseCase } from './application/service/sellpia-collection.usecase';
 import { SELLPIA_COLLECTION_PORT } from './application/port/in/sellpia-collection.port';
 import { PRODUCT_SOURCE_SNAPSHOT_PORT } from './application/port/in/product-source-snapshot.port';
 import { PRODUCT_EXPORT_PORT } from './application/port/in/product-export.port';

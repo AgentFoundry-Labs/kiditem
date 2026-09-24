@@ -35,7 +35,7 @@ import {
 import {
   mapProductOperationsDetail,
   mapProductOperationsListItem,
-} from '../../mapper/product-operations-inventory.mapper';
+} from '../../domain/product-operations-inventory.mapper';
 import {
   CATALOG_DISPLAY_MEDIA_PORT,
   type CatalogDisplayMediaPort,

@@ -3,11 +3,11 @@ import type {
   CoupangCategorySuggestion,
   CoupangCategorySuggestionResponse,
 } from '@kiditem/shared/coupang-category';
-import { PrismaService } from '../../prisma/prisma.service';
+import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   inferCoupangCategory,
   type CategoryCorpusEntry,
-} from '../domain/coupang-category-inference';
+} from '../../../domain/coupang-category-inference';
 
 /** 기존 활성 쿠팡 리스팅을 코퍼스로 신규 상품의 WING 카테고리를 제안한다. */
 @Injectable()
