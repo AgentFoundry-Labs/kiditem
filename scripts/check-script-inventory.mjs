@@ -38,6 +38,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'dev-data-coupang.ts',
   'dev-data.ts',
   'generate-channel-registry.mjs',
+  'generate-operator-error.mjs',
   'generate-prisma-erd.mjs',
   'local-agent-gateway.mjs',
   'office-deploy.mjs',

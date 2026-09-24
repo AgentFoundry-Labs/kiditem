@@ -90,7 +90,8 @@
     "seed:order-collection-malls": "tsx scripts/seed-order-collection-mall-accounts.ts",
     "test:integration": "npm run test:integration --workspace=apps/server --",
     "check:hexagonal": "node scripts/check-hexagonal.mjs",
-    "check:error-codes": "node scripts/check-error-codes.mjs"
+    "check:error-codes": "node scripts/check-error-codes.mjs",
+    "check:operator-error-sync": "node scripts/generate-operator-error.mjs --check"
   },
   "devDependencies": {
     "@aws-sdk/client-s3": "^3.1029.0",
