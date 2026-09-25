@@ -34,7 +34,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Finance](erd/finance.md) | 1 |
 | [Inventory](erd/inventory.md) | 3 |
 | [Operation](erd/operation.md) | 3 |
-| [Orders](erd/orders.md) | 14 |
+| [Orders](erd/orders.md) | 13 |
 | [Products](erd/products.md) | 6 |
 | [Sourcing](erd/sourcing.md) | 34 |
 | [Supply](erd/supply.md) | 13 |
@@ -108,7 +108,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | OrderCollectionArtifact | Orders | `order_collection_artifacts` | Retained collection input evidence; converted downloads are not persisted and lifecycle belongs to SourceImportRun. |
 | OrderLineItem | Orders | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. order FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
 | Review | Orders | `reviews` | 채널 상품평 원본 1건. 쿠팡은 Wing 상품평 화면(`/tenants/cs/product/review`)을 |
-| ReviewCollectionChunk | Orders | `review_collection_chunks` | Fenced, organization-scoped review collection chunks. Chunks are staging evidence only and are deleted in the terminal publication transaction. |
 | RocketPoCatalogLine | Orders | `rocket_po_catalog_lines` | RocketPoCatalogLine canonical state owned by orders. |
 | RocketPoCatalogSnapshot | Orders | `rocket_po_catalog_snapshots` | RocketPoCatalogSnapshot canonical state owned by orders. |
 | SellpiaOrderTransmissionIntent | Orders | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness. |
@@ -1304,6 +1303,8 @@ erDiagram
     String id PK
     String organizationId FK
     String sourceImportRunId FK
+    String operationId
+    DateTime publishedAt
     String listingId
     String platform
     Int rating
@@ -1319,18 +1320,6 @@ erDiagram
     Boolean isDeleted
     Boolean isBlinded
     DateTime reviewedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ReviewCollectionChunk {
-    String id PK
-    String organizationId FK
-    String sourceImportRunId FK
-    Int windowIndex
-    Int sequence
-    String checksum
-    Int itemCount
-    Json payload
     DateTime createdAt
     DateTime updatedAt
   }
@@ -2450,7 +2439,6 @@ erDiagram
   Organization ||--o{ PurchaseOrderSubmissionAttempt : "organization"
   Organization ||--o{ ReturnTransfer : "organization"
   Organization ||--o{ Review : "organization"
-  Organization ||--o{ ReviewCollectionChunk : "organization"
   Organization ||--o{ RocketPurchaseConfirmation : "organization"
   Organization ||--o{ RocketPurchaseConfirmationAllocation : "organization"
   Organization ||--o{ RocketPurchaseConfirmationLine : "organization"
@@ -2540,7 +2528,6 @@ erDiagram
   SourceImportRun o|--o{ Order : "sourceImportRun"
   SourceImportRun ||--|| OrderCollectionArtifact : "sourceImportRun"
   SourceImportRun o|--o{ Review : "sourceImportRun"
-  SourceImportRun ||--o{ ReviewCollectionChunk : "sourceImportRun"
   SourceImportRun ||--|| RocketPoCatalogSnapshot : "sourceImportRun"
   SourceImportRun ||--o{ RocketPurchaseConfirmation : "sourceImportRun"
   SourceImportRun ||--o{ RocketPurchaseConfirmationTransmission : "sourceImportRun"

@@ -74,29 +74,6 @@ model CoupangDirectTransportConsumption {
 }
 
 /// @namespace Orders
-/// @describe Fenced, organization-scoped review collection chunks. Chunks are staging evidence only and are deleted in the terminal publication transaction.
-model ReviewCollectionChunk {
-  id                String   @id @default(uuid()) @db.Uuid
-  organizationId    String   @map("organization_id") @db.Uuid
-  sourceImportRunId String   @map("source_import_run_id") @db.Uuid
-  windowIndex       Int      @map("window_index")
-  sequence          Int
-  checksum          String   @db.VarChar(64)
-  itemCount         Int      @map("item_count")
-  payload           Json     @db.JsonB
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun SourceImportRun @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Cascade)
-
-  @@unique([sourceImportRunId, windowIndex, sequence], map: "review_collection_chunks_run_window_sequence_key")
-  @@unique([id, organizationId], map: "review_collection_chunks_id_org_key")
-  @@index([organizationId, sourceImportRunId])
-  @@map("review_collection_chunks")
-}
-
-/// @namespace Orders
 /// @describe Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness.
 model SellpiaOrderTransmissionIntent {
   id             String    @id @default(uuid()) @db.Uuid
@@ -264,6 +241,10 @@ model Review {
   id                String  @id @default(uuid()) @db.Uuid
   organizationId    String  @map("organization_id") @db.Uuid
   sourceImportRunId String? @map("source_import_run_id") @db.Uuid
+  /// 이 행을 쓴 실행(operations.id, 스칼라·FK 없음, ADR-0025). 옛 sourceImportRunId 행은 KID-365까지 함께 읽힌다.
+  operationId       String?   @map("operation_id") @db.Uuid
+  /// 실행이 이 행을 발행한 시각 = 세대 순서(옛 publication_sequence 대체). 같은 external_review_id 중 가장 최근 발행이 현재 사실.
+  publishedAt       DateTime? @map("published_at") @db.Timestamptz
   listingId         String? @map("listing_id") @db.Uuid
 
   platform     String  @default("coupang")
@@ -297,6 +278,9 @@ model Review {
 
   @@unique([organizationId, platform, externalReviewId], map: "reviews_org_platform_external_legacy_key", where: raw("source_import_run_id IS NULL"))
   @@unique([organizationId, sourceImportRunId, platform, externalReviewId], map: "reviews_org_source_run_external_key", where: raw("source_import_run_id IS NOT NULL"))
+  @@unique([organizationId, operationId, platform, externalReviewId], map: "reviews_org_operation_external_key", where: raw("operation_id IS NOT NULL"))
+  @@index([organizationId, operationId])
+  @@index([organizationId, externalReviewId, publishedAt(sort: Desc)], map: "reviews_org_external_published_idx")
   @@index([organizationId])
   @@index([organizationId, sourceImportRunId])
   @@index([listingId])

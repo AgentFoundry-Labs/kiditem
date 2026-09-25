@@ -16,7 +16,6 @@ model Organization {
   orderCollectionArtifacts           OrderCollectionArtifact[]
   coupangDirectTransportReceipts     CoupangDirectTransportReceipt[]
   coupangDirectTransportConsumptions CoupangDirectTransportConsumption[]
-  reviewCollectionChunks             ReviewCollectionChunk[]
   orders                             Order[]
   purchaseOrders                     PurchaseOrder[]
   purchaseOrderSubmissionAttempts    PurchaseOrderSubmissionAttempt[]
@@ -326,7 +325,6 @@ model SourceImportRun {
   orderCollectionArtifact                 OrderCollectionArtifact?
   coupangDirectTransportEffectReceipts    CoupangDirectTransportReceipt[]          @relation("CoupangDirectTransportReceiptEffectSource")
   coupangDirectTransportConsumptions      CoupangDirectTransportConsumption[]      @relation("CoupangDirectTransportConsumptionSource")
-  reviewCollectionChunks                  ReviewCollectionChunk[]
   reviewCollectionFacts                   Review[]                                 @relation("ReviewCollectionFacts")
   publishedSellpiaAbcFormulaStates        MasterProductAbcFormulaState[]           @relation("MasterProductAbcFormulaStatePublishedSellpia")
   publishedAdvertisingAbcFormulaStates    MasterProductAbcFormulaState[]           @relation("MasterProductAbcFormulaStatePublishedAdvertising")

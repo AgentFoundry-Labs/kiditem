@@ -175,7 +175,6 @@ erDiagram
 | Organization | organization | referenced by external | Orders | OrderCollectionArtifact |
 | Organization | organization | referenced by external | Orders | OrderLineItem |
 | Organization | organization | referenced by external | Orders | Review |
-| Organization | organization | referenced by external | Orders | ReviewCollectionChunk |
 | Organization | organization | referenced by external | Orders | SellpiaOrderTransmissionIntent |
 | Organization | organization | referenced by external | Orders | SellpiaOrderTransmissionIntentReconciliation |
 | Organization | organization | referenced by external | Orders | Settlement |
@@ -257,7 +256,6 @@ erDiagram
 | SourceImportRun | sourceImportRun | referenced by external | Orders | Order |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | OrderCollectionArtifact |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | Review |
-| SourceImportRun | sourceImportRun | referenced by external | Orders | ReviewCollectionChunk |
 | SourceImportRun | sourceImportRun | referenced by external | Orders | RocketPoCatalogSnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmation |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmationTransmission |

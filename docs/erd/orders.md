@@ -17,7 +17,6 @@
 | OrderCollectionArtifact | `order_collection_artifacts` | Retained collection input evidence; converted downloads are not persisted and lifecycle belongs to SourceImportRun. |
 | OrderLineItem | `order_line_items` | 주문 라인 아이템 — 1 SKU 단위. listingOption → option 으로 SKU 해상도. order FK 는 organizationId 를 함께 참조해 cross-organization mismatch 를 DB 가 차단한다. |
 | Review | `reviews` | 채널 상품평 원본 1건. 쿠팡은 Wing 상품평 화면(`/tenants/cs/product/review`)을 |
-| ReviewCollectionChunk | `review_collection_chunks` | Fenced, organization-scoped review collection chunks. Chunks are staging evidence only and are deleted in the terminal publication transaction. |
 | RocketPoCatalogLine | `rocket_po_catalog_lines` | RocketPoCatalogLine canonical state owned by orders. |
 | RocketPoCatalogSnapshot | `rocket_po_catalog_snapshots` | RocketPoCatalogSnapshot canonical state owned by orders. |
 | SellpiaOrderTransmissionIntent | `sellpia_order_transmission_intents` | Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness. |
@@ -138,6 +137,8 @@ erDiagram
     String id PK
     String organizationId FK
     String sourceImportRunId FK
+    String operationId
+    DateTime publishedAt
     String listingId
     String platform
     Int rating
@@ -153,18 +154,6 @@ erDiagram
     Boolean isDeleted
     Boolean isBlinded
     DateTime reviewedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ReviewCollectionChunk {
-    String id PK
-    String organizationId FK
-    String sourceImportRunId FK
-    Int windowIndex
-    Int sequence
-    String checksum
-    Int itemCount
-    Json payload
     DateTime createdAt
     DateTime updatedAt
   }
@@ -274,8 +263,6 @@ erDiagram
 | OrderLineItem | organization | references external | Core | Organization |
 | Review | organization | references external | Core | Organization |
 | Review | sourceImportRun | references external | Core | SourceImportRun |
-| ReviewCollectionChunk | organization | references external | Core | Organization |
-| ReviewCollectionChunk | sourceImportRun | references external | Core | SourceImportRun |
 | RocketPoCatalogSnapshot | sourceImportRun | references external | Core | SourceImportRun |
 | SellpiaOrderTransmissionIntent | creator | references external | Core | User |
 | SellpiaOrderTransmissionIntent | organization | references external | Core | Organization |
