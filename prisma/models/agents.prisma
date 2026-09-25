@@ -1,2 +1,0 @@
-// Generic workflow persistence was removed with the Operation/Automation
-// cutover. Agent OS models live in agent-work.prisma.

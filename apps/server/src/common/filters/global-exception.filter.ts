@@ -21,6 +21,7 @@ import {
   FactNotFoundError,
   FactReferenceError,
 } from '../errors/fact-errors';
+import { OperationInProgressDetailsSchema } from '@kiditem/shared/operation';
 import { UNKNOWN_CONSTRAINT_REASON } from '../validation/validation-pipe';
 
 /** 필터가 예외에서 뽑은 것. 봉투 조립은 `toEnvelope` 한 곳에서. */
@@ -103,15 +104,25 @@ export function toEnvelope(mapped: MappedError): ErrorResponse {
 
 /**
  * 봉투에 싣는 구조 데이터. 등록된 키만 통과: `attemptId`(UUID), `existing`(중복 거절이 가리키는 기존 항목),
- * `reason`(기계 코드). 그 밖의 키는 버린다.
+ * `reason`(기계 코드), `operationId`(UUID), 그리고 `OPERATION_IN_PROGRESS`가 이름 붙이는 실행
+ * (`OperationInProgressDetailsSchema` 통째로, ADR-0025). 그 밖의 키는 버린다.
  */
 function pickDetails(source: Record<string, unknown> | undefined): Record<string, unknown> | undefined {
   if (!source) return undefined;
   const details: Record<string, unknown> = {};
+  const running = OperationInProgressDetailsSchema.safeParse(pickKeys(source, OPERATION_IN_PROGRESS_KEYS));
+  if (running.success) Object.assign(details, running.data);
+  if (typeof source.operationId === 'string' && UUID.test(source.operationId)) details.operationId = source.operationId;
   if (typeof source.attemptId === 'string' && UUID.test(source.attemptId)) details.attemptId = source.attemptId;
   if (source.existing && typeof source.existing === 'object') details.existing = source.existing;
   if (typeof source.reason === 'string' && MACHINE_CODE.test(source.reason)) details.reason = source.reason;
   return Object.keys(details).length ? details : undefined;
+}
+
+const OPERATION_IN_PROGRESS_KEYS = Object.keys(OperationInProgressDetailsSchema.shape);
+
+function pickKeys(source: Record<string, unknown>, keys: readonly string[]): Record<string, unknown> {
+  return Object.fromEntries(keys.filter((key) => key in source).map((key) => [key, source[key]]));
 }
 
 export function mapException(exception: unknown): MappedError {

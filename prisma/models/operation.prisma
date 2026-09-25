@@ -1,0 +1,71 @@
+/// @namespace Operation
+/// @describe One run of any kind (collection, AI generation, ad action, registration) under the single operation contract (ADR-0025). Owned by common/operation; owner-specific values live in plan/progress/result JSON.
+model Operation {
+  id             String    @id @default(uuid()) @db.Uuid
+  organizationId String    @map("organization_id") @db.Uuid
+  kind           String    @db.VarChar(128)
+  /// executing | succeeded | failed | cancelled (Zod `OperationStatusSchema`; no database CHECK).
+  status         String    @db.VarChar(32)
+  /// Fenced-write secret. Only the begin response carries it.
+  token          String    @db.Uuid
+  expiresAt      DateTime  @map("expires_at") @db.Timestamptz
+  idempotencyKey String?   @map("idempotency_key") @db.VarChar(128)
+  /// SHA-256 of the canonical begin request (kind, scope, fileHash).
+  requestHash    String?   @map("request_hash") @db.VarChar(64)
+  fileHash       String?   @map("file_hash") @db.VarChar(64)
+  plan           Json?     @db.JsonB
+  progress       Json?     @db.JsonB
+  result         Json?     @db.JsonB
+  windowStart    DateTime? @map("window_start") @db.Date
+  windowEnd      DateTime? @map("window_end") @db.Date
+  errorCode      String?   @map("error_code") @db.VarChar(64)
+  errorMessage   String?   @map("error_message") @db.Text
+  startedAt      DateTime  @default(now()) @map("started_at") @db.Timestamptz
+  finishedAt     DateTime? @map("finished_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
+
+  chunks OperationChunk[]
+  locks  OperationLock[]
+
+  @@unique([organizationId, kind, idempotencyKey])
+  @@unique([organizationId, kind, fileHash])
+  @@index([organizationId, kind, startedAt(sort: Desc)])
+  @@index([organizationId, status])
+  @@map("operations")
+}
+
+/// @namespace Operation
+/// @describe A staged chunk of an executing operation. Deleted in the finish transaction whether the operation succeeded or failed.
+model OperationChunk {
+  id             String   @id @default(uuid()) @db.Uuid
+  operationId    String   @map("operation_id") @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  chunkKind      String   @map("chunk_kind") @db.VarChar(64)
+  sequence       Int
+  checksum       String   @db.VarChar(64)
+  itemCount      Int      @map("item_count")
+  payload        Json     @db.JsonB
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  operation Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+
+  @@unique([operationId, chunkKind, sequence])
+  @@map("operation_chunks")
+}
+
+/// @namespace Operation
+/// @describe An overlap key an executing operation holds. Unique per organization without the kind, so one key fences across kinds (ADR-0025).
+model OperationLock {
+  id             String   @id @default(uuid()) @db.Uuid
+  organizationId String   @map("organization_id") @db.Uuid
+  lockKey        String   @map("lock_key") @db.VarChar(256)
+  operationId    String   @map("operation_id") @db.Uuid
+  createdAt      DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  operation Operation @relation(fields: [operationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, lockKey])
+  @@index([operationId])
+  @@map("operation_locks")
+}

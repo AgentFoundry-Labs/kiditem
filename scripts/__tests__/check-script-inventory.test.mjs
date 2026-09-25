@@ -27,6 +27,10 @@ test('registers the ledger reader scanner', () => {
   assert.ok(!SCRIPT_INVENTORY.includes('check-listing-day-ad-reader.sh'));
 });
 
+test('registers the operation owner-boundary scanner (ADR-0025)', () => {
+  assert.ok(SCRIPT_INVENTORY.includes('check-operation-owner-boundary.mjs'));
+});
+
 test('registers the cross-owner foreign-key scanner', () => {
   assert.ok(SCRIPT_INVENTORY.includes('check-cross-owner-fk.mjs'));
 });
@@ -54,6 +58,7 @@ test('accepts complete script inventory metadata', () => {
       'check:ledger-readers': 'node scripts/check-ledger-readers.mjs',
       'check:cross-owner-fk': 'node scripts/check-cross-owner-fk.mjs',
       'check:mall-neutral': 'node scripts/check-mall-neutral.mjs',
+      'check:operation-owner-boundary': 'node scripts/check-operation-owner-boundary.mjs',
       'deploy:office:local': 'node scripts/office-deploy.mjs deploy',
       'deploy:office:status': 'node scripts/office-deploy.mjs status',
       'deploy:office:rollback': 'node scripts/office-deploy.mjs rollback',
@@ -63,7 +68,7 @@ test('accepts complete script inventory metadata', () => {
       'check:identifier-contracts': 'node scripts/check-identifier-contracts.mjs',
       'check:shared-interface-names': 'node scripts/check-shared-interface-names.mjs',
       'test:scripts': 'vitest run --config scripts/vitest.config.ts && node --test scripts/__tests__/*.test.mjs',
-      'check:conventions': 'npm run check:scripts-inventory && npm run check:ledger-readers && npm run check:cross-owner-fk && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:shared-interface-names && npm run check:identifier-contracts',
+      'check:conventions': 'npm run check:scripts-inventory && npm run check:ledger-readers && npm run check:cross-owner-fk && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:shared-interface-names && npm run check:identifier-contracts && npm run check:operation-owner-boundary',
     },
   });
 
@@ -94,6 +99,7 @@ test('requires the built-in browser-QA seed package entrypoint', () => {
       'check:ledger-readers': 'node scripts/check-ledger-readers.mjs',
       'check:cross-owner-fk': 'node scripts/check-cross-owner-fk.mjs',
       'check:mall-neutral': 'node scripts/check-mall-neutral.mjs',
+      'check:operation-owner-boundary': 'node scripts/check-operation-owner-boundary.mjs',
       'deploy:office:local': 'node scripts/office-deploy.mjs deploy',
       'deploy:office:status': 'node scripts/office-deploy.mjs status',
       'deploy:office:rollback': 'node scripts/office-deploy.mjs rollback',
@@ -103,7 +109,7 @@ test('requires the built-in browser-QA seed package entrypoint', () => {
       'check:identifier-contracts': 'node scripts/check-identifier-contracts.mjs',
       'check:shared-interface-names': 'node scripts/check-shared-interface-names.mjs',
       'test:scripts': 'vitest run --config scripts/vitest.config.ts && node --test scripts/__tests__/*.test.mjs',
-      'check:conventions': 'npm run check:scripts-inventory && npm run check:ledger-readers && npm run check:cross-owner-fk && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:shared-interface-names && npm run check:identifier-contracts',
+      'check:conventions': 'npm run check:scripts-inventory && npm run check:ledger-readers && npm run check:cross-owner-fk && npm run check:schema-artifact-sync && npm run check:directory-architecture && npm run check:shared-interface-names && npm run check:identifier-contracts && npm run check:operation-owner-boundary',
     },
   });
 
@@ -142,6 +148,7 @@ test('reports unregistered scripts and missing hooks', () => {
     'check:ledger-readers',
     'check:cross-owner-fk',
     'check:mall-neutral',
+    'check:operation-owner-boundary',
     'deploy:office:local',
     'deploy:office:status',
     'deploy:office:rollback',
@@ -158,5 +165,6 @@ test('reports unregistered scripts and missing hooks', () => {
     'check:conventions -> check:directory-architecture',
     'check:conventions -> check:shared-interface-names',
     'check:conventions -> check:identifier-contracts',
+    'check:conventions -> check:operation-owner-boundary',
   ]);
 });
