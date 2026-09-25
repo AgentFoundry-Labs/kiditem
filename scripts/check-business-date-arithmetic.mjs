@@ -19,8 +19,6 @@ export const RECORDED_DAY_ARITHMETIC = Object.freeze({
     { lines: 1, reason: 'campaign sweep attempt lease expiry (now + 24h)' },
   'apps/server/src/advertising/adapter/out/repository/ad-keyword-source.repository.ts':
     { lines: 1, reason: 'keyword attempt lease expiry (now + 24h)' },
-  'apps/server/src/channels/adapter/out/repository/channel-catalog-collection.repository.adapter.ts':
-    { lines: 1, reason: 'catalog attempt lease expiry (now + 24h)' },
   'apps/server/src/content/application/service/thumbnail-generation.service.ts':
     { lines: 1, reason: '7-day auto-batch cooldown from now' },
   'apps/server/src/orders/application/service/order-collection.service.ts':
