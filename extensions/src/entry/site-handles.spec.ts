@@ -1,30 +1,77 @@
 import { describe, expect, it } from 'vitest';
-import { createSiteHandles } from './site-handles';
+import { entrySites, createSiteHandles } from './site-handles';
+import '../collectors/channels.wing_catalog_details';
+import '../collectors/channels.wing_catalog_excel';
 import '../collectors/channels.wing_catalog_list';
-import { wingCatalogDetailsCollector, type WingCatalogDetailsSite } from '../collectors/channels.wing_catalog_details';
+import '../collectors/orders.coupang_reviews';
+import '../collectors/sourcing.product_extension';
+import '../collectors/sourcing.trend_1688';
+import '../collectors/sourcing.wing_catalog';
 import '../collectors/test.echo';
+import '../sites/1688';
+import '../sites/product-page';
+import '../sites/wing';
+import '../sites/wing/pre-matching-search';
+import '../sites/wing/reviews';
+import { wingCatalogDetailsCollector, type WingCatalogDetailsSite } from '../collectors/channels.wing_catalog_details';
+import { PRODUCT_TAB_REQUIRED } from '../sites/product-page';
+import type { TabPages } from '../sites/tab-page';
 
-describe('entry/site-handles — kind의 수집기에 넘길 사이트 핸들', () => {
+describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 등록표에서 핸들을 조립한다', () => {
+  const tabs: TabPages = {
+    open: async () => { throw new Error('no tabs'); },
+    attach: () => { throw new Error('no tabs'); },
+    fetchText: async () => null,
+  };
   const deps = {
     fetch: async () => Response.json({}),
     cookies: { get: async () => null },
     now: () => 0,
     sleep: async () => undefined,
+    tabs,
+    randomId: () => 'id',
   };
+  const keys = (handle: unknown) => Object.keys(handle as Record<string, unknown>).sort();
+  const WING_KEYS = ['catalogExcelRequest', 'downloadCatalogExcel', 'pause', 'probeDeleted', 'productDetail', 'requestCatalogExcel', 'searchInventory'];
 
-  it('Wing 카탈로그 kind에는 Wing 사이트(목록·상세·엑셀 API)를, 사이트 없는 kind에는 null을 준다', () => {
+  it('Wing 카탈로그 kind 셋에는 Wing 사이트(목록·상세·엑셀 API)를 준다', () => {
     const siteFor = createSiteHandles(deps);
-    const wing = siteFor('channels.wing_catalog_list', { tabId: 3 }) as Record<string, unknown>;
-    expect(Object.keys(wing).sort()).toEqual([
-      'catalogExcelRequest', 'downloadCatalogExcel', 'pause', 'probeDeleted', 'productDetail', 'requestCatalogExcel', 'searchInventory',
-    ]);
-    expect(siteFor('test.echo', { tabId: null })).toBeNull();
-    expect(siteFor('unknown.kind', { tabId: null })).toBeNull();
+    for (const kind of ['channels.wing_catalog_list', 'channels.wing_catalog_details', 'channels.wing_catalog_excel'] as const) {
+      expect(keys(siteFor(kind, { tabId: 3 }))).toEqual(WING_KEYS);
+    }
   });
 
-  it('브라우저 자원에 넘길 사이트 표는 wing 하나다', async () => {
-    const { ENTRY_SITES } = await import('./site-handles');
-    expect(ENTRY_SITES).toEqual({ wing: { origin: 'https://wing.coupang.com' } });
+  it('상품평 kind에는 상품평 검색만 가진 wing-reviews 핸들을 준다', () => {
+    expect(keys(createSiteHandles(deps)('orders.coupang_reviews', { tabId: null }))).toEqual(['searchReviews']);
+  });
+
+  // wave1 머지 회귀(2026-09-26): 소싱 Wing 검색 kind가 채널 카탈로그 사이트 핸들로 라우팅돼 `site.searchPage is not a function`.
+  it('소싱 Wing 검색 kind는 같은 윙이라도 카탈로그가 아닌 상품등록 검색 핸들을 받는다', () => {
+    expect(createSiteHandles(deps)('sourcing.wing_catalog', { tabId: 5 })).toMatchObject({
+      searchPage: expect.any(Function),
+      toObservation: expect.any(Function),
+    });
+    expect(createSiteHandles(deps)('sourcing.trend_1688', { tabId: null })).toMatchObject({ offers: expect.any(Function), close: expect.any(Function) });
+  });
+
+  it('상품 확장은 탭이 묶이면 상품 페이지 사이트를, 탭이 없으면 PRODUCT_TAB_REQUIRED로 멈추는 핸들을 준다', async () => {
+    const siteFor = createSiteHandles(deps);
+    expect(siteFor('sourcing.product_extension', { tabId: 9 })).toMatchObject({ extract: expect.any(Function) });
+    const withoutTab = siteFor('sourcing.product_extension', { tabId: null }) as { extract(url: string): Promise<unknown> };
+    await expect(withoutTab.extract('https://detail.1688.com/offer/1.html')).rejects.toMatchObject({ code: PRODUCT_TAB_REQUIRED });
+  });
+
+  it('사이트 없는 kind와 모르는 kind에는 null을 준다', () => {
+    const siteFor = createSiteHandles(deps);
+    expect(siteFor('test.echo', { tabId: null })).toBeNull();
+    expect(siteFor('unknown.kind' as never, { tabId: null })).toBeNull();
+  });
+
+  it('브라우저 자원에 넘길 사이트 표는 origin을 둔 윙 두 곳이다', () => {
+    expect(entrySites()).toEqual({
+      wing: { origin: 'https://wing.coupang.com' },
+      'wing-reviews': { origin: 'https://wing.coupang.com' },
+    });
   });
 
   describe('Wing 상세 수집 — 가짜 fetch로 사이트와 수집기를 함께', () => {
@@ -35,6 +82,7 @@ describe('entry/site-handles — kind의 수집기에 넘길 사이트 핸들', 
       const sent: string[] = [];
       const sleeps: number[] = [];
       const siteFor = createSiteHandles({
+        ...deps,
         fetch: async (url) => { sent.push(String(url)); return respond(String(url)); },
         cookies: { get: async () => ({ value: 'token' }) },
         now: () => clock,
@@ -70,21 +118,5 @@ describe('entry/site-handles — kind의 수집기에 넘길 사이트 핸들', 
       await expect(collected).rejects.toMatchObject({ code: 'SITE_LOGIN_REQUIRED' });
       expect(sent).toHaveLength(1);
     });
-  });
-});
-
-// wave1 머지 회귀(2026-09-26): 소싱 Wing 검색 kind가 채널 카탈로그 사이트 핸들로 라우팅돼 `site.searchPage is not a function`.
-import { describe as describe2, expect as expect2, it as it2 } from 'vitest';
-import '../collectors/sourcing.wing_catalog';
-describe2('site handle routing by owner prefix', () => {
-  it2('channel site handles never claim a sourcing kind even when its site is also wing', () => {
-    const handles = createSiteHandles({
-      fetch: async () => new Response('{}', { status: 200 }),
-      cookies: { get: async () => null },
-      now: () => 0,
-      sleep: async () => {},
-    });
-    const handle = handles('sourcing.wing_catalog' as never, { tabId: null }) as { searchPage?: unknown } | null;
-    expect2(handle === null || typeof handle.searchPage === 'function').toBe(true);
   });
 });

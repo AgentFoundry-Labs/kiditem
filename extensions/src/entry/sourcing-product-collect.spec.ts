@@ -1,9 +1,13 @@
 import { describe, expect, it } from 'vitest';
 import { productExtensionScope } from './sourcing-product-collect';
-import { createSourcingSiteHandles, PRODUCT_TAB_REQUIRED } from './sourcing-site-handles';
+import { createSiteHandles } from './site-handles';
+import { PRODUCT_TAB_REQUIRED } from '../sites/product-page';
 import '../collectors/sourcing.product_extension';
 import '../collectors/sourcing.trend_1688';
 import '../collectors/sourcing.wing_catalog';
+import '../sites/1688';
+import '../sites/product-page';
+import '../sites/wing/pre-matching-search';
 
 const noTabs = {
   open: async () => { throw new Error('no tabs'); },
@@ -22,7 +26,7 @@ describe('sourcing entry wiring (KID-360)', () => {
   });
 
   it('assembles a site handle per collector site and refuses a product collection without the operator tab', async () => {
-    const handles = createSourcingSiteHandles(siteDeps);
+    const handles = (kind: string) => createSiteHandles(siteDeps)(kind as never, { tabId: null });
     expect(handles('sourcing.wing_catalog')).toMatchObject({ searchPage: expect.any(Function), toObservation: expect.any(Function) });
     expect(handles('sourcing.trend_1688')).toMatchObject({ offers: expect.any(Function), close: expect.any(Function) });
     expect(handles('test.echo')).toBeNull();

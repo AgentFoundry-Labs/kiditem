@@ -5622,57 +5622,6 @@ var KidItemRuntime = (() => {
   };
   registerCollector(testEchoCollector);
 
-  // extensions/src/core/browser.ts
-  var RUNTIME_BROWSER_ALREADY_ACQUIRED = "RUNTIME_BROWSER_ALREADY_ACQUIRED";
-  var RUNTIME_BROWSER_UNAVAILABLE = "RUNTIME_BROWSER_UNAVAILABLE";
-  function createBrowserResources(chromeApi, sites2, options = {}) {
-    const held = /* @__PURE__ */ new Set();
-    return {
-      async acquire({ operationId, lockKeys, signal }) {
-        if (held.has(operationId)) {
-          throw new RuntimeError(RUNTIME_BROWSER_ALREADY_ACQUIRED, "\uC774 \uC2E4\uD589\uC740 \uC774\uBBF8 \uBE0C\uB77C\uC6B0\uC800 \uC790\uC6D0\uC744 \uC7A1\uACE0 \uC788\uC2B5\uB2C8\uB2E4.", { operationId });
-        }
-        signal.throwIfAborted();
-        const siteNames = [...new Set(lockKeys.map((key) => siteOfLockKey(key, options)).filter((name) => name !== null && name in sites2))];
-        if (siteNames.length > 1) {
-          throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uD55C \uC2E4\uD589\uC774 \uB450 \uC0AC\uC774\uD2B8\uC758 \uD0ED\uC744 \uD568\uAED8 \uC7A1\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { sites: siteNames });
-        }
-        held.add(operationId);
-        try {
-          const tab = siteNames.length === 1 ? await openSiteTab(chromeApi, sites2[siteNames[0]].origin) : null;
-          let released = false;
-          return {
-            tabId: tab?.tabId ?? null,
-            async release() {
-              if (released) return;
-              released = true;
-              held.delete(operationId);
-              if (tab?.opened) await chromeApi.tabs.remove(tab.tabId).catch(() => void 0);
-            }
-          };
-        } catch (error) {
-          held.delete(operationId);
-          throw error;
-        }
-      }
-    };
-  }
-  function siteOfLockKey(key, options) {
-    if (key.startsWith("resource:")) return key.split(":")[1] ?? null;
-    if (key.startsWith("account:")) return options.accountSite ?? null;
-    return null;
-  }
-  async function openSiteTab(chromeApi, origin) {
-    const base = origin.replace(/\/+$/, "");
-    const [existing] = await chromeApi.tabs.query({ url: `${base}/*` });
-    if (typeof existing?.id === "number") return { tabId: existing.id, opened: false };
-    const created = await chromeApi.tabs.create({ url: base, active: false });
-    if (typeof created.id !== "number") {
-      throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uC0AC\uC774\uD2B8 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { origin: base });
-    }
-    return { tabId: created.id, opened: true };
-  }
-
   // extensions/src/sites/tab-page.ts
   function checkPageUrl(guard, value) {
     let url;
@@ -5821,6 +5770,659 @@ var KidItemRuntime = (() => {
     return typeof value === "object" && value !== null && value.error === "content_script_missing";
   }
 
+  // extensions/src/sites/registry.ts
+  var sites = /* @__PURE__ */ new Map();
+  function registerSite(factory) {
+    if (sites.has(factory.name)) throw new Error(`duplicate site: ${factory.name}`);
+    sites.set(factory.name, factory);
+  }
+  function siteFactoryFor(name) {
+    return sites.get(name) ?? null;
+  }
+  function registeredSites() {
+    return [...sites.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  }
+
+  // extensions/src/sites/1688/index.ts
+  var SEARCH_ORIGIN = "https://s.1688.com";
+  var NAVIGATION_TIMEOUT_MS = 3e4;
+  var EXTRACTION_TIMEOUT_MS = 2e4;
+  var MAX_RESULTS_PER_KEYWORD = 20;
+  var MAX_VERIFICATION_ROUNDS = 5;
+  var ALIBABA_CONTENT_FILES = {
+    isolated: [
+      "content/sourcing/extractors/common.js",
+      "content/sourcing/extractors/alibaba.js",
+      "content/sourcing/extractors/1688.js",
+      "content/sourcing/content.js"
+    ]
+  };
+  var SITE_VERIFICATION_REQUIRED = "SITE_VERIFICATION_REQUIRED";
+  var ALIBABA_1688_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["1688.com"]),
+    isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "passport.taobao.com"]),
+    loginMessage: "1688 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  var ALIBABA_1688_SITE = {
+    name: "ali1688",
+    origin: SEARCH_ORIGIN,
+    caller: { minIntervalMs: 0, displayName: "1688" }
+  };
+  function build1688SearchUrl(keyword) {
+    return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword)}&charset=utf8`;
+  }
+  function is1688VerificationUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.pathname.includes("/punish") || url.pathname.includes("/_____tmd_____/") || url.searchParams.get("action") === "captcha";
+    } catch {
+      return false;
+    }
+  }
+  function create1688SearchSite(tabs) {
+    let page = null;
+    let keepOpen = false;
+    return {
+      /**
+       * 키워드 하나. 슬라이더 검증이 뜨면 실패하지 않고 운영자를 기다렸다가(`onAttention`으로 알림) 같은 키워드를 다시
+       * 시도한다 — 실행과 이미 올린 청크는 그대로다(KID-355 QA). 10분 안에 통과하지 않으면 `SITE_VERIFICATION_REQUIRED`.
+       */
+      async offers(keyword, options = {}) {
+        page ??= await tabs.open("about:blank");
+        const current = page;
+        const attention = { kind: "verification", site: "1688", label: keyword };
+        const waitOrFail = async (url) => {
+          if (await waitForOperator(current, is1688VerificationUrl, attention, options.onAttention)) return;
+          throw verification(url, keyword, () => {
+            keepOpen = true;
+          });
+        };
+        for (let round = 1; ; round += 1) {
+          const landed = await current.navigate(build1688SearchUrl(keyword), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
+          if (is1688VerificationUrl(landed)) {
+            if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword, () => {
+              keepOpen = true;
+            });
+            await waitOrFail(landed);
+            continue;
+          }
+          let extracted;
+          try {
+            extracted = await current.ask(
+              { type: "TRIGGER_1688_TREND_EXTRACT", maxResults: MAX_RESULTS_PER_KEYWORD },
+              { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: ALIBABA_CONTENT_FILES, guard: ALIBABA_1688_PAGE_GUARD }
+            );
+          } catch (error) {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          }
+          if (extracted.status === "verification_required") {
+            const here = await current.currentUrl().catch(() => extracted.verificationUrl ?? landed);
+            if (round > MAX_VERIFICATION_ROUNDS || !is1688VerificationUrl(here)) {
+              throw verification(extracted.verificationUrl ?? landed, keyword, () => {
+                keepOpen = true;
+              });
+            }
+            await waitOrFail(here);
+            continue;
+          }
+          if (!extracted.ok) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword });
+          }
+          return (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => typeof item?.offerId === "string" && item.offerId.length > 0).slice(0, MAX_RESULTS_PER_KEYWORD);
+        }
+      },
+      /** 수집이 끝나면 탭을 닫는다. 검증 화면에서 멈췄으면 운영자가 풀 수 있게 남긴다. */
+      async close() {
+        if (page && !keepOpen) await page.close();
+        page = null;
+      }
+    };
+  }
+  function verification(url, keyword, keep) {
+    keep();
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword });
+  }
+  registerSite({ name: ALIBABA_1688_SITE.name, create: (deps) => create1688SearchSite(deps.tabs) });
+
+  // extensions/src/sites/coupang-search/parse.ts
+  var PROVIDER_ATTENTION = /access\s*denied|unauthori[sz]ed|forbidden|too\s*many\s*requests|로그인|인증|접근\s*거부/i;
+  var STOP_WORDS = /* @__PURE__ */ new Set(["\uCFE0\uD321", "\uB85C\uCF13", "\uB85C\uCF13\uBC30\uC1A1", "\uBB34\uB8CC\uBC30\uC1A1", "\uBB34\uB8CC", "\uBC30\uC1A1", "\uC815\uD488", "\uAD6D\uB0B4", "\uB2F9\uC77C", "\uC624\uB298", "\uC0C8\uC0C1\uD488", "\uC0C1\uD488", "\uAD6C\uB9E4", "\uD560\uC778", "\uD2B9\uAC00", "\uC635\uC158", "\uC0C9\uC0C1", "\uB79C\uB364"]);
+  function parseCoupangSearchEvidence(evidence, seed, maxResults, origin = "https://www.coupang.com") {
+    const warnings = [];
+    const candidates = [];
+    let structuredResponse = false;
+    let domEvidence = false;
+    let providerError = null;
+    const add = (value, source) => {
+      if (typeof value !== "string") return;
+      const keyword = value.replace(/\s+/g, " ").trim();
+      if (usableKeyword(keyword, seed)) candidates.push({ keyword, source });
+    };
+    const walk = (value) => {
+      if (typeof value === "string") return add(value, "coupang-autocomplete");
+      if (Array.isArray(value)) return value.forEach(walk);
+      if (!value || typeof value !== "object") return;
+      for (const [key, nested] of Object.entries(value)) {
+        if (/keyword|query|term|suggest|name|label|word/i.test(key) && typeof nested === "string") add(nested, "coupang-autocomplete");
+        else walk(nested);
+      }
+    };
+    const autocomplete = evidence.autocomplete;
+    if (autocomplete?.error) warnings.push(autocomplete.error);
+    if (autocomplete && autocomplete.status !== 0 && (autocomplete.status < 200 || autocomplete.status >= 300)) {
+      warnings.push(`\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uD638\uCD9C \uC2E4\uD328 (${autocomplete.status})`);
+      if ([401, 403, 429].includes(autocomplete.status)) {
+        providerError = autocomplete.status === 429 ? { reason: "rate_limited", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC694\uCCAD\uC774 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694." } : { reason: "provider_denied", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574\uC8FC\uC138\uC694." };
+      }
+    }
+    const text2 = autocomplete?.text.trim() ?? "";
+    if (text2 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text2))) {
+      try {
+        const parsed = JSON.parse(text2);
+        if (parsed && typeof parsed === "object") {
+          if (isErrorEnvelope(parsed)) {
+            const message = errorEnvelopeMessage(parsed);
+            providerError ??= { reason: "provider_denied", message };
+          } else {
+            walk(parsed);
+            structuredResponse = hasSuggestionCollection(parsed);
+          }
+        } else {
+          warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uAD6C\uC870\uAC00 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+        }
+      } catch {
+        warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uD30C\uC2F1 \uC2E4\uD328");
+      }
+    } else if (text2) {
+      warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4");
+    }
+    const beforeDom = candidates.length;
+    for (const link of evidence.links) {
+      add(link.text, "coupang-search-dom");
+      try {
+        const parsed = new URL(link.href, origin);
+        add(parsed.searchParams.get("q") || parsed.searchParams.get("keyword") || "", "coupang-search-dom");
+      } catch {
+      }
+    }
+    if (candidates.length > beforeDom) domEvidence = true;
+    const productNames = [];
+    for (const raw of evidence.productNames) {
+      const name = raw.replace(/\s+/g, " ").trim();
+      if (name.length < 4 || name.length > 180 || /장바구니|구매|광고|무료배송|로켓배송만 보기/.test(name)) continue;
+      productNames.push(name);
+      domEvidence = true;
+    }
+    if (providerError) return { ok: false, ...providerError, warnings };
+    if (!structuredResponse && !domEvidence) {
+      return { ok: false, reason: "no_evidence", message: "\uCFE0\uD321 \uD0A4\uC6CC\uB4DC \uC751\uB2F5\uC5D0\uC11C \uC0AC\uC6A9\uD560 \uC218 \uC788\uB294 \uAC80\uC0C9 \uADFC\uAC70\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", warnings };
+    }
+    const seen = /* @__PURE__ */ new Set();
+    const items = [];
+    for (const candidate of candidates) {
+      const key = candidate.keyword.replace(/\s+/g, "").toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push({ rank: items.length + 1, keyword: candidate.keyword, source: candidate.source });
+      if (items.length >= maxResults) break;
+    }
+    return { ok: true, items, productNameTokens: countTokens(productNames, maxResults), warnings };
+  }
+  function usableKeyword(value, seed) {
+    if (value.length < 2 || value.length > 40) return false;
+    if (/https?:\/\//i.test(value) || /^[\d\s,.-]+$/.test(value) || /[₩원%]/.test(value)) return false;
+    if (["\uAC80\uC0C9", "\uBC14\uB85C\uAC00\uAE30", "\uCFE0\uD321", "\uB85C\uCF13\uBC30\uC1A1", "\uBB34\uB8CC\uBC30\uC1A1"].includes(value)) return false;
+    const compact = value.replace(/\s+/g, "").toLowerCase();
+    return compact.length > 1 && compact !== seed.replace(/\s+/g, "").toLowerCase();
+  }
+  function isErrorEnvelope(value) {
+    if (Array.isArray(value)) return false;
+    const record = value;
+    if (record.success === false || record.ok === false) return true;
+    for (const key of ["error", "errors", "errorCode", "error_code"]) {
+      const nested = record[key];
+      if (key in record && nested !== null && nested !== void 0 && String(nested).trim()) return true;
+    }
+    if (record.code !== void 0 && record.code !== null && record.code !== 0 && record.code !== "0" && String(record.code).trim() !== "") return true;
+    return typeof record.message === "string" && PROVIDER_ATTENTION.test(record.message);
+  }
+  function errorEnvelopeMessage(value) {
+    const record = value;
+    for (const key of ["error", "errors", "message", "errorCode", "error_code", "code"]) {
+      const nested = record[key];
+      if (nested !== null && nested !== void 0 && String(nested).trim()) return String(nested);
+    }
+    return "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC5D0\uC11C \uC624\uB958\uB97C \uBC18\uD658\uD588\uC2B5\uB2C8\uB2E4.";
+  }
+  function hasSuggestionCollection(value, depth = 0) {
+    if (Array.isArray(value)) return true;
+    if (!value || typeof value !== "object" || depth > 3) return false;
+    for (const [key, nested] of Object.entries(value)) {
+      if (!/suggest|keyword|query|term|result|item|product|data|list/i.test(key)) continue;
+      if (Array.isArray(nested) || typeof nested === "string" && nested.trim()) return true;
+      if (nested && typeof nested === "object" && hasSuggestionCollection(nested, depth + 1)) return true;
+    }
+    return false;
+  }
+  function countTokens(productNames, maxResults) {
+    const counts = /* @__PURE__ */ new Map();
+    for (const name of productNames) {
+      const tokens = new Set(name.replace(/[()[\]{}"'`~!@#$%^&*_+=|\\:;,.<>/?·•]/g, " ").split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 2 && token.length <= 20).filter((token) => !/^[\d개입묶음세트]+$/.test(token)).filter((token) => !STOP_WORDS.has(token)));
+      for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
+    }
+    return [...counts.entries()].map(([keyword, count]) => ({ keyword, count })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
+  }
+
+  // extensions/src/sites/coupang-search/index.ts
+  var ORIGIN = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS = 6e4;
+  var EVIDENCE_TIMEOUT_MS = 3e4;
+  var SETTLE_MS = 1500;
+  var CONTENT_FILE = "content/sourcing/coupang-search-page.js";
+  var COUPANG_SEARCH_SITE = {
+    name: "coupang-search",
+    origin: ORIGIN,
+    caller: { minIntervalMs: SETTLE_MS, displayName: "\uCFE0\uD321" }
+  };
+  function buildCoupangSearchUrl(keyword) {
+    return `${ORIGIN}/np/search?component=&q=${encodeURIComponent(keyword)}&channel=user`;
+  }
+  function isCoupangSearchUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname.toLowerCase() === "www.coupang.com" && url.port === "" && url.username === "" && url.password === "" && /^\/np\/search\/?$/.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+  function createCoupangSearchSite(tabs, deps) {
+    return {
+      async keywordSuggestions(keyword, maxResults) {
+        const url = buildCoupangSearchUrl(keyword);
+        const page = await tabs.open("about:blank");
+        try {
+          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS });
+          if (!isCoupangSearchUrl(landed)) {
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uCFE0\uD321 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
+          }
+          await deps.sleep(SETTLE_MS);
+          const evidence = await page.ask(
+            { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword },
+            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE] } }
+          );
+          if (!evidence.links || !evidence.productNames) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
+          }
+          const parsed = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword, maxResults);
+          if (!parsed.ok) {
+            throw new RuntimeError(
+              parsed.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
+              parsed.message,
+              { status: parsed.reason === "rate_limited" ? 429 : null, url, reason: parsed.reason, warnings: parsed.warnings }
+            );
+          }
+          return { items: parsed.items, productNameTokens: parsed.productNameTokens, warnings: parsed.warnings };
+        } finally {
+          await page.close();
+        }
+      }
+    };
+  }
+  registerSite({ name: COUPANG_SEARCH_SITE.name, create: (deps) => createCoupangSearchSite(deps.tabs, { sleep: deps.sleep }) });
+
+  // extensions/src/sites/live-commerce/index.ts
+  var NAVIGATION_TIMEOUT_MS2 = 35e3;
+  var EXTRACTION_TIMEOUT_MS2 = 25e3;
+  var MAX_PRODUCTS = 100;
+  var CONTENT_FILES = {
+    isolated: ["content/sourcing/live-commerce-extractor.js", "content/sourcing/live-commerce-content.js"]
+  };
+  var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
+  var LIVE_COMMERCE_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["1688.com", "douyin.com"]),
+    isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "sso.douyin.com", "passport.douyin.com"]) || hostWithin(url, ["douyin.com"]) && /\/login/i.test(url.pathname),
+    loginMessage: "\uB77C\uC774\uBE0C \uBC29\uC1A1 \uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  var LIVE_COMMERCE_SITE = {
+    name: "live-commerce",
+    origin: "https://live.douyin.com",
+    caller: { minIntervalMs: 0, displayName: "\uB77C\uC774\uBE0C \uBC29\uC1A1" }
+  };
+  function isLiveVerificationUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.pathname.includes("/punish") || url.searchParams.get("action") === "captcha" || /(?:verify|captcha)/i.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+  function isLiveLoginUrl(value) {
+    try {
+      return LIVE_COMMERCE_PAGE_GUARD.isLogin(new URL(value)) || /\/login/i.test(new URL(value).pathname);
+    } catch {
+      return false;
+    }
+  }
+  var MAX_VERIFICATION_ROUNDS2 = 5;
+  function createLiveCommerceSite(tabs) {
+    return {
+      async broadcast(pageUrl, options = {}) {
+        const page = await tabs.open("about:blank");
+        let keepOpen = false;
+        try {
+          const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
+          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS2, stopAt });
+          for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
+            const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
+            if (!cleared) {
+              keepOpen = true;
+              throw verification2(landed);
+            }
+            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS2, stopAt });
+          }
+          if (isLiveLoginUrl(landed)) {
+            keepOpen = true;
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, LIVE_COMMERCE_PAGE_GUARD.loginMessage, { url: landed });
+          }
+          let extracted;
+          try {
+            extracted = await page.ask(
+              { type: "TRIGGER_LIVE_COMMERCE_EXTRACT" },
+              { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: CONTENT_FILES, guard: LIVE_COMMERCE_PAGE_GUARD }
+            );
+          } catch (error) {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          }
+          if (extracted.status === "verification_required") {
+            keepOpen = true;
+            throw verification2(extracted.verificationUrl ?? landed);
+          }
+          if (!extracted.ok || !extracted.broadcast || !extracted.source || !extracted.pageUrl) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `\uBC29\uC1A1 \uC815\uBCF4\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}).`, { status: null, url: pageUrl });
+          }
+          return {
+            source: extracted.source,
+            pageUrl: extracted.pageUrl,
+            broadcast: extracted.broadcast,
+            products: (Array.isArray(extracted.products) ? extracted.products : []).slice(0, MAX_PRODUCTS)
+          };
+        } finally {
+          if (!keepOpen) await page.close();
+        }
+      }
+    };
+  }
+  function verification2(url) {
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED2, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
+  }
+  registerSite({ name: LIVE_COMMERCE_SITE.name, create: (deps) => createLiveCommerceSite(deps.tabs) });
+
+  // extensions/src/sites/product-page/description.ts
+  function parseDescriptionHtml(html) {
+    const content = offerDetailsContent(html) ?? html;
+    const images = [];
+    for (const match of content.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)) {
+      const src = match[1];
+      if (src.startsWith("data:") || src.includes("icon") || src.includes("logo")) continue;
+      const full = src.startsWith("//") ? `https:${src}` : src;
+      if (!images.includes(full)) images.push(full);
+    }
+    const blocks = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const match of content.matchAll(/<(?:p|h[1-6]|li|td|th|div|span)[^>]*>([^<]{5,})<\//gi)) {
+      const text2 = match[1].replace(/&[^;]+;/g, " ").trim();
+      if (text2.length < 5 || text2.length > 2e3 || seen.has(text2)) continue;
+      seen.add(text2);
+      blocks.push(text2);
+    }
+    if (images.length === 0 && blocks.length === 0) return null;
+    return { description_images: images, description_text: blocks.join("\n").slice(0, 1e4), description_image_count: images.length };
+  }
+  function offerDetailsContent(html) {
+    const marker = "var offer_details=";
+    const start = html.indexOf(marker);
+    if (start === -1) return null;
+    const jsonStart = start + marker.length;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = jsonStart; index < html.length; index += 1) {
+      const char = html.charAt(index);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (char === "{") depth += 1;
+      if (char === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          try {
+            const parsed = JSON.parse(html.substring(jsonStart, index + 1));
+            return typeof parsed.content === "string" ? parsed.content : null;
+          } catch {
+            return null;
+          }
+        }
+      }
+    }
+    return null;
+  }
+  function allowedSupplierUrl(value) {
+    try {
+      const parsed = new URL(String(value ?? "").trim());
+      const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
+      if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port && parsed.port !== "443") return null;
+      if (!["1688.com", "alibaba.com"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) return null;
+      parsed.hostname = host;
+      parsed.hash = "";
+      return parsed.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  // extensions/src/sites/product-page/index.ts
+  var EXTRACTION_TIMEOUT_MS3 = 2e4;
+  var TRIGGER_TIMEOUT_MS = 5e3;
+  var EXTRACTOR_FILES = [
+    "content/sourcing/extractors/common.js",
+    "content/sourcing/extractors/alibaba.js",
+    "content/sourcing/extractors/1688.js",
+    "content/sourcing/content.js"
+  ];
+  var PRODUCT_PAGE_MOVED = "PRODUCT_PAGE_MOVED";
+  var PRODUCT_EXTRACTION_TIMEOUT = "PRODUCT_EXTRACTION_TIMEOUT";
+  var PRODUCT_PAGE_SITE = {
+    name: "product-page",
+    origin: "https://detail.1688.com",
+    caller: { minIntervalMs: 0, displayName: "1688\xB7Alibaba \uC0C1\uD488" }
+  };
+  function productPageInjection(url) {
+    const host = new URL(url).hostname;
+    const main = host.endsWith("1688.com") ? ["content/sourcing/extractors/1688-bridge.js"] : host.endsWith("alibaba.com") ? ["content/sourcing/extractors/page-bridge.js"] : [];
+    return { isolated: EXTRACTOR_FILES, main };
+  }
+  function createProductPageSite(tabs, tabId, deps) {
+    return {
+      async extract(sourceUrl) {
+        const page = tabs.attach(tabId);
+        const current = await page.currentUrl();
+        if (current !== sourceUrl) {
+          throw new RuntimeError(PRODUCT_PAGE_MOVED, "\uC218\uC9D1\uC744 \uC2DC\uC791\uD55C \uB4A4 \uD0ED \uC8FC\uC18C\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC0C1\uD488 \uD398\uC774\uC9C0\uC5D0\uC11C \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: current });
+        }
+        const marker = deps.randomId();
+        let product = null;
+        let description;
+        let settle;
+        const settled = new Promise((resolve) => {
+          settle = resolve;
+        });
+        const stop = page.listen((message) => {
+          if (message.attemptId !== marker) return;
+          if (message.type === "PRODUCT_DATA" && !product && isRecord(message.data)) {
+            product = message.data;
+            if (product.page_type === "search") settle({ product: withSourceUrl(product, sourceUrl), hadDescription: false });
+          } else if (message.type === "DESCRIPTION_DATA" && isRecord(message.data)) {
+            description = message.data;
+          } else if (message.type === "EXTRACTION_COMPLETE" && product) {
+            const hadDescription = message.hadDescription === true;
+            if (hadDescription !== Boolean(description)) {
+              settle(new RuntimeError(SITE_REQUEST_FAILED, "\uC0C1\uD488 \uC124\uBA85 \uCD94\uCD9C \uC644\uB8CC\uB97C \uD655\uC778\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { status: null, url: sourceUrl }));
+            } else {
+              settle({ product: withSourceUrl(product, sourceUrl), ...description ? { description } : {}, hadDescription });
+            }
+          }
+        });
+        const timer = setTimeout(() => settle(new RuntimeError(PRODUCT_EXTRACTION_TIMEOUT, "\uC0C1\uD488 \uCD94\uCD9C \uC2DC\uAC04\uC774 \uCD08\uACFC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: sourceUrl })), EXTRACTION_TIMEOUT_MS3);
+        try {
+          const started = await page.ask({ type: "TRIGGER_EXTRACT", attemptId: marker }, { timeoutMs: TRIGGER_TIMEOUT_MS, inject: productPageInjection(sourceUrl) });
+          if (started.ok === false) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, "\uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { status: null, url: sourceUrl, reason: started.error });
+          }
+          const result = await settled;
+          if (result instanceof RuntimeError) throw result;
+          await enrich(result.product);
+          return result;
+        } finally {
+          clearTimeout(timer);
+          stop();
+        }
+      }
+    };
+    async function enrich(product) {
+      const detailUrl = product.source_platform === "1688" ? allowedSupplierUrl(product._detail_url) : null;
+      if (!detailUrl) return;
+      const html = await tabs.fetchText(detailUrl);
+      const content = html ? parseDescriptionHtml(html) : null;
+      if (content) Object.assign(product, content);
+    }
+  }
+  function withSourceUrl(product, sourceUrl) {
+    return { ...product, source_url: typeof product.source_url === "string" ? product.source_url : sourceUrl };
+  }
+  function isRecord(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+  var PRODUCT_TAB_REQUIRED = "PRODUCT_TAB_REQUIRED";
+  registerSite({
+    name: PRODUCT_PAGE_SITE.name,
+    create: (deps, lease) => lease.tabId !== null ? createProductPageSite(deps.tabs, lease.tabId, { randomId: deps.randomId }) : {
+      extract: async () => {
+        throw new RuntimeError(PRODUCT_TAB_REQUIRED, "\uC0C1\uD488 \uC218\uC9D1\uC740 \uD655\uC7A5 \uD31D\uC5C5\uC758 [\uD604\uC7AC \uC0C1\uD488 \uC218\uC9D1]\uC5D0\uC11C \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
+      }
+    }
+  });
+
+  // extensions/src/sites/tiktok-cc/index.ts
+  var NAVIGATION_TIMEOUT_MS3 = 35e3;
+  var EXTRACTION_TIMEOUT_MS4 = 25e3;
+  var BASE_URLS = {
+    hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
+    product: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/pc/en",
+    keyword: "https://ads.tiktok.com/business/creativecenter/keyword-insights/pc/en"
+  };
+  var TIKTOK_CC_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["ads.tiktok.com"]),
+    isLogin: (url) => hostWithin(url, ["passport.tiktok.com"]) || /(?:\/login|\/passport|\/signup)/i.test(url.pathname),
+    loginMessage: "TikTok \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  var CONTENT_FILES2 = {
+    isolated: ["content/sourcing/tiktok-cc-extractor.js", "content/sourcing/tiktok-cc-content.js"],
+    main: ["content/sourcing/tiktok-cc-hook.js"]
+  };
+  var TIKTOK_CC_SITE = {
+    name: "tiktok",
+    origin: "https://ads.tiktok.com",
+    caller: { minIntervalMs: 0, displayName: "TikTok" }
+  };
+  function tiktokTargetFor(targetId) {
+    if (targetId === "hashtag" || targetId === "product") {
+      return { id: targetId, trendType: targetId, url: BASE_URLS[targetId], sourceKeyword: null };
+    }
+    const keyword = targetId.startsWith("keyword:") ? targetId.slice("keyword:".length) : targetId;
+    return { id: targetId, trendType: "keyword", url: `${BASE_URLS.keyword}?keyword=${encodeURIComponent(keyword)}`, sourceKeyword: keyword };
+  }
+  function isTiktokBlockedUrl(value) {
+    try {
+      return /(?:\/login|\/passport|\/signup)/i.test(new URL(value).pathname);
+    } catch {
+      return false;
+    }
+  }
+  function isTiktokVerificationUrl(value) {
+    try {
+      const url = new URL(value);
+      return /(?:verify|captcha)/i.test(url.pathname) || url.searchParams.has("captcha");
+    } catch {
+      return false;
+    }
+  }
+  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
+  var MAX_VERIFICATION_ROUNDS3 = 5;
+  function sanitizeTiktokRegion(value) {
+    if (typeof value !== "string") return null;
+    const cleaned = value.replace(/[^A-Za-z]/g, "").toUpperCase();
+    return cleaned.length >= 2 && cleaned.length <= 8 ? cleaned : null;
+  }
+  function createTiktokCcSite(tabs) {
+    let page = null;
+    let keepOpen = false;
+    return {
+      targetFor: tiktokTargetFor,
+      async target(target, defaultRegion, options = {}) {
+        page ??= await tabs.open("about:blank");
+        try {
+          return await readTarget(page, target, defaultRegion, options.onAttention);
+        } catch (error) {
+          if (leftForOperator(error)) keepOpen = true;
+          throw error;
+        }
+      },
+      async close() {
+        if (!keepOpen) await page?.close();
+        page = null;
+      }
+    };
+    async function readTarget(page2, target, defaultRegion, onAttention) {
+      const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
+      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt, continueOnTimeout: true });
+      for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
+        const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
+        if (!cleared) {
+          keepOpen = true;
+          throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
+        }
+        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt, continueOnTimeout: true });
+      }
+      if (isTiktokBlockedUrl(landed)) {
+        throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
+      }
+      const extracted = await page2.ask(
+        { type: "TRIGGER_TIKTOK_CC_EXTRACT", trendType: target.trendType, sourceKeyword: target.sourceKeyword, defaultRegion },
+        { timeoutMs: EXTRACTION_TIMEOUT_MS4, inject: CONTENT_FILES2, guard: TIKTOK_CC_PAGE_GUARD }
+      );
+      if (!extracted.ok) {
+        throw new RuntimeError(SITE_REQUEST_FAILED, `TikTok \uD2B8\uB80C\uB4DC '${target.id}'\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, target: target.id });
+      }
+      return {
+        region: sanitizeTiktokRegion(extracted.region),
+        items: (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => Boolean(item) && typeof item === "object")
+      };
+    }
+  }
+  registerSite({ name: TIKTOK_CC_SITE.name, create: (deps) => createTiktokCcSite(deps.tabs) });
+
   // extensions/src/sites/wing/parse.ts
   var MAX_ATTRIBUTES_PER_OPTION = 100;
   var MAX_MEDIA_PER_OWNER = 100;
@@ -5895,14 +6497,14 @@ var KidItemRuntime = (() => {
   }
   function normalizeWingCatalogSearchResponse(payload, page, expectedVendorId) {
     const requestedPage = requiredPositiveInteger(page, "Wing \uD398\uC774\uC9C0");
-    if (!isRecord(payload)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+    if (!isRecord2(payload)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
     if (Object.hasOwn(payload, "success") && (payload.success !== true || payload.message !== null)) {
       throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
     }
     const data = payload.data;
-    const pagination = isRecord(data) ? data.pagination : void 0;
-    const productList = isRecord(data) ? data.productList : void 0;
-    if (!isRecord(data) || !Array.isArray(productList) || !isRecord(pagination)) {
+    const pagination = isRecord2(data) ? data.pagination : void 0;
+    const productList = isRecord2(data) ? data.productList : void 0;
+    if (!isRecord2(data) || !Array.isArray(productList) || !isRecord2(pagination)) {
       throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uB370\uC774\uD130\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
     }
     const responsePage = requiredPositiveInteger(pagination.page, "Wing \uC751\uB2F5 \uD398\uC774\uC9C0");
@@ -5925,7 +6527,7 @@ var KidItemRuntime = (() => {
     }
     const seen = /* @__PURE__ */ new Set();
     const products = productList.map((row) => {
-      if (!isRecord(row)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D \uD589\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+      if (!isRecord2(row)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D \uD589\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
       if (!Number.isSafeInteger(row.vendorInventoryId) || row.vendorInventoryId <= 0) {
         throw new WingPayloadError("Wing \uC0C1\uD488 ID\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
       }
@@ -5941,7 +6543,7 @@ var KidItemRuntime = (() => {
     return { page: requestedPage, pageSize, totalItems, totalPages, products };
   }
   function buildCatalogBasicProduct(inventoryProduct) {
-    if (!isRecord(inventoryProduct)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D \uD589\uC774 \uC5C6\uC2B5\uB2C8\uB2E4");
+    if (!isRecord2(inventoryProduct)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D \uD589\uC774 \uC5C6\uC2B5\uB2C8\uB2E4");
     const externalProductId = strictRequiredId(inventoryProduct.vendorInventoryId, "vendorInventoryId");
     const items = Array.isArray(inventoryProduct.vendorInventoryItems) ? inventoryProduct.vendorInventoryItems : [];
     if (items.length === 0) throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId}\uC5D0 vendorInventoryItems\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4`);
@@ -5987,7 +6589,7 @@ var KidItemRuntime = (() => {
     }, MAX_PRODUCT_BYTES, `Wing \uAE30\uBCF8 \uC0C1\uD488 ${externalProductId}\uAC00 \uD5C8\uC6A9 \uD06C\uAE30\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
   }
   function buildCatalogBasicOption(item) {
-    if (!isRecord(item)) throw new WingPayloadError("Wing vendorInventoryItem \uD589\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+    if (!isRecord2(item)) throw new WingPayloadError("Wing vendorInventoryItem \uD589\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
     const externalOptionId = requiredOptionId(item, "basic");
     const vendorItemId = strictOptionalId(item.vendorItemId, "vendorItemId");
     const vendorInventoryItemId = strictRequiredId(item.vendorInventoryItemId, "vendorInventoryItemId");
@@ -6040,7 +6642,7 @@ var KidItemRuntime = (() => {
     "extraProperties"
   ];
   function buildCatalogDetailProduct(sellerProduct) {
-    if (!isRecord(sellerProduct)) throw new WingPayloadError("Wing \uC0C1\uD488 \uC0C1\uC138 JSON\uC774 \uC5C6\uC2B5\uB2C8\uB2E4");
+    if (!isRecord2(sellerProduct)) throw new WingPayloadError("Wing \uC0C1\uD488 \uC0C1\uC138 JSON\uC774 \uC5C6\uC2B5\uB2C8\uB2E4");
     const externalProductId = strictRequiredId(sellerProduct.sellerProductId, "sellerProductId");
     const items = Array.isArray(sellerProduct.items) ? sellerProduct.items : [];
     if (items.length === 0) throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId}\uC5D0 \uC635\uC158\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
@@ -6050,7 +6652,7 @@ var KidItemRuntime = (() => {
     const options = [];
     const optionIds = /* @__PURE__ */ new Set();
     for (const rawItem of items) {
-      const item = isRecord(rawItem) ? rawItem : {};
+      const item = isRecord2(rawItem) ? rawItem : {};
       const externalOptionId = requiredOptionId(item, "detail");
       if (optionIds.has(externalOptionId)) {
         throw new WingPayloadError(`Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId} \uC635\uC158 identity conflict: ${externalOptionId}`);
@@ -6071,7 +6673,7 @@ var KidItemRuntime = (() => {
         documentIds.push(document.id);
       }
       for (const image of Array.isArray(item.images) ? item.images : []) {
-        const record = isRecord(image) ? image : {};
+        const record = isRecord2(image) ? image : {};
         addDetailMedia(mediaByKey, "option", normalizeImageUrl(record.cdnPath || record.vendorPath), externalOptionId);
       }
       for (const sourceUrl of extractDetailImageUrls(item.contents)) {
@@ -6128,9 +6730,9 @@ var KidItemRuntime = (() => {
   function extractDetailImageUrls(contents) {
     const urls = [];
     for (const content of Array.isArray(contents) ? contents : []) {
-      const details = isRecord(content) && Array.isArray(content.contentDetails) ? content.contentDetails : [];
+      const details = isRecord2(content) && Array.isArray(content.contentDetails) ? content.contentDetails : [];
       for (const detail of details) {
-        const html = String(isRecord(detail) ? detail.content ?? "" : "");
+        const html = String(isRecord2(detail) ? detail.content ?? "" : "");
         for (const match of html.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) {
           const url = normalizeImageUrl(match[1]);
           if (url) urls.push(url);
@@ -6141,7 +6743,7 @@ var KidItemRuntime = (() => {
   }
   function normalizeDetailAttributes(attributes) {
     return (Array.isArray(attributes) ? attributes : []).map((attribute) => {
-      const record = isRecord(attribute) ? attribute : {};
+      const record = isRecord2(attribute) ? attribute : {};
       return {
         type: nullableText(record.attributeTypeName || record.attributeTypeId),
         value: nullableText(record.attributeValueName)
@@ -6207,7 +6809,7 @@ var KidItemRuntime = (() => {
     if (/^https?:\/\//i.test(text2)) return text2;
     return `https://image1.coupangcdn.com/image/${text2.replace(/^\/+/, "")}`;
   }
-  function isRecord(value) {
+  function isRecord2(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
   function nullableText(value) {
@@ -6265,18 +6867,11 @@ var KidItemRuntime = (() => {
     return value;
   }
 
-  // extensions/src/sites/registry.ts
-  var sites = /* @__PURE__ */ new Map();
-  function registerSite(factory) {
-    if (sites.has(factory.name)) throw new Error(`duplicate site: ${factory.name}`);
-    sites.set(factory.name, factory);
-  }
-
   // extensions/src/sites/wing/index.ts
-  var ORIGIN = "https://wing.coupang.com";
-  var SEARCH_URL = `${ORIGIN}/tenants/seller-web/v2/vendor-inventory/search`;
-  var DETAIL_URL = `${ORIGIN}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
-  var EXCEL_BASE = `${ORIGIN}/tenants/seller-web/excel/request/download`;
+  var ORIGIN2 = "https://wing.coupang.com";
+  var SEARCH_URL = `${ORIGIN2}/tenants/seller-web/v2/vendor-inventory/search`;
+  var DETAIL_URL = `${ORIGIN2}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
+  var EXCEL_BASE = `${ORIGIN2}/tenants/seller-web/excel/request/download`;
   var EXCEL_REQUEST_TYPE = "EDITABLE_CATALOGUE";
   var CATALOGUE_TYPES = [
     "DISPLAY_PRODUCT_NAME",
@@ -6298,12 +6893,12 @@ var KidItemRuntime = (() => {
   var WING_CATALOG_PAYLOAD_INVALID = "WING_CATALOG_PAYLOAD_INVALID";
   var WING_SITE = {
     name: "wing",
-    origin: ORIGIN,
+    origin: ORIGIN2,
     caller: {
       minIntervalMs: 2e3,
       timeoutMs: WING_TIMEOUT_MS,
       displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+      xsrf: { cookieUrl: ORIGIN2, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingSite(caller, deps) {
@@ -6470,6 +7065,142 @@ var KidItemRuntime = (() => {
     create: (deps) => createWingSite(createSiteCaller(WING_SITE.caller, deps), { sleep: deps.sleep })
   });
 
+  // extensions/src/sites/wing/pre-matching-search.ts
+  var ORIGIN3 = "https://wing.coupang.com";
+  var SEARCH_URL2 = `${ORIGIN3}/tenants/seller-web/pre-matching/search`;
+  var RETRY_ATTEMPTS = 4;
+  var REQUEST_TIMEOUT_MS = 2e4;
+  var WING_SEARCH_PAYLOAD_INVALID = "WING_SEARCH_PAYLOAD_INVALID";
+  var WING_SEARCH_SITE = {
+    name: "wing-search",
+    origin: ORIGIN3,
+    caller: {
+      minIntervalMs: 2200,
+      displayName: "\uCFE0\uD321 \uC719",
+      xsrf: { cookieUrl: ORIGIN3, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+    }
+  };
+  function createWingPreMatchingSearch(caller, deps) {
+    return {
+      /** 키워드 한 페이지. 429·5xx·연결 끊김은 네 번까지 다시 묻는다. */
+      async searchPage(keyword, searchPage) {
+        const body = JSON.stringify({ keyword, excludedProductIds: [], searchPage, searchOrder: "DEFAULT", sortType: "DEFAULT" });
+        for (let attempt = 1; ; attempt += 1) {
+          let response;
+          try {
+            response = await caller.json(SEARCH_URL2, {
+              requireXsrf: true,
+              method: "POST",
+              headers: { "content-type": "application/json", accept: "application/json, text/plain, */*" },
+              body,
+              signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+            });
+          } catch (error) {
+            if (searchPage === 0 && isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.status === 200 && error.details?.reason === "non_json") {
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, `${WING_SEARCH_SITE.caller.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.`, { reason: "non_json_first_page" }, error);
+            }
+            const status = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED ? error.details?.status : void 0;
+            const retryable = status === null || status === 429 || typeof status === "number" && status >= 500;
+            if (!retryable || attempt >= RETRY_ATTEMPTS) throw error;
+            await deps.sleep((status === 429 ? 4e3 : 1e3) * 2 ** (attempt - 1));
+            continue;
+          }
+          return parseWingSearchPage(response);
+        }
+      }
+    };
+  }
+  function createWingCatalogSearchSite(caller, deps) {
+    const search = createWingPreMatchingSearch(caller, deps);
+    return {
+      searchPage: search.searchPage,
+      identity: (row) => `${row.productId}:${row.itemId ?? ""}:${row.vendorItemId ?? ""}`,
+      toObservation: (row, keyword, capturedAt) => row.productName.trim() ? toSourcingWingCatalogObservation(row, keyword, capturedAt) : null
+    };
+  }
+  function parseWingSearchPage(body) {
+    const record = asRecord2(body);
+    if (!record || !Array.isArray(record.result)) {
+      throw new RuntimeError(WING_SEARCH_PAYLOAD_INVALID, "Wing \uAC80\uC0C9 \uC751\uB2F5\uC758 \uBAA8\uC591\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    }
+    const next = record.nextSearchPage;
+    return {
+      rows: record.result.map(normalizeWingSearchProduct).filter((row) => row !== null),
+      nextSearchPage: typeof next === "number" && Number.isInteger(next) ? next : null
+    };
+  }
+  function normalizeWingSearchProduct(raw) {
+    const product = asRecord2(raw);
+    if (!product || product.productId == null) return null;
+    const productId = String(product.productId);
+    if (!productId) return null;
+    const salePrice = nullableNumber(product.salePrice);
+    const salesLast28d = nullableNumber(product.salesLast28d);
+    const pvLast28Day = nullableNumber(product.pvLast28Day);
+    const category = Array.isArray(product.displayCategoryInfo) ? asRecord2(product.displayCategoryInfo[0])?.categoryHierarchy : null;
+    return {
+      productId,
+      itemId: product.itemId == null ? null : String(product.itemId),
+      vendorItemId: product.vendorItemId == null ? null : String(product.vendorItemId),
+      productName: String(product.productName || ""),
+      itemName: product.itemName ? String(product.itemName) : null,
+      brandName: product.brandName ? String(product.brandName) : null,
+      manufacture: product.manufacture ? String(product.manufacture) : null,
+      categoryHierarchy: typeof category === "string" && category ? category : null,
+      imagePath: product.imagePath ? String(product.imagePath) : null,
+      salePrice,
+      rating: nullableNumber(product.rating),
+      ratingCount: nullableNumber(product.ratingCount),
+      pvLast28Day,
+      salesLast28d,
+      estimatedRevenue28d: salePrice != null && salesLast28d != null ? Math.round(salePrice * salesLast28d) : null,
+      conversionRate28d: pvLast28Day != null && pvLast28Day > 0 && salesLast28d != null ? salesLast28d / pvLast28Day : null,
+      deliveryInfo: product.deliveryInfo ? String(product.deliveryInfo) : null
+    };
+  }
+  function toSourcingWingCatalogObservation(row, sourceKeyword, capturedAt) {
+    return {
+      productId: row.productId,
+      itemId: row.itemId,
+      vendorItemId: row.vendorItemId,
+      productName: row.productName.slice(0, 500),
+      itemName: row.itemName?.slice(0, 500) ?? null,
+      brandName: row.brandName?.slice(0, 500) ?? null,
+      manufacture: row.manufacture?.slice(0, 500) ?? null,
+      categoryHierarchy: row.categoryHierarchy?.slice(0, 1e3) ?? null,
+      imagePath: row.imagePath?.slice(0, 2e3) ?? null,
+      salePriceKrw: boundedInteger(row.salePrice),
+      ratingAverage: boundedNumber(row.rating, 0, 5),
+      ratingCount: boundedInteger(row.ratingCount),
+      viewsLast28d: boundedInteger(row.pvLast28Day),
+      salesLast28d: boundedInteger(row.salesLast28d),
+      estimatedRevenue28d: boundedNumber(row.estimatedRevenue28d, 0, 2147483647),
+      conversionRate28d: boundedNumber(row.conversionRate28d, 0, 1),
+      deliveryInfo: row.deliveryInfo?.slice(0, 1e3) ?? null,
+      sourceKeyword,
+      capturedAt
+    };
+  }
+  function nullableNumber(value) {
+    if (value == null || typeof value === "boolean" || typeof value === "object") return null;
+    if (typeof value === "string" && value.trim() === "") return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+  function boundedInteger(value) {
+    return value !== null && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
+  }
+  function boundedNumber(value, minimum, maximum) {
+    return value !== null && Number.isFinite(value) && value >= minimum && value <= maximum ? value : null;
+  }
+  function asRecord2(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+  }
+  registerSite({
+    name: WING_SEARCH_SITE.name,
+    create: (deps) => createWingCatalogSearchSite(createSiteCaller(WING_SEARCH_SITE.caller, deps), { sleep: deps.sleep })
+  });
+
   // extensions/src/sites/wing/reviews.ts
   var WING_ORIGIN = "https://wing.coupang.com";
   var WING_REVIEW_SEARCH_URL = `${WING_ORIGIN}/tenants/cs/product/review/search`;
@@ -6556,17 +7287,64 @@ var KidItemRuntime = (() => {
     create: (deps) => createWingReviewsSite(createSiteCaller(WING_REVIEW_CALLER, deps))
   });
 
-  // extensions/src/entry/site-handles.ts
-  var ENTRY_SITES = { [WING_SITE.name]: { origin: WING_SITE.origin } };
-  var ACCOUNT_SITE = WING_SITE.name;
-  function createSiteHandles(deps) {
-    return (kind) => {
-      if (kind.startsWith("sourcing.")) return null;
-      if (kind === COUPANG_REVIEWS_KIND) return createWingReviewsSite(createSiteCaller(WING_REVIEW_CALLER, deps));
-      const site = collectorFor(kind)?.site ?? null;
-      if (site === WING_SITE.name) return createWingSite(createSiteCaller(WING_SITE.caller, deps), { sleep: deps.sleep });
-      return null;
+  // extensions/src/core/browser.ts
+  var RUNTIME_BROWSER_ALREADY_ACQUIRED = "RUNTIME_BROWSER_ALREADY_ACQUIRED";
+  var RUNTIME_BROWSER_UNAVAILABLE = "RUNTIME_BROWSER_UNAVAILABLE";
+  function createBrowserResources(chromeApi, sites2, options = {}) {
+    const held = /* @__PURE__ */ new Set();
+    return {
+      async acquire({ operationId, lockKeys, signal }) {
+        if (held.has(operationId)) {
+          throw new RuntimeError(RUNTIME_BROWSER_ALREADY_ACQUIRED, "\uC774 \uC2E4\uD589\uC740 \uC774\uBBF8 \uBE0C\uB77C\uC6B0\uC800 \uC790\uC6D0\uC744 \uC7A1\uACE0 \uC788\uC2B5\uB2C8\uB2E4.", { operationId });
+        }
+        signal.throwIfAborted();
+        const siteNames = [...new Set(lockKeys.map((key) => siteOfLockKey(key, options)).filter((name) => name !== null && name in sites2))];
+        if (siteNames.length > 1) {
+          throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uD55C \uC2E4\uD589\uC774 \uB450 \uC0AC\uC774\uD2B8\uC758 \uD0ED\uC744 \uD568\uAED8 \uC7A1\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { sites: siteNames });
+        }
+        held.add(operationId);
+        try {
+          const tab = siteNames.length === 1 ? await openSiteTab(chromeApi, sites2[siteNames[0]].origin) : null;
+          let released = false;
+          return {
+            tabId: tab?.tabId ?? null,
+            async release() {
+              if (released) return;
+              released = true;
+              held.delete(operationId);
+              if (tab?.opened) await chromeApi.tabs.remove(tab.tabId).catch(() => void 0);
+            }
+          };
+        } catch (error) {
+          held.delete(operationId);
+          throw error;
+        }
+      }
     };
+  }
+  function siteOfLockKey(key, options) {
+    if (key.startsWith("resource:")) return key.split(":")[1] ?? null;
+    if (key.startsWith("account:")) return options.accountSite ?? null;
+    return null;
+  }
+  async function openSiteTab(chromeApi, origin) {
+    const base = origin.replace(/\/+$/, "");
+    const [existing] = await chromeApi.tabs.query({ url: `${base}/*` });
+    if (typeof existing?.id === "number") return { tabId: existing.id, opened: false };
+    const created = await chromeApi.tabs.create({ url: base, active: false });
+    if (typeof created.id !== "number") {
+      throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uC0AC\uC774\uD2B8 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { origin: base });
+    }
+    return { tabId: created.id, opened: true };
+  }
+
+  // extensions/src/entry/site-handles.ts
+  function entrySites() {
+    return Object.fromEntries(registeredSites().flatMap((site) => site.origin ? [[site.name, { origin: site.origin }]] : []));
+  }
+  var ACCOUNT_SITE = "wing";
+  function createSiteHandles(deps) {
+    return (kind, lease) => siteFactoryFor(collectorFor(kind)?.site ?? "")?.create(deps, lease) ?? null;
   }
 
   // extensions/src/entry/legacy-bridge.ts
@@ -6972,810 +7750,6 @@ var KidItemRuntime = (() => {
     };
   }
 
-  // extensions/src/sites/1688/index.ts
-  var SEARCH_ORIGIN = "https://s.1688.com";
-  var NAVIGATION_TIMEOUT_MS = 3e4;
-  var EXTRACTION_TIMEOUT_MS = 2e4;
-  var MAX_RESULTS_PER_KEYWORD = 20;
-  var MAX_VERIFICATION_ROUNDS = 5;
-  var ALIBABA_CONTENT_FILES = {
-    isolated: [
-      "content/sourcing/extractors/common.js",
-      "content/sourcing/extractors/alibaba.js",
-      "content/sourcing/extractors/1688.js",
-      "content/sourcing/content.js"
-    ]
-  };
-  var SITE_VERIFICATION_REQUIRED = "SITE_VERIFICATION_REQUIRED";
-  var ALIBABA_1688_PAGE_GUARD = {
-    allows: (url) => hostWithin(url, ["1688.com"]),
-    isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "passport.taobao.com"]),
-    loginMessage: "1688 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
-  };
-  var ALIBABA_1688_SITE = {
-    name: "ali1688",
-    origin: SEARCH_ORIGIN,
-    caller: { minIntervalMs: 0, displayName: "1688" }
-  };
-  function build1688SearchUrl(keyword) {
-    return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword)}&charset=utf8`;
-  }
-  function is1688VerificationUrl(value) {
-    try {
-      const url = new URL(value);
-      return url.pathname.includes("/punish") || url.pathname.includes("/_____tmd_____/") || url.searchParams.get("action") === "captcha";
-    } catch {
-      return false;
-    }
-  }
-  function create1688SearchSite(tabs) {
-    let page = null;
-    let keepOpen = false;
-    return {
-      /**
-       * 키워드 하나. 슬라이더 검증이 뜨면 실패하지 않고 운영자를 기다렸다가(`onAttention`으로 알림) 같은 키워드를 다시
-       * 시도한다 — 실행과 이미 올린 청크는 그대로다(KID-355 QA). 10분 안에 통과하지 않으면 `SITE_VERIFICATION_REQUIRED`.
-       */
-      async offers(keyword, options = {}) {
-        page ??= await tabs.open("about:blank");
-        const current = page;
-        const attention = { kind: "verification", site: "1688", label: keyword };
-        const waitOrFail = async (url) => {
-          if (await waitForOperator(current, is1688VerificationUrl, attention, options.onAttention)) return;
-          throw verification(url, keyword, () => {
-            keepOpen = true;
-          });
-        };
-        for (let round = 1; ; round += 1) {
-          const landed = await current.navigate(build1688SearchUrl(keyword), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
-          if (is1688VerificationUrl(landed)) {
-            if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword, () => {
-              keepOpen = true;
-            });
-            await waitOrFail(landed);
-            continue;
-          }
-          let extracted;
-          try {
-            extracted = await current.ask(
-              { type: "TRIGGER_1688_TREND_EXTRACT", maxResults: MAX_RESULTS_PER_KEYWORD },
-              { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: ALIBABA_CONTENT_FILES, guard: ALIBABA_1688_PAGE_GUARD }
-            );
-          } catch (error) {
-            if (leftForOperator(error)) keepOpen = true;
-            throw error;
-          }
-          if (extracted.status === "verification_required") {
-            const here = await current.currentUrl().catch(() => extracted.verificationUrl ?? landed);
-            if (round > MAX_VERIFICATION_ROUNDS || !is1688VerificationUrl(here)) {
-              throw verification(extracted.verificationUrl ?? landed, keyword, () => {
-                keepOpen = true;
-              });
-            }
-            await waitOrFail(here);
-            continue;
-          }
-          if (!extracted.ok) {
-            throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword });
-          }
-          return (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => typeof item?.offerId === "string" && item.offerId.length > 0).slice(0, MAX_RESULTS_PER_KEYWORD);
-        }
-      },
-      /** 수집이 끝나면 탭을 닫는다. 검증 화면에서 멈췄으면 운영자가 풀 수 있게 남긴다. */
-      async close() {
-        if (page && !keepOpen) await page.close();
-        page = null;
-      }
-    };
-  }
-  function verification(url, keyword, keep) {
-    keep();
-    return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword });
-  }
-  registerSite({ name: ALIBABA_1688_SITE.name, create: (deps) => create1688SearchSite(deps.tabs) });
-
-  // extensions/src/sites/coupang-search/parse.ts
-  var PROVIDER_ATTENTION = /access\s*denied|unauthori[sz]ed|forbidden|too\s*many\s*requests|로그인|인증|접근\s*거부/i;
-  var STOP_WORDS = /* @__PURE__ */ new Set(["\uCFE0\uD321", "\uB85C\uCF13", "\uB85C\uCF13\uBC30\uC1A1", "\uBB34\uB8CC\uBC30\uC1A1", "\uBB34\uB8CC", "\uBC30\uC1A1", "\uC815\uD488", "\uAD6D\uB0B4", "\uB2F9\uC77C", "\uC624\uB298", "\uC0C8\uC0C1\uD488", "\uC0C1\uD488", "\uAD6C\uB9E4", "\uD560\uC778", "\uD2B9\uAC00", "\uC635\uC158", "\uC0C9\uC0C1", "\uB79C\uB364"]);
-  function parseCoupangSearchEvidence(evidence, seed, maxResults, origin = "https://www.coupang.com") {
-    const warnings = [];
-    const candidates = [];
-    let structuredResponse = false;
-    let domEvidence = false;
-    let providerError = null;
-    const add = (value, source) => {
-      if (typeof value !== "string") return;
-      const keyword = value.replace(/\s+/g, " ").trim();
-      if (usableKeyword(keyword, seed)) candidates.push({ keyword, source });
-    };
-    const walk = (value) => {
-      if (typeof value === "string") return add(value, "coupang-autocomplete");
-      if (Array.isArray(value)) return value.forEach(walk);
-      if (!value || typeof value !== "object") return;
-      for (const [key, nested] of Object.entries(value)) {
-        if (/keyword|query|term|suggest|name|label|word/i.test(key) && typeof nested === "string") add(nested, "coupang-autocomplete");
-        else walk(nested);
-      }
-    };
-    const autocomplete = evidence.autocomplete;
-    if (autocomplete?.error) warnings.push(autocomplete.error);
-    if (autocomplete && autocomplete.status !== 0 && (autocomplete.status < 200 || autocomplete.status >= 300)) {
-      warnings.push(`\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uD638\uCD9C \uC2E4\uD328 (${autocomplete.status})`);
-      if ([401, 403, 429].includes(autocomplete.status)) {
-        providerError = autocomplete.status === 429 ? { reason: "rate_limited", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC694\uCCAD\uC774 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694." } : { reason: "provider_denied", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574\uC8FC\uC138\uC694." };
-      }
-    }
-    const text2 = autocomplete?.text.trim() ?? "";
-    if (text2 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text2))) {
-      try {
-        const parsed = JSON.parse(text2);
-        if (parsed && typeof parsed === "object") {
-          if (isErrorEnvelope(parsed)) {
-            const message = errorEnvelopeMessage(parsed);
-            providerError ??= { reason: "provider_denied", message };
-          } else {
-            walk(parsed);
-            structuredResponse = hasSuggestionCollection(parsed);
-          }
-        } else {
-          warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uAD6C\uC870\uAC00 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
-        }
-      } catch {
-        warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uD30C\uC2F1 \uC2E4\uD328");
-      }
-    } else if (text2) {
-      warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4");
-    }
-    const beforeDom = candidates.length;
-    for (const link of evidence.links) {
-      add(link.text, "coupang-search-dom");
-      try {
-        const parsed = new URL(link.href, origin);
-        add(parsed.searchParams.get("q") || parsed.searchParams.get("keyword") || "", "coupang-search-dom");
-      } catch {
-      }
-    }
-    if (candidates.length > beforeDom) domEvidence = true;
-    const productNames = [];
-    for (const raw of evidence.productNames) {
-      const name = raw.replace(/\s+/g, " ").trim();
-      if (name.length < 4 || name.length > 180 || /장바구니|구매|광고|무료배송|로켓배송만 보기/.test(name)) continue;
-      productNames.push(name);
-      domEvidence = true;
-    }
-    if (providerError) return { ok: false, ...providerError, warnings };
-    if (!structuredResponse && !domEvidence) {
-      return { ok: false, reason: "no_evidence", message: "\uCFE0\uD321 \uD0A4\uC6CC\uB4DC \uC751\uB2F5\uC5D0\uC11C \uC0AC\uC6A9\uD560 \uC218 \uC788\uB294 \uAC80\uC0C9 \uADFC\uAC70\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", warnings };
-    }
-    const seen = /* @__PURE__ */ new Set();
-    const items = [];
-    for (const candidate of candidates) {
-      const key = candidate.keyword.replace(/\s+/g, "").toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      items.push({ rank: items.length + 1, keyword: candidate.keyword, source: candidate.source });
-      if (items.length >= maxResults) break;
-    }
-    return { ok: true, items, productNameTokens: countTokens(productNames, maxResults), warnings };
-  }
-  function usableKeyword(value, seed) {
-    if (value.length < 2 || value.length > 40) return false;
-    if (/https?:\/\//i.test(value) || /^[\d\s,.-]+$/.test(value) || /[₩원%]/.test(value)) return false;
-    if (["\uAC80\uC0C9", "\uBC14\uB85C\uAC00\uAE30", "\uCFE0\uD321", "\uB85C\uCF13\uBC30\uC1A1", "\uBB34\uB8CC\uBC30\uC1A1"].includes(value)) return false;
-    const compact = value.replace(/\s+/g, "").toLowerCase();
-    return compact.length > 1 && compact !== seed.replace(/\s+/g, "").toLowerCase();
-  }
-  function isErrorEnvelope(value) {
-    if (Array.isArray(value)) return false;
-    const record = value;
-    if (record.success === false || record.ok === false) return true;
-    for (const key of ["error", "errors", "errorCode", "error_code"]) {
-      const nested = record[key];
-      if (key in record && nested !== null && nested !== void 0 && String(nested).trim()) return true;
-    }
-    if (record.code !== void 0 && record.code !== null && record.code !== 0 && record.code !== "0" && String(record.code).trim() !== "") return true;
-    return typeof record.message === "string" && PROVIDER_ATTENTION.test(record.message);
-  }
-  function errorEnvelopeMessage(value) {
-    const record = value;
-    for (const key of ["error", "errors", "message", "errorCode", "error_code", "code"]) {
-      const nested = record[key];
-      if (nested !== null && nested !== void 0 && String(nested).trim()) return String(nested);
-    }
-    return "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC5D0\uC11C \uC624\uB958\uB97C \uBC18\uD658\uD588\uC2B5\uB2C8\uB2E4.";
-  }
-  function hasSuggestionCollection(value, depth = 0) {
-    if (Array.isArray(value)) return true;
-    if (!value || typeof value !== "object" || depth > 3) return false;
-    for (const [key, nested] of Object.entries(value)) {
-      if (!/suggest|keyword|query|term|result|item|product|data|list/i.test(key)) continue;
-      if (Array.isArray(nested) || typeof nested === "string" && nested.trim()) return true;
-      if (nested && typeof nested === "object" && hasSuggestionCollection(nested, depth + 1)) return true;
-    }
-    return false;
-  }
-  function countTokens(productNames, maxResults) {
-    const counts = /* @__PURE__ */ new Map();
-    for (const name of productNames) {
-      const tokens = new Set(name.replace(/[()[\]{}"'`~!@#$%^&*_+=|\\:;,.<>/?·•]/g, " ").split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 2 && token.length <= 20).filter((token) => !/^[\d개입묶음세트]+$/.test(token)).filter((token) => !STOP_WORDS.has(token)));
-      for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
-    }
-    return [...counts.entries()].map(([keyword, count]) => ({ keyword, count })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
-  }
-
-  // extensions/src/sites/coupang-search/index.ts
-  var ORIGIN2 = "https://www.coupang.com";
-  var PAGE_TIMEOUT_MS = 6e4;
-  var EVIDENCE_TIMEOUT_MS = 3e4;
-  var SETTLE_MS = 1500;
-  var CONTENT_FILE = "content/sourcing/coupang-search-page.js";
-  var COUPANG_SEARCH_SITE = {
-    name: "coupang-search",
-    origin: ORIGIN2,
-    caller: { minIntervalMs: SETTLE_MS, displayName: "\uCFE0\uD321" }
-  };
-  function buildCoupangSearchUrl(keyword) {
-    return `${ORIGIN2}/np/search?component=&q=${encodeURIComponent(keyword)}&channel=user`;
-  }
-  function isCoupangSearchUrl(value) {
-    try {
-      const url = new URL(value);
-      return url.protocol === "https:" && url.hostname.toLowerCase() === "www.coupang.com" && url.port === "" && url.username === "" && url.password === "" && /^\/np\/search\/?$/.test(url.pathname);
-    } catch {
-      return false;
-    }
-  }
-  function createCoupangSearchSite(tabs, deps) {
-    return {
-      async keywordSuggestions(keyword, maxResults) {
-        const url = buildCoupangSearchUrl(keyword);
-        const page = await tabs.open("about:blank");
-        try {
-          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS });
-          if (!isCoupangSearchUrl(landed)) {
-            throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uCFE0\uD321 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
-          }
-          await deps.sleep(SETTLE_MS);
-          const evidence = await page.ask(
-            { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword },
-            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE] } }
-          );
-          if (!evidence.links || !evidence.productNames) {
-            throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
-          }
-          const parsed = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword, maxResults);
-          if (!parsed.ok) {
-            throw new RuntimeError(
-              parsed.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
-              parsed.message,
-              { status: parsed.reason === "rate_limited" ? 429 : null, url, reason: parsed.reason, warnings: parsed.warnings }
-            );
-          }
-          return { items: parsed.items, productNameTokens: parsed.productNameTokens, warnings: parsed.warnings };
-        } finally {
-          await page.close();
-        }
-      }
-    };
-  }
-  registerSite({ name: COUPANG_SEARCH_SITE.name, create: (deps) => createCoupangSearchSite(deps.tabs, { sleep: deps.sleep }) });
-
-  // extensions/src/sites/live-commerce/index.ts
-  var NAVIGATION_TIMEOUT_MS2 = 35e3;
-  var EXTRACTION_TIMEOUT_MS2 = 25e3;
-  var MAX_PRODUCTS = 100;
-  var CONTENT_FILES = {
-    isolated: ["content/sourcing/live-commerce-extractor.js", "content/sourcing/live-commerce-content.js"]
-  };
-  var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
-  var LIVE_COMMERCE_PAGE_GUARD = {
-    allows: (url) => hostWithin(url, ["1688.com", "douyin.com"]),
-    isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "sso.douyin.com", "passport.douyin.com"]) || hostWithin(url, ["douyin.com"]) && /\/login/i.test(url.pathname),
-    loginMessage: "\uB77C\uC774\uBE0C \uBC29\uC1A1 \uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
-  };
-  var LIVE_COMMERCE_SITE = {
-    name: "live-commerce",
-    origin: "https://live.douyin.com",
-    caller: { minIntervalMs: 0, displayName: "\uB77C\uC774\uBE0C \uBC29\uC1A1" }
-  };
-  function isLiveVerificationUrl(value) {
-    try {
-      const url = new URL(value);
-      return url.pathname.includes("/punish") || url.searchParams.get("action") === "captcha" || /(?:verify|captcha)/i.test(url.pathname);
-    } catch {
-      return false;
-    }
-  }
-  function isLiveLoginUrl(value) {
-    try {
-      return LIVE_COMMERCE_PAGE_GUARD.isLogin(new URL(value)) || /\/login/i.test(new URL(value).pathname);
-    } catch {
-      return false;
-    }
-  }
-  var MAX_VERIFICATION_ROUNDS2 = 5;
-  function createLiveCommerceSite(tabs) {
-    return {
-      async broadcast(pageUrl, options = {}) {
-        const page = await tabs.open("about:blank");
-        let keepOpen = false;
-        try {
-          const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
-          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS2, stopAt });
-          for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
-            const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
-            if (!cleared) {
-              keepOpen = true;
-              throw verification2(landed);
-            }
-            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS2, stopAt });
-          }
-          if (isLiveLoginUrl(landed)) {
-            keepOpen = true;
-            throw new RuntimeError(SITE_LOGIN_REQUIRED, LIVE_COMMERCE_PAGE_GUARD.loginMessage, { url: landed });
-          }
-          let extracted;
-          try {
-            extracted = await page.ask(
-              { type: "TRIGGER_LIVE_COMMERCE_EXTRACT" },
-              { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: CONTENT_FILES, guard: LIVE_COMMERCE_PAGE_GUARD }
-            );
-          } catch (error) {
-            if (leftForOperator(error)) keepOpen = true;
-            throw error;
-          }
-          if (extracted.status === "verification_required") {
-            keepOpen = true;
-            throw verification2(extracted.verificationUrl ?? landed);
-          }
-          if (!extracted.ok || !extracted.broadcast || !extracted.source || !extracted.pageUrl) {
-            throw new RuntimeError(SITE_REQUEST_FAILED, `\uBC29\uC1A1 \uC815\uBCF4\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}).`, { status: null, url: pageUrl });
-          }
-          return {
-            source: extracted.source,
-            pageUrl: extracted.pageUrl,
-            broadcast: extracted.broadcast,
-            products: (Array.isArray(extracted.products) ? extracted.products : []).slice(0, MAX_PRODUCTS)
-          };
-        } finally {
-          if (!keepOpen) await page.close();
-        }
-      }
-    };
-  }
-  function verification2(url) {
-    return new RuntimeError(SITE_VERIFICATION_REQUIRED2, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
-  }
-  registerSite({ name: LIVE_COMMERCE_SITE.name, create: (deps) => createLiveCommerceSite(deps.tabs) });
-
-  // extensions/src/sites/product-page/description.ts
-  function parseDescriptionHtml(html) {
-    const content = offerDetailsContent(html) ?? html;
-    const images = [];
-    for (const match of content.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)) {
-      const src = match[1];
-      if (src.startsWith("data:") || src.includes("icon") || src.includes("logo")) continue;
-      const full = src.startsWith("//") ? `https:${src}` : src;
-      if (!images.includes(full)) images.push(full);
-    }
-    const blocks = [];
-    const seen = /* @__PURE__ */ new Set();
-    for (const match of content.matchAll(/<(?:p|h[1-6]|li|td|th|div|span)[^>]*>([^<]{5,})<\//gi)) {
-      const text2 = match[1].replace(/&[^;]+;/g, " ").trim();
-      if (text2.length < 5 || text2.length > 2e3 || seen.has(text2)) continue;
-      seen.add(text2);
-      blocks.push(text2);
-    }
-    if (images.length === 0 && blocks.length === 0) return null;
-    return { description_images: images, description_text: blocks.join("\n").slice(0, 1e4), description_image_count: images.length };
-  }
-  function offerDetailsContent(html) {
-    const marker = "var offer_details=";
-    const start = html.indexOf(marker);
-    if (start === -1) return null;
-    const jsonStart = start + marker.length;
-    let depth = 0;
-    let inString = false;
-    let escaped = false;
-    for (let index = jsonStart; index < html.length; index += 1) {
-      const char = html.charAt(index);
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (char === "\\") {
-        escaped = true;
-        continue;
-      }
-      if (char === '"') {
-        inString = !inString;
-        continue;
-      }
-      if (inString) continue;
-      if (char === "{") depth += 1;
-      if (char === "}") {
-        depth -= 1;
-        if (depth === 0) {
-          try {
-            const parsed = JSON.parse(html.substring(jsonStart, index + 1));
-            return typeof parsed.content === "string" ? parsed.content : null;
-          } catch {
-            return null;
-          }
-        }
-      }
-    }
-    return null;
-  }
-  function allowedSupplierUrl(value) {
-    try {
-      const parsed = new URL(String(value ?? "").trim());
-      const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
-      if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port && parsed.port !== "443") return null;
-      if (!["1688.com", "alibaba.com"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) return null;
-      parsed.hostname = host;
-      parsed.hash = "";
-      return parsed.toString();
-    } catch {
-      return null;
-    }
-  }
-
-  // extensions/src/sites/product-page/index.ts
-  var EXTRACTION_TIMEOUT_MS3 = 2e4;
-  var TRIGGER_TIMEOUT_MS = 5e3;
-  var EXTRACTOR_FILES = [
-    "content/sourcing/extractors/common.js",
-    "content/sourcing/extractors/alibaba.js",
-    "content/sourcing/extractors/1688.js",
-    "content/sourcing/content.js"
-  ];
-  var PRODUCT_PAGE_MOVED = "PRODUCT_PAGE_MOVED";
-  var PRODUCT_EXTRACTION_TIMEOUT = "PRODUCT_EXTRACTION_TIMEOUT";
-  var PRODUCT_PAGE_SITE = {
-    name: "product-page",
-    origin: "https://detail.1688.com",
-    caller: { minIntervalMs: 0, displayName: "1688\xB7Alibaba \uC0C1\uD488" }
-  };
-  function productPageInjection(url) {
-    const host = new URL(url).hostname;
-    const main = host.endsWith("1688.com") ? ["content/sourcing/extractors/1688-bridge.js"] : host.endsWith("alibaba.com") ? ["content/sourcing/extractors/page-bridge.js"] : [];
-    return { isolated: EXTRACTOR_FILES, main };
-  }
-  function createProductPageSite(tabs, tabId, deps) {
-    return {
-      async extract(sourceUrl) {
-        const page = tabs.attach(tabId);
-        const current = await page.currentUrl();
-        if (current !== sourceUrl) {
-          throw new RuntimeError(PRODUCT_PAGE_MOVED, "\uC218\uC9D1\uC744 \uC2DC\uC791\uD55C \uB4A4 \uD0ED \uC8FC\uC18C\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC0C1\uD488 \uD398\uC774\uC9C0\uC5D0\uC11C \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: current });
-        }
-        const marker = deps.randomId();
-        let product = null;
-        let description;
-        let settle;
-        const settled = new Promise((resolve) => {
-          settle = resolve;
-        });
-        const stop = page.listen((message) => {
-          if (message.attemptId !== marker) return;
-          if (message.type === "PRODUCT_DATA" && !product && isRecord2(message.data)) {
-            product = message.data;
-            if (product.page_type === "search") settle({ product: withSourceUrl(product, sourceUrl), hadDescription: false });
-          } else if (message.type === "DESCRIPTION_DATA" && isRecord2(message.data)) {
-            description = message.data;
-          } else if (message.type === "EXTRACTION_COMPLETE" && product) {
-            const hadDescription = message.hadDescription === true;
-            if (hadDescription !== Boolean(description)) {
-              settle(new RuntimeError(SITE_REQUEST_FAILED, "\uC0C1\uD488 \uC124\uBA85 \uCD94\uCD9C \uC644\uB8CC\uB97C \uD655\uC778\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { status: null, url: sourceUrl }));
-            } else {
-              settle({ product: withSourceUrl(product, sourceUrl), ...description ? { description } : {}, hadDescription });
-            }
-          }
-        });
-        const timer = setTimeout(() => settle(new RuntimeError(PRODUCT_EXTRACTION_TIMEOUT, "\uC0C1\uD488 \uCD94\uCD9C \uC2DC\uAC04\uC774 \uCD08\uACFC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: sourceUrl })), EXTRACTION_TIMEOUT_MS3);
-        try {
-          const started = await page.ask({ type: "TRIGGER_EXTRACT", attemptId: marker }, { timeoutMs: TRIGGER_TIMEOUT_MS, inject: productPageInjection(sourceUrl) });
-          if (started.ok === false) {
-            throw new RuntimeError(SITE_REQUEST_FAILED, "\uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { status: null, url: sourceUrl, reason: started.error });
-          }
-          const result = await settled;
-          if (result instanceof RuntimeError) throw result;
-          await enrich(result.product);
-          return result;
-        } finally {
-          clearTimeout(timer);
-          stop();
-        }
-      }
-    };
-    async function enrich(product) {
-      const detailUrl = product.source_platform === "1688" ? allowedSupplierUrl(product._detail_url) : null;
-      if (!detailUrl) return;
-      const html = await tabs.fetchText(detailUrl);
-      const content = html ? parseDescriptionHtml(html) : null;
-      if (content) Object.assign(product, content);
-    }
-  }
-  function withSourceUrl(product, sourceUrl) {
-    return { ...product, source_url: typeof product.source_url === "string" ? product.source_url : sourceUrl };
-  }
-  function isRecord2(value) {
-    return value !== null && typeof value === "object" && !Array.isArray(value);
-  }
-  var PRODUCT_TAB_REQUIRED = "PRODUCT_TAB_REQUIRED";
-  registerSite({
-    name: PRODUCT_PAGE_SITE.name,
-    create: (deps, lease) => lease.tabId !== null ? createProductPageSite(deps.tabs, lease.tabId, { randomId: deps.randomId }) : {
-      extract: async () => {
-        throw new RuntimeError(PRODUCT_TAB_REQUIRED, "\uC0C1\uD488 \uC218\uC9D1\uC740 \uD655\uC7A5 \uD31D\uC5C5\uC758 [\uD604\uC7AC \uC0C1\uD488 \uC218\uC9D1]\uC5D0\uC11C \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
-      }
-    }
-  });
-
-  // extensions/src/sites/tiktok-cc/index.ts
-  var NAVIGATION_TIMEOUT_MS3 = 35e3;
-  var EXTRACTION_TIMEOUT_MS4 = 25e3;
-  var BASE_URLS = {
-    hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
-    product: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/pc/en",
-    keyword: "https://ads.tiktok.com/business/creativecenter/keyword-insights/pc/en"
-  };
-  var TIKTOK_CC_PAGE_GUARD = {
-    allows: (url) => hostWithin(url, ["ads.tiktok.com"]),
-    isLogin: (url) => hostWithin(url, ["passport.tiktok.com"]) || /(?:\/login|\/passport|\/signup)/i.test(url.pathname),
-    loginMessage: "TikTok \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
-  };
-  var CONTENT_FILES2 = {
-    isolated: ["content/sourcing/tiktok-cc-extractor.js", "content/sourcing/tiktok-cc-content.js"],
-    main: ["content/sourcing/tiktok-cc-hook.js"]
-  };
-  var TIKTOK_CC_SITE = {
-    name: "tiktok",
-    origin: "https://ads.tiktok.com",
-    caller: { minIntervalMs: 0, displayName: "TikTok" }
-  };
-  function tiktokTargetFor(targetId) {
-    if (targetId === "hashtag" || targetId === "product") {
-      return { id: targetId, trendType: targetId, url: BASE_URLS[targetId], sourceKeyword: null };
-    }
-    const keyword = targetId.startsWith("keyword:") ? targetId.slice("keyword:".length) : targetId;
-    return { id: targetId, trendType: "keyword", url: `${BASE_URLS.keyword}?keyword=${encodeURIComponent(keyword)}`, sourceKeyword: keyword };
-  }
-  function isTiktokBlockedUrl(value) {
-    try {
-      return /(?:\/login|\/passport|\/signup)/i.test(new URL(value).pathname);
-    } catch {
-      return false;
-    }
-  }
-  function isTiktokVerificationUrl(value) {
-    try {
-      const url = new URL(value);
-      return /(?:verify|captcha)/i.test(url.pathname) || url.searchParams.has("captcha");
-    } catch {
-      return false;
-    }
-  }
-  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
-  var MAX_VERIFICATION_ROUNDS3 = 5;
-  function sanitizeTiktokRegion(value) {
-    if (typeof value !== "string") return null;
-    const cleaned = value.replace(/[^A-Za-z]/g, "").toUpperCase();
-    return cleaned.length >= 2 && cleaned.length <= 8 ? cleaned : null;
-  }
-  function createTiktokCcSite(tabs) {
-    let page = null;
-    let keepOpen = false;
-    return {
-      targetFor: tiktokTargetFor,
-      async target(target, defaultRegion, options = {}) {
-        page ??= await tabs.open("about:blank");
-        try {
-          return await readTarget(page, target, defaultRegion, options.onAttention);
-        } catch (error) {
-          if (leftForOperator(error)) keepOpen = true;
-          throw error;
-        }
-      },
-      async close() {
-        if (!keepOpen) await page?.close();
-        page = null;
-      }
-    };
-    async function readTarget(page2, target, defaultRegion, onAttention) {
-      const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
-      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt, continueOnTimeout: true });
-      for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
-        const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
-        if (!cleared) {
-          keepOpen = true;
-          throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
-        }
-        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt, continueOnTimeout: true });
-      }
-      if (isTiktokBlockedUrl(landed)) {
-        throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
-      }
-      const extracted = await page2.ask(
-        { type: "TRIGGER_TIKTOK_CC_EXTRACT", trendType: target.trendType, sourceKeyword: target.sourceKeyword, defaultRegion },
-        { timeoutMs: EXTRACTION_TIMEOUT_MS4, inject: CONTENT_FILES2, guard: TIKTOK_CC_PAGE_GUARD }
-      );
-      if (!extracted.ok) {
-        throw new RuntimeError(SITE_REQUEST_FAILED, `TikTok \uD2B8\uB80C\uB4DC '${target.id}'\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, target: target.id });
-      }
-      return {
-        region: sanitizeTiktokRegion(extracted.region),
-        items: (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => Boolean(item) && typeof item === "object")
-      };
-    }
-  }
-  registerSite({ name: TIKTOK_CC_SITE.name, create: (deps) => createTiktokCcSite(deps.tabs) });
-
-  // extensions/src/sites/wing/pre-matching-search.ts
-  var ORIGIN3 = "https://wing.coupang.com";
-  var SEARCH_URL2 = `${ORIGIN3}/tenants/seller-web/pre-matching/search`;
-  var RETRY_ATTEMPTS = 4;
-  var REQUEST_TIMEOUT_MS = 2e4;
-  var WING_SEARCH_PAYLOAD_INVALID = "WING_SEARCH_PAYLOAD_INVALID";
-  var WING_SEARCH_SITE = {
-    name: "wing-search",
-    origin: ORIGIN3,
-    caller: {
-      minIntervalMs: 2200,
-      displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN3, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
-    }
-  };
-  function createWingPreMatchingSearch(caller, deps) {
-    return {
-      /** 키워드 한 페이지. 429·5xx·연결 끊김은 네 번까지 다시 묻는다. */
-      async searchPage(keyword, searchPage) {
-        const body = JSON.stringify({ keyword, excludedProductIds: [], searchPage, searchOrder: "DEFAULT", sortType: "DEFAULT" });
-        for (let attempt = 1; ; attempt += 1) {
-          let response;
-          try {
-            response = await caller.json(SEARCH_URL2, {
-              requireXsrf: true,
-              method: "POST",
-              headers: { "content-type": "application/json", accept: "application/json, text/plain, */*" },
-              body,
-              signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-            });
-          } catch (error) {
-            if (searchPage === 0 && isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.status === 200 && error.details?.reason === "non_json") {
-              throw new RuntimeError(SITE_LOGIN_REQUIRED, `${WING_SEARCH_SITE.caller.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.`, { reason: "non_json_first_page" }, error);
-            }
-            const status = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED ? error.details?.status : void 0;
-            const retryable = status === null || status === 429 || typeof status === "number" && status >= 500;
-            if (!retryable || attempt >= RETRY_ATTEMPTS) throw error;
-            await deps.sleep((status === 429 ? 4e3 : 1e3) * 2 ** (attempt - 1));
-            continue;
-          }
-          return parseWingSearchPage(response);
-        }
-      }
-    };
-  }
-  function createWingCatalogSearchSite(caller, deps) {
-    const search = createWingPreMatchingSearch(caller, deps);
-    return {
-      searchPage: search.searchPage,
-      identity: (row) => `${row.productId}:${row.itemId ?? ""}:${row.vendorItemId ?? ""}`,
-      toObservation: (row, keyword, capturedAt) => row.productName.trim() ? toSourcingWingCatalogObservation(row, keyword, capturedAt) : null
-    };
-  }
-  function parseWingSearchPage(body) {
-    const record = asRecord2(body);
-    if (!record || !Array.isArray(record.result)) {
-      throw new RuntimeError(WING_SEARCH_PAYLOAD_INVALID, "Wing \uAC80\uC0C9 \uC751\uB2F5\uC758 \uBAA8\uC591\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
-    }
-    const next = record.nextSearchPage;
-    return {
-      rows: record.result.map(normalizeWingSearchProduct).filter((row) => row !== null),
-      nextSearchPage: typeof next === "number" && Number.isInteger(next) ? next : null
-    };
-  }
-  function normalizeWingSearchProduct(raw) {
-    const product = asRecord2(raw);
-    if (!product || product.productId == null) return null;
-    const productId = String(product.productId);
-    if (!productId) return null;
-    const salePrice = nullableNumber(product.salePrice);
-    const salesLast28d = nullableNumber(product.salesLast28d);
-    const pvLast28Day = nullableNumber(product.pvLast28Day);
-    const category = Array.isArray(product.displayCategoryInfo) ? asRecord2(product.displayCategoryInfo[0])?.categoryHierarchy : null;
-    return {
-      productId,
-      itemId: product.itemId == null ? null : String(product.itemId),
-      vendorItemId: product.vendorItemId == null ? null : String(product.vendorItemId),
-      productName: String(product.productName || ""),
-      itemName: product.itemName ? String(product.itemName) : null,
-      brandName: product.brandName ? String(product.brandName) : null,
-      manufacture: product.manufacture ? String(product.manufacture) : null,
-      categoryHierarchy: typeof category === "string" && category ? category : null,
-      imagePath: product.imagePath ? String(product.imagePath) : null,
-      salePrice,
-      rating: nullableNumber(product.rating),
-      ratingCount: nullableNumber(product.ratingCount),
-      pvLast28Day,
-      salesLast28d,
-      estimatedRevenue28d: salePrice != null && salesLast28d != null ? Math.round(salePrice * salesLast28d) : null,
-      conversionRate28d: pvLast28Day != null && pvLast28Day > 0 && salesLast28d != null ? salesLast28d / pvLast28Day : null,
-      deliveryInfo: product.deliveryInfo ? String(product.deliveryInfo) : null
-    };
-  }
-  function toSourcingWingCatalogObservation(row, sourceKeyword, capturedAt) {
-    return {
-      productId: row.productId,
-      itemId: row.itemId,
-      vendorItemId: row.vendorItemId,
-      productName: row.productName.slice(0, 500),
-      itemName: row.itemName?.slice(0, 500) ?? null,
-      brandName: row.brandName?.slice(0, 500) ?? null,
-      manufacture: row.manufacture?.slice(0, 500) ?? null,
-      categoryHierarchy: row.categoryHierarchy?.slice(0, 1e3) ?? null,
-      imagePath: row.imagePath?.slice(0, 2e3) ?? null,
-      salePriceKrw: boundedInteger(row.salePrice),
-      ratingAverage: boundedNumber(row.rating, 0, 5),
-      ratingCount: boundedInteger(row.ratingCount),
-      viewsLast28d: boundedInteger(row.pvLast28Day),
-      salesLast28d: boundedInteger(row.salesLast28d),
-      estimatedRevenue28d: boundedNumber(row.estimatedRevenue28d, 0, 2147483647),
-      conversionRate28d: boundedNumber(row.conversionRate28d, 0, 1),
-      deliveryInfo: row.deliveryInfo?.slice(0, 1e3) ?? null,
-      sourceKeyword,
-      capturedAt
-    };
-  }
-  function nullableNumber(value) {
-    if (value == null || typeof value === "boolean" || typeof value === "object") return null;
-    if (typeof value === "string" && value.trim() === "") return null;
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : null;
-  }
-  function boundedInteger(value) {
-    return value !== null && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
-  }
-  function boundedNumber(value, minimum, maximum) {
-    return value !== null && Number.isFinite(value) && value >= minimum && value <= maximum ? value : null;
-  }
-  function asRecord2(value) {
-    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
-  }
-  registerSite({
-    name: WING_SEARCH_SITE.name,
-    create: (deps) => createWingCatalogSearchSite(createSiteCaller(WING_SEARCH_SITE.caller, deps), { sleep: deps.sleep })
-  });
-
-  // extensions/src/entry/sourcing-site-handles.ts
-  var PRODUCT_TAB_REQUIRED2 = "PRODUCT_TAB_REQUIRED";
-  function createSourcingSiteHandles(deps, productTabId = null) {
-    return (kind) => {
-      switch (collectorFor(kind)?.site ?? null) {
-        case WING_SEARCH_SITE.name:
-          return createWingCatalogSearchSite(createSiteCaller(WING_SEARCH_SITE.caller, deps), { sleep: deps.sleep });
-        case "coupang-search":
-          return createCoupangSearchSite(deps.tabs, { sleep: deps.sleep });
-        case "ali1688":
-          return create1688SearchSite(deps.tabs);
-        case "live-commerce":
-          return createLiveCommerceSite(deps.tabs);
-        case "tiktok":
-          return createTiktokCcSite(deps.tabs);
-        case "product-page":
-          if (productTabId !== null) return createProductPageSite(deps.tabs, productTabId, { randomId: deps.randomId });
-          return {
-            extract: async () => {
-              throw new RuntimeError(PRODUCT_TAB_REQUIRED2, "\uC0C1\uD488 \uC218\uC9D1\uC740 \uD655\uC7A5 \uD31D\uC5C5\uC758 [\uD604\uC7AC \uC0C1\uD488 \uC218\uC9D1]\uC5D0\uC11C \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
-            }
-          };
-        default:
-          return null;
-      }
-    };
-  }
-
   // extensions/src/entry/sourcing-product-collect.ts
   var COLLECT_CURRENT = "COLLECT_CURRENT";
   var HOST_KEEPALIVE_PORT = "kiditem-1688-trend-keepalive";
@@ -7799,7 +7773,8 @@ var KidItemRuntime = (() => {
     const runner = createRunner({
       client: createOperationClient(deps.apiFor(input.environmentId)),
       browser: deps.browser,
-      siteFor: createSourcingSiteHandles(deps.site, input.tabId)
+      // 운영자 탭을 임대로 묶는다 — 상품 페이지 사이트는 이 탭에서만 읽는다.
+      siteFor: (kind) => createSiteHandles(deps.site)(kind, { tabId: input.tabId })
     }, collectorFor);
     const work = runner.run({ kind: SOURCING_OPERATION_KINDS.productExtension, scope, signal: new AbortController().signal });
     deps.keepAlive?.(work);
@@ -7841,15 +7816,14 @@ var KidItemRuntime = (() => {
       tabs: createTabPages({ chrome, fetch: (input, init) => fetch(input, init), sleep, now: () => Date.now() }),
       randomId: () => crypto.randomUUID()
     };
-    const browser = createBrowserResources(chrome, ENTRY_SITES, { accountSite: ACCOUNT_SITE });
-    const channelSites = createSiteHandles({ fetch: site.fetch, cookies: site.cookies, now: site.now, sleep: site.sleep });
-    const sourcingSites = createSourcingSiteHandles(site);
+    const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE });
+    const channelSites = createSiteHandles(site);
     const externalActions = createOperationActions({
       apiFor: legacyApiPort,
       // `account:<id>` 잠금은 그 계정의 Wing 탭을 쓴다(KID-354). 로그인 확인은 사이트 호출기의 SITE_LOGIN_REQUIRED.
       // DOM을 읽는 소싱 사이트는 탭을 스스로 열고 닫는다(KID-360).
       browser,
-      siteFor: (kind, lease) => channelSites(kind, lease) ?? sourcingSites(kind),
+      siteFor: channelSites,
       keepAlive: legacyKeepAlive
     });
     registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true, sourcingOperationKindsV1: true } });
