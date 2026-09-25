@@ -10,6 +10,7 @@ import {
   type OperationView,
   type OperationWindow,
 } from '@kiditem/shared/operation';
+import { OperationNextSchema, type OperationNext } from '@kiditem/shared/operation';
 import type { BrowserLease, BrowserResources } from './browser';
 import { RuntimeError, isRuntimeError } from './errors';
 import { stopFor, type OperationClient } from './operation-client';
@@ -260,4 +261,15 @@ function toRuntimeError(caught: unknown, fallbackCode: string): RuntimeError {
   if (isRuntimeError(caught)) return caught;
   const message = caught instanceof Error && caught.message ? caught.message : '실행 중 오류가 났습니다.';
   return new RuntimeError(fallbackCode, message, null, caught);
+}
+
+/**
+ * 연쇄 규칙(KID-354): 성공한 실행의 `result.next`가 `{ kind, scope }` 모양이면 runner가 같은 환경으로 그 kind를
+ * 이어서 begin한다. 순수 규칙 — 모양이 아니거나 없으면 null. kind별 특수 처리는 없다.
+ */
+export function nextOperationFrom(result: Record<string, unknown> | null | undefined): OperationNext | null {
+  const next = result?.next;
+  if (next === undefined || next === null) return null;
+  const parsed = OperationNextSchema.safeParse(next);
+  return parsed.success ? parsed.data : null;
 }

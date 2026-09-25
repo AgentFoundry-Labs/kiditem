@@ -4310,6 +4310,10 @@ var KidItemRuntime = (() => {
     status: OperationStatusSchema.optional(),
     limit: external_exports.coerce.number().int().min(1).max(200).default(50)
   }).strict();
+  var OperationNextSchema = external_exports.object({
+    kind: OperationKindSchema,
+    scope: JsonObjectSchema
+  }).strict();
   var OperationListResponseSchema = external_exports.object({
     operations: external_exports.array(OperationViewSchema)
   }).strict();
@@ -4320,7 +4324,9 @@ var KidItemRuntime = (() => {
     /** 이 시각 전에는 claim되지 않는다. 없으면 바로. */
     scheduledFor: zIsoDate.optional(),
     /** claim 횟수 상한(재시도 포함). 기본 1 = 재시도 없음. */
-    maxAttempts: external_exports.number().int().min(1).max(20).default(1)
+    maxAttempts: external_exports.number().int().min(1).max(20).default(1),
+    /** 실행을 시작한 사용자(있으면). owner `plan`이 `context.userId`로 받아 plan JSON에 보관한다(KID-354). */
+    userId: external_exports.string().uuid().optional()
   }).strict();
   var OperationClaimRequestSchema = external_exports.object({
     kinds: external_exports.array(OperationKindSchema).min(1).max(50),
