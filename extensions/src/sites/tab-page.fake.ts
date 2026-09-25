@@ -13,8 +13,9 @@ export function fakeTabPages(options: {
   function page(tabId: number, owned: boolean): TabPage {
     return {
       tabId,
-      async navigate(url) {
-        log.push(`navigate ${url}`);
+      async navigate(url, navigateOptions) {
+        // 끝까지 안 그려져도 이어 가는 사이트(1688·TikTok)는 표시를 남긴다.
+        log.push(`navigate ${url}${navigateOptions?.continueOnTimeout ? ' (continue on timeout)' : ''}`);
         return options.landAt ? options.landAt(url) : url;
       },
       async currentUrl() {

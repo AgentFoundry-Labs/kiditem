@@ -52,4 +52,21 @@ describe('chrome tab pages (KID-360)', () => {
     const { chromeApi } = fakeChrome({ sendMessage: () => new Promise(() => undefined) });
     await expect(createTabPages(deps(chromeApi)).attach(4).ask({ type: 'X' }, { timeoutMs: 5 })).resolves.toEqual({ ok: false, error: 'timeout' });
   });
+
+  it('with continueOnTimeout returns the last URL of a page that never finishes loading; without it, fails', async () => {
+    let clock = 0;
+    const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }), statuses: Array(100).fill('loading') });
+    const tabs = createTabPages({ chrome: chromeApi, fetch: async () => new Response('x'), sleep: async (ms) => { clock += ms; }, now: () => clock });
+    const page = await tabs.open('about:blank');
+    await expect(page.navigate('https://s.1688.com/x', { timeoutMs: 1_000, continueOnTimeout: true })).resolves.toBe('https://s.1688.com/x');
+    await expect(page.navigate('https://s.1688.com/x', { timeoutMs: 1_000 })).rejects.toMatchObject({ code: 'SITE_TAB_UNAVAILABLE' });
+  });
+
+  it('fails at once when the tab is closed while loading, even with continueOnTimeout', async () => {
+    const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }) });
+    chromeApi.tabs.get = async () => { throw new Error('No tab with id: 9'); };
+    const page = await createTabPages(deps(chromeApi)).open('about:blank');
+    await expect(page.navigate('https://s.1688.com/x', { timeoutMs: 60_000, continueOnTimeout: true }))
+      .rejects.toMatchObject({ code: 'SITE_TAB_UNAVAILABLE', message: '수집 탭이 닫혔습니다.' });
+  });
 });

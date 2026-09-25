@@ -16,9 +16,9 @@ describe('1688 search site (KID-360)', () => {
     await site.close();
     expect(fake.log.filter((line) => line.startsWith('open') || line.startsWith('navigate') || line.startsWith('close') || line.startsWith('inject'))).toEqual([
       'open about:blank',
-      `navigate ${build1688SearchUrl('笔袋')}`,
+      `navigate ${build1688SearchUrl('笔袋')} (continue on timeout)`,
       'inject content/sourcing/extractors/common.js,content/sourcing/extractors/alibaba.js,content/sourcing/extractors/1688.js,content/sourcing/content.js',
-      `navigate ${build1688SearchUrl('文具')}`,
+      `navigate ${build1688SearchUrl('文具')} (continue on timeout)`,
       'close 7',
     ]);
   });

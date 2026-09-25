@@ -69,7 +69,7 @@ export function createTiktokCcSite(tabs: TabPages) {
     targetFor: tiktokTargetFor,
     async target(target: TiktokTarget, defaultRegion: string | null): Promise<TiktokTargetCapture> {
       page ??= await tabs.open('about:blank');
-      const landed = await page.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: isTiktokBlockedUrl });
+      const landed = await page.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: isTiktokBlockedUrl, continueOnTimeout: true });
       if (isTiktokBlockedUrl(landed)) {
         throw new RuntimeError(SITE_LOGIN_REQUIRED, 'TikTok 로그인 또는 지역 차단으로 수집할 수 없습니다.', { url: landed, target: target.id });
       }

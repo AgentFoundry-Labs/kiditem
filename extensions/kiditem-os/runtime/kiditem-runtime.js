@@ -4677,7 +4677,7 @@ var KidItemRuntime = (() => {
       }
       return {
         tabId,
-        async navigate(url, { timeoutMs, stopAt }) {
+        async navigate(url, { timeoutMs, stopAt, continueOnTimeout = false }) {
           await deps.chrome.tabs.update(tabId, { url });
           const deadline = deps.now() + timeoutMs;
           let last = url;
@@ -4688,6 +4688,7 @@ var KidItemRuntime = (() => {
             last = tab.url || last;
             if (stopAt?.(last) || tab.status === "complete") return last;
             if (deps.now() >= deadline) {
+              if (continueOnTimeout) return last;
               throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uD398\uC774\uC9C0\uB97C \uC5EC\uB294 \uB370 \uC2DC\uAC04\uC774 \uB108\uBB34 \uC624\uB798 \uAC78\uB9BD\uB2C8\uB2E4.", { url });
             }
             await deps.sleep(POLL_MS);
@@ -5499,7 +5500,7 @@ var KidItemRuntime = (() => {
     return {
       async offers(keyword) {
         page ??= await tabs.open("about:blank");
-        const landed = await page.navigate(build1688SearchUrl(keyword), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl });
+        const landed = await page.navigate(build1688SearchUrl(keyword), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
         if (is1688VerificationUrl(landed)) throw verification(landed, keyword, () => {
           keepOpen = true;
         });
@@ -5951,7 +5952,7 @@ var KidItemRuntime = (() => {
       targetFor: tiktokTargetFor,
       async target(target, defaultRegion) {
         page ??= await tabs.open("about:blank");
-        const landed = await page.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt: isTiktokBlockedUrl });
+        const landed = await page.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt: isTiktokBlockedUrl, continueOnTimeout: true });
         if (isTiktokBlockedUrl(landed)) {
           throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
         }

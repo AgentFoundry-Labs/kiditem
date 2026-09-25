@@ -57,7 +57,7 @@ export function create1688SearchSite(tabs: TabPages) {
   return {
     async offers(keyword: string): Promise<Offer1688[]> {
       page ??= await tabs.open('about:blank');
-      const landed = await page.navigate(build1688SearchUrl(keyword), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl });
+      const landed = await page.navigate(build1688SearchUrl(keyword), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
       if (is1688VerificationUrl(landed)) throw verification(landed, keyword, () => { keepOpen = true; });
       const extracted = await page.ask<{ ok: boolean; items?: unknown[]; error?: string; status?: string; verificationUrl?: string }>(
         { type: 'TRIGGER_1688_TREND_EXTRACT', maxResults: MAX_RESULTS_PER_KEYWORD },

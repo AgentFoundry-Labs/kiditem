@@ -7,8 +7,11 @@ import { RuntimeError } from '../core/errors';
  */
 export interface TabPage {
   readonly tabId: number;
-  /** 주소를 옮기고 다 그려질 때까지(또는 막힘 주소가 될 때까지) 기다린다. 마지막 주소를 돌려준다. */
-  navigate(url: string, options: { timeoutMs: number; stopAt?: (url: string) => boolean }): Promise<string>;
+  /**
+   * 주소를 옮기고 다 그려질 때까지(또는 막힘 주소가 될 때까지) 기다린다. 마지막 주소를 돌려준다. `continueOnTimeout`이면
+   * 시간이 다 돼도 실패하지 않고 그때 주소를 돌려준다(끝없이 불러오는 화면도 이미 그린 것을 읽는 사이트). 탭이 닫히면 늘 실패.
+   */
+  navigate(url: string, options: { timeoutMs: number; stopAt?: (url: string) => boolean; continueOnTimeout?: boolean }): Promise<string>;
   /** 지금 탭 주소를 기다리지 않고 읽는다(운영자 탭). */
   currentUrl(): Promise<string>;
   /**
@@ -95,7 +98,7 @@ export function createTabPages(deps: TabPageDeps): TabPages {
     }
     return {
       tabId,
-      async navigate(url, { timeoutMs, stopAt }) {
+      async navigate(url, { timeoutMs, stopAt, continueOnTimeout = false }) {
         await deps.chrome.tabs.update(tabId, { url });
         const deadline = deps.now() + timeoutMs;
         let last = url;
@@ -107,6 +110,7 @@ export function createTabPages(deps: TabPageDeps): TabPages {
           last = tab.url || last;
           if (stopAt?.(last) || tab.status === 'complete') return last;
           if (deps.now() >= deadline) {
+            if (continueOnTimeout) return last;
             throw new RuntimeError(SITE_TAB_UNAVAILABLE, '페이지를 여는 데 시간이 너무 오래 걸립니다.', { url });
           }
           await deps.sleep(POLL_MS);

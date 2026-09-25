@@ -21,6 +21,8 @@ describe('TikTok Creative Center site (KID-360)', () => {
     await site.close();
     expect(fake.log).toContain('inject content/sourcing/tiktok-cc-extractor.js,content/sourcing/tiktok-cc-content.js,content/sourcing/tiktok-cc-hook.js');
     expect(fake.log.at(-1)).toBe('close 7');
+    // 화면이 끝까지 안 그려져도 마지막 상태로 읽는다(옛 수집기).
+    expect(fake.log).toContain(`navigate ${tiktokTargetFor('hashtag').url} (continue on timeout)`);
   });
 
   it('refuses a login redirect', async () => {
