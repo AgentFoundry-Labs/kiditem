@@ -2,9 +2,9 @@
 // Guards ADR-0025: `common/operation` is the only writer and reader of the
 // operation tables. Owner code joins an operation through `plan`/`finalize` and
 // the HTTP contract; it never touches `operations`, `operation_chunks` or
-// `operation_locks` rows itself, neither through a Prisma delegate
-// (`prisma.operation`, `tx.operationChunk`, `client.operationLock`, …) nor
-// through raw SQL naming those tables.
+// `operation_locks` rows itself, neither through a Prisma delegate call
+// (`.operation.findMany(`, `.operationChunk.create(`, `.operationLock.deleteMany(`
+// on any receiver) nor through raw SQL naming those tables.
 //
 // The check reads code, not prose: comments are stripped, string and template
 // literals are kept (raw SQL lives there). Spec files and `__tests__/` are not
@@ -17,8 +17,12 @@ import { stripComments } from './check-mall-neutral.mjs';
 export const SCAN_ROOT = 'apps/server/src';
 export const OWNER_ROOT = 'apps/server/src/common/operation/';
 
-const DELEGATE = /\b(?:prisma|tx|trx|client|db)\s*\.\s*(?:operation|operationChunk|operationLock)\b/g;
-const RAW_TABLE = /\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+"?(?:operations|operation_chunks|operation_locks)"?(?![\w-])/gi;
+// A delegate method call on any receiver (`prisma.`, `this.prismaService.`,
+// `ownerTransactionClient(tx).`, `transaction.` …); an `operationId` field or
+// `input.operation.kind` is not a call and does not count.
+const DELEGATE = /\.\s*(?:operation|operationChunk|operationLock)\s*\.\s*(?:find\w*|create\w*|update\w*|upsert|delete\w*|count|aggregate|groupBy)\s*\(/g;
+// Raw SQL naming a table, optionally schema-qualified (`public.operations`, `"public"."operation_locks"`).
+const RAW_TABLE = /\b(?:FROM|JOIN|INTO|UPDATE|TABLE)\s+(?:"?\w+"?\.)?"?(?:operations|operation_chunks|operation_locks)"?(?![\w-])/gi;
 
 /** 1-based line numbers whose code (not comments) touches an operation table. */
 export function operationTableHits(source) {

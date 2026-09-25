@@ -39,3 +39,17 @@ test('fails an owner file that touches operation rows and passes the operation m
     'apps/server/src/channels/adapter/out/repository/raw.repository.adapter.ts:3 touches operation rows outside common/operation',
   ]);
 });
+
+test('finds delegate calls on any receiver and schema-qualified raw SQL, without flagging operationId columns', () => {
+  assert.deepEqual(operationTableHits([
+    'await ownerTransactionClient(context.tx).operationLock.deleteMany({ where });',
+    'await this.prismaService.operation.findMany({});',
+    'await transaction.operationChunk.create({ data });',
+    'await tx.$queryRaw`SELECT * FROM public.operations`;',
+    'await tx.$executeRaw`DELETE FROM "public"."operation_locks"`;',
+    'await tx.adAction.update({ where: { id }, data: { operationId } });',
+    'const rows = await tx.$queryRaw`SELECT operation_id FROM ad_actions`;',
+    'const next = input.operation.status;',
+    'const id = run.operationId;',
+  ].join('\n')), [1, 2, 3, 4, 5]);
+});
