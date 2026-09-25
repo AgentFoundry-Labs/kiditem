@@ -222,6 +222,29 @@ describe('orders.coupang_directship owner over the operation contract + disposab
     expect(await prisma.coupangDirectTransportConsumption.count()).toBe(0);
   });
 
+  it('계정 ID는 대소문자를 가리지 않고 맞춘다', async () => {
+    const lettered = 'abcdef00-0000-4000-8000-00000000000a';
+    await prisma.channelAccount.create({ data: { id: lettered, organizationId: ORG, channel: 'rocket', name: 'Rocket lettered' } });
+    const input = { ...oneCapture('PO-CASE', 'P-CASE', '8801234567890', 2), channelAccountId: lettered };
+    const run = OperationBeginResponseSchema.parse((await begin({ channelAccountId: lettered.toUpperCase() }).expect(201)).body);
+    await put(run, 1, input.pos.map((purchaseOrder) => ({ purchaseOrder })));
+    await put(run, 2, [{ centers: input.centers }]);
+    await finish(run).expect(200);
+    const receipt = await consume(run.operation.id, { ...input, channelAccountId: lettered.toUpperCase() }, 'MILKRUN');
+    expect(receipt).toMatchObject({ transport: 'MILKRUN', duplicate: false });
+  });
+
+  it('보관된 캡처나 영수증이 깨져 있으면 STATE_CONFLICT(이유 코드)로 거절한다', async () => {
+    const input = oneCapture('PO-BROKEN', 'P-BROKEN', '8801234567890', 2);
+    const operationId = await capture(input);
+    await consume(operationId, input, 'MILKRUN');
+    await prisma.coupangDirectTransportReceipt.updateMany({ data: { collectedLines: 'not-lines' as never } });
+    await expect(consume(operationId, input, 'MILKRUN')).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'COUPANG_DIRECT_RECEIPT_INVALID' } });
+
+    await prisma.orderCollectionArtifact.updateMany({ where: { operationId }, data: { sourceBytes: Buffer.from('not json') } });
+    await expect(consume(operationId, input, 'SHIPMENT')).rejects.toMatchObject({ code: 'STATE_CONFLICT', details: { reason: 'COUPANG_DIRECT_CAPTURE_INVALID' } });
+  });
+
   async function seedRequest(poNumber: string, productNo: string, barcode: string, quantity: number) {
     const confirmation = await prisma.rocketPurchaseConfirmation.create({
       data: {

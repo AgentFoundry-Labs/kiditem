@@ -87,7 +87,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
     return this.prisma.$transaction(async (tx) => {
       await this.lockOwner(tx, input.organizationId);
       const stored = await this.readStoredCapture(tx, input.organizationId, input.operationId);
-      if (stored.channelAccountId !== input.capture.channelAccountId) throw conflict('COUPANG_DIRECT_ACCOUNT_MISMATCH');
+      if (stored.channelAccountId.toLowerCase() !== input.capture.channelAccountId.toLowerCase()) throw conflict('COUPANG_DIRECT_ACCOUNT_MISMATCH');
       assertTransportSelection(stored, input.capture);
 
       const projection = transportProjection(input.capture, input.transport);
@@ -354,16 +354,16 @@ function parseStoredCapture(bytes: Buffer): CoupangDirectCapture {
   try {
     value = JSON.parse(bytes.toString('utf8'));
   } catch {
-    throw new Error('COUPANG_DIRECT_CAPTURE_INVALID');
+    throw conflict('COUPANG_DIRECT_CAPTURE_INVALID');
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('COUPANG_DIRECT_CAPTURE_INVALID');
+    throw conflict('COUPANG_DIRECT_CAPTURE_INVALID');
   }
   const parsed = CoupangDirectOrderCollectionRequestSchema.safeParse({
     ...(value as Record<string, unknown>),
     transport: 'SHIPMENT',
   });
-  if (!parsed.success) throw new Error('COUPANG_DIRECT_CAPTURE_INVALID');
+  if (!parsed.success) throw conflict('COUPANG_DIRECT_CAPTURE_INVALID');
   const { transport: _transport, ...capture } = parsed.data;
   return capture;
 }
@@ -438,13 +438,13 @@ function receiptView(
   duplicate: boolean,
 ): CoupangDirectTransportReceipt {
   if (row.transport !== 'SHIPMENT' && row.transport !== 'MILKRUN') {
-    throw new Error('COUPANG_DIRECT_RECEIPT_INVALID');
+    throw conflict('COUPANG_DIRECT_RECEIPT_INVALID');
   }
   const collectedLines = parseLineRefs(row.collectedLines);
   const matchedLines = parseLineRefs(row.matchedLines);
   const unmatchedLines = parseLineRefs(row.unmatchedLines);
   if (!collectedLines || !matchedLines || !unmatchedLines) {
-    throw new Error('COUPANG_DIRECT_RECEIPT_INVALID');
+    throw conflict('COUPANG_DIRECT_RECEIPT_INVALID');
   }
   return {
     transport: row.transport,
