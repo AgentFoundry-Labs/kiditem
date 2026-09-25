@@ -65,6 +65,7 @@ describe("data migration registry", () => {
       "v0.1.31:006_backfill_coupang_direct_transport_receipts",
       "v0.1.31:016_activate_ad_free_product_abc_formula",
       "v0.1.31:027_normalize_sales_product_status",
+      "v0.1.31:029_close_generations_left_by_direct_job_cutover",
     ]);
     expect(
       DATA_MIGRATION_IDS.filter((id) =>
@@ -373,6 +374,7 @@ describe("data migration registry", () => {
       "v0.1.31:006_backfill_coupang_direct_transport_receipts",
       "v0.1.31:016_activate_ad_free_product_abc_formula",
       "v0.1.31:027_normalize_sales_product_status",
+      "v0.1.31:029_close_generations_left_by_direct_job_cutover",
     ]);
   });
 
