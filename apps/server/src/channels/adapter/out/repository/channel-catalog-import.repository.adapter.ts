@@ -1,34 +1,11 @@
-import { randomUUID } from 'node:crypto';
-import {
-  BadRequestException,
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { Prisma, type SourceImportRun } from '@prisma/client';
-import { PrismaService } from '../../../../prisma/prisma.service';
+import type { Prisma } from '@prisma/client';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
-import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
-import {
-  CompletedSourceArtifactRunSchema,
-  type CoupangWingCatalogImportResponse,
-  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-  SOURCE_IMPORT_RUN_FAILED_STATUS,
-  SOURCE_IMPORT_RUN_RUNNING_STATUS,
-} from '@kiditem/shared/source-import';
-import type {
-  ChannelCatalogImportClaim,
-  ChannelCatalogImportRepositoryPort,
-} from '../../../application/port/out/repository/channel-catalog-import.repository.port';
-import type { ParsedWingCatalogRow } from '../documents/coupang-wing/workbook.parser';
-import { resolveCoupangVendorId } from '../../../domain/account/coupang-account-identity';
 import { lockProductMapping } from '../../../../products/transaction/product-mapping-lock';
-import {
-  CHANNELS_PRODUCT_MAPPING_GENERATION_PORT,
-  type ChannelsProductMappingGenerationPort,
-} from '../../../application/port/out/cross-domain/product-mapping-generation.port';
-import { allocatePublicationSequence } from '../../../../common/publication-sequence';
+import type { ChannelsProductMappingGenerationPort } from '../../../application/port/out/cross-domain/product-mapping-generation.port';
+import type { ChannelOptionRecipePort } from '../../../application/port/in/channel-option-recipe.port';
+import type { ChannelCatalogPublicationPort } from '../../../application/port/out/repository/channel-catalog-publication.port';
+import type { ParsedWingCatalogRow } from '../documents/coupang-wing/workbook.parser';
 import {
   rawSectionPatch,
   type OptionCatalogExcelSection,
@@ -37,37 +14,15 @@ import {
   LISTING_ATTRIBUTE_KINDS,
   attributesFromWire,
 } from '../../../domain/collection/channel-listing-attributes';
-import { liveCatalogImport, lockCatalogAccount } from './channel-catalog-attempt-fence';
 import {
   upsertChannelCatalogIdentities,
   type ChannelCatalogIdentityOption,
 } from './channel-catalog-identity-upsert';
-import {
-  CHANNEL_OPTION_RECIPE_PORT,
-  type ChannelOptionRecipePort,
-} from '../../../application/port/in/channel-option-recipe.port';
 import { applyRegisteredOptionRecipes } from '../persistence/registered-option-recipes';
 
 const SOURCE_TYPE = 'coupang_wing_catalog';
-const CHANNEL = 'coupang';
-const CLAIM_READ_LIMIT = 3;
-const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 60_000 } as const;
 
-type ClaimInput = Parameters<
-  ChannelCatalogImportRepositoryPort['claimCoupangWingImport']
->[0];
-type UpsertInput = Parameters<
-  ChannelCatalogImportRepositoryPort['upsertCoupangWingCatalog']
->[0];
-
-type LockedRunRow = {
-  id: string;
-  organizationId: string;
-  sourceType: string;
-  channelAccountId: string | null;
-  status: string;
-  attemptToken: string;
-};
+type WorkbookInput = Parameters<ChannelCatalogPublicationPort['publishWorkbook']>[1];
 
 type CanonicalParent = Pick<
   ParsedWingCatalogRow,
@@ -88,405 +43,109 @@ type CanonicalParent = Pick<
   adult: boolean | null;
 };
 
-@Injectable()
-export class ChannelCatalogImportRepositoryAdapter
-implements ChannelCatalogImportRepositoryPort {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly alerts: SourceFailureAlerts,
-    @Inject(CHANNEL_OPTION_RECIPE_PORT)
-    private readonly recipes: ChannelOptionRecipePort,
-    @Inject(CHANNELS_PRODUCT_MAPPING_GENERATION_PORT)
-    private readonly productMapping: ChannelsProductMappingGenerationPort,
-  ) {}
-
-  /**
-   * One Wing catalog import per account: the claim runs under the same account
-   * lock as the browser collection begin and opens no RUNNING row while the
-   * account's browser import (either stage, or a pending details handoff) or
-   * another workbook import is live, naming that import's root attempt.
-   */
-  async claimCoupangWingImport(
-    input: ClaimInput,
-  ): Promise<ChannelCatalogImportClaim> {
-    await this.assertActiveWingAccount(input.organizationId, input.channelAccountId);
-    try {
-      return await this.prisma.$transaction(
-        (tx) => this.claimInTransaction(tx, input),
-        TRANSACTION_OPTIONS,
-      );
-    } catch (error) {
-      if (!isUniqueConstraintError(error)) throw error;
-      // A claim outside the account lock created this file's run first.
-      return this.prisma.$transaction(
-        (tx) => this.claimInTransaction(tx, input),
-        TRANSACTION_OPTIONS,
-      );
-    }
+/**
+ * [쿠팡상품정보] 엑셀 반영(KID-349 → KID-354 `channels.wing_catalog_excel` finalize). 실행 계약의 finish
+ * 트랜잭션 안에서 부르며, 출처는 `lastOperationId`로 남긴다(`source_import_runs` 행 없음). 계정 겹침은 실행
+ * 잠금(`account:<id>`), 같은 파일 재반영은 실행 계약의 `fileHash`가 막는다.
+ */
+export async function publishWingCatalogWorkbook(
+  tx: Prisma.TransactionClient,
+  deps: { recipes: ChannelOptionRecipePort; productMapping: ChannelsProductMappingGenerationPort },
+  input: WorkbookInput,
+): Promise<Awaited<ReturnType<ChannelCatalogPublicationPort['publishWorkbook']>>> {
+  if (input.rows.length === 0) {
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'catalog_workbook_empty' } });
   }
-
-  async upsertCoupangWingCatalog(
-    input: UpsertInput,
-  ): Promise<CoupangWingCatalogImportResponse> {
-    if (input.rows.length === 0) {
-      throw new BadRequestException(
-        'Coupang Wing catalog publication requires at least one valid row.',
-      );
-    }
-    return this.prisma.$transaction(async (tx) => {
-      await lockProductMapping(tx, input.organizationId);
-      const lockKey =
-        `channel-catalog-import:${input.organizationId}:${SOURCE_TYPE}:${input.channelAccountId}`;
-      await tx.$queryRaw`
-        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
-      `;
-
-      const account = await tx.channelAccount.findFirst({
-        where: {
-          id: input.channelAccountId,
-          organizationId: input.organizationId,
-          status: 'active',
-        },
-        select: { id: true, channel: true, externalAccountId: true, vendorId: true },
-      });
-      if (!account) {
-        throw new NotFoundException('Active channel account not found');
-      }
-      if (account.channel !== CHANNEL) {
-        throw new BadRequestException(
-          'Coupang Wing catalog imports require a channel=coupang account',
-        );
-      }
-      assertCanonicalCoupangAccountIdentity(account);
-
-      const lockedRows = await tx.$queryRaw<LockedRunRow[]>`
-        SELECT
-          id,
-          organization_id AS "organizationId",
-          source_type AS "sourceType",
-          channel_account_id AS "channelAccountId",
-          status,
-          attempt_token AS "attemptToken"
-        FROM source_import_runs
-        WHERE id = ${input.runId}::uuid
-          AND organization_id = ${input.organizationId}::uuid
-          AND channel_account_id = ${input.channelAccountId}::uuid
-        FOR UPDATE
-      `;
-      const lockedRun = lockedRows[0];
-      if (
-        !lockedRun ||
-        lockedRun.sourceType !== SOURCE_TYPE ||
-        lockedRun.channelAccountId !== input.channelAccountId
-      ) {
-        throw new ConflictException(
-          'Coupang Wing catalog import run is not owned by this tenant/account',
-        );
-      }
-
-      if (lockedRun.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
-        const completed = await tx.sourceImportRun.findFirstOrThrow({
-          where: {
-            id: input.runId,
-            organizationId: input.organizationId,
-            sourceType: SOURCE_TYPE,
-            channelAccountId: input.channelAccountId,
-            status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-          },
-        });
-        return importResponse(completed, true, zeroChanges());
-      }
-
-      if (
-        lockedRun.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS ||
-        lockedRun.attemptToken !== input.attemptToken
-      ) {
-        throw new ConflictException(
-          'Coupang Wing catalog import attempt no longer owns this run',
-        );
-      }
-
-      const canonicalParents = canonicalParentRows(input.rows);
-      const optionsByProduct = new Map<string, ChannelCatalogIdentityOption[]>();
-      for (const row of input.rows) {
-        const options = optionsByProduct.get(row.externalProductId) ?? [];
-        const attributes = attributesFromWire(row.attributesJson, 'search');
-        options.push({
-          externalOptionId: row.externalSkuId,
-          optionName: row.optionName,
-          salePrice: null,
-          sellerSku: null,
-          barcode: row.barcode,
-          modelNumber: row.modelNumber,
-          skuStatus: row.skuStatus,
-          attributes,
-          // 빈 칸은 "못 봤다" (KID-349, 리더 결정): 검색옵션은 엑셀에서만 오므로 실린 줄이면 통째로
-          // 바꾸고, 구매옵션은 이 줄이 값을 실은 속성 종류만 바꿔 상세가 준 다른 구매속성을 지킨다.
-          attributeMerge: LISTING_ATTRIBUTE_KINDS
-            .filter((kind) => attributes.some((attribute) => attribute.kind === kind))
-            .map((kind) => ({ kind, replaceBy: kind === 'purchase' ? 'attributeType' as const : 'kind' as const })),
-          raw: rawSectionPatch('catalogExcel', excelSection(input.observedAt, row.rawJson)),
-        });
-        optionsByProduct.set(row.externalProductId, options);
-      }
-
-      const identities = await upsertChannelCatalogIdentities(tx, {
-        organizationId: input.organizationId,
-        channelAccountId: input.channelAccountId,
-        lastImportRunId: input.runId,
-        rawSource: SOURCE_TYPE,
-        // 윙 엑셀에는 판매자코드 칸도 판매가 칸도 없다. 브라우저 수집이 본 값을 지우지 않는다.
-        // 옵션명·판매상태·모델번호·바코드는 양식의 필수 칸이라 그대로 관측한다.
-        unobservedOptionFields: ['sellerSku', 'salePrice'],
-        // 엑셀은 자기 구역(catalogExcel)만 쓴다: 목록·상세가 쓴 구역과 값을 지우지 않는다 (KID-349).
-        rawJsonWrite: 'section',
-        products: canonicalParents.map((parent) => ({
-          externalProductId: parent.externalProductId,
-          registeredName: parent.registeredName,
-          displayName: parent.displayName,
-          category: parent.category,
-          manufacturer: parent.manufacturer,
-          brand: parent.brand,
-          productStatus: parent.productStatus,
-          raw: rawSectionPatch(
-            'catalogExcel',
-            {
-              ...excelSection(input.observedAt, parent.rawJson),
-              searchTags: parent.searchTags,
-              exposedProductId: parent.exposedProductId,
-              adult: parent.adult,
-            },
-            {
-              source: SOURCE_TYPE,
-              externalProductId: parent.externalProductId,
-              // 판매상태·승인상태 평면 키는 Products·Analytics가 판매상태로 읽는다: 엑셀로 처음 만든
-              // 리스팅에도 둔다. 빈 칸은 싣지 않아 저장값을 지우지 않는다.
-              ...(parent.saleStatus ? { saleStatus: parent.saleStatus } : {}),
-              ...(parent.productStatus ? { productStatus: parent.productStatus } : {}),
-            },
-          ),
-          options: optionsByProduct.get(parent.externalProductId) ?? [],
-        })),
-      });
-      const { mappingIdentityChanged } = identities;
-      const {
-        createdProductCount,
-        updatedProductCount,
-        createdSkuCount,
-        updatedSkuCount,
-      } = identities.changes;
-
-      await applyRegisteredOptionRecipes(ownerTransaction(tx), this.recipes, {
-        organizationId: input.organizationId,
-        channelListingIds: [...identities.listingIds.values()],
-      });
-
-      // 엑셀은 목록에 없는 상품을 끄지 않는다. 사라진 상품은 브라우저 동기화의 삭제 확인으로만
-      // 바뀐다 (KID-348). 건너뛴 줄 수는 응답으로 알린다.
-      if (mappingIdentityChanged) {
-        await this.productMapping.advance(tx, input.organizationId);
-      }
-
-      const publicationSequence = await allocatePublicationSequence(
-        tx,
-        input.organizationId,
-        SOURCE_TYPE,
-      );
-
-      const importedAt = new Date();
-      const completion = await tx.sourceImportRun.updateMany({
-        where: {
-          id: input.runId,
-          organizationId: input.organizationId,
-          sourceType: SOURCE_TYPE,
-          channelAccountId: input.channelAccountId,
-          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
-          attemptToken: input.attemptToken,
-        },
-        data: {
-          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-          rowCount: input.rows.length,
-          importedAt,
-          publicationSequence,
-        },
-      });
-      if (completion.count !== 1) {
-        throw new ConflictException(
-          'Coupang Wing catalog import attempt lost its fence',
-        );
-      }
-      await this.alerts.resolveSourceFailure(tx, {
-        organizationId: input.organizationId,
-        dedupeKey: catalogImportAlertKey(input.channelAccountId),
-        attemptId: input.attemptToken,
-      });
-
-      const completed = await tx.sourceImportRun.findFirstOrThrow({
-        where: {
-          id: input.runId,
-          organizationId: input.organizationId,
-          sourceType: SOURCE_TYPE,
-          channelAccountId: input.channelAccountId,
-          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-          attemptToken: input.attemptToken,
-        },
-      });
-      return importResponse(completed, false, {
-        createdProductCount,
-        updatedProductCount,
-        createdSkuCount,
-        updatedSkuCount,
-        skippedRowCount: input.skippedRows.length,
-      });
-    }, TRANSACTION_OPTIONS);
-  }
-
-  async markImportFailed(
-    organizationId: string,
-    channelAccountId: string,
-    runId: string,
-    attemptToken: string,
-  ): Promise<void> {
-    await this.prisma.$transaction(async (tx) => {
-      const lockKey = `channel-catalog-import:${organizationId}:${SOURCE_TYPE}:${channelAccountId}`;
-      await tx.$queryRaw`
-        -- queryraw-tenancy-exempt: organization-scoped advisory lock
-        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
-      `;
-      const failed = await tx.sourceImportRun.updateMany({
-        where: {
-          id: runId,
-          organizationId,
-          sourceType: SOURCE_TYPE,
-          channelAccountId,
-          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
-          attemptToken,
-        },
-        data: { status: SOURCE_IMPORT_RUN_FAILED_STATUS },
-      });
-      if (failed.count === 0) return;
-      await this.alerts.recordTerminalOutcome(tx, {
-        organizationId,
-        dedupeKey: catalogImportAlertKey(channelAccountId),
-        sourceType: SOURCE_TYPE,
-        // File retries reuse the run, but every claim rotates its attempt token.
-        attemptId: attemptToken,
-        code: 'CATALOG_IMPORT_FAILED',
-        title: '쿠팡 상품 파일 가져오기 실패',
-        message: '상품 파일을 가져오지 못했습니다. 파일을 확인한 뒤 다시 시도해주세요.',
-        href: `/product-pipeline/registered-products?channelAccountId=${channelAccountId}`,
-      });
-    }, TRANSACTION_OPTIONS);
-  }
-
-  private async assertActiveWingAccount(
-    organizationId: string,
-    channelAccountId: string,
-  ): Promise<void> {
-    const account = await this.prisma.channelAccount.findFirst({
-      where: { id: channelAccountId, organizationId, status: 'active' },
-      select: { id: true, channel: true, externalAccountId: true, vendorId: true },
+  await lockProductMapping(tx, input.organizationId);
+  const canonicalParents = canonicalParentRows(input.rows);
+  const optionsByProduct = new Map<string, ChannelCatalogIdentityOption[]>();
+  for (const row of input.rows) {
+    const options = optionsByProduct.get(row.externalProductId) ?? [];
+    const attributes = attributesFromWire(row.attributesJson, 'search');
+    options.push({
+      externalOptionId: row.externalSkuId,
+      optionName: row.optionName,
+      salePrice: null,
+      sellerSku: null,
+      barcode: row.barcode,
+      modelNumber: row.modelNumber,
+      skuStatus: row.skuStatus,
+      attributes,
+      // 빈 칸은 "못 봤다" (KID-349, 리더 결정): 검색옵션은 엑셀에서만 오므로 실린 줄이면 통째로
+      // 바꾸고, 구매옵션은 이 줄이 값을 실은 속성 종류만 바꿔 상세가 준 다른 구매속성을 지킨다.
+      attributeMerge: LISTING_ATTRIBUTE_KINDS
+        .filter((kind) => attributes.some((attribute) => attribute.kind === kind))
+        .map((kind) => ({ kind, replaceBy: kind === 'purchase' ? 'attributeType' as const : 'kind' as const })),
+      raw: rawSectionPatch('catalogExcel', excelSection(input.observedAt, row.rawJson)),
     });
-    if (!account) throw new NotFoundException('Active channel account not found');
-    if (account.channel !== CHANNEL) {
-      throw new BadRequestException(
-        'Coupang Wing catalog imports require a channel=coupang account',
-      );
-    }
-    assertCanonicalCoupangAccountIdentity(account);
+    optionsByProduct.set(row.externalProductId, options);
   }
 
-  private async claimInTransaction(
-    tx: Prisma.TransactionClient,
-    input: ClaimInput,
-  ): Promise<ChannelCatalogImportClaim> {
-    await lockCatalogAccount(tx, input);
-    // Publication and failure settle a run under their own lock, so a lost
-    // compare-and-set reads the run again before deciding.
-    for (let read = 0; read < CLAIM_READ_LIMIT; read += 1) {
-      const existing = await tx.sourceImportRun.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          sourceType: SOURCE_TYPE,
-          channelAccountId: input.channelAccountId,
-          fileHash: input.fileHash,
+  const identities = await upsertChannelCatalogIdentities(tx, {
+    organizationId: input.organizationId,
+    channelAccountId: input.channelAccountId,
+    lastImportRunId: null,
+    lastOperationId: input.operationId,
+    rawSource: SOURCE_TYPE,
+    // 윙 엑셀에는 판매자코드 칸도 판매가 칸도 없다. 브라우저 수집이 본 값을 지우지 않는다.
+    // 옵션명·판매상태·모델번호·바코드는 양식의 필수 칸이라 그대로 관측한다.
+    unobservedOptionFields: ['sellerSku', 'salePrice'],
+    // 엑셀은 자기 구역(catalogExcel)만 쓴다: 목록·상세가 쓴 구역과 값을 지우지 않는다 (KID-349).
+    rawJsonWrite: 'section',
+    products: canonicalParents.map((parent) => ({
+      externalProductId: parent.externalProductId,
+      registeredName: parent.registeredName,
+      displayName: parent.displayName,
+      category: parent.category,
+      manufacturer: parent.manufacturer,
+      brand: parent.brand,
+      productStatus: parent.productStatus,
+      raw: rawSectionPatch(
+        'catalogExcel',
+        {
+          ...excelSection(input.observedAt, parent.rawJson),
+          searchTags: parent.searchTags,
+          exposedProductId: parent.exposedProductId,
+          adult: parent.adult,
         },
-      });
-      if (existing?.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
-        return {
-          kind: 'duplicate',
-          response: importResponse(existing, true, zeroChanges()),
-        };
-      }
-      const live = await liveCatalogImport(tx, input);
-      if (live) return { kind: 'running', attemptId: live.attemptId };
-      if (!existing) {
-        const created = await tx.sourceImportRun.create({
-          data: {
-            organizationId: input.organizationId,
-            sourceType: SOURCE_TYPE,
-            channelAccountId: input.channelAccountId,
-            fileName: input.fileName,
-            fileHash: input.fileHash,
-            status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
-            rowCount: input.rowCount,
-            importedAt: null,
-            createdBy: input.userId,
-            attemptToken: randomUUID(),
-          },
-        });
-        return {
-          kind: 'started',
-          runId: created.id,
-          attemptToken: created.attemptToken,
-        };
-      }
-      if (existing.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS && existing.status !== SOURCE_IMPORT_RUN_FAILED_STATUS) {
-        return { kind: 'running', attemptId: existing.id };
-      }
-      // A stale running import is reclaimed and a failed one retried, each
-      // under a new token so the previous worker's writes stay fenced out.
-      const attemptToken = randomUUID();
-      const claimed = await tx.sourceImportRun.updateMany({
-        where: {
-          id: existing.id,
-          organizationId: input.organizationId,
-          sourceType: SOURCE_TYPE,
-          channelAccountId: input.channelAccountId,
-          status: existing.status,
-          ...(existing.status === SOURCE_IMPORT_RUN_RUNNING_STATUS ? { updatedAt: existing.updatedAt } : {}),
-          attemptToken: existing.attemptToken,
+        {
+          source: SOURCE_TYPE,
+          externalProductId: parent.externalProductId,
+          // 판매상태·승인상태 평면 키는 Products·Analytics가 판매상태로 읽는다: 엑셀로 처음 만든
+          // 리스팅에도 둔다. 빈 칸은 싣지 않아 저장값을 지우지 않는다.
+          ...(parent.saleStatus ? { saleStatus: parent.saleStatus } : {}),
+          ...(parent.productStatus ? { productStatus: parent.productStatus } : {}),
         },
-        data: {
-          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
-          fileName: input.fileName,
-          rowCount: input.rowCount,
-          createdBy: input.userId,
-          importedAt: null,
-          attemptToken,
-        },
-      });
-      if (claimed.count === 1) {
-        return { kind: 'started', runId: existing.id, attemptToken };
-      }
-    }
-    throw new ConflictException('Coupang Wing catalog import claim lost its fence');
-  }
-}
+      ),
+      options: optionsByProduct.get(parent.externalProductId) ?? [],
+    })),
+  });
+  const { mappingIdentityChanged } = identities;
+  const {
+    createdProductCount,
+    updatedProductCount,
+    createdSkuCount,
+    updatedSkuCount,
+  } = identities.changes;
 
-function catalogImportAlertKey(channelAccountId: string): string {
-  return `channels:${SOURCE_TYPE}:import:${channelAccountId}`;
-}
+  await applyRegisteredOptionRecipes(ownerTransaction(tx), deps.recipes, {
+    organizationId: input.organizationId,
+    channelListingIds: [...identities.listingIds.values()],
+  });
 
-function assertCanonicalCoupangAccountIdentity(account: {
-  externalAccountId: string | null;
-  vendorId: string | null;
-}): void {
-  if (!resolveCoupangVendorId(account)) {
-    throw new BadRequestException(
-      'Coupang Wing catalog imports require a vendor identity',
-    );
+  // 엑셀은 목록에 없는 상품을 끄지 않는다. 사라진 상품은 브라우저 동기화의 삭제 확인으로만
+  // 바뀐다 (KID-348). 건너뛴 줄 수는 응답으로 알린다.
+  if (mappingIdentityChanged) {
+    await deps.productMapping.advance(tx, input.organizationId);
   }
+
+  return {
+    createdProductCount,
+    updatedProductCount,
+    createdSkuCount,
+    updatedSkuCount,
+    skippedRowCount: input.skippedRows.length,
+  };
 }
 
 function canonicalParentRows(rows: ParsedWingCatalogRow[]): CanonicalParent[] {
@@ -535,55 +194,3 @@ function excelSection(observedAt: string, rawJson: Record<string, unknown>): Opt
   };
 }
 
-function isUniqueConstraintError(error: unknown): boolean {
-  return error instanceof Prisma.PrismaClientKnownRequestError && error.code === 'P2002';
-}
-
-function zeroChanges(): CoupangWingCatalogImportResponse['changes'] {
-  return {
-    createdProductCount: 0,
-    updatedProductCount: 0,
-    createdSkuCount: 0,
-    updatedSkuCount: 0,
-    skippedRowCount: 0,
-  };
-}
-
-function importResponse(
-  run: SourceImportRun,
-  duplicate: boolean,
-  changes: CoupangWingCatalogImportResponse['changes'],
-): CoupangWingCatalogImportResponse {
-  if (run.channelAccountId === null) {
-    throw new ConflictException(
-      'Completed Coupang Wing import is missing its channel account',
-    );
-  }
-  const completedRun = CompletedSourceArtifactRunSchema.parse({
-    id: run.id,
-    sourceType: 'coupang_wing_catalog',
-    channelAccountId: run.channelAccountId,
-    fileName: run.fileName,
-    fileHash: run.fileHash,
-    status: run.status,
-    rowCount: run.rowCount,
-    importedAt: run.importedAt?.toISOString() ?? null,
-    lastVerifiedAt: run.lastVerifiedAt?.toISOString() ?? null,
-    verificationCount: run.verificationCount,
-    lastTrigger: run.lastTrigger,
-    freshnessGeneration: run.freshnessGeneration?.toString() ?? null,
-    manualFreshExportConfirmedAt:
-      run.manualFreshExportConfirmedAt?.toISOString() ?? null,
-    manualFreshExportConfirmedBy: run.manualFreshExportConfirmedBy,
-    qualityReport: run.qualityReport,
-    errorCode: run.errorCode,
-    errorMessage: run.errorMessage,
-    createdAt: run.createdAt.toISOString(),
-    updatedAt: run.updatedAt.toISOString(),
-  });
-  return {
-    run: completedRun,
-    duplicate,
-    changes,
-  };
-}

@@ -1,23 +1,15 @@
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import type { ParsedWingCatalogWorkbook } from '../application/port/out/documents/channel-document.models';
-import { createHash, randomUUID } from 'node:crypto';
-import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { ChannelConflictError } from '../domain/exception/channel-business-error';
+import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
-  OTHER_USER_ID,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
-import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
-import { ChannelCatalogImportService } from '../application/service/collection/channel-catalog-import.service';
-import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
-import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
 import { ChannelSkuAvailabilityService } from '../application/service/listing/channel-sku-availability.service';
 import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
@@ -28,9 +20,10 @@ import { freezeProductRegistrationPayload } from '../domain/registration/registr
 import type { Prisma, PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { ParsedWingCatalogRow } from '../adapter/out/documents/coupang-wing/workbook.parser';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
+import type { ChannelDocumentsPort } from '../application/port/out/documents/channel-documents.port';
+import type { OperationView } from '@kiditem/shared/operation';
+import { makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
+import { makeWingCatalogOperations } from '../../test-helpers/wing-catalog-operations';
 
 const channelIntegrity = new ChannelIntegrityAdapter();
 
@@ -40,44 +33,32 @@ const ROCKET_ACCOUNT_ID = '33333333-3333-4333-8333-333333333333';
 const NAVER_ACCOUNT_ID = '44444444-4444-4444-8444-444444444444';
 const OTHER_ORG_WING_ACCOUNT_ID = '55555555-5555-4555-8555-555555555555';
 
-describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
+/**
+ * [쿠팡상품정보] 엑셀 = `channels.wing_catalog_excel` 실행 하나(KID-351). 업로드가 begin(fileHash) → workbook 청크 →
+ * finish를 밟고, finalize가 finish 트랜잭션 안에서 반영한다. 파서는 이 트랜잭션 테스트 밖이라 행을 그대로 돌려주는
+ * 가짜 문서 포트를 쓴다(외부 경계).
+ */
+describe('Wing catalog workbook over the operation contract (PG integration)', () => {
   let prisma: PrismaClient;
-  let repository: ChannelCatalogImportRepositoryAdapter;
-  let service: ChannelCatalogImportService;
-  let alerts: SourceFailureAlerts;
-  let recipes: ChannelOptionRecipeService;
+  let wing: ReturnType<typeof makeWingCatalogOperations>;
   let availability: ChannelSkuAvailabilityService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    alerts = new SourceFailureAlerts(prisma as unknown as PrismaService);
-    recipes = new ChannelOptionRecipeService(
-      new ChannelOptionRecipeRepositoryAdapter(
-        prisma as unknown as PrismaService,
-        new ProductTransactionalReadRepositoryAdapter(),
-      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
-      ),
-    );
     const prismaService = prisma as unknown as PrismaService;
     availability = new ChannelSkuAvailabilityService(
       new ChannelProductMatchingRepositoryAdapter(
         prismaService,
         new ProductTransactionalReadRepositoryAdapter(),
         new ProductSourceReadRepositoryAdapter(prismaService),
-        recipes,
+        makeChannelRecipes(prisma),
       ),
       new ProductAvailabilityUseCase(
         new ProductAvailabilityRepositoryAdapter(prismaService),
       ),
     );
-    repository = new ChannelCatalogImportRepositoryAdapter(
-      prisma as unknown as PrismaService,
-      alerts,
-      recipes,
-    new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
-    );
-    service = new ChannelCatalogImportService(repository, { parseWingWorkbook: (bytes: Uint8Array) => parsedWorkbooks.get(new TextDecoder().decode(bytes))! } as never);
+    wing = makeWingCatalogOperations(prisma, { documents: fakeWorkbookParser });
   });
 
   afterAll(async () => {
@@ -88,103 +69,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
     await seedAccounts();
-  });
-
-  it('notifies the organization when its catalog file import fails and preserves dismissal on replay', async () => {
-    const attempt = await claim(fileHash('failure-alert'));
-    if (attempt.kind !== 'started') throw new Error('expected import admission');
-
-    await repository.markImportFailed(
-      TEST_ORGANIZATION_ID, WING_ACCOUNT_ID, attempt.runId, attempt.attemptToken,
-    );
-    const opened = await alerts.list(TEST_ORGANIZATION_ID);
-    expect(opened).toMatchObject([{
-      type: 'source_failure',
-      sourceType: 'coupang_wing_catalog',
-      attemptId: attempt.attemptToken,
-      status: 'OPEN',
-      isRead: false,
-    }]);
-    expect(await alerts.list(OTHER_ORGANIZATION_ID)).toEqual([]);
-
-    await alerts.dismiss(opened[0].id, TEST_ORGANIZATION_ID);
-    const dismissed = await alerts.list(TEST_ORGANIZATION_ID);
-    await repository.markImportFailed(
-      TEST_ORGANIZATION_ID, WING_ACCOUNT_ID, attempt.runId, attempt.attemptToken,
-    );
-    expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual(dismissed);
-  });
-
-  it('reopens one alert for a retried file and resolves it only when that import publishes', async () => {
-    const hash = fileHash('retry-alert');
-    const first = await claim(hash);
-    if (first.kind !== 'started') throw new Error('expected import admission');
-    await repository.markImportFailed(
-      TEST_ORGANIZATION_ID, WING_ACCOUNT_ID, first.runId, first.attemptToken,
-    );
-    const [opened] = await alerts.list(TEST_ORGANIZATION_ID);
-    await alerts.dismiss(opened.id, TEST_ORGANIZATION_ID);
-
-    const retry = await claim(hash);
-    if (retry.kind !== 'started') throw new Error('expected retry admission');
-    expect(retry.runId).toBe(first.runId);
-    await repository.markImportFailed(
-      TEST_ORGANIZATION_ID, WING_ACCOUNT_ID, retry.runId, retry.attemptToken,
-    );
-    expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([{
-      id: opened.id, attemptId: retry.attemptToken, status: 'OPEN', isRead: false,
-    }]);
-
-    await importCatalog([makeRow(0)], hash);
-    expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([{
-      id: opened.id, status: 'RESOLVED',
-    }]);
-  });
-
-  it('rolls back failure and completion when their catalog import alert cannot be saved', async () => {
-    const hash = fileHash('atomic-alert');
-    const first = await claim(hash);
-    if (first.kind !== 'started') throw new Error('expected import admission');
-    await prisma.$executeRaw`ALTER TABLE alerts ADD CONSTRAINT test_catalog_import_alert_failure CHECK (source_type <> 'coupang_wing_catalog')`;
-    try {
-      await expect(repository.markImportFailed(
-        TEST_ORGANIZATION_ID, WING_ACCOUNT_ID, first.runId, first.attemptToken,
-      )).rejects.toThrow();
-      expect(await claim(hash)).toEqual({ kind: 'running', attemptId: first.runId });
-      expect(await alerts.list(TEST_ORGANIZATION_ID)).toEqual([]);
-    } finally {
-      await prisma.$executeRaw`ALTER TABLE alerts DROP CONSTRAINT test_catalog_import_alert_failure`;
-    }
-
-    await repository.markImportFailed(
-      TEST_ORGANIZATION_ID, WING_ACCOUNT_ID, first.runId, first.attemptToken,
-    );
-    const retry = await claim(hash);
-    if (retry.kind !== 'started') throw new Error('expected retry admission');
-    const publish = () => repository.upsertCoupangWingCatalog({
-      organizationId: TEST_ORGANIZATION_ID,
-      channelAccountId: WING_ACCOUNT_ID,
-      runId: retry.runId,
-      attemptToken: retry.attemptToken,
-      rows: [makeRow(0)],
-      skippedRows: [],
-      observedAt: '2026-09-24T09:00:00.000Z',
-    });
-    await prisma.$executeRaw`ALTER TABLE alerts ADD CONSTRAINT test_catalog_import_alert_resolution CHECK (source_type <> 'coupang_wing_catalog' OR status <> 'RESOLVED')`;
-    try {
-      await expect(publish()).rejects.toThrow();
-      expect(await claim(hash)).toEqual({ kind: 'running', attemptId: retry.runId });
-      expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([{
-        attemptId: first.attemptToken, status: 'OPEN',
-      }]);
-    } finally {
-      await prisma.$executeRaw`ALTER TABLE alerts DROP CONSTRAINT test_catalog_import_alert_resolution`;
-    }
-    expect(await publish()).toMatchObject({
-      duplicate: false,
-      changes: { createdProductCount: 1, createdSkuCount: 1 },
-    });
-    expect(await alerts.list(TEST_ORGANIZATION_ID)).toMatchObject([{ status: 'RESOLVED' }]);
   });
 
   it('imports the representative 1,225-parent/2,241-SKU shape with three skips and no stock mutation', async () => {
@@ -201,7 +85,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       },
     });
 
-    const result = await importCatalog(rows, fileHash('representative'), WING_ACCOUNT_ID, [
+    const result = await importCatalog(rows, WING_ACCOUNT_ID, [
         {
           rowNumber: 56,
           reason: 'missing_sku_id' as const,
@@ -255,8 +139,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       updatedSkuCount: 0,
       skippedRowCount: 3,
     });
-    expect(result.run.rowCount).toBe(2_241);
-    expect(inventoryAfter).toEqual(inventoryBefore);
+        expect(inventoryAfter).toEqual(inventoryBefore);
   });
 
   it('links a later workbook capture to the frozen registered bundle code without allocating another code', async () => {
@@ -264,7 +147,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       externalProductId: 'P-REGISTERED',
       externalSkuId: 'S-REGISTERED',
     });
-    await importCatalog([row], fileHash('registered-workbook-first'));
+    await importCatalog([row]);
     const listing = await prisma.channelListing.findFirstOrThrow({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -318,7 +201,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       data: { sellerSku: 'KID12345678' },
     });
 
-    await importCatalog([row], fileHash('registered-workbook-later'));
+    await importCatalog([row]);
 
     await expect(prisma.channelListingOption.findUniqueOrThrow({
       where: { id: listing.options[0]!.id },
@@ -342,7 +225,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         externalProductId: 'P-DELETED',
         externalSkuId: 'S-DELETED',
       });
-      await importCatalog([row], fileHash('deleted-workbook-first'));
+      await importCatalog([row]);
       const listing = await prisma.channelListing.findFirstOrThrow({
         where: {
           organizationId: TEST_ORGANIZATION_ID,
@@ -377,7 +260,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       });
 
       if (recipePresentBeforeDeletion) {
-        await importCatalog([row], fileHash('deleted-workbook-recipe'));
+        await importCatalog([row]);
       }
       const beforeOption = await prisma.channelListingOption.findUniqueOrThrow({
         where: { id: option.id },
@@ -388,8 +271,8 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
 
       await prisma.masterProduct.delete({ where: { id: source.id } });
       await expect(
-        importCatalog([row], fileHash('deleted-workbook-after-delete')),
-      ).resolves.toMatchObject({ duplicate: false });
+        importCatalog([row]),
+      ).resolves.toMatchObject({ operation: { status: 'succeeded' } });
 
       const replacement = await prisma.masterProduct.create({
         data: {
@@ -403,8 +286,8 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         },
       });
       await expect(
-        importCatalog([row], fileHash('deleted-workbook-replacement')),
-      ).resolves.toMatchObject({ duplicate: false });
+        importCatalog([row]),
+      ).resolves.toMatchObject({ operation: { status: 'succeeded' } });
 
       const afterOption = await prisma.channelListingOption.findUniqueOrThrow({
         where: { id: option.id },
@@ -451,42 +334,16 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     },
   );
 
-  it('requires an active account in the organization and rejects non-Wing channels before claiming', async () => {
-    await expect(
-      service.importCoupangWing(
-        importInput({
-      organizationId: OTHER_ORGANIZATION_ID,
-      userId: OTHER_USER_ID,
-      channelAccountId: WING_ACCOUNT_ID,
-      fileHash: fileHash('wrong-organization'),
-        }),
-      ),
-    ).rejects.toBeInstanceOf(NotFoundException);
-
+  it('requires an active Wing account in the organization before begin, so nothing is opened', async () => {
+    const bytes = workbookBytes({ headers: ['등록상품ID', '옵션 ID'], rows: [makeRow(0)], skippedRows: [] });
+    await expect(wing.uploadWorkbook(WING_ACCOUNT_ID, bytes, undefined, OTHER_ORGANIZATION_ID))
+      .rejects.toMatchObject({ code: 'CHANNELS_ACCOUNT_NOT_FOUND' });
     for (const channelAccountId of [ROCKET_ACCOUNT_ID, NAVER_ACCOUNT_ID]) {
-      await expect(
-        service.importCoupangWing(
-          importInput({
-        channelAccountId,
-        fileHash: fileHash(`wrong-channel-${channelAccountId}`),
-          }),
-        ),
-      ).rejects.toBeInstanceOf(BadRequestException);
+      await expect(wing.uploadWorkbook(channelAccountId, bytes)).rejects.toMatchObject({ code: 'CHANNELS_ACCOUNT_INVALID' });
     }
-
-    await prisma.channelAccount.update({
-      where: { id: WING_ACCOUNT_ID },
-      data: { status: 'inactive' },
-    });
-    await expect(
-      service.importCoupangWing(
-        importInput({
-      fileHash: fileHash('inactive-account'),
-        }),
-      ),
-    ).rejects.toBeInstanceOf(NotFoundException);
-
-    expect(await prisma.sourceImportRun.count()).toBe(0);
+    await prisma.channelAccount.update({ where: { id: WING_ACCOUNT_ID }, data: { status: 'inactive' } });
+    await expect(wing.uploadWorkbook(WING_ACCOUNT_ID, bytes)).rejects.toMatchObject({ code: 'CHANNELS_ACCOUNT_NOT_FOUND' });
+    expect(await prisma.operation.count()).toBe(0);
   });
 
   it.each([null, '   '])(
@@ -496,14 +353,8 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         where: { id: WING_ACCOUNT_ID },
         data: { externalAccountId, vendorId: null },
       });
-
-      await expect(
-        service.importCoupangWing(
-          importInput({ fileHash: fileHash(`missing-identity-${String(externalAccountId)}`) }),
-        ),
-      ).rejects.toBeInstanceOf(BadRequestException);
-
-      expect(await prisma.sourceImportRun.count()).toBe(0);
+      await expect(importCatalog([makeRow(0)])).rejects.toMatchObject({ code: 'CHANNELS_ACCOUNT_INVALID' });
+      expect(await prisma.operation.count()).toBe(0);
       expect(await prisma.channelListing.count()).toBe(0);
       expect(await prisma.channelListingOption.count()).toBe(0);
     },
@@ -512,93 +363,32 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
   it('uses vendorId when a legacy external account alias differs', async () => {
     await prisma.channelAccount.update({
       where: { id: WING_ACCOUNT_ID },
-      data: {
-        externalAccountId: 'legacy-wing-alias',
-        vendorId: 'vendor-primary',
-      },
+      data: { externalAccountId: 'legacy-wing-alias', vendorId: 'vendor-primary' },
     });
-
-    await expect(
-      service.importCoupangWing(
-        importInput({ fileHash: fileHash('vendor-with-legacy-external-alias') }),
-      ),
-    ).resolves.toMatchObject({ duplicate: false });
-
-    expect(await prisma.sourceImportRun.count()).toBe(1);
+    await expect(importCatalog([makeRow(0)])).resolves.toMatchObject({ operation: { status: 'succeeded' } });
     expect(await prisma.channelListing.count()).toBe(1);
     expect(await prisma.channelListingOption.count()).toBe(1);
   });
 
-  it('revalidates the canonical account identity when publishing a claimed import', async () => {
-    const claimed = await repository.claimCoupangWingImport({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      channelAccountId: WING_ACCOUNT_ID,
-      fileName: 'wing.xlsx',
-      fileHash: fileHash('identity-removed-after-claim'),
-      rowCount: 1,
+  it('dedupes the same file per ChannelAccount: the same bytes publish once per account and a re-upload is refused', async () => {
+    const bytes = workbookBytes({
+      headers: ['등록상품ID', '옵션 ID'],
+      rows: [makeRow(0, { externalProductId: 'P-SHARED', externalSkuId: 'S-SHARED' })],
+      skippedRows: [],
     });
-    if (claimed.kind !== 'started') throw new Error('expected a started import claim');
+    const first = await wing.uploadWorkbook(WING_ACCOUNT_ID, bytes);
+    const second = await wing.uploadWorkbook(SECOND_WING_ACCOUNT_ID, bytes);
+    expect(first.operation).toMatchObject({ kind: 'channels.wing_catalog_excel', status: 'succeeded', lockKeys: [] });
+    expect(second.operation.id).not.toBe(first.operation.id);
+    expect(await prisma.channelListing.count({ where: { externalId: 'P-SHARED' } })).toBe(2);
+    expect(await prisma.channelListingOption.count({ where: { externalOptionId: 'S-SHARED' } })).toBe(2);
 
-    await prisma.channelAccount.update({
-      where: { id: WING_ACCOUNT_ID },
-      data: { externalAccountId: null, vendorId: null },
+    const before = await prisma.channelListingOption.findMany({ orderBy: { id: 'asc' } });
+    await expect(wing.uploadWorkbook(WING_ACCOUNT_ID, bytes)).rejects.toMatchObject({
+      code: 'DB_CONFLICT',
+      details: { reason: 'file_already_applied', existing: { operationId: first.operation.id } },
     });
-
-    await expect(
-      repository.upsertCoupangWingCatalog({
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: WING_ACCOUNT_ID,
-        runId: claimed.runId,
-        attemptToken: claimed.attemptToken,
-        rows: [makeRow(0)],
-        skippedRows: [],
-        observedAt: '2026-09-24T09:00:00.000Z',
-      }),
-    ).rejects.toBeInstanceOf(BadRequestException);
-
-    expect(await prisma.channelListing.count()).toBe(0);
-    expect(await prisma.channelListingOption.count()).toBe(0);
-    await expect(
-      prisma.sourceImportRun.findUniqueOrThrow({ where: { id: claimed.runId } }),
-    ).resolves.toMatchObject({ status: 'running' });
-  });
-
-  it('scopes product, SKU, and same-hash idempotency keys by ChannelAccount', async () => {
-    const rows = [makeRow(0, { externalProductId: 'P-SHARED', externalSkuId: 'S-SHARED' })];
-    const hash = fileHash('same-file-different-account');
-
-    const [first, second] = await Promise.all([
-      importCatalog(rows, hash, WING_ACCOUNT_ID),
-      importCatalog(rows, hash, SECOND_WING_ACCOUNT_ID),
-    ]);
-    const [products, skus, runs] = await Promise.all([
-      prisma.channelListing.findMany({
-        where: { organizationId: TEST_ORGANIZATION_ID, externalId: 'P-SHARED' },
-        orderBy: { channelAccountId: 'asc' },
-      }),
-      prisma.channelListingOption.findMany({
-        where: {
-          organizationId: TEST_ORGANIZATION_ID,
-          externalOptionId: 'S-SHARED',
-        },
-        orderBy: { listing: { channelAccountId: 'asc' } },
-      }),
-      prisma.sourceImportRun.findMany({
-        where: { organizationId: TEST_ORGANIZATION_ID, fileHash: hash },
-        orderBy: { publicationSequence: 'asc' },
-      }),
-    ]);
-
-    expect(first.duplicate).toBe(false);
-    expect(second.duplicate).toBe(false);
-    expect(second.run.id).not.toBe(first.run.id);
-    expect(products).toHaveLength(2);
-    expect(skus).toHaveLength(2);
-    expect(new Set(products.map((row) => row.id))).toHaveLength(2);
-    expect(new Set(skus.map((row) => row.id))).toHaveLength(2);
-    expect(runs).toHaveLength(2);
-    expect(runs.map((run) => run.publicationSequence)).toEqual([1n, 2n]);
+    expect(await prisma.channelListingOption.findMany({ orderBy: { id: 'asc' } })).toEqual(before);
   });
 
   // KID-348: 엑셀은 목록에 없는 상품을 끄지 않는다. 사라진 상품은 브라우저 동기화의 삭제 확인으로만 바뀐다.
@@ -610,7 +400,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
           externalSkuId: 'S-RETURN',
         }),
       ],
-      fileHash('identity-first'),
       WING_ACCOUNT_ID,
     );
     await importCatalog(
@@ -620,7 +409,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
           externalSkuId: 'S-RETURN',
         }),
       ],
-      fileHash('identity-second-account'),
       SECOND_WING_ACCOUNT_ID,
     );
 
@@ -646,7 +434,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
           externalSkuId: 'S-NEW',
         }),
       ],
-      fileHash('identity-absent'),
       WING_ACCOUNT_ID,
     );
 
@@ -676,12 +463,12 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     expect(unseenProduct).toMatchObject({
       id: productBefore.id,
       isActive: true,
-      lastImportRunId: productBefore.lastImportRunId,
+      lastOperationId: productBefore.lastOperationId,
     });
     expect(unseenSku).toMatchObject({
       id: skuBefore.id,
       isActive: true,
-      lastImportRunId: skuBefore.lastImportRunId,
+      lastOperationId: skuBefore.lastOperationId,
     });
     expect(otherAccountProduct.isActive).toBe(true);
     expect(otherAccountSku.isActive).toBe(true);
@@ -695,7 +482,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
           optionName: '다시 들어온 옵션',
         }),
       ],
-      fileHash('identity-returned'),
       WING_ACCOUNT_ID,
     );
     const [productAfter, skuAfter] = await Promise.all([
@@ -711,13 +497,13 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       id: productBefore.id,
       isActive: true,
       channelName: '다시 들어온 등록상품',
-      lastImportRunId: returnedPublication.run.id,
+      lastOperationId: returnedPublication.operation.id,
     });
     expect(skuAfter).toMatchObject({
       id: skuBefore.id,
       isActive: true,
       itemName: '다시 들어온 옵션',
-      lastImportRunId: returnedPublication.run.id,
+      lastOperationId: returnedPublication.operation.id,
     });
   });
 
@@ -740,11 +526,10 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         externalSkuId: 'S-UNSEEN',
       }),
     ];
-    await importCatalog(completeRows, fileHash('partial-skip-seed'));
+    await importCatalog(completeRows);
 
     const missingSkuPublication = await importCatalog(
       [completeRows[0]],
-      fileHash('partial-skip-product-identity'),
       WING_ACCOUNT_ID,
       [{
         rowNumber: 6,
@@ -770,10 +555,9 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       'S-VALID': true,
     });
 
-    await importCatalog(completeRows, fileHash('partial-skip-reactivate'));
+    await importCatalog(completeRows);
     const missingProductPublication = await importCatalog(
       [completeRows[0]],
-      fileHash('partial-skip-sku-identity'),
       WING_ACCOUNT_ID,
       [{
         rowNumber: 7,
@@ -815,7 +599,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         externalOptionId: 'S-CROSS-ACCOUNT',
       },
     });
-    const hash = fileHash('cross-account-parent');
 
     const result = await importCatalog(
       [
@@ -824,7 +607,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
           externalSkuId: 'S-CROSS-ACCOUNT',
         }),
       ],
-      hash,
       SECOND_WING_ACCOUNT_ID,
     );
 
@@ -854,19 +636,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       },
     });
     expect(secondAccountSku.id).not.toBe(firstAccountSku.id);
-    expect(result).toMatchObject({
-      duplicate: false,
-      changes: { createdProductCount: 1, createdSkuCount: 1 },
-    });
-    expect(
-      await prisma.sourceImportRun.findFirstOrThrow({
-        where: {
-          organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: SECOND_WING_ACCOUNT_ID,
-          fileHash: hash,
-        },
-      }),
-    ).toMatchObject({ status: 'completed', publicationSequence: 1n });
+    expect(result.changes).toMatchObject({ createdProductCount: 1, createdSkuCount: 1 });
   });
 
   it('updates metadata/raw JSON while preserving stable IDs, confirmed links, prices, seller SKUs, and recipes', async () => {
@@ -876,7 +646,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       makeRow(2, { externalProductId: 'P-KEEP', externalSkuId: 'S-MIXED' }),
       makeRow(3, { externalProductId: 'P-KEEP', externalSkuId: 'S-ABSENT' }),
     ];
-    await importCatalog(initialRows, fileHash('metadata-first'));
+    await importCatalog(initialRows);
     const productBefore = await prisma.channelListing.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, externalId: 'P-KEEP' },
     });
@@ -992,7 +762,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       rawJson: { revision: 2, externalSkuId: row.externalSkuId },
       }),
     );
-    const second = await importCatalog(changedRows, fileHash('metadata-second'));
+    const second = await importCatalog(changedRows);
 
     const [
       productAfter,
@@ -1039,7 +809,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       manufacturer: '변경 제조사',
       brand: '변경 브랜드',
       status: '변경 승인상태',
-      lastImportRunId: second.run.id,
+      lastOperationId: second.operation.id,
       isActive: true,
     });
     expect(new Set(skusAfter.map((sku) => sku.id))).toEqual(
@@ -1050,7 +820,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       expect(sku).toMatchObject({
         sellerSku: preserved[1],
         salePrice: preserved[2],
-        lastImportRunId: second.run.id,
+        lastOperationId: second.operation.id,
         isActive: true,
         // KID-349: 엑셀은 옵션 raw의 catalogExcel 구역만 바꾼다.
         rawJson: expect.objectContaining({
@@ -1067,7 +837,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       // KID-348: 엑셀에서 빠진 옵션은 끄지 않는다.
       isActive: true,
     });
-    expect(absentAfter.lastImportRunId).not.toBe(second.run.id);
+    expect(absentAfter.lastOperationId).not.toBe(second.operation.id);
     expect(contentAfter).toEqual(contentBefore);
     expect(linkedProductAfter).toMatchObject({
       id: linkedProduct.id,
@@ -1086,7 +856,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     ];
     await importCatalog(
       identities.map((identity, index) => makeRow(index, identity)),
-      fileHash('registration-first'),
     );
     // Only the browser catalog's inventory-list stage observes the date.
     await prisma.channelListing.updateMany({
@@ -1096,7 +865,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
 
     await importCatalog(
       identities.map((identity, index) => makeRow(index, { ...identity, rawJson: { revision: 2 } })),
-      fileHash('registration-second'),
     );
 
     await expect(prisma.channelListing.findMany({
@@ -1130,7 +898,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
 
   it('keeps observed listing facts the reimported workbook leaves blank', async () => {
     const identity = { externalProductId: 'P-BLANK', externalSkuId: 'S-BLANK' };
-    await importCatalog([makeRow(0, identity)], fileHash('blank-first'));
+    await importCatalog([makeRow(0, identity)]);
 
     // 윙 엑셀은 칸이 비어 나올 수 있다. 비었다는 것은 "몰에서 사라졌다"가 아니다.
     await importCatalog(
@@ -1142,7 +910,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
         brand: null,
         productStatus: null,
       })],
-      fileHash('blank-second'),
     );
 
     await expect(prisma.channelListing.findFirstOrThrow({
@@ -1171,7 +938,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
           externalSkuId: 'S-STABLE',
         }),
       ],
-      fileHash('original-parent'),
     );
     const before = await prisma.channelListingOption.findFirstOrThrow({
       where: {
@@ -1181,7 +947,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       },
       include: { listing: true },
     });
-    const rejectedHash = fileHash('changed-parent');
 
     await expect(
       importCatalog(
@@ -1192,7 +957,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
             externalSkuId: 'S-NEW',
           }),
         ],
-        rejectedHash,
       ),
     ).rejects.toThrow('cannot move to another parent');
 
@@ -1209,27 +973,21 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       },
       }),
     ).toBe(1);
-    expect(
-      await prisma.sourceImportRun.findFirstOrThrow({
-      where: { organizationId: TEST_ORGANIZATION_ID, fileHash: rejectedHash },
-      }),
-    ).toMatchObject({ status: 'failed', publicationSequence: null });
+    // 반영이 실패한 실행은 failed로 닫혀 계정 잠금이 바로 풀린다.
+    await expect(latestExcelOperation()).resolves.toMatchObject({ status: 'failed', errorCode: expect.any(String), lockKeys: [] });
   });
 
   it('keeps the previous complete snapshot when the latest attempt fails', async () => {
-    const completedHash = fileHash('complete-before-failure');
     await importCatalog(
       [
         makeRow(0, { externalProductId: 'P-ONE', externalSkuId: 'S-ONE' }),
         makeRow(1, { externalProductId: 'P-TWO', externalSkuId: 'S-TWO' }),
       ],
-      completedHash,
     );
 
     // 옵션을 다른 부모로 옮기려는 파일은 통째로 거절된다.
     await expect(importCatalog(
       [makeRow(2, { externalProductId: 'P-THREE', externalSkuId: 'S-ONE' })],
-      fileHash('failed-after-complete'),
     )).rejects.toThrow('cannot move to another parent');
 
     await expect(prisma.channelListing.findMany({
@@ -1241,19 +999,12 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       { externalId: 'P-TWO', isActive: true },
     ]);
     // 실패한 시도가 이전 완료를 최신 완료 자리에서 밀어내지 않는다.
-    await expect(prisma.sourceImportRun.findFirstOrThrow({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: WING_ACCOUNT_ID,
-        status: 'completed',
-      },
-      orderBy: { publicationSequence: 'desc' },
-      select: { fileHash: true },
-    })).resolves.toEqual({ fileHash: completedHash });
+    const listed = await wing.operations.list(TEST_ORGANIZATION_ID, { kinds: ['channels.wing_catalog_excel'], status: 'succeeded', limit: 5 });
+    expect(listed.operations).toHaveLength(1);
   });
 
   it('publishes a complete import without starting a transmission or a calculation', async () => {
-    await importCatalog([makeRow(0)], fileHash('no-downstream'));
+    await importCatalog([makeRow(0)]);
 
     // 몰로 나가는 모든 제출은 등록 실행 울타리를 지난다. 품절 전송도 마찬가지다.
     await expect(prisma.productRegistrationExecution.count({
@@ -1265,54 +1016,30 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     })).resolves.toBe(0);
   });
 
-  it('returns a completed same-hash/account import as a no-op', async () => {
-    const hash = fileHash('duplicate');
-    const first = await importCatalog([makeRow(0)], hash);
-    const before = await prisma.channelListingOption.findFirstOrThrow({
-      where: { organizationId: TEST_ORGANIZATION_ID },
-    });
-
-    const duplicate = await importCatalog(
-      [makeRow(0, { optionName: 'must not write', skuStatus: 'changed' })],
-      hash,
-    );
-    const after = await prisma.channelListingOption.findFirstOrThrow({
-      where: { id: before.id },
-    });
-
-    expect(duplicate).toMatchObject({
-      duplicate: true,
-      changes: zeroChanges(),
-    });
-    expect(duplicate.run.id).toBe(first.run.id);
-    expect(after).toEqual(before);
-    expect(await prisma.sourceImportRun.count()).toBe(1);
-  });
-
   it('advances mapping generation for active identity changes but not metadata-only or rejected import', async () => {
     await importCatalog([makeRow(0, {
       externalProductId: 'P-1',
       externalSkuId: 'S-1',
-    })], fileHash('mapping-first'));
+    })]);
     await expect(mappingGeneration()).resolves.toBe(1n);
 
     await importCatalog([makeRow(0, {
       externalProductId: 'P-1',
       externalSkuId: 'S-1',
       displayName: '메타데이터만 변경',
-    })], fileHash('mapping-metadata'));
+    })]);
     await expect(mappingGeneration()).resolves.toBe(1n);
 
     await importCatalog([makeRow(0, {
       externalProductId: 'P-2',
       externalSkuId: 'S-2',
-    })], fileHash('mapping-deactivate'));
+    })]);
     await expect(mappingGeneration()).resolves.toBe(2n);
 
     await expect(importCatalog([makeRow(0, {
       externalProductId: 'P-3',
       externalSkuId: 'S-2',
-    })], fileHash('mapping-rejected'))).rejects.toThrow('cannot move to another parent');
+    })])).rejects.toThrow('cannot move to another parent');
     await expect(mappingGeneration()).resolves.toBe(2n);
     await expect(prisma.masterProductAbcFormulaState.findUnique({
       where: { organizationId: OTHER_ORGANIZATION_ID },
@@ -1320,207 +1047,20 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     })).resolves.toBeNull();
   });
 
-  it('keeps fresh runs running, reclaims stale/failed runs by CAS, and rotates tokens', async () => {
-    const hash = fileHash('stale-running');
-    const oldToken = randomUUID();
-    const run = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'coupang_wing_catalog',
-        channelAccountId: WING_ACCOUNT_ID,
-        fileName: 'wing.xlsx',
-        fileHash: hash,
-        status: 'running',
-        rowCount: 1,
-        createdBy: TEST_USER_ID,
-        attemptToken: oldToken,
-        updatedAt: new Date(Date.now() - 29 * 60 * 1_000),
-      },
+  it('refuses a workbook while the account browser sync holds the account, naming that operation', async () => {
+    const listing = await wing.operations.begin(TEST_ORGANIZATION_ID, {
+      kind: 'channels.wing_catalog_list',
+      scope: { channelAccountId: WING_ACCOUNT_ID },
+    }, { userId: TEST_USER_ID });
+    await expect(importCatalog([makeRow(0)])).rejects.toMatchObject({
+      code: 'OPERATION_IN_PROGRESS',
+      details: { operationId: listing.operation.id },
     });
-
-    expect(await claim(hash)).toEqual({ kind: 'running', attemptId: run.id });
-    await prisma.sourceImportRun.update({
-      where: { id: run.id },
-      data: { updatedAt: new Date(Date.now() - 31 * 60 * 1_000) },
-    });
-    const claims = await Promise.all([claim(hash), claim(hash)]);
-    expect(claims.map((value) => value.kind).sort()).toEqual(['running', 'started']);
-    const reclaimed = claims.find((value) => value.kind === 'started');
-    if (reclaimed?.kind !== 'started') throw new Error('expected stale claim');
-    expect(reclaimed).toMatchObject({ runId: run.id });
-    expect(reclaimed.attemptToken).not.toBe(oldToken);
-
-    // The reclaimed import is live again, so it holds the account.
-    expect(await claim(fileHash('failed-retry'))).toEqual({ kind: 'running', attemptId: run.id });
-    await prisma.sourceImportRun.update({
-      where: { id: run.id },
-      data: { updatedAt: new Date(Date.now() - 31 * 60 * 1_000) },
-    });
-
-    const failedHash = fileHash('failed-retry');
-    const failedToken = randomUUID();
-    const failedRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'coupang_wing_catalog',
-        channelAccountId: WING_ACCOUNT_ID,
-        fileName: 'wing.xlsx',
-        fileHash: failedHash,
-        status: 'failed',
-        rowCount: 1,
-        createdBy: TEST_USER_ID,
-        attemptToken: failedToken,
-      },
-    });
-    const retry = await claim(failedHash);
-    expect(retry).toMatchObject({ kind: 'started', runId: failedRun.id });
-    if (retry.kind !== 'started') throw new Error('expected failed retry');
-    expect(retry.attemptToken).not.toBe(failedToken);
+    // 다른 계정은 막지 않는다.
+    await expect(importCatalog([makeRow(0)], SECOND_WING_ACCOUNT_ID)).resolves.toMatchObject({ operation: { status: 'succeeded' } });
   });
 
-  it('does not open a second RUNNING import for another file while a workbook import for the account is live', async () => {
-    const first = await claim(fileHash('live-first'));
-    if (first.kind !== 'started') throw new Error('expected the first claim to start');
-    expect(await claim(fileHash('live-second'))).toEqual({ kind: 'running', attemptId: first.runId });
-    const conflict = await service.importCoupangWing({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      channelAccountId: WING_ACCOUNT_ID,
-      fileName: 'second.xlsx',
-      fileHash: fileHash('live-second'),
-      bytes: workbookBytes({ rows: [makeRow(0)], skippedRows: [], headers: [] }),
-    }).catch((error: unknown) => error);
-    // 계정 fence 는 업무 계약의 충돌이다 — 입력 adapter 가 HTTP 409 로 옮긴다.
-    expect(conflict).toBeInstanceOf(ChannelConflictError);
-    expect((conflict as ChannelConflictError).kind).toBe('conflict');
-    expect((conflict as ChannelConflictError).details).toEqual({
-      code: 'ATTEMPT_IN_PROGRESS',
-      attemptId: first.runId,
-      message: expect.any(String),
-    });
-    expect(await prisma.sourceImportRun.count({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'coupang_wing_catalog',
-        channelAccountId: WING_ACCOUNT_ID,
-        status: 'running',
-      },
-    })).toBe(1);
-
-    const otherAccount = await repository.claimCoupangWingImport({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      channelAccountId: SECOND_WING_ACCOUNT_ID,
-      fileName: 'wing.xlsx',
-      fileHash: fileHash('live-second'),
-      rowCount: 1,
-    });
-    expect(otherAccount.kind).toBe('started');
-
-    await prisma.sourceImportRun.update({
-      where: { id: first.runId },
-      data: { updatedAt: new Date(Date.now() - 31 * 60 * 1_000) },
-    });
-    expect(await claim(fileHash('live-second'))).toMatchObject({ kind: 'started' });
-  });
-
-  it('does not open a workbook import while a browser Wing catalog attempt for the account holds its lease', async () => {
-    const collection = new ChannelCatalogCollectionRepositoryAdapter(
-      prisma as unknown as PrismaService,
-      alerts,
-    );
-    const browser = await collection.startOrResume({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      channelAccountId: WING_ACCOUNT_ID,
-      idempotencyKey: randomUUID(),
-      collectorVersion: '1.0.0',
-      stage: 'basics',
-    });
-    expect(await claim(fileHash('browser-live'))).toEqual({ kind: 'running', attemptId: browser.id });
-    expect(await prisma.sourceImportRun.count({
-      where: { organizationId: TEST_ORGANIZATION_ID, fileHash: fileHash('browser-live') },
-    })).toBe(0);
-
-    await prisma.sourceImportRun.update({
-      where: { id: browser.id },
-      data: { expiresAt: new Date(Date.now() - 1_000) },
-    });
-    expect(await claim(fileHash('browser-live'))).toMatchObject({ kind: 'started' });
-  });
-
-  it('rejects a stale worker token on write/fail after account-scoped reclamation', async () => {
-    const hash = fileHash('fenced-worker');
-    const workerAToken = randomUUID();
-    const run = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'coupang_wing_catalog',
-        channelAccountId: WING_ACCOUNT_ID,
-        fileName: 'wing.xlsx',
-        fileHash: hash,
-        status: 'running',
-        rowCount: 1,
-        createdBy: TEST_USER_ID,
-        attemptToken: workerAToken,
-        updatedAt: new Date(Date.now() - 31 * 60 * 1_000),
-      },
-    });
-    const workerB = await claim(hash);
-    if (workerB.kind !== 'started') throw new Error('expected worker B reclaim');
-
-    await expect(
-      repository.upsertCoupangWingCatalog({
-      organizationId: TEST_ORGANIZATION_ID,
-      channelAccountId: WING_ACCOUNT_ID,
-      runId: run.id,
-      attemptToken: workerAToken,
-      rows: [makeRow(0, { externalSkuId: 'S-WORKER-A' })],
-      skippedRows: [],
-      observedAt: '2026-09-24T09:00:00.000Z',
-      }),
-    ).rejects.toThrow();
-    await repository.markImportFailed(TEST_ORGANIZATION_ID, WING_ACCOUNT_ID, run.id, workerAToken);
-    expect(await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: run.id } })).toMatchObject(
-      { status: 'running', attemptToken: workerB.attemptToken },
-    );
-    expect(await prisma.channelListing.count()).toBe(0);
-    expect(await prisma.alert.count({ where: {
-      organizationId: TEST_ORGANIZATION_ID,
-      sourceType: 'coupang_wing_catalog',
-    } })).toBe(0);
-
-    const completed = await repository.upsertCoupangWingCatalog({
-      organizationId: TEST_ORGANIZATION_ID,
-      channelAccountId: WING_ACCOUNT_ID,
-      runId: run.id,
-      attemptToken: workerB.attemptToken,
-      rows: [makeRow(0, { externalSkuId: 'S-WORKER-B' })],
-      skippedRows: [],
-      observedAt: '2026-09-24T09:00:00.000Z',
-    });
-    const lateWorkerA = await repository.upsertCoupangWingCatalog({
-      organizationId: TEST_ORGANIZATION_ID,
-      channelAccountId: WING_ACCOUNT_ID,
-      runId: run.id,
-      attemptToken: workerAToken,
-      rows: [makeRow(0, { externalSkuId: 'S-WORKER-A' })],
-      skippedRows: [],
-      observedAt: '2026-09-24T09:00:00.000Z',
-    });
-    expect(completed.duplicate).toBe(false);
-    expect(lateWorkerA).toMatchObject({
-      duplicate: true,
-      changes: zeroChanges(),
-    });
-    expect(
-      await prisma.channelListingOption.findMany({
-      select: { externalOptionId: true },
-      }),
-    ).toEqual([{ externalOptionId: 'S-WORKER-B' }]);
-  });
-
-  it('rolls back mid-write failures, marks only the run failed, and never changes another organization', async () => {
+  it('rolls back mid-write failures, closes only the operation failed, and never changes another organization', async () => {
     await importCatalog(
       [
         makeRow(0, {
@@ -1528,7 +1068,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
           externalSkuId: 'S-BEFORE',
         }),
       ],
-      fileHash('before-failure'),
     );
     await prisma.channelListing.create({
       data: {
@@ -1553,9 +1092,8 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       rawJson: { index },
       }),
     );
-    const hash = fileHash('mid-write-failure');
 
-    await expect(importCatalog(failingRows, hash)).rejects.toThrow();
+    await expect(importCatalog(failingRows)).rejects.toThrow();
 
     expect(await prisma.channelListing.findMany({ orderBy: { id: 'asc' } })).toEqual(
       beforeProducts,
@@ -1563,15 +1101,7 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     expect(await prisma.channelListingOption.findMany({ orderBy: { id: 'asc' } })).toEqual(
       beforeSkus,
     );
-    expect(
-      await prisma.sourceImportRun.findFirstOrThrow({
-      where: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: WING_ACCOUNT_ID,
-        fileHash: hash,
-      },
-      }),
-    ).toMatchObject({ status: 'failed' });
+    await expect(latestExcelOperation()).resolves.toMatchObject({ status: 'failed', lockKeys: [] });
     expect(
       await prisma.channelListing.findFirstOrThrow({
       where: {
@@ -1630,9 +1160,8 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
     });
   }
 
-  function importCatalog(
+  async function importCatalog(
     rows: ParsedWingCatalogRow[],
-    hash: string,
     channelAccountId = WING_ACCOUNT_ID,
     skippedRows: Array<{
       rowNumber: number;
@@ -1640,26 +1169,17 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
       externalProductId: string | null;
       externalSkuId: string | null;
     }> = [],
-  ) {
-    return service.importCoupangWing({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
+  ): Promise<{ operation: OperationView; changes: Record<string, unknown> }> {
+    const { operation } = await wing.uploadWorkbook(
       channelAccountId,
-      fileName: 'wing.xlsx',
-      fileHash: hash,
-      bytes: workbookBytes({ headers: ['등록상품ID', '옵션 ID'], rows, skippedRows }),
-    });
+      workbookBytes({ headers: ['등록상품ID', '옵션 ID'], rows, skippedRows }),
+    );
+    return { operation, changes: operation.result ?? {} };
   }
 
-  function claim(hash: string) {
-    return repository.claimCoupangWingImport({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      channelAccountId: WING_ACCOUNT_ID,
-      fileName: 'wing.xlsx',
-      fileHash: hash,
-      rowCount: 1,
-    });
+  async function latestExcelOperation(): Promise<OperationView | undefined> {
+    const { operations } = await wing.operations.list(TEST_ORGANIZATION_ID, { kinds: ['channels.wing_catalog_excel'], limit: 1 });
+    return operations[0];
   }
 
   async function activeProductsByExternalId(): Promise<Record<string, boolean>> {
@@ -1714,20 +1234,6 @@ describe('ChannelCatalogImportRepositoryAdapter (PG integration)', () => {
   }
 });
 
-function importInput(
-  overrides: Partial<Parameters<ChannelCatalogImportService['importCoupangWing']>[0]> = {},
-): Parameters<ChannelCatalogImportService['importCoupangWing']>[0] {
-  return {
-    organizationId: TEST_ORGANIZATION_ID,
-    userId: TEST_USER_ID,
-    channelAccountId: WING_ACCOUNT_ID,
-    fileName: 'wing.xlsx',
-    fileHash: fileHash('default-input'),
-    bytes: workbookBytes({ headers: ['등록상품ID', '옵션 ID'], rows: [makeRow(0)], skippedRows: [] }),
-    ...overrides,
-  };
-}
-
 function representativeRows(): ParsedWingCatalogRow[] {
   return Array.from({ length: 2_241 }, (_, index) => {
     const parentIndex = index < 1_225 ? index : index % 1_225;
@@ -1771,9 +1277,6 @@ function makeRow(
   };
 }
 
-function fileHash(label: string): string {
-  return createHash('sha256').update(label).digest('hex');
-}
 
 async function createFrozenRegistrationExecution(input: {
   prisma: PrismaClient;
@@ -1815,19 +1318,13 @@ async function createFrozenRegistrationExecution(input: {
   return { id: execution.id };
 }
 
-function zeroChanges() {
-  return {
-    createdProductCount: 0,
-    updatedProductCount: 0,
-    createdSkuCount: 0,
-    updatedSkuCount: 0,
-    skippedRowCount: 0,
-  };
-}
 
 // The workbook codec is outside these transaction tests. Preserve deliberately
 // invalid persistence values (including BigInt) used to exercise rollback.
 const parsedWorkbooks = new Map<string, ParsedWingCatalogWorkbook>();
+const fakeWorkbookParser = {
+  parseWingWorkbook: (bytes: Uint8Array) => parsedWorkbooks.get(new TextDecoder().decode(bytes))!,
+} as unknown as ChannelDocumentsPort;
 function workbookBytes(parsed: ParsedWingCatalogWorkbook): Uint8Array {
   const key = randomUUID();
   parsedWorkbooks.set(key, parsed);

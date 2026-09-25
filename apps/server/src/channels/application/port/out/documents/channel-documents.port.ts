@@ -11,6 +11,10 @@ export interface ChannelDocumentsPort {
   readCoupangCatalog(bytes: Uint8Array): CoupangCatalogSheet;
   applyCoupangCatalog(bytes: Uint8Array, edits: readonly CoupangCatalogEdit[]): CoupangCatalogEditResult;
   parseWingWorkbook(bytes: Uint8Array): ParsedWingCatalogWorkbook;
+  /** 파일 바이트 → 실행 청크에 싣는 base64 조각(각 `partChars`자 이하). */
+  encodeWorkbookParts(bytes: Uint8Array, partChars: number): string[];
+  /** 순서대로 이은 base64 조각 → 파일 바이트. */
+  decodeWorkbookParts(parts: readonly string[]): Uint8Array;
   parseRocketMatchingCsv(bytes: Uint8Array): ParsedRocketSellpiaMatchingCsv;
   parseSabangnetWorkbook(bytes: Uint8Array, name: string): ParsedSabangnetWorkbook;
   /**
