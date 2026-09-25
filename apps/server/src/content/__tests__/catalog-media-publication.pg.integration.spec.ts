@@ -208,12 +208,8 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
         active: true,
       },
     });
-    expect(reused.metadata).not.toHaveProperty('materializationStatus');
-    expect(
-      Object.keys(reused.metadata as object).filter(
-        (key) => key.startsWith('materializ') || key === 'nextMaterializationAttemptAtMs',
-      ),
-    ).toEqual([]);
+    // The URL did not change, so the stored copy stays with it (KID-350).
+    expect(reused.metadata).toMatchObject({ materializationStatus: 'ready', materializedAtMs: 100 });
     expect(refreshed.map((row) => row.url).sort()).toEqual(
       ['a', 'manual', 'new', 'other-channel', 'second'].map(url).sort(),
     );
@@ -226,11 +222,11 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
       }),
     ).toMatchObject({
       assetKey: legacyKey,
-      storageKey: null,
-      mimeType: null,
-      width: null,
-      height: null,
-      fileSize: null,
+      storageKey: 'old/materialized.jpg',
+      mimeType: 'image/jpeg',
+      width: 10,
+      height: 20,
+      fileSize: 30,
     });
     expect(await publish(listingId, [media('a', 'primary'), media('old', 'detail')])).toEqual({
       imageCount: 2,
@@ -894,6 +890,89 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
     expect(await assets()).toEqual(before);
     expect(await assets(OTHER_ORG)).toEqual(foreignBefore);
   });
+  describe('republishing the same URL (KID-350, mall-neutral)', () => {
+    const storedCopy = {
+      storageKey: 'catalog/kept.jpg',
+      mimeType: 'image/jpeg',
+      width: 780,
+      height: 780,
+      fileSize: 4096,
+    };
+    const materialized = {
+      materializationStatus: 'ready',
+      materializedAtMs: 100,
+      materializationAttemptCount: 1,
+    };
+    const workspaceId = async () =>
+      (await prisma.contentWorkspace.findFirstOrThrow({
+        where: { organizationId: ORG, channelListingId: listingId },
+      })).id;
+    const assetByUrl = async (value: string) =>
+      prisma.contentAsset.findFirstOrThrow({
+        where: { organizationId: ORG, contentWorkspaceId: await workspaceId(), url: value },
+      });
+    const giveStoredCopy = async (id: string) => {
+      const row = await prisma.contentAsset.findUniqueOrThrow({ where: { id } });
+      await prisma.contentAsset.update({
+        where: { id_organizationId: { id, organizationId: ORG } },
+        data: {
+          ...storedCopy,
+          metadata: { ...(row.metadata as Record<string, unknown>), ...materialized },
+        },
+      });
+    };
+    it('keeps the stored copy and materialization keys when a same-URL photo moves', async () => {
+      await publish(listingId, [media('keep-primary', 'primary'), media('keep-detail', 'detail', 1)]);
+      const detail = await assetByUrl(url('keep-detail'));
+      await giveStoredCopy(detail.id);
+
+      const nextRef = randomUUID();
+      expect(
+        await publish(
+          listingId,
+          [media('keep-primary', 'primary'), media('keep-detail', 'detail', 5)],
+          ORG,
+          USER,
+          nextRef,
+        ),
+      ).toEqual({ imageCount: 2, inactivatedImageCount: 0 });
+
+      expect(await prisma.contentAsset.findUniqueOrThrow({ where: { id: detail.id } })).toMatchObject({
+        url: url('keep-detail'),
+        role: 'detail',
+        sortOrder: 5,
+        isDeleted: false,
+        ...storedCopy,
+        metadata: { ...materialized, lastImportRunId: nextRef, active: true },
+      });
+    });
+
+    it('clears the stored copy when the row URL no longer matches the published URL', async () => {
+      await publish(listingId, [media('moved', 'primary')]);
+      const row = await assetByUrl(url('moved'));
+      await giveStoredCopy(row.id);
+      await prisma.contentAsset.update({
+        where: { id_organizationId: { id: row.id, organizationId: ORG } },
+        data: { url: 'https://storage.example/catalog/moved.jpg' },
+      });
+
+      await publish(listingId, [media('moved', 'primary')]);
+
+      const after = await prisma.contentAsset.findUniqueOrThrow({ where: { id: row.id } });
+      expect(after).toMatchObject({
+        url: url('moved'),
+        storageKey: null,
+        mimeType: null,
+        width: null,
+        height: null,
+        fileSize: null,
+      });
+      expect(
+        Object.keys(after.metadata as object).filter((key) => key.startsWith('materializ')),
+      ).toEqual([]);
+    });
+  });
+
 });
 
 function url(name: string) {

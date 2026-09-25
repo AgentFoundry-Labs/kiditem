@@ -20,6 +20,9 @@ workspace projection, and provider/storage adapters. HTTP adapters live under
   `thumbnailGenerationId` links an AI candidate to its job. The workspace's
   `currentThumbnailAssetId` is the only representative-image pointer, and every
   mall representative-image execution reads that asset.
+- Republishing a catalog photo keeps its stored copy (`storage_key`, size,
+  `materialization*` keys) while the URL is unchanged
+  (`domain/catalog-media/catalog-asset-republication.ts`).
 - `DetailPage` plus append-only revisions owns detail HTML; every start
   (generated, manual, uploaded, imported) is one row and the AI result is a
   `generated` revision. The workspace's `currentDetailPageRevisionId` is the
