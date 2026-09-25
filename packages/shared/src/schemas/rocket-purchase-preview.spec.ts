@@ -66,7 +66,7 @@ function request() {
 
 function publication() {
   return RocketPoCatalogPublicationSchema.parse({
-    sourceImportRunId: RUN_ID, channelAccountId: ACCOUNT_ID, generation: '1',
+    rocketPoOperationId: RUN_ID, channelAccountId: ACCOUNT_ID,
     actualCutoffAt: '2026-07-19T00:00:00.000Z', rowCount: 1,
   });
 }
@@ -90,13 +90,13 @@ describe('Rocket purchase preview contract', () => {
   it('returns a compact COMPLETE source reference without a recipe automation payload', () => {
     const published = publication();
 
-    expect(published).toMatchObject({ sourceImportRunId: RUN_ID, rowCount: 1 });
+    expect(published).toMatchObject({ rocketPoOperationId: RUN_ID, rowCount: 1 });
     expect(published).not.toHaveProperty('recipeAutomation');
   });
 
   it('keeps a saved PO amount unknown when a listed line has no confirmed total', () => {
     const summary = RocketSavedPoSummarySchema.parse({
-      sourceImportRunId: RUN_ID,
+      rocketPoOperationId: RUN_ID,
       poNumber: '10000002',
       orderedAt: '',
       plannedDeliveryDate: '2026-07-20',
@@ -116,7 +116,7 @@ describe('Rocket purchase preview contract', () => {
 
   it('parses account-scoped saved PO summaries and exact saved collection evidence', () => {
     const summary = RocketSavedPoSummarySchema.parse({
-      sourceImportRunId: RUN_ID,
+      rocketPoOperationId: RUN_ID,
       poNumber: '10000001',
       orderedAt: '2026-07-18 09:00:00',
       plannedDeliveryDate: '2026-07-20',
@@ -131,7 +131,7 @@ describe('Rocket purchase preview contract', () => {
       collectedAt: '2026-07-18T01:00:00.000Z',
     });
     const collection = RocketSavedPoCollectionSchema.parse({
-      sourceImportRunId: RUN_ID,
+      rocketPoOperationId: RUN_ID,
       channelAccountId: ACCOUNT_ID,
       collection: request().collection,
       rows: request().rows,
@@ -143,7 +143,7 @@ describe('Rocket purchase preview contract', () => {
     // 제출 이력은 필수다. 없으면 클라이언트가 "이번에 새로 들어온 것"을 구분할 수 없다.
     expect(collection.exportedPoLineIds).toEqual([request().rows[0]!.poLineId]);
     expect(() => RocketSavedPoCollectionSchema.parse({
-      sourceImportRunId: RUN_ID,
+      rocketPoOperationId: RUN_ID,
       channelAccountId: ACCOUNT_ID,
       collection: request().collection,
       rows: request().rows,
