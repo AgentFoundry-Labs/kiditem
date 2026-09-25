@@ -179,7 +179,7 @@ describe('integration test runtime contract', () => {
 
   // KID-312: shared and server unit specs had no PR gate; PG integration stays
   // in develop-validation.yml because it needs Testcontainers.
-  it('runs the shared and server unit suites on PRs without a database', () => {
+  it('runs the shared, server, and extension unit suites on PRs without a database', () => {
     const workflowSource = readRepoFile('.github/workflows/pr-checks.yml');
     const unitJob = readWorkflowJobSource(workflowSource, 'unit_tests');
     const jobLines = unitJob.split('\n').map((line) => line.trim());
@@ -197,6 +197,8 @@ describe('integration test runtime contract', () => {
       'npm run build --workspace=packages/templates',
       'run: npm exec --workspace=packages/shared vitest -- run',
       'run: npm exec --workspace=apps/server vitest -- run',
+      'run: npm exec --workspace=packages/shared tsup -- --no-dts',
+      'run: node --test --test-concurrency=8 extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs',
     ]);
     expect(unitJob).not.toContain('test:integration');
     expect(unitJob).not.toMatch(/^\s*(?:-\s*)?(?:if|continue-on-error):/m);
