@@ -1,16 +1,18 @@
 import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
 import { Inject, Injectable } from '@nestjs/common';
-import { KiditemConflictError, KiditemError } from '@kiditem/shared/errors';
+import { KiditemConflictError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import type {
   ThumbnailGenerationLedgerRepositoryPort,
 } from '../../../application/port/out/repository/thumbnail-generation-ledger.repository.port';
 import {
-  AI_DIRECT_JOB_REPOSITORY_PORT,
-  type AiDirectJobRepositoryPort,
-} from '../../../application/port/out/repository/ai-direct-job.repository.port';
+  AI_DIRECT_JOB_OPERATIONS_PORT,
+  type AiDirectJobOperationsPort,
+} from '../../../application/port/out/runtime/ai-direct-job-operations.port';
+import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import {
   findActiveJobForWorkspace,
   findAutoBatchCandidates,
@@ -41,8 +43,8 @@ import { withThumbnailJobInputs, readThumbnailJobInputs } from '../../../domain/
 export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGenerationLedgerRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
-    @Inject(AI_DIRECT_JOB_REPOSITORY_PORT)
-    private readonly directJobs: AiDirectJobRepositoryPort,
+    @Inject(AI_DIRECT_JOB_OPERATIONS_PORT)
+    private readonly directJobs: AiDirectJobOperationsPort,
     @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly listings: ChannelListingQueryPort,
     @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly recipes: ChannelOptionRecipePort,
   ) {}
@@ -121,17 +123,12 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
           triggeredByUserId: input.triggeredByUserId,
         });
 
-        const directJob = await this.directJobs.createInScope(tx, {
+        await this.directJobs.prepare(ownerTransaction(tx), {
           ...input.directJob,
           organizationId: input.organizationId,
           sourceResourceId: generation.id,
         });
-        return {
-          status: 'created' as const,
-          generationId: generation.id,
-          directJobId: directJob.id,
-          releaseRequired: true,
-        };
+        return { status: 'created' as const, generationId: generation.id };
       });
     } catch (error) {
       if (!input.productGenerationIdentity || !isUniqueConstraint(error)) throw error;
@@ -146,12 +143,7 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
   private async findExistingProductGenerationLedger(
     scope: Prisma.TransactionClient | PrismaService,
     input: Parameters<ThumbnailGenerationLedgerRepositoryPort['openPendingDirectGeneration']>[0],
-  ): Promise<{
-    status: 'created' | 'existing';
-    generationId: string;
-    directJobId: string;
-    releaseRequired: boolean;
-  } | null> {
+  ): Promise<{ status: 'created' | 'existing'; generationId: string } | null> {
     if (!input.productGenerationIdentity) return null;
     const existing = await scope.thumbnailGeneration.findFirst({
       where: {
@@ -168,23 +160,8 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
     ) {
       throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'PRODUCT_GENERATION_IDEMPOTENCY_CONFLICT' } });
     }
-    const directJob = await scope.aiDirectJob.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        jobType: 'thumbnail_generate',
-        sourceResourceId: existing.id,
-      },
-      select: { id: true, status: true },
-    });
-    if (!directJob) {
-      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'THUMBNAIL_DIRECT_JOB_MISSING', generationId: existing.id } });
-    }
-    return {
-      status: 'existing',
-      generationId: existing.id,
-      directJobId: directJob.id,
-      releaseRequired: directJob.status === 'held',
-    };
+    // 먼저 커밋한 요청이 같은 트랜잭션에서 job도 prepare했다.
+    return { status: 'existing', generationId: existing.id };
   }
 
   openPendingEditorJob(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['openPendingEditorJob']>[0]) {
@@ -203,10 +180,33 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
     });
   }
 
+  restartReeditJob(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['restartReeditJob']>[0]) {
+    return this.prisma.$transaction(async (client) => {
+      const tx = ownerTransaction(client);
+      await this.directJobs.cancelLive(tx, {
+        organizationId: input.organizationId,
+        sourceResourceId: input.generationId,
+        jobTypes: ['thumbnail_reedit'],
+      });
+      return this.directJobs.prepare(tx, {
+        ...input.directJob,
+        organizationId: input.organizationId,
+        sourceResourceId: input.generationId,
+      });
+    });
+  }
+
   cancelDirectGeneration(
     input: Parameters<ThumbnailGenerationLedgerRepositoryPort['cancelDirectGeneration']>[0],
   ) {
-    return cancelDirectGeneration(this.prisma, input);
+    return cancelDirectGeneration(this.prisma, input, {
+      lock: (tx) => this.directJobs.lockLive(ownerTransaction(tx), {
+        organizationId: input.organizationId,
+        sourceResourceId: input.generationId,
+        jobTypes: ['thumbnail_generate', 'thumbnail_reedit'],
+      }),
+      cancel: (tx, jobIds) => this.directJobs.cancelJobs(ownerTransaction(tx), input.organizationId, jobIds),
+    });
   }
 
   deleteGeneration(id: string, organizationId: string) {
@@ -236,11 +236,11 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
   }
 
   claimForDirectProjection(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['claimForDirectProjection']>[0]) {
-    return lockGenerationForProcessing(this.prisma, input.generationId, input.organizationId);
+    return lockGenerationForProcessing(this.scope(input.transaction), input.generationId, input.organizationId);
   }
 
   projectDirectSuccess(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['projectDirectSuccess']>[0]) {
-    return completeWithCandidates(this.prisma, {
+    return completeWithCandidates(this.scope(input.transaction), {
       generationId: input.generationId,
       organizationId: input.organizationId,
       candidates: input.candidates,
@@ -253,7 +253,12 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
   }
 
   projectDirectFailure(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['projectDirectFailure']>[0]) {
-    return markGenerationFailed(this.prisma, input.generationId, input.organizationId, input.errorMessage);
+    return markGenerationFailed(this.scope(input.transaction), input.generationId, input.organizationId, input.errorMessage);
+  }
+
+  /** 실행 finish 트랜잭션이 있으면 그 안에서 쓴다. */
+  private scope(transaction: OwnerTransaction | undefined) {
+    return transaction ? ownerTransactionClient(transaction) : this.prisma;
   }
 
   async findGenerationProjectionStatus(

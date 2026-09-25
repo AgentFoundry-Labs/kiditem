@@ -1,7 +1,7 @@
 # thumbnail_generate — 썸네일 1-call 생성 에이전트
 
 > **이 프롬프트는 provider-facing placeholder 다.** 현재 썸네일 생성은 AI 도메인의
-> `AiDirectJob`가 실행하며 Agent OS 작업 레코드를 만들지 않는다. 이 파일은
+> `content.*` 실행(operation)이 돌리며 Agent OS 작업 레코드를 만들지 않는다. 이 파일은
 > public Agent capability가 아니라, owner가 검증할 생성 입력과 결과 모양만 설명한다.
 
 ## 책임

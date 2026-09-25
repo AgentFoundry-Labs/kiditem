@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   KiditemConflictError,
   KiditemExternalError,
@@ -16,13 +16,19 @@ import {
   type OperationChunkKind,
   type OperationChunkPutRequest,
   type OperationChunkPutResponse,
+  type OperationClaimRequest,
   type OperationFenceLostReason,
   type OperationFinishRequest,
   type OperationFinishResponse,
   type OperationInProgressDetails,
   type OperationListQuery,
   type OperationListResponse,
+  type OperationPrepareRequest,
+  type OperationView,
+  type OperationWindow,
 } from '@kiditem/shared/operation';
+import type { OwnerTransaction } from '../../../owner-transaction';
+import { decideFailure } from '../../domain/operation-attempt';
 import { evaluateChunkWrite } from '../../domain/operation-chunk';
 import {
   OPERATION_EXPIRED_ERROR_CODE,
@@ -32,7 +38,7 @@ import {
   leaseExpiresAt,
 } from '../../domain/operation-fence';
 import { canonicalOwnerInputHash } from '../../../owner-idempotency-key';
-import type { OperationPort } from '../port/in/operation.port';
+import type { OperationClaimed, OperationPort, OperationPrepareResult } from '../port/in/operation.port';
 import {
   OPERATION_REPOSITORY,
   type OperationClosure,
@@ -43,8 +49,18 @@ import {
 import { OperationOwnerRegistry } from './operation-owner.registry';
 import { toOperationView } from './operation-view';
 
+interface PlannedOperation {
+  requestHash: string;
+  plan: Record<string, unknown>;
+  window: OperationWindow | null;
+  lockKeys: string[];
+}
+
 /** 트랜잭션 안에서 만료를 커밋한 뒤 밖에서 던질 거절. */
 type Deferred<T> = { ok: T } | { reject: OperationFenceLostReason; operationId: string } | { notFound: true };
+
+/** 한 번에 정리하는 만료 실행 수 상한(reader·claim). 남은 것은 다음 호출이 이어서 닫는다. */
+const EXPIRY_BATCH = 50;
 
 function expiredClosure(now: Date): OperationClosure {
   return {
@@ -75,66 +91,79 @@ function isUniqueViolation(error: unknown): boolean {
  */
 @Injectable()
 export class OperationService implements OperationPort {
+  private readonly logger = new Logger(OperationService.name);
+
   constructor(
     @Inject(OPERATION_REPOSITORY) private readonly operations: OperationRepositoryPort,
     private readonly owners: OperationOwnerRegistry,
   ) {}
 
   async begin(organizationId: string, request: OperationBeginRequest): Promise<OperationBeginResponse> {
-    const owner = this.owners.find(request.kind);
-    if (!owner) {
-      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'unknown_operation_kind' } });
-    }
-    // begin 요청의 지문: kind·scope·fileHash를 키 순서와 무관하게 직렬화한 SHA-256.
-    const requestHash = canonicalOwnerInputHash({ kind: request.kind, scope: request.scope, fileHash: request.fileHash ?? null });
-    const planned = OperationPlanResultSchema.parse(await owner.plan(request.scope, { organizationId }));
-    // 모든 begin이 같은 순서로 잠금 행을 쓰게 정렬한다. 엇갈린 순서는 교착(40P01)으로 500이 된다.
-    const lockKeys = [...new Set(planned.lockKeys)].sort();
+    const planned = await this.planFor(organizationId, request.kind, request.scope, request.fileHash ?? null);
     try {
-      return await this.admit(organizationId, request, requestHash, planned.plan, planned.window ?? null, lockKeys);
+      return await this.admit(organizationId, request, planned);
     } catch (error) {
       // 동시에 들어온 begin이 같은 잠금·멱등 키를 먼저 잡았다. 한 번 더 판정하면 그 실행이 보인다.
       if (!isUniqueViolation(error)) throw error;
-      return this.admit(organizationId, request, requestHash, planned.plan, planned.window ?? null, lockKeys);
+      return this.admit(organizationId, request, planned);
     }
   }
 
-  private admit(
+  /**
+   * begin·prepare 공통: kind의 owner를 찾아 `plan(scope)`을 받고, 요청 지문(kind·scope·fileHash의 canonical
+   * SHA-256)과 정렬한 lockKey를 만든다. 모든 시작이 같은 순서로 잠금 행을 써야 교착(40P01)하지 않는다.
+   */
+  private async planFor(organizationId: string, kind: string, scope: Record<string, unknown>, fileHash: string | null): Promise<PlannedOperation> {
+    const owner = this.owners.find(kind);
+    if (!owner) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'unknown_operation_kind' } });
+    }
+    const planned = OperationPlanResultSchema.parse(await owner.plan(scope, { organizationId }));
+    return {
+      requestHash: canonicalOwnerInputHash({ kind, scope, fileHash }),
+      plan: planned.plan,
+      window: planned.window ?? null,
+      lockKeys: [...new Set(planned.lockKeys)].sort(),
+    };
+  }
+
+  /** 같은 멱등 키의 실행이 있으면 (요청이 같을 때만) 그것을 돌려준다. 다른 요청이면 거절, 없으면 null. */
+  private async reuseByIdempotencyKey(
+    tx: OperationTransaction,
     organizationId: string,
-    request: OperationBeginRequest,
+    kind: string,
+    idempotencyKey: string | undefined,
     requestHash: string,
-    plan: Record<string, unknown>,
-    window: OperationBeginResponse['operation']['window'],
-    lockKeys: string[],
-  ): Promise<OperationBeginResponse> {
+    now: Date,
+  ): Promise<OperationRecord | null> {
+    if (!idempotencyKey) return null;
+    const existing = await tx.findByIdempotencyKey(organizationId, kind, idempotencyKey);
+    if (!existing) return null;
+    if (existing.requestHash !== requestHash) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'idempotency_key_reused' } });
+    }
+    return this.expireIfDue(tx, existing, now);
+  }
+
+  private admit(organizationId: string, request: OperationBeginRequest, planned: PlannedOperation): Promise<OperationBeginResponse> {
+    const { requestHash, plan, window, lockKeys } = planned;
     return this.operations.transaction(async (tx) => {
       const now = new Date();
-      if (request.idempotencyKey) {
-        const existing = await tx.findByIdempotencyKey(organizationId, request.kind, request.idempotencyKey);
-        if (existing) {
-          if (existing.requestHash !== requestHash) {
-            throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'idempotency_key_reused' } });
-          }
-          const current = await this.expireIfDue(tx, existing, now);
-          return { operation: toOperationView(current), token: current.token, reused: true };
-        }
-      }
+      const reused = await this.reuseByIdempotencyKey(tx, organizationId, request.kind, request.idempotencyKey, requestHash, now);
+      if (reused) return { operation: toOperationView(reused), token: reused.token, reused: true };
       if (request.fileHash) await this.admitFile(tx, organizationId, request.kind, request.fileHash, now);
 
-      // 끝난 실행은 close·expireDue가 잠금을 함께 지우므로 보유자는 늘 executing이다.
-      for (const holder of await tx.lockHolders(organizationId, lockKeys)) {
-        if (isLeaseExpired(holder.expiresAt, now)) {
-          await tx.close(organizationId, holder.id, expiredClosure(now));
-          continue;
-        }
-        throw inProgress(holder);
-      }
+      await this.refuseHeldKeys(tx, organizationId, lockKeys, now);
 
       const created = await tx.create({
         organizationId,
         kind: request.kind,
+        status: 'executing',
+        attempts: 1,
+        maxAttempts: 1,
+        scheduledFor: null,
         token: randomUUID(),
-        expiresAt: leaseExpiresAt(now),
+        expiresAt: leaseExpiresAt(now, this.owners.leaseMs(request.kind)),
         idempotencyKey: request.idempotencyKey ?? null,
         requestHash,
         fileHash: request.fileHash ?? null,
@@ -144,6 +173,73 @@ export class OperationService implements OperationPort {
         startedAt: now,
       });
       return { operation: toOperationView(created), token: created.token, reused: false };
+    });
+  }
+
+  /**
+   * 끝난 실행은 close가 잠금을 함께 지우므로 보유자는 executing 또는 prepared다. 임대가 끝난 executing은
+   * 그 자리에서 만료 처분하고(재시도가 남으면 prepared로 돌아가 키를 계속 쥔다), 아직 쥐고 있으면 거절한다.
+   */
+  private async refuseHeldKeys(tx: OperationTransaction, organizationId: string, lockKeys: string[], now: Date) {
+    for (const holder of await tx.lockHolders(organizationId, lockKeys)) {
+      const current = await this.expireIfDue(tx, holder, now);
+      if (!isOperationTerminal(current.status)) throw inProgress(current);
+    }
+  }
+
+  async prepare(organizationId: string, request: OperationPrepareRequest, ownerTx?: OwnerTransaction): Promise<OperationPrepareResult> {
+    const { requestHash, plan, window, lockKeys } = await this.planFor(organizationId, request.kind, request.scope, null);
+    return this.operations.transaction(async (tx) => {
+      const now = new Date();
+      const reused = await this.reuseByIdempotencyKey(tx, organizationId, request.kind, request.idempotencyKey, requestHash, now);
+      if (reused) return { operation: toOperationView(reused), reused: true };
+      await this.refuseHeldKeys(tx, organizationId, lockKeys, now);
+      const scheduledFor = request.scheduledFor ? new Date(request.scheduledFor) : null;
+      const created = await tx.createHeld({
+        organizationId,
+        kind: request.kind,
+        status: 'prepared',
+        attempts: 0,
+        maxAttempts: request.maxAttempts,
+        scheduledFor,
+        // 토큰은 claim이 새로 낸다. prepared의 토큰은 누구에게도 주지 않는 자리값이다.
+        token: randomUUID(),
+        // 임대는 claim 때 정해진다. prepared의 expiresAt은 예정 시각(없으면 만든 시각)이다.
+        expiresAt: scheduledFor ?? now,
+        idempotencyKey: request.idempotencyKey ?? null,
+        requestHash,
+        fileHash: null,
+        plan,
+        window,
+        lockKeys,
+        startedAt: now,
+      });
+      if (!created) {
+        // 동시에 들어온 prepare·begin이 같은 키를 먼저 잡고 커밋했다. 그 보유자를 이름으로 알려 준다.
+        const [holder] = await tx.lockHolders(organizationId, lockKeys);
+        throw holder ? inProgress(holder) : new KiditemConflictError('OPERATION_IN_PROGRESS');
+      }
+      return { operation: toOperationView(created), reused: false };
+    }, ownerTx);
+  }
+
+  async claim(request: OperationClaimRequest): Promise<OperationClaimed | null> {
+    return this.operations.transaction(async (tx) => {
+      const now = new Date();
+      // 시도가 남지 않은 채 임대가 끝난 실행은 claim 후보가 아니다. 여기서 terminal로 닫아 onFailed를 부른다.
+      for (const exhausted of await tx.lockExhaustedExpired({ kinds: request.kinds, now, limit: EXPIRY_BATCH })) {
+        await this.expireIfDue(tx, exhausted, now);
+      }
+      const candidate = await tx.lockNextClaimable(request.kinds, now);
+      if (!candidate) return null;
+      const claimed = await tx.markClaimed(candidate.organizationId, candidate.id, {
+        token: randomUUID(),
+        expiresAt: leaseExpiresAt(now, this.owners.leaseMs(candidate.kind)),
+      });
+      this.logger.log(
+        `claimed ${claimed.kind} operation ${claimed.id} attempt ${claimed.attempts}/${claimed.maxAttempts} by ${request.workerId}`,
+      );
+      return { operation: toOperationView(claimed), token: claimed.token, organizationId: claimed.organizationId };
     });
   }
 
@@ -160,7 +256,7 @@ export class OperationService implements OperationPort {
         details: { reason: 'file_already_applied', existing: { operationId: current.id } },
       });
     }
-    if (current.status === 'executing') throw inProgress(current);
+    if (!isOperationTerminal(current.status)) throw inProgress(current);
     await tx.clearFileHash(organizationId, current.id);
   }
 
@@ -199,7 +295,7 @@ export class OperationService implements OperationPort {
           payload: input.request.payload,
         });
       }
-      const expiresAt = leaseExpiresAt(now);
+      const expiresAt = leaseExpiresAt(now, this.owners.leaseMs(fenced.ok.kind));
       await tx.extendLease(input.organizationId, input.operationId, expiresAt, input.request.progress);
       return {
         ok: {
@@ -227,9 +323,21 @@ export class OperationService implements OperationPort {
       const operation = fenced.ok;
       const { request } = input;
       if (request.outcome === 'failed') {
-        const closed = await tx.close(input.organizationId, operation.id, {
+        const errorCode = request.errorCode ?? 'UNKNOWN';
+        const disposition = decideFailure(operation, request.retryAfterMs, now);
+        if (disposition.retry) {
+          const rescheduled = await tx.reschedule(input.organizationId, operation.id, {
+            scheduledFor: disposition.scheduledFor,
+            token: randomUUID(),
+            errorCode,
+            errorMessage: request.errorMessage ?? null,
+            clearStaging: true,
+          });
+          return { ok: { operation: toOperationView(rescheduled) } };
+        }
+        const closed = await this.closeFailed(tx, operation, {
           status: 'failed',
-          errorCode: request.errorCode ?? null,
+          errorCode,
           errorMessage: request.errorMessage ?? null,
           result: request.result ?? null,
           window: request.window ?? operation.window,
@@ -245,6 +353,8 @@ export class OperationService implements OperationPort {
         organizationId: input.organizationId,
         operationId: operation.id,
         plan: operation.plan ?? {},
+        attempts: operation.attempts,
+        maxAttempts: operation.maxAttempts,
       });
       const closed = await tx.close(input.organizationId, operation.id, {
         status: 'succeeded',
@@ -259,7 +369,7 @@ export class OperationService implements OperationPort {
     return unwrap(outcome);
   }
 
-  async cancel(organizationId: string, operationId: string): Promise<OperationCancelResponse> {
+  async cancel(organizationId: string, operationId: string, ownerTx?: OwnerTransaction): Promise<OperationCancelResponse> {
     return this.operations.transaction(async (tx) => {
       const now = new Date();
       const operation = await tx.lockOperation(organizationId, operationId);
@@ -273,18 +383,49 @@ export class OperationService implements OperationPort {
         finishedAt: now,
       });
       return { operation: toOperationView(closed) };
-    });
+    }, ownerTx);
   }
 
+  /**
+   * reader. 잠금 없이 읽고, 임대가 끝난 executing이 보일 때만 그 행을 짧은 쓰기 트랜잭션으로 만료 처분한다
+   * (만료가 아닌 행은 잠그지 않는다). 처분으로 상태가 바뀐 행은 status 필터를 다시 건다.
+   */
   async list(organizationId: string, query: OperationListQuery): Promise<OperationListResponse> {
-    const now = new Date();
-    await this.operations.expireDue(organizationId, query.kinds, now, expiredClosure(now));
     const records = await this.operations.list(organizationId, {
       kinds: query.kinds,
       status: query.status,
       limit: query.limit,
     });
-    return { operations: records.map(toOperationView) };
+    const current: OperationRecord[] = [];
+    for (const record of records) current.push(await this.closeIfLapsed(record));
+    return {
+      operations: current.filter((record) => !query.status || record.status === query.status).map(toOperationView),
+    };
+  }
+
+  async get(organizationId: string, operationId: string): Promise<OperationView | null> {
+    const record = await this.operations.find(organizationId, operationId);
+    return record ? toOperationView(await this.closeIfLapsed(record)) : null;
+  }
+
+  /** 읽은 행이 임대가 끝난 executing이면 잠가서 다시 판정한 뒤 만료 처분한다. 아니면 그대로(잠금 없음). */
+  private async closeIfLapsed(record: OperationRecord): Promise<OperationRecord> {
+    if (record.status !== 'executing' || !isLeaseExpired(record.expiresAt, new Date())) return record;
+    return this.operations.transaction(async (tx) => {
+      const locked = await tx.lockOperation(record.organizationId, record.id);
+      return locked ? this.expireIfDue(tx, locked, new Date()) : record;
+    });
+  }
+
+  async findLive(organizationId: string, lockKey: string, ownerTx?: OwnerTransaction): Promise<OperationView | null> {
+    return this.operations.transaction(async (tx) => {
+      const now = new Date();
+      for (const holder of await tx.lockHolders(organizationId, [lockKey])) {
+        const current = await this.expireIfDue(tx, holder, now);
+        if (!isOperationTerminal(current.status)) return toOperationView(current);
+      }
+      return null;
+    }, ownerTx);
   }
 
   /** 토큰 fence. 만료면 그 자리에서 닫아 커밋하고(트랜잭션은 계속) 거절을 돌려준다. */
@@ -300,15 +441,49 @@ export class OperationService implements OperationPort {
     const verdict = evaluateOperationFence(operation, token, now);
     if (verdict.verdict === 'not_found') return { notFound: true };
     if (verdict.verdict === 'reject') {
-      if (verdict.expire) await tx.close(organizationId, operationId, expiredClosure(now));
+      if (verdict.expire) await this.expireIfDue(tx, operation, now);
       return { reject: verdict.reason, operationId };
     }
     return { ok: operation };
   }
 
+  /**
+   * 임대가 끝난 executing의 처분(KID-358). 시도가 남아 있으면 같은 행을 바로(`scheduledFor = now`) 다시 claim될
+   * `prepared`로 돌리고 잠금·청크·progress를 그대로 둔다(워커가 죽었을 뿐 받아 둔 결과는 유효하다).
+   * 남지 않았으면 terminal `failed`(만료)로 닫고 owner `onFailed`를 부른다.
+   */
   private async expireIfDue(tx: OperationTransaction, operation: OperationRecord, now: Date): Promise<OperationRecord> {
     if (operation.status !== 'executing' || !isLeaseExpired(operation.expiresAt, now)) return operation;
-    return tx.close(operation.organizationId, operation.id, expiredClosure(now));
+    const disposition = decideFailure(operation, 0, now);
+    if (disposition.retry) {
+      return tx.reschedule(operation.organizationId, operation.id, {
+        scheduledFor: disposition.scheduledFor,
+        token: randomUUID(),
+        errorCode: OPERATION_EXPIRED_ERROR_CODE,
+        errorMessage: OPERATION_EXPIRED_ERROR_MESSAGE,
+        clearStaging: false,
+      });
+    }
+    return this.closeFailed(tx, operation, expiredClosure(now));
+  }
+
+  /** terminal 실패: 청크·잠금을 지우고 같은 트랜잭션에서 owner `onFailed`를 부른다(구현한 kind만). */
+  private async closeFailed(tx: OperationTransaction, operation: OperationRecord, closure: OperationClosure): Promise<OperationRecord> {
+    const closed = await tx.close(operation.organizationId, operation.id, closure);
+    const owner = this.owners.find(operation.kind);
+    if (owner?.onFailed) {
+      await owner.onFailed({
+        tx: tx.ownerTransaction,
+        organizationId: operation.organizationId,
+        operationId: operation.id,
+        plan: operation.plan ?? {},
+        errorCode: closure.errorCode ?? OPERATION_EXPIRED_ERROR_CODE,
+        errorMessage: closure.errorMessage,
+        attempts: operation.attempts,
+        maxAttempts: operation.maxAttempts,
+      });
+    }
+    return closed;
   }
 }
 

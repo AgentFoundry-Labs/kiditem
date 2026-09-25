@@ -125,7 +125,6 @@ describe('ai direct job configuration', () => {
       leaseHeartbeatMs: 5_000,
       leaseMs: 60_000,
       providerTimeoutMs: 20 * 60_000,
-      heldRecoveryMs: 30_000,
       retryDelaysMs: [5_000, 30_000, 120_000],
     });
   });

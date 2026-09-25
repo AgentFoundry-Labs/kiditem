@@ -18,7 +18,11 @@ import { zIsoDate } from './common.js';
 
 // ── 상태 ────────────────────────────────────────────────────────────────────────
 
-export const OPERATION_STATUSES = ['executing', 'succeeded', 'failed', 'cancelled'] as const;
+/**
+ * `prepared`(KID-358): owner가 자기 트랜잭션 안에서 만들어 두고 나중에 워커나 확장이 claim하는 실행.
+ * 잠금은 prepare 때 잡혀 terminal까지 유지된다. 재시도는 `executing → prepared`.
+ */
+export const OPERATION_STATUSES = ['prepared', 'executing', 'succeeded', 'failed', 'cancelled'] as const;
 export const OperationStatusSchema = z.enum(OPERATION_STATUSES);
 export type OperationStatus = z.infer<typeof OperationStatusSchema>;
 
@@ -150,6 +154,11 @@ export const OperationViewSchema = z.object({
   startedAt: zIsoDate,
   finishedAt: zIsoDate.nullable(),
   expiresAt: zIsoDate,
+  /** claim이 지금까지 몇 번 있었나. begin으로 시작한 실행은 1. */
+  attempts: z.number().int().nonnegative(),
+  maxAttempts: z.number().int().min(1),
+  /** `prepared`가 claim될 수 있는 시각. begin으로 시작한 실행은 null. */
+  scheduledFor: zIsoDate.nullable(),
 }).strict();
 export type OperationView = z.infer<typeof OperationViewSchema>;
 
@@ -207,9 +216,17 @@ export const OperationFinishRequestSchema = z.object({
   errorMessage: z.string().max(2_000).optional(),
   window: OperationWindowSchema.optional(),
   result: JsonObjectSchema.optional(),
+  /**
+   * failed일 때만. 재시도가 남아 있으면(`attempts < maxAttempts`) 같은 실행이 `prepared`로 돌아가
+   * `scheduledFor = now + retryAfterMs`가 된다(잠금 유지, 청크 삭제). 없거나 재시도가 없으면 terminal `failed`.
+   */
+  retryAfterMs: z.number().int().nonnegative().max(7 * 24 * 60 * 60 * 1000).optional(),
 }).strict().refine(
   (value) => value.outcome !== 'failed' || value.errorCode !== undefined,
   { message: 'failed에는 errorCode가 필요합니다', path: ['errorCode'] },
+).refine(
+  (value) => value.outcome === 'failed' || value.retryAfterMs === undefined,
+  { message: 'retryAfterMs는 failed에만 쓴다', path: ['retryAfterMs'] },
 );
 export type OperationFinishRequest = z.infer<typeof OperationFinishRequestSchema>;
 
@@ -238,6 +255,41 @@ export const OperationListResponseSchema = z.object({
   operations: z.array(OperationViewSchema),
 }).strict();
 export type OperationListResponse = z.infer<typeof OperationListResponseSchema>;
+
+// ── prepare · claim (서버 내부 포트, HTTP 없음 — KID-358) ─────────────────────────────
+
+/**
+ * owner가 자기 트랜잭션 안에서 만들어 두는 실행. begin과 달리 토큰·임대는 claim 때 생긴다.
+ * 잠금은 여기서 잡히고 terminal까지 유지된다(재시도 사이에도). 같은 키가 잡혀 있으면 `OPERATION_IN_PROGRESS`.
+ */
+export const OperationPrepareRequestSchema = z.object({
+  kind: OperationKindSchema,
+  scope: JsonObjectSchema.default({}),
+  idempotencyKey: z.string().min(1).max(128).optional(),
+  /** 이 시각 전에는 claim되지 않는다. 없으면 바로. */
+  scheduledFor: zIsoDate.optional(),
+  /** claim 횟수 상한(재시도 포함). 기본 1 = 재시도 없음. */
+  maxAttempts: z.number().int().min(1).max(20).default(1),
+}).strict();
+export type OperationPrepareRequest = z.infer<typeof OperationPrepareRequestSchema>;
+
+/**
+ * 워커(또는 KID-372부터 확장)가 `prepared`이면서 `scheduledFor <= now`인 가장 오래된 실행, 또는
+ * `executing`인데 임대가 만료된 실행을 `attempts < maxAttempts`인 것만 `FOR UPDATE SKIP LOCKED`로 집는다.
+ * 집으면 `executing`·`attempts + 1`·새 token·`expiresAt = now + leaseMs`.
+ */
+export const OperationClaimRequestSchema = z.object({
+  kinds: z.array(OperationKindSchema).min(1).max(50),
+  /** 로그·진단용. 잠금 판정에는 쓰지 않는다. */
+  workerId: z.string().min(1).max(128),
+}).strict();
+export type OperationClaimRequest = z.infer<typeof OperationClaimRequestSchema>;
+
+export const OperationClaimResultSchema = z.object({
+  operation: OperationViewSchema,
+  token: z.string().uuid(),
+}).strict();
+export type OperationClaimResult = z.infer<typeof OperationClaimResultSchema>;
 
 // ── owner 포트 결과 ───────────────────────────────────────────────────────────────
 

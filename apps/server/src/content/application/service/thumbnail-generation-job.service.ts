@@ -93,14 +93,7 @@ export class ThumbnailGenerationJobService {
       directJob,
     });
     const generation = { id: opened.generationId };
-
-
-    if (opened.releaseRequired) {
-      await this.directGenerationJobs.release({
-        organizationId: input.organizationId,
-        jobId: opened.directJobId,
-      });
-    }
+    this.directGenerationJobs.wake();
 
     return { generationId: generation.id, status: 'pending' };
   }
@@ -127,14 +120,7 @@ export class ThumbnailGenerationJobService {
       directJob,
     });
     const generation = { id: opened.generationId };
-
-
-    if (opened.releaseRequired) {
-      await this.directGenerationJobs.release({
-        organizationId: input.organizationId,
-        jobId: opened.directJobId,
-      });
-    }
+    this.directGenerationJobs.wake();
 
     return { generationId: generation.id, status: 'pending' };
   }
@@ -156,14 +142,7 @@ export class ThumbnailGenerationJobService {
       directJob,
     });
     const generation = { id: opened.generationId };
-
-
-    if (opened.releaseRequired) {
-      await this.directGenerationJobs.release({
-        organizationId: input.organizationId,
-        jobId: opened.directJobId,
-      });
-    }
+    this.directGenerationJobs.wake();
 
     return { generationId: generation.id, status: 'pending' };
   }

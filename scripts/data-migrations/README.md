@@ -272,3 +272,14 @@ content is made again on the sales product drafts.
 becomes `active`. It covers every organization, reports each count, is a no-op on
 re-run, and refuses a status outside the retired Sabangnet vocabulary without
 changing any row.
+
+### AI generations left by the direct-job cutover (0.1.31)
+
+`029_close_generations_left_by_direct_job_cutover` runs post-schema. After
+KID-358 the AI worker claims only `content.*` operations and never reads
+`ai_direct_jobs`, so a thumbnail generation or re-edit (`pending`/`running`) or
+a generated detail page (`pending`/`processing`) whose old job was still
+`held`, `pending`, `running` or `projecting` would never finish. It closes those
+records `failed` with the operator sentence "실행 계약 이관으로 중단됐습니다. 다시
+생성해 주세요." for the same organization, leaves the job rows for the table
+drop (KID-365), and changes nothing on re-run.

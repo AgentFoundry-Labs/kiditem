@@ -40,8 +40,6 @@ function makeRepository() {
     openGeneration: vi.fn().mockResolvedValue({
       status: 'created',
       page: row,
-      directJobId: 'direct-job-1',
-      releaseRequired: true,
     }),
     findImageOnlyBaseCandidates: vi.fn().mockResolvedValue([]),
     findSourceDetailPage: vi.fn(),
@@ -69,10 +67,8 @@ function makeService() {
     prepareGenerate: vi.fn().mockReturnValue({
       jobType: 'detail_page_generate',
       payload: { jobType: 'detail_page_generate' },
-      status: 'held',
-      scheduledFor: new Date('2026-07-19T00:00:00.000Z'),
     }),
-    release: vi.fn().mockResolvedValue(undefined),
+    wake: vi.fn(),
   };
   const contentWorkspaces = {
     ensureForGeneration: vi.fn().mockResolvedValue({ id: WORKSPACE_ID }),
@@ -162,7 +158,7 @@ describe('DetailPageGenerationService', () => {
     process.env.AI_IMAGE_ANALYSIS_MODEL = 'gemini-vision-test';
   });
 
-  it('opens a processing row and releases one direct job without an operation wrapper', async () => {
+  it('opens a processing row with its prepared job and wakes the worker after the commit', async () => {
     const { service, repository, directGenerationJobs, query } = makeService();
 
     await expect(service.generate(input(), ORGANIZATION_ID, USER_ID)).resolves.toMatchObject({
@@ -177,20 +173,18 @@ describe('DetailPageGenerationService', () => {
     expect(directGenerationJobs.prepareGenerate).toHaveBeenCalledWith(expect.objectContaining({
       payload: expect.objectContaining({ templateId: 'kids-playful' }),
     }));
-    expect(directGenerationJobs.release).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      jobId: 'direct-job-1',
-    });
+    expect(repository.openGeneration).toHaveBeenCalledWith(expect.objectContaining({
+      directJob: { jobType: 'detail_page_generate', payload: { jobType: 'detail_page_generate' } },
+    }));
+    expect(directGenerationJobs.wake).toHaveBeenCalledTimes(1);
     expect(query.getById).toHaveBeenCalledWith(GENERATION_ID, ORGANIZATION_ID);
   });
 
-  it('reuses an admitted product-generation child without releasing a non-held direct job', async () => {
+  it('reuses an admitted product-generation child (its job was prepared with it)', async () => {
     const { service, repository, directGenerationJobs } = makeService();
     vi.mocked(repository.openGeneration).mockResolvedValueOnce({
       status: 'existing',
       page: makeRepository().row as never,
-      directJobId: 'direct-job-1',
-      releaseRequired: false,
     });
 
     await service.generate(
@@ -214,7 +208,7 @@ describe('DetailPageGenerationService', () => {
         }),
       }),
     );
-    expect(directGenerationJobs.release).not.toHaveBeenCalled();
+    expect(directGenerationJobs.wake).toHaveBeenCalledTimes(1);
   });
 
   it('uses an existing organization-scoped workspace instead of creating one', async () => {

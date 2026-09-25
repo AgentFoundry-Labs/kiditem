@@ -1,6 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   makeTestPrisma,
   resetDb,
@@ -9,7 +9,9 @@ import {
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { AiDirectJobRepositoryAdapter } from '../adapter/out/repository/ai-direct-job.repository.adapter';
+import { aiDirectJobOperations } from './helpers/ai-direct-job-operations';
+import { AiDirectJobProcessorService } from '../application/service/ai-direct-job-processor.service';
+import { AiDirectJobWorkerService } from '../application/service/ai-direct-job-worker.service';
 import { DetailPageRepositoryAdapter } from '../adapter/out/repository/detail-page.repository.adapter';
 import { DetailPageGenerationRepositoryAdapter } from '../adapter/out/repository/detail-page-generation.repository.adapter';
 import { DetailPageGenerationSinkAdapter } from '../adapter/out/direct-output/detail-page-generation-sink.adapter';
@@ -26,19 +28,35 @@ describe('detail page generation (PG integration)', () => {
   let pages: DetailPageRepositoryAdapter;
   let generations: DetailPageGenerationRepositoryAdapter;
   let sink: DetailPageGenerationSinkAdapter;
+  let jobs: ReturnType<typeof aiDirectJobOperations>['jobs'];
+  let worker: AiDirectJobWorkerService;
+  /** AI 게이트웨이 자리: 상세 생성 모델 호출만 바꾼다. 반영은 진짜 sink가 finish 트랜잭션의 owner에서 한다. */
+  const detailExecutor = { execute: vi.fn() };
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const service = prisma as unknown as PrismaService;
     pages = new DetailPageRepositoryAdapter(service);
-    generations = new DetailPageGenerationRepositoryAdapter(service, pages, new AiDirectJobRepositoryAdapter(service));
     sink = new DetailPageGenerationSinkAdapter(pages);
+    let processor!: AiDirectJobProcessorService;
+    const contract = aiDirectJobOperations(prisma, {
+      project: (job, result, transaction) => processor.project(job, result, transaction),
+      projectFailure: (job, error, transaction) => processor.projectFailure(job, error, transaction),
+    });
+    jobs = contract.jobs;
+    generations = new DetailPageGenerationRepositoryAdapter(service, pages, jobs);
+    processor = new AiDirectJobProcessorService(
+      {} as never, {} as never, detailExecutor as never, {} as never, {} as never,
+      {} as never, sink, {} as never, generations,
+    );
+    worker = new AiDirectJobWorkerService(jobs, processor, contract.config);
   });
 
   afterAll(async () => prisma?.$disconnect());
 
   beforeEach(async () => {
+    detailExecutor.execute.mockReset();
     await resetDb(prisma);
     await seedBaseFixture(prisma);
   });
@@ -87,9 +105,14 @@ describe('detail page generation (PG integration)', () => {
             heroImageMode: 'first',
           },
         },
-        status: 'held',
-        scheduledFor: new Date(Date.now() + 60_000),
       },
+    });
+  }
+
+  /** 이 생성 페이지의 AI job(실행). */
+  function jobOf(detailPageId: string) {
+    return prisma.operation.findFirstOrThrow({
+      where: { kind: 'content.detail_page_generate', plan: { path: ['sourceResourceId'], equals: detailPageId } },
     });
   }
 
@@ -130,15 +153,16 @@ describe('detail page generation (PG integration)', () => {
     });
   }
 
-  it('opens a pending generated page with its input photos as workspace assets and a held job keyed by the page', async () => {
+  it('opens a pending generated page with its input photos as workspace assets and a prepared job keyed by the page', async () => {
     const workspaceId = await workspace();
 
     const opened = await open(workspaceId);
 
-    expect(opened).toMatchObject({ status: 'created', releaseRequired: true, page: { source: 'generated', status: 'pending', title: '말랑 장화' } });
+    expect(opened).toMatchObject({ status: 'created', page: { source: 'generated', status: 'pending', title: '말랑 장화' } });
     expect(opened.page.generationInput).toMatchObject({ rawTitle: '말랑 장화', sourceReferences: [{ sourceType: 'sourcing_candidate' }] });
-    await expect(prisma.aiDirectJob.findUniqueOrThrow({ where: { id: opened.directJobId } }))
-      .resolves.toMatchObject({ sourceResourceId: opened.page.id, status: 'held' });
+    await expect(jobOf(opened.page.id)).resolves.toMatchObject({
+      status: 'prepared', scheduledFor: null, maxAttempts: 3, plan: { sourceResourceId: opened.page.id },
+    });
     await expect(prisma.contentAsset.findMany({
       where: { contentWorkspaceId: workspaceId }, orderBy: { sortOrder: 'asc' }, select: { url: true, role: true, source: true },
     })).resolves.toEqual([
@@ -191,8 +215,12 @@ describe('detail page generation (PG integration)', () => {
 
     await expect(pages.findById({ organizationId: TEST_ORGANIZATION_ID, detailPageId: cancelled.page.id }))
       .resolves.toMatchObject({ status: 'failed', errorMessage: '사용자 요청으로 생성이 중단되었습니다.', generationResult: {} });
-    await expect(prisma.aiDirectJob.findUniqueOrThrow({ where: { id: cancelled.directJobId } }))
-      .resolves.toMatchObject({ status: 'cancelled', lastErrorCode: 'user_cancelled' });
+    await expect(jobOf(cancelled.page.id)).resolves.toMatchObject({ status: 'cancelled', errorCode: 'USER_CANCELLED' });
+    // 실패로 끝난 첫 페이지의 job은 아직 prepared다. 워커는 그것을 집어 preflight에서 취소로 닫고, 취소된 job은 집지 않는다.
+    await expect(worker.tick()).resolves.toBe(true);
+    await expect(jobOf(failed.page.id)).resolves.toMatchObject({ status: 'cancelled' });
+    await expect(worker.tick()).resolves.toBe(false);
+    expect(detailExecutor.execute).not.toHaveBeenCalled();
     await expect(generations.cancelDirectGeneration({
       organizationId: TEST_ORGANIZATION_ID, detailPageId: cancelled.page.id, reason: '또',
     })).resolves.toMatchObject({ status: 'already_terminal' });
@@ -213,5 +241,71 @@ describe('detail page generation (PG integration)', () => {
     await expect(generations.findImageOnlyBaseCandidates({
       organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId: workspaceId, templateId: 'kids-playful',
     })).resolves.toEqual([]);
+  });
+
+  it('runs the prepared job through the worker: the finish transaction projects the result onto the page', async () => {
+    const workspaceId = await workspace();
+    const { page } = await open(workspaceId);
+    detailExecutor.execute.mockResolvedValueOnce(output);
+
+    await expect(worker.tick()).resolves.toBe(true);
+
+    await expect(pages.findById({ organizationId: TEST_ORGANIZATION_ID, detailPageId: page.id }))
+      .resolves.toMatchObject({ status: 'ready', generationResult: { result: { hook: { text: '말랑' } } } });
+    await expect(jobOf(page.id)).resolves.toMatchObject({ status: 'succeeded', attempts: 1 });
+  });
+
+  it('records a final model failure on the page through onFailed, with no retry for a non-retryable error', async () => {
+    const workspaceId = await workspace();
+    const { page } = await open(workspaceId);
+    detailExecutor.execute.mockRejectedValueOnce(Object.assign(new Error('model missing'), { code: 'model_required' }));
+
+    await worker.tick();
+
+    await expect(pages.findById({ organizationId: TEST_ORGANIZATION_ID, detailPageId: page.id }))
+      .resolves.toMatchObject({ status: 'failed', errorMessage: 'model missing' });
+    await expect(jobOf(page.id)).resolves.toMatchObject({ status: 'failed', errorCode: 'model_required' });
+  });
+
+  it('a cancel that arrives while the finish projects the result neither deadlocks nor splits the outcome', async () => {
+    for (let round = 0; round < 6; round += 1) {
+      const workspaceId = await workspace();
+      const { page } = await open(workspaceId);
+      const claimed = (await jobs.claim('worker-1'))!;
+      await jobs.saveResult(claimed.job, claimed.token, output);
+
+      const [finished, cancelled] = await Promise.all([
+        jobs.succeed(claimed.job, claimed.token),
+        generations.cancelDirectGeneration({ organizationId: TEST_ORGANIZATION_ID, detailPageId: page.id, reason: '중단' }),
+      ]);
+
+      const done = await pages.findById({ organizationId: TEST_ORGANIZATION_ID, detailPageId: page.id });
+      const job = await jobOf(page.id);
+      if (finished) {
+        expect({ page: done?.status, job: job.status, cancelled: cancelled.status }).toEqual({ page: 'ready', job: 'succeeded', cancelled: 'already_terminal' });
+      } else {
+        expect({ page: done?.status, job: job.status, cancelled: cancelled.status }).toEqual({ page: 'failed', job: 'cancelled', cancelled: 'cancelled' });
+      }
+    }
+  }, 20_000);
+
+  it('writes the result inside the finish transaction: a finish that fails after the sink leaves the page untouched', async () => {
+    const workspaceId = await workspace();
+    const { page } = await open(workspaceId);
+    const claimed = (await jobs.claim('worker-1'))!;
+    await jobs.saveResult(claimed.job, claimed.token, output);
+    // finalize 뒤 실행을 닫는 쓰기가 실패하면 반영도 함께 되돌아가야 한다.
+    await prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION kid358_refuse_close() RETURNS trigger AS $$ BEGIN
+      IF NEW.status = 'succeeded' THEN RAISE EXCEPTION 'refuse close'; END IF; RETURN NEW; END $$ LANGUAGE plpgsql`);
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER kid358_refuse_close BEFORE UPDATE ON operations FOR EACH ROW EXECUTE FUNCTION kid358_refuse_close()`);
+    try {
+      await expect(jobs.succeed(claimed.job, claimed.token)).rejects.toThrow();
+    } finally {
+      await prisma.$executeRawUnsafe('DROP TRIGGER kid358_refuse_close ON operations');
+      await prisma.$executeRawUnsafe('DROP FUNCTION kid358_refuse_close()');
+    }
+    await expect(pages.findById({ organizationId: TEST_ORGANIZATION_ID, detailPageId: page.id }))
+      .resolves.toMatchObject({ status: 'pending', generationResult: {} });
+    await expect(jobOf(page.id)).resolves.toMatchObject({ status: 'executing' });
   });
 });

@@ -7,7 +7,9 @@ import { StorageModule } from '../../common/storage/storage.module';
 import { ChannelCatalogModule } from '../../channels/channel-catalog.module';
 import { AiAgentRuntimeModule, AiModule, AiProductGenerationRuntimeModule } from '../ai.module';
 import { AiCatalogMediaPublicationRepositoryAdapter } from '../adapter/out/repository/ai-catalog-media-publication.repository.adapter';
-import { AiDirectJobRepositoryAdapter } from '../adapter/out/repository/ai-direct-job.repository.adapter';
+import { AiDirectJobOperationsAdapter } from '../adapter/out/runtime/ai-direct-job-operations.adapter';
+import { AI_DIRECT_JOB_OPERATION_OWNERS } from '../adapter/in/operation/ai-direct-job-operation-owners';
+import { OperationModule } from '../../common/operation/operation.module';
 import { CATALOG_MEDIA_PUBLICATION_PORT } from '../../channels/application/port/out/cross-domain/catalog-media-publication.port';
 import { DetailPageGenerationSinkAdapter } from '../adapter/out/direct-output/detail-page-generation-sink.adapter';
 import { ThumbnailGenerationSinkAdapter } from '../adapter/out/direct-output/thumbnail-generation-sink.adapter';
@@ -47,7 +49,6 @@ import {
   THUMBNAIL_VISION_PROVIDER_PORT,
 } from '../application/port/out/provider';
 import {
-  AI_DIRECT_JOB_REPOSITORY_PORT,
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
@@ -64,6 +65,7 @@ import {
   THUMBNAIL_DIRECT_OUTPUT_SINK_PORT,
 } from '../application/port/out/sink';
 import {
+  AI_DIRECT_JOB_OPERATIONS_PORT,
   AI_DIRECT_JOB_WAKE_PORT,
   DETAIL_PAGE_TEMPLATE_STYLES_PORT,
 } from '../application/port/out/runtime';
@@ -140,7 +142,7 @@ describe('AiModule hexagonal wiring contract', () => {
       Reflect.getMetadata(PROVIDERS_KEY, AiProductGenerationRuntimeModule) ?? [];
 
     [
-      [AI_DIRECT_JOB_REPOSITORY_PORT, AiDirectJobRepositoryAdapter],
+      [AI_DIRECT_JOB_OPERATIONS_PORT, AiDirectJobOperationsAdapter],
       [CONTENT_ASSET_LIBRARY_REPOSITORY_PORT, ContentAssetLibraryRepositoryAdapter],
       [CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT, ContentWorkspaceLifecycleRepositoryAdapter],
       [DETAIL_PAGE_GENERATION_REPOSITORY_PORT, DetailPageGenerationRepositoryAdapter],
@@ -176,6 +178,24 @@ describe('AiModule hexagonal wiring contract', () => {
     expect(runtimeProviders).not.toContain(AiDirectJobWakeRegistrationService);
     expect(apiProviders).toContain(AiDirectJobWakeRegistrationService);
     expect(apiProviders).toContain(DetailPageClientRenderService);
+  });
+
+  it('runs AI direct jobs as operations: the runtime reaches the operation port, the API registers the four kind owners', () => {
+    const productGenerationImports: unknown[] =
+      Reflect.getMetadata(IMPORTS_KEY, AiProductGenerationRuntimeModule) ?? [];
+    const apiProviders: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, AiModule) ?? [];
+    const runtimeProviders: unknown[] = Reflect.getMetadata(PROVIDERS_KEY, AiAgentRuntimeModule) ?? [];
+    expect(productGenerationImports).toContain(OperationModule);
+    expect(AI_DIRECT_JOB_OPERATION_OWNERS.map((owner) => new (owner as never as new (...args: unknown[]) => { kind: string })({} as never, { leaseMs: 60_000 }).kind)).toEqual([
+      'content.thumbnail_generate',
+      'content.thumbnail_reedit',
+      'content.detail_page_generate',
+      'content.image_edit',
+    ]);
+    for (const owner of AI_DIRECT_JOB_OPERATION_OWNERS) {
+      expect(apiProviders).toContain(owner);
+      expect(runtimeProviders).not.toContain(owner);
+    }
   });
 
   it('exports AI owner-side incoming ports through application services', () => {

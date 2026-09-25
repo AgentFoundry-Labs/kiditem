@@ -50,9 +50,11 @@ describe('detail-page generation terminal races (KID-343 catch 보정)', () => {
   it('a cancellation that loses the race to a result keeps the finished generation', async () => {
     const pages = racingDetailPages(lostRace());
     const prisma = { detailPage: { findFirst: vi.fn().mockResolvedValue({ id: PAGE, status: 'processing' }) } };
-    const generations = new DetailPageGenerationRepositoryAdapter(prisma as never, pages as never, {} as never);
+    const directJobs = { lockLive: vi.fn().mockResolvedValue(['job-1']), cancelJobs: vi.fn() };
+    const generations = new DetailPageGenerationRepositoryAdapter(prisma as never, pages as never, directJobs as never);
 
     await expect(generations.cancelDirectGeneration({ organizationId: ORG, detailPageId: PAGE, reason: '중단' }))
       .resolves.toEqual({ status: 'already_terminal', generationId: PAGE, preserved: true });
+    expect(directJobs.cancelJobs).not.toHaveBeenCalled();
   });
 });

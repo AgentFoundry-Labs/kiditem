@@ -1,12 +1,8 @@
-import { Injectable, type OnModuleInit, SetMetadata } from '@nestjs/common';
+import { Injectable, type OnModuleInit } from '@nestjs/common';
 import { DiscoveryService, Reflector } from '@nestjs/core';
-import { OperationKindSchema } from '@kiditem/shared/operation';
+import { OPERATION_LEASE_MS, OperationKindSchema } from '@kiditem/shared/operation';
 import type { OperationOwnerPort } from '../port/out/owner/operation-owner.port';
-
-const OPERATION_OWNER_METADATA = 'kiditem:operation-owner';
-
-/** owner 모듈의 provider 클래스에 붙이면 부팅 때 그 kind가 실행 계약에 등록된다. */
-export const OperationOwner = (): ClassDecorator => SetMetadata(OPERATION_OWNER_METADATA, true);
+import { OPERATION_OWNER_METADATA } from '../port/out/owner/operation-owner.decorator';
 
 /**
  * kind → owner 포트. 부팅(onModuleInit) 때 `@OperationOwner()` provider를 모아 한 번 만든다.
@@ -40,5 +36,10 @@ export class OperationOwnerRegistry implements OnModuleInit {
 
   find(kind: string): OperationOwnerPort | undefined {
     return this.owners.get(kind);
+  }
+
+  /** kind의 임대 길이. owner가 정하지 않았으면 계약 기본 30분(KID-358). */
+  leaseMs(kind: string): number {
+    return this.owners.get(kind)?.leaseMs ?? OPERATION_LEASE_MS;
   }
 }

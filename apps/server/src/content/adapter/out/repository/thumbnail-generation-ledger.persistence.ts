@@ -36,6 +36,12 @@ interface LockedThumbnailJob {
   inputMeta: unknown;
 }
 
+/** 호출자 트랜잭션이 있으면 그 안에서, 없으면 새 트랜잭션에서 돈다(실행 finish 안의 반영, KID-358). */
+type LedgerScope = PrismaService | Prisma.TransactionClient;
+function inTransaction<T>(scope: LedgerScope, work: (tx: Prisma.TransactionClient) => Promise<T>): Promise<T> {
+  return '$transaction' in scope ? (scope as PrismaService).$transaction(work) : work(scope);
+}
+
 async function lockThumbnailJob(
   tx: Prisma.TransactionClient,
   id: string,
@@ -234,12 +240,21 @@ export { jobInputMeta };
 export async function cancelDirectGeneration(
   prisma: PrismaService,
   input: { organizationId: string; generationId: string; reason: string },
+  /**
+   * 이 생성의 살아 있는 AI job. `lock`은 실행 행을 먼저 잠그고(finish가 실행 → 생성 기록 순서로 잠그므로 같은
+   * 순서를 지킨다), `cancel`은 생성 기록을 취소로 바꾼 뒤 같은 트랜잭션에서 그 실행을 취소한다.
+   */
+  jobs: {
+    lock: (tx: Prisma.TransactionClient) => Promise<string[]>;
+    cancel: (tx: Prisma.TransactionClient, jobIds: string[]) => Promise<unknown>;
+  },
 ): Promise<{
   status: 'cancelled' | 'already_terminal' | 'not_found';
   generationId: string;
   preserved: boolean;
 }> {
   return prisma.$transaction(async (tx) => {
+    const liveJobs = await jobs.lock(tx);
     const current = await lockThumbnailJob(tx, input.generationId, input.organizationId);
     if (!current) {
       return { status: 'not_found' as const, generationId: input.generationId, preserved: false };
@@ -255,21 +270,7 @@ export async function cancelDirectGeneration(
       where: { id: current.id },
       data: { status: 'cancelled', errorMessage: input.reason },
     });
-    await tx.aiDirectJob.updateMany({
-      where: {
-        organizationId: input.organizationId,
-        sourceResourceId: current.id,
-        jobType: { in: ['thumbnail_generate', 'thumbnail_reedit'] },
-        status: { in: ['held', 'pending', 'running', 'projecting'] },
-      },
-      data: {
-        status: 'cancelled',
-        finishedAt: new Date(),
-        leaseExpiresAt: null,
-        lastErrorCode: 'user_cancelled',
-        lastErrorMessage: input.reason,
-      },
-    });
+    await jobs.cancel(tx, liveJobs);
     return { status: 'cancelled' as const, generationId: current.id, preserved: false };
   });
 }
@@ -377,11 +378,11 @@ export async function resetGenerationForReEdit(
  * pending/running job 을 running 으로 잡고 시도 수를 올린다. 이미 끝났거나 조직 밖이면 null.
  */
 export async function lockGenerationForProcessing(
-  prisma: PrismaService,
+  scope: LedgerScope,
   id: string,
   organizationId: string,
 ): Promise<{ fromStatus: string; attemptNumber: number } | null> {
-  return prisma.$transaction(async (tx) => {
+  return inTransaction(scope, async (tx) => {
     const current = await lockThumbnailJob(tx, id, organizationId);
     if (!current) return null;
     if (!['pending', 'running'].includes(current.status)) return null;
@@ -399,7 +400,7 @@ export async function lockGenerationForProcessing(
  * 동시에 들어온 취소를 덮지 않는다. `inputMeta` 는 바꾸려는 전체 값이다.
  */
 export async function completeWithCandidates(
-  prisma: PrismaService,
+  scope: LedgerScope,
   args: {
     generationId: string;
     organizationId: string;
@@ -408,7 +409,7 @@ export async function completeWithCandidates(
   },
 ): Promise<{ fromStatus: string; attemptNumber: number } | null> {
   const { generationId, organizationId, candidates } = args;
-  return prisma.$transaction(async (tx) => {
+  return inTransaction(scope, async (tx) => {
     const current = await lockThumbnailJob(tx, generationId, organizationId);
     if (!current) return null;
     if (current.status !== 'running') return null;
@@ -433,12 +434,12 @@ export async function completeWithCandidates(
 }
 
 export async function markGenerationFailed(
-  prisma: PrismaService,
+  scope: LedgerScope,
   id: string,
   organizationId: string,
   message: string,
 ): Promise<{ fromStatus: string; attemptNumber: number } | null> {
-  return prisma.$transaction(async (tx) => {
+  return inTransaction(scope, async (tx) => {
     const current = await lockThumbnailJob(tx, id, organizationId);
     if (!current) return null;
     if (current.status !== 'running') return null;

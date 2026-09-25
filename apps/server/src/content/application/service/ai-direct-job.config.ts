@@ -12,7 +12,6 @@ export interface AiDirectJobRuntimeConfig {
   leaseHeartbeatMs: number;
   leaseMs: number;
   providerTimeoutMs: number;
-  heldRecoveryMs: number;
   retryDelaysMs: readonly [number, number, number];
 }
 
@@ -81,7 +80,6 @@ export function resolveAiDirectJobRuntimeConfig(
     leaseHeartbeatMs,
     leaseMs,
     providerTimeoutMs: positiveInt(env.AI_PROVIDER_TIMEOUT_MS, 20 * 60_000),
-    heldRecoveryMs: 30_000,
     retryDelaysMs: [5_000, 30_000, 120_000],
   };
 }
