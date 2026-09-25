@@ -4428,32 +4428,46 @@ var KidItemRuntime = (() => {
   var encoder = new TextEncoder();
   function createRunner(deps, collectorFor2) {
     return {
+      /**
+       * 연쇄(KID-354): 성공한 실행의 `result.next`가 있으면 같은 환경으로 그 kind를 이어서 돌린다(루프, 재귀 아님).
+       * 실패·거절·취소는 그 실행의 outcome으로 끝나고, 마지막 실행의 outcome을 돌려준다.
+       */
       async run(input) {
-        const collector = collectorFor2(input.kind);
-        if (!collector) {
-          return { kind: "failed", operationId: null, errorCode: RUNTIME_UNKNOWN_KIND, errorMessage: `\uC774 \uD655\uC7A5\uC774 \uBAA8\uB974\uB294 \uC2E4\uD589 \uC885\uB958\uC785\uB2C8\uB2E4: ${input.kind}` };
+        let step = input;
+        for (; ; ) {
+          const outcome = await runOne(deps, collectorFor2, step);
+          const next = outcome.kind === "finished" && outcome.operation.status === "succeeded" ? nextOperationFrom(outcome.operation.result) : null;
+          if (!next || input.signal.aborted) return outcome;
+          const { idempotencyKey: _previousKey, ...rest } = step;
+          step = { ...rest, kind: next.kind, scope: next.scope };
         }
-        let begun;
-        try {
-          begun = await deps.client.begin({
-            kind: input.kind,
-            scope: input.scope,
-            ...input.idempotencyKey !== void 0 ? { idempotencyKey: input.idempotencyKey } : {}
-          });
-        } catch (caught) {
-          const error = toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
-          const stop = stopFor(error.code, error.details);
-          if (stop.kind === "already_running") return { kind: "already_running", existing: stop.existing, message: error.message };
-          return { kind: "failed", operationId: null, errorCode: error.code, errorMessage: error.message, ...error.details ? { details: error.details } : {} };
-        }
-        if (begun.reused) {
-          const { id: operationId, kind, lockKeys, startedAt, expiresAt } = begun.operation;
-          return { kind: "already_running", existing: { operationId, kind, lockKeys, startedAt, expiresAt }, reused: true };
-        }
-        input.onBegun?.({ operationId: begun.operation.id, reused: begun.reused });
-        return execute(deps, collector, input, begun.operation, begun.token);
       }
     };
+  }
+  async function runOne(deps, collectorFor2, input) {
+    const collector = collectorFor2(input.kind);
+    if (!collector) {
+      return { kind: "failed", operationId: null, errorCode: RUNTIME_UNKNOWN_KIND, errorMessage: `\uC774 \uD655\uC7A5\uC774 \uBAA8\uB974\uB294 \uC2E4\uD589 \uC885\uB958\uC785\uB2C8\uB2E4: ${input.kind}` };
+    }
+    let begun;
+    try {
+      begun = await deps.client.begin({
+        kind: input.kind,
+        scope: input.scope,
+        ...input.idempotencyKey !== void 0 ? { idempotencyKey: input.idempotencyKey } : {}
+      });
+    } catch (caught) {
+      const error = toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
+      const stop = stopFor(error.code, error.details);
+      if (stop.kind === "already_running") return { kind: "already_running", existing: stop.existing, message: error.message };
+      return { kind: "failed", operationId: null, errorCode: error.code, errorMessage: error.message, ...error.details ? { details: error.details } : {} };
+    }
+    if (begun.reused) {
+      const { id: operationId, kind, lockKeys, startedAt, expiresAt } = begun.operation;
+      return { kind: "already_running", existing: { operationId, kind, lockKeys, startedAt, expiresAt }, reused: true };
+    }
+    input.onBegun?.({ operationId: begun.operation.id, reused: begun.reused });
+    return execute(deps, collector, input, begun.operation, begun.token);
   }
   async function execute(deps, collector, input, operation, token) {
     const operationId = operation.id;
@@ -4585,6 +4599,12 @@ var KidItemRuntime = (() => {
     const message = caught instanceof Error && caught.message ? caught.message : "\uC2E4\uD589 \uC911 \uC624\uB958\uAC00 \uB0AC\uC2B5\uB2C8\uB2E4.";
     return new RuntimeError(fallbackCode, message, null, caught);
   }
+  function nextOperationFrom(result) {
+    const next = result?.next;
+    if (next === void 0 || next === null) return null;
+    const parsed = OperationNextSchema.safeParse(next);
+    return parsed.success ? parsed.data : null;
+  }
 
   // extensions/src/entry/actions.ts
   var OPERATION_START_ACTION = "operation.start";
@@ -4626,7 +4646,7 @@ var KidItemRuntime = (() => {
           if (!input.ok) return input.response;
           const { kind, scope, idempotencyKey } = input.message;
           const controller = new AbortController();
-          let owned = null;
+          const owned = [];
           let answer;
           const begun = new Promise((resolve) => {
             answer = resolve;
@@ -4638,12 +4658,12 @@ var KidItemRuntime = (() => {
             signal: controller.signal,
             onBegun({ operationId, reused }) {
               running.set(operationId, controller);
-              owned = operationId;
+              owned.push(operationId);
               answer({ success: true, operationId, reused });
             }
           });
           const done = run.finally(() => {
-            if (owned !== null) running.delete(owned);
+            for (const id of owned) running.delete(id);
           });
           deps.keepAlive?.(done);
           return Promise.race([

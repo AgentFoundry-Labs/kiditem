@@ -72,7 +72,8 @@ export function createOperationActions(deps: OperationActionsDeps): {
         if (!input.ok) return input.response;
         const { kind, scope, idempotencyKey } = input.message;
         const controller = new AbortController();
-        let owned: string | null = null;
+        // 연쇄로 이어진 실행도 이 controller로 멈춘다 — 이어진 실행마다 취소 대상에 올린다.
+        const owned: string[] = [];
         let answer!: (response: OperationStartResponse) => void;
         const begun = new Promise<OperationStartResponse>((resolve) => { answer = resolve; });
         const run = forEnvironment(environmentId).runner.run({
@@ -82,12 +83,12 @@ export function createOperationActions(deps: OperationActionsDeps): {
           signal: controller.signal,
           onBegun({ operationId, reused }) {
             running.set(operationId, controller);
-            owned = operationId;
+            owned.push(operationId);
             answer({ success: true, operationId, reused });
           },
         });
         const done = run.finally(() => {
-          if (owned !== null) running.delete(owned);
+          for (const id of owned) running.delete(id);
         });
         deps.keepAlive?.(done);
         return Promise.race([
