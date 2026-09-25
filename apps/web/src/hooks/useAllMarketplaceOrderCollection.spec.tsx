@@ -751,12 +751,12 @@ describe('useAllMarketplaceOrderCollection — 실행 kind로 옮긴 몰(KID-359
     window.localStorage.clear();
     mocks.startOperation.mockResolvedValue({ outcome: 'started', operationId: OPERATION_ID });
     vi.mocked(apiClient.get).mockResolvedValue({
-      operations: [{
+      operation: {
         id: OPERATION_ID, kind: 'orders.mall_orders', status: 'succeeded', lockKeys: [],
         plan: { mallKey: 'kidkids' }, progress: null, result: { rowCount: 2, mallKey: 'kidkids' }, window: null,
         errorCode: null, errorMessage: null, startedAt: '2026-09-26T00:00:00.000Z', finishedAt: '2026-09-26T00:00:03.000Z',
         expiresAt: '2026-09-26T00:30:00.000Z', attempts: 1, maxAttempts: 1, scheduledFor: null,
-      }],
+      },
     });
     vi.mocked(apiClient.fetchRaw).mockResolvedValue(new Response('xls', {
       status: 201,

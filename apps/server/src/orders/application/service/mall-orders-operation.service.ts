@@ -92,7 +92,14 @@ export class MallOrdersOperationService {
     const conversion = capture.captured === 0 ? null : await this.convert(plan, capture.source);
     const rowCount = conversion ? orderCollectionOrderCount(conversion) ?? 0 : 0;
     const coverage = mallOrdersCoverage(plan);
-    return MallOrdersResultSchema.parse({ rowCount, mallKey: plan.mallKey, captured: capture.captured, ...(coverage ? { coverage } : {}) });
+    return MallOrdersResultSchema.parse({
+      rowCount,
+      mallKey: plan.mallKey,
+      captured: capture.captured,
+      ...(coverage ? { coverage } : {}),
+      ...(capture.masked !== undefined ? { masked: capture.masked } : {}),
+      ...(capture.orderNumbers ? { orderNumbers: capture.orderNumbers } : {}),
+    });
   }
 
   /**

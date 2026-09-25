@@ -166,19 +166,19 @@ export async function collectMallOrderOperation({
     ...(signal ? { signal } : {}),
     ...(sleep ? { sleep } : {}),
   });
-  const result = MallOrdersResultSchema.safeParse(operation.result);
+  const parsed = MallOrdersResultSchema.safeParse(operation.result);
+  const result = parsed.success ? parsed.data : null;
+  const masked = result?.masked === true;
+  // 아이스크림몰은 원본 행이 있으면(고른 행이 없어도) 송장 업로드용 배송 색인을 만든다.
+  const continuation = account.key === ICECREAM_MALL_KEY ? await readOrderOperationContinuation(operationId) : null;
+  if (continuation && continuation.originalRows.length > 0) saveIcecreamDeliveryIndex(continuation.headers, continuation.originalRows);
   // 캡처가 비었으면 변환할 것이 없다. 캡처가 있어도 변환기가 신규 주문이 없다고 하면 서버가 파일 없이(204) 답한다.
-  const converted = result.success && result.data.captured === 0
-    ? null
-    : await regenerateOrderOperationSource(operationId, { download: false });
+  const converted = result?.captured === 0 ? null : await regenerateOrderOperationSource(operationId, { download: false });
   if (!converted || (converted.outputRows ?? 0) === 0) {
     toastNoNewOrders(account.name);
-    return { rowCount: 0, masked: false, date: collectionDate };
+    return { rowCount: 0, masked, date: collectionDate };
   }
-  const collectedRows = converted.sourceRows ?? (result.success ? result.data.rowCount : 0);
-  // 아이스크림몰은 원본 행으로 송장 업로드용 배송 색인을 만들고, 이번에 고른 행을 다음 자동 선택의 본 행으로 적는다.
-  const continuation = account.key === ICECREAM_MALL_KEY ? await readOrderOperationContinuation(operationId) : null;
-  if (continuation) saveIcecreamDeliveryIndex(continuation.headers, continuation.originalRows);
+  const collectedRows = converted.sourceRows ?? result?.rowCount ?? 0;
   const convertedAt = Date.now();
   addGeneratedFile({
     ...converted,
@@ -190,7 +190,10 @@ export async function collectMallOrderOperation({
     collectedRows,
     mallKey: account.key,
     mallName: account.name,
+    // 일일 건수·중복 판정이 쓰는 주문번호(서버가 고른 행에서 뽑은 것, 최대 2,000개).
+    ...(result?.orderNumbers ? { orderNumbers: result.orderNumbers } : {}),
   });
-  if (continuation) addSeenOrderKeys(account.key, continuation.selectedRowKeys);
-  return { rowCount: collectedRows, masked: false, date: collectionDate };
+  // 이번에 고른 행을 다음 자동 선택의 본 행으로 적는다.
+  if (continuation && continuation.selectedRowKeys.length > 0) addSeenOrderKeys(account.key, continuation.selectedRowKeys);
+  return { rowCount: collectedRows, masked, date: collectionDate };
 }

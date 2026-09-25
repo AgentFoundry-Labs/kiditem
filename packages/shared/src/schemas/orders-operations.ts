@@ -196,6 +196,8 @@ export type SellpiaShipmentTrackingScope = z.infer<typeof SellpiaShipmentTrackin
 
 export const MallOrdersCollectionModeSchema = z.enum(['browser', 'manual-upload']);
 export const MallOrdersSelectionModeSchema = z.enum(['manual', 'automatic']);
+/** 몰 주문 result에 싣는 주문번호 수의 상한. */
+export const MALL_ORDERS_ORDER_NUMBERS_MAX = 2_000;
 /** 옛 attempt plan과 같은 상한: 본 행 키 최대 8,000개, 키 하나 2,000자. */
 export const MALL_ORDERS_SEEN_ROW_KEYS_MAX = 8_000;
 export const MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH = 2_000;
@@ -256,5 +258,9 @@ export const MallOrdersResultSchema = OrdersCaptureResultSchema.extend({
    * 빈 날 포함). 주문 사실 리더가 몰 적용 범위로 읽는다(옛 run의 coverageStartDate/EndDate 자리).
    */
   coverage: z.object({ startDate: isoDay, endDate: isoDay }).strict().optional(),
+  /** 화면 표에 개인정보가 가려진 칸이 있었다(아이스크림몰) — 웹이 운영자에게 알린다. */
+  masked: z.boolean().optional(),
+  /** 이번 수집(고른 행)의 서로 다른 주문번호, 최대 2,000개 — 웹의 생성 파일 항목(일일 건수·중복 판정)이 쓴다. */
+  orderNumbers: z.array(z.string().min(1).max(200)).max(MALL_ORDERS_ORDER_NUMBERS_MAX).optional(),
 });
 export type MallOrdersResult = z.infer<typeof MallOrdersResultSchema>;

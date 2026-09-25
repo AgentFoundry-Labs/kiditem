@@ -4,6 +4,7 @@ import {
   isMallOrderOperationMall,
   MALL_ORDERS_CHUNK_KIND,
   MALL_ORDERS_CONTINUATION_CHUNK_KIND,
+  MALL_ORDERS_ORDER_NUMBERS_MAX,
   MallOrdersCollectionModeSchema,
   MallOrdersScopeSchema,
   MallOrdersSelectionModeSchema,
@@ -32,6 +33,21 @@ export type MallOrdersPlan = z.infer<typeof MallOrdersPlanSchema> & { mallKey: M
 export interface MallOrdersCapture {
   source: { bytes: Buffer; fileName: string | null; contentType: string };
   captured: number;
+  /** 고른 행의 서로 다른 주문번호(알 수 있는 몰만). */
+  orderNumbers?: string[];
+  /** 화면 표에 개인정보가 가려진 칸이 있었다(아이스크림몰). */
+  masked?: boolean;
+}
+
+/** 서로 다른 주문번호, 처음 나온 순서로, 상한까지. */
+function distinctOrderNumbers(values: readonly unknown[]): string[] {
+  const out = new Set<string>();
+  for (const value of values) {
+    const text = typeof value === 'string' || typeof value === 'number' ? String(value).trim() : '';
+    if (text && text.length <= 200) out.add(text);
+    if (out.size >= MALL_ORDERS_ORDER_NUMBERS_MAX) break;
+  }
+  return [...out];
 }
 
 /**
@@ -47,14 +63,16 @@ interface MallCaptureRule {
 const OrderObjectSchema = z.record(z.string(), z.unknown());
 
 /** 목록 하나를 JSON 본문의 한 칸으로 보관하는 몰(키드키즈 `orders`, 아트공구 `rows`). 옛 서버 변환 본문과 같다. */
-function jsonList(field: string, item: z.ZodTypeAny): MallCaptureRule {
+function jsonList(field: string, item: z.ZodTypeAny, orderNumberField: string): MallCaptureRule {
   return {
     assemble({ rows }) {
       const parsed = item.array().safeParse(rows);
       if (!parsed.success) throw invalid('invalid_order_rows', { errors: issues(parsed.error) });
+      const items = parsed.data as Array<Record<string, unknown>>;
       return {
-        source: { bytes: Buffer.from(canonicalOwnerInputJson({ [field]: parsed.data }), 'utf8'), fileName: null, contentType: 'application/json' },
-        captured: parsed.data.length,
+        source: { bytes: Buffer.from(canonicalOwnerInputJson({ [field]: items }), 'utf8'), fileName: null, contentType: 'application/json' },
+        captured: items.length,
+        orderNumbers: distinctOrderNumbers(items.map((entry) => entry[orderNumberField])),
       };
     },
   };
@@ -93,7 +111,7 @@ function filePart(contentType: string): MallCaptureRule {
 /** 아이스크림몰 행 하나를 가리는 키 — 칸마다 공백을 걷어 U+001F로 잇는다(웹 `order-detect.ts`의 본 행 키와 같다). */
 const ICECREAM_ROW_KEY_SEPARATOR = '\u001f';
 const IcecreamRowSchema = z.array(z.string());
-const IcecreamContinuationSchema = z.object({ headers: z.array(z.string()).min(1) }).strict();
+const IcecreamContinuationSchema = z.object({ headers: z.array(z.string()).min(1), masked: z.boolean().optional() }).strict();
 
 export function icecreamRowKey(row: readonly string[]): string {
   return row.map((cell) => String(cell ?? '').trim()).join(ICECREAM_ROW_KEY_SEPARATOR);
@@ -110,7 +128,8 @@ const icecreamRule: MallCaptureRule = {
     const parsed = IcecreamRowSchema.array().safeParse(rows);
     if (!parsed.success) throw invalid('invalid_order_rows', { errors: issues(parsed.error) });
     const originalRows = parsed.data;
-    const headers = (continuation as z.infer<typeof IcecreamContinuationSchema> | null)?.headers ?? null;
+    const stored = continuation as z.infer<typeof IcecreamContinuationSchema> | null;
+    const headers = stored?.headers ?? null;
     if (originalRows.length > 0 && !headers) throw invalid('continuation_missing', { mallKey: plan.mallKey });
     const seen = new Set(plan.seenRowKeys ?? []);
     const automatic = plan.selectionMode === 'automatic';
@@ -126,9 +145,12 @@ const icecreamRule: MallCaptureRule = {
       selectedRows: selected.map((entry) => entry.row),
       selectedRowKeys: selected.map((entry) => entry.key),
     };
+    const orderNumberIndex = headers?.indexOf('주문번호') ?? -1;
     return {
       source: { bytes: Buffer.from(canonicalOwnerInputJson(payload), 'utf8'), fileName: null, contentType: 'application/json' },
       captured: selected.length,
+      orderNumbers: orderNumberIndex < 0 ? [] : distinctOrderNumbers(selected.map((entry) => entry.row[orderNumberIndex])),
+      masked: stored?.masked === true,
     };
   },
 };
@@ -176,8 +198,8 @@ export function icecreamContinuation(mallKey: string, bytes: Buffer): IcecreamCo
 }
 
 const MALL_CAPTURE_RULES: Partial<Record<MallOrderOperationMall, MallCaptureRule>> = {
-  kidkids: jsonList('orders', OrderObjectSchema.and(z.object({ items: z.array(z.unknown()) }))),
-  art09: jsonList('rows', OrderObjectSchema.and(z.object({ orderId: z.string() }))),
+  kidkids: jsonList('orders', OrderObjectSchema.and(z.object({ items: z.array(z.unknown()) })), 'om'),
+  art09: jsonList('rows', OrderObjectSchema.and(z.object({ orderId: z.string() })), 'orderId'),
   domeggook: filePart('text/csv'),
   'icecream-mall': icecreamRule,
 };

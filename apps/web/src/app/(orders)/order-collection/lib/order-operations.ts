@@ -2,6 +2,7 @@
 
 import {
   isOperationTerminal,
+  OperationFinishResponseSchema,
   OperationListResponseSchema,
   type OperationKind,
   type OperationListResponse,
@@ -32,6 +33,11 @@ const WAIT_LIMIT_MS = 190_000;
 
 export function orderOperationsQueryKey(kind: OperationKind): QueryKey {
   return [...queryKeys.orders.all, 'operations', kind];
+}
+
+/** 실행 하나(`GET /api/operations/:id`). 기다리는 화면이 목록 대신 읽는다. */
+export async function readOrderOperation(operationId: string): Promise<OperationView> {
+  return OperationFinishResponseSchema.parse(await apiClient.get(`/api/operations/${encodeURIComponent(operationId)}`)).operation;
 }
 
 export async function readOrderOperations(kind: OperationKind): Promise<OperationListResponse> {
@@ -70,7 +76,7 @@ export class OrderOperationFailure extends Error {
 }
 
 /**
- * 실행이 끝날 때까지 reader를 2초마다 읽는다. 성공이면 그 실행, 실패·중단이면 운영자 문장(`OrderOperationFailure`),
+ * 실행이 끝날 때까지 그 실행 하나(`GET /api/operations/:id`)를 2초마다 읽는다 — 끝나면 더 읽지 않는다. 성공이면 그 실행, 실패·중단이면 운영자 문장(`OrderOperationFailure`),
  * 상한을 넘기면 아직 끝나지 않았다는 문장을 던진다(실행은 확장에서 계속되고 화면의 공용 컨트롤이 이어서 보여 준다).
  * `signal`이 끊기면 기다리기만 멈춘다(실행 중단은 컨트롤의 몫).
  */
@@ -90,8 +96,9 @@ export async function waitForOrderOperation(
   const deadline = now() + (options.timeoutMs ?? WAIT_LIMIT_MS);
   for (;;) {
     options.signal?.throwIfAborted();
-    const current = (await readOrderOperations(kind)).operations.find((operation) => operation.id === operationId);
-    if (current && isOperationTerminal(current.status)) {
+    const current = await readOrderOperation(operationId);
+    if (current.kind !== kind) throw new Error('다른 종류의 실행입니다.');
+    if (isOperationTerminal(current.status)) {
       if (current.status === 'succeeded') return current;
       throw new OrderOperationFailure(current, attemptFailureText(current, options.source ?? null) ?? '실행이 실패했습니다.');
     }

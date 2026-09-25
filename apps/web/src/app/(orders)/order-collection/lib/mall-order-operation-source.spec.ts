@@ -142,7 +142,7 @@ describe('collectMallOrderOperation — 실행이 끝나면 실행 id로 변환�
   const sleep = async () => undefined;
 
   it('성공한 실행을 실행 id로 다시 변환하고(본문 operationId), 수집 행 수를 생성 파일에 적는다', async () => {
-    vi.mocked(apiClient.get).mockResolvedValueOnce({ operations: [operation(OPERATION_ID, 'succeeded')] });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(OPERATION_ID, 'succeeded') });
     vi.mocked(apiClient.fetchRaw).mockResolvedValue(new Response('xls', {
       status: 201,
       headers: {
@@ -174,9 +174,8 @@ describe('collectMallOrderOperation — 실행이 끝나면 실행 id로 변환�
 
   it('아이스크림몰은 변환 뒤 continuation으로 배송 색인을 만들고 고른 행을 본 행으로 적는다', async () => {
     const icecream = { ...account, key: 'icecream-mall', name: '아이스크림몰' } as OrderCollectionMallAccount;
-    vi.mocked(apiClient.get).mockResolvedValueOnce({ operations: [operation(OPERATION_ID, 'succeeded', { plan: { mallKey: 'icecream-mall' }, result: { rowCount: 1, mallKey: 'icecream-mall', captured: 1 } })] });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(OPERATION_ID, 'succeeded', { plan: { mallKey: 'icecream-mall' }, result: { rowCount: 1, mallKey: 'icecream-mall', captured: 1, masked: true, orderNumbers: ['order-2'] } }) });
     vi.mocked(apiClient.fetchRaw)
-      .mockResolvedValueOnce(new Response('xls', { status: 201, headers: { 'X-Order-Collection-Source-Rows': '1', 'X-Order-Collection-Output-Rows': '2' } }))
       .mockResolvedValueOnce(Response.json({
         mallKey: 'icecream-mall',
         headers: ['주문번호', '배송번호', '배송순번'],
@@ -185,16 +184,39 @@ describe('collectMallOrderOperation — 실행이 끝나면 실행 id로 변환�
         selectedRowKeys: ['order-2\u001fdelivery-2\u001f1'],
         selectionMode: 'automatic',
         sourceRows: 1,
-      }));
-    await expect(collectMallOrderOperation({ account: icecream, operationId: OPERATION_ID, collectionDate: '2026-09-10', addGeneratedFile: vi.fn(), sleep }))
-      .resolves.toEqual({ rowCount: 1, masked: false, date: '2026-09-10' });
-    expect(apiClient.fetchRaw).toHaveBeenLastCalledWith(`/api/orders/collection/attempts/${OPERATION_ID}/continuation?operationId=${OPERATION_ID}`, { method: 'GET' });
+      }))
+      .mockResolvedValueOnce(new Response('xls', { status: 201, headers: { 'X-Order-Collection-Source-Rows': '1', 'X-Order-Collection-Output-Rows': '2' } }));
+    const addGeneratedFile = vi.fn();
+    // 마스킹 표시는 결과에 실려 화면 안내("일부 개인정보가 마스킹")로 이어진다(리뷰 S2), 주문번호는 생성 파일 항목으로(S3).
+    await expect(collectMallOrderOperation({ account: icecream, operationId: OPERATION_ID, collectionDate: '2026-09-10', addGeneratedFile, sleep }))
+      .resolves.toEqual({ rowCount: 1, masked: true, date: '2026-09-10' });
+    expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({ orderNumbers: ['order-2'] }));
+    expect(apiClient.fetchRaw).toHaveBeenNthCalledWith(1, `/api/orders/collection/attempts/${OPERATION_ID}/continuation?operationId=${OPERATION_ID}`, { method: 'GET' });
     expect(saveIcecreamDeliveryIndex).toHaveBeenCalledWith(['주문번호', '배송번호', '배송순번'], [['order-1', 'delivery-1', '1'], ['order-2', 'delivery-2', '1']]);
     expect(addSeenOrderKeys).toHaveBeenCalledWith('icecream-mall', ['order-2\u001fdelivery-2\u001f1']);
   });
 
+  it('아이스크림몰은 고른 행이 없어도(자동 선택에 새 행 없음) 원본 행이 있으면 배송 색인을 만든다(리뷰 S4)', async () => {
+    const icecream = { ...account, key: 'icecream-mall', name: '아이스크림몰' } as OrderCollectionMallAccount;
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(OPERATION_ID, 'succeeded', { plan: { mallKey: 'icecream-mall' }, result: { rowCount: 0, mallKey: 'icecream-mall', captured: 0, masked: false, orderNumbers: [] } }) });
+    vi.mocked(apiClient.fetchRaw).mockResolvedValueOnce(Response.json({
+      mallKey: 'icecream-mall',
+      headers: ['주문번호', '배송번호', '배송순번'],
+      originalRows: [['order-1', 'delivery-1', '1']],
+      selectedRows: [],
+      selectedRowKeys: [],
+      selectionMode: 'automatic',
+      sourceRows: 0,
+    }));
+    await expect(collectMallOrderOperation({ account: icecream, operationId: OPERATION_ID, collectionDate: '2026-09-10', addGeneratedFile: vi.fn(), sleep }))
+      .resolves.toEqual({ rowCount: 0, masked: false, date: '2026-09-10' });
+    expect(apiClient.fetchRaw).toHaveBeenCalledTimes(1);
+    expect(saveIcecreamDeliveryIndex).toHaveBeenCalledWith(['주문번호', '배송번호', '배송순번'], [['order-1', 'delivery-1', '1']]);
+    expect(addSeenOrderKeys).not.toHaveBeenCalled();
+  });
+
   it('주문이 없던 실행은 변환하지 않고 0건, 로그인에 막힌 실행은 로그인 필요로 분류되는 실패', async () => {
-    vi.mocked(apiClient.get).mockResolvedValueOnce({ operations: [operation(OPERATION_ID, 'succeeded', { result: { rowCount: 0, mallKey: 'kidkids', captured: 0 } })] });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(OPERATION_ID, 'succeeded', { result: { rowCount: 0, mallKey: 'kidkids', captured: 0 } }) });
     const addGeneratedFile = vi.fn();
     await expect(collectMallOrderOperation({ account, operationId: OPERATION_ID, collectionDate: '2026-09-26', addGeneratedFile, sleep }))
       .resolves.toEqual({ rowCount: 0, masked: false, date: '2026-09-26' });
@@ -202,15 +224,13 @@ describe('collectMallOrderOperation — 실행이 끝나면 실행 id로 변환�
     expect(addGeneratedFile).not.toHaveBeenCalled();
 
     // 캡처는 있는데 변환기가 신규 주문이 없다고 한 날: 서버가 204로 답하고 0건이다.
-    vi.mocked(apiClient.get).mockResolvedValueOnce({ operations: [operation(OPERATION_ID, 'succeeded', { result: { rowCount: 0, mallKey: 'kidkids', captured: 4 } })] });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(OPERATION_ID, 'succeeded', { result: { rowCount: 0, mallKey: 'kidkids', captured: 4 } }) });
     vi.mocked(apiClient.fetchRaw).mockResolvedValueOnce(new Response(null, { status: 204, headers: { 'X-Order-Collection-Output-Rows': '0' } }));
     await expect(collectMallOrderOperation({ account, operationId: OPERATION_ID, collectionDate: '2026-09-26', addGeneratedFile, sleep }))
       .resolves.toEqual({ rowCount: 0, masked: false, date: '2026-09-26' });
     expect(addGeneratedFile).not.toHaveBeenCalled();
 
-    vi.mocked(apiClient.get).mockResolvedValueOnce({
-      operations: [operation(OPERATION_ID, 'failed', { errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '키드키즈 로그인이 필요합니다.' })],
-    });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(OPERATION_ID, 'failed', { errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '키드키즈 로그인이 필요합니다.' }) });
     await expect(collectMallOrderOperation({ account, operationId: OPERATION_ID, collectionDate: '2026-09-26', addGeneratedFile, sleep }))
       .rejects.toMatchObject({ errorCode: 'login_required', message: '키드키즈 로그인이 필요합니다.' });
   });

@@ -53,28 +53,27 @@ describe('order operations (KID-359 H3)', () => {
     await expect(startOrderOperation(KIND, {})).rejects.toThrow('같은 실행이 이미 진행 중입니다.');
   });
 
-  it('끝날 때까지 reader를 읽어 그 실행의 마지막 모습을 돌려준다(다른 실행은 보지 않는다)', async () => {
+  it('끝날 때까지 그 실행 하나(GET /api/operations/:id)를 2초마다 읽어 마지막 모습을 돌려준다', async () => {
     vi.mocked(apiClient.get)
-      .mockResolvedValueOnce({ operations: [operation(OTHER, 'succeeded'), operation(ID, 'executing')] })
-      .mockResolvedValueOnce({ operations: [operation(ID, 'succeeded')] });
+      .mockResolvedValueOnce({ operation: operation(ID, 'executing') })
+      .mockResolvedValueOnce({ operation: operation(ID, 'succeeded') });
     const sleeps: number[] = [];
     const finished = await waitForOrderOperation(KIND, ID, { sleep: async (ms) => { sleeps.push(ms); }, timeoutMs: 60_000 });
     expect(finished).toMatchObject({ id: ID, status: 'succeeded', result: { rowCount: 2 } });
-    expect(apiClient.get).toHaveBeenCalledWith(`/api/operations?kinds=${KIND}&limit=20`);
+    expect(apiClient.get).toHaveBeenCalledWith(`/api/operations/${ID}`);
+    expect(apiClient.get).toHaveBeenCalledTimes(2);
     expect(sleeps).toEqual([2_000]);
   });
 
   it('실패·중단은 운영자 문장으로 던지고, 상한을 넘기면 아직 끝나지 않았다고 알린다', async () => {
-    vi.mocked(apiClient.get).mockResolvedValueOnce({
-      operations: [operation(ID, 'failed', { errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '셀피아 로그인이 필요합니다. 열려 있는 셀피아 탭에서 로그인한 뒤 다시 조회해 주세요.' })],
-    });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(ID, 'failed', { errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '셀피아 로그인이 필요합니다. 열려 있는 셀피아 탭에서 로그인한 뒤 다시 조회해 주세요.' }) });
     await expect(waitForOrderOperation(KIND, ID, { sleep: async () => undefined, timeoutMs: 60_000 })).rejects.toThrow('셀피아 로그인이 필요합니다');
 
-    vi.mocked(apiClient.get).mockResolvedValueOnce({ operations: [operation(ID, 'cancelled', { errorCode: 'USER_CANCELLED' })] });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(ID, 'cancelled', { errorCode: 'USER_CANCELLED' }) });
     await expect(waitForOrderOperation(KIND, ID, { sleep: async () => undefined, timeoutMs: 60_000 })).rejects.toThrow('중단');
 
     let now = 0;
-    vi.mocked(apiClient.get).mockResolvedValue({ operations: [operation(ID, 'executing')] });
+    vi.mocked(apiClient.get).mockResolvedValue({ operation: operation(ID, 'executing') });
     await expect(waitForOrderOperation(KIND, ID, { sleep: async (ms) => { now += ms; }, now: () => now, timeoutMs: 5_000 }))
       .rejects.toThrow('아직 끝나지 않았습니다');
   });

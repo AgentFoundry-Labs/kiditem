@@ -151,7 +151,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     ]);
     const finished = await harness.finish(run).expect(200);
     // 주문 수 = 변환 출력 줄 − 상품 줄(주문마다 택배비 한 줄) — 사장님 2026-09-21·22 규칙.
-    expect(finished.body.operation).toMatchObject({ status: 'succeeded', result: { rowCount: 2, mallKey: 'kidkids', captured: 2 } });
+    expect(finished.body.operation).toMatchObject({ status: 'succeeded', result: { rowCount: 2, mallKey: 'kidkids', captured: 2, orderNumbers: ['K-1', 'K-2'] } });
 
     const artifacts = await prisma.orderCollectionArtifact.findMany({ where: { organizationId: ORG } });
     expect(artifacts).toHaveLength(1);
@@ -257,7 +257,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     const finished = await harness.finish(run).expect(200);
     // 아트공구 CSV는 주문마다 택배비 줄이 없어 출력 줄 = 상품 줄 — 셈법(orderCollectionOrderCount)이 0을 낸다(옛 경로와 같다,
     // 파생 보고). 캡처는 있으므로(captured 2) 변환 파일은 나온다.
-    expect(finished.body.operation.result).toEqual({ rowCount: 0, mallKey: 'art09', captured: 2 });
+    expect(finished.body.operation.result).toEqual({ rowCount: 0, mallKey: 'art09', captured: 2, orderNumbers: ['20260926-0000001'] });
     const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
     expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ rows });
     const converted = await convert('art09/convert', run.operation.id).expect(201);
@@ -298,10 +298,10 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     }));
     await harness.put(run, [
       { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [seen, fresh] },
-      { chunkKind: 'continuation', payload: [{ headers }] },
+      { chunkKind: 'continuation', payload: [{ headers, masked: true }] },
     ]);
     const finished = await harness.finish(run).expect(200);
-    expect(finished.body.operation.result).toEqual({ rowCount: 1, mallKey: 'icecream-mall', captured: 1 });
+    expect(finished.body.operation.result).toEqual({ rowCount: 1, mallKey: 'icecream-mall', captured: 1, masked: true, orderNumbers: ['20260926M0002'] });
     const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
     expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({
       headers,
@@ -337,7 +337,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
       { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [seen] },
       { chunkKind: 'continuation', payload: [{ headers }] },
     ]);
-    expect((await harness.finish(nothingNew).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: 'icecream-mall', captured: 0 });
+    expect((await harness.finish(nothingNew).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: 'icecream-mall', captured: 0, masked: false, orderNumbers: [] });
   });
 
   it('continuation은 성공한 아이스크림몰 실행만 — 다른 몰은 VALIDATION_FAILED, 끝나지 않은·다른 조직 실행은 OPERATION_NOT_FOUND', async () => {
