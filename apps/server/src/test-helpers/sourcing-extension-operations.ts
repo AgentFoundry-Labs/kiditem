@@ -24,12 +24,16 @@ export interface SourcingOperationChunk {
  * 확장 runner가 하는 순서 그대로: begin → 청크(종류별 순번) → finish(succeeded), finish가 거절되면
  * 그 코드로 finish(failed). Wing 계정 capability 자리는 이 조직의 쿠팡 계정 행을 본다.
  */
-export function sourcingExtensionOperations(prisma: PrismaClient, drafts: SalesProductDraftPort) {
+export function sourcingExtensionOperations(
+  prisma: PrismaClient,
+  drafts: SalesProductDraftPort,
+  options: { alerts?: SourceFailureAlerts } = {},
+) {
   const db = prisma as unknown as PrismaService;
   const trends = new TrendCollectService({} as never, {} as never, {} as never, {} as never,
     new TrendCollectionRepositoryAdapter(db), {} as never);
   const service = new SourcingExtensionOperationService(
-    new SourcingOperationLedgerRepositoryAdapter(db, new SourceFailureAlerts(db), drafts),
+    new SourcingOperationLedgerRepositoryAdapter(db, options.alerts ?? new SourceFailureAlerts(db), drafts),
     { isActiveCoupangAccount: async (organizationId, id) =>
       (await prisma.channelAccount.count({ where: { id, organizationId, channel: 'coupang' } })) === 1 },
     trends,
@@ -38,14 +42,17 @@ export function sourcingExtensionOperations(prisma: PrismaClient, drafts: SalesP
   for (const Owner of SOURCING_EXTENSION_OPERATION_OWNERS) registry.register(new Owner(service));
   const operations = new OperationService(new OperationRepositoryAdapter(db), registry);
 
-  async function run(
+  /** begin만 한다(같은 대상의 두 번째 begin이 막히는지 볼 때). */
+  function start(organizationId: string, kind: string, scope: Record<string, unknown>, userId: string | null = TEST_USER_ID) {
+    return operations.begin(organizationId, { kind, scope }, { userId });
+  }
+
+  /** 시작한 실행에 청크를 싣고 finish(succeeded); 거절되면 그 코드로 finish(failed). */
+  async function complete(
     organizationId: string,
-    kind: string,
-    scope: Record<string, unknown>,
+    begun: Awaited<ReturnType<typeof start>>,
     chunks: SourcingOperationChunk[] | ((plan: Record<string, unknown>) => SourcingOperationChunk[]),
-    userId: string | null = TEST_USER_ID,
   ): Promise<{ operation: OperationView; refusedWith: string | null }> {
-    const begun = await operations.begin(organizationId, { kind, scope }, { userId });
     const sequences = new Map<string, number>();
     for (const chunk of typeof chunks === 'function' ? chunks(begun.operation.plan ?? {}) : chunks) {
       const sequence = (sequences.get(chunk.chunkKind) ?? 0) + 1;
@@ -70,5 +77,15 @@ export function sourcingExtensionOperations(prisma: PrismaClient, drafts: SalesP
     }
   }
 
-  return { operations, run };
+  async function run(
+    organizationId: string,
+    kind: string,
+    scope: Record<string, unknown>,
+    chunks: SourcingOperationChunk[] | ((plan: Record<string, unknown>) => SourcingOperationChunk[]),
+    userId: string | null = TEST_USER_ID,
+  ): Promise<{ operation: OperationView; refusedWith: string | null }> {
+    return complete(organizationId, await start(organizationId, kind, scope, userId), chunks);
+  }
+
+  return { operations, run, start, complete };
 }
