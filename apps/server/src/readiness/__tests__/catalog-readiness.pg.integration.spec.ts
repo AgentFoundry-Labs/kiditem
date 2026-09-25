@@ -71,10 +71,17 @@ describe('Coupang catalog readiness count over PostgreSQL', () => {
     expect(beforeDetails?.basis).toMatchObject({ observedAt: null });
 
     const scope = (list.result as { next: { scope: { channelAccountId: string; detailTargetProductIds: string[]; absentProductIds: string[] } } }).next.scope;
+    expect(scope).toMatchObject({ via: 'list' });
     const details = await wing.runDetails(scope, []);
     const products = (await readiness().getStatus(ORG)).checks.find((check) => check.key === 'coupang_products');
     expect(products).toMatchObject({ count: 2, detail: '쿠팡 상품 2건 수집됨' });
     expect(products?.basis).toMatchObject({ observedAt: details.finishedAt });
+
+    // 상품 하나 다시 받기(manual)는 동기화가 아니다 — 끝나도 신선도는 그대로다.
+    const manual = await wing.runDetails({ channelAccountId: accountId, detailTargetProductIds: ['P1'], absentProductIds: [] }, []);
+    expect(manual).toMatchObject({ status: 'succeeded', plan: { via: 'manual' } });
+    const after = (await readiness().getStatus(ORG)).checks.find((check) => check.key === 'coupang_products');
+    expect(after?.basis).toMatchObject({ observedAt: details.finishedAt });
   });
 
   function catalogRun(data: {

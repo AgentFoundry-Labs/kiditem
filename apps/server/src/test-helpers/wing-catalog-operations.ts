@@ -100,7 +100,7 @@ export function makeWingCatalogOperations(
     },
     /** 상세 kind: scope 그대로 begin, 상세·삭제 확인 청크를 보내고 finish(또는 failed). */
     runDetails(
-      scope: { channelAccountId: string; detailTargetProductIds: string[]; absentProductIds: string[] },
+      scope: { channelAccountId: string; detailTargetProductIds: string[]; absentProductIds: string[]; via?: 'list' | 'manual' },
       details: CoupangCatalogDetailProductV1[],
       confirmations: WingCatalogDeletionConfirmationItem[] = [],
       options: { outcome?: 'succeeded' | 'failed' } = {},

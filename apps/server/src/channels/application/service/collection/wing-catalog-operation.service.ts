@@ -127,7 +127,7 @@ export class WingCatalogOperationService implements WingCatalogOperationPort {
     const next = detailTargetProductIds.length > 0 || absentProductIds.length > 0
       ? {
         kind: WING_CATALOG_DETAILS_KIND,
-        scope: { channelAccountId: plan.channelAccountId, detailTargetProductIds, absentProductIds },
+        scope: { channelAccountId: plan.channelAccountId, detailTargetProductIds, absentProductIds, via: 'list' as const },
       }
       : null;
     return WingCatalogListResultSchema.parse({
@@ -159,6 +159,7 @@ export class WingCatalogOperationService implements WingCatalogOperationPort {
         channelAccountId,
         detailTargetProductIds: [...new Set(parsed.detailTargetProductIds)],
         absentProductIds: [...new Set(parsed.absentProductIds)],
+        via: parsed.via,
         startedBy: context.userId,
       },
     };
@@ -243,9 +244,9 @@ function assertUnique(ids: readonly string[]): void {
   }
 }
 
-function parseScope<T>(schema: ZodType<T>, scope: unknown): T {
+function parseScope<S extends z.ZodTypeAny>(schema: S, scope: unknown): z.output<S> {
   const parsed = schema.safeParse(scope);
-  if (parsed.success) return parsed.data;
+  if (parsed.success) return parsed.data as z.output<S>;
   throw new KiditemInvalidValueError('VALIDATION_FAILED', {
     details: {
       reason: 'catalog_scope_invalid',

@@ -13,7 +13,7 @@ import type {
 const RECENT_DETAILS_SCAN = 50;
 
 /**
- * 카탈로그 신선도 = 그 계정의 `channels.wing_catalog_details` 최신 성공 시각(KID-354). 실행 표는 실행 계약의
+ * 카탈로그 신선도 = 그 계정의 동기화 연쇄로 들어온 `channels.wing_catalog_details` 최신 성공 시각(KID-354). 실행 표는 실행 계약의
  * reader(`OperationPort.list`)로만 읽는다 — owner가 실행 행을 직접 만지지 않는다(ADR-0025). 끝난 실행은 잠금을
  * 놓으므로 계정은 plan의 `channelAccountId`로 가린다.
  */
@@ -28,7 +28,8 @@ export class ChannelCatalogFreshnessAdapter implements ChannelCatalogFreshnessPo
       limit: RECENT_DETAILS_SCAN,
     });
     const accountId = input.channelAccountId.toLowerCase();
-    const latest = operations.find((operation) => operation.plan?.channelAccountId === accountId);
+    // 동기화 연쇄(`via: 'list'`)로 들어온 상세만 센다 — 상품 하나 다시 받기는 카탈로그 전체의 신선도가 아니다.
+    const latest = operations.find((operation) => operation.plan?.channelAccountId === accountId && operation.plan?.via === 'list');
     return { syncedAt: latest?.finishedAt ? new Date(latest.finishedAt).toISOString() : null };
   }
 }

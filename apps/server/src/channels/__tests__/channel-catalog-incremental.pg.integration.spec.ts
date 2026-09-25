@@ -374,7 +374,7 @@ describe('Wing catalog incremental browser sync over the operation contract (PG 
     })).id;
   });
 
-  type DetailsScope = { channelAccountId: string; detailTargetProductIds: string[]; absentProductIds: string[] };
+  type DetailsScope = { channelAccountId: string; detailTargetProductIds: string[]; absentProductIds: string[]; via?: 'list' | 'manual' };
 
   /** 목록 kind를 끝까지 돌리고 result(상세 계획·next)를 돌려준다. */
   async function runList(products: readonly SyncProduct[], optionCount = 1) {
@@ -419,7 +419,7 @@ describe('Wing catalog incremental browser sync over the operation contract (PG 
       absentProductIds: [],
       next: {
         kind: 'channels.wing_catalog_details',
-        scope: { channelAccountId, detailTargetProductIds: ['P1', 'P2', 'P3'], absentProductIds: [] },
+        scope: { channelAccountId, detailTargetProductIds: ['P1', 'P2', 'P3'], absentProductIds: [], via: 'list' },
       },
     });
     expect(initial.details).toMatchObject({ status: 'succeeded', lockKeys: [] });

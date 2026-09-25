@@ -887,6 +887,11 @@ export const WingCatalogDetailsScopeSchema = z.object({
   channelAccountId: z.string().uuid(),
   detailTargetProductIds: WingCatalogProductIdsSchema,
   absentProductIds: WingCatalogProductIdsSchema,
+  /**
+   * 어디서 시작했나: `list`는 목록 kind의 `result.next`(동기화 연쇄), `manual`은 운영자가 직접 시작한 상품 하나
+   * 다시 받기. 카탈로그 신선도는 동기화 연쇄의 상세만 센다.
+   */
+  via: z.enum(['list', 'manual']).default('manual'),
 }).strict();
 export type WingCatalogDetailsScope = z.infer<typeof WingCatalogDetailsScopeSchema>;
 
