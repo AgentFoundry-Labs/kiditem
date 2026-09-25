@@ -15,7 +15,6 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'dashboard.wing_sales',
   'inventory.sellpia',
   'orders.coupang_directship',
-  'orders.coupang_reviews',
   'orders.coupang_rocket_po',
   'orders.coupang_shipment_summary',
   'orders.mall',
