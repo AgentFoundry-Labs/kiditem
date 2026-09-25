@@ -237,6 +237,23 @@ describe('GlobalExceptionFilter → ADR-0023 envelope', () => {
     expect(envelope('a thrown string').code).toBe('INTERNAL_ERROR');
   });
 
+  it('OPERATION_IN_PROGRESS carries the running operation; OPERATION_FENCE_LOST carries its id and reason (KID-353)', () => {
+    const running = {
+      operationId: ATTEMPT,
+      kind: 'channels.wing_catalog',
+      lockKeys: ['org'],
+      startedAt: '2026-09-25T03:00:00.000Z',
+      expiresAt: '2026-09-25T03:30:00.000Z',
+    };
+    expect(envelope(new KiditemConflictError('OPERATION_IN_PROGRESS', { details: { ...running, token: 'secret' } }))).toMatchObject({
+      statusCode: 409, code: 'OPERATION_IN_PROGRESS', kind: 'in_progress', details: running,
+    });
+    expect(envelope(new KiditemConflictError('OPERATION_FENCE_LOST', { details: { operationId: ATTEMPT, reason: 'expired' } })).details)
+      .toEqual({ operationId: ATTEMPT, reason: 'expired' });
+    const malformed = envelope(new KiditemConflictError('OPERATION_IN_PROGRESS', { details: { operationId: 'x', kind: 'Bad', lockKeys: [] } }));
+    expect(malformed).not.toHaveProperty('details');
+  });
+
   it('drops an attempt id that is not a UUID', () => {
     const body = envelope(new ConflictException({ code: 'ATTEMPT_IN_PROGRESS', attemptId: 'not-a-uuid' }));
     expect(body).not.toHaveProperty('attemptId');
