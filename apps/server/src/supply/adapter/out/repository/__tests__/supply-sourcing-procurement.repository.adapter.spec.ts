@@ -150,16 +150,31 @@ function offerEvidence(overrides: Record<string, unknown> = {}) {
     availableAt: NOW,
     ingestedAt: NOW,
     payload: buildCanonicalSupplierOfferEvidencePayload(offerRecord()),
-    ingestionRun: {
-      sourceEntitlementVersionId: 'entitlement-1',
-      targetKey: 'stationery',
-      status: 'COMPLETE',
-      completedAt: NOW,
-      coverageNumerator: 10,
-      coverageDenominator: 10,
-    },
+    operationId: 'operation-1',
     ...overrides,
   };
+}
+
+/** 관측을 쓴 실행의 발행(KID-360). Sourcing 발행 표의 한 행. */
+function offerPublication(overrides: Record<string, unknown> = {}) {
+  return {
+    id: 'publication-1',
+    organizationId: 'org-1',
+    operationId: 'operation-1',
+    sourceKey: '1688-offer',
+    scopeKey: 'default',
+    targetKey: 'stationery',
+    isCurrent: true,
+    completedAt: NOW,
+    coverageNumerator: 10,
+    coverageDenominator: 10,
+    ...overrides,
+  };
+}
+
+/** Sourcing 공개 capability: 그 원천 대상의 현재 발행. */
+function currentPublications(publication: ReturnType<typeof offerPublication> | null = offerPublication()) {
+  return { currentSourcePublication: vi.fn().mockResolvedValue(publication) };
 }
 
 function decisionItem(overrides: Record<string, unknown> = {}) {
@@ -239,6 +254,9 @@ function makePrisma() {
     sourcingEvidenceObservation: {
       findMany: vi.fn().mockResolvedValue([offerEvidence()]),
     },
+    sourcingSourcePublication: {
+      findMany: vi.fn().mockResolvedValue([offerPublication()]),
+    },
     supplierOfferSkuSnapshot: {
       findUnique: vi.fn(),
       findFirst: vi.fn().mockResolvedValue(rawOffer()),
@@ -280,6 +298,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     prisma.supplierOfferSkuSnapshot.findUnique.mockResolvedValue(rawOffer());
     const adapter = new SupplySourcingProcurementRepositoryAdapter(
       prisma as never,
+      currentPublications() as never,
     );
 
     const result = await adapter.createOfferSnapshot('org-1', offerRecord());
@@ -311,6 +330,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     prisma.supplierOfferSkuSnapshot.create.mockResolvedValue(rawOffer());
     const adapter = new SupplySourcingProcurementRepositoryAdapter(
       prisma as never,
+      currentPublications() as never,
     );
 
     const result = await adapter.createOfferSnapshot('org-1', offerRecord());
@@ -330,10 +350,6 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
         where: expect.objectContaining({
           id: { in: ['evidence-1'] },
           organizationId: 'org-1',
-          ingestionRun: expect.objectContaining({
-            organizationId: 'org-1',
-            status: 'COMPLETE',
-          }),
         }),
       }),
     );
@@ -353,12 +369,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
           observationKey: { in: ['offer-observation-1'] },
           availableAt: { lte: expect.any(Date) },
           ingestedAt: { lte: expect.any(Date) },
-          ingestionRun: expect.objectContaining({
-            organizationId: 'org-1',
-            targetKey: 'stationery',
-            status: 'COMPLETE',
-            isCurrentComplete: true,
-          }),
+          operationId: { in: ['operation-1'] },
         }),
       }),
     );
@@ -393,6 +404,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     ]);
     const adapter = new SupplySourcingProcurementRepositoryAdapter(
       prisma as never,
+      currentPublications() as never,
     );
 
     await expect(
@@ -413,6 +425,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
       .mockResolvedValueOnce([]);
     const nonTerminal = new SupplySourcingProcurementRepositoryAdapter(
       nonTerminalPrisma as never,
+      currentPublications() as never,
     );
     await expect(
       nonTerminal.createOfferSnapshot('org-1', offerRecord()),
@@ -425,6 +438,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
       .mockResolvedValueOnce([offerEvidence({ id: 'evidence-newer' })]);
     const stale = new SupplySourcingProcurementRepositoryAdapter(
       stalePrisma as never,
+      currentPublications() as never,
     );
     await expect(
       stale.createOfferSnapshot('org-1', offerRecord()),
@@ -445,10 +459,26 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     ]);
     const payload = new SupplySourcingProcurementRepositoryAdapter(
       payloadPrisma as never,
+      currentPublications() as never,
     );
     await expect(
       payload.createOfferSnapshot('org-1', offerRecord()),
     ).resolves.toEqual({ kind: 'evidence_payload_mismatch' });
+  });
+
+  it('asks the Sourcing publication capability and refuses evidence its target no longer publishes', async () => {
+    const prisma = makePrisma();
+    prisma.supplierOfferSkuSnapshot.findUnique.mockResolvedValue(null);
+    const publications = currentPublications(offerPublication({ operationId: 'operation-newer' }));
+    const adapter = new SupplySourcingProcurementRepositoryAdapter(prisma as never, publications as never);
+
+    await expect(adapter.createOfferSnapshot('org-1', offerRecord()))
+      .resolves.toEqual({ kind: 'evidence_observation_not_terminal' });
+    expect(publications.currentSourcePublication).toHaveBeenCalledWith(
+      { organizationId: 'org-1', sourceKey: '1688-offer', scopeKey: 'default', targetKey: 'stationery' },
+      expect.anything(),
+    );
+    expect(prisma.supplierOfferSkuSnapshot.create).not.toHaveBeenCalled();
   });
 
   it('makes same key and same request hash a duplicate', async () => {
@@ -456,6 +486,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     prisma.procurementTestIntent.findUnique.mockResolvedValue(rawIntent());
     const adapter = new SupplySourcingProcurementRepositoryAdapter(
       prisma as never,
+      currentPublications() as never,
     );
 
     const result = await adapter.createTestIntent('org-1', intentRecord());
@@ -474,6 +505,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     prisma.procurementTestIntent.findUnique.mockResolvedValue(rawIntent());
     const adapter = new SupplySourcingProcurementRepositoryAdapter(
       prisma as never,
+      currentPublications() as never,
     );
 
     const result = await adapter.createTestIntent(
@@ -489,6 +521,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     prisma.procurementTestIntent.findUnique.mockResolvedValue(rawIntent());
     const adapter = new SupplySourcingProcurementRepositoryAdapter(
       prisma as never,
+      currentPublications() as never,
     );
 
     const result = await adapter.createTestIntent(
@@ -520,6 +553,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     );
     const adapter = new SupplySourcingProcurementRepositoryAdapter(
       prisma as never,
+      currentPublications() as never,
     );
 
     const result = await adapter.createTestIntent(
@@ -536,6 +570,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     prisma.organizationMembership.findFirst.mockResolvedValue(null);
     const adapter = new SupplySourcingProcurementRepositoryAdapter(
       prisma as never,
+      currentPublications() as never,
     );
 
     await expect(
@@ -566,6 +601,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     prisma.procurementTestIntent.create.mockResolvedValue(rawIntent());
     const adapter = new SupplySourcingProcurementRepositoryAdapter(
       prisma as never,
+      currentPublications() as never,
     );
 
     const result = await adapter.createTestIntent('org-1', intentRecord());
@@ -630,6 +666,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     ]);
     const adapter = new SupplySourcingProcurementRepositoryAdapter(
       prisma as never,
+      currentPublications() as never,
     );
 
     await expect(
@@ -651,6 +688,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     const artifactPrisma = makeReadyPrisma();
     const artifactAdapter = new SupplySourcingProcurementRepositoryAdapter(
       artifactPrisma as never,
+      currentPublications() as never,
     );
     await expect(
       artifactAdapter.createTestIntent(
@@ -670,6 +708,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     );
     const expiredAdapter = new SupplySourcingProcurementRepositoryAdapter(
       expiredPrisma as never,
+      currentPublications() as never,
     );
     await expect(
       expiredAdapter.createTestIntent('org-1', intentRecord()),
@@ -681,6 +720,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     );
     const referenceAdapter = new SupplySourcingProcurementRepositoryAdapter(
       referencePrisma as never,
+      currentPublications() as never,
     );
     await expect(
       referenceAdapter.createTestIntent('org-1', intentRecord()),
@@ -692,6 +732,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     );
     const rejectedAdapter = new SupplySourcingProcurementRepositoryAdapter(
       rejectedPrisma as never,
+      currentPublications() as never,
     );
     await expect(
       rejectedAdapter.createTestIntent('org-1', intentRecord()),
@@ -708,6 +749,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     );
     const inactiveAdapter = new SupplySourcingProcurementRepositoryAdapter(
       inactivePrisma as never,
+      currentPublications() as never,
     );
     await expect(
       inactiveAdapter.createTestIntent('org-1', intentRecord()),
@@ -719,6 +761,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     );
     const holdAdapter = new SupplySourcingProcurementRepositoryAdapter(
       holdPrisma as never,
+      currentPublications() as never,
     );
     await expect(
       holdAdapter.createTestIntent('org-1', intentRecord()),
@@ -731,6 +774,7 @@ describe('SupplySourcingProcurementRepositoryAdapter', () => {
     prisma.procurementTestIntent.count.mockResolvedValue(0);
     const adapter = new SupplySourcingProcurementRepositoryAdapter(
       prisma as never,
+      currentPublications() as never,
     );
 
     await adapter.listTestIntents({

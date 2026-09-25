@@ -1,0 +1,102 @@
+import { describe, expect, it } from 'vitest';
+import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller';
+import { fakeTabPages } from '../tab-page.fake';
+import { SITE_VERIFICATION_REQUIRED, build1688SearchUrl, create1688SearchSite, is1688VerificationUrl } from './index';
+
+describe('1688 search site (KID-360)', () => {
+  it('reuses one background tab across keywords, injects the extractors once, and closes it at the end', async () => {
+    const fake = fakeTabPages({
+      answer: (_message, injected) => injected
+        ? { ok: true, items: [{ offerId: 'o-1', title: 'a' }, { offerId: '', title: 'no id' }, { title: 'missing id' }] }
+        : { ok: false, error: 'content_script_missing' },
+    });
+    const site = create1688SearchSite(fake.tabs);
+    await expect(site.offers('笔袋')).resolves.toEqual([{ offerId: 'o-1', title: 'a' }]);
+    await site.offers('文具');
+    await site.close();
+    expect(fake.log.filter((line) => line.startsWith('open') || line.startsWith('navigate') || line.startsWith('close') || line.startsWith('inject'))).toEqual([
+      'open about:blank',
+      `navigate ${build1688SearchUrl('笔袋')} (continue on timeout)`,
+      'inject content/sourcing/extractors/common.js,content/sourcing/extractors/alibaba.js,content/sourcing/extractors/1688.js,content/sourcing/content.js',
+      `navigate ${build1688SearchUrl('文具')} (continue on timeout)`,
+      'close 7',
+    ]);
+  });
+
+  it('stops on a slider verification page and leaves the tab open for the operator', async () => {
+    const fake = fakeTabPages({ landAt: () => 'https://s.1688.com/punish?x=1', answer: () => ({ ok: true, items: [] }) });
+    const site = create1688SearchSite(fake.tabs);
+    await expect(site.offers('笔袋')).rejects.toMatchObject({ code: SITE_VERIFICATION_REQUIRED, details: { url: 'https://s.1688.com/punish?x=1' } });
+    await site.close();
+    expect(fake.log).not.toContain('close 7');
+  });
+
+  it('turns an extractor failure into a request failure naming the keyword (no silent empty keyword)', async () => {
+    const fake = fakeTabPages({ answer: () => ({ ok: false, error: '1688 검색 결과에서 상품 카드를 찾지 못했습니다' }) });
+    await expect(create1688SearchSite(fake.tabs).offers('笔袋')).rejects.toMatchObject({ code: SITE_REQUEST_FAILED, details: { keyword: '笔袋' } });
+  });
+
+  it('recognises the old verification URLs', () => {
+    expect(is1688VerificationUrl('https://s.1688.com/selloffer/offer_search.htm?action=captcha')).toBe(true);
+    expect(is1688VerificationUrl('https://s.1688.com/selloffer/offer_search.htm?keywords=a')).toBe(false);
+  });
+
+  it('stops on a login redirect after the slider (login.taobao.com) without injecting, and leaves the tab for the operator', async () => {
+    const fake = fakeTabPages({
+      answer: () => ({ ok: false, error: 'content_script_missing' }),
+      urlBeforeInject: 'https://login.taobao.com/?redirect_url=https%3A%2F%2Flogin.1688.com%2Fmember%2Fsignin.htm',
+    });
+    const site = create1688SearchSite(fake.tabs);
+    await expect(site.offers('笔袋')).rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED, message: '1688 로그인이 필요합니다. 열려 있는 1688 탭에서 로그인한 뒤 다시 수집해 주세요.' });
+    await site.close();
+    expect(fake.log.some((line) => line.startsWith('inject'))).toBe(false);
+    expect(fake.log).not.toContain('close 7');
+  });
+
+  it('refuses an unexpected host as a request failure and leaves the tab', async () => {
+    const fake = fakeTabPages({ landAt: () => 'https://www.taobao.com/', answer: () => ({ ok: true, items: [] }) });
+    const site = create1688SearchSite(fake.tabs);
+    await expect(site.offers('笔袋')).rejects.toMatchObject({ code: SITE_REQUEST_FAILED, details: { reason: 'unexpected_url', url: 'https://www.taobao.com/' } });
+    await site.close();
+    expect(fake.log).not.toContain('close 7');
+  });
+
+  describe('operator verification pause (KID-355 QA)', () => {
+    const PUNISH = 'https://s.1688.com/_____tmd_____/punish?x5secdata=a';
+
+    it('pauses on the slider, tells the collector, and retries the same keyword once the operator passes it', async () => {
+      let landings = 0;
+      const fake = fakeTabPages({
+        landAt: (url) => (landings++ === 0 ? PUNISH : url),
+        answer: () => ({ ok: true, items: [{ offerId: 'o-1' }] }),
+        verificationClears: true,
+      });
+      const attentions: unknown[] = [];
+      const site = create1688SearchSite(fake.tabs);
+      await expect(site.offers('笔袋', { onAttention: (attention) => { attentions.push(attention); } })).resolves.toEqual([{ offerId: 'o-1' }]);
+      expect(fake.log.filter((line) => line.startsWith('navigate'))).toHaveLength(2);
+      expect(attentions[0]).toEqual({ kind: 'verification', site: '1688', label: '笔袋' });
+      expect(attentions.at(-1)).toBeNull();
+    });
+
+    it('fails as SITE_VERIFICATION_REQUIRED and keeps the tab when the operator does not pass it in time', async () => {
+      const fake = fakeTabPages({ landAt: () => PUNISH, answer: () => ({ ok: true, items: [] }) });
+      const site = create1688SearchSite(fake.tabs);
+      await expect(site.offers('笔袋')).rejects.toMatchObject({ code: SITE_VERIFICATION_REQUIRED });
+      await site.close();
+      expect(fake.log).toContain('wait for operator');
+      expect(fake.log).not.toContain('close 7');
+    });
+
+    it('does not wait on a login page: SITE_LOGIN_REQUIRED at once', async () => {
+      const fake = fakeTabPages({ landAt: () => 'https://login.1688.com/member/signin.htm', answer: () => ({ ok: true, items: [] }), verificationClears: true });
+      await expect(create1688SearchSite(fake.tabs).offers('笔袋')).rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED });
+      expect(fake.log).not.toContain('wait for operator');
+    });
+
+    it('recognises the _____tmd_____ slider path', () => {
+      expect(is1688VerificationUrl(PUNISH)).toBe(true);
+      expect(is1688VerificationUrl('https://s.1688.com/_____tmd_____/newslidecaptcha')).toBe(true);
+    });
+  });
+});

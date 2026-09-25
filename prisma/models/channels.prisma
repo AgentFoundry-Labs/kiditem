@@ -616,6 +616,8 @@ model ChannelListing {
   imageUrl        String? @map("image_url")
   rawJson         Json?   @map("raw_json")
   lastImportRunId String? @map("last_import_run_id") @db.Uuid
+  /// 이 행을 마지막으로 쓴 실행(operations.id, 스칼라 참조·FK 없음, ADR-0025). 옛 lastImportRunId는 옛 표와 함께 KID-365에서 지운다.
+  lastOperationId String? @map("last_operation_id") @db.Uuid
 
   status         String?
   exposureStatus String? @map("exposure_status")
@@ -648,6 +650,7 @@ model ChannelListing {
   @@index([organizationId])
   @@index([channelAccountId])
   @@index([lastImportRunId])
+  @@index([lastOperationId])
   @@index([organizationId, channelAccountId, isActive])
   @@index([organizationId, updatedAt, id])
   @@map("channel_listings")
@@ -674,6 +677,8 @@ model ChannelListingOption {
   attributesJson   Json?   @map("attributes_json")
   rawJson          Json?   @map("raw_json")
   lastImportRunId  String? @map("last_import_run_id") @db.Uuid
+  /// 이 행을 마지막으로 쓴 실행(operations.id, 스칼라 참조·FK 없음, ADR-0025).
+  lastOperationId  String? @map("last_operation_id") @db.Uuid
 
   isActive Boolean @default(true) @map("is_active")
 
@@ -697,6 +702,7 @@ model ChannelListingOption {
   @@index([organizationId, externalOptionId])
   @@index([externalOptionId])
   @@index([lastImportRunId])
+  @@index([lastOperationId])
   @@index([organizationId, salesProductOptionId])
   @@map("channel_listing_options")
 }

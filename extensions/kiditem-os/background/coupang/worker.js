@@ -8,14 +8,6 @@
 
 chrome.runtime.onMessage.addListener(KidItemAdCollectorDelay.handleMessage);
 
-const COUPANG_CATALOG_CONTRACT_REVISION = 3;
-if (
-  KidItemCoupangCatalog.contractRevision !==
-  COUPANG_CATALOG_CONTRACT_REVISION
-) {
-  throw new Error("쿠팡 카탈로그 수집기 계약 revision이 일치하지 않습니다");
-}
-
 // KidItem 웹앱이 열리는 커밋된 origin. externally_connectable / 대시보드 탭 조회 /
 // 세션·auth 핸드셰이크가 모두 이 목록을 공유한다. (product-scraper 패턴)
 const AD_ACTION_URL =
@@ -27,8 +19,6 @@ const WING_CATALOG_MAX_PAGES = 5;
 const BATCH_SCRAPE_STATUS_KEY = "kiditem_batch_scrape";
 const BATCH_SCRAPE_CANCEL_KEY = "kiditem_batch_scrape_cancel";
 const COLLECTION_WINDOW_STORAGE_KEY = "kiditem_coupang_collection_window";
-const CATALOG_COLLECTION_WINDOW_STORAGE_KEY =
-  "kiditem_coupang_catalog_collection_window";
 const WING_TRAFFIC_PRODUCER = "dashboard.wing_sales";
 const WING_ITEMWINNER_PRODUCER = "dashboard.wing_kpi";
 const adsEnvironmentContext = KidItemEnvironmentContext.create({
@@ -57,25 +47,9 @@ const collectionWindows = Object.fromEntries(
     }),
   ]),
 );
-const catalogCollectionWindows = Object.fromEntries(
-  adsEnvironmentContext.environmentIds.map((environmentId) => [
-    environmentId,
-    KidItemCollectionWindow.create({
-      chrome,
-      storageKey: coupangEnvironment.stateKey(
-        CATALOG_COLLECTION_WINDOW_STORAGE_KEY,
-        environmentId,
-      ),
-    }),
-  ]),
-);
 function collectionWindowFor(environmentId) {
   adsEnvironmentContext.requireEnvironment(environmentId);
   return collectionWindows[environmentId];
-}
-function catalogCollectionWindowFor(environmentId) {
-  adsEnvironmentContext.requireEnvironment(environmentId);
-  return catalogCollectionWindows[environmentId];
 }
 
 // Every start of a collection that takes turns in the Coupang collection
@@ -100,12 +74,6 @@ const coupangCollectionStart = KidItemCoupangCollectionStart.create({
       runWingTrafficSourceOwner({ environmentId, attemptId }),
     [WING_ITEMWINNER_PRODUCER]: ({ environmentId, attemptId }) =>
       wingItemwinnerSourceOwner.run({ environmentId, attemptId }),
-  },
-  // The catalog import holds its own turn per environment: the browser's one
-  // Wing login reads one store account at a time.
-  catalogImport: {
-    admit: (request, environmentId) =>
-      KidItemCoupangCatalogImport.admit(request, coupangCatalogImportDependencies(environmentId)),
   },
 });
 
@@ -221,25 +189,6 @@ const wingSearchCollector = KidItemWingSearchCollector.create({
   attention: (runId, tabId, reason, message) =>
     collectionRuns.requireAttention(runId, tabId, reason, message),
 });
-const coupangKeywordSuggestionCollector = KidItemCoupangKeywordSuggestionCollector.create({
-  chrome,
-  sessions: collectionSessions,
-  createTab,
-  bindTab: (tabId, environmentId) =>
-    coupangEnvironment.bindTab(tabId, environmentId),
-  waitForTabComplete,
-  attention: (runId, tabId, reason, message) =>
-    collectionRuns.requireAttention(runId, tabId, reason, message),
-});
-const keywordSuggestionSourceOwner = KidItemKeywordSuggestionSourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  requireEnvironment: (environmentId) =>
-    sharedEnvironmentContext.requireEnvironment(environmentId),
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  collect: (input) => coupangKeywordSuggestionCollector.collect(input),
-});
-
 // The source owners that close through collectionWindowFor share one window
 // per environment. A run holds the window's turn until its outcome is reported
 // and its window and session are released. The turn never waits: a run finds
@@ -480,16 +429,6 @@ chrome.runtime.onInstalled.addListener(() => {
   Promise.resolve(chrome.storage.local.remove(COUPANG_RETIRED_LOCAL_COPY_KEYS)).catch(() => undefined);
 });
 
-chrome.alarms.onAlarm.addListener((alarm) => {
-  const scheduled = coupangEnvironment.parseAlarm(alarm.name);
-  if (scheduled?.base !== "kiditem-coupang-catalog-import-step") return;
-  const dependencies = coupangCatalogImportDependencies(scheduled.environmentId);
-  // An alarm left from an earlier worker life runs no step until this worker
-  // admits, recovers or stops that import (KID-147).
-  if (!KidItemCoupangCatalogImport.isContinuing(dependencies)) return;
-  KidItemCoupangCatalogImport.handleAlarm(alarm, dependencies);
-});
-
 // 동기화 완료 후 대시보드 탭 자동 새로고침
 function notifyDashboard(environmentId) {
   return adsEnvironmentContext.publish(environmentId, "kiditem-sync");
@@ -643,57 +582,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-
-
-  if (msg.action === "runCoupangReviewCollection") {
-    KidItemCoupangReviewCollector.start(
-      {
-        attemptId: msg.attemptId,
-        attemptToken: msg.attemptToken,
-        plan: msg.plan,
-      },
-      coupangReviewCollectorDependencies(environmentId),
-    )
-      .then((result) => sendResponse(result))
-      .catch((e) =>
-        sendResponse({
-          success: false,
-          started: false,
-          error: e?.message || "쿠팡 리뷰 수집 시작 실패",
-        }),
-      );
-    return true;
-  }
-
-  if (msg.action === "getCoupangReviewCollectionStatus") {
-    KidItemCoupangReviewCollector.getStatus(
-      typeof msg.runId === "string" ? msg.runId : null,
-      coupangReviewCollectorDependencies(environmentId).stateKey,
-    )
-      .then((status) => sendResponse(status))
-      .catch(() => sendResponse({ status: "idle" }));
-    return true;
-  }
-
-  if (msg.action === "cancelCoupangReviewCollection") {
-    const dependencies = coupangReviewCollectorDependencies(environmentId);
-    KidItemCoupangReviewCollector.cancel(
-      typeof msg.runId === "string" ? msg.runId : null,
-      dependencies.stateKey,
-      dependencies,
-    )
-      .then((result) => sendResponse(result))
-      .catch((e) =>
-        sendResponse({
-          success: false,
-          cancelled: false,
-          error: e?.message || "쿠팡 리뷰 수집 중단 실패",
-        }),
-      );
-    return true;
-  }
-
-
   if (msg.action === "registerRepresentativeImage") {
     registerRepresentativeImage(msg)
       .then((result) => sendResponse(result))
@@ -751,43 +639,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 });
-
-function coupangCatalogImportDependencies(environmentId) {
-  adsEnvironmentContext.requireEnvironment(environmentId);
-  return {
-    environmentId,
-    authedFetch: (path, init) => authedFetch(environmentId, path, init),
-    alarmName: coupangEnvironment.alarmName(
-      "kiditem-coupang-catalog-import-step",
-      environmentId,
-    ),
-    stateKey: coupangEnvironment.stateKey(
-      "kiditem_coupang_catalog_import",
-      environmentId,
-    ),
-    keepAlive: (operation) => KidItemWorkerKeepAlive.during(operation),
-    collectionWindow: catalogCollectionWindowFor(environmentId),
-    collectionSessions,
-    notifyDashboard: () => notifyDashboard(environmentId),
-    sendTabMessage,
-    getTab,
-    waitForTabComplete,
-  };
-}
-
-function coupangReviewCollectorDependencies(environmentId) {
-  adsEnvironmentContext.requireEnvironment(environmentId);
-  return {
-    authedFetch: (path, init) => authedFetch(environmentId, path, init),
-    stateKey: coupangEnvironment.stateKey(
-      KidItemCoupangReviewCollector.stateKey,
-      environmentId,
-    ),
-    createTab,
-    waitForTabComplete,
-    removeTab,
-  };
-}
 
 // 단일 상품 직접 등록: formV2 탭을 열고 content script(wing-registration-fill)에 채움 데이터 전송.
 // ⚠️ 제출은 하지 않는다 — content script 가 채우기만 하고 사용자가 확인 후 등록.
@@ -1584,8 +1435,8 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Wing 검색 한 번에 넣는 키워드 상한(추적 상품 수집이 쓴다).
 const SOURCING_WING_CATALOG_MAX_KEYWORDS = 12;
-const SOURCING_WING_CATALOG_MAX_ITEMS = 100;
 const ADVERTISING_TRACKED_WING_PRODUCTS_PRODUCER =
   "advertising.wing_tracked_products";
 const ADVERTISING_TRACKED_WING_PRODUCTS_MAX_ITEMS = 300;
@@ -1593,113 +1444,6 @@ const INCOMPLETE_WING_SEARCH_STOP_REASONS = new Set([
   "authentication_token_missing",
   "non_json_response",
 ]);
-
-// The sourcing Wing-catalog owner is loaded before this worker, but its
-// boundary helpers live here so the owner can share the worker's canonical
-// keyword contract and the focused source-owner test harness can load the
-// same production seam without the whole worker.
-function parseSourcingWingCatalogInput(input) {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    throw new Error("wing_catalog_operation_input_invalid");
-  }
-  if (
-    !Array.isArray(input.keywords) ||
-    input.keywords.length < 1 ||
-    input.keywords.length > SOURCING_WING_CATALOG_MAX_KEYWORDS ||
-    !Number.isInteger(input.maxPages) ||
-    input.maxPages < 1 ||
-    input.maxPages > WING_CATALOG_MAX_PAGES ||
-    ![
-      "catalog_search",
-      "market_analysis",
-      "recommendation_validation",
-      "tracked_metrics",
-    ].includes(input.purpose) ||
-    Object.keys(input).some(
-      (key) => !["keywords", "maxPages", "purpose"].includes(key),
-    )
-  ) {
-    throw new Error("wing_catalog_operation_input_invalid");
-  }
-  const keywords = KidItemWingKeywordContract.parseBatchKeywords(
-    input.keywords,
-    SOURCING_WING_CATALOG_MAX_KEYWORDS,
-    100,
-  );
-  return { keywords, maxPages: input.maxPages, purpose: input.purpose };
-}
-
-function sourcingWingCatalogBoundedInteger(value) {
-  if (
-    value == null ||
-    typeof value === "boolean" ||
-    (typeof value === "string" && value.trim() === "") ||
-    (typeof value !== "number" && typeof value !== "string")
-  ) {
-    return null;
-  }
-  const numeric = Number(value);
-  return Number.isInteger(numeric) && numeric >= 0 && numeric <= 2147483647
-    ? numeric
-    : null;
-}
-
-function sourcingWingCatalogBoundedNumber(value, minimum, maximum) {
-  if (
-    value == null ||
-    typeof value === "boolean" ||
-    (typeof value === "string" && value.trim() === "") ||
-    (typeof value !== "number" && typeof value !== "string")
-  ) {
-    return null;
-  }
-  const numeric = Number(value);
-  return Number.isFinite(numeric) && numeric >= minimum && numeric <= maximum
-    ? numeric
-    : null;
-}
-
-function toSourcingWingCatalogObservation(row, sourceKeyword, capturedAt) {
-  return {
-    productId: String(row.productId),
-    itemId: row.itemId == null ? null : String(row.itemId),
-    vendorItemId:
-      row.vendorItemId == null ? null : String(row.vendorItemId),
-    productName: String(row.productName || "").slice(0, 500),
-    itemName: row.itemName == null ? null : String(row.itemName).slice(0, 500),
-    brandName:
-      row.brandName == null ? null : String(row.brandName).slice(0, 500),
-    manufacture:
-      row.manufacture == null ? null : String(row.manufacture).slice(0, 500),
-    categoryHierarchy:
-      row.categoryHierarchy == null
-        ? null
-        : String(row.categoryHierarchy).slice(0, 1000),
-    imagePath:
-      row.imagePath == null ? null : String(row.imagePath).slice(0, 2000),
-    salePriceKrw: sourcingWingCatalogBoundedInteger(row.salePrice),
-    ratingAverage: sourcingWingCatalogBoundedNumber(row.rating, 0, 5),
-    ratingCount: sourcingWingCatalogBoundedInteger(row.ratingCount),
-    viewsLast28d: sourcingWingCatalogBoundedInteger(row.pvLast28Day),
-    salesLast28d: sourcingWingCatalogBoundedInteger(row.salesLast28d),
-    estimatedRevenue28d: sourcingWingCatalogBoundedNumber(
-      row.estimatedRevenue28d,
-      0,
-      2147483647,
-    ),
-    conversionRate28d: sourcingWingCatalogBoundedNumber(
-      row.conversionRate28d,
-      0,
-      1,
-    ),
-    deliveryInfo:
-      row.deliveryInfo == null
-        ? null
-        : String(row.deliveryInfo).slice(0, 1000),
-    sourceKeyword,
-    capturedAt,
-  };
-}
 
 function parseAdvertisingTrackedWingProductsStart(message) {
   if (
@@ -1723,18 +1467,6 @@ function parseAdvertisingTrackedWingProductsStart(message) {
   );
   return { idempotencyKey: message.idempotencyKey.trim(), keywords };
 }
-function parseSourcingKeywordSuggestionStart(message) {
-  return keywordSuggestionSourceOwner.parseStart(message);
-}
-
-function runSourcingKeywordSuggestions(input) {
-  return keywordSuggestionSourceOwner.run(input);
-}
-
-async function cancelSourcingKeywordSuggestions(attemptId, environmentId) {
-  return keywordSuggestionSourceOwner.cancel({ environmentId, attemptId });
-}
-
 async function collectSerpSellerEnrichment({ environmentId, idempotencyKey, isCancelled, setCancelActive }) {
   const collectCatalog = (phase, excludeCompletedAttemptId) => competitorCatalogSourceOwner.run({
     environmentId, idempotencyKey: `${idempotencyKey}:catalog:${phase}`,
@@ -1800,9 +1532,6 @@ async function cancelCollectionSession(runId, environmentId) {
     await wingReportCollectorFor(environmentId).cancelRun({ attemptId: runId });
     return wingItemwinnerSourceOwner.cancel({ environmentId, attemptId: runId });
   }
-  if (session?.producer === "channels.coupang_catalog") {
-    return KidItemCoupangCatalogImport.cancel(runId, coupangCatalogImportDependencies(environmentId));
-  }
   if (session?.producer === "advertising.competitor_seller_identity") {
     return sellerIdentitySourceOwner.cancel({ environmentId, attemptId: runId });
   }
@@ -1850,7 +1579,6 @@ function recoverCoupangCollections(environmentId) {
     ["수익성 광고비 source owner", () => profitabilitySourceOwner.recover(environmentId)],
     ["추적 Wing source owner", () => trackedWingProductsSourceOwner.recover(environmentId)],
     ["경쟁 판매자 source owner", () => competitorCatalogSourceOwner.recover(environmentId)],
-    ["쿠팡 상품 수집", () => KidItemCoupangCatalogImport.recover(coupangCatalogImportDependencies(environmentId))],
   ]) {
     KidItemWorkerKeepAlive.during(Promise.resolve().then(recover)).catch((error) =>
       console.error(`[KIDITEM] ${label} 복구 실패:`, error?.message || error));
@@ -1908,16 +1636,6 @@ KidItemDomains.register({
         wingRankSourceOwner.run({ environmentId, attemptId }),
       ),
     },
-    collectSourcingWingCatalog: {
-      validate: parseSourcingWingCatalogStart,
-      handle: ({ idempotencyKey, input }, environmentId) =>
-        KidItemWorkerKeepAlive.during(runSourcingWingCatalog({ environmentId, idempotencyKey, input })),
-    },
-    collectSourcingKeywordSuggestions: {
-      validate: parseSourcingKeywordSuggestionStart,
-      handle: ({ idempotencyKey, input }, environmentId) =>
-        KidItemWorkerKeepAlive.during(runSourcingKeywordSuggestions({ environmentId, idempotencyKey, input })),
-    },
     collectAdvertisingTrackedWingProducts: {
       validate: parseAdvertisingTrackedWingProductsStart,
       handle: ({ idempotencyKey, keywords }, environmentId) =>
@@ -1948,13 +1666,8 @@ KidItemDomains.register({
     profitabilityAdvertisingSourceOwnerV1: true,
     trackedWingProductsSourceOwnerV1: true,
     competitorCatalogSourceOwnerV1: true,
-    sourcingWingCatalogSourceOwnerV1: true,
     wingCatalogSearch: true,
     wingCatalogSearchSource: "wing-pre-matching",
-    coupangKeywordSuggestions: true,
-    sourcingKeywordSuggestionSourceOwnerV1: true,
-    coupangKeywordSuggestionSource: "coupang-search-page",
-    coupangProductNameTokens: true,
     coupangKeywordRank: true,
     coupangKeywordRankSource: "coupang-search-page",
     coupangCompetitorSeller: true,
@@ -1968,9 +1681,6 @@ KidItemDomains.register({
     coupangCatalogSnapshot: true,
     coupangCatalogSourceAttempts: true,
     coupangCatalogSnapshotSource: "wing-inventory-v1",
-    coupangReviewCollection: true,
-    coupangReviewCollectionWindowReceiptsV1: true,
-    coupangReviewCollectionSource: "wing-cs-product-review",
     browserCollectionSessions: true,
     collectionStartV1: true,
     advertisingKeywordSourceOwnerV1: true,
@@ -1984,14 +1694,6 @@ KidItemDomains.register({
     wingFormReadinessV2: true,
     wingFormPortV1: true,
   },
-  cancelAdditionalCollections: (environmentId) =>
-    KidItemCoupangReviewCollector.cancelAdditionalCollections(
-      coupangReviewCollectorDependencies(environmentId),
-    ),
-  retryAdditionalCollections: (environmentId) =>
-    KidItemCoupangReviewCollector.retryAdditionalCollections(
-      coupangReviewCollectorDependencies(environmentId),
-    ),
   cancelCollectionSession,
   recoverCollections: (environmentId) => recoverCoupangCollections(environmentId),
 });

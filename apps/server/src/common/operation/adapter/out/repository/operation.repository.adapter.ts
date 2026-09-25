@@ -301,13 +301,17 @@ class PrismaOperationTransaction implements OperationTransaction {
   }
 }
 
+/** 옛 카탈로그 종료 트랜잭션과 같은 값(KID-354). */
+const OPERATION_TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;
+
 @Injectable()
 export class OperationRepositoryAdapter implements OperationRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
   transaction<T>(work: (tx: OperationTransaction) => Promise<T>, owner?: OwnerTransaction): Promise<T> {
     if (owner) return work(new PrismaOperationTransaction(ownerTransactionClient(owner)));
-    return this.prisma.$transaction((tx) => work(new PrismaOperationTransaction(tx)));
+    // finish 트랜잭션은 owner finalize(원장 반영)를 품는다 — Wing 카탈로그 1,260건 반영은 Prisma 기본 5초를 넘는다.
+    return this.prisma.$transaction((tx) => work(new PrismaOperationTransaction(tx)), OPERATION_TRANSACTION_OPTIONS);
   }
 
   async list(organizationId: string, filter: OperationListFilter) {

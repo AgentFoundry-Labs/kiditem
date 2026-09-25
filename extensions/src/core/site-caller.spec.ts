@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RuntimeError } from './errors';
-import { createSiteCaller, delayUntilNext, type SiteCallerDeps } from './site-caller';
+import { SITE_REQUEST_FAILED, createSiteCaller, delayUntilNext, type SiteCallerDeps } from './site-caller';
 
 describe('delayUntilNext — 사이트 요청 간격', () => {
   it('첫 요청은 기다리지 않는다', () => {
@@ -84,14 +84,27 @@ describe('createSiteCaller — 사이트 요청 공용 규칙', () => {
     expect(site.sent[0].init?.credentials).toBe('include');
   });
 
-  it('xsrf 쿠키가 없으면 로그인이 풀린 것이다 — 보내지 않고 SITE_LOGIN_REQUIRED', async () => {
+  it('xsrf 쿠키가 없으면 헤더 없이 보낸다 — 로그인 판정은 응답(401·403·리다이렉트)으로만 한다', async () => {
     const site = fakeSite();
     const caller = createSiteCaller(
       { minIntervalMs: 0, xsrf: { cookieUrl: 'https://wing.example.com', cookieName: 'XSRF-TOKEN', headerName: 'X-XSRF-TOKEN' } },
       site.deps,
     );
 
-    const error = await rejection(caller.json('https://wing.example.com/api/x'));
+    await expect(caller.json('https://wing.example.com/api/x')).resolves.toEqual({ ok: true });
+
+    expect(site.sent).toHaveLength(1);
+    expect(site.sent[0]!.headers.has('X-XSRF-TOKEN')).toBe(false);
+  });
+
+  it('XSRF가 꼭 필요한 요청(requireXsrf)은 쿠키가 없으면 보내지 않고 SITE_LOGIN_REQUIRED', async () => {
+    const site = fakeSite();
+    const caller = createSiteCaller(
+      { minIntervalMs: 0, xsrf: { cookieUrl: 'https://wing.example.com', cookieName: 'XSRF-TOKEN', headerName: 'X-XSRF-TOKEN' } },
+      site.deps,
+    );
+
+    const error = await rejection(caller.json('https://wing.example.com/api/x', { method: 'POST', requireXsrf: true }));
 
     expect(error.code).toBe('SITE_LOGIN_REQUIRED');
     expect(site.sent).toEqual([]);
@@ -122,12 +135,69 @@ describe('createSiteCaller — 사이트 요청 공용 규칙', () => {
     const error = await rejection(createSiteCaller({ minIntervalMs: 0 }, site.deps).text('https://site.example.com/a'));
 
     expect(error.code).toBe('SITE_REQUEST_FAILED');
-    expect(error.details).toEqual({ status: 503, url: 'https://site.example.com/a' });
+    expect(error.details).toEqual({ status: 503, url: 'https://site.example.com/a', reason: 'http', bodyHead: 'busy' });
+  });
+
+  it('2xx인데 JSON이 아니면 SITE_REQUEST_FAILED{reason: not_json} — 본문 앞 120자를 공백을 줄여 싣는다(봇·레이트 페이지 진단)', async () => {
+    const html = `<html>\n  <head><title>Access   Denied</title></head>\n<body>${'x'.repeat(200)}</body></html>`;
+    const site = fakeSite(() => new Response(html, { status: 200, headers: { 'content-type': 'text/html' } }));
+
+    const error = await rejection(createSiteCaller({ minIntervalMs: 0 }, site.deps).json('https://site.example.com/a'));
+
+    const expectedHead = html.replace(/\s+/g, ' ').trim().slice(0, 120);
+    expect(expectedHead.startsWith('<html> <head><title>Access Denied</title></head> <body>xxx')).toBe(true);
+    expect(error.code).toBe('SITE_REQUEST_FAILED');
+    expect(error.details).toEqual({ status: 200, url: 'https://site.example.com/a', reason: 'not_json', bodyHead: expectedHead });
+  });
+
+  it('연결 오류는 SITE_REQUEST_FAILED{status: null, reason: network}', async () => {
+    const site = fakeSite();
+    site.deps.fetch = async () => { throw new TypeError('Failed to fetch'); };
+
+    const error = await rejection(createSiteCaller({ minIntervalMs: 0 }, site.deps).json('https://site.example.com/a'));
+
+    expect(error.code).toBe('SITE_REQUEST_FAILED');
+    expect(error.details).toEqual({ status: null, url: 'https://site.example.com/a', reason: 'network', bodyHead: null });
+  });
+
+  it('timeoutMs 안에 응답이 없으면 요청을 끊고 SITE_REQUEST_FAILED{reason: timeout}', async () => {
+    const site = fakeSite();
+    site.deps.fetch = (_input, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+    });
+
+    const error = await rejection(createSiteCaller({ minIntervalMs: 0, timeoutMs: 20 }, site.deps).json('https://site.example.com/a'));
+
+    expect(error.code).toBe('SITE_REQUEST_FAILED');
+    expect(error.details).toEqual({ status: null, url: 'https://site.example.com/a', reason: 'timeout', bodyHead: null });
   });
 
   it('text는 본문을 그대로 돌려준다', async () => {
     const site = fakeSite(() => new Response('<html>ok</html>', { status: 200 }));
 
     await expect(createSiteCaller({ minIntervalMs: 0 }, site.deps).text('https://site.example.com/a')).resolves.toBe('<html>ok</html>');
+  });
+
+  it('bytes는 본문 바이트를 그대로 돌려준다(엑셀 내려받기)', async () => {
+    const site = fakeSite(() => new Response(new Uint8Array([0x50, 0x4b, 0x03, 0x04]), { status: 200 }));
+
+    await expect(createSiteCaller({ minIntervalMs: 0 }, site.deps).bytes('https://site.example.com/file'))
+      .resolves.toEqual(new Uint8Array([0x50, 0x4b, 0x03, 0x04]));
+  });
+
+  it('displayName이 있으면 로그인 문장에 사이트 이름을 싣는다(운영자가 어디에 로그인할지 안다)', async () => {
+    const site = fakeSite(() => new Response('', { status: 401 }));
+
+    const error = await rejection(createSiteCaller({ minIntervalMs: 0, displayName: '쿠팡 윙' }, site.deps).json('https://site.example.com/a'));
+
+    expect(error.message).toBe('쿠팡 윙 로그인이 필요합니다.');
+  });
+
+  it('names a 200 body that is not JSON (a login page served as 200)', async () => {
+    const site = fakeSite(() => new Response('<html>login</html>', { status: 200 }));
+
+    const error = await rejection(createSiteCaller({ minIntervalMs: 0 }, site.deps).json('https://site.example.com/a'));
+
+    expect(error).toMatchObject({ code: SITE_REQUEST_FAILED, details: { status: 200, reason: 'not_json' } });
   });
 });

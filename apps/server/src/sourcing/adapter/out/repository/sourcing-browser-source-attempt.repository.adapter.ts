@@ -2,12 +2,10 @@ import { randomUUID } from 'node:crypto';
 import { operatorErrorText } from '@kiditem/shared/errors';
 import { ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { sourcingWingCatalogKeywordIdentity } from '@kiditem/shared/sourcing';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE } from '../../../../common/operator-cancel';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { isAllowedSourcingCollectionSource } from '../../../domain/sourcing-collection-source-policy';
-import { canonicalJson } from '../../../domain/sourcing-stable-json';
 import {
   type BeginSourcingBrowserSourceAttemptInput,
   type CompleteSourcingBrowserSourceAttemptInput,
@@ -18,11 +16,9 @@ import {
   type SourcingBrowserSourceFailureAlert,
   type SourcingBrowserSourceAttemptRepositoryPort,
   type SourcingBrowserSourceStatus,
-  type StageSourcingWingCatalogInput,
-  type CompleteSourcingWingCatalogInput,
-  type SourcingWingCatalogReceipt,
 } from '../../../application/port/out/repository/sourcing-browser-source-attempt.repository.port';
 import { persistBrowserSourceAttemptFacts } from './sourcing-browser-source-attempt.persistence';
+import { publishSourceSnapshot } from './sourcing-source-publication.repository.adapter';
 import { admitSourceRecordWithDraftIn } from './source-record-admission.transaction';
 import {
   SALES_PRODUCT_DRAFT_PORT,
@@ -231,71 +227,13 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
     return this.prisma.$transaction((tx) => this.completeInTransaction(tx, input));
   }
 
-  async stageWingCatalogBatch(input: StageSourcingWingCatalogInput): Promise<SourcingWingCatalogReceipt> {
-    return this.prisma.$transaction(async (tx) => {
-      const initial = await findAttempt(tx, input.organizationId, input.attemptId);
-      await lockScope(tx, initial);
-      const now = await databaseClock(tx);
-      const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
-      assertWingAttempt(attempt);
-      assertToken(attempt, input.attemptToken);
-      assertPlanChecksum(attempt, input.planChecksum);
-      if (effectiveState(attempt, now) !== 'RUNNING') throw new ConflictException('SOURCE_ATTEMPT_TERMINAL');
-      await assertSourceEnabled(tx, input.organizationId, attempt.sourceKey);
-      const receipts = wingReceipts(attempt);
-      const previous = receipts.find((receipt) => receipt.sequence === input.sequence);
-      if (previous) {
-        if (previous.checksum !== input.checksum || previous.keyword !== input.keyword
-          || previous.count !== input.output.discoveredCount) throw new ConflictException('SOURCE_CHUNK_REPLAY_CONFLICT');
-        return previous;
-      }
-      const plan = parsePlan(attempt.attemptPlan);
-      const keywords = plan.keywords as string[];
-      if (!Number.isInteger(input.sequence) || input.sequence < 0 || input.sequence >= keywords.length
-        || keywords[input.sequence] !== input.keyword || input.output.discoveredCount > 100
-        || input.output.rejectedCount !== 0) throw new ConflictException('SOURCE_PLAN_MISMATCH');
-      if (receipts.some((receipt) => receipt.sequence > input.sequence)) {
-        throw new ConflictException('SOURCE_CHUNK_OUT_OF_ORDER');
-      }
-      await persistBrowserSourceAttemptFacts(tx, toPermit(attempt), input.output, now, this.drafts);
-      const acceptedCount = await tx.sourcingWingCatalogProductFact.count({
-        where: {
-          organizationId: input.organizationId,
-          ingestionRunId: attempt.id,
-          schemaVersion: 'coupang-wing-catalog/v2',
-          sourceKeywordNormalized: sourcingWingCatalogKeywordIdentity(input.keyword),
-        },
-      });
-      if (acceptedCount > input.output.discoveredCount) {
-        throw new ConflictException('SOURCE_RECEIPTS_MISMATCH');
-      }
-      const receipt = { sequence: input.sequence, keyword: input.keyword, checksum: input.checksum,
-        count: input.output.discoveredCount, acceptedCount,
-        duplicateCount: input.output.discoveredCount - acceptedCount };
-      await tx.sourcingEvidenceIngestionRun.update({ where: { id: attempt.id }, data: {
-        qualityReport: toInputJson({ ...qualityReport(attempt), wingReceipts: [...receipts, receipt] }),
-      } });
-      return receipt;
-    });
-  }
-
-  async completeWingCatalogAttempt(input: CompleteSourcingWingCatalogInput): Promise<SourcingBrowserSourceAttempt> {
-    const count = input.receipts.reduce((sum, receipt) => sum + receipt.count, 0);
-    return this.prisma.$transaction((tx) => this.completeInTransaction(tx, {
-      ...input,
-      output: { observations: [], typedRecords: [], discoveredCount: count, rejectedCount: 0,
-        qualityReport: { ...input.qualityReport, wingReceipts: input.receipts } },
-    }, input.receipts));
-  }
-
   completeScrapeUrlAttempt(input: CompleteSourcingScrapeUrlAttemptInput): Promise<SourcingBrowserSourceAttempt> {
-    return this.prisma.$transaction((tx) => this.completeInTransaction(tx, input, undefined, input));
+    return this.prisma.$transaction((tx) => this.completeInTransaction(tx, input, input));
   }
 
   private async completeInTransaction(
     tx: Transaction,
     input: CompleteSourcingBrowserSourceAttemptInput,
-    receipts?: SourcingWingCatalogReceipt[],
     scrape?: CompleteSourcingScrapeUrlAttemptInput,
   ): Promise<SourcingBrowserSourceAttempt> {
     const initialAttempt = await findAttempt(tx, input.organizationId, input.attemptId);
@@ -309,16 +247,6 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
       || !['1688.scrape_url', 'alibaba.scrape_url'].includes(attempt.sourceKey)
     )) {
       throw new ConflictException('SOURCE_SCRAPE_CANDIDATE_MISMATCH');
-    }
-    if (receipts) {
-      assertWingAttempt(attempt);
-      const actual = wingReceipts(attempt).sort((a, b) => a.sequence - b.sequence);
-      const expectedCount = (parsePlan(attempt.attemptPlan).keywords as string[]).length;
-      if (receipts.length !== expectedCount || actual.length !== expectedCount
-        || receipts.some((receipt, index) => receipt.sequence !== index
-          || canonicalJson(receipt) !== canonicalJson(actual[index]))) {
-        throw new ConflictException('SOURCE_RECEIPTS_MISMATCH');
-      }
     }
     const state = effectiveState(attempt, now);
     if (state === 'COMPLETE' || (attempt.status === 'FAILED' && attempt.contentChecksum !== null)) {
@@ -360,13 +288,10 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
       now,
       this.drafts,
     );
-    const acceptedCount = receipts
-      ? receipts.reduce((sum, receipt) =>
-          sum + (receipt.acceptedCount ?? receipt.count - receipt.duplicateCount), 0)
-      : Math.max(
-          0,
-          input.output.discoveredCount - input.output.rejectedCount - persisted.staleDiscardedCount,
-        );
+    const acceptedCount = Math.max(
+      0,
+      input.output.discoveredCount - input.output.rejectedCount - persisted.staleDiscardedCount,
+    );
     // 원본 기록과 그 초안은 이 종료 트랜잭션에서 함께 생긴다. 같은 원본이 이미 있으면 입장이 거절하고
     // 이 트랜잭션 전체가 되돌아간다(KID-313).
     const scrapeUrlResult = scrape
@@ -392,7 +317,7 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
         discoveredCount: input.output.discoveredCount,
         acceptedCount,
         rejectedCount: input.output.rejectedCount,
-        duplicateCount: receipts ? receipts.reduce((sum, receipt) => sum + receipt.duplicateCount, 0) : persisted.duplicateCount,
+        duplicateCount: persisted.duplicateCount,
         staleDiscardedCount: persisted.staleDiscardedCount,
         qualityReport: toInputJson({
           ...input.output.qualityReport,
@@ -409,6 +334,28 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
         errorCode: null,
         errorMessage: null,
       },
+    });
+    // 리더는 발행 이력만 읽는다(KID-360): 완결 run은 같은 트랜잭션에서 발행 1행이 된다.
+    await publishSourceSnapshot(tx, {
+      organizationId: completed.organizationId,
+      operationId: completed.id,
+      sourceKey: completed.sourceKey,
+      scopeKey: completed.scopeKey,
+      targetKey: completed.targetKey,
+      collectorKey: completed.collectorKey,
+      collectorVersion: completed.collectorVersion,
+      plan: parsePlan(completed.attemptPlan),
+      windowStartAt: completed.sourceWindowStartAt,
+      windowEndAt: completed.sourceWindowEndAt,
+      discoveredCount: completed.discoveredCount,
+      acceptedCount: completed.acceptedCount,
+      duplicateCount: completed.duplicateCount,
+      coverage: completed.coverageNumerator !== null && completed.coverageDenominator !== null
+        ? { numerator: completed.coverageNumerator, denominator: completed.coverageDenominator }
+        : null,
+      contentChecksum: completed.contentChecksum,
+      qualityReport: qualityReport(completed),
+      completedAt: now,
     });
     await this.alerts.resolveSourceFailure(tx, {
       organizationId: input.organizationId,
@@ -478,17 +425,6 @@ function storedScrapeUrlResult(value: unknown): { sourceRecordId: string; salesP
 
 function qualityReport(attempt: AttemptRow): Record<string, unknown> {
   return (attempt.qualityReport ?? {}) as Record<string, unknown>;
-}
-
-function wingReceipts(attempt: AttemptRow): SourcingWingCatalogReceipt[] {
-  return (qualityReport(attempt).wingReceipts ?? []) as SourcingWingCatalogReceipt[];
-}
-
-function assertWingAttempt(attempt: AttemptRow): void {
-  if (attempt.sourceKey !== 'coupang.wing_catalog' || attempt.scopeKey !== 'default'
-    || attempt.targetKey !== 'catalog' || !Array.isArray(parsePlan(attempt.attemptPlan).keywords)) {
-    throw new NotFoundException('SOURCE_ATTEMPT_NOT_FOUND');
-  }
 }
 
 async function findAttempt(

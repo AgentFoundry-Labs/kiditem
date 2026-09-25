@@ -12,7 +12,7 @@ import {
   CollectionStartResultSchema,
 } from '@kiditem/shared/collection-start';
 
-// 주문수집 / 쿠팡 / 소싱 세 확장을 kiditem-os 하나로 합치면서 세 도메인 워커가
+// 주문수집 / 쿠팡 / 소싱 세 확장을 kiditem-os 하나로 합치면서 도메인 워커가
 // 하나의 서비스워커 전역 스코프를 공유하게 됐다. 이 조합은 아래 세 가지로
 // 조용히 깨질 수 있고, 셋 다 Chrome 에 올려야만 드러난다:
 //
@@ -2194,550 +2194,6 @@ test('the shared Coupang window clears a leftover whose attempt ended and names 
   }
 });
 
-// ── Catalog import through the collection start (KID-147) ───────────────────
-// The Wing catalog import reads Wing through the browser's single Wing login,
-// so one browser environment imports one store account at a time. It starts
-// through the same `startCollection` contract, and another account's import is
-// refused before any attempt opens.
-
-const CATALOG_PRODUCER = 'channels.coupang_catalog';
-const catalogAccount = '71111111-1111-4111-8111-111111111111';
-const otherCatalogAccount = '72222222-2222-4222-8222-222222222222';
-const CATALOG_STATE_KEY = 'kiditem_coupang_catalog_import:local';
-const CATALOG_STAGED_LIST_URL = 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/list?searchKeywordType=ALL&searchKeywords=&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&shippingFeeSearchType=ALL&displayCategoryCodes=&listingStartTime=null&listingEndTime=null&saleEndDateSearchType=ALL&bundledShippingSearchType=ALL&upBundling=ALL&displayDeletedProduct=false&shippingMethod=ALL&exposureStatus=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=500&page=1';
-const CATALOG_STAGED_DETAIL_URL = 'https://wing.coupang.com/tenants/seller-web/v2/vendor-inventory/seller-product';
-// The attempt's own begin key, as the owner's attempt read reports it.
-const CATALOG_ATTEMPT_KEY = '7e000000-0000-4000-8000-000000000001';
-
-const catalogAttemptsPath = (channelAccountId) =>
-  `/api/channels/accounts/${channelAccountId}/catalog-imports/coupang-wing/attempts`;
-
-function catalogRefusalMessage(holderName) {
-  return `${holderName}이 이 브라우저에서 진행 중입니다. 한 브라우저에서는 쿠팡 계정 하나씩만 상품을 받을 수 있습니다. 끝난 뒤 다시 시작해 주세요.`;
-}
-
-// The basics permit the Channels owner's begin returns.
-function catalogBasicsPermit(attemptId, channelAccountId, overrides = {}) {
-  return {
-    attemptId,
-    attemptToken: '7f000000-0000-4000-8000-000000000001',
-    state: 'RUNNING',
-    expiresAt: '2030-01-02T00:00:00.000Z',
-    plan: {
-      collectorVersion: 'wing-inventory-v1',
-      stage: 'basics',
-      listUrl: CATALOG_STAGED_LIST_URL,
-      detailUrl: CATALOG_STAGED_DETAIL_URL,
-      channelAccountId,
-      vendorId: 'A00000000',
-      publicationRevision: '0',
-      rootAttemptId: attemptId,
-    },
-    ...overrides,
-  };
-}
-
-// The owner's token-free attempt read.
-function catalogAttemptRead(permit, state = 'RUNNING', overrides = {}) {
-  return {
-    attemptId: permit.attemptId,
-    idempotencyKey: CATALOG_ATTEMPT_KEY,
-    channelAccountId: permit.plan.channelAccountId,
-    state,
-    plan: permit.plan,
-    expiresAt: permit.expiresAt,
-    phase: state === 'COMPLETE' ? 'finished' : 'discovery',
-    collectorVersion: permit.plan.collectorVersion,
-    manifest: null,
-    progress: {
-      discoveryPagesStored: 0, discoveredProducts: 0, hydratedProducts: 0, optionCount: 0,
-      mediaCount: 0, storedChunks: 0, publishedProducts: 0, publishedOptionCount: 0,
-      publishedMediaCount: 0, publishedChunks: 0, firstPublishedAt: null, lastPublishedAt: null,
-    },
-    missing: { discoverySequences: [], productIds: [] },
-    snapshotHash: null,
-    error: state === 'FAILED'
-      ? { code: 'USER_CANCELLED', message: '운영자가 수집을 중단했습니다.', phase: 'discovery', recoverable: false, notBefore: null }
-      : null,
-    publication: null,
-    createdAt: '2026-09-14T00:00:00.000Z',
-    updatedAt: '2026-09-14T00:00:00.000Z',
-    finishedAt: null,
-    rootAttemptId: permit.plan.rootAttemptId,
-    currentAttemptId: permit.attemptId,
-    currentStage: permit.plan.stage,
-    overallState: state,
-    ...overrides,
-  };
-}
-
-// An import an earlier start stored in this browser.
-function storedCatalogImport(permit, overrides = {}) {
-  return {
-    attemptId: permit.attemptId,
-    rootAttemptId: permit.plan.rootAttemptId,
-    channelAccountId: permit.plan.channelAccountId,
-    permit,
-    stage: permit.plan.stage,
-    currentAttemptId: permit.attemptId,
-    currentStage: permit.plan.stage,
-    status: 'running',
-    phase: 'discovery',
-    currentPage: 0,
-    totalPages: 0,
-    discoveredProducts: 0,
-    hydratedProducts: 0,
-    uploadedChunks: 0,
-    manifest: null,
-    discoveryItems: [],
-    startedAt: Date.now(),
-    updatedAt: Date.now(),
-    error: null,
-    nextAllowedAt: null,
-    lastDetailRequestAt: 0,
-    ...overrides,
-  };
-}
-
-// Boots a worker whose Channels owner answers from `owner` and records every
-// request under /api/channels. KidItem tab presence stays unknown unless a
-// test confirms it, so startup recovery and closure cleanup leave the stored
-// import alone.
-function bootCatalogHarness({ storage = {}, owner = async () => undefined, presence = 'unknown' } = {}) {
-  const requests = [];
-  const h = bootServiceWorker({
-    storage: { kiditem_environment_profiles_v1: { local: { accessToken: 'fixture' } }, ...storage },
-    fetch: async (url, init = {}) => {
-      const { pathname } = new URL(String(url));
-      const method = init.method || 'GET';
-      if (pathname.startsWith('/api/channels/')) {
-        requests.push({
-          method,
-          pathname,
-          key: requestHeader(init, 'Idempotency-Key'),
-          body: init.body ? JSON.parse(init.body) : null,
-        });
-      }
-      return (await owner({ method, pathname })) ?? coupangWindowJson({});
-    },
-  });
-  if (presence === 'unknown') {
-    h.fake.chrome.tabs.query = async () => { throw new Error('tab query failed'); };
-  }
-  return { h, requests };
-}
-
-test('a catalog start on a free browser opens the basics attempt, answers started before the import ends and runs it', async () => {
-  const attemptId = '7a111111-1111-4111-8111-111111111111';
-  const idempotencyKey = randomUUID();
-  const permit = catalogBasicsPermit(attemptId, catalogAccount);
-  const stepRead = Promise.withResolvers();
-  let reads = 0;
-  const { h, requests } = bootCatalogHarness({ owner: async ({ method, pathname }) => {
-    if (method === 'POST' && pathname === catalogAttemptsPath(catalogAccount)) return coupangWindowJson(permit, 201);
-    if (method === 'GET' && pathname === `${catalogAttemptsPath(catalogAccount)}/${attemptId}`) {
-      reads += 1;
-      if (reads === 1) return coupangWindowJson(catalogAttemptRead(permit));
-      await stepRead.promise;
-      return coupangWindowJson(catalogAttemptRead(permit, 'FAILED'));
-    }
-    return undefined;
-  } });
-  try {
-    const reply = await within(
-      externalRequest(h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }, idempotencyKey)),
-      2000,
-      'the start reply waited for the import to end',
-    );
-
-    assert.deepEqual(startResult(reply), { success: true, outcome: 'started', producer: CATALOG_PRODUCER, attemptId });
-    assert.deepEqual(requests.filter((request) => request.method === 'POST'), [{
-      method: 'POST',
-      pathname: catalogAttemptsPath(catalogAccount),
-      key: idempotencyKey,
-      body: { collectorVersion: 'wing-inventory-v1', stage: 'basics' },
-    }]);
-    await eventually(() => reads === 2, 'the started import never ran a step');
-    const sessions = vm.runInContext('collectionSessions', h.context);
-    assert.equal((await sessions.getOwned(attemptId, 'local'))?.producer, CATALOG_PRODUCER);
-    assert.equal(h.fake.storage[CATALOG_STATE_KEY].status, 'running');
-    stepRead.resolve();
-    await settleCollections(h);
-    assert.equal(h.fake.storage[CATALOG_STATE_KEY].status, 'error');
-  } finally {
-    stepRead.resolve();
-    h.close();
-  }
-});
-
-test('a stored import keeps the browser: another account is refused by its account name and the same account answers running', async () => {
-  const holderId = '7b111111-1111-4111-8111-111111111111';
-  const holderPermit = catalogBasicsPermit(holderId, otherCatalogAccount);
-  for (const scenario of [
-    {
-      name: 'named account',
-      accounts: () => coupangWindowJson([{ id: otherCatalogAccount, channel: 'coupang', name: '키드아이템 스토어' }]),
-      holderName: '키드아이템 스토어 계정의 쿠팡 상품 수집',
-    },
-    {
-      name: 'unreadable account list',
-      accounts: () => coupangWindowJson({ message: 'unavailable' }, 503),
-      holderName: '다른 계정의 쿠팡 상품 수집',
-    },
-  ]) {
-    const { h, requests } = bootCatalogHarness({
-      storage: { [CATALOG_STATE_KEY]: storedCatalogImport(holderPermit) },
-      owner: async ({ method, pathname }) => {
-        if (method === 'GET' && pathname === `${catalogAttemptsPath(otherCatalogAccount)}/${holderId}`) {
-          return coupangWindowJson(catalogAttemptRead(holderPermit));
-        }
-        if (method === 'GET' && pathname === '/api/channels/accounts') return scenario.accounts();
-        return undefined;
-      },
-    });
-    try {
-      const refused = startResult(await externalRequest(
-        h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }),
-      ));
-      const running = startResult(await externalRequest(
-        h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: otherCatalogAccount }),
-      ));
-
-      assert.deepEqual(refused, {
-        success: true, outcome: 'refused', producer: CATALOG_PRODUCER,
-        holder: { producer: CATALOG_PRODUCER, name: scenario.holderName, attemptId: holderId },
-        message: catalogRefusalMessage(scenario.holderName),
-      }, scenario.name);
-      assert.deepEqual(running, { success: true, outcome: 'running', producer: CATALOG_PRODUCER, attemptId: holderId }, scenario.name);
-      assert.deepEqual(requests.filter((request) => request.method !== 'GET'), [], `${scenario.name}: nothing was opened`);
-      assert.equal(h.fake.storage[CATALOG_STATE_KEY].attemptId, holderId);
-      await settleCollections(h);
-    } finally {
-      h.close();
-    }
-  }
-});
-
-test('catalog starts that arrive together admit one import and answer the rest without opening another attempt', async () => {
-  const attemptId = '7c111111-1111-4111-8111-111111111111';
-  const permit = catalogBasicsPermit(attemptId, catalogAccount);
-  const begin = Promise.withResolvers();
-  const { h, requests } = bootCatalogHarness({ owner: async ({ method, pathname }) => {
-    if (method === 'POST' && pathname === catalogAttemptsPath(catalogAccount)) {
-      await begin.promise;
-      return coupangWindowJson(permit, 201);
-    }
-    if (method === 'GET' && pathname === `${catalogAttemptsPath(catalogAccount)}/${attemptId}`) {
-      return coupangWindowJson(catalogAttemptRead(permit, 'FAILED'));
-    }
-    if (method === 'GET' && pathname === '/api/channels/accounts') {
-      return coupangWindowJson([{ id: catalogAccount, channel: 'coupang', name: '키드아이템 스토어' }]);
-    }
-    return undefined;
-  } });
-  const holderName = '키드아이템 스토어 계정의 쿠팡 상품 수집';
-  try {
-    const first = externalRequest(h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }));
-    const others = await within(Promise.all([
-      externalRequest(h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: otherCatalogAccount })),
-      externalRequest(h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount })),
-    ]), 2000, 'a start waited for another start');
-    begin.resolve();
-
-    assert.deepEqual(others.map(startResult), [
-      {
-        success: true, outcome: 'refused', producer: CATALOG_PRODUCER,
-        holder: { producer: CATALOG_PRODUCER, name: holderName, attemptId: null },
-        message: catalogRefusalMessage(holderName),
-      },
-      { success: true, outcome: 'running', producer: CATALOG_PRODUCER, attemptId: null },
-    ]);
-    assert.deepEqual(startResult(await first), { success: true, outcome: 'started', producer: CATALOG_PRODUCER, attemptId });
-    assert.equal(requests.filter((request) => request.method === 'POST').length, 1, 'only the admitted start opened an attempt');
-    await settleCollections(h);
-  } finally {
-    begin.resolve();
-    h.close();
-  }
-});
-
-test('a catalog begin the owner answers with ATTEMPT_IN_PROGRESS answers running with that attempt and stores nothing', async () => {
-  const liveAttemptId = '7d111111-1111-4111-8111-111111111111';
-  const { h } = bootCatalogHarness({ owner: async ({ method, pathname }) => {
-    if (method === 'POST' && pathname === catalogAttemptsPath(catalogAccount)) {
-      return coupangWindowJson({
-        statusCode: 409,
-        error: 'Conflict',
-        code: 'ATTEMPT_IN_PROGRESS',
-        attemptId: liveAttemptId,
-        message: '이 계정의 쿠팡 상품 목록 파일을 가져오는 중입니다. 끝난 뒤 다시 수집해 주세요.',
-      }, 409);
-    }
-    return undefined;
-  } });
-  try {
-    const reply = startResult(await externalRequest(
-      h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }),
-    ));
-
-    assert.deepEqual(reply, { success: true, outcome: 'running', producer: CATALOG_PRODUCER, attemptId: liveAttemptId });
-    assert.equal(h.fake.storage[CATALOG_STATE_KEY], undefined, 'no import was stored');
-    assert.deepEqual([...(await vm.runInContext('collectionSessions', h.context).list('local'))], []);
-    await settleCollections(h);
-  } finally {
-    h.close();
-  }
-});
-
-test('an import an operator stopped on the server frees the browser, its window and session at the next catalog start', async () => {
-  const leftoverId = '7e111111-1111-4111-8111-111111111111';
-  const attemptId = '7e222222-2222-4222-8222-222222222222';
-  const leftoverPermit = catalogBasicsPermit(leftoverId, otherCatalogAccount);
-  const permit = catalogBasicsPermit(attemptId, catalogAccount);
-  const { h, requests } = bootCatalogHarness({
-    storage: {
-      [CATALOG_STATE_KEY]: storedCatalogImport(leftoverPermit),
-      kiditem_collection_sessions: { [leftoverId]: storedSession(leftoverId, CATALOG_PRODUCER) },
-    },
-    owner: async ({ method, pathname }) => {
-      if (method === 'GET' && pathname === `${catalogAttemptsPath(otherCatalogAccount)}/${leftoverId}`) {
-        return coupangWindowJson(catalogAttemptRead(leftoverPermit, 'FAILED'));
-      }
-      if (method === 'POST' && pathname === catalogAttemptsPath(catalogAccount)) return coupangWindowJson(permit, 201);
-      if (method === 'GET' && pathname === `${catalogAttemptsPath(catalogAccount)}/${attemptId}`) {
-        return coupangWindowJson(catalogAttemptRead(permit, 'FAILED'));
-      }
-      return undefined;
-    },
-  });
-  const { removedWindows } = installLeftoverWindow(h, leftoverId, 'CATALOG_COLLECTION_WINDOW_STORAGE_KEY');
-  try {
-    const reply = startResult(await externalRequest(
-      h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }),
-    ));
-
-    assert.deepEqual(reply, { success: true, outcome: 'started', producer: CATALOG_PRODUCER, attemptId });
-    assert.deepEqual(removedWindows, [7], 'the stopped import released its window before the next one opened');
-    assert.equal(await vm.runInContext('collectionSessions', h.context).get(leftoverId), null);
-    assert.equal(requests.filter((request) => request.method === 'POST').length, 1);
-    await settleCollections(h);
-  } finally {
-    h.close();
-  }
-});
-
-test('stopping the stored import in this browser frees the browser for another account', async () => {
-  const holderId = '7f111111-1111-4111-8111-111111111111';
-  const attemptId = '7f222222-2222-4222-8222-222222222222';
-  const holderPermit = catalogBasicsPermit(holderId, otherCatalogAccount);
-  const permit = catalogBasicsPermit(attemptId, catalogAccount);
-  const holderPath = `${catalogAttemptsPath(otherCatalogAccount)}/${holderId}`;
-  let holderState = 'RUNNING';
-  const { h, requests } = bootCatalogHarness({
-    storage: {
-      [CATALOG_STATE_KEY]: storedCatalogImport(holderPermit),
-      kiditem_collection_sessions: { [holderId]: storedSession(holderId, CATALOG_PRODUCER) },
-    },
-    owner: async ({ method, pathname }) => {
-      if (method === 'GET' && pathname === holderPath) return coupangWindowJson(catalogAttemptRead(holderPermit, holderState));
-      if (method === 'POST' && pathname === `${holderPath}/fail`) {
-        holderState = 'FAILED';
-        return coupangWindowJson(catalogAttemptRead(holderPermit, 'FAILED'), 201);
-      }
-      if (method === 'POST' && pathname === catalogAttemptsPath(catalogAccount)) return coupangWindowJson(permit, 201);
-      if (method === 'GET' && pathname === `${catalogAttemptsPath(catalogAccount)}/${attemptId}`) {
-        return coupangWindowJson(catalogAttemptRead(permit, 'FAILED'));
-      }
-      if (method === 'GET' && pathname === '/api/channels/accounts') return coupangWindowJson([]);
-      return undefined;
-    },
-  });
-  try {
-    const refused = startResult(await externalRequest(
-      h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }),
-    ));
-    assert.equal(refused.outcome, 'refused');
-
-    const stopped = await externalRequest(h.fake, { action: 'cancelCollectionSession', attemptId: holderId });
-    assert.equal(stopped.success, true, stopped.error);
-
-    const reply = startResult(await externalRequest(
-      h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }),
-    ));
-    assert.deepEqual(reply, { success: true, outcome: 'started', producer: CATALOG_PRODUCER, attemptId });
-    const failure = requests.find((request) => request.pathname === `${holderPath}/fail`);
-    assert.equal(failure?.body?.code, 'USER_CANCELLED');
-    assert.equal(requests.filter((request) => request.pathname === catalogAttemptsPath(catalogAccount)).length, 1);
-    await settleCollections(h);
-  } finally {
-    h.close();
-  }
-});
-
-test('a restarted worker continues a catalog import only for the same unexpired attempt while a KidItem tab is confirmed', async () => {
-  for (const scenario of [
-    { name: 'confirmed tab', presence: 'confirmed', expiresAt: '2030-01-02T00:00:00.000Z', continues: true },
-    { name: 'unknown tab presence', presence: 'unknown', expiresAt: '2030-01-02T00:00:00.000Z', continues: false },
-    { name: 'lease passed', presence: 'confirmed', expiresAt: '2020-01-02T00:00:00.000Z', continues: false },
-  ]) {
-    const attemptId = randomUUID();
-    const permit = catalogBasicsPermit(attemptId, catalogAccount, { expiresAt: scenario.expiresAt });
-    let reads = 0;
-    const { h } = bootCatalogHarness({
-      presence: scenario.presence,
-      storage: {
-        [CATALOG_STATE_KEY]: storedCatalogImport(permit),
-        kiditem_collection_sessions: { [attemptId]: storedSession(attemptId, CATALOG_PRODUCER) },
-      },
-      owner: async ({ method, pathname }) => {
-        if (method === 'GET' && pathname === `${catalogAttemptsPath(catalogAccount)}/${attemptId}`) {
-          reads += 1;
-          // Recovery confirms the attempt still runs; the continued step then finds it ended.
-          return coupangWindowJson(catalogAttemptRead(permit, reads === 1 ? 'RUNNING' : 'FAILED'));
-        }
-        return undefined;
-      },
-    });
-    try {
-      await settleCollections(h);
-      // The alarm the earlier worker life scheduled continues nothing by itself.
-      const alarmName = vm.runInContext(
-        'coupangEnvironment.alarmName("kiditem-coupang-catalog-import-step", "local")', h.context,
-      );
-      for (const listener of h.fake.alarmListeners) listener({ name: alarmName });
-      await settleCollections(h);
-
-      if (scenario.continues) {
-        assert.equal(reads, 2, `${scenario.name}: recovery confirmed the attempt and continued its step`);
-        assert.equal(h.fake.storage[CATALOG_STATE_KEY].status, 'error', scenario.name);
-      } else {
-        assert.equal(reads, 0, `${scenario.name}: nothing was read or continued`);
-        assert.equal(h.fake.storage[CATALOG_STATE_KEY].status, 'running', scenario.name);
-      }
-    } finally {
-      h.close();
-    }
-  }
-});
-
-test('a start for the account whose import waits after a Wing rate limit resumes that attempt only once its wait passed', async () => {
-  const attemptId = '7a333333-3333-4333-8333-333333333333';
-  const permit = catalogBasicsPermit(attemptId, catalogAccount);
-  for (const scenario of [
-    { name: 'wait passed', nextAllowedAt: '2020-01-01T00:00:00.000Z', outcome: 'started' },
-    { name: 'still waiting', nextAllowedAt: '2099-01-01T00:00:00.000Z', outcome: 'running' },
-  ]) {
-    let paused = true;
-    let reads = 0;
-    const { h, requests } = bootCatalogHarness({
-      storage: {
-        [CATALOG_STATE_KEY]: storedCatalogImport(permit, { nextAllowedAt: scenario.nextAllowedAt }),
-        kiditem_collection_sessions: { [attemptId]: storedSession(attemptId, CATALOG_PRODUCER) },
-      },
-      owner: async ({ method, pathname }) => {
-        if (method === 'POST' && pathname === catalogAttemptsPath(catalogAccount)) {
-          // The same-key begin is the owner's explicit resume of a paused attempt.
-          paused = false;
-          return coupangWindowJson(permit, 201);
-        }
-        if (method === 'GET' && pathname === `${catalogAttemptsPath(catalogAccount)}/${attemptId}`) {
-          reads += 1;
-          const ended = !paused && reads >= 3;
-          return coupangWindowJson(catalogAttemptRead(permit, ended ? 'FAILED' : 'RUNNING', {
-            error: paused
-              ? { code: 'WING_PROVIDER_RATE_LIMITED', message: 'Wing 요청 한도', phase: 'hydration', recoverable: true, notBefore: '2020-01-01T00:00:00.000Z' }
-              : null,
-          }));
-        }
-        return undefined;
-      },
-    });
-    try {
-      const reply = startResult(await externalRequest(
-        h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }),
-      ));
-      await settleCollections(h);
-
-      assert.deepEqual(reply, { success: true, outcome: scenario.outcome, producer: CATALOG_PRODUCER, attemptId }, scenario.name);
-      const begins = requests.filter((request) => request.method === 'POST');
-      if (scenario.outcome === 'started') {
-        assert.deepEqual(begins, [{
-          method: 'POST',
-          pathname: catalogAttemptsPath(catalogAccount),
-          key: CATALOG_ATTEMPT_KEY,
-          body: { collectorVersion: 'wing-inventory-v1', stage: 'basics' },
-        }], 'the resume replays the attempt\'s own begin, not a new attempt');
-        assert.equal(reads, 3, 'the resumed import ran its step');
-      } else {
-        assert.deepEqual(begins, [], 'nothing resumes before the wait passed');
-        assert.equal(h.fake.storage[CATALOG_STATE_KEY].nextAllowedAt, scenario.nextAllowedAt);
-      }
-    } finally {
-      h.close();
-    }
-  }
-});
-
-test('a catalog start whose begin replays a completed basics import answers started and collects nothing', async () => {
-  const attemptId = '7a444444-4444-4444-8444-444444444444';
-  const permit = catalogBasicsPermit(attemptId, catalogAccount, { state: 'COMPLETE' });
-  const { h, requests } = bootCatalogHarness({ owner: async ({ method, pathname }) => {
-    if (method === 'POST' && pathname === catalogAttemptsPath(catalogAccount)) return coupangWindowJson(permit, 201);
-    if (method === 'GET' && pathname === `${catalogAttemptsPath(catalogAccount)}/${attemptId}`) {
-      return coupangWindowJson(catalogAttemptRead(permit, 'COMPLETE', {
-        publication: { sourceImportRunId: attemptId, duplicate: false, changes: {} },
-      }));
-    }
-    return undefined;
-  } });
-  try {
-    const reply = startResult(await externalRequest(
-      h.fake, startCollectionMessage(CATALOG_PRODUCER, { channelAccountId: catalogAccount }),
-    ));
-    await settleCollections(h);
-
-    assert.deepEqual(reply, { success: true, outcome: 'started', producer: CATALOG_PRODUCER, attemptId });
-    assert.deepEqual(requests.map(({ method, pathname }) => `${method} ${pathname}`), [
-      `POST ${catalogAttemptsPath(catalogAccount)}`,
-      `GET ${catalogAttemptsPath(catalogAccount)}/${attemptId}`,
-    ]);
-    assert.deepEqual(h.fake.createdTabs, []);
-    assert.deepEqual([...(await vm.runInContext('collectionSessions', h.context).list('local'))], []);
-  } finally {
-    h.close();
-  }
-});
-
-test('catalog generic cancellation reconciles the exact web-failed owner without a legacy session restart', async () => {
-  const requests = [];
-  const { fake, context } = bootServiceWorker({ fetch: async (url, init) => {
-    if (!String(url).includes('/catalog-imports/')) return { ok: true, json: async () => ({}) };
-    requests.push({ url: String(url), method: init?.method || 'GET' });
-    return { ok: true, json: async () => ({
-      attemptId: catalogPermit.attemptId, channelAccountId: catalogPermit.plan.channelAccountId,
-      state: 'FAILED', plan: catalogPermit.plan, expiresAt: catalogPermit.expiresAt,
-      error: { code: 'USER_CANCELLED', message: '취소' },
-    }) };
-  } });
-  fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
-  fake.storage['kiditem_coupang_catalog_import:local'] = {
-    attemptId: catalogPermit.attemptId, channelAccountId: catalogPermit.plan.channelAccountId,
-    permit: catalogPermit, status: 'running', phase: 'discovery',
-  };
-  await vm.runInContext('collectionSessions.start(' + JSON.stringify({
-    attemptId: catalogPermit.attemptId, environmentId: 'local', producer: 'channels.coupang_catalog',
-  }) + ')', context);
-  const result = await externalRequest(fake, { action: 'cancelCollectionSession', attemptId: catalogPermit.attemptId });
-  assert.equal(result.success, true, result.error);
-  assert.equal(result.active, false);
-  assert.equal(result.cancelled, true);
-  assert.ok(requests.length > 0);
-  assert.ok(requests.every(r => r.method === 'GET' && r.url.endsWith('/attempts/' + catalogPermit.attemptId)));
-  assert.deepEqual(fake.createdTabs, []);
-  const sessions = await externalRequest(fake, { action: 'listCollectionSessions' });
-  assert.ok(!JSON.stringify(sessions).includes(catalogPermit.attemptId));
-});
-
 test('retired Wing and SERP rank shells have no public worker responder', async () => {
   const requests = [];
   const { fake } = bootServiceWorker({ fetch: async (url) => {
@@ -2771,8 +2227,6 @@ test('an update removes the retired write-only local copies and keeps every othe
     'kiditem_last_sync_traffic',
     'kiditem_last_sync_itemwinner',
     'kiditem_last_sync_ads',
-    'lastExtraction',
-    'lastExtractionEnvironmentId',
   ];
   const storage = {
     ...Object.fromEntries(retired.map((key) => [key, { time: 1, count: 1 }])),
@@ -2790,14 +2244,13 @@ test('an update removes the retired write-only local copies and keeps every othe
 
 test('each domain worker removes only its own retired local copies on update', async (t) => {
   // Storage names are domain-unique, so the domain that wrote a key is the one
-  // that retires it: Coupang its Wing/Ads sync stamps, Sourcing its extraction mirror.
+  // that retires it: Coupang its Wing/Ads sync stamps.
   const retiredByWorker = {
     'coupang/worker.js': [
       'kiditem_last_sync_traffic',
       'kiditem_last_sync_itemwinner',
       'kiditem_last_sync_ads',
     ],
-    'sourcing/worker.js': ['lastExtraction', 'lastExtractionEnvironmentId'],
   };
   const everyRetired = Object.values(retiredByWorker).flat();
 
@@ -3801,7 +3254,6 @@ test('Wing search keeps partial rows and original 5xx exhaustion while exposing 
 
 test('Wing catalog search reuses the existing session for both owners and rejects missing or foreign environments', async () => {
   for (const producer of [
-    'sourcing.wing_catalog',
     'advertising.wing_rank',
     'advertising.wing_tracked_products',
   ]) {
@@ -4148,11 +3600,12 @@ test('SERP capture does not certify the live Access Denied page as an empty resu
   }
 });
 
-test('통합 서비스워커가 세 도메인을 모두 싣고 부팅한다', () => {
+test('통합 서비스워커가 두 도메인 워커를 싣고 부팅한다', () => {
   const { fake, context } = bootServiceWorker();
 
-  // 도메인 워커 3개 + 통합 dispatch = 외부 리스너 4개.
-  assert.equal(fake.externalMessageListeners.length, 4);
+  // 도메인 워커 2개(쿠팡·주문) + 통합 dispatch = 외부 리스너 3개. 소싱 수집은 새 런타임의 실행 kind라(KID-360)
+  // 외부 리스너를 따로 두지 않고 KidItemDomains에 operation.start를 건다.
+  assert.equal(fake.externalMessageListeners.length, 3);
   assert.ok(context.KidItemDomains);
 });
 
@@ -4182,7 +3635,7 @@ test('wakeOperationRuntime은 더 이상 어떤 외부 리스너에도 등록·�
   assert.equal(responses, 0);
 });
 
-test('ping 이 세 도메인의 capabilities 를 합쳐 한 번만 응답한다', async () => {
+test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 응답한다', async () => {
   const { fake } = bootServiceWorker();
 
   const responses = [];
@@ -4214,9 +3667,9 @@ test('ping 이 세 도메인의 capabilities 를 합쳐 한 번만 응답한다'
     'coupangCatalogSnapshot',
     'wingFormPortV1',
     'coupangKeywordRank',
-    // 소싱
-    'sourcingProductScraper',
-    'sourcing1688TrendCollector',
+    // 새 런타임(소싱 실행 kind, KID-360)
+    'operationRuntime',
+    'sourcingOperationKindsV1',
     // 공통
     'browserCollectionSessions',
     'kiditemEnvironmentProfilesV1',
@@ -4225,7 +3678,7 @@ test('ping 이 세 도메인의 capabilities 를 합쳐 한 번만 응답한다'
   }
 });
 
-test('세 도메인이 서로 겹치지 않는 producer 접두사를 등록한다', () => {
+test('도메인이 서로 겹치지 않는 producer 접두사를 등록한다', () => {
   const { context } = bootServiceWorker();
   const domains = context.KidItemDomains;
 
@@ -4236,7 +3689,6 @@ test('세 도메인이 서로 겹치지 않는 producer 접두사를 등록한�
     'advertising.ad_sync': 'cancelCollectionSession',
     'channels.coupang_catalog': 'cancelCollectionSession',
     'dashboard.wing_sales': 'cancelCollectionSession',
-    'sourcing.1688_trend': 'cancelCollectionSession',
   };
   for (const [producer, operation] of Object.entries(expected)) {
     const domain = domains.forProducer(producer);
@@ -4244,6 +3696,8 @@ test('세 도메인이 서로 겹치지 않는 producer 접두사를 등록한�
     assert.equal(typeof domain[operation], 'function', `${producer}.${operation}`);
   }
   assert.equal(domains.forProducer('unknown.thing'), null);
+  // 소싱 수집은 수집 세션 producer가 아니라 실행 kind다(KID-360).
+  assert.equal(domains.forProducer('sourcing.1688_trend'), null);
 });
 
 test('승인된 KidItem web origin도 retired Coupang source bridge를 직접 시작할 수 없다', () => {
@@ -4266,14 +3720,10 @@ test('승인된 KidItem web origin도 retired Coupang source bridge를 직접 �
   }
 
   assert.deepEqual(fake.createdTabs, []);
-  assert.equal(
-    typeof context.KidItemDomains.forExternalAction('collectSourcingKeywordSuggestions')?.handle,
-    'function',
-  );
-  assert.equal(
-    context.KidItemDomains.capabilities().sourcingKeywordSuggestionSourceOwnerV1,
-    true,
-  );
+  // 추천 키워드 수집은 operation.start{kind: sourcing.coupang_keyword_suggestion}로만 시작한다(KID-360).
+  assert.equal(context.KidItemDomains.forExternalAction('collectSourcingKeywordSuggestions'), null);
+  assert.equal(context.KidItemDomains.capabilities().sourcingKeywordSuggestionSourceOwnerV1, undefined);
+  assert.equal(typeof context.KidItemDomains.forExternalAction('operation.start')?.handle, 'function');
 });
 
 test('수익성 광고비 수집은 공용 dispatch의 수집 시작 계약으로만 등록된다', () => {
@@ -4395,57 +3845,17 @@ test('도메인 고유 액션은 소유 워커만 받고 retired sourcing bridge
     if (result === true) sourcingBridgeKeptAlive += 1;
   }
   assert.equal(sourcingBridgeKeptAlive, 0, 'retired sourcing bridge는 외부 액션을 열면 안 된다');
-  assert.equal(
-    typeof context.KidItemDomains.forExternalAction('collectSourcing1688Trends')?.handle,
-    'function',
-    '1688 source collection is owned by one explicit external action',
-  );
-  const tiktokAction = context.KidItemDomains.forExternalAction('collectSourcingTiktokCcTrends');
-  assert.equal(
-    typeof tiktokAction?.handle,
-    'function',
-    'TikTok source collection is owned by one explicit external action',
-  );
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(tiktokAction.validate({
-      action: 'collectSourcingTiktokCcTrends',
-      idempotencyKey: 'tiktok-direct-dispatch-key',
-      maxItems: 12,
-      region: 'KR',
-    }))),
-    { idempotencyKey: 'tiktok-direct-dispatch-key', maxItems: 12, region: 'KR' },
-  );
-  for (const invalid of [
-    { action: 'collectSourcingTiktokCcTrends', idempotencyKey: 'key', maxItems: 101 },
-    { action: 'collectSourcingTiktokCcTrends', idempotencyKey: 'key', region: 'K1' },
-    { action: 'collectSourcingTiktokCcTrends', idempotencyKey: 'key', unexpected: true },
+  // 소싱 확장 수집 6종은 옛 직접 액션 없이 operation.start 하나로 시작한다(KID-360).
+  for (const retired of [
+    'collectSourcing1688Trends',
+    'collectSourcingTiktokCcTrends',
+    'collectSourcingLiveCommerce',
+    'collectSourcingWingCatalog',
+    'collectSourcingKeywordSuggestions',
   ]) {
-    assert.throws(() => tiktokAction.validate(invalid), /Invalid TikTok source collection request/);
+    assert.equal(context.KidItemDomains.forExternalAction(retired), null, retired);
   }
-  const liveCommerceAction = context.KidItemDomains.forExternalAction('collectSourcingLiveCommerce');
-  assert.equal(
-    typeof liveCommerceAction?.handle,
-    'function',
-    'Live Commerce collection is owned by one explicit external action',
-  );
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(liveCommerceAction.validate({
-      action: 'collectSourcingLiveCommerce',
-      idempotencyKey: 'live-commerce-direct-dispatch-key',
-      url: 'https://live.douyin.com/123?token=keep#private',
-    }))),
-    {
-      idempotencyKey: 'live-commerce-direct-dispatch-key',
-      url: 'https://live.douyin.com/123?token=keep#private',
-    },
-  );
-  for (const invalid of [
-    { action: 'collectSourcingLiveCommerce', idempotencyKey: 'key' },
-    { action: 'collectSourcingLiveCommerce', idempotencyKey: 'key', url: 'http://live.douyin.com/123' },
-    { action: 'collectSourcingLiveCommerce', idempotencyKey: 'key', url: 'https://live.douyin.com/123', unexpected: true },
-  ]) {
-    assert.throws(() => liveCommerceAction.validate(invalid), /Invalid Live Commerce source collection request/);
-  }
+  assert.equal(typeof context.KidItemDomains.forExternalAction('operation.start')?.handle, 'function');
 });
 
 test('shipment summary uses one authenticated owner responder without accepting a page-owned plan', async () => {
@@ -4512,86 +3922,31 @@ test('unreferenced Rocket list-only action is retired without removing the live 
   assert.equal(worker.includes('coupangRocketPoLifecycle'), false);
 });
 
-test('1688 direct source action reaches its owner through the external dispatcher', async () => {
-  const { fake } = bootServiceWorker();
-  const responses = [];
-  let keptAlive = 0;
+// 옛 소싱 워커가 받던 인증 전달(KID-360 이후 쿠팡 워커 하나가 받는다): 보낸 KidItem 환경의 프로필에만 쓴다.
+async function sendExternalOnce(fake, message, url) {
+  return new Promise((resolve) => {
+    let answered = false;
+    for (const listener of fake.externalMessageListeners) {
+      listener(message, { url }, (response) => {
+        if (!answered) { answered = true; resolve(response); }
+      });
+    }
+  });
+}
 
-  for (const listener of fake.externalMessageListeners) {
-    const result = listener(
-      { action: 'collectSourcing1688Trends', idempotencyKey: '1688-direct-dispatch-key' },
-      { url: 'http://localhost:3000/sourcing-ai/decision-center' },
-      (response) => responses.push(response),
-    );
-    if (result === true) keptAlive += 1;
-  }
+test('setAuthToken from a KidItem origin stores the token in that environment profile, and clearAuthToken removes only it', async (t) => {
+  const { fake, close } = bootServiceWorker({
+    storage: { kiditem_environment_profiles_v1: { office: { accessToken: 'office-token', updatedAt: 2 } } },
+  });
+  t.after(close);
 
-  assert.equal(keptAlive, 1, 'direct source action must have one async owner');
-  for (let index = 0; index < 10 && responses.length === 0; index += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  assert.equal(responses.length, 1);
-  assert.equal(responses[0].success, false);
-  assert.equal(responses[0].terminalState, 'RUNNING');
-  assert.match(responses[0].error, /로그인/);
-  assert.deepEqual(fake.createdTabs, []);
-});
+  const stored = await sendExternalOnce(fake, { action: 'setAuthToken', token: 'token-from-web' }, 'http://localhost:3000/sourcing-ai');
+  assert.equal(stored?.success, true);
+  assert.equal(fake.storage.kiditem_environment_profiles_v1.local.accessToken, 'token-from-web');
+  assert.equal(fake.storage.kiditem_environment_profiles_v1.office.accessToken, 'office-token');
 
-test('TikTok direct source action reaches its owner through the external dispatcher', async () => {
-  const { fake } = bootServiceWorker();
-  const responses = [];
-  let keptAlive = 0;
-
-  for (const listener of fake.externalMessageListeners) {
-    const result = listener(
-      {
-        action: 'collectSourcingTiktokCcTrends',
-        idempotencyKey: 'tiktok-direct-dispatch-key',
-        maxItems: 12,
-        region: 'KR',
-      },
-      { url: 'http://localhost:3000/sourcing-ai/decision-center' },
-      (response) => responses.push(response),
-    );
-    if (result === true) keptAlive += 1;
-  }
-
-  assert.equal(keptAlive, 1, 'direct source action must have one async owner');
-  for (let index = 0; index < 10 && responses.length === 0; index += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  assert.equal(responses.length, 1);
-  assert.equal(responses[0].success, false);
-  assert.equal(responses[0].terminalState, 'RUNNING');
-  assert.match(responses[0].error, /로그인/);
-  assert.deepEqual(fake.createdTabs, []);
-});
-
-test('Live Commerce direct source action reaches its owner through the external dispatcher', async () => {
-  const { fake } = bootServiceWorker();
-  const responses = [];
-  let keptAlive = 0;
-
-  for (const listener of fake.externalMessageListeners) {
-    const result = listener(
-      {
-        action: 'collectSourcingLiveCommerce',
-        idempotencyKey: 'live-commerce-direct-dispatch-key',
-        url: 'https://live.douyin.com/123',
-      },
-      { url: 'http://localhost:3000/sourcing-ai/market' },
-      (response) => responses.push(response),
-    );
-    if (result === true) keptAlive += 1;
-  }
-
-  assert.equal(keptAlive, 1, 'direct source action must have one async owner');
-  for (let index = 0; index < 10 && responses.length === 0; index += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  assert.equal(responses.length, 1);
-  assert.equal(responses[0].success, false);
-  assert.equal(responses[0].terminalState, 'RUNNING');
-  assert.match(responses[0].error, /로그인/);
-  assert.deepEqual(fake.createdTabs, []);
+  const cleared = await sendExternalOnce(fake, { action: 'clearAuthToken' }, 'http://localhost:3000/sourcing-ai');
+  assert.equal(cleared?.success, true);
+  assert.equal(fake.storage.kiditem_environment_profiles_v1.local, undefined);
+  assert.equal(fake.storage.kiditem_environment_profiles_v1.office.accessToken, 'office-token');
 });

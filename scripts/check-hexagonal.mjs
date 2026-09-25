@@ -126,6 +126,8 @@ function hexagonalFindings(file, source) {
   // adapter/in/http and agent capability adapters, unrelated to KID-310.
   if (owner === 'channels' && file.includes('/adapter/in/')) {
     for (const match of source.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"]([^'"]+)['"]/g)) {
+      // 실행 계약(ADR-0025)의 owner 포트는 owner가 구현하는 계약이다 — 채널 자신의 port/out이 아니다(KID-354).
+      if (/(?:^|\/)common\/operation\/application\/port\/out\/owner\//.test(match[1])) continue;
       if (/application\/(?:service|usecase|port\/out)\//.test(match[1])) reject('Incoming adapters use application input ports');
     }
   }

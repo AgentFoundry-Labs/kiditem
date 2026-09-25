@@ -27,7 +27,7 @@ describe('browser live-commerce source-attempt mapper', () => {
 
     const batch = normalizeBrowserLiveCommerceBatch({
       organizationId: 'org-1',
-      ingestionRunId: 'run-1',
+      operationId: 'run-1',
       plan,
       batch: {
         source: 'douyin',

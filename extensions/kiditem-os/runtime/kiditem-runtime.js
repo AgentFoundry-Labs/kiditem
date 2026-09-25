@@ -39,24 +39,6 @@ var KidItemRuntime = (() => {
     return [...collectors.keys()].sort();
   }
 
-  // extensions/src/collectors/test.echo/index.ts
-  var CHUNKS = 2;
-  var ITEMS_PER_CHUNK = 3;
-  var testEchoCollector = {
-    kind: "test.echo",
-    site: null,
-    async *collect(_plan, _site, { signal }) {
-      for (let chunk = 1; chunk <= CHUNKS; chunk += 1) {
-        if (signal.aborted) return;
-        const at = (/* @__PURE__ */ new Date()).toISOString();
-        const payload = Array.from({ length: ITEMS_PER_CHUNK }, (_, index) => ({ i: (chunk - 1) * ITEMS_PER_CHUNK + index + 1, at }));
-        yield { chunkKind: "echo", payload, progress: { done: chunk } };
-      }
-    },
-    summarize: () => ({ result: { echo: true } })
-  };
-  registerCollector(testEchoCollector);
-
   // node_modules/zod/v3/external.js
   var external_exports = {};
   __export(external_exports, {
@@ -1051,8 +1033,8 @@ var KidItemRuntime = (() => {
       const [header] = jwt.split(".");
       if (!header)
         return false;
-      const base64 = header.replace(/-/g, "+").replace(/_/g, "/").padEnd(header.length + (4 - header.length % 4) % 4, "=");
-      const decoded = JSON.parse(atob(base64));
+      const base642 = header.replace(/-/g, "+").replace(/_/g, "/").padEnd(header.length + (4 - header.length % 4) % 4, "=");
+      const decoded = JSON.parse(atob(base642));
       if (typeof decoded !== "object" || decoded === null)
         return false;
       if ("typ" in decoded && decoded?.typ !== "JWT")
@@ -4098,6 +4080,373 @@ var KidItemRuntime = (() => {
   };
   var NEVER = INVALID;
 
+  // packages/shared/src/schemas/coupang-catalog-snapshot.ts
+  var COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT = 500;
+  var COUPANG_CATALOG_MAX_MEDIA_PER_OWNER = 100;
+  var COUPANG_CATALOG_MAX_DETAIL_MEDIA = COUPANG_CATALOG_MAX_MEDIA_PER_OWNER * (COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT + 1);
+  var COUPANG_CATALOG_MAX_PRODUCT_BYTES = 512 * 1024;
+  var COUPANG_CATALOG_MAX_RAW_BYTES = 64 * 1024;
+  var COUPANG_CATALOG_MAX_DOCUMENT_BYTES = 64 * 1024;
+  var COUPANG_CATALOG_MAX_DOCUMENTS_PER_PRODUCT = 2e3;
+  var ExternalIdSchema = external_exports.string().trim().min(1).max(200);
+  var NullableTextSchema = external_exports.string().trim().min(1).max(2e3).nullable();
+  var HttpUrlSchema = external_exports.string().url().max(4096).refine((value) => {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  }, "Provider URL must use HTTP(S)");
+  function jsonBytes(value) {
+    return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  }
+  function isJsonValue(value, seen = /* @__PURE__ */ new Set()) {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+    if (typeof value === "number") return Number.isFinite(value);
+    if (typeof value !== "object") return false;
+    if (seen.has(value)) return false;
+    seen.add(value);
+    const valid = Array.isArray(value) ? value.every((item) => isJsonValue(item, seen)) : Object.entries(value).every(([key, nested]) => key !== "__proto__" && key !== "prototype" && isJsonValue(nested, seen));
+    seen.delete(value);
+    return valid;
+  }
+  function addDuplicateIssue(ctx, path, field, value) {
+    ctx.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path,
+      message: `duplicate ${field}: ${value}`
+    });
+  }
+  var CoupangCatalogMediaRoleSchema = external_exports.enum(["primary", "detail", "option"]);
+  var CoupangCatalogMediaV1Schema = external_exports.object({
+    sourceUrl: HttpUrlSchema,
+    role: CoupangCatalogMediaRoleSchema,
+    sortOrder: external_exports.number().int().nonnegative(),
+    externalOptionId: ExternalIdSchema.nullable()
+  });
+  var CoupangCatalogDetailMediaV1Schema = external_exports.object({
+    sourceUrl: HttpUrlSchema,
+    role: CoupangCatalogMediaRoleSchema,
+    sortOrder: external_exports.number().int().nonnegative(),
+    externalOptionIds: external_exports.array(ExternalIdSchema).max(COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT).optional(),
+    externalOptionId: ExternalIdSchema.nullable().optional()
+  }).superRefine((media, ctx) => {
+    const ids = media.externalOptionIds ?? [];
+    if (media.externalOptionId && ids.length > 0 && !ids.includes(media.externalOptionId)) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["externalOptionId"],
+        message: "legacy externalOptionId must be present in externalOptionIds"
+      });
+    }
+  });
+  var CoupangCatalogAttributeKindSchema = external_exports.enum(["purchase", "search"]);
+  var CoupangCatalogAttributeV1Schema = external_exports.object({
+    type: external_exports.string().trim().min(1).max(200),
+    value: external_exports.string().trim().min(1).max(2e3),
+    kind: CoupangCatalogAttributeKindSchema.optional(),
+    attributeTypeId: external_exports.string().trim().min(1).max(200).nullable().optional(),
+    exposed: external_exports.boolean().nullable().optional()
+  });
+  var CoupangCatalogOptionV1Schema = external_exports.object({
+    externalOptionId: ExternalIdSchema,
+    // `vendorItemId` is nullable in Wing inventory responses.  A typed
+    // sellerProductItemId may still be used as the stable external option key,
+    // but it must not be relabelled as a vendorItemId by the collector.
+    vendorItemId: ExternalIdSchema.nullable().optional(),
+    vendorInventoryItemId: ExternalIdSchema.nullable().optional(),
+    sellerProductItemId: ExternalIdSchema.nullable().optional(),
+    skuId: ExternalIdSchema.nullable().optional(),
+    externalSkuCode: NullableTextSchema.optional(),
+    stock: external_exports.number().int().nonnegative().nullable().optional(),
+    stockQuantity: external_exports.number().int().nonnegative().nullable().optional(),
+    soldOut: external_exports.boolean().nullable().optional(),
+    optionName: NullableTextSchema,
+    skuStatus: NullableTextSchema,
+    salePrice: external_exports.number().int().nonnegative().nullable(),
+    sellerSku: NullableTextSchema,
+    modelNumber: NullableTextSchema,
+    barcode: NullableTextSchema,
+    attributes: external_exports.array(CoupangCatalogAttributeV1Schema).max(100),
+    media: external_exports.array(CoupangCatalogMediaV1Schema).max(COUPANG_CATALOG_MAX_MEDIA_PER_OWNER),
+    raw: external_exports.record(external_exports.unknown())
+  }).superRefine((option, ctx) => {
+    option.media.forEach((item, index) => {
+      if (item.externalOptionId !== null && item.externalOptionId !== option.externalOptionId) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["media", index, "externalOptionId"],
+          message: "media externalOptionId must match its option owner"
+        });
+      }
+    });
+    if (jsonBytes(option.raw) > COUPANG_CATALOG_MAX_RAW_BYTES) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["raw"],
+        message: `option raw diagnostics exceed ${COUPANG_CATALOG_MAX_RAW_BYTES} bytes`
+      });
+    }
+  });
+  var CoupangCatalogBasicOptionV1Schema = CoupangCatalogOptionV1Schema;
+  var CoupangCatalogBasicProductV1Schema = external_exports.object({
+    externalProductId: ExternalIdSchema,
+    registeredName: NullableTextSchema,
+    displayName: NullableTextSchema,
+    category: NullableTextSchema,
+    manufacturer: NullableTextSchema,
+    brand: NullableTextSchema,
+    productStatus: NullableTextSchema,
+    options: external_exports.array(CoupangCatalogBasicOptionV1Schema).min(1).max(COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT),
+    media: external_exports.array(CoupangCatalogMediaV1Schema).max(COUPANG_CATALOG_MAX_MEDIA_PER_OWNER),
+    raw: external_exports.record(external_exports.unknown())
+  }).superRefine((product, ctx) => {
+    const optionIds = /* @__PURE__ */ new Set();
+    product.options.forEach((option, index) => {
+      if (optionIds.has(option.externalOptionId)) {
+        addDuplicateIssue(ctx, ["options", index, "externalOptionId"], "externalOptionId", option.externalOptionId);
+      }
+      optionIds.add(option.externalOptionId);
+    });
+    product.media.forEach((item, index) => {
+      if (item.externalOptionId !== null && !optionIds.has(item.externalOptionId)) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["media", index, "externalOptionId"],
+          message: `media references unknown option: ${item.externalOptionId}`
+        });
+      }
+    });
+    if (jsonBytes(product.raw) > COUPANG_CATALOG_MAX_RAW_BYTES) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["raw"],
+        message: `basic raw diagnostics exceed ${COUPANG_CATALOG_MAX_RAW_BYTES} bytes`
+      });
+    }
+    if (jsonBytes(product) > COUPANG_CATALOG_MAX_PRODUCT_BYTES) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        message: `basic product exceeds ${COUPANG_CATALOG_MAX_PRODUCT_BYTES} bytes`
+      });
+    }
+  });
+  var CoupangCatalogDetailDocumentKindSchema = external_exports.enum([
+    "contents",
+    "notices",
+    "additionalNotices",
+    "searchTags",
+    "attributes",
+    "internalAttributes",
+    "certifications",
+    "extraProperties"
+  ]);
+  var CoupangCatalogDetailDocumentValueSchema = external_exports.unknown().superRefine((value, ctx) => {
+    if (!isJsonValue(value)) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        message: "detail document value must be finite JSON and must preserve explicit null"
+      });
+      return;
+    }
+    if (jsonBytes(value) > COUPANG_CATALOG_MAX_DOCUMENT_BYTES) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        message: `detail document exceeds ${COUPANG_CATALOG_MAX_DOCUMENT_BYTES} bytes`
+      });
+    }
+  });
+  var CoupangCatalogDetailDocumentV1Schema = external_exports.object({
+    id: ExternalIdSchema,
+    kind: CoupangCatalogDetailDocumentKindSchema,
+    value: CoupangCatalogDetailDocumentValueSchema
+  });
+  var CoupangCatalogDetailOptionV1Schema = external_exports.object({
+    externalOptionId: ExternalIdSchema,
+    vendorItemId: ExternalIdSchema.nullable().optional(),
+    sellerProductItemId: ExternalIdSchema.nullable().optional(),
+    externalVendorSku: NullableTextSchema.optional(),
+    barcode: NullableTextSchema.optional(),
+    modelNumber: NullableTextSchema.optional(),
+    attributes: external_exports.array(CoupangCatalogAttributeV1Schema).max(100).optional(),
+    documentIds: external_exports.array(ExternalIdSchema).max(COUPANG_CATALOG_MAX_DOCUMENTS_PER_PRODUCT),
+    raw: external_exports.record(external_exports.unknown()).optional()
+  });
+  var CoupangCatalogDetailProductV1Schema = external_exports.object({
+    externalProductId: ExternalIdSchema,
+    options: external_exports.array(CoupangCatalogDetailOptionV1Schema).min(1).max(COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT),
+    documents: external_exports.array(CoupangCatalogDetailDocumentV1Schema).max(COUPANG_CATALOG_MAX_DOCUMENTS_PER_PRODUCT),
+    media: external_exports.array(CoupangCatalogDetailMediaV1Schema).max(COUPANG_CATALOG_MAX_DETAIL_MEDIA),
+    raw: external_exports.record(external_exports.unknown())
+  }).superRefine((product, ctx) => {
+    const optionIds = /* @__PURE__ */ new Set();
+    for (const [index, option] of product.options.entries()) {
+      if (optionIds.has(option.externalOptionId)) {
+        addDuplicateIssue(
+          ctx,
+          ["options", index, "externalOptionId"],
+          "externalOptionId",
+          option.externalOptionId
+        );
+      }
+      optionIds.add(option.externalOptionId);
+    }
+    const documentsById = /* @__PURE__ */ new Map();
+    for (const [index, document] of product.documents.entries()) {
+      const previous = documentsById.get(document.id);
+      if (previous) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["documents", index, "id"],
+          message: `duplicate detail document id: ${document.id}`
+        });
+      } else {
+        documentsById.set(document.id, document);
+      }
+      if (previous && stableDocumentValue(previous) !== stableDocumentValue(document)) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["documents", index, "value"],
+          message: `detail document id maps to more than one value: ${document.id}`
+        });
+      }
+    }
+    const documentValues = /* @__PURE__ */ new Set();
+    for (const document of product.documents) {
+      const key = `${document.kind}\0${stableDocumentValue(document.value)}`;
+      if (documentValues.has(key)) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["documents"],
+          message: "detail documents must be deduplicated by kind and value"
+        });
+      }
+      documentValues.add(key);
+    }
+    for (const [index, option] of product.options.entries()) {
+      for (const [documentIndex, documentId] of option.documentIds.entries()) {
+        if (!documentsById.has(documentId)) {
+          ctx.addIssue({
+            code: external_exports.ZodIssueCode.custom,
+            path: ["options", index, "documentIds", documentIndex],
+            message: `option references unknown detail document: ${documentId}`
+          });
+        }
+      }
+    }
+    const mediaCountByOption = /* @__PURE__ */ new Map();
+    let unassociatedMediaCount = 0;
+    for (const [index, media] of product.media.entries()) {
+      const optionRefs = new Set(
+        media.externalOptionIds ?? (media.externalOptionId ? [media.externalOptionId] : [])
+      );
+      if (optionRefs.size === 0) {
+        unassociatedMediaCount += 1;
+        continue;
+      }
+      for (const optionId of optionRefs) {
+        if (!optionIds.has(optionId)) {
+          ctx.addIssue({
+            code: external_exports.ZodIssueCode.custom,
+            path: ["media", index, "externalOptionIds"],
+            message: `media references unknown option: ${optionId}`
+          });
+        } else {
+          mediaCountByOption.set(
+            optionId,
+            (mediaCountByOption.get(optionId) ?? 0) + 1
+          );
+        }
+      }
+    }
+    for (const [optionId, count] of mediaCountByOption.entries()) {
+      if (count > COUPANG_CATALOG_MAX_MEDIA_PER_OWNER) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["media"],
+          message: "media exceeds " + COUPANG_CATALOG_MAX_MEDIA_PER_OWNER + " references for option: " + optionId
+        });
+      }
+    }
+    if (unassociatedMediaCount > COUPANG_CATALOG_MAX_MEDIA_PER_OWNER) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["media"],
+        message: "unassociated media exceeds " + COUPANG_CATALOG_MAX_MEDIA_PER_OWNER
+      });
+    }
+    if (jsonBytes(product.raw) > COUPANG_CATALOG_MAX_RAW_BYTES) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["raw"],
+        message: `detail raw diagnostics exceed ${COUPANG_CATALOG_MAX_RAW_BYTES} bytes`
+      });
+    }
+    if (jsonBytes(product) > COUPANG_CATALOG_MAX_PRODUCT_BYTES) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        message: `detail product exceeds ${COUPANG_CATALOG_MAX_PRODUCT_BYTES} bytes`
+      });
+    }
+  });
+  function stableDocumentValue(value) {
+    if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+    if (Array.isArray(value)) return `[${value.map(stableDocumentValue).join(",")}]`;
+    return `{${Object.entries(value).filter(([, nested]) => nested !== void 0).sort(([left], [right]) => left.localeCompare(right)).map(([key, nested]) => `${JSON.stringify(key)}:${stableDocumentValue(nested)}`).join(",")}}`;
+  }
+  var CoupangCatalogDeletionOutcomeSchema = external_exports.enum(["deleted", "present", "not_found"]);
+  var CoupangCatalogCollectionQualitySchema = external_exports.object({
+    detailTargets: external_exports.number().int().nonnegative(),
+    detailApplied: external_exports.number().int().nonnegative(),
+    detailUnchanged: external_exports.number().int().nonnegative(),
+    deletedProducts: external_exports.number().int().nonnegative(),
+    unconfirmedAbsentProductIds: external_exports.array(ExternalIdSchema)
+  });
+  var WING_CATALOG_LIST_KIND = "channels.wing_catalog_list";
+  var WING_CATALOG_DETAILS_KIND = "channels.wing_catalog_details";
+  var WING_CATALOG_EXCEL_KIND = "channels.wing_catalog_excel";
+  var WING_CATALOG_CHUNK_KINDS = {
+    listingBasics: "listing_basics",
+    fullDetails: "full_details",
+    deletionConfirmation: "deletion_confirmation"
+  };
+  var WingCatalogProductIdsSchema = external_exports.array(ExternalIdSchema).max(1e5);
+  var WingCatalogListScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid()
+  }).strict();
+  var WingCatalogListResultSchema = external_exports.object({
+    listedProductCount: external_exports.number().int().nonnegative(),
+    detailTargetProductIds: WingCatalogProductIdsSchema,
+    absentProductIds: WingCatalogProductIdsSchema,
+    next: external_exports.object({
+      kind: external_exports.literal(WING_CATALOG_DETAILS_KIND),
+      scope: external_exports.lazy(() => WingCatalogDetailsScopeSchema)
+    }).strict().nullable()
+  }).strict();
+  var WingCatalogDetailsScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    detailTargetProductIds: WingCatalogProductIdsSchema,
+    absentProductIds: WingCatalogProductIdsSchema,
+    /**
+     * 어디서 시작했나: `list`는 목록 kind의 `result.next`(동기화 연쇄), `manual`은 운영자가 직접 시작한 상품 하나
+     * 다시 받기. 카탈로그 신선도는 동기화 연쇄의 상세만 센다.
+     */
+    via: external_exports.enum(["list", "manual"]).default("manual")
+  }).strict();
+  var WingCatalogExcelScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    observedAt: external_exports.string().datetime({ offset: true }).optional()
+  }).strict();
+  var WingCatalogDeletionConfirmationItemSchema = external_exports.object({
+    externalProductId: ExternalIdSchema,
+    outcome: CoupangCatalogDeletionOutcomeSchema,
+    productStatus: NullableTextSchema.optional().default(null)
+  }).strict();
+  var WingCatalogExcelResultSchema = external_exports.object({
+    createdProductCount: external_exports.number().int().nonnegative(),
+    updatedProductCount: external_exports.number().int().nonnegative(),
+    createdSkuCount: external_exports.number().int().nonnegative(),
+    updatedSkuCount: external_exports.number().int().nonnegative(),
+    skippedRowCount: external_exports.number().int().nonnegative()
+  }).strict();
+
   // extensions/src/core/errors.ts
   var ErrorEnvelopeSchema = external_exports.object({
     statusCode: external_exports.number().int().min(400).max(599),
@@ -4127,70 +4476,86 @@ var KidItemRuntime = (() => {
     return value instanceof RuntimeError;
   }
 
-  // extensions/src/core/browser.ts
-  var RUNTIME_BROWSER_ALREADY_ACQUIRED = "RUNTIME_BROWSER_ALREADY_ACQUIRED";
-  var RUNTIME_BROWSER_UNAVAILABLE = "RUNTIME_BROWSER_UNAVAILABLE";
-  function createBrowserResources(chromeApi, sites, options = {}) {
-    const held = /* @__PURE__ */ new Set();
-    return {
-      async acquire({ operationId, lockKeys, signal }) {
-        if (held.has(operationId)) {
-          throw new RuntimeError(RUNTIME_BROWSER_ALREADY_ACQUIRED, "\uC774 \uC2E4\uD589\uC740 \uC774\uBBF8 \uBE0C\uB77C\uC6B0\uC800 \uC790\uC6D0\uC744 \uC7A1\uACE0 \uC788\uC2B5\uB2C8\uB2E4.", { operationId });
-        }
-        signal.throwIfAborted();
-        const siteNames = [...new Set(lockKeys.map((key) => siteOfLockKey(key, options)).filter((name) => name !== null && name in sites))];
-        if (siteNames.length > 1) {
-          throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uD55C \uC2E4\uD589\uC774 \uB450 \uC0AC\uC774\uD2B8\uC758 \uD0ED\uC744 \uD568\uAED8 \uC7A1\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { sites: siteNames });
-        }
-        held.add(operationId);
-        try {
-          const tab = siteNames.length === 1 ? await openSiteTab(chromeApi, sites[siteNames[0]].origin) : null;
-          let released = false;
-          return {
-            tabId: tab?.tabId ?? null,
-            async release() {
-              if (released) return;
-              released = true;
-              held.delete(operationId);
-              if (tab?.opened) await chromeApi.tabs.remove(tab.tabId).catch(() => void 0);
-            }
-          };
-        } catch (error) {
-          held.delete(operationId);
-          throw error;
-        }
+  // extensions/src/core/site-caller.ts
+  function delayUntilNext(input) {
+    if (input.lastSentAt === null) return 0;
+    return Math.max(0, input.lastSentAt + input.minIntervalMs - input.now);
+  }
+  var SITE_REQUEST_FAILED = "SITE_REQUEST_FAILED";
+  var SITE_LOGIN_REQUIRED = "SITE_LOGIN_REQUIRED";
+  var BODY_HEAD_LENGTH = 120;
+  function bodyHeadOf(body) {
+    const head = body.replace(/\s+/g, " ").trim().slice(0, BODY_HEAD_LENGTH);
+    return head || null;
+  }
+  function createSiteCaller(options, deps) {
+    let lastSentAt = null;
+    let queue = Promise.resolve();
+    const loginMessage = options.displayName ? `${options.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.` : "\uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.";
+    async function send(url, { requireXsrf = false, ...init } = {}) {
+      const headers = new Headers(init.headers);
+      if (options.xsrf) {
+        const cookie = await deps.cookies.get({ url: options.xsrf.cookieUrl, name: options.xsrf.cookieName });
+        const token = decodeCookie(cookie?.value);
+        if (token) headers.set(options.xsrf.headerName, token);
+        else if (requireXsrf) throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { url, reason: "xsrf_cookie_missing" });
       }
+      const wait = delayUntilNext({ lastSentAt, now: deps.now(), minIntervalMs: options.minIntervalMs });
+      if (wait > 0) await deps.sleep(wait);
+      lastSentAt = deps.now();
+      let response;
+      const timeout = options.timeoutMs === void 0 ? null : AbortSignal.timeout(options.timeoutMs);
+      const signal = timeout && init.signal ? AbortSignal.any([timeout, init.signal]) : timeout ?? init.signal;
+      try {
+        response = await deps.fetch(url, { credentials: "include", redirect: "manual", ...init, headers, ...signal ? { signal } : {} });
+      } catch (error) {
+        const timedOut = timeout?.aborted === true;
+        const failure2 = { status: null, url, reason: timedOut ? "timeout" : "network", bodyHead: null };
+        throw new RuntimeError(SITE_REQUEST_FAILED, timedOut ? "\uC0AC\uC774\uD2B8\uAC00 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : "\uC0AC\uC774\uD2B8\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", failure2, error);
+      }
+      if (response.status === 401 || response.status === 403 || response.type === "opaqueredirect") {
+        throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { status: response.status, url });
+      }
+      if (!response.ok) {
+        const failure2 = { status: response.status, url, reason: "http", bodyHead: bodyHeadOf(await safeText(response)) };
+        throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uC774\uD2B8 \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(${response.status}).`, failure2);
+      }
+      return response;
+    }
+    function enqueue(task) {
+      const next = queue.then(task);
+      queue = next.catch(() => void 0);
+      return next;
+    }
+    return {
+      json: (url, init) => enqueue(async () => {
+        const response = await send(url, init);
+        const body = await safeText(response);
+        try {
+          return JSON.parse(body);
+        } catch (error) {
+          const failure2 = { status: response.status, url, reason: "not_json", bodyHead: bodyHeadOf(body) };
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", failure2, error);
+        }
+      }),
+      text: (url, init) => enqueue(async () => (await send(url, init)).text()),
+      bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send(url, init)).arrayBuffer()))
     };
   }
-  function siteOfLockKey(key, options) {
-    if (key.startsWith("resource:")) return key.split(":")[1] ?? null;
-    if (key.startsWith("account:")) return options.accountSite ?? null;
-    return null;
-  }
-  async function openSiteTab(chromeApi, origin) {
-    const base = origin.replace(/\/+$/, "");
-    const [existing] = await chromeApi.tabs.query({ url: `${base}/*` });
-    if (typeof existing?.id === "number") return { tabId: existing.id, opened: false };
-    const created = await chromeApi.tabs.create({ url: base, active: false });
-    if (typeof created.id !== "number") {
-      throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uC0AC\uC774\uD2B8 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { origin: base });
+  async function safeText(response) {
+    try {
+      return await response.text();
+    } catch {
+      return "";
     }
-    return { tabId: created.id, opened: true };
   }
-
-  // extensions/src/entry/legacy-bridge.ts
-  function legacyGlobalsPresent() {
-    return typeof KidItemDomains !== "undefined" && typeof sourceOwnerEnvironmentContext !== "undefined";
-  }
-  function legacyKeepAlive(work) {
-    if (typeof KidItemWorkerKeepAlive === "undefined" || !KidItemWorkerKeepAlive) return;
-    KidItemWorkerKeepAlive.during(work).catch(() => void 0);
-  }
-  function legacyApiPort(environmentId) {
-    return { fetch: (path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init) };
-  }
-  function registerWithLegacyDomains(domain) {
-    KidItemDomains.register(domain);
+  function decodeCookie(value) {
+    if (!value) return null;
+    try {
+      return decodeURIComponent(value) || null;
+    } catch {
+      return null;
+    }
   }
 
   // packages/shared/src/schemas/common.ts
@@ -4310,6 +4675,10 @@ var KidItemRuntime = (() => {
     status: OperationStatusSchema.optional(),
     limit: external_exports.coerce.number().int().min(1).max(200).default(50)
   }).strict();
+  var OperationNextSchema = external_exports.object({
+    kind: OperationKindSchema,
+    scope: JsonObjectSchema
+  }).strict();
   var OperationListResponseSchema = external_exports.object({
     operations: external_exports.array(OperationViewSchema)
   }).strict();
@@ -4320,7 +4689,9 @@ var KidItemRuntime = (() => {
     /** 이 시각 전에는 claim되지 않는다. 없으면 바로. */
     scheduledFor: zIsoDate.optional(),
     /** claim 횟수 상한(재시도 포함). 기본 1 = 재시도 없음. */
-    maxAttempts: external_exports.number().int().min(1).max(20).default(1)
+    maxAttempts: external_exports.number().int().min(1).max(20).default(1),
+    /** 실행을 시작한 사용자(있으면). owner `plan`이 `context.userId`로 받아 plan JSON에 보관한다(KID-354). */
+    userId: external_exports.string().uuid().optional()
   }).strict();
   var OperationClaimRequestSchema = external_exports.object({
     kinds: external_exports.array(OperationKindSchema).min(1).max(50),
@@ -4342,6 +4713,1859 @@ var KidItemRuntime = (() => {
     itemCount: external_exports.number().int().nonnegative(),
     payload: external_exports.array(external_exports.unknown())
   }).strict();
+
+  // extensions/src/collectors/chunk-items.ts
+  var encoder = new TextEncoder();
+  var ChunkBuffer = class {
+    // "[]"
+    constructor(options) {
+      this.options = options;
+    }
+    options;
+    items = [];
+    bytes = 2;
+    /** 넣고 나서 내보낼 payload(있으면). */
+    push(item) {
+      const maxBytes = this.options.maxBytes ?? OPERATION_CHUNK_MAX_BYTES;
+      const itemBytes = encoder.encode(JSON.stringify(item)).byteLength;
+      if (itemBytes + 2 > maxBytes) {
+        throw new RuntimeError("RUNTIME_CHUNK_TOO_LARGE", `${this.options.label} \uD558\uB098\uAC00 \uCCAD\uD06C \uC0C1\uD55C(${maxBytes}\uBC14\uC774\uD2B8)\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, { bytes: itemBytes });
+      }
+      let flushed = null;
+      const separator = this.items.length > 0 ? 1 : 0;
+      if (this.items.length >= this.options.maxItems || this.bytes + separator + itemBytes > maxBytes) flushed = this.flush();
+      this.bytes += (this.items.length > 0 ? 1 : 0) + itemBytes;
+      this.items.push(item);
+      if (this.items.length >= this.options.maxItems) return flushed ?? this.flush();
+      return flushed;
+    }
+    /** 남은 원소(없으면 null). */
+    flush() {
+      if (this.items.length === 0) return null;
+      const out = this.items;
+      this.items = [];
+      this.bytes = 2;
+      return out;
+    }
+  };
+
+  // extensions/src/collectors/channels.wing_catalog_details/index.ts
+  var DETAILS_PER_CHUNK = 20;
+  var TOO_LARGE_CODES = /* @__PURE__ */ new Set(["WING_CATALOG_PAYLOAD_TOO_LARGE", "RUNTIME_CHUNK_TOO_LARGE"]);
+  var CATALOG_DETAILS_UNREACHABLE = "CATALOG_DETAILS_UNREACHABLE";
+  var MAX_CONSECUTIVE_DETAIL_FAILURES = 10;
+  var PROBE_BATCH = 100;
+  var wingCatalogDetailsCollector = {
+    kind: WING_CATALOG_DETAILS_KIND,
+    site: "wing",
+    async *collect(plan, site, { signal }) {
+      const targets = plan.detailTargetProductIds;
+      const absent = plan.absentProductIds;
+      const missing = [];
+      let consecutiveFailures = 0;
+      let detailsDone = 0;
+      let absentChecked = 0;
+      const progress = () => ({
+        detailsDone,
+        detailTargets: targets.length,
+        absentChecked,
+        absentTotal: absent.length,
+        detailsMissing: [...missing]
+      });
+      const details = new ChunkBuffer({ maxItems: DETAILS_PER_CHUNK, label: "Wing \uC0C1\uC138 \uC0C1\uD488" });
+      const chunk = (chunkKind, payload) => ({ chunkKind, payload, progress: progress() });
+      for (const externalProductId of targets) {
+        if (signal.aborted) return;
+        let product;
+        let full;
+        try {
+          product = await site.productDetail(externalProductId);
+          consecutiveFailures = 0;
+          if (!product) {
+            missing.push({ externalProductId, reason: "not_found" });
+            continue;
+          }
+          full = details.push(product);
+        } catch (error) {
+          if (isRuntimeError(error) && TOO_LARGE_CODES.has(error.code)) {
+            missing.push({ externalProductId, reason: "too_large" });
+            continue;
+          }
+          if (isRuntimeError(error) && error.code === SITE_REQUEST_FAILED) {
+            const bodyHead = typeof error.details?.bodyHead === "string" ? error.details.bodyHead : null;
+            missing.push({ externalProductId, reason: requestFailureReason(error.details), bodyHead });
+            consecutiveFailures += 1;
+            if (consecutiveFailures >= MAX_CONSECUTIVE_DETAIL_FAILURES) {
+              throw new RuntimeError(
+                CATALOG_DETAILS_UNREACHABLE,
+                `\uCFE0\uD321 \uC719 \uC0C1\uD488 \uC0C1\uC138\uB97C \uC5F0\uC18D ${consecutiveFailures}\uAC74 \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4${bodyHead ? `: ${bodyHead}` : "."}`,
+                { consecutiveFailures, lastExternalProductId: externalProductId, lastBodyHead: bodyHead, lastStatus: error.details?.status ?? null },
+                error
+              );
+            }
+            continue;
+          }
+          throw error;
+        }
+        detailsDone += 1;
+        if (full) yield chunk(WING_CATALOG_CHUNK_KINDS.fullDetails, full);
+      }
+      const rest = details.flush();
+      if (rest) yield chunk(WING_CATALOG_CHUNK_KINDS.fullDetails, rest);
+      for (let offset = 0; offset < absent.length; offset += PROBE_BATCH) {
+        if (signal.aborted) return;
+        const confirmations = await site.probeDeleted(absent.slice(offset, offset + PROBE_BATCH));
+        absentChecked += confirmations.length;
+        yield chunk(WING_CATALOG_CHUNK_KINDS.deletionConfirmation, confirmations);
+      }
+    }
+  };
+  function requestFailureReason(details) {
+    if (details?.reason === "not_json") return "not_json";
+    return typeof details?.status === "number" ? `http_${details.status}` : "network";
+  }
+  registerCollector(wingCatalogDetailsCollector);
+
+  // extensions/src/collectors/channels.wing_catalog_excel/index.ts
+  var CATALOG_EXCEL_FAILED = "CATALOG_EXCEL_FAILED";
+  var CATALOG_EXCEL_TIMEOUT = "CATALOG_EXCEL_TIMEOUT";
+  var WORKBOOK_PART_CHARS = 9e5;
+  var WORKBOOK_CHUNK_KIND = "workbook";
+  var PROGRESS_CHUNK_KIND = "excel_progress";
+  var POLL_INTERVAL_MS = 1e4;
+  var MAX_POLLS = 240;
+  var wingCatalogExcelCollector = {
+    kind: WING_CATALOG_EXCEL_KIND,
+    site: "wing",
+    async *collect(_plan, site, { signal }) {
+      const description = `kiditem_${(/* @__PURE__ */ new Date()).toISOString().replace(/[^0-9]/g, "").slice(0, 14)}`;
+      await site.requestCatalogExcel(description);
+      const progress = (value) => ({ chunkKind: PROGRESS_CHUNK_KIND, payload: [], progress: value });
+      yield progress({ status: "REQUESTED", executeCount: 0, totalCount: null });
+      let completed = null;
+      for (let poll = 0; poll < MAX_POLLS && !completed; poll += 1) {
+        if (signal.aborted) return;
+        if (poll > 0) await site.pause(POLL_INTERVAL_MS, signal);
+        const request = await site.catalogExcelRequest(description);
+        if (!request) continue;
+        yield progress({ status: request.status, executeCount: request.executeCount, totalCount: request.totalCount });
+        if (request.status === "COMPLETED") completed = request;
+        else if (/FAIL|ABORT|CANCEL|ERROR/i.test(request.status)) {
+          throw new RuntimeError(CATALOG_EXCEL_FAILED, `\uCFE0\uD321 \uC719\uC774 \uC0C1\uD488\uC815\uBCF4 \uC5D1\uC140 \uC0DD\uC131\uC744 \uBA48\uCDC4\uC2B5\uB2C8\uB2E4(${request.status}). \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.`, { status: request.status });
+        }
+      }
+      if (!completed) {
+        if (signal.aborted) return;
+        throw new RuntimeError(CATALOG_EXCEL_TIMEOUT, "\uCFE0\uD321 \uC719 \uC0C1\uD488\uC815\uBCF4 \uC5D1\uC140\uC774 \uC81C\uC2DC\uAC04\uC5D0 \uB9CC\uB4E4\uC5B4\uC9C0\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.");
+      }
+      const bytes = await site.downloadCatalogExcel(completed.id);
+      const encoded = base64(bytes);
+      for (let offset = 0; offset < encoded.length; offset += WORKBOOK_PART_CHARS) {
+        if (signal.aborted) return;
+        yield {
+          chunkKind: WORKBOOK_CHUNK_KIND,
+          payload: [encoded.slice(offset, offset + WORKBOOK_PART_CHARS)],
+          progress: { status: "DOWNLOADED", bytes: bytes.byteLength }
+        };
+      }
+    }
+  };
+  function base64(bytes) {
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 32768) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+    }
+    return btoa(binary);
+  }
+  registerCollector(wingCatalogExcelCollector);
+
+  // extensions/src/collectors/channels.wing_catalog_list/index.ts
+  var CATALOG_LIST_INCOMPLETE = "CATALOG_LIST_INCOMPLETE";
+  var PRODUCTS_PER_CHUNK = 20;
+  var wingCatalogListCollector = {
+    kind: WING_CATALOG_LIST_KIND,
+    site: "wing",
+    async *collect(plan, site, { signal }) {
+      const buffer = new ChunkBuffer({ maxItems: PRODUCTS_PER_CHUNK, label: "Wing \uBAA9\uB85D \uC0C1\uD488" });
+      const seen = /* @__PURE__ */ new Set();
+      let expected = null;
+      let progress = {};
+      const chunk = (payload) => ({ chunkKind: WING_CATALOG_CHUNK_KINDS.listingBasics, payload, progress });
+      for (let page = 1; expected === null || page <= expected.totalPages; page += 1) {
+        if (signal.aborted) return;
+        const result = await site.searchInventory(page, plan.vendorId ?? null);
+        if (expected === null) expected = { totalItems: result.totalItems, totalPages: result.totalPages };
+        else if (result.totalItems !== expected.totalItems || result.totalPages !== expected.totalPages) {
+          throw incomplete(`\uC218\uC9D1 \uC911 Wing \uC0C1\uD488 \uC218\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4(${expected.totalItems} \u2192 ${result.totalItems}). \uB2E4\uC2DC \uB3D9\uAE30\uD654\uD574 \uC8FC\uC138\uC694.`);
+        }
+        progress = { listedProducts: seen.size + result.products.length, totalProducts: expected.totalItems, page, totalPages: expected.totalPages };
+        for (const product of result.products) {
+          if (seen.has(product.externalProductId)) {
+            throw incomplete(`Wing \uBAA9\uB85D\uC758 \uD398\uC774\uC9C0\uAC00 \uACB9\uCCE4\uC2B5\uB2C8\uB2E4(${product.externalProductId}). \uB2E4\uC2DC \uB3D9\uAE30\uD654\uD574 \uC8FC\uC138\uC694.`);
+          }
+          seen.add(product.externalProductId);
+          const full = buffer.push(product);
+          if (full) yield chunk(full);
+        }
+      }
+      if (expected && seen.size !== expected.totalItems) {
+        throw incomplete(`Wing \uBAA9\uB85D\uC744 \uB2E4 \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${seen.size}/${expected.totalItems}). \uB2E4\uC2DC \uB3D9\uAE30\uD654\uD574 \uC8FC\uC138\uC694.`);
+      }
+      const rest = buffer.flush();
+      if (rest) yield chunk(rest);
+    }
+  };
+  function incomplete(message) {
+    return new RuntimeError(CATALOG_LIST_INCOMPLETE, message);
+  }
+  registerCollector(wingCatalogListCollector);
+
+  // packages/shared/src/schemas/reviews.ts
+  var ReviewFilterSchema = external_exports.enum(["all", "new", "needs-response"]);
+  var ReviewListItemSchema = external_exports.object({
+    listingId: external_exports.string(),
+    productId: external_exports.string(),
+    productName: external_exports.string(),
+    sku: external_exports.string().nullable(),
+    organization: external_exports.string(),
+    grade: external_exports.string(),
+    totalReviews: external_exports.number(),
+    avgRating: external_exports.number(),
+    recentReviews: external_exports.number(),
+    // null means the order source has not been observed for this organization.
+    orderCount: external_exports.number().int().nonnegative().nullable(),
+    lastReviewAt: external_exports.string().nullable()
+  });
+  var ReviewSummarySchema = external_exports.object({
+    // 리뷰가 있는 active listing 수
+    listingCount: external_exports.number().int().nonnegative(),
+    // 회사 전체 누적 review 수
+    totalReviewCount: external_exports.number().int().nonnegative(),
+    // 회사 전체 review rating 의 가중 평균. review 가 0건이면 미측정(null).
+    weightedAvgRating: external_exports.number().nonnegative().nullable(),
+    // totalReviews < 5 인 listing 수.
+    newListingCount: external_exports.number().int().nonnegative(),
+    // avgRating < 3.5 이고 리뷰 5건 이상인 listing 수.
+    needsResponseCount: external_exports.number().int().nonnegative(),
+    // listing 단위로 (avgRating < 3.5) || (totalReviews < 5) 인 row 수.
+    // 임계값은 frontend filter (`needs-response`/`new`) 와 일치.
+    needsAttentionCount: external_exports.number().int().nonnegative()
+  });
+  var ReviewListResponseSchema = external_exports.object({
+    items: external_exports.array(ReviewListItemSchema),
+    total: external_exports.number().int().nonnegative(),
+    page: external_exports.number().int().positive(),
+    limit: external_exports.number().int().positive(),
+    summary: ReviewSummarySchema
+  });
+  var ReviewItemSchema = external_exports.object({
+    id: external_exports.string(),
+    listingId: external_exports.string().nullable(),
+    /** listing 매칭 실패 시 크롤링 당시 채널 상품명으로 폴백한다. */
+    productName: external_exports.string(),
+    optionName: external_exports.string().nullable(),
+    rating: external_exports.number().int(),
+    title: external_exports.string().nullable(),
+    content: external_exports.string().nullable(),
+    reviewerName: external_exports.string().nullable(),
+    reviewedAt: external_exports.string(),
+    imageCount: external_exports.number().int().nonnegative(),
+    videoCount: external_exports.number().int().nonnegative(),
+    /** 채널 상품 상세 링크용 노출상품ID. */
+    externalProductId: external_exports.string().nullable()
+  });
+  var ReviewItemListResponseSchema = external_exports.object({
+    items: external_exports.array(ReviewItemSchema),
+    total: external_exports.number().int().nonnegative(),
+    page: external_exports.number().int().positive(),
+    limit: external_exports.number().int().positive(),
+    /** 별점 1~5 별 건수. 현재 필터(별점 제외) 기준 분포. */
+    ratingCounts: external_exports.record(external_exports.string(), external_exports.number().int().nonnegative()),
+    /** 본문이 있는 리뷰 수. 쿠팡은 별점만 남기는 리뷰가 대부분이다. */
+    withContentCount: external_exports.number().int().nonnegative()
+  });
+  var ReviewIngestItemSchema = external_exports.object({
+    /** 쿠팡 reviewId. 재수집 멱등 키. */
+    externalReviewId: external_exports.string().min(1),
+    /** 쿠팡 vendorItemId(옵션ID). ChannelListingOption 매칭 키. */
+    externalOptionId: external_exports.string().min(1).nullable().default(null),
+    /** 쿠팡 productId(노출상품ID). */
+    externalProductId: external_exports.string().min(1).nullable().default(null),
+    itemName: external_exports.string().nullable().default(null),
+    rating: external_exports.number().int().min(1).max(5),
+    title: external_exports.string().nullable().default(null),
+    content: external_exports.string().nullable().default(null),
+    reviewerName: external_exports.string().nullable().default(null),
+    /** 리뷰 작성 시각(epoch ms). */
+    reviewedAt: external_exports.number().int().positive(),
+    imageCount: external_exports.number().int().nonnegative().default(0),
+    videoCount: external_exports.number().int().nonnegative().default(0),
+    isDeleted: external_exports.boolean().default(false),
+    isBlinded: external_exports.boolean().default(false)
+  });
+  var ReviewIngestRequestSchema = external_exports.object({
+    platform: external_exports.literal("coupang").default("coupang"),
+    items: external_exports.array(ReviewIngestItemSchema).min(1).max(200)
+  });
+  var ReviewIngestResponseSchema = external_exports.object({
+    received: external_exports.number().int().nonnegative(),
+    created: external_exports.number().int().nonnegative(),
+    updated: external_exports.number().int().nonnegative(),
+    /** listing 매칭에 성공한 건수. */
+    linked: external_exports.number().int().nonnegative(),
+    /** vendorItemId 로 ChannelListingOption 을 못 찾은 건수. */
+    unlinked: external_exports.number().int().nonnegative()
+  });
+  var COUPANG_REVIEWS_KIND = "orders.coupang_reviews";
+  var COUPANG_REVIEWS_CHUNK_KIND = "reviews";
+  var COUPANG_REVIEWS_MAX_MONTHS = 36;
+  var COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW = 40;
+  var COUPANG_REVIEWS_CHUNK_ITEMS = 200;
+  var CoupangReviewsScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    months: external_exports.number().int().min(1).max(COUPANG_REVIEWS_MAX_MONTHS),
+    maxPagesPerWindow: external_exports.number().int().min(1).max(COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW).default(COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW)
+  }).strict();
+  var CoupangReviewsWindowSchema = external_exports.object({
+    index: external_exports.number().int().nonnegative(),
+    label: external_exports.string().min(1),
+    start: external_exports.string().datetime({ offset: true }),
+    end: external_exports.string().datetime({ offset: true })
+  }).strict();
+  var CoupangReviewsChunkItemSchema = ReviewIngestItemSchema.extend({
+    windowIndex: external_exports.number().int().nonnegative()
+  });
+  var COUPANG_REVIEWS_WINDOW_CHUNK_KIND = "review_windows";
+  var CoupangReviewsWindowDoneSchema = external_exports.object({
+    index: external_exports.number().int().nonnegative(),
+    pages: external_exports.number().int().nonnegative(),
+    items: external_exports.number().int().nonnegative()
+  }).strict();
+  var CoupangReviewsProgressSchema = external_exports.object({
+    current: external_exports.string().nullable(),
+    windows: external_exports.array(external_exports.object({
+      index: external_exports.number().int().nonnegative(),
+      pages: external_exports.number().int().nonnegative(),
+      items: external_exports.number().int().nonnegative(),
+      done: external_exports.boolean()
+    }).strict())
+  }).strict();
+  var CoupangReviewsResultSchema = external_exports.object({
+    windows: external_exports.number().int().nonnegative(),
+    reviews: external_exports.number().int().nonnegative(),
+    inserted: external_exports.number().int().nonnegative(),
+    updated: external_exports.number().int().nonnegative()
+  }).strict();
+
+  // extensions/src/collectors/orders.coupang_reviews/index.ts
+  var CoupangReviewsPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    windows: external_exports.array(CoupangReviewsWindowSchema).min(1),
+    maxPagesPerWindow: external_exports.number().int().min(1)
+  });
+  var COUPANG_REVIEWS_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
+  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
+  var coupangReviewsCollector = {
+    kind: COUPANG_REVIEWS_KIND,
+    site: "wing",
+    async *collect(rawPlan, site, { signal }) {
+      const parsed = CoupangReviewsPlanSchema.safeParse(rawPlan);
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      const plan = parsed.data;
+      const done = [];
+      for (const window of plan.windows) {
+        const status = { index: window.index, pages: 0, items: 0, done: false };
+        const progress = (current) => ({ current, windows: [...done, { ...status }] });
+        let buffer = [];
+        for (let pageIndex = 0; ; pageIndex += 1) {
+          if (signal.aborted) return;
+          if (pageIndex >= plan.maxPagesPerWindow) {
+            throw new RuntimeError(COUPANG_REVIEWS_PAGE_LIMIT_REACHED, `${window.label} \uC0C1\uD488\uD3C9\uC774 ${plan.maxPagesPerWindow}\uCABD\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, {
+              windowIndex: window.index
+            });
+          }
+          const page = await site.searchReviews({ start: window.start, end: window.end, pageIndex });
+          status.pages += 1;
+          for (const item of page.items) {
+            buffer.push({ ...item, windowIndex: window.index });
+            status.items += 1;
+            if (buffer.length === COUPANG_REVIEWS_CHUNK_ITEMS) {
+              yield reviewsChunk(buffer, progress(window.label));
+              buffer = [];
+            }
+          }
+          if (pageIndex + 1 >= page.totalPages) break;
+        }
+        if (signal.aborted) return;
+        if (buffer.length > 0) yield reviewsChunk(buffer, progress(window.label));
+        status.done = true;
+        done.push({ ...status });
+        const last = window === plan.windows[plan.windows.length - 1];
+        const marker = { index: status.index, pages: status.pages, items: status.items };
+        yield { chunkKind: COUPANG_REVIEWS_WINDOW_CHUNK_KIND, payload: [marker], progress: { current: last ? null : window.label, windows: [...done] } };
+      }
+    }
+  };
+  function reviewsChunk(payload, progress) {
+    return { chunkKind: COUPANG_REVIEWS_CHUNK_KIND, payload, progress };
+  }
+  registerCollector(coupangReviewsCollector);
+
+  // packages/shared/src/sourcing/operation-result.ts
+  var BoundedCountSchema = external_exports.number().int().nonnegative().max(2147483647);
+  var SourcingOperationOutcomeSchema = external_exports.enum([
+    "complete",
+    "partial",
+    "no_change"
+  ]);
+  var SourcingOperationResultSchema = external_exports.object({
+    outcome: SourcingOperationOutcomeSchema,
+    summary: external_exports.object({
+      discovered: BoundedCountSchema,
+      accepted: BoundedCountSchema,
+      duplicate: BoundedCountSchema,
+      unchanged: BoundedCountSchema,
+      failed: BoundedCountSchema
+    }).strict(),
+    sources: external_exports.array(
+      external_exports.object({
+        source: external_exports.string().trim().min(1).max(120),
+        outcome: external_exports.enum([
+          "complete",
+          "partial",
+          "no_change",
+          "failed",
+          "skipped"
+        ]),
+        accepted: BoundedCountSchema,
+        failed: BoundedCountSchema,
+        errorCode: external_exports.string().trim().min(1).max(120).optional()
+      }).strict()
+    ).max(32),
+    snapshotGeneratedAt: external_exports.string().datetime({ offset: true }).optional()
+  }).strict();
+
+  // packages/shared/src/sourcing/browser-operations.ts
+  var BoundedCountSchema2 = external_exports.number().int().nonnegative().max(2147483647);
+  var InstantSchema = external_exports.string().datetime({ offset: true });
+  var NullableBoundedTextSchema = external_exports.string().trim().max(500).nullable();
+  var NullableMetricSchema = external_exports.number().finite().nonnegative().max(2147483647).nullable();
+  var SOURCING_KEYWORD_SUGGESTION_SOURCE_KEY = "coupang.keyword_suggestion";
+  var SOURCING_KEYWORD_SUGGESTION_SCHEMA_VERSION = "coupang-keyword-suggestion/v1";
+  function canonicalizeSourcingWingCatalogKeyword(value) {
+    return value.normalize("NFKC").trim().replace(/\s+/gu, " ");
+  }
+  function sourcingWingCatalogKeywordIdentity(value) {
+    return canonicalizeSourcingWingCatalogKeyword(value).toLocaleLowerCase("en-US");
+  }
+  var SourcingWingCatalogKeywordSchema = external_exports.string().transform(canonicalizeSourcingWingCatalogKeyword).pipe(external_exports.string().min(1).max(100));
+  var SourcingWingCatalogPurposeSchema = external_exports.enum([
+    "catalog_search",
+    "market_analysis",
+    "recommendation_validation",
+    "tracked_metrics"
+  ]);
+  var SourcingWingCatalogBatchInputSchema = external_exports.object({
+    keywords: external_exports.array(SourcingWingCatalogKeywordSchema).min(1).max(12),
+    maxPages: external_exports.number().int().min(1).max(5),
+    purpose: SourcingWingCatalogPurposeSchema
+  }).strict().superRefine((value, context) => {
+    const identities = /* @__PURE__ */ new Set();
+    value.keywords.forEach((keyword, index) => {
+      const identity = sourcingWingCatalogKeywordIdentity(keyword);
+      if (identities.has(identity)) {
+        context.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["keywords", index],
+          message: "Wing catalog keywords must be unique after normalization."
+        });
+      }
+      identities.add(identity);
+    });
+  });
+  var SourcingKeywordSuggestionInputSchema = external_exports.object({
+    keyword: SourcingWingCatalogKeywordSchema,
+    maxResults: external_exports.number().int().min(1).max(30)
+  }).strict();
+  var SourcingKeywordSuggestionItemSchema = external_exports.object({
+    rank: external_exports.number().int().min(1).max(30),
+    keyword: SourcingWingCatalogKeywordSchema,
+    source: external_exports.enum(["coupang-autocomplete", "coupang-search-dom"])
+  }).strict();
+  var SourcingKeywordSuggestionTokenSchema = external_exports.object({
+    keyword: SourcingWingCatalogKeywordSchema,
+    count: external_exports.number().int().min(1).max(2147483647)
+  }).strict();
+  var SourcingKeywordSuggestionObservationBatchSchema = external_exports.object({
+    keyword: SourcingWingCatalogKeywordSchema,
+    capturedAt: InstantSchema,
+    items: external_exports.array(SourcingKeywordSuggestionItemSchema).max(30),
+    productNameTokens: external_exports.array(SourcingKeywordSuggestionTokenSchema).max(30)
+  }).strict();
+  var SourcingKeywordSuggestionSnapshotSchema = external_exports.object({
+    keyword: SourcingWingCatalogKeywordSchema,
+    generatedAt: InstantSchema.nullable(),
+    sourceKey: external_exports.literal(SOURCING_KEYWORD_SUGGESTION_SOURCE_KEY),
+    schemaVersion: external_exports.literal(SOURCING_KEYWORD_SUGGESTION_SCHEMA_VERSION),
+    items: external_exports.array(SourcingKeywordSuggestionItemSchema).max(30),
+    productNameTokens: external_exports.array(SourcingKeywordSuggestionTokenSchema).max(30)
+  }).strict();
+  var CoupangSellerIdSchema = external_exports.string().trim().min(1).max(80).regex(/^[A-Za-z0-9_-]+$/u);
+  var AdvertisingCompetitorCatalogProductSchema = external_exports.object({
+    sourceRank: external_exports.number().int().min(1).max(500),
+    productId: external_exports.string().trim().min(1).max(200).nullable(),
+    itemId: external_exports.string().trim().min(1).max(200).nullable(),
+    vendorItemId: external_exports.string().trim().min(1).max(200).nullable(),
+    name: external_exports.string().trim().min(1).max(500),
+    priceKrw: BoundedCountSchema2.nullable(),
+    reviewCount: BoundedCountSchema2.nullable(),
+    imageUrl: external_exports.string().trim().max(2e3).nullable(),
+    link: external_exports.string().trim().max(2e3).nullable()
+  }).strict().superRefine((value, context) => {
+    if (!value.productId && !value.itemId && !value.vendorItemId) {
+      context.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["productId"],
+        message: "A competitor catalog product requires an exact identity."
+      });
+    }
+  });
+  var CoupangSellerStoreUrlSchema = external_exports.string().trim().url().max(2e3).refine((value) => {
+    try {
+      const parsed = new URL(value);
+      return parsed.protocol === "https:" && parsed.hostname === "shop.coupang.com";
+    } catch {
+      return false;
+    }
+  }, "Only Coupang seller-store URLs are accepted as catalog evidence.");
+  var AdvertisingCompetitorCatalogItemSchema = external_exports.object({
+    keyword: SourcingWingCatalogKeywordSchema,
+    sellerId: CoupangSellerIdSchema,
+    sellerName: external_exports.string().trim().min(1).max(300),
+    sellerStoreUrl: CoupangSellerStoreUrlSchema,
+    totalProductCount: BoundedCountSchema2.nullable(),
+    collectedProductCount: external_exports.number().int().min(1).max(500),
+    isTruncated: external_exports.boolean(),
+    sort: external_exports.literal("newest"),
+    capturedAt: InstantSchema,
+    products: external_exports.array(AdvertisingCompetitorCatalogProductSchema).min(1).max(500)
+  }).strict().superRefine((value, context) => {
+    if (value.collectedProductCount !== value.products.length) {
+      context.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["collectedProductCount"],
+        message: "Collected product count must match the bounded rows."
+      });
+    }
+  });
+  var AdvertisingCompetitorCatalogBatchSchema = external_exports.object({
+    catalogs: external_exports.array(AdvertisingCompetitorCatalogItemSchema).min(1).max(20)
+  }).strict().superRefine((value, context) => {
+    const sellers = /* @__PURE__ */ new Set();
+    value.catalogs.forEach((catalog, index) => {
+      if (sellers.has(catalog.sellerId)) {
+        context.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["catalogs", index, "sellerId"],
+          message: "Competitor seller IDs must be unique per owner batch."
+        });
+      }
+      sellers.add(catalog.sellerId);
+    });
+  });
+  var AdvertisingTrackedWingProductsInputSchema = external_exports.object({
+    keywords: external_exports.array(SourcingWingCatalogKeywordSchema).min(1).max(12),
+    maxPages: external_exports.number().int().min(1).max(5),
+    purpose: external_exports.literal("tracked_metrics"),
+    trackedProductIds: external_exports.array(external_exports.string().trim().min(1).max(200)).min(1).max(200)
+  }).strict().superRefine((value, context) => {
+    const keywordIdentities = /* @__PURE__ */ new Set();
+    value.keywords.forEach((keyword, index) => {
+      const identity = sourcingWingCatalogKeywordIdentity(keyword);
+      if (keywordIdentities.has(identity)) {
+        context.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["keywords", index],
+          message: "Wing catalog keywords must be unique after normalization."
+        });
+      }
+      keywordIdentities.add(identity);
+    });
+    const productIds = /* @__PURE__ */ new Set();
+    value.trackedProductIds.forEach((productId, index) => {
+      if (productIds.has(productId)) {
+        context.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["trackedProductIds", index],
+          message: "Tracked product IDs must be unique."
+        });
+      }
+      productIds.add(productId);
+    });
+  });
+  var SourcingWingCatalogObservationSchema = external_exports.object({
+    productId: external_exports.string().trim().min(1).max(200),
+    itemId: external_exports.string().trim().max(200).nullable(),
+    vendorItemId: external_exports.string().trim().max(200).nullable(),
+    productName: external_exports.string().trim().min(1).max(500),
+    itemName: NullableBoundedTextSchema,
+    brandName: NullableBoundedTextSchema,
+    manufacture: NullableBoundedTextSchema,
+    categoryHierarchy: external_exports.string().trim().max(1e3).nullable(),
+    imagePath: external_exports.string().trim().max(2e3).nullable(),
+    salePriceKrw: BoundedCountSchema2.nullable(),
+    ratingAverage: external_exports.number().finite().min(0).max(5).nullable(),
+    ratingCount: BoundedCountSchema2.nullable(),
+    viewsLast28d: BoundedCountSchema2.nullable(),
+    salesLast28d: BoundedCountSchema2.nullable(),
+    estimatedRevenue28d: NullableMetricSchema,
+    conversionRate28d: external_exports.number().finite().min(0).max(1).nullable(),
+    deliveryInfo: external_exports.string().trim().max(1e3).nullable(),
+    sourceKeyword: SourcingWingCatalogKeywordSchema,
+    capturedAt: InstantSchema
+  }).strict();
+  var SourcingWingCatalogObservationBatchSchema = external_exports.object({
+    keyword: SourcingWingCatalogKeywordSchema,
+    maxPages: external_exports.number().int().min(1).max(5),
+    purpose: SourcingWingCatalogPurposeSchema,
+    items: external_exports.array(SourcingWingCatalogObservationSchema).max(100)
+  }).strict();
+  var SourcingWingCatalogKeywordResultSchema = external_exports.object({
+    keyword: SourcingWingCatalogKeywordSchema,
+    outcome: external_exports.enum(["complete", "no_change", "failed"]),
+    discovered: BoundedCountSchema2,
+    accepted: BoundedCountSchema2,
+    duplicate: BoundedCountSchema2,
+    failed: BoundedCountSchema2,
+    errorCode: external_exports.string().trim().min(1).max(120).optional()
+  }).strict();
+  var SourcingWingCatalogFinalizeSchema = external_exports.object({
+    purpose: SourcingWingCatalogPurposeSchema,
+    keywords: external_exports.array(SourcingWingCatalogKeywordResultSchema).min(1).max(12)
+  }).strict();
+  var SourcingWingCatalogBatchResultSchema = SourcingOperationResultSchema.extend({
+    keywords: external_exports.array(SourcingWingCatalogKeywordResultSchema).min(1).max(12)
+  }).strict();
+  var SourcingWingCatalogSnapshotSchema = external_exports.object({
+    keyword: SourcingWingCatalogKeywordSchema,
+    generatedAt: InstantSchema.nullable(),
+    items: external_exports.array(SourcingWingCatalogObservationSchema).max(400),
+    rejectedCount: BoundedCountSchema2
+  }).strict();
+
+  // packages/shared/src/schemas/sourcing-operation.ts
+  var SOURCING_OPERATION_KINDS = {
+    // 확장 구동 (PR I-a)
+    wingCatalog: "sourcing.wing_catalog",
+    coupangKeywordSuggestion: "sourcing.coupang_keyword_suggestion",
+    trend1688: "sourcing.trend_1688",
+    liveCommerce: "sourcing.live_commerce",
+    tiktokCreative: "sourcing.tiktok_creative",
+    productExtension: "sourcing.product_extension",
+    // 서버 구동 (PR I-b)
+    naverTrend: "sourcing.naver_trend",
+    shortstrendTrend: "sourcing.shortstrend_trend",
+    taobaoLive: "sourcing.taobao_live",
+    marketShadow: "sourcing.market_shadow",
+    naverKeywordAnalysis: "sourcing.naver_keyword_analysis",
+    keywordSearch1688: "sourcing.keyword_search_1688",
+    imageSearch1688: "sourcing.image_search_1688",
+    scrapeUrl: "sourcing.scrape_url"
+  };
+  var SOURCING_EXTENSION_KINDS = [
+    SOURCING_OPERATION_KINDS.wingCatalog,
+    SOURCING_OPERATION_KINDS.coupangKeywordSuggestion,
+    SOURCING_OPERATION_KINDS.trend1688,
+    SOURCING_OPERATION_KINDS.liveCommerce,
+    SOURCING_OPERATION_KINDS.tiktokCreative,
+    SOURCING_OPERATION_KINDS.productExtension
+  ];
+  var SourcingWingCatalogScopeSchema = SourcingWingCatalogBatchInputSchema.innerType().extend({
+    channelAccountId: external_exports.string().uuid()
+  }).strict();
+  var SourcingTrend1688ScopeSchema = external_exports.object({}).strict();
+  var SourcingLiveCommerceScopeSchema = external_exports.object({
+    platform: external_exports.enum(["1688", "douyin"]),
+    url: external_exports.string().url().max(500)
+  }).strict();
+  var SourcingTiktokCreativeScopeSchema = external_exports.object({
+    maxItems: external_exports.number().int().min(1).max(100).optional(),
+    region: external_exports.string().min(2).max(8).optional()
+  }).strict();
+  var SourcingProductExtensionScopeSchema = external_exports.object({
+    platform: external_exports.enum(["1688", "alibaba"]),
+    url: external_exports.string().url().max(2e3)
+  }).strict();
+  var SOURCING_CHUNK_KINDS = {
+    /** wing_catalog: 키워드 하나의 검색 결과(원소 = 상품 행). */
+    wingSearchPage: "wing_search_page",
+    /** coupang_keyword_suggestion: 추천 키워드 문서 1개(청크 1장). */
+    keywordSuggestions: "keyword_suggestions",
+    /** trend_1688: 키워드 하나의 offer 목록. */
+    offers1688: "offers_1688",
+    /** live_commerce: 방송 1 + 상품들. */
+    liveBroadcast: "live_broadcast",
+    liveProducts: "live_products",
+    /** tiktok_creative: 대상별 트렌드 항목. */
+    creativeTrends: "creative_trends",
+    /** product_extension: 상품 1개 원본 문서. */
+    productDocument: "product_document"
+  };
+  var SourcingOperationResultSchema2 = external_exports.object({
+    sourceKey: external_exports.string(),
+    scopeKey: external_exports.string(),
+    targetKey: external_exports.string(),
+    discoveredCount: external_exports.number().int().nonnegative(),
+    acceptedCount: external_exports.number().int().nonnegative(),
+    duplicateCount: external_exports.number().int().nonnegative(),
+    rejectedCount: external_exports.number().int().nonnegative(),
+    coverage: external_exports.object({ numerator: external_exports.number().int().nonnegative(), denominator: external_exports.number().int().positive() }).nullable(),
+    /** 발행의 원천 관측 창(timestamptz ISO). 진실은 발행 이력 표이고 이것은 화면용 요약이다. */
+    windowStartAt: external_exports.string().datetime({ offset: true }).nullable(),
+    windowEndAt: external_exports.string().datetime({ offset: true }).nullable(),
+    /** product_extension: 이 수집이 입장시킨 원본 기록과 그 초안. */
+    admitted: external_exports.array(external_exports.object({ sourceRecordId: external_exports.string().uuid(), salesProductId: external_exports.string().uuid() }).strict()).optional()
+  }).strict();
+
+  // extensions/src/collectors/sourcing.coupang_keyword_suggestion/index.ts
+  var sourcingCoupangKeywordSuggestionCollector = {
+    kind: SOURCING_OPERATION_KINDS.coupangKeywordSuggestion,
+    site: "coupang-search",
+    async *collect(plan, site, { signal }) {
+      if (signal.aborted) return;
+      const suggestions = await site.keywordSuggestions(plan.keyword, plan.maxResults);
+      if (signal.aborted) return;
+      yield {
+        chunkKind: SOURCING_CHUNK_KINDS.keywordSuggestions,
+        payload: [{
+          keyword: plan.keyword,
+          capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          items: suggestions.items.slice(0, plan.maxResults),
+          productNameTokens: suggestions.productNameTokens.slice(0, plan.maxResults),
+          warnings: suggestions.warnings
+        }],
+        progress: { current: 1, total: 1, label: plan.keyword }
+      };
+    }
+  };
+  registerCollector(sourcingCoupangKeywordSuggestionCollector);
+
+  // extensions/src/collectors/collector.ts
+  function attentionReporter(report, base) {
+    let since = null;
+    return async (attention) => {
+      if (!report) return;
+      if (!attention) {
+        since = null;
+        await report({ ...base, attention: null });
+        return;
+      }
+      since ??= (/* @__PURE__ */ new Date()).toISOString();
+      await report({ ...base, attention: { ...attention, since } });
+    };
+  }
+
+  // extensions/src/collectors/sourcing.live_commerce/index.ts
+  var sourcingLiveCommerceCollector = {
+    kind: SOURCING_OPERATION_KINDS.liveCommerce,
+    site: "live-commerce",
+    async *collect(plan, site, { signal, report }) {
+      if (signal.aborted) return;
+      const captured = await site.broadcast(plan.pageUrl, { onAttention: attentionReporter(report, { current: 0, total: 1, label: "\uBC29\uC1A1" }) });
+      if (signal.aborted) return;
+      yield {
+        chunkKind: SOURCING_CHUNK_KINDS.liveBroadcast,
+        payload: [{ source: captured.source, pageUrl: captured.pageUrl, broadcast: captured.broadcast }],
+        progress: { current: 1, total: 1, label: "\uBC29\uC1A1" }
+      };
+      if (captured.products.length > 0) {
+        yield { chunkKind: SOURCING_CHUNK_KINDS.liveProducts, payload: captured.products, progress: { products: captured.products.length } };
+      }
+    }
+  };
+  registerCollector(sourcingLiveCommerceCollector);
+
+  // extensions/src/collectors/sourcing.product_extension/index.ts
+  var sourcingProductExtensionCollector = {
+    kind: SOURCING_OPERATION_KINDS.productExtension,
+    site: "product-page",
+    async *collect(plan, site, { signal }) {
+      if (signal.aborted) return;
+      const document = await site.extract(plan.sourceUrl);
+      if (signal.aborted) return;
+      yield { chunkKind: SOURCING_CHUNK_KINDS.productDocument, payload: [document], progress: { current: 1, total: 1, label: "\uC0C1\uD488" } };
+    }
+  };
+  registerCollector(sourcingProductExtensionCollector);
+
+  // extensions/src/collectors/sourcing.tiktok_creative/index.ts
+  var FALLBACK_REGION = "US";
+  var sourcingTiktokCreativeCollector = {
+    kind: SOURCING_OPERATION_KINDS.tiktokCreative,
+    site: "tiktok",
+    async *collect(plan, site, { signal, report }) {
+      const visits = [];
+      const seen = /* @__PURE__ */ new Set();
+      let region = plan.regionOverride;
+      let total = 0;
+      try {
+        for (const targetId of plan.targetIds) {
+          if (signal.aborted) return;
+          const captured = await site.target(site.targetFor(targetId), region, {
+            onAttention: attentionReporter(report, { current: visits.length, total: plan.targetIds.length, label: targetId })
+          });
+          region ??= captured.region;
+          const items = [];
+          for (const item of captured.items) {
+            if (total >= plan.maxItems) break;
+            if (!item.trendType || !item.entityKey) continue;
+            const key = `${String(item.trendType)}::${String(item.entityKey)}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            items.push(item);
+            total += 1;
+          }
+          visits.push({ targetId, items });
+          if (total >= plan.maxItems) break;
+        }
+      } finally {
+        await site.close();
+      }
+      for (const [index, visit] of visits.entries()) {
+        yield {
+          chunkKind: SOURCING_CHUNK_KINDS.creativeTrends,
+          payload: [{ targetId: visit.targetId, region: region ?? FALLBACK_REGION, items: visit.items }],
+          progress: { current: index + 1, total: visits.length, label: visit.targetId }
+        };
+      }
+    }
+  };
+  registerCollector(sourcingTiktokCreativeCollector);
+
+  // extensions/src/collectors/sourcing.trend_1688/index.ts
+  var sourcingTrend1688Collector = {
+    kind: SOURCING_OPERATION_KINDS.trend1688,
+    site: "ali1688",
+    async *collect(plan, site, { signal, report }) {
+      try {
+        for (const [index, keyword] of plan.keywords.entries()) {
+          if (signal.aborted) return;
+          const items = await site.offers(keyword, { onAttention: attentionReporter(report, { current: index, total: plan.keywords.length, label: keyword }) });
+          yield {
+            chunkKind: SOURCING_CHUNK_KINDS.offers1688,
+            payload: [{ keyword, items }],
+            progress: { current: index + 1, total: plan.keywords.length, label: keyword }
+          };
+        }
+      } finally {
+        await site.close();
+      }
+    }
+  };
+  registerCollector(sourcingTrend1688Collector);
+
+  // extensions/src/collectors/sourcing.wing_catalog/index.ts
+  var MAX_ITEMS_PER_KEYWORD = 100;
+  var SOURCING_COLLECTION_INCOMPLETE = "SOURCING_COLLECTION_INCOMPLETE";
+  var sourcingWingCatalogCollector = {
+    kind: SOURCING_OPERATION_KINDS.wingCatalog,
+    site: "wing",
+    async *collect(plan, site, { signal }) {
+      for (const [index, keyword] of plan.keywords.entries()) {
+        if (signal.aborted) return;
+        const rows = /* @__PURE__ */ new Map();
+        let searchPage = 0;
+        for (let pageIndex = 0; pageIndex < plan.maxPages; pageIndex += 1) {
+          if (signal.aborted) return;
+          const page = await site.searchPage(keyword, searchPage);
+          for (const row of page.rows) {
+            const key = site.identity(row);
+            if (!rows.has(key)) rows.set(key, row);
+          }
+          if (page.rows.length === 0 || page.nextSearchPage === null) break;
+          if (page.nextSearchPage === searchPage) {
+            if (pageIndex + 1 < plan.maxPages) {
+              throw new RuntimeError(SOURCING_COLLECTION_INCOMPLETE, `Wing \uAC80\uC0C9 '${keyword}'\uC758 \uB2E4\uC74C \uCABD\uC774 \uB118\uC5B4\uAC00\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.`, { keyword });
+            }
+            break;
+          }
+          searchPage = page.nextSearchPage;
+        }
+        const capturedAt = (/* @__PURE__ */ new Date()).toISOString();
+        const items = [...rows.values()].map((row) => site.toObservation(row, keyword, capturedAt)).filter((item) => item !== null).slice(0, MAX_ITEMS_PER_KEYWORD);
+        yield {
+          chunkKind: SOURCING_CHUNK_KINDS.wingSearchPage,
+          payload: [{ keyword, maxPages: plan.maxPages, purpose: plan.purpose, items }],
+          progress: { current: index + 1, total: plan.keywords.length, label: keyword }
+        };
+      }
+    }
+  };
+  registerCollector(sourcingWingCatalogCollector);
+
+  // extensions/src/collectors/test.echo/index.ts
+  var CHUNKS = 2;
+  var ITEMS_PER_CHUNK = 3;
+  var testEchoCollector = {
+    kind: "test.echo",
+    site: null,
+    async *collect(_plan, _site, { signal }) {
+      for (let chunk = 1; chunk <= CHUNKS; chunk += 1) {
+        if (signal.aborted) return;
+        const at = (/* @__PURE__ */ new Date()).toISOString();
+        const payload = Array.from({ length: ITEMS_PER_CHUNK }, (_, index) => ({ i: (chunk - 1) * ITEMS_PER_CHUNK + index + 1, at }));
+        yield { chunkKind: "echo", payload, progress: { done: chunk } };
+      }
+    },
+    summarize: () => ({ result: { echo: true } })
+  };
+  registerCollector(testEchoCollector);
+
+  // extensions/src/core/browser.ts
+  var RUNTIME_BROWSER_ALREADY_ACQUIRED = "RUNTIME_BROWSER_ALREADY_ACQUIRED";
+  var RUNTIME_BROWSER_UNAVAILABLE = "RUNTIME_BROWSER_UNAVAILABLE";
+  function createBrowserResources(chromeApi, sites, options = {}) {
+    const held = /* @__PURE__ */ new Set();
+    return {
+      async acquire({ operationId, lockKeys, signal }) {
+        if (held.has(operationId)) {
+          throw new RuntimeError(RUNTIME_BROWSER_ALREADY_ACQUIRED, "\uC774 \uC2E4\uD589\uC740 \uC774\uBBF8 \uBE0C\uB77C\uC6B0\uC800 \uC790\uC6D0\uC744 \uC7A1\uACE0 \uC788\uC2B5\uB2C8\uB2E4.", { operationId });
+        }
+        signal.throwIfAborted();
+        const siteNames = [...new Set(lockKeys.map((key) => siteOfLockKey(key, options)).filter((name) => name !== null && name in sites))];
+        if (siteNames.length > 1) {
+          throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uD55C \uC2E4\uD589\uC774 \uB450 \uC0AC\uC774\uD2B8\uC758 \uD0ED\uC744 \uD568\uAED8 \uC7A1\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { sites: siteNames });
+        }
+        held.add(operationId);
+        try {
+          const tab = siteNames.length === 1 ? await openSiteTab(chromeApi, sites[siteNames[0]].origin) : null;
+          let released = false;
+          return {
+            tabId: tab?.tabId ?? null,
+            async release() {
+              if (released) return;
+              released = true;
+              held.delete(operationId);
+              if (tab?.opened) await chromeApi.tabs.remove(tab.tabId).catch(() => void 0);
+            }
+          };
+        } catch (error) {
+          held.delete(operationId);
+          throw error;
+        }
+      }
+    };
+  }
+  function siteOfLockKey(key, options) {
+    if (key.startsWith("resource:")) return key.split(":")[1] ?? null;
+    if (key.startsWith("account:")) return options.accountSite ?? null;
+    return null;
+  }
+  async function openSiteTab(chromeApi, origin) {
+    const base = origin.replace(/\/+$/, "");
+    const [existing] = await chromeApi.tabs.query({ url: `${base}/*` });
+    if (typeof existing?.id === "number") return { tabId: existing.id, opened: false };
+    const created = await chromeApi.tabs.create({ url: base, active: false });
+    if (typeof created.id !== "number") {
+      throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uC0AC\uC774\uD2B8 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { origin: base });
+    }
+    return { tabId: created.id, opened: true };
+  }
+
+  // extensions/src/sites/tab-page.ts
+  function checkPageUrl(guard, value) {
+    let url;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new RuntimeError(SITE_REQUEST_FAILED, "\uC218\uC9D1 \uD0ED\uC758 \uC8FC\uC18C\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, reason: "unexpected_url", url: value });
+    }
+    if (guard.isLogin(url)) throw new RuntimeError(SITE_LOGIN_REQUIRED, guard.loginMessage, { url: value });
+    if (!guard.allows(url)) {
+      throw new RuntimeError(
+        SITE_REQUEST_FAILED,
+        "\uC218\uC9D1 \uD0ED\uC774 \uC608\uC0C1\uD558\uC9C0 \uBABB\uD55C \uC8FC\uC18C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.",
+        { status: null, reason: "unexpected_url", url: value }
+      );
+    }
+  }
+  function leftForOperator(error) {
+    return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === "unexpected_url");
+  }
+  function hostWithin(url, domains) {
+    const host = url.hostname.toLowerCase();
+    return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  }
+  var SITE_TAB_UNAVAILABLE = "SITE_TAB_UNAVAILABLE";
+  var OPERATOR_POLL_MS = 2e3;
+  var OPERATOR_WAIT_MAX_MS = 10 * 6e4;
+  var OPERATOR_REMIND_MS = 3 * 6e4;
+  async function waitForOperator(page, blocked, attention, onAttention) {
+    await onAttention?.(attention);
+    const cleared = await page.waitWhile(blocked, { onRemind: () => onAttention?.(attention) });
+    if (cleared) await onAttention?.(null);
+    return cleared;
+  }
+  var POLL_MS = 250;
+  var MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
+  function createTabPages(deps) {
+    function page(tabId, owned) {
+      let closed = false;
+      async function send(message, timeoutMs) {
+        let timer;
+        const timeout = new Promise((resolve) => {
+          timer = setTimeout(() => resolve({ ok: false, error: "timeout" }), timeoutMs);
+        });
+        const answer = deps.chrome.tabs.sendMessage(tabId, message).then(
+          (response) => response ?? { ok: false, error: "empty_response" },
+          (error) => ({ ok: false, error: MISSING_RECEIVER.test(String(error?.message ?? error)) ? "content_script_missing" : String(error?.message ?? error) })
+        );
+        try {
+          return await Promise.race([answer, timeout]);
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      return {
+        tabId,
+        async navigate(url, { timeoutMs, stopAt, continueOnTimeout = false }) {
+          await deps.chrome.tabs.update(tabId, { url });
+          const deadline = deps.now() + timeoutMs;
+          let last = url;
+          await deps.sleep(POLL_MS);
+          for (; ; ) {
+            const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
+            if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC774 \uB2EB\uD614\uC2B5\uB2C8\uB2E4.", { tabId });
+            last = tab.url || last;
+            if (stopAt?.(last) || tab.status === "complete") return last;
+            if (deps.now() >= deadline) {
+              if (continueOnTimeout) return last;
+              throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uD398\uC774\uC9C0\uB97C \uC5EC\uB294 \uB370 \uC2DC\uAC04\uC774 \uB108\uBB34 \uC624\uB798 \uAC78\uB9BD\uB2C8\uB2E4.", { url });
+            }
+            await deps.sleep(POLL_MS);
+          }
+        },
+        async waitWhile(blocked, { onRemind }) {
+          const started = deps.now();
+          let remindedAt = started;
+          for (; ; ) {
+            const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
+            if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC774 \uB2EB\uD614\uC2B5\uB2C8\uB2E4.", { tabId });
+            if (!blocked(tab.url ?? "")) return true;
+            if (deps.now() - started >= OPERATOR_WAIT_MAX_MS) return false;
+            if (deps.now() - remindedAt >= OPERATOR_REMIND_MS) {
+              remindedAt = deps.now();
+              await onRemind?.();
+            }
+            await deps.sleep(OPERATOR_POLL_MS);
+          }
+        },
+        async currentUrl() {
+          const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
+          if (!tab?.url) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1\uD560 \uD0ED\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { tabId });
+          return tab.url;
+        },
+        async ask(message, { timeoutMs, inject, guard }) {
+          const checkHere = async () => {
+            if (!guard) return;
+            const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
+            if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC774 \uB2EB\uD614\uC2B5\uB2C8\uB2E4.", { tabId });
+            checkPageUrl(guard, tab.url ?? "");
+          };
+          await checkHere();
+          const first = await send(message, timeoutMs);
+          if (!inject || !isMissing(first)) return first;
+          await checkHere();
+          await deps.chrome.scripting.executeScript({ target: { tabId }, files: [...inject.isolated] });
+          if (inject.main?.length) {
+            await deps.sleep(300);
+            await deps.chrome.scripting.executeScript({ target: { tabId }, files: [...inject.main], world: "MAIN" });
+          }
+          await deps.sleep(500);
+          return send(message, timeoutMs);
+        },
+        listen(listener) {
+          const handler = (message, sender) => {
+            if (sender.tab?.id !== tabId || !message || typeof message !== "object") return;
+            listener(message);
+          };
+          deps.chrome.runtime.onMessage.addListener(handler);
+          return () => deps.chrome.runtime.onMessage.removeListener(handler);
+        },
+        async close() {
+          if (!owned || closed) return;
+          closed = true;
+          await deps.chrome.tabs.remove(tabId).catch(() => void 0);
+        }
+      };
+    }
+    return {
+      async open(url) {
+        const created = await deps.chrome.tabs.create({ url, active: false });
+        if (typeof created.id !== "number") throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { url });
+        return page(created.id, true);
+      },
+      attach: (tabId) => page(tabId, false),
+      async fetchText(url, init) {
+        try {
+          const response = await deps.fetch(url, { credentials: "include", redirect: "error", ...init });
+          return response.ok ? await response.text() : null;
+        } catch {
+          return null;
+        }
+      }
+    };
+  }
+  function isMissing(value) {
+    return typeof value === "object" && value !== null && value.error === "content_script_missing";
+  }
+
+  // extensions/src/sites/wing/parse.ts
+  var MAX_ATTRIBUTES_PER_OPTION = 100;
+  var MAX_MEDIA_PER_OWNER = 100;
+  var MAX_DOCUMENTS_PER_PRODUCT = 2e3;
+  var MAX_DOCUMENT_BYTES = 64 * 1024;
+  var MAX_RAW_BYTES = 64 * 1024;
+  var MAX_PRODUCT_BYTES = 512 * 1024;
+  var WING_CATALOG_PAGE_SIZE = 500;
+  var WingPayloadError = class extends Error {
+    constructor(message, code = "WING_CATALOG_PAYLOAD_INVALID") {
+      super(message);
+      this.code = code;
+      this.name = "WingPayloadError";
+    }
+    code;
+  };
+  function stableStringify(value) {
+    if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+    if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+    return `{${Object.entries(value).filter(([, nested]) => nested !== void 0).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, nested]) => `${JSON.stringify(key)}:${stableStringify(nested)}`).join(",")}}`;
+  }
+  var encoder2 = new TextEncoder();
+  function jsonByteLength(value) {
+    return encoder2.encode(stableStringify(value)).byteLength;
+  }
+  function assertJsonBytes(value, maxBytes, message) {
+    const bytes = jsonByteLength(value);
+    if (bytes > maxBytes) throw new WingPayloadError(`${message} (${bytes}/${maxBytes} bytes)`, "WING_CATALOG_PAYLOAD_TOO_LARGE");
+    return value;
+  }
+  function buildWingCatalogSearchBody(page) {
+    return {
+      ...searchBase(),
+      displayDeletedProduct: false,
+      countPerPage: WING_CATALOG_PAGE_SIZE,
+      page: requiredPositiveInteger(page, "Wing \uD398\uC774\uC9C0")
+    };
+  }
+  function buildWingProductIdSearchBody(ids, displayDeletedProduct) {
+    if (ids.length === 0 || ids.length > 100) throw new WingPayloadError("Wing \uC0C1\uD488 ID \uAC80\uC0C9\uC740 1~100\uAC1C\uC785\uB2C8\uB2E4");
+    return {
+      ...searchBase(),
+      searchKeywordType: "PRODUCT_ID",
+      searchKeywords: ids.join(","),
+      displayDeletedProduct,
+      countPerPage: WING_CATALOG_PAGE_SIZE,
+      page: 1
+    };
+  }
+  function searchBase() {
+    return {
+      searchKeywordType: "ALL",
+      searchKeywords: "",
+      salesMethod: "ALL",
+      productStatus: ["ALL"],
+      stockSearchType: "ALL",
+      shippingFeeSearchType: "ALL",
+      displayCategoryCodes: [],
+      listingStartTime: null,
+      listingEndTime: null,
+      saleEndDateSearchType: "ALL",
+      bundledShippingSearchType: "ALL",
+      shippingMethod: "ALL",
+      exposureStatus: "ALL",
+      sortMethod: "SORT_BY_ITEM_LEVEL_UNIT_SOLD",
+      locale: "ko_KR",
+      coupangAttributeOptimized: false,
+      upBundleSearchOption: "ALL",
+      exposureStatuses: [],
+      qualityEnhanceTypes: []
+    };
+  }
+  function normalizeWingCatalogSearchResponse(payload, page, expectedVendorId) {
+    const requestedPage = requiredPositiveInteger(page, "Wing \uD398\uC774\uC9C0");
+    if (!isRecord(payload)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+    if (Object.hasOwn(payload, "success") && (payload.success !== true || payload.message !== null)) {
+      throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+    }
+    const data = payload.data;
+    const pagination = isRecord(data) ? data.pagination : void 0;
+    const productList = isRecord(data) ? data.productList : void 0;
+    if (!isRecord(data) || !Array.isArray(productList) || !isRecord(pagination)) {
+      throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uB370\uC774\uD130\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+    }
+    const responsePage = requiredPositiveInteger(pagination.page, "Wing \uC751\uB2F5 \uD398\uC774\uC9C0");
+    const pageSize = requiredPositiveInteger(pagination.countPerPage, "Wing \uC751\uB2F5 \uD398\uC774\uC9C0 \uD06C\uAE30");
+    const totalItems = requiredNonNegativeInteger(pagination.totalCount, "Wing \uC804\uCCB4 \uC0C1\uD488 \uC218");
+    const totalPages = requiredNonNegativeInteger(pagination.totalPages, "Wing \uC804\uCCB4 \uD398\uC774\uC9C0 \uC218");
+    if (responsePage !== requestedPage || pageSize !== WING_CATALOG_PAGE_SIZE) {
+      throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uD398\uC774\uC9C0 \uC815\uBCF4\uAC00 \uC694\uCCAD\uACFC \uB2E4\uB985\uB2C8\uB2E4");
+    }
+    const expectedPages = totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize);
+    if (totalPages !== expectedPages) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uD398\uC774\uC9C0 \uC218\uAC00 \uC804\uCCB4 \uC0C1\uD488 \uC218\uC640 \uB2E4\uB985\uB2C8\uB2E4");
+    if (totalItems === 0) {
+      if (requestedPage !== 1 || productList.length !== 0) throw new WingPayloadError("Wing \uBE48 \uC0C1\uD488 \uBAA9\uB85D API \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+    } else {
+      if (requestedPage > totalPages) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uD398\uC774\uC9C0\uAC00 \uBC94\uC704\uB97C \uBC97\uC5B4\uB0AC\uC2B5\uB2C8\uB2E4");
+      const expectedRows = Math.min(pageSize, totalItems - (requestedPage - 1) * pageSize);
+      if (productList.length !== expectedRows) {
+        throw new WingPayloadError(`Wing ${requestedPage}\uD398\uC774\uC9C0 \uC0C1\uD488 \uC218\uAC00 \uBD88\uC644\uC804\uD569\uB2C8\uB2E4 (${productList.length}/${expectedRows})`);
+      }
+    }
+    const seen = /* @__PURE__ */ new Set();
+    const products = productList.map((row) => {
+      if (!isRecord(row)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D \uD589\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+      if (!Number.isSafeInteger(row.vendorInventoryId) || row.vendorInventoryId <= 0) {
+        throw new WingPayloadError("Wing \uC0C1\uD488 ID\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+      }
+      const externalProductId = String(row.vendorInventoryId);
+      if (seen.has(externalProductId)) throw new WingPayloadError(`Wing \uC0C1\uD488 ID\uAC00 \uC911\uBCF5\uB418\uC5C8\uC2B5\uB2C8\uB2E4: ${externalProductId}`);
+      seen.add(externalProductId);
+      if (row.vendorId !== void 0 && (typeof row.vendorId !== "string" || expectedVendorId && row.vendorId !== expectedVendorId)) {
+        throw new WingPayloadError(`Wing \uD310\uB9E4\uC790 ID\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4: ${externalProductId}`);
+      }
+      requiredText(row.productName, "Wing \uC0C1\uD488\uBA85");
+      return buildCatalogBasicProduct(row);
+    });
+    return { page: requestedPage, pageSize, totalItems, totalPages, products };
+  }
+  function buildCatalogBasicProduct(inventoryProduct) {
+    if (!isRecord(inventoryProduct)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D \uD589\uC774 \uC5C6\uC2B5\uB2C8\uB2E4");
+    const externalProductId = strictRequiredId(inventoryProduct.vendorInventoryId, "vendorInventoryId");
+    const items = Array.isArray(inventoryProduct.vendorInventoryItems) ? inventoryProduct.vendorInventoryItems : [];
+    if (items.length === 0) throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId}\uC5D0 vendorInventoryItems\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    const saleStatus = saleStatusFromWingProductStatus(requiredText(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
+    const optionIds = /* @__PURE__ */ new Set();
+    const options = items.map((item) => {
+      const option = buildCatalogBasicOption(item);
+      if (optionIds.has(option.externalOptionId)) {
+        throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId} \uC635\uC158 identity conflict: ${option.externalOptionId}`);
+      }
+      optionIds.add(option.externalOptionId);
+      return option;
+    });
+    const primary = normalizeImageUrl(inventoryProduct.representativeImage);
+    const raw = assertJsonBytes({
+      source: "wing_inventory_list",
+      vendorInventoryId: externalProductId,
+      productStatus: nullableText(inventoryProduct.productStatus),
+      saleStatus,
+      categoryName: nullableText(inventoryProduct.categoryName),
+      displayCategoryCode: optionalId(inventoryProduct.displayCategoryCode),
+      categoryId: optionalId(inventoryProduct.categoryId),
+      manufacture: nullableText(inventoryProduct.manufacture),
+      brand: nullableText(inventoryProduct.brand),
+      saleDates: inventoryProduct.saleDates ?? null,
+      createdOn: nullableText(inventoryProduct.createdOn),
+      modifiedOn: nullableText(inventoryProduct.modifiedOn),
+      itemCount: items.length
+    }, MAX_RAW_BYTES, `Wing \uAE30\uBCF8 \uC0C1\uD488 ${externalProductId} raw \uB370\uC774\uD130\uAC00 \uD5C8\uC6A9 \uD06C\uAE30\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
+    const productName = nullableText(inventoryProduct.productName)?.replace(/\s+/g, " ") ?? null;
+    return assertJsonBytes({
+      externalProductId,
+      registeredName: productName,
+      displayName: productName,
+      category: nullableText(inventoryProduct.categoryName) ?? categoryCode(inventoryProduct),
+      manufacturer: nullableText(inventoryProduct.manufacture),
+      brand: nullableText(inventoryProduct.brand),
+      // 공급자 코드는 productStatus에 두고, 판매 상태 라벨은 raw.saleStatus에만 둔다.
+      productStatus: nullableText(inventoryProduct.productStatus),
+      options,
+      media: primary ? [{ sourceUrl: primary, role: "primary", sortOrder: 0, externalOptionId: null }] : [],
+      raw
+    }, MAX_PRODUCT_BYTES, `Wing \uAE30\uBCF8 \uC0C1\uD488 ${externalProductId}\uAC00 \uD5C8\uC6A9 \uD06C\uAE30\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
+  }
+  function buildCatalogBasicOption(item) {
+    if (!isRecord(item)) throw new WingPayloadError("Wing vendorInventoryItem \uD589\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+    const externalOptionId = requiredOptionId(item, "basic");
+    const vendorItemId = strictOptionalId(item.vendorItemId, "vendorItemId");
+    const vendorInventoryItemId = strictRequiredId(item.vendorInventoryItemId, "vendorInventoryItemId");
+    const skuId = strictOptionalId(item.skuId, "skuId");
+    const soldOut = strictNullableBoolean(item.soldOut, "soldOut");
+    const raw = assertJsonBytes({
+      vendorInventoryItemId,
+      vendorItemId,
+      skuId,
+      itemName: nullableText(item.itemName),
+      externalSkuCode: nullableText(item.externalSkuCode),
+      barcode: nullableText(item.barcode),
+      status: nullableText(item.status),
+      soldOut,
+      qcOperationStatus: nullableText(item.qcOperationStatus),
+      approvalStatus: nullableText(item.approvalStatus),
+      stockQuantity: nullableInteger(item.stockQuantity),
+      salePrice: nullableInteger(item.salePrice),
+      autoPricingActive: strictNullableBoolean(item.autoPricingActive, "autoPricingActive"),
+      exposureStatuses: item.exposureStatuses ?? null,
+      externalOptionIdentitySource: vendorItemId ? "vendor_item" : "inventory_item"
+    }, MAX_RAW_BYTES, `Wing \uAE30\uBCF8 \uC635\uC158 ${externalOptionId} raw \uB370\uC774\uD130\uAC00 \uD5C8\uC6A9 \uD06C\uAE30\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
+    return {
+      externalOptionId,
+      optionName: nullableText(item.itemName),
+      skuStatus: nullableText(item.status || item.approvalStatus),
+      salePrice: nullableInteger(item.salePrice),
+      sellerSku: nullableText(item.externalSkuCode),
+      modelNumber: null,
+      barcode: nullableText(item.barcode),
+      stock: nullableInteger(item.stockQuantity),
+      stockQuantity: nullableInteger(item.stockQuantity),
+      vendorInventoryItemId,
+      vendorItemId,
+      skuId,
+      externalSkuCode: nullableText(item.externalSkuCode),
+      soldOut,
+      attributes: [],
+      media: [],
+      raw
+    };
+  }
+  var DETAIL_DOCUMENT_FIELDS = [
+    "contents",
+    "notices",
+    "additionalNotices",
+    "searchTags",
+    "internalAttributes",
+    "certifications",
+    "extraProperties"
+  ];
+  function buildCatalogDetailProduct(sellerProduct) {
+    if (!isRecord(sellerProduct)) throw new WingPayloadError("Wing \uC0C1\uD488 \uC0C1\uC138 JSON\uC774 \uC5C6\uC2B5\uB2C8\uB2E4");
+    const externalProductId = strictRequiredId(sellerProduct.sellerProductId, "sellerProductId");
+    const items = Array.isArray(sellerProduct.items) ? sellerProduct.items : [];
+    if (items.length === 0) throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId}\uC5D0 \uC635\uC158\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    const documents = [];
+    const documentByKey = /* @__PURE__ */ new Map();
+    const mediaByKey = /* @__PURE__ */ new Map();
+    const options = [];
+    const optionIds = /* @__PURE__ */ new Set();
+    for (const rawItem of items) {
+      const item = isRecord(rawItem) ? rawItem : {};
+      const externalOptionId = requiredOptionId(item, "detail");
+      if (optionIds.has(externalOptionId)) {
+        throw new WingPayloadError(`Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId} \uC635\uC158 identity conflict: ${externalOptionId}`);
+      }
+      optionIds.add(externalOptionId);
+      const documentIds = [];
+      for (const field of DETAIL_DOCUMENT_FIELDS) {
+        if (!Object.hasOwn(item, field) || item[field] === void 0) continue;
+        const value = item[field];
+        const key = `${field}\0${stableStringify(value)}`;
+        let document = documentByKey.get(key);
+        if (!document) {
+          document = { id: makeStableDocumentId(field, value, documents.length), kind: field, value };
+          assertJsonBytes(document.value, MAX_DOCUMENT_BYTES, `Wing \uC0C1\uC138 \uBB38\uC11C ${field}\uAC00 \uD5C8\uC6A9 \uD06C\uAE30\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
+          documentByKey.set(key, document);
+          documents.push(document);
+        }
+        documentIds.push(document.id);
+      }
+      for (const image of Array.isArray(item.images) ? item.images : []) {
+        const record = isRecord(image) ? image : {};
+        addDetailMedia(mediaByKey, "option", normalizeImageUrl(record.cdnPath || record.vendorPath), externalOptionId);
+      }
+      for (const sourceUrl of extractDetailImageUrls(item.contents)) {
+        addDetailMedia(mediaByKey, "detail", sourceUrl, externalOptionId);
+      }
+      options.push({
+        externalOptionId,
+        sellerProductItemId: strictOptionalId(item.sellerProductItemId, "sellerProductItemId"),
+        vendorItemId: strictOptionalId(item.vendorItemId, "vendorItemId"),
+        externalVendorSku: nullableText(item.externalVendorSku),
+        barcode: nullableText(item.barcode),
+        modelNumber: nullableText(item.modelNo),
+        attributes: normalizeDetailAttributes(item.attributes),
+        documentIds,
+        raw: buildDetailOptionRaw(item)
+      });
+    }
+    const media = [...mediaByKey.values()].map((entry, index) => ({
+      sourceUrl: entry.sourceUrl,
+      role: entry.role,
+      sortOrder: index,
+      externalOptionIds: [...entry.externalOptionIds].sort()
+    }));
+    const mediaCountByOption = /* @__PURE__ */ new Map();
+    for (const entry of media) {
+      for (const owner of entry.externalOptionIds) {
+        const count = (mediaCountByOption.get(owner) ?? 0) + 1;
+        if (count > MAX_MEDIA_PER_OWNER) {
+          throw new WingPayloadError(`Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId} \uC635\uC158 ${owner}\uC758 \uBBF8\uB514\uC5B4\uAC00 \uD5C8\uC6A9 \uAC1C\uC218\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
+        }
+        mediaCountByOption.set(owner, count);
+      }
+    }
+    if (documents.length > MAX_DOCUMENTS_PER_PRODUCT) {
+      throw new WingPayloadError(`Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId}\uC758 \uBB38\uC11C\uAC00 \uD5C8\uC6A9 \uAC1C\uC218\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
+    }
+    const raw = assertJsonBytes({
+      source: "wing_seller_product_json",
+      sellerProductId: externalProductId,
+      productId: optionalId(sellerProduct.productId),
+      status: nullableText(sellerProduct.status),
+      statusName: nullableText(sellerProduct.statusName),
+      saleStartedAt: nullableText(sellerProduct.saleStartedAt),
+      displayCategoryCode: optionalId(sellerProduct.displayCategoryCode),
+      categoryId: optionalId(sellerProduct.categoryId),
+      itemCount: items.length
+    }, MAX_RAW_BYTES, `Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId} raw \uB370\uC774\uD130\uAC00 \uD5C8\uC6A9 \uD06C\uAE30\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
+    return assertJsonBytes(
+      { externalProductId, options, documents, media, raw },
+      MAX_PRODUCT_BYTES,
+      `Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId}\uAC00 \uD5C8\uC6A9 \uD06C\uAE30\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`
+    );
+  }
+  function extractDetailImageUrls(contents) {
+    const urls = [];
+    for (const content of Array.isArray(contents) ? contents : []) {
+      const details = isRecord(content) && Array.isArray(content.contentDetails) ? content.contentDetails : [];
+      for (const detail of details) {
+        const html = String(isRecord(detail) ? detail.content ?? "" : "");
+        for (const match of html.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) {
+          const url = normalizeImageUrl(match[1]);
+          if (url) urls.push(url);
+        }
+      }
+    }
+    return [...new Set(urls)];
+  }
+  function normalizeDetailAttributes(attributes) {
+    return (Array.isArray(attributes) ? attributes : []).map((attribute) => {
+      const record = isRecord(attribute) ? attribute : {};
+      return {
+        type: nullableText(record.attributeTypeName || record.attributeTypeId),
+        value: nullableText(record.attributeValueName)
+      };
+    }).filter((attribute) => Boolean(attribute.type && attribute.value)).slice(0, MAX_ATTRIBUTES_PER_OPTION);
+  }
+  function buildDetailOptionRaw(item) {
+    return assertJsonBytes({
+      ...nullableText(item.registrationType) ? { registrationType: nullableText(item.registrationType) } : {},
+      sellerProductItemId: strictOptionalId(item.sellerProductItemId, "sellerProductItemId"),
+      vendorItemId: strictOptionalId(item.vendorItemId, "vendorItemId"),
+      itemId: strictOptionalId(item.itemId, "itemId"),
+      skuId: strictOptionalId(item.skuId, "skuId"),
+      externalVendorSku: nullableText(item.externalVendorSku),
+      barcode: nullableText(item.barcode),
+      modelNo: nullableText(item.modelNo),
+      originalPrice: nullableInteger(item.originalPrice),
+      salePrice: nullableInteger(item.salePrice),
+      supplyPrice: nullableInteger(item.supplyPrice),
+      externalOptionIdentitySource: item.vendorItemId === null || item.vendorItemId === void 0 ? "inventory_item" : "vendor_item"
+    }, MAX_RAW_BYTES, "Wing \uC0C1\uC138 \uC635\uC158 raw \uB370\uC774\uD130\uAC00 \uD5C8\uC6A9 \uD06C\uAE30\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4");
+  }
+  function addDetailMedia(mediaByKey, role, sourceUrl, externalOptionId) {
+    if (!sourceUrl) return;
+    const key = `${role}:${sourceUrl}`;
+    const existing = mediaByKey.get(key);
+    if (existing) {
+      existing.externalOptionIds.add(externalOptionId);
+      return;
+    }
+    mediaByKey.set(key, { sourceUrl, role, externalOptionIds: /* @__PURE__ */ new Set([externalOptionId]) });
+  }
+  function makeStableDocumentId(field, value, ordinal) {
+    const text2 = `${field}\0${stableStringify(value)}`;
+    let hash = 2166136261;
+    for (let index = 0; index < text2.length; index += 1) {
+      hash ^= text2.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `doc:${field}:${(hash >>> 0).toString(16).padStart(8, "0")}:${ordinal}`;
+  }
+  function categoryCode(product) {
+    const parts = [optionalId(product.displayCategoryCode), optionalId(product.categoryId)].filter(Boolean);
+    return parts.length > 0 ? parts.join("/") : null;
+  }
+  function saleStatusFromWingProductStatus(value) {
+    switch (value) {
+      case "ON_SALE":
+      case "PARTIAL_ON_SALE":
+        return "\uD310\uB9E4\uC911";
+      case "SUSPENDED":
+        return "\uD310\uB9E4\uC911\uC9C0";
+      case "REJECTED":
+        return null;
+      default:
+        throw new WingPayloadError(`Wing \uD310\uB9E4 \uC0C1\uD0DC\uB97C \uD574\uC11D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4: ${value}`);
+    }
+  }
+  function normalizeImageUrl(value) {
+    const text2 = typeof value === "string" ? value.trim() : "";
+    if (!text2) return null;
+    if (text2.startsWith("//")) return `https:${text2}`;
+    if (/^https?:\/\//i.test(text2)) return text2;
+    return `https://image1.coupangcdn.com/image/${text2.replace(/^\/+/, "")}`;
+  }
+  function isRecord(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+  function nullableText(value) {
+    if (value === null || value === void 0) return null;
+    const text2 = String(value).trim();
+    return text2 || null;
+  }
+  function optionalId(value) {
+    if (value === null || value === void 0 || value === "") return null;
+    return String(value);
+  }
+  function strictOptionalId(value, name) {
+    if (value === null || value === void 0 || value === "") return null;
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return String(value);
+    throw new WingPayloadError(`Wing ${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
+  }
+  function strictRequiredId(value, name) {
+    const id = strictOptionalId(value, name);
+    if (!id) throw new WingPayloadError(`Wing ${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    return id;
+  }
+  function strictNullableBoolean(value, name) {
+    if (value === null || value === void 0) return null;
+    if (typeof value === "boolean") return value;
+    throw new WingPayloadError(`Wing ${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
+  }
+  function requiredOptionId(item, stage) {
+    const vendorItemId = strictOptionalId(item.vendorItemId, "vendorItemId");
+    if (vendorItemId) return vendorItemId;
+    const relationId = stage === "basic" ? strictOptionalId(item.vendorInventoryItemId, "vendorInventoryItemId") : strictOptionalId(item.sellerProductItemId, "sellerProductItemId");
+    if (relationId) return relationId;
+    if (stage === "detail") {
+      const itemId = strictOptionalId(item.itemId, "itemId");
+      if (itemId) return itemId;
+    }
+    throw new WingPayloadError("Wing \uC635\uC158 \uC2DD\uBCC4\uC790\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4");
+  }
+  function nullableInteger(value) {
+    if (value === null || value === void 0 || value === "") return null;
+    const number = Number(value);
+    return Number.isInteger(number) && number >= 0 ? number : null;
+  }
+  function requiredText(value, name) {
+    const text2 = typeof value === "string" ? value.trim() : "";
+    if (!text2) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    return text2;
+  }
+  function requiredPositiveInteger(value, name) {
+    if (!Number.isSafeInteger(value) || value <= 0) throw new WingPayloadError(`${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
+    return value;
+  }
+  function requiredNonNegativeInteger(value, name) {
+    if (!Number.isSafeInteger(value) || value < 0) throw new WingPayloadError(`${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
+    return value;
+  }
+
+  // extensions/src/sites/wing/index.ts
+  var ORIGIN = "https://wing.coupang.com";
+  var SEARCH_URL = `${ORIGIN}/tenants/seller-web/v2/vendor-inventory/search`;
+  var DETAIL_URL = `${ORIGIN}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
+  var EXCEL_BASE = `${ORIGIN}/tenants/seller-web/excel/request/download`;
+  var EXCEL_REQUEST_TYPE = "EDITABLE_CATALOGUE";
+  var CATALOGUE_TYPES = [
+    "DISPLAY_PRODUCT_NAME",
+    "MANUFACTURE",
+    "BRAND",
+    "SEARCH_TAG",
+    "ADULT_ONLY",
+    "EXPOSE_ATTRIBUTE",
+    "NON_EXPOSE_ATTRIBUTE",
+    "MODEL_NO",
+    "BARCODE"
+  ];
+  var READ_RETRY_DELAYS_MS = [2e3, 6e3];
+  var NOT_FOUND = /* @__PURE__ */ Symbol("wing-not-found");
+  var WING_TIMEOUT_MS = 3e4;
+  var WING_DELETED_STATUS = "DELETED";
+  var CATALOG_LIST_INCOMPLETE2 = "CATALOG_LIST_INCOMPLETE";
+  var CATALOG_EXCEL_FAILED2 = "CATALOG_EXCEL_FAILED";
+  var WING_CATALOG_PAYLOAD_INVALID = "WING_CATALOG_PAYLOAD_INVALID";
+  var WING_SITE = {
+    name: "wing",
+    origin: ORIGIN,
+    caller: {
+      minIntervalMs: 2e3,
+      timeoutMs: WING_TIMEOUT_MS,
+      displayName: "\uCFE0\uD321 \uC719",
+      xsrf: { cookieUrl: ORIGIN, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+    }
+  };
+  function createWingSite(caller, deps) {
+    async function readJson(url, init, notFoundIsAnswer = false) {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          return await caller.json(url, init);
+        } catch (error) {
+          const failed = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
+          if (failed && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
+          const delay = READ_RETRY_DELAYS_MS[attempt];
+          if (!failed) throw error;
+          if (delay === void 0) throw withResponseHint(error);
+          await deps.sleep(delay);
+        }
+      }
+    }
+    const postJson = (url, body, requireXsrf = false) => caller.json(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body),
+      requireXsrf
+    });
+    const searchJson = (body) => readJson(SEARCH_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body)
+    });
+    async function productIdsOf(ids, displayDeletedProduct) {
+      const response = await searchJson(buildWingProductIdSearchBody(ids, displayDeletedProduct));
+      const rows = productRows(response);
+      return new Map(rows.map((row) => [String(row.vendorInventoryId), typeof row.productStatus === "string" ? row.productStatus : null]));
+    }
+    return {
+      /** 목록 한 페이지(500개). 페이지 모양·행 수가 pagination과 맞지 않으면 `CATALOG_LIST_INCOMPLETE`. */
+      async searchInventory(page, vendorId) {
+        const response = await searchJson(buildWingCatalogSearchBody(page));
+        try {
+          return normalizeWingCatalogSearchResponse(response, page, vendorId);
+        } catch (error) {
+          if (error instanceof WingPayloadError) throw new RuntimeError(CATALOG_LIST_INCOMPLETE2, error.message, { page });
+          throw error;
+        }
+      },
+      /**
+       * 상품 상세 하나. 없으면(404) null. 2xx JSON이 아니면 2초·6초 뒤 다시 묻고, 그래도 안 되면 `SITE_REQUEST_FAILED`
+       * (details `status`·`reason`·`bodyHead`)를 넘긴다 — 건너뛸지는 수집기가 정한다.
+       */
+      async productDetail(externalProductId) {
+        const body = await readJson(`${DETAIL_URL}${encodeURIComponent(externalProductId)}`, void 0, true);
+        if (body === NOT_FOUND) return null;
+        let product;
+        try {
+          product = buildCatalogDetailProduct(body);
+        } catch (error) {
+          if (error instanceof WingPayloadError) throw new RuntimeError(error.code, error.message, { externalProductId });
+          throw error;
+        }
+        if (product.externalProductId !== externalProductId) {
+          throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, `Wing \uC0C1\uC138 \uC0C1\uD488 ID\uAC00 \uB2E4\uB985\uB2C8\uB2E4(${externalProductId} / ${product.externalProductId}).`);
+        }
+        return product;
+      },
+      /**
+       * 목록에서 사라진 상품(최대 100개)이 삭제됐는가(KID-351 실측): `PRODUCT_ID` 검색을 삭제 상품만(`displayDeletedProduct:
+       * true`) 한 번, 남은 것을 일반 상품으로 한 번 묻는다. 삭제 검색에 나오면 deleted, 일반 검색에 나오면 present, 둘 다
+       * 없으면 not_found(미확인 — 서버는 활성으로 두고 품질 보고에 남긴다).
+       */
+      async probeDeleted(externalProductIds) {
+        const found = await productIdsOf(externalProductIds, true);
+        const deleted = new Map([...found].filter(([, status]) => status === WING_DELETED_STATUS));
+        const liveFromDeletedSearch = new Set([...found.keys()].filter((id) => !deleted.has(id)));
+        const rest = externalProductIds.filter((id) => !found.has(id));
+        const present = rest.length > 0 ? await productIdsOf(rest, false) : /* @__PURE__ */ new Map();
+        for (const id of liveFromDeletedSearch) present.set(id, null);
+        return externalProductIds.map((externalProductId) => {
+          if (deleted.has(externalProductId)) return { externalProductId, outcome: "deleted", productStatus: deleted.get(externalProductId) ?? null };
+          if (present.has(externalProductId)) return { externalProductId, outcome: "present", productStatus: null };
+          return { externalProductId, outcome: "not_found", productStatus: null };
+        });
+      },
+      /**
+       * [쿠팡상품정보] 엑셀(EDITABLE_CATALOGUE) 생성 요청 — 사용자가 허용한 유일한 몰 쓰기 요청(KID-351, 2026-09-24 20:32).
+       * 전체 목록 조건을 그대로 쓰므로 먼저 전체 상품 수를 읽는다.
+       */
+      async requestCatalogExcel(description) {
+        const condition = buildWingCatalogSearchBody(1);
+        const totalCount = totalCountOf(await postJson(SEARCH_URL, condition));
+        const response = await postJson(`${EXCEL_BASE}/create/vendor-inventory/all`, {
+          searchCondition: { ...condition, totalCount },
+          comment: "KidItem \uCFE0\uD321\uC0C1\uD488\uC815\uBCF4 \uAC31\uC2E0",
+          fileDescription: description,
+          requestType: EXCEL_REQUEST_TYPE,
+          selectedTypes: [...CATALOGUE_TYPES]
+        }, true);
+        const record = asRecord(response);
+        if (record?.success !== true) {
+          const message = typeof record?.message === "string" && record.message ? `: ${record.message}` : "";
+          throw new RuntimeError(CATALOG_EXCEL_FAILED2, `\uCFE0\uD321 \uC719\uC774 \uC0C1\uD488\uC815\uBCF4 \uC5D1\uC140 \uC0DD\uC131\uC744 \uAC70\uC808\uD588\uC2B5\uB2C8\uB2E4${message}`);
+        }
+      },
+      /** 다운로드 목록에서 이 설명으로 만든 요청. 아직 없으면 null. 중단된 요청은 `ABORTED`. */
+      async catalogExcelRequest(description) {
+        const response = await caller.json(`${EXCEL_BASE}/list?requestType=${EXCEL_REQUEST_TYPE}&page=1&countPerPage=10`, {
+          headers: { accept: "application/json" },
+          requireXsrf: true
+        });
+        const rows = asRecord(response)?.result;
+        const row = Array.isArray(rows) ? rows.map(asRecord).find((candidate) => candidate?.fileDescription === description && candidate.isDeleted !== "Y") : void 0;
+        if (!row) return null;
+        return {
+          id: String(row.sellerRequestDownloadExcelId),
+          status: row.isAbort === "Y" ? "ABORTED" : String(row.status ?? ""),
+          executeCount: Number(row.executeCount) || 0,
+          totalCount: Number(row.totalCount) || 0
+        };
+      },
+      downloadCatalogExcel(id) {
+        return caller.bytes(
+          `${EXCEL_BASE}/file?requestType=${EXCEL_REQUEST_TYPE}&sellerRequestDownloadExcelId=${encodeURIComponent(id)}&sellerRequestDownloadExcelFileId=`,
+          { requireXsrf: true }
+        );
+      },
+      /** 폴링 사이 기다림. 취소되면 바로 돌아온다. */
+      pause(ms, signal) {
+        return new Promise((resolve) => {
+          if (signal.aborted) return resolve();
+          const timer = setTimeout(done, ms);
+          function done() {
+            clearTimeout(timer);
+            signal.removeEventListener("abort", done);
+            resolve();
+          }
+          signal.addEventListener("abort", done, { once: true });
+        });
+      }
+    };
+  }
+  function withResponseHint(error) {
+    const status = error.details?.status;
+    const bodyHead = error.details?.bodyHead;
+    const hint = `status ${typeof status === "number" ? status : "\uC5C6\uC74C"}${typeof bodyHead === "string" && bodyHead ? ` \xB7 ${bodyHead}` : ""}`;
+    return new RuntimeError(error.code, `${error.message} \u2014 ${hint}`, error.details, error);
+  }
+  function asRecord(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+  }
+  function productRows(response) {
+    const data = asRecord(asRecord(response)?.data);
+    const list = data?.productList;
+    if (!Array.isArray(list)) throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, "Wing \uC0C1\uD488 \uAC80\uC0C9 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    return list.map((row) => asRecord(row) ?? {});
+  }
+  function totalCountOf(response) {
+    const total = asRecord(asRecord(asRecord(response)?.data)?.pagination)?.totalCount;
+    if (!Number.isSafeInteger(total) || total < 0) {
+      throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, "Wing \uC804\uCCB4 \uC0C1\uD488 \uC218\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+    }
+    return total;
+  }
+
+  // extensions/src/sites/wing/reviews.ts
+  var WING_ORIGIN = "https://wing.coupang.com";
+  var WING_REVIEW_SEARCH_URL = `${WING_ORIGIN}/tenants/cs/product/review/search`;
+  var WING_REVIEW_PAGE_SIZE = 50;
+  var WING_REVIEW_CALLER = { minIntervalMs: 350 };
+  var WING_REVIEW_TIMEOUT_MS = 2e4;
+  async function searchWingReviews(caller, input, options = {}) {
+    const body = await caller.json(WING_REVIEW_SEARCH_URL, {
+      method: "POST",
+      signal: AbortSignal.timeout(options.timeoutMs ?? WING_REVIEW_TIMEOUT_MS),
+      headers: { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        startTime: input.start.slice(0, 10),
+        endTime: input.end.slice(0, 10),
+        rating: "",
+        salesStatus: "",
+        advancedType: "productName",
+        advancedInput: "",
+        pageIndex: input.pageIndex,
+        pageSize: WING_REVIEW_PAGE_SIZE,
+        productName: ""
+      })
+    });
+    if (body?.code !== "OK") {
+      const message = typeof body?.message === "string" && body.message ? body.message : "\uC54C \uC218 \uC5C6\uB294 \uC751\uB2F5";
+      throw new RuntimeError(SITE_REQUEST_FAILED, `Wing \uC0C1\uD488\uD3C9 \uC870\uD68C\uAC00 \uAC70\uC808\uB410\uC2B5\uB2C8\uB2E4: ${message}`, {
+        reason: "wing_review_rejected",
+        url: WING_REVIEW_SEARCH_URL
+      });
+    }
+    const content = Array.isArray(body.data?.content) ? body.data.content : [];
+    const items = content.map(normalizeWingReview).filter((item) => item !== null);
+    const totalPages = Number(body.data?.pagination?.totalPages);
+    return { items, totalPages: Number.isSafeInteger(totalPages) && totalPages > 0 ? totalPages : 0 };
+  }
+  function normalizeWingReview(value) {
+    if (!value || typeof value !== "object") return null;
+    const raw = value;
+    if (raw.reviewId === null || raw.reviewId === void 0) return null;
+    const rating = Number(raw.rating);
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) return null;
+    const reviewedAt = Number(raw.reviewAt || raw.createdAt || 0);
+    if (!Number.isFinite(reviewedAt) || reviewedAt <= 0) return null;
+    const attachment = attachmentCounts(raw.attachment);
+    return {
+      externalReviewId: String(raw.reviewId),
+      externalOptionId: raw.vendorItemId === null || raw.vendorItemId === void 0 ? null : String(raw.vendorItemId),
+      externalProductId: raw.productId === null || raw.productId === void 0 ? null : String(raw.productId),
+      itemName: text(raw.itemName),
+      rating: Math.round(rating),
+      title: text(raw.reviewTitle),
+      content: text(raw.reviewContent),
+      reviewerName: text(raw.memberName),
+      reviewedAt: Math.trunc(reviewedAt),
+      imageCount: attachment.images,
+      videoCount: attachment.videos,
+      isDeleted: raw.deleted === true,
+      isBlinded: raw.blinded === true
+    };
+  }
+  function attachmentCounts(value) {
+    if (typeof value !== "string" || !value) return { images: 0, videos: 0 };
+    try {
+      const parsed = JSON.parse(value);
+      return {
+        images: Array.isArray(parsed?.imageAttachments) ? parsed.imageAttachments.length : 0,
+        videos: Array.isArray(parsed?.videoAttachments) ? parsed.videoAttachments.length : 0
+      };
+    } catch {
+      return { images: 0, videos: 0 };
+    }
+  }
+  function text(value) {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  function createWingReviewsSite(caller) {
+    return { searchReviews: (input) => searchWingReviews(caller, input) };
+  }
+
+  // extensions/src/entry/site-handles.ts
+  var ENTRY_SITES = { [WING_SITE.name]: { origin: WING_SITE.origin } };
+  var ACCOUNT_SITE = WING_SITE.name;
+  function createSiteHandles(deps) {
+    return (kind) => {
+      if (kind.startsWith("sourcing.")) return null;
+      if (kind === COUPANG_REVIEWS_KIND) return createWingReviewsSite(createSiteCaller(WING_REVIEW_CALLER, deps));
+      const site = collectorFor(kind)?.site ?? null;
+      if (site === WING_SITE.name) return createWingSite(createSiteCaller(WING_SITE.caller, deps), { sleep: deps.sleep });
+      return null;
+    };
+  }
+
+  // extensions/src/entry/legacy-bridge.ts
+  function legacyGlobalsPresent() {
+    return typeof KidItemDomains !== "undefined" && typeof sourceOwnerEnvironmentContext !== "undefined";
+  }
+  function legacyKeepAlive(work) {
+    if (typeof KidItemWorkerKeepAlive === "undefined" || !KidItemWorkerKeepAlive) return;
+    KidItemWorkerKeepAlive.during(work).catch(() => void 0);
+  }
+  function legacyApiPort(environmentId) {
+    return { fetch: (path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init) };
+  }
+  function registerWithLegacyDomains(domain) {
+    KidItemDomains.register(domain);
+  }
 
   // extensions/src/core/operation-client.ts
   function stopFor(code, details) {
@@ -4408,8 +6632,8 @@ var KidItemRuntime = (() => {
     }
     return parsed.data;
   }
-  async function sha256Hex(text) {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  async function sha256Hex(text2) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text2));
     return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   }
 
@@ -4419,35 +6643,49 @@ var KidItemRuntime = (() => {
   var RUNTIME_CHUNK_TOO_LARGE = "RUNTIME_CHUNK_TOO_LARGE";
   var HEARTBEAT_CHUNK_KIND = "heartbeat";
   var HEARTBEAT_INTERVAL_MS = OPERATION_LEASE_MS / 3;
-  var encoder = new TextEncoder();
+  var encoder3 = new TextEncoder();
   function createRunner(deps, collectorFor2) {
     return {
+      /**
+       * 연쇄(KID-354): 성공한 실행의 `result.next`가 있으면 같은 환경으로 그 kind를 이어서 돌린다(루프, 재귀 아님).
+       * 실패·거절·취소는 그 실행의 outcome으로 끝나고, 마지막 실행의 outcome을 돌려준다.
+       */
       async run(input) {
-        const collector = collectorFor2(input.kind);
-        if (!collector) {
-          return { kind: "failed", operationId: null, errorCode: RUNTIME_UNKNOWN_KIND, errorMessage: `\uC774 \uD655\uC7A5\uC774 \uBAA8\uB974\uB294 \uC2E4\uD589 \uC885\uB958\uC785\uB2C8\uB2E4: ${input.kind}` };
+        let step = input;
+        for (; ; ) {
+          const outcome = await runOne(deps, collectorFor2, step);
+          const next = outcome.kind === "finished" && outcome.operation.status === "succeeded" ? nextOperationFrom(outcome.operation.result) : null;
+          if (!next || input.signal.aborted) return outcome;
+          const { idempotencyKey: _previousKey, ...rest } = step;
+          step = { ...rest, kind: next.kind, scope: next.scope };
         }
-        let begun;
-        try {
-          begun = await deps.client.begin({
-            kind: input.kind,
-            scope: input.scope,
-            ...input.idempotencyKey !== void 0 ? { idempotencyKey: input.idempotencyKey } : {}
-          });
-        } catch (caught) {
-          const error = toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
-          const stop = stopFor(error.code, error.details);
-          if (stop.kind === "already_running") return { kind: "already_running", existing: stop.existing, message: error.message };
-          return { kind: "failed", operationId: null, errorCode: error.code, errorMessage: error.message, ...error.details ? { details: error.details } : {} };
-        }
-        if (begun.reused) {
-          const { id: operationId, kind, lockKeys, startedAt, expiresAt } = begun.operation;
-          return { kind: "already_running", existing: { operationId, kind, lockKeys, startedAt, expiresAt }, reused: true };
-        }
-        input.onBegun?.({ operationId: begun.operation.id, reused: begun.reused });
-        return execute(deps, collector, input, begun.operation, begun.token);
       }
     };
+  }
+  async function runOne(deps, collectorFor2, input) {
+    const collector = collectorFor2(input.kind);
+    if (!collector) {
+      return { kind: "failed", operationId: null, errorCode: RUNTIME_UNKNOWN_KIND, errorMessage: `\uC774 \uD655\uC7A5\uC774 \uBAA8\uB974\uB294 \uC2E4\uD589 \uC885\uB958\uC785\uB2C8\uB2E4: ${input.kind}` };
+    }
+    let begun;
+    try {
+      begun = await deps.client.begin({
+        kind: input.kind,
+        scope: input.scope,
+        ...input.idempotencyKey !== void 0 ? { idempotencyKey: input.idempotencyKey } : {}
+      });
+    } catch (caught) {
+      const error = toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
+      const stop = stopFor(error.code, error.details);
+      if (stop.kind === "already_running") return { kind: "already_running", existing: stop.existing, message: error.message };
+      return { kind: "failed", operationId: null, errorCode: error.code, errorMessage: error.message, ...error.details ? { details: error.details } : {} };
+    }
+    if (begun.reused) {
+      const { id: operationId, kind, lockKeys, startedAt, expiresAt } = begun.operation;
+      return { kind: "already_running", existing: { operationId, kind, lockKeys, startedAt, expiresAt }, reused: true };
+    }
+    input.onBegun?.({ operationId: begun.operation.id, reused: begun.reused });
+    return execute(deps, collector, input, begun.operation, begun.token);
   }
   async function execute(deps, collector, input, operation, token) {
     const operationId = operation.id;
@@ -4505,7 +6743,15 @@ var KidItemRuntime = (() => {
       let chunks = 0;
       let items = 0;
       scheduleHeartbeat();
-      for await (const chunk of collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId })) {
+      const report = async (progress) => {
+        if (collectionDone || local.signal.aborted) return;
+        lastProgress = progress;
+        await write(
+          () => deps.client.putChunk({ operationId, token, chunkKind: HEARTBEAT_CHUNK_KIND, sequence: 1, payload: [], progress })
+        );
+        scheduleHeartbeat();
+      };
+      for await (const chunk of collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId, report })) {
         if (local.signal.aborted) break;
         if (chunk.chunkKind === HEARTBEAT_CHUNK_KIND) {
           throw new RuntimeError(RUNTIME_COLLECT_FAILED, `\uC218\uC9D1\uAE30\uB294 \uC608\uC57D\uB41C chunkKind(${HEARTBEAT_CHUNK_KIND})\uB97C \uC4F0\uC9C0 \uC54A\uB294\uB2E4.`, { reason: "reserved_chunk_kind" });
@@ -4566,7 +6812,7 @@ var KidItemRuntime = (() => {
     return { kind: "failed", operationId, errorCode: OPERATION_CANCEL_CODE, errorMessage: "\uC2E4\uD589\uC744 \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4." };
   }
   function assertChunkFits(chunk, sentChunks) {
-    const bytes = encoder.encode(JSON.stringify(chunk.payload)).byteLength;
+    const bytes = encoder3.encode(JSON.stringify(chunk.payload)).byteLength;
     if (bytes > OPERATION_CHUNK_MAX_BYTES) {
       throw new RuntimeError(RUNTIME_CHUNK_TOO_LARGE, `\uCCAD\uD06C \uD558\uB098\uAC00 ${OPERATION_CHUNK_MAX_BYTES}\uBC14\uC774\uD2B8\uB97C \uB118\uC2B5\uB2C8\uB2E4.`, { chunkKind: chunk.chunkKind, bytes });
     }
@@ -4578,6 +6824,12 @@ var KidItemRuntime = (() => {
     if (isRuntimeError(caught)) return caught;
     const message = caught instanceof Error && caught.message ? caught.message : "\uC2E4\uD589 \uC911 \uC624\uB958\uAC00 \uB0AC\uC2B5\uB2C8\uB2E4.";
     return new RuntimeError(fallbackCode, message, null, caught);
+  }
+  function nextOperationFrom(result) {
+    const next = result?.next;
+    if (next === void 0 || next === null) return null;
+    const parsed = OperationNextSchema.safeParse(next);
+    return parsed.success ? parsed.data : null;
   }
 
   // extensions/src/entry/actions.ts
@@ -4620,7 +6872,7 @@ var KidItemRuntime = (() => {
           if (!input.ok) return input.response;
           const { kind, scope, idempotencyKey } = input.message;
           const controller = new AbortController();
-          let owned = null;
+          const owned = [];
           let answer;
           const begun = new Promise((resolve) => {
             answer = resolve;
@@ -4632,12 +6884,12 @@ var KidItemRuntime = (() => {
             signal: controller.signal,
             onBegun({ operationId, reused }) {
               running.set(operationId, controller);
-              owned = operationId;
+              owned.push(operationId);
               answer({ success: true, operationId, reused });
             }
           });
           const done = run.finally(() => {
-            if (owned !== null) running.delete(owned);
+            for (const id of owned) running.delete(id);
           });
           deps.keepAlive?.(done);
           return Promise.race([
@@ -4703,16 +6955,846 @@ var KidItemRuntime = (() => {
     };
   }
 
+  // extensions/src/sites/1688/index.ts
+  var SEARCH_ORIGIN = "https://s.1688.com";
+  var NAVIGATION_TIMEOUT_MS = 3e4;
+  var EXTRACTION_TIMEOUT_MS = 2e4;
+  var MAX_RESULTS_PER_KEYWORD = 20;
+  var MAX_VERIFICATION_ROUNDS = 5;
+  var ALIBABA_CONTENT_FILES = {
+    isolated: [
+      "content/sourcing/extractors/common.js",
+      "content/sourcing/extractors/alibaba.js",
+      "content/sourcing/extractors/1688.js",
+      "content/sourcing/content.js"
+    ]
+  };
+  var SITE_VERIFICATION_REQUIRED = "SITE_VERIFICATION_REQUIRED";
+  var ALIBABA_1688_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["1688.com"]),
+    isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "passport.taobao.com"]),
+    loginMessage: "1688 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  function build1688SearchUrl(keyword) {
+    return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword)}&charset=utf8`;
+  }
+  function is1688VerificationUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.pathname.includes("/punish") || url.pathname.includes("/_____tmd_____/") || url.searchParams.get("action") === "captcha";
+    } catch {
+      return false;
+    }
+  }
+  function create1688SearchSite(tabs) {
+    let page = null;
+    let keepOpen = false;
+    return {
+      /**
+       * 키워드 하나. 슬라이더 검증이 뜨면 실패하지 않고 운영자를 기다렸다가(`onAttention`으로 알림) 같은 키워드를 다시
+       * 시도한다 — 실행과 이미 올린 청크는 그대로다(KID-355 QA). 10분 안에 통과하지 않으면 `SITE_VERIFICATION_REQUIRED`.
+       */
+      async offers(keyword, options = {}) {
+        page ??= await tabs.open("about:blank");
+        const current = page;
+        const attention = { kind: "verification", site: "1688", label: keyword };
+        const waitOrFail = async (url) => {
+          if (await waitForOperator(current, is1688VerificationUrl, attention, options.onAttention)) return;
+          throw verification(url, keyword, () => {
+            keepOpen = true;
+          });
+        };
+        for (let round = 1; ; round += 1) {
+          const landed = await current.navigate(build1688SearchUrl(keyword), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
+          if (is1688VerificationUrl(landed)) {
+            if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword, () => {
+              keepOpen = true;
+            });
+            await waitOrFail(landed);
+            continue;
+          }
+          let extracted;
+          try {
+            extracted = await current.ask(
+              { type: "TRIGGER_1688_TREND_EXTRACT", maxResults: MAX_RESULTS_PER_KEYWORD },
+              { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: ALIBABA_CONTENT_FILES, guard: ALIBABA_1688_PAGE_GUARD }
+            );
+          } catch (error) {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          }
+          if (extracted.status === "verification_required") {
+            const here = await current.currentUrl().catch(() => extracted.verificationUrl ?? landed);
+            if (round > MAX_VERIFICATION_ROUNDS || !is1688VerificationUrl(here)) {
+              throw verification(extracted.verificationUrl ?? landed, keyword, () => {
+                keepOpen = true;
+              });
+            }
+            await waitOrFail(here);
+            continue;
+          }
+          if (!extracted.ok) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword });
+          }
+          return (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => typeof item?.offerId === "string" && item.offerId.length > 0).slice(0, MAX_RESULTS_PER_KEYWORD);
+        }
+      },
+      /** 수집이 끝나면 탭을 닫는다. 검증 화면에서 멈췄으면 운영자가 풀 수 있게 남긴다. */
+      async close() {
+        if (page && !keepOpen) await page.close();
+        page = null;
+      }
+    };
+  }
+  function verification(url, keyword, keep) {
+    keep();
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword });
+  }
+
+  // extensions/src/sites/coupang-search/parse.ts
+  var PROVIDER_ATTENTION = /access\s*denied|unauthori[sz]ed|forbidden|too\s*many\s*requests|로그인|인증|접근\s*거부/i;
+  var STOP_WORDS = /* @__PURE__ */ new Set(["\uCFE0\uD321", "\uB85C\uCF13", "\uB85C\uCF13\uBC30\uC1A1", "\uBB34\uB8CC\uBC30\uC1A1", "\uBB34\uB8CC", "\uBC30\uC1A1", "\uC815\uD488", "\uAD6D\uB0B4", "\uB2F9\uC77C", "\uC624\uB298", "\uC0C8\uC0C1\uD488", "\uC0C1\uD488", "\uAD6C\uB9E4", "\uD560\uC778", "\uD2B9\uAC00", "\uC635\uC158", "\uC0C9\uC0C1", "\uB79C\uB364"]);
+  function parseCoupangSearchEvidence(evidence, seed, maxResults, origin = "https://www.coupang.com") {
+    const warnings = [];
+    const candidates = [];
+    let structuredResponse = false;
+    let domEvidence = false;
+    let providerError = null;
+    const add = (value, source) => {
+      if (typeof value !== "string") return;
+      const keyword = value.replace(/\s+/g, " ").trim();
+      if (usableKeyword(keyword, seed)) candidates.push({ keyword, source });
+    };
+    const walk = (value) => {
+      if (typeof value === "string") return add(value, "coupang-autocomplete");
+      if (Array.isArray(value)) return value.forEach(walk);
+      if (!value || typeof value !== "object") return;
+      for (const [key, nested] of Object.entries(value)) {
+        if (/keyword|query|term|suggest|name|label|word/i.test(key) && typeof nested === "string") add(nested, "coupang-autocomplete");
+        else walk(nested);
+      }
+    };
+    const autocomplete = evidence.autocomplete;
+    if (autocomplete?.error) warnings.push(autocomplete.error);
+    if (autocomplete && autocomplete.status !== 0 && (autocomplete.status < 200 || autocomplete.status >= 300)) {
+      warnings.push(`\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uD638\uCD9C \uC2E4\uD328 (${autocomplete.status})`);
+      if ([401, 403, 429].includes(autocomplete.status)) {
+        providerError = autocomplete.status === 429 ? { reason: "rate_limited", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC694\uCCAD\uC774 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694." } : { reason: "provider_denied", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574\uC8FC\uC138\uC694." };
+      }
+    }
+    const text2 = autocomplete?.text.trim() ?? "";
+    if (text2 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text2))) {
+      try {
+        const parsed = JSON.parse(text2);
+        if (parsed && typeof parsed === "object") {
+          if (isErrorEnvelope(parsed)) {
+            const message = errorEnvelopeMessage(parsed);
+            providerError ??= { reason: "provider_denied", message };
+          } else {
+            walk(parsed);
+            structuredResponse = hasSuggestionCollection(parsed);
+          }
+        } else {
+          warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uAD6C\uC870\uAC00 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+        }
+      } catch {
+        warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uD30C\uC2F1 \uC2E4\uD328");
+      }
+    } else if (text2) {
+      warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4");
+    }
+    const beforeDom = candidates.length;
+    for (const link of evidence.links) {
+      add(link.text, "coupang-search-dom");
+      try {
+        const parsed = new URL(link.href, origin);
+        add(parsed.searchParams.get("q") || parsed.searchParams.get("keyword") || "", "coupang-search-dom");
+      } catch {
+      }
+    }
+    if (candidates.length > beforeDom) domEvidence = true;
+    const productNames = [];
+    for (const raw of evidence.productNames) {
+      const name = raw.replace(/\s+/g, " ").trim();
+      if (name.length < 4 || name.length > 180 || /장바구니|구매|광고|무료배송|로켓배송만 보기/.test(name)) continue;
+      productNames.push(name);
+      domEvidence = true;
+    }
+    if (providerError) return { ok: false, ...providerError, warnings };
+    if (!structuredResponse && !domEvidence) {
+      return { ok: false, reason: "no_evidence", message: "\uCFE0\uD321 \uD0A4\uC6CC\uB4DC \uC751\uB2F5\uC5D0\uC11C \uC0AC\uC6A9\uD560 \uC218 \uC788\uB294 \uAC80\uC0C9 \uADFC\uAC70\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", warnings };
+    }
+    const seen = /* @__PURE__ */ new Set();
+    const items = [];
+    for (const candidate of candidates) {
+      const key = candidate.keyword.replace(/\s+/g, "").toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push({ rank: items.length + 1, keyword: candidate.keyword, source: candidate.source });
+      if (items.length >= maxResults) break;
+    }
+    return { ok: true, items, productNameTokens: countTokens(productNames, maxResults), warnings };
+  }
+  function usableKeyword(value, seed) {
+    if (value.length < 2 || value.length > 40) return false;
+    if (/https?:\/\//i.test(value) || /^[\d\s,.-]+$/.test(value) || /[₩원%]/.test(value)) return false;
+    if (["\uAC80\uC0C9", "\uBC14\uB85C\uAC00\uAE30", "\uCFE0\uD321", "\uB85C\uCF13\uBC30\uC1A1", "\uBB34\uB8CC\uBC30\uC1A1"].includes(value)) return false;
+    const compact = value.replace(/\s+/g, "").toLowerCase();
+    return compact.length > 1 && compact !== seed.replace(/\s+/g, "").toLowerCase();
+  }
+  function isErrorEnvelope(value) {
+    if (Array.isArray(value)) return false;
+    const record = value;
+    if (record.success === false || record.ok === false) return true;
+    for (const key of ["error", "errors", "errorCode", "error_code"]) {
+      const nested = record[key];
+      if (key in record && nested !== null && nested !== void 0 && String(nested).trim()) return true;
+    }
+    if (record.code !== void 0 && record.code !== null && record.code !== 0 && record.code !== "0" && String(record.code).trim() !== "") return true;
+    return typeof record.message === "string" && PROVIDER_ATTENTION.test(record.message);
+  }
+  function errorEnvelopeMessage(value) {
+    const record = value;
+    for (const key of ["error", "errors", "message", "errorCode", "error_code", "code"]) {
+      const nested = record[key];
+      if (nested !== null && nested !== void 0 && String(nested).trim()) return String(nested);
+    }
+    return "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC5D0\uC11C \uC624\uB958\uB97C \uBC18\uD658\uD588\uC2B5\uB2C8\uB2E4.";
+  }
+  function hasSuggestionCollection(value, depth = 0) {
+    if (Array.isArray(value)) return true;
+    if (!value || typeof value !== "object" || depth > 3) return false;
+    for (const [key, nested] of Object.entries(value)) {
+      if (!/suggest|keyword|query|term|result|item|product|data|list/i.test(key)) continue;
+      if (Array.isArray(nested) || typeof nested === "string" && nested.trim()) return true;
+      if (nested && typeof nested === "object" && hasSuggestionCollection(nested, depth + 1)) return true;
+    }
+    return false;
+  }
+  function countTokens(productNames, maxResults) {
+    const counts = /* @__PURE__ */ new Map();
+    for (const name of productNames) {
+      const tokens = new Set(name.replace(/[()[\]{}"'`~!@#$%^&*_+=|\\:;,.<>/?·•]/g, " ").split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 2 && token.length <= 20).filter((token) => !/^[\d개입묶음세트]+$/.test(token)).filter((token) => !STOP_WORDS.has(token)));
+      for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
+    }
+    return [...counts.entries()].map(([keyword, count]) => ({ keyword, count })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
+  }
+
+  // extensions/src/sites/coupang-search/index.ts
+  var ORIGIN2 = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS = 6e4;
+  var EVIDENCE_TIMEOUT_MS = 3e4;
+  var SETTLE_MS = 1500;
+  var CONTENT_FILE = "content/sourcing/coupang-search-page.js";
+  function buildCoupangSearchUrl(keyword) {
+    return `${ORIGIN2}/np/search?component=&q=${encodeURIComponent(keyword)}&channel=user`;
+  }
+  function isCoupangSearchUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname.toLowerCase() === "www.coupang.com" && url.port === "" && url.username === "" && url.password === "" && /^\/np\/search\/?$/.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+  function createCoupangSearchSite(tabs, deps) {
+    return {
+      async keywordSuggestions(keyword, maxResults) {
+        const url = buildCoupangSearchUrl(keyword);
+        const page = await tabs.open("about:blank");
+        try {
+          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS });
+          if (!isCoupangSearchUrl(landed)) {
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uCFE0\uD321 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
+          }
+          await deps.sleep(SETTLE_MS);
+          const evidence = await page.ask(
+            { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword },
+            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE] } }
+          );
+          if (!evidence.links || !evidence.productNames) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
+          }
+          const parsed = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword, maxResults);
+          if (!parsed.ok) {
+            throw new RuntimeError(
+              parsed.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
+              parsed.message,
+              { status: parsed.reason === "rate_limited" ? 429 : null, url, reason: parsed.reason, warnings: parsed.warnings }
+            );
+          }
+          return { items: parsed.items, productNameTokens: parsed.productNameTokens, warnings: parsed.warnings };
+        } finally {
+          await page.close();
+        }
+      }
+    };
+  }
+
+  // extensions/src/sites/live-commerce/index.ts
+  var NAVIGATION_TIMEOUT_MS2 = 35e3;
+  var EXTRACTION_TIMEOUT_MS2 = 25e3;
+  var MAX_PRODUCTS = 100;
+  var CONTENT_FILES = {
+    isolated: ["content/sourcing/live-commerce-extractor.js", "content/sourcing/live-commerce-content.js"]
+  };
+  var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
+  var LIVE_COMMERCE_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["1688.com", "douyin.com"]),
+    isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "sso.douyin.com", "passport.douyin.com"]) || hostWithin(url, ["douyin.com"]) && /\/login/i.test(url.pathname),
+    loginMessage: "\uB77C\uC774\uBE0C \uBC29\uC1A1 \uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  function isLiveVerificationUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.pathname.includes("/punish") || url.searchParams.get("action") === "captcha" || /(?:verify|captcha)/i.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+  function isLiveLoginUrl(value) {
+    try {
+      return LIVE_COMMERCE_PAGE_GUARD.isLogin(new URL(value)) || /\/login/i.test(new URL(value).pathname);
+    } catch {
+      return false;
+    }
+  }
+  var MAX_VERIFICATION_ROUNDS2 = 5;
+  function createLiveCommerceSite(tabs) {
+    return {
+      async broadcast(pageUrl, options = {}) {
+        const page = await tabs.open("about:blank");
+        let keepOpen = false;
+        try {
+          const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
+          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS2, stopAt });
+          for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
+            const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
+            if (!cleared) {
+              keepOpen = true;
+              throw verification2(landed);
+            }
+            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS2, stopAt });
+          }
+          if (isLiveLoginUrl(landed)) {
+            keepOpen = true;
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, LIVE_COMMERCE_PAGE_GUARD.loginMessage, { url: landed });
+          }
+          let extracted;
+          try {
+            extracted = await page.ask(
+              { type: "TRIGGER_LIVE_COMMERCE_EXTRACT" },
+              { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: CONTENT_FILES, guard: LIVE_COMMERCE_PAGE_GUARD }
+            );
+          } catch (error) {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          }
+          if (extracted.status === "verification_required") {
+            keepOpen = true;
+            throw verification2(extracted.verificationUrl ?? landed);
+          }
+          if (!extracted.ok || !extracted.broadcast || !extracted.source || !extracted.pageUrl) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `\uBC29\uC1A1 \uC815\uBCF4\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}).`, { status: null, url: pageUrl });
+          }
+          return {
+            source: extracted.source,
+            pageUrl: extracted.pageUrl,
+            broadcast: extracted.broadcast,
+            products: (Array.isArray(extracted.products) ? extracted.products : []).slice(0, MAX_PRODUCTS)
+          };
+        } finally {
+          if (!keepOpen) await page.close();
+        }
+      }
+    };
+  }
+  function verification2(url) {
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED2, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
+  }
+
+  // extensions/src/sites/product-page/description.ts
+  function parseDescriptionHtml(html) {
+    const content = offerDetailsContent(html) ?? html;
+    const images = [];
+    for (const match of content.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)) {
+      const src = match[1];
+      if (src.startsWith("data:") || src.includes("icon") || src.includes("logo")) continue;
+      const full = src.startsWith("//") ? `https:${src}` : src;
+      if (!images.includes(full)) images.push(full);
+    }
+    const blocks = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const match of content.matchAll(/<(?:p|h[1-6]|li|td|th|div|span)[^>]*>([^<]{5,})<\//gi)) {
+      const text2 = match[1].replace(/&[^;]+;/g, " ").trim();
+      if (text2.length < 5 || text2.length > 2e3 || seen.has(text2)) continue;
+      seen.add(text2);
+      blocks.push(text2);
+    }
+    if (images.length === 0 && blocks.length === 0) return null;
+    return { description_images: images, description_text: blocks.join("\n").slice(0, 1e4), description_image_count: images.length };
+  }
+  function offerDetailsContent(html) {
+    const marker = "var offer_details=";
+    const start = html.indexOf(marker);
+    if (start === -1) return null;
+    const jsonStart = start + marker.length;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = jsonStart; index < html.length; index += 1) {
+      const char = html.charAt(index);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (char === "{") depth += 1;
+      if (char === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          try {
+            const parsed = JSON.parse(html.substring(jsonStart, index + 1));
+            return typeof parsed.content === "string" ? parsed.content : null;
+          } catch {
+            return null;
+          }
+        }
+      }
+    }
+    return null;
+  }
+  function allowedSupplierUrl(value) {
+    try {
+      const parsed = new URL(String(value ?? "").trim());
+      const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
+      if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port && parsed.port !== "443") return null;
+      if (!["1688.com", "alibaba.com"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) return null;
+      parsed.hostname = host;
+      parsed.hash = "";
+      return parsed.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  // extensions/src/sites/product-page/index.ts
+  var EXTRACTION_TIMEOUT_MS3 = 2e4;
+  var TRIGGER_TIMEOUT_MS = 5e3;
+  var EXTRACTOR_FILES = [
+    "content/sourcing/extractors/common.js",
+    "content/sourcing/extractors/alibaba.js",
+    "content/sourcing/extractors/1688.js",
+    "content/sourcing/content.js"
+  ];
+  var PRODUCT_PAGE_MOVED = "PRODUCT_PAGE_MOVED";
+  var PRODUCT_EXTRACTION_TIMEOUT = "PRODUCT_EXTRACTION_TIMEOUT";
+  function productPageInjection(url) {
+    const host = new URL(url).hostname;
+    const main = host.endsWith("1688.com") ? ["content/sourcing/extractors/1688-bridge.js"] : host.endsWith("alibaba.com") ? ["content/sourcing/extractors/page-bridge.js"] : [];
+    return { isolated: EXTRACTOR_FILES, main };
+  }
+  function createProductPageSite(tabs, tabId, deps) {
+    return {
+      async extract(sourceUrl) {
+        const page = tabs.attach(tabId);
+        const current = await page.currentUrl();
+        if (current !== sourceUrl) {
+          throw new RuntimeError(PRODUCT_PAGE_MOVED, "\uC218\uC9D1\uC744 \uC2DC\uC791\uD55C \uB4A4 \uD0ED \uC8FC\uC18C\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC0C1\uD488 \uD398\uC774\uC9C0\uC5D0\uC11C \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: current });
+        }
+        const marker = deps.randomId();
+        let product = null;
+        let description;
+        let settle;
+        const settled = new Promise((resolve) => {
+          settle = resolve;
+        });
+        const stop = page.listen((message) => {
+          if (message.attemptId !== marker) return;
+          if (message.type === "PRODUCT_DATA" && !product && isRecord2(message.data)) {
+            product = message.data;
+            if (product.page_type === "search") settle({ product: withSourceUrl(product, sourceUrl), hadDescription: false });
+          } else if (message.type === "DESCRIPTION_DATA" && isRecord2(message.data)) {
+            description = message.data;
+          } else if (message.type === "EXTRACTION_COMPLETE" && product) {
+            const hadDescription = message.hadDescription === true;
+            if (hadDescription !== Boolean(description)) {
+              settle(new RuntimeError(SITE_REQUEST_FAILED, "\uC0C1\uD488 \uC124\uBA85 \uCD94\uCD9C \uC644\uB8CC\uB97C \uD655\uC778\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { status: null, url: sourceUrl }));
+            } else {
+              settle({ product: withSourceUrl(product, sourceUrl), ...description ? { description } : {}, hadDescription });
+            }
+          }
+        });
+        const timer = setTimeout(() => settle(new RuntimeError(PRODUCT_EXTRACTION_TIMEOUT, "\uC0C1\uD488 \uCD94\uCD9C \uC2DC\uAC04\uC774 \uCD08\uACFC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: sourceUrl })), EXTRACTION_TIMEOUT_MS3);
+        try {
+          const started = await page.ask({ type: "TRIGGER_EXTRACT", attemptId: marker }, { timeoutMs: TRIGGER_TIMEOUT_MS, inject: productPageInjection(sourceUrl) });
+          if (started.ok === false) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, "\uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { status: null, url: sourceUrl, reason: started.error });
+          }
+          const result = await settled;
+          if (result instanceof RuntimeError) throw result;
+          await enrich(result.product);
+          return result;
+        } finally {
+          clearTimeout(timer);
+          stop();
+        }
+      }
+    };
+    async function enrich(product) {
+      const detailUrl = product.source_platform === "1688" ? allowedSupplierUrl(product._detail_url) : null;
+      if (!detailUrl) return;
+      const html = await tabs.fetchText(detailUrl);
+      const content = html ? parseDescriptionHtml(html) : null;
+      if (content) Object.assign(product, content);
+    }
+  }
+  function withSourceUrl(product, sourceUrl) {
+    return { ...product, source_url: typeof product.source_url === "string" ? product.source_url : sourceUrl };
+  }
+  function isRecord2(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  // extensions/src/sites/tiktok-cc/index.ts
+  var NAVIGATION_TIMEOUT_MS3 = 35e3;
+  var EXTRACTION_TIMEOUT_MS4 = 25e3;
+  var BASE_URLS = {
+    hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
+    product: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/pc/en",
+    keyword: "https://ads.tiktok.com/business/creativecenter/keyword-insights/pc/en"
+  };
+  var TIKTOK_CC_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["ads.tiktok.com"]),
+    isLogin: (url) => hostWithin(url, ["passport.tiktok.com"]) || /(?:\/login|\/passport|\/signup)/i.test(url.pathname),
+    loginMessage: "TikTok \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  var CONTENT_FILES2 = {
+    isolated: ["content/sourcing/tiktok-cc-extractor.js", "content/sourcing/tiktok-cc-content.js"],
+    main: ["content/sourcing/tiktok-cc-hook.js"]
+  };
+  function tiktokTargetFor(targetId) {
+    if (targetId === "hashtag" || targetId === "product") {
+      return { id: targetId, trendType: targetId, url: BASE_URLS[targetId], sourceKeyword: null };
+    }
+    const keyword = targetId.startsWith("keyword:") ? targetId.slice("keyword:".length) : targetId;
+    return { id: targetId, trendType: "keyword", url: `${BASE_URLS.keyword}?keyword=${encodeURIComponent(keyword)}`, sourceKeyword: keyword };
+  }
+  function isTiktokBlockedUrl(value) {
+    try {
+      return /(?:\/login|\/passport|\/signup)/i.test(new URL(value).pathname);
+    } catch {
+      return false;
+    }
+  }
+  function isTiktokVerificationUrl(value) {
+    try {
+      const url = new URL(value);
+      return /(?:verify|captcha)/i.test(url.pathname) || url.searchParams.has("captcha");
+    } catch {
+      return false;
+    }
+  }
+  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
+  var MAX_VERIFICATION_ROUNDS3 = 5;
+  function sanitizeTiktokRegion(value) {
+    if (typeof value !== "string") return null;
+    const cleaned = value.replace(/[^A-Za-z]/g, "").toUpperCase();
+    return cleaned.length >= 2 && cleaned.length <= 8 ? cleaned : null;
+  }
+  function createTiktokCcSite(tabs) {
+    let page = null;
+    let keepOpen = false;
+    return {
+      targetFor: tiktokTargetFor,
+      async target(target, defaultRegion, options = {}) {
+        page ??= await tabs.open("about:blank");
+        try {
+          return await readTarget(page, target, defaultRegion, options.onAttention);
+        } catch (error) {
+          if (leftForOperator(error)) keepOpen = true;
+          throw error;
+        }
+      },
+      async close() {
+        if (!keepOpen) await page?.close();
+        page = null;
+      }
+    };
+    async function readTarget(page2, target, defaultRegion, onAttention) {
+      const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
+      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt, continueOnTimeout: true });
+      for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
+        const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
+        if (!cleared) {
+          keepOpen = true;
+          throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
+        }
+        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt, continueOnTimeout: true });
+      }
+      if (isTiktokBlockedUrl(landed)) {
+        throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
+      }
+      const extracted = await page2.ask(
+        { type: "TRIGGER_TIKTOK_CC_EXTRACT", trendType: target.trendType, sourceKeyword: target.sourceKeyword, defaultRegion },
+        { timeoutMs: EXTRACTION_TIMEOUT_MS4, inject: CONTENT_FILES2, guard: TIKTOK_CC_PAGE_GUARD }
+      );
+      if (!extracted.ok) {
+        throw new RuntimeError(SITE_REQUEST_FAILED, `TikTok \uD2B8\uB80C\uB4DC '${target.id}'\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, target: target.id });
+      }
+      return {
+        region: sanitizeTiktokRegion(extracted.region),
+        items: (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => Boolean(item) && typeof item === "object")
+      };
+    }
+  }
+
+  // extensions/src/sites/wing/pre-matching-search.ts
+  var ORIGIN3 = "https://wing.coupang.com";
+  var SEARCH_URL2 = `${ORIGIN3}/tenants/seller-web/pre-matching/search`;
+  var RETRY_ATTEMPTS = 4;
+  var REQUEST_TIMEOUT_MS = 2e4;
+  var WING_SEARCH_PAYLOAD_INVALID = "WING_SEARCH_PAYLOAD_INVALID";
+  var WING_SEARCH_SITE = {
+    name: "wing",
+    origin: ORIGIN3,
+    caller: {
+      minIntervalMs: 2200,
+      displayName: "\uCFE0\uD321 \uC719",
+      xsrf: { cookieUrl: ORIGIN3, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+    }
+  };
+  function createWingPreMatchingSearch(caller, deps) {
+    return {
+      /** 키워드 한 페이지. 429·5xx·연결 끊김은 네 번까지 다시 묻는다. */
+      async searchPage(keyword, searchPage) {
+        const body = JSON.stringify({ keyword, excludedProductIds: [], searchPage, searchOrder: "DEFAULT", sortType: "DEFAULT" });
+        for (let attempt = 1; ; attempt += 1) {
+          let response;
+          try {
+            response = await caller.json(SEARCH_URL2, {
+              requireXsrf: true,
+              method: "POST",
+              headers: { "content-type": "application/json", accept: "application/json, text/plain, */*" },
+              body,
+              signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+            });
+          } catch (error) {
+            if (searchPage === 0 && isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.status === 200 && error.details?.reason === "non_json") {
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, `${WING_SEARCH_SITE.caller.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.`, { reason: "non_json_first_page" }, error);
+            }
+            const status = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED ? error.details?.status : void 0;
+            const retryable = status === null || status === 429 || typeof status === "number" && status >= 500;
+            if (!retryable || attempt >= RETRY_ATTEMPTS) throw error;
+            await deps.sleep((status === 429 ? 4e3 : 1e3) * 2 ** (attempt - 1));
+            continue;
+          }
+          return parseWingSearchPage(response);
+        }
+      }
+    };
+  }
+  function createWingCatalogSearchSite(caller, deps) {
+    const search = createWingPreMatchingSearch(caller, deps);
+    return {
+      searchPage: search.searchPage,
+      identity: (row) => `${row.productId}:${row.itemId ?? ""}:${row.vendorItemId ?? ""}`,
+      toObservation: (row, keyword, capturedAt) => row.productName.trim() ? toSourcingWingCatalogObservation(row, keyword, capturedAt) : null
+    };
+  }
+  function parseWingSearchPage(body) {
+    const record = asRecord2(body);
+    if (!record || !Array.isArray(record.result)) {
+      throw new RuntimeError(WING_SEARCH_PAYLOAD_INVALID, "Wing \uAC80\uC0C9 \uC751\uB2F5\uC758 \uBAA8\uC591\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    }
+    const next = record.nextSearchPage;
+    return {
+      rows: record.result.map(normalizeWingSearchProduct).filter((row) => row !== null),
+      nextSearchPage: typeof next === "number" && Number.isInteger(next) ? next : null
+    };
+  }
+  function normalizeWingSearchProduct(raw) {
+    const product = asRecord2(raw);
+    if (!product || product.productId == null) return null;
+    const productId = String(product.productId);
+    if (!productId) return null;
+    const salePrice = nullableNumber(product.salePrice);
+    const salesLast28d = nullableNumber(product.salesLast28d);
+    const pvLast28Day = nullableNumber(product.pvLast28Day);
+    const category = Array.isArray(product.displayCategoryInfo) ? asRecord2(product.displayCategoryInfo[0])?.categoryHierarchy : null;
+    return {
+      productId,
+      itemId: product.itemId == null ? null : String(product.itemId),
+      vendorItemId: product.vendorItemId == null ? null : String(product.vendorItemId),
+      productName: String(product.productName || ""),
+      itemName: product.itemName ? String(product.itemName) : null,
+      brandName: product.brandName ? String(product.brandName) : null,
+      manufacture: product.manufacture ? String(product.manufacture) : null,
+      categoryHierarchy: typeof category === "string" && category ? category : null,
+      imagePath: product.imagePath ? String(product.imagePath) : null,
+      salePrice,
+      rating: nullableNumber(product.rating),
+      ratingCount: nullableNumber(product.ratingCount),
+      pvLast28Day,
+      salesLast28d,
+      estimatedRevenue28d: salePrice != null && salesLast28d != null ? Math.round(salePrice * salesLast28d) : null,
+      conversionRate28d: pvLast28Day != null && pvLast28Day > 0 && salesLast28d != null ? salesLast28d / pvLast28Day : null,
+      deliveryInfo: product.deliveryInfo ? String(product.deliveryInfo) : null
+    };
+  }
+  function toSourcingWingCatalogObservation(row, sourceKeyword, capturedAt) {
+    return {
+      productId: row.productId,
+      itemId: row.itemId,
+      vendorItemId: row.vendorItemId,
+      productName: row.productName.slice(0, 500),
+      itemName: row.itemName?.slice(0, 500) ?? null,
+      brandName: row.brandName?.slice(0, 500) ?? null,
+      manufacture: row.manufacture?.slice(0, 500) ?? null,
+      categoryHierarchy: row.categoryHierarchy?.slice(0, 1e3) ?? null,
+      imagePath: row.imagePath?.slice(0, 2e3) ?? null,
+      salePriceKrw: boundedInteger(row.salePrice),
+      ratingAverage: boundedNumber(row.rating, 0, 5),
+      ratingCount: boundedInteger(row.ratingCount),
+      viewsLast28d: boundedInteger(row.pvLast28Day),
+      salesLast28d: boundedInteger(row.salesLast28d),
+      estimatedRevenue28d: boundedNumber(row.estimatedRevenue28d, 0, 2147483647),
+      conversionRate28d: boundedNumber(row.conversionRate28d, 0, 1),
+      deliveryInfo: row.deliveryInfo?.slice(0, 1e3) ?? null,
+      sourceKeyword,
+      capturedAt
+    };
+  }
+  function nullableNumber(value) {
+    if (value == null || typeof value === "boolean" || typeof value === "object") return null;
+    if (typeof value === "string" && value.trim() === "") return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+  function boundedInteger(value) {
+    return value !== null && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
+  }
+  function boundedNumber(value, minimum, maximum) {
+    return value !== null && Number.isFinite(value) && value >= minimum && value <= maximum ? value : null;
+  }
+  function asRecord2(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+  }
+
+  // extensions/src/entry/sourcing-site-handles.ts
+  var PRODUCT_TAB_REQUIRED = "PRODUCT_TAB_REQUIRED";
+  function createSourcingSiteHandles(deps, productTabId = null) {
+    return (kind) => {
+      switch (collectorFor(kind)?.site ?? null) {
+        case WING_SEARCH_SITE.name:
+          return createWingCatalogSearchSite(createSiteCaller(WING_SEARCH_SITE.caller, deps), { sleep: deps.sleep });
+        case "coupang-search":
+          return createCoupangSearchSite(deps.tabs, { sleep: deps.sleep });
+        case "ali1688":
+          return create1688SearchSite(deps.tabs);
+        case "live-commerce":
+          return createLiveCommerceSite(deps.tabs);
+        case "tiktok":
+          return createTiktokCcSite(deps.tabs);
+        case "product-page":
+          if (productTabId !== null) return createProductPageSite(deps.tabs, productTabId, { randomId: deps.randomId });
+          return {
+            extract: async () => {
+              throw new RuntimeError(PRODUCT_TAB_REQUIRED, "\uC0C1\uD488 \uC218\uC9D1\uC740 \uD655\uC7A5 \uD31D\uC5C5\uC758 [\uD604\uC7AC \uC0C1\uD488 \uC218\uC9D1]\uC5D0\uC11C \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
+            }
+          };
+        default:
+          return null;
+      }
+    };
+  }
+
+  // extensions/src/entry/sourcing-product-collect.ts
+  var COLLECT_CURRENT = "COLLECT_CURRENT";
+  var HOST_KEEPALIVE_PORT = "kiditem-1688-trend-keepalive";
+  function productExtensionScope(url) {
+    if (!url) return null;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "https:") return null;
+      const host = parsed.hostname.toLowerCase();
+      if (host === "1688.com" || host.endsWith(".1688.com")) return { platform: "1688", url: parsed.toString() };
+      if (host === "alibaba.com" || host.endsWith(".alibaba.com")) return { platform: "alibaba", url: parsed.toString() };
+      return null;
+    } catch {
+      return null;
+    }
+  }
+  async function collectCurrentProduct(deps, input) {
+    const tab = await deps.getTab(input.tabId).catch(() => null);
+    const scope = productExtensionScope(tab?.url);
+    if (!scope) return { ok: false, error: "1688 \uB610\uB294 Alibaba \uC0C1\uD488 \uD398\uC774\uC9C0\uC5D0\uC11C \uC218\uC9D1\uD574 \uC8FC\uC138\uC694." };
+    const runner = createRunner({
+      client: createOperationClient(deps.apiFor(input.environmentId)),
+      browser: deps.browser,
+      siteFor: createSourcingSiteHandles(deps.site, input.tabId)
+    }, collectorFor);
+    const work = runner.run({ kind: SOURCING_OPERATION_KINDS.productExtension, scope, signal: new AbortController().signal });
+    deps.keepAlive?.(work);
+    const outcome = await work;
+    if (outcome.kind === "finished" && outcome.operation.status === "succeeded") return { ok: true, operationId: outcome.operation.id };
+    if (outcome.kind === "failed") return { ok: false, errorCode: outcome.errorCode, error: outcome.errorMessage };
+    if (outcome.kind === "already_running") return { ok: false, errorCode: "OPERATION_IN_PROGRESS", error: outcome.message ?? "\uC774 \uC0C1\uD488 \uC218\uC9D1\uC774 \uC774\uBBF8 \uC9C4\uD589 \uC911\uC785\uB2C8\uB2E4." };
+    if (outcome.kind === "fence_lost") return { ok: false, errorCode: "OPERATION_FENCE_LOST", error: "\uC218\uC9D1\uC774 \uB354 \uC774\uC0C1 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694." };
+    return { ok: false, error: outcome.operation.errorMessage ?? "\uC0C1\uD488 \uC218\uC9D1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." };
+  }
+  function installProductCollect(chromeApi, deps) {
+    chromeApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      const record = message && typeof message === "object" ? message : null;
+      if (record?.type !== COLLECT_CURRENT) return;
+      const tabId = record.tabId;
+      const environmentId = record.environmentId;
+      if (typeof tabId !== "number" || typeof environmentId !== "string" || !environmentId) {
+        sendResponse({ ok: false, error: "\uC218\uC9D1\uD560 \uD0ED\uACFC KidItem \uD658\uACBD\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694." });
+        return;
+      }
+      collectCurrentProduct(deps, { tabId, environmentId }).then(sendResponse, (error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+      return true;
+    });
+    chromeApi.runtime.onConnect.addListener((port) => {
+      if (port.name !== HOST_KEEPALIVE_PORT) return;
+      port.onMessage.addListener(() => void 0);
+    });
+  }
+
   // extensions/src/entry/index.ts
   function installEntry() {
     if (!legacyGlobalsPresent()) return false;
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const site = {
+      fetch: (input, init) => fetch(input, init),
+      cookies: { get: (details) => chrome.cookies.get(details) },
+      now: () => Date.now(),
+      sleep,
+      tabs: createTabPages({ chrome, fetch: (input, init) => fetch(input, init), sleep, now: () => Date.now() }),
+      randomId: () => crypto.randomUUID()
+    };
+    const browser = createBrowserResources(chrome, ENTRY_SITES, { accountSite: ACCOUNT_SITE });
+    const channelSites = createSiteHandles({ fetch: site.fetch, cookies: site.cookies, now: site.now, sleep: site.sleep });
+    const sourcingSites = createSourcingSiteHandles(site);
     const externalActions = createOperationActions({
       apiFor: legacyApiPort,
-      // 사이트 탭이 필요한 kind가 옮겨질 때 sites/*의 origin을 여기 모은다(KID-359 이후).
-      browser: createBrowserResources(chrome, {}),
+      // `account:<id>` 잠금은 그 계정의 Wing 탭을 쓴다(KID-354). 로그인 확인은 사이트 호출기의 SITE_LOGIN_REQUIRED.
+      // DOM을 읽는 소싱 사이트는 탭을 스스로 열고 닫는다(KID-360).
+      browser,
+      siteFor: (kind, lease) => channelSites(kind, lease) ?? sourcingSites(kind),
       keepAlive: legacyKeepAlive
     });
-    registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true } });
+    registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true, sourcingOperationKindsV1: true } });
+    installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
     return true;
   }
 

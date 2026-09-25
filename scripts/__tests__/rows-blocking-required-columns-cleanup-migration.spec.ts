@@ -47,6 +47,14 @@ const REQUIRED = {
 
 type Table = keyof typeof REQUIRED;
 
+/**
+ * The column's name in today's schema. v0.1.31:030 renames the sourcing ledgers'
+ * `ingestion_run_id` to `operation_id` after this migration, before `db push`
+ * (KID-360), so the schema declares the renamed column.
+ */
+const SCHEMA_COLUMN = (table: Table): string =>
+  REQUIRED[table] === 'ingestion_run_id' ? 'operation_id' : REQUIRED[table];
+
 const TABLES = Object.keys(REQUIRED) as Table[];
 const ROW_TABLES = TABLES.filter((table) => table !== RUNS);
 const SOURCING_TABLES = ROW_TABLES.filter((table) => table !== 'alerts');
@@ -641,7 +649,7 @@ describe('v0.1.31:014 remove rows blocking required columns and unique keys', ()
       .map((step) => step.table))]).toEqual([ALLOCATIONS, LINES, TRANSMISSIONS, CONFIRMATIONS]);
   });
 
-  it('lists tables whose schema requires the column; only the ingestion runs have a database default and foreign keys into them', () => {
+  it('lists tables whose schema requires the column; only the ingestion runs have a database default, and nothing has foreign keys into the ledgers', () => {
     const models = prismaModelsByTable();
     const foreignKeysInto = (modelName: string) =>
       [...models.values()]
@@ -651,20 +659,19 @@ describe('v0.1.31:014 remove rows blocking required columns and unique keys', ()
     const listedModels = TABLES.map((table) => models.get(table)?.name);
 
     expect(listedModels).not.toContain(undefined);
-    // The pattern does find foreign keys: each listed snapshot model owns one.
-    expect(foreignKeysInto('SourcingEvidenceIngestionRun')).toEqual(
-      expect.arrayContaining(listedModels.filter((name) => name !== 'Alert' && name !== 'SourcingEvidenceIngestionRun')),
-    );
+    // The pattern does find foreign keys. The ledgers keep `operationId` as a
+    // plain scalar with no relation to the run table (KID-360).
     expect(foreignKeysInto('Organization')).toContain('Alert');
+    expect(foreignKeysInto('SourcingEvidenceIngestionRun')).toEqual([]);
 
     for (const table of TABLES) {
       const model = models.get(table)!;
       const field = model.body
         .split('\n')
         .map((line) => line.match(/^\s*(\w+)\s+(\w+)(\??)(\[\])?\s+(.*)$/))
-        .find((match) => match?.[5]?.includes(`@map("${REQUIRED[table]}")`));
+        .find((match) => match?.[5]?.includes(`@map("${SCHEMA_COLUMN(table)}")`));
 
-      expect(field, `${table}.${REQUIRED[table]}`).toBeDefined();
+      expect(field, `${table}.${SCHEMA_COLUMN(table)}`).toBeDefined();
       const [, , type, optional, list, attributes] = field!;
       // Required scalar: `db push` adds it as NOT NULL.
       expect(optional, table).toBe('');

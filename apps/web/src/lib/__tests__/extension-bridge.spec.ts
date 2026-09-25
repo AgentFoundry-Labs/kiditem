@@ -82,21 +82,36 @@ describe('universal extension discovery', () => {
     );
   });
 
-  it('requires both sourcing and environment profile capabilities', async () => {
+  it('requires the sourcing operation kinds (KID-360) and environment profile capabilities', async () => {
     window.localStorage.setItem(
       KIDITEM_SOURCING_EXTENSION_ID_KEY,
       'sourcing-extension',
     );
     installChrome({
       success: true,
-      capabilities: { sourcingProductScraper: true },
+      capabilities: { sourcingOperationKindsV1: true },
+    });
+    await expect(detectSourcingExtensionId(5)).resolves.toBeNull();
+
+    // 새 런타임은 있지만 소싱 kind가 없는 빌드(KID-357)는 소싱 수집을 돌리지 못한다.
+    installChrome({
+      success: true,
+      capabilities: { operationRuntime: true, kiditemEnvironmentProfilesV1: true },
+    });
+    await expect(detectSourcingExtensionId(5)).resolves.toBeNull();
+
+    // 옛 소싱 워커의 표시만 있는 확장은 소싱 수집을 돌리지 못한다.
+    installChrome({
+      success: true,
+      capabilities: { sourcingProductScraper: true, kiditemEnvironmentProfilesV1: true },
     });
     await expect(detectSourcingExtensionId(5)).resolves.toBeNull();
 
     installChrome({
       success: true,
       capabilities: {
-        sourcingProductScraper: true,
+        operationRuntime: true,
+        sourcingOperationKindsV1: true,
         kiditemEnvironmentProfilesV1: true,
       },
     });

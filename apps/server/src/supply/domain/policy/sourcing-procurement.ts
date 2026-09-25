@@ -25,16 +25,15 @@ const DECIMAL_12_2_MAX_MINOR_UNITS = 999_999_999_999n;
 
 export type SupplySourceUsage = 'retain' | 'test_order';
 
-export type SupplySourceIngestionRunPolicyRecord = {
-  status: string;
-  completedAt: Date | null;
-  coverageNumerator: number | null;
-  coverageDenominator: number | null;
+/** Sourcing이 내주는 그 원천 대상의 현재 발행(KID-360, `SOURCING_SOURCE_PUBLICATION_PORT`). */
+export type SupplySourcePublicationPolicyRecord = {
+  operationId: string;
+  completedAt: Date;
 };
 
 export type SupplySourceEligibilityDenialReason =
-  | 'ingestion_run_not_complete'
-  | 'ingestion_run_not_completed';
+  | 'source_publication_not_current'
+  | 'source_publication_not_completed';
 
 export type SupplySourceEligibilityResult =
   | { allowed: true; reason: null; coverageBps: number | null }
@@ -214,13 +213,15 @@ export function supplierOfferEvidencePayloadMatches(
 
 /**
  * Supply owns this narrow anti-corruption policy instead of importing a
- * Sourcing service. Supply accepts immutable source facts only after their
- * collection run has completed; source enablement controls future collection,
- * not the continued validity of an already persisted fact.
+ * Sourcing service. Supply accepts an immutable source fact only while the
+ * operation that wrote it is still the current publication of its source
+ * target (KID-360); source enablement controls future collection, not the
+ * continued validity of an already persisted fact.
  */
 export function evaluateSupplySourceEligibility(input: {
   usage: SupplySourceUsage;
-  ingestionRun: SupplySourceIngestionRunPolicyRecord;
+  observationOperationId: string;
+  publication: SupplySourcePublicationPolicyRecord | null;
   at?: Date;
 }): SupplySourceEligibilityResult {
   const at = input.at ?? new Date();
@@ -228,15 +229,14 @@ export function evaluateSupplySourceEligibility(input: {
     throw new TypeError('Supply source eligibility time must be valid.');
   }
 
-  if (input.ingestionRun.status !== 'COMPLETE') {
-    return sourceDenied('ingestion_run_not_complete');
+  if (!input.publication || input.publication.operationId !== input.observationOperationId) {
+    return sourceDenied('source_publication_not_current');
   }
   if (
-    !input.ingestionRun.completedAt ||
-    !Number.isFinite(input.ingestionRun.completedAt.getTime()) ||
-    input.ingestionRun.completedAt.getTime() > at.getTime()
+    !Number.isFinite(input.publication.completedAt.getTime()) ||
+    input.publication.completedAt.getTime() > at.getTime()
   ) {
-    return sourceDenied('ingestion_run_not_completed');
+    return sourceDenied('source_publication_not_completed');
   }
   return { allowed: true, reason: null, coverageBps: null };
 }

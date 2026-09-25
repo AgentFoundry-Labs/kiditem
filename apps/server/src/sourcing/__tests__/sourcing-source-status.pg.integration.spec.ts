@@ -3,14 +3,10 @@ import { readFileSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID, TEST_USER_ID } from '../../test-helpers/real-prisma';
-import { SourcingBrowserSourceAttemptController } from '../adapter/in/http/sourcing-browser-source-attempt.controller';
+import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID } from '../../test-helpers/real-prisma';
 import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
-import { SourcingBrowserSourceAttemptService } from '../application/service/sourcing-browser-source-attempt.service';
 import type { PrismaClient } from '@prisma/client';
-import type { AuthUser } from '../../auth/auth.types';
 import type { PrismaService } from '../../prisma/prisma.service';
-import type { TrendCollectService } from '../application/service/trend-collect.service';
 
 describe('Sourcing current status HTTP seam (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -32,22 +28,22 @@ describe('Sourcing current status HTTP seam (PostgreSQL)', () => {
       FROM pg_index
       WHERE indexrelid IN (
         'sourcing_evidence_ingestion_runs_active_target_key'::regclass,
-        'sourcing_evidence_ingestion_runs_one_current_complete_key'::regclass
+        'sourcing_evidence_ingestion_runs_one_current_complete_key'::regclass,
+        'sourcing_source_publications_one_current_key'::regclass
       )
     `;
-    expect(predicates).toHaveLength(2);
+    expect(predicates).toHaveLength(3);
     for (const { predicate } of predicates) {
       expect(schema.includes(`where: raw("${predicate}")`), predicate).toBe(true);
     }
   });
 
   it('reads the latest attempt and current COMPLETE from one snapshot while publication commits', async () => {
-    const writer = controller(prisma);
-    const user = { id: TEST_USER_ID } as AuthUser;
-    const batch = { keywords: [{ keyword: '铅笔', items: [] }] };
-    const baseline = await writer.begin1688(TEST_ORGANIZATION_ID, user, 'status-baseline');
-    await writer.complete1688(baseline.attemptId, baseline.attemptToken, batch, TEST_ORGANIZATION_ID);
-    const refresh = await writer.begin1688(TEST_ORGANIZATION_ID, user, 'status-refresh');
+    // 서버 구동 원천(KID-360 I-b 전까지 run 표)의 상태 읽기.
+    const writer = owner(prisma);
+    const baseline = await begin(writer, 'status-baseline');
+    await complete(writer, baseline);
+    const refresh = await begin(writer, 'status-refresh');
     const latestRead = deferred();
     const published = deferred();
 
@@ -64,10 +60,10 @@ describe('Sourcing current status HTTP seam (PostgreSQL)', () => {
         return row;
       },
     } } });
-    const reading = controller(readClient as unknown as PrismaClient).read1688Status(TEST_ORGANIZATION_ID);
+    const reading = owner(readClient as unknown as PrismaClient).readSourceStatus(STATUS_QUERY);
     await latestRead.promise;
     try {
-      await writer.complete1688(refresh.attemptId, refresh.attemptToken, batch, TEST_ORGANIZATION_ID);
+      await complete(writer, refresh);
     } finally {
       published.resolve();
     }
@@ -77,7 +73,7 @@ describe('Sourcing current status HTTP seam (PostgreSQL)', () => {
       latestAttempt: { attemptId: refresh.attemptId, state: 'RUNNING' },
       latestComplete: { attemptId: baseline.attemptId, state: 'COMPLETE' },
     });
-    await expect(writer.read1688Status(TEST_ORGANIZATION_ID)).resolves.toMatchObject({
+    await expect(writer.readSourceStatus(STATUS_QUERY)).resolves.toMatchObject({
       ready: true,
       latestAttempt: { attemptId: refresh.attemptId, state: 'COMPLETE' },
       latestComplete: { attemptId: refresh.attemptId, state: 'COMPLETE' },
@@ -85,15 +81,28 @@ describe('Sourcing current status HTTP seam (PostgreSQL)', () => {
   });
 });
 
-function controller(prisma: PrismaClient) {
+const PLAN = { source: 'naver.keyword_analysis', inputHash: 'status' };
+const STATUS_QUERY = { organizationId: TEST_ORGANIZATION_ID, sourceKey: 'naver.keyword_analysis', scopeKey: 'default',
+  targetKey: 'status', currentPlanChecksum: 'p'.repeat(64) };
+
+function owner(prisma: PrismaClient) {
   const db = prisma as unknown as PrismaService;
-  const owner = new SourcingBrowserSourceAttemptRepositoryAdapter(
-    db, new SourceFailureAlerts(db), unusedSalesProductDraftPort
-  );
-  const targets = { list1688Targets: async () => [{ label: '연필', keyword: '铅笔' }] };
-  return new SourcingBrowserSourceAttemptController(new SourcingBrowserSourceAttemptService(
-    owner, targets as unknown as TrendCollectService,
-  ));
+  return new SourcingBrowserSourceAttemptRepositoryAdapter(db, new SourceFailureAlerts(db), unusedSalesProductDraftPort);
+}
+
+async function begin(writer: SourcingBrowserSourceAttemptRepositoryAdapter, key: string) {
+  return (await writer.beginAttempt({
+    organizationId: TEST_ORGANIZATION_ID, sourceKey: STATUS_QUERY.sourceKey, scopeKey: 'default', targetKey: 'status',
+    idempotencyKey: key, requestFingerprint: key.padEnd(64, '0'), plan: PLAN, planChecksum: STATUS_QUERY.currentPlanChecksum,
+    requestedByUserId: null, collectorKey: 'status-test', collectorVersion: 'v1', expiresInMs: 60_000,
+    failureAlert: { sourceType: STATUS_QUERY.sourceKey, dedupeKey: 'source:status', title: 't', href: '/' },
+  })).attempt;
+}
+
+function complete(writer: SourcingBrowserSourceAttemptRepositoryAdapter, attempt: { attemptId: string; attemptToken: string; planChecksum: string }) {
+  return writer.completeAttempt({ organizationId: TEST_ORGANIZATION_ID, attemptId: attempt.attemptId, attemptToken: attempt.attemptToken,
+    planChecksum: attempt.planChecksum, contentChecksum: 'c'.repeat(64),
+    output: { observations: [], typedRecords: [], discoveredCount: 0, rejectedCount: 0, qualityReport: {} } });
 }
 
 function deferred() {

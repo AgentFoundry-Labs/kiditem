@@ -4,7 +4,6 @@
   const TAB_BINDINGS_KEY = 'kiditem_coupang_environment_tab_bindings_v1';
   const SCHEDULED_ALARMS = Object.freeze([
     'auto-scrape',
-    'kiditem-coupang-catalog-import-step',
   ]);
 
   function create({ chrome, environmentContext }) {

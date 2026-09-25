@@ -50,9 +50,6 @@ importScripts(
   "coupang/wing-form-runtime-compat.js",
   "coupang/wing-form-readiness.js",
   "../utils/coupang-seller-detail.js",
-  "../shared/coupang-catalog-collector.js?revision=3",
-  "coupang/coupang-catalog-import.js",
-  "coupang/coupang-review-collector.js",
   // 주문수집 도메인 모듈
   "orders/collection-failure.js",
   "orders/order-collection-lifecycle.js",
@@ -83,23 +80,14 @@ importScripts(
   "orders/rocket-po-source-owner.js",
   "orders/coupang-directship-source-owner.js",
   "orders/coupang-shipment-summary-source-owner.js",
-  // 소싱 도메인 모듈
-  "sourcing/url-policy.js",
-  "sourcing/product-extension-collector.js",
+  // 소싱 수집(KID-360)은 새 런타임(kiditem-runtime.js)의 실행 kind다. 아래 모듈은 광고·경쟁 수집이 쓴다.
   "coupang/wing-search-collector.js",
-  "coupang/coupang-keyword-suggestion-collector.js",
-  "coupang/keyword-suggestion-source-owner.js",
   "coupang/coupang-serp-collector.js",
   "coupang/coupang-seller-identity-collector.js",
   "coupang/coupang-seller-catalog-collector.js",
-  "coupang/wing-catalog-source-owner.js",
-  "sourcing/1688-trend-collector.js",
-  "sourcing/live-commerce-collector.js",
-  "sourcing/tiktok-cc-collector.js",
   // 도메인 워커 — 위 모듈의 전역을 최상위에서 바로 쓰므로 반드시 마지막이다.
   "coupang/worker.js",
   "orders/worker.js",
-  "sourcing/worker.js",
   // Lifetime wiring runs after every domain has registered its cancellation
   // and optional non-session/recovery hooks.
   "web-app-collection-lifetime.js",

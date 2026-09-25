@@ -384,12 +384,9 @@ export const queryKeys = {
       [...queryKeys.sourcing.all, 'entry-recommendations', limit] as const,
     trendPopularKeywords: (days: number) => [...queryKeys.sourcing.all, 'trend', 'popular-keywords', days] as const,
     trend1688Hot: (days: number) => [...queryKeys.sourcing.all, 'trend', '1688-hot', days] as const,
-    trend1688SourceStatus: () =>
-      [...queryKeys.sourcing.all, 'trend', '1688-hot', 'source-status'] as const,
     trendShorts: (days: number) => [...queryKeys.sourcing.all, 'trend', 'shorts', days] as const,
     trendTiktokCc: (days: number) => [...queryKeys.sourcing.all, 'trend', 'tiktok-cc', days] as const,
     liveCommerceStatus: () => [...queryKeys.sourcing.all, 'live-commerce', 'status'] as const,
-    liveCommerceExtensionStatus: () => [...queryKeys.sourcing.all, 'live-commerce', 'extension-status'] as const,
     liveCommerceSnapshots: (days: number) => [...queryKeys.sourcing.all, 'live-commerce', 'snapshots', days] as const,
     liveCommerceKeywords: (days: number) => [...queryKeys.sourcing.all, 'live-commerce', 'keywords', days] as const,
     competitors: (days: number) => [...queryKeys.sourcing.all, 'competitors', days] as const,
@@ -492,11 +489,10 @@ export const queryKeys = {
       [...queryKeys.channelListings.all, 'list', params] as const,
     detail: (id: string) => [...queryKeys.channelListings.all, 'detail', id] as const,
   },
-  coupangCatalogImports: {
-    all: ['coupangCatalogImports'] as const,
-    /** One store account's latest Wing catalog import, which every 상품 받기 control reads. */
-    source: (channelAccountId: string) =>
-      [...queryKeys.coupangCatalogImports.all, 'source', channelAccountId] as const,
+  wingCatalogOperations: {
+    all: ['wingCatalogOperations'] as const,
+    /** 조직의 최근 Wing 카탈로그 실행(목록·상세·엑셀). 모든 상품 받기 컨트롤이 같은 읽기를 계정별로 나눠 본다(KID-354). */
+    recent: () => [...queryKeys.wingCatalogOperations.all, 'recent'] as const,
   },
   organizations: {
     all: ['organizations'] as const,

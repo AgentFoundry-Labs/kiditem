@@ -10,10 +10,10 @@ import {
   type OperationView,
   type OperationWindow,
 } from '@kiditem/shared/operation';
+import { OperationNextSchema, type OperationNext } from '@kiditem/shared/operation';
 import type { BrowserLease, BrowserResources } from './browser';
 import { RuntimeError, isRuntimeError } from './errors';
 import { stopFor, type OperationClient } from './operation-client';
-import type { SiteCaller } from './site-caller';
 
 /**
  * 실행 하나를 끝까지 돌리는 순서(core가 소유, 수집기는 모른다):
@@ -26,7 +26,10 @@ export interface RunInput {
   scope: Record<string, unknown>;
   idempotencyKey?: string;
   signal: AbortSignal;
-  /** 새 실행의 begin이 성공한 직후(브라우저 자원·수집 전에) 한 번. reused면 부르지 않는다. 입구가 웹앱에 바로 답할 때 쓴다. */
+  /**
+   * 새 실행의 begin이 성공한 직후(브라우저 자원·수집 전에). reused면 부르지 않는다. 입구가 웹앱에 바로 답할 때 쓴다.
+   * 연쇄로 이어진 실행마다 한 번씩 불린다(입구가 취소 대상을 알도록).
+   */
   onBegun?(begun: { operationId: string; reused: boolean }): void;
 }
 
@@ -41,8 +44,11 @@ export type RunOutcome =
 export interface RunnerDeps {
   client: OperationClient;
   browser: BrowserResources;
-  /** kind → 그 kind가 쓰는 사이트 호출기(없으면 null — 더미 kind). */
-  siteFor(kind: OperationKind, lease: { tabId: number | null }): SiteCaller | null;
+  /**
+   * kind → 그 kind의 수집기에 넘길 사이트 핸들(없으면 null — 더미 kind). 사이트마다 모양이 달라(`sites/<site>`의 API)
+   * core는 모양을 모른다 — 입구가 사이트를 조립하고 수집기가 자기에게 필요한 모양을 선언한다(KID-354).
+   */
+  siteFor(kind: OperationKind, lease: { tabId: number | null }): unknown;
 }
 
 export interface OperationRunner {
@@ -70,9 +76,19 @@ export interface RunnableChunk {
   progress?: Record<string, unknown>;
 }
 
+export interface RunnableCollectContext {
+  signal: AbortSignal;
+  tabId: number | null;
+  /**
+   * 청크 사이에 progress만 곧바로 올린다(예: 사이트가 운영자 검증을 기다리는 동안 `attention`). 빈 payload heartbeat로
+   * 보내 임대도 연장되고, 다음 heartbeat도 이 progress를 싣는다.
+   */
+  report(progress: Record<string, unknown>): Promise<void>;
+}
+
 export interface RunnableCollector {
   readonly site: string | null;
-  collect(plan: Record<string, unknown>, site: SiteCaller | null, context: { signal: AbortSignal; tabId: number | null }): AsyncIterable<RunnableChunk>;
+  collect(plan: Record<string, unknown>, site: unknown, context: RunnableCollectContext): AsyncIterable<RunnableChunk>;
   summarize?(input: { chunks: number; items: number }): { window?: OperationWindow; result?: Record<string, unknown> };
 }
 
@@ -80,35 +96,57 @@ const encoder = new TextEncoder();
 
 export function createRunner(deps: RunnerDeps, collectorFor: (kind: OperationKind) => RunnableCollector | null): OperationRunner {
   return {
+    /**
+     * 연쇄(KID-354): 성공한 실행의 `result.next`가 있으면 같은 환경으로 그 kind를 이어서 돌린다(루프, 재귀 아님).
+     * 실패·거절·취소는 그 실행의 outcome으로 끝나고, 마지막 실행의 outcome을 돌려준다.
+     */
     async run(input) {
-      const collector = collectorFor(input.kind);
-      if (!collector) {
-        return { kind: 'failed', operationId: null, errorCode: RUNTIME_UNKNOWN_KIND, errorMessage: `이 확장이 모르는 실행 종류입니다: ${input.kind}` };
+      let step: RunInput = input;
+      for (;;) {
+        const outcome = await runOne(deps, collectorFor, step);
+        const next = outcome.kind === 'finished' && outcome.operation.status === 'succeeded'
+          ? nextOperationFrom(outcome.operation.result)
+          : null;
+        if (!next || input.signal.aborted) return outcome;
+        // 이어지는 실행은 새 실행이다 — 앞 실행의 idempotencyKey를 물려주지 않는다.
+        const { idempotencyKey: _previousKey, ...rest } = step;
+        step = { ...rest, kind: next.kind, scope: next.scope };
       }
-
-      let begun;
-      try {
-        begun = await deps.client.begin({
-          kind: input.kind,
-          scope: input.scope,
-          ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
-        });
-      } catch (caught) {
-        const error = toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
-        const stop = stopFor(error.code, error.details);
-        if (stop.kind === 'already_running') return { kind: 'already_running', existing: stop.existing, message: error.message };
-        return { kind: 'failed', operationId: null, errorCode: error.code, errorMessage: error.message, ...(error.details ? { details: error.details } : {}) };
-      }
-      if (begun.reused) {
-        // 살아 있는 같은 실행(같은 idempotencyKey)이다. 누가 돌리는지 모르므로(워커 재시작·다른 브라우저)
-        // 1번 청크부터 다시 모으지 않고 cancel도 하지 않는다. 이어 받기(reconcile)는 KID-364.
-        const { id: operationId, kind, lockKeys, startedAt, expiresAt } = begun.operation;
-        return { kind: 'already_running', existing: { operationId, kind, lockKeys, startedAt, expiresAt }, reused: true };
-      }
-      input.onBegun?.({ operationId: begun.operation.id, reused: begun.reused });
-      return execute(deps, collector, input, begun.operation, begun.token);
     },
   };
+}
+
+async function runOne(
+  deps: RunnerDeps,
+  collectorFor: (kind: OperationKind) => RunnableCollector | null,
+  input: RunInput,
+): Promise<RunOutcome> {
+  const collector = collectorFor(input.kind);
+  if (!collector) {
+    return { kind: 'failed', operationId: null, errorCode: RUNTIME_UNKNOWN_KIND, errorMessage: `이 확장이 모르는 실행 종류입니다: ${input.kind}` };
+  }
+
+  let begun;
+  try {
+    begun = await deps.client.begin({
+      kind: input.kind,
+      scope: input.scope,
+      ...(input.idempotencyKey !== undefined ? { idempotencyKey: input.idempotencyKey } : {}),
+    });
+  } catch (caught) {
+    const error = toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
+    const stop = stopFor(error.code, error.details);
+    if (stop.kind === 'already_running') return { kind: 'already_running', existing: stop.existing, message: error.message };
+    return { kind: 'failed', operationId: null, errorCode: error.code, errorMessage: error.message, ...(error.details ? { details: error.details } : {}) };
+  }
+  if (begun.reused) {
+    // 살아 있는 같은 실행(같은 idempotencyKey)이다. 누가 돌리는지 모르므로(워커 재시작·다른 브라우저)
+    // 1번 청크부터 다시 모으지 않고 cancel도 하지 않는다. 이어 받기(reconcile)는 KID-364.
+    const { id: operationId, kind, lockKeys, startedAt, expiresAt } = begun.operation;
+    return { kind: 'already_running', existing: { operationId, kind, lockKeys, startedAt, expiresAt }, reused: true };
+  }
+  input.onBegun?.({ operationId: begun.operation.id, reused: begun.reused });
+  return execute(deps, collector, input, begun.operation, begun.token);
 }
 
 async function execute(
@@ -178,7 +216,15 @@ async function execute(
     let chunks = 0;
     let items = 0;
     scheduleHeartbeat();
-    for await (const chunk of collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId })) {
+    const report = async (progress: Record<string, unknown>) => {
+      if (collectionDone || local.signal.aborted) return;
+      lastProgress = progress;
+      await write(() =>
+        deps.client.putChunk({ operationId, token, chunkKind: HEARTBEAT_CHUNK_KIND, sequence: 1, payload: [], progress }),
+      );
+      scheduleHeartbeat();
+    };
+    for await (const chunk of collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId, report })) {
       if (local.signal.aborted) break;
       if (chunk.chunkKind === HEARTBEAT_CHUNK_KIND) {
         throw new RuntimeError(RUNTIME_COLLECT_FAILED, `수집기는 예약된 chunkKind(${HEARTBEAT_CHUNK_KIND})를 쓰지 않는다.`, { reason: 'reserved_chunk_kind' });
@@ -260,4 +306,15 @@ function toRuntimeError(caught: unknown, fallbackCode: string): RuntimeError {
   if (isRuntimeError(caught)) return caught;
   const message = caught instanceof Error && caught.message ? caught.message : '실행 중 오류가 났습니다.';
   return new RuntimeError(fallbackCode, message, null, caught);
+}
+
+/**
+ * 연쇄 규칙(KID-354): 성공한 실행의 `result.next`가 `{ kind, scope }` 모양이면 runner가 같은 환경으로 그 kind를
+ * 이어서 begin한다. 순수 규칙 — 모양이 아니거나 없으면 null. kind별 특수 처리는 없다.
+ */
+export function nextOperationFrom(result: Record<string, unknown> | null | undefined): OperationNext | null {
+  const next = result?.next;
+  if (next === undefined || next === null) return null;
+  const parsed = OperationNextSchema.safeParse(next);
+  return parsed.success ? parsed.data : null;
 }

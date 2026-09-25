@@ -55,11 +55,11 @@ export const sourcingWorkspaceApi = {
     );
   },
 
-  /** Recalculates today's recommendations from one COMPLETE Wing catalog attempt. */
+  /** 끝난 Wing 검색 소싱 실행 하나(시장분석·추천 검증 용도)로 오늘의 추천을 다시 계산한다(KID-360). */
   async refreshRecommendations(
-    sourceAttemptId: string,
+    sourceOperationId: string,
   ): Promise<{ data?: { runId: string } | null; error?: { message: string } | null }> {
-    return apiClient.post('/api/sourcing/workspace/recommendations/refresh', { sourceAttemptId });
+    return apiClient.post('/api/sourcing/workspace/recommendations/refresh', { sourceOperationId });
   },
 
   async refreshValidation(): Promise<SourcingValidationEnvelope> {

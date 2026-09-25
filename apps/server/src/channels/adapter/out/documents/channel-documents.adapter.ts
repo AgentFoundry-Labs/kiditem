@@ -14,6 +14,13 @@ export class ChannelsDocumentsAdapter implements ChannelDocumentsPort {
   readCoupangCatalog(bytes: Uint8Array) { return readCoupangCatalogSheet(bytes); }
   applyCoupangCatalog(bytes: Uint8Array, edits: readonly CoupangCatalogEdit[]) { return applyCoupangCatalogEdits(bytes, edits); }
   parseWingWorkbook(bytes: Uint8Array) { return parseCoupangWingWorkbook(Buffer.from(bytes)); }
+  encodeWorkbookParts(bytes: Uint8Array, partChars: number) {
+    const encoded = Buffer.from(bytes).toString('base64');
+    const parts: string[] = [];
+    for (let offset = 0; offset < encoded.length; offset += partChars) parts.push(encoded.slice(offset, offset + partChars));
+    return parts;
+  }
+  decodeWorkbookParts(parts: readonly string[]) { return Buffer.from(parts.join(''), 'base64'); }
   parseRocketMatchingCsv(bytes: Uint8Array) { return parseRocketSellpiaMatchingCsv(Buffer.from(bytes)); }
   parseSabangnetWorkbook(bytes: Uint8Array, name: string) {
     try { return parseSabangnetWorkbook(Buffer.from(bytes), decodeFileName(name)); }

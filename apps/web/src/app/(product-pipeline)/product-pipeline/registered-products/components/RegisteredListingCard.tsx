@@ -1,7 +1,7 @@
 'use client';
 
 import { findChannel } from '@kiditem/shared/channel-registry';
-import { ExternalLink, Store, Trash2 } from 'lucide-react';
+import { ExternalLink, RefreshCw, Store, Trash2 } from 'lucide-react';
 import { cn, formatKRW } from '@/lib/utils';
 import { listingStatePill } from '@/app/(channels)/_shared/mall-presentation';
 import { RegistrationStateBadge } from '@/app/(channels)/_shared/components/RegistrationStateBadge';
@@ -18,7 +18,14 @@ interface RegisteredListingCardProps {
    * 넘어오지 않으면 삭제 진입점 자체를 렌더하지 않는다.
    */
   onRequestDelete?: (listing: RegisteredChannelListing) => void;
+  /**
+   * 상품 하나 상세 다시 받기(KID-351): 쿠팡 윙 리스팅에만 보인다. 확장이 상세 실행 하나를 시작한다.
+   */
+  onRefetchDetail?: (listing: RegisteredChannelListing) => void;
 }
+
+/** Wing 카탈로그 실행으로 상세를 받는 채널(쿠팡 윙). 로켓은 별개 채널이다. */
+const WING_CATALOG_CHANNEL = 'coupang';
 
 export function RegisteredListingCard({
   listing,
@@ -26,6 +33,7 @@ export function RegisteredListingCard({
   onOpen,
   onSelectedChange,
   onRequestDelete,
+  onRefetchDetail,
 }: RegisteredListingCardProps) {
   const title = listing.listingName;
   const channelLabel = channelDisplayName(listing.channel);
@@ -96,6 +104,20 @@ export function RegisteredListingCard({
           >
             <ExternalLink size={13} /> 콘텐츠 관리
           </button>
+          {onRefetchDetail && listing.channel.toLowerCase() === WING_CATALOG_CHANNEL && listing.channelAccountId && (
+            <button
+              type="button"
+              aria-label={`${title} 상세 다시 받기`}
+              title="쿠팡 윙에서 이 상품 상세만 다시 받기"
+              onClick={(event) => {
+                event.stopPropagation();
+                onRefetchDetail(listing);
+              }}
+              className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border border-[var(--border-subtle)] bg-white text-[var(--text-secondary)] transition-all hover:border-emerald-600 hover:bg-emerald-600 hover:text-white"
+            >
+              <RefreshCw size={13} />
+            </button>
+          )}
           {onRequestDelete && (
             <button
               type="button"

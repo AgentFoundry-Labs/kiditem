@@ -6,6 +6,7 @@ import { InventoryModule } from '../inventory/inventory.module';
 import { ProductSourceModule } from '../products/product-source.module';
 import { ChannelsModule } from '../channels/channels.module';
 import { SupplyAgentRuntimeModule } from './supply-agent-runtime.module';
+import { SourcingSourcePublicationModule } from '../sourcing/sourcing-source-publication.module';
 import { SuppliersController } from './adapter/in/http/suppliers.controller';
 import { ProcurementController } from './adapter/in/http/procurement.controller';
 import { ProcurementTestIntentsController } from './adapter/in/http/procurement-test-intents.controller';
@@ -35,7 +36,7 @@ import { ROCKET_FINAL_ORDER_RECONCILIATION_TRANSACTION_PORT } from './applicatio
  * finance/; supplier-stats stays in analytics/.
  */
 @Module({
-  imports: [RocketPoSourceModule, ChannelCatalogModule, PrismaModule, SupplyAgentRuntimeModule, InventoryModule, ProductSourceModule, ChannelsModule],
+  imports: [RocketPoSourceModule, ChannelCatalogModule, PrismaModule, SupplyAgentRuntimeModule, InventoryModule, ProductSourceModule, ChannelsModule, SourcingSourcePublicationModule],
   controllers: [
     SuppliersController,
     ProcurementController,

@@ -38,7 +38,7 @@ import {
   leaseExpiresAt,
 } from '../../domain/operation-fence';
 import { canonicalOwnerInputHash } from '../../../owner-idempotency-key';
-import type { OperationClaimed, OperationPort, OperationPrepareResult } from '../port/in/operation.port';
+import type { OperationActor, OperationClaimed, OperationPort, OperationPrepareResult } from '../port/in/operation.port';
 import {
   OPERATION_REPOSITORY,
   type OperationClosure,
@@ -98,8 +98,8 @@ export class OperationService implements OperationPort {
     private readonly owners: OperationOwnerRegistry,
   ) {}
 
-  async begin(organizationId: string, request: OperationBeginRequest): Promise<OperationBeginResponse> {
-    const planned = await this.planFor(organizationId, request.kind, request.scope, request.fileHash ?? null);
+  async begin(organizationId: string, request: OperationBeginRequest, actor: OperationActor = {}): Promise<OperationBeginResponse> {
+    const planned = await this.planFor(organizationId, request.kind, request.scope, request.fileHash ?? null, actor.userId ?? null);
     try {
       return await this.admit(organizationId, request, planned);
     } catch (error) {
@@ -113,12 +113,12 @@ export class OperationService implements OperationPort {
    * begin·prepare 공통: kind의 owner를 찾아 `plan(scope)`을 받고, 요청 지문(kind·scope·fileHash의 canonical
    * SHA-256)과 정렬한 lockKey를 만든다. 모든 시작이 같은 순서로 잠금 행을 써야 교착(40P01)하지 않는다.
    */
-  private async planFor(organizationId: string, kind: string, scope: Record<string, unknown>, fileHash: string | null): Promise<PlannedOperation> {
+  private async planFor(organizationId: string, kind: string, scope: Record<string, unknown>, fileHash: string | null, userId: string | null): Promise<PlannedOperation> {
     const owner = this.owners.find(kind);
     if (!owner) {
       throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'unknown_operation_kind' } });
     }
-    const planned = OperationPlanResultSchema.parse(await owner.plan(scope, { organizationId }));
+    const planned = OperationPlanResultSchema.parse(await owner.plan(scope, { organizationId, userId }));
     return {
       requestHash: canonicalOwnerInputHash({ kind, scope, fileHash }),
       plan: planned.plan,
@@ -188,7 +188,7 @@ export class OperationService implements OperationPort {
   }
 
   async prepare(organizationId: string, request: OperationPrepareRequest, ownerTx?: OwnerTransaction): Promise<OperationPrepareResult> {
-    const { requestHash, plan, window, lockKeys } = await this.planFor(organizationId, request.kind, request.scope, null);
+    const { requestHash, plan, window, lockKeys } = await this.planFor(organizationId, request.kind, request.scope, null, request.userId ?? null);
     return this.operations.transaction(async (tx) => {
       const now = new Date();
       const reused = await this.reuseByIdempotencyKey(tx, organizationId, request.kind, request.idempotencyKey, requestHash, now);

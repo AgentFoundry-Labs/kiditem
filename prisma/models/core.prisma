@@ -16,7 +16,6 @@ model Organization {
   orderCollectionArtifacts           OrderCollectionArtifact[]
   coupangDirectTransportReceipts     CoupangDirectTransportReceipt[]
   coupangDirectTransportConsumptions CoupangDirectTransportConsumption[]
-  reviewCollectionChunks             ReviewCollectionChunk[]
   orders                             Order[]
   purchaseOrders                     PurchaseOrder[]
   purchaseOrderSubmissionAttempts    PurchaseOrderSubmissionAttempt[]
@@ -138,9 +137,10 @@ model Organization {
   tiktokCreativeTrendDailySnapshots   TiktokCreativeTrendDailySnapshot[]
   sourcingCollectionSourceControls    SourcingCollectionSourceControl[]
   sourcingEvidenceIngestionRuns       SourcingEvidenceIngestionRun[]
+  sourcingSourcePublications          SourcingSourcePublication[]
   sourcingEvidenceObservations        SourcingEvidenceObservation[]
-  sourcingWingCatalogProductFacts     SourcingWingCatalogProductFact[]
-  sourcingKeywordSuggestionFacts      SourcingKeywordSuggestionFact[]
+  sourcingWingCatalogProductSnapshots     SourcingWingCatalogProductSnapshot[]
+  sourcingKeywordSuggestionSnapshots      SourcingKeywordSuggestionSnapshot[]
   sourcingNaverKeywordAnalysisFacts   SourcingNaverKeywordAnalysisFact[]
   sourcingMarketShadowFacts           SourcingMarketShadowFact[]
   sourcingLaunchCandidates            SourcingLaunchCandidate[]
@@ -326,7 +326,6 @@ model SourceImportRun {
   orderCollectionArtifact                 OrderCollectionArtifact?
   coupangDirectTransportEffectReceipts    CoupangDirectTransportReceipt[]          @relation("CoupangDirectTransportReceiptEffectSource")
   coupangDirectTransportConsumptions      CoupangDirectTransportConsumption[]      @relation("CoupangDirectTransportConsumptionSource")
-  reviewCollectionChunks                  ReviewCollectionChunk[]
   reviewCollectionFacts                   Review[]                                 @relation("ReviewCollectionFacts")
   publishedSellpiaAbcFormulaStates        MasterProductAbcFormulaState[]           @relation("MasterProductAbcFormulaStatePublishedSellpia")
   publishedAdvertisingAbcFormulaStates    MasterProductAbcFormulaState[]           @relation("MasterProductAbcFormulaStatePublishedAdvertising")

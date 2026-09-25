@@ -5,6 +5,7 @@ import { addDays } from '../../../../common/kst';
 import {
   readCurrent1688OfferSnapshots,
   readLatestWingCatalogPublicationFacts,
+  readPublicationsByOperationIds,
 } from './source-evidence.reader';
 import type {
   SourcingCoupangObservationSource,
@@ -45,7 +46,7 @@ export class SourcingRecommendationSourceRepositoryAdapter
       const result: SourcingOfferObservationSource = {
         id: row.id,
         evidenceObservationId: row.evidenceObservationId,
-        ingestionRunId: row.ingestionRunId,
+        operationId: row.operationId,
         businessDate: row.businessDate,
         sourceKeyword,
         externalOfferId,
@@ -103,6 +104,18 @@ export class SourcingRecommendationSourceRepositoryAdapter
       items: [...byProduct.values()].slice(0, input.limit),
       rejectedCount: publication.rejectedCount,
     };
+  }
+
+  async findWingPublicationPurpose(input: { organizationId: string; operationId: string }): Promise<string | null> {
+    const [publication] = await readPublicationsByOperationIds(this.prisma, {
+      organizationId: input.organizationId,
+      operationIds: [input.operationId],
+      sourceKeys: ['coupang.wing_catalog'],
+    });
+    const plan = publication?.plan;
+    return plan && typeof plan === 'object' && !Array.isArray(plan) && typeof plan.purpose === 'string'
+      ? plan.purpose
+      : null;
   }
 
   async listWingCatalogSnapshot(input: {

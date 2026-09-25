@@ -61,7 +61,7 @@ describe('WingCatalogCalculationActions', () => {
     view.rerender(<WingCatalogCalculationActions attempt={attempt('COMPLETE', 'market_analysis')} />);
     fireEvent.click(screen.getByRole('button', { name: '추천 갱신' }));
 
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(RECOMMENDATIONS_PATH, { sourceAttemptId: ATTEMPT_ID }));
+    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(RECOMMENDATIONS_PATH, { sourceOperationId: ATTEMPT_ID }));
     expect(apiClient.post).not.toHaveBeenCalledWith(VALIDATION_PATH);
     expect(screen.queryByRole('button', { name: '검증 갱신' })).not.toBeInTheDocument();
   });

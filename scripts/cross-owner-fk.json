@@ -67,7 +67,6 @@
     "RegistrationTargetOption": "channels",
     "ReturnTransfer": "inventory",
     "Review": "orders",
-    "ReviewCollectionChunk": "orders",
     "RocketPoCatalogLine": "orders",
     "RocketPoCatalogSnapshot": "orders",
     "RocketPurchaseConfirmation": "supply",
@@ -100,7 +99,7 @@
     "SourcingEvidenceObservation": "sourcing",
     "SourcingInterestTarget": "sourcing",
     "SourcingKeywordPreference": "sourcing",
-    "SourcingKeywordSuggestionFact": "sourcing",
+    "SourcingKeywordSuggestionSnapshot": "sourcing",
     "SourcingLaunchCandidate": "sourcing",
     "SourcingMarketShadowFact": "sourcing",
     "SourcingNaverKeywordAnalysisFact": "sourcing",
@@ -114,7 +113,7 @@
     "SourcingValidationCheck": "sourcing",
     "SourcingValidationCheckEvidence": "sourcing",
     "SourcingValidationEpisode": "sourcing",
-    "SourcingWingCatalogProductFact": "sourcing",
+    "SourcingWingCatalogProductSnapshot": "sourcing",
     "SourcingWorkspaceSnapshot": "sourcing",
     "StockTransfer": "inventory",
     "Supplier": "supply",
@@ -128,7 +127,8 @@
     "TodoItem": "system",
     "TrendSeedKeyword": "sourcing",
     "User": "scope",
-    "Warehouse": "inventory"
+    "Warehouse": "inventory",
+    "SourcingSourcePublication": "sourcing"
   },
   "scopeTargets": [
     "Organization",

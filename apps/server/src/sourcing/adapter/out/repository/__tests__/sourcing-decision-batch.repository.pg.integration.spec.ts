@@ -60,9 +60,9 @@ describe('Sourcing decision batch commit (PostgreSQL)', () => {
 
   it('rejects evidence from a COMPLETE source run superseded by a newer publication', async () => {
     const evidence = await seedSupportingEvidence(prisma);
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: evidence.runId },
-      data: { isCurrentComplete: false },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: evidence.runId },
+      data: { isCurrent: false },
     });
     await seedSupportingEvidence(prisma, {
       observationKey: 'f'.repeat(64),
@@ -124,33 +124,29 @@ async function seedSupportingEvidence(
   const now = new Date(Date.now() - 60_000);
   const eventAt = input.eventAt ?? now;
   const organizationId = input.organizationId ?? TEST_ORGANIZATION_ID;
-  const userId = input.userId ?? TEST_USER_ID;
   const sourceKey = '1688.hot_product';
   const targetKey = 'stationery';
   const observationKey = input.observationKey ?? 'a'.repeat(64);
-  const run = await prisma.sourcingEvidenceIngestionRun.create({
+  // 성공한 수집의 발행(KID-360). 원장 행은 operationId로 이 발행을 가리킨다.
+  const publication = await prisma.sourcingSourcePublication.create({
     data: {
-      id: randomUUID(),
       organizationId,
+      operationId: randomUUID(),
       sourceKey,
       scopeKey: 'decision-commit-test',
       targetKey,
-      idempotencyKey: randomUUID(),
-      requestHash: 'b'.repeat(64),
       collectorKey: 'decision-commit-test',
       collectorVersion: 'v1',
-      triggerKind: 'manual',
-      triggeredByUserId: userId,
-      status: 'COMPLETE',
-      isCurrentComplete: true,
+      isCurrent: true,
       completedAt: now,
     },
   });
+  const run = { id: publication.operationId };
   const observation = await prisma.sourcingEvidenceObservation.create({
     data: {
       id: randomUUID(),
       organizationId,
-      ingestionRunId: run.id,
+      operationId: run.id,
       sourceKey,
       platform: '1688',
       evidenceFamily: 'supplier_offer',
@@ -192,7 +188,7 @@ async function seedSupersedingObservation(
     data: {
       id: randomUUID(),
       organizationId: original.organizationId,
-      ingestionRunId: original.ingestionRunId,
+      operationId: original.operationId,
       supersedesObservationId: original.id,
       sourceKey: original.sourceKey,
       platform: original.platform,

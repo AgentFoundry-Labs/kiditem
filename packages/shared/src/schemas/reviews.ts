@@ -124,3 +124,69 @@ export const ReviewIngestResponseSchema = z.object({
   unlinked: z.number().int().nonnegative(),
 });
 export type ReviewIngestResponse = z.infer<typeof ReviewIngestResponseSchema>;
+
+// ── 실행 계약 kind (KID-359 H1): 쿠팡 상품평 수집 ──────────────────────────────────
+// 옛 `/api/reviews/attempts/*` 경로를 대체한다. 청크는 `reviews`(항목 ≤200, 각 항목에 windowIndex),
+// 창(월) 완료는 `review_windows` 표식 청크로 보고하고 finalize가 청크 합계와 대조한다.
+
+export const COUPANG_REVIEWS_KIND = 'orders.coupang_reviews' as const;
+export const COUPANG_REVIEWS_CHUNK_KIND = 'reviews' as const;
+export const COUPANG_REVIEWS_MAX_MONTHS = 36;
+export const COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW = 40;
+export const COUPANG_REVIEWS_CHUNK_ITEMS = 200;
+
+/** scope: 어느 Wing 계정의 상품평을 몇 달치 모으나. lockKey는 `account:<channelAccountId>`(그 계정의 몰 로그인). */
+export const CoupangReviewsScopeSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  months: z.number().int().min(1).max(COUPANG_REVIEWS_MAX_MONTHS),
+  maxPagesPerWindow: z.number().int().min(1).max(COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW).default(COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW),
+}).strict();
+export type CoupangReviewsScope = z.infer<typeof CoupangReviewsScopeSchema>;
+
+/** owner plan이 정하는 월 창 하나(KST 달력). 확장은 이 목록대로 Wing을 조회한다. */
+export const CoupangReviewsWindowSchema = z.object({
+  index: z.number().int().nonnegative(),
+  label: z.string().min(1),
+  start: z.string().datetime({ offset: true }),
+  end: z.string().datetime({ offset: true }),
+}).strict();
+export type CoupangReviewsWindow = z.infer<typeof CoupangReviewsWindowSchema>;
+
+/** 청크 원소 = 옛 ingest 항목 + 어느 창에서 왔는지. */
+export const CoupangReviewsChunkItemSchema = ReviewIngestItemSchema.extend({
+  windowIndex: z.number().int().nonnegative(),
+});
+export type CoupangReviewsChunkItem = z.infer<typeof CoupangReviewsChunkItemSchema>;
+
+/**
+ * 창 완결 표식 청크(`review_windows`). 창 하나가 끝날 때마다 원소 1개(청크 순번 증가).
+ * finalize는 `reviews` 청크의 창별 항목 수와 이 원소의 `items`를 대조해 완결을 판정한다 — 완결 증거는 청크에 있다.
+ * progress는 화면·임대용일 뿐 판정에 쓰지 않는다.
+ */
+export const COUPANG_REVIEWS_WINDOW_CHUNK_KIND = 'review_windows' as const;
+export const CoupangReviewsWindowDoneSchema = z.object({
+  index: z.number().int().nonnegative(),
+  pages: z.number().int().nonnegative(),
+  items: z.number().int().nonnegative(),
+}).strict();
+export type CoupangReviewsWindowDone = z.infer<typeof CoupangReviewsWindowDoneSchema>;
+
+/** progress: 창별 진행. `items`는 그 창에서 올린 항목 수(finalize가 청크 합계와 대조해 완결 판정). */
+export const CoupangReviewsProgressSchema = z.object({
+  current: z.string().nullable(),
+  windows: z.array(z.object({
+    index: z.number().int().nonnegative(),
+    pages: z.number().int().nonnegative(),
+    items: z.number().int().nonnegative(),
+    done: z.boolean(),
+  }).strict()),
+}).strict();
+export type CoupangReviewsProgress = z.infer<typeof CoupangReviewsProgressSchema>;
+
+export const CoupangReviewsResultSchema = z.object({
+  windows: z.number().int().nonnegative(),
+  reviews: z.number().int().nonnegative(),
+  inserted: z.number().int().nonnegative(),
+  updated: z.number().int().nonnegative(),
+}).strict();
+export type CoupangReviewsResult = z.infer<typeof CoupangReviewsResultSchema>;

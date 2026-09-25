@@ -1,26 +1,26 @@
 import { kstBusinessDate } from '../../common/kst';
 
-/** Coverage date keys an ingestion run's declared source window certifies from `start` onward. */
+/** Coverage date keys a source publication's declared window certifies from `start` onward. */
 export function declaredCoverageDateKeys(
-  run: {
+  publication: {
     sourceKey: string;
-    sourceWindowStartAt: Date | null;
-    sourceWindowEndAt: Date | null;
+    windowStartAt: Date | null;
+    windowEndAt: Date | null;
   },
   start: Date,
 ): string[] {
   if (
-    run.sourceWindowStartAt
-    && run.sourceWindowEndAt
-    && run.sourceWindowStartAt.getTime() > run.sourceWindowEndAt.getTime()
+    publication.windowStartAt
+    && publication.windowEndAt
+    && publication.windowStartAt.getTime() > publication.windowEndAt.getTime()
   ) {
     return [];
   }
 
   const declaredDate = (
-    run.sourceKey === 'naver.trend' || run.sourceKey === 'shortstrend.trend'
-      ? run.sourceWindowStartAt
-      : run.sourceWindowEndAt
+    publication.sourceKey === 'naver.trend' || publication.sourceKey === 'shortstrend.trend'
+      ? publication.windowStartAt
+      : publication.windowEndAt
   );
   if (!declaredDate) return [];
 

@@ -1,9 +1,7 @@
-import { BadRequestException, ConflictException, Inject, Injectable, NotFoundException } from '@nestjs/common';
-import { z } from 'zod';
+import { Inject, Injectable } from '@nestjs/common';
 import {
-  SourcingCoupangObservationCommandSchema, SourcingWingCatalogBatchInputSchema,
-  SourcingWingCatalogFinalizeSchema, SourcingWingCatalogKeywordSchema,
-  SourcingWingCatalogObservationBatchSchema, SourcingWingCatalogSnapshotSchema,
+  SourcingCoupangObservationCommandSchema, SourcingWingCatalogKeywordSchema,
+  SourcingWingCatalogSnapshotSchema,
   sourcingWingCatalogKeywordIdentity, type SourcingCoupangObservationCommand,
   type SourcingWingCatalogObservation, type SourcingWingCatalogSnapshot,
 } from '@kiditem/shared/sourcing';
@@ -16,24 +14,21 @@ import {
   type SourcingRecommendationSourceRepositoryPort,
 } from '../port/out/repository/sourcing-recommendation-source.repository.port';
 import { hashCollectionRequest } from './sourcing-collection-mappers';
-import { assertToken, boundedText, requireIdempotencyKey, toPermit } from './sourcing-source-attempt-primitives';
-import type { AuthorizedCollectionOutput, SourcingCollectionPermit } from '../port/out/repository/sourcing-collection.repository.port';
+import { buildWingCatalogOutput as buildBatchOutput } from './sourcing-wing-catalog.mapper';
+import { toPermit } from './sourcing-source-attempt-primitives';
 
 const SOURCE = 'coupang.wing_catalog';
 const SCOPE = { sourceKey: SOURCE, scopeKey: 'default', targetKey: 'catalog' };
 const ALERT = { sourceType: SOURCE, dedupeKey: 'source:coupang-wing-catalog',
   title: 'Wing 카탈로그 수집 실패', href: '/sourcing-ai/wing-catalog' };
-const ReceiptSchema = z.object({
-  sequence: z.number().int().min(0).max(11), keyword: SourcingWingCatalogKeywordSchema,
-  checksum: z.string().regex(/^[a-f0-9]{64}$/), count: z.number().int().min(0).max(100),
-  acceptedCount: z.number().int().min(0).max(100).optional(),
-  duplicateCount: z.number().int().min(0).max(100),
-}).strict();
-const FinalizeSchema = SourcingWingCatalogFinalizeSchema.extend({ receipts: z.array(ReceiptSchema).max(12) });
 export type SourcingWingCatalogIngestInput = SourcingCoupangObservationCommand & {
   organizationId: string; actorUserId: string;
 };
 
+/**
+ * Wing 카탈로그 원천의 서버 입구: 수동 적재(POST workspace/coupang-observations, run 표 attempt — 서버 구동)와
+ * 키워드 스냅숏 읽기. 확장 수집은 실행 kind `sourcing.wing_catalog`(KID-360)다.
+ */
 @Injectable()
 export class SourcingWingCatalogIngestService {
   constructor(
@@ -43,96 +38,9 @@ export class SourcingWingCatalogIngestService {
     private readonly sources: SourcingRecommendationSourceRepositoryPort,
   ) {}
 
-  async begin(input: { organizationId: string; requestedByUserId: string | null; idempotencyKey: string; input: unknown }) {
-    const parsed = SourcingWingCatalogBatchInputSchema.safeParse(input.input);
-    if (!parsed.success) throw new BadRequestException('INVALID_WING_CATALOG_REQUEST');
-    const plan = { source: SOURCE, ...parsed.data };
-    const { attempt } = await this.attempts.beginAttempt({
-      organizationId: input.organizationId, ...SCOPE, idempotencyKey: requireIdempotencyKey(input.idempotencyKey),
-      requestFingerprint: hashCollectionRequest(plan), plan, planChecksum: hashCollectionRequest(plan),
-      requestedByUserId: input.requestedByUserId, collectorKey: 'wing-catalog-observation-ingest',
-      collectorVersion: 'coupang-wing-catalog/v2', expiresInMs: 15 * 60_000, failureAlert: ALERT,
-    });
-    return attempt;
-  }
-
-  async read(input: { organizationId: string; attemptId: string }) {
-    const attempt = await this.attempts.readAttempt(input);
-    if (!attempt || attempt.sourceKey !== SOURCE || attempt.scopeKey !== SCOPE.scopeKey
-      || attempt.targetKey !== SCOPE.targetKey || attempt.plan.source !== SOURCE) {
-      throw new NotFoundException('SOURCE_ATTEMPT_NOT_FOUND');
-    }
-    return attempt;
-  }
-
-  async current(organizationId: string) {
-    const status = await this.attempts.readSourceStatus({ organizationId, ...SCOPE, currentPlanChecksum: '' });
-    return status.latestAttempt;
-  }
-
-  async upload(input: { organizationId: string; attemptId: string; attemptToken: string; batch: unknown }) {
-    const attempt = await this.read(input);
-    assertToken(attempt, input.attemptToken);
-    const { source: _source, ...frozen } = attempt.plan;
-    const plan = SourcingWingCatalogBatchInputSchema.parse(frozen);
-    const parsed = SourcingWingCatalogObservationBatchSchema.safeParse(input.batch);
-    if (!parsed.success) throw new BadRequestException('INVALID_WING_CATALOG_BATCH');
-    const batch = parsed.data;
-    const keyword = sourcingWingCatalogKeywordIdentity(batch.keyword);
-    const sequence = plan.keywords.findIndex((value) => sourcingWingCatalogKeywordIdentity(value) === keyword);
-    if (sequence < 0 || batch.maxPages !== plan.maxPages || batch.purpose !== plan.purpose
-      || batch.items.some((item) => sourcingWingCatalogKeywordIdentity(item.sourceKeyword) !== keyword)) {
-      throw new ConflictException('SOURCE_PLAN_MISMATCH');
-    }
-    return this.attempts.stageWingCatalogBatch({
-      organizationId: input.organizationId, attemptId: input.attemptId, attemptToken: input.attemptToken,
-      planChecksum: attempt.planChecksum, sequence, keyword: plan.keywords[sequence], checksum: hashCollectionRequest(batch),
-      output: buildBatchOutput({ organizationId: input.organizationId,
-        permit: toPermit(attempt, input.organizationId), items: batch.items }),
-    });
-  }
-
-  async complete(input: { organizationId: string; attemptId: string; attemptToken: string; finalization: unknown }) {
-    const attempt = await this.read(input);
-    assertToken(attempt, input.attemptToken);
-    const { source: _source, ...frozen } = attempt.plan;
-    const plan = SourcingWingCatalogBatchInputSchema.parse(frozen);
-    const parsed = FinalizeSchema.safeParse(input.finalization);
-    if (!parsed.success) throw new BadRequestException('INVALID_WING_CATALOG_FINALIZATION');
-    const finalization = parsed.data;
-    if (finalization.purpose !== plan.purpose || finalization.keywords.length !== plan.keywords.length
-      || finalization.keywords.some((result, index) => sourcingWingCatalogKeywordIdentity(result.keyword)
-        !== sourcingWingCatalogKeywordIdentity(plan.keywords[index]))) throw new ConflictException('SOURCE_PLAN_MISMATCH');
-    if (finalization.keywords.some((result) => result.outcome === 'failed' || result.failed > 0)) {
-      return this.fail({ ...input, code: 'SOURCE_PLAN_INCOMPLETE',
-        message: 'Wing catalog collection did not complete every requested keyword.' });
-    }
-    if (finalization.receipts.some((receipt, index) => {
-      const result = finalization.keywords[index];
-      const acceptedCount = receipt.acceptedCount ?? receipt.count - receipt.duplicateCount;
-      return !result || receipt.count !== result.discovered || receipt.count !== result.accepted + result.duplicate
-        || acceptedCount !== result.accepted || receipt.duplicateCount !== result.duplicate;
-    })) throw new ConflictException('SOURCE_RECEIPTS_MISMATCH');
-    return this.attempts.completeWingCatalogAttempt({
-      organizationId: input.organizationId, attemptId: input.attemptId, attemptToken: input.attemptToken,
-      planChecksum: attempt.planChecksum, contentChecksum: hashCollectionRequest(finalization),
-      receipts: finalization.receipts,
-      qualityReport: { source: SOURCE, snapshots: plan.keywords.map((keyword) => ({
-        keyword: sourcingWingCatalogKeywordIdentity(keyword),
-      })) },
-    });
-  }
-
-  /** Operator stop without the attempt token; only a Wing catalog attempt of this organization. */
-  async cancel(input: { organizationId: string; attemptId: string }) {
-    await this.read(input);
-    return this.attempts.cancelAttempt(input);
-  }
-
-  async fail(input: { organizationId: string; attemptId: string; attemptToken: string; code: string; message: string }) {
-    await this.read(input);
-    return this.attempts.failAttempt({ ...input, code: boundedText(input.code, 100) || 'SOURCE_COLLECTION_FAILED',
-      message: boundedText(input.message, 1000) || 'Wing catalog collection failed.',});
+  /** 끝난 Wing 검색 소싱 실행(KID-360)의 발행 용도. 발행이 없으면(실패·진행 중·다른 원천) null. */
+  publishedPurpose(input: { organizationId: string; operationId: string }): Promise<string | null> {
+    return this.sources.findWingPublicationPurpose(input);
   }
 
   async ingest(input: SourcingWingCatalogIngestInput) {
@@ -184,69 +92,6 @@ function deduplicateExactManualObservations(
   }
   return [...byPayload.values()];
 }
-
-function buildBatchOutput(input: {
-  organizationId: string;
-  permit: SourcingCollectionPermit;
-  items: SourcingWingCatalogObservation[];
-  ingestedAt?: Date;
-}): AuthorizedCollectionOutput {
-  const ingestedAt = input.ingestedAt ?? new Date();
-  const observations = input.items.map((item) => {
-    const capturedAt = new Date(item.capturedAt);
-    return {
-      organizationId: input.organizationId,
-      ingestionRunId: input.permit.runId,
-      sourceKey: input.permit.sourceKey,
-      platform: 'coupang',
-      evidenceFamily: 'wing_catalog',
-      signalRole: 'demand' as const,
-      granularity: 'exact_own' as const,
-      conceptKey: sourcingWingCatalogKeywordIdentity(item.sourceKeyword),
-      sourceEntityType: 'coupang_product',
-      sourceEntityId: item.productId,
-      schemaVersion: 'coupang-wing-catalog/v2',
-      observationKey: hashCollectionRequest({
-        attemptId: input.permit.runId,
-        productId: item.productId,
-        itemId: item.itemId,
-        vendorItemId: item.vendorItemId,
-        sourceKeyword: sourcingWingCatalogKeywordIdentity(item.sourceKeyword),
-        capturedAt: item.capturedAt,
-      }),
-      revision: 1,
-      supportsCandidate: false,
-      sourceUrl: null,
-      eventAt: capturedAt,
-      observedAt: capturedAt,
-      availableAt: capturedAt,
-      revisionAt: null,
-      payloadHash: hashCollectionRequest(item),
-      rawPayload: item,
-      ingestedAt,
-    };
-  });
-  return {
-    observations,
-    typedRecords: input.items.map((item, index) => ({
-      kind: 'wing_catalog_product' as const,
-      row: {
-        organizationId: input.organizationId,
-        ingestionRunId: input.permit.runId,
-        evidenceObservationKey: observations[index]!.observationKey,
-        evidenceRevision: 1,
-        ...item,
-      },
-    })),
-    discoveredCount: observations.length,
-    rejectedCount: 0,
-    qualityReport: {
-      source: 'coupang-wing-catalog',
-      rowCount: observations.length,
-    },
-  };
-}
-
 
 function toCurrentObservation(
   item: SourcingCoupangObservationCommand['items'][number],

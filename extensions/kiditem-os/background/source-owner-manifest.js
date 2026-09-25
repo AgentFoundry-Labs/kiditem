@@ -15,7 +15,6 @@ export const SOURCE_OWNER_BY_PRODUCER = Object.freeze({
   "dashboard.wing_sales": "analytics",
   "inventory.sellpia": "inventory",
   "orders.coupang_directship": "orders",
-  "orders.coupang_reviews": "orders",
   "orders.coupang_rocket_po": "channels",
   "orders.coupang_shipment_summary": "inventory",
   "orders.mall": "orders",
@@ -25,10 +24,5 @@ export const SOURCE_OWNER_BY_PRODUCER = Object.freeze({
   "orders.sellpia_product_profitability": "analytics",
   "orders.sellpia_sales": "analytics",
   "orders.sellpia_shipment_tracking": "orders",
-  "sourcing.1688_trend": "sourcing",
-  "sourcing.product_extension": "sourcing",
-  "sourcing.live_commerce": "sourcing",
-  "sourcing.tiktok_cc_trend": "sourcing",
-  "sourcing.wing_catalog": "sourcing",
-  "sourcing.keyword_suggestion": "sourcing",
+  // 소싱 수집은 브라우저 수집 세션이 아니라 실행 kind `sourcing.*`다(KID-360).
 });

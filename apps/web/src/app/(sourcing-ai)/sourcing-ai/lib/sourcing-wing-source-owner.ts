@@ -1,24 +1,22 @@
 'use client';
 
 import { z } from 'zod';
-import type {
-  CollectionSourceAdapter,
-  CollectionStartOutcome,
-} from '@/hooks/use-collection-source-control';
-import { apiClient } from '@/lib/api-client';
-import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
-import { queryKeys } from '@/lib/query-keys';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
-import type { QueryKey } from '@tanstack/react-query';
+import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
+import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
+import { invalidateSourcingReads, isLiveOperation, sourcingOperationCollection } from './sourcing-operations';
+import type { ChannelAccountListItem } from '@kiditem/shared/channel-account';
+import type { OperationListResponse, OperationView } from '@kiditem/shared/operation';
 import type { SourcingWingCatalogBatchInput } from '@kiditem/shared/sourcing';
-import { operatorReason } from '@/lib/operator-error';
 
-const SOURCE_PATH = '/api/sourcing/workspace/wing-catalog';
-const START_CONFIRM_POLL_MS = 1_000;
-const START_CONFIRM_READS = 15;
-const EXTENSION_MISSING = 'KidItem OS 익스텐션을 연결한 뒤 다시 시도해주세요.';
-const START_FAILED = 'Wing 카탈로그 수집을 시작하지 못했습니다.';
+export const WING_ACCOUNT_MISSING = '쿠팡 윙 계정을 먼저 연결해 주세요.';
+export const WING_ACCOUNTS_LOADING = '쿠팡 계정 목록을 불러오는 중입니다. 잠시 후 다시 시작해 주세요.';
+export const WING_ACCOUNTS_UNAVAILABLE = '쿠팡 계정 목록을 불러오지 못했습니다. 새로고침한 뒤 다시 시도해 주세요.';
+
+/** 계정 목록 읽기의 상태. 읽기 전·실패엔 시작을 보내지 않고 그 까닭을 따로 말한다. */
+export type WingAccountRead =
+  | Readonly<{ state: 'loading' }>
+  | Readonly<{ state: 'failed' }>
+  | Readonly<{ state: 'read'; account: WingCatalogAccount | null }>;
 
 const PURPOSE_LABELS: Readonly<Record<string, string>> = {
   catalog_search: '카탈로그 검색',
@@ -27,132 +25,88 @@ const PURPOSE_LABELS: Readonly<Record<string, string>> = {
   recommendation_validation: '추천 검증',
 };
 
-// The sourcing owner publishes no shared Wing attempt schema; parse the fields the control reads.
-const WingCatalogAttemptSchema = z
-  .object({
-    attemptId: z.string().uuid(),
-    state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
-    plan: z
-      .object({
-        keywords: z.array(z.string()),
-        maxPages: z.number(),
-        purpose: z.string(),
-      })
-      .passthrough(),
-    errorCode: z.string().nullable().optional(),
-    errorMessage: z.string().nullable().optional(),
-  })
-  .passthrough();
-
-export type WingCatalogAttempt = z.infer<typeof WingCatalogAttemptSchema>;
-
-const ExtensionReplySchema = z
-  .object({
-    attemptId: z.string().uuid().optional(),
-    error: z.string().nullable().optional(),
-    errorMessage: z.string().nullable().optional(),
-  })
-  .passthrough();
-
-/** The organization's latest Wing catalog attempt; an empty body means none yet. */
-async function readCurrentWingCatalogAttempt(): Promise<WingCatalogAttempt | null> {
-  const current = await apiClient.getNullable<unknown>(`${SOURCE_PATH}/current`);
-  return current === null ? null : WingCatalogAttemptSchema.parse(current);
-}
-
-function outcomeFromReply(value: unknown): CollectionStartOutcome {
-  const reply = ExtensionReplySchema.safeParse(value);
-  if (reply.success && reply.data.attemptId) {
-    return { outcome: 'started', attemptId: reply.data.attemptId };
-  }
-  const reason = reply.success ? reply.data.error ?? reply.data.errorMessage ?? '' : '';
-  if (/ALREADY_RUNNING|ATTEMPT_IN_PROGRESS/.test(reason)) return { outcome: 'running', attemptId: null };
-  throw new Error(operatorReason(reason, START_FAILED));
-}
-
-const wait = (ms: number) => new Promise<void>((resolve) => {
-  setTimeout(resolve, ms);
-});
+const WingPlanSchema = z.object({
+  keywords: z.array(z.string()),
+  maxPages: z.number(),
+  purpose: z.string(),
+}).passthrough();
 
 /**
- * The extension opens the Wing catalog attempt and answers only when the
- * collection ends. The start resolves once the owner reports the attempt
- * running, or when the extension answers first.
+ * 화면이 보는 Wing 검색 소싱 한 번(`sourcing.wing_catalog` 실행). 상태는 옛 attempt 말로 옮긴다 — 중단은
+ * `*_CANCELLED` 코드의 FAILED라 `stoppedAttempt`·`attemptFailureText`가 그대로 읽는다.
  */
-async function startWingCatalogCollection(
-  input: SourcingWingCatalogBatchInput,
-): Promise<CollectionStartOutcome> {
-  const extensionId = await detectExtensionId();
-  if (!extensionId) throw new Error(EXTENSION_MISSING);
-  let settled = false;
-  const reply = sendToExtension<unknown>(
-    extensionId,
-    { action: 'collectSourcingWingCatalog', ...input, idempotencyKey: createSecureRandomUuid() },
-    null,
-  ).then(
-    (value) => {
-      settled = true;
-      return outcomeFromReply(value);
-    },
-    (error: unknown) => {
-      settled = true;
-      throw error;
-    },
-  );
-  const confirmRunning = async (): Promise<CollectionStartOutcome> => {
-    for (let read = 0; read < START_CONFIRM_READS && !settled; read += 1) {
-      const current = await readCurrentWingCatalogAttempt().catch(() => null);
-      if (current?.state === 'RUNNING') return { outcome: 'started', attemptId: current.attemptId };
-      await wait(START_CONFIRM_POLL_MS);
-    }
-    return reply;
-  };
-  return Promise.race([reply, confirmRunning()]);
+export type WingCatalogAttempt = Readonly<{
+  attemptId: string;
+  state: 'RUNNING' | 'COMPLETE' | 'FAILED';
+  plan: z.infer<typeof WingPlanSchema>;
+  errorCode: string | null;
+  errorMessage: string | null;
+}>;
+
+export type WingCatalogAccount = Pick<ChannelAccountListItem, 'id' | 'name'>;
+
+/**
+ * Wing 검색에 쓸 계정: 조직의 쿠팡 계정 중 대표 계정, 없으면 이름순 첫 계정(카탈로그 동기화·상품평과 같은 규칙).
+ * 계정 선택 UI는 없다.
+ */
+export function pickWingSearchAccount(accounts: readonly ChannelAccountListItem[] | undefined): WingCatalogAccount | null {
+  const coupang = (accounts ?? []).filter((account) => account.channel === 'coupang');
+  const [first] = [...coupang].sort((left, right) =>
+    Number(right.isPrimary) - Number(left.isPrimary) || left.name.localeCompare(right.name, 'ko'));
+  return first ? { id: first.id, name: first.name } : null;
 }
 
-export function wingCatalogScopeLabel(attempt: WingCatalogAttempt): string {
-  const [first, ...rest] = attempt.plan.keywords;
+export function toWingCatalogAttempt(operation: OperationView | null): WingCatalogAttempt | null {
+  if (!operation) return null;
+  const plan = WingPlanSchema.safeParse(operation.plan);
+  if (!plan.success) return null;
+  return {
+    attemptId: operation.id,
+    state: isLiveOperation(operation) ? 'RUNNING' : operation.status === 'succeeded' ? 'COMPLETE' : 'FAILED',
+    plan: plan.data,
+    errorCode: operation.errorCode,
+    errorMessage: operation.errorMessage,
+  };
+}
+
+/** 조직의 마지막 Wing 검색 소싱(계정·용도 무관 — 발행 대상 'catalog'는 조직에 하나다). */
+export function latestWingCatalogAttempt(status: OperationListResponse | undefined): WingCatalogAttempt | null {
+  return toWingCatalogAttempt(status?.operations[0] ?? null);
+}
+
+export function wingCatalogScopeLabel(plan: WingCatalogAttempt['plan'], accountName?: string | null): string {
+  const [first, ...rest] = plan.keywords;
   const keywords = first ? (rest.length > 0 ? `${first} 외 ${rest.length}개` : first) : '';
-  return [PURPOSE_LABELS[attempt.plan.purpose] ?? attempt.plan.purpose, keywords]
+  return [PURPOSE_LABELS[plan.purpose] ?? plan.purpose, keywords, accountName ?? '']
     .filter(Boolean)
     .join(' · ');
 }
 
 /**
- * The sourcing Wing catalog collection for the shared control. Its completion
- * refreshes the sourcing reads only; recommendations and validation are
- * recalculated by their own explicit controls.
+ * 소싱 Wing 검색(`sourcing.wing_catalog`, KID-360)을 공용 컨트롤에 건다. 화면이 키워드·쪽수·용도를 주고, 계정은
+ * `pickWingSearchAccount`가 고른 것을 scope에 싣는다(잠금 `account:<id>` — 그 계정의 카탈로그 동기화와 서로 막는다).
+ * 완료는 소싱 읽기만 다시 읽는다 — 추천·검증은 각자의 명시적 버튼이 다시 계산한다.
  */
-export const sourcingWingCatalogCollection: CollectionSourceAdapter<
-  WingCatalogAttempt | null,
-  SourcingWingCatalogBatchInput
-> = {
-  sourceKey: 'sourcing.wing_catalog',
-  label: 'Wing 카탈로그 수집',
-  statusQuery: collectionSourceStatusQueryOptions<
-    WingCatalogAttempt | null,
-    Error,
-    WingCatalogAttempt | null,
-    QueryKey
-  >({
-    queryKey: [...queryKeys.sourcing.all, 'wing-source-attempt', 'current'],
-    queryFn: readCurrentWingCatalogAttempt,
-    meta: { suppressGlobalErrorToast: true },
-  }),
-  readRunning: (attempt) =>
-    attempt?.state === 'RUNNING'
-      ? { attemptId: attempt.attemptId, scopeLabel: wingCatalogScopeLabel(attempt) }
-      : null,
-  start: (input) => startWingCatalogCollection(input),
-  cancelOnServer: (attemptId) =>
-    apiClient.post(`${SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}/cancel`),
-  readCompleteId: (attempt) => (attempt?.state === 'COMPLETE' ? attempt.attemptId : null),
-  onNewComplete: (queryClient) => {
-    void queryClient.invalidateQueries({
-      queryKey: queryKeys.sourcing.all,
-      // Source status reads poll on their own; refresh the sourcing data reads.
-      predicate: (query) =>
-        !query.queryKey.includes('wing-source-attempt') && !query.queryKey.includes('source-status'),
-    });
-  },
-};
+export function sourcingWingCatalogCollection(
+  accountRead: WingAccountRead,
+): CollectionSourceAdapter<OperationListResponse, SourcingWingCatalogBatchInput> {
+  const account = accountRead.state === 'read' ? accountRead.account : null;
+  return sourcingOperationCollection<SourcingWingCatalogBatchInput>({
+    kind: SOURCING_OPERATION_KINDS.wingCatalog,
+    sourceKey: SOURCING_OPERATION_KINDS.wingCatalog,
+    label: 'Wing 카탈로그 수집',
+    scope: (input) => {
+      if (accountRead.state === 'loading') throw new Error(WING_ACCOUNTS_LOADING);
+      if (accountRead.state === 'failed') throw new Error(WING_ACCOUNTS_UNAVAILABLE);
+      if (!account) throw new Error(WING_ACCOUNT_MISSING);
+      return { ...input, channelAccountId: account.id };
+    },
+    scopeLabel: (operation) => {
+      const attempt = toWingCatalogAttempt(operation);
+      if (!attempt) return null;
+      const accountName = operation.plan?.channelAccountId === account?.id ? account?.name : null;
+      return wingCatalogScopeLabel(attempt.plan, accountName);
+    },
+    onNewComplete: invalidateSourcingReads,
+  });
+}

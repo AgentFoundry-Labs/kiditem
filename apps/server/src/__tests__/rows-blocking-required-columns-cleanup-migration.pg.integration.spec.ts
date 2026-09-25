@@ -31,6 +31,11 @@ import {
   UNIQUE_KEY_CLEANUPS,
   UNIQUE_KEYS_WITHOUT_CLEANUP,
 } from '../../../../scripts/data-migrations/v0.1.31/014_remove_rows_blocking_required_columns';
+import {
+  renameSourcingIngestionRunIdsMigration,
+  SOURCING_OPERATION_ID_INDEX_RENAMES,
+  SOURCING_OPERATION_ID_TABLES,
+} from '../../../../scripts/data-migrations/v0.1.31/030_rename_sourcing_ingestion_run_ids_to_operation_ids';
 
 type Table = (typeof REQUIRED_COLUMN_CLEANUPS)[number]['table'];
 
@@ -136,12 +141,18 @@ describe('v0.1.31:014 remove rows blocking required columns (PostgreSQL)', () =>
     await seedBaseFixture(prisma);
     [retiredAlertId] = await seedOrganization(prisma, TEST_ORGANIZATION_ID, ['pencil', 'eraser'], 3);
     await seedOrganization(prisma, OTHER_ORGANIZATION_ID, ['crayon'], 2);
+    // 014 runs before 030 (KID-360): the schema it meets still names the run and holds its foreign keys.
+    await toPre030Shape(prisma);
   });
 
   afterAll(async () => {
     if (!prisma) return;
-    await resetDb(prisma);
-    await prisma.$disconnect();
+    try {
+      await fromPre030Shape(prisma);
+    } finally {
+      await resetDb(prisma);
+      await prisma.$disconnect();
+    }
   });
 
   it('lists pushed tables whose required column has no database default and that no foreign key references, then the ingestion runs', async () => {
@@ -189,6 +200,8 @@ describe('v0.1.31:014 remove rows blocking required columns (PostgreSQL)', () =>
     // later v0.1.31 schema/cutover steps retire them. The Channels keys are
     // Office 0.1.30 keys KID-297 replaced with scalar ids (OFFICE_ONLY_KEYS,
     // plus the serp-capture key this release never declares as a key).
+    // review_collection_chunks is the Office review chunk store KID-359 drops
+    // (operation chunks replace it); 014 still clears it before the push.
     expect(declared.filter((link) => !live.includes(link))).toEqual([
       'channel_account_daily_kpi_snapshots.raw_snapshot_id -> channel_scrape_snapshots',
       'channel_ad_target_daily_snapshots.raw_snapshot_id -> channel_scrape_snapshots',
@@ -196,6 +209,7 @@ describe('v0.1.31:014 remove rows blocking required columns (PostgreSQL)', () =>
       'channel_listings.last_import_run_id -> source_import_runs',
       'channel_scrape_runs.source_import_run_id -> source_import_runs',
       'channel_scrape_snapshots.source_import_run_id -> source_import_runs',
+      'review_collection_chunks.source_import_run_id -> source_import_runs',
       'sellpia_inventory_skus.last_import_run_id -> source_import_runs',
     ]);
     // 36 keys once the Channels boundary keeps scalar ids (KID-297).
@@ -486,12 +500,17 @@ describe('v0.1.31:014 unique keys on source_import_runs (PostgreSQL)', () => {
     await prisma.$connect();
     await resetDb(prisma);
     await seedBaseFixture(prisma);
+    await toPre030Shape(prisma);
   });
 
   afterAll(async () => {
     if (!prisma) return;
-    await resetDb(prisma);
-    await prisma.$disconnect();
+    try {
+      await fromPre030Shape(prisma);
+    } finally {
+      await resetDb(prisma);
+      await prisma.$disconnect();
+    }
   });
 
   it('lists each key as the pushed index declares it, and finds every other new unique key', async () => {
@@ -662,6 +681,7 @@ describe('cutover data survey around v0.1.31:014 (PostgreSQL)', () => {
     await seedOrganization(db, TEST_ORGANIZATION_ID, ['pencil'], 2);
     const definitions = await indexDefinitions(db, [...IMPORT_RUN_KEYS, CURRENT_COMPLETE_KEY]);
     await db.$transaction(async (tx) => {
+      await toPre030Shape(tx);
       await officeImportRunShape(tx);
       await seedImportRunDuplicates(tx);
       for (const table of TABLES) {
@@ -672,7 +692,7 @@ describe('cutover data survey around v0.1.31:014 (PostgreSQL)', () => {
     const before = runSurvey(surveyUrl);
     expect(before.status, before.stderr).toBe(1);
     expect(before.report.blockers.map(describeItem).sort()).toEqual([
-      ...ROW_TABLES.map((table) => `not-null ${table}.${REQUIRED[table]}`),
+      ...ROW_TABLES.map((table) => `not-null ${table}.${headColumn(table)}`),
       'unique source_import_runs_ad_keyword_running_key',
       'unique source_import_runs_ads_daily_running_key',
       'unique source_import_runs_rocket_po_generation_key',
@@ -682,9 +702,11 @@ describe('cutover data survey around v0.1.31:014 (PostgreSQL)', () => {
     ].sort());
     expect(before.report.blockers.every((item) => (item.rows ?? 0) > 0)).toBe(true);
     expect(before.report.pending.map((item) => `${item.table} [${(item.missing ?? []).join(', ')}]`).sort())
-      .toEqual(ROW_TABLES.map((table) => `${table} [${REQUIRED[table]}]`).sort());
+      .toEqual(ROW_TABLES.map((table) => `${table} [${headColumn(table)}]`).sort());
 
     const cleaned = await db.$transaction((tx) => runMigration(tx), { timeout: 60_000 });
+    // The pre-schema phase goes on to 030, which gives the ledger its scalar operation_id (KID-360).
+    await db.$transaction((tx) => renameSourcingIngestionRunIdsMigration.run(tx));
     // Seven row tables (eight rows), the one base ingestion run, and the import-run changes.
     expect(cleaned.affectedRows).toBe(8 + 1 + EXPECTED_IMPORT_RUN_CHANGES);
 
@@ -722,6 +744,11 @@ type SurveyItem = {
   rows?: number;
   missing?: string[];
 };
+
+/** The survey names the column the head schema adds; 030 renamed the run column (KID-360). */
+function headColumn(table: Table): string {
+  return (SOURCING_OPERATION_ID_TABLES as readonly string[]).includes(table) ? 'operation_id' : REQUIRED[table];
+}
 
 function describeItem(item: SurveyItem): string {
   return item.kind === 'unique' ? `unique ${item.name}` : `${item.kind} ${item.table}.${item.column}`;
@@ -1118,6 +1145,16 @@ async function seedImportRunDuplicates(tx: Prisma.TransactionClient) {
  * launch plan, two decisions, and a procurement intent.
  */
 async function seedIngestionRunChain(tx: Prisma.TransactionClient) {
+  // The Prisma client writes `operation_id`; seed on the current shape, then return to 014's.
+  await fromPre030Shape(tx);
+  try {
+    return await seedIngestionRunChainRows(tx);
+  } finally {
+    await toPre030Shape(tx);
+  }
+}
+
+async function seedIngestionRunChainRows(tx: Prisma.TransactionClient) {
   const organizationId = TEST_ORGANIZATION_ID;
   const runA = await tx.sourcingEvidenceIngestionRun.create({ data: ingestionRun(organizationId, '1688.offer') });
   const runB = await tx.sourcingEvidenceIngestionRun.create({
@@ -1134,7 +1171,7 @@ async function seedIngestionRunChain(tx: Prisma.TransactionClient) {
     data: {
       organizationId: OTHER_ORGANIZATION_ID,
       evidenceObservationId: shadow.id,
-      ingestionRunId: runB.id,
+      operationId: runB.id,
       schemaVersion: 'kid-239/v1',
       businessDate: BUSINESS_DATE,
       document: {},
@@ -1145,7 +1182,7 @@ async function seedIngestionRunChain(tx: Prisma.TransactionClient) {
     data: {
       organizationId,
       evidenceObservationId: original.id,
-      ingestionRunId: runA.id,
+      operationId: runA.id,
       businessDate: BUSINESS_DATE,
       sourceKeywordNormalized: 'pencil case',
       externalOfferId: 'kid-239-offer',
@@ -1323,6 +1360,55 @@ async function seedIngestionRunChain(tx: Prisma.TransactionClient) {
   return { decisionItemWithoutOffer: withoutOffer.id };
 }
 
+/**
+ * The run foreign keys v0.1.31 had before KID-360 made operation_id a scalar
+ * (names as Prisma gave them). Three snapshot tables cascaded.
+ */
+const PRE_030_RUN_FOREIGN_KEYS: ReadonlyArray<{ table: string; constraint: string; onDelete: 'RESTRICT' | 'CASCADE' }> = [
+  { table: 'sourcing_evidence_observations', constraint: 'sourcing_evidence_observations_ingestion_run_id_organizati_fkey', onDelete: 'RESTRICT' },
+  { table: 'sourcing_1688_offer_keyword_observations', constraint: 'sourcing_1688_offer_keyword_observations_ingestion_run_id__fkey', onDelete: 'RESTRICT' },
+  { table: 'sourcing_wing_catalog_product_facts', constraint: 'sourcing_wing_catalog_product_facts_ingestion_run_id_organ_fkey', onDelete: 'RESTRICT' },
+  { table: 'sourcing_keyword_suggestion_facts', constraint: 'sourcing_keyword_suggestion_facts_ingestion_run_id_organiz_fkey', onDelete: 'RESTRICT' },
+  { table: 'sourcing_naver_keyword_analysis_facts', constraint: 'sourcing_naver_keyword_analysis_facts_ingestion_run_id_org_fkey', onDelete: 'RESTRICT' },
+  { table: 'sourcing_market_shadow_facts', constraint: 'sourcing_market_shadow_facts_ingestion_run_id_organization_fkey', onDelete: 'RESTRICT' },
+  { table: 'naver_keyword_daily_snapshots', constraint: 'naver_keyword_daily_snapshots_organization_id_ingestion_ru_fkey', onDelete: 'CASCADE' },
+  { table: 'naver_popular_keyword_daily_snapshots', constraint: 'naver_popular_keyword_daily_snapshots_organization_id_inge_fkey', onDelete: 'CASCADE' },
+  { table: 'shorts_trend_daily_snapshots', constraint: 'shorts_trend_daily_snapshots_organization_id_ingestion_run_fkey', onDelete: 'CASCADE' },
+  { table: 'live_commerce_broadcast_daily_snapshots', constraint: 'live_commerce_broadcast_daily_snapshots_ingestion_run_id_o_fkey', onDelete: 'RESTRICT' },
+  { table: 'live_commerce_product_daily_snapshots', constraint: 'live_commerce_product_daily_snapshots_ingestion_run_id_org_fkey', onDelete: 'RESTRICT' },
+  { table: 'tiktok_creative_trend_daily_snapshots', constraint: 'tiktok_creative_trend_daily_snapshots_ingestion_run_id_org_fkey', onDelete: 'RESTRICT' },
+];
+
+/** The shape 014 meets: 030's renames undone and the run foreign keys back. */
+async function toPre030Shape(db: Pick<Prisma.TransactionClient, '$executeRaw'>) {
+  for (const table of SOURCING_OPERATION_ID_TABLES) {
+    await db.$executeRaw`ALTER TABLE ${Prisma.raw(table)} RENAME COLUMN operation_id TO ingestion_run_id`;
+  }
+  for (const [oldName, newName] of Object.entries(SOURCING_OPERATION_ID_INDEX_RENAMES)) {
+    await db.$executeRaw`ALTER INDEX ${Prisma.raw(`"${newName}"`)} RENAME TO ${Prisma.raw(`"${oldName}"`)}`;
+  }
+  for (const key of PRE_030_RUN_FOREIGN_KEYS) {
+    await db.$executeRaw`
+      ALTER TABLE ${Prisma.raw(key.table)} ADD CONSTRAINT ${Prisma.raw(`"${key.constraint}"`)}
+      FOREIGN KEY (ingestion_run_id, organization_id) REFERENCES sourcing_evidence_ingestion_runs (id, organization_id)
+      ON DELETE ${Prisma.raw(key.onDelete)} ON UPDATE CASCADE
+    `;
+  }
+}
+
+/** Back to the pushed schema (what `db push` leaves after 030). */
+async function fromPre030Shape(db: Pick<Prisma.TransactionClient, '$executeRaw'>) {
+  for (const key of PRE_030_RUN_FOREIGN_KEYS) {
+    await db.$executeRaw`ALTER TABLE ${Prisma.raw(key.table)} DROP CONSTRAINT ${Prisma.raw(`"${key.constraint}"`)}`;
+  }
+  for (const [oldName, newName] of Object.entries(SOURCING_OPERATION_ID_INDEX_RENAMES)) {
+    await db.$executeRaw`ALTER INDEX ${Prisma.raw(`"${oldName}"`)} RENAME TO ${Prisma.raw(`"${newName}"`)}`;
+  }
+  for (const table of SOURCING_OPERATION_ID_TABLES) {
+    await db.$executeRaw`ALTER TABLE ${Prisma.raw(table)} RENAME COLUMN ingestion_run_id TO operation_id`;
+  }
+}
+
 function ingestionRun(organizationId: string, sourceKey: string) {
   const idempotencyKey = randomUUID();
   return {
@@ -1338,10 +1424,10 @@ function ingestionRun(organizationId: string, sourceKey: string) {
   };
 }
 
-function observation(organizationId: string, ingestionRunId: string, label: string) {
+function observation(organizationId: string, operationId: string, label: string) {
   return {
     organizationId,
-    ingestionRunId,
+    operationId,
     sourceKey: '1688.offer',
     platform: '1688',
     evidenceFamily: 'supplier_offer',
@@ -1385,7 +1471,7 @@ async function seedOrganization(
   });
   const observed = {
     organizationId,
-    ingestionRunId: run.id,
+    operationId: run.id,
     businessDate: BUSINESS_DATE,
     capturedAt: CAPTURED_AT,
   };

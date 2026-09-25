@@ -44,6 +44,12 @@ Action, collection, transmission, and reconciliation behavior is executable in
   transmission key.
 - Provider rejection is returned as the provider error rather than translated
   into an Inventory refresh or recovery action.
+- Coupang reviews are the operation kind `orders.coupang_reviews`
+  ([ADR-0025](../../../../docs/adr/0025-operations-are-one-contract.md)); there
+  is no review attempt route. Its finalize writes one operation row per review
+  only after every planned month window's `review_windows` marker matches its
+  `reviews` chunk count, and the reader prefers operation rows over legacy
+  SourceImportRun rows.
 
 ## Boundaries
 

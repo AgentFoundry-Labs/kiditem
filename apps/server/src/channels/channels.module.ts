@@ -38,8 +38,6 @@ import { MallAdminListingsController } from './adapter/in/web/mall-admin-listing
 import { ChannelListingController } from './adapter/in/web/listing/channel-listing.controller';
 import { ChannelCatalogImportController } from './adapter/in/web/channel-catalog-import.controller';
 import { RocketSellpiaMatchingCsvImportController } from './adapter/in/web/rocket-sellpia-matching-csv-import.controller';
-import { ChannelCatalogCollectionController } from './adapter/in/web/channel-catalog-collection.controller';
-import { ChannelCatalogSourceController } from './adapter/in/web/channel-catalog-source.controller';
 import { ChannelProductMatchingController } from './adapter/in/web/channel-product-matching.controller';
 import { ChannelOptionRecipeController } from './adapter/in/web/channel-option-recipe.controller';
 import { ChannelSkuAvailabilityController } from './adapter/in/web/channel-sku-availability.controller';
@@ -50,19 +48,20 @@ import { OrderCollectionMallAccountController } from './adapter/in/web/account/o
 import { ChannelDashboardRepositoryAdapter } from './adapter/out/repository/channel-dashboard.repository.adapter';
 import { ListingRegistrationPersistenceAdapter } from './adapter/out/persistence/listing-registration.persistence.adapter';
 import { LISTING_REGISTRATION_PERSISTENCE_PORT, type ListingRegistrationPersistencePort } from './application/port/out/persistence/listing-registration.persistence.port';
-import { ChannelCatalogImportRepositoryAdapter } from './adapter/out/repository/channel-catalog-import.repository.adapter';
 import { RocketSellpiaMatchingCsvImportRepositoryAdapter } from './adapter/out/repository/rocket-sellpia-matching-csv-import.repository.adapter';
-import { ChannelCatalogCollectionRepositoryAdapter } from './adapter/out/repository/channel-catalog-collection.repository.adapter';
 import { ChannelCatalogPublicationRepositoryAdapter } from './adapter/out/repository/channel-catalog-publication.repository.adapter';
+import { WING_CATALOG_OPERATION_OWNERS } from './adapter/in/operation/wing-catalog-operation-owners';
+import { WingCatalogOperationService } from './application/service/collection/wing-catalog-operation.service';
+import { WING_CATALOG_OPERATION_PORT } from './application/port/in/wing-catalog-operation.port';
+import { OperationModule } from '../common/operation/operation.module';
+import { OPERATION_PORT } from '../common/operation/application/port/in/operation.port';
 import { ChannelProductMatchingRepositoryAdapter } from './adapter/out/repository/channel-product-matching.repository.adapter';
 import { ChannelRecipeSuggestionContextRepositoryAdapter } from './adapter/out/repository/channel-recipe-suggestion-context.repository.adapter';
 import { SellpiaManualMatchRepositoryAdapter } from './adapter/out/repository/sellpia-manual-match.repository.adapter';
 import { SellpiaRecipeEvidenceAdapter } from './adapter/out/inventory/sellpia-recipe-evidence.adapter';
 import { ChannelDashboardService } from './application/service/listing/channel-dashboard.service';
 import { ChannelRegistrationService } from './application/service/registration/channel-registration.service';
-import { ChannelCatalogImportService } from './application/service/collection/channel-catalog-import.service';
 import { RocketSellpiaMatchingCsvImportService } from './application/service/collection/rocket-sellpia-matching-csv-import.service';
-import { ChannelCatalogCollectionService } from './application/service/collection/channel-catalog-collection.service';
 import { ChannelProductMatchingService } from './application/service/listing/channel-product-matching.service';
 import { ChannelRecipeSuggestionService } from './application/service/listing/channel-recipe-suggestion.service';
 import { SellpiaManualMatchService } from './application/service/listing/sellpia-manual-match.service';
@@ -78,14 +77,10 @@ import { MallAdminListingsRepositoryAdapter } from './adapter/out/repository/mal
 import { MALL_ADMIN_LISTINGS_PORT } from './application/port/in/mall-admin-listings.port';
 import { MALL_ADMIN_LISTINGS_REPOSITORY_PORT } from './application/port/out/repository/mall-admin-listings.repository.port';
 import { CHANNEL_REGISTRATION_PORT } from './application/port/in/registration/channel-registration.port';
-import { CHANNEL_CATALOG_IMPORT_PORT } from './application/port/in/channel-catalog-import.port';
 import { ROCKET_SELLPIA_MATCHING_CSV_IMPORT_PORT } from './application/port/in/rocket-sellpia-matching-csv-import.port';
 import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from './application/port/out/repository/channel-dashboard.repository.port';
-import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from './application/port/out/repository/channel-catalog-import.repository.port';
 import { ROCKET_SELLPIA_MATCHING_CSV_IMPORT_REPOSITORY_PORT } from './application/port/out/repository/rocket-sellpia-matching-csv-import.repository.port';
-import { CHANNEL_CATALOG_COLLECTION_REPOSITORY_PORT } from './application/port/out/repository/channel-catalog-collection.repository.port';
 import { CHANNEL_CATALOG_PUBLICATION_PORT } from './application/port/out/repository/channel-catalog-publication.port';
-import { CHANNEL_CATALOG_COLLECTION_PORT } from './application/port/in/channel-catalog-collection.port';
 import { CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT, type ChannelProductMatchingRepositoryPort } from './application/port/out/repository/channel-product-matching.repository.port';
 import { CHANNEL_SKU_AVAILABILITY_PORT } from './application/port/in/channel-sku-availability.port';
 import { MallPublishingRepositoryAdapter } from './adapter/out/repository/mall-publishing.repository.adapter';
@@ -115,6 +110,7 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
     InventoryModule,
     ProductCollectionRuntimeModule,
     AlertsModule,
+    OperationModule,
   ],
   controllers: [
     OrderCollectionMallAccountController,
@@ -128,8 +124,6 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
     ChannelListingController,
     ChannelCatalogImportController,
     RocketSellpiaMatchingCsvImportController,
-    ChannelCatalogCollectionController,
-    ChannelCatalogSourceController,
     ChannelProductMatchingController,
     ChannelOptionRecipeController,
     ChannelSkuAvailabilityController,
@@ -159,9 +153,7 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
       useFactory: (persistence: ListingRegistrationPersistencePort, suggestions: ChannelRecipeSuggestionService) => new ChannelRegistrationService(persistence, suggestions),
       inject: [LISTING_REGISTRATION_PERSISTENCE_PORT, ChannelRecipeSuggestionService],
     },
-    { provide: ChannelCatalogImportService, useFactory: (...dependencies: ConstructorParameters<typeof ChannelCatalogImportService>) => new ChannelCatalogImportService(...dependencies), inject: [CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT, CHANNEL_DOCUMENTS_PORT] },
     { provide: RocketSellpiaMatchingCsvImportService, useFactory: (...dependencies: ConstructorParameters<typeof RocketSellpiaMatchingCsvImportService>) => new RocketSellpiaMatchingCsvImportService(...dependencies), inject: [ROCKET_SELLPIA_MATCHING_CSV_IMPORT_REPOSITORY_PORT, CHANNEL_DOCUMENTS_PORT] },
-    { provide: ChannelCatalogCollectionService, useFactory: (...dependencies: ConstructorParameters<typeof ChannelCatalogCollectionService>) => new ChannelCatalogCollectionService(...dependencies), inject: [CHANNEL_CATALOG_COLLECTION_REPOSITORY_PORT, CHANNEL_CATALOG_PUBLICATION_PORT, CHANNEL_INTEGRITY_PORT] },
     { provide: ChannelProductMatchingService, useFactory: (...dependencies: ConstructorParameters<typeof ChannelProductMatchingService>) => new ChannelProductMatchingService(...dependencies), inject: [CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT, CATALOG_DISPLAY_MEDIA_PORT, PRODUCT_AVAILABILITY_PORT, CHANNEL_ACTIVITY_PORT] },
     { provide: ChannelRecipeSuggestionService, useFactory: (...dependencies: ConstructorParameters<typeof ChannelRecipeSuggestionService>) => new ChannelRecipeSuggestionService(...dependencies), inject: [CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT, SELLPIA_RECIPE_EVIDENCE_PORT, SELLPIA_MANUAL_MATCH_REPOSITORY_PORT] },
     { provide: ChannelOptionRecipeCandidateService, useFactory: (...dependencies: ConstructorParameters<typeof ChannelOptionRecipeCandidateService>) => new ChannelOptionRecipeCandidateService(...dependencies), inject: [PRODUCT_AVAILABILITY_PORT] },
@@ -190,10 +182,12 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
     { provide: CHANNELS_THUMBNAIL_EXECUTION_PORT, useExisting: ThumbnailExecutionService },
     ChannelDashboardRepositoryAdapter,
     ListingRegistrationPersistenceAdapter,
-    ChannelCatalogImportRepositoryAdapter,
     RocketSellpiaMatchingCsvImportRepositoryAdapter,
-    ChannelCatalogCollectionRepositoryAdapter,
     ChannelCatalogPublicationRepositoryAdapter,
+    // Wing 카탈로그 실행 kind 셋(KID-354·351). owner는 부팅 때 실행 계약에 등록된다.
+    WingCatalogOperationService,
+    { provide: WING_CATALOG_OPERATION_PORT, useExisting: WingCatalogOperationService },
+    ...WING_CATALOG_OPERATION_OWNERS,
     ChannelProductMatchingRepositoryAdapter,
     ChannelRecipeSuggestionContextRepositoryAdapter,
     SellpiaManualMatchRepositoryAdapter,
@@ -209,14 +203,6 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
     },
     { provide: CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT, useExisting: ChannelsRepresentativeImageCapabilityAdapter },
     {
-      provide: CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT,
-      useExisting: ChannelCatalogImportRepositoryAdapter,
-    },
-    {
-      provide: CHANNEL_CATALOG_IMPORT_PORT,
-      useExisting: ChannelCatalogImportService,
-    },
-    {
       provide: ROCKET_SELLPIA_MATCHING_CSV_IMPORT_REPOSITORY_PORT,
       useExisting: RocketSellpiaMatchingCsvImportRepositoryAdapter,
     },
@@ -225,16 +211,8 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
       useExisting: RocketSellpiaMatchingCsvImportService,
     },
     {
-      provide: CHANNEL_CATALOG_COLLECTION_REPOSITORY_PORT,
-      useExisting: ChannelCatalogCollectionRepositoryAdapter,
-    },
-    {
       provide: CHANNEL_CATALOG_PUBLICATION_PORT,
       useExisting: ChannelCatalogPublicationRepositoryAdapter,
-    },
-    {
-      provide: CHANNEL_CATALOG_COLLECTION_PORT,
-      useExisting: ChannelCatalogCollectionService,
     },
     {
       provide: CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT,

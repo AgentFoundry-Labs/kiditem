@@ -26,6 +26,7 @@ import { mapException, toEnvelope } from '../../common/filters/global-exception.
 import { THUMBNAIL_AWAITING_CONFIRMATION_MESSAGE as AWAITING } from '../domain/registration/thumbnail-update';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { makeWingCatalogOperations } from '../../test-helpers/wing-catalog-operations';
 import { StockoutCheckPersistenceAdapter } from '../adapter/out/persistence/stockout-check.persistence.adapter';
 import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
 
@@ -357,7 +358,7 @@ describe('thumbnail execution owner (PostgreSQL)', () => {
     await service.prepare({ organizationId: ORG, requestedByUserId: USER, salesProductId: product.id });
 
     const db = prisma as PrismaService;
-    const [subject] = await new StockoutCheckPersistenceAdapter(db, new ProductTransactionalReadRepositoryAdapter()).readSubjects(ORG, [listing.id]);
+    const [subject] = await new StockoutCheckPersistenceAdapter(db, new ProductTransactionalReadRepositoryAdapter(), makeWingCatalogOperations(db as never).operations).readSubjects(ORG, [listing.id]);
     expect(subject?.activeExecutions).toEqual([]);
     await expect(new RegistrationExecutionRepositoryAdapter(db, channelAdapters()).prepareListingAvailability({
       organizationId: ORG, requestedByUserId: USER,

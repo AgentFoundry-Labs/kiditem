@@ -483,33 +483,29 @@ async function seedOfferObservation(
   },
 ) {
   const idempotencyKey = randomUUID();
-  const actorUserId = input.organizationId === TEST_ORGANIZATION_ID
-    ? TEST_USER_ID
-    : OTHER_USER_ID;
-  const ingestionRun = await prisma.sourcingEvidenceIngestionRun.create({
-    data: {
-      id: randomUUID(),
-      organizationId: input.organizationId,
-      sourceKey: input.sourceKey ?? '1688.hot_product',
-      scopeKey: 'workspace-read-model-test',
-      targetKey: `${input.sourceKeyword}:${input.externalOfferId}:${idempotencyKey}`,
-      idempotencyKey,
-      requestHash: sha256(idempotencyKey),
-      collectorKey: 'workspace-read-model-test',
-      collectorVersion: 'v1',
-      triggerKind: 'manual',
-      triggeredByUserId: actorUserId,
-      status: input.status,
-      isCurrentComplete: input.isCurrentComplete ?? input.status === 'COMPLETE',
-      completedAt: input.status === 'RUNNING' ? null : CUTOFF_AT,
-    },
-  });
+  // 성공한 수집만 발행 행을 남긴다(KID-360). RUNNING·FAILED는 원장 행만 있고 발행이 없다.
+  const ingestionRun = { id: randomUUID() };
+  if (input.status === 'COMPLETE') {
+    await prisma.sourcingSourcePublication.create({
+      data: {
+        organizationId: input.organizationId,
+        operationId: ingestionRun.id,
+        sourceKey: input.sourceKey ?? '1688.hot_product',
+        scopeKey: 'workspace-read-model-test',
+        targetKey: `${input.sourceKeyword}:${input.externalOfferId}:${idempotencyKey}`,
+        collectorKey: 'workspace-read-model-test',
+        collectorVersion: 'v1',
+        isCurrent: input.isCurrentComplete ?? true,
+        completedAt: CUTOFF_AT,
+      },
+    });
+  }
   const evidenceId = randomUUID();
   await prisma.sourcingEvidenceObservation.create({
     data: {
       id: evidenceId,
       organizationId: input.organizationId,
-      ingestionRunId: ingestionRun.id,
+      operationId: ingestionRun.id,
       sourceKey: input.sourceKey ?? '1688.hot_product',
       platform: '1688',
       evidenceFamily: 'hot_product',
@@ -539,7 +535,7 @@ async function seedOfferObservation(
       id: randomUUID(),
       organizationId: input.organizationId,
       evidenceObservationId: evidenceId,
-      ingestionRunId: ingestionRun.id,
+      operationId: ingestionRun.id,
       businessDate: BUSINESS_DATE,
       sourceKeywordNormalized: input.sourceKeyword,
       externalOfferId: input.externalOfferId,

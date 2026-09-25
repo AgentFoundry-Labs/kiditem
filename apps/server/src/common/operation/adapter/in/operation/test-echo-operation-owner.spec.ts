@@ -10,9 +10,9 @@ describe('test.echo owner (KID-357 확장 런타임 스모크)', () => {
 
   it('plan 은 scope 의 lockKeys 를 그대로 잠그고 기본은 org 다', async () => {
     const owner = new TestEchoOperationOwner();
-    await expect(owner.plan({}, { organizationId: 'o' })).resolves.toEqual({ lockKeys: ['org'], plan: { echo: true, lockKeys: ['org'] } });
-    await expect(owner.plan({ lockKeys: ['resource:echo:a'] }, { organizationId: 'o' })).resolves.toMatchObject({ lockKeys: ['resource:echo:a'] });
-    await expect(owner.plan({ lockKeys: ['bogus'] }, { organizationId: 'o' })).rejects.toThrow();
+    await expect(owner.plan({}, { organizationId: 'o', userId: null })).resolves.toEqual({ lockKeys: ['org'], plan: { echo: true, lockKeys: ['org'] } });
+    await expect(owner.plan({ lockKeys: ['resource:echo:a'] }, { organizationId: 'o', userId: null })).resolves.toMatchObject({ lockKeys: ['resource:echo:a'] });
+    await expect(owner.plan({ lockKeys: ['bogus'] }, { organizationId: 'o', userId: null })).rejects.toThrow();
   });
 
   it('finalize 는 원장을 쓰지 않고 청크·항목 수만 돌려준다', async () => {

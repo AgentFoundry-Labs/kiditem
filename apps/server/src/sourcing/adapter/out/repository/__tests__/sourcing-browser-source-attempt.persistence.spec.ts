@@ -140,7 +140,7 @@ describe('persistBrowserSourceAttemptFacts', () => {
         kind: 'tiktok_creative',
         row: {
           organizationId: TIKTOK_PERMIT.organizationId,
-          ingestionRunId: TIKTOK_PERMIT.runId,
+          operationId: TIKTOK_PERMIT.runId,
           businessDate: capturedAt,
           region: 'US',
           trendType: 'hashtag',
@@ -170,7 +170,7 @@ describe('persistBrowserSourceAttemptFacts', () => {
     expect(tiktokCreative.createMany).toHaveBeenCalledWith({
       data: [expect.objectContaining({
         organizationId: TIKTOK_PERMIT.organizationId,
-        ingestionRunId: TIKTOK_PERMIT.runId,
+        operationId: TIKTOK_PERMIT.runId,
         trendType: 'hashtag',
         entityKey: 'school-supplies',
       })],

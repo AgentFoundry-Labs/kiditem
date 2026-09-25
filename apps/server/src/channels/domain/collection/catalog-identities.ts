@@ -56,6 +56,12 @@ export type ChannelCatalogIdentityUpsertInput = {
   channelAccountId: string;
   products: ChannelCatalogIdentityProduct[];
   lastImportRunId: string | null;
+  /**
+   * 이 관측을 반영한 실행(`operations.id`, KID-354). 실행 계약으로 옮긴 원천(Wing 카탈로그)만 준다 —
+   * 그때 `lastImportRunId`는 `null`이다. 매칭·readiness는 이 값이 있으면 완료 반영으로 본다(실행은 finish
+   * 트랜잭션 안에서만 원장을 쓴다).
+   */
+  lastOperationId?: string | null;
   rawSource: string;
   /**
    * 이 원천이 읽지 않는 옵션 칸. 여기 적힌 칸은 저장된 관측값을 그대로 둔다. 적지 않은 칸은

@@ -1,26 +1,16 @@
 import { z } from 'zod';
-import { zIsoDate } from './common.js';
-import { BrowserCollectionAttentionSchema } from './browser-collection-session.js';
 
-export const COUPANG_CATALOG_COLLECTOR_VERSION = 'wing-inventory-v1';
-export const COUPANG_CATALOG_BROWSER_FILE_NAME = 'browser-extension:coupang-wing:v1';
 export const COUPANG_CATALOG_BASIC_SOURCE_TYPE = 'coupang_wing_catalog_basics';
 export const COUPANG_CATALOG_DETAILS_SOURCE_TYPE = 'coupang_wing_catalog_details';
-export const COUPANG_CATALOG_STAGE_SCHEMA_VERSION = 1;
 export const COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT = 500;
 export const COUPANG_CATALOG_MAX_MEDIA_PER_OWNER = 100;
 const COUPANG_CATALOG_MAX_DETAIL_MEDIA =
   COUPANG_CATALOG_MAX_MEDIA_PER_OWNER * (COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT + 1);
-export const COUPANG_CATALOG_MAX_PRODUCTS_PER_CHUNK = 20;
-/** Wing 목록 API의 PRODUCT_ID 필터 상한 — 삭제 확인 한 청크가 한 번의 조회다 (KID-348). */
-export const COUPANG_CATALOG_MAX_DELETION_CONFIRMATIONS_PER_CHUNK = 100;
 export const COUPANG_CATALOG_MAX_PRODUCT_BYTES = 512 * 1024;
 export const COUPANG_CATALOG_MAX_RAW_BYTES = 64 * 1024;
-export const COUPANG_CATALOG_MAX_CHUNK_BYTES = 1024 * 1024;
 export const COUPANG_CATALOG_MAX_DOCUMENT_BYTES = 64 * 1024;
 export const COUPANG_CATALOG_MAX_DOCUMENTS_PER_PRODUCT = 2_000;
 
-const Sha256Schema = z.string().regex(/^[a-f0-9]{64}$/);
 const ExternalIdSchema = z.string().trim().min(1).max(200);
 const NullableTextSchema = z.string().trim().min(1).max(2_000).nullable();
 const HttpUrlSchema = z.string().url().max(4_096).refine((value) => {
@@ -154,13 +144,6 @@ export const CoupangCatalogOptionV1Schema = z.object({
 });
 export type CoupangCatalogOptionV1 = z.infer<typeof CoupangCatalogOptionV1Schema>;
 
-
-/**
- * 브라우저 카탈로그 수집 단계. 목록(basics) → 상세(details) 두 단계뿐이다. 한 번에 전체를 받던
- * 옛 `full` 단계는 KID-348에서 없앴다.
- */
-export const CoupangCatalogStageSchema = z.enum(['basics', 'details']);
-export type CoupangCatalogStage = z.infer<typeof CoupangCatalogStageSchema>;
 
 /** The complete provider listing row used by the first (basic) stage. */
 export const CoupangCatalogBasicOptionV1Schema = CoupangCatalogOptionV1Schema;
@@ -392,64 +375,6 @@ export const CoupangCatalogDetailProductV1Schema = z.object({
 });
 export type CoupangCatalogDetailProductV1 = z.infer<typeof CoupangCatalogDetailProductV1Schema>;
 
-export const CoupangCatalogListingBasicsChunkV1Schema = z.object({
-  version: z.literal(COUPANG_CATALOG_STAGE_SCHEMA_VERSION),
-  kind: z.literal('listing_basics'),
-  startOrdinal: z.number().int().nonnegative(),
-  products: z.array(z.object({
-    ordinal: z.number().int().nonnegative(),
-    product: CoupangCatalogBasicProductV1Schema,
-  })).min(1).max(COUPANG_CATALOG_MAX_PRODUCTS_PER_CHUNK),
-}).superRefine((chunk, ctx) => {
-  chunk.products.forEach((item, index) => {
-    if (item.ordinal !== chunk.startOrdinal + index) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['products', index, 'ordinal'],
-        message: `product ordinals must be contiguous from ${chunk.startOrdinal}`,
-      });
-    }
-  });
-  if (jsonBytes(chunk) > COUPANG_CATALOG_MAX_CHUNK_BYTES) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: `chunk exceeds ${COUPANG_CATALOG_MAX_CHUNK_BYTES} bytes`,
-    });
-  }
-});
-export type CoupangCatalogListingBasicsChunkV1 = z.infer<
-  typeof CoupangCatalogListingBasicsChunkV1Schema
->;
-
-export const CoupangCatalogFullDetailsChunkV1Schema = z.object({
-  version: z.literal(COUPANG_CATALOG_STAGE_SCHEMA_VERSION),
-  kind: z.literal('full_details'),
-  startOrdinal: z.number().int().nonnegative(),
-  products: z.array(z.object({
-    ordinal: z.number().int().nonnegative(),
-    product: CoupangCatalogDetailProductV1Schema,
-  })).min(1).max(COUPANG_CATALOG_MAX_PRODUCTS_PER_CHUNK),
-}).superRefine((chunk, ctx) => {
-  chunk.products.forEach((item, index) => {
-    if (item.ordinal !== chunk.startOrdinal + index) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['products', index, 'ordinal'],
-        message: `product ordinals must be contiguous from ${chunk.startOrdinal}`,
-      });
-    }
-  });
-  if (jsonBytes(chunk) > COUPANG_CATALOG_MAX_CHUNK_BYTES) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: `chunk exceeds ${COUPANG_CATALOG_MAX_CHUNK_BYTES} bytes`,
-    });
-  }
-});
-export type CoupangCatalogFullDetailsChunkV1 = z.infer<
-  typeof CoupangCatalogFullDetailsChunkV1Schema
->;
-
 function stableDocumentValue(value: unknown): string {
   if (value === null || typeof value !== 'object') return JSON.stringify(value) ?? 'null';
   if (Array.isArray(value)) return `[${value.map(stableDocumentValue).join(',')}]`;
@@ -460,288 +385,8 @@ function stableDocumentValue(value: unknown): string {
     .join(',')}}`;
 }
 
-export const CoupangCatalogManifestV1Schema = z.object({
-  totalItems: z.number().int().positive(),
-  pageSize: z.number().int().positive().max(500),
-  expectedPages: z.number().int().positive(),
-  firstPageFingerprint: Sha256Schema,
-}).superRefine((manifest, ctx) => {
-  const expected = Math.ceil(manifest.totalItems / manifest.pageSize);
-  if (manifest.expectedPages !== expected) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['expectedPages'],
-      message: `expectedPages must equal ceil(totalItems/pageSize): ${expected}`,
-    });
-  }
-});
-export type CoupangCatalogManifestV1 = z.infer<typeof CoupangCatalogManifestV1Schema>;
-
-export const CoupangCatalogDetailManifestConfirmationV1Schema = z.object({
-  version: z.literal(COUPANG_CATALOG_STAGE_SCHEMA_VERSION),
-  kind: z.literal('detail_manifest_confirmation'),
-  manifest: CoupangCatalogManifestV1Schema,
-  basicAttemptId: z.string().uuid(),
-  basicManifestHash: Sha256Schema,
-});
-export type CoupangCatalogDetailManifestConfirmationV1 = z.infer<
-  typeof CoupangCatalogDetailManifestConfirmationV1Schema
->;
-
-export const CoupangCatalogDiscoveryItemV1Schema = z.object({
-  ordinal: z.number().int().nonnegative(),
-  externalProductId: ExternalIdSchema,
-  registeredName: NullableTextSchema,
-  primaryImageUrl: HttpUrlSchema.nullable(),
-  saleStatus: NullableTextSchema.optional().default(null),
-});
-export type CoupangCatalogDiscoveryItemV1 = z.infer<typeof CoupangCatalogDiscoveryItemV1Schema>;
-
-export const CoupangCatalogDiscoveryPageV1Schema = z.object({
-  version: z.literal(1),
-  kind: z.literal('discovery_page'),
-  page: z.number().int().positive(),
-  manifest: CoupangCatalogManifestV1Schema,
-  items: z.array(CoupangCatalogDiscoveryItemV1Schema).min(1).max(500),
-}).superRefine((page, ctx) => {
-  if (page.page > page.manifest.expectedPages) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['page'],
-      message: 'page exceeds manifest expectedPages',
-    });
-  }
-  const productIds = new Set<string>();
-  const ordinals = new Set<number>();
-  page.items.forEach((item, index) => {
-    if (productIds.has(item.externalProductId)) {
-      addDuplicateIssue(ctx, ['items', index, 'externalProductId'], 'externalProductId', item.externalProductId);
-    }
-    if (ordinals.has(item.ordinal)) {
-      addDuplicateIssue(ctx, ['items', index, 'ordinal'], 'ordinal', String(item.ordinal));
-    }
-    productIds.add(item.externalProductId);
-    ordinals.add(item.ordinal);
-  });
-});
-export type CoupangCatalogDiscoveryPageV1 = z.infer<typeof CoupangCatalogDiscoveryPageV1Schema>;
-
-
-export const CoupangCatalogManifestConfirmationV1Schema = z.object({
-  version: z.literal(1),
-  kind: z.literal('manifest_confirmation'),
-  manifest: CoupangCatalogManifestV1Schema,
-});
-export type CoupangCatalogManifestConfirmationV1 = z.infer<
-  typeof CoupangCatalogManifestConfirmationV1Schema
->;
-
 export const CoupangCatalogDeletionOutcomeSchema = z.enum(['deleted', 'present', 'not_found']);
 export type CoupangCatalogDeletionOutcome = z.infer<typeof CoupangCatalogDeletionOutcomeSchema>;
-
-/**
- * 목록에서 사라진 상품을 `PRODUCT_ID` + `displayDeletedProduct=true`로 조회한 결과 (KID-348).
- * `deleted`는 Wing이 삭제 상태로 돌려준 것, `present`는 삭제되지 않은 채 돌려준 것(목록 누락은
- * 일시적), `not_found`는 아무것도 돌려주지 않은 것이다. 서버는 `deleted`만 삭제로 기록한다.
- */
-export const CoupangCatalogDeletionConfirmationChunkV1Schema = z.object({
-  version: z.literal(COUPANG_CATALOG_STAGE_SCHEMA_VERSION),
-  kind: z.literal('deletion_confirmation'),
-  products: z.array(z.object({
-    externalProductId: ExternalIdSchema,
-    outcome: CoupangCatalogDeletionOutcomeSchema,
-    productStatus: NullableTextSchema.optional().default(null),
-    raw: z.record(z.unknown()).optional(),
-  })).min(1).max(COUPANG_CATALOG_MAX_DELETION_CONFIRMATIONS_PER_CHUNK),
-}).superRefine((chunk, ctx) => {
-  const seen = new Set<string>();
-  chunk.products.forEach((item, index) => {
-    if (seen.has(item.externalProductId)) {
-      addDuplicateIssue(ctx, ['products', index, 'externalProductId'], 'externalProductId', item.externalProductId);
-    }
-    seen.add(item.externalProductId);
-  });
-  if (jsonBytes(chunk) > COUPANG_CATALOG_MAX_CHUNK_BYTES) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: `chunk exceeds ${COUPANG_CATALOG_MAX_CHUNK_BYTES} bytes`,
-    });
-  }
-});
-export type CoupangCatalogDeletionConfirmationChunkV1 = z.infer<
-  typeof CoupangCatalogDeletionConfirmationChunkV1Schema
->;
-
-export const CoupangCatalogChunkKindSchema = z.enum([
-  'discovery_page',
-  'listing_basics',
-  'full_details',
-  'manifest_confirmation',
-  'detail_manifest_confirmation',
-  'deletion_confirmation',
-]);
-export type CoupangCatalogChunkKind = z.infer<typeof CoupangCatalogChunkKindSchema>;
-
-const ChunkRequestBaseSchema = z.object({
-  sequence: z.number().int().positive(),
-  checksum: Sha256Schema,
-  itemCount: z.number().int().nonnegative(),
-});
-
-export const PutCoupangCatalogChunkRequestSchema = z.discriminatedUnion('kind', [
-  ChunkRequestBaseSchema.extend({
-    kind: z.literal('discovery_page'),
-    payload: CoupangCatalogDiscoveryPageV1Schema,
-  }),
-  ChunkRequestBaseSchema.extend({
-    kind: z.literal('listing_basics'),
-    payload: CoupangCatalogListingBasicsChunkV1Schema,
-  }),
-  ChunkRequestBaseSchema.extend({
-    kind: z.literal('full_details'),
-    payload: CoupangCatalogFullDetailsChunkV1Schema,
-  }),
-  ChunkRequestBaseSchema.extend({
-    kind: z.literal('manifest_confirmation'),
-    payload: CoupangCatalogManifestConfirmationV1Schema,
-  }),
-  ChunkRequestBaseSchema.extend({
-    kind: z.literal('detail_manifest_confirmation'),
-    payload: CoupangCatalogDetailManifestConfirmationV1Schema,
-  }),
-  ChunkRequestBaseSchema.extend({
-    kind: z.literal('deletion_confirmation'),
-    payload: CoupangCatalogDeletionConfirmationChunkV1Schema,
-  }),
-]).superRefine((request, ctx) => {
-  const expectedCount = request.kind === 'listing_basics' || request.kind === 'full_details' || request.kind === 'deletion_confirmation'
-    ? request.payload.products.length
-    : request.kind === 'discovery_page'
-      ? request.payload.items.length
-      : 1;
-  if (request.itemCount !== expectedCount) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['itemCount'],
-      message: `itemCount must equal payload count: ${expectedCount}`,
-    });
-  }
-  // 삭제 확인 청크는 조회 묶음 순서라 순번을 페이로드에서 끌어낼 수 없다: 1부터 이어지기만 하면 된다.
-  const expectedSequence = request.kind === 'listing_basics' || request.kind === 'full_details'
-    ? request.payload.startOrdinal + 1
-    : request.kind === 'discovery_page'
-      ? request.payload.page
-      : request.kind === 'deletion_confirmation'
-        ? request.sequence
-        : 1;
-  if (request.sequence !== expectedSequence) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['sequence'],
-      message: `sequence must equal ${expectedSequence} for ${request.kind}`,
-    });
-  }
-  if (jsonBytes(request.payload) > COUPANG_CATALOG_MAX_CHUNK_BYTES) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['payload'],
-      message: `payload exceeds ${COUPANG_CATALOG_MAX_CHUNK_BYTES} bytes`,
-    });
-  }
-});
-export type PutCoupangCatalogChunkRequest = z.infer<
-  typeof PutCoupangCatalogChunkRequestSchema
->;
-
-export const StartCoupangCatalogCollectionRequestSchema = z.object({
-  collectorVersion: z.string().trim().min(1).max(100),
-  stage: CoupangCatalogStageSchema,
-  /**
-   * Details is admitted by the internal basics-to-details handoff.  The
-   * caller must pin the exact completed basics attempt; the owner rechecks
-   * that basis inside its account transaction before creating the child.
-   */
-  expectedBasicAttemptId: z.string().uuid().optional(),
-  /**
-   * KID-348 운영자 "상품 하나 상세 다시 받기". 목록 단계 없이 details 단계를 이 상품들만
-   * 대상으로 연다. 삭제 확인은 하지 않는다.
-   */
-  detailProductIds: z.array(ExternalIdSchema).min(1).max(100).optional(),
-}).strict();
-export type StartCoupangCatalogCollectionRequest = z.infer<
-  typeof StartCoupangCatalogCollectionRequestSchema
->;
-
-export const CoupangCatalogCollectionErrorRequestSchema = z.object({
-  code: z.string().trim().min(1).max(100),
-  message: z.string().trim().min(1).max(1_000),
-  phase: z.enum(['discovery', 'hydration', 'ready_to_finalize']),
-  recoverable: z.boolean().optional(),
-  notBefore: zIsoDate.optional(),
-});
-export type CoupangCatalogCollectionErrorRequest = z.infer<
-  typeof CoupangCatalogCollectionErrorRequestSchema
->;
-
-/**
- * A provider rate-limit pause is a non-terminal owner mutation.  Keep this
- * request narrower than the terminal failure contract so clients cannot
- * accidentally turn a pause into an arbitrary recoverable state.
- */
-export const CoupangCatalogCollectionPauseRequestSchema = z.object({
-  code: z.literal('WING_PROVIDER_RATE_LIMITED'),
-  message: z.string().trim().min(1).max(1_000),
-  phase: z.literal('hydration'),
-  recoverable: z.literal(true),
-  notBefore: zIsoDate,
-}).strict();
-export type CoupangCatalogCollectionPauseRequest = z.infer<
-  typeof CoupangCatalogCollectionPauseRequestSchema
->;
-
-export const CoupangCatalogCollectionStatusSchema = z.enum(['RUNNING', 'COMPLETE', 'FAILED']);
-export const CoupangCatalogCollectionPlanSchema = z.object({
-  collectorVersion: z.string().min(1).max(100),
-  stage: CoupangCatalogStageSchema,
-  listUrl: z.string().url(),
-  detailUrl: z.string().url(),
-  channelAccountId: z.string().uuid(),
-  vendorId: z.string().min(1),
-  publicationRevision: z.string().regex(/^\d+$/),
-  basicAttemptId: z.string().uuid().optional(),
-  basicManifestHash: Sha256Schema.optional(),
-  basicPublicationSequence: z.string().regex(/^\d+$/).optional(),
-  basicProductIds: z.array(ExternalIdSchema).max(100_000).optional(),
-  /**
-   * KID-348: 이번 details 단계가 상세를 받아야 하는 상품(신규·`modifiedOn` 변경·상세 없음).
-   * 완결·순번 검사는 이 부분집합 기준이다. 없으면 `basicProductIds` 전체(옛 규칙).
-   */
-  detailTargetProductIds: z.array(ExternalIdSchema).max(100_000).optional(),
-  /** KID-348: 목록에서 사라져 `deletion_confirmation`으로 확인해야 하는 상품. */
-  absentProductIds: z.array(ExternalIdSchema).max(100_000).optional(),
-  /** Stable non-secret root identity for a staged internal chain. */
-  rootAttemptId: z.string().uuid().optional(),
-  /** Preallocated by a basics owner; reused for every details admission retry. */
-  detailsIdempotencyKey: z.string().uuid().optional(),
-}).strict();
-export type CoupangCatalogCollectionPlan = z.infer<typeof CoupangCatalogCollectionPlanSchema>;
-export const CoupangCatalogCollectionPermitSchema = z.object({
-  attemptId: z.string().uuid(),
-  attemptToken: z.string().uuid(),
-  state: CoupangCatalogCollectionStatusSchema,
-  expiresAt: zIsoDate,
-  plan: CoupangCatalogCollectionPlanSchema,
-}).strict();
-export type CoupangCatalogCollectionPermit = z.infer<typeof CoupangCatalogCollectionPermitSchema>;
-export const CoupangCatalogCollectionPhaseSchema = z.enum([
-  'discovery',
-  'hydration',
-  'ready_to_finalize',
-  'finished',
-]);
-export type CoupangCatalogCollectionPhase = z.infer<
-  typeof CoupangCatalogCollectionPhaseSchema
->;
 
 /** 실행 품질 보고 (KID-348): 종료 트랜잭션이 채운다. 화면은 미확인 목록을 그대로 보여 준다. */
 export const CoupangCatalogCollectionQualitySchema = z.object({
@@ -753,92 +398,81 @@ export const CoupangCatalogCollectionQualitySchema = z.object({
 });
 export type CoupangCatalogCollectionQuality = z.infer<typeof CoupangCatalogCollectionQualitySchema>;
 
-export const CoupangCatalogCollectionRunSchema = z.object({
-  attemptId: z.string().uuid(),
-  idempotencyKey: z.string().uuid(),
+// ── 실행 계약 kind (KID-354): Wing 카탈로그 동기화 셋 ───────────────────────────────
+// 옛 attempt 경로와 그 청크 봉투·계획·상태 스키마는 지웠다. 청크 payload 원소는 위 상품 스키마이고, 순번은 실행
+// 계약(chunkKind·sequence)이 맡는다.
+
+export const WING_CATALOG_LIST_KIND = 'channels.wing_catalog_list' as const;
+export const WING_CATALOG_DETAILS_KIND = 'channels.wing_catalog_details' as const;
+export const WING_CATALOG_EXCEL_KIND = 'channels.wing_catalog_excel' as const;
+export const WING_CATALOG_KINDS = [WING_CATALOG_LIST_KIND, WING_CATALOG_DETAILS_KIND, WING_CATALOG_EXCEL_KIND] as const;
+
+/** 청크 종류(chunkKind). 목록 kind는 `listing_basics`만, 상세 kind는 `full_details`·`deletion_confirmation`. */
+export const WING_CATALOG_CHUNK_KINDS = {
+  listingBasics: 'listing_basics',
+  fullDetails: 'full_details',
+  deletionConfirmation: 'deletion_confirmation',
+} as const;
+
+const WingCatalogProductIdsSchema = z.array(ExternalIdSchema).max(100_000);
+
+/** `channels.wing_catalog_list` scope: 어느 계정의 목록인가. lockKey는 `account:<channelAccountId>`. */
+export const WingCatalogListScopeSchema = z.object({
   channelAccountId: z.string().uuid(),
-  state: CoupangCatalogCollectionStatusSchema,
-  expiresAt: zIsoDate,
-  plan: CoupangCatalogCollectionPlanSchema,
-  phase: CoupangCatalogCollectionPhaseSchema,
-  collectorVersion: z.string().min(1),
-  manifest: CoupangCatalogManifestV1Schema.nullable(),
-  progress: z.object({
-    discoveryPagesStored: z.number().int().nonnegative(),
-    discoveredProducts: z.number().int().nonnegative(),
-    hydratedProducts: z.number().int().nonnegative(),
-    optionCount: z.number().int().nonnegative(),
-    mediaCount: z.number().int().nonnegative(),
-    storedChunks: z.number().int().nonnegative(),
-    publishedProducts: z.number().int().nonnegative(),
-    publishedOptionCount: z.number().int().nonnegative(),
-    publishedMediaCount: z.number().int().nonnegative(),
-    publishedChunks: z.number().int().nonnegative(),
-    firstPublishedAt: zIsoDate.nullable(),
-    lastPublishedAt: zIsoDate.nullable(),
-  }),
-  missing: z.object({
-    discoverySequences: z.array(z.number().int().positive()),
-    productIds: z.array(ExternalIdSchema),
-  }),
-  snapshotHash: Sha256Schema.nullable(),
-  error: z.object({
-    code: z.string().min(1),
-    message: z.string().min(1),
-    phase: CoupangCatalogCollectionPhaseSchema,
-    recoverable: z.boolean(),
-    notBefore: zIsoDate.nullable().optional(),
-  }).nullable(),
-  publication: z.object({
-    sourceImportRunId: z.string().uuid(),
-    duplicate: z.boolean(),
-    changes: z.record(z.number().int().nonnegative()),
-  }).nullable(),
-  quality: CoupangCatalogCollectionQualitySchema.optional(),
-  createdAt: zIsoDate,
-  updatedAt: zIsoDate,
-  finishedAt: zIsoDate.nullable(),
-  /** Whole-flow status is token-free and is stable across the internal handoff. */
-  rootAttemptId: z.string().uuid().optional(),
-  currentAttemptId: z.string().uuid().optional(),
-  currentStage: CoupangCatalogStageSchema.optional(),
-  overallState: CoupangCatalogCollectionStatusSchema.optional(),
-});
-export type CoupangCatalogCollectionRun = z.infer<typeof CoupangCatalogCollectionRunSchema>;
+}).strict();
+export type WingCatalogListScope = z.infer<typeof WingCatalogListScopeSchema>;
+
+/** `channels.wing_catalog_list` result: 상세 계획. `next`가 있으면 확장이 상세 kind를 이어서 begin한다. */
+export const WingCatalogListResultSchema = z.object({
+  listedProductCount: z.number().int().nonnegative(),
+  detailTargetProductIds: WingCatalogProductIdsSchema,
+  absentProductIds: WingCatalogProductIdsSchema,
+  next: z.object({
+    kind: z.literal(WING_CATALOG_DETAILS_KIND),
+    scope: z.lazy(() => WingCatalogDetailsScopeSchema),
+  }).strict().nullable(),
+}).strict();
+export type WingCatalogListResult = z.infer<typeof WingCatalogListResultSchema>;
 
 /**
- * An account's latest browser catalog import (KID-147). `latestAttempt` is the
- * root the import started with: its `overallState` is the whole import's state
- * and its id is what an operator stops. `detailsAttempt` is the details child
- * once the handoff admitted it.
+ * `channels.wing_catalog_details` scope. 목록 kind의 result에서 오거나, "상품 하나 다시 받기"가
+ * `{ detailTargetProductIds: [id], absentProductIds: [] }`로 직접 시작한다. owner `plan`이 두 목록을 저장 행과 대조한다.
  */
-export const CoupangCatalogSourceStatusSchema = z.object({
-  latestAttempt: CoupangCatalogCollectionRunSchema.nullable(),
-  detailsAttempt: CoupangCatalogCollectionRunSchema.nullable(),
-});
-export type CoupangCatalogSourceStatus = z.infer<typeof CoupangCatalogSourceStatusSchema>;
-
-export const FinalizeCoupangCatalogCollectionRequestSchema = z.object({
-  snapshotHash: Sha256Schema,
-});
-export type FinalizeCoupangCatalogCollectionRequest = z.infer<
-  typeof FinalizeCoupangCatalogCollectionRequestSchema
->;
-
-export const CoupangCatalogBrowserStatusSchema = z.object({
-  attemptId: z.string().uuid(),
-  active: z.boolean(),
-  attention: BrowserCollectionAttentionSchema.nullable(),
-  phase: CoupangCatalogCollectionPhaseSchema.optional(),
-  currentPage: z.number().int().nonnegative().optional(),
-  totalPages: z.number().int().nonnegative().optional(),
-  hydratedProducts: z.number().int().nonnegative().optional(),
-  discoveredProducts: z.number().int().nonnegative().optional(),
-  uploadedChunks: z.number().int().nonnegative().optional(),
-  error: z.string().optional(),
-  /** Whole-flow status; deliberately excludes attempt tokens. */
-  rootAttemptId: z.string().uuid().optional(),
-  currentAttemptId: z.string().uuid().optional(),
-  currentStage: CoupangCatalogStageSchema.optional(),
+export const WingCatalogDetailsScopeSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  detailTargetProductIds: WingCatalogProductIdsSchema,
+  absentProductIds: WingCatalogProductIdsSchema,
+  /**
+   * 어디서 시작했나: `list`는 목록 kind의 `result.next`(동기화 연쇄), `manual`은 운영자가 직접 시작한 상품 하나
+   * 다시 받기. 카탈로그 신선도는 동기화 연쇄의 상세만 센다.
+   */
+  via: z.enum(['list', 'manual']).default('manual'),
 }).strict();
-export type CoupangCatalogBrowserStatus = z.infer<typeof CoupangCatalogBrowserStatusSchema>;
+export type WingCatalogDetailsScope = z.infer<typeof WingCatalogDetailsScopeSchema>;
+
+/** `channels.wing_catalog_excel` scope. 파일 자체는 begin의 `fileHash`(unique)로 식별한다. */
+export const WingCatalogExcelScopeSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  observedAt: z.string().datetime({ offset: true }).optional(),
+}).strict();
+export type WingCatalogExcelScope = z.infer<typeof WingCatalogExcelScopeSchema>;
+
+/** 청크 payload 원소. 순번·연속성은 실행 계약의 (chunkKind, sequence)가 보장하므로 ordinal은 없다. */
+export const WingCatalogListingBasicsItemSchema = CoupangCatalogBasicProductV1Schema;
+export const WingCatalogFullDetailsItemSchema = CoupangCatalogDetailProductV1Schema;
+export const WingCatalogDeletionConfirmationItemSchema = z.object({
+  externalProductId: ExternalIdSchema,
+  outcome: CoupangCatalogDeletionOutcomeSchema,
+  productStatus: NullableTextSchema.optional().default(null),
+}).strict();
+export type WingCatalogDeletionConfirmationItem = z.infer<typeof WingCatalogDeletionConfirmationItemSchema>;
+
+/** `channels.wing_catalog_excel` result(KID-351): 엑셀 반영 수. 업로드 응답 `{ operation }`의 `operation.result`. */
+export const WingCatalogExcelResultSchema = z.object({
+  createdProductCount: z.number().int().nonnegative(),
+  updatedProductCount: z.number().int().nonnegative(),
+  createdSkuCount: z.number().int().nonnegative(),
+  updatedSkuCount: z.number().int().nonnegative(),
+  skippedRowCount: z.number().int().nonnegative(),
+}).strict();
+export type WingCatalogExcelResult = z.infer<typeof WingCatalogExcelResultSchema>;

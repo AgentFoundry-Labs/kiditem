@@ -10,6 +10,7 @@ import { StockoutCheckService } from '../application/service/listing/stockout-ch
 import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repository/registration-execution.repository.adapter';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { ownerTransaction } from '../../prisma/owner-transaction';
+import { makeWingCatalogOperations } from '../../test-helpers/wing-catalog-operations';
 
 const POLICY = 'capacity_at_or_below_safety_stock' as const;
 describe('explicit stockout transaction fence (PostgreSQL)', () => {
@@ -19,7 +20,7 @@ describe('explicit stockout transaction fence (PostgreSQL)', () => {
   let executions: RegistrationExecutionRepositoryAdapter;
   beforeAll(async () => {
     prisma = makeTestPrisma(); await prisma.$connect();
-    persistence = new StockoutCheckPersistenceAdapter(prisma as PrismaService, new ProductTransactionalReadRepositoryAdapter());
+    persistence = new StockoutCheckPersistenceAdapter(prisma as PrismaService, new ProductTransactionalReadRepositoryAdapter(), makeWingCatalogOperations(prisma).operations);
     executions = new RegistrationExecutionRepositoryAdapter(prisma as PrismaService, channelAdapters());
     service = new StockoutCheckService(persistence, executions, channelAdapters());
   });
@@ -112,5 +113,17 @@ describe('explicit stockout transaction fence (PostgreSQL)', () => {
     expect(await service.preview(ORG, [f.listing.id])).toMatchObject([{ decision: 'already_sold_out' }]);
     await prisma.channelListingOptionDailySnapshot.create({ data: { organizationId: ORG, listingId: f.listing.id, listingOptionId: f.option.id, channel: 'coupang', externalId: f.listing.externalId, externalOptionId: f.option.externalOptionId, businessDate: new Date('2026-09-02'), stockQty: 20, lastObservedAt: new Date('2026-09-02T00:00:00Z') } });
     expect(await service.preview(ORG, [f.listing.id])).toMatchObject([{ decision: 'eligible' }]);
+  });
+  it('dates a catalog status written by a Wing catalog operation by that operation, so an older observation does not override it (KID-354)', async () => {
+    const f = await fixture();
+    await prisma.channelListingOptionDailySnapshot.create({ data: { organizationId: ORG, listingId: f.listing.id, listingOptionId: f.option.id, channel: 'coupang', externalId: f.listing.externalId, externalOptionId: f.option.externalOptionId, businessDate: new Date('2026-09-02'), stockQty: 20, lastObservedAt: new Date('2026-09-02T00:00:00Z') } });
+    const listed = await makeWingCatalogOperations(prisma).runList(f.account.id, [{
+      externalProductId: f.listing.externalId, registeredName: 'r', displayName: 'd', category: null, manufacturer: null, brand: null,
+      productStatus: 'APPROVED', media: [], raw: {},
+      options: [{ externalOptionId: f.option.externalOptionId, optionName: '기본', skuStatus: 'SUSPENSION', salePrice: 1000, sellerSku: null, modelNumber: null, barcode: null, attributes: [], media: [], raw: {} }],
+    }]);
+    await expect(prisma.channelListingOption.findUniqueOrThrow({ where: { id: f.option.id } })).resolves.toMatchObject({ lastOperationId: listed.id, lastImportRunId: null });
+    const [subject] = await persistence.readSubjects(ORG, [f.listing.id]);
+    expect(subject?.options[0]).toMatchObject({ status: 'SUSPENSION' });
   });
 });

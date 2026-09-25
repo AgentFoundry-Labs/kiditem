@@ -27,10 +27,16 @@ containing test-style underscore paths.
 
 ## Runtime layers
 
+- Sourcing collection is the runtime kinds `sourcing.*` (KID-360); the popup's
+  current-product capture (`COLLECT_CURRENT`) and the KidItem page keepalive
+  port are received by `src/entry/`.
 - Add new collection only under `src/collectors/<kind>/` and `src/sites/<site>/`;
   talk to the server only through `src/core/operation-client.ts`. The four
   layers and their import rules are in `src/README.md`, enforced by
   `npm run check:extension-runtime-layers`.
+- A collector declares the site shape it needs as an interface in its folder;
+  `entry/site-handles.ts` hands it the `sites/<site>` implementation. The Wing
+  catalog kinds (`channels.wing_catalog_*`, KID-354) are the reference collectors.
 
 ## Owner boundary
 

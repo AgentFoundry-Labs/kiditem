@@ -4,10 +4,8 @@ import { useEffect, useMemo, useState } from 'react';
 import * as Dialog from '@radix-ui/react-dialog';
 import { FileSpreadsheet, Loader2, X } from 'lucide-react';
 import type { ChannelAccountListItem } from '@kiditem/shared/channel-account';
-import type {
-  CoupangRocketMatchingCsvImportResponse,
-  CoupangWingCatalogImportResponse,
-} from '@kiditem/shared/source-import';
+import type { WingCatalogWorkbookUpload } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/wing-catalog-collection';
+import type { CoupangRocketMatchingCsvImportResponse } from '@kiditem/shared/source-import';
 import { friendlyError } from '@/lib/api-error';
 import { formatNumber } from '@/lib/utils';
 import {
@@ -24,7 +22,7 @@ type ChannelCatalogImportDialogProps = {
 };
 
 type CatalogImportResponse =
-  | CoupangWingCatalogImportResponse
+  | WingCatalogWorkbookUpload
   | CoupangRocketMatchingCsvImportResponse;
 
 type AutomaticMatchingSummary = {

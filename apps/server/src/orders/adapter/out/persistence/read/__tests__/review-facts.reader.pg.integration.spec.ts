@@ -80,6 +80,59 @@ describe('Review facts reader over disposable PostgreSQL', () => {
     expect(result.map((item) => item.content)).toEqual(['current complete']);
   });
 
+  it('실행(operation) 행이 같은 리뷰의 옛 run 행보다 항상 현재다 — 옛 run만 있는 리뷰는 run 세대 규칙 그대로', async () => {
+    const legacyRun = await run(TEST_ORGANIZATION_ID, 'completed', 9n);
+    await review(TEST_ORGANIZATION_ID, legacyRun.id, 'moved-review', 'legacy generation');
+    await review(TEST_ORGANIZATION_ID, legacyRun.id, 'legacy-only', 'legacy only');
+    await prisma.review.createMany({
+      data: [
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          operationId: '74000000-0000-4000-8000-000000000001',
+          // 옛 run(imported_at 2026-05-09)보다 이른 발행 시각이어도 실행 행이 이긴다.
+          publishedAt: new Date('2026-01-01T00:00:00.000Z'),
+          platform: 'coupang',
+          externalReviewId: 'moved-review',
+          rating: 4,
+          content: 'operation current',
+        },
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          operationId: '74000000-0000-4000-8000-000000000001',
+          publishedAt: new Date('2026-01-01T00:00:00.000Z'),
+          platform: 'coupang',
+          externalReviewId: 'operation-only',
+          rating: 3,
+          content: 'operation only',
+        },
+        {
+          organizationId: TEST_ORGANIZATION_ID,
+          platform: 'coupang',
+          externalReviewId: 'unowned',
+          rating: 1,
+          content: 'unowned hidden',
+        },
+      ],
+    });
+    await prisma.review.create({
+      data: {
+        organizationId: OTHER_ORGANIZATION_ID,
+        operationId: '74000000-0000-4000-8000-000000000002',
+        publishedAt: new Date('2026-09-01T00:00:00.000Z'),
+        platform: 'coupang',
+        externalReviewId: 'moved-review',
+        rating: 5,
+        content: 'foreign operation hidden',
+      },
+    });
+
+    const result = await prisma.$transaction((tx) =>
+      readCurrentReviewItems(tx, TEST_ORGANIZATION_ID, {}, 1, 50),
+    );
+
+    expect(result.map((item) => item.content).sort()).toEqual(['legacy only', 'operation current', 'operation only']);
+  });
+
   it('excludes non-Coupang reviews without a completed source owner run', async () => {
     const completed = await prisma.sourceImportRun.create({
       data: {

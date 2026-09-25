@@ -70,7 +70,8 @@ export function operationOwner(kind: OperationKind): string {
  * 겹치면 안 되는 실행은 같은 lockKey를 잡는다. unique는 `(organizationId, lockKey)`이고 kind가 없어서
  * 한 키가 kind를 가로질러 막는다(ADR-0025).
  * - `org`: 조직에 하나.
- * - `account:<channelAccountId>`: 그 계정의 Wing 로그인을 쓰는 kind만(카탈로그 동기화 등).
+ * - `account:<channelAccountId>`: 그 채널 계정의 **몰 로그인**을 쓰는 kind(Wing 카탈로그·상품평, 로켓 supplier 화면, 각 몰 주문 수집 …).
+ *   몰은 어느 것이든 하나의 계정 키다 — Wing만의 규칙이 아니다(KID-359).
  * - `resource:<site>:<id>`: 그 밖의 공유 세션·슬롯. 예 `resource:ad-center:<channelAccountId>`,
  *   `resource:keyword:<keyword>`(순위 두 kind가 같은 슬롯).
  */
@@ -251,6 +252,16 @@ export const OperationListQuerySchema = z.object({
 }).strict();
 export type OperationListQuery = z.infer<typeof OperationListQuerySchema>;
 
+/**
+ * 연쇄(KID-354): finish의 `result.next`에 이 모양이 있으면 확장 runner가 같은 환경으로 그 kind를 이어서 begin한다.
+ * kind 특수 처리가 아니라 일반 규칙이다 — 카탈로그 목록 → 상세처럼 앞 실행의 결과가 뒤 실행의 scope인 경우.
+ */
+export const OperationNextSchema = z.object({
+  kind: OperationKindSchema,
+  scope: JsonObjectSchema,
+}).strict();
+export type OperationNext = z.infer<typeof OperationNextSchema>;
+
 export const OperationListResponseSchema = z.object({
   operations: z.array(OperationViewSchema),
 }).strict();
@@ -270,6 +281,8 @@ export const OperationPrepareRequestSchema = z.object({
   scheduledFor: zIsoDate.optional(),
   /** claim 횟수 상한(재시도 포함). 기본 1 = 재시도 없음. */
   maxAttempts: z.number().int().min(1).max(20).default(1),
+  /** 실행을 시작한 사용자(있으면). owner `plan`이 `context.userId`로 받아 plan JSON에 보관한다(KID-354). */
+  userId: z.string().uuid().optional(),
 }).strict();
 export type OperationPrepareRequest = z.infer<typeof OperationPrepareRequestSchema>;
 

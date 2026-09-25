@@ -89,6 +89,17 @@ export async function readCompletedCatalogRunIds(
 }
 
 /**
+ * 완료된 반영이 쓴 리스팅: 완료 run이 마지막으로 쓴 행, 또는 실행 계약으로 옮긴 원천(Wing 카탈로그, KID-354)이
+ * 쓴 행. 실행은 finish 트랜잭션 안에서만 원장을 쓰므로 `lastOperationId`가 있으면 곧 완료 반영이다.
+ */
+export function publishedCatalogListingBranches(completedRunIds: readonly string[]): Prisma.ChannelListingWhereInput[] {
+  return [
+    ...(completedRunIds.length > 0 ? [{ lastImportRunId: { in: [...completedRunIds] } }] : []),
+    { lastOperationId: { not: null } },
+  ];
+}
+
+/**
  * An active option carrying a catalog owner publication marker. It admits a
  * listing as catalog identity for matching availability, Sellpia alias
  * candidates, and the matching row lock even when the listing's last import
@@ -108,7 +119,7 @@ export function publishedCatalogOptionWhere(
 
 /**
  * Counts an account's active listings whose catalog identity is published: the
- * last import is a completed catalog run. Details write listings only in their
+ * last import is a completed catalog run or a finished operation. Details write listings only in their
  * terminal transaction (KID-348), so no running or failed run publishes a
  * countable listing.
  */
@@ -123,7 +134,7 @@ export async function countPublishedCatalogListings(
       organizationId,
       channelAccountId,
       isActive: true,
-      lastImportRunId: { in: completedRunIds },
+      OR: publishedCatalogListingBranches(completedRunIds),
     },
   });
 }

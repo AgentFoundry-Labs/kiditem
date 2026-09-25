@@ -4,10 +4,7 @@ import {
   Body,
   Controller,
   Get,
-  Headers,
-  HttpCode,
   Param,
-  ParseUUIDPipe,
   Post,
   Put,
   Query,
@@ -22,7 +19,7 @@ import { SourcingRecommendationService } from '../../../application/service/sour
 import { SourcingWingCatalogIngestService } from '../../../application/service/sourcing-wing-catalog-ingest.service';
 import { SourcingKeywordSuggestionService } from '../../../application/service/sourcing-keyword-suggestion.service';
 import { SourcingKeywordPreferenceService } from '../../../application/service/sourcing-keyword-preference.service';
-import { parseAttemptToken as parseSourceToken, toPublicAttempt, toPublicStatus } from './sourcing-source-attempt-http';
+import { toPublicAttempt } from './sourcing-source-attempt-http';
 import {
   SourcingCoupangObservationDto,
   SourcingKeywordPreferenceDto,
@@ -84,80 +81,14 @@ export class SourcingWorkspaceController {
     @CurrentOrganization() organizationId: string,
     @Body() body: unknown,
   ) {
-    const parsed = parseStrictBody(z.object({ sourceAttemptId: z.string().uuid() }).strict(), body, 'INVALID_SOURCE_ATTEMPT');
-    const attempt = await this.wingCatalog.read({ organizationId, attemptId: parsed.sourceAttemptId });
-    if (attempt.state !== 'COMPLETE' || !['market_analysis', 'recommendation_validation'].includes(String(attempt.plan.purpose))) {
+    // 끝난 Wing 검색 소싱 실행(KID-360)의 발행이 시장분석·추천 검증 용도일 때만 추천을 다시 계산한다.
+    const parsed = parseStrictBody(z.object({ sourceOperationId: z.string().uuid() }).strict(), body, 'INVALID_SOURCE_ATTEMPT');
+    const purpose = await this.wingCatalog.publishedPurpose({ organizationId, operationId: parsed.sourceOperationId });
+    if (!purpose || !['market_analysis', 'recommendation_validation'].includes(purpose)) {
       throw new ConflictException('WING_RECOMMENDATION_SOURCE_NOT_COMPLETE');
     }
     return this.recommendations.refresh({ organizationId, limit: 50,
-      idempotencyKey: `wing-source:${attempt.attemptId}:recommendations` });
-  }
-
-  @Get('wing-catalog/current')
-  async currentWingCatalog(@CurrentOrganization() organizationId: string) {
-    const attempt = await this.wingCatalog.current(organizationId);
-    return attempt ? toPublicAttempt(attempt) : null;
-  }
-
-  @Post('wing-catalog/attempts')
-  beginWingCatalog(
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-    @Headers('idempotency-key') idempotencyKey: string | undefined,
-    @Body() body: unknown,
-  ) {
-    return this.wingCatalog.begin({ organizationId, requestedByUserId: user.id,
-      idempotencyKey: idempotencyKey ?? '', input: body });
-  }
-
-  @Get('wing-catalog/attempts/:attemptId')
-  readWingCatalog(
-    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.wingCatalog.read({ organizationId, attemptId }).then(toPublicAttempt);
-  }
-
-  @Post('wing-catalog/attempts/:attemptId/chunks')
-  uploadWingCatalog(
-    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
-    @Headers('x-source-attempt-token') token: string | undefined,
-    @Body() batch: unknown,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.wingCatalog.upload({ organizationId, attemptId, attemptToken: parseSourceToken(token), batch });
-  }
-
-  @Put('wing-catalog/attempts/:attemptId')
-  completeWingCatalog(
-    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
-    @Headers('x-source-attempt-token') token: string | undefined,
-    @Body() finalization: unknown,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.wingCatalog.complete({ organizationId, attemptId,
-      attemptToken: parseSourceToken(token), finalization }).then(toPublicAttempt);
-  }
-
-  @Post('wing-catalog/attempts/:attemptId/fail')
-  failWingCatalog(
-    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
-    @Headers('x-source-attempt-token') token: string | undefined,
-    @Body() body: { code?: unknown; message?: unknown },
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.wingCatalog.fail({ organizationId, attemptId, attemptToken: parseSourceToken(token),
-      code: typeof body?.code === 'string' ? body.code : '',
-      message: typeof body?.message === 'string' ? body.message : '' }).then(toPublicAttempt);
-  }
-
-  @Post('wing-catalog/attempts/:attemptId/cancel')
-  @HttpCode(200)
-  cancelWingCatalog(
-    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.wingCatalog.cancel({ organizationId, attemptId }).then(toPublicAttempt);
+      idempotencyKey: `wing-source:${parsed.sourceOperationId}:recommendations` });
   }
 
   @Get('wing-catalog')
@@ -173,60 +104,6 @@ export class SourcingWorkspaceController {
       organizationId,
       keyword: keyword.data,
     });
-  }
-
-  @Post('keyword-suggestions/attempts')
-  beginKeywordSuggestions(
-    @CurrentOrganization() organizationId: string,
-    @CurrentUser() user: AuthUser,
-    @Headers('idempotency-key') idempotencyKey: string | undefined,
-    @Body() input: unknown,
-  ) {
-    return this.keywordSuggestions.begin({
-      organizationId, requestedByUserId: user.id, idempotencyKey: idempotencyKey ?? '', input,
-    });
-  }
-
-  @Get('keyword-suggestions/attempts/:attemptId')
-  readKeywordSuggestions(
-    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.keywordSuggestions.read({ organizationId, attemptId }).then(toPublicAttempt);
-  }
-
-  @Get('keyword-suggestions/current')
-  keywordSuggestionStatus(
-    @Query('keyword') keyword: string,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.keywordSuggestions.status({ organizationId, keyword }).then(toPublicStatus);
-  }
-
-  @Put('keyword-suggestions/attempts/:attemptId')
-  completeKeywordSuggestions(
-    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
-    @Headers('x-source-attempt-token') token: string | undefined,
-    @Body() batch: unknown,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.keywordSuggestions.complete({
-      organizationId, attemptId, attemptToken: parseSourceToken(token), batch,
-    }).then(toPublicAttempt);
-  }
-
-  @Post('keyword-suggestions/attempts/:attemptId/fail')
-  failKeywordSuggestions(
-    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
-    @Headers('x-source-attempt-token') token: string | undefined,
-    @Body() body: { code?: unknown; message?: unknown },
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.keywordSuggestions.fail({
-      organizationId, attemptId, attemptToken: parseSourceToken(token),
-      code: typeof body?.code === 'string' ? body.code : '',
-      message: typeof body?.message === 'string' ? body.message : '',
-    }).then(toPublicAttempt);
   }
 
   @Get('keyword-suggestions')

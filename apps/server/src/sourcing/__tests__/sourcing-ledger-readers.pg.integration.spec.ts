@@ -12,7 +12,7 @@ import {
   readCompleteObservationProvenanceByIds,
   readCurrentObservationHeads,
 } from '../adapter/out/repository/source-evidence.reader';
-import { readCurrentCompleteRuns } from '../adapter/out/repository/source-evidence.reader';
+import { readCurrentPublications } from '../adapter/out/repository/source-evidence.reader';
 import { LiveCommerceRepositoryAdapter } from '../adapter/out/repository/live-commerce.repository.adapter';
 import { TrendCollectionRepositoryAdapter } from '../adapter/out/repository/trend-collection.repository.adapter';
 import { SourcingLaunchCandidateRepositoryAdapter } from '../adapter/out/repository/sourcing-launch-candidate.repository.adapter';
@@ -39,7 +39,7 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
   });
 
   it('distinguishes a completed empty declared window from a source that never ran', async () => {
-    await expect(readCurrentCompleteRuns(tx, {
+    await expect(readCurrentPublications(tx, {
       organizationId: TEST_ORGANIZATION_ID,
       sourceKey: '1688.hot_product',
       scopeKey: 'default',
@@ -54,16 +54,16 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
       acceptedCount: 0,
     });
 
-    await expect(readCurrentCompleteRuns(tx, {
+    await expect(readCurrentPublications(tx, {
       organizationId: TEST_ORGANIZATION_ID,
       sourceKey: '1688.hot_product',
       scopeKey: 'default',
       targetKey: 'keyword:empty',
     })).resolves.toEqual([
       expect.objectContaining({
-        id: run.id,
-        sourceWindowStartAt: SOURCE_WINDOW_START,
-        sourceWindowEndAt: SOURCE_WINDOW_END,
+        operationId: run.id,
+        windowStartAt: SOURCE_WINDOW_START,
+        windowEndAt: SOURCE_WINDOW_END,
         coverageNumerator: 1,
         coverageDenominator: 1,
         acceptedCount: 0,
@@ -76,22 +76,22 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
       sourceKey: 'naver.trend',
       targetKey: 'missing-naver-window',
     });
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: naverRun.id },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: naverRun.id },
       data: {
-        attemptPlan: {
+        plan: {
           source: 'naver.trend',
           businessDate: '2026-09-10',
           keywords: ['pencil'],
           boardKeys: ['stationery'],
         },
-        sourceWindowStartAt: null,
+        windowStartAt: null,
       },
     });
     await prisma.naverKeywordDailySnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ingestionRunId: naverRun.id,
+        operationId: naverRun.id,
         keyword: 'pencil',
         businessDate: SOURCE_WINDOW_START,
         capturedAt: SOURCE_WINDOW_END,
@@ -100,7 +100,7 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
     await prisma.naverPopularKeywordDailySnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ingestionRunId: naverRun.id,
+        operationId: naverRun.id,
         boardKey: 'stationery',
         businessDate: SOURCE_WINDOW_START,
         rank: 1,
@@ -113,21 +113,21 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
       sourceKey: 'shortstrend.trend',
       targetKey: 'missing-shorts-window',
     });
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: shortsRun.id },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: shortsRun.id },
       data: {
-        attemptPlan: {
+        plan: {
           source: 'shortstrend.trend',
           businessDate: '2026-09-10',
           keywords: ['pencil'],
         },
-        sourceWindowStartAt: null,
+        windowStartAt: null,
       },
     });
     await prisma.shortsTrendDailySnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ingestionRunId: shortsRun.id,
+        operationId: shortsRun.id,
         businessDate: SOURCE_WINDOW_START,
         videoKey: 'missing-window-video',
         capturedAt: SOURCE_WINDOW_END,
@@ -138,11 +138,11 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
       sourceKey: '1688.hot_product',
       targetKey: 'missing-offer-window',
     });
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: offerRun.id },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: offerRun.id },
       data: {
-        attemptPlan: { source: '1688.hot_product', keywords: ['pencil'] },
-        sourceWindowEndAt: null,
+        plan: { source: '1688.hot_product', keywords: ['pencil'] },
+        windowEndAt: null,
       },
     });
     const offerEvidence = await seedObservation(prisma, offerRun.id, {
@@ -152,7 +152,7 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
     await prisma.sourcing1688OfferKeywordObservation.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ingestionRunId: offerRun.id,
+        operationId: offerRun.id,
         evidenceObservationId: offerEvidence.id,
         businessDate: SOURCE_WINDOW_START,
         sourceKeywordNormalized: 'pencil',
@@ -165,17 +165,17 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
       sourceKey: 'tiktok.creative',
       targetKey: 'all',
     });
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: tiktokRun.id },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: tiktokRun.id },
       data: {
-        attemptPlan: { source: 'tiktok.creative', targetSeeds: [] },
-        sourceWindowEndAt: null,
+        plan: { source: 'tiktok.creative', targetSeeds: [] },
+        windowEndAt: null,
       },
     });
     await prisma.tiktokCreativeTrendDailySnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ingestionRunId: tiktokRun.id,
+        operationId: tiktokRun.id,
         businessDate: SOURCE_WINDOW_START,
         region: 'KR',
         trendType: 'hashtag',
@@ -188,17 +188,17 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
       sourceKey: 'douyin.live_commerce',
       targetKey: 'missing-live-window',
     });
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: liveRun.id },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: liveRun.id },
       data: {
-        attemptPlan: { source: 'douyin', pageUrl: 'https://live.douyin.com/1' },
-        sourceWindowEndAt: null,
+        plan: { source: 'douyin', pageUrl: 'https://live.douyin.com/1' },
+        windowEndAt: null,
       },
     });
     await prisma.liveCommerceBroadcastDailySnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ingestionRunId: liveRun.id,
+        operationId: liveRun.id,
         businessDate: SOURCE_WINDOW_START,
         source: 'douyin',
         broadcastId: 'missing-window-broadcast',
@@ -208,7 +208,7 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
     await prisma.liveCommerceProductDailySnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ingestionRunId: liveRun.id,
+        operationId: liveRun.id,
         businessDate: SOURCE_WINDOW_START,
         source: 'douyin',
         broadcastId: 'missing-window-broadcast',
@@ -221,18 +221,18 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
       sourceKey: 'douyin.live_commerce',
       targetKey: 'old-live-window',
     });
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: outOfRangeLiveRun.id },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: outOfRangeLiveRun.id },
       data: {
-        attemptPlan: { source: 'douyin', pageUrl: 'https://live.douyin.com/old' },
-        sourceWindowStartAt: null,
-        sourceWindowEndAt: new Date('2024-01-01T01:00:00.000Z'),
+        plan: { source: 'douyin', pageUrl: 'https://live.douyin.com/old' },
+        windowStartAt: null,
+        windowEndAt: new Date('2024-01-01T01:00:00.000Z'),
       },
     });
     await prisma.liveCommerceProductDailySnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ingestionRunId: outOfRangeLiveRun.id,
+        operationId: outOfRangeLiveRun.id,
         businessDate: SOURCE_WINDOW_START,
         source: 'douyin',
         broadcastId: 'old-window-broadcast',
@@ -281,18 +281,18 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
       sourceKey: '1688.live_commerce',
       targetKey: 'inverted-live-window',
     });
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: run.id },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: run.id },
       data: {
-        attemptPlan: { source: '1688', pageUrl: 'https://zb.1688.com/1' },
-        sourceWindowStartAt: SOURCE_WINDOW_END,
-        sourceWindowEndAt: SOURCE_WINDOW_START,
+        plan: { source: '1688', pageUrl: 'https://zb.1688.com/1' },
+        windowStartAt: SOURCE_WINDOW_END,
+        windowEndAt: SOURCE_WINDOW_START,
       },
     });
     await prisma.liveCommerceProductDailySnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ingestionRunId: run.id,
+        operationId: run.id,
         businessDate: SOURCE_WINDOW_START,
         source: '1688',
         broadcastId: 'inverted-window-broadcast',
@@ -318,30 +318,30 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
       sourceKey: 'naver.trend',
       targetKey: 'declared-naver-scope',
     });
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: naverRun.id },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: naverRun.id },
       data: {
-        attemptPlan: {
+        plan: {
           source: 'naver.trend',
           businessDate: '2026-09-10',
           keywords: ['planned-keyword'],
           boardKeys: ['planned-board'],
         },
-        sourceWindowEndAt: capturedAt,
+        windowEndAt: capturedAt,
       },
     });
     await prisma.naverKeywordDailySnapshot.createMany({
       data: [
         {
           organizationId: TEST_ORGANIZATION_ID,
-          ingestionRunId: naverRun.id,
+          operationId: naverRun.id,
           keyword: 'planned-keyword',
           businessDate: SOURCE_WINDOW_START,
           capturedAt,
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
-          ingestionRunId: naverRun.id,
+          operationId: naverRun.id,
           keyword: 'planned-keyword',
           businessDate: outsideDate,
           capturedAt,
@@ -352,7 +352,7 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
       data: [
         {
           organizationId: TEST_ORGANIZATION_ID,
-          ingestionRunId: naverRun.id,
+          operationId: naverRun.id,
           boardKey: 'planned-board',
           businessDate: SOURCE_WINDOW_START,
           rank: 1,
@@ -361,7 +361,7 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
-          ingestionRunId: naverRun.id,
+          operationId: naverRun.id,
           boardKey: 'unplanned-board',
           businessDate: SOURCE_WINDOW_START,
           rank: 1,
@@ -370,7 +370,7 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
-          ingestionRunId: naverRun.id,
+          operationId: naverRun.id,
           boardKey: 'planned-board',
           businessDate: outsideDate,
           rank: 2,
@@ -384,21 +384,21 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
       sourceKey: 'naver.trend',
       targetKey: 'missing-board-plan',
     });
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: boardlessRun.id },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: boardlessRun.id },
       data: {
-        attemptPlan: {
+        plan: {
           source: 'naver.trend',
           businessDate: '2026-09-10',
           keywords: [],
         },
-        sourceWindowEndAt: capturedAt,
+        windowEndAt: capturedAt,
       },
     });
     await prisma.naverPopularKeywordDailySnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ingestionRunId: boardlessRun.id,
+        operationId: boardlessRun.id,
         boardKey: 'row-only-board',
         businessDate: SOURCE_WINDOW_START,
         rank: 1,
@@ -411,13 +411,13 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
       sourceKey: '1688.hot_product',
       targetKey: 'declared-offer-scope',
     });
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: priorOfferRun.id },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: priorOfferRun.id },
       data: {
-        attemptPlan: { source: '1688.hot_product', keywords: ['prior-offer-keyword'] },
-        sourceWindowStartAt: null,
-        sourceWindowEndAt: capturedAt,
-        isCurrentComplete: false,
+        plan: { source: '1688.hot_product', keywords: ['prior-offer-keyword'] },
+        windowStartAt: null,
+        windowEndAt: capturedAt,
+        isCurrent: false,
       },
     });
     const priorOfferEvidence = await seedObservation(prisma, priorOfferRun.id, {
@@ -427,7 +427,7 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
     await prisma.sourcing1688OfferKeywordObservation.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ingestionRunId: priorOfferRun.id,
+        operationId: priorOfferRun.id,
         evidenceObservationId: priorOfferEvidence.id,
         businessDate: SOURCE_WINDOW_START,
         sourceKeywordNormalized: 'prior-offer-keyword',
@@ -440,12 +440,12 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
       sourceKey: '1688.hot_product',
       targetKey: 'declared-offer-scope',
     });
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: offerRun.id },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: offerRun.id },
       data: {
-        attemptPlan: { source: '1688.hot_product', keywords: ['planned-offer-keyword'] },
-        sourceWindowStartAt: null,
-        sourceWindowEndAt: capturedAt,
+        plan: { source: '1688.hot_product', keywords: ['planned-offer-keyword'] },
+        windowStartAt: null,
+        windowEndAt: capturedAt,
       },
     });
     const plannedOfferEvidence = await seedObservation(prisma, offerRun.id, {
@@ -460,7 +460,7 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
       data: [
         {
           organizationId: TEST_ORGANIZATION_ID,
-          ingestionRunId: offerRun.id,
+          operationId: offerRun.id,
           evidenceObservationId: plannedOfferEvidence.id,
           businessDate: SOURCE_WINDOW_START,
           sourceKeywordNormalized: 'planned-offer-keyword',
@@ -469,7 +469,7 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
-          ingestionRunId: offerRun.id,
+          operationId: offerRun.id,
           evidenceObservationId: unplannedOfferEvidence.id,
           businessDate: SOURCE_WINDOW_START,
           sourceKeywordNormalized: 'unplanned-offer-keyword',
@@ -530,9 +530,9 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
       targetKey: 'keyword:pencil',
     })).resolves.toMatchObject([{ id: revisionTwo.id, revision: 2 }]);
 
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: oldRun.id },
-      data: { isCurrentComplete: false },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: oldRun.id },
+      data: { isCurrent: false },
     });
     await seedRun(prisma, {
       sourceKey: '1688.hot_product',
@@ -583,11 +583,11 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
     const sourceKey = source === 'naver' ? 'naver.trend' : 'shortstrend.trend';
     await seedRun(prisma, { sourceKey, targetKey: 'latest-window' });
     const historical = await seedRun(prisma, { sourceKey, targetKey: 'historical-window' });
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: historical.id },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: historical.id },
       data: {
-        sourceWindowStartAt: new Date('2026-09-08T00:00:00Z'),
-        sourceWindowEndAt: new Date('2026-09-09T00:00:00Z'),
+        windowStartAt: new Date('2026-09-08T00:00:00Z'),
+        windowEndAt: new Date('2026-09-09T00:00:00Z'),
         completedAt: new Date('2026-09-12T00:00:00Z'),
       },
     });
@@ -661,15 +661,15 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
       sourceKey: '1688.live_commerce',
       targetKey: 'live-products',
     });
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: run.id },
-      data: { sourceWindowEndAt: liveCapturedAt },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: run.id },
+      data: { windowEndAt: liveCapturedAt },
     });
     await prisma.liveCommerceProductDailySnapshot.createMany({
       data: [
         {
           organizationId: TEST_ORGANIZATION_ID,
-          ingestionRunId: run.id,
+          operationId: run.id,
           businessDate: SOURCE_WINDOW_START,
           source: '1688',
           broadcastId: 'broadcast-1',
@@ -679,7 +679,7 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
         },
         {
           organizationId: TEST_ORGANIZATION_ID,
-          ingestionRunId: run.id,
+          operationId: run.id,
           businessDate: SOURCE_WINDOW_START,
           source: '1688',
           broadcastId: 'broadcast-1',
@@ -704,6 +704,7 @@ describe('Sourcing ledger readers (PostgreSQL)', () => {
   });
 });
 
+/** 성공한 수집 하나 = 발행 1행(KID-360). 돌려주는 `id`는 원장 행이 가리키는 operationId다. */
 async function seedRun(
   prisma: PrismaClient,
   input: {
@@ -714,23 +715,18 @@ async function seedRun(
     acceptedCount?: number;
   },
 ) {
-  const idempotencyKey = randomUUID();
-  return prisma.sourcingEvidenceIngestionRun.create({
+  const publication = await prisma.sourcingSourcePublication.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
+      operationId: randomUUID(),
       sourceKey: input.sourceKey,
       scopeKey: 'default',
       targetKey: input.targetKey,
-      idempotencyKey,
-      requestHash: sha256(idempotencyKey),
       collectorKey: 'reader-test',
       collectorVersion: 'v1',
-      triggerKind: 'manual',
-      triggeredByUserId: TEST_USER_ID,
-      status: 'COMPLETE',
-      isCurrentComplete: true,
-      sourceWindowStartAt: SOURCE_WINDOW_START,
-      sourceWindowEndAt: SOURCE_WINDOW_END,
+      isCurrent: true,
+      windowStartAt: SOURCE_WINDOW_START,
+      windowEndAt: SOURCE_WINDOW_END,
       discoveredCount: input.acceptedCount ?? 1,
       acceptedCount: input.acceptedCount ?? 1,
       coverageNumerator: input.coverageNumerator ?? 1,
@@ -738,11 +734,12 @@ async function seedRun(
       completedAt: SOURCE_WINDOW_END,
     },
   });
+  return { ...publication, id: publication.operationId };
 }
 
 async function seedObservation(
   prisma: PrismaClient,
-  ingestionRunId: string,
+  operationId: string,
   input: {
     observationKey: string;
     revision: number;
@@ -752,7 +749,7 @@ async function seedObservation(
   return prisma.sourcingEvidenceObservation.create({
     data: {
       organizationId: TEST_ORGANIZATION_ID,
-      ingestionRunId,
+      operationId,
       supersedesObservationId: input.supersedesObservationId,
       sourceKey: '1688.hot_product',
       platform: '1688',

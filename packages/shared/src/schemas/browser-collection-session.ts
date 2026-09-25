@@ -15,7 +15,6 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'dashboard.wing_sales',
   'inventory.sellpia',
   'orders.coupang_directship',
-  'orders.coupang_reviews',
   'orders.coupang_rocket_po',
   'orders.coupang_shipment_summary',
   'orders.mall',
@@ -25,12 +24,6 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'orders.sellpia_product_profitability',
   'orders.sellpia_sales',
   'orders.sellpia_shipment_tracking',
-  'sourcing.1688_trend',
-  'sourcing.keyword_suggestion',
-  'sourcing.live_commerce',
-  'sourcing.product_extension',
-  'sourcing.tiktok_cc_trend',
-  'sourcing.wing_catalog',
 ] as const;
 
 export const BROWSER_COLLECTION_ATTENTION_REASONS = [
