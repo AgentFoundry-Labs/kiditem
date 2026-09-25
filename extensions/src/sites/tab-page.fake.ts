@@ -10,11 +10,14 @@ export function fakeTabPages(options: {
   urlBeforeInject?: string;
   /** 운영자가 검증을 통과하는가(`waitWhile`이 true). 없으면 상한까지 기다리다 false. */
   verificationClears?: boolean;
+  /** 모든 프레임에 넣은 파일의 프레임별 값(`frames`). */
+  frames?: (files: readonly string[], call: number) => Array<{ frameId: number; result: unknown }>;
 }) {
   const log: string[] = [];
   let injected = false;
   const listeners: Array<(message: Record<string, unknown>) => void> = [];
   let current: string | null = null;
+  let frameCalls = 0;
   function page(tabId: number, owned: boolean): TabPage {
     return {
       tabId,
@@ -32,20 +35,25 @@ export function fakeTabPages(options: {
       async currentUrl() {
         return options.currentUrl ?? 'about:blank';
       },
-      async ask<T extends PageAnswer>(message: Record<string, unknown>, { inject, guard }: { timeoutMs: number; inject?: InjectFiles; guard?: PageGuard }) {
+      async ask<T extends PageAnswer>(message: Record<string, unknown>, { inject, guard, frameId }: { timeoutMs: number; inject?: InjectFiles; guard?: PageGuard; frameId?: number }) {
         const here = () => current ?? options.currentUrl ?? 'about:blank';
         if (guard) checkPageUrl(guard, here());
-        log.push(`ask ${String(message.type)}`);
+        log.push(`ask ${String(message.type)}${frameId !== undefined ? ` frame ${frameId}` : ''}`);
         let answer = options.answer(message, injected);
         if (inject && (answer as { error?: string })?.error === 'content_script_missing') {
           if (options.urlBeforeInject) current = options.urlBeforeInject;
           if (guard) checkPageUrl(guard, here());
           injected = true;
           log.push(`inject ${[...inject.isolated, ...(inject.main ?? [])].join(',')}`);
-          log.push(`ask ${String(message.type)}`);
+          log.push(`ask ${String(message.type)}${frameId !== undefined ? ` frame ${frameId}` : ''}`);
           answer = options.answer(message, injected);
         }
         return answer as T;
+      },
+      async frames<T>(files: readonly string[]) {
+        frameCalls += 1;
+        log.push(`frames ${files.join(',')}`);
+        return (options.frames?.(files, frameCalls) ?? []) as Array<{ frameId: number; result: T }>;
       },
       listen(listener) {
         listeners.push(listener);

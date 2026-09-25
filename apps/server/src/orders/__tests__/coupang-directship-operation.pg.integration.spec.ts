@@ -20,6 +20,7 @@ import { RocketFinalOrderReconciliationTransactionAdapter } from '../../supply/a
 import { RocketFinalOrderReconciliationService } from '../../supply/application/service/rocket-final-order-reconciliation.service';
 import { CoupangDirectshipOperationOwner } from '../adapter/in/operation/coupang-directship-operation-owner';
 import { readObservedOrderCount } from '../adapter/out/persistence/read/order-facts.reader';
+import { OrderOperationCapturePersistenceAdapter } from '../adapter/out/persistence/order-operation-capture.persistence.adapter';
 import { CoupangDirectOrderCollectionTransactionAdapter } from '../adapter/out/transaction/coupang-direct-order-collection.transaction.adapter';
 import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from '../application/port/in/coupang-direct-order-collection.port';
 import { COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT } from '../application/port/out/transaction/coupang-direct-order-collection.transaction.port';
@@ -50,7 +51,15 @@ describe('orders.coupang_directship owner over the operation contract + disposab
         OperationService,
         { provide: OPERATION_PORT, useExisting: OperationService },
         { provide: OPERATION_REPOSITORY, useValue: new OperationRepositoryAdapter(prisma as never) },
-        { provide: COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT, useValue: new CoupangDirectOrderCollectionTransactionAdapter(prisma as unknown as PrismaService, reconciliation) },
+        {
+          provide: COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT,
+          useFactory: (operations: OperationService) => new CoupangDirectOrderCollectionTransactionAdapter(
+            prisma as unknown as PrismaService,
+            reconciliation,
+            new OrderOperationCapturePersistenceAdapter(prisma as unknown as PrismaService, operations),
+          ),
+          inject: [OPERATION_PORT],
+        },
         CoupangDirectOrderCollectionService,
         { provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT, useExisting: CoupangDirectOrderCollectionService },
         CoupangDirectshipOperationOwner,

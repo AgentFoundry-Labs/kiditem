@@ -20,7 +20,6 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'orders.sellpia_manual_match',
   'orders.sellpia_product_profitability',
   'orders.sellpia_sales',
-  'orders.sellpia_shipment_tracking',
 ] as const;
 
 export const BROWSER_COLLECTION_ATTENTION_REASONS = [

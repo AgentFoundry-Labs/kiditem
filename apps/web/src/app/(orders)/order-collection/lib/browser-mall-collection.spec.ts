@@ -6,13 +6,8 @@ const mocks = vi.hoisted(() => ({
   detectExtension: vi.fn(),
   ensureLogin: vi.fn(),
   collectKidsnote: vi.fn(),
-  collectArt09: vi.fn(),
-  convertArt09: vi.fn(),
   sendToExtension: vi.fn(),
   regenerateSource: vi.fn(),
-  readContinuation: vi.fn(),
-  saveIcecreamIndex: vi.fn(),
-  addSeenOrderKeys: vi.fn(),
   password: vi.fn(),
   toast: Object.assign(vi.fn(), {
     error: vi.fn(),
@@ -29,7 +24,6 @@ vi.mock('@/lib/extension-bridge', async (importOriginal) => ({
   sendToExtension: mocks.sendToExtension,
 }));
 vi.mock('./order-collection-extension', () => ({
-  collectIcecreamMallRowsFromExtension: vi.fn(),
   createOrderCollectionExtensionError: (
     response: { error?: string; errorCode?: string; pendingLogin?: boolean; failure?: unknown },
     fallback: string,
@@ -46,23 +40,10 @@ vi.mock('./order-collection-extension', () => ({
 }));
 vi.mock('./order-collection-api', () => ({
   regenerateOrderCollectionSource: mocks.regenerateSource,
-  readOrderCollectionContinuation: mocks.readContinuation,
-}));
-vi.mock('./icecream-delivery-index', () => ({
-  saveIcecreamDeliveryIndex: mocks.saveIcecreamIndex,
-}));
-vi.mock('./order-detect', () => ({
-  addSeenOrderKeys: mocks.addSeenOrderKeys,
-  distinctOrderNumbers: vi.fn(() => []),
-  rowKeysOf: vi.fn((rows: string[][]) => rows.map((row) => row.join('\u001f'))),
 }));
 vi.mock('./kidsnote-orders-api', () => ({
   collectKidsnoteOrdersFromExtension: mocks.collectKidsnote,
   convertKidsnoteToSellpiaFile: vi.fn(),
-}));
-vi.mock('./art09-orders-api', () => ({
-  collectArt09OrdersFromExtension: mocks.collectArt09,
-  convertArt09ToSellpiaFile: mocks.convertArt09,
 }));
 vi.mock('@/lib/order-mall-account-api', () => ({
   orderMallAccountApi: { password: mocks.password },
@@ -70,7 +51,7 @@ vi.mock('@/lib/order-mall-account-api', () => ({
 
 import { EXTENSION_TIMEOUT_MESSAGE } from '@/lib/extension-bridge';
 import { isMallAutoLoginBlocked, resetMallLoginBlocksForTest } from '@/lib/mall-login-block';
-import { createBrowserMallCollector } from './browser-mall-collection';
+import { createBrowserMallCollector, ensureMallLoginForRun } from './browser-mall-collection';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 const RUN = {
@@ -101,13 +82,8 @@ describe('createBrowserMallCollector', () => {
     mocks.detectExtension.mockResolvedValue(RUN.extensionId);
     mocks.password.mockResolvedValue({ password: 'secret' });
     mocks.collectKidsnote.mockResolvedValue({ orders: [], count: 0 });
-    mocks.collectArt09.mockResolvedValue([]);
-    mocks.convertArt09.mockResolvedValue({ outputRows: 0, sourceRows: 0 });
     mocks.sendToExtension.mockReset();
     mocks.regenerateSource.mockReset();
-    mocks.readContinuation.mockReset();
-    mocks.saveIcecreamIndex.mockReset();
-    mocks.addSeenOrderKeys.mockReset();
   });
 
   it('stops collection when login preflight needs attention', async () => {
@@ -277,71 +253,6 @@ describe('createBrowserMallCollector', () => {
     expect(mocks.regenerateSource).toHaveBeenCalledTimes(1);
   });
 
-  it('replays Icecream consumers from owner-retained rows after server-owned conversion', async () => {
-    mocks.ensureLogin.mockResolvedValue({ success: true });
-    mocks.sendToExtension.mockResolvedValue({
-      success: true,
-      terminalState: 'COMPLETE',
-      conversion: { sourceRows: 1, outputRows: 1 },
-    });
-    mocks.regenerateSource.mockResolvedValue({
-      fileName: 'icecream.xls',
-      blob: new Blob(['converted']),
-      previewRows: [['converted']],
-      sourceRows: 1,
-      productRows: 1,
-      outputRows: 1,
-      skippedRows: 0,
-    });
-    mocks.readContinuation.mockResolvedValue({
-      mallKey: 'icecream-mall',
-      headers: ['주문번호', '배송번호', '배송순번'],
-      originalRows: [['order-1', 'delivery-1', '1'], ['order-2', 'delivery-2', '1']],
-      selectedRows: [['order-2', 'delivery-2', '1']],
-      selectedRowKeys: ['order-2\u001fdelivery-2\u001f1'],
-      selectionMode: 'automatic',
-      sourceRows: 2,
-    });
-    const icecream = {
-      ...ACCOUNT,
-      key: 'icecream-mall' as const,
-      name: '아이스크림몰',
-      configured: true,
-      enabled: true,
-    };
-    const addGeneratedFile = vi.fn();
-    const collector = createBrowserMallCollector({
-      mallAccounts: [icecream],
-      addGeneratedFile,
-      setPreviewId: vi.fn(),
-    });
-
-    await expect(collector(icecream, {
-      ...RUN,
-      date: '2026-09-10',
-      serverOwned: true,
-      selectionMode: 'automatic',
-      seenRowKeys: ['order-1\u001fdelivery-1\u001f1'],
-    })).resolves.toEqual({
-      rowCount: 1,
-      masked: false,
-      date: '2026-09-10',
-    });
-
-    expect(mocks.saveIcecreamIndex).toHaveBeenCalledWith(
-      ['주문번호', '배송번호', '배송순번'],
-      [['order-1', 'delivery-1', '1'], ['order-2', 'delivery-2', '1']],
-    );
-    expect(mocks.addSeenOrderKeys).toHaveBeenCalledWith(
-      'icecream-mall',
-      ['order-2\u001fdelivery-2\u001f1'],
-    );
-    expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({
-      mallKey: 'icecream-mall',
-      collectedRows: 1,
-    }));
-  });
-
   it('passes both IDs from the single art09 account to the login preflight', async () => {
     mocks.ensureLogin.mockResolvedValue({ success: true });
     const art09Account: OrderCollectionMallAccount = {
@@ -350,13 +261,10 @@ describe('createBrowserMallCollector', () => {
       name: '아트공구',
       supplierLoginId: 'supplier-operator',
     };
-    const collector = createBrowserMallCollector({
-      mallAccounts: [art09Account],
-      addGeneratedFile: vi.fn(),
-      setPreviewId: vi.fn(),
-    });
+    // 아트공구는 실행 kind로 옮긴 몰이라 수집 전에 시도 없이 로그인만 맞춘다(KID-359 H3).
+    const run = { attemptId: '', attemptToken: '', extensionId: RUN.extensionId, date: null, sourceOwner: 'mall_orders_operation' as const };
 
-    await collector(art09Account, RUN);
+    await ensureMallLoginForRun(art09Account, run);
 
     expect(mocks.ensureLogin).toHaveBeenCalledWith(
       'art09',
@@ -366,7 +274,7 @@ describe('createBrowserMallCollector', () => {
         password: 'secret',
         siteUrl: 'https://shop.kidsnote.com',
       },
-      expect.objectContaining(RUN),
+      run,
     );
   });
 
@@ -405,8 +313,6 @@ describe('createBrowserMallCollector', () => {
       'kidsnote-orders-api.ts',
       'kkomangse-orders-api.ts',
       'onchannel-orders-api.ts',
-      'domeggook-orders-api.ts',
-      'kidkids-orders-api.ts',
       'lotteon-orders-api.ts',
       'gsshop-orders-api.ts',
       'alwayz-orders-api.ts',
@@ -414,7 +320,6 @@ describe('createBrowserMallCollector', () => {
       'boribori-orders-api.ts',
       'teacherville-orders-api.ts',
       'haebeop-orders-api.ts',
-      'art09-orders-api.ts',
       'coupang-directship-api.ts',
     ];
 

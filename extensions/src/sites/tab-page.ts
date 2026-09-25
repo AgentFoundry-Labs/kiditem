@@ -24,7 +24,12 @@ export interface TabPage {
    * content script에 메시지를 보내고 답을 기다린다. 받는 쪽이 없으면 `inject`의 파일(ISOLATED·MAIN)을 주입하고
    * 한 번 더 보낸다. 시간이 지나면 `{ ok: false, error: 'timeout' }`.
    */
-  ask<T extends PageAnswer>(message: Record<string, unknown>, options: { timeoutMs: number; inject?: InjectFiles; guard?: PageGuard }): Promise<T>;
+  ask<T extends PageAnswer>(message: Record<string, unknown>, options: { timeoutMs: number; inject?: InjectFiles; guard?: PageGuard; frameId?: number }): Promise<T>;
+  /**
+   * 파일 하나를 탭의 모든 프레임에 넣고 프레임마다 그 파일의 마지막 식 값을 돌려준다(값이 없는 프레임은 뺀다). 화면이
+   * 프레임으로 나뉜 몰(아이스크림몰 배송조회)이 어느 프레임을 읽을지 고를 때 쓴다(KID-359 H3). `frameId` 0이 맨 위 문서다.
+   */
+  frames<T>(files: readonly string[]): Promise<Array<{ frameId: number; result: T }>>;
   /** 이 탭에서 오는 runtime 메시지를 받는다(상품 추출처럼 content script가 먼저 말하는 경우). 해제 함수를 돌려준다. */
   listen(listener: (message: Record<string, unknown>) => void): () => void;
   /** 이 사이트가 연 탭이면 닫는다(운영자 탭은 닫지 않는다). */
@@ -127,10 +132,15 @@ export interface TabPageChrome {
     update(tabId: number, properties: { url: string }): Promise<unknown>;
     get(tabId: number): Promise<{ status?: string; url?: string }>;
     remove(tabId: number): Promise<void>;
-    sendMessage(tabId: number, message: unknown): Promise<unknown>;
+    sendMessage(tabId: number, message: unknown, options?: { frameId?: number }): Promise<unknown>;
   };
   scripting: {
-    executeScript(injection: { target: { tabId: number }; files: string[]; world?: 'ISOLATED' | 'MAIN' }): Promise<unknown>;
+    executeScript(injection: {
+      /** 맨 위 문서 · 모든 프레임 · 고른 프레임 가운데 하나(chrome 타입이 셋을 서로 배타로 둔다). */
+      target: { tabId: number } | { tabId: number; allFrames: true } | { tabId: number; frameIds: number[] };
+      files: string[];
+      world?: 'ISOLATED' | 'MAIN';
+    }): Promise<unknown>;
   };
   runtime: {
     onMessage: {
@@ -153,12 +163,12 @@ const MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no l
 export function createTabPages(deps: TabPageDeps): TabPages {
   function page(tabId: number, owned: boolean): TabPage {
     let closed = false;
-    async function send<T extends PageAnswer>(message: Record<string, unknown>, timeoutMs: number): Promise<T> {
+    async function send<T extends PageAnswer>(message: Record<string, unknown>, timeoutMs: number, frameId?: number): Promise<T> {
       let timer: ReturnType<typeof setTimeout> | undefined;
       const timeout = new Promise<T>((resolve) => {
         timer = setTimeout(() => resolve({ ok: false, error: 'timeout' } as T), timeoutMs);
       });
-      const answer = deps.chrome.tabs.sendMessage(tabId, message).then(
+      const answer = (frameId === undefined ? deps.chrome.tabs.sendMessage(tabId, message) : deps.chrome.tabs.sendMessage(tabId, message, { frameId })).then(
         (response) => (response ?? { ok: false, error: 'empty_response' }) as T,
         (error: unknown) => ({ ok: false, error: MISSING_RECEIVER.test(String((error as Error)?.message ?? error)) ? 'content_script_missing' : String((error as Error)?.message ?? error) }) as T,
       );
@@ -208,7 +218,7 @@ export function createTabPages(deps: TabPageDeps): TabPages {
         if (!tab?.url) throw new RuntimeError(SITE_TAB_UNAVAILABLE, '수집할 탭을 찾지 못했습니다.', { tabId });
         return tab.url;
       },
-      async ask<T extends PageAnswer>(message: Record<string, unknown>, { timeoutMs, inject, guard }: { timeoutMs: number; inject?: InjectFiles; guard?: PageGuard }) {
+      async ask<T extends PageAnswer>(message: Record<string, unknown>, { timeoutMs, inject, guard, frameId }: { timeoutMs: number; inject?: InjectFiles; guard?: PageGuard; frameId?: number }) {
         const checkHere = async () => {
           if (!guard) return;
           const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
@@ -216,17 +226,25 @@ export function createTabPages(deps: TabPageDeps): TabPages {
           checkPageUrl(guard, tab.url ?? '');
         };
         await checkHere();
-        const first = await send<T>(message, timeoutMs);
+        const first = await send<T>(message, timeoutMs, frameId);
         if (!inject || !isMissing(first)) return first;
         // 묻는 사이에 탭이 옮겨 갔을 수 있다(로그인 리다이렉트) — 주입 직전에 다시 본다.
         await checkHere();
-        await deps.chrome.scripting.executeScript({ target: { tabId }, files: [...inject.isolated] });
+        const target: { tabId: number } | { tabId: number; frameIds: number[] } = frameId === undefined ? { tabId } : { tabId, frameIds: [frameId] };
+        await deps.chrome.scripting.executeScript({ target, files: [...inject.isolated] });
         if (inject.main?.length) {
           await deps.sleep(300);
-          await deps.chrome.scripting.executeScript({ target: { tabId }, files: [...inject.main], world: 'MAIN' });
+          await deps.chrome.scripting.executeScript({ target, files: [...inject.main], world: 'MAIN' });
         }
         await deps.sleep(500);
-        return send<T>(message, timeoutMs);
+        return send<T>(message, timeoutMs, frameId);
+      },
+      async frames<T>(files: readonly string[]) {
+        const injected = await deps.chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: [...files] });
+        return (Array.isArray(injected) ? injected : [])
+          .filter((item): item is { frameId: number; result: T } =>
+            typeof item?.frameId === 'number' && item.result !== undefined && item.result !== null)
+          .map((item) => ({ frameId: item.frameId, result: item.result }));
       },
       listen(listener) {
         const handler = (message: unknown, sender: { tab?: { id?: number } }) => {

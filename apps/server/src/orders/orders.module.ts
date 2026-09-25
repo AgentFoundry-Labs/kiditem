@@ -30,21 +30,27 @@ import { SELLPIA_ORDER_TRANSMISSION_REPOSITORY_PORT } from './application/port/o
 import { ORDER_COLLECTION_SOURCE_PORT } from './application/port/in/order-collection-source.port';
 import { OrderCollectionSourceController } from './adapter/in/web/order-collection-source.controller';
 import { OrderCollectionSourceRepository } from './adapter/out/repository/order-collection-source.repository';
-import { SellpiaShipmentTrackingSourceController } from './adapter/in/web/sellpia-shipment-tracking-source.controller';
-import { SellpiaShipmentTrackingSourceRepository } from './adapter/out/repository/sellpia-shipment-tracking-source.repository';
-import { SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT } from './application/port/in/sellpia-shipment-tracking-source.port';
+import { SellpiaShipmentTrackingController } from './adapter/in/web/sellpia-shipment-tracking.controller';
 import { CoupangReviewsOperationOwner } from './adapter/in/operation/coupang-reviews-operation-owner';
-import { CoupangDirectshipOperationOwner } from './adapter/in/operation/coupang-directship-operation-owner';
+import { SellpiaShipmentTrackingOperationOwner } from './adapter/in/operation/sellpia-shipment-tracking-operation-owner';
+import { OrderOperationCapturePersistenceAdapter } from './adapter/out/persistence/order-operation-capture.persistence.adapter';
+import { ORDER_OPERATION_CAPTURE_PORT } from './application/port/in/order-operation-capture.port';
 import { OperationModule } from '../common/operation/operation.module';
+import { CoupangDirectshipOperationOwner } from './adapter/in/operation/coupang-directship-operation-owner';
+import { MallOrdersOperationOwner } from './adapter/in/operation/mall-orders-operation-owner';
+import { MallOrdersOperationService } from './application/service/mall-orders-operation.service';
+import { OrderMallAccountPersistenceAdapter } from './adapter/out/persistence/order-mall-account.persistence.adapter';
+import { ORDER_MALL_ACCOUNT_PORT } from './application/port/out/persistence/order-mall-account.port';
+import { OrderCollectionTodayOrdersModule } from './order-collection-today-orders.module';
 
 @Module({
-  imports: [RocketPoSourceModule, ChannelCatalogModule, AlertsModule, PrismaModule, SupplyModule, ShipmentsModule, ProductSourceModule, OperationModule],
+  imports: [RocketPoSourceModule, ChannelCatalogModule, AlertsModule, PrismaModule, SupplyModule, ShipmentsModule, ProductSourceModule, OperationModule, OrderCollectionTodayOrdersModule],
   controllers: [
     OrdersController,
     OrderCollectionController,
     CoupangDirectshipController,
     OrderCollectionSourceController,
-    SellpiaShipmentTrackingSourceController,
+    SellpiaShipmentTrackingController,
     ReviewsController,
     ReturnTransfersController,
     SellpiaOrderTransmissionController,
@@ -62,8 +68,12 @@ import { OperationModule } from '../common/operation/operation.module';
     SellpiaOrderTransmissionService,
     SellpiaOrderTransmissionRepositoryAdapter,
     OrderCollectionSourceRepository,
-    SellpiaShipmentTrackingSourceRepository,
+    OrderOperationCapturePersistenceAdapter,
     CoupangReviewsOperationOwner,
+    SellpiaShipmentTrackingOperationOwner,
+    MallOrdersOperationService,
+    MallOrdersOperationOwner,
+    OrderMallAccountPersistenceAdapter,
     CoupangDirectshipOperationOwner,
     {
       provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
@@ -86,8 +96,12 @@ import { OperationModule } from '../common/operation/operation.module';
       useExisting: OrderCollectionSourceRepository,
     },
     {
-      provide: SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT,
-      useExisting: SellpiaShipmentTrackingSourceRepository,
+      provide: ORDER_OPERATION_CAPTURE_PORT,
+      useExisting: OrderOperationCapturePersistenceAdapter,
+    },
+    {
+      provide: ORDER_MALL_ACCOUNT_PORT,
+      useExisting: OrderMallAccountPersistenceAdapter,
     },
   ],
 })

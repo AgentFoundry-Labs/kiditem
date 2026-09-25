@@ -6,13 +6,16 @@ import type { CoupangDirectOrderCollectionRequest } from '@kiditem/shared/coupan
 import { CoupangDirectshipResultSchema } from '@kiditem/shared/orders-operations';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { canonicalOwnerInputJson } from '../../../../common/owner-idempotency-key';
 import {
   ROCKET_FINAL_ORDER_RECONCILIATION_PORT,
   type RocketFinalOrderReconciliationPort,
 } from '../../../../supply/application/port/in/procurement/rocket-final-order-reconciliation.port';
+import {
+  ORDER_OPERATION_CAPTURE_PORT,
+  type OrderOperationCapturePort,
+} from '../../../application/port/in/order-operation-capture.port';
 import type {
   CoupangDirectCapture,
   CoupangDirectCollectionLineRef,
@@ -41,6 +44,9 @@ implements CoupangDirectOrderCollectionTransactionPort {
     private readonly prisma: PrismaService,
     @Inject(ROCKET_FINAL_ORDER_RECONCILIATION_PORT)
     private readonly reconciliation: RocketFinalOrderReconciliationPort,
+    /** 실행 캡처 보관함은 Orders에 하나다(셀피아 송장·몰 주문과 같은 쓰기 길). */
+    @Inject(ORDER_OPERATION_CAPTURE_PORT)
+    private readonly captures: OrderOperationCapturePort,
   ) {}
 
   async isActiveRocketAccount(input: { organizationId: string; channelAccountId: string }): Promise<boolean> {
@@ -55,16 +61,15 @@ implements CoupangDirectOrderCollectionTransactionPort {
     transaction: OwnerTransaction,
     input: { organizationId: string; operationId: string; capture: CoupangDirectCapture },
   ) {
-    const tx = ownerTransactionClient(transaction);
     const captureBytes = Buffer.from(canonicalOwnerInputJson(input.capture), 'utf8');
     const contentChecksum = checksum(captureBytes);
-    await tx.orderCollectionArtifact.create({
-      data: {
-        organizationId: input.organizationId,
-        operationId: input.operationId,
-        sourceFileName: `coupang-direct-order-${contentChecksum.slice(0, 12)}.json`,
-        sourceContentType: 'application/json',
-        sourceBytes: new Uint8Array(captureBytes),
+    await this.captures.store(transaction, {
+      organizationId: input.organizationId,
+      operationId: input.operationId,
+      source: {
+        bytes: captureBytes,
+        fileName: `coupang-direct-order-${contentChecksum.slice(0, 12)}.json`,
+        contentType: 'application/json',
       },
     });
     const count = (transport: DirectTransport) => input.capture.pos.filter((purchaseOrder) => purchaseOrder.transport === transport).length;

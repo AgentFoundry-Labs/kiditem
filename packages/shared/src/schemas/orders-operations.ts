@@ -191,11 +191,13 @@ export type CoupangDirectshipConvertRequest = z.infer<typeof CoupangDirectshipCo
 export const SellpiaShipmentTrackingScopeSchema = z.object({
   startDate: isoDay,
   endDate: isoDay,
-}).strict().refine((value) => value.startDate <= value.endDate, 'startDate must not be after endDate');
+}).strict().refine((value) => value.startDate <= value.endDate, '시작일이 끝일보다 늦을 수 없습니다.');
 export type SellpiaShipmentTrackingScope = z.infer<typeof SellpiaShipmentTrackingScopeSchema>;
 
 export const MallOrdersCollectionModeSchema = z.enum(['browser', 'manual-upload']);
 export const MallOrdersSelectionModeSchema = z.enum(['manual', 'automatic']);
+/** 몰 주문 result에 싣는 주문번호 수의 상한. */
+export const MALL_ORDERS_ORDER_NUMBERS_MAX = 2_000;
 /** 옛 attempt plan과 같은 상한: 본 행 키 최대 8,000개, 키 하나 2,000자. */
 export const MALL_ORDERS_SEEN_ROW_KEYS_MAX = 8_000;
 export const MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH = 2_000;
@@ -215,7 +217,7 @@ export const MallOrdersScopeSchema = z.object({
 export type MallOrdersScope = z.infer<typeof MallOrdersScopeSchema>;
 
 /**
- * 몰 주문 kind로 옮긴 몰(1차, KID-359 H3). 여기 없는 몰은 옛 attempt 경로가 H3′까지 받는다 — 웹은 이 목록으로
+ * 몰 주문 kind로 옮긴 몰(1차, KID-359 H3). 여기 없는 몰은 옛 attempt 경로가 나머지 몰이 옮겨질 때까지 받는다 — 웹은 이 목록으로
  * 시작 경로를 가른다(KID-355 2026-09-26 03:27 리더 설계).
  */
 export const MALL_ORDER_OPERATION_MALLS = ['icecream-mall', 'kidkids', 'art09', 'domeggook'] as const;
@@ -242,3 +244,23 @@ export const OrdersCaptureResultSchema = z.object({
   rowCount: z.number().int().nonnegative(),
 }).passthrough();
 export type OrdersCaptureResult = z.infer<typeof OrdersCaptureResultSchema>;
+
+/**
+ * 몰 주문 result(KID-359 H3). `rowCount`는 변환이 말하는 주문 수(`orderCollectionOrderCount`) — 오늘 주문 카드가
+ * 읽는다. 주문이 없던 수집도 0으로 적는다. `captured`는 보관한 캡처의 원소 수(주문·행) — 0이면 변환할 것이 없다
+ * (주문 수 셈법이 0을 내도 캡처가 있으면 변환 파일은 있다, 예: 택배비 줄이 없는 아트공구 CSV).
+ */
+export const MallOrdersResultSchema = OrdersCaptureResultSchema.extend({
+  mallKey: z.string().min(1).max(64),
+  captured: z.number().int().nonnegative(),
+  /**
+   * 몰이 그 기간의 주문을 빠짐없이 보여 줬다는 확인(확인 범위를 내는 몰 — 도매꾹·해법몰 — 이 수집일로 걷은 성공 실행,
+   * 빈 날 포함). 주문 사실 리더가 몰 적용 범위로 읽는다(옛 run의 coverageStartDate/EndDate 자리).
+   */
+  coverage: z.object({ startDate: isoDay, endDate: isoDay }).strict().optional(),
+  /** 화면 표에 개인정보가 가려진 칸이 있었다(아이스크림몰) — 웹이 운영자에게 알린다. */
+  masked: z.boolean().optional(),
+  /** 이번 수집(고른 행)의 서로 다른 주문번호, 최대 2,000개 — 웹의 생성 파일 항목(일일 건수·중복 판정)이 쓴다. */
+  orderNumbers: z.array(z.string().min(1).max(200)).max(MALL_ORDERS_ORDER_NUMBERS_MAX).optional(),
+});
+export type MallOrdersResult = z.infer<typeof MallOrdersResultSchema>;

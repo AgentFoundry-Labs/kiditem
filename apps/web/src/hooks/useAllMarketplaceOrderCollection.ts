@@ -7,7 +7,17 @@ import { friendlyError } from '@/lib/api-error';
 import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
-import { createBrowserMallCollector } from '@/app/(orders)/order-collection/lib/browser-mall-collection';
+import {
+  createBrowserMallCollector,
+  ensureMallLoginForRun,
+} from '@/app/(orders)/order-collection/lib/browser-mall-collection';
+import {
+  collectMallOrderOperation,
+  collectsViaMallOrderOperation,
+  mallOrderOperationSource,
+  type MallOrderOperationHandoff,
+} from '@/app/(orders)/order-collection/lib/mall-order-operation-source';
+import type { OperationListResponse } from '@kiditem/shared/operation';
 import { isDuplicateGeneratedFile } from '@/app/(orders)/order-collection/lib/generated-file-dedup';
 import {
   loadGeneratedOrderFiles,
@@ -325,11 +335,11 @@ export function useAllMarketplaceOrderCollection({
    */
   const startCollectionProcedure = useCallback((
     account: OrderCollectionMallAccount,
-    run: OrderCollectionExtensionRun,
+    signal: AbortSignal | undefined,
     collection: Promise<BrowserMallCollectionResult>,
     report: boolean,
   ) => {
-    const tracked = endsWhenStopped(collection, run.signal);
+    const tracked = endsWhenStopped(collection, signal);
     collectionsRef.current.set(account.key, tracked);
     tracked.then(
       (collected) => {
@@ -339,7 +349,7 @@ export function useAllMarketplaceOrderCollection({
       },
       (error: unknown) => {
         if (!report) return;
-        if (run.signal?.aborted) {
+        if (signal?.aborted) {
           toast.info(COLLECTION_STOPPED_MESSAGE);
           return;
         }
@@ -363,7 +373,7 @@ export function useAllMarketplaceOrderCollection({
     report: boolean,
   ) => {
     const run = activateOwnerRun(account, attempt, extensionId);
-    startCollectionProcedure(account, run, collectAccount(account, run), report);
+    startCollectionProcedure(account, run.signal, collectAccount(account, run), report);
     return Promise.resolve();
   }, [activateOwnerRun, collectAccount, startCollectionProcedure]);
 
@@ -373,7 +383,7 @@ export function useAllMarketplaceOrderCollection({
     report: boolean,
   ) => {
     const run = activateDirectOwnerRun(account, attempt, extensionId);
-    startCollectionProcedure(account, run, collectAccount(account, run), report);
+    startCollectionProcedure(account, run.signal, collectAccount(account, run), report);
     return Promise.resolve();
   }, [activateDirectOwnerRun, collectAccount, startCollectionProcedure]);
 
@@ -392,6 +402,88 @@ export function useAllMarketplaceOrderCollection({
       abortLocalRun,
     })
   ), [abortLocalRun, handOffMall, organizationId]);
+
+  /** 실행 kind로 옮긴 몰의 이 브라우저 절차(실행 id → 기다림을 끊는 신호). 중단이 절차부터 끊는다. */
+  const operationRunsRef = useRef(new Map<string, AbortController>());
+  const abortOperationRun = useCallback((operationId: string) => {
+    operationRunsRef.current.get(operationId)?.abort();
+    operationRunsRef.current.delete(operationId);
+  }, []);
+
+  /**
+   * 실행 kind(`orders.mall_orders`)로 옮긴 몰의 절차: 실행이 끝나기를 기다렸다가 실행 id로 변환해 생성 파일을
+   * 남긴다(KID-359 H3). 옛 시도가 없으므로 실패·빈 수집을 서버에 따로 적지 않는다 — 실행이 이미 끝을 적었다.
+   */
+  const collectMallOperationAccount = useCallback(async (
+    account: OrderCollectionMallAccount,
+    { operationId, collectionDate }: MallOrderOperationHandoff,
+    signal: AbortSignal,
+  ): Promise<BrowserMallCollectionResult> => {
+    try {
+      const collected = await collectMallOrderOperation({
+        account,
+        operationId,
+        collectionDate,
+        signal,
+        addGeneratedFile: (historyItem) => {
+          addGeneratedFile(historyItem);
+          setPreviewId(historyItem.id);
+        },
+      });
+      clearMallErrorActivity(account.name);
+      if (collected.rowCount === 0) logActivity('empty', account.name);
+      return collected;
+    } catch (error) {
+      if (!signal.aborted) {
+        const evidence = orderCollectionFailureEvidence(error);
+        const message = mallCollectionFailureMessage(
+          account.name,
+          evidence,
+          friendlyError(error, '브라우저 수집 실패') ?? '브라우저 수집 실패',
+        );
+        const failureKind = classifyOrderCollectionFailure(error, evidence || message);
+        logActivity(failureKind === 'auth' || failureKind === 'login' ? failureKind : 'error', account.name, message);
+      }
+      throw error;
+    }
+  }, [addGeneratedFile, clearMallErrorActivity, logActivity, setPreviewId]);
+
+  const handOffMallOperation = useCallback((
+    account: OrderCollectionMallAccount,
+    handoff: MallOrderOperationHandoff,
+    report: boolean,
+  ) => {
+    const controller = new AbortController();
+    operationRunsRef.current.set(handoff.operationId, controller);
+    const collection = collectMallOperationAccount(account, handoff, controller.signal).finally(() => {
+      if (operationRunsRef.current.get(handoff.operationId) === controller) {
+        operationRunsRef.current.delete(handoff.operationId);
+      }
+    });
+    startCollectionProcedure(account, controller.signal, collection, report);
+    return Promise.resolve();
+  }, [collectMallOperationAccount, startCollectionProcedure]);
+
+  /** 실행 kind로 옮긴 몰 카드의 어댑터. 상태는 실행 reader 한 읽기를 네 몰이 나눠 본다. */
+  const mallOperationCollectionAdapter = useCallback((
+    account: OrderCollectionMallAccount,
+    report = true,
+  ): OrderCollectionSourceAdapter<OperationListResponse> => (
+    mallOrderOperationSource({
+      organizationId,
+      account,
+      handOff: (handoff) => handOffMallOperation(account, handoff, report),
+      ensureLogin: (target, { extensionId, selectionMode }) => ensureMallLoginForRun(target, {
+        attemptId: '',
+        attemptToken: '',
+        extensionId,
+        date: null,
+        selectionMode,
+        sourceOwner: 'mall_orders_operation',
+      }),
+      abortLocalRun: abortOperationRun,
+    })
+  ), [abortOperationRun, handOffMallOperation, organizationId]);
 
   /**
    * 쿠팡 직배송 카드의 어댑터. 몰 카드가 함께 읽는 목록과 달리 로켓 계정 하나의 원천
@@ -424,14 +516,16 @@ export function useAllMarketplaceOrderCollection({
     // 어느 원천이 이 몰을 수집하는지는 그 원천이 답한다 — 화면도 루프도 키를 모른다(KID-255).
     const outcome = await (collectsViaCoupangDirectship(account.key)
       ? startCollectionSource(queryClient, directshipCollectionAdapter(account, false), input)
-      : startCollectionSource(queryClient, mallCollectionAdapter(account, false), input));
+      : collectsViaMallOrderOperation(account.key)
+        ? startCollectionSource(queryClient, mallOperationCollectionAdapter(account, false), input)
+        : startCollectionSource(queryClient, mallCollectionAdapter(account, false), input));
     return {
       outcome,
       collection: outcome.outcome === 'started'
         ? collectionsRef.current.get(account.key) ?? null
         : null,
     };
-  }, [directshipCollectionAdapter, mallCollectionAdapter, queryClient]);
+  }, [directshipCollectionAdapter, mallCollectionAdapter, mallOperationCollectionAdapter, queryClient]);
 
   const collectAccounts = useCallback(async (
     accounts: OrderCollectionMallAccount[],
@@ -500,6 +594,7 @@ export function useAllMarketplaceOrderCollection({
     collectAll,
     directshipCollectionAdapter,
     mallCollectionAdapter,
+    mallOperationCollectionAdapter,
     startMall,
     collectableAccountCount: mallAccounts.filter(
       (account) => account.enabled && isBrowserCollectableMall(account),

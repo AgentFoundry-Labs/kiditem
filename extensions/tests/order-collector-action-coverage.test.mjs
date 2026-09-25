@@ -22,34 +22,27 @@ const sharedRunFieldsModule = './order-collection-extension';
 const sharedRunFieldsName = 'orderCollectionExtensionRunFields';
 const ownerCorrelationFields = new Set(['attemptId', 'runId']);
 const automaticCollectors = [
-  'collectSellpiaDeliTracking',
-  'collectIcecreamMallOrders',
   'collectKidsnoteOrders',
   'collectKkomangseOrders',
   'collectOnchannelOrders',
-  'collectDomeggookOrders',
-  'collectKidkidsOrders',
   'collectLotteonOrders',
   'collectGsshopOrders',
   'collectAlwayzOrders',
   'collectKakaoOrders',
   'collectBoriboriOrders',
   'collectTeachervilleOrders',
-  'collectArt09Orders',
   'collectHaebeopOrders',
 ];
 // Directship receives its date range from the server-owned attempt control
 // record, so its extension message intentionally carries only attemptId.
 const runDateActions = new Set([
   'collectKkomangseOrders',
-  'collectKidkidsOrders',
   'collectLotteonOrders',
   'collectGsshopOrders',
   'collectAlwayzOrders',
   'collectKakaoOrders',
   'collectBoriboriOrders',
   'collectTeachervilleOrders',
-  'collectArt09Orders',
   'collectHaebeopOrders',
 ]);
 
@@ -272,9 +265,7 @@ test('order collector manifest grants the exact Kakao seller host', () => {
 
 test('every automatic collector explicitly attaches its inactive tab to its own run', () => {
   const worker = readFileSync(workerPath, 'utf8');
-  const extractedCollectors = {
-    collectSellpiaDeliTracking: 'sellpia-shipment-tracking-collector.js',
-  };
+  const extractedCollectors = {};
   for (const collector of automaticCollectors) {
     if (extractedCollectors[collector]) {
       const source = readFileSync(
@@ -424,7 +415,7 @@ test('every web automatic order message carries local owner correlation explicit
     );
   }
 
-  assert.ok(messages.length >= 15);
+  assert.ok(messages.length >= automaticCollectors.length);
   for (const message of messages) {
     assert.equal(
       objectHasOwnerCorrelation(message),

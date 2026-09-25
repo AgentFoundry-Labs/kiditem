@@ -144,6 +144,20 @@ describe('createBrowserResources — lockKey 이름으로 탭을 잡고 푼다',
     expect(fake.created).toEqual([{ url: 'https://wing.example.com', active: false }]);
   });
 
+  it('account:<id>라도 탭을 스스로 여는 사이트(몰 주문, KID-359 H3)를 선언하면 accountSite 탭을 열지 않는다', async () => {
+    const fake = fakeChrome();
+    const lease = await createBrowserResources(fake.chrome, SITES, { accountSite: 'wing', ownTabSites: new Set(['mall-orders']) }).acquire({
+      operationId: OP,
+      lockKeys: [`account:${ACCOUNT}`],
+      site: 'mall-orders',
+      signal: signal(),
+    });
+
+    expect(lease.tabId).toBeNull();
+    expect(fake.created).toEqual([]);
+    expect(fake.queries).toEqual([]);
+  });
+
   it('sites에 없는 resource 슬롯(예 keyword)은 탭이 필요 없다', async () => {
     const fake = fakeChrome();
     const lease = await createBrowserResources(fake.chrome, SITES).acquire({ operationId: OP, lockKeys: ['resource:keyword:장난감'], signal: signal() });

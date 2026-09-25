@@ -43,6 +43,11 @@ export type BrowserSites = Readonly<Record<string, { readonly origin: string }>>
 export interface BrowserResourcesOptions {
   /** `account:<id>` 키가 기본으로 쓰는 사이트(그 계정으로 로그인하는 곳). 수집기가 `sites`에 있는 사이트를 선언하면 그쪽이 먼저다. 둘 다 없으면 account 키는 탭을 잡지 않는다. */
   accountSite?: string;
+  /**
+   * 탭을 스스로 열고 닫는 사이트(몰 주문처럼 몰마다 다른 탭을 여는 사이트, KID-359 H3). 수집기가 이 사이트를 선언하면
+   * `account:` 키라도 기본 계정 사이트의 탭을 열지 않는다.
+   */
+  ownTabSites?: ReadonlySet<string>;
 }
 
 /**
@@ -58,7 +63,9 @@ export function createBrowserResources(chromeApi: BrowserChrome, sites: BrowserS
         throw new RuntimeError(RUNTIME_BROWSER_ALREADY_ACQUIRED, '이 실행은 이미 브라우저 자원을 잡고 있습니다.', { operationId });
       }
       signal.throwIfAborted();
-      const accountSite = site !== null && site in sites ? site : (options.accountSite ?? null);
+      const accountSite = site !== null && site in sites
+        ? site
+        : site !== null && options.ownTabSites?.has(site) ? null : (options.accountSite ?? null);
       const siteNames = [...new Set(lockKeys.map((key) => siteOfLockKey(key, accountSite)).filter((name): name is string => name !== null && name in sites))];
       if (siteNames.length > 1) {
         throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, '한 실행이 두 사이트의 탭을 함께 잡을 수 없습니다.', { sites: siteNames });

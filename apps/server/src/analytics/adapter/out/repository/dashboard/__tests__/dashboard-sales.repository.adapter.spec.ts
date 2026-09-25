@@ -49,7 +49,7 @@ vi.mock(
 type SalesAdapterArgs = ConstructorParameters<typeof DashboardSalesRepositoryAdapter>;
 function salesRepository(prisma: SalesAdapterArgs[3], products: SalesAdapterArgs[4], abc: SalesAdapterArgs[5]) {
   const facts = channelFactTestPorts(prisma);
-  return new DashboardSalesRepositoryAdapter(facts.accounts, facts.listings, facts.recipes, prisma, products, abc, profitCatalogTestReaders(prisma as never).content);
+  return new DashboardSalesRepositoryAdapter(facts.accounts, facts.listings, facts.recipes, prisma, products, abc, profitCatalogTestReaders(prisma as never).content, { readTodayOrders: async () => ({ total: null, byMall: {} }) });
 }
 
 const mockedReadProductAbcPublication = vi.mocked(readProductAbcPublication);

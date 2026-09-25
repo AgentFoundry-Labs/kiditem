@@ -36,6 +36,8 @@ describe('committed runtime bundle', () => {
       'orders.coupang_reviews',
       'orders.coupang_rocket_po',
       'orders.coupang_shipment_summary',
+      'orders.mall_orders',
+      'orders.sellpia_shipment_tracking',
       'sourcing.coupang_keyword_suggestion',
       'sourcing.live_commerce',
       'sourcing.product_extension',
@@ -74,7 +76,7 @@ describe('committed runtime bundle', () => {
     expect(runtimeListeners).toEqual(['onMessage', 'onConnect']);
     expect(Object.keys(registered[0].externalActions).sort()).toEqual(['operation.cancel', 'operation.start']);
     // 소싱 kind(KID-360)를 도는 빌드만 sourcingOperationKindsV1을 싣는다 — 웹이 옛 빌드를 가려낸다.
-    expect(registered[0].capabilities).toEqual({ operationRuntime: true, sourcingOperationKindsV1: true });
+    expect(registered[0].capabilities).toEqual({ operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true });
 
     const start = registered[0].externalActions['operation.start'];
     await expect(start.handle(start.validate({ action: 'operation.start', kind: 'Bad' }), 'local')).resolves.toMatchObject({

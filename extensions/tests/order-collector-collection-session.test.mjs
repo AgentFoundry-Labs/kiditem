@@ -15,22 +15,17 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const backgroundRoot = path.join(repoRoot, 'extensions/kiditem-os/background/orders');
 const workerPath = path.join(backgroundRoot, 'worker.js');
 const AUTOMATIC_ACTIONS = [
-  ['collectIcecreamMallOrders', 'collectIcecreamMallOrders', 'icecream-mall', { date: '2026-07-15' }],
   ['collectKidsnoteOrders', 'collectKidsnoteOrders', 'kidsnote', { from: '2026-07-14', to: '2026-07-15' }],
   ['collectKkomangseOrders', 'collectKkomangseOrders', 'kkomangse', { date: '2026-07-15' }],
   ['collectOnchannelOrders', 'collectOnchannelOrders', 'onch', { date: '2026-07-15' }],
-  ['collectDomeggookOrders', 'collectDomeggookOrders', 'domeggook', { date: '2026-07-15' }],
-  ['collectKidkidsOrders', 'collectKidkidsOrders', 'kidkids', { date: '2026-07-15' }],
   ['collectLotteonOrders', 'collectLotteonOrders', 'lotte-on', { date: '2026-07-15' }],
   ['collectGsshopOrders', 'collectGsshopOrders', 'gs-shop', { date: '2026-07-15' }],
   ['collectAlwayzOrders', 'collectAlwayzOrders', 'always', { date: '2026-07-15' }],
   ['collectKakaoOrders', 'collectKakaoOrders', 'kakao', { date: '2026-07-15' }],
   ['collectBoriboriOrders', 'collectBoriboriOrders', 'boribori', { date: '2026-07-15' }],
   ['collectTeachervilleOrders', 'collectTeachervilleOrders', 'teacher-mall', { date: '2026-07-15' }],
-  ['collectArt09Orders', 'collectArt09Orders', 'art09', { date: '2026-07-15' }],
   ['collectHaebeopOrders', 'collectHaebeopOrders', 'haebub-mall', { date: '2026-07-15' }],
 ];
-const SELLPIA_TRACKING_ATTEMPT_ID = '00000000-0000-4000-8000-000000000900';
 
 function uuid(index) {
   return `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
@@ -127,9 +122,6 @@ function createFakeChrome() {
 function loadWorker(globals = {}) {
   const fake = createFakeChrome();
   const sourceAttempts = new Map();
-  const trackingAttempts = new Map();
-  const trackingUploads = [];
-  const trackingProgressSnapshots = [];
   const sourceMallByAttempt = new Map([
     [uuid(777), 'kidsnote'],
     [uuid(778), 'kidsnote'],
@@ -192,74 +184,8 @@ function loadWorker(globals = {}) {
       errorMessage: current.errorMessage,
     };
   }
-  function trackingControl(attemptId) {
-    const current = trackingAttempts.get(attemptId) || {
-      state: 'RUNNING',
-      errorCode: null,
-      errorMessage: null,
-      sourceByteCount: null,
-    };
-    return {
-      attemptId,
-      attemptToken: uuid(994),
-      sourceImportRunId: uuid(995),
-      state: current.state,
-      plan: {
-        sourceType: 'sellpia_shipment_tracking',
-        parserVersion: 'sellpia-shipment-tracking-v1',
-        sourceOrigin: 'https://kiditem.sellpia.com',
-        sourceAccountKey: 'kiditem',
-        startDate: '2026-07-15',
-        endDate: '2026-07-15',
-      },
-      expiresAt: '2099-01-01T00:00:00.000Z',
-      artifactId: current.state === 'COMPLETE' ? uuid(996) : null,
-      sourceFileName: current.state === 'COMPLETE' ? 'sellpia-shipment-tracking-v1.json' : null,
-      sourceContentType: current.state === 'COMPLETE' ? 'application/json' : null,
-      contentChecksum: null,
-      sourceByteCount: current.sourceByteCount,
-      errorCode: current.errorCode,
-      errorMessage: current.errorMessage,
-    };
-  }
   async function sourceFetch(url, init = {}) {
     const parsed = new URL(url);
-    const trackingMatch = parsed.pathname.match(
-      /\/api\/orders\/sellpia-shipment-tracking\/attempts\/([^/]+)\/(control|complete|fail)$/,
-    );
-    if (trackingMatch) {
-      const attemptId = decodeURIComponent(trackingMatch[1]);
-      const operation = trackingMatch[2];
-      if (operation === 'complete') {
-        trackingProgressSnapshots.push(
-          structuredClone(fake.storage.kiditem_collection_sessions?.[attemptId] || null),
-        );
-        const file = init.body?.get?.('file');
-        const bytes = file ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array();
-        trackingUploads.push(bytes);
-        trackingAttempts.set(attemptId, {
-          state: 'COMPLETE',
-          errorCode: null,
-          errorMessage: null,
-          sourceByteCount: bytes.byteLength,
-        });
-      } else if (operation === 'fail') {
-        const body = JSON.parse(String(init.body || '{}'));
-        trackingAttempts.set(attemptId, {
-          state: 'FAILED',
-          errorCode: body.errorCode,
-          errorMessage: body.errorMessage,
-          sourceByteCount: null,
-        });
-      }
-      return {
-        ok: true,
-        status: 200,
-        async json() {
-          return trackingControl(attemptId);
-        },
-      };
-    }
     const directMatch = parsed.pathname.match(
       /\/api\/orders\/collection\/coupang-directship\/attempts\/([^/]+)(?:\/(?:control|complete|fail))?$/,
     );
@@ -354,9 +280,6 @@ function loadWorker(globals = {}) {
   return {
     ...fake,
     context,
-    trackingAttempts,
-    trackingUploads,
-    trackingProgressSnapshots,
     setSourceMallForAttempt(attemptId, mallKey) {
       sourceMallByAttempt.set(attemptId, mallKey);
     },
@@ -457,14 +380,6 @@ function dispatch(listeners, message) {
 }
 
 function installCollectorResult(runtime, functionName, resultFactory) {
-  // Sellpia tracking now runs through the production collector factory, so
-  // provide its executeScript page result while retaining the shared tab API
-  // surface. Other legacy collector test seams continue to stub the worker
-  // function directly below.
-  if (functionName === 'collectSellpiaDeliTracking') {
-    runtime.chrome.scripting.executeScript = async () => [{ result: resultFactory() }];
-    return;
-  }
   runtime.context[functionName] = async (...args) => {
     const collection = args.at(-1);
     const tab = await runtime.chrome.tabs.create({
@@ -653,60 +568,6 @@ test('automatic order actions publish safe domain-specific sessions from inactiv
   }
 });
 
-test('Sellpia tracking uses its named owner terminal and preserves collection progress until upload', async () => {
-  const runtime = loadWorker();
-  installCollectorResult(runtime, 'collectSellpiaDeliTracking', () => ({
-    success: true,
-    rows: [{ ordNo: 'ORDER-1', invNo: 'INV-1' }],
-    total: 1,
-    range: { start: '2026-07-15', end: '2026-07-15' },
-  }));
-
-  const response = await dispatch(runtime.externalMessageListeners, {
-    action: 'collectSellpiaDeliTracking',
-    attemptId: SELLPIA_TRACKING_ATTEMPT_ID,
-  });
-
-  assert.equal(response.success, true, JSON.stringify(response));
-  assert.equal(response.attemptId, SELLPIA_TRACKING_ATTEMPT_ID);
-  assert.equal(response.terminalState, 'COMPLETE');
-  assert.equal(response.rows, undefined);
-  assert.equal(runtime.trackingUploads.length, 1);
-  assert.equal(runtime.trackingProgressSnapshots.length, 1);
-  assert.equal(
-    runtime.trackingProgressSnapshots[0].progress.completed,
-    1,
-  );
-  assert.equal(runtime.trackingProgressSnapshots[0].progress.total, 2);
-  assert.equal(
-    runtime.storage.kiditem_collection_sessions?.[SELLPIA_TRACKING_ATTEMPT_ID],
-    undefined,
-  );
-});
-
-test('Sellpia tracking owner keeps login attention while the server attempt fails', async () => {
-  const runtime = loadWorker();
-  installCollectorResult(runtime, 'collectSellpiaDeliTracking', () => ({
-    success: false,
-    pendingLogin: true,
-    errorCode: 'sellpia_login_required',
-    error: 'Sellpia login is required.',
-  }));
-
-  const response = await dispatch(runtime.externalMessageListeners, {
-    action: 'collectSellpiaDeliTracking',
-    attemptId: `${SELLPIA_TRACKING_ATTEMPT_ID.slice(0, -1)}1`,
-  });
-
-  assert.equal(response.success, false);
-  assert.equal(response.attemptId, `${SELLPIA_TRACKING_ATTEMPT_ID.slice(0, -1)}1`);
-  assert.equal(response.terminalState, 'FAILED');
-  assert.equal(response.errorCode, 'sellpia_login_required');
-  const session = runtime.storage.kiditem_collection_sessions?.[response.attemptId];
-  assert.equal(session.attention.reason, 'marketplace_login');
-  assert.equal(session.progress.completed, 0);
-});
-
 test('every automatic mall access failure requires personal attention without focusing', async () => {
   const runtime = loadWorker();
   for (const [, functionName] of AUTOMATIC_ACTIONS) {
@@ -884,7 +745,6 @@ test('named mall reads create a fresh inactive tab even when a provider tab exis
   };
   const collection = { assertActive: async () => true };
   const cases = [
-    ['findOrCreateIcecreamMallTab', 'https://po.i-screammall.co.kr/main.do'],
     ['findOrCreateKidsnoteTab', 'https://shop.kidsnote.com/_manage/?body=3010'],
     ['findOrCreateKkomangseTab', 'https://nstore.edupre.co.kr/subAdmin/_order_product.list.php?mode=search&pass_input_type=all&st=o_rdate&so=desc&listmaxcount=1000'],
     ['findOrCreateOnchannelTab', 'https://www.onch3.co.kr/supplier/orders.php?state=all'],
@@ -896,7 +756,6 @@ test('named mall reads create a fresh inactive tab even when a provider tab exis
     ['findOrCreateKakaoTab', 'https://shopping-seller.kakao.com/order/seller/store-order/integrate/list'],
     ['findOrCreateBoriboriTab', 'https://seller-club.co.kr/order/orderDeliList'],
     ['findOrCreateTeachervilleTab', 'https://shop.teacherville.co.kr/selleradmin/order/catalog'],
-    ['findOrCreateArt09Tab', 'https://zzogzzog1.cafe24.com/admin/php/shop1/s_new/order_list.php?1&shop_no=1'],
     ['findOrCreateHaebeopTab', 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php'],
   ];
 
@@ -937,35 +796,21 @@ test('every named mall collector uses the production attach-before-readiness pat
   };
   runtime.context.waitForTabReady = async (tabId) => events.push(['ready', tabId]);
   runtime.context.delay = async () => {};
-  runtime.context.ensureIcecreamMallLogin = async () => ({ success: true });
-  runtime.context.openIcecreamMallDeliveryInquiry = async () => ({ success: true });
-  runtime.context.findIcecreamMallDeliveryFrameId = async () => null;
-  runtime.context.domeggookOrderList = async () => ({ dat: [] });
   runtime.chrome.scripting.executeScript = async (options) => {
     events.push(['execute', options.target?.tabId, options.func?.name]);
-    if (options.func?.name === 'scrapeIcecreamMallDeliveryGrid') {
-      return [{ result: { success: true, rows: [] } }];
-    }
-    if (options.func?.name === 'triggerDomeggookExcelGen') {
-      return [{ result: { success: true, empty: true } }];
-    }
     return [{ result: { success: true } }];
   };
 
   const cases = [
-    ['collectIcecreamMallOrders', [null, null]],
     ['collectKidsnoteOrders', [{ from: '2026-07-15', to: '2026-07-15' }]],
     ['collectKkomangseOrders', []],
     ['collectOnchannelOrders', ['2026-07-15']],
-    ['collectDomeggookOrders', ['2026-07-15']],
-    ['collectKidkidsOrders', ['2026-07-15', null]],
     ['collectLotteonOrders', []],
     ['collectGsshopOrders', []],
     ['collectAlwayzOrders', []],
     ['collectKakaoOrders', ['2026-07-15']],
     ['collectBoriboriOrders', [{}]],
     ['collectTeachervilleOrders', []],
-    ['collectArt09Orders', ['2026-07-15']],
     ['collectHaebeopOrders', [{}]],
   ];
 
@@ -996,12 +841,6 @@ test('every named mall collector uses the production attach-before-readiness pat
     const executeIndex = trace.findIndex((event) => event[0] === 'execute');
 
     assert.equal(result.success, true, functionName);
-    if (functionName === 'collectDomeggookOrders') {
-      assert.deepEqual(
-        JSON.parse(JSON.stringify(result.confirmedCoverage)),
-        { startDate: '2026-07-15', endDate: '2026-07-15' },
-      );
-    }
     assert.ok(createEvent, functionName);
     assert.equal(createEvent[2], false, functionName);
     assert.ok(attachIndex >= 0, functionName);

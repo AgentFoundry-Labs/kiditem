@@ -28,22 +28,21 @@ import {
   type OrderCollectionSourcePort,
 } from '../../../application/port/in/order-collection-source.port';
 import type { AuthUser } from '../../../../auth/auth.types';
-import type { Response } from 'express';
-import { z } from 'zod';
 import {
+  ORDER_COLLECTION_TODAY_ORDERS_PORT,
+  type OrderCollectionTodayOrdersPort,
+} from '../../../application/port/in/order-collection-today-orders.port';
+import { MallOrdersOperationService } from '../../../application/service/mall-orders-operation.service';
+import type { IcecreamContinuation } from '../../../domain/mall-orders-operation';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
+import { conversionFile, operationIdOf } from './operation-conversion';
+import type { Response } from 'express';
+import {
+  confirmedEmptyOrdersSchema,
   OrderCollectionService,
   type OrderCollectionConversion,
 } from '../../../application/service/order-collection.service';
 
-const confirmedEmptyOrdersSchema = z.object({
-  kind: z.literal('confirmed-empty-orders'),
-  mallKey: z.enum(['haebub-mall', 'domeggook']),
-  orders: z.array(z.never()).length(0),
-  confirmedCoverage: z.object({
-    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  }).strict(),
-}).strict();
 
 @Controller('orders/collection')
 export class OrderCollectionSourceController {
@@ -51,6 +50,9 @@ export class OrderCollectionSourceController {
     @Inject(ORDER_COLLECTION_SOURCE_PORT)
     private readonly source: OrderCollectionSourcePort,
     private readonly orderCollectionService: OrderCollectionService,
+    @Inject(ORDER_COLLECTION_TODAY_ORDERS_PORT)
+    private readonly todayOrders: OrderCollectionTodayOrdersPort,
+    private readonly mallOrders: MallOrdersOperationService,
   ) {}
 
   @Post('attempts')
@@ -96,8 +98,8 @@ export class OrderCollectionSourceController {
   }
 
   /**
-   * 오늘 수집이 실어 온 주문 수(서버 기록). 브라우저에 남은 변환 파일이 아니라서 어느 PC 에서
-   * 열어도 같고, 대시보드의 '오늘 주문' 과 같은 사실을 읽는다(사장님 2026-09-22).
+   * 오늘 수집이 실어 온 주문 수(서버 기록, Orders 오늘 주문 capability). 브라우저에 남은 변환 파일이 아니라서
+   * 어느 PC 에서 열어도 같고, 대시보드의 '오늘 주문' 과 같은 capability를 읽는다(사장님 2026-09-22).
    *
    * 원천 목록(`sources`)과 달리 2초마다 부르지 않는다 — 수집이 끝났을 때만 다시 읽으면 된다.
    */
@@ -105,7 +107,7 @@ export class OrderCollectionSourceController {
   readTodayOrderCounts(
     @CurrentOrganization() organizationId: string,
   ): Promise<OrderCollectionTodayOrders> {
-    return this.source.readTodayOrderCounts({ organizationId });
+    return this.todayOrders.readTodayOrders({ organizationId });
   }
 
   @Get('attempts/:attemptId')
@@ -129,33 +131,22 @@ export class OrderCollectionSourceController {
   }
 
   /**
-   * Returns only the provider-neutral continuation fields needed by the web
-   * order collector after a server-owned conversion. The extension capture
-   * remains in the owner artifact; this route never echoes the extension
-   * response or an unvalidated arbitrary payload.
+   * 아이스크림몰 continuation(배송 색인·다음 자동 선택에 쓰는 원본 행·고른 행 키). 아이스크림몰은 실행 kind
+   * `orders.mall_orders`로 옮겼으므로 성공한 그 실행의 보관 캡처에서만 읽는다(KID-359 H3) — 경로의 id와 query
+   * `operationId`가 같은 실행이다. 다른 몰은 VALIDATION_FAILED(continuation_unsupported), 없는·끝나지 않은 실행은
+   * OPERATION_NOT_FOUND.
    */
   @Get('attempts/:attemptId/continuation')
   async readContinuation(
     @CurrentOrganization() organizationId: string,
     @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
-    @Headers('x-source-attempt-token') attemptToken: string | undefined,
-  ): Promise<IcecreamOrderCollectionContinuation> {
-    const control = await this.source.readAttemptControl({ organizationId, attemptId });
-    if (!control) throw new NotFoundException('ORDER_COLLECTION_ATTEMPT_NOT_FOUND');
-    if (control.attemptToken !== requireUuidHeader(attemptToken)) {
-      throw new BadRequestException('ATTEMPT_FENCE_LOST');
+    @Query('operationId') rawOperationId: unknown,
+  ): Promise<IcecreamContinuation> {
+    const operationId = operationIdOf(rawOperationId, attemptId);
+    if (!operationId) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'operation_id_required' } });
     }
-    if (control.state !== 'COMPLETE' || !control.artifactId) {
-      throw new BadRequestException('ORDER_COLLECTION_SOURCE_NOT_COMPLETE');
-    }
-    if (control.plan.mallKey !== 'icecream-mall') {
-      throw new BadRequestException('ORDER_COLLECTION_CONTINUATION_UNSUPPORTED');
-    }
-    const source = await this.source.readSourceDownload({
-      organizationId,
-      artifactId: control.artifactId,
-    });
-    return parseIcecreamContinuation(source);
+    return this.mallOrders.readContinuation({ organizationId, operationId });
   }
 
   @Post('attempts/:attemptId/fail')
@@ -241,7 +232,13 @@ export class OrderCollectionSourceController {
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @CurrentOrganization() organizationId: string,
     @Res({ passthrough: true }) response: Response,
+    @Body('operationId') rawOperationId?: unknown,
   ): Promise<StreamableFile> {
+    // 실행 kind(`orders.mall_orders`)로 옮긴 몰은 본문의 operationId로 온다 — 경로의 id가 그 실행이다(KID-359 H3).
+    const operationId = operationIdOf(rawOperationId, attemptId);
+    if (operationId) {
+      return conversionFile(response, await this.mallOrders.convertOperation({ organizationId, operationId }));
+    }
     const control = await this.source.readAttemptControl({ organizationId, attemptId });
     if (!control) throw new NotFoundException('ORDER_COLLECTION_ATTEMPT_NOT_FOUND');
     if (control.attemptToken !== requireUuidHeader(attemptToken)) {
@@ -254,7 +251,7 @@ export class OrderCollectionSourceController {
       organizationId,
       artifactId: control.artifactId,
     });
-    const result = await this.convertRetainedSourcePayload(
+    const result = await this.orderCollectionService.convertRetainedSource(
       control.plan.mallKey,
       control.plan.collectionDate,
       source,
@@ -276,78 +273,6 @@ export class OrderCollectionSourceController {
     return new StreamableFile(result.buffer);
   }
 
-  private async convertRetainedSourcePayload(
-    mallKey: string,
-    collectionDate: string | null,
-    source: { bytes: Buffer; fileName: string | null; contentType: string },
-  ): Promise<OrderCollectionConversion> {
-    const contentType = source.contentType.toLowerCase();
-    const isJson = contentType.includes('json') || source.fileName?.toLowerCase().endsWith('.json');
-    if (isJson) {
-      let payload: unknown;
-      try {
-        payload = JSON.parse(source.bytes.toString('utf8'));
-      } catch {
-        throw new BadRequestException('ORDER_COLLECTION_SOURCE_INVALID');
-      }
-      const empty = confirmedEmptyOrdersSchema.safeParse(payload);
-      if (empty.success && empty.data.mallKey === mallKey) {
-        return {
-          buffer: Buffer.alloc(0), fileName: '',
-          sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
-        };
-      }
-      switch (mallKey) {
-        case 'icecream-mall':
-          return this.orderCollectionService.convertIcecreamMallOrderRows(payload as never);
-        case 'kidsnote':
-          return this.orderCollectionService.convertKidsnoteOrders(payload as never);
-        case 'kkomangse':
-          return this.orderCollectionService.convertKkomangseOrders(payload as never);
-        case 'onch':
-          return this.orderCollectionService.convertOnchannelOrders(payload as never);
-        case 'kidkids':
-          return this.orderCollectionService.convertKidkidsOrders(payload as never);
-        case 'haebub-mall':
-          return this.orderCollectionService.convertHaebeopOrders(payload as never);
-        case 'art09':
-          return this.orderCollectionService.convertArt09Orders(payload as never);
-        case 'kakao':
-          throw new BadRequestException('ORDER_COLLECTION_UNSUPPORTED_CONVERSION');
-        default:
-          throw new BadRequestException('ORDER_COLLECTION_SOURCE_UNSUPPORTED');
-      }
-    }
-
-    const file = {
-      fieldname: 'file',
-      originalname: source.fileName || `${mallKey}-orders.xlsx`,
-      encoding: '7bit',
-      mimetype: source.contentType || 'application/octet-stream',
-      buffer: source.bytes,
-      size: source.bytes.length,
-    };
-    switch (mallKey) {
-      case 'domeggook':
-        return this.orderCollectionService.convertDomeggookOrderFile(file, {
-          date: collectionDate ?? undefined,
-        });
-      case 'boribori':
-        return this.orderCollectionService.convertBoriboriOrderFile(file);
-      case 'teacher-mall':
-        return this.orderCollectionService.convertTeachervilleOrderFile(file);
-      case 'lotte-on':
-        return this.orderCollectionService.convertLotteonOrderFile(file);
-      case 'gs-shop':
-        return this.orderCollectionService.convertGsshopOrderFile(file);
-      case 'always':
-        return this.orderCollectionService.convertAlwayzOrderFile(file);
-      case 'icecream-mall':
-        return this.orderCollectionService.convertIcecreamMallOrderFile(file);
-      default:
-        throw new BadRequestException('ORDER_COLLECTION_SOURCE_UNSUPPORTED');
-    }
-  }
 }
 
 function parseBeginBody(value: unknown): {
@@ -418,71 +343,6 @@ function parseFailureBody(value: unknown): {
     message,
     ...(raw === undefined ? {} : { source: orderCollectionJsonSubmission(raw) }),
   };
-}
-
-type IcecreamOrderCollectionContinuation = {
-  mallKey: 'icecream-mall';
-  headers: string[];
-  originalRows: string[][];
-  selectedRows: string[][];
-  selectedRowKeys: string[];
-  selectionMode: 'manual' | 'automatic';
-  sourceRows: number;
-};
-
-function parseIcecreamContinuation(source: {
-  bytes: Buffer;
-  contentType: string;
-}): IcecreamOrderCollectionContinuation {
-  if (!source.contentType.toLowerCase().includes('json')) {
-    throw new BadRequestException('ORDER_COLLECTION_CONTINUATION_UNAVAILABLE');
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(source.bytes.toString('utf8'));
-  } catch {
-    throw new BadRequestException('ORDER_COLLECTION_CONTINUATION_UNAVAILABLE');
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new BadRequestException('ORDER_COLLECTION_CONTINUATION_UNAVAILABLE');
-  }
-  const payload = value as Record<string, unknown>;
-  const headers = stringArray(payload.headers);
-  const originalRows = stringRows(payload.originalRows);
-  const selectedRows = stringRows(payload.selectedRows);
-  const selectedRowKeys = stringArray(payload.selectedRowKeys);
-  const selectionMode = payload.selectionMode;
-  if (
-    !headers || !originalRows || !selectedRows || !selectedRowKeys ||
-    (selectionMode !== 'manual' && selectionMode !== 'automatic') ||
-    selectedRowKeys.length !== selectedRows.length
-  ) {
-    throw new BadRequestException('ORDER_COLLECTION_CONTINUATION_UNAVAILABLE');
-  }
-  return {
-    mallKey: 'icecream-mall',
-    headers,
-    originalRows,
-    selectedRows,
-    selectedRowKeys,
-    selectionMode,
-    sourceRows: selectedRows.length,
-  };
-}
-
-function stringArray(value: unknown): string[] | null {
-  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) return null;
-  return [...value];
-}
-
-function stringRows(value: unknown): string[][] | null {
-  if (!Array.isArray(value)) return null;
-  const rows: string[][] = [];
-  for (const row of value) {
-    if (!Array.isArray(row) || row.some((cell) => typeof cell !== 'string')) return null;
-    rows.push([...row]);
-  }
-  return rows;
 }
 
 function optionalText(value: unknown): string | null {

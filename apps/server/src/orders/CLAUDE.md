@@ -54,6 +54,24 @@ Action, collection, transmission, and reconciliation behavior is executable in
   only after every planned month window's `review_windows` marker matches its
   `reviews` chunk count, and the reader prefers operation rows over legacy
   SourceImportRun rows.
+- Sellpia shipment tracking is the operation kind
+  `orders.sellpia_shipment_tracking`, locked by `resource:sellpia:login` (one
+  Sellpia login per organization, shared by every kind that reads through it).
+  Its finalize keeps the tracking rows as one `OrderCollectionArtifact` keyed by
+  `operationId`; the tracking screen downloads it by operation id. There is no
+  tracking attempt route.
+- Mall order collection is the operation kind `orders.mall_orders` for the
+  first-batch malls (`MALL_ORDER_OPERATION_MALLS`: icecream-mall, kidkids,
+  art09, domeggook), locked by `account:<channelAccountId>`. Finalize keeps the
+  capture (the body the old convert route took) as `OrderCollectionArtifact`
+  keyed by `operationId` and writes the converted order count to
+  `result.rowCount`; a day with no orders succeeds with 0. Convert routes and
+  `attempts/:id/convert` accept a body `operationId` for these malls and write
+  nothing. The other malls stay on the attempt path until the remaining malls move (나머지 몰이 옮겨질 때까지).
+- Today's order count is one Orders capability
+  (`ORDER_COLLECTION_TODAY_ORDERS_PORT`): per mall the latest succeeded
+  operation's `rowCount`, else the latest completed legacy run. The order
+  screen and the dashboard both read it.
 - Coupang shipment date summary is the operation kind
   `orders.coupang_shipment_summary` (organization lock). Its finalize keeps the
   old scan-proof validation and writes date rows with `operationId`; the

@@ -69,7 +69,6 @@ describe('BrowserCollectionSessionViewSchema', () => {
       'orders.sellpia_manual_match',
       'orders.sellpia_product_profitability',
       'orders.sellpia_sales',
-      'orders.sellpia_shipment_tracking',
     ]);
     for (const producer of BROWSER_COLLECTION_PRODUCERS) {
       expect(BrowserCollectionProducerSchema.parse(producer)).toBe(producer);

@@ -5,6 +5,8 @@ import '../collectors/orders.coupang_directship';
 import '../collectors/orders.coupang_reviews';
 import '../collectors/orders.coupang_rocket_po';
 import '../collectors/orders.coupang_shipment_summary';
+import '../collectors/orders.mall_orders';
+import '../collectors/orders.sellpia_shipment_tracking';
 import '../collectors/sourcing.coupang_keyword_suggestion';
 import '../collectors/sourcing.live_commerce';
 import '../collectors/sourcing.product_extension';
@@ -13,10 +15,16 @@ import '../collectors/sourcing.trend_1688';
 import '../collectors/sourcing.wing_catalog';
 import '../collectors/test.echo';
 import '../sites/1688';
+import '../sites/art09';
 import '../sites/coupang-search';
 import '../sites/coupang-supplier';
+import '../sites/domeggook';
+import '../sites/icecream-mall';
+import '../sites/kidkids';
 import '../sites/live-commerce';
+import '../sites/mall-orders';
 import '../sites/product-page';
+import '../sites/sellpia';
 import '../sites/tiktok-cc';
 import '../sites/wing';
 import '../sites/wing/pre-matching-search';
@@ -24,7 +32,7 @@ import '../sites/wing/reviews';
 import { createBrowserResources } from '../core/browser';
 import { createTabPages } from '../sites/tab-page';
 import type { SiteDeps } from '../sites/registry';
-import { ACCOUNT_SITE, createSiteHandles, entrySites } from './site-handles';
+import { ACCOUNT_SITE, createSiteHandles, entrySites, ownTabSites } from './site-handles';
 import { legacyApiPort, legacyGlobalsPresent, legacyKeepAlive, registerWithLegacyDomains } from './legacy-bridge';
 import { createOperationActions } from './operation-actions';
 import { installProductCollect } from './sourcing-product-collect';
@@ -44,7 +52,7 @@ export function installEntry(): boolean {
     tabs: createTabPages({ chrome, fetch: (input, init) => fetch(input, init), sleep, now: () => Date.now() }),
     randomId: () => crypto.randomUUID(),
   };
-  const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE });
+  const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
   const channelSites = createSiteHandles(site);
   const externalActions = createOperationActions({
     apiFor: legacyApiPort,
@@ -55,7 +63,11 @@ export function installEntry(): boolean {
     keepAlive: legacyKeepAlive,
   });
   // sourcingOperationKindsV1: 이 빌드가 소싱 kind 6종을 돈다(KID-360) — 웹은 이것으로 옛 빌드를 가려낸다.
-  registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true, sourcingOperationKindsV1: true } });
+  // orderCaptureOperationKindsV1: 셀피아 송장·몰 주문 kind를 돈다(KID-359 H3).
+  registerWithLegacyDomains({
+    externalActions,
+    capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true },
+  });
   installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
   return true;
 }

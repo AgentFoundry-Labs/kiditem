@@ -75,6 +75,20 @@ summary, Rocket PO and directship are operation kinds collected by
   range-completeness matrices are executable in
   [the extension order tests](../../../tests/).
 
+## Mall Order Operations
+
+- First-batch malls (icecream-mall, kidkids, art09, domeggook) collect through
+  the runtime kind `orders.mall_orders`: `sites/mall-orders` routes the plan's
+  mall key to `sites/<mallKey>`, which opens its own inactive tab and returns
+  the old convert body's rows. Their worker collectors are gone; the other
+  malls keep the owner/lifecycle/converter path until the remaining malls move (나머지 몰이 옮겨질 때까지).
+- Login before an operation runs from the web without an attempt
+  (`ensureMallLoggedIn` with no `attemptId` logs in only); a mall site that
+  still meets a login form stops with `SITE_LOGIN_REQUIRED` and keeps the tab.
+- i-Scream reads its delivery grid in the frame that scores highest in
+  `content/orders/icecream-frames.js` (`TabPage.frames`), in the MAIN world;
+  the server picks unseen rows from the plan's `seenRowKeys`.
+
 ## Sabangnet Listing Import
 
 - `orders.sabangnet_mall_listings` (Channels owner) reads Sabangnet's send
@@ -120,6 +134,10 @@ summary, Rocket PO and directship are operation kinds collected by
 
 ## Sellpia And Rocket Boundaries
 
+- Sellpia shipment tracking is the runtime kind
+  `orders.sellpia_shipment_tracking` (`extensions/src/sites/sellpia`), not a
+  worker action: a fresh inactive tab, one page call into
+  `content/orders/sellpia-shipment-tracking.js` (MAIN world), rows only.
 - Inventory collection uses the fixed authenticated full-snapshot JSON contract.
   Full-scope runs additionally collect validated product-profit evidence before
   backend publication; inventory scope does not.

@@ -31,6 +31,8 @@ import { OrderCollectionSourceController } from '../adapter/in/web/order-collect
 import { CoupangDirectshipService } from '../coupang-directship/coupang-directship.service';
 import { CoupangDirectPoSnapshotService } from '../application/service/coupang-direct-po-snapshot.service';
 import { OrderCollectionService } from '../application/service/order-collection.service';
+import { MallOrdersOperationService } from '../application/service/mall-orders-operation.service';
+import { ORDER_COLLECTION_TODAY_ORDERS_PORT } from '../application/port/in/order-collection-today-orders.port';
 import { MALL_CHANNELS } from '@kiditem/shared/channel-registry';
 import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from '../application/port/in/coupang-direct-order-collection.port';
 import type { INestApplication } from '@nestjs/common';
@@ -78,11 +80,15 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
     const module = await Test.createTestingModule({
       controllers: [OrderCollectionController, OrderCollectionSourceController],
       providers: [
-        { provide: OrderCollectionService, useValue: collection },
+        // 보관 원천 재변환 규칙(`convertRetainedSource`)은 실제 메서드, 몰 변환기만 가짜다.
+        { provide: OrderCollectionService, useValue: Object.assign(Object.create(OrderCollectionService.prototype), collection) },
         { provide: CoupangDirectshipService, useValue: {} },
         { provide: CoupangDirectPoSnapshotService, useValue: {} },
         { provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT, useValue: {} },
         { provide: ORDER_COLLECTION_SOURCE_PORT, useValue: owner },
+        // 실행 kind로 옮긴 몰(KID-359 H3)의 변환·오늘 주문은 이 스펙의 몫이 아니다(mall-orders-operation PG 스펙).
+        { provide: MallOrdersOperationService, useValue: {} },
+        { provide: ORDER_COLLECTION_TODAY_ORDERS_PORT, useValue: {} },
       ],
     }).compile();
     app = module.createNestApplication({ logger: false, bodyParser: false });

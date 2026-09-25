@@ -1,15 +1,23 @@
 import { describe, expect, it } from 'vitest';
-import { entrySites, createSiteHandles } from './site-handles';
+import { entrySites, createSiteHandles, ownTabSites } from './site-handles';
 import '../collectors/channels.wing_catalog_details';
 import '../collectors/channels.wing_catalog_excel';
 import '../collectors/channels.wing_catalog_list';
 import '../collectors/orders.coupang_reviews';
+import '../collectors/orders.mall_orders';
+import '../collectors/orders.sellpia_shipment_tracking';
 import '../collectors/sourcing.product_extension';
 import '../collectors/sourcing.trend_1688';
 import '../collectors/sourcing.wing_catalog';
 import '../collectors/test.echo';
 import '../sites/1688';
+import '../sites/art09';
+import '../sites/domeggook';
+import '../sites/icecream-mall';
+import '../sites/kidkids';
+import '../sites/mall-orders';
 import '../sites/product-page';
+import '../sites/sellpia';
 import '../sites/wing';
 import '../sites/wing/pre-matching-search';
 import '../sites/wing/reviews';
@@ -39,6 +47,26 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     for (const kind of ['channels.wing_catalog_list', 'channels.wing_catalog_details', 'channels.wing_catalog_excel'] as const) {
       expect(keys(siteFor(kind, { tabId: 3 }))).toEqual(WING_KEYS);
     }
+  });
+
+  it('셀피아 송장 kind에는 송장 조회만 가진 sellpia 핸들을 주고, 셀피아는 탭을 스스로 열어 브라우저 자원 표에 없다', () => {
+    expect(keys(createSiteHandles(deps)('orders.sellpia_shipment_tracking', { tabId: null }))).toEqual(['shipmentTracking']);
+    expect(entrySites()).not.toHaveProperty('sellpia');
+  });
+
+  it('몰 주문 kind에는 몰 키로 그 몰 사이트를 찾는 라우터를 주고, 라우터는 탭을 스스로 여는 사이트다', () => {
+    const handle = createSiteHandles(deps)('orders.mall_orders', { tabId: null }) as { reader(mallKey: string): unknown };
+    expect(keys(handle)).toEqual(['reader']);
+    expect(keys(handle.reader('kidkids'))).toEqual(['readOrders']);
+    expect(keys(handle.reader('art09'))).toEqual(['readOrders']);
+    expect(keys(handle.reader('domeggook'))).toEqual(['readOrders']);
+    expect(keys(handle.reader('icecream-mall'))).toEqual(['readOrders']);
+    expect(handle.reader('no-such-mall')).toBeNull();
+    expect(handle.reader('mall-orders')).toBeNull();
+    // 등록된 사이트라도 몰 주문 kind로 옮긴 몰이 아니면 주지 않는다(리뷰 S9).
+    expect(handle.reader('sellpia')).toBeNull();
+    expect(handle.reader('wing')).toBeNull();
+    expect(ownTabSites().has('mall-orders')).toBe(true);
   });
 
   it('상품평 kind에는 상품평 검색만 가진 wing-reviews 핸들을 준다', () => {

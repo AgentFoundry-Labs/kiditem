@@ -1,3 +1,5 @@
+import { MALL_ORDERS_KIND, MallOrdersResultSchema } from '@kiditem/shared/orders-operations';
+import { readSucceededOperationWindows } from '../../../../../common/operation/transaction/succeeded-operation-windows';
 import { Prisma } from '@prisma/client';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import {
@@ -693,7 +695,11 @@ async function readCompletedOrderCoverageRuns(
       },
     },
   });
-  const accountIds = [...new Set(rows.flatMap((run) =>
+  const operationRuns = firstDate && lastDate
+    ? await readMallOrderCoverageOperations(tx, input.organizationId, firstDate, lastDate)
+    : [];
+  const allRuns = [...rows, ...operationRuns];
+  const accountIds = [...new Set(allRuns.flatMap((run) =>
     run.sourceType === 'order_collection_mall' && run.channelAccountId
       ? [run.channelAccountId]
       : [],
@@ -703,12 +709,44 @@ async function readCompletedOrderCoverageRuns(
     accountIds,
   });
   const accountById = new Map(accountFacts.map((account) => [account.id, account]));
-  return rows.map((run) => ({
+  return allRuns.map((run) => ({
     ...run,
     channelAccount: run.channelAccountId
       ? { channel: accountById.get(run.channelAccountId)?.channel ?? null }
       : null,
   }));
+}
+
+/**
+ * 실행 계약으로 옮긴 몰 주문 수집(`orders.mall_orders`, KID-359)이 확인한 기간. 성공 실행의 `result.coverage`가 옛 run의
+ * coverageStartDate/EndDate 자리이고, 계정·몰 키는 plan에서 온다. 옛 run과 같은 모양으로 돌려 한 규칙으로 센다. 실행 표는
+ * 실행 계약 모듈의 트랜잭션 리더로만 읽는다(ADR-0025).
+ */
+async function readMallOrderCoverageOperations(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  firstDate: string,
+  lastDate: string,
+) {
+  const operations = await readSucceededOperationWindows(tx, { organizationId, kinds: [MALL_ORDERS_KIND], firstDate, lastDate });
+  return operations.flatMap((operation) => {
+    const result = MallOrdersResultSchema.safeParse(operation.result);
+    const plan = operation.plan && typeof operation.plan === 'object' && !Array.isArray(operation.plan) ? operation.plan as Prisma.JsonObject : null;
+    const channelAccountId = typeof plan?.channelAccountId === 'string' ? plan.channelAccountId : null;
+    if (!result.success || !result.data.coverage || !channelAccountId) return [];
+    const observedAt = operation.finishedAt ?? operation.startedAt;
+    return [{
+      sourceType: 'order_collection_mall',
+      channelAccountId,
+      plan: { mallKey: result.data.mallKey } as Prisma.JsonValue,
+      importedAt: observedAt as Date | null,
+      updatedAt: observedAt,
+      createdAt: operation.startedAt,
+      coverageStartDate: new Date(`${result.data.coverage.startDate}T00:00:00.000Z`) as Date | null,
+      coverageEndDate: new Date(`${result.data.coverage.endDate}T00:00:00.000Z`) as Date | null,
+      orders: [] as Array<{ orderedAt: Date }>,
+    }];
+  });
 }
 
 function buildOrderCoverage(
