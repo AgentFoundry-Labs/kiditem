@@ -20,6 +20,7 @@ import {
 } from './channel-catalog-identity-upsert';
 import { applyRegisteredOptionRecipes } from '../persistence/registered-option-recipes';
 
+/** 엑셀이 쓴 리스팅의 `raw_json.source` 표시(판매상태 읽기·readiness가 본다). 실행 표 값이 아니다. */
 const SOURCE_TYPE = 'coupang_wing_catalog';
 
 type WorkbookInput = Parameters<ChannelCatalogPublicationPort['publishWorkbook']>[1];
