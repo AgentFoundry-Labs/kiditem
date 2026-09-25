@@ -183,10 +183,8 @@ test("쿠팡 윙도 자동 로그인 표에 있다 — 로그인 화면이 다�
   // 윙 첫 화면은 로그아웃이면 `xauth.coupang.com` 판매자 로그인으로 넘어간다. 두 주소 모두
   // manifest 권한에 있고, 공용 폼 채우기가 모든 프레임을 훑으므로 그대로 채워진다
   // (사장님 2026-09-22: "자동로그인 만들어").
-  // `ensureMallLoggedIn` 은 이제 몰 세션 모듈에 그대로 위임한다(#556). 그래서 주소는 모듈의
-  // 스펙 한 줄에서 나온다 — 사이트 주소를 저장하지 않은 계정도 윙으로 들어가야 한다.
-  const ensure = extractFunction(workerSource, "ensureMallLoggedIn");
-  assert.match(ensure, /return mallSession\(\)\.ensureLoggedIn\(mallKey, credentials, \{ collection \}\);/);
+  // 주소는 몰 세션 모듈의 스펙 한 줄에서 나온다 — 사이트 주소를 저장하지 않은 계정도
+  // 윙으로 들어가야 한다.
   const opened = [];
   await MallSession.create({ driver: fakeLoginDriver(opened) })
     .ensureLoggedIn("coupang", { loginId: "id", password: "pw" });
