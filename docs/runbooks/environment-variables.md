@@ -154,6 +154,10 @@ Local development:
   jobs, not Agent OS runs. For local preview, keep `AI_TEXT_MODEL`,
   `AI_IMAGE_MODEL`, and `AI_IMAGE_ANALYSIS_MODEL` set in `apps/server/.env`.
 - Local env must not be copied to Office as-is.
+- `KIDITEM_TEST_OPERATION_KINDS=1` (local and QA only) registers the dummy
+  operation kind `test.echo` so the extension runtime can be smoke-tested
+  against the operation contract. Leave it unset everywhere else; it is never an
+  Office runtime variable.
 - `KIDITEM_BROWSER_QA_EMAIL` is an optional, non-secret test-only login email
   for `qa:agent-os:clean-cutover -- --serve-browser-qa`; `--email <email>`
   takes precedence. It is never an Office runtime variable. The browser-QA
