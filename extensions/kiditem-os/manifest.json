@@ -116,7 +116,6 @@
         "https://wing.coupang.com/vendor-inventory/list*"
       ],
       "js": [
-        "shared/coupang-catalog-collector.js",
         "content/coupang/wing-inventory-scraper.js"
       ],
       "run_at": "document_idle"
@@ -145,7 +144,6 @@
         "https://wing.coupang.com/tenants/seller-web/vendor-inventory/list*"
       ],
       "js": [
-        "shared/coupang-catalog-collector.js",
         "content/coupang/wing-inventory-scraper.js"
       ],
       "run_at": "document_idle"

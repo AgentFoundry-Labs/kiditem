@@ -19,10 +19,6 @@ const wingUnified = fs.readFileSync(
   path.join(extensionRoot, 'content/coupang/wing-unified.js'),
   'utf8',
 );
-const catalog = fs.readFileSync(
-  path.join(extensionRoot, 'background/coupang/coupang-catalog-import.js'),
-  'utf8',
-);
 const collectionWindowSource = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/collection-window.js'),
   'utf8',
@@ -61,8 +57,9 @@ test('loads the canonical session manager and focus owners before collector runt
   assert.ok(at('worker-globals.js') > at('interactive-tabs.js'));
   assert.ok(at('coupang/collection-window.js') > at('worker-globals.js'));
   assert.ok(at('coupang/profitability-source-owner.js') > at('coupang/collection-window.js'));
-  assert.ok(at('coupang/coupang-catalog-import.js') > at('coupang/collection-window.js'));
-  assert.ok(at('coupang/worker.js') > at('coupang/coupang-catalog-import.js'));
+  // KID-354: the Wing catalog runs in the TypeScript operation runtime, not as an old module.
+  assert.equal(at('coupang/coupang-catalog-import.js'), -1);
+  assert.ok(at('coupang/worker.js') > at('coupang/profitability-source-owner.js'));
   assert.doesNotMatch(worker, /^importScripts\(/m);
 
   const globals = fs.readFileSync(
@@ -232,26 +229,17 @@ test('source capture policies share the environment-owned resource without a uni
 test('automatic collectors contain no direct focus primitives', () => {
   for (const [name, source] of [
     ['service worker', worker],
-    ['catalog import', catalog],
   ]) {
     assert.doesNotMatch(source, /active:\s*true/, `${name} activates a tab directly`);
     assert.doesNotMatch(source, /focused:\s*true/, `${name} focuses a window directly`);
     assert.doesNotMatch(source, /\bactivateTab\s*\(/, `${name} uses legacy activateTab`);
   }
-  assert.match(catalog, /requireAttention/);
-  assert.match(catalog, /clearAlarm\(dependencies\)/);
 });
 
 test('automatic collectors never reuse or navigate a user-active tab', () => {
   assert.match(worker, /before\?\.active && options\.allowActive !== true/);
   assert.match(worker, /throw new Error\(["']active user tab is collection-protected["']\)/);
   assert.doesNotMatch(worker, /\.catch\(\(\) => reusableTab\)/);
-  assert.match(catalog, /function sessionAttemptId\(state\)\s*\{\s*return rootAttemptId\(state\);\s*\}/);
-  assert.match(catalog, /dependencies\.collectionWindow\.getOrCreate\(\s*sessionAttemptId\(state\)/);
-  assert.match(catalog, /dependencies\.collectionWindow\.navigate\(\s*sessionAttemptId\(state\)/);
-  assert.doesNotMatch(catalog, /chrome\.tabs\.create\(/);
-  assert.doesNotMatch(catalog, /chrome\.tabs\.update\(/);
-  assert.doesNotMatch(catalog, /chrome\.tabs\.remove\(/);
 });
 
 test('public capture modules load before their worker consumers', () => {

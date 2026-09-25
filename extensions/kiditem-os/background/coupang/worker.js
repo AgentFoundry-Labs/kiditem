@@ -8,14 +8,6 @@
 
 chrome.runtime.onMessage.addListener(KidItemAdCollectorDelay.handleMessage);
 
-const COUPANG_CATALOG_CONTRACT_REVISION = 3;
-if (
-  KidItemCoupangCatalog.contractRevision !==
-  COUPANG_CATALOG_CONTRACT_REVISION
-) {
-  throw new Error("쿠팡 카탈로그 수집기 계약 revision이 일치하지 않습니다");
-}
-
 // KidItem 웹앱이 열리는 커밋된 origin. externally_connectable / 대시보드 탭 조회 /
 // 세션·auth 핸드셰이크가 모두 이 목록을 공유한다. (product-scraper 패턴)
 const AD_ACTION_URL =
@@ -27,8 +19,6 @@ const WING_CATALOG_MAX_PAGES = 5;
 const BATCH_SCRAPE_STATUS_KEY = "kiditem_batch_scrape";
 const BATCH_SCRAPE_CANCEL_KEY = "kiditem_batch_scrape_cancel";
 const COLLECTION_WINDOW_STORAGE_KEY = "kiditem_coupang_collection_window";
-const CATALOG_COLLECTION_WINDOW_STORAGE_KEY =
-  "kiditem_coupang_catalog_collection_window";
 const WING_TRAFFIC_PRODUCER = "dashboard.wing_sales";
 const WING_ITEMWINNER_PRODUCER = "dashboard.wing_kpi";
 const adsEnvironmentContext = KidItemEnvironmentContext.create({
@@ -57,25 +47,9 @@ const collectionWindows = Object.fromEntries(
     }),
   ]),
 );
-const catalogCollectionWindows = Object.fromEntries(
-  adsEnvironmentContext.environmentIds.map((environmentId) => [
-    environmentId,
-    KidItemCollectionWindow.create({
-      chrome,
-      storageKey: coupangEnvironment.stateKey(
-        CATALOG_COLLECTION_WINDOW_STORAGE_KEY,
-        environmentId,
-      ),
-    }),
-  ]),
-);
 function collectionWindowFor(environmentId) {
   adsEnvironmentContext.requireEnvironment(environmentId);
   return collectionWindows[environmentId];
-}
-function catalogCollectionWindowFor(environmentId) {
-  adsEnvironmentContext.requireEnvironment(environmentId);
-  return catalogCollectionWindows[environmentId];
 }
 
 // Every start of a collection that takes turns in the Coupang collection
@@ -100,12 +74,6 @@ const coupangCollectionStart = KidItemCoupangCollectionStart.create({
       runWingTrafficSourceOwner({ environmentId, attemptId }),
     [WING_ITEMWINNER_PRODUCER]: ({ environmentId, attemptId }) =>
       wingItemwinnerSourceOwner.run({ environmentId, attemptId }),
-  },
-  // The catalog import holds its own turn per environment: the browser's one
-  // Wing login reads one store account at a time.
-  catalogImport: {
-    admit: (request, environmentId) =>
-      KidItemCoupangCatalogImport.admit(request, coupangCatalogImportDependencies(environmentId)),
   },
 });
 
@@ -480,16 +448,6 @@ chrome.runtime.onInstalled.addListener(() => {
   Promise.resolve(chrome.storage.local.remove(COUPANG_RETIRED_LOCAL_COPY_KEYS)).catch(() => undefined);
 });
 
-chrome.alarms.onAlarm.addListener((alarm) => {
-  const scheduled = coupangEnvironment.parseAlarm(alarm.name);
-  if (scheduled?.base !== "kiditem-coupang-catalog-import-step") return;
-  const dependencies = coupangCatalogImportDependencies(scheduled.environmentId);
-  // An alarm left from an earlier worker life runs no step until this worker
-  // admits, recovers or stops that import (KID-147).
-  if (!KidItemCoupangCatalogImport.isContinuing(dependencies)) return;
-  KidItemCoupangCatalogImport.handleAlarm(alarm, dependencies);
-});
-
 // 동기화 완료 후 대시보드 탭 자동 새로고침
 function notifyDashboard(environmentId) {
   return adsEnvironmentContext.publish(environmentId, "kiditem-sync");
@@ -751,29 +709,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 });
-
-function coupangCatalogImportDependencies(environmentId) {
-  adsEnvironmentContext.requireEnvironment(environmentId);
-  return {
-    environmentId,
-    authedFetch: (path, init) => authedFetch(environmentId, path, init),
-    alarmName: coupangEnvironment.alarmName(
-      "kiditem-coupang-catalog-import-step",
-      environmentId,
-    ),
-    stateKey: coupangEnvironment.stateKey(
-      "kiditem_coupang_catalog_import",
-      environmentId,
-    ),
-    keepAlive: (operation) => KidItemWorkerKeepAlive.during(operation),
-    collectionWindow: catalogCollectionWindowFor(environmentId),
-    collectionSessions,
-    notifyDashboard: () => notifyDashboard(environmentId),
-    sendTabMessage,
-    getTab,
-    waitForTabComplete,
-  };
-}
 
 function coupangReviewCollectorDependencies(environmentId) {
   adsEnvironmentContext.requireEnvironment(environmentId);
@@ -1800,9 +1735,6 @@ async function cancelCollectionSession(runId, environmentId) {
     await wingReportCollectorFor(environmentId).cancelRun({ attemptId: runId });
     return wingItemwinnerSourceOwner.cancel({ environmentId, attemptId: runId });
   }
-  if (session?.producer === "channels.coupang_catalog") {
-    return KidItemCoupangCatalogImport.cancel(runId, coupangCatalogImportDependencies(environmentId));
-  }
   if (session?.producer === "advertising.competitor_seller_identity") {
     return sellerIdentitySourceOwner.cancel({ environmentId, attemptId: runId });
   }
@@ -1850,7 +1782,6 @@ function recoverCoupangCollections(environmentId) {
     ["수익성 광고비 source owner", () => profitabilitySourceOwner.recover(environmentId)],
     ["추적 Wing source owner", () => trackedWingProductsSourceOwner.recover(environmentId)],
     ["경쟁 판매자 source owner", () => competitorCatalogSourceOwner.recover(environmentId)],
-    ["쿠팡 상품 수집", () => KidItemCoupangCatalogImport.recover(coupangCatalogImportDependencies(environmentId))],
   ]) {
     KidItemWorkerKeepAlive.during(Promise.resolve().then(recover)).catch((error) =>
       console.error(`[KIDITEM] ${label} 복구 실패:`, error?.message || error));

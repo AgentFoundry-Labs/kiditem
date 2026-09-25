@@ -308,6 +308,13 @@ describe('Wing 상세 정규화', () => {
     expect(() => buildCatalogDetailProduct({ sellerProductId: 99000000002, items })).toThrow(/미디어가 허용 개수를 초과했습니다/);
   });
 
+  it('bounds option attributes to the shared contract (ISSUE-001 regression, 105 → 100)', () => {
+    const attributes = Array.from({ length: 105 }, (_, index) => ({ attributeTypeName: `속성-${index}`, attributeValueName: `값-${index}` }));
+    const product = buildCatalogDetailProduct({ sellerProductId: 13675577630, items: [{ vendorItemId: 91000000001, attributes }] });
+    expect(product.options[0]!.attributes).toHaveLength(100);
+    expect(product.options[0]!.attributes!.at(-1)).toEqual({ type: '속성-99', value: '값-99' });
+  });
+
   it('preserves provider registrationType on the option raw', () => {
     for (const registrationType of ['NORMAL', 'RFM']) {
       const product = buildCatalogDetailProduct({ sellerProductId: 123, items: [{ vendorItemId: 456, sellerProductItemId: 789, registrationType }] });

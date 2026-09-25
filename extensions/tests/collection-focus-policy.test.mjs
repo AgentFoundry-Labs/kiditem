@@ -23,7 +23,6 @@ const expectedOwnerFiles = [
 const expectedLegacyFiles = [
   'extensions/kiditem-os/background/service-worker.js',
   'extensions/kiditem-os/background/coupang/worker.js',
-  'extensions/kiditem-os/background/coupang/coupang-catalog-import.js',
   'extensions/kiditem-os/background/orders/worker.js',
   'extensions/kiditem-os/background/sourcing/worker.js',
   'extensions/kiditem-os/background/sourcing/1688-trend-collector.js',

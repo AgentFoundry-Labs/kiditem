@@ -5,10 +5,6 @@
 (function () {
   "use strict";
 
-  const WING_CATALOG_SEARCH_URL =
-    "https://wing.coupang.com/tenants/seller-web/v2/vendor-inventory/search";
-  const WING_CATALOG_SEARCH_TIMEOUT_MS = 30_000;
-
   if (!location.href.includes("vendor-inventory/list")) return;
 
   console.log("[KIDITEM] wing-inventory-scraper.js loaded");
@@ -71,109 +67,6 @@
       products.push(product);
     }
     return products;
-  }
-
-  function isHtmlResponse(body, response) {
-    const contentType = response?.headers?.get?.("content-type") || "";
-    return /text\/html/i.test(contentType) ||
-      /^\s*<!doctype\s+html/i.test(body) ||
-      /<html(?:\s|>)/i.test(body);
-  }
-
-  function isLoginResponse(response) {
-    const status = Number(response?.status);
-    return response?.type === "opaqueredirect" || status === 0 ||
-      status === 401 || status === 403 || (status >= 300 && status < 400);
-  }
-
-  function retryAfterDate(response) {
-    const value = String(response?.headers?.get?.("retry-after") || "").trim();
-    if (/^\d+(?:\.\d+)?$/.test(value)) {
-      return new Date(Date.now() + Math.ceil(Number(value) * 1000)).toISOString();
-    }
-    const timestamp = Date.parse(value);
-    if (Number.isFinite(timestamp)) return new Date(timestamp).toISOString();
-    return new Date(Date.now() + 60_000).toISOString();
-  }
-
-  async function fetchCatalogDiscoveryPage(message) {
-    const collector = globalThis.KidItemCoupangCatalog;
-    if (!collector) {
-      return { success: false, error: "쿠팡 카탈로그 수집 모듈을 불러오지 못했습니다" };
-    }
-
-    let body;
-    try {
-      body = collector.buildWingCatalogSearchBody(message?.page);
-    } catch (error) {
-      return { success: false, error: error?.message || "Wing 페이지 요청이 올바르지 않습니다" };
-    }
-
-    let response;
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), WING_CATALOG_SEARCH_TIMEOUT_MS);
-    try {
-      response = await fetch(WING_CATALOG_SEARCH_URL, {
-        method: "POST",
-        credentials: "include",
-        redirect: "manual",
-        headers: { "content-type": "application/json" },
-        signal: controller.signal,
-        body: JSON.stringify(body),
-      });
-      if (isLoginResponse(response)) {
-        return { success: false, pendingLogin: true, error: "쿠팡 Wing 로그인이 필요합니다" };
-      }
-      if (Number(response?.status) === 429) {
-        return {
-          success: false,
-          rateLimited: true,
-          status: 429,
-          nextAllowedAt: retryAfterDate(response),
-          error: "쿠팡 Wing 상품 목록 API가 요청 한도를 초과했습니다",
-        };
-      }
-      if (response?.ok === false || Number(response?.status) >= 400) {
-        return { success: false, error: `Wing 상품 목록 API 요청 실패 (${response?.status || "unknown"})` };
-      }
-
-      let rawBody;
-      try {
-        rawBody = typeof response?.text === "function"
-          ? await response.text()
-          : JSON.stringify(await response.json());
-      } catch (error) {
-        if (error?.name === "AbortError") throw error;
-        return {
-          success: false,
-          error: error?.message || "Wing 상품 목록 API 응답을 읽지 못했습니다",
-        };
-      }
-      if (isHtmlResponse(rawBody, response)) {
-        return { success: false, pendingLogin: true, error: "쿠팡 Wing 로그인이 필요합니다" };
-      }
-
-      let payload;
-      try {
-        payload = JSON.parse(rawBody);
-      } catch {
-        return { success: false, error: "Wing 상품 목록 API 응답 JSON이 올바르지 않습니다" };
-      }
-      return collector.normalizeWingCatalogSearchResponse(
-        payload,
-        body.page,
-        message?.expectedVendorId,
-      );
-    } catch (error) {
-      return {
-        success: false,
-        error: error?.name === "AbortError"
-          ? "Wing 상품 목록 API 요청 시간이 초과되었습니다"
-          : error?.message || "Wing 상품 목록 API 요청 실패",
-      };
-    } finally {
-      clearTimeout(timeoutId);
-    }
   }
 
   // ── 총 페이지 수 추출 ──
@@ -337,16 +230,6 @@
 
   // ── 메시지 리스너: 팝업에서 트리거 ──
   chrome.runtime.onMessage.addListener((msg, _sender, sendResponse) => {
-    if (msg?.action === "collectCoupangCatalogDiscoveryPage") {
-      fetchCatalogDiscoveryPage(msg)
-        .then(sendResponse)
-        .catch((error) => sendResponse({
-          success: false,
-          error: error?.message || "Wing 상품 목록 API 수집 실패",
-        }));
-      return true;
-    }
-
     if (msg?.action === "scrapeInventoryList") {
       scrapeAllPages().then(sendResponse);
       return true; // async
