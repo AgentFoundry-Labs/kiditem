@@ -4896,15 +4896,13 @@ var KidItemRuntime = (() => {
     let lastSentAt = null;
     let queue = Promise.resolve();
     const loginMessage = options.displayName ? `${options.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.` : "\uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.";
-    async function send(url, init = {}) {
+    async function send(url, { requireXsrf = false, ...init } = {}) {
       const headers = new Headers(init.headers);
       if (options.xsrf) {
         const cookie = await deps.cookies.get({ url: options.xsrf.cookieUrl, name: options.xsrf.cookieName });
         const token = decodeCookie(cookie?.value);
-        if (!token) {
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { url, reason: "xsrf_cookie_missing" });
-        }
-        headers.set(options.xsrf.headerName, token);
+        if (token) headers.set(options.xsrf.headerName, token);
+        else if (requireXsrf) throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { url, reason: "xsrf_cookie_missing" });
       }
       const wait = delayUntilNext({ lastSentAt, now: deps.now(), minIntervalMs: options.minIntervalMs });
       if (wait > 0) await deps.sleep(wait);
@@ -5425,7 +5423,12 @@ var KidItemRuntime = (() => {
     }
   };
   function createWingSite(caller, deps) {
-    const postJson = (url, body) => caller.json(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body) });
+    const postJson = (url, body, requireXsrf = false) => caller.json(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body),
+      requireXsrf
+    });
     async function productIdsOf(ids, displayDeletedProduct) {
       const response = await postJson(SEARCH_URL, buildWingProductIdSearchBody(ids, displayDeletedProduct));
       const rows = productRows(response);
@@ -5499,7 +5502,7 @@ var KidItemRuntime = (() => {
           fileDescription: description,
           requestType: EXCEL_REQUEST_TYPE,
           selectedTypes: [...CATALOGUE_TYPES]
-        });
+        }, true);
         const record = asRecord(response);
         if (record?.success !== true) {
           const message = typeof record?.message === "string" && record.message ? `: ${record.message}` : "";
@@ -5509,7 +5512,8 @@ var KidItemRuntime = (() => {
       /** 다운로드 목록에서 이 설명으로 만든 요청. 아직 없으면 null. 중단된 요청은 `ABORTED`. */
       async catalogExcelRequest(description) {
         const response = await caller.json(`${EXCEL_BASE}/list?requestType=${EXCEL_REQUEST_TYPE}&page=1&countPerPage=10`, {
-          headers: { accept: "application/json" }
+          headers: { accept: "application/json" },
+          requireXsrf: true
         });
         const rows = asRecord(response)?.result;
         const row = Array.isArray(rows) ? rows.map(asRecord).find((candidate) => candidate?.fileDescription === description && candidate.isDeleted !== "Y") : void 0;
@@ -5522,7 +5526,10 @@ var KidItemRuntime = (() => {
         };
       },
       downloadCatalogExcel(id) {
-        return caller.bytes(`${EXCEL_BASE}/file?requestType=${EXCEL_REQUEST_TYPE}&sellerRequestDownloadExcelId=${encodeURIComponent(id)}&sellerRequestDownloadExcelFileId=`);
+        return caller.bytes(
+          `${EXCEL_BASE}/file?requestType=${EXCEL_REQUEST_TYPE}&sellerRequestDownloadExcelId=${encodeURIComponent(id)}&sellerRequestDownloadExcelFileId=`,
+          { requireXsrf: true }
+        );
       },
       /** 폴링 사이 기다림. 취소되면 바로 돌아온다. */
       pause(ms, signal) {

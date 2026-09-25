@@ -40,8 +40,8 @@ export const WING_CATALOG_PAYLOAD_INVALID = 'WING_CATALOG_PAYLOAD_INVALID' as co
 
 /**
  * 쿠팡 윙. 탭은 `account:<channelAccountId>` 잠금이 잡는다(입구의 `accountSite: 'wing'`). 봇 센서가 있어 요청은
- * 직렬·2초 간격이고, 엑셀 계열 요청은 `XSRF-TOKEN` 쿠키를 `X-XSRF-TOKEN` 헤더로 실어야 한다(KID-351 실측).
- * 쿠키가 없으면 로그인이 풀린 것으로 본다 — 로그인 자동화는 KID-359.
+ * 직렬·2초 간격이다. `XSRF-TOKEN` 쿠키가 있으면 모든 요청에 `X-XSRF-TOKEN`으로 싣고, 엑셀 계열 요청은 그것이 꼭
+ * 필요하다(KID-351 실측). 로그인 판정은 응답(401·403·로그인 리다이렉트)으로 한다 — 로그인 자동화는 KID-359.
  */
 export const WING_SITE: SiteDefinition = {
   name: 'wing',
@@ -59,8 +59,13 @@ export interface WingSiteDeps {
 
 /** Wing 카탈로그 수집기 셋(목록·상세·엑셀)이 쓰는 Wing 읽기와, 사용자가 허용한 엑셀 생성 요청 하나. */
 export function createWingSite(caller: SiteCaller, deps: WingSiteDeps) {
-  const postJson = (url: string, body: unknown) =>
-    caller.json(url, { method: 'POST', headers: { 'content-type': 'application/json', accept: 'application/json' }, body: JSON.stringify(body) });
+  const postJson = (url: string, body: unknown, requireXsrf = false) =>
+    caller.json(url, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', accept: 'application/json' },
+      body: JSON.stringify(body),
+      requireXsrf,
+    });
 
   async function productIdsOf(ids: readonly string[], displayDeletedProduct: boolean): Promise<Map<string, string | null>> {
     const response = await postJson(SEARCH_URL, buildWingProductIdSearchBody(ids, displayDeletedProduct));
@@ -139,7 +144,7 @@ export function createWingSite(caller: SiteCaller, deps: WingSiteDeps) {
         fileDescription: description,
         requestType: EXCEL_REQUEST_TYPE,
         selectedTypes: [...CATALOGUE_TYPES],
-      });
+      }, true);
       const record = asRecord(response);
       if (record?.success !== true) {
         const message = typeof record?.message === 'string' && record.message ? `: ${record.message}` : '';
@@ -151,6 +156,7 @@ export function createWingSite(caller: SiteCaller, deps: WingSiteDeps) {
     async catalogExcelRequest(description: string) {
       const response = await caller.json(`${EXCEL_BASE}/list?requestType=${EXCEL_REQUEST_TYPE}&page=1&countPerPage=10`, {
         headers: { accept: 'application/json' },
+        requireXsrf: true,
       });
       const rows = asRecord(response)?.result;
       const row = Array.isArray(rows)
@@ -166,7 +172,10 @@ export function createWingSite(caller: SiteCaller, deps: WingSiteDeps) {
     },
 
     downloadCatalogExcel(id: string): Promise<Uint8Array> {
-      return caller.bytes(`${EXCEL_BASE}/file?requestType=${EXCEL_REQUEST_TYPE}&sellerRequestDownloadExcelId=${encodeURIComponent(id)}&sellerRequestDownloadExcelFileId=`);
+      return caller.bytes(
+        `${EXCEL_BASE}/file?requestType=${EXCEL_REQUEST_TYPE}&sellerRequestDownloadExcelId=${encodeURIComponent(id)}&sellerRequestDownloadExcelFileId=`,
+        { requireXsrf: true },
+      );
     },
 
     /** 폴링 사이 기다림. 취소되면 바로 돌아온다. */

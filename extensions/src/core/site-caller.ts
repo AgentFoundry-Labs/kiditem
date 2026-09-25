@@ -4,11 +4,14 @@ import { RuntimeError } from './errors';
  * 사이트 호출기 — 사이트 API를 부를 때 공용으로 지키는 것: 요청 간격(pacing), XSRF 쿠키 → 헤더,
  * 봇 센서·로그인 만료 감지. `sites/*`는 fetch를 직접 쓰지 않고 이 포트만 쓴다.
  */
+/** `requireXsrf`: XSRF 쿠키가 없으면 보내지 않는다(윙 엑셀 요청처럼 헤더가 꼭 필요한 요청). */
+export type SiteRequestInit = RequestInit & { requireXsrf?: boolean };
+
 export interface SiteCaller {
-  json<T = unknown>(url: string, init?: RequestInit): Promise<T>;
-  text(url: string, init?: RequestInit): Promise<string>;
+  json<T = unknown>(url: string, init?: SiteRequestInit): Promise<T>;
+  text(url: string, init?: SiteRequestInit): Promise<string>;
   /** 본문 바이트(파일 내려받기). */
-  bytes(url: string, init?: RequestInit): Promise<Uint8Array>;
+  bytes(url: string, init?: SiteRequestInit): Promise<Uint8Array>;
 }
 
 export interface SiteCallerOptions {
@@ -41,7 +44,7 @@ export interface SiteCallerDeps {
 }
 
 /**
- * 간격·XSRF·로그인 만료를 지키는 사이트 호출기. 요청은 한 줄로 보내 동시에 불러도 간격이 유지된다.
+ * 간격·XSRF·로그인 만료를 지키는 사이트 호출기. XSRF 헤더는 쿠키가 있을 때 싣는다. 요청은 한 줄로 보내 동시에 불러도 간격이 유지된다.
  * 리다이렉트는 따라가지 않는다(`redirect: 'manual'`) — 로그인 페이지로 튕기면 `SITE_LOGIN_REQUIRED`.
  */
 export function createSiteCaller(options: SiteCallerOptions, deps: SiteCallerDeps): SiteCaller {
@@ -49,15 +52,14 @@ export function createSiteCaller(options: SiteCallerOptions, deps: SiteCallerDep
   let queue: Promise<unknown> = Promise.resolve();
   const loginMessage = options.displayName ? `${options.displayName} 로그인이 필요합니다.` : '사이트 로그인이 필요합니다.';
 
-  async function send(url: string, init: RequestInit = {}): Promise<Response> {
+  async function send(url: string, { requireXsrf = false, ...init }: SiteRequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);
     if (options.xsrf) {
+      // 쿠키가 있으면 헤더로 싣는다. 로그인 판정은 응답으로만 한다 — 헤더가 꼭 필요한 요청만 여기서 멈춘다.
       const cookie = await deps.cookies.get({ url: options.xsrf.cookieUrl, name: options.xsrf.cookieName });
       const token = decodeCookie(cookie?.value);
-      if (!token) {
-        throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { url, reason: 'xsrf_cookie_missing' });
-      }
-      headers.set(options.xsrf.headerName, token);
+      if (token) headers.set(options.xsrf.headerName, token);
+      else if (requireXsrf) throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { url, reason: 'xsrf_cookie_missing' });
     }
     const wait = delayUntilNext({ lastSentAt, now: deps.now(), minIntervalMs: options.minIntervalMs });
     if (wait > 0) await deps.sleep(wait);
@@ -84,7 +86,7 @@ export function createSiteCaller(options: SiteCallerOptions, deps: SiteCallerDep
   }
 
   return {
-    json: <T>(url: string, init?: RequestInit) =>
+    json: <T>(url: string, init?: SiteRequestInit) =>
       enqueue(async () => {
         const response = await send(url, init);
         try {

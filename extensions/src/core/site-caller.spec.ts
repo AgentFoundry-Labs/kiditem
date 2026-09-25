@@ -84,14 +84,27 @@ describe('createSiteCaller — 사이트 요청 공용 규칙', () => {
     expect(site.sent[0].init?.credentials).toBe('include');
   });
 
-  it('xsrf 쿠키가 없으면 로그인이 풀린 것이다 — 보내지 않고 SITE_LOGIN_REQUIRED', async () => {
+  it('xsrf 쿠키가 없으면 헤더 없이 보낸다 — 로그인 판정은 응답(401·403·리다이렉트)으로만 한다', async () => {
     const site = fakeSite();
     const caller = createSiteCaller(
       { minIntervalMs: 0, xsrf: { cookieUrl: 'https://wing.example.com', cookieName: 'XSRF-TOKEN', headerName: 'X-XSRF-TOKEN' } },
       site.deps,
     );
 
-    const error = await rejection(caller.json('https://wing.example.com/api/x'));
+    await expect(caller.json('https://wing.example.com/api/x')).resolves.toEqual({ ok: true });
+
+    expect(site.sent).toHaveLength(1);
+    expect(site.sent[0]!.headers.has('X-XSRF-TOKEN')).toBe(false);
+  });
+
+  it('XSRF가 꼭 필요한 요청(requireXsrf)은 쿠키가 없으면 보내지 않고 SITE_LOGIN_REQUIRED', async () => {
+    const site = fakeSite();
+    const caller = createSiteCaller(
+      { minIntervalMs: 0, xsrf: { cookieUrl: 'https://wing.example.com', cookieName: 'XSRF-TOKEN', headerName: 'X-XSRF-TOKEN' } },
+      site.deps,
+    );
+
+    const error = await rejection(caller.json('https://wing.example.com/api/x', { method: 'POST', requireXsrf: true }));
 
     expect(error.code).toBe('SITE_LOGIN_REQUIRED');
     expect(site.sent).toEqual([]);

@@ -84,11 +84,17 @@ describe('sites/wing', () => {
     expect(error.code).toBe('CATALOG_LIST_INCOMPLETE');
   });
 
-  it('XSRF 쿠키가 없거나 401이면 "쿠팡 윙 로그인이 필요합니다."로 멈춘다', async () => {
-    const noCookie = await rejection(fakeWing(() => searchResponse([]), null).site.searchInventory(1, null));
-    expect([noCookie.code, noCookie.message]).toEqual(['SITE_LOGIN_REQUIRED', '쿠팡 윙 로그인이 필요합니다.']);
+  it('로그인 판정은 응답으로: XSRF 쿠키가 없어도 목록은 읽고, 401이면 "쿠팡 윙 로그인이 필요합니다."로 멈춘다', async () => {
+    await expect(fakeWing(() => searchResponse([]), null).site.searchInventory(1, null)).resolves.toMatchObject({ totalItems: 0 });
     const unauthorized = await rejection(fakeWing(() => new Response('', { status: 401 })).site.productDetail('7'));
-    expect(unauthorized.code).toBe('SITE_LOGIN_REQUIRED');
+    expect([unauthorized.code, unauthorized.message]).toEqual(['SITE_LOGIN_REQUIRED', '쿠팡 윙 로그인이 필요합니다.']);
+  });
+
+  it('엑셀 생성 요청은 XSRF가 없으면 보내지 않는다', async () => {
+    const wing = fakeWing((url) => url === SEARCH ? searchResponse([listRow(1)]) : Response.json({ success: true, message: null }), null);
+    const error = await rejection(wing.site.requestCatalogExcel('kiditem_3'));
+    expect(error.code).toBe('SITE_LOGIN_REQUIRED');
+    expect(wing.sent.map(({ url }) => url)).toEqual([SEARCH]);
   });
 
   it('productDetail은 상세 JSON을 상세 원소로 바꾸고, 없으면(404) null, 일시 오류는 2초·6초 뒤 다시 묻는다', async () => {
