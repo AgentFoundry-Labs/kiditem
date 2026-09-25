@@ -158,6 +158,8 @@ sync, registration, matching, and capacity behavior is executable in
   list value the last details finalize applied (`domain/collection/catalog-detail-targets.ts`).
   Only the details finalize advances it, unchanged details included, so a
   failed or partial details run is retried by the next list with no bookkeeping.
+  Rows detailed before this key existed have none, so the first sync after
+  deploy fetches every detail once.
 - Readers treat a `lastOperationId` row as published (`completed-catalog-run.ts`);
   readiness reads catalog freshness through `CHANNEL_CATALOG_FRESHNESS_PORT`
   (latest succeeded details operation).
