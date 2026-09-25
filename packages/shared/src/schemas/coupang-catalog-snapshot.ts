@@ -842,3 +842,67 @@ export const CoupangCatalogBrowserStatusSchema = z.object({
   currentStage: CoupangCatalogStageSchema.optional(),
 }).strict();
 export type CoupangCatalogBrowserStatus = z.infer<typeof CoupangCatalogBrowserStatusSchema>;
+
+// ── 실행 계약 kind (KID-354): Wing 카탈로그 동기화 셋 ───────────────────────────────
+// 옛 attempt 경로(`/catalog-imports/coupang-wing/attempts`)를 대체한다. 청크 payload는 옛 청크의
+// `products` 원소와 같은 모양이고, 봉투(version·kind·startOrdinal)는 실행 계약(chunkKind·sequence)이 맡는다.
+
+export const WING_CATALOG_LIST_KIND = 'channels.wing_catalog_list' as const;
+export const WING_CATALOG_DETAILS_KIND = 'channels.wing_catalog_details' as const;
+export const WING_CATALOG_EXCEL_KIND = 'channels.wing_catalog_excel' as const;
+export const WING_CATALOG_KINDS = [WING_CATALOG_LIST_KIND, WING_CATALOG_DETAILS_KIND, WING_CATALOG_EXCEL_KIND] as const;
+
+/** 청크 종류(chunkKind). 목록 kind는 `listing_basics`만, 상세 kind는 `full_details`·`deletion_confirmation`. */
+export const WING_CATALOG_CHUNK_KINDS = {
+  listingBasics: 'listing_basics',
+  fullDetails: 'full_details',
+  deletionConfirmation: 'deletion_confirmation',
+} as const;
+
+const WingCatalogProductIdsSchema = z.array(ExternalIdSchema).max(100_000);
+
+/** `channels.wing_catalog_list` scope: 어느 계정의 목록인가. lockKey는 `account:<channelAccountId>`. */
+export const WingCatalogListScopeSchema = z.object({
+  channelAccountId: z.string().uuid(),
+}).strict();
+export type WingCatalogListScope = z.infer<typeof WingCatalogListScopeSchema>;
+
+/** `channels.wing_catalog_list` result: 상세 계획. `next`가 있으면 확장이 상세 kind를 이어서 begin한다. */
+export const WingCatalogListResultSchema = z.object({
+  listedProductCount: z.number().int().nonnegative(),
+  detailTargetProductIds: WingCatalogProductIdsSchema,
+  absentProductIds: WingCatalogProductIdsSchema,
+  next: z.object({
+    kind: z.literal(WING_CATALOG_DETAILS_KIND),
+    scope: z.lazy(() => WingCatalogDetailsScopeSchema),
+  }).strict().nullable(),
+}).strict();
+export type WingCatalogListResult = z.infer<typeof WingCatalogListResultSchema>;
+
+/**
+ * `channels.wing_catalog_details` scope. 목록 kind의 result에서 오거나, "상품 하나 다시 받기"가
+ * `{ detailTargetProductIds: [id], absentProductIds: [] }`로 직접 시작한다. owner `plan`이 두 목록을 저장 행과 대조한다.
+ */
+export const WingCatalogDetailsScopeSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  detailTargetProductIds: WingCatalogProductIdsSchema,
+  absentProductIds: WingCatalogProductIdsSchema,
+}).strict();
+export type WingCatalogDetailsScope = z.infer<typeof WingCatalogDetailsScopeSchema>;
+
+/** `channels.wing_catalog_excel` scope. 파일 자체는 begin의 `fileHash`(unique)로 식별한다. */
+export const WingCatalogExcelScopeSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  observedAt: z.string().datetime({ offset: true }).optional(),
+}).strict();
+export type WingCatalogExcelScope = z.infer<typeof WingCatalogExcelScopeSchema>;
+
+/** 청크 payload 원소. 순번·연속성은 실행 계약의 (chunkKind, sequence)가 보장하므로 ordinal은 없다. */
+export const WingCatalogListingBasicsItemSchema = CoupangCatalogBasicProductV1Schema;
+export const WingCatalogFullDetailsItemSchema = CoupangCatalogDetailProductV1Schema;
+export const WingCatalogDeletionConfirmationItemSchema = z.object({
+  externalProductId: ExternalIdSchema,
+  outcome: CoupangCatalogDeletionOutcomeSchema,
+  productStatus: NullableTextSchema.optional().default(null),
+}).strict();
+export type WingCatalogDeletionConfirmationItem = z.infer<typeof WingCatalogDeletionConfirmationItemSchema>;
