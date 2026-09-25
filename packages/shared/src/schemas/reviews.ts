@@ -127,7 +127,7 @@ export type ReviewIngestResponse = z.infer<typeof ReviewIngestResponseSchema>;
 
 // ── 실행 계약 kind (KID-359 H1): 쿠팡 상품평 수집 ──────────────────────────────────
 // 옛 `/api/reviews/attempts/*` 경로를 대체한다. 청크는 `reviews`(항목 ≤200, 각 항목에 windowIndex),
-// 창(월) 완료는 progress.windows[i].items로 보고하고 finalize가 청크 합계와 대조한다.
+// 창(월) 완료는 `review_windows` 표식 청크로 보고하고 finalize가 청크 합계와 대조한다.
 
 export const COUPANG_REVIEWS_KIND = 'orders.coupang_reviews' as const;
 export const COUPANG_REVIEWS_CHUNK_KIND = 'reviews' as const;
@@ -157,6 +157,19 @@ export const CoupangReviewsChunkItemSchema = ReviewIngestItemSchema.extend({
   windowIndex: z.number().int().nonnegative(),
 });
 export type CoupangReviewsChunkItem = z.infer<typeof CoupangReviewsChunkItemSchema>;
+
+/**
+ * 창 완결 표식 청크(`review_windows`). 창 하나가 끝날 때마다 원소 1개(청크 순번 증가).
+ * finalize는 `reviews` 청크의 창별 항목 수와 이 원소의 `items`를 대조해 완결을 판정한다 — 완결 증거는 청크에 있다.
+ * progress는 화면·임대용일 뿐 판정에 쓰지 않는다.
+ */
+export const COUPANG_REVIEWS_WINDOW_CHUNK_KIND = 'review_windows' as const;
+export const CoupangReviewsWindowDoneSchema = z.object({
+  index: z.number().int().nonnegative(),
+  pages: z.number().int().nonnegative(),
+  items: z.number().int().nonnegative(),
+}).strict();
+export type CoupangReviewsWindowDone = z.infer<typeof CoupangReviewsWindowDoneSchema>;
 
 /** progress: 창별 진행. `items`는 그 창에서 올린 항목 수(finalize가 청크 합계와 대조해 완결 판정). */
 export const CoupangReviewsProgressSchema = z.object({
