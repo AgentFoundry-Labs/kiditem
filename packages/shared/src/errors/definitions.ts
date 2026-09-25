@@ -209,6 +209,10 @@ export const ERROR_DEFINITIONS = {
   SOURCING_SEARCH_EXTRACTION_FAILED: def('sourcing', 'external', '검색 결과를 읽지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   SOURCING_PROVIDER_CONTRACT_CHANGED: def('sourcing', 'external', '소싱 사이트 화면이 바뀌어 읽지 못했습니다. 개발자에게 알려 주세요.'),
   SOURCING_DUPLICATE_RECORD: def('sourcing', 'conflict', '이미 수집된 항목입니다.'),
+  SOURCING_COLLECTION_INCOMPLETE: def('sourcing', 'conflict', '수집이 요청한 범위를 다 채우지 못했습니다. 다시 수집해 주세요.', { retryable: true }),
+  SOURCING_COLLECTION_INVALID: def('sourcing', 'validation', '확장 프로그램이 보낸 수집 결과를 읽지 못했습니다. 확장 프로그램을 새로고침한 뒤 다시 수집해 주세요.'),
+  SOURCING_SOURCE_DISABLED: def('sourcing', 'precondition', '이 수집 원천이 꺼져 있습니다. 수집 설정에서 켠 뒤 다시 시도해 주세요.'),
+  SOURCING_ACCOUNT_NOT_FOUND: def('sourcing', 'not_found', 'Wing 검색에 쓸 쿠팡 계정을 찾을 수 없습니다. 쇼핑몰 계정 설정을 확인해 주세요.'),
 
   // content (AI)
   CONTENT_GENERATION_FAILED: def('content', 'external', 'AI 생성에 실패했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),

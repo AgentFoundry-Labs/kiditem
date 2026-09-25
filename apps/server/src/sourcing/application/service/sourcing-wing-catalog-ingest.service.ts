@@ -16,6 +16,7 @@ import {
   type SourcingRecommendationSourceRepositoryPort,
 } from '../port/out/repository/sourcing-recommendation-source.repository.port';
 import { hashCollectionRequest } from './sourcing-collection-mappers';
+import { buildWingCatalogOutput as buildBatchOutput } from './sourcing-wing-catalog.mapper';
 import { assertToken, boundedText, requireIdempotencyKey, toPermit } from './sourcing-source-attempt-primitives';
 import type { AuthorizedCollectionOutput, SourcingCollectionPermit } from '../port/out/repository/sourcing-collection.repository.port';
 
@@ -184,69 +185,6 @@ function deduplicateExactManualObservations(
   }
   return [...byPayload.values()];
 }
-
-function buildBatchOutput(input: {
-  organizationId: string;
-  permit: SourcingCollectionPermit;
-  items: SourcingWingCatalogObservation[];
-  ingestedAt?: Date;
-}): AuthorizedCollectionOutput {
-  const ingestedAt = input.ingestedAt ?? new Date();
-  const observations = input.items.map((item) => {
-    const capturedAt = new Date(item.capturedAt);
-    return {
-      organizationId: input.organizationId,
-      operationId: input.permit.runId,
-      sourceKey: input.permit.sourceKey,
-      platform: 'coupang',
-      evidenceFamily: 'wing_catalog',
-      signalRole: 'demand' as const,
-      granularity: 'exact_own' as const,
-      conceptKey: sourcingWingCatalogKeywordIdentity(item.sourceKeyword),
-      sourceEntityType: 'coupang_product',
-      sourceEntityId: item.productId,
-      schemaVersion: 'coupang-wing-catalog/v2',
-      observationKey: hashCollectionRequest({
-        attemptId: input.permit.runId,
-        productId: item.productId,
-        itemId: item.itemId,
-        vendorItemId: item.vendorItemId,
-        sourceKeyword: sourcingWingCatalogKeywordIdentity(item.sourceKeyword),
-        capturedAt: item.capturedAt,
-      }),
-      revision: 1,
-      supportsCandidate: false,
-      sourceUrl: null,
-      eventAt: capturedAt,
-      observedAt: capturedAt,
-      availableAt: capturedAt,
-      revisionAt: null,
-      payloadHash: hashCollectionRequest(item),
-      rawPayload: item,
-      ingestedAt,
-    };
-  });
-  return {
-    observations,
-    typedRecords: input.items.map((item, index) => ({
-      kind: 'wing_catalog_product' as const,
-      row: {
-        organizationId: input.organizationId,
-        operationId: input.permit.runId,
-        evidenceObservationKey: observations[index]!.observationKey,
-        evidenceRevision: 1,
-        ...item,
-      },
-    })),
-    discoveredCount: observations.length,
-    rejectedCount: 0,
-    qualityReport: {
-      source: 'coupang-wing-catalog',
-      rowCount: observations.length,
-    },
-  };
-}
-
 
 function toCurrentObservation(
   item: SourcingCoupangObservationCommand['items'][number],

@@ -37,6 +37,7 @@ export const SOURCING_EXTENSION_KINDS = [
   SOURCING_OPERATION_KINDS.tiktokCreative,
   SOURCING_OPERATION_KINDS.productExtension,
 ] as const;
+export type SourcingExtensionKind = (typeof SOURCING_EXTENSION_KINDS)[number];
 
 /** kind → 옛 sourceKey(원장 스냅샷·관측의 키). 플랫폼이 갈리는 kind는 scope.platform으로 정한다. */
 export const SOURCING_SOURCE_KEY_BY_KIND: Readonly<Record<SourcingOperationKind, string | ((platform: string) => string)>> = {

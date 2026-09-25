@@ -1,3 +1,10 @@
+import { SOURCING_EXTENSION_OPERATION_OWNERS } from "./adapter/in/operation/sourcing-extension-operation-owners";
+import { SourcingChannelAccountAdapter } from "./adapter/out/channels/sourcing-channel-account.adapter";
+import { SourcingOperationLedgerRepositoryAdapter } from "./adapter/out/repository/sourcing-operation-ledger.repository.adapter";
+import { SOURCING_EXTENSION_OPERATION_PORT } from "./application/port/in/sourcing-extension-operation.port";
+import { SOURCING_CHANNEL_ACCOUNT_PORT } from "./application/port/out/cross-domain/sourcing-channel-account.port";
+import { SOURCING_OPERATION_LEDGER_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-operation-ledger.repository.port";
+import { SourcingExtensionOperationService } from "./application/service/sourcing-extension-operation.service";
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
 import { AlertsModule } from "../alerts/alerts.module";
@@ -199,6 +206,14 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     LiveCommerceController,
   ],
   providers: [
+    // 확장 구동 소싱 kind 6종(KID-360): 실행 계약 owner와 finish 트랜잭션 persistence.
+    ...SOURCING_EXTENSION_OPERATION_OWNERS,
+    SourcingExtensionOperationService,
+    { provide: SOURCING_EXTENSION_OPERATION_PORT, useExisting: SourcingExtensionOperationService },
+    SourcingOperationLedgerRepositoryAdapter,
+    { provide: SOURCING_OPERATION_LEDGER_REPOSITORY_PORT, useExisting: SourcingOperationLedgerRepositoryAdapter },
+    SourcingChannelAccountAdapter,
+    { provide: SOURCING_CHANNEL_ACCOUNT_PORT, useExisting: SourcingChannelAccountAdapter },
     MarketShadowSignalCapabilityAdapter,
     SourcingShadowSignalService,
     GoogleTrendsRssAdapter,

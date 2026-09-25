@@ -381,6 +381,9 @@
       "operation": [
         "dist/operation.d.ts"
       ],
+      "sourcing-operation": [
+        "dist/sourcing-operation.d.ts"
+      ],
       "sellpia-inventory-freshness": [
         "dist/sellpia-inventory-freshness.d.ts"
       ],
