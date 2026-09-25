@@ -303,6 +303,38 @@ describe('createRunner — 실행 하나의 순서', () => {
     expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'RUNTIME_CHUNK_TOO_LARGE' });
   });
 
+  it('수집기의 빈 청크는 임대 연장으로만 보내고 청크 수·순번에 세지 않는다', async () => {
+    const h = harness();
+    const summarized: unknown[] = [];
+    const c = collector(
+      [
+        { chunkKind: 'echo', payload: [{ i: 1 }] },
+        { chunkKind: 'echo', payload: [], progress: { waiting: true } },
+        { chunkKind: 'echo', payload: [{ i: 2 }] },
+      ],
+      { summarize: (input) => { summarized.push(input); return {}; } },
+    );
+
+    await runWith(h, c);
+
+    expect(h.puts.map((put) => [put.chunkKind, put.sequence, put.payload.length])).toEqual([
+      ['echo', 1, 1],
+      ['echo', 2, 0],
+      ['echo', 2, 1],
+    ]);
+    expect(summarized).toEqual([{ chunks: 2, items: 2 }]);
+  });
+
+  it('수집기가 예약된 chunkKind heartbeat를 쓰면 올리지 않고 finish(failed, RUNTIME_COLLECT_FAILED{reserved_chunk_kind})', async () => {
+    const h = harness();
+
+    const outcome = await runWith(h, collector([{ chunkKind: 'heartbeat', payload: [{ i: 1 }] }]));
+
+    expect(h.puts).toEqual([]);
+    expect(h.finishes).toEqual([expect.objectContaining({ outcome: 'failed', errorCode: 'RUNTIME_COLLECT_FAILED' })]);
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'RUNTIME_COLLECT_FAILED', details: { reason: 'reserved_chunk_kind' } });
+  });
+
   it('1,001번째 청크는 올리지 않고 finish(failed, RUNTIME_CHUNK_TOO_LARGE{too_many_chunks})', async () => {
     const h = harness();
     const c = collector(async function* () {

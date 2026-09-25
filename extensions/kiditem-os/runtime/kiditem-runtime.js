@@ -4741,9 +4741,14 @@ var KidItemRuntime = (() => {
       scheduleHeartbeat();
       for await (const chunk of collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId })) {
         if (local.signal.aborted) break;
-        assertChunkFits(chunk, chunks);
-        const sequence = (sequences.get(chunk.chunkKind) ?? 0) + 1;
-        sequences.set(chunk.chunkKind, sequence);
+        if (chunk.chunkKind === HEARTBEAT_CHUNK_KIND) {
+          throw new RuntimeError(RUNTIME_COLLECT_FAILED, `\uC218\uC9D1\uAE30\uB294 \uC608\uC57D\uB41C chunkKind(${HEARTBEAT_CHUNK_KIND})\uB97C \uC4F0\uC9C0 \uC54A\uB294\uB2E4.`, { reason: "reserved_chunk_kind" });
+        }
+        const empty = chunk.payload.length === 0;
+        if (!empty) assertChunkFits(chunk, chunks);
+        const next = (sequences.get(chunk.chunkKind) ?? 0) + 1;
+        const sequence = empty ? Math.min(next, OPERATION_CHUNKS_MAX) : next;
+        if (!empty) sequences.set(chunk.chunkKind, sequence);
         await write(
           () => deps.client.putChunk({
             operationId,
@@ -4754,8 +4759,10 @@ var KidItemRuntime = (() => {
             ...chunk.progress ? { progress: chunk.progress } : {}
           })
         );
-        chunks += 1;
-        items += chunk.payload.length;
+        if (!empty) {
+          chunks += 1;
+          items += chunk.payload.length;
+        }
         if (chunk.progress) lastProgress = chunk.progress;
         scheduleHeartbeat();
       }
