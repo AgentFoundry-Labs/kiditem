@@ -593,7 +593,10 @@ erDiagram
   CoupangDirectTransportConsumption {
     String id PK
     String organizationId FK
+     /**
     String sourceImportRunId FK
+     /**
+    String operationId
     String receiptId FK
     String transport FK
     StringArray selectedPurchaseOrderKeys
@@ -603,7 +606,10 @@ erDiagram
     String id PK
     String organizationId FK
     String channelAccountId
+     /**
     String effectSourceImportRunId FK
+     /**
+    String effectOperationId
     String rocketPurchaseConfirmationId FK
     String transport
     String payloadChecksum
@@ -672,7 +678,10 @@ erDiagram
   CoupangShipmentDateSummary {
     String id PK
     String organizationId FK
+     /**
     String sourceImportRunId FK
+     /**
+    String operationId
     String shipmentDate
     Int count
     Int boxes
@@ -1082,6 +1091,8 @@ erDiagram
     String organizationId FK
     String channelAccountId
     String sourceImportRunId FK
+     /**
+    String operationId
     String externalOrderId
     String externalNumber
     String customerName
@@ -1362,7 +1373,11 @@ erDiagram
     String id PK
     String organizationId FK
     String channelAccountId
+     /**
     String sourceImportRunId FK
+     /**
+    String operationId
+     /**
     String collectionRunId
     String vendorId
     Int listPagesRead
@@ -1375,7 +1390,10 @@ erDiagram
     String id PK
     String organizationId FK
     String channelAccountId
+     /**
     String sourceImportRunId FK
+     /**
+    String rocketPoOperationId
     String idempotencyKey
     String requestHash
     BigInt freshnessGeneration
@@ -1421,7 +1439,10 @@ erDiagram
     String id PK
     String organizationId FK
     String confirmationId FK
+     /**
     String sourceImportRunId FK
+     /**
+    String directshipOperationId
     String transport
     String intentKey
     DateTime observedAt
@@ -2541,8 +2562,8 @@ erDiagram
   SellpiaOrderTransmissionIntent ||--o{ SellpiaOrderTransmissionIntentReconciliation : "intent"
   SourceImportRun ||--o{ ChannelAdListingProductMonthlyFact : "sourceImportRun"
   SourceImportRun o|--o{ ChannelAdTargetDailySnapshot : "sourceImportRun"
-  SourceImportRun ||--o{ CoupangDirectTransportConsumption : "sourceImportRun"
-  SourceImportRun ||--o{ CoupangDirectTransportReceipt : "effectSourceImportRun"
+  SourceImportRun o|--o{ CoupangDirectTransportConsumption : "sourceImportRun"
+  SourceImportRun o|--o{ CoupangDirectTransportReceipt : "effectSourceImportRun"
   SourceImportRun o|--o{ CoupangKeywordRankDailySnapshot : "sourceImportRun"
   SourceImportRun o|--o{ CoupangKeywordSerpDailySnapshot : "sourceImportRun"
   SourceImportRun o|--o{ CoupangShipmentDateSummary : "sourceImportRun"
@@ -2558,9 +2579,9 @@ erDiagram
   SourceImportRun o|--o{ Order : "sourceImportRun"
   SourceImportRun o|--o| OrderCollectionArtifact : "sourceImportRun"
   SourceImportRun o|--o{ Review : "sourceImportRun"
-  SourceImportRun ||--|| RocketPoCatalogSnapshot : "sourceImportRun"
-  SourceImportRun ||--o{ RocketPurchaseConfirmation : "sourceImportRun"
-  SourceImportRun ||--o{ RocketPurchaseConfirmationTransmission : "sourceImportRun"
+  SourceImportRun o|--o| RocketPoCatalogSnapshot : "sourceImportRun"
+  SourceImportRun o|--o{ RocketPurchaseConfirmation : "sourceImportRun"
+  SourceImportRun o|--o{ RocketPurchaseConfirmationTransmission : "sourceImportRun"
   SourceImportRun o|--o{ SellpiaInventoryState : "lastCompletedImportRun"
   SourceImportRun o|--o{ SellpiaProductMonthlySales : "sourceImportRun"
   SourceImportRun o|--o{ SellpiaSalesDailySnapshot : "sourceImportRun"

@@ -41,12 +41,6 @@ const orderCollectionServerConverter = KidItemOrderCollectionServerConverter.cre
   request: (environmentId, path, init) =>
     sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
 });
-const coupangShipmentSummarySourceOwner = KidItemCoupangShipmentSummarySourceOwner.create({
-  chrome, sessions: collectionSessions,
-  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
-  collect: (options) => collectCoupangShipmentDateSummary(options),
-});
-
 function runOwnedOrderCollection(message, mallKey, collect) {
   return orderCollectionSourceOwner.run({
     environmentId: message.environmentId,
@@ -75,14 +69,6 @@ function providerCollectionDate(message, plan) {
     : plan?.collectionDate;
 }
 
-function parseShipmentSummaryStart(message) {
-  if (message?.action !== 'collectCoupangShipmentDateSummary' ||
-    typeof message.attemptId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(message.attemptId) ||
-    Object.keys(message).some((key) => key !== 'action' && key !== 'attemptId')) {
-    throw new Error('Invalid shipment summary attempt');
-  }
-  return { attemptId: message.attemptId };
-}
 const sellpiaManualMatch = KidItemSellpiaManualMatch.create({ chrome });
 const sellpiaManualMatchSourceOwner = KidItemSellpiaManualMatchSourceOwner.create({
   chrome,
@@ -98,21 +84,6 @@ const sellpiaInvoiceTargets = sellpiaPostProcessing.createTargetStore({
   storageKeyForEnvironment: (base, environmentId) =>
     ordersEnvironmentContext.storageKey(base, environmentId),
 });
-const coupangPoSession = KidItemCoupangPoSession.create({
-  chrome,
-  attachOrderCollectionTab,
-  waitForTabReady,
-});
-const rocketPoCollection = KidItemRocketPoCollection.create({
-  chrome,
-  coupangPoSession,
-  withTimeout,
-});
-const rocketPoSourceOwner = KidItemRocketPoSourceOwner.create({
-  chrome, sessions: collectionSessions,
-  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
-  collect: rocketPoCollection.collect,
-});
 const sabangnetMallListings = KidItemSabangnetMallListings.create({ chrome });
 const sabangnetMallListingsSourceOwner = KidItemSabangnetMallListingsSourceOwner.create({
   chrome,
@@ -127,12 +98,6 @@ const mallAdminListingsSourceOwner = KidItemMallAdminListingsSourceOwner.create(
   request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
   collect: mallAdminListings.collect,
   mallName: mallAdminListings.mallName,
-});
-const coupangDirectshipSourceOwner = KidItemCoupangDirectshipSourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
-  collect: (_plan, collection) => collectCoupangDirectOrders(collection),
 });
 const sellpiaInventoryCollector = KidItemSellpiaInventory.create({ chrome });
 const sellpiaInventorySourceOwner = KidItemSellpiaInventorySourceOwner.create({
@@ -232,12 +197,6 @@ function handleSellpiaManualMatchPort(port, senderEnvironment) {
 
 async function lifecycleForAttempt(attemptId, environmentId) {
   const session = await collectionSessions.getOwned(attemptId, environmentId);
-  if (session?.producer === "orders.coupang_shipment_summary") {
-    return null;
-  }
-  if (session?.producer === "orders.coupang_rocket_po") {
-    return null;
-  }
   if (session?.producer === "orders.mall") return orderCollectionLifecycle;
   return null;
 }
@@ -255,15 +214,6 @@ async function cancelOrdersCollectionSession(attemptId, environmentId) {
     : fencedSession?.session?.producer
       ? fencedSession.session
       : await collectionSessions.getOwned(attemptId, environmentId);
-  if (session?.producer === 'orders.coupang_rocket_po') {
-    return rocketPoSourceOwner.cancel({ attemptId, environmentId });
-  }
-  if (session?.producer === 'orders.coupang_shipment_summary') {
-    return coupangShipmentSummarySourceOwner.cancel({ attemptId, environmentId });
-  }
-  if (session?.producer === 'orders.coupang_directship') {
-    return coupangDirectshipSourceOwner.cancel({ attemptId, environmentId });
-  }
   if (session?.producer === "inventory.sellpia") {
     return sellpiaInventorySourceOwner.cancel({ attemptId, environmentId });
   }
@@ -1082,10 +1032,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   // ── 원클릭 자동 수집: 발송일 기준 쉽먼트 목록(센터순) + Label/내역서 PDF 직접 fetch ──
-  if (msg?.action === "collectCoupangShipmentDateSummary") {
-    return false; // The validated externalActions registry is the sole responder.
-  }
-
   if (msg?.action === "collectCoupangShipmentList") {
     collectCoupangShipmentList({
       date: typeof msg.date === "string" ? msg.date : "",
@@ -1330,13 +1276,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
       "teacher-mall",
       (collection) => collectTeachervilleOrders(collection),
     ));
-  }
-
-  if (msg?.action === "collectCoupangDirectOrders") {
-    // The validated external-actions registry owns this action. Keeping the
-    // old listener branch out of the path prevents a second generic mall
-    // lifecycle from wrapping the Directship owner attempt.
-    return false;
   }
 
   return false;
@@ -1837,182 +1776,6 @@ async function findOrCreateBackgroundCoupangSupplierTab(attemptId, additionalCon
     }
   }
   return tab;
-}
-
-// ── 발송일 조회(달력용): 최근 쉽먼트를 발송일별로 집계 (몇 건 / 박스수) ──
-async function collectCoupangShipmentDateSummary(options) {
-  if (typeof options?.isActive === "function" && !(await options.isActive())) {
-    return additionalCollectionCancelled(options, "쿠팡 쉽먼트 조회가 취소되었습니다.");
-  }
-  const tab = await findOrCreateBackgroundCoupangSupplierTab(options?.attemptId);
-  if (!tab?.id) return additionalCollectionCancelled(options, "쿠팡 쉽먼트 조회가 취소되었습니다.");
-  await waitForTabReady(tab.id);
-  if (typeof options?.isActive === "function" && !(await options.isActive())) {
-    return additionalCollectionCancelled(options, "쿠팡 쉽먼트 조회가 취소되었습니다.");
-  }
-
-  const injected = await withTimeout(
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: scrapeCoupangShipmentDateSummary,
-      args: [Math.min(Math.max(Number(options?.maxPages) || 40, 1), 60)],
-    }),
-    90000,
-    "쿠팡 쉽먼트 발송일 조회 시간이 초과되었습니다.",
-  );
-  if (typeof options?.isActive === "function" && !(await options.isActive())) {
-    return additionalCollectionCancelled(options, "쿠팡 쉽먼트 조회가 취소되었습니다.");
-  }
-  return (
-    injected[0]?.result ?? {
-      success: false,
-      error: "쿠팡 쉽먼트 화면에 접근하지 못했습니다.",
-    }
-  );
-}
-
-// [페이지 주입] 최근 쉽먼트를 페이지네이션하며 발송일별로 집계.
-async function scrapeCoupangShipmentDateSummary(maxPages) {
-  const PAGE_FETCH_CONCURRENCY = 6;
-  const SESSION_REQUIRED = "COUPANG_SHIPMENT_SESSION_REQUIRED";
-  const RESPONSE_INVALID = "COUPANG_SHIPMENT_RESPONSE_INVALID";
-
-  async function fetchPage(n) {
-    const r = await fetch(
-      `/ibs/shipment/parcel/list?pageNumber=${n}&centerCode=&carrierCode=&estimatedDeliveryDate=&shipmentSeq=&purchaseOrderSeq=`,
-      { credentials: "include", headers: { "X-Requested-With": "XMLHttpRequest" } },
-    );
-    if (!r.ok) {
-      // 쿠팡 접속이 많아 쿠키가 커지면 Tomcat 이 헤더 과다로 400(때때로 413/431)을 반환한다.
-      if (r.status === 400 || r.status === 413 || r.status === 431) throw new Error("COUPANG_COOKIE_BLOAT");
-      if (r.status === 401 || r.status === 403) throw new Error(SESSION_REQUIRED);
-      throw new Error(`목록 조회 실패 (page ${n}, HTTP ${r.status})`);
-    }
-    const html = await r.text();
-    const responseUrl = String(r.url || "");
-    if (r.redirected || /\/(?:login|sign-in|signin)(?:[/?#]|$)/i.test(responseUrl)) {
-      throw new Error(SESSION_REQUIRED);
-    }
-    // 미로그인/세션 만료 응답은 HTTP 200 로그인 HTML일 수 있다. parcel-tab 계약이 없으면
-    // 정상적인 빈 결과가 아니므로 빈 배열로 축약하지 않는다.
-    if (!/<table\b[^>]*\bid=["']parcel-tab["']/i.test(html)) {
-      if (/(?:로그인|login|sign[ -]?in)/i.test(html)) throw new Error(SESSION_REQUIRED);
-      throw new Error(RESPONSE_INVALID);
-    }
-    return html;
-  }
-  function parseRows(html) {
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    const table = doc.querySelector("table#parcel-tab");
-    if (!table) throw new Error(RESPONSE_INVALID);
-    const heads = Array.from(table.querySelectorAll("thead th")).map((h) => (h.textContent || "").trim());
-    const idx = (name) => heads.findIndex((h) => h.includes(name));
-    const iSeq = idx("쉽먼트 번호"), iOut = idx("발송일"), iBox = idx("박스수");
-    if ([iSeq, iOut, iBox].some((index) => index < 0)) throw new Error(RESPONSE_INVALID);
-    const requiredCellCount = Math.max(iSeq, iOut, iBox) + 1;
-    const rows = [];
-    for (const tr of table.querySelectorAll("tbody tr")) {
-      const c = Array.from(tr.querySelectorAll("td")).map((td) => (td.textContent || "").trim());
-      // 쿠팡의 정상적인 빈 결과 placeholder는 단일 colspan 셀이다.
-      if (c.length <= 1) continue;
-      if (c.length < requiredCellCount) throw new Error(RESPONSE_INVALID);
-      const seq = c[iSeq];
-      const outbound = c[iOut];
-      if (!seq || !/^\d{4}-\d{2}-\d{2}/.test(outbound)) throw new Error(RESPONSE_INVALID);
-      rows.push({ seq, outbound, boxes: c[iBox] });
-    }
-    return rows;
-  }
-  try {
-    const seen = new Set();
-    const byDate = new Map();
-    let scannedPages = 0;
-    let totalRows = 0;
-    let reachedLastPage = false;
-    let stopReason = 'max_pages';
-    let lastPageRowCount = 0;
-    const pageRowCounts = [];
-    for (
-      let batchStart = 1;
-      batchStart <= maxPages && !reachedLastPage;
-      batchStart += PAGE_FETCH_CONCURRENCY
-    ) {
-      const batchEnd = Math.min(
-        batchStart + PAGE_FETCH_CONCURRENCY - 1,
-        maxPages,
-      );
-      const pages = Array.from(
-        { length: batchEnd - batchStart + 1 },
-        (_, index) => batchStart + index,
-      );
-      const batchRows = await Promise.all(
-        pages.map(async (page) => ({
-          page,
-          rows: parseRows(await fetchPage(page)),
-        })),
-      );
-
-      for (const { page, rows } of batchRows) {
-        scannedPages = page;
-        lastPageRowCount = rows.length;
-        pageRowCounts.push(rows.length);
-        if (rows.length === 0) {
-          stopReason = 'empty_page';
-          reachedLastPage = true;
-          break;
-        }
-        for (const row of rows) {
-          if (seen.has(row.seq)) continue;
-          seen.add(row.seq);
-          totalRows += 1;
-          const date = row.outbound.slice(0, 10);
-          const boxMatch = String(row.boxes || "").match(/(\d+)/);
-          const current = byDate.get(date) || { count: 0, boxes: 0 };
-          current.count += 1;
-          current.boxes += boxMatch ? Number(boxMatch[1]) : 0;
-          byDate.set(date, current);
-        }
-        if (rows.length < 10) {
-          stopReason = 'short_page';
-          reachedLastPage = true;
-          break;
-        }
-      }
-    }
-    const dates = [...byDate.entries()]
-      .map(([date, v]) => ({ date, count: v.count, boxes: v.boxes }))
-      .sort((a, b) => b.date.localeCompare(a.date));
-    return {
-      success: true, scannedPages, totalRows, dates,
-      proof: { maxPages, validatedTable: true, stopReason, lastPageRowCount, pageRowCounts },
-    };
-  } catch (e) {
-    const msg = String((e && e.message) || e);
-    // 쿠팡 접속이 많아 쿠키가 커지면 supplier.coupang.com(Tomcat)이 400/413/431 로 요청을 거부한다.
-    // 재시도로는 안 풀리므로(쿠키가 그대로) 쿠키 정리/재로그인 안내로 치환한다.
-    if (msg === 'COUPANG_COOKIE_BLOAT') {
-      return {
-        success: false,
-        errorCode: 'coupang_cookie_bloat',
-        error: '쿠팡 접속이 많아 supplier.coupang.com 쿠키가 커져(HTTP 400) 요청이 거부됐습니다. 쿠팡 쿠키를 정리하거나 다시 로그인한 뒤 조회하세요.',
-      };
-    }
-    if (msg === SESSION_REQUIRED || msg === 'Failed to fetch') {
-      return {
-        success: false,
-        errorCode: 'coupang_shipment_session_required',
-        error: 'Supplier Hub 로그인 세션이 없거나 만료되었습니다. supplier.coupang.com에 로그인한 뒤 다시 조회해주세요.',
-      };
-    }
-    if (msg === RESPONSE_INVALID) {
-      return {
-        success: false,
-        errorCode: 'coupang_shipment_response_invalid',
-        error: '쿠팡 쉽먼트 목록 응답 형식이 예상과 다릅니다. 주문수집 확장프로그램을 새로고침한 뒤 다시 조회해주세요.',
-      };
-    }
-    return { success: false, error: msg };
-  }
 }
 
 // ── 원클릭 자동 수집: 발송일 기준 쉽먼트 목록 (직접 목록 API HTML 파싱) ──
@@ -3391,214 +3154,6 @@ async function scrapeBoriboriOrders(downloadPassword) {
 // 발주현황=발주확정(PA), 운송유형(SHIPMENT=쉽먼트/MILKRUN=밀크런) 그대로 담아 백엔드가 분리 생성.
 // ⚠️품목 상세(/scm/purchase/order/get)는 po-web 컨텍스트서 fetch 하면 로그인페이지 → /scm 페이지로
 // 이동한 뒤 그 컨텍스트에서 fetch 해야 인증됨. 목록/센터(po-web API)는 같은 origin이라 /scm 서도 됨.
-async function collectCoupangDirectOrders(collection) {
-  return coupangPoSession.run(collection, async (tab) => {
-    try {
-      // 1) 발주확정 목록 (po-web API) → seq/센터/운송유형
-      const listInjected = await withTimeout(
-        chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          world: "MAIN",
-          func: scrapeCoupangPaList,
-        }),
-        60000,
-        "쿠팡 발주 목록 수집 시간이 초과되었습니다.",
-      );
-      const listRes = listInjected[0]?.result;
-      if (!listRes?.success) {
-        return listRes ?? { success: false, error: "쿠팡 발주 목록에 접근하지 못했습니다." };
-      }
-      if (!listRes.pos.length) return { success: true, pos: [], centers: {}, count: 0 };
-
-      // 2) /scm 컨텍스트로 이동 (품목 fetch 인증 위해). 첫 발주 상세 페이지.
-      await chrome.tabs.update(tab.id, {
-        url: "https://supplier.coupang.com/scm/purchase/order/get/" + listRes.pos[0].seq,
-      });
-      await waitForTabReady(tab.id);
-
-      // 3) 품목(/scm) + 센터주소 수집
-      const dataInjected = await withTimeout(
-        chrome.scripting.executeScript({
-          target: { tabId: tab.id },
-          world: "MAIN",
-          func: scrapeCoupangDirectData,
-          args: [listRes.pos],
-        }),
-        180000,
-        "쿠팡 발주 품목 수집 시간이 초과되었습니다.",
-      );
-      return dataInjected[0]?.result ?? {
-        success: false,
-        error: "쿠팡 발주 상세에 접근하지 못했습니다.",
-      };
-    } catch (error) {
-      if (isMallAccessError(error)) {
-        return {
-          ...mallAccessErrorResult("쿠팡직배송"),
-          errorCode: "coupang_po_session_required",
-        };
-      }
-      return mallGenericErrorResult("쿠팡직배송", error);
-    }
-  });
-}
-
-// po-web 페이지 컨텍스트: 발주확정(PA) 목록 fetch → seq/센터/운송유형/입고예정일/발주일.
-async function scrapeCoupangPaList() {
-  const poSessionError = () => ({
-    success: false,
-    pendingLogin: true,
-    errorCode: "coupang_po_session_required",
-    error:
-      "쿠팡 발주 세션이 만료되었습니다. Supplier Hub 로그인 상태를 확인한 뒤 다시 시도하세요.",
-  });
-  try {
-    const p = (n) => String(n).padStart(2, "0");
-    const ymd = (d) => `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}`;
-    // 쿠팡 발주유형이 긴급인지. 필드명이 확정적이지 않아 값에 담긴 신호로 판정한다.
-    // 이 함수는 페이지 컨텍스트로 주입되므로 반드시 안쪽에 둔다.
-    // UTC 타임스탬프를 KST(UTC+9) 날짜(YYYY-MM-DD)로. 이미 날짜만 오면 그대로 둔다.
-    const kstYmd = (value) => {
-      const raw = String(value == null ? "" : value).trim();
-      if (!raw) return "";
-      if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-      const t = Date.parse(raw);
-      if (Number.isNaN(t)) return raw.slice(0, 10);
-      // UTC+9 로 옮긴 뒤 UTC 게터로 읽는다. 로컬 게터를 쓰면 실행 PC 시간대에 따라
-      // 또 한 번 밀린다.
-      const k = new Date(t + 9 * 60 * 60 * 1000);
-      return k.getUTCFullYear() + "-" + p(k.getUTCMonth() + 1) + "-" + p(k.getUTCDate());
-    };
-    // 발주유형. 실제 응답은 purchaseOrderType = "URGENT" | "NORMAL" 이고
-    // purchaseOrderTypeDescription 에 "긴급"/"일반" 이 온다.
-    const isUrgentCoupangPo = (po) => {
-      const code = String((po && po.purchaseOrderType) || "").trim().toUpperCase();
-      if (code) return code === "URGENT";
-      return /긴급/.test(String((po && po.purchaseOrderTypeDescription) || ""));
-    };
-    // 쿠팡 발주목록 화면의 "기간검색 = 입고예정일 / 다음 30일" 과 같은 조회.
-    // 파라미터는 실제 화면 요청에서 확인했다(searchDateType=WAREHOUSING_PLAN_DATE).
-    // 발주일 기준으로 보면 앞으로 입고될 발주를 놓친다.
-    const dayOffset = (days) => {
-      const d = new Date();
-      d.setDate(d.getDate() + days);
-      return d;
-    };
-    const start = dayOffset(0);
-    const end = dayOffset(30);
-    const pos = [];
-    for (let page = 1; page <= 40; page++) {
-      const qs =
-        "page=" + page + "&searchDateType=WAREHOUSING_PLAN_DATE&searchStartDate=" + ymd(start) +
-        "&searchEndDate=" + ymd(end) +
-        "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=PA" +
-        "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
-      const res = await fetch("/po-web/app/purchase-order/list?" + qs, {
-        credentials: "include",
-        headers: { accept: "application/json" },
-      });
-      const text = await res.text();
-      if (!res.ok || text.trim().charAt(0) === "<") {
-        if (page === 1) return poSessionError();
-        break;
-      }
-      let j;
-      try {
-        j = JSON.parse(text);
-      } catch (e) {
-        if (page === 1) return poSessionError();
-        break;
-      }
-      const body = (j && j.body) || {};
-      const list = body.body || [];
-      for (const po of list) {
-        const status = String(po.purchaseOrderStatus || po.purchaseOrderStatusCode || "").toUpperCase();
-        const statusText = String(po.purchaseOrderStatusDescription || po.purchaseOrderStatusName || "");
-        if (status && status !== "PA") continue;
-        if (!status && statusText && !/발주\s*확정/.test(statusText)) continue;
-        pos.push({
-          seq: po.purchaseOrderSeq,
-          center: po.centerName,
-          transport: po.transportType, // SHIPMENT | MILKRUN
-          // 쿠팡은 UTC 로 준다(2026-07-31T15:00:00Z = KST 08-01). 앞 10자만 자르면
-          // 입고예정일이 하루씩 밀리므로 KST 기준 날짜로 바꿔 담는다.
-          edd: kstYmd(po.expectedDeliveryDate),
-          reg: kstYmd(po.createdAt) || po.createdAt,
-          status: status || statusText || "PA",
-          // 발주유형(긴급/일반). 쿠팡이 코드로 줄지 한글로 줄지 확정되지 않아 후보 필드를
-          // 모두 보고 "긴급" 신호만 불리언으로 정규화한다. 못 읽으면 일반으로 본다.
-          urgent: isUrgentCoupangPo(po),
-        });
-      }
-      if (page >= (body.lastPageNumber || 1)) break;
-    }
-    return { success: true, pos };
-  } catch (e) {
-    if (String((e && e.message) || e) === "Failed to fetch") return poSessionError();
-    return { success: false, error: "쿠팡 발주 목록 조회 실패(로그인 확인): " + String((e && e.message) || e) };
-  }
-}
-
-// /scm 페이지 컨텍스트: 발주별 품목(/scm 상세 HTML 파싱) + 센터주소(po-web) 수집.
-async function scrapeCoupangDirectData(pos) {
-  try {
-    const confirmedPos = Array.isArray(pos) ? pos.filter(isCoupangConfirmedPo) : [];
-    const num = (s) => Number(String(s || "").replace(/[^0-9.-]/g, "")) || 0;
-    // 센터주소맵 (po-web API, 같은 origin)
-    const centers = {};
-    try {
-      const cj = await (await fetch("/po-web/app/center/purchasable/list", { credentials: "include" })).json();
-      const cb = (cj && cj.body) || cj;
-      const clist = Array.isArray(cb) ? cb : (cb && cb.body) || [];
-      clist.forEach((c) => {
-        if (c && c.centerName) centers[String(c.centerName).trim()] = { addr: c.address, zip: c.zipCode, contact: c.contact };
-      });
-    } catch { /* 센터맵 실패 — 주소 빈칸으로 진행 */ }
-
-    // 품목 파싱: /scm 상세의 "바코드" 헤더 테이블. 각 품목행 td = [순번,상품번호,"바코드 상품명",매입유형,발주수량,납품가능,매입가,...,총발주매입금(idx9)]
-    const parseItems = (html) => {
-      const doc = new DOMParser().parseFromString(html, "text/html");
-      for (const t of doc.querySelectorAll("table")) {
-        if (!/바코드/.test(t.innerText)) continue;
-        const items = [];
-        for (const tr of t.querySelectorAll("tr")) {
-          const c = [...tr.querySelectorAll("td")].map((x) => x.textContent.replace(/\s+/g, " ").trim());
-          const m = c[2] && c[2].match(/^(\d{12,14})\s+(.+)/);
-          if (m) items.push({ skuId: c[1], barcode: m[1], name: m[2], qty: num(c[4]), amount: num(c[9]) });
-        }
-        if (items.length) return items;
-      }
-      return [];
-    };
-
-    const out = [];
-    const CONCURRENCY = 5;
-    for (let i = 0; i < confirmedPos.length; i += CONCURRENCY) {
-      await Promise.all(
-        confirmedPos.slice(i, i + CONCURRENCY).map(async (po) => {
-          try {
-            const html = await (await fetch("/scm/purchase/order/get/" + po.seq, { credentials: "include" })).text();
-            out.push({ ...po, items: parseItems(html) });
-          } catch {
-            out.push({ ...po, items: [] });
-          }
-        }),
-      );
-    }
-    return { success: true, pos: out, centers, count: out.length };
-  } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
-  }
-
-  function isCoupangConfirmedPo(po) {
-    const status = String(po?.status || po?.purchaseOrderStatus || po?.purchaseOrderStatusCode || "").toUpperCase();
-    const statusText = String(po?.purchaseOrderStatusDescription || po?.purchaseOrderStatusName || "");
-    if (status) return status === "PA";
-    if (statusText) return /발주\s*확정/.test(statusText);
-    return true;
-  }
-}
-
 // ── GS샵(partners.gsshop.com) 주문 수집: 협력사 배송관리 화면 UI 구동 + 클라이언트 조립 엑셀 blob 캡처 ──
 // GS 는 서버 엑셀 엔드포인트가 없고 다운로드 클릭 시 브라우저가 xlsx 를 조립해 URL.createObjectURL 로 내려준다.
 // → MAIN world 에서 createObjectURL 후킹 후 1주일 조회 → 다운로드 → 모달(도로명/전체주소 기본) 확인 → blob 캡처.
@@ -5296,12 +4851,9 @@ async function probeMallSessionQuietly(mallKey) {
 // 수집 전 자동 로그인 보장: 몰 주문/홈 URL 을 백그라운드로 열어(미로그인 시 로그인 페이지로 리다이렉트)
 // 저장된 계정으로 로그인 후 닫는다. 이후 수집 탭은 같은 세션 쿠키라 로그인 상태. credentials 없으면 스킵.
 function ensureMallLoginWithLifecycle(message) {
-  // 쿠팡직배송은 제 소유자(orders.coupang_directship)가 따로 있다. 그 로그인을 몰 소유자로
-  // 감싸면 몰 쪽에 없는 시도를 조회해 404(`ORDER_COLLECTION_ATTEMPT_NOT_FOUND`)가 나고,
-  // 시도를 빼고 보내면 "Owner attempt ID is required" 로 막힌다 — 어느 쪽이든 로그인
-  // 문턱에서 수집이 끝났다(2026-09-21 라이브). 로그인만 시키고, 시도의 마무리는 제 소유자에게
-  // 맡긴다. 다른 몰은 지금처럼 몰 소유자 안에서 로그인한다.
-  // 실행 kind(`orders.mall_orders`)로 옮긴 몰(KID-359 H3)도 옛 몰 시도가 없다 — 시도 없이 온 로그인은 로그인만 한다.
+  // 옛 몰 소유자의 시도 없이 온 로그인은 로그인만 한다 — 쿠팡직배송(orders.coupang_directship)과 실행 kind
+  // `orders.mall_orders`로 옮긴 몰(KID-359)은 몰 소유자 시도가 없다. 감싸면 몰 쪽에 없는 시도를 찾다가
+  // 로그인 문턱에서 수집이 끝났다(2026-09-21 라이브). 옛 경로의 몰은 지금처럼 몰 소유자 안에서 로그인한다.
   if (message?.mallKey === "coupang-direct" || (!message?.attemptId && !message?.runId)) {
     return ensureMallLoggedIn(message.mallKey, message.credentials, null);
   }
@@ -6114,24 +5666,6 @@ KidItemDomains.register({
         mallAdminListingsSourceOwner.run({ attemptId, environmentId }),
       ),
     },
-    collectRocketPoRows: {
-      validate: KidItemRocketPoSourceOwner.parseStart,
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        rocketPoSourceOwner.run({ attemptId, environmentId }),
-      ),
-    },
-    collectCoupangDirectOrders: {
-      validate: KidItemCoupangDirectshipSourceOwner.parseStart,
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        coupangDirectshipSourceOwner.run({ attemptId, environmentId }),
-      ),
-    },
-    collectCoupangShipmentDateSummary: {
-      validate: parseShipmentSummaryStart,
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        coupangShipmentSummarySourceOwner.run({ attemptId, environmentId }),
-      ),
-    },
   },
   externalPorts: {
     [SELLPIA_MANUAL_MATCH_PORT_NAME]: (port, senderEnvironment) =>
@@ -6141,12 +5675,8 @@ KidItemDomains.register({
     orderCollectionIcecreamMall: true,
     coupangShipmentDownloads: true,
     collectCoupangShipmentFiles: true,
-    collectCoupangShipmentDateSummaryValidatedV1: true,
-    coupangShipmentSummarySourceOwnerV1: true,
     clearCoupangCookies: true,
     boriboriOrders: true,
-    coupangRocketPoSourceOwnerV1: true,
-    coupangDirectshipSourceOwnerV1: true,
     collectKakaoOrders: true,
     collectSellpiaSaleSummary: true,
     collectSellpiaSaleSummaryAuthoritativeV1: true,

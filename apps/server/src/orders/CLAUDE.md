@@ -35,11 +35,15 @@ Action, collection, transmission, and reconciliation behavior is executable in
   Observed acceptance finalizes it, explicit confirmed non-submission aborts
   it, and privileged reconciliation is audited. Unknown outcomes remain
   reconcilable and do not trigger Inventory work.
-- Directship conversion persists deterministic collection identities,
-  reconciles exact rows with the active Supply-owned Rocket workbook, and
-  exports every collected row for the selected transport. Unmatched rows remain
-  selectable.
-- Non-empty output carries the stable source-run/transport transmission key.
+- Directship capture is the operation kind `orders.coupang_directship`
+  (account lock); its finalize only stores the capture as an
+  `OrderCollectionArtifact` (`operationId`) and `result.rowCount` — completing
+  a collection publishes nothing downstream. Conversion takes a succeeded
+  operation's ID, persists deterministic collection identities
+  (`Order.operationId`), reconciles exact rows with the active Supply-owned
+  Rocket workbook, and exports every collected row for the selected transport.
+  Unmatched rows remain selectable.
+- Non-empty output carries the stable operation/transport transmission key.
   An empty SHIPMENT or MILKRUN probe persists no-match evidence and returns no
   transmission key.
 - Provider rejection is returned as the provider error rather than translated
@@ -68,6 +72,15 @@ Action, collection, transmission, and reconciliation behavior is executable in
   (`ORDER_COLLECTION_TODAY_ORDERS_PORT`): per mall the latest succeeded
   operation's `rowCount`, else the latest completed legacy run. The order
   screen and the dashboard both read it.
+- Coupang shipment date summary is the operation kind
+  `orders.coupang_shipment_summary` (organization lock). Its finalize keeps the
+  old scan-proof validation and writes date rows with `operationId`; the
+  calendar reads operation rows and untagged baseline rows only.
+- Rocket PO is the operation kind `orders.coupang_rocket_po` (account lock).
+  Its finalize keeps the old completion checks and publishes provider identity,
+  Channels observed identities (`lastOperationId`) and the snapshot
+  (`operationId`) in the finish transaction. Supply reads a published
+  collection by `rocketPoOperationId` through `ROCKET_PO_CATALOG_PORT`.
 
 ## Boundaries
 

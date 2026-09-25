@@ -5,11 +5,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
-import { detectOrderCollectionExtensionRuntime } from '@/lib/extension-bridge';
+import { detectOrderCollectionExtensionRuntime, sendToExtension } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 import {
   coupangDirectshipCollectionSource,
   coupangDirectshipStartAlreadyRunning,
+  readCoupangDirectshipSource,
 } from './coupang-directship-collection-source';
 
 vi.mock('@/lib/api-client', () => ({
@@ -17,15 +18,25 @@ vi.mock('@/lib/api-client', () => ({
 }));
 vi.mock('@/lib/extension-bridge', () => ({
   detectOrderCollectionExtensionRuntime: vi.fn(),
+  detectExtensionId: vi.fn(async () => 'order-extension'),
   sendToExtension: vi.fn(),
 }));
+
+/** 확장 경계: ping은 새 런타임, `operation.start`는 주어진 답. */
+function extensionAnswers(start: unknown) {
+  vi.mocked(sendToExtension).mockImplementation(async (_id, message) => {
+    const action = (message as { action: string }).action;
+    if (action === 'ping') return { success: true, capabilities: { operationRuntime: true } };
+    if (action === 'operation.start') return start;
+    return undefined;
+  });
+}
 vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
 
 const CHANNEL_ACCOUNT_ID = '99999999-9999-4999-8999-999999999999';
 const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
 const RUNNING_ATTEMPT_ID = '22222222-2222-4222-8222-222222222222';
 const COMPLETE_ATTEMPT_ID = '33333333-3333-4333-8333-333333333333';
-const ATTEMPT_TOKEN = '44444444-4444-4444-8444-444444444444';
 
 function status(patch: Partial<OrderCollectionSourceStatus> = {}): OrderCollectionSourceStatus {
   return {
@@ -54,6 +65,23 @@ beforeEach(() => {
     status: 'ready',
     extensionId: 'order-extension',
     version: '1',
+  });
+});
+
+describe('readCoupangDirectshipSource — 성공한 실행은 넓게 읽는다(리뷰 M1)', () => {
+  const op = (id: string, status: string, startedAt: string) => ({
+    id, kind: 'orders.coupang_directship', status, lockKeys: [], plan: { channelAccountId: CHANNEL_ACCOUNT_ID, captureMode: 'browser' },
+    progress: null, result: null, window: null, errorCode: status === 'failed' ? 'SITE_LOGIN_REQUIRED' : null, errorMessage: null,
+    startedAt, finishedAt: startedAt, expiresAt: startedAt, attempts: 1, maxAttempts: 1, scheduledFor: null,
+  });
+  it('최근 창을 실패가 채워도 계정의 마지막 성공을 lastComplete로 둔다', async () => {
+    const failures = Array.from({ length: 10 }, (_, index) => op(`5555555${index}-5555-4555-8555-555555555555`, 'failed', `2026-09-2${index % 10}T00:00:00.000Z`));
+    vi.mocked(apiClient.get).mockImplementation(async (path: string) => ({
+      operations: path.includes('status=succeeded') ? [op(COMPLETE_ATTEMPT_ID, 'succeeded', '2026-09-01T00:00:00.000Z')] : failures,
+    }));
+    const source = await readCoupangDirectshipSource(CHANNEL_ACCOUNT_ID);
+    expect(source.lastComplete?.attemptId).toBe(COMPLETE_ATTEMPT_ID);
+    expect(source.lastAttempt?.state).toBe('FAILED');
   });
 });
 
@@ -98,57 +126,38 @@ describe('coupangDirectshipCollectionSource', () => {
     }))).toBe(COMPLETE_ATTEMPT_ID);
   });
 
-  it('stops the running attempt through the owner cancel route, without an attempt token', async () => {
+  it('stops the running collection through the operation cancel route, without a token (KID-359)', async () => {
     const { source } = adapter();
     vi.mocked(apiClient.post).mockResolvedValue({});
 
     await source.cancelOnServer!(RUNNING_ATTEMPT_ID, { status: undefined });
 
-    expect(apiClient.post).toHaveBeenCalledWith(
-      `/api/orders/collection/coupang-directship/attempts/${RUNNING_ATTEMPT_ID}/cancel`,
-    );
+    expect(apiClient.post).toHaveBeenCalledWith(`/api/operations/${RUNNING_ATTEMPT_ID}/cancel`);
   });
 
   it('reads the owner conflict as the account already collecting', async () => {
     const { handOff, source } = adapter();
-    vi.mocked(apiClient.post).mockRejectedValue(
-      new ApiError(409, 'ATTEMPT_IN_PROGRESS', '이미 진행 중입니다.', {
-
-        attemptId: RUNNING_ATTEMPT_ID,
-      }),
-    );
+    extensionAnswers({
+      success: false,
+      errorCode: 'OPERATION_IN_PROGRESS',
+      error: '같은 실행이 이미 진행 중입니다.',
+      details: { existing: { operationId: RUNNING_ATTEMPT_ID, kind: 'orders.coupang_directship' } },
+    });
 
     expect(await source.start!({}, { status: undefined }))
       .toEqual({ outcome: 'running', attemptId: RUNNING_ATTEMPT_ID });
     expect(handOff).not.toHaveBeenCalled();
   });
 
-  it('hands the opened attempt to the extension run', async () => {
+  it('starts the directship operation in the extension and hands its ID to this browser run', async () => {
     const { handOff, source } = adapter();
-    vi.mocked(apiClient.post).mockResolvedValue({
-      attemptId: ATTEMPT_ID,
-      sourceImportRunId: ATTEMPT_ID,
-      state: 'RUNNING',
-      attemptToken: ATTEMPT_TOKEN,
-      plan: {
-        sourceType: 'coupang_direct_order_capture',
-        parserVersion: 'coupang-direct-order-v1',
-        channelAccountId: CHANNEL_ACCOUNT_ID,
-        captureMode: 'browser',
-        transportScope: 'ALL',
-      },
-      expiresAt: '2026-09-15T01:30:00.000Z',
-      artifactId: null,
-      contentChecksum: null,
-      errorCode: null,
-      errorMessage: null,
-    });
+    extensionAnswers({ success: true, operationId: ATTEMPT_ID, reused: false });
 
     expect(await source.start!({}, { status: undefined }))
       .toEqual({ outcome: 'started', attemptId: ATTEMPT_ID });
     expect(handOff).toHaveBeenCalledWith(expect.objectContaining({
       extensionId: 'order-extension',
-      attempt: expect.objectContaining({ attemptId: ATTEMPT_ID, attemptToken: ATTEMPT_TOKEN }),
+      attempt: expect.objectContaining({ attemptId: ATTEMPT_ID, state: 'RUNNING', plan: { channelAccountId: CHANNEL_ACCOUNT_ID } }),
     }));
   });
 

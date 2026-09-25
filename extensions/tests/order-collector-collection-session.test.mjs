@@ -25,7 +25,6 @@ const AUTOMATIC_ACTIONS = [
   ['collectBoriboriOrders', 'collectBoriboriOrders', 'boribori', { date: '2026-07-15' }],
   ['collectTeachervilleOrders', 'collectTeachervilleOrders', 'teacher-mall', { date: '2026-07-15' }],
   ['collectHaebeopOrders', 'collectHaebeopOrders', 'haebub-mall', { date: '2026-07-15' }],
-  ['collectCoupangDirectOrders', 'collectCoupangDirectOrders', 'coupang-direct', { date: '2026-07-15' }],
 ];
 
 function uuid(index) {
@@ -513,53 +512,36 @@ test('Haebeop does not confirm coverage when discovered pagination exceeds its s
 test('automatic order actions publish safe domain-specific sessions from inactive tabs', async () => {
   const runtime = loadWorker();
   for (const [, functionName] of AUTOMATIC_ACTIONS) {
-    installCollectorResult(runtime, functionName, () => functionName === 'collectCoupangDirectOrders'
-      ? {
-        success: true,
-        pos: [{ seq: 'PO-1', status: 'PA', center: 'C', transport: 'SHIPMENT', edd: '', reg: 'R', items: [] }],
-        centers: {},
-      }
-      : {
-        success: true,
-        rows: [{ address: '서울', phone: '010-0000-0000', orderPayload: 'private' }],
-        xlsxBase64: 'private-xlsx',
-        csvBase64: 'private-csv',
-        fileBase64: 'private-file',
-      });
+    installCollectorResult(runtime, functionName, () => ({
+      success: true,
+      rows: [{ address: '서울', phone: '010-0000-0000', orderPayload: 'private' }],
+      xlsxBase64: 'private-xlsx',
+      csvBase64: 'private-csv',
+      fileBase64: 'private-file',
+    }));
   }
 
   for (const [index, [action, , mallKey, input]] of AUTOMATIC_ACTIONS.entries()) {
     const runId = uuid(index + 1);
-    const correlation = action === 'collectCoupangDirectOrders'
-      ? { attemptId: runId }
-      : { runId };
+    const correlation = { runId };
     const message = {
       action,
       ...input,
       ...correlation,
-      ...(action === 'collectCoupangDirectOrders'
-        ? {}
-        : {
-          credentials: { loginId: 'operator@example.test', password: 'top-secret' },
-          password: 'top-secret',
-          rows: [{ address: '서울', phone: '010-0000-0000' }],
-          xlsxBase64: 'private-xlsx',
-          csvBase64: 'private-csv',
-          fileBase64: 'private-file',
-        }),
+      credentials: { loginId: 'operator@example.test', password: 'top-secret' },
+      password: 'top-secret',
+      rows: [{ address: '서울', phone: '010-0000-0000' }],
+      xlsxBase64: 'private-xlsx',
+      csvBase64: 'private-csv',
+      fileBase64: 'private-file',
     };
     runtime.setSourceMallForAttempt(runId, mallKey);
     const response = await dispatch(runtime.externalMessageListeners, message);
 
     assert.equal(response.attemptId, runId, action);
-    if (action === 'collectCoupangDirectOrders') {
-      assert.equal(response.terminalState, 'COMPLETE', action);
-      assert.equal(response.collectionSession, undefined, action);
-    } else {
-      assert.equal(response.collectionSession.progress.completed, 1, action);
-      assert.equal(response.collectionSession.producer, 'orders.mall', action);
-      assert.equal('status' in response.collectionSession, false, action);
-    }
+    assert.equal(response.collectionSession.progress.completed, 1, action);
+    assert.equal(response.collectionSession.producer, 'orders.mall', action);
+    assert.equal('status' in response.collectionSession, false, action);
     if (response.collectionSession) {
       assert.equal('inputIdentity' in response.collectionSession, false, action);
     }
@@ -595,7 +577,6 @@ test('every automatic mall access failure requires personal attention without fo
   }
 
   for (const [index, [action, , , input]] of AUTOMATIC_ACTIONS.entries()) {
-    if (action === 'collectCoupangDirectOrders') continue;
     const attemptId = uuid(index + 100);
     runtime.setSourceMallForAttempt(attemptId, AUTOMATIC_ACTIONS[index][2]);
     const response = await dispatch(runtime.externalMessageListeners, {
@@ -1019,37 +1000,6 @@ test('managed login closes only a fresh tab when attachment is refused', async (
   assert.equal(result.errorCode, 'COLLECTION_CANCELLED');
   assert.equal(result.reason, 'collection_cancelled');
   assert.deepEqual(events, [['create', false], ['remove', 404]]);
-});
-
-test('Directship uploads raw capture and becomes terminal before the page can close', async () => {
-  const runtime = loadWorker();
-  installCollectorResult(runtime, 'collectCoupangDirectOrders', () => ({
-    success: true,
-    pos: [{ seq: 'PO-1', transport: 'SHIPMENT' }],
-    centers: {},
-  }));
-  const attemptId = uuid(783);
-
-  const collected = await dispatch(runtime.externalMessageListeners, {
-    action: 'collectCoupangDirectOrders',
-    date: '2026-07-15',
-    attemptId,
-  });
-
-  assert.equal(collected.success, true);
-  assert.equal(collected.terminalState, 'COMPLETE');
-  assert.equal(collected.pos, undefined);
-  assert.equal(collected.collectionSession, undefined);
-
-  const completed = await dispatch(runtime.externalMessageListeners, {
-    action: 'collectCoupangDirectOrders',
-    date: '2026-07-15',
-    attemptId,
-  });
-
-  assert.equal(completed.success, true);
-  assert.equal(completed.terminalState, 'COMPLETE');
-  assert.equal(completed.collectionSession, undefined);
 });
 
 test('Sellpia inventory accepts only a server-issued attempt ID and never begins a legacy owner flow', async () => {

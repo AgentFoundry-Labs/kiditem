@@ -15,6 +15,7 @@ import {
 } from '@kiditem/shared/operation';
 import {
   makeTestPrisma,
+  OTHER_ORGANIZATION_ID,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID as ORG,
@@ -137,8 +138,8 @@ describe('operation contract HTTP + disposable PG', () => {
     }).compile();
     app = module.createNestApplication({ logger: false });
     app.setGlobalPrefix('api');
-    app.use((req: { authUser?: unknown }, _res: unknown, next: () => void) => {
-      req.authUser = { id: USER, organizationId: ORG };
+    app.use((req: { headers: Record<string, string>; authUser?: unknown }, _res: unknown, next: () => void) => {
+      req.authUser = { id: USER, organizationId: req.headers['x-test-org'] ?? ORG };
       next();
     });
     app.useGlobalFilters(new GlobalExceptionFilter());
@@ -377,6 +378,19 @@ describe('operation contract HTTP + disposable PG', () => {
     await request(httpUrl).get('/api/operations?kinds=Bad-Kind').expect(400);
   });
 
+
+  it('12b. one operation reads by id in the list item shape; another organization and an unknown id answer OPERATION_NOT_FOUND', async () => {
+    const running = await beginOk({ kind: 'test.echo', scope: { lockKeys: ['resource:test:1'] } });
+    const read = await request(httpUrl).get(`/api/operations/${running.operation.id}`).expect(200);
+    const [listed] = await list('kinds=test.echo');
+    expect(read.body).toEqual({ operation: listed });
+    expect(read.body.operation).not.toHaveProperty('token');
+    await prisma.operation.update({ where: { id: running.operation.id }, data: { expiresAt: new Date(Date.now() - 1_000) } });
+    expect((await request(httpUrl).get(`/api/operations/${running.operation.id}`).expect(200)).body.operation).toMatchObject({ status: 'failed', errorMessage: 'expired' });
+    expect((await request(httpUrl).get(`/api/operations/${running.operation.id}`).set('x-test-org', OTHER_ORGANIZATION_ID).expect(404)).body).toMatchObject({ code: 'OPERATION_NOT_FOUND' });
+    expect((await request(httpUrl).get(`/api/operations/${randomUUID()}`).expect(404)).body).toMatchObject({ code: 'OPERATION_NOT_FOUND' });
+    await request(httpUrl).get('/api/operations/not-a-uuid').expect(400);
+  });
 
   it('13. concurrent begins on overlapping keys admit exactly one and refuse the other, whatever order the keys come in', async () => {
     const statuses = async (bodies: Array<Record<string, unknown>>) => {

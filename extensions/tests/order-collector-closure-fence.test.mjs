@@ -401,10 +401,6 @@ test("pending-only additional retry never stops a newly started read", async () 
 
 test("Orders registers recovery and additional-read cancellation hooks", () => {
   const worker = readFileSync(workerPath, "utf8");
-  const rocket = readFileSync(
-    path.join(repoRoot, "extensions/kiditem-os/background/orders/rocket-po-source-owner.js"),
-    "utf8",
-  );
   assert.match(worker, /recoverCollections:\s*\(environmentId\)\s*=>\s*recoverOrdersCollections\(environmentId\)/);
   assert.match(worker, /cancelAdditionalCollections:\s*\(environmentId\)\s*=>\s*cancelAdditionalCollections\(environmentId\)/);
   assert.match(worker, /retryAdditionalCollections:\s*\(environmentId\)\s*=>\s*retryAdditionalCollections\(environmentId\)/);
@@ -413,5 +409,4 @@ test("Orders registers recovery and additional-read cancellation hooks", () => {
   assert.match(worker, /async function collectSellpiaOrderSnapshot\(environmentId\)/);
   assert.match(worker, /async function collectCoupangShipmentList\(options, environmentId\)/);
   assert.match(worker, /async function fetchCoupangShipmentPdfBatch\(options, environmentId\)/);
-  assert.match(rocket, /requireOwnedTab: true/);
 });

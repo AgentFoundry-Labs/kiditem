@@ -32,7 +32,7 @@ import type {
 } from '@kiditem/shared/rocket-purchase-preview';
 
 interface CollectionRunSummary {
-  sourceImportRunId: string;
+  rocketPoOperationId: string;
   collection: RocketPoCollectionEvidence;
   poCount: number;
   rowCount: number;
@@ -180,14 +180,14 @@ export function useRocketPurchaseWorkflow({
   channelAccountId,
   from,
   to,
-  savedSourceImportRunId,
+  savedRocketPoOperationId,
   selectedDeliveryDate,
   onActivity,
 }: {
   channelAccountId: string;
   from: string;
   to: string;
-  savedSourceImportRunId: string | null;
+  savedRocketPoOperationId: string | null;
   selectedDeliveryDate?: string;
   onActivity?: (activity: RocketOrderActivityInput) => void;
 }) {
@@ -236,7 +236,7 @@ export function useRocketPurchaseWorkflow({
   // The operator's edits as of this render, read when a newer source of the same review arrives.
   const operatorEditsRef = useRef<Record<string, number>>({});
   operatorEditsRef.current = operatorEditsForRows(operatorEditedLineIds, editedQuantities, sourceRows);
-  const reviewedSourceRef = useRef({ scope: reviewScope, sourceId: savedSourceImportRunId });
+  const reviewedSourceRef = useRef({ scope: reviewScope, sourceId: savedRocketPoOperationId });
   /**
    * Edits carried to a newer collection of the same review. The load
    * intersects them with its lines and sends them once with the joint clamp.
@@ -245,11 +245,11 @@ export function useRocketPurchaseWorkflow({
 
   useEffect(() => {
     const previous = reviewedSourceRef.current;
-    reviewedSourceRef.current = { scope: reviewScope, sourceId: savedSourceImportRunId };
+    reviewedSourceRef.current = { scope: reviewScope, sourceId: savedRocketPoOperationId };
     const newerCollection = previous.scope === reviewScope
       && previous.sourceId !== null
-      && savedSourceImportRunId !== null
-      && previous.sourceId !== savedSourceImportRunId;
+      && savedRocketPoOperationId !== null
+      && previous.sourceId !== savedRocketPoOperationId;
     retainedEditsRef.current = newerCollection && Object.keys(operatorEditsRef.current).length > 0
       ? { scope: reviewScope, edits: operatorEditsRef.current }
       : null;
@@ -269,7 +269,7 @@ export function useRocketPurchaseWorkflow({
     setShortageReasons({});
     setLoading(false);
     setError(null);
-  }, [channelAccountId, from, savedSourceImportRunId, selectedDeliveryDate, to, reviewScope]);
+  }, [channelAccountId, from, savedRocketPoOperationId, selectedDeliveryDate, to, reviewScope]);
 
   useEffect(() => () => {
     activeWaiterRef.current?.abort();
@@ -315,7 +315,7 @@ export function useRocketPurchaseWorkflow({
     rocketPreviewErrorMessage(cause, fallback);
 
   useEffect(() => {
-    if (!savedSourceImportRunId) return;
+    if (!savedRocketPoOperationId) return;
     const generation = requestGenerationRef.current;
     const controller = beginWaiter();
     let cancelled = false;
@@ -338,13 +338,13 @@ export function useRocketPurchaseWorkflow({
       };
       try {
         // 계정/수집본이 그대로면 날짜만 바뀐 것이므로 서버를 다시 타지 않는다.
-        const cacheKey = `${channelAccountId}:${savedSourceImportRunId}`;
+        const cacheKey = `${channelAccountId}:${savedRocketPoOperationId}`;
         const cached = loadedSourceRef.current?.key === cacheKey
           ? loadedSourceRef.current
           : null;
         const saved = cached?.saved ?? await loadSavedRocketCollection({
           channelAccountId,
-          sourceImportRunId: savedSourceImportRunId,
+          rocketPoOperationId: savedRocketPoOperationId,
         });
         if (supersededDuringLoad()) return;
         const reviewRows = rowsForDeliveryDate(
@@ -353,7 +353,7 @@ export function useRocketPurchaseWorkflow({
         );
         const poCount = new Set(saved.rows.map(({ poNumber }) => poNumber)).size;
         setCollectionRun({
-          sourceImportRunId: saved.sourceImportRunId,
+          rocketPoOperationId: saved.rocketPoOperationId,
           collection: saved.collection,
           poCount,
           rowCount: saved.rows.length,
@@ -367,7 +367,7 @@ export function useRocketPurchaseWorkflow({
         const completeResult = cached?.complete ?? await previewAfterCollection({
           request: {
           channelAccountId,
-          sourceImportRunId: saved.sourceImportRunId,
+          rocketPoOperationId: saved.rocketPoOperationId,
           editedQuantities: {},
           clampEditedQuantities: true,
           // 표에는 선택한 날짜의 발주를 상태와 무관하게 모두 보여준다. 엑셀 대상은 아래에서
@@ -398,7 +398,7 @@ export function useRocketPurchaseWorkflow({
           const retainedResult = await previewAfterCollection({
             request: {
               channelAccountId,
-              sourceImportRunId: saved.sourceImportRunId,
+              rocketPoOperationId: saved.rocketPoOperationId,
               editedQuantities: retainedEdits,
               clampEditedQuantities: true,
               previewScope: 'confirmation_requested',
@@ -466,7 +466,7 @@ export function useRocketPurchaseWorkflow({
     from,
     onActivity,
     reloadNonce,
-    savedSourceImportRunId,
+    savedRocketPoOperationId,
     selectedDeliveryDate,
     to,
     reviewScope,
@@ -486,7 +486,7 @@ export function useRocketPurchaseWorkflow({
       const completeResult = await previewAfterCollection({
         request: {
           channelAccountId,
-          sourceImportRunId: collectionRun.sourceImportRunId,
+          rocketPoOperationId: collectionRun.rocketPoOperationId,
           editedQuantities: operatorEditsForRows(
             operatorEditedLineIds,
             editedQuantities,
@@ -533,7 +533,7 @@ export function useRocketPurchaseWorkflow({
   // After the operator collected inventory: a saved load that stopped reloads
   // its source, and a loaded preview revalidates the reviewed quantities.
   const retryInventoryAndPreview = (): void => {
-    if (displayPreview || !savedSourceImportRunId) {
+    if (displayPreview || !savedRocketPoOperationId) {
       void revalidateEditedQuantities();
       return;
     }
@@ -603,7 +603,7 @@ export function useRocketPurchaseWorkflow({
       const completeResult = await previewAfterCollection({
         request: {
           channelAccountId,
-          sourceImportRunId: collectionRun.sourceImportRunId,
+          rocketPoOperationId: collectionRun.rocketPoOperationId,
           editedQuantities: reviewedQuantities,
           clampEditedQuantities: true,
           previewScope: 'confirmation_requested',

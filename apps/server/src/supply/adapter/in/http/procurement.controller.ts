@@ -131,7 +131,7 @@ export class ProcurementController {
         userId: user.id,
         request: {
           channelAccountId: body.channelAccountId!,
-          sourceImportRunId: body.sourceImportRunId!,
+          rocketPoOperationId: body.rocketPoOperationId!,
           inventoryAttemptId: body.inventoryAttemptId!,
           editedQuantities: body.editedQuantities ?? {},
           ...(body.clampEditedQuantities !== undefined && {
@@ -220,7 +220,7 @@ export class ProcurementController {
       const snapshot = await this.rocketCatalog.loadSavedCollection({
         organizationId,
         channelAccountId,
-        sourceImportRunId: body.sourceImportRunId!,
+        rocketPoOperationId: body.rocketPoOperationId!,
       });
       if (!snapshot) throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'saved_rocket_po_collection' } });
       if (responseProfile !== ROCKET_SAVED_PO_RESPONSE_PROFILE) return snapshot;

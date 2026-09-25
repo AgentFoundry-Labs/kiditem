@@ -41,17 +41,17 @@ function request() {
 }
 
 function reference(source: ReturnType<typeof request> & { previewScope?: 'confirmation_requested'; clampEditedQuantities?: boolean }) {
-  return { channelAccountId, inventoryAttemptId, sourceImportRunId: '66666666-6666-4666-8666-666666666666',
+  return { channelAccountId, inventoryAttemptId, rocketPoOperationId: '66666666-6666-4666-8666-666666666666',
     editedQuantities: source.editedQuantities, ...(source.previewScope && { previewScope: source.previewScope }),
     ...(source.clampEditedQuantities !== undefined && { clampEditedQuantities: source.clampEditedQuantities }) };
 }
 function publication() {
-  return { sourceImportRunId: '66666666-6666-4666-8666-666666666666', channelAccountId, generation: '1', actualCutoffAt: '2026-07-16T00:00:00.000Z', rowCount: 1 };
+  return { rocketPoOperationId: '66666666-6666-4666-8666-666666666666', channelAccountId, actualCutoffAt: '2026-07-16T00:00:00.000Z', rowCount: 1 };
 }
 function dependencies() {
   const catalog = {
     readComplete: vi.fn().mockResolvedValue({
-      ...request(), sourceImportRunId: '66666666-6666-4666-8666-666666666666',
+      ...request(), rocketPoOperationId: '66666666-6666-4666-8666-666666666666',
       catalog: publication(),
       identities: [{ poLineId, channelSkuId }],
     }),
@@ -102,7 +102,7 @@ describe('RocketPurchasePreviewService', () => {
     expect(deps.catalog.readComplete).toHaveBeenCalledWith({
       organizationId,
       channelAccountId,
-      sourceImportRunId: '66666666-6666-4666-8666-666666666666',
+      rocketPoOperationId: '66666666-6666-4666-8666-666666666666',
     });
     expect(deps.availability.findByChannelSkuIds).toHaveBeenCalledWith(
       organizationId,
@@ -181,7 +181,7 @@ describe('RocketPurchasePreviewService', () => {
     const deps = dependencies();
     const completedLineId = '1002:P-2:8801234567891:1';
     vi.mocked(deps.catalog.readComplete).mockResolvedValue({
-      ...request(), sourceImportRunId: '66666666-6666-4666-8666-666666666666',
+      ...request(), rocketPoOperationId: '66666666-6666-4666-8666-666666666666',
       catalog: publication(),
       identities: [
         { poLineId, channelSkuId },
@@ -204,7 +204,7 @@ describe('RocketPurchasePreviewService', () => {
         },
       ],
     };
-    vi.mocked(deps.catalog.readComplete).mockResolvedValue({ ...input, sourceImportRunId: reference(input).sourceImportRunId, catalog: publication(), identities: input.rows.map(row => ({ poLineId: row.poLineId, channelSkuId })) });
+    vi.mocked(deps.catalog.readComplete).mockResolvedValue({ ...input, rocketPoOperationId: reference(input).rocketPoOperationId, catalog: publication(), identities: input.rows.map(row => ({ poLineId: row.poLineId, channelSkuId })) });
     const service = previewService(deps);
 
     const result = await service.preview({
@@ -217,7 +217,7 @@ describe('RocketPurchasePreviewService', () => {
     expect(deps.catalog.readComplete).toHaveBeenCalledWith({
       organizationId,
       channelAccountId,
-      sourceImportRunId: '66666666-6666-4666-8666-666666666666',
+      rocketPoOperationId: '66666666-6666-4666-8666-666666666666',
     });
     expect(result.rows.map(({ poLineId: resultLineId }) => resultLineId)).toEqual([poLineId]);
   });
@@ -307,7 +307,7 @@ describe('RocketPurchasePreviewService', () => {
     const deps = dependencies();
     const secondLineId = '1002:P-1:8801234567890:1';
     vi.mocked(deps.catalog.readComplete).mockResolvedValue({
-      ...request(), sourceImportRunId: '66666666-6666-4666-8666-666666666666',
+      ...request(), rocketPoOperationId: '66666666-6666-4666-8666-666666666666',
       catalog: publication(),
       identities: [
         { poLineId, channelSkuId },
@@ -320,7 +320,7 @@ describe('RocketPurchasePreviewService', () => {
       poLineId: secondLineId,
       poNumber: '1002',
     });
-    vi.mocked(deps.catalog.readComplete).mockResolvedValue({ ...input, sourceImportRunId: reference(input).sourceImportRunId, catalog: publication(), identities: input.rows.map(row => ({ poLineId: row.poLineId, channelSkuId })) });
+    vi.mocked(deps.catalog.readComplete).mockResolvedValue({ ...input, rocketPoOperationId: reference(input).rocketPoOperationId, catalog: publication(), identities: input.rows.map(row => ({ poLineId: row.poLineId, channelSkuId })) });
     const service = previewService(deps);
 
     await service.preview({
@@ -356,7 +356,7 @@ describe('RocketPurchasePreviewService', () => {
     const service = previewService(deps);
     const input = request();
     input.rows[0]!.orderQty = 100;
-    vi.mocked(deps.catalog.readComplete).mockResolvedValue({ ...input, sourceImportRunId: reference(input).sourceImportRunId, catalog: publication(), identities: [{ poLineId, channelSkuId }] });
+    vi.mocked(deps.catalog.readComplete).mockResolvedValue({ ...input, rocketPoOperationId: reference(input).rocketPoOperationId, catalog: publication(), identities: [{ poLineId, channelSkuId }] });
 
     const result = await service.preview({
       organizationId,

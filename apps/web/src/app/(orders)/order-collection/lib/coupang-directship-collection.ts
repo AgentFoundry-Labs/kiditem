@@ -2,7 +2,6 @@
 
 import { formatNumber } from '@/lib/utils';
 import {
-  ensureMallLoginForRun,
   toastNoNewOrders,
   type BrowserMallCollectionResult,
 } from './browser-mall-collection';
@@ -81,9 +80,8 @@ export function createCoupangDirectshipCollector({
       ...(extensionId ? { extensionId } : {}),
       date: collectionDate,
     };
-    // 발주 화면도 로그인해야 열린다 — 다른 몰과 같은 자동 로그인을 쓴다. 달력이 이미
-    // 받아 둔 자료로 만드는 경우에는 들어갈 일이 없으므로 그대로 둔다.
-    if (!capturedData) await ensureMallLoginForRun(account, activeRun);
+    // 발주 화면 로그인은 확장 사이트가 확인한다(로그인 화면이면 실행이 SITE_LOGIN_REQUIRED로 끝난다, KID-359) —
+    // 몰 소유자의 자동 로그인으로 감싸지 않는다(2026-09-21 라이브: 몰 쪽에 없는 시도를 조회해 404).
     const collectedData = capturedData ?? await collectCoupangDirectFromExtension(activeRun);
     // 달력에서 고른 입고예정일이 있으면 그 발주만 넘긴다. 서버 계약(pos 전량 전달)은
     // 그대로 두고 목록만 좁히므로 변환·워크북 매칭 로직은 건드리지 않는다.

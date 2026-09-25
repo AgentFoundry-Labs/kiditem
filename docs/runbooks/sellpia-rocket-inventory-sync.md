@@ -51,22 +51,27 @@ state.
    exactly `rocket`. Never infer Rocket from its display name.
 2. In the existing decision area on `/rocket-orders`, choose the account and
    collect the intended ETA range through the order-collector extension.
-3. Begin `/api/channels/rocket-po/attempts` with a stable idempotency key and
-   explicit account/date/status/date-type/confirmation mode. Send only the
-   issued `attemptId` to the extension. It reads the frozen plan and retains
-   the same URLs, all-page traversal, detail concurrency5, normalization and
-   one fresh-tab session retry. No Operation claim or heartbeat is involved.
-4. The extension uploads normalized rows, non-display vendor identity,
-   page/detail counts and observed list validation directly to Channels. A
-   missing list array is not proof of empty. Missing/mixed vendor identity on
-   non-empty data, failed details or incomplete pagination cannot publish.
-   A verified zero-PO result publishes an empty COMPLETE snapshot without
-   claiming a blank vendor identity. `vendorName` is not identity.
-5. Channels rechecks account/vendor and the attempt fence in the terminal
-   transaction. Snapshot, identity upserts, terminal state and Alert changes
-   commit together. Fixed expiry is 600 seconds. A same-attempt terminal replay
-   is a no-op; a new explicit collection receives a new generation even when
-   content matches. Existing 4,000-row acceptance uses one bounded upload.
+3. Start the `orders.coupang_rocket_po` operation (`POST /api/operations` with
+   the explicit account/date/status/date-type/confirmation scope). The plan
+   holds the `account:<channelAccountId>` lock, so one collection runs per
+   account. The extension collector reads the plan and keeps the same URLs,
+   all-page traversal, detail concurrency 5, normalization and one fresh-tab
+   session retry.
+4. The extension uploads normalized rows (`po_rows`, one PO per item) and one
+   list-evidence `po_scan` chunk with non-display vendor identity, page/detail
+   counts and observed list validation. A missing list array is not proof of
+   empty. Missing/mixed vendor identity on non-empty data, failed details or
+   incomplete pagination fail the finish. A verified zero-PO result publishes
+   an empty snapshot without claiming a blank vendor identity. `vendorName` is
+   not identity.
+5. The Orders owner rechecks account/vendor inside the finish transaction and
+   commits vendor identity, observed Rocket identities and the snapshot (keyed
+   by the operation id) together. A rejected finish returns 400 and the
+   operation stays executing until its lease expires; nothing is published.
+   The current PO list is the newest snapshot that carries an operation id.
+   Screens read collection state from `GET /api/operations?kinds=orders.coupang_rocket_po`
+   (and `GET /api/operations/:id`); there is no separate attempt route,
+   alert or generation. Existing 4,000-row acceptance holds across chunks.
 6. Publication upserts observed Rocket identities without inactivating older
    Rocket identities that are absent from a later PO collection. Existing
    confirmed option-component rules are preserved.

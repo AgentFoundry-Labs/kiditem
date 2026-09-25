@@ -13,10 +13,6 @@ const workerPath = path.join(
   'extensions/kiditem-os/background/orders/worker.js',
 );
 const manifestPath = path.join(repoRoot, 'extensions/kiditem-os/manifest.json');
-const coupangPoSessionPath = path.join(
-  repoRoot,
-  'extensions/kiditem-os/background/orders/coupang-po-session.js',
-);
 const webSourceRoot = path.join(repoRoot, 'apps/web/src');
 const sharedRunFieldsPath = path.join(
   routeRoot,
@@ -36,7 +32,6 @@ const automaticCollectors = [
   'collectBoriboriOrders',
   'collectTeachervilleOrders',
   'collectHaebeopOrders',
-  'collectCoupangDirectOrders',
 ];
 // Directship receives its date range from the server-owned attempt control
 // record, so its extension message intentionally carries only attemptId.
@@ -270,7 +265,6 @@ test('order collector manifest grants the exact Kakao seller host', () => {
 
 test('every automatic collector explicitly attaches its inactive tab to its own run', () => {
   const worker = readFileSync(workerPath, 'utf8');
-  const coupangPoSession = readFileSync(coupangPoSessionPath, 'utf8');
   const extractedCollectors = {};
   for (const collector of automaticCollectors) {
     if (extractedCollectors[collector]) {
@@ -288,19 +282,11 @@ test('every automatic collector explicitly attaches its inactive tab to its own 
     const next = worker.indexOf('\nasync function ', start + 1);
     const body = worker.slice(start, next === -1 ? worker.length : next);
     assert.match(body, /\([^)]*collection[^)]*\)/, `${collector} collection argument`);
-    if (collector === 'collectCoupangDirectOrders') {
-      assert.match(body, /coupangPoSession\.run/);
-      assert.match(
-        coupangPoSession,
-        /await attachOrderCollectionTab\(collection, tab, created\)/,
-      );
-    } else {
-      assert.match(
-        body,
-        /await attachOrderCollectionTab\(collection, tab, created\)/,
-        `${collector} managed tab attachment`,
-      );
-    }
+    assert.match(
+      body,
+      /await attachOrderCollectionTab\(collection, tab, created\)/,
+      `${collector} managed tab attachment`,
+    );
   }
 });
 
@@ -362,9 +348,6 @@ test('order collector manifest publishes normalized failure evidence and scoped 
   const worker = readFileSync(workerPath, 'utf8');
   assert.match(worker, /sellpiaOrderFileUploadEvidenceV1:\s*true/);
   assert.match(worker, /sellpiaScopedAutoInvoiceV1:\s*true/);
-  assert.match(worker, /collectCoupangShipmentDateSummaryValidatedV1:\s*true/);
-  assert.match(worker, /coupangShipmentSummarySourceOwnerV1:\s*true/);
-  assert.equal(/coupangRocketPoSourceOwnerV1:\s*true/.test(worker), true);
 });
 
 test('Sellpia inventory delegates the server-issued attempt directly to the source owner', () => {
@@ -412,20 +395,6 @@ test('web bridge reaches local and Office KidItem origins', () => {
   assert.ok(hostBridge, 'host-bridge content script must be declared');
   assert.ok(hostBridge.matches.includes('http://localhost:3000/*'));
   assert.ok(hostBridge.matches.includes('http://kiditem-office/*'));
-});
-
-test('Coupang shipment date summary scans its bounded range in concurrent batches', () => {
-  const worker = readFileSync(workerPath, 'utf8');
-  const start = worker.indexOf('async function scrapeCoupangShipmentDateSummary(');
-  const end = worker.indexOf('\nasync function collectCoupangShipmentList(', start);
-  const body = worker.slice(start, end);
-
-  assert.notEqual(start, -1);
-  assert.notEqual(end, -1);
-  assert.match(body, /const PAGE_FETCH_CONCURRENCY = 6;/);
-  assert.match(body, /await Promise\.all\(/);
-  assert.match(body, /batchStart \+= PAGE_FETCH_CONCURRENCY/);
-  assert.doesNotMatch(body, /for \(let page = 1; page <= maxPages; page\+\+\)/);
 });
 
 test('every web automatic order message carries local owner correlation explicitly', () => {

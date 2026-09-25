@@ -49,9 +49,9 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
     const catalog = await this.catalog.readComplete({
       organizationId: input.organizationId,
       channelAccountId: parsed.data.channelAccountId,
-      sourceImportRunId: parsed.data.sourceImportRunId,
+      rocketPoOperationId: parsed.data.rocketPoOperationId,
     });
-    const { sourceImportRunId: _sourceId, inventoryAttemptId, ...decisionFields } = parsed.data;
+    const { rocketPoOperationId: _sourceId, inventoryAttemptId, ...decisionFields } = parsed.data;
     const decision = RocketPurchasePreviewDecisionSchema.safeParse({ ...decisionFields, collection: catalog.collection, rows: catalog.rows });
     if (!decision.success) {
       throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'ROCKET_PREVIEW_DECISION_INVALID' }, cause: decision.error });

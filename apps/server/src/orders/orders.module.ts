@@ -36,6 +36,7 @@ import { SellpiaShipmentTrackingOperationOwner } from './adapter/in/operation/se
 import { OrderOperationCapturePersistenceAdapter } from './adapter/out/persistence/order-operation-capture.persistence.adapter';
 import { ORDER_OPERATION_CAPTURE_PORT } from './application/port/in/order-operation-capture.port';
 import { OperationModule } from '../common/operation/operation.module';
+import { CoupangDirectshipOperationOwner } from './adapter/in/operation/coupang-directship-operation-owner';
 import { MallOrdersOperationOwner } from './adapter/in/operation/mall-orders-operation-owner';
 import { MallOrdersOperationService } from './application/service/mall-orders-operation.service';
 import { OrderMallAccountPersistenceAdapter } from './adapter/out/persistence/order-mall-account.persistence.adapter';
@@ -73,6 +74,7 @@ import { OrderCollectionTodayOrdersModule } from './order-collection-today-order
     MallOrdersOperationService,
     MallOrdersOperationOwner,
     OrderMallAccountPersistenceAdapter,
+    CoupangDirectshipOperationOwner,
     {
       provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
       useExisting: CoupangDirectOrderCollectionService,

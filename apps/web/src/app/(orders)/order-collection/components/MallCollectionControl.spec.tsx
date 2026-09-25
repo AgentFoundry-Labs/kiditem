@@ -226,11 +226,28 @@ describe('MallCollectionControl', () => {
    * 캐스팅해 넣어야 하고, 그러면 카드가 읽는 상태를 아무도 검사하지 않는다.
    */
   it('hosts a source that reads its own status instead of the shared mall list', async () => {
-    vi.mocked(apiClient.getParsed).mockImplementation(async (path: string) => (
-      path.startsWith('/api/orders/collection/coupang-directship')
-        ? { ...running(), mallKey: DIRECT_ACCOUNT.key }
-        : { malls: [idle()] }
-    ));
+    // 직배송 원천은 실행 reader(orders.coupang_directship)를 로켓 계정으로 나눠 읽는다(KID-359).
+    vi.mocked(apiClient.getParsed).mockImplementation(async () => ({ malls: [idle()] }));
+    vi.mocked(apiClient.get).mockImplementation(async () => ({
+      operations: [{
+        id: RUNNING_ATTEMPT_ID,
+        kind: 'orders.coupang_directship',
+        status: 'executing',
+        lockKeys: [`account:${CHANNEL_ACCOUNT_ID}`],
+        plan: { channelAccountId: CHANNEL_ACCOUNT_ID, captureMode: 'browser' },
+        progress: null,
+        result: null,
+        window: null,
+        errorCode: null,
+        errorMessage: null,
+        startedAt: '2026-09-15T01:00:00.000Z',
+        finishedAt: null,
+        expiresAt: '2026-09-15T01:30:00.000Z',
+        attempts: 1,
+        maxAttempts: 1,
+        scheduledFor: null,
+      }],
+    }));
 
     render(
       <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>

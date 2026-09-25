@@ -263,11 +263,12 @@ export async function readOrderWindowFacts(
       LEFT JOIN order_line_items oli
         ON oli.order_id = o.id
        AND oli.organization_id = ${input.organizationId}::uuid
-      INNER JOIN source_import_runs s
+      LEFT JOIN source_import_runs s
         ON s.id = o.source_import_run_id
        AND s.organization_id = o.organization_id
        AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
       WHERE o.organization_id = ${input.organizationId}::uuid
+        AND (s.id IS NOT NULL OR o.operation_id IS NOT NULL)
         AND o.ordered_at >= ${input.from}
         AND o.ordered_at < ${input.to}
     )
@@ -488,12 +489,12 @@ export async function readObservedOrderBounds(
         AT TIME ZONE 'Asia/Seoul' AS "to"
     FROM orders
     WHERE organization_id = ${organizationId}::uuid
-      AND EXISTS (
+      AND (orders.operation_id IS NOT NULL OR EXISTS (
         SELECT 1 FROM source_import_runs s
         WHERE s.id = orders.source_import_run_id
           AND s.organization_id = ${organizationId}::uuid
           AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
-      )
+      ))
   `);
   const row = rows[0];
   return row?.from && row.to ? { from: row.from, to: row.to } : null;
@@ -512,12 +513,12 @@ export async function readObservedOrderCount(
     SELECT COUNT(*)::bigint AS count
     FROM orders
     WHERE organization_id = ${organizationId}::uuid
-      AND EXISTS (
+      AND (orders.operation_id IS NOT NULL OR EXISTS (
         SELECT 1 FROM source_import_runs s
         WHERE s.id = orders.source_import_run_id
           AND s.organization_id = ${organizationId}::uuid
           AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
-      )
+      ))
   `);
   return Number(row?.count ?? 0n);
 }
@@ -578,12 +579,12 @@ export async function readOrderStatusCount(
     SELECT COUNT(*)::bigint AS count
     FROM orders
     WHERE organization_id = ${organizationId}::uuid AND status = ${status}
-      AND EXISTS (
+      AND (orders.operation_id IS NOT NULL OR EXISTS (
         SELECT 1 FROM source_import_runs s
         WHERE s.id = orders.source_import_run_id
           AND s.organization_id = ${organizationId}::uuid
           AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
-      )
+      ))
   `);
   return Number(row?.count ?? 0n);
 }
@@ -599,12 +600,12 @@ function includedStatusPredicateSql(statuses: readonly string[] | undefined): Pr
 }
 
 function completeOrderFactSql(organizationId: string): Prisma.Sql {
-  return Prisma.sql`AND EXISTS (
+  return Prisma.sql`AND (o.operation_id IS NOT NULL OR EXISTS (
     SELECT 1 FROM source_import_runs completed_source
     WHERE completed_source.id = o.source_import_run_id
       AND completed_source.organization_id = ${organizationId}::uuid
       AND completed_source.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
-  )`;
+  ))`;
 }
 
 function isEmptyWindow(input: Pick<OrderWindowInput, 'from' | 'to'>): boolean {
@@ -626,13 +627,22 @@ function emptyOrderWindowFacts(): OrderWindowFacts {
   };
 }
 
+/**
+ * 완료된 원천이 쓴 주문: 완료된 옛 run의 주문, 또는 성공한 directship 실행을 변환한 주문(`operationId`, KID-359 —
+ * 변환은 성공한 실행에서만 돈다).
+ */
 function completeOrderWhere(organizationId: string): Prisma.OrderWhereInput {
   return {
     organizationId,
-    sourceImportRunId: { not: null },
-    sourceImportRun: {
-      is: { organizationId, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
-    },
+    OR: [
+      { operationId: { not: null } },
+      {
+        sourceImportRunId: { not: null },
+        sourceImportRun: {
+          is: { organizationId, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
+        },
+      },
+    ],
   };
 }
 

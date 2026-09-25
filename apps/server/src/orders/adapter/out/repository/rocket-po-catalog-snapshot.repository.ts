@@ -1,25 +1,22 @@
 import { Prisma } from '@prisma/client';
-import type { RocketPoCatalogRow } from '@kiditem/shared/rocket-purchase-preview';
-import type { RocketPoSourceSubmission } from '@kiditem/shared/rocket-purchase-preview';
+import type { RocketPoCatalogRow, RocketPoCollectionEvidence } from '@kiditem/shared/rocket-purchase-preview';
 import { parseBusinessDate } from '../../../../common/kst';
 
 type PublishInput = {
   organizationId: string;
   channelAccountId: string;
-  collection: RocketPoSourceSubmission['collection'];
-  rows: RocketPoCatalogRow[];
+  operationId: string;
+  collection: RocketPoCollectionEvidence;
+  rows: readonly RocketPoCatalogRow[];
 };
 
-export async function createRocketPoCatalogSnapshot(
-  tx: Prisma.TransactionClient,
-  input: PublishInput,
-  sourceImportRunId: string,
-): Promise<void> {
+/** 실행 하나의 로켓 PO 스냅샷과 줄(finish 트랜잭션 안에서만). */
+export async function createRocketPoCatalogSnapshot(tx: Prisma.TransactionClient, input: PublishInput): Promise<void> {
   const snapshot = await tx.rocketPoCatalogSnapshot.create({
     data: {
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
-      sourceImportRunId,
+      operationId: input.operationId,
       collectionRunId: input.collection.collectionRunId,
       vendorId: input.collection.vendorId,
       listPagesRead: input.collection.listPagesRead,
@@ -28,6 +25,7 @@ export async function createRocketPoCatalogSnapshot(
     },
     select: { id: true },
   });
+  if (input.rows.length === 0) return;
   await tx.rocketPoCatalogLine.createMany({
     data: input.rows.map((row) => ({
       organizationId: input.organizationId,

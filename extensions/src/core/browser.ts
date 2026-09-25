@@ -1,5 +1,6 @@
 import type { OperationLockKey } from '@kiditem/shared/operation';
-import { RuntimeError } from './errors';
+import { RuntimeError, isRuntimeError } from './errors';
+import { SITE_LOGIN_REQUIRED } from './site-caller';
 
 /**
  * 브라우저 자원 — 수집 창·탭·로그인 확인. 이름은 서버 lockKey와 같다
@@ -8,8 +9,11 @@ import { RuntimeError } from './errors';
  */
 export interface BrowserLease {
   readonly tabId: number | null;
-  /** 실행이 어떻게 끝나든 정확히 한 번 부른다. 두 번째부터는 no-op. */
-  release(): Promise<void>;
+  /**
+   * 실행이 어떻게 끝나든 정확히 한 번 부른다. 두 번째부터는 no-op. `error`가 운영자가 탭에서 해야 할 일(로그인,
+   * 사이트 밖 주소)이면 새로 연 탭을 닫지 않고 앞으로 가져온다 — 그 탭에서 로그인하고 다시 수집한다.
+   */
+  release(outcome?: { error?: unknown }): Promise<void>;
 }
 
 export interface BrowserResources {
@@ -29,6 +33,7 @@ export interface BrowserChrome {
     query(query: { url: string }): Promise<Array<{ id?: number }>>;
     create(properties: { url: string; active?: boolean }): Promise<{ id?: number }>;
     remove(tabId: number): Promise<void>;
+    update(tabId: number, properties: { active: boolean }): Promise<unknown>;
   };
 }
 
@@ -71,11 +76,17 @@ export function createBrowserResources(chromeApi: BrowserChrome, sites: BrowserS
         let released = false;
         return {
           tabId: tab?.tabId ?? null,
-          async release() {
+          async release(outcome = {}) {
             if (released) return;
             released = true;
             held.delete(operationId);
-            if (tab?.opened) await chromeApi.tabs.remove(tab.tabId).catch(() => undefined);
+            if (!tab?.opened) return;
+            if (operatorMustAct(outcome.error)) {
+              // 로그인 화면·사이트 밖 주소에서 멈췄다 — 운영자가 이 탭에서 풀도록 남기고 앞으로 가져온다.
+              await chromeApi.tabs.update(tab.tabId, { active: true }).catch(() => undefined);
+              return;
+            }
+            await chromeApi.tabs.remove(tab.tabId).catch(() => undefined);
           },
         };
       } catch (error) {
@@ -101,4 +112,12 @@ async function openSiteTab(chromeApi: BrowserChrome, origin: string): Promise<{ 
     throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, '사이트 탭을 열지 못했습니다.', { origin: base });
   }
   return { tabId: created.id, opened: true };
+}
+
+/**
+ * 운영자가 탭에서 해야 할 일로 끝난 실행인가: 사이트 로그인이 필요하거나(`SITE_LOGIN_REQUIRED`) 탭이 사이트 밖 주소로
+ * 옮겨 갔다(`reason: 'unexpected_url'`) — `sites/tab-page`의 `leftForOperator`와 같은 판정(core는 sites를 모른다).
+ */
+export function operatorMustAct(error: unknown): boolean {
+  return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === 'unexpected_url');
 }

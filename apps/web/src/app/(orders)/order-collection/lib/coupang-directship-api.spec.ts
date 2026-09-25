@@ -1,13 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import * as XLSX from 'xlsx';
 
-const bridge = vi.hoisted(() => ({
-  detectOrderCollectionExtensionId: vi.fn(),
-  sendToExtension: vi.fn(),
-}));
-const api = vi.hoisted(() => ({ fetchRaw: vi.fn(), getParsed: vi.fn() }));
+const api = vi.hoisted(() => ({ fetchRaw: vi.fn(), getParsed: vi.fn(), get: vi.fn() }));
 
-vi.mock('@/lib/extension-bridge', () => bridge);
 vi.mock('@/lib/api-client', () => ({ apiClient: api }));
 
 import {
@@ -15,66 +10,65 @@ import {
   convertCoupangDirectToSellpiaFile,
 } from './coupang-directship-api';
 
-const ATTEMPT_ID = '33333333-3333-4333-8333-333333333333';
-const ATTEMPT_TOKEN = '44444444-4444-4444-8444-444444444444';
+// 직배송 캡처 = 실행 kind orders.coupang_directship(KID-359). "attemptId"는 실행 ID다.
+const OPERATION_ID = '33333333-3333-4333-8333-333333333333';
+const RUN = { attemptId: OPERATION_ID, attemptToken: OPERATION_ID, sourceOwner: 'coupang_directship' as const };
+const CAPTURE = { channelAccountId: '11111111-1111-4111-8111-111111111111', pos: [], centers: {} };
+
+function operation(status: string, overrides: Record<string, unknown> = {}) {
+  return {
+    id: OPERATION_ID,
+    kind: 'orders.coupang_directship',
+    status,
+    lockKeys: [],
+    plan: { channelAccountId: CAPTURE.channelAccountId, captureMode: 'browser' },
+    progress: null,
+    result: null,
+    window: null,
+    errorCode: null,
+    errorMessage: null,
+    startedAt: '2026-09-26T00:00:00.000Z',
+    finishedAt: status === 'executing' ? null : '2026-09-26T00:01:00.000Z',
+    expiresAt: '2026-09-26T00:30:00.000Z',
+    attempts: 1,
+    maxAttempts: 1,
+    scheduledFor: null,
+    ...overrides,
+  };
+}
 
 describe('Coupang direct-shipment collection lifecycle', () => {
   beforeEach(() => {
     vi.clearAllMocks();
   });
 
-  it('uses the server-issued Directship attempt without the retired generic defer flag', async () => {
-    bridge.sendToExtension.mockResolvedValue({
-      success: true,
+  /** 실행은 ID로 읽고(`GET /api/operations/:id`), 캡처는 성공한 실행에서 읽는다. */
+  function serve(states: string[], overrides: Record<string, unknown> = {}) {
+    const queue = [...states];
+    api.getParsed.mockImplementation(async (path: string) => {
+      if (path === `/api/operations/${OPERATION_ID}`) {
+        const status = queue.length > 1 ? queue.shift()! : queue[0]!;
+        return { operation: operation(status, overrides) };
+      }
+      return CAPTURE;
     });
-    api.getParsed.mockResolvedValue({
-      attempt: { state: 'COMPLETE' },
-      capture: { channelAccountId: '11111111-1111-4111-8111-111111111111', pos: [], centers: {} },
-    });
+  }
 
-    await expect(collectCoupangDirectFromExtension({
-      attemptId: ATTEMPT_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      extensionId: 'order-extension',
-    })).resolves.toEqual({ pos: [], centers: {} });
-
-    expect(bridge.sendToExtension).toHaveBeenCalledWith(
-      'order-extension',
-      expect.objectContaining({
-        action: 'collectCoupangDirectOrders',
-        attemptId: ATTEMPT_ID,
-        date: null,
-      }),
-      240000,
-    );
+  it('확장이 도는 실행이 끝나기를 실행 ID 읽기로 기다렸다가 서버가 보관한 캡처를 읽는다', async () => {
+    serve(['executing', 'succeeded']);
+    await expect(collectCoupangDirectFromExtension({ ...RUN, extensionId: 'order-extension' })).resolves.toEqual({ pos: [], centers: {} });
+    expect(api.getParsed).toHaveBeenCalledWith(`/api/operations/${OPERATION_ID}`, expect.anything());
     expect(api.getParsed).toHaveBeenCalledWith(
-      `/api/orders/collection/coupang-directship/attempts/${ATTEMPT_ID}/capture`,
+      `/api/orders/collection/coupang-directship/operations/${OPERATION_ID}/capture`,
       expect.anything(),
     );
-  });
+    expect(api.get).not.toHaveBeenCalled();
+  }, 10_000);
 
-  it('reads a completed owner capture without requiring the extension again', async () => {
-    api.getParsed.mockResolvedValue({
-      attempt: { state: 'COMPLETE' },
-      capture: {
-        channelAccountId: '11111111-1111-4111-8111-111111111111',
-        pos: [],
-        centers: {},
-      },
-    });
-
-    await expect(collectCoupangDirectFromExtension({
-      attemptId: ATTEMPT_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      sourceOwner: 'coupang_directship',
-    })).resolves.toEqual({ pos: [], centers: {} });
-
-    expect(bridge.detectOrderCollectionExtensionId).not.toHaveBeenCalled();
-    expect(bridge.sendToExtension).not.toHaveBeenCalled();
-    expect(api.getParsed).toHaveBeenCalledWith(
-      `/api/orders/collection/coupang-directship/attempts/${ATTEMPT_ID}/capture`,
-      expect.anything(),
-    );
+  it('실패한 실행은 그 실행의 실패 문장으로 거절한다', async () => {
+    serve(['failed'], { errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '쿠팡 서플라이어 허브 로그인이 필요합니다.' });
+    await expect(collectCoupangDirectFromExtension(RUN)).rejects.toThrow('쿠팡 서플라이어 허브 로그인이 필요합니다.');
+    expect(api.getParsed).not.toHaveBeenCalledWith(expect.stringContaining('/capture'), expect.anything());
   });
 
   it('passes cancellation to backend conversion', async () => {
@@ -99,6 +93,7 @@ describe('Coupang direct-shipment collection lifecycle', () => {
         channelAccountId: '11111111-1111-4111-8111-111111111111',
         download: false,
         signal: abortController.signal,
+        run: RUN,
       },
     )).rejects.toThrow('conversion failed');
 
@@ -108,6 +103,7 @@ describe('Coupang direct-shipment collection lifecycle', () => {
     );
     expect(JSON.parse(api.fetchRaw.mock.calls[0]?.[1]?.body as string))
       .toMatchObject({
+        operationId: OPERATION_ID,
         channelAccountId: '11111111-1111-4111-8111-111111111111',
         transport: 'SHIPMENT',
       });
@@ -123,6 +119,7 @@ describe('Coupang direct-shipment collection lifecycle', () => {
       {
         channelAccountId: '11111111-1111-4111-8111-111111111111',
         download: false,
+        run: RUN,
       },
     );
 
@@ -142,7 +139,7 @@ describe('Coupang direct-shipment collection lifecycle', () => {
     api.fetchRaw.mockResolvedValue(new Response(null, {
       status: 204,
       headers: {
-        'X-Order-Collection-Import-Run-Id': '66666666-6666-4666-8666-666666666666',
+        'X-Order-Collection-Operation-Id': '66666666-6666-4666-8666-666666666666',
         'X-Rocket-Workbook-Export-Id': exportId,
         'X-Order-Collection-Output-Rows': '0',
       },
@@ -154,6 +151,7 @@ describe('Coupang direct-shipment collection lifecycle', () => {
       {
         channelAccountId: '11111111-1111-4111-8111-111111111111',
         download: false,
+        run: RUN,
       },
     )).resolves.toEqual({
       file: null,
@@ -178,7 +176,7 @@ function fileResponse(input: { exportId: string | null; intentKey: string }): Re
     status: 200,
     headers: {
       'Content-Disposition': "attachment; filename*=UTF-8''rocket.xls",
-      'X-Order-Collection-Import-Run-Id': '66666666-6666-4666-8666-666666666666',
+      'X-Order-Collection-Operation-Id': '66666666-6666-4666-8666-666666666666',
       ...(input.exportId ? { 'X-Rocket-Workbook-Export-Id': input.exportId } : {}),
       'X-Sellpia-Transmission-Intent-Key': input.intentKey,
       'X-Order-Collection-Source-Rows': '1',

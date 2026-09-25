@@ -101,7 +101,7 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
       (activeExports.length === 1 ? activeExports[0]!.id : null);
     const transmissionIntentKey =
       lines.length > 0
-        ? `rocket-final-order:${input.sourceImportRunId}:${input.transport.toLowerCase()}`
+        ? `rocket-final-order:${input.directshipOperationId}:${input.transport.toLowerCase()}`
         : null;
     if (!exportId) {
       return {
@@ -112,7 +112,7 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
       };
     }
 
-    // The probe records which run and transport observed the export. Which
+    // The probe records which directship operation and transport observed the export. Which
     // workbook lines it linked, and whether every positive line is collected,
     // live on the lines themselves (`collectedOrderLineItemId` and the
     // first-link `collectedAt`), so readers derive both.
@@ -126,18 +126,18 @@ export class RocketFinalOrderReconciliationTransactionAdapter implements RocketF
       create: {
         organizationId: input.organizationId,
         confirmationId: exportId,
-        sourceImportRunId: input.sourceImportRunId,
+        directshipOperationId: input.directshipOperationId,
         transport: input.transport,
         intentKey: transmissionIntentKey,
       },
       update:
         transmissionIntentKey === null
           ? {
-              sourceImportRunId: input.sourceImportRunId,
+              directshipOperationId: input.directshipOperationId,
               observedAt: new Date(),
             }
           : {
-              sourceImportRunId: input.sourceImportRunId,
+              directshipOperationId: input.directshipOperationId,
               intentKey: transmissionIntentKey,
               observedAt: new Date(),
             },

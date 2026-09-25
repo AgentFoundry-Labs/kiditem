@@ -115,21 +115,18 @@ beforeEach(() => {
 
 describe('createCoupangDirectshipCollector', () => {
   /**
-   * 발주 화면도 로그인해야 열린다. 직배송이 제 로그인을 제 절차 안에서 넣는다는 것을
-   * 여기서 잠근다 — 몰 수집 루프는 이 원천의 로그인을 대신 넣지 않는다(KID-255).
+   * 발주 화면 로그인은 확장 사이트(`sites/coupang-supplier`)가 확인한다 — 로그인 화면이면 실행이
+   * SITE_LOGIN_REQUIRED로 끝난다(KID-359). 몰 소유자의 자동 로그인으로 감싸면 몰 쪽에 없는 시도를 조회해
+   * 404로 로그인 문턱에서 끝났다(2026-09-21 라이브) — 이 절차는 몰 로그인을 넣지 않는다.
    */
-  it('⭐ 발주를 받으러 들어가기 전에 저장된 로켓 계정으로 로그인한다', async () => {
+  it('⭐ 발주를 받으러 들어갈 때 몰 자동 로그인을 넣지 않고 실행의 캡처를 기다린다', async () => {
     mocks.collectCoupang.mockResolvedValue({ pos: [], centers: {} });
     mocks.convertCoupang.mockResolvedValue(EMPTY_CONVERSION);
 
     await collector()(ACCOUNT, RUN);
 
-    expect(mocks.ensureLogin).toHaveBeenCalledWith(
-      'coupang-direct',
-      expect.objectContaining({ loginId: 'operator', password: 'secret' }),
-      expect.objectContaining({ attemptId: RUN.attemptId }),
-    );
-    expect(mocks.collectCoupang).toHaveBeenCalled();
+    expect(mocks.ensureLogin).not.toHaveBeenCalled();
+    expect(mocks.collectCoupang).toHaveBeenCalledWith(expect.objectContaining({ attemptId: RUN.attemptId }));
   });
 
   /**
