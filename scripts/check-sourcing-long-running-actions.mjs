@@ -476,13 +476,13 @@ function main() {
           'utf8',
         ),
       },
-      {
-        path: 'extensions/kiditem-os/background/sourcing/worker.js',
-        source: readFileSync(
-          path.join(root, 'extensions/kiditem-os/background/sourcing/worker.js'),
-          'utf8',
-        ),
-      },
+      // 소싱 수집은 새 런타임의 실행 kind다(KID-360). 확장 입구가 외부 액션을 거는 곳은 entry 한 층이다.
+      ...readdirSync(path.join(root, 'extensions/src/entry'))
+        .filter((name) => /\.ts$/.test(name) && !/\.spec\.ts$/.test(name))
+        .map((name) => ({
+          path: `extensions/src/entry/${name}`,
+          source: readFileSync(path.join(root, 'extensions/src/entry', name), 'utf8'),
+        })),
     ],
   });
 
