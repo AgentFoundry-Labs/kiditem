@@ -20,52 +20,67 @@ const SERVICE_WORKER_URL = new URL(
   import.meta.url,
 );
 
-// 서비스워커 기준(background/) 경로, 쿼리 문자열 포함, 실제 로드 순서.
-export function serviceWorkerImportScripts() {
-  const source = readFileSync(SERVICE_WORKER_URL, 'utf8');
-  const call = source.match(/importScripts\(([\s\S]*?)\);/);
-  if (!call) throw new Error('service-worker.js 에서 importScripts(...) 를 찾지 못했다');
-  return [...call[1].matchAll(/^\s*"([^"]+)",?\s*$/gm)].map((match) => match[1]);
+// 서비스워커를 실제로 실행해 `importScripts` 가 받은 인자를 그대로 기록한다 — 소스
+// 텍스트를 정규식으로 읽으면 같은 줄 주석 · 따옴표 모양 · 한 줄 여러 항목을 조용히
+// 놓친다. 기록한 뒤 표식 예외로 멈춰 나머지 배선은 돌리지 않는다.
+// 돌려주는 경로는 서비스워커 기준(background/)이고 쿼리 문자열을 포함한다.
+function serviceWorkerImportScripts() {
+  const stop = Symbol('importScripts recorded');
+  let recorded = null;
+  const sandbox = {
+    importScripts(...files) {
+      recorded = files;
+      throw stop;
+    },
+  };
+  sandbox.self = sandbox;
+  sandbox.globalThis = sandbox;
+  try {
+    vm.runInNewContext(readFileSync(SERVICE_WORKER_URL, 'utf8'), sandbox, {
+      filename: SERVICE_WORKER_URL.pathname,
+    });
+  } catch (error) {
+    if (error !== stop) throw error;
+  }
+  if (!recorded) throw new Error('service-worker.js 가 importScripts(...) 를 부르지 않았다');
+  return recorded;
 }
 
 const DOMAIN_PREFIXES = ['coupang/', 'orders/', 'sourcing/'];
 const isDomainModule = (entry) => DOMAIN_PREFIXES.some((prefix) => entry.startsWith(prefix));
 
-// 서비스워커 기준 경로를 도메인 워커 디렉터리(background/<domain>/) 기준으로 바꾼다.
-function relativeToDomain(domain, entry) {
-  return path.posix.relative(domain, entry.split('?')[0]);
-}
-
 const SERVICE_WORKER_IMPORTS = serviceWorkerImportScripts();
 
 // 첫 도메인 모듈보다 먼저 싣는 공용 파운데이션(레지스트리·채널 목록·폼 관문·
 // 세션·dispatch·worker-globals). 모든 도메인 워커가 이 전역을 전제한다.
-const FOUNDATION = SERVICE_WORKER_IMPORTS.slice(
-  0,
-  SERVICE_WORKER_IMPORTS.findIndex(isDomainModule),
+const FIRST_DOMAIN_MODULE = SERVICE_WORKER_IMPORTS.findIndex(isDomainModule);
+if (FIRST_DOMAIN_MODULE === -1) {
+  throw new Error('service-worker.js 의 importScripts(...) 에 도메인 모듈이 없다');
+}
+const FOUNDATION = SERVICE_WORKER_IMPORTS.slice(0, FIRST_DOMAIN_MODULE);
+
+// 파운데이션 + 고른 모듈을 서비스워커 순서 그대로, 도메인 워커 디렉터리
+// (background/<domain>/) 기준 상대 경로로 돌려준다. 워커 자신은 빼고, 테스트가
+// 모듈을 실은 뒤 따로 실행한다.
+function domainWorkerModules(domain, includes) {
+  const worker = `${domain}/worker.js`;
+  return SERVICE_WORKER_IMPORTS
+    .filter((entry) => FOUNDATION.includes(entry) || (entry !== worker && includes(entry)))
+    .map((entry) => path.posix.relative(domain, entry.split('?')[0]));
+}
+
+// 주문 워커: 파운데이션, 소싱과 공유하는 attempt wire, orders/* 전부.
+export const ORDERS_WORKER_MODULES = domainWorkerModules(
+  'orders',
+  (entry) => entry === 'sourcing/source-attempt-wire.js' || entry.startsWith('orders/'),
 );
 
-// 도메인 워커 디렉터리(background/<domain>/) 기준 상대 경로.
-const SHARED_MODULES = FOUNDATION.map((entry) => relativeToDomain('orders', entry));
-
-// 주문 워커가 쓰는 모듈: 파운데이션, 소싱과 공유하는 attempt wire, 그리고
-// 서비스워커가 싣는 orders/* 전부(워커 자신 제외)를 서비스워커 순서 그대로.
-export const ORDERS_WORKER_MODULES = SERVICE_WORKER_IMPORTS.filter(
-  (entry) =>
-    FOUNDATION.includes(entry)
-    || entry === 'sourcing/source-attempt-wire.js'
-    || (entry.startsWith('orders/') && entry !== 'orders/worker.js'),
-).map((entry) => relativeToDomain('orders', entry));
-
-export const SOURCING_WORKER_MODULES = [
-  ...SHARED_MODULES,
-  'url-policy.js',
-  'source-attempt-wire.js',
-  'product-extension-collector.js',
-  '1688-trend-collector.js',
-  'live-commerce-collector.js',
-  'tiktok-cc-collector.js',
-];
+// 소싱 워커: 파운데이션과 sourcing/* 전부. 서비스워커가 소싱 칸에 싣는 coupang/*
+// 수집기는 쿠팡 워커가 쓰므로 소싱 워커 하니스에는 필요 없다.
+export const SOURCING_WORKER_MODULES = domainWorkerModules(
+  'sourcing',
+  (entry) => entry.startsWith('sourcing/'),
+);
 
 // 통합 서비스워커가 하는 배선과 동일하다. 도메인 워커를 실행한 뒤에 호출해야
 // 도메인이 KidItemDomains 에 등록된 상태로 dispatch 가 설치된다.
