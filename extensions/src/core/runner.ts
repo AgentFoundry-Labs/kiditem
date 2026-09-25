@@ -76,9 +76,19 @@ export interface RunnableChunk {
   progress?: Record<string, unknown>;
 }
 
+export interface RunnableCollectContext {
+  signal: AbortSignal;
+  tabId: number | null;
+  /**
+   * 청크 사이에 progress만 곧바로 올린다(예: 사이트가 운영자 검증을 기다리는 동안 `attention`). 빈 payload heartbeat로
+   * 보내 임대도 연장되고, 다음 heartbeat도 이 progress를 싣는다.
+   */
+  report(progress: Record<string, unknown>): Promise<void>;
+}
+
 export interface RunnableCollector {
   readonly site: string | null;
-  collect(plan: Record<string, unknown>, site: unknown, context: { signal: AbortSignal; tabId: number | null }): AsyncIterable<RunnableChunk>;
+  collect(plan: Record<string, unknown>, site: unknown, context: RunnableCollectContext): AsyncIterable<RunnableChunk>;
   summarize?(input: { chunks: number; items: number }): { window?: OperationWindow; result?: Record<string, unknown> };
 }
 
@@ -206,7 +216,15 @@ async function execute(
     let chunks = 0;
     let items = 0;
     scheduleHeartbeat();
-    for await (const chunk of collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId })) {
+    const report = async (progress: Record<string, unknown>) => {
+      if (collectionDone || local.signal.aborted) return;
+      lastProgress = progress;
+      await write(() =>
+        deps.client.putChunk({ operationId, token, chunkKind: HEARTBEAT_CHUNK_KIND, sequence: 1, payload: [], progress }),
+      );
+      scheduleHeartbeat();
+    };
+    for await (const chunk of collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId, report })) {
       if (local.signal.aborted) break;
       if (chunk.chunkKind === HEARTBEAT_CHUNK_KIND) {
         throw new RuntimeError(RUNTIME_COLLECT_FAILED, `수집기는 예약된 chunkKind(${HEARTBEAT_CHUNK_KIND})를 쓰지 않는다.`, { reason: 'reserved_chunk_kind' });

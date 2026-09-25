@@ -6702,7 +6702,15 @@ var KidItemRuntime = (() => {
       let chunks = 0;
       let items = 0;
       scheduleHeartbeat();
-      for await (const chunk of collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId })) {
+      const report = async (progress) => {
+        if (collectionDone || local.signal.aborted) return;
+        lastProgress = progress;
+        await write(
+          () => deps.client.putChunk({ operationId, token, chunkKind: HEARTBEAT_CHUNK_KIND, sequence: 1, payload: [], progress })
+        );
+        scheduleHeartbeat();
+      };
+      for await (const chunk of collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId, report })) {
         if (local.signal.aborted) break;
         if (chunk.chunkKind === HEARTBEAT_CHUNK_KIND) {
           throw new RuntimeError(RUNTIME_COLLECT_FAILED, `\uC218\uC9D1\uAE30\uB294 \uC608\uC57D\uB41C chunkKind(${HEARTBEAT_CHUNK_KIND})\uB97C \uC4F0\uC9C0 \uC54A\uB294\uB2E4.`, { reason: "reserved_chunk_kind" });

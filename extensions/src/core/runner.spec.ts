@@ -379,6 +379,28 @@ describe('createRunner — 실행 하나의 순서', () => {
     expect(h.puts).toHaveLength(heartbeatsAfterFinish);
   });
 
+  it('수집기가 청크 사이에 report(progress)하면 곧바로 progress만 올리고(임대 연장 겸) 다음 heartbeat도 그 progress를 싣는다', async () => {
+    const h = harness();
+    const attention = { current: 1, total: 2, label: '笔袋', attention: { kind: 'verification', site: '1688', label: '笔袋', since: 'now' } };
+    const outcome = await runWith(h, {
+      site: null,
+      collect: (_plan, _site, context) => (async function* () {
+        yield echoChunk(1);
+        await context.report?.(attention);
+        await context.report?.({ current: 1, total: 2, label: '笔袋', attention: null });
+        yield echoChunk(2);
+      })(),
+    });
+
+    expect(outcome.kind).toBe('finished');
+    expect(h.puts.map((put) => [put.chunkKind, put.payload.length, put.progress])).toEqual([
+      ['echo', 1, { done: 1 }],
+      ['heartbeat', 0, attention],
+      ['heartbeat', 0, { current: 1, total: 2, label: '笔袋', attention: null }],
+      ['echo', 1, { done: 2 }],
+    ]);
+  });
+
   it('날아가는 heartbeat가 끝난 뒤에 finish를 보낸다', async () => {
     vi.useFakeTimers();
     let releaseHeartbeat!: () => void;

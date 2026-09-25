@@ -12,6 +12,8 @@ export interface CollectContext {
   signal: AbortSignal;
   /** 사이트 탭이 필요한 kind만 non-null. */
   tabId: number | null;
+  /** 청크 사이에 progress만 곧바로 올린다(운영자 검증 대기 `attention` 등). 임대도 연장된다. */
+  report?(progress: Record<string, unknown>): Promise<void>;
 }
 
 /**
