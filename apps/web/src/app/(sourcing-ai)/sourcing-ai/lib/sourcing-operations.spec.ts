@@ -68,7 +68,8 @@ describe('sourcing operation collection (KID-360)', () => {
     const adapter = roomA();
     vi.mocked(apiClient.get).mockResolvedValue(status as never);
 
-    await expect(adapter.statusQuery.queryFn?.({} as never)).resolves.toEqual(status);
+    const queryFn = adapter.statusQuery.queryFn as (context: never) => Promise<unknown>;
+    await expect(queryFn({} as never)).resolves.toEqual(status);
     expect(apiClient.get).toHaveBeenCalledWith('/api/operations?kinds=sourcing.live_commerce&limit=20');
     expect(adapter.readRunning(status)).toEqual({ attemptId: A_RUNNING, scopeLabel: null });
     expect(adapter.readCompleteId(status)).toBe(A_DONE);
