@@ -49,7 +49,7 @@ export class SourcingScrapeUrlService {
       if (sourceRecord.sourceUrl !== plan.sourceUrl) throw new BadRequestException('SOURCE_SCRAPE_CANDIDATE_MISMATCH');
       const capturedAt = new Date();
       const evidence: AuthorizedCollectionOutput = { observations: [{
-        organizationId: input.organizationId, ingestionRunId: attempt.attemptId, sourceKey: plan.source,
+        organizationId: input.organizationId, operationId: attempt.attemptId, sourceKey: plan.source,
         platform: plan.platform, evidenceFamily: 'supplier_product_scrape', signalRole: 'supply', granularity: 'supply_catalog',
         conceptKey: null, sourceEntityType: 'supplier_offer', sourceEntityId: sourceRecord.externalOfferId ?? plan.sourceUrl,
         schemaVersion: 'sourcing-scrape-url/v1', observationKey: attempt.attemptId, revision: 1, supportsCandidate: true,

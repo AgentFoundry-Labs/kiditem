@@ -158,8 +158,8 @@ describe('Taobao direct source owner (PG integration)', () => {
     expect(result.warnings).toEqual(fixture.warnings);
     expect(provider.collect).toHaveBeenCalledWith({ queryDate: '20260904', liveIds: ['live-1'], pageSize: 75, signal: undefined });
     const snapshots = await http.list({ days: 7 }, TEST_ORGANIZATION_ID);
-    expect(snapshots.broadcasts).toEqual([expect.objectContaining({ ...fixture.rooms[0], ingestionRunId: result.attemptId })]);
-    expect(snapshots.products).toEqual([expect.objectContaining({ ...fixture.products[0], ingestionRunId: result.attemptId })]);
+    expect(snapshots.broadcasts).toEqual([expect.objectContaining({ ...fixture.rooms[0], operationId: result.attemptId })]);
+    expect(snapshots.products).toEqual([expect.objectContaining({ ...fixture.products[0], operationId: result.attemptId })]);
     expect(await http.collectTaobao(input, 'fixture', TEST_ORGANIZATION_ID)).toEqual(result);
     expect(provider.collect).toHaveBeenCalledTimes(1);
     expect((await prisma.$queryRaw<Array<{ absent: boolean }>>`

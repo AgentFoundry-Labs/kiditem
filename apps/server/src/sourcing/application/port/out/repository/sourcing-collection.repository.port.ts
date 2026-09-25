@@ -46,7 +46,7 @@ export type SourcingTypedCollectionRecord =
 
 interface EvidenceBackedSourceFact {
   organizationId: string;
-  ingestionRunId: string;
+  operationId: string;
   evidenceObservationKey: string;
   evidenceRevision: number;
 }
@@ -80,7 +80,7 @@ export interface SourcingMarketShadowFactUpsert
 
 export interface Sourcing1688OfferKeywordObservationUpsert
   extends Sourcing1688OfferKeywordObservationInput {
-  ingestionRunId: string;
+  operationId: string;
   evidenceObservationKey: string;
   evidenceRevision: number;
 }

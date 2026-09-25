@@ -196,7 +196,7 @@ function buildBatchOutput(input: {
     const capturedAt = new Date(item.capturedAt);
     return {
       organizationId: input.organizationId,
-      ingestionRunId: input.permit.runId,
+      operationId: input.permit.runId,
       sourceKey: input.permit.sourceKey,
       platform: 'coupang',
       evidenceFamily: 'wing_catalog',
@@ -232,7 +232,7 @@ function buildBatchOutput(input: {
       kind: 'wing_catalog_product' as const,
       row: {
         organizationId: input.organizationId,
-        ingestionRunId: input.permit.runId,
+        operationId: input.permit.runId,
         evidenceObservationKey: observations[index]!.observationKey,
         evidenceRevision: 1,
         ...item,

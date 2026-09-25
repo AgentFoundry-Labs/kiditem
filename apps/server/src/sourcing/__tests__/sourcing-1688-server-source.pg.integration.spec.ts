@@ -220,11 +220,11 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
   it('masks an old image target when the latest keyword publication is partial or missing', async () => {
     await publishWing('catalog/old-valid.jpg');
     await publishWing('catalog/latest-partial.jpg');
-    const latest = await prisma.sourcingEvidenceIngestionRun.findFirstOrThrow({
-      where: { organizationId, sourceKey: 'coupang.wing_catalog', status: 'COMPLETE' },
-      orderBy: [{ completedAt: 'desc' }, { generation: 'desc' }, { id: 'desc' }],
+    const latest = await prisma.sourcingSourcePublication.findFirstOrThrow({
+      where: { organizationId, sourceKey: 'coupang.wing_catalog' },
+      orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
     });
-    await prisma.sourcingEvidenceIngestionRun.update({
+    await prisma.sourcingSourcePublication.update({
       where: { id: latest.id },
       data: {
         acceptedCount: 2,
@@ -245,7 +245,7 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
     });
 
     await prisma.sourcingWingCatalogProductFact.deleteMany({
-      where: { organizationId, ingestionRunId: latest.id },
+      where: { organizationId, operationId: latest.id },
     });
     await expect(read()).resolves.toEqual({
       targets: [],

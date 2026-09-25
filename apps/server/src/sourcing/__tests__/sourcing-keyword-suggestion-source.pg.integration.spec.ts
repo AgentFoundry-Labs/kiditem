@@ -95,12 +95,12 @@ describe('Keyword suggestion public source owner (disposable PostgreSQL)', () =>
     await expect(service.snapshot({ organizationId: randomUUID(), keyword: 'A Pencil' }))
       .resolves.toMatchObject({ generatedAt: null, items: [] });
     const original = await prisma.sourcingEvidenceObservation.findFirstOrThrow({
-      where: { organizationId, ingestionRunId: first.attemptId },
+      where: { organizationId, operationId: first.attemptId },
     });
     await prisma.sourcingEvidenceObservation.create({
       data: {
         organizationId,
-        ingestionRunId: original.ingestionRunId,
+        operationId: original.operationId,
         supersedesObservationId: original.id,
         sourceKey: original.sourceKey,
         platform: original.platform,

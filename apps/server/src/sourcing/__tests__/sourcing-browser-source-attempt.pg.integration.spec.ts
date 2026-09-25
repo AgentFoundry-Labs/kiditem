@@ -406,7 +406,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
     await expect(history.find1688HotHistory({ organizationId: TEST_ORGANIZATION_ID, days: 7 }))
       .resolves.toHaveLength(1);
     await expect(readOffers()).resolves.toMatchObject({
-      items: [{ ingestionRunId: offerBaseline.attemptId }], rejectedCount: 0,
+      items: [{ operationId: offerBaseline.attemptId }], rejectedCount: 0,
     });
 
     const offerFailure = await begin('reader-offer-failure');
@@ -420,7 +420,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
     await expect(history.find1688HotHistory({ organizationId: TEST_ORGANIZATION_ID, days: 7 }))
       .resolves.toHaveLength(1);
     await expect(readOffers()).resolves.toMatchObject({
-      items: [{ ingestionRunId: offerBaseline.attemptId }], rejectedCount: 0,
+      items: [{ operationId: offerBaseline.attemptId }], rejectedCount: 0,
     });
 
     const offerZero = await begin('reader-offer-zero');
@@ -574,8 +574,8 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
     await expect(owner.completeAttempt({ ...input, contentChecksum: 'different' })).rejects.toThrow('SOURCE_TERMINAL_REPLAY_CONFLICT');
     expect(await prisma.sourcingEvidenceIngestionRun.findUniqueOrThrow({ where: { id: attempt.attemptId } }))
       .toMatchObject({ discoveredCount: 2, rejectedCount: 1, qualityReport: input.output.qualityReport });
-    expect(await prisma.sourcing1688OfferKeywordObservation.count({ where: { ingestionRunId: attempt.attemptId } })).toBe(0);
-    expect(await prisma.sourcingEvidenceObservation.count({ where: { ingestionRunId: attempt.attemptId } })).toBe(0);
+    expect(await prisma.sourcing1688OfferKeywordObservation.count({ where: { operationId: attempt.attemptId } })).toBe(0);
+    expect(await prisma.sourcingEvidenceObservation.count({ where: { operationId: attempt.attemptId } })).toBe(0);
     expect(await owner.readSourceStatus(statusInput())).toMatchObject({ latestComplete: { attemptId: baseline.attemptId } });
   });
 
@@ -594,8 +594,8 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
     const rows = await prisma.sourcing1688OfferKeywordObservation.findMany({
       where: { organizationId: TEST_ORGANIZATION_ID, externalOfferId: 'same-offer' }, include: { evidenceObservation: true } });
     expect(rows).toHaveLength(2);
-    expect(new Set(rows.map((row) => row.ingestionRunId))).toEqual(new Set([first.attemptId, second.attemptId]));
-    for (const row of rows) expect(row.evidenceObservation.ingestionRunId).toBe(row.ingestionRunId);
+    expect(new Set(rows.map((row) => row.operationId))).toEqual(new Set([first.attemptId, second.attemptId]));
+    for (const row of rows) expect(row.evidenceObservation.operationId).toBe(row.operationId);
     expect(rows[0].evidenceObservation.payloadHash).toBe(rows[1].evidenceObservation.payloadHash);
   });
 
@@ -631,13 +631,13 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
       const observations = await prisma.sourcingEvidenceObservation.findMany({
         where: { organizationId: TEST_ORGANIZATION_ID, sourceKey } });
       expect(observations).toHaveLength(2);
-      expect(new Set(observations.map((row) => row.ingestionRunId))).toEqual(new Set(ids));
+      expect(new Set(observations.map((row) => row.operationId))).toEqual(new Set(ids));
       expect(observations[0].payloadHash).toBe(observations[1].payloadHash);
       const typed = kind === 'shorts' ? await prisma.shortsTrendDailySnapshot.findMany()
         : kind === 'naver_keyword' ? await prisma.naverKeywordDailySnapshot.findMany()
           : await prisma.naverPopularKeywordDailySnapshot.findMany();
       expect(typed).toHaveLength(2);
-      expect(new Set(typed.map((row) => row.ingestionRunId))).toEqual(new Set(ids));
+      expect(new Set(typed.map((row) => row.operationId))).toEqual(new Set(ids));
     },
   );
 
@@ -807,7 +807,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
             kind: 'live_commerce_broadcast',
             row: {
               organizationId: TEST_ORGANIZATION_ID,
-              ingestionRunId: attempt.attemptId,
+              operationId: attempt.attemptId,
               businessDate: capturedAt,
               source: 'douyin',
               broadcastId: 'fixture-broadcast',
@@ -828,7 +828,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
             kind: 'live_commerce_product' as const,
             row: {
               organizationId: TEST_ORGANIZATION_ID,
-              ingestionRunId: attempt.attemptId,
+              operationId: attempt.attemptId,
               businessDate: capturedAt,
               source: 'douyin' as const,
               broadcastId: 'fixture-broadcast',
@@ -863,7 +863,7 @@ describe('Sourcing browser source owner (PostgreSQL)', () => {
           kind: 'tiktok_creative',
           row: {
             organizationId: TEST_ORGANIZATION_ID,
-            ingestionRunId: attempt.attemptId,
+            operationId: attempt.attemptId,
             businessDate,
             region: 'US',
             trendType: 'hashtag',

@@ -234,12 +234,12 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
     const attempt = await begin('missing-typed-publication');
     await publish(attempt, [item]);
     expect(await prisma.sourcingEvidenceObservation.count()).toBe(2);
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: attempt.attemptId },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: attempt.attemptId },
       data: { qualityReport: { snapshots: [{ keyword: 'a pencil' }] } },
     });
     await prisma.sourcingWingCatalogProductFact.deleteMany({
-      where: { organizationId, ingestionRunId: attempt.attemptId },
+      where: { organizationId, operationId: attempt.attemptId },
     });
 
     await expect(sources.listWingCatalogSnapshot({ organizationId, normalizedKeyword: 'a pencil', limit: 50 }))
@@ -252,8 +252,8 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
     const sources = new SourcingRecommendationSourceRepositoryAdapter(prisma as never);
     const attempt = await begin('partial-typed-publication');
     await publish(attempt, [item]);
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: attempt.attemptId },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: attempt.attemptId },
       data: {
         acceptedCount: 2,
         qualityReport: {
@@ -270,8 +270,8 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
       limit: 50,
     })).resolves.toEqual({ items: [], rejectedCount: 2 });
 
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: attempt.attemptId },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: attempt.attemptId },
       data: {
         qualityReport: {
           snapshots: [{ keyword: 'a pencil' }],
@@ -327,8 +327,8 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
     const sources = new SourcingRecommendationSourceRepositoryAdapter(prisma as never);
     const attempt = await begin('legacy-empty-publication');
     await publish(attempt, []);
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: attempt.attemptId },
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: attempt.attemptId },
       data: { qualityReport: { snapshots: [{ keyword: 'a pencil' }] } },
     });
 

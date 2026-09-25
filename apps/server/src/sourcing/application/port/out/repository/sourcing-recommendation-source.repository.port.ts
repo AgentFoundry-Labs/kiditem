@@ -5,7 +5,7 @@ export const SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT = Symbol(
 export interface SourcingOfferObservationSource {
   id: string;
   evidenceObservationId: string;
-  ingestionRunId: string;
+  operationId: string;
   businessDate: Date;
   sourceKeyword: string;
   externalOfferId: string;

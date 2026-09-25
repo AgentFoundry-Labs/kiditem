@@ -170,10 +170,10 @@ export class LiveCommerceService {
       return failed;
     }
     const broadcasts: LiveCommerceBroadcastSnapshotUpsert[] = result.rooms.map((room) => ({
-      organizationId, ingestionRunId: attempt.attemptId, businessDate, source: 'taobao', ...room, capturedAt,
+      organizationId, operationId: attempt.attemptId, businessDate, source: 'taobao', ...room, capturedAt,
     }));
     const products: LiveCommerceProductSnapshotUpsert[] = result.products.map((product) => ({
-      organizationId, ingestionRunId: attempt.attemptId, businessDate, source: 'taobao', ...product, capturedAt,
+      organizationId, operationId: attempt.attemptId, businessDate, source: 'taobao', ...product, capturedAt,
     }));
     const output = mapTrendTypedRecordsToAuthorizedOutput({
       permit: toPermit(attempt, organizationId),

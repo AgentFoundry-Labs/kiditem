@@ -84,11 +84,11 @@ describe('Market Shadow source owner public service + disposable PG', () => {
     expect(second.attemptId).not.toBe(first.attemptId);
     // The observation key is a hash; make its order oppose business-date order.
     await prisma.sourcingEvidenceObservation.updateMany({
-      where: { organizationId: ORG, ingestionRunId: first.attemptId },
+      where: { organizationId: ORG, operationId: first.attemptId },
       data: { observationKey: '0'.repeat(64) },
     });
     await prisma.sourcingEvidenceObservation.updateMany({
-      where: { organizationId: ORG, ingestionRunId: second.attemptId },
+      where: { organizationId: ORG, operationId: second.attemptId },
       data: { observationKey: 'f'.repeat(64) },
     });
     expect(await service.getStatus(ORG, new Date('2026-09-07T16:30:00Z'))).toMatchObject({
@@ -383,7 +383,7 @@ describe('Market Shadow source owner public service + disposable PG', () => {
     });
     expect(await service.listRecent(randomUUID(), 30, NOW)).toEqual([]);
     const evidence = await prisma.sourcingEvidenceObservation.findMany({
-      where: { organizationId: ORG, ingestionRunId: result.attemptId },
+      where: { organizationId: ORG, operationId: result.attemptId },
     });
     expect(evidence).toHaveLength(1);
     expect(evidence[0]).toMatchObject({
@@ -392,7 +392,7 @@ describe('Market Shadow source owner public service + disposable PG', () => {
       payload: result.snapshot!.payload,
     });
     expect(await prisma.sourcingMarketShadowFact.findMany({
-      where: { organizationId: ORG, ingestionRunId: result.attemptId },
+      where: { organizationId: ORG, operationId: result.attemptId },
     })).toMatchObject([{ document: result.snapshot!.payload }]);
     expect(
       await prisma.sourcingWorkspaceSnapshot.count({
@@ -404,10 +404,10 @@ describe('Market Shadow source owner public service + disposable PG', () => {
   it('does not expose historical COMPLETE market evidence without typed publication', async () => {
     const result = await collect();
     expect(await prisma.sourcingEvidenceObservation.count({
-      where: { organizationId: ORG, ingestionRunId: result.attemptId },
+      where: { organizationId: ORG, operationId: result.attemptId },
     })).toBe(1);
     await prisma.sourcingMarketShadowFact.deleteMany({
-      where: { organizationId: ORG, ingestionRunId: result.attemptId },
+      where: { organizationId: ORG, operationId: result.attemptId },
     });
 
     expect(await service.readAttempt(ORG, result.attemptId)).toMatchObject({

@@ -12,7 +12,7 @@ function createService() {
         {
           id: '00000000-0000-4000-8000-000000000020',
           evidenceObservationId: '00000000-0000-4000-8000-000000000021',
-          ingestionRunId: '00000000-0000-4000-8000-000000000022',
+          operationId: '00000000-0000-4000-8000-000000000022',
           businessDate: new Date('2026-08-10T00:00:00.000Z'),
           sourceKeyword: '유아 우산',
           externalOfferId: '607635921546',

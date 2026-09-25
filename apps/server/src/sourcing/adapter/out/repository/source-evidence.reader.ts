@@ -1,7 +1,13 @@
 import { sourcingWingCatalogKeywordIdentity } from '@kiditem/shared/sourcing';
 import type { Prisma } from '@prisma/client';
 
-export interface CurrentCompleteRunFilter {
+/**
+ * 소싱 원장 리더(KID-360). "완결"과 "현재"는 발행 이력 표(`sourcing_source_publications`)가 정한다:
+ * 성공한 수집 하나가 발행 1행이고, 그 대상의 현재 스냅샷은 `isCurrent` 행이다. 원장 행은 자기 발행의
+ * `operationId`로 이어진다(FK 없음). 리더는 실행 표도 run 표도 읽지 않는다 — 진행 중인 시도 읽기
+ * (`readExactSourcingRun` 등)는 아직 run 표를 쓰는 서버 구동 kind의 몫이다.
+ */
+export interface PublicationFilter {
   organizationId: string;
   sourceKey?: string | string[];
   scopeKey?: string;
@@ -10,24 +16,17 @@ export interface CurrentCompleteRunFilter {
   collectorVersion?: string;
   cutoffAt?: Date;
   completedFrom?: Date;
-  sourceWindowStartFrom?: Date;
-  sourceWindowStartTo?: Date;
+  windowEndFrom?: Date;
+  windowStartFrom?: Date;
 }
 
-export function currentCompleteRunWhere(
-  input: CurrentCompleteRunFilter,
-): Prisma.SourcingEvidenceIngestionRunWhereInput {
-  return {
-    ...completeRunWhere(input),
-    isCurrentComplete: true,
-  };
-}
-
-export function completeRunWhere(
-  input: CurrentCompleteRunFilter,
-): Prisma.SourcingEvidenceIngestionRunWhereInput {
+export function publicationWhere(
+  input: PublicationFilter,
+  options: { current: boolean },
+): Prisma.SourcingSourcePublicationWhereInput {
   return {
     organizationId: input.organizationId,
+    ...(options.current ? { isCurrent: true } : {}),
     ...(input.sourceKey
       ? { sourceKey: Array.isArray(input.sourceKey) ? { in: input.sourceKey } : input.sourceKey }
       : {}),
@@ -39,48 +38,62 @@ export function completeRunWhere(
       ? { collectorKey: Array.isArray(input.collectorKey) ? { in: input.collectorKey } : input.collectorKey }
       : {}),
     ...(input.collectorVersion ? { collectorVersion: input.collectorVersion } : {}),
-    status: 'COMPLETE',
-    completedAt: {
-      not: null,
-      ...(input.completedFrom ? { gte: input.completedFrom } : {}),
-      ...(input.cutoffAt ? { lte: input.cutoffAt } : {}),
-    },
-    ...((input.sourceWindowStartFrom || input.sourceWindowStartTo)
-      ? { sourceWindowStartAt: {
-          ...(input.sourceWindowStartFrom ? { gte: input.sourceWindowStartFrom } : {}),
-          ...(input.sourceWindowStartTo ? { lte: input.sourceWindowStartTo } : {}),
+    ...((input.completedFrom || input.cutoffAt)
+      ? { completedAt: {
+          ...(input.completedFrom ? { gte: input.completedFrom } : {}),
+          ...(input.cutoffAt ? { lte: input.cutoffAt } : {}),
         } }
       : {}),
+    ...(input.windowStartFrom ? { windowStartAt: { gte: input.windowStartFrom } } : {}),
+    ...(input.windowEndFrom ? { windowEndAt: { gte: input.windowEndFrom } } : {}),
   };
 }
 
-export function readCurrentCompleteRuns(
-  tx: Prisma.TransactionClient,
-  input: CurrentCompleteRunFilter,
-) {
-  return tx.sourcingEvidenceIngestionRun.findMany({
-    where: currentCompleteRunWhere(input),
-    orderBy: [
-      { completedAt: 'desc' },
-      { generation: 'desc' },
-      { id: 'desc' },
-    ],
+const PUBLICATION_ORDER = [
+  { completedAt: 'desc' },
+  { id: 'desc' },
+] satisfies Prisma.SourcingSourcePublicationOrderByWithRelationInput[];
+
+export type SourcePublication = Prisma.SourcingSourcePublicationGetPayload<{}>;
+
+/** 대상마다 하나뿐인 현재 발행. 최근 완료 순. */
+export function readCurrentPublications(tx: Prisma.TransactionClient, input: PublicationFilter) {
+  return tx.sourcingSourcePublication.findMany({
+    where: publicationWhere(input, { current: true }),
+    orderBy: PUBLICATION_ORDER,
   });
 }
 
-export function readCompleteRunsForDeclaredCoverage(
-  tx: Prisma.TransactionClient,
-  input: CurrentCompleteRunFilter,
-) {
-  return tx.sourcingEvidenceIngestionRun.findMany({
-    where: completeRunWhere(input),
-    orderBy: [
-      { completedAt: 'desc' },
-      { generation: 'desc' },
-      { id: 'desc' },
-    ],
+/** 걸러진 모든 발행(이력). 최근 완료 순. */
+export function readPublications(tx: Prisma.TransactionClient, input: PublicationFilter) {
+  return tx.sourcingSourcePublication.findMany({
+    where: publicationWhere(input, { current: false }),
+    orderBy: PUBLICATION_ORDER,
   });
 }
+
+export function readPublicationsByOperationIds(
+  tx: Prisma.TransactionClient,
+  input: {
+    organizationId: string;
+    operationIds: string[];
+    sourceKeys?: string[];
+    collectorKeys?: string[];
+  },
+) {
+  if (input.operationIds.length === 0) return Promise.resolve([]);
+  return tx.sourcingSourcePublication.findMany({
+    where: {
+      organizationId: input.organizationId,
+      operationId: { in: input.operationIds },
+      ...(input.sourceKeys ? { sourceKey: { in: input.sourceKeys } } : {}),
+      ...(input.collectorKeys ? { collectorKey: { in: input.collectorKeys } } : {}),
+    },
+    orderBy: PUBLICATION_ORDER,
+  });
+}
+
+// ── 서버 구동 kind의 시도(run 표). KID-360 I-b에서 실행 계약으로 옮겨지면 사라진다. ──
 
 export function readExactSourcingRun(
   tx: Prisma.TransactionClient,
@@ -100,29 +113,6 @@ export function readExactSourcingRun(
       ...(input.scopeKey ? { scopeKey: input.scopeKey } : {}),
       ...(input.statuses ? { status: { in: input.statuses } } : {}),
     },
-  });
-}
-
-export function readCompleteSourcingRunsByIds(
-  tx: Prisma.TransactionClient,
-  input: {
-    organizationId: string;
-    ids: string[];
-    sourceKeys?: string[];
-    collectorKeys?: string[];
-  },
-) {
-  if (input.ids.length === 0) return Promise.resolve([]);
-  return tx.sourcingEvidenceIngestionRun.findMany({
-    where: {
-      organizationId: input.organizationId,
-      id: { in: input.ids },
-      ...(input.sourceKeys ? { sourceKey: { in: input.sourceKeys } } : {}),
-      ...(input.collectorKeys ? { collectorKey: { in: input.collectorKeys } } : {}),
-      status: 'COMPLETE',
-      completedAt: { not: null },
-    },
-    orderBy: [{ completedAt: 'desc' }, { generation: 'desc' }, { id: 'desc' }],
   });
 }
 
@@ -160,6 +150,8 @@ export function readLatestSourcingAttempt(
   });
 }
 
+// ── 관측(evidence observation) ──
+
 export interface CurrentObservationHeadFilter {
   organizationId: string;
   sourceKey?: string;
@@ -175,75 +167,48 @@ export interface CurrentObservationHeadFilter {
   observationKeys?: string[];
   supportsCandidate?: boolean;
   signalRoles?: string[];
-  ingestionRunIds?: string[];
-  runBindings?: Array<{ conceptKey: string; ingestionRunId: string }>;
   cutoffAt?: Date;
-  availableFrom?: Date;
-  ingestedFrom?: Date;
   eventAtTo?: Date;
-  sourceWindowStartFrom?: Date;
-  sourceWindowStartTo?: Date;
-  order?: 'observedAt' | 'sourceWindowStartAt';
   limit?: number;
 }
 
-const observationRunSelect = {
-  id: true,
-  organizationId: true,
-  sourceKey: true,
-  scopeKey: true,
-  targetKey: true,
-  generation: true,
-  status: true,
-  isCurrentComplete: true,
-  sourceWindowStartAt: true,
-  sourceWindowEndAt: true,
-  discoveredCount: true,
-  acceptedCount: true,
-  rejectedCount: true,
-  duplicateCount: true,
-  coverageNumerator: true,
-  coverageDenominator: true,
-  qualityReport: true,
-  completedAt: true,
-  startedAt: true,
-} satisfies Prisma.SourcingEvidenceIngestionRunSelect;
-
-export const currentObservationInclude = {
-  ingestionRun: { select: observationRunSelect },
-} satisfies Prisma.SourcingEvidenceObservationInclude;
-
-export type CurrentObservationHead = Prisma.SourcingEvidenceObservationGetPayload<{
-  include: typeof currentObservationInclude;
-}>;
+export type ObservationRow = Prisma.SourcingEvidenceObservationGetPayload<{}>;
+/** 관측 한 행과 그 행을 쓴 발행. 발행이 없는 관측(실패한 시도)은 리더가 내지 않는다. */
+export type CurrentObservationHead = ObservationRow & { publication: SourcePublication };
 
 export function currentObservationRevisionWhere(): Prisma.SourcingEvidenceObservationWhereInput {
   return { supersededByObservation: null };
 }
 
+function withPublications<T extends { operationId: string }>(
+  rows: T[],
+  publications: readonly SourcePublication[],
+): Array<T & { publication: SourcePublication }> {
+  const byOperation = new Map(publications.map((publication) => [publication.operationId, publication]));
+  return rows.flatMap((row) => {
+    const publication = byOperation.get(row.operationId);
+    return publication ? [{ ...row, publication }] : [];
+  });
+}
+
+/** 현재 발행에 속한 관측의 최신 revision 머리들. */
 export async function readCurrentObservationHeads(
   tx: Prisma.TransactionClient,
   input: CurrentObservationHeadFilter,
 ): Promise<CurrentObservationHead[]> {
-  return readObservationHeads(tx, input, true);
-}
-
-export async function readCompleteObservationHeadsForRuns(
-  tx: Prisma.TransactionClient,
-  input: CurrentObservationHeadFilter & { ingestionRunIds: string[] },
-): Promise<CurrentObservationHead[]> {
-  if (input.ingestionRunIds.length === 0) return [];
-  return readObservationHeads(tx, input, false);
-}
-
-async function readObservationHeads(
-  tx: Prisma.TransactionClient,
-  input: CurrentObservationHeadFilter,
-  requireCurrentComplete: boolean,
-): Promise<CurrentObservationHead[]> {
+  const publications = await readCurrentPublications(tx, {
+    organizationId: input.organizationId,
+    sourceKey: input.sourceKey,
+    scopeKey: input.scopeKey,
+    targetKey: input.targetKey,
+    collectorVersion: input.collectorVersion,
+    cutoffAt: input.cutoffAt,
+  });
+  if (publications.length === 0) return [];
   const rows = await tx.sourcingEvidenceObservation.findMany({
     where: {
       organizationId: input.organizationId,
+      operationId: { in: publications.map((publication) => publication.operationId) },
       ...(input.cutoffAt ? {} : currentObservationRevisionWhere()),
       ...(input.sourceKey ? { sourceKey: input.sourceKey } : {}),
       ...(input.platform ? { platform: input.platform } : {}),
@@ -257,36 +222,11 @@ async function readObservationHeads(
         ? {}
         : { supportsCandidate: input.supportsCandidate }),
       ...(input.signalRoles ? { signalRole: { in: input.signalRoles } } : {}),
-      ...(input.runBindings?.length
-        ? { OR: input.runBindings.map((binding) => ({
-            conceptKey: binding.conceptKey,
-            ingestionRunId: binding.ingestionRunId,
-          })) }
+      ...(input.cutoffAt
+        ? { availableAt: { lte: input.cutoffAt }, ingestedAt: { lte: input.cutoffAt } }
         : {}),
-      availableAt: {
-        ...(input.availableFrom ? { gte: input.availableFrom } : {}),
-        ...(input.cutoffAt ? { lte: input.cutoffAt } : {}),
-      },
-      ingestedAt: {
-        ...(input.ingestedFrom ? { gte: input.ingestedFrom } : {}),
-        ...(input.cutoffAt ? { lte: input.cutoffAt } : {}),
-      },
       ...(input.eventAtTo ? { eventAt: { lte: input.eventAtTo } } : {}),
-      ingestionRun: {
-        ...(requireCurrentComplete ? currentCompleteRunWhere : completeRunWhere)({
-          organizationId: input.organizationId,
-          sourceKey: input.sourceKey,
-          scopeKey: input.scopeKey,
-          targetKey: input.targetKey,
-          collectorVersion: input.collectorVersion,
-          cutoffAt: input.cutoffAt,
-          sourceWindowStartFrom: input.sourceWindowStartFrom,
-          sourceWindowStartTo: input.sourceWindowStartTo,
-        }),
-        ...(input.ingestionRunIds ? { id: { in: input.ingestionRunIds } } : {}),
-      },
     },
-    include: currentObservationInclude,
     orderBy: [
       { observationKey: 'asc' },
       { revision: 'desc' },
@@ -296,15 +236,11 @@ async function readObservationHeads(
     ],
   });
   const heads = new Map<string, CurrentObservationHead>();
-  for (const row of rows) {
+  for (const row of withPublications(rows, publications)) {
     if (!heads.has(row.observationKey)) heads.set(row.observationKey, row);
   }
   return [...heads.values()].sort((left, right) =>
-    (input.order === 'sourceWindowStartAt'
-      ? (right.ingestionRun.sourceWindowStartAt?.getTime() ?? -Infinity)
-        - (left.ingestionRun.sourceWindowStartAt?.getTime() ?? -Infinity)
-      : 0)
-    || right.observedAt.getTime() - left.observedAt.getTime()
+    right.observedAt.getTime() - left.observedAt.getTime()
     || right.availableAt.getTime() - left.availableAt.getTime()
     || right.ingestedAt.getTime() - left.ingestedAt.getTime()
     || right.id.localeCompare(left.id),
@@ -335,23 +271,20 @@ export async function readCurrentSupportingObservation(
   return head?.id === input.observationId ? head : null;
 }
 
-export function readCompleteObservationProvenanceByIds(
+/** 발행된(성공한 수집의) 관측을 id로. 현재가 아니어도 된다 — 불변 provenance다. */
+export async function readCompleteObservationProvenanceByIds(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; observationIds: string[] },
-) {
-  if (input.observationIds.length === 0) return Promise.resolve([]);
-  return tx.sourcingEvidenceObservation.findMany({
-    where: {
-      id: { in: input.observationIds },
-      organizationId: input.organizationId,
-      ingestionRun: {
-        organizationId: input.organizationId,
-        status: 'COMPLETE',
-        completedAt: { not: null },
-      },
-    },
-    include: currentObservationInclude,
+): Promise<CurrentObservationHead[]> {
+  if (input.observationIds.length === 0) return [];
+  const rows = await tx.sourcingEvidenceObservation.findMany({
+    where: { id: { in: input.observationIds }, organizationId: input.organizationId },
   });
+  const publications = await readPublicationsByOperationIds(tx, {
+    organizationId: input.organizationId,
+    operationIds: [...new Set(rows.map((row) => row.operationId))],
+  });
+  return withPublications(rows, publications);
 }
 
 /**
@@ -359,108 +292,109 @@ export function readCompleteObservationProvenanceByIds(
  * source owner's current complete snapshot. Downstream publishers use this
  * before retaining immutable evidence links.
  */
-export function readCurrentCompleteObservationReferencesByIds(
+export async function readCurrentCompleteObservationReferencesByIds(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; observationIds: string[] },
-) {
-  if (input.observationIds.length === 0) return Promise.resolve([]);
-  return tx.sourcingEvidenceObservation.findMany({
+): Promise<Array<{ id: string }>> {
+  if (input.observationIds.length === 0) return [];
+  const rows = await tx.sourcingEvidenceObservation.findMany({
     where: {
       id: { in: input.observationIds },
       organizationId: input.organizationId,
       ...currentObservationRevisionWhere(),
-      ingestionRun: currentCompleteRunWhere({
-        organizationId: input.organizationId,
-      }),
     },
-    select: { id: true },
+    select: { id: true, operationId: true },
   });
+  const current = await currentOperationIds(tx, input.organizationId, rows.map((row) => row.operationId));
+  return rows.filter((row) => current.has(row.operationId)).map(({ id }) => ({ id }));
 }
 
-export function readCompleteObservationsForAttempt(
+async function currentOperationIds(
   tx: Prisma.TransactionClient,
-  input: {
-    organizationId: string;
-    ingestionRunId: string;
-    sourceKey?: string;
-    evidenceFamily?: string;
-    schemaVersion?: string;
-    conceptKey?: string;
-    limit?: number;
-  },
+  organizationId: string,
+  operationIds: string[],
+  sourceKeys?: string[],
+): Promise<Set<string>> {
+  if (operationIds.length === 0) return new Set();
+  const publications = await tx.sourcingSourcePublication.findMany({
+    where: {
+      organizationId,
+      isCurrent: true,
+      operationId: { in: [...new Set(operationIds)] },
+      ...(sourceKeys ? { sourceKey: { in: sourceKeys } } : {}),
+    },
+    select: { operationId: true },
+  });
+  return new Set(publications.map((publication) => publication.operationId));
+}
+
+// ── 이력: 발행마다 그 발행의 원장 행을 붙인다 ──
+
+type WithRows<K extends string, R> = SourcePublication & Record<K, R[]>;
+
+async function attachRows<K extends string, R extends { operationId: string }>(
+  publications: SourcePublication[],
+  key: K,
+  rows: R[],
+): Promise<Array<WithRows<K, R>>> {
+  const byOperation = new Map<string, R[]>();
+  for (const row of rows) {
+    const list = byOperation.get(row.operationId) ?? [];
+    list.push(row);
+    byOperation.set(row.operationId, list);
+  }
+  return publications.map((publication) => ({
+    ...publication,
+    [key]: byOperation.get(publication.operationId) ?? [],
+  }) as WithRows<K, R>);
+}
+
+function operationIdsOf(publications: readonly SourcePublication[]): string[] {
+  return publications.map((publication) => publication.operationId);
+}
+
+export async function readCompleteNaverKeywordHistoryPublications(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string; start: Date },
 ) {
-  return tx.sourcingEvidenceObservation.findMany({
+  const publications = await readPublications(tx, {
+    organizationId: input.organizationId,
+    sourceKey: 'naver.trend',
+    scopeKey: 'default',
+    windowStartFrom: input.start,
+  });
+  const rows = publications.length === 0 ? [] : await tx.naverKeywordDailySnapshot.findMany({
     where: {
       organizationId: input.organizationId,
-      ingestionRunId: input.ingestionRunId,
-      ...(input.sourceKey ? { sourceKey: input.sourceKey } : {}),
-      ...(input.evidenceFamily ? { evidenceFamily: input.evidenceFamily } : {}),
-      ...(input.schemaVersion ? { schemaVersion: input.schemaVersion } : {}),
-      ...(input.conceptKey ? { conceptKey: input.conceptKey } : {}),
-      ingestionRun: {
-        organizationId: input.organizationId,
-        status: 'COMPLETE',
-        completedAt: { not: null },
-      },
+      operationId: { in: operationIdsOf(publications) },
+      businessDate: { gte: input.start },
     },
-    include: currentObservationInclude,
-    orderBy: [
-      { observationKey: 'asc' },
-      { revision: 'desc' },
-      { availableAt: 'desc' },
-      { ingestedAt: 'desc' },
-      { id: 'desc' },
-    ],
-    take: input.limit,
+    orderBy: [{ capturedAt: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }],
   });
+  return attachRows(publications, 'naverKeywordDailySnapshots', rows);
 }
 
-export function readCompleteNaverKeywordHistoryRuns(
+export async function readCompleteNaverPopularKeywordHistoryPublications(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; start: Date },
 ) {
-  return tx.sourcingEvidenceIngestionRun.findMany({
-    where: {
-      ...completeRunWhere({
-        organizationId: input.organizationId,
-        sourceKey: 'naver.trend',
-        scopeKey: 'default',
-      }),
-      sourceWindowStartAt: { gte: input.start },
-    },
-    include: {
-      naverKeywordDailySnapshots: {
-        where: { businessDate: { gte: input.start } },
-        orderBy: [{ capturedAt: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }],
-      },
-    },
-    orderBy: [{ completedAt: 'desc' }, { generation: 'desc' }, { id: 'desc' }],
+  const publications = await readPublications(tx, {
+    organizationId: input.organizationId,
+    sourceKey: 'naver.trend',
+    scopeKey: 'default',
+    windowStartFrom: input.start,
   });
+  const rows = publications.length === 0 ? [] : await tx.naverPopularKeywordDailySnapshot.findMany({
+    where: {
+      organizationId: input.organizationId,
+      operationId: { in: operationIdsOf(publications) },
+      businessDate: { gte: input.start },
+    },
+  });
+  return attachRows(publications, 'naverPopularKeywordDailySnapshots', rows);
 }
 
-export function readCompleteNaverPopularKeywordHistoryRuns(
-  tx: Prisma.TransactionClient,
-  input: { organizationId: string; start: Date },
-) {
-  return tx.sourcingEvidenceIngestionRun.findMany({
-    where: {
-      ...completeRunWhere({
-        organizationId: input.organizationId,
-        sourceKey: 'naver.trend',
-        scopeKey: 'default',
-      }),
-      sourceWindowStartAt: { gte: input.start },
-    },
-    include: {
-      naverPopularKeywordDailySnapshots: {
-        where: { businessDate: { gte: input.start } },
-      },
-    },
-    orderBy: [{ completedAt: 'desc' }, { generation: 'desc' }, { id: 'desc' }],
-  });
-}
-
-export function readComplete1688OfferHistoryRuns(
+export async function readComplete1688OfferHistoryPublications(
   tx: Prisma.TransactionClient,
   input: {
     organizationId: string;
@@ -471,116 +405,117 @@ export function readComplete1688OfferHistoryRuns(
     collectorKeys?: string[];
   },
 ) {
-  return tx.sourcingEvidenceIngestionRun.findMany({
-    where: {
-      ...completeRunWhere({
-        organizationId: input.organizationId,
-        sourceKey: input.sourceKeys ?? '1688.hot_product',
-        scopeKey: input.scopeKey,
-        targetKey: input.targetKey,
-        collectorKey: input.collectorKeys,
-      }),
-      sourceWindowEndAt: { gte: input.start },
-    },
-    include: {
-      offerKeywordObservations: {
-        where: { businessDate: { gte: input.start } },
-        orderBy: [{ businessDate: 'asc' }, { rank: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }],
-      },
-    },
-    orderBy: [{ completedAt: 'desc' }, { generation: 'desc' }, { id: 'desc' }],
+  const publications = await readPublications(tx, {
+    organizationId: input.organizationId,
+    sourceKey: input.sourceKeys ?? '1688.hot_product',
+    scopeKey: input.scopeKey,
+    targetKey: input.targetKey,
+    collectorKey: input.collectorKeys,
+    windowEndFrom: input.start,
   });
+  const rows = publications.length === 0 ? [] : await tx.sourcing1688OfferKeywordObservation.findMany({
+    where: {
+      organizationId: input.organizationId,
+      operationId: { in: operationIdsOf(publications) },
+      businessDate: { gte: input.start },
+    },
+    orderBy: [{ businessDate: 'asc' }, { rank: { sort: 'asc', nulls: 'last' } }, { id: 'asc' }],
+  });
+  return attachRows(publications, 'offerKeywordObservations', rows);
 }
 
-export function readCompleteShortsHistoryRuns(
+export async function readCompleteShortsHistoryPublications(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; start: Date },
 ) {
-  return tx.sourcingEvidenceIngestionRun.findMany({
-    where: {
-      ...completeRunWhere({
-        organizationId: input.organizationId,
-        sourceKey: 'shortstrend.trend',
-        scopeKey: 'default',
-      }),
-      sourceWindowStartAt: { gte: input.start },
-    },
-    include: {
-      shortsTrendDailySnapshots: {
-        where: { businessDate: { gte: input.start } },
-        orderBy: [{ capturedAt: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }],
-      },
-    },
-    orderBy: [{ completedAt: 'desc' }, { generation: 'desc' }, { id: 'desc' }],
+  const publications = await readPublications(tx, {
+    organizationId: input.organizationId,
+    sourceKey: 'shortstrend.trend',
+    scopeKey: 'default',
+    windowStartFrom: input.start,
   });
+  const rows = publications.length === 0 ? [] : await tx.shortsTrendDailySnapshot.findMany({
+    where: {
+      organizationId: input.organizationId,
+      operationId: { in: operationIdsOf(publications) },
+      businessDate: { gte: input.start },
+    },
+    orderBy: [{ capturedAt: 'desc' }, { createdAt: 'asc' }, { id: 'asc' }],
+  });
+  return attachRows(publications, 'shortsTrendDailySnapshots', rows);
 }
 
-export function readCompleteTiktokHistoryRuns(
+export async function readCompleteTiktokHistoryPublications(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; start: Date },
 ) {
-  return tx.sourcingEvidenceIngestionRun.findMany({
-    where: {
-      ...completeRunWhere({
-        organizationId: input.organizationId,
-        sourceKey: 'tiktok.creative',
-        scopeKey: 'default',
-        targetKey: 'all',
-      }),
-      sourceWindowEndAt: { gte: input.start },
-    },
-    include: {
-      tiktokCreativeTrendDailySnapshots: {
-        where: { businessDate: { gte: input.start } },
-        orderBy: [
-          { businessDate: 'asc' },
-          { trendType: 'asc' },
-          { rank: { sort: 'asc', nulls: 'last' } },
-          { id: 'asc' },
-        ],
-      },
-    },
-    orderBy: [{ completedAt: 'desc' }, { generation: 'desc' }, { id: 'desc' }],
+  const publications = await readPublications(tx, {
+    organizationId: input.organizationId,
+    sourceKey: 'tiktok.creative',
+    scopeKey: 'default',
+    targetKey: 'all',
+    windowEndFrom: input.start,
   });
+  const rows = publications.length === 0 ? [] : await tx.tiktokCreativeTrendDailySnapshot.findMany({
+    where: {
+      organizationId: input.organizationId,
+      operationId: { in: operationIdsOf(publications) },
+      businessDate: { gte: input.start },
+    },
+    orderBy: [
+      { businessDate: 'asc' },
+      { trendType: 'asc' },
+      { rank: { sort: 'asc', nulls: 'last' } },
+      { id: 'asc' },
+    ],
+  });
+  return attachRows(publications, 'tiktokCreativeTrendDailySnapshots', rows);
 }
 
-export function readCompleteLiveCommerceHistoryRuns(
+export async function readCompleteLiveCommerceHistoryPublications(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; sourceKeys: string[]; start: Date; source?: string },
 ) {
   const sourceFilter = input.source ? { source: input.source } : {};
-  return tx.sourcingEvidenceIngestionRun.findMany({
-    where: {
-      ...completeRunWhere({
-        organizationId: input.organizationId,
-        sourceKey: input.sourceKeys,
-      }),
-      sourceWindowEndAt: { gte: input.start },
-    },
-    include: {
-      liveCommerceBroadcastDailySnapshots: {
-        where: { businessDate: { gte: input.start }, ...sourceFilter },
-        orderBy: [{ businessDate: 'desc' }, { viewerCount: { sort: 'desc', nulls: 'last' } }, { capturedAt: 'desc' }],
-      },
-      liveCommerceProductDailySnapshots: {
-        where: { businessDate: { gte: input.start }, ...sourceFilter },
-        orderBy: [{ businessDate: 'desc' }, { rank: { sort: 'asc', nulls: 'last' } }, { capturedAt: 'desc' }],
-      },
-    },
-    orderBy: [{ completedAt: 'desc' }, { generation: 'desc' }, { id: 'desc' }],
+  const publications = await readPublications(tx, {
+    organizationId: input.organizationId,
+    sourceKey: input.sourceKeys,
+    windowEndFrom: input.start,
   });
+  if (publications.length === 0) return [];
+  const where = {
+    organizationId: input.organizationId,
+    operationId: { in: operationIdsOf(publications) },
+    businessDate: { gte: input.start },
+    ...sourceFilter,
+  };
+  const [broadcasts, products] = await Promise.all([
+    tx.liveCommerceBroadcastDailySnapshot.findMany({
+      where,
+      orderBy: [{ businessDate: 'desc' }, { viewerCount: { sort: 'desc', nulls: 'last' } }, { capturedAt: 'desc' }],
+    }),
+    tx.liveCommerceProductDailySnapshot.findMany({
+      where,
+      orderBy: [{ businessDate: 'desc' }, { rank: { sort: 'asc', nulls: 'last' } }, { capturedAt: 'desc' }],
+    }),
+  ]);
+  const withBroadcasts = await attachRows(publications, 'liveCommerceBroadcastDailySnapshots', broadcasts);
+  const productsByOperation = await attachRows(publications, 'liveCommerceProductDailySnapshots', products);
+  return withBroadcasts.map((publication, index) => ({
+    ...publication,
+    liveCommerceProductDailySnapshots: productsByOperation[index].liveCommerceProductDailySnapshots,
+  }));
 }
 
-/** Returns the source owner's daily coverage date without consulting fact rows. */
-export function read1688OfferSnapshotsForRuns(
+export function read1688OfferSnapshotsForOperations(
   tx: Prisma.TransactionClient,
-  input: { organizationId: string; ingestionRunIds: string[] },
+  input: { organizationId: string; operationIds: string[] },
 ) {
-  if (input.ingestionRunIds.length === 0) return Promise.resolve([]);
+  if (input.operationIds.length === 0) return Promise.resolve([]);
   return tx.sourcing1688OfferKeywordObservation.findMany({
     where: {
       organizationId: input.organizationId,
-      ingestionRunId: { in: input.ingestionRunIds },
+      operationId: { in: input.operationIds },
     },
     orderBy: [
       { capturedAt: 'desc' },
@@ -591,32 +526,37 @@ export function read1688OfferSnapshotsForRuns(
 }
 
 /** Resolves exact typed 1688 rows that remain in a current complete source snapshot. */
-export function readCurrentComplete1688OfferSnapshotsByIds(
+export async function readCurrentComplete1688OfferSnapshotsByIds(
   tx: Prisma.TransactionClient,
   input: { organizationId: string; observationIds: string[] },
 ) {
-  if (input.observationIds.length === 0) return Promise.resolve([]);
-  const currentRun = currentCompleteRunWhere({
-    organizationId: input.organizationId,
-    sourceKey: ['1688.hot_product', '1688.image_search'],
-  });
-  return tx.sourcing1688OfferKeywordObservation.findMany({
+  if (input.observationIds.length === 0) return [];
+  const rows = await tx.sourcing1688OfferKeywordObservation.findMany({
     where: {
       id: { in: input.observationIds },
       organizationId: input.organizationId,
-      ingestionRun: currentRun,
       evidenceObservation: {
         organizationId: input.organizationId,
         ...currentObservationRevisionWhere(),
-        ingestionRun: currentRun,
       },
     },
     select: {
       id: true,
+      operationId: true,
       externalOfferId: true,
       variantKeyNormalized: true,
+      evidenceObservation: { select: { operationId: true } },
     },
   });
+  const current = await currentOperationIds(
+    tx,
+    input.organizationId,
+    rows.flatMap((row) => [row.operationId, row.evidenceObservation.operationId]),
+    ['1688.hot_product', '1688.image_search'],
+  );
+  return rows
+    .filter((row) => current.has(row.operationId) && current.has(row.evidenceObservation.operationId))
+    .map(({ id, externalOfferId, variantKeyNormalized }) => ({ id, externalOfferId, variantKeyNormalized }));
 }
 
 export async function readCurrent1688OfferSnapshots(
@@ -659,9 +599,18 @@ export async function readCurrentKeywordSuggestionFact(
     collectorVersion: string;
   },
 ) {
+  const [publication] = await readCurrentPublications(tx, {
+    organizationId: input.organizationId,
+    sourceKey: 'coupang.keyword_suggestion',
+    scopeKey: 'default',
+    targetKey: `keyword:${input.normalizedKeyword}`,
+    collectorVersion: input.collectorVersion,
+  });
+  if (!publication) return null;
   return tx.sourcingKeywordSuggestionFact.findFirst({
     where: {
       organizationId: input.organizationId,
+      operationId: publication.operationId,
       keywordNormalized: input.normalizedKeyword,
       schemaVersion: input.schemaVersion,
       evidenceObservation: {
@@ -671,15 +620,6 @@ export async function readCurrentKeywordSuggestionFact(
         schemaVersion: input.schemaVersion,
         conceptKey: input.normalizedKeyword,
         supersededByObservation: null,
-      },
-      ingestionRun: {
-        ...currentCompleteRunWhere({
-          organizationId: input.organizationId,
-          sourceKey: 'coupang.keyword_suggestion',
-          scopeKey: 'default',
-          targetKey: `keyword:${input.normalizedKeyword}`,
-        }),
-        collectorVersion: input.collectorVersion,
       },
     },
     orderBy: [{ capturedAt: 'desc' }, { id: 'desc' }],
@@ -695,9 +635,21 @@ export async function readKeywordAnalysisFact(
     attemptId?: string;
   },
 ) {
+  const filter = {
+    organizationId: input.organizationId,
+    sourceKey: 'naver.keyword_analysis',
+    scopeKey: 'default',
+    targetKey: input.inputHash,
+  };
+  const publications = input.attemptId
+    ? (await readPublications(tx, filter)).filter((publication) => publication.operationId === input.attemptId)
+    : await readCurrentPublications(tx, filter);
+  const [publication] = publications;
+  if (!publication) return null;
   return tx.sourcingNaverKeywordAnalysisFact.findFirst({
     where: {
       organizationId: input.organizationId,
+      operationId: publication.operationId,
       inputHash: input.inputHash,
       schemaVersion: input.schemaVersion,
       evidenceObservation: {
@@ -708,22 +660,6 @@ export async function readKeywordAnalysisFact(
         conceptKey: input.inputHash,
         supersededByObservation: null,
       },
-      ingestionRun: input.attemptId
-        ? {
-            ...completeRunWhere({
-              organizationId: input.organizationId,
-              sourceKey: 'naver.keyword_analysis',
-              scopeKey: 'default',
-              targetKey: input.inputHash,
-            }),
-            id: input.attemptId,
-          }
-        : currentCompleteRunWhere({
-            organizationId: input.organizationId,
-            sourceKey: 'naver.keyword_analysis',
-            scopeKey: 'default',
-            targetKey: input.inputHash,
-          }),
     },
     orderBy: [{ capturedAt: 'desc' }, { id: 'desc' }],
   });
@@ -731,7 +667,7 @@ export async function readKeywordAnalysisFact(
 
 interface WingCatalogFactFilter {
   organizationId: string;
-  runBindings: Array<{ ingestionRunId: string; normalizedKeyword: string }>;
+  runBindings: Array<{ operationId: string; normalizedKeyword: string }>;
   schemaVersion: string;
   capturedFrom?: Date;
   cutoffAt?: Date;
@@ -746,16 +682,9 @@ interface LatestWingCatalogPublicationFilter {
   productIds?: string[];
 }
 
-interface WingPublicationRun {
-  id: string;
-  acceptedCount: number;
-  completedAt: Date | null;
-  qualityReport: unknown;
-}
-
 interface WingPublicationCoverage {
   normalizedKeyword: string;
-  ingestionRunId: string;
+  operationId: string;
   completedAt: Date | null;
   acceptedCount: number | null;
   rejectedCount: number;
@@ -765,8 +694,8 @@ function wingCatalogFactWhere(input: WingCatalogFactFilter): Prisma.SourcingWing
   return {
     organizationId: input.organizationId,
     schemaVersion: input.schemaVersion,
-    OR: input.runBindings.map(({ ingestionRunId, normalizedKeyword }) => ({
-      ingestionRunId,
+    OR: input.runBindings.map(({ operationId, normalizedKeyword }) => ({
+      operationId,
       sourceKeywordNormalized: normalizedKeyword,
     })),
     ...(input.productIds ? { productId: { in: input.productIds } } : {}),
@@ -785,14 +714,6 @@ function wingCatalogFactWhere(input: WingCatalogFactFilter): Prisma.SourcingWing
       evidenceFamily: 'wing_catalog',
       schemaVersion: input.schemaVersion,
       supersededByObservation: null,
-    },
-    ingestionRun: {
-      ...completeRunWhere({
-        organizationId: input.organizationId,
-        sourceKey: 'coupang.wing_catalog',
-        scopeKey: 'default',
-        targetKey: 'catalog',
-      }),
     },
   };
 }
@@ -821,7 +742,7 @@ async function countWingCatalogFactsForRuns(
 ) {
   if (input.runBindings.length === 0) return [];
   return tx.sourcingWingCatalogProductFact.groupBy({
-    by: ['ingestionRunId', 'sourceKeywordNormalized'],
+    by: ['operationId', 'sourceKeywordNormalized'],
     where: wingCatalogFactWhere(input),
     _count: { _all: true },
   });
@@ -840,7 +761,7 @@ export async function readLatestWingCatalogPublicationFacts(
   const requestedKeywords = input.normalizedKeywords
     ? new Set(input.normalizedKeywords.map(sourcingWingCatalogKeywordIdentity))
     : null;
-  const runs = await readCompleteRunsForDeclaredCoverage(tx, {
+  const publications = await readPublications(tx, {
     organizationId: input.organizationId,
     sourceKey: 'coupang.wing_catalog',
     scopeKey: 'default',
@@ -849,11 +770,11 @@ export async function readLatestWingCatalogPublicationFacts(
     cutoffAt: input.cutoffAt,
   });
   const latestByKeyword = new Map<string, WingPublicationCoverage>();
-  for (const run of runs) {
-    for (const publication of wingPublicationCoverage(run)) {
-      if (requestedKeywords && !requestedKeywords.has(publication.normalizedKeyword)) continue;
-      if (!latestByKeyword.has(publication.normalizedKeyword)) {
-        latestByKeyword.set(publication.normalizedKeyword, publication);
+  for (const publication of publications) {
+    for (const coverage of wingPublicationCoverage(publication)) {
+      if (requestedKeywords && !requestedKeywords.has(coverage.normalizedKeyword)) continue;
+      if (!latestByKeyword.has(coverage.normalizedKeyword)) {
+        latestByKeyword.set(coverage.normalizedKeyword, coverage);
       }
     }
   }
@@ -866,16 +787,16 @@ export async function readLatestWingCatalogPublicationFacts(
     cutoffAt: input.cutoffAt,
     runBindings: countable.map((publication) => ({
       normalizedKeyword: publication.normalizedKeyword,
-      ingestionRunId: publication.ingestionRunId,
+      operationId: publication.operationId,
     })),
   });
   const actualByPublication = new Map(factCounts.map((count) => [
-    `${count.ingestionRunId}\u001f${count.sourceKeywordNormalized}`,
+    `${count.operationId}\u001f${count.sourceKeywordNormalized}`,
     count._count._all,
   ]));
-  const publications = candidates.map((publication) => {
+  const resolved = candidates.map((publication) => {
     const actualCount = actualByPublication.get(
-      `${publication.ingestionRunId}\u001f${publication.normalizedKeyword}`,
+      `${publication.operationId}\u001f${publication.normalizedKeyword}`,
     ) ?? 0;
     const available = publication.acceptedCount !== null
       && publication.acceptedCount === actualCount;
@@ -890,7 +811,7 @@ export async function readLatestWingCatalogPublicationFacts(
           : Math.max(1, publication.acceptedCount, actualCount),
     };
   });
-  const available = publications.filter((publication) => publication.available);
+  const available = resolved.filter((publication) => publication.available);
   const acceptedFactCount = available.reduce(
     (sum, publication) => sum + (publication.acceptedCount ?? 0),
     0,
@@ -905,19 +826,19 @@ export async function readLatestWingCatalogPublicationFacts(
         productIds: input.productIds,
         runBindings: available.map((publication) => ({
           normalizedKeyword: publication.normalizedKeyword,
-          ingestionRunId: publication.ingestionRunId,
+          operationId: publication.operationId,
         })),
         limit: acceptedFactCount,
       });
   return {
     rows,
-    publications,
-    rejectedCount: publications.reduce((sum, publication) => sum + publication.rejectedCount, 0),
+    publications: resolved,
+    rejectedCount: resolved.reduce((sum, publication) => sum + publication.rejectedCount, 0),
   };
 }
 
-function wingPublicationCoverage(run: WingPublicationRun): WingPublicationCoverage[] {
-  const report = isRecord(run.qualityReport) ? run.qualityReport : null;
+function wingPublicationCoverage(publication: SourcePublication): WingPublicationCoverage[] {
+  const report = isRecord(publication.qualityReport) ? publication.qualityReport : null;
   const snapshots = Array.isArray(report?.snapshots) ? report.snapshots : [];
   const receipts = Array.isArray(report?.wingReceipts) ? report.wingReceipts : [];
   return snapshots.flatMap((snapshot, index) => {
@@ -929,10 +850,10 @@ function wingPublicationCoverage(run: WingPublicationRun): WingPublicationCovera
     if (count === null) {
       return [{
         normalizedKeyword,
-        ingestionRunId: run.id,
-        completedAt: run.completedAt,
-        acceptedCount: run.acceptedCount === 0 ? 0 : null,
-        rejectedCount: run.acceptedCount === 0 ? 0 : Math.max(1, run.acceptedCount),
+        operationId: publication.operationId,
+        completedAt: publication.completedAt,
+        acceptedCount: publication.acceptedCount === 0 ? 0 : null,
+        rejectedCount: publication.acceptedCount === 0 ? 0 : Math.max(1, publication.acceptedCount),
       }];
     }
     const hasExplicitAcceptedCount = receipt !== null && 'acceptedCount' in receipt;
@@ -952,8 +873,8 @@ function wingPublicationCoverage(run: WingPublicationRun): WingPublicationCovera
         : null;
     return [{
       normalizedKeyword,
-      ingestionRunId: run.id,
-      completedAt: run.completedAt,
+      operationId: publication.operationId,
+      completedAt: publication.completedAt,
       acceptedCount,
       rejectedCount: acceptedCount === null ? Math.max(1, count) : 0,
     }];
@@ -970,6 +891,8 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
+// ── 시장 그림자(market shadow) ──
+
 const marketFactWhere = (organizationId: string) => ({
   organizationId,
   schemaVersion: 'market-shadow-signals.v1',
@@ -980,84 +903,50 @@ const marketFactWhere = (organizationId: string) => ({
     schemaVersion: 'market-shadow-signals.v1',
     supersededByObservation: null,
   },
-  ingestionRun: completeRunWhere({
-    organizationId,
-    sourceKey: 'market_shadow_signals',
-    scopeKey: 'day',
-  }),
 } as const);
 
-const marketFactInclude = {
-  ingestionRun: {
-    select: {
-      startedAt: true,
-      completedAt: true,
-      sourceWindowStartAt: true,
-      sourceWindowEndAt: true,
-      isCurrentComplete: true,
-    },
-  },
-} satisfies Prisma.SourcingMarketShadowFactInclude;
+const MARKET_SHADOW_PUBLICATIONS = { sourceKey: 'market_shadow_signals', scopeKey: 'day' } as const;
+
+export type MarketShadowFactWithPublication =
+  Prisma.SourcingMarketShadowFactGetPayload<{}> & { publication: SourcePublication };
 
 export async function readMarketShadowFactForAttempt(
   tx: Prisma.TransactionClient,
-  input: { organizationId: string; ingestionRunId: string },
-) {
-  return tx.sourcingMarketShadowFact.findFirst({
-    where: {
-      ...marketFactWhere(input.organizationId),
-      ingestionRunId: input.ingestionRunId,
-    },
-    include: marketFactInclude,
+  input: { organizationId: string; operationId: string },
+): Promise<MarketShadowFactWithPublication | null> {
+  const publications = await readPublicationsByOperationIds(tx, {
+    organizationId: input.organizationId,
+    operationIds: [input.operationId],
+    sourceKeys: [MARKET_SHADOW_PUBLICATIONS.sourceKey],
+  });
+  if (publications.length === 0) return null;
+  const fact = await tx.sourcingMarketShadowFact.findFirst({
+    where: { ...marketFactWhere(input.organizationId), operationId: input.operationId },
     orderBy: [{ capturedAt: 'desc' }, { id: 'desc' }],
   });
+  return fact ? withPublications([fact], publications)[0] ?? null : null;
 }
 
-export async function readLatestCurrentMarketShadowFact(
+async function readCurrentMarketShadowFacts(
   tx: Prisma.TransactionClient,
-  organizationId: string,
-) {
-  return tx.sourcingMarketShadowFact.findFirst({
-    where: {
-      ...marketFactWhere(organizationId),
-      ingestionRun: currentCompleteRunWhere({
-        organizationId,
-        sourceKey: 'market_shadow_signals',
-        scopeKey: 'day',
-      }),
-    },
-    include: marketFactInclude,
-    orderBy: [
-      { businessDate: 'desc' },
-      { capturedAt: 'desc' },
-      { id: 'desc' },
-    ],
+  input: { organizationId: string; fromBusinessDate?: Date; toBusinessDate?: Date; limit: number },
+): Promise<MarketShadowFactWithPublication[]> {
+  const publications = await readCurrentPublications(tx, {
+    organizationId: input.organizationId,
+    ...MARKET_SHADOW_PUBLICATIONS,
   });
-}
-
-export async function readRecentCurrentMarketShadowFacts(
-  tx: Prisma.TransactionClient,
-  input: {
-    organizationId: string;
-    fromBusinessDate: Date;
-    toBusinessDate: Date;
-    limit: number;
-  },
-) {
-  return tx.sourcingMarketShadowFact.findMany({
+  if (publications.length === 0) return [];
+  const facts = await tx.sourcingMarketShadowFact.findMany({
     where: {
       ...marketFactWhere(input.organizationId),
-      businessDate: {
-        gte: input.fromBusinessDate,
-        lte: input.toBusinessDate,
-      },
-      ingestionRun: currentCompleteRunWhere({
-        organizationId: input.organizationId,
-        sourceKey: 'market_shadow_signals',
-        scopeKey: 'day',
-      }),
+      operationId: { in: operationIdsOf(publications) },
+      ...(input.fromBusinessDate || input.toBusinessDate
+        ? { businessDate: {
+            ...(input.fromBusinessDate ? { gte: input.fromBusinessDate } : {}),
+            ...(input.toBusinessDate ? { lte: input.toBusinessDate } : {}),
+          } }
+        : {}),
     },
-    include: marketFactInclude,
     orderBy: [
       { businessDate: 'desc' },
       { capturedAt: 'desc' },
@@ -1065,4 +954,25 @@ export async function readRecentCurrentMarketShadowFacts(
     ],
     take: input.limit,
   });
+  return withPublications(facts, publications);
+}
+
+export async function readLatestCurrentMarketShadowFact(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+): Promise<MarketShadowFactWithPublication | null> {
+  const [fact] = await readCurrentMarketShadowFacts(tx, { organizationId, limit: 1 });
+  return fact ?? null;
+}
+
+export function readRecentCurrentMarketShadowFacts(
+  tx: Prisma.TransactionClient,
+  input: {
+    organizationId: string;
+    fromBusinessDate: Date;
+    toBusinessDate: Date;
+    limit: number;
+  },
+): Promise<MarketShadowFactWithPublication[]> {
+  return readCurrentMarketShadowFacts(tx, input);
 }

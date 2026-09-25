@@ -62,7 +62,7 @@ describe('Sourcing evidence reads from source owner publications (PostgreSQL)', 
       organizationId: TEST_ORGANIZATION_ID, platform: '1688', sourceEntityIds: ['evidence-offer'], cutoffAt: new Date(),
     });
     const [original] = await readSupporting();
-    expect(original).toMatchObject({ ingestionRunId: baseline.attemptId, ingestionRunStatus: 'COMPLETE' });
+    expect(original).toMatchObject({ operationId: baseline.attemptId, ingestionRunStatus: 'COMPLETE' });
     const refresh = await writer.begin1688(TEST_ORGANIZATION_ID, user, 'evidence-failed');
     await writer.fail1688(refresh.attemptId, refresh.attemptToken,
       { code: 'SOURCE_COLLECTION_FAILED', message: 'provider unavailable' }, TEST_ORGANIZATION_ID);

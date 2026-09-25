@@ -106,7 +106,7 @@ export class SourcingLiveCommerceSourceAttemptService {
     try {
       normalized = normalizeBrowserLiveCommerceBatch({
         organizationId: input.organizationId,
-        ingestionRunId: attempt.attemptId,
+        operationId: attempt.attemptId,
         plan,
         batch: input.batch,
       });

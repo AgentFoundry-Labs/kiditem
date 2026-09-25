@@ -165,14 +165,14 @@ function buildOutput(input: {
   const capturedAt = new Date(input.batch.capturedAt);
   const payloadHash = hashCollectionRequest(input.batch);
   const observationKey = hashCollectionRequest({
-    ingestionRunId: input.permit.runId,
+    operationId: input.permit.runId,
     normalizedKeyword: input.normalizedKeyword,
     capturedAt: input.batch.capturedAt,
   });
   return {
     observations: [{
       organizationId: input.organizationId,
-      ingestionRunId: input.permit.runId,
+      operationId: input.permit.runId,
       sourceKey: SOURCING_KEYWORD_SUGGESTION_SOURCE_KEY,
       platform: 'coupang',
       evidenceFamily: 'keyword_suggestion',
@@ -198,7 +198,7 @@ function buildOutput(input: {
       kind: 'keyword_suggestion_snapshot',
       row: {
         organizationId: input.organizationId,
-        ingestionRunId: input.permit.runId,
+        operationId: input.permit.runId,
         evidenceObservationKey: observationKey,
         evidenceRevision: 1,
         schemaVersion: SOURCING_KEYWORD_SUGGESTION_SCHEMA_VERSION,

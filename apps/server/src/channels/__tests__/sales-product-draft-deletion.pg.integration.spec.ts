@@ -40,7 +40,7 @@ async function seedLaunchCandidate(prisma: PrismaClient, sourceRecordId: string)
     generation: 1, discoveredCount: 1, acceptedCount: 1, coverageNumerator: 1, coverageDenominator: 1, completedAt: capturedAt,
   } });
   const observation = await prisma.sourcingEvidenceObservation.create({ data: {
-    organizationId: TEST_ORGANIZATION_ID, ingestionRunId: run.id, sourceKey: '1688.offer', platform: '1688',
+    organizationId: TEST_ORGANIZATION_ID, operationId: run.id, sourceKey: '1688.offer', platform: '1688',
     evidenceFamily: 'supplier_offer', signalRole: 'supply', conceptKey: 'toys', supportsCandidate: true,
     observationKey: hash(), revision: 1, sourceEntityType: 'supplier_offer_sku', sourceEntityKey: 'sku-1',
     observationType: 'offer_snapshot', schemaVersion: '1688-offer/v1', evidenceClass: 'measured',

@@ -23,6 +23,7 @@ import {
   type SourcingWingCatalogReceipt,
 } from '../../../application/port/out/repository/sourcing-browser-source-attempt.repository.port';
 import { persistBrowserSourceAttemptFacts } from './sourcing-browser-source-attempt.persistence';
+import { publishSourceSnapshot } from './sourcing-source-publication.repository.adapter';
 import { admitSourceRecordWithDraftIn } from './source-record-admission.transaction';
 import {
   SALES_PRODUCT_DRAFT_PORT,
@@ -261,7 +262,7 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
       const acceptedCount = await tx.sourcingWingCatalogProductFact.count({
         where: {
           organizationId: input.organizationId,
-          ingestionRunId: attempt.id,
+          operationId: attempt.id,
           schemaVersion: 'coupang-wing-catalog/v2',
           sourceKeywordNormalized: sourcingWingCatalogKeywordIdentity(input.keyword),
         },
@@ -409,6 +410,28 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
         errorCode: null,
         errorMessage: null,
       },
+    });
+    // 리더는 발행 이력만 읽는다(KID-360): 완결 run은 같은 트랜잭션에서 발행 1행이 된다.
+    await publishSourceSnapshot(tx, {
+      organizationId: completed.organizationId,
+      operationId: completed.id,
+      sourceKey: completed.sourceKey,
+      scopeKey: completed.scopeKey,
+      targetKey: completed.targetKey,
+      collectorKey: completed.collectorKey,
+      collectorVersion: completed.collectorVersion,
+      plan: parsePlan(completed.attemptPlan),
+      windowStartAt: completed.sourceWindowStartAt,
+      windowEndAt: completed.sourceWindowEndAt,
+      discoveredCount: completed.discoveredCount,
+      acceptedCount: completed.acceptedCount,
+      duplicateCount: completed.duplicateCount,
+      coverage: completed.coverageNumerator !== null && completed.coverageDenominator !== null
+        ? { numerator: completed.coverageNumerator, denominator: completed.coverageDenominator }
+        : null,
+      contentChecksum: completed.contentChecksum,
+      qualityReport: qualityReport(completed),
+      completedAt: now,
     });
     await this.alerts.resolveSourceFailure(tx, {
       organizationId: input.organizationId,

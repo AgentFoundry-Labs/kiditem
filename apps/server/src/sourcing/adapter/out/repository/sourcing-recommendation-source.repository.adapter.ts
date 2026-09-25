@@ -45,7 +45,7 @@ export class SourcingRecommendationSourceRepositoryAdapter
       const result: SourcingOfferObservationSource = {
         id: row.id,
         evidenceObservationId: row.evidenceObservationId,
-        ingestionRunId: row.ingestionRunId,
+        operationId: row.operationId,
         businessDate: row.businessDate,
         sourceKeyword,
         externalOfferId,

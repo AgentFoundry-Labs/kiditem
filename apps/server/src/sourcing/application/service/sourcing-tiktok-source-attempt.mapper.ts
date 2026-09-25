@@ -111,7 +111,7 @@ export function plannedTiktokTargetIds(plan: Pick<TiktokSourcePlan, 'targetSeeds
 
 export function normalizeTiktokSourceBatch(input: {
   organizationId: string;
-  ingestionRunId: string;
+  operationId: string;
   batch: BrowserTiktokSourceBatch;
 }): NormalizedTiktokSourceBatch {
   if (!isRecord(input.batch) || !Array.isArray(input.batch.items) || input.batch.items.length > MAX_ITEMS) {
@@ -132,7 +132,7 @@ export function normalizeTiktokSourceBatch(input: {
     seen.add(identity);
     rows.push({
       organizationId: input.organizationId,
-      ingestionRunId: input.ingestionRunId,
+      operationId: input.operationId,
       businessDate,
       region,
       ...normalized,
@@ -215,7 +215,7 @@ function normalizeVisitedTargetIds(value: unknown): string[] {
   return [...value];
 }
 
-function normalizeTiktokItem(value: unknown, index: number): Omit<TiktokCcSnapshotUpsert, 'organizationId' | 'ingestionRunId' | 'businessDate' | 'region' | 'capturedAt'> {
+function normalizeTiktokItem(value: unknown, index: number): Omit<TiktokCcSnapshotUpsert, 'organizationId' | 'operationId' | 'businessDate' | 'region' | 'capturedAt'> {
   if (!isRecord(value)) throw new ConflictException('SOURCE_BATCH_INVALID');
   const trendType = boundedRequiredText(value.trendType, 32);
   if (!TIKTOK_TREND_TYPES.has(trendType)) throw new ConflictException('SOURCE_BATCH_INVALID');

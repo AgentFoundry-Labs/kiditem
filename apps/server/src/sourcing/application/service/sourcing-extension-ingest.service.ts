@@ -236,7 +236,7 @@ function buildExtensionOutput(
   return {
     observations: [{
       organizationId: permit.organizationId,
-      ingestionRunId: permit.runId,
+      operationId: permit.runId,
       sourceKey: permit.sourceKey,
       platform: command.sourcePlatform,
       evidenceFamily: 'supplier_product_extension',

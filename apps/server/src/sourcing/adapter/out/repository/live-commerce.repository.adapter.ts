@@ -1,7 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { businessDateKey, kstInclusiveDaysStart } from '../../../../common/kst';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { readCompleteLiveCommerceHistoryRuns } from './source-evidence.reader';
+import { readCompleteLiveCommerceHistoryPublications } from './source-evidence.reader';
 import { declaredCoverageDateKeys } from '../../../domain/source-evidence-coverage';
 import type {
   LiveCommerceBroadcastSnapshotRow,
@@ -18,7 +18,7 @@ export class LiveCommerceRepositoryAdapter implements LiveCommerceRepositoryPort
   async findBroadcastSnapshots(query: LiveCommerceSnapshotQuery): Promise<LiveCommerceBroadcastSnapshotRow[]> {
     const start = kstInclusiveDaysStart(query.days);
     const sourceKeys = query.source ? [liveCommerceSourceKey(query.source)] : LIVE_COMMERCE_SOURCE_KEYS;
-    const attempts = await readCompleteLiveCommerceHistoryRuns(this.prisma, {
+    const attempts = await readCompleteLiveCommerceHistoryPublications(this.prisma, {
       organizationId: query.organizationId,
       sourceKeys,
       start,
@@ -39,7 +39,7 @@ export class LiveCommerceRepositoryAdapter implements LiveCommerceRepositoryPort
     });
     return rows.sort((a, b) => b.businessDate.getTime() - a.businessDate.getTime()
       || (b.viewerCount ?? 0) - (a.viewerCount ?? 0) || b.capturedAt.getTime() - a.capturedAt.getTime()).map((row) => ({
-      ingestionRunId: row.ingestionRunId,
+      operationId: row.operationId,
       businessDate: row.businessDate,
       source: row.source as LiveCommerceBroadcastSnapshotRow['source'],
       broadcastId: row.broadcastId,
@@ -60,7 +60,7 @@ export class LiveCommerceRepositoryAdapter implements LiveCommerceRepositoryPort
   async findProductSnapshots(query: LiveCommerceSnapshotQuery): Promise<LiveCommerceProductSnapshotRow[]> {
     const start = kstInclusiveDaysStart(query.days);
     const sourceKeys = query.source ? [liveCommerceSourceKey(query.source)] : LIVE_COMMERCE_SOURCE_KEYS;
-    const attempts = await readCompleteLiveCommerceHistoryRuns(this.prisma, {
+    const attempts = await readCompleteLiveCommerceHistoryPublications(this.prisma, {
       organizationId: query.organizationId,
       sourceKeys,
       start,
@@ -82,7 +82,7 @@ export class LiveCommerceRepositoryAdapter implements LiveCommerceRepositoryPort
     return rows.sort((a, b) => b.businessDate.getTime() - a.businessDate.getTime()
       || compareNullableRank(a.rank, b.rank)
       || b.capturedAt.getTime() - a.capturedAt.getTime()).map((row) => ({
-      ingestionRunId: row.ingestionRunId,
+      operationId: row.operationId,
       businessDate: row.businessDate,
       source: row.source as LiveCommerceProductSnapshotRow['source'],
       broadcastId: row.broadcastId,

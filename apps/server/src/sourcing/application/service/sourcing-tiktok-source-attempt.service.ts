@@ -114,7 +114,7 @@ export class SourcingTiktokSourceAttemptService {
     try {
       normalized = normalizeTiktokSourceBatch({
         organizationId: input.organizationId,
-        ingestionRunId: attempt.attemptId,
+        operationId: attempt.attemptId,
         batch: input.batch,
       });
     } catch {

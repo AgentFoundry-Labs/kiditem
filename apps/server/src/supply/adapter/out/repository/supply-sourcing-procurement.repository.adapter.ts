@@ -1,7 +1,12 @@
-import { Injectable } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { KiditemError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import {
+  SOURCING_SOURCE_PUBLICATION_PORT,
+  type SourcingSourcePublicationPort,
+} from '../../../../sourcing/application/port/in/sourcing-source-publication.port';
 import {
   readCompleteObservationProvenanceByIds,
   readCurrentObservationHeads,
@@ -16,7 +21,6 @@ import {
   PROCUREMENT_TEST_INTENT_STATUS,
   resolveProcurementQuantityConservation,
   supplierOfferEvidencePayloadMatches,
-  type SupplySourceIngestionRunPolicyRecord,
   type SupplySourceUsage,
   type ProcurementTestIntentStatus,
   type ProcurementTestIntentType,
@@ -44,7 +48,11 @@ type OfferRow = Prisma.SupplierOfferSkuSnapshotGetPayload<{
 
 @Injectable()
 export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcingProcurementRepositoryPort {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    @Inject(SOURCING_SOURCE_PUBLICATION_PORT)
+    private readonly sourcePublications: SourcingSourcePublicationPort,
+  ) {}
 
   async createOfferSnapshot(
     organizationId: string,
@@ -91,7 +99,7 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
     const [currentEvidence] = await readCurrentObservationHeads(tx, {
       organizationId,
       sourceKey: evidence.sourceKey,
-      targetKey: evidence.ingestionRun.targetKey,
+      targetKey: evidence.publication.targetKey,
       observationKeys: [evidence.observationKey],
       supportsCandidate: true,
       signalRoles: ['demand', 'supply'],
@@ -105,8 +113,10 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
     if (currentEvidence.id !== evidence.id) {
       return { kind: 'evidence_observation_not_latest' as const };
     }
-    const sourceGate = this.evaluateCurrentSourceGate(
-      currentEvidence.ingestionRun,
+    const sourceGate = await this.evaluateCurrentSourceGate(
+      tx,
+      organizationId,
+      currentEvidence,
       'retain',
       cutoffAt,
     );
@@ -353,14 +363,16 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
       observationId: sourceContext.id,
       observationKey: sourceContext.observationKey,
       sourceKey: sourceContext.sourceKey,
-      scopeKey: sourceContext.ingestionRun.targetKey,
+      scopeKey: sourceContext.publication.targetKey,
       cutoffAt: now,
     });
     if (!currentSourceContext) {
       return { kind: 'evidence_observation_not_terminal' as const };
     }
-    const sourceGate = this.evaluateCurrentSourceGate(
-      currentSourceContext.ingestionRun,
+    const sourceGate = await this.evaluateCurrentSourceGate(
+      tx,
+      organizationId,
+      currentSourceContext,
       record.intentType === 'test_order' ? 'test_order' : 'retain',
       now,
     );
@@ -549,14 +561,24 @@ export class SupplySourcingProcurementRepositoryAdapter implements SupplySourcin
     };
   }
 
-  private evaluateCurrentSourceGate(
-    ingestionRun: SupplySourceIngestionRunPolicyRecord,
+  /** 관측을 쓴 실행이 그 원천 대상의 현재 발행인지 Sourcing capability로 확인한다(KID-360). */
+  private async evaluateCurrentSourceGate(
+    tx: Prisma.TransactionClient,
+    organizationId: string,
+    observation: CurrentObservationHead,
     usage: SupplySourceUsage,
     at: Date,
-  ): 'evidence_observation_not_terminal' | null {
+  ): Promise<'evidence_observation_not_terminal' | null> {
+    const publication = await this.sourcePublications.currentSourcePublication({
+      organizationId,
+      sourceKey: observation.publication.sourceKey,
+      scopeKey: observation.publication.scopeKey,
+      targetKey: observation.publication.targetKey,
+    }, ownerTransaction(tx));
     const eligibility = evaluateSupplySourceEligibility({
       usage,
-      ingestionRun,
+      observationOperationId: observation.operationId,
+      publication,
       at,
     });
     if (eligibility.allowed) return null;

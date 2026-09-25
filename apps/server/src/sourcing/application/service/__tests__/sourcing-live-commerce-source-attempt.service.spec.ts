@@ -134,11 +134,11 @@ describe('SourcingLiveCommerceSourceAttemptService', () => {
         typedRecords: expect.arrayContaining([
           expect.objectContaining({
             kind: 'live_commerce_broadcast',
-            row: expect.objectContaining({ ingestionRunId: ATTEMPT_ID, broadcastId: 'broadcast-123' }),
+            row: expect.objectContaining({ operationId: ATTEMPT_ID, broadcastId: 'broadcast-123' }),
           }),
           expect.objectContaining({
             kind: 'live_commerce_product',
-            row: expect.objectContaining({ ingestionRunId: ATTEMPT_ID, productId: 'product-1' }),
+            row: expect.objectContaining({ operationId: ATTEMPT_ID, productId: 'product-1' }),
           }),
         ]),
       }),

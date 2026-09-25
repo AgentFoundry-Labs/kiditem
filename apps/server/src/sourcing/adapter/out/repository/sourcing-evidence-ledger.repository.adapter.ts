@@ -4,7 +4,6 @@ import type { Prisma } from '@prisma/client';
 import type {
   SourcingEvidenceLedgerRepositoryPort,
   SourcingEvidenceObservationRecord,
-  SourcingEvidenceRunStatus,
 } from '../../../application/port/out/repository/sourcing-evidence-ledger.repository.port';
 import {
   readCompleteObservationProvenanceByIds,
@@ -87,12 +86,13 @@ function toObservationRecord(
   return {
     id: row.id,
     organizationId: row.organizationId,
-    ingestionRunId: row.ingestionRunId,
-    ingestionRunStatus: fromDatabaseRunStatus(row.ingestionRun.status),
-    ingestionRunCoverageBps: calculateRunCoverageBps(row.ingestionRun),
-    ingestionRunCompletedAt: row.ingestionRun.completedAt,
+    operationId: row.operationId,
+    // 리더는 발행된(성공한 수집의) 관측만 낸다(KID-360).
+    ingestionRunStatus: 'COMPLETE',
+    ingestionRunCoverageBps: calculateRunCoverageBps(row.publication),
+    ingestionRunCompletedAt: row.publication.completedAt,
     sourceKey: row.sourceKey,
-    sourceScopeKey: row.ingestionRun.targetKey,
+    sourceScopeKey: row.publication.targetKey,
     platform: row.platform,
     evidenceFamily: row.evidenceFamily,
     signalRole:
@@ -115,11 +115,6 @@ function toObservationRecord(
     rawPayload: requiredJsonObject(row.payload, row.id),
     ingestedAt: row.ingestedAt,
   };
-}
-
-function fromDatabaseRunStatus(status: string): SourcingEvidenceRunStatus {
-  if (status === 'RUNNING' || status === 'COMPLETE' || status === 'FAILED') return status;
-  throw new Error(`Unsupported evidence run status: ${status}`);
 }
 
 function calculateRunCoverageBps(row: {

@@ -1,3 +1,5 @@
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
+
 /**
  * Sourcing이 다른 owner(supply 발주 게이트 등)에 내주는 "현재 완결 발행" capability (KID-360).
  * 옛 `sourcing_evidence_ingestion_runs.is_current_complete`를 직접 읽던 코드를 대체한다:
@@ -24,5 +26,5 @@ export interface SourcingSourcePublicationPort {
     sourceKey: string;
     scopeKey: string;
     targetKey: string;
-  }): Promise<SourcingSourcePublicationView | null>;
+  }, transaction?: OwnerTransaction): Promise<SourcingSourcePublicationView | null>;
 }

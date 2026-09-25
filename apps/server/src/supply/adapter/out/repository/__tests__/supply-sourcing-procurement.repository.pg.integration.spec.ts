@@ -16,6 +16,7 @@ import {
   buildSupplierOfferSnapshotHash,
 } from '../../../../domain/policy/sourcing-procurement';
 import { SupplySourcingProcurementRepositoryAdapter } from '../supply-sourcing-procurement.repository.adapter';
+import { SourcingSourcePublicationRepositoryAdapter } from '../../../../../sourcing/adapter/out/repository/sourcing-source-publication.repository.adapter';
 import type { PrismaService } from '../../../../../prisma/prisma.service';
 import type {
   CreateProcurementTestIntentRecord,
@@ -33,6 +34,7 @@ describe('Supply sourcing procurement source handoff (PostgreSQL)', () => {
     await prisma.$connect();
     repository = new SupplySourcingProcurementRepositoryAdapter(
       prisma as unknown as PrismaService,
+      new SourcingSourcePublicationRepositoryAdapter(prisma as unknown as PrismaService),
     );
   });
 
@@ -75,16 +77,15 @@ describe('Supply sourcing procurement source handoff (PostgreSQL)', () => {
       ),
     ).resolves.toBeNull();
 
-    await prisma.sourcingEvidenceIngestionRun.update({
-      where: { id: source.runId },
-      data: { isCurrentComplete: false },
+    // 같은 대상의 더 새로운(비어 있는) 발행이 현재가 된다.
+    await prisma.sourcingSourcePublication.updateMany({
+      where: { operationId: source.operationId },
+      data: { isCurrent: false },
     });
-    await seedRun(prisma, {
+    await seedPublication(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
       status: 'COMPLETE',
-      isCurrentComplete: true,
-      generation: 2,
+      isCurrent: true,
       acceptedCount: 0,
     });
 
@@ -117,7 +118,7 @@ describe('Supply sourcing procurement source handoff (PostgreSQL)', () => {
     await prisma.sourcingEvidenceObservation.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
-        ingestionRunId: source.runId,
+        operationId: source.operationId,
         supersedesObservationId: source.observationId,
         sourceKey: '1688.offer',
         platform: '1688',
@@ -163,9 +164,10 @@ describe('Supply sourcing procurement source handoff (PostgreSQL)', () => {
       repository.createOfferSnapshot(TEST_ORGANIZATION_ID, missing),
     ).resolves.toEqual({ kind: 'evidence_observation_not_found' });
 
+    // 발행되지 않은(성공하지 못한) 실행이 쓴 관측.
     const running = await seedOfferEvidence(prisma, {
       status: 'RUNNING',
-      isCurrentComplete: false,
+      isCurrent: false,
     });
     await expect(
       repository.createOfferSnapshot(TEST_ORGANIZATION_ID, running.offer),
@@ -188,28 +190,25 @@ async function seedOfferEvidence(
     organizationId?: string;
     userId?: string;
     status?: 'RUNNING' | 'COMPLETE';
-    isCurrentComplete?: boolean;
+    isCurrent?: boolean;
   } = {},
 ) {
   const organizationId = input.organizationId ?? TEST_ORGANIZATION_ID;
-  const userId = input.userId ?? TEST_USER_ID;
   const status = input.status ?? 'COMPLETE';
   const observationId = randomUUID();
   const observationKey = sha256(`offer-observation:${observationId}`);
   const offer = offerRecord(observationId);
-  const run = await seedRun(prisma, {
+  const operationId = await seedPublication(prisma, {
     organizationId,
-    userId,
     status,
-    isCurrentComplete: input.isCurrentComplete ?? status === 'COMPLETE',
-    generation: 1,
+    isCurrent: input.isCurrent ?? status === 'COMPLETE',
     acceptedCount: 1,
   });
   await prisma.sourcingEvidenceObservation.create({
     data: {
       id: observationId,
       organizationId,
-      ingestionRunId: run.id,
+      operationId,
       sourceKey: '1688.offer',
       platform: '1688',
       evidenceFamily: 'supplier_offer',
@@ -233,43 +232,39 @@ async function seedOfferEvidence(
       ingestedAt: CAPTURED_AT,
     },
   });
-  return { runId: run.id, observationId, observationKey, offer };
+  return { operationId, observationId, observationKey, offer };
 }
 
-function seedRun(
+/** 성공한 실행만 발행 행을 남긴다(KID-360). RUNNING은 원장 행만 있고 발행이 없다. */
+async function seedPublication(
   prisma: PrismaClient,
   input: {
     organizationId: string;
-    userId: string;
     status: 'RUNNING' | 'COMPLETE';
-    isCurrentComplete: boolean;
-    generation: number;
+    isCurrent: boolean;
     acceptedCount: number;
   },
-) {
-  const identity = randomUUID();
-  return prisma.sourcingEvidenceIngestionRun.create({
+): Promise<string> {
+  const operationId = randomUUID();
+  if (input.status !== 'COMPLETE') return operationId;
+  await prisma.sourcingSourcePublication.create({
     data: {
       organizationId: input.organizationId,
+      operationId,
       sourceKey: '1688.offer',
       scopeKey: 'default',
       targetKey: 'stationery',
-      idempotencyKey: identity,
-      requestHash: sha256(identity),
+      isCurrent: input.isCurrent,
       collectorKey: 'supply-handoff-test',
       collectorVersion: 'v1',
-      triggerKind: 'manual',
-      triggeredByUserId: input.userId,
-      status: input.status,
-      isCurrentComplete: input.isCurrentComplete,
-      generation: input.generation,
       discoveredCount: input.acceptedCount,
       acceptedCount: input.acceptedCount,
       coverageNumerator: 1,
       coverageDenominator: 1,
-      completedAt: input.status === 'COMPLETE' ? CAPTURED_AT : null,
+      completedAt: CAPTURED_AT,
     },
   });
+  return operationId;
 }
 
 function offerRecord(

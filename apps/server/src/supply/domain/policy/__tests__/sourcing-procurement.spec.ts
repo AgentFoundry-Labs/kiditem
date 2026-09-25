@@ -329,44 +329,44 @@ describe('sourcing procurement policy', () => {
     );
   });
 
-  it('requires a completed evidence run without source-policy lifecycle state', () => {
-    const ingestionRun = {
-      status: 'COMPLETE',
+  it('allows a fact only while its operation is the current publication of its source target', () => {
+    const publication = {
+      operationId: 'operation-1',
       completedAt: new Date('2026-08-01T00:00:00.000Z'),
-      coverageNumerator: 9,
-      coverageDenominator: 10,
     };
     const at = new Date('2026-08-02T00:00:00.000Z');
 
-    expect(
-      evaluateSupplySourceEligibility({
-        usage: 'retain',
-        ingestionRun,
-        at,
-      }),
-    ).toEqual({ allowed: true, reason: null, coverageBps: null });
-    expect(
-      evaluateSupplySourceEligibility({
-        usage: 'test_order',
-        ingestionRun,
-        at,
-      }),
-    ).toEqual({ allowed: true, reason: null, coverageBps: null });
+    for (const usage of ['retain', 'test_order'] as const) {
+      expect(
+        evaluateSupplySourceEligibility({ usage, observationOperationId: 'operation-1', publication, at }),
+      ).toEqual({ allowed: true, reason: null, coverageBps: null });
+    }
   });
 
-  it('denies source facts from a non-terminal run', () => {
-    const ingestionRun = {
-      status: 'RUNNING',
-      completedAt: new Date('2026-08-01T00:00:00.000Z'),
-      coverageNumerator: null,
-      coverageDenominator: null,
-    };
+  it('denies a fact whose source target has no current publication or a newer one', () => {
+    const at = new Date('2026-08-02T00:00:00.000Z');
+    expect(
+      evaluateSupplySourceEligibility({ usage: 'retain', observationOperationId: 'operation-1', publication: null, at }),
+    ).toMatchObject({ allowed: false, reason: 'source_publication_not_current' });
     expect(
       evaluateSupplySourceEligibility({
         usage: 'retain',
-        ingestionRun,
+        observationOperationId: 'operation-1',
+        publication: { operationId: 'operation-2', completedAt: new Date('2026-08-01T00:00:00.000Z') },
+        at,
       }),
-    ).toMatchObject({ allowed: false, reason: 'ingestion_run_not_complete' });
+    ).toMatchObject({ allowed: false, reason: 'source_publication_not_current' });
+  });
+
+  it('denies a publication completed after the evaluation time', () => {
+    expect(
+      evaluateSupplySourceEligibility({
+        usage: 'retain',
+        observationOperationId: 'operation-1',
+        publication: { operationId: 'operation-1', completedAt: new Date('2026-08-03T00:00:00.000Z') },
+        at: new Date('2026-08-02T00:00:00.000Z'),
+      }),
+    ).toMatchObject({ allowed: false, reason: 'source_publication_not_completed' });
   });
 
   it('rejects overlapping supplier price tiers', () => {

@@ -960,13 +960,13 @@ async function seedBrowserQaRecommendationWorkspace({
       },
     },
     update: {
-      ingestionRunId: evidenceIngestionRun.id,
+      operationId: evidenceIngestionRun.id,
       ...plan.evidenceObservation,
       payload: plan.evidenceObservation.payload as Prisma.InputJsonValue,
     },
     create: {
       organizationId,
-      ingestionRunId: evidenceIngestionRun.id,
+      operationId: evidenceIngestionRun.id,
       ...plan.evidenceObservation,
       payload: plan.evidenceObservation.payload as Prisma.InputJsonValue,
     },

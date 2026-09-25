@@ -273,7 +273,7 @@ describe('SourcingTiktokSourceAttemptService', () => {
           expect.objectContaining({
             kind: 'tiktok_creative',
             row: expect.objectContaining({
-              ingestionRunId: ATTEMPT_ID,
+              operationId: ATTEMPT_ID,
               region: 'KR',
               trendType: 'hashtag',
               entityKey: 'school-supplies',

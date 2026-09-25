@@ -235,7 +235,6 @@
       "prismaModel": "sourcingEvidenceIngestionRun",
       "prismaType": "SourcingEvidenceIngestionRun",
       "relationNames": [
-        "ingestionRun",
         "sourcingEvidenceIngestionRuns",
         "triggeredSourcingEvidenceIngestionRuns"
       ],
@@ -254,6 +253,29 @@
       ]
     },
     {
+      "name": "Sourcing source publication",
+      "owner": "sourcing",
+      "table": "sourcing_source_publications",
+      "prismaModel": "sourcingSourcePublication",
+      "prismaType": "SourcingSourcePublication",
+      "relationNames": [
+        "sourcingSourcePublications"
+      ],
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-source-publication.repository.adapter.ts",
+          "reason": "KID-360: the only publication writer (publishSourceSnapshot, called in the finish transaction) and the public current-publication capability (SOURCING_SOURCE_PUBLICATION_PORT) Supply reads."
+        }
+      ],
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-360: the owner reader decides complete and current through the publication ledger; read-only."
+        }
+      ]
+    },
+    {
       "name": "Sourcing evidence observation",
       "owner": "sourcing",
       "table": "sourcing_evidence_observations",
@@ -261,7 +283,6 @@
       "prismaType": "SourcingEvidenceObservation",
       "relationNames": [
         "evidenceObservation",
-        "observations",
         "sourcingEvidenceObservations"
       ],
       "ownerPublications": [
@@ -286,8 +307,7 @@
       "prismaType": "SourcingWingCatalogProductFact",
       "relationNames": [
         "sourcingWingCatalogProductFacts",
-        "wingCatalogProductFact",
-        "wingCatalogProductFacts"
+        "wingCatalogProductFact"
       ],
       "ownerPublications": [
         {
@@ -315,7 +335,6 @@
       "prismaType": "SourcingKeywordSuggestionFact",
       "relationNames": [
         "keywordSuggestionFact",
-        "keywordSuggestionFacts",
         "sourcingKeywordSuggestionFacts"
       ],
       "ownerPublications": [
@@ -340,7 +359,6 @@
       "prismaType": "SourcingNaverKeywordAnalysisFact",
       "relationNames": [
         "naverKeywordAnalysisFact",
-        "naverKeywordAnalysisFacts",
         "sourcingNaverKeywordAnalysisFacts"
       ],
       "ownerPublications": [
@@ -365,7 +383,6 @@
       "prismaType": "SourcingMarketShadowFact",
       "relationNames": [
         "marketShadowFact",
-        "marketShadowFacts",
         "sourcingMarketShadowFacts"
       ],
       "ownerPublications": [
@@ -390,7 +407,6 @@
       "prismaType": "Sourcing1688OfferKeywordObservation",
       "relationNames": [
         "offerKeywordObservation",
-        "offerKeywordObservations",
         "sourcing1688OfferKeywordObservations"
       ],
       "ownerPublications": [

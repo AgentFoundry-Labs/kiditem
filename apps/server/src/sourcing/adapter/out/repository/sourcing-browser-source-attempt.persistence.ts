@@ -268,7 +268,7 @@ function assertObservationMatchesPermit(
 ): void {
   if (
     observation.organizationId !== permit.organizationId
-    || observation.ingestionRunId !== permit.runId
+    || observation.operationId !== permit.runId
     || observation.sourceKey !== permit.sourceKey
   ) {
     throw new Error('Collection observation does not match its authorized permit.');
@@ -327,7 +327,7 @@ function toObservationCreateInput(
 ): Prisma.SourcingEvidenceObservationCreateManyInput {
   return {
     organizationId: observation.organizationId,
-    ingestionRunId: observation.ingestionRunId,
+    operationId: observation.operationId,
     sourceKey: observation.sourceKey,
     platform: observation.platform,
     evidenceFamily: observation.evidenceFamily,
@@ -389,9 +389,9 @@ function toTypedCreateInputs(
       if (record.row.organizationId !== permit.organizationId || !allowed.includes(permit.sourceKey)) {
         throw new Error('Trend snapshot does not match its authorized source attempt.');
       }
-      if (record.kind === 'naver_keyword') naverKeyword.push({ ...record.row, ingestionRunId: permit.runId });
-      if (record.kind === 'naver_popular_keyword') naverPopular.push({ ...record.row, ingestionRunId: permit.runId });
-      if (record.kind === 'shorts') shorts.push({ ...record.row, ingestionRunId: permit.runId });
+      if (record.kind === 'naver_keyword') naverKeyword.push({ ...record.row, operationId: permit.runId });
+      if (record.kind === 'naver_popular_keyword') naverPopular.push({ ...record.row, operationId: permit.runId });
+      if (record.kind === 'shorts') shorts.push({ ...record.row, operationId: permit.runId });
       continue;
     }
     if (record.kind === 'offer_1688_keyword_observation') {
@@ -417,7 +417,7 @@ function toTypedCreateInputs(
       const evidence = resolveFactEvidence(record.row, permit, evidenceByIdentity);
       wingCatalog.push({
         organizationId: record.row.organizationId,
-        ingestionRunId: record.row.ingestionRunId,
+        operationId: record.row.operationId,
         evidenceObservationId: evidence.id,
         schemaVersion: 'coupang-wing-catalog/v2',
         sourceKeywordNormalized: sourcingWingCatalogKeywordIdentity(record.row.sourceKeyword),
@@ -450,7 +450,7 @@ function toTypedCreateInputs(
       const evidence = resolveFactEvidence(record.row, permit, evidenceByIdentity);
       keywordSuggestion.push({
         organizationId: record.row.organizationId,
-        ingestionRunId: record.row.ingestionRunId,
+        operationId: record.row.operationId,
         evidenceObservationId: evidence.id,
         schemaVersion: record.row.schemaVersion,
         keywordNormalized: record.row.keywordNormalized,
@@ -466,7 +466,7 @@ function toTypedCreateInputs(
       const evidence = resolveFactEvidence(record.row, permit, evidenceByIdentity);
       naverKeywordAnalysis.push({
         organizationId: record.row.organizationId,
-        ingestionRunId: record.row.ingestionRunId,
+        operationId: record.row.operationId,
         evidenceObservationId: evidence.id,
         schemaVersion: record.row.schemaVersion,
         inputHash: record.row.inputHash,
@@ -482,7 +482,7 @@ function toTypedCreateInputs(
       const evidence = resolveFactEvidence(record.row, permit, evidenceByIdentity);
       marketShadow.push({
         organizationId: record.row.organizationId,
-        ingestionRunId: record.row.ingestionRunId,
+        operationId: record.row.operationId,
         evidenceObservationId: evidence.id,
         schemaVersion: record.row.schemaVersion,
         businessDate: record.row.businessDate,
@@ -511,14 +511,14 @@ function toTypedCreateInputs(
 function resolveFactEvidence(
   row: {
     organizationId: string;
-    ingestionRunId: string;
+    operationId: string;
     evidenceObservationKey: string;
     evidenceRevision: number;
   },
   permit: SourcingCollectionPermit,
   evidenceByIdentity: ReadonlyMap<string, PersistedObservation>,
 ): PersistedObservation {
-  if (row.organizationId !== permit.organizationId || row.ingestionRunId !== permit.runId) {
+  if (row.organizationId !== permit.organizationId || row.operationId !== permit.runId) {
     throw new Error('Typed source fact does not match its authorized permit.');
   }
   const evidence = evidenceByIdentity.get(observationIdentity({
@@ -536,7 +536,7 @@ function toTiktokCreativeCreateInput(
 ): Prisma.TiktokCreativeTrendDailySnapshotCreateManyInput {
   if (
     row.organizationId !== permit.organizationId
-    || row.ingestionRunId !== permit.runId
+    || row.operationId !== permit.runId
     || permit.sourceKey !== 'tiktok.creative'
   ) {
     throw new Error('TikTok snapshot does not match its authorized source attempt.');
@@ -549,7 +549,7 @@ function to1688CreateInput(
   permit: SourcingCollectionPermit,
   evidenceByIdentity: ReadonlyMap<string, PersistedObservation>,
 ): Prisma.Sourcing1688OfferKeywordObservationCreateManyInput {
-  if (row.organizationId !== permit.organizationId || row.ingestionRunId !== permit.runId) {
+  if (row.organizationId !== permit.organizationId || row.operationId !== permit.runId) {
     throw new Error('1688 offer observation does not match its authorized permit.');
   }
   const evidence = evidenceByIdentity.get(observationIdentity({
@@ -561,7 +561,7 @@ function to1688CreateInput(
   return {
     organizationId: row.organizationId,
     evidenceObservationId: evidence.id,
-    ingestionRunId: row.ingestionRunId,
+    operationId: row.operationId,
     businessDate: row.businessDate,
     sourceKeywordNormalized: row.sourceKeyword,
     externalOfferId: row.offerId,
@@ -611,7 +611,7 @@ function assertLiveCommerceMatchesPermit(
   row: LiveCommerceBroadcastSnapshotUpsert | LiveCommerceProductSnapshotUpsert,
   permit: SourcingCollectionPermit,
 ): void {
-  if (row.organizationId !== permit.organizationId || row.ingestionRunId !== permit.runId) {
+  if (row.organizationId !== permit.organizationId || row.operationId !== permit.runId) {
     throw new Error('Live-commerce snapshot does not match its authorized permit.');
   }
   const expectedSourceKey = row.source === 'taobao'

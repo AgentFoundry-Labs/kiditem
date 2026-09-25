@@ -167,7 +167,7 @@ export interface ShortsSnapshotRow {
 
 export interface TiktokCcSnapshotUpsert {
   organizationId: string;
-  ingestionRunId: string;
+  operationId: string;
   businessDate: Date;
   region: string;
   trendType: string;

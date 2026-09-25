@@ -18,12 +18,12 @@ import {
   type Sourcing1688StoredSearchSnapshot,
 } from '../../../application/port/out/repository/sourcing-1688-search-result.repository.port';
 import {
-  readCompleteSourcingRunsByIds,
-  readCurrentCompleteRuns,
+  read1688OfferSnapshotsForOperations,
+  readCurrentPublications,
   readExactSourcingRun,
   readLatestWingCatalogPublicationFacts,
+  readPublicationsByOperationIds,
 } from './source-evidence.reader';
-import { read1688OfferSnapshotsForRuns } from './source-evidence.reader';
 
 const MAX_LATEST_RUN_CANDIDATES = 120;
 const MAX_TARGET_OBSERVATION_CANDIDATES = 500;
@@ -116,14 +116,14 @@ implements Sourcing1688SearchResultRepositoryPort {
       SOURCING_1688_KEYWORD_COLLECTOR_KEY,
       SOURCING_1688_IMAGE_COLLECTOR_KEY,
     ];
-    const runs = (input.completeAttemptIds
-      ? await readCompleteSourcingRunsByIds(this.prisma, {
+    const publications = (input.completeAttemptIds
+      ? await readPublicationsByOperationIds(this.prisma, {
           organizationId: input.organizationId,
-          ids: input.completeAttemptIds,
+          operationIds: input.completeAttemptIds,
           sourceKeys,
           collectorKeys,
         })
-      : await readCurrentCompleteRuns(this.prisma, {
+      : await readCurrentPublications(this.prisma, {
           organizationId: input.organizationId,
           sourceKey: sourceKeys,
           collectorKey: collectorKeys,
@@ -134,9 +134,9 @@ implements Sourcing1688SearchResultRepositoryPort {
       : null;
     const targetFilter = input.targetIds ? new Set(input.targetIds) : null;
     const latestByIdentity = new Map<string, ResultRun>();
-    for (const run of runs) {
+    for (const run of publications) {
       const marker = parseResultMarker(run.qualityReport);
-      if (!marker || !run.completedAt) continue;
+      if (!marker) continue;
       const isImage = run.sourceKey === '1688.image_search'
         && run.collectorKey === SOURCING_1688_IMAGE_COLLECTOR_KEY
         && marker.targetId !== null;
@@ -152,7 +152,7 @@ implements Sourcing1688SearchResultRepositoryPort {
         : `target:${marker.targetId}`;
       if (latestByIdentity.has(identity)) continue;
       latestByIdentity.set(identity, {
-        id: run.id,
+        id: run.operationId,
         completedAt: run.completedAt,
         keyword: marker.keyword,
         targetId: marker.targetId,
@@ -163,9 +163,9 @@ implements Sourcing1688SearchResultRepositoryPort {
     if (selectedRuns.length === 0) {
       return { generatedAt: null, observations: [] };
     }
-    const rows = await read1688OfferSnapshotsForRuns(this.prisma, {
+    const rows = await read1688OfferSnapshotsForOperations(this.prisma, {
       organizationId: input.organizationId,
-      ingestionRunIds: selectedRuns.map((run) => run.id),
+      operationIds: selectedRuns.map((run) => run.id),
     });
     const itemsByRun = new Map<string, Array<{
       capturedAt: Date;
@@ -174,9 +174,9 @@ implements Sourcing1688SearchResultRepositoryPort {
     for (const row of rows) {
       const item = parseSearchItem(row);
       if (!item) continue;
-      const values = itemsByRun.get(row.ingestionRunId) ?? [];
+      const values = itemsByRun.get(row.operationId) ?? [];
       values.push({ capturedAt: row.capturedAt, item });
-      itemsByRun.set(row.ingestionRunId, values);
+      itemsByRun.set(row.operationId, values);
     }
     return {
       generatedAt: selectedRuns[0]?.completedAt ?? null,
