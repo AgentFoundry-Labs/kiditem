@@ -44,6 +44,11 @@ const observed = (over: Partial<Parameters<typeof planCatalogAssetRepublication>
 });
 
 describe('planCatalogAssetRepublication', () => {
+  it('leaves a row untouched when only the publication history fields differ', () => {
+    expect(planCatalogAssetRepublication(stored(), observed(), { preservesManualSelection: false }))
+      .toEqual({ kind: 'unchanged' });
+  });
+
   it('keeps the stored copy and its materialization keys when the same URL gets a new order', () => {
     expect(
       planCatalogAssetRepublication(stored(), observed({ sortOrder: 3 }), { preservesManualSelection: false }),
@@ -79,4 +84,58 @@ describe('planCatalogAssetRepublication', () => {
     });
   });
 
+  it('revives a deleted row even when nothing else changed', () => {
+    expect(
+      planCatalogAssetRepublication(stored({ isDeleted: true }), observed(), { preservesManualSelection: false }),
+    ).toMatchObject({ kind: 'update', storage });
+  });
+
+  it('treats a changed non-history metadata field as a change', () => {
+    expect(
+      planCatalogAssetRepublication(
+        stored(),
+        observed({ publicationMetadata: published('run-2', { externalOptionIds: ['9'], externalOptionId: '9' }) }),
+        { preservesManualSelection: false },
+      ),
+    ).toMatchObject({ kind: 'update' });
+  });
+
+  it('keeps an operator-selected row on its own URL and storage while the provider URL moves', () => {
+    const manual = stored({
+      url: 'https://storage.example/kept.jpg',
+      metadata: { ...published('run-1'), ...materialization, operatorNote: 'keep' },
+    });
+    expect(
+      planCatalogAssetRepublication(
+        manual,
+        observed({ publicationMetadata: published('run-2', { sourceUrl: 'https://img.example/a.jpg' }) }),
+        { preservesManualSelection: true },
+      ),
+    ).toEqual({ kind: 'unchanged' });
+    expect(
+      planCatalogAssetRepublication(
+        manual,
+        observed({ sortOrder: 2 }),
+        { preservesManualSelection: true },
+      ),
+    ).toEqual({
+      kind: 'update',
+      url: 'https://storage.example/kept.jpg',
+      role: 'primary',
+      sortOrder: 2,
+      storage,
+      metadata: { ...published('run-2'), ...materialization, operatorNote: 'keep' },
+    });
+  });
+
+  it('ignores key order and absent-versus-undefined keys when comparing metadata', () => {
+    const { active: _active, ...rest } = published('run-1');
+    expect(
+      planCatalogAssetRepublication(
+        stored({ metadata: { catalogRepresentative: true, ...materialization, active: true, ...rest } }),
+        observed({ publicationMetadata: { ...published('run-2'), unknownField: undefined } }),
+        { preservesManualSelection: false },
+      ),
+    ).toEqual({ kind: 'unchanged' });
+  });
 });

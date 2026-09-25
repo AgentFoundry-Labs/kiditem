@@ -6,6 +6,11 @@
  * metadata keys) while its URL stays the same, because a provider image URL
  * names its content. Only a URL change clears the copy. An operator-selected
  * representative row keeps its own URL, copy and metadata as before.
+ *
+ * A row whose URL, role, order, deletion flag and metadata are all unchanged
+ * is not updated. The publication history keys are left out of that
+ * comparison, so on an unchanged row `lastImportRunId` names the last
+ * publication that changed it, not the latest one that observed it.
  */
 
 export interface CatalogAssetStorage {
@@ -34,6 +39,7 @@ export interface CatalogAssetObservation {
 }
 
 export type CatalogAssetRepublication =
+  | { kind: 'unchanged' }
   | {
       kind: 'update';
       url: string;
@@ -42,6 +48,14 @@ export type CatalogAssetRepublication =
       storage: CatalogAssetStorage;
       metadata: Record<string, unknown>;
     };
+
+/** Keys that record which publication last wrote the row; they never make a row "changed". */
+export const CATALOG_PUBLICATION_HISTORY_KEYS = [
+  'publicationReference',
+  'sourceImportRunId',
+  'lastImportRunId',
+  'publicationScope',
+] as const;
 
 const MATERIALIZATION_KEYS = [
   'materializationStatus',
@@ -70,6 +84,13 @@ export function planCatalogAssetRepublication(
   const keepsCopy = options.preservesManualSelection || existing.url === url;
   const base = keepsCopy ? existing.metadata : withoutKeys(existing.metadata, MATERIALIZATION_KEYS);
   const metadata = { ...base, ...observation.publicationMetadata };
+  const unchanged = keepsCopy
+    && !existing.isDeleted
+    && existing.role === observation.role
+    && existing.sortOrder === observation.sortOrder
+    && canonicalJson(withoutKeys(existing.metadata, CATALOG_PUBLICATION_HISTORY_KEYS))
+      === canonicalJson(withoutKeys(metadata, CATALOG_PUBLICATION_HISTORY_KEYS));
+  if (unchanged) return { kind: 'unchanged' };
   return {
     kind: 'update',
     url,
@@ -87,4 +108,15 @@ function withoutKeys(
   const result = { ...metadata };
   for (const key of keys) delete result[key];
   return result;
+}
+
+/** JSON text with sorted object keys, matching how jsonb compares values. */
+function canonicalJson(value: unknown): string {
+  return JSON.stringify(value, (_key, item: unknown) =>
+    item && typeof item === 'object' && !Array.isArray(item)
+      ? Object.fromEntries(
+          Object.entries(item as Record<string, unknown>).sort(([left], [right]) =>
+            left < right ? -1 : left > right ? 1 : 0),
+        )
+      : item);
 }

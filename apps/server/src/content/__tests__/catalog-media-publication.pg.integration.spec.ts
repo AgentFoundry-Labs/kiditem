@@ -921,6 +921,13 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
         },
       });
     };
+    // xmin changes on every UPDATE of a row, even one that writes identical values.
+    const rowVersions = () =>
+      prisma.$queryRaw<Array<{ id: string; xmin: string; updatedAt: Date }>>`
+        SELECT id::text AS id, xmin::text AS xmin, updated_at AS "updatedAt"
+        FROM content_assets WHERE organization_id = ${ORG}::uuid ORDER BY id
+      `;
+
     it('keeps the stored copy and materialization keys when a same-URL photo moves', async () => {
       await publish(listingId, [media('keep-primary', 'primary'), media('keep-detail', 'detail', 1)]);
       const detail = await assetByUrl(url('keep-detail'));
@@ -945,6 +952,49 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
         ...storedCopy,
         metadata: { ...materialized, lastImportRunId: nextRef, active: true },
       });
+    });
+
+    it('updates no row when nothing but the publication run changed', async () => {
+      const firstRef = randomUUID();
+      const photos = [media('same-primary', 'primary'), media('same-detail', 'detail', 1)];
+      await publish(listingId, photos, ORG, USER, firstRef);
+      await giveStoredCopy((await assetByUrl(url('same-detail'))).id);
+      const before = await rowVersions();
+
+      expect(await publish(listingId, photos, ORG, USER, randomUUID())).toEqual({
+        imageCount: 2,
+        inactivatedImageCount: 0,
+      });
+
+      expect(await rowVersions()).toEqual(before);
+      // An unchanged row keeps the run that last changed it.
+      expect((await assetByUrl(url('same-detail'))).metadata).toMatchObject({
+        lastImportRunId: firstRef,
+        ...materialized,
+      });
+      expect(await currentThumbnail()).toBe(url('same-primary'));
+    });
+
+    it('leaves an operator-selected catalog photo and its stored copy alone', async () => {
+      const photos = [media('pick-auto', 'primary'), media('pick-chosen', 'primary', 1)];
+      await publish(listingId, photos);
+      const picked = await assetByUrl(url('pick-chosen'));
+      await giveStoredCopy(picked.id);
+      await adopt(await workspaceId(), picked.id);
+      await publish(listingId, photos);
+      const before = await rowVersions();
+
+      await publish(listingId, photos);
+      expect(await rowVersions()).toEqual(before);
+
+      await publish(listingId, [media('pick-auto', 'primary'), media('pick-chosen', 'primary', 7)]);
+      expect(await prisma.contentAsset.findUniqueOrThrow({ where: { id: picked.id } })).toMatchObject({
+        url: url('pick-chosen'),
+        sortOrder: 7,
+        ...storedCopy,
+        metadata: materialized,
+      });
+      expect(await currentThumbnail()).toBe(url('pick-chosen'));
     });
 
     it('clears the stored copy when the row URL no longer matches the published URL', async () => {

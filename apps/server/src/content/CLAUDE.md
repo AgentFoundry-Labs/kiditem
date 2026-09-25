@@ -21,7 +21,9 @@ workspace projection, and provider/storage adapters. HTTP adapters live under
   `currentThumbnailAssetId` is the only representative-image pointer, and every
   mall representative-image execution reads that asset.
 - Republishing a catalog photo keeps its stored copy (`storage_key`, size,
-  `materialization*` keys) while the URL is unchanged
+  `materialization*` keys) while the URL is unchanged and skips a row whose
+  URL, role, order and non-history metadata are unchanged, so its
+  `lastImportRunId` is the last run that changed it
   (`domain/catalog-media/catalog-asset-republication.ts`).
 - `DetailPage` plus append-only revisions owns detail HTML; every start
   (generated, manual, uploaded, imported) is one row and the AI result is a
