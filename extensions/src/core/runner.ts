@@ -210,7 +210,7 @@ async function execute(
 
   let lease: BrowserLease | null = null;
   try {
-    lease = await deps.browser.acquire({ operationId, lockKeys: operation.lockKeys, signal: local.signal });
+    lease = await deps.browser.acquire({ operationId, lockKeys: operation.lockKeys, site: collector.site, signal: local.signal });
     const site = deps.siteFor(operation.kind, lease);
     const sequences = new Map<string, number>();
     let chunks = 0;

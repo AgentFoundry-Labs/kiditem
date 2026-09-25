@@ -80,6 +80,32 @@ describe('createBrowserResources — lockKey 이름으로 탭을 잡고 푼다',
     expect(lease.tabId).toBe(9);
   });
 
+  it('account:<id>는 수집기가 선언한 사이트가 sites에 있으면 그 사이트의 탭을 연다(공급자 센터 등, KID-355)', async () => {
+    const fake = fakeChrome();
+    const sites = { ...SITES, supplier: { origin: 'https://supplier.example.com' } };
+    const lease = await createBrowserResources(fake.chrome, sites, { accountSite: 'wing' }).acquire({
+      operationId: OP,
+      lockKeys: [`account:${ACCOUNT}`],
+      site: 'supplier',
+      signal: signal(),
+    });
+
+    expect(lease.tabId).toBe(100);
+    expect(fake.created).toEqual([{ url: 'https://supplier.example.com', active: false }]);
+  });
+
+  it('account:<id>는 선언한 사이트가 sites에 없으면 accountSite의 탭을 연다', async () => {
+    const fake = fakeChrome();
+    await createBrowserResources(fake.chrome, SITES, { accountSite: 'wing' }).acquire({
+      operationId: OP,
+      lockKeys: [`account:${ACCOUNT}`],
+      site: 'wing-search',
+      signal: signal(),
+    });
+
+    expect(fake.created).toEqual([{ url: 'https://wing.example.com', active: false }]);
+  });
+
   it('sites에 없는 resource 슬롯(예 keyword)은 탭이 필요 없다', async () => {
     const fake = fakeChrome();
     const lease = await createBrowserResources(fake.chrome, SITES).acquire({ operationId: OP, lockKeys: ['resource:keyword:장난감'], signal: signal() });

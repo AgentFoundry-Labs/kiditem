@@ -73,11 +73,11 @@ function harness(options: {
       throw new Error('runner never cancels');
     },
   };
-  const acquired: Array<{ operationId: string; lockKeys: readonly string[] }> = [];
+  const acquired: Array<{ operationId: string; lockKeys: readonly string[]; site?: string | null }> = [];
   const browser: BrowserResources = {
     async acquire(input) {
       steps.push('acquire');
-      acquired.push({ operationId: input.operationId, lockKeys: input.lockKeys });
+      acquired.push({ operationId: input.operationId, lockKeys: input.lockKeys, site: input.site });
       const lease: BrowserLease = {
         tabId: null,
         async release() {
@@ -116,6 +116,14 @@ afterEach(() => {
 });
 
 describe('createRunner — 실행 하나의 순서', () => {
+  it('브라우저 자원에 수집기가 선언한 사이트 이름을 넘긴다(account 잠금이 그 사이트의 탭을 열도록)', async () => {
+    const h = harness();
+
+    await runWith(h, collector([echoChunk(1)], { site: 'supplier' }));
+
+    expect(h.acquired).toEqual([{ operationId: OP, lockKeys: ['org'], site: 'supplier' }]);
+  });
+
   it('begin → acquire → 청크마다 put → finish(succeeded) → release, 순번은 chunkKind별 1..n', async () => {
     const h = harness();
     const c = collector(
@@ -126,7 +134,7 @@ describe('createRunner — 실행 하나의 순서', () => {
     const outcome = await runWith(h, c);
 
     expect(h.steps).toEqual(['begin:test.echo', 'acquire', 'put:echo#1', 'put:detail#1', 'put:echo#2', 'finish:succeeded', 'release']);
-    expect(h.acquired).toEqual([{ operationId: OP, lockKeys: ['org'] }]);
+    expect(h.acquired).toEqual([{ operationId: OP, lockKeys: ['org'], site: null }]);
     expect(h.puts[0]).toEqual({ chunkKind: 'echo', sequence: 1, payload: [{ i: 1 }], progress: { done: 1 } });
     expect(h.finishes).toEqual([
       { outcome: 'succeeded', result: { chunks: 3, items: 3 }, window: { start: '2026-09-01', end: '2026-09-02' } },

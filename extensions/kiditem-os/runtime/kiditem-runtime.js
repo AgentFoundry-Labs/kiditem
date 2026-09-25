@@ -7293,12 +7293,13 @@ var KidItemRuntime = (() => {
   function createBrowserResources(chromeApi, sites2, options = {}) {
     const held = /* @__PURE__ */ new Set();
     return {
-      async acquire({ operationId, lockKeys, signal }) {
+      async acquire({ operationId, lockKeys, site = null, signal }) {
         if (held.has(operationId)) {
           throw new RuntimeError(RUNTIME_BROWSER_ALREADY_ACQUIRED, "\uC774 \uC2E4\uD589\uC740 \uC774\uBBF8 \uBE0C\uB77C\uC6B0\uC800 \uC790\uC6D0\uC744 \uC7A1\uACE0 \uC788\uC2B5\uB2C8\uB2E4.", { operationId });
         }
         signal.throwIfAborted();
-        const siteNames = [...new Set(lockKeys.map((key) => siteOfLockKey(key, options)).filter((name) => name !== null && name in sites2))];
+        const accountSite = site !== null && site in sites2 ? site : options.accountSite ?? null;
+        const siteNames = [...new Set(lockKeys.map((key) => siteOfLockKey(key, accountSite)).filter((name) => name !== null && name in sites2))];
         if (siteNames.length > 1) {
           throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uD55C \uC2E4\uD589\uC774 \uB450 \uC0AC\uC774\uD2B8\uC758 \uD0ED\uC744 \uD568\uAED8 \uC7A1\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { sites: siteNames });
         }
@@ -7322,9 +7323,9 @@ var KidItemRuntime = (() => {
       }
     };
   }
-  function siteOfLockKey(key, options) {
+  function siteOfLockKey(key, accountSite) {
     if (key.startsWith("resource:")) return key.split(":")[1] ?? null;
-    if (key.startsWith("account:")) return options.accountSite ?? null;
+    if (key.startsWith("account:")) return accountSite;
     return null;
   }
   async function openSiteTab(chromeApi, origin) {
@@ -7532,7 +7533,7 @@ var KidItemRuntime = (() => {
     };
     let lease = null;
     try {
-      lease = await deps.browser.acquire({ operationId, lockKeys: operation.lockKeys, signal: local.signal });
+      lease = await deps.browser.acquire({ operationId, lockKeys: operation.lockKeys, site: collector.site, signal: local.signal });
       const site = deps.siteFor(operation.kind, lease);
       const sequences = /* @__PURE__ */ new Map();
       let chunks = 0;
