@@ -11,6 +11,7 @@ import '../collectors/sourcing.trend_1688';
 import '../collectors/sourcing.wing_catalog';
 import '../collectors/test.echo';
 import '../sites/1688';
+import '../sites/kidkids';
 import '../sites/mall-orders';
 import '../sites/product-page';
 import '../sites/sellpia';
@@ -53,6 +54,7 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
   it('몰 주문 kind에는 몰 키로 그 몰 사이트를 찾는 라우터를 주고, 라우터는 탭을 스스로 여는 사이트다', () => {
     const handle = createSiteHandles(deps)('orders.mall_orders', { tabId: null }) as { reader(mallKey: string): unknown };
     expect(keys(handle)).toEqual(['reader']);
+    expect(keys(handle.reader('kidkids'))).toEqual(['readOrders']);
     expect(handle.reader('no-such-mall')).toBeNull();
     expect(handle.reader('mall-orders')).toBeNull();
     expect(ownTabSites().has('mall-orders')).toBe(true);

@@ -31,7 +31,6 @@ const automaticCollectors = [
   'collectKkomangseOrders',
   'collectOnchannelOrders',
   'collectDomeggookOrders',
-  'collectKidkidsOrders',
   'collectLotteonOrders',
   'collectGsshopOrders',
   'collectAlwayzOrders',
@@ -46,7 +45,6 @@ const automaticCollectors = [
 // record, so its extension message intentionally carries only attemptId.
 const runDateActions = new Set([
   'collectKkomangseOrders',
-  'collectKidkidsOrders',
   'collectLotteonOrders',
   'collectGsshopOrders',
   'collectAlwayzOrders',

@@ -255,7 +255,6 @@ export function createBrowserMallCollector({
       kkomangse: 'collectKkomangseOrders',
       onch: 'collectOnchannelOrders',
       domeggook: 'collectDomeggookOrders',
-      kidkids: 'collectKidkidsOrders',
       'haebub-mall': 'collectHaebeopOrders',
       'lotte-on': 'collectLotteonOrders',
       'gs-shop': 'collectGsshopOrders',
@@ -490,39 +489,6 @@ export function createBrowserMallCollector({
       collectedRows: rows,
       mallKey: 'domeggook',
       mallName: '도매꾹',
-    });
-    return rows;
-  };
-
-  const generateKidkidsSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectKidkidsOrdersFromExtension, convertKidkidsToSellpiaFile } = await import(
-      './kidkids-orders-api'
-    );
-    await ensureMallLogin('kidkids', run);
-    // 발주서02는 출고예정등록 없이도 전체 데이터를 반환하므로 수집은 읽기 전용으로 둔다(planDate 미전달).
-    // 출고예정일 지정은 조작자가 출고관리 화면에서 직접 한다(그쪽이 몰이 제안한 출고일로 등록). 확장은
-    // planDate 를 받으면 미지정 주문에 한해 출고예정등록도 할 수 있으나, 실주문 상태변경이라 기본은 끈다.
-    const orders = await collectKidkidsOrdersFromExtension(undefined, run);
-    if (orders.length === 0) {
-      toastNoNewOrders(
-        '키드키즈',
-        '이미 출고처리한 주문은 출고관리 목록에서 빠집니다.',
-      );
-      return 0;
-    }
-    const result = await convertKidkidsToSellpiaFile(orders, { download: false, run });
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-kidkids-browser`,
-      sourceName: `키드키즈 주문 (${formatNumber(orders.length)}건)`,
-      convertedAt,
-      collectionDate: collectionDateOf(run),
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'kidkids',
-      mallName: '키드키즈',
     });
     return rows;
   };
@@ -865,7 +831,6 @@ export function createBrowserMallCollector({
     if (account.key === 'onch') return resultFor(await generateOnchannelSellpia(resolvedRun, today), today);
     if (account.key === 'kakao') return resultFor(await generateKakaoSellpia(resolvedRun), today);
     if (account.key === 'domeggook') return resultFor(await generateDomeggookSellpia(resolvedRun, today), today);
-    if (account.key === 'kidkids') return resultFor(await generateKidkidsSellpia(resolvedRun), today);
     if (account.key === 'lotte-on') return resultFor(await generateLotteonSellpia(resolvedRun), today);
     if (account.key === 'gs-shop') return resultFor(await generateGsshopSellpia(resolvedRun), today);
     if (account.key === 'always') return resultFor(await generateAlwayzSellpia(resolvedRun), today);

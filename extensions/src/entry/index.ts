@@ -13,6 +13,7 @@ import '../collectors/sourcing.wing_catalog';
 import '../collectors/test.echo';
 import '../sites/1688';
 import '../sites/coupang-search';
+import '../sites/kidkids';
 import '../sites/live-commerce';
 import '../sites/mall-orders';
 import '../sites/product-page';

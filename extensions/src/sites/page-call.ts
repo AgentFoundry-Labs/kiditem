@@ -34,7 +34,8 @@ export async function callPage<T>(page: TabPage, call: string, args: unknown, op
       guard: options.guard,
       inject: {
         isolated: [PAGE_CALL_BRIDGE_FILE, ...(options.isolated ?? [])],
-        main: [PAGE_CALL_RUNNER_FILE, ...(options.main ?? [])],
+        // MAIN world 처리기가 있을 때만 러너를 넣는다(ISOLATED 처리기는 브리지가 바로 부른다).
+        ...(options.main?.length ? { main: [PAGE_CALL_RUNNER_FILE, ...options.main] } : {}),
       },
     },
   );

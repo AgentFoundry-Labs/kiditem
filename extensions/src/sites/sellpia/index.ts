@@ -2,13 +2,13 @@ import { RuntimeError } from '../../core/errors';
 import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller';
 import { callPage } from '../page-call';
 import { registerSite } from '../registry';
-import { hostWithin, leftForOperator, type PageGuard, type TabPage, type TabPages } from '../tab-page';
+import { withFreshTab } from '../fresh-tab';
+import { hostWithin, type PageGuard, type TabPages } from '../tab-page';
 
 export const SELLPIA_ORIGIN = 'https://kiditem.sellpia.com';
 /** 송장 재출력 화면. 조회 요청(`delivery_link.action.html`)은 이 화면의 상대 주소다. */
 export const SELLPIA_REPRINT_URL = `${SELLPIA_ORIGIN}/order_delivery_reprint.html`;
 export const SELLPIA_SHIPMENT_TRACKING_FILE = 'content/orders/sellpia-shipment-tracking.js';
-const NAVIGATION_TIMEOUT_MS = 30_000;
 /** 옛 수집기의 주입 제한 시간과 같다. */
 const QUERY_TIMEOUT_MS = 60_000;
 const LOGIN_MESSAGE = '셀피아 로그인이 필요합니다. 열려 있는 셀피아 탭에서 로그인한 뒤 다시 조회해 주세요.';
@@ -42,24 +42,10 @@ type TrackingAnswer =
  * 탭 잠금은 서버 lockKey `resource:sellpia:login`이 하고, 이 사이트는 브라우저 자원에 origin을 두지 않는다(탭을 스스로 연다).
  */
 export function createSellpiaSite(tabs: TabPages) {
-  async function withPage<T>(url: string, read: (page: TabPage) => Promise<T>): Promise<T> {
-    const page = await tabs.open('about:blank');
-    let keepOpen = false;
-    try {
-      await page.navigate(url, { timeoutMs: NAVIGATION_TIMEOUT_MS });
-      return await read(page);
-    } catch (error) {
-      if (leftForOperator(error)) keepOpen = true;
-      throw error;
-    } finally {
-      if (!keepOpen) await page.close();
-    }
-  }
-
   return {
     /** 기간(송장번호채번일자) 안 전 몰 송장. 행은 주문번호·송장번호가 있는 것만, `total`은 셀피아가 준 목록 수. */
     shipmentTracking(input: { startDate: string; endDate: string }): Promise<{ rows: SellpiaTrackingRow[]; total: number }> {
-      return withPage(SELLPIA_REPRINT_URL, async (page) => {
+      return withFreshTab(tabs, SELLPIA_REPRINT_URL, async (page) => {
         const answer = await callPage<TrackingAnswer>(page, 'sellpia.shipmentTracking', { startDate: input.startDate, endDate: input.endDate }, {
           timeoutMs: QUERY_TIMEOUT_MS,
           guard: SELLPIA_PAGE_GUARD,

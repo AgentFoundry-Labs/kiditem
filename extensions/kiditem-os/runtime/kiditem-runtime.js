@@ -6545,8 +6545,85 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: COUPANG_SEARCH_SITE.name, create: (deps) => createCoupangSearchSite(deps.tabs, { sleep: deps.sleep }) });
 
+  // extensions/src/sites/fresh-tab.ts
+  var NAVIGATION_TIMEOUT_MS2 = 3e4;
+  async function withFreshTab(tabs, url, read, options = {}) {
+    const page = await tabs.open("about:blank");
+    let keepOpen = false;
+    try {
+      await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS2 });
+      return await read(page);
+    } catch (error) {
+      if (leftForOperator(error)) keepOpen = true;
+      throw error;
+    } finally {
+      if (!keepOpen) await page.close();
+    }
+  }
+
+  // extensions/src/sites/page-call.ts
+  var PAGE_CALL_BRIDGE_FILE = "content/page-call/bridge.js";
+  var PAGE_CALL_RUNNER_FILE = "content/page-call/runner.js";
+  var PAGE_CALL_MESSAGE = "KIDITEM_PAGE_CALL";
+  async function callPage(page, call2, args, options) {
+    const answer = await page.ask(
+      { type: PAGE_CALL_MESSAGE, call: call2, args },
+      {
+        timeoutMs: options.timeoutMs,
+        guard: options.guard,
+        inject: {
+          isolated: [PAGE_CALL_BRIDGE_FILE, ...options.isolated ?? []],
+          // MAIN world 처리기가 있을 때만 러너를 넣는다(ISOLATED 처리기는 브리지가 바로 부른다).
+          ...options.main?.length ? { main: [PAGE_CALL_RUNNER_FILE, ...options.main] } : {}
+        }
+      }
+    );
+    if (answer.ok === true) return answer.value;
+    if (answer.error === "timeout") {
+      throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC774 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "timeout", call: call2 });
+    }
+    throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC5D0\uC11C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, {
+      status: null,
+      reason: "page_error",
+      call: call2
+    });
+  }
+
+  // extensions/src/sites/kidkids/index.ts
+  var KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
+  var KIDKIDS_ORDERS_FILE = "content/orders/kidkids-orders.js";
+  var READ_TIMEOUT_MS = 18e4;
+  var LOGIN_MESSAGE = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var KIDKIDS_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["kidkids.net"]),
+    isLogin: (url) => hostWithin(url, ["kidkids.net"]) && (/login|partnerlogin|partner_login/i.test(url.pathname) || /\/security\/verify_user\.htm$/i.test(url.pathname)),
+    loginMessage: LOGIN_MESSAGE
+  };
+  function createKidkidsSite(tabs) {
+    return {
+      readOrders(input) {
+        return withFreshTab(tabs, KIDKIDS_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "kidkids.orders", { dateFilter: input.collectionDate ?? "" }, {
+            timeoutMs: READ_TIMEOUT_MS,
+            guard: KIDKIDS_PAGE_GUARD,
+            isolated: [KIDKIDS_ORDERS_FILE],
+            displayName: "\uD0A4\uB4DC\uD0A4\uC988"
+          });
+          if (answer?.status === "ok") return { rows: answer.orders };
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE, { url: KIDKIDS_ORDER_URL });
+          throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uB4DC\uD0A4\uC988 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
+            status: null,
+            reason: "page_error",
+            url: KIDKIDS_ORDER_URL
+          });
+        });
+      }
+    };
+  }
+  registerSite({ name: "kidkids", create: (deps) => createKidkidsSite(deps.tabs) });
+
   // extensions/src/sites/live-commerce/index.ts
-  var NAVIGATION_TIMEOUT_MS2 = 35e3;
+  var NAVIGATION_TIMEOUT_MS3 = 35e3;
   var EXTRACTION_TIMEOUT_MS2 = 25e3;
   var MAX_PRODUCTS = 100;
   var CONTENT_FILES = {
@@ -6586,14 +6663,14 @@ var KidItemRuntime = (() => {
         let keepOpen = false;
         try {
           const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
-          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS2, stopAt });
+          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt });
           for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
             const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
             if (!cleared) {
               keepOpen = true;
               throw verification2(landed);
             }
-            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS2, stopAt });
+            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt });
           }
           if (isLiveLoginUrl(landed)) {
             keepOpen = true;
@@ -6808,63 +6885,22 @@ var KidItemRuntime = (() => {
     }
   });
 
-  // extensions/src/sites/page-call.ts
-  var PAGE_CALL_BRIDGE_FILE = "content/page-call/bridge.js";
-  var PAGE_CALL_RUNNER_FILE = "content/page-call/runner.js";
-  var PAGE_CALL_MESSAGE = "KIDITEM_PAGE_CALL";
-  async function callPage(page, call2, args, options) {
-    const answer = await page.ask(
-      { type: PAGE_CALL_MESSAGE, call: call2, args },
-      {
-        timeoutMs: options.timeoutMs,
-        guard: options.guard,
-        inject: {
-          isolated: [PAGE_CALL_BRIDGE_FILE, ...options.isolated ?? []],
-          main: [PAGE_CALL_RUNNER_FILE, ...options.main ?? []]
-        }
-      }
-    );
-    if (answer.ok === true) return answer.value;
-    if (answer.error === "timeout") {
-      throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC774 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "timeout", call: call2 });
-    }
-    throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC5D0\uC11C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, {
-      status: null,
-      reason: "page_error",
-      call: call2
-    });
-  }
-
   // extensions/src/sites/sellpia/index.ts
   var SELLPIA_ORIGIN = "https://kiditem.sellpia.com";
   var SELLPIA_REPRINT_URL = `${SELLPIA_ORIGIN}/order_delivery_reprint.html`;
   var SELLPIA_SHIPMENT_TRACKING_FILE = "content/orders/sellpia-shipment-tracking.js";
-  var NAVIGATION_TIMEOUT_MS3 = 3e4;
   var QUERY_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE2 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
   var SELLPIA_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sellpia.com"]),
     isLogin: (url) => hostWithin(url, ["sellpia.com"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE
+    loginMessage: LOGIN_MESSAGE2
   };
   function createSellpiaSite(tabs) {
-    async function withPage(url, read) {
-      const page = await tabs.open("about:blank");
-      let keepOpen = false;
-      try {
-        await page.navigate(url, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
-        return await read(page);
-      } catch (error) {
-        if (leftForOperator(error)) keepOpen = true;
-        throw error;
-      } finally {
-        if (!keepOpen) await page.close();
-      }
-    }
     return {
       /** 기간(송장번호채번일자) 안 전 몰 송장. 행은 주문번호·송장번호가 있는 것만, `total`은 셀피아가 준 목록 수. */
       shipmentTracking(input) {
-        return withPage(SELLPIA_REPRINT_URL, async (page) => {
+        return withFreshTab(tabs, SELLPIA_REPRINT_URL, async (page) => {
           const answer = await callPage(page, "sellpia.shipmentTracking", { startDate: input.startDate, endDate: input.endDate }, {
             timeoutMs: QUERY_TIMEOUT_MS,
             guard: SELLPIA_PAGE_GUARD,
@@ -6875,7 +6911,7 @@ var KidItemRuntime = (() => {
             case "ok":
               return { rows: answer.rows, total: answer.total };
             case "login_required":
-              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE, { url: SELLPIA_REPRINT_URL });
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE2, { url: SELLPIA_REPRINT_URL });
             case "http_error":
               throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
                 status: answer.httpStatus,
