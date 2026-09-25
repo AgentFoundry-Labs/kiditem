@@ -121,7 +121,7 @@ function earlyResponse(outcome: RunOutcome): OperationStartResponse {
         details: { existing: outcome.existing },
       };
     case 'failed':
-      return { success: false, errorCode: outcome.errorCode, error: outcome.errorMessage };
+      return { success: false, errorCode: outcome.errorCode, error: outcome.errorMessage, ...(outcome.details ? { details: outcome.details } : {}) };
     case 'fence_lost':
       return { success: false, errorCode: 'OPERATION_FENCE_LOST', error: ERROR_DEFINITIONS.OPERATION_FENCE_LOST.text };
     case 'finished':

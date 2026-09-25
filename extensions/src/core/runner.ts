@@ -35,7 +35,8 @@ export type RunOutcome =
   /** `reused`: 409가 아니라 begin이 같은 idempotencyKey의 살아 있는 실행을 돌려줬다. */
   | { kind: 'already_running'; existing: OperationInProgressDetails | null; reused?: true }
   | { kind: 'fence_lost'; operationId: string; reason: string | null }
-  | { kind: 'failed'; operationId: string | null; errorCode: string; errorMessage: string };
+  /** `details`: begin 거절의 서버 details(예 `{reason: 'unknown_operation_kind'}`) — 입구가 웹앱까지 싣는다. */
+  | { kind: 'failed'; operationId: string | null; errorCode: string; errorMessage: string; details?: Record<string, unknown> };
 
 export interface RunnerDeps {
   client: OperationClient;
@@ -96,7 +97,7 @@ export function createRunner(deps: RunnerDeps, collectorFor: (kind: OperationKin
         const error = toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
         const stop = stopFor(error.code, error.details);
         if (stop.kind === 'already_running') return { kind: 'already_running', existing: stop.existing };
-        return { kind: 'failed', operationId: null, errorCode: error.code, errorMessage: error.message };
+        return { kind: 'failed', operationId: null, errorCode: error.code, errorMessage: error.message, ...(error.details ? { details: error.details } : {}) };
       }
       if (begun.reused) {
         // 살아 있는 같은 실행(같은 idempotencyKey)이다. 누가 돌리는지 모르므로(워커 재시작·다른 브라우저)

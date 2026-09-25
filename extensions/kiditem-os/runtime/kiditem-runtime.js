@@ -4672,7 +4672,7 @@ var KidItemRuntime = (() => {
           const error = toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
           const stop = stopFor(error.code, error.details);
           if (stop.kind === "already_running") return { kind: "already_running", existing: stop.existing };
-          return { kind: "failed", operationId: null, errorCode: error.code, errorMessage: error.message };
+          return { kind: "failed", operationId: null, errorCode: error.code, errorMessage: error.message, ...error.details ? { details: error.details } : {} };
         }
         if (begun.reused) {
           const { id: operationId, kind, lockKeys, startedAt, expiresAt } = begun.operation;
@@ -4895,7 +4895,7 @@ var KidItemRuntime = (() => {
           details: { existing: outcome.existing }
         };
       case "failed":
-        return { success: false, errorCode: outcome.errorCode, error: outcome.errorMessage };
+        return { success: false, errorCode: outcome.errorCode, error: outcome.errorMessage, ...outcome.details ? { details: outcome.details } : {} };
       case "fence_lost":
         return { success: false, errorCode: "OPERATION_FENCE_LOST", error: ERROR_DEFINITIONS.OPERATION_FENCE_LOST.text };
       case "finished":

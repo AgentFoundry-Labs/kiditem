@@ -33,7 +33,7 @@ function view(status: string, extra: Record<string, unknown> = {}) {
 const json = (status: number, body: unknown) => new Response(JSON.stringify(body), { status });
 
 /** 서버 경계(ApiPort) 가짜: 실행 계약 라우트를 흉내 내고 요청을 기록한다. chunk는 gate가 열릴 때까지 붙잡을 수 있다. */
-function fakeServer(options: { busy?: boolean; reused?: boolean } = {}) {
+function fakeServer(options: { busy?: boolean; reused?: boolean; unknownKind?: boolean } = {}) {
   const requests: Array<{ environmentId: string; method: string; path: string; body: unknown }> = [];
   let openGate!: () => void;
   let gate: Promise<void> | null = null;
@@ -46,6 +46,16 @@ function fakeServer(options: { busy?: boolean; reused?: boolean } = {}) {
       const body = init?.body ? JSON.parse(String(init.body)) : undefined;
       requests.push({ environmentId, method, path, body });
       if (method === 'POST' && path === '/api/operations') {
+        if (options.unknownKind) {
+          return json(400, {
+            statusCode: 400,
+            code: 'VALIDATION_FAILED',
+            kind: 'validation',
+            message: '입력값이 올바르지 않습니다.',
+            errors: [],
+            details: { reason: 'unknown_operation_kind' },
+          });
+        }
         if (options.busy) {
           return json(409, {
             statusCode: 409,
@@ -139,6 +149,20 @@ describe('operation.start · operation.cancel 입구', () => {
       errorCode: 'OPERATION_IN_PROGRESS',
       error: expect.any(String),
       details: { existing: RUNNING },
+    });
+  });
+
+  it('begin 거절의 details를 웹앱까지 그대로 싣는다(서버가 모르는 kind)', async () => {
+    const server = fakeServer({ unknownKind: true });
+    const actions = createOperationActions({ apiFor: server.apiFor, browser: orgOnlyBrowser() });
+
+    const response = await send(actions, { action: 'operation.start', kind: 'test.echo' });
+
+    expect(response).toEqual({
+      success: false,
+      errorCode: 'VALIDATION_FAILED',
+      error: '입력값이 올바르지 않습니다.',
+      details: { reason: 'unknown_operation_kind' },
     });
   });
 
