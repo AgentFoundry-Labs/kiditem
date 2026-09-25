@@ -373,6 +373,9 @@
       "source-import": [
         "dist/source-import.d.ts"
       ],
+      "operation": [
+        "dist/operation.d.ts"
+      ],
       "sellpia-inventory-freshness": [
         "dist/sellpia-inventory-freshness.d.ts"
       ],
