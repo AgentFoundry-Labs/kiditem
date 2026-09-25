@@ -1,8 +1,9 @@
 import { describe, expect, it } from 'vitest';
 import { planCatalogDetailTargets } from './catalog-detail-targets';
 
-const stored = (id: string, over: Partial<{ detailModifiedOn: string | null; status: string | null }> = {}) => ({
+const stored = (id: string, over: Partial<{ detailApplied: boolean; detailModifiedOn: string | null; status: string | null }> = {}) => ({
   externalProductId: id,
+  detailApplied: true,
   detailModifiedOn: '2026-09-01',
   status: 'APPROVED',
   ...over,
@@ -18,10 +19,18 @@ describe('planCatalogDetailTargets', () => {
         { externalProductId: 'nodetail', modifiedOn: '2026-09-01' },
         { externalProductId: 'nullnow', modifiedOn: null },
       ],
-      stored: [stored('unchanged'), stored('changed'), stored('nodetail', { detailModifiedOn: null }), stored('nullnow')],
+      stored: [stored('unchanged'), stored('changed'), stored('nodetail', { detailApplied: false, detailModifiedOn: null }), stored('nullnow')],
     });
     expect(plan.detailTargetProductIds).toEqual(['changed', 'new', 'nodetail', 'nullnow']);
     expect(plan.absentProductIds).toEqual([]);
+  });
+
+  it('a product Wing lists without modifiedOn is not re-targeted once its detail was applied with that null (KID-354 S3)', () => {
+    const plan = planCatalogDetailTargets({
+      listed: [{ externalProductId: 'nullboth', modifiedOn: null }, { externalProductId: 'nevernull', modifiedOn: null }],
+      stored: [stored('nullboth', { detailModifiedOn: null }), stored('nevernull', { detailApplied: false, detailModifiedOn: null })],
+    });
+    expect(plan.detailTargetProductIds).toEqual(['nevernull']);
   });
 
   it('a failed details stage needs no bookkeeping: its targets stay targets because detailModifiedOn did not advance', () => {

@@ -12,8 +12,10 @@ export type ListedCatalogProduct = {
 
 export type StoredCatalogListing = {
   externalProductId: string;
+  /** 상세를 반영한 적이 있는가. 값(`detailModifiedOn`)과 따로 둔다 — Wing이 `modifiedOn`을 주지 않는 상품도 있다. */
+  detailApplied: boolean;
   /**
-   * 마지막으로 상세를 반영했을 때의 목록 `modifiedOn`. 상세를 반영한 적이 없으면 `null`.
+   * 마지막으로 상세를 반영했을 때의 목록 `modifiedOn`(그때 목록에 없었으면 `null`).
    * 목록 단계는 이 값을 건드리지 않고 상세 단계 finalize만 올린다 — 그래서 실패한 상세 단계의 대상은
    * 다음 동기화가 자연히 다시 잡는다(KID-354: 별도 "못 끝낸 대상" 추적 없음).
    */
@@ -49,7 +51,7 @@ export function planCatalogDetailTargets(input: {
     if (listedIds.has(product.externalProductId)) continue;
     listedIds.add(product.externalProductId);
     const stored = storedById.get(product.externalProductId);
-    if (!stored || stored.detailModifiedOn === null || stored.detailModifiedOn !== product.modifiedOn) {
+    if (!stored || !stored.detailApplied || stored.detailModifiedOn !== product.modifiedOn) {
       targets.push(product.externalProductId);
     }
   }

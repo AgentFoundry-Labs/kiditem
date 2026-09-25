@@ -332,15 +332,22 @@ async function readStoredCatalogListings(
   tx: Prisma.TransactionClient,
   scope: CatalogAccountScope,
 ): Promise<StoredCatalogListing[]> {
-  const rows = await tx.$queryRaw<Array<{ externalId: string; status: string | null; detailModifiedOn: string | null }>>`
+  // `detail.modifiedOn` 키가 있으면(값이 null이어도) 상세를 반영한 적이 있다 — 상세 finalize만 이 키를 쓴다.
+  const rows = await tx.$queryRaw<Array<{ externalId: string; status: string | null; detailApplied: boolean; detailModifiedOn: string | null }>>`
     SELECT external_id AS "externalId",
            status,
+           COALESCE(jsonb_typeof(raw_json -> 'detail') = 'object' AND (raw_json -> 'detail') ? 'modifiedOn', FALSE) AS "detailApplied",
            raw_json -> 'detail' ->> 'modifiedOn' AS "detailModifiedOn"
     FROM channel_listings
     WHERE organization_id = ${scope.organizationId}::uuid
       AND channel_account_id = ${scope.channelAccountId}::uuid
   `;
-  return rows.map((row) => ({ externalProductId: row.externalId, detailModifiedOn: row.detailModifiedOn, status: row.status }));
+  return rows.map((row) => ({
+    externalProductId: row.externalId,
+    detailApplied: row.detailApplied,
+    detailModifiedOn: row.detailModifiedOn,
+    status: row.status,
+  }));
 }
 
 function remapsOf(

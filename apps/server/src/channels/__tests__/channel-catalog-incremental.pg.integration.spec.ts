@@ -457,6 +457,12 @@ describe('Wing catalog incremental browser sync over the operation contract (PG 
     await expect(runList(second)).resolves.toMatchObject({ detailTargetProductIds: [], absentProductIds: [], next: null });
   });
 
+  it('Wing이 modifiedOn을 주지 않는 상품도 상세를 한 번 반영하면 다음 동기화의 대상이 아니다(S3)', async () => {
+    await syncAll([{ id: 'P-NULL', modifiedOn: null }]);
+    await expect(detailSection('P-NULL')).resolves.toMatchObject({ modifiedOn: null });
+    await expect(runList([{ id: 'P-NULL', modifiedOn: null }])).resolves.toMatchObject({ detailTargetProductIds: [], next: null });
+  });
+
   const listingState = (id: string) => prisma.channelListing.findFirstOrThrow({
     where: { organizationId: ORG, channelAccountId, externalId: id },
     select: { status: true, isActive: true, options: { select: { isActive: true } } },
