@@ -1,7 +1,7 @@
 import { Module } from '@nestjs/common';
 import { DiscoveryModule } from '@nestjs/core';
 import { OperationsController } from './adapter/in/web/operations.controller';
-import { OperationRepositoryAdapter } from './adapter/out/persistence/operation.repository.adapter';
+import { OperationRepositoryAdapter } from './adapter/out/repository/operation.repository.adapter';
 import { OPERATION_PORT } from './application/port/in/operation.port';
 import { OPERATION_REPOSITORY } from './application/port/out/repository/operation.repository.port';
 import { OperationOwnerRegistry } from './application/service/operation-owner.registry';

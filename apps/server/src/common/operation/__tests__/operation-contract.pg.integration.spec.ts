@@ -22,7 +22,7 @@ import {
 } from '../../../test-helpers/real-prisma';
 import { GlobalExceptionFilter } from '../../filters/global-exception.filter';
 import { OperationsController } from '../adapter/in/web/operations.controller';
-import { OperationRepositoryAdapter } from '../adapter/out/persistence/operation.repository.adapter';
+import { OperationRepositoryAdapter } from '../adapter/out/repository/operation.repository.adapter';
 import { OPERATION_PORT } from '../application/port/in/operation.port';
 import type {
   JsonObject,
