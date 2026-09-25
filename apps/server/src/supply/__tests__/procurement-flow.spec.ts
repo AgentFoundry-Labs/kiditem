@@ -260,7 +260,7 @@ describe('ProcurementController purchase submission boundary', () => {
     const workbookExports = { listExportedPoLineIds: vi.fn().mockResolvedValue([]) };
     const controller = new Controller({}, {}, {}, workbookExports, catalog);
     const channelAccountId = '11111111-1111-4111-8111-111111111111';
-    const sourceImportRunId = '22222222-2222-4222-8222-222222222222';
+    const rocketPoOperationId = '22222222-2222-4222-8222-222222222222';
 
     await controller.handleAction(
       'organization-1',
@@ -282,7 +282,7 @@ describe('ProcurementController purchase submission boundary', () => {
       {
         action: 'loadSavedRocketCollection',
         channelAccountId,
-        sourceImportRunId,
+        rocketPoOperationId,
       } as never,
       undefined,
       undefined,
@@ -299,7 +299,7 @@ describe('ProcurementController purchase submission boundary', () => {
     expect(catalog.loadSavedCollection).toHaveBeenCalledWith({
       organizationId: 'organization-1',
       channelAccountId,
-      sourceImportRunId,
+      rocketPoOperationId,
     });
     expect(workbookExports.listExportedPoLineIds).toHaveBeenCalledWith({
       organizationId: 'organization-1',
@@ -313,7 +313,7 @@ describe('ProcurementController purchase submission boundary', () => {
       {
         action: 'loadSavedRocketCollection',
         channelAccountId,
-        sourceImportRunId,
+        rocketPoOperationId,
       } as never,
     )).resolves.toBe(snapshot);
     expect(workbookExports.listExportedPoLineIds).toHaveBeenCalledTimes(1);
@@ -334,7 +334,7 @@ describe('ProcurementController purchase submission boundary', () => {
     const request = {
       idempotencyKey: '11111111-1111-4111-8111-111111111111',
       channelAccountId: '22222222-2222-4222-8222-222222222222',
-      sourceImportRunId: '33333333-3333-4333-8333-333333333333',
+      rocketPoOperationId: '33333333-3333-4333-8333-333333333333',
       editedQuantities: {},
       shortageReasons: {},
       artifactFileName: 'coupang-rocket.xlsx',
@@ -475,7 +475,7 @@ describe('ProcurementController purchase submission boundary', () => {
       action: 'previewRocket',
       inventoryAttemptId: '99999999-9999-4999-8999-999999999999',
       channelAccountId: '11111111-1111-4111-8111-111111111111',
-      sourceImportRunId: '33333333-3333-4333-8333-333333333333',
+      rocketPoOperationId: '33333333-3333-4333-8333-333333333333',
       editedQuantities: {},
       clampEditedQuantities: true,
     };
@@ -491,7 +491,7 @@ describe('ProcurementController purchase submission boundary', () => {
       userId: 'authenticated-user',
       request: {
         channelAccountId: body.channelAccountId,
-        sourceImportRunId: body.sourceImportRunId,
+        rocketPoOperationId: body.rocketPoOperationId,
         inventoryAttemptId: body.inventoryAttemptId,
         editedQuantities: body.editedQuantities,
         clampEditedQuantities: true,
@@ -511,7 +511,7 @@ describe('ProcurementController purchase submission boundary', () => {
       action: 'previewRocket',
       inventoryAttemptId: '99999999-9999-4999-8999-999999999999',
       channelAccountId: '11111111-1111-4111-8111-111111111111',
-      sourceImportRunId: '33333333-3333-4333-8333-333333333333',
+      rocketPoOperationId: '33333333-3333-4333-8333-333333333333',
       editedQuantities: {},
       clampEditedQuantities: true,
     };

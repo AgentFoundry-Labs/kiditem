@@ -1,7 +1,10 @@
 import '../collectors/channels.wing_catalog_details';
 import '../collectors/channels.wing_catalog_excel';
 import '../collectors/channels.wing_catalog_list';
+import '../collectors/orders.coupang_directship';
 import '../collectors/orders.coupang_reviews';
+import '../collectors/orders.coupang_rocket_po';
+import '../collectors/orders.coupang_shipment_summary';
 import '../collectors/sourcing.coupang_keyword_suggestion';
 import '../collectors/sourcing.live_commerce';
 import '../collectors/sourcing.product_extension';
@@ -11,6 +14,7 @@ import '../collectors/sourcing.wing_catalog';
 import '../collectors/test.echo';
 import '../sites/1688';
 import '../sites/coupang-search';
+import '../sites/coupang-supplier';
 import '../sites/live-commerce';
 import '../sites/product-page';
 import '../sites/tiktok-cc';

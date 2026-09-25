@@ -1,13 +1,9 @@
-import type {
-  CoupangShipmentDateSummaryEntry,
-  ShipmentSummaryAttempt,
-  ShipmentSummaryAttemptRead,
-  ShipmentSummaryPlan,
-  ShipmentSummarySource,
-} from "../../../../domain/shipments/shipment-summary";
+import type { CoupangShipmentDateItem } from "@kiditem/shared/orders-operations";
+import type { OwnerTransaction } from "../../../../../common/owner-transaction";
+import type { CoupangShipmentDateSummaryEntry } from "../../../../domain/shipments/shipment-summary";
 
 /** Shipment-date facts `read/coupang-shipment-date-summary.reader.ts` returns. */
-export type { CoupangShipmentDateSummaryEntry, ShipmentSummaryPlan };
+export type { CoupangShipmentDateSummaryEntry };
 
 export const COUPANG_SHIPMENTS_PORT = Symbol("CoupangShipmentsPort");
 
@@ -52,19 +48,6 @@ export type CoupangShipmentResolvedFile = {
   sizeBytes: number;
 };
 
-export type ShipmentSummarySubmission = {
-  items: Array<{ date: string; count: number; boxes: number }>;
-  scannedPages: number;
-  totalRows: number;
-  proof: {
-    maxPages: number;
-    validatedTable: boolean;
-    stopReason: "empty_page" | "short_page" | "max_pages";
-    lastPageRowCount: number;
-    pageRowCounts: number[];
-  };
-};
-
 export type CoupangShipmentDateSummaryResult = {
   items: CoupangShipmentDateSummaryEntry[];
 };
@@ -78,38 +61,12 @@ export interface CoupangShipmentsPort {
   listDateSummary(
     organizationId: string,
   ): Promise<CoupangShipmentDateSummaryResult>;
-  beginSummary(
-    organizationId: string,
-    idempotencyKey: string,
-    maxPages?: number,
-  ): Promise<ShipmentSummaryAttempt>;
-  readSummarySource(
-    organizationId: string,
-    maxPages?: number,
-  ): Promise<ShipmentSummarySource>;
-  readSummaryAttempt(
-    organizationId: string,
-    attemptId: string,
-  ): Promise<ShipmentSummaryAttemptRead>;
-  completeSummary(
-    organizationId: string,
-    attemptId: string,
-    attemptToken: string,
-    input: ShipmentSummarySubmission,
-  ): Promise<ShipmentSummaryAttempt>;
-  failSummary(
-    organizationId: string,
-    attemptId: string,
-    attemptToken: string,
-    code: string,
-    message: string,
-  ): Promise<ShipmentSummaryAttempt>;
   /**
-   * Operator stop without the attempt token; a terminal attempt is returned
-   * unchanged. The page calls it, so the answer carries no fence token.
+   * 실행 `orders.coupang_shipment_summary`의 finalize가 finish 트랜잭션(`tx`) 안에서 부른다. 검증을 통과한
+   * 발송일을 그 실행의 행으로 쓴다(ADR-0025: 원장은 finish 트랜잭션에서만).
    */
-  cancelSummary(
-    organizationId: string,
-    attemptId: string,
-  ): Promise<Omit<ShipmentSummaryAttempt, "attemptToken">>;
+  publishSummaryOperation(
+    tx: OwnerTransaction,
+    input: { organizationId: string; operationId: string; items: readonly CoupangShipmentDateItem[] },
+  ): Promise<{ dates: number }>;
 }

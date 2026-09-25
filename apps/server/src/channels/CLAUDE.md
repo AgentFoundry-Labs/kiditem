@@ -184,7 +184,8 @@ sync, registration, matching, and capacity behavior is executable in
   is the mall's own seller code when the mall shows one, so matching may also
   link by the option name. Its list carries no barcode or model number column.
   Statuses come from the mall itself and fold without a Sabangnet warning.
-- Orders owns Rocket PO attempts, snapshots and lines. It publishes observed
+- Orders owns Rocket PO collection (operation kind `orders.coupang_rocket_po`),
+  snapshots and lines. It publishes observed
   listing identity through Channels' catalog capability in its transaction;
   preserve the issued owner transaction handle rather than casting a DB client.
   Supply owns purchase judgment; Channels never applies mall stockout policy to

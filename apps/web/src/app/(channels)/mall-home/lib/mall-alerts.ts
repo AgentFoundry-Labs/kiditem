@@ -32,7 +32,6 @@ const MALL_SOURCE_TYPES = new Map<string, string | null>([
   ['order_collection_mall', null],
   ['coupang_shipment_summary', 'rocket'],
   ['coupang_rocket_po_catalog', 'rocket'],
-  ['coupang_rocket_final_order', 'coupang-direct'],
   ['coupang_direct_order_capture', 'coupang-direct'],
   ['coupang_wing_traffic', 'coupang'],
   ['coupang_wing_itemwinner', 'coupang'],

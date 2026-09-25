@@ -12,7 +12,8 @@ import { RocketFinalOrderReconciliationTransactionAdapter } from '../adapter/out
 
 const CHANNEL_ACCOUNT_ID = '41000000-0000-4000-8000-000000000001';
 const SKU_ID = '41000000-0000-4000-8000-000000000002';
-let finalImportRunId: string;
+/** 최종주문을 관측한 Orders 직배송 실행(`orders.coupang_directship`, KID-359). */
+let directshipOperationId: string;
 
 describe('Rocket final-order reconciliation transaction (PG)', () => {
   let prisma: PrismaClient;
@@ -45,17 +46,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
         lastVerifiedAt: new Date(),
       },
     });
-    finalImportRunId = (await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: CHANNEL_ACCOUNT_ID,
-        sourceType: 'coupang_rocket_final_order',
-        fileName: 'final-order.json',
-        fileHash: randomUUID(),
-        status: 'running',
-        createdBy: TEST_USER_ID,
-      },
-    })).id;
+    directshipOperationId = randomUUID();
   });
 
   it('links the collected order and creates one stable transmission intent key idempotently', async () => {
@@ -67,7 +58,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
     const linked = await prisma.rocketPurchaseConfirmationLine.findFirstOrThrow();
     const replay = await prisma.$transaction((tx) => adapter.reconcile({ ...input, transaction: tx }));
 
-    const expectedIntentKey = `rocket-final-order:${finalImportRunId}:shipment`;
+    const expectedIntentKey = `rocket-final-order:${directshipOperationId}:shipment`;
     expect(first).toEqual({
       exportId,
       transmissionIntentKey: expectedIntentKey,
@@ -89,7 +80,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
     expect(await prisma.rocketPurchaseConfirmationTransmission.findMany()).toEqual([
       expect.objectContaining({
         confirmationId: exportId,
-        sourceImportRunId: finalImportRunId,
+        directshipOperationId,
         transport: 'SHIPMENT',
         intentKey: expectedIntentKey,
       }),
@@ -113,7 +104,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
 
     expect(result).toEqual({
       exportId: null,
-      transmissionIntentKey: `rocket-final-order:${finalImportRunId}:shipment`,
+      transmissionIntentKey: `rocket-final-order:${directshipOperationId}:shipment`,
       reconciledRows: 0,
       unmatchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
     });
@@ -134,7 +125,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
 
     expect(result).toEqual({
       exportId: null,
-      transmissionIntentKey: `rocket-final-order:${finalImportRunId}:shipment`,
+      transmissionIntentKey: `rocket-final-order:${directshipOperationId}:shipment`,
       reconciledRows: 0,
       unmatchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
     });
@@ -149,7 +140,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
       organizationId: TEST_ORGANIZATION_ID,
       userId: TEST_USER_ID,
       channelAccountId: CHANNEL_ACCOUNT_ID,
-      sourceImportRunId: finalImportRunId,
+      directshipOperationId,
       transport: 'SHIPMENT',
       transaction: tx,
       lines: [
@@ -172,7 +163,7 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
 
     expect(result).toEqual({
       exportId,
-      transmissionIntentKey: `rocket-final-order:${finalImportRunId}:shipment`,
+      transmissionIntentKey: `rocket-final-order:${directshipOperationId}:shipment`,
       reconciledRows: 1,
       unmatchedLines: [{ poNumber: 'PO-2', productNo: 'P-2' }],
     });
@@ -238,21 +229,11 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
   });
 
   async function seedRequest(quantity: number, barcode: string | null) {
-    const sourceRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: CHANNEL_ACCOUNT_ID,
-        sourceType: 'coupang_rocket_po_catalog',
-        fileName: 'request.json',
-        fileHash: randomUUID(),
-        status: 'completed',
-      },
-    });
     const confirmation = await prisma.rocketPurchaseConfirmation.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: CHANNEL_ACCOUNT_ID,
-        sourceImportRunId: sourceRun.id,
+        rocketPoOperationId: randomUUID(),
         idempotencyKey: randomUUID(),
         requestHash: 'a'.repeat(64),
         freshnessGeneration: 1n,
@@ -288,21 +269,11 @@ describe('Rocket final-order reconciliation transaction (PG)', () => {
 
   // AMBIGUOUS 는 findMany 매칭 시점(커밋 이전)에 판별되므로 확정 라인만 있으면 재현된다.
   async function seedConfirmationLineOnly(barcode: string | null) {
-    const sourceRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: CHANNEL_ACCOUNT_ID,
-        sourceType: 'coupang_rocket_po_catalog',
-        fileName: 'request.json',
-        fileHash: randomUUID(),
-        status: 'completed',
-      },
-    });
     const confirmation = await prisma.rocketPurchaseConfirmation.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: CHANNEL_ACCOUNT_ID,
-        sourceImportRunId: sourceRun.id,
+        rocketPoOperationId: randomUUID(),
         idempotencyKey: randomUUID(),
         requestHash: 'a'.repeat(64),
         freshnessGeneration: 1n,
@@ -334,7 +305,7 @@ function reconciliationInput(
     organizationId: TEST_ORGANIZATION_ID,
     userId: TEST_USER_ID,
     channelAccountId: CHANNEL_ACCOUNT_ID,
-    sourceImportRunId: finalImportRunId,
+    directshipOperationId,
     transport: 'SHIPMENT' as const,
     lines: [{
       finalOrderLineId,

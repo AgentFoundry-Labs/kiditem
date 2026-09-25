@@ -137,7 +137,7 @@ export function RocketConfirmPanel({
   channelAccountId,
   from,
   to,
-  selectedSourceImportRunId,
+  selectedRocketPoOperationId,
   selectedDate: selectedDateProp,
   selectedDateSourceRunCount,
   onActivity,
@@ -182,7 +182,7 @@ export function RocketConfirmPanel({
 
   useEffect(() => {
     setEditingRecipePoLineId(null);
-  }, [channelAccountId, selectedDate, selectedSourceImportRunId]);
+  }, [channelAccountId, selectedDate, selectedRocketPoOperationId]);
   const {
     editedQuantities,
     setReviewedQuantity,
@@ -208,7 +208,7 @@ export function RocketConfirmPanel({
     channelAccountId,
     from,
     to,
-    savedSourceImportRunId: selectedSourceImportRunId,
+    savedRocketPoOperationId: selectedRocketPoOperationId,
     selectedDeliveryDate: selectedDate || undefined,
     onActivity,
   });
@@ -542,8 +542,8 @@ export function RocketConfirmPanel({
               미리보기 · 편집{" "}
               <span className="text-xs font-normal text-slate-400">
                 {previewRangeLabel} · 발주 {poCount}건 · {rows.length}행
-                {selectedSourceImportRunId
-                  ? ` · 수집본 ${selectedSourceImportRunId.slice(0, 8)}`
+                {selectedRocketPoOperationId
+                  ? ` · 수집본 ${selectedRocketPoOperationId.slice(0, 8)}`
                   : ""}
               </span>
             </div>

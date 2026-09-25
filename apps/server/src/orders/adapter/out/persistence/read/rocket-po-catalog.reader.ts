@@ -1,34 +1,23 @@
-import { Prisma, type SourceImportRun } from "@prisma/client";
+import type { Prisma } from "@prisma/client";
 import {
   ROCKET_CONFIRMATION_REQUEST_STATUSES,
   RocketPoCollectionEvidenceSchema,
-  RocketPoSourcePlanSchema,
   type RocketPoCatalogRow,
-  type RocketPoCoverage,
-  type RocketPoSource,
   type RocketSavedPoSnapshot,
   type RocketSavedPoSummary,
 } from "@kiditem/shared/rocket-purchase-preview";
-import {
-  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-  SOURCE_IMPORT_RUN_FAILED_STATUS,
-  SOURCE_IMPORT_RUN_RUNNING_STATUS,
-} from "@kiditem/shared/source-import";
-import { deriveSourceReadiness } from "@kiditem/shared/source-readiness";
-import {
-  businessDateKey,
-  evidenceCutoffDate,
-  kstBusinessDate,
-  parseBusinessDate,
-} from "../../../../../common/kst";
-import type { ChannelAccountPort } from '../../../../../channels/application/port/in/account/channel-account.port';
+import { businessDateKey, parseBusinessDate } from "../../../../../common/kst";
 import type { ChannelListingQueryPort } from '../../../../../channels/application/port/in/listing/channel-listing-query.port';
 import { ownerTransaction } from '../../../../../prisma/owner-transaction';
 import { FactConflictError } from "../../../../../common/errors/fact-errors";
+import type { RocketPoCompleteCollection } from '../../../../application/port/in/rocket-po-catalog.port';
 
-import { ROCKET_PO_CATALOG_SOURCE_TYPE, ROCKET_PO_CATALOG_PARSER_VERSION, type RocketPoCompleteCollection } from '../../../../application/port/in/rocket-po-catalog.port';
-export { ROCKET_PO_CATALOG_SOURCE_TYPE, ROCKET_PO_CATALOG_PARSER_VERSION, type RocketPoCompleteCollection, type RocketPoCatalogIdentity } from '../../../../application/port/in/rocket-po-catalog.port';
-
+/**
+ * Orders' transaction-aware reader for the Rocket PO ledger (KID-359). A snapshot with `operationId` exists only
+ * for a succeeded `orders.coupang_rocket_po` operation (it is written inside the finish transaction), so the
+ * account's current collection is its newest such snapshot. Old attempt snapshots (`sourceImportRunId`) are not
+ * read (ADR-0025: old rows are not migrated).
+ */
 const savedLineSelect = {
   poLineId: true,
   poNumber: true,
@@ -54,64 +43,6 @@ const savedLineSelect = {
   xdock: true,
 } satisfies Prisma.RocketPoCatalogLineSelect;
 
-type RocketPoAttemptRow = Pick<
-  SourceImportRun,
-  | "id"
-  | "channelAccountId"
-  | "status"
-  | "freshnessGeneration"
-  | "plan"
-  | "expiresAt"
-  | "importedAt"
-  | "errorCode"
-  | "errorMessage"
->;
-
-/** Orders' transaction-aware reader for the Rocket PO source ledger. */
-export async function readRocketPoSource(
-  tx: Prisma.TransactionClient,
-  input: { organizationId: string; channelAccountId: string; now?: Date },
-  accountPort: Pick<ChannelAccountPort, 'readProviderIdentities'>,
-): Promise<RocketPoSource | null> {
-  const accounts = await accountPort.readProviderIdentities(ownerTransaction(tx), {
-    organizationId: input.organizationId, channel: 'rocket', accountIds: [input.channelAccountId],
-  });
-  if (accounts.length !== 1) return null;
-  const where = {
-    organizationId: input.organizationId,
-    channelAccountId: input.channelAccountId,
-    sourceType: ROCKET_PO_CATALOG_SOURCE_TYPE,
-    parserVersion: ROCKET_PO_CATALOG_PARSER_VERSION,
-  } as const;
-  const [latest, complete] = await Promise.all([
-    tx.sourceImportRun.findFirst({
-      where,
-      orderBy: { freshnessGeneration: "desc" },
-    }),
-    tx.sourceImportRun.findFirst({
-      where: { ...where, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
-      orderBy: { freshnessGeneration: "desc" },
-    }),
-  ]);
-  const now = input.now ?? new Date();
-  const latestAttempt = latest ? publicAttempt(latest, now) : null;
-  const latestComplete = complete ? publicAttempt(complete, now) : null;
-  const actualCutoff = complete?.importedAt
-    ? businessDateKey(kstBusinessDate(complete.importedAt))
-    : null;
-  const requiredCutoff = businessDateKey(evidenceCutoffDate(now));
-  return {
-    ready: deriveSourceReadiness({
-      latestAttempt,
-      latestComplete: latestComplete ? { actualCutoff } : null,
-      requiredCutoff,
-    }).ready,
-    latestAttempt,
-    latestComplete,
-    latestCompleteCoverage: complete ? coverageOf(complete) : null,
-  };
-}
-
 export async function readCurrentRocketPos(
   tx: Prisma.TransactionClient,
   input: {
@@ -122,16 +53,14 @@ export async function readCurrentRocketPos(
     status?: string;
   },
 ): Promise<RocketSavedPoSummary[]> {
-  const current = await tx.sourceImportRun.findFirst({
+  const current = await tx.rocketPoCatalogSnapshot.findFirst({
     where: {
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
-      sourceType: ROCKET_PO_CATALOG_SOURCE_TYPE,
-      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-      parserVersion: ROCKET_PO_CATALOG_PARSER_VERSION,
+      operationId: { not: null },
     },
-    orderBy: { freshnessGeneration: "desc" },
-    select: { id: true, importedAt: true },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
   });
   if (!current) return [];
   const isConfirmationRequest = input.status
@@ -146,9 +75,8 @@ export async function readCurrentRocketPos(
     : undefined;
   const snapshot = await tx.rocketPoCatalogSnapshot.findFirst({
     where: {
+      id: current.id,
       organizationId: input.organizationId,
-      channelAccountId: input.channelAccountId,
-      sourceImportRunId: current.id,
       lines: {
         some: {
           plannedDeliveryDate: { gte: day(input.from), lte: day(input.to) },
@@ -157,7 +85,7 @@ export async function readCurrentRocketPos(
       },
     },
     select: {
-      sourceImportRunId: true,
+      operationId: true,
       vendorId: true,
       createdAt: true,
       lines: {
@@ -191,7 +119,7 @@ export async function readCurrentRocketPos(
     .map(([poNumber, lines]) => {
       const first = lines[0]!;
       return {
-        sourceImportRunId: snapshot.sourceImportRunId,
+        rocketPoOperationId: snapshot.operationId!,
         poNumber,
         orderedAt: first.poRegisteredAt ?? "",
         plannedDeliveryDate: isoDay(first.plannedDeliveryDate),
@@ -203,9 +131,7 @@ export async function readCurrentRocketPos(
         skuCount: lines.length,
         orderQuantity: lines.reduce((sum, line) => sum + line.orderQty, 0),
         orderAmount: sumConfirmedTotals(lines),
-        collectedAt: (
-          current.importedAt ?? snapshot.createdAt
-        ).toISOString(),
+        collectedAt: snapshot.createdAt.toISOString(),
       } satisfies RocketSavedPoSummary;
     })
     .sort(
@@ -220,40 +146,29 @@ export async function readRocketPoSnapshot(
   input: {
     organizationId: string;
     channelAccountId: string;
-    sourceImportRunId: string;
+    rocketPoOperationId: string;
   },
 ): Promise<RocketSavedPoSnapshot | null> {
-  const source = await tx.sourceImportRun.findFirst({
-    where: { id: input.sourceImportRunId, organizationId: input.organizationId,
-      channelAccountId: input.channelAccountId, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-      sourceType: ROCKET_PO_CATALOG_SOURCE_TYPE, parserVersion: ROCKET_PO_CATALOG_PARSER_VERSION },
-    select: { qualityReport: true },
-  });
-  if (!source) return null;
-  const snapshot = await tx.rocketPoCatalogSnapshot.findFirst({
-    where: {
-      organizationId: input.organizationId,
-      channelAccountId: input.channelAccountId,
-      sourceImportRunId: input.sourceImportRunId,
-    },
-    select: {
-      sourceImportRunId: true,
-      channelAccountId: true,
-      collectionRunId: true,
-      vendorId: true,
-      listPagesRead: true,
-      totalListPages: true,
-      detailPoCount: true,
-      lines: { orderBy: { poLineId: "asc" }, select: savedLineSelect },
-    },
-  });
-  if (!snapshot) return null;
+  const saved = await readPublishedSnapshot(tx, input);
+  if (!saved) return null;
   return {
-    sourceImportRunId: snapshot.sourceImportRunId,
-    channelAccountId: snapshot.channelAccountId,
-    collection: collectionEvidence(snapshot, source.qualityReport),
-    rows: snapshot.lines.map(toCatalogRow),
+    rocketPoOperationId: input.rocketPoOperationId,
+    channelAccountId: saved.channelAccountId,
+    collection: collectionEvidence(saved),
+    rows: saved.lines.map(toCatalogRow),
   };
+}
+
+/** 그 계정의 발행된 수집인가(호출자 트랜잭션 안, Supply 워크북 확정의 펜스). */
+export async function rocketPoSnapshotExists(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string; channelAccountId: string; rocketPoOperationId: string },
+): Promise<boolean> {
+  const found = await tx.rocketPoCatalogSnapshot.findFirst({
+    where: { organizationId: input.organizationId, channelAccountId: input.channelAccountId, operationId: input.rocketPoOperationId },
+    select: { id: true },
+  });
+  return found !== null;
 }
 
 export async function readRocketPoCompleteCollection(
@@ -261,34 +176,49 @@ export async function readRocketPoCompleteCollection(
   input: {
     organizationId: string;
     channelAccountId: string;
-    sourceImportRunId: string;
+    rocketPoOperationId: string;
   },
   listings: Pick<ChannelListingQueryPort, 'readExternalIdentities'>,
 ): Promise<RocketPoCompleteCollection | null> {
-  const run = await tx.sourceImportRun.findFirst({
+  const saved = await readPublishedSnapshot(tx, input);
+  if (!saved) return null;
+  const rows = saved.lines.map(toCatalogRow);
+  return {
+    rocketPoOperationId: input.rocketPoOperationId,
+    channelAccountId: saved.channelAccountId,
+    collection: collectionEvidence(saved),
+    rows,
+    catalog: {
+      rocketPoOperationId: input.rocketPoOperationId,
+      channelAccountId: input.channelAccountId,
+      actualCutoffAt: saved.createdAt.toISOString(),
+      rowCount: rows.length,
+    },
+    identities: await resolveIdentities(tx, { ...input, rows }, listings),
+  };
+}
+
+function readPublishedSnapshot(
+  tx: Prisma.TransactionClient,
+  input: { organizationId: string; channelAccountId: string; rocketPoOperationId: string },
+) {
+  return tx.rocketPoCatalogSnapshot.findFirst({
     where: {
-      id: input.sourceImportRunId,
       organizationId: input.organizationId,
       channelAccountId: input.channelAccountId,
-      sourceType: ROCKET_PO_CATALOG_SOURCE_TYPE,
-      parserVersion: ROCKET_PO_CATALOG_PARSER_VERSION,
-      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
+      operationId: input.rocketPoOperationId,
+    },
+    select: {
+      channelAccountId: true,
+      collectionRunId: true,
+      vendorId: true,
+      listPagesRead: true,
+      totalListPages: true,
+      detailPoCount: true,
+      createdAt: true,
+      lines: { orderBy: { poLineId: "asc" }, select: savedLineSelect },
     },
   });
-  if (!run || !run.importedAt) return null;
-  const saved = await readRocketPoSnapshot(tx, input);
-  if (!saved) return null;
-  return {
-    ...saved,
-    catalog: {
-      sourceImportRunId: run.id,
-      channelAccountId: input.channelAccountId,
-      generation: String(run.freshnessGeneration),
-      actualCutoffAt: run.importedAt.toISOString(),
-      rowCount: run.rowCount,
-    },
-    identities: await resolveIdentities(tx, { ...input, rows: saved.rows }, listings),
-  };
 }
 
 function collectionEvidence(snapshot: {
@@ -297,15 +227,7 @@ function collectionEvidence(snapshot: {
   listPagesRead: number;
   totalListPages: number;
   detailPoCount: number;
-}, qualityReport: Prisma.JsonValue | null) {
-  const report = objectValue(qualityReport);
-  const parsed = RocketPoCollectionEvidenceSchema.safeParse(report?.collection);
-  if (
-    parsed.success &&
-    parsed.data.collectionRunId === snapshot.collectionRunId
-  ) {
-    return parsed.data;
-  }
+}) {
   return RocketPoCollectionEvidenceSchema.parse({
     collectionRunId: snapshot.collectionRunId,
     vendorId: snapshot.vendorId,
@@ -410,38 +332,6 @@ async function resolveIdentities(
   });
 }
 
-/** 발행 run 이 적은 coverage 날짜. 한쪽이라도 없으면 기간을 모른다(ADR-0006). */
-function coverageOf(
-  run: Pick<SourceImportRun, "coverageStartDate" | "coverageEndDate">,
-): RocketPoCoverage | null {
-  if (!run.coverageStartDate || !run.coverageEndDate) return null;
-  return { from: isoDay(run.coverageStartDate), to: isoDay(run.coverageEndDate) };
-}
-
-function publicAttempt(run: RocketPoAttemptRow, now: Date) {
-  const isExpired =
-    run.status === SOURCE_IMPORT_RUN_RUNNING_STATUS &&
-    (!run.expiresAt || run.expiresAt.getTime() <= now.getTime());
-  return {
-    attemptId: run.id,
-    channelAccountId: run.channelAccountId!,
-    state:
-      isExpired || run.status === SOURCE_IMPORT_RUN_FAILED_STATUS
-        ? ("FAILED" as const)
-        : run.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
-          ? ("COMPLETE" as const)
-          : ("RUNNING" as const),
-    generation: String(run.freshnessGeneration),
-    plan: RocketPoSourcePlanSchema.parse(run.plan),
-    expiresAt: run.expiresAt!.toISOString(),
-    actualCutoffAt: run.importedAt?.toISOString() ?? null,
-    errorCode: isExpired ? "ATTEMPT_EXPIRED" : run.errorCode,
-    errorMessage: isExpired
-      ? "로켓 PO 수집 시간이 만료되었습니다. 다시 수집해주세요."
-      : run.errorMessage,
-  };
-}
-
 function requiredSavedValue<T>(value: T | null, field: string): T {
   if (value === null) {
     throw new FactConflictError(
@@ -449,14 +339,6 @@ function requiredSavedValue<T>(value: T | null, field: string): T {
     );
   }
   return value;
-}
-
-function objectValue(
-  value: Prisma.JsonValue | null,
-): Record<string, Prisma.JsonValue> | null {
-  return value !== null && typeof value === "object" && !Array.isArray(value)
-    ? (value as Record<string, Prisma.JsonValue>)
-    : null;
 }
 
 function day(value: string): Date {

@@ -34,9 +34,11 @@ import { SellpiaShipmentTrackingSourceController } from './adapter/in/web/sellpi
 import { SellpiaShipmentTrackingSourceRepository } from './adapter/out/repository/sellpia-shipment-tracking-source.repository';
 import { SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT } from './application/port/in/sellpia-shipment-tracking-source.port';
 import { CoupangReviewsOperationOwner } from './adapter/in/operation/coupang-reviews-operation-owner';
+import { CoupangDirectshipOperationOwner } from './adapter/in/operation/coupang-directship-operation-owner';
+import { OperationModule } from '../common/operation/operation.module';
 
 @Module({
-  imports: [RocketPoSourceModule, ChannelCatalogModule, AlertsModule, PrismaModule, SupplyModule, ShipmentsModule, ProductSourceModule],
+  imports: [RocketPoSourceModule, ChannelCatalogModule, AlertsModule, PrismaModule, SupplyModule, ShipmentsModule, ProductSourceModule, OperationModule],
   controllers: [
     OrdersController,
     OrderCollectionController,
@@ -62,6 +64,7 @@ import { CoupangReviewsOperationOwner } from './adapter/in/operation/coupang-rev
     OrderCollectionSourceRepository,
     SellpiaShipmentTrackingSourceRepository,
     CoupangReviewsOperationOwner,
+    CoupangDirectshipOperationOwner,
     {
       provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
       useExisting: CoupangDirectOrderCollectionService,

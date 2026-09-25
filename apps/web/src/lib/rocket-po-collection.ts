@@ -1,116 +1,148 @@
 'use client';
 
-import {
-  RocketPoSourceAttemptSchema,
-  RocketPoSourceBeginSchema,
-  RocketPoSourceSchema,
-  type RocketPoSource,
-} from '@kiditem/shared/rocket-purchase-preview';
+// 쿠팡 로켓 PO 수집 = 실행 kind `orders.coupang_rocket_po`(ADR-0025, KID-359). 서버 owner가 begin에서 공급자 기대값을
+// 고정하고 finish 트랜잭션에서만 스냅샷을 발행한다. 웹은 확장에 `operation.start`만 보내고, 진행·완료는
+// `GET /api/operations`를 계정별로 나눠 본다. 발행된 수집은 실행 ID(`rocketPoOperationId`)로 Supply가 읽는다.
+
+import { businessDateKey, evidenceCutoffDate, kstBusinessDate } from '@kiditem/shared/common';
+import { OperationListResponseSchema, type OperationListResponse, type OperationView } from '@kiditem/shared/operation';
+import { COUPANG_ROCKET_PO_KIND, CoupangRocketPoScopeSchema } from '@kiditem/shared/orders-operations';
 import type { QueryKey } from '@tanstack/react-query';
-import type {
-  CollectionSourceAdapter,
-  CollectionStartOutcome,
-} from '@/hooks/use-collection-source-control';
+import { z } from 'zod';
+import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { handOffToExtensionRun, startWebOpenedCollection } from '@/lib/collection-start';
-import { detectOrderCollectionExtensionRuntime } from '@/lib/extension-bridge';
+import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
 import { queryKeys } from '@/lib/query-keys';
 
-const BASE = '/api/channels/rocket-po';
 const RUNNING_POLL_MS = 2_000;
-const ROCKET_PO_CAPABILITY = 'coupangRocketPoSourceOwnerV1';
+/** 조직의 최근 로켓 PO 실행 몇 개(진행 중·마지막 실행). 계정마다 나눠 본다. */
+const RECENT_LIMIT = 5;
+/**
+ * 성공한 실행은 따로 더 넓게 읽는다(리뷰 M1): 실패·취소가 최근 창을 채워도 계정의 마지막 성공이 밀려나지 않게.
+ */
+const SUCCEEDED_LIMIT = 20;
+const OPERATIONS_PATH = `/api/operations?kinds=${COUPANG_ROCKET_PO_KIND}&limit=${RECENT_LIMIT}`;
+const SUCCEEDED_PATH = `/api/operations?kinds=${COUPANG_ROCKET_PO_KIND}&status=succeeded&limit=${SUCCEEDED_LIMIT}`;
+
+/** 최근 실행과 성공한 실행을 한 목록으로(실행 ID로 겹침을 없애고 시작 시각 최근 순). */
+export async function readRocketPoOperations(): Promise<OperationListResponse> {
+  const [recent, succeeded] = await Promise.all([
+    apiClient.get(OPERATIONS_PATH).then((value) => OperationListResponseSchema.parse(value)),
+    apiClient.get(SUCCEEDED_PATH).then((value) => OperationListResponseSchema.parse(value)),
+  ]);
+  const byId = new Map<string, OperationView>();
+  for (const operation of [...recent.operations, ...succeeded.operations]) byId.set(operation.id, operation);
+  const operations = [...byId.values()].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+  return { ...recent, operations };
+}
 
 export type RocketPoCollectionRange = Readonly<{ from: string; to: string }>;
 
-export function loadRocketPoSource(channelAccountId: string): Promise<RocketPoSource> {
-  return apiClient.getParsed(
-    `${BASE}/source?channelAccountId=${encodeURIComponent(channelAccountId)}`,
-    RocketPoSourceSchema,
-  );
+const PlanRangeSchema = z.object({ from: z.string(), to: z.string() }).passthrough().transform(({ from, to }) => ({ from, to }));
+
+/** 화면이 읽는 한 계정의 로켓 PO 원천(옛 attempt 원천과 같은 모양으로 — 상태 글자는 RUNNING·COMPLETE·FAILED). */
+export type RocketPoSourceView = Readonly<{
+  ready: boolean;
+  latestAttempt: Readonly<{
+    attemptId: string;
+    state: 'RUNNING' | 'COMPLETE' | 'FAILED';
+    errorCode: string | null;
+    errorMessage: string | null;
+  }> | null;
+  latestComplete: Readonly<{ attemptId: string; actualCutoffAt: string }> | null;
+  /** 가장 최근 성공한 수집이 읽은 기간(plan). */
+  latestCompleteCoverage: RocketPoCollectionRange | null;
+}>;
+
+function live(operation: OperationView): boolean {
+  return operation.status === 'executing' || operation.status === 'prepared';
+}
+
+/** 이 계정의 로켓 PO 실행, 최근 것부터. 끝난 실행은 잠금을 놓으므로 plan의 계정으로 가린다. */
+export function accountRocketPoOperations(response: OperationListResponse | undefined, channelAccountId: string): OperationView[] {
+  const accountId = channelAccountId.toLowerCase();
+  return (response?.operations ?? []).filter((operation) => operation.plan?.channelAccountId === accountId);
+}
+
+function isoOf(value: string | Date | null): string | null {
+  return value === null ? null : new Date(value).toISOString();
 }
 
 /**
- * The account-scoped Channels source read every Rocket screen shares. Views
- * that read it without the collection control keep its own running poll.
+ * 한 계정의 원천 보기. 준비됨은 옛 규칙 그대로: 가장 최근 성공한 수집의 KST 날짜가 필요한 기준일(어제 KST) 이후이고
+ * 지금 도는 수집이 없다. 취소한 실행은 `USER_CANCELLED` 실패로 보여 "수집 중단됨"이 된다.
  */
-export function rocketPoSourceQueryOptions(channelAccountId: string) {
-  return collectionSourceStatusQueryOptions<RocketPoSource, Error, RocketPoSource, QueryKey>({
-    queryKey: queryKeys.orders.rocketPoSource(channelAccountId),
-    queryFn: () => loadRocketPoSource(channelAccountId),
-    enabled: Boolean(channelAccountId),
-    refetchInterval: (query) =>
-      query.state.data?.latestAttempt?.state === 'RUNNING' ? RUNNING_POLL_MS : false,
+export function rocketPoSourceView(response: OperationListResponse | undefined, channelAccountId: string, now = new Date()): RocketPoSourceView {
+  const operations = accountRocketPoOperations(response, channelAccountId);
+  const [latest] = operations;
+  const complete = operations.find((operation) => operation.status === 'succeeded') ?? null;
+  const completeAt = complete ? isoOf(complete.finishedAt) : null;
+  const range = complete ? PlanRangeSchema.safeParse(complete.plan) : null;
+  const running = latest ? live(latest) : false;
+  const required = businessDateKey(evidenceCutoffDate(now));
+  return {
+    ready: !running && completeAt !== null && businessDateKey(kstBusinessDate(new Date(completeAt))) >= required,
+    latestAttempt: latest
+      ? {
+        attemptId: latest.id,
+        state: live(latest) ? 'RUNNING' : latest.status === 'succeeded' ? 'COMPLETE' : 'FAILED',
+        errorCode: latest.status === 'cancelled' ? (latest.errorCode ?? 'USER_CANCELLED') : latest.errorCode,
+        errorMessage: latest.errorMessage,
+      }
+      : null,
+    latestComplete: complete && completeAt ? { attemptId: complete.id, actualCutoffAt: completeAt } : null,
+    latestCompleteCoverage: range?.success ? range.data : null,
+  };
+}
+
+/** 조직의 최근 로켓 PO 실행 reader. 도는 실행이 있을 때만 2초마다 다시 읽는다. */
+export function rocketPoOperationsQueryOptions() {
+  return collectionSourceStatusQueryOptions<OperationListResponse, Error, OperationListResponse, QueryKey>({
+    queryKey: queryKeys.orders.rocketPoOperations(),
+    queryFn: readRocketPoOperations,
+    refetchInterval: (query) => ((query.state.data?.operations ?? []).some(live) ? RUNNING_POLL_MS : false),
     meta: { suppressGlobalErrorToast: true },
   });
 }
 
-function cancelRocketPoAttempt(attemptId: string) {
-  return apiClient.post(`${BASE}/attempts/${encodeURIComponent(attemptId)}/cancel`);
-}
-
-function startRocketPoCollection(
-  channelAccountId: string,
-  range: RocketPoCollectionRange,
-): Promise<CollectionStartOutcome> {
-  const request = RocketPoSourceBeginSchema.parse({
-    channelAccountId,
-    from: range.from,
-    to: range.to,
-    status: '',
-    dateType: 'WAREHOUSING_PLAN_DATE',
-    requireConfirmation: true,
-  });
-  return startWebOpenedCollection({
-    detectExtension: async () => {
-      const runtime = await detectOrderCollectionExtensionRuntime(1_200, [ROCKET_PO_CAPABILITY]);
-      if (runtime.status === 'incompatible') {
-        throw new Error('주문수집 확장프로그램이 이전 버전입니다. extensions/kiditem-os 를 새로고침한 뒤 다시 시도해주세요.');
-      }
-      if (runtime.status !== 'ready') {
-        throw new Error('주문수집 확장프로그램을 찾지 못했습니다. extensions/kiditem-os 를 로드하고 supplier.coupang.com 로그인 후 다시 시도해주세요.');
-      }
-      return runtime.extensionId;
-    },
-    begin: async (idempotencyKey) => {
-      const raw = await apiClient.post(`${BASE}/attempts`, request, {
-        headers: { 'Idempotency-Key': idempotencyKey },
-      });
-      // The begin reply may carry the write token; the page keeps only attempt metadata.
-      const started = RocketPoSourceAttemptSchema.strip().parse(raw);
-      if (started.channelAccountId !== channelAccountId) {
-        throw new Error('로켓 계정 수집 식별자가 일치하지 않습니다.');
-      }
-      return { outcome: 'opened', attemptId: started.attemptId, running: started.state === 'RUNNING' };
-    },
-    handOff: ({ extensionId, attemptId }) =>
-      handOffToExtensionRun(extensionId, attemptId, { action: 'collectRocketPoRows', attemptId }),
-    cancel: ({ attemptId }) => cancelRocketPoAttempt(attemptId),
-  });
-}
-
 /**
- * One Rocket account's PO collection for the shared control. The page opens
- * the Channels attempt and hands it to the extension, which uploads the
- * catalog to the owner; a COMPLETE publishes the saved collection every Rocket
- * screen reopens.
+ * 한 로켓 계정의 PO 수집(공용 컨트롤). 확장이 실행을 begin하고 supplier 발주 화면을 읽어 청크를 올린다. 중단은 이 브라우저의
+ * 실행을 멈추고(`operation.cancel`) 서버 실행을 취소한다.
  */
-export function rocketPoCollection(
-  channelAccountId: string,
-): CollectionSourceAdapter<RocketPoSource, RocketPoCollectionRange> {
+export function rocketPoCollection(channelAccountId: string): CollectionSourceAdapter<OperationListResponse, RocketPoCollectionRange> {
   return {
     sourceKey: `orders.coupang_rocket_po:${channelAccountId}`,
     label: '쿠팡 로켓 PO 수집',
-    statusQuery: rocketPoSourceQueryOptions(channelAccountId),
+    statusQuery: rocketPoOperationsQueryOptions(),
     readRunning: (status) => {
-      const attempt = status.latestAttempt;
-      return attempt?.state === 'RUNNING'
-        ? { attemptId: attempt.attemptId, scopeLabel: `${attempt.plan.from} ~ ${attempt.plan.to}` }
-        : null;
+      const running = accountRocketPoOperations(status, channelAccountId).find(live);
+      if (!running) return null;
+      const range = running.plan as { from?: unknown; to?: unknown } | null;
+      return { attemptId: running.id, scopeLabel: typeof range?.from === 'string' && typeof range.to === 'string' ? `${range.from} ~ ${range.to}` : null };
     },
-    start: (range) => startRocketPoCollection(channelAccountId, range),
-    cancelOnServer: cancelRocketPoAttempt,
-    readCompleteId: (status) => status.latestComplete?.attemptId ?? null,
+    readProgress: (status) => {
+      const running = accountRocketPoOperations(status, channelAccountId).find(live);
+      return running ? `${running.id}:${JSON.stringify(running.progress ?? null)}` : null;
+    },
+    readStatusIdentity: (status) =>
+      accountRocketPoOperations(status, channelAccountId).map((operation) => `${operation.id}:${operation.status}`).join(','),
+    start: async (range) => {
+      const scope = CoupangRocketPoScopeSchema.parse({
+        channelAccountId,
+        from: range.from,
+        to: range.to,
+        status: '',
+        dateType: 'WAREHOUSING_PLAN_DATE',
+        requireConfirmation: true,
+      });
+      const outcome = await requestOperationStart(COUPANG_ROCKET_PO_KIND, scope);
+      return outcome.outcome === 'refused' ? outcome : { outcome: outcome.outcome, attemptId: outcome.operationId };
+    },
+    cancelInExtension: (operationId) => requestOperationCancel(operationId),
+    cancelOnServer: (operationId) => apiClient.post(`/api/operations/${encodeURIComponent(operationId)}/cancel`),
+    readCompleteId: (status) =>
+      accountRocketPoOperations(status, channelAccountId).find((operation) => operation.status === 'succeeded')?.id ?? null,
     onNewComplete: (queryClient) => {
       void queryClient.invalidateQueries({ queryKey: queryKeys.orders.rocketSavedPoLists() });
       void queryClient.invalidateQueries({ queryKey: queryKeys.purchaseOrders.all });

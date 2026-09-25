@@ -7,7 +7,6 @@ import {
   type RocketWorkbookExportResponse,
   type RocketPurchasePreviewRow,
 } from '@kiditem/shared/rocket-purchase-preview';
-import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import {
@@ -25,13 +24,15 @@ import {
   type ChannelOptionRecipePort,
 } from '../../../../channels/application/port/in/channel-option-recipe.port';
 
+import { ROCKET_PO_CATALOG_PORT, type RocketPoCatalogPort } from '../../../../orders/application/port/in/rocket-po-catalog.port';
+
 const LOCK_NAMESPACE = 'rocket-workbook-workflow';
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 const exportSelect = {
   id: true,
   organizationId: true,
   channelAccountId: true,
-  sourceImportRunId: true,
+  rocketPoOperationId: true,
   idempotencyKey: true,
   requestHash: true,
   freshnessGeneration: true,
@@ -76,6 +77,8 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
     private readonly products: ProductTransactionalReadPort,
     @Inject(CHANNEL_OPTION_RECIPE_PORT)
     private readonly channelRecipes: ChannelOptionRecipePort,
+    @Inject(ROCKET_PO_CATALOG_PORT)
+    private readonly rocketPoCatalog: RocketPoCatalogPort,
   ) {}
 
   async exportWorkbook(
@@ -120,10 +123,11 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
         throw new KiditemConflictError('SUPPLY_ROCKET_WORKFLOW_ACTIVE', { details: { exportId: refreshedActive.record.id } });
       }
 
-      await assertSourceArtifact(tx, {
+      // 확정하는 수집이 그 계정의 발행된 로켓 PO 수집인지 Orders 포트로 같은 트랜잭션에서 확인한다.
+      await this.rocketPoCatalog.assertPublished(ownerTransaction(tx), {
         organizationId: input.organizationId,
         channelAccountId: request.channelAccountId,
-        sourceImportRunId: input.sourceImportRunId,
+        rocketPoOperationId: input.rocketPoOperationId,
       });
       const decisions = buildDecisions(request, input.preview.rows);
       await assertCurrentRecipes(
@@ -166,14 +170,7 @@ export class RocketPurchaseConfirmationTransactionAdapter implements RocketWorkb
           completedAt: hasPositiveQuantity ? null : now,
           channelAccountId: request.channelAccountId,
           organization: { connect: { id: input.organizationId } },
-          sourceImportRun: {
-            connect: {
-              id_organizationId: {
-                id: input.sourceImportRunId,
-                organizationId: input.organizationId,
-              },
-            },
-          },
+          rocketPoOperationId: input.rocketPoOperationId,
           confirmer: { connect: { id: input.userId } },
           lines: {
             create: decisions.map((decision) => ({
@@ -386,30 +383,6 @@ async function assertActiveActor(
   });
   if (!membership) {
     throw new KiditemError('AUTH_REQUIRED', { details: { reason: 'ACTOR_NOT_ACTIVE' } });
-  }
-}
-
-async function assertSourceArtifact(
-  tx: Prisma.TransactionClient,
-  input: {
-    organizationId: string;
-    channelAccountId: string;
-    sourceImportRunId: string;
-  },
-): Promise<void> {
-  const run = await tx.sourceImportRun.findFirst({
-    where: {
-      id: input.sourceImportRunId,
-      organizationId: input.organizationId,
-      channelAccountId: input.channelAccountId,
-      sourceType: 'coupang_rocket_po_catalog',
-      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-      parserVersion: 'rocket-po-v1',
-    },
-    select: { id: true },
-  });
-  if (!run) {
-    throw new KiditemPreconditionError('SUPPLY_ROCKET_COLLECTION_INCOMPLETE', { details: { reason: 'SOURCE_ARTIFACT_NOT_COMPLETE' } });
   }
 }
 
@@ -661,7 +634,7 @@ function workbookRequestHash(
     .update(
       JSON.stringify({
         channelAccountId: input.request.channelAccountId,
-        sourceImportRunId: input.sourceImportRunId,
+        rocketPoOperationId: input.rocketPoOperationId,
         inventoryGeneration: input.preview.inventoryGeneration,
         artifactFileName: input.request.artifactFileName,
         artifactContentType: input.request.artifactContentType,

@@ -236,6 +236,10 @@ export const OperationFinishResponseSchema = z.object({
 }).strict();
 export type OperationFinishResponse = z.infer<typeof OperationFinishResponseSchema>;
 
+/** 실행 하나 `GET /api/operations/:id`(조직 범위, 목록 항목과 같은 보기). 없거나 다른 조직이면 OPERATION_NOT_FOUND. */
+export const OperationGetResponseSchema = OperationFinishResponseSchema;
+export type OperationGetResponse = z.infer<typeof OperationGetResponseSchema>;
+
 /** cancel `POST /api/operations/:id/cancel`. 운영자 요청, 토큰 없음, 어느 브라우저에서든. 이미 끝났으면 그대로 돌려준다. */
 export const OperationCancelResponseSchema = OperationFinishResponseSchema;
 export type OperationCancelResponse = z.infer<typeof OperationCancelResponseSchema>;

@@ -1,358 +1,141 @@
-import { BadRequestException } from '@nestjs/common';
 import { describe, expect, it, vi } from 'vitest';
-import { OrderCollectionSourceStatusSchema } from '@kiditem/shared/order-collection-source';
 import { CoupangDirectshipController } from './coupang-directship.controller';
 
+// 변환·스냅샷 라우트(KID-359): 옛 attempt 헤더 대신 성공한 directship 실행 ID를 본문으로 받는다. 원천 포트와 셀피아
+// 양식 생성기(파이썬)만 가짜로 둔다 — 응답 머리·상태 규칙이 이 스펙의 대상이다.
 const ORGANIZATION_ID = '22222222-2222-4222-8222-222222222222';
 const USER_ID = '33333333-3333-4333-8333-333333333333';
-const ATTEMPT_ID = '44444444-4444-4444-8444-444444444444';
-const ATTEMPT_TOKEN = '55555555-5555-4555-8555-555555555555';
-const CHANNEL_ACCOUNT_ID = '66666666-6666-4666-8666-666666666666';
+const OPERATION_ID = '11111111-1111-4111-8111-111111111111';
+const CHANNEL_ACCOUNT_ID = '44444444-4444-4444-8444-444444444444';
 
-describe('CoupangDirectshipController — 캡처·스냅샷·변환(순수 이동, KID-355 wave2 골격)', () => {
-  it('generates a Sellpia workbook from every collected line and reports linkage separately', async () => {
-    const workbook = {
-      generate: vi.fn().mockResolvedValue({
-        buffer: Buffer.from('xls'),
-        fileName: 'orders.xls',
-        poCount: 1,
-        rowCount: 2,
-      }),
-    };
-    const collection = {
-      consumeAttempt: vi.fn().mockResolvedValue({}),
-      readProjection: vi.fn().mockResolvedValue({
-        importRunId: '11111111-1111-4111-8111-111111111111',
-        request: request(),
-        receipt: {
-          transport: 'SHIPMENT',
-          payloadChecksum: 'a'.repeat(64),
-          sourceImportRunId: '11111111-1111-4111-8111-111111111111',
-          exportId: '55555555-5555-4555-8555-555555555555',
-          transmissionIntentKey: 'rocket-final-order:11111111-1111-4111-8111-111111111111:shipment',
-          matchedLineCount: 1,
-          reconciledRows: 1,
-          collectedLines: [
-            { poNumber: 'PO-1', productNo: 'P-1' },
-            { poNumber: 'PO-1', productNo: 'P-2' },
-          ],
-          matchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
-          unmatchedLines: [{ poNumber: 'PO-1', productNo: 'P-2' }],
-          duplicate: false,
-        },
-      }),
-    };
-    const controller = new CoupangDirectshipController(
-      workbook as never,
-      collection as never,
-      {} as never,
-    );
-    const response = { setHeader: vi.fn(), status: vi.fn() };
+function receipt(overrides: Record<string, unknown> = {}) {
+  return {
+    transport: 'SHIPMENT',
+    payloadChecksum: 'a'.repeat(64),
+    effectOperationId: OPERATION_ID,
+    exportId: '55555555-5555-4555-8555-555555555555',
+    transmissionIntentKey: `rocket-final-order:${OPERATION_ID}:shipment`,
+    matchedLineCount: 1,
+    reconciledRows: 1,
+    collectedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }, { poNumber: 'PO-1', productNo: 'P-2' }],
+    matchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
+    unmatchedLines: [{ poNumber: 'PO-1', productNo: 'P-2' }],
+    duplicate: false,
+    ...overrides,
+  };
+}
 
-    const file = await controller.convertCoupangDirectship(
-      request() as never,
-      ORGANIZATION_ID,
-      { id: USER_ID } as never,
-      ATTEMPT_ID,
-      ATTEMPT_TOKEN,
-      { once: vi.fn() } as never,
-      response as never,
-    );
+function setup(options: { receipt?: Record<string, unknown>; pos?: unknown[]; generate?: ReturnType<typeof vi.fn> } = {}) {
+  const workbook = { generate: options.generate ?? vi.fn().mockResolvedValue({ buffer: Buffer.from('xls'), fileName: 'orders.xls', poCount: 1, rowCount: 2 }) };
+  const collection = {
+    consume: vi.fn().mockResolvedValue({}),
+    readProjection: vi.fn().mockResolvedValue({
+      operationId: OPERATION_ID,
+      request: { ...captureRequest(), pos: options.pos ?? captureRequest().pos },
+      receipt: receipt(options.receipt),
+    }),
+    readCapture: vi.fn().mockResolvedValue({}),
+  };
+  const snapshots = { replace: vi.fn().mockResolvedValue({ channelAccountId: CHANNEL_ACCOUNT_ID, collectedAt: null, entries: [] }) };
+  const controller = new CoupangDirectshipController(workbook as never, collection as never, snapshots as never);
+  const response = { setHeader: vi.fn(), status: vi.fn().mockReturnThis() };
+  return { workbook, collection, snapshots, controller, response };
+}
 
-    expect(collection.consumeAttempt).toHaveBeenCalledWith({
+const convert = (setupResult: ReturnType<typeof setup>, body: unknown = convertBody()) =>
+  setupResult.controller.convertCoupangDirectship(body, ORGANIZATION_ID, { id: USER_ID } as never, { once: vi.fn() } as never, setupResult.response as never);
+
+describe('CoupangDirectshipController — 성공한 실행 ID로 변환·스냅샷(KID-359)', () => {
+  it('고른 운송유형을 그 실행으로 소비하고, 모든 수집 줄로 셀피아 양식을 만들며 연결 수를 머리로 알린다', async () => {
+    const s = setup();
+    const file = await convert(s);
+    expect(s.collection.consume).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
       userId: USER_ID,
-      attemptId: ATTEMPT_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      capture: request(),
+      operationId: OPERATION_ID,
+      capture: { channelAccountId: CHANNEL_ACCOUNT_ID, pos: captureRequest().pos, centers: captureRequest().centers },
       transport: 'SHIPMENT',
     });
-    expect(workbook.generate).toHaveBeenCalledOnce();
-    expect(workbook.generate.mock.calls[0]?.[0]).toMatchObject({
-      transport: 'SHIPMENT',
-      pos: [{
-        seq: 'PO-1',
-        items: [
-          expect.objectContaining({ skuId: 'P-1' }),
-          expect.objectContaining({ skuId: 'P-2' }),
-        ],
-      }],
-    });
+    expect(s.collection.readProjection).toHaveBeenCalledWith({ organizationId: ORGANIZATION_ID, operationId: OPERATION_ID, transport: 'SHIPMENT' });
+    expect(s.workbook.generate.mock.calls[0]?.[0]).toMatchObject({ transport: 'SHIPMENT', pos: [{ seq: 'PO-1' }] });
     expect(file).toBeDefined();
-    expect(response.setHeader).toHaveBeenCalledWith(
-      'X-Order-Collection-Import-Run-Id',
-      '11111111-1111-4111-8111-111111111111',
-    );
-    expect(response.setHeader).toHaveBeenCalledWith(
-      'X-Rocket-Workbook-Export-Id',
-      '55555555-5555-4555-8555-555555555555',
-    );
-    expect(response.setHeader).toHaveBeenCalledWith(
-      'X-Sellpia-Transmission-Intent-Key',
-      'rocket-final-order:11111111-1111-4111-8111-111111111111:shipment',
-    );
-    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Source-Rows', '1');
-    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Product-Rows', '2');
-    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Output-Rows', '2');
-    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Skipped-Rows', '0');
-    expect(response.setHeader).toHaveBeenCalledWith('X-Rocket-Workbook-Matched-Rows', '1');
-    expect(response.setHeader).toHaveBeenCalledWith('X-Rocket-Workbook-Unmatched-Rows', '1');
+    for (const [name, value] of [
+      ['X-Order-Collection-Operation-Id', OPERATION_ID],
+      ['X-Rocket-Workbook-Export-Id', '55555555-5555-4555-8555-555555555555'],
+      ['X-Sellpia-Transmission-Intent-Key', `rocket-final-order:${OPERATION_ID}:shipment`],
+      ['X-Order-Collection-Source-Rows', '1'],
+      ['X-Order-Collection-Product-Rows', '2'],
+      ['X-Order-Collection-Output-Rows', '2'],
+      ['X-Order-Collection-Skipped-Rows', '0'],
+      ['X-Rocket-Workbook-Matched-Rows', '1'],
+      ['X-Rocket-Workbook-Unmatched-Rows', '1'],
+    ]) expect(s.response.setHeader).toHaveBeenCalledWith(name, value);
   });
 
-  it('generates a Sellpia workbook when every collected line is unmatched', async () => {
-    const workbook = {
-      generate: vi.fn().mockResolvedValue({
-        buffer: Buffer.from('xls'),
-        fileName: 'orders.xls',
-        poCount: 1,
-        rowCount: 2,
-      }),
-    };
-    const collection = {
-      consumeAttempt: vi.fn().mockResolvedValue({}),
-      readProjection: vi.fn().mockResolvedValue({
-        importRunId: '11111111-1111-4111-8111-111111111111',
-        request: request(),
-        receipt: {
-          transport: 'SHIPMENT',
-          payloadChecksum: 'a'.repeat(64),
-          sourceImportRunId: '11111111-1111-4111-8111-111111111111',
-          exportId: null,
-          transmissionIntentKey: 'rocket-final-order:11111111-1111-4111-8111-111111111111:shipment',
-          matchedLineCount: 0,
-          reconciledRows: 0,
-          collectedLines: [
-            { poNumber: 'PO-1', productNo: 'P-1' },
-            { poNumber: 'PO-1', productNo: 'P-2' },
-          ],
-          matchedLines: [],
-          unmatchedLines: [
-            { poNumber: 'PO-1', productNo: 'P-1' },
-            { poNumber: 'PO-1', productNo: 'P-2' },
-          ],
-          duplicate: false,
-        },
-      }),
-    };
-    const controller = new CoupangDirectshipController(
-      workbook as never,
-      collection as never,
-      {} as never,
-    );
-    const response = {
-      setHeader: vi.fn(),
-      status: vi.fn().mockReturnThis(),
-    };
-
-    const result = await controller.convertCoupangDirectship(
-      request() as never,
-      ORGANIZATION_ID,
-      { id: USER_ID } as never,
-      ATTEMPT_ID,
-      ATTEMPT_TOKEN,
-      { once: vi.fn() } as never,
-      response as never,
-    );
-
-    expect(result).toBeDefined();
-    expect(response.status).not.toHaveBeenCalled();
-    expect(workbook.generate).toHaveBeenCalledWith(
-      request(),
-      expect.objectContaining({ signal: expect.any(AbortSignal) }),
-    );
-    expect(response.setHeader).toHaveBeenCalledWith('X-Order-Collection-Skipped-Rows', '0');
-    expect(response.setHeader).toHaveBeenCalledWith('X-Rocket-Workbook-Unmatched-Rows', '2');
+  it('모든 줄이 워크북과 맞지 않아도 양식을 만든다', async () => {
+    const s = setup({ receipt: { exportId: null, matchedLines: [], unmatchedLines: receipt().collectedLines, matchedLineCount: 0, reconciledRows: 0 } });
+    await expect(convert(s)).resolves.toBeDefined();
+    expect(s.response.status).not.toHaveBeenCalled();
+    expect(s.response.setHeader).toHaveBeenCalledWith('X-Rocket-Workbook-Unmatched-Rows', '2');
   });
 
-  it('returns 204 only when the selected transport has no collected row', async () => {
-    const workbook = { generate: vi.fn() };
-    const collection = {
-      consumeAttempt: vi.fn().mockResolvedValue({}),
-      readProjection: vi.fn().mockResolvedValue({
-        importRunId: '11111111-1111-4111-8111-111111111111',
-        request: { ...request(), pos: [] },
-        receipt: {
-          transport: 'SHIPMENT',
-          payloadChecksum: 'a'.repeat(64),
-          sourceImportRunId: '11111111-1111-4111-8111-111111111111',
-          exportId: null,
-          transmissionIntentKey: null,
-          matchedLineCount: 0,
-          reconciledRows: 0,
-          collectedLines: [],
-          matchedLines: [],
-          unmatchedLines: [],
-          duplicate: false,
-        },
-      }),
-    };
-    const controller = new CoupangDirectshipController(
-      workbook as never,
-      collection as never,
-      {} as never,
-    );
-    const response = { setHeader: vi.fn(), status: vi.fn().mockReturnThis() };
-    const emptyRequest = { ...request(), pos: [] };
-
-    const result = await controller.convertCoupangDirectship(
-      emptyRequest as never,
-      ORGANIZATION_ID,
-      { id: USER_ID } as never,
-      ATTEMPT_ID,
-      ATTEMPT_TOKEN,
-      { once: vi.fn() } as never,
-      response as never,
-    );
-
-    expect(result).toBeUndefined();
-    expect(response.status).toHaveBeenCalledWith(204);
-    expect(workbook.generate).not.toHaveBeenCalled();
+  it('고른 운송유형에 수집 줄이 없을 때만 204', async () => {
+    const s = setup({ pos: [], receipt: { exportId: null, transmissionIntentKey: null, collectedLines: [], matchedLines: [], unmatchedLines: [] } });
+    await expect(convert(s, { ...convertBody(), pos: [] })).resolves.toBeUndefined();
+    expect(s.response.status).toHaveBeenCalledWith(204);
+    expect(s.workbook.generate).not.toHaveBeenCalled();
   });
 
-  it('leaves the COMPLETE owner intact when one server transport conversion fails', async () => {
-    const conversionError = new Error('server workbook failed');
-    const workbook = {
-      generate: vi.fn().mockRejectedValue(conversionError),
-    };
-    const collection = {
-      consumeAttempt: vi.fn().mockResolvedValue({ state: 'COMPLETE' }),
-      readProjection: vi.fn().mockResolvedValue({
-        importRunId: ATTEMPT_ID,
-        request: request(),
-        receipt: {
-          transport: 'SHIPMENT',
-          payloadChecksum: 'a'.repeat(64),
-          sourceImportRunId: ATTEMPT_ID,
-          exportId: null,
-          transmissionIntentKey: 'rocket-final-order:owner:shipment',
-          matchedLineCount: 0,
-          reconciledRows: 0,
-          collectedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
-          matchedLines: [],
-          unmatchedLines: [{ poNumber: 'PO-1', productNo: 'P-1' }],
-          duplicate: false,
-        },
-      }),
-      failAttempt: vi.fn(),
-    };
-    const controller = new CoupangDirectshipController(
-      workbook as never,
-      collection as never,
-      {} as never,
-    );
-
-    await expect(controller.convertCoupangDirectship(
-      request() as never,
-      ORGANIZATION_ID,
-      { id: USER_ID } as never,
-      ATTEMPT_ID,
-      ATTEMPT_TOKEN,
-      { once: vi.fn() } as never,
-      { setHeader: vi.fn() } as never,
-    )).rejects.toBe(conversionError);
-    expect(collection.failAttempt).not.toHaveBeenCalled();
+  it('양식 생성이 실패해도 오류만 올린다(실행·캡처는 소비 쪽 규칙 그대로)', async () => {
+    const failure = new Error('server workbook failed');
+    const s = setup({ generate: vi.fn().mockRejectedValue(failure) });
+    await expect(convert(s)).rejects.toBe(failure);
   });
 
-  it('stops a running directship attempt with organization scope only, never the attempt token', async () => {
-    const stopped = {
-      attemptId: ATTEMPT_ID,
-      state: 'FAILED',
-      errorCode: 'USER_CANCELLED',
-    };
-    const owner = { cancelAttempt: vi.fn().mockResolvedValue(stopped) };
-    const controller = new CoupangDirectshipController(
-      {} as never,
-      owner as never,
-      {} as never,
-    );
-
-    await expect(
-      controller.cancelCoupangDirectAttempt(ATTEMPT_ID, ORGANIZATION_ID),
-    ).resolves.toEqual(stopped);
-    expect(owner.cancelAttempt).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      attemptId: ATTEMPT_ID,
-    });
+  it('실행 ID·운송유형·계정이 없는 본문은 소비 전에 VALIDATION_FAILED', async () => {
+    const s = setup();
+    const { operationId: _operationId, ...withoutOperation } = convertBody();
+    await expect(convert(s, withoutOperation)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(convert(s, { ...convertBody(), transport: 'TRUCK' })).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    expect(s.collection.consume).not.toHaveBeenCalled();
   });
 
-  it('reads one directship source by channel account and answers the shared status shape without a token', async () => {
-    const status = {
-      mallKey: null,
-      channelAccountId: CHANNEL_ACCOUNT_ID,
-      running: {
-        attemptId: ATTEMPT_ID,
-        collectionMode: 'browser',
-        startedAt: '2026-09-15T00:00:00.000Z',
-        expiresAt: '2026-09-15T00:30:00.000Z',
-      },
-      lastComplete: null,
-      lastAttempt: {
-        attemptId: ATTEMPT_ID,
-        state: 'RUNNING',
-        errorCode: null,
-        errorMessage: null,
-        endedAt: null,
-      },
-    };
-    const owner = { readSourceStatus: vi.fn().mockResolvedValue(status) };
-    const controller = new CoupangDirectshipController(
-      {} as never,
-      owner as never,
-      {} as never,
-    );
+  it('스냅샷은 그 계정의 성공한 실행 캡처가 있을 때만 바꾼다(본문 operationId)', async () => {
+    const s = setup();
+    const body = { channelAccountId: CHANNEL_ACCOUNT_ID, operationId: OPERATION_ID, entries: [] };
+    await s.controller.saveCoupangDirectSnapshot(body, ORGANIZATION_ID);
+    expect(s.collection.readCapture).toHaveBeenCalledWith({ organizationId: ORGANIZATION_ID, operationId: OPERATION_ID, channelAccountId: CHANNEL_ACCOUNT_ID });
+    expect(s.snapshots.replace).toHaveBeenCalledWith(ORGANIZATION_ID, CHANNEL_ACCOUNT_ID, []);
 
-    const view = await controller.readCoupangDirectSourceStatus(CHANNEL_ACCOUNT_ID, ORGANIZATION_ID);
-
-    expect(owner.readSourceStatus).toHaveBeenCalledWith({
-      organizationId: ORGANIZATION_ID,
-      channelAccountId: CHANNEL_ACCOUNT_ID,
-    });
-    // strict 스키마라 attemptToken 같은 여분 키가 있으면 여기서 깨진다.
-    expect(OrderCollectionSourceStatusSchema.parse(view)).toEqual(status);
+    const refused = setup();
+    refused.collection.readCapture.mockRejectedValue(Object.assign(new Error('not succeeded'), { code: 'STATE_CONFLICT' }));
+    await expect(refused.controller.saveCoupangDirectSnapshot(body, ORGANIZATION_ID)).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
+    expect(refused.snapshots.replace).not.toHaveBeenCalled();
+    await expect(s.controller.saveCoupangDirectSnapshot({ channelAccountId: CHANNEL_ACCOUNT_ID, entries: [] }, ORGANIZATION_ID)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
   });
-
-  it('refuses a directship source read with no channel account', async () => {
-    const owner = { readSourceStatus: vi.fn() };
-    const controller = new CoupangDirectshipController(
-      {} as never,
-      owner as never,
-      {} as never,
-    );
-
-    await expect(controller.readCoupangDirectSourceStatus(undefined, ORGANIZATION_ID))
-      .rejects.toThrow('INVALID_COUPANG_DIRECT_SCOPE');
-    await expect(controller.readCoupangDirectSourceStatus('not-a-uuid', ORGANIZATION_ID))
-      .rejects.toThrow('INVALID_COUPANG_DIRECT_SCOPE');
-    expect(owner.readSourceStatus).not.toHaveBeenCalled();
-  });
-
 });
 
-function request() {
+function captureRequest() {
   return {
-    channelAccountId: '44444444-4444-4444-8444-444444444444',
-    transport: 'SHIPMENT',
+    channelAccountId: CHANNEL_ACCOUNT_ID,
+    transport: 'SHIPMENT' as const,
     centers: { Center: { addr: 'Seoul' } },
     pos: [{
       seq: 'PO-1',
-      status: 'PA',
+      status: 'PA' as const,
       center: 'Center',
-      transport: 'SHIPMENT',
+      transport: 'SHIPMENT' as const,
       edd: '2026-07-20',
       reg: '2026-07-18 09:00:00',
-      items: [{
-        skuId: 'P-1',
-        barcode: '8801234567890',
-        name: 'Rocket item 1',
-        qty: 2,
-        amount: 2000,
-      }, {
-        skuId: 'P-2',
-        barcode: '8801234567891',
-        name: 'Rocket item 2',
-        qty: 1,
-        amount: 1000,
-      }],
+      items: [
+        { skuId: 'P-1', barcode: '8801234567890', name: 'Rocket item 1', qty: 2, amount: 2000 },
+        { skuId: 'P-2', barcode: '8801234567891', name: 'Rocket item 2', qty: 1, amount: 1000 },
+      ],
     }],
   };
+}
+
+function convertBody() {
+  const { centers, pos } = captureRequest();
+  return { operationId: OPERATION_ID, channelAccountId: CHANNEL_ACCOUNT_ID, transport: 'SHIPMENT', pos, centers };
 }

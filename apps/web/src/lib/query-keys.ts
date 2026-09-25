@@ -78,6 +78,7 @@ export const queryKeys = {
   inventory: {
     all: ['inventory'] as const,
     coupangShipmentSummary: () => [...queryKeys.inventory.all, 'coupang-shipment-summary'] as const,
+    coupangShipmentSummaryOperation: () => [...queryKeys.inventory.all, 'coupang-shipment-summary', 'operation'] as const,
     snapshots: () => [...queryKeys.inventory.all, 'sellpia-skus'] as const,
     snapshot: (params: Record<string, string>) =>
       [...queryKeys.inventory.snapshots(), params] as const,
@@ -183,7 +184,8 @@ export const queryKeys = {
     stats: () => [...queryKeys.orders.all, 'stats'] as const,
     pipeline: (params?: Record<string, string>) => [...queryKeys.orders.pipelines(), params] as const,
     action: (action: string) => [...queryKeys.orders.all, 'action', action] as const,
-    rocketPoSource: (channelAccountId: string) => [...queryKeys.orders.all, 'rocket-po-source', channelAccountId] as const,
+    /** 조직의 최근 로켓 PO 실행(`orders.coupang_rocket_po`) — 계정 화면이 나눠 본다. */
+    rocketPoOperations: () => [...queryKeys.orders.all, 'rocket-po-operations'] as const,
     rocketSavedPoLists: () => [...queryKeys.orders.all, 'rocket-saved-po-list'] as const,
     rocketSavedPoList: (params: {
       channelAccountId: string;

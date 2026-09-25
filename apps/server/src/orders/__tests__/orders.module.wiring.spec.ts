@@ -1,6 +1,6 @@
 import { ShipmentsModule } from '../shipments.module';
 import { RocketPoSourceModule } from '../rocket-po-source.module';
-import { RocketPoSourceController } from '../adapter/in/web/rocket-po-source.controller';
+import { CoupangRocketPoOperationOwner } from '../adapter/in/operation/coupang-rocket-po-operation-owner';
 import { RocketPoCatalogService } from '../application/service/rocket-po-catalog.service';
 import { RocketPoCatalogRepositoryAdapter } from '../adapter/out/repository/rocket-po-catalog.repository.adapter';
 import { ROCKET_PO_CATALOG_PORT } from '../application/port/in/rocket-po-catalog.port';
@@ -36,6 +36,8 @@ import { OrdersModule } from '../orders.module';
 import { ReturnTransfersController } from '../adapter/in/web/return-transfers/return-transfers.controller';
 import { ReturnTransfersService } from '../application/service/return-transfers/return-transfers.service';
 import { CoupangReviewsOperationOwner } from '../adapter/in/operation/coupang-reviews-operation-owner';
+import { CoupangDirectshipOperationOwner } from '../adapter/in/operation/coupang-directship-operation-owner';
+import { OperationModule } from '../../common/operation/operation.module';
 import { CoupangDirectPoSnapshotService } from '../application/service/coupang-direct-po-snapshot.service';
 import { OrderCollectionService } from '../application/service/order-collection.service';
 import { OrdersService } from '../application/service/orders.service';
@@ -57,6 +59,7 @@ describe('OrdersModule owner wiring', () => {
       SupplyModule,
       ShipmentsModule,
       ProductSourceModule,
+      OperationModule,
     ]);
     expect(controllers).toEqual([
       OrdersController,
@@ -83,6 +86,7 @@ describe('OrdersModule owner wiring', () => {
       OrderCollectionSourceRepository,
       SellpiaShipmentTrackingSourceRepository,
       CoupangReviewsOperationOwner,
+      CoupangDirectshipOperationOwner,
       {
         provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
         useExisting: CoupangDirectOrderCollectionService,
@@ -116,10 +120,11 @@ describe('OrdersModule owner wiring', () => {
     const providers: unknown[] = Reflect.getMetadata('providers', RocketPoSourceModule) ?? [];
     const exports: unknown[] = Reflect.getMetadata('exports', RocketPoSourceModule) ?? [];
 
-    expect(controllers).toEqual([RocketPoSourceController]);
+    expect(controllers).toEqual([]);
     expect(providers).toEqual([
       RocketPoCatalogService,
       RocketPoCatalogRepositoryAdapter,
+      CoupangRocketPoOperationOwner,
       { provide: ROCKET_PO_CATALOG_PORT, useExisting: RocketPoCatalogService },
       { provide: ROCKET_PO_CATALOG_REPOSITORY_PORT, useExisting: RocketPoCatalogRepositoryAdapter },
     ]);

@@ -152,13 +152,13 @@ interval through yesterday. Collection does not refresh ABC. Order and Rocket PO
 pagination and field mapping. Excel conversion runs on the server and returns
 transient downloads; converted files do not acquire a database lifecycle.
 
-Coupang shipment-summary lookup now begins an Orders-owned SourceImportRun.
-The extension reads its frozen plan and uploads directly; immutable date facts,
-COMPLETE metadata, and Alert resolution commit together. The page reads the
-latest capture separately from calendar history, which retains the last
-COMPLETE observation per date. Untagged existing dates remain unverified, not
-successful capture evidence. CollectionSession holds only progress and tab
-attention; shipment PDF/file collection remains a separate existing action.
+Coupang shipment-summary lookup is the operation kind
+`orders.coupang_shipment_summary` (ADR-0025, organization lock). The extension
+reads the supplier parcel list and stages date items plus one scan proof; the
+Orders finalize validates the proof and writes the date facts inside the finish
+transaction. The calendar keeps, per date, the latest succeeded operation's
+value; untagged existing dates remain unverified. Shipment PDF/file collection
+remains a separate existing action.
 
 Business owners retain their own facts and source status. An Alert is a human
 notification, not execution state. Owner attempts are fenced by an
@@ -166,7 +166,7 @@ notification, not execution state. Owner attempts are fenced by an
 The global notification view reads durable Alerts only, with ten-second
 foreground polling, focus refetch, and dismissal invalidation. It does not
 merge run progress or replay an SSE stream. Source screens own their progress
-and current-source reads; shipment-summary failures use Orders' source Alert.
+and current-source reads.
 
 Sourcing collection uses its source owners directly:
 
@@ -346,7 +346,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
 | `apps/server/src/finance` | Owner Domain | Live P&L, sales analysis, supplier payments, sales plans, settlements, and read-only profitability evidence consumed by Products' explicit ABC evaluation. |
 | `apps/server/src/inventory` | Owner Domain | Warehouse and stock-transfer records plus read-only Rocket workbook progress; Products owns source collection/current stock, Orders owns return records. |
-| `apps/server/src/orders` | Owner Domain | Orders, reviews (collected through the `orders.coupang_reviews` operation kind), return-transfer operations, Coupang directship collection conversion, and durable Sellpia workbook submission idempotency/audit. |
+| `apps/server/src/orders` | Owner Domain | Orders, reviews (collected through the `orders.coupang_reviews` operation kind), return-transfer operations, Coupang directship capture (the `orders.coupang_directship` operation kind) and its conversion, and durable Sellpia workbook submission idempotency/audit. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
 | `apps/server/src/products` | Owner Domain | Source-inventory `MasterProduct` identity/current stock/purchase price, Sellpia collection/publication, image metadata, reads/exports and explicit ABC evaluation; `/api/categories` compatibility CRUD. |
@@ -447,8 +447,8 @@ move to owner input contracts through their own output adapters. Channels organi
 references too; same-owner FK and organization constraints remain. Other owners
 still have explicitly inventoried migration exceptions. Removing a relation also
 requires lifecycle, missing-reference, and concurrent-change coverage. Channels owns every ChannelAccount mutation, including the compatibility account
-editor under Orders URLs. Orders owns Rocket PO collection attempts, snapshots
-and lines and publishes observed listing identities through Channels' catalog
+editor under Orders URLs. Orders owns Rocket PO collection (operation kind
+`orders.coupang_rocket_po`), snapshots and lines and publishes observed listing identities through Channels' catalog
 capability in the same transaction. Supply retains purchase judgment and
 confirmation. The coordinated change follows
 [the Channels redesign spec](https://linear.app/kiditem/issue/KID-286).
@@ -1035,7 +1035,7 @@ fall back to old stock. Supply preserves recipe ratios, bottleneck allocation,
 provider idempotency and explicit reconciliation. Ordinary inventory reads need
 no new collection. Orders transmission to Sellpia does not write local stock.
 
-Coupang shipment summary, files and source attempts belong to Orders'
+Coupang shipment summary, files and the shipment-summary operation owner belong to Orders'
 `shipments/` lanes (`orders/shipments.module.ts` plus a `shipments/` folder in each layer);
 existing routes and PDF download/merge behavior remain available. Existing Rocket
 workbook audit and Orders reconciliation are retained because they have active

@@ -4,11 +4,11 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import CoupangShipmentsPage from "./page";
 
-/** 화면이 직접 부르는 조회. 원천 읽기와 컨트롤은 그대로 진짜 코드를 쓴다. */
-const collectSummary = vi.hoisted(() => vi.fn());
-vi.mock("@/lib/coupang-shipment-summary-action", async (importOriginal) => ({
-  ...(await importOriginal<typeof import("@/lib/coupang-shipment-summary-action")>()),
-  collectAndPersistCoupangShipmentSummary: collectSummary,
+/** 확장 경계만 가짜로 둔다(실행 시작). 실행·달력 읽기는 HTTP 경계에서 진짜 코드를 쓴다. */
+const start = vi.hoisted(() => ({ requestOperationStart: vi.fn() }));
+vi.mock("@/lib/operation-start", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("@/lib/operation-start")>()),
+  requestOperationStart: start.requestOperationStart,
 }));
 
 const replaceMock = vi.hoisted(() => vi.fn());
@@ -21,66 +21,53 @@ vi.mock("next/navigation", () => ({
   useRouter: () => ({ replace: replaceMock }),
   useSearchParams: () => navigation.params,
 }));
-const attempt = {
-  attemptId: "11111111-1111-4111-8111-111111111111",
-  state: "COMPLETE",
-  generation: "1",
-  plan: {
-    sourceType: "coupang_shipment_summary",
-    parserVersion: "shipment-summary-v1",
-    maxPages: 40,
-  },
-  expiresAt: "2099-01-01T00:00:00Z",
-  actualCutoffAt: "2026-09-01T00:00:00Z",
-  errorCode: null,
-  errorMessage: null,
-};
+
+const OPERATION_ID = "11111111-1111-4111-8111-111111111111";
+function operation(overrides: Record<string, unknown> = {}) {
+  return {
+    id: OPERATION_ID,
+    kind: "orders.coupang_shipment_summary",
+    status: "succeeded",
+    lockKeys: [],
+    plan: { maxPages: 40 },
+    progress: { current: 1, total: 40, done: true },
+    result: { dates: 1, rows: 3 },
+    window: null,
+    errorCode: null,
+    errorMessage: null,
+    startedAt: "2026-09-01T00:00:00.000Z",
+    finishedAt: "2026-09-01T00:00:10.000Z",
+    expiresAt: "2026-09-01T00:30:00.000Z",
+    attempts: 1,
+    maxAttempts: 1,
+    scheduledFor: null,
+    ...overrides,
+  };
+}
 const items = [
-  {
-    date: "2026-07-25",
-    count: 3,
-    boxes: 5,
-    capturedAt: "2026-07-25T00:00:00Z",
-    verified: true,
-  },
-  {
-    date: "2026-06-20",
-    count: null,
-    boxes: null,
-    capturedAt: "2026-06-20T00:00:00Z",
-    verified: false,
-  },
+  { date: "2026-07-25", count: 3, boxes: 5, capturedAt: "2026-07-25T00:00:00Z", verified: true },
+  { date: "2026-06-20", count: null, boxes: null, capturedAt: "2026-06-20T00:00:00Z", verified: false },
 ];
 
-describe("shipment source reload and calendar route state at HTTP boundary", () => {
-  let source: Record<string, unknown>;
+describe("쿠팡 쉽먼트 발송일 조회 — 실행 계약 읽기와 달력(HTTP 경계)", () => {
+  let latest: Record<string, unknown> | null;
   const calls: Array<{ path: string; method?: string }> = [];
   const clients: QueryClient[] = [];
   beforeEach(() => {
     sessionStorage.clear();
     navigation.params = new URLSearchParams();
     replaceMock.mockReset();
+    start.requestOperationStart.mockReset();
     calls.length = 0;
-    collectSummary.mockReset();
-    source = {
-      ready: true,
-      latestAttempt: attempt,
-      latestComplete: attempt,
-      items,
-      capturedItems: [items[0]],
-    };
+    latest = operation();
     vi.stubGlobal(
       "fetch",
       vi.fn(async (url: string, init?: RequestInit) => {
         const path = new URL(url, "http://localhost").pathname;
         calls.push({ path, method: init?.method });
-        return Response.json(
-          path.endsWith("/date-summary/source")
-            ? source
-            : path.endsWith("/date-summary")
-              ? { items }
-              : { days: [] },
-        );
+        if (path === "/api/operations") return Response.json({ operations: latest ? [latest] : [] });
+        if (path.endsWith("/cancel")) return Response.json({ operation: { ...latest, status: "cancelled" } });
+        return Response.json(path.endsWith("/date-summary") ? { items } : { days: [] });
       }),
     );
   });
@@ -91,9 +78,7 @@ describe("shipment source reload and calendar route state at HTTP boundary", () 
     vi.unstubAllGlobals();
   });
   function mount() {
-    const client = new QueryClient({
-      defaultOptions: { queries: { retry: false } },
-    });
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     clients.push(client);
     return render(
       <QueryClientProvider client={client}>
@@ -101,130 +86,56 @@ describe("shipment source reload and calendar route state at HTTP boundary", () 
       </QueryClientProvider>,
     );
   }
-  it("restores URL-selected date while displaying owner cutoff and unverified historical rows", async () => {
-    navigation.params = new URLSearchParams({
-      month: "2026-06",
-      date: "2026-06-20",
-    });
+
+  it("URL의 날짜를 되살리고, 마지막 성공 조회 시각과 미인증 기준 칸을 보인다 — 열 때 조회하지 않는다", async () => {
+    navigation.params = new URLSearchParams({ month: "2026-06", date: "2026-06-20" });
     mount();
-    expect(await screen.findByText(/마지막 완료/)).toHaveTextContent(
-      "2026-09-01T00:00:00Z",
-    );
+    expect(await screen.findByText(/마지막 완료/)).toHaveTextContent("2026-09-01T00:00:10.000Z");
+    expect(screen.getByText(/최근 조회 결과 1일/)).toBeInTheDocument();
     expect(screen.getByText("2026년 6월")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /20/ })).toHaveClass(
-      "bg-purple-50",
-    );
+    expect(screen.getByRole("button", { name: /20/ })).toHaveClass("bg-purple-50");
     expect(screen.getByText(/미인증 이력 1일/)).toBeInTheDocument();
-    expect(screen.getAllByText("미측정").length).toBeGreaterThan(0);
-    expect(screen.queryByText("0건")).not.toBeInTheDocument();
-    expect(calls.every((call) => !call.method || call.method === "GET")).toBe(
-      true,
-    );
+    expect(calls.every((call) => !call.method || call.method === "GET")).toBe(true);
+    expect(start.requestOperationStart).not.toHaveBeenCalled();
   });
-  it("restores saved calendar position without collecting on mount", async () => {
-    sessionStorage.setItem(
-      "kiditem:route-state:coupang-shipments:v1",
-      JSON.stringify({ month: "2026-06", date: "2026-06-20" }),
-    );
+
+  it("저장된 달력 위치를 되살린다", async () => {
+    sessionStorage.setItem("kiditem:route-state:coupang-shipments:v1", JSON.stringify({ month: "2026-06", date: "2026-06-20" }));
     mount();
-    await waitFor(() =>
-      expect(
-        replaceMock.mock.calls.some(([href]) =>
-          String(href).includes("date=2026-06-20"),
-        ),
-      ).toBe(true),
-    );
+    await waitFor(() => expect(replaceMock.mock.calls.some(([href]) => String(href).includes("date=2026-06-20"))).toBe(true));
     expect(calls.some((call) => call.method === "POST")).toBe(false);
   });
-  it("reload shows owner failure beside previous cutoff and keeps calendar history", async () => {
-    source = {
-      ...source,
-      ready: false,
-      latestAttempt: {
-        ...attempt,
-        state: "FAILED",
-        errorCode: "coupang_cookie_bloat",
-        errorMessage: "쿠팡 쿠키를 정리해주세요.",
-        actualCutoffAt: null,
-      },
-    };
+
+  it("실패한 최근 조회는 실패 문장을 보이고 달력 이력은 그대로 둔다", async () => {
+    latest = operation({ status: "failed", result: null, errorCode: "SITE_COOKIE_BLOAT", errorMessage: "쿠팡 쿠키를 정리해주세요.", finishedAt: "2026-09-02T00:00:00.000Z" });
     mount();
-    expect(await screen.findByText(/최근 조회 실패/)).toHaveTextContent(
-      "쿠팡 쿠키를 정리해주세요.",
-    );
-    expect(screen.getByText(/마지막 완료/)).toHaveTextContent(
-      "2026-09-01T00:00:00Z",
-    );
+    expect(await screen.findByText(/최근 조회 실패/)).toHaveTextContent("쿠팡 쿠키를 정리해주세요.");
     expect(screen.getByText("2026년 7월")).toBeInTheDocument();
-    expect(calls.some((call) => call.method === "POST")).toBe(false);
   });
-  it("polls an existing RUNNING attempt after reload and displays empty COMPLETE without clearing history", async () => {
-    source = {
-      ...source,
-      latestAttempt: { ...attempt, state: "RUNNING", actualCutoffAt: null },
-    };
-    mount();
-    expect(await screen.findByText(/쉽먼트 조회 진행 중/)).toBeInTheDocument();
-    source = {
-      ...source,
-      latestAttempt: attempt,
-      capturedItems: [],
-    };
-    expect(
-      await screen.findByText(/최근 조회 결과 0일/, {}, { timeout: 2500 }),
-    ).toBeInTheDocument();
-    expect(screen.getByText(/미인증 이력 1일/)).toBeInTheDocument();
-    expect(calls.some((call) => call.method === "POST")).toBe(false);
-  });
-  /**
-   * KID-170 D3. 조회는 이 화면이 시작하고, 끝나야 원천을 다시 읽었다. 그 사이 원천은
-   * 60초에 한 번만 읽혀 11초짜리 조회가 통째로 지나갔고, 운영자는 "수집 중단"을 한
-   * 번도 보지 못했다.
-   */
-  it("shows the operator stop while the screen's own summary query is still running", async () => {
+
+  it("진행 중인 조회는 쪽 진행과 중단 버튼을 보이고, 중단은 실행 계약의 cancel을 부른다", async () => {
     const user = userEvent.setup();
-    let finishQuery = () => undefined as void;
-    collectSummary.mockImplementation(
-      () => new Promise((resolve) => {
-        finishQuery = () => resolve({ status: "empty", items: [] });
-      }),
-    );
+    latest = operation({ status: "executing", result: null, finishedAt: null, progress: { current: 6, total: 40, done: false } });
+    mount();
+    expect(await screen.findByText(/쉽먼트 조회 진행 중 \(6\/40쪽\)/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "수집 중단" }));
+    await waitFor(() => expect(calls).toContainEqual({ path: `/api/operations/${OPERATION_ID}/cancel`, method: "POST" }));
+  });
+
+  it("다시 조회는 확장에 실행을 시작시키고, 끝나면 달력을 다시 읽어 결과를 보인다", async () => {
+    const user = userEvent.setup();
     mount();
     await screen.findByText(/최근 조회 결과 1일/);
-
+    start.requestOperationStart.mockImplementation(async () => {
+      latest = operation({ status: "executing", result: null, finishedAt: null, progress: { current: 0, total: 40, done: false } });
+      return { outcome: "started", operationId: OPERATION_ID };
+    });
     await user.click(screen.getByRole("button", { name: /다시 조회/ }));
-    // owner 가 이 조회의 시도를 받아 진행 중이라고 말하기 시작한다.
-    source = {
-      ...source,
-      latestAttempt: { ...attempt, state: "RUNNING", actualCutoffAt: null },
-    };
-
-    expect(
-      await screen.findByRole("button", { name: "수집 중단" }, { timeout: 2500 }),
-    ).toBeInTheDocument();
-    finishQuery();
-  });
-
-  it("keeps the last known shipment status beside a light hint when a later owner read fails", async () => {
-    mount();
-    expect(await screen.findByText(/최근 조회 결과 1일/)).toBeInTheDocument();
-
-    // A non-retryable read failure keeps this deterministic without fake timers.
-    vi.stubGlobal(
-      "fetch",
-      vi.fn(async (url: string) => {
-        const path = new URL(url, "http://localhost").pathname;
-        return path.endsWith("/date-summary/source")
-          ? Response.json({ message: "denied" }, { status: 403 })
-          : Response.json(path.endsWith("/date-summary") ? { items } : { days: [] });
-      }),
-    );
-    await clients[0].invalidateQueries();
-
-    expect(await screen.findByText("상태를 다시 확인하는 중")).toBeInTheDocument();
-    expect(screen.getByText(/최근 조회 결과 1일/)).toBeInTheDocument();
-    expect(
-      screen.queryByText("쉽먼트 조회 상태를 불러오지 못했습니다."),
-    ).not.toBeInTheDocument();
+    expect(start.requestOperationStart).toHaveBeenCalledWith("orders.coupang_shipment_summary", {});
+    expect(await screen.findByRole("button", { name: "수집 중단" })).toBeInTheDocument();
+    latest = operation({ result: { dates: 2, rows: 4 } });
+    expect(await screen.findByText(/최근 조회 결과 2일/, {}, { timeout: 2500 })).toBeInTheDocument();
+    const calendarReads = calls.filter((call) => call.path.endsWith("/date-summary")).length;
+    expect(calendarReads).toBeGreaterThanOrEqual(2);
   });
 });

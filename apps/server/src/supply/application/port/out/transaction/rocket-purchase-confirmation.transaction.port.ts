@@ -8,7 +8,8 @@ export interface RocketWorkbookExportTransactionPort {
   exportWorkbook(input: {
     organizationId: string;
     userId: string;
-    sourceImportRunId: string;
+    /** 확정하는 로켓 PO 수집 실행(Orders `orders.coupang_rocket_po`). */
+    rocketPoOperationId: string;
     request: RocketWorkbookDecisionRequest;
     preview: Extract<RocketPurchasePreviewResponse, { status: 'ready' }>;
     artifactBytes: Buffer;

@@ -25,7 +25,8 @@ export interface RocketFinalOrderReconciliationPort {
     organizationId: string;
     userId: string;
     channelAccountId: string;
-    sourceImportRunId: string;
+    /** 최종주문을 관측한 Orders 직배송 실행(`orders.coupang_directship`, KID-359). 전송 키가 이 ID로 고정된다. */
+    directshipOperationId: string;
     transport: 'SHIPMENT' | 'MILKRUN';
     lines: RocketFinalOrderReconciliationLine[];
   }): Promise<RocketFinalOrderReconciliationResult>;

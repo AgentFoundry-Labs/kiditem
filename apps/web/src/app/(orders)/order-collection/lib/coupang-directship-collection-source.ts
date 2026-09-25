@@ -1,18 +1,17 @@
 'use client';
 
-import {
-  OrderCollectionSourceStatusSchema,
-  type OrderCollectionSourceStatus,
-} from '@kiditem/shared/order-collection-source';
+import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
-import { COLLECTION_IDLE_POLL_MS } from '@/hooks/use-collection-source-control';
+import { COLLECTION_IDLE_POLL_MS, COLLECTION_RUNNING_POLL_MS } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { sendBrowserCollectionControl } from '@/lib/browser-collection-session';
 import { attemptInProgress, startWebOpenedCollection } from '@/lib/collection-start';
+import { requestOperationCancel } from '@/lib/operation-start';
 import { queryKeys } from '@/lib/query-keys';
 import {
   beginCoupangDirectAttempt,
+  directshipAttemptView,
+  readRecentCoupangDirectOperations,
   type CoupangDirectOwnerAttemptControl,
 } from './coupang-directship-source-owner';
 import {
@@ -20,8 +19,6 @@ import {
   orderCollectionExtensionUnavailableMessage,
 } from './order-collection-extension';
 import type { OrderCollectionSourceAdapter } from './order-collection-source-adapter';
-
-const PATH = '/api/orders/collection/coupang-directship';
 
 /**
  * 쿠팡 직배송 owner 가 수집하는 몰. 주문수집 화면에서 이 키를 아는 곳은 여기 하나다 —
@@ -46,18 +43,34 @@ export type CoupangDirectshipHandoff = Readonly<{
   attempt: CoupangDirectOwnerAttemptControl;
 }>;
 
-export function readCoupangDirectshipSource(
+/**
+ * 한 로켓 계정의 직배송 원천 상태 — 실행 reader(`orders.coupang_directship`)를 계정으로 나눠 공용 컨트롤이 읽던
+ * 모양(진행 중·마지막 완료·마지막 실행)으로 옮긴다(KID-359).
+ */
+export async function readCoupangDirectshipSource(
   channelAccountId: string,
 ): Promise<OrderCollectionSourceStatus> {
-  return apiClient.getParsed(
-    `${PATH}/source?channelAccountId=${encodeURIComponent(channelAccountId)}`,
-    OrderCollectionSourceStatusSchema,
-  );
+  const accountId = channelAccountId.toLowerCase();
+  const operations = (await readRecentCoupangDirectOperations())
+    .filter((operation) => (operation.plan as { channelAccountId?: unknown } | null)?.channelAccountId === accountId)
+    .map(directshipAttemptView);
+  const running = operations.find((attempt) => attempt.state === 'RUNNING') ?? null;
+  const complete = operations.find((attempt) => attempt.state === 'COMPLETE') ?? null;
+  const last = operations[0] ?? null;
+  return {
+    mallKey: null,
+    channelAccountId: accountId,
+    running: running ? { attemptId: running.attemptId, collectionMode: 'browser', startedAt: running.startedAt, expiresAt: running.expiresAt } : null,
+    lastComplete: complete ? { attemptId: complete.attemptId, completedAt: complete.endedAt, publicationSequence: null } : null,
+    lastAttempt: last
+      ? { attemptId: last.attemptId, state: last.state, errorCode: last.errorCode, errorMessage: last.errorMessage, endedAt: last.endedAt }
+      : null,
+  };
 }
 
-/** The owner's operator stop, without the extension's fence token (KID-159). */
+/** 운영자 중단: 서버 실행을 취소한다(토큰 없이, 어느 브라우저에서든 — KID-159). */
 export function cancelCoupangDirectshipAttempt(attemptId: string) {
-  return apiClient.post(`${PATH}/attempts/${encodeURIComponent(attemptId)}/cancel`);
+  return apiClient.post(`/api/operations/${encodeURIComponent(attemptId)}/cancel`);
 }
 
 /**
@@ -125,7 +138,8 @@ export function coupangDirectshipCollectionSource({
       queryKey: queryKeys.orders.coupangDirectshipSource(channelAccountId ?? ''),
       queryFn: () => readCoupangDirectshipSource(channelAccountId ?? ''),
       enabled: Boolean(channelAccountId),
-      refetchInterval: COLLECTION_IDLE_POLL_MS,
+      // 도는 캡처가 있을 때만 자주 읽는다.
+      refetchInterval: (query) => (query.state.data?.running ? COLLECTION_RUNNING_POLL_MS : COLLECTION_IDLE_POLL_MS),
       refetchIntervalInBackground: false,
       meta: { suppressGlobalErrorToast: true },
     }),
@@ -160,7 +174,7 @@ export function coupangDirectshipCollectionSource({
     cancelInExtension: (attemptId) => {
       // 이 브라우저가 돌리던 절차부터 끊는다. 서버 취소만으로는 페이지 루프가 계속 돈다.
       abortLocalRun?.(attemptId);
-      return sendBrowserCollectionControl(attemptId, 'cancelCollectionSession');
+      return requestOperationCancel(attemptId);
     },
     cancelOnServer: cancelCoupangDirectshipAttempt,
     readCompleteId: (status) => status.lastComplete?.attemptId ?? null,
