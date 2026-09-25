@@ -1,9 +1,6 @@
 import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
 import { randomUUID } from 'node:crypto';
-import {
-  BadRequestException,
-  NotFoundException,
-} from '@nestjs/common';
+import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
@@ -755,7 +752,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       options[0]!.id,
       [{ masterProductId: foreignProduct.id, quantity: 1 }],
-    )).rejects.toBeInstanceOf(BadRequestException);
+    )).rejects.toBeInstanceOf(KiditemInvalidValueError);
 
     expect(await readMappingGeneration(TEST_ORGANIZATION_ID)).toBe(0n);
     expect(await prisma.masterProductAbcFormulaState.findUnique({
@@ -848,12 +845,12 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       TEST_ORGANIZATION_ID,
       optionId,
       [{ masterProductId: foreign.id, quantity: 1 }],
-    )).rejects.toBeInstanceOf(BadRequestException);
+    )).rejects.toBeInstanceOf(KiditemInvalidValueError);
     await expect(replaceRecipe(
       OTHER_ORGANIZATION_ID,
       optionId,
       [],
-    )).rejects.toBeInstanceOf(NotFoundException);
+    )).rejects.toBeInstanceOf(KiditemNotFoundError);
 
     expect(await prisma.channelListingOptionInventoryComponent.findMany({
       where: { channelListingOptionId: optionId },
