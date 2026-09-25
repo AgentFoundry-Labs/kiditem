@@ -1,7 +1,6 @@
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
-import vm from "node:vm";
 
 const source = await readFile(
   new URL(
@@ -10,14 +9,7 @@ const source = await readFile(
   ),
   "utf8",
 );
-function functionSource(name, nextName) {
-  const start = source.indexOf(`async function ${name}`);
-  const end = source.indexOf(`async function ${nextName}`, start + 1);
-  assert.ok(start >= 0, `${name} must exist`);
-  assert.ok(end > start, `${nextName} must follow ${name}`);
-  return source.slice(start, end);
-}
-
+// 광고 Wing 순위는 Wing 검색 수집기 바깥에서 검색 전체를 두 번까지 다시 한다(소싱 추천 키워드 몫은 KID-360에서 새 런타임으로 옮겼다).
 test("Wing rank keeps caller-level whole-search retry around the Wing collector seam", () => {
   assert.match(source, /search = await wingSearchCollector\.collect\(/);
   assert.match(source, /for \(let attempt = 1; attempt <= 2; attempt\+\+\)/);
