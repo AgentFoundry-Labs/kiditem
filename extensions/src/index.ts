@@ -7,3 +7,7 @@
 import { version as manifestVersion } from '../kiditem-os/manifest.json';
 
 export const version: string = manifestVersion;
+
+// `@kiditem/shared/*` 는 tsconfig `paths` 로 packages/shared/src 소스를 직접 묶는다
+// (dist 의 .d.ts 가 없는 CI 에서도 tsc·esbuild 가 같은 소스를 본다).
+export { OPERATION_STATUSES } from '@kiditem/shared/operation';
