@@ -11,6 +11,7 @@ import '../collectors/sourcing.trend_1688';
 import '../collectors/sourcing.wing_catalog';
 import '../collectors/test.echo';
 import '../sites/1688';
+import '../sites/art09';
 import '../sites/kidkids';
 import '../sites/mall-orders';
 import '../sites/product-page';
@@ -55,6 +56,7 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     const handle = createSiteHandles(deps)('orders.mall_orders', { tabId: null }) as { reader(mallKey: string): unknown };
     expect(keys(handle)).toEqual(['reader']);
     expect(keys(handle.reader('kidkids'))).toEqual(['readOrders']);
+    expect(keys(handle.reader('art09'))).toEqual(['readOrders']);
     expect(handle.reader('no-such-mall')).toBeNull();
     expect(handle.reader('mall-orders')).toBeNull();
     expect(ownTabSites().has('mall-orders')).toBe(true);

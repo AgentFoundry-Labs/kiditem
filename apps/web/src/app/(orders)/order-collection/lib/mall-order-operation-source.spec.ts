@@ -50,7 +50,7 @@ function operation(id: string, status: OperationView['status'], patch: Partial<O
     lockKeys: [],
     plan: { mallKey: 'kidkids', channelAccountId: ACCOUNT_ID, collectionDate: '2026-09-26' },
     progress: null,
-    result: status === 'succeeded' ? { rowCount: 3, mallKey: 'kidkids' } : null,
+    result: status === 'succeeded' ? { rowCount: 3, mallKey: 'kidkids', captured: 3 } : null,
     window: null,
     errorCode: null,
     errorMessage: null,
@@ -169,11 +169,18 @@ describe('collectMallOrderOperation — 실행이 끝나면 실행 id로 변환�
   });
 
   it('주문이 없던 실행은 변환하지 않고 0건, 로그인에 막힌 실행은 로그인 필요로 분류되는 실패', async () => {
-    vi.mocked(apiClient.get).mockResolvedValueOnce({ operations: [operation(OPERATION_ID, 'succeeded', { result: { rowCount: 0, mallKey: 'kidkids' } })] });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operations: [operation(OPERATION_ID, 'succeeded', { result: { rowCount: 0, mallKey: 'kidkids', captured: 0 } })] });
     const addGeneratedFile = vi.fn();
     await expect(collectMallOrderOperation({ account, operationId: OPERATION_ID, collectionDate: '2026-09-26', addGeneratedFile, sleep }))
       .resolves.toEqual({ rowCount: 0, masked: false, date: '2026-09-26' });
     expect(apiClient.fetchRaw).not.toHaveBeenCalled();
+    expect(addGeneratedFile).not.toHaveBeenCalled();
+
+    // 캡처는 있는데 변환기가 신규 주문이 없다고 한 날: 서버가 204로 답하고 0건이다.
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operations: [operation(OPERATION_ID, 'succeeded', { result: { rowCount: 0, mallKey: 'kidkids', captured: 4 } })] });
+    vi.mocked(apiClient.fetchRaw).mockResolvedValueOnce(new Response(null, { status: 204, headers: { 'X-Order-Collection-Output-Rows': '0' } }));
+    await expect(collectMallOrderOperation({ account, operationId: OPERATION_ID, collectionDate: '2026-09-26', addGeneratedFile, sleep }))
+      .resolves.toEqual({ rowCount: 0, masked: false, date: '2026-09-26' });
     expect(addGeneratedFile).not.toHaveBeenCalled();
 
     vi.mocked(apiClient.get).mockResolvedValueOnce({

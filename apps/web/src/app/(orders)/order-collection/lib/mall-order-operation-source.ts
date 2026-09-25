@@ -165,11 +165,14 @@ export async function collectMallOrderOperation({
     ...(sleep ? { sleep } : {}),
   });
   const result = MallOrdersResultSchema.safeParse(operation.result);
-  if (result.success && result.data.rowCount === 0) {
+  // 캡처가 비었으면 변환할 것이 없다. 캡처가 있어도 변환기가 신규 주문이 없다고 하면 서버가 파일 없이(204) 답한다.
+  const converted = result.success && result.data.captured === 0
+    ? null
+    : await regenerateOrderOperationSource(operationId, { download: false });
+  if (!converted || (converted.outputRows ?? 0) === 0) {
     toastNoNewOrders(account.name);
     return { rowCount: 0, masked: false, date: collectionDate };
   }
-  const converted = await regenerateOrderOperationSource(operationId, { download: false });
   const collectedRows = converted.sourceRows ?? (result.success ? result.data.rowCount : 0);
   const convertedAt = Date.now();
   addGeneratedFile({

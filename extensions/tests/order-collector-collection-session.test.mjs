@@ -26,7 +26,6 @@ const AUTOMATIC_ACTIONS = [
   ['collectKakaoOrders', 'collectKakaoOrders', 'kakao', { date: '2026-07-15' }],
   ['collectBoriboriOrders', 'collectBoriboriOrders', 'boribori', { date: '2026-07-15' }],
   ['collectTeachervilleOrders', 'collectTeachervilleOrders', 'teacher-mall', { date: '2026-07-15' }],
-  ['collectArt09Orders', 'collectArt09Orders', 'art09', { date: '2026-07-15' }],
   ['collectHaebeopOrders', 'collectHaebeopOrders', 'haebub-mall', { date: '2026-07-15' }],
   ['collectCoupangDirectOrders', 'collectCoupangDirectOrders', 'coupang-direct', { date: '2026-07-15' }],
 ];
@@ -779,7 +778,6 @@ test('named mall reads create a fresh inactive tab even when a provider tab exis
     ['findOrCreateKakaoTab', 'https://shopping-seller.kakao.com/order/seller/store-order/integrate/list'],
     ['findOrCreateBoriboriTab', 'https://seller-club.co.kr/order/orderDeliList'],
     ['findOrCreateTeachervilleTab', 'https://shop.teacherville.co.kr/selleradmin/order/catalog'],
-    ['findOrCreateArt09Tab', 'https://zzogzzog1.cafe24.com/admin/php/shop1/s_new/order_list.php?1&shop_no=1'],
     ['findOrCreateHaebeopTab', 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php'],
   ];
 
@@ -847,7 +845,6 @@ test('every named mall collector uses the production attach-before-readiness pat
     ['collectKakaoOrders', ['2026-07-15']],
     ['collectBoriboriOrders', [{}]],
     ['collectTeachervilleOrders', []],
-    ['collectArt09Orders', ['2026-07-15']],
     ['collectHaebeopOrders', [{}]],
   ];
 

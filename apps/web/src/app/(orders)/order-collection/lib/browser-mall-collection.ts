@@ -262,7 +262,6 @@ export function createBrowserMallCollector({
       kakao: 'collectKakaoOrders',
       boribori: 'collectBoriboriOrders',
       'teacher-mall': 'collectTeachervilleOrders',
-      art09: 'collectArt09Orders',
     };
     const action = actionByMall[account.key];
     if (!action) throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
@@ -718,40 +717,6 @@ export function createBrowserMallCollector({
     return rows;
   };
 
-  const generateArt09Csv = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectArt09OrdersFromExtension, convertArt09ToSellpiaFile } = await import(
-      './art09-orders-api'
-    );
-    await ensureMallLogin('art09', run);
-    const collectedRows = await collectArt09OrdersFromExtension(run);
-    if (collectedRows.length === 0) {
-      toastNoNewOrders('아트공구');
-      return 0;
-    }
-    const result = await convertArt09ToSellpiaFile(collectedRows, { download: false, run });
-    const outputRows = result.outputRows ?? 0;
-    if (outputRows === 0) {
-      toastNoNewOrders('아트공구');
-      return 0;
-    }
-
-    const orderCount = result.sourceRows || collectedRows.length || outputRows;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-art09-browser`,
-      sourceName: `아트공구 주문 (${formatNumber(orderCount)}건 · ${formatNumber(outputRows)}품목)`,
-      convertedAt,
-      collectionDate: collectionDateOf(run),
-      collectionMode: 'browser',
-      collectedRows: orderCount,
-      mallKey: 'art09',
-      mallName: '아트공구',
-      orderNumbers: distinctOrderNumbersFromArt09(collectedRows),
-    });
-    return orderCount;
-  };
-
   const generateOnchannelSellpia = async (
     run: OrderCollectionExtensionRun,
     collectionDate: string,
@@ -836,7 +801,6 @@ export function createBrowserMallCollector({
     if (account.key === 'always') return resultFor(await generateAlwayzSellpia(resolvedRun), today);
     if (account.key === 'boribori') return resultFor(await generateBoriboriSellpia(resolvedRun), today);
     if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(resolvedRun), today);
-    if (account.key === 'art09') return resultFor(await generateArt09Csv(resolvedRun), today);
     if (account.key === 'haebub-mall') return resultFor(await generateHaebeopSellpia(resolvedRun), today);
     if (!isBrowserCollectableMall(account)) {
       throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
@@ -885,12 +849,6 @@ function resultFor(rowCount: number, date: string): BrowserMallCollectionResult 
 function collectionDateOf(run: OrderCollectionExtensionRun): string {
   if (!run.date) throw new Error('Order collection date is required');
   return run.date;
-}
-
-function distinctOrderNumbersFromArt09(rows: Array<{ orderId?: string }>): string[] {
-  return [...new Set(
-    rows.map((row) => String(row.orderId ?? '').trim()).filter(Boolean),
-  )];
 }
 
 async function loadMallLoginCredentials(account: OrderCollectionMallAccount) {

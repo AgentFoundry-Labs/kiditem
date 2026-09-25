@@ -81,8 +81,9 @@ export class MallOrdersOperationService {
       operationId: context.operationId,
       source: capture.source,
     });
-    const rowCount = capture.empty ? 0 : await this.orderCount(plan, capture.source);
-    return MallOrdersResultSchema.parse({ rowCount, mallKey: plan.mallKey });
+    const conversion = capture.captured === 0 ? null : await this.convert(plan, capture.source);
+    const rowCount = conversion ? orderCollectionOrderCount(conversion) ?? 0 : 0;
+    return MallOrdersResultSchema.parse({ rowCount, mallKey: plan.mallKey, captured: capture.captured });
   }
 
   /**
@@ -102,25 +103,22 @@ export class MallOrdersOperationService {
       });
     }
     const result = MallOrdersResultSchema.safeParse(operation.result);
-    const conversion = result.success && result.data.rowCount === 0
-      ? null
-      : await this.conversions.convertRetainedSource(plan.mallKey, plan.collectionDate, capture);
+    const conversion = result.success && result.data.captured === 0 ? null : await this.convert(plan, capture);
     return { operationId: operation.id, artifactId: capture.artifactId, mallKey: plan.mallKey, conversion };
   }
 
   /**
-   * 캡처가 말하는 주문 수. 변환기가 "신규 주문 없음"(`NO_NEW_ORDERS`, 예: 그날 주문이 아닌 행만 있는 파일)이라 하면
-   * 실패가 아니라 0건이다 — 옛 경로가 이 날을 실패한 몰로 적던 것을 되풀이하지 않는다. 다른 변환 오류는 실행을 실패시킨다.
+   * 캡처를 변환한다. 변환기가 "신규 주문 없음"(`NO_NEW_ORDERS`, 예: 그날 주문이 아닌 행만 있는 파일)이라 하면 실패가
+   * 아니라 변환할 것이 없는 것이다(null) — 옛 경로가 이 날을 실패한 몰로 적던 것을 되풀이하지 않는다. 다른 변환 오류는
+   * 그대로 던진다(finalize에서는 실행이 실패한다).
    */
-  private async orderCount(plan: MallOrdersPlan, source: OrderOperationCaptureSource): Promise<number> {
-    let conversion: OrderCollectionConversion;
+  private async convert(plan: MallOrdersPlan, source: OrderOperationCaptureSource): Promise<OrderCollectionConversion | null> {
     try {
-      conversion = await this.conversions.convertRetainedSource(plan.mallKey, plan.collectionDate, source);
+      return await this.conversions.convertRetainedSource(plan.mallKey, plan.collectionDate, source);
     } catch (error) {
-      if (isNoNewOrders(error)) return 0;
+      if (isNoNewOrders(error)) return null;
       throw error;
     }
-    return orderCollectionOrderCount(conversion) ?? 0;
   }
 }
 

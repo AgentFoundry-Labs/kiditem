@@ -28,10 +28,10 @@ export const MallOrdersPlanSchema = z.object({
 }).strict();
 export type MallOrdersPlan = z.infer<typeof MallOrdersPlanSchema> & { mallKey: MallOrderOperationMall };
 
-/** 보관할 캡처 한 벌과 "걷었는데 없었다" 여부. 없으면 변환하지 않고 주문 수 0이다. */
+/** 보관할 캡처 한 벌과 그 원소 수. 0이면 "걷었는데 없었다" — 변환하지 않고 주문 수 0이다. */
 export interface MallOrdersCapture {
   source: { bytes: Buffer; fileName: string | null; contentType: string };
-  empty: boolean;
+  captured: number;
 }
 
 /**
@@ -54,7 +54,7 @@ function jsonList(field: string, item: z.ZodTypeAny): MallCaptureRule {
       if (!parsed.success) throw invalid('invalid_order_rows', { errors: issues(parsed.error) });
       return {
         source: { bytes: Buffer.from(canonicalOwnerInputJson({ [field]: parsed.data }), 'utf8'), fileName: null, contentType: 'application/json' },
-        empty: parsed.data.length === 0,
+        captured: parsed.data.length,
       };
     },
   };
@@ -62,6 +62,7 @@ function jsonList(field: string, item: z.ZodTypeAny): MallCaptureRule {
 
 const MALL_CAPTURE_RULES: Partial<Record<MallOrderOperationMall, MallCaptureRule>> = {
   kidkids: jsonList('orders', OrderObjectSchema.and(z.object({ items: z.array(z.unknown()) }))),
+  art09: jsonList('rows', OrderObjectSchema.and(z.object({ orderId: z.string() }))),
 };
 
 export function mallCaptureReady(mallKey: MallOrderOperationMall): boolean {

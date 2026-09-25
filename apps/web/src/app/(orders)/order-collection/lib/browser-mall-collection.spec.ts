@@ -6,8 +6,6 @@ const mocks = vi.hoisted(() => ({
   detectExtension: vi.fn(),
   ensureLogin: vi.fn(),
   collectKidsnote: vi.fn(),
-  collectArt09: vi.fn(),
-  convertArt09: vi.fn(),
   sendToExtension: vi.fn(),
   regenerateSource: vi.fn(),
   readContinuation: vi.fn(),
@@ -60,17 +58,13 @@ vi.mock('./kidsnote-orders-api', () => ({
   collectKidsnoteOrdersFromExtension: mocks.collectKidsnote,
   convertKidsnoteToSellpiaFile: vi.fn(),
 }));
-vi.mock('./art09-orders-api', () => ({
-  collectArt09OrdersFromExtension: mocks.collectArt09,
-  convertArt09ToSellpiaFile: mocks.convertArt09,
-}));
 vi.mock('@/lib/order-mall-account-api', () => ({
   orderMallAccountApi: { password: mocks.password },
 }));
 
 import { EXTENSION_TIMEOUT_MESSAGE } from '@/lib/extension-bridge';
 import { isMallAutoLoginBlocked, resetMallLoginBlocksForTest } from '@/lib/mall-login-block';
-import { createBrowserMallCollector } from './browser-mall-collection';
+import { createBrowserMallCollector, ensureMallLoginForRun } from './browser-mall-collection';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
 const RUN = {
@@ -101,8 +95,6 @@ describe('createBrowserMallCollector', () => {
     mocks.detectExtension.mockResolvedValue(RUN.extensionId);
     mocks.password.mockResolvedValue({ password: 'secret' });
     mocks.collectKidsnote.mockResolvedValue({ orders: [], count: 0 });
-    mocks.collectArt09.mockResolvedValue([]);
-    mocks.convertArt09.mockResolvedValue({ outputRows: 0, sourceRows: 0 });
     mocks.sendToExtension.mockReset();
     mocks.regenerateSource.mockReset();
     mocks.readContinuation.mockReset();
@@ -350,13 +342,10 @@ describe('createBrowserMallCollector', () => {
       name: '아트공구',
       supplierLoginId: 'supplier-operator',
     };
-    const collector = createBrowserMallCollector({
-      mallAccounts: [art09Account],
-      addGeneratedFile: vi.fn(),
-      setPreviewId: vi.fn(),
-    });
+    // 아트공구는 실행 kind로 옮긴 몰이라 수집 전에 시도 없이 로그인만 맞춘다(KID-359 H3).
+    const run = { attemptId: '', attemptToken: '', extensionId: RUN.extensionId, date: null, sourceOwner: 'mall_orders_operation' as const };
 
-    await collector(art09Account, RUN);
+    await ensureMallLoginForRun(art09Account, run);
 
     expect(mocks.ensureLogin).toHaveBeenCalledWith(
       'art09',
@@ -366,7 +355,7 @@ describe('createBrowserMallCollector', () => {
         password: 'secret',
         siteUrl: 'https://shop.kidsnote.com',
       },
-      expect.objectContaining(RUN),
+      run,
     );
   });
 
@@ -413,7 +402,6 @@ describe('createBrowserMallCollector', () => {
       'boribori-orders-api.ts',
       'teacherville-orders-api.ts',
       'haebeop-orders-api.ts',
-      'art09-orders-api.ts',
       'coupang-directship-api.ts',
     ];
 

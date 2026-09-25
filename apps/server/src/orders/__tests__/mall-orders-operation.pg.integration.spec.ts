@@ -144,7 +144,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     ]);
     const finished = await harness.finish(run).expect(200);
     // 주문 수 = 변환 출력 줄 − 상품 줄(주문마다 택배비 한 줄) — 사장님 2026-09-21·22 규칙.
-    expect(finished.body.operation).toMatchObject({ status: 'succeeded', result: { rowCount: 2, mallKey: 'kidkids' } });
+    expect(finished.body.operation).toMatchObject({ status: 'succeeded', result: { rowCount: 2, mallKey: 'kidkids', captured: 2 } });
 
     const artifacts = await prisma.orderCollectionArtifact.findMany({ where: { organizationId: ORG } });
     expect(artifacts).toHaveLength(1);
@@ -156,7 +156,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
   it('주문이 없으면 rowCount 0으로 성공하고(옛 complete-empty), 실패한 실행은 캡처를 남기지 않는다', async () => {
     const empty = await harness.beginRun(MALL_ORDERS_KIND, scope());
     const finished = await harness.finish(empty).expect(200);
-    expect(finished.body.operation).toMatchObject({ status: 'succeeded', result: { rowCount: 0, mallKey: 'kidkids' } });
+    expect(finished.body.operation).toMatchObject({ status: 'succeeded', result: { rowCount: 0, mallKey: 'kidkids', captured: 0 } });
 
     const failed = await harness.beginRun(MALL_ORDERS_KIND, scope());
     await harness.put(failed, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [kidkidsOrder('K-9')] }]);
@@ -237,6 +237,24 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     await convert(`attempts/${run.operation.id}/convert`, run.operation.id)
       .expect(204)
       .expect('X-Order-Collection-Output-Rows', '0');
+  });
+
+  it('아트공구: order_rows(Cafe24 CSV 행)를 옛 변환 본문 {rows}로 보관하고 같은 셈법으로 주문 수를 적는다', async () => {
+    const run = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: art09Account, mallKey: 'art09' }));
+    expect(run.operation.plan).toMatchObject({ mallKey: 'art09', mallName: '아트공구' });
+    const rows = [
+      { orderId: '20260926-0000001', productName: '색종이', qty: '2', orderedAt: `${TODAY} 10:00:00` },
+      { orderId: '20260926-0000001', productName: '크레파스', qty: '1', orderedAt: `${TODAY} 10:00:00` },
+    ];
+    await harness.put(run, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: rows }]);
+    const finished = await harness.finish(run).expect(200);
+    // 아트공구 CSV는 주문마다 택배비 줄이 없어 출력 줄 = 상품 줄 — 셈법(orderCollectionOrderCount)이 0을 낸다(옛 경로와 같다,
+    // 파생 보고). 캡처는 있으므로(captured 2) 변환 파일은 나온다.
+    expect(finished.body.operation.result).toEqual({ rowCount: 0, mallKey: 'art09', captured: 2 });
+    const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
+    expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ rows });
+    const converted = await convert('art09/convert', run.operation.id).expect(201);
+    expect(converted.headers).toMatchObject({ 'content-type': 'text/csv;charset=utf-8', 'x-order-collection-source-rows': '1', 'x-order-collection-output-rows': '2' });
   });
 
   it('오늘 주문 capability는 실행 표(몰 주문·directship의 최신 성공 rowCount)와 옛 run(2차 몰·옛 directship)을 한 수로 센다', async () => {

@@ -96,9 +96,11 @@ export type OrdersCaptureResult = z.infer<typeof OrdersCaptureResultSchema>;
 
 /**
  * 몰 주문 result(KID-359 H3). `rowCount`는 변환이 말하는 주문 수(`orderCollectionOrderCount`) — 오늘 주문 카드가
- * 읽는다. 주문이 없던 수집도 0으로 적는다.
+ * 읽는다. 주문이 없던 수집도 0으로 적는다. `captured`는 보관한 캡처의 원소 수(주문·행) — 0이면 변환할 것이 없다
+ * (주문 수 셈법이 0을 내도 캡처가 있으면 변환 파일은 있다, 예: 택배비 줄이 없는 아트공구 CSV).
  */
 export const MallOrdersResultSchema = OrdersCaptureResultSchema.extend({
   mallKey: z.string().min(1).max(64),
+  captured: z.number().int().nonnegative(),
 });
 export type MallOrdersResult = z.infer<typeof MallOrdersResultSchema>;

@@ -37,7 +37,6 @@ const automaticCollectors = [
   'collectKakaoOrders',
   'collectBoriboriOrders',
   'collectTeachervilleOrders',
-  'collectArt09Orders',
   'collectHaebeopOrders',
   'collectCoupangDirectOrders',
 ];
@@ -51,7 +50,6 @@ const runDateActions = new Set([
   'collectKakaoOrders',
   'collectBoriboriOrders',
   'collectTeachervilleOrders',
-  'collectArt09Orders',
   'collectHaebeopOrders',
 ]);
 
