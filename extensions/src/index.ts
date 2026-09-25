@@ -5,6 +5,9 @@
 // 빌드 시각이나 매니페스트 버전 같은 값은 번들에 넣지 않는다 — 번들이 커밋되고 CI 가
 // `--check` 로 바이트 동일성을 보므로 출력은 src 에만 달려야 한다. 버전은 설치된
 // 매니페스트에서 실행 시점에 읽는다.
+import { registeredKinds } from './collectors';
+import { installEntry } from './entry';
+
 export function version(): string {
   return chrome.runtime.getManifest().version;
 }
@@ -12,3 +15,8 @@ export function version(): string {
 // `@kiditem/shared/*` 는 tsconfig `paths` 로 packages/shared/src 소스를 직접 묶는다
 // (dist 의 .d.ts 가 없는 CI 에서도 tsc·esbuild 가 같은 소스를 본다).
 export { OPERATION_STATUSES } from '@kiditem/shared/operation';
+
+/** 이 번들이 아는 실행 kind(등록된 수집기). */
+export const runtime = { kinds: registeredKinds };
+
+installEntry();

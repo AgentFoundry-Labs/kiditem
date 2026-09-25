@@ -25,6 +25,13 @@ containing test-style underscore paths.
 - Keep the manifest `key`; it pins the extension ID
   ([runbook](../docs/runbooks/extension-releases.md)).
 
+## Runtime layers
+
+- Add new collection only under `src/collectors/<kind>/` and `src/sites/<site>/`;
+  talk to the server only through `src/core/operation-client.ts`. The four
+  layers and their import rules are in `src/README.md`, enforced by
+  `npm run check:extension-runtime-layers`.
+
 ## Owner boundary
 
 - The extension captures and transports provider data; the server-side source

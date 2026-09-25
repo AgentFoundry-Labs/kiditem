@@ -19,8 +19,8 @@ describe('operation chunk write', () => {
   });
 
   it('refuses the chunk past the per-operation count limit', () => {
-    expect(evaluateChunkWrite({ existingChecksum: null, checksum: A, payload: [], storedChunks: OPERATION_CHUNKS_MAX - 1 }).verdict).toBe('store');
-    expect(evaluateChunkWrite({ existingChecksum: null, checksum: A, payload: [], storedChunks: OPERATION_CHUNKS_MAX })).toEqual({ verdict: 'too_many_chunks' });
+    expect(evaluateChunkWrite({ existingChecksum: null, checksum: A, payload: [1], storedChunks: OPERATION_CHUNKS_MAX - 1 }).verdict).toBe('store');
+    expect(evaluateChunkWrite({ existingChecksum: null, checksum: A, payload: [1], storedChunks: OPERATION_CHUNKS_MAX })).toEqual({ verdict: 'too_many_chunks' });
   });
 
   it('measures the payload in serialized UTF-8 bytes against the 1MB limit', () => {
@@ -31,5 +31,10 @@ describe('operation chunk write', () => {
     expect(evaluateChunkWrite({ existingChecksum: null, checksum: A, payload: over, storedChunks: 0 })).toEqual({ verdict: 'too_large' });
     const hangul = ['가'.repeat(Math.floor(OPERATION_CHUNK_MAX_BYTES / 3))];
     expect(evaluateChunkWrite({ existingChecksum: null, checksum: A, payload: hangul, storedChunks: 0 })).toEqual({ verdict: 'too_large' });
+  });
+
+  it('an empty payload on a new slot only extends the lease — no chunk row, and it never counts against the limit', () => {
+    expect(evaluateChunkWrite({ existingChecksum: null, checksum: A, payload: [], storedChunks: 0 })).toEqual({ verdict: 'extend_only', itemCount: 0 });
+    expect(evaluateChunkWrite({ existingChecksum: null, checksum: A, payload: [], storedChunks: OPERATION_CHUNKS_MAX })).toEqual({ verdict: 'extend_only', itemCount: 0 });
   });
 });

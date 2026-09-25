@@ -22,8 +22,40 @@ var KidItemRuntime = (() => {
   var index_exports = {};
   __export(index_exports, {
     OPERATION_STATUSES: () => OPERATION_STATUSES,
+    runtime: () => runtime,
     version: () => version
   });
+
+  // extensions/src/collectors/index.ts
+  var collectors = /* @__PURE__ */ new Map();
+  function registerCollector(collector) {
+    if (collectors.has(collector.kind)) throw new Error(`duplicate collector: ${collector.kind}`);
+    collectors.set(collector.kind, collector);
+  }
+  function collectorFor(kind) {
+    return collectors.get(kind) ?? null;
+  }
+  function registeredKinds() {
+    return [...collectors.keys()].sort();
+  }
+
+  // extensions/src/collectors/test.echo/index.ts
+  var CHUNKS = 2;
+  var ITEMS_PER_CHUNK = 3;
+  var testEchoCollector = {
+    kind: "test.echo",
+    site: null,
+    async *collect(_plan, _site, { signal }) {
+      for (let chunk = 1; chunk <= CHUNKS; chunk += 1) {
+        if (signal.aborted) return;
+        const at = (/* @__PURE__ */ new Date()).toISOString();
+        const payload = Array.from({ length: ITEMS_PER_CHUNK }, (_, index) => ({ i: (chunk - 1) * ITEMS_PER_CHUNK + index + 1, at }));
+        yield { chunkKind: "echo", payload, progress: { done: chunk } };
+      }
+    },
+    summarize: () => ({ result: { echo: true } })
+  };
+  registerCollector(testEchoCollector);
 
   // node_modules/zod/v3/external.js
   var external_exports = {};
@@ -4066,6 +4098,101 @@ var KidItemRuntime = (() => {
   };
   var NEVER = INVALID;
 
+  // extensions/src/core/errors.ts
+  var ErrorEnvelopeSchema = external_exports.object({
+    statusCode: external_exports.number().int().min(400).max(599),
+    code: external_exports.string().min(1),
+    kind: external_exports.string(),
+    message: external_exports.string(),
+    errors: external_exports.array(external_exports.unknown()).optional(),
+    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
+  }).passthrough();
+  var RuntimeError = class extends Error {
+    constructor(code, message, details = null, cause) {
+      super(message);
+      this.code = code;
+      this.details = details;
+      this.cause = cause;
+      this.name = "RuntimeError";
+    }
+    code;
+    details;
+    cause;
+  };
+  function parseErrorEnvelope(body) {
+    const parsed = ErrorEnvelopeSchema.safeParse(body);
+    return parsed.success ? parsed.data : null;
+  }
+  function isRuntimeError(value) {
+    return value instanceof RuntimeError;
+  }
+
+  // extensions/src/core/browser.ts
+  var RUNTIME_BROWSER_ALREADY_ACQUIRED = "RUNTIME_BROWSER_ALREADY_ACQUIRED";
+  var RUNTIME_BROWSER_UNAVAILABLE = "RUNTIME_BROWSER_UNAVAILABLE";
+  function createBrowserResources(chromeApi, sites, options = {}) {
+    const held = /* @__PURE__ */ new Set();
+    return {
+      async acquire({ operationId, lockKeys, signal }) {
+        if (held.has(operationId)) {
+          throw new RuntimeError(RUNTIME_BROWSER_ALREADY_ACQUIRED, "\uC774 \uC2E4\uD589\uC740 \uC774\uBBF8 \uBE0C\uB77C\uC6B0\uC800 \uC790\uC6D0\uC744 \uC7A1\uACE0 \uC788\uC2B5\uB2C8\uB2E4.", { operationId });
+        }
+        signal.throwIfAborted();
+        const siteNames = [...new Set(lockKeys.map((key) => siteOfLockKey(key, options)).filter((name) => name !== null && name in sites))];
+        if (siteNames.length > 1) {
+          throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uD55C \uC2E4\uD589\uC774 \uB450 \uC0AC\uC774\uD2B8\uC758 \uD0ED\uC744 \uD568\uAED8 \uC7A1\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { sites: siteNames });
+        }
+        held.add(operationId);
+        try {
+          const tab = siteNames.length === 1 ? await openSiteTab(chromeApi, sites[siteNames[0]].origin) : null;
+          let released = false;
+          return {
+            tabId: tab?.tabId ?? null,
+            async release() {
+              if (released) return;
+              released = true;
+              held.delete(operationId);
+              if (tab?.opened) await chromeApi.tabs.remove(tab.tabId).catch(() => void 0);
+            }
+          };
+        } catch (error) {
+          held.delete(operationId);
+          throw error;
+        }
+      }
+    };
+  }
+  function siteOfLockKey(key, options) {
+    if (key.startsWith("resource:")) return key.split(":")[1] ?? null;
+    if (key.startsWith("account:")) return options.accountSite ?? null;
+    return null;
+  }
+  async function openSiteTab(chromeApi, origin) {
+    const base = origin.replace(/\/+$/, "");
+    const [existing] = await chromeApi.tabs.query({ url: `${base}/*` });
+    if (typeof existing?.id === "number") return { tabId: existing.id, opened: false };
+    const created = await chromeApi.tabs.create({ url: base, active: false });
+    if (typeof created.id !== "number") {
+      throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uC0AC\uC774\uD2B8 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { origin: base });
+    }
+    return { tabId: created.id, opened: true };
+  }
+
+  // extensions/src/entry/legacy-bridge.ts
+  function legacyGlobalsPresent() {
+    return typeof KidItemDomains !== "undefined" && typeof sourceOwnerEnvironmentContext !== "undefined";
+  }
+  function legacyKeepAlive(work) {
+    if (typeof KidItemWorkerKeepAlive === "undefined" || !KidItemWorkerKeepAlive) return;
+    KidItemWorkerKeepAlive.during(work).catch(() => void 0);
+  }
+  function legacyApiPort(environmentId) {
+    return { fetch: (path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init) };
+  }
+  function registerWithLegacyDomains(domain) {
+    KidItemDomains.register(domain);
+  }
+
   // packages/shared/src/schemas/common.ts
   var zIsoDate = external_exports.union([external_exports.string(), external_exports.date()]);
   var ApiErrorResponseSchema = external_exports.object({
@@ -4082,6 +4209,7 @@ var KidItemRuntime = (() => {
   var OperationStatusSchema = external_exports.enum(OPERATION_STATUSES);
   var OPERATION_OUTCOMES = ["succeeded", "failed"];
   var OperationOutcomeSchema = external_exports.enum(OPERATION_OUTCOMES);
+  var OPERATION_CANCEL_CODE = "USER_CANCELLED";
   var OPERATION_LEASE_MS = 30 * 60 * 1e3;
   var OPERATION_CHUNK_MAX_BYTES = 1024 * 1024;
   var OPERATION_CHUNKS_MAX = 1e3;
@@ -4103,6 +4231,7 @@ var KidItemRuntime = (() => {
     reason: OperationFenceLostReasonSchema
   }).strict();
   var JsonObjectSchema = external_exports.record(external_exports.unknown());
+  var OPERATION_TOKEN_HEADER = "x-operation-token";
   var OperationWindowSchema = external_exports.object({
     start: external_exports.string().date(),
     end: external_exports.string().date()
@@ -4175,6 +4304,7 @@ var KidItemRuntime = (() => {
   var OperationFinishResponseSchema = external_exports.object({
     operation: OperationViewSchema
   }).strict();
+  var OperationCancelResponseSchema = OperationFinishResponseSchema;
   var OperationListQuerySchema = external_exports.object({
     kinds: external_exports.string().min(1).transform((value) => value.split(",").map((kind) => kind.trim()).filter(Boolean)).pipe(external_exports.array(OperationKindSchema).min(1).max(50)),
     status: OperationStatusSchema.optional(),
@@ -4213,9 +4343,384 @@ var KidItemRuntime = (() => {
     payload: external_exports.array(external_exports.unknown())
   }).strict();
 
+  // extensions/src/core/operation-client.ts
+  function stopFor(code, details) {
+    if (code === "OPERATION_IN_PROGRESS") {
+      const existing = OperationInProgressDetailsSchema.safeParse(details);
+      return { kind: "already_running", existing: existing.success ? existing.data : null };
+    }
+    if (code === "OPERATION_FENCE_LOST" || code === "OPERATION_NOT_FOUND") {
+      const reason = details?.reason;
+      return { kind: "fence_lost", reason: typeof reason === "string" ? reason : null };
+    }
+    return { kind: "report_failed" };
+  }
+  var RUNTIME_API_UNREACHABLE = "RUNTIME_API_UNREACHABLE";
+  function createOperationClient(api) {
+    const base = "/api/operations";
+    return {
+      begin: (request) => call(api, base, { method: "POST", body: request }, OperationBeginResponseSchema),
+      async putChunk({ operationId, token, chunkKind, sequence, payload, progress }) {
+        const checksum = await sha256Hex(JSON.stringify(payload));
+        return call(
+          api,
+          `${base}/${encodeURIComponent(operationId)}/chunks/${encodeURIComponent(chunkKind)}/${sequence}`,
+          { method: "PUT", token, body: { checksum, payload, ...progress ? { progress } : {} } },
+          OperationChunkPutResponseSchema
+        );
+      },
+      finish: ({ operationId, token, request }) => call(api, `${base}/${encodeURIComponent(operationId)}/finish`, { method: "POST", token, body: request }, OperationFinishResponseSchema),
+      async cancel(operationId) {
+        const response = await call(api, `${base}/${encodeURIComponent(operationId)}/cancel`, { method: "POST" }, OperationCancelResponseSchema);
+        return response.operation;
+      }
+    };
+  }
+  async function call(api, path, request, schema) {
+    const headers = { "content-type": "application/json" };
+    if (request.token !== void 0) headers[OPERATION_TOKEN_HEADER] = request.token;
+    let response;
+    try {
+      response = await api.fetch(path, {
+        method: request.method,
+        headers,
+        ...request.body !== void 0 ? { body: JSON.stringify(request.body) } : {}
+      });
+    } catch (error) {
+      const code = error?.code;
+      if (typeof code === "string" && code.trim()) {
+        const message = error instanceof Error && error.message ? error.message : "KidItem \uC11C\uBC84 \uC694\uCCAD\uC774 \uAC70\uC808\uB410\uC2B5\uB2C8\uB2E4.";
+        throw new RuntimeError(code.trim().slice(0, 100), message, { path }, error);
+      }
+      throw new RuntimeError(RUNTIME_API_UNREACHABLE, "KidItem \uC11C\uBC84\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { path }, error);
+    }
+    const body = await response.json().catch(() => void 0);
+    if (!response.ok) {
+      const envelope = parseErrorEnvelope(body);
+      if (!envelope) {
+        throw new RuntimeError(RUNTIME_API_UNREACHABLE, "KidItem \uC11C\uBC84 \uC751\uB2F5\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { path, status: response.status });
+      }
+      throw new RuntimeError(envelope.code, envelope.message, envelope.details ?? null);
+    }
+    const parsed = schema.safeParse(body);
+    if (!parsed.success) {
+      throw new RuntimeError(RUNTIME_API_UNREACHABLE, "KidItem \uC11C\uBC84 \uC751\uB2F5\uC774 \uC2E4\uD589 \uACC4\uC57D\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { path, status: response.status });
+    }
+    return parsed.data;
+  }
+  async function sha256Hex(text) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+    return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
+  }
+
+  // extensions/src/core/runner.ts
+  var RUNTIME_UNKNOWN_KIND = "RUNTIME_UNKNOWN_KIND";
+  var RUNTIME_COLLECT_FAILED = "RUNTIME_COLLECT_FAILED";
+  var RUNTIME_CHUNK_TOO_LARGE = "RUNTIME_CHUNK_TOO_LARGE";
+  var HEARTBEAT_CHUNK_KIND = "heartbeat";
+  var HEARTBEAT_INTERVAL_MS = OPERATION_LEASE_MS / 3;
+  var encoder = new TextEncoder();
+  function createRunner(deps, collectorFor2) {
+    return {
+      async run(input) {
+        const collector = collectorFor2(input.kind);
+        if (!collector) {
+          return { kind: "failed", operationId: null, errorCode: RUNTIME_UNKNOWN_KIND, errorMessage: `\uC774 \uD655\uC7A5\uC774 \uBAA8\uB974\uB294 \uC2E4\uD589 \uC885\uB958\uC785\uB2C8\uB2E4: ${input.kind}` };
+        }
+        let begun;
+        try {
+          begun = await deps.client.begin({
+            kind: input.kind,
+            scope: input.scope,
+            ...input.idempotencyKey !== void 0 ? { idempotencyKey: input.idempotencyKey } : {}
+          });
+        } catch (caught) {
+          const error = toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
+          const stop = stopFor(error.code, error.details);
+          if (stop.kind === "already_running") return { kind: "already_running", existing: stop.existing, message: error.message };
+          return { kind: "failed", operationId: null, errorCode: error.code, errorMessage: error.message, ...error.details ? { details: error.details } : {} };
+        }
+        if (begun.reused) {
+          const { id: operationId, kind, lockKeys, startedAt, expiresAt } = begun.operation;
+          return { kind: "already_running", existing: { operationId, kind, lockKeys, startedAt, expiresAt }, reused: true };
+        }
+        input.onBegun?.({ operationId: begun.operation.id, reused: begun.reused });
+        return execute(deps, collector, input, begun.operation, begun.token);
+      }
+    };
+  }
+  async function execute(deps, collector, input, operation, token) {
+    const operationId = operation.id;
+    const local = new AbortController();
+    const onAbort = () => local.abort(input.signal.reason);
+    if (input.signal.aborted) local.abort(input.signal.reason);
+    else input.signal.addEventListener("abort", onAbort, { once: true });
+    let writes = Promise.resolve();
+    const write = (send) => {
+      const next = writes.then(send);
+      writes = next.catch(() => void 0);
+      return next;
+    };
+    let lastProgress;
+    let heartbeatStop = null;
+    let heartbeatTimer = null;
+    const stopHeartbeat = () => {
+      if (heartbeatTimer !== null) clearTimeout(heartbeatTimer);
+      heartbeatTimer = null;
+    };
+    let collectionDone = false;
+    const scheduleHeartbeat = () => {
+      stopHeartbeat();
+      if (collectionDone || local.signal.aborted) return;
+      heartbeatTimer = setTimeout(() => {
+        heartbeatTimer = null;
+        write(
+          () => deps.client.putChunk({
+            operationId,
+            token,
+            chunkKind: HEARTBEAT_CHUNK_KIND,
+            sequence: 1,
+            payload: [],
+            ...lastProgress ? { progress: lastProgress } : {}
+          })
+        ).then(
+          () => scheduleHeartbeat(),
+          (caught) => {
+            const error = toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
+            if (stopFor(error.code, error.details).kind === "fence_lost") {
+              heartbeatStop = error;
+              local.abort(error);
+            } else {
+              scheduleHeartbeat();
+            }
+          }
+        );
+      }, HEARTBEAT_INTERVAL_MS);
+    };
+    let lease = null;
+    try {
+      lease = await deps.browser.acquire({ operationId, lockKeys: operation.lockKeys, signal: local.signal });
+      const site = deps.siteFor(operation.kind, lease);
+      const sequences = /* @__PURE__ */ new Map();
+      let chunks = 0;
+      let items = 0;
+      scheduleHeartbeat();
+      for await (const chunk of collector.collect(operation.plan ?? {}, site, { signal: local.signal, tabId: lease.tabId })) {
+        if (local.signal.aborted) break;
+        if (chunk.chunkKind === HEARTBEAT_CHUNK_KIND) {
+          throw new RuntimeError(RUNTIME_COLLECT_FAILED, `\uC218\uC9D1\uAE30\uB294 \uC608\uC57D\uB41C chunkKind(${HEARTBEAT_CHUNK_KIND})\uB97C \uC4F0\uC9C0 \uC54A\uB294\uB2E4.`, { reason: "reserved_chunk_kind" });
+        }
+        const empty = chunk.payload.length === 0;
+        if (!empty) assertChunkFits(chunk, chunks);
+        const next = (sequences.get(chunk.chunkKind) ?? 0) + 1;
+        const sequence = empty ? Math.min(next, OPERATION_CHUNKS_MAX) : next;
+        if (!empty) sequences.set(chunk.chunkKind, sequence);
+        await write(
+          () => deps.client.putChunk({
+            operationId,
+            token,
+            chunkKind: chunk.chunkKind,
+            sequence,
+            payload: chunk.payload,
+            ...chunk.progress ? { progress: chunk.progress } : {}
+          })
+        );
+        if (!empty) {
+          chunks += 1;
+          items += chunk.payload.length;
+        }
+        if (chunk.progress) lastProgress = chunk.progress;
+        scheduleHeartbeat();
+      }
+      collectionDone = true;
+      stopHeartbeat();
+      await writes;
+      if (heartbeatStop) throw heartbeatStop;
+      if (input.signal.aborted) return cancelled(operationId);
+      const summary = collector.summarize?.({ chunks, items }) ?? {};
+      const request = {
+        outcome: "succeeded",
+        ...summary.result ? { result: summary.result } : {},
+        ...summary.window ? { window: summary.window } : {}
+      };
+      const finished = await deps.client.finish({ operationId, token, request });
+      return { kind: "finished", operation: finished.operation };
+    } catch (caught) {
+      collectionDone = true;
+      stopHeartbeat();
+      if (!heartbeatStop && input.signal.aborted) return cancelled(operationId);
+      const error = heartbeatStop ?? toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
+      const stop = stopFor(error.code, error.details);
+      if (stop.kind === "fence_lost") return { kind: "fence_lost", operationId, reason: stop.reason };
+      await writes;
+      await deps.client.finish({ operationId, token, request: { outcome: "failed", errorCode: error.code.slice(0, 64), errorMessage: error.message.slice(0, 2e3) } }).catch(() => void 0);
+      return { kind: "failed", operationId, errorCode: error.code, errorMessage: error.message, ...error.details ? { details: error.details } : {} };
+    } finally {
+      stopHeartbeat();
+      local.abort();
+      input.signal.removeEventListener("abort", onAbort);
+      await lease?.release().catch(() => void 0);
+    }
+  }
+  function cancelled(operationId) {
+    return { kind: "failed", operationId, errorCode: OPERATION_CANCEL_CODE, errorMessage: "\uC2E4\uD589\uC744 \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4." };
+  }
+  function assertChunkFits(chunk, sentChunks) {
+    const bytes = encoder.encode(JSON.stringify(chunk.payload)).byteLength;
+    if (bytes > OPERATION_CHUNK_MAX_BYTES) {
+      throw new RuntimeError(RUNTIME_CHUNK_TOO_LARGE, `\uCCAD\uD06C \uD558\uB098\uAC00 ${OPERATION_CHUNK_MAX_BYTES}\uBC14\uC774\uD2B8\uB97C \uB118\uC2B5\uB2C8\uB2E4.`, { chunkKind: chunk.chunkKind, bytes });
+    }
+    if (sentChunks >= OPERATION_CHUNKS_MAX) {
+      throw new RuntimeError(RUNTIME_CHUNK_TOO_LARGE, `\uCCAD\uD06C\uAC00 ${OPERATION_CHUNKS_MAX}\uAC1C\uB97C \uB118\uC2B5\uB2C8\uB2E4.`, { chunkKind: chunk.chunkKind, reason: "too_many_chunks" });
+    }
+  }
+  function toRuntimeError(caught, fallbackCode) {
+    if (isRuntimeError(caught)) return caught;
+    const message = caught instanceof Error && caught.message ? caught.message : "\uC2E4\uD589 \uC911 \uC624\uB958\uAC00 \uB0AC\uC2B5\uB2C8\uB2E4.";
+    return new RuntimeError(fallbackCode, message, null, caught);
+  }
+
+  // extensions/src/entry/actions.ts
+  var OPERATION_START_ACTION = "operation.start";
+  var OPERATION_CANCEL_ACTION = "operation.cancel";
+  var OperationStartMessageSchema = external_exports.object({
+    action: external_exports.literal(OPERATION_START_ACTION),
+    kind: OperationKindSchema,
+    scope: external_exports.record(external_exports.string(), external_exports.unknown()).default({}),
+    idempotencyKey: external_exports.string().min(1).max(128).optional()
+  }).strict();
+  var OperationCancelMessageSchema = external_exports.object({
+    action: external_exports.literal(OPERATION_CANCEL_ACTION),
+    operationId: external_exports.string().uuid()
+  }).strict();
+
+  // extensions/src/entry/operation-actions.ts
+  var LOCAL_TEXT = {
+    VALIDATION_FAILED: "\uC785\uB825\uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD45C\uC2DC\uB41C \uD56D\uBAA9\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.",
+    OPERATION_IN_PROGRESS: "\uAC19\uC740 \uC2E4\uD589\uC774 \uC774\uBBF8 \uC9C4\uD589 \uC911\uC785\uB2C8\uB2E4. \uB05D\uB098\uAC70\uB098 \uC911\uB2E8\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.",
+    OPERATION_FENCE_LOST: "\uC774 \uC2E4\uD589\uC740 \uB354 \uC774\uC0C1 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694."
+  };
+  function createOperationActions(deps) {
+    const environments = /* @__PURE__ */ new Map();
+    const running = /* @__PURE__ */ new Map();
+    function forEnvironment(environmentId) {
+      let entry = environments.get(environmentId);
+      if (!entry) {
+        const client = createOperationClient(deps.apiFor(environmentId));
+        const runner = createRunner({ client, browser: deps.browser, siteFor: deps.siteFor ?? (() => null) }, collectorFor);
+        entry = { client, runner };
+        environments.set(environmentId, entry);
+      }
+      return entry;
+    }
+    return {
+      [OPERATION_START_ACTION]: {
+        validate: (message) => validateWith(OperationStartMessageSchema, message),
+        async handle(input, environmentId) {
+          if (!input.ok) return input.response;
+          const { kind, scope, idempotencyKey } = input.message;
+          const controller = new AbortController();
+          let owned = null;
+          let answer;
+          const begun = new Promise((resolve) => {
+            answer = resolve;
+          });
+          const run = forEnvironment(environmentId).runner.run({
+            kind,
+            scope,
+            ...idempotencyKey !== void 0 ? { idempotencyKey } : {},
+            signal: controller.signal,
+            onBegun({ operationId, reused }) {
+              running.set(operationId, controller);
+              owned = operationId;
+              answer({ success: true, operationId, reused });
+            }
+          });
+          const done = run.finally(() => {
+            if (owned !== null) running.delete(owned);
+          });
+          deps.keepAlive?.(done);
+          return Promise.race([
+            begun,
+            done.then(
+              (outcome) => (
+                // 같은 idempotencyKey 재요청이고 이 확장이 그 실행을 돌리고 있으면 그대로 이어지는 중이다.
+                outcome.kind === "already_running" && outcome.reused && outcome.existing && running.has(outcome.existing.operationId) ? { success: true, operationId: outcome.existing.operationId, reused: true } : earlyResponse(outcome)
+              )
+            )
+          ]);
+        }
+      },
+      [OPERATION_CANCEL_ACTION]: {
+        validate: (message) => validateWith(OperationCancelMessageSchema, message),
+        async handle(input, environmentId) {
+          if (!input.ok) return input.response;
+          const { operationId } = input.message;
+          try {
+            const operation = await forEnvironment(environmentId).client.cancel(operationId);
+            return { success: true, operation };
+          } catch (error) {
+            return failure(error);
+          } finally {
+            running.get(operationId)?.abort();
+          }
+        }
+      }
+    };
+  }
+  function earlyResponse(outcome) {
+    switch (outcome.kind) {
+      case "already_running":
+        return {
+          success: false,
+          errorCode: "OPERATION_IN_PROGRESS",
+          error: outcome.message ?? LOCAL_TEXT.OPERATION_IN_PROGRESS,
+          details: { existing: outcome.existing }
+        };
+      case "failed":
+        return { success: false, errorCode: outcome.errorCode, error: outcome.errorMessage, ...outcome.details ? { details: outcome.details } : {} };
+      case "fence_lost":
+        return { success: false, errorCode: "OPERATION_FENCE_LOST", error: LOCAL_TEXT.OPERATION_FENCE_LOST };
+      case "finished":
+        return { success: true, operationId: outcome.operation.id, reused: false };
+    }
+  }
+  function failure(error) {
+    if (isRuntimeError(error)) return { success: false, errorCode: error.code, error: error.message, details: error.details };
+    return { success: false, errorCode: "RUNTIME_API_UNREACHABLE", error: error instanceof Error ? error.message : String(error) };
+  }
+  function validateWith(schema, message) {
+    const parsed = schema.safeParse(message);
+    if (parsed.success) return { ok: true, message: parsed.data };
+    return {
+      ok: false,
+      response: {
+        success: false,
+        errorCode: "VALIDATION_FAILED",
+        error: LOCAL_TEXT.VALIDATION_FAILED,
+        details: { errors: parsed.error.issues.map((issue) => ({ field: issue.path.join("."), reason: issue.message })) }
+      }
+    };
+  }
+
+  // extensions/src/entry/index.ts
+  function installEntry() {
+    if (!legacyGlobalsPresent()) return false;
+    const externalActions = createOperationActions({
+      apiFor: legacyApiPort,
+      // 사이트 탭이 필요한 kind가 옮겨질 때 sites/*의 origin을 여기 모은다(KID-359 이후).
+      browser: createBrowserResources(chrome, {}),
+      keepAlive: legacyKeepAlive
+    });
+    registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true } });
+    return true;
+  }
+
   // extensions/src/index.ts
   function version() {
     return chrome.runtime.getManifest().version;
   }
+  var runtime = { kinds: registeredKinds };
+  installEntry();
   return __toCommonJS(index_exports);
 })();

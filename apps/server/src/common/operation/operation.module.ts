@@ -6,6 +6,7 @@ import { OPERATION_PORT } from './application/port/in/operation.port';
 import { OPERATION_REPOSITORY } from './application/port/out/repository/operation.repository.port';
 import { OperationOwnerRegistry } from './application/service/operation-owner.registry';
 import { OperationService } from './application/service/operation.service';
+import { TestEchoOperationOwner, testOperationKindsEnabled } from './adapter/in/operation/test-echo-operation-owner';
 
 /**
  * 실행 계약(ADR-0025). owner는 kind마다 `OperationOwnerPort` 구현에 `@OperationOwner()`를 붙여 자기 모듈의
@@ -19,6 +20,8 @@ import { OperationService } from './application/service/operation.service';
     OperationService,
     { provide: OPERATION_PORT, useExisting: OperationService },
     { provide: OPERATION_REPOSITORY, useClass: OperationRepositoryAdapter },
+    // 더미 kind `test.echo`는 로컬·QA에서만(KID-357 확장 런타임 스모크).
+    ...(testOperationKindsEnabled() ? [TestEchoOperationOwner] : []),
   ],
   exports: [OPERATION_PORT],
 })

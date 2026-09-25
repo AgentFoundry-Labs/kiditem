@@ -448,6 +448,9 @@ PR 작성자는 `CLAUDE.md`의 변경 유형별 검증과 PR body guard를 로�
 | `PR Checks / Script contract tests` | 동일 PR | lifecycle script 없는 install, Prisma client 생성, Shared JS 빌드(DTS 제외), `origin/release/office`를 depth 1로 fetch해 기존 행이 막을 스키마 변경마다 `scripts/cutover-blocker-coverage.json` 항목이 있는지 DB 없이 확인(`check-cutover-blocker-coverage.mjs`), ripgrep 설치 뒤 `npm run test:scripts`(scripts vitest와 `node --test`) 실행 |
 | `Develop Validation / Develop full validation` | `develop`에서 수동 실행 | 한 번의 dependency install 뒤 deployable workspace 전체 build(heap 4096MB), web/extension tests, real PostgreSQL integration suite 실행 |
 
+확장 새 런타임(`extensions/src`)의 4층 import 경계(entry → core → collectors → sites, 옛 전역은
+`entry/legacy-bridge.ts`만)는 테스트가 아니라 `npm run check:extension-runtime-layers`(`check:conventions`에 포함)가 막는다.
+
 `Develop Validation` 은 `develop` 누적 HEAD에 대해 필요할 때 수동으로 실행한다.
 같은 ref의 더 새 수동 실행은 이전 실행을 취소한다. 이 job 은 아래 workspace build와
 unit/extension suite를 수행한 뒤 Testcontainers의 동적 Postgres lifecycle로 통합

@@ -137,7 +137,8 @@ describe('operation contract — server-driven kinds (prepare · claim · retry 
     expect(new Date(beat.expiresAt).getTime()).toBeGreaterThan(Date.now() + 50_000);
 
     const done = await operations.finish({ organizationId: ORG, operationId: prepared.id, token: claimed.token, request: { outcome: 'succeeded' } });
-    expect(done.operation).toMatchObject({ status: 'succeeded', result: { projected: 1 }, progress: { checkpoint: 'result_saved' }, lockKeys: [] });
+    // heartbeat(빈 payload)는 청크를 남기지 않는다(KID-357) — finalize는 0장을 본다.
+    expect(done.operation).toMatchObject({ status: 'succeeded', result: { projected: 0 }, progress: { checkpoint: 'result_saved' }, lockKeys: [] });
     expect(finalized.map(({ operationId, attempts, maxAttempts }) => ({ operationId, attempts, maxAttempts }))).toEqual([
       { operationId: prepared.id, attempts: 1, maxAttempts: 3 },
     ]);
@@ -174,7 +175,7 @@ describe('operation contract — server-driven kinds (prepare · claim · retry 
     const second = (await operations.claim({ kinds: ['test.worker'], workerId: 'worker-b' }))!;
     expect(second.operation).toMatchObject({ id: operation.id, status: 'executing', attempts: 2, progress: { checkpoint: 'result_saved' } });
     expect(second.token).not.toBe(first.token);
-    expect(await chunkRows(operation.id)).toBe(1);
+    expect(await chunkRows(operation.id)).toBe(0);
     await expect(heartbeat(operation.id, first.token)).rejects.toMatchObject({ code: 'OPERATION_NOT_FOUND' });
     await expect(failAttempt(operation.id, first.token)).rejects.toMatchObject({ code: 'OPERATION_NOT_FOUND' });
     await heartbeat(operation.id, second.token);
