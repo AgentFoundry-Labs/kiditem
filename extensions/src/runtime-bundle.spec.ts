@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { OPERATION_STATUSES } from '@kiditem/shared/operation';
 import bundleSource from '../kiditem-os/runtime/kiditem-runtime.js?raw';
 
 // 커밋된 번들(서비스워커가 싣는 바로 그 파일)을 classic script 처럼 실행한다.
@@ -11,7 +12,9 @@ describe('committed runtime bundle', () => {
   it('bundles @kiditem/shared sources into the one KidItemRuntime global', () => {
     const runtime = loadRuntime({});
 
-    expect(runtime.OPERATION_STATUSES).toEqual(['executing', 'succeeded', 'failed', 'cancelled']);
+    // shared 소스의 현재 값과 비교한다 — 목록을 여기 베껴 두면 shared 가 바뀔 때마다(#573 의 prepared) 깨진다.
+    expect(runtime.OPERATION_STATUSES).toEqual([...OPERATION_STATUSES]);
+    expect(OPERATION_STATUSES.length).toBeGreaterThanOrEqual(4);
   });
 
   it('reads the version from the installed manifest, so a version bump needs no rebuild', () => {
