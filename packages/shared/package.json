@@ -275,6 +275,11 @@
       "import": "./dist/operation.js",
       "require": "./dist/operation.cjs"
     },
+    "./sourcing-operation": {
+      "types": "./dist/sourcing-operation.d.ts",
+      "import": "./dist/sourcing-operation.js",
+      "require": "./dist/sourcing-operation.cjs"
+    },
     "./order-collection-source": {
       "types": "./dist/order-collection-source.d.ts",
       "import": "./dist/order-collection-source.js",
