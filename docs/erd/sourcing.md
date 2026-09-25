@@ -36,6 +36,7 @@
 | SourcingReviewBatch | `sourcing_review_batches` | Final 화면에서 생성하는 immutable review handoff. procurement intent나 provider side effect를 만들지 않는다. |
 | SourcingReviewBatchItem | `sourcing_review_batch_items` | review batch가 실제로 검토한 recommendation, validation, exact offer observation을 동결한다. |
 | SourcingReviewSelection | `sourcing_review_selections` | Entry/Final 화면 선택 상태의 org-scoped, optimistic-concurrency record. |
+| SourcingSourceSnapshot | `sourcing_source_snapshots` | (source, scope, target)마다 하나뿐인 "현재 완결 스냅샷"(KID-360). 옛 run 표의 is_current_complete·coverage·window를 대체한다. 실행 계약(operations)이 아니라 소싱 원장의 사실이며 finalize가 같은 트랜잭션에서 바꿔 끼운다. operationId는 스칼라(FK 없음). |
 | SourcingValidationCheck | `sourcing_validation_checks` | 하나의 검증 episode를 구성하는 데이터 기반 check 결과. |
 | SourcingValidationCheckEvidence | `sourcing_validation_check_evidence` | 검증 check가 참조한 immutable evidence link. |
 | SourcingValidationEpisode | `sourcing_validation_episodes` | 추천 후보의 실데이터 검증 life-cycle. fixture 점수는 이 record로 대체된다. |
@@ -51,7 +52,7 @@ erDiagram
   LiveCommerceBroadcastDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     DateTime businessDate
     String source
     String broadcastId
@@ -72,7 +73,7 @@ erDiagram
   LiveCommerceProductDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     DateTime businessDate
     String source
     String broadcastId
@@ -90,7 +91,7 @@ erDiagram
   NaverKeywordDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     String keyword
     DateTime businessDate
     Int monthlyTotalSearchCount
@@ -108,7 +109,7 @@ erDiagram
   NaverPopularKeywordDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     String boardKey
     String boardLabel
     String cid
@@ -123,7 +124,7 @@ erDiagram
   ShortsTrendDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     DateTime businessDate
     String videoKey
     Int rank
@@ -183,7 +184,7 @@ erDiagram
     String id PK
     String organizationId FK
     String evidenceObservationId FK
-    String ingestionRunId FK
+    String operationId
     DateTime businessDate
     String sourceKeywordNormalized
     String externalOfferId
@@ -304,7 +305,7 @@ erDiagram
   SourcingEvidenceObservation {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     String supersedesObservationId FK
     String sourceKey
     String platform
@@ -363,7 +364,7 @@ erDiagram
     String id PK
     String organizationId FK
     String evidenceObservationId FK
-    String ingestionRunId FK
+    String operationId
     String schemaVersion
     String keywordNormalized
     Json document
@@ -418,7 +419,7 @@ erDiagram
     String id PK
     String organizationId FK
     String evidenceObservationId FK
-    String ingestionRunId FK
+    String operationId
     String schemaVersion
     DateTime businessDate
     Json document
@@ -429,7 +430,7 @@ erDiagram
     String id PK
     String organizationId FK
     String evidenceObservationId FK
-    String ingestionRunId FK
+    String operationId
     String schemaVersion
     String inputHash
     Json document
@@ -528,6 +529,26 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SourcingSourceSnapshot {
+    String id PK
+    String organizationId FK
+    String sourceKey
+    String scopeKey
+    String targetKey
+    String operationId
+    DateTime windowStartAt
+    DateTime windowEndAt
+    Int discoveredCount
+    Int acceptedCount
+    Int duplicateCount
+    Int coverageNumerator
+    Int coverageDenominator
+    String contentChecksum
+    Json qualityReport
+    DateTime completedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SourcingValidationCheck {
     String id PK
     String organizationId FK
@@ -569,7 +590,7 @@ erDiagram
     String id PK
     String organizationId FK
     String evidenceObservationId FK
-    String ingestionRunId FK
+    String operationId
     String schemaVersion
     String sourceKeywordNormalized
     String sourceKeyword
@@ -609,7 +630,7 @@ erDiagram
   TiktokCreativeTrendDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     DateTime businessDate
     String region
     String trendType
@@ -643,18 +664,6 @@ erDiagram
   Sourcing1688OfferKeywordObservation ||--o{ SourcingReviewBatchItem : "offerKeywordObservation"
   SourcingDecisionBatch ||--o{ SourcingDecisionBatchItem : "decisionBatch"
   SourcingDecisionBatchItem ||--o{ SourcingDecisionEvidence : "decisionBatchItem"
-  SourcingEvidenceIngestionRun ||--o{ LiveCommerceBroadcastDailySnapshot : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ LiveCommerceProductDailySnapshot : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ NaverKeywordDailySnapshot : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ NaverPopularKeywordDailySnapshot : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ ShortsTrendDailySnapshot : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ Sourcing1688OfferKeywordObservation : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ SourcingEvidenceObservation : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ SourcingKeywordSuggestionFact : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ SourcingMarketShadowFact : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ SourcingNaverKeywordAnalysisFact : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ SourcingWingCatalogProductFact : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ TiktokCreativeTrendDailySnapshot : "ingestionRun"
   SourcingEvidenceObservation ||--|| Sourcing1688OfferKeywordObservation : "evidenceObservation"
   SourcingEvidenceObservation ||--o{ SourcingDecisionEvidence : "evidenceObservation"
   SourcingEvidenceObservation o|--o| SourcingEvidenceObservation : "supersedesObservation"
@@ -720,6 +729,7 @@ erDiagram
 | SourcingReviewBatch | requestedBy | references external | Core | User |
 | SourcingReviewBatchItem | organization | references external | Core | Organization |
 | SourcingReviewSelection | organization | references external | Core | Organization |
+| SourcingSourceSnapshot | organization | references external | Core | Organization |
 | SourcingValidationCheck | organization | references external | Core | Organization |
 | SourcingValidationCheckEvidence | organization | references external | Core | Organization |
 | SourcingValidationEpisode | organization | references external | Core | Organization |

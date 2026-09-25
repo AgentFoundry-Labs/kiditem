@@ -128,7 +128,8 @@
     "TodoItem": "system",
     "TrendSeedKeyword": "sourcing",
     "User": "scope",
-    "Warehouse": "inventory"
+    "Warehouse": "inventory",
+    "SourcingSourceSnapshot": "sourcing"
   },
   "scopeTargets": [
     "Organization",

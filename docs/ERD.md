@@ -36,7 +36,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Operation](erd/operation.md) | 3 |
 | [Orders](erd/orders.md) | 14 |
 | [Products](erd/products.md) | 6 |
-| [Sourcing](erd/sourcing.md) | 34 |
+| [Sourcing](erd/sourcing.md) | 35 |
 | [Supply](erd/supply.md) | 13 |
 | [System](erd/system.md) | 5 |
 
@@ -147,6 +147,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | SourcingReviewBatch | Sourcing | `sourcing_review_batches` | Final 화면에서 생성하는 immutable review handoff. procurement intent나 provider side effect를 만들지 않는다. |
 | SourcingReviewBatchItem | Sourcing | `sourcing_review_batch_items` | review batch가 실제로 검토한 recommendation, validation, exact offer observation을 동결한다. |
 | SourcingReviewSelection | Sourcing | `sourcing_review_selections` | Entry/Final 화면 선택 상태의 org-scoped, optimistic-concurrency record. |
+| SourcingSourceSnapshot | Sourcing | `sourcing_source_snapshots` | (source, scope, target)마다 하나뿐인 "현재 완결 스냅샷"(KID-360). 옛 run 표의 is_current_complete·coverage·window를 대체한다. 실행 계약(operations)이 아니라 소싱 원장의 사실이며 finalize가 같은 트랜잭션에서 바꿔 끼운다. operationId는 스칼라(FK 없음). |
 | SourcingValidationCheck | Sourcing | `sourcing_validation_checks` | 하나의 검증 episode를 구성하는 데이터 기반 check 결과. |
 | SourcingValidationCheckEvidence | Sourcing | `sourcing_validation_check_evidence` | 검증 check가 참조한 immutable evidence link. |
 | SourcingValidationEpisode | Sourcing | `sourcing_validation_episodes` | 추천 후보의 실데이터 검증 life-cycle. fixture 점수는 이 record로 대체된다. |
@@ -875,7 +876,7 @@ erDiagram
   LiveCommerceBroadcastDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     DateTime businessDate
     String source
     String broadcastId
@@ -896,7 +897,7 @@ erDiagram
   LiveCommerceProductDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     DateTime businessDate
     String source
     String broadcastId
@@ -1002,7 +1003,7 @@ erDiagram
   NaverKeywordDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     String keyword
     DateTime businessDate
     Int monthlyTotalSearchCount
@@ -1020,7 +1021,7 @@ erDiagram
   NaverPopularKeywordDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     String boardKey
     String boardLabel
     String cid
@@ -1649,7 +1650,7 @@ erDiagram
   ShortsTrendDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     DateTime businessDate
     String videoKey
     Int rank
@@ -1748,7 +1749,7 @@ erDiagram
     String id PK
     String organizationId FK
     String evidenceObservationId FK
-    String ingestionRunId FK
+    String operationId
     DateTime businessDate
     String sourceKeywordNormalized
     String externalOfferId
@@ -1869,7 +1870,7 @@ erDiagram
   SourcingEvidenceObservation {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     String supersedesObservationId FK
     String sourceKey
     String platform
@@ -1928,7 +1929,7 @@ erDiagram
     String id PK
     String organizationId FK
     String evidenceObservationId FK
-    String ingestionRunId FK
+    String operationId
     String schemaVersion
     String keywordNormalized
     Json document
@@ -1983,7 +1984,7 @@ erDiagram
     String id PK
     String organizationId FK
     String evidenceObservationId FK
-    String ingestionRunId FK
+    String operationId
     String schemaVersion
     DateTime businessDate
     Json document
@@ -1994,7 +1995,7 @@ erDiagram
     String id PK
     String organizationId FK
     String evidenceObservationId FK
-    String ingestionRunId FK
+    String operationId
     String schemaVersion
     String inputHash
     Json document
@@ -2093,6 +2094,26 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SourcingSourceSnapshot {
+    String id PK
+    String organizationId FK
+    String sourceKey
+    String scopeKey
+    String targetKey
+    String operationId
+    DateTime windowStartAt
+    DateTime windowEndAt
+    Int discoveredCount
+    Int acceptedCount
+    Int duplicateCount
+    Int coverageNumerator
+    Int coverageDenominator
+    String contentChecksum
+    Json qualityReport
+    DateTime completedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
   SourcingValidationCheck {
     String id PK
     String organizationId FK
@@ -2134,7 +2155,7 @@ erDiagram
     String id PK
     String organizationId FK
     String evidenceObservationId FK
-    String ingestionRunId FK
+    String operationId
     String schemaVersion
     String sourceKeywordNormalized
     String sourceKeyword
@@ -2296,7 +2317,7 @@ erDiagram
   TiktokCreativeTrendDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     DateTime businessDate
     String region
     String trendType
@@ -2486,6 +2507,7 @@ erDiagram
   Organization ||--o{ SourcingReviewBatch : "organization"
   Organization ||--o{ SourcingReviewBatchItem : "organization"
   Organization ||--o{ SourcingReviewSelection : "organization"
+  Organization ||--o{ SourcingSourceSnapshot : "organization"
   Organization ||--o{ SourcingValidationCheck : "organization"
   Organization ||--o{ SourcingValidationCheckEvidence : "organization"
   Organization ||--o{ SourcingValidationEpisode : "organization"
@@ -2553,18 +2575,6 @@ erDiagram
   SourcingDecisionBatch ||--o{ SourcingDecisionBatchItem : "decisionBatch"
   SourcingDecisionBatchItem ||--o{ ProcurementTestIntent : "decisionBatchItem"
   SourcingDecisionBatchItem ||--o{ SourcingDecisionEvidence : "decisionBatchItem"
-  SourcingEvidenceIngestionRun ||--o{ LiveCommerceBroadcastDailySnapshot : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ LiveCommerceProductDailySnapshot : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ NaverKeywordDailySnapshot : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ NaverPopularKeywordDailySnapshot : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ ShortsTrendDailySnapshot : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ Sourcing1688OfferKeywordObservation : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ SourcingEvidenceObservation : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ SourcingKeywordSuggestionFact : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ SourcingMarketShadowFact : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ SourcingNaverKeywordAnalysisFact : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ SourcingWingCatalogProductFact : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ TiktokCreativeTrendDailySnapshot : "ingestionRun"
   SourcingEvidenceObservation ||--|| Sourcing1688OfferKeywordObservation : "evidenceObservation"
   SourcingEvidenceObservation ||--o{ SourcingDecisionEvidence : "evidenceObservation"
   SourcingEvidenceObservation o|--o| SourcingEvidenceObservation : "supersedesObservation"

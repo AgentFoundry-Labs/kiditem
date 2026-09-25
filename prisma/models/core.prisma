@@ -138,6 +138,7 @@ model Organization {
   tiktokCreativeTrendDailySnapshots   TiktokCreativeTrendDailySnapshot[]
   sourcingCollectionSourceControls    SourcingCollectionSourceControl[]
   sourcingEvidenceIngestionRuns       SourcingEvidenceIngestionRun[]
+  sourcingSourceSnapshots             SourcingSourceSnapshot[]
   sourcingEvidenceObservations        SourcingEvidenceObservation[]
   sourcingWingCatalogProductFacts     SourcingWingCatalogProductFact[]
   sourcingKeywordSuggestionFacts      SourcingKeywordSuggestionFact[]
