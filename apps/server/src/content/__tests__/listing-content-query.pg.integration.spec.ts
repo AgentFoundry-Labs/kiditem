@@ -209,7 +209,8 @@ describe('AI listing content owner query (PG integration)', () => {
     } });
     await prisma.channelListingOption.create({ data: {
       organizationId: ORG, listingId: listing.id, externalOptionId: 'provider-option', itemName: 'Observed option',
-      salePrice: 1500, sellerSku: 'provider-sku', status: 'SOLD_OUT', attributesJson: { color: 'blue' },
+      salePrice: 1500, sellerSku: 'provider-sku', status: 'SOLD_OUT',
+      attributesJson: [{ kind: 'purchase', attributeTypeId: null, name: 'color', value: 'blue', exposed: null }],
       rawJson: { vendorItemId: 'vendor-item', sellerProductItemId: 'seller-item', detailDocumentIds: ['doc'] },
     } });
     const ws = await workspace(listing.id);
@@ -221,7 +222,7 @@ describe('AI listing content owner query (PG integration)', () => {
     expect(facts).toMatchObject({ contentWorkspaceId: null, thumbnailUrl: null, providerDetail: { media: [] } });
     expect(merged).toMatchObject({ contentWorkspaceId: ws.id, thumbnailUrl: 'https://cdn/representative', status: 'ON_SALE' });
     expect(merged?.providerDetail).toEqual(facts?.providerDetail);
-    expect(merged?.providerDetail?.options[0]).toMatchObject({ externalOptionId: 'provider-option', vendorItemId: 'vendor-item', sellerProductItemId: 'seller-item', salePrice: 1500, sellerSku: 'provider-sku', status: 'SOLD_OUT', attributes: { color: 'blue' } });
+    expect(merged?.providerDetail?.options[0]).toMatchObject({ externalOptionId: 'provider-option', vendorItemId: 'vendor-item', sellerProductItemId: 'seller-item', salePrice: 1500, sellerSku: 'provider-sku', status: 'SOLD_OUT', attributes: [{ kind: 'purchase', attributeTypeId: null, name: 'color', value: 'blue', exposed: null }] });
     expect((await service.list(ORG)).items[0]).toMatchObject({ id: listing.id, contentWorkspaceId: ws.id, thumbnailUrl: 'https://cdn/representative' });
     expect(await service.getWorkspace(OTHER, listing.id)).toBeNull();
   });
