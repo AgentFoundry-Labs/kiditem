@@ -14,7 +14,7 @@ import { DetailPageRepositoryAdapter } from '../adapter/out/repository/detail-pa
 import { DetailPageImageRepositoryAdapter } from '../adapter/out/repository/detail-page-image.repository.adapter';
 import { DetailPageClientRenderService } from '../application/service/detail-page-client-render.service';
 
-const sharp: typeof import('sharp')['default'] = require('sharp');
+const sharp: typeof import('sharp') = require('sharp');
 
 /**
  * 몰 상세 이미지 렌더는 revision 으로 한다(KID-321) — 렌더 의도는 그 revision 의 상세 페이지 id 를 갖는다(KID-313 W3b).

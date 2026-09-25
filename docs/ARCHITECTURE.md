@@ -370,7 +370,7 @@ folders are intentionally absent from this map.
 | `apps/server/src/analytics` | Hexagonal | Dashboard, statistics, traffic, and supplier-stats code sits in a `<bundle>/` subfolder of each root lane (`adapter/in/http/<bundle>/`, `application/service/<bundle>/`, `__tests__/<bundle>/`, …) with `<bundle>.module.ts` at the root; dashboard adds outgoing repository ports and adapters so its application services stay Prisma-free, and its architecture + module wiring specs freeze those invariants. Documented legacy exception: statistics and supplier-stats services inject `PrismaService` and read the Orders `order-facts.reader` directly (`check:hexagonal` allowlist, KID-334). The `sellpia-sales/` and `sellpia-product-sales/` bundles keep their own layout. |
 | `apps/server/src/auth` | Hexagonal | Auth service and repository port own password/session policy; Prisma and CLI/HTTP adapters own persistence and entrypoints. Guards and decorators remain infrastructure. |
 | `apps/server/src/alerts` | Flat | controller/service/repository; source owners pass their transaction to the concrete failure upsert/resolution API. |
-| `apps/server/src/channels` | Hexagonal | Account, sales-product, registration, listing and collection policies use pure `domain/<business>` and `application/service/<business>`. Incoming adapters call input ports; modules bind services and outgoing adapters. Provider, documents, credentials and persistence IO stay outside the application. |
+| `apps/server/src/channels` | Hexagonal | Account, sales-product, registration, listing and collection policies use `domain/<business>` and `application/service/<business>`, with NestJS providers permitted in both. Incoming adapters call input ports; modules bind services and outgoing adapters. Provider, documents, credentials and persistence IO stay outside the application. |
 | `apps/server/src/feature-gate` | Flat | endpoint/config capability. |
 | `apps/server/src/finance` | Hexagonal | Profit-loss, sales-analysis, report-export, sales-plan, settlement and supplier-payment folders under `adapter/in/web/` and `application/service/`; settlement facts stay in `adapter/out/persistence/read/`. |
 | `apps/server/src/inventory` | Hexagonal | Retained warehouse, stock-transfer and return-record capabilities; source products, collection and current stock belong to Products. |
@@ -429,8 +429,11 @@ integrity failures remain plain errors.
 
 Channels' migrated capabilities use `application/service/<business>` and
 `application/port/in` for both reads and writes. Application services and domain
-policies are plain TypeScript; input adapters, persistence/provider adapters,
-and module composition contain framework and IO dependencies. The business
+policies may use NestJS providers, injection, logging and lifecycle hooks;
+persistence/provider IO remains in outgoing adapters. Ordinary policy functions
+need no provider wrapper. Shared web/extension contracts remain framework-neutral.
+Existing factory providers are supported NestJS DI, not a requirement to keep
+services free of NestJS. The business
 areas are account, sales-product, registration, listing, and collection. Only
 implemented capabilities create directories; no parallel Marketplace business
 layer exists. `ChannelCatalogModule` exports account, listing, composition and

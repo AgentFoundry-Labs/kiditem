@@ -43,10 +43,11 @@ npm --version
 ```
 
 `.nvmrc` recommends Node `22.23.2` as the reproducible local baseline.
-`package.json` defines the supported runtime as Node `>=22 <23` and npm major
+`package.json` defines the supported runtime as Node `>=22.22.3 <23` and npm major
 10; npm itself is pinned as `npm@10.9.8` in `packageManager`.
 
-Setup accepts any Node 22 release and blocks other majors. The native Gateway
+Setup requires Node 22.22.3 or later within major 22 for Nest 12's build tooling.
+The native Gateway
 train likewise validates Node major 22 while keeping bundled provider packages
 exactly pinned.
 
@@ -463,7 +464,7 @@ private reasoning in verification evidence.
 
 | Symptom | Check | Recovery |
 |---|---|---|
-| `setup_node_version_mismatch` | `node --version`, `package.json` | install/use any supported Node 22 release; `.nvmrc` remains the recommended baseline |
+| `setup_node_version_mismatch` | `node --version`, `package.json` | install/use Node 22.22.3 or later within major 22; `.nvmrc` remains the recommended baseline |
 | Prisma env error during install | `.env` exists before install | rerun `npm run setup:macos`; do not start with raw `npm install` |
 | Docker services unhealthy | Docker Desktop and `docker compose ps` | start Docker; inspect service logs without deleting volumes |
 | `gateway_installation_token_invalid` | token file length/mode, never print value | move the malformed file aside manually, rerun setup, then restart API/Gateway |

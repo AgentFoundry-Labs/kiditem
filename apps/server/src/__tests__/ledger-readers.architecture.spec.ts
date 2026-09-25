@@ -4,13 +4,12 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import { describe, expect, it } from 'vitest';
 
-// ADR-0021: retained internal ledger helpers under `apps/server/src/**/read/` (including
-// Products' `adapter/out/persistence/read/` lane) is an exported
-// pure function over the caller's transaction client. It imports no adapter,
-// concrete application service or HTTP-bound code. Public input/output port
-// contracts remain valid dependencies. It throws no HTTP exception and takes
-// no lock: the calling service owns the transaction and its locks, and an
-// owner exports those from `<owner>/transaction/`.
+// ADR-0021: retained internal ledger helpers under `apps/server/src/**/read/`
+// (including Products' `adapter/out/persistence/read/` lane) export queries over
+// the caller's transaction client. It imports no adapter or
+// concrete application service. Public input/output ports and NestJS remain
+// valid dependencies. Helpers take no lock: the calling service owns the
+// transaction and its locks, and an owner exports those from `<owner>/transaction/`.
 
 const SERVER_SRC = path.resolve(__dirname, '..');
 const READER_GLOBS = [
@@ -44,29 +43,12 @@ const RULES: readonly Rule[] = [
     },
   },
   {
-    name: 'imports no NestJS module',
-    pattern: String.raw`${SPECIFIER}@nestjs/`,
-    planted: {
-      'nest-import.ts': "import { Injectable } from '@nestjs/common';\n",
-      'nest-dynamic-import.ts': "export const nest = () => import('@nestjs/core');\n",
-      'nest-exception-import.ts': "import { ConflictException } from '@nestjs/common';\n",
-    },
-  },
-  {
     name: 'imports no service',
     pattern: String.raw`${SPECIFIER}[^'"]*\.service['"]|\bPrismaService\b`,
     planted: {
       'prisma-service-import.ts': "import { PrismaService } from '../../prisma/prisma.service';\n",
       'owner-service-import.ts': "import { RowService } from '../row/row.service';\n",
       'prisma-service-type.ts': 'export type Store = PrismaService;\n',
-    },
-  },
-  {
-    name: 'throws no HTTP exception',
-    pattern: String.raw`\bnew\s+\w*Exception\s*\(`,
-    planted: {
-      'nest-exception.ts': "throw new ConflictException('Row changed');\n",
-      'owner-exception.ts': "throw new ProductStateException('SOURCE_CONFLICT', 'Row changed');\n",
     },
   },
   {
@@ -92,6 +74,7 @@ const RULES: readonly Rule[] = [
 
 /** What every rule must accept: a reader that verifies evidence and throws fact errors. */
 const CLEAN_READER = [
+  "import { ConflictException, Logger } from '@nestjs/common';",
   "import type { FactsPort } from '../application/port/in/facts.port';",
   "import type { StorePort } from '../application/port/out/persistence/store.port';",
   "import { Prisma } from '@prisma/client';",
@@ -99,6 +82,7 @@ const CLEAN_READER = [
   "import { assertSellpiaInventoryLockCovers, type SellpiaInventoryLock } from '../transaction/sellpia-inventory-lock';",
   'export async function readRows(tx: Prisma.TransactionClient, lock: SellpiaInventoryLock, organizationId: string) {',
   '  assertSellpiaInventoryLockCovers(lock, tx, organizationId);',
+  "  if (!organizationId) throw new ConflictException({ code: 'STATE_CONFLICT' });",
   "  const rows = await tx.$queryRaw`SELECT id AS \"from\" FROM rows WHERE organization_id = ${organizationId}::uuid`;",
   "  if (!Array.isArray(rows)) throw new FactConflictError('Rows changed');",
   "  if (rows.length > 1_000) throw new Error('Too many rows for an update');",
@@ -143,7 +127,7 @@ function violatingFiles(root: string, rule: Rule): string[] {
   return [...new Set(violations(root, rule).map((line) => line.split(':')[0]!))].sort();
 }
 
-describe('internal ledger helper purity (ADR-0021)', () => {
+describe('internal ledger helper transaction boundary (ADR-0021)', () => {
   it('scans every reader module and no test', () => {
     const files = readerFiles(SERVER_SRC);
 

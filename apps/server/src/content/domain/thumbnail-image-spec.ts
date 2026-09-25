@@ -3,7 +3,7 @@ import type { ImageSpec, ImageSpecIssue } from '@kiditem/shared/ai';
 // callable 인 module.exports 자체. `import sharp from 'sharp'` 로 default 를
 // 받으면 sharp_1.default = undefined → 런타임 TypeError.
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const sharp: typeof import('sharp')['default'] = require('sharp');
+const sharp: typeof import('sharp') = require('sharp');
 
 export interface ImageBytes {
   data: string;

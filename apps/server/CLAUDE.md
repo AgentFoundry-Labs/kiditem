@@ -35,8 +35,12 @@ owns its identity and mutation rules.
   transaction/locking semantics, or a stable shared capability. Line count
   alone is not a reason to add a port or adapter.
 - Prefer one deep owner interface over multiple one-to-one forwarding layers.
-- Domain code is pure: no NestJS, Prisma, HTTP/provider SDK, workflow runtime,
-  filesystem, or panel/event infrastructure.
+- Use NestJS providers, dependency injection, logging, and lifecycle hooks in
+  backend services, including application and domain code when needed. Keep
+  calculations and predicates as ordinary functions when they need no service.
+  Use the existing adapters for database/provider/runtime IO and keep contracts
+  shared with web or extensions framework-neutral. Add a port or wrapper for a
+  concrete business or IO boundary, not solely to hide NestJS.
 - Organization scope is decided once, at the entrypoint. A domain function
   that reads and writes no rows does not take `organizationId`; when the id is
   data (a storage key, a label), mark the parameter

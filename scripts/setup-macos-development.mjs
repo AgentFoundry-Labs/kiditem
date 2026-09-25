@@ -21,8 +21,13 @@ export function assertMacosDevelopmentRuntime({
   nodeVersion = process.versions.node,
 } = {}) {
   if (platform !== 'darwin') throw new Error('setup_macos_platform_required');
-  const supportedNodeMajor = RECOMMENDED_NODE_VERSION.split('.')[0];
-  if (nodeVersion.split('.')[0] !== supportedNodeMajor) throw new Error('setup_node_version_mismatch');
+  const version = /^(\d+)\.(\d+)\.(\d+)$/.exec(nodeVersion);
+  // Nest 12 schematics require Node 22.22.3+; .nvmrc remains the recommended patch.
+  if (!version || Number(version[1]) !== 22
+    || Number(version[2]) < 22
+    || (Number(version[2]) === 22 && Number(version[3]) < 3)) {
+    throw new Error('setup_node_version_mismatch');
+  }
 }
 
 export function macosGatewayPaths(home = homedir()) {

@@ -108,17 +108,15 @@ function hexagonalFindings(file, source) {
     for (const match of source.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"]([^'"]+)['"]/g)) {
       if (/(?:^|\/)adapter(?:\/|$)/.test(match[1])) findings.push({ reason: `Pure layer imports a concrete adapter: ${match[1]}`, specifier: match[1] });
     }
-    // The broader NestJS/Prisma/Node-builtin/xlsx framework-purity ban (and
-    // the Node-global ban below) stays channels-only: sourcing and content
-    // have substantial pre-existing @nestjs/node:*  usage in application/
-    // and domain/ files that predates KID-310 and is not a directory-layout
-    // question, so it is out of this reorganization's scope to fix here.
+    // Channels keeps its existing persistence/provider IO boundary. NestJS
+    // imports are allowed: framework independence is not a business boundary.
+    // Extending the IO checks to other owners is outside this scanner's scope.
     if (owner === 'channels') {
       for (const match of source.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"]([^'"]+)['"]/g)) {
         const dependency = match[1];
-        if (dependency.startsWith('@nestjs/') || dependency.startsWith('@prisma/')
+        if (dependency.startsWith('@prisma/')
           || dependency.startsWith('node:') || builtins.has(dependency)
-          || ['xlsx', 'exceljs', 'pg'].includes(dependency)) reject(`IO/framework import: ${dependency}`);
+          || ['xlsx', 'exceljs', 'pg'].includes(dependency)) reject(`IO import: ${dependency}`);
       }
       if (/\b(?:Buffer|process)\b/.test(source.replace(/\/\*[\s\S]*?\*\/|\/\/[^\n]*/g, ''))) reject('Node global in pure layer');
     }
