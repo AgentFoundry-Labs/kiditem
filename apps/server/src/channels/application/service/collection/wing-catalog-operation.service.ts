@@ -1,3 +1,4 @@
+import { Inject, Injectable } from '@nestjs/common';
 import {
   WING_CATALOG_CHUNK_KINDS,
   WING_CATALOG_DETAILS_KIND,
@@ -22,12 +23,12 @@ import {
 } from '@kiditem/shared/operation';
 import type { ZodType } from 'zod';
 import type { WingCatalogOperationPort } from '../../port/in/wing-catalog-operation.port';
-import type { ChannelIntegrityPort } from '../../port/out/integrity/channel-integrity.port';
+import { CHANNEL_INTEGRITY_PORT, type ChannelIntegrityPort } from '../../port/out/integrity/channel-integrity.port';
 import { z } from 'zod';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
-import type { OperationPort } from '../../../../common/operation/application/port/in/operation.port';
-import type { ChannelDocumentsPort } from '../../port/out/documents/channel-documents.port';
-import type { ChannelCatalogPublicationPort } from '../../port/out/repository/channel-catalog-publication.port';
+import { OPERATION_PORT, type OperationPort } from '../../../../common/operation/application/port/in/operation.port';
+import { CHANNEL_DOCUMENTS_PORT, type ChannelDocumentsPort } from '../../port/out/documents/channel-documents.port';
+import { CHANNEL_CATALOG_PUBLICATION_PORT, type ChannelCatalogPublicationPort } from '../../port/out/repository/channel-catalog-publication.port';
 
 /** 엑셀 파일 바이트 조각(base64)의 청크 종류. 웹 업로드와 확장 Wing 내려받기가 같은 모양으로 보낸다. */
 export const WING_CATALOG_WORKBOOK_CHUNK_KIND = 'workbook' as const;
@@ -53,12 +54,13 @@ type FinalizeContext = { tx: OwnerTransaction; organizationId: string; operation
  * 모두 `account:<channelAccountId>` 하나를 잡아 한 계정의 목록·상세·엑셀이 겹치지 않는다. 원장 쓰기는
  * publication 포트가, 실행 표는 실행 계약이 맡는다.
  */
+@Injectable()
 export class WingCatalogOperationService implements WingCatalogOperationPort {
   constructor(
-    private readonly publication: ChannelCatalogPublicationPort,
-    private readonly documents: ChannelDocumentsPort,
-    private readonly operations: OperationPort,
-    private readonly integrity: ChannelIntegrityPort,
+    @Inject(CHANNEL_CATALOG_PUBLICATION_PORT) private readonly publication: ChannelCatalogPublicationPort,
+    @Inject(CHANNEL_DOCUMENTS_PORT) private readonly documents: ChannelDocumentsPort,
+    @Inject(OPERATION_PORT) private readonly operations: OperationPort,
+    @Inject(CHANNEL_INTEGRITY_PORT) private readonly integrity: ChannelIntegrityPort,
   ) {}
 
   /**

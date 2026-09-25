@@ -122,8 +122,10 @@ sync, registration, matching, and capacity behavior is executable in
 
 - Refactored capabilities use `adapter/in/web|agent` → `application/port/in`
   implemented by `application/service/<business>` → `application/port/out`
-  → `adapter/out`. Application and domain are plain TypeScript; Nest DI lives
-  in module composition and adapters. Queries follow the same direction.
+  → `adapter/out`. Domain is plain TypeScript; application services take their
+  ports through Nest DI like every other owner (`@Injectable`/`@Inject`). The
+  remaining `useFactory` wiring in `channels.module.ts` is legacy from the
+  earlier application-layer Nest ban, not a rule. Queries follow the same direction.
 - 오류는 `Kiditem*Error` + `CHANNELS_*` 등록 코드로 던진다(ADR-0023). 등록 실행 보고 경로의 거절은
   409를 지킨다. Nest 예외 잔여는 수집 계열(`ChannelBusinessError`·`ListingException`, catalog·몰 관리자·
   사방넷·셀피아 수동매칭)·`channel-account.persistence.adapter.ts` claim·`channel-product-matching.controller.ts`

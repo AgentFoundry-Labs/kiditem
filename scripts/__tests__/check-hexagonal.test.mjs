@@ -3,11 +3,15 @@ import assert from 'node:assert/strict';
 import { evaluateHexagonal, hexagonalBoundaryViolations, knownViolationShapeErrors, KNOWN_VIOLATIONS } from '../check-hexagonal.mjs';
 
 const file = 'apps/server/src/channels/application/service/listing/list.service.ts';
-test('rejects framework, concrete adapter and Node dependencies in application', () => {
-  for (const dep of ['@nestjs/common', '@prisma/client', 'node:crypto', 'fs', '../../../adapter/out/persistence/list', 'xlsx']) {
+test('rejects IO, concrete adapter and Node dependencies in application', () => {
+  for (const dep of ['@nestjs/core', '@prisma/client', 'node:crypto', 'fs', '../../../adapter/out/persistence/list', 'xlsx']) {
     assert.ok(hexagonalBoundaryViolations(file, `import { x } from '${dep}';`).length);
   }
   assert.ok(hexagonalBoundaryViolations(file, 'const bytes: Buffer = process.env.DATA;').length);
+});
+test('application services may use Nest DI from @nestjs/common; domain may not (2026-09-26)', () => {
+  assert.deepEqual(hexagonalBoundaryViolations(file, "import { Inject, Injectable } from '@nestjs/common';"), []);
+  assert.ok(hexagonalBoundaryViolations('apps/server/src/channels/domain/listing/rule.ts', "import { Injectable } from '@nestjs/common';").length);
 });
 test('permits pure contracts and outgoing IO adapters', () => {
   assert.deepEqual(hexagonalBoundaryViolations(file, "import type { Port } from '../../port/out/persistence/list';"), []);
