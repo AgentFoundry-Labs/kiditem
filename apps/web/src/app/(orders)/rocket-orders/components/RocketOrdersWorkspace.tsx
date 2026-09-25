@@ -128,7 +128,9 @@ export function RocketOrdersWorkspace({
   // RocketAccountBootstrap 이 익스텐션에서 확보한 내부 로켓 식별자를 유지한다.
   const [selectedRocketAccountName, setSelectedRocketAccountName] = useState('');
   const rocketSource = useRocketPoSource(selectedRocketAccountId, viewStateReady);
-  const selectedRocketPoOperationId = rocketSource.data?.latestComplete?.attemptId ?? null;
+  // 실행 reader가 찾은 이 계정의 가장 최근 성공 수집. 저장 발주 목록은 이 값과 상관없이 서버의 가장 최근
+  // 스냅샷을 읽는다(리뷰 M1-b) — 실패한 실행이 쌓여 reader 창에서 성공이 밀려나도 목록은 사라지지 않는다.
+  const knownRocketPoOperationId = rocketSource.data?.latestComplete?.attemptId ?? null;
   const rocketSourceRead = collectionSourceStatusRead(rocketSource);
   const { events, record: recordActivity } = useRocketOrderActivity();
 
@@ -160,14 +162,14 @@ export function RocketOrdersWorkspace({
       from,
       to,
       status,
-    }), selectedRocketPoOperationId],
+    }), knownRocketPoOperationId],
     queryFn: () => listSavedRocketPos({
       channelAccountId: selectedRocketAccountId,
       from,
       to,
       status: status || undefined,
     }),
-    enabled: viewStateReady && selectedRocketAccountId.length > 0 && Boolean(selectedRocketPoOperationId),
+    enabled: viewStateReady && selectedRocketAccountId.length > 0,
     meta: { suppressGlobalErrorToast: true },
     staleTime: 0,
     retry: false,
@@ -175,13 +177,15 @@ export function RocketOrdersWorkspace({
   });
 
   const orders = data ?? EMPTY_ROCKET_POS;
-  const latestRocketPoOperationId = selectedRocketPoOperationId;
+  // 서버는 계정의 가장 최근 스냅샷 하나의 발주만 돌려준다 — 그 행의 실행이 지금 수집본이다.
+  const latestRocketPoOperationId = orders[0]?.rocketPoOperationId ?? knownRocketPoOperationId;
+  const selectedRocketPoOperationId = latestRocketPoOperationId;
   // 건수는 완료(COMPLETE) 수집본 하나의 발주 행을 실제로 읽었을 때만 측정값이다.
   // 그런 수집본이 없거나 행을 아직 읽지 못했으면 아무것도 세지 않았으므로,
   // 요약과 달력은 0을 찍지 않고 알 수 없음으로 둔다(ADR-0006).
   const ordersMeasured = latestRocketPoOperationId !== null && data !== undefined;
 
-  // 과거 원본이 정리되기 전에도 운영 화면은 최신 정상 수집본 하나만 사용한다.
+  // 운영 화면은 서버가 준 가장 최근 정상 수집본 하나만 쓴다.
   const latestOrders = useMemo(
     () => latestRocketPoOperationId
       ? orders.filter(({ rocketPoOperationId }) => rocketPoOperationId === latestRocketPoOperationId)

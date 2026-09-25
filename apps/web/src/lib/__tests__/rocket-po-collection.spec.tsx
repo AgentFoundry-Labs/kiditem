@@ -138,6 +138,24 @@ describe('로켓 PO 수집 컨트롤(실행 계약)', () => {
   });
 });
 
+describe('readRocketPoOperations — 성공한 실행은 넓게 읽는다(리뷰 M1)', () => {
+  it('최근 창을 실패·취소가 채워도 계정의 마지막 성공을 찾는다', async () => {
+    const { readRocketPoOperations } = await import('@/lib/rocket-po-collection');
+    const failed = Array.from({ length: 5 }, (_, index) => operation(ACCOUNT_A, 'failed', `4444444${index}-4444-4444-8444-444444444444`, { startedAt: `2026-08-0${index + 1}T00:00:00.000Z` }));
+    const success = operation(ACCOUNT_A, 'succeeded', NEXT_ID);
+    vi.mocked(apiClient.get).mockImplementation(async (path: string) => (
+      path.includes('status=succeeded') ? { operations: [success] } : { operations: failed }
+    ));
+    const merged = await readRocketPoOperations();
+    expect(vi.mocked(apiClient.get).mock.calls.map(([path]) => path)).toEqual([
+      '/api/operations?kinds=orders.coupang_rocket_po&limit=5',
+      '/api/operations?kinds=orders.coupang_rocket_po&status=succeeded&limit=20',
+    ]);
+    expect(merged.operations[0]!.id).toBe(failed[4]!.id);
+    expect(rocketPoSourceView(merged, ACCOUNT_A, new Date('2026-08-01T03:00:00.000Z')).latestComplete?.attemptId).toBe(NEXT_ID);
+  });
+});
+
 describe('rocketPoSourceView — 계정 하나의 원천 보기', () => {
   const list = (items: unknown[]) => OperationListResponseSchema.parse({ operations: items });
   const now = new Date('2026-08-01T03:00:00.000Z');

@@ -42,25 +42,33 @@ describe('Coupang direct-shipment collection lifecycle', () => {
     vi.clearAllMocks();
   });
 
-  it('확장이 도는 실행이 끝나기를 실행 reader로 기다렸다가 서버가 보관한 캡처를 읽는다', async () => {
-    api.get
-      .mockResolvedValueOnce({ operations: [operation('executing')] })
-      .mockResolvedValue({ operations: [operation('succeeded')] });
-    api.getParsed.mockResolvedValue(CAPTURE);
+  /** 실행은 ID로 읽고(`GET /api/operations/:id`), 캡처는 성공한 실행에서 읽는다. */
+  function serve(states: string[], overrides: Record<string, unknown> = {}) {
+    const queue = [...states];
+    api.getParsed.mockImplementation(async (path: string) => {
+      if (path === `/api/operations/${OPERATION_ID}`) {
+        const status = queue.length > 1 ? queue.shift()! : queue[0]!;
+        return { operation: operation(status, overrides) };
+      }
+      return CAPTURE;
+    });
+  }
 
+  it('확장이 도는 실행이 끝나기를 실행 ID 읽기로 기다렸다가 서버가 보관한 캡처를 읽는다', async () => {
+    serve(['executing', 'succeeded']);
     await expect(collectCoupangDirectFromExtension({ ...RUN, extensionId: 'order-extension' })).resolves.toEqual({ pos: [], centers: {} });
-
-    expect(api.get).toHaveBeenCalledWith('/api/operations?kinds=orders.coupang_directship&limit=10');
+    expect(api.getParsed).toHaveBeenCalledWith(`/api/operations/${OPERATION_ID}`, expect.anything());
     expect(api.getParsed).toHaveBeenCalledWith(
       `/api/orders/collection/coupang-directship/operations/${OPERATION_ID}/capture`,
       expect.anything(),
     );
+    expect(api.get).not.toHaveBeenCalled();
   }, 10_000);
 
   it('실패한 실행은 그 실행의 실패 문장으로 거절한다', async () => {
-    api.get.mockResolvedValue({ operations: [operation('failed', { errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '쿠팡 서플라이어 허브 로그인이 필요합니다.' })] });
+    serve(['failed'], { errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '쿠팡 서플라이어 허브 로그인이 필요합니다.' });
     await expect(collectCoupangDirectFromExtension(RUN)).rejects.toThrow('쿠팡 서플라이어 허브 로그인이 필요합니다.');
-    expect(api.getParsed).not.toHaveBeenCalled();
+    expect(api.getParsed).not.toHaveBeenCalledWith(expect.stringContaining('/capture'), expect.anything());
   });
 
   it('passes cancellation to backend conversion', async () => {

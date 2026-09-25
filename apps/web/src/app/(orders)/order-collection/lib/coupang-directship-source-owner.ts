@@ -7,7 +7,7 @@ import {
   CoupangDirectCenterSchema,
   CoupangDirectPurchaseOrderSchema,
 } from '@kiditem/shared/coupang-direct-order';
-import { OperationListResponseSchema, type OperationView } from '@kiditem/shared/operation';
+import { OperationGetResponseSchema, OperationListResponseSchema, type OperationView } from '@kiditem/shared/operation';
 import { COUPANG_DIRECTSHIP_KIND } from '@kiditem/shared/orders-operations';
 import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
@@ -23,8 +23,10 @@ import {
 const OPERATIONS_PATH = '/api/operations';
 const CAPTURE_PATH = '/api/orders/collection/coupang-directship/operations';
 const ACTIVE_STORAGE_PREFIX = 'kiditem:orders:coupang-directship-attempt';
-/** 조직의 최근 직배송 실행 몇 개. 계정마다 나눠 본다. */
+/** 조직의 최근 직배송 실행 몇 개(진행 중·마지막 실행). 계정마다 나눠 본다. */
 const RECENT_LIMIT = 10;
+/** 성공한 실행은 따로 더 넓게 읽는다 — 실패·취소가 최근 창을 채워도 마지막 성공이 밀려나지 않게(리뷰 M1). */
+const SUCCEEDED_LIMIT = 20;
 /** 캡처가 끝나기를 기다리는 간격과 상한(옛 확장 호출 240초보다 넉넉히 — 발주별 상세가 많다). */
 const WAIT_POLL_MS = 1_500;
 const WAIT_MAX_MS = 10 * 60_000;
@@ -118,12 +120,17 @@ export function directshipAttemptView(operation: OperationView): CoupangDirectOw
   };
 }
 
-/** 조직의 최근 직배송 실행(최근 것부터). */
+/** 조직의 최근 직배송 실행과 성공한 실행(겹침 없이, 시작 시각 최근 순). */
 export async function readRecentCoupangDirectOperations(): Promise<OperationView[]> {
-  const response = OperationListResponseSchema.parse(
-    await apiClient.get<unknown>(`${OPERATIONS_PATH}?kinds=${COUPANG_DIRECTSHIP_KIND}&limit=${RECENT_LIMIT}`),
-  );
-  return response.operations;
+  const [recent, succeeded] = await Promise.all([
+    apiClient.get<unknown>(`${OPERATIONS_PATH}?kinds=${COUPANG_DIRECTSHIP_KIND}&limit=${RECENT_LIMIT}`),
+    apiClient.get<unknown>(`${OPERATIONS_PATH}?kinds=${COUPANG_DIRECTSHIP_KIND}&status=succeeded&limit=${SUCCEEDED_LIMIT}`),
+  ]);
+  const byId = new Map<string, OperationView>();
+  for (const operation of [...OperationListResponseSchema.parse(recent).operations, ...OperationListResponseSchema.parse(succeeded).operations]) {
+    byId.set(operation.id, operation);
+  }
+  return [...byId.values()].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
 }
 
 /**
@@ -154,10 +161,10 @@ export async function beginCoupangDirectAttempt(
   };
 }
 
-/** 실행 하나(옛 attempt 읽기). 최근 목록에 없으면 404. */
+/** 실행 하나(옛 attempt 읽기) — `GET /api/operations/:id`. 없거나 직배송 실행이 아니면 404. */
 export async function readCoupangDirectAttempt(attemptId: string): Promise<CoupangDirectOwnerAttempt> {
-  const operation = (await readRecentCoupangDirectOperations()).find((item) => item.id === attemptId);
-  if (!operation) throw new ApiError(404, 'NOT_FOUND', null, { reason: 'coupang_directship_operation' });
+  const { operation } = await apiClient.getParsed(`${OPERATIONS_PATH}/${encodeURIComponent(attemptId)}`, OperationGetResponseSchema);
+  if (operation.kind !== COUPANG_DIRECTSHIP_KIND) throw new ApiError(404, 'OPERATION_NOT_FOUND', null, { reason: 'coupang_directship_operation' });
   return directshipAttemptView(operation);
 }
 

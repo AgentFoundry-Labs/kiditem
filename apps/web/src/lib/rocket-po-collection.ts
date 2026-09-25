@@ -16,9 +16,26 @@ import { requestOperationCancel, requestOperationStart } from '@/lib/operation-s
 import { queryKeys } from '@/lib/query-keys';
 
 const RUNNING_POLL_MS = 2_000;
-/** 조직의 최근 로켓 PO 실행 몇 개. 계정마다 나눠 보고, 첫 행이 가장 최근이다. */
+/** 조직의 최근 로켓 PO 실행 몇 개(진행 중·마지막 실행). 계정마다 나눠 본다. */
 const RECENT_LIMIT = 5;
+/**
+ * 성공한 실행은 따로 더 넓게 읽는다(리뷰 M1): 실패·취소가 최근 창을 채워도 계정의 마지막 성공이 밀려나지 않게.
+ */
+const SUCCEEDED_LIMIT = 20;
 const OPERATIONS_PATH = `/api/operations?kinds=${COUPANG_ROCKET_PO_KIND}&limit=${RECENT_LIMIT}`;
+const SUCCEEDED_PATH = `/api/operations?kinds=${COUPANG_ROCKET_PO_KIND}&status=succeeded&limit=${SUCCEEDED_LIMIT}`;
+
+/** 최근 실행과 성공한 실행을 한 목록으로(실행 ID로 겹침을 없애고 시작 시각 최근 순). */
+export async function readRocketPoOperations(): Promise<OperationListResponse> {
+  const [recent, succeeded] = await Promise.all([
+    apiClient.get(OPERATIONS_PATH).then((value) => OperationListResponseSchema.parse(value)),
+    apiClient.get(SUCCEEDED_PATH).then((value) => OperationListResponseSchema.parse(value)),
+  ]);
+  const byId = new Map<string, OperationView>();
+  for (const operation of [...recent.operations, ...succeeded.operations]) byId.set(operation.id, operation);
+  const operations = [...byId.values()].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+  return { ...recent, operations };
+}
 
 export type RocketPoCollectionRange = Readonly<{ from: string; to: string }>;
 
@@ -83,7 +100,7 @@ export function rocketPoSourceView(response: OperationListResponse | undefined, 
 export function rocketPoOperationsQueryOptions() {
   return collectionSourceStatusQueryOptions<OperationListResponse, Error, OperationListResponse, QueryKey>({
     queryKey: queryKeys.orders.rocketPoOperations(),
-    queryFn: async () => OperationListResponseSchema.parse(await apiClient.get(OPERATIONS_PATH)),
+    queryFn: readRocketPoOperations,
     refetchInterval: (query) => ((query.state.data?.operations ?? []).some(live) ? RUNNING_POLL_MS : false),
     meta: { suppressGlobalErrorToast: true },
   });

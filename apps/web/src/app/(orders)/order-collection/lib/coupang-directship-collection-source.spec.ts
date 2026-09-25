@@ -10,6 +10,7 @@ import { queryKeys } from '@/lib/query-keys';
 import {
   coupangDirectshipCollectionSource,
   coupangDirectshipStartAlreadyRunning,
+  readCoupangDirectshipSource,
 } from './coupang-directship-collection-source';
 
 vi.mock('@/lib/api-client', () => ({
@@ -64,6 +65,23 @@ beforeEach(() => {
     status: 'ready',
     extensionId: 'order-extension',
     version: '1',
+  });
+});
+
+describe('readCoupangDirectshipSource — 성공한 실행은 넓게 읽는다(리뷰 M1)', () => {
+  const op = (id: string, status: string, startedAt: string) => ({
+    id, kind: 'orders.coupang_directship', status, lockKeys: [], plan: { channelAccountId: CHANNEL_ACCOUNT_ID, captureMode: 'browser' },
+    progress: null, result: null, window: null, errorCode: status === 'failed' ? 'SITE_LOGIN_REQUIRED' : null, errorMessage: null,
+    startedAt, finishedAt: startedAt, expiresAt: startedAt, attempts: 1, maxAttempts: 1, scheduledFor: null,
+  });
+  it('최근 창을 실패가 채워도 계정의 마지막 성공을 lastComplete로 둔다', async () => {
+    const failures = Array.from({ length: 10 }, (_, index) => op(`5555555${index}-5555-4555-8555-555555555555`, 'failed', `2026-09-2${index % 10}T00:00:00.000Z`));
+    vi.mocked(apiClient.get).mockImplementation(async (path: string) => ({
+      operations: path.includes('status=succeeded') ? [op(COMPLETE_ATTEMPT_ID, 'succeeded', '2026-09-01T00:00:00.000Z')] : failures,
+    }));
+    const source = await readCoupangDirectshipSource(CHANNEL_ACCOUNT_ID);
+    expect(source.lastComplete?.attemptId).toBe(COMPLETE_ATTEMPT_ID);
+    expect(source.lastAttempt?.state).toBe('FAILED');
   });
 });
 

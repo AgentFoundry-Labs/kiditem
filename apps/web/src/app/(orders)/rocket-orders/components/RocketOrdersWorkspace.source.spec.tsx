@@ -70,7 +70,8 @@ const reread = async (client: QueryClient) => {
 it('가장 최근 성공한 실행이 현재 수집본이다 — 빈 수집도 그렇고, 실패는 그 옆에 적고, 성공한 실행이 없으면 아무것도 세지 않는다', async () => {
   const complete = operation(oldId, 'succeeded');
   let operations: Record<string, unknown>[] = [complete];
-  const requests = stubFetch(() => operations, () => [savedPo(NOW)]);
+  let saved: unknown[] = [savedPo(NOW)];
+  const requests = stubFetch(() => operations, () => saved);
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   const rendered = render(<QueryClientProvider client={client}><RocketOrdersWorkspace decisionWorkspace={(context) => <>
     <output aria-label="selected source">{context.selectedRocketPoOperationId ?? 'none'}</output>
@@ -81,6 +82,7 @@ it('가장 최근 성공한 실행이 현재 수집본이다 — 빈 수집도 �
 
   const empty = operation(emptyId, 'succeeded', { result: { purchaseOrders: 0, lines: 0 } });
   operations = [empty, complete];
+  saved = [];
   await reread(client);
   await waitFor(() => expect(screen.getByLabelText('selected source')).toHaveTextContent(emptyId));
   expect(screen.queryByRole('button', { name: '2026-07-18 발주 1건' })).not.toBeInTheDocument();
@@ -92,10 +94,23 @@ it('가장 최근 성공한 실행이 현재 수집본이다 — 빈 수집도 �
   expect(screen.getByRole('status', { name: '로켓 수집 상태' })).toHaveTextContent('COMPLETE 수집본');
 
   operations = [operation('44444444-4444-4444-8444-444444444444', 'failed', { errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '로그인이 필요합니다.' })];
+  saved = [];
   await reread(client);
   await waitFor(() => expect(screen.getByLabelText('selected source')).toHaveTextContent('none'));
   expect(within(screen.getByTestId('rocket-order-summary')).getAllByText('—')).toHaveLength(3);
   expect(requests.every(({ method, action }) => method !== 'POST' || action === 'listSavedRocketPos')).toBe(true);
+  rendered.unmount(); client.clear();
+});
+
+it('실행 reader가 이 계정의 성공을 찾지 못해도 서버의 가장 최근 스냅샷으로 발주 목록을 보인다(리뷰 M1)', async () => {
+  stubFetch(() => [operation(emptyId, 'failed', { errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '로그인이 필요합니다.' })], () => [savedPo(NOW)]);
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  const rendered = render(<QueryClientProvider client={client}><RocketOrdersWorkspace decisionWorkspace={(context) => <>
+    <output aria-label="selected source">{context.selectedRocketPoOperationId ?? 'none'}</output>
+    {context.renderOrderExplorer({ disabled: false, onSelectDate: () => undefined })}
+  </>} /></QueryClientProvider>);
+  await screen.findByRole('button', { name: '2026-07-18 발주 1건' });
+  expect(screen.getByLabelText('selected source')).toHaveTextContent(oldId);
   rendered.unmount(); client.clear();
 });
 

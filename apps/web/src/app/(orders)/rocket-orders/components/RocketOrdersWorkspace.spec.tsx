@@ -157,8 +157,11 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
     replaceMock.mockReset();
     query.refetch.mockReset();
     query.isLoading = false;
-    queryMock.mockImplementation(({ enabled }: { enabled?: boolean }) => ({
-      data: enabled ? savedOrders : [],
+    // 서버처럼: 이 계정에 완료된 수집이 있을 때만 그 스냅샷의 발주를 준다(리뷰 M1 — 목록은 서버 스냅샷이 정한다).
+    queryMock.mockImplementation(({ enabled, queryKey }: { enabled?: boolean; queryKey?: unknown }) => ({
+      data: enabled
+        ? (owner.complete && JSON.stringify(queryKey ?? '').includes(rocketAccountId) ? savedOrders : [])
+        : [],
       isLoading: query.isLoading,
       isFetching: false,
       isError: false,
@@ -355,8 +358,10 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
     replaceMock.mockReset();
     query.refetch.mockReset();
     query.isLoading = false;
-    queryMock.mockImplementation(({ enabled }: { enabled?: boolean }) => ({
-      data: enabled ? savedOrders : [],
+    queryMock.mockImplementation(({ enabled, queryKey }: { enabled?: boolean; queryKey?: unknown }) => ({
+      data: enabled
+        ? (owner.complete && JSON.stringify(queryKey ?? '').includes(rocketAccountId) ? savedOrders : [])
+        : [],
       isLoading: query.isLoading,
       isFetching: false,
       isError: false,
