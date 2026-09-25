@@ -130,4 +130,19 @@ describe('createSiteCaller — 사이트 요청 공용 규칙', () => {
 
     await expect(createSiteCaller({ minIntervalMs: 0 }, site.deps).text('https://site.example.com/a')).resolves.toBe('<html>ok</html>');
   });
+
+  it('bytes는 본문 바이트를 그대로 돌려준다(엑셀 내려받기)', async () => {
+    const site = fakeSite(() => new Response(new Uint8Array([0x50, 0x4b, 0x03, 0x04]), { status: 200 }));
+
+    await expect(createSiteCaller({ minIntervalMs: 0 }, site.deps).bytes('https://site.example.com/file'))
+      .resolves.toEqual(new Uint8Array([0x50, 0x4b, 0x03, 0x04]));
+  });
+
+  it('displayName이 있으면 로그인 문장에 사이트 이름을 싣는다(운영자가 어디에 로그인할지 안다)', async () => {
+    const site = fakeSite(() => new Response('', { status: 401 }));
+
+    const error = await rejection(createSiteCaller({ minIntervalMs: 0, displayName: '쿠팡 윙' }, site.deps).json('https://site.example.com/a'));
+
+    expect(error.message).toBe('쿠팡 윙 로그인이 필요합니다.');
+  });
 });

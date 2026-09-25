@@ -28,8 +28,8 @@ export type CatalogChanges = {
  * 트랜잭션(`tx`) 안에서만 부른다 — 반영과 실행 종료가 같이 커밋된다. 실행 표는 모른다.
  */
 export interface ChannelCatalogPublicationPort {
-  /** 조직의 활성 쿠팡(Wing) 계정이고 벤더 신원이 있는가. 아니면 KidItem 오류로 멈춘다. */
-  assertWingAccount(scope: CatalogAccountScope): Promise<void>;
+  /** 조직의 활성 쿠팡(Wing) 계정이고 벤더 신원이 있는가. 아니면 KidItem 오류로 멈춘다. 그 계정의 Wing 판매자 ID를 준다. */
+  assertWingAccount(scope: CatalogAccountScope): Promise<{ vendorId: string }>;
 
   /**
    * 상세 kind scope가 저장 행과 맞는가: 대상은 모두 이 계정의 리스팅, 사라진 상품은 모두 저장돼 있고 아직

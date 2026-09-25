@@ -612,6 +612,8 @@ describe('Wing catalog incremental browser sync over the operation contract (PG 
 
   it('계정당 하나: 목록이 도는 동안 상세·엑셀은 OPERATION_IN_PROGRESS로 거절되고, 다른 계정의 목록 kind는 계정 불일치로 거절된다', async () => {
     const begun = await wing.operations.begin(ORG, { kind: 'channels.wing_catalog_list', scope: { channelAccountId } }, { userId: USER });
+    // 확장은 plan의 판매자 ID로 다른 판매자로 로그인된 Wing의 목록을 거절한다.
+    expect(begun.operation.plan).toEqual({ channelAccountId, startedBy: USER, vendorId: 'V1' });
     await expect(wing.runDetails({ channelAccountId, detailTargetProductIds: [], absentProductIds: [] }, []))
       .rejects.toMatchObject({ code: 'OPERATION_IN_PROGRESS', details: { operationId: begun.operation.id } });
     await expect(wing.uploadWorkbook(channelAccountId, Buffer.from('not-a-workbook')))

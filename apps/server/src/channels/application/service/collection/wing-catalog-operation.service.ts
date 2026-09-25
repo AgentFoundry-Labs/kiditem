@@ -107,8 +107,9 @@ export class WingCatalogOperationService implements WingCatalogOperationPort {
   async planList(scope: Record<string, unknown>, context: PlanContext): Promise<OperationPlanResult> {
     const parsed = parseScope(WingCatalogListScopeSchema, scope);
     const channelAccountId = parsed.channelAccountId.toLowerCase();
-    await this.publication.assertWingAccount({ organizationId: context.organizationId, channelAccountId });
-    return { lockKeys: [accountLockKey(channelAccountId)], plan: { channelAccountId, startedBy: context.userId } };
+    const { vendorId } = await this.publication.assertWingAccount({ organizationId: context.organizationId, channelAccountId });
+    // vendorId: 확장이 다른 판매자로 로그인된 Wing의 목록 행을 거절한다(옛 수집기의 판매자 확인).
+    return { lockKeys: [accountLockKey(channelAccountId)], plan: { channelAccountId, startedBy: context.userId, vendorId } };
   }
 
   async finalizeList(chunks: OperationStagedChunk[], context: FinalizeContext): Promise<WingCatalogListResult> {

@@ -39,24 +39,6 @@ var KidItemRuntime = (() => {
     return [...collectors.keys()].sort();
   }
 
-  // extensions/src/collectors/test.echo/index.ts
-  var CHUNKS = 2;
-  var ITEMS_PER_CHUNK = 3;
-  var testEchoCollector = {
-    kind: "test.echo",
-    site: null,
-    async *collect(_plan, _site, { signal }) {
-      for (let chunk = 1; chunk <= CHUNKS; chunk += 1) {
-        if (signal.aborted) return;
-        const at = (/* @__PURE__ */ new Date()).toISOString();
-        const payload = Array.from({ length: ITEMS_PER_CHUNK }, (_, index) => ({ i: (chunk - 1) * ITEMS_PER_CHUNK + index + 1, at }));
-        yield { chunkKind: "echo", payload, progress: { done: chunk } };
-      }
-    },
-    summarize: () => ({ result: { echo: true } })
-  };
-  registerCollector(testEchoCollector);
-
   // node_modules/zod/v3/external.js
   var external_exports = {};
   __export(external_exports, {
@@ -1051,8 +1033,8 @@ var KidItemRuntime = (() => {
       const [header] = jwt.split(".");
       if (!header)
         return false;
-      const base64 = header.replace(/-/g, "+").replace(/_/g, "/").padEnd(header.length + (4 - header.length % 4) % 4, "=");
-      const decoded = JSON.parse(atob(base64));
+      const base642 = header.replace(/-/g, "+").replace(/_/g, "/").padEnd(header.length + (4 - header.length % 4) % 4, "=");
+      const decoded = JSON.parse(atob(base642));
       if (typeof decoded !== "object" || decoded === null)
         return false;
       if ("typ" in decoded && decoded?.typ !== "JWT")
@@ -4098,101 +4080,6 @@ var KidItemRuntime = (() => {
   };
   var NEVER = INVALID;
 
-  // extensions/src/core/errors.ts
-  var ErrorEnvelopeSchema = external_exports.object({
-    statusCode: external_exports.number().int().min(400).max(599),
-    code: external_exports.string().min(1),
-    kind: external_exports.string(),
-    message: external_exports.string(),
-    errors: external_exports.array(external_exports.unknown()).optional(),
-    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
-  }).passthrough();
-  var RuntimeError = class extends Error {
-    constructor(code, message, details = null, cause) {
-      super(message);
-      this.code = code;
-      this.details = details;
-      this.cause = cause;
-      this.name = "RuntimeError";
-    }
-    code;
-    details;
-    cause;
-  };
-  function parseErrorEnvelope(body) {
-    const parsed = ErrorEnvelopeSchema.safeParse(body);
-    return parsed.success ? parsed.data : null;
-  }
-  function isRuntimeError(value) {
-    return value instanceof RuntimeError;
-  }
-
-  // extensions/src/core/browser.ts
-  var RUNTIME_BROWSER_ALREADY_ACQUIRED = "RUNTIME_BROWSER_ALREADY_ACQUIRED";
-  var RUNTIME_BROWSER_UNAVAILABLE = "RUNTIME_BROWSER_UNAVAILABLE";
-  function createBrowserResources(chromeApi, sites, options = {}) {
-    const held = /* @__PURE__ */ new Set();
-    return {
-      async acquire({ operationId, lockKeys, signal }) {
-        if (held.has(operationId)) {
-          throw new RuntimeError(RUNTIME_BROWSER_ALREADY_ACQUIRED, "\uC774 \uC2E4\uD589\uC740 \uC774\uBBF8 \uBE0C\uB77C\uC6B0\uC800 \uC790\uC6D0\uC744 \uC7A1\uACE0 \uC788\uC2B5\uB2C8\uB2E4.", { operationId });
-        }
-        signal.throwIfAborted();
-        const siteNames = [...new Set(lockKeys.map((key) => siteOfLockKey(key, options)).filter((name) => name !== null && name in sites))];
-        if (siteNames.length > 1) {
-          throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uD55C \uC2E4\uD589\uC774 \uB450 \uC0AC\uC774\uD2B8\uC758 \uD0ED\uC744 \uD568\uAED8 \uC7A1\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { sites: siteNames });
-        }
-        held.add(operationId);
-        try {
-          const tab = siteNames.length === 1 ? await openSiteTab(chromeApi, sites[siteNames[0]].origin) : null;
-          let released = false;
-          return {
-            tabId: tab?.tabId ?? null,
-            async release() {
-              if (released) return;
-              released = true;
-              held.delete(operationId);
-              if (tab?.opened) await chromeApi.tabs.remove(tab.tabId).catch(() => void 0);
-            }
-          };
-        } catch (error) {
-          held.delete(operationId);
-          throw error;
-        }
-      }
-    };
-  }
-  function siteOfLockKey(key, options) {
-    if (key.startsWith("resource:")) return key.split(":")[1] ?? null;
-    if (key.startsWith("account:")) return options.accountSite ?? null;
-    return null;
-  }
-  async function openSiteTab(chromeApi, origin) {
-    const base = origin.replace(/\/+$/, "");
-    const [existing] = await chromeApi.tabs.query({ url: `${base}/*` });
-    if (typeof existing?.id === "number") return { tabId: existing.id, opened: false };
-    const created = await chromeApi.tabs.create({ url: base, active: false });
-    if (typeof created.id !== "number") {
-      throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uC0AC\uC774\uD2B8 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { origin: base });
-    }
-    return { tabId: created.id, opened: true };
-  }
-
-  // extensions/src/entry/legacy-bridge.ts
-  function legacyGlobalsPresent() {
-    return typeof KidItemDomains !== "undefined" && typeof sourceOwnerEnvironmentContext !== "undefined";
-  }
-  function legacyKeepAlive(work) {
-    if (typeof KidItemWorkerKeepAlive === "undefined" || !KidItemWorkerKeepAlive) return;
-    KidItemWorkerKeepAlive.during(work).catch(() => void 0);
-  }
-  function legacyApiPort(environmentId) {
-    return { fetch: (path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init) };
-  }
-  function registerWithLegacyDomains(domain) {
-    KidItemDomains.register(domain);
-  }
-
   // packages/shared/src/schemas/common.ts
   var zIsoDate = external_exports.union([external_exports.string(), external_exports.date()]);
   var ApiErrorResponseSchema = external_exports.object({
@@ -4203,6 +4090,803 @@ var KidItemRuntime = (() => {
   var SyncInfoSchema = external_exports.object({
     lastSyncedAt: external_exports.string().nullable()
   });
+
+  // packages/shared/src/schemas/browser-collection-session.ts
+  var BROWSER_COLLECTION_PRODUCERS = [
+    "advertising.ad_keyword",
+    "advertising.ad_sync",
+    "advertising.profitability_import",
+    "advertising.competitor_catalog",
+    "advertising.competitor_seller_identity",
+    "advertising.keyword_rank",
+    "advertising.wing_rank",
+    "advertising.wing_tracked_products",
+    "channels.coupang_catalog",
+    "dashboard.coupang_products",
+    "dashboard.wing_kpi",
+    "dashboard.wing_sales",
+    "inventory.sellpia",
+    "orders.coupang_directship",
+    "orders.coupang_reviews",
+    "orders.coupang_rocket_po",
+    "orders.coupang_shipment_summary",
+    "orders.mall",
+    "orders.mall_admin_listings",
+    "orders.sabangnet_mall_listings",
+    "orders.sellpia_manual_match",
+    "orders.sellpia_product_profitability",
+    "orders.sellpia_sales",
+    "orders.sellpia_shipment_tracking",
+    "sourcing.1688_trend",
+    "sourcing.keyword_suggestion",
+    "sourcing.live_commerce",
+    "sourcing.product_extension",
+    "sourcing.tiktok_cc_trend",
+    "sourcing.wing_catalog"
+  ];
+  var BROWSER_COLLECTION_ATTENTION_REASONS = [
+    "extension_missing",
+    "extension_outdated",
+    "kiditem_auth",
+    "marketplace_login",
+    "captcha",
+    "permission",
+    "background_timeout",
+    "rate_limited",
+    "manual_confirmation",
+    "unknown"
+  ];
+  var BrowserCollectionProducerSchema = external_exports.enum(
+    BROWSER_COLLECTION_PRODUCERS
+  );
+  var BrowserCollectionAttentionReasonSchema = external_exports.enum(
+    BROWSER_COLLECTION_ATTENTION_REASONS
+  );
+  var BrowserCollectionAttemptIdSchema = external_exports.string().uuid();
+  var BoundedCountSchema = external_exports.number().int().min(0).max(1e6);
+  var BrowserCollectionProgressSchema = external_exports.object({
+    current: BoundedCountSchema,
+    total: BoundedCountSchema,
+    completed: BoundedCountSchema,
+    failed: BoundedCountSchema,
+    label: external_exports.string().max(300).nullable()
+  }).strict().superRefine((progress, context) => {
+    if (progress.current > progress.total || progress.completed + progress.failed > progress.total) {
+      context.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        message: "Invalid progress bounds"
+      });
+    }
+  });
+  var BrowserCollectionAttentionSchema = external_exports.object({
+    reason: BrowserCollectionAttentionReasonSchema,
+    message: external_exports.string().min(1).max(2e3),
+    canOpenTab: external_exports.boolean()
+  }).strict();
+  var BrowserCollectionSessionViewSchema = external_exports.object({
+    // Environment ownership is local extension metadata, not part of the
+    // owner attempt. It remains optional for callers with one environment.
+    environmentId: external_exports.enum(["local", "office"]).optional(),
+    attemptId: BrowserCollectionAttemptIdSchema,
+    producer: BrowserCollectionProducerSchema,
+    progress: BrowserCollectionProgressSchema,
+    attention: BrowserCollectionAttentionSchema.nullable()
+  }).strict();
+  var BrowserCollectionCommandSchema = external_exports.discriminatedUnion("action", [
+    external_exports.object({ action: external_exports.literal("listCollectionSessions") }).strict(),
+    external_exports.object({
+      action: external_exports.literal("getCollectionSession"),
+      attemptId: BrowserCollectionAttemptIdSchema
+    }).strict(),
+    external_exports.object({
+      action: external_exports.literal("cancelCollectionSession"),
+      attemptId: BrowserCollectionAttemptIdSchema
+    }).strict(),
+    external_exports.object({
+      action: external_exports.literal("openCollectionAttentionTab"),
+      attemptId: BrowserCollectionAttemptIdSchema
+    }).strict()
+  ]);
+
+  // packages/shared/src/schemas/coupang-catalog-snapshot.ts
+  var COUPANG_CATALOG_STAGE_SCHEMA_VERSION = 1;
+  var COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT = 500;
+  var COUPANG_CATALOG_MAX_MEDIA_PER_OWNER = 100;
+  var COUPANG_CATALOG_MAX_DETAIL_MEDIA = COUPANG_CATALOG_MAX_MEDIA_PER_OWNER * (COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT + 1);
+  var COUPANG_CATALOG_MAX_PRODUCTS_PER_CHUNK = 20;
+  var COUPANG_CATALOG_MAX_DELETION_CONFIRMATIONS_PER_CHUNK = 100;
+  var COUPANG_CATALOG_MAX_PRODUCT_BYTES = 512 * 1024;
+  var COUPANG_CATALOG_MAX_RAW_BYTES = 64 * 1024;
+  var COUPANG_CATALOG_MAX_CHUNK_BYTES = 1024 * 1024;
+  var COUPANG_CATALOG_MAX_DOCUMENT_BYTES = 64 * 1024;
+  var COUPANG_CATALOG_MAX_DOCUMENTS_PER_PRODUCT = 2e3;
+  var Sha256Schema = external_exports.string().regex(/^[a-f0-9]{64}$/);
+  var ExternalIdSchema = external_exports.string().trim().min(1).max(200);
+  var NullableTextSchema = external_exports.string().trim().min(1).max(2e3).nullable();
+  var HttpUrlSchema = external_exports.string().url().max(4096).refine((value) => {
+    const protocol = new URL(value).protocol;
+    return protocol === "http:" || protocol === "https:";
+  }, "Provider URL must use HTTP(S)");
+  function jsonBytes(value) {
+    return new TextEncoder().encode(JSON.stringify(value)).byteLength;
+  }
+  function isJsonValue(value, seen = /* @__PURE__ */ new Set()) {
+    if (value === null || typeof value === "string" || typeof value === "boolean") return true;
+    if (typeof value === "number") return Number.isFinite(value);
+    if (typeof value !== "object") return false;
+    if (seen.has(value)) return false;
+    seen.add(value);
+    const valid = Array.isArray(value) ? value.every((item) => isJsonValue(item, seen)) : Object.entries(value).every(([key, nested]) => key !== "__proto__" && key !== "prototype" && isJsonValue(nested, seen));
+    seen.delete(value);
+    return valid;
+  }
+  function addDuplicateIssue(ctx, path, field, value) {
+    ctx.addIssue({
+      code: external_exports.ZodIssueCode.custom,
+      path,
+      message: `duplicate ${field}: ${value}`
+    });
+  }
+  var CoupangCatalogMediaRoleSchema = external_exports.enum(["primary", "detail", "option"]);
+  var CoupangCatalogMediaV1Schema = external_exports.object({
+    sourceUrl: HttpUrlSchema,
+    role: CoupangCatalogMediaRoleSchema,
+    sortOrder: external_exports.number().int().nonnegative(),
+    externalOptionId: ExternalIdSchema.nullable()
+  });
+  var CoupangCatalogDetailMediaV1Schema = external_exports.object({
+    sourceUrl: HttpUrlSchema,
+    role: CoupangCatalogMediaRoleSchema,
+    sortOrder: external_exports.number().int().nonnegative(),
+    externalOptionIds: external_exports.array(ExternalIdSchema).max(COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT).optional(),
+    externalOptionId: ExternalIdSchema.nullable().optional()
+  }).superRefine((media, ctx) => {
+    const ids = media.externalOptionIds ?? [];
+    if (media.externalOptionId && ids.length > 0 && !ids.includes(media.externalOptionId)) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["externalOptionId"],
+        message: "legacy externalOptionId must be present in externalOptionIds"
+      });
+    }
+  });
+  var CoupangCatalogAttributeKindSchema = external_exports.enum(["purchase", "search"]);
+  var CoupangCatalogAttributeV1Schema = external_exports.object({
+    type: external_exports.string().trim().min(1).max(200),
+    value: external_exports.string().trim().min(1).max(2e3),
+    kind: CoupangCatalogAttributeKindSchema.optional(),
+    attributeTypeId: external_exports.string().trim().min(1).max(200).nullable().optional(),
+    exposed: external_exports.boolean().nullable().optional()
+  });
+  var CoupangCatalogOptionV1Schema = external_exports.object({
+    externalOptionId: ExternalIdSchema,
+    // `vendorItemId` is nullable in Wing inventory responses.  A typed
+    // sellerProductItemId may still be used as the stable external option key,
+    // but it must not be relabelled as a vendorItemId by the collector.
+    vendorItemId: ExternalIdSchema.nullable().optional(),
+    vendorInventoryItemId: ExternalIdSchema.nullable().optional(),
+    sellerProductItemId: ExternalIdSchema.nullable().optional(),
+    skuId: ExternalIdSchema.nullable().optional(),
+    externalSkuCode: NullableTextSchema.optional(),
+    stock: external_exports.number().int().nonnegative().nullable().optional(),
+    stockQuantity: external_exports.number().int().nonnegative().nullable().optional(),
+    soldOut: external_exports.boolean().nullable().optional(),
+    optionName: NullableTextSchema,
+    skuStatus: NullableTextSchema,
+    salePrice: external_exports.number().int().nonnegative().nullable(),
+    sellerSku: NullableTextSchema,
+    modelNumber: NullableTextSchema,
+    barcode: NullableTextSchema,
+    attributes: external_exports.array(CoupangCatalogAttributeV1Schema).max(100),
+    media: external_exports.array(CoupangCatalogMediaV1Schema).max(COUPANG_CATALOG_MAX_MEDIA_PER_OWNER),
+    raw: external_exports.record(external_exports.unknown())
+  }).superRefine((option, ctx) => {
+    option.media.forEach((item, index) => {
+      if (item.externalOptionId !== null && item.externalOptionId !== option.externalOptionId) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["media", index, "externalOptionId"],
+          message: "media externalOptionId must match its option owner"
+        });
+      }
+    });
+    if (jsonBytes(option.raw) > COUPANG_CATALOG_MAX_RAW_BYTES) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["raw"],
+        message: `option raw diagnostics exceed ${COUPANG_CATALOG_MAX_RAW_BYTES} bytes`
+      });
+    }
+  });
+  var CoupangCatalogStageSchema = external_exports.enum(["basics", "details"]);
+  var CoupangCatalogBasicOptionV1Schema = CoupangCatalogOptionV1Schema;
+  var CoupangCatalogBasicProductV1Schema = external_exports.object({
+    externalProductId: ExternalIdSchema,
+    registeredName: NullableTextSchema,
+    displayName: NullableTextSchema,
+    category: NullableTextSchema,
+    manufacturer: NullableTextSchema,
+    brand: NullableTextSchema,
+    productStatus: NullableTextSchema,
+    options: external_exports.array(CoupangCatalogBasicOptionV1Schema).min(1).max(COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT),
+    media: external_exports.array(CoupangCatalogMediaV1Schema).max(COUPANG_CATALOG_MAX_MEDIA_PER_OWNER),
+    raw: external_exports.record(external_exports.unknown())
+  }).superRefine((product, ctx) => {
+    const optionIds = /* @__PURE__ */ new Set();
+    product.options.forEach((option, index) => {
+      if (optionIds.has(option.externalOptionId)) {
+        addDuplicateIssue(ctx, ["options", index, "externalOptionId"], "externalOptionId", option.externalOptionId);
+      }
+      optionIds.add(option.externalOptionId);
+    });
+    product.media.forEach((item, index) => {
+      if (item.externalOptionId !== null && !optionIds.has(item.externalOptionId)) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["media", index, "externalOptionId"],
+          message: `media references unknown option: ${item.externalOptionId}`
+        });
+      }
+    });
+    if (jsonBytes(product.raw) > COUPANG_CATALOG_MAX_RAW_BYTES) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["raw"],
+        message: `basic raw diagnostics exceed ${COUPANG_CATALOG_MAX_RAW_BYTES} bytes`
+      });
+    }
+    if (jsonBytes(product) > COUPANG_CATALOG_MAX_PRODUCT_BYTES) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        message: `basic product exceeds ${COUPANG_CATALOG_MAX_PRODUCT_BYTES} bytes`
+      });
+    }
+  });
+  var CoupangCatalogDetailDocumentKindSchema = external_exports.enum([
+    "contents",
+    "notices",
+    "additionalNotices",
+    "searchTags",
+    "attributes",
+    "internalAttributes",
+    "certifications",
+    "extraProperties"
+  ]);
+  var CoupangCatalogDetailDocumentValueSchema = external_exports.unknown().superRefine((value, ctx) => {
+    if (!isJsonValue(value)) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        message: "detail document value must be finite JSON and must preserve explicit null"
+      });
+      return;
+    }
+    if (jsonBytes(value) > COUPANG_CATALOG_MAX_DOCUMENT_BYTES) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        message: `detail document exceeds ${COUPANG_CATALOG_MAX_DOCUMENT_BYTES} bytes`
+      });
+    }
+  });
+  var CoupangCatalogDetailDocumentV1Schema = external_exports.object({
+    id: ExternalIdSchema,
+    kind: CoupangCatalogDetailDocumentKindSchema,
+    value: CoupangCatalogDetailDocumentValueSchema
+  });
+  var CoupangCatalogDetailOptionV1Schema = external_exports.object({
+    externalOptionId: ExternalIdSchema,
+    vendorItemId: ExternalIdSchema.nullable().optional(),
+    sellerProductItemId: ExternalIdSchema.nullable().optional(),
+    externalVendorSku: NullableTextSchema.optional(),
+    barcode: NullableTextSchema.optional(),
+    modelNumber: NullableTextSchema.optional(),
+    attributes: external_exports.array(CoupangCatalogAttributeV1Schema).max(100).optional(),
+    documentIds: external_exports.array(ExternalIdSchema).max(COUPANG_CATALOG_MAX_DOCUMENTS_PER_PRODUCT),
+    raw: external_exports.record(external_exports.unknown()).optional()
+  });
+  var CoupangCatalogDetailProductV1Schema = external_exports.object({
+    externalProductId: ExternalIdSchema,
+    options: external_exports.array(CoupangCatalogDetailOptionV1Schema).min(1).max(COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT),
+    documents: external_exports.array(CoupangCatalogDetailDocumentV1Schema).max(COUPANG_CATALOG_MAX_DOCUMENTS_PER_PRODUCT),
+    media: external_exports.array(CoupangCatalogDetailMediaV1Schema).max(COUPANG_CATALOG_MAX_DETAIL_MEDIA),
+    raw: external_exports.record(external_exports.unknown())
+  }).superRefine((product, ctx) => {
+    const optionIds = /* @__PURE__ */ new Set();
+    for (const [index, option] of product.options.entries()) {
+      if (optionIds.has(option.externalOptionId)) {
+        addDuplicateIssue(
+          ctx,
+          ["options", index, "externalOptionId"],
+          "externalOptionId",
+          option.externalOptionId
+        );
+      }
+      optionIds.add(option.externalOptionId);
+    }
+    const documentsById = /* @__PURE__ */ new Map();
+    for (const [index, document] of product.documents.entries()) {
+      const previous = documentsById.get(document.id);
+      if (previous) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["documents", index, "id"],
+          message: `duplicate detail document id: ${document.id}`
+        });
+      } else {
+        documentsById.set(document.id, document);
+      }
+      if (previous && stableDocumentValue(previous) !== stableDocumentValue(document)) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["documents", index, "value"],
+          message: `detail document id maps to more than one value: ${document.id}`
+        });
+      }
+    }
+    const documentValues = /* @__PURE__ */ new Set();
+    for (const document of product.documents) {
+      const key = `${document.kind}\0${stableDocumentValue(document.value)}`;
+      if (documentValues.has(key)) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["documents"],
+          message: "detail documents must be deduplicated by kind and value"
+        });
+      }
+      documentValues.add(key);
+    }
+    for (const [index, option] of product.options.entries()) {
+      for (const [documentIndex, documentId] of option.documentIds.entries()) {
+        if (!documentsById.has(documentId)) {
+          ctx.addIssue({
+            code: external_exports.ZodIssueCode.custom,
+            path: ["options", index, "documentIds", documentIndex],
+            message: `option references unknown detail document: ${documentId}`
+          });
+        }
+      }
+    }
+    const mediaCountByOption = /* @__PURE__ */ new Map();
+    let unassociatedMediaCount = 0;
+    for (const [index, media] of product.media.entries()) {
+      const optionRefs = new Set(
+        media.externalOptionIds ?? (media.externalOptionId ? [media.externalOptionId] : [])
+      );
+      if (optionRefs.size === 0) {
+        unassociatedMediaCount += 1;
+        continue;
+      }
+      for (const optionId of optionRefs) {
+        if (!optionIds.has(optionId)) {
+          ctx.addIssue({
+            code: external_exports.ZodIssueCode.custom,
+            path: ["media", index, "externalOptionIds"],
+            message: `media references unknown option: ${optionId}`
+          });
+        } else {
+          mediaCountByOption.set(
+            optionId,
+            (mediaCountByOption.get(optionId) ?? 0) + 1
+          );
+        }
+      }
+    }
+    for (const [optionId, count] of mediaCountByOption.entries()) {
+      if (count > COUPANG_CATALOG_MAX_MEDIA_PER_OWNER) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["media"],
+          message: "media exceeds " + COUPANG_CATALOG_MAX_MEDIA_PER_OWNER + " references for option: " + optionId
+        });
+      }
+    }
+    if (unassociatedMediaCount > COUPANG_CATALOG_MAX_MEDIA_PER_OWNER) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["media"],
+        message: "unassociated media exceeds " + COUPANG_CATALOG_MAX_MEDIA_PER_OWNER
+      });
+    }
+    if (jsonBytes(product.raw) > COUPANG_CATALOG_MAX_RAW_BYTES) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["raw"],
+        message: `detail raw diagnostics exceed ${COUPANG_CATALOG_MAX_RAW_BYTES} bytes`
+      });
+    }
+    if (jsonBytes(product) > COUPANG_CATALOG_MAX_PRODUCT_BYTES) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        message: `detail product exceeds ${COUPANG_CATALOG_MAX_PRODUCT_BYTES} bytes`
+      });
+    }
+  });
+  var CoupangCatalogListingBasicsChunkV1Schema = external_exports.object({
+    version: external_exports.literal(COUPANG_CATALOG_STAGE_SCHEMA_VERSION),
+    kind: external_exports.literal("listing_basics"),
+    startOrdinal: external_exports.number().int().nonnegative(),
+    products: external_exports.array(external_exports.object({
+      ordinal: external_exports.number().int().nonnegative(),
+      product: CoupangCatalogBasicProductV1Schema
+    })).min(1).max(COUPANG_CATALOG_MAX_PRODUCTS_PER_CHUNK)
+  }).superRefine((chunk, ctx) => {
+    chunk.products.forEach((item, index) => {
+      if (item.ordinal !== chunk.startOrdinal + index) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["products", index, "ordinal"],
+          message: `product ordinals must be contiguous from ${chunk.startOrdinal}`
+        });
+      }
+    });
+    if (jsonBytes(chunk) > COUPANG_CATALOG_MAX_CHUNK_BYTES) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        message: `chunk exceeds ${COUPANG_CATALOG_MAX_CHUNK_BYTES} bytes`
+      });
+    }
+  });
+  var CoupangCatalogFullDetailsChunkV1Schema = external_exports.object({
+    version: external_exports.literal(COUPANG_CATALOG_STAGE_SCHEMA_VERSION),
+    kind: external_exports.literal("full_details"),
+    startOrdinal: external_exports.number().int().nonnegative(),
+    products: external_exports.array(external_exports.object({
+      ordinal: external_exports.number().int().nonnegative(),
+      product: CoupangCatalogDetailProductV1Schema
+    })).min(1).max(COUPANG_CATALOG_MAX_PRODUCTS_PER_CHUNK)
+  }).superRefine((chunk, ctx) => {
+    chunk.products.forEach((item, index) => {
+      if (item.ordinal !== chunk.startOrdinal + index) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["products", index, "ordinal"],
+          message: `product ordinals must be contiguous from ${chunk.startOrdinal}`
+        });
+      }
+    });
+    if (jsonBytes(chunk) > COUPANG_CATALOG_MAX_CHUNK_BYTES) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        message: `chunk exceeds ${COUPANG_CATALOG_MAX_CHUNK_BYTES} bytes`
+      });
+    }
+  });
+  function stableDocumentValue(value) {
+    if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+    if (Array.isArray(value)) return `[${value.map(stableDocumentValue).join(",")}]`;
+    return `{${Object.entries(value).filter(([, nested]) => nested !== void 0).sort(([left], [right]) => left.localeCompare(right)).map(([key, nested]) => `${JSON.stringify(key)}:${stableDocumentValue(nested)}`).join(",")}}`;
+  }
+  var CoupangCatalogManifestV1Schema = external_exports.object({
+    totalItems: external_exports.number().int().positive(),
+    pageSize: external_exports.number().int().positive().max(500),
+    expectedPages: external_exports.number().int().positive(),
+    firstPageFingerprint: Sha256Schema
+  }).superRefine((manifest, ctx) => {
+    const expected = Math.ceil(manifest.totalItems / manifest.pageSize);
+    if (manifest.expectedPages !== expected) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["expectedPages"],
+        message: `expectedPages must equal ceil(totalItems/pageSize): ${expected}`
+      });
+    }
+  });
+  var CoupangCatalogDetailManifestConfirmationV1Schema = external_exports.object({
+    version: external_exports.literal(COUPANG_CATALOG_STAGE_SCHEMA_VERSION),
+    kind: external_exports.literal("detail_manifest_confirmation"),
+    manifest: CoupangCatalogManifestV1Schema,
+    basicAttemptId: external_exports.string().uuid(),
+    basicManifestHash: Sha256Schema
+  });
+  var CoupangCatalogDiscoveryItemV1Schema = external_exports.object({
+    ordinal: external_exports.number().int().nonnegative(),
+    externalProductId: ExternalIdSchema,
+    registeredName: NullableTextSchema,
+    primaryImageUrl: HttpUrlSchema.nullable(),
+    saleStatus: NullableTextSchema.optional().default(null)
+  });
+  var CoupangCatalogDiscoveryPageV1Schema = external_exports.object({
+    version: external_exports.literal(1),
+    kind: external_exports.literal("discovery_page"),
+    page: external_exports.number().int().positive(),
+    manifest: CoupangCatalogManifestV1Schema,
+    items: external_exports.array(CoupangCatalogDiscoveryItemV1Schema).min(1).max(500)
+  }).superRefine((page, ctx) => {
+    if (page.page > page.manifest.expectedPages) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["page"],
+        message: "page exceeds manifest expectedPages"
+      });
+    }
+    const productIds = /* @__PURE__ */ new Set();
+    const ordinals = /* @__PURE__ */ new Set();
+    page.items.forEach((item, index) => {
+      if (productIds.has(item.externalProductId)) {
+        addDuplicateIssue(ctx, ["items", index, "externalProductId"], "externalProductId", item.externalProductId);
+      }
+      if (ordinals.has(item.ordinal)) {
+        addDuplicateIssue(ctx, ["items", index, "ordinal"], "ordinal", String(item.ordinal));
+      }
+      productIds.add(item.externalProductId);
+      ordinals.add(item.ordinal);
+    });
+  });
+  var CoupangCatalogManifestConfirmationV1Schema = external_exports.object({
+    version: external_exports.literal(1),
+    kind: external_exports.literal("manifest_confirmation"),
+    manifest: CoupangCatalogManifestV1Schema
+  });
+  var CoupangCatalogDeletionOutcomeSchema = external_exports.enum(["deleted", "present", "not_found"]);
+  var CoupangCatalogDeletionConfirmationChunkV1Schema = external_exports.object({
+    version: external_exports.literal(COUPANG_CATALOG_STAGE_SCHEMA_VERSION),
+    kind: external_exports.literal("deletion_confirmation"),
+    products: external_exports.array(external_exports.object({
+      externalProductId: ExternalIdSchema,
+      outcome: CoupangCatalogDeletionOutcomeSchema,
+      productStatus: NullableTextSchema.optional().default(null),
+      raw: external_exports.record(external_exports.unknown()).optional()
+    })).min(1).max(COUPANG_CATALOG_MAX_DELETION_CONFIRMATIONS_PER_CHUNK)
+  }).superRefine((chunk, ctx) => {
+    const seen = /* @__PURE__ */ new Set();
+    chunk.products.forEach((item, index) => {
+      if (seen.has(item.externalProductId)) {
+        addDuplicateIssue(ctx, ["products", index, "externalProductId"], "externalProductId", item.externalProductId);
+      }
+      seen.add(item.externalProductId);
+    });
+    if (jsonBytes(chunk) > COUPANG_CATALOG_MAX_CHUNK_BYTES) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        message: `chunk exceeds ${COUPANG_CATALOG_MAX_CHUNK_BYTES} bytes`
+      });
+    }
+  });
+  var CoupangCatalogChunkKindSchema = external_exports.enum([
+    "discovery_page",
+    "listing_basics",
+    "full_details",
+    "manifest_confirmation",
+    "detail_manifest_confirmation",
+    "deletion_confirmation"
+  ]);
+  var ChunkRequestBaseSchema = external_exports.object({
+    sequence: external_exports.number().int().positive(),
+    checksum: Sha256Schema,
+    itemCount: external_exports.number().int().nonnegative()
+  });
+  var PutCoupangCatalogChunkRequestSchema = external_exports.discriminatedUnion("kind", [
+    ChunkRequestBaseSchema.extend({
+      kind: external_exports.literal("discovery_page"),
+      payload: CoupangCatalogDiscoveryPageV1Schema
+    }),
+    ChunkRequestBaseSchema.extend({
+      kind: external_exports.literal("listing_basics"),
+      payload: CoupangCatalogListingBasicsChunkV1Schema
+    }),
+    ChunkRequestBaseSchema.extend({
+      kind: external_exports.literal("full_details"),
+      payload: CoupangCatalogFullDetailsChunkV1Schema
+    }),
+    ChunkRequestBaseSchema.extend({
+      kind: external_exports.literal("manifest_confirmation"),
+      payload: CoupangCatalogManifestConfirmationV1Schema
+    }),
+    ChunkRequestBaseSchema.extend({
+      kind: external_exports.literal("detail_manifest_confirmation"),
+      payload: CoupangCatalogDetailManifestConfirmationV1Schema
+    }),
+    ChunkRequestBaseSchema.extend({
+      kind: external_exports.literal("deletion_confirmation"),
+      payload: CoupangCatalogDeletionConfirmationChunkV1Schema
+    })
+  ]).superRefine((request, ctx) => {
+    const expectedCount = request.kind === "listing_basics" || request.kind === "full_details" || request.kind === "deletion_confirmation" ? request.payload.products.length : request.kind === "discovery_page" ? request.payload.items.length : 1;
+    if (request.itemCount !== expectedCount) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["itemCount"],
+        message: `itemCount must equal payload count: ${expectedCount}`
+      });
+    }
+    const expectedSequence = request.kind === "listing_basics" || request.kind === "full_details" ? request.payload.startOrdinal + 1 : request.kind === "discovery_page" ? request.payload.page : request.kind === "deletion_confirmation" ? request.sequence : 1;
+    if (request.sequence !== expectedSequence) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["sequence"],
+        message: `sequence must equal ${expectedSequence} for ${request.kind}`
+      });
+    }
+    if (jsonBytes(request.payload) > COUPANG_CATALOG_MAX_CHUNK_BYTES) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["payload"],
+        message: `payload exceeds ${COUPANG_CATALOG_MAX_CHUNK_BYTES} bytes`
+      });
+    }
+  });
+  var StartCoupangCatalogCollectionRequestSchema = external_exports.object({
+    collectorVersion: external_exports.string().trim().min(1).max(100),
+    stage: CoupangCatalogStageSchema,
+    /**
+     * Details is admitted by the internal basics-to-details handoff.  The
+     * caller must pin the exact completed basics attempt; the owner rechecks
+     * that basis inside its account transaction before creating the child.
+     */
+    expectedBasicAttemptId: external_exports.string().uuid().optional(),
+    /**
+     * KID-348 운영자 "상품 하나 상세 다시 받기". 목록 단계 없이 details 단계를 이 상품들만
+     * 대상으로 연다. 삭제 확인은 하지 않는다.
+     */
+    detailProductIds: external_exports.array(ExternalIdSchema).min(1).max(100).optional()
+  }).strict();
+  var CoupangCatalogCollectionErrorRequestSchema = external_exports.object({
+    code: external_exports.string().trim().min(1).max(100),
+    message: external_exports.string().trim().min(1).max(1e3),
+    phase: external_exports.enum(["discovery", "hydration", "ready_to_finalize"]),
+    recoverable: external_exports.boolean().optional(),
+    notBefore: zIsoDate.optional()
+  });
+  var CoupangCatalogCollectionPauseRequestSchema = external_exports.object({
+    code: external_exports.literal("WING_PROVIDER_RATE_LIMITED"),
+    message: external_exports.string().trim().min(1).max(1e3),
+    phase: external_exports.literal("hydration"),
+    recoverable: external_exports.literal(true),
+    notBefore: zIsoDate
+  }).strict();
+  var CoupangCatalogCollectionStatusSchema = external_exports.enum(["RUNNING", "COMPLETE", "FAILED"]);
+  var CoupangCatalogCollectionPlanSchema = external_exports.object({
+    collectorVersion: external_exports.string().min(1).max(100),
+    stage: CoupangCatalogStageSchema,
+    listUrl: external_exports.string().url(),
+    detailUrl: external_exports.string().url(),
+    channelAccountId: external_exports.string().uuid(),
+    vendorId: external_exports.string().min(1),
+    publicationRevision: external_exports.string().regex(/^\d+$/),
+    basicAttemptId: external_exports.string().uuid().optional(),
+    basicManifestHash: Sha256Schema.optional(),
+    basicPublicationSequence: external_exports.string().regex(/^\d+$/).optional(),
+    basicProductIds: external_exports.array(ExternalIdSchema).max(1e5).optional(),
+    /**
+     * KID-348: 이번 details 단계가 상세를 받아야 하는 상품(신규·`modifiedOn` 변경·상세 없음).
+     * 완결·순번 검사는 이 부분집합 기준이다. 없으면 `basicProductIds` 전체(옛 규칙).
+     */
+    detailTargetProductIds: external_exports.array(ExternalIdSchema).max(1e5).optional(),
+    /** KID-348: 목록에서 사라져 `deletion_confirmation`으로 확인해야 하는 상품. */
+    absentProductIds: external_exports.array(ExternalIdSchema).max(1e5).optional(),
+    /** Stable non-secret root identity for a staged internal chain. */
+    rootAttemptId: external_exports.string().uuid().optional(),
+    /** Preallocated by a basics owner; reused for every details admission retry. */
+    detailsIdempotencyKey: external_exports.string().uuid().optional()
+  }).strict();
+  var CoupangCatalogCollectionPermitSchema = external_exports.object({
+    attemptId: external_exports.string().uuid(),
+    attemptToken: external_exports.string().uuid(),
+    state: CoupangCatalogCollectionStatusSchema,
+    expiresAt: zIsoDate,
+    plan: CoupangCatalogCollectionPlanSchema
+  }).strict();
+  var CoupangCatalogCollectionPhaseSchema = external_exports.enum([
+    "discovery",
+    "hydration",
+    "ready_to_finalize",
+    "finished"
+  ]);
+  var CoupangCatalogCollectionQualitySchema = external_exports.object({
+    detailTargets: external_exports.number().int().nonnegative(),
+    detailApplied: external_exports.number().int().nonnegative(),
+    detailUnchanged: external_exports.number().int().nonnegative(),
+    deletedProducts: external_exports.number().int().nonnegative(),
+    unconfirmedAbsentProductIds: external_exports.array(ExternalIdSchema)
+  });
+  var CoupangCatalogCollectionRunSchema = external_exports.object({
+    attemptId: external_exports.string().uuid(),
+    idempotencyKey: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    state: CoupangCatalogCollectionStatusSchema,
+    expiresAt: zIsoDate,
+    plan: CoupangCatalogCollectionPlanSchema,
+    phase: CoupangCatalogCollectionPhaseSchema,
+    collectorVersion: external_exports.string().min(1),
+    manifest: CoupangCatalogManifestV1Schema.nullable(),
+    progress: external_exports.object({
+      discoveryPagesStored: external_exports.number().int().nonnegative(),
+      discoveredProducts: external_exports.number().int().nonnegative(),
+      hydratedProducts: external_exports.number().int().nonnegative(),
+      optionCount: external_exports.number().int().nonnegative(),
+      mediaCount: external_exports.number().int().nonnegative(),
+      storedChunks: external_exports.number().int().nonnegative(),
+      publishedProducts: external_exports.number().int().nonnegative(),
+      publishedOptionCount: external_exports.number().int().nonnegative(),
+      publishedMediaCount: external_exports.number().int().nonnegative(),
+      publishedChunks: external_exports.number().int().nonnegative(),
+      firstPublishedAt: zIsoDate.nullable(),
+      lastPublishedAt: zIsoDate.nullable()
+    }),
+    missing: external_exports.object({
+      discoverySequences: external_exports.array(external_exports.number().int().positive()),
+      productIds: external_exports.array(ExternalIdSchema)
+    }),
+    snapshotHash: Sha256Schema.nullable(),
+    error: external_exports.object({
+      code: external_exports.string().min(1),
+      message: external_exports.string().min(1),
+      phase: CoupangCatalogCollectionPhaseSchema,
+      recoverable: external_exports.boolean(),
+      notBefore: zIsoDate.nullable().optional()
+    }).nullable(),
+    publication: external_exports.object({
+      sourceImportRunId: external_exports.string().uuid(),
+      duplicate: external_exports.boolean(),
+      changes: external_exports.record(external_exports.number().int().nonnegative())
+    }).nullable(),
+    quality: CoupangCatalogCollectionQualitySchema.optional(),
+    createdAt: zIsoDate,
+    updatedAt: zIsoDate,
+    finishedAt: zIsoDate.nullable(),
+    /** Whole-flow status is token-free and is stable across the internal handoff. */
+    rootAttemptId: external_exports.string().uuid().optional(),
+    currentAttemptId: external_exports.string().uuid().optional(),
+    currentStage: CoupangCatalogStageSchema.optional(),
+    overallState: CoupangCatalogCollectionStatusSchema.optional()
+  });
+  var CoupangCatalogSourceStatusSchema = external_exports.object({
+    latestAttempt: CoupangCatalogCollectionRunSchema.nullable(),
+    detailsAttempt: CoupangCatalogCollectionRunSchema.nullable()
+  });
+  var FinalizeCoupangCatalogCollectionRequestSchema = external_exports.object({
+    snapshotHash: Sha256Schema
+  });
+  var CoupangCatalogBrowserStatusSchema = external_exports.object({
+    attemptId: external_exports.string().uuid(),
+    active: external_exports.boolean(),
+    attention: BrowserCollectionAttentionSchema.nullable(),
+    phase: CoupangCatalogCollectionPhaseSchema.optional(),
+    currentPage: external_exports.number().int().nonnegative().optional(),
+    totalPages: external_exports.number().int().nonnegative().optional(),
+    hydratedProducts: external_exports.number().int().nonnegative().optional(),
+    discoveredProducts: external_exports.number().int().nonnegative().optional(),
+    uploadedChunks: external_exports.number().int().nonnegative().optional(),
+    error: external_exports.string().optional(),
+    /** Whole-flow status; deliberately excludes attempt tokens. */
+    rootAttemptId: external_exports.string().uuid().optional(),
+    currentAttemptId: external_exports.string().uuid().optional(),
+    currentStage: CoupangCatalogStageSchema.optional()
+  }).strict();
+  var WING_CATALOG_LIST_KIND = "channels.wing_catalog_list";
+  var WING_CATALOG_DETAILS_KIND = "channels.wing_catalog_details";
+  var WING_CATALOG_EXCEL_KIND = "channels.wing_catalog_excel";
+  var WING_CATALOG_CHUNK_KINDS = {
+    listingBasics: "listing_basics",
+    fullDetails: "full_details",
+    deletionConfirmation: "deletion_confirmation"
+  };
+  var WingCatalogProductIdsSchema = external_exports.array(ExternalIdSchema).max(1e5);
+  var WingCatalogListScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid()
+  }).strict();
+  var WingCatalogListResultSchema = external_exports.object({
+    listedProductCount: external_exports.number().int().nonnegative(),
+    detailTargetProductIds: WingCatalogProductIdsSchema,
+    absentProductIds: WingCatalogProductIdsSchema,
+    next: external_exports.object({
+      kind: external_exports.literal(WING_CATALOG_DETAILS_KIND),
+      scope: external_exports.lazy(() => WingCatalogDetailsScopeSchema)
+    }).strict().nullable()
+  }).strict();
+  var WingCatalogDetailsScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    detailTargetProductIds: WingCatalogProductIdsSchema,
+    absentProductIds: WingCatalogProductIdsSchema
+  }).strict();
+  var WingCatalogExcelScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    observedAt: external_exports.string().datetime({ offset: true }).optional()
+  }).strict();
+  var WingCatalogDeletionConfirmationItemSchema = external_exports.object({
+    externalProductId: ExternalIdSchema,
+    outcome: CoupangCatalogDeletionOutcomeSchema,
+    productStatus: NullableTextSchema.optional().default(null)
+  }).strict();
 
   // packages/shared/src/schemas/operation.ts
   var OPERATION_STATUSES = ["prepared", "executing", "succeeded", "failed", "cancelled"];
@@ -4349,6 +5033,974 @@ var KidItemRuntime = (() => {
     payload: external_exports.array(external_exports.unknown())
   }).strict();
 
+  // extensions/src/core/errors.ts
+  var ErrorEnvelopeSchema = external_exports.object({
+    statusCode: external_exports.number().int().min(400).max(599),
+    code: external_exports.string().min(1),
+    kind: external_exports.string(),
+    message: external_exports.string(),
+    errors: external_exports.array(external_exports.unknown()).optional(),
+    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
+  }).passthrough();
+  var RuntimeError = class extends Error {
+    constructor(code, message, details = null, cause) {
+      super(message);
+      this.code = code;
+      this.details = details;
+      this.cause = cause;
+      this.name = "RuntimeError";
+    }
+    code;
+    details;
+    cause;
+  };
+  function parseErrorEnvelope(body) {
+    const parsed = ErrorEnvelopeSchema.safeParse(body);
+    return parsed.success ? parsed.data : null;
+  }
+  function isRuntimeError(value) {
+    return value instanceof RuntimeError;
+  }
+
+  // extensions/src/collectors/chunk-items.ts
+  var encoder = new TextEncoder();
+  var ChunkBuffer = class {
+    // "[]"
+    constructor(options) {
+      this.options = options;
+    }
+    options;
+    items = [];
+    bytes = 2;
+    /** 넣고 나서 내보낼 payload(있으면). */
+    push(item) {
+      const maxBytes = this.options.maxBytes ?? OPERATION_CHUNK_MAX_BYTES;
+      const itemBytes = encoder.encode(JSON.stringify(item)).byteLength;
+      if (itemBytes + 2 > maxBytes) {
+        throw new RuntimeError("RUNTIME_CHUNK_TOO_LARGE", `${this.options.label} \uD558\uB098\uAC00 \uCCAD\uD06C \uC0C1\uD55C(${maxBytes}\uBC14\uC774\uD2B8)\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, { bytes: itemBytes });
+      }
+      let flushed = null;
+      const separator = this.items.length > 0 ? 1 : 0;
+      if (this.items.length >= this.options.maxItems || this.bytes + separator + itemBytes > maxBytes) flushed = this.flush();
+      this.bytes += (this.items.length > 0 ? 1 : 0) + itemBytes;
+      this.items.push(item);
+      if (this.items.length >= this.options.maxItems) return flushed ?? this.flush();
+      return flushed;
+    }
+    /** 남은 원소(없으면 null). */
+    flush() {
+      if (this.items.length === 0) return null;
+      const out = this.items;
+      this.items = [];
+      this.bytes = 2;
+      return out;
+    }
+  };
+
+  // extensions/src/collectors/channels.wing_catalog_details/index.ts
+  var DETAILS_PER_CHUNK = 20;
+  var PROBE_BATCH = 100;
+  var wingCatalogDetailsCollector = {
+    kind: WING_CATALOG_DETAILS_KIND,
+    site: "wing",
+    async *collect(plan, site, { signal }) {
+      const targets = plan.detailTargetProductIds;
+      const absent = plan.absentProductIds;
+      const missing = [];
+      let detailsDone = 0;
+      let absentChecked = 0;
+      const progress = () => ({
+        detailsDone,
+        detailTargets: targets.length,
+        absentChecked,
+        absentTotal: absent.length,
+        detailsMissing: [...missing]
+      });
+      const details = new ChunkBuffer({ maxItems: DETAILS_PER_CHUNK, label: "Wing \uC0C1\uC138 \uC0C1\uD488" });
+      const chunk = (chunkKind, payload) => ({ chunkKind, payload, progress: progress() });
+      for (const externalProductId of targets) {
+        if (signal.aborted) return;
+        const product = await site.productDetail(externalProductId);
+        if (!product) {
+          missing.push(externalProductId);
+          continue;
+        }
+        detailsDone += 1;
+        const full = details.push(product);
+        if (full) yield chunk(WING_CATALOG_CHUNK_KINDS.fullDetails, full);
+      }
+      const rest = details.flush();
+      if (rest) yield chunk(WING_CATALOG_CHUNK_KINDS.fullDetails, rest);
+      for (let offset = 0; offset < absent.length; offset += PROBE_BATCH) {
+        if (signal.aborted) return;
+        const confirmations = await site.probeDeleted(absent.slice(offset, offset + PROBE_BATCH));
+        absentChecked += confirmations.length;
+        yield chunk(WING_CATALOG_CHUNK_KINDS.deletionConfirmation, confirmations);
+      }
+    }
+  };
+  registerCollector(wingCatalogDetailsCollector);
+
+  // extensions/src/collectors/channels.wing_catalog_excel/index.ts
+  var CATALOG_EXCEL_FAILED = "CATALOG_EXCEL_FAILED";
+  var CATALOG_EXCEL_TIMEOUT = "CATALOG_EXCEL_TIMEOUT";
+  var WORKBOOK_PART_CHARS = 9e5;
+  var WORKBOOK_CHUNK_KIND = "workbook";
+  var PROGRESS_CHUNK_KIND = "excel_progress";
+  var POLL_INTERVAL_MS = 1e4;
+  var MAX_POLLS = 240;
+  var wingCatalogExcelCollector = {
+    kind: WING_CATALOG_EXCEL_KIND,
+    site: "wing",
+    async *collect(_plan, site, { signal }) {
+      const description = `kiditem_${(/* @__PURE__ */ new Date()).toISOString().replace(/[^0-9]/g, "").slice(0, 14)}`;
+      await site.requestCatalogExcel(description);
+      const progress = (value) => ({ chunkKind: PROGRESS_CHUNK_KIND, payload: [], progress: value });
+      yield progress({ status: "REQUESTED", executeCount: 0, totalCount: null });
+      let completed = null;
+      for (let poll = 0; poll < MAX_POLLS && !completed; poll += 1) {
+        if (signal.aborted) return;
+        if (poll > 0) await site.pause(POLL_INTERVAL_MS, signal);
+        const request = await site.catalogExcelRequest(description);
+        if (!request) continue;
+        yield progress({ status: request.status, executeCount: request.executeCount, totalCount: request.totalCount });
+        if (request.status === "COMPLETED") completed = request;
+        else if (/FAIL|ABORT|CANCEL|ERROR/i.test(request.status)) {
+          throw new RuntimeError(CATALOG_EXCEL_FAILED, `\uCFE0\uD321 \uC719\uC774 \uC0C1\uD488\uC815\uBCF4 \uC5D1\uC140 \uC0DD\uC131\uC744 \uBA48\uCDC4\uC2B5\uB2C8\uB2E4(${request.status}). \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.`, { status: request.status });
+        }
+      }
+      if (!completed) {
+        if (signal.aborted) return;
+        throw new RuntimeError(CATALOG_EXCEL_TIMEOUT, "\uCFE0\uD321 \uC719 \uC0C1\uD488\uC815\uBCF4 \uC5D1\uC140\uC774 \uC81C\uC2DC\uAC04\uC5D0 \uB9CC\uB4E4\uC5B4\uC9C0\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.");
+      }
+      const bytes = await site.downloadCatalogExcel(completed.id);
+      const encoded = base64(bytes);
+      for (let offset = 0; offset < encoded.length; offset += WORKBOOK_PART_CHARS) {
+        if (signal.aborted) return;
+        yield {
+          chunkKind: WORKBOOK_CHUNK_KIND,
+          payload: [encoded.slice(offset, offset + WORKBOOK_PART_CHARS)],
+          progress: { status: "DOWNLOADED", bytes: bytes.byteLength }
+        };
+      }
+    }
+  };
+  function base64(bytes) {
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 32768) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+    }
+    return btoa(binary);
+  }
+  registerCollector(wingCatalogExcelCollector);
+
+  // extensions/src/collectors/channels.wing_catalog_list/index.ts
+  var CATALOG_LIST_INCOMPLETE = "CATALOG_LIST_INCOMPLETE";
+  var PRODUCTS_PER_CHUNK = 20;
+  var wingCatalogListCollector = {
+    kind: WING_CATALOG_LIST_KIND,
+    site: "wing",
+    async *collect(plan, site, { signal }) {
+      const buffer = new ChunkBuffer({ maxItems: PRODUCTS_PER_CHUNK, label: "Wing \uBAA9\uB85D \uC0C1\uD488" });
+      const seen = /* @__PURE__ */ new Set();
+      let expected = null;
+      let progress = {};
+      const chunk = (payload) => ({ chunkKind: WING_CATALOG_CHUNK_KINDS.listingBasics, payload, progress });
+      for (let page = 1; expected === null || page <= expected.totalPages; page += 1) {
+        if (signal.aborted) return;
+        const result = await site.searchInventory(page, plan.vendorId ?? null);
+        if (expected === null) expected = { totalItems: result.totalItems, totalPages: result.totalPages };
+        else if (result.totalItems !== expected.totalItems || result.totalPages !== expected.totalPages) {
+          throw incomplete(`\uC218\uC9D1 \uC911 Wing \uC0C1\uD488 \uC218\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4(${expected.totalItems} \u2192 ${result.totalItems}). \uB2E4\uC2DC \uB3D9\uAE30\uD654\uD574 \uC8FC\uC138\uC694.`);
+        }
+        progress = { listedProducts: seen.size + result.products.length, totalProducts: expected.totalItems, page, totalPages: expected.totalPages };
+        for (const product of result.products) {
+          if (seen.has(product.externalProductId)) {
+            throw incomplete(`Wing \uBAA9\uB85D\uC758 \uD398\uC774\uC9C0\uAC00 \uACB9\uCCE4\uC2B5\uB2C8\uB2E4(${product.externalProductId}). \uB2E4\uC2DC \uB3D9\uAE30\uD654\uD574 \uC8FC\uC138\uC694.`);
+          }
+          seen.add(product.externalProductId);
+          const full = buffer.push(product);
+          if (full) yield chunk(full);
+        }
+      }
+      if (expected && seen.size !== expected.totalItems) {
+        throw incomplete(`Wing \uBAA9\uB85D\uC744 \uB2E4 \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${seen.size}/${expected.totalItems}). \uB2E4\uC2DC \uB3D9\uAE30\uD654\uD574 \uC8FC\uC138\uC694.`);
+      }
+      const rest = buffer.flush();
+      if (rest) yield chunk(rest);
+    }
+  };
+  function incomplete(message) {
+    return new RuntimeError(CATALOG_LIST_INCOMPLETE, message);
+  }
+  registerCollector(wingCatalogListCollector);
+
+  // extensions/src/collectors/test.echo/index.ts
+  var CHUNKS = 2;
+  var ITEMS_PER_CHUNK = 3;
+  var testEchoCollector = {
+    kind: "test.echo",
+    site: null,
+    async *collect(_plan, _site, { signal }) {
+      for (let chunk = 1; chunk <= CHUNKS; chunk += 1) {
+        if (signal.aborted) return;
+        const at = (/* @__PURE__ */ new Date()).toISOString();
+        const payload = Array.from({ length: ITEMS_PER_CHUNK }, (_, index) => ({ i: (chunk - 1) * ITEMS_PER_CHUNK + index + 1, at }));
+        yield { chunkKind: "echo", payload, progress: { done: chunk } };
+      }
+    },
+    summarize: () => ({ result: { echo: true } })
+  };
+  registerCollector(testEchoCollector);
+
+  // extensions/src/core/browser.ts
+  var RUNTIME_BROWSER_ALREADY_ACQUIRED = "RUNTIME_BROWSER_ALREADY_ACQUIRED";
+  var RUNTIME_BROWSER_UNAVAILABLE = "RUNTIME_BROWSER_UNAVAILABLE";
+  function createBrowserResources(chromeApi, sites, options = {}) {
+    const held = /* @__PURE__ */ new Set();
+    return {
+      async acquire({ operationId, lockKeys, signal }) {
+        if (held.has(operationId)) {
+          throw new RuntimeError(RUNTIME_BROWSER_ALREADY_ACQUIRED, "\uC774 \uC2E4\uD589\uC740 \uC774\uBBF8 \uBE0C\uB77C\uC6B0\uC800 \uC790\uC6D0\uC744 \uC7A1\uACE0 \uC788\uC2B5\uB2C8\uB2E4.", { operationId });
+        }
+        signal.throwIfAborted();
+        const siteNames = [...new Set(lockKeys.map((key) => siteOfLockKey(key, options)).filter((name) => name !== null && name in sites))];
+        if (siteNames.length > 1) {
+          throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uD55C \uC2E4\uD589\uC774 \uB450 \uC0AC\uC774\uD2B8\uC758 \uD0ED\uC744 \uD568\uAED8 \uC7A1\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { sites: siteNames });
+        }
+        held.add(operationId);
+        try {
+          const tab = siteNames.length === 1 ? await openSiteTab(chromeApi, sites[siteNames[0]].origin) : null;
+          let released = false;
+          return {
+            tabId: tab?.tabId ?? null,
+            async release() {
+              if (released) return;
+              released = true;
+              held.delete(operationId);
+              if (tab?.opened) await chromeApi.tabs.remove(tab.tabId).catch(() => void 0);
+            }
+          };
+        } catch (error) {
+          held.delete(operationId);
+          throw error;
+        }
+      }
+    };
+  }
+  function siteOfLockKey(key, options) {
+    if (key.startsWith("resource:")) return key.split(":")[1] ?? null;
+    if (key.startsWith("account:")) return options.accountSite ?? null;
+    return null;
+  }
+  async function openSiteTab(chromeApi, origin) {
+    const base = origin.replace(/\/+$/, "");
+    const [existing] = await chromeApi.tabs.query({ url: `${base}/*` });
+    if (typeof existing?.id === "number") return { tabId: existing.id, opened: false };
+    const created = await chromeApi.tabs.create({ url: base, active: false });
+    if (typeof created.id !== "number") {
+      throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uC0AC\uC774\uD2B8 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { origin: base });
+    }
+    return { tabId: created.id, opened: true };
+  }
+
+  // extensions/src/core/site-caller.ts
+  function delayUntilNext(input) {
+    if (input.lastSentAt === null) return 0;
+    return Math.max(0, input.lastSentAt + input.minIntervalMs - input.now);
+  }
+  var SITE_REQUEST_FAILED = "SITE_REQUEST_FAILED";
+  var SITE_LOGIN_REQUIRED = "SITE_LOGIN_REQUIRED";
+  function createSiteCaller(options, deps) {
+    let lastSentAt = null;
+    let queue = Promise.resolve();
+    const loginMessage = options.displayName ? `${options.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.` : "\uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.";
+    async function send(url, init = {}) {
+      const headers = new Headers(init.headers);
+      if (options.xsrf) {
+        const cookie = await deps.cookies.get({ url: options.xsrf.cookieUrl, name: options.xsrf.cookieName });
+        const token = decodeCookie(cookie?.value);
+        if (!token) {
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { url, reason: "xsrf_cookie_missing" });
+        }
+        headers.set(options.xsrf.headerName, token);
+      }
+      const wait = delayUntilNext({ lastSentAt, now: deps.now(), minIntervalMs: options.minIntervalMs });
+      if (wait > 0) await deps.sleep(wait);
+      lastSentAt = deps.now();
+      let response;
+      try {
+        response = await deps.fetch(url, { credentials: "include", redirect: "manual", ...init, headers });
+      } catch (error) {
+        throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, url }, error);
+      }
+      if (response.status === 401 || response.status === 403 || response.type === "opaqueredirect") {
+        throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { status: response.status, url });
+      }
+      if (!response.ok) {
+        throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uC774\uD2B8 \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(${response.status}).`, { status: response.status, url });
+      }
+      return response;
+    }
+    function enqueue(task) {
+      const next = queue.then(task);
+      queue = next.catch(() => void 0);
+      return next;
+    }
+    return {
+      json: (url, init) => enqueue(async () => {
+        const response = await send(url, init);
+        try {
+          return await response.json();
+        } catch (error) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", { status: response.status, url }, error);
+        }
+      }),
+      text: (url, init) => enqueue(async () => (await send(url, init)).text()),
+      bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send(url, init)).arrayBuffer()))
+    };
+  }
+  function decodeCookie(value) {
+    if (!value) return null;
+    try {
+      return decodeURIComponent(value) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  // extensions/src/sites/wing/parse.ts
+  var MAX_ATTRIBUTES_PER_OPTION = 100;
+  var MAX_MEDIA_PER_OWNER = 100;
+  var MAX_DOCUMENTS_PER_PRODUCT = 2e3;
+  var MAX_DOCUMENT_BYTES = 64 * 1024;
+  var MAX_RAW_BYTES = 64 * 1024;
+  var MAX_PRODUCT_BYTES = 512 * 1024;
+  var WING_CATALOG_PAGE_SIZE = 500;
+  var WingPayloadError = class extends Error {
+    constructor(message, code = "WING_CATALOG_PAYLOAD_INVALID") {
+      super(message);
+      this.code = code;
+      this.name = "WingPayloadError";
+    }
+    code;
+  };
+  function stableStringify(value) {
+    if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
+    if (Array.isArray(value)) return `[${value.map((item) => stableStringify(item)).join(",")}]`;
+    return `{${Object.entries(value).filter(([, nested]) => nested !== void 0).sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([key, nested]) => `${JSON.stringify(key)}:${stableStringify(nested)}`).join(",")}}`;
+  }
+  var encoder2 = new TextEncoder();
+  function jsonByteLength(value) {
+    return encoder2.encode(stableStringify(value)).byteLength;
+  }
+  function assertJsonBytes(value, maxBytes, message) {
+    const bytes = jsonByteLength(value);
+    if (bytes > maxBytes) throw new WingPayloadError(`${message} (${bytes}/${maxBytes} bytes)`, "WING_CATALOG_PAYLOAD_TOO_LARGE");
+    return value;
+  }
+  function buildWingCatalogSearchBody(page) {
+    return {
+      ...searchBase(),
+      displayDeletedProduct: false,
+      countPerPage: WING_CATALOG_PAGE_SIZE,
+      page: requiredPositiveInteger(page, "Wing \uD398\uC774\uC9C0")
+    };
+  }
+  function buildWingProductIdSearchBody(ids, displayDeletedProduct) {
+    if (ids.length === 0 || ids.length > 100) throw new WingPayloadError("Wing \uC0C1\uD488 ID \uAC80\uC0C9\uC740 1~100\uAC1C\uC785\uB2C8\uB2E4");
+    return {
+      ...searchBase(),
+      searchKeywordType: "PRODUCT_ID",
+      searchKeywords: ids.join(","),
+      displayDeletedProduct,
+      countPerPage: WING_CATALOG_PAGE_SIZE,
+      page: 1
+    };
+  }
+  function searchBase() {
+    return {
+      searchKeywordType: "ALL",
+      searchKeywords: "",
+      salesMethod: "ALL",
+      productStatus: ["ALL"],
+      stockSearchType: "ALL",
+      shippingFeeSearchType: "ALL",
+      displayCategoryCodes: [],
+      listingStartTime: null,
+      listingEndTime: null,
+      saleEndDateSearchType: "ALL",
+      bundledShippingSearchType: "ALL",
+      shippingMethod: "ALL",
+      exposureStatus: "ALL",
+      sortMethod: "SORT_BY_ITEM_LEVEL_UNIT_SOLD",
+      locale: "ko_KR",
+      coupangAttributeOptimized: false,
+      upBundleSearchOption: "ALL",
+      exposureStatuses: [],
+      qualityEnhanceTypes: []
+    };
+  }
+  function normalizeWingCatalogSearchResponse(payload, page, expectedVendorId) {
+    const requestedPage = requiredPositiveInteger(page, "Wing \uD398\uC774\uC9C0");
+    if (!isRecord(payload)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+    if (Object.hasOwn(payload, "success") && (payload.success !== true || payload.message !== null)) {
+      throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+    }
+    const data = payload.data;
+    const pagination = isRecord(data) ? data.pagination : void 0;
+    const productList = isRecord(data) ? data.productList : void 0;
+    if (!isRecord(data) || !Array.isArray(productList) || !isRecord(pagination)) {
+      throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uB370\uC774\uD130\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+    }
+    const responsePage = requiredPositiveInteger(pagination.page, "Wing \uC751\uB2F5 \uD398\uC774\uC9C0");
+    const pageSize = requiredPositiveInteger(pagination.countPerPage, "Wing \uC751\uB2F5 \uD398\uC774\uC9C0 \uD06C\uAE30");
+    const totalItems = requiredNonNegativeInteger(pagination.totalCount, "Wing \uC804\uCCB4 \uC0C1\uD488 \uC218");
+    const totalPages = requiredNonNegativeInteger(pagination.totalPages, "Wing \uC804\uCCB4 \uD398\uC774\uC9C0 \uC218");
+    if (responsePage !== requestedPage || pageSize !== WING_CATALOG_PAGE_SIZE) {
+      throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uD398\uC774\uC9C0 \uC815\uBCF4\uAC00 \uC694\uCCAD\uACFC \uB2E4\uB985\uB2C8\uB2E4");
+    }
+    const expectedPages = totalItems === 0 ? 0 : Math.ceil(totalItems / pageSize);
+    if (totalPages !== expectedPages) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uD398\uC774\uC9C0 \uC218\uAC00 \uC804\uCCB4 \uC0C1\uD488 \uC218\uC640 \uB2E4\uB985\uB2C8\uB2E4");
+    if (totalItems === 0) {
+      if (requestedPage !== 1 || productList.length !== 0) throw new WingPayloadError("Wing \uBE48 \uC0C1\uD488 \uBAA9\uB85D API \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+    } else {
+      if (requestedPage > totalPages) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uD398\uC774\uC9C0\uAC00 \uBC94\uC704\uB97C \uBC97\uC5B4\uB0AC\uC2B5\uB2C8\uB2E4");
+      const expectedRows = Math.min(pageSize, totalItems - (requestedPage - 1) * pageSize);
+      if (productList.length !== expectedRows) {
+        throw new WingPayloadError(`Wing ${requestedPage}\uD398\uC774\uC9C0 \uC0C1\uD488 \uC218\uAC00 \uBD88\uC644\uC804\uD569\uB2C8\uB2E4 (${productList.length}/${expectedRows})`);
+      }
+    }
+    const seen = /* @__PURE__ */ new Set();
+    const products = productList.map((row) => {
+      if (!isRecord(row)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D \uD589\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+      if (!Number.isSafeInteger(row.vendorInventoryId) || row.vendorInventoryId <= 0) {
+        throw new WingPayloadError("Wing \uC0C1\uD488 ID\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+      }
+      const externalProductId = String(row.vendorInventoryId);
+      if (seen.has(externalProductId)) throw new WingPayloadError(`Wing \uC0C1\uD488 ID\uAC00 \uC911\uBCF5\uB418\uC5C8\uC2B5\uB2C8\uB2E4: ${externalProductId}`);
+      seen.add(externalProductId);
+      if (row.vendorId !== void 0 && (typeof row.vendorId !== "string" || expectedVendorId && row.vendorId !== expectedVendorId)) {
+        throw new WingPayloadError(`Wing \uD310\uB9E4\uC790 ID\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4: ${externalProductId}`);
+      }
+      requiredText(row.productName, "Wing \uC0C1\uD488\uBA85");
+      return buildCatalogBasicProduct(row);
+    });
+    return { page: requestedPage, pageSize, totalItems, totalPages, products };
+  }
+  function buildCatalogBasicProduct(inventoryProduct) {
+    if (!isRecord(inventoryProduct)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D \uD589\uC774 \uC5C6\uC2B5\uB2C8\uB2E4");
+    const externalProductId = strictRequiredId(inventoryProduct.vendorInventoryId, "vendorInventoryId");
+    const items = Array.isArray(inventoryProduct.vendorInventoryItems) ? inventoryProduct.vendorInventoryItems : [];
+    if (items.length === 0) throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId}\uC5D0 vendorInventoryItems\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    const saleStatus = saleStatusFromWingProductStatus(requiredText(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
+    const optionIds = /* @__PURE__ */ new Set();
+    const options = items.map((item) => {
+      const option = buildCatalogBasicOption(item);
+      if (optionIds.has(option.externalOptionId)) {
+        throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId} \uC635\uC158 identity conflict: ${option.externalOptionId}`);
+      }
+      optionIds.add(option.externalOptionId);
+      return option;
+    });
+    const primary = normalizeImageUrl(inventoryProduct.representativeImage);
+    const raw = assertJsonBytes({
+      source: "wing_inventory_list",
+      vendorInventoryId: externalProductId,
+      productStatus: nullableText(inventoryProduct.productStatus),
+      saleStatus,
+      categoryName: nullableText(inventoryProduct.categoryName),
+      displayCategoryCode: optionalId(inventoryProduct.displayCategoryCode),
+      categoryId: optionalId(inventoryProduct.categoryId),
+      manufacture: nullableText(inventoryProduct.manufacture),
+      brand: nullableText(inventoryProduct.brand),
+      saleDates: inventoryProduct.saleDates ?? null,
+      createdOn: nullableText(inventoryProduct.createdOn),
+      modifiedOn: nullableText(inventoryProduct.modifiedOn),
+      itemCount: items.length
+    }, MAX_RAW_BYTES, `Wing \uAE30\uBCF8 \uC0C1\uD488 ${externalProductId} raw \uB370\uC774\uD130\uAC00 \uD5C8\uC6A9 \uD06C\uAE30\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
+    const productName = nullableText(inventoryProduct.productName)?.replace(/\s+/g, " ") ?? null;
+    return assertJsonBytes({
+      externalProductId,
+      registeredName: productName,
+      displayName: productName,
+      category: nullableText(inventoryProduct.categoryName) ?? categoryCode(inventoryProduct),
+      manufacturer: nullableText(inventoryProduct.manufacture),
+      brand: nullableText(inventoryProduct.brand),
+      // 공급자 코드는 productStatus에 두고, 판매 상태 라벨은 raw.saleStatus에만 둔다.
+      productStatus: nullableText(inventoryProduct.productStatus),
+      options,
+      media: primary ? [{ sourceUrl: primary, role: "primary", sortOrder: 0, externalOptionId: null }] : [],
+      raw
+    }, MAX_PRODUCT_BYTES, `Wing \uAE30\uBCF8 \uC0C1\uD488 ${externalProductId}\uAC00 \uD5C8\uC6A9 \uD06C\uAE30\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
+  }
+  function buildCatalogBasicOption(item) {
+    if (!isRecord(item)) throw new WingPayloadError("Wing vendorInventoryItem \uD589\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+    const externalOptionId = requiredOptionId(item, "basic");
+    const vendorItemId = strictOptionalId(item.vendorItemId, "vendorItemId");
+    const vendorInventoryItemId = strictRequiredId(item.vendorInventoryItemId, "vendorInventoryItemId");
+    const skuId = strictOptionalId(item.skuId, "skuId");
+    const soldOut = strictNullableBoolean(item.soldOut, "soldOut");
+    const raw = assertJsonBytes({
+      vendorInventoryItemId,
+      vendorItemId,
+      skuId,
+      itemName: nullableText(item.itemName),
+      externalSkuCode: nullableText(item.externalSkuCode),
+      barcode: nullableText(item.barcode),
+      status: nullableText(item.status),
+      soldOut,
+      qcOperationStatus: nullableText(item.qcOperationStatus),
+      approvalStatus: nullableText(item.approvalStatus),
+      stockQuantity: nullableInteger(item.stockQuantity),
+      salePrice: nullableInteger(item.salePrice),
+      autoPricingActive: strictNullableBoolean(item.autoPricingActive, "autoPricingActive"),
+      exposureStatuses: item.exposureStatuses ?? null,
+      externalOptionIdentitySource: vendorItemId ? "vendor_item" : "inventory_item"
+    }, MAX_RAW_BYTES, `Wing \uAE30\uBCF8 \uC635\uC158 ${externalOptionId} raw \uB370\uC774\uD130\uAC00 \uD5C8\uC6A9 \uD06C\uAE30\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
+    return {
+      externalOptionId,
+      optionName: nullableText(item.itemName),
+      skuStatus: nullableText(item.status || item.approvalStatus),
+      salePrice: nullableInteger(item.salePrice),
+      sellerSku: nullableText(item.externalSkuCode),
+      modelNumber: null,
+      barcode: nullableText(item.barcode),
+      stock: nullableInteger(item.stockQuantity),
+      stockQuantity: nullableInteger(item.stockQuantity),
+      vendorInventoryItemId,
+      vendorItemId,
+      skuId,
+      externalSkuCode: nullableText(item.externalSkuCode),
+      soldOut,
+      attributes: [],
+      media: [],
+      raw
+    };
+  }
+  var DETAIL_DOCUMENT_FIELDS = [
+    "contents",
+    "notices",
+    "additionalNotices",
+    "searchTags",
+    "internalAttributes",
+    "certifications",
+    "extraProperties"
+  ];
+  function buildCatalogDetailProduct(sellerProduct) {
+    if (!isRecord(sellerProduct)) throw new WingPayloadError("Wing \uC0C1\uD488 \uC0C1\uC138 JSON\uC774 \uC5C6\uC2B5\uB2C8\uB2E4");
+    const externalProductId = strictRequiredId(sellerProduct.sellerProductId, "sellerProductId");
+    const items = Array.isArray(sellerProduct.items) ? sellerProduct.items : [];
+    if (items.length === 0) throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId}\uC5D0 \uC635\uC158\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    const documents = [];
+    const documentByKey = /* @__PURE__ */ new Map();
+    const mediaByKey = /* @__PURE__ */ new Map();
+    const options = [];
+    const optionIds = /* @__PURE__ */ new Set();
+    for (const rawItem of items) {
+      const item = isRecord(rawItem) ? rawItem : {};
+      const externalOptionId = requiredOptionId(item, "detail");
+      if (optionIds.has(externalOptionId)) {
+        throw new WingPayloadError(`Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId} \uC635\uC158 identity conflict: ${externalOptionId}`);
+      }
+      optionIds.add(externalOptionId);
+      const documentIds = [];
+      for (const field of DETAIL_DOCUMENT_FIELDS) {
+        if (!Object.hasOwn(item, field) || item[field] === void 0) continue;
+        const value = item[field];
+        const key = `${field}\0${stableStringify(value)}`;
+        let document = documentByKey.get(key);
+        if (!document) {
+          document = { id: makeStableDocumentId(field, value, documents.length), kind: field, value };
+          assertJsonBytes(document.value, MAX_DOCUMENT_BYTES, `Wing \uC0C1\uC138 \uBB38\uC11C ${field}\uAC00 \uD5C8\uC6A9 \uD06C\uAE30\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
+          documentByKey.set(key, document);
+          documents.push(document);
+        }
+        documentIds.push(document.id);
+      }
+      for (const image of Array.isArray(item.images) ? item.images : []) {
+        const record = isRecord(image) ? image : {};
+        addDetailMedia(mediaByKey, "option", normalizeImageUrl(record.cdnPath || record.vendorPath), externalOptionId);
+      }
+      for (const sourceUrl of extractDetailImageUrls(item.contents)) {
+        addDetailMedia(mediaByKey, "detail", sourceUrl, externalOptionId);
+      }
+      options.push({
+        externalOptionId,
+        sellerProductItemId: strictOptionalId(item.sellerProductItemId, "sellerProductItemId"),
+        vendorItemId: strictOptionalId(item.vendorItemId, "vendorItemId"),
+        externalVendorSku: nullableText(item.externalVendorSku),
+        barcode: nullableText(item.barcode),
+        modelNumber: nullableText(item.modelNo),
+        attributes: normalizeDetailAttributes(item.attributes),
+        documentIds,
+        raw: buildDetailOptionRaw(item)
+      });
+    }
+    const media = [...mediaByKey.values()].map((entry, index) => ({
+      sourceUrl: entry.sourceUrl,
+      role: entry.role,
+      sortOrder: index,
+      externalOptionIds: [...entry.externalOptionIds].sort()
+    }));
+    const mediaCountByOption = /* @__PURE__ */ new Map();
+    for (const entry of media) {
+      for (const owner of entry.externalOptionIds) {
+        const count = (mediaCountByOption.get(owner) ?? 0) + 1;
+        if (count > MAX_MEDIA_PER_OWNER) {
+          throw new WingPayloadError(`Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId} \uC635\uC158 ${owner}\uC758 \uBBF8\uB514\uC5B4\uAC00 \uD5C8\uC6A9 \uAC1C\uC218\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
+        }
+        mediaCountByOption.set(owner, count);
+      }
+    }
+    if (documents.length > MAX_DOCUMENTS_PER_PRODUCT) {
+      throw new WingPayloadError(`Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId}\uC758 \uBB38\uC11C\uAC00 \uD5C8\uC6A9 \uAC1C\uC218\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
+    }
+    const raw = assertJsonBytes({
+      source: "wing_seller_product_json",
+      sellerProductId: externalProductId,
+      productId: optionalId(sellerProduct.productId),
+      status: nullableText(sellerProduct.status),
+      statusName: nullableText(sellerProduct.statusName),
+      saleStartedAt: nullableText(sellerProduct.saleStartedAt),
+      displayCategoryCode: optionalId(sellerProduct.displayCategoryCode),
+      categoryId: optionalId(sellerProduct.categoryId),
+      itemCount: items.length
+    }, MAX_RAW_BYTES, `Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId} raw \uB370\uC774\uD130\uAC00 \uD5C8\uC6A9 \uD06C\uAE30\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
+    return assertJsonBytes(
+      { externalProductId, options, documents, media, raw },
+      MAX_PRODUCT_BYTES,
+      `Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId}\uAC00 \uD5C8\uC6A9 \uD06C\uAE30\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`
+    );
+  }
+  function extractDetailImageUrls(contents) {
+    const urls = [];
+    for (const content of Array.isArray(contents) ? contents : []) {
+      const details = isRecord(content) && Array.isArray(content.contentDetails) ? content.contentDetails : [];
+      for (const detail of details) {
+        const html = String(isRecord(detail) ? detail.content ?? "" : "");
+        for (const match of html.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) {
+          const url = normalizeImageUrl(match[1]);
+          if (url) urls.push(url);
+        }
+      }
+    }
+    return [...new Set(urls)];
+  }
+  function normalizeDetailAttributes(attributes) {
+    return (Array.isArray(attributes) ? attributes : []).map((attribute) => {
+      const record = isRecord(attribute) ? attribute : {};
+      return {
+        type: nullableText(record.attributeTypeName || record.attributeTypeId),
+        value: nullableText(record.attributeValueName)
+      };
+    }).filter((attribute) => Boolean(attribute.type && attribute.value)).slice(0, MAX_ATTRIBUTES_PER_OPTION);
+  }
+  function buildDetailOptionRaw(item) {
+    return assertJsonBytes({
+      ...nullableText(item.registrationType) ? { registrationType: nullableText(item.registrationType) } : {},
+      sellerProductItemId: strictOptionalId(item.sellerProductItemId, "sellerProductItemId"),
+      vendorItemId: strictOptionalId(item.vendorItemId, "vendorItemId"),
+      itemId: strictOptionalId(item.itemId, "itemId"),
+      skuId: strictOptionalId(item.skuId, "skuId"),
+      externalVendorSku: nullableText(item.externalVendorSku),
+      barcode: nullableText(item.barcode),
+      modelNo: nullableText(item.modelNo),
+      originalPrice: nullableInteger(item.originalPrice),
+      salePrice: nullableInteger(item.salePrice),
+      supplyPrice: nullableInteger(item.supplyPrice),
+      externalOptionIdentitySource: item.vendorItemId === null || item.vendorItemId === void 0 ? "inventory_item" : "vendor_item"
+    }, MAX_RAW_BYTES, "Wing \uC0C1\uC138 \uC635\uC158 raw \uB370\uC774\uD130\uAC00 \uD5C8\uC6A9 \uD06C\uAE30\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4");
+  }
+  function addDetailMedia(mediaByKey, role, sourceUrl, externalOptionId) {
+    if (!sourceUrl) return;
+    const key = `${role}:${sourceUrl}`;
+    const existing = mediaByKey.get(key);
+    if (existing) {
+      existing.externalOptionIds.add(externalOptionId);
+      return;
+    }
+    mediaByKey.set(key, { sourceUrl, role, externalOptionIds: /* @__PURE__ */ new Set([externalOptionId]) });
+  }
+  function makeStableDocumentId(field, value, ordinal) {
+    const text = `${field}\0${stableStringify(value)}`;
+    let hash = 2166136261;
+    for (let index = 0; index < text.length; index += 1) {
+      hash ^= text.charCodeAt(index);
+      hash = Math.imul(hash, 16777619);
+    }
+    return `doc:${field}:${(hash >>> 0).toString(16).padStart(8, "0")}:${ordinal}`;
+  }
+  function categoryCode(product) {
+    const parts = [optionalId(product.displayCategoryCode), optionalId(product.categoryId)].filter(Boolean);
+    return parts.length > 0 ? parts.join("/") : null;
+  }
+  function saleStatusFromWingProductStatus(value) {
+    switch (value) {
+      case "ON_SALE":
+      case "PARTIAL_ON_SALE":
+        return "\uD310\uB9E4\uC911";
+      case "SUSPENDED":
+        return "\uD310\uB9E4\uC911\uC9C0";
+      case "REJECTED":
+        return null;
+      default:
+        throw new WingPayloadError(`Wing \uD310\uB9E4 \uC0C1\uD0DC\uB97C \uD574\uC11D\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4: ${value}`);
+    }
+  }
+  function normalizeImageUrl(value) {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (!text) return null;
+    if (text.startsWith("//")) return `https:${text}`;
+    if (/^https?:\/\//i.test(text)) return text;
+    return `https://image1.coupangcdn.com/image/${text.replace(/^\/+/, "")}`;
+  }
+  function isRecord(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+  function nullableText(value) {
+    if (value === null || value === void 0) return null;
+    const text = String(value).trim();
+    return text || null;
+  }
+  function optionalId(value) {
+    if (value === null || value === void 0 || value === "") return null;
+    return String(value);
+  }
+  function strictOptionalId(value, name) {
+    if (value === null || value === void 0 || value === "") return null;
+    if (typeof value === "string" && value.trim()) return value.trim();
+    if (typeof value === "number" && Number.isSafeInteger(value) && value >= 0) return String(value);
+    throw new WingPayloadError(`Wing ${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
+  }
+  function strictRequiredId(value, name) {
+    const id = strictOptionalId(value, name);
+    if (!id) throw new WingPayloadError(`Wing ${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    return id;
+  }
+  function strictNullableBoolean(value, name) {
+    if (value === null || value === void 0) return null;
+    if (typeof value === "boolean") return value;
+    throw new WingPayloadError(`Wing ${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
+  }
+  function requiredOptionId(item, stage) {
+    const vendorItemId = strictOptionalId(item.vendorItemId, "vendorItemId");
+    if (vendorItemId) return vendorItemId;
+    const relationId = stage === "basic" ? strictOptionalId(item.vendorInventoryItemId, "vendorInventoryItemId") : strictOptionalId(item.sellerProductItemId, "sellerProductItemId");
+    if (relationId) return relationId;
+    if (stage === "detail") {
+      const itemId = strictOptionalId(item.itemId, "itemId");
+      if (itemId) return itemId;
+    }
+    throw new WingPayloadError("Wing \uC635\uC158 \uC2DD\uBCC4\uC790\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4");
+  }
+  function nullableInteger(value) {
+    if (value === null || value === void 0 || value === "") return null;
+    const number = Number(value);
+    return Number.isInteger(number) && number >= 0 ? number : null;
+  }
+  function requiredText(value, name) {
+    const text = typeof value === "string" ? value.trim() : "";
+    if (!text) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    return text;
+  }
+  function requiredPositiveInteger(value, name) {
+    if (!Number.isSafeInteger(value) || value <= 0) throw new WingPayloadError(`${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
+    return value;
+  }
+  function requiredNonNegativeInteger(value, name) {
+    if (!Number.isSafeInteger(value) || value < 0) throw new WingPayloadError(`${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
+    return value;
+  }
+
+  // extensions/src/sites/wing/index.ts
+  var ORIGIN = "https://wing.coupang.com";
+  var SEARCH_URL = `${ORIGIN}/tenants/seller-web/v2/vendor-inventory/search`;
+  var DETAIL_URL = `${ORIGIN}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
+  var EXCEL_BASE = `${ORIGIN}/tenants/seller-web/excel/request/download`;
+  var EXCEL_REQUEST_TYPE = "EDITABLE_CATALOGUE";
+  var CATALOGUE_TYPES = [
+    "DISPLAY_PRODUCT_NAME",
+    "MANUFACTURE",
+    "BRAND",
+    "SEARCH_TAG",
+    "ADULT_ONLY",
+    "EXPOSE_ATTRIBUTE",
+    "NON_EXPOSE_ATTRIBUTE",
+    "MODEL_NO",
+    "BARCODE"
+  ];
+  var DETAIL_RETRY_DELAYS_MS = [2e3, 6e3];
+  var CATALOG_LIST_INCOMPLETE2 = "CATALOG_LIST_INCOMPLETE";
+  var CATALOG_EXCEL_FAILED2 = "CATALOG_EXCEL_FAILED";
+  var WING_CATALOG_PAYLOAD_INVALID = "WING_CATALOG_PAYLOAD_INVALID";
+  var WING_SITE = {
+    name: "wing",
+    origin: ORIGIN,
+    caller: {
+      minIntervalMs: 2e3,
+      displayName: "\uCFE0\uD321 \uC719",
+      xsrf: { cookieUrl: ORIGIN, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+    }
+  };
+  function createWingSite(caller, deps) {
+    const postJson = (url, body) => caller.json(url, { method: "POST", headers: { "content-type": "application/json", accept: "application/json" }, body: JSON.stringify(body) });
+    async function productIdsOf(ids, displayDeletedProduct) {
+      const response = await postJson(SEARCH_URL, buildWingProductIdSearchBody(ids, displayDeletedProduct));
+      const rows = productRows(response);
+      return new Map(rows.map((row) => [String(row.vendorInventoryId), typeof row.productStatus === "string" ? row.productStatus : null]));
+    }
+    return {
+      /** 목록 한 페이지(500개). 페이지 모양·행 수가 pagination과 맞지 않으면 `CATALOG_LIST_INCOMPLETE`. */
+      async searchInventory(page, vendorId) {
+        const response = await postJson(SEARCH_URL, buildWingCatalogSearchBody(page));
+        try {
+          return normalizeWingCatalogSearchResponse(response, page, vendorId);
+        } catch (error) {
+          if (error instanceof WingPayloadError) throw new RuntimeError(CATALOG_LIST_INCOMPLETE2, error.message, { page });
+          throw error;
+        }
+      },
+      /** 상품 상세 하나. 없으면(404) null. 429·5xx·연결 끊김은 2초·6초 뒤 다시 묻는다. */
+      async productDetail(externalProductId) {
+        const url = `${DETAIL_URL}${encodeURIComponent(externalProductId)}`;
+        for (let attempt = 0; ; attempt += 1) {
+          let body;
+          try {
+            body = await caller.json(url);
+          } catch (error) {
+            const status = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED ? error.details?.status : void 0;
+            if (status === 404) return null;
+            const transient = status === null || status === 429 || typeof status === "number" && status >= 500;
+            const delay = DETAIL_RETRY_DELAYS_MS[attempt];
+            if (!transient || delay === void 0) throw error;
+            await deps.sleep(delay);
+            continue;
+          }
+          let product;
+          try {
+            product = buildCatalogDetailProduct(body);
+          } catch (error) {
+            if (error instanceof WingPayloadError) throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, error.message, { externalProductId });
+            throw error;
+          }
+          if (product.externalProductId !== externalProductId) {
+            throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, `Wing \uC0C1\uC138 \uC0C1\uD488 ID\uAC00 \uB2E4\uB985\uB2C8\uB2E4(${externalProductId} / ${product.externalProductId}).`);
+          }
+          return product;
+        }
+      },
+      /**
+       * 목록에서 사라진 상품(최대 100개)이 삭제됐는가(KID-351 실측): `PRODUCT_ID` 검색을 삭제 상품만(`displayDeletedProduct:
+       * true`) 한 번, 남은 것을 일반 상품으로 한 번 묻는다. 삭제 검색에 나오면 deleted, 일반 검색에 나오면 present, 둘 다
+       * 없으면 not_found(미확인 — 서버는 활성으로 두고 품질 보고에 남긴다).
+       */
+      async probeDeleted(externalProductIds) {
+        const deleted = await productIdsOf(externalProductIds, true);
+        const rest = externalProductIds.filter((id) => !deleted.has(id));
+        const present = rest.length > 0 ? await productIdsOf(rest, false) : /* @__PURE__ */ new Map();
+        return externalProductIds.map((externalProductId) => {
+          if (deleted.has(externalProductId)) return { externalProductId, outcome: "deleted", productStatus: deleted.get(externalProductId) ?? null };
+          if (present.has(externalProductId)) return { externalProductId, outcome: "present", productStatus: null };
+          return { externalProductId, outcome: "not_found", productStatus: null };
+        });
+      },
+      /**
+       * [쿠팡상품정보] 엑셀(EDITABLE_CATALOGUE) 생성 요청 — 사용자가 허용한 유일한 몰 쓰기 요청(KID-351, 2026-09-24 20:32).
+       * 전체 목록 조건을 그대로 쓰므로 먼저 전체 상품 수를 읽는다.
+       */
+      async requestCatalogExcel(description) {
+        const condition = buildWingCatalogSearchBody(1);
+        const totalCount = totalCountOf(await postJson(SEARCH_URL, condition));
+        const response = await postJson(`${EXCEL_BASE}/create/vendor-inventory/all`, {
+          searchCondition: { ...condition, totalCount },
+          comment: "KidItem \uCFE0\uD321\uC0C1\uD488\uC815\uBCF4 \uAC31\uC2E0",
+          fileDescription: description,
+          requestType: EXCEL_REQUEST_TYPE,
+          selectedTypes: [...CATALOGUE_TYPES]
+        });
+        const record = asRecord(response);
+        if (record?.success !== true) {
+          const message = typeof record?.message === "string" && record.message ? `: ${record.message}` : "";
+          throw new RuntimeError(CATALOG_EXCEL_FAILED2, `\uCFE0\uD321 \uC719\uC774 \uC0C1\uD488\uC815\uBCF4 \uC5D1\uC140 \uC0DD\uC131\uC744 \uAC70\uC808\uD588\uC2B5\uB2C8\uB2E4${message}`);
+        }
+      },
+      /** 다운로드 목록에서 이 설명으로 만든 요청. 아직 없으면 null. 중단된 요청은 `ABORTED`. */
+      async catalogExcelRequest(description) {
+        const response = await caller.json(`${EXCEL_BASE}/list?requestType=${EXCEL_REQUEST_TYPE}&page=1&countPerPage=10`, {
+          headers: { accept: "application/json" }
+        });
+        const rows = asRecord(response)?.result;
+        const row = Array.isArray(rows) ? rows.map(asRecord).find((candidate) => candidate?.fileDescription === description && candidate.isDeleted !== "Y") : void 0;
+        if (!row) return null;
+        return {
+          id: String(row.sellerRequestDownloadExcelId),
+          status: row.isAbort === "Y" ? "ABORTED" : String(row.status ?? ""),
+          executeCount: Number(row.executeCount) || 0,
+          totalCount: Number(row.totalCount) || 0
+        };
+      },
+      downloadCatalogExcel(id) {
+        return caller.bytes(`${EXCEL_BASE}/file?requestType=${EXCEL_REQUEST_TYPE}&sellerRequestDownloadExcelId=${encodeURIComponent(id)}&sellerRequestDownloadExcelFileId=`);
+      },
+      /** 폴링 사이 기다림. 취소되면 바로 돌아온다. */
+      pause(ms, signal) {
+        return new Promise((resolve) => {
+          if (signal.aborted) return resolve();
+          const timer = setTimeout(done, ms);
+          function done() {
+            clearTimeout(timer);
+            signal.removeEventListener("abort", done);
+            resolve();
+          }
+          signal.addEventListener("abort", done, { once: true });
+        });
+      }
+    };
+  }
+  function asRecord(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+  }
+  function productRows(response) {
+    const data = asRecord(asRecord(response)?.data);
+    const list = data?.productList;
+    if (!Array.isArray(list)) throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, "Wing \uC0C1\uD488 \uAC80\uC0C9 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    return list.map((row) => asRecord(row) ?? {});
+  }
+  function totalCountOf(response) {
+    const total = asRecord(asRecord(asRecord(response)?.data)?.pagination)?.totalCount;
+    if (!Number.isSafeInteger(total) || total < 0) {
+      throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, "Wing \uC804\uCCB4 \uC0C1\uD488 \uC218\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+    }
+    return total;
+  }
+
+  // extensions/src/entry/site-handles.ts
+  var ENTRY_SITES = { [WING_SITE.name]: { origin: WING_SITE.origin } };
+  var ACCOUNT_SITE = WING_SITE.name;
+  function createSiteHandles(deps) {
+    return (kind) => {
+      const site = collectorFor(kind)?.site ?? null;
+      if (site === WING_SITE.name) return createWingSite(createSiteCaller(WING_SITE.caller, deps), { sleep: deps.sleep });
+      return null;
+    };
+  }
+
+  // extensions/src/entry/legacy-bridge.ts
+  function legacyGlobalsPresent() {
+    return typeof KidItemDomains !== "undefined" && typeof sourceOwnerEnvironmentContext !== "undefined";
+  }
+  function legacyKeepAlive(work) {
+    if (typeof KidItemWorkerKeepAlive === "undefined" || !KidItemWorkerKeepAlive) return;
+    KidItemWorkerKeepAlive.during(work).catch(() => void 0);
+  }
+  function legacyApiPort(environmentId) {
+    return { fetch: (path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init) };
+  }
+  function registerWithLegacyDomains(domain) {
+    KidItemDomains.register(domain);
+  }
+
   // extensions/src/core/operation-client.ts
   function stopFor(code, details) {
     if (code === "OPERATION_IN_PROGRESS") {
@@ -4425,7 +6077,7 @@ var KidItemRuntime = (() => {
   var RUNTIME_CHUNK_TOO_LARGE = "RUNTIME_CHUNK_TOO_LARGE";
   var HEARTBEAT_CHUNK_KIND = "heartbeat";
   var HEARTBEAT_INTERVAL_MS = OPERATION_LEASE_MS / 3;
-  var encoder = new TextEncoder();
+  var encoder3 = new TextEncoder();
   function createRunner(deps, collectorFor2) {
     return {
       /**
@@ -4586,7 +6238,7 @@ var KidItemRuntime = (() => {
     return { kind: "failed", operationId, errorCode: OPERATION_CANCEL_CODE, errorMessage: "\uC2E4\uD589\uC744 \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4." };
   }
   function assertChunkFits(chunk, sentChunks) {
-    const bytes = encoder.encode(JSON.stringify(chunk.payload)).byteLength;
+    const bytes = encoder3.encode(JSON.stringify(chunk.payload)).byteLength;
     if (bytes > OPERATION_CHUNK_MAX_BYTES) {
       throw new RuntimeError(RUNTIME_CHUNK_TOO_LARGE, `\uCCAD\uD06C \uD558\uB098\uAC00 ${OPERATION_CHUNK_MAX_BYTES}\uBC14\uC774\uD2B8\uB97C \uB118\uC2B5\uB2C8\uB2E4.`, { chunkKind: chunk.chunkKind, bytes });
     }
@@ -4734,8 +6386,14 @@ var KidItemRuntime = (() => {
     if (!legacyGlobalsPresent()) return false;
     const externalActions = createOperationActions({
       apiFor: legacyApiPort,
-      // 사이트 탭이 필요한 kind가 옮겨질 때 sites/*의 origin을 여기 모은다(KID-359 이후).
-      browser: createBrowserResources(chrome, {}),
+      // `account:<id>` 잠금은 그 계정의 Wing 탭을 쓴다(KID-354). 로그인 확인은 사이트 호출기의 SITE_LOGIN_REQUIRED.
+      browser: createBrowserResources(chrome, ENTRY_SITES, { accountSite: ACCOUNT_SITE }),
+      siteFor: createSiteHandles({
+        fetch: (input, init) => fetch(input, init),
+        cookies: { get: (details) => chrome.cookies.get(details) },
+        now: () => Date.now(),
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+      }),
       keepAlive: legacyKeepAlive
     });
     registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true } });

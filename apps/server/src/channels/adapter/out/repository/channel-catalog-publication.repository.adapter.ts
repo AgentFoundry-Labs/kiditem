@@ -59,17 +59,19 @@ export class ChannelCatalogPublicationRepositoryAdapter implements ChannelCatalo
     private readonly productMapping: ChannelsProductMappingGenerationPort,
   ) {}
 
-  async assertWingAccount(scope: CatalogAccountScope): Promise<void> {
+  async assertWingAccount(scope: CatalogAccountScope): Promise<{ vendorId: string }> {
     const account = await this.prisma.channelAccount.findFirst({
       where: { id: scope.channelAccountId, organizationId: scope.organizationId, status: 'active' },
       select: { channel: true, externalAccountId: true, vendorId: true },
     });
     if (!account) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
-    if (account.channel !== CHANNEL || !resolveCoupangVendorId(account)) {
+    const vendorId = account.channel === CHANNEL ? resolveCoupangVendorId(account) : null;
+    if (!vendorId) {
       throw new KiditemInvalidValueError('CHANNELS_ACCOUNT_INVALID', {
         details: { reason: account.channel !== CHANNEL ? 'catalog_requires_coupang' : 'catalog_requires_vendor' },
       });
     }
+    return { vendorId };
   }
 
   async findDetailsScopeMismatch(

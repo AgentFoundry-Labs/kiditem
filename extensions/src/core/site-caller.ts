@@ -7,6 +7,8 @@ import { RuntimeError } from './errors';
 export interface SiteCaller {
   json<T = unknown>(url: string, init?: RequestInit): Promise<T>;
   text(url: string, init?: RequestInit): Promise<string>;
+  /** 본문 바이트(파일 내려받기). */
+  bytes(url: string, init?: RequestInit): Promise<Uint8Array>;
 }
 
 export interface SiteCallerOptions {
@@ -14,6 +16,8 @@ export interface SiteCallerOptions {
   minIntervalMs: number;
   /** 쿠키 이름 → 헤더 이름. 윙은 `XSRF-TOKEN` → `X-XSRF-TOKEN`. */
   xsrf?: { cookieUrl: string; cookieName: string; headerName: string };
+  /** 운영자에게 보이는 사이트 이름(`쿠팡 윙`). 로그인 문장이 어디에 로그인할지 말한다. */
+  displayName?: string;
 }
 
 /**
@@ -43,6 +47,7 @@ export interface SiteCallerDeps {
 export function createSiteCaller(options: SiteCallerOptions, deps: SiteCallerDeps): SiteCaller {
   let lastSentAt: number | null = null;
   let queue: Promise<unknown> = Promise.resolve();
+  const loginMessage = options.displayName ? `${options.displayName} 로그인이 필요합니다.` : '사이트 로그인이 필요합니다.';
 
   async function send(url: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers);
@@ -50,7 +55,7 @@ export function createSiteCaller(options: SiteCallerOptions, deps: SiteCallerDep
       const cookie = await deps.cookies.get({ url: options.xsrf.cookieUrl, name: options.xsrf.cookieName });
       const token = decodeCookie(cookie?.value);
       if (!token) {
-        throw new RuntimeError(SITE_LOGIN_REQUIRED, '사이트 로그인이 필요합니다(인증 쿠키 없음).', { url });
+        throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { url, reason: 'xsrf_cookie_missing' });
       }
       headers.set(options.xsrf.headerName, token);
     }
@@ -64,7 +69,7 @@ export function createSiteCaller(options: SiteCallerOptions, deps: SiteCallerDep
       throw new RuntimeError(SITE_REQUEST_FAILED, '사이트에 연결하지 못했습니다.', { status: null, url }, error);
     }
     if (response.status === 401 || response.status === 403 || response.type === 'opaqueredirect') {
-      throw new RuntimeError(SITE_LOGIN_REQUIRED, '사이트 로그인이 필요합니다.', { status: response.status, url });
+      throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { status: response.status, url });
     }
     if (!response.ok) {
       throw new RuntimeError(SITE_REQUEST_FAILED, `사이트 요청이 실패했습니다(${response.status}).`, { status: response.status, url });
@@ -89,6 +94,7 @@ export function createSiteCaller(options: SiteCallerOptions, deps: SiteCallerDep
         }
       }),
     text: (url, init) => enqueue(async () => (await send(url, init)).text()),
+    bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send(url, init)).arrayBuffer())),
   };
 }
 
