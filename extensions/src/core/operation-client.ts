@@ -1,12 +1,20 @@
-import type {
-  OperationBeginRequest,
-  OperationBeginResponse,
-  OperationChunkKind,
-  OperationChunkPutResponse,
-  OperationFinishRequest,
-  OperationFinishResponse,
-  OperationView,
+import type { z } from 'zod';
+import {
+  OPERATION_TOKEN_HEADER,
+  OperationBeginResponseSchema,
+  OperationCancelResponseSchema,
+  OperationChunkPutResponseSchema,
+  OperationFinishResponseSchema,
+  type OperationBeginRequest,
+  type OperationBeginResponse,
+  type OperationChunkKind,
+  type OperationChunkPutResponse,
+  type OperationFinishRequest,
+  type OperationFinishResponse,
+  type OperationView,
 } from '@kiditem/shared/operation';
+import type { ApiPort } from './api';
+import { RuntimeError, parseErrorEnvelope } from './errors';
 
 /**
  * 서버 실행 계약(ADR-0025)의 유일한 창구. begin·chunk·finish·cancel 넷뿐이고,
@@ -55,4 +63,71 @@ export function stopFor(code: string, details: Record<string, unknown> | null | 
 
 function isObject(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
+}
+
+/** 서버에 닿지 못했거나(네트워크·프록시) 계약 밖 응답을 받았다. */
+export const RUNTIME_API_UNREACHABLE = 'RUNTIME_API_UNREACHABLE' as const;
+
+/**
+ * `ApiPort` 위의 실행 계약 클라이언트. 응답은 shared Zod로 읽고, 2xx가 아니면 서버 오류 봉투를
+ * `RuntimeError(code, message, details)`로 바꾼다. 청크 checksum은 여기서 계산한다(호출자는 payload만).
+ */
+export function createOperationClient(api: ApiPort): OperationClient {
+  const base = '/api/operations';
+  return {
+    begin: (request) => call(api, base, { method: 'POST', body: request }, OperationBeginResponseSchema),
+    async putChunk({ operationId, token, chunkKind, sequence, payload, progress }) {
+      const checksum = await sha256Hex(JSON.stringify(payload));
+      return call(
+        api,
+        `${base}/${encodeURIComponent(operationId)}/chunks/${encodeURIComponent(chunkKind)}/${sequence}`,
+        { method: 'PUT', token, body: { checksum, payload, ...(progress ? { progress } : {}) } },
+        OperationChunkPutResponseSchema,
+      );
+    },
+    finish: ({ operationId, token, request }) =>
+      call(api, `${base}/${encodeURIComponent(operationId)}/finish`, { method: 'POST', token, body: request }, OperationFinishResponseSchema),
+    async cancel(operationId) {
+      const response = await call(api, `${base}/${encodeURIComponent(operationId)}/cancel`, { method: 'POST' }, OperationCancelResponseSchema);
+      return response.operation;
+    },
+  };
+}
+
+async function call<S extends z.ZodTypeAny>(
+  api: ApiPort,
+  path: string,
+  request: { method: string; token?: string; body?: unknown },
+  schema: S,
+): Promise<z.output<S>> {
+  const headers: Record<string, string> = { 'content-type': 'application/json' };
+  if (request.token !== undefined) headers[OPERATION_TOKEN_HEADER] = request.token;
+  let response: Response;
+  try {
+    response = await api.fetch(path, {
+      method: request.method,
+      headers,
+      ...(request.body !== undefined ? { body: JSON.stringify(request.body) } : {}),
+    });
+  } catch (error) {
+    throw new RuntimeError(RUNTIME_API_UNREACHABLE, 'KidItem 서버에 연결하지 못했습니다.', { path }, error);
+  }
+  const body = await response.json().catch(() => undefined);
+  if (!response.ok) {
+    const envelope = parseErrorEnvelope(body);
+    if (!envelope) {
+      throw new RuntimeError(RUNTIME_API_UNREACHABLE, 'KidItem 서버 응답을 읽지 못했습니다.', { path, status: response.status });
+    }
+    throw new RuntimeError(envelope.code, envelope.message, envelope.details ?? null);
+  }
+  const parsed = schema.safeParse(body);
+  if (!parsed.success) {
+    throw new RuntimeError(RUNTIME_API_UNREACHABLE, 'KidItem 서버 응답이 실행 계약과 다릅니다.', { path, status: response.status });
+  }
+  return parsed.data;
+}
+
+async function sha256Hex(text: string): Promise<string> {
+  const digest = await crypto.subtle.digest('SHA-256', new TextEncoder().encode(text));
+  return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, '0')).join('');
 }

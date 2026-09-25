@@ -10,7 +10,7 @@ export default defineConfig({
     alias: [
       {
         find: /^@kiditem\/shared\/(.*)$/,
-        replacement: fileURLToPath(new URL('../packages/shared/src/$1.ts', import.meta.url)),
+        replacement: fileURLToPath(new URL('../packages/shared/src/$1', import.meta.url)),
       },
     ],
   },
