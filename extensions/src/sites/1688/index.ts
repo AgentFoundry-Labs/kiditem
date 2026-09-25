@@ -1,7 +1,7 @@
 import { RuntimeError } from '../../core/errors';
 import { SITE_REQUEST_FAILED } from '../../core/site-caller';
 import type { SiteDefinition } from '../site';
-import type { InjectFiles, TabPage, TabPages } from '../tab-page';
+import { hostWithin, leftForOperator, type InjectFiles, type PageGuard, type TabPage, type TabPages } from '../tab-page';
 
 const SEARCH_ORIGIN = 'https://s.1688.com';
 const NAVIGATION_TIMEOUT_MS = 30_000;
@@ -19,6 +19,13 @@ export const ALIBABA_CONTENT_FILES: InjectFiles = {
 };
 
 export const SITE_VERIFICATION_REQUIRED = 'SITE_VERIFICATION_REQUIRED' as const;
+
+/** 1688 탭이 있어도 되는 곳: 1688 호스트(로그인 화면 제외). 로그인은 1688·타오바오 통합 로그인이다. */
+export const ALIBABA_1688_PAGE_GUARD: PageGuard = {
+  allows: (url) => hostWithin(url, ['1688.com']),
+  isLogin: (url) => hostWithin(url, ['login.taobao.com', 'login.1688.com', 'passport.1688.com', 'passport.taobao.com']),
+  loginMessage: '1688 로그인이 필요합니다. 열려 있는 1688 탭에서 로그인한 뒤 다시 수집해 주세요.',
+};
 
 /** 1688 검색(s.1688.com offer_search). 탭은 이 사이트가 열고 닫는다(잠금 키 `resource:ali1688:*`는 탭을 잡지 않는다). */
 export const ALIBABA_1688_SITE: SiteDefinition = {
@@ -59,10 +66,17 @@ export function create1688SearchSite(tabs: TabPages) {
       page ??= await tabs.open('about:blank');
       const landed = await page.navigate(build1688SearchUrl(keyword), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
       if (is1688VerificationUrl(landed)) throw verification(landed, keyword, () => { keepOpen = true; });
-      const extracted = await page.ask<{ ok: boolean; items?: unknown[]; error?: string; status?: string; verificationUrl?: string }>(
-        { type: 'TRIGGER_1688_TREND_EXTRACT', maxResults: MAX_RESULTS_PER_KEYWORD },
-        { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: ALIBABA_CONTENT_FILES },
-      );
+      let extracted: { ok: boolean; items?: unknown[]; error?: string; status?: string; verificationUrl?: string };
+      try {
+        extracted = await page.ask(
+          { type: 'TRIGGER_1688_TREND_EXTRACT', maxResults: MAX_RESULTS_PER_KEYWORD },
+          { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: ALIBABA_CONTENT_FILES, guard: ALIBABA_1688_PAGE_GUARD },
+        );
+      } catch (error) {
+        // 로그인·예상 밖 주소면 운영자가 볼 수 있게 탭을 남긴다.
+        if (leftForOperator(error)) keepOpen = true;
+        throw error;
+      }
       if (extracted.status === 'verification_required') {
         throw verification(extracted.verificationUrl ?? landed, keyword, () => { keepOpen = true; });
       }

@@ -1,7 +1,7 @@
 import { RuntimeError } from '../../core/errors';
 import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller';
 import type { SiteDefinition } from '../site';
-import type { InjectFiles, TabPage, TabPages } from '../tab-page';
+import { hostWithin, leftForOperator, type InjectFiles, type PageGuard, type TabPage, type TabPages } from '../tab-page';
 
 const NAVIGATION_TIMEOUT_MS = 35_000;
 const EXTRACTION_TIMEOUT_MS = 25_000;
@@ -11,6 +11,12 @@ const BASE_URLS = {
   product: 'https://ads.tiktok.com/business/creativecenter/inspiration/popular/pc/en',
   keyword: 'https://ads.tiktok.com/business/creativecenter/keyword-insights/pc/en',
 } as const;
+/** TikTok 탭이 있어도 되는 곳: ads.tiktok.com(확장 권한). 로그인은 passport·www 로그인 화면과 ads의 로그인 경로다. */
+export const TIKTOK_CC_PAGE_GUARD: PageGuard = {
+  allows: (url) => hostWithin(url, ['ads.tiktok.com']),
+  isLogin: (url) => hostWithin(url, ['passport.tiktok.com']) || /(?:\/login|\/passport|\/signup)/i.test(url.pathname),
+  loginMessage: 'TikTok 로그인이 필요합니다. 열려 있는 TikTok 탭에서 로그인한 뒤 다시 수집해 주세요.',
+};
 /** content script 둘(ISOLATED)과 API를 잡는 훅(MAIN). 훅은 manifest의 document_start 선언이 1차 경로다. */
 const CONTENT_FILES: InjectFiles = {
   isolated: ['content/sourcing/tiktok-cc-extractor.js', 'content/sourcing/tiktok-cc-content.js'],
@@ -65,32 +71,43 @@ export function sanitizeTiktokRegion(value: unknown): string | null {
  */
 export function createTiktokCcSite(tabs: TabPages) {
   let page: TabPage | null = null;
+  let keepOpen = false;
   return {
     targetFor: tiktokTargetFor,
     async target(target: TiktokTarget, defaultRegion: string | null): Promise<TiktokTargetCapture> {
       page ??= await tabs.open('about:blank');
-      const landed = await page.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: isTiktokBlockedUrl, continueOnTimeout: true });
-      if (isTiktokBlockedUrl(landed)) {
-        throw new RuntimeError(SITE_LOGIN_REQUIRED, 'TikTok 로그인 또는 지역 차단으로 수집할 수 없습니다.', { url: landed, target: target.id });
+      try {
+        return await readTarget(page, target, defaultRegion);
+      } catch (error) {
+        // 로그인·예상 밖 주소면 운영자가 볼 수 있게 탭을 남긴다.
+        if (leftForOperator(error)) keepOpen = true;
+        throw error;
       }
-      const extracted = await page.ask<{ ok?: boolean; error?: string; items?: unknown[]; region?: unknown }>(
-        { type: 'TRIGGER_TIKTOK_CC_EXTRACT', trendType: target.trendType, sourceKeyword: target.sourceKeyword, defaultRegion },
-        { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: CONTENT_FILES },
-      );
-      if (!extracted.ok) {
-        throw new RuntimeError(SITE_REQUEST_FAILED, `TikTok 트렌드 '${target.id}'를 읽지 못했습니다: ${extracted.error ?? '알 수 없음'}`, { status: null, target: target.id });
-      }
-      return {
-        region: sanitizeTiktokRegion(extracted.region),
-        items: (Array.isArray(extracted.items) ? extracted.items : [])
-          .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object'),
-      };
     },
     async close() {
-      await page?.close();
+      if (!keepOpen) await page?.close();
       page = null;
     },
   };
+
+  async function readTarget(page: TabPage, target: TiktokTarget, defaultRegion: string | null): Promise<TiktokTargetCapture> {
+    const landed = await page.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: isTiktokBlockedUrl, continueOnTimeout: true });
+    if (isTiktokBlockedUrl(landed)) {
+      throw new RuntimeError(SITE_LOGIN_REQUIRED, 'TikTok 로그인 또는 지역 차단으로 수집할 수 없습니다.', { url: landed, target: target.id });
+    }
+    const extracted = await page.ask<{ ok?: boolean; error?: string; items?: unknown[]; region?: unknown }>(
+      { type: 'TRIGGER_TIKTOK_CC_EXTRACT', trendType: target.trendType, sourceKeyword: target.sourceKeyword, defaultRegion },
+      { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: CONTENT_FILES, guard: TIKTOK_CC_PAGE_GUARD },
+    );
+    if (!extracted.ok) {
+      throw new RuntimeError(SITE_REQUEST_FAILED, `TikTok 트렌드 '${target.id}'를 읽지 못했습니다: ${extracted.error ?? '알 수 없음'}`, { status: null, target: target.id });
+    }
+    return {
+      region: sanitizeTiktokRegion(extracted.region),
+      items: (Array.isArray(extracted.items) ? extracted.items : [])
+        .filter((item): item is Record<string, unknown> => Boolean(item) && typeof item === 'object'),
+    };
+  }
 }
 
 export type TiktokCcSite = ReturnType<typeof createTiktokCcSite>;

@@ -5657,6 +5657,29 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/tab-page.ts
+  function checkPageUrl(guard, value) {
+    let url;
+    try {
+      url = new URL(value);
+    } catch {
+      throw new RuntimeError(SITE_REQUEST_FAILED, "\uC218\uC9D1 \uD0ED\uC758 \uC8FC\uC18C\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, reason: "unexpected_url", url: value });
+    }
+    if (guard.isLogin(url)) throw new RuntimeError(SITE_LOGIN_REQUIRED, guard.loginMessage, { url: value });
+    if (!guard.allows(url)) {
+      throw new RuntimeError(
+        SITE_REQUEST_FAILED,
+        "\uC218\uC9D1 \uD0ED\uC774 \uC608\uC0C1\uD558\uC9C0 \uBABB\uD55C \uC8FC\uC18C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.",
+        { status: null, reason: "unexpected_url", url: value }
+      );
+    }
+  }
+  function leftForOperator(error) {
+    return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === "unexpected_url");
+  }
+  function hostWithin(url, domains) {
+    const host = url.hostname.toLowerCase();
+    return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
+  }
   var SITE_TAB_UNAVAILABLE = "SITE_TAB_UNAVAILABLE";
   var POLL_MS = 250;
   var MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
@@ -5702,9 +5725,17 @@ var KidItemRuntime = (() => {
           if (!tab?.url) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1\uD560 \uD0ED\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { tabId });
           return tab.url;
         },
-        async ask(message, { timeoutMs, inject }) {
+        async ask(message, { timeoutMs, inject, guard }) {
+          const checkHere = async () => {
+            if (!guard) return;
+            const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
+            if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC774 \uB2EB\uD614\uC2B5\uB2C8\uB2E4.", { tabId });
+            checkPageUrl(guard, tab.url ?? "");
+          };
+          await checkHere();
           const first = await send(message, timeoutMs);
           if (!inject || !isMissing(first)) return first;
+          await checkHere();
           await deps.chrome.scripting.executeScript({ target: { tabId }, files: [...inject.isolated] });
           if (inject.main?.length) {
             await deps.sleep(300);
@@ -6889,6 +6920,11 @@ var KidItemRuntime = (() => {
     ]
   };
   var SITE_VERIFICATION_REQUIRED = "SITE_VERIFICATION_REQUIRED";
+  var ALIBABA_1688_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["1688.com"]),
+    isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "passport.taobao.com"]),
+    loginMessage: "1688 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
   function build1688SearchUrl(keyword) {
     return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword)}&charset=utf8`;
   }
@@ -6910,10 +6946,16 @@ var KidItemRuntime = (() => {
         if (is1688VerificationUrl(landed)) throw verification(landed, keyword, () => {
           keepOpen = true;
         });
-        const extracted = await page.ask(
-          { type: "TRIGGER_1688_TREND_EXTRACT", maxResults: MAX_RESULTS_PER_KEYWORD },
-          { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: ALIBABA_CONTENT_FILES }
-        );
+        let extracted;
+        try {
+          extracted = await page.ask(
+            { type: "TRIGGER_1688_TREND_EXTRACT", maxResults: MAX_RESULTS_PER_KEYWORD },
+            { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: ALIBABA_CONTENT_FILES, guard: ALIBABA_1688_PAGE_GUARD }
+          );
+        } catch (error) {
+          if (leftForOperator(error)) keepOpen = true;
+          throw error;
+        }
         if (extracted.status === "verification_required") {
           throw verification(extracted.verificationUrl ?? landed, keyword, () => {
             keepOpen = true;
@@ -7124,6 +7166,11 @@ var KidItemRuntime = (() => {
     isolated: ["content/sourcing/live-commerce-extractor.js", "content/sourcing/live-commerce-content.js"]
   };
   var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
+  var LIVE_COMMERCE_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["1688.com", "douyin.com"]),
+    isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "sso.douyin.com", "passport.douyin.com"]) || hostWithin(url, ["douyin.com"]) && /\/login/i.test(url.pathname),
+    loginMessage: "\uB77C\uC774\uBE0C \uBC29\uC1A1 \uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
   function isLiveVerificationUrl(value) {
     try {
       const url = new URL(value);
@@ -7143,10 +7190,16 @@ var KidItemRuntime = (() => {
             keepOpen = true;
             throw verification2(landed);
           }
-          const extracted = await page.ask(
-            { type: "TRIGGER_LIVE_COMMERCE_EXTRACT" },
-            { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: CONTENT_FILES }
-          );
+          let extracted;
+          try {
+            extracted = await page.ask(
+              { type: "TRIGGER_LIVE_COMMERCE_EXTRACT" },
+              { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: CONTENT_FILES, guard: LIVE_COMMERCE_PAGE_GUARD }
+            );
+          } catch (error) {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          }
           if (extracted.status === "verification_required") {
             keepOpen = true;
             throw verification2(extracted.verificationUrl ?? landed);
@@ -7329,6 +7382,11 @@ var KidItemRuntime = (() => {
     product: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/pc/en",
     keyword: "https://ads.tiktok.com/business/creativecenter/keyword-insights/pc/en"
   };
+  var TIKTOK_CC_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["ads.tiktok.com"]),
+    isLogin: (url) => hostWithin(url, ["passport.tiktok.com"]) || /(?:\/login|\/passport|\/signup)/i.test(url.pathname),
+    loginMessage: "TikTok \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
   var CONTENT_FILES2 = {
     isolated: ["content/sourcing/tiktok-cc-extractor.js", "content/sourcing/tiktok-cc-content.js"],
     main: ["content/sourcing/tiktok-cc-hook.js"]
@@ -7354,31 +7412,40 @@ var KidItemRuntime = (() => {
   }
   function createTiktokCcSite(tabs) {
     let page = null;
+    let keepOpen = false;
     return {
       targetFor: tiktokTargetFor,
       async target(target, defaultRegion) {
         page ??= await tabs.open("about:blank");
-        const landed = await page.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt: isTiktokBlockedUrl, continueOnTimeout: true });
-        if (isTiktokBlockedUrl(landed)) {
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
+        try {
+          return await readTarget(page, target, defaultRegion);
+        } catch (error) {
+          if (leftForOperator(error)) keepOpen = true;
+          throw error;
         }
-        const extracted = await page.ask(
-          { type: "TRIGGER_TIKTOK_CC_EXTRACT", trendType: target.trendType, sourceKeyword: target.sourceKeyword, defaultRegion },
-          { timeoutMs: EXTRACTION_TIMEOUT_MS4, inject: CONTENT_FILES2 }
-        );
-        if (!extracted.ok) {
-          throw new RuntimeError(SITE_REQUEST_FAILED, `TikTok \uD2B8\uB80C\uB4DC '${target.id}'\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, target: target.id });
-        }
-        return {
-          region: sanitizeTiktokRegion(extracted.region),
-          items: (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => Boolean(item) && typeof item === "object")
-        };
       },
       async close() {
-        await page?.close();
+        if (!keepOpen) await page?.close();
         page = null;
       }
     };
+    async function readTarget(page2, target, defaultRegion) {
+      const landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt: isTiktokBlockedUrl, continueOnTimeout: true });
+      if (isTiktokBlockedUrl(landed)) {
+        throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
+      }
+      const extracted = await page2.ask(
+        { type: "TRIGGER_TIKTOK_CC_EXTRACT", trendType: target.trendType, sourceKeyword: target.sourceKeyword, defaultRegion },
+        { timeoutMs: EXTRACTION_TIMEOUT_MS4, inject: CONTENT_FILES2, guard: TIKTOK_CC_PAGE_GUARD }
+      );
+      if (!extracted.ok) {
+        throw new RuntimeError(SITE_REQUEST_FAILED, `TikTok \uD2B8\uB80C\uB4DC '${target.id}'\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, target: target.id });
+      }
+      return {
+        region: sanitizeTiktokRegion(extracted.region),
+        items: (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => Boolean(item) && typeof item === "object")
+      };
+    }
   }
 
   // extensions/src/sites/wing/pre-matching-search.ts

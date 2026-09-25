@@ -1,4 +1,5 @@
-import { RuntimeError } from '../core/errors';
+import { RuntimeError, isRuntimeError } from '../core/errors';
+import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../core/site-caller';
 
 /**
  * 사이트가 DOM을 읽어야 할 때 쓰는 탭 한 장(KID-360). 사이트는 탭을 열고(백그라운드), 주소를 옮기고, 다 그려질 때까지
@@ -18,7 +19,7 @@ export interface TabPage {
    * content script에 메시지를 보내고 답을 기다린다. 받는 쪽이 없으면 `inject`의 파일(ISOLATED·MAIN)을 주입하고
    * 한 번 더 보낸다. 시간이 지나면 `{ ok: false, error: 'timeout' }`.
    */
-  ask<T extends PageAnswer>(message: Record<string, unknown>, options: { timeoutMs: number; inject?: InjectFiles }): Promise<T>;
+  ask<T extends PageAnswer>(message: Record<string, unknown>, options: { timeoutMs: number; inject?: InjectFiles; guard?: PageGuard }): Promise<T>;
   /** 이 탭에서 오는 runtime 메시지를 받는다(상품 추출처럼 content script가 먼저 말하는 경우). 해제 함수를 돌려준다. */
   listen(listener: (message: Record<string, unknown>) => void): () => void;
   /** 이 사이트가 연 탭이면 닫는다(운영자 탭은 닫지 않는다). */
@@ -29,6 +30,44 @@ export interface TabPage {
 export interface PageAnswer {
   ok?: boolean;
   error?: string;
+}
+
+/**
+ * 탭이 사이트 밖으로 옮겨 갔는지 보는 규칙(KID-355 QA: 1688 슬라이더 뒤 login.taobao.com 리다이렉트). 확장 권한 밖
+ * 호스트에 주입하면 Chrome이 권한 오류로 실행을 죽인다 — 묻기 전과 주입 직전에 탭의 지금 주소를 이 규칙으로 본다.
+ */
+export interface PageGuard {
+  /** 이 사이트가 읽는 호스트(확장 권한 안). */
+  allows(url: URL): boolean;
+  /** 사이트의 로그인 화면(운영자가 열려 있는 탭에서 로그인한다). */
+  isLogin(url: URL): boolean;
+  loginMessage: string;
+}
+
+/** 로그인 화면이면 `SITE_LOGIN_REQUIRED`, 사이트 밖 다른 주소면 `SITE_REQUEST_FAILED{reason:'unexpected_url'}`. */
+export function checkPageUrl(guard: PageGuard, value: string): void {
+  let url: URL;
+  try {
+    url = new URL(value);
+  } catch {
+    throw new RuntimeError(SITE_REQUEST_FAILED, '수집 탭의 주소를 읽지 못했습니다.', { status: null, reason: 'unexpected_url', url: value });
+  }
+  if (guard.isLogin(url)) throw new RuntimeError(SITE_LOGIN_REQUIRED, guard.loginMessage, { url: value });
+  if (!guard.allows(url)) {
+    throw new RuntimeError(SITE_REQUEST_FAILED, '수집 탭이 예상하지 못한 주소로 옮겨 갔습니다. 열려 있는 탭을 확인한 뒤 다시 수집해 주세요.',
+      { status: null, reason: 'unexpected_url', url: value });
+  }
+}
+
+/** 사이트 밖으로 옮겨 간 탭(로그인·예상 밖 주소)의 실패인가 — 그 탭은 닫지 않고 운영자에게 남긴다. */
+export function leftForOperator(error: unknown): boolean {
+  return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === 'unexpected_url');
+}
+
+/** 호스트가 그 도메인이거나 그 하위 도메인인가. */
+export function hostWithin(url: URL, domains: readonly string[]): boolean {
+  const host = url.hostname.toLowerCase();
+  return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
 }
 
 export interface InjectFiles {
@@ -121,9 +160,18 @@ export function createTabPages(deps: TabPageDeps): TabPages {
         if (!tab?.url) throw new RuntimeError(SITE_TAB_UNAVAILABLE, '수집할 탭을 찾지 못했습니다.', { tabId });
         return tab.url;
       },
-      async ask<T extends PageAnswer>(message: Record<string, unknown>, { timeoutMs, inject }: { timeoutMs: number; inject?: InjectFiles }) {
+      async ask<T extends PageAnswer>(message: Record<string, unknown>, { timeoutMs, inject, guard }: { timeoutMs: number; inject?: InjectFiles; guard?: PageGuard }) {
+        const checkHere = async () => {
+          if (!guard) return;
+          const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
+          if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, '수집 탭이 닫혔습니다.', { tabId });
+          checkPageUrl(guard, tab.url ?? '');
+        };
+        await checkHere();
         const first = await send<T>(message, timeoutMs);
         if (!inject || !isMissing(first)) return first;
+        // 묻는 사이에 탭이 옮겨 갔을 수 있다(로그인 리다이렉트) — 주입 직전에 다시 본다.
+        await checkHere();
         await deps.chrome.scripting.executeScript({ target: { tabId }, files: [...inject.isolated] });
         if (inject.main?.length) {
           await deps.sleep(300);

@@ -1,7 +1,7 @@
 import { RuntimeError } from '../../core/errors';
 import { SITE_REQUEST_FAILED } from '../../core/site-caller';
 import type { SiteDefinition } from '../site';
-import type { InjectFiles, TabPages } from '../tab-page';
+import { hostWithin, leftForOperator, type InjectFiles, type PageGuard, type TabPages } from '../tab-page';
 
 const NAVIGATION_TIMEOUT_MS = 35_000;
 const EXTRACTION_TIMEOUT_MS = 25_000;
@@ -11,6 +11,14 @@ const CONTENT_FILES: InjectFiles = {
 };
 
 export const SITE_VERIFICATION_REQUIRED = 'SITE_VERIFICATION_REQUIRED' as const;
+
+/** 방송 탭이 있어도 되는 곳: 1688·도우인 호스트(확장 권한). 로그인은 타오바오·1688·도우인 로그인 화면이다. */
+export const LIVE_COMMERCE_PAGE_GUARD: PageGuard = {
+  allows: (url) => hostWithin(url, ['1688.com', 'douyin.com']),
+  isLogin: (url) => hostWithin(url, ['login.taobao.com', 'login.1688.com', 'passport.1688.com', 'sso.douyin.com', 'passport.douyin.com'])
+    || (hostWithin(url, ['douyin.com']) && /\/login/i.test(url.pathname)),
+  loginMessage: '라이브 방송 사이트 로그인이 필요합니다. 열려 있는 탭에서 로그인한 뒤 다시 수집해 주세요.',
+};
 
 /** 1688·도우인 라이브 방송 페이지. 탭은 이 사이트가 방송 주소로 열고 닫는다. */
 export const LIVE_COMMERCE_SITE: SiteDefinition = {
@@ -51,10 +59,17 @@ export function createLiveCommerceSite(tabs: TabPages) {
           keepOpen = true;
           throw verification(landed);
         }
-        const extracted = await page.ask<Partial<LiveCommerceCapture> & { ok?: boolean; error?: string; status?: string; verificationUrl?: string }>(
-          { type: 'TRIGGER_LIVE_COMMERCE_EXTRACT' },
-          { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: CONTENT_FILES },
-        );
+        let extracted: Partial<LiveCommerceCapture> & { ok?: boolean; error?: string; status?: string; verificationUrl?: string };
+        try {
+          extracted = await page.ask(
+            { type: 'TRIGGER_LIVE_COMMERCE_EXTRACT' },
+            { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: CONTENT_FILES, guard: LIVE_COMMERCE_PAGE_GUARD },
+          );
+        } catch (error) {
+          // 로그인·예상 밖 주소면 운영자가 볼 수 있게 탭을 남긴다.
+          if (leftForOperator(error)) keepOpen = true;
+          throw error;
+        }
         if (extracted.status === 'verification_required') {
           keepOpen = true;
           throw verification(extracted.verificationUrl ?? landed);
