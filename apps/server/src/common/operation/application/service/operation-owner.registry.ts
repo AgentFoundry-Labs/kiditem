@@ -1,6 +1,6 @@
 import { Injectable, type OnModuleInit, SetMetadata } from '@nestjs/common';
 import { DiscoveryService, Reflector } from '@nestjs/core';
-import { OperationKindSchema } from '@kiditem/shared/operation';
+import { OPERATION_LEASE_MS, OperationKindSchema } from '@kiditem/shared/operation';
 import type { OperationOwnerPort } from '../port/out/owner/operation-owner.port';
 
 const OPERATION_OWNER_METADATA = 'kiditem:operation-owner';
@@ -40,5 +40,10 @@ export class OperationOwnerRegistry implements OnModuleInit {
 
   find(kind: string): OperationOwnerPort | undefined {
     return this.owners.get(kind);
+  }
+
+  /** kind의 임대 길이. owner가 정하지 않았으면 계약 기본 30분(KID-358). */
+  leaseMs(kind: string): number {
+    return this.owners.get(kind)?.leaseMs ?? OPERATION_LEASE_MS;
   }
 }

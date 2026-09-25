@@ -11,9 +11,9 @@ export const OPERATION_EXPIRED_ERROR_MESSAGE: OperationFenceLostReason = 'expire
 
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-/** 임대: 마지막 fenced 쓰기부터 30분(ADR-0025). */
-export function leaseExpiresAt(now: Date): Date {
-  return new Date(now.getTime() + OPERATION_LEASE_MS);
+/** 임대: 마지막 fenced 쓰기부터 kind의 임대 길이(기본 30분, ADR-0025 · KID-358). */
+export function leaseExpiresAt(now: Date, leaseMs: number = OPERATION_LEASE_MS): Date {
+  return new Date(now.getTime() + leaseMs);
 }
 
 export function isLeaseExpired(expiresAt: Date, now: Date): boolean {
@@ -50,6 +50,8 @@ export function evaluateOperationFence(
   if (!presentedToken || !UUID.test(presentedToken) || presentedToken.toLowerCase() !== state.token.toLowerCase()) {
     return { verdict: 'not_found' };
   }
+  // prepared는 아직 토큰을 내준 적이 없다(재시도로 돌아온 실행은 토큰이 바뀌었다).
+  if (state.status === 'prepared') return { verdict: 'not_found' };
   if (isOperationTerminal(state.status)) {
     return { verdict: 'reject', reason: closedByExpiry(state) ? 'expired' : 'terminal', expire: false };
   }
