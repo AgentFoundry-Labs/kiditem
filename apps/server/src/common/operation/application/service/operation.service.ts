@@ -1,5 +1,5 @@
 import { randomUUID } from 'node:crypto';
-import { Inject, Injectable } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import {
   KiditemConflictError,
   KiditemExternalError,
@@ -91,6 +91,8 @@ function isUniqueViolation(error: unknown): boolean {
  */
 @Injectable()
 export class OperationService implements OperationPort {
+  private readonly logger = new Logger(OperationService.name);
+
   constructor(
     @Inject(OPERATION_REPOSITORY) private readonly operations: OperationRepositoryPort,
     private readonly owners: OperationOwnerRegistry,
@@ -234,6 +236,9 @@ export class OperationService implements OperationPort {
         token: randomUUID(),
         expiresAt: leaseExpiresAt(now, this.owners.leaseMs(candidate.kind)),
       });
+      this.logger.log(
+        `claimed ${claimed.kind} operation ${claimed.id} attempt ${claimed.attempts}/${claimed.maxAttempts} by ${request.workerId}`,
+      );
       return { operation: toOperationView(claimed), token: claimed.token, organizationId: claimed.organizationId };
     });
   }
