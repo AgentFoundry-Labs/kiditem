@@ -601,57 +601,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-
-
-  if (msg.action === "runCoupangReviewCollection") {
-    KidItemCoupangReviewCollector.start(
-      {
-        attemptId: msg.attemptId,
-        attemptToken: msg.attemptToken,
-        plan: msg.plan,
-      },
-      coupangReviewCollectorDependencies(environmentId),
-    )
-      .then((result) => sendResponse(result))
-      .catch((e) =>
-        sendResponse({
-          success: false,
-          started: false,
-          error: e?.message || "쿠팡 리뷰 수집 시작 실패",
-        }),
-      );
-    return true;
-  }
-
-  if (msg.action === "getCoupangReviewCollectionStatus") {
-    KidItemCoupangReviewCollector.getStatus(
-      typeof msg.runId === "string" ? msg.runId : null,
-      coupangReviewCollectorDependencies(environmentId).stateKey,
-    )
-      .then((status) => sendResponse(status))
-      .catch(() => sendResponse({ status: "idle" }));
-    return true;
-  }
-
-  if (msg.action === "cancelCoupangReviewCollection") {
-    const dependencies = coupangReviewCollectorDependencies(environmentId);
-    KidItemCoupangReviewCollector.cancel(
-      typeof msg.runId === "string" ? msg.runId : null,
-      dependencies.stateKey,
-      dependencies,
-    )
-      .then((result) => sendResponse(result))
-      .catch((e) =>
-        sendResponse({
-          success: false,
-          cancelled: false,
-          error: e?.message || "쿠팡 리뷰 수집 중단 실패",
-        }),
-      );
-    return true;
-  }
-
-
   if (msg.action === "registerRepresentativeImage") {
     registerRepresentativeImage(msg)
       .then((result) => sendResponse(result))
@@ -709,20 +658,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 });
-
-function coupangReviewCollectorDependencies(environmentId) {
-  adsEnvironmentContext.requireEnvironment(environmentId);
-  return {
-    authedFetch: (path, init) => authedFetch(environmentId, path, init),
-    stateKey: coupangEnvironment.stateKey(
-      KidItemCoupangReviewCollector.stateKey,
-      environmentId,
-    ),
-    createTab,
-    waitForTabComplete,
-    removeTab,
-  };
-}
 
 // 단일 상품 직접 등록: formV2 탭을 열고 content script(wing-registration-fill)에 채움 데이터 전송.
 // ⚠️ 제출은 하지 않는다 — content script 가 채우기만 하고 사용자가 확인 후 등록.
@@ -1899,9 +1834,6 @@ KidItemDomains.register({
     coupangCatalogSnapshot: true,
     coupangCatalogSourceAttempts: true,
     coupangCatalogSnapshotSource: "wing-inventory-v1",
-    coupangReviewCollection: true,
-    coupangReviewCollectionWindowReceiptsV1: true,
-    coupangReviewCollectionSource: "wing-cs-product-review",
     browserCollectionSessions: true,
     collectionStartV1: true,
     advertisingKeywordSourceOwnerV1: true,
@@ -1915,14 +1847,6 @@ KidItemDomains.register({
     wingFormReadinessV2: true,
     wingFormPortV1: true,
   },
-  cancelAdditionalCollections: (environmentId) =>
-    KidItemCoupangReviewCollector.cancelAdditionalCollections(
-      coupangReviewCollectorDependencies(environmentId),
-    ),
-  retryAdditionalCollections: (environmentId) =>
-    KidItemCoupangReviewCollector.retryAdditionalCollections(
-      coupangReviewCollectorDependencies(environmentId),
-    ),
   cancelCollectionSession,
   recoverCollections: (environmentId) => recoverCoupangCollections(environmentId),
 });

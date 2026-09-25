@@ -2,10 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   cancelCoupangReviewCollection,
   detectReviewExtensionGate,
-  getCoupangReviewCollectionExtensionStatus,
-  getCoupangReviewCollectionStatus,
-  recoverCoupangReviewCollection,
-  runCoupangReviewCollection,
+  readLatestCoupangReviewCollection,
+  resolveCoupangReviewAccountId,
+  startCoupangReviewCollection,
 } from './review-extension';
 
 const bridge = vi.hoisted(() => ({
@@ -21,204 +20,118 @@ const api = vi.hoisted(() => ({
 vi.mock('@/lib/extension-bridge', () => bridge);
 vi.mock('@/lib/api-client', () => ({ apiClient: api }));
 
-const ATTEMPT_ID = 'a1111111-1111-4111-8111-111111111111';
-const ATTEMPT_TOKEN = 'b1111111-1111-4111-8111-111111111111';
-const PLAN = {
-  sourceType: 'coupang_reviews',
-  parserVersion: 'coupang-review-v1',
-  months: 3,
-  windows: [
-    { index: 0, label: '2026-09', start: '2026-09-01', end: '2026-09-07' },
-    { index: 1, label: '2026-08', start: '2026-08-01', end: '2026-08-31' },
-    { index: 2, label: '2026-07', start: '2026-07-01', end: '2026-07-31' },
-  ],
-  pageSize: 50,
-  maxPagesPerWindow: 40,
-};
+const OPERATION_ID = 'a1111111-1111-4111-8111-111111111111';
+const ACCOUNT_ID = 'c1111111-1111-4111-8111-111111111111';
+const WINDOWS = [
+  { index: 0, label: '2026-09', start: '2026-09-01T00:00:00+09:00', end: '2026-09-25T23:59:59+09:00' },
+  { index: 1, label: '2026-08', start: '2026-08-01T00:00:00+09:00', end: '2026-08-31T23:59:59+09:00' },
+  { index: 2, label: '2026-07', start: '2026-07-01T00:00:00+09:00', end: '2026-07-31T23:59:59+09:00' },
+];
 
-function attempt(overrides: Record<string, unknown> = {}) {
+function operation(overrides: Record<string, unknown> = {}) {
   return {
-    attemptId: ATTEMPT_ID,
-    sourceImportRunId: ATTEMPT_ID,
-    state: 'RUNNING',
-    plan: PLAN,
-    expiresAt: '2026-09-07T12:00:00.000Z',
-    completedWindows: [],
-    windowReceipts: [],
-    coverageStartDate: null,
-    coverageEndDate: null,
-    collected: 0,
-    created: 0,
-    updated: 0,
-    linked: 0,
-    unlinked: 0,
+    id: OPERATION_ID,
+    kind: 'orders.coupang_reviews',
+    status: 'executing',
+    lockKeys: [`account:${ACCOUNT_ID}`],
+    plan: { channelAccountId: ACCOUNT_ID, windows: WINDOWS, maxPagesPerWindow: 40 },
+    progress: {
+      current: '2026-08',
+      windows: [
+        { index: 0, pages: 3, items: 120, done: true },
+        { index: 1, pages: 1, items: 30, done: false },
+      ],
+    },
+    result: null,
+    window: { start: '2026-07-01', end: '2026-09-25' },
     errorCode: null,
     errorMessage: null,
+    startedAt: '2026-09-25T10:00:00.000Z',
+    finishedAt: null,
+    expiresAt: '2026-09-25T10:30:00.000Z',
+    attempts: 1,
+    maxAttempts: 1,
+    scheduledFor: null,
     ...overrides,
   };
 }
 
-describe('Coupang review source-owner web bridge', () => {
+describe('쿠팡 상품평 수집 웹 다리(실행 계약 orders.coupang_reviews)', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-  });
-
-  it('requires the confirmed-window receipt capability before starting a review attempt', async () => {
     bridge.isChromeExtensionRuntimeAvailable.mockReturnValue(true);
-    bridge.detectExtensionId.mockResolvedValue('review-extension');
-    bridge.sendToExtension.mockResolvedValue({
-      success: true,
-      version: '999.0.0',
-      capabilities: { coupangReviewCollection: true },
-    });
+  });
+
+  it('확장이 새 실행 런타임(operationRuntime)을 알릴 때만 준비된 것으로 본다', async () => {
+    bridge.detectExtensionId.mockResolvedValue('ext');
+    bridge.sendToExtension.mockResolvedValueOnce({ success: true, version: '1.0.0', capabilities: { coupangReviewCollection: true } });
     await expect(detectReviewExtensionGate()).resolves.toMatchObject({ status: 'outdated' });
-
-    bridge.sendToExtension.mockResolvedValue({
-      success: true,
-      version: '999.0.0',
-      capabilities: {
-        coupangReviewCollection: true,
-        coupangReviewCollectionWindowReceiptsV1: true,
-      },
-    });
-    await expect(detectReviewExtensionGate()).resolves.toMatchObject({ status: 'ready' });
+    bridge.sendToExtension.mockResolvedValueOnce({ success: true, version: '1.0.0', capabilities: { operationRuntime: true } });
+    await expect(detectReviewExtensionGate()).resolves.toEqual({ status: 'ready', extensionId: 'ext', version: '1.0.0' });
   });
 
-  it('begins the server attempt before dispatching its frozen control to the extension', async () => {
-    api.post.mockResolvedValue(attempt({ attemptToken: ATTEMPT_TOKEN }));
-    bridge.sendToExtension.mockResolvedValue({ success: true, started: true });
+  it('수집 계정은 활성 쿠팡 계정 중 대표 계정, 없으면 첫 계정 — 없으면 안내 문장으로 거절', async () => {
+    const other = 'd1111111-1111-4111-8111-111111111111';
+    const account = (id: string, channel: string, isPrimary: boolean) => ({
+      id, channel, name: id, externalAccountId: null, vendorId: null, sellerId: null, isPrimary,
+    });
+    api.get.mockResolvedValueOnce([account(other, 'coupang', false), account(ACCOUNT_ID, 'coupang', true)]);
+    await expect(resolveCoupangReviewAccountId()).resolves.toBe(ACCOUNT_ID);
+    expect(api.get).toHaveBeenCalledWith('/api/channels/accounts');
+    api.get.mockResolvedValueOnce([account(other, 'rocket', true)]);
+    await expect(resolveCoupangReviewAccountId()).rejects.toThrow('쿠팡 계정');
+  });
 
-    await expect(runCoupangReviewCollection('review-extension', 3, 'stable-review-key'))
-      .resolves.toMatchObject({ status: 'running', runId: ATTEMPT_ID, months: 3 });
-
-    expect(api.post).toHaveBeenCalledWith(
-      '/api/reviews/attempts',
-      { months: 3 },
-      { headers: { 'Idempotency-Key': 'stable-review-key' } },
-    );
-    expect(bridge.sendToExtension).toHaveBeenCalledWith('review-extension', {
-      action: 'runCoupangReviewCollection',
-      attemptId: ATTEMPT_ID,
-      attemptToken: ATTEMPT_TOKEN,
-      plan: PLAN,
+  it('시작은 확장 operation.start {kind, scope:{channelAccountId, months}, idempotencyKey}로 보낸다', async () => {
+    bridge.sendToExtension.mockResolvedValue({ success: true, operationId: OPERATION_ID, reused: false });
+    await expect(startCoupangReviewCollection('ext', { channelAccountId: ACCOUNT_ID, months: 3 }, 'key-1')).resolves.toBe(OPERATION_ID);
+    expect(bridge.sendToExtension).toHaveBeenCalledWith('ext', {
+      action: 'operation.start',
+      kind: 'orders.coupang_reviews',
+      scope: { channelAccountId: ACCOUNT_ID, months: 3 },
+      idempotencyKey: 'key-1',
     });
   });
 
-  it('reads status from the Orders owner and fences cancellation with its token', async () => {
-    api.get.mockResolvedValue(attempt({ state: 'COMPLETE', collected: 4 }));
-    await expect(getCoupangReviewCollectionStatus('review-extension', ATTEMPT_ID))
-      .resolves.toMatchObject({ status: 'done', runId: ATTEMPT_ID, collected: 4 });
-    expect(api.get).toHaveBeenCalledWith(`/api/reviews/attempts/${ATTEMPT_ID}`);
-    expect(bridge.sendToExtension).not.toHaveBeenCalled();
-
-    api.post.mockResolvedValue({});
-    bridge.sendToExtension.mockResolvedValue({ success: true });
-    await cancelCoupangReviewCollection('review-extension', ATTEMPT_ID, ATTEMPT_TOKEN);
-    expect(api.post).toHaveBeenCalledWith(
-      `/api/reviews/attempts/${ATTEMPT_ID}/cancel`,
-      undefined,
-      { headers: { 'x-source-attempt-token': ATTEMPT_TOKEN } },
-    );
-    expect(bridge.sendToExtension).toHaveBeenCalledWith('review-extension', {
-      action: 'cancelCoupangReviewCollection',
-      runId: ATTEMPT_ID,
+  it('같은 계정 실행이 이미 돌고 있으면 그 실행을 이어서 본다, 다른 거절은 확장이 준 문장으로 던진다', async () => {
+    bridge.sendToExtension.mockResolvedValueOnce({
+      success: false, errorCode: 'OPERATION_IN_PROGRESS', error: '같은 실행이 이미 진행 중입니다.',
+      details: { existing: { operationId: OPERATION_ID, kind: 'orders.coupang_reviews' } },
     });
+    await expect(startCoupangReviewCollection('ext', { channelAccountId: ACCOUNT_ID, months: 3 }, 'key-2')).resolves.toBe(OPERATION_ID);
+    bridge.sendToExtension.mockResolvedValueOnce({ success: false, errorCode: 'VALIDATION_FAILED', error: '입력값이 올바르지 않습니다.' });
+    await expect(startCoupangReviewCollection('ext', { channelAccountId: ACCOUNT_ID, months: 3 }, 'key-3')).rejects.toThrow('입력값이 올바르지 않습니다.');
   });
 
-  it('recovers the token-free extension checkpoint and reads owner progress without redispatching', async () => {
-    bridge.sendToExtension.mockResolvedValue({
-      status: 'running',
-      runId: ATTEMPT_ID,
-      cancelRequested: true,
+  it('상태는 GET /api/operations?kinds=orders.coupang_reviews&limit=3의 최신 실행을 progress.windows로 읽는다', async () => {
+    api.get.mockResolvedValueOnce({ operations: [operation()] });
+    await expect(readLatestCoupangReviewCollection()).resolves.toEqual({
+      status: 'running', operationId: OPERATION_ID, total: 3, completed: 1, current: '2026-08', collected: 150,
+      inserted: null, updated: null, error: null,
     });
-    api.get.mockResolvedValue(attempt({ collected: 2 }));
+    expect(api.get).toHaveBeenCalledWith('/api/operations?kinds=orders.coupang_reviews&limit=3');
 
-    await expect(recoverCoupangReviewCollection('review-extension'))
-      .resolves.toMatchObject({ status: 'running', runId: ATTEMPT_ID, collected: 2, cancelRequested: true });
-    expect(bridge.sendToExtension).toHaveBeenCalledWith('review-extension', {
-      action: 'getCoupangReviewCollectionStatus',
+    api.get.mockResolvedValueOnce({
+      operations: [operation({
+        status: 'succeeded', finishedAt: '2026-09-25T10:10:00.000Z',
+        progress: { current: null, windows: WINDOWS.map((window) => ({ index: window.index, pages: 1, items: 10, done: true })) },
+        result: { windows: 3, reviews: 30, inserted: 20, updated: 10 },
+      })],
     });
-    expect(api.get).toHaveBeenCalledWith(`/api/reviews/attempts/${ATTEMPT_ID}`);
+    await expect(readLatestCoupangReviewCollection()).resolves.toMatchObject({
+      status: 'done', completed: 3, collected: 30, inserted: 20, updated: 10,
+    });
+
+    api.get.mockResolvedValueOnce({ operations: [operation({ status: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: 'Wing 로그인이 필요합니다.' })] });
+    await expect(readLatestCoupangReviewCollection()).resolves.toMatchObject({ status: 'error', error: 'Wing 로그인이 필요합니다.' });
+
+    api.get.mockResolvedValueOnce({ operations: [] });
+    await expect(readLatestCoupangReviewCollection()).resolves.toEqual({ status: 'idle' });
   });
 
-  it('resolves a lost in-memory token through owner control for cancel', async () => {
-    api.get.mockResolvedValueOnce(attempt({ attemptToken: ATTEMPT_TOKEN }));
-    api.post.mockResolvedValue({});
-    bridge.sendToExtension.mockResolvedValue({ success: true, pending: false });
-
-    await cancelCoupangReviewCollection('review-extension', ATTEMPT_ID);
-
-    expect(api.get).toHaveBeenCalledWith(`/api/reviews/attempts/${ATTEMPT_ID}/control`);
-    expect(api.post).toHaveBeenCalledWith(
-      `/api/reviews/attempts/${ATTEMPT_ID}/cancel`,
-      undefined,
-      { headers: { 'x-source-attempt-token': ATTEMPT_TOKEN } },
-    );
-    expect(bridge.sendToExtension).toHaveBeenCalledWith('review-extension', {
-      action: 'cancelCoupangReviewCollection',
-      runId: ATTEMPT_ID,
-    });
-  });
-
-  it('still sends the local cancel fence when auth/control recovery is unavailable', async () => {
-    api.get.mockRejectedValue(new Error('auth unavailable'));
-    bridge.sendToExtension.mockResolvedValue({ success: true, pending: true });
-
-    await expect(cancelCoupangReviewCollection('review-extension', ATTEMPT_ID))
-      .rejects.toThrow('auth unavailable');
-    expect(bridge.sendToExtension).toHaveBeenCalledWith('review-extension', {
-      action: 'cancelCoupangReviewCollection',
-      runId: ATTEMPT_ID,
-    });
-  });
-
-  it('dispatches the local fence before owner cancellation HTTP', async () => {
-    const events: string[] = [];
-    bridge.sendToExtension.mockImplementation(async () => {
-      events.push('extension');
-      return { success: true };
-    });
-    api.post.mockImplementation(async () => {
-      events.push('owner');
-      return {};
-    });
-
-    await cancelCoupangReviewCollection('review-extension', ATTEMPT_ID, ATTEMPT_TOKEN);
-
-    expect(events).toEqual(['extension', 'owner']);
-  });
-
-  it('rejects a recovered owner control for a different attempt', async () => {
-    api.get.mockResolvedValue(attempt({ attemptId: 'a2222222-2222-4222-8222-222222222222', attemptToken: ATTEMPT_TOKEN }));
-    bridge.sendToExtension.mockResolvedValue({ success: true });
-
-    await expect(cancelCoupangReviewCollection('review-extension', ATTEMPT_ID))
-      .rejects.toThrow('현재 실행과 일치하지 않습니다');
-    expect(api.post).not.toHaveBeenCalled();
-    expect(bridge.sendToExtension).toHaveBeenCalledWith('review-extension', {
-      action: 'cancelCoupangReviewCollection',
-      runId: ATTEMPT_ID,
-    });
-  });
-
-  it('exposes extension status without retaining an attempt token', async () => {
-    bridge.sendToExtension.mockResolvedValue({ status: 'running', runId: ATTEMPT_ID });
-    await expect(getCoupangReviewCollectionExtensionStatus('review-extension'))
-      .resolves.toEqual({ status: 'running', runId: ATTEMPT_ID });
-    expect(bridge.sendToExtension).toHaveBeenCalledWith('review-extension', {
-      action: 'getCoupangReviewCollectionStatus',
-    });
-  });
-
-  it('does not redispatch a terminal idempotency replay to the extension', async () => {
-    api.post.mockResolvedValue(attempt({
-      state: 'COMPLETE',
-      collected: 2,
-      attemptToken: ATTEMPT_TOKEN,
-    }));
-
-    await expect(runCoupangReviewCollection('review-extension', 3, 'replayed-key'))
-      .resolves.toMatchObject({ status: 'done', started: false, collected: 2 });
-    expect(bridge.sendToExtension).not.toHaveBeenCalled();
+  it('중단은 서버 POST /api/operations/:id/cancel', async () => {
+    api.post.mockResolvedValue({ operation: operation({ status: 'cancelled' }) });
+    await cancelCoupangReviewCollection(OPERATION_ID);
+    expect(api.post).toHaveBeenCalledWith(`/api/operations/${OPERATION_ID}/cancel`);
   });
 });

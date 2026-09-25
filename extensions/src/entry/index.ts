@@ -1,6 +1,7 @@
 import '../collectors/channels.wing_catalog_details';
 import '../collectors/channels.wing_catalog_excel';
 import '../collectors/channels.wing_catalog_list';
+import '../collectors/orders.coupang_reviews';
 import '../collectors/test.echo';
 import { createBrowserResources } from '../core/browser';
 import { ACCOUNT_SITE, ENTRY_SITES, createSiteHandles } from './site-handles';
@@ -28,3 +29,4 @@ export function installEntry(): boolean {
   registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true } });
   return true;
 }
+

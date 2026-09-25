@@ -346,7 +346,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/feature-gate` | Platform Capability | Feature flag endpoint and config behavior. |
 | `apps/server/src/finance` | Owner Domain | Live P&L, sales analysis, supplier payments, sales plans, settlements, and read-only profitability evidence consumed by Products' explicit ABC evaluation. |
 | `apps/server/src/inventory` | Owner Domain | Warehouse and stock-transfer records plus read-only Rocket workbook progress; Products owns source collection/current stock, Orders owns return records. |
-| `apps/server/src/orders` | Owner Domain | Orders, reviews, return-transfer operations, Coupang directship collection conversion, and durable Sellpia workbook submission idempotency/audit. |
+| `apps/server/src/orders` | Owner Domain | Orders, reviews (collected through the `orders.coupang_reviews` operation kind), return-transfer operations, Coupang directship collection conversion, and durable Sellpia workbook submission idempotency/audit. |
 | `apps/server/src/organizations` | Platform Capability | Organization listing surface. |
 | `apps/server/src/prisma` | Platform Support | `PrismaModule` and `PrismaService` only. |
 | `apps/server/src/products` | Owner Domain | Source-inventory `MasterProduct` identity/current stock/purchase price, Sellpia collection/publication, image metadata, reads/exports and explicit ABC evaluation; `/api/categories` compatibility CRUD. |

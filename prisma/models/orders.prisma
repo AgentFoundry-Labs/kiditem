@@ -74,29 +74,6 @@ model CoupangDirectTransportConsumption {
 }
 
 /// @namespace Orders
-/// @describe Fenced, organization-scoped review collection chunks. Chunks are staging evidence only and are deleted in the terminal publication transaction.
-model ReviewCollectionChunk {
-  id                String   @id @default(uuid()) @db.Uuid
-  organizationId    String   @map("organization_id") @db.Uuid
-  sourceImportRunId String   @map("source_import_run_id") @db.Uuid
-  windowIndex       Int      @map("window_index")
-  sequence          Int
-  checksum          String   @db.VarChar(64)
-  itemCount         Int      @map("item_count")
-  payload           Json     @db.JsonB
-  createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt         DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun SourceImportRun @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Cascade)
-
-  @@unique([sourceImportRunId, windowIndex, sequence], map: "review_collection_chunks_run_window_sequence_key")
-  @@unique([id, organizationId], map: "review_collection_chunks_id_org_key")
-  @@index([organizationId, sourceImportRunId])
-  @@map("review_collection_chunks")
-}
-
-/// @namespace Orders
 /// @describe Organization-scoped idempotency fence for browser Sellpia order transmission. It does not represent or mutate inventory freshness.
 model SellpiaOrderTransmissionIntent {
   id             String    @id @default(uuid()) @db.Uuid
@@ -261,10 +238,14 @@ model Settlement {
 /// `listingId` 는 `externalOptionId`(쿠팡 vendorItemId) → `ChannelListingOption` 매칭 결과이며
 /// 매칭 실패 시 null(미연결 리뷰)로 남는다.
 model Review {
-  id                String  @id @default(uuid()) @db.Uuid
-  organizationId    String  @map("organization_id") @db.Uuid
-  sourceImportRunId String? @map("source_import_run_id") @db.Uuid
-  listingId         String? @map("listing_id") @db.Uuid
+  id                String    @id @default(uuid()) @db.Uuid
+  organizationId    String    @map("organization_id") @db.Uuid
+  sourceImportRunId String?   @map("source_import_run_id") @db.Uuid
+  /// 이 행을 마지막으로 쓴 실행(operations.id, 스칼라·FK 없음, ADR-0025). 옛 sourceImportRunId 행은 KID-365까지 함께 읽힌다.
+  operationId       String?   @map("operation_id") @db.Uuid
+  /// 실행이 이 행을 마지막으로 발행한 시각(옛 publication_sequence 대체). 리뷰당 실행 행은 하나이고, 옛 run 행보다 항상 앞선다.
+  publishedAt       DateTime? @map("published_at") @db.Timestamptz
+  listingId         String?   @map("listing_id") @db.Uuid
 
   platform     String  @default("coupang")
   rating       Int
@@ -295,8 +276,10 @@ model Review {
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   sourceImportRun SourceImportRun? @relation("ReviewCollectionFacts", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Cascade)
 
-  @@unique([organizationId, platform, externalReviewId], map: "reviews_org_platform_external_legacy_key", where: raw("source_import_run_id IS NULL"))
+  /// 실행 행은 (조직, 플랫폼, 리뷰)당 하나다 — 실행 finalize가 내용·operationId·publishedAt을 갱신한다(KID-359).
+  @@unique([organizationId, platform, externalReviewId], map: "reviews_org_platform_external_operation_key", where: raw("operation_id IS NOT NULL"))
   @@unique([organizationId, sourceImportRunId, platform, externalReviewId], map: "reviews_org_source_run_external_key", where: raw("source_import_run_id IS NOT NULL"))
+  @@index([organizationId, operationId])
   @@index([organizationId])
   @@index([organizationId, sourceImportRunId])
   @@index([listingId])

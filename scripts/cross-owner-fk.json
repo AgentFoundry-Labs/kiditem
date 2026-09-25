@@ -67,7 +67,6 @@
     "RegistrationTargetOption": "channels",
     "ReturnTransfer": "inventory",
     "Review": "orders",
-    "ReviewCollectionChunk": "orders",
     "RocketPoCatalogLine": "orders",
     "RocketPoCatalogSnapshot": "orders",
     "RocketPurchaseConfirmation": "supply",

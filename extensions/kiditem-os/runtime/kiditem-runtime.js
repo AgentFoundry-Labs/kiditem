@@ -4920,6 +4920,198 @@ var KidItemRuntime = (() => {
   }
   registerCollector(wingCatalogListCollector);
 
+  // packages/shared/src/schemas/reviews.ts
+  var ReviewFilterSchema = external_exports.enum(["all", "new", "needs-response"]);
+  var ReviewListItemSchema = external_exports.object({
+    listingId: external_exports.string(),
+    productId: external_exports.string(),
+    productName: external_exports.string(),
+    sku: external_exports.string().nullable(),
+    organization: external_exports.string(),
+    grade: external_exports.string(),
+    totalReviews: external_exports.number(),
+    avgRating: external_exports.number(),
+    recentReviews: external_exports.number(),
+    // null means the order source has not been observed for this organization.
+    orderCount: external_exports.number().int().nonnegative().nullable(),
+    lastReviewAt: external_exports.string().nullable()
+  });
+  var ReviewSummarySchema = external_exports.object({
+    // 리뷰가 있는 active listing 수
+    listingCount: external_exports.number().int().nonnegative(),
+    // 회사 전체 누적 review 수
+    totalReviewCount: external_exports.number().int().nonnegative(),
+    // 회사 전체 review rating 의 가중 평균. review 가 0건이면 미측정(null).
+    weightedAvgRating: external_exports.number().nonnegative().nullable(),
+    // totalReviews < 5 인 listing 수.
+    newListingCount: external_exports.number().int().nonnegative(),
+    // avgRating < 3.5 이고 리뷰 5건 이상인 listing 수.
+    needsResponseCount: external_exports.number().int().nonnegative(),
+    // listing 단위로 (avgRating < 3.5) || (totalReviews < 5) 인 row 수.
+    // 임계값은 frontend filter (`needs-response`/`new`) 와 일치.
+    needsAttentionCount: external_exports.number().int().nonnegative()
+  });
+  var ReviewListResponseSchema = external_exports.object({
+    items: external_exports.array(ReviewListItemSchema),
+    total: external_exports.number().int().nonnegative(),
+    page: external_exports.number().int().positive(),
+    limit: external_exports.number().int().positive(),
+    summary: ReviewSummarySchema
+  });
+  var ReviewItemSchema = external_exports.object({
+    id: external_exports.string(),
+    listingId: external_exports.string().nullable(),
+    /** listing 매칭 실패 시 크롤링 당시 채널 상품명으로 폴백한다. */
+    productName: external_exports.string(),
+    optionName: external_exports.string().nullable(),
+    rating: external_exports.number().int(),
+    title: external_exports.string().nullable(),
+    content: external_exports.string().nullable(),
+    reviewerName: external_exports.string().nullable(),
+    reviewedAt: external_exports.string(),
+    imageCount: external_exports.number().int().nonnegative(),
+    videoCount: external_exports.number().int().nonnegative(),
+    /** 채널 상품 상세 링크용 노출상품ID. */
+    externalProductId: external_exports.string().nullable()
+  });
+  var ReviewItemListResponseSchema = external_exports.object({
+    items: external_exports.array(ReviewItemSchema),
+    total: external_exports.number().int().nonnegative(),
+    page: external_exports.number().int().positive(),
+    limit: external_exports.number().int().positive(),
+    /** 별점 1~5 별 건수. 현재 필터(별점 제외) 기준 분포. */
+    ratingCounts: external_exports.record(external_exports.string(), external_exports.number().int().nonnegative()),
+    /** 본문이 있는 리뷰 수. 쿠팡은 별점만 남기는 리뷰가 대부분이다. */
+    withContentCount: external_exports.number().int().nonnegative()
+  });
+  var ReviewIngestItemSchema = external_exports.object({
+    /** 쿠팡 reviewId. 재수집 멱등 키. */
+    externalReviewId: external_exports.string().min(1),
+    /** 쿠팡 vendorItemId(옵션ID). ChannelListingOption 매칭 키. */
+    externalOptionId: external_exports.string().min(1).nullable().default(null),
+    /** 쿠팡 productId(노출상품ID). */
+    externalProductId: external_exports.string().min(1).nullable().default(null),
+    itemName: external_exports.string().nullable().default(null),
+    rating: external_exports.number().int().min(1).max(5),
+    title: external_exports.string().nullable().default(null),
+    content: external_exports.string().nullable().default(null),
+    reviewerName: external_exports.string().nullable().default(null),
+    /** 리뷰 작성 시각(epoch ms). */
+    reviewedAt: external_exports.number().int().positive(),
+    imageCount: external_exports.number().int().nonnegative().default(0),
+    videoCount: external_exports.number().int().nonnegative().default(0),
+    isDeleted: external_exports.boolean().default(false),
+    isBlinded: external_exports.boolean().default(false)
+  });
+  var ReviewIngestRequestSchema = external_exports.object({
+    platform: external_exports.literal("coupang").default("coupang"),
+    items: external_exports.array(ReviewIngestItemSchema).min(1).max(200)
+  });
+  var ReviewIngestResponseSchema = external_exports.object({
+    received: external_exports.number().int().nonnegative(),
+    created: external_exports.number().int().nonnegative(),
+    updated: external_exports.number().int().nonnegative(),
+    /** listing 매칭에 성공한 건수. */
+    linked: external_exports.number().int().nonnegative(),
+    /** vendorItemId 로 ChannelListingOption 을 못 찾은 건수. */
+    unlinked: external_exports.number().int().nonnegative()
+  });
+  var COUPANG_REVIEWS_KIND = "orders.coupang_reviews";
+  var COUPANG_REVIEWS_CHUNK_KIND = "reviews";
+  var COUPANG_REVIEWS_MAX_MONTHS = 36;
+  var COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW = 40;
+  var COUPANG_REVIEWS_CHUNK_ITEMS = 200;
+  var CoupangReviewsScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    months: external_exports.number().int().min(1).max(COUPANG_REVIEWS_MAX_MONTHS),
+    maxPagesPerWindow: external_exports.number().int().min(1).max(COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW).default(COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW)
+  }).strict();
+  var CoupangReviewsWindowSchema = external_exports.object({
+    index: external_exports.number().int().nonnegative(),
+    label: external_exports.string().min(1),
+    start: external_exports.string().datetime({ offset: true }),
+    end: external_exports.string().datetime({ offset: true })
+  }).strict();
+  var CoupangReviewsChunkItemSchema = ReviewIngestItemSchema.extend({
+    windowIndex: external_exports.number().int().nonnegative()
+  });
+  var COUPANG_REVIEWS_WINDOW_CHUNK_KIND = "review_windows";
+  var CoupangReviewsWindowDoneSchema = external_exports.object({
+    index: external_exports.number().int().nonnegative(),
+    pages: external_exports.number().int().nonnegative(),
+    items: external_exports.number().int().nonnegative()
+  }).strict();
+  var CoupangReviewsProgressSchema = external_exports.object({
+    current: external_exports.string().nullable(),
+    windows: external_exports.array(external_exports.object({
+      index: external_exports.number().int().nonnegative(),
+      pages: external_exports.number().int().nonnegative(),
+      items: external_exports.number().int().nonnegative(),
+      done: external_exports.boolean()
+    }).strict())
+  }).strict();
+  var CoupangReviewsResultSchema = external_exports.object({
+    windows: external_exports.number().int().nonnegative(),
+    reviews: external_exports.number().int().nonnegative(),
+    inserted: external_exports.number().int().nonnegative(),
+    updated: external_exports.number().int().nonnegative()
+  }).strict();
+
+  // extensions/src/collectors/orders.coupang_reviews/index.ts
+  var CoupangReviewsPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    windows: external_exports.array(CoupangReviewsWindowSchema).min(1),
+    maxPagesPerWindow: external_exports.number().int().min(1)
+  });
+  var COUPANG_REVIEWS_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
+  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
+  var coupangReviewsCollector = {
+    kind: COUPANG_REVIEWS_KIND,
+    site: "wing",
+    async *collect(rawPlan, site, { signal }) {
+      const parsed = CoupangReviewsPlanSchema.safeParse(rawPlan);
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      const plan = parsed.data;
+      const done = [];
+      for (const window of plan.windows) {
+        const status = { index: window.index, pages: 0, items: 0, done: false };
+        const progress = (current) => ({ current, windows: [...done, { ...status }] });
+        let buffer = [];
+        for (let pageIndex = 0; ; pageIndex += 1) {
+          if (signal.aborted) return;
+          if (pageIndex >= plan.maxPagesPerWindow) {
+            throw new RuntimeError(COUPANG_REVIEWS_PAGE_LIMIT_REACHED, `${window.label} \uC0C1\uD488\uD3C9\uC774 ${plan.maxPagesPerWindow}\uCABD\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, {
+              windowIndex: window.index
+            });
+          }
+          const page = await site.searchReviews({ start: window.start, end: window.end, pageIndex });
+          status.pages += 1;
+          for (const item of page.items) {
+            buffer.push({ ...item, windowIndex: window.index });
+            status.items += 1;
+            if (buffer.length === COUPANG_REVIEWS_CHUNK_ITEMS) {
+              yield reviewsChunk(buffer, progress(window.label));
+              buffer = [];
+            }
+          }
+          if (pageIndex + 1 >= page.totalPages) break;
+        }
+        if (signal.aborted) return;
+        if (buffer.length > 0) yield reviewsChunk(buffer, progress(window.label));
+        status.done = true;
+        done.push({ ...status });
+        const last = window === plan.windows[plan.windows.length - 1];
+        const marker = { index: status.index, pages: status.pages, items: status.items };
+        yield { chunkKind: COUPANG_REVIEWS_WINDOW_CHUNK_KIND, payload: [marker], progress: { current: last ? null : window.label, windows: [...done] } };
+      }
+    }
+  };
+  function reviewsChunk(payload, progress) {
+    return { chunkKind: COUPANG_REVIEWS_CHUNK_KIND, payload, progress };
+  }
+  registerCollector(coupangReviewsCollector);
+
   // extensions/src/collectors/test.echo/index.ts
   var CHUNKS = 2;
   var ITEMS_PER_CHUNK = 3;
@@ -5343,10 +5535,10 @@ var KidItemRuntime = (() => {
     mediaByKey.set(key, { sourceUrl, role, externalOptionIds: /* @__PURE__ */ new Set([externalOptionId]) });
   }
   function makeStableDocumentId(field, value, ordinal) {
-    const text = `${field}\0${stableStringify(value)}`;
+    const text2 = `${field}\0${stableStringify(value)}`;
     let hash = 2166136261;
-    for (let index = 0; index < text.length; index += 1) {
-      hash ^= text.charCodeAt(index);
+    for (let index = 0; index < text2.length; index += 1) {
+      hash ^= text2.charCodeAt(index);
       hash = Math.imul(hash, 16777619);
     }
     return `doc:${field}:${(hash >>> 0).toString(16).padStart(8, "0")}:${ordinal}`;
@@ -5369,19 +5561,19 @@ var KidItemRuntime = (() => {
     }
   }
   function normalizeImageUrl(value) {
-    const text = typeof value === "string" ? value.trim() : "";
-    if (!text) return null;
-    if (text.startsWith("//")) return `https:${text}`;
-    if (/^https?:\/\//i.test(text)) return text;
-    return `https://image1.coupangcdn.com/image/${text.replace(/^\/+/, "")}`;
+    const text2 = typeof value === "string" ? value.trim() : "";
+    if (!text2) return null;
+    if (text2.startsWith("//")) return `https:${text2}`;
+    if (/^https?:\/\//i.test(text2)) return text2;
+    return `https://image1.coupangcdn.com/image/${text2.replace(/^\/+/, "")}`;
   }
   function isRecord(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
   function nullableText(value) {
     if (value === null || value === void 0) return null;
-    const text = String(value).trim();
-    return text || null;
+    const text2 = String(value).trim();
+    return text2 || null;
   }
   function optionalId(value) {
     if (value === null || value === void 0 || value === "") return null;
@@ -5420,9 +5612,9 @@ var KidItemRuntime = (() => {
     return Number.isInteger(number) && number >= 0 ? number : null;
   }
   function requiredText(value, name) {
-    const text = typeof value === "string" ? value.trim() : "";
-    if (!text) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    return text;
+    const text2 = typeof value === "string" ? value.trim() : "";
+    if (!text2) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    return text2;
   }
   function requiredPositiveInteger(value, name) {
     if (!Number.isSafeInteger(value) || value <= 0) throw new WingPayloadError(`${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
@@ -5626,11 +5818,93 @@ var KidItemRuntime = (() => {
     return total;
   }
 
+  // extensions/src/sites/wing/reviews.ts
+  var WING_ORIGIN = "https://wing.coupang.com";
+  var WING_REVIEW_SEARCH_URL = `${WING_ORIGIN}/tenants/cs/product/review/search`;
+  var WING_REVIEW_PAGE_SIZE = 50;
+  var WING_REVIEW_CALLER = { minIntervalMs: 350 };
+  var WING_REVIEW_TIMEOUT_MS = 2e4;
+  async function searchWingReviews(caller, input, options = {}) {
+    const body = await caller.json(WING_REVIEW_SEARCH_URL, {
+      method: "POST",
+      signal: AbortSignal.timeout(options.timeoutMs ?? WING_REVIEW_TIMEOUT_MS),
+      headers: { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        startTime: input.start.slice(0, 10),
+        endTime: input.end.slice(0, 10),
+        rating: "",
+        salesStatus: "",
+        advancedType: "productName",
+        advancedInput: "",
+        pageIndex: input.pageIndex,
+        pageSize: WING_REVIEW_PAGE_SIZE,
+        productName: ""
+      })
+    });
+    if (body?.code !== "OK") {
+      const message = typeof body?.message === "string" && body.message ? body.message : "\uC54C \uC218 \uC5C6\uB294 \uC751\uB2F5";
+      throw new RuntimeError(SITE_REQUEST_FAILED, `Wing \uC0C1\uD488\uD3C9 \uC870\uD68C\uAC00 \uAC70\uC808\uB410\uC2B5\uB2C8\uB2E4: ${message}`, {
+        reason: "wing_review_rejected",
+        url: WING_REVIEW_SEARCH_URL
+      });
+    }
+    const content = Array.isArray(body.data?.content) ? body.data.content : [];
+    const items = content.map(normalizeWingReview).filter((item) => item !== null);
+    const totalPages = Number(body.data?.pagination?.totalPages);
+    return { items, totalPages: Number.isSafeInteger(totalPages) && totalPages > 0 ? totalPages : 0 };
+  }
+  function normalizeWingReview(value) {
+    if (!value || typeof value !== "object") return null;
+    const raw = value;
+    if (raw.reviewId === null || raw.reviewId === void 0) return null;
+    const rating = Number(raw.rating);
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) return null;
+    const reviewedAt = Number(raw.reviewAt || raw.createdAt || 0);
+    if (!Number.isFinite(reviewedAt) || reviewedAt <= 0) return null;
+    const attachment = attachmentCounts(raw.attachment);
+    return {
+      externalReviewId: String(raw.reviewId),
+      externalOptionId: raw.vendorItemId === null || raw.vendorItemId === void 0 ? null : String(raw.vendorItemId),
+      externalProductId: raw.productId === null || raw.productId === void 0 ? null : String(raw.productId),
+      itemName: text(raw.itemName),
+      rating: Math.round(rating),
+      title: text(raw.reviewTitle),
+      content: text(raw.reviewContent),
+      reviewerName: text(raw.memberName),
+      reviewedAt: Math.trunc(reviewedAt),
+      imageCount: attachment.images,
+      videoCount: attachment.videos,
+      isDeleted: raw.deleted === true,
+      isBlinded: raw.blinded === true
+    };
+  }
+  function attachmentCounts(value) {
+    if (typeof value !== "string" || !value) return { images: 0, videos: 0 };
+    try {
+      const parsed = JSON.parse(value);
+      return {
+        images: Array.isArray(parsed?.imageAttachments) ? parsed.imageAttachments.length : 0,
+        videos: Array.isArray(parsed?.videoAttachments) ? parsed.videoAttachments.length : 0
+      };
+    } catch {
+      return { images: 0, videos: 0 };
+    }
+  }
+  function text(value) {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  function createWingReviewsSite(caller) {
+    return { searchReviews: (input) => searchWingReviews(caller, input) };
+  }
+
   // extensions/src/entry/site-handles.ts
   var ENTRY_SITES = { [WING_SITE.name]: { origin: WING_SITE.origin } };
   var ACCOUNT_SITE = WING_SITE.name;
   function createSiteHandles(deps) {
     return (kind) => {
+      if (kind === COUPANG_REVIEWS_KIND) return createWingReviewsSite(createSiteCaller(WING_REVIEW_CALLER, deps));
       const site = collectorFor(kind)?.site ?? null;
       if (site === WING_SITE.name) return createWingSite(createSiteCaller(WING_SITE.caller, deps), { sleep: deps.sleep });
       return null;
@@ -5717,8 +5991,8 @@ var KidItemRuntime = (() => {
     }
     return parsed.data;
   }
-  async function sha256Hex(text) {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  async function sha256Hex(text2) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text2));
     return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   }
 

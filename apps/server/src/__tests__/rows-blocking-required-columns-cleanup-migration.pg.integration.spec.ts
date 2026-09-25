@@ -189,6 +189,8 @@ describe('v0.1.31:014 remove rows blocking required columns (PostgreSQL)', () =>
     // later v0.1.31 schema/cutover steps retire them. The Channels keys are
     // Office 0.1.30 keys KID-297 replaced with scalar ids (OFFICE_ONLY_KEYS,
     // plus the serp-capture key this release never declares as a key).
+    // review_collection_chunks is the Office review chunk store KID-359 drops
+    // (operation chunks replace it); 014 still clears it before the push.
     expect(declared.filter((link) => !live.includes(link))).toEqual([
       'channel_account_daily_kpi_snapshots.raw_snapshot_id -> channel_scrape_snapshots',
       'channel_ad_target_daily_snapshots.raw_snapshot_id -> channel_scrape_snapshots',
@@ -196,6 +198,7 @@ describe('v0.1.31:014 remove rows blocking required columns (PostgreSQL)', () =>
       'channel_listings.last_import_run_id -> source_import_runs',
       'channel_scrape_runs.source_import_run_id -> source_import_runs',
       'channel_scrape_snapshots.source_import_run_id -> source_import_runs',
+      'review_collection_chunks.source_import_run_id -> source_import_runs',
       'sellpia_inventory_skus.last_import_run_id -> source_import_runs',
     ]);
     // 36 keys once the Channels boundary keeps scalar ids (KID-297).

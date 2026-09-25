@@ -3,6 +3,8 @@ import { collectorFor } from '../collectors';
 import { createSiteCaller, type SiteCallerDeps } from '../core/site-caller';
 import type { BrowserSites } from '../core/browser';
 import { WING_SITE, createWingSite } from '../sites/wing';
+import { WING_REVIEW_CALLER, createWingReviewsSite } from '../sites/wing/reviews';
+import { COUPANG_REVIEWS_KIND } from '@kiditem/shared/reviews';
 
 /** 브라우저 자원이 탭을 여는 사이트 표(이름 → origin). `account:<id>` 잠금은 wing 탭을 쓴다. */
 export const ENTRY_SITES: BrowserSites = { [WING_SITE.name]: { origin: WING_SITE.origin } };
@@ -14,6 +16,8 @@ export const ACCOUNT_SITE = WING_SITE.name;
  */
 export function createSiteHandles(deps: SiteCallerDeps): (kind: OperationKind, lease: { tabId: number | null }) => unknown {
   return (kind) => {
+    // 상품평은 서비스워커에서 Wing 쿠키로 부른다(탭 없음, KID-359).
+    if (kind === COUPANG_REVIEWS_KIND) return createWingReviewsSite(createSiteCaller(WING_REVIEW_CALLER, deps));
     const site = collectorFor(kind)?.site ?? null;
     if (site === WING_SITE.name) return createWingSite(createSiteCaller(WING_SITE.caller, deps), { sleep: deps.sleep });
     return null;

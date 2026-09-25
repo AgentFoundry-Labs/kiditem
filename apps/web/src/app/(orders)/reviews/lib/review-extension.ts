@@ -1,11 +1,16 @@
-// Orders-owned Coupang review source owner bridge.
-// The server freezes the month plan, owns attempt state, and publishes only
-// generation-tagged facts from COMPLETE attempts. The extension only crawls
-// Wing and sends attempt-fenced chunks.
+// 쿠팡 상품평 수집 = 실행 kind `orders.coupang_reviews`(ADR-0025, KID-359).
+// 서버 owner가 월 창을 정하고 finish 트랜잭션에서만 리뷰를 쓴다. 확장은 Wing을 읽어 청크를 올릴 뿐이다.
+// 웹은 확장에 `operation.start`만 보내고, 진행·결과는 서버 `GET /api/operations`로 읽는다.
 
 import { z } from 'zod';
+import { ChannelAccountListItemSchema } from '@kiditem/shared/channel-account';
+import { OperationListResponseSchema, type OperationView } from '@kiditem/shared/operation';
+import {
+  COUPANG_REVIEWS_KIND,
+  CoupangReviewsProgressSchema,
+  CoupangReviewsResultSchema,
+} from '@kiditem/shared/reviews';
 import { apiClient } from '@/lib/api-client';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
   detectExtensionId,
   isChromeExtensionRuntimeAvailable,
@@ -15,16 +20,20 @@ import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
 import { attemptFailureText } from '@/lib/operator-error';
 
 export const REVIEW_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION;
-export const REVIEW_WINDOW_RECEIPT_CAPABILITY = 'coupangReviewCollectionWindowReceiptsV1';
+/** 확장 새 런타임(KID-357)이 `operation.start`를 받는다는 ping 표시. */
+export const REVIEW_OPERATION_RUNTIME_CAPABILITY = 'operationRuntime';
 export const REVIEW_EXTENSION_CHROME_REQUIRED =
   '쿠팡 리뷰 수집은 Chrome 확장프로그램으로 실행됩니다. Chrome에서 이 페이지를 열어주세요.';
 export const REVIEW_EXTENSION_REQUIRED =
   'KIDITEM 쿠팡 확장프로그램을 설치/새로고침한 뒤 다시 실행하세요.';
 export const REVIEW_EXTENSION_RELOAD_REQUIRED = `KIDITEM 쿠팡 확장프로그램이 예전 버전입니다. chrome://extensions 에서 확장프로그램을 새로고침한 뒤 다시 실행하세요. (필요 버전 ${REVIEW_EXTENSION_MIN_VERSION}+)`;
+export const REVIEW_ACCOUNT_REQUIRED = '연결된 쿠팡 계정이 없습니다. 채널 설정에서 쿠팡 Wing 계정을 먼저 연결해 주세요.';
 
 export const REVIEW_COLLECTION_MONTH_OPTIONS = [3, 6, 12, 24] as const;
 export const DEFAULT_REVIEW_COLLECTION_MONTHS = 3;
-const REVIEW_SOURCE_PATH = '/api/reviews';
+const OPERATIONS_PATH = '/api/operations';
+/** 최근 실행 몇 개를 읽는다. 첫 행이 가장 최근 실행이다. */
+const RECENT_OPERATIONS = 3;
 
 export type ReviewExtensionGate =
   | { status: 'ready'; extensionId: string; version: string | null }
@@ -35,83 +44,40 @@ export type ReviewExtensionGate =
 interface ExtensionPingResponse {
   success?: boolean;
   version?: string;
-  capabilities?: {
-    coupangReviewCollection?: boolean;
-    coupangReviewCollectionWindowReceiptsV1?: boolean;
+  capabilities?: Record<string, unknown>;
+}
+
+/** 화면이 보는 한 실행. 진행은 progress.windows, 결과는 result에서 온다. */
+export type ReviewCollectionStatus =
+  | { status: 'idle' }
+  | {
+    status: 'running' | 'done' | 'error' | 'cancelled';
+    operationId: string;
+    /** 계획한 월 창 수. */
+    total: number;
+    /** 다 읽은 월 창 수. */
+    completed: number;
+    /** 지금 읽는 달(`YYYY-MM`). */
+    current: string | null;
+    /** 확장이 올린 리뷰 수. */
+    collected: number;
+    /** 성공한 실행에서만: 새로 넣은 리뷰·갱신한 리뷰. */
+    inserted: number | null;
+    updated: number | null;
+    error: string | null;
   };
-}
 
-const ReviewCollectionPlanSchema = z.object({
-  sourceType: z.literal('coupang_reviews'),
-  parserVersion: z.literal('coupang-review-v1'),
-  months: z.number().int().min(1).max(36),
-  windows: z.array(z.object({
-    index: z.number().int().nonnegative(),
-    label: z.string().regex(/^\d{4}-\d{2}$/),
-    start: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    end: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  }).strict()).min(1),
-  pageSize: z.literal(50),
-  maxPagesPerWindow: z.literal(40),
-}).strict();
+const OperationStartReplySchema = z.union([
+  z.object({ success: z.literal(true), operationId: z.string().uuid(), reused: z.boolean() }),
+  z.object({
+    success: z.literal(false),
+    errorCode: z.string(),
+    error: z.string(),
+    details: z.record(z.string(), z.unknown()).nullable().optional(),
+  }),
+]);
 
-const ReviewCollectionAttemptSchema = z.object({
-  attemptId: z.string().uuid(),
-  sourceImportRunId: z.string().uuid(),
-  state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
-  plan: ReviewCollectionPlanSchema,
-  expiresAt: z.string().datetime({ offset: true }).nullable(),
-  completedWindows: z.array(z.number().int().nonnegative()),
-  windowReceipts: z.array(z.object({
-    windowIndex: z.number().int().nonnegative(),
-    itemCount: z.number().int().nonnegative(),
-    pageCount: z.number().int().nonnegative(),
-    pageLimitReached: z.boolean(),
-    coverageStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    coverageEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  }).strict()),
-  coverageStartDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
-  coverageEndDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
-  collected: z.number().int().nonnegative(),
-  created: z.number().int().nonnegative(),
-  updated: z.number().int().nonnegative(),
-  linked: z.number().int().nonnegative(),
-  unlinked: z.number().int().nonnegative(),
-  errorCode: z.string().nullable(),
-  errorMessage: z.string().nullable(),
-}).strict();
-
-const ReviewCollectionAttemptControlSchema = ReviewCollectionAttemptSchema.extend({
-  attemptToken: z.string().uuid(),
-}).strict();
-
-type ReviewCollectionAttempt = z.infer<typeof ReviewCollectionAttemptSchema>;
-type ReviewCollectionAttemptControl = z.infer<typeof ReviewCollectionAttemptControlSchema>;
-
-export interface ReviewCollectionStatus {
-  status: 'idle' | 'running' | 'done' | 'error' | 'cancelled' | string;
-  runId?: string | null;
-  attemptToken?: string | null;
-  months?: number;
-  total?: number;
-  completed?: number;
-  collected?: number;
-  created?: number;
-  updated?: number;
-  linked?: number;
-  unlinked?: number;
-  current?: string | null;
-  failures?: Array<{ month: string; error: string }>;
-  error?: string | null;
-  cancelRequested?: boolean;
-  startedAt?: number;
-  endedAt?: number | null;
-}
-
-export interface StartReviewCollectionResponse extends ReviewCollectionStatus {
-  success?: boolean;
-  started?: boolean;
-}
+const ReviewPlanSchema = z.object({ windows: z.array(z.unknown()) }).passthrough();
 
 export function isReviewExtensionVersionAtLeast(
   current: string | null | undefined,
@@ -138,8 +104,7 @@ export async function detectReviewExtensionGate(): Promise<ReviewExtensionGate> 
   if (!ping?.success) return { status: 'missing' };
   const version = typeof ping.version === 'string' ? ping.version : null;
   if (
-    !ping.capabilities?.coupangReviewCollection ||
-    !ping.capabilities?.[REVIEW_WINDOW_RECEIPT_CAPABILITY] ||
+    ping.capabilities?.[REVIEW_OPERATION_RUNTIME_CAPABILITY] !== true ||
     !isReviewExtensionVersionAtLeast(version, REVIEW_EXTENSION_MIN_VERSION)
   ) {
     return { status: 'outdated', extensionId, version };
@@ -154,154 +119,71 @@ export function reviewExtensionGateMessage(gate: ReviewExtensionGate): string | 
   return null;
 }
 
-/** Begin the server-owned attempt, then hand its frozen permit to the extension. */
-export async function runCoupangReviewCollection(
-  extensionId: string,
-  months: number,
-  idempotencyKey = createSecureRandomUuid(),
-): Promise<StartReviewCollectionResponse> {
-  const raw = await apiClient.post<unknown>(
-    `${REVIEW_SOURCE_PATH}/attempts`,
-    { months },
-    { headers: { 'Idempotency-Key': idempotencyKey } },
-  );
-  const control = ReviewCollectionAttemptControlSchema.parse(raw);
-  if (control.state !== 'RUNNING') {
-    // An idempotency replay of a terminal owner attempt is a read. Do not
-    // reopen a Wing tab or ask the extension to upload against a terminal
-    // fence after a lost response.
-    return { ...toStatus(control), success: true, started: false };
-  }
-  const response = await sendToExtension<StartReviewCollectionResponse>(extensionId, {
-    action: 'runCoupangReviewCollection',
-    attemptId: control.attemptId,
-    attemptToken: control.attemptToken,
-    plan: control.plan,
-  });
-  if (!response?.success) {
-    throw new Error(response?.error ?? '쿠팡 리뷰 수집 시작 실패');
-  }
-  return { ...toStatus(control), success: true, started: true };
-}
-
-export async function getCoupangReviewCollectionStatus(
-  _extensionId: string,
-  runId?: string | null,
-): Promise<ReviewCollectionStatus> {
-  if (!runId) return { status: 'idle' };
-  const raw = await apiClient.get<unknown>(
-    `${REVIEW_SOURCE_PATH}/attempts/${encodeURIComponent(runId)}`,
-  );
-  return toStatus(ReviewCollectionAttemptSchema.parse(raw));
-}
-
-/** Read the extension's token-free local checkpoint after a page/worker restart. */
-export async function getCoupangReviewCollectionExtensionStatus(
-  extensionId: string,
-): Promise<ReviewCollectionStatus> {
-  const response = await sendToExtension<unknown>(extensionId, {
-    action: 'getCoupangReviewCollectionStatus',
-  });
-  if (!response || typeof response !== 'object' || typeof (response as { status?: unknown }).status !== 'string') {
-    return { status: 'idle' };
-  }
-  return response as ReviewCollectionStatus;
+/** 상품평을 모을 쿠팡(Wing) 계정: 활성 쿠팡 계정 중 대표 계정, 없으면 첫 계정. */
+export async function resolveCoupangReviewAccountId(): Promise<string> {
+  const accounts = z.array(ChannelAccountListItemSchema).parse(await apiClient.get<unknown>('/api/channels/accounts'));
+  const coupang = accounts.filter((account) => account.channel === 'coupang');
+  const account = coupang.find((candidate) => candidate.isPrimary) ?? coupang[0];
+  if (!account) throw new Error(REVIEW_ACCOUNT_REQUIRED);
+  return account.id;
 }
 
 /**
- * Reconcile a token-free extension checkpoint with the server owner. This only
- * reads state; it never re-dispatches provider work after a restart.
+ * 확장에 실행 시작을 맡긴다. 확장이 begin에 성공하면 바로 실행 id를 돌려준다(수집은 확장에서 계속).
+ * 같은 계정의 실행이 이미 돌고 있으면 그 실행 id를 돌려줘 화면이 이어서 본다.
  */
-export async function recoverCoupangReviewCollection(
+export async function startCoupangReviewCollection(
   extensionId: string,
-): Promise<ReviewCollectionStatus> {
-  const local = await getCoupangReviewCollectionExtensionStatus(extensionId);
-  if (!local.runId || local.status === 'idle') return local;
-  try {
-    const owner = await getCoupangReviewCollectionStatus(extensionId, local.runId);
-    return owner.status === 'running'
-      ? { ...owner, cancelRequested: owner.cancelRequested || local.cancelRequested }
-      : owner;
-  } catch {
-    // The token-free local checkpoint is still useful to render a pending stop
-    // while auth/API access is restored. It is never sufficient to resume.
-    return local;
+  scope: { channelAccountId: string; months: number },
+  idempotencyKey: string,
+): Promise<string> {
+  const reply = OperationStartReplySchema.parse(await sendToExtension<unknown>(extensionId, {
+    action: 'operation.start',
+    kind: COUPANG_REVIEWS_KIND,
+    scope,
+    idempotencyKey,
+  }));
+  if (reply.success) return reply.operationId;
+  const existing = reply.details?.existing as { operationId?: unknown; kind?: unknown } | null | undefined;
+  if (reply.errorCode === 'OPERATION_IN_PROGRESS' && existing?.kind === COUPANG_REVIEWS_KIND && typeof existing.operationId === 'string') {
+    return existing.operationId;
   }
+  throw new Error(reply.error || '쿠팡 리뷰 수집을 시작하지 못했습니다.');
 }
 
-export async function cancelCoupangReviewCollection(
-  extensionId: string,
-  runId?: string | null,
-  attemptToken?: string | null,
-): Promise<void> {
-  // Dispatch the extension-local fence before starting any owner HTTP work.
-  // The extension sets its in-memory stop bit synchronously on receipt, so a
-  // slow storage/control request cannot let provider work continue.
-  let extensionFailure: unknown = null;
-  let extensionFence: Promise<unknown>;
-  try {
-    extensionFence = Promise.resolve(sendToExtension(extensionId, {
-      action: 'cancelCoupangReviewCollection',
-      ...(runId ? { runId } : {}),
-    })).catch((error) => {
-      extensionFailure = error;
-      return null;
-    });
-  } catch (error) {
-    extensionFailure = error;
-    extensionFence = Promise.resolve(null);
-  }
-
-  let ownerFailure: unknown = null;
-  const ownerCancellation = (async () => {
-    if (!runId) return;
-    try {
-      let token = attemptToken;
-      if (!token) {
-        // A page restart loses the in-memory token. Resolve it through the
-        // organization-scoped owner control endpoint and keep it only in this
-        // function call; extension storage and UI state remain token-free.
-        const raw = await apiClient.get<unknown>(
-          `${REVIEW_SOURCE_PATH}/attempts/${encodeURIComponent(runId)}/control`,
-        );
-        const control = ReviewCollectionAttemptControlSchema.parse(raw);
-        if (control.attemptId !== runId) {
-          throw new Error('리뷰 수집 허가 응답이 현재 실행과 일치하지 않습니다');
-        }
-        token = control.attemptToken;
-      }
-      await apiClient.post(
-        `${REVIEW_SOURCE_PATH}/attempts/${encodeURIComponent(runId)}/cancel`,
-        undefined,
-        { headers: { 'x-source-attempt-token': token } },
-      );
-    } catch (error) {
-      ownerFailure = error;
-    }
-  })();
-
-  await Promise.all([extensionFence, ownerCancellation]);
-  if (ownerFailure || extensionFailure) throw ownerFailure || extensionFailure;
+/** 가장 최근 상품평 실행. 없으면 idle. */
+export async function readLatestCoupangReviewCollection(): Promise<ReviewCollectionStatus> {
+  const { operations } = OperationListResponseSchema.parse(
+    await apiClient.get<unknown>(`${OPERATIONS_PATH}?kinds=${COUPANG_REVIEWS_KIND}&limit=${RECENT_OPERATIONS}`),
+  );
+  const [latest] = operations;
+  return latest ? toStatus(latest) : { status: 'idle' };
 }
 
-function toStatus(attempt: ReviewCollectionAttempt | ReviewCollectionAttemptControl): ReviewCollectionStatus {
-  const cancelled = attempt.errorCode === 'USER_CANCELLED';
+export async function cancelCoupangReviewCollection(operationId: string): Promise<void> {
+  await apiClient.post(`${OPERATIONS_PATH}/${encodeURIComponent(operationId)}/cancel`);
+}
+
+function toStatus(operation: OperationView): ReviewCollectionStatus {
+  const progress = CoupangReviewsProgressSchema.safeParse(operation.progress);
+  const windows = progress.success ? progress.data.windows : [];
+  const plan = ReviewPlanSchema.safeParse(operation.plan);
+  const result = CoupangReviewsResultSchema.safeParse(operation.result);
   return {
-    status: cancelled ? 'cancelled' : attempt.state === 'RUNNING' ? 'running' : attempt.state === 'COMPLETE' ? 'done' : 'error',
-    runId: attempt.attemptId,
-    attemptToken: 'attemptToken' in attempt ? attempt.attemptToken : null,
-    months: attempt.plan.months,
-    total: attempt.plan.windows.length,
-    completed: attempt.completedWindows.length,
-    collected: attempt.collected,
-    created: attempt.created,
-    updated: attempt.updated,
-    linked: attempt.linked,
-    unlinked: attempt.unlinked,
-    current: null,
-    failures: attempt.errorMessage ? [{ month: '', error: attemptFailureText(attempt, 'coupang_reviews') ?? '리뷰 수집에 실패했습니다.' }] : [],
-    error: attempt.errorMessage,
-    cancelRequested: false,
-    endedAt: attempt.state === 'RUNNING' ? null : Date.now(),
+    status: operation.status === 'succeeded'
+      ? 'done'
+      : operation.status === 'failed'
+        ? 'error'
+        : operation.status === 'cancelled'
+          ? 'cancelled'
+          : 'running',
+    operationId: operation.id,
+    total: plan.success ? plan.data.windows.length : 0,
+    completed: windows.filter((window) => window.done).length,
+    current: progress.success ? progress.data.current : null,
+    collected: windows.reduce((sum, window) => sum + window.items, 0),
+    inserted: result.success ? result.data.inserted : null,
+    updated: result.success ? result.data.updated : null,
+    error: operation.status === 'failed' ? attemptFailureText(operation, 'coupang_reviews') ?? '리뷰 수집에 실패했습니다.' : null,
   };
 }
