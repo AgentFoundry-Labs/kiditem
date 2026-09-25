@@ -13,6 +13,18 @@ canonical shared adapters. Edit them there and use
 Node tests stay in `extensions/tests/` because Chrome rejects unpacked roots
 containing test-style underscore paths.
 
+## Build
+
+- New runtime code is TypeScript in `extensions/src/` (conventions in
+  `src/README.md`). `npm run extension:build` bundles it into the committed
+  `kiditem-os/runtime/kiditem-runtime.js`, one IIFE exposing only the
+  `KidItemRuntime` global, loaded last by the service worker.
+- Rebuild and commit the bundle only when `src/` (or a bundled
+  `@kiditem/shared` source) changes; CI fails on a stale bundle.
+- The old JS modules are loaded unbundled; do not route them through the build.
+- Keep the manifest `key`; it pins the extension ID
+  ([runbook](../docs/runbooks/extension-releases.md)).
+
 ## Owner boundary
 
 - The extension captures and transports provider data; the server-side source
@@ -36,6 +48,7 @@ containing test-style underscore paths.
 
 ## Verification
 
+    npm run extension:check && npm run extension:test
     node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
     node extensions/scripts/sync-collection-session-adapters.mjs --check
     node --check extensions/kiditem-os/background/service-worker.js

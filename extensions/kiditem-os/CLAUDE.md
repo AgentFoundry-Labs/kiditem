@@ -16,6 +16,8 @@ domain guide owns marketplace-specific behavior.
   `self.KidItemChannelRegistry`. That file is generated from
   `packages/shared/src/channel-registry.ts` — never edit it, regenerate with
   `node scripts/generate-channel-registry.mjs`. Mall spec keys are channel keys.
+- `runtime/kiditem-runtime.js` is generated from `extensions/src/` — never
+  edit it; regenerate with `npm run extension:build`.
 - Every script shares one global scope. Keep top-level names unique and prefix
   domain instances.
 - `external-dispatch.js` is the sole responder for extension health and source

@@ -117,6 +117,13 @@ jobs:
         # Extension tests import @kiditem/shared runtime JS from dist; the DTS build exhausts the hosted runner heap.
         run: npm exec --workspace=packages/shared tsup -- --no-dts
 
+      - name: Check the extension runtime bundle and types
+        # The committed runtime/kiditem-runtime.js must be byte-identical to a fresh build of extensions/src.
+        run: npm run extension:check
+
+      - name: Unit-test the extension TypeScript sources
+        run: npm run extension:test
+
       - name: Run extension tests
         # node --test runs one process per file at availableParallelism()-1, which is serial on a 2 vCPU runner.
         # The slow files wait on timers, not CPU, so 8 at once stays inside the job timeout.

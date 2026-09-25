@@ -140,6 +140,14 @@ describe('integration test runtime contract', () => {
     expect(developJobSource).toContain(
       'run: node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs',
     );
+    // KID-356: the committed runtime bundle must match extensions/src before the old JS suite runs.
+    expect(developJobSource.indexOf('run: npm run extension:check')).toBeGreaterThan(-1);
+    expect(developJobSource.indexOf('run: npm run extension:check')).toBeLessThan(
+      developJobSource.indexOf('run: npm run extension:test'),
+    );
+    expect(developJobSource.indexOf('run: npm run extension:test')).toBeLessThan(
+      developJobSource.indexOf('run: node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs'),
+    );
     expect(developJobSource).toContain('run: npm run test:integration');
   });
 
@@ -198,6 +206,8 @@ describe('integration test runtime contract', () => {
       'run: npm exec --workspace=packages/shared vitest -- run',
       'run: npm exec --workspace=apps/server vitest -- run',
       'run: npm exec --workspace=packages/shared tsup -- --no-dts',
+      'run: npm run extension:check',
+      'run: npm run extension:test',
       'run: node --test --test-concurrency=8 extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs',
     ]);
     expect(unitJob).not.toContain('test:integration');

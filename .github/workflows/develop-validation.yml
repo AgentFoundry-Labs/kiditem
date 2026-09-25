@@ -51,6 +51,12 @@ jobs:
       - name: Run web unit tests
         run: npm exec --workspace=apps/web vitest -- run
 
+      - name: Check the extension runtime bundle and types
+        run: npm run extension:check
+
+      - name: Unit-test the extension TypeScript sources
+        run: npm run extension:test
+
       - name: Run extension tests
         run: node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
 

@@ -32,6 +32,11 @@ one ZIP with the extension directory.
   same time.
 - The packager never rewrites origins or runtime code. It copies every loadable
   source file byte-for-byte, omitting only agent documentation and hidden files.
+- The TypeScript runtime bundle `runtime/kiditem-runtime.js` is committed, so
+  the packager copies it like any other file and never builds. Releasing a
+  stale bundle (a `src/` change without `npm run extension:build`) is blocked
+  by `npm run extension:check` in CI. The bundle reads the manifest version at
+  run time, so a version bump alone needs no rebuild.
 - Do not create or maintain environment-specific source/package variants.
 
 ## Prerequisites
@@ -154,6 +159,42 @@ install the ZIP directly.
 6. Visit and authenticate each KidItem origin whose profile is needed.
    Marketplace login and OTP stay in the operator's normal Chrome profile.
 
+## Extension ID (Manifest `key`)
+
+`extensions/kiditem-os/manifest.json` carries a `key` (the base64 DER public
+key), so Chrome derives the same extension ID,
+`jdklckncgmllpabkofllidmoiglbcnpb`, from every unpacked directory on every
+machine. Without it the directory path chose the ID.
+
+- The private key is not kept anywhere. KidItem ships only unpacked loads,
+  which need just the public key, so no CRX signing is needed. If signed
+  distribution (a CRX or a Web Store upload) is ever needed, generate a new key
+  pair and change the ID once.
+- Do not edit or remove `key`. Rotation is a deliberate ID change: generate a
+  pair, replace only the `key` value, and discard the PEM:
+
+  ```bash
+  openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -out kiditem-os.pem
+  openssl rsa -in kiditem-os.pem -pubout -outform DER | openssl base64 -A
+  ```
+
+### One-Time Reconnection After The ID Changes
+
+The first release that adds (or rotates) `key` changes the installed ID once.
+What depends on the ID:
+
+- `chrome.storage.local` belongs to one ID, so KidItem auth profiles, collection
+  sessions, and caches of the old ID are not carried over.
+- The web app does not store a fixed ID: `content/host-bridge.js` rewrites the
+  `kiditem-*-ext-id` localStorage entries with `chrome.runtime.id` on every
+  KidItem page load, so the web app follows the new ID after a page reload.
+- `externally_connectable` matches KidItem web origins, not extension IDs, and
+  the server keeps no extension-ID allowlist, so neither needs a change.
+
+Operator procedure: finish or cancel running collections, **Remove** the old
+extension card, **Load unpacked** the new directory, reload every open KidItem
+page, then re-authenticate each KidItem environment once (install steps 5-6).
+
 ## Verification
 
 Run repository checks before publishing:
@@ -161,6 +202,8 @@ Run repository checks before publishing:
 ```bash
 npm run check:scripts-inventory
 npm run test:scripts
+npm run extension:check
+npm run extension:test
 node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
 node -e "JSON.parse(require('fs').readFileSync('extensions/kiditem-os/manifest.json','utf8'))"
 git diff --check
