@@ -94,32 +94,6 @@ export interface CompleteSourcingScrapeUrlAttemptInput extends CompleteSourcingB
   sourceRecord: SourceRecordWrite;
 }
 
-export interface SourcingWingCatalogReceipt {
-  sequence: number;
-  keyword: string;
-  checksum: string;
-  count: number;
-  /** Exact number of immutable typed facts published for this keyword. */
-  acceptedCount?: number;
-  duplicateCount: number;
-}
-
-export interface StageSourcingWingCatalogInput {
-  organizationId: string;
-  attemptId: string;
-  attemptToken: string;
-  planChecksum: string;
-  sequence: number;
-  keyword: string;
-  checksum: string;
-  output: AuthorizedCollectionOutput;
-}
-
-export interface CompleteSourcingWingCatalogInput extends Omit<CompleteSourcingBrowserSourceAttemptInput, 'output'> {
-  receipts: SourcingWingCatalogReceipt[];
-  qualityReport: Record<string, unknown>;
-}
-
 export interface SourcingBrowserSourceAttemptRepositoryPort {
   readScrapeUrlAttemptByKey(input: { organizationId: string; sourceKey: string; idempotencyKey: string; requestFingerprint: string }): Promise<SourcingBrowserSourceAttempt | null>;
   readAttempt(input: {
@@ -141,8 +115,6 @@ export interface SourcingBrowserSourceAttemptRepositoryPort {
     input: CompleteSourcingBrowserSourceAttemptInput,
   ): Promise<SourcingBrowserSourceAttempt>;
   completeScrapeUrlAttempt(input: CompleteSourcingScrapeUrlAttemptInput): Promise<SourcingBrowserSourceAttempt>;
-  stageWingCatalogBatch(input: StageSourcingWingCatalogInput): Promise<SourcingWingCatalogReceipt>;
-  completeWingCatalogAttempt(input: CompleteSourcingWingCatalogInput): Promise<SourcingBrowserSourceAttempt>;
   failAttempt(
     input: FailSourcingBrowserSourceAttemptInput,
   ): Promise<SourcingBrowserSourceAttempt>;

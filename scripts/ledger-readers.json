@@ -231,7 +231,6 @@
       "prismaModel": "sourcingEvidenceIngestionRun",
       "prismaType": "SourcingEvidenceIngestionRun",
       "relationNames": [
-        "ingestionRun",
         "sourcingEvidenceIngestionRuns",
         "triggeredSourcingEvidenceIngestionRuns"
       ],
@@ -250,6 +249,29 @@
       ]
     },
     {
+      "name": "Sourcing source publication",
+      "owner": "sourcing",
+      "table": "sourcing_source_publications",
+      "prismaModel": "sourcingSourcePublication",
+      "prismaType": "SourcingSourcePublication",
+      "relationNames": [
+        "sourcingSourcePublications"
+      ],
+      "ownerPublications": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-source-publication.repository.adapter.ts",
+          "reason": "KID-360: the only publication writer (publishSourceSnapshot, called in the finish transaction) and the public current-publication capability (SOURCING_SOURCE_PUBLICATION_PORT) Supply reads."
+        }
+      ],
+      "legacyReaders": [
+        {
+          "path": "apps/server/src/sourcing/adapter/out/repository/source-evidence.reader.ts",
+          "removeWith": "KID-324",
+          "reason": "KID-360: the owner reader decides complete and current through the publication ledger; read-only."
+        }
+      ]
+    },
+    {
       "name": "Sourcing evidence observation",
       "owner": "sourcing",
       "table": "sourcing_evidence_observations",
@@ -257,7 +279,6 @@
       "prismaType": "SourcingEvidenceObservation",
       "relationNames": [
         "evidenceObservation",
-        "observations",
         "sourcingEvidenceObservations"
       ],
       "ownerPublications": [
@@ -275,15 +296,14 @@
       ]
     },
     {
-      "name": "Sourcing Wing catalog product fact",
+      "name": "Sourcing Wing catalog product snapshot",
       "owner": "sourcing",
       "table": "sourcing_wing_catalog_product_facts",
-      "prismaModel": "sourcingWingCatalogProductFact",
-      "prismaType": "SourcingWingCatalogProductFact",
+      "prismaModel": "sourcingWingCatalogProductSnapshot",
+      "prismaType": "SourcingWingCatalogProductSnapshot",
       "relationNames": [
-        "sourcingWingCatalogProductFacts",
-        "wingCatalogProductFact",
-        "wingCatalogProductFacts"
+        "sourcingWingCatalogProductSnapshots",
+        "wingCatalogProductSnapshot"
       ],
       "ownerPublications": [
         {
@@ -291,8 +311,8 @@
           "reason": "Publishes immutable typed Wing product facts with their evidence inside the source owner transaction."
         },
         {
-          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.repository.adapter.ts",
-          "reason": "Counts the staged keyword's current typed facts inside the source owner transaction to seal its exact accepted receipt."
+          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-operation-ledger.repository.adapter.ts",
+          "reason": "KID-360: counts the Wing catalog facts its own finish transaction just wrote, so the publication receipt matches the typed rows."
         }
       ],
       "legacyReaders": [
@@ -307,12 +327,11 @@
       "name": "Sourcing keyword suggestion fact",
       "owner": "sourcing",
       "table": "sourcing_keyword_suggestion_facts",
-      "prismaModel": "sourcingKeywordSuggestionFact",
-      "prismaType": "SourcingKeywordSuggestionFact",
+      "prismaModel": "sourcingKeywordSuggestionSnapshot",
+      "prismaType": "SourcingKeywordSuggestionSnapshot",
       "relationNames": [
-        "keywordSuggestionFact",
-        "keywordSuggestionFacts",
-        "sourcingKeywordSuggestionFacts"
+        "keywordSuggestionSnapshot",
+        "sourcingKeywordSuggestionSnapshots"
       ],
       "ownerPublications": [
         {
@@ -336,7 +355,6 @@
       "prismaType": "SourcingNaverKeywordAnalysisFact",
       "relationNames": [
         "naverKeywordAnalysisFact",
-        "naverKeywordAnalysisFacts",
         "sourcingNaverKeywordAnalysisFacts"
       ],
       "ownerPublications": [
@@ -361,7 +379,6 @@
       "prismaType": "SourcingMarketShadowFact",
       "relationNames": [
         "marketShadowFact",
-        "marketShadowFacts",
         "sourcingMarketShadowFacts"
       ],
       "ownerPublications": [
@@ -386,7 +403,6 @@
       "prismaType": "Sourcing1688OfferKeywordObservation",
       "relationNames": [
         "offerKeywordObservation",
-        "offerKeywordObservations",
         "sourcing1688OfferKeywordObservations"
       ],
       "ownerPublications": [
@@ -1141,26 +1157,8 @@
       "from": "apps/server/src/readiness/readiness.service.ts"
     },
     {
-      "from": "apps/server/src/sourcing/application/service/sourcing-browser-source-attempt.service.ts",
-      "to": "apps/server/src/sourcing/application/service/sourcing-1688-source-attempt.mapper.ts",
-      "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
-      "removeWith": "KID-324"
-    },
-    {
-      "from": "apps/server/src/sourcing/application/service/sourcing-live-commerce-source-attempt.service.ts",
-      "to": "apps/server/src/sourcing/application/service/sourcing-live-commerce-source-attempt.mapper.ts",
-      "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
-      "removeWith": "KID-324"
-    },
-    {
       "from": "apps/server/src/sourcing/application/service/sourcing-shadow-signal.service.ts",
       "to": "apps/server/src/sourcing/application/service/sourcing-shadow-signal.evaluation.ts",
-      "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
-      "removeWith": "KID-324"
-    },
-    {
-      "from": "apps/server/src/sourcing/application/service/sourcing-tiktok-source-attempt.service.ts",
-      "to": "apps/server/src/sourcing/application/service/sourcing-tiktok-source-attempt.mapper.ts",
       "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
       "removeWith": "KID-324"
     },

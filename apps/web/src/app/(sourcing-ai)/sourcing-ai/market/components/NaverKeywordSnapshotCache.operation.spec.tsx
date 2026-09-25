@@ -34,19 +34,14 @@ vi.mock('../lib/live-commerce-api', () => ({
   fetchLiveCommerceKeywords: vi.fn(async () => ({ keywords: [] })),
 }));
 
-vi.mock('../../lib/sourcing-tiktok-source-owner', () => ({
-  collectSourcingTiktokCcTrendsFromExtension: vi.fn(),
-  fetchSourcingTiktokCcSourceStatus: vi.fn().mockResolvedValue({
-    ready: true, latestAttempt: null, latestComplete: null,
-    actualCutoffAt: null, errorCode: null, errorMessage: null,
-  }),
-  cancelSourcingTiktokCcAttempt: vi.fn(),
+// 틱톡 수집은 실행 kind다(KID-360) — 실행 reader는 비어 있고 확장은 부르지 않는다.
+vi.mock('@/lib/operation-start', () => ({
+  requestOperationStart: vi.fn(),
+  requestOperationCancel: vi.fn(),
 }));
 
-vi.mock('@/lib/browser-collection-session', () => ({
-  sendBrowserCollectionControl: vi.fn(async () => {
-    throw new Error('no extension session');
-  }),
+vi.mock('@/lib/api-client', () => ({
+  apiClient: { get: vi.fn().mockResolvedValue({ operations: [] }), post: vi.fn() },
 }));
 
 /** One stored Naver keyword the overview keeps as a stationery/toy opportunity. */

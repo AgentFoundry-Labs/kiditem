@@ -53,7 +53,7 @@ export function map1688HotProductsToAuthorizedOutput(input: {
       kind: 'offer_1688_keyword_observation' as const,
       row: {
         ...row,
-        ingestionRunId: input.permit.runId,
+        operationId: input.permit.runId,
         evidenceObservationKey: observations[index].observationKey,
         evidenceRevision: observations[index].revision,
       },
@@ -84,7 +84,7 @@ function to1688Observation(
   };
   return {
     organizationId: permit.organizationId,
-    ingestionRunId: permit.runId,
+    operationId: permit.runId,
     sourceKey: permit.sourceKey,
     platform: '1688',
     evidenceFamily: 'hot_product',
@@ -97,7 +97,7 @@ function to1688Observation(
     observationKey: hashCollectionRequest({
       sourceKey: permit.sourceKey,
       sourceEntityType: 'supplier_offer',
-      ingestionRunId: permit.runId,
+      operationId: permit.runId,
       externalOfferId: row.offerId,
       variantKey: '',
       sourceKeyword: normalizeCollectionTarget(row.sourceKeyword),
@@ -141,7 +141,7 @@ function mapTrendRecordObservation(
   const isNaver = record.kind === 'naver_keyword' || record.kind === 'naver_popular_keyword';
   return {
     organizationId: permit.organizationId,
-    ingestionRunId: permit.runId,
+    operationId: permit.runId,
     sourceKey: permit.sourceKey,
     platform: trendPlatform(record, isNaver),
     evidenceFamily: record.kind,
@@ -154,7 +154,7 @@ function mapTrendRecordObservation(
     observationKey: hashCollectionRequest({
       sourceKey: permit.sourceKey,
       recordKind: record.kind,
-      ...(isNaver || record.kind === 'shorts' ? { ingestionRunId: permit.runId } : {}),
+      ...(isNaver || record.kind === 'shorts' ? { operationId: permit.runId } : {}),
       identity,
       capturedAt: row.capturedAt,
     }),
@@ -177,7 +177,7 @@ function trendRawPayload(record: TrendTypedCollectionRecord): Record<string, unk
     || record.kind === 'live_commerce_broadcast'
     || record.kind === 'live_commerce_product'
   ) {
-    const { ingestionRunId: _ingestionRunId, ...row } = record.row;
+    const { operationId: _ingestionRunId, ...row } = record.row;
     return { kind: record.kind, ...row };
   }
   return { kind: record.kind, ...record.row };

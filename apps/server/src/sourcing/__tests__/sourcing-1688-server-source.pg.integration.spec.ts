@@ -10,7 +10,8 @@ import { Sourcing1688SearchResultRepositoryAdapter } from '../adapter/out/reposi
 import { Sourcing1688KeywordSearchService } from '../application/service/sourcing-1688-keyword-search.service';
 import { Sourcing1688ImageSearchService } from '../application/service/sourcing-1688-image-search.service';
 import { Sourcing1688SearchResultService } from '../application/service/sourcing-1688-search-result.service';
-import { SourcingWingCatalogIngestService } from '../application/service/sourcing-wing-catalog-ingest.service';
+import { sourcingExtensionOperations } from '../../test-helpers/sourcing-extension-operations';
+import { unusedSalesProductDraftPort as noDrafts } from '../../test-helpers/sales-product-draft-port';
 import { SourcingRecommendationSourceRepositoryAdapter } from '../adapter/out/repository/sourcing-recommendation-source.repository.adapter';
 import { Sourcing1688KeywordAttentionError, Sourcing1688KeywordProviderError,
   type Search1688KeywordItem } from '../application/port/out/provider/1688-keyword-search.port';
@@ -26,7 +27,7 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
   let prisma: PrismaClient;
   let controller: Sourcing1688SearchController;
   let results: Sourcing1688SearchResultController;
-  let wing: SourcingWingCatalogIngestService;
+  let wing: ReturnType<typeof sourcingExtensionOperations>;
   let searchResultsRepository: Sourcing1688SearchResultRepositoryAdapter;
   const session = { searchKeyword: vi.fn<(input: { keyword: string; signal?: AbortSignal }) => Promise<Search1688KeywordItem[]>>(async () => [offer]), close: vi.fn(async () => undefined) };
   const keywordProvider = { openSession: vi.fn(async () => session) };
@@ -39,7 +40,7 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
       new SourceFailureAlerts(prisma as never), unusedSalesProductDraftPort);
     const repository = new Sourcing1688SearchResultRepositoryAdapter(prisma as never);
     searchResultsRepository = repository;
-    wing = new SourcingWingCatalogIngestService(attempts, new SourcingRecommendationSourceRepositoryAdapter(prisma as never));
+    wing = sourcingExtensionOperations(prisma, noDrafts);
     controller = new Sourcing1688SearchController(
       new Sourcing1688KeywordSearchService(keywordProvider, attempts, repository),
       new Sourcing1688ImageSearchService(imageProvider, attempts, repository),
@@ -220,11 +221,11 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
   it('masks an old image target when the latest keyword publication is partial or missing', async () => {
     await publishWing('catalog/old-valid.jpg');
     await publishWing('catalog/latest-partial.jpg');
-    const latest = await prisma.sourcingEvidenceIngestionRun.findFirstOrThrow({
-      where: { organizationId, sourceKey: 'coupang.wing_catalog', status: 'COMPLETE' },
-      orderBy: [{ completedAt: 'desc' }, { generation: 'desc' }, { id: 'desc' }],
+    const latest = await prisma.sourcingSourcePublication.findFirstOrThrow({
+      where: { organizationId, sourceKey: 'coupang.wing_catalog' },
+      orderBy: [{ completedAt: 'desc' }, { id: 'desc' }],
     });
-    await prisma.sourcingEvidenceIngestionRun.update({
+    await prisma.sourcingSourcePublication.update({
       where: { id: latest.id },
       data: {
         acceptedCount: 2,
@@ -244,8 +245,8 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
       missingTargetIds: ['product-1::'],
     });
 
-    await prisma.sourcingWingCatalogProductFact.deleteMany({
-      where: { organizationId, ingestionRunId: latest.id },
+    await prisma.sourcingWingCatalogProductSnapshot.deleteMany({
+      where: { organizationId, operationId: latest.id },
     });
     await expect(read()).resolves.toEqual({
       targets: [],
@@ -370,18 +371,19 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
     expect(keywordProvider.openSession).toHaveBeenCalledTimes(2);
   });
 
+  /** 끝난 Wing 검색 소싱 실행(KID-360) 하나. */
   async function publishWing(imagePath: string, empty = false) {
-    const attempt = await wing.begin({ organizationId, requestedByUserId: TEST_USER_ID, idempotencyKey: randomUUID(),
-      input: { keywords: ['초등 필통'], maxPages: 1, purpose: 'catalog_search' } });
-    const receipt = await wing.upload({ organizationId, attemptId: attempt.attemptId, attemptToken: attempt.attemptToken,
-      batch: { keyword: '초등 필통', maxPages: 1, purpose: 'catalog_search', items: empty ? [] : [{
-        productId: 'product-1', itemId: null, vendorItemId: null, productName: '초등학생 대용량 필통', sourceKeyword: '초등 필통',
-        itemName: null, brandName: null, manufacture: null, categoryHierarchy: null, imagePath, salePriceKrw: null,
-        ratingAverage: null, ratingCount: null, viewsLast28d: null, salesLast28d: null, estimatedRevenue28d: null,
-        conversionRate28d: null, deliveryInfo: null, capturedAt: new Date().toISOString(),
-      }] } });
-    await wing.complete({ organizationId, attemptId: attempt.attemptId, attemptToken: attempt.attemptToken,
-      finalization: { purpose: 'catalog_search', receipts: [receipt], keywords: [{ keyword: '초등 필통', outcome: empty ? 'no_change' : 'complete',
-        discovered: empty ? 0 : 1, accepted: empty ? 0 : 1, duplicate: 0, failed: 0 }] } });
+    const account = await prisma.channelAccount.findFirst({ where: { organizationId, channel: 'coupang' } })
+      ?? await prisma.channelAccount.create({ data: { organizationId, channel: 'coupang', name: 'Wing', externalAccountId: 'A00000001' } });
+    const items = empty ? [] : [{
+      productId: 'product-1', itemId: null, vendorItemId: null, productName: '초등학생 대용량 필통', sourceKeyword: '초등 필통',
+      itemName: null, brandName: null, manufacture: null, categoryHierarchy: null, imagePath, salePriceKrw: null,
+      ratingAverage: null, ratingCount: null, viewsLast28d: null, salesLast28d: null, estimatedRevenue28d: null,
+      conversionRate28d: null, deliveryInfo: null, capturedAt: new Date().toISOString(),
+    }];
+    const done = await wing.run(organizationId, 'sourcing.wing_catalog',
+      { channelAccountId: account.id, keywords: ['초등 필통'], maxPages: 1, purpose: 'catalog_search' },
+      [{ chunkKind: 'wing_search_page', payload: [{ keyword: '초등 필통', maxPages: 1, purpose: 'catalog_search', items }] }]);
+    expect(done.operation.status).toBe('succeeded');
   }
 });

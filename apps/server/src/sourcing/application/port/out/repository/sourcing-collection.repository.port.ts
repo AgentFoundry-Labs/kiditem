@@ -38,23 +38,23 @@ export type SourcingTypedCollectionRecord =
   | { kind: 'tiktok_creative'; row: TiktokCcSnapshotUpsert }
   | { kind: 'live_commerce_broadcast'; row: LiveCommerceBroadcastSnapshotUpsert }
   | { kind: 'live_commerce_product'; row: LiveCommerceProductSnapshotUpsert }
-  | { kind: 'wing_catalog_product'; row: SourcingWingCatalogProductFactUpsert }
-  | { kind: 'keyword_suggestion_snapshot'; row: SourcingKeywordSuggestionFactUpsert }
+  | { kind: 'wing_catalog_product'; row: SourcingWingCatalogProductSnapshotUpsert }
+  | { kind: 'keyword_suggestion_snapshot'; row: SourcingKeywordSuggestionSnapshotUpsert }
   | { kind: 'naver_keyword_analysis_snapshot'; row: SourcingNaverKeywordAnalysisFactUpsert }
   | { kind: 'market_shadow_snapshot'; row: SourcingMarketShadowFactUpsert }
   | { kind: 'extension_source_record'; row: SourcingExtensionSourceRecordProjection };
 
 interface EvidenceBackedSourceFact {
   organizationId: string;
-  ingestionRunId: string;
+  operationId: string;
   evidenceObservationKey: string;
   evidenceRevision: number;
 }
 
-export interface SourcingWingCatalogProductFactUpsert
+export interface SourcingWingCatalogProductSnapshotUpsert
   extends EvidenceBackedSourceFact, SourcingWingCatalogObservation {}
 
-export interface SourcingKeywordSuggestionFactUpsert
+export interface SourcingKeywordSuggestionSnapshotUpsert
   extends EvidenceBackedSourceFact {
   schemaVersion: string;
   keywordNormalized: string;
@@ -80,7 +80,7 @@ export interface SourcingMarketShadowFactUpsert
 
 export interface Sourcing1688OfferKeywordObservationUpsert
   extends Sourcing1688OfferKeywordObservationInput {
-  ingestionRunId: string;
+  operationId: string;
   evidenceObservationKey: string;
   evidenceRevision: number;
 }

@@ -73,12 +73,6 @@ describe('BrowserCollectionSessionViewSchema', () => {
       'orders.sellpia_product_profitability',
       'orders.sellpia_sales',
       'orders.sellpia_shipment_tracking',
-      'sourcing.1688_trend',
-      'sourcing.keyword_suggestion',
-      'sourcing.live_commerce',
-      'sourcing.product_extension',
-      'sourcing.tiktok_cc_trend',
-      'sourcing.wing_catalog',
     ]);
     for (const producer of BROWSER_COLLECTION_PRODUCERS) {
       expect(BrowserCollectionProducerSchema.parse(producer)).toBe(producer);

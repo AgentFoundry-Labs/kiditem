@@ -16,8 +16,11 @@ describe('SourcingValidationRepositoryAdapter', () => {
         findMany: vi.fn(async () => []),
         createMany: vi.fn(async () => ({ count: 1 })),
       },
+      sourcingSourcePublication: {
+        findMany: vi.fn(async () => [{ operationId: 'operation-1' }]),
+      },
       sourcingEvidenceObservation: {
-        findMany: vi.fn(async () => [{ id: EVIDENCE_ID }]),
+        findMany: vi.fn(async () => [{ id: EVIDENCE_ID, operationId: 'operation-1' }]),
       },
       sourcingValidationCheck: {
         createMany: vi.fn(async () => ({ count: 10 })),
@@ -60,8 +63,11 @@ describe('SourcingValidationRepositoryAdapter', () => {
           return { count: 1 };
         }),
       },
+      sourcingSourcePublication: {
+        findMany: vi.fn(async () => [{ operationId: 'operation-1' }]),
+      },
       sourcingEvidenceObservation: {
-        findMany: vi.fn(async () => [{ id: EVIDENCE_ID }]),
+        findMany: vi.fn(async () => [{ id: EVIDENCE_ID, operationId: 'operation-1' }]),
       },
       sourcingValidationCheck: {
         createMany: vi.fn(async () => ({ count: 10 })),
@@ -136,7 +142,8 @@ describe('SourcingValidationRepositoryAdapter', () => {
         findMany: vi.fn(async () => []),
         createMany: vi.fn(async () => ({ count: 1 })),
       },
-      sourcingEvidenceObservation: { findMany: vi.fn(async () => [{ id: EVIDENCE_ID }]) },
+      sourcingSourcePublication: { findMany: vi.fn(async () => [{ operationId: 'operation-1' }]) },
+      sourcingEvidenceObservation: { findMany: vi.fn(async () => [{ id: EVIDENCE_ID, operationId: 'operation-1' }]) },
       sourcingValidationCheck: { createMany: vi.fn(async () => ({ count: 1 })) },
       sourcingValidationCheckEvidence: { createMany: vi.fn(async () => ({ count: 1 })) },
     };

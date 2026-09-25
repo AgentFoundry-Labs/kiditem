@@ -264,7 +264,7 @@ export class SourcingShadowSignalService {
               kind: 'market_shadow_snapshot',
               row: {
                 organizationId,
-                ingestionRunId: attempt.attemptId,
+                operationId: attempt.attemptId,
                 evidenceObservationKey: observationKey,
                 evidenceRevision: 1,
                 schemaVersion: GENERATOR_VERSION,
@@ -277,7 +277,7 @@ export class SourcingShadowSignalService {
             observations: [
               {
                 organizationId,
-                ingestionRunId: attempt.attemptId,
+                operationId: attempt.attemptId,
                 sourceKey: MARKET_SHADOW_SNAPSHOT_SCOPE,
                 platform: 'market_shadow',
                 evidenceFamily: 'market_shadow_snapshot',

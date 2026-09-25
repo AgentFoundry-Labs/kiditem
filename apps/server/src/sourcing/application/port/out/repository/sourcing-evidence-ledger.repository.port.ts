@@ -33,7 +33,7 @@ export type SourcingEvidenceRunStatus = SourcingBrowserSourceAttempt['state'];
 export interface SourcingEvidenceObservationRecord {
   id: string;
   organizationId: string;
-  ingestionRunId: string;
+  operationId: string;
   ingestionRunStatus: SourcingEvidenceRunStatus;
   ingestionRunCoverageBps: number | null;
   ingestionRunCompletedAt: Date | null;
@@ -68,7 +68,7 @@ export interface SourcingLatestObservationRevisionRecord {
 
 export interface AppendSourcingEvidenceObservationCommand {
   organizationId: string;
-  ingestionRunId: string;
+  operationId: string;
   sourceKey: string;
   platform: string;
   evidenceFamily: string;

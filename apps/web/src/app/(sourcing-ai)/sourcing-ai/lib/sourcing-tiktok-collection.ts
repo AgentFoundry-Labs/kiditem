@@ -1,47 +1,22 @@
 'use client';
 
-import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
-import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
+import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
 import { queryKeys } from '@/lib/query-keys';
-import {
-  cancelSourcingTiktokCcAttempt,
-  fetchSourcingTiktokCcSourceStatus,
-  type SourcingTiktokCcSourceStatus,
-} from './sourcing-tiktok-source-owner';
-import type { QueryKey } from '@tanstack/react-query';
+import { sourcingOperationCollection } from './sourcing-operations';
 
 /**
- * The TikTok Creative Center collection's running state and operator stop for
- * the shared control, read beside the trend snapshot of the given window. The
- * market view starts it through its own CTA, and the extension opens and runs
- * the attempt.
+ * 틱톡 크리에이티브 센터 수집(`sourcing.tiktok_creative`, KID-360). 대상은 트렌드 시드에서 서버가 정하고, 이
+ * 화면은 상한·지역을 고르지 않으므로 scope는 비어 있다. 끝나면 주어진 창의 틱톡 트렌드 읽기를 다시 읽는다.
  */
-export function sourcingTiktokCcCollection(days: number): CollectionSourceAdapter<SourcingTiktokCcSourceStatus> {
+export function sourcingTiktokCcCollection(days: number) {
   const snapshotQueryKey = queryKeys.sourcing.trendTiktokCc(days);
-  return {
-    sourceKey: 'sourcing.tiktok_cc_trend',
+  return sourcingOperationCollection({
+    kind: SOURCING_OPERATION_KINDS.tiktokCreative,
+    sourceKey: SOURCING_OPERATION_KINDS.tiktokCreative,
     label: '틱톡 트렌드 수집',
-    statusQuery: collectionSourceStatusQueryOptions<
-      SourcingTiktokCcSourceStatus,
-      Error,
-      SourcingTiktokCcSourceStatus,
-      QueryKey
-    >({
-      queryKey: [...snapshotQueryKey, 'source-status'],
-      queryFn: fetchSourcingTiktokCcSourceStatus,
-    }),
-    readRunning: (status) =>
-      status.latestAttempt?.state === 'RUNNING'
-        ? { attemptId: status.latestAttempt.attemptId, scopeLabel: null }
-        : null,
-    cancelOnServer: (attemptId) => cancelSourcingTiktokCcAttempt(attemptId),
-    readCompleteId: (status) => status.latestComplete?.attemptId ?? null,
-    // A new COMPLETE republished the TikTok trend snapshot this view reads.
+    scope: () => ({}),
     onNewComplete: (queryClient) => {
-      void queryClient.invalidateQueries({
-        queryKey: snapshotQueryKey,
-        predicate: (query) => !query.queryKey.includes('source-status'),
-      });
+      void queryClient.invalidateQueries({ queryKey: snapshotQueryKey });
     },
-  };
+  });
 }

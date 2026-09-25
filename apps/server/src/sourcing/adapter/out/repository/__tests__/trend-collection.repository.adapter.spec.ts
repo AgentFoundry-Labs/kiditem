@@ -22,12 +22,16 @@ function recentBusinessDay(): { businessDate: Date; capturedAt: Date; dateKey: s
 describe('TrendCollectionRepositoryAdapter', () => {
   it('reads Naver keyword history from the newest complete run for each date', async () => {
     const { businessDate, capturedAt, dateKey } = recentBusinessDay();
-    const findMany = vi.fn().mockResolvedValue([{
+    const publications = vi.fn().mockResolvedValue([{
+      operationId: 'operation-1',
       sourceKey: 'naver.trend',
-      attemptPlan: { businessDate: dateKey, keywords: ['학용품'], boardKeys: [] },
-      sourceWindowStartAt: businessDate,
-      sourceWindowEndAt: capturedAt,
-      naverKeywordDailySnapshots: [{
+      plan: { businessDate: dateKey, keywords: ['학용품'], boardKeys: [] },
+      windowStartAt: businessDate,
+      windowEndAt: capturedAt,
+      completedAt: capturedAt,
+    }]);
+    const ledgerRows = vi.fn().mockResolvedValue([{
+        operationId: 'operation-1',
         keyword: '학용품',
         businessDate,
         monthlyTotalSearchCount: 1200,
@@ -38,10 +42,10 @@ describe('TrendCollectionRepositoryAdapter', () => {
         trendRatio: 91,
         trendDelta: 4,
         capturedAt,
-      }],
-    }]);
+      }]);
     const prisma = {
-      sourcingEvidenceIngestionRun: { findMany },
+      sourcingSourcePublication: { findMany: publications },
+      naverKeywordDailySnapshot: { findMany: ledgerRows },
     } as unknown as PrismaService;
     const adapter = new TrendCollectionRepositoryAdapter(prisma);
 
@@ -66,14 +70,19 @@ describe('TrendCollectionRepositoryAdapter', () => {
 
   it('keeps one 1688 observation per offer and source keyword', async () => {
     const { businessDate, capturedAt, dateKey } = recentBusinessDay();
-    const findMany = vi.fn().mockResolvedValue([{
+    const publications = vi.fn().mockResolvedValue([{
+      operationId: 'operation-1',
       sourceKey: '1688.hot_product',
+      scopeKey: 'default',
       targetKey: 'all',
-      attemptPlan: { source: '1688.hot_product', keywords: ['필통', '문구'] },
-      sourceWindowStartAt: null,
-      sourceWindowEndAt: capturedAt,
-      offerKeywordObservations: [
+      plan: { source: '1688.hot_product', keywords: ['필통', '문구'] },
+      windowStartAt: null,
+      windowEndAt: capturedAt,
+      completedAt: capturedAt,
+    }]);
+    const ledgerRows = vi.fn().mockResolvedValue([
         {
+          operationId: 'operation-1',
           businessDate,
           capturedAt,
           externalOfferId: 'offer-1',
@@ -88,6 +97,7 @@ describe('TrendCollectionRepositoryAdapter', () => {
           sourceUrl: 'https://detail.1688.com/offer/1.html',
         },
         {
+          operationId: 'operation-1',
           businessDate,
           capturedAt,
           externalOfferId: 'offer-1',
@@ -101,10 +111,10 @@ describe('TrendCollectionRepositoryAdapter', () => {
           imageUrl: null,
           sourceUrl: 'https://detail.1688.com/offer/1.html',
         },
-      ],
-    }]);
+      ]);
     const prisma = {
-      sourcingEvidenceIngestionRun: { findMany },
+      sourcingSourcePublication: { findMany: publications },
+      sourcing1688OfferKeywordObservation: { findMany: ledgerRows },
     } as unknown as PrismaService;
     const adapter = new TrendCollectionRepositoryAdapter(prisma);
 
@@ -125,13 +135,17 @@ describe('TrendCollectionRepositoryAdapter', () => {
 
   it('reads TikTok history from complete runs across historical dates', async () => {
     const { businessDate, capturedAt, dateKey } = recentBusinessDay();
-    const findMany = vi.fn().mockResolvedValue([{
+    const publications = vi.fn().mockResolvedValue([{
+      operationId: 'operation-1',
       sourceKey: 'tiktok.creative',
       targetKey: 'all',
-      attemptPlan: { source: 'tiktok.creative' },
-      sourceWindowStartAt: null,
-      sourceWindowEndAt: capturedAt,
-      tiktokCreativeTrendDailySnapshots: [{
+      plan: { source: 'tiktok.creative' },
+      windowStartAt: null,
+      windowEndAt: capturedAt,
+      completedAt: capturedAt,
+    }]);
+    const ledgerRows = vi.fn().mockResolvedValue([{
+        operationId: 'operation-1',
         businessDate,
         capturedAt,
         region: 'US',
@@ -146,10 +160,10 @@ describe('TrendCollectionRepositoryAdapter', () => {
         growthPct: null,
         thumbnailUrl: null,
         sourceUrl: null,
-      }],
-    }]);
+      }]);
     const prisma = {
-      sourcingEvidenceIngestionRun: { findMany },
+      sourcingSourcePublication: { findMany: publications },
+      tiktokCreativeTrendDailySnapshot: { findMany: ledgerRows },
     } as unknown as PrismaService;
     const adapter = new TrendCollectionRepositoryAdapter(prisma);
 

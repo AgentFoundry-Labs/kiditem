@@ -171,7 +171,8 @@ model Sourcing1688OfferKeywordObservation {
   id                    String @id @default(uuid()) @db.Uuid
   organizationId        String @map("organization_id") @db.Uuid
   evidenceObservationId String @map("evidence_observation_id") @db.Uuid
-  ingestionRunId        String @map("ingestion_run_id") @db.Uuid
+  /// 이 행을 쓴 실행(operations.id, 스칼라·FK 없음, ADR-0025). 옛 run으로 만든 행은 옛 run id를 그대로 가진다(KID-360).
+  operationId        String @map("operation_id") @db.Uuid
 
   businessDate            DateTime @map("business_date") @db.Date
   sourceKeywordNormalized String   @map("source_keyword_normalized") @db.VarChar(200)
@@ -192,13 +193,12 @@ model Sourcing1688OfferKeywordObservation {
 
   organization        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   evidenceObservation SourcingEvidenceObservation  @relation(fields: [evidenceObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  ingestionRun        SourcingEvidenceIngestionRun @relation(fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   reviewBatchItems    SourcingReviewBatchItem[]
 
   @@unique([id, organizationId], map: "sourcing_1688_offer_keyword_observations_id_org_key")
   @@unique([evidenceObservationId, organizationId], map: "sourcing_1688_offer_keyword_observations_evidence_org_key")
-  @@unique([organizationId, ingestionRunId, businessDate, sourceKeywordNormalized, externalOfferId, variantKeyNormalized, capturedAt], map: "sourcing_1688_offer_keyword_observations_identity_key")
-  @@index([ingestionRunId])
+  @@unique([organizationId, operationId, businessDate, sourceKeywordNormalized, externalOfferId, variantKeyNormalized, capturedAt], map: "sourcing_1688_offer_keyword_observations_identity_key")
+  @@index([operationId])
   @@index([organizationId, sourceKeywordNormalized, capturedAt(sort: Desc)], map: "sourcing_1688_offer_keyword_observations_keyword_captured_idx")
   @@index([organizationId, externalOfferId, variantKeyNormalized, capturedAt(sort: Desc)], map: "sourcing_1688_offer_keyword_observations_offer_captured_idx")
   @@map("sourcing_1688_offer_keyword_observations")
@@ -206,11 +206,12 @@ model Sourcing1688OfferKeywordObservation {
 
 /// @namespace Sourcing
 /// @describe Wing 카탈로그 source owner가 evidence와 같은 transaction에서 발행하는 immutable typed product fact. 화면과 추천은 COMPLETE run coverage를 통과한 이 행만 읽는다.
-model SourcingWingCatalogProductFact {
+model SourcingWingCatalogProductSnapshot {
   id                    String @id @default(uuid()) @db.Uuid
   organizationId        String @map("organization_id") @db.Uuid
   evidenceObservationId String @map("evidence_observation_id") @db.Uuid
-  ingestionRunId        String @map("ingestion_run_id") @db.Uuid
+  /// 이 행을 쓴 실행(operations.id, 스칼라·FK 없음, ADR-0025). 옛 run으로 만든 행은 옛 run id를 그대로 가진다(KID-360).
+  operationId        String @map("operation_id") @db.Uuid
 
   schemaVersion           String   @map("schema_version") @db.VarChar(80)
   sourceKeywordNormalized String   @map("source_keyword_normalized") @db.VarChar(200)
@@ -237,23 +238,22 @@ model SourcingWingCatalogProductFact {
 
   organization        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   evidenceObservation SourcingEvidenceObservation  @relation(fields: [evidenceObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  ingestionRun        SourcingEvidenceIngestionRun @relation(fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
   @@unique([id, organizationId], map: "sourcing_wing_catalog_product_facts_id_org_key")
   @@unique([evidenceObservationId, organizationId], map: "sourcing_wing_catalog_product_facts_evidence_org_key")
-  @@index([ingestionRunId])
-  @@index([organizationId, ingestionRunId, sourceKeywordNormalized, capturedAt(sort: Desc)], map: "sourcing_wing_catalog_product_facts_run_keyword_idx")
+  @@index([operationId])
+  @@index([organizationId, operationId, sourceKeywordNormalized, capturedAt(sort: Desc)], map: "sourcing_wing_catalog_product_facts_run_keyword_idx")
   @@index([organizationId, productId, capturedAt(sort: Desc)], map: "sourcing_wing_catalog_product_facts_product_idx")
   @@map("sourcing_wing_catalog_product_facts")
 }
 
 /// @namespace Sourcing
 /// @describe 쿠팡 키워드 제안 source owner가 발행하는 schema-validated immutable snapshot. Header가 존재하고 item이 비어 있으면 confirmed-empty이다.
-model SourcingKeywordSuggestionFact {
+model SourcingKeywordSuggestionSnapshot {
   id                    String   @id @default(uuid()) @db.Uuid
   organizationId        String   @map("organization_id") @db.Uuid
   evidenceObservationId String   @map("evidence_observation_id") @db.Uuid
-  ingestionRunId        String   @map("ingestion_run_id") @db.Uuid
+  /// 이 행을 쓴 실행(operations.id, 스칼라·FK 없음, ADR-0025). 옛 run으로 만든 행은 옛 run id를 그대로 가진다(KID-360).
+  operationId        String   @map("operation_id") @db.Uuid
   schemaVersion         String   @map("schema_version") @db.VarChar(80)
   keywordNormalized     String   @map("keyword_normalized") @db.VarChar(200)
   document              Json     @db.JsonB
@@ -262,12 +262,10 @@ model SourcingKeywordSuggestionFact {
 
   organization        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   evidenceObservation SourcingEvidenceObservation  @relation(fields: [evidenceObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  ingestionRun        SourcingEvidenceIngestionRun @relation(fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
   @@unique([id, organizationId], map: "sourcing_keyword_suggestion_facts_id_org_key")
   @@unique([evidenceObservationId, organizationId], map: "sourcing_keyword_suggestion_facts_evidence_org_key")
-  @@index([ingestionRunId])
-  @@index([organizationId, ingestionRunId, keywordNormalized], map: "sourcing_keyword_suggestion_facts_run_keyword_idx")
+  @@index([operationId])
+  @@index([organizationId, operationId, keywordNormalized], map: "sourcing_keyword_suggestion_facts_run_keyword_idx")
   @@map("sourcing_keyword_suggestion_facts")
 }
 
@@ -277,7 +275,8 @@ model SourcingNaverKeywordAnalysisFact {
   id                    String   @id @default(uuid()) @db.Uuid
   organizationId        String   @map("organization_id") @db.Uuid
   evidenceObservationId String   @map("evidence_observation_id") @db.Uuid
-  ingestionRunId        String   @map("ingestion_run_id") @db.Uuid
+  /// 이 행을 쓴 실행(operations.id, 스칼라·FK 없음, ADR-0025). 옛 run으로 만든 행은 옛 run id를 그대로 가진다(KID-360).
+  operationId        String   @map("operation_id") @db.Uuid
   schemaVersion         String   @map("schema_version") @db.VarChar(80)
   inputHash             String   @map("input_hash") @db.VarChar(64)
   document              Json     @db.JsonB
@@ -286,12 +285,10 @@ model SourcingNaverKeywordAnalysisFact {
 
   organization        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   evidenceObservation SourcingEvidenceObservation  @relation(fields: [evidenceObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  ingestionRun        SourcingEvidenceIngestionRun @relation(fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
   @@unique([id, organizationId], map: "sourcing_naver_keyword_analysis_facts_id_org_key")
   @@unique([evidenceObservationId, organizationId], map: "sourcing_naver_keyword_analysis_facts_evidence_org_key")
-  @@index([ingestionRunId])
-  @@index([organizationId, ingestionRunId, inputHash], map: "sourcing_naver_keyword_analysis_facts_run_input_idx")
+  @@index([operationId])
+  @@index([organizationId, operationId, inputHash], map: "sourcing_naver_keyword_analysis_facts_run_input_idx")
   @@map("sourcing_naver_keyword_analysis_facts")
 }
 
@@ -301,7 +298,8 @@ model SourcingMarketShadowFact {
   id                    String   @id @default(uuid()) @db.Uuid
   organizationId        String   @map("organization_id") @db.Uuid
   evidenceObservationId String   @map("evidence_observation_id") @db.Uuid
-  ingestionRunId        String   @map("ingestion_run_id") @db.Uuid
+  /// 이 행을 쓴 실행(operations.id, 스칼라·FK 없음, ADR-0025). 옛 run으로 만든 행은 옛 run id를 그대로 가진다(KID-360).
+  operationId        String   @map("operation_id") @db.Uuid
   schemaVersion         String   @map("schema_version") @db.VarChar(80)
   businessDate          DateTime @map("business_date") @db.Date
   document              Json     @db.JsonB
@@ -310,11 +308,9 @@ model SourcingMarketShadowFact {
 
   organization        Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   evidenceObservation SourcingEvidenceObservation  @relation(fields: [evidenceObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
-  ingestionRun        SourcingEvidenceIngestionRun @relation(fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
   @@unique([id, organizationId], map: "sourcing_market_shadow_facts_id_org_key")
   @@unique([evidenceObservationId, organizationId], map: "sourcing_market_shadow_facts_evidence_org_key")
-  @@index([ingestionRunId])
+  @@index([operationId])
   @@index([organizationId, businessDate(sort: Desc), capturedAt(sort: Desc)], map: "sourcing_market_shadow_facts_business_date_idx")
   @@map("sourcing_market_shadow_facts")
 }
@@ -345,7 +341,8 @@ model TrendSeedKeyword {
 model NaverKeywordDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
-  ingestionRunId String   @map("ingestion_run_id") @db.Uuid
+  /// 이 행을 쓴 실행(operations.id, 스칼라·FK 없음, ADR-0025). 옛 run으로 만든 행은 옛 run id를 그대로 가진다(KID-360).
+  operationId String   @map("operation_id") @db.Uuid
   keyword        String
   businessDate   DateTime @map("business_date") @db.Date
 
@@ -364,11 +361,8 @@ model NaverKeywordDailySnapshot {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  ingestionRun SourcingEvidenceIngestionRun @relation("NaverKeywordDailySnapshotIngestionRun", fields: [organizationId, ingestionRunId], references: [organizationId, id], onDelete: Cascade)
-
-  @@unique([organizationId, ingestionRunId, keyword, businessDate])
-  @@index([organizationId, ingestionRunId])
+  @@unique([organizationId, operationId, keyword, businessDate])
+  @@index([organizationId, operationId])
   @@index([organizationId, keyword, businessDate])
   @@map("naver_keyword_daily_snapshots")
 }
@@ -378,7 +372,8 @@ model NaverKeywordDailySnapshot {
 model NaverPopularKeywordDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
-  ingestionRunId String   @map("ingestion_run_id") @db.Uuid
+  /// 이 행을 쓴 실행(operations.id, 스칼라·FK 없음, ADR-0025). 옛 run으로 만든 행은 옛 run id를 그대로 가진다(KID-360).
+  operationId String   @map("operation_id") @db.Uuid
   boardKey       String   @map("board_key")
   boardLabel     String?  @map("board_label")
   cid            String?
@@ -394,11 +389,8 @@ model NaverPopularKeywordDailySnapshot {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  ingestionRun SourcingEvidenceIngestionRun @relation("NaverPopularKeywordDailySnapshotIngestionRun", fields: [organizationId, ingestionRunId], references: [organizationId, id], onDelete: Cascade)
-
-  @@unique([organizationId, ingestionRunId, boardKey, businessDate, keyword])
-  @@index([organizationId, ingestionRunId])
+  @@unique([organizationId, operationId, boardKey, businessDate, keyword])
+  @@index([organizationId, operationId])
   @@index([organizationId, boardKey, businessDate])
   @@map("naver_popular_keyword_daily_snapshots")
 }
@@ -408,7 +400,8 @@ model NaverPopularKeywordDailySnapshot {
 model ShortsTrendDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
-  ingestionRunId String   @map("ingestion_run_id") @db.Uuid
+  /// 이 행을 쓴 실행(operations.id, 스칼라·FK 없음, ADR-0025). 옛 run으로 만든 행은 옛 run id를 그대로 가진다(KID-360).
+  operationId String   @map("operation_id") @db.Uuid
   businessDate   DateTime @map("business_date") @db.Date
   videoKey       String   @map("video_key")
 
@@ -430,11 +423,8 @@ model ShortsTrendDailySnapshot {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  ingestionRun SourcingEvidenceIngestionRun @relation("ShortsTrendDailySnapshotIngestionRun", fields: [organizationId, ingestionRunId], references: [organizationId, id], onDelete: Cascade)
-
-  @@unique([organizationId, ingestionRunId, businessDate, videoKey])
-  @@index([organizationId, ingestionRunId])
+  @@unique([organizationId, operationId, businessDate, videoKey])
+  @@index([organizationId, operationId])
   @@index([organizationId, businessDate])
   @@map("shorts_trend_daily_snapshots")
 }
@@ -444,7 +434,8 @@ model ShortsTrendDailySnapshot {
 model LiveCommerceBroadcastDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
-  ingestionRunId String   @map("ingestion_run_id") @db.Uuid
+  /// 이 행을 쓴 실행(operations.id, 스칼라·FK 없음, ADR-0025). 옛 run으로 만든 행은 옛 run id를 그대로 가진다(KID-360).
+  operationId String   @map("operation_id") @db.Uuid
   businessDate   DateTime @map("business_date") @db.Date
   source         String
   broadcastId    String   @map("broadcast_id")
@@ -465,10 +456,8 @@ model LiveCommerceBroadcastDailySnapshot {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  ingestionRun SourcingEvidenceIngestionRun @relation("LiveCommerceBroadcastDailySnapshotIngestionRun", fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
-  @@unique([organizationId, ingestionRunId, businessDate, source, broadcastId])
-  @@index([organizationId, ingestionRunId, businessDate])
+  @@unique([organizationId, operationId, businessDate, source, broadcastId])
+  @@index([organizationId, operationId, businessDate])
   @@index([organizationId, source, businessDate])
   @@map("live_commerce_broadcast_daily_snapshots")
 }
@@ -478,7 +467,8 @@ model LiveCommerceBroadcastDailySnapshot {
 model LiveCommerceProductDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
-  ingestionRunId String   @map("ingestion_run_id") @db.Uuid
+  /// 이 행을 쓴 실행(operations.id, 스칼라·FK 없음, ADR-0025). 옛 run으로 만든 행은 옛 run id를 그대로 가진다(KID-360).
+  operationId String   @map("operation_id") @db.Uuid
   businessDate   DateTime @map("business_date") @db.Date
   source         String
   broadcastId    String   @map("broadcast_id")
@@ -496,10 +486,8 @@ model LiveCommerceProductDailySnapshot {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  ingestionRun SourcingEvidenceIngestionRun @relation("LiveCommerceProductDailySnapshotIngestionRun", fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
-  @@unique([organizationId, ingestionRunId, businessDate, source, broadcastId, productId])
-  @@index([organizationId, ingestionRunId, businessDate])
+  @@unique([organizationId, operationId, businessDate, source, broadcastId, productId])
+  @@index([organizationId, operationId, businessDate])
   @@index([organizationId, source, businessDate], map: "live_commerce_product_source_date_idx")
   @@index([organizationId, source, productId], map: "live_commerce_product_source_product_idx")
   @@map("live_commerce_product_daily_snapshots")
@@ -510,7 +498,8 @@ model LiveCommerceProductDailySnapshot {
 model TiktokCreativeTrendDailySnapshot {
   id             String   @id @default(uuid()) @db.Uuid
   organizationId String   @map("organization_id") @db.Uuid
-  ingestionRunId String   @map("ingestion_run_id") @db.Uuid
+  /// 이 행을 쓴 실행(operations.id, 스칼라·FK 없음, ADR-0025). 옛 run으로 만든 행은 옛 run id를 그대로 가진다(KID-360).
+  operationId String   @map("operation_id") @db.Uuid
   businessDate   DateTime @map("business_date") @db.Date
   region         String
   trendType      String   @map("trend_type")
@@ -533,11 +522,9 @@ model TiktokCreativeTrendDailySnapshot {
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization                 @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  ingestionRun SourcingEvidenceIngestionRun @relation("TiktokCreativeTrendDailySnapshotIngestionRun", fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
-
-  @@unique([organizationId, ingestionRunId, businessDate, region, trendType, entityKey])
-  @@index([ingestionRunId])
-  @@index([organizationId, ingestionRunId, businessDate])
+  @@unique([organizationId, operationId, businessDate, region, trendType, entityKey])
+  @@index([operationId])
+  @@index([organizationId, operationId, businessDate])
   @@index([organizationId, businessDate])
   @@map("tiktok_creative_trend_daily_snapshots")
 }
@@ -605,18 +592,6 @@ model SourcingEvidenceIngestionRun {
 
   organization                        Organization                          @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   triggeredByUser                     User?                                 @relation("SourcingEvidenceIngestionRunTriggeredBy", fields: [triggeredByUserId], references: [id], onDelete: SetNull)
-  observations                        SourcingEvidenceObservation[]
-  offerKeywordObservations            Sourcing1688OfferKeywordObservation[]
-  liveCommerceBroadcastDailySnapshots LiveCommerceBroadcastDailySnapshot[]  @relation("LiveCommerceBroadcastDailySnapshotIngestionRun")
-  liveCommerceProductDailySnapshots   LiveCommerceProductDailySnapshot[]    @relation("LiveCommerceProductDailySnapshotIngestionRun")
-  naverKeywordDailySnapshots          NaverKeywordDailySnapshot[]           @relation("NaverKeywordDailySnapshotIngestionRun")
-  naverPopularKeywordDailySnapshots   NaverPopularKeywordDailySnapshot[]    @relation("NaverPopularKeywordDailySnapshotIngestionRun")
-  shortsTrendDailySnapshots           ShortsTrendDailySnapshot[]            @relation("ShortsTrendDailySnapshotIngestionRun")
-  tiktokCreativeTrendDailySnapshots   TiktokCreativeTrendDailySnapshot[]    @relation("TiktokCreativeTrendDailySnapshotIngestionRun")
-  wingCatalogProductFacts             SourcingWingCatalogProductFact[]
-  keywordSuggestionFacts              SourcingKeywordSuggestionFact[]
-  naverKeywordAnalysisFacts           SourcingNaverKeywordAnalysisFact[]
-  marketShadowFacts                   SourcingMarketShadowFact[]
 
   @@unique([id, organizationId], map: "sourcing_evidence_ingestion_runs_id_org_key")
   @@unique([organizationId, sourceKey, idempotencyKey], map: "sourcing_evidence_ingestion_runs_org_source_idempotency_key")
@@ -634,7 +609,8 @@ model SourcingEvidenceIngestionRun {
 model SourcingEvidenceObservation {
   id                      String  @id @default(uuid()) @db.Uuid
   organizationId          String  @map("organization_id") @db.Uuid
-  ingestionRunId          String  @map("ingestion_run_id") @db.Uuid
+  /// 이 행을 쓴 실행(operations.id, 스칼라·FK 없음, ADR-0025). 옛 run으로 만든 행은 옛 run id를 그대로 가진다(KID-360).
+  operationId          String  @map("operation_id") @db.Uuid
   supersedesObservationId String? @map("supersedes_observation_id") @db.Uuid
 
   sourceKey         String  @map("source_key") @db.VarChar(80)
@@ -664,7 +640,6 @@ model SourcingEvidenceObservation {
   createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
 
   organization               Organization                         @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  ingestionRun               SourcingEvidenceIngestionRun         @relation(fields: [ingestionRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   supersedesObservation      SourcingEvidenceObservation?         @relation("SourcingEvidenceObservationRevision", fields: [supersedesObservationId, organizationId], references: [id, organizationId], onDelete: Restrict)
   supersededByObservation    SourcingEvidenceObservation?         @relation("SourcingEvidenceObservationRevision")
   supplierOfferSkuSnapshots  SupplierOfferSkuSnapshot[]
@@ -672,15 +647,15 @@ model SourcingEvidenceObservation {
   offerKeywordObservation    Sourcing1688OfferKeywordObservation?
   recommendationItemEvidence SourcingRecommendationItemEvidence[]
   validationCheckEvidence    SourcingValidationCheckEvidence[]
-  wingCatalogProductFact     SourcingWingCatalogProductFact?
-  keywordSuggestionFact      SourcingKeywordSuggestionFact?
+  wingCatalogProductSnapshot     SourcingWingCatalogProductSnapshot?
+  keywordSuggestionSnapshot      SourcingKeywordSuggestionSnapshot?
   naverKeywordAnalysisFact   SourcingNaverKeywordAnalysisFact?
   marketShadowFact           SourcingMarketShadowFact?
 
   @@unique([id, organizationId], map: "sourcing_evidence_observations_id_org_key")
   @@unique([organizationId, observationKey, revision], map: "sourcing_evidence_observations_org_key_revision_key")
   @@unique([supersedesObservationId, organizationId], map: "sourcing_evidence_observations_supersedes_org_key")
-  @@index([ingestionRunId])
+  @@index([operationId])
   @@index([supersedesObservationId])
   @@index([organizationId, sourceKey, sourceEntityType, sourceEntityKey, availableAt], map: "sourcing_evidence_observations_entity_available_idx")
   @@index([organizationId, observationType, businessDate], map: "sourcing_evidence_observations_type_date_idx")
@@ -1110,4 +1085,42 @@ model SourcingReviewBatchItem {
   @@index([validationEpisodeId])
   @@index([offerKeywordObservationId])
   @@map("sourcing_review_batch_items")
+}
+
+/// @namespace Sourcing
+/// @describe 소싱 원천의 발행 이력(KID-360). 성공한 수집 하나(옛 COMPLETE run 하나)가 (source, scope, target) 발행 1행이다. isCurrent 행이 그 대상의 "현재 완결 스냅샷"이고, 이력 리더는 같은 표를 날짜·키워드로 읽는다. 옛 run 표의 is_current_complete·attemptPlan·coverage·window·qualityReport를 대체한다. 실행 계약(operations)이 아니라 소싱 원장의 사실이며 finalize가 같은 트랜잭션에서 쓴다. operationId는 스칼라(FK 없음) — 옛 run으로 만든 행은 옛 run id를 가진다.
+model SourcingSourcePublication {
+  id             String @id @default(uuid()) @db.Uuid
+  organizationId String @map("organization_id") @db.Uuid
+  sourceKey      String @map("source_key") @db.VarChar(80)
+  scopeKey       String @default("default") @map("scope_key") @db.VarChar(160)
+  targetKey      String @map("target_key") @db.VarChar(300)
+  /// 이 발행을 만든 실행. 원장 행의 operationId와 같으면 이 발행의 사실이다.
+  operationId    String @map("operation_id") @db.Uuid
+  /// 그 대상의 현재 완결 스냅샷인가. (org, source, scope, target)마다 하나.
+  isCurrent      Boolean @default(false) @map("is_current")
+  /// 사실을 만든 수집기와 판(옛 run의 collector_key·collector_version). 확장 kind는 kind 문자열이 collectorKey다.
+  collectorKey     String @map("collector_key") @db.VarChar(120)
+  collectorVersion String @map("collector_version") @db.VarChar(120)
+
+  /// 수집이 약속한 범위(옛 attemptPlan: keywords·boardKeys 등). 이력 리더가 "무엇을 덮었나"를 여기서 읽는다.
+  plan                Json?     @db.JsonB
+  windowStartAt       DateTime? @map("window_start_at") @db.Timestamptz
+  windowEndAt         DateTime? @map("window_end_at") @db.Timestamptz
+  discoveredCount     Int       @default(0) @map("discovered_count")
+  acceptedCount       Int       @default(0) @map("accepted_count")
+  duplicateCount      Int       @default(0) @map("duplicate_count")
+  coverageNumerator   Int?      @map("coverage_numerator")
+  coverageDenominator Int?      @map("coverage_denominator")
+  contentChecksum     String?   @map("content_checksum") @db.VarChar(64)
+  qualityReport       Json?     @map("quality_report") @db.JsonB
+  completedAt         DateTime  @map("completed_at") @db.Timestamptz
+  createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([organizationId, operationId], map: "sourcing_source_publications_operation_key")
+  @@unique([organizationId, sourceKey, scopeKey, targetKey], map: "sourcing_source_publications_one_current_key", where: raw("(is_current = true)"))
+  @@index([organizationId, sourceKey, scopeKey, targetKey, completedAt(sort: Desc)], map: "sourcing_source_publications_target_completed_idx")
+  @@map("sourcing_source_publications")
 }

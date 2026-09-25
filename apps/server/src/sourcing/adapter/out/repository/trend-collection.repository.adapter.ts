@@ -3,12 +3,12 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { businessDateKey, kstInclusiveDaysStart, parseBusinessDate } from '../../../../common/kst';
 import {
-  readComplete1688OfferHistoryRuns,
-  readCompleteNaverKeywordHistoryRuns,
-  readCompleteNaverPopularKeywordHistoryRuns,
-  readCompleteShortsHistoryRuns,
-  readCompleteTiktokHistoryRuns,
-  readCurrentCompleteRuns,
+  readComplete1688OfferHistoryPublications,
+  readCompleteNaverKeywordHistoryPublications,
+  readCompleteNaverPopularKeywordHistoryPublications,
+  readCompleteShortsHistoryPublications,
+  readCompleteTiktokHistoryPublications,
+  readCurrentPublications,
   readKeywordAnalysisFact,
 } from './source-evidence.reader';
 import { declaredCoverageDateKeys } from '../../../domain/source-evidence-coverage';
@@ -108,24 +108,22 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
   }
 
   async findLatestCompleteTrendScope(input: { organizationId: string; source: 'naver' | 'shorts' }): Promise<string | null> {
-    const runs = await readCurrentCompleteRuns(this.prisma, {
+    const publications = await readCurrentPublications(this.prisma, {
       organizationId: input.organizationId,
       sourceKey: input.source === 'naver' ? 'naver.trend' : 'shortstrend.trend',
       scopeKey: 'default',
     });
-    const [complete] = runs.sort((left, right) =>
-      (right.sourceWindowEndAt?.getTime() ?? -Infinity)
-      - (left.sourceWindowEndAt?.getTime() ?? -Infinity)
-      || (right.completedAt?.getTime() ?? -Infinity)
-      - (left.completedAt?.getTime() ?? -Infinity)
-      || right.generation - left.generation
+    const [complete] = publications.sort((left, right) =>
+      (right.windowEndAt?.getTime() ?? -Infinity)
+      - (left.windowEndAt?.getTime() ?? -Infinity)
+      || right.completedAt.getTime() - left.completedAt.getTime()
       || right.id.localeCompare(left.id));
     return complete?.targetKey ?? null;
   }
 
   async findNaverKeywordHistory(query: TrendHistoryQuery): Promise<NaverKeywordSnapshotRow[]> {
     const start = kstInclusiveDaysStart(query.days);
-    const attempts = await readCompleteNaverKeywordHistoryRuns(this.prisma, {
+    const attempts = await readCompleteNaverKeywordHistoryPublications(this.prisma, {
       organizationId: query.organizationId,
       start,
     });
@@ -133,7 +131,7 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
     const selectedScopes = new Set<string>();
     const rows = attempts.flatMap((attempt) => {
       const dateKeys = declaredCoverageDateKeys(attempt, start);
-      const planKeywords = planStringList(attempt.attemptPlan, 'keywords');
+      const planKeywords = planStringList(attempt.plan, 'keywords');
       const selectedRows = [] as typeof attempt.naverKeywordDailySnapshots;
       for (const dateKeyValue of dateKeys) {
         const rowKeywords = new Set(attempt.naverKeywordDailySnapshots
@@ -172,7 +170,7 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
   async findPopularKeywordHistory(query: TrendHistoryQuery) {
     // Read coverage even when the complete attempt produced no board rows.
     const start = kstInclusiveDaysStart(query.days);
-    const attempts = await readCompleteNaverPopularKeywordHistoryRuns(this.prisma, {
+    const attempts = await readCompleteNaverPopularKeywordHistoryPublications(this.prisma, {
       organizationId: query.organizationId,
       start,
     });
@@ -180,7 +178,7 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
     const coverage: Array<{ boardKey: string; businessDate: Date }> = [];
     const rows: NaverPopularKeywordSnapshotRow[] = [];
     for (const attempt of attempts) {
-      const plan = asRecord(attempt.attemptPlan);
+      const plan = asRecord(attempt.plan);
       const boardKeys = Array.isArray(plan?.boardKeys)
         ? plan.boardKeys.filter((value): value is string => typeof value === 'string')
         : [];
@@ -207,7 +205,7 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
 
   async find1688HotHistory(query: TrendHistoryQuery): Promise<Sourcing1688HotProductSnapshotRow[]> {
     const start = kstInclusiveDaysStart(query.days);
-    const attempts = await readComplete1688OfferHistoryRuns(this.prisma, {
+    const attempts = await readComplete1688OfferHistoryPublications(this.prisma, {
       organizationId: query.organizationId,
       start,
     });
@@ -216,7 +214,7 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
     const rows = attempts.flatMap((attempt) => {
       const dateKeys = declaredCoverageDateKeys(attempt, start);
       const planKeywords = new Set(
-        planStringList(attempt.attemptPlan, 'keywords').map(keywordIdentity),
+        planStringList(attempt.plan, 'keywords').map(keywordIdentity),
       );
       const selectedRows = [] as typeof attempt.offerKeywordObservations;
       for (const dateKeyValue of dateKeys) {
@@ -256,7 +254,7 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
   async findShortsHistoryWithCoverage(query: TrendHistoryQuery) {
     // Read coverage even when a complete attempt stored no video.
     const start = kstInclusiveDaysStart(query.days);
-    const attempts = await readCompleteShortsHistoryRuns(this.prisma, {
+    const attempts = await readCompleteShortsHistoryPublications(this.prisma, {
       organizationId: query.organizationId,
       start,
     });
@@ -291,7 +289,7 @@ export class TrendCollectionRepositoryAdapter implements TrendCollectionReposito
 
   async findTiktokCcHistory(query: TrendHistoryQuery): Promise<TiktokCcSnapshotRow[]> {
     const start = kstInclusiveDaysStart(query.days);
-    const attempts = await readCompleteTiktokHistoryRuns(this.prisma, {
+    const attempts = await readCompleteTiktokHistoryPublications(this.prisma, {
       organizationId: query.organizationId,
       start,
     });

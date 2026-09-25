@@ -1,3 +1,10 @@
+import { SOURCING_EXTENSION_OPERATION_OWNERS } from "./adapter/in/operation/sourcing-extension-operation-owners";
+import { SourcingChannelAccountAdapter } from "./adapter/out/channels/sourcing-channel-account.adapter";
+import { SourcingOperationLedgerRepositoryAdapter } from "./adapter/out/repository/sourcing-operation-ledger.repository.adapter";
+import { SOURCING_EXTENSION_OPERATION_PORT } from "./application/port/in/sourcing-extension-operation.port";
+import { SOURCING_CHANNEL_ACCOUNT_PORT } from "./application/port/out/cross-domain/sourcing-channel-account.port";
+import { SOURCING_OPERATION_LEDGER_REPOSITORY_PORT } from "./application/port/out/repository/sourcing-operation-ledger.repository.port";
+import { SourcingExtensionOperationService } from "./application/service/sourcing-extension-operation.service";
 import { Module } from "@nestjs/common";
 import { PrismaModule } from "../prisma/prisma.module";
 import { AlertsModule } from "../alerts/alerts.module";
@@ -57,9 +64,6 @@ import { Sourcing1688SearchResultController } from "./adapter/in/http/sourcing-1
 import { Sourcing1688SearchController } from "./adapter/in/http/sourcing-1688-search.controller";
 import { SourcingAgentRagController } from "./adapter/in/http/sourcing-agent-rag.controller";
 import { SourcingExtensionIngestController } from "./adapter/in/http/sourcing-extension-ingest.controller";
-import { SourcingBrowserSourceAttemptController } from "./adapter/in/http/sourcing-browser-source-attempt.controller";
-import { SourcingLiveCommerceSourceAttemptController } from "./adapter/in/http/sourcing-live-commerce-source-attempt.controller";
-import { SourcingTiktokSourceAttemptController } from "./adapter/in/http/sourcing-tiktok-source-attempt.controller";
 import { SourcingKeywordAnalysisController } from "./adapter/in/http/sourcing-keyword-analysis.controller";
 import { SourcingRisingProductController } from "./adapter/in/http/sourcing-rising-product.controller";
 import { SourcingIntelligenceController } from "./adapter/in/http/sourcing-intelligence.controller";
@@ -78,7 +82,6 @@ import { SourcingService } from "./application/service/sourcing.service";
 import { SourcingScrapeUrlService } from "./application/service/sourcing-scrape-url.service";
 import { SalesProductDraftAdapter } from "./adapter/out/channels/sales-product-draft.adapter";
 import { SALES_PRODUCT_DRAFT_PORT } from "./application/port/out/cross-domain/sales-product-draft.port";
-import { SourcingExtensionIngestService } from "./application/service/sourcing-extension-ingest.service";
 import { SourcingEntryRecommendationService } from "./application/service/sourcing-entry-recommendation.service";
 import { SourcingRecommendationService } from "./application/service/sourcing-recommendation.service";
 import { SourcingConfirmReportService } from "./application/service/sourcing-confirm-report.service";
@@ -98,9 +101,6 @@ import { SourcingDecisionBatchService } from "./application/service/sourcing-dec
 import { TrendCollectService } from "./application/service/trend-collect.service";
 import { TrendQueryService } from "./application/service/trend-query.service";
 import { LiveCommerceService } from "./application/service/live-commerce.service";
-import { SourcingBrowserSourceAttemptService } from "./application/service/sourcing-browser-source-attempt.service";
-import { SourcingLiveCommerceSourceAttemptService } from "./application/service/sourcing-live-commerce-source-attempt.service";
-import { SourcingTiktokSourceAttemptService } from "./application/service/sourcing-tiktok-source-attempt.service";
 import { NaverDatalabPopularKeywordAdapter } from "./adapter/out/naver/naver-datalab-popular-keyword.adapter";
 import { NaverDatalabTrendAdapter } from "./adapter/out/naver/naver-datalab-trend.adapter";
 import { NaverAutocompleteKeywordAdapter } from "./adapter/out/naver/naver-autocomplete-keyword.adapter";
@@ -150,7 +150,8 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
  * source-record handoff to the Channels selling-product draft (KID-313).
  *
  * Capabilities folded under this module:
- *   - sourcing extension ingest + scrape (Agent OS delegated) — `/api/sourcing/*`
+ *   - extension-driven collection kinds (`sourcing.*`, KID-360) — the operation contract `/api/operations`
+ *   - scrape (Agent OS delegated) — `/api/sourcing/*`
  *   - source-record read — `/api/sourcing/source-records/:id`
  *
  * Supplier registry and purchase-order procurement live in `supply/` (extracted
@@ -178,9 +179,6 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
   ],
   controllers: [
     SourcingExtensionIngestController,
-    SourcingBrowserSourceAttemptController,
-    SourcingLiveCommerceSourceAttemptController,
-    SourcingTiktokSourceAttemptController,
     SourcingKeywordAnalysisController,
     Sourcing1688SearchResultController,
     Sourcing1688SearchController,
@@ -199,6 +197,14 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     LiveCommerceController,
   ],
   providers: [
+    // 확장 구동 소싱 kind 6종(KID-360): 실행 계약 owner와 finish 트랜잭션 persistence.
+    ...SOURCING_EXTENSION_OPERATION_OWNERS,
+    SourcingExtensionOperationService,
+    { provide: SOURCING_EXTENSION_OPERATION_PORT, useExisting: SourcingExtensionOperationService },
+    SourcingOperationLedgerRepositoryAdapter,
+    { provide: SOURCING_OPERATION_LEDGER_REPOSITORY_PORT, useExisting: SourcingOperationLedgerRepositoryAdapter },
+    SourcingChannelAccountAdapter,
+    { provide: SOURCING_CHANNEL_ACCOUNT_PORT, useExisting: SourcingChannelAccountAdapter },
     MarketShadowSignalCapabilityAdapter,
     SourcingShadowSignalService,
     GoogleTrendsRssAdapter,
@@ -230,7 +236,6 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     SourcingKeywordPreferenceService,
     SourcingKeywordSuggestionService,
     SourcingWingCatalogIngestService,
-    SourcingExtensionIngestService,
     SourcingMarketDiscoveryService,
     SourcingRisingProductService,
     SourcingCollectionSourceControlService,
@@ -239,9 +244,6 @@ import { COUPANG_MOMENTUM_PORT } from "./application/port/out/cross-domain/coupa
     SourcingLaunchCandidateService,
     SourcingDecisionBatchService,
     TrendCollectService,
-    SourcingBrowserSourceAttemptService,
-    SourcingLiveCommerceSourceAttemptService,
-    SourcingTiktokSourceAttemptService,
     TrendQueryService,
     LiveCommerceService,
     NaverDatalabPopularKeywordAdapter,

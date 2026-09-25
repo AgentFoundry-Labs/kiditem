@@ -8,9 +8,6 @@
     "extensions/kiditem-os/background/service-worker.js": 0,
     "extensions/kiditem-os/background/coupang/worker.js": 0,
     "extensions/kiditem-os/background/orders/worker.js": 0,
-    "extensions/kiditem-os/background/sourcing/worker.js": 0,
-    "extensions/kiditem-os/background/sourcing/1688-trend-collector.js": 0,
-    "extensions/kiditem-os/background/sourcing/live-commerce-collector.js": 0,
     "apps/web/src/components/readiness/useReadinessCollection.ts": 0,
     "apps/web/src/app/(analytics)/dashboard/page.tsx": 0
   }

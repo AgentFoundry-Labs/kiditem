@@ -7,11 +7,11 @@ import {
   TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
 import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
+import { createHash } from 'node:crypto';
+import { isKiditemError } from '@kiditem/shared/errors';
+import { sourcingExtensionOperations } from '../../test-helpers/sourcing-extension-operations';
 import { SourceRecordRepositoryAdapter } from '../adapter/out/repository/source-record.repository.adapter';
 import { SourcingFinalDiscoveryCapabilityAdapter } from '../adapter/in/agent/sourcing-final-discovery-capability.adapter';
-import { SourcingExtensionIngestService } from '../application/service/sourcing-extension-ingest.service';
 import { SourceRecordDuplicateError } from '../domain/source-record-admission';
 import { canonicalSourceRecordIdentity } from '../domain/source-record-identity';
 import type { PrismaService } from '../../prisma/prisma.service';
@@ -85,7 +85,7 @@ describe('Sourcing cross-entrypoint source-record identity (PG integration)', ()
 
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
     const refused = results.find((result): result is PromiseRejectedResult => result.status === 'rejected')!;
-    expect(refused.reason).toBeInstanceOf(SourceRecordDuplicateError);
+    expect(isDuplicateRefusal(refused.reason)).toBe(true);
     const record = await agentPrisma.sourceRecord.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, sourcePlatform: 'ALIBABA_1688', sourceIdentityHash },
       select: { id: true },
@@ -134,8 +134,7 @@ describe('Sourcing cross-entrypoint source-record identity (PG integration)', ()
     ]);
 
     expect(results.filter((result) => result.status === 'fulfilled')).toHaveLength(1);
-    expect((results.find((result) => result.status === 'rejected') as PromiseRejectedResult).reason)
-      .toBeInstanceOf(SourceRecordDuplicateError);
+    expect(isDuplicateRefusal((results.find((result) => result.status === 'rejected') as PromiseRejectedResult).reason)).toBe(true);
     const record = await agentPrisma.sourceRecord.findFirstOrThrow({
       where: { organizationId: TEST_ORGANIZATION_ID, sourceUrl: canonicalSourceUrl },
       select: { id: true },
@@ -145,23 +144,31 @@ describe('Sourcing cross-entrypoint source-record identity (PG integration)', ()
   });
 });
 
-function extensionOwner(prisma: PrismaClient): SourcingExtensionIngestService {
-  return new SourcingExtensionIngestService(
-    new SourcingBrowserSourceAttemptRepositoryAdapter(
-      prisma as unknown as PrismaService,
-      new SourceFailureAlerts(prisma as unknown as PrismaService),
-      realSalesProductDraftPort(prisma),
-    ),
-  );
+function extensionOwner(prisma: PrismaClient) {
+  return sourcingExtensionOperations(prisma, realSalesProductDraftPort(prisma)).operations;
 }
 
+/** 확장 상품 수집 실행(KID-360): begin → 상품 문서 청크 → finish. finish가 거절되면 그 오류를 던진다. */
 async function completeExtension(
-  extension: SourcingExtensionIngestService,
-  product: Record<string, unknown> & { source_url: string },
+  operations: ReturnType<typeof extensionOwner>,
+  product: Record<string, unknown> & { source_url: string; source_platform: string },
 ) {
-  const context = { organizationId: TEST_ORGANIZATION_ID, userId: TEST_USER_ID };
-  const attempt = await extension.begin(context, { sourceUrl: product.source_url }, 'extension:cross-entrypoint');
-  return extension.complete(context, attempt.attemptId, attempt.attemptToken, { product, hadDescription: false });
+  const begun = await operations.begin(TEST_ORGANIZATION_ID, {
+    kind: 'sourcing.product_extension',
+    scope: { platform: product.source_platform, url: product.source_url },
+  }, { userId: TEST_USER_ID });
+  const payload = [{ product, hadDescription: false }];
+  await operations.putChunk({ organizationId: TEST_ORGANIZATION_ID, operationId: begun.operation.id, token: begun.token,
+    chunkKind: 'product_document', sequence: 1,
+    request: { checksum: createHash('sha256').update(JSON.stringify(payload)).digest('hex'), payload } });
+  return operations.finish({ organizationId: TEST_ORGANIZATION_ID, operationId: begun.operation.id, token: begun.token,
+    request: { outcome: 'succeeded' } });
+}
+
+/** 같은 원본의 두 번째 입장 거절: Agent 입구는 도메인 오류, 확장 실행은 그 409 봉투 오류로 온다. */
+function isDuplicateRefusal(reason: unknown): boolean {
+  return reason instanceof SourceRecordDuplicateError
+    || (isKiditemError(reason) && reason.code === 'SOURCING_DUPLICATE_RECORD');
 }
 
 /**

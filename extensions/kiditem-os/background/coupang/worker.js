@@ -189,25 +189,6 @@ const wingSearchCollector = KidItemWingSearchCollector.create({
   attention: (runId, tabId, reason, message) =>
     collectionRuns.requireAttention(runId, tabId, reason, message),
 });
-const coupangKeywordSuggestionCollector = KidItemCoupangKeywordSuggestionCollector.create({
-  chrome,
-  sessions: collectionSessions,
-  createTab,
-  bindTab: (tabId, environmentId) =>
-    coupangEnvironment.bindTab(tabId, environmentId),
-  waitForTabComplete,
-  attention: (runId, tabId, reason, message) =>
-    collectionRuns.requireAttention(runId, tabId, reason, message),
-});
-const keywordSuggestionSourceOwner = KidItemKeywordSuggestionSourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  requireEnvironment: (environmentId) =>
-    sharedEnvironmentContext.requireEnvironment(environmentId),
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  collect: (input) => coupangKeywordSuggestionCollector.collect(input),
-});
-
 // The source owners that close through collectionWindowFor share one window
 // per environment. A run holds the window's turn until its outcome is reported
 // and its window and session are released. The turn never waits: a run finds
@@ -1454,8 +1435,8 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+// Wing 검색 한 번에 넣는 키워드 상한(추적 상품 수집이 쓴다).
 const SOURCING_WING_CATALOG_MAX_KEYWORDS = 12;
-const SOURCING_WING_CATALOG_MAX_ITEMS = 100;
 const ADVERTISING_TRACKED_WING_PRODUCTS_PRODUCER =
   "advertising.wing_tracked_products";
 const ADVERTISING_TRACKED_WING_PRODUCTS_MAX_ITEMS = 300;
@@ -1463,113 +1444,6 @@ const INCOMPLETE_WING_SEARCH_STOP_REASONS = new Set([
   "authentication_token_missing",
   "non_json_response",
 ]);
-
-// The sourcing Wing-catalog owner is loaded before this worker, but its
-// boundary helpers live here so the owner can share the worker's canonical
-// keyword contract and the focused source-owner test harness can load the
-// same production seam without the whole worker.
-function parseSourcingWingCatalogInput(input) {
-  if (!input || typeof input !== "object" || Array.isArray(input)) {
-    throw new Error("wing_catalog_operation_input_invalid");
-  }
-  if (
-    !Array.isArray(input.keywords) ||
-    input.keywords.length < 1 ||
-    input.keywords.length > SOURCING_WING_CATALOG_MAX_KEYWORDS ||
-    !Number.isInteger(input.maxPages) ||
-    input.maxPages < 1 ||
-    input.maxPages > WING_CATALOG_MAX_PAGES ||
-    ![
-      "catalog_search",
-      "market_analysis",
-      "recommendation_validation",
-      "tracked_metrics",
-    ].includes(input.purpose) ||
-    Object.keys(input).some(
-      (key) => !["keywords", "maxPages", "purpose"].includes(key),
-    )
-  ) {
-    throw new Error("wing_catalog_operation_input_invalid");
-  }
-  const keywords = KidItemWingKeywordContract.parseBatchKeywords(
-    input.keywords,
-    SOURCING_WING_CATALOG_MAX_KEYWORDS,
-    100,
-  );
-  return { keywords, maxPages: input.maxPages, purpose: input.purpose };
-}
-
-function sourcingWingCatalogBoundedInteger(value) {
-  if (
-    value == null ||
-    typeof value === "boolean" ||
-    (typeof value === "string" && value.trim() === "") ||
-    (typeof value !== "number" && typeof value !== "string")
-  ) {
-    return null;
-  }
-  const numeric = Number(value);
-  return Number.isInteger(numeric) && numeric >= 0 && numeric <= 2147483647
-    ? numeric
-    : null;
-}
-
-function sourcingWingCatalogBoundedNumber(value, minimum, maximum) {
-  if (
-    value == null ||
-    typeof value === "boolean" ||
-    (typeof value === "string" && value.trim() === "") ||
-    (typeof value !== "number" && typeof value !== "string")
-  ) {
-    return null;
-  }
-  const numeric = Number(value);
-  return Number.isFinite(numeric) && numeric >= minimum && numeric <= maximum
-    ? numeric
-    : null;
-}
-
-function toSourcingWingCatalogObservation(row, sourceKeyword, capturedAt) {
-  return {
-    productId: String(row.productId),
-    itemId: row.itemId == null ? null : String(row.itemId),
-    vendorItemId:
-      row.vendorItemId == null ? null : String(row.vendorItemId),
-    productName: String(row.productName || "").slice(0, 500),
-    itemName: row.itemName == null ? null : String(row.itemName).slice(0, 500),
-    brandName:
-      row.brandName == null ? null : String(row.brandName).slice(0, 500),
-    manufacture:
-      row.manufacture == null ? null : String(row.manufacture).slice(0, 500),
-    categoryHierarchy:
-      row.categoryHierarchy == null
-        ? null
-        : String(row.categoryHierarchy).slice(0, 1000),
-    imagePath:
-      row.imagePath == null ? null : String(row.imagePath).slice(0, 2000),
-    salePriceKrw: sourcingWingCatalogBoundedInteger(row.salePrice),
-    ratingAverage: sourcingWingCatalogBoundedNumber(row.rating, 0, 5),
-    ratingCount: sourcingWingCatalogBoundedInteger(row.ratingCount),
-    viewsLast28d: sourcingWingCatalogBoundedInteger(row.pvLast28Day),
-    salesLast28d: sourcingWingCatalogBoundedInteger(row.salesLast28d),
-    estimatedRevenue28d: sourcingWingCatalogBoundedNumber(
-      row.estimatedRevenue28d,
-      0,
-      2147483647,
-    ),
-    conversionRate28d: sourcingWingCatalogBoundedNumber(
-      row.conversionRate28d,
-      0,
-      1,
-    ),
-    deliveryInfo:
-      row.deliveryInfo == null
-        ? null
-        : String(row.deliveryInfo).slice(0, 1000),
-    sourceKeyword,
-    capturedAt,
-  };
-}
 
 function parseAdvertisingTrackedWingProductsStart(message) {
   if (
@@ -1593,18 +1467,6 @@ function parseAdvertisingTrackedWingProductsStart(message) {
   );
   return { idempotencyKey: message.idempotencyKey.trim(), keywords };
 }
-function parseSourcingKeywordSuggestionStart(message) {
-  return keywordSuggestionSourceOwner.parseStart(message);
-}
-
-function runSourcingKeywordSuggestions(input) {
-  return keywordSuggestionSourceOwner.run(input);
-}
-
-async function cancelSourcingKeywordSuggestions(attemptId, environmentId) {
-  return keywordSuggestionSourceOwner.cancel({ environmentId, attemptId });
-}
-
 async function collectSerpSellerEnrichment({ environmentId, idempotencyKey, isCancelled, setCancelActive }) {
   const collectCatalog = (phase, excludeCompletedAttemptId) => competitorCatalogSourceOwner.run({
     environmentId, idempotencyKey: `${idempotencyKey}:catalog:${phase}`,
@@ -1774,16 +1636,6 @@ KidItemDomains.register({
         wingRankSourceOwner.run({ environmentId, attemptId }),
       ),
     },
-    collectSourcingWingCatalog: {
-      validate: parseSourcingWingCatalogStart,
-      handle: ({ idempotencyKey, input }, environmentId) =>
-        KidItemWorkerKeepAlive.during(runSourcingWingCatalog({ environmentId, idempotencyKey, input })),
-    },
-    collectSourcingKeywordSuggestions: {
-      validate: parseSourcingKeywordSuggestionStart,
-      handle: ({ idempotencyKey, input }, environmentId) =>
-        KidItemWorkerKeepAlive.during(runSourcingKeywordSuggestions({ environmentId, idempotencyKey, input })),
-    },
     collectAdvertisingTrackedWingProducts: {
       validate: parseAdvertisingTrackedWingProductsStart,
       handle: ({ idempotencyKey, keywords }, environmentId) =>
@@ -1814,13 +1666,8 @@ KidItemDomains.register({
     profitabilityAdvertisingSourceOwnerV1: true,
     trackedWingProductsSourceOwnerV1: true,
     competitorCatalogSourceOwnerV1: true,
-    sourcingWingCatalogSourceOwnerV1: true,
     wingCatalogSearch: true,
     wingCatalogSearchSource: "wing-pre-matching",
-    coupangKeywordSuggestions: true,
-    sourcingKeywordSuggestionSourceOwnerV1: true,
-    coupangKeywordSuggestionSource: "coupang-search-page",
-    coupangProductNameTokens: true,
     coupangKeywordRank: true,
     coupangKeywordRankSource: "coupang-search-page",
     coupangCompetitorSeller: true,

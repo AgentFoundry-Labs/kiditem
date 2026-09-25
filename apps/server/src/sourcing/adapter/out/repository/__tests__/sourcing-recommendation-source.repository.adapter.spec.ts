@@ -8,11 +8,11 @@ function createRepository() {
   const prisma = {
     sourcing1688OfferKeywordObservation: { findMany: vi.fn(async () => []) },
     sourcingEvidenceObservation: { findMany: vi.fn(async () => []) },
-    sourcingWingCatalogProductFact: {
+    sourcingWingCatalogProductSnapshot: {
       findMany: vi.fn(async () => []),
       groupBy: vi.fn(async () => []),
     },
-    sourcingEvidenceIngestionRun: {
+    sourcingSourcePublication: {
       findMany: vi.fn(async () => []),
     },
     $transaction: vi.fn(),
@@ -27,8 +27,8 @@ function createRepository() {
 describe('SourcingRecommendationSourceRepositoryAdapter', () => {
   it('reports declared Wing coverage with no typed publication as rejected evidence', async () => {
     const { repository, prisma } = createRepository();
-    prisma.sourcingEvidenceIngestionRun.findMany.mockResolvedValueOnce([{
-      id: 'complete',
+    prisma.sourcingSourcePublication.findMany.mockResolvedValueOnce([{
+      operationId: 'complete',
       qualityReport: {
         snapshots: [{ keyword: 'slime' }],
         wingReceipts: [{ count: 1 }],

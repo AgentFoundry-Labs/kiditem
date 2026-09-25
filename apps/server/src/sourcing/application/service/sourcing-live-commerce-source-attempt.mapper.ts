@@ -79,7 +79,7 @@ export function parseBrowserLiveCommercePlan(
 
 export function normalizeBrowserLiveCommerceBatch(input: {
   organizationId: string;
-  ingestionRunId: string;
+  operationId: string;
   plan: BrowserLiveCommerceSourcePlan;
   batch: BrowserLiveCommerceSourceBatch;
 }): {
@@ -109,7 +109,7 @@ export function normalizeBrowserLiveCommerceBatch(input: {
   const broadcastId = requiredText(input.batch.broadcast.broadcastId, 128);
   const broadcast: LiveCommerceBroadcastSnapshotUpsert = {
     organizationId: input.organizationId,
-    ingestionRunId: input.ingestionRunId,
+    operationId: input.operationId,
     businessDate,
     source,
     broadcastId,
@@ -133,7 +133,7 @@ export function normalizeBrowserLiveCommerceBatch(input: {
     productIds.add(productId);
     products.push({
       organizationId: input.organizationId,
-      ingestionRunId: input.ingestionRunId,
+      operationId: input.operationId,
       businessDate,
       source,
       broadcastId,

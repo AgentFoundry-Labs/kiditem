@@ -1,7 +1,6 @@
 (() => {
   "use strict";
 
-  const EXTRACT_DELAY_MS = 2000;
   const SCROLL_STEP_MS = 300;
   const SCROLL_SETTLE_MS = 1500;
   const TREND_MAX_ATTEMPTS = 16;
@@ -133,14 +132,6 @@
     return { ok: true, ...best };
   }
 
-  function run() {
-    if (!alive()) return;
-    chrome.runtime.sendMessage({ type: "GET_STATE" }, (resp) => {
-      if (chrome.runtime.lastError || !resp) return;
-      if (resp.running) doExtract();
-    });
-  }
-
   function scrollPage() {
     return new Promise((resolve) => {
       const docH = document.documentElement.scrollHeight;
@@ -253,6 +244,4 @@
     if (alive()) chrome.runtime.sendMessage({ type: "PRODUCT_DATA", attemptId, data });
 
   }
-
-  setTimeout(run, EXTRACT_DELAY_MS);
 })();

@@ -33,6 +33,12 @@ describe('committed runtime bundle', () => {
       'channels.wing_catalog_excel',
       'channels.wing_catalog_list',
       'orders.coupang_reviews',
+      'sourcing.coupang_keyword_suggestion',
+      'sourcing.live_commerce',
+      'sourcing.product_extension',
+      'sourcing.tiktok_creative',
+      'sourcing.trend_1688',
+      'sourcing.wing_catalog',
       'test.echo',
     ]);
   });
@@ -40,8 +46,16 @@ describe('committed runtime bundle', () => {
   it('registers operation.start / operation.cancel and the operationRuntime capability with the old domain registry', async () => {
     const registered: Array<{ externalActions: Record<string, { validate(msg: unknown): unknown; handle(input: unknown, env: string): Promise<unknown> }>; capabilities: Record<string, boolean> }> = [];
     const authedCalls: string[] = [];
+    const runtimeListeners: string[] = [];
     loadRuntime(
-      { tabs: {} },
+      {
+        tabs: {},
+        // 팝업 `COLLECT_CURRENT`와 KidItem 페이지 keepalive 포트(KID-360, 옛 sourcing 워커가 받던 것).
+        runtime: {
+          onMessage: { addListener: () => runtimeListeners.push('onMessage') },
+          onConnect: { addListener: () => runtimeListeners.push('onConnect') },
+        },
+      },
       {
         KidItemDomains: { register: (domain: (typeof registered)[number]) => registered.push(domain) },
         sourceOwnerEnvironmentContext: {
@@ -54,8 +68,10 @@ describe('committed runtime bundle', () => {
     );
 
     expect(registered).toHaveLength(1);
+    expect(runtimeListeners).toEqual(['onMessage', 'onConnect']);
     expect(Object.keys(registered[0].externalActions).sort()).toEqual(['operation.cancel', 'operation.start']);
-    expect(registered[0].capabilities).toEqual({ operationRuntime: true });
+    // 소싱 kind(KID-360)를 도는 빌드만 sourcingOperationKindsV1을 싣는다 — 웹이 옛 빌드를 가려낸다.
+    expect(registered[0].capabilities).toEqual({ operationRuntime: true, sourcingOperationKindsV1: true });
 
     const start = registered[0].externalActions['operation.start'];
     await expect(start.handle(start.validate({ action: 'operation.start', kind: 'Bad' }), 'local')).resolves.toMatchObject({

@@ -33,7 +33,7 @@ export class MarketShadowSnapshotRepositoryAdapter implements MarketShadowSnapsh
   async findByAttempt(organizationId: string, attemptId: string) {
     const fact = await readMarketShadowFactForAttempt(this.prisma, {
       organizationId,
-      ingestionRunId: attemptId,
+      operationId: attemptId,
     });
     return fact ? toRow(fact) : null;
   }
@@ -50,7 +50,7 @@ export class MarketShadowSnapshotRepositoryAdapter implements MarketShadowSnapsh
         return {
           latestAttempt: latest ? toAttempt(latest, new Date()) : null,
           latestComplete,
-          actualCutoffAt: latestComplete ? complete!.ingestionRun.sourceWindowEndAt : null,
+          actualCutoffAt: latestComplete ? complete!.publication.windowEndAt : null,
         };
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
@@ -71,7 +71,7 @@ export class MarketShadowSnapshotRepositoryAdapter implements MarketShadowSnapsh
 function toRow(
   row: Awaited<ReturnType<typeof readMarketShadowFactForAttempt>>,
 ): MarketShadowSnapshotRow | null {
-  if (!row || !row.ingestionRun.sourceWindowStartAt || !row.ingestionRun.completedAt) return null;
+  if (!row || !row.publication.windowStartAt) return null;
   const document = MarketShadowSnapshotDocumentSchema.safeParse(row.document);
   if (!document.success) return null;
   return {
@@ -79,7 +79,8 @@ function toRow(
     organizationId: row.organizationId,
     businessDate: row.businessDate,
     payload: document.data,
-    createdAt: row.ingestionRun.startedAt,
-    updatedAt: row.ingestionRun.completedAt,
+    // 발행 표는 시작 시각을 두지 않는다(KID-360): 발행 행이 생긴 때가 곧 완료다.
+    createdAt: row.publication.createdAt,
+    updatedAt: row.publication.completedAt,
   };
 }

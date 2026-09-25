@@ -381,7 +381,8 @@ export async function detectSourcingExtensionId(timeoutMs = 1200): Promise<strin
     timeoutMs,
     accepts: (response) =>
       supportsEnvironmentProfiles(response) &&
-      response.capabilities?.sourcingProductScraper === true,
+      // 소싱 수집은 새 런타임의 실행 kind다(KID-360). 소싱 kind가 없는 런타임 빌드는 소싱 확장이 아니다.
+      response.capabilities?.sourcingOperationKindsV1 === true,
   });
 }
 

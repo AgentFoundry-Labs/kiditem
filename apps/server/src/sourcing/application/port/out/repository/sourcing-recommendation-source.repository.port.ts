@@ -5,7 +5,7 @@ export const SOURCING_RECOMMENDATION_SOURCE_REPOSITORY_PORT = Symbol(
 export interface SourcingOfferObservationSource {
   id: string;
   evidenceObservationId: string;
-  ingestionRunId: string;
+  operationId: string;
   businessDate: Date;
   sourceKeyword: string;
   externalOfferId: string;
@@ -51,6 +51,8 @@ export interface SourcingRecommendationSourceRepositoryPort {
     limit: number;
   }): Promise<{ items: SourcingCoupangObservationSource[]; rejectedCount: number }>;
 
+  /** 끝난 Wing 검색 소싱 실행의 발행 용도(plan.purpose). 발행이 없으면 null(KID-360). */
+  findWingPublicationPurpose(input: { organizationId: string; operationId: string }): Promise<string | null>;
   listWingCatalogSnapshot(input: {
     organizationId: string;
     normalizedKeyword: string;

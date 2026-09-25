@@ -172,7 +172,7 @@ Sourcing collection uses its source owners directly:
 
 ```text
 screen / Agent -> Sourcing owner attempt + frozen plan
-browser source -> KidItem OS collector -> fenced owner terminal + Alert
+browser source -> extension operation.start -> runtime collector chunks -> owner finalize (ledger + publication) + Alert
 server source -> provider -> owner terminal + Alert
 COMPLETE observations + latest attempt status -> source screen / Agent
 ```

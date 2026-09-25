@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect, useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowUpRight,
@@ -24,11 +24,12 @@ import {
   type LiveCommerceSource,
   type LiveCommerceSourceStatus,
 } from '../lib/live-commerce-api';
-import { sourcingLiveCommerceBrowserCollection } from '../../lib/sourcing-live-commerce-collection';
 import {
-  collectSourcingLiveCommerceFromExtension,
-  type SourcingLiveCommerceSourceStatus,
-} from '../../lib/sourcing-live-commerce-source-owner';
+  liveCommerceOperationMatch,
+  sourcingLiveCommerceBrowserCollection,
+} from '../../lib/sourcing-live-commerce-collection';
+import { operationCutoffAt, sourcingOperationState } from '../../lib/sourcing-operations';
+import type { OperationListResponse } from '@kiditem/shared/operation';
 import { attemptFailureText, operatorReason } from '@/lib/operator-error';
 import { friendlyError } from '@/lib/api-error';
 
@@ -45,7 +46,6 @@ export function LiveCommerceSection() {
   const [taobaoLiveIds, setTaobaoLiveIds] = useState('');
   const [browserUrl, setBrowserUrl] = useState('');
   const [browserStatusUrl, setBrowserStatusUrl] = useState<string | null>(null);
-  const retryKeysByUrl = useRef(new Map<string, string>());
   const taobaoInput = useMemo(() => ({ liveIds: splitLiveIds(taobaoLiveIds) }), [taobaoLiveIds]);
   const taobaoRetryKeys = useRef(new Map<string, { key: string; attemptId: string | null }>());
   const statusQueryKey = [...queryKeys.sourcing.liveCommerceStatus(), taobaoInput] as const;
@@ -99,51 +99,15 @@ export function LiveCommerceSection() {
       void queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.liveCommerceKeywords(HISTORY_DAYS) });
     }
   }, [completeAttemptId, queryClient]);
-  // The room CTA starts the collection; the shared control shows it running and stops it.
+  // 방송 CTA가 그 URL의 수집 실행을 시작하고(확장이 begin), 공용 컨트롤이 도는 실행과 중단을 보인다(KID-360).
   const browserCollection = useMemo(
     () => sourcingLiveCommerceBrowserCollection(browserStatusUrl),
     [browserStatusUrl],
   );
-  const browserSourceStatusQueryKey = browserCollection.statusQuery.queryKey;
   const browserSource = useCollectionSourceControl(browserCollection);
-  const browserCollectionMutation = useMutation({
-    mutationFn: async (url: string) => {
-      const idempotencyKey = retryKeysByUrl.current.get(url) ?? crypto.randomUUID();
-      retryKeysByUrl.current.set(url, idempotencyKey);
-      const clearRetryKey = () => {
-        if (retryKeysByUrl.current.get(url) === idempotencyKey) {
-          retryKeysByUrl.current.delete(url);
-        }
-      };
-      const result = await collectSourcingLiveCommerceFromExtension({ idempotencyKey, url });
-      if (result.terminalState === 'COMPLETE') {
-        clearRetryKey();
-        if (!result.success) {
-          throw new Error('KidItem OS 익스텐션이 완료 상태와 충돌하는 결과를 반환했습니다.');
-        }
-        return result;
-      }
-      if (result.terminalState === 'FAILED') {
-        clearRetryKey();
-        throw new Error(result.error ?? '라이브 방송 수집에 실패했습니다. 새로 시도해주세요.');
-      }
-      return result;
-    },
-    onSuccess: async (result) => {
-      await queryClient.invalidateQueries({ queryKey: browserSourceStatusQueryKey });
-      if (result.terminalState === 'COMPLETE') {
-        await Promise.all(snapshotQueryKeys.map((queryKey) => (
-          queryClient.invalidateQueries({ queryKey })
-        )));
-      }
-    },
-    onError: () => {
-      void queryClient.invalidateQueries({ queryKey: browserSourceStatusQueryKey });
-    },
-  });
   const taobaoRunning = taobaoCollection.isPending
     || taobaoStatus?.sourceStatus?.latestAttempt?.state === 'RUNNING';
-  const browserRunning = browserCollectionMutation.isPending || browserSource.running !== null;
+  const browserRunning = browserSource.state === 'starting' || browserSource.running !== null;
 
   const productCountByBroadcast = useMemo(() => {
     const counts = new Map<string, number>();
@@ -216,7 +180,7 @@ export function LiveCommerceSection() {
             </p>
           )}
           {taobaoStatus?.sourceStatus && (
-            <BrowserLiveCommerceSourceStatus source={taobaoStatus.sourceStatus} collectionError={null} />
+            <TaobaoLiveSourceStatusLine source={taobaoStatus.sourceStatus} />
           )}
           {(taobaoStatus?.sourceStatus?.latestComplete?.warnings ?? []).map((warning) => (
             <p key={warning} className="mt-2 text-xs text-amber-700">{warning}</p>
@@ -247,7 +211,7 @@ export function LiveCommerceSection() {
               onClick={() => {
                 const url = browserUrl.trim();
                 setBrowserStatusUrl(url);
-                browserCollectionMutation.mutate(url);
+                browserSource.start(url);
               }}
               className="inline-flex h-10 shrink-0 items-center justify-center gap-1.5 rounded-lg bg-purple-600 px-3 text-xs font-bold text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-45"
             >
@@ -255,11 +219,9 @@ export function LiveCommerceSection() {
               {browserRunning ? '수집 중…' : '방송 수집'}
             </button>
           </div>
-          <BrowserLiveCommerceSourceStatus
-            source={browserSource.status}
-            control={browserSource}
-            collectionError={browserCollectionMutation.error}
-          />
+          {browserStatusUrl !== null && (
+            <BrowserLiveCommerceSourceStatus url={browserStatusUrl} control={browserSource} />
+          )}
         </div>
       </div>
 
@@ -359,52 +321,59 @@ export function LiveCommerceSection() {
   );
 }
 
-function BrowserLiveCommerceSourceStatus({
-  source,
-  control,
-  collectionError,
-}: {
-  source: SourcingLiveCommerceSourceStatus | undefined;
-  /** The browser collection's shared control; the server-run Taobao collection has no operator stop. */
-  control?: CollectionControlView & Readonly<{ stop: () => void }>;
-  collectionError: Error | null;
-}) {
-  if (!source && !collectionError) return null;
+type TaobaoLiveSourceState = NonNullable<LiveCommerceSourceStatus['sourceStatus']>;
 
-  const refreshing = source?.latestAttempt?.state === 'RUNNING';
-  const stopped = stoppedAttempt(source?.latestAttempt);
-  const unhealthy = source?.ready === false;
+/** 서버가 도는 타오바오 공식 수집의 원천 상태(서버 구동 kind는 I-b에서 옮긴다). */
+function TaobaoLiveSourceStatusLine({ source }: { source: TaobaoLiveSourceState }) {
+  const refreshing = source.latestAttempt?.state === 'RUNNING';
+  const stopped = stoppedAttempt(source.latestAttempt);
+  const unhealthy = source.ready === false;
   const message = refreshing
     ? '라이브 방송을 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
     : stopped
       ? COLLECTION_STOPPED_MESSAGE
       : unhealthy
-        ? `원천 상태 이상 · ${operatorReason(source?.errorMessage ?? collectionError?.message, '') || '최신 완료 데이터를 확인할 수 없습니다.'}`
-        : collectionError ? friendlyError(collectionError, '라이브 방송 수집에 실패했습니다.') : '라이브 방송 원천 데이터가 최신 상태입니다.';
-
+        ? `원천 상태 이상 · ${operatorReason(source.errorMessage, '') || '최신 완료 데이터를 확인할 수 없습니다.'}`
+        : '라이브 방송 원천 데이터가 최신 상태입니다.';
   return (
-    <div
-      role="status"
-      className={cn(
-        'mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-semibold',
-        refreshing
-          ? 'border-sky-200 bg-sky-50 text-sky-700'
-          : stopped
-            ? 'border-[var(--border-subtle)] bg-[var(--surface-sunken)] text-[var(--text-secondary)]'
-            : unhealthy || collectionError
-              ? 'border-amber-200 bg-amber-50 text-amber-800'
-              : 'border-emerald-200 bg-emerald-50 text-emerald-700',
-      )}
+    <StatusLine
+      tone={refreshing ? 'running' : stopped ? 'stopped' : unhealthy ? 'warning' : 'ok'}
+      message={message}
+      cutoffAt={source.actualCutoffAt ?? null}
+    />
+  );
+}
+
+/** 브라우저 방송 수집 실행(KID-360): 마지막 실행이 도는 중·중단·실패·완료인지와 시작 실패 안내. */
+function BrowserLiveCommerceSourceStatus({
+  url,
+  control,
+}: {
+  url: string;
+  control: CollectionControlView & Readonly<{ status: OperationListResponse | undefined; stop: () => void }>;
+}) {
+  const { latest, lastSucceeded } = sourcingOperationState(control.status, liveCommerceOperationMatch(url));
+  const refreshing = control.running !== null;
+  const stopped = !refreshing && latest?.status === 'cancelled';
+  const failed = !refreshing && latest?.status === 'failed';
+  const notice = control.notice && control.notice.tone !== 'info' ? control.notice.message : null;
+  if (!refreshing && !latest && !notice) return null;
+  const message = refreshing
+    ? '라이브 방송을 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
+    : notice
+      ? notice
+      : stopped
+        ? COLLECTION_STOPPED_MESSAGE
+        : failed
+          ? attemptFailureText(latest, 'live_commerce') ?? '라이브 방송 수집에 실패했습니다.'
+          : '라이브 방송 원천 데이터가 최신 상태입니다.';
+  return (
+    <StatusLine
+      tone={refreshing ? 'running' : stopped ? 'stopped' : failed || notice ? 'warning' : 'ok'}
+      message={message}
+      cutoffAt={operationCutoffAt(lastSucceeded)}
     >
-      <span>
-        {message}
-        {source?.actualCutoffAt && (
-          <span className="ml-1.5 font-medium opacity-80">
-            기준 {formatDateTime(source.actualCutoffAt, { month: '2-digit', day: '2-digit' })}
-          </span>
-        )}
-      </span>
-      {refreshing && control && (
+      {refreshing && (
         <CollectionStartControl
           control={control}
           startLabel="방송 수집"
@@ -412,6 +381,44 @@ function BrowserLiveCommerceSourceStatus({
           onStop={control.stop}
         />
       )}
+    </StatusLine>
+  );
+}
+
+function StatusLine({
+  tone,
+  message,
+  cutoffAt,
+  children,
+}: {
+  tone: 'running' | 'stopped' | 'warning' | 'ok';
+  message: string;
+  cutoffAt: string | null;
+  children?: ReactNode;
+}) {
+  return (
+    <div
+      role="status"
+      className={cn(
+        'mt-3 flex flex-wrap items-center justify-between gap-2 rounded-lg border px-3 py-2 text-xs font-semibold',
+        tone === 'running'
+          ? 'border-sky-200 bg-sky-50 text-sky-700'
+          : tone === 'stopped'
+            ? 'border-[var(--border-subtle)] bg-[var(--surface-sunken)] text-[var(--text-secondary)]'
+            : tone === 'warning'
+              ? 'border-amber-200 bg-amber-50 text-amber-800'
+              : 'border-emerald-200 bg-emerald-50 text-emerald-700',
+      )}
+    >
+      <span>
+        {message}
+        {cutoffAt && (
+          <span className="ml-1.5 font-medium opacity-80">
+            기준 {formatDateTime(cutoffAt, { month: '2-digit', day: '2-digit' })}
+          </span>
+        )}
+      </span>
+      {children}
     </div>
   );
 }

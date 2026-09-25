@@ -66,7 +66,7 @@ describe('sourcing collection mappers', () => {
           row: {
             offerId: 'offer-1',
             sourceKeyword: '儿童 餐盘',
-            ingestionRunId: permit.runId,
+            operationId: permit.runId,
           },
         },
       ],

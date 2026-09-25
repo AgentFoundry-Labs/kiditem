@@ -1,14 +1,12 @@
 'use client';
 
-import { useMemo, useRef, useState } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
+import { useMemo, useState } from 'react';
+import type { OperationListResponse } from '@kiditem/shared/operation';
 import { toast } from 'sonner';
 import { AlertTriangle, Loader2, RefreshCw, Sparkles, Star } from 'lucide-react';
 import { useCollectionSourceControl, type CollectionControlView } from '@/hooks/use-collection-source-control';
-import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
-import { queryKeys } from '@/lib/query-keys';
+import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
 import { cn, formatNumber } from '@/lib/utils';
-import { useAuth } from '@/hooks/useAuth';
 import { useRightSurfaceLauncher } from '@/components/layout/right-surface-launcher-context';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import {
@@ -33,16 +31,12 @@ import {
 } from '../../hooks/use-sourcing-workspace';
 import { interestTargetSource } from '../../lib/sourcing-interest-target';
 import { sourcing1688TrendCollection } from '../../lib/sourcing-1688-collection';
-import {
-  collectSourcing1688TrendsFromExtension,
-  type Sourcing1688TrendSourceStatus,
-} from '../../lib/sourcing-1688-source-owner';
+import { sourcingOperationState } from '../../lib/sourcing-operations';
 import { SourcingReadState } from '../../components/SourcingReadState';
 import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
 import { EntryRecommendationDetail } from './EntryRecommendationDetail';
 import { EntryRecommendationTable } from './EntryRecommendationTable';
-import { friendlyError } from '@/lib/api-error';
-import { operatorReason } from '@/lib/operator-error';
+import { attemptFailureText } from '@/lib/operator-error';
 
 const LIMIT = 50;
 
@@ -59,13 +53,9 @@ type InterestFilter = 'all' | 'interest' | 'other';
  * (`CompetitorTrackingPage` 와 같은 패턴). 새 SSE 는 열지 않는다.
  */
 export function EntryRecommendationBoard() {
-  const { user } = useAuth();
   const { openConversationFromLauncher } = useRightSurfaceLauncher();
-  const queryClient = useQueryClient();
-  const organizationId = user?.organizationId ?? null;
   const [activeId, setActiveId] = useState<string | null>(null);
   const [interestFilter, setInterestFilter] = useState<InterestFilter>('all');
-  const retryKeysByRequestFingerprint = useRef(new Map<string, string>());
   const saveSelection = useSaveSourcingReviewSelection();
 
   const recommendationsQuery = useSourcingRecommendations('entry', { limit: LIMIT });
@@ -108,46 +98,10 @@ export function EntryRecommendationBoard() {
     () => toEntryInterestKeywordStatuses(recommendationItems, interestTargets),
     [interestTargets, recommendationItems],
   );
-  // The supply CTA starts the collection; the shared control shows it running and stops it.
+  // 공급 CTA가 1688 수집 실행을 시작하고(확장이 begin), 공용 컨트롤이 도는 실행과 중단을 보인다. 끝나면 어댑터가
+  // 결정 센터가 읽는 공급 후보를 다시 읽는다(KID-360).
   const interestSource = useCollectionSourceControl(sourcing1688TrendCollection);
-  const interestCollectionMutation = useMutation({
-    mutationFn: async () => {
-      const requestFingerprint = 'sourcing.1688.hot_product:all';
-      const idempotencyKey = retryKeysByRequestFingerprint.current.get(requestFingerprint)
-        ?? crypto.randomUUID();
-      retryKeysByRequestFingerprint.current.set(requestFingerprint, idempotencyKey);
-      const clearRetryKey = () => {
-        if (retryKeysByRequestFingerprint.current.get(requestFingerprint) === idempotencyKey) {
-          retryKeysByRequestFingerprint.current.delete(requestFingerprint);
-        }
-      };
-      const result = await collectSourcing1688TrendsFromExtension({ idempotencyKey });
-      if (result.terminalState === 'COMPLETE') {
-        if (!result.success) {
-          throw new Error('KidItem OS 익스텐션이 완료 상태와 충돌하는 결과를 반환했습니다.');
-        }
-        clearRetryKey();
-        return result;
-      }
-      if (result.terminalState === 'FAILED') {
-        clearRetryKey();
-        throw new Error(result.error ?? '1688 공급 수집에 실패했습니다. 새로 시도해주세요.');
-      }
-      throw new Error(result.error ?? '1688 공급 수집 결과를 확인하지 못했습니다. 다시 시도해주세요.');
-    },
-    onSuccess: () => {
-      void queryClient.invalidateQueries({
-        queryKey: queryKeys.sourcing.workspace.root(organizationId ?? 'no-organization'),
-      });
-      void queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.trend1688SourceStatus() });
-      toast.success('1688 공급 후보를 갱신했습니다.');
-    },
-    onError: (error) => {
-      toast.error(friendlyError(error, '1688 공급 수집에 실패했습니다.'));
-      void queryClient.invalidateQueries({ queryKey: queryKeys.sourcing.trend1688SourceStatus() });
-    },
-  });
-  const interestCollectionActive = interestCollectionMutation.isPending || interestSource.running !== null;
+  const interestCollectionActive = interestSource.state === 'starting' || interestSource.running !== null;
   const sources = useMemo(() => toEntrySourceStatuses(recommendationItems), [recommendationItems]);
   const dataGaps = recommendationsQuery.data?.warnings.map((warning) => warning.message) ?? [];
   const visibleItems = useMemo(
@@ -223,9 +177,7 @@ export function EntryRecommendationBoard() {
           interestCount={interestCount}
           totalCount={visibleItems.length}
           isCollecting={interestCollectionActive}
-          onCollect={() => {
-            interestCollectionMutation.mutate();
-          }}
+          onCollect={() => interestSource.start()}
           onFilterChange={setInterestFilter}
         />
 
@@ -369,18 +321,23 @@ function Sourcing1688SourceStatus({
   source,
   control,
 }: {
-  source: Sourcing1688TrendSourceStatus | undefined;
+  source: OperationListResponse | undefined;
   control: CollectionControlView & Readonly<{ stop: () => void }>;
 }) {
-  const running = source?.latestAttempt?.state === 'RUNNING';
-  const stopped = stoppedAttempt(source?.latestAttempt);
-  if (!source || (source.ready && !running && !stopped)) return null;
+  const { latest, running } = sourcingOperationState(source);
+  const stopped = !running && latest?.status === 'cancelled';
+  const failed = !running && latest?.status === 'failed';
+  // 시작이 거절·실패한 안내(확장 없음·같은 대상 진행 중·원천 꺼짐)는 도는 실행이 없어도 보인다.
+  const notice = control.notice && control.notice.tone !== 'info' ? control.notice.message : null;
+  if (!running && !stopped && !failed && !notice) return null;
 
   const message = running
     ? '1688 공급 후보를 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
-    : stopped
-      ? COLLECTION_STOPPED_MESSAGE
-      : operatorReason(source.errorMessage, '1688 공급 데이터가 최신 계획과 일치하지 않습니다.');
+    : notice
+      ? notice
+      : stopped
+        ? COLLECTION_STOPPED_MESSAGE
+        : attemptFailureText(latest, '1688') ?? '1688 공급 수집에 실패했습니다. 다시 시도해 주세요.';
 
   return (
     <div

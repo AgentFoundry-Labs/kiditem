@@ -42,7 +42,7 @@ describe('TikTok source-attempt mapper', () => {
   it('preserves the legacy provider mapping while adding only visited target coverage', () => {
     const normalized = normalizeTiktokSourceBatch({
       organizationId: ORGANIZATION_ID,
-      ingestionRunId: ATTEMPT_ID,
+      operationId: ATTEMPT_ID,
       batch: {
         region: '  kr  ',
         items: [
@@ -74,7 +74,7 @@ describe('TikTok source-attempt mapper', () => {
     expect(normalized.rows).toEqual([
       expect.objectContaining({
         organizationId: ORGANIZATION_ID,
-        ingestionRunId: ATTEMPT_ID,
+        operationId: ATTEMPT_ID,
         trendType: 'hashtag',
         entityKey: 'school-supplies',
         rank: 1,
@@ -98,7 +98,7 @@ describe('TikTok source-attempt mapper', () => {
     const fullVisited = ['hashtag', 'product', 'keyword:slime'];
     const normalized = normalizeTiktokSourceBatch({
       organizationId: ORGANIZATION_ID,
-      ingestionRunId: ATTEMPT_ID,
+      operationId: ATTEMPT_ID,
       batch: {
         region: 'US',
         items: [

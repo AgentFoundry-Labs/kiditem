@@ -75,13 +75,6 @@ export const ORDERS_WORKER_MODULES = domainWorkerModules(
   (entry) => entry === 'sourcing/source-attempt-wire.js' || entry.startsWith('orders/'),
 );
 
-// 소싱 워커: 파운데이션과 sourcing/* 전부. 서비스워커가 소싱 칸에 싣는 coupang/*
-// 수집기는 쿠팡 워커가 쓰므로 소싱 워커 하니스에는 필요 없다.
-export const SOURCING_WORKER_MODULES = domainWorkerModules(
-  'sourcing',
-  (entry) => entry.startsWith('sourcing/'),
-);
-
 // 통합 서비스워커가 하는 배선과 동일하다. 도메인 워커를 실행한 뒤에 호출해야
 // 도메인이 KidItemDomains 에 등록된 상태로 dispatch 가 설치된다.
 //

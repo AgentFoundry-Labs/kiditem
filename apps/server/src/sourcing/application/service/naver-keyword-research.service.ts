@@ -180,7 +180,7 @@ function analysisOutput(organizationId: string, attempt: SourcingBrowserSourceAt
   const capturedAt = new Date(payload.generatedAt);
   const payloadHash = hashCollectionRequest(payload);
   const observationKey = hashCollectionRequest({ attemptId: attempt.attemptId, payloadHash });
-  return { observations: [{ organizationId, ingestionRunId: attempt.attemptId, sourceKey: SOURCE,
+  return { observations: [{ organizationId, operationId: attempt.attemptId, sourceKey: SOURCE,
     platform: 'naver', evidenceFamily: 'keyword_analysis', signalRole: 'demand',
     granularity: 'aggregate_official', conceptKey: attempt.targetKey, supportsCandidate: false,
     sourceEntityType: 'keyword_analysis_snapshot', sourceEntityId: attempt.targetKey, schemaVersion: VERSION,
@@ -191,7 +191,7 @@ function analysisOutput(organizationId: string, attempt: SourcingBrowserSourceAt
     kind: 'naver_keyword_analysis_snapshot',
     row: {
       organizationId,
-      ingestionRunId: attempt.attemptId,
+      operationId: attempt.attemptId,
       evidenceObservationKey: observationKey,
       evidenceRevision: 1,
       schemaVersion: VERSION,

@@ -36,7 +36,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Operation](erd/operation.md) | 3 |
 | [Orders](erd/orders.md) | 13 |
 | [Products](erd/products.md) | 6 |
-| [Sourcing](erd/sourcing.md) | 34 |
+| [Sourcing](erd/sourcing.md) | 35 |
 | [Supply](erd/supply.md) | 13 |
 | [System](erd/system.md) | 5 |
 
@@ -135,7 +135,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | SourcingEvidenceObservation | Sourcing | `sourcing_evidence_observations` | Append-only, revision-aware source fact. Feature and decision reads must apply both availableAt and ingestedAt point-in-time cutoffs. |
 | SourcingInterestTarget | Sourcing | `sourcing_interest_targets` | 서버가 소유하는 관심 키워드. 화면의 전체 JSON snapshot 대체를 금지하고 낙관적 버전으로 개별 변경을 보장한다. |
 | SourcingKeywordPreference | Sourcing | `sourcing_keyword_preferences` | 조직별 키워드 제외 설정. 전체 JSON snapshot 대신 키 하나를 낙관적으로 갱신한다. |
-| SourcingKeywordSuggestionFact | Sourcing | `sourcing_keyword_suggestion_facts` | 쿠팡 키워드 제안 source owner가 발행하는 schema-validated immutable snapshot. Header가 존재하고 item이 비어 있으면 confirmed-empty이다. |
+| SourcingKeywordSuggestionSnapshot | Sourcing | `sourcing_keyword_suggestion_facts` | 쿠팡 키워드 제안 source owner가 발행하는 schema-validated immutable snapshot. Header가 존재하고 item이 비어 있으면 confirmed-empty이다. |
 | SourcingLaunchCandidate | Sourcing | `sourcing_launch_candidates` | Immutable launch and outcome identity that freezes an exact supplier variant, Korean bundle, launch plan, compliance/IP/quality versions, target account, price, and initial quantity. |
 | SourcingMarketShadowFact | Sourcing | `sourcing_market_shadow_facts` | 시장 shadow source owner가 발행하는 schema-validated immutable experiment document. Provider raw payload는 포함하지 않는다. |
 | SourcingNaverKeywordAnalysisFact | Sourcing | `sourcing_naver_keyword_analysis_facts` | 네이버 키워드 분석 source owner가 발행하는 schema-validated immutable snapshot. input hash와 COMPLETE current run으로 화면 가시성을 결정한다. |
@@ -146,10 +146,11 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | SourcingReviewBatch | Sourcing | `sourcing_review_batches` | Final 화면에서 생성하는 immutable review handoff. procurement intent나 provider side effect를 만들지 않는다. |
 | SourcingReviewBatchItem | Sourcing | `sourcing_review_batch_items` | review batch가 실제로 검토한 recommendation, validation, exact offer observation을 동결한다. |
 | SourcingReviewSelection | Sourcing | `sourcing_review_selections` | Entry/Final 화면 선택 상태의 org-scoped, optimistic-concurrency record. |
+| SourcingSourcePublication | Sourcing | `sourcing_source_publications` | 소싱 원천의 발행 이력(KID-360). 성공한 수집 하나(옛 COMPLETE run 하나)가 (source, scope, target) 발행 1행이다. isCurrent 행이 그 대상의 "현재 완결 스냅샷"이고, 이력 리더는 같은 표를 날짜·키워드로 읽는다. 옛 run 표의 is_current_complete·attemptPlan·coverage·window·qualityReport를 대체한다. 실행 계약(operations)이 아니라 소싱 원장의 사실이며 finalize가 같은 트랜잭션에서 쓴다. operationId는 스칼라(FK 없음) — 옛 run으로 만든 행은 옛 run id를 가진다. |
 | SourcingValidationCheck | Sourcing | `sourcing_validation_checks` | 하나의 검증 episode를 구성하는 데이터 기반 check 결과. |
 | SourcingValidationCheckEvidence | Sourcing | `sourcing_validation_check_evidence` | 검증 check가 참조한 immutable evidence link. |
 | SourcingValidationEpisode | Sourcing | `sourcing_validation_episodes` | 추천 후보의 실데이터 검증 life-cycle. fixture 점수는 이 record로 대체된다. |
-| SourcingWingCatalogProductFact | Sourcing | `sourcing_wing_catalog_product_facts` | Wing 카탈로그 source owner가 evidence와 같은 transaction에서 발행하는 immutable typed product fact. 화면과 추천은 COMPLETE run coverage를 통과한 이 행만 읽는다. |
+| SourcingWingCatalogProductSnapshot | Sourcing | `sourcing_wing_catalog_product_facts` | Wing 카탈로그 source owner가 evidence와 같은 transaction에서 발행하는 immutable typed product fact. 화면과 추천은 COMPLETE run coverage를 통과한 이 행만 읽는다. |
 | SourcingWorkspaceSnapshot | Sourcing | `sourcing_workspace_snapshots` | 조직/KST 날짜/scope 단위의 소싱 AI 결과 캐시. 오늘의 추천/키워드 분석 결과를 최신 1개로 재사용한다. |
 | TiktokCreativeTrendDailySnapshot | Sourcing | `tiktok_creative_trend_daily_snapshots` | 틱톡 크리에이티브 센터(Creative Center)에서 확장이 스크랩한 인기 트렌드 일별 스냅샷. trendType(hashtag\|keyword\|product\|song)으로 종류를, region(국가코드)으로 시장을 구분하고 (region,trendType,entityKey)가 외부 식별자를 이룬다. viewCount 는 int4 를 초과할 수 있어 BigInt. ⚠️ 라이브 틱톡 원본은 봇/리전 차단이라 무료로는 확장 스크랩 경로로만 적재한다([[reference_market_trend_research_tools]]). |
 | TrendSeedKeyword | Sourcing | `trend_seed_keywords` | 문구·완구 시장 트렌드 정기 수집의 시드 키워드. sources 로 몰별(naver/shorts/1688) 수집 대상을 제어. keywordCn 은 1688 中文 검색어(null이면 keyword 사용). |
@@ -876,7 +877,7 @@ erDiagram
   LiveCommerceBroadcastDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     DateTime businessDate
     String source
     String broadcastId
@@ -897,7 +898,7 @@ erDiagram
   LiveCommerceProductDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     DateTime businessDate
     String source
     String broadcastId
@@ -1003,7 +1004,7 @@ erDiagram
   NaverKeywordDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     String keyword
     DateTime businessDate
     Int monthlyTotalSearchCount
@@ -1021,7 +1022,7 @@ erDiagram
   NaverPopularKeywordDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     String boardKey
     String boardLabel
     String cid
@@ -1640,7 +1641,7 @@ erDiagram
   ShortsTrendDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     DateTime businessDate
     String videoKey
     Int rank
@@ -1739,7 +1740,7 @@ erDiagram
     String id PK
     String organizationId FK
     String evidenceObservationId FK
-    String ingestionRunId FK
+    String operationId
     DateTime businessDate
     String sourceKeywordNormalized
     String externalOfferId
@@ -1860,7 +1861,7 @@ erDiagram
   SourcingEvidenceObservation {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     String supersedesObservationId FK
     String sourceKey
     String platform
@@ -1915,11 +1916,11 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  SourcingKeywordSuggestionFact {
+  SourcingKeywordSuggestionSnapshot {
     String id PK
     String organizationId FK
     String evidenceObservationId FK
-    String ingestionRunId FK
+    String operationId
     String schemaVersion
     String keywordNormalized
     Json document
@@ -1974,7 +1975,7 @@ erDiagram
     String id PK
     String organizationId FK
     String evidenceObservationId FK
-    String ingestionRunId FK
+    String operationId
     String schemaVersion
     DateTime businessDate
     Json document
@@ -1985,7 +1986,7 @@ erDiagram
     String id PK
     String organizationId FK
     String evidenceObservationId FK
-    String ingestionRunId FK
+    String operationId
     String schemaVersion
     String inputHash
     Json document
@@ -2084,6 +2085,29 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
+  SourcingSourcePublication {
+    String id PK
+    String organizationId FK
+    String sourceKey
+    String scopeKey
+    String targetKey
+    String operationId
+    Boolean isCurrent
+    String collectorKey
+    String collectorVersion
+    Json plan
+    DateTime windowStartAt
+    DateTime windowEndAt
+    Int discoveredCount
+    Int acceptedCount
+    Int duplicateCount
+    Int coverageNumerator
+    Int coverageDenominator
+    String contentChecksum
+    Json qualityReport
+    DateTime completedAt
+    DateTime createdAt
+  }
   SourcingValidationCheck {
     String id PK
     String organizationId FK
@@ -2121,11 +2145,11 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  SourcingWingCatalogProductFact {
+  SourcingWingCatalogProductSnapshot {
     String id PK
     String organizationId FK
     String evidenceObservationId FK
-    String ingestionRunId FK
+    String operationId
     String schemaVersion
     String sourceKeywordNormalized
     String sourceKeyword
@@ -2287,7 +2311,7 @@ erDiagram
   TiktokCreativeTrendDailySnapshot {
     String id PK
     String organizationId FK
-    String ingestionRunId FK
+    String operationId
     DateTime businessDate
     String region
     String trendType
@@ -2465,7 +2489,7 @@ erDiagram
   Organization ||--o{ SourcingEvidenceObservation : "organization"
   Organization ||--o{ SourcingInterestTarget : "organization"
   Organization ||--o{ SourcingKeywordPreference : "organization"
-  Organization ||--o{ SourcingKeywordSuggestionFact : "organization"
+  Organization ||--o{ SourcingKeywordSuggestionSnapshot : "organization"
   Organization ||--o{ SourcingLaunchCandidate : "organization"
   Organization ||--o{ SourcingMarketShadowFact : "organization"
   Organization ||--o{ SourcingNaverKeywordAnalysisFact : "organization"
@@ -2476,10 +2500,11 @@ erDiagram
   Organization ||--o{ SourcingReviewBatch : "organization"
   Organization ||--o{ SourcingReviewBatchItem : "organization"
   Organization ||--o{ SourcingReviewSelection : "organization"
+  Organization ||--o{ SourcingSourcePublication : "organization"
   Organization ||--o{ SourcingValidationCheck : "organization"
   Organization ||--o{ SourcingValidationCheckEvidence : "organization"
   Organization ||--o{ SourcingValidationEpisode : "organization"
-  Organization ||--o{ SourcingWingCatalogProductFact : "organization"
+  Organization ||--o{ SourcingWingCatalogProductSnapshot : "organization"
   Organization ||--o{ SourcingWorkspaceSnapshot : "organization"
   Organization ||--o{ StockTransfer : "organization"
   Organization ||--o{ Supplier : "organization"
@@ -2542,27 +2567,15 @@ erDiagram
   SourcingDecisionBatch ||--o{ SourcingDecisionBatchItem : "decisionBatch"
   SourcingDecisionBatchItem ||--o{ ProcurementTestIntent : "decisionBatchItem"
   SourcingDecisionBatchItem ||--o{ SourcingDecisionEvidence : "decisionBatchItem"
-  SourcingEvidenceIngestionRun ||--o{ LiveCommerceBroadcastDailySnapshot : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ LiveCommerceProductDailySnapshot : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ NaverKeywordDailySnapshot : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ NaverPopularKeywordDailySnapshot : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ ShortsTrendDailySnapshot : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ Sourcing1688OfferKeywordObservation : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ SourcingEvidenceObservation : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ SourcingKeywordSuggestionFact : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ SourcingMarketShadowFact : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ SourcingNaverKeywordAnalysisFact : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ SourcingWingCatalogProductFact : "ingestionRun"
-  SourcingEvidenceIngestionRun ||--o{ TiktokCreativeTrendDailySnapshot : "ingestionRun"
   SourcingEvidenceObservation ||--|| Sourcing1688OfferKeywordObservation : "evidenceObservation"
   SourcingEvidenceObservation ||--o{ SourcingDecisionEvidence : "evidenceObservation"
   SourcingEvidenceObservation o|--o| SourcingEvidenceObservation : "supersedesObservation"
-  SourcingEvidenceObservation ||--|| SourcingKeywordSuggestionFact : "evidenceObservation"
+  SourcingEvidenceObservation ||--|| SourcingKeywordSuggestionSnapshot : "evidenceObservation"
   SourcingEvidenceObservation ||--|| SourcingMarketShadowFact : "evidenceObservation"
   SourcingEvidenceObservation ||--|| SourcingNaverKeywordAnalysisFact : "evidenceObservation"
   SourcingEvidenceObservation ||--o{ SourcingRecommendationItemEvidence : "evidenceObservation"
   SourcingEvidenceObservation ||--o{ SourcingValidationCheckEvidence : "evidenceObservation"
-  SourcingEvidenceObservation ||--|| SourcingWingCatalogProductFact : "evidenceObservation"
+  SourcingEvidenceObservation ||--|| SourcingWingCatalogProductSnapshot : "evidenceObservation"
   SourcingEvidenceObservation ||--o{ SupplierOfferSkuSnapshot : "evidenceObservation"
   SourcingLaunchCandidate o|--o{ ProcurementTestIntent : "launchCandidate"
   SourcingLaunchCandidate o|--o{ SourcingDecisionBatchItem : "launchCandidate"

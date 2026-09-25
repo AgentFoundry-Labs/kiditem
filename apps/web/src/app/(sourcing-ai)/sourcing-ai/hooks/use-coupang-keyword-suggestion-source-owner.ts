@@ -1,46 +1,46 @@
 'use client';
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { useAuth } from '@/hooks/useAuth';
-import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { queryKeys } from '@/lib/query-keys';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
-import {
-  clearActiveCoupangKeywordSuggestionAttempt,
-  collectSourcingKeywordSuggestions,
-  COUPANG_KEYWORD_SUGGESTION_MAX_RESULTS,
-  fetchCoupangKeywordSuggestionSourceStatus,
-  getCoupangKeywordSuggestionEnvironmentKey,
-  isCoupangKeywordSuggestionAttemptNotFound,
-  readActiveCoupangKeywordSuggestionAttempt,
-  readCoupangKeywordSuggestionSourceAttempt,
-  rememberActiveCoupangKeywordSuggestionAttempt,
-  type ActiveCoupangKeywordSuggestionAttempt,
-  type CoupangKeywordSuggestionSourceAttempt,
-  type CoupangKeywordSuggestionSourceStatus,
-} from '../keywords/lib/coupang-keyword-source-owner';
+import { useCallback, useEffect, useMemo, useRef } from 'react';
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
+import { COLLECTION_IDLE_POLL_MS, COLLECTION_RUNNING_POLL_MS } from '@/hooks/use-collection-source-control';
+import { requestOperationStart, type OperationStartOutcome } from '@/lib/operation-start';
 import { keywordSuggestionSnapshotQueryKey, normalizeCoupangKeyword } from '../keywords/lib/coupang-keyword-snapshot-api';
+import {
+  SOURCING_OPERATION_KINDS_CAPABILITY,
+  isLiveOperation,
+  sourcingOperationState,
+  sourcingOperationsQueryOptions,
+} from '../lib/sourcing-operations';
+import type { OperationView } from '@kiditem/shared/operation';
+
+/** 쿠팡 검색창 추천 키워드 상한(옛 attempt plan과 같다). */
+export const COUPANG_KEYWORD_SUGGESTION_MAX_RESULTS = 30;
+
+const KIND = SOURCING_OPERATION_KINDS.coupangKeywordSuggestion;
+
+/**
+ * 화면이 보는 수집 한 번. 실행 상태를 옛 attempt 상태 말로 옮긴다 — 중단은 `*_CANCELLED` 코드의 FAILED라
+ * `attemptFailureText`가 "수집을 중단했습니다"로 말한다.
+ */
+export type CoupangKeywordSuggestionCollection = Readonly<{
+  attemptId: string;
+  state: 'RUNNING' | 'COMPLETE' | 'FAILED';
+  errorCode: string | null;
+  errorMessage: string | null;
+}>;
 
 export type CoupangKeywordSuggestionSourceOwnerView = {
-  status: CoupangKeywordSuggestionSourceStatus | null;
-  latestAttempt: CoupangKeywordSuggestionSourceAttempt | null;
-  latestComplete: CoupangKeywordSuggestionSourceAttempt | null;
+  latestAttempt: CoupangKeywordSuggestionCollection | null;
+  latestComplete: CoupangKeywordSuggestionCollection | null;
   error: string | null;
   isLoading: boolean;
   isCollecting: boolean;
-  collect: (keyword?: string) => Promise<CoupangKeywordSuggestionSourceAttempt>;
+  collect: (keyword?: string) => Promise<OperationStartOutcome>;
 };
 
-function sourceStatusQueryKey(keyword: string) {
-  return [...queryKeys.sourcing.keywordSuggestions(keyword), 'source-status'] as const;
-}
-
-function errorMessage(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
-}
-
-function normalizedKeywordOrNull(keyword: string): string | null {
+function normalizedKeywordOrNull(keyword: unknown): string | null {
+  if (typeof keyword !== 'string') return null;
   try {
     return normalizeCoupangKeyword(keyword);
   } catch {
@@ -48,14 +48,20 @@ function normalizedKeywordOrNull(keyword: string): string | null {
   }
 }
 
-function sameKeyword(left: string, right: string): boolean {
-  return normalizedKeywordOrNull(left) === normalizedKeywordOrNull(right);
+function toCollection(operation: OperationView | null): CoupangKeywordSuggestionCollection | null {
+  if (!operation) return null;
+  return {
+    attemptId: operation.id,
+    state: isLiveOperation(operation) ? 'RUNNING' : operation.status === 'succeeded' ? 'COMPLETE' : 'FAILED',
+    errorCode: operation.errorCode,
+    errorMessage: operation.errorMessage,
+  };
 }
 
 /**
- * The keyword screen owns the explicit source CTA. Reads observe the owner
- * attempt and current snapshot; only collect() sends provider work to the
- * extension.
+ * 키워드 화면의 쿠팡 추천 키워드 수집(`sourcing.coupang_keyword_suggestion`, KID-360). 조직의 이 kind 실행을 한 번
+ * 읽고 이 키워드(plan.keyword)의 것만 본다. 수집 버튼만 확장에 `operation.start`를 보낸다 — 같은 키워드 재요청의
+ * 멱등은 확장 runner와 서버 잠금(`resource:coupang:keyword…`)이 맡는다. 새 성공이 보이면 저장된 스냅샷을 다시 읽는다.
  */
 export function useCoupangKeywordSuggestionSourceOwner({
   keyword,
@@ -63,157 +69,64 @@ export function useCoupangKeywordSuggestionSourceOwner({
   keyword: string;
 }): CoupangKeywordSuggestionSourceOwnerView {
   const queryClient = useQueryClient();
-  const { user } = useAuth();
-  const organizationId = user?.organizationId ?? null;
-  const environmentKey = getCoupangKeywordSuggestionEnvironmentKey();
   const normalizedKeyword = useMemo(() => normalizedKeywordOrNull(keyword), [keyword]);
-  const [commandError, setCommandError] = useState<string | null>(null);
-  const [isStarting, setIsStarting] = useState(false);
-  const startingRef = useRef(false);
   const invalidatedCompleteRef = useRef<string | null>(null);
 
-  useEffect(() => {
-    setCommandError(null);
-  }, [environmentKey, normalizedKeyword, organizationId]);
+  const statusOptions = sourcingOperationsQueryOptions(KIND);
+  const statusQuery = useQuery({
+    ...statusOptions,
+    refetchInterval: (query) =>
+      query.state.status !== 'error' && query.state.data?.operations.some(isLiveOperation)
+        ? COLLECTION_RUNNING_POLL_MS
+        : COLLECTION_IDLE_POLL_MS,
+  });
+  const match = useCallback(
+    (operation: OperationView) =>
+      normalizedKeyword !== null && normalizedKeywordOrNull(operation.plan?.keyword) === normalizedKeyword,
+    [normalizedKeyword],
+  );
+  const { latest, lastSucceeded } = sourcingOperationState(statusQuery.data, match);
 
-  const statusKey = normalizedKeyword
-    ? sourceStatusQueryKey(normalizedKeyword)
-    : [...queryKeys.sourcing.keywordSuggestions(''), 'source-status', 'none'] as const;
-  const statusQuery = useQuery(collectionSourceStatusQueryOptions({
-    queryKey: statusKey,
-    queryFn: () => fetchCoupangKeywordSuggestionSourceStatus(normalizedKeyword!),
-    enabled: Boolean(organizationId && normalizedKeyword),
-    refetchInterval: (query) => (
-      query.state.data?.latestAttempt?.state === 'RUNNING' ? 2_000 : false
-    ),
-    refetchIntervalInBackground: false,
-    meta: { suppressGlobalErrorToast: true },
-  }));
+  const start = useMutation({
+    mutationFn: async (requested: string) => {
+      const outcome = await requestOperationStart(KIND, { keyword: requested, maxResults: COUPANG_KEYWORD_SUGGESTION_MAX_RESULTS },
+        { capability: SOURCING_OPERATION_KINDS_CAPABILITY });
+      if (outcome.outcome === 'refused') throw new Error(outcome.message);
+      await queryClient.invalidateQueries({ queryKey: statusOptions.queryKey, exact: true });
+      return outcome;
+    },
+  });
+  const { mutateAsync, reset } = start;
+
+  useEffect(() => {
+    reset();
+  }, [normalizedKeyword, reset]);
 
   const collect = useCallback(async (requestedKeyword?: string) => {
-    if (!organizationId) {
-      throw new Error('쿠팡 키워드 수집을 시작할 조직 정보가 없습니다. 다시 로그인해 주세요.');
-    }
     const requested = normalizedKeywordOrNull(requestedKeyword ?? keyword);
-    if (!requested) {
-      throw new Error('수집할 키워드를 입력해주세요.');
-    }
-    if (startingRef.current) {
-      throw new Error('쿠팡 키워드 수집이 이미 시작되었습니다.');
-    }
-    startingRef.current = true;
-    setIsStarting(true);
-    setCommandError(null);
-    try {
-      let persisted = readActiveCoupangKeywordSuggestionAttempt(
-        organizationId,
-        requested,
-        environmentKey,
-      );
-      if (persisted && (!sameKeyword(persisted.keyword, requested)
-        || persisted.maxResults !== COUPANG_KEYWORD_SUGGESTION_MAX_RESULTS)) {
-        clearActiveCoupangKeywordSuggestionAttempt(organizationId, requested, environmentKey);
-        persisted = null;
-      }
-
-      if (persisted?.attemptId) {
-        try {
-          const current = await readCoupangKeywordSuggestionSourceAttempt(persisted.attemptId);
-          if (!sameKeyword(current.plan.keyword, requested)
-            || current.plan.maxResults !== COUPANG_KEYWORD_SUGGESTION_MAX_RESULTS) {
-            clearActiveCoupangKeywordSuggestionAttempt(organizationId, requested, environmentKey);
-            persisted = null;
-          } else if (current.state !== 'RUNNING') {
-            clearActiveCoupangKeywordSuggestionAttempt(organizationId, requested, environmentKey);
-            persisted = null;
-          }
-        } catch (error) {
-          if (!isCoupangKeywordSuggestionAttemptNotFound(error)) throw error;
-          // Only this explicit CTA clears a foreign/stale persisted reference.
-          clearActiveCoupangKeywordSuggestionAttempt(organizationId, requested, environmentKey);
-          persisted = null;
-        }
-      }
-
-      const idempotencyKey = persisted?.idempotencyKey ?? createSecureRandomUuid();
-      const pending: ActiveCoupangKeywordSuggestionAttempt = {
-        attemptId: persisted?.attemptId ?? null,
-        idempotencyKey,
-        keyword: requested,
-        maxResults: COUPANG_KEYWORD_SUGGESTION_MAX_RESULTS,
-      };
-      // Persist before dispatch so a lost extension response replays exactly
-      // this explicit request and cannot create a second owner attempt.
-      rememberActiveCoupangKeywordSuggestionAttempt(organizationId, pending, environmentKey);
-
-      const reply = await collectSourcingKeywordSuggestions({
-        idempotencyKey,
-        keyword: requested,
-        maxResults: COUPANG_KEYWORD_SUGGESTION_MAX_RESULTS,
-      });
-      if (persisted?.attemptId && reply.attemptId !== persisted.attemptId) {
-        throw new Error('쿠팡 키워드 수집 응답의 owner 시도가 일치하지 않습니다.');
-      }
-
-      const observed = await readCoupangKeywordSuggestionSourceAttempt(reply.attemptId);
-      if (!sameKeyword(observed.plan.keyword, requested)
-        || observed.plan.maxResults !== COUPANG_KEYWORD_SUGGESTION_MAX_RESULTS) {
-        throw new Error('쿠팡 키워드 수집 owner 계획이 요청과 일치하지 않습니다.');
-      }
-      rememberActiveCoupangKeywordSuggestionAttempt(
-        organizationId,
-        { ...pending, attemptId: observed.attemptId },
-        environmentKey,
-      );
-      await queryClient.invalidateQueries({ queryKey: sourceStatusQueryKey(requested), exact: true });
-
-      if (observed.state === 'COMPLETE') {
-        clearActiveCoupangKeywordSuggestionAttempt(organizationId, requested, environmentKey);
-        await queryClient.invalidateQueries({
-          queryKey: keywordSuggestionSnapshotQueryKey(requested),
-          exact: true,
-        });
-      } else if (observed.state === 'FAILED') {
-        clearActiveCoupangKeywordSuggestionAttempt(organizationId, requested, environmentKey);
-      }
-      return observed;
-    } catch (error) {
-      setCommandError(errorMessage(error));
-      throw error;
-    } finally {
-      startingRef.current = false;
-      setIsStarting(false);
-    }
-  }, [
-    environmentKey,
-    keyword,
-    organizationId,
-    queryClient,
-  ]);
-
-  const latestAttempt = statusQuery.data?.latestAttempt ?? null;
-  const latestComplete = statusQuery.data?.latestComplete ?? null;
-  const isCollecting = isStarting || latestAttempt?.state === 'RUNNING';
-  const sourceError = commandError
-    ?? (statusQuery.error instanceof Error ? statusQuery.error.message : null);
+    if (!requested) throw new Error('수집할 키워드를 입력해주세요.');
+    return mutateAsync(requested);
+  }, [keyword, mutateAsync]);
 
   useEffect(() => {
-    if (latestAttempt?.state !== 'COMPLETE' || !normalizedKeyword) return;
-    if (invalidatedCompleteRef.current === latestAttempt.attemptId) return;
-    invalidatedCompleteRef.current = latestAttempt.attemptId;
+    if (latest?.status !== 'succeeded' || !normalizedKeyword) return;
+    if (invalidatedCompleteRef.current === latest.id) return;
+    invalidatedCompleteRef.current = latest.id;
     void queryClient.invalidateQueries({
       queryKey: keywordSuggestionSnapshotQueryKey(normalizedKeyword),
       exact: true,
     });
-  }, [latestAttempt, normalizedKeyword, queryClient]);
+  }, [latest, normalizedKeyword, queryClient]);
 
+  const latestAttempt = toCollection(latest);
   return {
-    status: statusQuery.data ?? null,
     latestAttempt,
-    latestComplete,
-    error: sourceError,
+    latestComplete: toCollection(lastSucceeded),
+    error: start.error instanceof Error
+      ? start.error.message
+      : statusQuery.error instanceof Error ? statusQuery.error.message : null,
     isLoading: statusQuery.isLoading,
-    isCollecting,
+    isCollecting: start.isPending || latestAttempt?.state === 'RUNNING',
     collect,
   };
 }

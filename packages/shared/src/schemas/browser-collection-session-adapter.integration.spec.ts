@@ -75,7 +75,7 @@ describe('extension collection-session public contract', () => {
     const started = await manager.start({
       environmentId: 'local',
       attemptId: ATTEMPT_ID,
-      producer: 'sourcing.1688_trend',
+      producer: 'orders.coupang_reviews',
       attemptToken: 'owner-secret',
       plan: { from: '2025-08-01', to: '2026-08-31' },
     });
@@ -84,7 +84,7 @@ describe('extension collection-session public contract', () => {
     expect(started).toEqual({
       environmentId: 'local',
       attemptId: ATTEMPT_ID,
-      producer: 'sourcing.1688_trend',
+      producer: 'orders.coupang_reviews',
       progress: {
         current: 0,
         total: 0,
@@ -130,7 +130,7 @@ describe('extension collection-session public contract', () => {
     await manager.start({
       environmentId: 'local',
       attemptId: ATTEMPT_ID,
-      producer: 'sourcing.1688_trend',
+      producer: 'orders.coupang_reviews',
     });
     const removed = await manager.remove(ATTEMPT_ID);
     expect(BrowserCollectionSessionViewSchema.parse(removed)).toEqual(removed);
