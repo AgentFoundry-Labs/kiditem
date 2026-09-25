@@ -4438,9 +4438,11 @@ var KidItemRuntime = (() => {
   var WING_REVIEW_SEARCH_URL = `${WING_ORIGIN}/tenants/cs/product/review/search`;
   var WING_REVIEW_PAGE_SIZE = 50;
   var WING_REVIEW_CALLER = { minIntervalMs: 350 };
-  async function searchWingReviews(caller, input) {
+  var WING_REVIEW_TIMEOUT_MS = 2e4;
+  async function searchWingReviews(caller, input, options = {}) {
     const body = await caller.json(WING_REVIEW_SEARCH_URL, {
       method: "POST",
+      signal: AbortSignal.timeout(options.timeoutMs ?? WING_REVIEW_TIMEOUT_MS),
       headers: { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" },
       body: JSON.stringify({
         startTime: input.start.slice(0, 10),

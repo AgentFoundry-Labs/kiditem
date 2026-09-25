@@ -5,14 +5,14 @@ import { WING_REVIEW_CALLER, WING_REVIEW_SEARCH_URL, searchWingReviews } from '.
 
 const WINDOW = { start: '2026-08-01T00:00:00+09:00', end: '2026-08-31T23:59:59+09:00' };
 
-function wing(respond: () => Response | Promise<Response>) {
+function wing(respond: (init: RequestInit | undefined) => Response | Promise<Response>) {
   let clock = 1_000;
   const sent: Array<{ url: string; body: unknown; method: string | undefined }> = [];
   const sleeps: number[] = [];
   const deps: SiteCallerDeps = {
     async fetch(url, init) {
       sent.push({ url, body: JSON.parse(String(init?.body)), method: init?.method });
-      return respond();
+      return respond(init);
     },
     cookies: { get: async () => null },
     now: () => clock,
@@ -89,6 +89,14 @@ describe('sites/wing/reviews — Wing 상품평 검색 한 쪽', () => {
     expect((await rejection(searchWingReviews(unauthorized.caller, { ...WINDOW, pageIndex: 0 }))).code).toBe(SITE_LOGIN_REQUIRED);
     const redirected = wing(() => ({ type: 'opaqueredirect', status: 0, ok: false }) as Response);
     expect((await rejection(searchWingReviews(redirected.caller, { ...WINDOW, pageIndex: 0 }))).code).toBe(SITE_LOGIN_REQUIRED);
+  });
+
+  it('응답이 멈추면 시간 상한에서 끊고 SITE_REQUEST_FAILED — heartbeat가 잠금을 끝없이 연장하지 않게', async () => {
+    const stalled = wing((init) => new Promise<Response>((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal?.reason), { once: true });
+    }));
+    const error = await rejection(searchWingReviews(stalled.caller, { ...WINDOW, pageIndex: 0 }, { timeoutMs: 20 }));
+    expect(error.code).toBe(SITE_REQUEST_FAILED);
   });
 
   it('Wing이 거절하면(code가 OK가 아님) 그 문장을 담아 SITE_REQUEST_FAILED', async () => {
