@@ -7,6 +7,8 @@ import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import {
   AI_DIRECT_JOB_KINDS,
   AI_DIRECT_JOB_MAX_ATTEMPTS,
+  AI_DIRECT_JOB_RESULT_CHUNK,
+  AI_DIRECT_JOB_RESULT_SAVED,
   aiDirectJobKind,
   aiDirectJobLockKey,
   aiDirectJobPlan,
@@ -22,12 +24,8 @@ import type {
   ClaimedAiDirectJob,
 } from '../../../application/port/out/runtime/ai-direct-job-operations.port';
 
-/** 받아 둔 결과가 들어가는 청크 칸. finish(succeeded)의 owner finalize가 읽는다. */
-export const AI_DIRECT_JOB_RESULT_CHUNK = 'result';
 /** 임대만 연장하는 빈 청크 칸. */
 const HEARTBEAT_CHUNK = 'heartbeat';
-/** progress의 checkpoint 표시: 결과를 받아 두었고 반영만 남았다. */
-export const AI_DIRECT_JOB_RESULT_SAVED = 'result_saved';
 
 /** 실행 표의 오류 코드 칸(64자)·계약의 문장 상한(2,000자). */
 const ERROR_CODE_MAX = 64;

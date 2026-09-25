@@ -6,8 +6,9 @@ import type {
   OperationFinalizeContext,
   OperationOwnerPort,
 } from '../../../../common/operation/application/port/out/owner/operation-owner.port';
-import { OperationOwner } from '../../../../common/operation/application/service/operation-owner.registry';
+import { OperationOwner } from '../../../../common/operation/application/port/out/owner/operation-owner.decorator';
 import {
+  AI_DIRECT_JOB_RESULT_CHUNK,
   aiDirectJobLockKey,
   aiDirectJobPlan,
   aiDirectJobTypeOfKind,
@@ -16,7 +17,6 @@ import {
   type AiDirectJobKind,
 } from '../../../domain/direct-job/ai-direct-job-operation';
 import { AiDirectJobProcessorService } from '../../../application/service/ai-direct-job-processor.service';
-import { AI_DIRECT_JOB_RESULT_CHUNK } from '../../out/runtime/ai-direct-job-operations.adapter';
 import {
   AI_DIRECT_JOB_RUNTIME_CONFIG,
   type AiDirectJobRuntimeConfig,

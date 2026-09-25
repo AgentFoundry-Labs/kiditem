@@ -745,27 +745,34 @@ transcript, or provider-session model.
 ## Durable Direct AI Media Execution
 
 Thumbnail generation, detail-page generation, image edit, and thumbnail
-re-edit use the AI-owned `AiDirectJob` ledger. These fixed workflows do not
-create Agent OS runs.
+re-edit are server-driven operations (ADR-0025, KID-358): kinds
+`content.thumbnail_generate`, `content.thumbnail_reedit`,
+`content.detail_page_generate` and `content.image_edit`, each registered by a
+Content owner port. These fixed workflows do not create Agent OS runs.
 
 ```text
 request
-  -> transaction: domain ledger + input provenance + held AiDirectJob
-  -> operation alert / parent-child registration
-  -> release to pending
-  -> claim with FOR UPDATE SKIP LOCKED + lease
+  -> transaction: domain ledger + input provenance + prepared operation
+     (lock resource:<job-type>:<source id>, three attempts)
+  -> wake the worker after commit
+  -> claim with FOR UPDATE SKIP LOCKED + kind lease (AI_DIRECT_JOB_LEASE_MS)
   -> provider and media execution with AbortSignal
-  -> validated output checkpoint
-  -> atomic domain sink projection
+  -> validated output staged as the operation's `result` chunk
+     (progress.checkpoint = result_saved)
+  -> finish(succeeded): owner finalize projects it through the domain sink
   -> succeeded
 ```
 
-The worker reclaims held jobs after the recovery window and running or
-projecting jobs after lease expiry. A projecting job reuses its checkpoint and
-does not call the model again. Cancellation updates the direct-job queue before
-the domain ledger or alert, and the lease heartbeat aborts in-flight provider
-and image-download work. Gemini adapters receive the model captured at enqueue
-time and never select an environment fallback during execution.
+A failure finishes with `retryAfterMs` (5s, 30s, 120s) while attempts remain,
+which returns the same operation to `prepared` with its lock held; the last
+failure, or one that is not retryable, closes it `failed` and the owner's
+`onFailed` records the failure on the domain ledger. An expired lease is
+reclaimed by the next claim; a saved result is reused without calling the model
+again. Cancelling a generation cancels its live operation in the same
+transaction, and the lease heartbeat aborts in-flight provider and
+image-download work. Gemini adapters receive the model captured at enqueue time
+and never select an environment fallback during execution. The retired
+`ai_direct_jobs` table is no longer read or written and is dropped separately.
 
 ## Detail-Page Client Rasterization
 
@@ -773,7 +780,7 @@ A channel adapter whose mall form takes the detail page as one image (today
 the Coupang form adapter) requires one finalized 780px JPEG derived from the
 sales product's current immutable `DetailPageRevision`. Rasterization is a
 Content capability, not a mall lifecycle; it is intentionally not an
-`AiDirectJob` and never launches Chromium on the server.
+AI generation operation and never launches Chromium on the server.
 
 ```text
 registration preparation
@@ -1155,7 +1162,7 @@ request-driven mutation admission, approval fields, and the idempotent
 result/error. Agent definitions and capability manifests are code-owned.
 Provider-native conversation/session continuity is host-local, completed UI
 event history is API-local SQLite. Deterministic source work uses its domain
-owner attempt; fixed AI generation uses `AiDirectJob`.
+owner attempt; fixed AI generation runs as `content.*` operations.
 
 Completed canonical AG-UI event history has one outbound SQLite Adapter at
 `apps/server/src/agent-os/adapter/out/history/sqlite/`, behind the unchanged

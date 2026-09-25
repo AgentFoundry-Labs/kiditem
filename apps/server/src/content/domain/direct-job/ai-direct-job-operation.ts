@@ -20,6 +20,11 @@ export const AI_DIRECT_JOB_KINDS = [
 ] as const satisfies readonly OperationKind[];
 export type AiDirectJobKind = (typeof AI_DIRECT_JOB_KINDS)[number];
 
+/** 받아 둔 결과가 들어가는 실행 청크 칸. finish(succeeded)의 owner finalize가 읽는다. */
+export const AI_DIRECT_JOB_RESULT_CHUNK = 'result';
+/** progress의 checkpoint 표시: 결과를 받아 두었고 반영만 남았다(옛 `projecting`). */
+export const AI_DIRECT_JOB_RESULT_SAVED = 'result_saved';
+
 /** 워커 임대: 지금까지의 `AI_DIRECT_JOB_LEASE_MS` 기본값과 같다. */
 export const AI_DIRECT_JOB_DEFAULT_LEASE_MS = 60_000;
 /** claim 횟수 상한(재시도 포함). 옛 `ai_direct_jobs.max_attempts` 기본값과 같다. */
