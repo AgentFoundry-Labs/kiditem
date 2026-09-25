@@ -5,10 +5,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { FileSpreadsheet, Loader2, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import {
-  CoupangWingCatalogImportResponseSchema,
-  type CoupangWingCatalogImportResponse,
-} from '@kiditem/shared/source-import';
-import { apiClient } from '@/lib/api-client';
+  uploadWingCatalogWorkbook,
+  type WingCatalogWorkbookUpload,
+} from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/wing-catalog-collection';
 import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
@@ -18,8 +17,8 @@ const WING_DOWNLOAD_URL = 'https://wing.coupang.com/vendor-inventory/list';
 const COUPANG_MALL_KEY = 'coupang';
 
 /**
- * 쿠팡 윙 등록 상품을 **엑셀로 가져온다**. 확장이 윙 화면을 읽는 '상품 받기'와 같은 owner
- * 경로(`catalog-imports/coupang-wing`)로 들어가고, 둘 다 쓴다(사장님 2026-09-22
+ * 쿠팡 윙 등록 상품을 **엑셀로 가져온다**. 업로드는 확장의 '쿠팡상품정보 갱신'과 같은 실행 kind
+ * (`channels.wing_catalog_excel`, KID-351)이고, 확장의 '상품 받기'(목록·상세)와 둘 다 쓴다(사장님 2026-09-22
  * "둘다 기능을 유지해줘"). 확장은 가격 · 재고까지 읽고, 엑셀은 한 번에 전부 들어온다.
  *
  * 파일은 윙 › 상품 조회/수정 › [엑셀 대량 수정] › Step 1 에서 요청해 받은 것이다. 윙이 그 파일의
@@ -35,19 +34,13 @@ export function CoupangWingExcelImport() {
     .find((account) => account.mallKey === COUPANG_MALL_KEY)?.channelAccountId ?? null;
   const inputRef = useRef<HTMLInputElement>(null);
   const [fileName, setFileName] = useState<string | null>(null);
-  const [result, setResult] = useState<CoupangWingCatalogImportResponse | null>(null);
+  const [result, setResult] = useState<WingCatalogWorkbookUpload | null>(null);
   const queryClient = useQueryClient();
 
   const upload = useMutation({
     mutationFn: async (file: File) => {
       if (!channelAccountId) throw new Error('쿠팡 몰 계정이 없습니다.');
-      const form = new FormData();
-      form.append('file', file);
-      return apiClient.uploadParsed(
-        `/api/channels/accounts/${encodeURIComponent(channelAccountId)}/catalog-imports/coupang-wing`,
-        CoupangWingCatalogImportResponseSchema,
-        form,
-      );
+      return uploadWingCatalogWorkbook(channelAccountId, file);
     },
     onSuccess: async (response) => {
       setResult(response);

@@ -906,3 +906,13 @@ export const WingCatalogDeletionConfirmationItemSchema = z.object({
   productStatus: NullableTextSchema.optional().default(null),
 }).strict();
 export type WingCatalogDeletionConfirmationItem = z.infer<typeof WingCatalogDeletionConfirmationItemSchema>;
+
+/** `channels.wing_catalog_excel` result(KID-351): 엑셀 반영 수. 업로드 응답 `{ operation }`의 `operation.result`. */
+export const WingCatalogExcelResultSchema = z.object({
+  createdProductCount: z.number().int().nonnegative(),
+  updatedProductCount: z.number().int().nonnegative(),
+  createdSkuCount: z.number().int().nonnegative(),
+  updatedSkuCount: z.number().int().nonnegative(),
+  skippedRowCount: z.number().int().nonnegative(),
+}).strict();
+export type WingCatalogExcelResult = z.infer<typeof WingCatalogExcelResultSchema>;

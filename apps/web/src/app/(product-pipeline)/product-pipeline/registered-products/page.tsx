@@ -24,6 +24,21 @@ import {
   readCoupangCatalogCollectionLink,
 } from './lib/channel-listings-api';
 import { registeredListingWorkspaceHref } from './lib/registered-listing-navigation';
+import { refetchWingCatalogProduct } from './lib/wing-catalog-collection';
+import { toast } from 'sonner';
+import { friendlyError } from '@/lib/api-error';
+
+/** 상품 하나 상세 다시 받기(KID-351): 확장이 상세 실행 하나를 시작하고, 진행은 상품 받기 표시가 본다. */
+async function refetchDetail(listing: RegisteredChannelListing) {
+  if (!listing.channelAccountId) return;
+  try {
+    const outcome = await refetchWingCatalogProduct(listing.channelAccountId, listing.externalId);
+    if (outcome.outcome === 'refused') toast.info(outcome.message);
+    else toast.success(`${listing.listingName} 상세를 다시 받는 중입니다.`);
+  } catch (error) {
+    toast.error(friendlyError(error, '상세를 다시 받지 못했습니다.') ?? '상세를 다시 받지 못했습니다.');
+  }
+}
 
 type RegisteredListingFilter = 'registered' | 'recent' | 'deleted';
 type MarketFilter = 'all' | `channel:${string}`;
@@ -306,6 +321,7 @@ function RegisteredProductsPageContent() {
                 // 우리가 등록한 상품에만 삭제 진입점을 준다. 서버도 같은 규칙으로 다시 막는다.
                 listing.sourceRecordId ? setDeleteTarget : undefined
               }
+              onRefetchDetail={refetchDetail}
             />
           ))}
         </ProductInboxListFrame>

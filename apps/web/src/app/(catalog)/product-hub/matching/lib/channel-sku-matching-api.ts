@@ -13,9 +13,7 @@ import {
 } from '@kiditem/shared/product-operations';
 import {
   CoupangRocketMatchingCsvImportResponseSchema,
-  CoupangWingCatalogImportResponseSchema,
   type CoupangRocketMatchingCsvImportResponse,
-  type CoupangWingCatalogImportResponse,
 } from '@kiditem/shared/source-import';
 import {
   SellpiaManualMatchAttemptSchema,
@@ -25,6 +23,10 @@ import {
   type SellpiaManualMatchSourceStatus,
   type SellpiaManualMatchTargetsResponse,
 } from '@kiditem/shared/sellpia-manual-match';
+import {
+  uploadWingCatalogWorkbook,
+  type WingCatalogWorkbookUpload,
+} from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/wing-catalog-collection';
 import { apiClient } from '@/lib/api-client';
 const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
 
@@ -126,17 +128,12 @@ export async function saveProductInventoryMatching(
   }
 }
 
+/** [쿠팡상품정보] 엑셀 = `channels.wing_catalog_excel` 실행 하나(KID-351). 등록상품 화면과 같은 업로드다. */
 export function importCoupangWingCatalog(
   channelAccountId: string,
   file: File,
-): Promise<CoupangWingCatalogImportResponse> {
-  const form = new FormData();
-  form.append('file', file);
-  return apiClient.uploadParsed(
-    `/api/channels/accounts/${encodeURIComponent(channelAccountId)}/catalog-imports/coupang-wing`,
-    CoupangWingCatalogImportResponseSchema,
-    form,
-  );
+): Promise<WingCatalogWorkbookUpload> {
+  return uploadWingCatalogWorkbook(channelAccountId, file);
 }
 
 export function importCoupangRocketMatchingCsv(

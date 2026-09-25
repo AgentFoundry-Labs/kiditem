@@ -189,12 +189,11 @@ function makeReadinessResponse(): ReadinessResponse {
 }
 
 const CATALOG_ACCOUNT_ID = '00000000-0000-4000-8000-000000000001';
-const CATALOG_ATTEMPT_ID = '00000000-0000-4000-8000-000000000002';
-const CATALOG_CHILD_ATTEMPT_ID = '00000000-0000-4000-8000-000000000005';
-const CATALOG_IDEMPOTENCY_KEY = '00000000-0000-4000-8000-000000000003';
-const CATALOG_DETAILS_IDEMPOTENCY_KEY = '00000000-0000-4000-8000-000000000006';
-const CATALOG_SOURCE_PATH = `/api/channels/accounts/${CATALOG_ACCOUNT_ID}/catalog-imports/coupang-wing/source`;
-let catalogSource: unknown;
+const CATALOG_LIST_ID = '00000000-0000-4000-8000-000000000002';
+const CATALOG_DETAILS_ID = '00000000-0000-4000-8000-000000000005';
+const CATALOG_OPERATIONS_PATH =
+  '/api/operations?kinds=channels.wing_catalog_list,channels.wing_catalog_details,channels.wing_catalog_excel&limit=5';
+let catalogOperations: unknown[];
 
 function makeCatalogReadinessResponse(): ReadinessResponse {
   const response = makeReadinessResponse();
@@ -224,51 +223,25 @@ function makeCatalogReadinessResponse(): ReadinessResponse {
   };
 }
 
-function makeCatalogOwner(overrides: Record<string, unknown> = {}) {
-  const plan = {
-    collectorVersion: 'wing-inventory-v1',
-    stage: 'basics',
-    listUrl: 'https://wing.coupang.com/list',
-    detailUrl: 'https://wing.coupang.com/detail',
-    channelAccountId: CATALOG_ACCOUNT_ID,
-    vendorId: 'A001',
-    publicationRevision: '0',
-  };
+/** Wing 카탈로그 실행 하나(실행 계약 reader 모양, KID-354). */
+function catalogOperation(overrides: Record<string, unknown> = {}) {
   return {
-    attemptId: CATALOG_ATTEMPT_ID,
-    idempotencyKey: CATALOG_IDEMPOTENCY_KEY,
-    channelAccountId: CATALOG_ACCOUNT_ID,
-    state: 'COMPLETE',
-    expiresAt: '2030-01-01T00:00:00.000Z',
-    plan,
-    phase: 'finished',
-    collectorVersion: 'wing-inventory-v1',
-    manifest: null,
-    progress: {
-      discoveryPagesStored: 1,
-      discoveredProducts: 1254,
-      hydratedProducts: 1254,
-      optionCount: 1254,
-      mediaCount: 0,
-      storedChunks: 1,
-      publishedProducts: 1254,
-      publishedOptionCount: 1254,
-      publishedMediaCount: 0,
-      publishedChunks: 1,
-      firstPublishedAt: null,
-      lastPublishedAt: null,
-    },
-    missing: { discoverySequences: [], productIds: [] },
-    snapshotHash: null,
-    error: null,
-    publication: null,
-    createdAt: '2026-09-06T00:00:00.000Z',
-    updatedAt: '2026-09-06T00:01:00.000Z',
+    id: CATALOG_LIST_ID,
+    kind: 'channels.wing_catalog_list',
+    status: 'succeeded',
+    lockKeys: [],
+    plan: { channelAccountId: CATALOG_ACCOUNT_ID, startedBy: null },
+    progress: null,
+    result: null,
+    window: null,
+    errorCode: null,
+    errorMessage: null,
+    startedAt: '2026-09-06T00:00:00.000Z',
     finishedAt: '2026-09-06T00:01:00.000Z',
-    rootAttemptId: CATALOG_ATTEMPT_ID,
-    currentAttemptId: CATALOG_ATTEMPT_ID,
-    currentStage: 'basics',
-    overallState: 'COMPLETE',
+    expiresAt: '2030-01-01T00:00:00.000Z',
+    attempts: 1,
+    maxAttempts: 1,
+    scheduledFor: null,
     ...overrides,
   };
 }
@@ -285,29 +258,22 @@ function makeCatalogState() {
   };
 }
 
-// The account's import read: a basics root whose details child carries the rest.
-function detailsImport(state: 'RUNNING' | 'COMPLETE', childProgress: Record<string, unknown> = {}) {
-  const basics = makeCatalogOwner();
-  return {
-    latestAttempt: makeCatalogOwner({
-      plan: { ...basics.plan, detailsIdempotencyKey: CATALOG_DETAILS_IDEMPOTENCY_KEY },
-      currentAttemptId: CATALOG_CHILD_ATTEMPT_ID,
-      currentStage: 'details',
-      overallState: state,
+// 한 동기화: 끝난 목록 실행 뒤 이어진 상세 실행.
+function detailsSync(status: 'executing' | 'succeeded', progress: Record<string, unknown> | null = null) {
+  return [
+    catalogOperation({
+      id: CATALOG_DETAILS_ID,
+      kind: 'channels.wing_catalog_details',
+      status,
+      lockKeys: status === 'executing' ? [`account:${CATALOG_ACCOUNT_ID}`] : [],
+      progress,
+      finishedAt: status === 'executing' ? null : '2026-09-06T00:05:00.000Z',
+      result: status === 'succeeded'
+        ? { detailTargets: 1254, detailApplied: 1254, detailUnchanged: 0, deletedProducts: 0, unconfirmedAbsentProductIds: [] }
+        : null,
     }),
-    detailsAttempt: makeCatalogOwner({
-      attemptId: CATALOG_CHILD_ATTEMPT_ID,
-      idempotencyKey: CATALOG_DETAILS_IDEMPOTENCY_KEY,
-      state,
-      phase: state === 'COMPLETE' ? 'finished' : 'hydration',
-      plan: { ...basics.plan, stage: 'details', basicAttemptId: CATALOG_ATTEMPT_ID },
-      progress: { ...basics.progress, ...childProgress },
-      finishedAt: state === 'COMPLETE' ? basics.finishedAt : null,
-      currentAttemptId: CATALOG_CHILD_ATTEMPT_ID,
-      currentStage: 'details',
-      overallState: state,
-    }),
-  };
+    catalogOperation(),
+  ];
 }
 
 describe('ReadinessModal', () => {
@@ -316,14 +282,14 @@ describe('ReadinessModal', () => {
     mockApiGet.mockImplementation(async (path: string) => {
       if (path === CAMPAIGN_SOURCE_PATH) return campaignSource;
       if (path === KEYWORD_SOURCE_PATH) return EMPTY_OWNER_SOURCE;
-      if (path === CATALOG_SOURCE_PATH) return catalogSource;
+      if (path === CATALOG_OPERATIONS_PATH) return { operations: catalogOperations };
       return readiness;
     });
     setReadiness(makeReadinessResponse());
     campaignSource = EMPTY_OWNER_SOURCE;
     mockHandleCollect.mockReset();
     mockCatalog.value = null;
-    catalogSource = { latestAttempt: null, detailsAttempt: null };
+    catalogOperations = [];
     localStorage.clear();
     sessionStorage.clear();
   });
@@ -446,40 +412,40 @@ describe('ReadinessModal', () => {
     );
   });
 
-  it('renders a saved basics receipt as partial coverage and offers the next 상품 받기', async () => {
+  it('shows a finished list operation as the details it hands on and offers 다시 받기', async () => {
     setReadiness(makeCatalogReadinessResponse());
-    catalogSource = { latestAttempt: makeCatalogOwner(), detailsAttempt: null };
+    catalogOperations = [catalogOperation({
+      result: { listedProductCount: 1254, detailTargetProductIds: ['P1', 'P2'], absentProductIds: [], next: null },
+    })];
     mockCatalog.value = makeCatalogState();
 
     render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
 
-    expect(await screen.findByText('기본 목록 보강 완료 1,254 / 1,254')).toBeInTheDocument();
-    expect(screen.getByText('기본 목록 반영 완료 · 전체 상세 수집 필요')).toBeInTheDocument();
+    expect(await screen.findByText('목록 반영 · 상세 2개 · 삭제 확인 0개 받을 차례')).toBeInTheDocument();
     expect(screen.queryByText('전체 상품 반영 완료')).not.toBeInTheDocument();
     expect(await screen.findByRole('button', { name: '다시 받기' })).toBeEnabled();
   });
 
-  it('shows the details child progress and the running account while the import runs', async () => {
+  it('shows the details progress and the running account while the chained details operation runs', async () => {
     setReadiness(makeCatalogReadinessResponse());
-    catalogSource = detailsImport('RUNNING', { hydratedProducts: 40, publishedProducts: 12 });
+    catalogOperations = detailsSync('executing', { detailsDone: 40, detailTargets: 1254, absentChecked: 0, absentTotal: 0 });
     mockCatalog.value = makeCatalogState();
 
     render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
 
-    expect(await screen.findByText('상세 수집 40 / 1,254')).toBeInTheDocument();
+    expect(await screen.findByText('상세 40 / 1,254')).toBeInTheDocument();
     expect(await screen.findByText('수집 중 · 키드아이템 스토어')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '수집 중단' })).toBeEnabled();
-    expect(screen.queryByText('기본 목록 수집 1,254 / 1,254')).not.toBeInTheDocument();
   });
 
-  it('renders the whole-flow completion label for a terminal details receipt', async () => {
+  it('reports what the finished details operation applied', async () => {
     setReadiness(makeCatalogReadinessResponse());
-    catalogSource = detailsImport('COMPLETE');
+    catalogOperations = detailsSync('succeeded');
     mockCatalog.value = makeCatalogState();
 
     render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
 
-    expect(await screen.findByText('전체 상품 반영 완료')).toBeInTheDocument();
+    expect(await screen.findByText('상품 1,254개 상세 반영')).toBeInTheDocument();
   });
 
   it('keeps refresh reachable when the catalog readiness check is already ok', async () => {
@@ -503,13 +469,13 @@ describe('ReadinessModal', () => {
           : check,
       ),
     });
-    catalogSource = detailsImport('COMPLETE');
+    catalogOperations = detailsSync('succeeded');
     mockCatalog.value = makeCatalogState();
 
     render(<ReadinessModal open onClose={vi.fn()} />, { wrapper: wrapper() });
 
     expect(await screen.findByRole('button', { name: '다시 받기' })).toBeEnabled();
-    expect(screen.getByText('전체 상품 반영 완료')).toBeInTheDocument();
+    expect(screen.getByText('상품 1,254개 상세 반영')).toBeInTheDocument();
     // 상품 받기 starts from its shared control, never through the readiness handler.
     expect(mockHandleCollect).not.toHaveBeenCalled();
   });

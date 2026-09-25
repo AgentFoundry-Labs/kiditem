@@ -53,8 +53,8 @@ function dispatchFailureMessage(reply: unknown): string | null {
 
 /**
  * Asks the extension to start a collection through the start contract: one
- * that takes turns in the Coupang collection window, or the Wing catalog
- * import, which a browser runs for one store account at a time. The extension
+ * that takes turns in the Coupang collection window. The Wing catalog is an
+ * operation kind (`lib/operation-start.ts`, KID-354). The extension
  * takes that turn and opens the owner attempt; this page only proposes the
  * producer and scope and reads the decision.
  */
