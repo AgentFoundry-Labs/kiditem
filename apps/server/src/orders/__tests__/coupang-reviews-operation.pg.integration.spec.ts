@@ -254,6 +254,28 @@ describe('orders.coupang_reviews owner over the operation contract + disposable 
     ]);
   });
 
+  it('최대 규모(36개월 × 창당 2,000건 = 72,000건)도 finish 한 번이 10초 안에 끝난다 — 처음은 전부 insert, 다시 올리면 전부 update', async () => {
+    // 근거: 로컬 Testcontainers에서 1.9초·2.1초(KID-359). 상한은 finish 트랜잭션 제한(30초)보다 충분히 낮게.
+    for (const [content, expected] of [
+      ['v1', { inserted: 72_000, updated: 0 }],
+      ['v2', { inserted: 0, updated: 72_000 }],
+    ] as const) {
+      const run = await beginRun(36);
+      let sequence = 0;
+      for (let windowIndex = 0; windowIndex < 36; windowIndex += 1) {
+        const items = Array.from({ length: 2_000 }, (_, i) => review(`r-${windowIndex}-${i}`, windowIndex, content));
+        for (let offset = 0; offset < items.length; offset += 200) {
+          await put(run, COUPANG_REVIEWS_CHUNK_KIND, ++sequence, items.slice(offset, offset + 200));
+        }
+        await put(run, COUPANG_REVIEWS_WINDOW_CHUNK_KIND, windowIndex + 1, [{ index: windowIndex, pages: 40, items: 2_000 }]);
+      }
+      const started = performance.now();
+      const finished = await finish(run).expect(200);
+      expect(performance.now() - started).toBeLessThan(10_000);
+      expect(finished.body.operation.result).toEqual({ windows: 36, reviews: 72_000, ...expected });
+    }
+  }, 300_000);
+
   it('같은 계정의 두 번째 begin은 OPERATION_IN_PROGRESS로 거절된다', async () => {
     const first = await beginRun(1);
     const refused = await begin({ channelAccountId: accountId, months: 3 }, 409);
