@@ -39,24 +39,6 @@ var KidItemRuntime = (() => {
     return [...collectors.keys()].sort();
   }
 
-  // extensions/src/collectors/test.echo/index.ts
-  var CHUNKS = 2;
-  var ITEMS_PER_CHUNK = 3;
-  var testEchoCollector = {
-    kind: "test.echo",
-    site: null,
-    async *collect(_plan, _site, { signal }) {
-      for (let chunk = 1; chunk <= CHUNKS; chunk += 1) {
-        if (signal.aborted) return;
-        const at = (/* @__PURE__ */ new Date()).toISOString();
-        const payload = Array.from({ length: ITEMS_PER_CHUNK }, (_, index) => ({ i: (chunk - 1) * ITEMS_PER_CHUNK + index + 1, at }));
-        yield { chunkKind: "echo", payload, progress: { done: chunk } };
-      }
-    },
-    summarize: () => ({ result: { echo: true } })
-  };
-  registerCollector(testEchoCollector);
-
   // node_modules/zod/v3/external.js
   var external_exports = {};
   __export(external_exports, {
@@ -4098,6 +4080,143 @@ var KidItemRuntime = (() => {
   };
   var NEVER = INVALID;
 
+  // packages/shared/src/schemas/reviews.ts
+  var ReviewFilterSchema = external_exports.enum(["all", "new", "needs-response"]);
+  var ReviewListItemSchema = external_exports.object({
+    listingId: external_exports.string(),
+    productId: external_exports.string(),
+    productName: external_exports.string(),
+    sku: external_exports.string().nullable(),
+    organization: external_exports.string(),
+    grade: external_exports.string(),
+    totalReviews: external_exports.number(),
+    avgRating: external_exports.number(),
+    recentReviews: external_exports.number(),
+    // null means the order source has not been observed for this organization.
+    orderCount: external_exports.number().int().nonnegative().nullable(),
+    lastReviewAt: external_exports.string().nullable()
+  });
+  var ReviewSummarySchema = external_exports.object({
+    // 리뷰가 있는 active listing 수
+    listingCount: external_exports.number().int().nonnegative(),
+    // 회사 전체 누적 review 수
+    totalReviewCount: external_exports.number().int().nonnegative(),
+    // 회사 전체 review rating 의 가중 평균. review 가 0건이면 미측정(null).
+    weightedAvgRating: external_exports.number().nonnegative().nullable(),
+    // totalReviews < 5 인 listing 수.
+    newListingCount: external_exports.number().int().nonnegative(),
+    // avgRating < 3.5 이고 리뷰 5건 이상인 listing 수.
+    needsResponseCount: external_exports.number().int().nonnegative(),
+    // listing 단위로 (avgRating < 3.5) || (totalReviews < 5) 인 row 수.
+    // 임계값은 frontend filter (`needs-response`/`new`) 와 일치.
+    needsAttentionCount: external_exports.number().int().nonnegative()
+  });
+  var ReviewListResponseSchema = external_exports.object({
+    items: external_exports.array(ReviewListItemSchema),
+    total: external_exports.number().int().nonnegative(),
+    page: external_exports.number().int().positive(),
+    limit: external_exports.number().int().positive(),
+    summary: ReviewSummarySchema
+  });
+  var ReviewItemSchema = external_exports.object({
+    id: external_exports.string(),
+    listingId: external_exports.string().nullable(),
+    /** listing 매칭 실패 시 크롤링 당시 채널 상품명으로 폴백한다. */
+    productName: external_exports.string(),
+    optionName: external_exports.string().nullable(),
+    rating: external_exports.number().int(),
+    title: external_exports.string().nullable(),
+    content: external_exports.string().nullable(),
+    reviewerName: external_exports.string().nullable(),
+    reviewedAt: external_exports.string(),
+    imageCount: external_exports.number().int().nonnegative(),
+    videoCount: external_exports.number().int().nonnegative(),
+    /** 채널 상품 상세 링크용 노출상품ID. */
+    externalProductId: external_exports.string().nullable()
+  });
+  var ReviewItemListResponseSchema = external_exports.object({
+    items: external_exports.array(ReviewItemSchema),
+    total: external_exports.number().int().nonnegative(),
+    page: external_exports.number().int().positive(),
+    limit: external_exports.number().int().positive(),
+    /** 별점 1~5 별 건수. 현재 필터(별점 제외) 기준 분포. */
+    ratingCounts: external_exports.record(external_exports.string(), external_exports.number().int().nonnegative()),
+    /** 본문이 있는 리뷰 수. 쿠팡은 별점만 남기는 리뷰가 대부분이다. */
+    withContentCount: external_exports.number().int().nonnegative()
+  });
+  var ReviewIngestItemSchema = external_exports.object({
+    /** 쿠팡 reviewId. 재수집 멱등 키. */
+    externalReviewId: external_exports.string().min(1),
+    /** 쿠팡 vendorItemId(옵션ID). ChannelListingOption 매칭 키. */
+    externalOptionId: external_exports.string().min(1).nullable().default(null),
+    /** 쿠팡 productId(노출상품ID). */
+    externalProductId: external_exports.string().min(1).nullable().default(null),
+    itemName: external_exports.string().nullable().default(null),
+    rating: external_exports.number().int().min(1).max(5),
+    title: external_exports.string().nullable().default(null),
+    content: external_exports.string().nullable().default(null),
+    reviewerName: external_exports.string().nullable().default(null),
+    /** 리뷰 작성 시각(epoch ms). */
+    reviewedAt: external_exports.number().int().positive(),
+    imageCount: external_exports.number().int().nonnegative().default(0),
+    videoCount: external_exports.number().int().nonnegative().default(0),
+    isDeleted: external_exports.boolean().default(false),
+    isBlinded: external_exports.boolean().default(false)
+  });
+  var ReviewIngestRequestSchema = external_exports.object({
+    platform: external_exports.literal("coupang").default("coupang"),
+    items: external_exports.array(ReviewIngestItemSchema).min(1).max(200)
+  });
+  var ReviewIngestResponseSchema = external_exports.object({
+    received: external_exports.number().int().nonnegative(),
+    created: external_exports.number().int().nonnegative(),
+    updated: external_exports.number().int().nonnegative(),
+    /** listing 매칭에 성공한 건수. */
+    linked: external_exports.number().int().nonnegative(),
+    /** vendorItemId 로 ChannelListingOption 을 못 찾은 건수. */
+    unlinked: external_exports.number().int().nonnegative()
+  });
+  var COUPANG_REVIEWS_KIND = "orders.coupang_reviews";
+  var COUPANG_REVIEWS_CHUNK_KIND = "reviews";
+  var COUPANG_REVIEWS_MAX_MONTHS = 36;
+  var COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW = 40;
+  var COUPANG_REVIEWS_CHUNK_ITEMS = 200;
+  var CoupangReviewsScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    months: external_exports.number().int().min(1).max(COUPANG_REVIEWS_MAX_MONTHS),
+    maxPagesPerWindow: external_exports.number().int().min(1).max(COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW).default(COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW)
+  }).strict();
+  var CoupangReviewsWindowSchema = external_exports.object({
+    index: external_exports.number().int().nonnegative(),
+    label: external_exports.string().min(1),
+    start: external_exports.string().datetime({ offset: true }),
+    end: external_exports.string().datetime({ offset: true })
+  }).strict();
+  var CoupangReviewsChunkItemSchema = ReviewIngestItemSchema.extend({
+    windowIndex: external_exports.number().int().nonnegative()
+  });
+  var COUPANG_REVIEWS_WINDOW_CHUNK_KIND = "review_windows";
+  var CoupangReviewsWindowDoneSchema = external_exports.object({
+    index: external_exports.number().int().nonnegative(),
+    pages: external_exports.number().int().nonnegative(),
+    items: external_exports.number().int().nonnegative()
+  }).strict();
+  var CoupangReviewsProgressSchema = external_exports.object({
+    current: external_exports.string().nullable(),
+    windows: external_exports.array(external_exports.object({
+      index: external_exports.number().int().nonnegative(),
+      pages: external_exports.number().int().nonnegative(),
+      items: external_exports.number().int().nonnegative(),
+      done: external_exports.boolean()
+    }).strict())
+  }).strict();
+  var CoupangReviewsResultSchema = external_exports.object({
+    windows: external_exports.number().int().nonnegative(),
+    reviews: external_exports.number().int().nonnegative(),
+    inserted: external_exports.number().int().nonnegative(),
+    updated: external_exports.number().int().nonnegative()
+  }).strict();
+
   // extensions/src/core/errors.ts
   var ErrorEnvelopeSchema = external_exports.object({
     statusCode: external_exports.number().int().min(400).max(599),
@@ -4126,6 +4245,79 @@ var KidItemRuntime = (() => {
   function isRuntimeError(value) {
     return value instanceof RuntimeError;
   }
+
+  // extensions/src/collectors/orders.coupang_reviews/index.ts
+  var CoupangReviewsPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    windows: external_exports.array(CoupangReviewsWindowSchema).min(1),
+    maxPagesPerWindow: external_exports.number().int().min(1)
+  });
+  var COUPANG_REVIEWS_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
+  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
+  var coupangReviewsCollector = {
+    kind: COUPANG_REVIEWS_KIND,
+    site: "wing",
+    async *collect(rawPlan, site, { signal }) {
+      const parsed = CoupangReviewsPlanSchema.safeParse(rawPlan);
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      const plan = parsed.data;
+      const done = [];
+      for (const window of plan.windows) {
+        const status = { index: window.index, pages: 0, items: 0, done: false };
+        const progress = (current) => ({ current, windows: [...done, { ...status }] });
+        let buffer = [];
+        for (let pageIndex = 0; ; pageIndex += 1) {
+          if (signal.aborted) return;
+          if (pageIndex >= plan.maxPagesPerWindow) {
+            throw new RuntimeError(COUPANG_REVIEWS_PAGE_LIMIT_REACHED, `${window.label} \uC0C1\uD488\uD3C9\uC774 ${plan.maxPagesPerWindow}\uCABD\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, {
+              windowIndex: window.index
+            });
+          }
+          const page = await site.searchReviews({ start: window.start, end: window.end, pageIndex });
+          status.pages += 1;
+          for (const item of page.items) {
+            buffer.push({ ...item, windowIndex: window.index });
+            status.items += 1;
+            if (buffer.length === COUPANG_REVIEWS_CHUNK_ITEMS) {
+              yield reviewsChunk(buffer, progress(window.label));
+              buffer = [];
+            }
+          }
+          if (pageIndex + 1 >= page.totalPages) break;
+        }
+        if (signal.aborted) return;
+        if (buffer.length > 0) yield reviewsChunk(buffer, progress(window.label));
+        status.done = true;
+        done.push({ ...status });
+        const last = window === plan.windows[plan.windows.length - 1];
+        const marker = { index: status.index, pages: status.pages, items: status.items };
+        yield { chunkKind: COUPANG_REVIEWS_WINDOW_CHUNK_KIND, payload: [marker], progress: { current: last ? null : window.label, windows: [...done] } };
+      }
+    }
+  };
+  function reviewsChunk(payload, progress) {
+    return { chunkKind: COUPANG_REVIEWS_CHUNK_KIND, payload, progress };
+  }
+  registerCollector(coupangReviewsCollector);
+
+  // extensions/src/collectors/test.echo/index.ts
+  var CHUNKS = 2;
+  var ITEMS_PER_CHUNK = 3;
+  var testEchoCollector = {
+    kind: "test.echo",
+    site: null,
+    async *collect(_plan, _site, { signal }) {
+      for (let chunk = 1; chunk <= CHUNKS; chunk += 1) {
+        if (signal.aborted) return;
+        const at = (/* @__PURE__ */ new Date()).toISOString();
+        const payload = Array.from({ length: ITEMS_PER_CHUNK }, (_, index) => ({ i: (chunk - 1) * ITEMS_PER_CHUNK + index + 1, at }));
+        yield { chunkKind: "echo", payload, progress: { done: chunk } };
+      }
+    },
+    summarize: () => ({ result: { echo: true } })
+  };
+  registerCollector(testEchoCollector);
 
   // extensions/src/core/browser.ts
   var RUNTIME_BROWSER_ALREADY_ACQUIRED = "RUNTIME_BROWSER_ALREADY_ACQUIRED";
@@ -4176,6 +4368,148 @@ var KidItemRuntime = (() => {
       throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uC0AC\uC774\uD2B8 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { origin: base });
     }
     return { tabId: created.id, opened: true };
+  }
+
+  // extensions/src/core/site-caller.ts
+  function delayUntilNext(input) {
+    if (input.lastSentAt === null) return 0;
+    return Math.max(0, input.lastSentAt + input.minIntervalMs - input.now);
+  }
+  var SITE_REQUEST_FAILED = "SITE_REQUEST_FAILED";
+  var SITE_LOGIN_REQUIRED = "SITE_LOGIN_REQUIRED";
+  function createSiteCaller(options, deps) {
+    let lastSentAt = null;
+    let queue = Promise.resolve();
+    async function send(url, init = {}) {
+      const headers = new Headers(init.headers);
+      if (options.xsrf) {
+        const cookie = await deps.cookies.get({ url: options.xsrf.cookieUrl, name: options.xsrf.cookieName });
+        const token = decodeCookie(cookie?.value);
+        if (!token) {
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4(\uC778\uC99D \uCFE0\uD0A4 \uC5C6\uC74C).", { url });
+        }
+        headers.set(options.xsrf.headerName, token);
+      }
+      const wait = delayUntilNext({ lastSentAt, now: deps.now(), minIntervalMs: options.minIntervalMs });
+      if (wait > 0) await deps.sleep(wait);
+      lastSentAt = deps.now();
+      let response;
+      try {
+        response = await deps.fetch(url, { credentials: "include", redirect: "manual", ...init, headers });
+      } catch (error) {
+        throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, url }, error);
+      }
+      if (response.status === 401 || response.status === 403 || response.type === "opaqueredirect") {
+        throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.", { status: response.status, url });
+      }
+      if (!response.ok) {
+        throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uC774\uD2B8 \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(${response.status}).`, { status: response.status, url });
+      }
+      return response;
+    }
+    function enqueue(task) {
+      const next = queue.then(task);
+      queue = next.catch(() => void 0);
+      return next;
+    }
+    return {
+      json: (url, init) => enqueue(async () => {
+        const response = await send(url, init);
+        try {
+          return await response.json();
+        } catch (error) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", { status: response.status, url }, error);
+        }
+      }),
+      text: (url, init) => enqueue(async () => (await send(url, init)).text())
+    };
+  }
+  function decodeCookie(value) {
+    if (!value) return null;
+    try {
+      return decodeURIComponent(value) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  // extensions/src/sites/wing/reviews.ts
+  var WING_ORIGIN = "https://wing.coupang.com";
+  var WING_REVIEW_SEARCH_URL = `${WING_ORIGIN}/tenants/cs/product/review/search`;
+  var WING_REVIEW_PAGE_SIZE = 50;
+  var WING_REVIEW_CALLER = { minIntervalMs: 350 };
+  async function searchWingReviews(caller, input) {
+    const body = await caller.json(WING_REVIEW_SEARCH_URL, {
+      method: "POST",
+      headers: { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" },
+      body: JSON.stringify({
+        startTime: input.start.slice(0, 10),
+        endTime: input.end.slice(0, 10),
+        rating: "",
+        salesStatus: "",
+        advancedType: "productName",
+        advancedInput: "",
+        pageIndex: input.pageIndex,
+        pageSize: WING_REVIEW_PAGE_SIZE,
+        productName: ""
+      })
+    });
+    if (body?.code !== "OK") {
+      const message = typeof body?.message === "string" && body.message ? body.message : "\uC54C \uC218 \uC5C6\uB294 \uC751\uB2F5";
+      throw new RuntimeError(SITE_REQUEST_FAILED, `Wing \uC0C1\uD488\uD3C9 \uC870\uD68C\uAC00 \uAC70\uC808\uB410\uC2B5\uB2C8\uB2E4: ${message}`, {
+        reason: "wing_review_rejected",
+        url: WING_REVIEW_SEARCH_URL
+      });
+    }
+    const content = Array.isArray(body.data?.content) ? body.data.content : [];
+    const items = content.map(normalizeWingReview).filter((item) => item !== null);
+    const totalPages = Number(body.data?.pagination?.totalPages);
+    return { items, totalPages: Number.isSafeInteger(totalPages) && totalPages > 0 ? totalPages : 0 };
+  }
+  function normalizeWingReview(value) {
+    if (!value || typeof value !== "object") return null;
+    const raw = value;
+    if (raw.reviewId === null || raw.reviewId === void 0) return null;
+    const rating = Number(raw.rating);
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) return null;
+    const reviewedAt = Number(raw.reviewAt || raw.createdAt || 0);
+    if (!Number.isFinite(reviewedAt) || reviewedAt <= 0) return null;
+    const attachment = attachmentCounts(raw.attachment);
+    return {
+      externalReviewId: String(raw.reviewId),
+      externalOptionId: raw.vendorItemId === null || raw.vendorItemId === void 0 ? null : String(raw.vendorItemId),
+      externalProductId: raw.productId === null || raw.productId === void 0 ? null : String(raw.productId),
+      itemName: text(raw.itemName),
+      rating: Math.round(rating),
+      title: text(raw.reviewTitle),
+      content: text(raw.reviewContent),
+      reviewerName: text(raw.memberName),
+      reviewedAt: Math.trunc(reviewedAt),
+      imageCount: attachment.images,
+      videoCount: attachment.videos,
+      isDeleted: raw.deleted === true,
+      isBlinded: raw.blinded === true
+    };
+  }
+  function attachmentCounts(value) {
+    if (typeof value !== "string" || !value) return { images: 0, videos: 0 };
+    try {
+      const parsed = JSON.parse(value);
+      return {
+        images: Array.isArray(parsed?.imageAttachments) ? parsed.imageAttachments.length : 0,
+        videos: Array.isArray(parsed?.videoAttachments) ? parsed.videoAttachments.length : 0
+      };
+    } catch {
+      return { images: 0, videos: 0 };
+    }
+  }
+  function text(value) {
+    if (typeof value !== "string") return null;
+    const trimmed = value.trim();
+    return trimmed || null;
+  }
+  function createWingReviewsSite(caller) {
+    return { searchReviews: (input) => searchWingReviews(caller, input) };
   }
 
   // extensions/src/entry/legacy-bridge.ts
@@ -4408,8 +4742,8 @@ var KidItemRuntime = (() => {
     }
     return parsed.data;
   }
-  async function sha256Hex(text) {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
+  async function sha256Hex(text2) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text2));
     return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   }
 
@@ -4710,10 +5044,22 @@ var KidItemRuntime = (() => {
       apiFor: legacyApiPort,
       // 사이트 탭이 필요한 kind가 옮겨질 때 sites/*의 origin을 여기 모은다(KID-359 이후).
       browser: createBrowserResources(chrome, {}),
+      siteFor: siteHandles({
+        fetch: (input, init) => fetch(input, init),
+        cookies: { get: (details) => chrome.cookies.get(details) },
+        now: () => Date.now(),
+        sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+      }),
       keepAlive: legacyKeepAlive
     });
     registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true } });
     return true;
+  }
+  function siteHandles(deps) {
+    return (kind) => {
+      if (kind === COUPANG_REVIEWS_KIND) return createWingReviewsSite(createSiteCaller(WING_REVIEW_CALLER, deps));
+      return null;
+    };
   }
 
   // extensions/src/index.ts

@@ -67,7 +67,7 @@ test('catalog steps use the shared finite keepalive through environment dependen
   const runtime = fs.readFileSync(runtimePath, 'utf8');
   const worker = fs.readFileSync(workerPath, 'utf8');
   const factoryStart = worker.indexOf('function coupangCatalogImportDependencies');
-  const factoryEnd = worker.indexOf('function coupangReviewCollectorDependencies', factoryStart);
+  const factoryEnd = worker.indexOf('function waitForTabComplete', factoryStart);
   assert.ok(factoryStart >= 0);
   assert.ok(factoryEnd > factoryStart);
   const dependenciesFactory = worker.slice(factoryStart, factoryEnd);

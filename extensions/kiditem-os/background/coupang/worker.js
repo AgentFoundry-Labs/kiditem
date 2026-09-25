@@ -643,57 +643,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-
-
-  if (msg.action === "runCoupangReviewCollection") {
-    KidItemCoupangReviewCollector.start(
-      {
-        attemptId: msg.attemptId,
-        attemptToken: msg.attemptToken,
-        plan: msg.plan,
-      },
-      coupangReviewCollectorDependencies(environmentId),
-    )
-      .then((result) => sendResponse(result))
-      .catch((e) =>
-        sendResponse({
-          success: false,
-          started: false,
-          error: e?.message || "쿠팡 리뷰 수집 시작 실패",
-        }),
-      );
-    return true;
-  }
-
-  if (msg.action === "getCoupangReviewCollectionStatus") {
-    KidItemCoupangReviewCollector.getStatus(
-      typeof msg.runId === "string" ? msg.runId : null,
-      coupangReviewCollectorDependencies(environmentId).stateKey,
-    )
-      .then((status) => sendResponse(status))
-      .catch(() => sendResponse({ status: "idle" }));
-    return true;
-  }
-
-  if (msg.action === "cancelCoupangReviewCollection") {
-    const dependencies = coupangReviewCollectorDependencies(environmentId);
-    KidItemCoupangReviewCollector.cancel(
-      typeof msg.runId === "string" ? msg.runId : null,
-      dependencies.stateKey,
-      dependencies,
-    )
-      .then((result) => sendResponse(result))
-      .catch((e) =>
-        sendResponse({
-          success: false,
-          cancelled: false,
-          error: e?.message || "쿠팡 리뷰 수집 중단 실패",
-        }),
-      );
-    return true;
-  }
-
-
   if (msg.action === "registerRepresentativeImage") {
     registerRepresentativeImage(msg)
       .then((result) => sendResponse(result))
@@ -772,20 +721,6 @@ function coupangCatalogImportDependencies(environmentId) {
     sendTabMessage,
     getTab,
     waitForTabComplete,
-  };
-}
-
-function coupangReviewCollectorDependencies(environmentId) {
-  adsEnvironmentContext.requireEnvironment(environmentId);
-  return {
-    authedFetch: (path, init) => authedFetch(environmentId, path, init),
-    stateKey: coupangEnvironment.stateKey(
-      KidItemCoupangReviewCollector.stateKey,
-      environmentId,
-    ),
-    createTab,
-    waitForTabComplete,
-    removeTab,
   };
 }
 
@@ -1968,9 +1903,6 @@ KidItemDomains.register({
     coupangCatalogSnapshot: true,
     coupangCatalogSourceAttempts: true,
     coupangCatalogSnapshotSource: "wing-inventory-v1",
-    coupangReviewCollection: true,
-    coupangReviewCollectionWindowReceiptsV1: true,
-    coupangReviewCollectionSource: "wing-cs-product-review",
     browserCollectionSessions: true,
     collectionStartV1: true,
     advertisingKeywordSourceOwnerV1: true,
@@ -1984,14 +1916,6 @@ KidItemDomains.register({
     wingFormReadinessV2: true,
     wingFormPortV1: true,
   },
-  cancelAdditionalCollections: (environmentId) =>
-    KidItemCoupangReviewCollector.cancelAdditionalCollections(
-      coupangReviewCollectorDependencies(environmentId),
-    ),
-  retryAdditionalCollections: (environmentId) =>
-    KidItemCoupangReviewCollector.retryAdditionalCollections(
-      coupangReviewCollectorDependencies(environmentId),
-    ),
   cancelCollectionSession,
   recoverCollections: (environmentId) => recoverCoupangCollections(environmentId),
 });

@@ -13,7 +13,6 @@ import {
 import type { BrowserLease, BrowserResources } from './browser';
 import { RuntimeError, isRuntimeError } from './errors';
 import { stopFor, type OperationClient } from './operation-client';
-import type { SiteCaller } from './site-caller';
 
 /**
  * 실행 하나를 끝까지 돌리는 순서(core가 소유, 수집기는 모른다):
@@ -41,8 +40,11 @@ export type RunOutcome =
 export interface RunnerDeps {
   client: OperationClient;
   browser: BrowserResources;
-  /** kind → 그 kind가 쓰는 사이트 호출기(없으면 null — 더미 kind). */
-  siteFor(kind: OperationKind, lease: { tabId: number | null }): SiteCaller | null;
+  /**
+   * kind → 그 kind의 수집기에 넘길 사이트 핸들(없으면 null — 더미 kind). 사이트마다 모양이 달라(`sites/<site>`의 API)
+   * core는 모양을 모른다 — 입구가 사이트를 조립하고 수집기가 자기에게 필요한 모양을 선언한다(KID-354).
+   */
+  siteFor(kind: OperationKind, lease: { tabId: number | null }): unknown;
 }
 
 export interface OperationRunner {
@@ -72,7 +74,7 @@ export interface RunnableChunk {
 
 export interface RunnableCollector {
   readonly site: string | null;
-  collect(plan: Record<string, unknown>, site: SiteCaller | null, context: { signal: AbortSignal; tabId: number | null }): AsyncIterable<RunnableChunk>;
+  collect(plan: Record<string, unknown>, site: unknown, context: { signal: AbortSignal; tabId: number | null }): AsyncIterable<RunnableChunk>;
   summarize?(input: { chunks: number; items: number }): { window?: OperationWindow; result?: Record<string, unknown> };
 }
 

@@ -52,7 +52,6 @@ importScripts(
   "../utils/coupang-seller-detail.js",
   "../shared/coupang-catalog-collector.js?revision=3",
   "coupang/coupang-catalog-import.js",
-  "coupang/coupang-review-collector.js",
   // 주문수집 도메인 모듈
   "orders/collection-failure.js",
   "orders/order-collection-lifecycle.js",
