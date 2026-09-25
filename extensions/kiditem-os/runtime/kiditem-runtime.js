@@ -6075,7 +6075,7 @@ var KidItemRuntime = (() => {
       siteFor: createSourcingSiteHandles(site),
       keepAlive: legacyKeepAlive
     });
-    registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true } });
+    registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true, sourcingOperationKindsV1: true } });
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
     return true;
   }

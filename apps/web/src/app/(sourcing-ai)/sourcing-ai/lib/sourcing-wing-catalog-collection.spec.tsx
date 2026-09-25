@@ -119,7 +119,7 @@ describe('sourcing Wing catalog collection control (KID-360)', () => {
 
     await waitFor(() => expect(screen.getAllByText('수집 중 · 시장분석 · 연필 외 1개 · 대표 스토어')).toHaveLength(2));
     expect(screen.getAllByRole('button', { name: '수집 중단' })).toHaveLength(2);
-    expect(mocks.start.mock.calls).toEqual([['sourcing.wing_catalog', { ...INPUT, channelAccountId: PRIMARY }]]);
+    expect(mocks.start.mock.calls).toEqual([['sourcing.wing_catalog', { ...INPUT, channelAccountId: PRIMARY }, { capability: 'sourcingOperationKindsV1' }]]);
     expect(mocks.post).not.toHaveBeenCalled();
   });
 

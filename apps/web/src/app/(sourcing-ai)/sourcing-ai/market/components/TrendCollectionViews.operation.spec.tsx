@@ -127,7 +127,7 @@ describe('TrendCollectionViews TikTok direct source-owner collection', () => {
     operationMocks.list.mockResolvedValue({ operations: [tiktokOperation('00000000-0000-4000-8000-000000000777', 'succeeded')] });
     fireEvent.click(screen.getByRole('button', { name: '틱톡 수집' }));
 
-    await waitFor(() => expect(operationMocks.start).toHaveBeenCalledWith('sourcing.tiktok_creative', {}));
+    await waitFor(() => expect(operationMocks.start).toHaveBeenCalledWith('sourcing.tiktok_creative', {}, { capability: 'sourcingOperationKindsV1' }));
     await waitFor(() => expect(trendMocks.fetchTiktokCcTrends).toHaveBeenCalledTimes(2));
     expect(screen.getByText('보존된 틱톡 스냅샷')).toBeInTheDocument();
   });

@@ -36,7 +36,8 @@ export function installEntry(): boolean {
     siteFor: createSourcingSiteHandles(site),
     keepAlive: legacyKeepAlive,
   });
-  registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true } });
+  // sourcingOperationKindsV1: 이 빌드가 소싱 kind 6종을 돈다(KID-360) — 웹은 이것으로 옛 빌드를 가려낸다.
+  registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true, sourcingOperationKindsV1: true } });
   installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
   return true;
 }

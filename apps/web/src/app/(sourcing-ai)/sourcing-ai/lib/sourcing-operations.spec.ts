@@ -79,7 +79,7 @@ describe('sourcing operation collection (KID-360)', () => {
   it('starts through the extension operation.start with the kind scope and maps a lock conflict to a refusal', async () => {
     vi.mocked(sendToExtension).mockImplementation(async (_id, message) =>
       (message as { action: string }).action === 'ping'
-        ? { success: true, capabilities: { operationRuntime: true } }
+        ? { success: true, capabilities: { operationRuntime: true, sourcingOperationKindsV1: true } }
         : { success: true, operationId: A_RUNNING, reused: false });
 
     await expect(roomA().start?.({ url: ROOM_A }, { status: undefined })).resolves.toEqual({ outcome: 'started', attemptId: A_RUNNING });
@@ -91,7 +91,7 @@ describe('sourcing operation collection (KID-360)', () => {
 
     vi.mocked(sendToExtension).mockImplementation(async (_id, message) =>
       (message as { action: string }).action === 'ping'
-        ? { success: true, capabilities: { operationRuntime: true } }
+        ? { success: true, capabilities: { operationRuntime: true, sourcingOperationKindsV1: true } }
         : { success: false, errorCode: 'OPERATION_IN_PROGRESS', error: '같은 방송을 이미 수집하고 있습니다.' });
     await expect(roomA().start?.({ url: ROOM_A }, { status: undefined }))
       .resolves.toEqual({ outcome: 'refused', message: '같은 방송을 이미 수집하고 있습니다.' });
@@ -100,6 +100,10 @@ describe('sourcing operation collection (KID-360)', () => {
   it('asks for an extension update when the runtime is missing, and stops through operation.cancel then the server', async () => {
     vi.mocked(sendToExtension).mockResolvedValue({ success: true, capabilities: {} });
     await expect(roomA().start?.({ url: ROOM_A }, { status: undefined })).rejects.toThrow('확장 프로그램을 업데이트해 주세요.');
+    // 런타임은 있지만 소싱 kind가 없는 옛 빌드에도 시작을 보내지 않는다.
+    vi.mocked(sendToExtension).mockResolvedValue({ success: true, capabilities: { operationRuntime: true } });
+    await expect(roomA().start?.({ url: ROOM_A }, { status: undefined })).rejects.toThrow('확장 프로그램을 업데이트해 주세요.');
+    expect(sendToExtension).not.toHaveBeenCalledWith('kiditem-os', expect.objectContaining({ action: 'operation.start' }), expect.anything());
 
     vi.mocked(sendToExtension).mockResolvedValue({ success: true });
     await roomA().cancelInExtension?.(A_RUNNING, { status });

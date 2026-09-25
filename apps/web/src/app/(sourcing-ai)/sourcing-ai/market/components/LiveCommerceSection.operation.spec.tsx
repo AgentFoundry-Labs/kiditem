@@ -139,7 +139,7 @@ describe('LiveCommerceSection direct source-owner migration', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '방송 수집' }));
 
-    await waitFor(() => expect(mocks.startOperation).toHaveBeenCalledWith('sourcing.live_commerce', { platform: 'douyin', url }));
+    await waitFor(() => expect(mocks.startOperation).toHaveBeenCalledWith('sourcing.live_commerce', { platform: 'douyin', url }, { capability: 'sourcingOperationKindsV1' }));
     expect(screen.getByText('보존된 라이브 스냅샷')).toBeInTheDocument();
     expect(mocks.listOperations).toHaveBeenCalledWith('/api/operations?kinds=sourcing.live_commerce&limit=20');
     expect(await screen.findByText(/기준 09\.\s*04/)).toBeInTheDocument();
@@ -265,7 +265,7 @@ describe('LiveCommerceSection direct source-owner migration', () => {
     fireEvent.click(screen.getByRole('button', { name: '방송 수집' }));
 
     expect(await screen.findByText('이 방송을 이미 수집하고 있습니다.')).toBeInTheDocument();
-    expect(mocks.startOperation).toHaveBeenCalledWith('sourcing.live_commerce', { platform: 'douyin', url: ROOM });
+    expect(mocks.startOperation).toHaveBeenCalledWith('sourcing.live_commerce', { platform: 'douyin', url: ROOM }, { capability: 'sourcingOperationKindsV1' });
   });
 
   it("shows the submitted room's running collection with a stop that ends it through the operation cancel, then shows it stopped", async () => {

@@ -68,7 +68,7 @@ describe('Coupang keyword suggestion collection as an operation kind (KID-360)',
       await result.current.collect(KEYWORD);
     });
 
-    expect(mocks.start).toHaveBeenCalledWith('sourcing.coupang_keyword_suggestion', { keyword: KEYWORD, maxResults: 30 });
+    expect(mocks.start).toHaveBeenCalledWith('sourcing.coupang_keyword_suggestion', { keyword: KEYWORD, maxResults: 30 }, { capability: 'sourcingOperationKindsV1' });
     await waitFor(() => expect(result.current.isCollecting).toBe(true));
     expect(result.current.latestAttempt).toMatchObject({ attemptId: OPERATION_ID, state: 'RUNNING' });
 

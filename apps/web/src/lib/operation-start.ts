@@ -24,11 +24,12 @@ type StartReply =
   | { success: true; operationId: string; reused: boolean }
   | { success: false; errorCode?: string; error?: string };
 
-async function extensionWithRuntime(): Promise<string> {
+async function extensionWithRuntime(capability: string): Promise<string> {
   const extensionId = await detectExtensionId();
   if (!extensionId) throw new Error(EXTENSION_MISSING);
   const ping = await sendToExtension<{ success?: boolean; capabilities?: Record<string, unknown> }>(extensionId, { action: 'ping' });
-  if (ping?.success !== true || ping.capabilities?.[OPERATION_RUNTIME_CAPABILITY] !== true) {
+  if (ping?.success !== true || ping.capabilities?.[OPERATION_RUNTIME_CAPABILITY] !== true
+    || ping.capabilities?.[capability] !== true) {
     throw new Error(OPERATION_RUNTIME_UPDATE_REQUIRED);
   }
   await transferExtensionAuthTo(extensionId);
@@ -40,8 +41,13 @@ async function extensionWithRuntime(): Promise<string> {
  * 진행·완료는 화면이 `GET /api/operations`로 본다. 같은 잠금의 실행이 이미 돌면(OPERATION_IN_PROGRESS) 서버 문장 그대로
  * 거절을 돌려준다.
  */
-export async function requestOperationStart(kind: OperationKind, scope: Record<string, unknown>): Promise<OperationStartOutcome> {
-  const extensionId = await extensionWithRuntime();
+export async function requestOperationStart(
+  kind: OperationKind,
+  scope: Record<string, unknown>,
+  /** 이 kind를 도는 빌드가 `ping`에 싣는 표시. 없으면 런타임 표시만 본다. */
+  options: { capability?: string } = {},
+): Promise<OperationStartOutcome> {
+  const extensionId = await extensionWithRuntime(options.capability ?? OPERATION_RUNTIME_CAPABILITY);
   const reply = await sendToExtension<StartReply>(extensionId, { action: 'operation.start', kind, scope }, START_REPLY_TIMEOUT_MS);
   if (reply?.success === true && typeof reply.operationId === 'string') {
     return reply.reused ? { outcome: 'running', operationId: reply.operationId } : { outcome: 'started', operationId: reply.operationId };

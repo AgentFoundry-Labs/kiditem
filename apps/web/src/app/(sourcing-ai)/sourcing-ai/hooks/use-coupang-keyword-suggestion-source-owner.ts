@@ -6,7 +6,12 @@ import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
 import { COLLECTION_IDLE_POLL_MS, COLLECTION_RUNNING_POLL_MS } from '@/hooks/use-collection-source-control';
 import { requestOperationStart, type OperationStartOutcome } from '@/lib/operation-start';
 import { keywordSuggestionSnapshotQueryKey, normalizeCoupangKeyword } from '../keywords/lib/coupang-keyword-snapshot-api';
-import { isLiveOperation, sourcingOperationState, sourcingOperationsQueryOptions } from '../lib/sourcing-operations';
+import {
+  SOURCING_OPERATION_KINDS_CAPABILITY,
+  isLiveOperation,
+  sourcingOperationState,
+  sourcingOperationsQueryOptions,
+} from '../lib/sourcing-operations';
 import type { OperationView } from '@kiditem/shared/operation';
 
 /** 쿠팡 검색창 추천 키워드 상한(옛 attempt plan과 같다). */
@@ -84,7 +89,8 @@ export function useCoupangKeywordSuggestionSourceOwner({
 
   const start = useMutation({
     mutationFn: async (requested: string) => {
-      const outcome = await requestOperationStart(KIND, { keyword: requested, maxResults: COUPANG_KEYWORD_SUGGESTION_MAX_RESULTS });
+      const outcome = await requestOperationStart(KIND, { keyword: requested, maxResults: COUPANG_KEYWORD_SUGGESTION_MAX_RESULTS },
+        { capability: SOURCING_OPERATION_KINDS_CAPABILITY });
       if (outcome.outcome === 'refused') throw new Error(outcome.message);
       await queryClient.invalidateQueries({ queryKey: statusOptions.queryKey, exact: true });
       return outcome;

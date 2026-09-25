@@ -186,7 +186,7 @@ describe('EntryRecommendationBoard review state', () => {
     await user.click(await screen.findByRole('button', { name: '1688 공급 찾기 (1)' }));
 
     // 키워드는 서버가 조직의 트렌드 시드에서 정한다 — 화면은 빈 scope만 보낸다(KID-360).
-    await waitFor(() => expect(operationMocks.start).toHaveBeenCalledWith('sourcing.trend_1688', {}));
+    await waitFor(() => expect(operationMocks.start).toHaveBeenCalledWith('sourcing.trend_1688', {}, { capability: 'sourcingOperationKindsV1' }));
     expect(screen.getByRole('checkbox', { name: '상품 A 선택' })).toBeChecked();
 
     view.unmount();

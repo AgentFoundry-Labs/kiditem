@@ -4213,6 +4213,7 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
     'coupangKeywordRank',
     // 새 런타임(소싱 실행 kind, KID-360)
     'operationRuntime',
+    'sourcingOperationKindsV1',
     // 공통
     'browserCollectionSessions',
     'kiditemEnvironmentProfilesV1',

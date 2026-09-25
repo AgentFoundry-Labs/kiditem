@@ -17,6 +17,9 @@ import { queryKeys } from '@/lib/query-keys';
 import type { SourcingExtensionKind } from '@kiditem/shared/sourcing-operation';
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 
+/** 소싱 kind 6종(KID-360)을 도는 확장 빌드가 `ping`에 싣는 표시. 없는 빌드엔 시작을 보내지 않는다. */
+export const SOURCING_OPERATION_KINDS_CAPABILITY = 'sourcingOperationKindsV1' as const;
+
 /**
  * 한 kind의 최근 실행 수. 대상이 여럿인 kind(라이브 방송 URL·추천 키워드)도 화면 하나가 보는 대상은 몇 개라
  * 최근 20개면 대상마다 마지막 실행이 잡힌다.
@@ -116,7 +119,7 @@ export function sourcingOperationCollection<TInput = void>(
     readStatusIdentity: (status) =>
       operationsFor(status, match).map((operation) => `${operation.id}:${operation.status}`).join(','),
     ...(scope
-      ? { start: async (input: TInput) => startOutcome(await requestOperationStart(kind, await scope(input))) }
+      ? { start: async (input: TInput) => startOutcome(await requestOperationStart(kind, await scope(input), { capability: SOURCING_OPERATION_KINDS_CAPABILITY })) }
       : {}),
     cancelInExtension: (operationId) => requestOperationCancel(operationId),
     cancelOnServer: (operationId) => apiClient.post(`/api/operations/${encodeURIComponent(operationId)}/cancel`),
