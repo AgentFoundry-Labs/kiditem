@@ -30,6 +30,8 @@ import { prepareSellingCatalogSourcesMigration } from './v0.1.31/019_prepare_sel
 import { sellingCatalogCutoverMigration } from './v0.1.31/020_selling_catalog_cutover';
 import { normalizeSalesProductStatusMigration } from './v0.1.31/027_normalize_sales_product_status';
 import { closeGenerationsLeftByDirectJobCutoverMigration } from './v0.1.31/029_close_generations_left_by_direct_job_cutover';
+import { renameSourcingIngestionRunIdsMigration } from './v0.1.31/030_rename_sourcing_ingestion_run_ids_to_operation_ids';
+import { publishCompleteSourcingRunsMigration } from './v0.1.31/031_publish_complete_sourcing_runs';
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
 
@@ -77,6 +79,9 @@ export const dataMigrations: readonly DataMigration[] = [
   activateAdFreeProductAbcFormula,
   normalizeSalesProductStatusMigration,
   closeGenerationsLeftByDirectJobCutoverMigration,
+  // 030 runs after 014, which empties Office 0.1.30 runs and their observations first.
+  renameSourcingIngestionRunIdsMigration,
+  publishCompleteSourcingRunsMigration,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(

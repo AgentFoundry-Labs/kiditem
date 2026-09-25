@@ -3,7 +3,9 @@
   "entries": [
     {
       "train": "0.1.31",
-      "keys": ["unique:content_workspaces_direct_title_unique"],
+      "keys": [
+        "unique:content_workspaces_direct_title_unique"
+      ],
       "acceptedRisk": "Office 0.1.30 already holds the direct_detail_page workspace titles unique under the old source_candidate_id IS NULL predicate, and the new predicate names the same rows.",
       "note": "KID-313 removed the unpromoted 024 cutover that used to fill sales_product_id first; candidate-owned workspaces are discarded under ADR-0010 and rebuilt on new drafts."
     },
@@ -141,6 +143,15 @@
       ],
       "coveredBy": "v0.1.31:017_simplify_product_references",
       "note": "After 016 maps legacy identifiers, 017 deletes only unresolvable matching hints, checks duplicate canonical keys and verifies supplier references; confirmed recipes and historical orders remain untouched."
+    },
+    {
+      "train": "0.1.31",
+      "keys": [
+        "not-null:sourcing_1688_offer_keyword_observations.operation_id",
+        "not-null:sourcing_evidence_observations.operation_id"
+      ],
+      "coveredBy": "v0.1.31:030_rename_sourcing_ingestion_run_ids_to_operation_ids",
+      "note": "030 renames ingestion_run_id to operation_id before db push, so existing rows keep their run id as the scalar operation id."
     }
   ]
 }
