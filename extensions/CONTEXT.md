@@ -8,6 +8,14 @@ canonical fact.
 
 ### Collections
 
+**Operation client**:
+The one extension component that opens a server operation, sends its chunks
+and progress under the server-issued token, and reports its finish. A kind's
+collector only produces chunks; it never talks to the server about the
+operation itself. Any rejection of a fenced write stops the collection and
+releases the browser resources it held.
+_Avoid_: source owner, attempt transport, owner client
+
 **Collection session**:
 The extension's record that one server-issued attempt is being collected in one
 browser environment. A session whose attempt has already ended is a leftover,
