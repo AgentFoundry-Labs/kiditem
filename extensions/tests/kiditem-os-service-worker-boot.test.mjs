@@ -4464,3 +4464,32 @@ test('unreferenced Rocket list-only action is retired without removing the live 
   assert.equal(worker.includes('listRocketPos'), false);
   assert.equal(worker.includes('coupangRocketPoLifecycle'), false);
 });
+
+// 옛 소싱 워커가 받던 인증 전달(KID-360 이후 쿠팡 워커 하나가 받는다): 보낸 KidItem 환경의 프로필에만 쓴다.
+async function sendExternalOnce(fake, message, url) {
+  return new Promise((resolve) => {
+    let answered = false;
+    for (const listener of fake.externalMessageListeners) {
+      listener(message, { url }, (response) => {
+        if (!answered) { answered = true; resolve(response); }
+      });
+    }
+  });
+}
+
+test('setAuthToken from a KidItem origin stores the token in that environment profile, and clearAuthToken removes only it', async (t) => {
+  const { fake, close } = bootServiceWorker({
+    storage: { kiditem_environment_profiles_v1: { office: { accessToken: 'office-token', updatedAt: 2 } } },
+  });
+  t.after(close);
+
+  const stored = await sendExternalOnce(fake, { action: 'setAuthToken', token: 'token-from-web' }, 'http://localhost:3000/sourcing-ai');
+  assert.equal(stored?.success, true);
+  assert.equal(fake.storage.kiditem_environment_profiles_v1.local.accessToken, 'token-from-web');
+  assert.equal(fake.storage.kiditem_environment_profiles_v1.office.accessToken, 'office-token');
+
+  const cleared = await sendExternalOnce(fake, { action: 'clearAuthToken' }, 'http://localhost:3000/sourcing-ai');
+  assert.equal(cleared?.success, true);
+  assert.equal(fake.storage.kiditem_environment_profiles_v1.local, undefined);
+  assert.equal(fake.storage.kiditem_environment_profiles_v1.office.accessToken, 'office-token');
+});

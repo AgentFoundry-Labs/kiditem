@@ -21,6 +21,20 @@
     }),
   });
 
+  // 한 서비스워커에 컨텍스트가 여럿(쿠팡·주문·공용)이고 모두 같은 프로필 키를 읽고-고쳐-쓴다. 컨텍스트마다 줄을 따로
+  // 세우면 주문의 connect()가 쿠팡의 setAccessToken 사이에 끼어 토큰을 지운다(KID-360). 같은 저장소·키는 줄 하나.
+  const PROFILE_MUTATION_QUEUES = new WeakMap();
+
+  function profileQueueFor(storageArea, storageKey) {
+    let byKey = PROFILE_MUTATION_QUEUES.get(storageArea);
+    if (!byKey) {
+      byKey = new Map();
+      PROFILE_MUTATION_QUEUES.set(storageArea, byKey);
+    }
+    if (!byKey.has(storageKey)) byKey.set(storageKey, { tail: Promise.resolve() });
+    return byKey.get(storageKey);
+  }
+
   function createError(code, message, environmentId) {
     const error = new Error(message);
     error.code = code;
@@ -84,7 +98,6 @@
       options.authResyncTimeoutMs || DEFAULT_AUTH_RESYNC_TIMEOUT_MS;
     const resyncs = new Map();
     const pendingHintTabs = new Set();
-    let profileMutationQueue = Promise.resolve();
 
     function requireEnvironment(environmentId) {
       const environment = ENVIRONMENTS[environmentId];
@@ -120,13 +133,14 @@
     }
 
     function mutateProfiles(operation) {
-      const result = profileMutationQueue.catch(() => undefined).then(async () => {
+      const queue = profileQueueFor(chromeApi.storage.local, profileStorageKey);
+      const result = queue.tail.catch(() => undefined).then(async () => {
         const profiles = await readProfiles();
         const next = await operation({ ...profiles });
         await chromeApi.storage.local.set({ [profileStorageKey]: next });
         return next;
       });
-      profileMutationQueue = result.then(
+      queue.tail = result.then(
         () => undefined,
         () => undefined,
       );
