@@ -224,7 +224,7 @@ describe('prepareOperationAutomationCutover', () => {
   });
 
   it('removes the generic Operation/Automation models from the Prisma schema', () => {
-    const schema = ['core.prisma', 'system.prisma', 'agents.prisma']
+    const schema = ['core.prisma', 'system.prisma', 'agent-work.prisma']
       .map((file) => readFileSync(join(repoRoot, 'prisma', 'models', file), 'utf8'))
       .join('\n');
 

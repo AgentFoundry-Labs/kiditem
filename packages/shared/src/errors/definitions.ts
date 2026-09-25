@@ -107,6 +107,10 @@ export const ERROR_DEFINITIONS = {
   ATTEMPT_TERMINAL: def('common', 'conflict', '이미 끝난 수집 시도입니다.'),
   ATTEMPT_PAUSED: def('common', 'in_progress', '몰 요청 제한으로 수집을 잠시 멈췄습니다. 잠시 뒤 이어서 수집해 주세요.', { retryable: true }),
   USER_CANCELLED: def('common', 'cancelled', '운영자가 중단했습니다.'),
+  // 실행(operation) 계약 (ADR-0025, KID-353): begin 겹침 하나, fenced 쓰기 거절 하나(details.reason), 404 하나
+  OPERATION_IN_PROGRESS: def('common', 'in_progress', '같은 실행이 이미 진행 중입니다. 끝나거나 중단한 뒤 다시 시작해 주세요.'),
+  OPERATION_FENCE_LOST: def('common', 'conflict', '이 실행은 더 이상 유효하지 않습니다. 다시 시작해 주세요.', { retryable: true }),
+  OPERATION_NOT_FOUND: def('common', 'not_found', '실행을 찾을 수 없습니다.'),
   COLLECTION_CANCELLED: def('common', 'cancelled', '수집이 중단됐습니다.'),
   COLLECTION_WINDOW_OWNER_CONFLICT: def('extension', 'in_progress', '다른 수집이 브라우저 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.'),
   SOURCE_OWNER_UNAVAILABLE: def('extension', 'external', '확장 프로그램이 수집을 시작하지 못했습니다. 확장 프로그램이 켜져 있는지 확인해 주세요.', { retryable: true }),

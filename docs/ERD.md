@@ -9,13 +9,13 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 
 - `prisma/models/advertising.prisma`
 - `prisma/models/agent-work.prisma`
-- `prisma/models/agents.prisma`
 - `prisma/models/ai.prisma`
 - `prisma/models/analytics.prisma`
 - `prisma/models/channels.prisma`
 - `prisma/models/core.prisma`
 - `prisma/models/finance.prisma`
 - `prisma/models/inventory.prisma`
+- `prisma/models/operation.prisma`
 - `prisma/models/orders.prisma`
 - `prisma/models/sourcing.prisma`
 - `prisma/models/supply.prisma`
@@ -33,6 +33,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Core](erd/core.md) | 7 |
 | [Finance](erd/finance.md) | 1 |
 | [Inventory](erd/inventory.md) | 3 |
+| [Operation](erd/operation.md) | 3 |
 | [Orders](erd/orders.md) | 14 |
 | [Products](erd/products.md) | 6 |
 | [Sourcing](erd/sourcing.md) | 34 |
@@ -96,6 +97,9 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ReturnTransfer | Inventory | `return_transfers` | - |
 | StockTransfer | Inventory | `stock_transfers` | Warehouse-to-warehouse movement record. It never mutates MasterProduct.currentStock. |
 | Warehouse | Inventory | `warehouses` | - |
+| Operation | Operation | `operations` | One run of any kind (collection, AI generation, ad action, registration) under the single operation contract (ADR-0025). Owned by common/operation; owner-specific values live in plan/progress/result JSON. |
+| OperationChunk | Operation | `operation_chunks` | A staged chunk of an executing operation. Deleted in the finish transaction whether the operation succeeded or failed. |
+| OperationLock | Operation | `operation_locks` | An overlap key an executing operation holds. Unique per organization without the kind, so one key fences across kinds (ADR-0025). |
 | CoupangDirectPoSnapshot | Orders | `coupang_direct_po_snapshots` | 쿠팡직배송 발주확정 스냅샷. 입고예정일 달력이 매번 쿠팡을 다시 긁지 않도록 |
 | CoupangDirectTransportConsumption | Orders | `coupang_direct_transport_consumptions` | Immutable alias from one completed source attempt and transport selection to its canonical downstream effect receipt. |
 | CoupangDirectTransportReceipt | Orders | `coupang_direct_transport_receipts` | Immutable transport effect receipt for one normalized Coupang direct-order payload. It owns downstream publication identity, not source collection state. |
@@ -1027,6 +1031,46 @@ erDiagram
     DateTime capturedAt
     DateTime createdAt
     DateTime updatedAt
+  }
+  Operation {
+    String id PK
+    String organizationId
+    String kind
+    String status
+    String token
+    DateTime expiresAt
+    String idempotencyKey
+    String requestHash
+    String fileHash
+    Json plan
+    Json progress
+    Json result
+    DateTime windowStart
+    DateTime windowEnd
+    String errorCode
+    String errorMessage
+    DateTime startedAt
+    DateTime finishedAt
+    DateTime createdAt
+    DateTime updatedAt
+  }
+  OperationChunk {
+    String id PK
+    String operationId FK
+    String organizationId
+    String chunkKind
+    Int sequence
+    String checksum
+    Int itemCount
+    Json payload
+    DateTime createdAt
+  }
+  OperationLock {
+    String id PK
+    String organizationId
+    String lockKey
+    String operationId FK
+    DateTime createdAt
   }
   Order {
     String id PK
@@ -2354,6 +2398,8 @@ erDiagram
   MasterProductAbcFormulaVersion ||--o{ MasterProductAbcEvaluation : "formulaVersion"
   MasterProductAbcFormulaVersion o|--o| MasterProductAbcFormulaState : "activeFormulaVersion"
   MasterProductAbcFormulaVersion ||--o{ MasterProductAbcGradeHistory : "formulaVersion"
+  Operation ||--o{ OperationChunk : "operation"
+  Operation ||--o{ OperationLock : "operation"
   Order ||--o{ OrderLineItem : "order"
   Organization ||--o{ AdAction : "organization"
   Organization ||--o{ AiDirectJob : "organization"

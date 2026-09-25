@@ -175,6 +175,24 @@ using, such as the Coupang collection window or the Wing login a catalog import
 reads through, it is refused before any attempt opens, naming that collection.
 _Avoid_: sync, refresh, trigger
 
+**Operation**:
+One unit of work that the server opens under an identity and a token, that
+runs once, and that ends exactly once as succeeded, failed or cancelled. A
+collection attempt, an AI generation job, an ad action execution and a
+registration execution are operations of different kinds. Its kind names the
+owner and the work; the owner decides what the operation plans, which other
+operations it may not overlap, and which ledger facts its finish writes. The
+identity, the token, the lease, the staged chunks, the overlap rule and the
+rejection codes are the same for every kind.
+_Avoid_: run, job, task, attempt (as a general word), execution (as a general word)
+
+**Lease**:
+The time an operation stays alive without any progress. Every fenced write by
+the party doing the work extends it; when it lapses the operation counts as
+failed at the next read or write, and nothing runs in the background to notice
+sooner.
+_Avoid_: TTL, heartbeat, keep-alive
+
 **Transport receipt**:
 The immutable record of one consumed directship transport result, including its
 original order effects and any Sellpia transmission intent. Multiple collection
