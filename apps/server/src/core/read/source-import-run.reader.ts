@@ -34,11 +34,11 @@ export async function readCompletedImportRowCountsByScope(
     from: Date;
     to: Date;
   }>,
-): Promise<Array<{ sourceType: string; mallKey: string | null; rowCount: number }> | null> {
+): Promise<Array<{ sourceType: string; mallKey: string | null; rowCount: number; createdAt: Date }> | null> {
   if (input.sourceTypes.length === 0) return null;
-  const rows = await tx.$queryRaw<Array<{ source_type: string; mall_key: string; row_count: number }>>`
+  const rows = await tx.$queryRaw<Array<{ source_type: string; mall_key: string; row_count: number; created_at: Date }>>`
     SELECT DISTINCT ON (source_type, COALESCE(plan->>'mallKey', ''))
-           source_type, COALESCE(plan->>'mallKey', '') AS mall_key, row_count
+           source_type, COALESCE(plan->>'mallKey', '') AS mall_key, row_count, created_at
     FROM source_import_runs
     WHERE organization_id = ${input.organizationId}::uuid
       AND status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
@@ -52,5 +52,6 @@ export async function readCompletedImportRowCountsByScope(
     sourceType: row.source_type,
     mallKey: row.mall_key === '' ? null : row.mall_key,
     rowCount: Number(row.row_count ?? 0),
+    createdAt: row.created_at,
   }));
 }

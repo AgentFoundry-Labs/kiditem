@@ -31,8 +31,7 @@ const RECENT_SCAN = 200;
 /**
  * 오늘 주문 capability. 수집(실행·옛 run)마다 그 수집이 실어 온 주문 수를 적어 두고, 여기서는 **몰마다 오늘 마지막
  * 수집 한 번만** 센다(같은 몰을 두 번 걷어도 주문이 불어나지 않는다). directship은 로켓 계정마다 마지막 한 번.
- * 몰 칸에 오늘 실행 기록이 있으면 실행이, 없으면 옛 run이 그 몰의 수다 — 옮긴 날 앞서 옛 경로로 걷은 것을 두 번
- * 세지 않는다. 오늘 수집이 하나도 없으면 `total`은 null(0은 "걷었는데 없었다"). 실행 표는 실행 계약의 reader로만 읽는다.
+ * 한 몰에 오늘 실행과 옛 run(옮긴 몰의 수동 업로드는 아직 옛 경로다)이 함께 있으면 늦게 시작한 쪽이 그 몰의 수다. 오늘 수집이 하나도 없으면 `total`은 null(0은 "걷었는데 없었다"). 실행 표는 실행 계약의 reader로만 읽는다.
  */
 @Injectable()
 export class OrderCollectionTodayOrdersAdapter implements OrderCollectionTodayOrdersPort {
@@ -44,7 +43,8 @@ export class OrderCollectionTodayOrdersAdapter implements OrderCollectionTodayOr
   async readTodayOrders(input: { organizationId: string; now?: Date }): Promise<OrderCollectionTodayOrders> {
     const from = kstDayStart(input.now ?? new Date());
     const to = addDays(from, 1);
-    const byMall: Record<string, number> = {};
+    /** 몰 칸마다 오늘 마지막 수집(실행이든 옛 run이든 늦게 시작한 쪽)의 수. */
+    const latest = new Map<string, { count: number; at: Date }>();
 
     const { operations } = await this.operations.list(input.organizationId, {
       kinds: OPERATION_KINDS,
@@ -52,7 +52,8 @@ export class OrderCollectionTodayOrdersAdapter implements OrderCollectionTodayOr
       limit: RECENT_SCAN,
     });
     const counted = new Set<string>();
-    // reader는 최근 시작한 것부터 준다 — 범위마다 처음 만난 것이 오늘 마지막 수집이다.
+    const operationTotals = new Map<string, { count: number; at: Date }>();
+    // reader는 최근 시작한 것부터 준다 — 범위(몰·directship 계정)마다 처음 만난 것이 오늘 마지막 수집이다.
     for (const operation of operations) {
       const startedAt = new Date(operation.startedAt);
       if (startedAt < from || startedAt >= to) continue;
@@ -65,9 +66,13 @@ export class OrderCollectionTodayOrdersAdapter implements OrderCollectionTodayOr
         : `directship:${String(operation.plan?.channelAccountId ?? '')}`;
       if (counted.has(scope)) continue;
       counted.add(scope);
-      byMall[mallKey] = (byMall[mallKey] ?? 0) + result.data.rowCount;
+      const current = operationTotals.get(mallKey);
+      operationTotals.set(mallKey, {
+        count: (current?.count ?? 0) + result.data.rowCount,
+        at: current && current.at > startedAt ? current.at : startedAt,
+      });
     }
-    const operationMalls = new Set(Object.keys(byMall));
+    for (const [mallKey, entry] of operationTotals) latest.set(mallKey, entry);
 
     const legacy = await readCompletedImportRowCountsByScope(this.prisma, {
       organizationId: input.organizationId,
@@ -77,9 +82,11 @@ export class OrderCollectionTodayOrdersAdapter implements OrderCollectionTodayOr
     });
     for (const row of legacy ?? []) {
       const mallKey = row.mallKey ?? MALL_KEY_BY_LEGACY_SOURCE_TYPE[row.sourceType];
-      if (!mallKey || operationMalls.has(mallKey)) continue;
-      byMall[mallKey] = (byMall[mallKey] ?? 0) + row.rowCount;
+      if (!mallKey) continue;
+      const current = latest.get(mallKey);
+      if (!current || row.createdAt > current.at) latest.set(mallKey, { count: row.rowCount, at: row.createdAt });
     }
+    const byMall: Record<string, number> = Object.fromEntries([...latest].map(([mallKey, entry]) => [mallKey, entry.count]));
 
     const counts = Object.values(byMall);
     return { total: counts.length === 0 ? null : counts.reduce((sum, count) => sum + count, 0), byMall };

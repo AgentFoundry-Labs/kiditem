@@ -403,11 +403,15 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     await harness.finish(latest).expect(200);
     const directship = await harness.beginRun(COUPANG_DIRECTSHIP_KIND, { channelAccountId: rocketAccount });
     await harness.finish(directship).expect(200);
+    // 아트공구: 실행 뒤에 옛 경로(수동 업로드)로 다시 걷었으면 더 늦은 옛 run이 그 몰의 수다.
+    const art09 = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: art09Account, mallKey: 'art09' }));
+    await harness.finish(art09).expect(200);
+    await oldRun('art09', 'order_collection_mall', 6, new Date(Date.now() + 60_000));
 
     const today = await request(harness.httpUrl).get('/api/orders/collection/today-orders').set('x-test-org', ORG).expect(200);
-    // 몰 칸마다 오늘 실행 기록이 있으면 실행이, 없으면 옛 run이 그 몰의 수다(옮긴 날 앞서 옛 경로로 걷은 것을 두 번 세지
-    // 않는다). kidkids 7(옛 run)·coupang-direct 3(옛 run)은 실행에 밀린다.
-    expect(today.body).toEqual({ total: 2 + 5 + 4, byMall: { kidkids: 2, onch: 5, 'coupang-direct': 4 } });
+    // 몰 칸마다 오늘 마지막 수집 하나 — 실행이든 옛 run이든 더 늦게 시작한 쪽이다. kidkids 7(옛 run)·coupang-direct
+    // 3(옛 run)은 뒤에 온 실행에 밀리고, art09는 실행 뒤의 옛 run 6이 이긴다.
+    expect(today.body).toEqual({ total: 2 + 5 + 4 + 6, byMall: { kidkids: 2, onch: 5, 'coupang-direct': 4, art09: 6 } });
 
     const other = await request(harness.httpUrl).get('/api/orders/collection/today-orders').set('x-test-org', OTHER_ORG).expect(200);
     expect(other.body).toEqual({ total: null, byMall: {} });
