@@ -118,7 +118,9 @@ jobs:
         run: npm exec --workspace=packages/shared tsup -- --no-dts
 
       - name: Run extension tests
-        run: node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
+        # node --test runs one process per file at availableParallelism()-1, which is serial on a 2 vCPU runner.
+        # The slow files wait on timers, not CPU, so 8 at once stays inside the job timeout.
+        run: node --test --test-concurrency=8 extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
 
   script_contract_checks:
     name: Script contract tests
