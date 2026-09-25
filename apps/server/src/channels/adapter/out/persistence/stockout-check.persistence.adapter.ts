@@ -11,11 +11,13 @@ import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { readUnresolvedCompositionOptionIds } from '../repository/registration-execution-ledger.reader';
 import { readLatestListingSaleStatusFacts } from './channel-listing-daily-facts';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
+import { OPERATION_PORT, type OperationPort } from '../../../../common/operation/application/port/in/operation.port';
 
 @Injectable()
 export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistencePort {
   constructor(private readonly prisma: PrismaService,
-    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT) private readonly products: ProductTransactionalReadPort) {}
+    @Inject(PRODUCT_TRANSACTIONAL_READ_PORT) private readonly products: ProductTransactionalReadPort,
+    @Inject(OPERATION_PORT) private readonly operations: OperationPort) {}
 
   async readSubjects(organizationId: string, listingIds: readonly string[], transaction?: OwnerTransaction): Promise<StockoutSubject[]> {
     if (listingIds.length === 0) return [];
@@ -29,13 +31,13 @@ export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistence
     const listings = await tx.channelListing.findMany({
       where: { organizationId, id: { in: [...listingIds] }, isActive: true,
         channelAccount: { organizationId, status: 'active' } },
-      select: { id: true, externalId: true, channelAccountId: true, status: true, lastImportRunId: true,
+      select: { id: true, externalId: true, channelAccountId: true, status: true, lastImportRunId: true, lastOperationId: true,
         channelAccount: { select: { channel: true } },
         // 품절 송신도 등록 동결과 같은 가격 게이트를 지난다(KID-310).
         salesProduct: { select: { name: true, status: true,
           options: { where: { organizationId }, select: { id: true, supplyStatus: true, salePrice: true } } } },
         options: { where: { organizationId, isActive: true }, orderBy: { id: 'asc' },
-          select: { id: true, externalOptionId: true, status: true, rawJson: true, safetyStock: true, lastImportRunId: true,
+          select: { id: true, externalOptionId: true, status: true, rawJson: true, safetyStock: true, lastImportRunId: true, lastOperationId: true,
             inventoryComponents: { where: { organizationId }, select: { masterProductId: true, quantity: true } } } } },
       orderBy: { id: 'asc' },
     });
@@ -61,6 +63,17 @@ export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistence
       select: { id: true, importedAt: true, updatedAt: true },
     });
     const importedAt = new Map(imports.map(run => [run.id, run.importedAt ?? run.updatedAt]));
+    // 실행 계약으로 옮긴 원천(Wing 카탈로그, KID-354)이 쓴 행은 그 실행이 끝난 시각이 관측 시각이다. 실행은 실행 계약의
+    // reader로만 읽는다(ADR-0025). 한 번에 보는 리스팅들의 실행은 몇 개뿐이다.
+    const operationIds = [...new Set(listings.flatMap(listing => [listing.lastOperationId, ...listing.options.map(option => option.lastOperationId)]).filter((id): id is string => id !== null))];
+    const operationFinishedAt = new Map<string, Date>();
+    for (const operationId of operationIds) {
+      const finishedAt = (await this.operations.get(organizationId, operationId))?.finishedAt;
+      if (finishedAt) operationFinishedAt.set(operationId, new Date(finishedAt));
+    }
+    const catalogObservedAt = (row: { lastImportRunId: string | null; lastOperationId: string | null }) =>
+      (row.lastImportRunId ? importedAt.get(row.lastImportRunId) : undefined)
+        ?? (row.lastOperationId ? operationFinishedAt.get(row.lastOperationId) : undefined);
     const optionObservations = await tx.channelListingOptionDailySnapshot.findMany({
       where: { organizationId, listingId: { in: ids }, OR: [{ stockQty: { not: null } }, { saleStatus: { not: null } }] },
       select: { listingOptionId: true, stockQty: true, saleStatus: true, lastObservedAt: true },
@@ -77,7 +90,7 @@ export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistence
         return [{ snapshot: parsed.data, observedAt: execution.completedAt ?? execution.updatedAt }];
       });
       let status = listing.status;
-      let statusAt = listing.lastImportRunId ? importedAt.get(listing.lastImportRunId) : undefined;
+      let statusAt = catalogObservedAt(listing);
       const observation = listingObservations.get(listing.id);
       if (observation?.saleStatus && (!statusAt || observation.observedAt > statusAt)) {
         status = observation.saleStatus; statusAt = observation.observedAt;
@@ -94,7 +107,7 @@ export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistence
           .map(execution => ({ id: execution.id, idempotencyKey: execution.idempotencyKey })),
         options: listing.options.map(option => {
           let optionStatus = option.status;
-          let observedAt = option.lastImportRunId ? importedAt.get(option.lastImportRunId) : undefined;
+          let observedAt = catalogObservedAt(option);
           const observation = observationsByOption.get(option.id);
           if (observation && (!observedAt || observation.lastObservedAt > observedAt)) {
             optionStatus = observation.saleStatus ?? (observation.stockQty === null ? optionStatus : observation.stockQty === 0 ? 'sold_out' : 'active');

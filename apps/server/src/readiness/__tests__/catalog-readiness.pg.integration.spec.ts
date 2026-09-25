@@ -12,6 +12,8 @@ import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/per
 import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credentials/channel-credentials.adapter';
 import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
 import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
+import { ChannelCatalogFreshnessAdapter } from '../../channels/adapter/out/operation/channel-catalog-freshness.adapter';
+import { makeWingCatalogOperations } from '../../test-helpers/wing-catalog-operations';
 
 const CATALOG_OWNER_PARSER = 'coupang-catalog-owner-v1';
 
@@ -38,6 +40,41 @@ describe('Coupang catalog readiness count over PostgreSQL', () => {
         status: 'active',
       },
     })).id;
+  });
+
+  function readiness() {
+    return new ReadinessService(
+      prisma as never,
+      new ChannelAccountService(
+        new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
+        new ChannelCredentialsAdapter(),
+      ),
+      new ChannelCatalogFreshnessAdapter(makeWingCatalogOperations(prisma).operations),
+    );
+  }
+
+  it('reads catalog freshness from the latest succeeded Wing details operation and counts operation-published listings (KID-354)', async () => {
+    await prisma.channelAccount.update({ where: { id: accountId }, data: { vendorId: 'V1' } });
+    const wing = makeWingCatalogOperations(prisma);
+    const product = (id: string) => ({
+      externalProductId: id, registeredName: id, displayName: id, category: null, manufacturer: null, brand: null,
+      productStatus: 'APPROVED', media: [], raw: { modifiedOn: '2026-09-01T00:00:00' },
+      options: [{
+        externalOptionId: `${id}-O`, optionName: '기본', skuStatus: 'ONSALE', salePrice: 1000, sellerSku: null,
+        modelNumber: null, barcode: null, attributes: [], media: [], raw: {},
+      }],
+    });
+    const list = await wing.runList(accountId, [product('P1'), product('P2')]);
+    // 목록만 끝났으면 아직 상세까지 반영한 적이 없다.
+    const beforeDetails = (await readiness().getStatus(ORG)).checks.find((check) => check.key === 'coupang_products');
+    expect(beforeDetails).toMatchObject({ count: 2 });
+    expect(beforeDetails?.basis).toMatchObject({ observedAt: null });
+
+    const scope = (list.result as { next: { scope: { channelAccountId: string; detailTargetProductIds: string[]; absentProductIds: string[] } } }).next.scope;
+    const details = await wing.runDetails(scope, []);
+    const products = (await readiness().getStatus(ORG)).checks.find((check) => check.key === 'coupang_products');
+    expect(products).toMatchObject({ count: 2, detail: '쿠팡 상품 2건 수집됨' });
+    expect(products?.basis).toMatchObject({ observedAt: details.finishedAt });
   });
 
   function catalogRun(data: {
@@ -110,18 +147,10 @@ describe('Coupang catalog readiness count over PostgreSQL', () => {
       });
     }
 
-    const status = await new ReadinessService(
-      prisma as never,
-      new ChannelAccountService(
-        new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
-        new ChannelCredentialsAdapter(),
-      ),
-    ).getStatus(ORG);
+    const status = await readiness().getStatus(ORG);
     const products = status.checks.find((check) => check.key === 'coupang_products');
 
-    expect(products).toMatchObject({
-      count: counted.length,
-      detail: `쿠팡 상품 ${counted.length}건 수집됨`,
-    });
+    // 신선도는 옛 run이 아니라 상세 kind 실행이 정한다(KID-354) — 여기서는 셈만 본다.
+    expect(products).toMatchObject({ count: counted.length });
   });
 });

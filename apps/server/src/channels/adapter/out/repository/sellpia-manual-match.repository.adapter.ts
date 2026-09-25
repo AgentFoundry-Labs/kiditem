@@ -36,6 +36,7 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   readCompletedCatalogRunIds,
   publishedCatalogOptionWhere,
+  publishedCatalogListingBranches,
 } from './completed-catalog-run';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
@@ -499,7 +500,7 @@ async function listCurrentChannelAliasCandidates(
       organizationId,
       isActive: true,
       OR: [
-        ...(completedRunIds.length > 0 ? [{ lastImportRunId: { in: completedRunIds } }] : []),
+        ...publishedCatalogListingBranches(completedRunIds),
         {
           options: {
             some: publishedCatalogOptionWhere(organizationId),

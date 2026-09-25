@@ -163,12 +163,20 @@ function readinessService(prisma: unknown): ReadinessService {
       status: (row.status as string | undefined) ?? 'active',
     })),
   };
-  return new ReadinessService(prisma as never, channelAccounts as never);
+  return new ReadinessService(prisma as never, channelAccounts as never, { catalogFreshness });
+}
+
+/** Channels 카탈로그 신선도 capability(KID-354)의 가짜 — 테스트마다 최신 상세 성공 시각을 정한다. */
+const catalogFreshness = vi.fn(async (_input: { organizationId: string; channelAccountId: string }) => ({ syncedAt: null as string | null }));
+function catalogSyncedAt(value: string | null) {
+  catalogFreshness.mockImplementation(async () => ({ syncedAt: value }));
 }
 
 describe('ReadinessService', () => {
   afterEach(() => {
     vi.useRealTimers();
+    catalogFreshness.mockReset();
+    catalogSyncedAt(null);
   });
 
   it('includes the KST reference date when querying @db.Date business dates', async () => {
@@ -225,12 +233,7 @@ describe('ReadinessService', () => {
       channelListing: {
         count: vi.fn(async () => 1752),
       },
-      sourceImportRun: {
-        findFirst: vi.fn(async () => ({
-          importedAt: new Date('2026-05-02T01:00:00.000Z'),
-          coverageEndDate: new Date('2026-05-01T00:00:00.000Z'),
-        })),
-      },
+      sourceImportRun: {},
       // 일별 매출(wing_sales) readiness 는 셀피아 판매현황 기준. 전 일자 present → ok.
       sellpiaSalesDailySnapshot: {
         findMany: vi.fn(async (_args: unknown) =>
@@ -247,6 +250,7 @@ describe('ReadinessService', () => {
         .map((d) => adPublishedRow(d)),
     );
     (prisma as { $queryRaw?: unknown }).$queryRaw = queryRaw;
+    catalogSyncedAt('2026-05-02T01:00:00.000Z');
     const service = readinessService(withSellpiaReaderTransaction(prisma));
     const status = await service.getStatus(ORGANIZATION_ID);
 
@@ -270,16 +274,9 @@ describe('ReadinessService', () => {
         isActive: true,
       }),
     });
-    expect(prisma.sourceImportRun.findFirst).toHaveBeenCalledWith({
-      where: {
-        organizationId: ORGANIZATION_ID,
-        channelAccountId: ACTIVE_COUPANG_ACCOUNT_ID,
-        sourceType: { in: ['coupang_wing_catalog', 'coupang_wing_catalog_details'] },
-        status: 'completed',
-        importedAt: { not: null },
-      },
-      orderBy: { importedAt: 'desc' },
-      select: { importedAt: true, coverageEndDate: true },
+    expect(catalogFreshness).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      channelAccountId: ACTIVE_COUPANG_ACCOUNT_ID,
     });
 
     const wingSales = status.checks.find((check) => check.key === 'wing_sales');
@@ -333,7 +330,7 @@ describe('ReadinessService', () => {
       channelListing: {
         count: vi.fn(async () => 0),
       },
-      sourceImportRun: { findFirst: vi.fn(async () => null) },
+      sourceImportRun: {},
       sellpiaSalesDailySnapshot: {
         // The rolling window is complete through the final closed business day.
         findMany: vi.fn(async (_args: unknown) => priorDates.map(row)),
@@ -389,11 +386,7 @@ describe('ReadinessService', () => {
       channelListing: {
         count: vi.fn(async () => 2),
       },
-      sourceImportRun: {
-        findFirst: vi.fn(async () => ({
-          importedAt: new Date('2026-07-18T00:30:00.000Z'),
-        })),
-      },
+      sourceImportRun: {},
       sellpiaSalesDailySnapshot: { findMany: vi.fn(async (_args: unknown) => []) },
     };
 
@@ -448,7 +441,7 @@ describe('ReadinessService', () => {
       channelListing: {
         count: vi.fn(async () => 0),
       },
-      sourceImportRun: { findFirst: vi.fn(async () => null) },
+      sourceImportRun: {},
       sellpiaSalesDailySnapshot: { findMany: vi.fn(async (_args: unknown) => []) },
     };
 
@@ -461,7 +454,7 @@ describe('ReadinessService', () => {
     expect(queryRaw).not.toHaveBeenCalled();
     expect(prisma.channelListingOption.findMany).not.toHaveBeenCalled();
     expect(prisma.channelListing.count).not.toHaveBeenCalled();
-    expect(prisma.sourceImportRun.findFirst).not.toHaveBeenCalled();
+    expect(catalogFreshness).not.toHaveBeenCalled();
     expect(
       prisma.coupangWingSalesRankDailySnapshot.findFirst,
     ).not.toHaveBeenCalled();
@@ -500,7 +493,7 @@ describe('ReadinessService', () => {
       channelListing: {
         count: vi.fn(async () => 0),
       },
-      sourceImportRun: { findFirst: vi.fn(async () => null) },
+      sourceImportRun: {},
       sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
     };
 
@@ -548,7 +541,7 @@ describe('ReadinessService', () => {
       },
       channelListingOption: { findMany: vi.fn(async () => []) },
       channelListing: { count: vi.fn(async () => 0) },
-      sourceImportRun: { findFirst: vi.fn(async () => null) },
+      sourceImportRun: {},
       sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
     };
     const queryRaw = adLedger(expectedDates.map((businessDate) =>
@@ -594,7 +587,7 @@ describe('ReadinessService', () => {
         },
         channelListingOption: { findMany: vi.fn(async () => []) },
         channelListing: { count: vi.fn(async () => 0) },
-        sourceImportRun: { findFirst: vi.fn(async () => null) },
+        sourceImportRun: {},
         sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
       };
       const queryRaw = adLedger(
@@ -682,11 +675,7 @@ describe('ReadinessService', () => {
         ]),
       },
       channelListing: { count: vi.fn(async () => 1) },
-      sourceImportRun: {
-        findFirst: vi.fn(async () => ({
-          importedAt: new Date('2026-07-18T00:30:00.000Z'),
-        })),
-      },
+      sourceImportRun: {},
       coupangWingSalesRankDailySnapshot: {
         findFirst: vi.fn(async () => ({
           businessDate: latestBusinessDate,
@@ -725,11 +714,7 @@ describe('ReadinessService', () => {
     vi.setSystemTime(new Date('2026-09-11T01:00:00.000Z'));
     const prisma = catalogReadinessPrisma({
       productCount: 1254,
-      latestCatalogRun: {
-        sourceType: 'coupang_wing_catalog_details',
-        importedAt: new Date('2026-09-10T00:10:00.000Z'),
-        coverageEndDate: new Date('2026-09-10T00:00:00.000Z'),
-      },
+      catalogSyncedAt: '2026-09-10T00:10:00.000Z',
     });
 
     const status = await readinessService(withSellpiaReaderTransaction(
@@ -753,33 +738,18 @@ describe('ReadinessService', () => {
         isActive: true,
       }),
     });
-    expect(prisma.sourceImportRun.findFirst).toHaveBeenCalledWith({
-      where: {
-        organizationId: ORGANIZATION_ID,
-        channelAccountId: ACTIVE_COUPANG_ACCOUNT_ID,
-        sourceType: {
-          in: ['coupang_wing_catalog', 'coupang_wing_catalog_details'],
-        },
-        status: 'completed',
-        importedAt: { not: null },
-      },
-      orderBy: { importedAt: 'desc' },
-      select: { importedAt: true, coverageEndDate: true },
+    expect(catalogFreshness).toHaveBeenCalledWith({
+      organizationId: ORGANIZATION_ID,
+      channelAccountId: ACTIVE_COUPANG_ACCOUNT_ID,
     });
   });
 
-  it('keeps legacy catalog coverage unknown instead of inferring it from import time', async () => {
+  it('dates catalog coverage by the KST day the latest details operation succeeded (KID-354)', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(new Date('2026-09-11T01:00:00.000Z'));
-    const importedAt = new Date('2026-09-10T00:10:00.000Z');
-    const prisma = catalogReadinessPrisma({
-      productCount: 1254,
-      latestCatalogRun: {
-        sourceType: 'coupang_wing_catalog_details',
-        importedAt,
-        coverageEndDate: null,
-      },
-    });
+    // KST 2026-09-10 23:50 — UTC로는 전날이 아니라 KST 날짜로 센다.
+    const syncedAt = '2026-09-10T14:50:00.000Z';
+    const prisma = catalogReadinessPrisma({ productCount: 1254, catalogSyncedAt: syncedAt });
 
     const status = await readinessService(withSellpiaReaderTransaction(
       Object.assign(prisma, { $queryRaw: adLedger() }),
@@ -788,16 +758,16 @@ describe('ReadinessService', () => {
 
     expect(products?.basis).toMatchObject({
       measured: true,
-      asOf: null,
-      observedAt: importedAt.toISOString(),
+      asOf: '2026-09-10',
+      observedAt: syncedAt,
     });
-    expect(snapshotBasisStatus(products!.basis)).toBe('unknown');
+    expect(snapshotBasisStatus(products!.basis)).toBe('current');
   });
 
   it('keeps basic coverage visible while a details publication is partial', async () => {
     const prisma = catalogReadinessPrisma({
       productCount: 1254,
-      latestCatalogRun: null,
+      catalogSyncedAt: null,
     });
 
     const status = await readinessService(withSellpiaReaderTransaction(
@@ -818,12 +788,10 @@ describe('ReadinessService', () => {
 
 function catalogReadinessPrisma(input: {
   productCount: number;
-  latestCatalogRun: {
-    sourceType: string;
-    importedAt: Date;
-    coverageEndDate: Date | null;
-  } | null;
+  /** 최신 상세 kind 성공 시각(KID-354). */
+  catalogSyncedAt: string | null;
 }) {
+  catalogSyncedAt(input.catalogSyncedAt);
   return {
     channelAccount: {
       findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
@@ -834,9 +802,7 @@ function catalogReadinessPrisma(input: {
     channelListing: {
       count: vi.fn(async () => input.productCount),
     },
-    sourceImportRun: {
-      findFirst: vi.fn(async () => input.latestCatalogRun),
-    },
+    sourceImportRun: {},
     coupangWingSalesRankDailySnapshot: {
       findFirst: vi.fn(async () => null),
       findMany: vi.fn(async () => []),

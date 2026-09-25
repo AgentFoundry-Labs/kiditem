@@ -12,11 +12,14 @@ import {
   kstBusinessDate,
   parseBusinessDate,
 } from '@kiditem/shared/common';
-import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { buildSnapshotBasis } from '@kiditem/shared/dashboard';
 import { PrismaService } from '../prisma/prisma.service';
 import { ownerTransaction } from '../prisma/owner-transaction';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../channels/application/port/in/account/channel-account.port';
+import {
+  CHANNEL_CATALOG_FRESHNESS_PORT,
+  type ChannelCatalogFreshnessPort,
+} from '../channels/application/port/in/channel-catalog-freshness.port';
 import { countPublishedCatalogListings } from '../channels/adapter/out/repository/completed-catalog-run';
 import { readSellpiaSalesDailyFacts } from '../analytics/sellpia-sales/read/sellpia-sales-daily-facts';
 import { readAdEvidenceCutoff, readAdWindowFacts } from '../advertising/adapter/out/persistence/read/ad-target-facts';
@@ -27,14 +30,6 @@ import type {
   RebuildReadinessResponse,
 } from '@kiditem/shared/readiness';
 
-// The product count reads Channels' published catalog identity, which keeps a
-// completed basics snapshot visible while its details child is partial.
-// Whole-catalog readiness is stricter: only the legacy full receipt or a
-// terminal details receipt satisfies it.
-const READINESS_CATALOG_COMPLETE_SOURCE_TYPES = [
-  'coupang_wing_catalog',
-  COUPANG_CATALOG_DETAILS_SOURCE_TYPE,
-] as const;
 
 /**
  * Readiness check for system data freshness.
@@ -53,6 +48,8 @@ export class ReadinessService {
     private readonly prisma: PrismaService,
     @Inject(CHANNEL_ACCOUNT_PORT)
     private readonly channelAccounts: ChannelAccountPort,
+    @Inject(CHANNEL_CATALOG_FRESHNESS_PORT)
+    private readonly catalogFreshness: ChannelCatalogFreshnessPort,
   ) {}
 
   /**
@@ -171,18 +168,9 @@ export class ReadinessService {
             channelAccountId: activeCoupangAccount.id,
           })
       : 0;
-    const latestCoupangCatalogRun = activeCoupangAccount
-      ? await tx.sourceImportRun.findFirst({
-            where: {
-              organizationId,
-              channelAccountId: activeCoupangAccount.id,
-              sourceType: { in: [...READINESS_CATALOG_COMPLETE_SOURCE_TYPES] },
-              status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-              importedAt: { not: null },
-            },
-            orderBy: { importedAt: 'desc' },
-            select: { importedAt: true, coverageEndDate: true },
-          })
+    // 카탈로그 신선도는 Channels capability가 준다(KID-354: 실행 계약의 상세 kind 최신 성공). 옛 run은 읽지 않는다.
+    const catalogSyncedAt = activeCoupangAccount
+      ? (await this.catalogFreshness.catalogFreshness({ organizationId, channelAccountId: activeCoupangAccount.id })).syncedAt
       : null;
     const sellpiaDailyRows = await readSellpiaSalesDailyFacts(tx, {
       organizationId,
@@ -286,22 +274,22 @@ export class ReadinessService {
         key: 'coupang_products',
         label: '쿠팡 상품 데이터 수집',
         basis: buildSnapshotBasis({
-          asOf: latestCoupangCatalogRun?.coverageEndDate
-            ? businessDateKey(latestCoupangCatalogRun.coverageEndDate)
-            : null,
+          // 상세 kind의 성공 시각은 목록을 관측한 동기화가 끝난 시각이라 그 KST 날짜가 as-of다(KID-354).
+          // 옛 run은 import 시각만 있어 추정하지 않았다 — 옛 run은 더 읽지 않는다.
+          asOf: catalogSyncedAt ? businessDateKey(kstBusinessDate(new Date(catalogSyncedAt))) : null,
           requiredAsOf: yesterdayKstStr,
-          observedAt: latestCoupangCatalogRun?.importedAt ?? null,
+          observedAt: catalogSyncedAt ?? null,
           sources: ['coupang_catalog'],
-          measured: coupangProductCount > 0 && Boolean(latestCoupangCatalogRun?.importedAt),
-          withheldCount: coupangProductCount > 0 && !latestCoupangCatalogRun?.importedAt ? coupangProductCount : 0,
+          measured: coupangProductCount > 0 && Boolean(catalogSyncedAt),
+          withheldCount: coupangProductCount > 0 && !catalogSyncedAt ? coupangProductCount : 0,
         }),
         detail:
-          coupangProductCount > 0 && latestCoupangCatalogRun?.importedAt
+          coupangProductCount > 0 && catalogSyncedAt
             ? `쿠팡 상품 ${coupangProductCount}건 수집됨`
             : coupangProductCount > 0
               ? `쿠팡 상품 기본 목록 ${coupangProductCount}건 반영됨 — 전체 상세 수집 필요`
             : '완료된 쿠팡 전체 상품 수집 없음 — 최초 수집 필요',
-        lastSyncedAt: latestCoupangCatalogRun?.importedAt?.toISOString() ?? null,
+        lastSyncedAt: catalogSyncedAt,
         count: coupangProductCount,
         referenceDate: yesterdayKstStr,
         expectedDates: null,

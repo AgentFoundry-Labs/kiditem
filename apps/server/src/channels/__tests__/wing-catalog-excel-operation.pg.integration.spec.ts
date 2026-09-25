@@ -21,6 +21,7 @@ import type { Prisma, PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../prisma/prisma.service';
 import type { ParsedWingCatalogRow } from '../adapter/out/documents/coupang-wing/workbook.parser';
 import type { ChannelDocumentsPort } from '../application/port/out/documents/channel-documents.port';
+import { ChannelsDocumentsAdapter } from '../adapter/out/documents/channel-documents.adapter';
 import type { OperationView } from '@kiditem/shared/operation';
 import { makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
 import { makeWingCatalogOperations } from '../../test-helpers/wing-catalog-operations';
@@ -1322,9 +1323,10 @@ async function createFrozenRegistrationExecution(input: {
 // The workbook codec is outside these transaction tests. Preserve deliberately
 // invalid persistence values (including BigInt) used to exercise rollback.
 const parsedWorkbooks = new Map<string, ParsedWingCatalogWorkbook>();
-const fakeWorkbookParser = {
+// 파일 바이트 운반(base64 조각)은 실제 어댑터, 엑셀 해석만 가짜다.
+const fakeWorkbookParser: ChannelDocumentsPort = Object.assign(new ChannelsDocumentsAdapter(), {
   parseWingWorkbook: (bytes: Uint8Array) => parsedWorkbooks.get(new TextDecoder().decode(bytes))!,
-} as unknown as ChannelDocumentsPort;
+});
 function workbookBytes(parsed: ParsedWingCatalogWorkbook): Uint8Array {
   const key = randomUUID();
   parsedWorkbooks.set(key, parsed);
