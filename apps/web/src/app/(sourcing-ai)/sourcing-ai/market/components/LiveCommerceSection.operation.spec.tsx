@@ -253,7 +253,7 @@ describe('LiveCommerceSection direct source-owner migration', () => {
     });
     fireEvent.click(screen.getByRole('button', { name: '방송 수집' }));
 
-    expect(await screen.findByText(/도우인\(live\.douyin\.com\) 방송 URL을 넣어 주세요/)).toBeInTheDocument();
+    expect(await screen.findByText(/도우인 라이브\(live\.douyin\.com\) 방송 URL을 넣어 주세요/)).toBeInTheDocument();
     expect(mocks.startOperation).not.toHaveBeenCalled();
   });
 

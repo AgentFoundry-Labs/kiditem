@@ -5,9 +5,9 @@ import { queryKeys } from '@/lib/query-keys';
 import { sourcingOperationCollection } from './sourcing-operations';
 import type { OperationView } from '@kiditem/shared/operation';
 
-const INVALID_URL = '1688 라이브(zb.1688.com) 또는 도우인(live.douyin.com) 방송 URL을 넣어 주세요.';
+const INVALID_URL = '1688 라이브(zb.1688.com) 또는 도우인 라이브(live.douyin.com) 방송 URL을 넣어 주세요.';
 
-/** 방송 URL → 실행 scope. 서버와 같게 `new URL().toString()`으로 맞추고 호스트로 플랫폼을 정한다. */
+/** 방송 URL → 실행 scope. 서버(`browserLiveCommerceSourceForUrl`)와 같은 규칙: https, zb.1688.com·live.douyin.com과 그 하위 호스트. */
 export function liveCommerceScope(url: string): { platform: '1688' | 'douyin'; url: string } {
   let parsed: URL;
   try {
@@ -17,8 +17,8 @@ export function liveCommerceScope(url: string): { platform: '1688' | 'douyin'; u
   }
   const host = parsed.hostname.toLowerCase();
   if (parsed.protocol !== 'https:') throw new Error(INVALID_URL);
-  if (host === '1688.com' || host.endsWith('.1688.com')) return { platform: '1688', url: parsed.toString() };
-  if (host === 'douyin.com' || host.endsWith('.douyin.com')) return { platform: 'douyin', url: parsed.toString() };
+  if (host === 'zb.1688.com' || host.endsWith('.zb.1688.com')) return { platform: '1688', url: parsed.toString() };
+  if (host === 'live.douyin.com' || host.endsWith('.live.douyin.com')) return { platform: 'douyin', url: parsed.toString() };
   throw new Error(INVALID_URL);
 }
 
