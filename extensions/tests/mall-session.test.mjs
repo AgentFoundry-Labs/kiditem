@@ -54,10 +54,11 @@ const UNION = Object.freeze({
   "lotte-on": ["login", "signal"],
   // worker.js 자동 로그인 주소 + worker.js 로그인 확인 주소
   "coupang-direct": ["login", "check"],
+  // 쿠팡 윙 자동 로그인(사장님 2026-09-22 "자동로그인 만들어", #556) + 로그인 확인 주소
+  coupang: ["login", "check"],
   // worker.js 로그인 확인 주소만
   always: ["check"],
   kakao: ["check"],
-  coupang: ["check"],
   rocket: ["check"],
   "benepia-mul": ["check"],
   // mall-session-probe.js 조용한 확인 스펙만

@@ -270,7 +270,11 @@
       loginUrl: "https://supplier.coupang.com/po-web/app/purchase-order/list",
     }),
     rocket: spec({ entryUrl: "https://supplier.coupang.com/po-web/app/purchase-order/list" }),
-    coupang: spec({ entryUrl: "https://wing.coupang.com/" }),
+    // 쿠팡 윙 로그인 입구(사장님 2026-09-22 "자동로그인 만들어"). 로그아웃 상태로 윙 첫 화면에
+    // 들어가면 판매자 로그인(`xauth.coupang.com`, Keycloak)으로 넘어간다 — 두 주소 모두 manifest
+    // 권한에 있다. 로그인한 뒤의 윙은 무거워(2026-09-18 실측 45초 넘게 무응답) 눌러 놓고도
+    // 확인하지 못할 수 있다. 그때는 `verified: false` 로 알리고 비밀번호가 틀렸다고 단정하지 않는다.
+    coupang: spec({ entryUrl: "https://wing.coupang.com/", loginUrl: "https://wing.coupang.com/" }),
     "benepia-mul": spec({ entryUrl: "https://newmallvenadm.benepia.co.kr/" }),
     // 카카오(토큰) · 올웨이즈(브라우저 저장소 JWT)는 채울 로그인 폼이 없다. 그래서 고정
     // 로그인 주소도 두지 않는다 — 수집기가 미로그인을 감지해 "로그인 필요" 로 안내한다.
