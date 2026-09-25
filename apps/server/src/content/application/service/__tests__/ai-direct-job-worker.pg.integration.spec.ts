@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
-import { KiditemExternalError } from '@kiditem/shared/errors';
+import { KiditemConflictError, KiditemExternalError } from '@kiditem/shared/errors';
 import {
   makeTestPrisma,
   resetDb,
@@ -136,6 +136,23 @@ describe('AI direct job worker on the operation contract (PG integration)', () =
     expect(processor.project).toHaveBeenCalledTimes(2);
     expect(processor.project).toHaveBeenLastCalledWith(expect.objectContaining({ id }), OUTPUT, expect.anything());
     await expect(row(id)).resolves.toMatchObject({ status: 'succeeded', attempts: 2, result: OUTPUT });
+  });
+
+  it('a deterministic refusal while projecting the saved result (409) fails at once and records the failure once', async () => {
+    const id = await prepare();
+    processor.project.mockRejectedValueOnce(new KiditemConflictError('CONTENT_ASSET_IN_USE'));
+
+    await worker.tick();
+
+    await expect(row(id)).resolves.toMatchObject({ status: 'failed', attempts: 1, errorCode: 'CONTENT_ASSET_IN_USE' });
+    expect(processor.execute).toHaveBeenCalledTimes(1);
+    expect(processor.projectFailure).toHaveBeenCalledTimes(1);
+    expect(processor.projectFailure).toHaveBeenCalledWith(
+      expect.objectContaining({ id }),
+      expect.objectContaining({ errorCode: 'CONTENT_ASSET_IN_USE', retryable: false }),
+      expect.anything(),
+    );
+    await expect(prisma.operationLock.count({ where: { operationId: id } })).resolves.toBe(0);
   });
 
   it('requeues a retryable provider failure with the first backoff and keeps the generation open', async () => {

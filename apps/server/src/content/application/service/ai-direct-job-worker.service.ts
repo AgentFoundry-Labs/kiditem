@@ -126,6 +126,11 @@ export class AiDirectJobWorkerService
             `${job.jobType} job ${job.id} failed with ${error.code}: details=${JSON.stringify(error.details)}`,
           );
         }
+        if (resultSaved && isDeterministicRefusal(error)) {
+          // 받아 둔 결과를 반영하다 원장이 결정적으로 거절했다(409·412·400 계열, 예: 채택된 후보
+          // CONTENT_ASSET_IN_USE). 다시 반영해도 같으므로 재시도 없이 끝내고 onFailed가 기록한다.
+          normalized.retryable = false;
+        }
         if (resultSaved && normalized.retryable) {
           // 결과는 이미 받아 두었다. fail(retryAfterMs)은 받아 둔 결과를 지우므로 부르지 않는다:
           // 실행을 그대로 두면 임대 만료 뒤 다음 claim이 모델을 다시 부르지 않고 받아 둔 결과로 finish한다.
@@ -250,6 +255,13 @@ export class AiDirectJobWorkerService
     // 재시도 없이 끝낸다. 생성 기록의 실패 기록은 owner onFailed가 같은 트랜잭션에서 한다.
     await this.jobs.fail(job, token, normalized);
   }
+}
+
+/** 같은 입력으로 다시 해도 같은 답이 나오는 거절: conflict · precondition · validation 종류의 KidItem 오류. */
+const DETERMINISTIC_REFUSAL_KINDS = new Set(['conflict', 'precondition', 'validation']);
+
+function isDeterministicRefusal(error: unknown): boolean {
+  return isKiditemError(error) && DETERMINISTIC_REFUSAL_KINDS.has(error.kind);
 }
 
 function normalizeAiDirectJobError(
