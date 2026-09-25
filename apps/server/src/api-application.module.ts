@@ -16,6 +16,7 @@ import { RolesGuard } from './auth/guards/roles.guard';
 import { SessionAuthMiddleware } from './auth/middleware/session-auth.middleware';
 import { ChannelsModule } from './channels/channels.module';
 import { CommonModule } from './common/common.module';
+import { OperationModule } from './common/operation/operation.module';
 import { StorageModule } from './common/storage/storage.module';
 import { FeatureGateModule } from './feature-gate/feature-gate.module';
 import { FinanceModule } from './finance/finance.module';
@@ -49,6 +50,7 @@ function apiThrottleLimitPerMinute(): number {
     TodoModule,
     AuthModule,
     CommonModule,
+    OperationModule,
     StorageModule,
     FeatureGateModule,
     OrdersModule,

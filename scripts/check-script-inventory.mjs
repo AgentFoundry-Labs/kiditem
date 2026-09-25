@@ -23,6 +23,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-raw-snapshot-read-models.sh',
   'check-ledger-readers.mjs',
   'check-mall-neutral.mjs',
+  'check-operation-owner-boundary.mjs',
   'check-schema-artifact-sync.mjs',
   'check-sourcing-long-running-actions.mjs',
   'check-error-codes.mjs',
@@ -169,6 +170,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   if (packageScripts['check:mall-neutral'] !== 'node scripts/check-mall-neutral.mjs') {
     missingPackageHooks.push('check:mall-neutral');
   }
+  if (packageScripts['check:operation-owner-boundary'] !== 'node scripts/check-operation-owner-boundary.mjs') {
+    missingPackageHooks.push('check:operation-owner-boundary');
+  }
   if (packageScripts['deploy:office:local'] !== 'node scripts/office-deploy.mjs deploy') {
     missingPackageHooks.push('deploy:office:local');
   }
@@ -216,6 +220,9 @@ export function analyzeInventory({ actualFiles, readme, packageScripts }) {
   }
   if (!packageScripts['check:conventions']?.includes('check:identifier-contracts')) {
     missingPackageHooks.push('check:conventions -> check:identifier-contracts');
+  }
+  if (!packageScripts['check:conventions']?.includes('check:operation-owner-boundary')) {
+    missingPackageHooks.push('check:conventions -> check:operation-owner-boundary');
   }
 
   return { unexpected, missing, undocumented, missingPackageHooks };

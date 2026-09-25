@@ -13,6 +13,10 @@ import type {
   CatalogMediaPublicationPort,
   ChannelCatalogMedia,
 } from '../../../../channels/application/port/out/cross-domain/catalog-media-publication.port';
+import {
+  planCatalogAssetRepublication,
+  type CatalogPublicationHistoryKey,
+} from '../../../domain/catalog-media/catalog-asset-republication';
 
 const BULK_ROWS = 500;
 
@@ -160,7 +164,6 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
       url: string;
       role: string;
       sortOrder: number;
-      preserveStorage: boolean;
       storageKey: string | null;
       mimeType: string | null;
       width: number | null;
@@ -187,6 +190,13 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
     }> = [];
     let imageCount = 0;
     let inactivatedImageCount = 0;
+    // The domain comparison ignores exactly these keys; `satisfies` keeps the two lists equal.
+    const publicationHistory = {
+      publicationReference: input.publicationReference,
+      publicationScope: input.publicationScope ?? 'full',
+      sourceImportRunId: input.publicationReference.id,
+      lastImportRunId: input.publicationReference.id,
+    } satisfies Record<CatalogPublicationHistoryKey, unknown>;
 
     for (const listing of input.listings) {
       const workspace = workspaceByListing.get(listing.listingId)!;
@@ -251,13 +261,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
           && existing.id === currentSelectedAssetId
           && !currentSelectionIsCatalogOwned
         );
-        const publishedUrl = preservesManualSelection
-          ? existing?.url ?? media.sourceUrl
-          : media.sourceUrl;
-        const metadata = {
-          ...(preservesManualSelection
-            ? (jsonRecord(existing?.metadata) ?? {})
-            : withoutMaterializationMetadata(jsonRecord(existing?.metadata) ?? {})),
+        const publicationMetadata = {
           sourceType: 'channel_catalog',
           channel: listing.channel,
           sourceUrl: media.sourceUrl,
@@ -265,28 +269,45 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
           // canonical representation for shared option media.
           externalOptionId: optionIds.length === 1 ? optionIds[0] : null,
           externalOptionIds: optionIds,
-          publicationReference: input.publicationReference,
-          publicationScope: input.publicationScope ?? 'full',
-          sourceImportRunId: input.publicationReference.id,
-          lastImportRunId: input.publicationReference.id,
+          ...publicationHistory,
           active: true,
         };
         const id = existing?.id ?? randomUUID();
         if (existing) {
-          updatedAssets.push({
-            id,
-            workspaceId,
-            url: publishedUrl,
-            role: media.role,
-            sortOrder: media.sortOrder,
-            preserveStorage: preservesManualSelection,
-            storageKey: preservesManualSelection ? existing.storageKey : null,
-            mimeType: preservesManualSelection ? existing.mimeType : null,
-            width: preservesManualSelection ? existing.width : null,
-            height: preservesManualSelection ? existing.height : null,
-            fileSize: preservesManualSelection ? existing.fileSize : null,
-            metadata,
-          });
+          const plan = planCatalogAssetRepublication(
+            {
+              url: existing.url,
+              role: existing.role,
+              sortOrder: existing.sortOrder,
+              isDeleted: existing.isDeleted,
+              metadata: jsonRecord(existing.metadata) ?? {},
+              storage: {
+                storageKey: existing.storageKey,
+                mimeType: existing.mimeType,
+                width: existing.width,
+                height: existing.height,
+                fileSize: existing.fileSize,
+              },
+            },
+            {
+              sourceUrl: media.sourceUrl,
+              role: media.role,
+              sortOrder: media.sortOrder,
+              publicationMetadata,
+            },
+            { preservesManualSelection },
+          );
+          if (plan.kind === 'update') {
+            updatedAssets.push({
+              id,
+              workspaceId,
+              url: plan.url,
+              role: plan.role,
+              sortOrder: plan.sortOrder,
+              ...plan.storage,
+              metadata: plan.metadata,
+            });
+          }
         } else {
           newAssets.push({
             id,
@@ -299,7 +320,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
             assetType: 'image',
             role: media.role,
             sortOrder: media.sortOrder,
-            metadata: metadata as Prisma.InputJsonValue,
+            metadata: publicationMetadata as Prisma.InputJsonValue,
           });
         }
         activeAssets.push({ id, role: media.role, sortOrder: media.sortOrder });
@@ -329,10 +350,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
         const metadata = {
           ...(jsonRecord(asset.metadata) ?? {}),
           active: false,
-          publicationReference: input.publicationReference,
-          publicationScope: input.publicationScope ?? 'full',
-          sourceImportRunId: input.publicationReference.id,
-          lastImportRunId: input.publicationReference.id,
+          ...publicationHistory,
         };
         if (asset.id === currentSelectedAssetId && !currentSelectionIsCatalogOwned) {
           preservedAbsentAssets.push({ id: asset.id, workspaceId, metadata });
@@ -376,17 +394,14 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
       const updated = await tx.$executeRaw`
       UPDATE content_assets AS asset
       SET url = incoming.url,
-          storage_key = CASE WHEN incoming."preserveStorage" THEN incoming."storageKey" ELSE NULL END,
-          mime_type = CASE WHEN incoming."preserveStorage" THEN incoming."mimeType" ELSE NULL END,
-          width = CASE WHEN incoming."preserveStorage" THEN incoming.width ELSE NULL END,
-          height = CASE WHEN incoming."preserveStorage" THEN incoming.height ELSE NULL END,
-          file_size = CASE WHEN incoming."preserveStorage" THEN incoming."fileSize" ELSE NULL END,
+          storage_key = incoming."storageKey", mime_type = incoming."mimeType",
+          width = incoming.width, height = incoming.height, file_size = incoming."fileSize",
           role = incoming.role, sort_order = incoming."sortOrder",
           metadata = incoming.metadata, is_deleted = false, deleted_at = NULL, updated_at = NOW()
       FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
         AS incoming(
           id uuid, "workspaceId" uuid, url text, role text, "sortOrder" integer,
-          "preserveStorage" boolean, "storageKey" text, "mimeType" text,
+          "storageKey" text, "mimeType" text,
           width integer, height integer, "fileSize" integer, metadata jsonb
         )
       WHERE asset.organization_id = ${input.organizationId}::uuid
@@ -450,12 +465,17 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
     // 카탈로그가 세운 대표이미지 자산에 표시를 남긴다 — 다음 publication 이 이 포인터를 자기 몫으로 안다.
     const representativeAssetIds = pointerUpdates.flatMap((update) => (update.assetId ? [update.assetId] : []));
     if (representativeAssetIds.length > 0) {
-      await tx.$executeRaw`
+      // An unchanged asset was never updated (or locked) above; an operator
+      // delete committed after our read must not leave the pointer on it.
+      const marked = await tx.$executeRaw`
         UPDATE content_assets
         SET metadata = metadata || '{"catalogRepresentative": true}'::jsonb, updated_at = NOW()
         WHERE organization_id = ${input.organizationId}::uuid
           AND id = ANY(${representativeAssetIds}::uuid[])
+          AND is_deleted = false
       `;
+      if (marked !== representativeAssetIds.length)
+        throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'CATALOG_ASSET_FENCE_LOST' } });
     }
     return { imageCount, inactivatedImageCount };
   }
@@ -657,22 +677,4 @@ function jsonRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === 'object' && !Array.isArray(value)
     ? (value as Record<string, unknown>)
     : null;
-}
-
-function withoutMaterializationMetadata(
-  metadata: Record<string, unknown>,
-): Record<string, unknown> {
-  const result = { ...metadata };
-  for (const key of [
-    'materializationStatus',
-    'materializedAtMs',
-    'materializationLeaseToken',
-    'materializationLeaseExpiresAtMs',
-    'materializationAttemptCount',
-    'materializationError',
-    'nextMaterializationAttemptAtMs',
-  ]) {
-    delete result[key];
-  }
-  return result;
 }

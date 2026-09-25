@@ -270,6 +270,11 @@
       "import": "./dist/collection-start.js",
       "require": "./dist/collection-start.cjs"
     },
+    "./operation": {
+      "types": "./dist/operation.d.ts",
+      "import": "./dist/operation.js",
+      "require": "./dist/operation.cjs"
+    },
     "./order-collection-source": {
       "types": "./dist/order-collection-source.d.ts",
       "import": "./dist/order-collection-source.js",
@@ -367,6 +372,9 @@
       ],
       "source-import": [
         "dist/source-import.d.ts"
+      ],
+      "operation": [
+        "dist/operation.d.ts"
       ],
       "sellpia-inventory-freshness": [
         "dist/sellpia-inventory-freshness.d.ts"
