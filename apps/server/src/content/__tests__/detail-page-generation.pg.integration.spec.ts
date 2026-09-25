@@ -41,8 +41,8 @@ describe('detail page generation (PG integration)', () => {
     sink = new DetailPageGenerationSinkAdapter(pages);
     let processor!: AiDirectJobProcessorService;
     const contract = aiDirectJobOperations(prisma, {
-      project: (job, result) => processor.project(job, result),
-      projectFailure: (job, error) => processor.projectFailure(job, error),
+      project: (job, result, transaction) => processor.project(job, result, transaction),
+      projectFailure: (job, error, transaction) => processor.projectFailure(job, error, transaction),
     });
     jobs = contract.jobs;
     generations = new DetailPageGenerationRepositoryAdapter(service, pages, jobs);
@@ -265,5 +265,47 @@ describe('detail page generation (PG integration)', () => {
     await expect(pages.findById({ organizationId: TEST_ORGANIZATION_ID, detailPageId: page.id }))
       .resolves.toMatchObject({ status: 'failed', errorMessage: 'model missing' });
     await expect(jobOf(page.id)).resolves.toMatchObject({ status: 'failed', errorCode: 'model_required' });
+  });
+
+  it('a cancel that arrives while the finish projects the result neither deadlocks nor splits the outcome', async () => {
+    for (let round = 0; round < 6; round += 1) {
+      const workspaceId = await workspace();
+      const { page } = await open(workspaceId);
+      const claimed = (await jobs.claim('worker-1'))!;
+      await jobs.saveResult(claimed.job, claimed.token, output);
+
+      const [finished, cancelled] = await Promise.all([
+        jobs.succeed(claimed.job, claimed.token),
+        generations.cancelDirectGeneration({ organizationId: TEST_ORGANIZATION_ID, detailPageId: page.id, reason: '중단' }),
+      ]);
+
+      const done = await pages.findById({ organizationId: TEST_ORGANIZATION_ID, detailPageId: page.id });
+      const job = await jobOf(page.id);
+      if (finished) {
+        expect({ page: done?.status, job: job.status, cancelled: cancelled.status }).toEqual({ page: 'ready', job: 'succeeded', cancelled: 'already_terminal' });
+      } else {
+        expect({ page: done?.status, job: job.status, cancelled: cancelled.status }).toEqual({ page: 'failed', job: 'cancelled', cancelled: 'cancelled' });
+      }
+    }
+  }, 20_000);
+
+  it('writes the result inside the finish transaction: a finish that fails after the sink leaves the page untouched', async () => {
+    const workspaceId = await workspace();
+    const { page } = await open(workspaceId);
+    const claimed = (await jobs.claim('worker-1'))!;
+    await jobs.saveResult(claimed.job, claimed.token, output);
+    // finalize 뒤 실행을 닫는 쓰기가 실패하면 반영도 함께 되돌아가야 한다.
+    await prisma.$executeRawUnsafe(`CREATE OR REPLACE FUNCTION kid358_refuse_close() RETURNS trigger AS $$ BEGIN
+      IF NEW.status = 'succeeded' THEN RAISE EXCEPTION 'refuse close'; END IF; RETURN NEW; END $$ LANGUAGE plpgsql`);
+    await prisma.$executeRawUnsafe(`CREATE TRIGGER kid358_refuse_close BEFORE UPDATE ON operations FOR EACH ROW EXECUTE FUNCTION kid358_refuse_close()`);
+    try {
+      await expect(jobs.succeed(claimed.job, claimed.token)).rejects.toThrow();
+    } finally {
+      await prisma.$executeRawUnsafe('DROP TRIGGER kid358_refuse_close ON operations');
+      await prisma.$executeRawUnsafe('DROP FUNCTION kid358_refuse_close()');
+    }
+    await expect(pages.findById({ organizationId: TEST_ORGANIZATION_ID, detailPageId: page.id }))
+      .resolves.toMatchObject({ status: 'pending', generationResult: {} });
+    await expect(jobOf(page.id)).resolves.toMatchObject({ status: 'executing' });
   });
 });

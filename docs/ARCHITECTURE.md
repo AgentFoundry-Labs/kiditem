@@ -760,6 +760,8 @@ request
   -> validated output staged as the operation's `result` chunk
      (progress.checkpoint = result_saved)
   -> finish(succeeded): owner finalize projects it through the domain sink
+     inside the finish transaction, so the ledger row and the operation
+     close together
   -> succeeded
 ```
 
@@ -768,8 +770,8 @@ which returns the same operation to `prepared` with its lock held; the last
 failure, or one that is not retryable, closes it `failed` and the owner's
 `onFailed` records the failure on the domain ledger. An expired lease is
 reclaimed by the next claim; a saved result is reused without calling the model
-again. Cancelling a generation cancels its live operation in the same
-transaction, and the lease heartbeat aborts in-flight provider and
+again. Cancelling a generation locks its live operation before the ledger row (the
+order finish uses) and cancels both in one transaction, and the lease heartbeat aborts in-flight provider and
 image-download work. Gemini adapters receive the model captured at enqueue time
 and never select an environment fallback during execution. The retired
 `ai_direct_jobs` table is no longer read or written and is dropped separately.

@@ -84,7 +84,7 @@ describe('AI direct job worker on the operation contract (PG integration)', () =
 
     expect(processor.execute).toHaveBeenCalledTimes(1);
     expect(processor.project).toHaveBeenCalledTimes(1);
-    expect(processor.project).toHaveBeenCalledWith(expect.objectContaining({ id, organizationId: ORG, jobType: 'image_edit' }), OUTPUT);
+    expect(processor.project).toHaveBeenCalledWith(expect.objectContaining({ id, organizationId: ORG, jobType: 'image_edit' }), OUTPUT, expect.anything());
     await expect(row(id)).resolves.toMatchObject({ status: 'succeeded', attempts: 1, result: OUTPUT, progress: { checkpoint: 'result_saved' } });
     await expect(prisma.operationChunk.count()).resolves.toBe(0);
     await expect(worker.tick()).resolves.toBe(false);
@@ -108,7 +108,7 @@ describe('AI direct job worker on the operation contract (PG integration)', () =
     await worker.tick();
 
     expect(processor.execute).not.toHaveBeenCalled();
-    expect(processor.project).toHaveBeenCalledWith(expect.objectContaining({ jobType: 'thumbnail_generate' }), saved);
+    expect(processor.project).toHaveBeenCalledWith(expect.objectContaining({ jobType: 'thumbnail_generate' }), saved, expect.anything());
     await expect(row(id)).resolves.toMatchObject({ status: 'succeeded', attempts: 2 });
   });
 
@@ -141,6 +141,7 @@ describe('AI direct job worker on the operation contract (PG integration)', () =
     expect(processor.projectFailure).toHaveBeenCalledWith(
       expect.objectContaining({ id }),
       { errorCode: 'direct_ai_execution_failed', errorMessage: 'provider unavailable', retryable: false },
+      expect.anything(),
     );
     await expect(prisma.operationLock.count()).resolves.toBe(0);
   });
@@ -209,7 +210,7 @@ describe('AI direct job worker on the operation contract (PG integration)', () =
 
     expect(processor.execute).not.toHaveBeenCalled();
     expect(processor.projectFailure).toHaveBeenCalledTimes(1);
-    expect(processor.projectFailure).toHaveBeenCalledWith(expect.objectContaining({ id: invalid }), expect.anything());
+    expect(processor.projectFailure).toHaveBeenCalledWith(expect.objectContaining({ id: invalid }), expect.anything(), expect.anything());
   });
 
   it('stops a running job when the heartbeat sees it was cancelled, and writes nothing after', async () => {

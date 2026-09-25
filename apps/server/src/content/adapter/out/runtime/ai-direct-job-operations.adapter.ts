@@ -95,18 +95,29 @@ export class AiDirectJobOperationsAdapter implements AiDirectJobOperationsPort {
     return { jobId: operation.id };
   }
 
+  async lockLive(
+    tx: OwnerTransaction | undefined,
+    input: { organizationId: string; sourceResourceId: string; jobTypes: readonly AiDirectJobType[] },
+  ) {
+    const ids: string[] = [];
+    for (const jobType of input.jobTypes) {
+      const live = await this.operations.findLive(input.organizationId, aiDirectJobLockKey(jobType, input.sourceResourceId), tx);
+      if (live) ids.push(live.id);
+    }
+    return ids;
+  }
+
+  async cancelJobs(tx: OwnerTransaction | undefined, organizationId: string, jobIds: readonly string[]) {
+    for (const id of jobIds) await this.operations.cancel(organizationId, id, tx);
+  }
+
   async cancelLive(
     tx: OwnerTransaction | undefined,
     input: { organizationId: string; sourceResourceId: string; jobTypes: readonly AiDirectJobType[] },
   ) {
-    let cancelled = 0;
-    for (const jobType of input.jobTypes) {
-      const live = await this.operations.findLive(input.organizationId, aiDirectJobLockKey(jobType, input.sourceResourceId), tx);
-      if (!live) continue;
-      await this.operations.cancel(input.organizationId, live.id, tx);
-      cancelled += 1;
-    }
-    return cancelled;
+    const ids = await this.lockLive(tx, input);
+    await this.cancelJobs(tx, input.organizationId, ids);
+    return ids.length;
   }
 
   async find(organizationId: string, jobId: string) {

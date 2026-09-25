@@ -42,7 +42,17 @@ export interface AiDirectJobOperationsPort {
     tx: OwnerTransaction | undefined,
     input: AiDirectJobRequest & { organizationId: string; sourceResourceId: string },
   ): Promise<{ jobId: string }>;
-  /** 이 원천의 살아 있는 job(들)을 같은 트랜잭션에서 취소한다. 취소한 수. */
+  /**
+   * 이 원천의 살아 있는 job(들)의 실행 행을 잠그고 id를 돌려준다. 생성 기록을 잠그기 **전에** 부른다:
+   * finish가 실행 → 생성 기록 순서로 잠그므로 취소도 같은 순서를 지켜야 교착하지 않는다.
+   */
+  lockLive(
+    tx: OwnerTransaction,
+    input: { organizationId: string; sourceResourceId: string; jobTypes: readonly AiDirectJobType[] },
+  ): Promise<string[]>;
+  /** `lockLive`로 잠근 job을 같은 트랜잭션에서 취소한다. */
+  cancelJobs(tx: OwnerTransaction, organizationId: string, jobIds: readonly string[]): Promise<void>;
+  /** 이 원천의 살아 있는 job(들)을 같은 트랜잭션에서 취소한다(잠금 + 취소). 취소한 수. */
   cancelLive(
     tx: OwnerTransaction | undefined,
     input: { organizationId: string; sourceResourceId: string; jobTypes: readonly AiDirectJobType[] },

@@ -54,13 +54,15 @@ lives in [docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
   that creates the domain ledger/provenance, and wake the worker after commit.
 - The worker claims, runs provider/media work, stages the validated output as
   the operation's `result` chunk (`progress.checkpoint = result_saved`) and
-  finishes; the kind owner's `finalize` invokes the sink, `onFailed` records
-  the final failure (`adapter/in/operation/`).
+  finishes; the kind owner's `finalize` invokes the sink and `onFailed`
+  records the final failure, both inside the finish transaction (`context.tx`,
+  `adapter/in/operation/`).
 - Executors return validated data and do not mutate AI tables. Sinks own
   generation projection, generated-image assets, and alert closure.
-- A saved result is reused without another model call. Cancel a generation's
-  live operation in the same transaction as the ledger change; the claiming
-  worker sees it through its heartbeat.
+- A saved result is reused without another model call. Cancelling a
+  generation locks its live operation (`lockLive`) before the ledger row, then
+  cancels both in one transaction; the claiming worker sees it through its
+  heartbeat.
 - Direct generation is deterministic infrastructure and does not create Agent
   OS runs. Agent-prefixed runtime keys are reserved for real Agent definitions.
 

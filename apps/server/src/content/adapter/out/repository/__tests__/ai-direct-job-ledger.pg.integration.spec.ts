@@ -13,6 +13,9 @@ import { DetailPageGenerationRepositoryAdapter } from '../detail-page-generation
 import { DetailPageRepositoryAdapter } from '../detail-page.repository.adapter';
 import { deriveProductGenerationChildIdentity } from '../../../../application/service/product-generation-child-identity';
 import { ThumbnailGenerationLedgerRepositoryAdapter } from '../thumbnail-generation-ledger.repository.adapter';
+import { ThumbnailGenerationSinkAdapter } from '../../direct-output/thumbnail-generation-sink.adapter';
+import { ThumbnailGenerationLifecycleService } from '../../../../application/service/thumbnail-generation-lifecycle.service';
+import { AiDirectJobProcessorService } from '../../../../application/service/ai-direct-job-processor.service';
 import type { PrismaClient } from '@prisma/client';
 import type { PrismaService } from '../../../../../prisma/prisma.service';
 
@@ -383,6 +386,66 @@ describe('AI direct job with its generation ledger (PG integration)', () => {
     const third = await reedit('compliance');
     await expect(liveJobs('thumbnail_reedit', generation.id)).resolves.toEqual([expect.objectContaining({ id: third.jobId })]);
   });
+
+  it('a cancel that arrives while the finish projects the result neither deadlocks nor splits the outcome', async () => {
+    // 실제 썸네일 sink가 finish 트랜잭션 안에서 반영한다. 모델 호출만 없다(결과는 받아 둔 상태에서 시작).
+    const scoped = prisma as unknown as PrismaService;
+    let processor!: AiDirectJobProcessorService;
+    const contract = aiDirectJobOperations(prisma, {
+      project: (job, result, transaction) => processor.project(job, result, transaction),
+      projectFailure: (job, error, transaction) => processor.projectFailure(job, error, transaction),
+    });
+    const ledger = new ThumbnailGenerationLedgerRepositoryAdapter(
+      scoped, contract.jobs, makeChannelListingQuery(prisma), makeChannelRecipes(prisma),
+    );
+    const sink = new ThumbnailGenerationSinkAdapter(new ThumbnailGenerationLifecycleService(ledger), { getUrl: (key: string) => key } as never);
+    processor = new AiDirectJobProcessorService(
+      {} as never, {} as never, {} as never, {} as never, {} as never, sink, {} as never, ledger, {} as never,
+    );
+    const workspace = await prisma.contentWorkspace.create({
+      data: {
+        organizationId: TEST_ORGANIZATION_ID,
+        ownerType: 'direct_detail_page',
+        normalizedTitle: 'race owner',
+        createdByUserId: 'f1234567-89ab-4cde-8f01-23456789abcd',
+      },
+      select: { id: true },
+    });
+
+    for (let round = 0; round < 6; round += 1) {
+      const generation = await prisma.thumbnailGeneration.create({
+        data: { organizationId: TEST_ORGANIZATION_ID, contentWorkspaceId: workspace.id, status: 'running' },
+        select: { id: true },
+      });
+      await contract.jobs.prepare(undefined, {
+        organizationId: TEST_ORGANIZATION_ID,
+        jobType: 'thumbnail_generate',
+        sourceResourceId: generation.id,
+        payload: thumbnailDirectPayload(),
+      });
+      const claimed = (await contract.jobs.claim('worker-1'))!;
+      await contract.jobs.saveResult(claimed.job, claimed.token, { candidates: [{ url: 'https://example.com/out.png' }] });
+
+      const [finished, cancelled] = await Promise.all([
+        contract.jobs.succeed(claimed.job, claimed.token),
+        ledger.cancelDirectGeneration({ organizationId: TEST_ORGANIZATION_ID, generationId: generation.id, reason: 'operator_cancelled' }),
+      ]);
+
+      const row = await prisma.thumbnailGeneration.findUniqueOrThrow({ where: { id: generation.id }, select: { status: true } });
+      const operation = await prisma.operation.findUniqueOrThrow({ where: { id: claimed.job.id }, select: { status: true } });
+      const candidates = await prisma.contentAsset.count({ where: { thumbnailGenerationId: generation.id, isDeleted: false } });
+      if (finished) {
+        expect({ row, operation, candidates, cancelled: cancelled.status }).toEqual({
+          row: { status: 'succeeded' }, operation: { status: 'succeeded' }, candidates: 1, cancelled: 'already_terminal',
+        });
+      } else {
+        expect({ row, operation, candidates, cancelled: cancelled.status }).toEqual({
+          row: { status: 'cancelled' }, operation: { status: 'cancelled' }, candidates: 0, cancelled: 'cancelled',
+        });
+      }
+    }
+    await expect(prisma.operationLock.count()).resolves.toBe(0);
+  }, 20_000);
 
   /** 이 원천의 이 종류 job 가운데 잠금을 쥔(끝나지 않은) 실행. */
   async function liveJobs(jobType: Parameters<typeof aiDirectJobLockKey>[0], sourceResourceId: string) {

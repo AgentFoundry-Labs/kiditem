@@ -166,6 +166,12 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
       return { status: 'already_terminal', generationId: current.id, preserved: current.status === 'ready' };
     }
     return this.detailPages.runInTransaction(async (transaction) => {
+      // 실행 행을 먼저 잠근다. finish(반영)가 실행 → 생성 페이지 순서로 잠그므로 같은 순서를 지킨다.
+      const liveJobs = await this.directJobs.lockLive(transaction, {
+        organizationId: input.organizationId,
+        sourceResourceId: current.id,
+        jobTypes: ['detail_page_generate'],
+      });
       try {
         await this.detailPages.setStatus(transaction, {
           organizationId: input.organizationId,
@@ -178,11 +184,7 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
         // 결과가 먼저 들어왔다 — 끝난 생성은 그대로 둔다.
         return { status: 'already_terminal' as const, generationId: current.id, preserved: true };
       }
-      await this.directJobs.cancelLive(transaction, {
-        organizationId: input.organizationId,
-        sourceResourceId: current.id,
-        jobTypes: ['detail_page_generate'],
-      });
+      await this.directJobs.cancelJobs(transaction, input.organizationId, liveJobs);
       return { status: 'cancelled' as const, generationId: current.id, preserved: false };
     });
   }

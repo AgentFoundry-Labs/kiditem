@@ -25,7 +25,7 @@ import {
 /**
  * AI 생성 job kind의 owner 포트(ADR-0025, KID-358). `plan`은 생성 기록이 준 원천·입력 봉투를 검증해
  * `resource:<jobType>:<원천 id>` 하나를 잠그고, `finalize`는 워커가 받아 둔 결과 청크를 sink로 반영하며,
- * `onFailed`는 재시도가 남지 않은 실패를 생성 기록에 적는다. sink는 지금처럼 자기 트랜잭션에서 쓴다.
+ * `onFailed`는 재시도가 남지 않은 실패를 생성 기록에 적는다. sink는 실행 트랜잭션(`context.tx`) 안에서 쓴다.
  */
 @Injectable()
 abstract class AiDirectJobOperationOwner implements OperationOwnerPort {
@@ -49,7 +49,8 @@ abstract class AiDirectJobOperationOwner implements OperationOwnerPort {
     const job = this.job(context, 0);
     const saved = chunks.find((chunk) => chunk.chunkKind === AI_DIRECT_JOB_RESULT_CHUNK);
     const result = validateAiDirectJobResult(job.jobType, saved?.payload[0]);
-    await this.processor.project(job, result);
+    // 반영은 실행을 닫는 finish 트랜잭션 안에서 쓴다(ADR-0025: 원장 사실은 finish 트랜잭션 안에서만).
+    await this.processor.project(job, result, context.tx);
     return { result: result as JsonObject };
   }
 
@@ -58,7 +59,7 @@ abstract class AiDirectJobOperationOwner implements OperationOwnerPort {
       errorCode: context.errorCode,
       errorMessage: context.errorMessage ?? '',
       retryable: false,
-    });
+    }, context.tx);
   }
 
   private job(context: OperationFinalizeContext, attempts: number): AiDirectJob {

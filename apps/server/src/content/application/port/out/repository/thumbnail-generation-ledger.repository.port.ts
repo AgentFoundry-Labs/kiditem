@@ -1,6 +1,7 @@
 import type { ThumbnailEditorCandidate, ThumbnailEditorInputImage } from '../../../../domain/model/thumbnail-editor';
 import type { ThumbnailGenerationListScope } from '../../../../domain/thumbnail-generation-subject';
 import type { AiDirectJobRequest } from '../runtime/ai-direct-job-operations.port';
+import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type { ProductGenerationChildIdentity } from '../../../service/product-generation-child-identity';
 
 export const THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT = Symbol('THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT');
@@ -199,17 +200,23 @@ export interface ThumbnailGenerationLedgerRepositoryPort {
   claimForDirectProjection(input: {
     generationId: string;
     organizationId: string;
+    /** 실행 finish 트랜잭션(KID-358). 없으면 자기 트랜잭션. */
+    transaction?: OwnerTransaction;
   }): Promise<ThumbnailGenerationAttemptChange | null>;
   /** 직접 job 성공: 후보 자산 쓰기와 succeeded 전이가 한 트랜잭션. 요청 필드는 `inputMeta` 에 병합한다. */
   projectDirectSuccess(input: {
     generationId: string;
     organizationId: string;
+    /** 실행 finish 트랜잭션(KID-358). 없으면 자기 트랜잭션. */
+    transaction?: OwnerTransaction;
     candidates: ThumbnailEditorCandidate[];
     projection: Record<string, unknown>;
   }): Promise<ThumbnailGenerationAttemptChange | null>;
   projectDirectFailure(input: {
     generationId: string;
     organizationId: string;
+    /** 실행 finish 트랜잭션(KID-358). 없으면 자기 트랜잭션. */
+    transaction?: OwnerTransaction;
     errorMessage: string;
   }): Promise<ThumbnailGenerationAttemptChange | null>;
   findGenerationProjectionStatus(input: {

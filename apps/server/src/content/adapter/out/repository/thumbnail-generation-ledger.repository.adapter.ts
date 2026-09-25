@@ -11,7 +11,8 @@ import {
   AI_DIRECT_JOB_OPERATIONS_PORT,
   type AiDirectJobOperationsPort,
 } from '../../../application/port/out/runtime/ai-direct-job-operations.port';
-import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import {
   findActiveJobForWorkspace,
   findAutoBatchCandidates,
@@ -198,11 +199,14 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
   cancelDirectGeneration(
     input: Parameters<ThumbnailGenerationLedgerRepositoryPort['cancelDirectGeneration']>[0],
   ) {
-    return cancelDirectGeneration(this.prisma, input, (tx) => this.directJobs.cancelLive(ownerTransaction(tx), {
-      organizationId: input.organizationId,
-      sourceResourceId: input.generationId,
-      jobTypes: ['thumbnail_generate', 'thumbnail_reedit'],
-    }));
+    return cancelDirectGeneration(this.prisma, input, {
+      lock: (tx) => this.directJobs.lockLive(ownerTransaction(tx), {
+        organizationId: input.organizationId,
+        sourceResourceId: input.generationId,
+        jobTypes: ['thumbnail_generate', 'thumbnail_reedit'],
+      }),
+      cancel: (tx, jobIds) => this.directJobs.cancelJobs(ownerTransaction(tx), input.organizationId, jobIds),
+    });
   }
 
   deleteGeneration(id: string, organizationId: string) {
@@ -232,11 +236,11 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
   }
 
   claimForDirectProjection(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['claimForDirectProjection']>[0]) {
-    return lockGenerationForProcessing(this.prisma, input.generationId, input.organizationId);
+    return lockGenerationForProcessing(this.scope(input.transaction), input.generationId, input.organizationId);
   }
 
   projectDirectSuccess(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['projectDirectSuccess']>[0]) {
-    return completeWithCandidates(this.prisma, {
+    return completeWithCandidates(this.scope(input.transaction), {
       generationId: input.generationId,
       organizationId: input.organizationId,
       candidates: input.candidates,
@@ -249,7 +253,12 @@ export class ThumbnailGenerationLedgerRepositoryAdapter implements ThumbnailGene
   }
 
   projectDirectFailure(input: Parameters<ThumbnailGenerationLedgerRepositoryPort['projectDirectFailure']>[0]) {
-    return markGenerationFailed(this.prisma, input.generationId, input.organizationId, input.errorMessage);
+    return markGenerationFailed(this.scope(input.transaction), input.generationId, input.organizationId, input.errorMessage);
+  }
+
+  /** 실행 finish 트랜잭션이 있으면 그 안에서 쓴다. */
+  private scope(transaction: OwnerTransaction | undefined) {
+    return transaction ? ownerTransactionClient(transaction) : this.prisma;
   }
 
   async findGenerationProjectionStatus(

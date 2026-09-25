@@ -6,6 +6,7 @@ import {
   ThumbnailGenerateDirectOutputSchema,
 } from '../../domain/direct-generation';
 import type { AiDirectJob } from '../../domain/direct-job/ai-direct-job-operation';
+import type { OwnerTransaction } from '../../../common/owner-transaction';
 import {
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
   type DetailPageGenerationRepositoryPort,
@@ -47,10 +48,12 @@ export interface AiDirectJobProcessor {
     job: AiDirectJob,
   ): Promise<'runnable' | 'cancelled' | 'invalid'>;
   execute(job: AiDirectJob, signal: AbortSignal): Promise<unknown>;
-  project(job: AiDirectJob, result: unknown): Promise<void>;
+  /** 실행 finish 트랜잭션(`transaction`) 안에서 결과를 원장에 반영한다. */
+  project(job: AiDirectJob, result: unknown, transaction?: OwnerTransaction): Promise<void>;
   projectFailure(
     job: AiDirectJob,
     error: NormalizedAiDirectJobError,
+    transaction?: OwnerTransaction,
   ): Promise<void>;
 }
 
@@ -155,12 +158,13 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
     }
   }
 
-  async project(job: AiDirectJob, result: unknown): Promise<void> {
+  async project(job: AiDirectJob, result: unknown, transaction?: OwnerTransaction): Promise<void> {
     switch (job.jobType) {
       case 'thumbnail_generate':
         await this.thumbnailSink.applySuccess({
           organizationId: job.organizationId,
           requestId: directRequestId(job.id),
+          transaction,
           sourceResourceId: job.sourceResourceId,
           output: ThumbnailGenerateDirectOutputSchema.parse(result),
         });
@@ -169,6 +173,7 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
         await this.detailPageSink.applySuccess({
           organizationId: job.organizationId,
           requestId: directRequestId(job.id),
+          transaction,
           sourceResourceId: job.sourceResourceId,
           output: DetailPageGenerateDirectOutputSchema.parse(result),
         });
@@ -187,12 +192,14 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
   async projectFailure(
     job: AiDirectJob,
     error: NormalizedAiDirectJobError,
+    transaction?: OwnerTransaction,
   ): Promise<void> {
     switch (job.jobType) {
       case 'thumbnail_generate':
         await this.thumbnailSink.applyFailure({
           organizationId: job.organizationId,
           requestId: directRequestId(job.id),
+          transaction,
           sourceResourceId: job.sourceResourceId,
           errorCode: error.errorCode,
           errorMessage: error.errorMessage,
@@ -202,6 +209,7 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
         await this.detailPageSink.applyFailure({
           organizationId: job.organizationId,
           requestId: directRequestId(job.id),
+          transaction,
           sourceResourceId: job.sourceResourceId,
           errorCode: error.errorCode,
           errorMessage: error.errorMessage,
