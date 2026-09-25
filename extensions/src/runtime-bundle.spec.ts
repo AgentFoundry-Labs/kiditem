@@ -28,7 +28,12 @@ describe('committed runtime bundle', () => {
   it('exposes the registered operation kinds and skips installing without the old globals', () => {
     const runtime = loadRuntime({});
 
-    expect((runtime.runtime as { kinds(): string[] }).kinds()).toContain('test.echo');
+    expect((runtime.runtime as { kinds(): string[] }).kinds()).toEqual([
+      'channels.wing_catalog_details',
+      'channels.wing_catalog_excel',
+      'channels.wing_catalog_list',
+      'test.echo',
+    ]);
   });
 
   it('registers operation.start / operation.cancel and the operationRuntime capability with the old domain registry', async () => {

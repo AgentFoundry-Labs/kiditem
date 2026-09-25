@@ -6,6 +6,9 @@ import { CatalogIdentityPersistenceAdapter } from './adapter/out/persistence/cat
 import { CHANNEL_CATALOG_IDENTITY_PORT } from './application/port/in/collection/catalog-identity.port';
 import { CHANNEL_CATALOG_IDENTITY_PERSISTENCE_PORT, type ChannelCatalogIdentityPersistencePort } from './application/port/out/persistence/catalog-identity.persistence.port';
 import { Module } from '@nestjs/common';
+import { OperationModule } from '../common/operation/operation.module';
+import { ChannelCatalogFreshnessAdapter } from './adapter/out/operation/channel-catalog-freshness.adapter';
+import { CHANNEL_CATALOG_FRESHNESS_PORT } from './application/port/in/channel-catalog-freshness.port';
 import { ChannelsRegistrationStateModule } from './channels-registration-state.module';
 import { REGISTRATION_STATE_PORT, type RegistrationStatePort } from './application/port/in/registration-state.port';
 import { PrismaModule } from '../prisma/prisma.module';
@@ -36,7 +39,7 @@ import { CHANNELS_PRODUCT_MAPPING_GENERATION_PORT } from './application/port/out
  */
 @Module({
   // 리스팅 요약의 등록 상태는 등록 상태 reader 가 준다(KID-320). 그 reader 는 AI 실행 없이 Content 읽기 포트만 쓴다.
-  imports: [AiListingContentQueryModule, PrismaModule, ProductCollectionRuntimeModule, ChannelsRegistrationStateModule],
+  imports: [AiListingContentQueryModule, PrismaModule, ProductCollectionRuntimeModule, ChannelsRegistrationStateModule, OperationModule],
   providers: [
     ListingContentAdapter,
     { provide: CHANNEL_LISTING_CONTENT_PORT, useExisting: ListingContentAdapter },
@@ -70,7 +73,10 @@ import { CHANNELS_PRODUCT_MAPPING_GENERATION_PORT } from './application/port/out
     },
     ChannelsProductMappingGenerationAdapter,
     { provide: CHANNELS_PRODUCT_MAPPING_GENERATION_PORT, useExisting: ChannelsProductMappingGenerationAdapter },
+    // 카탈로그 신선도(KID-354): readiness·products가 옛 run 대신 이 capability를 읽는다.
+    ChannelCatalogFreshnessAdapter,
+    { provide: CHANNEL_CATALOG_FRESHNESS_PORT, useExisting: ChannelCatalogFreshnessAdapter },
   ],
-  exports: [CHANNEL_CATALOG_IDENTITY_PORT, CHANNEL_ACCOUNT_PORT, CHANNEL_LISTING_QUERY_PORT, CHANNEL_LISTING_REPORT_READ_PORT, CHANNEL_OPTION_RECIPE_PORT],
+  exports: [CHANNEL_CATALOG_IDENTITY_PORT, CHANNEL_CATALOG_FRESHNESS_PORT, CHANNEL_ACCOUNT_PORT, CHANNEL_LISTING_QUERY_PORT, CHANNEL_LISTING_REPORT_READ_PORT, CHANNEL_OPTION_RECIPE_PORT],
 })
 export class ChannelCatalogModule {}

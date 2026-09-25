@@ -2,14 +2,12 @@ Before working in this directory, always read this document first rather than re
 
 # coupang — Coupang Wing + Ad-Center Domain
 
-`extensions/kiditem-os/background/coupang/` collects Coupang Wing catalog and ad-center
+`extensions/kiditem-os/background/coupang/` collects Coupang ad-center
 data plus public Coupang search evidence, executes approved campaign
 registrations, and supports explicit Wing page automation.
 
 ## Owned Surfaces
 
-- Resumable Coupang Wing full-catalog collection: products, sellable options,
-  and provider media
 - Coupang ad-center scrape and approved campaign-registration execution
 - Public Coupang keyword SERP collection, bounded product-detail seller
   resolution, and server-selected seller-shop catalog collection
@@ -26,17 +24,12 @@ registrations, and supports explicit Wing page automation.
 - Ad-center collection uses its named source-owner attempt APIs; the retired
   generic extension sync endpoint is not a producer path.
 - Approved queued ad actions are fetched from `/api/ads/actions`.
-- Full catalog collection uses the account-scoped server-owned attempt
-  contract. The owner API defines start, upload, terminal, and status semantics;
-  the extension does not own a canonical run ledger.
-- The catalog import starts only through `startCollection`
-  (`channels.coupang_catalog`): the extension takes the environment's import
-  turn before it opens the basics attempt, and a restarted worker continues an
-  import only through lifetime recovery.
-- Every chunk and terminal request carries the server-issued attempt ID/token
-  and uses the owner's deterministic receipt identity. Replays are safe; stale,
-  expired, or post-terminal mutations stop the worker and leave the prior
-  complete snapshot untouched.
+- The Wing catalog is not collected here: it runs in the TypeScript operation
+  runtime (`extensions/src/collectors/channels.wing_catalog_*`, KID-354).
+- Every chunk and terminal request of an ad-center attempt carries the
+  server-issued attempt ID/token and uses the owner's deterministic receipt
+  identity. Replays are safe; stale, expired, or post-terminal mutations stop
+  the worker and leave the prior complete snapshot untouched.
 - Authorization profiles use `kiditem_environment_profiles_v1` in
   `chrome.storage.local`; tokens and operational state stay environment-bound.
 
@@ -59,7 +52,6 @@ registrations, and supports explicit Wing page automation.
 
 ## Coupang Rules
 
-- Wing catalog collection stays on Wing inventory and product-detail URLs.
 - Ad keyword collection (`advertising.ad_keyword`) reads the ad centre's own
   JSON APIs from the content script (isolated world) and never navigates:
   `tetris-api/campaigns` for the campaign roster and its `groupList`,
@@ -103,7 +95,5 @@ node --test extensions/tests/coupang-*.test.mjs extensions/tests/coupang-ads-scr
 node --check extensions/kiditem-os/background/coupang/worker.js
 ```
 
-Action execution, catalog collection, auth token, host bridge, or manifest
-changes need a focused manual browser check against the relevant Coupang
-surface. Catalog collection must preserve accepted chunks across service-worker
-suspension and advertise `coupangCatalogSnapshot = true` to KidItem.
+Action execution, auth token, host bridge, or manifest changes need a focused
+manual browser check against the relevant Coupang surface.

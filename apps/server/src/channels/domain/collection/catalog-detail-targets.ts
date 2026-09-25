@@ -1,8 +1,8 @@
 import { CATALOG_DELETED_STATUS } from './catalog-deletion-confirmation';
 
 /**
- * details 단계가 상세를 받을 상품과 삭제 확인이 필요한 상품을 목록 결과와 저장된 행으로
- * 정한다 (KID-348). 순수 규칙이며 DB·시각을 모른다.
+ * 상세를 받을 상품과 삭제 확인이 필요한 상품을 목록 결과와 저장된 행으로 정한다 (KID-348 → KID-354).
+ * 순수 규칙이며 DB·시각을 모른다. 서버 목록 kind의 finalize가 부르고, 확장은 계산하지 않는다.
  */
 export type ListedCatalogProduct = {
   externalProductId: string;
@@ -12,10 +12,14 @@ export type ListedCatalogProduct = {
 
 export type StoredCatalogListing = {
   externalProductId: string;
-  /** `rawJson.list.modifiedOn`(또는 구역 이전 평면 `modifiedOn`). */
-  listModifiedOn: string | null;
-  /** `rawJson.detail`(또는 평면 `detailDocuments`)이 있는가. */
-  hasDetail: boolean;
+  /** 상세를 반영한 적이 있는가. 값(`detailModifiedOn`)과 따로 둔다 — Wing이 `modifiedOn`을 주지 않는 상품도 있다. */
+  detailApplied: boolean;
+  /**
+   * 마지막으로 상세를 반영했을 때의 목록 `modifiedOn`(그때 목록에 없었으면 `null`).
+   * 목록 단계는 이 값을 건드리지 않고 상세 단계 finalize만 올린다 — 그래서 실패한 상세 단계의 대상은
+   * 다음 동기화가 자연히 다시 잡는다(KID-354: 별도 "못 끝낸 대상" 추적 없음).
+   */
+  detailModifiedOn: string | null;
   status: string | null;
 };
 
@@ -25,11 +29,10 @@ export type CatalogDetailPlan = {
 };
 
 /**
- * 대상은 셋이다: 저장된 행이 없는 신규 상품, 목록 `modifiedOn`이 저장값과 다른 상품, 상세
- * 구역이 없는 상품. `modifiedOn`이 한쪽만 없어도 다르다고 본다.
+ * 대상은 셋이다: 저장된 행이 없는 신규 상품, 상세를 반영한 적이 없는 상품, 목록 `modifiedOn`이 마지막 상세
+ * 반영 시점과 다른 상품. `modifiedOn`이 한쪽만 없어도 다르다고 본다.
  *
- * 사라진 상품은 저장돼 있으나 목록에 없고 아직 삭제로 기록되지 않은 상품이다. 활성 여부는
- * 보지 않는다 — 옛 규칙이 비활성으로만 둔 행도 한 번은 확인해서 삭제인지 가린다.
+ * 사라진 상품은 저장돼 있으나 목록에 없고 아직 삭제로 기록되지 않은 상품이다. 활성 여부는 보지 않는다.
  *
  * 운영자가 상품을 지목하면(`requestedProductIds`) 그 상품만 대상이고 삭제 확인은 없다.
  */
@@ -48,7 +51,7 @@ export function planCatalogDetailTargets(input: {
     if (listedIds.has(product.externalProductId)) continue;
     listedIds.add(product.externalProductId);
     const stored = storedById.get(product.externalProductId);
-    if (!stored || stored.listModifiedOn !== product.modifiedOn || !stored.hasDetail) {
+    if (!stored || !stored.detailApplied || stored.detailModifiedOn !== product.modifiedOn) {
       targets.push(product.externalProductId);
     }
   }
@@ -60,25 +63,4 @@ export function planCatalogDetailTargets(input: {
 
 function dedupe(ids: readonly string[]): string[] {
   return [...new Set(ids)];
-}
-
-/**
- * 앞 동기화의 상세 단계가 끝나지 못했으면(실패·만료·중단) 그 대상은 반영되지 않았다. 목록 단계가
- * 이미 새 `modifiedOn`을 저장했으므로 비교만으로는 다시 잡히지 않으니, 아직 목록에 있는 그 상품을
- * 이번 대상에 더한다 (KID-348: 실패한 동기화의 대상은 다음 동기화가 다시 받는다).
- */
-export function withUnfinishedDetailTargets(
-  plan: CatalogDetailPlan,
-  listedProductIds: readonly string[],
-  unfinishedTargetIds: readonly string[],
-): CatalogDetailPlan {
-  const targets = new Set(plan.detailTargetProductIds);
-  const unfinished = new Set(unfinishedTargetIds);
-  for (const id of listedProductIds) {
-    if (unfinished.has(id)) targets.add(id);
-  }
-  return {
-    detailTargetProductIds: listedProductIds.filter((id) => targets.has(id)),
-    absentProductIds: plan.absentProductIds,
-  };
 }

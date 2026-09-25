@@ -59,6 +59,12 @@ export const ListingDetailSectionSchema = z.object({
   documents: z.array(ListingDetailDocumentSchema),
   /** Wing 상세 API가 준 상품 문서(문서 목록 제외). */
   raw: JsonRecordSchema,
+  /**
+   * 이 상세를 반영했을 때의 목록 `modifiedOn`(KID-354 `detailModifiedOn`). 상세 kind의 finalize만 쓰고, 목록이
+   * 새 `modifiedOn`을 저장해도 그대로다 — 다음 동기화의 상세 대상은 이 값과 목록 값을 비교해 정한다.
+   * 이 칸이 생기기 전 행에는 없다(한 번 다시 받는다).
+   */
+  modifiedOn: z.string().nullable().optional(),
 }).strict();
 export type ListingDetailSection = z.infer<typeof ListingDetailSectionSchema>;
 
@@ -236,6 +242,7 @@ export function detailSectionUnchanged(
   incoming: Omit<ListingDetailSection, 'observedAt'> | Omit<OptionDetailSection, 'observedAt'>,
 ): boolean {
   if (!existing) return false;
-  const { observedAt: _ignored, ...stored } = existing;
+  // 관측 시각과 반영 기준 modifiedOn은 상세 내용이 아니다.
+  const { observedAt: _ignored, modifiedOn: _basis, ...stored } = existing as ListingDetailSection;
   return stableStringify(stored) === stableStringify(incoming);
 }

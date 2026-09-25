@@ -1,10 +1,9 @@
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
-import { makeChannelListingQuery } from '../../test-helpers/channel-catalog-ports';
+import { makeChannelRecipes } from '../../test-helpers/channel-catalog-ports';
+import { makeWingCatalogOperations } from '../../test-helpers/wing-catalog-operations';
 import { randomUUID } from 'node:crypto';
 import { ConflictException } from '@nestjs/common';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { AiCatalogMediaPublicationRepositoryAdapter } from '../../content/adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { PrismaService } from '../../prisma/prisma.service';
 import {
   makeTestPrisma,
@@ -12,12 +11,7 @@ import {
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
-  TEST_USER_ID,
 } from '../../test-helpers/real-prisma';
-import { ChannelCatalogPublicationRepositoryAdapter } from '../adapter/out/repository/channel-catalog-publication.repository.adapter';
-import { ChannelCatalogCollectionRepositoryAdapter } from '../adapter/out/repository/channel-catalog-collection.repository.adapter';
-import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
-import { ChannelOptionRecipeService } from '../application/service/listing/channel-option-recipe.service';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
 import { ChannelSkuAvailabilityService } from '../application/service/listing/channel-sku-availability.service';
 import { ProductAvailabilityRepositoryAdapter } from '../../products/adapter/out/persistence/product-availability.repository.adapter';
@@ -25,62 +19,35 @@ import { ProductAvailabilityUseCase } from '../../products/application/service/p
 import { ProductSourceReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { freezeProductRegistrationPayload } from '../domain/registration/registration-submission-payload';
-import { ChannelCatalogCollectionService } from '../application/service/collection/channel-catalog-collection.service';
-import { hashCatalogChunkPayload } from '../domain/collection/catalog-collection-hash';
-import type {
-  CoupangCatalogBasicProductV1,
-  PutCoupangCatalogChunkRequest,
-} from '@kiditem/shared/coupang-catalog-snapshot';
+import type { CoupangCatalogBasicProductV1 } from '@kiditem/shared/coupang-catalog-snapshot';
 import type { Prisma, PrismaClient } from '@prisma/client';
-import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
 const channelIntegrity = new ChannelIntegrityAdapter();
 
 const ACCOUNT_ID = '11111111-1111-4111-8111-111111111111';
 
-describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
+/** 목록 kind(`channels.wing_catalog_list`)의 finalize가 지키는 반영 규칙 — 실제 실행 계약과 PG로 돌린다. */
+describe('Wing catalog list publication over the operation contract (PG integration)', () => {
   let prisma: PrismaClient;
-  let collection: ChannelCatalogCollectionService;
+  let wing: ReturnType<typeof makeWingCatalogOperations>;
   let availability: ChannelSkuAvailabilityService;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const alerts = new SourceFailureAlerts(prisma as never);
-    const recipes = new ChannelOptionRecipeService(
-      new ChannelOptionRecipeRepositoryAdapter(
-        prisma as unknown as PrismaService,
-        new ProductTransactionalReadRepositoryAdapter(),
-      new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
-      ),
-    );
     const prismaService = prisma as unknown as PrismaService;
     availability = new ChannelSkuAvailabilityService(
       new ChannelProductMatchingRepositoryAdapter(
         prismaService,
         new ProductTransactionalReadRepositoryAdapter(),
         new ProductSourceReadRepositoryAdapter(prismaService),
-        recipes,
+        makeChannelRecipes(prisma),
       ),
       new ProductAvailabilityUseCase(
         new ProductAvailabilityRepositoryAdapter(prismaService),
       ),
     );
-    const publisher = new ChannelCatalogPublicationRepositoryAdapter(
-      prisma as unknown as PrismaService,
-      new AiCatalogMediaPublicationRepositoryAdapter(makeChannelListingQuery(prisma)),
-      alerts,
-      recipes,
-    new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
-    );
-    collection = new ChannelCatalogCollectionService(
-      new ChannelCatalogCollectionRepositoryAdapter(
-        prisma as unknown as PrismaService,
-        alerts,
-      ),
-      publisher, channelIntegrity,
-    );
+    wing = makeWingCatalogOperations(prisma);
   });
 
   afterAll(async () => {
@@ -104,6 +71,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
 
   it('publishes channel identities and media without creating operating products', async () => {
     const result = await publish(randomUUID(), [product('P-1', 'S-1')]);
+    expect(result).toMatchObject({ status: 'succeeded', result: { listedProductCount: 1, detailTargetProductIds: ['P-1'] } });
 
     const listing = await prisma.channelListing.findFirstOrThrow({
       where: {
@@ -116,13 +84,6 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       },
     });
 
-    expect(result).toMatchObject({
-      duplicate: false,
-      changes: {
-        createdProductCount: 1,
-        createdSkuCount: 1,
-      },
-    });
     expect(listing).toMatchObject({
       displayName: 'P-1 노출상품',
       isActive: true,
@@ -153,13 +114,9 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       },
     });
 
-    await expect(publish(randomUUID(), [product('P-1', 'S-1')])).resolves.toMatchObject({
-      duplicate: false,
-      changes: {
-        createdProductCount: 1,
-        createdSkuCount: 1,
-      },
-    });
+    await expect(publish(randomUUID(), [product('P-1', 'S-1')])).resolves.toMatchObject({ status: 'succeeded' });
+    expect(await prisma.channelListing.count()).toBe(1);
+    expect(await prisma.channelListingOption.count()).toBe(1);
   });
 
   it('preserves confirmed components and operator safety stock on recollection without starting stock actions', async () => {
@@ -339,7 +296,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       await prisma.masterProduct.delete({ where: { id: source.id } });
       await expect(
         publish(randomUUID(), [product('P-DELETED', 'S-DELETED', { sellerSku })]),
-      ).resolves.toMatchObject({ duplicate: false });
+      ).resolves.toMatchObject({ status: 'succeeded' });
 
       const replacement = await prisma.masterProduct.create({
         data: {
@@ -354,7 +311,7 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
       });
       await expect(
         publish(randomUUID(), [product('P-DELETED', 'S-DELETED', { sellerSku })]),
-      ).resolves.toMatchObject({ duplicate: false });
+      ).resolves.toMatchObject({ status: 'succeeded' });
 
       const afterOption = await prisma.channelListingOption.findUniqueOrThrow({
         where: { id: option.id },
@@ -405,8 +362,8 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     const first = await publish(randomUUID(), [product('P-1', 'S-1')]);
     const repeated = await publish(randomUUID(), [product('P-1', 'S-1')]);
 
-    expect(repeated.sourceImportRunId).not.toBe(first.sourceImportRunId);
-    expect(repeated.duplicate).toBe(false);
+    expect(repeated.id).not.toBe(first.id);
+    expect(repeated.status).toBe('succeeded');
     expect(await prisma.channelListing.count()).toBe(1);
     expect(await prisma.channelListingOption.count()).toBe(1);
   });
@@ -449,74 +406,9 @@ describe('ChannelCatalogPublicationRepositoryAdapter (PG integration)', () => {
     expect(await prisma.channelListing.count({ where: { externalId: 'P-2' } })).toBe(0);
   });
 
-  async function publish(key: string, products: ReturnType<typeof product>[]) {
-    const permit = await collection.start({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      idempotencyKey: key,
-      request: { collectorVersion: 'wing-inventory-v1', stage: 'basics' },
-    });
-    const scope = {
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      channelAccountId: ACCOUNT_ID,
-      runId: permit.attemptId,
-      attemptToken: permit.attemptToken,
-    };
-    const manifest = {
-      totalItems: products.length,
-      pageSize: 100,
-      expectedPages: 1,
-      firstPageFingerprint: 'a'.repeat(64),
-    };
-    const payloads: PutCoupangCatalogChunkRequest['payload'][] = [
-      {
-        version: 1,
-        kind: 'discovery_page',
-        page: 1,
-        manifest,
-        items: products.map((p, ordinal) => ({
-          ordinal,
-          externalProductId: p.externalProductId,
-          registeredName: p.registeredName,
-          primaryImageUrl: null,
-          saleStatus: null,
-        })),
-      },
-      {
-        version: 1,
-        kind: 'listing_basics',
-        startOrdinal: 0,
-        products: products.map((p, ordinal) => ({
-          ordinal,
-          product: p,
-        })),
-      },
-      { version: 1, kind: 'manifest_confirmation', manifest },
-    ];
-    for (const payload of payloads) {
-      await collection.putChunk({
-        ...scope,
-        kind: payload.kind,
-        sequence: 1,
-        request: {
-          kind: payload.kind,
-          sequence: 1,
-          payload,
-          checksum: hashCatalogChunkPayload(payload, channelIntegrity.sha256),
-          itemCount: payload.kind === 'manifest_confirmation' ? 1 : products.length,
-        } as PutCoupangCatalogChunkRequest,
-      });
-    }
-    const ready = await collection.getStatus(scope);
-    const completed = await collection.finalize({
-      ...scope,
-      request: { snapshotHash: ready.snapshotHash! },
-    });
-    // 목록 단계가 남긴 상세 넘겨받기를 끝내 다음 수집이 계정을 잡을 수 있게 한다.
-    await collection.cancel({ ...scope });
-    return completed.publication!;
+  /** 목록 kind 하나를 끝까지 돌린다. 연쇄(상세)는 이 규칙들과 무관해 돌리지 않는다. */
+  async function publish(_key: string, products: ReturnType<typeof product>[]) {
+    return wing.runList(ACCOUNT_ID, products);
   }
 
   async function mappingGeneration(): Promise<bigint> {

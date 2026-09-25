@@ -32,6 +32,14 @@ test('incoming adapters depend on input contracts and domain stays in declared a
   }
 });
 
+test('an operation owner adapter may implement the operation contract owner port (KID-354)', () => {
+  const owner = 'channels/adapter/in/operation/wing-catalog-operation-owners.ts';
+  assert.deepEqual(hexagonalBoundaryViolations(owner, "import type { OperationOwnerPort } from '../../../../common/operation/application/port/out/owner/operation-owner.port';"), []);
+  assert.deepEqual(hexagonalBoundaryViolations(owner, "import { OperationOwner } from '../../../../common/operation/application/port/out/owner/operation-owner.decorator';"), []);
+  // 채널 자신의 port/out은 여전히 막는다.
+  assert.ok(hexagonalBoundaryViolations(owner, "import type { X } from '../../../application/port/out/repository/x';").length);
+});
+
 // KID-310: the scanner now covers sourcing and content too, but only channels
 // nests domain/ and application/service/ by named business area — sourcing
 // and content mostly sit flat (one file per concern), so a flat file there

@@ -1,5 +1,9 @@
+import '../collectors/channels.wing_catalog_details';
+import '../collectors/channels.wing_catalog_excel';
+import '../collectors/channels.wing_catalog_list';
 import '../collectors/test.echo';
 import { createBrowserResources } from '../core/browser';
+import { ACCOUNT_SITE, ENTRY_SITES, createSiteHandles } from './site-handles';
 import { legacyApiPort, legacyGlobalsPresent, legacyKeepAlive, registerWithLegacyDomains } from './legacy-bridge';
 import { createOperationActions } from './operation-actions';
 
@@ -11,8 +15,14 @@ export function installEntry(): boolean {
   if (!legacyGlobalsPresent()) return false;
   const externalActions = createOperationActions({
     apiFor: legacyApiPort,
-    // 사이트 탭이 필요한 kind가 옮겨질 때 sites/*의 origin을 여기 모은다(KID-359 이후).
-    browser: createBrowserResources(chrome, {}),
+    // `account:<id>` 잠금은 그 계정의 Wing 탭을 쓴다(KID-354). 로그인 확인은 사이트 호출기의 SITE_LOGIN_REQUIRED.
+    browser: createBrowserResources(chrome, ENTRY_SITES, { accountSite: ACCOUNT_SITE }),
+    siteFor: createSiteHandles({
+      fetch: (input, init) => fetch(input, init),
+      cookies: { get: (details) => chrome.cookies.get(details) },
+      now: () => Date.now(),
+      sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    }),
     keepAlive: legacyKeepAlive,
   });
   registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true } });

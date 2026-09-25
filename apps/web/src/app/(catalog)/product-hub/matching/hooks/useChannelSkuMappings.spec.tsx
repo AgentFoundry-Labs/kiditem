@@ -228,14 +228,29 @@ function manualMatchStatus() {
   };
 }
 
+/** 엑셀 업로드 = Wing 카탈로그 엑셀 실행 하나(KID-351). */
 function importResponse() {
+  return {
+    duplicate: false,
+    operationId: '55555555-5555-4555-8555-555555555555',
+    changes: {
+      createdProductCount: 1,
+      updatedProductCount: 0,
+      createdSkuCount: 1,
+      updatedSkuCount: 0,
+      skippedRowCount: 0,
+    },
+  };
+}
+
+function rocketImportResponse() {
   const now = '2026-08-03T00:00:00.000Z';
   return {
     run: {
       id: '55555555-5555-4555-8555-555555555555',
-      sourceType: 'coupang_wing_catalog' as const,
-      channelAccountId: ACCOUNT_A,
-      fileName: 'wing.xlsx',
+      sourceType: 'coupang_rocket_matching_csv' as const,
+      channelAccountId: ACCOUNT_B,
+      fileName: 'rocket443-sellpia-matching.csv',
       fileHash: 'a'.repeat(64),
       status: 'completed' as const,
       rowCount: 1,
@@ -253,26 +268,6 @@ function importResponse() {
       updatedAt: now,
     },
     duplicate: false,
-    changes: {
-      createdProductCount: 1,
-      updatedProductCount: 0,
-      createdSkuCount: 1,
-      updatedSkuCount: 0,
-      skippedRowCount: 0,
-    },
-  };
-}
-
-function rocketImportResponse() {
-  const response = importResponse();
-  return {
-    ...response,
-    run: {
-      ...response.run,
-      sourceType: 'coupang_rocket_matching_csv' as const,
-      channelAccountId: ACCOUNT_B,
-      fileName: 'rocket443-sellpia-matching.csv',
-    },
     changes: {
       createdProductCount: 1,
       updatedProductCount: 0,

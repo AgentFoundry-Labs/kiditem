@@ -492,11 +492,10 @@ export const queryKeys = {
       [...queryKeys.channelListings.all, 'list', params] as const,
     detail: (id: string) => [...queryKeys.channelListings.all, 'detail', id] as const,
   },
-  coupangCatalogImports: {
-    all: ['coupangCatalogImports'] as const,
-    /** One store account's latest Wing catalog import, which every 상품 받기 control reads. */
-    source: (channelAccountId: string) =>
-      [...queryKeys.coupangCatalogImports.all, 'source', channelAccountId] as const,
+  wingCatalogOperations: {
+    all: ['wingCatalogOperations'] as const,
+    /** 조직의 최근 Wing 카탈로그 실행(목록·상세·엑셀). 모든 상품 받기 컨트롤이 같은 읽기를 계정별로 나눠 본다(KID-354). */
+    recent: () => [...queryKeys.wingCatalogOperations.all, 'recent'] as const,
   },
   organizations: {
     all: ['organizations'] as const,

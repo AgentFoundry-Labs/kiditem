@@ -4,10 +4,9 @@ import { shiftBusinessDateKey } from '../common';
 /**
  * Producers whose collection needs a browser resource that one collection in a
  * browser environment holds at a time. Any path that starts one of them asks
- * the extension through the single start contract below (KID-147):
- * - the five collections that take turns in the Coupang collection window;
- * - the Coupang Wing catalog import, which reads Wing through the browser's one
- *   Wing login and so imports one channel account at a time.
+ * the extension through the single start contract below (KID-147): the five
+ * collections that take turns in the Coupang collection window. The Wing
+ * catalog is an operation kind now (`operation.start`, KID-354).
  * The extension takes the resource's turn and opens the attempt with the
  * source owner. When another collection holds it, the extension refuses
  * without opening an attempt.
@@ -18,7 +17,6 @@ export const COLLECTION_START_PRODUCERS = [
   'advertising.profitability_import',
   'dashboard.wing_sales',
   'dashboard.wing_kpi',
-  'channels.coupang_catalog',
 ] as const;
 
 export const CollectionStartProducerSchema = z.enum(COLLECTION_START_PRODUCERS);
@@ -96,12 +94,6 @@ export const CollectionStartRequestSchema = z.discriminatedUnion('producer', [
       }),
   ),
   startRequest('dashboard.wing_kpi', AccountScopeSchema),
-  // One store account per import: the extension opens its basics attempt and
-  // hands off to details inside the same import.
-  startRequest(
-    'channels.coupang_catalog',
-    z.object({ channelAccountId: z.string().uuid() }).strict(),
-  ),
 ]);
 export type CollectionStartRequest = z.infer<typeof CollectionStartRequestSchema>;
 

@@ -144,4 +144,20 @@ describe('RegisteredListingCard', () => {
 
     expect(screen.getByText('가격 미지정')).toBeInTheDocument();
   });
+
+  it('상세 다시 받기(KID-351): 쿠팡 윙 리스팅에만 버튼을 두고, 누르면 그 리스팅을 넘기며 카드를 열지 않는다', () => {
+    const onOpen = vi.fn();
+    const onRefetchDetail = vi.fn();
+    const listing = listingFixture();
+    const { unmount } = render(<RegisteredListingCard listing={listing} onOpen={onOpen} onRefetchDetail={onRefetchDetail} />);
+
+    fireEvent.click(screen.getByRole('button', { name: `${listing.listingName} 상세 다시 받기` }));
+
+    expect(onRefetchDetail).toHaveBeenCalledWith(listing);
+    expect(onOpen).not.toHaveBeenCalled();
+    unmount();
+
+    render(<RegisteredListingCard listing={listingFixture({ channel: 'smartstore' })} onOpen={onOpen} onRefetchDetail={onRefetchDetail} />);
+    expect(screen.queryByRole('button', { name: /상세 다시 받기/ })).not.toBeInTheDocument();
+  });
 });

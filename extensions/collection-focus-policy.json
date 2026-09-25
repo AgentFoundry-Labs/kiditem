@@ -7,7 +7,6 @@
   "legacyFocusCounts": {
     "extensions/kiditem-os/background/service-worker.js": 0,
     "extensions/kiditem-os/background/coupang/worker.js": 0,
-    "extensions/kiditem-os/background/coupang/coupang-catalog-import.js": 0,
     "extensions/kiditem-os/background/orders/worker.js": 0,
     "extensions/kiditem-os/background/sourcing/worker.js": 0,
     "extensions/kiditem-os/background/sourcing/1688-trend-collector.js": 0,

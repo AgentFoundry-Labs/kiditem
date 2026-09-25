@@ -181,7 +181,7 @@ describe('upsertChannelCatalogIdentities', () => {
     // 옵션 upsert 는 두 번째 문장이다. 보간된 SQL 조각이 어느 쪽을 고르는지 본다.
     const [, ...values] = executeRaw.mock.calls[1] as [unknown, ...unknown[]];
     const fragments = values
-      .map((value) => (value as { sql?: string }).sql)
+      .map((value) => (value as { sql?: string } | null)?.sql)
       .filter((sql): sql is string => typeof sql === 'string');
     expect(fragments).toEqual([
       'EXCLUDED.item_name',

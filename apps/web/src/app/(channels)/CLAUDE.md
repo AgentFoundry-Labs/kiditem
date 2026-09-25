@@ -39,8 +39,8 @@
   (주문수집 · 클레임수집 · 운송장 송신 · 문의수집 · 문의답변 · 상품등록 · 상품수정 · 상품상태송신 ·
   재고송신). 칸은 켜고 끄는 스위치가 아니라 **그 일이 지금 되는지**다(`_shared/mall-capabilities.ts`).
   경로가 없는 일에 초록을 칠하지 않는다.
-- 쿠팡 윙은 엑셀로도 가져온다(`_shared/CoupangWingExcelImport`). 확장의 '상품 받기'와 같은 owner
-  경로(`catalog-imports/coupang-wing`)이고 둘 다 산다 — 엑셀은 가격 · 재고 · 사진이 없다.
+- 쿠팡 윙은 엑셀로도 가져온다(`_shared/CoupangWingExcelImport`). 업로드는 `channels.wing_catalog_excel`
+  실행 하나이고(KID-351) 확장의 '상품 받기'(목록·상세 kind)와 둘 다 산다 — 엑셀은 가격 · 재고 · 사진이 없다.
 - `_shared/CoupangCatalogEdit`(수정요청)은 가져오기가 아니다. 빈 칸만 채운 파일을 만들 뿐이고
   올리는 것은 사람이다. 윙 업로드 창 항목을 '쿠팡상품정보'로 바꿔야 접수된다(기본값은 가격/재고).
 - `/mall-listings`: 탭 두 개. **등록 현황**은 상품 마스터 × 몰 매트릭스이고,

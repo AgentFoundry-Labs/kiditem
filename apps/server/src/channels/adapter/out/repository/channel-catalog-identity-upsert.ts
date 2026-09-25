@@ -113,7 +113,7 @@ export async function upsertChannelCatalogBasics(
       INSERT INTO channel_listings (
         id, organization_id, channel_account_id, external_id,
         channel_name, display_name, category, manufacturer, brand,
-        status, image_url, raw_json, last_import_run_id, is_active, created_at, updated_at
+        status, image_url, raw_json, last_import_run_id, last_operation_id, is_active, created_at, updated_at
       )
       SELECT
         (record->>'id')::uuid,
@@ -129,6 +129,7 @@ export async function upsertChannelCatalogBasics(
         record->>'imageUrl',
         record->'rawJson',
         ${input.lastImportRunId}::uuid,
+        ${input.lastOperationId ?? null}::uuid,
         TRUE,
         NOW(),
         NOW()
@@ -144,6 +145,7 @@ export async function upsertChannelCatalogBasics(
         image_url = COALESCE(EXCLUDED.image_url, channel_listings.image_url),
         raw_json = COALESCE(channel_listings.raw_json, '{}'::jsonb) || EXCLUDED.raw_json,
         last_import_run_id = EXCLUDED.last_import_run_id,
+        last_operation_id = EXCLUDED.last_operation_id,
         is_active = TRUE,
         updated_at = NOW()
     `;
@@ -249,7 +251,7 @@ export async function upsertChannelCatalogBasics(
       INSERT INTO channel_listing_options (
         id, listing_id, organization_id, external_option_id,
         item_name, sale_price, seller_sku, barcode, model_number, status,
-        attributes_json, raw_json, last_import_run_id, is_active,
+        attributes_json, raw_json, last_import_run_id, last_operation_id, is_active,
         created_at, updated_at
       )
       SELECT
@@ -266,6 +268,7 @@ export async function upsertChannelCatalogBasics(
         record->'attributesJson',
         record->'rawJson',
         ${input.lastImportRunId}::uuid,
+        ${input.lastOperationId ?? null}::uuid,
         TRUE,
         NOW(),
         NOW()
@@ -278,6 +281,7 @@ export async function upsertChannelCatalogBasics(
         status = COALESCE(EXCLUDED.status, channel_listing_options.status),
         raw_json = COALESCE(channel_listing_options.raw_json, '{}'::jsonb) || EXCLUDED.raw_json,
         last_import_run_id = EXCLUDED.last_import_run_id,
+        last_operation_id = EXCLUDED.last_operation_id,
         is_active = TRUE,
         updated_at = NOW()
     `;
@@ -348,7 +352,9 @@ export async function updateChannelCatalogDetails(
     organizationId: string;
     channelAccountId: string;
     products: ChannelCatalogDetailIdentityProduct[];
-    lastImportRunId: string;
+    lastImportRunId: string | null;
+    /** 상세를 반영한 실행(KID-354). 주면 `lastImportRunId`는 `null`이다. */
+    lastOperationId?: string | null;
     rawSource: string;
   },
 ): Promise<Pick<ChannelCatalogIdentityUpsertResult, 'mappingIdentityChanged' | 'changes' | 'externalProductIds' | 'externalOptionIds' | 'identityRemaps' | 'listingIds' | 'persistedListings'> & {
@@ -539,6 +545,7 @@ export async function updateChannelCatalogDetails(
       UPDATE channel_listings AS listing
       SET raw_json = COALESCE(listing.raw_json, '{}'::jsonb) || incoming."rawJson",
           last_import_run_id = ${input.lastImportRunId}::uuid,
+          last_operation_id = ${input.lastOperationId ?? null}::uuid,
           updated_at = NOW()
       FROM jsonb_to_recordset(${JSON.stringify(batch)}::jsonb)
         AS incoming(id uuid, "rawJson" jsonb)
@@ -560,6 +567,7 @@ export async function updateChannelCatalogDetails(
           seller_sku = CASE WHEN incoming."hasSellerSku" THEN incoming."sellerSku" ELSE option_row.seller_sku END,
           raw_json = COALESCE(option_row.raw_json, '{}'::jsonb) || incoming."rawJson",
           last_import_run_id = ${input.lastImportRunId}::uuid,
+          last_operation_id = ${input.lastOperationId ?? null}::uuid,
           updated_at = NOW()
       FROM jsonb_to_recordset(${JSON.stringify(batch.map((row) => ({
         ...row,
@@ -1317,7 +1325,7 @@ export async function upsertChannelCatalogIdentities(
       INSERT INTO channel_listings (
         id, organization_id, channel_account_id, external_id,
         channel_name, display_name, category, manufacturer, brand,
-        status, image_url, raw_json, last_import_run_id, is_active, created_at, updated_at
+        status, image_url, raw_json, last_import_run_id, last_operation_id, is_active, created_at, updated_at
       )
       SELECT
         (record->>'id')::uuid,
@@ -1333,6 +1341,7 @@ export async function upsertChannelCatalogIdentities(
         record->>'imageUrl',
         record->'raw',
         ${input.lastImportRunId}::uuid,
+        ${input.lastOperationId ?? null}::uuid,
         TRUE,
         NOW(),
         NOW()
@@ -1350,6 +1359,10 @@ export async function upsertChannelCatalogIdentities(
         last_import_run_id = COALESCE(
           EXCLUDED.last_import_run_id,
           channel_listings.last_import_run_id
+        ),
+        last_operation_id = COALESCE(
+          EXCLUDED.last_operation_id,
+          channel_listings.last_operation_id
         ),
         is_active = TRUE,
         updated_at = NOW()
@@ -1401,7 +1414,7 @@ export async function upsertChannelCatalogIdentities(
       INSERT INTO channel_listing_options (
         id, listing_id, organization_id, external_option_id,
         item_name, sale_price, seller_sku, barcode, model_number, status,
-        attributes_json, raw_json, last_import_run_id, is_active,
+        attributes_json, raw_json, last_import_run_id, last_operation_id, is_active,
         created_at, updated_at
       )
       SELECT
@@ -1418,6 +1431,7 @@ export async function upsertChannelCatalogIdentities(
         record->'attributesJson',
         record->'rawJson',
         ${input.lastImportRunId}::uuid,
+        ${input.lastOperationId ?? null}::uuid,
         TRUE,
         NOW(),
         NOW()
@@ -1435,6 +1449,10 @@ export async function upsertChannelCatalogIdentities(
         last_import_run_id = COALESCE(
           EXCLUDED.last_import_run_id,
           channel_listing_options.last_import_run_id
+        ),
+        last_operation_id = COALESCE(
+          EXCLUDED.last_operation_id,
+          channel_listing_options.last_operation_id
         ),
         is_active = TRUE,
         updated_at = NOW()

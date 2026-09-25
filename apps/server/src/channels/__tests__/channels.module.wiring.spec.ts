@@ -40,14 +40,15 @@ import { CHANNEL_ACTIVITY_PORT } from '../application/port/out/alerts/channel-ac
 import { CHANNEL_INTEGRITY_PORT } from '../application/port/out/integrity/channel-integrity.port';
 import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from '../application/port/out/repository/channel-dashboard.repository.port';
 import { ChannelCatalogImportController } from '../adapter/in/web/channel-catalog-import.controller';
-import { ChannelCatalogImportRepositoryAdapter } from '../adapter/out/repository/channel-catalog-import.repository.adapter';
-import { CHANNEL_CATALOG_IMPORT_PORT } from '../application/port/in/channel-catalog-import.port';
-import { CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT } from '../application/port/out/repository/channel-catalog-import.repository.port';
-import { CHANNEL_CATALOG_COLLECTION_REPOSITORY_PORT } from '../application/port/out/repository/channel-catalog-collection.repository.port';
 import { CHANNEL_CATALOG_PUBLICATION_PORT } from '../application/port/out/repository/channel-catalog-publication.port';
-import { CHANNEL_CATALOG_COLLECTION_PORT } from '../application/port/in/channel-catalog-collection.port';
-import { ChannelCatalogImportService } from '../application/service/collection/channel-catalog-import.service';
-import { ChannelCatalogCollectionService } from '../application/service/collection/channel-catalog-collection.service';
+import { WingCatalogOperationService } from '../application/service/collection/wing-catalog-operation.service';
+import {
+  WingCatalogDetailsOperationOwner,
+  WingCatalogExcelOperationOwner,
+  WingCatalogListOperationOwner,
+} from '../adapter/in/operation/wing-catalog-operation-owners';
+import { OPERATION_PORT } from '../../common/operation/application/port/in/operation.port';
+import { OperationModule } from '../../common/operation/operation.module';
 import { ChannelProductMatchingController } from '../adapter/in/web/channel-product-matching.controller';
 import { ChannelProductMatchingRepositoryAdapter } from '../adapter/out/repository/channel-product-matching.repository.adapter';
 import { ChannelRecipeSuggestionContextRepositoryAdapter } from '../adapter/out/repository/channel-recipe-suggestion-context.repository.adapter';
@@ -193,16 +194,19 @@ describe('ChannelsModule canonical owner wiring', () => {
       ChannelRecipeSuggestionService,
     ]);
     expectFactoryBinding(providers, CHANNEL_DOCUMENT_EXPORT_PORT, [CHANNEL_DOCUMENTS_PORT]);
-    expectFactoryBinding(providers, ChannelCatalogImportService, [
-      CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT,
-      CHANNEL_DOCUMENTS_PORT,
-    ]);
-    expectFactoryBinding(providers, ChannelCatalogCollectionService, [
-      CHANNEL_CATALOG_COLLECTION_REPOSITORY_PORT,
+    // Wing 카탈로그 실행 kind 셋(KID-354): owner는 provider로 두면 실행 계약이 부팅 때 모은다.
+    expectFactoryBinding(providers, WingCatalogOperationService, [
       CHANNEL_CATALOG_PUBLICATION_PORT,
+      CHANNEL_DOCUMENTS_PORT,
+      OPERATION_PORT,
       CHANNEL_INTEGRITY_PORT,
     ]);
-    expect(providers).toContain(ChannelCatalogImportRepositoryAdapter);
+    expect(providers).toEqual(expect.arrayContaining([
+      WingCatalogListOperationOwner,
+      WingCatalogDetailsOperationOwner,
+      WingCatalogExcelOperationOwner,
+    ]));
+    expect(Reflect.getMetadata(IMPORTS_KEY, ChannelsModule)).toContain(OperationModule);
     expectFactoryBinding(providers, ChannelProductMatchingService, [
       CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT,
       CATALOG_DISPLAY_MEDIA_PORT,
@@ -265,21 +269,6 @@ describe('ChannelsModule canonical owner wiring', () => {
       providers,
       CHANNEL_REGISTRATION_PORT,
       ChannelRegistrationService,
-    );
-    expectBinding(
-      providers,
-      CHANNEL_CATALOG_IMPORT_REPOSITORY_PORT,
-      ChannelCatalogImportRepositoryAdapter,
-    );
-    expectBinding(
-      providers,
-      CHANNEL_CATALOG_IMPORT_PORT,
-      ChannelCatalogImportService,
-    );
-    expectBinding(
-      providers,
-      CHANNEL_CATALOG_COLLECTION_PORT,
-      ChannelCatalogCollectionService,
     );
     expectBinding(
       providers,

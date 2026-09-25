@@ -9,6 +9,7 @@ import { lockProductMapping } from '../../../../products/transaction/product-map
 import {
   readCompletedCatalogRunIds,
   publishedCatalogOptionWhere,
+  publishedCatalogListingBranches,
 } from './completed-catalog-run';
 import { readLatestListingSaleStatusFacts } from '../persistence/channel-listing-daily-facts';
 import { readListingProductIds } from '../persistence/listing-product-summary.reader';
@@ -729,7 +730,7 @@ async function availabilityListingWhere(
     OR: [
       // 수집에서 만든 초안이 붙은 몰 상품은 늘 우리 목록이다.
       { salesProduct: { organizationId, sourceRecordId: { not: null } } },
-      ...(completedRunIds.length > 0 ? [{ lastImportRunId: { in: completedRunIds } }] : []),
+      ...publishedCatalogListingBranches(completedRunIds),
       {
         options: {
           some: publishedCatalogOptionWhere(organizationId),

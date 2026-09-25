@@ -3,6 +3,7 @@ import { SALES_PRODUCT_PORT } from './application/port/in/sales-product.port';
 import { ProductCollectionRuntimeModule } from '../products/product-collection-runtime.module';
 import { StockoutCheckController } from './adapter/in/web/stockout-check.controller';
 import { StockoutCheckService } from './application/service/listing/stockout-check.service';
+import { OperationModule } from '../common/operation/operation.module';
 import { StockoutCheckPersistenceAdapter } from './adapter/out/persistence/stockout-check.persistence.adapter';
 import { STOCKOUT_CHECK_PORT } from './application/port/in/listing/stockout-check.port';
 import { STOCKOUT_CHECK_PERSISTENCE_PORT } from './application/port/out/persistence/stockout-check.persistence.port';
@@ -33,7 +34,7 @@ import { CHANNEL_ADAPTER_REGISTRY_PORT } from './application/port/out/channel/ch
  * 합쳤다 — 등록 실행 서비스가 이미 그 모듈을 가져왔었다.
  */
 @Module({
-  imports: [ProductCollectionRuntimeModule, PrismaModule, ChannelsModule, AiModule, SalesProductModule, ChannelCatalogModule, ChannelsRegistrationStateModule],
+  imports: [ProductCollectionRuntimeModule, PrismaModule, ChannelsModule, AiModule, SalesProductModule, ChannelCatalogModule, ChannelsRegistrationStateModule, OperationModule],
   controllers: [StockoutCheckController, ChannelRegistrationExecutionController, RegistrationTargetExecutionController],
   providers: [
     StockoutCheckPersistenceAdapter,
