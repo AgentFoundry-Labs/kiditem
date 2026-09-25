@@ -19,8 +19,8 @@ containing test-style underscore paths.
   `src/README.md`). `npm run extension:build` bundles it into the committed
   `kiditem-os/runtime/kiditem-runtime.js`, one IIFE exposing only the
   `KidItemRuntime` global, loaded last by the service worker.
-- Rebuild and commit the bundle with every `src/` change and every manifest
-  version bump (the bundle embeds the version); CI fails on a stale bundle.
+- Rebuild and commit the bundle only when `src/` (or a bundled
+  `@kiditem/shared` source) changes; CI fails on a stale bundle.
 - The old JS modules are loaded unbundled; do not route them through the build.
 - Keep the manifest `key`; it pins the extension ID
   ([runbook](../docs/runbooks/extension-releases.md)).

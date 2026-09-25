@@ -13,4 +13,10 @@ describe('committed runtime bundle', () => {
 
     expect(runtime.OPERATION_STATUSES).toEqual(['executing', 'succeeded', 'failed', 'cancelled']);
   });
+
+  it('reads the version from the installed manifest, so a version bump needs no rebuild', () => {
+    const runtime = loadRuntime({ runtime: { getManifest: () => ({ version: '9.8.7' }) } });
+
+    expect((runtime.version as () => string)()).toBe('9.8.7');
+  });
 });

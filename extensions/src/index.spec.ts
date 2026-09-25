@@ -1,10 +1,14 @@
-import { describe, expect, it } from 'vitest';
-import manifest from '../kiditem-os/manifest.json';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import * as KidItemRuntime from './index';
 
+afterEach(() => {
+  vi.unstubAllGlobals();
+});
+
 describe('KidItemRuntime', () => {
-  it('speaks the loadable manifest version', () => {
-    expect(KidItemRuntime.version).toBe(manifest.version);
-    expect(KidItemRuntime.version).toMatch(/^\d+\.\d+\.\d+$/);
+  it('reports the installed manifest version at call time', () => {
+    vi.stubGlobal('chrome', { runtime: { getManifest: () => ({ version: '9.8.7' }) } });
+
+    expect(KidItemRuntime.version()).toBe('9.8.7');
   });
 });

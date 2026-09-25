@@ -22,11 +22,8 @@ var KidItemRuntime = (() => {
   var index_exports = {};
   __export(index_exports, {
     OPERATION_STATUSES: () => OPERATION_STATUSES,
-    version: () => version2
+    version: () => version
   });
-
-  // extensions/kiditem-os/manifest.json
-  var version = "1.2.27";
 
   // node_modules/zod/v3/external.js
   var external_exports = {};
@@ -1006,11 +1003,11 @@ var KidItemRuntime = (() => {
     regex = `${regex}(${opts.join("|")})`;
     return new RegExp(`^${regex}$`);
   }
-  function isValidIP(ip, version3) {
-    if ((version3 === "v4" || !version3) && ipv4Regex.test(ip)) {
+  function isValidIP(ip, version2) {
+    if ((version2 === "v4" || !version2) && ipv4Regex.test(ip)) {
       return true;
     }
-    if ((version3 === "v6" || !version3) && ipv6Regex.test(ip)) {
+    if ((version2 === "v6" || !version2) && ipv6Regex.test(ip)) {
       return true;
     }
     return false;
@@ -1037,11 +1034,11 @@ var KidItemRuntime = (() => {
       return false;
     }
   }
-  function isValidCidr(ip, version3) {
-    if ((version3 === "v4" || !version3) && ipv4CidrRegex.test(ip)) {
+  function isValidCidr(ip, version2) {
+    if ((version2 === "v4" || !version2) && ipv4CidrRegex.test(ip)) {
       return true;
     }
-    if ((version3 === "v6" || !version3) && ipv6CidrRegex.test(ip)) {
+    if ((version2 === "v6" || !version2) && ipv6CidrRegex.test(ip)) {
       return true;
     }
     return false;
@@ -4186,6 +4183,8 @@ var KidItemRuntime = (() => {
   }).strict();
 
   // extensions/src/index.ts
-  var version2 = version;
+  function version() {
+    return chrome.runtime.getManifest().version;
+  }
   return __toCommonJS(index_exports);
 })();
