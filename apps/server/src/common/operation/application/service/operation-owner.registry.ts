@@ -1,4 +1,4 @@
-import { Injectable, type OnModuleInit } from '@nestjs/common';
+import { Injectable, Logger, type OnModuleInit } from '@nestjs/common';
 import { DiscoveryService, Reflector } from '@nestjs/core';
 import { OPERATION_LEASE_MS, OperationKindSchema } from '@kiditem/shared/operation';
 import type { OperationOwnerPort } from '../port/out/owner/operation-owner.port';
@@ -11,6 +11,7 @@ import { OPERATION_OWNER_METADATA } from '../port/out/owner/operation-owner.deco
 @Injectable()
 export class OperationOwnerRegistry implements OnModuleInit {
   private readonly owners = new Map<string, OperationOwnerPort>();
+  private readonly logger = new Logger(OperationOwnerRegistry.name);
 
   constructor(
     private readonly discovery: DiscoveryService,
@@ -24,6 +25,8 @@ export class OperationOwnerRegistry implements OnModuleInit {
       if (!this.reflector.get<boolean>(OPERATION_OWNER_METADATA, instance.constructor)) continue;
       this.register(instance as OperationOwnerPort);
     }
+    // 부팅 로그로 어떤 kind가 켜졌는지 확인한다(예: 로컬·QA의 `test.echo`).
+    this.logger.log(`operation kinds: ${[...this.owners.keys()].sort().join(', ') || '(none)'}`);
   }
 
   register(owner: OperationOwnerPort): void {
