@@ -867,6 +867,9 @@ function json(value: unknown): Prisma.InputJsonValue {
 }
 
 function toArtifact(row: ArtifactRow): OrderCollectionArtifact {
+  // 옛 attempt 경로의 artifact는 run id가 있다. 실행 계약 kind가 보관한 artifact(`operationId`)는 이 리더를 거치지
+  // 않는다(KID-359 wave2 H3가 실행 id로 읽는다).
+  if (!row.sourceImportRunId) throw new Error('order collection artifact without source_import_run_id');
   return {
     artifactId: row.id,
     sourceImportRunId: row.sourceImportRunId,

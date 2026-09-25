@@ -25,6 +25,7 @@ import { SELLPIA_ORDER_TRANSMISSION_REPOSITORY_PORT } from '../application/port/
 import { CoupangDirectOrderCollectionService } from '../application/service/coupang-direct-order-collection.service';
 import { SellpiaOrderTransmissionService } from '../application/service/sellpia-order-transmission.service';
 import { OrderCollectionController } from '../adapter/in/web/order-collection.controller';
+import { CoupangDirectshipController } from '../adapter/in/web/coupang-directship.controller';
 import { OrderCollectionSourceController } from '../adapter/in/web/order-collection-source.controller';
 import { SellpiaShipmentTrackingSourceController } from '../adapter/in/web/sellpia-shipment-tracking-source.controller';
 import { OrdersController } from '../adapter/in/web/orders.controller';
@@ -60,6 +61,7 @@ describe('OrdersModule owner wiring', () => {
     expect(controllers).toEqual([
       OrdersController,
       OrderCollectionController,
+      CoupangDirectshipController,
       OrderCollectionSourceController,
       SellpiaShipmentTrackingSourceController,
       ReviewsController,

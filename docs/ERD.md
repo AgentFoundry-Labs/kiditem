@@ -1105,7 +1105,10 @@ erDiagram
   OrderCollectionArtifact {
     String id PK
     String organizationId FK
+     /**
     String sourceImportRunId FK
+     /**
+    String operationId
     String sourceFileName
     String sourceContentType
     Bytes sourceBytes
@@ -2553,7 +2556,7 @@ erDiagram
   SourceImportRun o|--o{ MasterProductAbcGradeHistory : "previousAdvertisingSourceImportRun"
   SourceImportRun o|--o{ MasterProductAbcGradeHistory : "previousSellpiaSourceImportRun"
   SourceImportRun o|--o{ Order : "sourceImportRun"
-  SourceImportRun ||--|| OrderCollectionArtifact : "sourceImportRun"
+  SourceImportRun o|--o| OrderCollectionArtifact : "sourceImportRun"
   SourceImportRun o|--o{ Review : "sourceImportRun"
   SourceImportRun ||--|| RocketPoCatalogSnapshot : "sourceImportRun"
   SourceImportRun ||--o{ RocketPurchaseConfirmation : "sourceImportRun"
