@@ -70,7 +70,8 @@ export function operationOwner(kind: OperationKind): string {
  * 겹치면 안 되는 실행은 같은 lockKey를 잡는다. unique는 `(organizationId, lockKey)`이고 kind가 없어서
  * 한 키가 kind를 가로질러 막는다(ADR-0025).
  * - `org`: 조직에 하나.
- * - `account:<channelAccountId>`: 그 계정의 Wing 로그인을 쓰는 kind만(카탈로그 동기화 등).
+ * - `account:<channelAccountId>`: 그 채널 계정의 **몰 로그인**을 쓰는 kind(Wing 카탈로그·상품평, 로켓 supplier 화면, 각 몰 주문 수집 …).
+ *   몰은 어느 것이든 하나의 계정 키다 — Wing만의 규칙이 아니다(KID-359).
  * - `resource:<site>:<id>`: 그 밖의 공유 세션·슬롯. 예 `resource:ad-center:<channelAccountId>`,
  *   `resource:keyword:<keyword>`(순위 두 kind가 같은 슬롯).
  */
