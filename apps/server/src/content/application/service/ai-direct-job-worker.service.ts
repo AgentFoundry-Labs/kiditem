@@ -98,8 +98,9 @@ export class AiDirectJobWorkerService
         this.config.providerTimeoutMs,
       );
       providerTimeout.unref?.();
+      let resultSaved = claimed.resultSaved;
       try {
-        if (!claimed.resultSaved) {
+        if (!resultSaved) {
           // Direct jobs are product media work (thumbnails, detail pages, image
           // edits): the 상품 agent's spend, metered to the job's organization.
           const rawResult = await aiUsageMeter.run(
@@ -108,6 +109,7 @@ export class AiDirectJobWorkerService
           );
           const result = validateAiDirectJobResult(job.jobType, rawResult);
           if (!(await this.jobs.saveResult(job, token, result))) return true;
+          resultSaved = true;
         }
         await this.jobs.succeed(job, token);
       } catch (error) {
@@ -123,6 +125,15 @@ export class AiDirectJobWorkerService
           this.logger.warn(
             `${job.jobType} job ${job.id} failed with ${error.code}: details=${JSON.stringify(error.details)}`,
           );
+        }
+        if (resultSaved && normalized.retryable) {
+          // 결과는 이미 받아 두었다. fail(retryAfterMs)은 받아 둔 결과를 지우므로 부르지 않는다:
+          // 실행을 그대로 두면 임대 만료 뒤 다음 claim이 모델을 다시 부르지 않고 받아 둔 결과로 finish한다.
+          this.logger.error(
+            `${job.jobType} job ${job.id} could not project its saved result (${normalized.errorCode}): ${normalized.errorMessage}`,
+          );
+          await this.jobs.recordFinishError(job, token, { code: normalized.errorCode, message: normalized.errorMessage });
+          return true;
         }
         await this.jobs.fail(job, token, {
           errorCode: normalized.errorCode,

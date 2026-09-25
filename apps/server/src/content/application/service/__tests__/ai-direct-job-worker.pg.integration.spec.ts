@@ -112,6 +112,32 @@ describe('AI direct job worker on the operation contract (PG integration)', () =
     await expect(row(id)).resolves.toMatchObject({ status: 'succeeded', attempts: 2 });
   });
 
+  it('a projection that fails after the result was saved keeps it: the next claim finishes from the saved chunk without the model', async () => {
+    const id = await prepare();
+    const error = vi.spyOn((worker as unknown as { logger: { error: () => void } }).logger, 'error').mockImplementation(() => undefined);
+    processor.project.mockRejectedValueOnce(new Error('database connection reset'));
+
+    await worker.tick();
+
+    expect(processor.execute).toHaveBeenCalledTimes(1);
+    expect(error).toHaveBeenCalledWith(expect.stringContaining('database connection reset'));
+    await expect(row(id)).resolves.toMatchObject({
+      status: 'executing',
+      attempts: 1,
+      progress: { checkpoint: 'result_saved', finishError: { code: 'direct_ai_execution_failed', message: 'database connection reset' } },
+    });
+    await expect(prisma.operationChunk.count({ where: { operationId: id, chunkKind: 'result' } })).resolves.toBe(1);
+    expect(processor.projectFailure).not.toHaveBeenCalled();
+
+    await expireLease(id);
+    await worker.tick();
+
+    expect(processor.execute).toHaveBeenCalledTimes(1);
+    expect(processor.project).toHaveBeenCalledTimes(2);
+    expect(processor.project).toHaveBeenLastCalledWith(expect.objectContaining({ id }), OUTPUT, expect.anything());
+    await expect(row(id)).resolves.toMatchObject({ status: 'succeeded', attempts: 2, result: OUTPUT });
+  });
+
   it('requeues a retryable provider failure with the first backoff and keeps the generation open', async () => {
     const id = await prepare();
     processor.execute.mockRejectedValueOnce(new Error('provider unavailable'));

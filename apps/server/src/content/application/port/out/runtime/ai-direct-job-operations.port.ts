@@ -65,6 +65,11 @@ export interface AiDirectJobOperationsPort {
   heartbeat(job: AiDirectJob, token: string): Promise<AiDirectJobLease>;
   /** 검증한 결과를 실행 청크로 받아 두고 progress에 `result_saved`를 적는다. 임대를 잃었으면 false. */
   saveResult(job: AiDirectJob, token: string, result: unknown): Promise<boolean>;
+  /**
+   * 결과를 받아 둔 뒤 반영(finish)이 재시도할 수 있는 오류로 실패했음을 progress에 남긴다(checkpoint 유지).
+   * 실행은 그대로 두어 임대 만료 뒤 다음 claim이 받아 둔 결과로 다시 finish한다.
+   */
+  recordFinishError(job: AiDirectJob, token: string, error: { code: string; message: string }): Promise<void>;
   /** 성공으로 끝낸다. owner finalize가 받아 둔 결과를 원장에 반영한다. 임대를 잃었으면 false. */
   succeed(job: AiDirectJob, token: string): Promise<boolean>;
   /** 실패로 끝낸다. `retryAfterMs`가 있고 시도가 남으면 같은 job이 그 뒤 다시 claim된다. */

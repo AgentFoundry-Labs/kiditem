@@ -158,6 +158,17 @@ export class AiDirectJobOperationsAdapter implements AiDirectJobOperationsPort {
     }
   }
 
+  async recordFinishError(job: AiDirectJob, token: string, error: { code: string; message: string }) {
+    try {
+      await this.put(job, token, HEARTBEAT_CHUNK, [], {
+        checkpoint: AI_DIRECT_JOB_RESULT_SAVED,
+        finishError: { code: error.code.slice(0, ERROR_CODE_MAX), message: error.message.slice(0, ERROR_MESSAGE_MAX) },
+      });
+    } catch (refused) {
+      if (leaseRefusal(refused) === null) throw refused;
+    }
+  }
+
   async succeed(job: AiDirectJob, token: string) {
     try {
       await this.operations.finish({ organizationId: job.organizationId, operationId: job.id, token, request: { outcome: 'succeeded' } });
