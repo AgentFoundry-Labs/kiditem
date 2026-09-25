@@ -18,6 +18,8 @@ export interface MallOrderReader {
     collectionDate: string | null;
     selectionMode: 'manual' | 'automatic';
     seenRowKeys: string[];
+    /** 실행이 중단되면 끊긴다 — 오래 기다리는 몰(도매꾹 엑셀 생성 폴링)이 본다. */
+    signal?: AbortSignal;
   }): Promise<{ rows: unknown[]; continuation?: Record<string, unknown> }>;
   close?(): Promise<void>;
 }
@@ -61,6 +63,7 @@ export const mallOrdersCollector: Collector<MallOrdersPlan, Record<string, unkno
         collectionDate: plan.collectionDate,
         selectionMode: plan.selectionMode ?? 'manual',
         seenRowKeys: plan.seenRowKeys ?? [],
+        signal,
       });
       if (signal.aborted) return;
       const progress = { mallKey: plan.mallKey, rows: rows.length };

@@ -75,6 +75,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
   let harness: Awaited<ReturnType<typeof ordersOperationsApp>>;
   let kidkidsAccount: string;
   let art09Account: string;
+  let domeggookAccount: string;
   let rocketAccount: string;
 
   beforeAll(async () => {
@@ -112,6 +113,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
       prisma.channelAccount.create({ data: { organizationId: ORG, channel, name, externalAccountId: channel, isPrimary: true } });
     kidkidsAccount = (await create('kidkids', '키드키즈')).id;
     art09Account = (await create('art09', '아트공구')).id;
+    domeggookAccount = (await create('domeggook', '도매꾹')).id;
     rocketAccount = (await create('rocket', '쿠팡 로켓')).id;
   });
 
@@ -255,6 +257,29 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ rows });
     const converted = await convert('art09/convert', run.operation.id).expect(201);
     expect(converted.headers).toMatchObject({ 'content-type': 'text/csv;charset=utf-8', 'x-order-collection-source-rows': '1', 'x-order-collection-output-rows': '2' });
+  });
+
+  it('도매꾹: 나눠 올린 CSV 조각을 이어 파일 캡처(text/csv)로 보관하고 수집일로 거른 행 수를 적는다, 빈 날은 조각 없이 0건', async () => {
+    const csv = Buffer.from('orderNo,qty\r\nD-1,1\r\nD-2,2\r\n', 'utf8').toString('base64');
+    const run = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: domeggookAccount, mallKey: 'domeggook' }));
+    await harness.put(run, [
+      { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [{ fileName: 'ORDER_ALL.csv', part: 1, parts: 2, base64: csv.slice(20) }] },
+      { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [{ fileName: 'ORDER_ALL.csv', part: 0, parts: 2, base64: csv.slice(0, 20) }] },
+    ]);
+    const finished = await harness.finish(run).expect(200);
+    expect(finished.body.operation.result).toEqual({ rowCount: 2, mallKey: 'domeggook', captured: 1 });
+    const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
+    expect(artifact).toMatchObject({ sourceFileName: 'ORDER_ALL.csv', sourceContentType: 'text/csv' });
+    expect(Buffer.from(artifact.sourceBytes).toString('utf8')).toBe('orderNo,qty\r\nD-1,1\r\nD-2,2\r\n');
+    const converted = await convert('domeggook/convert', run.operation.id).expect(201);
+    expect(converted.headers['x-order-collection-output-rows']).toBe('2');
+
+    const empty = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: domeggookAccount, mallKey: 'domeggook' }));
+    expect((await harness.finish(empty).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: 'domeggook', captured: 0 });
+
+    const missingPart = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: domeggookAccount, mallKey: 'domeggook' }));
+    await harness.put(missingPart, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [{ fileName: 'ORDER_ALL.csv', part: 1, parts: 2, base64: csv }] }]);
+    expect((await harness.finish(missingPart).expect(400)).body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'incomplete_file_parts' } });
   });
 
   it('오늘 주문 capability는 실행 표(몰 주문·directship의 최신 성공 rowCount)와 옛 run(2차 몰·옛 directship)을 한 수로 센다', async () => {

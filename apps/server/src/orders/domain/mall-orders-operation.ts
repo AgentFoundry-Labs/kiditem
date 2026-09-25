@@ -60,9 +60,40 @@ function jsonList(field: string, item: z.ZodTypeAny): MallCaptureRule {
   };
 }
 
+const FilePartSchema = z.object({
+  fileName: z.string().min(1).max(240),
+  part: z.number().int().nonnegative(),
+  parts: z.number().int().min(1).max(64),
+  base64: z.string().regex(/^[A-Za-z0-9+/=]*$/),
+}).strict();
+
+/**
+ * 몰이 내려준 파일 하나를 조각(base64, 청크 1MiB 안)으로 받아 이어 붙여 파일 캡처로 보관하는 몰(도매꾹 주문 CSV,
+ * EUC-KR 원본 바이트 그대로 — 변환기가 디코딩한다). 조각이 없으면 "주문 없음"을 확인한 날이다.
+ */
+function filePart(contentType: string): MallCaptureRule {
+  return {
+    assemble({ rows }) {
+      const parsed = FilePartSchema.array().safeParse(rows);
+      if (!parsed.success) throw invalid('invalid_order_rows', { errors: issues(parsed.error) });
+      const parts = [...parsed.data].sort((a, b) => a.part - b.part);
+      if (parts.length === 0) return { source: { bytes: Buffer.alloc(0), fileName: null, contentType }, captured: 0 };
+      const [first] = parts;
+      const complete = parts.every((part, index) => part.part === index && part.parts === first!.parts && part.fileName === first!.fileName)
+        && parts.length === first!.parts;
+      if (!complete) throw invalid('incomplete_file_parts', { parts: parts.map((part) => [part.part, part.parts]) });
+      return {
+        source: { bytes: Buffer.from(parts.map((part) => part.base64).join(''), 'base64'), fileName: first!.fileName, contentType },
+        captured: 1,
+      };
+    },
+  };
+}
+
 const MALL_CAPTURE_RULES: Partial<Record<MallOrderOperationMall, MallCaptureRule>> = {
   kidkids: jsonList('orders', OrderObjectSchema.and(z.object({ items: z.array(z.unknown()) }))),
   art09: jsonList('rows', OrderObjectSchema.and(z.object({ orderId: z.string() }))),
+  domeggook: filePart('text/csv'),
 };
 
 export function mallCaptureReady(mallKey: MallOrderOperationMall): boolean {

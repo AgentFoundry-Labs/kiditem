@@ -394,7 +394,6 @@ describe('createBrowserMallCollector', () => {
       'kidsnote-orders-api.ts',
       'kkomangse-orders-api.ts',
       'onchannel-orders-api.ts',
-      'domeggook-orders-api.ts',
       'lotteon-orders-api.ts',
       'gsshop-orders-api.ts',
       'alwayz-orders-api.ts',

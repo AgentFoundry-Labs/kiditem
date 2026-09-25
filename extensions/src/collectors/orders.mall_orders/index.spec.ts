@@ -46,7 +46,7 @@ describe('collectors/orders.mall_orders — 몰 키로 그 몰 사이트를 골�
     const orders = Array.from({ length: 450 }, (_, index) => ({ om: `K-${index}`, items: [] }));
     const fake = fakeSite({ rows: orders });
     const chunks = await collectAll(PLAN, fake.site);
-    expect(fake.asked).toEqual([{ collectionDate: '2026-09-26', selectionMode: 'automatic', seenRowKeys: ['A'] }]);
+    expect(fake.asked).toEqual([{ collectionDate: '2026-09-26', selectionMode: 'automatic', seenRowKeys: ['A'], signal: expect.any(AbortSignal) }]);
     expect(chunks.map((chunk) => [chunk.chunkKind, chunk.payload.length])).toEqual([
       ['order_rows', 200],
       ['order_rows', 200],

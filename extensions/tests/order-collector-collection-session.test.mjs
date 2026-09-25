@@ -19,7 +19,6 @@ const AUTOMATIC_ACTIONS = [
   ['collectKidsnoteOrders', 'collectKidsnoteOrders', 'kidsnote', { from: '2026-07-14', to: '2026-07-15' }],
   ['collectKkomangseOrders', 'collectKkomangseOrders', 'kkomangse', { date: '2026-07-15' }],
   ['collectOnchannelOrders', 'collectOnchannelOrders', 'onch', { date: '2026-07-15' }],
-  ['collectDomeggookOrders', 'collectDomeggookOrders', 'domeggook', { date: '2026-07-15' }],
   ['collectLotteonOrders', 'collectLotteonOrders', 'lotte-on', { date: '2026-07-15' }],
   ['collectGsshopOrders', 'collectGsshopOrders', 'gs-shop', { date: '2026-07-15' }],
   ['collectAlwayzOrders', 'collectAlwayzOrders', 'always', { date: '2026-07-15' }],
@@ -821,14 +820,10 @@ test('every named mall collector uses the production attach-before-readiness pat
   runtime.context.ensureIcecreamMallLogin = async () => ({ success: true });
   runtime.context.openIcecreamMallDeliveryInquiry = async () => ({ success: true });
   runtime.context.findIcecreamMallDeliveryFrameId = async () => null;
-  runtime.context.domeggookOrderList = async () => ({ dat: [] });
   runtime.chrome.scripting.executeScript = async (options) => {
     events.push(['execute', options.target?.tabId, options.func?.name]);
     if (options.func?.name === 'scrapeIcecreamMallDeliveryGrid') {
       return [{ result: { success: true, rows: [] } }];
-    }
-    if (options.func?.name === 'triggerDomeggookExcelGen') {
-      return [{ result: { success: true, empty: true } }];
     }
     return [{ result: { success: true } }];
   };
@@ -838,7 +833,6 @@ test('every named mall collector uses the production attach-before-readiness pat
     ['collectKidsnoteOrders', [{ from: '2026-07-15', to: '2026-07-15' }]],
     ['collectKkomangseOrders', []],
     ['collectOnchannelOrders', ['2026-07-15']],
-    ['collectDomeggookOrders', ['2026-07-15']],
     ['collectLotteonOrders', []],
     ['collectGsshopOrders', []],
     ['collectAlwayzOrders', []],
@@ -875,12 +869,6 @@ test('every named mall collector uses the production attach-before-readiness pat
     const executeIndex = trace.findIndex((event) => event[0] === 'execute');
 
     assert.equal(result.success, true, functionName);
-    if (functionName === 'collectDomeggookOrders') {
-      assert.deepEqual(
-        JSON.parse(JSON.stringify(result.confirmedCoverage)),
-        { startDate: '2026-07-15', endDate: '2026-07-15' },
-      );
-    }
     assert.ok(createEvent, functionName);
     assert.equal(createEvent[2], false, functionName);
     assert.ok(attachIndex >= 0, functionName);

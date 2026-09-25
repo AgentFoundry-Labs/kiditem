@@ -1255,17 +1255,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     return true;
   }
 
-  if (msg?.action === "collectDomeggookOrders") {
-    return respond(runOwnedOrderCollection(
-      msg,
-      "domeggook",
-      (collection, plan) => collectDomeggookOrders(
-        providerCollectionDate(msg, plan),
-        collection,
-      ),
-    ));
-  }
-
   if (msg?.action === "uploadDomeggookTracking") {
     uploadDomeggookTracking({
       fileBase64: typeof msg.fileBase64 === "string" ? msg.fileBase64 : "",
@@ -4109,39 +4098,8 @@ async function scrapeAlwayzOrders() {
   }
 }
 
-// ── 도매꾹(domeggook) 주문 수집: 풀 자동 (엑셀 생성요청 → 완료 폴링 → CDN 다운로드) ──
-// 엑셀다운로드는 서버 비동기 생성(~1분). 백그라운드 탭에서 "엑셀다운로드" 클릭 + 생성요청 모달
-// submit 으로 오늘 포함 기간 export 를 생성 → getOrderList JSON 폴링(SUCCESS) → CDN CSV base64.
-const DOMEGGOOK_LIST_URL = "https://domeggook.com/sc/order/lstAll";
+// ── 도매꾹 탭: 송장 업로드가 쓴다. 주문 수집은 실행 kind `orders.mall_orders`의 sites/domeggook(KID-359 H3). ──
 const DOMEGGOOK_INPROCESS_URL = "https://domeggook.com/sc/order/lstInprocess";
-const DOMEGGOOK_ORDERLIST_API = "https://domeggook.com/sc/excel/getOrderList?format=grid&pg=1";
-
-async function domeggookOrderList() {
-  const res = await fetch(DOMEGGOOK_ORDERLIST_API, {
-    credentials: "include",
-    headers: { "x-requested-with": "XMLHttpRequest" },
-  });
-  if (!res.ok) return null;
-  const text = await res.text();
-  if (!text.trim().startsWith("{")) return null; // 로그인 필요 시 HTML
-  try {
-    return JSON.parse(text);
-  } catch (e) {
-    return null;
-  }
-}
-
-// 생성완료(SUCCESS) + 전체주문(ORDER_ALL) CDN URL. afterReq 주면 그 요청시각 이후 것만(새로 생성분).
-function pickDomeggookUrl(data, afterReq) {
-  const items = Array.isArray(data && data.dat) ? data.dat : [];
-  for (const d of items) {
-    if (!d || d.state !== "SUCCESS" || !/ORDER_ALL/.test(d.dlBtn || "")) continue;
-    if (afterReq && !(String(d.dateReq || "") > afterReq)) continue;
-    const url = (String(d.dlBtn).match(/href=['"]([^'"]+)['"]/) || [])[1];
-    if (url) return url;
-  }
-  return null;
-}
 
 async function findOrCreateDomeggookTab(navUrl, collection) {
   if (!collection) {
@@ -4153,170 +4111,6 @@ async function findOrCreateDomeggookTab(navUrl, collection) {
     }
   }
   return createFreshOrderCollectionTab(collection, navUrl);
-}
-
-async function collectDomeggookOrders(date, collection) {
-  // 로그인/기존 목록 확인 + 트리거 전 최신 요청시각(이후 새로 생성된 것만 고르기 위함)
-  const before = await domeggookOrderList();
-  if (!before) return { success: false, error: "domeggook.com 로그인이 필요합니다. 로그인 후 다시 시도하세요." };
-  const beforeReq = ((before.dat || [])[0] || {}).dateReq || "";
-
-  // 기간을 지정일로 설정한 URL 로 진입 (dt1=dt2=날짜). date 없으면 기본 기간.
-  const dateDot = date ? String(date).replace(/-/g, ".") : ""; // 2026-06-30 → 2026.06.30
-  const navUrl = dateDot
-    ? DOMEGGOOK_LIST_URL + "?dtbase=ord&dt1=" + dateDot + "&dt2=" + dateDot
-    : DOMEGGOOK_LIST_URL;
-
-  const { tab, created } = await findOrCreateDomeggookTab(navUrl, collection);
-  if (!tab?.id) return { success: false, error: "도매꾹(domeggook.com) 탭을 열 수 없습니다." };
-  const attached = await attachOrderCollectionTab(collection, tab, created);
-  if (attached === null || attached === false) {
-    await closeFreshOrderCollectionTab(tab);
-    return {
-      success: false,
-      errorCode: "COLLECTION_CANCELLED",
-      error: "Order collection is no longer active.",
-    };
-  }
-  let keepOpen = false;
-  try {
-    await waitForTabReady(tab.id);
-    await assertOrderCollectionActive(collection);
-    await delay(1500); // 기간 필터 목록 렌더 대기
-    await assertOrderCollectionActive(collection);
-    // 1) 엑셀다운로드 → 생성요청 모달 submit (설정한 기간으로 export 생성 요청)
-    const trig = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        world: "MAIN",
-        func: triggerDomeggookExcelGen,
-      }),
-      // 도매꾹은 엑셀을 서버에서 비동기로 만든다. 백그라운드 탭 여럿과 함께 돌 때 30초는 모자랐다.
-      60000,
-      "도매꾹 생성 요청 시간이 초과되었습니다.",
-    );
-    const tr = trig[0]?.result;
-    if (tr?.empty) {
-      return {
-        success: true,
-        empty: true,
-        ...(date ? { confirmedCoverage: { startDate: date, endDate: date } } : {}),
-      };
-    } // 주문 없음 — 오류 아님
-    if (!tr?.success) return { success: false, error: tr?.error || "도매꾹 엑셀 생성 요청 실패" };
-    // 2) 생성 완료 폴링 (최대 ~4분): SUCCESS + beforeReq 이후 파일. 도매꾹 생성이 느려 넉넉히.
-    let url = null;
-    for (let i = 0; i < 48; i++) {
-      await delay(5000);
-      await assertOrderCollectionActive(collection);
-      url = pickDomeggookUrl(await domeggookOrderList(), beforeReq);
-      if (url) break;
-    }
-    if (!url) {
-      return { success: false, error: "도매꾹 엑셀 생성이 지연됩니다(최대 4분 대기 초과). 잠시 후 다시 시도하세요." };
-    }
-    // 3) CDN CSV fetch (SW = CORS 우회)
-    const csvRes = await fetch(url, { credentials: "include" });
-    if (!csvRes.ok) return { success: false, error: "도매꾹 CSV 다운로드 실패 (HTTP " + csvRes.status + ")" };
-    const buf = new Uint8Array(await csvRes.arrayBuffer());
-    let bin = "";
-    const CHUNK = 0x8000;
-    for (let i = 0; i < buf.length; i += CHUNK) {
-      bin += String.fromCharCode.apply(null, buf.subarray(i, i + CHUNK));
-    }
-    return {
-      success: true,
-      csvBase64: btoa(bin), // EUC-KR 원본 bytes 그대로 (백엔드가 디코딩)
-      fileName: url.split("/").pop() || "domeggook.csv",
-      size: buf.length,
-      ...(date ? { confirmedCoverage: { startDate: date, endDate: date } } : {}),
-    };
-  } catch (e) {
-    if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
-    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("도매꾹"); }
-    return mallGenericErrorResult("도매꾹", e);
-  } finally {
-    if (created && tab.id && !keepOpen) {
-      try {
-        await chrome.tabs.remove(tab.id); // 우리가 연 백그라운드 탭 정리
-      } catch {
-        /* 이미 닫힘 — 무시 */
-      }
-    }
-  }
-}
-
-// lstAll 페이지 컨텍스트: "엑셀다운로드" 클릭 → reqXlsNotice iframe(#gLayerFrame, 같은 오리진) submit.
-async function triggerDomeggookExcelGen() {
-  const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
-  // 주문이 없으면 도매꾹은 "다운로드할 주문내역이 없습니다" 류 native alert 를 띄우고 생성 모달을
-  // 열지 않는다. alert 를 가로채 '주문 없음(empty)'으로 정상 처리한다(주문이 있으면 alert 는 안 뜬다).
-  // window 가 없는 테스트/비브라우저 환경을 방어한다(MAIN world 에서는 항상 존재).
-  const win = typeof window !== "undefined" ? window : null;
-  const origAlert = win ? win.alert : null;
-  let alertMsg = "";
-  if (win) {
-    win.alert = (m) => {
-      alertMsg = String(m == null ? "" : m);
-    };
-  }
-  const emptyByAlert = () => /없습니다|없음|no\s*(order|data|result)/i.test(alertMsg);
-  try {
-    const btn = [
-      ...document.querySelectorAll(
-        "#lList a, #lList button, #lList input[type='button'], #lList [role='button'], #lList [onclick]",
-      ),
-    ].find(
-      (element) =>
-        String(element.textContent || element.value || "").replace(/\s+/g, "") ===
-        "엑셀다운로드",
-    );
-    if (!btn) return { success: false, error: "엑셀다운로드 버튼을 찾지 못했습니다. (로그인/화면 확인)" };
-    btn.click();
-    await sleep(300);
-    if (emptyByAlert()) return { success: true, empty: true, message: alertMsg };
-    let doc = null;
-    let modalSeen = false;
-    for (let i = 0; i < 25; i++) {
-      await sleep(300);
-      if (emptyByAlert()) return { success: true, empty: true, message: alertMsg };
-      const iframe = document.querySelector("iframe#gLayerFrame, #gLayerFrame iframe");
-      try {
-        if (iframe?.contentDocument) {
-          modalSeen = true;
-        }
-        if (iframe?.contentDocument?.querySelector("#lXlsReqNoticeBtnSubmit")) {
-          doc = iframe.contentDocument;
-          if (iframe.contentWindow) {
-            iframe.contentWindow.confirm = () => true; // 혹시 모를 confirm 자동 승인
-            iframe.contentWindow.alert = () => {};
-          }
-          break;
-        }
-        const dialog = document.querySelector("#gLayerFrame:not(iframe), [role='dialog']");
-        if (dialog) modalSeen = true;
-        if (dialog?.querySelector("#lXlsReqNoticeBtnSubmit")) {
-          doc = document;
-          break;
-        }
-      } catch (e) {
-        /* 로딩 중 접근 예외 — 무시하고 재시도 */
-      }
-    }
-    if (emptyByAlert()) return { success: true, empty: true, message: alertMsg };
-    if (!modalSeen) return { success: false, error: "도매꾹 생성 요청 모달을 열지 못했습니다." };
-    const submit = doc?.querySelector("#lXlsReqNoticeBtnSubmit");
-    if (!submit) {
-      if (emptyByAlert()) return { success: true, empty: true, message: alertMsg };
-      return { success: false, error: "도매꾹 생성 요청 버튼을 찾지 못했습니다." };
-    }
-    submit.click();
-    return { success: true };
-  } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
-  } finally {
-    if (win) win.alert = origAlert;
-  }
 }
 
 // ── 키즈노트(WISA) 주문 수집: _manage?body=3010 전체주문조회 테이블 스크래핑 ──

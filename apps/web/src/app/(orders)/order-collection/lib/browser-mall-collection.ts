@@ -254,7 +254,6 @@ export function createBrowserMallCollector({
       kidsnote: 'collectKidsnoteOrders',
       kkomangse: 'collectKkomangseOrders',
       onch: 'collectOnchannelOrders',
-      domeggook: 'collectDomeggookOrders',
       'haebub-mall': 'collectHaebeopOrders',
       'lotte-on': 'collectLotteonOrders',
       'gs-shop': 'collectGsshopOrders',
@@ -285,7 +284,7 @@ export function createBrowserMallCollector({
       response = await sendToExtension<ServerOwnedCollectionResponse>(
         extensionId,
         message,
-        account.key === 'domeggook' ? 260000 : 200000,
+        200000,
       );
     } catch (error) {
       // The extension may have committed COMPLETE immediately before its
@@ -443,51 +442,6 @@ export function createBrowserMallCollector({
       collectedRows: rows,
       mallKey: 'kkomangse',
       mallName: '꼬망세',
-    });
-    return rows;
-  };
-
-  const generateDomeggookSellpia = async (
-    run: OrderCollectionExtensionRun,
-    collectionDate: string,
-  ): Promise<number> => {
-    const { collectDomeggookCsvFromExtension, convertDomeggookCsvBase64 } = await import(
-      './domeggook-orders-api'
-    );
-    await ensureMallLogin('domeggook', run);
-    const collected = await collectDomeggookCsvFromExtension(collectionDate, run);
-    if ('empty' in collected) {
-      toastNoNewOrders('도매꾹', `조회일 ${collectionDate}`);
-      return 0;
-    }
-    const { csvBase64, fileName } = collected;
-    let result: Awaited<ReturnType<typeof convertDomeggookCsvBase64>>;
-    try {
-      result = await convertDomeggookCsvBase64(csvBase64, fileName, {
-        date: collectionDate,
-        download: false,
-        run,
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (isNoNewOrdersMessage(msg)) {
-        toastNoNewOrders('도매꾹', `조회일 ${collectionDate}`);
-        return 0;
-      }
-      throw err;
-    }
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-domeggook-browser`,
-      sourceName: `도매꾹 주문 ${collectionDate} (${formatNumber(rows)}건)`,
-      convertedAt,
-      collectionDate,
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'domeggook',
-      mallName: '도매꾹',
     });
     return rows;
   };
@@ -795,7 +749,6 @@ export function createBrowserMallCollector({
     if (account.key === 'kkomangse') return resultFor(await generateKkomangseSellpia(resolvedRun), today);
     if (account.key === 'onch') return resultFor(await generateOnchannelSellpia(resolvedRun, today), today);
     if (account.key === 'kakao') return resultFor(await generateKakaoSellpia(resolvedRun), today);
-    if (account.key === 'domeggook') return resultFor(await generateDomeggookSellpia(resolvedRun, today), today);
     if (account.key === 'lotte-on') return resultFor(await generateLotteonSellpia(resolvedRun), today);
     if (account.key === 'gs-shop') return resultFor(await generateGsshopSellpia(resolvedRun), today);
     if (account.key === 'always') return resultFor(await generateAlwayzSellpia(resolvedRun), today);

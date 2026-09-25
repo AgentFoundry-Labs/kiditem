@@ -23,61 +23,6 @@ function extractFunction(name) {
   throw new Error(`${name} closing brace not found`);
 }
 
-test("Domeggook generation supports iframe#gLayerFrame and clicks its submit button", async () => {
-  const calls = { download: 0, submit: 0 };
-  const submit = {
-    click() {
-      calls.submit += 1;
-    },
-  };
-  const frameDocument = {
-    querySelector(selector) {
-      return selector === "#lXlsReqNoticeBtnSubmit" ? submit : null;
-    },
-  };
-  const frame = { contentDocument: frameDocument, contentWindow: {} };
-  const download = {
-    textContent: "엑셀 다운로드",
-    value: "",
-    click() {
-      calls.download += 1;
-    },
-  };
-  const document = {
-    querySelectorAll() {
-      return [download];
-    },
-    querySelector(selector) {
-      if (selector === "iframe#gLayerFrame, #gLayerFrame iframe") return frame;
-      return null;
-    },
-  };
-  const runnableSource = extractFunction("triggerDomeggookExcelGen").replace(
-    /^function /,
-    "async function ",
-  );
-  const trigger = vm.runInNewContext(`(${runnableSource})`, {
-    document,
-    setTimeout: (callback) => callback(),
-    Promise,
-  });
-
-  const result = await trigger();
-
-  assert.equal(result.success, true);
-  assert.equal(calls.download, 1);
-  assert.equal(calls.submit, 1);
-});
-
-test("Domeggook modal automation runs in the main page world", () => {
-  const collectorStart = source.indexOf("async function collectDomeggookOrders(");
-  const triggerStart = source.indexOf("async function triggerDomeggookExcelGen(");
-  const collector = source.slice(collectorStart, triggerStart);
-
-  assert.match(collector, /world:\s*["']MAIN["']/);
-  assert.match(collector, /func:\s*triggerDomeggookExcelGen/);
-});
-
 test("Icecream Mall collection excludes both in-transit and delivered statuses", () => {
   const match = source.match(
     /const ICECREAM_EXCLUDED_DELIVERY_STATUSES\s*=\s*(\[[\s\S]*?\]);/,

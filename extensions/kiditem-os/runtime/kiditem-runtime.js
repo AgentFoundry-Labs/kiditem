@@ -5540,7 +5540,8 @@ var KidItemRuntime = (() => {
         const { rows, continuation } = await reader.readOrders({
           collectionDate: plan.collectionDate,
           selectionMode: plan.selectionMode ?? "manual",
-          seenRowKeys: plan.seenRowKeys ?? []
+          seenRowKeys: plan.seenRowKeys ?? [],
+          signal
         });
         if (signal.aborted) return;
         const progress = { mallKey: plan.mallKey, rows: rows.length };
@@ -6623,15 +6624,112 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: COUPANG_SEARCH_SITE.name, create: (deps) => createCoupangSearchSite(deps.tabs, { sleep: deps.sleep }) });
 
+  // extensions/src/sites/domeggook/index.ts
+  var DOMEGGOOK_ORDER_LIST_URL = "https://domeggook.com/sc/order/lstAll";
+  var DOMEGGOOK_ORDER_LIST_API = "https://domeggook.com/sc/excel/getOrderList?format=grid&pg=1";
+  var DOMEGGOOK_ORDERS_FILE = "content/orders/domeggook-orders.js";
+  var DOMEGGOOK_PART_CHARS = 7e5;
+  var LIST_RENDER_WAIT_MS = 1500;
+  var REQUEST_TIMEOUT_MS = 6e4;
+  var POLL_MS2 = 5e3;
+  var POLL_ROUNDS = 48;
+  var LOGIN_MESSAGE2 = "\uB3C4\uB9E4\uAFB9 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. domeggook.com \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var DOMEGGOOK_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["domeggook.com"]),
+    isLogin: (url) => hostWithin(url, ["domeggook.com"]) && /login/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE2
+  };
+  async function orderList(caller) {
+    const text2 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
+    let body = null;
+    try {
+      body = JSON.parse(text2);
+    } catch {
+      body = null;
+    }
+    const list = body?.dat;
+    if (!Array.isArray(list)) throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE2, { url: DOMEGGOOK_ORDER_LIST_API });
+    return list;
+  }
+  function pickDomeggookCsvUrl(entries, afterReq) {
+    for (const entry of entries) {
+      if (entry?.state !== "SUCCESS" || !/ORDER_ALL/.test(String(entry.dlBtn ?? ""))) continue;
+      if (afterReq && !(String(entry.dateReq ?? "") > afterReq)) continue;
+      const url = (String(entry.dlBtn).match(/href=['"]([^'"]+)['"]/) ?? [])[1];
+      if (url) return url;
+    }
+    return null;
+  }
+  function base64Of(bytes) {
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 32768) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+    }
+    return btoa(binary);
+  }
+  function createDomeggookSite(tabs, deps) {
+    const caller = createSiteCaller({ minIntervalMs: 0, displayName: "\uB3C4\uB9E4\uAFB9", timeoutMs: 3e4 }, deps);
+    return {
+      async readOrders(input) {
+        const before = await orderList(caller);
+        const beforeReq = String(before[0]?.dateReq ?? "");
+        const dateDot = input.collectionDate ? input.collectionDate.replace(/-/g, ".") : "";
+        const listUrl = dateDot ? `${DOMEGGOOK_ORDER_LIST_URL}?dtbase=ord&dt1=${dateDot}&dt2=${dateDot}` : DOMEGGOOK_ORDER_LIST_URL;
+        return withFreshTab(tabs, listUrl, async (page) => {
+          await deps.sleep(LIST_RENDER_WAIT_MS);
+          const answer = await callPage(page, "domeggook.requestExcel", {}, {
+            timeoutMs: REQUEST_TIMEOUT_MS,
+            guard: DOMEGGOOK_PAGE_GUARD,
+            main: [DOMEGGOOK_ORDERS_FILE],
+            displayName: "\uB3C4\uB9E4\uAFB9"
+          });
+          if (answer?.status === "empty") return { rows: [] };
+          if (answer?.status !== "requested") {
+            throw new RuntimeError(SITE_REQUEST_FAILED, answer?.status === "failed" ? answer.error : "\uB3C4\uB9E4\uAFB9 \uC5D1\uC140 \uC0DD\uC131 \uC694\uCCAD \uC2E4\uD328", {
+              status: null,
+              reason: "page_error",
+              url: listUrl
+            });
+          }
+          let csvUrl = null;
+          for (let round = 0; round < POLL_ROUNDS && !csvUrl; round += 1) {
+            await deps.sleep(POLL_MS2);
+            input.signal?.throwIfAborted();
+            csvUrl = pickDomeggookCsvUrl(await orderList(caller), beforeReq);
+          }
+          if (!csvUrl) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, "\uB3C4\uB9E4\uAFB9 \uC5D1\uC140 \uC0DD\uC131\uC774 \uC9C0\uC5F0\uB429\uB2C8\uB2E4(\uCD5C\uB300 4\uBD84 \uB300\uAE30 \uCD08\uACFC). \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.", {
+              status: null,
+              reason: "excel_not_ready",
+              url: DOMEGGOOK_ORDER_LIST_API
+            });
+          }
+          const base642 = base64Of(await caller.bytes(csvUrl));
+          const fileName = csvUrl.split("/").pop() || "domeggook.csv";
+          const parts = Math.max(1, Math.ceil(base642.length / DOMEGGOOK_PART_CHARS));
+          return {
+            rows: Array.from({ length: parts }, (_, part) => ({
+              fileName,
+              part,
+              parts,
+              base64: base642.slice(part * DOMEGGOOK_PART_CHARS, (part + 1) * DOMEGGOOK_PART_CHARS)
+            }))
+          };
+        });
+      }
+    };
+  }
+  registerSite({ name: "domeggook", create: (deps) => createDomeggookSite(deps.tabs, deps) });
+
   // extensions/src/sites/kidkids/index.ts
   var KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
   var KIDKIDS_ORDERS_FILE = "content/orders/kidkids-orders.js";
   var READ_TIMEOUT_MS2 = 18e4;
-  var LOGIN_MESSAGE2 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE3 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var KIDKIDS_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["kidkids.net"]),
     isLogin: (url) => hostWithin(url, ["kidkids.net"]) && (/login|partnerlogin|partner_login/i.test(url.pathname) || /\/security\/verify_user\.htm$/i.test(url.pathname)),
-    loginMessage: LOGIN_MESSAGE2
+    loginMessage: LOGIN_MESSAGE3
   };
   function createKidkidsSite(tabs) {
     return {
@@ -6644,7 +6742,7 @@ var KidItemRuntime = (() => {
             displayName: "\uD0A4\uB4DC\uD0A4\uC988"
           });
           if (answer?.status === "ok") return { rows: answer.orders };
-          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE2, { url: KIDKIDS_ORDER_URL });
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE3, { url: KIDKIDS_ORDER_URL });
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uB4DC\uD0A4\uC988 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -6924,11 +7022,11 @@ var KidItemRuntime = (() => {
   var SELLPIA_REPRINT_URL = `${SELLPIA_ORIGIN}/order_delivery_reprint.html`;
   var SELLPIA_SHIPMENT_TRACKING_FILE = "content/orders/sellpia-shipment-tracking.js";
   var QUERY_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE3 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE4 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
   var SELLPIA_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sellpia.com"]),
     isLogin: (url) => hostWithin(url, ["sellpia.com"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE3
+    loginMessage: LOGIN_MESSAGE4
   };
   function createSellpiaSite(tabs) {
     return {
@@ -6945,7 +7043,7 @@ var KidItemRuntime = (() => {
             case "ok":
               return { rows: answer.rows, total: answer.total };
             case "login_required":
-              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE3, { url: SELLPIA_REPRINT_URL });
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE4, { url: SELLPIA_REPRINT_URL });
             case "http_error":
               throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
                 status: answer.httpStatus,
@@ -7712,7 +7810,7 @@ var KidItemRuntime = (() => {
   var ORIGIN3 = "https://wing.coupang.com";
   var SEARCH_URL2 = `${ORIGIN3}/tenants/seller-web/pre-matching/search`;
   var RETRY_ATTEMPTS = 4;
-  var REQUEST_TIMEOUT_MS = 2e4;
+  var REQUEST_TIMEOUT_MS2 = 2e4;
   var WING_SEARCH_PAYLOAD_INVALID = "WING_SEARCH_PAYLOAD_INVALID";
   var WING_SEARCH_SITE = {
     name: "wing-search",
@@ -7736,7 +7834,7 @@ var KidItemRuntime = (() => {
               method: "POST",
               headers: { "content-type": "application/json", accept: "application/json, text/plain, */*" },
               body,
-              signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
+              signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS2)
             });
           } catch (error) {
             if (searchPage === 0 && isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.status === 200 && error.details?.reason === "non_json") {

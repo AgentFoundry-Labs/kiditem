@@ -30,7 +30,6 @@ const automaticCollectors = [
   'collectKidsnoteOrders',
   'collectKkomangseOrders',
   'collectOnchannelOrders',
-  'collectDomeggookOrders',
   'collectLotteonOrders',
   'collectGsshopOrders',
   'collectAlwayzOrders',
