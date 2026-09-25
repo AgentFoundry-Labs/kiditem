@@ -186,7 +186,8 @@ export function createIcecreamMallSite(tabs: TabPages, sleep: (ms: number) => Pr
           ?? answers[0];
         // `masked`: 화면 표에 개인정보가 가려진 칸이 있다 — 웹이 운영자에게 알린다.
         if (grid?.status === 'ok') return { rows: grid.rows, continuation: { headers: grid.headers, masked: grid.masked === true } };
-        const diagnosis: IcecreamGridDiagnosis = grid?.status === 'none' ? grid : {};
+        // 못 읽었을 때의 진단(`none` 답). 답이 없거나 모양이 다르면 빈 진단이다.
+        const diagnosis: IcecreamGridDiagnosis = (grid as { status?: string } | undefined)?.status === 'none' ? grid as IcecreamGridDiagnosis : {};
         if (icecreamHasNoPendingOrders(diagnosis)) return { rows: [] };
         throw new RuntimeError(SITE_REQUEST_FAILED, icecreamGridFailureMessage(diagnosis), {
           status: null,
