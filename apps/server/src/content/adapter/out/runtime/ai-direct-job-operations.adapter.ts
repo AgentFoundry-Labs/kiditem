@@ -63,6 +63,12 @@ function toState(view: OperationView): AiDirectJobState {
   };
 }
 
+function isChunkTooLarge(error: unknown): boolean {
+  return isKiditemError(error)
+    && error.code === 'VALIDATION_FAILED'
+    && (error.details as { reason?: unknown } | undefined)?.reason === 'chunk_too_large';
+}
+
 /** 임대를 잃었다는 거절(다른 워커가 집었거나 끝났다). 그 밖의 오류는 그대로 던진다. */
 function leaseRefusal(error: unknown): 'terminal' | 'lost' | null {
   if (!isKiditemError(error)) return null;
@@ -153,6 +159,10 @@ export class AiDirectJobOperationsAdapter implements AiDirectJobOperationsPort {
       await this.put(job, token, AI_DIRECT_JOB_RESULT_CHUNK, [result], { checkpoint: AI_DIRECT_JOB_RESULT_SAVED });
       return true;
     } catch (error) {
+      if (isChunkTooLarge(error)) {
+        // 청크 상한(1MB)을 넘는 결과는 다시 불러도 같다: 재시도 없는 출력 오류로 끝낸다.
+        throw Object.assign(new Error('AI result exceeds the 1MB operation chunk limit.'), { code: 'direct_ai_output_invalid' });
+      }
       if (leaseRefusal(error) === null) throw error;
       return false;
     }

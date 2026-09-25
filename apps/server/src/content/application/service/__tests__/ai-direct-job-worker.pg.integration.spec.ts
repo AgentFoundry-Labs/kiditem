@@ -199,6 +199,17 @@ describe('AI direct job worker on the operation contract (PG integration)', () =
     expect(processor.projectFailure).toHaveBeenCalledTimes(1);
   });
 
+  it('fails a result too large to stage (over 1MB) at once, without calling the model again', async () => {
+    const id = await prepare();
+    processor.execute.mockResolvedValueOnce({ image_url: `data:image/png;base64,${'A'.repeat(1_100_000)}` });
+
+    await worker.tick();
+
+    await expect(row(id)).resolves.toMatchObject({ status: 'failed', attempts: 1, errorCode: 'direct_ai_output_invalid' });
+    expect(processor.execute).toHaveBeenCalledTimes(1);
+    expect(processor.projectFailure).toHaveBeenCalledTimes(1);
+  });
+
   it('fails an invalid saved result without rerunning the provider', async () => {
     const id = await prepare();
     const first = (await jobs.claim('dead-worker'))!;
