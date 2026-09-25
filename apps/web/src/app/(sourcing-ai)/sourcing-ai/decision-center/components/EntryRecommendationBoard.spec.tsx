@@ -12,6 +12,28 @@ import {
 import { EntryRecommendationBoard } from './EntryRecommendationBoard';
 
 const RUN_ID = '00000000-0000-4000-8000-000000000001';
+const OPERATION_ID = '10000000-0000-4000-8000-000000001688';
+
+function operation1688(status: 'executing' | 'cancelled') {
+  return {
+    id: OPERATION_ID,
+    kind: 'sourcing.trend_1688',
+    status,
+    lockKeys: ['resource:ali1688:all'],
+    plan: { sourceKey: '1688.hot_product', targetKey: 'all' },
+    progress: null,
+    result: null,
+    window: null,
+    errorCode: status === 'cancelled' ? 'USER_CANCELLED' : null,
+    errorMessage: status === 'cancelled' ? '운영자가 수집을 중단했습니다.' : null,
+    startedAt: '2026-09-26T00:00:00.000Z',
+    finishedAt: null,
+    expiresAt: '2026-09-26T00:30:00.000Z',
+    attempts: 1,
+    maxAttempts: 1,
+    scheduledFor: null,
+  };
+}
 const ITEM_A_KEY = 'a'.repeat(64);
 const ITEM_B_KEY = 'b'.repeat(64);
 const trendMocks = vi.hoisted(() => ({ collect: vi.fn() }));
@@ -28,10 +50,11 @@ vi.mock('@/hooks/use-trend-source-collection', () => ({
   }),
 }));
 
-const sourceOwnerMocks = vi.hoisted(() => ({
-  collect: vi.fn(),
-  fetchStatus: vi.fn(),
-  cancel: vi.fn(),
+const operationMocks = vi.hoisted(() => ({
+  start: vi.fn(),
+  cancelInExtension: vi.fn(),
+  list: vi.fn(),
+  cancelOnServer: vi.fn(),
 }));
 const routerPushMock = vi.hoisted(() => vi.fn());
 const openConversationFromLauncherMock = vi.hoisted(() => vi.fn());
@@ -41,16 +64,15 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/hooks/useAuth', () => ({ useAuth: vi.fn() }));
-vi.mock('../../lib/sourcing-1688-source-owner', () => ({
-  collectSourcing1688TrendsFromExtension: sourceOwnerMocks.collect,
-  fetchSourcing1688TrendSourceStatus: sourceOwnerMocks.fetchStatus,
-  cancelSourcing1688TrendAttempt: sourceOwnerMocks.cancel,
+vi.mock('@/lib/operation-start', () => ({
+  requestOperationStart: operationMocks.start,
+  requestOperationCancel: operationMocks.cancelInExtension,
 }));
-vi.mock('@/lib/browser-collection-session', () => ({
-  // This browser holds no session for the attempt, so a stop reaches the owner route.
-  sendBrowserCollectionControl: vi.fn(async () => {
-    throw new Error('no extension session');
-  }),
+vi.mock('@/lib/api-client', () => ({
+  apiClient: {
+    get: (path: string) => operationMocks.list(path),
+    post: (path: string) => operationMocks.cancelOnServer(path),
+  },
 }));
 vi.mock('../../hooks/use-sourcing-workspace', () => ({
   useSaveSourcingReviewSelection: vi.fn(),
@@ -76,19 +98,10 @@ function renderBoard() {
 describe('EntryRecommendationBoard review state', () => {
   beforeEach(() => {
     vi.clearAllMocks();
-    sourceOwnerMocks.collect.mockResolvedValue({
-      success: true,
-      attemptId: '1688-attempt',
-      terminalState: 'COMPLETE',
-    });
-    sourceOwnerMocks.fetchStatus.mockResolvedValue({
-      ready: true,
-      latestAttempt: null,
-      latestComplete: null,
-      actualCutoffAt: null,
-      errorCode: null,
-      errorMessage: null,
-    });
+    operationMocks.start.mockResolvedValue({ outcome: 'started', operationId: OPERATION_ID });
+    operationMocks.list.mockResolvedValue({ operations: [] });
+    // 이 브라우저에는 그 실행이 없다 — 중단은 서버 cancel로 간다.
+    operationMocks.cancelInExtension.mockRejectedValue(new Error('no extension run'));
     vi.mocked(useAuth).mockReturnValue({
       user: { organizationId: 'org-a' },
     } as ReturnType<typeof useAuth>);
@@ -153,7 +166,7 @@ describe('EntryRecommendationBoard review state', () => {
     expect(routerPushMock).not.toHaveBeenCalled();
   });
 
-  it('reads the persisted entry snapshot on mount and starts the direct 1688 source owner only from the missing-supply CTA', async () => {
+  it('reads the persisted entry snapshot on mount and starts the 1688 operation only from the missing-supply CTA, with no UI keyword list', async () => {
     const user = userEvent.setup();
     vi.mocked(useSourcingInterestTargets).mockReturnValue({
       data: [{
@@ -166,150 +179,36 @@ describe('EntryRecommendationBoard review state', () => {
 
     const view = renderBoard();
 
-    expect(sourceOwnerMocks.collect).not.toHaveBeenCalled();
+    expect(operationMocks.start).not.toHaveBeenCalled();
     expect(await screen.findByRole('checkbox', { name: '상품 A 선택' })).toBeChecked();
+    await waitFor(() => expect(operationMocks.list).toHaveBeenCalledWith('/api/operations?kinds=sourcing.trend_1688&limit=20'));
 
     await user.click(await screen.findByRole('button', { name: '1688 공급 찾기 (1)' }));
 
-    await waitFor(() => expect(sourceOwnerMocks.collect).toHaveBeenCalledWith({
-      idempotencyKey: expect.any(String),
-    }));
+    // 키워드는 서버가 조직의 트렌드 시드에서 정한다 — 화면은 빈 scope만 보낸다(KID-360).
+    await waitFor(() => expect(operationMocks.start).toHaveBeenCalledWith('sourcing.trend_1688', {}));
     expect(screen.getByRole('checkbox', { name: '상품 A 선택' })).toBeChecked();
 
     view.unmount();
     renderBoard();
     expect(await screen.findByRole('checkbox', { name: '상품 A 선택' })).toBeChecked();
-    expect(sourceOwnerMocks.collect).toHaveBeenCalledTimes(1);
+    expect(operationMocks.start).toHaveBeenCalledTimes(1);
   });
 
-  it('does not send a mutable UI keyword list to the direct 1688 source owner', async () => {
+  it('shows the running 1688 collection with a stop that ends it through the operation cancel, then shows it stopped', async () => {
     const user = userEvent.setup();
-    const uniqueKeywords = Array.from({ length: 21 }, (_, index) => `키워드 ${index + 1}`);
-    vi.mocked(useSourcingInterestTargets).mockReturnValue({
-      data: [
-        {
-          targetType: 'keyword',
-          sourceKeys: ['manual'],
-          label: '  Ａ   Pencil ',
-          keyword: '  Ａ   Pencil ',
-        },
-        {
-          targetType: 'keyword',
-          sourceKeys: ['manual'],
-          label: 'a pencil',
-          keyword: 'a pencil',
-        },
-        ...uniqueKeywords.map((keyword) => ({
-          targetType: 'keyword' as const,
-          sourceKeys: ['manual'],
-          label: keyword,
-          keyword,
-        })),
-      ],
-    } as never);
-
-    renderBoard();
-    await user.click(await screen.findByRole('button', { name: /1688 공급 찾기/ }));
-
-    await waitFor(() => expect(sourceOwnerMocks.collect).toHaveBeenCalledWith({
-      idempotencyKey: expect.any(String),
-    }));
-    expect(sourceOwnerMocks.collect.mock.calls[0]?.[0]).not.toHaveProperty('keywords');
-  });
-
-  it('reuses the direct source request key after an uncertain extension response', async () => {
-    const user = userEvent.setup();
-    vi.mocked(useSourcingInterestTargets).mockReturnValue({
-      data: [{
-        targetType: 'keyword',
-        sourceKeys: ['manual'],
-        label: '미수집 키워드',
-        keyword: '미수집 키워드',
-      }],
-    } as never);
-    sourceOwnerMocks.collect
-      .mockRejectedValueOnce(new Error('extension response lost'))
-      .mockResolvedValueOnce({
-        success: true,
-        attemptId: '1688-attempt',
-        terminalState: 'COMPLETE',
-      });
-
-    renderBoard();
-    const collect = await screen.findByRole('button', { name: '1688 공급 찾기 (1)' });
-    await user.click(collect);
-    await waitFor(() => expect(sourceOwnerMocks.collect).toHaveBeenCalledTimes(1));
-    await user.click(collect);
-    await waitFor(() => expect(sourceOwnerMocks.collect).toHaveBeenCalledTimes(2));
-
-    expect(sourceOwnerMocks.collect.mock.calls[1]?.[0]?.idempotencyKey).toBe(
-      sourceOwnerMocks.collect.mock.calls[0]?.[0]?.idempotencyKey,
-    );
-  });
-
-  it('clears the direct source request key after a terminal failure so a new user retry starts fresh', async () => {
-    const user = userEvent.setup();
-    vi.mocked(useSourcingInterestTargets).mockReturnValue({
-      data: [{
-        targetType: 'keyword',
-        sourceKeys: ['manual'],
-        label: '미수집 키워드',
-        keyword: '미수집 키워드',
-      }],
-    } as never);
-    sourceOwnerMocks.collect
-      .mockResolvedValueOnce({
-        success: false,
-        attemptId: '1688-attempt',
-        terminalState: 'FAILED',
-        error: 'owner failed',
-      })
-      .mockResolvedValueOnce({
-        success: true,
-        attemptId: '1688-attempt-2',
-        terminalState: 'COMPLETE',
-      });
-
-    renderBoard();
-    const collect = await screen.findByRole('button', { name: '1688 공급 찾기 (1)' });
-    await user.click(collect);
-    await waitFor(() => expect(sourceOwnerMocks.collect).toHaveBeenCalledTimes(1));
-    await user.click(collect);
-    await waitFor(() => expect(sourceOwnerMocks.collect).toHaveBeenCalledTimes(2));
-
-    expect(sourceOwnerMocks.collect.mock.calls[1]?.[0]?.idempotencyKey).not.toBe(
-      sourceOwnerMocks.collect.mock.calls[0]?.[0]?.idempotencyKey,
-    );
-  });
-
-  it('shows the running 1688 collection with a stop that ends it through its owner, then shows it stopped', async () => {
-    const user = userEvent.setup();
-    const attemptId = '10000000-0000-4000-8000-000000001688';
-    const status1688 = (state: 'RUNNING' | 'FAILED') => ({
-      ready: true,
-      latestAttempt: {
-        attemptId,
-        state,
-        expiresAt: '2099-01-01T00:00:00.000Z',
-        errorCode: state === 'FAILED' ? 'USER_CANCELLED' : null,
-        errorMessage: state === 'FAILED' ? '운영자가 수집을 중단했습니다.' : null,
-      },
-      latestComplete: null,
-      actualCutoffAt: null,
-      errorCode: null,
-      errorMessage: null,
-    });
-    sourceOwnerMocks.fetchStatus.mockResolvedValue(status1688('RUNNING'));
-    sourceOwnerMocks.cancel.mockImplementation(async () => {
-      sourceOwnerMocks.fetchStatus.mockResolvedValue(status1688('FAILED'));
+    operationMocks.list.mockResolvedValue({ operations: [operation1688('executing')] });
+    operationMocks.cancelOnServer.mockImplementation(async () => {
+      operationMocks.list.mockResolvedValue({ operations: [operation1688('cancelled')] });
     });
 
     renderBoard();
     await user.click(await screen.findByRole('button', { name: '수집 중단' }));
 
     expect(await screen.findByText('수집을 중단했습니다. 저장된 완료본은 유지됩니다.')).toBeInTheDocument();
-    expect(sourceOwnerMocks.cancel).toHaveBeenCalledWith(attemptId);
-    expect(sourceOwnerMocks.collect).not.toHaveBeenCalled();
+    expect(operationMocks.cancelInExtension).toHaveBeenCalledWith(OPERATION_ID);
+    expect(operationMocks.cancelOnServer).toHaveBeenCalledWith(`/api/operations/${OPERATION_ID}/cancel`);
+    expect(operationMocks.start).not.toHaveBeenCalled();
     expect(screen.queryByText('운영자가 수집을 중단했습니다.')).not.toBeInTheDocument();
   });
 

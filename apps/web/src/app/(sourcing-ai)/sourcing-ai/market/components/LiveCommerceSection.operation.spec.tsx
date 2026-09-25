@@ -7,9 +7,10 @@ const mocks = vi.hoisted(() => ({
   taobaoStart: vi.fn(),
   fetchStatus: vi.fn(),
   fetchSnapshots: vi.fn(),
-  collectBrowser: vi.fn(),
-  fetchBrowserStatus: vi.fn(),
-  cancelBrowser: vi.fn(),
+  startOperation: vi.fn(),
+  cancelInExtension: vi.fn(),
+  listOperations: vi.fn(),
+  cancelOnServer: vi.fn(),
 }));
 
 vi.mock('../lib/live-commerce-api', () => ({
@@ -18,18 +19,45 @@ vi.mock('../lib/live-commerce-api', () => ({
   fetchLiveCommerceSnapshots: mocks.fetchSnapshots,
 }));
 
-vi.mock('../../lib/sourcing-live-commerce-source-owner', () => ({
-  collectSourcingLiveCommerceFromExtension: mocks.collectBrowser,
-  fetchSourcingLiveCommerceSourceStatus: mocks.fetchBrowserStatus,
-  cancelSourcingLiveCommerceAttempt: mocks.cancelBrowser,
+vi.mock('@/lib/operation-start', () => ({
+  requestOperationStart: mocks.startOperation,
+  requestOperationCancel: mocks.cancelInExtension,
 }));
 
-vi.mock('@/lib/browser-collection-session', () => ({
-  // This browser holds no session for the attempt, so a stop reaches the owner route.
-  sendBrowserCollectionControl: vi.fn(async () => {
-    throw new Error('no extension session');
-  }),
+vi.mock('@/lib/api-client', () => ({
+  apiClient: {
+    get: (path: string) => mocks.listOperations(path),
+    post: (path: string) => mocks.cancelOnServer(path),
+  },
 }));
+
+const ROOM = 'https://live.douyin.com/123';
+
+function liveOperation(
+  id: string,
+  status: 'executing' | 'succeeded' | 'failed' | 'cancelled',
+  patch: Record<string, unknown> = {},
+) {
+  return {
+    id,
+    kind: 'sourcing.live_commerce',
+    status,
+    lockKeys: ['resource:douyin:abc'],
+    plan: { source: 'douyin', pageUrl: ROOM, maxProducts: 100 },
+    progress: null,
+    result: null,
+    window: null,
+    errorCode: status === 'cancelled' ? 'USER_CANCELLED' : null,
+    errorMessage: null,
+    startedAt: '2026-09-04T00:00:00.000Z',
+    finishedAt: status === 'executing' ? null : '2026-09-04T00:00:00.000Z',
+    expiresAt: '2026-09-04T00:30:00.000Z',
+    attempts: 1,
+    maxAttempts: 1,
+    scheduledFor: null,
+    ...patch,
+  };
+}
 
 function renderSection() {
   const queryClient = new QueryClient({
@@ -87,19 +115,10 @@ describe('LiveCommerceSection direct source-owner migration', () => {
       }],
     });
     mocks.taobaoStart.mockResolvedValue({ attemptId: 'taobao-attempt', state: 'COMPLETE' });
-    mocks.collectBrowser.mockResolvedValue({
-      success: true,
-      attemptId: '00000000-0000-4000-8000-000000000777',
-      terminalState: 'COMPLETE',
-    });
-    mocks.fetchBrowserStatus.mockResolvedValue({
-      ready: true,
-      latestAttempt: { state: 'COMPLETE' },
-      latestComplete: { completedAt: '2026-09-04T00:00:00.000Z' },
-      actualCutoffAt: '2026-09-04T00:00:00.000Z',
-      errorCode: null,
-      errorMessage: null,
-    });
+    mocks.startOperation.mockResolvedValue({ outcome: 'started', operationId: '00000000-0000-4000-8000-000000000777' });
+    mocks.listOperations.mockResolvedValue({ operations: [] });
+    // 이 브라우저에는 그 실행이 없다 — 중단은 서버 cancel로 간다.
+    mocks.cancelInExtension.mockRejectedValue(new Error('no extension run'));
   });
 
   it('keeps persisted snapshots on mount and calls only the extension from the explicit browser CTA', async () => {
@@ -107,27 +126,28 @@ describe('LiveCommerceSection direct source-owner migration', () => {
 
     await screen.findByRole('button', { name: '공식 수집' });
     expect(await screen.findByText('보존된 라이브 스냅샷')).toBeInTheDocument();
-    expect(mocks.collectBrowser).not.toHaveBeenCalled();
+    expect(mocks.startOperation).not.toHaveBeenCalled();
     expect(mocks.taobaoStart).not.toHaveBeenCalled();
 
     const url = 'https://live.douyin.com/123?token=keep#private';
+    mocks.listOperations.mockResolvedValue({ operations: [liveOperation('00000000-0000-4000-8000-000000000777', 'succeeded', {
+      plan: { source: 'douyin', pageUrl: url, maxProducts: 100 },
+      result: { windowEndAt: '2026-09-04T00:00:00.000Z' },
+    })] });
     fireEvent.change(screen.getByPlaceholderText(/https:\/\/live\.douyin\.com/), {
       target: { value: url },
     });
     fireEvent.click(screen.getByRole('button', { name: '방송 수집' }));
 
-    await waitFor(() => expect(mocks.collectBrowser).toHaveBeenCalledWith({
-      idempotencyKey: expect.any(String),
-      url,
-    }));
+    await waitFor(() => expect(mocks.startOperation).toHaveBeenCalledWith('sourcing.live_commerce', { platform: 'douyin', url }));
     expect(screen.getByText('보존된 라이브 스냅샷')).toBeInTheDocument();
-    await waitFor(() => expect(mocks.fetchBrowserStatus).toHaveBeenCalledWith(url));
-    expect(screen.getByText(/기준 09\.\s*04/)).toBeInTheDocument();
+    expect(mocks.listOperations).toHaveBeenCalledWith('/api/operations?kinds=sourcing.live_commerce&limit=20');
+    expect(await screen.findByText(/기준 09\.\s*04/)).toBeInTheDocument();
 
     view.unmount();
     renderSection();
     expect(await screen.findByText('보존된 라이브 스냅샷')).toBeInTheDocument();
-    expect(mocks.collectBrowser).toHaveBeenCalledTimes(1);
+    expect(mocks.startOperation).toHaveBeenCalledTimes(1);
   });
 
   it('uses the direct official CTA with a stable transport key and a new key after terminal failure', async () => {
@@ -225,93 +245,52 @@ describe('LiveCommerceSection direct source-owner migration', () => {
     expect(mocks.taobaoStart.mock.calls[3][1]).not.toBe(mocks.taobaoStart.mock.calls[1][1]);
   }, 12_000);
 
-  it('reuses a fingerprint key after an uncertain extension response and clears it only after a terminal outcome', async () => {
-    mocks.collectBrowser
-      .mockRejectedValueOnce(new Error('extension response lost'))
-      .mockResolvedValueOnce({
-        success: true,
-        attemptId: '00000000-0000-4000-8000-000000000778',
-        terminalState: 'COMPLETE',
-      });
+  it('refuses a URL that is not a 1688 or Douyin broadcast before asking the extension', async () => {
     renderSection();
     await screen.findByRole('button', { name: '방송 수집' });
-    const url = 'https://live.douyin.com/123';
     fireEvent.change(screen.getByPlaceholderText(/https:\/\/live\.douyin\.com/), {
-      target: { value: url },
+      target: { value: 'https://example.com/live/1' },
     });
-
     fireEvent.click(screen.getByRole('button', { name: '방송 수집' }));
-    await waitFor(() => expect(mocks.collectBrowser).toHaveBeenCalledTimes(1));
-    fireEvent.click(screen.getByRole('button', { name: '방송 수집' }));
-    await waitFor(() => expect(mocks.collectBrowser).toHaveBeenCalledTimes(2));
 
-    const [first, second] = mocks.collectBrowser.mock.calls;
-    expect(first[0].url).toBe(url);
-    expect(second[0].url).toBe(url);
-    expect(second[0].idempotencyKey).toBe(first[0].idempotencyKey);
+    expect(await screen.findByText(/도우인\(live\.douyin\.com\) 방송 URL을 넣어 주세요/)).toBeInTheDocument();
+    expect(mocks.startOperation).not.toHaveBeenCalled();
   });
 
-  it("shows the submitted room's running collection with a stop that ends it through its owner, then shows it stopped", async () => {
-    const attemptId = '00000000-0000-4000-8000-000000000780';
-    const status = (state: 'RUNNING' | 'FAILED') => ({
-      ready: true,
-      latestAttempt: {
-        attemptId,
-        state,
-        expiresAt: '2099-01-01T00:00:00.000Z',
-        errorCode: state === 'FAILED' ? 'USER_CANCELLED' : null,
-        errorMessage: state === 'FAILED' ? '운영자가 수집을 중단했습니다.' : null,
-      },
-      latestComplete: { attemptId: '00000000-0000-4000-8000-000000000770', completedAt: '2026-09-03T00:00:00.000Z' },
-      actualCutoffAt: '2026-09-03T00:00:00.000Z',
-      errorCode: null,
-      errorMessage: null,
-    });
-    // The extension answers only when the collection ends.
-    mocks.collectBrowser.mockImplementation(() => new Promise(() => undefined));
-    mocks.fetchBrowserStatus.mockResolvedValue(status('RUNNING'));
-    mocks.cancelBrowser.mockImplementation(async () => {
-      mocks.fetchBrowserStatus.mockResolvedValue(status('FAILED'));
+  it("shows the submitted room's running collection with a stop that ends it through the operation cancel, then shows it stopped", async () => {
+    const operationId = '00000000-0000-4000-8000-000000000780';
+    mocks.listOperations.mockResolvedValue({ operations: [liveOperation(operationId, 'executing')] });
+    mocks.cancelOnServer.mockImplementation(async () => {
+      mocks.listOperations.mockResolvedValue({ operations: [liveOperation(operationId, 'cancelled')] });
     });
     renderSection();
     await screen.findByRole('button', { name: '방송 수집' });
-    const url = 'https://live.douyin.com/123';
     fireEvent.change(screen.getByPlaceholderText(/https:\/\/live\.douyin\.com/), {
-      target: { value: url },
+      target: { value: ROOM },
     });
     fireEvent.click(screen.getByRole('button', { name: '방송 수집' }));
 
     fireEvent.click(await screen.findByRole('button', { name: '수집 중단' }));
 
     expect(await screen.findByText(/수집을 중단했습니다\. 저장된 완료본은 유지됩니다\./)).toBeInTheDocument();
-    expect(mocks.cancelBrowser).toHaveBeenCalledWith(attemptId);
-    expect(mocks.fetchBrowserStatus).toHaveBeenCalledWith(url);
+    expect(mocks.cancelInExtension).toHaveBeenCalledWith(operationId);
+    expect(mocks.cancelOnServer).toHaveBeenCalledWith(`/api/operations/${operationId}/cancel`);
     expect(screen.getByText('보존된 라이브 스냅샷')).toBeInTheDocument();
   });
 
-  it('shows stale source status and actual cutoff without replacing a persisted snapshot after a failed refresh', async () => {
-    mocks.collectBrowser.mockResolvedValue({
-      success: false,
-      attemptId: '00000000-0000-4000-8000-000000000779',
-      terminalState: 'FAILED',
-      error: '브라우저 수집 실패',
-    });
-    mocks.fetchBrowserStatus.mockResolvedValue({
-      ready: false,
-      latestAttempt: { state: 'FAILED' },
-      latestComplete: { completedAt: '2026-09-03T00:00:00.000Z' },
-      actualCutoffAt: '2026-09-03T00:00:00.000Z',
-      errorCode: 'SOURCE_COLLECTION_FAILED',
-      errorMessage: '브라우저 수집 실패',
-    });
+  it('shows a failed refresh with the last successful cutoff without replacing a persisted snapshot', async () => {
+    mocks.listOperations.mockResolvedValue({ operations: [
+      liveOperation('00000000-0000-4000-8000-000000000779', 'failed', { errorCode: 'SITE_REQUEST_FAILED', errorMessage: '브라우저 수집 실패' }),
+      liveOperation('00000000-0000-4000-8000-000000000770', 'succeeded', { result: { windowEndAt: '2026-09-03T00:00:00.000Z' } }),
+    ] });
     renderSection();
     await screen.findByRole('button', { name: '방송 수집' });
     fireEvent.change(screen.getByPlaceholderText(/https:\/\/live\.douyin\.com/), {
-      target: { value: 'https://live.douyin.com/123' },
+      target: { value: ROOM },
     });
     fireEvent.click(screen.getByRole('button', { name: '방송 수집' }));
 
-    await waitFor(() => expect(screen.getByText(/원천 상태 이상/)).toBeInTheDocument());
+    expect(await screen.findByText(/브라우저 수집 실패/)).toBeInTheDocument();
     expect(screen.getByText('보존된 라이브 스냅샷')).toBeInTheDocument();
     expect(screen.getByText(/기준 09\.\s*03/)).toBeInTheDocument();
   });

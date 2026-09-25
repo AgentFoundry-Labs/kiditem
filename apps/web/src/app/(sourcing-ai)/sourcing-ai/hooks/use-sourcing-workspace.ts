@@ -58,8 +58,8 @@ export function useRefreshSourcingRecommendations() {
   const organizationId = useSourcingWorkspaceOrganizationId();
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: async (sourceAttemptId: string) => {
-      const envelope = await sourcingWorkspaceApi.refreshRecommendations(sourceAttemptId);
+    mutationFn: async (sourceOperationId: string) => {
+      const envelope = await sourcingWorkspaceApi.refreshRecommendations(sourceOperationId);
       if (!envelope.data?.runId) {
         throw new Error(envelope.error?.message ?? 'recommendations were not refreshed');
       }

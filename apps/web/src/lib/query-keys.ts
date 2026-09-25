@@ -384,12 +384,9 @@ export const queryKeys = {
       [...queryKeys.sourcing.all, 'entry-recommendations', limit] as const,
     trendPopularKeywords: (days: number) => [...queryKeys.sourcing.all, 'trend', 'popular-keywords', days] as const,
     trend1688Hot: (days: number) => [...queryKeys.sourcing.all, 'trend', '1688-hot', days] as const,
-    trend1688SourceStatus: () =>
-      [...queryKeys.sourcing.all, 'trend', '1688-hot', 'source-status'] as const,
     trendShorts: (days: number) => [...queryKeys.sourcing.all, 'trend', 'shorts', days] as const,
     trendTiktokCc: (days: number) => [...queryKeys.sourcing.all, 'trend', 'tiktok-cc', days] as const,
     liveCommerceStatus: () => [...queryKeys.sourcing.all, 'live-commerce', 'status'] as const,
-    liveCommerceExtensionStatus: () => [...queryKeys.sourcing.all, 'live-commerce', 'extension-status'] as const,
     liveCommerceSnapshots: (days: number) => [...queryKeys.sourcing.all, 'live-commerce', 'snapshots', days] as const,
     liveCommerceKeywords: (days: number) => [...queryKeys.sourcing.all, 'live-commerce', 'keywords', days] as const,
     competitors: (days: number) => [...queryKeys.sourcing.all, 'competitors', days] as const,

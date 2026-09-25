@@ -1,43 +1,17 @@
 'use client';
 
-import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
-import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { queryKeys } from '@/lib/query-keys';
-import {
-  cancelSourcing1688TrendAttempt,
-  fetchSourcing1688TrendSourceStatus,
-  type Sourcing1688TrendSourceStatus,
-} from './sourcing-1688-source-owner';
-import type { QueryKey } from '@tanstack/react-query';
+import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
+import { invalidateSourcingReads, sourcingOperationCollection } from './sourcing-operations';
 
 /**
- * The 1688 hot-product collection's running state and operator stop for the
- * shared control. The decision center starts it through its own supply CTA,
- * and the extension opens and runs the attempt.
+ * 1688 인기상품 수집(`sourcing.trend_1688`, KID-360). 키워드는 조직의 트렌드 시드에서 서버가 정하므로 scope는
+ * 비어 있다. 결정 센터의 공급 CTA가 시작하고, 공용 컨트롤이 도는 실행과 중단을 보인다. 끝나면 결정 센터가 읽는
+ * 공급 후보를 다시 읽는다.
  */
-export const sourcing1688TrendCollection: CollectionSourceAdapter<Sourcing1688TrendSourceStatus> = {
-  sourceKey: 'sourcing.1688_trend',
+export const sourcing1688TrendCollection = sourcingOperationCollection({
+  kind: SOURCING_OPERATION_KINDS.trend1688,
+  sourceKey: SOURCING_OPERATION_KINDS.trend1688,
   label: '1688 공급 후보 수집',
-  statusQuery: collectionSourceStatusQueryOptions<
-    Sourcing1688TrendSourceStatus,
-    Error,
-    Sourcing1688TrendSourceStatus,
-    QueryKey
-  >({
-    queryKey: queryKeys.sourcing.trend1688SourceStatus(),
-    queryFn: fetchSourcing1688TrendSourceStatus,
-  }),
-  readRunning: (status) =>
-    status.latestAttempt?.state === 'RUNNING'
-      ? { attemptId: status.latestAttempt.attemptId, scopeLabel: null }
-      : null,
-  cancelOnServer: (attemptId) => cancelSourcing1688TrendAttempt(attemptId),
-  readCompleteId: (status) => status.latestComplete?.attemptId ?? null,
-  // A new COMPLETE republished the supply candidates the sourcing screens read.
-  onNewComplete: (queryClient) => {
-    void queryClient.invalidateQueries({
-      queryKey: queryKeys.sourcing.all,
-      predicate: (query) => !query.queryKey.includes('source-status'),
-    });
-  },
-};
+  scope: () => ({}),
+  onNewComplete: invalidateSourcingReads,
+});
