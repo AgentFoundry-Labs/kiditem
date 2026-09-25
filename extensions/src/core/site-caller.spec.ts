@@ -135,7 +135,41 @@ describe('createSiteCaller — 사이트 요청 공용 규칙', () => {
     const error = await rejection(createSiteCaller({ minIntervalMs: 0 }, site.deps).text('https://site.example.com/a'));
 
     expect(error.code).toBe('SITE_REQUEST_FAILED');
-    expect(error.details).toEqual({ status: 503, url: 'https://site.example.com/a' });
+    expect(error.details).toEqual({ status: 503, url: 'https://site.example.com/a', reason: 'http', bodyHead: 'busy' });
+  });
+
+  it('2xx인데 JSON이 아니면 SITE_REQUEST_FAILED{reason: not_json} — 본문 앞 120자를 공백을 줄여 싣는다(봇·레이트 페이지 진단)', async () => {
+    const html = `<html>\n  <head><title>Access   Denied</title></head>\n<body>${'x'.repeat(200)}</body></html>`;
+    const site = fakeSite(() => new Response(html, { status: 200, headers: { 'content-type': 'text/html' } }));
+
+    const error = await rejection(createSiteCaller({ minIntervalMs: 0 }, site.deps).json('https://site.example.com/a'));
+
+    const expectedHead = html.replace(/\s+/g, ' ').trim().slice(0, 120);
+    expect(expectedHead.startsWith('<html> <head><title>Access Denied</title></head> <body>xxx')).toBe(true);
+    expect(error.code).toBe('SITE_REQUEST_FAILED');
+    expect(error.details).toEqual({ status: 200, url: 'https://site.example.com/a', reason: 'not_json', bodyHead: expectedHead });
+  });
+
+  it('연결 오류는 SITE_REQUEST_FAILED{status: null, reason: network}', async () => {
+    const site = fakeSite();
+    site.deps.fetch = async () => { throw new TypeError('Failed to fetch'); };
+
+    const error = await rejection(createSiteCaller({ minIntervalMs: 0 }, site.deps).json('https://site.example.com/a'));
+
+    expect(error.code).toBe('SITE_REQUEST_FAILED');
+    expect(error.details).toEqual({ status: null, url: 'https://site.example.com/a', reason: 'network', bodyHead: null });
+  });
+
+  it('timeoutMs 안에 응답이 없으면 요청을 끊고 SITE_REQUEST_FAILED{reason: timeout}', async () => {
+    const site = fakeSite();
+    site.deps.fetch = (_input, init) => new Promise((_resolve, reject) => {
+      init?.signal?.addEventListener('abort', () => reject(init.signal!.reason));
+    });
+
+    const error = await rejection(createSiteCaller({ minIntervalMs: 0, timeoutMs: 20 }, site.deps).json('https://site.example.com/a'));
+
+    expect(error.code).toBe('SITE_REQUEST_FAILED');
+    expect(error.details).toEqual({ status: null, url: 'https://site.example.com/a', reason: 'timeout', bodyHead: null });
   });
 
   it('text는 본문을 그대로 돌려준다', async () => {

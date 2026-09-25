@@ -3,7 +3,7 @@ import type {
   WingCatalogDeletionConfirmationItem,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { RuntimeError, isRuntimeError } from '../../core/errors';
-import { SITE_REQUEST_FAILED, type SiteCaller } from '../../core/site-caller';
+import { SITE_REQUEST_FAILED, type SiteCaller, type SiteRequestInit } from '../../core/site-caller';
 import type { SiteDefinition } from '../site';
 import {
   WingPayloadError,
@@ -31,8 +31,14 @@ const CATALOGUE_TYPES = [
   'MODEL_NO',
   'BARCODE',
 ] as const;
-/** 상세 일시 오류(429·5xx·연결 끊김)를 다시 묻기 전 기다림. 옛 수집기 값 그대로. */
-const DETAIL_RETRY_DELAYS_MS = [2_000, 6_000] as const;
+/**
+ * 읽기 요청이 2xx JSON이 아닐 때(HTML 봇·레이트 페이지·429·5xx·연결 끊김·시간 초과) 다시 묻기 전 기다림. 옛 수집기 값
+ * 그대로(KID-354 QA: 상세 20건 뒤 한 응답이 HTML이었고 몇 초 뒤 같은 상품은 200 JSON이었다). 로그인 판정은 다시 묻지 않는다.
+ */
+const READ_RETRY_DELAYS_MS = [2_000, 6_000] as const;
+const NOT_FOUND = Symbol('wing-not-found');
+/** 응답을 이만큼 기다리고 끊는다(끊기면 위 재시도를 탄다). */
+const WING_TIMEOUT_MS = 30_000;
 /** Wing 목록의 삭제 상품 `productStatus`. */
 const WING_DELETED_STATUS = 'DELETED';
 
@@ -50,6 +56,7 @@ export const WING_SITE: SiteDefinition = {
   origin: ORIGIN,
   caller: {
     minIntervalMs: 2_000,
+    timeoutMs: WING_TIMEOUT_MS,
     displayName: '쿠팡 윙',
     xsrf: { cookieUrl: ORIGIN, cookieName: 'XSRF-TOKEN', headerName: 'X-XSRF-TOKEN' },
   },
@@ -61,6 +68,21 @@ export interface WingSiteDeps {
 
 /** Wing 카탈로그 수집기 셋(목록·상세·엑셀)이 쓰는 Wing 읽기와, 사용자가 허용한 엑셀 생성 요청 하나. */
 export function createWingSite(caller: SiteCaller, deps: WingSiteDeps) {
+  /** 읽기 — 2xx JSON이 아니면 2초·6초 뒤 다시 묻는다. `notFoundIsAnswer`면 404는 다시 묻지 않고 `NOT_FOUND`를 돌려준다. */
+  async function readJson(url: string, init?: SiteRequestInit, notFoundIsAnswer = false): Promise<unknown> {
+    for (let attempt = 0; ; attempt += 1) {
+      try {
+        return await caller.json(url, init);
+      } catch (error) {
+        const failed = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
+        if (failed && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
+        const delay = READ_RETRY_DELAYS_MS[attempt];
+        if (!failed || delay === undefined) throw error;
+        await deps.sleep(delay);
+      }
+    }
+  }
+
   const postJson = (url: string, body: unknown, requireXsrf = false) =>
     caller.json(url, {
       method: 'POST',
@@ -69,8 +91,14 @@ export function createWingSite(caller: SiteCaller, deps: WingSiteDeps) {
       requireXsrf,
     });
 
+  const searchJson = (body: unknown) => readJson(SEARCH_URL, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', accept: 'application/json' },
+    body: JSON.stringify(body),
+  });
+
   async function productIdsOf(ids: readonly string[], displayDeletedProduct: boolean): Promise<Map<string, string | null>> {
-    const response = await postJson(SEARCH_URL, buildWingProductIdSearchBody(ids, displayDeletedProduct));
+    const response = await searchJson(buildWingProductIdSearchBody(ids, displayDeletedProduct));
     const rows = productRows(response);
     return new Map(rows.map((row) => [String(row.vendorInventoryId), typeof row.productStatus === 'string' ? row.productStatus : null]));
   }
@@ -78,7 +106,7 @@ export function createWingSite(caller: SiteCaller, deps: WingSiteDeps) {
   return {
     /** 목록 한 페이지(500개). 페이지 모양·행 수가 pagination과 맞지 않으면 `CATALOG_LIST_INCOMPLETE`. */
     async searchInventory(page: number, vendorId: string | null): Promise<WingInventoryPage> {
-      const response = await postJson(SEARCH_URL, buildWingCatalogSearchBody(page));
+      const response = await searchJson(buildWingCatalogSearchBody(page));
       try {
         return normalizeWingCatalogSearchResponse(response, page, vendorId);
       } catch (error) {
@@ -87,34 +115,24 @@ export function createWingSite(caller: SiteCaller, deps: WingSiteDeps) {
       }
     },
 
-    /** 상품 상세 하나. 없으면(404) null. 429·5xx·연결 끊김은 2초·6초 뒤 다시 묻는다. */
+    /**
+     * 상품 상세 하나. 없으면(404) null. 2xx JSON이 아니면 2초·6초 뒤 다시 묻고, 그래도 안 되면 `SITE_REQUEST_FAILED`
+     * (details `status`·`reason`·`bodyHead`)를 넘긴다 — 건너뛸지는 수집기가 정한다.
+     */
     async productDetail(externalProductId: string): Promise<CoupangCatalogDetailProductV1 | null> {
-      const url = `${DETAIL_URL}${encodeURIComponent(externalProductId)}`;
-      for (let attempt = 0; ; attempt += 1) {
-        let body: unknown;
-        try {
-          body = await caller.json(url);
-        } catch (error) {
-          const status = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED ? error.details?.status : undefined;
-          if (status === 404) return null;
-          const transient = status === null || status === 429 || (typeof status === 'number' && status >= 500);
-          const delay = DETAIL_RETRY_DELAYS_MS[attempt];
-          if (!transient || delay === undefined) throw error;
-          await deps.sleep(delay);
-          continue;
-        }
-        let product: CoupangCatalogDetailProductV1;
-        try {
-          product = buildCatalogDetailProduct(body);
-        } catch (error) {
-          if (error instanceof WingPayloadError) throw new RuntimeError(error.code, error.message, { externalProductId });
-          throw error;
-        }
-        if (product.externalProductId !== externalProductId) {
-          throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, `Wing 상세 상품 ID가 다릅니다(${externalProductId} / ${product.externalProductId}).`);
-        }
-        return product;
+      const body = await readJson(`${DETAIL_URL}${encodeURIComponent(externalProductId)}`, undefined, true);
+      if (body === NOT_FOUND) return null;
+      let product: CoupangCatalogDetailProductV1;
+      try {
+        product = buildCatalogDetailProduct(body);
+      } catch (error) {
+        if (error instanceof WingPayloadError) throw new RuntimeError(error.code, error.message, { externalProductId });
+        throw error;
       }
+      if (product.externalProductId !== externalProductId) {
+        throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, `Wing 상세 상품 ID가 다릅니다(${externalProductId} / ${product.externalProductId}).`);
+      }
+      return product;
     },
 
     /**

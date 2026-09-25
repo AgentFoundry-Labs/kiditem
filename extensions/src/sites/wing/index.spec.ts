@@ -64,6 +64,7 @@ describe('sites/wing', () => {
       origin: 'https://wing.coupang.com',
       caller: {
         minIntervalMs: 2_000,
+        timeoutMs: 30_000,
         displayName: '쿠팡 윙',
         xsrf: { cookieUrl: 'https://wing.coupang.com', cookieName: 'XSRF-TOKEN', headerName: 'X-XSRF-TOKEN' },
       },
@@ -109,6 +110,78 @@ describe('sites/wing', () => {
     expect(wing.sent.map(({ url }) => url)).toEqual([`${DETAIL}7`, `${DETAIL}7`, `${DETAIL}7`]);
     expect(wing.sleeps.filter((ms) => ms === 2_000 || ms === 6_000)).toEqual([2_000, 6_000]);
     await expect(wing.site.productDetail('404')).resolves.toBeNull();
+  });
+
+  it('productDetail은 JSON이 아닌 응답(봇·레이트 페이지)을 2초 뒤 다시 묻고, 그 응답이 JSON이면 정상 진행한다', async () => {
+    let calls = 0;
+    const wing = fakeWing(() => {
+      calls += 1;
+      return calls === 1
+        ? new Response('<html><body>잠시 후 다시 시도해 주세요</body></html>', { status: 200 })
+        : Response.json({ sellerProductId: 7, items: [{ sellerProductItemId: 70 }] });
+    });
+    await expect(wing.site.productDetail('7')).resolves.toMatchObject({ externalProductId: '7' });
+    expect(wing.sent).toHaveLength(2);
+    expect(wing.sleeps).toEqual([2_000]);
+  });
+
+  it('productDetail은 두 번 다시 물어도(2초·6초) JSON이 아니면 status·bodyHead를 싣고 SITE_REQUEST_FAILED로 넘긴다', async () => {
+    const wing = fakeWing(() => new Response('<html>  blocked  </html>', { status: 200 }));
+    const error = await rejection(wing.site.productDetail('7'));
+    expect(error.code).toBe('SITE_REQUEST_FAILED');
+    expect(error.details).toMatchObject({ status: 200, reason: 'not_json', bodyHead: '<html> blocked </html>' });
+    expect(wing.sent).toHaveLength(3);
+    expect(wing.sleeps).toEqual([2_000, 6_000]);
+  });
+
+  it.each([
+    ['429', () => new Response('too many', { status: 429 })],
+    ['연결 오류', () => Promise.reject(new TypeError('Failed to fetch'))],
+  ])('productDetail은 %s도 다시 묻는다', async (_label, failure) => {
+    let calls = 0;
+    const wing = fakeWing(() => {
+      calls += 1;
+      return calls === 1 ? failure() : Response.json({ sellerProductId: 7, items: [{ sellerProductItemId: 70 }] });
+    });
+    await expect(wing.site.productDetail('7')).resolves.toMatchObject({ externalProductId: '7' });
+    expect(wing.sleeps).toEqual([2_000]);
+  });
+
+  it('로그인 판정(401·403)은 다시 묻지 않고 바로 SITE_LOGIN_REQUIRED', async () => {
+    for (const status of [401, 403]) {
+      const wing = fakeWing(() => new Response('', { status }));
+      expect((await rejection(wing.site.productDetail('7'))).code).toBe('SITE_LOGIN_REQUIRED');
+      expect(wing.sent).toHaveLength(1);
+      expect(wing.sleeps).toEqual([]);
+    }
+  });
+
+  it('searchInventory도 JSON이 아니거나 5xx면 2초·6초 뒤 다시 묻고, 그래도 안 되면 실패로 넘긴다', async () => {
+    let calls = 0;
+    const recovering = fakeWing(() => {
+      calls += 1;
+      return calls === 1 ? new Response('<html>busy</html>', { status: 200 }) : searchResponse([listRow(1)]);
+    });
+    await expect(recovering.site.searchInventory(1, 'A1')).resolves.toMatchObject({ totalItems: 1 });
+    expect(recovering.sleeps).toEqual([2_000]);
+
+    const failing = fakeWing(() => new Response('gateway', { status: 502 }));
+    const error = await rejection(failing.site.searchInventory(1, 'A1'));
+    expect(error.code).toBe('SITE_REQUEST_FAILED');
+    expect(error.details).toMatchObject({ status: 502, reason: 'http', bodyHead: 'gateway' });
+    expect(failing.sent).toHaveLength(3);
+    expect(failing.sleeps).toEqual([2_000, 6_000]);
+  });
+
+  it('probeDeleted의 검색도 JSON이 아니면 다시 묻는다', async () => {
+    let calls = 0;
+    const wing = fakeWing(() => {
+      calls += 1;
+      return calls === 1 ? new Response('<html>busy</html>', { status: 200 }) : searchResponse([listRow(1, { productStatus: 'DELETED' })]);
+    });
+    await expect(wing.site.probeDeleted(['1'])).resolves.toEqual([{ externalProductId: '1', outcome: 'deleted', productStatus: 'DELETED' }]);
+    expect(wing.sent).toHaveLength(2);
+    expect(wing.sleeps).toEqual([2_000]);
   });
 
   it('productDetail은 다른 상품의 상세를 받으면 멈춘다', async () => {

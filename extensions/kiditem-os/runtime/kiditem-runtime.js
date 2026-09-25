@@ -4892,6 +4892,11 @@ var KidItemRuntime = (() => {
   }
   var SITE_REQUEST_FAILED = "SITE_REQUEST_FAILED";
   var SITE_LOGIN_REQUIRED = "SITE_LOGIN_REQUIRED";
+  var BODY_HEAD_LENGTH = 120;
+  function bodyHeadOf(body) {
+    const head = body.replace(/\s+/g, " ").trim().slice(0, BODY_HEAD_LENGTH);
+    return head || null;
+  }
   function createSiteCaller(options, deps) {
     let lastSentAt = null;
     let queue = Promise.resolve();
@@ -4908,16 +4913,21 @@ var KidItemRuntime = (() => {
       if (wait > 0) await deps.sleep(wait);
       lastSentAt = deps.now();
       let response;
+      const timeout = options.timeoutMs === void 0 ? null : AbortSignal.timeout(options.timeoutMs);
+      const signal = timeout && init.signal ? AbortSignal.any([timeout, init.signal]) : timeout ?? init.signal;
       try {
-        response = await deps.fetch(url, { credentials: "include", redirect: "manual", ...init, headers });
+        response = await deps.fetch(url, { credentials: "include", redirect: "manual", ...init, headers, ...signal ? { signal } : {} });
       } catch (error) {
-        throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, url }, error);
+        const timedOut = timeout?.aborted === true;
+        const failure2 = { status: null, url, reason: timedOut ? "timeout" : "network", bodyHead: null };
+        throw new RuntimeError(SITE_REQUEST_FAILED, timedOut ? "\uC0AC\uC774\uD2B8\uAC00 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : "\uC0AC\uC774\uD2B8\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", failure2, error);
       }
       if (response.status === 401 || response.status === 403 || response.type === "opaqueredirect") {
         throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { status: response.status, url });
       }
       if (!response.ok) {
-        throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uC774\uD2B8 \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(${response.status}).`, { status: response.status, url });
+        const failure2 = { status: response.status, url, reason: "http", bodyHead: bodyHeadOf(await safeText(response)) };
+        throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uC774\uD2B8 \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(${response.status}).`, failure2);
       }
       return response;
     }
@@ -4929,15 +4939,24 @@ var KidItemRuntime = (() => {
     return {
       json: (url, init) => enqueue(async () => {
         const response = await send(url, init);
+        const body = await safeText(response);
         try {
-          return await response.json();
+          return JSON.parse(body);
         } catch (error) {
-          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", { status: response.status, url }, error);
+          const failure2 = { status: response.status, url, reason: "not_json", bodyHead: bodyHeadOf(body) };
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", failure2, error);
         }
       }),
       text: (url, init) => enqueue(async () => (await send(url, init)).text()),
       bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send(url, init)).arrayBuffer()))
     };
+  }
+  async function safeText(response) {
+    try {
+      return await response.text();
+    } catch {
+      return "";
+    }
   }
   function decodeCookie(value) {
     if (!value) return null;
@@ -5409,7 +5428,9 @@ var KidItemRuntime = (() => {
     "MODEL_NO",
     "BARCODE"
   ];
-  var DETAIL_RETRY_DELAYS_MS = [2e3, 6e3];
+  var READ_RETRY_DELAYS_MS = [2e3, 6e3];
+  var NOT_FOUND = /* @__PURE__ */ Symbol("wing-not-found");
+  var WING_TIMEOUT_MS = 3e4;
   var WING_DELETED_STATUS = "DELETED";
   var CATALOG_LIST_INCOMPLETE2 = "CATALOG_LIST_INCOMPLETE";
   var CATALOG_EXCEL_FAILED2 = "CATALOG_EXCEL_FAILED";
@@ -5419,26 +5440,45 @@ var KidItemRuntime = (() => {
     origin: ORIGIN,
     caller: {
       minIntervalMs: 2e3,
+      timeoutMs: WING_TIMEOUT_MS,
       displayName: "\uCFE0\uD321 \uC719",
       xsrf: { cookieUrl: ORIGIN, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingSite(caller, deps) {
+    async function readJson(url, init, notFoundIsAnswer = false) {
+      for (let attempt = 0; ; attempt += 1) {
+        try {
+          return await caller.json(url, init);
+        } catch (error) {
+          const failed = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
+          if (failed && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
+          const delay = READ_RETRY_DELAYS_MS[attempt];
+          if (!failed || delay === void 0) throw error;
+          await deps.sleep(delay);
+        }
+      }
+    }
     const postJson = (url, body, requireXsrf = false) => caller.json(url, {
       method: "POST",
       headers: { "content-type": "application/json", accept: "application/json" },
       body: JSON.stringify(body),
       requireXsrf
     });
+    const searchJson = (body) => readJson(SEARCH_URL, {
+      method: "POST",
+      headers: { "content-type": "application/json", accept: "application/json" },
+      body: JSON.stringify(body)
+    });
     async function productIdsOf(ids, displayDeletedProduct) {
-      const response = await postJson(SEARCH_URL, buildWingProductIdSearchBody(ids, displayDeletedProduct));
+      const response = await searchJson(buildWingProductIdSearchBody(ids, displayDeletedProduct));
       const rows = productRows(response);
       return new Map(rows.map((row) => [String(row.vendorInventoryId), typeof row.productStatus === "string" ? row.productStatus : null]));
     }
     return {
       /** 목록 한 페이지(500개). 페이지 모양·행 수가 pagination과 맞지 않으면 `CATALOG_LIST_INCOMPLETE`. */
       async searchInventory(page, vendorId) {
-        const response = await postJson(SEARCH_URL, buildWingCatalogSearchBody(page));
+        const response = await searchJson(buildWingCatalogSearchBody(page));
         try {
           return normalizeWingCatalogSearchResponse(response, page, vendorId);
         } catch (error) {
@@ -5446,34 +5486,24 @@ var KidItemRuntime = (() => {
           throw error;
         }
       },
-      /** 상품 상세 하나. 없으면(404) null. 429·5xx·연결 끊김은 2초·6초 뒤 다시 묻는다. */
+      /**
+       * 상품 상세 하나. 없으면(404) null. 2xx JSON이 아니면 2초·6초 뒤 다시 묻고, 그래도 안 되면 `SITE_REQUEST_FAILED`
+       * (details `status`·`reason`·`bodyHead`)를 넘긴다 — 건너뛸지는 수집기가 정한다.
+       */
       async productDetail(externalProductId) {
-        const url = `${DETAIL_URL}${encodeURIComponent(externalProductId)}`;
-        for (let attempt = 0; ; attempt += 1) {
-          let body;
-          try {
-            body = await caller.json(url);
-          } catch (error) {
-            const status = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED ? error.details?.status : void 0;
-            if (status === 404) return null;
-            const transient = status === null || status === 429 || typeof status === "number" && status >= 500;
-            const delay = DETAIL_RETRY_DELAYS_MS[attempt];
-            if (!transient || delay === void 0) throw error;
-            await deps.sleep(delay);
-            continue;
-          }
-          let product;
-          try {
-            product = buildCatalogDetailProduct(body);
-          } catch (error) {
-            if (error instanceof WingPayloadError) throw new RuntimeError(error.code, error.message, { externalProductId });
-            throw error;
-          }
-          if (product.externalProductId !== externalProductId) {
-            throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, `Wing \uC0C1\uC138 \uC0C1\uD488 ID\uAC00 \uB2E4\uB985\uB2C8\uB2E4(${externalProductId} / ${product.externalProductId}).`);
-          }
-          return product;
+        const body = await readJson(`${DETAIL_URL}${encodeURIComponent(externalProductId)}`, void 0, true);
+        if (body === NOT_FOUND) return null;
+        let product;
+        try {
+          product = buildCatalogDetailProduct(body);
+        } catch (error) {
+          if (error instanceof WingPayloadError) throw new RuntimeError(error.code, error.message, { externalProductId });
+          throw error;
         }
+        if (product.externalProductId !== externalProductId) {
+          throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, `Wing \uC0C1\uC138 \uC0C1\uD488 ID\uAC00 \uB2E4\uB985\uB2C8\uB2E4(${externalProductId} / ${product.externalProductId}).`);
+        }
+        return product;
       },
       /**
        * 목록에서 사라진 상품(최대 100개)이 삭제됐는가(KID-351 실측): `PRODUCT_ID` 검색을 삭제 상품만(`displayDeletedProduct:

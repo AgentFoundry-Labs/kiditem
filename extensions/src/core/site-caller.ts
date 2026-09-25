@@ -21,6 +21,8 @@ export interface SiteCallerOptions {
   xsrf?: { cookieUrl: string; cookieName: string; headerName: string };
   /** 운영자에게 보이는 사이트 이름(`쿠팡 윙`). 로그인 문장이 어디에 로그인할지 말한다. */
   displayName?: string;
+  /** 응답을 기다리는 최대 시간. 넘으면 요청을 끊고 `SITE_REQUEST_FAILED{reason: 'timeout'}`. 없으면 끝없이 기다린다. */
+  timeoutMs?: number;
 }
 
 /**
@@ -34,6 +36,25 @@ export function delayUntilNext(input: { lastSentAt: number | null; now: number; 
 
 export const SITE_REQUEST_FAILED = 'SITE_REQUEST_FAILED' as const;
 export const SITE_LOGIN_REQUIRED = 'SITE_LOGIN_REQUIRED' as const;
+
+/**
+ * `SITE_REQUEST_FAILED`의 details. `reason`: `http`(2xx 아님)·`not_json`(2xx인데 JSON 아님)·`network`(연결 실패)·
+ * `timeout`(`timeoutMs` 초과). `bodyHead`는 응답 본문 앞 120자(공백 정리) — 봇·레이트 페이지를 진단한다. 본문이 없으면 null.
+ */
+export type SiteRequestFailure = {
+  status: number | null;
+  url: string;
+  reason: 'http' | 'not_json' | 'network' | 'timeout';
+  bodyHead: string | null;
+};
+
+const BODY_HEAD_LENGTH = 120;
+
+/** 본문 앞부분 — 공백을 한 칸으로 줄이고 120자까지. 빈 본문은 null. */
+export function bodyHeadOf(body: string): string | null {
+  const head = body.replace(/\s+/g, ' ').trim().slice(0, BODY_HEAD_LENGTH);
+  return head || null;
+}
 
 /** 호출기가 쓰는 바깥 경계. 입구가 `fetch`·`chrome.cookies`·시계를 묶어 준다. */
 export interface SiteCallerDeps {
@@ -65,16 +86,21 @@ export function createSiteCaller(options: SiteCallerOptions, deps: SiteCallerDep
     if (wait > 0) await deps.sleep(wait);
     lastSentAt = deps.now();
     let response: Response;
+    const timeout = options.timeoutMs === undefined ? null : AbortSignal.timeout(options.timeoutMs);
+    const signal = timeout && init.signal ? AbortSignal.any([timeout, init.signal]) : (timeout ?? init.signal);
     try {
-      response = await deps.fetch(url, { credentials: 'include', redirect: 'manual', ...init, headers });
+      response = await deps.fetch(url, { credentials: 'include', redirect: 'manual', ...init, headers, ...(signal ? { signal } : {}) });
     } catch (error) {
-      throw new RuntimeError(SITE_REQUEST_FAILED, '사이트에 연결하지 못했습니다.', { status: null, url }, error);
+      const timedOut = timeout?.aborted === true;
+      const failure: SiteRequestFailure = { status: null, url, reason: timedOut ? 'timeout' : 'network', bodyHead: null };
+      throw new RuntimeError(SITE_REQUEST_FAILED, timedOut ? '사이트가 제때 응답하지 않았습니다.' : '사이트에 연결하지 못했습니다.', failure, error);
     }
     if (response.status === 401 || response.status === 403 || response.type === 'opaqueredirect') {
       throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { status: response.status, url });
     }
     if (!response.ok) {
-      throw new RuntimeError(SITE_REQUEST_FAILED, `사이트 요청이 실패했습니다(${response.status}).`, { status: response.status, url });
+      const failure: SiteRequestFailure = { status: response.status, url, reason: 'http', bodyHead: bodyHeadOf(await safeText(response)) };
+      throw new RuntimeError(SITE_REQUEST_FAILED, `사이트 요청이 실패했습니다(${response.status}).`, failure);
     }
     return response;
   }
@@ -89,15 +115,26 @@ export function createSiteCaller(options: SiteCallerOptions, deps: SiteCallerDep
     json: <T>(url: string, init?: SiteRequestInit) =>
       enqueue(async () => {
         const response = await send(url, init);
+        const body = await safeText(response);
         try {
-          return (await response.json()) as T;
+          return JSON.parse(body) as T;
         } catch (error) {
-          throw new RuntimeError(SITE_REQUEST_FAILED, '사이트 응답이 JSON이 아닙니다.', { status: response.status, url }, error);
+          const failure: SiteRequestFailure = { status: response.status, url, reason: 'not_json', bodyHead: bodyHeadOf(body) };
+          throw new RuntimeError(SITE_REQUEST_FAILED, '사이트 응답이 JSON이 아닙니다.', failure, error);
         }
       }),
     text: (url, init) => enqueue(async () => (await send(url, init)).text()),
     bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send(url, init)).arrayBuffer())),
   };
+}
+
+/** 본문을 읽다 끊기면 빈 본문으로 본다(진단용 앞부분만 잃는다). */
+async function safeText(response: Response): Promise<string> {
+  try {
+    return await response.text();
+  } catch {
+    return '';
+  }
 }
 
 function decodeCookie(value: string | undefined): string | null {
