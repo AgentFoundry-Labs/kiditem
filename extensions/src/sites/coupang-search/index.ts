@@ -62,8 +62,9 @@ export function createCoupangSearchSite(tabs: TabPages, deps: { sleep(ms: number
         }
         const parsed = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword, maxResults);
         if (!parsed.ok) {
-          throw new RuntimeError(parsed.reason === 'no_evidence' ? SITE_REQUEST_FAILED : SITE_LOGIN_REQUIRED, parsed.message,
-            { status: null, url, reason: parsed.reason, warnings: parsed.warnings });
+          // 인증 거절(401·403)만 로그인이다. 429는 잠시 뒤 다시 할 요청 실패, 근거 없음도 요청 실패다.
+          throw new RuntimeError(parsed.reason === 'provider_denied' ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED, parsed.message,
+            { status: parsed.reason === 'rate_limited' ? 429 : null, url, reason: parsed.reason, warnings: parsed.warnings });
         }
         return { items: parsed.items, productNameTokens: parsed.productNameTokens, warnings: parsed.warnings };
       } finally {

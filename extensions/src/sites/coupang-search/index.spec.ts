@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SITE_LOGIN_REQUIRED } from '../../core/site-caller';
+import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller';
 import { fakeTabPages } from '../tab-page.fake';
 import { buildCoupangSearchUrl, createCoupangSearchSite } from './index';
 
@@ -30,5 +30,21 @@ describe('Coupang search site (KID-360)', () => {
     await expect(createCoupangSearchSite(fake.tabs, { sleep: async () => undefined }).keywordSuggestions('연필', 5))
       .rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED });
     expect(fake.log.at(-1)).toBe('close 7');
+  });
+
+  it('reports a 429 autocomplete as a rate-limited request failure, not a login', async () => {
+    const fake = fakeTabPages({
+      answer: () => ({ ok: true, autocomplete: { status: 429, contentType: 'application/json', text: '[]' }, links: [], productNames: [] }),
+    });
+    await expect(createCoupangSearchSite(fake.tabs, { sleep: async () => undefined }).keywordSuggestions('연필', 5))
+      .rejects.toMatchObject({ code: SITE_REQUEST_FAILED, details: { status: 429, reason: 'rate_limited' } });
+  });
+
+  it('still asks for a login when autocomplete answers 401 or 403', async () => {
+    const fake = fakeTabPages({
+      answer: () => ({ ok: true, autocomplete: { status: 403, contentType: 'text/html', text: '' }, links: [], productNames: [] }),
+    });
+    await expect(createCoupangSearchSite(fake.tabs, { sleep: async () => undefined }).keywordSuggestions('연필', 5))
+      .rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED });
   });
 });

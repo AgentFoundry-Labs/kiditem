@@ -5697,9 +5697,9 @@ var KidItemRuntime = (() => {
           const parsed = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword, maxResults);
           if (!parsed.ok) {
             throw new RuntimeError(
-              parsed.reason === "no_evidence" ? SITE_REQUEST_FAILED : SITE_LOGIN_REQUIRED,
+              parsed.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
               parsed.message,
-              { status: null, url, reason: parsed.reason, warnings: parsed.warnings }
+              { status: parsed.reason === "rate_limited" ? 429 : null, url, reason: parsed.reason, warnings: parsed.warnings }
             );
           }
           return { items: parsed.items, productNameTokens: parsed.productNameTokens, warnings: parsed.warnings };
