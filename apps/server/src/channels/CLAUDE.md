@@ -95,10 +95,10 @@ sync, registration, matching, and capacity behavior is executable in
 ## Matching And Capacity Contract
 
 - Matching reads all persisted listing/option rows for the account workspace.
-- A Wing listing absent from the list changes only through the details stage's
+- A Wing listing absent from the list changes only through the details kind's
   `deletion_confirmation`: `deleted` → `DELETED` and inactive; present or
-  unconfirmed stays active and unconfirmed goes into `run.quality`. No Wing path
-  (basics, details, workbook) deactivates account-wide (KID-348).
+  unconfirmed stays active and unconfirmed goes into the operation result. No
+  Wing path (list, details, workbook) deactivates account-wide (KID-348).
 - Candidate rows are transient evidence. Automatic matching may fill an empty
   recipe when a typed identifier or one clearly separated name candidate has
   no identifier/spec/option conflict and the selling quantity is confirmed.
@@ -141,18 +141,24 @@ sync, registration, matching, and capacity behavior is executable in
   Products identities, replaces the full composition atomically. Listing summaries are read from
   recipes; empty replacement clears the option recipe. Consumers import the
   published capability, never the concrete service.
-- Catalog imports use a fenced `SourceImportRun` attempt; stale or
-  post-terminal submissions are rejected. The browser import has two stages,
-  basics → details (no `full` stage). Details chunks only stage; the details
-  finalize applies the planned targets in one transaction and skips unchanged
-  details. Each path writes only its own `raw_json` section
-  (`domain/collection/channel-listing-raw-sections.ts`).
-- One catalog import runs per account: a browser import from its basics root
-  through its details child, a single-product details refetch
-  (`detailProductIds`), or a workbook import. A new begin or workbook claim
-  returns `ATTEMPT_IN_PROGRESS` naming that import's root, and an operator stop
-  of the root ends the whole import. The source read returns the latest root
-  and its child.
+- The Wing catalog is three operation kinds (ADR-0025, KID-354·351;
+  `adapter/in/operation/wing-catalog-operation-owners.ts`), each locking
+  `account:<channelAccountId>` so one runs per account: `channels.wing_catalog_list`
+  (whole list → basics publish, then plans details into `result.next`, which the
+  extension runner chains), `channels.wing_catalog_details` (planned targets and
+  deletion confirmations; also the one-product refetch started directly), and
+  `channels.wing_catalog_excel` (workbook bytes as `workbook` chunks, from the web
+  upload or the extension's Wing download; `fileHash` is per account). They
+  publish only inside the finish transaction, mark rows `lastOperationId`, and
+  never touch `source_import_runs` or `channel_scrape_*`. Each path writes only
+  its own `raw_json` section (`domain/collection/channel-listing-raw-sections.ts`).
+- Detail targets compare the listed `modifiedOn` with `detail.modifiedOn`, the
+  list value the last details finalize applied (`domain/collection/catalog-detail-targets.ts`).
+  Only the details finalize advances it, unchanged details included, so a
+  failed or partial details run is retried by the next list with no bookkeeping.
+- Readers treat a `lastOperationId` row as published (`completed-catalog-run.ts`);
+  readiness reads catalog freshness through `CHANNEL_CATALOG_FRESHNESS_PORT`
+  (latest succeeded details operation).
 - New sync/matching paths carry `channelAccountId` and preserve
   parent/child/account consistency atomically.
 - Wing and Rocket account rows remain distinct. Shared vendor identity may be

@@ -130,13 +130,16 @@ Browser collection starts share one web control: a per-source adapter for
 `src/components/collection/CollectionStartControl.tsx`, with starts in
 `src/lib/collection-start.ts`. Running state comes from the owner status read,
 and every mounted copy shares start, stop and notices. Collections that hold a
-browser resource (the five Coupang collection-window producers and the Wing
-catalog import) start through the extension's `startCollection` contract: the
+browser resource (the five Coupang collection-window producers) start through
+the extension's `startCollection` contract: the
 extension takes the resource's turn and opens the owner attempt, or refuses
 with the holder's name, and nothing is queued
 ([ADR-0011](adr/0011-window-sharing-collections-start-through-the-extension.md)).
 Other browser sources open their attempt from the page through
 `startWebOpenedCollection`, which stops an attempt the extension does not take.
+The Wing catalog is Channels-owned operation kinds (list → details chained by
+`result.next`, workbook) started through the extension's `operation.start` and
+read through `GET /api/operations` (KID-354).
 Every start uses a fresh idempotency key; there are no correlated retry keys.
 Stop ends the extension session first, then the owner's organization-scoped
 operator cancel. Competitor catalogs, 1688 trend, TikTok CC and browser live

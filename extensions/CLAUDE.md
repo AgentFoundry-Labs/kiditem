@@ -31,6 +31,9 @@ containing test-style underscore paths.
   talk to the server only through `src/core/operation-client.ts`. The four
   layers and their import rules are in `src/README.md`, enforced by
   `npm run check:extension-runtime-layers`.
+- A collector declares the site shape it needs as an interface in its folder;
+  `entry/site-handles.ts` hands it the `sites/<site>` implementation. The Wing
+  catalog kinds (`channels.wing_catalog_*`, KID-354) are the reference collectors.
 
 ## Owner boundary
 
