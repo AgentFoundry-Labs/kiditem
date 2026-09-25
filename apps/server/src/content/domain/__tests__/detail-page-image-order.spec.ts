@@ -8,7 +8,7 @@ import {
 } from '../detail-page-image-order';
 
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const sharp: typeof import('sharp')['default'] = require('sharp');
+const sharp: typeof import('sharp') = require('sharp');
 
 describe('detail-page-image-order', () => {
   it('moves marked safety label URLs to the end', () => {

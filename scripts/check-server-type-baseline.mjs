@@ -165,7 +165,10 @@ function computeCurrentCounts(name) {
   const project = PROJECTS[name];
   let tscEntry;
   try {
-    tscEntry = require.resolve('typescript/bin/tsc');
+    // Each workspace owns its compiler; the server may upgrade before the web.
+    tscEntry = require.resolve('typescript/bin/tsc', {
+      paths: [path.dirname(path.resolve(REPO_ROOT, project.tsconfig))],
+    });
   } catch {
     console.error('ERROR: typescript is not installed. Run `npm install` first.');
     process.exit(2);
@@ -284,7 +287,7 @@ function verify(name) {
 ${project.note}
     - Reproduce the full list with:
 
-        npx tsc -p ${project.tsconfig} --noEmit
+        npm exec --workspace=apps/${name} -- tsc -p tsconfig.json --noEmit
 
     - The baseline (${project.baselineFile}) is an upper bound, not a
       target. Removals are tolerated and do NOT require regeneration; that is

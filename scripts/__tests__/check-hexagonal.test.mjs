@@ -3,8 +3,8 @@ import assert from 'node:assert/strict';
 import { evaluateHexagonal, hexagonalBoundaryViolations, knownViolationShapeErrors, KNOWN_VIOLATIONS } from '../check-hexagonal.mjs';
 
 const file = 'apps/server/src/channels/application/service/listing/list.service.ts';
-test('rejects framework, concrete adapter and Node dependencies in application', () => {
-  for (const dep of ['@nestjs/common', '@prisma/client', 'node:crypto', 'fs', '../../../adapter/out/persistence/list', 'xlsx']) {
+test('rejects persistence, concrete adapter and Node dependencies in application', () => {
+  for (const dep of ['@prisma/client', 'node:crypto', 'fs', '../../../adapter/out/persistence/list', 'xlsx']) {
     assert.ok(hexagonalBoundaryViolations(file, `import { x } from '${dep}';`).length);
   }
   assert.ok(hexagonalBoundaryViolations(file, 'const bytes: Buffer = process.env.DATA;').length);
@@ -77,15 +77,22 @@ test('the adapter→port direction holds in sourcing and content too (KID-310)',
   ).length);
 });
 
-test('@nestjs stays permitted in sourcing and content (pre-existing debt, not a layout question)', () => {
-  assert.deepEqual(hexagonalBoundaryViolations(
-    'apps/server/src/sourcing/application/service/sourcing.service.ts',
-    "import { Injectable } from '@nestjs/common';",
-  ), []);
-  assert.deepEqual(hexagonalBoundaryViolations(
-    'apps/server/src/content/application/service/thumbnail-generation.service.ts',
-    "import { Injectable } from '@nestjs/common';",
-  ), []);
+test('NestJS is permitted in backend application and domain code without allowing IO', () => {
+  for (const owner of ['channels', 'sourcing', 'content', 'products', 'orders', 'finance', 'advertising', 'analytics']) {
+    for (const lane of ['application/service/listing', 'domain/listing']) {
+      const target = `apps/server/src/${owner}/${lane}/example.ts`;
+      for (const source of [
+        "import { Injectable, Inject, Logger, ConflictException } from '@nestjs/common';",
+        "export { ModuleRef } from '@nestjs/core';",
+        "const nest = import('@nestjs/core');",
+        "const nest = require('@nestjs/common');",
+      ]) assert.deepEqual(hexagonalBoundaryViolations(target, source), [], `${target}: ${source}`);
+    }
+  }
+  for (const lane of ['application/service/listing', 'domain/listing']) {
+    const target = `apps/server/src/channels/${lane}/example.ts`;
+    assert.ok(hexagonalBoundaryViolations(target, "import { Injectable } from '@nestjs/common'; import { PrismaClient } from '@prisma/client';").length);
+  }
 });
 
 test('a marketplace/ business domain is refused in every domain (KID-310)', () => {

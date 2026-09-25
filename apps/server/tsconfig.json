@@ -6,19 +6,21 @@
     "emitDecoratorMetadata": true,
     "experimentalDecorators": true,
     "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
     "target": "ES2021",
     "sourceMap": true,
     "outDir": "./dist",
-    "baseUrl": "./",
+    "rootDir": "../..",
     "incremental": true,
     "skipLibCheck": true,
+    "strict": false,
     "strictNullChecks": true,
     "noImplicitAny": true,
     "strictBindCallApply": true,
     "forceConsistentCasingInFileNames": true,
     "noFallthroughCasesInSwitch": true,
     "paths": {
-      "@/*": ["src/*"],
+      "@/*": ["./src/*"],
       "@copilotkit/runtime/v2": ["../../node_modules/@copilotkit/runtime/dist/v2/index.d.cts"],
       "@copilotkit/runtime/v2/express": ["../../node_modules/@copilotkit/runtime/dist/v2/express.d.cts"]
     }

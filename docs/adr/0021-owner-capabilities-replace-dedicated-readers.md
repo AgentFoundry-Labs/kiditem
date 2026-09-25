@@ -4,9 +4,17 @@ status: accepted
 
 # Owners expose business capabilities
 
-Mandatory reader modules couple callers to storage layout without defining a business boundary, so owners expose cohesive application capabilities while retaining canonical mutation authority, organization scope, evidence completeness, and required transaction consistency. Cross-owner references use scalar IDs validated through owner contracts, including organization, user, and collection-attempt identities when they cross an owner boundary; same-owner constraints remain. Channels implements reads and writes through input adapters, application input ports and services, output ports, and output adapters so framework and persistence dependencies stay outside its business logic.
+Mandatory reader modules couple callers to storage layout without defining a business boundary, so owners expose cohesive application capabilities while retaining canonical mutation authority, organization scope, evidence completeness, and required transaction consistency. Cross-owner references use scalar IDs validated through owner contracts, including organization, user, and collection-attempt identities when they cross an owner boundary; same-owner constraints remain. Channels implements reads and writes through input adapters, application input ports and services, output ports, and output adapters to isolate persistence and provider IO; backend code may use NestJS directly so framework independence does not require forwarding layers or manual constructor factories.
 
 ## Consequences
+
+Backend services and internal ledger helpers may use NestJS injection, logging
+and exceptions while preserving the registered error-response contract
+(ADR-0023). This removes the earlier framework exclusion, including ADR-0009's
+NestJS DI restriction; it does not move transaction or lock ownership. Retained
+ledger helpers still query the caller's transaction and verify its lock evidence.
+Shared web/extension contracts remain framework-neutral, and ordinary calculation
+functions need no provider wrapper.
 
 This replaces the dedicated-reader and fixed-reader-path requirements of
 [ADR-0009](0009-one-ledger-one-reader.md) and the retained-single-reader
