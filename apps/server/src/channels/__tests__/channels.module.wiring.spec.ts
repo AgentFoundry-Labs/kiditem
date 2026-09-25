@@ -195,7 +195,11 @@ describe('ChannelsModule canonical owner wiring', () => {
     ]);
     expectFactoryBinding(providers, CHANNEL_DOCUMENT_EXPORT_PORT, [CHANNEL_DOCUMENTS_PORT]);
     // Wing 카탈로그 실행 kind 셋(KID-354): owner는 provider로 두면 실행 계약이 부팅 때 모은다.
-    expectFactoryBinding(providers, WingCatalogOperationService, [
+    // 서비스는 #577(KID-376) 뒤 Nest DI(@Injectable/@Inject)로 조립되므로 생성자 토큰을 직접 확인한다.
+    expect(providers).toContain(WingCatalogOperationService);
+    const wingCatalogInjectTokens: Array<{ index: number; param: unknown }> =
+      Reflect.getMetadata('self:paramtypes', WingCatalogOperationService) ?? [];
+    expect([...wingCatalogInjectTokens].sort((a, b) => a.index - b.index).map((entry) => entry.param)).toEqual([
       CHANNEL_CATALOG_PUBLICATION_PORT,
       CHANNEL_DOCUMENTS_PORT,
       OPERATION_PORT,
