@@ -204,9 +204,6 @@ export const queryKeys = {
     /** 오늘 수집이 실어 온 주문 수(서버 기록). 대시보드의 '오늘 주문' 과 같은 사실. */
     collectionTodayOrders: (organizationId: string) =>
       [...queryKeys.orders.all, 'collection', 'today-orders', organizationId] as const,
-    /** The organization's Sellpia shipment-tracking collection owner status. */
-    sellpiaShipmentTrackingSource: () =>
-      [...queryKeys.orders.all, 'sellpia-shipment-tracking-source'] as const,
     /** One Rocket account's directship order-collection owner status. */
     coupangDirectshipSource: (channelAccountId: string) =>
       [...queryKeys.orders.all, 'collection', 'coupang-directship-source', channelAccountId] as const,

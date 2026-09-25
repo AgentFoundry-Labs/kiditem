@@ -50,6 +50,12 @@ Action, collection, transmission, and reconciliation behavior is executable in
   only after every planned month window's `review_windows` marker matches its
   `reviews` chunk count, and the reader prefers operation rows over legacy
   SourceImportRun rows.
+- Sellpia shipment tracking is the operation kind
+  `orders.sellpia_shipment_tracking`, locked by `resource:sellpia:login` (one
+  Sellpia login per organization, shared by every kind that reads through it).
+  Its finalize keeps the tracking rows as one `OrderCollectionArtifact` keyed by
+  `operationId`; the tracking screen downloads it by operation id. There is no
+  tracking attempt route.
 
 ## Boundaries
 

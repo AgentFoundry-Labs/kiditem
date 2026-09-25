@@ -31,7 +31,6 @@ const AUTOMATIC_ACTIONS = [
   ['collectHaebeopOrders', 'collectHaebeopOrders', 'haebub-mall', { date: '2026-07-15' }],
   ['collectCoupangDirectOrders', 'collectCoupangDirectOrders', 'coupang-direct', { date: '2026-07-15' }],
 ];
-const SELLPIA_TRACKING_ATTEMPT_ID = '00000000-0000-4000-8000-000000000900';
 
 function uuid(index) {
   return `00000000-0000-4000-8000-${String(index).padStart(12, '0')}`;
@@ -128,9 +127,6 @@ function createFakeChrome() {
 function loadWorker(globals = {}) {
   const fake = createFakeChrome();
   const sourceAttempts = new Map();
-  const trackingAttempts = new Map();
-  const trackingUploads = [];
-  const trackingProgressSnapshots = [];
   const sourceMallByAttempt = new Map([
     [uuid(777), 'kidsnote'],
     [uuid(778), 'kidsnote'],
@@ -193,74 +189,8 @@ function loadWorker(globals = {}) {
       errorMessage: current.errorMessage,
     };
   }
-  function trackingControl(attemptId) {
-    const current = trackingAttempts.get(attemptId) || {
-      state: 'RUNNING',
-      errorCode: null,
-      errorMessage: null,
-      sourceByteCount: null,
-    };
-    return {
-      attemptId,
-      attemptToken: uuid(994),
-      sourceImportRunId: uuid(995),
-      state: current.state,
-      plan: {
-        sourceType: 'sellpia_shipment_tracking',
-        parserVersion: 'sellpia-shipment-tracking-v1',
-        sourceOrigin: 'https://kiditem.sellpia.com',
-        sourceAccountKey: 'kiditem',
-        startDate: '2026-07-15',
-        endDate: '2026-07-15',
-      },
-      expiresAt: '2099-01-01T00:00:00.000Z',
-      artifactId: current.state === 'COMPLETE' ? uuid(996) : null,
-      sourceFileName: current.state === 'COMPLETE' ? 'sellpia-shipment-tracking-v1.json' : null,
-      sourceContentType: current.state === 'COMPLETE' ? 'application/json' : null,
-      contentChecksum: null,
-      sourceByteCount: current.sourceByteCount,
-      errorCode: current.errorCode,
-      errorMessage: current.errorMessage,
-    };
-  }
   async function sourceFetch(url, init = {}) {
     const parsed = new URL(url);
-    const trackingMatch = parsed.pathname.match(
-      /\/api\/orders\/sellpia-shipment-tracking\/attempts\/([^/]+)\/(control|complete|fail)$/,
-    );
-    if (trackingMatch) {
-      const attemptId = decodeURIComponent(trackingMatch[1]);
-      const operation = trackingMatch[2];
-      if (operation === 'complete') {
-        trackingProgressSnapshots.push(
-          structuredClone(fake.storage.kiditem_collection_sessions?.[attemptId] || null),
-        );
-        const file = init.body?.get?.('file');
-        const bytes = file ? new Uint8Array(await file.arrayBuffer()) : new Uint8Array();
-        trackingUploads.push(bytes);
-        trackingAttempts.set(attemptId, {
-          state: 'COMPLETE',
-          errorCode: null,
-          errorMessage: null,
-          sourceByteCount: bytes.byteLength,
-        });
-      } else if (operation === 'fail') {
-        const body = JSON.parse(String(init.body || '{}'));
-        trackingAttempts.set(attemptId, {
-          state: 'FAILED',
-          errorCode: body.errorCode,
-          errorMessage: body.errorMessage,
-          sourceByteCount: null,
-        });
-      }
-      return {
-        ok: true,
-        status: 200,
-        async json() {
-          return trackingControl(attemptId);
-        },
-      };
-    }
     const directMatch = parsed.pathname.match(
       /\/api\/orders\/collection\/coupang-directship\/attempts\/([^/]+)(?:\/(?:control|complete|fail))?$/,
     );
@@ -355,9 +285,6 @@ function loadWorker(globals = {}) {
   return {
     ...fake,
     context,
-    trackingAttempts,
-    trackingUploads,
-    trackingProgressSnapshots,
     setSourceMallForAttempt(attemptId, mallKey) {
       sourceMallByAttempt.set(attemptId, mallKey);
     },
@@ -458,14 +385,6 @@ function dispatch(listeners, message) {
 }
 
 function installCollectorResult(runtime, functionName, resultFactory) {
-  // Sellpia tracking now runs through the production collector factory, so
-  // provide its executeScript page result while retaining the shared tab API
-  // surface. Other legacy collector test seams continue to stub the worker
-  // function directly below.
-  if (functionName === 'collectSellpiaDeliTracking') {
-    runtime.chrome.scripting.executeScript = async () => [{ result: resultFactory() }];
-    return;
-  }
   runtime.context[functionName] = async (...args) => {
     const collection = args.at(-1);
     const tab = await runtime.chrome.tabs.create({
@@ -669,60 +588,6 @@ test('automatic order actions publish safe domain-specific sessions from inactiv
   ]) {
     assert.equal(stored.includes(forbidden), false, forbidden);
   }
-});
-
-test('Sellpia tracking uses its named owner terminal and preserves collection progress until upload', async () => {
-  const runtime = loadWorker();
-  installCollectorResult(runtime, 'collectSellpiaDeliTracking', () => ({
-    success: true,
-    rows: [{ ordNo: 'ORDER-1', invNo: 'INV-1' }],
-    total: 1,
-    range: { start: '2026-07-15', end: '2026-07-15' },
-  }));
-
-  const response = await dispatch(runtime.externalMessageListeners, {
-    action: 'collectSellpiaDeliTracking',
-    attemptId: SELLPIA_TRACKING_ATTEMPT_ID,
-  });
-
-  assert.equal(response.success, true, JSON.stringify(response));
-  assert.equal(response.attemptId, SELLPIA_TRACKING_ATTEMPT_ID);
-  assert.equal(response.terminalState, 'COMPLETE');
-  assert.equal(response.rows, undefined);
-  assert.equal(runtime.trackingUploads.length, 1);
-  assert.equal(runtime.trackingProgressSnapshots.length, 1);
-  assert.equal(
-    runtime.trackingProgressSnapshots[0].progress.completed,
-    1,
-  );
-  assert.equal(runtime.trackingProgressSnapshots[0].progress.total, 2);
-  assert.equal(
-    runtime.storage.kiditem_collection_sessions?.[SELLPIA_TRACKING_ATTEMPT_ID],
-    undefined,
-  );
-});
-
-test('Sellpia tracking owner keeps login attention while the server attempt fails', async () => {
-  const runtime = loadWorker();
-  installCollectorResult(runtime, 'collectSellpiaDeliTracking', () => ({
-    success: false,
-    pendingLogin: true,
-    errorCode: 'sellpia_login_required',
-    error: 'Sellpia login is required.',
-  }));
-
-  const response = await dispatch(runtime.externalMessageListeners, {
-    action: 'collectSellpiaDeliTracking',
-    attemptId: `${SELLPIA_TRACKING_ATTEMPT_ID.slice(0, -1)}1`,
-  });
-
-  assert.equal(response.success, false);
-  assert.equal(response.attemptId, `${SELLPIA_TRACKING_ATTEMPT_ID.slice(0, -1)}1`);
-  assert.equal(response.terminalState, 'FAILED');
-  assert.equal(response.errorCode, 'sellpia_login_required');
-  const session = runtime.storage.kiditem_collection_sessions?.[response.attemptId];
-  assert.equal(session.attention.reason, 'marketplace_login');
-  assert.equal(session.progress.completed, 0);
 });
 
 test('every automatic mall access failure requires personal attention without focusing', async () => {

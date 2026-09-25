@@ -4,12 +4,14 @@ import '../collectors/channels.wing_catalog_details';
 import '../collectors/channels.wing_catalog_excel';
 import '../collectors/channels.wing_catalog_list';
 import '../collectors/orders.coupang_reviews';
+import '../collectors/orders.sellpia_shipment_tracking';
 import '../collectors/sourcing.product_extension';
 import '../collectors/sourcing.trend_1688';
 import '../collectors/sourcing.wing_catalog';
 import '../collectors/test.echo';
 import '../sites/1688';
 import '../sites/product-page';
+import '../sites/sellpia';
 import '../sites/wing';
 import '../sites/wing/pre-matching-search';
 import '../sites/wing/reviews';
@@ -39,6 +41,11 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     for (const kind of ['channels.wing_catalog_list', 'channels.wing_catalog_details', 'channels.wing_catalog_excel'] as const) {
       expect(keys(siteFor(kind, { tabId: 3 }))).toEqual(WING_KEYS);
     }
+  });
+
+  it('셀피아 송장 kind에는 송장 조회만 가진 sellpia 핸들을 주고, 셀피아는 탭을 스스로 열어 브라우저 자원 표에 없다', () => {
+    expect(keys(createSiteHandles(deps)('orders.sellpia_shipment_tracking', { tabId: null }))).toEqual(['shipmentTracking']);
+    expect(entrySites()).not.toHaveProperty('sellpia');
   });
 
   it('상품평 kind에는 상품평 검색만 가진 wing-reviews 핸들을 준다', () => {

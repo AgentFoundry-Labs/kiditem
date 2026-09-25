@@ -118,6 +118,10 @@ registration, and Coupang cookie-overflow recovery.
 
 ## Sellpia And Rocket Boundaries
 
+- Sellpia shipment tracking is the runtime kind
+  `orders.sellpia_shipment_tracking` (`extensions/src/sites/sellpia`), not a
+  worker action: a fresh inactive tab, one page call into
+  `content/orders/sellpia-shipment-tracking.js` (MAIN world), rows only.
 - Inventory collection uses the fixed authenticated full-snapshot JSON contract.
   Full-scope runs additionally collect validated product-profit evidence before
   backend publication; inventory scope does not.

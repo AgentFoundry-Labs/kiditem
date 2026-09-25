@@ -19,6 +19,7 @@ esbuild로 IIFE 하나(`globalName: KidItemRuntime`)로 묶어
 - `sites/<site>/` — 사이트 API·DOM 읽기·쓰기만. core 중 `site-caller`·`errors`만 쓴다. 사이트는 파일 끝에서
   `registerSite`(`sites/registry.ts`)로 스스로 등록하고, 입구는 이름으로 조립한다(KID-355).
   content script는 API가 없어 DOM을 읽어야 할 때만, 페이지 주입은 파일 주입만.
+  인자가 필요한 페이지 읽기는 `sites/page-call.ts`(ISOLATED 브리지 → MAIN 러너 → 처리기 파일, KID-359 H3)를 쓴다.
 
 새 수집은 collectors/sites에만 추가하고, 서버 통신은 operation client만 쓴다. 등록은 `entry/index.ts`의
 import 한 줄씩(수집기 하나, 사이트 하나)이다.

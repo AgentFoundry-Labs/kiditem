@@ -2,6 +2,7 @@ import '../collectors/channels.wing_catalog_details';
 import '../collectors/channels.wing_catalog_excel';
 import '../collectors/channels.wing_catalog_list';
 import '../collectors/orders.coupang_reviews';
+import '../collectors/orders.sellpia_shipment_tracking';
 import '../collectors/sourcing.coupang_keyword_suggestion';
 import '../collectors/sourcing.live_commerce';
 import '../collectors/sourcing.product_extension';
@@ -13,6 +14,7 @@ import '../sites/1688';
 import '../sites/coupang-search';
 import '../sites/live-commerce';
 import '../sites/product-page';
+import '../sites/sellpia';
 import '../sites/tiktok-cc';
 import '../sites/wing';
 import '../sites/wing/pre-matching-search';
@@ -51,7 +53,11 @@ export function installEntry(): boolean {
     keepAlive: legacyKeepAlive,
   });
   // sourcingOperationKindsV1: 이 빌드가 소싱 kind 6종을 돈다(KID-360) — 웹은 이것으로 옛 빌드를 가려낸다.
-  registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true, sourcingOperationKindsV1: true } });
+  // orderCaptureOperationKindsV1: 셀피아 송장·몰 주문 kind를 돈다(KID-359 H3).
+  registerWithLegacyDomains({
+    externalActions,
+    capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true },
+  });
   installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
   return true;
 }

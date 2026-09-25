@@ -141,24 +141,6 @@ const sellpiaInventorySourceOwner = KidItemSellpiaInventorySourceOwner.create({
   request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
   collect: (collection) => sellpiaInventoryCollector.collect(collection),
 });
-const sellpiaShipmentTrackingCollector = KidItemSellpiaShipmentTrackingCollector.create({
-  chrome,
-  waitForTabReady,
-  withTimeout,
-  isMallAccessError,
-  mallAccessErrorResult,
-  mallGenericErrorResult,
-});
-const sellpiaShipmentTrackingSourceOwner = KidItemSellpiaShipmentTrackingSourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
-  collect: ({ plan, ...collection }) => sellpiaShipmentTrackingCollector.collect({
-    startDate: plan.startDate,
-    endDate: plan.endDate,
-    collection,
-  }),
-});
 const sellpiaSalesCollector = KidItemSellpiaSalesCollector.create({
   chrome,
   waitForTabReady,
@@ -285,9 +267,6 @@ async function cancelOrdersCollectionSession(attemptId, environmentId) {
   if (session?.producer === "inventory.sellpia") {
     return sellpiaInventorySourceOwner.cancel({ attemptId, environmentId });
   }
-  if (session?.producer === "orders.sellpia_shipment_tracking") {
-    return sellpiaShipmentTrackingSourceOwner.cancel({ attemptId, environmentId });
-  }
   if (session?.producer === "orders.sellpia_sales") {
     return sellpiaSalesSourceOwner.cancel({ attemptId, environmentId });
   }
@@ -317,7 +296,6 @@ async function cancelOrdersCollectionSession(attemptId, environmentId) {
 async function recoverOrdersCollections(environmentId) {
   const owners = [
     sellpiaInventorySourceOwner,
-    sellpiaShipmentTrackingSourceOwner,
     sellpiaSalesSourceOwner,
     sellpiaProductProfitabilitySourceOwner,
     sellpiaManualMatchSourceOwner,
@@ -7758,12 +7736,6 @@ async function scrapeDomeggookShipUpload(fileBase64, fileName, tar) {
 KidItemDomains.register({
   producerPrefixes: ["orders", "inventory"],
   externalActions: {
-    collectSellpiaDeliTracking: {
-      validate: KidItemSellpiaShipmentTrackingSourceOwner.parseAction,
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        sellpiaShipmentTrackingSourceOwner.run({ attemptId, environmentId }),
-      ),
-    },
     collectSellpiaInventory: {
       validate: KidItemSellpiaInventorySourceOwner.parseAction,
       handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
@@ -7829,7 +7801,6 @@ KidItemDomains.register({
     coupangRocketPoSourceOwnerV1: true,
     coupangDirectshipSourceOwnerV1: true,
     collectKakaoOrders: true,
-    collectSellpiaDeliTracking: true,
     collectSellpiaSaleSummary: true,
     collectSellpiaSaleSummaryAuthoritativeV1: true,
     collectSellpiaProductProfit: true,
@@ -7837,7 +7808,6 @@ KidItemDomains.register({
     sellpiaProductProfitabilitySourceOwnerV1: true,
     collectSellpiaInventoryJsonV1: true,
     sellpiaInventorySourceOwnerV1: true,
-    sellpiaShipmentTrackingSourceOwnerV1: true,
     collectSellpiaManualMatchV1: true,
     collectSellpiaManualMatchPortV1: true,
     sellpiaManualMatchSourceOwnerV1: true,

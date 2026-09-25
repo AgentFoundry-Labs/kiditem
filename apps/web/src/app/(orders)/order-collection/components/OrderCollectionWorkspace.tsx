@@ -30,7 +30,7 @@ import {
   useOrderAutoDetect,
 } from '../hooks/use-order-auto-detect';
 import { useSellpiaOrderTransmission } from '../hooks/use-sellpia-order-transmission';
-import { useSellpiaShipmentTrackingSourceOwner } from '../hooks/use-sellpia-shipment-tracking-source-owner';
+import { useSellpiaShipmentTracking } from '../hooks/use-sellpia-shipment-tracking';
 import type { SellpiaReconcileResult } from '../lib/sellpia-order-reconcile';
 import { ensureMallLoginForRun } from '../lib/browser-mall-collection';
 import { createGeneratedFileActionLock } from '../lib/generated-file-action-lock';
@@ -110,7 +110,7 @@ const TODAY_ORDERS_POLL_MS = 60_000;
 export function OrderCollectionWorkspace() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const sellpiaShipmentTrackingOwner = useSellpiaShipmentTrackingSourceOwner();
+  const sellpiaShipmentTracking = useSellpiaShipmentTracking();
   const showConfirm = useStore((store) => store.showConfirm);
   const historyRef = useRef<ConversionHistoryItem[]>([]);
   // 쿠팡직배송은 바로 수집하지 않고 입고예정일 달력에서 처리할 날짜를 먼저 고른다.
@@ -1010,7 +1010,7 @@ export function OrderCollectionWorkspace() {
             history,
             logError: (title, message) => logActivity('error', title, message),
             onGeneratedFile: addGeneratedTrackingFile,
-            collectTracking: sellpiaShipmentTrackingOwner.collect,
+            collectTracking: sellpiaShipmentTracking.collect,
           })
         }
       />

@@ -5112,6 +5112,429 @@ var KidItemRuntime = (() => {
   }
   registerCollector(coupangReviewsCollector);
 
+  // packages/shared/src/schemas/rocket-purchase-preview.ts
+  var ROCKET_PO_ROW_LIMIT = 4e3;
+  var ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT = 1e5;
+  var boundedText = (max) => external_exports.string().trim().max(max);
+  var requiredText = (max) => boundedText(max).min(1);
+  var isoDay = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+  var RocketPoSourceBeginSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    from: isoDay,
+    to: isoDay,
+    status: external_exports.enum(["RP", "PA", "RI", "CI", ""]),
+    dateType: external_exports.enum(["WAREHOUSING_PLAN_DATE", "PURCHASE_ORDER_DATE"]),
+    requireConfirmation: external_exports.boolean()
+  }).strict().refine((value) => value.from <= value.to, "Invalid date range");
+  var RocketPoSourcePlanSchema = RocketPoSourceBeginSchema.innerType().extend({
+    sourceType: external_exports.literal("coupang_rocket_po_catalog"),
+    parserVersion: external_exports.literal("rocket-po-v1"),
+    vendorExpectations: external_exports.object({
+      rocketVendorId: boundedText(120).nullable(),
+      sharedCoupangVendorId: boundedText(120).nullable()
+    }).strict()
+  }).strict();
+  var RocketPoSourceAttemptSchema = external_exports.object({
+    attemptId: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    state: external_exports.enum(["RUNNING", "COMPLETE", "FAILED"]),
+    generation: external_exports.string().regex(/^\d+$/),
+    plan: RocketPoSourcePlanSchema,
+    expiresAt: external_exports.string().datetime(),
+    actualCutoffAt: external_exports.string().datetime().nullable(),
+    errorCode: boundedText(100).nullable(),
+    errorMessage: boundedText(300).nullable()
+  }).strict();
+  var RocketPoSourceControlSchema = RocketPoSourceAttemptSchema.extend({
+    attemptToken: external_exports.string().uuid()
+  }).strict();
+  var RocketPoCoverageSchema = external_exports.object({ from: isoDay, to: isoDay }).strict();
+  var RocketPoSourceSchema = external_exports.object({
+    ready: external_exports.boolean(),
+    latestAttempt: RocketPoSourceAttemptSchema.nullable(),
+    latestComplete: RocketPoSourceAttemptSchema.nullable(),
+    /** `latestComplete` run 의 coverage 날짜(KID-126). */
+    latestCompleteCoverage: RocketPoCoverageSchema.nullable()
+  }).strict();
+  var RocketPoCollectionEvidenceSchema = external_exports.object({
+    collectionRunId: external_exports.string().uuid(),
+    vendorId: boundedText(120),
+    listPagesRead: external_exports.number().int().min(0).max(ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT),
+    totalListPages: external_exports.number().int().min(0).max(ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT),
+    truncated: external_exports.boolean(),
+    detailPoCount: external_exports.number().int().min(0).max(ROCKET_PO_ROW_LIMIT),
+    failedPoNumbers: external_exports.array(requiredText(80)).max(ROCKET_PO_ROW_LIMIT)
+  }).strict().superRefine((value, ctx) => {
+    if (new Set(value.failedPoNumbers).size !== value.failedPoNumbers.length) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["failedPoNumbers"],
+        message: "Failed PO numbers must be unique"
+      });
+    }
+  });
+  var RocketPoCatalogRowSchema = external_exports.object({
+    poLineId: requiredText(300),
+    poNumber: requiredText(80),
+    vendorId: boundedText(120),
+    productNo: requiredText(60),
+    barcode: boundedText(80),
+    productName: requiredText(240),
+    orderQty: external_exports.number().int().nonnegative().max(1e7),
+    plannedDeliveryDate: isoDay,
+    poStatusCode: boundedText(20).optional(),
+    businessDateBasis: external_exports.enum(["ordered_at", "expected_inbound"]).optional(),
+    confirmation: external_exports.object({
+      center: boundedText(120),
+      inboundType: boundedText(80),
+      poStatus: boundedText(80),
+      returnManager: boundedText(120),
+      returnContact: boundedText(80),
+      returnAddress: boundedText(300),
+      purchasePrice: external_exports.number().int().nonnegative().max(1e9),
+      supplyPrice: external_exports.number().int().nonnegative().max(1e9),
+      vat: external_exports.number().int().nonnegative().max(1e9),
+      totalPurchase: external_exports.number().int().nonnegative().max(1e9),
+      poRegisteredAt: boundedText(40),
+      xdock: boundedText(20)
+    }).strict().optional()
+  }).strict();
+  var RocketPoSourceSubmissionSchema = external_exports.object({
+    collection: RocketPoCollectionEvidenceSchema,
+    rows: external_exports.array(RocketPoCatalogRowSchema).max(ROCKET_PO_ROW_LIMIT),
+    proof: RocketPoSourcePlanSchema.pick({ from: true, to: true, status: true, dateType: true }).extend({ validatedList: external_exports.literal(true) }).strict()
+  }).strict();
+  var RocketSavedPoListRequestSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    from: isoDay,
+    to: isoDay,
+    status: boundedText(80).optional()
+  }).strict().superRefine((value, ctx) => {
+    if (value.to < value.from) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["to"],
+        message: "to must be on or after from"
+      });
+    }
+  });
+  var RocketSavedPoSummarySchema = external_exports.object({
+    sourceImportRunId: external_exports.string().uuid(),
+    poNumber: requiredText(80),
+    orderedAt: boundedText(40),
+    plannedDeliveryDate: isoDay,
+    status: boundedText(80),
+    vendorId: boundedText(120),
+    centerName: boundedText(120),
+    inboundType: boundedText(80),
+    firstProductName: requiredText(240),
+    skuCount: external_exports.number().int().nonnegative(),
+    orderQuantity: external_exports.number().int().nonnegative(),
+    /** Null when any listed line has no provider-confirmed total. */
+    orderAmount: external_exports.number().int().nonnegative().nullable(),
+    collectedAt: external_exports.string().datetime()
+  }).strict();
+  var RocketSavedPoSnapshotSchema = external_exports.object({
+    sourceImportRunId: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    collection: RocketPoCollectionEvidenceSchema,
+    rows: external_exports.array(RocketPoCatalogRowSchema).max(ROCKET_PO_ROW_LIMIT)
+  }).strict();
+  var RocketSavedPoCollectionSchema = RocketSavedPoSnapshotSchema.extend({
+    // 이 계정에서 이미 확정 엑셀로 나간 PO 라인. 수집은 매번 전량 스냅샷이라 같은 라인이
+    // 여러 수집본에 반복 등장한다(`poLineId` 는 수집본 간에 안정적). 운영자가 "이번에
+    // 새로 들어온 것만" 보려면 이 집합을 빼야 한다. 행 스키마는 요청 본문으로도 쓰이므로
+    // 행에 필드를 더하지 않고 별도 목록으로 내려준다.
+    exportedPoLineIds: external_exports.array(requiredText(300)).max(ROCKET_PO_ROW_LIMIT)
+  }).strict();
+  var RocketPurchaseRequestBaseSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    collection: RocketPoCollectionEvidenceSchema,
+    rows: external_exports.array(RocketPoCatalogRowSchema).max(ROCKET_PO_ROW_LIMIT),
+    editedQuantities: external_exports.record(
+      external_exports.string().min(1).max(300),
+      external_exports.number().int().nonnegative().max(1e7)
+    ).default({}),
+    clampEditedQuantities: external_exports.boolean().optional()
+  }).strict();
+  function validateRocketPurchaseLines(value, ctx) {
+    const lineIds = value.rows.map(({ poLineId }) => poLineId);
+    if (new Set(lineIds).size !== lineIds.length) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["rows"],
+        message: "PO line IDs must be unique"
+      });
+    }
+    const known = new Set(lineIds);
+    for (const lineId of Object.keys(value.editedQuantities)) {
+      if (!known.has(lineId)) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["editedQuantities", lineId],
+          message: "Edited quantity references an unknown PO line"
+        });
+      }
+    }
+  }
+  var RocketPurchasePreviewScopeSchema = external_exports.enum([
+    "all_rows",
+    "confirmation_requested"
+  ]);
+  var RocketPurchasePreviewRequestSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    sourceImportRunId: external_exports.string().uuid(),
+    inventoryAttemptId: external_exports.string().uuid(),
+    editedQuantities: RocketPurchaseRequestBaseSchema.shape.editedQuantities,
+    clampEditedQuantities: external_exports.boolean().optional(),
+    previewScope: RocketPurchasePreviewScopeSchema.optional()
+  }).strict();
+  var RocketPurchasePreviewDecisionSchema = RocketPurchaseRequestBaseSchema.extend({ previewScope: RocketPurchasePreviewScopeSchema.optional() }).strict().superRefine(validateRocketPurchaseLines);
+  var ROCKET_SHORTAGE_REASONS = [
+    "\uD611\uB825\uC0AC \uC7AC\uACE0\uBD80\uC871 - \uC218\uC694\uC608\uCE21 \uC624\uB958",
+    "\uD611\uB825\uC0AC \uC7AC\uACE0\uBD80\uC871 - \uC0DD\uC0B0\uCE90\uD30C \uBD80\uC871 (\uC124\uBE44\uB77C\uC778/\uC6D0\uC790\uC7AC/\uC778\uB825/\uD734\uBB34\u2026 \uB4F1\uB4F1)",
+    "\uD611\uB825\uC0AC \uC7AC\uACE0\uBD80\uC871 - \uD488\uC9C8\uC801 \uC774\uC288 (\uC720\uD574\uBB3C\uC9C8 \uBC1C\uACAC / \uC720\uD1B5\uAE30\uD55C \uBBF8\uB2EC)",
+    "\uD611\uB825\uC0AC \uC7AC\uACE0\uBD80\uC871 - \uC7AC\uACE0 \uD560\uB2F9\uC815\uCC45",
+    "\uD611\uB825\uC0AC \uC7AC\uACE0\uBD80\uC871 - \uC218\uC785\uC0C1\uD488 \uC785\uACE0\uC9C0\uC5F0 (\uC120\uC801/\uD1B5\uAD00\uC9C0\uC5F0)",
+    "\uC81C\uC870\uC0AC \uC0DD\uC0B0\uC911\uB2E8 \uD639\uC740 \uACF5\uAE09\uC0AC \uCDE8\uAE09\uC911\uB2E8 - \uC81C\uD488 \uB9AC\uB274\uC5BC/\uBAA8\uB378 \uBCC0\uACBD",
+    "\uC81C\uC870\uC0AC \uC0DD\uC0B0\uC911\uB2E8 \uD639\uC740 \uACF5\uAE09\uC0AC \uCDE8\uAE09\uC911\uB2E8 - \uC2DC\uC7A5 \uB2E8\uC885",
+    "\uC81C\uC870\uC0AC \uC0DD\uC0B0\uC911\uB2E8 \uD639\uC740 \uACF5\uAE09\uC0AC \uCDE8\uAE09\uC911\uB2E8 - \uC0AC\uC5C5\uC790\uBCC0\uACBD",
+    "FC \uC785\uACE0\uAE30\uC900 \uBBF8\uB2EC\uB85C \uD68C\uC1A1",
+    "\uAC00\uACA9 \uC774\uC288 (Price) - \uB9E4\uC785\uAC00 \uC778\uD558 \uD611\uC0C1 \uC911",
+    "\uAC00\uACA9 \uC774\uC288 (Price) - \uB9E4\uC785\uAC00 \uC778\uC0C1 \uD611\uC0C1 \uC911",
+    "\uAC00\uACA9 \uC774\uC288 (Price) - \uCFE0\uD321 \uCD5C\uC800\uAC00 \uB9E4\uCE6D",
+    "\uCD5C\uC18C\uBC1C\uC8FC\uB7C9 \uBCC0\uACBD \uD544\uC694 (MOQ)",
+    "\uCFE0\uD321 \uC694\uCCAD \uBBF8\uB0A9",
+    "\uC2DC\uC98C\uC0C1\uD488\uC73C\uB85C \uB2E4\uC74C \uC2DC\uC98C\uC804\uAE4C\uC9C0 \uC0DD\uC0B0 \uD639\uC740 \uCDE8\uAE09\uC911\uB2E8",
+    "\uCC9C\uC7AC\uC9C0\uBCC0/\uC7AC\uB09C\uACFC \uAC19\uC740 \uBD88\uAC00\uD56D\uB825\uC801\uC778 \uC0AC\uC720\uB85C \uBBF8\uB0A9",
+    "\uC5C5\uCCB4 \uD734\uBB34",
+    "\uC7AC\uBB34 \uAD00\uB828 \uC0AC\uC720",
+    "FC \uC785\uACE0 \uC774\uC288 - FC \uC2AC\uB86F \uC608\uC57D \uBD88\uAC00",
+    "FC \uC785\uACE0 \uC774\uC288 - \uBC00\uD06C\uB7F0 \uC608\uC57D\uBD88\uAC00"
+  ];
+  var RocketShortageReasonSchema = external_exports.enum(ROCKET_SHORTAGE_REASONS);
+  var RocketWorkbookDecisionRequestSchema = RocketPurchaseRequestBaseSchema.omit({ clampEditedQuantities: true }).extend({
+    idempotencyKey: external_exports.string().uuid(),
+    selectedPoLineIds: external_exports.array(requiredText(300)).min(1).max(4e3).optional(),
+    shortageReasons: external_exports.record(
+      external_exports.string().min(1).max(300),
+      RocketShortageReasonSchema
+    ),
+    artifactFileName: requiredText(240),
+    artifactContentType: external_exports.literal(
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+  }).strict().superRefine((value, ctx) => {
+    validateRocketPurchaseLines(value, ctx);
+    const rowsByLineId = new Map(value.rows.map((row) => [row.poLineId, row]));
+    const selectedPoLineIds = value.selectedPoLineIds ?? value.rows.map(({ poLineId }) => poLineId);
+    if (new Set(selectedPoLineIds).size !== selectedPoLineIds.length) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["selectedPoLineIds"],
+        message: "Selected workbook PO line IDs must be unique"
+      });
+    }
+    for (const lineId of selectedPoLineIds) {
+      if (!rowsByLineId.has(lineId)) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["selectedPoLineIds", lineId],
+          message: "Selected workbook PO line references an unknown source line"
+        });
+      }
+    }
+    const selectedLineIds = new Set(selectedPoLineIds);
+    for (const row of value.rows.filter(({ poLineId }) => selectedLineIds.has(poLineId))) {
+      if (!row.confirmation || row.barcode.length === 0) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["rows", row.poLineId, "confirmation"],
+          message: "Every workbook line requires complete workbook evidence"
+        });
+      }
+      if (!Object.hasOwn(value.editedQuantities, row.poLineId)) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["editedQuantities", row.poLineId],
+          message: "Every workbook line requires an explicit reviewed quantity"
+        });
+        continue;
+      }
+      const quantity = value.editedQuantities[row.poLineId];
+      if (quantity > row.orderQty) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["editedQuantities", row.poLineId],
+          message: "Workbook quantity must not exceed the PO order quantity"
+        });
+      }
+      const hasShortageReason = Object.hasOwn(value.shortageReasons, row.poLineId);
+      if (quantity < row.orderQty && !hasShortageReason) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["shortageReasons", row.poLineId],
+          message: "Every short workbook line requires a shortage reason"
+        });
+      }
+      if (quantity >= row.orderQty && hasShortageReason) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["shortageReasons", row.poLineId],
+          message: "A full workbook line must not include a shortage reason"
+        });
+      }
+    }
+    for (const lineId of Object.keys(value.shortageReasons)) {
+      if (!selectedLineIds.has(lineId)) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["shortageReasons", lineId],
+          message: "Shortage reason references an unselected PO line"
+        });
+      }
+    }
+  });
+  var RocketWorkbookExportRequestSchema = RocketWorkbookDecisionRequestSchema.innerType().omit({ collection: true, rows: true }).extend({ sourceImportRunId: external_exports.string().uuid(), inventoryAttemptId: external_exports.string().uuid() }).strict();
+  var RocketPurchasePreviewReasonSchema = external_exports.enum([
+    "mapping_required",
+    "configuration_required",
+    "review_required",
+    "inventory_unavailable",
+    "insufficient_capacity"
+  ]);
+  var RocketPoCatalogPublicationSchema = external_exports.object({
+    sourceImportRunId: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    generation: external_exports.string().regex(/^\d+$/),
+    actualCutoffAt: external_exports.string().datetime(),
+    rowCount: external_exports.number().int().nonnegative().max(ROCKET_PO_ROW_LIMIT)
+  }).strict();
+  var RocketPurchasePreviewComponentSchema = external_exports.object({
+    masterProductId: external_exports.string().uuid(),
+    code: requiredText(120).nullable(),
+    name: requiredText(240).nullable(),
+    optionName: external_exports.string().trim().min(1).max(240).nullable(),
+    quantity: external_exports.number().int().positive(),
+    currentStock: external_exports.number().int().nonnegative().nullable()
+  }).strict();
+  var RocketPurchasePreviewRowSchema = external_exports.object({
+    poLineId: requiredText(300),
+    poNumber: requiredText(80),
+    productNo: requiredText(60),
+    productName: requiredText(240),
+    plannedDeliveryDate: isoDay,
+    orderQuantity: external_exports.number().int().nonnegative(),
+    recommendedQuantity: external_exports.number().int().nonnegative().nullable(),
+    maxQuantity: external_exports.number().int().nonnegative().nullable(),
+    editedQuantity: external_exports.number().int().nonnegative().nullable(),
+    reason: RocketPurchasePreviewReasonSchema.nullable(),
+    channelListingOptionId: external_exports.string().uuid().nullable(),
+    masterProductId: external_exports.string().uuid().nullable(),
+    components: external_exports.array(RocketPurchasePreviewComponentSchema).max(50)
+  }).strict().superRefine((row, ctx) => {
+    if (row.masterProductId !== null && row.channelListingOptionId === null) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["channelListingOptionId"],
+        message: "A confirmed product requires a channel listing option identity"
+      });
+    }
+  });
+  var RocketPurchasePreviewReadyResponseSchema = external_exports.object({
+    status: external_exports.literal("ready"),
+    collectionRunId: external_exports.string().uuid(),
+    catalog: RocketPoCatalogPublicationSchema.nullable(),
+    inventoryGeneration: external_exports.string().regex(/^\d+$/).nullable(),
+    rows: external_exports.array(RocketPurchasePreviewRowSchema).max(ROCKET_PO_ROW_LIMIT)
+  }).strict();
+  var RocketWorkbookExportResponseSchema = external_exports.object({
+    exportId: external_exports.string().uuid(),
+    duplicate: external_exports.boolean(),
+    inventoryGeneration: external_exports.string().regex(/^\d+$/).nullable(),
+    generatedAt: external_exports.string().datetime(),
+    artifact: external_exports.object({
+      fileName: requiredText(240),
+      contentType: external_exports.literal(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      ),
+      sha256: external_exports.string().regex(/^[a-f0-9]{64}$/),
+      byteLength: external_exports.number().int().positive().max(10 * 1024 * 1024)
+    }).strict(),
+    totals: external_exports.object({
+      lineCount: external_exports.number().int().nonnegative().max(ROCKET_PO_ROW_LIMIT),
+      orderQuantity: external_exports.number().int().nonnegative(),
+      workbookQuantity: external_exports.number().int().nonnegative(),
+      componentQuantity: external_exports.number().int().nonnegative()
+    }).strict(),
+    rows: external_exports.array(external_exports.object({
+      poLineId: requiredText(300),
+      workbookQuantity: external_exports.number().int().nonnegative(),
+      shortageReason: RocketShortageReasonSchema.nullable()
+    }).strict()).max(ROCKET_PO_ROW_LIMIT)
+  }).strict();
+  var RocketWorkbookAbandonRequestSchema = external_exports.object({
+    exportId: external_exports.string().uuid()
+  }).strict();
+
+  // packages/shared/src/schemas/orders-operations.ts
+  var SELLPIA_SHIPMENT_TRACKING_KIND = "orders.sellpia_shipment_tracking";
+  var isoDay2 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+  var CoupangShipmentSummaryScopeSchema = external_exports.object({
+    maxPages: external_exports.number().int().min(1).max(60).optional()
+  }).strict();
+  var CoupangDirectshipScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid()
+  }).strict();
+  var SellpiaShipmentTrackingScopeSchema = external_exports.object({
+    startDate: isoDay2,
+    endDate: isoDay2
+  }).strict().refine((value) => value.startDate <= value.endDate, "startDate must not be after endDate");
+  var MallOrdersCollectionModeSchema = external_exports.enum(["browser", "manual-upload"]);
+  var MallOrdersSelectionModeSchema = external_exports.enum(["manual", "automatic"]);
+  var MALL_ORDERS_SEEN_ROW_KEYS_MAX = 8e3;
+  var MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH = 2e3;
+  var MallOrdersScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    mallKey: external_exports.string().min(1).max(64),
+    collectionDate: isoDay2.nullable().default(null),
+    collectionMode: MallOrdersCollectionModeSchema,
+    selectionMode: MallOrdersSelectionModeSchema.optional(),
+    seenRowKeys: external_exports.array(external_exports.string().min(1).max(MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH)).max(MALL_ORDERS_SEEN_ROW_KEYS_MAX).optional()
+  }).strict();
+  var SELLPIA_SHIPMENT_TRACKING_CHUNK_KIND = "tracking_rows";
+  var OrdersCaptureResultSchema = external_exports.object({
+    rowCount: external_exports.number().int().nonnegative()
+  }).passthrough();
+
+  // extensions/src/collectors/orders.sellpia_shipment_tracking/index.ts
+  var PlanSchema = external_exports.object({
+    startDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    endDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+  });
+  var CHUNK_ROWS = 500;
+  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var sellpiaShipmentTrackingCollector = {
+    kind: SELLPIA_SHIPMENT_TRACKING_KIND,
+    site: "sellpia",
+    async *collect(rawPlan, site, { signal }) {
+      const parsed = PlanSchema.safeParse(rawPlan);
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      const { rows, total } = await site.shipmentTracking({ startDate: parsed.data.startDate, endDate: parsed.data.endDate });
+      if (signal.aborted) return;
+      const progress = { rows: rows.length, listed: total };
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
+      for (const row of rows) {
+        const full = buffer.push(row);
+        if (full) yield { chunkKind: SELLPIA_SHIPMENT_TRACKING_CHUNK_KIND, payload: full, progress };
+      }
+      const rest = buffer.flush();
+      if (rest) yield { chunkKind: SELLPIA_SHIPMENT_TRACKING_CHUNK_KIND, payload: rest, progress };
+    }
+  };
+  registerCollector(sellpiaShipmentTrackingCollector);
+
   // packages/shared/src/sourcing/operation-result.ts
   var BoundedCountSchema = external_exports.number().int().nonnegative().max(2147483647);
   var SourcingOperationOutcomeSchema = external_exports.enum([
@@ -6324,8 +6747,97 @@ var KidItemRuntime = (() => {
     }
   });
 
+  // extensions/src/sites/page-call.ts
+  var PAGE_CALL_BRIDGE_FILE = "content/page-call/bridge.js";
+  var PAGE_CALL_RUNNER_FILE = "content/page-call/runner.js";
+  var PAGE_CALL_MESSAGE = "KIDITEM_PAGE_CALL";
+  async function callPage(page, call2, args, options) {
+    const answer = await page.ask(
+      { type: PAGE_CALL_MESSAGE, call: call2, args },
+      {
+        timeoutMs: options.timeoutMs,
+        guard: options.guard,
+        inject: {
+          isolated: [PAGE_CALL_BRIDGE_FILE, ...options.isolated ?? []],
+          main: [PAGE_CALL_RUNNER_FILE, ...options.main ?? []]
+        }
+      }
+    );
+    if (answer.ok === true) return answer.value;
+    if (answer.error === "timeout") {
+      throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC774 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "timeout", call: call2 });
+    }
+    throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC5D0\uC11C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, {
+      status: null,
+      reason: "page_error",
+      call: call2
+    });
+  }
+
+  // extensions/src/sites/sellpia/index.ts
+  var SELLPIA_ORIGIN = "https://kiditem.sellpia.com";
+  var SELLPIA_REPRINT_URL = `${SELLPIA_ORIGIN}/order_delivery_reprint.html`;
+  var SELLPIA_SHIPMENT_TRACKING_FILE = "content/orders/sellpia-shipment-tracking.js";
+  var NAVIGATION_TIMEOUT_MS3 = 3e4;
+  var QUERY_TIMEOUT_MS = 6e4;
+  var LOGIN_MESSAGE = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
+  var SELLPIA_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["sellpia.com"]),
+    isLogin: (url) => hostWithin(url, ["sellpia.com"]) && /login/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE
+  };
+  function createSellpiaSite(tabs) {
+    async function withPage(url, read) {
+      const page = await tabs.open("about:blank");
+      let keepOpen = false;
+      try {
+        await page.navigate(url, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
+        return await read(page);
+      } catch (error) {
+        if (leftForOperator(error)) keepOpen = true;
+        throw error;
+      } finally {
+        if (!keepOpen) await page.close();
+      }
+    }
+    return {
+      /** 기간(송장번호채번일자) 안 전 몰 송장. 행은 주문번호·송장번호가 있는 것만, `total`은 셀피아가 준 목록 수. */
+      shipmentTracking(input) {
+        return withPage(SELLPIA_REPRINT_URL, async (page) => {
+          const answer = await callPage(page, "sellpia.shipmentTracking", { startDate: input.startDate, endDate: input.endDate }, {
+            timeoutMs: QUERY_TIMEOUT_MS,
+            guard: SELLPIA_PAGE_GUARD,
+            main: [SELLPIA_SHIPMENT_TRACKING_FILE],
+            displayName: "\uC140\uD53C\uC544"
+          });
+          switch (answer?.status) {
+            case "ok":
+              return { rows: answer.rows, total: answer.total };
+            case "login_required":
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE, { url: SELLPIA_REPRINT_URL });
+            case "http_error":
+              throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
+                status: answer.httpStatus,
+                url: SELLPIA_REPRINT_URL,
+                reason: "http",
+                bodyHead: null
+              });
+            default:
+              throw new RuntimeError(SITE_REQUEST_FAILED, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", {
+                status: null,
+                url: SELLPIA_REPRINT_URL,
+                reason: "not_json",
+                bodyHead: null
+              });
+          }
+        });
+      }
+    };
+  }
+  registerSite({ name: "sellpia", create: (deps) => createSellpiaSite(deps.tabs) });
+
   // extensions/src/sites/tiktok-cc/index.ts
-  var NAVIGATION_TIMEOUT_MS3 = 35e3;
+  var NAVIGATION_TIMEOUT_MS4 = 35e3;
   var EXTRACTION_TIMEOUT_MS4 = 25e3;
   var BASE_URLS = {
     hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
@@ -6396,14 +6908,14 @@ var KidItemRuntime = (() => {
     };
     async function readTarget(page2, target, defaultRegion, onAttention) {
       const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
-      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt, continueOnTimeout: true });
+      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS4, stopAt, continueOnTimeout: true });
       for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
         const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
         if (!cleared) {
           keepOpen = true;
           throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
         }
-        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt, continueOnTimeout: true });
+        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS4, stopAt, continueOnTimeout: true });
       }
       if (isTiktokBlockedUrl(landed)) {
         throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
@@ -6537,7 +7049,7 @@ var KidItemRuntime = (() => {
       if (row.vendorId !== void 0 && (typeof row.vendorId !== "string" || expectedVendorId && row.vendorId !== expectedVendorId)) {
         throw new WingPayloadError(`Wing \uD310\uB9E4\uC790 ID\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4: ${externalProductId}`);
       }
-      requiredText(row.productName, "Wing \uC0C1\uD488\uBA85");
+      requiredText2(row.productName, "Wing \uC0C1\uD488\uBA85");
       return buildCatalogBasicProduct(row);
     });
     return { page: requestedPage, pageSize, totalItems, totalPages, products };
@@ -6547,7 +7059,7 @@ var KidItemRuntime = (() => {
     const externalProductId = strictRequiredId(inventoryProduct.vendorInventoryId, "vendorInventoryId");
     const items = Array.isArray(inventoryProduct.vendorInventoryItems) ? inventoryProduct.vendorInventoryItems : [];
     if (items.length === 0) throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId}\uC5D0 vendorInventoryItems\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    const saleStatus = saleStatusFromWingProductStatus(requiredText(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
+    const saleStatus = saleStatusFromWingProductStatus(requiredText2(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
     const optionIds = /* @__PURE__ */ new Set();
     const options = items.map((item) => {
       const option = buildCatalogBasicOption(item);
@@ -6853,7 +7365,7 @@ var KidItemRuntime = (() => {
     const number = Number(value);
     return Number.isInteger(number) && number >= 0 ? number : null;
   }
-  function requiredText(value, name) {
+  function requiredText2(value, name) {
     const text2 = typeof value === "string" ? value.trim() : "";
     if (!text2) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
     return text2;
@@ -7827,7 +8339,10 @@ var KidItemRuntime = (() => {
       siteFor: channelSites,
       keepAlive: legacyKeepAlive
     });
-    registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true, sourcingOperationKindsV1: true } });
+    registerWithLegacyDomains({
+      externalActions,
+      capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true }
+    });
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
     return true;
   }

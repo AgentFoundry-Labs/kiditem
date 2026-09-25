@@ -30,19 +30,21 @@ import { SELLPIA_ORDER_TRANSMISSION_REPOSITORY_PORT } from './application/port/o
 import { ORDER_COLLECTION_SOURCE_PORT } from './application/port/in/order-collection-source.port';
 import { OrderCollectionSourceController } from './adapter/in/web/order-collection-source.controller';
 import { OrderCollectionSourceRepository } from './adapter/out/repository/order-collection-source.repository';
-import { SellpiaShipmentTrackingSourceController } from './adapter/in/web/sellpia-shipment-tracking-source.controller';
-import { SellpiaShipmentTrackingSourceRepository } from './adapter/out/repository/sellpia-shipment-tracking-source.repository';
-import { SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT } from './application/port/in/sellpia-shipment-tracking-source.port';
+import { SellpiaShipmentTrackingController } from './adapter/in/web/sellpia-shipment-tracking.controller';
 import { CoupangReviewsOperationOwner } from './adapter/in/operation/coupang-reviews-operation-owner';
+import { SellpiaShipmentTrackingOperationOwner } from './adapter/in/operation/sellpia-shipment-tracking-operation-owner';
+import { OrderOperationCapturePersistenceAdapter } from './adapter/out/persistence/order-operation-capture.persistence.adapter';
+import { ORDER_OPERATION_CAPTURE_PORT } from './application/port/in/order-operation-capture.port';
+import { OperationModule } from '../common/operation/operation.module';
 
 @Module({
-  imports: [RocketPoSourceModule, ChannelCatalogModule, AlertsModule, PrismaModule, SupplyModule, ShipmentsModule, ProductSourceModule],
+  imports: [RocketPoSourceModule, ChannelCatalogModule, AlertsModule, PrismaModule, SupplyModule, ShipmentsModule, ProductSourceModule, OperationModule],
   controllers: [
     OrdersController,
     OrderCollectionController,
     CoupangDirectshipController,
     OrderCollectionSourceController,
-    SellpiaShipmentTrackingSourceController,
+    SellpiaShipmentTrackingController,
     ReviewsController,
     ReturnTransfersController,
     SellpiaOrderTransmissionController,
@@ -60,8 +62,9 @@ import { CoupangReviewsOperationOwner } from './adapter/in/operation/coupang-rev
     SellpiaOrderTransmissionService,
     SellpiaOrderTransmissionRepositoryAdapter,
     OrderCollectionSourceRepository,
-    SellpiaShipmentTrackingSourceRepository,
+    OrderOperationCapturePersistenceAdapter,
     CoupangReviewsOperationOwner,
+    SellpiaShipmentTrackingOperationOwner,
     {
       provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
       useExisting: CoupangDirectOrderCollectionService,
@@ -83,8 +86,8 @@ import { CoupangReviewsOperationOwner } from './adapter/in/operation/coupang-rev
       useExisting: OrderCollectionSourceRepository,
     },
     {
-      provide: SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT,
-      useExisting: SellpiaShipmentTrackingSourceRepository,
+      provide: ORDER_OPERATION_CAPTURE_PORT,
+      useExisting: OrderOperationCapturePersistenceAdapter,
     },
   ],
 })

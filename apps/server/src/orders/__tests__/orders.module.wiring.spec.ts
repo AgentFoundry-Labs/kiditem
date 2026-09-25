@@ -14,11 +14,11 @@ import { SupplyModule } from '../../supply/supply.module';
 import { ProductSourceModule } from '../../products/product-source.module';
 import { SellpiaOrderTransmissionRepositoryAdapter } from '../adapter/out/repository/sellpia-order-transmission.repository.adapter';
 import { OrderCollectionSourceRepository } from '../adapter/out/repository/order-collection-source.repository';
-import { SellpiaShipmentTrackingSourceRepository } from '../adapter/out/repository/sellpia-shipment-tracking-source.repository';
+import { OrderOperationCapturePersistenceAdapter } from '../adapter/out/persistence/order-operation-capture.persistence.adapter';
 import { CoupangDirectOrderCollectionTransactionAdapter } from '../adapter/out/transaction/coupang-direct-order-collection.transaction.adapter';
 import { COUPANG_DIRECT_ORDER_COLLECTION_PORT } from '../application/port/in/coupang-direct-order-collection.port';
 import { ORDER_COLLECTION_SOURCE_PORT } from '../application/port/in/order-collection-source.port';
-import { SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT } from '../application/port/in/sellpia-shipment-tracking-source.port';
+import { ORDER_OPERATION_CAPTURE_PORT } from '../application/port/in/order-operation-capture.port';
 import { SELLPIA_ORDER_TRANSMISSION_PORT } from '../application/port/in/sellpia-order-transmission.port';
 import { COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT } from '../application/port/out/transaction/coupang-direct-order-collection.transaction.port';
 import { SELLPIA_ORDER_TRANSMISSION_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-order-transmission.repository.port';
@@ -27,7 +27,7 @@ import { SellpiaOrderTransmissionService } from '../application/service/sellpia-
 import { OrderCollectionController } from '../adapter/in/web/order-collection.controller';
 import { CoupangDirectshipController } from '../adapter/in/web/coupang-directship.controller';
 import { OrderCollectionSourceController } from '../adapter/in/web/order-collection-source.controller';
-import { SellpiaShipmentTrackingSourceController } from '../adapter/in/web/sellpia-shipment-tracking-source.controller';
+import { SellpiaShipmentTrackingController } from '../adapter/in/web/sellpia-shipment-tracking.controller';
 import { OrdersController } from '../adapter/in/web/orders.controller';
 import { ReviewsController } from '../adapter/in/web/reviews.controller';
 import { SellpiaOrderTransmissionController } from '../adapter/in/web/sellpia-order-transmission.controller';
@@ -36,6 +36,8 @@ import { OrdersModule } from '../orders.module';
 import { ReturnTransfersController } from '../adapter/in/web/return-transfers/return-transfers.controller';
 import { ReturnTransfersService } from '../application/service/return-transfers/return-transfers.service';
 import { CoupangReviewsOperationOwner } from '../adapter/in/operation/coupang-reviews-operation-owner';
+import { SellpiaShipmentTrackingOperationOwner } from '../adapter/in/operation/sellpia-shipment-tracking-operation-owner';
+import { OperationModule } from '../../common/operation/operation.module';
 import { CoupangDirectPoSnapshotService } from '../application/service/coupang-direct-po-snapshot.service';
 import { OrderCollectionService } from '../application/service/order-collection.service';
 import { OrdersService } from '../application/service/orders.service';
@@ -57,13 +59,14 @@ describe('OrdersModule owner wiring', () => {
       SupplyModule,
       ShipmentsModule,
       ProductSourceModule,
+      OperationModule,
     ]);
     expect(controllers).toEqual([
       OrdersController,
       OrderCollectionController,
       CoupangDirectshipController,
       OrderCollectionSourceController,
-      SellpiaShipmentTrackingSourceController,
+      SellpiaShipmentTrackingController,
       ReviewsController,
       ReturnTransfersController,
       SellpiaOrderTransmissionController,
@@ -81,8 +84,9 @@ describe('OrdersModule owner wiring', () => {
       SellpiaOrderTransmissionService,
       SellpiaOrderTransmissionRepositoryAdapter,
       OrderCollectionSourceRepository,
-      SellpiaShipmentTrackingSourceRepository,
+      OrderOperationCapturePersistenceAdapter,
       CoupangReviewsOperationOwner,
+      SellpiaShipmentTrackingOperationOwner,
       {
         provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
         useExisting: CoupangDirectOrderCollectionService,
@@ -104,8 +108,8 @@ describe('OrdersModule owner wiring', () => {
         useExisting: OrderCollectionSourceRepository,
       },
       {
-        provide: SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT,
-        useExisting: SellpiaShipmentTrackingSourceRepository,
+        provide: ORDER_OPERATION_CAPTURE_PORT,
+        useExisting: OrderOperationCapturePersistenceAdapter,
       },
     ]);
     expect(exports).toEqual([]);
