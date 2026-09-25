@@ -81,7 +81,11 @@ registration, and Coupang cookie-overflow recovery.
   the old convert body's rows. Their worker collectors are gone; the other
   malls keep the owner/lifecycle/converter path until H3′.
 - Login before an operation runs from the web without an attempt
-  (`ensureMallLoggedIn` with no `attemptId` logs in only).
+  (`ensureMallLoggedIn` with no `attemptId` logs in only); a mall site that
+  still meets a login form stops with `SITE_LOGIN_REQUIRED` and keeps the tab.
+- i-Scream reads its delivery grid in the frame that scores highest in
+  `content/orders/icecream-frames.js` (`TabPage.frames`), in the MAIN world;
+  the server picks unseen rows from the plan's `seenRowKeys`.
 
 ## Sabangnet Listing Import
 

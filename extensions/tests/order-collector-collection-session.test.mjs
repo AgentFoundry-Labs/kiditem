@@ -15,7 +15,6 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const backgroundRoot = path.join(repoRoot, 'extensions/kiditem-os/background/orders');
 const workerPath = path.join(backgroundRoot, 'worker.js');
 const AUTOMATIC_ACTIONS = [
-  ['collectIcecreamMallOrders', 'collectIcecreamMallOrders', 'icecream-mall', { date: '2026-07-15' }],
   ['collectKidsnoteOrders', 'collectKidsnoteOrders', 'kidsnote', { from: '2026-07-14', to: '2026-07-15' }],
   ['collectKkomangseOrders', 'collectKkomangseOrders', 'kkomangse', { date: '2026-07-15' }],
   ['collectOnchannelOrders', 'collectOnchannelOrders', 'onch', { date: '2026-07-15' }],
@@ -765,7 +764,6 @@ test('named mall reads create a fresh inactive tab even when a provider tab exis
   };
   const collection = { assertActive: async () => true };
   const cases = [
-    ['findOrCreateIcecreamMallTab', 'https://po.i-screammall.co.kr/main.do'],
     ['findOrCreateKidsnoteTab', 'https://shop.kidsnote.com/_manage/?body=3010'],
     ['findOrCreateKkomangseTab', 'https://nstore.edupre.co.kr/subAdmin/_order_product.list.php?mode=search&pass_input_type=all&st=o_rdate&so=desc&listmaxcount=1000'],
     ['findOrCreateOnchannelTab', 'https://www.onch3.co.kr/supplier/orders.php?state=all'],
@@ -817,19 +815,12 @@ test('every named mall collector uses the production attach-before-readiness pat
   };
   runtime.context.waitForTabReady = async (tabId) => events.push(['ready', tabId]);
   runtime.context.delay = async () => {};
-  runtime.context.ensureIcecreamMallLogin = async () => ({ success: true });
-  runtime.context.openIcecreamMallDeliveryInquiry = async () => ({ success: true });
-  runtime.context.findIcecreamMallDeliveryFrameId = async () => null;
   runtime.chrome.scripting.executeScript = async (options) => {
     events.push(['execute', options.target?.tabId, options.func?.name]);
-    if (options.func?.name === 'scrapeIcecreamMallDeliveryGrid') {
-      return [{ result: { success: true, rows: [] } }];
-    }
     return [{ result: { success: true } }];
   };
 
   const cases = [
-    ['collectIcecreamMallOrders', [null, null]],
     ['collectKidsnoteOrders', [{ from: '2026-07-15', to: '2026-07-15' }]],
     ['collectKkomangseOrders', []],
     ['collectOnchannelOrders', ['2026-07-15']],

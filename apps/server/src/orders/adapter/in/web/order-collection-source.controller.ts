@@ -33,6 +33,8 @@ import {
   type OrderCollectionTodayOrdersPort,
 } from '../../../application/port/in/order-collection-today-orders.port';
 import { MallOrdersOperationService } from '../../../application/service/mall-orders-operation.service';
+import type { IcecreamContinuation } from '../../../domain/mall-orders-operation';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { conversionFile, operationIdOf } from './operation-conversion';
 import type { Response } from 'express';
 import {
@@ -129,33 +131,22 @@ export class OrderCollectionSourceController {
   }
 
   /**
-   * Returns only the provider-neutral continuation fields needed by the web
-   * order collector after a server-owned conversion. The extension capture
-   * remains in the owner artifact; this route never echoes the extension
-   * response or an unvalidated arbitrary payload.
+   * 아이스크림몰 continuation(배송 색인·다음 자동 선택에 쓰는 원본 행·고른 행 키). 아이스크림몰은 실행 kind
+   * `orders.mall_orders`로 옮겼으므로 성공한 그 실행의 보관 캡처에서만 읽는다(KID-359 H3) — 경로의 id와 query
+   * `operationId`가 같은 실행이다. 다른 몰은 VALIDATION_FAILED(continuation_unsupported), 없는·끝나지 않은 실행은
+   * OPERATION_NOT_FOUND.
    */
   @Get('attempts/:attemptId/continuation')
   async readContinuation(
     @CurrentOrganization() organizationId: string,
     @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
-    @Headers('x-source-attempt-token') attemptToken: string | undefined,
-  ): Promise<IcecreamOrderCollectionContinuation> {
-    const control = await this.source.readAttemptControl({ organizationId, attemptId });
-    if (!control) throw new NotFoundException('ORDER_COLLECTION_ATTEMPT_NOT_FOUND');
-    if (control.attemptToken !== requireUuidHeader(attemptToken)) {
-      throw new BadRequestException('ATTEMPT_FENCE_LOST');
+    @Query('operationId') rawOperationId: unknown,
+  ): Promise<IcecreamContinuation> {
+    const operationId = operationIdOf(rawOperationId, attemptId);
+    if (!operationId) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'operation_id_required' } });
     }
-    if (control.state !== 'COMPLETE' || !control.artifactId) {
-      throw new BadRequestException('ORDER_COLLECTION_SOURCE_NOT_COMPLETE');
-    }
-    if (control.plan.mallKey !== 'icecream-mall') {
-      throw new BadRequestException('ORDER_COLLECTION_CONTINUATION_UNSUPPORTED');
-    }
-    const source = await this.source.readSourceDownload({
-      organizationId,
-      artifactId: control.artifactId,
-    });
-    return parseIcecreamContinuation(source);
+    return this.mallOrders.readContinuation({ organizationId, operationId });
   }
 
   @Post('attempts/:attemptId/fail')
@@ -352,71 +343,6 @@ function parseFailureBody(value: unknown): {
     message,
     ...(raw === undefined ? {} : { source: orderCollectionJsonSubmission(raw) }),
   };
-}
-
-type IcecreamOrderCollectionContinuation = {
-  mallKey: 'icecream-mall';
-  headers: string[];
-  originalRows: string[][];
-  selectedRows: string[][];
-  selectedRowKeys: string[];
-  selectionMode: 'manual' | 'automatic';
-  sourceRows: number;
-};
-
-function parseIcecreamContinuation(source: {
-  bytes: Buffer;
-  contentType: string;
-}): IcecreamOrderCollectionContinuation {
-  if (!source.contentType.toLowerCase().includes('json')) {
-    throw new BadRequestException('ORDER_COLLECTION_CONTINUATION_UNAVAILABLE');
-  }
-  let value: unknown;
-  try {
-    value = JSON.parse(source.bytes.toString('utf8'));
-  } catch {
-    throw new BadRequestException('ORDER_COLLECTION_CONTINUATION_UNAVAILABLE');
-  }
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new BadRequestException('ORDER_COLLECTION_CONTINUATION_UNAVAILABLE');
-  }
-  const payload = value as Record<string, unknown>;
-  const headers = stringArray(payload.headers);
-  const originalRows = stringRows(payload.originalRows);
-  const selectedRows = stringRows(payload.selectedRows);
-  const selectedRowKeys = stringArray(payload.selectedRowKeys);
-  const selectionMode = payload.selectionMode;
-  if (
-    !headers || !originalRows || !selectedRows || !selectedRowKeys ||
-    (selectionMode !== 'manual' && selectionMode !== 'automatic') ||
-    selectedRowKeys.length !== selectedRows.length
-  ) {
-    throw new BadRequestException('ORDER_COLLECTION_CONTINUATION_UNAVAILABLE');
-  }
-  return {
-    mallKey: 'icecream-mall',
-    headers,
-    originalRows,
-    selectedRows,
-    selectedRowKeys,
-    selectionMode,
-    sourceRows: selectedRows.length,
-  };
-}
-
-function stringArray(value: unknown): string[] | null {
-  if (!Array.isArray(value) || value.some((item) => typeof item !== 'string')) return null;
-  return [...value];
-}
-
-function stringRows(value: unknown): string[][] | null {
-  if (!Array.isArray(value)) return null;
-  const rows: string[][] = [];
-  for (const row of value) {
-    if (!Array.isArray(row) || row.some((cell) => typeof cell !== 'string')) return null;
-    rows.push([...row]);
-  }
-  return rows;
 }
 
 function optionalText(value: unknown): string | null {

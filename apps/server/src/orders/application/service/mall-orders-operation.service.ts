@@ -18,9 +18,11 @@ import {
   type OrderMallAccountPort,
 } from '../port/out/persistence/order-mall-account.port';
 import {
+  icecreamContinuation,
   mallOrdersCapture,
   mallOrdersScope,
   readMallOrdersPlan,
+  type IcecreamContinuation,
   type MallOrdersPlan,
 } from '../../domain/mall-orders-operation';
 import { OrderCollectionService, type OrderCollectionConversion } from './order-collection.service';
@@ -105,6 +107,16 @@ export class MallOrdersOperationService {
     const result = MallOrdersResultSchema.safeParse(operation.result);
     const conversion = result.success && result.data.captured === 0 ? null : await this.convert(plan, capture);
     return { operationId: operation.id, artifactId: capture.artifactId, mallKey: plan.mallKey, conversion };
+  }
+
+  /** 성공한 아이스크림몰 실행의 continuation(배송 색인·본 행 키 — 화면이 이어 쓴다). */
+  async readContinuation(input: { organizationId: string; operationId: string }): Promise<IcecreamContinuation> {
+    const { operation, capture } = await this.captures.readSucceeded({
+      organizationId: input.organizationId,
+      operationId: input.operationId,
+      kind: MALL_ORDERS_KIND,
+    });
+    return icecreamContinuation(readMallOrdersPlan(operation.plan).mallKey, capture.bytes);
   }
 
   /**

@@ -7,17 +7,6 @@ import {
 import { extractSellpiaOrderNumbers } from './sellpia-order-targets';
 import type { OrderCollectionAttemptContext } from './order-collection-source-owner';
 
-export interface IcecreamMallExtensionRows {
-  mall: '아이스크림몰';
-  date: string | null;
-  headers: string[];
-  rows: string[][];
-  rowCount: number;
-  masked: boolean;
-  source: string;
-  url?: string;
-}
-
 export interface IcecreamMallExtensionCredentials {
   loginId: string;
   supplierLoginId?: string;
@@ -96,9 +85,6 @@ export function createOrderCollectionExtensionError(
     failure: response?.failure ?? null,
   });
 }
-
-interface IcecreamMallExtensionResponse
-  extends Partial<IcecreamMallExtensionRows>, OrderCollectionFailureResponse {}
 
 export interface OrderCollectionExtensionRun extends OrderCollectionAttemptContext {
   extensionId?: string;
@@ -201,46 +187,6 @@ export function orderCollectionExtensionUnavailableMessage(
       `누락 기능: ${status.missingCapabilities.join(', ')}. extensions/kiditem-os를 다시 로드해주세요.`;
   }
   return '주문수집 확장프로그램을 찾지 못했습니다. extensions/kiditem-os를 Chrome에서 로드해주세요.';
-}
-
-async function requireOrderCollectionSessionExtension(): Promise<string> {
-  const status = await detectOrderCollectionSessionExtensionStatus();
-  if (status.status === 'ready') return status.extensionId;
-  throw new Error(orderCollectionExtensionUnavailableMessage(status));
-}
-
-export async function collectIcecreamMallRowsFromExtension(
-  date: string,
-  credentials?: IcecreamMallExtensionCredentials,
-  run?: OrderCollectionExtensionRun,
-): Promise<IcecreamMallExtensionRows> {
-  const extensionId = run?.extensionId ?? await requireOrderCollectionSessionExtension();
-  const response = await sendToExtension<IcecreamMallExtensionResponse>(extensionId, {
-    action: 'collectIcecreamMallOrders',
-    date,
-    credentials,
-    ...orderCollectionExtensionRunFields(run),
-  }, 90000);
-
-  if (!response?.success || !response.headers || !response.rows) {
-    throw createOrderCollectionExtensionError(
-      response,
-      response?.pendingLogin
-        ? '아이스크림몰 로그인 후 배송 조회 화면을 열어주세요.'
-        : '아이스크림몰 주문 수집 실패',
-    );
-  }
-
-  return {
-    mall: '아이스크림몰',
-    date: response.date ?? date,
-    headers: response.headers,
-    rows: response.rows,
-    rowCount: response.rowCount ?? response.rows.length,
-    masked: response.masked ?? false,
-    source: response.source ?? 'icecream-mall-delivery-grid',
-    url: response.url,
-  };
 }
 
 export const MALL_LOGIN_TEST_CAPABILITY = 'mallLoginTestV1';

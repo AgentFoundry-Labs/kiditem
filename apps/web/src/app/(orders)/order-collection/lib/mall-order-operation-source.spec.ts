@@ -4,6 +4,8 @@ import { apiClient } from '@/lib/api-client';
 import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import { detectOrderCollectionSessionExtensionStatus } from './order-collection-extension';
+import { saveIcecreamDeliveryIndex } from './icecream-delivery-index';
+import { addSeenOrderKeys } from './order-detect';
 import {
   collectMallOrderOperation,
   collectsViaMallOrderOperation,
@@ -20,6 +22,8 @@ vi.mock('./order-collection-page-model', async (original) => ({
   ...(await original<typeof import('./order-collection-page-model')>()),
   todayYmd: () => '2026-09-26',
 }));
+vi.mock('./icecream-delivery-index', () => ({ saveIcecreamDeliveryIndex: vi.fn() }));
+vi.mock('./order-detect', () => ({ addSeenOrderKeys: vi.fn() }));
 vi.mock('sonner', () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), warning: vi.fn(), error: vi.fn(), info: vi.fn() }) }));
 
 const ACCOUNT_ID = '5f0c2f7e-7a9e-4f3f-9d61-0a4b2b8f1c11';
@@ -166,6 +170,27 @@ describe('collectMallOrderOperation — 실행이 끝나면 실행 id로 변환�
       outputRows: 7,
       fileName: '키드키즈.xls',
     }));
+  });
+
+  it('아이스크림몰은 변환 뒤 continuation으로 배송 색인을 만들고 고른 행을 본 행으로 적는다', async () => {
+    const icecream = { ...account, key: 'icecream-mall', name: '아이스크림몰' } as OrderCollectionMallAccount;
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operations: [operation(OPERATION_ID, 'succeeded', { plan: { mallKey: 'icecream-mall' }, result: { rowCount: 1, mallKey: 'icecream-mall', captured: 1 } })] });
+    vi.mocked(apiClient.fetchRaw)
+      .mockResolvedValueOnce(new Response('xls', { status: 201, headers: { 'X-Order-Collection-Source-Rows': '1', 'X-Order-Collection-Output-Rows': '2' } }))
+      .mockResolvedValueOnce(Response.json({
+        mallKey: 'icecream-mall',
+        headers: ['주문번호', '배송번호', '배송순번'],
+        originalRows: [['order-1', 'delivery-1', '1'], ['order-2', 'delivery-2', '1']],
+        selectedRows: [['order-2', 'delivery-2', '1']],
+        selectedRowKeys: ['order-2\u001fdelivery-2\u001f1'],
+        selectionMode: 'automatic',
+        sourceRows: 1,
+      }));
+    await expect(collectMallOrderOperation({ account: icecream, operationId: OPERATION_ID, collectionDate: '2026-09-10', addGeneratedFile: vi.fn(), sleep }))
+      .resolves.toEqual({ rowCount: 1, masked: false, date: '2026-09-10' });
+    expect(apiClient.fetchRaw).toHaveBeenLastCalledWith(`/api/orders/collection/attempts/${OPERATION_ID}/continuation?operationId=${OPERATION_ID}`, { method: 'GET' });
+    expect(saveIcecreamDeliveryIndex).toHaveBeenCalledWith(['주문번호', '배송번호', '배송순번'], [['order-1', 'delivery-1', '1'], ['order-2', 'delivery-2', '1']]);
+    expect(addSeenOrderKeys).toHaveBeenCalledWith('icecream-mall', ['order-2\u001fdelivery-2\u001f1']);
   });
 
   it('주문이 없던 실행은 변환하지 않고 0건, 로그인에 막힌 실행은 로그인 필요로 분류되는 실패', async () => {

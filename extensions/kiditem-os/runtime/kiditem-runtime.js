@@ -6137,12 +6137,12 @@ var KidItemRuntime = (() => {
   function createTabPages(deps) {
     function page(tabId, owned) {
       let closed = false;
-      async function send(message, timeoutMs) {
+      async function send(message, timeoutMs, frameId) {
         let timer;
         const timeout = new Promise((resolve) => {
           timer = setTimeout(() => resolve({ ok: false, error: "timeout" }), timeoutMs);
         });
-        const answer = deps.chrome.tabs.sendMessage(tabId, message).then(
+        const answer = (frameId === void 0 ? deps.chrome.tabs.sendMessage(tabId, message) : deps.chrome.tabs.sendMessage(tabId, message, { frameId })).then(
           (response) => response ?? { ok: false, error: "empty_response" },
           (error) => ({ ok: false, error: MISSING_RECEIVER.test(String(error?.message ?? error)) ? "content_script_missing" : String(error?.message ?? error) })
         );
@@ -6191,7 +6191,7 @@ var KidItemRuntime = (() => {
           if (!tab?.url) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1\uD560 \uD0ED\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { tabId });
           return tab.url;
         },
-        async ask(message, { timeoutMs, inject, guard }) {
+        async ask(message, { timeoutMs, inject, guard, frameId }) {
           const checkHere = async () => {
             if (!guard) return;
             const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
@@ -6199,16 +6199,21 @@ var KidItemRuntime = (() => {
             checkPageUrl(guard, tab.url ?? "");
           };
           await checkHere();
-          const first = await send(message, timeoutMs);
+          const first = await send(message, timeoutMs, frameId);
           if (!inject || !isMissing(first)) return first;
           await checkHere();
-          await deps.chrome.scripting.executeScript({ target: { tabId }, files: [...inject.isolated] });
+          const target = frameId === void 0 ? { tabId } : { tabId, frameIds: [frameId] };
+          await deps.chrome.scripting.executeScript({ target, files: [...inject.isolated] });
           if (inject.main?.length) {
             await deps.sleep(300);
-            await deps.chrome.scripting.executeScript({ target: { tabId }, files: [...inject.main], world: "MAIN" });
+            await deps.chrome.scripting.executeScript({ target, files: [...inject.main], world: "MAIN" });
           }
           await deps.sleep(500);
-          return send(message, timeoutMs);
+          return send(message, timeoutMs, frameId);
+        },
+        async frames(files) {
+          const injected = await deps.chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: [...files] });
+          return (Array.isArray(injected) ? injected : []).filter((item) => typeof item?.frameId === "number" && item.result !== void 0 && item.result !== null).map((item) => ({ frameId: item.frameId, result: item.result }));
         },
         listen(listener) {
           const handler = (message, sender) => {
@@ -6387,6 +6392,7 @@ var KidItemRuntime = (() => {
       {
         timeoutMs: options.timeoutMs,
         guard: options.guard,
+        ...options.frameId !== void 0 ? { frameId: options.frameId } : {},
         inject: {
           isolated: [PAGE_CALL_BRIDGE_FILE, ...options.isolated ?? []],
           // MAIN world 처리기가 있을 때만 러너를 넣는다(ISOLATED 처리기는 브리지가 바로 부른다).
@@ -6721,15 +6727,158 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "domeggook", create: (deps) => createDomeggookSite(deps.tabs, deps) });
 
+  // extensions/src/sites/icecream-mall/index.ts
+  var ICECREAM_MALL_URL = "https://po.i-screammall.co.kr/main.do";
+  var ICECREAM_FRAMES_FILE = "content/orders/icecream-frames.js";
+  var ICECREAM_MENU_FILE = "content/orders/icecream-menu.js";
+  var ICECREAM_GRID_FILE = "content/orders/icecream-delivery-grid.js";
+  var LOGIN_WATCH_ROUNDS = 16;
+  var LOGIN_WATCH_MS = 500;
+  var MENU_TIMEOUT_MS = 45e3;
+  var GRID_TIMEOUT_MS = 35e3;
+  var LOGIN_MESSAGE3 = "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var ICECREAM_DELIVERY_HEADERS = [
+    "No",
+    "\uC8FC\uBB38\uBC88\uD638",
+    "\uBC30\uC1A1\uBC88\uD638",
+    "\uC0AC\uC774\uD2B8",
+    "\uC8FC\uBB38\uC644\uB8CC\uC77C\uC2DC",
+    "\uC8FC\uBB38\uAD6C\uBD84",
+    "\uC8FC\uBB38\uB0B4\uC5ED\uAD6C\uBD84",
+    "\uC8FC\uBB38\uB0B4\uC5ED\uC0C1\uD0DC",
+    "\uBC30\uC1A1\uC720\uD615",
+    "\uBC30\uC1A1\uC885\uB958",
+    "\uBC30\uC1A1\uCC98\uB9AC\uC720\uD615",
+    "\uD0DD\uBC30\uC0AC",
+    "\uC1A1\uC7A5\uBC88\uD638",
+    "\uBC30\uC1A1\uC870\uD68C",
+    "\uC8FC\uBB38\uD310\uB9E4\uC720\uD615",
+    "\uAC70\uB798\uBA85\uC138\uC11C\uB3D9\uBD09\uC5EC\uBD80",
+    "\uD569\uBC30\uC1A1\uC5EC\uBD80",
+    "\uC9C1\uBC30\uBCC0\uACBD \uC0AC\uC720",
+    "\uC0C1\uD488\uBC88\uD638",
+    "\uC0C1\uD488\uBA85",
+    "\uB2E8\uD488\uBA85",
+    "\uCD9C\uACE0\uC218\uB7C9",
+    "\uCD94\uAC00\uC785\uB825\uC635\uC158",
+    "\uC99D\uC815\uD488",
+    "\uC815\uC0C1\uAC00",
+    "\uD310\uB9E4\uAC00",
+    "\uD310\uB9E4\uAC00(\uD569\uACC4)",
+    "\uACF5\uAE09\uAC00",
+    "\uACF5\uAE09\uAC00(\uD569\uACC4)",
+    "\uBC30\uC1A1\uBE44",
+    "Y\uC8FC\uBB38\uBC88\uD638",
+    "\uC785\uC810\uC0AC",
+    "\uD68C\uC6D0ID",
+    "\uC8FC\uBB38\uC790",
+    "\uC218\uCDE8\uC778",
+    "\uC218\uCDE8\uC778\uD734\uB300\uD3F0\uBC88\uD638",
+    "\uC6B0\uD3B8\uBC88\uD638",
+    "\uBC30\uC1A1\uC9C0",
+    "\uBC30\uC1A1\uC694\uCCAD\uC0AC\uD56D",
+    "\uBC30\uC1A1\uC9C0\uC2DC\uC77C\uC2DC",
+    "\uCD9C\uACE0\uC9C0\uC2DC\uC77C\uC2DC",
+    "\uCD9C\uACE0\uC644\uB8CC\uC77C\uC2DC"
+  ];
+  var ICECREAM_EXCLUDED_DELIVERY_STATUSES = [
+    "\uCD9C\uACE0\uC644\uB8CC",
+    "\uBC30\uC1A1\uC911",
+    "\uBC30\uC1A1\uC644\uB8CC",
+    "\uAD6C\uB9E4\uD655\uC815",
+    "\uBC18\uD488\uC811\uC218",
+    "\uD68C\uC218\uC9C0\uC2DC",
+    "\uD68C\uC218\uD655\uC778",
+    "\uD68C\uC218\uC644\uB8CC"
+  ];
+  var ICECREAM_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["i-screammall.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["i-screammall.co.kr"]) && /login/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE3
+  };
+  function icecreamHasNoPendingOrders(diagnosis) {
+    if (diagnosis.reason !== "data rows not found") return false;
+    const orderRows = diagnosis.orderRows ?? 0;
+    if (orderRows === 0) return (diagnosis.candidateRows ?? 0) > 0;
+    return (diagnosis.doneExcluded ?? 0) >= orderRows;
+  }
+  function icecreamGridFailureMessage(diagnosis) {
+    if (diagnosis.reason === "data rows not found") {
+      if ((diagnosis.candidateRows ?? 0) > 0) {
+        return `\uBC30\uC1A1\uBAA9\uB85D \uD45C(${diagnosis.candidateRows}\uD589)\uB294 \uCC3E\uC558\uC9C0\uB9CC \uC8FC\uBB38\uBC88\uD638(YYYYMMDDM\u2026) \uD615\uC2DD\uC758 \uC8FC\uBB38\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uC8FC\uBB38\uBC88\uD638\uAC00 \uB9C8\uC2A4\uD0B9\uB418\uC5B4 \uC788\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`;
+      }
+      return "\uBC30\uC1A1\uBAA9\uB85D \uD45C\uB294 \uCC3E\uC558\uC9C0\uB9CC \uC8FC\uBB38 \uD589\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC870\uD68C \uACB0\uACFC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.";
+    }
+    if (diagnosis.reason === "header not found") {
+      return "\uBC30\uC1A1\uC870\uD68C \uD654\uBA74\uC740 \uC5F4\uC5C8\uC9C0\uB9CC \uBC30\uC1A1\uBAA9\uB85D \uD45C \uBA38\uB9AC\uAE00\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uD45C\uAC00 \uB85C\uB529\uB41C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.";
+    }
+    if (diagnosis.reason === "not delivery inquiry frame") return "\uBC30\uC1A1\uC870\uD68C \uD654\uBA74\uC740 \uC5F4\uC5C8\uC9C0\uB9CC \uC218\uC9D1 \uAC00\uB2A5\uD55C \uBC30\uC1A1\uC870\uD68C \uD504\uB808\uC784\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.";
+    return "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uBC30\uC1A1\uC870\uD68C \uD654\uBA74\uC740 \uC5F4\uC5C8\uC9C0\uB9CC \uBC30\uC1A1\uBAA9\uB85D \uD45C\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.";
+  }
+  function loginRequired() {
+    return new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE3, { url: ICECREAM_MALL_URL });
+  }
+  function createIcecreamMallSite(tabs, sleep) {
+    async function inspect(page) {
+      return page.frames([ICECREAM_FRAMES_FILE]);
+    }
+    return {
+      readOrders(input) {
+        return withFreshTab(tabs, ICECREAM_MALL_URL, async (page) => {
+          for (let round = 0; round < LOGIN_WATCH_ROUNDS; round += 1) {
+            if ((await inspect(page)).some((frame) => frame.result.loginPage)) throw loginRequired();
+            await sleep(LOGIN_WATCH_MS);
+          }
+          const menu = await callPage(page, "icecream.openDeliveryInquiry", {}, {
+            timeoutMs: MENU_TIMEOUT_MS,
+            guard: ICECREAM_PAGE_GUARD,
+            isolated: [ICECREAM_MENU_FILE],
+            displayName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0"
+          });
+          if (menu?.status === "login_required") throw loginRequired();
+          if (menu?.status !== "opened") {
+            throw new RuntimeError(SITE_REQUEST_FAILED, menu?.status === "failed" ? menu.error : "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uBC30\uC1A1\uC870\uD68C \uD654\uBA74\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", {
+              status: null,
+              reason: "page_error",
+              url: ICECREAM_MALL_URL
+            });
+          }
+          const frames = (await inspect(page)).filter((frame) => (frame.result.deliveryScore ?? 0) > 0).sort((a, b) => (b.result.deliveryScore ?? 0) - (a.result.deliveryScore ?? 0));
+          const grid = await callPage(page, "icecream.deliveryGrid", {
+            date: input.collectionDate,
+            headers: ICECREAM_DELIVERY_HEADERS,
+            excludedStatuses: ICECREAM_EXCLUDED_DELIVERY_STATUSES
+          }, {
+            timeoutMs: GRID_TIMEOUT_MS,
+            guard: ICECREAM_PAGE_GUARD,
+            main: [ICECREAM_GRID_FILE],
+            displayName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
+            frameId: frames[0]?.frameId ?? 0
+          });
+          if (grid?.status === "ok") return { rows: grid.rows, continuation: { headers: grid.headers } };
+          const diagnosis = grid?.status === "none" ? grid : {};
+          if (icecreamHasNoPendingOrders(diagnosis)) return { rows: [] };
+          throw new RuntimeError(SITE_REQUEST_FAILED, icecreamGridFailureMessage(diagnosis), {
+            status: null,
+            reason: "page_error",
+            url: ICECREAM_MALL_URL,
+            diagnosis
+          });
+        });
+      }
+    };
+  }
+  registerSite({ name: "icecream-mall", create: (deps) => createIcecreamMallSite(deps.tabs, deps.sleep) });
+
   // extensions/src/sites/kidkids/index.ts
   var KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
   var KIDKIDS_ORDERS_FILE = "content/orders/kidkids-orders.js";
   var READ_TIMEOUT_MS2 = 18e4;
-  var LOGIN_MESSAGE3 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE4 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var KIDKIDS_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["kidkids.net"]),
     isLogin: (url) => hostWithin(url, ["kidkids.net"]) && (/login|partnerlogin|partner_login/i.test(url.pathname) || /\/security\/verify_user\.htm$/i.test(url.pathname)),
-    loginMessage: LOGIN_MESSAGE3
+    loginMessage: LOGIN_MESSAGE4
   };
   function createKidkidsSite(tabs) {
     return {
@@ -6742,7 +6891,7 @@ var KidItemRuntime = (() => {
             displayName: "\uD0A4\uB4DC\uD0A4\uC988"
           });
           if (answer?.status === "ok") return { rows: answer.orders };
-          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE3, { url: KIDKIDS_ORDER_URL });
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE4, { url: KIDKIDS_ORDER_URL });
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uB4DC\uD0A4\uC988 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -7022,11 +7171,11 @@ var KidItemRuntime = (() => {
   var SELLPIA_REPRINT_URL = `${SELLPIA_ORIGIN}/order_delivery_reprint.html`;
   var SELLPIA_SHIPMENT_TRACKING_FILE = "content/orders/sellpia-shipment-tracking.js";
   var QUERY_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE4 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE5 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
   var SELLPIA_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sellpia.com"]),
     isLogin: (url) => hostWithin(url, ["sellpia.com"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE4
+    loginMessage: LOGIN_MESSAGE5
   };
   function createSellpiaSite(tabs) {
     return {
@@ -7043,7 +7192,7 @@ var KidItemRuntime = (() => {
             case "ok":
               return { rows: answer.rows, total: answer.total };
             case "login_required":
-              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE4, { url: SELLPIA_REPRINT_URL });
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE5, { url: SELLPIA_REPRINT_URL });
             case "http_error":
               throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
                 status: answer.httpStatus,

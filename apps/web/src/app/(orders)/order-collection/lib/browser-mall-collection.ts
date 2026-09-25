@@ -11,7 +11,6 @@ import {
 import { formatNumber } from '@/lib/utils';
 import { EXTENSION_TIMEOUT_MESSAGE, sendToExtension } from '@/lib/extension-bridge';
 import {
-  collectIcecreamMallRowsFromExtension,
   createOrderCollectionExtensionError,
   detectOrderCollectionSessionExtension,
   ensureMallLoggedInViaExtension,
@@ -23,18 +22,13 @@ import {
   type OrderCollectionMallAccount,
 } from '@/lib/order-mall-account-api';
 import {
-  ICECREAM_MALL_KEY,
-  isBrowserCollectableMall,
   isNoNewOrdersMessage,
   todayYmd,
   type ConversionHistoryItem,
 } from './order-collection-page-model';
 import {
-  readOrderCollectionContinuation,
   regenerateOrderCollectionSource,
 } from './order-collection-api';
-import { saveIcecreamDeliveryIndex } from './icecream-delivery-index';
-import { addSeenOrderKeys, distinctOrderNumbers, rowKeysOf } from './order-detect';
 
 /**
  * 수집할 신규 주문이 없을 때의 안내.
@@ -244,13 +238,10 @@ export function createBrowserMallCollector({
       throw new Error('ORDER_COLLECTION_DATE_NOT_ADMITTED');
     }
     const date = run.date ?? todayYmd();
-    const credentials = account.key === ICECREAM_MALL_KEY
-      ? await loadMallLoginCredentials(account)
-      : await loadMallCredentialsForLogin(account);
+    const credentials = await loadMallCredentialsForLogin(account);
     if (credentials) await ensureMallLogin(account.key, run);
 
     const actionByMall: Record<string, string> = {
-      'icecream-mall': 'collectIcecreamMallOrders',
       kidsnote: 'collectKidsnoteOrders',
       kkomangse: 'collectKkomangseOrders',
       onch: 'collectOnchannelOrders',
@@ -270,9 +261,6 @@ export function createBrowserMallCollector({
       date,
       ...orderCollectionExtensionRunFields(run),
     };
-    if (account.key === ICECREAM_MALL_KEY) {
-      Object.assign(message, { credentials });
-    }
     if (account.key === 'kidsnote') {
       Object.assign(message, { from: date, to: date, status: '', withDetail: true });
     }
@@ -337,20 +325,14 @@ export function createBrowserMallCollector({
     const receipt = await collectServerOwnedMall(account, run);
     const result = receipt.recoveredResult
       ?? await regenerateOrderCollectionSource(run, { download: false });
-    const continuation = account.key === ICECREAM_MALL_KEY
-      ? await readOrderCollectionContinuation(run)
-      : null;
     const conversion = receipt.conversion ?? {};
-    const collectedRows = conversion.sourceRows ?? result.sourceRows ?? continuation?.sourceRows;
+    const collectedRows = conversion.sourceRows ?? result.sourceRows;
     if (collectedRows === null || collectedRows === undefined) {
       throw new Error('ORDER_COLLECTION_SOURCE_ROWS_UNAVAILABLE');
     }
     if (collectedRows === 0 && result.outputRows === 0) {
       toastNoNewOrders(account.name);
       return { rowCount: 0, masked: false, date: collectionDateOf(run) };
-    }
-    if (continuation) {
-      saveIcecreamDeliveryIndex(continuation.headers, continuation.originalRows);
     }
     const convertedAt = Date.now();
     const historyItem = {
@@ -365,9 +347,6 @@ export function createBrowserMallCollector({
       mallName: account.name,
     };
     addBrowserGeneratedFile(historyItem);
-    if (continuation) {
-      addSeenOrderKeys(account.key, continuation.selectedRowKeys);
-    }
     return {
       rowCount: collectedRows,
       masked: false,
@@ -755,39 +734,8 @@ export function createBrowserMallCollector({
     if (account.key === 'boribori') return resultFor(await generateBoriboriSellpia(resolvedRun), today);
     if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(resolvedRun), today);
     if (account.key === 'haebub-mall') return resultFor(await generateHaebeopSellpia(resolvedRun), today);
-    if (!isBrowserCollectableMall(account)) {
-      throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
-    }
-
-    const credentials = await loadMallLoginCredentials(account);
-    const collected = await collectIcecreamMallRowsFromExtension(today, credentials, resolvedRun);
-    saveIcecreamDeliveryIndex(collected.headers, collected.rows);
-    const { convertIcecreamMallOrderRows } = await import('./order-collection-api');
-    const result = await convertIcecreamMallOrderRows({
-      headers: collected.headers,
-      rows: collected.rows,
-      fileName: `아이스크림몰_${collected.date ?? today}_브라우저수집`,
-    }, { run });
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-${account.key}-browser`,
-      sourceName: `${account.name} 브라우저 수집 (${formatNumber(collected.rowCount)}행)`,
-      convertedAt,
-      collectionDate: collected.date ?? today,
-      collectionMode: 'browser',
-      collectedRows: collected.rowCount,
-      mallKey: account.key,
-      mallName: account.name,
-      orderNumbers: distinctOrderNumbers(collected.headers, collected.rows),
-    });
-    addSeenOrderKeys(account.key, rowKeysOf(collected.rows));
-
-    return {
-      rowCount: collected.rowCount,
-      masked: collected.masked,
-      date: collected.date,
-    };
+    // 실행 kind로 옮긴 몰(아이스크림몰 · 키드키즈 · 아트공구 · 도매꾹, KID-359 H3)은 이 옛 절차로 오지 않는다.
+    throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
   };
 }
 
@@ -802,20 +750,4 @@ function resultFor(rowCount: number, date: string): BrowserMallCollectionResult 
 function collectionDateOf(run: OrderCollectionExtensionRun): string {
   if (!run.date) throw new Error('Order collection date is required');
   return run.date;
-}
-
-async function loadMallLoginCredentials(account: OrderCollectionMallAccount) {
-  if (!account.loginId || !account.hasPassword) {
-    throw new Error(`${account.name} 계정 ID와 비밀번호를 먼저 저장해주세요.`);
-  }
-
-  const result = await orderMallAccountApi.password(account.key);
-  if (!result.password) {
-    throw new Error(`${account.name} 저장된 비밀번호를 불러오지 못했습니다.`);
-  }
-
-  return {
-    loginId: account.loginId,
-    password: result.password,
-  };
 }

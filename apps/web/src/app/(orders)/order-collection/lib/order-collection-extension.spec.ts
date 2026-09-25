@@ -9,7 +9,6 @@ const bridge = vi.hoisted(() => ({
 vi.mock('@/lib/extension-bridge', () => bridge);
 
 import {
-  collectIcecreamMallRowsFromExtension,
   createOrderCollectionExtensionError,
   detectOrderCollectionSessionExtension,
   detectOrderCollectionSessionExtensionStatus,
@@ -64,43 +63,22 @@ describe('order collection extension session bridge', () => {
       version: '0.1.85',
       missingCapabilities: ['orderCollectionFailureEvidenceV1'],
     });
-    await expect(
-      collectIcecreamMallRowsFromExtension('2026-07-15'),
-    ).rejects.toThrow('0.1.85');
-    await expect(
-      collectIcecreamMallRowsFromExtension('2026-07-15'),
-    ).rejects.toThrow('orderCollectionFailureEvidenceV1');
     expect(bridge.sendToExtension).not.toHaveBeenCalled();
   });
 
-  it('passes the owner attemptId into the automatic collection message', async () => {
-    bridge.sendToExtension.mockResolvedValue({
-      success: true,
-      mall: '아이스크림몰',
-      date: '2026-07-15',
-      headers: ['주문번호'],
-      rows: [['A-1']],
-      rowCount: 1,
-      masked: false,
-      source: 'test',
-      attemptId: ATTEMPT_ID,
-    });
+  it('실행 kind로 옮긴 몰(KID-359 H3)의 로그인은 옛 몰 시도 없이 보낸다 — 확장이 로그인만 한다', async () => {
+    bridge.sendToExtension.mockResolvedValue({ success: true, submitted: false });
 
-    await collectIcecreamMallRowsFromExtension(
-      '2026-07-15',
+    await ensureMallLoggedInViaExtension(
+      'kidkids',
       { loginId: 'operator', password: 'secret' },
-      { attemptId: ATTEMPT_ID, attemptToken: ATTEMPT_TOKEN, extensionId: 'order-extension' },
+      { attemptId: '', attemptToken: '', extensionId: 'order-extension', date: null, sourceOwner: 'mall_orders_operation' },
     );
 
-    expect(bridge.sendToExtension).toHaveBeenCalledWith(
-      'order-extension',
-      expect.objectContaining({
-        action: 'collectIcecreamMallOrders',
-        attemptId: ATTEMPT_ID,
-        deferTerminal: true,
-      }),
-      90000,
-    );
+    const message = bridge.sendToExtension.mock.calls[0]?.[1] as Record<string, unknown>;
+    expect(message).toMatchObject({ action: 'ensureMallLoggedIn', mallKey: 'kidkids' });
+    expect(message).not.toHaveProperty('attemptId');
+    expect(message).not.toHaveProperty('deferTerminal');
   });
 
   it('returns a structured login attention result instead of swallowing it', async () => {

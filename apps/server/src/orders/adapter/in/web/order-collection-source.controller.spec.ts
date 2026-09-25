@@ -143,73 +143,14 @@ describe('OrderCollectionSourceController', () => {
     });
   });
 
-  it('returns only validated Icecream continuation metadata under the owner fence', async () => {
-    const source = {
-      readAttemptControl: vi.fn().mockResolvedValue({
-        attemptId: ATTEMPT,
-        attemptToken: TOKEN,
-        state: 'COMPLETE',
-        artifactId: ARTIFACT,
-        plan: { mallKey: 'icecream-mall', collectionDate: '2026-09-10' },
-      }),
-      readSourceDownload: vi.fn().mockResolvedValue({
-        bytes: Buffer.from(JSON.stringify({
-          headers: ['주문번호', '배송번호', '배송순번'],
-          rows: [['selected-1', 'delivery-1', '1']],
-          originalRows: [
-            ['seen-1', 'delivery-0', '1'],
-            ['selected-1', 'delivery-1', '1'],
-          ],
-          selectedRows: [['selected-1', 'delivery-1', '1']],
-          selectedRowKeys: ['selected-1\u001fdelivery-1\u001f1'],
-          selectionMode: 'automatic',
-          fileName: 'provider-private-name',
-        })),
-        fileName: 'capture.json',
-        contentType: 'application/json',
-      }),
-    };
-    const controller = new OrderCollectionSourceController(source as never, {} as never, {} as never, {} as never);
+  it('continuation은 query operationId(경로와 같은 실행)로만 읽는다 — 없거나 다르면 VALIDATION_FAILED', async () => {
+    const mallOrders = { readContinuation: vi.fn().mockResolvedValue({ mallKey: 'icecream-mall' }) };
+    const controller = new OrderCollectionSourceController({} as never, {} as never, {} as never, mallOrders as never);
 
-    await expect(controller.readContinuation(ORG, ATTEMPT, TOKEN)).resolves.toEqual({
-      mallKey: 'icecream-mall',
-      headers: ['주문번호', '배송번호', '배송순번'],
-      originalRows: [
-        ['seen-1', 'delivery-0', '1'],
-        ['selected-1', 'delivery-1', '1'],
-      ],
-      selectedRows: [['selected-1', 'delivery-1', '1']],
-      selectedRowKeys: ['selected-1\u001fdelivery-1\u001f1'],
-      selectionMode: 'automatic',
-      sourceRows: 1,
-    });
-    expect(source.readSourceDownload).toHaveBeenCalledWith({
-      organizationId: ORG,
-      artifactId: ARTIFACT,
-    });
-  });
-
-  it('does not expose continuation metadata for another mall or a lost fence', async () => {
-    const source = {
-      readAttemptControl: vi.fn().mockResolvedValue({
-        attemptId: ATTEMPT,
-        attemptToken: TOKEN,
-        state: 'COMPLETE',
-        artifactId: ARTIFACT,
-        plan: { mallKey: 'kidsnote', collectionDate: '2026-09-10' },
-      }),
-      readSourceDownload: vi.fn(),
-    };
-    const controller = new OrderCollectionSourceController(source as never, {} as never, {} as never, {} as never);
-
-    await expect(controller.readContinuation(ORG, ATTEMPT, TOKEN))
-      .rejects.toThrow('ORDER_COLLECTION_CONTINUATION_UNSUPPORTED');
-    await expect(controller.readContinuation(
-      ORG,
-      ATTEMPT,
-      '66666666-6666-4666-8666-666666666666',
-    )).rejects.toThrow('ATTEMPT_FENCE_LOST');
-    expect(source.readSourceDownload).not.toHaveBeenCalled();
+    await expect(controller.readContinuation(ORG, ATTEMPT, ATTEMPT)).resolves.toEqual({ mallKey: 'icecream-mall' });
+    expect(mallOrders.readContinuation).toHaveBeenCalledWith({ organizationId: ORG, operationId: ATTEMPT });
+    await expect(controller.readContinuation(ORG, ATTEMPT, undefined)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'operation_id_required' } });
+    await expect(controller.readContinuation(ORG, ATTEMPT, ARTIFACT)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'operation_path_mismatch' } });
   });
 
   it('does not read or convert retained source after the owner fence is lost', async () => {

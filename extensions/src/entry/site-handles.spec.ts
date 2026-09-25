@@ -13,6 +13,7 @@ import '../collectors/test.echo';
 import '../sites/1688';
 import '../sites/art09';
 import '../sites/domeggook';
+import '../sites/icecream-mall';
 import '../sites/kidkids';
 import '../sites/mall-orders';
 import '../sites/product-page';
@@ -59,6 +60,7 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     expect(keys(handle.reader('kidkids'))).toEqual(['readOrders']);
     expect(keys(handle.reader('art09'))).toEqual(['readOrders']);
     expect(keys(handle.reader('domeggook'))).toEqual(['readOrders']);
+    expect(keys(handle.reader('icecream-mall'))).toEqual(['readOrders']);
     expect(handle.reader('no-such-mall')).toBeNull();
     expect(handle.reader('mall-orders')).toBeNull();
     expect(ownTabSites().has('mall-orders')).toBe(true);

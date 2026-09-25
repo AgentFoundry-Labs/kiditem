@@ -108,23 +108,14 @@ export async function regenerateOrderOperationSource(
 }
 
 /**
- * Reads the owner-retained Icecream capture metadata needed by the web-only
- * delivery-index and automatic-seen consumers. This is intentionally a
- * separate scoped read: the extension page response never carries provider
- * rows or raw source evidence.
+ * 아이스크림몰 continuation(배송 색인·다음 자동 선택에 쓰는 원본 행·고른 행 키). 성공한 몰 주문 실행의 보관 캡처에서만
+ * 읽는다(KID-359 H3) — 경로 id와 query `operationId`가 같은 실행이다. 확장 응답은 원본 행을 싣지 않는다.
  */
-export async function readOrderCollectionContinuation(
-  run: OrderCollectionExtensionRun,
+export async function readOrderOperationContinuation(
+  operationId: string,
 ): Promise<IcecreamOrderCollectionContinuation> {
-  const response = await apiClient.fetchRaw(
-    `/api/orders/collection/attempts/${encodeURIComponent(run.attemptId)}/continuation`,
-    {
-      method: 'GET',
-      headers: {
-        'x-source-attempt-token': run.attemptToken,
-      },
-    },
-  );
+  const id = encodeURIComponent(operationId);
+  const response = await apiClient.fetchRaw(`/api/orders/collection/attempts/${id}/continuation?operationId=${id}`, { method: 'GET' });
   if (!response.ok) {
     throw new Error(await readErrorMessage(response));
   }

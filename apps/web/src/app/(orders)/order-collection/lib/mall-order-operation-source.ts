@@ -16,12 +16,14 @@ import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 import { toastNoNewOrders, type BrowserMallCollectionResult } from './browser-mall-collection';
 import type { MallOrderCollectionStartInput } from './mall-order-collection-source';
-import { regenerateOrderOperationSource } from './order-collection-api';
+import { saveIcecreamDeliveryIndex } from './icecream-delivery-index';
+import { readOrderOperationContinuation, regenerateOrderOperationSource } from './order-collection-api';
+import { addSeenOrderKeys } from './order-detect';
 import {
   detectOrderCollectionSessionExtensionStatus,
   orderCollectionExtensionUnavailableMessage,
 } from './order-collection-extension';
-import { todayYmd, type ConversionHistoryItem } from './order-collection-page-model';
+import { ICECREAM_MALL_KEY, todayYmd, type ConversionHistoryItem } from './order-collection-page-model';
 import type { OrderCollectionSourceAdapter } from './order-collection-source-adapter';
 import {
   ORDER_CAPTURE_OPERATION_CAPABILITY,
@@ -174,6 +176,9 @@ export async function collectMallOrderOperation({
     return { rowCount: 0, masked: false, date: collectionDate };
   }
   const collectedRows = converted.sourceRows ?? (result.success ? result.data.rowCount : 0);
+  // 아이스크림몰은 원본 행으로 송장 업로드용 배송 색인을 만들고, 이번에 고른 행을 다음 자동 선택의 본 행으로 적는다.
+  const continuation = account.key === ICECREAM_MALL_KEY ? await readOrderOperationContinuation(operationId) : null;
+  if (continuation) saveIcecreamDeliveryIndex(continuation.headers, continuation.originalRows);
   const convertedAt = Date.now();
   addGeneratedFile({
     ...converted,
@@ -186,5 +191,6 @@ export async function collectMallOrderOperation({
     mallKey: account.key,
     mallName: account.name,
   });
+  if (continuation) addSeenOrderKeys(account.key, continuation.selectedRowKeys);
   return { rowCount: collectedRows, masked: false, date: collectionDate };
 }

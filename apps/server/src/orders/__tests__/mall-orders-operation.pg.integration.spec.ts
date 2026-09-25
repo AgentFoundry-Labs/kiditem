@@ -76,6 +76,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
   let kidkidsAccount: string;
   let art09Account: string;
   let domeggookAccount: string;
+  let icecreamAccount: string;
   let rocketAccount: string;
 
   beforeAll(async () => {
@@ -114,6 +115,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     kidkidsAccount = (await create('kidkids', '키드키즈')).id;
     art09Account = (await create('art09', '아트공구')).id;
     domeggookAccount = (await create('domeggook', '도매꾹')).id;
+    icecreamAccount = (await create('icecream-mall', '아이스크림몰')).id;
     rocketAccount = (await create('rocket', '쿠팡 로켓')).id;
   });
 
@@ -280,6 +282,69 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     const missingPart = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: domeggookAccount, mallKey: 'domeggook' }));
     await harness.put(missingPart, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [{ fileName: 'ORDER_ALL.csv', part: 1, parts: 2, base64: csv }] }]);
     expect((await harness.finish(missingPart).expect(400)).body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'incomplete_file_parts' } });
+  });
+
+  it('아이스크림몰: 배송목록 행 + continuation(머리글)을 옛 변환 본문으로 모으고, 자동 선택은 본 행을 빼고 고른 행만 센다', async () => {
+    const headers = ['주문번호', '배송번호', '주문완료일시', '주문내역상태', '배송종류', '배송처리유형', '주문판매유형', '합배송여부', '상품번호', '상품명', '단품명', '출고수량', '입점사', '회원ID', '주문자', '수취인', '수취인휴대폰번호', '우편번호', '배송지'];
+    const line = (orderNo: string) => [orderNo, `D-${orderNo}`, `${TODAY} 10:00`, '결제완료', '택배', '일반', '일반', 'N', 'P-1', '색종이', '빨강', '1', '키드아이템', 'member', '풍산초', '풍산초', '010-0000-0000', '06000', '서울 강남구'];
+    const seen = line('20260926M0001');
+    const fresh = line('20260926M0002');
+    const seenKey = seen.join('\u001f');
+    const run = await harness.beginRun(MALL_ORDERS_KIND, scope({
+      channelAccountId: icecreamAccount, mallKey: 'icecream-mall', selectionMode: 'automatic', seenRowKeys: [seenKey],
+    }));
+    await harness.put(run, [
+      { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [seen, fresh] },
+      { chunkKind: 'continuation', payload: [{ headers }] },
+    ]);
+    const finished = await harness.finish(run).expect(200);
+    expect(finished.body.operation.result).toEqual({ rowCount: 1, mallKey: 'icecream-mall', captured: 1 });
+    const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
+    expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({
+      headers,
+      rows: [fresh],
+      sourceRows: [seen, fresh],
+      originalRows: [seen, fresh],
+      selectionMode: 'automatic',
+      seenRowKeys: [seenKey],
+      selectedRows: [fresh],
+      selectedRowKeys: [fresh.join('\u001f')],
+    });
+    await convert('icecream-mall/convert-rows', run.operation.id).expect(201);
+
+    const continuation = await request(harness.httpUrl)
+      .get(`/api/orders/collection/attempts/${run.operation.id}/continuation?operationId=${run.operation.id}`)
+      .set('x-test-org', ORG)
+      .expect(200);
+    expect(continuation.body).toEqual({
+      mallKey: 'icecream-mall',
+      headers,
+      originalRows: [seen, fresh],
+      selectedRows: [fresh],
+      selectedRowKeys: [fresh.join('\u001f')],
+      selectionMode: 'automatic',
+      sourceRows: 1,
+    });
+
+    // 본 행뿐이면 고른 행이 없다 — 0건(옛 NO_NEW_ORDERS), 파일도 없다.
+    const nothingNew = await harness.beginRun(MALL_ORDERS_KIND, scope({
+      channelAccountId: icecreamAccount, mallKey: 'icecream-mall', selectionMode: 'automatic', seenRowKeys: [seenKey],
+    }));
+    await harness.put(nothingNew, [
+      { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [seen] },
+      { chunkKind: 'continuation', payload: [{ headers }] },
+    ]);
+    expect((await harness.finish(nothingNew).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: 'icecream-mall', captured: 0 });
+  });
+
+  it('continuation은 성공한 아이스크림몰 실행만 — 다른 몰은 VALIDATION_FAILED, 끝나지 않은·다른 조직 실행은 OPERATION_NOT_FOUND', async () => {
+    const kidkids = await harness.beginRun(MALL_ORDERS_KIND, scope());
+    const read = (id: string, organizationId = ORG) =>
+      request(harness.httpUrl).get(`/api/orders/collection/attempts/${id}/continuation?operationId=${id}`).set('x-test-org', organizationId);
+    expect((await read(kidkids.operation.id).expect(404)).body).toMatchObject({ code: 'OPERATION_NOT_FOUND' });
+    await harness.finish(kidkids).expect(200);
+    expect((await read(kidkids.operation.id).expect(400)).body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'continuation_unsupported' } });
+    expect((await read(kidkids.operation.id, OTHER_ORG).expect(404)).body).toMatchObject({ code: 'OPERATION_NOT_FOUND' });
   });
 
   it('오늘 주문 capability는 실행 표(몰 주문·directship의 최신 성공 rowCount)와 옛 run(2차 몰·옛 directship)을 한 수로 센다', async () => {

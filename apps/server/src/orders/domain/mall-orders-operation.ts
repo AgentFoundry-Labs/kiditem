@@ -90,10 +90,96 @@ function filePart(contentType: string): MallCaptureRule {
   };
 }
 
+/** 아이스크림몰 행 하나를 가리는 키 — 칸마다 공백을 걷어 U+001F로 잇는다(웹 `order-detect.ts`의 본 행 키와 같다). */
+const ICECREAM_ROW_KEY_SEPARATOR = '\u001f';
+const IcecreamRowSchema = z.array(z.string());
+const IcecreamContinuationSchema = z.object({ headers: z.array(z.string()).min(1) }).strict();
+
+export function icecreamRowKey(row: readonly string[]): string {
+  return row.map((cell) => String(cell ?? '').trim()).join(ICECREAM_ROW_KEY_SEPARATOR);
+}
+
+/**
+ * 아이스크림몰: 배송목록 행(`order_rows`, 칸 배열)과 머리글(`continuation` 한 장)을 옛 서버 변환 본문 그대로 모은다
+ * (옛 확장 `order-collection-server-converter.js`의 `icecreamPayload`). 자동 선택이면 plan의 본 행 키를 빼고 고른 행만
+ * 변환하고, 원본 전체(`originalRows`)는 배송 색인·다음 자동 선택을 위해 함께 보관한다.
+ */
+const icecreamRule: MallCaptureRule = {
+  continuation: IcecreamContinuationSchema,
+  assemble({ rows, continuation, plan }) {
+    const parsed = IcecreamRowSchema.array().safeParse(rows);
+    if (!parsed.success) throw invalid('invalid_order_rows', { errors: issues(parsed.error) });
+    const originalRows = parsed.data;
+    const headers = (continuation as z.infer<typeof IcecreamContinuationSchema> | null)?.headers ?? null;
+    if (originalRows.length > 0 && !headers) throw invalid('continuation_missing', { mallKey: plan.mallKey });
+    const seen = new Set(plan.seenRowKeys ?? []);
+    const automatic = plan.selectionMode === 'automatic';
+    const keys = originalRows.map(icecreamRowKey);
+    const selected = originalRows.flatMap((row, index) => (automatic && seen.has(keys[index]!) ? [] : [{ row, key: keys[index]! }]));
+    const payload = {
+      headers: headers ?? [],
+      rows: selected.map((entry) => entry.row),
+      sourceRows: originalRows,
+      originalRows,
+      selectionMode: automatic ? 'automatic' : 'manual',
+      seenRowKeys: [...seen],
+      selectedRows: selected.map((entry) => entry.row),
+      selectedRowKeys: selected.map((entry) => entry.key),
+    };
+    return {
+      source: { bytes: Buffer.from(canonicalOwnerInputJson(payload), 'utf8'), fileName: null, contentType: 'application/json' },
+      captured: selected.length,
+    };
+  },
+};
+
+/** 화면이 이어 쓰는 아이스크림몰 정보(배송 색인·본 행 키). 보관 캡처에서 읽는다. */
+export interface IcecreamContinuation {
+  mallKey: 'icecream-mall';
+  headers: string[];
+  originalRows: string[][];
+  selectedRows: string[][];
+  selectedRowKeys: string[];
+  selectionMode: 'manual' | 'automatic';
+  sourceRows: number;
+}
+
+const StoredIcecreamCaptureSchema = z.object({
+  headers: z.array(z.string()),
+  originalRows: z.array(z.array(z.string())),
+  selectedRows: z.array(z.array(z.string())),
+  selectedRowKeys: z.array(z.string()),
+  selectionMode: z.enum(['manual', 'automatic']),
+}).passthrough().refine((value) => value.selectedRows.length === value.selectedRowKeys.length);
+
+/** 보관 캡처 → continuation. 아이스크림몰이 아니면 continuation_unsupported, 읽을 수 없으면 continuation_unavailable. */
+export function icecreamContinuation(mallKey: string, bytes: Buffer): IcecreamContinuation {
+  if (mallKey !== 'icecream-mall') throw invalid('continuation_unsupported', { mallKey });
+  let value: unknown = null;
+  try {
+    value = JSON.parse(bytes.toString('utf8'));
+  } catch {
+    value = null;
+  }
+  const parsed = StoredIcecreamCaptureSchema.safeParse(value);
+  if (!parsed.success) throw invalid('continuation_unavailable', { mallKey });
+  const capture = parsed.data;
+  return {
+    mallKey: 'icecream-mall',
+    headers: capture.headers,
+    originalRows: capture.originalRows,
+    selectedRows: capture.selectedRows,
+    selectedRowKeys: capture.selectedRowKeys,
+    selectionMode: capture.selectionMode,
+    sourceRows: capture.selectedRows.length,
+  };
+}
+
 const MALL_CAPTURE_RULES: Partial<Record<MallOrderOperationMall, MallCaptureRule>> = {
   kidkids: jsonList('orders', OrderObjectSchema.and(z.object({ items: z.array(z.unknown()) }))),
   art09: jsonList('rows', OrderObjectSchema.and(z.object({ orderId: z.string() }))),
   domeggook: filePart('text/csv'),
+  'icecream-mall': icecreamRule,
 };
 
 export function mallCaptureReady(mallKey: MallOrderOperationMall): boolean {

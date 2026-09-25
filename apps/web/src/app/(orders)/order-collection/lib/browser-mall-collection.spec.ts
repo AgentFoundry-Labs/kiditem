@@ -8,9 +8,6 @@ const mocks = vi.hoisted(() => ({
   collectKidsnote: vi.fn(),
   sendToExtension: vi.fn(),
   regenerateSource: vi.fn(),
-  readContinuation: vi.fn(),
-  saveIcecreamIndex: vi.fn(),
-  addSeenOrderKeys: vi.fn(),
   password: vi.fn(),
   toast: Object.assign(vi.fn(), {
     error: vi.fn(),
@@ -27,7 +24,6 @@ vi.mock('@/lib/extension-bridge', async (importOriginal) => ({
   sendToExtension: mocks.sendToExtension,
 }));
 vi.mock('./order-collection-extension', () => ({
-  collectIcecreamMallRowsFromExtension: vi.fn(),
   createOrderCollectionExtensionError: (
     response: { error?: string; errorCode?: string; pendingLogin?: boolean; failure?: unknown },
     fallback: string,
@@ -44,15 +40,6 @@ vi.mock('./order-collection-extension', () => ({
 }));
 vi.mock('./order-collection-api', () => ({
   regenerateOrderCollectionSource: mocks.regenerateSource,
-  readOrderCollectionContinuation: mocks.readContinuation,
-}));
-vi.mock('./icecream-delivery-index', () => ({
-  saveIcecreamDeliveryIndex: mocks.saveIcecreamIndex,
-}));
-vi.mock('./order-detect', () => ({
-  addSeenOrderKeys: mocks.addSeenOrderKeys,
-  distinctOrderNumbers: vi.fn(() => []),
-  rowKeysOf: vi.fn((rows: string[][]) => rows.map((row) => row.join('\u001f'))),
 }));
 vi.mock('./kidsnote-orders-api', () => ({
   collectKidsnoteOrdersFromExtension: mocks.collectKidsnote,
@@ -97,9 +84,6 @@ describe('createBrowserMallCollector', () => {
     mocks.collectKidsnote.mockResolvedValue({ orders: [], count: 0 });
     mocks.sendToExtension.mockReset();
     mocks.regenerateSource.mockReset();
-    mocks.readContinuation.mockReset();
-    mocks.saveIcecreamIndex.mockReset();
-    mocks.addSeenOrderKeys.mockReset();
   });
 
   it('stops collection when login preflight needs attention', async () => {
@@ -267,71 +251,6 @@ describe('createBrowserMallCollector', () => {
 
     expect(mocks.sendToExtension).toHaveBeenCalledTimes(1);
     expect(mocks.regenerateSource).toHaveBeenCalledTimes(1);
-  });
-
-  it('replays Icecream consumers from owner-retained rows after server-owned conversion', async () => {
-    mocks.ensureLogin.mockResolvedValue({ success: true });
-    mocks.sendToExtension.mockResolvedValue({
-      success: true,
-      terminalState: 'COMPLETE',
-      conversion: { sourceRows: 1, outputRows: 1 },
-    });
-    mocks.regenerateSource.mockResolvedValue({
-      fileName: 'icecream.xls',
-      blob: new Blob(['converted']),
-      previewRows: [['converted']],
-      sourceRows: 1,
-      productRows: 1,
-      outputRows: 1,
-      skippedRows: 0,
-    });
-    mocks.readContinuation.mockResolvedValue({
-      mallKey: 'icecream-mall',
-      headers: ['주문번호', '배송번호', '배송순번'],
-      originalRows: [['order-1', 'delivery-1', '1'], ['order-2', 'delivery-2', '1']],
-      selectedRows: [['order-2', 'delivery-2', '1']],
-      selectedRowKeys: ['order-2\u001fdelivery-2\u001f1'],
-      selectionMode: 'automatic',
-      sourceRows: 2,
-    });
-    const icecream = {
-      ...ACCOUNT,
-      key: 'icecream-mall' as const,
-      name: '아이스크림몰',
-      configured: true,
-      enabled: true,
-    };
-    const addGeneratedFile = vi.fn();
-    const collector = createBrowserMallCollector({
-      mallAccounts: [icecream],
-      addGeneratedFile,
-      setPreviewId: vi.fn(),
-    });
-
-    await expect(collector(icecream, {
-      ...RUN,
-      date: '2026-09-10',
-      serverOwned: true,
-      selectionMode: 'automatic',
-      seenRowKeys: ['order-1\u001fdelivery-1\u001f1'],
-    })).resolves.toEqual({
-      rowCount: 1,
-      masked: false,
-      date: '2026-09-10',
-    });
-
-    expect(mocks.saveIcecreamIndex).toHaveBeenCalledWith(
-      ['주문번호', '배송번호', '배송순번'],
-      [['order-1', 'delivery-1', '1'], ['order-2', 'delivery-2', '1']],
-    );
-    expect(mocks.addSeenOrderKeys).toHaveBeenCalledWith(
-      'icecream-mall',
-      ['order-2\u001fdelivery-2\u001f1'],
-    );
-    expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({
-      mallKey: 'icecream-mall',
-      collectedRows: 1,
-    }));
   });
 
   it('passes both IDs from the single art09 account to the login preflight', async () => {

@@ -15,6 +15,7 @@ import '../sites/1688';
 import '../sites/art09';
 import '../sites/coupang-search';
 import '../sites/domeggook';
+import '../sites/icecream-mall';
 import '../sites/kidkids';
 import '../sites/live-commerce';
 import '../sites/mall-orders';

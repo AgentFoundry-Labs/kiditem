@@ -24,6 +24,8 @@ export interface PageCallOptions {
   isolated?: readonly string[];
   /** 운영자에게 보이는 사이트 이름(오류 문장). */
   displayName: string;
+  /** 물을 프레임(없으면 맨 위 문서). 처리기 파일도 그 프레임에만 넣는다. */
+  frameId?: number;
 }
 
 export async function callPage<T>(page: TabPage, call: string, args: unknown, options: PageCallOptions): Promise<T> {
@@ -32,6 +34,7 @@ export async function callPage<T>(page: TabPage, call: string, args: unknown, op
     {
       timeoutMs: options.timeoutMs,
       guard: options.guard,
+      ...(options.frameId !== undefined ? { frameId: options.frameId } : {}),
       inject: {
         isolated: [PAGE_CALL_BRIDGE_FILE, ...(options.isolated ?? [])],
         // MAIN world 처리기가 있을 때만 러너를 넣는다(ISOLATED 처리기는 브리지가 바로 부른다).
