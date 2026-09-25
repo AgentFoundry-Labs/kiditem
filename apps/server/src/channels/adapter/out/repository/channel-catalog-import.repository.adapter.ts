@@ -194,4 +194,3 @@ function excelSection(observedAt: string, rawJson: Record<string, unknown>): Opt
     })),
   };
 }
-

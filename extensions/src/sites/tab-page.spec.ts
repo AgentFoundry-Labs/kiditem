@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
-import { createTabPages, type TabPageChrome } from './tab-page';
+import { createTabPages, type PageGuard, type TabPageChrome } from './tab-page';
 
-function fakeChrome(options: { sendMessage: (message: unknown, call: number) => Promise<unknown>; statuses?: string[] }) {
+function fakeChrome(options: { sendMessage: (message: unknown, call: number) => Promise<unknown>; statuses?: string[]; url?: string }) {
   const log: string[] = [];
   let sends = 0;
   let gets = 0;
@@ -12,7 +12,7 @@ function fakeChrome(options: { sendMessage: (message: unknown, call: number) => 
       get: async () => {
         const status = options.statuses?.[gets] ?? 'complete';
         gets += 1;
-        return { status, url: 'https://s.1688.com/x' };
+        return { status, url: options.url ?? 'https://s.1688.com/x' };
       },
       remove: async (tabId) => { log.push(`remove ${tabId}`); },
       sendMessage: async (_tabId, message) => { sends += 1; return options.sendMessage(message, sends); },
@@ -68,5 +68,39 @@ describe('chrome tab pages (KID-360)', () => {
     const page = await createTabPages(deps(chromeApi)).open('about:blank');
     await expect(page.navigate('https://s.1688.com/x', { timeoutMs: 60_000, continueOnTimeout: true }))
       .rejects.toMatchObject({ code: 'SITE_TAB_UNAVAILABLE', message: '수집 탭이 닫혔습니다.' });
+  });
+
+  describe('page guard: never inject into a host outside the site (KID-355 QA: 1688 → login.taobao.com)', () => {
+    const guard: PageGuard = {
+      allows: (url) => url.hostname.endsWith('.1688.com'),
+      isLogin: (url) => ['login.taobao.com', 'login.1688.com'].includes(url.hostname),
+      loginMessage: '1688 로그인이 필요합니다. 열려 있는 1688 탭에서 로그인한 뒤 다시 수집해 주세요.',
+    };
+    const missing = async () => { throw new Error('Could not establish connection. Receiving end does not exist.'); };
+
+    it('refuses a login redirect as SITE_LOGIN_REQUIRED without injecting or closing the tab', async () => {
+      const { chromeApi, log } = fakeChrome({ sendMessage: missing, url: 'https://login.taobao.com/?redirect_url=https%3A%2F%2Flogin.1688.com' });
+      const page = createTabPages(deps(chromeApi)).attach(4);
+      await expect(page.ask({ type: 'X' }, { timeoutMs: 1_000, inject: { isolated: ['a.js'] }, guard }))
+        .rejects.toMatchObject({ code: 'SITE_LOGIN_REQUIRED', message: guard.loginMessage });
+      expect(log).toEqual([]);
+    });
+
+    it('refuses an unknown host as SITE_REQUEST_FAILED unexpected_url', async () => {
+      const { chromeApi, log } = fakeChrome({ sendMessage: missing, url: 'https://www.example.com/x' });
+      await expect(createTabPages(deps(chromeApi)).attach(4).ask({ type: 'X' }, { timeoutMs: 1_000, inject: { isolated: ['a.js'] }, guard }))
+        .rejects.toMatchObject({ code: 'SITE_REQUEST_FAILED', details: { reason: 'unexpected_url', url: 'https://www.example.com/x' } });
+      expect(log).toEqual([]);
+    });
+
+    it('injects as before on the site host', async () => {
+      const { chromeApi, log } = fakeChrome({
+        sendMessage: async (_message, call) => { if (call === 1) return missing(); return { ok: true }; },
+        url: 'https://s.1688.com/selloffer/offer_search.htm',
+      });
+      await expect(createTabPages(deps(chromeApi)).attach(4).ask({ type: 'X' }, { timeoutMs: 1_000, inject: { isolated: ['a.js'] }, guard }))
+        .resolves.toEqual({ ok: true });
+      expect(log).toEqual(['inject ISOLATED a.js']);
+    });
   });
 });

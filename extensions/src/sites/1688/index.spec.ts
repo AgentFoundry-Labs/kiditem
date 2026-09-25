@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { SITE_REQUEST_FAILED } from '../../core/site-caller';
+import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller';
 import { fakeTabPages } from '../tab-page.fake';
 import { SITE_VERIFICATION_REQUIRED, build1688SearchUrl, create1688SearchSite, is1688VerificationUrl } from './index';
 
@@ -39,5 +39,25 @@ describe('1688 search site (KID-360)', () => {
   it('recognises the old verification URLs', () => {
     expect(is1688VerificationUrl('https://s.1688.com/selloffer/offer_search.htm?action=captcha')).toBe(true);
     expect(is1688VerificationUrl('https://s.1688.com/selloffer/offer_search.htm?keywords=a')).toBe(false);
+  });
+
+  it('stops on a login redirect after the slider (login.taobao.com) without injecting, and leaves the tab for the operator', async () => {
+    const fake = fakeTabPages({
+      answer: () => ({ ok: false, error: 'content_script_missing' }),
+      urlBeforeInject: 'https://login.taobao.com/?redirect_url=https%3A%2F%2Flogin.1688.com%2Fmember%2Fsignin.htm',
+    });
+    const site = create1688SearchSite(fake.tabs);
+    await expect(site.offers('笔袋')).rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED, message: '1688 로그인이 필요합니다. 열려 있는 1688 탭에서 로그인한 뒤 다시 수집해 주세요.' });
+    await site.close();
+    expect(fake.log.some((line) => line.startsWith('inject'))).toBe(false);
+    expect(fake.log).not.toContain('close 7');
+  });
+
+  it('refuses an unexpected host as a request failure and leaves the tab', async () => {
+    const fake = fakeTabPages({ landAt: () => 'https://www.taobao.com/', answer: () => ({ ok: true, items: [] }) });
+    const site = create1688SearchSite(fake.tabs);
+    await expect(site.offers('笔袋')).rejects.toMatchObject({ code: SITE_REQUEST_FAILED, details: { reason: 'unexpected_url', url: 'https://www.taobao.com/' } });
+    await site.close();
+    expect(fake.log).not.toContain('close 7');
   });
 });

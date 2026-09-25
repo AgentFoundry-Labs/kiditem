@@ -656,4 +656,3 @@ function liveCommerceTargetKey(source: '1688' | 'douyin', pageUrl: string): stri
   const url = new URL(pageUrl);
   return `room:${hashCollectionRequest({ source, room: `${url.origin}${url.pathname}` })}`;
 }
-

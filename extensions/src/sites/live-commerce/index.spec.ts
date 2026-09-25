@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller';
 import { fakeTabPages } from '../tab-page.fake';
 import { SITE_VERIFICATION_REQUIRED, createLiveCommerceSite, isLiveVerificationUrl } from './index';
 
@@ -21,5 +22,17 @@ describe('live-commerce site (KID-360)', () => {
     await expect(createLiveCommerceSite(fake.tabs).broadcast('https://live.douyin.com/1')).rejects.toMatchObject({ code: SITE_VERIFICATION_REQUIRED });
     expect(fake.log).not.toContain('close 7');
     expect(isLiveVerificationUrl('https://zb.1688.com/room?x=1')).toBe(false);
+  });
+
+  it('stops on a login host without injecting and leaves the tab; an unknown host is a request failure', async () => {
+    const login = fakeTabPages({ answer: () => ({ ok: false, error: 'content_script_missing' }), urlBeforeInject: 'https://login.taobao.com/?redirect_url=zb.1688.com' });
+    await expect(createLiveCommerceSite(login.tabs).broadcast('https://zb.1688.com/room/1')).rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED });
+    expect(login.log.some((line) => line.startsWith('inject'))).toBe(false);
+    expect(login.log).not.toContain('close 7');
+
+    const other = fakeTabPages({ landAt: () => 'https://www.example.com/', answer: () => ({}) });
+    await expect(createLiveCommerceSite(other.tabs).broadcast('https://live.douyin.com/1'))
+      .rejects.toMatchObject({ code: SITE_REQUEST_FAILED, details: { reason: 'unexpected_url' } });
+    expect(other.log).not.toContain('close 7');
   });
 });

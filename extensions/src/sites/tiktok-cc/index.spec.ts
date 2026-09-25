@@ -30,4 +30,13 @@ describe('TikTok Creative Center site (KID-360)', () => {
     await expect(createTiktokCcSite(fake.tabs).target(tiktokTargetFor('product'), null)).rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED });
     expect(sanitizeTiktokRegion('u-s')).toBe('US');
   });
+
+  it('stops on a passport login redirect without injecting, and leaves the tab', async () => {
+    const fake = fakeTabPages({ answer: () => ({ ok: false, error: 'content_script_missing' }), urlBeforeInject: 'https://passport.tiktok.com/login?next=x' });
+    const site = createTiktokCcSite(fake.tabs);
+    await expect(site.target(tiktokTargetFor('hashtag'), null)).rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED });
+    await site.close();
+    expect(fake.log.some((line) => line.startsWith('inject'))).toBe(false);
+    expect(fake.log).not.toContain('close 7');
+  });
 });
