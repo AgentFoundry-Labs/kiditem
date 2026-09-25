@@ -318,4 +318,40 @@ describe('operation contract — server-driven kinds (prepare · claim · retry 
       await holder;
     }
   });
+
+  it('14. claim racing cancel ends cancelled with no lock left; a claimer that won is fenced off afterwards', async () => {
+    for (let round = 0; round < 8; round += 1) {
+      await resetDb(prisma);
+      await seedBaseFixture(prisma);
+      const { operation } = await prepare();
+      const [claimed, cancelled] = await Promise.all([claim(), operations.cancel(ORG, operation.id)]);
+      expect(cancelled.operation).toMatchObject({ status: 'cancelled', lockKeys: [] });
+      await expect(prisma.operationLock.count()).resolves.toBe(0);
+      if (claimed) {
+        await expect(heartbeat(operation.id, claimed.token)).rejects.toMatchObject({
+          code: 'OPERATION_FENCE_LOST',
+          details: { reason: 'terminal' },
+        });
+      }
+    }
+  });
+
+  it('15. a failed finish returning to prepared racing a claim never hands out two live tokens', async () => {
+    for (let round = 0; round < 8; round += 1) {
+      await resetDb(prisma);
+      await seedBaseFixture(prisma);
+      const { operation } = await prepare();
+      const first = (await claim())!;
+      const [retried, next] = await Promise.all([failAttempt(operation.id, first.token, 0), claim()]);
+      expect(retried.operation.status).toBe('prepared');
+      const row = await prisma.operation.findUniqueOrThrow({ where: { id: operation.id } });
+      if (next) {
+        expect(row).toMatchObject({ status: 'executing', attempts: 2, token: next.token });
+      } else {
+        expect(row).toMatchObject({ status: 'prepared', attempts: 1 });
+      }
+      await expect(heartbeat(operation.id, first.token)).rejects.toMatchObject({ code: 'OPERATION_NOT_FOUND' });
+      await expect(prisma.operationLock.count({ where: { operationId: operation.id } })).resolves.toBe(1);
+    }
+  });
 });
