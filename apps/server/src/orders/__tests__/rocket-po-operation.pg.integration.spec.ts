@@ -204,6 +204,33 @@ describe('orders.coupang_rocket_po owner over the operation contract + disposabl
     await expect(prisma.sourceImportRun.count({ where: { organizationId: ORG } })).resolves.toBe(0);
   });
 
+  it('옛 attempt 스냅샷(sourceImportRunId만, operationId 없음)은 더 새로워도 현재 수집이 되지 않는다', async () => {
+    async function seedLegacySnapshot(createdAt: Date) {
+      const run = await prisma.sourceImportRun.create({
+        data: { organizationId: ORG, sourceType: 'coupang_rocket_po', channelAccountId: ACCOUNT, status: 'completed' },
+      });
+      await prisma.rocketPoCatalogSnapshot.create({
+        data: {
+          organizationId: ORG, channelAccountId: ACCOUNT, sourceImportRunId: run.id, collectionRunId: run.id,
+          vendorId: 'V1', listPagesRead: 1, totalListPages: 1, detailPoCount: 1, createdAt,
+          lines: {
+            create: [{
+              poLineId: 'LEGACY-1', poNumber: '9001', vendorId: 'V1', productNo: 'LEGACY',
+              barcode: '8800000000009', productName: 'Legacy item', orderQty: 1, plannedDeliveryDate: new Date('2026-09-10'),
+            }],
+          },
+        },
+      });
+    }
+
+    await seedLegacySnapshot(new Date(Date.now() - 60_000));
+    expect(await listSaved()).toEqual([]);
+
+    const current = await publish([row('P1')]);
+    await seedLegacySnapshot(new Date(Date.now() + 60_000));
+    expect((await listSaved()).map((po) => [po.firstProductName, po.rocketPoOperationId])).toEqual([['P1 item', current]]);
+  });
+
   it('finish 응답은 발주서·줄 수를 result로 싣는다', async () => {
     const run = await beginRun();
     const done = await collect(run, [row('P1'), row('P2'), { ...row('P3'), poNumber: '1002', poLineId: '1002:P3:8801234567890:1' }]).expect(200);
