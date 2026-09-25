@@ -318,6 +318,7 @@ describe("data migration registry", () => {
       "v0.1.31:016_master_product_inventory_cutover",
       "v0.1.31:017_simplify_product_references",
       "v0.1.31:020_selling_catalog_cutover",
+      "v0.1.31:030_rename_sourcing_ingestion_run_ids_to_operation_ids",
     ]);
     expect(selectDataMigrationsForPhase(dataMigrations, "post-schema")).toEqual(
       dataMigrations.filter((migration) => migration.phase !== "pre-schema"),
@@ -364,6 +365,7 @@ describe("data migration registry", () => {
       "v0.1.31:016_master_product_inventory_cutover",
       "v0.1.31:017_simplify_product_references",
       "v0.1.31:020_selling_catalog_cutover",
+      "v0.1.31:030_rename_sourcing_ingestion_run_ids_to_operation_ids",
     ]);
 
     const absolutePostSchema = selectDataMigrationsForRelease(
