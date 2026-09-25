@@ -2,6 +2,7 @@ import { RuntimeError } from '../../core/errors';
 import { SITE_REQUEST_FAILED } from '../../core/site-caller';
 import type { SiteDefinition } from '../site';
 import { hostWithin, leftForOperator, waitForOperator, type AttentionListener, type InjectFiles, type PageGuard, type TabPage, type TabPages } from '../tab-page';
+import { registerSite } from '../registry';
 
 const SEARCH_ORIGIN = 'https://s.1688.com';
 const NAVIGATION_TIMEOUT_MS = 30_000;
@@ -124,3 +125,5 @@ function verification(url: string, keyword: string, keep: () => void): RuntimeEr
   keep();
   return new RuntimeError(SITE_VERIFICATION_REQUIRED, '1688이 슬라이더 검증을 요구합니다. 열려 있는 1688 탭에서 검증한 뒤 다시 수집해 주세요.', { url, keyword });
 }
+
+registerSite({ name: ALIBABA_1688_SITE.name, create: (deps) => create1688SearchSite(deps.tabs) });

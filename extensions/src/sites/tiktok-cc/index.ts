@@ -2,6 +2,7 @@ import { RuntimeError } from '../../core/errors';
 import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller';
 import type { SiteDefinition } from '../site';
 import { hostWithin, leftForOperator, waitForOperator, type AttentionListener, type InjectFiles, type PageGuard, type TabPage, type TabPages } from '../tab-page';
+import { registerSite } from '../registry';
 
 const NAVIGATION_TIMEOUT_MS = 35_000;
 const EXTRACTION_TIMEOUT_MS = 25_000;
@@ -136,3 +137,5 @@ export function createTiktokCcSite(tabs: TabPages) {
 }
 
 export type TiktokCcSite = ReturnType<typeof createTiktokCcSite>;
+
+registerSite({ name: TIKTOK_CC_SITE.name, create: (deps) => createTiktokCcSite(deps.tabs) });

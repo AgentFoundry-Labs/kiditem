@@ -34,7 +34,7 @@ export const SOURCING_COLLECTION_INCOMPLETE = 'SOURCING_COLLECTION_INCOMPLETE' a
  */
 export const sourcingWingCatalogCollector: Collector<WingCatalogPlan, Record<string, unknown>, WingCatalogSearchSite> = {
   kind: SOURCING_OPERATION_KINDS.wingCatalog,
-  site: 'wing',
+  site: 'wing-search',
   async *collect(plan, site, { signal }) {
     for (const [index, keyword] of plan.keywords.entries()) {
       if (signal.aborted) return;

@@ -40,7 +40,7 @@ async function collectAll(plan: Record<string, unknown>, site: WingReviewsSite, 
 describe('collectors/orders.coupang_reviews — Wing 상품평 월 창 수집', () => {
   it('kind 이름으로 등록되고 wing 사이트를 쓴다', () => {
     expect(collectorFor('orders.coupang_reviews')).toBe(coupangReviewsCollector);
-    expect(coupangReviewsCollector.site).toBe('wing');
+    expect(coupangReviewsCollector.site).toBe('wing-reviews');
   });
 
   it('plan 창 순서대로 쪽을 넘기며 200개씩 reviews 청크(항목마다 windowIndex)를 내고, 창이 끝나면 review_windows 표식과 progress를 낸다', async () => {

@@ -24,3 +24,30 @@ describe('sites/registry — 사이트가 자기 이름으로 등록하고 입�
     expect(names).toEqual(['spec-a', 'spec-z']);
   });
 });
+
+describe('사이트 모듈은 import되면 스스로 등록한다', () => {
+  it('등록 이름과, account 잠금이 탭을 여는 origin(윙 두 곳만)', async () => {
+    await Promise.all([
+      import('./wing'),
+      import('./wing/reviews'),
+      import('./wing/pre-matching-search'),
+      import('./coupang-search'),
+      import('./1688'),
+      import('./live-commerce'),
+      import('./tiktok-cc'),
+      import('./product-page'),
+    ]);
+    const real = registeredSites().filter((site) => !site.name.startsWith('spec-'));
+
+    expect(real.map((site) => [site.name, site.origin ?? null])).toEqual([
+      ['ali1688', null],
+      ['coupang-search', null],
+      ['live-commerce', null],
+      ['product-page', null],
+      ['tiktok', null],
+      ['wing', 'https://wing.coupang.com'],
+      ['wing-reviews', 'https://wing.coupang.com'],
+      ['wing-search', null],
+    ]);
+  });
+});

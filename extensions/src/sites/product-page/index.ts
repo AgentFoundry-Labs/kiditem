@@ -3,6 +3,7 @@ import { SITE_REQUEST_FAILED } from '../../core/site-caller';
 import type { SiteDefinition } from '../site';
 import type { InjectFiles, TabPages } from '../tab-page';
 import { allowedSupplierUrl, parseDescriptionHtml } from './description';
+import { registerSite } from '../registry';
 
 /** 추출 전체 상한(옛 수집기와 같은 20초 — 수집 경로를 옮기면서 시간 규칙은 바꾸지 않는다). */
 const EXTRACTION_TIMEOUT_MS = 20_000;
@@ -108,3 +109,21 @@ function withSourceUrl(product: Record<string, unknown>, sourceUrl: string): Pro
 function isRecord(value: unknown): value is Record<string, unknown> {
   return value !== null && typeof value === 'object' && !Array.isArray(value);
 }
+
+export const PRODUCT_TAB_REQUIRED = 'PRODUCT_TAB_REQUIRED' as const;
+
+/**
+ * 상품 확장은 운영자 탭이 있어야 한다. 팝업 입구(`entry/sourcing-product-collect`)만 탭을 임대로 묶어 부른다 —
+ * 탭 없이 오면(웹에서 시작 등) 수집하지 않고 멈춘다.
+ */
+registerSite({
+  name: PRODUCT_PAGE_SITE.name,
+  create: (deps, lease) =>
+    lease.tabId !== null
+      ? createProductPageSite(deps.tabs, lease.tabId, { randomId: deps.randomId })
+      : {
+          extract: async () => {
+            throw new RuntimeError(PRODUCT_TAB_REQUIRED, '상품 수집은 확장 팝업의 [현재 상품 수집]에서 시작해 주세요.');
+          },
+        },
+});
