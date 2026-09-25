@@ -775,7 +775,7 @@
       "owner": "sourcing",
       "kind": "not_found",
       "httpStatus": 404,
-      "text": "Wing 검색에 쓸 쿠팡 계정을 찾을 수 없습니다. 쇼핑몰 계정 설정을 확인해 주세요.",
+      "text": "윙 검색에 쓸 쿠팡 계정을 찾을 수 없습니다. 쇼핑몰 계정 설정을 확인해 주세요.",
       "retryable": false
     },
     "CONTENT_GENERATION_FAILED": {
