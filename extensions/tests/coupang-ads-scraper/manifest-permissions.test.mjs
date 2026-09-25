@@ -1,4 +1,5 @@
 import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
 import { readFile } from "node:fs/promises";
 import { test } from "node:test";
 import { MERGED_EXTENSION_VERSION } from '../helpers/domain-worker-modules.mjs';
@@ -65,4 +66,23 @@ test("web bridge reaches local and Office KidItem origins", async () => {
     hostBridge.matches.includes("http://kiditem-office/*"),
     "host-bridge must inject on the office server",
   );
+});
+
+/**
+ * 매니페스트 `key` 가 확장 ID 를 고정한다(KID-356). 머지 충돌 등으로 `key` 가 빠지거나
+ * 바뀌면 모든 운영자의 확장 ID 가 다시 바뀌어 저장된 인증이 사라진다. Chrome 과 같은
+ * 방식(공개키 DER 의 SHA-256 앞 32 hex 를 a–p 로)으로 ID 를 계산해 고정값과 대조한다.
+ */
+test("manifest key pins the KIDITEM OS extension ID", async () => {
+  const manifest = JSON.parse(await readFile(manifestUrl, "utf8"));
+
+  assert.equal(typeof manifest.key, "string");
+  const digest = createHash("sha256")
+    .update(Buffer.from(manifest.key, "base64"))
+    .digest("hex")
+    .slice(0, 32);
+  const extensionId = [...digest]
+    .map((nibble) => String.fromCharCode(97 + parseInt(nibble, 16)))
+    .join("");
+  assert.equal(extensionId, "jdklckncgmllpabkofllidmoiglbcnpb");
 });
