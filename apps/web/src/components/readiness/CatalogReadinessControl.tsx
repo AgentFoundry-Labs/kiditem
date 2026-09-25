@@ -7,7 +7,7 @@ import {
   runningCatalogOperation,
   wingCatalogOperationsQueryOptions,
 } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/wing-catalog-collection';
-import { describeWingCatalogOperation } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/wing-catalog-progress';
+import { describeAccountCatalog } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/wing-catalog-progress';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import type { CollectionControlView } from '@/hooks/use-collection-source-control';
 import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
@@ -85,8 +85,8 @@ export function CatalogReadinessStatus({ catalog }: { catalog: CatalogReadinessS
     enabled: Boolean(catalog.accountId),
   });
   const accountOperations = catalog.accountId ? accountCatalogOperations(operations.data, catalog.accountId) : [];
-  const current = runningCatalogOperation(accountOperations) ?? accountOperations[0] ?? null;
-  const view = current ? describeWingCatalogOperation(current) : null;
+  // 읽을 때마다(dataUpdatedAt) 다시 그려 상세를 기다리던 목록이 제시간을 넘기면 실패로 바뀐다.
+  const view = describeAccountCatalog(accountOperations, Math.max(Date.now(), operations.dataUpdatedAt));
 
   return (
     <div className="mt-3 rounded-lg border border-[var(--border-subtle)] bg-[var(--surface-sunken)] px-3 py-2.5">

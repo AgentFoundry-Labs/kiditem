@@ -129,3 +129,47 @@ function ratio(done: number | null, total: number | null): number | null {
   if (total === 0) return 100;
   return Math.min(100, Math.round((done / total) * 100));
 }
+
+/** 목록이 상세를 넘긴 뒤 상세 실행이 나타나기를 기다리는 시간. 확장은 목록 finish 직후 곧바로 begin한다. */
+export const CHAINED_DETAILS_GRACE_MS = 60_000;
+
+/**
+ * 계정의 최신 실행이 상세를 넘긴(`result.next`) 목록이고 그 뒤 상세 실행이 아직 없으면 기다리는 중이다(KID-354).
+ * 목록 finish와 상세 begin 사이에도 화면이 계속 읽도록 폴링 조건에 쓴다. `operations`는 최신 것부터.
+ */
+export function awaitingChainedDetails(operations: readonly OperationView[], nowMs: number): boolean {
+  const pending = chainedListWithoutDetails(operations);
+  return pending !== null && nowMs - finishedMs(pending) < CHAINED_DETAILS_GRACE_MS;
+}
+
+/**
+ * 계정의 카탈로그 상태 한 줄: 도는 실행이 있으면 그것, 없으면 최신 실행. 목록이 넘긴 상세가 제시간에 시작되지 않았으면
+ * (확장이 상세 begin을 거절당했거나 멈췄다) 상세 시작 실패로 끝낸다.
+ */
+export function describeAccountCatalog(operations: readonly OperationView[], nowMs: number): WingCatalogOperationView | null {
+  const running = operations.find((operation) => operation.status === 'executing' || operation.status === 'prepared');
+  if (running) return describeWingCatalogOperation(running);
+  const latest = operations[0];
+  if (!latest) return null;
+  const pending = chainedListWithoutDetails(operations);
+  if (pending && nowMs - finishedMs(pending) >= CHAINED_DETAILS_GRACE_MS) {
+    return {
+      phase: '상세 시작 실패',
+      detail: '목록은 반영했지만 상세 받기가 시작되지 않았습니다. 다시 받기로 다시 시작해 주세요.',
+      percent: null,
+      tone: 'failed',
+    };
+  }
+  return describeWingCatalogOperation(latest);
+}
+
+function chainedListWithoutDetails(operations: readonly OperationView[]): OperationView | null {
+  const latest = operations[0];
+  if (!latest || latest.kind !== WING_CATALOG_LIST_KIND || latest.status !== 'succeeded') return null;
+  const next = latest.result?.next;
+  return next !== null && next !== undefined ? latest : null;
+}
+
+function finishedMs(operation: OperationView): number {
+  return operation.finishedAt ? new Date(operation.finishedAt).getTime() : 0;
+}

@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { OperationView } from '@kiditem/shared/operation';
-import { describeWingCatalogOperation } from './wing-catalog-progress';
+import { describeAccountCatalog, describeWingCatalogOperation, awaitingChainedDetails } from './wing-catalog-progress';
 
 function operation(overrides: Partial<OperationView> & Pick<OperationView, 'kind'>): OperationView {
   return {
@@ -85,5 +85,29 @@ describe('describeWingCatalogOperation — Wing 카탈로그 실행 하나의 �
     }))).toMatchObject({ detail: '쿠팡 윙 로그인이 필요합니다.' });
     expect(describeWingCatalogOperation(operation({ kind: 'channels.wing_catalog_details', status: 'cancelled', errorCode: 'OPERATION_CANCELLED' })))
       .toMatchObject({ phase: '수집 중단됨', tone: 'stopped' });
+  });
+
+  it('목록이 상세를 넘긴 뒤 상세가 곧 나타나지 않으면(60초) 상세 시작 실패로 끝낸다 — 그 사이는 기다림으로 본다', () => {
+    const list = operation({
+      id: '7a111111-1111-4111-8111-111111111111',
+      kind: 'channels.wing_catalog_list',
+      status: 'succeeded',
+      finishedAt: '2026-09-25T00:00:00.000Z',
+      result: { listedProductCount: 3, detailTargetProductIds: ['a'], absentProductIds: [], next: { kind: 'channels.wing_catalog_details', scope: {} } },
+    });
+    const at = (seconds: number) => Date.parse('2026-09-25T00:00:00.000Z') + seconds * 1000;
+    expect(awaitingChainedDetails([list], at(10))).toBe(true);
+    expect(describeAccountCatalog([list], at(10))).toMatchObject({ tone: 'running' });
+    expect(awaitingChainedDetails([list], at(61))).toBe(false);
+    expect(describeAccountCatalog([list], at(61))).toEqual({
+      phase: '상세 시작 실패',
+      detail: '목록은 반영했지만 상세 받기가 시작되지 않았습니다. 다시 받기로 다시 시작해 주세요.',
+      percent: null,
+      tone: 'failed',
+    });
+    const details = operation({ id: '7a222222-2222-4222-8222-222222222222', kind: 'channels.wing_catalog_details', startedAt: '2026-09-25T00:00:02.000Z' });
+    expect(awaitingChainedDetails([details, list], at(120))).toBe(false);
+    expect(describeAccountCatalog([details, list], at(120))).toMatchObject({ phase: '바뀐 상품 상세 받는 중' });
+    expect(describeAccountCatalog([], at(0))).toBeNull();
   });
 });

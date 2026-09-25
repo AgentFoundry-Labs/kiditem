@@ -21,6 +21,7 @@ import { isApiError } from '@/lib/api-error';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { requestOperationCancel, requestOperationStart, type OperationStartOutcome } from '@/lib/operation-start';
 import { queryKeys } from '@/lib/query-keys';
+import { awaitingChainedDetails } from './wing-catalog-progress';
 
 const RUNNING_POLL_MS = 2_000;
 /** 한 화면이 보는 최근 실행 수. 계정 하나의 동기화는 목록 → 상세 둘이다. */
@@ -55,8 +56,16 @@ export function wingCatalogOperationsQueryOptions() {
   return collectionSourceStatusQueryOptions<OperationListResponse, Error, OperationListResponse, QueryKey>({
     queryKey: queryKeys.wingCatalogOperations.recent(),
     queryFn: async () => OperationListResponseSchema.parse(await apiClient.get(OPERATIONS_PATH)),
-    refetchInterval: (query) =>
-      query.state.data?.operations.some(live) ? RUNNING_POLL_MS : false,
+    // 도는 실행이 있거나, 목록이 넘긴 상세가 아직 시작되지 않은 계정이 있으면(목록 finish ↔ 상세 begin 사이) 읽는다.
+    refetchInterval: (query) => {
+      const operations = query.state.data?.operations ?? [];
+      if (operations.some(live)) return RUNNING_POLL_MS;
+      const accounts = new Set(operations.map((operation) => operation.plan?.channelAccountId).filter((id): id is string => typeof id === 'string'));
+      const now = Date.now();
+      return [...accounts].some((accountId) => awaitingChainedDetails(accountCatalogOperations(query.state.data, accountId), now))
+        ? RUNNING_POLL_MS
+        : false;
+    },
     meta: { suppressGlobalErrorToast: true },
   });
 }
