@@ -20,6 +20,7 @@ import {
 import {
   icecreamContinuation,
   mallOrdersCapture,
+  mallOrdersCoverage,
   mallOrdersScope,
   readMallOrdersPlan,
   type IcecreamContinuation,
@@ -68,7 +69,12 @@ export class MallOrdersOperationService {
       ...(parsed.selectionMode ? { selectionMode: parsed.selectionMode } : {}),
       ...(parsed.seenRowKeys ? { seenRowKeys: [...parsed.seenRowKeys] } : {}),
     };
-    return { lockKeys: [accountLockKey(parsed.channelAccountId)], plan };
+    // 수집일이 있으면 그날이 이 실행의 업무일 창이다 — 주문 사실 리더가 몰 적용 범위를 창으로 찾는다.
+    return {
+      lockKeys: [accountLockKey(parsed.channelAccountId)],
+      plan,
+      ...(parsed.collectionDate ? { window: { start: parsed.collectionDate, end: parsed.collectionDate } } : {}),
+    };
   }
 
   async finalize(
@@ -85,7 +91,8 @@ export class MallOrdersOperationService {
     });
     const conversion = capture.captured === 0 ? null : await this.convert(plan, capture.source);
     const rowCount = conversion ? orderCollectionOrderCount(conversion) ?? 0 : 0;
-    return MallOrdersResultSchema.parse({ rowCount, mallKey: plan.mallKey, captured: capture.captured });
+    const coverage = mallOrdersCoverage(plan);
+    return MallOrdersResultSchema.parse({ rowCount, mallKey: plan.mallKey, captured: capture.captured, ...(coverage ? { coverage } : {}) });
   }
 
   /**

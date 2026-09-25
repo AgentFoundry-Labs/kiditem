@@ -182,6 +182,18 @@ const MALL_CAPTURE_RULES: Partial<Record<MallOrderOperationMall, MallCaptureRule
   'icecream-mall': icecreamRule,
 };
 
+/**
+ * 기간 확인을 내는 몰(옛 확장 `COVERAGE_CAPABLE_MALLS` 규칙 그대로): 수집일로 걷은 성공 수집은 그날 주문을 빠짐없이
+ * 봤다는 확인이다(주문이 없던 날도).
+ */
+const COVERAGE_CAPABLE_MALLS: ReadonlySet<string> = new Set(['haebub-mall', 'domeggook']);
+
+export function mallOrdersCoverage(plan: Pick<MallOrdersPlan, 'mallKey' | 'collectionDate'>): { startDate: string; endDate: string } | null {
+  return plan.collectionDate && COVERAGE_CAPABLE_MALLS.has(plan.mallKey)
+    ? { startDate: plan.collectionDate, endDate: plan.collectionDate }
+    : null;
+}
+
 export function mallCaptureReady(mallKey: MallOrderOperationMall): boolean {
   return MALL_CAPTURE_RULES[mallKey] !== undefined;
 }

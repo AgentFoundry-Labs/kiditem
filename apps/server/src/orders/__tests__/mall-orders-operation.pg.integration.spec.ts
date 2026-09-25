@@ -38,6 +38,7 @@ import { ORDER_OPERATION_CAPTURE_PORT } from '../application/port/in/order-opera
 import { ORDER_MALL_ACCOUNT_PORT } from '../application/port/out/persistence/order-mall-account.port';
 import { MallOrdersOperationService } from '../application/service/mall-orders-operation.service';
 import { OrderCollectionService } from '../application/service/order-collection.service';
+import { readOrderWindowFacts } from '../adapter/out/persistence/read/order-facts.reader';
 
 // 확장 수집기(orders.mall_orders)가 밟는 길을 서버에서 그대로: begin → order_rows 청크 → finish. 보관 캡처와
 // 주문 수(result.rowCount)는 finish 트랜잭션에서만 쓰인다(ADR-0025). 변환은 실제 변환기, DB는 실제 PostgreSQL.
@@ -73,6 +74,7 @@ class DirectshipStandInOwner implements OperationOwnerPort {
 describe('orders.mall_orders owner + today-orders capability over the operation contract + disposable PG', () => {
   let prisma: PrismaClient;
   let harness: Awaited<ReturnType<typeof ordersOperationsApp>>;
+  let accountFacts: ChannelAccountService;
   let kidkidsAccount: string;
   let art09Account: string;
   let domeggookAccount: string;
@@ -86,6 +88,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
       new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
       new ChannelCredentialsAdapter(),
     );
+    accountFacts = channelAccounts;
     harness = await ordersOperationsApp(prisma, {
       owners: [MallOrdersOperationOwner, DirectshipStandInOwner],
       controllers: [OrderCollectionController, OrderCollectionSourceController],
@@ -269,7 +272,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
       { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [{ fileName: 'ORDER_ALL.csv', part: 0, parts: 2, base64: csv.slice(0, 20) }] },
     ]);
     const finished = await harness.finish(run).expect(200);
-    expect(finished.body.operation.result).toEqual({ rowCount: 2, mallKey: 'domeggook', captured: 1 });
+    expect(finished.body.operation.result).toEqual({ rowCount: 2, mallKey: 'domeggook', captured: 1, coverage: { startDate: TODAY, endDate: TODAY } });
     const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
     expect(artifact).toMatchObject({ sourceFileName: 'ORDER_ALL.csv', sourceContentType: 'text/csv' });
     expect(Buffer.from(artifact.sourceBytes).toString('utf8')).toBe('orderNo,qty\r\nD-1,1\r\nD-2,2\r\n');
@@ -277,7 +280,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     expect(converted.headers['x-order-collection-output-rows']).toBe('2');
 
     const empty = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: domeggookAccount, mallKey: 'domeggook' }));
-    expect((await harness.finish(empty).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: 'domeggook', captured: 0 });
+    expect((await harness.finish(empty).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: 'domeggook', captured: 0, coverage: { startDate: TODAY, endDate: TODAY } });
 
     const missingPart = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: domeggookAccount, mallKey: 'domeggook' }));
     await harness.put(missingPart, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [{ fileName: 'ORDER_ALL.csv', part: 1, parts: 2, base64: csv }] }]);
@@ -345,6 +348,30 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     await harness.finish(kidkids).expect(200);
     expect((await read(kidkids.operation.id).expect(400)).body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'continuation_unsupported' } });
     expect((await read(kidkids.operation.id, OTHER_ORG).expect(404)).body).toMatchObject({ code: 'OPERATION_NOT_FOUND' });
+  });
+
+  it('도매꾹 확인 범위: 수집일이 있는 성공 실행(빈 날 포함)은 주문 사실 리더의 몰 적용 범위가 된다 — 실패·다른 몰은 아니다', async () => {
+    const day = '2026-09-20';
+    const empty = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: domeggookAccount, mallKey: 'domeggook', collectionDate: day }));
+    await harness.finish(empty).expect(200);
+    const failed = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: domeggookAccount, mallKey: 'domeggook', collectionDate: '2026-09-21' }));
+    await harness.finish(failed, { outcome: 'failed', errorCode: 'SITE_LOGIN_REQUIRED' }).expect(200);
+    const kidkids = await harness.beginRun(MALL_ORDERS_KIND, scope({ collectionDate: '2026-09-21' }));
+    await harness.finish(kidkids).expect(200);
+
+    const facts = await prisma.$transaction((tx) => readOrderWindowFacts(tx, {
+      organizationId: ORG,
+      from: new Date('2026-09-19T15:00:00.000Z'),
+      to: new Date('2026-09-21T15:00:00.000Z'),
+    }, accountFacts));
+    expect(facts.sourceCoverage).toEqual([expect.objectContaining({
+      sourceType: 'order_collection_mall',
+      channelAccountId: domeggookAccount,
+      mallKey: 'domeggook',
+      includedDates: [day],
+      missingDates: ['2026-09-21'],
+    })]);
+    expect(facts.includedDates).toEqual([day]);
   });
 
   it('오늘 주문 capability는 실행 표(몰 주문·directship의 최신 성공 rowCount)와 옛 run(2차 몰·옛 directship)을 한 수로 센다', async () => {

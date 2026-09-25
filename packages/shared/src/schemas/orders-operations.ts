@@ -251,5 +251,10 @@ export type OrdersCaptureResult = z.infer<typeof OrdersCaptureResultSchema>;
 export const MallOrdersResultSchema = OrdersCaptureResultSchema.extend({
   mallKey: z.string().min(1).max(64),
   captured: z.number().int().nonnegative(),
+  /**
+   * 몰이 그 기간의 주문을 빠짐없이 보여 줬다는 확인(확인 범위를 내는 몰 — 도매꾹·해법몰 — 이 수집일로 걷은 성공 실행,
+   * 빈 날 포함). 주문 사실 리더가 몰 적용 범위로 읽는다(옛 run의 coverageStartDate/EndDate 자리).
+   */
+  coverage: z.object({ startDate: isoDay, endDate: isoDay }).strict().optional(),
 });
 export type MallOrdersResult = z.infer<typeof MallOrdersResultSchema>;
