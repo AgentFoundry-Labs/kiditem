@@ -12,6 +12,7 @@ import { ReviewsController } from './adapter/in/web/reviews.controller';
 import { ReviewsService } from './application/service/reviews.service';
 import { ReviewIngestService } from './application/service/review-ingest.service';
 import { OrderCollectionController } from './adapter/in/web/order-collection.controller';
+import { CoupangDirectshipController } from './adapter/in/web/coupang-directship.controller';
 import { OrderCollectionService } from './application/service/order-collection.service';
 import { CoupangDirectshipService } from './coupang-directship/coupang-directship.service';
 import { CoupangDirectPoSnapshotService } from './application/service/coupang-direct-po-snapshot.service';
@@ -39,6 +40,7 @@ import { CoupangReviewsOperationOwner } from './adapter/in/operation/coupang-rev
   controllers: [
     OrdersController,
     OrderCollectionController,
+    CoupangDirectshipController,
     OrderCollectionSourceController,
     SellpiaShipmentTrackingSourceController,
     ReviewsController,
