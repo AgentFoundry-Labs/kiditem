@@ -257,6 +257,17 @@ describe('LiveCommerceSection direct source-owner migration', () => {
     expect(mocks.startOperation).not.toHaveBeenCalled();
   });
 
+  it('shows the extension refusal of a valid room URL on the control that sent the start', async () => {
+    mocks.startOperation.mockResolvedValue({ outcome: 'refused', message: '이 방송을 이미 수집하고 있습니다.' });
+    renderSection();
+    await screen.findByRole('button', { name: '방송 수집' });
+    fireEvent.change(screen.getByPlaceholderText(/https:\/\/live\.douyin\.com/), { target: { value: ROOM } });
+    fireEvent.click(screen.getByRole('button', { name: '방송 수집' }));
+
+    expect(await screen.findByText('이 방송을 이미 수집하고 있습니다.')).toBeInTheDocument();
+    expect(mocks.startOperation).toHaveBeenCalledWith('sourcing.live_commerce', { platform: 'douyin', url: ROOM });
+  });
+
   it("shows the submitted room's running collection with a stop that ends it through the operation cancel, then shows it stopped", async () => {
     const operationId = '00000000-0000-4000-8000-000000000780';
     mocks.listOperations.mockResolvedValue({ operations: [liveOperation(operationId, 'executing')] });

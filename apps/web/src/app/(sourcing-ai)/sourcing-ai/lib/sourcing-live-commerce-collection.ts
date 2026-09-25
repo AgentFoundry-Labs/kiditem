@@ -42,10 +42,10 @@ export function liveCommerceOperationMatch(url: string | null): (operation: Oper
  * (plan.pageUrl)의 것만 본다. 방송 CTA가 URL로 시작하고, 끝나면 라이브 방송·상품·키워드 읽기를 다시 읽는다.
  */
 export function sourcingLiveCommerceBrowserCollection(url: string | null) {
-  const pageUrl = normalizedOrNull(url);
   return sourcingOperationCollection<string>({
     kind: SOURCING_OPERATION_KINDS.liveCommerce,
-    sourceKey: `${SOURCING_OPERATION_KINDS.liveCommerce}:${pageUrl ?? ''}`,
+    // 컨트롤 키는 kind 하나다 — 방송 URL이 바뀌어도 방금 보낸 시작의 결과·거절을 같은 컨트롤이 본다. 방송 구분은 match가 한다.
+    sourceKey: SOURCING_OPERATION_KINDS.liveCommerce,
     label: '라이브 방송 수집',
     match: liveCommerceOperationMatch(url),
     scope: (input) => liveCommerceScope(input),
