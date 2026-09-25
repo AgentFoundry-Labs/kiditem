@@ -3850,6 +3850,8 @@ test('도메인 고유 액션은 소유 워커만 받고 retired sourcing bridge
     'collectCoupangShipmentDateSummary',
     // 쿠팡 로켓 PO 수집은 실행 kind orders.coupang_rocket_po다(KID-359).
     'collectRocketPoRows',
+    // 쿠팡 직배송 발주 수집은 실행 kind orders.coupang_directship다(KID-359).
+    'collectCoupangDirectOrders',
     'collectSourcing1688Trends',
     'collectSourcingTiktokCcTrends',
     'collectSourcingLiveCommerce',
