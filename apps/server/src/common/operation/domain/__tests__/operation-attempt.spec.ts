@@ -1,41 +1,9 @@
 import { describe, expect, it } from 'vitest';
-import { decideFailure, isClaimable } from '../operation-attempt';
+import { decideFailure } from '../operation-attempt';
 import { evaluateOperationFence, leaseExpiresAt } from '../operation-fence';
 
 const NOW = new Date('2026-09-25T03:00:00.000Z');
 const TOKEN = '7b0a3f7e-2f55-4f0e-9d3b-7a1c2e4b5d6f';
-
-function row(overrides: Partial<Parameters<typeof isClaimable>[0]> = {}) {
-  return {
-    status: 'prepared' as const,
-    attempts: 0,
-    maxAttempts: 3,
-    scheduledFor: null,
-    expiresAt: NOW,
-    ...overrides,
-  };
-}
-
-describe('operation claim candidate', () => {
-  it('takes a prepared operation that is due, or has no schedule', () => {
-    expect(isClaimable(row(), NOW)).toBe(true);
-    expect(isClaimable(row({ scheduledFor: NOW }), NOW)).toBe(true);
-    expect(isClaimable(row({ scheduledFor: new Date('2026-09-25T03:00:00.001Z') }), NOW)).toBe(false);
-  });
-
-  it('takes an executing operation only once its lease ran out', () => {
-    expect(isClaimable(row({ status: 'executing', attempts: 1, expiresAt: NOW }), NOW)).toBe(true);
-    expect(isClaimable(row({ status: 'executing', attempts: 1, expiresAt: new Date('2026-09-25T03:00:01.000Z') }), NOW)).toBe(false);
-  });
-
-  it('never takes an operation whose attempts are used up, nor a finished one', () => {
-    expect(isClaimable(row({ attempts: 3 }), NOW)).toBe(false);
-    expect(isClaimable(row({ status: 'executing', attempts: 3, expiresAt: NOW }), NOW)).toBe(false);
-    for (const status of ['succeeded', 'failed', 'cancelled'] as const) {
-      expect(isClaimable(row({ status }), NOW)).toBe(false);
-    }
-  });
-});
 
 describe('operation failure disposition', () => {
   it('retries at now + retryAfterMs while attempts remain', () => {

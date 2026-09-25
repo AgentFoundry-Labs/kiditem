@@ -30,7 +30,8 @@ import type {
   OperationOwnerPort,
 } from '../application/port/out/owner/operation-owner.port';
 import { OPERATION_REPOSITORY } from '../application/port/out/repository/operation.repository.port';
-import { OperationOwner, OperationOwnerRegistry } from '../application/service/operation-owner.registry';
+import { OperationOwner } from '../application/port/out/owner/operation-owner.decorator';
+import { OperationOwnerRegistry } from '../application/service/operation-owner.registry';
 import { OperationService } from '../application/service/operation.service';
 
 interface FinalizeCall {

@@ -3,7 +3,8 @@ import { DiscoveryModule } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
 import { describe, expect, it } from 'vitest';
 import type { OperationOwnerPort } from '../application/port/out/owner/operation-owner.port';
-import { OperationOwner, OperationOwnerRegistry } from '../application/service/operation-owner.registry';
+import { OperationOwner } from '../application/port/out/owner/operation-owner.decorator';
+import { OperationOwnerRegistry } from '../application/service/operation-owner.registry';
 
 abstract class StubOwner implements OperationOwnerPort {
   abstract readonly kind: string;

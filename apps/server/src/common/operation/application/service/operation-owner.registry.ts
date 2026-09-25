@@ -4,8 +4,6 @@ import { OPERATION_LEASE_MS, OperationKindSchema } from '@kiditem/shared/operati
 import type { OperationOwnerPort } from '../port/out/owner/operation-owner.port';
 import { OPERATION_OWNER_METADATA } from '../port/out/owner/operation-owner.decorator';
 
-export { OperationOwner } from '../port/out/owner/operation-owner.decorator';
-
 /**
  * kind → owner 포트. 부팅(onModuleInit) 때 `@OperationOwner()` provider를 모아 한 번 만든다.
  * 같은 kind가 두 번이면 부팅을 멈춘다.
