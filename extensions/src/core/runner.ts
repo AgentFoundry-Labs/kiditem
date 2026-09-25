@@ -51,8 +51,8 @@ export const RUNTIME_UNKNOWN_KIND = 'RUNTIME_UNKNOWN_KIND' as const;
 export const RUNTIME_COLLECT_FAILED = 'RUNTIME_COLLECT_FAILED' as const;
 export const RUNTIME_CHUNK_TOO_LARGE = 'RUNTIME_CHUNK_TOO_LARGE' as const;
 /**
- * heartbeat가 쓰는 청크 칸. 빈 payload라 checksum이 늘 같아 첫 번째만 0항목 청크로 보관되고
- * 이후는 멱등 쓰기로 임대만 연장한다. 수집기는 이 chunkKind를 쓰지 않는다.
+ * heartbeat가 쓰는 청크 칸. payload가 비어 있어 서버가 보관하지 않고 임대 연장·progress 갱신만 한다
+ * (`extend_only`) — finalize는 이 쓰기를 보지 못한다. 수집기는 이 chunkKind를 쓰지 않는다.
  */
 export const HEARTBEAT_CHUNK_KIND = 'heartbeat' as const;
 /** 마지막 fenced 쓰기 뒤 이만큼 청크가 없으면 heartbeat. 임대(30분)의 1/3. */
@@ -229,8 +229,7 @@ function assertChunkFits(chunk: RunnableChunk, sentChunks: number): void {
   if (bytes > OPERATION_CHUNK_MAX_BYTES) {
     throw new RuntimeError(RUNTIME_CHUNK_TOO_LARGE, `청크 하나가 ${OPERATION_CHUNK_MAX_BYTES}바이트를 넘습니다.`, { chunkKind: chunk.chunkKind, bytes });
   }
-  // heartbeat 칸 하나를 남긴다.
-  if (sentChunks + 1 >= OPERATION_CHUNKS_MAX) {
+  if (sentChunks >= OPERATION_CHUNKS_MAX) {
     throw new RuntimeError(RUNTIME_CHUNK_TOO_LARGE, `청크가 ${OPERATION_CHUNKS_MAX}개를 넘습니다.`, { chunkKind: chunk.chunkKind, reason: 'too_many_chunks' });
   }
 }

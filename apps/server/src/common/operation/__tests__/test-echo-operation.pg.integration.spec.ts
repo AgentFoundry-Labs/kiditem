@@ -97,6 +97,45 @@ describe('test.echo owner over the operation contract + disposable PG', () => {
     ]);
   });
 
+  it('빈 payload(heartbeat)는 청크를 남기지 않고 임대만 연장한다 — 두 번 보내도 0장, finalize는 echo 2장만 본다', async () => {
+    const begun = OperationBeginResponseSchema.parse(
+      (await request(httpUrl).post('/api/operations').send({ kind: 'test.echo', scope: {} }).expect(201)).body,
+    );
+    const heartbeat = (progress: Record<string, unknown>) =>
+      request(httpUrl)
+        .put(`/api/operations/${begun.operation.id}/chunks/heartbeat/1`)
+        .set(OPERATION_TOKEN_HEADER, begun.token)
+        .send({ checksum: checksum([]), payload: [], progress })
+        .expect(200);
+    const putEcho = (sequence: number) => {
+      const payload = [1, 2, 3].map((n) => ({ i: (sequence - 1) * 3 + n }));
+      return request(httpUrl)
+        .put(`/api/operations/${begun.operation.id}/chunks/echo/${sequence}`)
+        .set(OPERATION_TOKEN_HEADER, begun.token)
+        .send({ checksum: checksum(payload), payload, progress: { done: sequence } })
+        .expect(200);
+    };
+
+    await prisma.operation.update({ where: { id: begun.operation.id }, data: { expiresAt: new Date(Date.now() + 5_000) } });
+    const first = await heartbeat({ done: 0 });
+    expect(first.body).toMatchObject({ chunkKind: 'heartbeat', sequence: 1, itemCount: 0 });
+    expect(new Date(first.body.expiresAt).getTime()).toBeGreaterThan(Date.now() + 60_000);
+    await heartbeat({ done: 0 });
+    expect(await prisma.operationChunk.count({ where: { operationId: begun.operation.id } })).toBe(0);
+
+    await putEcho(1);
+    await heartbeat({ done: 1 });
+    await putEcho(2);
+    expect(await prisma.operationChunk.count({ where: { operationId: begun.operation.id } })).toBe(2);
+
+    const finished = await request(httpUrl)
+      .post(`/api/operations/${begun.operation.id}/finish`)
+      .set(OPERATION_TOKEN_HEADER, begun.token)
+      .send({ outcome: 'succeeded' })
+      .expect(200);
+    expect(finished.body.operation).toMatchObject({ status: 'succeeded', result: { chunks: 2, items: 6 }, progress: { done: 2 } });
+  });
+
   it('org를 잡은 test.echo가 도는 동안 두 번째 begin은 OPERATION_IN_PROGRESS — details가 돌고 있는 실행을 이름한다', async () => {
     const first = OperationBeginResponseSchema.parse(
       (await request(httpUrl).post('/api/operations').send({ kind: 'test.echo', scope: {} }).expect(201)).body,

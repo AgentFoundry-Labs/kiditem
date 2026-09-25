@@ -4783,7 +4783,7 @@ var KidItemRuntime = (() => {
     if (bytes > OPERATION_CHUNK_MAX_BYTES) {
       throw new RuntimeError(RUNTIME_CHUNK_TOO_LARGE, `\uCCAD\uD06C \uD558\uB098\uAC00 ${OPERATION_CHUNK_MAX_BYTES}\uBC14\uC774\uD2B8\uB97C \uB118\uC2B5\uB2C8\uB2E4.`, { chunkKind: chunk.chunkKind, bytes });
     }
-    if (sentChunks + 1 >= OPERATION_CHUNKS_MAX) {
+    if (sentChunks >= OPERATION_CHUNKS_MAX) {
       throw new RuntimeError(RUNTIME_CHUNK_TOO_LARGE, `\uCCAD\uD06C\uAC00 ${OPERATION_CHUNKS_MAX}\uAC1C\uB97C \uB118\uC2B5\uB2C8\uB2E4.`, { chunkKind: chunk.chunkKind, reason: "too_many_chunks" });
     }
   }
