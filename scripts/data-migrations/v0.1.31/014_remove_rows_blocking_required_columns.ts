@@ -409,7 +409,9 @@ export const UNIQUE_KEYS_WITHOUT_CLEANUP: Readonly<Record<string, string>> = Obj
   sellpia_sales_daily_legacy_key: OFFICE_UNIQUE_SAME_COLUMNS,
   sellpia_product_monthly_sales_legacy_identity_key: OFFICE_UNIQUE_SAME_COLUMNS,
   shipment_date_summary_baseline_date_key: OFFICE_UNIQUE_SAME_COLUMNS,
-  reviews_org_platform_external_legacy_key: OFFICE_UNIQUE_SAME_COLUMNS,
+  reviews_org_platform_external_operation_key:
+    'Its predicate is operation_id IS NOT NULL, and operation_id arrives without a database '
+    + 'default, so no existing review row is in the index (KID-359).',
   content_workspaces_direct_title_unique:
     'Office 0.1.30 already holds the direct_detail_page workspace titles unique under the old '
     + 'source_candidate_id IS NULL predicate, and the new predicate names the same rows.',
