@@ -14,8 +14,8 @@ import { OPERATION_REPOSITORY } from '../common/operation/application/port/out/r
 import { OperationOwnerRegistry } from '../common/operation/application/service/operation-owner.registry';
 import { OperationService } from '../common/operation/application/service/operation.service';
 import { PrismaService } from '../prisma/prisma.service';
-import { OrderCollectionFreshnessAdapter } from '../orders/adapter/out/persistence/read/order-collection-freshness.adapter';
-import { OrderCollectionTodayOrdersAdapter } from '../orders/adapter/out/persistence/read/order-collection-today-orders.adapter';
+import { OrderCollectionFreshnessAdapter } from '../orders/adapter/out/persistence/order-collection-freshness.adapter';
+import { OrderCollectionTodayOrdersAdapter } from '../orders/adapter/out/persistence/order-collection-today-orders.adapter';
 import { TEST_ORGANIZATION_ID, TEST_USER_ID } from './real-prisma';
 
 /**

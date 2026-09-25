@@ -30,7 +30,7 @@ import { OrderCollectionController } from '../adapter/in/web/order-collection.co
 import { OrderCollectionSourceController } from '../adapter/in/web/order-collection-source.controller';
 import { OrderOperationCapturePersistenceAdapter } from '../adapter/out/persistence/order-operation-capture.persistence.adapter';
 import { OrderMallAccountPersistenceAdapter } from '../adapter/out/persistence/order-mall-account.persistence.adapter';
-import { OrderCollectionTodayOrdersAdapter } from '../adapter/out/persistence/read/order-collection-today-orders.adapter';
+import { OrderCollectionTodayOrdersAdapter } from '../adapter/out/persistence/order-collection-today-orders.adapter';
 import { OrderCollectionSourceRepository } from '../adapter/out/repository/order-collection-source.repository';
 import { ORDER_COLLECTION_SOURCE_PORT } from '../application/port/in/order-collection-source.port';
 import { ORDER_COLLECTION_TODAY_ORDERS_PORT } from '../application/port/in/order-collection-today-orders.port';

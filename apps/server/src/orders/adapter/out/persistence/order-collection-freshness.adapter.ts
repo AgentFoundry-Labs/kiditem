@@ -9,8 +9,8 @@ import {
 import {
   OPERATION_PORT,
   type OperationPort,
-} from '../../../../../common/operation/application/port/in/operation.port';
-import type { OrderCollectionFreshnessPort } from '../../../../application/port/in/order-collection-freshness.port';
+} from '../../../../common/operation/application/port/in/operation.port';
+import type { OrderCollectionFreshnessPort } from '../../../application/port/in/order-collection-freshness.port';
 
 /** 실행 kind → 대시보드가 읽는 옛 원천 이름. */
 const SOURCE_TYPE_BY_KIND: ReadonlyArray<readonly [string, string]> = [

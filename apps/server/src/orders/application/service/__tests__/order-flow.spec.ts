@@ -10,6 +10,8 @@ function makePrisma() {
       findFirst: vi.fn(),
       groupBy: vi.fn().mockResolvedValue([]),
     },
+    // 실행으로 옮긴 몰의 확인 범위(KID-359) — 이 스펙은 옛 run만 쓴다.
+    operation: { findMany: vi.fn().mockResolvedValue([]) },
     sourceImportRun: {
       findMany: vi.fn().mockResolvedValue([{
         sourceType: 'order_collection_mall',

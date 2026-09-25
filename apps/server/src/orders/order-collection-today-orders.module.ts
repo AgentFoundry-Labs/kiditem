@@ -1,9 +1,9 @@
 import { Module } from '@nestjs/common';
 import { OperationModule } from '../common/operation/operation.module';
 import { PrismaModule } from '../prisma/prisma.module';
-import { OrderCollectionTodayOrdersAdapter } from './adapter/out/persistence/read/order-collection-today-orders.adapter';
+import { OrderCollectionTodayOrdersAdapter } from './adapter/out/persistence/order-collection-today-orders.adapter';
 import { ORDER_COLLECTION_TODAY_ORDERS_PORT } from './application/port/in/order-collection-today-orders.port';
-import { OrderCollectionFreshnessAdapter } from './adapter/out/persistence/read/order-collection-freshness.adapter';
+import { OrderCollectionFreshnessAdapter } from './adapter/out/persistence/order-collection-freshness.adapter';
 import { ORDER_COLLECTION_FRESHNESS_PORT } from './application/port/in/order-collection-freshness.port';
 
 /**
