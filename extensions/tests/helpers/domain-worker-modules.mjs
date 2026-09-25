@@ -1,4 +1,5 @@
 import { readFileSync } from 'node:fs';
+import path from 'node:path';
 import vm from 'node:vm';
 
 // 세 확장을 kiditem-os 하나로 합치면서, 도메인 워커는 더 이상 스스로
@@ -9,48 +10,52 @@ import vm from 'node:vm';
 // 테스트 하니스는 그 배선을 그대로 재현해야 하므로 목록과 설치 절차를 여기에
 // 한 번만 둔다.
 
-// 도메인 워커 디렉터리(background/<domain>/) 기준 상대 경로.
-const SHARED_MODULES = [
-  '../domain-registry.js',
-  '../../shared/channel-registry.js',
-  '../environment-context.js',
-  '../collection-session.js',
-  '../interactive-tabs.js',
-  '../external-dispatch.js',
-  '../worker-globals.js',
-];
+// 싣는 순서의 정본은 통합 서비스워커의 `importScripts(...)` 목록 하나다.
+// 여기에 손으로 사본을 적어 두면 서비스워커에 모듈이 늘 때(#547·#556 의
+// mall-form-register.js 처럼) 하니스만 낡아, 도메인 워커가 최상위에서 읽는
+// 전역이 없어 테스트 수십 건이 ReferenceError 로 한꺼번에 죽는다. 그래서
+// 목록을 서비스워커 소스에서 읽어 만든다.
+const SERVICE_WORKER_URL = new URL(
+  '../../kiditem-os/background/service-worker.js',
+  import.meta.url,
+);
 
-export const ORDERS_WORKER_MODULES = [
-  ...SHARED_MODULES,
-  '../sourcing/source-attempt-wire.js',
-  'collection-failure.js',
-  'order-collection-lifecycle.js',
-  'order-collection-server-converter.js',
-  'order-collection-source-owner.js',
-  'sellpia-inventory.js',
-  'sellpia-inventory-source-owner.js',
-  'sellpia-sales-collector.js',
-  'sellpia-product-profit-collector.js',
-  'sellpia-shipment-tracking-collector.js',
-  'sellpia-product-profitability-source-owner.js',
-  'sellpia-sales-source-owner.js',
-  'sellpia-shipment-tracking-source-owner.js',
-  'sellpia-manual-match.js',
-  'sellpia-manual-match-source-owner.js',
-  'sabangnet-mall-listings.js',
-  'sabangnet-mall-listings-source-owner.js',
-  'mall-admin-listings.js',
-  'mall-admin-listings-source-owner.js',
-  'sellpia-post-processing.js',
-  'coupang-po-session.js',
-  'mall-availability-send.js',
-  'mall-session-probe.js',
-  'mall-session.js',
-  'rocket-po-collection.js',
-  'rocket-po-source-owner.js',
-  'coupang-directship-source-owner.js',
-  'coupang-shipment-summary-source-owner.js',
-];
+// 서비스워커 기준(background/) 경로, 쿼리 문자열 포함, 실제 로드 순서.
+export function serviceWorkerImportScripts() {
+  const source = readFileSync(SERVICE_WORKER_URL, 'utf8');
+  const call = source.match(/importScripts\(([\s\S]*?)\);/);
+  if (!call) throw new Error('service-worker.js 에서 importScripts(...) 를 찾지 못했다');
+  return [...call[1].matchAll(/^\s*"([^"]+)",?\s*$/gm)].map((match) => match[1]);
+}
+
+const DOMAIN_PREFIXES = ['coupang/', 'orders/', 'sourcing/'];
+const isDomainModule = (entry) => DOMAIN_PREFIXES.some((prefix) => entry.startsWith(prefix));
+
+// 서비스워커 기준 경로를 도메인 워커 디렉터리(background/<domain>/) 기준으로 바꾼다.
+function relativeToDomain(domain, entry) {
+  return path.posix.relative(domain, entry.split('?')[0]);
+}
+
+const SERVICE_WORKER_IMPORTS = serviceWorkerImportScripts();
+
+// 첫 도메인 모듈보다 먼저 싣는 공용 파운데이션(레지스트리·채널 목록·폼 관문·
+// 세션·dispatch·worker-globals). 모든 도메인 워커가 이 전역을 전제한다.
+const FOUNDATION = SERVICE_WORKER_IMPORTS.slice(
+  0,
+  SERVICE_WORKER_IMPORTS.findIndex(isDomainModule),
+);
+
+// 도메인 워커 디렉터리(background/<domain>/) 기준 상대 경로.
+const SHARED_MODULES = FOUNDATION.map((entry) => relativeToDomain('orders', entry));
+
+// 주문 워커가 쓰는 모듈: 파운데이션, 소싱과 공유하는 attempt wire, 그리고
+// 서비스워커가 싣는 orders/* 전부(워커 자신 제외)를 서비스워커 순서 그대로.
+export const ORDERS_WORKER_MODULES = SERVICE_WORKER_IMPORTS.filter(
+  (entry) =>
+    FOUNDATION.includes(entry)
+    || entry === 'sourcing/source-attempt-wire.js'
+    || (entry.startsWith('orders/') && entry !== 'orders/worker.js'),
+).map((entry) => relativeToDomain('orders', entry));
 
 export const SOURCING_WORKER_MODULES = [
   ...SHARED_MODULES,
