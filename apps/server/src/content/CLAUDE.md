@@ -66,10 +66,9 @@ lives in [docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
 - `GET /image-ai/tasks/:taskId` reads `running` between the saved result and
   its finish; the output appears once the operation succeeds (accepted in
   KID-358).
-- Cancelling a
-  generation locks its live operation (`lockLive`) before the ledger row, then
-  cancels both in one transaction; the claiming worker sees it through its
-  heartbeat.
+- Cancelling a generation locks its live operation (`lockLive`) before the
+  ledger row, then cancels both in one transaction; the claiming worker sees
+  it through its heartbeat.
 - Direct generation is deterministic infrastructure and does not create Agent
   OS runs. Agent-prefixed runtime keys are reserved for real Agent definitions.
 
