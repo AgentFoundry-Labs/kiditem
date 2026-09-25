@@ -1,5 +1,5 @@
 import { z } from 'zod';
-import { RocketPoSourceBeginSchema } from './rocket-purchase-preview.js';
+import { ROCKET_PO_ROW_LIMIT, RocketPoCatalogRowSchema, RocketPoSourceBeginSchema } from './rocket-purchase-preview.js';
 
 /**
  * Orders owner의 확장 구동 실행 kind(ADR-0025, KID-359 wave2). scope는 웹이 begin에 싣는 입력이고 owner
@@ -76,6 +76,59 @@ export type CoupangShipmentSummaryResult = z.infer<typeof CoupangShipmentSummary
 export const CoupangRocketPoScopeSchema = RocketPoSourceBeginSchema;
 export type CoupangRocketPoScope = z.infer<typeof CoupangRocketPoScopeSchema>;
 
+/**
+ * 로켓 PO plan: scope + owner가 begin 때 고정한 공급자 기대값(옛 attempt plan에서 sourceType·parserVersion만 뺐다).
+ * finalize는 이 기대값과 지금 계정·수집한 공급자 ID를 대조한다.
+ */
+export const CoupangRocketPoPlanSchema = RocketPoSourceBeginSchema.innerType().extend({
+  vendorExpectations: z.object({
+    rocketVendorId: z.string().max(120).nullable(),
+    sharedCoupangVendorId: z.string().max(120).nullable(),
+  }).strict(),
+}).strict();
+export type CoupangRocketPoPlan = z.infer<typeof CoupangRocketPoPlanSchema>;
+
+/** `po_rows` 청크 항목: 발주서 하나와 그 상세의 SKU 행 전부(목록·상세 합계가 맞은 것만). */
+export const CoupangRocketPoChunkItemSchema = z.object({
+  poNumber: z.string().min(1).max(80),
+  rows: z.array(RocketPoCatalogRowSchema).min(1).max(ROCKET_PO_ROW_LIMIT),
+}).strict();
+export type CoupangRocketPoChunkItem = z.infer<typeof CoupangRocketPoChunkItemSchema>;
+
+/**
+ * `po_scan` 청크 항목(실행당 하나): 목록을 끝까지 읽었다는 증거. 옛 제출의 collection·proof와 같다 —
+ * `collectionRunId`는 서버가 실행 ID로 채운다(확장은 실행 ID를 모른다).
+ */
+export const CoupangRocketPoScanSchema = z.object({
+  vendorId: z.string().max(120),
+  listPagesRead: z.number().int().min(0).max(100_000),
+  totalListPages: z.number().int().min(0).max(100_000),
+  detailPoCount: z.number().int().min(0).max(ROCKET_PO_ROW_LIMIT),
+  proof: z.object({
+    from: isoDay,
+    to: isoDay,
+    status: z.enum(['RP', 'PA', 'RI', 'CI', '']),
+    dateType: z.enum(['WAREHOUSING_PLAN_DATE', 'PURCHASE_ORDER_DATE']),
+    validatedList: z.literal(true),
+  }).strict(),
+}).strict();
+export type CoupangRocketPoScan = z.infer<typeof CoupangRocketPoScanSchema>;
+
+/** 로켓 PO 진행: 단계(목록·상세)와 읽은 수 / 전체. */
+export const CoupangRocketPoProgressSchema = z.object({
+  phase: z.enum(['session', 'list', 'detail', 'done']),
+  current: z.number().int().min(0),
+  total: z.number().int().min(0),
+}).passthrough();
+export type CoupangRocketPoProgress = z.infer<typeof CoupangRocketPoProgressSchema>;
+
+/** 로켓 PO result: 발행한 발주서 수와 SKU 행 수. */
+export const CoupangRocketPoResultSchema = z.object({
+  purchaseOrders: z.number().int().nonnegative(),
+  lines: z.number().int().nonnegative(),
+}).strict();
+export type CoupangRocketPoResult = z.infer<typeof CoupangRocketPoResultSchema>;
+
 /** directship 캡처: 그 계정의 supplier 화면에서 발주·센터를 읽는다. lockKey `account:<channelAccountId>`. */
 export const CoupangDirectshipScopeSchema = z.object({
   channelAccountId: z.string().uuid(),
@@ -123,6 +176,7 @@ export function isMallOrderOperationMall(mallKey: string): mallKey is MallOrderO
 export const COUPANG_SHIPMENT_SUMMARY_CHUNK_KIND = 'shipment_dates' as const;
 export const COUPANG_SHIPMENT_SUMMARY_SCAN_CHUNK_KIND = 'shipment_scan' as const;
 export const COUPANG_ROCKET_PO_CHUNK_KIND = 'po_rows' as const;
+export const COUPANG_ROCKET_PO_SCAN_CHUNK_KIND = 'po_scan' as const;
 export const COUPANG_DIRECTSHIP_CHUNK_KIND = 'orders_capture' as const;
 export const SELLPIA_SHIPMENT_TRACKING_CHUNK_KIND = 'tracking_rows' as const;
 export const MALL_ORDERS_CHUNK_KIND = 'order_rows' as const;

@@ -89,16 +89,6 @@ const coupangPoSession = KidItemCoupangPoSession.create({
   attachOrderCollectionTab,
   waitForTabReady,
 });
-const rocketPoCollection = KidItemRocketPoCollection.create({
-  chrome,
-  coupangPoSession,
-  withTimeout,
-});
-const rocketPoSourceOwner = KidItemRocketPoSourceOwner.create({
-  chrome, sessions: collectionSessions,
-  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
-  collect: rocketPoCollection.collect,
-});
 const sabangnetMallListings = KidItemSabangnetMallListings.create({ chrome });
 const sabangnetMallListingsSourceOwner = KidItemSabangnetMallListingsSourceOwner.create({
   chrome,
@@ -236,9 +226,6 @@ function handleSellpiaManualMatchPort(port, senderEnvironment) {
 
 async function lifecycleForAttempt(attemptId, environmentId) {
   const session = await collectionSessions.getOwned(attemptId, environmentId);
-  if (session?.producer === "orders.coupang_rocket_po") {
-    return null;
-  }
   if (session?.producer === "orders.mall") return orderCollectionLifecycle;
   return null;
 }
@@ -256,9 +243,6 @@ async function cancelOrdersCollectionSession(attemptId, environmentId) {
     : fencedSession?.session?.producer
       ? fencedSession.session
       : await collectionSessions.getOwned(attemptId, environmentId);
-  if (session?.producer === 'orders.coupang_rocket_po') {
-    return rocketPoSourceOwner.cancel({ attemptId, environmentId });
-  }
   if (session?.producer === 'orders.coupang_directship') {
     return coupangDirectshipSourceOwner.cancel({ attemptId, environmentId });
   }
@@ -7594,12 +7578,6 @@ KidItemDomains.register({
         mallAdminListingsSourceOwner.run({ attemptId, environmentId }),
       ),
     },
-    collectRocketPoRows: {
-      validate: KidItemRocketPoSourceOwner.parseStart,
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        rocketPoSourceOwner.run({ attemptId, environmentId }),
-      ),
-    },
     collectCoupangDirectOrders: {
       validate: KidItemCoupangDirectshipSourceOwner.parseStart,
       handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
@@ -7618,7 +7596,6 @@ KidItemDomains.register({
     clearCoupangCookies: true,
     art09Orders: true,
     boriboriOrders: true,
-    coupangRocketPoSourceOwnerV1: true,
     coupangDirectshipSourceOwnerV1: true,
     collectKakaoOrders: true,
     collectSellpiaDeliTracking: true,

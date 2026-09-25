@@ -113,7 +113,10 @@ erDiagram
     String id PK
     String organizationId FK
     String channelAccountId
+     /**
     String sourceImportRunId FK
+     /**
+    String rocketPoOperationId
     String idempotencyKey
     String requestHash
     BigInt freshnessGeneration

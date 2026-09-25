@@ -19,7 +19,7 @@ const RUN_ID = '22222222-2222-4222-8222-222222222222';
 function input() {
   return {
     channelAccountId: ACCOUNT_ID,
-    sourceImportRunId: RUN_ID,
+    rocketPoOperationId: RUN_ID,
     inventoryAttemptId: RUN_ID,
     editedQuantities: {},
   };
@@ -112,7 +112,7 @@ describe('previewRocketPurchases', () => {
 
   it('lists and loads server-saved Rocket evidence through account-scoped actions', async () => {
     vi.mocked(apiClient.post).mockResolvedValueOnce([{
-      sourceImportRunId: RUN_ID,
+      rocketPoOperationId: RUN_ID,
       poNumber: '1001',
       orderedAt: '2026-07-17 09:00:00',
       plannedDeliveryDate: '2026-07-20',
@@ -143,7 +143,7 @@ describe('previewRocketPurchases', () => {
     });
 
     vi.mocked(apiClient.post).mockResolvedValueOnce({
-      sourceImportRunId: RUN_ID,
+      rocketPoOperationId: RUN_ID,
       channelAccountId: ACCOUNT_ID,
       collection: collection(),
       rows: rows(),
@@ -151,32 +151,32 @@ describe('previewRocketPurchases', () => {
     });
     await loadSavedRocketCollection({
       channelAccountId: ACCOUNT_ID,
-      sourceImportRunId: RUN_ID,
+      rocketPoOperationId: RUN_ID,
     });
     expect(apiClient.post).toHaveBeenLastCalledWith('/api/purchase-orders', {
       action: 'loadSavedRocketCollection',
       channelAccountId: ACCOUNT_ID,
-      sourceImportRunId: RUN_ID,
+      rocketPoOperationId: RUN_ID,
     }, {
       headers: { 'X-KidItem-Response-Profile': ROCKET_SAVED_PO_RESPONSE_PROFILE },
     });
 
     vi.mocked(apiClient.post).mockResolvedValueOnce({
-      sourceImportRunId: RUN_ID,
+      rocketPoOperationId: RUN_ID,
       channelAccountId: ACCOUNT_ID,
       collection: collection(),
       rows: rows(),
     });
     await expect(loadSavedRocketCollection({
       channelAccountId: ACCOUNT_ID,
-      sourceImportRunId: RUN_ID,
+      rocketPoOperationId: RUN_ID,
     })).resolves.toMatchObject({ exportedPoLineIds: [] });
   });
 });
 
 function publication() {
   return {
-    sourceImportRunId: RUN_ID,
+    rocketPoOperationId: RUN_ID,
     channelAccountId: ACCOUNT_ID,
     generation: '1',
     actualCutoffAt: '2026-07-19T00:00:00.000Z',

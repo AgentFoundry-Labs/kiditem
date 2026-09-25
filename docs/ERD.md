@@ -1365,7 +1365,11 @@ erDiagram
     String id PK
     String organizationId FK
     String channelAccountId
+     /**
     String sourceImportRunId FK
+     /**
+    String operationId
+     /**
     String collectionRunId
     String vendorId
     Int listPagesRead
@@ -1378,7 +1382,10 @@ erDiagram
     String id PK
     String organizationId FK
     String channelAccountId
+     /**
     String sourceImportRunId FK
+     /**
+    String rocketPoOperationId
     String idempotencyKey
     String requestHash
     BigInt freshnessGeneration
@@ -2561,8 +2568,8 @@ erDiagram
   SourceImportRun o|--o{ Order : "sourceImportRun"
   SourceImportRun o|--o| OrderCollectionArtifact : "sourceImportRun"
   SourceImportRun o|--o{ Review : "sourceImportRun"
-  SourceImportRun ||--|| RocketPoCatalogSnapshot : "sourceImportRun"
-  SourceImportRun ||--o{ RocketPurchaseConfirmation : "sourceImportRun"
+  SourceImportRun o|--o| RocketPoCatalogSnapshot : "sourceImportRun"
+  SourceImportRun o|--o{ RocketPurchaseConfirmation : "sourceImportRun"
   SourceImportRun ||--o{ RocketPurchaseConfirmationTransmission : "sourceImportRun"
   SourceImportRun o|--o{ SellpiaInventoryState : "lastCompletedImportRun"
   SourceImportRun o|--o{ SellpiaProductMonthlySales : "sourceImportRun"

@@ -3848,6 +3848,8 @@ test('도메인 고유 액션은 소유 워커만 받고 retired sourcing bridge
   for (const retired of [
     // 쿠팡 쉽먼트 발송일 조회는 실행 kind orders.coupang_shipment_summary다(KID-359).
     'collectCoupangShipmentDateSummary',
+    // 쿠팡 로켓 PO 수집은 실행 kind orders.coupang_rocket_po다(KID-359).
+    'collectRocketPoRows',
     'collectSourcing1688Trends',
     'collectSourcingTiktokCcTrends',
     'collectSourcingLiveCommerce',
@@ -3857,42 +3859,6 @@ test('도메인 고유 액션은 소유 워커만 받고 retired sourcing bridge
     assert.equal(context.KidItemDomains.forExternalAction(retired), null, retired);
   }
   assert.equal(typeof context.KidItemDomains.forExternalAction('operation.start')?.handle, 'function');
-});
-
-test('Rocket PO source dispatch rejects caller-owned plans and authenticates before provider IO', async () => {
-  const { fake, context } = bootServiceWorker();
-  const action = 'collectRocketPoRows';
-  const attemptId = '11111111-1111-4111-8111-111111111111';
-  const contract = context.KidItemDomains.forExternalAction(action);
-  assert.equal(typeof contract?.handle, 'function');
-  for (const invalid of [
-    { action, runId: attemptId }, { action, attemptId: [attemptId] },
-    { action, attemptId, from: '2026-07-01' },
-    { action, attemptId, attemptToken: 'caller-token' },
-  ]) assert.throws(() => contract.validate(invalid), /Invalid Rocket PO attempt/);
-  let keptAlive = 0;
-  const responses = [];
-  await new Promise((resolve) => {
-    for (const listener of fake.externalMessageListeners) {
-      if (listener({ action, attemptId }, { url: 'http://localhost:3000/rocket-orders' },
-        (response) => { responses.push(response); resolve(); }) === true) keptAlive += 1;
-    }
-  });
-  assert.equal(keptAlive, 1);
-  assert.equal(responses.length, 1);
-  assert.match(responses[0].error, /login is required/);
-  assert.deepEqual(fake.createdTabs, []);
-  assert.equal(context.KidItemDomains.capabilities().coupangRocketPoSourceOwnerV1, true);
-  assert.equal(context.KidItemDomains.capabilities().coupangRocketPoCollectionSessionV1, undefined);
-});
-
-test('unreferenced Rocket list-only action is retired without removing the live source owner', () => {
-  const { context } = bootServiceWorker();
-  assert.equal(context.KidItemDomains.capabilities().listRocketPos, undefined);
-  assert.equal(typeof context.KidItemDomains.forExternalAction('collectRocketPoRows')?.handle, 'function');
-  const worker = readFileSync(path.join(backgroundRoot, 'orders/worker.js'), 'utf8');
-  assert.equal(worker.includes('listRocketPos'), false);
-  assert.equal(worker.includes('coupangRocketPoLifecycle'), false);
 });
 
 // 옛 소싱 워커가 받던 인증 전달(KID-360 이후 쿠팡 워커 하나가 받는다): 보낸 KidItem 환경의 프로필에만 쓴다.

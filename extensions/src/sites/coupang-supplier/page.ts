@@ -83,6 +83,8 @@ export function supplierPage(tab: TabPage): SupplierPage {
         { type: 'KIDITEM_COUPANG_SUPPLIER_FETCH', url: path, headers: options.headers ?? {}, tables: options.tables === true },
         { timeoutMs: options.timeoutMs ?? SUPPLIER_REQUEST_TIMEOUT_MS, inject: COUPANG_SUPPLIER_PAGE_FILES, guard: COUPANG_SUPPLIER_PAGE_GUARD },
       );
+      // 세션이 끊긴 supplier는 로그인 화면으로 리다이렉트해 페이지 fetch가 'Failed to fetch'로 끝난다(옛 수집의 판정).
+      if (answer.ok !== true && /failed to fetch/i.test(answer.error ?? '')) throw loginRequired(path);
       if (answer.ok !== true || typeof answer.status !== 'number' || typeof answer.text !== 'string') {
         const reason = answer.error === 'timeout' ? 'timeout' : 'network';
         throw new RuntimeError(SITE_REQUEST_FAILED, reason === 'timeout' ? '서플라이어 허브가 제때 응답하지 않았습니다.' : '서플라이어 허브를 읽지 못했습니다.', {

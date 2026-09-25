@@ -1,19 +1,55 @@
 import type { SiteDeps, SiteLease } from '../registry';
 import { registerSite } from '../registry';
 import type { TabPage } from '../tab-page';
-import { keepTabFor, supplierPage, type SupplierPage } from './page';
+import { keepTabFor, supplierPage, type PageTable, type SupplierPage } from './page';
+import {
+  PO_BOOTSTRAP_URL,
+  enterScmContext,
+  preparePoSession,
+  readPurchasableCenters,
+  readPurchaseOrderDetail,
+  readPurchaseOrderListPage,
+  type PurchaseOrderListPage,
+} from './po';
 import { COUPANG_SHIPMENT_URL, readParcelPage, type ParcelRow } from './shipments';
 
 const NAVIGATION_TIMEOUT_MS = 30_000;
 
+/** 발주 목록 조회 조건(옛 요청의 쿼리 그대로). */
+export interface PurchaseOrderListQuery {
+  searchDateType: 'WAREHOUSING_PLAN_DATE' | 'PURCHASE_ORDER_DATE';
+  from: string;
+  to: string;
+  /** `RP`·`PA`·`RI`·`CI` 또는 빈 글자(전체). */
+  status: string;
+}
+
+export function purchaseOrderListPath(query: PurchaseOrderListQuery, pageNumber: number): string {
+  return '/po-web/app/purchase-order/list?page=' + pageNumber
+    + '&searchDateType=' + query.searchDateType
+    + '&searchStartDate=' + query.from
+    + '&searchEndDate=' + query.to
+    + '&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq='
+    + '&purchaseOrderStatus=' + query.status
+    + '&purchaseOrderType=&skuIdArray=&crossdock=&transportType=';
+}
+
 /**
  * 쿠팡 서플라이어 허브(supplier.coupang.com, KID-359). 배송요약·로켓 PO·directship이 같은 사이트를 쓴다.
- * 쉽먼트 조회는 조직 잠금이라 브라우저 자원이 탭을 주지 않는다 — 이 사이트가 백그라운드 탭을 열고 끝나면 닫는다
- * (옛 수집도 운영자 탭을 쓰지 않고 새 비활성 탭을 열었다). 로그인 화면에서 멈추면 운영자가 로그인하도록 탭을 남긴다.
+ *
+ * - 쉽먼트 조회는 조직 잠금이라 브라우저 자원이 탭을 주지 않는다 — 이 사이트가 백그라운드 탭을 열고 끝나면 닫는다.
+ * - 발주(로켓 PO·directship)는 계정 잠금이라 브라우저 자원이 발주 부트스트랩 주소로 새 탭을 열어 준다(`origin`) — 옛 수집도
+ *   운영자 탭을 쓰지 않고 새 비활성 탭을 썼다. 로그인 확인은 그 탭이 PO 화면에 닿는지로 한다(`SITE_LOGIN_REQUIRED`).
+ *   기록된 결정(worker.js, 2026-09-21 라이브): "그 로그인을 몰 소유자로 감싸면 몰 쪽에 없는 시도를 조회해 404
+ *   (`ORDER_COLLECTION_ATTEMPT_NOT_FOUND`)가 나고 … 로그인 문턱에서 수집이 끝났다" — 새 경로에는 몰 소유자도 시도도 없고,
+ *   직배송 로그인 문턱은 이 사이트의 주소 확인이 `SITE_LOGIN_REQUIRED`로 알린다(같은 결과, 옛 우회 불필요).
+ * - 로그인 화면에서 멈추면 운영자가 로그인하도록 이 사이트가 연 탭을 남긴다.
  */
-export function createCoupangSupplierSite(deps: Pick<SiteDeps, 'tabs'>, _lease: SiteLease = { tabId: null }) {
+export function createCoupangSupplierSite(deps: Pick<SiteDeps, 'tabs'>, lease: SiteLease = { tabId: null }) {
   let shipmentTab: TabPage | null = null;
   let shipmentPage: Promise<SupplierPage> | null = null;
+  let poTab: TabPage | null = null;
+  let poPage: Promise<SupplierPage> | null = null;
   let keepOpen = false;
   const remember = <T>(work: Promise<T>): Promise<T> =>
     work.catch((error: unknown) => {
@@ -32,20 +68,51 @@ export function createCoupangSupplierSite(deps: Pick<SiteDeps, 'tabs'>, _lease: 
     return shipmentPage;
   }
 
+  /** 발주 세션: 잠금이 준 탭(없으면 새 탭)을 부트스트랩 주소로 옮겨 PO 화면에 닿게 한다. 실행마다 한 번. */
+  function purchaseOrders(): Promise<SupplierPage> {
+    poPage ??= (async () => {
+      const tab = lease.tabId !== null ? deps.tabs.attach(lease.tabId) : await deps.tabs.open('about:blank');
+      poTab = tab;
+      return preparePoSession(tab);
+    })();
+    return poPage;
+  }
+
   return {
     /** 쉽먼트 목록 한 쪽(1부터). 여러 쪽을 함께 불러도 된다(탭 하나). */
     parcelPage(pageNumber: number): Promise<ParcelRow[]> {
       return remember(shipments().then((page) => readParcelPage(page, pageNumber)));
     },
-    /** 이 사이트가 연 탭을 닫는다. 로그인·예상 밖 주소에서 멈췄으면 운영자에게 남긴다. */
+    /** 발주 목록 한 쪽(1부터)의 JSON 본문. 첫 쪽이 JSON이 아니면 로그인 필요. */
+    purchaseOrderListPage(query: PurchaseOrderListQuery, pageNumber: number): Promise<PurchaseOrderListPage> {
+      return remember(purchaseOrders().then((page) => readPurchaseOrderListPage(page, purchaseOrderListPath(query, pageNumber), pageNumber)));
+    },
+    /** 발주서 상세의 표(칸 단위). */
+    purchaseOrderDetail(poNumber: string): Promise<PageTable[]> {
+      return remember(purchaseOrders().then((page) => readPurchaseOrderDetail(page, poNumber)));
+    },
+    /** 직배송 센터 주소 목록 JSON. */
+    purchasableCenters(): Promise<unknown> {
+      return remember(purchaseOrders().then((page) => readPurchasableCenters(page)));
+    },
+    /** 직배송: 품목 상세 전에 탭을 첫 발주서 상세로 옮긴다. */
+    enterScmContext(poNumber: string): Promise<void> {
+      return remember(purchaseOrders().then(() => enterScmContext(poTab!, poNumber)));
+    },
+    /** 이 사이트가 연 탭을 닫는다(잠금이 준 탭은 브라우저 자원이 닫는다). 로그인·예상 밖 주소에서 멈췄으면 남긴다. */
     async close() {
-      if (shipmentTab && !keepOpen) await shipmentTab.close();
+      if (!keepOpen) {
+        if (shipmentTab) await shipmentTab.close();
+        if (poTab) await poTab.close();
+      }
       shipmentTab = null;
       shipmentPage = null;
+      poTab = null;
+      poPage = null;
     },
   };
 }
 
 export type CoupangSupplierSite = ReturnType<typeof createCoupangSupplierSite>;
 
-registerSite({ name: 'coupang-supplier', create: (deps, lease) => createCoupangSupplierSite(deps, lease) });
+registerSite({ name: 'coupang-supplier', origin: PO_BOOTSTRAP_URL, create: (deps, lease) => createCoupangSupplierSite(deps, lease) });

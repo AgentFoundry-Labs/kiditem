@@ -27,7 +27,7 @@ React Query + apiClient
 
 explicit Rocket collection -> Channels source attempt
 -> extension reads frozen plan and uploads directly to Channels
--> read COMPLETE source -> Supply preview by sourceImportRunId
+-> read COMPLETE source -> Supply preview by rocketPoOperationId
 
 Sellpia collection COMPLETE -> current-stock preview -> browser workbook generation -> direct download
 ```

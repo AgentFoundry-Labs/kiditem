@@ -4765,7 +4765,7 @@ var KidItemRuntime = (() => {
       let consecutiveFailures = 0;
       let detailsDone = 0;
       let absentChecked = 0;
-      const progress2 = () => ({
+      const progress3 = () => ({
         detailsDone,
         detailTargets: targets.length,
         absentChecked,
@@ -4773,7 +4773,7 @@ var KidItemRuntime = (() => {
         detailsMissing: [...missing]
       });
       const details = new ChunkBuffer({ maxItems: DETAILS_PER_CHUNK, label: "Wing \uC0C1\uC138 \uC0C1\uD488" });
-      const chunk = (chunkKind, payload) => ({ chunkKind, payload, progress: progress2() });
+      const chunk = (chunkKind, payload) => ({ chunkKind, payload, progress: progress3() });
       for (const externalProductId of targets) {
         if (signal.aborted) return;
         let product;
@@ -4840,15 +4840,15 @@ var KidItemRuntime = (() => {
     async *collect(_plan, site, { signal }) {
       const description = `kiditem_${(/* @__PURE__ */ new Date()).toISOString().replace(/[^0-9]/g, "").slice(0, 14)}`;
       await site.requestCatalogExcel(description);
-      const progress2 = (value) => ({ chunkKind: PROGRESS_CHUNK_KIND, payload: [], progress: value });
-      yield progress2({ status: "REQUESTED", executeCount: 0, totalCount: null });
+      const progress3 = (value) => ({ chunkKind: PROGRESS_CHUNK_KIND, payload: [], progress: value });
+      yield progress3({ status: "REQUESTED", executeCount: 0, totalCount: null });
       let completed = null;
       for (let poll = 0; poll < MAX_POLLS && !completed; poll += 1) {
         if (signal.aborted) return;
         if (poll > 0) await site.pause(POLL_INTERVAL_MS, signal);
         const request = await site.catalogExcelRequest(description);
         if (!request) continue;
-        yield progress2({ status: request.status, executeCount: request.executeCount, totalCount: request.totalCount });
+        yield progress3({ status: request.status, executeCount: request.executeCount, totalCount: request.totalCount });
         if (request.status === "COMPLETED") completed = request;
         else if (/FAIL|ABORT|CANCEL|ERROR/i.test(request.status)) {
           throw new RuntimeError(CATALOG_EXCEL_FAILED, `\uCFE0\uD321 \uC719\uC774 \uC0C1\uD488\uC815\uBCF4 \uC5D1\uC140 \uC0DD\uC131\uC744 \uBA48\uCDC4\uC2B5\uB2C8\uB2E4(${request.status}). \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.`, { status: request.status });
@@ -4889,8 +4889,8 @@ var KidItemRuntime = (() => {
       const buffer = new ChunkBuffer({ maxItems: PRODUCTS_PER_CHUNK, label: "Wing \uBAA9\uB85D \uC0C1\uD488" });
       const seen = /* @__PURE__ */ new Set();
       let expected = null;
-      let progress2 = {};
-      const chunk = (payload) => ({ chunkKind: WING_CATALOG_CHUNK_KINDS.listingBasics, payload, progress: progress2 });
+      let progress3 = {};
+      const chunk = (payload) => ({ chunkKind: WING_CATALOG_CHUNK_KINDS.listingBasics, payload, progress: progress3 });
       for (let page = 1; expected === null || page <= expected.totalPages; page += 1) {
         if (signal.aborted) return;
         const result = await site.searchInventory(page, plan.vendorId ?? null);
@@ -4898,7 +4898,7 @@ var KidItemRuntime = (() => {
         else if (result.totalItems !== expected.totalItems || result.totalPages !== expected.totalPages) {
           throw incomplete(`\uC218\uC9D1 \uC911 Wing \uC0C1\uD488 \uC218\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4(${expected.totalItems} \u2192 ${result.totalItems}). \uB2E4\uC2DC \uB3D9\uAE30\uD654\uD574 \uC8FC\uC138\uC694.`);
         }
-        progress2 = { listedProducts: seen.size + result.products.length, totalProducts: expected.totalItems, page, totalPages: expected.totalPages };
+        progress3 = { listedProducts: seen.size + result.products.length, totalProducts: expected.totalItems, page, totalPages: expected.totalPages };
         for (const product of result.products) {
           if (seen.has(product.externalProductId)) {
             throw incomplete(`Wing \uBAA9\uB85D\uC758 \uD398\uC774\uC9C0\uAC00 \uACB9\uCCE4\uC2B5\uB2C8\uB2E4(${product.externalProductId}). \uB2E4\uC2DC \uB3D9\uAE30\uD654\uD574 \uC8FC\uC138\uC694.`);
@@ -5076,7 +5076,7 @@ var KidItemRuntime = (() => {
       const done = [];
       for (const window of plan.windows) {
         const status = { index: window.index, pages: 0, items: 0, done: false };
-        const progress2 = (current) => ({ current, windows: [...done, { ...status }] });
+        const progress3 = (current) => ({ current, windows: [...done, { ...status }] });
         let buffer = [];
         for (let pageIndex = 0; ; pageIndex += 1) {
           if (signal.aborted) return;
@@ -5091,14 +5091,14 @@ var KidItemRuntime = (() => {
             buffer.push({ ...item, windowIndex: window.index });
             status.items += 1;
             if (buffer.length === COUPANG_REVIEWS_CHUNK_ITEMS) {
-              yield reviewsChunk(buffer, progress2(window.label));
+              yield reviewsChunk(buffer, progress3(window.label));
               buffer = [];
             }
           }
           if (pageIndex + 1 >= page.totalPages) break;
         }
         if (signal.aborted) return;
-        if (buffer.length > 0) yield reviewsChunk(buffer, progress2(window.label));
+        if (buffer.length > 0) yield reviewsChunk(buffer, progress3(window.label));
         status.done = true;
         done.push({ ...status });
         const last = window === plan.windows[plan.windows.length - 1];
@@ -5107,8 +5107,8 @@ var KidItemRuntime = (() => {
       }
     }
   };
-  function reviewsChunk(payload, progress2) {
-    return { chunkKind: COUPANG_REVIEWS_CHUNK_KIND, payload, progress: progress2 };
+  function reviewsChunk(payload, progress3) {
+    return { chunkKind: COUPANG_REVIEWS_CHUNK_KIND, payload, progress: progress3 };
   }
   registerCollector(coupangReviewsCollector);
 
@@ -5126,36 +5126,6 @@ var KidItemRuntime = (() => {
     dateType: external_exports.enum(["WAREHOUSING_PLAN_DATE", "PURCHASE_ORDER_DATE"]),
     requireConfirmation: external_exports.boolean()
   }).strict().refine((value) => value.from <= value.to, "Invalid date range");
-  var RocketPoSourcePlanSchema = RocketPoSourceBeginSchema.innerType().extend({
-    sourceType: external_exports.literal("coupang_rocket_po_catalog"),
-    parserVersion: external_exports.literal("rocket-po-v1"),
-    vendorExpectations: external_exports.object({
-      rocketVendorId: boundedText(120).nullable(),
-      sharedCoupangVendorId: boundedText(120).nullable()
-    }).strict()
-  }).strict();
-  var RocketPoSourceAttemptSchema = external_exports.object({
-    attemptId: external_exports.string().uuid(),
-    channelAccountId: external_exports.string().uuid(),
-    state: external_exports.enum(["RUNNING", "COMPLETE", "FAILED"]),
-    generation: external_exports.string().regex(/^\d+$/),
-    plan: RocketPoSourcePlanSchema,
-    expiresAt: external_exports.string().datetime(),
-    actualCutoffAt: external_exports.string().datetime().nullable(),
-    errorCode: boundedText(100).nullable(),
-    errorMessage: boundedText(300).nullable()
-  }).strict();
-  var RocketPoSourceControlSchema = RocketPoSourceAttemptSchema.extend({
-    attemptToken: external_exports.string().uuid()
-  }).strict();
-  var RocketPoCoverageSchema = external_exports.object({ from: isoDay, to: isoDay }).strict();
-  var RocketPoSourceSchema = external_exports.object({
-    ready: external_exports.boolean(),
-    latestAttempt: RocketPoSourceAttemptSchema.nullable(),
-    latestComplete: RocketPoSourceAttemptSchema.nullable(),
-    /** `latestComplete` run 의 coverage 날짜(KID-126). */
-    latestCompleteCoverage: RocketPoCoverageSchema.nullable()
-  }).strict();
   var RocketPoCollectionEvidenceSchema = external_exports.object({
     collectionRunId: external_exports.string().uuid(),
     vendorId: boundedText(120),
@@ -5199,11 +5169,6 @@ var KidItemRuntime = (() => {
       xdock: boundedText(20)
     }).strict().optional()
   }).strict();
-  var RocketPoSourceSubmissionSchema = external_exports.object({
-    collection: RocketPoCollectionEvidenceSchema,
-    rows: external_exports.array(RocketPoCatalogRowSchema).max(ROCKET_PO_ROW_LIMIT),
-    proof: RocketPoSourcePlanSchema.pick({ from: true, to: true, status: true, dateType: true }).extend({ validatedList: external_exports.literal(true) }).strict()
-  }).strict();
   var RocketSavedPoListRequestSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
     from: isoDay,
@@ -5219,7 +5184,8 @@ var KidItemRuntime = (() => {
     }
   });
   var RocketSavedPoSummarySchema = external_exports.object({
-    sourceImportRunId: external_exports.string().uuid(),
+    /** 이 발주를 발행한 로켓 PO 수집 실행(Orders `orders.coupang_rocket_po`, KID-359). */
+    rocketPoOperationId: external_exports.string().uuid(),
     poNumber: requiredText(80),
     orderedAt: boundedText(40),
     plannedDeliveryDate: isoDay,
@@ -5235,7 +5201,7 @@ var KidItemRuntime = (() => {
     collectedAt: external_exports.string().datetime()
   }).strict();
   var RocketSavedPoSnapshotSchema = external_exports.object({
-    sourceImportRunId: external_exports.string().uuid(),
+    rocketPoOperationId: external_exports.string().uuid(),
     channelAccountId: external_exports.string().uuid(),
     collection: RocketPoCollectionEvidenceSchema,
     rows: external_exports.array(RocketPoCatalogRowSchema).max(ROCKET_PO_ROW_LIMIT)
@@ -5283,7 +5249,7 @@ var KidItemRuntime = (() => {
   ]);
   var RocketPurchasePreviewRequestSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
-    sourceImportRunId: external_exports.string().uuid(),
+    rocketPoOperationId: external_exports.string().uuid(),
     inventoryAttemptId: external_exports.string().uuid(),
     editedQuantities: RocketPurchaseRequestBaseSchema.shape.editedQuantities,
     clampEditedQuantities: external_exports.boolean().optional(),
@@ -5395,7 +5361,7 @@ var KidItemRuntime = (() => {
       }
     }
   });
-  var RocketWorkbookExportRequestSchema = RocketWorkbookDecisionRequestSchema.innerType().omit({ collection: true, rows: true }).extend({ sourceImportRunId: external_exports.string().uuid(), inventoryAttemptId: external_exports.string().uuid() }).strict();
+  var RocketWorkbookExportRequestSchema = RocketWorkbookDecisionRequestSchema.innerType().omit({ collection: true, rows: true }).extend({ rocketPoOperationId: external_exports.string().uuid(), inventoryAttemptId: external_exports.string().uuid() }).strict();
   var RocketPurchasePreviewReasonSchema = external_exports.enum([
     "mapping_required",
     "configuration_required",
@@ -5404,9 +5370,8 @@ var KidItemRuntime = (() => {
     "insufficient_capacity"
   ]);
   var RocketPoCatalogPublicationSchema = external_exports.object({
-    sourceImportRunId: external_exports.string().uuid(),
+    rocketPoOperationId: external_exports.string().uuid(),
     channelAccountId: external_exports.string().uuid(),
-    generation: external_exports.string().regex(/^\d+$/),
     actualCutoffAt: external_exports.string().datetime(),
     rowCount: external_exports.number().int().nonnegative().max(ROCKET_PO_ROW_LIMIT)
   }).strict();
@@ -5479,6 +5444,7 @@ var KidItemRuntime = (() => {
 
   // packages/shared/src/schemas/orders-operations.ts
   var COUPANG_SHIPMENT_SUMMARY_KIND = "orders.coupang_shipment_summary";
+  var COUPANG_ROCKET_PO_KIND = "orders.coupang_rocket_po";
   var isoDay2 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
   var CoupangShipmentSummaryScopeSchema = external_exports.object({
     maxPages: external_exports.number().int().min(1).max(60).optional()
@@ -5506,6 +5472,38 @@ var KidItemRuntime = (() => {
     dates: external_exports.number().int().nonnegative(),
     rows: external_exports.number().int().nonnegative()
   }).strict();
+  var CoupangRocketPoPlanSchema = RocketPoSourceBeginSchema.innerType().extend({
+    vendorExpectations: external_exports.object({
+      rocketVendorId: external_exports.string().max(120).nullable(),
+      sharedCoupangVendorId: external_exports.string().max(120).nullable()
+    }).strict()
+  }).strict();
+  var CoupangRocketPoChunkItemSchema = external_exports.object({
+    poNumber: external_exports.string().min(1).max(80),
+    rows: external_exports.array(RocketPoCatalogRowSchema).min(1).max(ROCKET_PO_ROW_LIMIT)
+  }).strict();
+  var CoupangRocketPoScanSchema = external_exports.object({
+    vendorId: external_exports.string().max(120),
+    listPagesRead: external_exports.number().int().min(0).max(1e5),
+    totalListPages: external_exports.number().int().min(0).max(1e5),
+    detailPoCount: external_exports.number().int().min(0).max(ROCKET_PO_ROW_LIMIT),
+    proof: external_exports.object({
+      from: isoDay2,
+      to: isoDay2,
+      status: external_exports.enum(["RP", "PA", "RI", "CI", ""]),
+      dateType: external_exports.enum(["WAREHOUSING_PLAN_DATE", "PURCHASE_ORDER_DATE"]),
+      validatedList: external_exports.literal(true)
+    }).strict()
+  }).strict();
+  var CoupangRocketPoProgressSchema = external_exports.object({
+    phase: external_exports.enum(["session", "list", "detail", "done"]),
+    current: external_exports.number().int().min(0),
+    total: external_exports.number().int().min(0)
+  }).passthrough();
+  var CoupangRocketPoResultSchema = external_exports.object({
+    purchaseOrders: external_exports.number().int().nonnegative(),
+    lines: external_exports.number().int().nonnegative()
+  }).strict();
   var CoupangDirectshipScopeSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid()
   }).strict();
@@ -5527,21 +5525,251 @@ var KidItemRuntime = (() => {
   }).strict();
   var COUPANG_SHIPMENT_SUMMARY_CHUNK_KIND = "shipment_dates";
   var COUPANG_SHIPMENT_SUMMARY_SCAN_CHUNK_KIND = "shipment_scan";
+  var COUPANG_ROCKET_PO_CHUNK_KIND = "po_rows";
+  var COUPANG_ROCKET_PO_SCAN_CHUNK_KIND = "po_scan";
   var OrdersCaptureResultSchema = external_exports.object({
     rowCount: external_exports.number().int().nonnegative()
   }).passthrough();
 
+  // extensions/src/collectors/orders.coupang_rocket_po/index.ts
+  var ROCKET_PO_COLLECTION_INCOMPLETE = "ROCKET_PO_COLLECTION_INCOMPLETE";
+  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var DETAIL_CONCURRENCY = 5;
+  var CHUNK_PURCHASE_ORDERS = 200;
+  var coupangRocketPoCollector = {
+    kind: COUPANG_ROCKET_PO_KIND,
+    site: "coupang-supplier",
+    async *collect(rawPlan, site, { signal, report }) {
+      const parsed = CoupangRocketPoPlanSchema.safeParse(rawPlan);
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      const plan = parsed.data;
+      try {
+        const query = { searchDateType: plan.dateType, from: plan.from, to: plan.to, status: plan.status };
+        const listed = [];
+        const seen = /* @__PURE__ */ new Set();
+        let totalListPages = null;
+        let listPagesRead = 0;
+        for (let page = 1; ; page += 1) {
+          if (signal.aborted) return;
+          const body = await site.purchaseOrderListPage(query, page);
+          const pageCount = requiredInteger(body.lastPageNumber, "\uBC1C\uC8FC \uBAA9\uB85D \uC804\uCCB4 \uCABD \uC218");
+          if (pageCount < 1 || pageCount > 1e5) throw incomplete2("\uBC1C\uC8FC \uBAA9\uB85D \uC804\uCCB4 \uCABD \uC218\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+          totalListPages ??= pageCount;
+          if (totalListPages !== pageCount) throw incomplete2("\uC218\uC9D1\uD558\uB294 \uB3D9\uC548 \uBC1C\uC8FC \uBAA9\uB85D \uCABD \uC218\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4.");
+          listPagesRead = page;
+          for (const raw of body.rows) {
+            const po = listedPo(raw, plan.status, page);
+            if (seen.has(po.poNumber)) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uAC00 \uBAA9\uB85D\uC5D0 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.`);
+            seen.add(po.poNumber);
+            listed.push(po);
+          }
+          await report?.(progress("list", page, pageCount));
+          if (page >= totalListPages) break;
+        }
+        const vendorIds = listed.map((po) => po.vendorId);
+        const vendorId = vendorIds.length > 0 && new Set(vendorIds).size === 1 ? vendorIds[0] : "";
+        if (listed.length > 0 && !vendorId) throw incomplete2("\uBC1C\uC8FC \uBAA9\uB85D\uC758 \uACF5\uAE09\uC790 ID\uAC00 \uBE44\uC5C8\uAC70\uB098 \uC11E\uC5EC \uC788\uC2B5\uB2C8\uB2E4.");
+        const businessDateBasis = plan.dateType === "PURCHASE_ORDER_DATE" ? "ordered_at" : "expected_inbound";
+        const buffer = new ChunkBuffer({ maxItems: CHUNK_PURCHASE_ORDERS, label: "\uBC1C\uC8FC\uC11C" });
+        let detailed = 0;
+        for (let offset = 0; offset < listed.length; offset += DETAIL_CONCURRENCY) {
+          if (signal.aborted) return;
+          const batch = await Promise.all(listed.slice(offset, offset + DETAIL_CONCURRENCY).map(async (po) => ({
+            po,
+            rows: await detailWithRetry(site, po, businessDateBasis)
+          })));
+          detailed += batch.length;
+          for (const { po, rows } of batch) {
+            const full = buffer.push({ poNumber: po.poNumber, rows });
+            if (full) yield { chunkKind: COUPANG_ROCKET_PO_CHUNK_KIND, payload: full, progress: progress("detail", detailed, listed.length) };
+          }
+          await report?.(progress("detail", detailed, listed.length));
+        }
+        if (signal.aborted) return;
+        const rest = buffer.flush();
+        if (rest) yield { chunkKind: COUPANG_ROCKET_PO_CHUNK_KIND, payload: rest, progress: progress("detail", detailed, listed.length) };
+        const scan = {
+          vendorId,
+          listPagesRead,
+          totalListPages: totalListPages ?? 0,
+          detailPoCount: detailed,
+          proof: { from: plan.from, to: plan.to, status: plan.status, dateType: plan.dateType, validatedList: true }
+        };
+        yield { chunkKind: COUPANG_ROCKET_PO_SCAN_CHUNK_KIND, payload: [scan], progress: progress("done", detailed, listed.length) };
+      } finally {
+        await site.close();
+      }
+    }
+  };
+  function progress(phase, current, total) {
+    return { phase, current, total };
+  }
+  function listedPo(raw, status, page) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw incomplete2(`\uBC1C\uC8FC \uBAA9\uB85D ${page}\uCABD\uC5D0 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC740 \uD589\uC774 \uC788\uC2B5\uB2C8\uB2E4.`);
+    const row = raw;
+    const poNumber = requiredText2(row.purchaseOrderSeq, "\uBC1C\uC8FC\uC11C \uBC88\uD638");
+    const purchaseOrderStatus = requiredText2(row.purchaseOrderStatus || row.purchaseOrderStatusCode, `\uBC1C\uC8FC\uC11C ${poNumber} \uC0C1\uD0DC`).toUpperCase();
+    if (status && purchaseOrderStatus !== status) throw incomplete2(`\uBC1C\uC8FC\uC11C ${poNumber}\uAC00 ${status} \uC870\uD68C\uC5D0 ${purchaseOrderStatus} \uC0C1\uD0DC\uB85C \uC654\uC2B5\uB2C8\uB2E4.`);
+    return {
+      poNumber,
+      vendorId: requiredText2(row.vendorId, `\uBC1C\uC8FC\uC11C ${poNumber} \uACF5\uAE09\uC790 ID`),
+      purchaseOrderStatus,
+      plannedDeliveryDate: requiredDate(row.expectedDeliveryDate, `\uBC1C\uC8FC\uC11C ${poNumber} \uC785\uACE0\uC608\uC815\uC77C`),
+      listSkuCount: requiredInteger(row.skuCount, `\uBC1C\uC8FC\uC11C ${poNumber} SKU \uC218`),
+      listOrderQty: requiredInteger(row.sumOfOrderQty, `\uBC1C\uC8FC\uC11C ${poNumber} \uBC1C\uC8FC \uC218\uB7C9`),
+      listOrderAmount: requiredInteger(row.sumOfOrderAmount, `\uBC1C\uC8FC\uC11C ${poNumber} \uBC1C\uC8FC \uAE08\uC561`),
+      centerName: row.centerName,
+      transportTypeDescription: row.transportTypeDescription,
+      purchaseOrderStatusDescription: row.purchaseOrderStatusDescription,
+      createdAt: row.createdAt
+    };
+  }
+  var DetailMismatch = class extends Error {
+  };
+  async function detailWithRetry(site, po, basis) {
+    try {
+      return detailRows(await site.purchaseOrderDetail(po.poNumber), po, basis);
+    } catch (error) {
+      if (!(error instanceof DetailMismatch)) throw error;
+      try {
+        return detailRows(await site.purchaseOrderDetail(po.poNumber), po, basis);
+      } catch (again) {
+        if (again instanceof DetailMismatch) throw incomplete2(again.message);
+        throw again;
+      }
+    }
+  }
+  function detailRows(tables, po, basis) {
+    const returnTable = tables.find((table) => /회송\s*담당자/.test(table.text) && /회송지/.test(table.text));
+    const returnRow = returnTable?.rows[1]?.cells.map((cell) => norm(cell.text)) ?? ["", "", ""];
+    const skuTable = tables.find((table) => /상품\s*번호/.test(table.text) && /발주금액/.test(table.text));
+    const rows = [];
+    const lineNumbers = /* @__PURE__ */ new Set();
+    const products = /* @__PURE__ */ new Set();
+    let orderQtyTotal = 0;
+    let orderAmountTotal = 0;
+    let skip = 0;
+    for (const raw of skuTable?.rows ?? []) {
+      if (skip > 0) {
+        skip -= 1;
+        continue;
+      }
+      const values = raw.cells.map((cell) => norm(cell.text));
+      const rowSpan = Number(raw.cells[0]?.rowSpan ?? 1);
+      if (!Number.isInteger(rowSpan) || rowSpan < 1) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC758 \uCCAB \uCE78 rowspan\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+      skip = rowSpan - 1;
+      if (!/^\d+$/.test(values[0] ?? "")) continue;
+      if (values.length <= 9) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uCE78\uC774 \uBAA8\uC790\uB780 SKU \uD589\uC774 \uC788\uC2B5\uB2C8\uB2E4.`);
+      const lineNumber = requiredText2(values[0], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC904 \uBC88\uD638`);
+      if (lineNumbers.has(lineNumber)) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uAC19\uC740 \uC904 \uBC88\uD638\uAC00 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.`);
+      lineNumbers.add(lineNumber);
+      const productNo = requiredText2(values[1], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488\uBC88\uD638`);
+      const productText = requiredText2(values[2], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488`);
+      const barcode = (/^\d{8,}/.exec(productText) ?? [""])[0];
+      const productName = clean(productText, 240);
+      if (!productName) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC758 \uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+      const identity = `${productNo}\0${barcode}`;
+      if (products.has(identity)) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uAC19\uC740 \uC0C1\uD488 \uC904\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.`);
+      products.add(identity);
+      const orderQty = requiredInteger(values[4], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uBC1C\uC8FC \uC218\uB7C9`);
+      const purchasePrice = requiredInteger(values[6], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uB9E4\uC785\uAC00`);
+      const supplyPrice = requiredInteger(values[7], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uACF5\uAE09\uAC00`);
+      const vat = requiredInteger(values[8], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uBD80\uAC00\uC138`);
+      const totalPurchase = requiredInteger(values[9], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uBC1C\uC8FC \uAE08\uC561`);
+      orderQtyTotal += orderQty;
+      orderAmountTotal += totalPurchase;
+      rows.push({
+        poLineId: [po.poNumber, productNo, barcode, lineNumber].join(":"),
+        poNumber: po.poNumber,
+        vendorId: po.vendorId,
+        productNo,
+        barcode,
+        productName,
+        orderQty,
+        plannedDeliveryDate: po.plannedDeliveryDate,
+        poStatusCode: po.purchaseOrderStatus,
+        ...basis ? { businessDateBasis: basis } : {},
+        confirmation: {
+          center: clean(po.centerName, 120),
+          inboundType: clean(po.transportTypeDescription, 80),
+          poStatus: clean(po.purchaseOrderStatusDescription, 80),
+          returnManager: clean(returnRow[0], 120),
+          returnContact: clean(returnRow[1], 80),
+          returnAddress: clean(returnRow[2], 300),
+          purchasePrice,
+          supplyPrice,
+          vat,
+          totalPurchase,
+          poRegisteredAt: String(po.createdAt ?? "").replace("T", " ").slice(0, 19),
+          xdock: "N"
+        }
+      });
+    }
+    if (!skuTable || rows.length === 0) throw new DetailMismatch(`\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uC138\uC5D0 SKU \uD589\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+    if (rows.length !== po.listSkuCount || orderQtyTotal !== po.listOrderQty || orderAmountTotal !== po.listOrderAmount) {
+      throw new DetailMismatch(
+        `\uBC1C\uC8FC\uC11C ${po.poNumber}\uC758 \uBAA9\uB85D\xB7\uC0C1\uC138 \uD569\uACC4\uAC00 \uB2E4\uB985\uB2C8\uB2E4(SKU ${rows.length}/${po.listSkuCount}, \uC218\uB7C9 ${orderQtyTotal}/${po.listOrderQty}, \uAE08\uC561 ${orderAmountTotal}/${po.listOrderAmount}).`
+      );
+    }
+    return rows;
+  }
+  function incomplete2(message) {
+    return new RuntimeError(ROCKET_PO_COLLECTION_INCOMPLETE, message.slice(0, 300), {});
+  }
+  function norm(value) {
+    return String(value ?? "").replace(/\s+/g, " ").trim();
+  }
+  function clean(value, max) {
+    return String(value ?? "").replace(/[\u0000-\u001F]/g, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, max);
+  }
+  function requiredText2(value, field) {
+    const text2 = norm(value);
+    if (!text2) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+    return text2;
+  }
+  function requiredInteger(value, field) {
+    if (typeof value === "number") {
+      if (!Number.isSafeInteger(value) || value < 0) throw incomplete2(`${field}\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+      return value;
+    }
+    if (typeof value !== "string") throw incomplete2(`${field}\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+    const raw = value.trim();
+    if (!raw || !/^\d+$/.test(raw) && !/^\d{1,3}(?:,\d{3})+$/.test(raw)) throw incomplete2(`${field}\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+    const parsed = Number(raw.replace(/,/g, ""));
+    if (!Number.isSafeInteger(parsed) || parsed < 0) throw incomplete2(`${field}\uAC00 \uBC94\uC704\uB97C \uBC97\uC5B4\uB0AC\uC2B5\uB2C8\uB2E4.`);
+    return parsed;
+  }
+  function isCalendarDate(year, month, day) {
+    if (month < 1 || month > 12 || day < 1) return false;
+    return day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
+  }
+  function requiredDate(value, field) {
+    if (typeof value !== "string") throw incomplete2(`${field}\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+    const raw = value.trim();
+    const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+    if (day) {
+      if (!isCalendarDate(Number(day[1]), Number(day[2]), Number(day[3]))) throw incomplete2(`${field}\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+      return raw;
+    }
+    const iso = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(raw);
+    const parsed = iso ? Date.parse(raw) : Number.NaN;
+    if (!iso || !isCalendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3])) || Number.isNaN(parsed)) throw incomplete2(`${field}\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+    return new Date(parsed + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
+  }
+  registerCollector(coupangRocketPoCollector);
+
   // extensions/src/collectors/orders.coupang_shipment_summary/index.ts
   var PlanSchema = external_exports.object({ maxPages: external_exports.number().int().min(1).max(60) });
   var PAGE_FETCH_CONCURRENCY = 6;
-  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
   var coupangShipmentSummaryCollector = {
     kind: COUPANG_SHIPMENT_SUMMARY_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed = PlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
       const { maxPages } = parsed.data;
       try {
         const seen = /* @__PURE__ */ new Set();
@@ -5579,17 +5807,17 @@ var KidItemRuntime = (() => {
               break;
             }
           }
-          await report?.(progress(pageRowCounts.length, maxPages, false));
+          await report?.(progress2(pageRowCounts.length, maxPages, false));
         }
         if (signal.aborted) return;
         const buffer = new ChunkBuffer({ maxItems: 1e3, label: "\uBC1C\uC1A1\uC77C \uD56D\uBAA9" });
         const dates = [...byDate.entries()].map(([date, value]) => ({ date, count: value.count, boxes: value.boxes })).sort((a, b) => b.date.localeCompare(a.date));
         for (const item of dates) {
           const full = buffer.push(item);
-          if (full) yield datesChunk(full, progress(pageRowCounts.length, maxPages, false));
+          if (full) yield datesChunk(full, progress2(pageRowCounts.length, maxPages, false));
         }
         const rest = buffer.flush();
-        if (rest) yield datesChunk(rest, progress(pageRowCounts.length, maxPages, false));
+        if (rest) yield datesChunk(rest, progress2(pageRowCounts.length, maxPages, false));
         const scan = {
           maxPages,
           scannedPages: pageRowCounts.length,
@@ -5599,13 +5827,13 @@ var KidItemRuntime = (() => {
           pageRowCounts,
           validatedTable: true
         };
-        yield { chunkKind: COUPANG_SHIPMENT_SUMMARY_SCAN_CHUNK_KIND, payload: [scan], progress: progress(pageRowCounts.length, maxPages, true) };
+        yield { chunkKind: COUPANG_SHIPMENT_SUMMARY_SCAN_CHUNK_KIND, payload: [scan], progress: progress2(pageRowCounts.length, maxPages, true) };
       } finally {
         await site.close();
       }
     }
   };
-  function progress(current, total, done) {
+  function progress2(current, total, done) {
     return { current, total, done };
   }
   function datesChunk(payload, value) {
@@ -6573,6 +6801,7 @@ var KidItemRuntime = (() => {
   registerSite({ name: COUPANG_SEARCH_SITE.name, create: (deps) => createCoupangSearchSite(deps.tabs, { sleep: deps.sleep }) });
 
   // extensions/src/sites/coupang-supplier/page.ts
+  var COUPANG_SUPPLIER_ORIGIN = "https://supplier.coupang.com";
   var COUPANG_SUPPLIER_PAGE_FILES = { isolated: ["content/orders/coupang-supplier-page.js"] };
   var SITE_COOKIE_BLOAT = "SITE_COOKIE_BLOAT";
   var COOKIE_BLOAT_MESSAGE = "\uCFE0\uD321 \uC811\uC18D\uC774 \uB9CE\uC544 supplier.coupang.com \uCFE0\uD0A4\uAC00 \uCEE4\uC838(HTTP 400) \uC694\uCCAD\uC774 \uAC70\uBD80\uB410\uC2B5\uB2C8\uB2E4. \uCFE0\uD321 \uCFE0\uD0A4\uB97C \uC815\uB9AC\uD558\uAC70\uB098 \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC870\uD68C\uD558\uC138\uC694.";
@@ -6594,6 +6823,7 @@ var KidItemRuntime = (() => {
           { type: "KIDITEM_COUPANG_SUPPLIER_FETCH", url: path, headers: options.headers ?? {}, tables: options.tables === true },
           { timeoutMs: options.timeoutMs ?? SUPPLIER_REQUEST_TIMEOUT_MS, inject: COUPANG_SUPPLIER_PAGE_FILES, guard: COUPANG_SUPPLIER_PAGE_GUARD }
         );
+        if (answer.ok !== true && /failed to fetch/i.test(answer.error ?? "")) throw loginRequired(path);
         if (answer.ok !== true || typeof answer.status !== "number" || typeof answer.text !== "string") {
           const reason = answer.error === "timeout" ? "timeout" : "network";
           throw new RuntimeError(SITE_REQUEST_FAILED, reason === "timeout" ? "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C\uAC00 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", {
@@ -6631,6 +6861,80 @@ var KidItemRuntime = (() => {
   }
   function keepTabFor(error) {
     return leftForOperator(error);
+  }
+
+  // extensions/src/sites/coupang-supplier/po.ts
+  var PO_BOOTSTRAP_URL = `${COUPANG_SUPPLIER_ORIGIN}/scm/purchase/order/list`;
+  var PO_READY_PATH_PREFIX = "/po-web/purchase/order";
+  var NAVIGATION_TIMEOUT_MS2 = 3e4;
+  function isReadyPoUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.origin === COUPANG_SUPPLIER_ORIGIN && url.pathname.startsWith(PO_READY_PATH_PREFIX);
+    } catch {
+      return false;
+    }
+  }
+  async function preparePoSession(tab) {
+    const page = supplierPage(tab);
+    for (let attempt = 1; ; attempt += 1) {
+      const landed = await tab.navigate(PO_BOOTSTRAP_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS2 });
+      if (isReadyPoUrl(landed)) return page;
+      const body = isSupplierUrl(landed) ? await page.bodyText().catch(() => "") : "";
+      if (/HTTP Status 400|Bad Request/i.test(body)) throw cookieBloat(landed, 400);
+      if (attempt >= 2) throw loginRequired(landed);
+    }
+  }
+  function isSupplierUrl(value) {
+    try {
+      return new URL(value).origin === COUPANG_SUPPLIER_ORIGIN;
+    } catch {
+      return false;
+    }
+  }
+  async function readPurchaseOrderListPage(page, path, pageNumber) {
+    const fetched = await page.fetch(path, { headers: { accept: "application/json" } });
+    const text2 = fetched.text;
+    const failed = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
+    if (fetched.status === 400 || fetched.status === 413 || fetched.status === 431) throw cookieBloat(path, fetched.status);
+    if (fetched.status < 200 || fetched.status >= 300 || text2.trim().charAt(0) === "<") throw failed();
+    let parsed;
+    try {
+      parsed = JSON.parse(text2);
+    } catch {
+      throw failed();
+    }
+    const body = parsed?.body;
+    if (!body || !Array.isArray(body.body)) throw responseInvalid(path, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC5D0 \uD589 \uBC30\uC5F4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+    return { rows: body.body, lastPageNumber: body.lastPageNumber };
+  }
+  function purchaseOrderDetailPath(poNumber) {
+    return `/scm/purchase/order/get/${encodeURIComponent(poNumber)}`;
+  }
+  async function readPurchaseOrderDetail(page, poNumber) {
+    const path = purchaseOrderDetailPath(poNumber);
+    const fetched = await page.fetch(path, { tables: true });
+    if (fetched.status < 200 || fetched.status >= 300 || !/^\s*</.test(fetched.text)) {
+      throw new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC\uC11C ${poNumber} \uC0C1\uC138\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
+    }
+    const tables = fetched.tables ?? [];
+    if (tables.length === 0 && /(?:login|로그인|session\s+expired|세션\s*만료)/i.test(fetched.text)) throw loginRequired(fetched.url);
+    return tables;
+  }
+  async function enterScmContext(tab, poNumber) {
+    await tab.navigate(`${COUPANG_SUPPLIER_ORIGIN}${purchaseOrderDetailPath(poNumber)}`, { timeoutMs: NAVIGATION_TIMEOUT_MS2 });
+  }
+  async function readPurchasableCenters(page) {
+    const path = "/po-web/app/center/purchasable/list";
+    const fetched = await page.fetch(path, { headers: { accept: "application/json" } });
+    if (fetched.status < 200 || fetched.status >= 300 || fetched.text.trim().charAt(0) === "<") {
+      throw new RuntimeError(SITE_REQUEST_FAILED, "\uC13C\uD130 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: fetched.status, url: path, reason: "http", bodyHead: null });
+    }
+    try {
+      return JSON.parse(fetched.text);
+    } catch {
+      throw responseInvalid(path, "\uC13C\uD130 \uBAA9\uB85D \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.");
+    }
   }
 
   // extensions/src/sites/coupang-supplier/shipments.ts
@@ -6683,10 +6987,15 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/coupang-supplier/index.ts
-  var NAVIGATION_TIMEOUT_MS2 = 3e4;
-  function createCoupangSupplierSite(deps, _lease = { tabId: null }) {
+  var NAVIGATION_TIMEOUT_MS3 = 3e4;
+  function purchaseOrderListPath(query, pageNumber) {
+    return "/po-web/app/purchase-order/list?page=" + pageNumber + "&searchDateType=" + query.searchDateType + "&searchStartDate=" + query.from + "&searchEndDate=" + query.to + "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=" + query.status + "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
+  }
+  function createCoupangSupplierSite(deps, lease = { tabId: null }) {
     let shipmentTab = null;
     let shipmentPage = null;
+    let poTab = null;
+    let poPage = null;
     let keepOpen = false;
     const remember = (work) => work.catch((error) => {
       if (keepTabFor(error)) keepOpen = true;
@@ -6696,28 +7005,57 @@ var KidItemRuntime = (() => {
       shipmentPage ??= (async () => {
         const tab = await deps.tabs.open("about:blank");
         shipmentTab = tab;
-        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS2, continueOnTimeout: true });
+        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS3, continueOnTimeout: true });
         return supplierPage(tab);
       })();
       return shipmentPage;
+    }
+    function purchaseOrders() {
+      poPage ??= (async () => {
+        const tab = lease.tabId !== null ? deps.tabs.attach(lease.tabId) : await deps.tabs.open("about:blank");
+        poTab = tab;
+        return preparePoSession(tab);
+      })();
+      return poPage;
     }
     return {
       /** 쉽먼트 목록 한 쪽(1부터). 여러 쪽을 함께 불러도 된다(탭 하나). */
       parcelPage(pageNumber) {
         return remember(shipments().then((page) => readParcelPage(page, pageNumber)));
       },
-      /** 이 사이트가 연 탭을 닫는다. 로그인·예상 밖 주소에서 멈췄으면 운영자에게 남긴다. */
+      /** 발주 목록 한 쪽(1부터)의 JSON 본문. 첫 쪽이 JSON이 아니면 로그인 필요. */
+      purchaseOrderListPage(query, pageNumber) {
+        return remember(purchaseOrders().then((page) => readPurchaseOrderListPage(page, purchaseOrderListPath(query, pageNumber), pageNumber)));
+      },
+      /** 발주서 상세의 표(칸 단위). */
+      purchaseOrderDetail(poNumber) {
+        return remember(purchaseOrders().then((page) => readPurchaseOrderDetail(page, poNumber)));
+      },
+      /** 직배송 센터 주소 목록 JSON. */
+      purchasableCenters() {
+        return remember(purchaseOrders().then((page) => readPurchasableCenters(page)));
+      },
+      /** 직배송: 품목 상세 전에 탭을 첫 발주서 상세로 옮긴다. */
+      enterScmContext(poNumber) {
+        return remember(purchaseOrders().then(() => enterScmContext(poTab, poNumber)));
+      },
+      /** 이 사이트가 연 탭을 닫는다(잠금이 준 탭은 브라우저 자원이 닫는다). 로그인·예상 밖 주소에서 멈췄으면 남긴다. */
       async close() {
-        if (shipmentTab && !keepOpen) await shipmentTab.close();
+        if (!keepOpen) {
+          if (shipmentTab) await shipmentTab.close();
+          if (poTab) await poTab.close();
+        }
         shipmentTab = null;
         shipmentPage = null;
+        poTab = null;
+        poPage = null;
       }
     };
   }
-  registerSite({ name: "coupang-supplier", create: (deps, lease) => createCoupangSupplierSite(deps, lease) });
+  registerSite({ name: "coupang-supplier", origin: PO_BOOTSTRAP_URL, create: (deps, lease) => createCoupangSupplierSite(deps, lease) });
 
   // extensions/src/sites/live-commerce/index.ts
-  var NAVIGATION_TIMEOUT_MS3 = 35e3;
+  var NAVIGATION_TIMEOUT_MS4 = 35e3;
   var EXTRACTION_TIMEOUT_MS2 = 25e3;
   var MAX_PRODUCTS = 100;
   var CONTENT_FILES = {
@@ -6757,14 +7095,14 @@ var KidItemRuntime = (() => {
         let keepOpen = false;
         try {
           const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
-          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt });
+          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS4, stopAt });
           for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
             const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
             if (!cleared) {
               keepOpen = true;
               throw verification2(landed);
             }
-            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt });
+            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS4, stopAt });
           }
           if (isLiveLoginUrl(landed)) {
             keepOpen = true;
@@ -6970,7 +7308,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/tiktok-cc/index.ts
-  var NAVIGATION_TIMEOUT_MS4 = 35e3;
+  var NAVIGATION_TIMEOUT_MS5 = 35e3;
   var EXTRACTION_TIMEOUT_MS4 = 25e3;
   var BASE_URLS = {
     hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
@@ -7041,14 +7379,14 @@ var KidItemRuntime = (() => {
     };
     async function readTarget(page2, target, defaultRegion, onAttention) {
       const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
-      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS4, stopAt, continueOnTimeout: true });
+      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS5, stopAt, continueOnTimeout: true });
       for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
         const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
         if (!cleared) {
           keepOpen = true;
           throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
         }
-        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS4, stopAt, continueOnTimeout: true });
+        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS5, stopAt, continueOnTimeout: true });
       }
       if (isTiktokBlockedUrl(landed)) {
         throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
@@ -7182,7 +7520,7 @@ var KidItemRuntime = (() => {
       if (row.vendorId !== void 0 && (typeof row.vendorId !== "string" || expectedVendorId && row.vendorId !== expectedVendorId)) {
         throw new WingPayloadError(`Wing \uD310\uB9E4\uC790 ID\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4: ${externalProductId}`);
       }
-      requiredText2(row.productName, "Wing \uC0C1\uD488\uBA85");
+      requiredText3(row.productName, "Wing \uC0C1\uD488\uBA85");
       return buildCatalogBasicProduct(row);
     });
     return { page: requestedPage, pageSize, totalItems, totalPages, products };
@@ -7192,7 +7530,7 @@ var KidItemRuntime = (() => {
     const externalProductId = strictRequiredId(inventoryProduct.vendorInventoryId, "vendorInventoryId");
     const items = Array.isArray(inventoryProduct.vendorInventoryItems) ? inventoryProduct.vendorInventoryItems : [];
     if (items.length === 0) throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId}\uC5D0 vendorInventoryItems\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    const saleStatus = saleStatusFromWingProductStatus(requiredText2(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
+    const saleStatus = saleStatusFromWingProductStatus(requiredText3(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
     const optionIds = /* @__PURE__ */ new Set();
     const options = items.map((item) => {
       const option = buildCatalogBasicOption(item);
@@ -7498,7 +7836,7 @@ var KidItemRuntime = (() => {
     const number = Number(value);
     return Number.isInteger(number) && number >= 0 ? number : null;
   }
-  function requiredText2(value, name) {
+  function requiredText3(value, name) {
     const text2 = typeof value === "string" ? value.trim() : "";
     if (!text2) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
     return text2;
@@ -8025,12 +8363,12 @@ var KidItemRuntime = (() => {
     const base = "/api/operations";
     return {
       begin: (request) => call(api, base, { method: "POST", body: request }, OperationBeginResponseSchema),
-      async putChunk({ operationId, token, chunkKind, sequence, payload, progress: progress2 }) {
+      async putChunk({ operationId, token, chunkKind, sequence, payload, progress: progress3 }) {
         const checksum = await sha256Hex(JSON.stringify(payload));
         return call(
           api,
           `${base}/${encodeURIComponent(operationId)}/chunks/${encodeURIComponent(chunkKind)}/${sequence}`,
-          { method: "PUT", token, body: { checksum, payload, ...progress2 ? { progress: progress2 } : {} } },
+          { method: "PUT", token, body: { checksum, payload, ...progress3 ? { progress: progress3 } : {} } },
           OperationChunkPutResponseSchema
         );
       },
@@ -8184,11 +8522,11 @@ var KidItemRuntime = (() => {
       let chunks = 0;
       let items = 0;
       scheduleHeartbeat();
-      const report = async (progress2) => {
+      const report = async (progress3) => {
         if (collectionDone || local.signal.aborted) return;
-        lastProgress = progress2;
+        lastProgress = progress3;
         await write(
-          () => deps.client.putChunk({ operationId, token, chunkKind: HEARTBEAT_CHUNK_KIND, sequence: 1, payload: [], progress: progress2 })
+          () => deps.client.putChunk({ operationId, token, chunkKind: HEARTBEAT_CHUNK_KIND, sequence: 1, payload: [], progress: progress3 })
         );
         scheduleHeartbeat();
       };

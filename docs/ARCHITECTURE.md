@@ -447,8 +447,8 @@ move to owner input contracts through their own output adapters. Channels organi
 references too; same-owner FK and organization constraints remain. Other owners
 still have explicitly inventoried migration exceptions. Removing a relation also
 requires lifecycle, missing-reference, and concurrent-change coverage. Channels owns every ChannelAccount mutation, including the compatibility account
-editor under Orders URLs. Orders owns Rocket PO collection attempts, snapshots
-and lines and publishes observed listing identities through Channels' catalog
+editor under Orders URLs. Orders owns Rocket PO collection (operation kind
+`orders.coupang_rocket_po`), snapshots and lines and publishes observed listing identities through Channels' catalog
 capability in the same transaction. Supply retains purchase judgment and
 confirmation. The coordinated change follows
 [the Channels redesign spec](https://linear.app/kiditem/issue/KID-286).

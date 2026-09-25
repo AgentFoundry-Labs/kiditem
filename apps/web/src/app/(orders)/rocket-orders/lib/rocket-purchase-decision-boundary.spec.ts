@@ -69,10 +69,10 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).toContain('listSavedRocketPos');
     expect(operationsSource).not.toContain('listRocketPosFromExtension');
     expect(operationsSource).toContain('selectedRocketAccountId');
-    expect(operationsSource).toContain('selectedSourceImportRunId');
-    expect(operationsSource).toContain('sourceImportRunId');
+    expect(operationsSource).toContain('selectedRocketPoOperationId');
+    expect(operationsSource).toContain('rocketPoOperationId');
     expect(operationsSource).toContain('useRocketPoSource');
-    expect(operationsSource).not.toContain('newestSourceImportRunId');
+    expect(operationsSource).not.toContain('newestRocketPoOperationId');
     expect(operationsSource).not.toContain('이 수집본으로 납품 판단');
     // 저장 발주 빈 상태 문구는 양쪽 워크스페이스 판본에 공통으로 존재하는 문구를 기준으로 검증한다.
     expect(operationsSource).toContain('이 달엔 해당 발주가 없습니다');
@@ -101,7 +101,7 @@ describe('Rocket purchase decision boundary', () => {
     expect(operationsSource).not.toContain('재고 매핑 기반 판단은 추후 연동');
     expect(confirmPanelSource).toContain('useRocketPurchaseWorkflow');
     expect(confirmPanelSource).toContain('channelAccountId');
-    expect(confirmPanelSource).toContain('savedSourceImportRunId');
+    expect(confirmPanelSource).toContain('savedRocketPoOperationId');
     expect(confirmPanelSource).toContain('revalidateEditedQuantities');
     expect(confirmPanelSource).toContain('setPreviewDirty(true)');
     expect(canonicalWorkbookSource).toContain('editedQuantities: reviewedQuantities');
@@ -139,8 +139,9 @@ describe('Rocket purchase decision boundary', () => {
     expect(previewApiSource).toContain("action: 'loadSavedRocketCollection'");
     expect(previewApiSource).not.toMatch(/confirmRocket|releaseRocketConfirmation/);
     expect(previewApiSource).not.toContain('/api/orders/rocket');
-    expect(extensionSource).toContain('coupangRocketPoSourceOwnerV1: true');
-    expect(extensionSource).not.toMatch(/collectRocketPoRows(?:Evidence|Confirmation)V1: true/);
+    // 로켓 PO 수집은 실행 kind orders.coupang_rocket_po다(KID-359) — 옛 source owner 표시·액션이 없다.
+    expect(extensionSource).not.toContain('coupangRocketPoSourceOwnerV1');
+    expect(extensionSource).not.toContain('collectRocketPoRows');
     expect(extensionSource).toContain('collectSellpiaInventoryJsonV1: true');
   });
 });

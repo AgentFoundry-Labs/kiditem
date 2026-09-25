@@ -54,6 +54,11 @@ Action, collection, transmission, and reconciliation behavior is executable in
   `orders.coupang_shipment_summary` (organization lock). Its finalize keeps the
   old scan-proof validation and writes date rows with `operationId`; the
   calendar reads operation rows and untagged baseline rows only.
+- Rocket PO is the operation kind `orders.coupang_rocket_po` (account lock).
+  Its finalize keeps the old completion checks and publishes provider identity,
+  Channels observed identities (`lastOperationId`) and the snapshot
+  (`operationId`) in the finish transaction. Supply reads a published
+  collection by `rocketPoOperationId` through `ROCKET_PO_CATALOG_PORT`.
 
 ## Boundaries
 

@@ -15,7 +15,6 @@ export const SOURCE_OWNER_BY_PRODUCER = Object.freeze({
   "dashboard.wing_sales": "analytics",
   "inventory.sellpia": "inventory",
   "orders.coupang_directship": "orders",
-  "orders.coupang_rocket_po": "channels",
   "orders.mall": "orders",
   "orders.sabangnet_mall_listings": "channels",
   "orders.mall_admin_listings": "channels",

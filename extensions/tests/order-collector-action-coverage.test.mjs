@@ -371,7 +371,6 @@ test('order collector manifest publishes normalized failure evidence and scoped 
   const worker = readFileSync(workerPath, 'utf8');
   assert.match(worker, /sellpiaOrderFileUploadEvidenceV1:\s*true/);
   assert.match(worker, /sellpiaScopedAutoInvoiceV1:\s*true/);
-  assert.equal(/coupangRocketPoSourceOwnerV1:\s*true/.test(worker), true);
 });
 
 test('Sellpia inventory delegates the server-issued attempt directly to the source owner', () => {

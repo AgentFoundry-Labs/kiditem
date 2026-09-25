@@ -196,7 +196,11 @@ erDiagram
     String id PK
     String organizationId FK
     String channelAccountId
+     /**
     String sourceImportRunId FK
+     /**
+    String operationId
+     /**
     String collectionRunId
     String vendorId
     Int listPagesRead

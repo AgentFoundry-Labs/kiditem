@@ -65,7 +65,7 @@ export interface RocketDecisionWorkspaceContext {
   channelAccountName: string;
   from: string;
   to: string;
-  selectedSourceImportRunId: string | null;
+  selectedRocketPoOperationId: string | null;
   // 선택 날짜와 그 날짜의 수집본 수는 워크스페이스가 소유한다. 패널이 클릭 콜백으로만 알던 시절에는
   // URL 복원(새로고침·링크 공유)에서 값이 비어 안내 배너가 통째로 사라졌다.
   selectedDate: string | null;
@@ -123,12 +123,12 @@ export function RocketOrdersWorkspace({
     view,
   } = viewState;
   const selectedDay = viewState.date || null;
-  // 발주 행 키는 `${sourceImportRunId}:${poNumber}` 문자열이다.
+  // 발주 행 키는 `${rocketPoOperationId}:${poNumber}` 문자열이다.
   // 로켓 채널 계정: '발주 미리보기' 카드는 제거했지만, 달력·발주목록·차트가 쓰는 계정 선택은
   // RocketAccountBootstrap 이 익스텐션에서 확보한 내부 로켓 식별자를 유지한다.
   const [selectedRocketAccountName, setSelectedRocketAccountName] = useState('');
   const rocketSource = useRocketPoSource(selectedRocketAccountId, viewStateReady);
-  const selectedSourceImportRunId = rocketSource.data?.latestComplete?.attemptId ?? null;
+  const selectedRocketPoOperationId = rocketSource.data?.latestComplete?.attemptId ?? null;
   const rocketSourceRead = collectionSourceStatusRead(rocketSource);
   const { events, record: recordActivity } = useRocketOrderActivity();
 
@@ -160,14 +160,14 @@ export function RocketOrdersWorkspace({
       from,
       to,
       status,
-    }), selectedSourceImportRunId],
+    }), selectedRocketPoOperationId],
     queryFn: () => listSavedRocketPos({
       channelAccountId: selectedRocketAccountId,
       from,
       to,
       status: status || undefined,
     }),
-    enabled: viewStateReady && selectedRocketAccountId.length > 0 && Boolean(selectedSourceImportRunId),
+    enabled: viewStateReady && selectedRocketAccountId.length > 0 && Boolean(selectedRocketPoOperationId),
     meta: { suppressGlobalErrorToast: true },
     staleTime: 0,
     retry: false,
@@ -175,18 +175,18 @@ export function RocketOrdersWorkspace({
   });
 
   const orders = data ?? EMPTY_ROCKET_POS;
-  const latestSourceImportRunId = selectedSourceImportRunId;
+  const latestRocketPoOperationId = selectedRocketPoOperationId;
   // 건수는 완료(COMPLETE) 수집본 하나의 발주 행을 실제로 읽었을 때만 측정값이다.
   // 그런 수집본이 없거나 행을 아직 읽지 못했으면 아무것도 세지 않았으므로,
   // 요약과 달력은 0을 찍지 않고 알 수 없음으로 둔다(ADR-0006).
-  const ordersMeasured = latestSourceImportRunId !== null && data !== undefined;
+  const ordersMeasured = latestRocketPoOperationId !== null && data !== undefined;
 
   // 과거 원본이 정리되기 전에도 운영 화면은 최신 정상 수집본 하나만 사용한다.
   const latestOrders = useMemo(
-    () => latestSourceImportRunId
-      ? orders.filter(({ sourceImportRunId }) => sourceImportRunId === latestSourceImportRunId)
+    () => latestRocketPoOperationId
+      ? orders.filter(({ rocketPoOperationId }) => rocketPoOperationId === latestRocketPoOperationId)
       : EMPTY_ROCKET_POS,
-    [latestSourceImportRunId, orders],
+    [latestRocketPoOperationId, orders],
   );
 
   // 입고예정일별 그룹
@@ -228,7 +228,7 @@ export function RocketOrdersWorkspace({
     return latestOrders.filter(({ plannedDeliveryDate }) => plannedDeliveryDate === selectedDay);
   }, [latestOrders, selectedDay]);
   const selectedDaySourceRunCount = new Set(
-    selectedDayOrders.map(({ sourceImportRunId }) => sourceImportRunId),
+    selectedDayOrders.map(({ rocketPoOperationId }) => rocketPoOperationId),
   ).size;
 
   function selectOrderDay(
@@ -239,7 +239,7 @@ export function RocketOrdersWorkspace({
     const rowsForDate = date
       ? latestOrders.filter(({ plannedDeliveryDate }) => plannedDeliveryDate === date)
       : [];
-    const sourceRuns = new Set(rowsForDate.map(({ sourceImportRunId }) => sourceImportRunId));
+    const sourceRuns = new Set(rowsForDate.map(({ rocketPoOperationId }) => rocketPoOperationId));
     onSelectDate(date, sourceRuns.size);
   }
 
@@ -291,7 +291,7 @@ export function RocketOrdersWorkspace({
     const unmeasuredValue = (
       <b
         className="text-slate-500"
-        title={latestSourceImportRunId === null
+        title={latestRocketPoOperationId === null
           ? '완료된 로켓 수집본이 없어 알 수 없습니다'
           : '저장된 발주 목록을 아직 읽지 못해 알 수 없습니다'}
       >—</b>
@@ -503,7 +503,7 @@ export function RocketOrdersWorkspace({
         channelAccountName: selectedRocketAccountName,
         from,
         to,
-        selectedSourceImportRunId,
+        selectedRocketPoOperationId,
         selectedDate: selectedDay || null,
         selectedDateSourceRunCount: selectedDaySourceRunCount,
         onActivity: recordActivity,

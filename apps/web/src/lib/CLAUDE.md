@@ -59,10 +59,11 @@ multiple route groups.
   `coupang-shipment-summary-operation.ts` starts it through `operation-start.ts`,
   reads progress from `GET /api/operations` and the calendar from the owner;
   keep provider rows and terminal writes out of the page.
-- Rocket PO callers start and stop collection through the account's shared
-  control (`useRocketPoCollection`). Supply previews the owner's COMPLETE source
-  by ID; `use-rocket-po-source.ts` reads owner status, and preview errors never
-  fail a source.
+- Rocket PO is the operation kind `orders.coupang_rocket_po`: callers start
+  and stop it through the account's shared control (`useRocketPoCollection`),
+  and `use-rocket-po-source.ts` reads the operations reader per account. Supply
+  previews a published collection by `rocketPoOperationId`; preview errors
+  never fail a source.
 - `mall-session-probe.ts` owns the mall login check (`probeMallSession`) and the
   `sweepMallSessions` round used by the agent loop. A mall is `signed_in`,
   `verification_required`, or `signed_out` — there is no unknown state. It sends

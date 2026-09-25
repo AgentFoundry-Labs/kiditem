@@ -4,9 +4,11 @@ Before working in this directory, always read this document first rather than re
 
 `background/orders/` collects approved marketplace order/export evidence from
 the operator's authenticated Chrome session, then returns non-secret rows or
-files to the KidItem web app for NestJS processing. It also owns Rocket PO
-evidence, Sellpia snapshot/profit collection, order-file upload, tracking
-registration, and Coupang cookie-overflow recovery.
+files to the KidItem web app for NestJS processing. It also owns Sellpia
+snapshot/profit collection, order-file upload, tracking
+registration, and Coupang cookie-overflow recovery. Coupang shipment date
+summary and Rocket PO are operation kinds collected by `extensions/src`
+(`sites/coupang-supplier`), not by this worker.
 
 ## Security And Environment
 

@@ -367,8 +367,12 @@ model RocketPoCatalogSnapshot {
   id                String @id @default(uuid()) @db.Uuid
   organizationId    String @map("organization_id") @db.Uuid
   channelAccountId  String @map("channel_account_id") @db.Uuid
-  sourceImportRunId String @map("source_import_run_id") @db.Uuid
-  collectionRunId   String @map("collection_run_id") @db.Uuid
+  /** 옛 attempt 경로의 run(N까지). 실행 계약 kind `orders.coupang_rocket_po`가 쓴 스냅샷은 `operationId`만 갖는다(KID-359). */
+  sourceImportRunId String? @map("source_import_run_id") @db.Uuid
+  /** 이 스냅샷을 발행한 실행(스칼라, 관계 없음 — ADR-0025). 옛 run 스냅샷은 null. */
+  operationId       String? @map("operation_id") @db.Uuid
+  /** 수집 증거의 식별자. 실행이 쓴 스냅샷은 `operationId`와 같다. */
+  collectionRunId   String  @map("collection_run_id") @db.Uuid
 
   vendorId       String @map("vendor_id")
   listPagesRead  Int    @map("list_pages_read")
@@ -380,10 +384,11 @@ model RocketPoCatalogSnapshot {
 
   lines RocketPoCatalogLine[]
 
-  sourceImportRun SourceImportRun       @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun SourceImportRun?      @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([id, organizationId], map: "rocket_po_catalog_snapshots_id_org_key")
   @@unique([sourceImportRunId, organizationId], map: "rocket_po_catalog_snapshots_run_org_key")
+  @@unique([organizationId, operationId], map: "rocket_po_catalog_snapshots_org_operation_key")
   @@unique([organizationId, channelAccountId, collectionRunId], map: "rocket_po_catalog_snapshots_org_account_collection_key")
   @@index([organizationId, channelAccountId, createdAt])
   @@index([channelAccountId])

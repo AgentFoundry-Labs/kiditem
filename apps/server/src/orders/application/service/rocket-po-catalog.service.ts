@@ -1,44 +1,28 @@
-import { BadRequestException, Inject, Injectable } from '@nestjs/common';
-import {
-  RocketPoSourceBeginSchema,
-  RocketPoSourceSubmissionSchema,
-} from '@kiditem/shared/rocket-purchase-preview';
+import { Inject, Injectable } from '@nestjs/common';
 import type { RocketPoCatalogPort } from '../port/in/rocket-po-catalog.port';
 import {
   ROCKET_PO_CATALOG_REPOSITORY_PORT,
   type RocketPoCatalogRepositoryPort,
 } from '../port/out/repository/rocket-po-catalog.repository.port';
 
+/** 로켓 PO 원천의 문. 실행 계약(plan·finalize)과 Supply 읽기가 같은 repository 조합을 거친다. */
 @Injectable()
 export class RocketPoCatalogService implements RocketPoCatalogPort {
   constructor(
     @Inject(ROCKET_PO_CATALOG_REPOSITORY_PORT)
     private readonly repository: RocketPoCatalogRepositoryPort,
   ) {}
-  begin(input: Parameters<RocketPoCatalogPort['begin']>[0]) {
-    const parsed = RocketPoSourceBeginSchema.safeParse(input.request);
-    if (!parsed.success) throw new BadRequestException('ROCKET_PO_PLAN_INVALID');
-    return this.repository.begin({ ...input, request: parsed.data });
+  planOperation(input: Parameters<RocketPoCatalogPort['planOperation']>[0]) {
+    return this.repository.planOperation(input);
   }
-  readAttempt(input: Parameters<RocketPoCatalogPort['readAttempt']>[0]) {
-    return this.repository.readAttempt(input);
-  }
-  readSource(input: Parameters<RocketPoCatalogPort['readSource']>[0]) {
-    return this.repository.readSource(input);
-  }
-  complete(input: Parameters<RocketPoCatalogPort['complete']>[0]) {
-    const parsed = RocketPoSourceSubmissionSchema.safeParse(input.submission);
-    if (!parsed.success) throw new BadRequestException('ROCKET_PO_EVIDENCE_INVALID');
-    return this.repository.complete({ ...input, submission: parsed.data });
-  }
-  fail(input: Parameters<RocketPoCatalogPort['fail']>[0]) {
-    return this.repository.fail(input);
-  }
-  cancel(input: Parameters<RocketPoCatalogPort['cancel']>[0]) {
-    return this.repository.cancel(input);
+  publishOperation(...args: Parameters<RocketPoCatalogPort['publishOperation']>) {
+    return this.repository.publishOperation(...args);
   }
   readComplete(input: Parameters<RocketPoCatalogPort['readComplete']>[0]) {
     return this.repository.readComplete(input);
+  }
+  assertPublished(...args: Parameters<RocketPoCatalogPort['assertPublished']>) {
+    return this.repository.assertPublished(...args);
   }
   listSavedPos(input: Parameters<RocketPoCatalogPort['listSavedPos']>[0]) {
     return this.repository.listSavedPos(input);

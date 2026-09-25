@@ -76,8 +76,6 @@ importScripts(
   "orders/mall-availability-send.js",
   "orders/mall-session-probe.js",
   "orders/mall-session.js",
-  "orders/rocket-po-collection.js",
-  "orders/rocket-po-source-owner.js",
   "orders/coupang-directship-source-owner.js",
   // 소싱 수집(KID-360)은 새 런타임(kiditem-runtime.js)의 실행 kind다. 아래 모듈은 광고·경쟁 수집이 쓴다.
   "coupang/wing-search-collector.js",
