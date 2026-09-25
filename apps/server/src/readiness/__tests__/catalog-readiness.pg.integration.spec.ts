@@ -72,7 +72,11 @@ describe('Coupang catalog readiness count over PostgreSQL', () => {
 
     const scope = (list.result as { next: { scope: { channelAccountId: string; detailTargetProductIds: string[]; absentProductIds: string[] } } }).next.scope;
     expect(scope).toMatchObject({ via: 'list' });
-    const details = await wing.runDetails(scope, []);
+    const detail = (id: string) => ({
+      externalProductId: id, documents: [], media: [], raw: {},
+      options: [{ externalOptionId: `${id}-O`, documentIds: [] }],
+    });
+    const details = await wing.runDetails(scope, [detail('P1'), detail('P2')]);
     const products = (await readiness().getStatus(ORG)).checks.find((check) => check.key === 'coupang_products');
     expect(products).toMatchObject({ count: 2, detail: '쿠팡 상품 2건 수집됨' });
     expect(products?.basis).toMatchObject({ observedAt: details.finishedAt });
@@ -82,6 +86,12 @@ describe('Coupang catalog readiness count over PostgreSQL', () => {
     expect(manual).toMatchObject({ status: 'succeeded', plan: { via: 'manual' } });
     const after = (await readiness().getStatus(ORG)).checks.find((check) => check.key === 'coupang_products');
     expect(after?.basis).toMatchObject({ observedAt: details.finishedAt });
+
+    // 바뀐 게 없는 두 번째 동기화는 목록에서 끝난다(next: null) — 그 끝도 동기화의 끝이다.
+    const second = await wing.runList(accountId, [product('P1'), product('P2')]);
+    expect(second.result).toMatchObject({ next: null });
+    const latest = (await readiness().getStatus(ORG)).checks.find((check) => check.key === 'coupang_products');
+    expect(latest?.basis).toMatchObject({ observedAt: second.finishedAt });
   });
 
   function catalogRun(data: {
