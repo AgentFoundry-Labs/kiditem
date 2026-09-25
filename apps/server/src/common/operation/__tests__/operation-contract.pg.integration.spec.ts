@@ -350,6 +350,9 @@ describe('operation contract HTTP + disposable PG', () => {
     const first = await beginOk(body);
     const resend = await beginOk({ ...body, scope: { a: 1, lockKeys: ['resource:test:1'] } });
     expect(resend).toMatchObject({ reused: true, token: first.token, operation: { id: first.operation.id } });
+    // sha256('{"fileHash":null,"kind":"test.echo","scope":{"a":1,"lockKeys":["resource:test:1"]}}')
+    expect((await prisma.operation.findUniqueOrThrow({ where: { id: first.operation.id } })).requestHash)
+      .toBe('dc9e5b74e9ff258a8149b5aad260e10cd53bbc5a628caeda4a9d12284afdb4d6');
     const refused = await begin({ ...body, scope: { lockKeys: ['resource:test:1'], a: 2 } }).expect(400);
     expect(refused.body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'idempotency_key_reused' } });
     expect(await prisma.operation.count()).toBe(1);

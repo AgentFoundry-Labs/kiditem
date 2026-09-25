@@ -31,7 +31,7 @@ import {
   isLeaseExpired,
   leaseExpiresAt,
 } from '../../domain/operation-fence';
-import { operationRequestHash } from '../../domain/operation-request-hash';
+import { canonicalOwnerInputHash } from '../../../owner-idempotency-key';
 import type { OperationPort } from '../port/in/operation.port';
 import {
   OPERATION_REPOSITORY,
@@ -85,7 +85,8 @@ export class OperationService implements OperationPort {
     if (!owner) {
       throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'unknown_operation_kind' } });
     }
-    const requestHash = operationRequestHash({ kind: request.kind, scope: request.scope, fileHash: request.fileHash });
+    // begin 요청의 지문: kind·scope·fileHash를 키 순서와 무관하게 직렬화한 SHA-256.
+    const requestHash = canonicalOwnerInputHash({ kind: request.kind, scope: request.scope, fileHash: request.fileHash ?? null });
     const planned = OperationPlanResultSchema.parse(await owner.plan(request.scope, { organizationId }));
     // 모든 begin이 같은 순서로 잠금 행을 쓰게 정렬한다. 엇갈린 순서는 교착(40P01)으로 500이 된다.
     const lockKeys = [...new Set(planned.lockKeys)].sort();
