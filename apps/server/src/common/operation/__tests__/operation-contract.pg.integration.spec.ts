@@ -403,4 +403,29 @@ describe('operation contract HTTP + disposable PG', () => {
     }
   });
 
+
+  it('14. the same fileHash applies once per kind: refused after success, restartable after failure or cancel', async () => {
+    const file = 'f'.repeat(64);
+    const applied = await beginOk({ kind: 'test.echo', scope: { lockKeys: ['resource:file:1'] }, fileHash: file });
+    await finish(applied.operation.id, applied.token, { outcome: 'succeeded' }).expect(200);
+    const refused = await begin({ kind: 'test.echo', scope: { lockKeys: ['resource:file:1'] }, fileHash: file }).expect(409);
+    expect(refused.body).toMatchObject({
+      code: 'DB_CONFLICT',
+      details: { reason: 'file_already_applied', existing: { operationId: applied.operation.id } },
+    });
+    await beginOk({ kind: 'test.other', scope: { lockKeys: ['resource:file:2'] }, fileHash: file });
+
+    const other = 'e'.repeat(64);
+    const failed = await beginOk({ kind: 'test.echo', scope: { lockKeys: ['resource:file:3'] }, fileHash: other });
+    await finish(failed.operation.id, failed.token, { outcome: 'failed', errorCode: 'PARSE_ERROR' }).expect(200);
+    const retried = await beginOk({ kind: 'test.echo', scope: { lockKeys: ['resource:file:3'] }, fileHash: other });
+    expect(retried.operation.id).not.toBe(failed.operation.id);
+    expect((await prisma.operation.findUniqueOrThrow({ where: { id: failed.operation.id } })).fileHash).toBeNull();
+
+    await cancel(retried.operation.id).expect(200);
+    const again = await beginOk({ kind: 'test.echo', scope: { lockKeys: ['resource:file:3'] }, fileHash: other });
+    expect((await prisma.operation.findUniqueOrThrow({ where: { id: retried.operation.id } })).fileHash).toBeNull();
+    expect((await prisma.operation.findUniqueOrThrow({ where: { id: again.operation.id } })).fileHash).toBe(other);
+  });
+
 });
