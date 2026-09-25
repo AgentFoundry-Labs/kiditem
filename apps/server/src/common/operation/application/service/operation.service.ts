@@ -87,7 +87,8 @@ export class OperationService implements OperationPort {
     }
     const requestHash = operationRequestHash({ kind: request.kind, scope: request.scope, fileHash: request.fileHash });
     const planned = OperationPlanResultSchema.parse(await owner.plan(request.scope, { organizationId }));
-    const lockKeys = [...new Set(planned.lockKeys)];
+    // 모든 begin이 같은 순서로 잠금 행을 쓰게 정렬한다. 엇갈린 순서는 교착(40P01)으로 500이 된다.
+    const lockKeys = [...new Set(planned.lockKeys)].sort();
     try {
       return await this.admit(organizationId, request, requestHash, planned.plan, planned.window ?? null, lockKeys);
     } catch (error) {

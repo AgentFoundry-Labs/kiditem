@@ -137,13 +137,15 @@ class PrismaOperationTransaction implements OperationTransaction {
         plan: operation.plan as Prisma.InputJsonValue,
         ...windowColumns(operation.window),
         startedAt: operation.startedAt,
-        locks: {
-          create: operation.lockKeys.map((lockKey) => ({ organizationId: operation.organizationId, lockKey })),
-        },
       },
-      include: withLocks,
     });
-    return toRecord(row);
+    // 키마다 한 행씩, 호출자가 준 순서(정렬됨)대로 쓴다. 두 begin이 같은 순서로 잠그므로 교착하지 않는다.
+    for (const lockKey of operation.lockKeys) {
+      await this.tx.operationLock.create({
+        data: { organizationId: operation.organizationId, lockKey, operationId: row.id },
+      });
+    }
+    return { ...toRecord({ ...row, locks: [] }), lockKeys: [...operation.lockKeys] };
   }
 
   async close(organizationId: string, operationId: string, closure: OperationClosure) {

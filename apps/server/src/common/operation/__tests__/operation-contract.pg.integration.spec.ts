@@ -78,6 +78,26 @@ class TestOtherOwner extends EchoOwner {
   readonly kind = 'test.other';
 }
 
+/** 트랜잭션 `size`개가 도착하거나 `timeoutMs`가 지나면 한꺼번에 푸는 장벽. 처음 한 번만 붙잡는다. */
+function barrier(size: number, timeoutMs = 500) {
+  let arrived = 0;
+  let release!: () => void;
+  const open = new Promise<void>((resolve) => { release = resolve; });
+  const timer = setTimeout(() => release(), timeoutMs);
+  return {
+    async arrive() {
+      arrived += 1;
+      if (arrived > size) return;
+      if (arrived === size) {
+        clearTimeout(timer);
+        release();
+      }
+      await open;
+    },
+  };
+}
+let raceBarriers: { holders: ReturnType<typeof barrier>; firstLock: ReturnType<typeof barrier> } | null = null;
+
 const checksum = (payload: unknown[]) => createHash('sha256').update(JSON.stringify(payload)).digest('hex');
 
 describe('operation contract HTTP + disposable PG', () => {
@@ -86,7 +106,21 @@ describe('operation contract HTTP + disposable PG', () => {
   let httpUrl: string;
 
   beforeAll(async () => {
-    prisma = makeTestPrisma();
+    prisma = makeTestPrisma().$extends({
+      query: {
+        async $allOperations({ model, operation, args, query }) {
+          const result = await query(args);
+          // 동시 begin 두 개가 모두 "잠금 보유자 없음"을 읽고, 각자 첫 잠금 행을 쓴 뒤에 다음 행으로 가게 한다.
+          // 키 순서가 엇갈리면 여기서 교착이 난다. 한쪽이 unique 대기로 못 오면 시간 제한으로 풀린다.
+          const holderRead = operation === '$queryRaw' && JSON.stringify(args ?? null).includes('operation_locks');
+          const lockWrite = model === 'OperationLock' && operation === 'create';
+          if (raceBarriers && (holderRead || lockWrite)) {
+            await (holderRead ? raceBarriers.holders : raceBarriers.firstLock).arrive();
+          }
+          return result;
+        },
+      },
+    }) as unknown as PrismaClient;
     await prisma.$connect();
     const module = await Test.createTestingModule({
       imports: [DiscoveryModule],
@@ -337,6 +371,36 @@ describe('operation contract HTTP + disposable PG', () => {
     for (const operation of both) expect(operation).not.toHaveProperty('token');
     await request(httpUrl).get('/api/operations').expect(400);
     await request(httpUrl).get('/api/operations?kinds=Bad-Kind').expect(400);
+  });
+
+
+  it('13. concurrent begins on overlapping keys admit exactly one and refuse the other, whatever order the keys come in', async () => {
+    const statuses = async (bodies: Array<Record<string, unknown>>) => {
+      raceBarriers = { holders: barrier(bodies.length), firstLock: barrier(bodies.length) };
+      try {
+        const responses = await Promise.all(bodies.map((body) => begin(body)));
+        return { responses, codes: responses.map((response) => response.status).sort() };
+      } finally {
+        raceBarriers = null;
+      }
+    };
+    const same = await statuses([
+      { kind: 'test.echo', scope: { lockKeys: ['resource:test:1'] } },
+      { kind: 'test.other', scope: { lockKeys: ['resource:test:1'] } },
+    ]);
+    expect(same.codes).toEqual([201, 409]);
+    expect(same.responses.find((response) => response.status === 409)!.body.code).toBe('OPERATION_IN_PROGRESS');
+
+    for (let round = 0; round < 3; round += 1) {
+      await resetDb(prisma);
+      const crossed = await statuses([
+        { kind: 'test.echo', scope: { lockKeys: ['resource:test:x', 'resource:test:y'] } },
+        { kind: 'test.other', scope: { lockKeys: ['resource:test:y', 'resource:test:x'] } },
+      ]);
+      expect(crossed.codes).toEqual([201, 409]);
+      expect(crossed.responses.find((response) => response.status === 409)!.body.code).toBe('OPERATION_IN_PROGRESS');
+      expect(await prisma.operationLock.count()).toBe(2);
+    }
   });
 
 });
