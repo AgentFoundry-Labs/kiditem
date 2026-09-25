@@ -4078,7 +4078,7 @@ var KidItemRuntime = (() => {
   });
 
   // packages/shared/src/schemas/operation.ts
-  var OPERATION_STATUSES = ["executing", "succeeded", "failed", "cancelled"];
+  var OPERATION_STATUSES = ["prepared", "executing", "succeeded", "failed", "cancelled"];
   var OperationStatusSchema = external_exports.enum(OPERATION_STATUSES);
   var OPERATION_OUTCOMES = ["succeeded", "failed"];
   var OperationOutcomeSchema = external_exports.enum(OPERATION_OUTCOMES);
@@ -4122,7 +4122,12 @@ var KidItemRuntime = (() => {
     errorMessage: external_exports.string().nullable(),
     startedAt: zIsoDate,
     finishedAt: zIsoDate.nullable(),
-    expiresAt: zIsoDate
+    expiresAt: zIsoDate,
+    /** claim이 지금까지 몇 번 있었나. begin으로 시작한 실행은 1. */
+    attempts: external_exports.number().int().nonnegative(),
+    maxAttempts: external_exports.number().int().min(1),
+    /** `prepared`가 claim될 수 있는 시각. begin으로 시작한 실행은 null. */
+    scheduledFor: zIsoDate.nullable()
   }).strict();
   var OperationBeginRequestSchema = external_exports.object({
     kind: OperationKindSchema,
@@ -4154,10 +4159,18 @@ var KidItemRuntime = (() => {
     errorCode: external_exports.string().min(1).max(64).optional(),
     errorMessage: external_exports.string().max(2e3).optional(),
     window: OperationWindowSchema.optional(),
-    result: JsonObjectSchema.optional()
+    result: JsonObjectSchema.optional(),
+    /**
+     * failed일 때만. 재시도가 남아 있으면(`attempts < maxAttempts`) 같은 실행이 `prepared`로 돌아가
+     * `scheduledFor = now + retryAfterMs`가 된다(잠금 유지, 청크 삭제). 없거나 재시도가 없으면 terminal `failed`.
+     */
+    retryAfterMs: external_exports.number().int().nonnegative().max(7 * 24 * 60 * 60 * 1e3).optional()
   }).strict().refine(
     (value) => value.outcome !== "failed" || value.errorCode !== void 0,
     { message: "failed\uC5D0\uB294 errorCode\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4", path: ["errorCode"] }
+  ).refine(
+    (value) => value.outcome === "failed" || value.retryAfterMs === void 0,
+    { message: "retryAfterMs\uB294 failed\uC5D0\uB9CC \uC4F4\uB2E4", path: ["retryAfterMs"] }
   );
   var OperationFinishResponseSchema = external_exports.object({
     operation: OperationViewSchema
@@ -4169,6 +4182,24 @@ var KidItemRuntime = (() => {
   }).strict();
   var OperationListResponseSchema = external_exports.object({
     operations: external_exports.array(OperationViewSchema)
+  }).strict();
+  var OperationPrepareRequestSchema = external_exports.object({
+    kind: OperationKindSchema,
+    scope: JsonObjectSchema.default({}),
+    idempotencyKey: external_exports.string().min(1).max(128).optional(),
+    /** 이 시각 전에는 claim되지 않는다. 없으면 바로. */
+    scheduledFor: zIsoDate.optional(),
+    /** claim 횟수 상한(재시도 포함). 기본 1 = 재시도 없음. */
+    maxAttempts: external_exports.number().int().min(1).max(20).default(1)
+  }).strict();
+  var OperationClaimRequestSchema = external_exports.object({
+    kinds: external_exports.array(OperationKindSchema).min(1).max(50),
+    /** 로그·진단용. 잠금 판정에는 쓰지 않는다. */
+    workerId: external_exports.string().min(1).max(128)
+  }).strict();
+  var OperationClaimResultSchema = external_exports.object({
+    operation: OperationViewSchema,
+    token: external_exports.string().uuid()
   }).strict();
   var OperationPlanResultSchema = external_exports.object({
     plan: JsonObjectSchema,
