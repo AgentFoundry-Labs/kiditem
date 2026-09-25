@@ -7074,7 +7074,7 @@ var KidItemRuntime = (() => {
   var COUPANG_SUPPLIER_PAGE_FILES = { isolated: ["content/orders/coupang-supplier-page.js"] };
   var SITE_COOKIE_BLOAT = "SITE_COOKIE_BLOAT";
   var COOKIE_BLOAT_MESSAGE = "\uCFE0\uD321 \uC811\uC18D\uC774 \uB9CE\uC544 supplier.coupang.com \uCFE0\uD0A4\uAC00 \uCEE4\uC838(HTTP 400) \uC694\uCCAD\uC774 \uAC70\uBD80\uB410\uC2B5\uB2C8\uB2E4. \uCFE0\uD321 \uCFE0\uD0A4\uB97C \uC815\uB9AC\uD558\uAC70\uB098 \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC870\uD68C\uD558\uC138\uC694.";
-  var SUPPLIER_LOGIN_MESSAGE = "\uCFE0\uD321 \uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. supplier.coupang.com\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
+  var SUPPLIER_LOGIN_MESSAGE = "\uCFE0\uD321 \uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. supplier.coupang.com \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var COUPANG_SUPPLIER_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["supplier.coupang.com"]),
     isLogin: isSupplierLoginUrl,
@@ -8561,11 +8561,16 @@ var KidItemRuntime = (() => {
           let released = false;
           return {
             tabId: tab?.tabId ?? null,
-            async release() {
+            async release(outcome = {}) {
               if (released) return;
               released = true;
               held.delete(operationId);
-              if (tab?.opened) await chromeApi.tabs.remove(tab.tabId).catch(() => void 0);
+              if (!tab?.opened) return;
+              if (operatorMustAct(outcome.error)) {
+                await chromeApi.tabs.update(tab.tabId, { active: true }).catch(() => void 0);
+                return;
+              }
+              await chromeApi.tabs.remove(tab.tabId).catch(() => void 0);
             }
           };
         } catch (error) {
@@ -8589,6 +8594,9 @@ var KidItemRuntime = (() => {
       throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uC0AC\uC774\uD2B8 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { origin: base });
     }
     return { tabId: created.id, opened: true };
+  }
+  function operatorMustAct(error) {
+    return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === "unexpected_url");
   }
 
   // extensions/src/entry/site-handles.ts
@@ -8784,6 +8792,7 @@ var KidItemRuntime = (() => {
       }, HEARTBEAT_INTERVAL_MS);
     };
     let lease = null;
+    let failure2 = null;
     try {
       lease = await deps.browser.acquire({ operationId, lockKeys: operation.lockKeys, site: collector.site, signal: local.signal });
       const site = deps.siteFor(operation.kind, lease);
@@ -8844,6 +8853,7 @@ var KidItemRuntime = (() => {
       stopHeartbeat();
       if (!heartbeatStop && input.signal.aborted) return cancelled(operationId);
       const error = heartbeatStop ?? toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
+      failure2 = error;
       const stop = stopFor(error.code, error.details);
       if (stop.kind === "fence_lost") return { kind: "fence_lost", operationId, reason: stop.reason };
       await writes;
@@ -8853,7 +8863,7 @@ var KidItemRuntime = (() => {
       stopHeartbeat();
       local.abort();
       input.signal.removeEventListener("abort", onAbort);
-      await lease?.release().catch(() => void 0);
+      await lease?.release({ error: failure2 }).catch(() => void 0);
     }
   }
   function cancelled(operationId) {

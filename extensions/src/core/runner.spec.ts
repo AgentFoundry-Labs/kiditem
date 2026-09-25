@@ -44,6 +44,7 @@ function harness(options: {
   const puts: Array<{ chunkKind: string; sequence: number; payload: unknown[]; progress?: Record<string, unknown> }> = [];
   const finishes: Array<Record<string, unknown>> = [];
   let releases = 0;
+  const releaseErrors: unknown[] = [];
   const client: OperationClient = {
     async begin(request) {
       steps.push(`begin:${request.kind}`);
@@ -80,15 +81,16 @@ function harness(options: {
       acquired.push({ operationId: input.operationId, lockKeys: input.lockKeys, site: input.site });
       const lease: BrowserLease = {
         tabId: null,
-        async release() {
+        async release(outcome) {
           steps.push('release');
           releases += 1;
+          releaseErrors.push(outcome?.error ?? null);
         },
       };
       return lease;
     },
   };
-  return { steps, puts, finishes, acquired, client, browser, releases: () => releases };
+  return { steps, puts, finishes, acquired, client, browser, releaseErrors, releases: () => releases };
 }
 
 function collector(chunks: RunnableChunk[] | ((signal: AbortSignal) => AsyncIterable<RunnableChunk>), extra: Partial<RunnableCollector> = {}): RunnableCollector {
@@ -267,6 +269,18 @@ describe('createRunner — 실행 하나의 순서', () => {
     await runWith(h, c);
 
     expect(h.finishes).toEqual([{ outcome: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '로그인 필요' }]);
+  });
+
+  it('release에 실행을 끝낸 오류를 넘긴다(운영자가 풀 탭을 남기도록), 성공이면 오류 없음', async () => {
+    const failed = harness();
+    await runWith(failed, collector(async function* () {
+      throw new RuntimeError('SITE_LOGIN_REQUIRED', '로그인 필요', null);
+    }));
+    expect(failed.releaseErrors).toEqual([expect.objectContaining({ code: 'SITE_LOGIN_REQUIRED' })]);
+
+    const ok = harness();
+    await runWith(ok, collector([echoChunk(1)]));
+    expect(ok.releaseErrors).toEqual([null]);
   });
 
   it('abort되면 수집을 멈추고 finish 없이 release 1회', async () => {

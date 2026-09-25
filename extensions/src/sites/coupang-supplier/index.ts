@@ -43,7 +43,8 @@ export function purchaseOrderListPath(query: PurchaseOrderListQuery, pageNumber:
  *   기록된 결정(worker.js, 2026-09-21 라이브): "그 로그인을 몰 소유자로 감싸면 몰 쪽에 없는 시도를 조회해 404
  *   (`ORDER_COLLECTION_ATTEMPT_NOT_FOUND`)가 나고 … 로그인 문턱에서 수집이 끝났다" — 새 경로에는 몰 소유자도 시도도 없고,
  *   직배송 로그인 문턱은 이 사이트의 주소 확인이 `SITE_LOGIN_REQUIRED`로 알린다(같은 결과, 옛 우회 불필요).
- * - 로그인 화면에서 멈추면 운영자가 로그인하도록 이 사이트가 연 탭을 남긴다.
+ * - 로그인 화면에서 멈추면 운영자가 로그인하도록 탭을 남긴다: 이 사이트가 연 탭(쉽먼트)은 사이트가 닫지 않고,
+ *   계정 잠금이 연 탭(발주)은 브라우저 자원이 닫지 않고 앞으로 가져온다(`core/browser` `operatorMustAct`).
  */
 export function createCoupangSupplierSite(deps: Pick<SiteDeps, 'tabs'>, lease: SiteLease = { tabId: null }) {
   let shipmentTab: TabPage | null = null;
