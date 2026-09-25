@@ -61,3 +61,17 @@ test('src 바로 아래는 index.ts·스펙·선언 파일·README·네 층 폴�
   );
   assert.equal(topLevelViolations([{ name: 'util', directory: true }, { name: 'helpers.ts', directory: false }]).length, 2);
 });
+
+test('legacy-bridge 밖의 declare const·let·var·function·global 은 위반이다(옛 전역 접근 경로)', () => {
+  assert.equal(violationsFor('core/x.ts', 'declare const Foo: unknown;').length, 1);
+  assert.equal(violationsFor('entry/index.ts', 'declare function legacy(): void;').length, 1);
+  assert.equal(violationsFor('collectors/a/index.ts', 'declare global { interface X {} }').length, 1);
+  assert.deepEqual(violationsFor('entry/legacy-bridge.ts', 'declare let Old: unknown;'), []);
+});
+
+test('동적 import()·require() 와 줄 중간 import 에도 층 규칙이 걸린다', () => {
+  assert.equal(violationsFor('core/x.ts', "const m = await import('../collectors/index');").length, 1);
+  assert.equal(violationsFor('sites/wing/index.ts', "const b = require('../../core/browser');").length, 1);
+  assert.equal(violationsFor('core/x.ts', "export const a = 1; import { c } from '../collectors/index';").length, 1);
+  assert.equal(violationsFor('core/x.ts', "import {\n  c,\n} from '../collectors/index';").length, 1);
+});

@@ -11,7 +11,8 @@ import { fileURLToPath } from 'node:url';
 // 옛 전역(KidItem*, sourceOwnerEnvironmentContext …)은 entry/legacy-bridge.ts 만 참조한다.
 // 상대 import 는 extensions/src 밖으로 나가지 못하고, entry 밖의 층은 층 밖(루트 index 등)도 못 본다.
 // 루트 index.ts 는 entry 와 같고, src 바로 아래에는 index.ts·스펙·선언 파일·README·네 층 폴더만 둔다.
-// 도메인 코드는 chrome.* 만 쓴다: import.meta 와 번들러 전용 API 금지.
+// 도메인 코드는 chrome.* 만 쓴다: import.meta 와 번들러 전용 API 금지. declare const·let·var·function·global 은
+// legacy-bridge 만 쓴다. 동적 import()·require() 의 상대 경로에도 같은 층 규칙이 걸린다.
 
 export const LAYERS = ['entry', 'core', 'collectors', 'sites'];
 const CORE_FOR_LOWER_LAYERS = new Set(['site-caller', 'errors']);
@@ -24,7 +25,10 @@ const COMMENT_RE = /\/\*[\s\S]*?\*\/|(^|[^:'"`])\/\/.*$/gm;
 export function stripComments(source) {
   return source.replace(COMMENT_RE, '$1');
 }
-const IMPORT_RE = /^\s*(?:import|export)\s[^'"]*?from\s+['"]([^'"]+)['"]|^\s*import\s+['"]([^'"]+)['"]/gm;
+// 정적 import·export … from(여러 줄·줄 중간 포함), 부수효과 import, 동적 import()·require().
+const IMPORT_RE = /\b(?:import|export)\s[^'";]*?\bfrom\s*['"]([^'"]+)['"]|\bimport\s*['"]([^'"]+)['"]|\b(?:import|require)\s*\(\s*['"]([^'"]+)['"]/g;
+// TS 에서 옛 전역을 쓰려면 declare 가 있어야 한다 — 이름 목록보다 확실한 관문.
+const DECLARE_RE = /\bdeclare\s+(const|let|var|function|global)\b/;
 
 // 루트 index.ts 는 번들 진입점이라 entry 와 같이 취급한다.
 const ROOT_ENTRY = 'index.ts';
@@ -64,12 +68,15 @@ export function violationsFor(relative, source) {
   const isSpec = /\.spec\.ts$/.test(relative);
   if (/\bimport\.meta\b/.test(source)) violations.push(`${relative}: import.meta 는 번들러 전용 — chrome.* 만 쓴다`);
   const code = stripComments(source);
+  if (relative !== LEGACY_BRIDGE && !isSpec && DECLARE_RE.test(code)) {
+    violations.push(`${relative}: declare ${code.match(DECLARE_RE)[1]} 는 ${LEGACY_BRIDGE} 만 쓴다(옛 전역 접근 경로)`);
+  }
   if (relative !== LEGACY_BRIDGE && !isSpec && LEGACY_GLOBAL.test(code)) {
     violations.push(`${relative}: 옛 전역(${code.match(LEGACY_GLOBAL)[1]})은 ${LEGACY_BRIDGE} 만 참조한다`);
   }
   if (!layer) return violations;
-  for (const match of source.matchAll(IMPORT_RE)) {
-    const specifier = match[1] ?? match[2];
+  for (const match of code.matchAll(IMPORT_RE)) {
+    const specifier = match[1] ?? match[2] ?? match[3];
     if (!specifier.startsWith('.')) continue; // @kiditem/shared, zod 등 패키지는 어느 층이나 가능
     const target = path.posix.normalize(path.posix.join(path.posix.dirname(relative), specifier));
     const bad = (why) => violations.push(`${relative} → ${specifier}: ${why}`);
