@@ -103,6 +103,7 @@ importScripts(
   // Lifetime wiring runs after every domain has registered its cancellation
   // and optional non-session/recovery hooks.
   "web-app-collection-lifetime.js",
+  "../runtime/kiditem-runtime.js",
 );
 
 const webAppCollectionLifetime = KidItemWebAppCollectionLifetime.create({
