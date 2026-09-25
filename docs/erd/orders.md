@@ -109,7 +109,10 @@ erDiagram
   OrderCollectionArtifact {
     String id PK
     String organizationId FK
+     /**
     String sourceImportRunId FK
+     /**
+    String operationId
     String sourceFileName
     String sourceContentType
     Bytes sourceBytes

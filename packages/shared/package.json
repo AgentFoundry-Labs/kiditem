@@ -280,6 +280,11 @@
       "import": "./dist/sourcing-operation.js",
       "require": "./dist/sourcing-operation.cjs"
     },
+    "./orders-operations": {
+      "types": "./dist/orders-operations.d.ts",
+      "import": "./dist/orders-operations.js",
+      "require": "./dist/orders-operations.cjs"
+    },
     "./order-collection-source": {
       "types": "./dist/order-collection-source.d.ts",
       "import": "./dist/order-collection-source.js",
@@ -383,6 +388,9 @@
       ],
       "sourcing-operation": [
         "dist/sourcing-operation.d.ts"
+      ],
+      "orders-operations": [
+        "dist/orders-operations.d.ts"
       ],
       "sellpia-inventory-freshness": [
         "dist/sellpia-inventory-freshness.d.ts"

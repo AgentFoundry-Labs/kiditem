@@ -5,16 +5,20 @@
 model OrderCollectionArtifact {
   id                String   @id @default(uuid()) @db.Uuid
   organizationId    String   @map("organization_id") @db.Uuid
-  sourceImportRunId String   @map("source_import_run_id") @db.Uuid
+  /** 옛 attempt 경로의 run(H3′·KID-365까지). 실행 계약 kind가 보관한 캡처는 `operationId`만 갖는다. */
+  sourceImportRunId String?  @map("source_import_run_id") @db.Uuid
+  /** 실행 계약(ADR-0025) 실행 id — 스칼라, FK 없음. 청크는 finish에서 지워지므로 보관할 캡처는 여기 남는다(KID-359 wave2). */
+  operationId       String?  @map("operation_id") @db.Uuid
   sourceFileName    String?  @map("source_file_name") @db.VarChar(240)
   sourceContentType String   @map("source_content_type") @db.VarChar(120)
   sourceBytes       Bytes    @map("source_bytes")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun SourceImportRun @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun SourceImportRun? @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([sourceImportRunId, organizationId])
+  @@unique([operationId, organizationId])
   @@unique([id, organizationId])
   @@index([organizationId])
   @@map("order_collection_artifacts")
