@@ -46,7 +46,7 @@ abstract class AiDirectJobOperationOwner implements OperationOwnerPort {
   }
 
   async finalize(chunks: OperationStagedChunk[], _window: unknown, context: OperationFinalizeContext) {
-    const job = this.job(context, 0);
+    const job = this.job(context);
     const saved = chunks.find((chunk) => chunk.chunkKind === AI_DIRECT_JOB_RESULT_CHUNK);
     const result = validateAiDirectJobResult(job.jobType, saved?.payload[0]);
     // 반영은 실행을 닫는 finish 트랜잭션 안에서 쓴다(ADR-0025: 원장 사실은 finish 트랜잭션 안에서만).
@@ -55,14 +55,14 @@ abstract class AiDirectJobOperationOwner implements OperationOwnerPort {
   }
 
   async onFailed(context: OperationFailedContext) {
-    await this.processor.projectFailure(this.job(context, context.attempts), {
+    await this.processor.projectFailure(this.job(context), {
       errorCode: context.errorCode,
       errorMessage: context.errorMessage ?? '',
       retryable: false,
     }, context.tx);
   }
 
-  private job(context: OperationFinalizeContext, attempts: number): AiDirectJob {
+  private job(context: OperationFinalizeContext): AiDirectJob {
     const plan = aiDirectJobPlan(this.kind, context.plan);
     return {
       id: context.operationId,
@@ -70,8 +70,8 @@ abstract class AiDirectJobOperationOwner implements OperationOwnerPort {
       jobType: aiDirectJobTypeOfKind(this.kind),
       sourceResourceId: plan.sourceResourceId,
       payload: plan.payload,
-      attempts,
-      maxAttempts: attempts,
+      attempts: context.attempts,
+      maxAttempts: context.maxAttempts,
     };
   }
 }

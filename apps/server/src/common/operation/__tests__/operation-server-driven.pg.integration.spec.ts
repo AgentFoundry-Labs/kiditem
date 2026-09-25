@@ -24,7 +24,7 @@ import { OperationOwner } from '../application/port/out/owner/operation-owner.de
 import { OperationOwnerRegistry } from '../application/service/operation-owner.registry';
 import { OperationService } from '../application/service/operation.service';
 
-const finalized: Array<{ operationId: string; chunks: OperationStagedChunk[] }> = [];
+const finalized: Array<{ operationId: string; chunks: OperationStagedChunk[]; attempts: number; maxAttempts: number }> = [];
 const failures: Array<Pick<OperationFailedContext, 'operationId' | 'errorCode' | 'errorMessage' | 'attempts'>> = [];
 
 /** 서버 워커가 돌리는 kind: 60초 임대, 최종 실패에 onFailed. */
@@ -39,7 +39,7 @@ class WorkerOwner implements OperationOwnerPort {
   }
 
   async finalize(chunks: OperationStagedChunk[], _window: unknown, context: OperationFinalizeContext) {
-    finalized.push({ operationId: context.operationId, chunks });
+    finalized.push({ operationId: context.operationId, chunks, attempts: context.attempts, maxAttempts: context.maxAttempts });
     return { result: { projected: chunks.length } };
   }
 
@@ -138,7 +138,9 @@ describe('operation contract — server-driven kinds (prepare · claim · retry 
 
     const done = await operations.finish({ organizationId: ORG, operationId: prepared.id, token: claimed.token, request: { outcome: 'succeeded' } });
     expect(done.operation).toMatchObject({ status: 'succeeded', result: { projected: 1 }, progress: { checkpoint: 'result_saved' }, lockKeys: [] });
-    expect(finalized.map((call) => call.operationId)).toEqual([prepared.id]);
+    expect(finalized.map(({ operationId, attempts, maxAttempts }) => ({ operationId, attempts, maxAttempts }))).toEqual([
+      { operationId: prepared.id, attempts: 1, maxAttempts: 3 },
+    ]);
     expect(await claim()).toBeNull();
   });
 

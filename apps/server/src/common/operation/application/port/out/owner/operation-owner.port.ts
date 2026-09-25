@@ -18,6 +18,9 @@ export interface OperationFinalizeContext {
   organizationId: string;
   operationId: string;
   plan: JsonObject;
+  /** 이번 시도가 몇 번째 claim인가(begin으로 연 실행은 1)와 상한(KID-358). */
+  attempts: number;
+  maxAttempts: number;
 }
 
 /**
@@ -49,5 +52,4 @@ export interface OperationOwnerPort {
 export interface OperationFailedContext extends OperationFinalizeContext {
   errorCode: string;
   errorMessage: string | null;
-  attempts: number;
 }

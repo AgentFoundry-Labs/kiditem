@@ -348,6 +348,8 @@ export class OperationService implements OperationPort {
         organizationId: input.organizationId,
         operationId: operation.id,
         plan: operation.plan ?? {},
+        attempts: operation.attempts,
+        maxAttempts: operation.maxAttempts,
       });
       const closed = await tx.close(input.organizationId, operation.id, {
         status: 'succeeded',
@@ -473,6 +475,7 @@ export class OperationService implements OperationPort {
         errorCode: closure.errorCode ?? OPERATION_EXPIRED_ERROR_CODE,
         errorMessage: closure.errorMessage,
         attempts: operation.attempts,
+        maxAttempts: operation.maxAttempts,
       });
     }
     return closed;

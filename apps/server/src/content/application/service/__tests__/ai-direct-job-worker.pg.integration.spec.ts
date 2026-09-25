@@ -84,7 +84,7 @@ describe('AI direct job worker on the operation contract (PG integration)', () =
 
     expect(processor.execute).toHaveBeenCalledTimes(1);
     expect(processor.project).toHaveBeenCalledTimes(1);
-    expect(processor.project).toHaveBeenCalledWith(expect.objectContaining({ id, organizationId: ORG, jobType: 'image_edit' }), OUTPUT, expect.anything());
+    expect(processor.project).toHaveBeenCalledWith(expect.objectContaining({ id, organizationId: ORG, jobType: 'image_edit', attempts: 1, maxAttempts: 3 }), OUTPUT, expect.anything());
     await expect(row(id)).resolves.toMatchObject({ status: 'succeeded', attempts: 1, result: OUTPUT, progress: { checkpoint: 'result_saved' } });
     await expect(prisma.operationChunk.count()).resolves.toBe(0);
     await expect(worker.tick()).resolves.toBe(false);
