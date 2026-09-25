@@ -32,6 +32,10 @@ one ZIP with the extension directory.
   same time.
 - The packager never rewrites origins or runtime code. It copies every loadable
   source file byte-for-byte, omitting only agent documentation and hidden files.
+- The TypeScript runtime bundle `runtime/kiditem-runtime.js` is committed, so
+  the packager copies it like any other file and never builds. Releasing a
+  stale bundle (a `src/` change or version bump without
+  `npm run extension:build`) is blocked by `npm run extension:check` in CI.
 - Do not create or maintain environment-specific source/package variants.
 
 ## Prerequisites
@@ -52,6 +56,8 @@ one ZIP with the extension directory.
    behavior changes.
 2. Chrome versions are one to four dot-separated non-negative integers.
 3. Update tests that deliberately lock the exact manifest version.
+   Run `npm run extension:build` and commit the regenerated
+   `runtime/kiditem-runtime.js`, which embeds the manifest version.
 4. Merge the versioned source to `main` before publishing.
 5. A published deployment tag and its ZIP asset are immutable. A correction is
    included in a later Office deployment bundle; never replace prior assets.
@@ -197,6 +203,8 @@ Run repository checks before publishing:
 ```bash
 npm run check:scripts-inventory
 npm run test:scripts
+npm run extension:check
+npm run extension:test
 node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
 node -e "JSON.parse(require('fs').readFileSync('extensions/kiditem-os/manifest.json','utf8'))"
 git diff --check

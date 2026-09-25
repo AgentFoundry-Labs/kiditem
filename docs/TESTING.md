@@ -444,7 +444,7 @@ PR 작성자는 `CLAUDE.md`의 변경 유형별 검증과 PR body guard를 로�
 | --- | --- | --- |
 | `PR Checks / PR hygiene` | `develop`, `main`, `release/office` 대상 PR | PR diff whitespace와 AGENTS hygiene 검증 |
 | `PR Checks / Gateway fast checks` | 동일 PR | lifecycle script 없는 install, Gateway가 소비하는 Shared 런타임 진입점과 Gateway build, Gateway unit tests |
-| `PR Checks / Shared and server unit tests` | 동일 PR | lifecycle script 없는 install, `npm rebuild better-sqlite3`, ripgrep 설치, Prisma client 생성, runner/templates build 뒤 shared·server vitest, Shared JS 빌드(DTS 제외) 뒤 확장 `node --test --test-concurrency=8 extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs` 실행(2 vCPU 러너에서 기본 동시성은 사실상 순차라 8로 고정). PostgreSQL 통합 spec은 제외 |
+| `PR Checks / Shared and server unit tests` | 동일 PR | lifecycle script 없는 install, `npm rebuild better-sqlite3`, ripgrep 설치, Prisma client 생성, runner/templates build 뒤 shared·server vitest, Shared JS 빌드(DTS 제외) 뒤 `npm run extension:check`(커밋된 `runtime/kiditem-runtime.js`가 `extensions/src` 새 빌드와 바이트 동일한지 + `tsc --noEmit`), `npm run extension:test`(확장 `src/` Vitest), 확장 `node --test --test-concurrency=8 extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs` 실행(2 vCPU 러너에서 기본 동시성은 사실상 순차라 8로 고정). PostgreSQL 통합 spec은 제외 |
 | `PR Checks / Script contract tests` | 동일 PR | lifecycle script 없는 install, Prisma client 생성, Shared JS 빌드(DTS 제외), `origin/release/office`를 depth 1로 fetch해 기존 행이 막을 스키마 변경마다 `scripts/cutover-blocker-coverage.json` 항목이 있는지 DB 없이 확인(`check-cutover-blocker-coverage.mjs`), ripgrep 설치 뒤 `npm run test:scripts`(scripts vitest와 `node --test`) 실행 |
 | `Develop Validation / Develop full validation` | `develop`에서 수동 실행 | 한 번의 dependency install 뒤 deployable workspace 전체 build(heap 4096MB), web/extension tests, real PostgreSQL integration suite 실행 |
 
@@ -460,6 +460,8 @@ NODE_OPTIONS=--max-old-space-size=4096 npm run build --workspace=packages/copilo
 NODE_OPTIONS=--max-old-space-size=4096 npm run build --workspace=apps/server
 NODE_OPTIONS=--max-old-space-size=4096 npm run build --workspace=apps/web
 npm exec --workspace=apps/web vitest -- run
+npm run extension:check
+npm run extension:test
 node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
 npm run test:integration
 ```
