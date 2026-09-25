@@ -139,9 +139,10 @@ async function execute(
     if (heartbeatTimer !== null) clearTimeout(heartbeatTimer);
     heartbeatTimer = null;
   };
+  let collectionDone = false;
   const scheduleHeartbeat = () => {
     stopHeartbeat();
-    if (local.signal.aborted) return;
+    if (collectionDone || local.signal.aborted) return;
     heartbeatTimer = setTimeout(() => {
       heartbeatTimer = null;
       write(() =>
@@ -197,7 +198,10 @@ async function execute(
       if (chunk.progress) lastProgress = chunk.progress;
       scheduleHeartbeat();
     }
+    collectionDone = true;
     stopHeartbeat();
+    // 날아가는 heartbeat가 있으면 끝난 뒤에 finish한다(fenced 쓰기가 겹치지 않게).
+    await writes;
     if (heartbeatStop) throw heartbeatStop;
     if (input.signal.aborted) return cancelled(operationId);
 
@@ -210,11 +214,13 @@ async function execute(
     const finished = await deps.client.finish({ operationId, token, request });
     return { kind: 'finished', operation: finished.operation };
   } catch (caught) {
+    collectionDone = true;
     stopHeartbeat();
     if (!heartbeatStop && input.signal.aborted) return cancelled(operationId);
     const error = heartbeatStop ?? toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
     const stop = stopFor(error.code, error.details);
     if (stop.kind === 'fence_lost') return { kind: 'fence_lost', operationId, reason: stop.reason };
+    await writes;
     await deps.client
       .finish({ operationId, token, request: { outcome: 'failed', errorCode: error.code.slice(0, 64), errorMessage: error.message.slice(0, 2_000) } })
       .catch(() => undefined);

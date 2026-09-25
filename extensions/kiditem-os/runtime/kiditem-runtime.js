@@ -4702,9 +4702,10 @@ var KidItemRuntime = (() => {
       if (heartbeatTimer !== null) clearTimeout(heartbeatTimer);
       heartbeatTimer = null;
     };
+    let collectionDone = false;
     const scheduleHeartbeat = () => {
       stopHeartbeat();
-      if (local.signal.aborted) return;
+      if (collectionDone || local.signal.aborted) return;
       heartbeatTimer = setTimeout(() => {
         heartbeatTimer = null;
         write(
@@ -4758,7 +4759,9 @@ var KidItemRuntime = (() => {
         if (chunk.progress) lastProgress = chunk.progress;
         scheduleHeartbeat();
       }
+      collectionDone = true;
       stopHeartbeat();
+      await writes;
       if (heartbeatStop) throw heartbeatStop;
       if (input.signal.aborted) return cancelled(operationId);
       const summary = collector.summarize?.({ chunks, items }) ?? {};
@@ -4770,11 +4773,13 @@ var KidItemRuntime = (() => {
       const finished = await deps.client.finish({ operationId, token, request });
       return { kind: "finished", operation: finished.operation };
     } catch (caught) {
+      collectionDone = true;
       stopHeartbeat();
       if (!heartbeatStop && input.signal.aborted) return cancelled(operationId);
       const error = heartbeatStop ?? toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
       const stop = stopFor(error.code, error.details);
       if (stop.kind === "fence_lost") return { kind: "fence_lost", operationId, reason: stop.reason };
+      await writes;
       await deps.client.finish({ operationId, token, request: { outcome: "failed", errorCode: error.code.slice(0, 64), errorMessage: error.message.slice(0, 2e3) } }).catch(() => void 0);
       return { kind: "failed", operationId, errorCode: error.code, errorMessage: error.message, ...error.details ? { details: error.details } : {} };
     } finally {

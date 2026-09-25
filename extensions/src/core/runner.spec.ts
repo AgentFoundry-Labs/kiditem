@@ -36,6 +36,7 @@ type Step = string;
 function harness(options: {
   reused?: boolean;
   beginError?: RuntimeError;
+  putDelay?: (chunkKind: string) => Promise<void> | undefined;
   putError?: (sequence: number, chunkKind: string) => RuntimeError | null;
   finishError?: RuntimeError;
 } = {}) {
@@ -53,6 +54,11 @@ function harness(options: {
       steps.push(`put:${input.chunkKind}#${input.sequence}`);
       expect(input.token).toBe(TOKEN);
       puts.push({ chunkKind: input.chunkKind, sequence: input.sequence, payload: input.payload, progress: input.progress });
+      const delay = options.putDelay?.(input.chunkKind);
+      if (delay) {
+        await delay;
+        steps.push(`put-done:${input.chunkKind}#${input.sequence}`);
+      }
       const error = options.putError?.(input.sequence, input.chunkKind);
       if (error) throw error;
       return { operationId: OP, chunkKind: input.chunkKind, sequence: input.sequence, itemCount: input.payload.length, expiresAt: '2026-09-25T00:30:00.000Z' };
@@ -339,6 +345,30 @@ describe('createRunner — 실행 하나의 순서', () => {
     const heartbeatsAfterFinish = h.puts.length;
     await vi.advanceTimersByTimeAsync(OPERATION_LEASE_MS);
     expect(h.puts).toHaveLength(heartbeatsAfterFinish);
+  });
+
+  it('날아가는 heartbeat가 끝난 뒤에 finish를 보낸다', async () => {
+    vi.useFakeTimers();
+    let releaseHeartbeat!: () => void;
+    const heartbeatGate = new Promise<void>((resolve) => { releaseHeartbeat = resolve; });
+    const h = harness({ putDelay: (chunkKind) => (chunkKind === 'heartbeat' ? heartbeatGate : undefined) });
+    let endCollection!: () => void;
+    const collectionGate = new Promise<void>((resolve) => { endCollection = resolve; });
+    const c = collector(async function* () {
+      yield echoChunk(1);
+      await collectionGate;
+    });
+
+    const running = runWith(h, c);
+    await vi.advanceTimersByTimeAsync(OPERATION_LEASE_MS / 3);
+    expect(h.steps.at(-1)).toBe('put:heartbeat#1');
+    endCollection();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(h.steps).not.toContain('finish:succeeded');
+
+    releaseHeartbeat();
+    await running;
+    expect(h.steps.slice(-3)).toEqual(['put-done:heartbeat#1', 'finish:succeeded', 'release']);
   });
 
   it('heartbeat가 fence_lost를 받으면 수집을 멈추고 finish 없이 끝난다', async () => {
