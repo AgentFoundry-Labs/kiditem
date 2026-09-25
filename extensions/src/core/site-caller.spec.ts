@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { delayUntilNext } from './site-caller';
+import { RuntimeError } from './errors';
+import { createSiteCaller, delayUntilNext, type SiteCallerDeps } from './site-caller';
 
 describe('delayUntilNext — 사이트 요청 간격', () => {
   it('첫 요청은 기다리지 않는다', () => {
@@ -10,5 +11,123 @@ describe('delayUntilNext — 사이트 요청 간격', () => {
   });
   it('간격이 지났으면 0', () => {
     expect(delayUntilNext({ lastSentAt: 1_000, now: 9_000, minIntervalMs: 2_200 })).toBe(0);
+  });
+});
+
+function fakeSite(respond: (url: string, init: RequestInit | undefined) => Response = () => Response.json({ ok: true }), cookie: string | null = null) {
+  let clock = 10_000;
+  const sent: Array<{ url: string; at: number; headers: Headers; init: RequestInit | undefined }> = [];
+  const sleeps: number[] = [];
+  const cookieQueries: Array<{ url: string; name: string }> = [];
+  const deps: SiteCallerDeps = {
+    async fetch(input, init) {
+      const url = String(input);
+      sent.push({ url, at: clock, headers: new Headers(init?.headers), init });
+      return respond(url, init);
+    },
+    cookies: {
+      async get(details) {
+        cookieQueries.push({ url: details.url, name: details.name });
+        return cookie === null ? null : { value: cookie };
+      },
+    },
+    now: () => clock,
+    async sleep(ms) {
+      sleeps.push(ms);
+      clock += ms;
+    },
+  };
+  return { deps, sent, sleeps, cookieQueries, advance: (ms: number) => { clock += ms; } };
+}
+
+async function rejection(promise: Promise<unknown>): Promise<RuntimeError> {
+  const error = await promise.then(() => null, (caught: unknown) => caught);
+  expect(error).toBeInstanceOf(RuntimeError);
+  return error as RuntimeError;
+}
+
+describe('createSiteCaller — 사이트 요청 공용 규칙', () => {
+  it('같은 호출기의 요청 사이 최소 간격을 지킨다', async () => {
+    const site = fakeSite();
+    const caller = createSiteCaller({ minIntervalMs: 2_200 }, site.deps);
+
+    await caller.json('https://site.example.com/a');
+    site.advance(500);
+    await caller.json('https://site.example.com/b');
+    site.advance(5_000);
+    await caller.json('https://site.example.com/c');
+
+    expect(site.sleeps).toEqual([1_700]);
+    expect(site.sent.map((request) => request.at)).toEqual([10_000, 12_200, 17_200]);
+  });
+
+  it('동시에 부른 요청도 차례로 간격을 둔다', async () => {
+    const site = fakeSite();
+    const caller = createSiteCaller({ minIntervalMs: 1_000 }, site.deps);
+
+    await Promise.all([caller.json('https://site.example.com/a'), caller.json('https://site.example.com/b')]);
+
+    expect(site.sent.map((request) => request.at)).toEqual([10_000, 11_000]);
+  });
+
+  it('xsrf 옵션이 있으면 쿠키 값을 디코딩해 헤더로 싣고 쿠키를 포함해 보낸다', async () => {
+    const site = fakeSite(undefined, 'abc%3D%3D');
+    const caller = createSiteCaller(
+      { minIntervalMs: 0, xsrf: { cookieUrl: 'https://wing.example.com', cookieName: 'XSRF-TOKEN', headerName: 'X-XSRF-TOKEN' } },
+      site.deps,
+    );
+
+    await expect(caller.json('https://wing.example.com/api/x')).resolves.toEqual({ ok: true });
+
+    expect(site.cookieQueries).toEqual([{ url: 'https://wing.example.com', name: 'XSRF-TOKEN' }]);
+    expect(site.sent[0].headers.get('X-XSRF-TOKEN')).toBe('abc==');
+    expect(site.sent[0].init?.credentials).toBe('include');
+  });
+
+  it('xsrf 쿠키가 없으면 로그인이 풀린 것이다 — 보내지 않고 SITE_LOGIN_REQUIRED', async () => {
+    const site = fakeSite();
+    const caller = createSiteCaller(
+      { minIntervalMs: 0, xsrf: { cookieUrl: 'https://wing.example.com', cookieName: 'XSRF-TOKEN', headerName: 'X-XSRF-TOKEN' } },
+      site.deps,
+    );
+
+    const error = await rejection(caller.json('https://wing.example.com/api/x'));
+
+    expect(error.code).toBe('SITE_LOGIN_REQUIRED');
+    expect(site.sent).toEqual([]);
+  });
+
+  it.each([401, 403])('%s는 SITE_LOGIN_REQUIRED', async (status) => {
+    const site = fakeSite(() => new Response('', { status }));
+
+    const error = await rejection(createSiteCaller({ minIntervalMs: 0 }, site.deps).json('https://site.example.com/a'));
+
+    expect(error.code).toBe('SITE_LOGIN_REQUIRED');
+    expect(error.details).toEqual({ status, url: 'https://site.example.com/a' });
+  });
+
+  it('로그인 페이지로 가는 리다이렉트(manual → opaqueredirect)는 SITE_LOGIN_REQUIRED', async () => {
+    const site = fakeSite();
+    const opaque = { ok: false, status: 0, type: 'opaqueredirect', url: 'https://site.example.com/a', redirected: false } as unknown as Response;
+    site.deps.fetch = async () => opaque;
+
+    const error = await rejection(createSiteCaller({ minIntervalMs: 0 }, site.deps).text('https://site.example.com/a'));
+
+    expect(error.code).toBe('SITE_LOGIN_REQUIRED');
+  });
+
+  it('그 밖의 2xx 아닌 응답은 SITE_REQUEST_FAILED{status, url}', async () => {
+    const site = fakeSite(() => new Response('busy', { status: 503 }));
+
+    const error = await rejection(createSiteCaller({ minIntervalMs: 0 }, site.deps).text('https://site.example.com/a'));
+
+    expect(error.code).toBe('SITE_REQUEST_FAILED');
+    expect(error.details).toEqual({ status: 503, url: 'https://site.example.com/a' });
+  });
+
+  it('text는 본문을 그대로 돌려준다', async () => {
+    const site = fakeSite(() => new Response('<html>ok</html>', { status: 200 }));
+
+    await expect(createSiteCaller({ minIntervalMs: 0 }, site.deps).text('https://site.example.com/a')).resolves.toBe('<html>ok</html>');
   });
 });
