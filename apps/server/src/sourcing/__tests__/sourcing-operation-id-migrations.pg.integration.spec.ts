@@ -114,6 +114,8 @@ describe('030/031 sourcing operation ids and publications (PostgreSQL)', () => {
       sourceKey: '1688.hot_product',
       scopeKey: 'default',
       targetKey: 'all',
+      collectorKey: 'collector',
+      collectorVersion: 'v1',
       plan: { keywords: ['장난감'] },
       windowStartAt: new Date('2026-09-24T00:00:00Z'),
       windowEndAt: new Date('2026-09-24T01:00:00Z'),

@@ -2102,6 +2102,8 @@ erDiagram
     String targetKey
     String operationId
     Boolean isCurrent
+    String collectorKey
+    String collectorVersion
     Json plan
     DateTime windowStartAt
     DateTime windowEndAt

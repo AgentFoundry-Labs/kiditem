@@ -1099,6 +1099,9 @@ model SourcingSourcePublication {
   operationId    String @map("operation_id") @db.Uuid
   /// 그 대상의 현재 완결 스냅샷인가. (org, source, scope, target)마다 하나.
   isCurrent      Boolean @default(false) @map("is_current")
+  /// 사실을 만든 수집기와 판(옛 run의 collector_key·collector_version). 확장 kind는 kind 문자열이 collectorKey다.
+  collectorKey     String @map("collector_key") @db.VarChar(120)
+  collectorVersion String @map("collector_version") @db.VarChar(120)
 
   /// 수집이 약속한 범위(옛 attemptPlan: keywords·boardKeys 등). 이력 리더가 "무엇을 덮었나"를 여기서 읽는다.
   plan                Json?     @db.JsonB
