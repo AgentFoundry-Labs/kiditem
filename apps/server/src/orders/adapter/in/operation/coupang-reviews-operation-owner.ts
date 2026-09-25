@@ -2,13 +2,9 @@ import { Injectable } from '@nestjs/common';
 import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { accountLockKey, type OperationPlanResult, type OperationStagedChunk, type OperationWindow } from '@kiditem/shared/operation';
 import {
-  COUPANG_REVIEWS_CHUNK_KIND,
   COUPANG_REVIEWS_KIND,
-  COUPANG_REVIEWS_WINDOW_CHUNK_KIND,
-  CoupangReviewsChunkItemSchema,
   CoupangReviewsResultSchema,
   CoupangReviewsScopeSchema,
-  CoupangReviewsWindowDoneSchema,
   CoupangReviewsWindowSchema,
   type CoupangReviewsResult,
 } from '@kiditem/shared/reviews';
@@ -25,6 +21,7 @@ import {
   completeCoupangReviews,
   coupangReviewMonthWindows,
   coupangReviewOperationWindow,
+  readCoupangReviewChunks,
 } from '../../../domain/coupang-reviews-operation';
 
 const CoupangReviewsPlanSchema = z.object({
@@ -64,10 +61,7 @@ export class CoupangReviewsOperationOwner implements OperationOwnerPort {
     context: OperationFinalizeContext,
   ): Promise<{ result: CoupangReviewsResult }> {
     const plan = CoupangReviewsPlanSchema.parse(context.plan);
-    const reviews = chunkItems(chunks, COUPANG_REVIEWS_CHUNK_KIND, CoupangReviewsChunkItemSchema);
-    const windowDones = chunkItems(chunks, COUPANG_REVIEWS_WINDOW_CHUNK_KIND, CoupangReviewsWindowDoneSchema);
-    const unknown = chunks.find((chunk) => chunk.chunkKind !== COUPANG_REVIEWS_CHUNK_KIND && chunk.chunkKind !== COUPANG_REVIEWS_WINDOW_CHUNK_KIND);
-    if (unknown) throw invalid('unknown_chunk_kind', { chunkKind: unknown.chunkKind });
+    const { reviews, windowDones } = readCoupangReviewChunks(chunks);
     const items = completeCoupangReviews({ windows: plan.windows, maxPagesPerWindow: plan.maxPagesPerWindow, reviews, windowDones });
     const published = await this.reviews.publishOperation(context.tx, {
       organizationId: context.organizationId,
@@ -84,15 +78,6 @@ export class CoupangReviewsOperationOwner implements OperationOwnerPort {
       }),
     };
   }
-}
-
-function chunkItems<S extends z.ZodTypeAny>(chunks: readonly OperationStagedChunk[], chunkKind: string, schema: S): Array<z.output<S>> {
-  const items: Array<z.output<S>> = [];
-  for (const chunk of chunks) {
-    if (chunk.chunkKind !== chunkKind) continue;
-    for (const raw of chunk.payload) items.push(parse(schema, raw, 'invalid_chunk_item', { chunkKind }));
-  }
-  return items;
 }
 
 function parse<S extends z.ZodTypeAny>(schema: S, value: unknown, reason: string, details: Record<string, unknown> = {}): z.output<S> {

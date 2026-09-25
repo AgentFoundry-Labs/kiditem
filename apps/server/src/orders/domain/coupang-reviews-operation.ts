@@ -1,11 +1,16 @@
 import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import { businessDateKey, kstBusinessDate } from '@kiditem/shared/common';
-import type { OperationWindow } from '@kiditem/shared/operation';
-import type {
-  CoupangReviewsChunkItem,
-  CoupangReviewsWindow,
-  CoupangReviewsWindowDone,
+import type { OperationStagedChunk, OperationWindow } from '@kiditem/shared/operation';
+import {
+  COUPANG_REVIEWS_CHUNK_KIND,
+  COUPANG_REVIEWS_WINDOW_CHUNK_KIND,
+  CoupangReviewsChunkItemSchema,
+  CoupangReviewsWindowDoneSchema,
+  type CoupangReviewsChunkItem,
+  type CoupangReviewsWindow,
+  type CoupangReviewsWindowDone,
 } from '@kiditem/shared/reviews';
+import type { z } from 'zod';
 
 /**
  * 쿠팡 상품평 수집의 월 창(KST 달력), 최신 달부터 `months`개. Wing 상품평 조회는 한 번에 1개월까지만
@@ -67,6 +72,44 @@ export function completeCoupangReviews(input: {
   const byId = new Map<string, CoupangReviewsChunkItem>();
   for (const item of input.reviews) byId.set(item.externalReviewId, item);
   return [...byId.values()];
+}
+
+/**
+ * 실행 청크를 리뷰 항목과 창 표식으로 읽는다. 이 kind의 청크는 `reviews`·`review_windows` 둘뿐이고,
+ * 항목은 shared 스키마를 통과해야 한다. 아니면 VALIDATION_FAILED(`unknown_chunk_kind`·`invalid_chunk_item`).
+ */
+export function readCoupangReviewChunks(chunks: readonly OperationStagedChunk[]): {
+  reviews: CoupangReviewsChunkItem[];
+  windowDones: CoupangReviewsWindowDone[];
+} {
+  const unknown = chunks.find((chunk) => chunk.chunkKind !== COUPANG_REVIEWS_CHUNK_KIND && chunk.chunkKind !== COUPANG_REVIEWS_WINDOW_CHUNK_KIND);
+  if (unknown) throw invalid('unknown_chunk_kind', { chunkKind: unknown.chunkKind });
+  return {
+    reviews: chunkItems(chunks, COUPANG_REVIEWS_CHUNK_KIND, CoupangReviewsChunkItemSchema),
+    windowDones: chunkItems(chunks, COUPANG_REVIEWS_WINDOW_CHUNK_KIND, CoupangReviewsWindowDoneSchema),
+  };
+}
+
+function chunkItems<S extends z.ZodTypeAny>(chunks: readonly OperationStagedChunk[], chunkKind: string, schema: S): Array<z.output<S>> {
+  const items: Array<z.output<S>> = [];
+  for (const chunk of chunks) {
+    if (chunk.chunkKind !== chunkKind) continue;
+    for (const raw of chunk.payload) {
+      const parsed = schema.safeParse(raw);
+      if (!parsed.success) {
+        throw invalid('invalid_chunk_item', {
+          chunkKind,
+          errors: parsed.error.issues.map((issue) => ({ field: issue.path.join('.'), reason: issue.message })),
+        });
+      }
+      items.push(parsed.data);
+    }
+  }
+  return items;
+}
+
+function invalid(reason: string, details: Record<string, unknown>): KiditemInvalidValueError {
+  return new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason, ...details } });
 }
 
 function incomplete(details: { windowIndex: number }): KiditemInvalidValueError {
