@@ -25,6 +25,8 @@ export interface RunInput {
   scope: Record<string, unknown>;
   idempotencyKey?: string;
   signal: AbortSignal;
+  /** begin이 성공한 직후(브라우저 자원·수집 전에) 한 번. 입구가 웹앱에 바로 답할 때 쓴다. */
+  onBegun?(begun: { operationId: string; reused: boolean }): void;
 }
 
 export type RunOutcome =
@@ -94,6 +96,7 @@ export function createRunner(deps: RunnerDeps, collectorFor: (kind: OperationKin
         if (stop.kind === 'already_running') return { kind: 'already_running', existing: stop.existing };
         return { kind: 'failed', operationId: null, errorCode: error.code, errorMessage: error.message };
       }
+      input.onBegun?.({ operationId: begun.operation.id, reused: begun.reused });
       return execute(deps, collector, input, begun.operation, begun.token);
     },
   };

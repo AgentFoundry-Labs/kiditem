@@ -127,6 +127,21 @@ describe('createRunner — 실행 하나의 순서', () => {
     expect(outcome).toMatchObject({ kind: 'finished', operation: { status: 'succeeded' } });
   });
 
+  it('begin이 성공하면 수집 전에 onBegun으로 operationId·reused를 알린다', async () => {
+    const h = harness();
+    const seen: Array<{ operationId: string; reused: boolean; stepsSoFar: string[] }> = [];
+    const runner = createRunner({ client: h.client, browser: h.browser, siteFor: () => null }, () => collector([echoChunk(1)]));
+
+    await runner.run({
+      kind: 'test.echo',
+      scope: {},
+      signal: new AbortController().signal,
+      onBegun: (begun) => seen.push({ ...begun, stepsSoFar: [...h.steps] }),
+    });
+
+    expect(seen).toEqual([{ operationId: OP, reused: false, stepsSoFar: ['begin:test.echo'] }]);
+  });
+
   it('OPERATION_IN_PROGRESS면 acquire 없이 기존 실행을 돌려준다', async () => {
     const existing = { operationId: OP, kind: 'test.echo' };
     const h = harness({ beginError: new RuntimeError('OPERATION_IN_PROGRESS', '진행 중', { existing }) });

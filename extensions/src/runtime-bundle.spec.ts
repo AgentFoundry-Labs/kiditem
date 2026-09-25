@@ -4,8 +4,10 @@ import bundleSource from '../kiditem-os/runtime/kiditem-runtime.js?raw';
 
 // 커밋된 번들(서비스워커가 싣는 바로 그 파일)을 classic script 처럼 실행한다.
 // `extension:check` 가 이 파일이 src 의 새 빌드와 바이트까지 같은지 따로 본다.
-function loadRuntime(chrome: unknown): Record<string, unknown> {
-  return new Function('chrome', `${bundleSource}\nreturn KidItemRuntime;`)(chrome);
+function loadRuntime(chrome: unknown, legacy: Record<string, unknown> = {}): Record<string, unknown> {
+  // 옛 전역은 서비스워커에서 최상위 이름이다. 여기서는 같은 이름의 매개변수로 넘긴다(없으면 undefined).
+  const names = ['KidItemDomains', 'sourceOwnerEnvironmentContext', 'KidItemWorkerKeepAlive'];
+  return new Function('chrome', ...names, `${bundleSource}\nreturn KidItemRuntime;`)(chrome, ...names.map((name) => legacy[name]));
 }
 
 describe('committed runtime bundle', () => {
@@ -21,5 +23,43 @@ describe('committed runtime bundle', () => {
     const runtime = loadRuntime({ runtime: { getManifest: () => ({ version: '9.8.7' }) } });
 
     expect((runtime.version as () => string)()).toBe('9.8.7');
+  });
+
+  it('exposes the registered operation kinds and skips installing without the old globals', () => {
+    const runtime = loadRuntime({});
+
+    expect((runtime.runtime as { kinds(): string[] }).kinds()).toContain('test.echo');
+  });
+
+  it('registers operation.start / operation.cancel and the operationRuntime capability with the old domain registry', async () => {
+    const registered: Array<{ externalActions: Record<string, { validate(msg: unknown): unknown; handle(input: unknown, env: string): Promise<unknown> }>; capabilities: Record<string, boolean> }> = [];
+    const authedCalls: string[] = [];
+    loadRuntime(
+      { tabs: {} },
+      {
+        KidItemDomains: { register: (domain: (typeof registered)[number]) => registered.push(domain) },
+        sourceOwnerEnvironmentContext: {
+          authedFetch: async (environmentId: string, path: string) => {
+            authedCalls.push(`${environmentId} ${path}`);
+            return new Response('{}', { status: 500 });
+          },
+        },
+      },
+    );
+
+    expect(registered).toHaveLength(1);
+    expect(Object.keys(registered[0].externalActions).sort()).toEqual(['operation.cancel', 'operation.start']);
+    expect(registered[0].capabilities).toEqual({ operationRuntime: true });
+
+    const start = registered[0].externalActions['operation.start'];
+    await expect(start.handle(start.validate({ action: 'operation.start', kind: 'Bad' }), 'local')).resolves.toMatchObject({
+      success: false,
+      errorCode: 'VALIDATION_FAILED',
+    });
+    await expect(start.handle(start.validate({ action: 'operation.start', kind: 'test.echo' }), 'office')).resolves.toMatchObject({
+      success: false,
+      errorCode: 'RUNTIME_API_UNREACHABLE',
+    });
+    expect(authedCalls).toEqual(['office /api/operations']);
   });
 });

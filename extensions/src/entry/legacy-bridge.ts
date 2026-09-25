@@ -15,6 +15,20 @@ declare const KidItemDomains: {
 declare const sourceOwnerEnvironmentContext: {
   authedFetch(environmentId: string, path: string, init?: RequestInit): Promise<Response>;
 };
+declare const KidItemWorkerKeepAlive: { during(work: Promise<unknown>): Promise<unknown> } | undefined;
+
+/**
+ * 옛 워커 위에서 실렸는가. Vitest와 번들 스펙은 옛 전역 없이 번들을 싣는다 — 그때는 설치를 건너뛴다.
+ */
+export function legacyGlobalsPresent(): boolean {
+  return typeof KidItemDomains !== 'undefined' && typeof sourceOwnerEnvironmentContext !== 'undefined';
+}
+
+/** 실행이 끝날 때까지 서비스워커를 살려 둔다(옛 워커의 참조 카운트 keep-alive). */
+export function legacyKeepAlive(work: Promise<unknown>): void {
+  if (typeof KidItemWorkerKeepAlive === 'undefined' || !KidItemWorkerKeepAlive) return;
+  KidItemWorkerKeepAlive.during(work).catch(() => undefined);
+}
 
 export function legacyApiPort(environmentId: string): ApiPort {
   return { fetch: (path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init) };
