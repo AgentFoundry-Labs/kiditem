@@ -14,6 +14,7 @@ import { OPERATION_REPOSITORY } from '../common/operation/application/port/out/r
 import { OperationOwnerRegistry } from '../common/operation/application/service/operation-owner.registry';
 import { OperationService } from '../common/operation/application/service/operation.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { OrderCollectionFreshnessAdapter } from '../orders/adapter/out/persistence/read/order-collection-freshness.adapter';
 import { OrderCollectionTodayOrdersAdapter } from '../orders/adapter/out/persistence/read/order-collection-today-orders.adapter';
 import { TEST_ORGANIZATION_ID, TEST_USER_ID } from './real-prisma';
 
@@ -95,4 +96,12 @@ export function todayOrdersTestAdapter(prisma: PrismaClient): OrderCollectionTod
     new OperationOwnerRegistry(undefined as never, undefined as never),
   );
   return new OrderCollectionTodayOrdersAdapter(prisma as never, operations);
+}
+
+/** Orders 수집 마지막 성공 시각 capability의 실제 구현(실행 계약 reader). */
+export function orderCollectionFreshnessTestAdapter(prisma: PrismaClient): OrderCollectionFreshnessAdapter {
+  return new OrderCollectionFreshnessAdapter(new OperationService(
+    new OperationRepositoryAdapter(prisma as never),
+    new OperationOwnerRegistry(undefined as never, undefined as never),
+  ));
 }
