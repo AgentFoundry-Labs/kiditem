@@ -270,6 +270,8 @@ export const OperationPrepareRequestSchema = z.object({
   scheduledFor: zIsoDate.optional(),
   /** claim 횟수 상한(재시도 포함). 기본 1 = 재시도 없음. */
   maxAttempts: z.number().int().min(1).max(20).default(1),
+  /** 실행을 시작한 사용자(있으면). owner `plan`이 `context.userId`로 받아 plan JSON에 보관한다(KID-354). */
+  userId: z.string().uuid().optional(),
 }).strict();
 export type OperationPrepareRequest = z.infer<typeof OperationPrepareRequestSchema>;
 

@@ -9,6 +9,8 @@ import {
   OperationListQuerySchema,
 } from '@kiditem/shared/operation';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
+import { CurrentUser } from '../../../../../auth/decorators/current-user.decorator';
+import type { AuthUser } from '../../../../../auth/auth.types';
 import { OPERATION_PORT, type OperationPort } from '../../../application/port/in/operation.port';
 import { parseOperationRequest } from './parse-operation-request';
 
@@ -18,8 +20,8 @@ export class OperationsController {
   constructor(@Inject(OPERATION_PORT) private readonly operations: OperationPort) {}
 
   @Post()
-  begin(@CurrentOrganization() organizationId: string, @Body() body: unknown) {
-    return this.operations.begin(organizationId, parseOperationRequest(OperationBeginRequestSchema, body, 'body'));
+  begin(@CurrentOrganization() organizationId: string, @CurrentUser() user: AuthUser, @Body() body: unknown) {
+    return this.operations.begin(organizationId, parseOperationRequest(OperationBeginRequestSchema, body, 'body'), { userId: user.id });
   }
 
   @Put(':id/chunks/:chunkKind/:sequence')

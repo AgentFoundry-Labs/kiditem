@@ -10,6 +10,8 @@ export type JsonObject = Record<string, unknown>;
 
 export interface OperationPlanContext {
   organizationId: string;
+  /** 실행을 시작한 사용자. 세션이 없는 서버 구동 prepare는 null. owner가 원장에 사람을 적어야 하면 plan JSON에 보관한다(KID-354). */
+  userId: string | null;
 }
 
 export interface OperationFinalizeContext {
