@@ -20,6 +20,7 @@ import { useCollectionSourceControl, type CollectionControlView } from '@/hooks/
 import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
+import { attemptFailureText } from '@/lib/operator-error';
 import {
   fetch1688HotProducts,
   fetchNaverKeywordTrends,
@@ -35,10 +36,9 @@ import {
 import { fetchLiveCommerceKeywords, type LiveTrendKeywordView } from '../lib/live-commerce-api';
 import { isDouyinTrendSourceKeyword } from '../lib/douyin-trend';
 import { sourcingTiktokCcCollection } from '../../lib/sourcing-tiktok-collection';
-import { operationCutoffAt, sourcingOperationState } from '../../lib/sourcing-operations';
-import type { OperationListResponse } from '@kiditem/shared/operation';
+import { operatorAttentionText, operationCutoffAt, sourcingOperationState } from '../../lib/sourcing-operations';
 import { LiveCommerceSection } from './LiveCommerceSection';
-import { attemptFailureText } from '@/lib/operator-error';
+import type { OperationListResponse } from '@kiditem/shared/operation';
 
 const POPULAR_DAYS = 7;
 const NAVER_KEYWORD_DAYS = 30;
@@ -203,7 +203,7 @@ function TiktokCcSourceStatus({
   source: OperationListResponse | undefined;
   control: CollectionControlView & Readonly<{ stop: () => void }>;
 }) {
-  const { latest, lastSucceeded } = sourcingOperationState(source);
+  const { latest, lastSucceeded, running } = sourcingOperationState(source);
   const refreshing = control.running !== null;
   const stopped = !refreshing && latest?.status === 'cancelled';
   const failed = !refreshing && latest?.status === 'failed';
@@ -212,7 +212,7 @@ function TiktokCcSourceStatus({
   const cutoffAt = operationCutoffAt(lastSucceeded);
 
   const message = refreshing
-    ? '틱톡 트렌드를 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
+    ? operatorAttentionText(running) ?? '틱톡 트렌드를 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
     : notice
       ? notice
       : stopped

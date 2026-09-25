@@ -1,7 +1,6 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import type { OperationListResponse } from '@kiditem/shared/operation';
 import { toast } from 'sonner';
 import { AlertTriangle, Loader2, RefreshCw, Sparkles, Star } from 'lucide-react';
 import { useCollectionSourceControl, type CollectionControlView } from '@/hooks/use-collection-source-control';
@@ -13,6 +12,7 @@ import {
   useTrendSourceCollection,
   type TrendSourceCollection,
 } from '@/hooks/use-trend-source-collection';
+import { attemptFailureText } from '@/lib/operator-error';
 import {
   type EntryInterestKeywordStatus,
   type EntryRecommendation,
@@ -31,12 +31,12 @@ import {
 } from '../../hooks/use-sourcing-workspace';
 import { interestTargetSource } from '../../lib/sourcing-interest-target';
 import { sourcing1688TrendCollection } from '../../lib/sourcing-1688-collection';
-import { sourcingOperationState } from '../../lib/sourcing-operations';
+import { operatorAttentionText, sourcingOperationState } from '../../lib/sourcing-operations';
 import { SourcingReadState } from '../../components/SourcingReadState';
 import { SourceCollectionStatus } from '../../components/SourceCollectionStatus';
 import { EntryRecommendationDetail } from './EntryRecommendationDetail';
 import { EntryRecommendationTable } from './EntryRecommendationTable';
-import { attemptFailureText } from '@/lib/operator-error';
+import type { OperationListResponse } from '@kiditem/shared/operation';
 
 const LIMIT = 50;
 
@@ -332,7 +332,7 @@ function Sourcing1688SourceStatus({
   if (!running && !stopped && !failed && !notice) return null;
 
   const message = running
-    ? '1688 공급 후보를 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
+    ? operatorAttentionText(running) ?? '1688 공급 후보를 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
     : notice
       ? notice
       : stopped

@@ -231,6 +231,16 @@ describe('EntryRecommendationBoard review state', () => {
     await waitFor(() => expect(toastMocks.success).toHaveBeenCalledWith('1688 공급 후보를 갱신했습니다.'));
   });
 
+  it('asks the operator to pass the 1688 slider in the open tab while the running collection waits for it', async () => {
+    operationMocks.list.mockResolvedValue({ operations: [{ ...operation1688('executing'), progress: {
+      current: 7, total: 18, label: '笔袋', attention: { kind: 'verification', site: '1688', label: '笔袋', since: '2026-09-26T01:00:00.000Z' },
+    } }] });
+    renderBoard();
+
+    expect(await screen.findAllByText(/1688 탭에서 슬라이더 검증을 통과해 주세요 — 통과하면 자동으로 이어집니다/)).not.toHaveLength(0);
+    expect(screen.getAllByText(/笔袋/).length).toBeGreaterThan(0);
+  });
+
   it('shows the running 1688 collection with a stop that ends it through the operation cancel, then shows it stopped', async () => {
     const user = userEvent.setup();
     operationMocks.list.mockResolvedValue({ operations: [operation1688('executing')] });

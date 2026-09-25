@@ -17,6 +17,8 @@ import { useCollectionSourceControl, type CollectionControlView } from '@/hooks/
 import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import { cn, formatDateTime, formatNumber } from '@/lib/utils';
+import { attemptFailureText, operatorReason } from '@/lib/operator-error';
+import { friendlyError } from '@/lib/api-error';
 import {
   collectTaobaoLive,
   fetchLiveCommerceSnapshots,
@@ -28,10 +30,8 @@ import {
   liveCommerceOperationMatch,
   sourcingLiveCommerceBrowserCollection,
 } from '../../lib/sourcing-live-commerce-collection';
-import { operationCutoffAt, sourcingOperationState } from '../../lib/sourcing-operations';
+import { operatorAttentionText, operationCutoffAt, sourcingOperationState } from '../../lib/sourcing-operations';
 import type { OperationListResponse } from '@kiditem/shared/operation';
-import { attemptFailureText, operatorReason } from '@/lib/operator-error';
-import { friendlyError } from '@/lib/api-error';
 
 const HISTORY_DAYS = 7;
 
@@ -352,14 +352,14 @@ function BrowserLiveCommerceSourceStatus({
   url: string;
   control: CollectionControlView & Readonly<{ status: OperationListResponse | undefined; stop: () => void }>;
 }) {
-  const { latest, lastSucceeded } = sourcingOperationState(control.status, liveCommerceOperationMatch(url));
+  const { latest, lastSucceeded, running } = sourcingOperationState(control.status, liveCommerceOperationMatch(url));
   const refreshing = control.running !== null;
   const stopped = !refreshing && latest?.status === 'cancelled';
   const failed = !refreshing && latest?.status === 'failed';
   const notice = control.notice && control.notice.tone !== 'info' ? control.notice.message : null;
   if (!refreshing && !latest && !notice) return null;
   const message = refreshing
-    ? '라이브 방송을 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
+    ? operatorAttentionText(running) ?? '라이브 방송을 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
     : notice
       ? notice
       : stopped

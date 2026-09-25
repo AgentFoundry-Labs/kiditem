@@ -77,6 +77,20 @@ export function operationCutoffAt(operation: OperationView | null): string | nul
   return finishedAt === null ? null : typeof finishedAt === 'string' ? finishedAt : finishedAt.toISOString();
 }
 
+/**
+ * 도는 실행이 운영자를 기다리면(확장이 progress.attention으로 알린다 — 검증 화면) 그 안내. 아니면 null.
+ * 확장은 운영자가 열려 있는 탭에서 검증을 통과하면 같은 실행을 이어 간다(KID-355 QA).
+ */
+export function operatorAttentionText(operation: OperationView | null): string | null {
+  const attention = operation?.progress?.attention;
+  if (!attention || typeof attention !== 'object' || Array.isArray(attention)) return null;
+  const { kind, site, label } = attention as Record<string, unknown>;
+  if (kind !== 'verification') return null;
+  const siteName = typeof site === 'string' && site ? site : '수집';
+  const target = typeof label === 'string' && label ? ` · ${label}` : '';
+  return `${siteName} 탭에서 슬라이더 검증을 통과해 주세요 — 통과하면 자동으로 이어집니다${target}`;
+}
+
 function startOutcome(outcome: OperationStartOutcome): CollectionStartOutcome {
   if (outcome.outcome === 'refused') return outcome;
   return { outcome: outcome.outcome, attemptId: outcome.operationId };
@@ -109,7 +123,9 @@ export function sourcingOperationCollection<TInput = void>(
     statusQuery: sourcingOperationsQueryOptions(kind),
     readRunning: (status) => {
       const { running } = sourcingOperationState(status, match);
-      return running ? { attemptId: running.id, scopeLabel: options.scopeLabel?.(running) ?? null } : null;
+      return running
+        ? { attemptId: running.id, scopeLabel: operatorAttentionText(running) ?? options.scopeLabel?.(running) ?? null }
+        : null;
     },
     readProgress: (status) => {
       const { running } = sourcingOperationState(status, match);
