@@ -148,7 +148,9 @@ sync, registration, matching, and capacity behavior is executable in
   extension runner chains), `channels.wing_catalog_details` (planned targets and
   deletion confirmations; also the one-product refetch started directly), and
   `channels.wing_catalog_excel` (workbook bytes as `workbook` chunks, from the web
-  upload or the extension's Wing download; `fileHash` is per account). They
+  upload or the extension's Wing download; `fileHash` is per account; the
+  extension run holds the account lock while Wing builds the file, about seven
+  minutes, so a sync start meanwhile gets `OPERATION_IN_PROGRESS`). They
   publish only inside the finish transaction, mark rows `lastOperationId`, and
   never touch `source_import_runs` or `channel_scrape_*`. Each path writes only
   its own `raw_json` section (`domain/collection/channel-listing-raw-sections.ts`).

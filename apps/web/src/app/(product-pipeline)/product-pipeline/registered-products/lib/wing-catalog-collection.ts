@@ -73,10 +73,13 @@ function startOutcome(outcome: OperationStartOutcome) {
  */
 export function wingCatalogCollection(
   account: WingCatalogAccount,
+  options: { startKind?: typeof WING_CATALOG_LIST_KIND | typeof WING_CATALOG_EXCEL_KIND; label?: string } = {},
 ): CollectionSourceAdapter<OperationListResponse> {
+  const startKind = options.startKind ?? WING_CATALOG_LIST_KIND;
   return {
-    sourceKey: `channels.wing_catalog:${account.id}`,
-    label: '쿠팡 상품 받기',
+    // 한 계정의 카탈로그 실행은 계정 잠금으로 하나다 — 동기화와 엑셀 갱신이 같은 상태를 본다.
+    sourceKey: `channels.wing_catalog:${account.id}:${startKind}`,
+    label: options.label ?? '쿠팡 상품 받기',
     statusQuery: wingCatalogOperationsQueryOptions(),
     readRunning: (status) => {
       const running = runningCatalogOperation(accountCatalogOperations(status, account.id));
@@ -89,7 +92,7 @@ export function wingCatalogCollection(
     // 비교는 `!==`라 문자열이어야 한다.
     readStatusIdentity: (status) =>
       accountCatalogOperations(status, account.id).map((operation) => `${operation.id}:${operation.status}`).join(','),
-    start: async () => startOutcome(await requestOperationStart(WING_CATALOG_LIST_KIND, { channelAccountId: account.id })),
+    start: async () => startOutcome(await requestOperationStart(startKind, { channelAccountId: account.id })),
     cancelInExtension: (operationId) => requestOperationCancel(operationId),
     cancelOnServer: (operationId) => apiClient.post(`/api/operations/${encodeURIComponent(operationId)}/cancel`),
     readCompleteId: (status) =>

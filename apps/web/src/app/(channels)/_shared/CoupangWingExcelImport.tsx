@@ -12,6 +12,7 @@ import { salesProductApi, salesProductKeys } from '@/lib/sales-product-api';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 import { friendlyError } from '@/lib/api-error';
+import { CoupangCatalogExcelRefresh } from './CoupangCatalogExcelRefresh';
 
 const WING_DOWNLOAD_URL = 'https://wing.coupang.com/vendor-inventory/list';
 const COUPANG_MALL_KEY = 'coupang';
@@ -110,6 +111,10 @@ export function CoupangWingExcelImport() {
           </button>
         </div>
       </div>
+
+      {channelAccountId ? (
+        <CoupangCatalogExcelRefresh channelAccountId={channelAccountId} accountName={null} />
+      ) : null}
 
       {fileName ? (
         <p className="flex items-center gap-1.5 text-xs text-slate-500">
