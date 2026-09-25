@@ -113,6 +113,13 @@ jobs:
       - name: Unit-test the server
         run: npm exec --workspace=apps/server vitest -- run
 
+      - name: Build shared package JavaScript for extension tests
+        # Extension tests import @kiditem/shared runtime JS from dist; the DTS build exhausts the hosted runner heap.
+        run: npm exec --workspace=packages/shared tsup -- --no-dts
+
+      - name: Run extension tests
+        run: node --test extensions/tests/*.test.mjs extensions/tests/*/*.test.mjs
+
   script_contract_checks:
     name: Script contract tests
     runs-on: ubuntu-latest
