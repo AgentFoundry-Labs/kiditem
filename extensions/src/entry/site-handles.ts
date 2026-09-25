@@ -16,6 +16,8 @@ export const ACCOUNT_SITE = WING_SITE.name;
  */
 export function createSiteHandles(deps: SiteCallerDeps): (kind: OperationKind, lease: { tabId: number | null }) => unknown {
   return (kind) => {
+    // 소싱 kind는 자기 사이트 핸들을 쓴다(같은 wing이라도 pre-matching 검색, KID-360) — 여기서는 답하지 않는다.
+    if (kind.startsWith('sourcing.')) return null;
     // 상품평은 서비스워커에서 Wing 쿠키로 부른다(탭 없음, KID-359).
     if (kind === COUPANG_REVIEWS_KIND) return createWingReviewsSite(createSiteCaller(WING_REVIEW_CALLER, deps));
     const site = collectorFor(kind)?.site ?? null;

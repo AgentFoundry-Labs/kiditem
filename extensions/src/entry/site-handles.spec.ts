@@ -72,3 +72,19 @@ describe('entry/site-handles — kind의 수집기에 넘길 사이트 핸들', 
     });
   });
 });
+
+// wave1 머지 회귀(2026-09-26): 소싱 Wing 검색 kind가 채널 카탈로그 사이트 핸들로 라우팅돼 `site.searchPage is not a function`.
+import { describe as describe2, expect as expect2, it as it2 } from 'vitest';
+import '../collectors/sourcing.wing_catalog';
+describe2('site handle routing by owner prefix', () => {
+  it2('channel site handles never claim a sourcing kind even when its site is also wing', () => {
+    const handles = createSiteHandles({
+      fetch: async () => new Response('{}', { status: 200 }),
+      cookies: { get: async () => null },
+      now: () => 0,
+      sleep: async () => {},
+    });
+    const handle = handles('sourcing.wing_catalog' as never, { tabId: null }) as { searchPage?: unknown } | null;
+    expect2(handle === null || typeof handle.searchPage === 'function').toBe(true);
+  });
+});

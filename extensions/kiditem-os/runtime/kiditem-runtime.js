@@ -6472,6 +6472,7 @@ var KidItemRuntime = (() => {
   var ACCOUNT_SITE = WING_SITE.name;
   function createSiteHandles(deps) {
     return (kind) => {
+      if (kind.startsWith("sourcing.")) return null;
       if (kind === COUPANG_REVIEWS_KIND) return createWingReviewsSite(createSiteCaller(WING_REVIEW_CALLER, deps));
       const site = collectorFor(kind)?.site ?? null;
       if (site === WING_SITE.name) return createWingSite(createSiteCaller(WING_SITE.caller, deps), { sleep: deps.sleep });
