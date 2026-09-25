@@ -6,12 +6,15 @@ import {
   type OperationWindow,
 } from '@kiditem/shared/operation';
 import { PrismaService } from '../../../../../prisma/prisma.service';
-import { ownerTransaction } from '../../../../../prisma/owner-transaction';
+import { ownerTransaction, ownerTransactionClient } from '../../../../../prisma/owner-transaction';
+import type { OwnerTransaction } from '../../../../owner-transaction';
 import type { JsonObject } from '../../../application/port/out/owner/operation-owner.port';
 import type {
   NewOperation,
+  OperationClaimWrite,
   OperationClosure,
   OperationListFilter,
+  OperationReschedule,
   OperationRecord,
   OperationRepositoryPort,
   OperationTransaction,
@@ -56,6 +59,9 @@ function toRecord(row: OperationRow): OperationRecord {
     errorMessage: row.errorMessage,
     startedAt: row.startedAt,
     finishedAt: row.finishedAt,
+    attempts: row.attempts,
+    maxAttempts: row.maxAttempts,
+    scheduledFor: row.scheduledFor,
     lockKeys: row.locks.map((lock) => lock.lockKey),
   };
 }
@@ -123,12 +129,15 @@ class PrismaOperationTransaction implements OperationTransaction {
     return holders;
   }
 
-  async create(operation: NewOperation) {
-    const row = await this.tx.operation.create({
+  private insertOperation(operation: NewOperation) {
+    return this.tx.operation.create({
       data: {
         organizationId: operation.organizationId,
         kind: operation.kind,
-        status: 'executing',
+        status: operation.status,
+        attempts: operation.attempts,
+        maxAttempts: operation.maxAttempts,
+        scheduledFor: operation.scheduledFor,
         token: operation.token,
         expiresAt: operation.expiresAt,
         idempotencyKey: operation.idempotencyKey,
@@ -139,6 +148,10 @@ class PrismaOperationTransaction implements OperationTransaction {
         startedAt: operation.startedAt,
       },
     });
+  }
+
+  async create(operation: NewOperation) {
+    const row = await this.insertOperation(operation);
     // 키마다 한 행씩, 호출자가 준 순서(정렬됨)대로 쓴다. 두 begin이 같은 순서로 잠그므로 교착하지 않는다.
     for (const lockKey of operation.lockKeys) {
       await this.tx.operationLock.create({
@@ -146,6 +159,87 @@ class PrismaOperationTransaction implements OperationTransaction {
       });
     }
     return { ...toRecord({ ...row, locks: [] }), lockKeys: [...operation.lockKeys] };
+  }
+
+  async createHeld(operation: NewOperation) {
+    const row = await this.insertOperation(operation);
+    for (const lockKey of operation.lockKeys) {
+      // 먼저 잡은 트랜잭션이 커밋할 때까지 기다린 뒤, 그 키가 남아 있으면 아무것도 쓰지 않는다.
+      const inserted = await this.tx.$executeRaw`
+        INSERT INTO operation_locks (id, organization_id, lock_key, operation_id, created_at)
+        VALUES (gen_random_uuid(), ${operation.organizationId}::uuid, ${lockKey}, ${row.id}::uuid, now())
+        ON CONFLICT (organization_id, lock_key) DO NOTHING
+      `;
+      if (inserted === 0) return null;
+    }
+    return { ...toRecord({ ...row, locks: [] }), lockKeys: [...operation.lockKeys] };
+  }
+
+  async reschedule(organizationId: string, operationId: string, reschedule: OperationReschedule) {
+    if (reschedule.clearStaging) await this.tx.operationChunk.deleteMany({ where: { operationId, organizationId } });
+    await this.tx.operation.updateMany({
+      where: { id: operationId, organizationId },
+      data: {
+        status: 'prepared',
+        token: reschedule.token,
+        scheduledFor: reschedule.scheduledFor,
+        expiresAt: reschedule.scheduledFor,
+        errorCode: reschedule.errorCode,
+        errorMessage: reschedule.errorMessage,
+        ...(reschedule.clearStaging ? { progress: Prisma.DbNull } : {}),
+      },
+    });
+    const rescheduled = await this.read(organizationId, operationId);
+    if (!rescheduled) throw new Error(`operation ${operationId} vanished while rescheduling`);
+    return rescheduled;
+  }
+
+  async lockNextClaimable(kinds: readonly string[], now: Date) {
+    // queryraw-tenancy-exempt: 워커 claim은 조직을 가로질러 가장 오래된 후보 하나를 집는다(KID-358). 집은 행의 조직으로 이후 쓰기를 건다.
+    const rows = await this.tx.$queryRaw<Array<{ id: string; organization_id: string }>>`
+      SELECT id, organization_id FROM operations
+      WHERE kind = ANY(${[...kinds]}::text[])
+        AND attempts < max_attempts
+        AND (
+          (status = 'prepared' AND (scheduled_for IS NULL OR scheduled_for <= ${now}))
+          OR (status = 'executing' AND expires_at <= ${now})
+        )
+      ORDER BY COALESCE(scheduled_for, started_at) ASC, started_at ASC, id ASC
+      LIMIT 1
+      FOR UPDATE SKIP LOCKED
+    `;
+    if (rows.length === 0) return null;
+    return this.read(rows[0].organization_id, rows[0].id);
+  }
+
+  async markClaimed(organizationId: string, operationId: string, claim: OperationClaimWrite) {
+    await this.tx.operation.updateMany({
+      where: { id: operationId, organizationId },
+      data: { status: 'executing', token: claim.token, expiresAt: claim.expiresAt, attempts: { increment: 1 } },
+    });
+    const claimed = await this.read(organizationId, operationId);
+    if (!claimed) throw new Error(`operation ${operationId} vanished while claiming`);
+    return claimed;
+  }
+
+  async lockExhaustedExpired(filter: Parameters<OperationTransaction['lockExhaustedExpired']>[0]) {
+    // queryraw-tenancy-exempt: 워커 claim의 조직 무관 만료 정리다(KID-358). 닫는 쓰기는 각 행의 조직으로 건다.
+    const rows = await this.tx.$queryRaw<Array<{ id: string; organization_id: string }>>`
+      SELECT id, organization_id FROM operations
+      WHERE kind = ANY(${[...filter.kinds]}::text[])
+        AND status = 'executing'
+        AND expires_at <= ${filter.now}
+        AND attempts >= max_attempts
+      ORDER BY expires_at ASC, id ASC
+      LIMIT ${filter.limit}
+      FOR UPDATE SKIP LOCKED
+    `;
+    const records: OperationRecord[] = [];
+    for (const { id, organization_id: organizationId } of rows) {
+      const record = await this.read(organizationId, id);
+      if (record) records.push(record);
+    }
+    return records;
   }
 
   async close(organizationId: string, operationId: string, closure: OperationClosure) {
@@ -211,29 +305,9 @@ class PrismaOperationTransaction implements OperationTransaction {
 export class OperationRepositoryAdapter implements OperationRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  transaction<T>(work: (tx: OperationTransaction) => Promise<T>): Promise<T> {
+  transaction<T>(work: (tx: OperationTransaction) => Promise<T>, owner?: OwnerTransaction): Promise<T> {
+    if (owner) return work(new PrismaOperationTransaction(ownerTransactionClient(owner)));
     return this.prisma.$transaction((tx) => work(new PrismaOperationTransaction(tx)));
-  }
-
-  async expireDue(organizationId: string, kinds: readonly string[], now: Date, closure: OperationClosure) {
-    return this.prisma.$transaction(async (tx) => {
-      const expired = await tx.$queryRaw<Array<{ id: string }>>`
-        UPDATE operations
-        SET status = ${closure.status}, error_code = ${closure.errorCode}, error_message = ${closure.errorMessage},
-            finished_at = ${closure.finishedAt}, updated_at = ${now}
-        WHERE organization_id = ${organizationId}::uuid
-          AND kind = ANY(${[...kinds]}::text[])
-          AND status = 'executing'
-          AND expires_at <= ${now}
-        RETURNING id
-      `;
-      const ids = expired.map((row) => row.id);
-      if (ids.length) {
-        await tx.operationChunk.deleteMany({ where: { organizationId, operationId: { in: ids } } });
-        await tx.operationLock.deleteMany({ where: { organizationId, operationId: { in: ids } } });
-      }
-      return ids.length;
-    });
   }
 
   async list(organizationId: string, filter: OperationListFilter) {
@@ -244,5 +318,10 @@ export class OperationRepositoryAdapter implements OperationRepositoryPort {
       include: withLocks,
     });
     return rows.map(toRecord);
+  }
+
+  async find(organizationId: string, operationId: string) {
+    const row = await this.prisma.operation.findFirst({ where: { id: operationId, organizationId }, include: withLocks });
+    return row ? toRecord(row) : null;
   }
 }

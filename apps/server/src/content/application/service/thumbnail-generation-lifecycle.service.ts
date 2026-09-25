@@ -1,4 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
+import type { OwnerTransaction } from '../../../common/owner-transaction';
 import type { ThumbnailEditorCandidate } from '../../domain/model/thumbnail-editor';
 import {
   THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT,
@@ -49,10 +50,12 @@ export class ThumbnailGenerationLifecycleService {
     generationId: string;
     candidates: ThumbnailEditorCandidate[];
     projection: Record<string, unknown>;
+    transaction?: OwnerTransaction;
   }): Promise<ThumbnailGenerationAttemptChange | null> {
     const locked = await this.ledger.claimForDirectProjection({
       generationId: input.generationId,
       organizationId: input.organizationId,
+      transaction: input.transaction,
     });
     if (!locked) return null;
     return this.ledger.projectDirectSuccess(input);
@@ -62,10 +65,12 @@ export class ThumbnailGenerationLifecycleService {
     organizationId: string;
     generationId: string;
     errorMessage: string;
+    transaction?: OwnerTransaction;
   }): Promise<ThumbnailGenerationAttemptChange | null> {
     const locked = await this.ledger.claimForDirectProjection({
       generationId: input.generationId,
       organizationId: input.organizationId,
+      transaction: input.transaction,
     });
     if (!locked) return null;
     return this.ledger.projectDirectFailure(input);

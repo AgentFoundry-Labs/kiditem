@@ -218,12 +218,7 @@ export class DetailPageGenerationService {
       directJob,
     });
 
-    if (opened.releaseRequired) {
-      await this.directGenerationJobs.release({
-        organizationId: input.organizationId,
-        jobId: opened.directJobId,
-      });
-    }
+    this.directGenerationJobs.wake();
 
     return this.query.getById(opened.page.id, input.organizationId);
   }

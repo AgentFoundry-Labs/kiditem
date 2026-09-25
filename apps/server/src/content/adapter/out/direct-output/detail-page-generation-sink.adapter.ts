@@ -1,6 +1,7 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { isKiditemError } from '@kiditem/shared/errors';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import type { DetailPageDirectOutputSinkPort } from '../../../application/port/out/sink/detail-page-direct-output-sink.port';
 import {
   DETAIL_PAGE_REPOSITORY_PORT,
@@ -35,6 +36,7 @@ export class DetailPageGenerationSinkAdapter implements DetailPageDirectOutputSi
     requestId: string;
     sourceResourceId: string | null;
     output: DetailPageGenerateDirectOutput;
+    transaction?: OwnerTransaction;
   }): Promise<void> {
     if (!input.sourceResourceId) {
       this.logger.warn(`detail_page_generate success without sourceResourceId (request=${input.requestId}); cannot apply.`);
@@ -53,7 +55,7 @@ export class DetailPageGenerationSinkAdapter implements DetailPageDirectOutputSi
     const rawTitle = typeof page.generationInput.rawTitle === 'string' ? page.generationInput.rawTitle : null;
     const title = pickProductName(input.output.result, input.output.templateId, rawTitle ?? page.title ?? '상세페이지');
     const processedImages = input.output.processedImages ?? {};
-    const applied = await this.detailPages.runInTransaction(async (transaction) => {
+    const applied = await this.inTransaction(input.transaction, async (transaction) => {
       try {
         if (page.status === 'pending') {
           await this.detailPages.setStatus(transaction, {
@@ -96,12 +98,18 @@ export class DetailPageGenerationSinkAdapter implements DetailPageDirectOutputSi
     this.logger.log(`detail_page_generate applied success → detail page ${page.id} ready (request=${input.requestId}).`);
   }
 
+  /** 실행 finish 트랜잭션이 있으면 그 안에서, 없으면 자기 트랜잭션에서 쓴다(KID-358). */
+  private inTransaction<T>(transaction: OwnerTransaction | undefined, work: (tx: OwnerTransaction) => Promise<T>): Promise<T> {
+    return transaction ? work(transaction) : this.detailPages.runInTransaction(work);
+  }
+
   async applyFailure(input: {
     organizationId: string;
     requestId: string;
     sourceResourceId: string | null;
     errorCode: string;
     errorMessage: string;
+    transaction?: OwnerTransaction;
   }): Promise<void> {
     if (!input.sourceResourceId) {
       this.logger.warn(`detail_page_generate failure without sourceResourceId (request=${input.requestId}); cannot apply.`);
@@ -112,7 +120,7 @@ export class DetailPageGenerationSinkAdapter implements DetailPageDirectOutputSi
       this.logger.debug(`detail_page_generate failure: detail page ${input.sourceResourceId} missing or already terminal; no-op.`);
       return;
     }
-    const failed = await this.detailPages.runInTransaction(async (transaction) => {
+    const failed = await this.inTransaction(input.transaction, async (transaction) => {
       try {
         await this.detailPages.setStatus(transaction, {
           organizationId: input.organizationId,

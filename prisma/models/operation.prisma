@@ -22,6 +22,11 @@ model Operation {
   errorMessage   String?   @map("error_message") @db.Text
   startedAt      DateTime  @default(now()) @map("started_at") @db.Timestamptz
   finishedAt     DateTime? @map("finished_at") @db.Timestamptz
+  /// KID-358: `prepared`가 claim될 수 있는 시각. begin으로 연 실행은 null.
+  scheduledFor   DateTime? @map("scheduled_for") @db.Timestamptz
+  /// KID-358: claim 횟수. begin으로 연 실행은 1. claim 조건 `attempts < max_attempts`.
+  attempts       Int       @default(0)
+  maxAttempts    Int       @default(1) @map("max_attempts")
   createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
   updatedAt      DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
@@ -32,6 +37,8 @@ model Operation {
   @@unique([organizationId, kind, fileHash])
   @@index([organizationId, kind, startedAt(sort: Desc)])
   @@index([organizationId, status])
+  /// KID-358 claim: kind·status로 좁힌 뒤 scheduled_for 오름차순.
+  @@index([kind, status, scheduledFor])
   @@map("operations")
 }
 

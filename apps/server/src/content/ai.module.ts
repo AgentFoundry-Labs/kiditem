@@ -30,7 +30,9 @@ import { DetailPageGenerationSinkAdapter } from './adapter/out/direct-output/det
 import { ThumbnailGenerationSinkAdapter } from './adapter/out/direct-output/thumbnail-generation-sink.adapter';
 import { AiCatalogMediaPublicationRepositoryAdapter } from './adapter/out/repository/ai-catalog-media-publication.repository.adapter';
 import { CatalogDisplayMediaRepositoryAdapter } from './adapter/out/repository/catalog-display-media.repository.adapter';
-import { AiDirectJobRepositoryAdapter } from './adapter/out/repository/ai-direct-job.repository.adapter';
+import { AiDirectJobOperationsAdapter } from './adapter/out/runtime/ai-direct-job-operations.adapter';
+import { AI_DIRECT_JOB_OPERATION_OWNERS } from './adapter/in/operation/ai-direct-job-operation-owners';
+import { OperationModule } from '../common/operation/operation.module';
 import { DetailPageGeminiMediaAdapter } from './adapter/out/gemini/detail-page-gemini-media.adapter';
 import { TEXT_JUDGEMENT_PORT } from './application/port/in/capability/text-judgement.port';
 import { TextJudgementService } from './application/service/text-judgement.service';
@@ -125,7 +127,6 @@ import {
   THUMBNAIL_VISION_PROVIDER_PORT,
 } from './application/port/out/provider';
 import {
-  AI_DIRECT_JOB_REPOSITORY_PORT,
   CATALOG_DISPLAY_MEDIA_REPOSITORY_PORT,
   CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
   CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
@@ -140,6 +141,7 @@ import {
   REGISTRABLE_THUMBNAIL_REPOSITORY_PORT,
 } from './application/port/out/repository';
 import {
+  AI_DIRECT_JOB_OPERATIONS_PORT,
   AI_DIRECT_JOB_WAKE_PORT,
   DETAIL_PAGE_TEMPLATE_STYLES_PORT,
 } from './application/port/out/runtime';
@@ -158,7 +160,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
   // Channels 는 판매상품 초안을 내릴 때 AI 작업공간을 보관한다(AiModule 을 forwardRef 로
   // 문다). AI 는 그 반대편에서 SalesProductModule 을 바로 가져와도 된다 — 순환은 이미 그
   // 한쪽에서 끊겼다.
-  imports: [ChannelCatalogModule, SalesProductModule, PrismaModule, StorageModule],
+  imports: [ChannelCatalogModule, SalesProductModule, PrismaModule, StorageModule, OperationModule],
   providers: [
     ProductGenerationAiService,
     ContentWorkspaceService,
@@ -172,7 +174,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ThumbnailGenerationJobService,
     ThumbnailGenerationLifecycleService,
     ThumbnailDirectGenerationJobService,
-    AiDirectJobRepositoryAdapter,
+    AiDirectJobOperationsAdapter,
     ContentAssetLibraryRepositoryAdapter,
     ContentWorkspaceLifecycleRepositoryAdapter,
     SalesProductOwnerReadAdapter,
@@ -185,7 +187,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
     ThumbnailImageGenerationAdapter,
     ThumbnailReferenceImagesService,
     { provide: AI_DIRECT_JOB_RUNTIME_CONFIG, useFactory: resolveAiDirectJobRuntimeConfig },
-    { provide: AI_DIRECT_JOB_REPOSITORY_PORT, useExisting: AiDirectJobRepositoryAdapter },
+    { provide: AI_DIRECT_JOB_OPERATIONS_PORT, useExisting: AiDirectJobOperationsAdapter },
     { provide: CONTENT_ASSET_LIBRARY_REPOSITORY_PORT, useExisting: ContentAssetLibraryRepositoryAdapter },
     { provide: CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT, useExisting: ContentWorkspaceLifecycleRepositoryAdapter },
     { provide: SALES_PRODUCT_OWNER_READ_PORT, useExisting: SalesProductOwnerReadAdapter },
@@ -202,7 +204,7 @@ import { IMAGE_STORAGE_PORT } from './application/port/out/storage';
   ],
   exports: [
     PRODUCT_GENERATION_AI_TRIGGER_PORT,
-    AI_DIRECT_JOB_REPOSITORY_PORT,
+    AI_DIRECT_JOB_OPERATIONS_PORT,
     AI_DIRECT_JOB_RUNTIME_CONFIG,
     CONTENT_ASSET_LIBRARY_REPOSITORY_PORT,
     CONTENT_WORKSPACE_LIFECYCLE_REPOSITORY_PORT,
@@ -270,6 +272,7 @@ export class AiAgentRuntimeModule {}
     AiDirectJobPayloadHydratorService,
     AiDirectJobProcessorService,
     AiDirectJobWorkerService,
+    ...AI_DIRECT_JOB_OPERATION_OWNERS,
     AiDirectJobWakeRegistrationService,
     CatalogDisplayMediaService,
     AiGenerationCancellationService,

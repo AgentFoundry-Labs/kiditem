@@ -4,7 +4,7 @@ import {
   type QueuedThumbnailDirectInput,
 } from '../../domain/direct-job/ai-direct-job.schema';
 import type { ThumbnailGenerateDirectInput } from '../../domain/direct-generation';
-import type { AiDirectJobRecord } from '../port/out/repository/ai-direct-job.repository.port';
+import type { AiDirectJob } from '../../domain/direct-job/ai-direct-job-operation';
 import {
   IMAGE_FETCH_PORT,
   type ImageFetchPort,
@@ -24,7 +24,7 @@ export class AiDirectJobPayloadHydratorService {
   ) {}
 
   async hydrateThumbnail(
-    job: AiDirectJobRecord,
+    job: AiDirectJob,
     signal?: AbortSignal,
   ): Promise<ThumbnailGenerateDirectInput> {
     signal?.throwIfAborted();

@@ -1,19 +1,13 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
-import { KiditemError } from '@kiditem/shared/errors';
 import {
-  AI_DIRECT_JOB_REPOSITORY_PORT,
-  type AiDirectJobRepositoryPort,
-} from '../port/out/repository/ai-direct-job.repository.port';
-import {
+  AI_DIRECT_JOB_OPERATIONS_PORT,
   AI_DIRECT_JOB_WAKE_PORT,
+  type AiDirectJobOperationsPort,
+  type AiDirectJobState,
   type AiDirectJobWakePort,
 } from '../port/out/runtime';
-import {
-  AI_DIRECT_JOB_RUNTIME_CONFIG,
-  type AiDirectJobRuntimeConfig,
-  resolveAiDirectJobModels,
-} from './ai-direct-job.config';
+import { resolveAiDirectJobModels } from './ai-direct-job.config';
 import { AiDirectJobInputAssetsService } from './ai-direct-job-input-assets.service';
 import { ImageEditDirectInputSchema } from '../../domain/direct-generation';
 
@@ -40,71 +34,64 @@ export interface ImageEditDirectGenerationTaskStatus {
   errorMessage: string | null;
 }
 
-const TERMINAL_JOB_STATUSES = new Set(['succeeded', 'failed', 'cancelled']);
+/** 화면이 읽는 상태 이름. 결과를 받아 두고 반영만 남은 job은 아직 `running`이다(결과 URL은 finish 뒤에 보인다). */
+function screenStatus(state: AiDirectJobState): string {
+  if (state.status === 'prepared') return 'pending';
+  if (state.status === 'executing') return 'running';
+  return state.status;
+}
 
+/**
+ * 이미지 편집 job(`content.image_edit`). 생성 기록 없이 실행 하나가 곧 작업이고, 작업 id는 실행 id다.
+ * 입력 사진은 prepare 전에 저장소로 옮긴다(그 경로의 이름표는 따로 뽑은 id).
+ */
 @Injectable()
 export class ImageEditDirectGenerationJobService {
   constructor(
-    @Inject(AI_DIRECT_JOB_REPOSITORY_PORT)
-    private readonly repository: AiDirectJobRepositoryPort,
+    @Inject(AI_DIRECT_JOB_OPERATIONS_PORT)
+    private readonly jobs: AiDirectJobOperationsPort,
     private readonly inputAssets: AiDirectJobInputAssetsService,
     @Inject(AI_DIRECT_JOB_WAKE_PORT)
     private readonly worker: AiDirectJobWakePort,
-    @Inject(AI_DIRECT_JOB_RUNTIME_CONFIG)
-    private readonly config: AiDirectJobRuntimeConfig,
   ) {}
 
   async schedule(
     input: ImageEditDirectGenerationScheduleInput,
   ): Promise<{ taskId: string }> {
     const models = resolveAiDirectJobModels('image_edit');
-    const taskId = randomUUID();
+    const inputKey = randomUUID();
     const payload = await this.inputAssets.persistImageEditInputs({
       organizationId: input.organizationId,
-      jobId: taskId,
+      jobId: inputKey,
       payload: input.payload,
     });
     const durablePayload = ImageEditDirectInputSchema.parse(payload);
-    await this.repository.create({
-      id: taskId,
+    const { jobId } = await this.jobs.prepare(undefined, {
       organizationId: input.organizationId,
       jobType: 'image_edit',
-      sourceResourceId: taskId,
+      sourceResourceId: inputKey,
       payload: {
         jobType: 'image_edit',
         models: { image: models.image },
         input: durablePayload,
       },
-      status: 'held',
-      scheduledFor: new Date(Date.now() + this.config.heldRecoveryMs),
     });
-
-    const released = await this.repository.release({
-      organizationId: input.organizationId,
-      jobId: taskId,
-    });
-    if (!released) {
-      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DIRECT_JOB_RELEASE_FAILED', jobId: taskId } });
-    }
     this.worker.wake();
-    return { taskId };
+    return { taskId: jobId };
   }
 
   async getStatus(
     organizationId: string,
     taskId: string,
   ): Promise<ImageEditDirectGenerationTaskStatus | null> {
-    const job = await this.repository.findById({
-      organizationId,
-      jobId: taskId,
-    });
+    const job = await this.jobs.find(organizationId, taskId);
     if (!job) return null;
     return {
       taskId,
-      status: job.status === 'projecting' ? 'succeeded' : job.status,
+      status: screenStatus(job),
       output: job.result,
-      errorCode: job.lastErrorCode,
-      errorMessage: job.lastErrorMessage,
+      errorCode: job.errorCode,
+      errorMessage: job.errorMessage,
     };
   }
 
@@ -118,49 +105,33 @@ export class ImageEditDirectGenerationJobService {
     jobId: string;
     preserved: boolean;
   }> {
-    const existing = await this.repository.findById({
-      organizationId: input.organizationId,
-      jobId: input.taskId,
-    });
+    const existing = await this.jobs.find(input.organizationId, input.taskId);
     if (!existing) {
-      return {
-        status: 'not_found',
-        jobId: input.taskId,
-        preserved: false,
-      };
+      return { status: 'not_found', jobId: input.taskId, preserved: false };
     }
-    if (TERMINAL_JOB_STATUSES.has(existing.status) || existing.status === 'projecting') {
+    // 끝났거나 결과를 이미 받아 둔 job은 취소하지 않는다(받아 둔 결과는 곧 반영된다).
+    if (isFinished(existing) || existing.resultSaved) {
       return {
         status: 'already_terminal',
         jobId: input.taskId,
-        preserved: existing.status === 'succeeded' || existing.result != null,
+        preserved: existing.status === 'succeeded' || existing.resultSaved,
       };
     }
-
-    const cancelled = await this.repository.cancel({
-      organizationId: input.organizationId,
-      jobId: input.taskId,
-      reason: input.reason,
-    });
+    const cancelled = await this.jobs.cancel(input.organizationId, input.taskId);
     if (!cancelled) {
-      return {
-        status: 'not_found',
-        jobId: input.taskId,
-        preserved: false,
-      };
+      return { status: 'not_found', jobId: input.taskId, preserved: false };
     }
     if (cancelled.status !== 'cancelled') {
       return {
         status: 'already_terminal',
         jobId: input.taskId,
-        preserved: cancelled.status === 'succeeded' || cancelled.result != null,
+        preserved: cancelled.status === 'succeeded' || cancelled.resultSaved,
       };
     }
-
-    return {
-      status: 'cancelled',
-      jobId: input.taskId,
-      preserved: false,
-    };
+    return { status: 'cancelled', jobId: input.taskId, preserved: false };
   }
+}
+
+function isFinished(state: AiDirectJobState): boolean {
+  return state.status === 'succeeded' || state.status === 'failed' || state.status === 'cancelled';
 }

@@ -36,6 +36,9 @@ erDiagram
     String errorMessage
     DateTime startedAt
     DateTime finishedAt
+    DateTime scheduledFor
+    Int attempts
+    Int maxAttempts
     DateTime createdAt
     DateTime updatedAt
   }

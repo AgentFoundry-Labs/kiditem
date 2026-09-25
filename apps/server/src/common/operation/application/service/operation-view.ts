@@ -17,5 +17,8 @@ export function toOperationView(record: OperationRecord): OperationView {
     startedAt: record.startedAt.toISOString(),
     finishedAt: record.finishedAt?.toISOString() ?? null,
     expiresAt: record.expiresAt.toISOString(),
+    attempts: record.attempts,
+    maxAttempts: record.maxAttempts,
+    scheduledFor: record.scheduledFor?.toISOString() ?? null,
   };
 }

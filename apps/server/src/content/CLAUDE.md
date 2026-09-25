@@ -15,6 +15,7 @@ workspace projection, and provider/storage adapters. HTTP adapters live under
   Content models are ten: workspace, asset, listing thumbnail evaluation,
   thumbnail job, detail page, revision, detail image artifact, render intent,
   direct job, usage record (KID-313 W3; the usage record stays by 결정 16).
+  The direct-job table is retired (KID-358) and awaits its drop (KID-365).
 - `ContentAsset` is the one table for uploads, AI thumbnail candidates, detail
   images and catalog photos; `source` says where a row came from and
   `thumbnailGenerationId` links an AI candidate to its job. The workspace's
@@ -33,8 +34,9 @@ workspace projection, and provider/storage adapters. HTTP adapters live under
 - `ListingThumbnailEvaluation` scores the representative image a mall actually
   shows, one row per (listing, image URL) received from Channels; a changed
   image gets a new row. `ThumbnailGeneration` is the job only.
-- `AiDirectJob` owns claims, leases, retries, checkpoints, cancellation, and
-  recovery for thumbnail, detail-page, image-edit, and re-edit work.
+- Thumbnail, detail-page, image-edit and re-edit work runs as `content.*`
+  operations (ADR-0025, KID-358); `common/operation` owns claims, leases,
+  retries and cancellation. Never read or write `ai_direct_jobs`.
 - Use `contentWorkspaceId` for media workspaces. Sourcing candidate and
   candidate-image ids are provenance columns with no foreign key; AI never reads
   a Channels or Sourcing row to fill a prompt or a name. Do not reintroduce
@@ -48,15 +50,25 @@ lives in [docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
 
 ## Direct Job Contract
 
-- Atomically create the domain ledger/provenance and a held direct job, attach
-  its alert or parent relation, then release it.
-- A leased worker performs provider/media work, checkpoints validated output,
-  and invokes a sink that atomically projects terminal domain rows.
+- Prepare the job through `AI_DIRECT_JOB_OPERATIONS_PORT` inside the transaction
+  that creates the domain ledger/provenance, and wake the worker after commit.
+- The worker claims, runs provider/media work, stages the validated output as
+  the operation's `result` chunk (`progress.checkpoint = result_saved`) and
+  finishes; the kind owner's `finalize` invokes the sink and `onFailed`
+  records the final failure, both inside the finish transaction (`context.tx`,
+  `adapter/in/operation/`).
 - Executors return validated data and do not mutate AI tables. Sinks own
   generation projection, generated-image assets, and alert closure.
-- Projecting jobs resume from checkpoints without another model call. Expired
-  leases and held jobs follow the tested recovery policy; cancellation reaches
-  the claiming worker through its heartbeat.
+- A saved result is reused without another model call; that resume still
+  counts as a claim (`attempts + 1`, accepted in KID-358). A finish that fails
+  after the result was saved is left to lease expiry, never `fail()`, so the
+  saved result survives.
+- `GET /image-ai/tasks/:taskId` reads `running` between the saved result and
+  its finish; the output appears once the operation succeeds (accepted in
+  KID-358).
+- Cancelling a generation locks its live operation (`lockLive`) before the
+  ledger row, then cancels both in one transaction; the claiming worker sees
+  it through its heartbeat.
 - Direct generation is deterministic infrastructure and does not create Agent
   OS runs. Agent-prefixed runtime keys are reserved for real Agent definitions.
 
@@ -102,8 +114,8 @@ lives in [docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
   `CONTENT_REGISTRATION_FACTS_PORT` (`content-registration-facts.module.ts`):
   the product workspace's current detail revision id and thumbnail asset id.
 - Throw `Kiditem*Error` with a registered `CONTENT_*` or common code (ADR-0023).
-  `AiDirectJob.errorCode` spellings (`direct_ai_*`, `model_required`) are ledger
-  values the retry policy reads, not HTTP codes.
+  Direct-job error spellings (`direct_ai_*`, `model_required`) are operation
+  error codes the retry policy reads, not HTTP codes.
 - Model selection is explicit. Asset deletion/GC rejects active generation
   usage and current-thumbnail references.
 - Generation-control changes update shared type/tuple, HTTP DTO, web payload,

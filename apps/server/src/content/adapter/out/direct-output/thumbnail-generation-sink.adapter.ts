@@ -1,4 +1,5 @@
 import { Inject, Injectable, Logger } from '@nestjs/common';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import {
   IMAGE_STORAGE_PORT,
   type ImageStoragePort,
@@ -42,6 +43,7 @@ export class ThumbnailGenerationSinkAdapter
     requestId: string;
     sourceResourceId: string | null;
     output: ThumbnailGenerateDirectOutput;
+    transaction?: OwnerTransaction;
   }): Promise<void> {
     if (!input.sourceResourceId) {
       this.logger.warn(
@@ -69,6 +71,7 @@ export class ThumbnailGenerationSinkAdapter
       organizationId: input.organizationId,
       candidates,
       projection: projectionMetadata(input.requestId),
+      transaction: input.transaction,
     });
     if (!applied) {
       this.logger.debug(
@@ -88,6 +91,7 @@ export class ThumbnailGenerationSinkAdapter
     sourceResourceId: string | null;
     errorCode: string;
     errorMessage: string;
+    transaction?: OwnerTransaction;
   }): Promise<void> {
     if (!input.sourceResourceId) {
       this.logger.warn(
@@ -100,6 +104,7 @@ export class ThumbnailGenerationSinkAdapter
       generationId: input.sourceResourceId,
       organizationId: input.organizationId,
       errorMessage: input.errorMessage,
+      transaction: input.transaction,
     });
     if (!failed) {
       this.logger.debug(

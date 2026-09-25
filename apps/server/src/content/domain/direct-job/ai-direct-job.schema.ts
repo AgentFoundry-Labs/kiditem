@@ -15,16 +15,6 @@ export const AiDirectJobTypeSchema = z.enum([
   'image_edit',
 ]);
 
-export const AiDirectJobStatusSchema = z.enum([
-  'held',
-  'pending',
-  'running',
-  'projecting',
-  'succeeded',
-  'failed',
-  'cancelled',
-]);
-
 export const QueuedThumbnailInputImageSchema = z
   .object({
     mimeType: z.string().min(1),
@@ -113,7 +103,6 @@ export const AiDirectJobCheckpointSchema = z.discriminatedUnion('jobType', [
 ]);
 
 export type AiDirectJobType = z.infer<typeof AiDirectJobTypeSchema>;
-export type AiDirectJobStatus = z.infer<typeof AiDirectJobStatusSchema>;
 export type AiDirectJobEnvelope = z.infer<typeof AiDirectJobEnvelopeSchema>;
 export type AiDirectJobModels = Extract<
   AiDirectJobEnvelope,
