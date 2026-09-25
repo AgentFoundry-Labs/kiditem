@@ -154,6 +154,42 @@ install the ZIP directly.
 6. Visit and authenticate each KidItem origin whose profile is needed.
    Marketplace login and OTP stay in the operator's normal Chrome profile.
 
+## Extension ID (Manifest `key`)
+
+`extensions/kiditem-os/manifest.json` carries a `key` (the base64 DER public
+key), so Chrome derives the same extension ID,
+`jdklckncgmllpabkofllidmoiglbcnpb`, from every unpacked directory on every
+machine. Without it the directory path chose the ID.
+
+- The matching private key (PKCS#8 PEM) never enters the repository. Keep it in
+  the team vault (1Password or equivalent). Unpacked installs need only the
+  public key, but a signed CRX or a Web Store upload needs the private key; if
+  it is lost, a new key pair means a new ID and another operator reconnection.
+- Do not edit or remove `key`. Rotation is a deliberate ID change: generate a
+  pair, store the PEM in the vault, and replace only the `key` value:
+
+  ```bash
+  openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -out kiditem-os.pem
+  openssl rsa -in kiditem-os.pem -pubout -outform DER | openssl base64 -A
+  ```
+
+### One-Time Reconnection After The ID Changes
+
+The first release that adds (or rotates) `key` changes the installed ID once.
+What depends on the ID:
+
+- `chrome.storage.local` belongs to one ID, so KidItem auth profiles, collection
+  sessions, and caches of the old ID are not carried over.
+- The web app does not store a fixed ID: `content/host-bridge.js` rewrites the
+  `kiditem-*-ext-id` localStorage entries with `chrome.runtime.id` on every
+  KidItem page load, so the web app follows the new ID after a page reload.
+- `externally_connectable` matches KidItem web origins, not extension IDs, and
+  the server keeps no extension-ID allowlist, so neither needs a change.
+
+Operator procedure: finish or cancel running collections, **Remove** the old
+extension card, **Load unpacked** the new directory, reload every open KidItem
+page, then re-authenticate each KidItem environment once (install steps 5-6).
+
 ## Verification
 
 Run repository checks before publishing:

@@ -3,6 +3,7 @@
   "name": "KIDITEM OS",
   "description": "주문수집·쿠팡 Wing/광고센터·소싱(Alibaba/1688/틱톡) 자동화를 하나로 묶어 KIDITEM OS 대시보드에 연동합니다.",
   "version": "1.2.27",
+  "key": "MIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA048kfD6hQARvuNqR+fOewlvNlS8jX3WX1lxZ7TQ1ydEkXrI9LUz4Rj1XkNJz1t/dPvHfItyB9QCz/GnUcmSPpL4jlg/27q9Vog4s7Ozd2pniB43Ft2uPgNqhWXmO09abaoM47yMyYD8nUXgdRzAbxrHtCq+zq774372UAAX48/69RakTu1DXgr34OG8aPTqH/aA0eWcpNOgCUc9+U5YEQwuoGEXRERkXqk5b9zIHOW6/pUzE1C60IoSnz4KYOrFsBPZR8Lq31zZ1C4knEfuWks8lPU82anrPZWPbHaR7q1ig5KD+EdbL/SV+Szej9AYBcFTPkffzNB6U5fyb9Xh4LQIDAQAB",
   "permissions": [
     "activeTab",
     "alarms",
