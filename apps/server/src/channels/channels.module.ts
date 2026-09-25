@@ -185,7 +185,7 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
     RocketSellpiaMatchingCsvImportRepositoryAdapter,
     ChannelCatalogPublicationRepositoryAdapter,
     // Wing 카탈로그 실행 kind 셋(KID-354·351). owner는 부팅 때 실행 계약에 등록된다.
-    WingCatalogOperationService,
+    { provide: WingCatalogOperationService, useFactory: (...dependencies: ConstructorParameters<typeof WingCatalogOperationService>) => new WingCatalogOperationService(...dependencies), inject: [CHANNEL_CATALOG_PUBLICATION_PORT, CHANNEL_DOCUMENTS_PORT, OPERATION_PORT, CHANNEL_INTEGRITY_PORT] },
     { provide: WING_CATALOG_OPERATION_PORT, useExisting: WingCatalogOperationService },
     ...WING_CATALOG_OPERATION_OWNERS,
     ChannelProductMatchingRepositoryAdapter,

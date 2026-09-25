@@ -36,10 +36,7 @@ owns its identity and mutation rules.
   alone is not a reason to add a port or adapter.
 - Prefer one deep owner interface over multiple one-to-one forwarding layers.
 - Domain code is pure: no NestJS, Prisma, HTTP/provider SDK, workflow runtime,
-  filesystem, or panel/event infrastructure. Application services take their
-  ports through Nest DI (`@Injectable`/`@Inject` from `@nestjs/common`) in
-  every owner; nothing else from Nest (HTTP exceptions, controllers, other
-  `@nestjs/*` packages) and no Prisma/Node IO belongs in `application/`.
+  filesystem, or panel/event infrastructure.
 - Organization scope is decided once, at the entrypoint. A domain function
   that reads and writes no rows does not take `organizationId`; when the id is
   data (a storage key, a label), mark the parameter

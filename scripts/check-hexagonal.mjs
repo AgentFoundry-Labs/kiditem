@@ -114,14 +114,8 @@ function hexagonalFindings(file, source) {
     // and domain/ files that predates KID-310 and is not a directory-layout
     // question, so it is out of this reorganization's scope to fix here.
     if (owner === 'channels') {
-      // Application services take their ports through Nest DI (`@Injectable`/`@Inject` from
-      // `@nestjs/common`) like every other owner (user, 2026-09-26): the DI decorator is not IO.
-      // Everything else from Nest (HTTP exceptions, controllers, other @nestjs/* packages) and
-      // all Prisma/Node IO stay out of application/, and domain/ stays free of Nest entirely.
-      const application = /\/application\//.test(file);
       for (const match of source.matchAll(/(?:from\s+|import\s*\(\s*|require\s*\(\s*)['"]([^'"]+)['"]/g)) {
         const dependency = match[1];
-        if (application && dependency === '@nestjs/common') continue;
         if (dependency.startsWith('@nestjs/') || dependency.startsWith('@prisma/')
           || dependency.startsWith('node:') || builtins.has(dependency)
           || ['xlsx', 'exceljs', 'pg'].includes(dependency)) reject(`IO/framework import: ${dependency}`);
