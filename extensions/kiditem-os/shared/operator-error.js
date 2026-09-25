@@ -162,6 +162,27 @@
       "text": "운영자가 중단했습니다.",
       "retryable": false
     },
+    "OPERATION_IN_PROGRESS": {
+      "owner": "common",
+      "kind": "in_progress",
+      "httpStatus": 409,
+      "text": "같은 실행이 이미 진행 중입니다. 끝나거나 중단한 뒤 다시 시작해 주세요.",
+      "retryable": false
+    },
+    "OPERATION_FENCE_LOST": {
+      "owner": "common",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "이 실행은 더 이상 유효하지 않습니다. 다시 시작해 주세요.",
+      "retryable": true
+    },
+    "OPERATION_NOT_FOUND": {
+      "owner": "common",
+      "kind": "not_found",
+      "httpStatus": 404,
+      "text": "실행을 찾을 수 없습니다.",
+      "retryable": false
+    },
     "COLLECTION_CANCELLED": {
       "owner": "common",
       "kind": "cancelled",
