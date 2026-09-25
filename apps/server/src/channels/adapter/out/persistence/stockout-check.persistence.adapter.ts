@@ -12,6 +12,10 @@ import { readUnresolvedCompositionOptionIds } from '../repository/registration-e
 import { readLatestListingSaleStatusFacts } from './channel-listing-daily-facts';
 import { getListingAvailabilityCapability } from '../../../domain/registration/mall-adapter-manifest';
 import { OPERATION_PORT, type OperationPort } from '../../../../common/operation/application/port/in/operation.port';
+import { WING_CATALOG_KINDS } from '@kiditem/shared/coupang-catalog-snapshot';
+
+/** 카탈로그 관측 시각을 찾을 때 보는 최근 성공 실행 수(동기화 한 번이 목록·상세 둘이다). */
+const RECENT_CATALOG_OPERATIONS = 200;
 
 @Injectable()
 export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistencePort {
@@ -64,12 +68,16 @@ export class StockoutCheckPersistenceAdapter implements StockoutCheckPersistence
     });
     const importedAt = new Map(imports.map(run => [run.id, run.importedAt ?? run.updatedAt]));
     // 실행 계약으로 옮긴 원천(Wing 카탈로그, KID-354)이 쓴 행은 그 실행이 끝난 시각이 관측 시각이다. 실행은 실행 계약의
-    // reader로만 읽는다(ADR-0025). 한 번에 보는 리스팅들의 실행은 몇 개뿐이다.
+    // reader로만 읽는다(ADR-0025).
     const operationIds = [...new Set(listings.flatMap(listing => [listing.lastOperationId, ...listing.options.map(option => option.lastOperationId)]).filter((id): id is string => id !== null))];
+    // 한 번의 reader 조회로 최근 성공한 카탈로그 실행의 끝난 시각을 모은다. 그보다 오래된 실행이 쓴 행은 시각을 모르는
+    // 것으로 두어(옛 run이 없던 행과 같다) 더 새 관측이 이긴다.
     const operationFinishedAt = new Map<string, Date>();
-    for (const operationId of operationIds) {
-      const finishedAt = (await this.operations.get(organizationId, operationId))?.finishedAt;
-      if (finishedAt) operationFinishedAt.set(operationId, new Date(finishedAt));
+    if (operationIds.length > 0) {
+      const { operations } = await this.operations.list(organizationId, { kinds: [...WING_CATALOG_KINDS], status: 'succeeded', limit: RECENT_CATALOG_OPERATIONS });
+      for (const operation of operations) {
+        if (operation.finishedAt) operationFinishedAt.set(operation.id, new Date(operation.finishedAt));
+      }
     }
     const catalogObservedAt = (row: { lastImportRunId: string | null; lastOperationId: string | null }) =>
       (row.lastImportRunId ? importedAt.get(row.lastImportRunId) : undefined)
