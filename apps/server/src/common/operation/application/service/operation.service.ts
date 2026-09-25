@@ -25,6 +25,7 @@ import {
   type OperationListResponse,
   type OperationPrepareRequest,
   type OperationView,
+  type OperationWindow,
 } from '@kiditem/shared/operation';
 import type { OwnerTransaction } from '../../../owner-transaction';
 import { decideFailure } from '../../domain/operation-attempt';
@@ -47,6 +48,13 @@ import {
 } from '../port/out/repository/operation.repository.port';
 import { OperationOwnerRegistry } from './operation-owner.registry';
 import { toOperationView } from './operation-view';
+
+interface PlannedOperation {
+  requestHash: string;
+  plan: Record<string, unknown>;
+  window: OperationWindow | null;
+  lockKeys: string[];
+}
 
 /** 트랜잭션 안에서 만료를 커밋한 뒤 밖에서 던질 거절. */
 type Deferred<T> = { ok: T } | { reject: OperationFenceLostReason; operationId: string } | { notFound: true };
@@ -89,44 +97,58 @@ export class OperationService implements OperationPort {
   ) {}
 
   async begin(organizationId: string, request: OperationBeginRequest): Promise<OperationBeginResponse> {
-    const owner = this.owners.find(request.kind);
-    if (!owner) {
-      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'unknown_operation_kind' } });
-    }
-    // begin 요청의 지문: kind·scope·fileHash를 키 순서와 무관하게 직렬화한 SHA-256.
-    const requestHash = canonicalOwnerInputHash({ kind: request.kind, scope: request.scope, fileHash: request.fileHash ?? null });
-    const planned = OperationPlanResultSchema.parse(await owner.plan(request.scope, { organizationId }));
-    // 모든 begin이 같은 순서로 잠금 행을 쓰게 정렬한다. 엇갈린 순서는 교착(40P01)으로 500이 된다.
-    const lockKeys = [...new Set(planned.lockKeys)].sort();
+    const planned = await this.planFor(organizationId, request.kind, request.scope, request.fileHash ?? null);
     try {
-      return await this.admit(organizationId, request, requestHash, planned.plan, planned.window ?? null, lockKeys);
+      return await this.admit(organizationId, request, planned);
     } catch (error) {
       // 동시에 들어온 begin이 같은 잠금·멱등 키를 먼저 잡았다. 한 번 더 판정하면 그 실행이 보인다.
       if (!isUniqueViolation(error)) throw error;
-      return this.admit(organizationId, request, requestHash, planned.plan, planned.window ?? null, lockKeys);
+      return this.admit(organizationId, request, planned);
     }
   }
 
-  private admit(
+  /**
+   * begin·prepare 공통: kind의 owner를 찾아 `plan(scope)`을 받고, 요청 지문(kind·scope·fileHash의 canonical
+   * SHA-256)과 정렬한 lockKey를 만든다. 모든 시작이 같은 순서로 잠금 행을 써야 교착(40P01)하지 않는다.
+   */
+  private async planFor(organizationId: string, kind: string, scope: Record<string, unknown>, fileHash: string | null): Promise<PlannedOperation> {
+    const owner = this.owners.find(kind);
+    if (!owner) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'unknown_operation_kind' } });
+    }
+    const planned = OperationPlanResultSchema.parse(await owner.plan(scope, { organizationId }));
+    return {
+      requestHash: canonicalOwnerInputHash({ kind, scope, fileHash }),
+      plan: planned.plan,
+      window: planned.window ?? null,
+      lockKeys: [...new Set(planned.lockKeys)].sort(),
+    };
+  }
+
+  /** 같은 멱등 키의 실행이 있으면 (요청이 같을 때만) 그것을 돌려준다. 다른 요청이면 거절, 없으면 null. */
+  private async reuseByIdempotencyKey(
+    tx: OperationTransaction,
     organizationId: string,
-    request: OperationBeginRequest,
+    kind: string,
+    idempotencyKey: string | undefined,
     requestHash: string,
-    plan: Record<string, unknown>,
-    window: OperationBeginResponse['operation']['window'],
-    lockKeys: string[],
-  ): Promise<OperationBeginResponse> {
+    now: Date,
+  ): Promise<OperationRecord | null> {
+    if (!idempotencyKey) return null;
+    const existing = await tx.findByIdempotencyKey(organizationId, kind, idempotencyKey);
+    if (!existing) return null;
+    if (existing.requestHash !== requestHash) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'idempotency_key_reused' } });
+    }
+    return this.expireIfDue(tx, existing, now);
+  }
+
+  private admit(organizationId: string, request: OperationBeginRequest, planned: PlannedOperation): Promise<OperationBeginResponse> {
+    const { requestHash, plan, window, lockKeys } = planned;
     return this.operations.transaction(async (tx) => {
       const now = new Date();
-      if (request.idempotencyKey) {
-        const existing = await tx.findByIdempotencyKey(organizationId, request.kind, request.idempotencyKey);
-        if (existing) {
-          if (existing.requestHash !== requestHash) {
-            throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'idempotency_key_reused' } });
-          }
-          const current = await this.expireIfDue(tx, existing, now);
-          return { operation: toOperationView(current), token: current.token, reused: true };
-        }
-      }
+      const reused = await this.reuseByIdempotencyKey(tx, organizationId, request.kind, request.idempotencyKey, requestHash, now);
+      if (reused) return { operation: toOperationView(reused), token: reused.token, reused: true };
       if (request.fileHash) await this.admitFile(tx, organizationId, request.kind, request.fileHash, now);
 
       await this.refuseHeldKeys(tx, organizationId, lockKeys, now);
@@ -164,24 +186,11 @@ export class OperationService implements OperationPort {
   }
 
   async prepare(organizationId: string, request: OperationPrepareRequest, ownerTx?: OwnerTransaction): Promise<OperationPrepareResult> {
-    const owner = this.owners.find(request.kind);
-    if (!owner) {
-      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'unknown_operation_kind' } });
-    }
-    const requestHash = canonicalOwnerInputHash({ kind: request.kind, scope: request.scope, fileHash: null });
-    const planned = OperationPlanResultSchema.parse(await owner.plan(request.scope, { organizationId }));
-    const lockKeys = [...new Set(planned.lockKeys)].sort();
+    const { requestHash, plan, window, lockKeys } = await this.planFor(organizationId, request.kind, request.scope, null);
     return this.operations.transaction(async (tx) => {
       const now = new Date();
-      if (request.idempotencyKey) {
-        const existing = await tx.findByIdempotencyKey(organizationId, request.kind, request.idempotencyKey);
-        if (existing) {
-          if (existing.requestHash !== requestHash) {
-            throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'idempotency_key_reused' } });
-          }
-          return { operation: toOperationView(await this.expireIfDue(tx, existing, now)), reused: true };
-        }
-      }
+      const reused = await this.reuseByIdempotencyKey(tx, organizationId, request.kind, request.idempotencyKey, requestHash, now);
+      if (reused) return { operation: toOperationView(reused), reused: true };
       await this.refuseHeldKeys(tx, organizationId, lockKeys, now);
       const scheduledFor = request.scheduledFor ? new Date(request.scheduledFor) : null;
       const created = await tx.createHeld({
@@ -198,8 +207,8 @@ export class OperationService implements OperationPort {
         idempotencyKey: request.idempotencyKey ?? null,
         requestHash,
         fileHash: null,
-        plan: planned.plan,
-        window: planned.window ?? null,
+        plan,
+        window,
         lockKeys,
         startedAt: now,
       });
