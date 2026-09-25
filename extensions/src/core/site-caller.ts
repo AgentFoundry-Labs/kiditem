@@ -90,7 +90,7 @@ export function createSiteCaller(options: SiteCallerOptions, deps: SiteCallerDep
         try {
           return (await response.json()) as T;
         } catch (error) {
-          throw new RuntimeError(SITE_REQUEST_FAILED, '사이트 응답이 JSON이 아닙니다.', { status: response.status, url }, error);
+          throw new RuntimeError(SITE_REQUEST_FAILED, '사이트 응답이 JSON이 아닙니다.', { status: response.status, url, reason: 'non_json' }, error);
         }
       }),
     text: (url, init) => enqueue(async () => (await send(url, init)).text()),

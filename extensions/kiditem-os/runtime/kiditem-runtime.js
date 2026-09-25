@@ -4794,7 +4794,7 @@ var KidItemRuntime = (() => {
         try {
           return await response.json();
         } catch (error) {
-          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", { status: response.status, url }, error);
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", { status: response.status, url, reason: "non_json" }, error);
         }
       }),
       text: (url, init) => enqueue(async () => (await send(url, init)).text()),
@@ -4814,6 +4814,7 @@ var KidItemRuntime = (() => {
   var ORIGIN = "https://wing.coupang.com";
   var SEARCH_URL = `${ORIGIN}/tenants/seller-web/pre-matching/search`;
   var RETRY_ATTEMPTS = 4;
+  var REQUEST_TIMEOUT_MS = 2e4;
   var WING_SEARCH_PAYLOAD_INVALID = "WING_SEARCH_PAYLOAD_INVALID";
   var WING_SEARCH_SITE = {
     name: "wing",
@@ -4835,9 +4836,13 @@ var KidItemRuntime = (() => {
             response = await caller.json(SEARCH_URL, {
               method: "POST",
               headers: { "content-type": "application/json", accept: "application/json, text/plain, */*" },
-              body
+              body,
+              signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
             });
           } catch (error) {
+            if (searchPage === 0 && isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.status === 200 && error.details?.reason === "non_json") {
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, `${WING_SEARCH_SITE.caller.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.`, { reason: "non_json_first_page" }, error);
+            }
             const status = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED ? error.details?.status : void 0;
             const retryable = status === null || status === 429 || typeof status === "number" && status >= 500;
             if (!retryable || attempt >= RETRY_ATTEMPTS) throw error;

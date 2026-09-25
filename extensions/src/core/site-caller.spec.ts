@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RuntimeError } from './errors';
-import { createSiteCaller, delayUntilNext, type SiteCallerDeps } from './site-caller';
+import { SITE_REQUEST_FAILED, createSiteCaller, delayUntilNext, type SiteCallerDeps } from './site-caller';
 
 describe('delayUntilNext — 사이트 요청 간격', () => {
   it('첫 요청은 기다리지 않는다', () => {
@@ -144,5 +144,13 @@ describe('createSiteCaller — 사이트 요청 공용 규칙', () => {
     const error = await rejection(createSiteCaller({ minIntervalMs: 0, displayName: '쿠팡 윙' }, site.deps).json('https://site.example.com/a'));
 
     expect(error.message).toBe('쿠팡 윙 로그인이 필요합니다.');
+  });
+
+  it('names a 200 body that is not JSON (a login page served as 200)', async () => {
+    const site = fakeSite(() => new Response('<html>login</html>', { status: 200 }));
+
+    const error = await rejection(createSiteCaller({ minIntervalMs: 0 }, site.deps).json('https://site.example.com/a'));
+
+    expect(error).toMatchObject({ code: SITE_REQUEST_FAILED, details: { status: 200, reason: 'non_json' } });
   });
 });

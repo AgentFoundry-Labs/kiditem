@@ -1,12 +1,14 @@
 import type { SourcingWingCatalogObservation } from '@kiditem/shared/sourcing';
 import { RuntimeError, isRuntimeError } from '../../core/errors';
-import { SITE_REQUEST_FAILED, type SiteCaller } from '../../core/site-caller';
+import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED, type SiteCaller } from '../../core/site-caller';
 import type { SiteDefinition } from '../site';
 
 const ORIGIN = 'https://wing.coupang.com';
 const SEARCH_URL = `${ORIGIN}/tenants/seller-web/pre-matching/search`;
 /** 429·5xx면 다시 묻는다(옛 수집기: 4번, 429는 4초·5xx는 1초에서 두 배씩). */
 const RETRY_ATTEMPTS = 4;
+/** 요청 하나의 상한(옛 수집기와 같은 20초). 넘으면 연결 끊김처럼 다시 묻는다. */
+const REQUEST_TIMEOUT_MS = 20_000;
 
 export const WING_SEARCH_PAYLOAD_INVALID = 'WING_SEARCH_PAYLOAD_INVALID' as const;
 
@@ -68,8 +70,14 @@ export function createWingPreMatchingSearch(caller: SiteCaller, deps: WingSearch
             method: 'POST',
             headers: { 'content-type': 'application/json', accept: 'application/json, text/plain, */*' },
             body,
+            signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS),
           });
         } catch (error) {
+          // 첫 쪽이 200인데 JSON이 아니면 Wing이 로그인 페이지를 준 것이다(옛 수집기 규칙).
+          if (searchPage === 0 && isRuntimeError(error) && error.code === SITE_REQUEST_FAILED
+            && error.details?.status === 200 && error.details?.reason === 'non_json') {
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, `${WING_SEARCH_SITE.caller.displayName} 로그인이 필요합니다.`, { reason: 'non_json_first_page' }, error);
+          }
           const status = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED ? error.details?.status : undefined;
           const retryable = status === null || status === 429 || (typeof status === 'number' && status >= 500);
           if (!retryable || attempt >= RETRY_ATTEMPTS) throw error;

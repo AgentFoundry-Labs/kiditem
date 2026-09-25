@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { RuntimeError } from '../../core/errors';
-import { SITE_REQUEST_FAILED, type SiteCaller } from '../../core/site-caller';
+import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED, type SiteCaller } from '../../core/site-caller';
 import {
   WING_SEARCH_PAYLOAD_INVALID,
   createWingCatalogSearchSite,
@@ -76,5 +76,34 @@ describe('Wing pre-matching search site (KID-360)', () => {
     const page = await site.searchPage('필통', 3);
     expect(bodies).toEqual([{ keyword: '필통', excludedProductIds: [], searchPage: 3, searchOrder: 'DEFAULT', sortType: 'DEFAULT' }]);
     expect(page.rows.map((row) => site.toObservation(row, '필통', '2026-09-25T00:00:00.000Z')?.productId ?? null)).toEqual([null, '2']);
+  });
+
+  it('bounds each request with the old 20-second timeout signal', async () => {
+    const signals: Array<AbortSignal | null | undefined> = [];
+    const caller: SiteCaller = {
+      async json<T>(_url: string, init?: RequestInit) {
+        signals.push(init?.signal);
+        return { result: [], nextSearchPage: null } as T;
+      },
+      text: async () => '',
+      bytes: async () => new Uint8Array(),
+    };
+    await createWingPreMatchingSearch(caller, { sleep: async () => undefined }).searchPage('필통', 0);
+    expect(signals).toHaveLength(1);
+    expect(signals[0]).toBeInstanceOf(AbortSignal);
+    expect(signals[0]?.aborted).toBe(false);
+  });
+
+  it('reads a 200 non-JSON first page (the login page) as a Wing login, and a later one as a request failure', async () => {
+    const caller: SiteCaller = {
+      async json() {
+        throw new RuntimeError(SITE_REQUEST_FAILED, '사이트 응답이 JSON이 아닙니다.', { status: 200, reason: 'non_json' });
+      },
+      text: async () => '',
+      bytes: async () => new Uint8Array(),
+    };
+    const search = createWingPreMatchingSearch(caller, { sleep: async () => undefined });
+    await expect(search.searchPage('필통', 0)).rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED, message: '쿠팡 윙 로그인이 필요합니다.' });
+    await expect(search.searchPage('필통', 2)).rejects.toMatchObject({ code: SITE_REQUEST_FAILED });
   });
 });
