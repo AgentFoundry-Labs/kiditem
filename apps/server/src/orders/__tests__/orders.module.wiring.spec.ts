@@ -22,7 +22,6 @@ import { SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT } from '../application/port/in/se
 import { SELLPIA_ORDER_TRANSMISSION_PORT } from '../application/port/in/sellpia-order-transmission.port';
 import { COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT } from '../application/port/out/transaction/coupang-direct-order-collection.transaction.port';
 import { SELLPIA_ORDER_TRANSMISSION_REPOSITORY_PORT } from '../application/port/out/repository/sellpia-order-transmission.repository.port';
-import { REVIEW_COLLECTION_SOURCE_PORT } from '../application/port/in/review-collection-source.port';
 import { CoupangDirectOrderCollectionService } from '../application/service/coupang-direct-order-collection.service';
 import { SellpiaOrderTransmissionService } from '../application/service/sellpia-order-transmission.service';
 import { OrderCollectionController } from '../adapter/in/web/order-collection.controller';
@@ -35,7 +34,7 @@ import { CoupangDirectshipService } from '../coupang-directship/coupang-directsh
 import { OrdersModule } from '../orders.module';
 import { ReturnTransfersController } from '../adapter/in/web/return-transfers/return-transfers.controller';
 import { ReturnTransfersService } from '../application/service/return-transfers/return-transfers.service';
-import { ReviewCollectionSourceRepository } from '../adapter/out/repository/review-collection-source.repository';
+import { CoupangReviewsOperationOwner } from '../adapter/in/operation/coupang-reviews-operation-owner';
 import { CoupangDirectPoSnapshotService } from '../application/service/coupang-direct-po-snapshot.service';
 import { OrderCollectionService } from '../application/service/order-collection.service';
 import { OrdersService } from '../application/service/orders.service';
@@ -81,7 +80,7 @@ describe('OrdersModule owner wiring', () => {
       SellpiaOrderTransmissionRepositoryAdapter,
       OrderCollectionSourceRepository,
       SellpiaShipmentTrackingSourceRepository,
-      ReviewCollectionSourceRepository,
+      CoupangReviewsOperationOwner,
       {
         provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
         useExisting: CoupangDirectOrderCollectionService,
@@ -105,10 +104,6 @@ describe('OrdersModule owner wiring', () => {
       {
         provide: SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT,
         useExisting: SellpiaShipmentTrackingSourceRepository,
-      },
-      {
-        provide: REVIEW_COLLECTION_SOURCE_PORT,
-        useExisting: ReviewCollectionSourceRepository,
       },
     ]);
     expect(exports).toEqual([]);

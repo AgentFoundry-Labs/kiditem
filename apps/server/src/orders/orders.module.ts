@@ -32,8 +32,7 @@ import { OrderCollectionSourceRepository } from './adapter/out/repository/order-
 import { SellpiaShipmentTrackingSourceController } from './adapter/in/web/sellpia-shipment-tracking-source.controller';
 import { SellpiaShipmentTrackingSourceRepository } from './adapter/out/repository/sellpia-shipment-tracking-source.repository';
 import { SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT } from './application/port/in/sellpia-shipment-tracking-source.port';
-import { REVIEW_COLLECTION_SOURCE_PORT } from './application/port/in/review-collection-source.port';
-import { ReviewCollectionSourceRepository } from './adapter/out/repository/review-collection-source.repository';
+import { CoupangReviewsOperationOwner } from './adapter/in/operation/coupang-reviews-operation-owner';
 
 @Module({
   imports: [RocketPoSourceModule, ChannelCatalogModule, AlertsModule, PrismaModule, SupplyModule, ShipmentsModule, ProductSourceModule],
@@ -60,7 +59,7 @@ import { ReviewCollectionSourceRepository } from './adapter/out/repository/revie
     SellpiaOrderTransmissionRepositoryAdapter,
     OrderCollectionSourceRepository,
     SellpiaShipmentTrackingSourceRepository,
-    ReviewCollectionSourceRepository,
+    CoupangReviewsOperationOwner,
     {
       provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
       useExisting: CoupangDirectOrderCollectionService,
@@ -84,10 +83,6 @@ import { ReviewCollectionSourceRepository } from './adapter/out/repository/revie
     {
       provide: SELLPIA_SHIPMENT_TRACKING_SOURCE_PORT,
       useExisting: SellpiaShipmentTrackingSourceRepository,
-    },
-    {
-      provide: REVIEW_COLLECTION_SOURCE_PORT,
-      useExisting: ReviewCollectionSourceRepository,
     },
   ],
 })

@@ -196,12 +196,8 @@
       ],
       "ownerPublications": [
         {
-          "path": "apps/server/src/orders/adapter/out/repository/review-collection-source.repository.ts",
-          "reason": "Owns terminal review publication and only completes the source run after facts are committed."
-        },
-        {
           "path": "apps/server/src/orders/application/service/review-ingest.service.ts",
-          "reason": "Writes review facts as part of the Orders-owned publication transaction."
+          "reason": "Writes review facts inside the orders.coupang_reviews operation finish transaction (KID-359)."
         }
       ],
       "legacyReaders": []
