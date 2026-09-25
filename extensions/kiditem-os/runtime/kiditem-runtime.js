@@ -4776,7 +4776,7 @@ var KidItemRuntime = (() => {
       const stop = stopFor(error.code, error.details);
       if (stop.kind === "fence_lost") return { kind: "fence_lost", operationId, reason: stop.reason };
       await deps.client.finish({ operationId, token, request: { outcome: "failed", errorCode: error.code.slice(0, 64), errorMessage: error.message.slice(0, 2e3) } }).catch(() => void 0);
-      return { kind: "failed", operationId, errorCode: error.code, errorMessage: error.message };
+      return { kind: "failed", operationId, errorCode: error.code, errorMessage: error.message, ...error.details ? { details: error.details } : {} };
     } finally {
       stopHeartbeat();
       local.abort();

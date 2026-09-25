@@ -35,7 +35,7 @@ export type RunOutcome =
   /** `reused`: 409가 아니라 begin이 같은 idempotencyKey의 살아 있는 실행을 돌려줬다. */
   | { kind: 'already_running'; existing: OperationInProgressDetails | null; reused?: true }
   | { kind: 'fence_lost'; operationId: string; reason: string | null }
-  /** `details`: begin 거절의 서버 details(예 `{reason: 'unknown_operation_kind'}`) — 입구가 웹앱까지 싣는다. */
+  /** `details`: 거절·오류의 구조 데이터(예 begin의 `{reason: 'unknown_operation_kind'}`, 상한의 `{reason: 'too_many_chunks'}`). */
   | { kind: 'failed'; operationId: string | null; errorCode: string; errorMessage: string; details?: Record<string, unknown> };
 
 export interface RunnerDeps {
@@ -218,7 +218,7 @@ async function execute(
     await deps.client
       .finish({ operationId, token, request: { outcome: 'failed', errorCode: error.code.slice(0, 64), errorMessage: error.message.slice(0, 2_000) } })
       .catch(() => undefined);
-    return { kind: 'failed', operationId, errorCode: error.code, errorMessage: error.message };
+    return { kind: 'failed', operationId, errorCode: error.code, errorMessage: error.message, ...(error.details ? { details: error.details } : {}) };
   } finally {
     stopHeartbeat();
     local.abort();

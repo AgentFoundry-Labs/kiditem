@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
-import { OPERATION_CHUNK_MAX_BYTES, OPERATION_LEASE_MS, type OperationView } from '@kiditem/shared/operation';
+import { OPERATION_CHUNK_MAX_BYTES, OPERATION_CHUNKS_MAX, OPERATION_LEASE_MS, type OperationView } from '@kiditem/shared/operation';
 import type { BrowserLease, BrowserResources } from './browser';
 import { RuntimeError } from './errors';
 import type { OperationClient } from './operation-client';
@@ -214,7 +214,7 @@ describe('createRunner — 실행 하나의 순서', () => {
     const outcome = await runWith(h, collector([echoChunk(1)]));
 
     expect(h.finishes).toEqual([{ outcome: 'failed', errorCode: 'VALIDATION_FAILED', errorMessage: '청크가 너무 큽니다' }]);
-    expect(outcome).toEqual({ kind: 'failed', operationId: OP, errorCode: 'VALIDATION_FAILED', errorMessage: '청크가 너무 큽니다' });
+    expect(outcome).toEqual({ kind: 'failed', operationId: OP, errorCode: 'VALIDATION_FAILED', errorMessage: '청크가 너무 큽니다', details: { reason: 'chunk_too_large' } });
     expect(h.releases()).toBe(1);
   });
 
@@ -295,6 +295,21 @@ describe('createRunner — 실행 하나의 순서', () => {
     expect(h.puts).toEqual([]);
     expect(h.finishes).toEqual([expect.objectContaining({ outcome: 'failed', errorCode: 'RUNTIME_CHUNK_TOO_LARGE' })]);
     expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'RUNTIME_CHUNK_TOO_LARGE' });
+  });
+
+  it('1,001번째 청크는 올리지 않고 finish(failed, RUNTIME_CHUNK_TOO_LARGE{too_many_chunks})', async () => {
+    const h = harness();
+    const c = collector(async function* () {
+      for (let n = 1; n <= OPERATION_CHUNKS_MAX + 1; n += 1) yield { chunkKind: 'echo', payload: [{ n }] };
+    });
+
+    const outcome = await runWith(h, c);
+
+    expect(h.puts).toHaveLength(OPERATION_CHUNKS_MAX);
+    expect(h.puts.at(-1)).toMatchObject({ chunkKind: 'echo', sequence: OPERATION_CHUNKS_MAX });
+    expect(h.finishes).toEqual([expect.objectContaining({ outcome: 'failed', errorCode: 'RUNTIME_CHUNK_TOO_LARGE' })]);
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'RUNTIME_CHUNK_TOO_LARGE', details: { reason: 'too_many_chunks' } });
+    expect(h.releases()).toBe(1);
   });
 
   it('청크 없이 leaseMs/3이 지나면 빈 payload로 임대를 연장한다(heartbeat)', async () => {
