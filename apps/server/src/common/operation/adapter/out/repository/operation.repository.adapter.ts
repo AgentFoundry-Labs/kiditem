@@ -167,10 +167,6 @@ class PrismaOperationTransaction implements OperationTransaction {
     return closed;
   }
 
-  async releaseLocks(organizationId: string, operationId: string) {
-    await this.tx.operationLock.deleteMany({ where: { operationId, organizationId } });
-  }
-
   async findChunkChecksum(operationId: string, chunkKind: string, sequence: number) {
     const chunk = await this.tx.operationChunk.findUnique({
       where: { operationId_chunkKind_sequence: { operationId, chunkKind, sequence } },

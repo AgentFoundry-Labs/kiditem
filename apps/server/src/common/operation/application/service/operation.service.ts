@@ -121,11 +121,8 @@ export class OperationService implements OperationPort {
       }
       if (request.fileHash) await this.admitFile(tx, organizationId, request.kind, request.fileHash, now);
 
+      // 끝난 실행은 close·expireDue가 잠금을 함께 지우므로 보유자는 늘 executing이다.
       for (const holder of await tx.lockHolders(organizationId, lockKeys)) {
-        if (isOperationTerminal(holder.status)) {
-          await tx.releaseLocks(organizationId, holder.id);
-          continue;
-        }
         if (isLeaseExpired(holder.expiresAt, now)) {
           await tx.close(organizationId, holder.id, expiredClosure(now));
           continue;

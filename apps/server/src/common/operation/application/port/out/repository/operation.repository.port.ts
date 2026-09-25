@@ -66,8 +66,6 @@ export interface OperationTransaction {
   lockHolders(organizationId: string, lockKeys: readonly string[]): Promise<OperationRecord[]>;
   create(operation: NewOperation): Promise<OperationRecord>;
   close(organizationId: string, operationId: string, closure: OperationClosure): Promise<OperationRecord>;
-  /** 잠금만 푼다(이미 끝난 실행에 남은 잠금 정리). */
-  releaseLocks(organizationId: string, operationId: string): Promise<void>;
   findChunkChecksum(operationId: string, chunkKind: string, sequence: number): Promise<string | null>;
   countChunks(operationId: string): Promise<number>;
   insertChunk(chunk: {
