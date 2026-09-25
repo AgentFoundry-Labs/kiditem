@@ -1,5 +1,5 @@
 // eslint-disable-next-line @typescript-eslint/no-require-imports
-const sharp: typeof import('sharp')['default'] = require('sharp');
+const sharp: typeof import('sharp') = require('sharp');
 
 const SAFETY_LABEL_URL_MARKERS = [
   'safety-label',

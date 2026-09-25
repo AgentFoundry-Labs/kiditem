@@ -20,7 +20,7 @@ describe('macOS development setup', () => {
       .toThrow('setup_macos_platform_required');
   });
 
-  it.each(['22.0.0', '22.23.1', '22.23.2', '22.99.0'])(
+  it.each(['22.22.3', '22.23.1', '22.23.2', '22.99.0'])(
     'accepts supported Node 22 version %s independently of the recommended patch',
     (nodeVersion) => {
       expect(() => assertMacosDevelopmentRuntime({ platform: 'darwin', nodeVersion }))
@@ -28,7 +28,7 @@ describe('macOS development setup', () => {
     },
   );
 
-  it.each(['21.99.0', '23.0.0', 'invalid'])(
+  it.each(['21.99.0', '22.0.0', '22.21.99', '22.22.2', '22.23', '22.23.2-rc.1', '23.0.0', 'invalid'])(
     'rejects unsupported Node version %s',
     (nodeVersion) => {
       expect(() => assertMacosDevelopmentRuntime({ platform: 'darwin', nodeVersion }))
