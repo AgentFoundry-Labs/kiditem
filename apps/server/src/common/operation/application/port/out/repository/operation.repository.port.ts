@@ -104,16 +104,10 @@ export interface OperationTransaction {
   lockNextClaimable(kinds: readonly string[], now: Date): Promise<OperationRecord | null>;
   markClaimed(organizationId: string, operationId: string, claim: OperationClaimWrite): Promise<OperationRecord>;
   /**
-   * 임대가 끝난 executing 실행을 `FOR UPDATE SKIP LOCKED`로 잠근다. `organizationId`가 있으면 그 조직만(reader),
-   * `exhaustedOnly`면 시도가 남지 않은 것만(claim이 terminal로 닫을 몫).
+   * 시도가 남지 않은 채 임대가 끝난 executing 실행을 조직 무관하게 `FOR UPDATE SKIP LOCKED`로 잠근다
+   * (claim이 terminal로 닫을 몫).
    */
-  lockExpired(filter: {
-    kinds: readonly string[];
-    now: Date;
-    organizationId?: string;
-    exhaustedOnly?: boolean;
-    limit: number;
-  }): Promise<OperationRecord[]>;
+  lockExhaustedExpired(filter: { kinds: readonly string[]; now: Date; limit: number }): Promise<OperationRecord[]>;
   close(organizationId: string, operationId: string, closure: OperationClosure): Promise<OperationRecord>;
   findChunkChecksum(operationId: string, chunkKind: string, sequence: number): Promise<string | null>;
   countChunks(operationId: string): Promise<number>;
@@ -140,5 +134,8 @@ export interface OperationListFilter {
 export interface OperationRepositoryPort {
   /** `ownerTransaction`을 받으면 새 트랜잭션을 열지 않고 그 안에서 돈다(prepare·cancel을 owner가 부를 때). */
   transaction<T>(work: (tx: OperationTransaction) => Promise<T>, ownerTransaction?: OwnerTransaction): Promise<T>;
+  /** 잠금 없는 읽기(reader). */
   list(organizationId: string, filter: OperationListFilter): Promise<OperationRecord[]>;
+  /** 잠금 없는 한 행 읽기(reader). */
+  find(organizationId: string, operationId: string): Promise<OperationRecord | null>;
 }

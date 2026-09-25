@@ -290,4 +290,32 @@ describe('operation contract — server-driven kinds (prepare · claim · retry 
     expect(await operations.findLive(ORG, 'resource:job:9')).toBeNull();
     expect(await operations.findLive(ORG, 'resource:job:10')).toBeNull();
   });
+
+  it('13. readers take no row lock: get and list answer while another transaction holds the running operation', async () => {
+    const { operation } = await prepare();
+    const claimed = (await claim())!;
+    let release!: () => void;
+    const held = new Promise<void>((resolve) => { release = resolve; });
+    let locked!: () => void;
+    const lockTaken = new Promise<void>((resolve) => { locked = resolve; });
+    const holder = prisma.$transaction(async (tx) => {
+      await tx.$queryRaw`SELECT id FROM operations WHERE id = ${operation.id}::uuid FOR UPDATE`;
+      locked();
+      await held;
+    }, { timeout: 10_000 });
+    await lockTaken;
+    try {
+      const within = <T>(work: Promise<T>) => Promise.race([
+        work,
+        new Promise<never>((_, reject) => setTimeout(() => reject(new Error('reader waited on a row lock')), 2_000)),
+      ]);
+      await expect(within(operations.get(ORG, operation.id))).resolves.toMatchObject({ id: operation.id, status: 'executing' });
+      await expect(within(operations.list(ORG, { kinds: ['test.worker'], limit: 10 }))).resolves.toMatchObject({
+        operations: [expect.objectContaining({ id: operation.id, status: 'executing', expiresAt: claimed.operation.expiresAt })],
+      });
+    } finally {
+      release();
+      await holder;
+    }
+  });
 });

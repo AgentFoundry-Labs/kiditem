@@ -222,15 +222,14 @@ class PrismaOperationTransaction implements OperationTransaction {
     return claimed;
   }
 
-  async lockExpired(filter: Parameters<OperationTransaction['lockExpired']>[0]) {
-    // queryraw-tenancy-exempt: organizationId가 없으면 워커 claim의 조직 무관 만료 정리다(KID-358). reader는 조직을 건다.
+  async lockExhaustedExpired(filter: Parameters<OperationTransaction['lockExhaustedExpired']>[0]) {
+    // queryraw-tenancy-exempt: 워커 claim의 조직 무관 만료 정리다(KID-358). 닫는 쓰기는 각 행의 조직으로 건다.
     const rows = await this.tx.$queryRaw<Array<{ id: string; organization_id: string }>>`
       SELECT id, organization_id FROM operations
       WHERE kind = ANY(${[...filter.kinds]}::text[])
         AND status = 'executing'
         AND expires_at <= ${filter.now}
-        AND (${filter.organizationId ?? null}::uuid IS NULL OR organization_id = ${filter.organizationId ?? null}::uuid)
-        AND (${filter.exhaustedOnly === true} = false OR attempts >= max_attempts)
+        AND attempts >= max_attempts
       ORDER BY expires_at ASC, id ASC
       LIMIT ${filter.limit}
       FOR UPDATE SKIP LOCKED
@@ -319,5 +318,10 @@ export class OperationRepositoryAdapter implements OperationRepositoryPort {
       include: withLocks,
     });
     return rows.map(toRecord);
+  }
+
+  async find(organizationId: string, operationId: string) {
+    const row = await this.prisma.operation.findFirst({ where: { id: operationId, organizationId }, include: withLocks });
+    return row ? toRecord(row) : null;
   }
 }

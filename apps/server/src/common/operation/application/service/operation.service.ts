@@ -225,7 +225,7 @@ export class OperationService implements OperationPort {
     return this.operations.transaction(async (tx) => {
       const now = new Date();
       // 시도가 남지 않은 채 임대가 끝난 실행은 claim 후보가 아니다. 여기서 terminal로 닫아 onFailed를 부른다.
-      for (const exhausted of await tx.lockExpired({ kinds: request.kinds, now, exhaustedOnly: true, limit: EXPIRY_BATCH })) {
+      for (const exhausted of await tx.lockExhaustedExpired({ kinds: request.kinds, now, limit: EXPIRY_BATCH })) {
         await this.expireIfDue(tx, exhausted, now);
       }
       const candidate = await tx.lockNextClaimable(request.kinds, now);
@@ -379,25 +379,34 @@ export class OperationService implements OperationPort {
     }, ownerTx);
   }
 
+  /**
+   * reader. 잠금 없이 읽고, 임대가 끝난 executing이 보일 때만 그 행을 짧은 쓰기 트랜잭션으로 만료 처분한다
+   * (만료가 아닌 행은 잠그지 않는다). 처분으로 상태가 바뀐 행은 status 필터를 다시 건다.
+   */
   async list(organizationId: string, query: OperationListQuery): Promise<OperationListResponse> {
-    await this.operations.transaction(async (tx) => {
-      const now = new Date();
-      for (const expired of await tx.lockExpired({ kinds: query.kinds, now, organizationId, limit: EXPIRY_BATCH })) {
-        await this.expireIfDue(tx, expired, now);
-      }
-    });
     const records = await this.operations.list(organizationId, {
       kinds: query.kinds,
       status: query.status,
       limit: query.limit,
     });
-    return { operations: records.map(toOperationView) };
+    const current: OperationRecord[] = [];
+    for (const record of records) current.push(await this.closeIfLapsed(record));
+    return {
+      operations: current.filter((record) => !query.status || record.status === query.status).map(toOperationView),
+    };
   }
 
   async get(organizationId: string, operationId: string): Promise<OperationView | null> {
+    const record = await this.operations.find(organizationId, operationId);
+    return record ? toOperationView(await this.closeIfLapsed(record)) : null;
+  }
+
+  /** 읽은 행이 임대가 끝난 executing이면 잠가서 다시 판정한 뒤 만료 처분한다. 아니면 그대로(잠금 없음). */
+  private async closeIfLapsed(record: OperationRecord): Promise<OperationRecord> {
+    if (record.status !== 'executing' || !isLeaseExpired(record.expiresAt, new Date())) return record;
     return this.operations.transaction(async (tx) => {
-      const operation = await tx.lockOperation(organizationId, operationId);
-      return operation ? toOperationView(await this.expireIfDue(tx, operation, new Date())) : null;
+      const locked = await tx.lockOperation(record.organizationId, record.id);
+      return locked ? this.expireIfDue(tx, locked, new Date()) : record;
     });
   }
 
