@@ -5476,7 +5476,8 @@ var KidItemRuntime = (() => {
           const failed = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
           if (failed && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
           const delay = READ_RETRY_DELAYS_MS[attempt];
-          if (!failed || delay === void 0) throw error;
+          if (!failed) throw error;
+          if (delay === void 0) throw withResponseHint(error);
           await deps.sleep(delay);
         }
       }
@@ -5601,6 +5602,12 @@ var KidItemRuntime = (() => {
         });
       }
     };
+  }
+  function withResponseHint(error) {
+    const status = error.details?.status;
+    const bodyHead = error.details?.bodyHead;
+    const hint = `status ${typeof status === "number" ? status : "\uC5C6\uC74C"}${typeof bodyHead === "string" && bodyHead ? ` \xB7 ${bodyHead}` : ""}`;
+    return new RuntimeError(error.code, `${error.message} \u2014 ${hint}`, error.details, error);
   }
   function asRecord(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;

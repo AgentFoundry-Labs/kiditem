@@ -77,7 +77,8 @@ export function createWingSite(caller: SiteCaller, deps: WingSiteDeps) {
         const failed = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
         if (failed && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
         const delay = READ_RETRY_DELAYS_MS[attempt];
-        if (!failed || delay === undefined) throw error;
+        if (!failed) throw error;
+        if (delay === undefined) throw withResponseHint(error);
         await deps.sleep(delay);
       }
     }
@@ -219,6 +220,14 @@ export function createWingSite(caller: SiteCaller, deps: WingSiteDeps) {
 }
 
 export type WingSite = ReturnType<typeof createWingSite>;
+
+/** 끝내 실패한 요청의 문장에 status와 본문 앞부분을 붙인다 — 실행 실패 문장만 보고도 봇·레이트 페이지인지 안다. */
+function withResponseHint(error: RuntimeError): RuntimeError {
+  const status = error.details?.status;
+  const bodyHead = error.details?.bodyHead;
+  const hint = `status ${typeof status === 'number' ? status : '없음'}${typeof bodyHead === 'string' && bodyHead ? ` · ${bodyHead}` : ''}`;
+  return new RuntimeError(error.code, `${error.message} — ${hint}`, error.details, error);
+}
 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;

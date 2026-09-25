@@ -169,6 +169,7 @@ describe('sites/wing', () => {
     const error = await rejection(failing.site.searchInventory(1, 'A1'));
     expect(error.code).toBe('SITE_REQUEST_FAILED');
     expect(error.details).toMatchObject({ status: 502, reason: 'http', bodyHead: 'gateway' });
+    expect(error.message).toBe('사이트 요청이 실패했습니다(502). — status 502 · gateway');
     expect(failing.sent).toHaveLength(3);
     expect(failing.sleeps).toEqual([2_000, 6_000]);
   });
@@ -182,6 +183,12 @@ describe('sites/wing', () => {
     await expect(wing.site.probeDeleted(['1'])).resolves.toEqual([{ externalProductId: '1', outcome: 'deleted', productStatus: 'DELETED' }]);
     expect(wing.sent).toHaveLength(2);
     expect(wing.sleeps).toEqual([2_000]);
+
+    const failing = fakeWing(() => new Response('<html>\n busy </html>', { status: 200 }));
+    const error = await rejection(failing.site.probeDeleted(['1']));
+    expect([error.code, error.message]).toEqual(['SITE_REQUEST_FAILED', '사이트 응답이 JSON이 아닙니다. — status 200 · <html> busy </html>']);
+    const offline = fakeWing(() => Promise.reject(new TypeError('Failed to fetch')));
+    expect((await rejection(offline.site.searchInventory(1, null))).message).toBe('사이트에 연결하지 못했습니다. — status 없음');
   });
 
   it('productDetail은 다른 상품의 상세를 받으면 멈춘다', async () => {
