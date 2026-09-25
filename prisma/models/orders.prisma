@@ -280,7 +280,6 @@ model Review {
   @@unique([organizationId, platform, externalReviewId], map: "reviews_org_platform_external_operation_key", where: raw("operation_id IS NOT NULL"))
   @@unique([organizationId, sourceImportRunId, platform, externalReviewId], map: "reviews_org_source_run_external_key", where: raw("source_import_run_id IS NOT NULL"))
   @@index([organizationId, operationId])
-  @@index([organizationId, externalReviewId, publishedAt(sort: Desc)], map: "reviews_org_external_published_idx")
   @@index([organizationId])
   @@index([organizationId, sourceImportRunId])
   @@index([listingId])
