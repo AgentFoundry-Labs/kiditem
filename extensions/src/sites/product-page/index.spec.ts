@@ -69,4 +69,31 @@ describe('product page site (KID-360)', () => {
     expect(parseDescriptionHtml('<div>짧음</div>')).toBeNull();
     expect(productPageInjection('https://www.alibaba.com/product-detail/x.html').main).toEqual(['content/sourcing/extractors/page-bridge.js']);
   });
+
+  it('keeps the old supplier URL policy for page-world _detail_url (KID-360 port of the retired url-policy.js)', () => {
+    expect(allowedSupplierUrl('https://detail.1688.com/offer/607635921546.html?spm=x#ignored'))
+      .toBe('https://detail.1688.com/offer/607635921546.html?spm=x');
+    expect(allowedSupplierUrl('https://m.1688.com/offer/607635921546.html')).toBe('https://m.1688.com/offer/607635921546.html');
+    for (const value of [
+      'http://detail.1688.com/offer/607635921546.html',
+      'https://localhost:3000/internal',
+      'https://detail.1688.com.evil.test/offer/607635921546.html',
+      'https://detail.1688.com:8443/offer/607635921546.html',
+      'https://user:pass@detail.1688.com/offer/607635921546.html',
+      'https://127.0.0.1/offer/1.html',
+    ]) {
+      expect(allowedSupplierUrl(value), value).toBeNull();
+    }
+  });
+
+  it('never fetches a disallowed page-world _detail_url and still returns the product', async () => {
+    const fake = fakeTabPages({ currentUrl: URL_1688, answer: () => ({ ok: true }), fetchText: () => '<p>설명 설명 설명</p>' });
+    const extracting = createProductPageSite(fake.tabs, 42, { randomId: () => 'm' }).extract(URL_1688);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fake.emit({ type: 'PRODUCT_DATA', attemptId: 'm', data: { title: '필통', source_platform: '1688', _detail_url: 'https://detail.1688.com.evil.test/desc' } });
+    fake.emit({ type: 'EXTRACTION_COMPLETE', attemptId: 'm', hadDescription: false });
+
+    await expect(extracting).resolves.toMatchObject({ product: { title: '필통' }, hadDescription: false });
+    expect(fake.log.filter((line) => line.startsWith('fetch'))).toEqual([]);
+  });
 });
