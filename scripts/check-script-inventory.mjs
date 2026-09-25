@@ -14,6 +14,7 @@ export const SCRIPT_INVENTORY = Object.freeze([
   'check-cross-owner-fk.mjs',
   'check-directory-architecture.mjs',
   'check-frontend-db-boundary.sh',
+  'check-extension-runtime-layers.mjs',
   'check-hexagonal.mjs',
   'check-identifier-contracts.mjs',
   'check-operation-automation-cutover.mjs',
