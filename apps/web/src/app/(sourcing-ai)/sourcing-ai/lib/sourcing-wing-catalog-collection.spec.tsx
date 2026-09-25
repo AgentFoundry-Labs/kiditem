@@ -24,7 +24,7 @@ vi.mock('@/lib/api-client', () => ({
       throw new Error(`unexpected GET ${path}`);
     },
     getParsed: async (path: string) => {
-      if (path === '/api/channels/accounts') return accounts;
+      if (path === '/api/channels/accounts') return accountsRead();
       throw new Error(`unexpected GET ${path}`);
     },
     post: (path: string) => mocks.post(path),
@@ -65,6 +65,7 @@ function operation(id: string, status: 'executing' | 'succeeded' | 'cancelled') 
 
 let operations: ReturnType<typeof operation>[];
 let accounts: ReturnType<typeof account>[];
+let accountsRead: () => Promise<ReturnType<typeof account>[]>;
 
 function WingControl({ label }: { label: string }) {
   const wing = useWingCatalogSource({ input: INPUT });
@@ -88,6 +89,7 @@ function renderControls(ui: ReactNode) {
 beforeEach(() => {
   vi.clearAllMocks();
   operations = [];
+  accountsRead = async () => accounts;
   accounts = [account(SECOND, '가나 스토어', false), account(PRIMARY, '대표 스토어', true), account('66666666-6666-4666-8666-666666666666', '로켓', true, 'rocket')];
   mocks.start.mockImplementation(async () => {
     operations = [operation(OPERATION_ID, 'executing')];
@@ -172,6 +174,26 @@ describe('sourcing Wing catalog collection control (KID-360)', () => {
     fireEvent.click(await screen.findByRole('button', { name: '시장분석 시작' }));
 
     expect(await screen.findByText('쿠팡 윙 계정을 먼저 연결해 주세요.')).toBeInTheDocument();
+    expect(mocks.start).not.toHaveBeenCalled();
+  });
+
+  it('blocks the start until the account list is read, and names a failed account read on its own', async () => {
+    let release!: () => void;
+    accountsRead = () => new Promise((resolve) => { release = () => resolve(accounts); });
+    renderControls(<WingControl label="시장분석" />);
+    fireEvent.click(await screen.findByRole('button', { name: '시장분석 시작' }));
+    expect(await screen.findByText('쿠팡 계정 목록을 불러오는 중입니다. 잠시 후 다시 시작해 주세요.')).toBeInTheDocument();
+    expect(mocks.start).not.toHaveBeenCalled();
+    release();
+  });
+
+  it('names a failed account read instead of asking to connect an account', async () => {
+    accountsRead = async () => { throw new Error('network down'); };
+    renderControls(<WingControl label="시장분석" />);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    fireEvent.click(await screen.findByRole('button', { name: '시장분석 시작' }));
+
+    expect(await screen.findByText('쿠팡 계정 목록을 불러오지 못했습니다. 새로고침한 뒤 다시 시도해 주세요.')).toBeInTheDocument();
     expect(mocks.start).not.toHaveBeenCalled();
   });
 });

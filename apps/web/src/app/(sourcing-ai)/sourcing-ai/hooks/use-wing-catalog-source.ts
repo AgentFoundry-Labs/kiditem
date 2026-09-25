@@ -28,9 +28,13 @@ export function useWingCatalogSource({ input }: { input: SourcingWingCatalogBatc
   const account = pickWingSearchAccount(accountsQuery.data);
   const accountId = account?.id ?? null;
   const accountName = account?.name ?? null;
+  const readState = accountsQuery.data !== undefined ? 'read' : accountsQuery.isError ? 'failed' : 'loading';
+  // 계정 목록을 읽기 전·읽기 실패엔 시작을 보내지 않고 그 까닭을 컨트롤 안내로 말한다.
   const adapter = useMemo(
-    () => sourcingWingCatalogCollection(accountId ? { id: accountId, name: accountName ?? '' } : null),
-    [accountId, accountName],
+    () => sourcingWingCatalogCollection(readState === 'read'
+      ? { state: 'read', account: accountId ? { id: accountId, name: accountName ?? '' } : null }
+      : { state: readState }),
+    [readState, accountId, accountName],
   );
   const control = useCollectionSourceControl(adapter);
   return {

@@ -9,6 +9,14 @@ import type { OperationListResponse, OperationView } from '@kiditem/shared/opera
 import type { SourcingWingCatalogBatchInput } from '@kiditem/shared/sourcing';
 
 export const WING_ACCOUNT_MISSING = '쿠팡 윙 계정을 먼저 연결해 주세요.';
+export const WING_ACCOUNTS_LOADING = '쿠팡 계정 목록을 불러오는 중입니다. 잠시 후 다시 시작해 주세요.';
+export const WING_ACCOUNTS_UNAVAILABLE = '쿠팡 계정 목록을 불러오지 못했습니다. 새로고침한 뒤 다시 시도해 주세요.';
+
+/** 계정 목록 읽기의 상태. 읽기 전·실패엔 시작을 보내지 않고 그 까닭을 따로 말한다. */
+export type WingAccountRead =
+  | Readonly<{ state: 'loading' }>
+  | Readonly<{ state: 'failed' }>
+  | Readonly<{ state: 'read'; account: WingCatalogAccount | null }>;
 
 const PURPOSE_LABELS: Readonly<Record<string, string>> = {
   catalog_search: '카탈로그 검색',
@@ -80,13 +88,16 @@ export function wingCatalogScopeLabel(plan: WingCatalogAttempt['plan'], accountN
  * 완료는 소싱 읽기만 다시 읽는다 — 추천·검증은 각자의 명시적 버튼이 다시 계산한다.
  */
 export function sourcingWingCatalogCollection(
-  account: WingCatalogAccount | null,
+  accountRead: WingAccountRead,
 ): CollectionSourceAdapter<OperationListResponse, SourcingWingCatalogBatchInput> {
+  const account = accountRead.state === 'read' ? accountRead.account : null;
   return sourcingOperationCollection<SourcingWingCatalogBatchInput>({
     kind: SOURCING_OPERATION_KINDS.wingCatalog,
     sourceKey: SOURCING_OPERATION_KINDS.wingCatalog,
     label: 'Wing 카탈로그 수집',
     scope: (input) => {
+      if (accountRead.state === 'loading') throw new Error(WING_ACCOUNTS_LOADING);
+      if (accountRead.state === 'failed') throw new Error(WING_ACCOUNTS_UNAVAILABLE);
       if (!account) throw new Error(WING_ACCOUNT_MISSING);
       return { ...input, channelAccountId: account.id };
     },

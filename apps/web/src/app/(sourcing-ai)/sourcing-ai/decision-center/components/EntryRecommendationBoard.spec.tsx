@@ -64,6 +64,8 @@ vi.mock('next/navigation', () => ({
 }));
 
 vi.mock('@/hooks/useAuth', () => ({ useAuth: vi.fn() }));
+const toastMocks = vi.hoisted(() => ({ success: vi.fn(), error: vi.fn() }));
+vi.mock('sonner', () => ({ toast: toastMocks }));
 vi.mock('@/lib/operation-start', () => ({
   requestOperationStart: operationMocks.start,
   requestOperationCancel: operationMocks.cancelInExtension,
@@ -210,6 +212,23 @@ describe('EntryRecommendationBoard review state', () => {
     await user.click(await screen.findByRole('button', { name: '1688 공급 찾기 (1)' }));
 
     expect(await screen.findByText(message)).toBeInTheDocument();
+  });
+
+  it('tells the operator the supply candidates were refreshed when a new 1688 collection succeeds', async () => {
+    const user = userEvent.setup();
+    vi.mocked(useSourcingInterestTargets).mockReturnValue({
+      data: [{ targetType: 'keyword', sourceKeys: ['manual'], label: '미수집 키워드', keyword: '미수집 키워드' }],
+    } as never);
+    operationMocks.start.mockImplementation(async () => {
+      operationMocks.list.mockResolvedValue({ operations: [{ ...operation1688('executing'), status: 'succeeded' }] });
+      return { outcome: 'started', operationId: OPERATION_ID };
+    });
+    renderBoard();
+    await waitFor(() => expect(operationMocks.list).toHaveBeenCalled());
+
+    await user.click(await screen.findByRole('button', { name: '1688 공급 찾기 (1)' }));
+
+    await waitFor(() => expect(toastMocks.success).toHaveBeenCalledWith('1688 공급 후보를 갱신했습니다.'));
   });
 
   it('shows the running 1688 collection with a stop that ends it through the operation cancel, then shows it stopped', async () => {
