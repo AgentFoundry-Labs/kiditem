@@ -5,6 +5,7 @@ import {
   OPERATION_LEASE_MS,
   type OperationChunkKind,
   type OperationFinishRequest,
+  type OperationInProgressDetails,
   type OperationKind,
   type OperationView,
   type OperationWindow,
@@ -31,7 +32,7 @@ export interface RunInput {
 
 export type RunOutcome =
   | { kind: 'finished'; operation: OperationView }
-  | { kind: 'already_running'; existing: Record<string, unknown> | null }
+  | { kind: 'already_running'; existing: OperationInProgressDetails | null }
   | { kind: 'fence_lost'; operationId: string; reason: string | null }
   | { kind: 'failed'; operationId: string | null; errorCode: string; errorMessage: string };
 

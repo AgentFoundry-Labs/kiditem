@@ -4,11 +4,21 @@ import { RuntimeError } from './errors';
 import { createOperationClient, stopFor } from './operation-client';
 
 describe('stopFor — 서버 거절 코드 → 런타임 행동', () => {
-  it('OPERATION_IN_PROGRESS는 시작하지 않고 기존 실행을 보고한다', () => {
-    expect(stopFor('OPERATION_IN_PROGRESS', { existing: { operationId: 'x' } })).toEqual({
-      kind: 'already_running',
-      existing: { operationId: 'x' },
-    });
+  const running = {
+    operationId: '11111111-1111-4111-8111-111111111111',
+    kind: 'test.echo',
+    lockKeys: ['org'],
+    startedAt: '2026-09-25T00:00:00.000Z',
+    expiresAt: '2026-09-25T00:30:00.000Z',
+  };
+
+  it('OPERATION_IN_PROGRESS는 시작하지 않고, 평평한 details(돌고 있는 실행)를 existing으로 보고한다', () => {
+    expect(stopFor('OPERATION_IN_PROGRESS', running)).toEqual({ kind: 'already_running', existing: running });
+  });
+
+  it('OPERATION_IN_PROGRESS details가 계약 모양이 아니면 existing은 null', () => {
+    expect(stopFor('OPERATION_IN_PROGRESS', { existing: { operationId: 'x' } })).toEqual({ kind: 'already_running', existing: null });
+    expect(stopFor('OPERATION_IN_PROGRESS', null)).toEqual({ kind: 'already_running', existing: null });
   });
 
   it.each(['expired', 'terminal', 'chunk_conflict'])('OPERATION_FENCE_LOST{%s}는 멈추고 finish를 보내지 않는다', (reason) => {
@@ -156,15 +166,15 @@ describe('createOperationClient — 실행 계약 HTTP 창구', () => {
     expect(headerOf(calls[0], 'x-operation-token')).toBeNull();
   });
 
-  it('409 OPERATION_IN_PROGRESS는 details.existing을 실은 RuntimeError', async () => {
-    const existing = { operationId: OP, kind: 'test.echo', lockKeys: ['org'], startedAt: '2026-09-25T00:00:00.000Z', expiresAt: '2026-09-25T00:30:00.000Z' };
-    const { api } = fakeApi(() => json(409, envelope(409, 'OPERATION_IN_PROGRESS', { existing })));
+  it('409 OPERATION_IN_PROGRESS는 서버 details(돌고 있는 실행)를 그대로 실은 RuntimeError', async () => {
+    const running = { operationId: OP, kind: 'test.echo', lockKeys: ['org'], startedAt: '2026-09-25T00:00:00.000Z', expiresAt: '2026-09-25T00:30:00.000Z' };
+    const { api } = fakeApi(() => json(409, envelope(409, 'OPERATION_IN_PROGRESS', running)));
 
     const error = await rejection(createOperationClient(api).begin({ kind: 'test.echo', scope: {} }));
 
     expect(error.code).toBe('OPERATION_IN_PROGRESS');
     expect(error.message).toBe('OPERATION_IN_PROGRESS 메시지');
-    expect(error.details).toEqual({ existing });
+    expect(error.details).toEqual(running);
   });
 
   it.each(['expired', 'terminal', 'chunk_conflict'])('409 OPERATION_FENCE_LOST{%s}는 reason을 실은 RuntimeError', async (reason) => {

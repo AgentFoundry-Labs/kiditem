@@ -6,6 +6,7 @@ import { createOperationActions, type ExternalAction } from './operation-actions
 
 const OP = '11111111-1111-4111-8111-111111111111';
 const TOKEN = '22222222-2222-4222-8222-222222222222';
+const RUNNING = { operationId: OP, kind: 'test.echo', lockKeys: ['org'], startedAt: '2026-09-25T00:00:00.000Z', expiresAt: '2026-09-25T00:30:00.000Z' };
 
 function view(status: string, extra: Record<string, unknown> = {}) {
   return {
@@ -52,7 +53,7 @@ function fakeServer(options: { busy?: boolean; reused?: boolean } = {}) {
             kind: 'in_progress',
             message: '같은 실행이 이미 진행 중입니다.',
             errors: [],
-            details: { existing: { operationId: OP, kind: 'test.echo' } },
+            details: RUNNING,
           });
         }
         return json(201, { operation: view('executing'), token: TOKEN, reused: options.reused ?? false });
@@ -137,7 +138,7 @@ describe('operation.start · operation.cancel 입구', () => {
       success: false,
       errorCode: 'OPERATION_IN_PROGRESS',
       error: expect.any(String),
-      details: { existing: { operationId: OP, kind: 'test.echo' } },
+      details: { existing: RUNNING },
     });
   });
 

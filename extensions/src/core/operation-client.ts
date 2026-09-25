@@ -5,12 +5,14 @@ import {
   OperationCancelResponseSchema,
   OperationChunkPutResponseSchema,
   OperationFinishResponseSchema,
+  OperationInProgressDetailsSchema,
   type OperationBeginRequest,
   type OperationBeginResponse,
   type OperationChunkKind,
   type OperationChunkPutResponse,
   type OperationFinishRequest,
   type OperationFinishResponse,
+  type OperationInProgressDetails,
   type OperationView,
 } from '@kiditem/shared/operation';
 import type { ApiPort } from './api';
@@ -37,8 +39,8 @@ export interface OperationClient {
 
 /** 서버가 거절했을 때 런타임이 할 일. */
 export type OperationStop =
-  /** 잠금을 남이 쥐고 있다 — 시작하지 않고 그대로 보고. */
-  | { kind: 'already_running'; existing: Record<string, unknown> | null }
+  /** 잠금을 남이 쥐고 있다 — 시작하지 않고 그대로 보고. `existing`은 서버가 이름한 돌고 있는 실행. */
+  | { kind: 'already_running'; existing: OperationInProgressDetails | null }
   /** 임대 만료·이미 종료·청크 충돌 — 하던 일을 멈추고 창·탭을 풀고 finish를 부르지 않는다. */
   | { kind: 'fence_lost'; reason: string | null }
   /** 그 밖의 오류 — finish(failed)로 서버에 알린다(토큰이 아직 유효하면). */
@@ -51,18 +53,15 @@ export type OperationStop =
  */
 export function stopFor(code: string, details: Record<string, unknown> | null | undefined): OperationStop {
   if (code === 'OPERATION_IN_PROGRESS') {
-    const existing = details?.existing;
-    return { kind: 'already_running', existing: isObject(existing) ? existing : null };
+    // 서버 봉투의 details가 곧 돌고 있는 실행이다(`OperationInProgressDetailsSchema`, 감싸지 않음).
+    const existing = OperationInProgressDetailsSchema.safeParse(details);
+    return { kind: 'already_running', existing: existing.success ? existing.data : null };
   }
   if (code === 'OPERATION_FENCE_LOST' || code === 'OPERATION_NOT_FOUND') {
     const reason = details?.reason;
     return { kind: 'fence_lost', reason: typeof reason === 'string' ? reason : null };
   }
   return { kind: 'report_failed' };
-}
-
-function isObject(value: unknown): value is Record<string, unknown> {
-  return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
 /** 서버에 닿지 못했거나(네트워크·프록시) 계약 밖 응답을 받았다. */

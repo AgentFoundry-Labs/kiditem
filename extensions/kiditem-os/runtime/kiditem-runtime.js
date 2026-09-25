@@ -4580,17 +4580,14 @@ var KidItemRuntime = (() => {
   // extensions/src/core/operation-client.ts
   function stopFor(code, details) {
     if (code === "OPERATION_IN_PROGRESS") {
-      const existing = details?.existing;
-      return { kind: "already_running", existing: isObject(existing) ? existing : null };
+      const existing = OperationInProgressDetailsSchema.safeParse(details);
+      return { kind: "already_running", existing: existing.success ? existing.data : null };
     }
     if (code === "OPERATION_FENCE_LOST" || code === "OPERATION_NOT_FOUND") {
       const reason = details?.reason;
       return { kind: "fence_lost", reason: typeof reason === "string" ? reason : null };
     }
     return { kind: "report_failed" };
-  }
-  function isObject(value) {
-    return typeof value === "object" && value !== null && !Array.isArray(value);
   }
   var RUNTIME_API_UNREACHABLE = "RUNTIME_API_UNREACHABLE";
   function createOperationClient(api) {

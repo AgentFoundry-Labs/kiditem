@@ -143,8 +143,8 @@ describe('createRunner — 실행 하나의 순서', () => {
   });
 
   it('OPERATION_IN_PROGRESS면 acquire 없이 기존 실행을 돌려준다', async () => {
-    const existing = { operationId: OP, kind: 'test.echo' };
-    const h = harness({ beginError: new RuntimeError('OPERATION_IN_PROGRESS', '진행 중', { existing }) });
+    const existing = { operationId: OP, kind: 'test.echo', lockKeys: ['org'], startedAt: '2026-09-25T00:00:00.000Z', expiresAt: '2026-09-25T00:30:00.000Z' };
+    const h = harness({ beginError: new RuntimeError('OPERATION_IN_PROGRESS', '진행 중', existing) });
 
     const outcome = await runWith(h, collector([echoChunk(1)]));
 
