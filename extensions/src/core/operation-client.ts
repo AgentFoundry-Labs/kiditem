@@ -109,6 +109,12 @@ async function call<S extends z.ZodTypeAny>(
       ...(request.body !== undefined ? { body: JSON.stringify(request.body) } : {}),
     });
   } catch (error) {
+    // 입구 어댑터가 코드를 실어 던지면(옛 authedFetch의 `environment_auth_required` 등) 그 코드를 살린다.
+    const code = (error as { code?: unknown } | null)?.code;
+    if (typeof code === 'string' && code.trim()) {
+      const message = error instanceof Error && error.message ? error.message : 'KidItem 서버 요청이 거절됐습니다.';
+      throw new RuntimeError(code.trim().slice(0, 100), message, { path }, error);
+    }
     throw new RuntimeError(RUNTIME_API_UNREACHABLE, 'KidItem 서버에 연결하지 못했습니다.', { path }, error);
   }
   const body = await response.json().catch(() => undefined);

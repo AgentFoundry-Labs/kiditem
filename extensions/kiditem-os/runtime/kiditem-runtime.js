@@ -4621,6 +4621,11 @@ var KidItemRuntime = (() => {
         ...request.body !== void 0 ? { body: JSON.stringify(request.body) } : {}
       });
     } catch (error) {
+      const code = error?.code;
+      if (typeof code === "string" && code.trim()) {
+        const message = error instanceof Error && error.message ? error.message : "KidItem \uC11C\uBC84 \uC694\uCCAD\uC774 \uAC70\uC808\uB410\uC2B5\uB2C8\uB2E4.";
+        throw new RuntimeError(code.trim().slice(0, 100), message, { path }, error);
+      }
       throw new RuntimeError(RUNTIME_API_UNREACHABLE, "KidItem \uC11C\uBC84\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { path }, error);
     }
     const body = await response.json().catch(() => void 0);

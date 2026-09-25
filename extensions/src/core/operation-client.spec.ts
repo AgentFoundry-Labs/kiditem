@@ -216,6 +216,17 @@ describe('createOperationClient — 실행 계약 HTTP 창구', () => {
     expect(error.code).toBe('RUNTIME_API_UNREACHABLE');
   });
 
+  it('ApiPort가 코드를 실은 예외를 던지면(옛 authedFetch의 environment_auth_required) 그 코드를 쓴다', async () => {
+    const { api } = fakeApi(() => {
+      throw Object.assign(new Error('KidItem login is required for this environment'), { code: 'environment_auth_required' });
+    });
+
+    const error = await rejection(createOperationClient(api).begin({ kind: 'test.echo', scope: {} }));
+
+    expect(error.code).toBe('environment_auth_required');
+    expect(error.message).toBe('KidItem login is required for this environment');
+  });
+
   it('2xx인데 계약 모양이 아니면 RUNTIME_API_UNREACHABLE', async () => {
     const { api } = fakeApi(() => json(201, { operation: { id: OP } }));
 
