@@ -33,6 +33,8 @@ const CATALOGUE_TYPES = [
 ] as const;
 /** 상세 일시 오류(429·5xx·연결 끊김)를 다시 묻기 전 기다림. 옛 수집기 값 그대로. */
 const DETAIL_RETRY_DELAYS_MS = [2_000, 6_000] as const;
+/** Wing 목록의 삭제 상품 `productStatus`. */
+const WING_DELETED_STATUS = 'DELETED';
 
 export const CATALOG_LIST_INCOMPLETE = 'CATALOG_LIST_INCOMPLETE' as const;
 export const CATALOG_EXCEL_FAILED = 'CATALOG_EXCEL_FAILED' as const;
@@ -121,9 +123,13 @@ export function createWingSite(caller: SiteCaller, deps: WingSiteDeps) {
      * 없으면 not_found(미확인 — 서버는 활성으로 두고 품질 보고에 남긴다).
      */
     async probeDeleted(externalProductIds: readonly string[]): Promise<WingCatalogDeletionConfirmationItem[]> {
-      const deleted = await productIdsOf(externalProductIds, true);
-      const rest = externalProductIds.filter((id) => !deleted.has(id));
+      const found = await productIdsOf(externalProductIds, true);
+      // 삭제 검색의 행도 삭제 상태(`DELETED`, 2026-09-24 실측 1,586건 전부)여야 삭제다 — 아니면 살아 있는 상품이다.
+      const deleted = new Map([...found].filter(([, status]) => status === WING_DELETED_STATUS));
+      const liveFromDeletedSearch = new Set([...found.keys()].filter((id) => !deleted.has(id)));
+      const rest = externalProductIds.filter((id) => !found.has(id));
       const present = rest.length > 0 ? await productIdsOf(rest, false) : new Map<string, string | null>();
+      for (const id of liveFromDeletedSearch) present.set(id, null);
       return externalProductIds.map((externalProductId) => {
         if (deleted.has(externalProductId)) return { externalProductId, outcome: 'deleted', productStatus: deleted.get(externalProductId) ?? null };
         if (present.has(externalProductId)) return { externalProductId, outcome: 'present', productStatus: null };

@@ -134,6 +134,14 @@ describe('sites/wing', () => {
     ]);
   });
 
+  it('probeDeleted는 삭제 검색에 나와도 productStatus가 DELETED가 아니면 삭제로 보지 않는다(검색 조건이 바뀐 경우 방어)', async () => {
+    const wing = fakeWing((_url, init) => {
+      const body = JSON.parse(String(init?.body));
+      return body.displayDeletedProduct ? searchResponse([listRow(1, { productStatus: 'ON_SALE' })]) : searchResponse([]);
+    });
+    await expect(wing.site.probeDeleted(['1'])).resolves.toEqual([{ externalProductId: '1', outcome: 'present', productStatus: null }]);
+  });
+
   it('probeDeleted는 모두 삭제로 확인되면 두 번째 검색을 하지 않는다', async () => {
     const wing = fakeWing(() => searchResponse([listRow(1, { productStatus: 'DELETED' })]));
     await expect(wing.site.probeDeleted(['1'])).resolves.toEqual([{ externalProductId: '1', outcome: 'deleted', productStatus: 'DELETED' }]);

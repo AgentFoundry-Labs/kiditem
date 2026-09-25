@@ -5410,6 +5410,7 @@ var KidItemRuntime = (() => {
     "BARCODE"
   ];
   var DETAIL_RETRY_DELAYS_MS = [2e3, 6e3];
+  var WING_DELETED_STATUS = "DELETED";
   var CATALOG_LIST_INCOMPLETE2 = "CATALOG_LIST_INCOMPLETE";
   var CATALOG_EXCEL_FAILED2 = "CATALOG_EXCEL_FAILED";
   var WING_CATALOG_PAYLOAD_INVALID = "WING_CATALOG_PAYLOAD_INVALID";
@@ -5480,9 +5481,12 @@ var KidItemRuntime = (() => {
        * 없으면 not_found(미확인 — 서버는 활성으로 두고 품질 보고에 남긴다).
        */
       async probeDeleted(externalProductIds) {
-        const deleted = await productIdsOf(externalProductIds, true);
-        const rest = externalProductIds.filter((id) => !deleted.has(id));
+        const found = await productIdsOf(externalProductIds, true);
+        const deleted = new Map([...found].filter(([, status]) => status === WING_DELETED_STATUS));
+        const liveFromDeletedSearch = new Set([...found.keys()].filter((id) => !deleted.has(id)));
+        const rest = externalProductIds.filter((id) => !found.has(id));
         const present = rest.length > 0 ? await productIdsOf(rest, false) : /* @__PURE__ */ new Map();
+        for (const id of liveFromDeletedSearch) present.set(id, null);
         return externalProductIds.map((externalProductId) => {
           if (deleted.has(externalProductId)) return { externalProductId, outcome: "deleted", productStatus: deleted.get(externalProductId) ?? null };
           if (present.has(externalProductId)) return { externalProductId, outcome: "present", productStatus: null };
