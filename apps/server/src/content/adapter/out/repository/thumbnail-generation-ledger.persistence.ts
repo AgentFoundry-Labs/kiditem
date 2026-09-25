@@ -234,6 +234,8 @@ export { jobInputMeta };
 export async function cancelDirectGeneration(
   prisma: PrismaService,
   input: { organizationId: string; generationId: string; reason: string },
+  /** 같은 트랜잭션에서 이 생성의 살아 있는 AI job을 취소한다(실행 계약의 cancel). */
+  cancelJobs: (tx: Prisma.TransactionClient) => Promise<unknown>,
 ): Promise<{
   status: 'cancelled' | 'already_terminal' | 'not_found';
   generationId: string;
@@ -255,21 +257,7 @@ export async function cancelDirectGeneration(
       where: { id: current.id },
       data: { status: 'cancelled', errorMessage: input.reason },
     });
-    await tx.aiDirectJob.updateMany({
-      where: {
-        organizationId: input.organizationId,
-        sourceResourceId: current.id,
-        jobType: { in: ['thumbnail_generate', 'thumbnail_reedit'] },
-        status: { in: ['held', 'pending', 'running', 'projecting'] },
-      },
-      data: {
-        status: 'cancelled',
-        finishedAt: new Date(),
-        leaseExpiresAt: null,
-        lastErrorCode: 'user_cancelled',
-        lastErrorMessage: input.reason,
-      },
-    });
+    await cancelJobs(tx);
     return { status: 'cancelled' as const, generationId: current.id, preserved: false };
   });
 }

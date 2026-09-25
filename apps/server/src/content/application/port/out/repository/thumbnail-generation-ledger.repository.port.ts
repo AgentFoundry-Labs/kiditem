@@ -1,6 +1,6 @@
 import type { ThumbnailEditorCandidate, ThumbnailEditorInputImage } from '../../../../domain/model/thumbnail-editor';
 import type { ThumbnailGenerationListScope } from '../../../../domain/thumbnail-generation-subject';
-import type { CreateAiDirectJobInput } from './ai-direct-job.repository.port';
+import type { AiDirectJobRequest } from '../runtime/ai-direct-job-operations.port';
 import type { ProductGenerationChildIdentity } from '../../../service/product-generation-child-identity';
 
 export const THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT = Symbol('THUMBNAIL_GENERATION_LEDGER_REPOSITORY_PORT');
@@ -78,7 +78,8 @@ export type OpenPendingThumbnailDirectGenerationInput = {
   triggeredByUserId?: string | null;
   inputImages: ThumbnailEditorInputImage[];
   productGenerationIdentity?: ProductGenerationChildIdentity;
-  directJob: Omit<CreateAiDirectJobInput, 'organizationId' | 'sourceResourceId'>;
+  /** 생성 기록과 같은 트랜잭션에서 prepare할 AI job. */
+  directJob: AiDirectJobRequest;
 } & (
   | {
       subject: 'editor';
@@ -143,8 +144,6 @@ export interface ThumbnailGenerationLedgerRepositoryPort {
   openPendingDirectGeneration(input: OpenPendingThumbnailDirectGenerationInput): Promise<{
     status: 'created' | 'existing';
     generationId: string;
-    directJobId: string;
-    releaseRequired: boolean;
   }>;
   /** 자동 · 일괄 편집 job(직접 job 없이 재편집 경로로 돈다). 입력은 `inputMeta` 에 같이 넣는다. */
   openPendingEditorJob(input: {
@@ -155,6 +154,15 @@ export interface ThumbnailGenerationLedgerRepositoryPort {
     inputMeta: Record<string, unknown>;
     triggeredByUserId?: string | null;
   }): Promise<ThumbnailJobRow>;
+  /**
+   * 재편집 job을 다시 건다: 이 생성의 살아 있는 재편집 job을 취소하고 새 job을 한 트랜잭션에서 prepare한다
+   * (옛 `ai_direct_jobs` upsert 재시작과 같은 결과 — 돌던 워커는 heartbeat에서 취소를 보고 멈춘다).
+   */
+  restartReeditJob(input: {
+    organizationId: string;
+    generationId: string;
+    directJob: AiDirectJobRequest;
+  }): Promise<{ jobId: string }>;
   cancelDirectGeneration(input: {
     organizationId: string;
     generationId: string;

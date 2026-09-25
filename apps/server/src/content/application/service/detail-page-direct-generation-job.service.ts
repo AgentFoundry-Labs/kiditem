@@ -1,34 +1,23 @@
 import { Inject, Injectable, Optional } from '@nestjs/common';
-import { KiditemError, KiditemExternalError } from '@kiditem/shared/errors';
+import { KiditemExternalError } from '@kiditem/shared/errors';
 import {
   DetailPageGenerateDirectInputSchema,
   type DetailPageGenerateDirectInput,
 } from '../../domain/direct-generation';
 import {
-  AI_DIRECT_JOB_REPOSITORY_PORT,
-  type AiDirectJobRepositoryPort,
-  type CreateAiDirectJobInput,
-} from '../port/out/repository/ai-direct-job.repository.port';
-import {
   AI_DIRECT_JOB_WAKE_PORT,
+  type AiDirectJobRequest,
   type AiDirectJobWakePort,
 } from '../port/out/runtime';
-import {
-  AI_DIRECT_JOB_RUNTIME_CONFIG,
-  type AiDirectJobRuntimeConfig,
-} from './ai-direct-job.config';
 import type { AiDirectJobModels } from '../../domain/direct-job/ai-direct-job.schema';
 
+/** 상세 생성 job. 생성 페이지 트랜잭션 안에서 `prepare`되고(저장소가 이 요청을 받는다), 커밋 뒤 워커를 깨운다. */
 @Injectable()
 export class DetailPageDirectGenerationJobService {
   constructor(
-    @Inject(AI_DIRECT_JOB_REPOSITORY_PORT)
-    private readonly repository: AiDirectJobRepositoryPort,
     @Optional()
     @Inject(AI_DIRECT_JOB_WAKE_PORT)
     private worker: AiDirectJobWakePort | null,
-    @Inject(AI_DIRECT_JOB_RUNTIME_CONFIG)
-    private readonly config: AiDirectJobRuntimeConfig,
   ) {}
 
   attachWakePort(worker: AiDirectJobWakePort): void {
@@ -38,7 +27,7 @@ export class DetailPageDirectGenerationJobService {
   prepareGenerate(input: {
     payload: DetailPageGenerateDirectInput | Record<string, unknown>;
     models: AiDirectJobModels;
-  }): Omit<CreateAiDirectJobInput, 'organizationId' | 'sourceResourceId'> {
+  }): AiDirectJobRequest {
     const parsed = DetailPageGenerateDirectInputSchema.parse(input.payload);
     if (!('text' in input.models) || !('vision' in input.models)) {
       throw new KiditemExternalError('CONTENT_MODEL_NOT_CONFIGURED', { details: { reason: 'DETAIL_PAGE_MODELS_MISSING' } });
@@ -50,39 +39,10 @@ export class DetailPageDirectGenerationJobService {
         models: input.models,
         input: parsed,
       },
-      status: 'held',
-      scheduledFor: new Date(Date.now() + this.config.heldRecoveryMs),
     };
   }
 
-  async release(input: { organizationId: string; jobId: string }): Promise<void> {
-    const released = await this.repository.release(input);
-    if (!released) {
-      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DIRECT_JOB_RELEASE_FAILED', jobId: input.jobId } });
-    }
+  wake(): void {
     this.worker?.wake();
-  }
-
-  async cancelHeld(input: { organizationId: string; jobId: string; reason: string }): Promise<void> {
-    await this.repository.cancel(input);
-  }
-
-  async schedule(input: {
-    organizationId: string;
-    generationId: string;
-    payload: DetailPageGenerateDirectInput | Record<string, unknown>;
-    models: AiDirectJobModels;
-  }): Promise<{ jobId: string }> {
-    const prepared = this.prepareGenerate(input);
-    const job = await this.repository.create({
-      ...prepared,
-      organizationId: input.organizationId,
-      sourceResourceId: input.generationId,
-    });
-    await this.release({
-      organizationId: input.organizationId,
-      jobId: job.id,
-    });
-    return { jobId: job.id };
   }
 }

@@ -4,7 +4,7 @@ import type {
   DetailPageTemplateId,
 } from '../../../service/detail-page-ai.types';
 import type { ProductGenerationChildIdentity } from '../../../service/product-generation-child-identity';
-import type { CreateAiDirectJobInput } from './ai-direct-job.repository.port';
+import type { AiDirectJobRequest } from '../runtime/ai-direct-job-operations.port';
 
 export const DETAIL_PAGE_GENERATION_REPOSITORY_PORT = Symbol(
   'DETAIL_PAGE_GENERATION_REPOSITORY_PORT',
@@ -48,8 +48,6 @@ export interface DetailPageDirectGenerationCancellation {
 export type DetailPageOpenGenerationResult = {
   status: 'created' | 'existing';
   page: DetailPageRow;
-  directJobId: string;
-  releaseRequired: boolean;
 };
 
 export interface DetailPageGenerationRepositoryPort {
@@ -58,7 +56,7 @@ export interface DetailPageGenerationRepositoryPort {
     contentWorkspaceId: string;
   }): Promise<DetailPageContentWorkspaceSnapshot | null>;
   /**
-   * 생성 페이지(`pending`) · 입력 사진 자산 · held direct job 을 한 트랜잭션에서 연다. 상품 생성의 결정적 id 가
+   * 생성 페이지(`pending`) · 입력 사진 자산 · prepared AI job(실행) 을 한 트랜잭션에서 연다. 상품 생성의 결정적 id 가
    * 이미 있으면 같은 요청(hash)일 때 그것을 돌려주고, 다르면 Conflict.
    */
   openGeneration(input: {
@@ -70,7 +68,8 @@ export interface DetailPageGenerationRepositoryPort {
     imageUrls: string[];
     title: string;
     productGenerationIdentity?: ProductGenerationChildIdentity;
-    directJob: Omit<CreateAiDirectJobInput, 'organizationId' | 'sourceResourceId'>;
+    /** 생성 기록과 같은 트랜잭션에서 prepare할 AI job. */
+  directJob: AiDirectJobRequest;
   }): Promise<DetailPageOpenGenerationResult>;
   /** 같은 워크스페이스 · 템플릿의 결과가 있는 최근 생성(이미지만 다시 만들기의 기반). */
   findImageOnlyBaseCandidates(input: {

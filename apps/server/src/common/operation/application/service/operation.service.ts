@@ -17,7 +17,6 @@ import {
   type OperationChunkPutRequest,
   type OperationChunkPutResponse,
   type OperationClaimRequest,
-  type OperationClaimResult,
   type OperationFenceLostReason,
   type OperationFinishRequest,
   type OperationFinishResponse,
@@ -25,6 +24,7 @@ import {
   type OperationListQuery,
   type OperationListResponse,
   type OperationPrepareRequest,
+  type OperationView,
 } from '@kiditem/shared/operation';
 import type { OwnerTransaction } from '../../../owner-transaction';
 import { decideFailure } from '../../domain/operation-attempt';
@@ -37,7 +37,7 @@ import {
   leaseExpiresAt,
 } from '../../domain/operation-fence';
 import { canonicalOwnerInputHash } from '../../../owner-idempotency-key';
-import type { OperationPort, OperationPrepareResult } from '../port/in/operation.port';
+import type { OperationClaimed, OperationPort, OperationPrepareResult } from '../port/in/operation.port';
 import {
   OPERATION_REPOSITORY,
   type OperationClosure,
@@ -212,7 +212,7 @@ export class OperationService implements OperationPort {
     }, ownerTx);
   }
 
-  async claim(request: OperationClaimRequest): Promise<OperationClaimResult | null> {
+  async claim(request: OperationClaimRequest): Promise<OperationClaimed | null> {
     return this.operations.transaction(async (tx) => {
       const now = new Date();
       // 시도가 남지 않은 채 임대가 끝난 실행은 claim 후보가 아니다. 여기서 terminal로 닫아 onFailed를 부른다.
@@ -225,7 +225,7 @@ export class OperationService implements OperationPort {
         token: randomUUID(),
         expiresAt: leaseExpiresAt(now, this.owners.leaseMs(candidate.kind)),
       });
-      return { operation: toOperationView(claimed), token: claimed.token };
+      return { operation: toOperationView(claimed), token: claimed.token, organizationId: claimed.organizationId };
     });
   }
 
@@ -383,6 +383,24 @@ export class OperationService implements OperationPort {
       limit: query.limit,
     });
     return { operations: records.map(toOperationView) };
+  }
+
+  async get(organizationId: string, operationId: string): Promise<OperationView | null> {
+    return this.operations.transaction(async (tx) => {
+      const operation = await tx.lockOperation(organizationId, operationId);
+      return operation ? toOperationView(await this.expireIfDue(tx, operation, new Date())) : null;
+    });
+  }
+
+  async findLive(organizationId: string, lockKey: string, ownerTx?: OwnerTransaction): Promise<OperationView | null> {
+    return this.operations.transaction(async (tx) => {
+      const now = new Date();
+      for (const holder of await tx.lockHolders(organizationId, [lockKey])) {
+        const current = await this.expireIfDue(tx, holder, now);
+        if (!isOperationTerminal(current.status)) return toOperationView(current);
+      }
+      return null;
+    }, ownerTx);
   }
 
   /** 토큰 fence. 만료면 그 자리에서 닫아 커밋하고(트랜잭션은 계속) 거절을 돌려준다. */

@@ -1,15 +1,13 @@
 import { describe, expect, it, vi } from 'vitest';
-import type { AiDirectJobRecord } from '../../port/out/repository/ai-direct-job.repository.port';
+import type { AiDirectJob } from '../../../domain/direct-job/ai-direct-job-operation';
 import { AiDirectJobProcessorService } from '../ai-direct-job-processor.service';
 
-function imageJob(): AiDirectJobRecord {
-  const now = new Date();
+function imageJob(): AiDirectJob {
   return {
     id: '11111111-1111-4111-8111-111111111111',
     organizationId: '22222222-2222-4222-8222-222222222222',
     jobType: 'image_edit',
     sourceResourceId: '11111111-1111-4111-8111-111111111111',
-    status: 'running',
     payload: {
       jobType: 'image_edit',
       models: { image: 'image-model' },
@@ -18,18 +16,8 @@ function imageJob(): AiDirectJobRecord {
         preset: 'custom',
       },
     },
-    result: null,
     attempts: 1,
     maxAttempts: 3,
-    scheduledFor: now,
-    claimedAt: now,
-    claimedBy: 'worker',
-    leaseExpiresAt: now,
-    finishedAt: null,
-    lastErrorCode: null,
-    lastErrorMessage: null,
-    createdAt: now,
-    updatedAt: now,
   };
 }
 

@@ -2,11 +2,11 @@ import { Inject, Injectable } from '@nestjs/common';
 import { isKiditemError, KiditemConflictError, KiditemError } from '@kiditem/shared/errors';
 import type { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import {
-  AI_DIRECT_JOB_REPOSITORY_PORT,
-  type AiDirectJobRepositoryPort,
-} from '../../../application/port/out/repository/ai-direct-job.repository.port';
+  AI_DIRECT_JOB_OPERATIONS_PORT,
+  type AiDirectJobOperationsPort,
+} from '../../../application/port/out/runtime/ai-direct-job-operations.port';
 import {
   DETAIL_PAGE_REPOSITORY_PORT,
   type DetailPageRepositoryPort,
@@ -28,8 +28,8 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
     private readonly prisma: PrismaService,
     @Inject(DETAIL_PAGE_REPOSITORY_PORT)
     private readonly detailPages: DetailPageRepositoryPort,
-    @Inject(AI_DIRECT_JOB_REPOSITORY_PORT)
-    private readonly directJobs: AiDirectJobRepositoryPort,
+    @Inject(AI_DIRECT_JOB_OPERATIONS_PORT)
+    private readonly directJobs: AiDirectJobOperationsPort,
   ) {}
 
   async findActiveContentWorkspace(input: {
@@ -74,12 +74,12 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
           role: 'detail_source',
           images: input.imageUrls.map((url) => ({ url })),
         });
-        const directJob = await this.directJobs.createInScope(tx, {
+        await this.directJobs.prepare(ownerTransaction(tx), {
           ...input.directJob,
           organizationId: input.organizationId,
           sourceResourceId: page.id,
         });
-        return { status: 'created' as const, page, directJobId: directJob.id, releaseRequired: true };
+        return { status: 'created' as const, page };
       });
     } catch (error) {
       if (!input.productGenerationIdentity || !isUniqueConstraint(error)) throw error;
@@ -107,14 +107,11 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
       throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'PRODUCT_GENERATION_IDEMPOTENCY_CONFLICT' } });
     }
     const page = await this.detailPages.findById({ organizationId: input.organizationId, detailPageId: existing.id });
-    const directJob = await scope.aiDirectJob.findFirst({
-      where: { organizationId: input.organizationId, jobType: 'detail_page_generate', sourceResourceId: existing.id },
-      select: { id: true, status: true },
-    });
-    if (!page || !directJob) {
-      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DETAIL_PAGE_DIRECT_JOB_MISSING', detailPageId: existing.id } });
+    if (!page) {
+      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'DETAIL_PAGE_MISSING', detailPageId: existing.id } });
     }
-    return { status: 'existing', page, directJobId: directJob.id, releaseRequired: directJob.status === 'held' };
+    // 먼저 커밋한 요청이 같은 트랜잭션에서 job도 prepare했다.
+    return { status: 'existing', page };
   }
 
   async findImageOnlyBaseCandidates(input: {
@@ -181,20 +178,10 @@ export class DetailPageGenerationRepositoryAdapter implements DetailPageGenerati
         // 결과가 먼저 들어왔다 — 끝난 생성은 그대로 둔다.
         return { status: 'already_terminal' as const, generationId: current.id, preserved: true };
       }
-      await ownerTransactionClient(transaction).aiDirectJob.updateMany({
-        where: {
-          organizationId: input.organizationId,
-          sourceResourceId: current.id,
-          jobType: 'detail_page_generate',
-          status: { in: ['held', 'pending', 'running', 'projecting'] },
-        },
-        data: {
-          status: 'cancelled',
-          finishedAt: new Date(),
-          leaseExpiresAt: null,
-          lastErrorCode: 'user_cancelled',
-          lastErrorMessage: input.reason,
-        },
+      await this.directJobs.cancelLive(transaction, {
+        organizationId: input.organizationId,
+        sourceResourceId: current.id,
+        jobTypes: ['detail_page_generate'],
       });
       return { status: 'cancelled' as const, generationId: current.id, preserved: false };
     });

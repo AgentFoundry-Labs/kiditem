@@ -9,12 +9,15 @@ import {
   type OnModuleInit,
 } from '@nestjs/common';
 import { isKiditemError } from '@kiditem/shared/errors';
-import { AiDirectJobCheckpointSchema } from '../../domain/direct-job/ai-direct-job.schema';
 import {
-  AI_DIRECT_JOB_REPOSITORY_PORT,
-  type AiDirectJobRecord,
-  type AiDirectJobRepositoryPort,
-} from '../port/out/repository/ai-direct-job.repository.port';
+  aiDirectJobRetryAfterMs,
+  validateAiDirectJobResult,
+  type AiDirectJob,
+} from '../../domain/direct-job/ai-direct-job-operation';
+import {
+  AI_DIRECT_JOB_OPERATIONS_PORT,
+  type AiDirectJobOperationsPort,
+} from '../port/out/runtime/ai-direct-job-operations.port';
 import {
   AI_DIRECT_JOB_RUNTIME_CONFIG,
   type AiDirectJobRuntimeConfig,
@@ -25,6 +28,11 @@ import {
 } from './ai-direct-job-processor.service';
 import type { AiDirectJobWakePort } from '../port/out/runtime';
 
+/**
+ * AI 생성 job 워커. 실행 계약(ADR-0025)에서 `content.*` job 하나를 claim해 모델을 부르고, 검증한 결과를
+ * 실행 청크로 받아 둔 뒤(`result_saved`) finish한다. 원장 반영은 finish 트랜잭션의 owner finalize가,
+ * 최종 실패 기록은 owner onFailed가 한다. 재시도·임대 만료 회수·취소 판정은 계약이 한다.
+ */
 @Injectable()
 export class AiDirectJobWorkerService
   implements OnModuleInit, OnModuleDestroy, AiDirectJobWakePort
@@ -39,8 +47,8 @@ export class AiDirectJobWorkerService
   private nextErrorDelayMs = 0;
 
   constructor(
-    @Inject(AI_DIRECT_JOB_REPOSITORY_PORT)
-    private readonly repository: AiDirectJobRepositoryPort,
+    @Inject(AI_DIRECT_JOB_OPERATIONS_PORT)
+    private readonly jobs: AiDirectJobOperationsPort,
     private readonly processor: AiDirectJobProcessorService,
     @Inject(AI_DIRECT_JOB_RUNTIME_CONFIG)
     private readonly config: AiDirectJobRuntimeConfig,
@@ -69,57 +77,39 @@ export class AiDirectJobWorkerService
     this.schedule(0);
   }
 
-  async tick(now = new Date()): Promise<boolean> {
+  async tick(): Promise<boolean> {
     if (this.busy) return false;
     this.busy = true;
     try {
-      const job = await this.repository.claimNext({
-        workerId: this.workerId,
-        now,
-        leaseExpiresAt: new Date(now.getTime() + this.config.leaseMs),
-      });
-      if (!job) return false;
+      const claimed = await this.jobs.claim(this.workerId);
+      if (!claimed) return false;
+      const { job, token } = claimed;
 
       const preflight = await this.processor.preflight(job);
       if (preflight !== 'runnable') {
-        await this.finishPreflightRejection(job, preflight, now);
+        await this.finishPreflightRejection(job, token, preflight);
         return true;
       }
 
       const controller = new AbortController();
-      const stopLease = this.startLeaseHeartbeat(job, controller);
+      const stopLease = this.startLeaseHeartbeat(job, token, controller);
       const providerTimeout = setTimeout(
         () => controller.abort('provider_timeout'),
         this.config.providerTimeoutMs,
       );
       providerTimeout.unref?.();
       try {
-        // Direct jobs are product media work (thumbnails, detail pages, image
-        // edits): the 상품 agent's spend, metered to the job's organization.
-        const rawResult =
-          job.result ?? (await aiUsageMeter.run(
+        if (!claimed.resultSaved) {
+          // Direct jobs are product media work (thumbnails, detail pages, image
+          // edits): the 상품 agent's spend, metered to the job's organization.
+          const rawResult = await aiUsageMeter.run(
             { organizationId: job.organizationId, agentKey: 'product' },
             () => this.processor.execute(job, controller.signal),
-          ));
-        const result = validateCheckpointResult(job.jobType, rawResult);
-        if (job.result == null) {
-          const checkpointed = await this.repository.checkpointResult({
-            organizationId: job.organizationId,
-            jobId: job.id,
-            result,
-          });
-          if (!checkpointed) return true;
+          );
+          const result = validateAiDirectJobResult(job.jobType, rawResult);
+          if (!(await this.jobs.saveResult(job, token, result))) return true;
         }
-        const projectingJob = await this.repository.findById({
-          organizationId: job.organizationId,
-          jobId: job.id,
-        });
-        if (!projectingJob || projectingJob.status !== 'projecting') return true;
-        await this.processor.project(projectingJob, result);
-        await this.repository.markSucceeded({
-          organizationId: job.organizationId,
-          jobId: job.id,
-        });
+        await this.jobs.succeed(job, token);
       } catch (error) {
         if (controller.signal.aborted && controller.signal.reason !== 'provider_timeout') {
           return true;
@@ -134,22 +124,14 @@ export class AiDirectJobWorkerService
             `${job.jobType} job ${job.id} failed with ${error.code}: details=${JSON.stringify(error.details)}`,
           );
         }
-        const willRetry = normalized.retryable && job.attempts < job.maxAttempts;
-        const delay = this.config.retryDelaysMs[
-          Math.min(Math.max(job.attempts - 1, 0), this.config.retryDelaysMs.length - 1)
-        ];
-        await this.repository.failOrReschedule({
-          organizationId: job.organizationId,
-          jobId: job.id,
+        await this.jobs.fail(job, token, {
           errorCode: normalized.errorCode,
           errorMessage: normalized.errorMessage,
-          retryable: normalized.retryable,
-          retryAt: new Date(now.getTime() + delay),
-          now,
+          retryAfterMs: aiDirectJobRetryAfterMs(
+            { retryable: normalized.retryable, attempts: job.attempts },
+            this.config.retryDelaysMs,
+          ),
         });
-        if (!willRetry) {
-          await this.processor.projectFailure(job, normalized);
-        }
       } finally {
         clearTimeout(providerTimeout);
         stopLease();
@@ -216,7 +198,8 @@ export class AiDirectJobWorkerService
   }
 
   private startLeaseHeartbeat(
-    job: AiDirectJobRecord,
+    job: AiDirectJob,
+    token: string,
     controller: AbortController,
   ): () => void {
     const intervalMs = Math.max(
@@ -227,17 +210,10 @@ export class AiDirectJobWorkerService
       ),
     );
     const interval = setInterval(() => {
-      void this.repository
-        .extendLease({
-          organizationId: job.organizationId,
-          jobId: job.id,
-          workerId: this.workerId,
-          leaseExpiresAt: new Date(Date.now() + this.config.leaseMs),
-        })
-        .then((status) => {
-          if (status === 'cancelled' || status === 'lost') {
-            controller.abort(status);
-          }
+      void this.jobs
+        .heartbeat(job, token)
+        .then((lease) => {
+          if (lease !== 'alive') controller.abort(lease);
         })
         .catch(() => controller.abort('lost'));
     }, intervalMs);
@@ -246,16 +222,13 @@ export class AiDirectJobWorkerService
   }
 
   private async finishPreflightRejection(
-    job: AiDirectJobRecord,
+    job: AiDirectJob,
+    token: string,
     reason: 'cancelled' | 'invalid',
-    now: Date,
   ): Promise<void> {
     if (reason === 'cancelled') {
-      await this.repository.cancel({
-        organizationId: job.organizationId,
-        jobId: job.id,
-        reason: 'Source operation is already terminal or cancelled.',
-      });
+      // 생성 기록이 이미 끝났다(취소·삭제 등). job만 취소로 닫는다.
+      await this.jobs.cancel(job.organizationId, job.id);
       return;
     }
     const normalized: NormalizedAiDirectJobError = {
@@ -263,14 +236,8 @@ export class AiDirectJobWorkerService
       errorMessage: 'AI direct job source is missing or invalid.',
       retryable: false,
     };
-    await this.repository.failOrReschedule({
-      organizationId: job.organizationId,
-      jobId: job.id,
-      ...normalized,
-      retryAt: now,
-      now,
-    });
-    await this.processor.projectFailure(job, normalized);
+    // 재시도 없이 끝낸다. 생성 기록의 실패 기록은 owner onFailed가 같은 트랜잭션에서 한다.
+    await this.jobs.fail(job, token, normalized);
   }
 }
 
@@ -309,19 +276,4 @@ function errorCode(error: unknown): string {
 
 function errorMessage(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
-}
-
-function validateCheckpointResult(
-  jobType: AiDirectJobRecord['jobType'],
-  result: unknown,
-): unknown {
-  const parsed = AiDirectJobCheckpointSchema.safeParse({ jobType, result });
-  if (parsed.success) return parsed.data.result;
-
-  const message = parsed.error.issues
-    .map((issue) => `${issue.path.join('.') || 'result'}: ${issue.message}`)
-    .join('; ');
-  throw Object.assign(new Error(message), {
-    code: 'direct_ai_output_invalid',
-  });
 }

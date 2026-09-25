@@ -130,6 +130,7 @@ describe('operation contract — server-driven kinds (prepare · claim · retry 
 
     const claimed = (await claim())!;
     expect(claimed.operation).toMatchObject({ id: prepared.id, status: 'executing', attempts: 1, plan: { job: 'a' } });
+    expect(claimed.organizationId).toBe(ORG);
     await prisma.operation.update({ where: { id: prepared.id }, data: { expiresAt: new Date(Date.now() + 5_000) } });
     const beat = await heartbeat(prepared.id, claimed.token, { checkpoint: 'result_saved' });
     expect(new Date(beat.expiresAt).getTime()).toBeGreaterThan(Date.now() + 50_000);
@@ -266,5 +267,26 @@ describe('operation contract — server-driven kinds (prepare · claim · retry 
     expect(operation).toMatchObject({ status: 'executing', attempts: 1, maxAttempts: 1, scheduledFor: null });
     const row = await prisma.operation.findUniqueOrThrow({ where: { id: operation.id } });
     expect(row).toMatchObject({ attempts: 1, maxAttempts: 1, scheduledFor: null });
+  });
+
+  it('11. get reads one operation (expiring a lapsed lease first) and answers null for another organization or id', async () => {
+    const { operation } = await prepare({}, { maxAttempts: 1 });
+    await claim();
+    await prisma.operation.update({ where: { id: operation.id }, data: { expiresAt: new Date(Date.now() - 1_000) } });
+    expect(await operations.get(ORG, operation.id)).toMatchObject({ id: operation.id, status: 'failed', errorMessage: 'expired' });
+    expect(failures).toHaveLength(1);
+    expect(await operations.get('00000000-0000-4000-8000-000000000000', operation.id)).toBeNull();
+    expect(await operations.get(ORG, '00000000-0000-4000-8000-000000000000')).toBeNull();
+  });
+
+  it('12. findLive names the operation holding a lockKey, inside an owner transaction too, and null once it is terminal', async () => {
+    const { operation } = await prepare({ lockKey: 'resource:job:9' });
+    expect(await operations.findLive(ORG, 'resource:job:9')).toMatchObject({ id: operation.id, status: 'prepared' });
+    await prisma.$transaction(async (tx) => {
+      const live = await operations.findLive(ORG, 'resource:job:9', ownerTransaction(tx));
+      await operations.cancel(ORG, live!.id, ownerTransaction(tx));
+    });
+    expect(await operations.findLive(ORG, 'resource:job:9')).toBeNull();
+    expect(await operations.findLive(ORG, 'resource:job:10')).toBeNull();
   });
 });

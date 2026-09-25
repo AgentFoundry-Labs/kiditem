@@ -5,9 +5,7 @@ import {
   ImageEditDirectOutputSchema,
   ThumbnailGenerateDirectOutputSchema,
 } from '../../domain/direct-generation';
-import type {
-  AiDirectJobRecord,
-} from '../port/out/repository/ai-direct-job.repository.port';
+import type { AiDirectJob } from '../../domain/direct-job/ai-direct-job-operation';
 import {
   DETAIL_PAGE_GENERATION_REPOSITORY_PORT,
   type DetailPageGenerationRepositoryPort,
@@ -46,12 +44,12 @@ export interface NormalizedAiDirectJobError {
 
 export interface AiDirectJobProcessor {
   preflight(
-    job: AiDirectJobRecord,
+    job: AiDirectJob,
   ): Promise<'runnable' | 'cancelled' | 'invalid'>;
-  execute(job: AiDirectJobRecord, signal: AbortSignal): Promise<unknown>;
-  project(job: AiDirectJobRecord, result: unknown): Promise<void>;
+  execute(job: AiDirectJob, signal: AbortSignal): Promise<unknown>;
+  project(job: AiDirectJob, result: unknown): Promise<void>;
   projectFailure(
-    job: AiDirectJobRecord,
+    job: AiDirectJob,
     error: NormalizedAiDirectJobError,
   ): Promise<void>;
 }
@@ -76,7 +74,7 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
   ) {}
 
   async preflight(
-    job: AiDirectJobRecord,
+    job: AiDirectJob,
   ): Promise<'runnable' | 'cancelled' | 'invalid'> {
     switch (job.jobType) {
       case 'thumbnail_generate':
@@ -106,7 +104,7 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
     }
   }
 
-  async execute(job: AiDirectJobRecord, signal: AbortSignal): Promise<unknown> {
+  async execute(job: AiDirectJob, signal: AbortSignal): Promise<unknown> {
     throwIfAborted(signal);
     switch (job.jobType) {
       case 'thumbnail_generate': {
@@ -157,7 +155,7 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
     }
   }
 
-  async project(job: AiDirectJobRecord, result: unknown): Promise<void> {
+  async project(job: AiDirectJob, result: unknown): Promise<void> {
     switch (job.jobType) {
       case 'thumbnail_generate':
         await this.thumbnailSink.applySuccess({
@@ -187,7 +185,7 @@ export class AiDirectJobProcessorService implements AiDirectJobProcessor {
   }
 
   async projectFailure(
-    job: AiDirectJobRecord,
+    job: AiDirectJob,
     error: NormalizedAiDirectJobError,
   ): Promise<void> {
     switch (job.jobType) {
