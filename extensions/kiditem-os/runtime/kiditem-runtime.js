@@ -57,231 +57,6 @@ var KidItemRuntime = (() => {
   };
   registerCollector(testEchoCollector);
 
-  // packages/shared/src/errors/definitions.ts
-  var ERROR_KINDS = [
-    "validation",
-    "auth",
-    "forbidden",
-    "not_found",
-    "conflict",
-    "precondition",
-    "in_progress",
-    "expired",
-    "cancelled",
-    "external",
-    "internal"
-  ];
-  var KIND_HTTP_STATUS = {
-    validation: 400,
-    auth: 401,
-    forbidden: 403,
-    not_found: 404,
-    conflict: 409,
-    precondition: 422,
-    in_progress: 409,
-    expired: 409,
-    cancelled: 409,
-    external: 502,
-    internal: 500
-  };
-  var def = (owner, kind, text, options = {}) => ({
-    owner,
-    kind,
-    httpStatus: options.httpStatus ?? KIND_HTTP_STATUS[kind],
-    text,
-    retryable: options.retryable ?? false
-  });
-  var ERROR_DEFINITIONS = {
-    // 공통 lifecycle (접두 없음)
-    VALIDATION_FAILED: def("common", "validation", "\uC785\uB825\uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD45C\uC2DC\uB41C \uD56D\uBAA9\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."),
-    AUTH_REQUIRED: def("auth", "auth", "\uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574 \uC8FC\uC138\uC694."),
-    FORBIDDEN: def("auth", "forbidden", "\uC774 \uC791\uC5C5\uC744 \uD560 \uAD8C\uD55C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."),
-    NO_ORGANIZATION_CONTEXT: def("auth", "auth", "\uC18C\uC18D \uC870\uC9C1\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574 \uC8FC\uC138\uC694."),
-    NOT_FOUND: def("common", "not_found", "\uC694\uCCAD\uD55C \uD56D\uBAA9\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."),
-    METHOD_NOT_ALLOWED: def("common", "validation", "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uC694\uCCAD\uC785\uB2C8\uB2E4.", { httpStatus: 405 }),
-    DB_CONFLICT: def("common", "conflict", "\uAC19\uC740 \uD56D\uBAA9\uC774 \uC774\uBBF8 \uC788\uC5B4 \uC800\uC7A5\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4."),
-    STATE_CONFLICT: def("common", "conflict", "\uC9C0\uAE08 \uC0C1\uD0DC\uC640 \uB9DE\uC9C0 \uC54A\uC544 \uCC98\uB9AC\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    RATE_LIMITED: def("common", "external", "\uC694\uCCAD\uC774 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { httpStatus: 429, retryable: true }),
-    DB_NOT_FOUND: def("common", "not_found", "\uC800\uC7A5\uB41C \uD56D\uBAA9\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."),
-    DB_ERROR: def("common", "internal", "\uB370\uC774\uD130\uB97C \uC800\uC7A5\uD558\uAC70\uB098 \uC77D\uB294 \uC911 \uBB38\uC81C\uAC00 \uC0DD\uACBC\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    INTERNAL_ERROR: def("common", "internal", "\uCC98\uB9AC \uC911 \uBB38\uC81C\uAC00 \uC0DD\uACBC\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    SERVICE_UNAVAILABLE: def("common", "external", "\uC5F0\uACB0\uB41C \uC11C\uBE44\uC2A4\uAC00 \uC751\uB2F5\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { httpStatus: 503, retryable: true }),
-    REQUEST_TIMEOUT: def("common", "external", "\uC751\uB2F5\uC774 \uB108\uBB34 \uB2A6\uC5B4 \uC694\uCCAD\uC744 \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { httpStatus: 504, retryable: true }),
-    NETWORK_FAILED: def("common", "external", "\uB124\uD2B8\uC6CC\uD06C \uC5F0\uACB0\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uC5F0\uACB0\uC744 \uD655\uC778\uD558\uACE0 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    // 수집 시도 lifecycle
-    ATTEMPT_IN_PROGRESS: def("common", "in_progress", "\uAC19\uC740 \uC218\uC9D1\uC774 \uC774\uBBF8 \uC9C4\uD589 \uC911\uC785\uB2C8\uB2E4. \uB05D\uB098\uAC70\uB098 \uC911\uB2E8\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694."),
-    ATTEMPT_EXPIRED: def("common", "expired", "\uC218\uC9D1 \uC2DC\uB3C4\uAC00 \uB9CC\uB8CC\uB410\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    ATTEMPT_FENCE_LOST: def("common", "conflict", "\uC774 \uC218\uC9D1 \uC2DC\uB3C4\uB294 \uB354 \uC774\uC0C1 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    ATTEMPT_TERMINAL: def("common", "conflict", "\uC774\uBBF8 \uB05D\uB09C \uC218\uC9D1 \uC2DC\uB3C4\uC785\uB2C8\uB2E4."),
-    ATTEMPT_PAUSED: def("common", "in_progress", "\uBAB0 \uC694\uCCAD \uC81C\uD55C\uC73C\uB85C \uC218\uC9D1\uC744 \uC7A0\uC2DC \uBA48\uCDC4\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uC774\uC5B4\uC11C \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    USER_CANCELLED: def("common", "cancelled", "\uC6B4\uC601\uC790\uAC00 \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4."),
-    // 실행(operation) 계약 (ADR-0025, KID-353): begin 겹침 하나, fenced 쓰기 거절 하나(details.reason), 404 하나
-    OPERATION_IN_PROGRESS: def("common", "in_progress", "\uAC19\uC740 \uC2E4\uD589\uC774 \uC774\uBBF8 \uC9C4\uD589 \uC911\uC785\uB2C8\uB2E4. \uB05D\uB098\uAC70\uB098 \uC911\uB2E8\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694."),
-    OPERATION_FENCE_LOST: def("common", "conflict", "\uC774 \uC2E4\uD589\uC740 \uB354 \uC774\uC0C1 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    OPERATION_NOT_FOUND: def("common", "not_found", "\uC2E4\uD589\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."),
-    COLLECTION_CANCELLED: def("common", "cancelled", "\uC218\uC9D1\uC774 \uC911\uB2E8\uB410\uC2B5\uB2C8\uB2E4."),
-    COLLECTION_WINDOW_OWNER_CONFLICT: def("extension", "in_progress", "\uB2E4\uB978 \uC218\uC9D1\uC774 \uBE0C\uB77C\uC6B0\uC800 \uC218\uC9D1 \uCC3D\uC744 \uC4F0\uACE0 \uC788\uC2B5\uB2C8\uB2E4. \uB05D\uB09C \uB4A4 \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694."),
-    SOURCE_OWNER_UNAVAILABLE: def("extension", "external", "\uD655\uC7A5 \uD504\uB85C\uADF8\uB7A8\uC774 \uC218\uC9D1\uC744 \uC2DC\uC791\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uD655\uC7A5 \uD504\uB85C\uADF8\uB7A8\uC774 \uCF1C\uC838 \uC788\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    OPERATOR_ACTION_REQUIRED: def("extension", "precondition", "\uC6B4\uC601\uC790\uAC00 \uC9C1\uC811 \uCC98\uB9AC\uD574\uC57C \uD558\uB294 \uB2E8\uACC4\uAC00 \uC788\uC2B5\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."),
-    MALL_LOGIN_REQUIRED: def("extension", "precondition", "\uBAB0\uC5D0 \uB85C\uADF8\uC778\uB418\uC5B4 \uC788\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    MALL_LOGIN_PAGE_UNREACHABLE: def("extension", "external", "\uBAB0 \uB85C\uADF8\uC778 \uD398\uC774\uC9C0\uB97C \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    MALL_CONTRACT_CHANGED: def("extension", "external", "\uBAB0 \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uAC1C\uBC1C\uC790\uC5D0\uAC8C \uC54C\uB824 \uC8FC\uC138\uC694."),
-    SELLPIA_MANUAL_MATCH_LOGIN_REQUIRED: def("extension", "precondition", "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    SELLPIA_MANUAL_MATCH_TIMEOUT: def("extension", "external", "\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uADFC\uAC70 \uC218\uC9D1 \uC2DC\uAC04\uC774 \uCD08\uACFC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.", { retryable: true }),
-    SOURCE_SNAPSHOT_INVALID: def("extension", "validation", "\uC218\uC9D1 \uACB0\uACFC\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."),
-    EXTENSION_UNKNOWN_FAILURE: def("extension", "internal", "\uD655\uC7A5 \uD504\uB85C\uADF8\uB7A8 \uC791\uC5C5\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    // Agent OS · Gateway
-    AGENT_OS_GATEWAY_UNAVAILABLE: def("agent_os", "external", "AI \uAC8C\uC774\uD2B8\uC6E8\uC774\uC5D0 \uC5F0\uACB0\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    AGENT_OS_MODEL_REQUIRED: def("agent_os", "validation", "\uC0AC\uC6A9\uD560 AI \uBAA8\uB378\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694."),
-    // owner capability 계약(요청 확인값·요청 번호)이 빠진 Agent 호출 — products·channels·sourcing·supply 공통.
-    AGENT_OS_OWNER_INPUT_HASH_REQUIRED: def("agent_os", "validation", "\uC694\uCCAD \uB0B4\uC6A9 \uD655\uC778\uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uC694\uCCAD\uC744 \uCC98\uC74C\uBD80\uD130 \uB2E4\uC2DC \uBCF4\uB0B4 \uC8FC\uC138\uC694."),
-    AGENT_OS_OWNER_IDEMPOTENCY_KEY_REQUIRED: def("agent_os", "validation", "\uC694\uCCAD \uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. \uC694\uCCAD\uC744 \uCC98\uC74C\uBD80\uD130 \uB2E4\uC2DC \uBCF4\uB0B4 \uC8FC\uC138\uC694."),
-    // channels
-    CHANNELS_ACCOUNT_NOT_FOUND: def("channels", "not_found", "\uBAB0 \uACC4\uC815\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uC1FC\uD551\uBAB0 \uACC4\uC815 \uD654\uBA74\uC5D0\uC11C \uBA3C\uC800 \uC5F0\uACB0\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_ACCOUNT_INVALID: def("channels", "validation", "\uBAB0 \uACC4\uC815 \uC785\uB825\uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."),
-    CHANNELS_LISTING_EXECUTION_ACTIVE: def("channels", "in_progress", "\uC774 \uC0C1\uD488\uC740 \uC774\uBBF8 \uBAB0 \uB4F1\uB85D\uC774 \uC9C4\uD589 \uC911\uC785\uB2C8\uB2E4."),
-    CHANNELS_REGISTRATION_TARGET_CONFLICT: def("channels", "conflict", "\uAC19\uC740 \uBAB0 \uACC4\uC815\uC5D0 \uC774\uBBF8 \uB4F1\uB85D \uB300\uC0C1\uC774 \uC788\uC2B5\uB2C8\uB2E4."),
-    CHANNELS_LISTING_NOT_FOUND: def("channels", "not_found", "\uBAB0 \uC0C1\uD488\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."),
-    CHANNELS_MALL_UNSUPPORTED: def("channels", "precondition", "\uC774 \uBAB0\uC740 \uC544\uC9C1 \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uC791\uC5C5\uC785\uB2C8\uB2E4.", { httpStatus: 501 }),
-    // 던지는 곳은 details.reason을 반드시 싣는다. 옛 안내가 구체적이던 사유는 아래 전용 코드로 던진다.
-    CHANNELS_PREFLIGHT_FAILED: def("channels", "precondition", "\uC1A1\uC2E0 \uC804 \uC810\uAC80\uC744 \uD1B5\uACFC\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC810\uAC80 \uC0AC\uC720\uB97C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_SELLPIA_MATCH_REQUIRED: def("channels", "precondition", "\uB4F1\uB85D \uC804\uC5D0 \uC140\uD53C\uC544 \uC0C1\uD488\uC744 \uC5F0\uACB0\uD558\uACE0 \uCC28\uAC10\uC218\uB7C9\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_SELLPIA_DEDUCTION_REQUIRED: def("channels", "validation", "\uC140\uD53C\uC544 \uC0C1\uD488\uC758 \uD310\uB9E4 1\uAC1C\uB2F9 \uCC28\uAC10\uC218\uB7C9\uC744 1 \uC774\uC0C1\uC758 \uC815\uC218\uB85C \uC785\uB825\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_SELLPIA_SKU_UNAVAILABLE: def("channels", "precondition", "\uC120\uD0DD\uD55C \uC140\uD53C\uC544 \uC0C1\uD488\uC744 \uD604\uC7AC \uC870\uC9C1\uC758 \uD65C\uC131 \uC7AC\uACE0\uC5D0\uC11C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC140\uD53C\uC544 \uC7AC\uACE0\uB97C \uB2E4\uC2DC \uC218\uC9D1\uD558\uAC70\uB098 \uB2E4\uB978 \uC0C1\uD488\uC744 \uACE8\uB77C \uC8FC\uC138\uC694."),
-    CHANNELS_SELLPIA_SKU_AMBIGUOUS: def("channels", "conflict", "\uAC19\uC740 \uC140\uD53C\uC544 \uC0C1\uD488\uC774 \uC774 \uBAB0 \uACC4\uC815\uC758 \uC5EC\uB7EC \uC0C1\uD488\uC5D0 \uC5F0\uACB0\uB3FC \uC788\uC2B5\uB2C8\uB2E4. \uBAB0 \uC0C1\uD488 \uC5F0\uACB0\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_ACCOUNT_INACTIVE: def("channels", "precondition", "\uBAB0 \uACC4\uC815\uC774 \uBE44\uD65C\uC131 \uC0C1\uD0DC\uC785\uB2C8\uB2E4. \uC1FC\uD551\uBAB0 \uACC4\uC815 \uD654\uBA74\uC5D0\uC11C \uD65C\uC131\uD654\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_KID_REQUIRED: def("channels", "precondition", "\uD310\uB9E4\uC0C1\uD488\uC5D0 KID\uAC00 \uC544\uC9C1 \uC5C6\uC2B5\uB2C8\uB2E4. \uB4F1\uB85D \uC124\uC815\uC744 \uBA3C\uC800 \uB9CC\uB4E0 \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_SALES_PRODUCT_NOT_SELLING: def("channels", "precondition", "\uD310\uB9E4 \uC911\uC778 \uD310\uB9E4\uC0C1\uD488\uC774 \uC544\uB2D9\uB2C8\uB2E4. \uD310\uB9E4\uC0C1\uD488 \uC0C1\uD0DC\uB97C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_REGISTRATION_TARGET_NOT_FOUND: def("channels", "not_found", "\uB4F1\uB85D \uC124\uC815\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_REGISTRATION_TARGET_STALE: def("channels", "conflict", "\uB4F1\uB85D \uC124\uC815\uC774 \uADF8\uC0AC\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    CHANNELS_EXECUTION_NOT_FOUND: def("channels", "not_found", "\uBAB0 \uC791\uC5C5 \uAE30\uB85D\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_EXECUTION_FENCE_LOST: def("channels", "conflict", "\uC774 \uBAB0 \uC791\uC5C5\uC740 \uB354 \uC774\uC0C1 \uC774 \uC694\uCCAD\uC774 \uC9C4\uD589\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_EXECUTION_TERMINAL: def("channels", "conflict", "\uC774\uBBF8 \uB05D\uB09C \uBAB0 \uC791\uC5C5\uC785\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68\uD574 \uACB0\uACFC\uB97C \uD655\uC778\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_EXECUTION_IDEMPOTENCY_CONFLICT: def("channels", "conflict", "\uAC19\uC740 \uC694\uCCAD \uBC88\uD638\uB85C \uB2E4\uB978 \uB0B4\uC6A9\uC758 \uBAB0 \uC791\uC5C5\uC774 \uC774\uBBF8 \uC788\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_EXECUTION_STALE: def("channels", "conflict", "\uC900\uBE44\uD55C \uB4A4 \uC0C1\uD488\xB7\uACC4\uC815\uC774 \uBC14\uB00C\uC5B4 \uC774 \uBAB0 \uC791\uC5C5\uC744 \uC9C4\uD589\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC900\uBE44\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_EXECUTION_EVIDENCE_REJECTED: def("channels", "conflict", "\uBAB0\uC5D0\uC11C \uD655\uC778\uD55C \uACB0\uACFC\uAC00 \uC774 \uBAB0 \uC791\uC5C5\uACFC \uB9DE\uC9C0 \uC54A\uC544 \uBC18\uC601\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uBAB0 \uD654\uBA74\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_OPTION_RECIPE_STALE: def("channels", "conflict", "\uC635\uC158 \uAD6C\uC131\uC774 \uADF8\uC0AC\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC800\uC7A5\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    CHANNELS_THUMBNAIL_EXECUTION_ACTIVE: def("channels", "in_progress", "\uC774 \uC0C1\uD488\uC758 \uB300\uD45C\uC774\uBBF8\uC9C0\uB97C \uC774\uBBF8 \uBAB0\uC5D0 \uBC18\uC601\uD558\uB294 \uC911\uC785\uB2C8\uB2E4. \uB05D\uB098\uAC70\uB098 \uBC18\uC601 \uC548 \uB428\uC73C\uB85C \uD45C\uC2DC\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    // 개발 서버 전용 자동 반영 — 스테이징·운영은 확장 프로그램으로만 반영한다.
-    CHANNELS_SERVER_AUTOMATION_BLOCKED: def("channels", "precondition", "\uC774 \uD658\uACBD\uC5D0\uC11C\uB294 \uB300\uD45C\uC774\uBBF8\uC9C0\uB97C \uD06C\uB86C \uD655\uC7A5 \uD504\uB85C\uADF8\uB7A8\uC73C\uB85C\uB9CC \uBC18\uC601\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uD655\uC7A5 \uD504\uB85C\uADF8\uB7A8\uC5D0\uC11C \uBC18\uC601\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_SALES_PRODUCT_NOT_FOUND: def("channels", "not_found", "\uD310\uB9E4\uC0C1\uD488\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_SALES_PRODUCT_STALE: def("channels", "conflict", "\uB2E4\uB978 \uACF3\uC5D0\uC11C \uBA3C\uC800 \uACE0\uCCE4\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C \uBD88\uB7EC\uC628 \uB4A4 \uB2E4\uC2DC \uC800\uC7A5\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    CHANNELS_SALES_PRODUCT_DRAFT_DELETE_REFUSED: def("channels", "conflict", "\uC774 \uD310\uB9E4\uC0C1\uD488\uC740 \uCD08\uC548\uC73C\uB85C \uC9C0\uC6B8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uD310\uB9E4 \uC911\uC774\uAC70\uB098 \uBAB0 \uC0C1\uD488\xB7\uB4F1\uB85D \uC2E4\uD589\uACFC \uC774\uC5B4\uC9C4 \uC0C1\uD488\uC740 \uBCF4\uAD00\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_SALES_PRODUCT_DRAFT_NOT_ARCHIVABLE: def("channels", "conflict", "\uCD08\uC548\uC740 \uBCF4\uAD00\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC4F0\uC9C0 \uC54A\uC744 \uCD08\uC548\uC740 \uC0AD\uC81C\uD574 \uC8FC\uC138\uC694."),
-    CHANNELS_OPTION_RECIPE_INVALID: def("channels", "validation", "\uC635\uC158 \uAD6C\uC131\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uAD6C\uC131 \uC0C1\uD488\uACFC \uC218\uB7C9\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."),
-    // 웹 use-mall-publish-run·collected-products 화면이 철자로 비교한다(shared registration-state) — 접두 없음.
-    REGISTRATION_ALREADY_REGISTERED: def("channels", "conflict", "\uC774\uBBF8 \uC774 \uBAB0 \uACC4\uC815\uC5D0 \uB4F1\uB85D\uB41C \uC0C1\uD488\uC785\uB2C8\uB2E4. \uBAB0 \uC0C1\uD488 \uBAA9\uB85D\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."),
-    // orders
-    // 확장 order-collection-server-converter.js가 body.code를 그대로 저장한다 — 철자 고정(접두 없음).
-    NO_NEW_ORDERS: def("orders", "validation", "\uC0C8\uB85C \uB4E4\uC5B4\uC628 \uC8FC\uBB38\uC774 \uC5C6\uC2B5\uB2C8\uB2E4."),
-    ORDERS_NO_SELECTION: def("orders", "validation", "\uCC98\uB9AC\uD560 \uC8FC\uBB38\uC744 \uC120\uD0DD\uD574 \uC8FC\uC138\uC694."),
-    ORDERS_UNKNOWN_ACTION: def("orders", "validation", "\uC9C0\uC6D0\uD558\uC9C0 \uC54A\uB294 \uC8FC\uBB38 \uC791\uC5C5\uC785\uB2C8\uB2E4."),
-    ORDERS_CONTINUATION_REJECTED: def("orders", "conflict", "\uC8FC\uBB38 \uC218\uC9D1\uC744 \uC774\uC5B4\uAC08 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    // products
-    PRODUCTS_NOT_FOUND: def("products", "not_found", "\uC0C1\uD488\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."),
-    PRODUCTS_STATE_CONFLICT: def("products", "conflict", "\uC0C1\uD488 \uC0C1\uD0DC\uAC00 \uBC14\uB00C\uC5B4 \uC774 \uC791\uC5C5\uC744 \uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    PRODUCTS_SOURCE_REFERENCE_INVALID: def("products", "precondition", "\uC0C1\uD488 \uC6D0\uCC9C \uC815\uBCF4\uAC00 \uC774 \uC870\uC9C1\uC758 \uC0C1\uD488\uACFC \uB9DE\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."),
-    PRODUCTS_MAPPING_CONFLICT: def("products", "conflict", "\uC0C1\uD488 \uB9E4\uD551\uC774 \uB3D9\uC2DC\uC5D0 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    // inventory · supply
-    INVENTORY_NOT_FOUND: def("inventory", "not_found", "\uC7AC\uACE0 \uD56D\uBAA9\uC744 \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."),
-    SELLPIA_SYNC_REQUIRED: def("inventory", "precondition", "\uC140\uD53C\uC544 \uC7AC\uACE0\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC7AC\uACE0\uB97C \uB2E4\uC2DC \uC218\uC9D1\uD55C \uB4A4 \uBC1C\uC8FC\uD574 \uC8FC\uC138\uC694.", { httpStatus: 409 }),
-    SUPPLY_PURCHASE_ITEM_INACTIVE: def("supply", "precondition", "\uBC1C\uC8FC \uD56D\uBAA9 \uC911 \uD310\uB9E4 \uC911\uC774 \uC544\uB2CC \uC0C1\uD488\uC774 \uC788\uC2B5\uB2C8\uB2E4."),
-    SUPPLY_PURCHASE_REFERENCE_INVALID: def("supply", "validation", "\uBC1C\uC8FC \uCC38\uC870 \uC815\uBCF4\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."),
-    SUPPLY_SUBMISSION_RECONCILIATION_REQUIRED: def("supply", "precondition", "\uC774\uC804 \uBC1C\uC8FC \uC81C\uCD9C \uACB0\uACFC\uB97C \uBA3C\uC800 \uD655\uC778\uD574\uC57C \uD569\uB2C8\uB2E4.", { httpStatus: 409 }),
-    SUPPLY_ROCKET_FINAL_ORDER_AMBIGUOUS: def("supply", "conflict", "\uC218\uC9D1\uD55C \uB85C\uCF13 \uC8FC\uBB38\uC774 \uBC1C\uC8FC \uC5D1\uC140\uC758 \uC5EC\uB7EC \uC904\uACFC \uB9DE\uC2B5\uB2C8\uB2E4. \uBC1C\uC8FC \uD655\uC815 \uC5D1\uC140\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."),
-    SUPPLY_ROCKET_FINAL_ORDER_BARCODE_MISMATCH: def("supply", "conflict", "\uC218\uC9D1\uD55C \uB85C\uCF13 \uC8FC\uBB38\uC758 \uBC14\uCF54\uB4DC\uAC00 \uBC1C\uC8FC \uC5D1\uC140\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uBC1C\uC8FC \uD655\uC815 \uC5D1\uC140\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."),
-    SUPPLY_ROCKET_FINAL_ORDER_ALREADY_COLLECTED: def("supply", "conflict", "\uC774 \uBC1C\uC8FC \uC5D1\uC140 \uC904\uC740 \uC774\uBBF8 \uB2E4\uB978 \uC8FC\uBB38\uACFC \uC5F0\uACB0\uB3FC \uC788\uC2B5\uB2C8\uB2E4."),
-    SUPPLY_ROCKET_WORKBOOK_LINE_CHANGED: def("supply", "conflict", "\uB9DE\uCD94\uB294 \uB3D9\uC548 \uBC1C\uC8FC \uC5D1\uC140 \uC904\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    SUPPLY_ROCKET_COLLECTION_INCOMPLETE: def("supply", "precondition", "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1\uC774 \uB05D\uB098\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uC744 \uB9C8\uCE5C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { httpStatus: 409 }),
-    SUPPLY_PROCUREMENT_REFERENCE_INVALID: def("supply", "validation", "\uACF5\uAE09 \uC81C\uC548\xB7\uACB0\uC815 \uCC38\uC870\uAC00 \uC774 \uC870\uC9C1\uC758 \uAE30\uB85D\uACFC \uB9DE\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC120\uD0DD\uD55C \uACF5\uAE09 \uC81C\uC548\uACFC \uACB0\uC815\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."),
-    SUPPLY_DECISION_EXPIRED: def("supply", "expired", "\uACB0\uC815 \uBC30\uCE58\uAC00 \uB9CC\uB8CC\uB410\uAC70\uB098 \uB354 \uC774\uC0C1 \uC9C4\uD589\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC0C8 \uACB0\uC815\uC744 \uB9CC\uB4E0 \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    SUPPLY_OFFER_SNAPSHOT_EXPIRED: def("supply", "expired", "\uACF5\uAE09 \uC81C\uC548 \uC2A4\uB0C5\uC20F\uC774 \uB9CC\uB8CC\uB410\uC2B5\uB2C8\uB2E4. \uACF5\uAE09 \uC81C\uC548\uC744 \uB2E4\uC2DC \uC218\uC9D1\uD55C \uB4A4 \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    SUPPLY_PURCHASE_STATUS_INVALID: def("supply", "conflict", "\uC9C0\uAE08 \uBC1C\uC8FC \uC0C1\uD0DC\uC5D0\uC11C\uB294 \uC774 \uC791\uC5C5\uC744 \uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uBC1C\uC8FC \uC0C1\uD0DC\uB97C \uD655\uC778\uD574 \uC8FC\uC138\uC694."),
-    SUPPLY_PURCHASE_LEGACY_ORDER: def("supply", "precondition", "\uC608\uC804 \uBC29\uC2DD\uC73C\uB85C \uB9CC\uB4E0 \uBC1C\uC8FC\uB77C \uC81C\uCD9C\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uBC1C\uC8FC\uB97C \uC0C8\uB85C \uB9CC\uB4E0 \uB4A4 \uC81C\uCD9C\uD574 \uC8FC\uC138\uC694."),
-    SUPPLY_PURCHASE_PROVIDER_FAILED: def("supply", "external", "\uBC1C\uC8FC\uCC98\uAC00 \uC8FC\uBB38\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uBC1C\uC8FC\uCC98 \uD654\uBA74\uC5D0\uC11C \uC6D0\uC778\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC81C\uCD9C\uD574 \uC8FC\uC138\uC694."),
-    SUPPLY_ROCKET_RECIPE_REQUIRED: def("supply", "precondition", "\uC635\uC158 \uAD6C\uC131\uC774 \uD655\uC815\uB418\uC9C0 \uC54A\uC740 \uB85C\uCF13 \uBC1C\uC8FC \uC904\uC774 \uC788\uC2B5\uB2C8\uB2E4. \uC635\uC158 \uAD6C\uC131\uC744 \uD655\uC815\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    SUPPLY_ROCKET_PREVIEW_CHANGED: def("supply", "conflict", "\uB85C\uCF13 \uBC1C\uC8FC \uBBF8\uB9AC\uBCF4\uAE30\uAC00 \uADF8\uC0AC\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    SUPPLY_ROCKET_WORKFLOW_ACTIVE: def("supply", "in_progress", "\uC9C4\uD589 \uC911\uC778 \uB85C\uCF13 \uBC1C\uC8FC \uD655\uC815 \uC791\uC5C5\uC774 \uC788\uC2B5\uB2C8\uB2E4. \uB05D\uB0B4\uAC70\uB098 \uC911\uB2E8\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    SUPPLY_ROCKET_PROBE_REQUIRED: def("supply", "precondition", "\uCFE0\uD321 \uC8FC\uBB38\uC774 \uC5C6\uB2E4\uB294 \uAC83\uC744 \uD655\uC778\uD574\uC57C \uC911\uB2E8\uD560 \uC218 \uC788\uC2B5\uB2C8\uB2E4. \uD0DD\uBC30\xB7\uBC00\uD06C\uB7F0 \uC8FC\uBB38\uC744 \uC0C8\uB85C \uC218\uC9D1\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    SUPPLY_ROCKET_WORKBOOK_FILE_INVALID: def("supply", "validation", "\uB85C\uCF13 \uBC1C\uC8FC \uC5D1\uC140 \uD30C\uC77C\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD30C\uC77C\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC62C\uB824 \uC8FC\uC138\uC694."),
-    SUPPLY_ROCKET_TEMPLATE_MISMATCH: def("supply", "precondition", "\uB85C\uCF13 \uBC1C\uC8FC \uD655\uC815 \uC591\uC2DD\uC774 \uC218\uC9D1\uD55C \uBC1C\uC8FC\uC640 \uB9DE\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD655\uC7A5 \uD504\uB85C\uADF8\uB7A8\uC744 \uC0C8\uB85C\uACE0\uCE68\uD558\uACE0 \uBC1C\uC8FC\uB97C \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."),
-    SUPPLY_ROCKET_QUANTITY_EXCEEDED: def("supply", "validation", "\uD655\uC815 \uC218\uB7C9\uC774 \uBC1C\uC8FC \uC218\uB7C9\uC774\uB098 \uAC00\uB2A5\uD55C \uC7AC\uACE0\uBCF4\uB2E4 \uB9CE\uC2B5\uB2C8\uB2E4. \uC218\uB7C9\uC744 \uC904\uC5EC \uC8FC\uC138\uC694."),
-    // sourcing
-    SOURCING_NOT_FOUND: def("sourcing", "not_found", "\uC18C\uC2F1 \uD6C4\uBCF4\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4."),
-    SOURCING_SEARCH_EXTRACTION_FAILED: def("sourcing", "external", "\uAC80\uC0C9 \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    SOURCING_PROVIDER_CONTRACT_CHANGED: def("sourcing", "external", "\uC18C\uC2F1 \uC0AC\uC774\uD2B8 \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uAC1C\uBC1C\uC790\uC5D0\uAC8C \uC54C\uB824 \uC8FC\uC138\uC694."),
-    SOURCING_DUPLICATE_RECORD: def("sourcing", "conflict", "\uC774\uBBF8 \uC218\uC9D1\uB41C \uD56D\uBAA9\uC785\uB2C8\uB2E4."),
-    // content (AI)
-    CONTENT_GENERATION_FAILED: def("content", "external", "AI \uC0DD\uC131\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    CONTENT_MODEL_UNAVAILABLE: def("content", "external", "\uC120\uD0DD\uD55C AI \uBAA8\uB378\uC744 \uC9C0\uAE08 \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { retryable: true }),
-    // 서버 환경에 AI 모델이 비어 있다 — 운영자가 고르는 AGENT_OS_MODEL_REQUIRED와 다르다. 서버 설정 문제라 503.
-    CONTENT_MODEL_NOT_CONFIGURED: def("content", "external", "AI \uBAA8\uB378\uC774 \uC124\uC815\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uAD00\uB9AC\uC790\uC5D0\uAC8C \uC54C\uB824 \uC8FC\uC138\uC694.", { httpStatus: 503 }),
-    CONTENT_GENERATION_INPUT_MISSING: def("content", "precondition", "AI \uC0DD\uC131\uC5D0 \uD544\uC694\uD55C \uC774\uBBF8\uC9C0\uB098 \uC0C1\uD488 \uC815\uBCF4\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. \uBA3C\uC800 \uCC44\uC6B4 \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    CONTENT_IMAGE_TOO_LARGE: def("content", "validation", "\uC774\uBBF8\uC9C0 \uD30C\uC77C\uC774 \uB108\uBB34 \uD07D\uB2C8\uB2E4. \uB354 \uC791\uC740 \uC774\uBBF8\uC9C0\uB85C \uB2E4\uC2DC \uC62C\uB824 \uC8FC\uC138\uC694."),
-    CONTENT_NOT_FOUND: def("content", "not_found", "\uCF58\uD150\uCE20\uB97C \uCC3E\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694."),
-    CONTENT_SELECTION_INVALID: def("content", "validation", "\uC120\uD0DD\uD55C \uC774\uBBF8\uC9C0\uB098 \uC0C1\uC138\uD398\uC774\uC9C0\uB97C \uC774 \uC791\uC5C5\uC5D0 \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC120\uD0DD\uD574 \uC8FC\uC138\uC694."),
-    CONTENT_ASSET_IN_USE: def("content", "conflict", "\uC4F0\uACE0 \uC788\uB294 \uC774\uBBF8\uC9C0\uB77C \uC9C0\uC6B8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uB300\uD45C\uC774\uBBF8\uC9C0\uB098 \uC9C4\uD589 \uC911\uC778 \uC0DD\uC131\uC5D0\uC11C \uBA3C\uC800 \uBE7C \uC8FC\uC138\uC694."),
-    CONTENT_REVISION_REQUIRED: def("content", "precondition", "\uC800\uC7A5\uB41C \uC0C1\uC138\uD398\uC774\uC9C0\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4. \uC0C1\uC138\uD398\uC774\uC9C0\uB97C \uBA3C\uC800 \uC800\uC7A5\uD574 \uC8FC\uC138\uC694."),
-    // advertising · analytics · finance
-    // 확장 content/coupang/ads-report.js가 실행 보고 거절의 body.code를 그대로 읽는다 — 철자 고정(접두 없음).
-    EXECUTION_REPORT_MANUAL_ACTION: def("advertising", "conflict", "\uC790\uB3D9 \uC2E4\uD589\uD558\uC9C0 \uC54A\uB294 \uC561\uC158\uC774\uB77C \uC2E4\uD589 \uBCF4\uACE0\uB97C \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uAD11\uACE0\uC13C\uD130\uC5D0\uC11C \uC9C1\uC811 \uCC98\uB9AC\uD574 \uC8FC\uC138\uC694."),
-    EXECUTION_TASK_NOT_LATEST: def("advertising", "conflict", "\uC2E4\uD589 \uBCF4\uACE0\uB97C \uBC18\uC601\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uBCF4\uACE0\uD55C \uC2E4\uD589 \uC2DC\uB3C4\uAC00 \uC774 \uC561\uC158\uC758 \uCD5C\uC2E0 \uC2DC\uB3C4\uAC00 \uC544\uB2D9\uB2C8\uB2E4."),
-    EXECUTION_TASK_EXPIRED: def("advertising", "conflict", "\uC2E4\uD589 \uBCF4\uACE0\uB97C \uBC18\uC601\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uC2E4\uD589 \uAE30\uD55C\uC774 \uC9C0\uB098 \uC774 \uC2E4\uD589 \uC2DC\uB3C4\uB97C \uC2E4\uD328\uB85C \uB2EB\uC558\uC2B5\uB2C8\uB2E4."),
-    EXECUTION_REPORT_INVALID_TRANSITION: def("advertising", "conflict", "\uC2E4\uD589 \uBCF4\uACE0\uB97C \uBC18\uC601\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4. \uCD5C\uADFC \uC2E4\uD589 \uC791\uC5C5 \uC0C1\uD0DC\uC640 \uB9DE\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4."),
-    ADVERTISING_RESULT_UNREADABLE: def("advertising", "external", "\uAD11\uACE0\uC13C\uD130 \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    ANALYTICS_QUERY_FAILED: def("analytics", "internal", "\uD1B5\uACC4\uB97C \uACC4\uC0B0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { retryable: true }),
-    FINANCE_QUERY_FAILED: def("finance", "internal", "\uC7AC\uBB34 \uB370\uC774\uD130\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { retryable: true })
-  };
-  var ERROR_CODES = Object.keys(ERROR_DEFINITIONS);
-  function errorDefinition(code) {
-    return ERROR_DEFINITIONS[code];
-  }
-
-  // packages/shared/src/errors/kiditem-error.ts
-  var KiditemError = class extends Error {
-    code;
-    kind;
-    httpStatus;
-    retryable;
-    details;
-    cause;
-    constructor(code, options = {}) {
-      const definition = errorDefinition(code);
-      super(options.message ?? definition.text);
-      this.name = "KiditemError";
-      this.code = code;
-      this.kind = definition.kind;
-      this.httpStatus = definition.httpStatus;
-      this.retryable = definition.retryable;
-      this.details = options.details;
-      this.cause = options.cause;
-    }
-    get definition() {
-      return ERROR_DEFINITIONS[this.code];
-    }
-  };
-  function kindClass(name, kinds) {
-    return class extends KiditemError {
-      constructor(code, options = {}) {
-        super(code, options);
-        this.name = name;
-        if (!kinds.includes(this.kind)) {
-          throw new TypeError(`${name} cannot carry ${code} (kind ${this.kind}); expected ${kinds.join("|")}`);
-        }
-      }
-    };
-  }
-  var KiditemNotFoundError = class extends kindClass("KiditemNotFoundError", ["not_found"]) {
-  };
-  var KiditemInvalidValueError = class extends kindClass("KiditemInvalidValueError", ["validation"]) {
-  };
-  var KiditemConflictError = class extends kindClass("KiditemConflictError", ["conflict", "in_progress", "expired", "cancelled"]) {
-  };
-  var KiditemPreconditionError = class extends kindClass("KiditemPreconditionError", ["precondition"]) {
-  };
-  var KiditemExternalError = class extends kindClass("KiditemExternalError", ["external", "internal"]) {
-  };
-
   // node_modules/zod/v3/external.js
   var external_exports = {};
   __export(external_exports, {
@@ -1113,9 +888,9 @@ var KidItemRuntime = (() => {
     superRefine(refinement) {
       return this._refinement(refinement);
     }
-    constructor(def2) {
+    constructor(def) {
       this.spa = this.safeParseAsync;
-      this._def = def2;
+      this._def = def;
       this.parse = this.parse.bind(this);
       this.safeParse = this.safeParse.bind(this);
       this.parseAsync = this.parseAsync.bind(this);
@@ -1175,8 +950,8 @@ var KidItemRuntime = (() => {
         effect: { type: "transform", transform }
       });
     }
-    default(def2) {
-      const defaultValueFunc = typeof def2 === "function" ? def2 : () => def2;
+    default(def) {
+      const defaultValueFunc = typeof def === "function" ? def : () => def;
       return new ZodDefault({
         ...processCreateParams(this._def),
         innerType: this,
@@ -1191,8 +966,8 @@ var KidItemRuntime = (() => {
         ...processCreateParams(this._def)
       });
     }
-    catch(def2) {
-      const catchValueFunc = typeof def2 === "function" ? def2 : () => def2;
+    catch(def) {
+      const catchValueFunc = typeof def === "function" ? def : () => def;
       return new ZodCatch({
         ...processCreateParams(this._def),
         innerType: this,
@@ -2526,7 +2301,7 @@ var KidItemRuntime = (() => {
   var ZodArray = class _ZodArray extends ZodType {
     _parse(input) {
       const { ctx, status } = this._processInputParams(input);
-      const def2 = this._def;
+      const def = this._def;
       if (ctx.parsedType !== ZodParsedType.array) {
         addIssueToContext(ctx, {
           code: ZodIssueCode.invalid_type,
@@ -2535,57 +2310,57 @@ var KidItemRuntime = (() => {
         });
         return INVALID;
       }
-      if (def2.exactLength !== null) {
-        const tooBig = ctx.data.length > def2.exactLength.value;
-        const tooSmall = ctx.data.length < def2.exactLength.value;
+      if (def.exactLength !== null) {
+        const tooBig = ctx.data.length > def.exactLength.value;
+        const tooSmall = ctx.data.length < def.exactLength.value;
         if (tooBig || tooSmall) {
           addIssueToContext(ctx, {
             code: tooBig ? ZodIssueCode.too_big : ZodIssueCode.too_small,
-            minimum: tooSmall ? def2.exactLength.value : void 0,
-            maximum: tooBig ? def2.exactLength.value : void 0,
+            minimum: tooSmall ? def.exactLength.value : void 0,
+            maximum: tooBig ? def.exactLength.value : void 0,
             type: "array",
             inclusive: true,
             exact: true,
-            message: def2.exactLength.message
+            message: def.exactLength.message
           });
           status.dirty();
         }
       }
-      if (def2.minLength !== null) {
-        if (ctx.data.length < def2.minLength.value) {
+      if (def.minLength !== null) {
+        if (ctx.data.length < def.minLength.value) {
           addIssueToContext(ctx, {
             code: ZodIssueCode.too_small,
-            minimum: def2.minLength.value,
+            minimum: def.minLength.value,
             type: "array",
             inclusive: true,
             exact: false,
-            message: def2.minLength.message
+            message: def.minLength.message
           });
           status.dirty();
         }
       }
-      if (def2.maxLength !== null) {
-        if (ctx.data.length > def2.maxLength.value) {
+      if (def.maxLength !== null) {
+        if (ctx.data.length > def.maxLength.value) {
           addIssueToContext(ctx, {
             code: ZodIssueCode.too_big,
-            maximum: def2.maxLength.value,
+            maximum: def.maxLength.value,
             type: "array",
             inclusive: true,
             exact: false,
-            message: def2.maxLength.message
+            message: def.maxLength.message
           });
           status.dirty();
         }
       }
       if (ctx.common.async) {
         return Promise.all([...ctx.data].map((item, i) => {
-          return def2.type._parseAsync(new ParseInputLazyPath(ctx, item, ctx.path, i));
+          return def.type._parseAsync(new ParseInputLazyPath(ctx, item, ctx.path, i));
         })).then((result2) => {
           return ParseStatus.mergeArray(status, result2);
         });
       }
       const result = [...ctx.data].map((item, i) => {
-        return def2.type._parseSync(new ParseInputLazyPath(ctx, item, ctx.path, i));
+        return def.type._parseSync(new ParseInputLazyPath(ctx, item, ctx.path, i));
       });
       return ParseStatus.mergeArray(status, result);
     }
@@ -3474,29 +3249,29 @@ var KidItemRuntime = (() => {
         });
         return INVALID;
       }
-      const def2 = this._def;
-      if (def2.minSize !== null) {
-        if (ctx.data.size < def2.minSize.value) {
+      const def = this._def;
+      if (def.minSize !== null) {
+        if (ctx.data.size < def.minSize.value) {
           addIssueToContext(ctx, {
             code: ZodIssueCode.too_small,
-            minimum: def2.minSize.value,
+            minimum: def.minSize.value,
             type: "set",
             inclusive: true,
             exact: false,
-            message: def2.minSize.message
+            message: def.minSize.message
           });
           status.dirty();
         }
       }
-      if (def2.maxSize !== null) {
-        if (ctx.data.size > def2.maxSize.value) {
+      if (def.maxSize !== null) {
+        if (ctx.data.size > def.maxSize.value) {
           addIssueToContext(ctx, {
             code: ZodIssueCode.too_big,
-            maximum: def2.maxSize.value,
+            maximum: def.maxSize.value,
             type: "set",
             inclusive: true,
             exact: false,
-            message: def2.maxSize.message
+            message: def.maxSize.message
           });
           status.dirty();
         }
@@ -4323,24 +4098,15 @@ var KidItemRuntime = (() => {
   };
   var NEVER = INVALID;
 
-  // packages/shared/src/errors/envelope.ts
-  var FieldErrorSchema = external_exports.object({
-    field: external_exports.string(),
-    value: external_exports.unknown().optional(),
-    reason: external_exports.string()
-  }).strict();
-  var ErrorResponseSchema = external_exports.object({
-    statusCode: external_exports.number().int().min(400).max(599),
-    code: external_exports.enum(ERROR_CODES),
-    kind: external_exports.enum(ERROR_KINDS),
-    message: external_exports.string().min(1),
-    errors: external_exports.array(FieldErrorSchema),
-    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional(),
-    // 확장이 409 ATTEMPT_IN_PROGRESS의 최상위 attemptId를 읽는다. KID-338이 확장을 `details.attemptId`로 옮기면 제거.
-    attemptId: external_exports.string().uuid().optional()
-  }).strict();
-
   // extensions/src/core/errors.ts
+  var ErrorEnvelopeSchema = external_exports.object({
+    statusCode: external_exports.number().int().min(400).max(599),
+    code: external_exports.string().min(1),
+    kind: external_exports.string(),
+    message: external_exports.string(),
+    errors: external_exports.array(external_exports.unknown()).optional(),
+    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
+  }).passthrough();
   var RuntimeError = class extends Error {
     constructor(code, message, details = null, cause) {
       super(message);
@@ -4354,7 +4120,7 @@ var KidItemRuntime = (() => {
     cause;
   };
   function parseErrorEnvelope(body) {
-    const parsed = ErrorResponseSchema.safeParse(body);
+    const parsed = ErrorEnvelopeSchema.safeParse(body);
     return parsed.success ? parsed.data : null;
   }
   function isRuntimeError(value) {
@@ -4671,7 +4437,7 @@ var KidItemRuntime = (() => {
         } catch (caught) {
           const error = toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
           const stop = stopFor(error.code, error.details);
-          if (stop.kind === "already_running") return { kind: "already_running", existing: stop.existing };
+          if (stop.kind === "already_running") return { kind: "already_running", existing: stop.existing, message: error.message };
           return { kind: "failed", operationId: null, errorCode: error.code, errorMessage: error.message, ...error.details ? { details: error.details } : {} };
         }
         if (begun.reused) {
@@ -4829,6 +4595,11 @@ var KidItemRuntime = (() => {
   }).strict();
 
   // extensions/src/entry/operation-actions.ts
+  var LOCAL_TEXT = {
+    VALIDATION_FAILED: "\uC785\uB825\uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uD45C\uC2DC\uB41C \uD56D\uBAA9\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.",
+    OPERATION_IN_PROGRESS: "\uAC19\uC740 \uC2E4\uD589\uC774 \uC774\uBBF8 \uC9C4\uD589 \uC911\uC785\uB2C8\uB2E4. \uB05D\uB098\uAC70\uB098 \uC911\uB2E8\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.",
+    OPERATION_FENCE_LOST: "\uC774 \uC2E4\uD589\uC740 \uB354 \uC774\uC0C1 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC2DC\uC791\uD574 \uC8FC\uC138\uC694."
+  };
   function createOperationActions(deps) {
     const environments = /* @__PURE__ */ new Map();
     const running = /* @__PURE__ */ new Map();
@@ -4903,13 +4674,13 @@ var KidItemRuntime = (() => {
         return {
           success: false,
           errorCode: "OPERATION_IN_PROGRESS",
-          error: ERROR_DEFINITIONS.OPERATION_IN_PROGRESS.text,
+          error: outcome.message ?? LOCAL_TEXT.OPERATION_IN_PROGRESS,
           details: { existing: outcome.existing }
         };
       case "failed":
         return { success: false, errorCode: outcome.errorCode, error: outcome.errorMessage, ...outcome.details ? { details: outcome.details } : {} };
       case "fence_lost":
-        return { success: false, errorCode: "OPERATION_FENCE_LOST", error: ERROR_DEFINITIONS.OPERATION_FENCE_LOST.text };
+        return { success: false, errorCode: "OPERATION_FENCE_LOST", error: LOCAL_TEXT.OPERATION_FENCE_LOST };
       case "finished":
         return { success: true, operationId: outcome.operation.id, reused: false };
     }
@@ -4926,7 +4697,7 @@ var KidItemRuntime = (() => {
       response: {
         success: false,
         errorCode: "VALIDATION_FAILED",
-        error: ERROR_DEFINITIONS.VALIDATION_FAILED.text,
+        error: LOCAL_TEXT.VALIDATION_FAILED,
         details: { errors: parsed.error.issues.map((issue) => ({ field: issue.path.join("."), reason: issue.message })) }
       }
     };

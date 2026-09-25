@@ -33,7 +33,7 @@ export interface RunInput {
 export type RunOutcome =
   | { kind: 'finished'; operation: OperationView }
   /** `reused`: 409가 아니라 begin이 같은 idempotencyKey의 살아 있는 실행을 돌려줬다. */
-  | { kind: 'already_running'; existing: OperationInProgressDetails | null; reused?: true }
+  | { kind: 'already_running'; existing: OperationInProgressDetails | null; reused?: true; message?: string }
   | { kind: 'fence_lost'; operationId: string; reason: string | null }
   /** `details`: 거절·오류의 구조 데이터(예 begin의 `{reason: 'unknown_operation_kind'}`, 상한의 `{reason: 'too_many_chunks'}`). */
   | { kind: 'failed'; operationId: string | null; errorCode: string; errorMessage: string; details?: Record<string, unknown> };
@@ -96,7 +96,7 @@ export function createRunner(deps: RunnerDeps, collectorFor: (kind: OperationKin
       } catch (caught) {
         const error = toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
         const stop = stopFor(error.code, error.details);
-        if (stop.kind === 'already_running') return { kind: 'already_running', existing: stop.existing };
+        if (stop.kind === 'already_running') return { kind: 'already_running', existing: stop.existing, message: error.message };
         return { kind: 'failed', operationId: null, errorCode: error.code, errorMessage: error.message, ...(error.details ? { details: error.details } : {}) };
       }
       if (begun.reused) {

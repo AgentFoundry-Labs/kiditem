@@ -1,5 +1,4 @@
 import type { z } from 'zod';
-import { ERROR_DEFINITIONS } from '@kiditem/shared/errors';
 import { collectorFor } from '../collectors';
 import type { ApiPort } from '../core/api';
 import type { BrowserResources } from '../core/browser';
@@ -15,6 +14,16 @@ import {
   type OperationStartMessage,
   type OperationStartResponse,
 } from './actions';
+
+/**
+ * 서버 message가 없을 때 확장이 스스로 내는 문장. 서버가 거절했으면 서버 message를 그대로 쓴다
+ * (shared 오류 레지스트리 전체를 번들에 싣지 않는다).
+ */
+const LOCAL_TEXT = {
+  VALIDATION_FAILED: '입력값이 올바르지 않습니다. 표시된 항목을 확인해 주세요.',
+  OPERATION_IN_PROGRESS: '같은 실행이 이미 진행 중입니다. 끝나거나 중단한 뒤 다시 시작해 주세요.',
+  OPERATION_FENCE_LOST: '이 실행은 더 이상 유효하지 않습니다. 다시 시작해 주세요.',
+} as const;
 
 type FailureResponse = Extract<OperationStartResponse, { success: false }>;
 type Validated<T> = { ok: true; message: T } | { ok: false; response: FailureResponse };
@@ -117,13 +126,13 @@ function earlyResponse(outcome: RunOutcome): OperationStartResponse {
       return {
         success: false,
         errorCode: 'OPERATION_IN_PROGRESS',
-        error: ERROR_DEFINITIONS.OPERATION_IN_PROGRESS.text,
+        error: outcome.message ?? LOCAL_TEXT.OPERATION_IN_PROGRESS,
         details: { existing: outcome.existing },
       };
     case 'failed':
       return { success: false, errorCode: outcome.errorCode, error: outcome.errorMessage, ...(outcome.details ? { details: outcome.details } : {}) };
     case 'fence_lost':
-      return { success: false, errorCode: 'OPERATION_FENCE_LOST', error: ERROR_DEFINITIONS.OPERATION_FENCE_LOST.text };
+      return { success: false, errorCode: 'OPERATION_FENCE_LOST', error: LOCAL_TEXT.OPERATION_FENCE_LOST };
     case 'finished':
       return { success: true, operationId: outcome.operation.id, reused: false };
   }
@@ -142,7 +151,7 @@ function validateWith<S extends z.ZodTypeAny>(schema: S, message: unknown): Vali
     response: {
       success: false,
       errorCode: 'VALIDATION_FAILED',
-      error: ERROR_DEFINITIONS.VALIDATION_FAILED.text,
+      error: LOCAL_TEXT.VALIDATION_FAILED,
       details: { errors: parsed.error.issues.map((issue) => ({ field: issue.path.join('.'), reason: issue.message })) },
     },
   };

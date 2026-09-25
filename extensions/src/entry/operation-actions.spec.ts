@@ -147,7 +147,7 @@ describe('operation.start · operation.cancel 입구', () => {
     expect(response).toEqual({
       success: false,
       errorCode: 'OPERATION_IN_PROGRESS',
-      error: expect.any(String),
+      error: '같은 실행이 이미 진행 중입니다.',
       details: { existing: RUNNING },
     });
   });

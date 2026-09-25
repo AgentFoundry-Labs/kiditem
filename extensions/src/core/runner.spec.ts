@@ -155,7 +155,7 @@ describe('createRunner — 실행 하나의 순서', () => {
 
     const outcome = await runWith(h, collector([echoChunk(1)]));
 
-    expect(outcome).toEqual({ kind: 'already_running', existing });
+    expect(outcome).toEqual({ kind: 'already_running', existing, message: '진행 중' });
     expect(h.steps).toEqual(['begin:test.echo']);
   });
 
