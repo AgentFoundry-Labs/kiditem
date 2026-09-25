@@ -102,6 +102,58 @@ describe('collectors/channels.wing_catalog_details', () => {
     });
   });
 
+  const requestFailed = (details: Record<string, unknown>) =>
+    new RuntimeError('SITE_REQUEST_FAILED', '사이트 응답이 JSON이 아닙니다.', { url: 'https://wing.example/x', ...details });
+
+  it('다시 물어도 받지 못한 상세 한 건은 실행을 죽이지 않고 건너뛰어 사유·본문 앞부분을 남긴다 — 다음 목록이 다시 잡는다', async () => {
+    const failures: Record<string, Record<string, unknown>> = {
+      T1: { status: 200, reason: 'not_json', bodyHead: '<html>busy</html>' },
+      T2: { status: 503, reason: 'http', bodyHead: 'unavailable' },
+      T3: { status: null, reason: 'network', bodyHead: null },
+      T4: { status: null, reason: 'timeout', bodyHead: null },
+    };
+    const site: WingCatalogDetailsSite = {
+      async productDetail(id) {
+        if (failures[id]) throw requestFailed(failures[id]!);
+        return detail(id);
+      },
+      async probeDeleted(ids) {
+        return ids.map((externalProductId) => ({ externalProductId, outcome: 'not_found' as const, productStatus: null }));
+      },
+    };
+    const chunks = await collect(site, ['T0', 'T1', 'T2', 'T3', 'T4', 'T5'], ['A0']);
+    expect(chunks.flatMap((chunk) => chunk.payload.map((item) => (item as { externalProductId: string }).externalProductId))).toEqual(['T0', 'T5', 'A0']);
+    expect(chunks.at(-1)?.progress).toMatchObject({
+      detailsDone: 2,
+      absentChecked: 1,
+      detailsMissing: [
+        { externalProductId: 'T1', reason: 'not_json', bodyHead: '<html>busy</html>' },
+        { externalProductId: 'T2', reason: 'http_503', bodyHead: 'unavailable' },
+        { externalProductId: 'T3', reason: 'network', bodyHead: null },
+        { externalProductId: 'T4', reason: 'network', bodyHead: null },
+      ],
+    });
+  });
+
+  it('상세가 연속 10건 실패하면 CATALOG_DETAILS_UNREACHABLE로 멈춘다(마지막 본문 앞부분을 싣는다) — 사이에 성공이 있으면 셈을 새로 한다', async () => {
+    const failing = new Set(Array.from({ length: 10 }, (_, index) => `G${index}`));
+    const site: WingCatalogDetailsSite = {
+      async productDetail(id) {
+        if (failing.has(id)) throw requestFailed({ status: 200, reason: 'not_json', bodyHead: `<html>${id}</html>` });
+        return detail(id);
+      },
+      async probeDeleted() {
+        return [];
+      },
+    };
+    const nine = Array.from({ length: 9 }, (_, index) => `G${index}`);
+    await expect(collect(site, [...nine, 'OK', 'G9'])).resolves.toHaveLength(1);
+
+    const error = await collect(site, ['OK', ...nine, 'G9', 'T1']).then(() => null, (caught: unknown) => caught);
+    expect(error).toBeInstanceOf(RuntimeError);
+    expect(error).toMatchObject({ code: 'CATALOG_DETAILS_UNREACHABLE', details: { consecutiveFailures: 10, lastBodyHead: '<html>G9</html>' } });
+  });
+
   it('로그인이 풀리면 그 오류로 멈춘다(runner가 failed로 닫는다)', async () => {
     const error = await collect(fakeWing({ failOn: 'T1' }).site, ['T0', 'T1', 'T2']).then(() => null, (caught: unknown) => caught);
     expect(error).toMatchObject({ code: 'SITE_LOGIN_REQUIRED' });

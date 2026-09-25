@@ -4476,6 +4476,88 @@ var KidItemRuntime = (() => {
     return value instanceof RuntimeError;
   }
 
+  // extensions/src/core/site-caller.ts
+  function delayUntilNext(input) {
+    if (input.lastSentAt === null) return 0;
+    return Math.max(0, input.lastSentAt + input.minIntervalMs - input.now);
+  }
+  var SITE_REQUEST_FAILED = "SITE_REQUEST_FAILED";
+  var SITE_LOGIN_REQUIRED = "SITE_LOGIN_REQUIRED";
+  var BODY_HEAD_LENGTH = 120;
+  function bodyHeadOf(body) {
+    const head = body.replace(/\s+/g, " ").trim().slice(0, BODY_HEAD_LENGTH);
+    return head || null;
+  }
+  function createSiteCaller(options, deps) {
+    let lastSentAt = null;
+    let queue = Promise.resolve();
+    const loginMessage = options.displayName ? `${options.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.` : "\uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.";
+    async function send(url, { requireXsrf = false, ...init } = {}) {
+      const headers = new Headers(init.headers);
+      if (options.xsrf) {
+        const cookie = await deps.cookies.get({ url: options.xsrf.cookieUrl, name: options.xsrf.cookieName });
+        const token = decodeCookie(cookie?.value);
+        if (token) headers.set(options.xsrf.headerName, token);
+        else if (requireXsrf) throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { url, reason: "xsrf_cookie_missing" });
+      }
+      const wait = delayUntilNext({ lastSentAt, now: deps.now(), minIntervalMs: options.minIntervalMs });
+      if (wait > 0) await deps.sleep(wait);
+      lastSentAt = deps.now();
+      let response;
+      const timeout = options.timeoutMs === void 0 ? null : AbortSignal.timeout(options.timeoutMs);
+      const signal = timeout && init.signal ? AbortSignal.any([timeout, init.signal]) : timeout ?? init.signal;
+      try {
+        response = await deps.fetch(url, { credentials: "include", redirect: "manual", ...init, headers, ...signal ? { signal } : {} });
+      } catch (error) {
+        const timedOut = timeout?.aborted === true;
+        const failure2 = { status: null, url, reason: timedOut ? "timeout" : "network", bodyHead: null };
+        throw new RuntimeError(SITE_REQUEST_FAILED, timedOut ? "\uC0AC\uC774\uD2B8\uAC00 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : "\uC0AC\uC774\uD2B8\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", failure2, error);
+      }
+      if (response.status === 401 || response.status === 403 || response.type === "opaqueredirect") {
+        throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { status: response.status, url });
+      }
+      if (!response.ok) {
+        const failure2 = { status: response.status, url, reason: "http", bodyHead: bodyHeadOf(await safeText(response)) };
+        throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uC774\uD2B8 \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(${response.status}).`, failure2);
+      }
+      return response;
+    }
+    function enqueue(task) {
+      const next = queue.then(task);
+      queue = next.catch(() => void 0);
+      return next;
+    }
+    return {
+      json: (url, init) => enqueue(async () => {
+        const response = await send(url, init);
+        const body = await safeText(response);
+        try {
+          return JSON.parse(body);
+        } catch (error) {
+          const failure2 = { status: response.status, url, reason: "not_json", bodyHead: bodyHeadOf(body) };
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", failure2, error);
+        }
+      }),
+      text: (url, init) => enqueue(async () => (await send(url, init)).text()),
+      bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send(url, init)).arrayBuffer()))
+    };
+  }
+  async function safeText(response) {
+    try {
+      return await response.text();
+    } catch {
+      return "";
+    }
+  }
+  function decodeCookie(value) {
+    if (!value) return null;
+    try {
+      return decodeURIComponent(value) || null;
+    } catch {
+      return null;
+    }
+  }
+
   // packages/shared/src/schemas/common.ts
   var zIsoDate = external_exports.union([external_exports.string(), external_exports.date()]);
   var ApiErrorResponseSchema = external_exports.object({
@@ -4670,6 +4752,8 @@ var KidItemRuntime = (() => {
   // extensions/src/collectors/channels.wing_catalog_details/index.ts
   var DETAILS_PER_CHUNK = 20;
   var TOO_LARGE_CODES = /* @__PURE__ */ new Set(["WING_CATALOG_PAYLOAD_TOO_LARGE", "RUNTIME_CHUNK_TOO_LARGE"]);
+  var CATALOG_DETAILS_UNREACHABLE = "CATALOG_DETAILS_UNREACHABLE";
+  var MAX_CONSECUTIVE_DETAIL_FAILURES = 10;
   var PROBE_BATCH = 100;
   var wingCatalogDetailsCollector = {
     kind: WING_CATALOG_DETAILS_KIND,
@@ -4678,6 +4762,7 @@ var KidItemRuntime = (() => {
       const targets = plan.detailTargetProductIds;
       const absent = plan.absentProductIds;
       const missing = [];
+      let consecutiveFailures = 0;
       let detailsDone = 0;
       let absentChecked = 0;
       const progress = () => ({
@@ -4695,6 +4780,7 @@ var KidItemRuntime = (() => {
         let full;
         try {
           product = await site.productDetail(externalProductId);
+          consecutiveFailures = 0;
           if (!product) {
             missing.push({ externalProductId, reason: "not_found" });
             continue;
@@ -4703,6 +4789,20 @@ var KidItemRuntime = (() => {
         } catch (error) {
           if (isRuntimeError(error) && TOO_LARGE_CODES.has(error.code)) {
             missing.push({ externalProductId, reason: "too_large" });
+            continue;
+          }
+          if (isRuntimeError(error) && error.code === SITE_REQUEST_FAILED) {
+            const bodyHead = typeof error.details?.bodyHead === "string" ? error.details.bodyHead : null;
+            missing.push({ externalProductId, reason: requestFailureReason(error.details), bodyHead });
+            consecutiveFailures += 1;
+            if (consecutiveFailures >= MAX_CONSECUTIVE_DETAIL_FAILURES) {
+              throw new RuntimeError(
+                CATALOG_DETAILS_UNREACHABLE,
+                `\uCFE0\uD321 \uC719 \uC0C1\uD488 \uC0C1\uC138\uB97C \uC5F0\uC18D ${consecutiveFailures}\uAC74 \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4${bodyHead ? `: ${bodyHead}` : "."}`,
+                { consecutiveFailures, lastExternalProductId: externalProductId, lastBodyHead: bodyHead, lastStatus: error.details?.status ?? null },
+                error
+              );
+            }
             continue;
           }
           throw error;
@@ -4720,6 +4820,10 @@ var KidItemRuntime = (() => {
       }
     }
   };
+  function requestFailureReason(details) {
+    if (details?.reason === "not_json") return "not_json";
+    return typeof details?.status === "number" ? `http_${details.status}` : "network";
+  }
   registerCollector(wingCatalogDetailsCollector);
 
   // extensions/src/collectors/channels.wing_catalog_excel/index.ts
@@ -4883,88 +4987,6 @@ var KidItemRuntime = (() => {
       throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uC0AC\uC774\uD2B8 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { origin: base });
     }
     return { tabId: created.id, opened: true };
-  }
-
-  // extensions/src/core/site-caller.ts
-  function delayUntilNext(input) {
-    if (input.lastSentAt === null) return 0;
-    return Math.max(0, input.lastSentAt + input.minIntervalMs - input.now);
-  }
-  var SITE_REQUEST_FAILED = "SITE_REQUEST_FAILED";
-  var SITE_LOGIN_REQUIRED = "SITE_LOGIN_REQUIRED";
-  var BODY_HEAD_LENGTH = 120;
-  function bodyHeadOf(body) {
-    const head = body.replace(/\s+/g, " ").trim().slice(0, BODY_HEAD_LENGTH);
-    return head || null;
-  }
-  function createSiteCaller(options, deps) {
-    let lastSentAt = null;
-    let queue = Promise.resolve();
-    const loginMessage = options.displayName ? `${options.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.` : "\uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.";
-    async function send(url, { requireXsrf = false, ...init } = {}) {
-      const headers = new Headers(init.headers);
-      if (options.xsrf) {
-        const cookie = await deps.cookies.get({ url: options.xsrf.cookieUrl, name: options.xsrf.cookieName });
-        const token = decodeCookie(cookie?.value);
-        if (token) headers.set(options.xsrf.headerName, token);
-        else if (requireXsrf) throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { url, reason: "xsrf_cookie_missing" });
-      }
-      const wait = delayUntilNext({ lastSentAt, now: deps.now(), minIntervalMs: options.minIntervalMs });
-      if (wait > 0) await deps.sleep(wait);
-      lastSentAt = deps.now();
-      let response;
-      const timeout = options.timeoutMs === void 0 ? null : AbortSignal.timeout(options.timeoutMs);
-      const signal = timeout && init.signal ? AbortSignal.any([timeout, init.signal]) : timeout ?? init.signal;
-      try {
-        response = await deps.fetch(url, { credentials: "include", redirect: "manual", ...init, headers, ...signal ? { signal } : {} });
-      } catch (error) {
-        const timedOut = timeout?.aborted === true;
-        const failure2 = { status: null, url, reason: timedOut ? "timeout" : "network", bodyHead: null };
-        throw new RuntimeError(SITE_REQUEST_FAILED, timedOut ? "\uC0AC\uC774\uD2B8\uAC00 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : "\uC0AC\uC774\uD2B8\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", failure2, error);
-      }
-      if (response.status === 401 || response.status === 403 || response.type === "opaqueredirect") {
-        throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { status: response.status, url });
-      }
-      if (!response.ok) {
-        const failure2 = { status: response.status, url, reason: "http", bodyHead: bodyHeadOf(await safeText(response)) };
-        throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uC774\uD2B8 \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(${response.status}).`, failure2);
-      }
-      return response;
-    }
-    function enqueue(task) {
-      const next = queue.then(task);
-      queue = next.catch(() => void 0);
-      return next;
-    }
-    return {
-      json: (url, init) => enqueue(async () => {
-        const response = await send(url, init);
-        const body = await safeText(response);
-        try {
-          return JSON.parse(body);
-        } catch (error) {
-          const failure2 = { status: response.status, url, reason: "not_json", bodyHead: bodyHeadOf(body) };
-          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", failure2, error);
-        }
-      }),
-      text: (url, init) => enqueue(async () => (await send(url, init)).text()),
-      bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send(url, init)).arrayBuffer()))
-    };
-  }
-  async function safeText(response) {
-    try {
-      return await response.text();
-    } catch {
-      return "";
-    }
-  }
-  function decodeCookie(value) {
-    if (!value) return null;
-    try {
-      return decodeURIComponent(value) || null;
-    } catch {
-      return null;
-    }
   }
 
   // extensions/src/sites/wing/parse.ts

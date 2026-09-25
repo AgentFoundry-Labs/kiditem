@@ -3,7 +3,8 @@ import type {
   WingCatalogDeletionConfirmationItem,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { WING_CATALOG_CHUNK_KINDS, WING_CATALOG_DETAILS_KIND } from '@kiditem/shared/coupang-catalog-snapshot';
-import { isRuntimeError } from '../../core/errors';
+import { RuntimeError, isRuntimeError } from '../../core/errors';
+import { SITE_REQUEST_FAILED } from '../../core/site-caller';
 import { ChunkBuffer } from '../chunk-items';
 import type { CollectedChunk, Collector } from '../collector';
 import { registerCollector } from '../index';
@@ -26,7 +27,17 @@ const DETAILS_PER_CHUNK = 20;
 /** 상세 하나가 상품 상한(512KiB)이나 청크 상한(1MiB)을 넘었다 — 그 상품만 건너뛴다. */
 const TOO_LARGE_CODES = new Set(['WING_CATALOG_PAYLOAD_TOO_LARGE', 'RUNTIME_CHUNK_TOO_LARGE']);
 
-export type MissingDetail = { externalProductId: string; reason: 'not_found' | 'too_large' };
+/**
+ * 받지 못한 상세 하나. `not_found`(404)·`too_large`(상한 초과), 또는 다시 물어도 2xx JSON이 아니었던 것 —
+ * `not_json`·`http_<status>`·`network`(연결 끊김·시간 초과). 요청 실패에는 응답 본문 앞 120자(`bodyHead`)를 붙인다.
+ */
+export type MissingDetail =
+  | { externalProductId: string; reason: 'not_found' | 'too_large' }
+  | { externalProductId: string; reason: 'not_json' | `http_${number}` | 'network'; bodyHead: string | null };
+
+export const CATALOG_DETAILS_UNREACHABLE = 'CATALOG_DETAILS_UNREACHABLE' as const;
+/** 상세 요청이 연달아 이만큼 실패하면 한 건의 일시 오류가 아니라 Wing에 닿지 못하는 것으로 보고 멈춘다. */
+const MAX_CONSECUTIVE_DETAIL_FAILURES = 10;
 const PROBE_BATCH = 100;
 
 /**
@@ -42,6 +53,7 @@ export const wingCatalogDetailsCollector: Collector<WingCatalogDetailsPlan, Reco
     const targets = plan.detailTargetProductIds;
     const absent = plan.absentProductIds;
     const missing: MissingDetail[] = [];
+    let consecutiveFailures = 0;
     let detailsDone = 0;
     let absentChecked = 0;
     const progress = () => ({
@@ -59,6 +71,7 @@ export const wingCatalogDetailsCollector: Collector<WingCatalogDetailsPlan, Reco
       let full: CoupangCatalogDetailProductV1[] | null;
       try {
         product = await site.productDetail(externalProductId);
+        consecutiveFailures = 0;
         if (!product) {
           missing.push({ externalProductId, reason: 'not_found' });
           continue;
@@ -69,6 +82,22 @@ export const wingCatalogDetailsCollector: Collector<WingCatalogDetailsPlan, Reco
         // 다시 잡는다(progress에 사유를 남긴다).
         if (isRuntimeError(error) && TOO_LARGE_CODES.has(error.code)) {
           missing.push({ externalProductId, reason: 'too_large' });
+          continue;
+        }
+        // 사이트가 다시 물어도 JSON을 주지 않은 상세 한 건(봇·레이트 페이지 등)도 건너뛴다 — 다음 목록이 다시 잡는다.
+        // 연달아 실패하면 일시 오류가 아니므로 멈춘다. 로그인 만료는 그대로 멈춘다.
+        if (isRuntimeError(error) && error.code === SITE_REQUEST_FAILED) {
+          const bodyHead = typeof error.details?.bodyHead === 'string' ? error.details.bodyHead : null;
+          missing.push({ externalProductId, reason: requestFailureReason(error.details), bodyHead });
+          consecutiveFailures += 1;
+          if (consecutiveFailures >= MAX_CONSECUTIVE_DETAIL_FAILURES) {
+            throw new RuntimeError(
+              CATALOG_DETAILS_UNREACHABLE,
+              `쿠팡 윙 상품 상세를 연속 ${consecutiveFailures}건 받지 못했습니다${bodyHead ? `: ${bodyHead}` : '.'}`,
+              { consecutiveFailures, lastExternalProductId: externalProductId, lastBodyHead: bodyHead, lastStatus: error.details?.status ?? null },
+              error,
+            );
+          }
           continue;
         }
         throw error;
@@ -86,5 +115,10 @@ export const wingCatalogDetailsCollector: Collector<WingCatalogDetailsPlan, Reco
     }
   },
 };
+
+function requestFailureReason(details: Record<string, unknown> | null): 'not_json' | `http_${number}` | 'network' {
+  if (details?.reason === 'not_json') return 'not_json';
+  return typeof details?.status === 'number' ? `http_${details.status}` : 'network';
+}
 
 registerCollector(wingCatalogDetailsCollector);
