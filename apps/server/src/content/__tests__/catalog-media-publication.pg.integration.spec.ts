@@ -997,6 +997,62 @@ describe('catalog media publication (real PG and public asset/catalog reads)', (
       expect(await currentThumbnail()).toBe(url('pick-chosen'));
     });
 
+    it('fails instead of pointing the representative at a photo deleted after the publication read it', async () => {
+      await publish(listingId, [media('race-first', 'primary'), media('race-next', 'primary', 1)]);
+      const first = await assetByUrl(url('race-first'));
+      const next = await assetByUrl(url('race-next'));
+      const workspace = await workspaceId();
+      let signalLocked!: () => void;
+      let unlock!: () => void;
+      const acquired = new Promise<void>((resolve) => {
+        signalLocked = resolve;
+      });
+      const release = new Promise<void>((resolve) => {
+        unlock = resolve;
+      });
+      // Hold the row the publication retires so it pauses after reading every asset.
+      const blocker = prisma.$transaction(
+        async (tx) => {
+          await tx.$queryRaw`SELECT id FROM content_assets WHERE organization_id = ${ORG}::uuid AND id = ${first.id}::uuid FOR UPDATE`;
+          signalLocked();
+          await release;
+        },
+        { timeout: 10_000 },
+      );
+      await acquired;
+      // race-next is unchanged, so the publication never updates (or locks) its row.
+      const publication = publish(listingId, [media('race-next', 'primary', 1)]);
+      publication.catch(() => undefined);
+      try {
+        await expect
+          .poll(
+            async () => {
+              const rows = await prisma.$queryRaw<Array<{ count: number }>>`
+                SELECT count(*)::int AS count FROM pg_stat_activity
+                WHERE wait_event_type = 'Lock' AND query ILIKE '%SET is_deleted = true%'
+              `;
+              return rows[0]!.count;
+            },
+            { timeout: 3000 },
+          )
+          .toBeGreaterThan(0);
+        expect(
+          await library.deleteAsset({ organizationId: ORG, contentAssetId: next.id, deletedAt: new Date() }),
+        ).toEqual({ status: 'deleted' });
+      } finally {
+        unlock();
+        await blocker;
+      }
+
+      await expect(publication).rejects.toMatchObject({
+        code: 'INTERNAL_ERROR',
+        details: { reason: 'CATALOG_ASSET_FENCE_LOST' },
+      });
+      expect(
+        (await prisma.contentWorkspace.findUniqueOrThrow({ where: { id: workspace } })).currentThumbnailAssetId,
+      ).toBe(first.id);
+    });
+
     it('clears the stored copy when the row URL no longer matches the published URL', async () => {
       await publish(listingId, [media('moved', 'primary')]);
       const row = await assetByUrl(url('moved'));

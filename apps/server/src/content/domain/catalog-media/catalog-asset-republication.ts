@@ -5,7 +5,8 @@
  * `mime_type`, `width`, `height`, `file_size` and the `materialization*`
  * metadata keys) while its URL stays the same, because a provider image URL
  * names its content. Only a URL change clears the copy. An operator-selected
- * representative row keeps its own URL, copy and metadata as before.
+ * representative row keeps its own URL and stored copy; publication fields are
+ * still written over its metadata.
  *
  * A row whose URL, role, order, deletion flag and metadata are all unchanged
  * is not updated. The publication history keys are left out of that
@@ -57,6 +58,8 @@ export const CATALOG_PUBLICATION_HISTORY_KEYS = [
   'publicationScope',
 ] as const;
 
+export type CatalogPublicationHistoryKey = (typeof CATALOG_PUBLICATION_HISTORY_KEYS)[number];
+
 const MATERIALIZATION_KEYS = [
   'materializationStatus',
   'materializedAtMs',
@@ -81,7 +84,8 @@ export function planCatalogAssetRepublication(
   options: { preservesManualSelection: boolean },
 ): CatalogAssetRepublication {
   const url = options.preservesManualSelection ? existing.url : observation.sourceUrl;
-  const keepsCopy = options.preservesManualSelection || existing.url === url;
+  // An operator-selected row publishes its own URL, so it always keeps its copy.
+  const keepsCopy = existing.url === url;
   const base = keepsCopy ? existing.metadata : withoutKeys(existing.metadata, MATERIALIZATION_KEYS);
   const metadata = { ...base, ...observation.publicationMetadata };
   const unchanged = keepsCopy

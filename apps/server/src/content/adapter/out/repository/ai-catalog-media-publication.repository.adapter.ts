@@ -13,7 +13,10 @@ import type {
   CatalogMediaPublicationPort,
   ChannelCatalogMedia,
 } from '../../../../channels/application/port/out/cross-domain/catalog-media-publication.port';
-import { planCatalogAssetRepublication } from '../../../domain/catalog-media/catalog-asset-republication';
+import {
+  planCatalogAssetRepublication,
+  type CatalogPublicationHistoryKey,
+} from '../../../domain/catalog-media/catalog-asset-republication';
 
 const BULK_ROWS = 500;
 
@@ -187,6 +190,13 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
     }> = [];
     let imageCount = 0;
     let inactivatedImageCount = 0;
+    // The domain comparison ignores exactly these keys; `satisfies` keeps the two lists equal.
+    const publicationHistory = {
+      publicationReference: input.publicationReference,
+      publicationScope: input.publicationScope ?? 'full',
+      sourceImportRunId: input.publicationReference.id,
+      lastImportRunId: input.publicationReference.id,
+    } satisfies Record<CatalogPublicationHistoryKey, unknown>;
 
     for (const listing of input.listings) {
       const workspace = workspaceByListing.get(listing.listingId)!;
@@ -259,10 +269,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
           // canonical representation for shared option media.
           externalOptionId: optionIds.length === 1 ? optionIds[0] : null,
           externalOptionIds: optionIds,
-          publicationReference: input.publicationReference,
-          publicationScope: input.publicationScope ?? 'full',
-          sourceImportRunId: input.publicationReference.id,
-          lastImportRunId: input.publicationReference.id,
+          ...publicationHistory,
           active: true,
         };
         const id = existing?.id ?? randomUUID();
@@ -343,10 +350,7 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
         const metadata = {
           ...(jsonRecord(asset.metadata) ?? {}),
           active: false,
-          publicationReference: input.publicationReference,
-          publicationScope: input.publicationScope ?? 'full',
-          sourceImportRunId: input.publicationReference.id,
-          lastImportRunId: input.publicationReference.id,
+          ...publicationHistory,
         };
         if (asset.id === currentSelectedAssetId && !currentSelectionIsCatalogOwned) {
           preservedAbsentAssets.push({ id: asset.id, workspaceId, metadata });
@@ -461,12 +465,17 @@ export class AiCatalogMediaPublicationRepositoryAdapter implements CatalogMediaP
     // 카탈로그가 세운 대표이미지 자산에 표시를 남긴다 — 다음 publication 이 이 포인터를 자기 몫으로 안다.
     const representativeAssetIds = pointerUpdates.flatMap((update) => (update.assetId ? [update.assetId] : []));
     if (representativeAssetIds.length > 0) {
-      await tx.$executeRaw`
+      // An unchanged asset was never updated (or locked) above; an operator
+      // delete committed after our read must not leave the pointer on it.
+      const marked = await tx.$executeRaw`
         UPDATE content_assets
         SET metadata = metadata || '{"catalogRepresentative": true}'::jsonb, updated_at = NOW()
         WHERE organization_id = ${input.organizationId}::uuid
           AND id = ANY(${representativeAssetIds}::uuid[])
+          AND is_deleted = false
       `;
+      if (marked !== representativeAssetIds.length)
+        throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'CATALOG_ASSET_FENCE_LOST' } });
     }
     return { imageCount, inactivatedImageCount };
   }

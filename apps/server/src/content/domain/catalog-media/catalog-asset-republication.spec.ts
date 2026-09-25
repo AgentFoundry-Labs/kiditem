@@ -90,6 +90,12 @@ describe('planCatalogAssetRepublication', () => {
     ).toMatchObject({ kind: 'update', storage });
   });
 
+  it('treats a changed role as a change', () => {
+    expect(
+      planCatalogAssetRepublication(stored({ role: null }), observed(), { preservesManualSelection: false }),
+    ).toMatchObject({ kind: 'update', role: 'primary', storage });
+  });
+
   it('treats a changed non-history metadata field as a change', () => {
     expect(
       planCatalogAssetRepublication(
