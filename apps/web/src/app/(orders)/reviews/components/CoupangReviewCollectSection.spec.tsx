@@ -5,10 +5,10 @@ import { CoupangReviewCollectSection } from './CoupangReviewCollectSection';
 const reviewBridge = vi.hoisted(() => ({
   cancel: vi.fn(),
   detect: vi.fn(),
-  getStatus: vi.fn(),
   gateMessage: vi.fn(),
-  run: vi.fn(),
-  recover: vi.fn(),
+  readLatest: vi.fn(),
+  resolveAccount: vi.fn(),
+  start: vi.fn(),
 }));
 
 vi.mock('../lib/review-extension', () => ({
@@ -16,42 +16,34 @@ vi.mock('../lib/review-extension', () => ({
   REVIEW_COLLECTION_MONTH_OPTIONS: [3, 6, 12, 24],
   cancelCoupangReviewCollection: reviewBridge.cancel,
   detectReviewExtensionGate: reviewBridge.detect,
-  getCoupangReviewCollectionStatus: reviewBridge.getStatus,
-  recoverCoupangReviewCollection: reviewBridge.recover,
+  readLatestCoupangReviewCollection: reviewBridge.readLatest,
+  resolveCoupangReviewAccountId: reviewBridge.resolveAccount,
   reviewExtensionGateMessage: reviewBridge.gateMessage,
-  runCoupangReviewCollection: reviewBridge.run,
+  startCoupangReviewCollection: reviewBridge.start,
 }));
 
-const ATTEMPT_ID = 'a1111111-1111-4111-8111-111111111111';
-const ATTEMPT_TOKEN = 'b1111111-1111-4111-8111-111111111111';
+const OPERATION_ID = 'a1111111-1111-4111-8111-111111111111';
+const ACCOUNT_ID = 'c1111111-1111-4111-8111-111111111111';
 
-function runningStatus(overrides: Record<string, unknown> = {}) {
+function status(overrides: Record<string, unknown> = {}) {
   return {
     status: 'running',
-    runId: ATTEMPT_ID,
-    attemptToken: ATTEMPT_TOKEN,
-    months: 3,
+    operationId: OPERATION_ID,
     total: 3,
     completed: 1,
-    collected: 4,
-    created: 2,
-    updated: 2,
-    unlinked: 0,
-    current: '2026-09',
-    failures: [],
+    current: '2026-08',
+    collected: 150,
+    inserted: null,
+    updated: null,
     error: null,
-    cancelRequested: false,
     ...overrides,
   };
 }
 
-async function startCollection() {
+async function settle() {
   await act(async () => {
     await Promise.resolve();
     await Promise.resolve();
-  });
-  await act(async () => {
-    fireEvent.click(screen.getByRole('button', { name: '리뷰 수집' }));
     await Promise.resolve();
   });
 }
@@ -60,15 +52,11 @@ describe('CoupangReviewCollectSection', () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
-    reviewBridge.detect.mockResolvedValue({
-      status: 'ready',
-      extensionId: 'review-extension',
-      version: '1.0.0',
-    });
+    reviewBridge.detect.mockResolvedValue({ status: 'ready', extensionId: 'ext', version: '1.0.0' });
     reviewBridge.gateMessage.mockReturnValue(null);
-    reviewBridge.run.mockResolvedValue(runningStatus());
-    reviewBridge.getStatus.mockResolvedValue(runningStatus({ attemptToken: null }));
-    reviewBridge.recover.mockResolvedValue({ status: 'idle' });
+    reviewBridge.readLatest.mockResolvedValue({ status: 'idle' });
+    reviewBridge.resolveAccount.mockResolvedValue(ACCOUNT_ID);
+    reviewBridge.start.mockResolvedValue(OPERATION_ID);
     reviewBridge.cancel.mockResolvedValue(undefined);
   });
 
@@ -77,52 +65,70 @@ describe('CoupangReviewCollectSection', () => {
     vi.useRealTimers();
   });
 
-  it('keeps the begin-issued token after a read-only poll and fences cancel with it', async () => {
+  it('시작하면 대표 쿠팡 계정과 기간으로 실행을 맡기고, 실행 중에는 2초마다 서버 실행을 읽어 월 창 진행을 보여 준다', async () => {
     render(<CoupangReviewCollectSection onCollected={vi.fn()} />);
-    await startCollection();
+    await settle();
+    reviewBridge.readLatest.mockResolvedValue(status());
 
-    expect(screen.getByRole('button', { name: '중단' })).toBeInTheDocument();
     await act(async () => {
-      await vi.advanceTimersByTimeAsync(1_500);
+      fireEvent.click(screen.getByRole('button', { name: '리뷰 수집' }));
     });
-    expect(reviewBridge.getStatus).toHaveBeenCalledWith('review-extension', ATTEMPT_ID);
+    await settle();
+
+    expect(reviewBridge.start).toHaveBeenCalledWith('ext', { channelAccountId: ACCOUNT_ID, months: 3 }, expect.any(String));
+    expect(screen.getByRole('button', { name: '중단' })).toBeInTheDocument();
+    expect(screen.getByText('1/3 개월 · 2026-08')).toBeInTheDocument();
+    expect(screen.getByText('수집 150건')).toBeInTheDocument();
+
+    const reads = reviewBridge.readLatest.mock.calls.length;
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(reviewBridge.readLatest.mock.calls.length).toBe(reads + 1);
+  });
+
+  it('열었을 때 돌고 있는 실행이 있으면 이어서 보고, 끝나면 목록을 한 번 다시 불러온다', async () => {
+    const onCollected = vi.fn();
+    reviewBridge.readLatest.mockResolvedValue(status());
+    render(<CoupangReviewCollectSection onCollected={onCollected} />);
+    await settle();
+    expect(screen.getByRole('button', { name: '중단' })).toBeInTheDocument();
+
+    reviewBridge.readLatest.mockResolvedValue(status({ status: 'done', completed: 3, current: null, inserted: 100, updated: 50 }));
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(2_000);
+    });
+    expect(screen.getByText('신규 100 · 갱신 50')).toBeInTheDocument();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(onCollected).toHaveBeenCalledTimes(1);
+    expect(reviewBridge.readLatest).toHaveBeenCalledTimes(2);
+  });
+
+  it('열었을 때 최근 실행이 이미 끝났으면 표시하지 않고 폴링하지 않는다', async () => {
+    reviewBridge.readLatest.mockResolvedValue(status({ status: 'done' }));
+    render(<CoupangReviewCollectSection onCollected={vi.fn()} />);
+    await settle();
+    await act(async () => {
+      await vi.advanceTimersByTimeAsync(6_000);
+    });
+    expect(reviewBridge.readLatest).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText('수집 완료')).not.toBeInTheDocument();
+  });
+
+  it('중단은 그 실행 id로 서버 취소를 부르고, 실패하면 문장을 보여 준다', async () => {
+    reviewBridge.readLatest.mockResolvedValue(status());
+    reviewBridge.cancel.mockRejectedValue(new Error('cancel failed'));
+    render(<CoupangReviewCollectSection onCollected={vi.fn()} />);
+    await settle();
 
     await act(async () => {
       fireEvent.click(screen.getByRole('button', { name: '중단' }));
-      await Promise.resolve();
     });
+    await settle();
 
-    expect(reviewBridge.cancel).toHaveBeenCalledWith(
-      'review-extension',
-      ATTEMPT_ID,
-      ATTEMPT_TOKEN,
-    );
-  });
-
-  it('rehydrates a token-free running checkpoint without starting a second provider run', async () => {
-    reviewBridge.recover.mockResolvedValue(runningStatus({ attemptToken: null }));
-    render(<CoupangReviewCollectSection onCollected={vi.fn()} />);
-
-    await act(async () => {
-      await Promise.resolve();
-      await Promise.resolve();
-    });
-
-    expect(reviewBridge.recover).toHaveBeenCalledWith('review-extension');
-    expect(screen.getByRole('button', { name: '중단' })).toBeInTheDocument();
-    expect(reviewBridge.run).not.toHaveBeenCalled();
-  });
-
-  it('shows a cancellation failure instead of swallowing it', async () => {
-    reviewBridge.cancel.mockRejectedValue(new Error('owner cancel failed'));
-    render(<CoupangReviewCollectSection onCollected={vi.fn()} />);
-    await startCollection();
-
-    await act(async () => {
-      fireEvent.click(screen.getByRole('button', { name: '중단' }));
-      await Promise.resolve();
-    });
-
-    expect(screen.getByText('owner cancel failed')).toBeInTheDocument();
+    expect(reviewBridge.cancel).toHaveBeenCalledWith(OPERATION_ID);
+    expect(screen.getByText('cancel failed')).toBeInTheDocument();
   });
 });
