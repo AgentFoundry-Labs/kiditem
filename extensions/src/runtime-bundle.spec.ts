@@ -28,14 +28,30 @@ describe('committed runtime bundle', () => {
   it('exposes the registered operation kinds and skips installing without the old globals', () => {
     const runtime = loadRuntime({});
 
-    expect((runtime.runtime as { kinds(): string[] }).kinds()).toContain('test.echo');
+    expect((runtime.runtime as { kinds(): string[] }).kinds()).toEqual([
+      'sourcing.coupang_keyword_suggestion',
+      'sourcing.live_commerce',
+      'sourcing.product_extension',
+      'sourcing.tiktok_creative',
+      'sourcing.trend_1688',
+      'sourcing.wing_catalog',
+      'test.echo',
+    ]);
   });
 
   it('registers operation.start / operation.cancel and the operationRuntime capability with the old domain registry', async () => {
     const registered: Array<{ externalActions: Record<string, { validate(msg: unknown): unknown; handle(input: unknown, env: string): Promise<unknown> }>; capabilities: Record<string, boolean> }> = [];
     const authedCalls: string[] = [];
+    const runtimeListeners: string[] = [];
     loadRuntime(
-      { tabs: {} },
+      {
+        tabs: {},
+        // 팝업 `COLLECT_CURRENT`와 KidItem 페이지 keepalive 포트(KID-360, 옛 sourcing 워커가 받던 것).
+        runtime: {
+          onMessage: { addListener: () => runtimeListeners.push('onMessage') },
+          onConnect: { addListener: () => runtimeListeners.push('onConnect') },
+        },
+      },
       {
         KidItemDomains: { register: (domain: (typeof registered)[number]) => registered.push(domain) },
         sourceOwnerEnvironmentContext: {
@@ -48,6 +64,7 @@ describe('committed runtime bundle', () => {
     );
 
     expect(registered).toHaveLength(1);
+    expect(runtimeListeners).toEqual(['onMessage', 'onConnect']);
     expect(Object.keys(registered[0].externalActions).sort()).toEqual(['operation.cancel', 'operation.start']);
     expect(registered[0].capabilities).toEqual({ operationRuntime: true });
 

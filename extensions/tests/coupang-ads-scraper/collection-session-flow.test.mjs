@@ -182,7 +182,6 @@ test('persists only allowlisted Coupang producers and advertises the capability'
     'advertising.keyword_rank',
     'advertising.competitor_catalog',
     'channels.coupang_catalog',
-    'sourcing.wing_catalog',
   ]) {
     assert.match(producerSources, new RegExp(producer.replace('.', '\\.')));
   }
@@ -257,7 +256,6 @@ test('automatic collectors never reuse or navigate a user-active tab', () => {
 test('public capture modules load before their worker consumers', () => {
   const entry = fs.readFileSync(path.join(extensionRoot, 'background/service-worker.js'), 'utf8');
   for (const [file, global] of [
-    ['coupang-keyword-suggestion-collector.js', 'KidItemCoupangKeywordSuggestionCollector'],
     ['coupang-serp-collector.js', 'KidItemCoupangSerpCollector'],
     ['coupang-seller-identity-collector.js', 'KidItemCoupangSellerIdentityCollector'],
     ['coupang-seller-catalog-collector.js', 'KidItemCoupangSellerCatalogCollector'],
@@ -347,12 +345,4 @@ test('interactive focus helper requires a deliberate user-action reason', async 
   ]);
   assert.match(worker, /interactiveTabs\.createTab/);
   assert.match(worker, /interactiveTabs\.focusTab/);
-});
-
-test('keyword source progress uses the canonical attempt identity without local terminal state', () => {
-  const owner = fs.readFileSync(path.join(extensionRoot, 'background/coupang/keyword-suggestion-source-owner.js'), 'utf8');
-  assert.match(worker, /KidItemKeywordSuggestionSourceOwner\.create\(/);
-  assert.match(owner, /sessions\.start\(\{\s*attemptId:\s*attempt\.attemptId/);
-  assert.doesNotMatch(owner, /sessions\.(succeed|fail)\(/);
-  assert.doesNotMatch(owner, /collectionRuns\.beginWebCollection\(/);
 });

@@ -13,7 +13,6 @@
   const PAGE_TIMEOUT_MS = 60000;
   const HTTP_RETRY_ATTEMPTS = 4;
   const PRODUCERS = new Set([
-    "sourcing.wing_catalog",
     "advertising.wing_rank",
     "advertising.wing_tracked_products",
   ]);

@@ -12,7 +12,7 @@ import {
   CollectionStartResultSchema,
 } from '@kiditem/shared/collection-start';
 
-// 주문수집 / 쿠팡 / 소싱 세 확장을 kiditem-os 하나로 합치면서 세 도메인 워커가
+// 주문수집 / 쿠팡 / 소싱 세 확장을 kiditem-os 하나로 합치면서 도메인 워커가
 // 하나의 서비스워커 전역 스코프를 공유하게 됐다. 이 조합은 아래 세 가지로
 // 조용히 깨질 수 있고, 셋 다 Chrome 에 올려야만 드러난다:
 //
@@ -2771,8 +2771,6 @@ test('an update removes the retired write-only local copies and keeps every othe
     'kiditem_last_sync_traffic',
     'kiditem_last_sync_itemwinner',
     'kiditem_last_sync_ads',
-    'lastExtraction',
-    'lastExtractionEnvironmentId',
   ];
   const storage = {
     ...Object.fromEntries(retired.map((key) => [key, { time: 1, count: 1 }])),
@@ -2790,14 +2788,13 @@ test('an update removes the retired write-only local copies and keeps every othe
 
 test('each domain worker removes only its own retired local copies on update', async (t) => {
   // Storage names are domain-unique, so the domain that wrote a key is the one
-  // that retires it: Coupang its Wing/Ads sync stamps, Sourcing its extraction mirror.
+  // that retires it: Coupang its Wing/Ads sync stamps.
   const retiredByWorker = {
     'coupang/worker.js': [
       'kiditem_last_sync_traffic',
       'kiditem_last_sync_itemwinner',
       'kiditem_last_sync_ads',
     ],
-    'sourcing/worker.js': ['lastExtraction', 'lastExtractionEnvironmentId'],
   };
   const everyRetired = Object.values(retiredByWorker).flat();
 
@@ -3801,7 +3798,6 @@ test('Wing search keeps partial rows and original 5xx exhaustion while exposing 
 
 test('Wing catalog search reuses the existing session for both owners and rejects missing or foreign environments', async () => {
   for (const producer of [
-    'sourcing.wing_catalog',
     'advertising.wing_rank',
     'advertising.wing_tracked_products',
   ]) {
@@ -4148,11 +4144,12 @@ test('SERP capture does not certify the live Access Denied page as an empty resu
   }
 });
 
-test('통합 서비스워커가 세 도메인을 모두 싣고 부팅한다', () => {
+test('통합 서비스워커가 두 도메인 워커를 싣고 부팅한다', () => {
   const { fake, context } = bootServiceWorker();
 
-  // 도메인 워커 3개 + 통합 dispatch = 외부 리스너 4개.
-  assert.equal(fake.externalMessageListeners.length, 4);
+  // 도메인 워커 2개(쿠팡·주문) + 통합 dispatch = 외부 리스너 3개. 소싱 수집은 새 런타임의 실행 kind라(KID-360)
+  // 외부 리스너를 따로 두지 않고 KidItemDomains에 operation.start를 건다.
+  assert.equal(fake.externalMessageListeners.length, 3);
   assert.ok(context.KidItemDomains);
 });
 
@@ -4182,7 +4179,7 @@ test('wakeOperationRuntime은 더 이상 어떤 외부 리스너에도 등록·�
   assert.equal(responses, 0);
 });
 
-test('ping 이 세 도메인의 capabilities 를 합쳐 한 번만 응답한다', async () => {
+test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 응답한다', async () => {
   const { fake } = bootServiceWorker();
 
   const responses = [];
@@ -4214,9 +4211,8 @@ test('ping 이 세 도메인의 capabilities 를 합쳐 한 번만 응답한다'
     'coupangCatalogSnapshot',
     'wingFormPortV1',
     'coupangKeywordRank',
-    // 소싱
-    'sourcingProductScraper',
-    'sourcing1688TrendCollector',
+    // 새 런타임(소싱 실행 kind, KID-360)
+    'operationRuntime',
     // 공통
     'browserCollectionSessions',
     'kiditemEnvironmentProfilesV1',
@@ -4225,7 +4221,7 @@ test('ping 이 세 도메인의 capabilities 를 합쳐 한 번만 응답한다'
   }
 });
 
-test('세 도메인이 서로 겹치지 않는 producer 접두사를 등록한다', () => {
+test('도메인이 서로 겹치지 않는 producer 접두사를 등록한다', () => {
   const { context } = bootServiceWorker();
   const domains = context.KidItemDomains;
 
@@ -4236,7 +4232,6 @@ test('세 도메인이 서로 겹치지 않는 producer 접두사를 등록한�
     'advertising.ad_sync': 'cancelCollectionSession',
     'channels.coupang_catalog': 'cancelCollectionSession',
     'dashboard.wing_sales': 'cancelCollectionSession',
-    'sourcing.1688_trend': 'cancelCollectionSession',
   };
   for (const [producer, operation] of Object.entries(expected)) {
     const domain = domains.forProducer(producer);
@@ -4244,6 +4239,8 @@ test('세 도메인이 서로 겹치지 않는 producer 접두사를 등록한�
     assert.equal(typeof domain[operation], 'function', `${producer}.${operation}`);
   }
   assert.equal(domains.forProducer('unknown.thing'), null);
+  // 소싱 수집은 수집 세션 producer가 아니라 실행 kind다(KID-360).
+  assert.equal(domains.forProducer('sourcing.1688_trend'), null);
 });
 
 test('승인된 KidItem web origin도 retired Coupang source bridge를 직접 시작할 수 없다', () => {
@@ -4266,14 +4263,10 @@ test('승인된 KidItem web origin도 retired Coupang source bridge를 직접 �
   }
 
   assert.deepEqual(fake.createdTabs, []);
-  assert.equal(
-    typeof context.KidItemDomains.forExternalAction('collectSourcingKeywordSuggestions')?.handle,
-    'function',
-  );
-  assert.equal(
-    context.KidItemDomains.capabilities().sourcingKeywordSuggestionSourceOwnerV1,
-    true,
-  );
+  // 추천 키워드 수집은 operation.start{kind: sourcing.coupang_keyword_suggestion}로만 시작한다(KID-360).
+  assert.equal(context.KidItemDomains.forExternalAction('collectSourcingKeywordSuggestions'), null);
+  assert.equal(context.KidItemDomains.capabilities().sourcingKeywordSuggestionSourceOwnerV1, undefined);
+  assert.equal(typeof context.KidItemDomains.forExternalAction('operation.start')?.handle, 'function');
 });
 
 test('수익성 광고비 수집은 공용 dispatch의 수집 시작 계약으로만 등록된다', () => {
@@ -4395,57 +4388,17 @@ test('도메인 고유 액션은 소유 워커만 받고 retired sourcing bridge
     if (result === true) sourcingBridgeKeptAlive += 1;
   }
   assert.equal(sourcingBridgeKeptAlive, 0, 'retired sourcing bridge는 외부 액션을 열면 안 된다');
-  assert.equal(
-    typeof context.KidItemDomains.forExternalAction('collectSourcing1688Trends')?.handle,
-    'function',
-    '1688 source collection is owned by one explicit external action',
-  );
-  const tiktokAction = context.KidItemDomains.forExternalAction('collectSourcingTiktokCcTrends');
-  assert.equal(
-    typeof tiktokAction?.handle,
-    'function',
-    'TikTok source collection is owned by one explicit external action',
-  );
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(tiktokAction.validate({
-      action: 'collectSourcingTiktokCcTrends',
-      idempotencyKey: 'tiktok-direct-dispatch-key',
-      maxItems: 12,
-      region: 'KR',
-    }))),
-    { idempotencyKey: 'tiktok-direct-dispatch-key', maxItems: 12, region: 'KR' },
-  );
-  for (const invalid of [
-    { action: 'collectSourcingTiktokCcTrends', idempotencyKey: 'key', maxItems: 101 },
-    { action: 'collectSourcingTiktokCcTrends', idempotencyKey: 'key', region: 'K1' },
-    { action: 'collectSourcingTiktokCcTrends', idempotencyKey: 'key', unexpected: true },
+  // 소싱 확장 수집 6종은 옛 직접 액션 없이 operation.start 하나로 시작한다(KID-360).
+  for (const retired of [
+    'collectSourcing1688Trends',
+    'collectSourcingTiktokCcTrends',
+    'collectSourcingLiveCommerce',
+    'collectSourcingWingCatalog',
+    'collectSourcingKeywordSuggestions',
   ]) {
-    assert.throws(() => tiktokAction.validate(invalid), /Invalid TikTok source collection request/);
+    assert.equal(context.KidItemDomains.forExternalAction(retired), null, retired);
   }
-  const liveCommerceAction = context.KidItemDomains.forExternalAction('collectSourcingLiveCommerce');
-  assert.equal(
-    typeof liveCommerceAction?.handle,
-    'function',
-    'Live Commerce collection is owned by one explicit external action',
-  );
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(liveCommerceAction.validate({
-      action: 'collectSourcingLiveCommerce',
-      idempotencyKey: 'live-commerce-direct-dispatch-key',
-      url: 'https://live.douyin.com/123?token=keep#private',
-    }))),
-    {
-      idempotencyKey: 'live-commerce-direct-dispatch-key',
-      url: 'https://live.douyin.com/123?token=keep#private',
-    },
-  );
-  for (const invalid of [
-    { action: 'collectSourcingLiveCommerce', idempotencyKey: 'key' },
-    { action: 'collectSourcingLiveCommerce', idempotencyKey: 'key', url: 'http://live.douyin.com/123' },
-    { action: 'collectSourcingLiveCommerce', idempotencyKey: 'key', url: 'https://live.douyin.com/123', unexpected: true },
-  ]) {
-    assert.throws(() => liveCommerceAction.validate(invalid), /Invalid Live Commerce source collection request/);
-  }
+  assert.equal(typeof context.KidItemDomains.forExternalAction('operation.start')?.handle, 'function');
 });
 
 test('shipment summary uses one authenticated owner responder without accepting a page-owned plan', async () => {
@@ -4510,88 +4463,4 @@ test('unreferenced Rocket list-only action is retired without removing the live 
   const worker = readFileSync(path.join(backgroundRoot, 'orders/worker.js'), 'utf8');
   assert.equal(worker.includes('listRocketPos'), false);
   assert.equal(worker.includes('coupangRocketPoLifecycle'), false);
-});
-
-test('1688 direct source action reaches its owner through the external dispatcher', async () => {
-  const { fake } = bootServiceWorker();
-  const responses = [];
-  let keptAlive = 0;
-
-  for (const listener of fake.externalMessageListeners) {
-    const result = listener(
-      { action: 'collectSourcing1688Trends', idempotencyKey: '1688-direct-dispatch-key' },
-      { url: 'http://localhost:3000/sourcing-ai/decision-center' },
-      (response) => responses.push(response),
-    );
-    if (result === true) keptAlive += 1;
-  }
-
-  assert.equal(keptAlive, 1, 'direct source action must have one async owner');
-  for (let index = 0; index < 10 && responses.length === 0; index += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  assert.equal(responses.length, 1);
-  assert.equal(responses[0].success, false);
-  assert.equal(responses[0].terminalState, 'RUNNING');
-  assert.match(responses[0].error, /로그인/);
-  assert.deepEqual(fake.createdTabs, []);
-});
-
-test('TikTok direct source action reaches its owner through the external dispatcher', async () => {
-  const { fake } = bootServiceWorker();
-  const responses = [];
-  let keptAlive = 0;
-
-  for (const listener of fake.externalMessageListeners) {
-    const result = listener(
-      {
-        action: 'collectSourcingTiktokCcTrends',
-        idempotencyKey: 'tiktok-direct-dispatch-key',
-        maxItems: 12,
-        region: 'KR',
-      },
-      { url: 'http://localhost:3000/sourcing-ai/decision-center' },
-      (response) => responses.push(response),
-    );
-    if (result === true) keptAlive += 1;
-  }
-
-  assert.equal(keptAlive, 1, 'direct source action must have one async owner');
-  for (let index = 0; index < 10 && responses.length === 0; index += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  assert.equal(responses.length, 1);
-  assert.equal(responses[0].success, false);
-  assert.equal(responses[0].terminalState, 'RUNNING');
-  assert.match(responses[0].error, /로그인/);
-  assert.deepEqual(fake.createdTabs, []);
-});
-
-test('Live Commerce direct source action reaches its owner through the external dispatcher', async () => {
-  const { fake } = bootServiceWorker();
-  const responses = [];
-  let keptAlive = 0;
-
-  for (const listener of fake.externalMessageListeners) {
-    const result = listener(
-      {
-        action: 'collectSourcingLiveCommerce',
-        idempotencyKey: 'live-commerce-direct-dispatch-key',
-        url: 'https://live.douyin.com/123',
-      },
-      { url: 'http://localhost:3000/sourcing-ai/market' },
-      (response) => responses.push(response),
-    );
-    if (result === true) keptAlive += 1;
-  }
-
-  assert.equal(keptAlive, 1, 'direct source action must have one async owner');
-  for (let index = 0; index < 10 && responses.length === 0; index += 1) {
-    await new Promise((resolve) => setTimeout(resolve, 0));
-  }
-  assert.equal(responses.length, 1);
-  assert.equal(responses[0].success, false);
-  assert.equal(responses[0].terminalState, 'RUNNING');
-  assert.match(responses[0].error, /로그인/);
-  assert.deepEqual(fake.createdTabs, []);
 });

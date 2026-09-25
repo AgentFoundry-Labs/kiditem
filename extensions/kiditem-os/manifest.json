@@ -164,54 +164,6 @@
     },
     {
       "matches": [
-        "https://www.alibaba.com/*",
-        "https://korean.alibaba.com/*",
-        "https://*.alibaba.com/*",
-        "https://*.1688.com/*"
-      ],
-      "js": [
-        "content/sourcing/extractors/common.js",
-        "content/sourcing/extractors/alibaba.js",
-        "content/sourcing/extractors/1688.js",
-        "content/sourcing/content.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://www.alibaba.com/*",
-        "https://korean.alibaba.com/*",
-        "https://*.alibaba.com/*"
-      ],
-      "js": [
-        "content/sourcing/extractors/page-bridge.js"
-      ],
-      "run_at": "document_idle",
-      "world": "MAIN"
-    },
-    {
-      "matches": [
-        "https://*.1688.com/*"
-      ],
-      "js": [
-        "content/sourcing/extractors/1688-bridge.js"
-      ],
-      "run_at": "document_idle",
-      "world": "MAIN"
-    },
-    {
-      "matches": [
-        "https://*.1688.com/*",
-        "https://*.douyin.com/*"
-      ],
-      "js": [
-        "content/sourcing/live-commerce-extractor.js",
-        "content/sourcing/live-commerce-content.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
         "https://ads.tiktok.com/*"
       ],
       "js": [

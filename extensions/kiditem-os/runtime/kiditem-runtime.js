@@ -39,24 +39,6 @@ var KidItemRuntime = (() => {
     return [...collectors.keys()].sort();
   }
 
-  // extensions/src/collectors/test.echo/index.ts
-  var CHUNKS = 2;
-  var ITEMS_PER_CHUNK = 3;
-  var testEchoCollector = {
-    kind: "test.echo",
-    site: null,
-    async *collect(_plan, _site, { signal }) {
-      for (let chunk = 1; chunk <= CHUNKS; chunk += 1) {
-        if (signal.aborted) return;
-        const at = (/* @__PURE__ */ new Date()).toISOString();
-        const payload = Array.from({ length: ITEMS_PER_CHUNK }, (_, index) => ({ i: (chunk - 1) * ITEMS_PER_CHUNK + index + 1, at }));
-        yield { chunkKind: "echo", payload, progress: { done: chunk } };
-      }
-    },
-    summarize: () => ({ result: { echo: true } })
-  };
-  registerCollector(testEchoCollector);
-
   // node_modules/zod/v3/external.js
   var external_exports = {};
   __export(external_exports, {
@@ -4098,6 +4080,442 @@ var KidItemRuntime = (() => {
   };
   var NEVER = INVALID;
 
+  // packages/shared/src/sourcing/operation-result.ts
+  var BoundedCountSchema = external_exports.number().int().nonnegative().max(2147483647);
+  var SourcingOperationOutcomeSchema = external_exports.enum([
+    "complete",
+    "partial",
+    "no_change"
+  ]);
+  var SourcingOperationResultSchema = external_exports.object({
+    outcome: SourcingOperationOutcomeSchema,
+    summary: external_exports.object({
+      discovered: BoundedCountSchema,
+      accepted: BoundedCountSchema,
+      duplicate: BoundedCountSchema,
+      unchanged: BoundedCountSchema,
+      failed: BoundedCountSchema
+    }).strict(),
+    sources: external_exports.array(
+      external_exports.object({
+        source: external_exports.string().trim().min(1).max(120),
+        outcome: external_exports.enum([
+          "complete",
+          "partial",
+          "no_change",
+          "failed",
+          "skipped"
+        ]),
+        accepted: BoundedCountSchema,
+        failed: BoundedCountSchema,
+        errorCode: external_exports.string().trim().min(1).max(120).optional()
+      }).strict()
+    ).max(32),
+    snapshotGeneratedAt: external_exports.string().datetime({ offset: true }).optional()
+  }).strict();
+
+  // packages/shared/src/sourcing/browser-operations.ts
+  var BoundedCountSchema2 = external_exports.number().int().nonnegative().max(2147483647);
+  var InstantSchema = external_exports.string().datetime({ offset: true });
+  var NullableBoundedTextSchema = external_exports.string().trim().max(500).nullable();
+  var NullableMetricSchema = external_exports.number().finite().nonnegative().max(2147483647).nullable();
+  var SOURCING_KEYWORD_SUGGESTION_SOURCE_KEY = "coupang.keyword_suggestion";
+  var SOURCING_KEYWORD_SUGGESTION_SCHEMA_VERSION = "coupang-keyword-suggestion/v1";
+  function canonicalizeSourcingWingCatalogKeyword(value) {
+    return value.normalize("NFKC").trim().replace(/\s+/gu, " ");
+  }
+  function sourcingWingCatalogKeywordIdentity(value) {
+    return canonicalizeSourcingWingCatalogKeyword(value).toLocaleLowerCase("en-US");
+  }
+  var SourcingWingCatalogKeywordSchema = external_exports.string().transform(canonicalizeSourcingWingCatalogKeyword).pipe(external_exports.string().min(1).max(100));
+  var SourcingWingCatalogPurposeSchema = external_exports.enum([
+    "catalog_search",
+    "market_analysis",
+    "recommendation_validation",
+    "tracked_metrics"
+  ]);
+  var SourcingWingCatalogBatchInputSchema = external_exports.object({
+    keywords: external_exports.array(SourcingWingCatalogKeywordSchema).min(1).max(12),
+    maxPages: external_exports.number().int().min(1).max(5),
+    purpose: SourcingWingCatalogPurposeSchema
+  }).strict().superRefine((value, context) => {
+    const identities = /* @__PURE__ */ new Set();
+    value.keywords.forEach((keyword, index) => {
+      const identity = sourcingWingCatalogKeywordIdentity(keyword);
+      if (identities.has(identity)) {
+        context.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["keywords", index],
+          message: "Wing catalog keywords must be unique after normalization."
+        });
+      }
+      identities.add(identity);
+    });
+  });
+  var SourcingKeywordSuggestionInputSchema = external_exports.object({
+    keyword: SourcingWingCatalogKeywordSchema,
+    maxResults: external_exports.number().int().min(1).max(30)
+  }).strict();
+  var SourcingKeywordSuggestionItemSchema = external_exports.object({
+    rank: external_exports.number().int().min(1).max(30),
+    keyword: SourcingWingCatalogKeywordSchema,
+    source: external_exports.enum(["coupang-autocomplete", "coupang-search-dom"])
+  }).strict();
+  var SourcingKeywordSuggestionTokenSchema = external_exports.object({
+    keyword: SourcingWingCatalogKeywordSchema,
+    count: external_exports.number().int().min(1).max(2147483647)
+  }).strict();
+  var SourcingKeywordSuggestionObservationBatchSchema = external_exports.object({
+    keyword: SourcingWingCatalogKeywordSchema,
+    capturedAt: InstantSchema,
+    items: external_exports.array(SourcingKeywordSuggestionItemSchema).max(30),
+    productNameTokens: external_exports.array(SourcingKeywordSuggestionTokenSchema).max(30)
+  }).strict();
+  var SourcingKeywordSuggestionSnapshotSchema = external_exports.object({
+    keyword: SourcingWingCatalogKeywordSchema,
+    generatedAt: InstantSchema.nullable(),
+    sourceKey: external_exports.literal(SOURCING_KEYWORD_SUGGESTION_SOURCE_KEY),
+    schemaVersion: external_exports.literal(SOURCING_KEYWORD_SUGGESTION_SCHEMA_VERSION),
+    items: external_exports.array(SourcingKeywordSuggestionItemSchema).max(30),
+    productNameTokens: external_exports.array(SourcingKeywordSuggestionTokenSchema).max(30)
+  }).strict();
+  var CoupangSellerIdSchema = external_exports.string().trim().min(1).max(80).regex(/^[A-Za-z0-9_-]+$/u);
+  var AdvertisingCompetitorCatalogProductSchema = external_exports.object({
+    sourceRank: external_exports.number().int().min(1).max(500),
+    productId: external_exports.string().trim().min(1).max(200).nullable(),
+    itemId: external_exports.string().trim().min(1).max(200).nullable(),
+    vendorItemId: external_exports.string().trim().min(1).max(200).nullable(),
+    name: external_exports.string().trim().min(1).max(500),
+    priceKrw: BoundedCountSchema2.nullable(),
+    reviewCount: BoundedCountSchema2.nullable(),
+    imageUrl: external_exports.string().trim().max(2e3).nullable(),
+    link: external_exports.string().trim().max(2e3).nullable()
+  }).strict().superRefine((value, context) => {
+    if (!value.productId && !value.itemId && !value.vendorItemId) {
+      context.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["productId"],
+        message: "A competitor catalog product requires an exact identity."
+      });
+    }
+  });
+  var CoupangSellerStoreUrlSchema = external_exports.string().trim().url().max(2e3).refine((value) => {
+    try {
+      const parsed = new URL(value);
+      return parsed.protocol === "https:" && parsed.hostname === "shop.coupang.com";
+    } catch {
+      return false;
+    }
+  }, "Only Coupang seller-store URLs are accepted as catalog evidence.");
+  var AdvertisingCompetitorCatalogItemSchema = external_exports.object({
+    keyword: SourcingWingCatalogKeywordSchema,
+    sellerId: CoupangSellerIdSchema,
+    sellerName: external_exports.string().trim().min(1).max(300),
+    sellerStoreUrl: CoupangSellerStoreUrlSchema,
+    totalProductCount: BoundedCountSchema2.nullable(),
+    collectedProductCount: external_exports.number().int().min(1).max(500),
+    isTruncated: external_exports.boolean(),
+    sort: external_exports.literal("newest"),
+    capturedAt: InstantSchema,
+    products: external_exports.array(AdvertisingCompetitorCatalogProductSchema).min(1).max(500)
+  }).strict().superRefine((value, context) => {
+    if (value.collectedProductCount !== value.products.length) {
+      context.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["collectedProductCount"],
+        message: "Collected product count must match the bounded rows."
+      });
+    }
+  });
+  var AdvertisingCompetitorCatalogBatchSchema = external_exports.object({
+    catalogs: external_exports.array(AdvertisingCompetitorCatalogItemSchema).min(1).max(20)
+  }).strict().superRefine((value, context) => {
+    const sellers = /* @__PURE__ */ new Set();
+    value.catalogs.forEach((catalog, index) => {
+      if (sellers.has(catalog.sellerId)) {
+        context.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["catalogs", index, "sellerId"],
+          message: "Competitor seller IDs must be unique per owner batch."
+        });
+      }
+      sellers.add(catalog.sellerId);
+    });
+  });
+  var AdvertisingTrackedWingProductsInputSchema = external_exports.object({
+    keywords: external_exports.array(SourcingWingCatalogKeywordSchema).min(1).max(12),
+    maxPages: external_exports.number().int().min(1).max(5),
+    purpose: external_exports.literal("tracked_metrics"),
+    trackedProductIds: external_exports.array(external_exports.string().trim().min(1).max(200)).min(1).max(200)
+  }).strict().superRefine((value, context) => {
+    const keywordIdentities = /* @__PURE__ */ new Set();
+    value.keywords.forEach((keyword, index) => {
+      const identity = sourcingWingCatalogKeywordIdentity(keyword);
+      if (keywordIdentities.has(identity)) {
+        context.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["keywords", index],
+          message: "Wing catalog keywords must be unique after normalization."
+        });
+      }
+      keywordIdentities.add(identity);
+    });
+    const productIds = /* @__PURE__ */ new Set();
+    value.trackedProductIds.forEach((productId, index) => {
+      if (productIds.has(productId)) {
+        context.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["trackedProductIds", index],
+          message: "Tracked product IDs must be unique."
+        });
+      }
+      productIds.add(productId);
+    });
+  });
+  var SourcingWingCatalogObservationSchema = external_exports.object({
+    productId: external_exports.string().trim().min(1).max(200),
+    itemId: external_exports.string().trim().max(200).nullable(),
+    vendorItemId: external_exports.string().trim().max(200).nullable(),
+    productName: external_exports.string().trim().min(1).max(500),
+    itemName: NullableBoundedTextSchema,
+    brandName: NullableBoundedTextSchema,
+    manufacture: NullableBoundedTextSchema,
+    categoryHierarchy: external_exports.string().trim().max(1e3).nullable(),
+    imagePath: external_exports.string().trim().max(2e3).nullable(),
+    salePriceKrw: BoundedCountSchema2.nullable(),
+    ratingAverage: external_exports.number().finite().min(0).max(5).nullable(),
+    ratingCount: BoundedCountSchema2.nullable(),
+    viewsLast28d: BoundedCountSchema2.nullable(),
+    salesLast28d: BoundedCountSchema2.nullable(),
+    estimatedRevenue28d: NullableMetricSchema,
+    conversionRate28d: external_exports.number().finite().min(0).max(1).nullable(),
+    deliveryInfo: external_exports.string().trim().max(1e3).nullable(),
+    sourceKeyword: SourcingWingCatalogKeywordSchema,
+    capturedAt: InstantSchema
+  }).strict();
+  var SourcingWingCatalogObservationBatchSchema = external_exports.object({
+    keyword: SourcingWingCatalogKeywordSchema,
+    maxPages: external_exports.number().int().min(1).max(5),
+    purpose: SourcingWingCatalogPurposeSchema,
+    items: external_exports.array(SourcingWingCatalogObservationSchema).max(100)
+  }).strict();
+  var SourcingWingCatalogKeywordResultSchema = external_exports.object({
+    keyword: SourcingWingCatalogKeywordSchema,
+    outcome: external_exports.enum(["complete", "no_change", "failed"]),
+    discovered: BoundedCountSchema2,
+    accepted: BoundedCountSchema2,
+    duplicate: BoundedCountSchema2,
+    failed: BoundedCountSchema2,
+    errorCode: external_exports.string().trim().min(1).max(120).optional()
+  }).strict();
+  var SourcingWingCatalogFinalizeSchema = external_exports.object({
+    purpose: SourcingWingCatalogPurposeSchema,
+    keywords: external_exports.array(SourcingWingCatalogKeywordResultSchema).min(1).max(12)
+  }).strict();
+  var SourcingWingCatalogBatchResultSchema = SourcingOperationResultSchema.extend({
+    keywords: external_exports.array(SourcingWingCatalogKeywordResultSchema).min(1).max(12)
+  }).strict();
+  var SourcingWingCatalogSnapshotSchema = external_exports.object({
+    keyword: SourcingWingCatalogKeywordSchema,
+    generatedAt: InstantSchema.nullable(),
+    items: external_exports.array(SourcingWingCatalogObservationSchema).max(400),
+    rejectedCount: BoundedCountSchema2
+  }).strict();
+
+  // packages/shared/src/schemas/sourcing-operation.ts
+  var SOURCING_OPERATION_KINDS = {
+    // 확장 구동 (PR I-a)
+    wingCatalog: "sourcing.wing_catalog",
+    coupangKeywordSuggestion: "sourcing.coupang_keyword_suggestion",
+    trend1688: "sourcing.trend_1688",
+    liveCommerce: "sourcing.live_commerce",
+    tiktokCreative: "sourcing.tiktok_creative",
+    productExtension: "sourcing.product_extension",
+    // 서버 구동 (PR I-b)
+    naverTrend: "sourcing.naver_trend",
+    shortstrendTrend: "sourcing.shortstrend_trend",
+    taobaoLive: "sourcing.taobao_live",
+    marketShadow: "sourcing.market_shadow",
+    naverKeywordAnalysis: "sourcing.naver_keyword_analysis",
+    keywordSearch1688: "sourcing.keyword_search_1688",
+    imageSearch1688: "sourcing.image_search_1688",
+    scrapeUrl: "sourcing.scrape_url"
+  };
+  var SOURCING_EXTENSION_KINDS = [
+    SOURCING_OPERATION_KINDS.wingCatalog,
+    SOURCING_OPERATION_KINDS.coupangKeywordSuggestion,
+    SOURCING_OPERATION_KINDS.trend1688,
+    SOURCING_OPERATION_KINDS.liveCommerce,
+    SOURCING_OPERATION_KINDS.tiktokCreative,
+    SOURCING_OPERATION_KINDS.productExtension
+  ];
+  var SourcingWingCatalogScopeSchema = SourcingWingCatalogBatchInputSchema.innerType().extend({
+    channelAccountId: external_exports.string().uuid()
+  }).strict();
+  var SourcingTrend1688ScopeSchema = external_exports.object({}).strict();
+  var SourcingLiveCommerceScopeSchema = external_exports.object({
+    platform: external_exports.enum(["1688", "douyin"]),
+    url: external_exports.string().url().max(500)
+  }).strict();
+  var SourcingTiktokCreativeScopeSchema = external_exports.object({
+    maxItems: external_exports.number().int().min(1).max(100).optional(),
+    region: external_exports.string().min(2).max(8).optional()
+  }).strict();
+  var SourcingProductExtensionScopeSchema = external_exports.object({
+    platform: external_exports.enum(["1688", "alibaba"]),
+    url: external_exports.string().url().max(2e3)
+  }).strict();
+  var SOURCING_CHUNK_KINDS = {
+    /** wing_catalog: 키워드 하나의 검색 결과(원소 = 상품 행). */
+    wingSearchPage: "wing_search_page",
+    /** coupang_keyword_suggestion: 추천 키워드 문서 1개(청크 1장). */
+    keywordSuggestions: "keyword_suggestions",
+    /** trend_1688: 키워드 하나의 offer 목록. */
+    offers1688: "offers_1688",
+    /** live_commerce: 방송 1 + 상품들. */
+    liveBroadcast: "live_broadcast",
+    liveProducts: "live_products",
+    /** tiktok_creative: 대상별 트렌드 항목. */
+    creativeTrends: "creative_trends",
+    /** product_extension: 상품 1개 원본 문서. */
+    productDocument: "product_document"
+  };
+  var SourcingOperationResultSchema2 = external_exports.object({
+    sourceKey: external_exports.string(),
+    scopeKey: external_exports.string(),
+    targetKey: external_exports.string(),
+    discoveredCount: external_exports.number().int().nonnegative(),
+    acceptedCount: external_exports.number().int().nonnegative(),
+    duplicateCount: external_exports.number().int().nonnegative(),
+    rejectedCount: external_exports.number().int().nonnegative(),
+    coverage: external_exports.object({ numerator: external_exports.number().int().nonnegative(), denominator: external_exports.number().int().positive() }).nullable(),
+    /** 발행의 원천 관측 창(timestamptz ISO). 진실은 발행 이력 표이고 이것은 화면용 요약이다. */
+    windowStartAt: external_exports.string().datetime({ offset: true }).nullable(),
+    windowEndAt: external_exports.string().datetime({ offset: true }).nullable(),
+    /** product_extension: 이 수집이 입장시킨 원본 기록과 그 초안. */
+    admitted: external_exports.array(external_exports.object({ sourceRecordId: external_exports.string().uuid(), salesProductId: external_exports.string().uuid() }).strict()).optional()
+  }).strict();
+
+  // extensions/src/collectors/sourcing.coupang_keyword_suggestion/index.ts
+  var sourcingCoupangKeywordSuggestionCollector = {
+    kind: SOURCING_OPERATION_KINDS.coupangKeywordSuggestion,
+    site: "coupang-search",
+    async *collect(plan, site, { signal }) {
+      if (signal.aborted) return;
+      const suggestions = await site.keywordSuggestions(plan.keyword, plan.maxResults);
+      if (signal.aborted) return;
+      yield {
+        chunkKind: SOURCING_CHUNK_KINDS.keywordSuggestions,
+        payload: [{
+          keyword: plan.keyword,
+          capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          items: suggestions.items.slice(0, plan.maxResults),
+          productNameTokens: suggestions.productNameTokens.slice(0, plan.maxResults),
+          warnings: suggestions.warnings
+        }],
+        progress: { current: 1, total: 1, label: plan.keyword }
+      };
+    }
+  };
+  registerCollector(sourcingCoupangKeywordSuggestionCollector);
+
+  // extensions/src/collectors/sourcing.live_commerce/index.ts
+  var sourcingLiveCommerceCollector = {
+    kind: SOURCING_OPERATION_KINDS.liveCommerce,
+    site: "live-commerce",
+    async *collect(plan, site, { signal }) {
+      if (signal.aborted) return;
+      const captured = await site.broadcast(plan.pageUrl);
+      if (signal.aborted) return;
+      yield {
+        chunkKind: SOURCING_CHUNK_KINDS.liveBroadcast,
+        payload: [{ source: captured.source, pageUrl: captured.pageUrl, broadcast: captured.broadcast }],
+        progress: { current: 1, total: 1, label: "\uBC29\uC1A1" }
+      };
+      if (captured.products.length > 0) {
+        yield { chunkKind: SOURCING_CHUNK_KINDS.liveProducts, payload: captured.products, progress: { products: captured.products.length } };
+      }
+    }
+  };
+  registerCollector(sourcingLiveCommerceCollector);
+
+  // extensions/src/collectors/sourcing.product_extension/index.ts
+  var sourcingProductExtensionCollector = {
+    kind: SOURCING_OPERATION_KINDS.productExtension,
+    site: "product-page",
+    async *collect(plan, site, { signal }) {
+      if (signal.aborted) return;
+      const document = await site.extract(plan.sourceUrl);
+      if (signal.aborted) return;
+      yield { chunkKind: SOURCING_CHUNK_KINDS.productDocument, payload: [document], progress: { current: 1, total: 1, label: "\uC0C1\uD488" } };
+    }
+  };
+  registerCollector(sourcingProductExtensionCollector);
+
+  // extensions/src/collectors/sourcing.tiktok_creative/index.ts
+  var FALLBACK_REGION = "US";
+  var sourcingTiktokCreativeCollector = {
+    kind: SOURCING_OPERATION_KINDS.tiktokCreative,
+    site: "tiktok",
+    async *collect(plan, site, { signal }) {
+      const visits = [];
+      const seen = /* @__PURE__ */ new Set();
+      let region = plan.regionOverride;
+      let total = 0;
+      try {
+        for (const targetId of plan.targetIds) {
+          if (signal.aborted) return;
+          const captured = await site.target(site.targetFor(targetId), region);
+          region ??= captured.region;
+          const items = [];
+          for (const item of captured.items) {
+            if (total >= plan.maxItems) break;
+            if (!item.trendType || !item.entityKey) continue;
+            const key = `${String(item.trendType)}::${String(item.entityKey)}`;
+            if (seen.has(key)) continue;
+            seen.add(key);
+            items.push(item);
+            total += 1;
+          }
+          visits.push({ targetId, items });
+          if (total >= plan.maxItems) break;
+        }
+      } finally {
+        await site.close();
+      }
+      for (const [index, visit] of visits.entries()) {
+        yield {
+          chunkKind: SOURCING_CHUNK_KINDS.creativeTrends,
+          payload: [{ targetId: visit.targetId, region: region ?? FALLBACK_REGION, items: visit.items }],
+          progress: { current: index + 1, total: visits.length, label: visit.targetId }
+        };
+      }
+    }
+  };
+  registerCollector(sourcingTiktokCreativeCollector);
+
+  // extensions/src/collectors/sourcing.trend_1688/index.ts
+  var sourcingTrend1688Collector = {
+    kind: SOURCING_OPERATION_KINDS.trend1688,
+    site: "ali1688",
+    async *collect(plan, site, { signal }) {
+      try {
+        for (const [index, keyword] of plan.keywords.entries()) {
+          if (signal.aborted) return;
+          const items = await site.offers(keyword);
+          yield {
+            chunkKind: SOURCING_CHUNK_KINDS.offers1688,
+            payload: [{ keyword, items }],
+            progress: { current: index + 1, total: plan.keywords.length, label: keyword }
+          };
+        }
+      } finally {
+        await site.close();
+      }
+    }
+  };
+  registerCollector(sourcingTrend1688Collector);
+
   // extensions/src/core/errors.ts
   var ErrorEnvelopeSchema = external_exports.object({
     statusCode: external_exports.number().int().min(400).max(599),
@@ -4126,6 +4544,63 @@ var KidItemRuntime = (() => {
   function isRuntimeError(value) {
     return value instanceof RuntimeError;
   }
+
+  // extensions/src/collectors/sourcing.wing_catalog/index.ts
+  var MAX_ITEMS_PER_KEYWORD = 100;
+  var SOURCING_COLLECTION_INCOMPLETE = "SOURCING_COLLECTION_INCOMPLETE";
+  var sourcingWingCatalogCollector = {
+    kind: SOURCING_OPERATION_KINDS.wingCatalog,
+    site: "wing",
+    async *collect(plan, site, { signal }) {
+      for (const [index, keyword] of plan.keywords.entries()) {
+        if (signal.aborted) return;
+        const rows = /* @__PURE__ */ new Map();
+        let searchPage = 0;
+        for (let pageIndex = 0; pageIndex < plan.maxPages; pageIndex += 1) {
+          if (signal.aborted) return;
+          const page = await site.searchPage(keyword, searchPage);
+          for (const row of page.rows) {
+            const key = site.identity(row);
+            if (!rows.has(key)) rows.set(key, row);
+          }
+          if (page.rows.length === 0 || page.nextSearchPage === null) break;
+          if (page.nextSearchPage === searchPage) {
+            if (pageIndex + 1 < plan.maxPages) {
+              throw new RuntimeError(SOURCING_COLLECTION_INCOMPLETE, `Wing \uAC80\uC0C9 '${keyword}'\uC758 \uB2E4\uC74C \uCABD\uC774 \uB118\uC5B4\uAC00\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.`, { keyword });
+            }
+            break;
+          }
+          searchPage = page.nextSearchPage;
+        }
+        const capturedAt = (/* @__PURE__ */ new Date()).toISOString();
+        const items = [...rows.values()].map((row) => site.toObservation(row, keyword, capturedAt)).filter((item) => item !== null).slice(0, MAX_ITEMS_PER_KEYWORD);
+        yield {
+          chunkKind: SOURCING_CHUNK_KINDS.wingSearchPage,
+          payload: [{ keyword, maxPages: plan.maxPages, purpose: plan.purpose, items }],
+          progress: { current: index + 1, total: plan.keywords.length, label: keyword }
+        };
+      }
+    }
+  };
+  registerCollector(sourcingWingCatalogCollector);
+
+  // extensions/src/collectors/test.echo/index.ts
+  var CHUNKS = 2;
+  var ITEMS_PER_CHUNK = 3;
+  var testEchoCollector = {
+    kind: "test.echo",
+    site: null,
+    async *collect(_plan, _site, { signal }) {
+      for (let chunk = 1; chunk <= CHUNKS; chunk += 1) {
+        if (signal.aborted) return;
+        const at = (/* @__PURE__ */ new Date()).toISOString();
+        const payload = Array.from({ length: ITEMS_PER_CHUNK }, (_, index) => ({ i: (chunk - 1) * ITEMS_PER_CHUNK + index + 1, at }));
+        yield { chunkKind: "echo", payload, progress: { done: chunk } };
+      }
+    },
+    summarize: () => ({ result: { echo: true } })
+  };
+  registerCollector(testEchoCollector);
 
   // extensions/src/core/browser.ts
   var RUNTIME_BROWSER_ALREADY_ACQUIRED = "RUNTIME_BROWSER_ALREADY_ACQUIRED";
@@ -4176,6 +4651,289 @@ var KidItemRuntime = (() => {
       throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uC0AC\uC774\uD2B8 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { origin: base });
     }
     return { tabId: created.id, opened: true };
+  }
+
+  // extensions/src/sites/tab-page.ts
+  var SITE_TAB_UNAVAILABLE = "SITE_TAB_UNAVAILABLE";
+  var POLL_MS = 250;
+  var MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
+  function createTabPages(deps) {
+    function page(tabId, owned) {
+      let closed = false;
+      async function send(message, timeoutMs) {
+        let timer;
+        const timeout = new Promise((resolve) => {
+          timer = setTimeout(() => resolve({ ok: false, error: "timeout" }), timeoutMs);
+        });
+        const answer = deps.chrome.tabs.sendMessage(tabId, message).then(
+          (response) => response ?? { ok: false, error: "empty_response" },
+          (error) => ({ ok: false, error: MISSING_RECEIVER.test(String(error?.message ?? error)) ? "content_script_missing" : String(error?.message ?? error) })
+        );
+        try {
+          return await Promise.race([answer, timeout]);
+        } finally {
+          clearTimeout(timer);
+        }
+      }
+      return {
+        tabId,
+        async navigate(url, { timeoutMs, stopAt }) {
+          await deps.chrome.tabs.update(tabId, { url });
+          const deadline = deps.now() + timeoutMs;
+          let last = url;
+          await deps.sleep(POLL_MS);
+          for (; ; ) {
+            const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
+            if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC774 \uB2EB\uD614\uC2B5\uB2C8\uB2E4.", { tabId });
+            last = tab.url || last;
+            if (stopAt?.(last) || tab.status === "complete") return last;
+            if (deps.now() >= deadline) {
+              throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uD398\uC774\uC9C0\uB97C \uC5EC\uB294 \uB370 \uC2DC\uAC04\uC774 \uB108\uBB34 \uC624\uB798 \uAC78\uB9BD\uB2C8\uB2E4.", { url });
+            }
+            await deps.sleep(POLL_MS);
+          }
+        },
+        async currentUrl() {
+          const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
+          if (!tab?.url) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1\uD560 \uD0ED\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { tabId });
+          return tab.url;
+        },
+        async ask(message, { timeoutMs, inject }) {
+          const first = await send(message, timeoutMs);
+          if (!inject || !isMissing(first)) return first;
+          await deps.chrome.scripting.executeScript({ target: { tabId }, files: [...inject.isolated] });
+          if (inject.main?.length) {
+            await deps.sleep(300);
+            await deps.chrome.scripting.executeScript({ target: { tabId }, files: [...inject.main], world: "MAIN" });
+          }
+          await deps.sleep(500);
+          return send(message, timeoutMs);
+        },
+        listen(listener) {
+          const handler = (message, sender) => {
+            if (sender.tab?.id !== tabId || !message || typeof message !== "object") return;
+            listener(message);
+          };
+          deps.chrome.runtime.onMessage.addListener(handler);
+          return () => deps.chrome.runtime.onMessage.removeListener(handler);
+        },
+        async close() {
+          if (!owned || closed) return;
+          closed = true;
+          await deps.chrome.tabs.remove(tabId).catch(() => void 0);
+        }
+      };
+    }
+    return {
+      async open(url) {
+        const created = await deps.chrome.tabs.create({ url, active: false });
+        if (typeof created.id !== "number") throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { url });
+        return page(created.id, true);
+      },
+      attach: (tabId) => page(tabId, false),
+      async fetchText(url, init) {
+        try {
+          const response = await deps.fetch(url, { credentials: "include", redirect: "error", ...init });
+          return response.ok ? await response.text() : null;
+        } catch {
+          return null;
+        }
+      }
+    };
+  }
+  function isMissing(value) {
+    return typeof value === "object" && value !== null && value.error === "content_script_missing";
+  }
+
+  // extensions/src/core/site-caller.ts
+  function delayUntilNext(input) {
+    if (input.lastSentAt === null) return 0;
+    return Math.max(0, input.lastSentAt + input.minIntervalMs - input.now);
+  }
+  var SITE_REQUEST_FAILED = "SITE_REQUEST_FAILED";
+  var SITE_LOGIN_REQUIRED = "SITE_LOGIN_REQUIRED";
+  function createSiteCaller(options, deps) {
+    let lastSentAt = null;
+    let queue = Promise.resolve();
+    const loginMessage = options.displayName ? `${options.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.` : "\uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.";
+    async function send(url, init = {}) {
+      const headers = new Headers(init.headers);
+      if (options.xsrf) {
+        const cookie = await deps.cookies.get({ url: options.xsrf.cookieUrl, name: options.xsrf.cookieName });
+        const token = decodeCookie(cookie?.value);
+        if (!token) {
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { url, reason: "xsrf_cookie_missing" });
+        }
+        headers.set(options.xsrf.headerName, token);
+      }
+      const wait = delayUntilNext({ lastSentAt, now: deps.now(), minIntervalMs: options.minIntervalMs });
+      if (wait > 0) await deps.sleep(wait);
+      lastSentAt = deps.now();
+      let response;
+      try {
+        response = await deps.fetch(url, { credentials: "include", redirect: "manual", ...init, headers });
+      } catch (error) {
+        throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, url }, error);
+      }
+      if (response.status === 401 || response.status === 403 || response.type === "opaqueredirect") {
+        throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { status: response.status, url });
+      }
+      if (!response.ok) {
+        throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uC774\uD2B8 \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(${response.status}).`, { status: response.status, url });
+      }
+      return response;
+    }
+    function enqueue(task) {
+      const next = queue.then(task);
+      queue = next.catch(() => void 0);
+      return next;
+    }
+    return {
+      json: (url, init) => enqueue(async () => {
+        const response = await send(url, init);
+        try {
+          return await response.json();
+        } catch (error) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", { status: response.status, url }, error);
+        }
+      }),
+      text: (url, init) => enqueue(async () => (await send(url, init)).text()),
+      bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send(url, init)).arrayBuffer()))
+    };
+  }
+  function decodeCookie(value) {
+    if (!value) return null;
+    try {
+      return decodeURIComponent(value) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  // extensions/src/sites/wing/pre-matching-search.ts
+  var ORIGIN = "https://wing.coupang.com";
+  var SEARCH_URL = `${ORIGIN}/tenants/seller-web/pre-matching/search`;
+  var RETRY_ATTEMPTS = 4;
+  var WING_SEARCH_PAYLOAD_INVALID = "WING_SEARCH_PAYLOAD_INVALID";
+  var WING_SEARCH_SITE = {
+    name: "wing",
+    origin: ORIGIN,
+    caller: {
+      minIntervalMs: 2200,
+      displayName: "\uCFE0\uD321 \uC719",
+      xsrf: { cookieUrl: ORIGIN, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+    }
+  };
+  function createWingPreMatchingSearch(caller, deps) {
+    return {
+      /** 키워드 한 페이지. 429·5xx·연결 끊김은 네 번까지 다시 묻는다. */
+      async searchPage(keyword, searchPage) {
+        const body = JSON.stringify({ keyword, excludedProductIds: [], searchPage, searchOrder: "DEFAULT", sortType: "DEFAULT" });
+        for (let attempt = 1; ; attempt += 1) {
+          let response;
+          try {
+            response = await caller.json(SEARCH_URL, {
+              method: "POST",
+              headers: { "content-type": "application/json", accept: "application/json, text/plain, */*" },
+              body
+            });
+          } catch (error) {
+            const status = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED ? error.details?.status : void 0;
+            const retryable = status === null || status === 429 || typeof status === "number" && status >= 500;
+            if (!retryable || attempt >= RETRY_ATTEMPTS) throw error;
+            await deps.sleep((status === 429 ? 4e3 : 1e3) * 2 ** (attempt - 1));
+            continue;
+          }
+          return parseWingSearchPage(response);
+        }
+      }
+    };
+  }
+  function createWingCatalogSearchSite(caller, deps) {
+    const search = createWingPreMatchingSearch(caller, deps);
+    return {
+      searchPage: search.searchPage,
+      identity: (row) => `${row.productId}:${row.itemId ?? ""}:${row.vendorItemId ?? ""}`,
+      toObservation: (row, keyword, capturedAt) => row.productName.trim() ? toSourcingWingCatalogObservation(row, keyword, capturedAt) : null
+    };
+  }
+  function parseWingSearchPage(body) {
+    const record = asRecord(body);
+    if (!record || !Array.isArray(record.result)) {
+      throw new RuntimeError(WING_SEARCH_PAYLOAD_INVALID, "Wing \uAC80\uC0C9 \uC751\uB2F5\uC758 \uBAA8\uC591\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    }
+    const next = record.nextSearchPage;
+    return {
+      rows: record.result.map(normalizeWingSearchProduct).filter((row) => row !== null),
+      nextSearchPage: typeof next === "number" && Number.isInteger(next) ? next : null
+    };
+  }
+  function normalizeWingSearchProduct(raw) {
+    const product = asRecord(raw);
+    if (!product || product.productId == null) return null;
+    const productId = String(product.productId);
+    if (!productId) return null;
+    const salePrice = nullableNumber(product.salePrice);
+    const salesLast28d = nullableNumber(product.salesLast28d);
+    const pvLast28Day = nullableNumber(product.pvLast28Day);
+    const category = Array.isArray(product.displayCategoryInfo) ? asRecord(product.displayCategoryInfo[0])?.categoryHierarchy : null;
+    return {
+      productId,
+      itemId: product.itemId == null ? null : String(product.itemId),
+      vendorItemId: product.vendorItemId == null ? null : String(product.vendorItemId),
+      productName: String(product.productName || ""),
+      itemName: product.itemName ? String(product.itemName) : null,
+      brandName: product.brandName ? String(product.brandName) : null,
+      manufacture: product.manufacture ? String(product.manufacture) : null,
+      categoryHierarchy: typeof category === "string" && category ? category : null,
+      imagePath: product.imagePath ? String(product.imagePath) : null,
+      salePrice,
+      rating: nullableNumber(product.rating),
+      ratingCount: nullableNumber(product.ratingCount),
+      pvLast28Day,
+      salesLast28d,
+      estimatedRevenue28d: salePrice != null && salesLast28d != null ? Math.round(salePrice * salesLast28d) : null,
+      conversionRate28d: pvLast28Day != null && pvLast28Day > 0 && salesLast28d != null ? salesLast28d / pvLast28Day : null,
+      deliveryInfo: product.deliveryInfo ? String(product.deliveryInfo) : null
+    };
+  }
+  function toSourcingWingCatalogObservation(row, sourceKeyword, capturedAt) {
+    return {
+      productId: row.productId,
+      itemId: row.itemId,
+      vendorItemId: row.vendorItemId,
+      productName: row.productName.slice(0, 500),
+      itemName: row.itemName?.slice(0, 500) ?? null,
+      brandName: row.brandName?.slice(0, 500) ?? null,
+      manufacture: row.manufacture?.slice(0, 500) ?? null,
+      categoryHierarchy: row.categoryHierarchy?.slice(0, 1e3) ?? null,
+      imagePath: row.imagePath?.slice(0, 2e3) ?? null,
+      salePriceKrw: boundedInteger(row.salePrice),
+      ratingAverage: boundedNumber(row.rating, 0, 5),
+      ratingCount: boundedInteger(row.ratingCount),
+      viewsLast28d: boundedInteger(row.pvLast28Day),
+      salesLast28d: boundedInteger(row.salesLast28d),
+      estimatedRevenue28d: boundedNumber(row.estimatedRevenue28d, 0, 2147483647),
+      conversionRate28d: boundedNumber(row.conversionRate28d, 0, 1),
+      deliveryInfo: row.deliveryInfo?.slice(0, 1e3) ?? null,
+      sourceKeyword,
+      capturedAt
+    };
+  }
+  function nullableNumber(value) {
+    if (value == null || typeof value === "boolean" || typeof value === "object") return null;
+    if (typeof value === "string" && value.trim() === "") return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+  function boundedInteger(value) {
+    return value !== null && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
+  }
+  function boundedNumber(value, minimum, maximum) {
+    return value !== null && Number.isFinite(value) && value >= minimum && value <= maximum ? value : null;
+  }
+  function asRecord(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
   }
 
   // extensions/src/entry/legacy-bridge.ts
@@ -4320,7 +5078,9 @@ var KidItemRuntime = (() => {
     /** 이 시각 전에는 claim되지 않는다. 없으면 바로. */
     scheduledFor: zIsoDate.optional(),
     /** claim 횟수 상한(재시도 포함). 기본 1 = 재시도 없음. */
-    maxAttempts: external_exports.number().int().min(1).max(20).default(1)
+    maxAttempts: external_exports.number().int().min(1).max(20).default(1),
+    /** 실행을 시작한 사용자(있으면). owner `plan`이 `context.userId`로 받아 plan JSON에 보관한다(KID-354). */
+    userId: external_exports.string().uuid().optional()
   }).strict();
   var OperationClaimRequestSchema = external_exports.object({
     kinds: external_exports.array(OperationKindSchema).min(1).max(50),
@@ -4703,16 +5463,614 @@ var KidItemRuntime = (() => {
     };
   }
 
+  // extensions/src/sites/1688/index.ts
+  var SEARCH_ORIGIN = "https://s.1688.com";
+  var NAVIGATION_TIMEOUT_MS = 3e4;
+  var EXTRACTION_TIMEOUT_MS = 2e4;
+  var MAX_RESULTS_PER_KEYWORD = 20;
+  var ALIBABA_CONTENT_FILES = {
+    isolated: [
+      "content/sourcing/extractors/common.js",
+      "content/sourcing/extractors/alibaba.js",
+      "content/sourcing/extractors/1688.js",
+      "content/sourcing/content.js"
+    ]
+  };
+  var SITE_VERIFICATION_REQUIRED = "SITE_VERIFICATION_REQUIRED";
+  function build1688SearchUrl(keyword) {
+    return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword)}&charset=utf8`;
+  }
+  function is1688VerificationUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.pathname.includes("/punish") || url.searchParams.get("action") === "captcha";
+    } catch {
+      return false;
+    }
+  }
+  function create1688SearchSite(tabs) {
+    let page = null;
+    let keepOpen = false;
+    return {
+      async offers(keyword) {
+        page ??= await tabs.open("about:blank");
+        const landed = await page.navigate(build1688SearchUrl(keyword), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl });
+        if (is1688VerificationUrl(landed)) throw verification(landed, keyword, () => {
+          keepOpen = true;
+        });
+        const extracted = await page.ask(
+          { type: "TRIGGER_1688_TREND_EXTRACT", maxResults: MAX_RESULTS_PER_KEYWORD },
+          { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: ALIBABA_CONTENT_FILES }
+        );
+        if (extracted.status === "verification_required") {
+          throw verification(extracted.verificationUrl ?? landed, keyword, () => {
+            keepOpen = true;
+          });
+        }
+        if (!extracted.ok) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword });
+        }
+        return (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => typeof item?.offerId === "string" && item.offerId.length > 0).slice(0, MAX_RESULTS_PER_KEYWORD);
+      },
+      /** 수집이 끝나면 탭을 닫는다. 검증 화면에서 멈췄으면 운영자가 풀 수 있게 남긴다. */
+      async close() {
+        if (page && !keepOpen) await page.close();
+        page = null;
+      }
+    };
+  }
+  function verification(url, keyword, keep) {
+    keep();
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword });
+  }
+
+  // extensions/src/sites/coupang-search/parse.ts
+  var PROVIDER_ATTENTION = /access\s*denied|unauthori[sz]ed|forbidden|too\s*many\s*requests|로그인|인증|접근\s*거부/i;
+  var STOP_WORDS = /* @__PURE__ */ new Set(["\uCFE0\uD321", "\uB85C\uCF13", "\uB85C\uCF13\uBC30\uC1A1", "\uBB34\uB8CC\uBC30\uC1A1", "\uBB34\uB8CC", "\uBC30\uC1A1", "\uC815\uD488", "\uAD6D\uB0B4", "\uB2F9\uC77C", "\uC624\uB298", "\uC0C8\uC0C1\uD488", "\uC0C1\uD488", "\uAD6C\uB9E4", "\uD560\uC778", "\uD2B9\uAC00", "\uC635\uC158", "\uC0C9\uC0C1", "\uB79C\uB364"]);
+  function parseCoupangSearchEvidence(evidence, seed, maxResults, origin = "https://www.coupang.com") {
+    const warnings = [];
+    const candidates = [];
+    let structuredResponse = false;
+    let domEvidence = false;
+    let providerError = null;
+    const add = (value, source) => {
+      if (typeof value !== "string") return;
+      const keyword = value.replace(/\s+/g, " ").trim();
+      if (usableKeyword(keyword, seed)) candidates.push({ keyword, source });
+    };
+    const walk = (value) => {
+      if (typeof value === "string") return add(value, "coupang-autocomplete");
+      if (Array.isArray(value)) return value.forEach(walk);
+      if (!value || typeof value !== "object") return;
+      for (const [key, nested] of Object.entries(value)) {
+        if (/keyword|query|term|suggest|name|label|word/i.test(key) && typeof nested === "string") add(nested, "coupang-autocomplete");
+        else walk(nested);
+      }
+    };
+    const autocomplete = evidence.autocomplete;
+    if (autocomplete?.error) warnings.push(autocomplete.error);
+    if (autocomplete && autocomplete.status !== 0 && (autocomplete.status < 200 || autocomplete.status >= 300)) {
+      warnings.push(`\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uD638\uCD9C \uC2E4\uD328 (${autocomplete.status})`);
+      if ([401, 403, 429].includes(autocomplete.status)) {
+        providerError = autocomplete.status === 429 ? { reason: "rate_limited", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC694\uCCAD\uC774 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694." } : { reason: "provider_denied", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574\uC8FC\uC138\uC694." };
+      }
+    }
+    const text = autocomplete?.text.trim() ?? "";
+    if (text && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text))) {
+      try {
+        const parsed = JSON.parse(text);
+        if (parsed && typeof parsed === "object") {
+          if (isErrorEnvelope(parsed)) {
+            const message = errorEnvelopeMessage(parsed);
+            providerError ??= { reason: "provider_denied", message };
+          } else {
+            walk(parsed);
+            structuredResponse = hasSuggestionCollection(parsed);
+          }
+        } else {
+          warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uAD6C\uC870\uAC00 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+        }
+      } catch {
+        warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uD30C\uC2F1 \uC2E4\uD328");
+      }
+    } else if (text) {
+      warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4");
+    }
+    const beforeDom = candidates.length;
+    for (const link of evidence.links) {
+      add(link.text, "coupang-search-dom");
+      try {
+        const parsed = new URL(link.href, origin);
+        add(parsed.searchParams.get("q") || parsed.searchParams.get("keyword") || "", "coupang-search-dom");
+      } catch {
+      }
+    }
+    if (candidates.length > beforeDom) domEvidence = true;
+    const productNames = [];
+    for (const raw of evidence.productNames) {
+      const name = raw.replace(/\s+/g, " ").trim();
+      if (name.length < 4 || name.length > 180 || /장바구니|구매|광고|무료배송|로켓배송만 보기/.test(name)) continue;
+      productNames.push(name);
+      domEvidence = true;
+    }
+    if (providerError) return { ok: false, ...providerError, warnings };
+    if (!structuredResponse && !domEvidence) {
+      return { ok: false, reason: "no_evidence", message: "\uCFE0\uD321 \uD0A4\uC6CC\uB4DC \uC751\uB2F5\uC5D0\uC11C \uC0AC\uC6A9\uD560 \uC218 \uC788\uB294 \uAC80\uC0C9 \uADFC\uAC70\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", warnings };
+    }
+    const seen = /* @__PURE__ */ new Set();
+    const items = [];
+    for (const candidate of candidates) {
+      const key = candidate.keyword.replace(/\s+/g, "").toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push({ rank: items.length + 1, keyword: candidate.keyword, source: candidate.source });
+      if (items.length >= maxResults) break;
+    }
+    return { ok: true, items, productNameTokens: countTokens(productNames, maxResults), warnings };
+  }
+  function usableKeyword(value, seed) {
+    if (value.length < 2 || value.length > 40) return false;
+    if (/https?:\/\//i.test(value) || /^[\d\s,.-]+$/.test(value) || /[₩원%]/.test(value)) return false;
+    if (["\uAC80\uC0C9", "\uBC14\uB85C\uAC00\uAE30", "\uCFE0\uD321", "\uB85C\uCF13\uBC30\uC1A1", "\uBB34\uB8CC\uBC30\uC1A1"].includes(value)) return false;
+    const compact = value.replace(/\s+/g, "").toLowerCase();
+    return compact.length > 1 && compact !== seed.replace(/\s+/g, "").toLowerCase();
+  }
+  function isErrorEnvelope(value) {
+    if (Array.isArray(value)) return false;
+    const record = value;
+    if (record.success === false || record.ok === false) return true;
+    for (const key of ["error", "errors", "errorCode", "error_code"]) {
+      const nested = record[key];
+      if (key in record && nested !== null && nested !== void 0 && String(nested).trim()) return true;
+    }
+    if (record.code !== void 0 && record.code !== null && record.code !== 0 && record.code !== "0" && String(record.code).trim() !== "") return true;
+    return typeof record.message === "string" && PROVIDER_ATTENTION.test(record.message);
+  }
+  function errorEnvelopeMessage(value) {
+    const record = value;
+    for (const key of ["error", "errors", "message", "errorCode", "error_code", "code"]) {
+      const nested = record[key];
+      if (nested !== null && nested !== void 0 && String(nested).trim()) return String(nested);
+    }
+    return "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC5D0\uC11C \uC624\uB958\uB97C \uBC18\uD658\uD588\uC2B5\uB2C8\uB2E4.";
+  }
+  function hasSuggestionCollection(value, depth = 0) {
+    if (Array.isArray(value)) return true;
+    if (!value || typeof value !== "object" || depth > 3) return false;
+    for (const [key, nested] of Object.entries(value)) {
+      if (!/suggest|keyword|query|term|result|item|product|data|list/i.test(key)) continue;
+      if (Array.isArray(nested) || typeof nested === "string" && nested.trim()) return true;
+      if (nested && typeof nested === "object" && hasSuggestionCollection(nested, depth + 1)) return true;
+    }
+    return false;
+  }
+  function countTokens(productNames, maxResults) {
+    const counts = /* @__PURE__ */ new Map();
+    for (const name of productNames) {
+      const tokens = new Set(name.replace(/[()[\]{}"'`~!@#$%^&*_+=|\\:;,.<>/?·•]/g, " ").split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 2 && token.length <= 20).filter((token) => !/^[\d개입묶음세트]+$/.test(token)).filter((token) => !STOP_WORDS.has(token)));
+      for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
+    }
+    return [...counts.entries()].map(([keyword, count]) => ({ keyword, count })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
+  }
+
+  // extensions/src/sites/coupang-search/index.ts
+  var ORIGIN2 = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS = 6e4;
+  var EVIDENCE_TIMEOUT_MS = 3e4;
+  var SETTLE_MS = 1500;
+  var CONTENT_FILE = "content/sourcing/coupang-search-page.js";
+  function buildCoupangSearchUrl(keyword) {
+    return `${ORIGIN2}/np/search?component=&q=${encodeURIComponent(keyword)}&channel=user`;
+  }
+  function isCoupangSearchUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname.toLowerCase() === "www.coupang.com" && url.port === "" && url.username === "" && url.password === "" && /^\/np\/search\/?$/.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+  function createCoupangSearchSite(tabs, deps) {
+    return {
+      async keywordSuggestions(keyword, maxResults) {
+        const url = buildCoupangSearchUrl(keyword);
+        const page = await tabs.open("about:blank");
+        try {
+          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS });
+          if (!isCoupangSearchUrl(landed)) {
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uCFE0\uD321 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
+          }
+          await deps.sleep(SETTLE_MS);
+          const evidence = await page.ask(
+            { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword },
+            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE] } }
+          );
+          if (!evidence.links || !evidence.productNames) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
+          }
+          const parsed = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword, maxResults);
+          if (!parsed.ok) {
+            throw new RuntimeError(
+              parsed.reason === "no_evidence" ? SITE_REQUEST_FAILED : SITE_LOGIN_REQUIRED,
+              parsed.message,
+              { status: null, url, reason: parsed.reason, warnings: parsed.warnings }
+            );
+          }
+          return { items: parsed.items, productNameTokens: parsed.productNameTokens, warnings: parsed.warnings };
+        } finally {
+          await page.close();
+        }
+      }
+    };
+  }
+
+  // extensions/src/sites/live-commerce/index.ts
+  var NAVIGATION_TIMEOUT_MS2 = 35e3;
+  var EXTRACTION_TIMEOUT_MS2 = 25e3;
+  var MAX_PRODUCTS = 100;
+  var CONTENT_FILES = {
+    isolated: ["content/sourcing/live-commerce-extractor.js", "content/sourcing/live-commerce-content.js"]
+  };
+  var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
+  function isLiveVerificationUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.pathname.includes("/punish") || url.searchParams.get("action") === "captcha" || /(?:verify|captcha|login)/i.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+  function createLiveCommerceSite(tabs) {
+    return {
+      async broadcast(pageUrl) {
+        const page = await tabs.open("about:blank");
+        let keepOpen = false;
+        try {
+          const landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS2, stopAt: isLiveVerificationUrl });
+          if (isLiveVerificationUrl(landed)) {
+            keepOpen = true;
+            throw verification2(landed);
+          }
+          const extracted = await page.ask(
+            { type: "TRIGGER_LIVE_COMMERCE_EXTRACT" },
+            { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: CONTENT_FILES }
+          );
+          if (extracted.status === "verification_required") {
+            keepOpen = true;
+            throw verification2(extracted.verificationUrl ?? landed);
+          }
+          if (!extracted.ok || !extracted.broadcast || !extracted.source || !extracted.pageUrl) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `\uBC29\uC1A1 \uC815\uBCF4\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}).`, { status: null, url: pageUrl });
+          }
+          return {
+            source: extracted.source,
+            pageUrl: extracted.pageUrl,
+            broadcast: extracted.broadcast,
+            products: (Array.isArray(extracted.products) ? extracted.products : []).slice(0, MAX_PRODUCTS)
+          };
+        } finally {
+          if (!keepOpen) await page.close();
+        }
+      }
+    };
+  }
+  function verification2(url) {
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED2, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
+  }
+
+  // extensions/src/sites/product-page/description.ts
+  function parseDescriptionHtml(html) {
+    const content = offerDetailsContent(html) ?? html;
+    const images = [];
+    for (const match of content.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)) {
+      const src = match[1];
+      if (src.startsWith("data:") || src.includes("icon") || src.includes("logo")) continue;
+      const full = src.startsWith("//") ? `https:${src}` : src;
+      if (!images.includes(full)) images.push(full);
+    }
+    const blocks = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const match of content.matchAll(/<(?:p|h[1-6]|li|td|th|div|span)[^>]*>([^<]{5,})<\//gi)) {
+      const text = match[1].replace(/&[^;]+;/g, " ").trim();
+      if (text.length < 5 || text.length > 2e3 || seen.has(text)) continue;
+      seen.add(text);
+      blocks.push(text);
+    }
+    if (images.length === 0 && blocks.length === 0) return null;
+    return { description_images: images, description_text: blocks.join("\n").slice(0, 1e4), description_image_count: images.length };
+  }
+  function offerDetailsContent(html) {
+    const marker = "var offer_details=";
+    const start = html.indexOf(marker);
+    if (start === -1) return null;
+    const jsonStart = start + marker.length;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = jsonStart; index < html.length; index += 1) {
+      const char = html.charAt(index);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (char === "{") depth += 1;
+      if (char === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          try {
+            const parsed = JSON.parse(html.substring(jsonStart, index + 1));
+            return typeof parsed.content === "string" ? parsed.content : null;
+          } catch {
+            return null;
+          }
+        }
+      }
+    }
+    return null;
+  }
+  function allowedSupplierUrl(value) {
+    try {
+      const parsed = new URL(String(value ?? "").trim());
+      const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
+      if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port && parsed.port !== "443") return null;
+      if (!["1688.com", "alibaba.com"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) return null;
+      parsed.hostname = host;
+      parsed.hash = "";
+      return parsed.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  // extensions/src/sites/product-page/index.ts
+  var EXTRACTION_TIMEOUT_MS3 = 2e4;
+  var TRIGGER_TIMEOUT_MS = 5e3;
+  var EXTRACTOR_FILES = [
+    "content/sourcing/extractors/common.js",
+    "content/sourcing/extractors/alibaba.js",
+    "content/sourcing/extractors/1688.js",
+    "content/sourcing/content.js"
+  ];
+  var PRODUCT_PAGE_MOVED = "PRODUCT_PAGE_MOVED";
+  var PRODUCT_EXTRACTION_TIMEOUT = "PRODUCT_EXTRACTION_TIMEOUT";
+  function productPageInjection(url) {
+    const host = new URL(url).hostname;
+    const main = host.endsWith("1688.com") ? ["content/sourcing/extractors/1688-bridge.js"] : host.endsWith("alibaba.com") ? ["content/sourcing/extractors/page-bridge.js"] : [];
+    return { isolated: EXTRACTOR_FILES, main };
+  }
+  function createProductPageSite(tabs, tabId, deps) {
+    return {
+      async extract(sourceUrl) {
+        const page = tabs.attach(tabId);
+        const current = await page.currentUrl();
+        if (current !== sourceUrl) {
+          throw new RuntimeError(PRODUCT_PAGE_MOVED, "\uC218\uC9D1\uC744 \uC2DC\uC791\uD55C \uB4A4 \uD0ED \uC8FC\uC18C\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC0C1\uD488 \uD398\uC774\uC9C0\uC5D0\uC11C \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: current });
+        }
+        const marker = deps.randomId();
+        let product = null;
+        let description;
+        let settle;
+        const settled = new Promise((resolve) => {
+          settle = resolve;
+        });
+        const stop = page.listen((message) => {
+          if (message.attemptId !== marker) return;
+          if (message.type === "PRODUCT_DATA" && !product && isRecord(message.data)) {
+            product = message.data;
+            if (product.page_type === "search") settle({ product: withSourceUrl(product, sourceUrl), hadDescription: false });
+          } else if (message.type === "DESCRIPTION_DATA" && isRecord(message.data)) {
+            description = message.data;
+          } else if (message.type === "EXTRACTION_COMPLETE" && product) {
+            const hadDescription = message.hadDescription === true;
+            if (hadDescription !== Boolean(description)) {
+              settle(new RuntimeError(SITE_REQUEST_FAILED, "\uC0C1\uD488 \uC124\uBA85 \uCD94\uCD9C \uC644\uB8CC\uB97C \uD655\uC778\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { status: null, url: sourceUrl }));
+            } else {
+              settle({ product: withSourceUrl(product, sourceUrl), ...description ? { description } : {}, hadDescription });
+            }
+          }
+        });
+        const timer = setTimeout(() => settle(new RuntimeError(PRODUCT_EXTRACTION_TIMEOUT, "\uC0C1\uD488 \uCD94\uCD9C \uC2DC\uAC04\uC774 \uCD08\uACFC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: sourceUrl })), EXTRACTION_TIMEOUT_MS3);
+        try {
+          const started = await page.ask({ type: "TRIGGER_EXTRACT", attemptId: marker }, { timeoutMs: TRIGGER_TIMEOUT_MS, inject: productPageInjection(sourceUrl) });
+          if (started.ok === false) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, "\uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { status: null, url: sourceUrl, reason: started.error });
+          }
+          const result = await settled;
+          if (result instanceof RuntimeError) throw result;
+          await enrich(result.product);
+          return result;
+        } finally {
+          clearTimeout(timer);
+          stop();
+        }
+      }
+    };
+    async function enrich(product) {
+      const detailUrl = product.source_platform === "1688" ? allowedSupplierUrl(product._detail_url) : null;
+      if (!detailUrl) return;
+      const html = await tabs.fetchText(detailUrl);
+      const content = html ? parseDescriptionHtml(html) : null;
+      if (content) Object.assign(product, content);
+    }
+  }
+  function withSourceUrl(product, sourceUrl) {
+    return { ...product, source_url: typeof product.source_url === "string" ? product.source_url : sourceUrl };
+  }
+  function isRecord(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+
+  // extensions/src/sites/tiktok-cc/index.ts
+  var NAVIGATION_TIMEOUT_MS3 = 35e3;
+  var EXTRACTION_TIMEOUT_MS4 = 25e3;
+  var BASE_URLS = {
+    hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
+    product: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/pc/en",
+    keyword: "https://ads.tiktok.com/business/creativecenter/keyword-insights/pc/en"
+  };
+  var CONTENT_FILES2 = {
+    isolated: ["content/sourcing/tiktok-cc-extractor.js", "content/sourcing/tiktok-cc-content.js"],
+    main: ["content/sourcing/tiktok-cc-hook.js"]
+  };
+  function tiktokTargetFor(targetId) {
+    if (targetId === "hashtag" || targetId === "product") {
+      return { id: targetId, trendType: targetId, url: BASE_URLS[targetId], sourceKeyword: null };
+    }
+    const keyword = targetId.startsWith("keyword:") ? targetId.slice("keyword:".length) : targetId;
+    return { id: targetId, trendType: "keyword", url: `${BASE_URLS.keyword}?keyword=${encodeURIComponent(keyword)}`, sourceKeyword: keyword };
+  }
+  function isTiktokBlockedUrl(value) {
+    try {
+      return /(?:\/login|\/passport|\/signup)/i.test(new URL(value).pathname);
+    } catch {
+      return false;
+    }
+  }
+  function sanitizeTiktokRegion(value) {
+    if (typeof value !== "string") return null;
+    const cleaned = value.replace(/[^A-Za-z]/g, "").toUpperCase();
+    return cleaned.length >= 2 && cleaned.length <= 8 ? cleaned : null;
+  }
+  function createTiktokCcSite(tabs) {
+    let page = null;
+    return {
+      targetFor: tiktokTargetFor,
+      async target(target, defaultRegion) {
+        page ??= await tabs.open("about:blank");
+        const landed = await page.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt: isTiktokBlockedUrl });
+        if (isTiktokBlockedUrl(landed)) {
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
+        }
+        const extracted = await page.ask(
+          { type: "TRIGGER_TIKTOK_CC_EXTRACT", trendType: target.trendType, sourceKeyword: target.sourceKeyword, defaultRegion },
+          { timeoutMs: EXTRACTION_TIMEOUT_MS4, inject: CONTENT_FILES2 }
+        );
+        if (!extracted.ok) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, `TikTok \uD2B8\uB80C\uB4DC '${target.id}'\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, target: target.id });
+        }
+        return {
+          region: sanitizeTiktokRegion(extracted.region),
+          items: (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => Boolean(item) && typeof item === "object")
+        };
+      },
+      async close() {
+        await page?.close();
+        page = null;
+      }
+    };
+  }
+
+  // extensions/src/entry/sourcing-site-handles.ts
+  var PRODUCT_TAB_REQUIRED = "PRODUCT_TAB_REQUIRED";
+  function createSourcingSiteHandles(deps, productTabId = null) {
+    return (kind) => {
+      switch (collectorFor(kind)?.site ?? null) {
+        case WING_SEARCH_SITE.name:
+          return createWingCatalogSearchSite(createSiteCaller(WING_SEARCH_SITE.caller, deps), { sleep: deps.sleep });
+        case "coupang-search":
+          return createCoupangSearchSite(deps.tabs, { sleep: deps.sleep });
+        case "ali1688":
+          return create1688SearchSite(deps.tabs);
+        case "live-commerce":
+          return createLiveCommerceSite(deps.tabs);
+        case "tiktok":
+          return createTiktokCcSite(deps.tabs);
+        case "product-page":
+          if (productTabId !== null) return createProductPageSite(deps.tabs, productTabId, { randomId: deps.randomId });
+          return {
+            extract: async () => {
+              throw new RuntimeError(PRODUCT_TAB_REQUIRED, "\uC0C1\uD488 \uC218\uC9D1\uC740 \uD655\uC7A5 \uD31D\uC5C5\uC758 [\uD604\uC7AC \uC0C1\uD488 \uC218\uC9D1]\uC5D0\uC11C \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
+            }
+          };
+        default:
+          return null;
+      }
+    };
+  }
+
+  // extensions/src/entry/sourcing-product-collect.ts
+  var COLLECT_CURRENT = "COLLECT_CURRENT";
+  var HOST_KEEPALIVE_PORT = "kiditem-1688-trend-keepalive";
+  function productExtensionScope(url) {
+    if (!url) return null;
+    try {
+      const parsed = new URL(url);
+      if (parsed.protocol !== "https:") return null;
+      const host = parsed.hostname.toLowerCase();
+      if (host === "1688.com" || host.endsWith(".1688.com")) return { platform: "1688", url: parsed.toString() };
+      if (host === "alibaba.com" || host.endsWith(".alibaba.com")) return { platform: "alibaba", url: parsed.toString() };
+      return null;
+    } catch {
+      return null;
+    }
+  }
+  async function collectCurrentProduct(deps, input) {
+    const tab = await deps.getTab(input.tabId).catch(() => null);
+    const scope = productExtensionScope(tab?.url);
+    if (!scope) return { ok: false, error: "1688 \uB610\uB294 Alibaba \uC0C1\uD488 \uD398\uC774\uC9C0\uC5D0\uC11C \uC218\uC9D1\uD574 \uC8FC\uC138\uC694." };
+    const runner = createRunner({
+      client: createOperationClient(deps.apiFor(input.environmentId)),
+      browser: deps.browser,
+      siteFor: createSourcingSiteHandles(deps.site, input.tabId)
+    }, collectorFor);
+    const work = runner.run({ kind: SOURCING_OPERATION_KINDS.productExtension, scope, signal: new AbortController().signal });
+    deps.keepAlive?.(work);
+    const outcome = await work;
+    if (outcome.kind === "finished" && outcome.operation.status === "succeeded") return { ok: true, operationId: outcome.operation.id };
+    if (outcome.kind === "failed") return { ok: false, errorCode: outcome.errorCode, error: outcome.errorMessage };
+    if (outcome.kind === "already_running") return { ok: false, errorCode: "OPERATION_IN_PROGRESS", error: outcome.message ?? "\uC774 \uC0C1\uD488 \uC218\uC9D1\uC774 \uC774\uBBF8 \uC9C4\uD589 \uC911\uC785\uB2C8\uB2E4." };
+    if (outcome.kind === "fence_lost") return { ok: false, errorCode: "OPERATION_FENCE_LOST", error: "\uC218\uC9D1\uC774 \uB354 \uC774\uC0C1 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694." };
+    return { ok: false, error: outcome.operation.errorMessage ?? "\uC0C1\uD488 \uC218\uC9D1\uC5D0 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4." };
+  }
+  function installProductCollect(chromeApi, deps) {
+    chromeApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
+      const record = message && typeof message === "object" ? message : null;
+      if (record?.type !== COLLECT_CURRENT) return;
+      const tabId = record.tabId;
+      const environmentId = record.environmentId;
+      if (typeof tabId !== "number" || typeof environmentId !== "string" || !environmentId) {
+        sendResponse({ ok: false, error: "\uC218\uC9D1\uD560 \uD0ED\uACFC KidItem \uD658\uACBD\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694." });
+        return;
+      }
+      collectCurrentProduct(deps, { tabId, environmentId }).then(sendResponse, (error) => sendResponse({ ok: false, error: error instanceof Error ? error.message : String(error) }));
+      return true;
+    });
+    chromeApi.runtime.onConnect.addListener((port) => {
+      if (port.name !== HOST_KEEPALIVE_PORT) return;
+      port.onMessage.addListener(() => void 0);
+    });
+  }
+
   // extensions/src/entry/index.ts
   function installEntry() {
     if (!legacyGlobalsPresent()) return false;
+    const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+    const site = {
+      fetch: (input, init) => fetch(input, init),
+      cookies: { get: (details) => chrome.cookies.get(details) },
+      now: () => Date.now(),
+      sleep,
+      tabs: createTabPages({ chrome, fetch: (input, init) => fetch(input, init), sleep, now: () => Date.now() }),
+      randomId: () => crypto.randomUUID()
+    };
+    const browser = createBrowserResources(chrome, { [WING_SEARCH_SITE.name]: { origin: WING_SEARCH_SITE.origin } }, { accountSite: WING_SEARCH_SITE.name });
     const externalActions = createOperationActions({
       apiFor: legacyApiPort,
-      // 사이트 탭이 필요한 kind가 옮겨질 때 sites/*의 origin을 여기 모은다(KID-359 이후).
-      browser: createBrowserResources(chrome, {}),
+      browser,
+      siteFor: createSourcingSiteHandles(site),
       keepAlive: legacyKeepAlive
     });
     registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true } });
+    installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
     return true;
   }
 

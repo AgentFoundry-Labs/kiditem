@@ -25,9 +25,6 @@ const expectedLegacyFiles = [
   'extensions/kiditem-os/background/coupang/worker.js',
   'extensions/kiditem-os/background/coupang/coupang-catalog-import.js',
   'extensions/kiditem-os/background/orders/worker.js',
-  'extensions/kiditem-os/background/sourcing/worker.js',
-  'extensions/kiditem-os/background/sourcing/1688-trend-collector.js',
-  'extensions/kiditem-os/background/sourcing/live-commerce-collector.js',
   'apps/web/src/components/readiness/useReadinessCollection.ts',
   'apps/web/src/app/(analytics)/dashboard/page.tsx',
 ];
@@ -38,6 +35,8 @@ const automaticFocusSafeFiles = [
   'extensions/kiditem-os/background/orders/sabangnet-mall-listings-source-owner.js',
   'extensions/kiditem-os/background/orders/mall-admin-listings.js',
   'extensions/kiditem-os/background/orders/mall-admin-listings-source-owner.js',
+  // 소싱 수집(KID-360)은 새 런타임의 사이트가 백그라운드 탭으로만 연다.
+  'extensions/src/sites/tab-page.ts',
 ];
 
 function countFocusTokens(source) {
