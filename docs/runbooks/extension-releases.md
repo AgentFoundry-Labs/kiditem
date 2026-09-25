@@ -167,12 +167,12 @@ key), so Chrome derives the same extension ID,
 `jdklckncgmllpabkofllidmoiglbcnpb`, from every unpacked directory on every
 machine. Without it the directory path chose the ID.
 
-- The matching private key (PKCS#8 PEM) never enters the repository. Keep it in
-  the team vault (1Password or equivalent). Unpacked installs need only the
-  public key, but a signed CRX or a Web Store upload needs the private key; if
-  it is lost, a new key pair means a new ID and another operator reconnection.
+- The private key is not kept anywhere. KidItem ships only unpacked loads,
+  which need just the public key, so no CRX signing is needed. If signed
+  distribution (a CRX or a Web Store upload) is ever needed, generate a new key
+  pair and change the ID once.
 - Do not edit or remove `key`. Rotation is a deliberate ID change: generate a
-  pair, store the PEM in the vault, and replace only the `key` value:
+  pair, replace only the `key` value, and discard the PEM:
 
   ```bash
   openssl genrsa 2048 | openssl pkcs8 -topk8 -nocrypt -out kiditem-os.pem
