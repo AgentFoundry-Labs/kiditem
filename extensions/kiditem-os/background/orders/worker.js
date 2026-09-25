@@ -41,12 +41,6 @@ const orderCollectionServerConverter = KidItemOrderCollectionServerConverter.cre
   request: (environmentId, path, init) =>
     sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
 });
-const coupangShipmentSummarySourceOwner = KidItemCoupangShipmentSummarySourceOwner.create({
-  chrome, sessions: collectionSessions,
-  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
-  collect: (options) => collectCoupangShipmentDateSummary(options),
-});
-
 function runOwnedOrderCollection(message, mallKey, collect) {
   return orderCollectionSourceOwner.run({
     environmentId: message.environmentId,
@@ -75,14 +69,6 @@ function providerCollectionDate(message, plan) {
     : plan?.collectionDate;
 }
 
-function parseShipmentSummaryStart(message) {
-  if (message?.action !== 'collectCoupangShipmentDateSummary' ||
-    typeof message.attemptId !== 'string' || !/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(message.attemptId) ||
-    Object.keys(message).some((key) => key !== 'action' && key !== 'attemptId')) {
-    throw new Error('Invalid shipment summary attempt');
-  }
-  return { attemptId: message.attemptId };
-}
 const sellpiaManualMatch = KidItemSellpiaManualMatch.create({ chrome });
 const sellpiaManualMatchSourceOwner = KidItemSellpiaManualMatchSourceOwner.create({
   chrome,
@@ -250,9 +236,6 @@ function handleSellpiaManualMatchPort(port, senderEnvironment) {
 
 async function lifecycleForAttempt(attemptId, environmentId) {
   const session = await collectionSessions.getOwned(attemptId, environmentId);
-  if (session?.producer === "orders.coupang_shipment_summary") {
-    return null;
-  }
   if (session?.producer === "orders.coupang_rocket_po") {
     return null;
   }
@@ -275,9 +258,6 @@ async function cancelOrdersCollectionSession(attemptId, environmentId) {
       : await collectionSessions.getOwned(attemptId, environmentId);
   if (session?.producer === 'orders.coupang_rocket_po') {
     return rocketPoSourceOwner.cancel({ attemptId, environmentId });
-  }
-  if (session?.producer === 'orders.coupang_shipment_summary') {
-    return coupangShipmentSummarySourceOwner.cancel({ attemptId, environmentId });
   }
   if (session?.producer === 'orders.coupang_directship') {
     return coupangDirectshipSourceOwner.cancel({ attemptId, environmentId });
@@ -1175,10 +1155,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   }
 
   // ── 원클릭 자동 수집: 발송일 기준 쉽먼트 목록(센터순) + Label/내역서 PDF 직접 fetch ──
-  if (msg?.action === "collectCoupangShipmentDateSummary") {
-    return false; // The validated externalActions registry is the sole responder.
-  }
-
   if (msg?.action === "collectCoupangShipmentList") {
     collectCoupangShipmentList({
       date: typeof msg.date === "string" ? msg.date : "",
@@ -1972,182 +1948,6 @@ async function findOrCreateBackgroundCoupangSupplierTab(attemptId, additionalCon
     }
   }
   return tab;
-}
-
-// ── 발송일 조회(달력용): 최근 쉽먼트를 발송일별로 집계 (몇 건 / 박스수) ──
-async function collectCoupangShipmentDateSummary(options) {
-  if (typeof options?.isActive === "function" && !(await options.isActive())) {
-    return additionalCollectionCancelled(options, "쿠팡 쉽먼트 조회가 취소되었습니다.");
-  }
-  const tab = await findOrCreateBackgroundCoupangSupplierTab(options?.attemptId);
-  if (!tab?.id) return additionalCollectionCancelled(options, "쿠팡 쉽먼트 조회가 취소되었습니다.");
-  await waitForTabReady(tab.id);
-  if (typeof options?.isActive === "function" && !(await options.isActive())) {
-    return additionalCollectionCancelled(options, "쿠팡 쉽먼트 조회가 취소되었습니다.");
-  }
-
-  const injected = await withTimeout(
-    chrome.scripting.executeScript({
-      target: { tabId: tab.id },
-      func: scrapeCoupangShipmentDateSummary,
-      args: [Math.min(Math.max(Number(options?.maxPages) || 40, 1), 60)],
-    }),
-    90000,
-    "쿠팡 쉽먼트 발송일 조회 시간이 초과되었습니다.",
-  );
-  if (typeof options?.isActive === "function" && !(await options.isActive())) {
-    return additionalCollectionCancelled(options, "쿠팡 쉽먼트 조회가 취소되었습니다.");
-  }
-  return (
-    injected[0]?.result ?? {
-      success: false,
-      error: "쿠팡 쉽먼트 화면에 접근하지 못했습니다.",
-    }
-  );
-}
-
-// [페이지 주입] 최근 쉽먼트를 페이지네이션하며 발송일별로 집계.
-async function scrapeCoupangShipmentDateSummary(maxPages) {
-  const PAGE_FETCH_CONCURRENCY = 6;
-  const SESSION_REQUIRED = "COUPANG_SHIPMENT_SESSION_REQUIRED";
-  const RESPONSE_INVALID = "COUPANG_SHIPMENT_RESPONSE_INVALID";
-
-  async function fetchPage(n) {
-    const r = await fetch(
-      `/ibs/shipment/parcel/list?pageNumber=${n}&centerCode=&carrierCode=&estimatedDeliveryDate=&shipmentSeq=&purchaseOrderSeq=`,
-      { credentials: "include", headers: { "X-Requested-With": "XMLHttpRequest" } },
-    );
-    if (!r.ok) {
-      // 쿠팡 접속이 많아 쿠키가 커지면 Tomcat 이 헤더 과다로 400(때때로 413/431)을 반환한다.
-      if (r.status === 400 || r.status === 413 || r.status === 431) throw new Error("COUPANG_COOKIE_BLOAT");
-      if (r.status === 401 || r.status === 403) throw new Error(SESSION_REQUIRED);
-      throw new Error(`목록 조회 실패 (page ${n}, HTTP ${r.status})`);
-    }
-    const html = await r.text();
-    const responseUrl = String(r.url || "");
-    if (r.redirected || /\/(?:login|sign-in|signin)(?:[/?#]|$)/i.test(responseUrl)) {
-      throw new Error(SESSION_REQUIRED);
-    }
-    // 미로그인/세션 만료 응답은 HTTP 200 로그인 HTML일 수 있다. parcel-tab 계약이 없으면
-    // 정상적인 빈 결과가 아니므로 빈 배열로 축약하지 않는다.
-    if (!/<table\b[^>]*\bid=["']parcel-tab["']/i.test(html)) {
-      if (/(?:로그인|login|sign[ -]?in)/i.test(html)) throw new Error(SESSION_REQUIRED);
-      throw new Error(RESPONSE_INVALID);
-    }
-    return html;
-  }
-  function parseRows(html) {
-    const doc = new DOMParser().parseFromString(html, "text/html");
-    const table = doc.querySelector("table#parcel-tab");
-    if (!table) throw new Error(RESPONSE_INVALID);
-    const heads = Array.from(table.querySelectorAll("thead th")).map((h) => (h.textContent || "").trim());
-    const idx = (name) => heads.findIndex((h) => h.includes(name));
-    const iSeq = idx("쉽먼트 번호"), iOut = idx("발송일"), iBox = idx("박스수");
-    if ([iSeq, iOut, iBox].some((index) => index < 0)) throw new Error(RESPONSE_INVALID);
-    const requiredCellCount = Math.max(iSeq, iOut, iBox) + 1;
-    const rows = [];
-    for (const tr of table.querySelectorAll("tbody tr")) {
-      const c = Array.from(tr.querySelectorAll("td")).map((td) => (td.textContent || "").trim());
-      // 쿠팡의 정상적인 빈 결과 placeholder는 단일 colspan 셀이다.
-      if (c.length <= 1) continue;
-      if (c.length < requiredCellCount) throw new Error(RESPONSE_INVALID);
-      const seq = c[iSeq];
-      const outbound = c[iOut];
-      if (!seq || !/^\d{4}-\d{2}-\d{2}/.test(outbound)) throw new Error(RESPONSE_INVALID);
-      rows.push({ seq, outbound, boxes: c[iBox] });
-    }
-    return rows;
-  }
-  try {
-    const seen = new Set();
-    const byDate = new Map();
-    let scannedPages = 0;
-    let totalRows = 0;
-    let reachedLastPage = false;
-    let stopReason = 'max_pages';
-    let lastPageRowCount = 0;
-    const pageRowCounts = [];
-    for (
-      let batchStart = 1;
-      batchStart <= maxPages && !reachedLastPage;
-      batchStart += PAGE_FETCH_CONCURRENCY
-    ) {
-      const batchEnd = Math.min(
-        batchStart + PAGE_FETCH_CONCURRENCY - 1,
-        maxPages,
-      );
-      const pages = Array.from(
-        { length: batchEnd - batchStart + 1 },
-        (_, index) => batchStart + index,
-      );
-      const batchRows = await Promise.all(
-        pages.map(async (page) => ({
-          page,
-          rows: parseRows(await fetchPage(page)),
-        })),
-      );
-
-      for (const { page, rows } of batchRows) {
-        scannedPages = page;
-        lastPageRowCount = rows.length;
-        pageRowCounts.push(rows.length);
-        if (rows.length === 0) {
-          stopReason = 'empty_page';
-          reachedLastPage = true;
-          break;
-        }
-        for (const row of rows) {
-          if (seen.has(row.seq)) continue;
-          seen.add(row.seq);
-          totalRows += 1;
-          const date = row.outbound.slice(0, 10);
-          const boxMatch = String(row.boxes || "").match(/(\d+)/);
-          const current = byDate.get(date) || { count: 0, boxes: 0 };
-          current.count += 1;
-          current.boxes += boxMatch ? Number(boxMatch[1]) : 0;
-          byDate.set(date, current);
-        }
-        if (rows.length < 10) {
-          stopReason = 'short_page';
-          reachedLastPage = true;
-          break;
-        }
-      }
-    }
-    const dates = [...byDate.entries()]
-      .map(([date, v]) => ({ date, count: v.count, boxes: v.boxes }))
-      .sort((a, b) => b.date.localeCompare(a.date));
-    return {
-      success: true, scannedPages, totalRows, dates,
-      proof: { maxPages, validatedTable: true, stopReason, lastPageRowCount, pageRowCounts },
-    };
-  } catch (e) {
-    const msg = String((e && e.message) || e);
-    // 쿠팡 접속이 많아 쿠키가 커지면 supplier.coupang.com(Tomcat)이 400/413/431 로 요청을 거부한다.
-    // 재시도로는 안 풀리므로(쿠키가 그대로) 쿠키 정리/재로그인 안내로 치환한다.
-    if (msg === 'COUPANG_COOKIE_BLOAT') {
-      return {
-        success: false,
-        errorCode: 'coupang_cookie_bloat',
-        error: '쿠팡 접속이 많아 supplier.coupang.com 쿠키가 커져(HTTP 400) 요청이 거부됐습니다. 쿠팡 쿠키를 정리하거나 다시 로그인한 뒤 조회하세요.',
-      };
-    }
-    if (msg === SESSION_REQUIRED || msg === 'Failed to fetch') {
-      return {
-        success: false,
-        errorCode: 'coupang_shipment_session_required',
-        error: 'Supplier Hub 로그인 세션이 없거나 만료되었습니다. supplier.coupang.com에 로그인한 뒤 다시 조회해주세요.',
-      };
-    }
-    if (msg === RESPONSE_INVALID) {
-      return {
-        success: false,
-        errorCode: 'coupang_shipment_response_invalid',
-        error: '쿠팡 쉽먼트 목록 응답 형식이 예상과 다릅니다. 주문수집 확장프로그램을 새로고침한 뒤 다시 조회해주세요.',
-      };
-    }
-    return { success: false, error: msg };
-  }
 }
 
 // ── 원클릭 자동 수집: 발송일 기준 쉽먼트 목록 (직접 목록 API HTML 파싱) ──
@@ -7806,12 +7606,6 @@ KidItemDomains.register({
         coupangDirectshipSourceOwner.run({ attemptId, environmentId }),
       ),
     },
-    collectCoupangShipmentDateSummary: {
-      validate: parseShipmentSummaryStart,
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        coupangShipmentSummarySourceOwner.run({ attemptId, environmentId }),
-      ),
-    },
   },
   externalPorts: {
     [SELLPIA_MANUAL_MATCH_PORT_NAME]: (port, senderEnvironment) =>
@@ -7821,8 +7615,6 @@ KidItemDomains.register({
     orderCollectionIcecreamMall: true,
     coupangShipmentDownloads: true,
     collectCoupangShipmentFiles: true,
-    collectCoupangShipmentDateSummaryValidatedV1: true,
-    coupangShipmentSummarySourceOwnerV1: true,
     clearCoupangCookies: true,
     art09Orders: true,
     boriboriOrders: true,

@@ -337,7 +337,10 @@ model CoupangDirectPoSnapshot {
 model CoupangShipmentDateSummary {
   id                String   @id @default(uuid()) @db.Uuid
   organizationId    String   @map("organization_id") @db.Uuid
+  /** 옛 attempt 경로의 run(N까지). 실행 계약 kind `orders.coupang_shipment_summary`가 쓴 행은 `operationId`만 갖는다(KID-359). */
   sourceImportRunId String?  @map("source_import_run_id") @db.Uuid
+  /** 이 발송일을 센 실행(스칼라, 관계 없음 — ADR-0025). 옛 run 행·기준 행은 null. */
+  operationId       String?  @map("operation_id") @db.Uuid
   shipmentDate      String   @map("shipment_date")
   count             Int      @default(0)
   boxes             Int      @default(0)
@@ -348,9 +351,10 @@ model CoupangShipmentDateSummary {
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   sourceImportRun SourceImportRun? @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([organizationId, sourceImportRunId, shipmentDate], map: "shipment_date_summary_attempt_date_key", where: raw("source_import_run_id IS NOT NULL"))
-  @@unique([organizationId, shipmentDate], map: "shipment_date_summary_baseline_date_key", where: raw("source_import_run_id IS NULL"))
+  @@unique([organizationId, operationId, shipmentDate], map: "shipment_date_summary_operation_date_key", where: raw("operation_id IS NOT NULL"))
+  @@unique([organizationId, shipmentDate], map: "shipment_date_summary_baseline_date_key", where: raw("source_import_run_id IS NULL AND operation_id IS NULL"))
   @@index([sourceImportRunId, organizationId])
+  @@index([organizationId, operationId])
   @@index([organizationId])
   @@map("coupang_shipment_date_summaries")
 }

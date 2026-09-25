@@ -3654,7 +3654,6 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
   for (const capability of [
     // 주문수집
     'orderCollectionIcecreamMall',
-    'coupangShipmentSummarySourceOwnerV1',
     'collectSellpiaInventoryJsonV1',
     'collectSellpiaManualMatchV1',
     'collectSellpiaManualMatchPortV1',
@@ -3847,6 +3846,8 @@ test('도메인 고유 액션은 소유 워커만 받고 retired sourcing bridge
   assert.equal(sourcingBridgeKeptAlive, 0, 'retired sourcing bridge는 외부 액션을 열면 안 된다');
   // 소싱 확장 수집 6종은 옛 직접 액션 없이 operation.start 하나로 시작한다(KID-360).
   for (const retired of [
+    // 쿠팡 쉽먼트 발송일 조회는 실행 kind orders.coupang_shipment_summary다(KID-359).
+    'collectCoupangShipmentDateSummary',
     'collectSourcing1688Trends',
     'collectSourcingTiktokCcTrends',
     'collectSourcingLiveCommerce',
@@ -3856,34 +3857,6 @@ test('도메인 고유 액션은 소유 워커만 받고 retired sourcing bridge
     assert.equal(context.KidItemDomains.forExternalAction(retired), null, retired);
   }
   assert.equal(typeof context.KidItemDomains.forExternalAction('operation.start')?.handle, 'function');
-});
-
-test('shipment summary uses one authenticated owner responder without accepting a page-owned plan', async () => {
-  const { fake, context } = bootServiceWorker();
-  const action = 'collectCoupangShipmentDateSummary';
-  const attemptId = '11111111-1111-4111-8111-111111111111';
-  const contract = context.KidItemDomains.forExternalAction(action);
-  assert.equal(typeof contract?.handle, 'function');
-  for (const invalid of [
-    { action, runId: attemptId },
-    { action, attemptId, maxPages: 60 },
-    { action, attemptId, attemptToken: 'caller-token' },
-  ]) assert.throws(() => contract.validate(invalid), /Invalid shipment summary attempt/);
-
-  let keptAlive = 0;
-  const responses = [];
-  await new Promise((resolve) => {
-    for (const listener of fake.externalMessageListeners) {
-      if (listener({ action, attemptId },
-        { url: 'http://localhost:3000/coupang-shipments' },
-        (response) => { responses.push(response); resolve(); }) === true) keptAlive += 1;
-    }
-  });
-  assert.equal(keptAlive, 1);
-  assert.equal(responses.length, 1);
-  assert.equal(responses[0].success, false);
-  assert.match(responses[0].error, /login is required/);
-  assert.deepEqual(fake.createdTabs, []);
 });
 
 test('Rocket PO source dispatch rejects caller-owned plans and authenticates before provider IO', async () => {

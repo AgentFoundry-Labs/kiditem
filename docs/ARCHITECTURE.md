@@ -152,13 +152,13 @@ interval through yesterday. Collection does not refresh ABC. Order and Rocket PO
 pagination and field mapping. Excel conversion runs on the server and returns
 transient downloads; converted files do not acquire a database lifecycle.
 
-Coupang shipment-summary lookup now begins an Orders-owned SourceImportRun.
-The extension reads its frozen plan and uploads directly; immutable date facts,
-COMPLETE metadata, and Alert resolution commit together. The page reads the
-latest capture separately from calendar history, which retains the last
-COMPLETE observation per date. Untagged existing dates remain unverified, not
-successful capture evidence. CollectionSession holds only progress and tab
-attention; shipment PDF/file collection remains a separate existing action.
+Coupang shipment-summary lookup is the operation kind
+`orders.coupang_shipment_summary` (ADR-0025, organization lock). The extension
+reads the supplier parcel list and stages date items plus one scan proof; the
+Orders finalize validates the proof and writes the date facts inside the finish
+transaction. The calendar keeps, per date, the latest succeeded operation's
+value; untagged existing dates remain unverified. Shipment PDF/file collection
+remains a separate existing action.
 
 Business owners retain their own facts and source status. An Alert is a human
 notification, not execution state. Owner attempts are fenced by an
@@ -166,7 +166,7 @@ notification, not execution state. Owner attempts are fenced by an
 The global notification view reads durable Alerts only, with ten-second
 foreground polling, focus refetch, and dismissal invalidation. It does not
 merge run progress or replay an SSE stream. Source screens own their progress
-and current-source reads; shipment-summary failures use Orders' source Alert.
+and current-source reads.
 
 Sourcing collection uses its source owners directly:
 
@@ -1035,7 +1035,7 @@ fall back to old stock. Supply preserves recipe ratios, bottleneck allocation,
 provider idempotency and explicit reconciliation. Ordinary inventory reads need
 no new collection. Orders transmission to Sellpia does not write local stock.
 
-Coupang shipment summary, files and source attempts belong to Orders'
+Coupang shipment summary, files and the shipment-summary operation owner belong to Orders'
 `shipments/` lanes (`orders/shipments.module.ts` plus a `shipments/` folder in each layer);
 existing routes and PDF download/merge behavior remain available. Existing Rocket
 workbook audit and Orders reconciliation are retained because they have active

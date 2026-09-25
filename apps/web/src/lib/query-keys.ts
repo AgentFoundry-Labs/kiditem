@@ -78,6 +78,7 @@ export const queryKeys = {
   inventory: {
     all: ['inventory'] as const,
     coupangShipmentSummary: () => [...queryKeys.inventory.all, 'coupang-shipment-summary'] as const,
+    coupangShipmentSummaryOperation: () => [...queryKeys.inventory.all, 'coupang-shipment-summary', 'operation'] as const,
     snapshots: () => [...queryKeys.inventory.all, 'sellpia-skus'] as const,
     snapshot: (params: Record<string, string>) =>
       [...queryKeys.inventory.snapshots(), params] as const,

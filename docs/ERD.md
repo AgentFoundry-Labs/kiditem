@@ -672,7 +672,10 @@ erDiagram
   CoupangShipmentDateSummary {
     String id PK
     String organizationId FK
+     /**
     String sourceImportRunId FK
+     /**
+    String operationId
     String shipmentDate
     Int count
     Int boxes

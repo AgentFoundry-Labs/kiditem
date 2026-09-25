@@ -16,18 +16,17 @@ import {
   collectionSourceStatusQueryOptions,
   collectionSourceStatusRead,
 } from "@/lib/collection-source-status-query";
-import { CollectionStopOnlyControl } from "@/components/collection/CollectionStopOnlyControl";
-import { useCollectionSourceControl } from "@/hooks/use-collection-source-control";
 import { queryKeys } from "@/lib/query-keys";
 import { downloadBlob } from "@/lib/browser-download";
 import { formatNumber } from "@/lib/utils";
 import { createSecureRandomUuid } from "@/lib/secure-random-uuid";
 import {
-  collectAndPersistCoupangShipmentSummary,
-  coupangShipmentSummaryCollectionSource,
-  loadCoupangShipmentSummarySource,
-  CoupangShipmentExtensionError,
-} from "@/lib/coupang-shipment-summary-action";
+  cancelCoupangShipmentSummary,
+  loadCoupangShipmentDateSummary,
+  readLatestCoupangShipmentSummary,
+  startCoupangShipmentSummary,
+  type ShipmentSummaryRun,
+} from "@/lib/coupang-shipment-summary-operation";
 import {
   COUPANG_SHIPMENT_PAGE_URL,
   displayKind,
@@ -38,6 +37,7 @@ import {
 import {
   clearCoupangCookiesViaExtension,
   collectCoupangShipmentDraftsViaExtension,
+  CoupangShipmentExtensionError,
   isCoupangCookieBloatError,
   isCoupangShipmentSessionRequiredError,
   openCoupangShipmentPageViaExtension,
@@ -62,7 +62,6 @@ import {
 } from "./lib/coupang-shipment-store";
 import { useCoupangShipmentViewState } from "./hooks/useCoupangShipmentViewState";
 import { friendlyError } from '@/lib/api-error';
-import { operatorReason, attemptFailureText } from '@/lib/operator-error';
 
 type ResultKind = CoupangShipmentFileKind | CoupangShipmentServerFileKind;
 
@@ -103,14 +102,22 @@ export default function CoupangShipmentsPage() {
   const [serverHistoryLoading, setServerHistoryLoading] = useState(false);
   const [extensionBusy, setExtensionBusy] = useState(false);
   const [summaryLoading, setSummaryLoading] = useState(false);
-  const source = useQuery(collectionSourceStatusQueryOptions({
+  /** 이 화면이 시작한 조회. 끝나면 결과를 알리고 비운다. */
+  const [pendingOperationId, setPendingOperationId] = useState<string | null>(null);
+  const calendar = useQuery({
     queryKey: queryKeys.inventory.coupangShipmentSummary(),
-    queryFn: loadCoupangShipmentSummarySource,
+    queryFn: loadCoupangShipmentDateSummary,
+  });
+  // 조회 실행(실행 계약). 진행 중일 때만 1초마다 읽는다.
+  const source = useQuery(collectionSourceStatusQueryOptions({
+    queryKey: queryKeys.inventory.coupangShipmentSummaryOperation(),
+    queryFn: readLatestCoupangShipmentSummary,
     refetchInterval: (query) => (
-      query.state.data?.latestAttempt?.state === "RUNNING" ? 1_000 : false
+      query.state.data?.status === "running" || pendingOperationId ? 1_000 : false
     ),
   }));
-  const dateSummary = source.data?.items ?? [];
+  const run: ShipmentSummaryRun = source.data ?? { status: "idle" };
+  const dateSummary = calendar.data?.items ?? [];
   const [notifications, setNotifications] = useState<ShipmentNotification[]>(
     [],
   );
@@ -227,14 +234,14 @@ export default function CoupangShipmentsPage() {
 
   // Only read owner history on mount; an existing URL selection wins.
   useEffect(() => {
-    const latest = source.data?.items[0];
+    const latest = calendar.data?.items[0];
     if (latest)
       setCalendarView((current) =>
         current.date
           ? current
           : { month: latest.date.slice(0, 7), date: latest.date },
       );
-  }, [source.data, setCalendarView]);
+  }, [calendar.data, setCalendarView]);
 
   const historyByDate = useMemo(
     () => groupHistoryByDate(history, serverHistory),
@@ -260,34 +267,47 @@ export default function CoupangShipmentsPage() {
     setSummaryLoading(true);
     notify("started", "발송일 조회를 시작합니다…");
     try {
-      const result = await collectAndPersistCoupangShipmentSummary();
-      if (result.status === "empty") {
-        toast.info("새로 조회된 쉽먼트가 없습니다.");
-        notify("info", "새로 조회된 쉽먼트가 없습니다.");
-        return;
+      const started = await startCoupangShipmentSummary();
+      if (started.outcome === "refused") {
+        toast.info(started.message);
+        notify("info", started.message);
+      } else {
+        setPendingOperationId(started.operationId);
       }
-
-      setCalendarView({
-        month: result.latest.date.slice(0, 7),
-        date: result.latest.date,
-      });
-      const message = `발송일 ${formatNumber(result.items.length)}일 · 최신 ${result.latest.date} (${formatNumber(result.latest.count)}건)`;
-      toast.success(message);
-      notify("succeeded", message);
     } catch (error) {
-      if (
-        error instanceof CoupangShipmentExtensionError &&
-        error.code === "SOURCE_RUNNING"
-      ) {
-        const running = operatorReason(error.message, "이미 발송일 조회가 진행 중입니다.");
-        toast.info(running);
-        notify("info", running);
-      } else showExtensionErrorToast(error, "발송일 조회·저장 실패");
+      showExtensionErrorToast(error, "발송일 조회 실패");
     } finally {
       setSummaryLoading(false);
       void source.refetch();
     }
   };
+
+  // 이 화면이 시작한 조회가 끝나면 달력을 다시 읽고 결과를 알린다.
+  useEffect(() => {
+    if (!pendingOperationId || run.status === "idle" || run.operationId !== pendingOperationId) return;
+    if (run.status === "running") return;
+    setPendingOperationId(null);
+    if (run.status === "cancelled") {
+      notify("info", "발송일 조회를 중단했습니다.");
+      return;
+    }
+    if (run.status === "error") {
+      showExtensionErrorToast(new CoupangShipmentExtensionError(run.error ?? "쉽먼트 조회에 실패했습니다.", run.errorCode), "발송일 조회 실패");
+      return;
+    }
+    void calendar.refetch().then(({ data }) => {
+      const latest = data?.items.find((item) => item.verified);
+      if (!run.dates || !latest || latest.count === null) {
+        toast.info("새로 조회된 쉽먼트가 없습니다.");
+        notify("info", "새로 조회된 쉽먼트가 없습니다.");
+        return;
+      }
+      setCalendarView({ month: latest.date.slice(0, 7), date: latest.date });
+      const message = `발송일 ${formatNumber(run.dates)}일 · 최신 ${latest.date} (${formatNumber(latest.count)}건)`;
+      toast.success(message);
+      notify("succeeded", message);
+    });
+  }, [pendingOperationId, run, calendar, notify, setCalendarView, showExtensionErrorToast]);
 
   const collectAndMerge = async () => {
     if (!selectedDate) {
@@ -401,28 +421,26 @@ export default function CoupangShipmentsPage() {
       {/* 좌: 발송일 달력(3/4) · 우: 일별 결과 알림 패널(1/4) — 쿠팡 로켓 페이지와 동일 구조 */}
       <div className="grid items-start gap-4 xl:grid-cols-4">
         <div className="min-w-0 xl:col-span-3">
-          <ShipmentSummaryCollectionControl startInFlight={summaryLoading} />
+          <ShipmentSummaryStopControl run={run} onStopped={() => void source.refetch()} />
           <div role="status" className="mb-2 text-sm text-slate-600">
             <p>
               {collectionSourceStatusRead(source) === "unavailable"
                 ? "쉽먼트 조회 상태를 불러오지 못했습니다."
-                : source.data?.latestAttempt?.state === "RUNNING"
-                  ? "쉽먼트 조회 진행 중 · 이전 달력 이력 표시"
-                  : source.data?.latestAttempt?.state === "FAILED"
-                    ? `최근 조회 실패: ${attemptFailureText(source.data.latestAttempt, 'coupang_shipment_summary') ?? '다시 조회해 주세요.'}`
-                    : source.data?.ready
-                      ? `최근 조회 결과 ${source.data.capturedItems.length}일 · 달력 이력 유지`
+                : run.status === "running"
+                  ? `쉽먼트 조회 진행 중 (${formatNumber(run.current)}/${formatNumber(run.total)}쪽) · 이전 달력 이력 표시`
+                  : run.status === "error"
+                    ? `최근 조회 실패: ${run.error ?? "다시 조회해 주세요."}`
+                    : run.status === "done"
+                      ? `최근 조회 결과 ${formatNumber(run.dates ?? 0)}일 · 달력 이력 유지`
                       : "수집 미확인 · 저장된 이력은 최신 수집 증거가 아닙니다."}
             </p>
             {collectionSourceStatusRead(source) === "rechecking" && (
               <p className="text-slate-500">{COLLECTION_SOURCE_STATUS_RECHECKING_MESSAGE}</p>
             )}
-            {source.data?.latestComplete?.actualCutoffAt && (
+            {run.status === "done" && run.finishedAt && (
               <p>
                 마지막 완료:{" "}
-                <time dateTime={source.data.latestComplete.actualCutoffAt}>
-                  {source.data.latestComplete.actualCutoffAt}
-                </time>
+                <time dateTime={run.finishedAt}>{run.finishedAt}</time>
               </p>
             )}
             {dateSummary.some((item) => !item.verified) && (
@@ -442,8 +460,8 @@ export default function CoupangShipmentsPage() {
             onSelect={(date) => {
               setCalendarView((current) => ({ ...current, date }));
             }}
-            loading={summaryLoading || source.data?.latestAttempt?.state === "RUNNING"}
-            loaded={source.isSuccess}
+            loading={summaryLoading || run.status === "running"}
+            loaded={calendar.isSuccess}
             onQuery={queryDateSummary}
             onCollect={collectAndMerge}
             collecting={extensionBusy}
@@ -623,23 +641,35 @@ function formatFileSize(sizeBytes: number): string {
 }
 
 /**
- * 발송일 조회의 진행 중 표시와 운영자 중단. 시작은 이 화면의 "발송일 조회"가 그대로
- * 하고(조회한 날짜를 부른 쪽이 받아 간다), 컨트롤은 owner가 말하는 진행 중과 중단만
- * 맡는다(KID-159). 그 조회가 도는 동안에는 owner를 진행 중 주기로 읽어, 짧은 조회도
- * 중단할 틈을 준다(KID-170 D3).
+ * 발송일 조회의 진행 중 표시와 운영자 중단(KID-159). 조회는 실행 계약(`orders.coupang_shipment_summary`)이라
+ * 어느 브라우저에서 시작했든 여기서 서버 cancel로 멈춘다.
  */
-function ShipmentSummaryCollectionControl({ startInFlight }: { startInFlight: boolean }) {
-  const adapter = useMemo(
-    () => coupangShipmentSummaryCollectionSource({ localStartInFlight: startInFlight }),
-    [startInFlight],
-  );
-  const control = useCollectionSourceControl(adapter);
-
+function ShipmentSummaryStopControl({ run, onStopped }: { run: ShipmentSummaryRun; onStopped: () => void }) {
+  const [stopping, setStopping] = useState(false);
+  if (run.status !== "running") return null;
+  const stop = async () => {
+    setStopping(true);
+    try {
+      await cancelCoupangShipmentSummary(run.operationId);
+      onStopped();
+    } catch (error) {
+      toast.error(friendlyError(error, "쉽먼트 조회를 멈추지 못했습니다."));
+    } finally {
+      setStopping(false);
+    }
+  };
   return (
-    <CollectionStopOnlyControl
-      control={control}
-      label="쿠팡 쉽먼트 발송일 조회"
-      className="mb-2"
-    />
+    <div className="mb-2 flex items-center gap-2 text-sm text-slate-600">
+      <Loader2 size={14} className="animate-spin" aria-hidden />
+      <span>쿠팡 쉽먼트 발송일 조회 진행 중</span>
+      <button
+        type="button"
+        onClick={() => void stop()}
+        disabled={stopping}
+        className="rounded-md border border-slate-200 px-2 py-0.5 text-xs text-slate-700 hover:bg-slate-50 disabled:opacity-50"
+      >
+        수집 중단
+      </button>
+    </div>
   );
 }

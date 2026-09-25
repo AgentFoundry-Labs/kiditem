@@ -5,7 +5,7 @@ import {
   sendToExtension,
 } from '@/lib/extension-bridge';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
-import { CoupangShipmentExtensionError } from '@/lib/coupang-shipment-summary-action';
+import { SITE_COOKIE_BLOAT_CODE, SITE_LOGIN_REQUIRED_CODE } from '@/lib/coupang-shipment-summary-operation';
 import {
   COUPANG_SHIPMENT_PAGE_URL,
   type CoupangShipmentFileDraft,
@@ -32,17 +32,31 @@ export interface CoupangShipmentDownloadResult {
 
 /**
  * 쿠팡 접속이 많아 쿠키가 커지면 supplier.coupang.com(Tomcat)이 요청 헤더 과다로 400 을
- * 반환한다. 확장이 이 코드로 알려주면 웹은 "쿠키 정리" 복구 흐름을 제안한다.
+ * 반환한다. 확장이 이 코드로 알려주면 웹은 "쿠키 정리" 복구 흐름을 제안한다. 옛 파일 액션은
+ * `coupang_cookie_bloat`, 실행 계약 조회(`orders.coupang_shipment_summary`)는 `SITE_COOKIE_BLOAT`로 알린다.
  */
-export {
-  COUPANG_COOKIE_BLOAT_CODE,
-  COUPANG_SHIPMENT_RESPONSE_INVALID_CODE,
-  COUPANG_SHIPMENT_SESSION_REQUIRED_CODE,
-  CoupangShipmentExtensionError,
-  isCoupangCookieBloatError,
-  isCoupangShipmentSessionRequiredError,
-  type CoupangShipmentDateSummaryItem,
-} from '@/lib/coupang-shipment-summary-action';
+export const COUPANG_COOKIE_BLOAT_CODES: ReadonlySet<string> = new Set(['coupang_cookie_bloat', SITE_COOKIE_BLOAT_CODE]);
+export const COUPANG_SHIPMENT_SESSION_REQUIRED_CODES: ReadonlySet<string> = new Set(['coupang_shipment_session_required', SITE_LOGIN_REQUIRED_CODE]);
+
+export class CoupangShipmentExtensionError extends Error {
+  constructor(message: string, public code?: string | null) {
+    super(message);
+    this.name = 'CoupangShipmentExtensionError';
+  }
+}
+export function isCoupangCookieBloatError(error: unknown): boolean {
+  return error instanceof CoupangShipmentExtensionError && COUPANG_COOKIE_BLOAT_CODES.has(error.code ?? '');
+}
+export function isCoupangShipmentSessionRequiredError(error: unknown): boolean {
+  return error instanceof CoupangShipmentExtensionError && COUPANG_SHIPMENT_SESSION_REQUIRED_CODES.has(error.code ?? '');
+}
+
+/** 발송일 달력 한 칸(미검증 기준 칸은 측정값이 없다). */
+export interface CoupangShipmentDateSummaryItem {
+  date: string;
+  count: number | null;
+  boxes: number | null;
+}
 
 const ORDER_COLLECTOR_REQUIRED_MESSAGE =
   '주문수집 확장프로그램이 필요합니다. extensions/kiditem-os를 Chrome에서 로드한 뒤 다시 시도해주세요.';

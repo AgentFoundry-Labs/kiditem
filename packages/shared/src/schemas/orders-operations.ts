@@ -30,6 +30,48 @@ export const CoupangShipmentSummaryScopeSchema = z.object({
 }).strict();
 export type CoupangShipmentSummaryScope = z.infer<typeof CoupangShipmentSummaryScopeSchema>;
 
+/** 배송요약 기본 쪽 수(옛 attempt와 같다). */
+export const COUPANG_SHIPMENT_SUMMARY_DEFAULT_MAX_PAGES = 40;
+/** 쪽이 이보다 적으면 마지막 쪽이다(supplier 목록 한 쪽 = 10행). */
+export const COUPANG_SHIPMENT_SUMMARY_PAGE_ROWS = 10;
+
+/** `shipment_dates` 청크 항목: 발송일 하나의 쉽먼트 수·박스 수(확장이 쪽을 모아 발송일별로 센 값). */
+export const CoupangShipmentDateItemSchema = z.object({
+  date: isoDay,
+  count: z.number().int().min(1).max(1_000_000),
+  boxes: z.number().int().min(0).max(1_000_000),
+}).strict();
+export type CoupangShipmentDateItem = z.infer<typeof CoupangShipmentDateItemSchema>;
+
+/**
+ * `shipment_scan` 청크 항목(실행당 하나): 읽은 쪽과 멈춘 까닭. 옛 attempt의 제출 증거(`scannedPages`·`totalRows`·`proof`)와 같다.
+ * owner finalize가 plan의 쪽 상한과 발송일 항목 합계로 완결을 확인한다.
+ */
+export const CoupangShipmentScanSchema = z.object({
+  maxPages: z.number().int().min(1).max(60),
+  scannedPages: z.number().int().min(1).max(60),
+  totalRows: z.number().int().min(0),
+  stopReason: z.enum(['empty_page', 'short_page', 'max_pages']),
+  lastPageRowCount: z.number().int().min(0),
+  pageRowCounts: z.array(z.number().int().min(0)).min(1).max(60),
+  validatedTable: z.literal(true),
+}).strict();
+export type CoupangShipmentScan = z.infer<typeof CoupangShipmentScanSchema>;
+
+/** 배송요약 진행: 읽은 쪽 / 쪽 상한. */
+export const CoupangShipmentSummaryProgressSchema = z.object({
+  current: z.number().int().min(0),
+  total: z.number().int().min(1),
+}).passthrough();
+export type CoupangShipmentSummaryProgress = z.infer<typeof CoupangShipmentSummaryProgressSchema>;
+
+/** 배송요약 result: 저장한 발송일 수와 센 쉽먼트 행 수. */
+export const CoupangShipmentSummaryResultSchema = z.object({
+  dates: z.number().int().nonnegative(),
+  rows: z.number().int().nonnegative(),
+}).strict();
+export type CoupangShipmentSummaryResult = z.infer<typeof CoupangShipmentSummaryResultSchema>;
+
 /** 로켓 PO: 옛 begin 입력과 같다(계정·기간·상태·날짜 기준·확정 요구). lockKey `account:<channelAccountId>`. */
 export const CoupangRocketPoScopeSchema = RocketPoSourceBeginSchema;
 export type CoupangRocketPoScope = z.infer<typeof CoupangRocketPoScopeSchema>;
@@ -79,6 +121,7 @@ export function isMallOrderOperationMall(mallKey: string): mallKey is MallOrderO
 
 /** 청크 종류(확장 수집기 → owner finalize). */
 export const COUPANG_SHIPMENT_SUMMARY_CHUNK_KIND = 'shipment_dates' as const;
+export const COUPANG_SHIPMENT_SUMMARY_SCAN_CHUNK_KIND = 'shipment_scan' as const;
 export const COUPANG_ROCKET_PO_CHUNK_KIND = 'po_rows' as const;
 export const COUPANG_DIRECTSHIP_CHUNK_KIND = 'orders_capture' as const;
 export const SELLPIA_SHIPMENT_TRACKING_CHUNK_KIND = 'tracking_rows' as const;

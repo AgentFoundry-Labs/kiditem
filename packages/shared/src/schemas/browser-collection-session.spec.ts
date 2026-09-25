@@ -65,7 +65,6 @@ describe('BrowserCollectionSessionViewSchema', () => {
       'inventory.sellpia',
       'orders.coupang_directship',
       'orders.coupang_rocket_po',
-      'orders.coupang_shipment_summary',
       'orders.mall',
       'orders.mall_admin_listings',
       'orders.sabangnet_mall_listings',

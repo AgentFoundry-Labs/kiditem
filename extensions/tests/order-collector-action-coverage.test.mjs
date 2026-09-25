@@ -371,8 +371,6 @@ test('order collector manifest publishes normalized failure evidence and scoped 
   const worker = readFileSync(workerPath, 'utf8');
   assert.match(worker, /sellpiaOrderFileUploadEvidenceV1:\s*true/);
   assert.match(worker, /sellpiaScopedAutoInvoiceV1:\s*true/);
-  assert.match(worker, /collectCoupangShipmentDateSummaryValidatedV1:\s*true/);
-  assert.match(worker, /coupangShipmentSummarySourceOwnerV1:\s*true/);
   assert.equal(/coupangRocketPoSourceOwnerV1:\s*true/.test(worker), true);
 });
 
@@ -421,20 +419,6 @@ test('web bridge reaches local and Office KidItem origins', () => {
   assert.ok(hostBridge, 'host-bridge content script must be declared');
   assert.ok(hostBridge.matches.includes('http://localhost:3000/*'));
   assert.ok(hostBridge.matches.includes('http://kiditem-office/*'));
-});
-
-test('Coupang shipment date summary scans its bounded range in concurrent batches', () => {
-  const worker = readFileSync(workerPath, 'utf8');
-  const start = worker.indexOf('async function scrapeCoupangShipmentDateSummary(');
-  const end = worker.indexOf('\nasync function collectCoupangShipmentList(', start);
-  const body = worker.slice(start, end);
-
-  assert.notEqual(start, -1);
-  assert.notEqual(end, -1);
-  assert.match(body, /const PAGE_FETCH_CONCURRENCY = 6;/);
-  assert.match(body, /await Promise\.all\(/);
-  assert.match(body, /batchStart \+= PAGE_FETCH_CONCURRENCY/);
-  assert.doesNotMatch(body, /for \(let page = 1; page <= maxPages; page\+\+\)/);
 });
 
 test('every web automatic order message carries local owner correlation explicitly', () => {

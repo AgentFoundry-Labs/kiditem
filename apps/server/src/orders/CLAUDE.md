@@ -50,6 +50,10 @@ Action, collection, transmission, and reconciliation behavior is executable in
   only after every planned month window's `review_windows` marker matches its
   `reviews` chunk count, and the reader prefers operation rows over legacy
   SourceImportRun rows.
+- Coupang shipment date summary is the operation kind
+  `orders.coupang_shipment_summary` (organization lock). Its finalize keeps the
+  old scan-proof validation and writes date rows with `operationId`; the
+  calendar reads operation rows and untagged baseline rows only.
 
 ## Boundaries
 

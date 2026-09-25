@@ -55,10 +55,10 @@ multiple route groups.
 - Trend consumers use `src/hooks/use-trend-source-collection.ts`, the shared
   control over `trend-source-collection.ts`. Sellpia callers use the route-local
   source-owner helper instead of a generic operation action.
-- Shipment summary callers use `coupang-shipment-summary-action.ts` to begin
-  the Orders-owned shipment attempt and send only its ID to the extension. Read status,
-  capture cutoff, and calendar history from the owner; keep provider rows and
-  terminal writes out of the page.
+- Shipment summary is the operation kind `orders.coupang_shipment_summary`:
+  `coupang-shipment-summary-operation.ts` starts it through `operation-start.ts`,
+  reads progress from `GET /api/operations` and the calendar from the owner;
+  keep provider rows and terminal writes out of the page.
 - Rocket PO callers start and stop collection through the account's shared
   control (`useRocketPoCollection`). Supply previews the owner's COMPLETE source
   by ID; `use-rocket-po-source.ts` reads owner status, and preview errors never

@@ -13,8 +13,9 @@ import type {
   CoupangShipmentFilesResponse,
   CoupangShipmentResolvedFile,
   CoupangShipmentsPort,
-  ShipmentSummarySubmission,
 } from "../../port/in/shipments/index";
+import type { CoupangShipmentDateItem } from "@kiditem/shared/orders-operations";
+import type { OwnerTransaction } from "../../../../common/owner-transaction";
 
 @Injectable()
 export class CoupangShipmentsService implements CoupangShipmentsPort {
@@ -45,44 +46,10 @@ export class CoupangShipmentsService implements CoupangShipmentsPort {
     return { items };
   }
 
-  beginSummary(organizationId: string, key: string, maxPages?: number) {
-    return this.dateSummary.beginSummary(organizationId, key, maxPages);
-  }
-  readSummarySource(organizationId: string, maxPages?: number) {
-    return this.dateSummary.readSummarySource(organizationId, maxPages);
-  }
-  readSummaryAttempt(organizationId: string, attemptId: string) {
-    return this.dateSummary.readSummaryAttempt(organizationId, attemptId);
-  }
-  completeSummary(
-    organizationId: string,
-    attemptId: string,
-    token: string,
-    input: ShipmentSummarySubmission,
-  ) {
-    return this.dateSummary.completeSummary(
-      organizationId,
-      attemptId,
-      token,
-      input,
-    );
-  }
-  failSummary(
-    organizationId: string,
-    attemptId: string,
-    token: string,
-    code: string,
-    message: string,
-  ) {
-    return this.dateSummary.failSummary(
-      organizationId,
-      attemptId,
-      token,
-      code,
-      message,
-    );
-  }
-  cancelSummary(organizationId: string, attemptId: string) {
-    return this.dateSummary.cancelSummary(organizationId, attemptId);
+  publishSummaryOperation(
+    tx: OwnerTransaction,
+    input: { organizationId: string; operationId: string; items: readonly CoupangShipmentDateItem[] },
+  ): Promise<{ dates: number }> {
+    return this.dateSummary.publishOperation(tx, { ...input, capturedAt: new Date() });
   }
 }
