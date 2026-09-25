@@ -4080,127 +4080,14 @@ var KidItemRuntime = (() => {
   };
   var NEVER = INVALID;
 
-  // packages/shared/src/schemas/common.ts
-  var zIsoDate = external_exports.union([external_exports.string(), external_exports.date()]);
-  var ApiErrorResponseSchema = external_exports.object({
-    statusCode: external_exports.number(),
-    message: external_exports.union([external_exports.string(), external_exports.array(external_exports.string())]),
-    error: external_exports.string().optional()
-  });
-  var SyncInfoSchema = external_exports.object({
-    lastSyncedAt: external_exports.string().nullable()
-  });
-
-  // packages/shared/src/schemas/browser-collection-session.ts
-  var BROWSER_COLLECTION_PRODUCERS = [
-    "advertising.ad_keyword",
-    "advertising.ad_sync",
-    "advertising.profitability_import",
-    "advertising.competitor_catalog",
-    "advertising.competitor_seller_identity",
-    "advertising.keyword_rank",
-    "advertising.wing_rank",
-    "advertising.wing_tracked_products",
-    "channels.coupang_catalog",
-    "dashboard.coupang_products",
-    "dashboard.wing_kpi",
-    "dashboard.wing_sales",
-    "inventory.sellpia",
-    "orders.coupang_directship",
-    "orders.coupang_reviews",
-    "orders.coupang_rocket_po",
-    "orders.coupang_shipment_summary",
-    "orders.mall",
-    "orders.mall_admin_listings",
-    "orders.sabangnet_mall_listings",
-    "orders.sellpia_manual_match",
-    "orders.sellpia_product_profitability",
-    "orders.sellpia_sales",
-    "orders.sellpia_shipment_tracking",
-    "sourcing.1688_trend",
-    "sourcing.keyword_suggestion",
-    "sourcing.live_commerce",
-    "sourcing.product_extension",
-    "sourcing.tiktok_cc_trend",
-    "sourcing.wing_catalog"
-  ];
-  var BROWSER_COLLECTION_ATTENTION_REASONS = [
-    "extension_missing",
-    "extension_outdated",
-    "kiditem_auth",
-    "marketplace_login",
-    "captcha",
-    "permission",
-    "background_timeout",
-    "rate_limited",
-    "manual_confirmation",
-    "unknown"
-  ];
-  var BrowserCollectionProducerSchema = external_exports.enum(
-    BROWSER_COLLECTION_PRODUCERS
-  );
-  var BrowserCollectionAttentionReasonSchema = external_exports.enum(
-    BROWSER_COLLECTION_ATTENTION_REASONS
-  );
-  var BrowserCollectionAttemptIdSchema = external_exports.string().uuid();
-  var BoundedCountSchema = external_exports.number().int().min(0).max(1e6);
-  var BrowserCollectionProgressSchema = external_exports.object({
-    current: BoundedCountSchema,
-    total: BoundedCountSchema,
-    completed: BoundedCountSchema,
-    failed: BoundedCountSchema,
-    label: external_exports.string().max(300).nullable()
-  }).strict().superRefine((progress, context) => {
-    if (progress.current > progress.total || progress.completed + progress.failed > progress.total) {
-      context.addIssue({
-        code: external_exports.ZodIssueCode.custom,
-        message: "Invalid progress bounds"
-      });
-    }
-  });
-  var BrowserCollectionAttentionSchema = external_exports.object({
-    reason: BrowserCollectionAttentionReasonSchema,
-    message: external_exports.string().min(1).max(2e3),
-    canOpenTab: external_exports.boolean()
-  }).strict();
-  var BrowserCollectionSessionViewSchema = external_exports.object({
-    // Environment ownership is local extension metadata, not part of the
-    // owner attempt. It remains optional for callers with one environment.
-    environmentId: external_exports.enum(["local", "office"]).optional(),
-    attemptId: BrowserCollectionAttemptIdSchema,
-    producer: BrowserCollectionProducerSchema,
-    progress: BrowserCollectionProgressSchema,
-    attention: BrowserCollectionAttentionSchema.nullable()
-  }).strict();
-  var BrowserCollectionCommandSchema = external_exports.discriminatedUnion("action", [
-    external_exports.object({ action: external_exports.literal("listCollectionSessions") }).strict(),
-    external_exports.object({
-      action: external_exports.literal("getCollectionSession"),
-      attemptId: BrowserCollectionAttemptIdSchema
-    }).strict(),
-    external_exports.object({
-      action: external_exports.literal("cancelCollectionSession"),
-      attemptId: BrowserCollectionAttemptIdSchema
-    }).strict(),
-    external_exports.object({
-      action: external_exports.literal("openCollectionAttentionTab"),
-      attemptId: BrowserCollectionAttemptIdSchema
-    }).strict()
-  ]);
-
   // packages/shared/src/schemas/coupang-catalog-snapshot.ts
-  var COUPANG_CATALOG_STAGE_SCHEMA_VERSION = 1;
   var COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT = 500;
   var COUPANG_CATALOG_MAX_MEDIA_PER_OWNER = 100;
   var COUPANG_CATALOG_MAX_DETAIL_MEDIA = COUPANG_CATALOG_MAX_MEDIA_PER_OWNER * (COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT + 1);
-  var COUPANG_CATALOG_MAX_PRODUCTS_PER_CHUNK = 20;
-  var COUPANG_CATALOG_MAX_DELETION_CONFIRMATIONS_PER_CHUNK = 100;
   var COUPANG_CATALOG_MAX_PRODUCT_BYTES = 512 * 1024;
   var COUPANG_CATALOG_MAX_RAW_BYTES = 64 * 1024;
-  var COUPANG_CATALOG_MAX_CHUNK_BYTES = 1024 * 1024;
   var COUPANG_CATALOG_MAX_DOCUMENT_BYTES = 64 * 1024;
   var COUPANG_CATALOG_MAX_DOCUMENTS_PER_PRODUCT = 2e3;
-  var Sha256Schema = external_exports.string().regex(/^[a-f0-9]{64}$/);
   var ExternalIdSchema = external_exports.string().trim().min(1).max(200);
   var NullableTextSchema = external_exports.string().trim().min(1).max(2e3).nullable();
   var HttpUrlSchema = external_exports.string().url().max(4096).refine((value) => {
@@ -4298,7 +4185,6 @@ var KidItemRuntime = (() => {
       });
     }
   });
-  var CoupangCatalogStageSchema = external_exports.enum(["basics", "details"]);
   var CoupangCatalogBasicOptionV1Schema = CoupangCatalogOptionV1Schema;
   var CoupangCatalogBasicProductV1Schema = external_exports.object({
     externalProductId: ExternalIdSchema,
@@ -4500,277 +4386,12 @@ var KidItemRuntime = (() => {
       });
     }
   });
-  var CoupangCatalogListingBasicsChunkV1Schema = external_exports.object({
-    version: external_exports.literal(COUPANG_CATALOG_STAGE_SCHEMA_VERSION),
-    kind: external_exports.literal("listing_basics"),
-    startOrdinal: external_exports.number().int().nonnegative(),
-    products: external_exports.array(external_exports.object({
-      ordinal: external_exports.number().int().nonnegative(),
-      product: CoupangCatalogBasicProductV1Schema
-    })).min(1).max(COUPANG_CATALOG_MAX_PRODUCTS_PER_CHUNK)
-  }).superRefine((chunk, ctx) => {
-    chunk.products.forEach((item, index) => {
-      if (item.ordinal !== chunk.startOrdinal + index) {
-        ctx.addIssue({
-          code: external_exports.ZodIssueCode.custom,
-          path: ["products", index, "ordinal"],
-          message: `product ordinals must be contiguous from ${chunk.startOrdinal}`
-        });
-      }
-    });
-    if (jsonBytes(chunk) > COUPANG_CATALOG_MAX_CHUNK_BYTES) {
-      ctx.addIssue({
-        code: external_exports.ZodIssueCode.custom,
-        message: `chunk exceeds ${COUPANG_CATALOG_MAX_CHUNK_BYTES} bytes`
-      });
-    }
-  });
-  var CoupangCatalogFullDetailsChunkV1Schema = external_exports.object({
-    version: external_exports.literal(COUPANG_CATALOG_STAGE_SCHEMA_VERSION),
-    kind: external_exports.literal("full_details"),
-    startOrdinal: external_exports.number().int().nonnegative(),
-    products: external_exports.array(external_exports.object({
-      ordinal: external_exports.number().int().nonnegative(),
-      product: CoupangCatalogDetailProductV1Schema
-    })).min(1).max(COUPANG_CATALOG_MAX_PRODUCTS_PER_CHUNK)
-  }).superRefine((chunk, ctx) => {
-    chunk.products.forEach((item, index) => {
-      if (item.ordinal !== chunk.startOrdinal + index) {
-        ctx.addIssue({
-          code: external_exports.ZodIssueCode.custom,
-          path: ["products", index, "ordinal"],
-          message: `product ordinals must be contiguous from ${chunk.startOrdinal}`
-        });
-      }
-    });
-    if (jsonBytes(chunk) > COUPANG_CATALOG_MAX_CHUNK_BYTES) {
-      ctx.addIssue({
-        code: external_exports.ZodIssueCode.custom,
-        message: `chunk exceeds ${COUPANG_CATALOG_MAX_CHUNK_BYTES} bytes`
-      });
-    }
-  });
   function stableDocumentValue(value) {
     if (value === null || typeof value !== "object") return JSON.stringify(value) ?? "null";
     if (Array.isArray(value)) return `[${value.map(stableDocumentValue).join(",")}]`;
     return `{${Object.entries(value).filter(([, nested]) => nested !== void 0).sort(([left], [right]) => left.localeCompare(right)).map(([key, nested]) => `${JSON.stringify(key)}:${stableDocumentValue(nested)}`).join(",")}}`;
   }
-  var CoupangCatalogManifestV1Schema = external_exports.object({
-    totalItems: external_exports.number().int().positive(),
-    pageSize: external_exports.number().int().positive().max(500),
-    expectedPages: external_exports.number().int().positive(),
-    firstPageFingerprint: Sha256Schema
-  }).superRefine((manifest, ctx) => {
-    const expected = Math.ceil(manifest.totalItems / manifest.pageSize);
-    if (manifest.expectedPages !== expected) {
-      ctx.addIssue({
-        code: external_exports.ZodIssueCode.custom,
-        path: ["expectedPages"],
-        message: `expectedPages must equal ceil(totalItems/pageSize): ${expected}`
-      });
-    }
-  });
-  var CoupangCatalogDetailManifestConfirmationV1Schema = external_exports.object({
-    version: external_exports.literal(COUPANG_CATALOG_STAGE_SCHEMA_VERSION),
-    kind: external_exports.literal("detail_manifest_confirmation"),
-    manifest: CoupangCatalogManifestV1Schema,
-    basicAttemptId: external_exports.string().uuid(),
-    basicManifestHash: Sha256Schema
-  });
-  var CoupangCatalogDiscoveryItemV1Schema = external_exports.object({
-    ordinal: external_exports.number().int().nonnegative(),
-    externalProductId: ExternalIdSchema,
-    registeredName: NullableTextSchema,
-    primaryImageUrl: HttpUrlSchema.nullable(),
-    saleStatus: NullableTextSchema.optional().default(null)
-  });
-  var CoupangCatalogDiscoveryPageV1Schema = external_exports.object({
-    version: external_exports.literal(1),
-    kind: external_exports.literal("discovery_page"),
-    page: external_exports.number().int().positive(),
-    manifest: CoupangCatalogManifestV1Schema,
-    items: external_exports.array(CoupangCatalogDiscoveryItemV1Schema).min(1).max(500)
-  }).superRefine((page, ctx) => {
-    if (page.page > page.manifest.expectedPages) {
-      ctx.addIssue({
-        code: external_exports.ZodIssueCode.custom,
-        path: ["page"],
-        message: "page exceeds manifest expectedPages"
-      });
-    }
-    const productIds = /* @__PURE__ */ new Set();
-    const ordinals = /* @__PURE__ */ new Set();
-    page.items.forEach((item, index) => {
-      if (productIds.has(item.externalProductId)) {
-        addDuplicateIssue(ctx, ["items", index, "externalProductId"], "externalProductId", item.externalProductId);
-      }
-      if (ordinals.has(item.ordinal)) {
-        addDuplicateIssue(ctx, ["items", index, "ordinal"], "ordinal", String(item.ordinal));
-      }
-      productIds.add(item.externalProductId);
-      ordinals.add(item.ordinal);
-    });
-  });
-  var CoupangCatalogManifestConfirmationV1Schema = external_exports.object({
-    version: external_exports.literal(1),
-    kind: external_exports.literal("manifest_confirmation"),
-    manifest: CoupangCatalogManifestV1Schema
-  });
   var CoupangCatalogDeletionOutcomeSchema = external_exports.enum(["deleted", "present", "not_found"]);
-  var CoupangCatalogDeletionConfirmationChunkV1Schema = external_exports.object({
-    version: external_exports.literal(COUPANG_CATALOG_STAGE_SCHEMA_VERSION),
-    kind: external_exports.literal("deletion_confirmation"),
-    products: external_exports.array(external_exports.object({
-      externalProductId: ExternalIdSchema,
-      outcome: CoupangCatalogDeletionOutcomeSchema,
-      productStatus: NullableTextSchema.optional().default(null),
-      raw: external_exports.record(external_exports.unknown()).optional()
-    })).min(1).max(COUPANG_CATALOG_MAX_DELETION_CONFIRMATIONS_PER_CHUNK)
-  }).superRefine((chunk, ctx) => {
-    const seen = /* @__PURE__ */ new Set();
-    chunk.products.forEach((item, index) => {
-      if (seen.has(item.externalProductId)) {
-        addDuplicateIssue(ctx, ["products", index, "externalProductId"], "externalProductId", item.externalProductId);
-      }
-      seen.add(item.externalProductId);
-    });
-    if (jsonBytes(chunk) > COUPANG_CATALOG_MAX_CHUNK_BYTES) {
-      ctx.addIssue({
-        code: external_exports.ZodIssueCode.custom,
-        message: `chunk exceeds ${COUPANG_CATALOG_MAX_CHUNK_BYTES} bytes`
-      });
-    }
-  });
-  var CoupangCatalogChunkKindSchema = external_exports.enum([
-    "discovery_page",
-    "listing_basics",
-    "full_details",
-    "manifest_confirmation",
-    "detail_manifest_confirmation",
-    "deletion_confirmation"
-  ]);
-  var ChunkRequestBaseSchema = external_exports.object({
-    sequence: external_exports.number().int().positive(),
-    checksum: Sha256Schema,
-    itemCount: external_exports.number().int().nonnegative()
-  });
-  var PutCoupangCatalogChunkRequestSchema = external_exports.discriminatedUnion("kind", [
-    ChunkRequestBaseSchema.extend({
-      kind: external_exports.literal("discovery_page"),
-      payload: CoupangCatalogDiscoveryPageV1Schema
-    }),
-    ChunkRequestBaseSchema.extend({
-      kind: external_exports.literal("listing_basics"),
-      payload: CoupangCatalogListingBasicsChunkV1Schema
-    }),
-    ChunkRequestBaseSchema.extend({
-      kind: external_exports.literal("full_details"),
-      payload: CoupangCatalogFullDetailsChunkV1Schema
-    }),
-    ChunkRequestBaseSchema.extend({
-      kind: external_exports.literal("manifest_confirmation"),
-      payload: CoupangCatalogManifestConfirmationV1Schema
-    }),
-    ChunkRequestBaseSchema.extend({
-      kind: external_exports.literal("detail_manifest_confirmation"),
-      payload: CoupangCatalogDetailManifestConfirmationV1Schema
-    }),
-    ChunkRequestBaseSchema.extend({
-      kind: external_exports.literal("deletion_confirmation"),
-      payload: CoupangCatalogDeletionConfirmationChunkV1Schema
-    })
-  ]).superRefine((request, ctx) => {
-    const expectedCount = request.kind === "listing_basics" || request.kind === "full_details" || request.kind === "deletion_confirmation" ? request.payload.products.length : request.kind === "discovery_page" ? request.payload.items.length : 1;
-    if (request.itemCount !== expectedCount) {
-      ctx.addIssue({
-        code: external_exports.ZodIssueCode.custom,
-        path: ["itemCount"],
-        message: `itemCount must equal payload count: ${expectedCount}`
-      });
-    }
-    const expectedSequence = request.kind === "listing_basics" || request.kind === "full_details" ? request.payload.startOrdinal + 1 : request.kind === "discovery_page" ? request.payload.page : request.kind === "deletion_confirmation" ? request.sequence : 1;
-    if (request.sequence !== expectedSequence) {
-      ctx.addIssue({
-        code: external_exports.ZodIssueCode.custom,
-        path: ["sequence"],
-        message: `sequence must equal ${expectedSequence} for ${request.kind}`
-      });
-    }
-    if (jsonBytes(request.payload) > COUPANG_CATALOG_MAX_CHUNK_BYTES) {
-      ctx.addIssue({
-        code: external_exports.ZodIssueCode.custom,
-        path: ["payload"],
-        message: `payload exceeds ${COUPANG_CATALOG_MAX_CHUNK_BYTES} bytes`
-      });
-    }
-  });
-  var StartCoupangCatalogCollectionRequestSchema = external_exports.object({
-    collectorVersion: external_exports.string().trim().min(1).max(100),
-    stage: CoupangCatalogStageSchema,
-    /**
-     * Details is admitted by the internal basics-to-details handoff.  The
-     * caller must pin the exact completed basics attempt; the owner rechecks
-     * that basis inside its account transaction before creating the child.
-     */
-    expectedBasicAttemptId: external_exports.string().uuid().optional(),
-    /**
-     * KID-348 운영자 "상품 하나 상세 다시 받기". 목록 단계 없이 details 단계를 이 상품들만
-     * 대상으로 연다. 삭제 확인은 하지 않는다.
-     */
-    detailProductIds: external_exports.array(ExternalIdSchema).min(1).max(100).optional()
-  }).strict();
-  var CoupangCatalogCollectionErrorRequestSchema = external_exports.object({
-    code: external_exports.string().trim().min(1).max(100),
-    message: external_exports.string().trim().min(1).max(1e3),
-    phase: external_exports.enum(["discovery", "hydration", "ready_to_finalize"]),
-    recoverable: external_exports.boolean().optional(),
-    notBefore: zIsoDate.optional()
-  });
-  var CoupangCatalogCollectionPauseRequestSchema = external_exports.object({
-    code: external_exports.literal("WING_PROVIDER_RATE_LIMITED"),
-    message: external_exports.string().trim().min(1).max(1e3),
-    phase: external_exports.literal("hydration"),
-    recoverable: external_exports.literal(true),
-    notBefore: zIsoDate
-  }).strict();
-  var CoupangCatalogCollectionStatusSchema = external_exports.enum(["RUNNING", "COMPLETE", "FAILED"]);
-  var CoupangCatalogCollectionPlanSchema = external_exports.object({
-    collectorVersion: external_exports.string().min(1).max(100),
-    stage: CoupangCatalogStageSchema,
-    listUrl: external_exports.string().url(),
-    detailUrl: external_exports.string().url(),
-    channelAccountId: external_exports.string().uuid(),
-    vendorId: external_exports.string().min(1),
-    publicationRevision: external_exports.string().regex(/^\d+$/),
-    basicAttemptId: external_exports.string().uuid().optional(),
-    basicManifestHash: Sha256Schema.optional(),
-    basicPublicationSequence: external_exports.string().regex(/^\d+$/).optional(),
-    basicProductIds: external_exports.array(ExternalIdSchema).max(1e5).optional(),
-    /**
-     * KID-348: 이번 details 단계가 상세를 받아야 하는 상품(신규·`modifiedOn` 변경·상세 없음).
-     * 완결·순번 검사는 이 부분집합 기준이다. 없으면 `basicProductIds` 전체(옛 규칙).
-     */
-    detailTargetProductIds: external_exports.array(ExternalIdSchema).max(1e5).optional(),
-    /** KID-348: 목록에서 사라져 `deletion_confirmation`으로 확인해야 하는 상품. */
-    absentProductIds: external_exports.array(ExternalIdSchema).max(1e5).optional(),
-    /** Stable non-secret root identity for a staged internal chain. */
-    rootAttemptId: external_exports.string().uuid().optional(),
-    /** Preallocated by a basics owner; reused for every details admission retry. */
-    detailsIdempotencyKey: external_exports.string().uuid().optional()
-  }).strict();
-  var CoupangCatalogCollectionPermitSchema = external_exports.object({
-    attemptId: external_exports.string().uuid(),
-    attemptToken: external_exports.string().uuid(),
-    state: CoupangCatalogCollectionStatusSchema,
-    expiresAt: zIsoDate,
-    plan: CoupangCatalogCollectionPlanSchema
-  }).strict();
-  var CoupangCatalogCollectionPhaseSchema = external_exports.enum([
-    "discovery",
-    "hydration",
-    "ready_to_finalize",
-    "finished"
-  ]);
   var CoupangCatalogCollectionQualitySchema = external_exports.object({
     detailTargets: external_exports.number().int().nonnegative(),
     detailApplied: external_exports.number().int().nonnegative(),
@@ -4778,80 +4399,6 @@ var KidItemRuntime = (() => {
     deletedProducts: external_exports.number().int().nonnegative(),
     unconfirmedAbsentProductIds: external_exports.array(ExternalIdSchema)
   });
-  var CoupangCatalogCollectionRunSchema = external_exports.object({
-    attemptId: external_exports.string().uuid(),
-    idempotencyKey: external_exports.string().uuid(),
-    channelAccountId: external_exports.string().uuid(),
-    state: CoupangCatalogCollectionStatusSchema,
-    expiresAt: zIsoDate,
-    plan: CoupangCatalogCollectionPlanSchema,
-    phase: CoupangCatalogCollectionPhaseSchema,
-    collectorVersion: external_exports.string().min(1),
-    manifest: CoupangCatalogManifestV1Schema.nullable(),
-    progress: external_exports.object({
-      discoveryPagesStored: external_exports.number().int().nonnegative(),
-      discoveredProducts: external_exports.number().int().nonnegative(),
-      hydratedProducts: external_exports.number().int().nonnegative(),
-      optionCount: external_exports.number().int().nonnegative(),
-      mediaCount: external_exports.number().int().nonnegative(),
-      storedChunks: external_exports.number().int().nonnegative(),
-      publishedProducts: external_exports.number().int().nonnegative(),
-      publishedOptionCount: external_exports.number().int().nonnegative(),
-      publishedMediaCount: external_exports.number().int().nonnegative(),
-      publishedChunks: external_exports.number().int().nonnegative(),
-      firstPublishedAt: zIsoDate.nullable(),
-      lastPublishedAt: zIsoDate.nullable()
-    }),
-    missing: external_exports.object({
-      discoverySequences: external_exports.array(external_exports.number().int().positive()),
-      productIds: external_exports.array(ExternalIdSchema)
-    }),
-    snapshotHash: Sha256Schema.nullable(),
-    error: external_exports.object({
-      code: external_exports.string().min(1),
-      message: external_exports.string().min(1),
-      phase: CoupangCatalogCollectionPhaseSchema,
-      recoverable: external_exports.boolean(),
-      notBefore: zIsoDate.nullable().optional()
-    }).nullable(),
-    publication: external_exports.object({
-      sourceImportRunId: external_exports.string().uuid(),
-      duplicate: external_exports.boolean(),
-      changes: external_exports.record(external_exports.number().int().nonnegative())
-    }).nullable(),
-    quality: CoupangCatalogCollectionQualitySchema.optional(),
-    createdAt: zIsoDate,
-    updatedAt: zIsoDate,
-    finishedAt: zIsoDate.nullable(),
-    /** Whole-flow status is token-free and is stable across the internal handoff. */
-    rootAttemptId: external_exports.string().uuid().optional(),
-    currentAttemptId: external_exports.string().uuid().optional(),
-    currentStage: CoupangCatalogStageSchema.optional(),
-    overallState: CoupangCatalogCollectionStatusSchema.optional()
-  });
-  var CoupangCatalogSourceStatusSchema = external_exports.object({
-    latestAttempt: CoupangCatalogCollectionRunSchema.nullable(),
-    detailsAttempt: CoupangCatalogCollectionRunSchema.nullable()
-  });
-  var FinalizeCoupangCatalogCollectionRequestSchema = external_exports.object({
-    snapshotHash: Sha256Schema
-  });
-  var CoupangCatalogBrowserStatusSchema = external_exports.object({
-    attemptId: external_exports.string().uuid(),
-    active: external_exports.boolean(),
-    attention: BrowserCollectionAttentionSchema.nullable(),
-    phase: CoupangCatalogCollectionPhaseSchema.optional(),
-    currentPage: external_exports.number().int().nonnegative().optional(),
-    totalPages: external_exports.number().int().nonnegative().optional(),
-    hydratedProducts: external_exports.number().int().nonnegative().optional(),
-    discoveredProducts: external_exports.number().int().nonnegative().optional(),
-    uploadedChunks: external_exports.number().int().nonnegative().optional(),
-    error: external_exports.string().optional(),
-    /** Whole-flow status; deliberately excludes attempt tokens. */
-    rootAttemptId: external_exports.string().uuid().optional(),
-    currentAttemptId: external_exports.string().uuid().optional(),
-    currentStage: CoupangCatalogStageSchema.optional()
-  }).strict();
   var WING_CATALOG_LIST_KIND = "channels.wing_catalog_list";
   var WING_CATALOG_DETAILS_KIND = "channels.wing_catalog_details";
   var WING_CATALOG_EXCEL_KIND = "channels.wing_catalog_excel";
@@ -4899,6 +4446,17 @@ var KidItemRuntime = (() => {
     updatedSkuCount: external_exports.number().int().nonnegative(),
     skippedRowCount: external_exports.number().int().nonnegative()
   }).strict();
+
+  // packages/shared/src/schemas/common.ts
+  var zIsoDate = external_exports.union([external_exports.string(), external_exports.date()]);
+  var ApiErrorResponseSchema = external_exports.object({
+    statusCode: external_exports.number(),
+    message: external_exports.union([external_exports.string(), external_exports.array(external_exports.string())]),
+    error: external_exports.string().optional()
+  });
+  var SyncInfoSchema = external_exports.object({
+    lastSyncedAt: external_exports.string().nullable()
+  });
 
   // packages/shared/src/schemas/operation.ts
   var OPERATION_STATUSES = ["prepared", "executing", "succeeded", "failed", "cancelled"];

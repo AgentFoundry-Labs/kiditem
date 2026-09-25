@@ -1,17 +1,18 @@
 import type { MallListingState } from '@kiditem/shared/sales-product';
-import {
-  CoupangCatalogCollectionRunSchema,
-  CoupangCatalogStageSchema,
-  type CoupangCatalogStage,
-} from '@kiditem/shared/coupang-catalog-snapshot';
 import type { RegistrationAccountState } from '@kiditem/shared/sales-product';
 import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
 
+/**
+ * 옛 카탈로그 실패 알림이 남긴 링크(`collectionAttempt`·`channelAccountId`·`collectionStage`). 옛 attempt는 지워졌고
+ * (KID-354) 링크는 그 계정의 상품 받기 화면을 여는 데만 쓴다 — attempt id는 링크를 가르는 열쇠일 뿐 읽지 않는다.
+ */
+const CatalogLinkStageSchema = z.enum(['basics', 'details']);
+
 export type CoupangCatalogCollectionLink = {
   attemptId: string;
   channelAccountId: string;
-  stage: CoupangCatalogStage;
+  stage: z.infer<typeof CatalogLinkStageSchema>;
 };
 
 export type CoupangCatalogCollectionLinkResult =
@@ -36,10 +37,10 @@ export function readCoupangCatalogCollectionLink(
     .some((key) => query.has(key));
   if (!hasLinkParam) return null;
   const parsed = z.object({
-    attemptId: CoupangCatalogCollectionRunSchema.shape.attemptId,
-    channelAccountId: CoupangCatalogCollectionRunSchema.shape.channelAccountId,
-    // 이 PR 이전 알림 링크에는 collectionStage가 없다: 목록 단계(뿌리)로 읽는다.
-    stage: CoupangCatalogStageSchema.default('basics'),
+    attemptId: z.string().uuid(),
+    channelAccountId: z.string().uuid(),
+    // 더 옛 알림 링크에는 collectionStage가 없다: 목록 단계(뿌리)로 읽는다.
+    stage: CatalogLinkStageSchema.default('basics'),
   }).safeParse({
     attemptId: query.get('collectionAttempt'),
     channelAccountId: query.get('channelAccountId'),
