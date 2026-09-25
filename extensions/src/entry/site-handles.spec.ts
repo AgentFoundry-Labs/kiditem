@@ -63,6 +63,9 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     expect(keys(handle.reader('icecream-mall'))).toEqual(['readOrders']);
     expect(handle.reader('no-such-mall')).toBeNull();
     expect(handle.reader('mall-orders')).toBeNull();
+    // 등록된 사이트라도 몰 주문 kind로 옮긴 몰이 아니면 주지 않는다(리뷰 S9).
+    expect(handle.reader('sellpia')).toBeNull();
+    expect(handle.reader('wing')).toBeNull();
     expect(ownTabSites().has('mall-orders')).toBe(true);
   });
 

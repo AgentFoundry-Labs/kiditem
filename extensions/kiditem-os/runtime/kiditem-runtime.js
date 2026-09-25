@@ -5452,6 +5452,7 @@ var KidItemRuntime = (() => {
   }).strict().refine((value) => value.startDate <= value.endDate, "\uC2DC\uC791\uC77C\uC774 \uB05D\uC77C\uBCF4\uB2E4 \uB2A6\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
   var MallOrdersCollectionModeSchema = external_exports.enum(["browser", "manual-upload"]);
   var MallOrdersSelectionModeSchema = external_exports.enum(["manual", "automatic"]);
+  var MALL_ORDERS_ORDER_NUMBERS_MAX = 2e3;
   var MALL_ORDERS_SEEN_ROW_KEYS_MAX = 8e3;
   var MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH = 2e3;
   var MallOrdersScopeSchema = external_exports.object({
@@ -5462,6 +5463,10 @@ var KidItemRuntime = (() => {
     selectionMode: MallOrdersSelectionModeSchema.optional(),
     seenRowKeys: external_exports.array(external_exports.string().min(1).max(MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH)).max(MALL_ORDERS_SEEN_ROW_KEYS_MAX).optional()
   }).strict();
+  var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook"];
+  function isMallOrderOperationMall(mallKey) {
+    return MALL_ORDER_OPERATION_MALLS.includes(mallKey);
+  }
   var COUPANG_SHIPMENT_SUMMARY_CHUNK_KIND = "shipment_dates";
   var COUPANG_SHIPMENT_SUMMARY_SCAN_CHUNK_KIND = "shipment_scan";
   var COUPANG_ROCKET_PO_CHUNK_KIND = "po_rows";
@@ -5480,7 +5485,11 @@ var KidItemRuntime = (() => {
      * 몰이 그 기간의 주문을 빠짐없이 보여 줬다는 확인(확인 범위를 내는 몰 — 도매꾹·해법몰 — 이 수집일로 걷은 성공 실행,
      * 빈 날 포함). 주문 사실 리더가 몰 적용 범위로 읽는다(옛 run의 coverageStartDate/EndDate 자리).
      */
-    coverage: external_exports.object({ startDate: isoDay2, endDate: isoDay2 }).strict().optional()
+    coverage: external_exports.object({ startDate: isoDay2, endDate: isoDay2 }).strict().optional(),
+    /** 화면 표에 개인정보가 가려진 칸이 있었다(아이스크림몰) — 웹이 운영자에게 알린다. */
+    masked: external_exports.boolean().optional(),
+    /** 이번 수집(고른 행)의 서로 다른 주문번호, 최대 2,000개 — 웹의 생성 파일 항목(일일 건수·중복 판정)이 쓴다. */
+    orderNumbers: external_exports.array(external_exports.string().min(1).max(200)).max(MALL_ORDERS_ORDER_NUMBERS_MAX).optional()
   });
 
   // extensions/src/collectors/orders.coupang_directship/index.ts
@@ -7513,13 +7522,15 @@ var KidItemRuntime = (() => {
     const text2 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
     let body = null;
     try {
-      body = JSON.parse(text2);
+      body = text2.trim().startsWith("{") ? JSON.parse(text2) : null;
     } catch {
       body = null;
     }
-    const list = body?.dat;
-    if (!Array.isArray(list)) throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE2, { url: DOMEGGOOK_ORDER_LIST_API });
-    return list;
+    if (!body || typeof body !== "object" || Array.isArray(body) || body.res === false) {
+      throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE2, { url: DOMEGGOOK_ORDER_LIST_API });
+    }
+    const list = body.dat;
+    return Array.isArray(list) ? list : [];
   }
   function pickDomeggookCsvUrl(entries, afterReq) {
     for (const entry of entries) {
@@ -7574,7 +7585,7 @@ var KidItemRuntime = (() => {
               url: DOMEGGOOK_ORDER_LIST_API
             });
           }
-          const base642 = base64Of(await caller.bytes(csvUrl));
+          const base642 = base64Of(await caller.bytes(csvUrl, { redirect: "follow" }));
           const fileName = csvUrl.split("/").pop() || "domeggook.csv";
           const parts = Math.max(1, Math.ceil(base642.length / DOMEGGOOK_PART_CHARS));
           return {
@@ -7690,7 +7701,9 @@ var KidItemRuntime = (() => {
       readOrders(input) {
         return withFreshTab(tabs, ICECREAM_MALL_URL, async (page) => {
           for (let round = 0; round < LOGIN_WATCH_ROUNDS; round += 1) {
-            if ((await inspect(page)).some((frame) => frame.result.loginPage)) throw loginRequired2();
+            const frames = await inspect(page);
+            if (frames.some((frame) => frame.result.loginPage)) throw loginRequired2();
+            if (frames.some((frame) => frame.result.deliveryMenu || (frame.result.deliveryScore ?? 0) > 0)) break;
             await sleep(LOGIN_WATCH_MS);
           }
           const menu = await callPage(page, "icecream.openDeliveryInquiry", {}, {
@@ -7707,19 +7720,25 @@ var KidItemRuntime = (() => {
               url: ICECREAM_MALL_URL
             });
           }
-          const frames = (await inspect(page)).filter((frame) => (frame.result.deliveryScore ?? 0) > 0).sort((a, b) => (b.result.deliveryScore ?? 0) - (a.result.deliveryScore ?? 0));
-          const grid = await callPage(page, "icecream.deliveryGrid", {
-            date: input.collectionDate,
-            headers: ICECREAM_DELIVERY_HEADERS,
-            excludedStatuses: ICECREAM_EXCLUDED_DELIVERY_STATUSES
-          }, {
-            timeoutMs: GRID_TIMEOUT_MS,
-            guard: ICECREAM_PAGE_GUARD,
-            main: [ICECREAM_GRID_FILE],
-            displayName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
-            frameId: frames[0]?.frameId ?? 0
-          });
-          if (grid?.status === "ok") return { rows: grid.rows, continuation: { headers: grid.headers } };
+          const inspected = await inspect(page);
+          const scored = inspected.filter((frame) => (frame.result.deliveryScore ?? 0) > 0).sort((a, b) => (b.result.deliveryScore ?? 0) - (a.result.deliveryScore ?? 0));
+          const targets = scored.length > 0 ? [scored[0].frameId] : [.../* @__PURE__ */ new Set([0, ...inspected.map((frame) => frame.frameId)])];
+          const answers = [];
+          for (const frameId of targets) {
+            answers.push(await callPage(page, "icecream.deliveryGrid", {
+              date: input.collectionDate,
+              headers: ICECREAM_DELIVERY_HEADERS,
+              excludedStatuses: ICECREAM_EXCLUDED_DELIVERY_STATUSES
+            }, {
+              timeoutMs: GRID_TIMEOUT_MS,
+              guard: ICECREAM_PAGE_GUARD,
+              main: [ICECREAM_GRID_FILE],
+              displayName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
+              frameId
+            }));
+          }
+          const grid = answers.filter((answer) => answer?.status === "ok").sort((a, b) => b.rows.length - a.rows.length)[0] ?? answers.find((answer) => answer?.status === "none" && answer.reason === "data rows not found") ?? answers.find((answer) => answer?.status === "none" && answer.reason === "header not found") ?? answers[0];
+          if (grid?.status === "ok") return { rows: grid.rows, continuation: { headers: grid.headers, masked: grid.masked === true } };
           const diagnosis = grid?.status === "none" ? grid : {};
           if (icecreamHasNoPendingOrders(diagnosis)) return { rows: [] };
           throw new RuntimeError(SITE_REQUEST_FAILED, icecreamGridFailureMessage(diagnosis), {
@@ -7861,7 +7880,7 @@ var KidItemRuntime = (() => {
     name: MALL_ORDERS_SITE,
     opensOwnTabs: true,
     create: (deps, lease) => ({
-      reader: (mallKey) => mallKey === MALL_ORDERS_SITE ? null : siteFactoryFor(mallKey)?.create(deps, lease) ?? null
+      reader: (mallKey) => isMallOrderOperationMall(mallKey) ? siteFactoryFor(mallKey)?.create(deps, lease) ?? null : null
     })
   });
 

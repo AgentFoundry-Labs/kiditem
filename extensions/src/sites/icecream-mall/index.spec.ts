@@ -26,17 +26,17 @@ describe('sites/icecream-mall — 아이스크림몰 배송목록 읽기', () =>
     expect(siteFactoryFor('icecream-mall')).not.toBeNull();
   });
 
-  it('로그인 폼이 없으면 배송조회를 열고, 점수가 가장 큰 배송조회 프레임에서 출고 전 행과 머리글을 읽는다', async () => {
+  it('배송 메뉴가 보이면 로그인 살피기를 곧바로 끝내고, 점수가 가장 큰 배송조회 프레임에서 출고 전 행과 머리글을 읽는다', async () => {
     const grid = { status: 'ok', headers: [...ICECREAM_DELIVERY_HEADERS], rows: ROWS, masked: false };
     const fake = fakeTabPages({
       answer: answers(grid),
-      frames: (_files, call) => call <= 16
-        ? [{ frameId: 0, result: { loginPage: false, deliveryScore: 0 } }]
+      frames: (_files, call) => call === 1
+        ? [{ frameId: 0, result: { loginPage: false, deliveryScore: 0, deliveryMenu: true } }]
         : [{ frameId: 0, result: { deliveryScore: 5 } }, { frameId: 4, result: { deliveryScore: 22 } }, { frameId: 9, result: { deliveryScore: 0 } }],
     });
     await expect(createIcecreamMallSite(fake.tabs, sleep).readOrders(INPUT)).resolves.toEqual({
       rows: ROWS,
-      continuation: { headers: [...ICECREAM_DELIVERY_HEADERS] },
+      continuation: { headers: [...ICECREAM_DELIVERY_HEADERS], masked: false },
     });
     expect(fake.log.filter((entry) => !entry.startsWith('frames'))).toEqual([
       'open about:blank',
@@ -45,7 +45,40 @@ describe('sites/icecream-mall — 아이스크림몰 배송목록 읽기', () =>
       'ask KIDITEM_PAGE_CALL frame 4',
       'close 7',
     ]);
-    expect(fake.log.filter((entry) => entry.startsWith('frames'))).toHaveLength(17);
+    expect(fake.log.filter((entry) => entry.startsWith('frames'))).toHaveLength(2);
+  });
+
+  it('배송조회로 점수가 나는 프레임이 없으면 모든 프레임에서 읽어 행이 가장 많은 답을 쓴다(옛 allFrames 폴백)', async () => {
+    const byFrame: Record<number, unknown> = {
+      0: { status: 'none', reason: 'not delivery inquiry frame' },
+      3: { status: 'ok', headers: [...ICECREAM_DELIVERY_HEADERS], rows: ROWS, masked: true },
+      7: { status: 'ok', headers: [...ICECREAM_DELIVERY_HEADERS], rows: [...ROWS, ['2', '20260926M0002']], masked: false },
+    };
+    let lastFrame = -1;
+    const fake = fakeTabPages({
+      answer: (message) => {
+        if (message.call === 'icecream.openDeliveryInquiry') return { ok: true, value: { status: 'opened' } };
+        return { ok: true, value: byFrame[lastFrame] };
+      },
+      frames: (_files, call) => call === 1
+        ? [{ frameId: 0, result: { deliveryMenu: true } }]
+        : [0, 3, 7].map((frameId) => ({ frameId, result: { deliveryScore: 0 } })),
+    });
+    const tabs = fake.tabs;
+    const site = createIcecreamMallSite({
+      ...tabs,
+      open: async (url) => {
+        const page = await tabs.open(url);
+        return { ...page, ask: (message, options) => { lastFrame = options.frameId ?? 0; return page.ask(message, options); } };
+      },
+    }, sleep);
+    await expect(site.readOrders(INPUT)).resolves.toEqual({
+      rows: [...ROWS, ['2', '20260926M0002']],
+      continuation: { headers: [...ICECREAM_DELIVERY_HEADERS], masked: false },
+    });
+    expect(fake.log.filter((entry) => entry.startsWith('ask'))).toEqual([
+      'ask KIDITEM_PAGE_CALL', 'ask KIDITEM_PAGE_CALL frame 0', 'ask KIDITEM_PAGE_CALL frame 3', 'ask KIDITEM_PAGE_CALL frame 7',
+    ]);
   });
 
   it('로그인 폼·로그인 화면 이동은 SITE_LOGIN_REQUIRED로 탭을 남긴다', async () => {

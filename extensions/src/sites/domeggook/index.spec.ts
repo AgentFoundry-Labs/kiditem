@@ -5,13 +5,17 @@ import { fakeTabPages } from '../tab-page.fake';
 import { createDomeggookSite, DOMEGGOOK_ORDER_LIST_API, DOMEGGOOK_PART_CHARS } from './index';
 
 const INPUT = { collectionDate: '2026-09-26', selectionMode: 'manual' as const, seenRowKeys: [] };
-const OLD = { state: 'SUCCESS', dateReq: '2026-09-26 09:00:00', dlBtn: "<a href='https://cdn.domeggook.com/x/ORDER_ALL_old.csv'>받기</a>" };
-const NEW = { state: 'SUCCESS', dateReq: '2026-09-26 10:00:00', dlBtn: "<a href='https://cdn.domeggook.com/x/ORDER_ALL_20260926.csv'>받기</a>" };
+// 옛 수집기 테스트에는 생성 목록 응답 기록이 없다. 아래 행은 옛 파서(`pickDomeggookUrl`)가 읽던 칸 그대로다 —
+// state·dateReq('YYYY-MM-DD HH:mm:ss' 문자열 비교)·dlBtn(따옴표 href 링크 안에 ORDER_ALL 파일 이름). 주소는 합성 값.
+const csvLink = (file: string) => `<a href='https://domeggook.com/excel/${file}' class='btn'>다운로드</a>`;
+const OLD = { state: 'SUCCESS', dateReq: '2026-09-26 09:00:00', dlBtn: csvLink('ORDER_ALL_old.csv') };
+const NEW = { state: 'SUCCESS', dateReq: '2026-09-26 10:00:00', dlBtn: csvLink('ORDER_ALL_20260926.csv') };
 const PENDING = { state: 'WAIT', dateReq: '2026-09-26 10:00:00', dlBtn: '' };
 
 /** 서비스워커 fetch 경계만 가짜: 엑셀 목록 응답을 차례로, CSV는 바이트로 준다. */
 function fakeDomeggook(lists: unknown[], csv: Uint8Array = new TextEncoder().encode('a,b\r\n1,2\r\n')) {
   const requested: string[] = [];
+  const redirects: Array<string | undefined> = [];
   const sleeps: number[] = [];
   let index = 0;
   const deps = {
@@ -23,6 +27,7 @@ function fakeDomeggook(lists: unknown[], csv: Uint8Array = new TextEncoder().enc
         index += 1;
         return new Response(typeof body === 'string' ? body : JSON.stringify(body), { status: 200 });
       }
+      redirects.push(init?.redirect);
       return new Response(new Blob([csv.slice().buffer as ArrayBuffer]), { status: 200 });
     },
     cookies: { get: async () => null },
@@ -31,7 +36,7 @@ function fakeDomeggook(lists: unknown[], csv: Uint8Array = new TextEncoder().enc
       sleeps.push(ms);
     },
   };
-  return { deps, requested, sleeps };
+  return { deps, requested, redirects, sleeps };
 }
 
 async function failure(promise: Promise<unknown>) {
@@ -51,8 +56,10 @@ describe('sites/domeggook — 도매꾹 몰 주문 읽기(엑셀 생성 → 완�
     const result = await createDomeggookSite(tabs.tabs, shop.deps).readOrders(INPUT);
     const csv = btoa('a,b\r\n1,2\r\n');
     expect(result).toEqual({ rows: [{ fileName: 'ORDER_ALL_20260926.csv', part: 0, parts: 1, base64: csv }] });
-    expect(shop.requested).toEqual([DOMEGGOOK_ORDER_LIST_API, DOMEGGOOK_ORDER_LIST_API, DOMEGGOOK_ORDER_LIST_API, 'https://cdn.domeggook.com/x/ORDER_ALL_20260926.csv']);
+    expect(shop.requested).toEqual([DOMEGGOOK_ORDER_LIST_API, DOMEGGOOK_ORDER_LIST_API, DOMEGGOOK_ORDER_LIST_API, 'https://domeggook.com/excel/ORDER_ALL_20260926.csv']);
     expect(shop.sleeps).toEqual([1_500, 5_000, 5_000]);
+    // CDN 파일 주소는 리다이렉트를 따라간다(옛 서비스워커 fetch 기본값) — 로그인 판정용 manual이 아니다.
+    expect(shop.redirects).toEqual(['follow']);
     expect(tabs.log).toEqual([
       'open about:blank',
       'navigate https://domeggook.com/sc/order/lstAll?dtbase=ord&dt1=2026.09.26&dt2=2026.09.26',
@@ -77,6 +84,12 @@ describe('sites/domeggook — 도매꾹 몰 주문 읽기(엑셀 생성 → 완�
     const joined = rows.map((row) => (row as { base64: string }).base64).join('');
     expect(joined).toHaveLength(Math.ceil(DOMEGGOOK_PART_CHARS / 3) * 4);
     expect(/^A+=*$/.test(joined)).toBe(true);
+  });
+
+  it('dat 배열이 없는 JSON(로그아웃 표시 res:false가 아닌)은 빈 목록으로 본다(옛 규칙)', async () => {
+    const shop = fakeDomeggook([{ ok: true }, { ok: true }, { dat: [NEW] }]);
+    const tabs = fakeTabPages({ answer: () => ({ ok: true, value: { status: 'requested' } }) });
+    await expect(createDomeggookSite(tabs.tabs, shop.deps).readOrders(INPUT)).resolves.toMatchObject({ rows: [{ fileName: 'ORDER_ALL_20260926.csv' }] });
   });
 
   it('로그아웃(res:false)은 탭을 열지 않고 SITE_LOGIN_REQUIRED, 4분 안에 완료되지 않으면 SITE_REQUEST_FAILED', async () => {

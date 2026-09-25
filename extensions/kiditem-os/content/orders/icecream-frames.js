@@ -1,6 +1,6 @@
 // 아이스크림몰 프레임 살피기(ISOLATED world, 모든 프레임, KID-359 H3 — 옛 worker.js `detectIcecreamMallLoginState`·
 // `detectIcecreamMallDeliveryFrame` 이식). 사이트 `extensions/src/sites/icecream-mall`이 `TabPage.frames`로 넣으면
-// 프레임마다 이 파일의 마지막 값 `{ loginPage, deliveryScore, href }`가 돌아온다 — 로그인 화면인지, 배송조회 화면이 어느
+// 프레임마다 이 파일의 마지막 값 `{ loginPage, deliveryScore, deliveryMenu, href }`가 돌아온다 — 로그인 화면인지, 배송조회 화면이 어느
 // 프레임에 열렸는지(점수가 가장 큰 프레임)를 고른다. 읽기만 한다.
 (function inspectIcecreamFrame() {
   "use strict";
@@ -60,5 +60,8 @@
       href,
     };
   })();
-  return { loginPage: login.loginPage, deliveryScore: delivery.score, href: login.href };
+  // 배송 메뉴가 보이면 로그인된 화면이다(로그인 살피기를 곧바로 끝낸다).
+  const deliveryMenu = Array.from(document.querySelectorAll("a,button,input[type='button'],[role='button'],[onclick]"))
+    .some((element) => String(element.textContent || element.value || element.getAttribute("title") || "").includes("배송"));
+  return { loginPage: login.loginPage, deliveryScore: delivery.score, deliveryMenu, href: login.href };
 })();

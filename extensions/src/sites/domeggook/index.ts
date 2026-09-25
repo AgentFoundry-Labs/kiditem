@@ -28,18 +28,23 @@ export const DOMEGGOOK_PAGE_GUARD: PageGuard = {
 type OrderListEntry = { state?: unknown; dlBtn?: unknown; dateReq?: unknown };
 type RequestAnswer = { status: 'requested' } | { status: 'empty'; message?: string } | { status: 'failed'; error: string };
 
-/** 엑셀 생성 목록. 로그아웃(`res:false`·HTML·목록 없음)이면 SITE_LOGIN_REQUIRED. */
+/**
+ * 엑셀 생성 목록. JSON 객체가 아니면(로그인 화면 HTML) 또는 로그아웃 표시(`res:false`)면 SITE_LOGIN_REQUIRED. 그 밖에
+ * `dat` 배열이 없는 JSON은 빈 목록이다(옛 `domeggookOrderList`·`pickDomeggookUrl` 규칙).
+ */
 async function orderList(caller: SiteCaller): Promise<OrderListEntry[]> {
   const text = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { 'x-requested-with': 'XMLHttpRequest' } });
   let body: unknown = null;
   try {
-    body = JSON.parse(text);
+    body = text.trim().startsWith('{') ? JSON.parse(text) : null;
   } catch {
     body = null;
   }
-  const list = (body as { dat?: unknown } | null)?.dat;
-  if (!Array.isArray(list)) throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE, { url: DOMEGGOOK_ORDER_LIST_API });
-  return list as OrderListEntry[];
+  if (!body || typeof body !== 'object' || Array.isArray(body) || (body as { res?: unknown }).res === false) {
+    throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE, { url: DOMEGGOOK_ORDER_LIST_API });
+  }
+  const list = (body as { dat?: unknown }).dat;
+  return Array.isArray(list) ? (list as OrderListEntry[]) : [];
 }
 
 /** 생성 완료(SUCCESS) + 전체주문(ORDER_ALL) CSV 주소. `afterReq`보다 늦게 요청한 것(이번에 새로 만든 것)만. */
@@ -105,7 +110,8 @@ export function createDomeggookSite(tabs: TabPages, deps: SiteCallerDeps) {
             url: DOMEGGOOK_ORDER_LIST_API,
           });
         }
-        const base64 = base64Of(await caller.bytes(csvUrl));
+        // CDN 파일 주소는 리다이렉트를 따라간다(옛 서비스워커 fetch 기본값). 로그인 판정용 manual은 목록 조회에만 쓴다.
+        const base64 = base64Of(await caller.bytes(csvUrl, { redirect: 'follow' }));
         const fileName = csvUrl.split('/').pop() || 'domeggook.csv';
         const parts = Math.max(1, Math.ceil(base64.length / DOMEGGOOK_PART_CHARS));
         return {

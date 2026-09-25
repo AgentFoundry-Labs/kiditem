@@ -87,9 +87,10 @@ export interface IcecreamGridDiagnosis {
   doneExcluded?: number;
 }
 
-type FrameInspection = { loginPage?: boolean; deliveryScore?: number };
+type FrameInspection = { loginPage?: boolean; deliveryScore?: number; deliveryMenu?: boolean };
 type MenuAnswer = { status: 'opened' } | { status: 'login_required' } | { status: 'failed'; error: string };
-type GridAnswer = ({ status: 'ok'; headers: string[]; rows: string[][] }) | ({ status: 'none' } & IcecreamGridDiagnosis);
+type GridOk = { status: 'ok'; headers: string[]; rows: string[][]; masked?: boolean };
+type GridAnswer = GridOk | ({ status: 'none' } & IcecreamGridDiagnosis);
 
 /**
  * 출고 전 주문이 하나도 없는 날인가 — 표는 읽었는데 주문번호 행이 없거나(나머지는 화면 틀·검색 조건) 있던 주문이 전부
@@ -136,8 +137,11 @@ export function createIcecreamMallSite(tabs: TabPages, sleep: (ms: number) => Pr
   return {
     readOrders(input: { collectionDate: string | null }): Promise<{ rows: unknown[]; continuation?: Record<string, unknown> }> {
       return withFreshTab(tabs, ICECREAM_MALL_URL, async (page) => {
+        // 로그인 화면이 JS로 늦게 뜨므로 잠시 살핀다 — 배송 메뉴(또는 배송조회 화면)가 보이면 로그인된 것이라 곧바로 끝낸다.
         for (let round = 0; round < LOGIN_WATCH_ROUNDS; round += 1) {
-          if ((await inspect(page)).some((frame) => frame.result.loginPage)) throw loginRequired();
+          const frames = await inspect(page);
+          if (frames.some((frame) => frame.result.loginPage)) throw loginRequired();
+          if (frames.some((frame) => frame.result.deliveryMenu || (frame.result.deliveryScore ?? 0) > 0)) break;
           await sleep(LOGIN_WATCH_MS);
         }
         const menu = await callPage<MenuAnswer>(page, 'icecream.openDeliveryInquiry', {}, {
@@ -154,21 +158,34 @@ export function createIcecreamMallSite(tabs: TabPages, sleep: (ms: number) => Pr
             url: ICECREAM_MALL_URL,
           });
         }
-        const frames = (await inspect(page))
+        const inspected = await inspect(page);
+        const scored = inspected
           .filter((frame) => (frame.result.deliveryScore ?? 0) > 0)
           .sort((a, b) => (b.result.deliveryScore ?? 0) - (a.result.deliveryScore ?? 0));
-        const grid = await callPage<GridAnswer>(page, 'icecream.deliveryGrid', {
-          date: input.collectionDate,
-          headers: ICECREAM_DELIVERY_HEADERS,
-          excludedStatuses: ICECREAM_EXCLUDED_DELIVERY_STATUSES,
-        }, {
-          timeoutMs: GRID_TIMEOUT_MS,
-          guard: ICECREAM_PAGE_GUARD,
-          main: [ICECREAM_GRID_FILE],
-          displayName: '아이스크림몰',
-          frameId: frames[0]?.frameId ?? 0,
-        });
-        if (grid?.status === 'ok') return { rows: grid.rows, continuation: { headers: grid.headers } };
+        // 배송조회 프레임이 점수로 가려지면 그 프레임만, 아니면 모든 프레임에서 읽고 가장 나은 답을 쓴다(옛 allFrames 폴백).
+        const targets = scored.length > 0 ? [scored[0]!.frameId] : [...new Set([0, ...inspected.map((frame) => frame.frameId)])];
+        const answers: GridAnswer[] = [];
+        for (const frameId of targets) {
+          answers.push(await callPage<GridAnswer>(page, 'icecream.deliveryGrid', {
+            date: input.collectionDate,
+            headers: ICECREAM_DELIVERY_HEADERS,
+            excludedStatuses: ICECREAM_EXCLUDED_DELIVERY_STATUSES,
+          }, {
+            timeoutMs: GRID_TIMEOUT_MS,
+            guard: ICECREAM_PAGE_GUARD,
+            main: [ICECREAM_GRID_FILE],
+            displayName: '아이스크림몰',
+            frameId,
+          }));
+        }
+        const grid: GridAnswer | undefined = answers
+          .filter((answer): answer is GridOk => answer?.status === 'ok')
+          .sort((a, b) => b.rows.length - a.rows.length)[0]
+          ?? answers.find((answer) => answer?.status === 'none' && answer.reason === 'data rows not found')
+          ?? answers.find((answer) => answer?.status === 'none' && answer.reason === 'header not found')
+          ?? answers[0];
+        // `masked`: 화면 표에 개인정보가 가려진 칸이 있다 — 웹이 운영자에게 알린다.
+        if (grid?.status === 'ok') return { rows: grid.rows, continuation: { headers: grid.headers, masked: grid.masked === true } };
         const diagnosis: IcecreamGridDiagnosis = grid?.status === 'none' ? grid : {};
         if (icecreamHasNoPendingOrders(diagnosis)) return { rows: [] };
         throw new RuntimeError(SITE_REQUEST_FAILED, icecreamGridFailureMessage(diagnosis), {
