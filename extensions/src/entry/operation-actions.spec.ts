@@ -193,11 +193,10 @@ describe('operation.start · operation.cancel 입구', () => {
     expect(browser.releases).toBe(1);
   });
 
-  it('이 확장에서 이미 돌고 있는 실행을 reused로 다시 받으면 두 번째 수집을 시작하지 않는다', async () => {
+  it('이 확장에서 이미 돌고 있는 실행을 reused로 다시 받으면 두 번째 수집 없이 success(reused)로 답한다', async () => {
     const server = fakeServer();
     server.holdChunks();
-    const browser = orgOnlyBrowser();
-    const actions = createOperationActions({ apiFor: server.apiFor, browser });
+    const actions = createOperationActions({ apiFor: server.apiFor, browser: orgOnlyBrowser() });
     await send(actions, { action: 'operation.start', kind: 'test.echo', idempotencyKey: 'k1' });
     server.options.reused = true;
 
@@ -210,5 +209,21 @@ describe('operation.start · operation.cancel 입구', () => {
     const chunkPuts = server.requests.filter((request) => request.method === 'PUT').map((request) => request.path);
     expect(chunkPuts).toEqual([`/api/operations/${OP}/chunks/echo/1`, `/api/operations/${OP}/chunks/echo/2`]);
     expect(server.requests.filter((request) => request.path.endsWith('/finish'))).toHaveLength(1);
+  });
+
+  it('워커 재시작 뒤처럼 로컬 실행 없이 reused가 오면 수집·cancel 없이 OPERATION_IN_PROGRESS{existing}로 답한다', async () => {
+    const server = fakeServer({ reused: true });
+    const actions = createOperationActions({ apiFor: server.apiFor, browser: orgOnlyBrowser() });
+
+    const response = await send(actions, { action: 'operation.start', kind: 'test.echo', idempotencyKey: 'k1' });
+    await settle();
+
+    expect(response).toEqual({
+      success: false,
+      errorCode: 'OPERATION_IN_PROGRESS',
+      error: expect.any(String),
+      details: { existing: RUNNING },
+    });
+    expect(server.requests.map((request) => `${request.method} ${request.path}`)).toEqual(['POST /api/operations']);
   });
 });

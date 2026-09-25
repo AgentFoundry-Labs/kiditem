@@ -34,6 +34,7 @@ type Step = string;
 
 /** 서버 경계(operation client)와 브라우저 경계의 가짜. 호출 순서를 한 줄로 기록한다. */
 function harness(options: {
+  reused?: boolean;
   beginError?: RuntimeError;
   putError?: (sequence: number, chunkKind: string) => RuntimeError | null;
   finishError?: RuntimeError;
@@ -46,7 +47,7 @@ function harness(options: {
     async begin(request) {
       steps.push(`begin:${request.kind}`);
       if (options.beginError) throw options.beginError;
-      return { operation: view({ kind: request.kind }), token: TOKEN, reused: false };
+      return { operation: view({ kind: request.kind }), token: TOKEN, reused: options.reused ?? false };
     },
     async putChunk(input) {
       steps.push(`put:${input.chunkKind}#${input.sequence}`);
@@ -150,6 +151,22 @@ describe('createRunner — 실행 하나의 순서', () => {
 
     expect(outcome).toEqual({ kind: 'already_running', existing });
     expect(h.steps).toEqual(['begin:test.echo']);
+  });
+
+  it('begin이 살아 있는 실행을 reused로 돌려주면 수집·cancel 없이 already_running(그 실행)으로 끝난다', async () => {
+    const h = harness({ reused: true });
+    const begun: unknown[] = [];
+    const runner = createRunner({ client: h.client, browser: h.browser, siteFor: () => null }, () => collector([echoChunk(1)]));
+
+    const outcome = await runner.run({ kind: 'test.echo', scope: {}, idempotencyKey: 'k1', signal: new AbortController().signal, onBegun: (b) => begun.push(b) });
+
+    expect(outcome).toEqual({
+      kind: 'already_running',
+      existing: { operationId: OP, kind: 'test.echo', lockKeys: ['org'], startedAt: '2026-09-25T00:00:00.000Z', expiresAt: '2026-09-25T00:30:00.000Z' },
+      reused: true,
+    });
+    expect(h.steps).toEqual(['begin:test.echo']);
+    expect(begun).toEqual([]);
   });
 
   it('begin의 그 밖 거절은 finish 없이 failed(operationId null)', async () => {

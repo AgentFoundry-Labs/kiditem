@@ -72,12 +72,8 @@ export function createOperationActions(deps: OperationActionsDeps): {
           ...(idempotencyKey !== undefined ? { idempotencyKey } : {}),
           signal: controller.signal,
           onBegun({ operationId, reused }) {
-            // 같은 실행을 이 확장이 이미 돌리고 있으면(같은 idempotencyKey 재요청) 두 번째 수집은 하지 않는다.
-            if (running.has(operationId)) controller.abort();
-            else {
-              running.set(operationId, controller);
-              owned = operationId;
-            }
+            running.set(operationId, controller);
+            owned = operationId;
             answer({ success: true, operationId, reused });
           },
         });
@@ -85,7 +81,15 @@ export function createOperationActions(deps: OperationActionsDeps): {
           if (owned !== null) running.delete(owned);
         });
         deps.keepAlive?.(done);
-        return Promise.race([begun, done.then(earlyResponse)]);
+        return Promise.race([
+          begun,
+          done.then((outcome) =>
+            // 같은 idempotencyKey 재요청이고 이 확장이 그 실행을 돌리고 있으면 그대로 이어지는 중이다.
+            outcome.kind === 'already_running' && outcome.reused && outcome.existing && running.has(outcome.existing.operationId)
+              ? { success: true as const, operationId: outcome.existing.operationId, reused: true }
+              : earlyResponse(outcome),
+          ),
+        ]);
       },
     },
     [OPERATION_CANCEL_ACTION]: {

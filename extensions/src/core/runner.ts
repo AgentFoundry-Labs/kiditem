@@ -26,13 +26,14 @@ export interface RunInput {
   scope: Record<string, unknown>;
   idempotencyKey?: string;
   signal: AbortSignal;
-  /** begin이 성공한 직후(브라우저 자원·수집 전에) 한 번. 입구가 웹앱에 바로 답할 때 쓴다. */
+  /** 새 실행의 begin이 성공한 직후(브라우저 자원·수집 전에) 한 번. reused면 부르지 않는다. 입구가 웹앱에 바로 답할 때 쓴다. */
   onBegun?(begun: { operationId: string; reused: boolean }): void;
 }
 
 export type RunOutcome =
   | { kind: 'finished'; operation: OperationView }
-  | { kind: 'already_running'; existing: OperationInProgressDetails | null }
+  /** `reused`: 409가 아니라 begin이 같은 idempotencyKey의 살아 있는 실행을 돌려줬다. */
+  | { kind: 'already_running'; existing: OperationInProgressDetails | null; reused?: true }
   | { kind: 'fence_lost'; operationId: string; reason: string | null }
   | { kind: 'failed'; operationId: string | null; errorCode: string; errorMessage: string };
 
@@ -96,6 +97,12 @@ export function createRunner(deps: RunnerDeps, collectorFor: (kind: OperationKin
         const stop = stopFor(error.code, error.details);
         if (stop.kind === 'already_running') return { kind: 'already_running', existing: stop.existing };
         return { kind: 'failed', operationId: null, errorCode: error.code, errorMessage: error.message };
+      }
+      if (begun.reused) {
+        // 살아 있는 같은 실행(같은 idempotencyKey)이다. 누가 돌리는지 모르므로(워커 재시작·다른 브라우저)
+        // 1번 청크부터 다시 모으지 않고 cancel도 하지 않는다. 이어 받기(reconcile)는 KID-364.
+        const { id: operationId, kind, lockKeys, startedAt, expiresAt } = begun.operation;
+        return { kind: 'already_running', existing: { operationId, kind, lockKeys, startedAt, expiresAt }, reused: true };
       }
       input.onBegun?.({ operationId: begun.operation.id, reused: begun.reused });
       return execute(deps, collector, input, begun.operation, begun.token);

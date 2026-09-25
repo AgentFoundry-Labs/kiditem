@@ -4669,6 +4669,10 @@ var KidItemRuntime = (() => {
           if (stop.kind === "already_running") return { kind: "already_running", existing: stop.existing };
           return { kind: "failed", operationId: null, errorCode: error.code, errorMessage: error.message };
         }
+        if (begun.reused) {
+          const { id: operationId, kind, lockKeys, startedAt, expiresAt } = begun.operation;
+          return { kind: "already_running", existing: { operationId, kind, lockKeys, startedAt, expiresAt }, reused: true };
+        }
         input.onBegun?.({ operationId: begun.operation.id, reused: begun.reused });
         return execute(deps, collector, input, begun.operation, begun.token);
       }
@@ -4839,11 +4843,8 @@ var KidItemRuntime = (() => {
             ...idempotencyKey !== void 0 ? { idempotencyKey } : {},
             signal: controller.signal,
             onBegun({ operationId, reused }) {
-              if (running.has(operationId)) controller.abort();
-              else {
-                running.set(operationId, controller);
-                owned = operationId;
-              }
+              running.set(operationId, controller);
+              owned = operationId;
               answer({ success: true, operationId, reused });
             }
           });
@@ -4851,7 +4852,15 @@ var KidItemRuntime = (() => {
             if (owned !== null) running.delete(owned);
           });
           deps.keepAlive?.(done);
-          return Promise.race([begun, done.then(earlyResponse)]);
+          return Promise.race([
+            begun,
+            done.then(
+              (outcome) => (
+                // 같은 idempotencyKey 재요청이고 이 확장이 그 실행을 돌리고 있으면 그대로 이어지는 중이다.
+                outcome.kind === "already_running" && outcome.reused && outcome.existing && running.has(outcome.existing.operationId) ? { success: true, operationId: outcome.existing.operationId, reused: true } : earlyResponse(outcome)
+              )
+            )
+          ]);
         }
       },
       [OPERATION_CANCEL_ACTION]: {
