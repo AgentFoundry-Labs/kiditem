@@ -315,10 +315,6 @@
           "reason": "Publishes immutable typed Wing product facts with their evidence inside the source owner transaction."
         },
         {
-          "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-browser-source-attempt.repository.adapter.ts",
-          "reason": "Counts the staged keyword's current typed facts inside the source owner transaction to seal its exact accepted receipt."
-        },
-        {
           "path": "apps/server/src/sourcing/adapter/out/repository/sourcing-operation-ledger.repository.adapter.ts",
           "reason": "KID-360: counts the Wing catalog facts its own finish transaction just wrote, so the publication receipt matches the typed rows."
         }
