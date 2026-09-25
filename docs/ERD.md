@@ -372,6 +372,7 @@ erDiagram
     String imageUrl
     Json rawJson
     String lastImportRunId
+    String lastOperationId
     String status
     String exposureStatus
     String deliveryChargeType
@@ -433,6 +434,7 @@ erDiagram
     Json attributesJson
     Json rawJson
     String lastImportRunId
+    String lastOperationId
     Boolean isActive
     DateTime createdAt
     Int safetyStock

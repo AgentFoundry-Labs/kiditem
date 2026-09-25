@@ -1,16 +1,15 @@
 import { describe, expect, it } from 'vitest';
-import { planCatalogDetailTargets, withUnfinishedDetailTargets } from './catalog-detail-targets';
+import { planCatalogDetailTargets } from './catalog-detail-targets';
 
-const stored = (id: string, over: Partial<{ listModifiedOn: string | null; hasDetail: boolean; status: string | null }> = {}) => ({
+const stored = (id: string, over: Partial<{ detailModifiedOn: string | null; status: string | null }> = {}) => ({
   externalProductId: id,
-  listModifiedOn: '2026-09-01',
-  hasDetail: true,
+  detailModifiedOn: '2026-09-01',
   status: 'APPROVED',
   ...over,
 });
 
 describe('planCatalogDetailTargets', () => {
-  it('targets new products, changed modifiedOn and rows without a detail section, in list order', () => {
+  it('targets new products, products whose list modifiedOn differs from the last detail publication, and rows never detailed — in list order', () => {
     const plan = planCatalogDetailTargets({
       listed: [
         { externalProductId: 'unchanged', modifiedOn: '2026-09-01' },
@@ -19,10 +18,19 @@ describe('planCatalogDetailTargets', () => {
         { externalProductId: 'nodetail', modifiedOn: '2026-09-01' },
         { externalProductId: 'nullnow', modifiedOn: null },
       ],
-      stored: [stored('unchanged'), stored('changed'), stored('nodetail', { hasDetail: false }), stored('nullnow')],
+      stored: [stored('unchanged'), stored('changed'), stored('nodetail', { detailModifiedOn: null }), stored('nullnow')],
     });
     expect(plan.detailTargetProductIds).toEqual(['changed', 'new', 'nodetail', 'nullnow']);
     expect(plan.absentProductIds).toEqual([]);
+  });
+
+  it('a failed details stage needs no bookkeeping: its targets stay targets because detailModifiedOn did not advance', () => {
+    // 목록 단계가 새 modifiedOn을 저장해도 detailModifiedOn은 상세 finalize만 올린다.
+    const plan = planCatalogDetailTargets({
+      listed: [{ externalProductId: 'p', modifiedOn: '2026-09-20' }],
+      stored: [stored('p', { detailModifiedOn: '2026-09-01' })],
+    });
+    expect(plan.detailTargetProductIds).toEqual(['p']);
   });
 
   it('lists stored products missing from the list as absent unless already recorded as deleted', () => {
@@ -48,13 +56,5 @@ describe('planCatalogDetailTargets', () => {
       stored: [],
     });
     expect(plan.detailTargetProductIds).toEqual(['n']);
-  });
-
-  it('adds the still-listed targets of an unfinished previous details stage in list order', () => {
-    expect(withUnfinishedDetailTargets(
-      { detailTargetProductIds: ['P3'], absentProductIds: ['P9'] },
-      ['P1', 'P2', 'P3'],
-      ['P2', 'P8'],
-    )).toEqual({ detailTargetProductIds: ['P2', 'P3'], absentProductIds: ['P9'] });
   });
 });
