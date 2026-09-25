@@ -58,31 +58,35 @@ describe('SourcingWorkspaceController', () => {
     });
   });
 
-  it('exposes source owner endpoints and projects tokens out of terminal and read responses', async () => {
+  it('serves only keyword-suggestion snapshots; collection runs as the sourcing.coupang_keyword_suggestion operation', async () => {
     const organizationId = '00000000-0000-4000-8000-000000000001';
-    const attemptId = '00000000-0000-4000-8000-000000000010';
-    const attemptToken = '00000000-0000-4000-8000-000000000011';
-    const attempt = { attemptId, attemptToken, state: 'COMPLETE' };
-    const source = { begin: vi.fn(async () => attempt), read: vi.fn(async () => attempt),
-      complete: vi.fn(async () => attempt), fail: vi.fn(async () => attempt),
-      status: vi.fn(async () => ({ latestAttempt: attempt, latestComplete: attempt })),
-      snapshot: vi.fn(async () => ({ items: [] })) };
+    const source = { snapshot: vi.fn(async () => ({ items: [] })) };
     const controller = new SourcingWorkspaceController({} as never, {} as never,
       source as never, {} as never);
-    expect(SourcingWorkspaceController.prototype).not.toHaveProperty('ingestBrowserKeywordSuggestions');
-    await expect(controller.beginKeywordSuggestions(organizationId, { id: 'user' } as never,
-      'key', { keyword: 'A Pencil', maxResults: 30 })).resolves.toEqual(attempt);
-    expect(source.begin).toHaveBeenCalledWith({ organizationId, requestedByUserId: 'user',
-      idempotencyKey: 'key', input: { keyword: 'A Pencil', maxResults: 30 } });
-    await expect(controller.completeKeywordSuggestions(attemptId, attemptToken, {}, organizationId))
-      .resolves.toEqual({ attemptId, state: 'COMPLETE' });
-    await expect(controller.readKeywordSuggestions(attemptId, organizationId))
-      .resolves.toEqual({ attemptId, state: 'COMPLETE' });
-    await expect(controller.failKeywordSuggestions(attemptId, attemptToken,
-      { code: 'FAIL', message: 'provider' }, organizationId)).resolves.not.toHaveProperty('attemptToken');
-    expect(() => controller.completeKeywordSuggestions(attemptId, undefined, {}, organizationId))
-      .toThrow('INVALID_SOURCE_ATTEMPT_TOKEN');
+    for (const retired of ['beginKeywordSuggestions', 'completeKeywordSuggestions', 'readKeywordSuggestions',
+      'failKeywordSuggestions', 'beginWingCatalog', 'uploadWingCatalog', 'completeWingCatalog', 'cancelWingCatalog']) {
+      expect(SourcingWorkspaceController.prototype).not.toHaveProperty(retired);
+    }
     await controller.getKeywordSuggestionSnapshot('  Ａ Pencil ', organizationId);
     expect(source.snapshot).toHaveBeenCalledWith({ organizationId, keyword: 'A Pencil' });
+  });
+
+  it('refreshes Wing recommendations only from a published market-analysis Wing operation', async () => {
+    const organizationId = '00000000-0000-4000-8000-000000000001';
+    const sourceOperationId = '00000000-0000-4000-8000-000000000020';
+    const recommendations = { refresh: vi.fn(async () => ({ ok: true })) };
+    const wing = { publishedPurpose: vi.fn(async (): Promise<string | null> => 'market_analysis') };
+    const controller = new SourcingWorkspaceController(recommendations as never, wing as never, {} as never, {} as never);
+    await controller.refreshWingRecommendations(organizationId, { sourceOperationId });
+    expect(wing.publishedPurpose).toHaveBeenCalledWith({ organizationId, operationId: sourceOperationId });
+    expect(recommendations.refresh).toHaveBeenCalledWith({ organizationId, limit: 50,
+      idempotencyKey: `wing-source:${sourceOperationId}:recommendations` });
+
+    wing.publishedPurpose.mockResolvedValueOnce('catalog_search');
+    await expect(controller.refreshWingRecommendations(organizationId, { sourceOperationId }))
+      .rejects.toThrow('WING_RECOMMENDATION_SOURCE_NOT_COMPLETE');
+    wing.publishedPurpose.mockResolvedValueOnce(null);
+    await expect(controller.refreshWingRecommendations(organizationId, { sourceOperationId }))
+      .rejects.toThrow('WING_RECOMMENDATION_SOURCE_NOT_COMPLETE');
   });
 });

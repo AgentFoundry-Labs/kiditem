@@ -92,6 +92,7 @@ import { buildWingCatalogOutput } from './sourcing-wing-catalog.mapper';
 import { TrendCollectService } from './trend-collect.service';
 
 const KINDS = SOURCING_OPERATION_KINDS;
+const NOT_A_SOURCE_FAILURE = new Set(['SOURCING_DUPLICATE_RECORD']);
 const CHUNKS = SOURCING_CHUNK_KINDS;
 
 /** 모든 확장 kind의 plan JSON에 남는 값. 발행 이력의 키·수집기와 실패 알림이 여기서 나온다. */
@@ -267,7 +268,8 @@ export class SourcingExtensionOperationService implements SourcingExtensionOpera
     context: SourcingOperationFinalizeContext & { errorCode: string; errorMessage: string | null },
   ): Promise<void> {
     const parsed = PlanBaseSchema.safeParse(context.plan);
-    if (!parsed.success) return;
+    // 이미 수집한 원본(KID-313)은 원천이 실패한 것이 아니다 — 옛 attempt처럼 알림을 남기지 않는다.
+    if (!parsed.success || NOT_A_SOURCE_FAILURE.has(context.errorCode)) return;
     await this.ledger.recordSourceFailure(context.tx, {
       organizationId: context.organizationId,
       operationId: context.operationId,

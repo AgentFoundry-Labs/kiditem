@@ -9,7 +9,6 @@ import { SourcingFinalCapabilityAdapter } from '../adapter/in/agent/sourcing-fin
 import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
 import { SourcingService } from '../application/service/sourcing.service';
 import { SourcingExtensionIngestController } from '../adapter/in/http/sourcing-extension-ingest.controller';
-import { SourcingExtensionIngestService } from '../application/service/sourcing-extension-ingest.service';
 import { SourcingBrowserSourceAttemptRepositoryAdapter } from '../adapter/out/repository/sourcing-browser-source-attempt.repository.adapter';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { INestApplication } from '@nestjs/common';
@@ -46,7 +45,7 @@ describe('retained scrape URL owner normalization and lifecycle (PostgreSQL)', (
     const sourcing = new SourcingService(records, records, undefined as never,
       undefined as never, owner, drafts);
     const module = await Test.createTestingModule({ controllers: [SourcingExtensionIngestController], providers: [
-      { provide: SourcingService, useValue: sourcing }, { provide: SourcingExtensionIngestService, useValue: new SourcingExtensionIngestService(attempts) },
+      { provide: SourcingService, useValue: sourcing },
     ] }).compile();
     app = module.createNestApplication(); app.setGlobalPrefix('api');
     app.use((req: any, _res: any, next: () => void) => { req.authUser = { id: TEST_USER_ID, organizationId: TEST_ORGANIZATION_ID }; next(); });

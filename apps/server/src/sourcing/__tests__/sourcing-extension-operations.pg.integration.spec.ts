@@ -328,8 +328,38 @@ describe('sourcing extension-driven operation kinds (PostgreSQL)', () => {
       const again = await begin(KINDS.productExtension, { platform: '1688', url: product.source_url });
       await put(again, 'product_document', 1, [{ product, hadDescription: false }]);
       const refused = await finish(again).expect(409);
-      expect(refused.body).toMatchObject({ code: 'SOURCING_DUPLICATE_RECORD', details: { reason: 'draft_exists' } });
+      expect(refused.body).toMatchObject({ code: 'SOURCING_DUPLICATE_RECORD', details: {
+        reason: 'draft_exists', existing: { sourceRecordId: record.id, salesProductId: draft.id } } });
+      // 확장 runner가 그 코드로 닫는다. 이미 수집한 원본은 원천 실패가 아니라 알림을 남기지 않는다.
+      await finish(again, { outcome: 'failed', errorCode: 'SOURCING_DUPLICATE_RECORD', errorMessage: refused.body.message }).expect(200);
       expect(await prisma.sourceRecord.count()).toBe(1);
+      expect(await prisma.alert.count()).toBe(0);
+    });
+
+    it('merges the description page into the admitted record in the same commit', async () => {
+      const description = { source_url: product.source_url, product_id: product.product_id,
+        description_images: ['https://cbu01.alicdn.com/description.jpg'], description_text: '설명 본문' };
+      const begun = await begin(KINDS.productExtension, { platform: '1688', url: product.source_url });
+      await put(begun, 'product_document', 1, [{ product, description, hadDescription: true }]);
+      await finish(begun).expect(200);
+      const record = await prisma.sourceRecord.findFirstOrThrow();
+      expect(record).toMatchObject({ sourcePlatform: 'ALIBABA_1688', name: product.title, description: '설명 본문' });
+      const draft = await prisma.salesProduct.findFirstOrThrow({ where: { sourceRecordId: record.id } });
+      expect(draft).toMatchObject({ status: 'draft', description: '설명 본문' });
+      expect(await prisma.sourcingEvidenceObservation.count({ where: { operationId: begun.operation.id } })).toBe(2);
+    });
+
+    it('publishes a search page as an artifact without a source record, and refuses a document for another URL', async () => {
+      const searchUrl = 'https://s.1688.com/selloffer/offer_search.htm?keywords=test#offers';
+      const search = await begin(KINDS.productExtension, { platform: '1688', url: searchUrl });
+      await put(search, 'product_document', 1, [{ product: { ...product, source_url: searchUrl, page_type: 'search', total_found: 3 }, hadDescription: false }]);
+      await finish(search).expect(200);
+      expect(await prisma.sourceRecord.count()).toBe(0);
+
+      const other = await begin(KINDS.productExtension, { platform: '1688', url: `${product.source_url}?spm=original` });
+      await put(other, 'product_document', 1, [{ product: { ...product, source_url: `${product.source_url}?spm=changed` }, hadDescription: false }]);
+      await refuseThenFail(other, 'SOURCING_COLLECTION_INVALID');
+      expect(await prisma.sourceRecord.count()).toBe(0);
     });
   });
 });

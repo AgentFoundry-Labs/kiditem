@@ -1165,26 +1165,8 @@
       "from": "apps/server/src/readiness/readiness.service.ts"
     },
     {
-      "from": "apps/server/src/sourcing/application/service/sourcing-browser-source-attempt.service.ts",
-      "to": "apps/server/src/sourcing/application/service/sourcing-1688-source-attempt.mapper.ts",
-      "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
-      "removeWith": "KID-324"
-    },
-    {
-      "from": "apps/server/src/sourcing/application/service/sourcing-live-commerce-source-attempt.service.ts",
-      "to": "apps/server/src/sourcing/application/service/sourcing-live-commerce-source-attempt.mapper.ts",
-      "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
-      "removeWith": "KID-324"
-    },
-    {
       "from": "apps/server/src/sourcing/application/service/sourcing-shadow-signal.service.ts",
       "to": "apps/server/src/sourcing/application/service/sourcing-shadow-signal.evaluation.ts",
-      "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
-      "removeWith": "KID-324"
-    },
-    {
-      "from": "apps/server/src/sourcing/application/service/sourcing-tiktok-source-attempt.service.ts",
-      "to": "apps/server/src/sourcing/application/service/sourcing-tiktok-source-attempt.mapper.ts",
       "reason": "Existing implementation-local type/helper re-export; retained during owner public contract migration.",
       "removeWith": "KID-324"
     },

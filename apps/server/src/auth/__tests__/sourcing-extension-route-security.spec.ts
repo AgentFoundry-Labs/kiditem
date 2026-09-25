@@ -4,9 +4,7 @@ import { RequestMethod } from '@nestjs/common';
 import { METHOD_METADATA, PATH_METADATA } from '@nestjs/common/constants';
 import { describe, expect, it, vi } from 'vitest';
 import { ApiApplicationModule } from '../../api-application.module';
-import { SourcingBrowserSourceAttemptController } from '../../sourcing/adapter/in/http/sourcing-browser-source-attempt.controller';
-import { SourcingLiveCommerceSourceAttemptController } from '../../sourcing/adapter/in/http/sourcing-live-commerce-source-attempt.controller';
-import { SourcingTiktokSourceAttemptController } from '../../sourcing/adapter/in/http/sourcing-tiktok-source-attempt.controller';
+import { OperationsController } from '../../common/operation/adapter/in/web/operations.controller';
 import { SessionAuthMiddleware } from '../middleware/session-auth.middleware';
 
 describe('sourcing extension route security wiring', () => {
@@ -33,43 +31,21 @@ describe('sourcing extension route security wiring', () => {
     expect(sessionForRoutes).toHaveBeenCalledWith('*');
   });
 
-  it.each([
-    [SourcingLiveCommerceSourceAttemptController, 'sourcing/live-commerce', SourcingLiveCommerceSourceAttemptController.prototype.completeBrowser, 'browser/attempts/:attemptId'],
-    [SourcingTiktokSourceAttemptController, 'sourcing/tiktok-creative', SourcingTiktokSourceAttemptController.prototype.completeTiktok, 'attempts/:attemptId'],
-  ])(
-    'keeps %s terminal ingress on its globally authenticated source-owner route',
-    (controller, controllerPath, handler, handlerPath) => {
-      expect(Reflect.getMetadata(PATH_METADATA, controller)).toBe(controllerPath);
-      expect(Reflect.getMetadata(PATH_METADATA, handler)).toBe(handlerPath);
-      expect(Reflect.getMetadata(METHOD_METADATA, handler)).toBe(RequestMethod.PUT);
-    },
-  );
+  // 확장 구동 소싱 수집은 실행 계약의 전역 인증 라우트 하나로 들어온다(KID-360).
+  it('keeps extension collection ingress on the globally authenticated operation contract routes', () => {
+    expect(Reflect.getMetadata(PATH_METADATA, OperationsController)).toBe('operations');
+    expect(Reflect.getMetadata(METHOD_METADATA, OperationsController.prototype.begin)).toBe(RequestMethod.POST);
+  });
 
-  it.each([
-    [SourcingBrowserSourceAttemptController, 'sourcing', 'begin1688', '1688-trends/attempts'],
-    [SourcingBrowserSourceAttemptController, 'sourcing', 'complete1688', '1688-trends/attempts/:attemptId'],
-    [SourcingBrowserSourceAttemptController, 'sourcing', 'fail1688', '1688-trends/attempts/:attemptId/fail'],
-  ] as const)(
-    'keeps direct source-owner %s.%s on the globally authenticated sourcing route',
-    (controller, controllerPath, handlerName, handlerPath) => {
-      expect(Reflect.getMetadata(PATH_METADATA, controller)).toBe(controllerPath);
-      expect(
-        Reflect.getMetadata(
-          PATH_METADATA,
-          controller.prototype[handlerName],
-        ),
-      ).toBe(handlerPath);
-    },
-  );
-
-  it('registers retained collectors through source owners without a second Live Operation route', () => {
+  it('registers extension collectors as operation owners without a per-source attempt route', () => {
     const sourcingModule = readFileSync(
       resolve(__dirname, '../../sourcing/sourcing.module.ts'),
       'utf8',
     );
-    expect(sourcingModule).toContain('SourcingBrowserSourceAttemptController');
-    expect(sourcingModule).toContain('SourcingTiktokSourceAttemptController');
-    expect(sourcingModule).toContain('SourcingLiveCommerceSourceAttemptController');
+    expect(sourcingModule).toContain('SOURCING_EXTENSION_OPERATION_OWNERS');
+    expect(sourcingModule).not.toContain('SourcingBrowserSourceAttemptController');
+    expect(sourcingModule).not.toContain('SourcingTiktokSourceAttemptController');
+    expect(sourcingModule).not.toContain('SourcingLiveCommerceSourceAttemptController');
     expect(sourcingModule).not.toContain('SourcingBrowserLiveCommerceOperation');
   });
 });
