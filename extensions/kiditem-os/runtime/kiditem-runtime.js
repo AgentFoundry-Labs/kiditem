@@ -5479,6 +5479,7 @@ var KidItemRuntime = (() => {
 
   // packages/shared/src/schemas/orders-operations.ts
   var SELLPIA_SHIPMENT_TRACKING_KIND = "orders.sellpia_shipment_tracking";
+  var MALL_ORDERS_KIND = "orders.mall_orders";
   var isoDay2 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
   var CoupangShipmentSummaryScopeSchema = external_exports.object({
     maxPages: external_exports.number().int().min(1).max(60).optional()
@@ -5503,28 +5504,78 @@ var KidItemRuntime = (() => {
     seenRowKeys: external_exports.array(external_exports.string().min(1).max(MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH)).max(MALL_ORDERS_SEEN_ROW_KEYS_MAX).optional()
   }).strict();
   var SELLPIA_SHIPMENT_TRACKING_CHUNK_KIND = "tracking_rows";
+  var MALL_ORDERS_CHUNK_KIND = "order_rows";
+  var MALL_ORDERS_CONTINUATION_CHUNK_KIND = "continuation";
   var OrdersCaptureResultSchema = external_exports.object({
     rowCount: external_exports.number().int().nonnegative()
   }).passthrough();
+  var MallOrdersResultSchema = OrdersCaptureResultSchema.extend({
+    mallKey: external_exports.string().min(1).max(64)
+  });
+
+  // extensions/src/collectors/orders.mall_orders/index.ts
+  var PlanSchema = external_exports.object({
+    mallKey: external_exports.string().min(1),
+    collectionDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+    selectionMode: external_exports.enum(["manual", "automatic"]).optional(),
+    seenRowKeys: external_exports.array(external_exports.string()).optional()
+  });
+  var CHUNK_ROWS = 200;
+  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var mallOrdersCollector = {
+    kind: MALL_ORDERS_KIND,
+    site: "mall-orders",
+    async *collect(rawPlan, site, { signal }) {
+      const parsed = PlanSchema.safeParse(rawPlan);
+      const reader = parsed.success && site ? site.reader(parsed.data.mallKey) : null;
+      if (!parsed.success || !reader) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+          kind: MALL_ORDERS_KIND,
+          mallKey: parsed.success ? parsed.data.mallKey : null
+        });
+      }
+      const plan = parsed.data;
+      try {
+        const { rows, continuation } = await reader.readOrders({
+          collectionDate: plan.collectionDate,
+          selectionMode: plan.selectionMode ?? "manual",
+          seenRowKeys: plan.seenRowKeys ?? []
+        });
+        if (signal.aborted) return;
+        const progress = { mallKey: plan.mallKey, rows: rows.length };
+        const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS, label: "\uC8FC\uBB38 \uD55C \uAC74" });
+        for (const row of rows) {
+          const full = buffer.push(row);
+          if (full) yield { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: full, progress };
+        }
+        const rest = buffer.flush();
+        if (rest) yield { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: rest, progress };
+        if (continuation) yield { chunkKind: MALL_ORDERS_CONTINUATION_CHUNK_KIND, payload: [continuation], progress };
+      } finally {
+        await reader.close?.();
+      }
+    }
+  };
+  registerCollector(mallOrdersCollector);
 
   // extensions/src/collectors/orders.sellpia_shipment_tracking/index.ts
-  var PlanSchema = external_exports.object({
+  var PlanSchema2 = external_exports.object({
     startDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     endDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/)
   });
-  var CHUNK_ROWS = 500;
-  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var CHUNK_ROWS2 = 500;
+  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
   var sellpiaShipmentTrackingCollector = {
     kind: SELLPIA_SHIPMENT_TRACKING_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
-      const parsed = PlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      const parsed = PlanSchema2.safeParse(rawPlan);
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
       const { rows, total } = await site.shipmentTracking({ startDate: parsed.data.startDate, endDate: parsed.data.endDate });
       if (signal.aborted) return;
       const progress = { rows: rows.length, listed: total };
-      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS2, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
       for (const row of rows) {
         const full = buffer.push(row);
         if (full) yield { chunkKind: SELLPIA_SHIPMENT_TRACKING_CHUNK_KIND, payload: full, progress };
@@ -6581,6 +6632,16 @@ var KidItemRuntime = (() => {
     return new RuntimeError(SITE_VERIFICATION_REQUIRED2, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
   }
   registerSite({ name: LIVE_COMMERCE_SITE.name, create: (deps) => createLiveCommerceSite(deps.tabs) });
+
+  // extensions/src/sites/mall-orders/index.ts
+  var MALL_ORDERS_SITE = "mall-orders";
+  registerSite({
+    name: MALL_ORDERS_SITE,
+    opensOwnTabs: true,
+    create: (deps, lease) => ({
+      reader: (mallKey) => mallKey === MALL_ORDERS_SITE ? null : siteFactoryFor(mallKey)?.create(deps, lease) ?? null
+    })
+  });
 
   // extensions/src/sites/product-page/description.ts
   function parseDescriptionHtml(html) {
@@ -7810,7 +7871,7 @@ var KidItemRuntime = (() => {
           throw new RuntimeError(RUNTIME_BROWSER_ALREADY_ACQUIRED, "\uC774 \uC2E4\uD589\uC740 \uC774\uBBF8 \uBE0C\uB77C\uC6B0\uC800 \uC790\uC6D0\uC744 \uC7A1\uACE0 \uC788\uC2B5\uB2C8\uB2E4.", { operationId });
         }
         signal.throwIfAborted();
-        const accountSite = site !== null && site in sites2 ? site : options.accountSite ?? null;
+        const accountSite = site !== null && site in sites2 ? site : site !== null && options.ownTabSites?.has(site) ? null : options.accountSite ?? null;
         const siteNames = [...new Set(lockKeys.map((key) => siteOfLockKey(key, accountSite)).filter((name) => name !== null && name in sites2))];
         if (siteNames.length > 1) {
           throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uD55C \uC2E4\uD589\uC774 \uB450 \uC0AC\uC774\uD2B8\uC758 \uD0ED\uC744 \uD568\uAED8 \uC7A1\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { sites: siteNames });
@@ -7854,6 +7915,9 @@ var KidItemRuntime = (() => {
   // extensions/src/entry/site-handles.ts
   function entrySites() {
     return Object.fromEntries(registeredSites().flatMap((site) => site.origin ? [[site.name, { origin: site.origin }]] : []));
+  }
+  function ownTabSites() {
+    return new Set(registeredSites().filter((site) => site.opensOwnTabs === true).map((site) => site.name));
   }
   var ACCOUNT_SITE = "wing";
   function createSiteHandles(deps) {
@@ -8329,7 +8393,7 @@ var KidItemRuntime = (() => {
       tabs: createTabPages({ chrome, fetch: (input, init) => fetch(input, init), sleep, now: () => Date.now() }),
       randomId: () => crypto.randomUUID()
     };
-    const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE });
+    const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
     const channelSites = createSiteHandles(site);
     const externalActions = createOperationActions({
       apiFor: legacyApiPort,

@@ -73,6 +73,16 @@ registration, and Coupang cookie-overflow recovery.
   range-completeness matrices are executable in
   [the extension order tests](../../../tests/).
 
+## Mall Order Operations
+
+- First-batch malls (icecream-mall, kidkids, art09, domeggook) collect through
+  the runtime kind `orders.mall_orders`: `sites/mall-orders` routes the plan's
+  mall key to `sites/<mallKey>`, which opens its own inactive tab and returns
+  the old convert body's rows. Their worker collectors are gone; the other
+  malls keep the owner/lifecycle/converter path until H3′.
+- Login before an operation runs from the web without an attempt
+  (`ensureMallLoggedIn` with no `attemptId` logs in only).
+
 ## Sabangnet Listing Import
 
 - `orders.sabangnet_mall_listings` (Channels owner) reads Sabangnet's send

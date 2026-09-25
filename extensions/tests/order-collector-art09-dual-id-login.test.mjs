@@ -300,6 +300,35 @@ test("login preflight runs inside the matching order collection lifecycle", asyn
   assert.deepEqual({ ...calls[1][3].collection }, { runId: message.runId });
 });
 
+test("a login sent without an owner attempt logs in only — the mall moved to the orders.mall_orders operation (KID-359 H3)", async () => {
+  const source = readFileSync(
+    new URL("../kiditem-os/background/orders/worker.js", import.meta.url),
+    "utf8",
+  );
+  const calls = [];
+  const ensureMallLoginWithLifecycle = vm.runInNewContext(
+    `(${extractFunction(source, "ensureMallLoginWithLifecycle")})`,
+    {
+      ensureMallLoggedIn: async (mallKey, credentials, collection) => {
+        calls.push(["login", mallKey, collection]);
+        return { success: true };
+      },
+      runOwnedOrderCollection: () => {
+        throw new Error("an operation mall has no owner attempt to wrap the login in");
+      },
+    },
+  );
+
+  const result = await ensureMallLoginWithLifecycle({
+    mallKey: "kidkids",
+    credentials: { loginId: "kid", password: "password" },
+    date: null,
+  });
+
+  assert.equal(result.success, true);
+  assert.deepEqual(calls, [["login", "kidkids", null]]);
+});
+
 test("art09 collection ignores visible orders outside the 배송준비전 state", async () => {
   const source = readFileSync(
     new URL("../kiditem-os/background/orders/worker.js", import.meta.url),

@@ -29,6 +29,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
     const controller = new OrderCollectionController(
       collection as never,
       source as never,
+      {} as never,
     );
     const response = { setHeader: vi.fn() };
     const body = { rows: [{ orderId: '20260727-1234567', productName: '상품', qty: 1 }] };
@@ -84,6 +85,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
     const controller = new OrderCollectionController(
       collection as never,
       source as never,
+      {} as never,
     );
 
     await expect(controller.convertKkomangse(
@@ -106,6 +108,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
     const controller = new OrderCollectionController(
       collection as never,
       source as never,
+      {} as never,
     );
 
     await expect(controller.convertKidsnote(
@@ -137,6 +140,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
     const controller = new OrderCollectionController(
       collection as never,
       source as never,
+      {} as never,
     );
     const response = { setHeader: vi.fn() };
     const body = {
@@ -172,6 +176,7 @@ describe('OrderCollectionController Coupang direct convert', () => {
     const controller = new OrderCollectionController(
       collection as never,
       source as never,
+      {} as never,
     );
 
     await expect(controller.convertKidsnote(

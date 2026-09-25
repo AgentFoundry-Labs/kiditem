@@ -19,6 +19,8 @@ export interface SiteFactory {
   readonly name: string;
   /** `account:` 잠금이 이 사이트의 탭을 열어야 할 때만 둔다(그 탭의 URL 접두). */
   readonly origin?: string;
+  /** 탭을 스스로 열고 닫는다 — `account:` 잠금이라도 브라우저 자원이 기본 계정 사이트(wing) 탭을 열지 않는다(KID-359 H3). */
+  readonly opensOwnTabs?: boolean;
   /** 실행마다 새 핸들을 만든다(호출기 간격 기록은 실행 안에서만). 모양은 사이트마다 다르다. */
   create(deps: SiteDeps, lease: SiteLease): unknown;
 }

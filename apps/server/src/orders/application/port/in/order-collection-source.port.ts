@@ -1,8 +1,5 @@
 import { canonicalOwnerInputJson } from '../../../../common/owner-idempotency-key';
-import type {
-  OrderCollectionSourceStatus,
-  OrderCollectionTodayOrders,
-} from '@kiditem/shared/order-collection-source';
+import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 
 export const ORDER_COLLECTION_SOURCE_PORT = Symbol('ORDER_COLLECTION_SOURCE_PORT');
 
@@ -113,11 +110,6 @@ export interface OrderCollectionSourcePort {
    * 이 조직에 계정 행이 없는 몰은 범위와 상태를 비운 칸으로 돌려준다. 몰 하나짜리 읽기와
    * 같은 판정을 쓰고, 마찬가지로 시도 토큰은 담지 않는다.
    */
-  /**
-   * 오늘 수집이 실어 온 주문 수(서버 기록). 몰마다 마지막 수집 한 번만 세고, 대시보드의
-   * '오늘 주문' 과 같은 Core 읽기를 쓴다 — 두 화면이 같은 수를 말해야 한다.
-   */
-  readTodayOrderCounts(input: { organizationId: string }): Promise<OrderCollectionTodayOrders>;
   readSourceStatuses(input: {
     organizationId: string;
   }): Promise<OrderCollectionSourceStatus[]>;

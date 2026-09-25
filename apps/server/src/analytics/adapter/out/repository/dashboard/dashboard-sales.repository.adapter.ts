@@ -17,15 +17,10 @@ import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionalReadPort,
 } from "../../../../../products/application/port/in/product-transactional-read.port";
-import { readCompletedImportRowCount } from "../../../../../core/read/source-import-run.reader";
-
-/**
- * 주문을 실어 오는 수집 원천. 몰 주문 수집과 쿠팡직배송 발주 수집이 오늘 주문을 만든다.
- */
-const ORDER_COLLECTION_SOURCE_TYPES = [
-  "order_collection_mall",
-  "coupang_direct_order_capture",
-] as const;
+import {
+  ORDER_COLLECTION_TODAY_ORDERS_PORT,
+  type OrderCollectionTodayOrdersPort,
+} from "../../../../../orders/application/port/in/order-collection-today-orders.port";
 import {
   buildPerListingProfit,
   readAdEvidenceFromLedger,
@@ -114,6 +109,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
     @Inject(PRODUCT_ABC_READ_PORT)
     private readonly productAbc: ProductAbcReadPort,
     @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
+    @Inject(ORDER_COLLECTION_TODAY_ORDERS_PORT) private readonly todayOrders: OrderCollectionTodayOrdersPort,
   ) {}
 
   /**
@@ -124,25 +120,22 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
     todayStart: Date,
     todayEnd: Date,
   ): Promise<TodayKpiRow> {
-    const [facts, collectedOrders] = await this.prisma.$transaction(
-      async (tx) => Promise.all([
-        readOrderLineWindowFacts(tx, {
+    const [facts, collected] = await Promise.all([
+      this.prisma.$transaction(
+        (tx) => readOrderLineWindowFacts(tx, {
           organizationId,
           from: todayStart,
           to: todayEnd,
           excludedStatuses: ORDER_FACT_EXCLUDED_STATUSES,
         }, this.channelAccounts),
-        // 오늘 걷은 주문 수. 주문일이 아니라 **걷은 날** 기준이라 주문수집 화면과 같은 수다
-        // (사장님 2026-09-21: "오늘 주문 50건이잖아").
-        readCompletedImportRowCount(tx, {
-          organizationId,
-          sourceTypes: ORDER_COLLECTION_SOURCE_TYPES,
-          from: todayStart,
-          to: todayEnd,
-        }),
-      ]),
-      { isolationLevel: "RepeatableRead" },
-    );
+        { isolationLevel: "RepeatableRead" },
+      ),
+      // 오늘 걷은 주문 수. 주문일이 아니라 **걷은 날** 기준이라 주문수집 화면과 같은 수다
+      // (사장님 2026-09-21: "오늘 주문 50건이잖아"). 두 화면이 Orders의 capability 하나를 읽는다 —
+      // "여기서 따로 세면 두 화면이 또 다른 수를 말한다"(사장님 2026-09-22: 63 대 82).
+      this.todayOrders.readTodayOrders({ organizationId, now: todayStart }),
+    ]);
+    const collectedOrders = collected.total;
     return {
       revenue: facts.window.revenue,
       orders: facts.window.orderCount,

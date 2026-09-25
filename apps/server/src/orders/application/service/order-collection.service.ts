@@ -1,6 +1,7 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import officeCrypto = require('officecrypto-tool');
 import * as XLSX from 'xlsx';
+import { z } from 'zod';
 import { TextDecoder } from 'util';
 import { basename, extname } from 'path';
 
@@ -15,6 +16,17 @@ import { KIDSNOTE_SUMMARY_INFO, KIDSNOTE_DOC_SUMMARY_INFO } from './kidsnote-sel
 function noNewOrders(message: string): BadRequestException {
   return new BadRequestException({ code: 'NO_NEW_ORDERS', message });
 }
+
+/** 확인된 빈 수집의 보관 본문(해법몰·도매꾹 — 확인 기간이 있는 몰만). */
+export const confirmedEmptyOrdersSchema = z.object({
+  kind: z.literal('confirmed-empty-orders'),
+  mallKey: z.enum(['haebub-mall', 'domeggook']),
+  orders: z.array(z.never()).length(0),
+  confirmedCoverage: z.object({
+    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  }).strict(),
+}).strict();
 
 const OUTPUT_HEADERS = [
   'No',
@@ -319,6 +331,83 @@ export interface HaebeopConvertInput {
 
 @Injectable()
 export class OrderCollectionService {
+  /**
+   * 보관한 원천(옛 attempt artifact·실행 캡처)을 다시 변환한다. 확인된 빈 수집(`confirmed-empty-orders`)은 빈 변환이다.
+   * 원천 형식(JSON·파일)과 몰 키로 변환기를 고른다 — 옛 재생 라우트와 실행 kind `orders.mall_orders`가 같이 쓴다.
+   */
+  async convertRetainedSource(
+    mallKey: string,
+    collectionDate: string | null,
+    source: { bytes: Buffer; fileName: string | null; contentType: string },
+  ): Promise<OrderCollectionConversion> {
+    const contentType = source.contentType.toLowerCase();
+    const isJson = contentType.includes('json') || source.fileName?.toLowerCase().endsWith('.json');
+    if (isJson) {
+      let payload: unknown;
+      try {
+        payload = JSON.parse(source.bytes.toString('utf8'));
+      } catch {
+        throw new BadRequestException('ORDER_COLLECTION_SOURCE_INVALID');
+      }
+      const empty = confirmedEmptyOrdersSchema.safeParse(payload);
+      if (empty.success && empty.data.mallKey === mallKey) {
+        return {
+          buffer: Buffer.alloc(0), fileName: '',
+          sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
+        };
+      }
+      switch (mallKey) {
+        case 'icecream-mall':
+          return this.convertIcecreamMallOrderRows(payload as never);
+        case 'kidsnote':
+          return this.convertKidsnoteOrders(payload as never);
+        case 'kkomangse':
+          return this.convertKkomangseOrders(payload as never);
+        case 'onch':
+          return this.convertOnchannelOrders(payload as never);
+        case 'kidkids':
+          return this.convertKidkidsOrders(payload as never);
+        case 'haebub-mall':
+          return this.convertHaebeopOrders(payload as never);
+        case 'art09':
+          return this.convertArt09Orders(payload as never);
+        case 'kakao':
+          throw new BadRequestException('ORDER_COLLECTION_UNSUPPORTED_CONVERSION');
+        default:
+          throw new BadRequestException('ORDER_COLLECTION_SOURCE_UNSUPPORTED');
+      }
+    }
+
+    const file = {
+      fieldname: 'file',
+      originalname: source.fileName || `${mallKey}-orders.xlsx`,
+      encoding: '7bit',
+      mimetype: source.contentType || 'application/octet-stream',
+      buffer: source.bytes,
+      size: source.bytes.length,
+    };
+    switch (mallKey) {
+      case 'domeggook':
+        return this.convertDomeggookOrderFile(file, {
+          date: collectionDate ?? undefined,
+        });
+      case 'boribori':
+        return this.convertBoriboriOrderFile(file);
+      case 'teacher-mall':
+        return this.convertTeachervilleOrderFile(file);
+      case 'lotte-on':
+        return this.convertLotteonOrderFile(file);
+      case 'gs-shop':
+        return this.convertGsshopOrderFile(file);
+      case 'always':
+        return this.convertAlwayzOrderFile(file);
+      case 'icecream-mall':
+        return this.convertIcecreamMallOrderFile(file);
+      default:
+        throw new BadRequestException('ORDER_COLLECTION_SOURCE_UNSUPPORTED');
+    }
+  }
+
   async convertIcecreamMallOrderFile(
     file: MulterFile,
     options: OrderCollectionConversionOptions = {},

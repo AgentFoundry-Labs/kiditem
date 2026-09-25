@@ -38,6 +38,11 @@ import { ReturnTransfersService } from '../application/service/return-transfers/
 import { CoupangReviewsOperationOwner } from '../adapter/in/operation/coupang-reviews-operation-owner';
 import { SellpiaShipmentTrackingOperationOwner } from '../adapter/in/operation/sellpia-shipment-tracking-operation-owner';
 import { OperationModule } from '../../common/operation/operation.module';
+import { MallOrdersOperationOwner } from '../adapter/in/operation/mall-orders-operation-owner';
+import { MallOrdersOperationService } from '../application/service/mall-orders-operation.service';
+import { OrderMallAccountPersistenceAdapter } from '../adapter/out/persistence/order-mall-account.persistence.adapter';
+import { ORDER_MALL_ACCOUNT_PORT } from '../application/port/out/persistence/order-mall-account.port';
+import { OrderCollectionTodayOrdersModule } from '../order-collection-today-orders.module';
 import { CoupangDirectPoSnapshotService } from '../application/service/coupang-direct-po-snapshot.service';
 import { OrderCollectionService } from '../application/service/order-collection.service';
 import { OrdersService } from '../application/service/orders.service';
@@ -60,6 +65,7 @@ describe('OrdersModule owner wiring', () => {
       ShipmentsModule,
       ProductSourceModule,
       OperationModule,
+      OrderCollectionTodayOrdersModule,
     ]);
     expect(controllers).toEqual([
       OrdersController,
@@ -87,6 +93,9 @@ describe('OrdersModule owner wiring', () => {
       OrderOperationCapturePersistenceAdapter,
       CoupangReviewsOperationOwner,
       SellpiaShipmentTrackingOperationOwner,
+      MallOrdersOperationService,
+      MallOrdersOperationOwner,
+      OrderMallAccountPersistenceAdapter,
       {
         provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
         useExisting: CoupangDirectOrderCollectionService,
@@ -110,6 +119,10 @@ describe('OrdersModule owner wiring', () => {
       {
         provide: ORDER_OPERATION_CAPTURE_PORT,
         useExisting: OrderOperationCapturePersistenceAdapter,
+      },
+      {
+        provide: ORDER_MALL_ACCOUNT_PORT,
+        useExisting: OrderMallAccountPersistenceAdapter,
       },
     ]);
     expect(exports).toEqual([]);

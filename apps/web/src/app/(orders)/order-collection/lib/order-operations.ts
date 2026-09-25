@@ -50,22 +50,50 @@ export async function startOrderOperation(kind: OperationKind, scope: Record<str
 }
 
 /**
- * 실행이 끝날 때까지 reader를 2초마다 읽는다. 성공이면 그 실행, 실패·중단이면 운영자 문장, 상한을 넘기면 아직
- * 끝나지 않았다는 문장을 던진다(실행은 확장에서 계속되고 화면의 공용 컨트롤이 이어서 보여 준다).
+ * 실패·중단으로 끝난 실행. `errorCode`는 수집 화면의 분류 코드(로그인·운영자 확인)로 옮겨 적어, 몰 카드·활동 기록이
+ * 옛 수집과 같은 말(로그인 필요 · 인증 필요)을 하게 한다.
+ */
+export class OrderOperationFailure extends Error {
+  readonly operation: OperationView;
+  readonly errorCode: string | null;
+
+  constructor(operation: OperationView, message: string) {
+    super(message);
+    this.name = 'OrderOperationFailure';
+    this.operation = operation;
+    this.errorCode = operation.errorCode === 'SITE_LOGIN_REQUIRED'
+      ? 'login_required'
+      : operation.errorCode === 'SITE_VERIFICATION_REQUIRED'
+        ? 'operator_action_required'
+        : null;
+  }
+}
+
+/**
+ * 실행이 끝날 때까지 reader를 2초마다 읽는다. 성공이면 그 실행, 실패·중단이면 운영자 문장(`OrderOperationFailure`),
+ * 상한을 넘기면 아직 끝나지 않았다는 문장을 던진다(실행은 확장에서 계속되고 화면의 공용 컨트롤이 이어서 보여 준다).
+ * `signal`이 끊기면 기다리기만 멈춘다(실행 중단은 컨트롤의 몫).
  */
 export async function waitForOrderOperation(
   kind: OperationKind,
   operationId: string,
-  options: { sleep?: (ms: number) => Promise<void>; now?: () => number; timeoutMs?: number; source?: string } = {},
+  options: {
+    sleep?: (ms: number) => Promise<void>;
+    now?: () => number;
+    timeoutMs?: number;
+    source?: string;
+    signal?: AbortSignal;
+  } = {},
 ): Promise<OperationView> {
   const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
   const now = options.now ?? Date.now;
   const deadline = now() + (options.timeoutMs ?? WAIT_LIMIT_MS);
   for (;;) {
+    options.signal?.throwIfAborted();
     const current = (await readOrderOperations(kind)).operations.find((operation) => operation.id === operationId);
     if (current && isOperationTerminal(current.status)) {
       if (current.status === 'succeeded') return current;
-      throw new Error(attemptFailureText(current, options.source ?? null) ?? '실행이 실패했습니다.');
+      throw new OrderOperationFailure(current, attemptFailureText(current, options.source ?? null) ?? '실행이 실패했습니다.');
     }
     if (now() >= deadline) throw new Error('실행이 아직 끝나지 않았습니다. 잠시 후 다시 확인해 주세요.');
     await sleep(COLLECTION_RUNNING_POLL_MS);

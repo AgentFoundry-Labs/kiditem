@@ -1,3 +1,4 @@
+import { inclusiveDayCount, parseBusinessDate } from '@kiditem/shared/common';
 import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import type { OperationStagedChunk, OperationWindow } from '@kiditem/shared/operation';
 import {
@@ -7,8 +8,8 @@ import {
 } from '@kiditem/shared/orders-operations';
 import { z } from 'zod';
 
-/** 한 번에 조회하는 기간의 상한: 시작일과 끝일이 30일 넘게 벌어지지 않는다(31일, 옛 attempt 규칙 그대로). */
-const MAX_WINDOW_DAYS = 30;
+/** 한 번에 조회하는 기간의 상한: 양 끝을 넣어 31일(시작일과 끝일이 30일 넘게 벌어지지 않는다, 옛 attempt 규칙 그대로). */
+const MAX_WINDOW_DAYS = 31;
 
 /**
  * 셀피아 송장 한 줄(`delivery_link.action.html`의 `list[]`를 확장이 줄인 모양). 판매처 필터는 화면이 몰별로 한다 —
@@ -49,9 +50,11 @@ export function sellpiaTrackingPlan(scope: unknown): SellpiaTrackingPlan {
     throw invalid('invalid_scope', { errors: parsed.error.issues.map((issue) => ({ field: issue.path.join('.'), reason: issue.message })) });
   }
   const { startDate, endDate }: SellpiaShipmentTrackingScope = parsed.data;
-  if (!calendarDay(startDate) || !calendarDay(endDate)) throw invalid('invalid_date', { startDate, endDate });
-  if ((Date.parse(endDate) - Date.parse(startDate)) / 86_400_000 > MAX_WINDOW_DAYS) {
-    throw invalid('window_too_long', { startDate, endDate, maxDays: MAX_WINDOW_DAYS + 1 });
+  const start = parseBusinessDate(startDate);
+  const end = parseBusinessDate(endDate);
+  if (!start || !end) throw invalid('invalid_date', { startDate, endDate });
+  if (inclusiveDayCount(start, end) > MAX_WINDOW_DAYS) {
+    throw invalid('window_too_long', { startDate, endDate, maxDays: MAX_WINDOW_DAYS });
   }
   return { startDate, endDate };
 }
@@ -84,11 +87,6 @@ export function sellpiaTrackingCapture(
     rows.push(...parsed.data);
   }
   return { rows, total: rows.length, range: { start: range.start, end: range.end }, confirmedRange: null };
-}
-
-function calendarDay(value: string): boolean {
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(date.getTime()) && date.toISOString().slice(0, 10) === value;
 }
 
 function invalid(reason: string, details: Record<string, unknown>): KiditemInvalidValueError {

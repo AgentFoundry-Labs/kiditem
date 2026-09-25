@@ -109,7 +109,11 @@ export interface OrderCollectionExtensionRun extends OrderCollectionAttemptConte
   /** Frozen before an automatic attempt starts; never re-read while it runs. */
   selectionMode?: 'manual' | 'automatic';
   seenRowKeys?: string[];
-  sourceOwner?: 'order_collection_mall' | 'coupang_directship';
+  /**
+   * `mall_orders_operation`: 실행 kind `orders.mall_orders`로 옮긴 몰(KID-359 H3). 옛 몰 소유자의 시도가 없어
+   * 로그인은 시도 없이 보낸다.
+   */
+  sourceOwner?: 'order_collection_mall' | 'coupang_directship' | 'mall_orders_operation';
 }
 
 /** Fields shared by every named marketplace action sent to the extension. */
@@ -340,8 +344,9 @@ export async function ensureMallLoggedInViaExtension(
         // 시도를 같이 보내면 확장이 그 로그인을 **몰 소유자**의 수집으로 감싼다. 쿠팡직배송
         // 시도는 제 소유자(coupang_directship)의 것이라 몰 쪽에는 없고, 그래서 로그인이
         // 시작되기도 전에 `ORDER_COLLECTION_ATTEMPT_NOT_FOUND` 로 끝났다. 직배송은 시도 없이
-        // 로그인만 시킨다 — 그 시도의 마무리는 제 소유자가 한다(사장님 2026-09-21).
-        ...(run && run.sourceOwner !== 'coupang_directship'
+        // 로그인만 시킨다 — 그 시도의 마무리는 제 소유자가 한다(사장님 2026-09-21). 실행 kind로 옮긴 몰도
+        // 옛 시도가 없어 같다(KID-359 H3).
+        ...(run && run.sourceOwner !== 'coupang_directship' && run.sourceOwner !== 'mall_orders_operation'
           ? { attemptId: run.attemptId, deferTerminal: true }
           : {}),
         date: run?.date ?? null,

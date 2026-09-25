@@ -2,6 +2,7 @@ import '../collectors/channels.wing_catalog_details';
 import '../collectors/channels.wing_catalog_excel';
 import '../collectors/channels.wing_catalog_list';
 import '../collectors/orders.coupang_reviews';
+import '../collectors/orders.mall_orders';
 import '../collectors/orders.sellpia_shipment_tracking';
 import '../collectors/sourcing.coupang_keyword_suggestion';
 import '../collectors/sourcing.live_commerce';
@@ -13,6 +14,7 @@ import '../collectors/test.echo';
 import '../sites/1688';
 import '../sites/coupang-search';
 import '../sites/live-commerce';
+import '../sites/mall-orders';
 import '../sites/product-page';
 import '../sites/sellpia';
 import '../sites/tiktok-cc';
@@ -22,7 +24,7 @@ import '../sites/wing/reviews';
 import { createBrowserResources } from '../core/browser';
 import { createTabPages } from '../sites/tab-page';
 import type { SiteDeps } from '../sites/registry';
-import { ACCOUNT_SITE, createSiteHandles, entrySites } from './site-handles';
+import { ACCOUNT_SITE, createSiteHandles, entrySites, ownTabSites } from './site-handles';
 import { legacyApiPort, legacyGlobalsPresent, legacyKeepAlive, registerWithLegacyDomains } from './legacy-bridge';
 import { createOperationActions } from './operation-actions';
 import { installProductCollect } from './sourcing-product-collect';
@@ -42,7 +44,7 @@ export function installEntry(): boolean {
     tabs: createTabPages({ chrome, fetch: (input, init) => fetch(input, init), sleep, now: () => Date.now() }),
     randomId: () => crypto.randomUUID(),
   };
-  const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE });
+  const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
   const channelSites = createSiteHandles(site);
   const externalActions = createOperationActions({
     apiFor: legacyApiPort,

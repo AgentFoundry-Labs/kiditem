@@ -36,9 +36,14 @@ import { SellpiaShipmentTrackingOperationOwner } from './adapter/in/operation/se
 import { OrderOperationCapturePersistenceAdapter } from './adapter/out/persistence/order-operation-capture.persistence.adapter';
 import { ORDER_OPERATION_CAPTURE_PORT } from './application/port/in/order-operation-capture.port';
 import { OperationModule } from '../common/operation/operation.module';
+import { MallOrdersOperationOwner } from './adapter/in/operation/mall-orders-operation-owner';
+import { MallOrdersOperationService } from './application/service/mall-orders-operation.service';
+import { OrderMallAccountPersistenceAdapter } from './adapter/out/persistence/order-mall-account.persistence.adapter';
+import { ORDER_MALL_ACCOUNT_PORT } from './application/port/out/persistence/order-mall-account.port';
+import { OrderCollectionTodayOrdersModule } from './order-collection-today-orders.module';
 
 @Module({
-  imports: [RocketPoSourceModule, ChannelCatalogModule, AlertsModule, PrismaModule, SupplyModule, ShipmentsModule, ProductSourceModule, OperationModule],
+  imports: [RocketPoSourceModule, ChannelCatalogModule, AlertsModule, PrismaModule, SupplyModule, ShipmentsModule, ProductSourceModule, OperationModule, OrderCollectionTodayOrdersModule],
   controllers: [
     OrdersController,
     OrderCollectionController,
@@ -65,6 +70,9 @@ import { OperationModule } from '../common/operation/operation.module';
     OrderOperationCapturePersistenceAdapter,
     CoupangReviewsOperationOwner,
     SellpiaShipmentTrackingOperationOwner,
+    MallOrdersOperationService,
+    MallOrdersOperationOwner,
+    OrderMallAccountPersistenceAdapter,
     {
       provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
       useExisting: CoupangDirectOrderCollectionService,
@@ -88,6 +96,10 @@ import { OperationModule } from '../common/operation/operation.module';
     {
       provide: ORDER_OPERATION_CAPTURE_PORT,
       useExisting: OrderOperationCapturePersistenceAdapter,
+    },
+    {
+      provide: ORDER_MALL_ACCOUNT_PORT,
+      useExisting: OrderMallAccountPersistenceAdapter,
     },
   ],
 })

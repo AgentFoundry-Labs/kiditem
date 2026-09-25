@@ -51,6 +51,7 @@ import { downloadOrderCollectionFile } from '../lib/order-collection-download';
 import { type OrderCollectionExtensionRun } from '../lib/order-collection-extension';
 import { MallCollectionControl } from './MallCollectionControl';
 import { SellpiaShipmentTrackingControl } from './SellpiaShipmentTrackingControl';
+import { collectsViaMallOrderOperation } from '../lib/mall-order-operation-source';
 import {
   collectionAttentionNotice,
   ICECREAM_MALL_KEY,
@@ -356,6 +357,7 @@ export function OrderCollectionWorkspace() {
     collectAll,
     directshipCollectionAdapter,
     mallCollectionAdapter,
+    mallOperationCollectionAdapter,
     startMall,
     sessionControls,
   } = useAllMarketplaceOrderCollection({
@@ -988,8 +990,12 @@ export function OrderCollectionWorkspace() {
             children: renderCard,
           };
           // 카드가 쓰는 컨트롤은 같고, 쿠팡 직배송만 제 원천 상태를 따로 읽는다(KID-214).
-          return collectsViaCoupangDirectship(account.key)
-            ? <MallCollectionControl {...card} buildAdapter={directshipCollectionAdapter} />
+          // 실행 kind로 옮긴 몰(KID-359 H3)은 실행 reader를 읽는다 — 어느 몰인지는 그 원천 파일이 답한다.
+          if (collectsViaCoupangDirectship(account.key)) {
+            return <MallCollectionControl {...card} buildAdapter={directshipCollectionAdapter} />;
+          }
+          return collectsViaMallOrderOperation(account.key)
+            ? <MallCollectionControl {...card} buildAdapter={mallOperationCollectionAdapter} />
             : <MallCollectionControl {...card} buildAdapter={mallCollectionAdapter} />;
         }}
         onOpenChooser={(account) => void handleOpenDirectshipCalendar(account)}

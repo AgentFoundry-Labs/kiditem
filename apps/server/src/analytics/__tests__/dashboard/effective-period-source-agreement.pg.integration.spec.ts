@@ -1,3 +1,5 @@
+import { ORDER_COLLECTION_TODAY_ORDERS_PORT } from '../../../orders/application/port/in/order-collection-today-orders.port';
+import { todayOrdersTestAdapter } from '../../../test-helpers/orders-operations';
 import { channelFactTestPorts, channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
 // `/api/dashboard/sales` and `/api/dashboard/ad` each publish their own
 // `effectivePeriod`, and the web renders both in one label row. They must agree
@@ -144,6 +146,7 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
         { provide: PRODUCT_TRANSACTIONAL_READ_PORT, useClass: ProductTransactionalReadRepositoryAdapter },
         { provide: PRODUCT_ABC_READ_PORT, useValue: EMPTY_PRODUCT_ABC_READ },
         { provide: PrismaService, useValue: prisma },
+        { provide: ORDER_COLLECTION_TODAY_ORDERS_PORT, useValue: todayOrdersTestAdapter(prisma) },
         {
           provide: PROFIT_CALCULATION_REPOSITORY_PORT,
           useExisting: ProfitCalculationRepositoryAdapter,

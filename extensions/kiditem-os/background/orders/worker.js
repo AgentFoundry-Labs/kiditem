@@ -6559,7 +6559,8 @@ function ensureMallLoginWithLifecycle(message) {
   // 시도를 빼고 보내면 "Owner attempt ID is required" 로 막힌다 — 어느 쪽이든 로그인
   // 문턱에서 수집이 끝났다(2026-09-21 라이브). 로그인만 시키고, 시도의 마무리는 제 소유자에게
   // 맡긴다. 다른 몰은 지금처럼 몰 소유자 안에서 로그인한다.
-  if (message?.mallKey === "coupang-direct") {
+  // 실행 kind(`orders.mall_orders`)로 옮긴 몰(KID-359 H3)도 옛 몰 시도가 없다 — 시도 없이 온 로그인은 로그인만 한다.
+  if (message?.mallKey === "coupang-direct" || (!message?.attemptId && !message?.runId)) {
     return ensureMallLoggedIn(message.mallKey, message.credentials, null);
   }
   // Keep the extracted login helper usable in the focused collector tests;

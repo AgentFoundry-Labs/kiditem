@@ -14,6 +14,7 @@ import { OPERATION_REPOSITORY } from '../common/operation/application/port/out/r
 import { OperationOwnerRegistry } from '../common/operation/application/service/operation-owner.registry';
 import { OperationService } from '../common/operation/application/service/operation.service';
 import { PrismaService } from '../prisma/prisma.service';
+import { OrderCollectionTodayOrdersAdapter } from '../orders/adapter/out/persistence/read/order-collection-today-orders.adapter';
 import { TEST_ORGANIZATION_ID, TEST_USER_ID } from './real-prisma';
 
 /**
@@ -83,4 +84,15 @@ export async function ordersOperationsApp(
   }
 
   return { app, httpUrl, begin, beginRun, put, finish };
+}
+
+/**
+ * Orders 오늘 주문 capability의 실제 구현(실행 계약 reader + 옛 run 읽기). 대시보드 PG 스펙처럼 앱 없이 조립할 때 쓴다.
+ */
+export function todayOrdersTestAdapter(prisma: PrismaClient): OrderCollectionTodayOrdersAdapter {
+  const operations = new OperationService(
+    new OperationRepositoryAdapter(prisma as never),
+    new OperationOwnerRegistry(undefined as never, undefined as never),
+  );
+  return new OrderCollectionTodayOrdersAdapter(prisma as never, operations);
 }

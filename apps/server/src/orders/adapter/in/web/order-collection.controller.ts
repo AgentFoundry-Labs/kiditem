@@ -39,6 +39,8 @@ import {
   type OrderCollectionConfirmedCoverage,
   type OrderCollectionSourcePort,
 } from '../../../application/port/in/order-collection-source.port';
+import { MallOrdersOperationService } from '../../../application/service/mall-orders-operation.service';
+import { conversionFile, operationIdOf } from './operation-conversion';
 
 const MAX_UPLOAD_SIZE = 10 * 1024 * 1024;
 const ALLOWED_MIME_TYPES = new Set([
@@ -74,6 +76,7 @@ export class OrderCollectionController {
     private readonly orderCollectionService: OrderCollectionService,
     @Inject(ORDER_COLLECTION_SOURCE_PORT)
     private readonly orderCollectionSource: OrderCollectionSourcePort,
+    private readonly mallOrders: MallOrdersOperationService,
   ) {}
 
   @Post('art09/convert')
@@ -91,7 +94,10 @@ export class OrderCollectionController {
     @Headers('x-order-collection-attempt-id') attemptId: string | undefined,
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @Res({ passthrough: true }) response: Response,
+    @Body('operationId') rawOperationId?: unknown,
   ): Promise<StreamableFile> {
+    const operationId = operationIdOf(rawOperationId);
+    if (operationId) return this.convertOperation('art09', organizationId, operationId, response);
     const source = orderCollectionJsonSubmission(body);
     const result = await this.convertWithAttempt(
       'art09',
@@ -141,7 +147,10 @@ export class OrderCollectionController {
     @Headers('x-order-collection-attempt-id') attemptId: string | undefined,
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @Res({ passthrough: true }) response: Response,
+    @Body('operationId') rawOperationId?: unknown,
   ): Promise<StreamableFile> {
+    const operationId = operationIdOf(rawOperationId);
+    if (operationId) return this.convertOperation('icecream-mall', organizationId, operationId, response);
     if (!file) {
       throw new BadRequestException('파일이 필요합니다.');
     }
@@ -170,7 +179,10 @@ export class OrderCollectionController {
     @Headers('x-order-collection-attempt-id') attemptId: string | undefined,
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @Res({ passthrough: true }) response: Response,
+    @Body('operationId') rawOperationId?: unknown,
   ): Promise<StreamableFile> {
+    const operationId = operationIdOf(rawOperationId);
+    if (operationId) return this.convertOperation('icecream-mall', organizationId, operationId, response);
     const source = orderCollectionJsonSubmission(body, body.fileName ? String(body.fileName) : null);
     const result = await this.convertWithAttempt(
       'icecream-mall',
@@ -229,7 +241,10 @@ export class OrderCollectionController {
     @Headers('x-order-collection-attempt-id') attemptId: string | undefined,
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @Res({ passthrough: true }) response: Response,
+    @Body('operationId') rawOperationId?: unknown,
   ): Promise<StreamableFile> {
+    const operationId = operationIdOf(rawOperationId);
+    if (operationId) return this.convertOperation('kidsnote', organizationId, operationId, response);
     const source = orderCollectionJsonSubmission(body, body.fileName ?? null);
     const result = await this.convertWithAttempt(
       'kidsnote',
@@ -267,7 +282,10 @@ export class OrderCollectionController {
     @Headers('x-order-collection-attempt-id') attemptId: string | undefined,
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @Res({ passthrough: true }) response: Response,
+    @Body('operationId') rawOperationId?: unknown,
   ): Promise<StreamableFile> {
+    const operationId = operationIdOf(rawOperationId);
+    if (operationId) return this.convertOperation('kkomangse', organizationId, operationId, response);
     const source = orderCollectionJsonSubmission(body, body.fileName ?? null);
     const result = await this.convertWithAttempt(
       'kkomangse',
@@ -305,7 +323,10 @@ export class OrderCollectionController {
     @Headers('x-order-collection-attempt-id') attemptId: string | undefined,
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @Res({ passthrough: true }) response: Response,
+    @Body('operationId') rawOperationId?: unknown,
   ): Promise<StreamableFile> {
+    const operationId = operationIdOf(rawOperationId);
+    if (operationId) return this.convertOperation('onch', organizationId, operationId, response);
     const source = orderCollectionJsonSubmission(body, body.fileName ?? null);
     const result = await this.convertWithAttempt(
       'onch',
@@ -343,7 +364,10 @@ export class OrderCollectionController {
     @Headers('x-order-collection-attempt-id') attemptId: string | undefined,
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @Res({ passthrough: true }) response: Response,
+    @Body('operationId') rawOperationId?: unknown,
   ): Promise<StreamableFile> {
+    const operationId = operationIdOf(rawOperationId);
+    if (operationId) return this.convertOperation('kidkids', organizationId, operationId, response);
     const source = orderCollectionJsonSubmission(body, body.fileName ?? null);
     const result = await this.convertWithAttempt(
       'kidkids',
@@ -382,7 +406,10 @@ export class OrderCollectionController {
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @OrderCollectionConfirmedCoverageHeader() confirmedCoverage: OrderCollectionConfirmedCoverage | null,
     @Res({ passthrough: true }) response: Response,
+    @Body('operationId') rawOperationId?: unknown,
   ): Promise<StreamableFile> {
+    const operationId = operationIdOf(rawOperationId);
+    if (operationId) return this.convertOperation('haebub-mall', organizationId, operationId, response);
     const source = orderCollectionJsonSubmission(body, null);
     const result = await this.convertWithAttempt(
       'haebub-mall',
@@ -434,7 +461,10 @@ export class OrderCollectionController {
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @OrderCollectionConfirmedCoverageHeader() confirmedCoverage: OrderCollectionConfirmedCoverage | null,
     @Res({ passthrough: true }) response: Response,
+    @Body('operationId') rawOperationId?: unknown,
   ): Promise<StreamableFile> {
+    const operationId = operationIdOf(rawOperationId);
+    if (operationId) return this.convertOperation('domeggook', organizationId, operationId, response);
     if (!file) {
       throw new BadRequestException('CSV 파일이 필요합니다.');
     }
@@ -487,7 +517,10 @@ export class OrderCollectionController {
     @Headers('x-order-collection-attempt-id') attemptId: string | undefined,
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @Res({ passthrough: true }) response: Response,
+    @Body('operationId') rawOperationId?: unknown,
   ): Promise<StreamableFile> {
+    const operationId = operationIdOf(rawOperationId);
+    if (operationId) return this.convertOperation('boribori', organizationId, operationId, response);
     if (!file) {
       throw new BadRequestException('엑셀 파일이 필요합니다.');
     }
@@ -539,7 +572,10 @@ export class OrderCollectionController {
     @Headers('x-order-collection-attempt-id') attemptId: string | undefined,
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @Res({ passthrough: true }) response: Response,
+    @Body('operationId') rawOperationId?: unknown,
   ): Promise<StreamableFile> {
+    const operationId = operationIdOf(rawOperationId);
+    if (operationId) return this.convertOperation('teacher-mall', organizationId, operationId, response);
     if (!file) {
       throw new BadRequestException('엑셀 파일이 필요합니다.');
     }
@@ -591,7 +627,10 @@ export class OrderCollectionController {
     @Headers('x-order-collection-attempt-id') attemptId: string | undefined,
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @Res({ passthrough: true }) response: Response,
+    @Body('operationId') rawOperationId?: unknown,
   ): Promise<StreamableFile> {
+    const operationId = operationIdOf(rawOperationId);
+    if (operationId) return this.convertOperation('lotte-on', organizationId, operationId, response);
     if (!file) {
       throw new BadRequestException('엑셀 파일이 필요합니다.');
     }
@@ -643,7 +682,10 @@ export class OrderCollectionController {
     @Headers('x-order-collection-attempt-id') attemptId: string | undefined,
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @Res({ passthrough: true }) response: Response,
+    @Body('operationId') rawOperationId?: unknown,
   ): Promise<StreamableFile> {
+    const operationId = operationIdOf(rawOperationId);
+    if (operationId) return this.convertOperation('gs-shop', organizationId, operationId, response);
     if (!file) {
       throw new BadRequestException('엑셀 파일이 필요합니다.');
     }
@@ -695,7 +737,10 @@ export class OrderCollectionController {
     @Headers('x-order-collection-attempt-id') attemptId: string | undefined,
     @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @Res({ passthrough: true }) response: Response,
+    @Body('operationId') rawOperationId?: unknown,
   ): Promise<StreamableFile> {
+    const operationId = operationIdOf(rawOperationId);
+    if (operationId) return this.convertOperation('always', organizationId, operationId, response);
     if (!file) {
       throw new BadRequestException('엑셀 파일이 필요합니다.');
     }
@@ -751,6 +796,20 @@ export class OrderCollectionController {
       orderCount(result),
     );
     return new StreamableFile(result.buffer);
+  }
+
+  /**
+   * 실행 kind(`orders.mall_orders`)로 옮긴 몰은 본문의 `operationId`로 온다(KID-359 H3): 성공한 그 몰 실행의 보관
+   * 캡처를 다시 변환해 돌려준다. 수집 기록(주문 수·캡처)은 finish가 이미 적었으므로 여기서 쓰는 것은 없다 —
+   * `SourceImportRun`도 만지지 않는다. 옛 attempt 헤더 경로는 2차 몰을 위해 그대로 남는다(H3′까지).
+   */
+  private async convertOperation(
+    mallKey: string,
+    organizationId: string,
+    operationId: string,
+    response: Response,
+  ): Promise<StreamableFile> {
+    return conversionFile(response, await this.mallOrders.convertOperation({ organizationId, operationId, mallKey }));
   }
 
   private async convertWithAttempt<T>(

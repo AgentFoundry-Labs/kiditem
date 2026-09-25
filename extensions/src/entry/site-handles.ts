@@ -11,6 +11,11 @@ export function entrySites(): BrowserSites {
   return Object.fromEntries(registeredSites().flatMap((site) => (site.origin ? [[site.name, { origin: site.origin }]] : [])));
 }
 
+/** 탭을 스스로 여는 사이트 이름들(브라우저 자원이 그 실행에 탭을 잡지 않는다). 조립 시점에 부른다. */
+export function ownTabSites(): ReadonlySet<string> {
+  return new Set(registeredSites().filter((site) => site.opensOwnTabs === true).map((site) => site.name));
+}
+
 /** `account:<id>` 잠금이 기본으로 여는 사이트(수집기가 origin을 둔 사이트를 선언하지 않았을 때). */
 export const ACCOUNT_SITE = 'wing';
 

@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { OrderCollectionSourceStatusSchema } from '@kiditem/shared/order-collection-source';
 import { OrderCollectionSourceController } from './order-collection-source.controller';
+import { OrderCollectionService } from '../../../application/service/order-collection.service';
 
 const ORG = '11111111-1111-4111-8111-111111111111';
 const USER = { id: '22222222-2222-4222-8222-222222222222' };
@@ -11,7 +12,7 @@ const ARTIFACT = '55555555-5555-4555-8555-555555555555';
 describe('OrderCollectionSourceController', () => {
   it('passes the admitted browser date and automatic row criterion to the owner', async () => {
     const source = { beginAttempt: vi.fn().mockResolvedValue({ attemptId: ATTEMPT }) };
-    const controller = new OrderCollectionSourceController(source as never, {} as never);
+    const controller = new OrderCollectionSourceController(source as never, {} as never, {} as never, {} as never);
 
     await controller.beginAttempt(
       {
@@ -40,7 +41,7 @@ describe('OrderCollectionSourceController', () => {
 
   it('allows raw-only failure evidence for unsupported conversion', async () => {
     const source = { failAttempt: vi.fn().mockResolvedValue({ state: 'FAILED' }) };
-    const controller = new OrderCollectionSourceController(source as never, {} as never);
+    const controller = new OrderCollectionSourceController(source as never, {} as never, {} as never, {} as never);
 
     await controller.failAttempt(
       ATTEMPT,
@@ -73,7 +74,7 @@ describe('OrderCollectionSourceController', () => {
         contentType: 'application/json',
       }),
     };
-    const controller = new OrderCollectionSourceController(source as never, {} as never);
+    const controller = new OrderCollectionSourceController(source as never, {} as never, {} as never, {} as never);
     const response = { setHeader: vi.fn() };
 
     const raw = await controller.downloadSource(ARTIFACT, ORG, response as never);
@@ -110,10 +111,11 @@ describe('OrderCollectionSourceController', () => {
       }),
       recordCollectedRows: vi.fn().mockResolvedValue(undefined),
     };
-    const service = {
+    // 보관 원천 재변환 규칙(`convertRetainedSource`)은 서비스의 실제 메서드, 몰 변환기만 가짜다.
+    const service = Object.assign(Object.create(OrderCollectionService.prototype) as OrderCollectionService, {
       convertIcecreamMallOrderRows: vi.fn().mockReturnValue(conversion),
-    };
-    const controller = new OrderCollectionSourceController(source as never, service as never);
+    });
+    const controller = new OrderCollectionSourceController(source as never, service as never, {} as never, {} as never);
     const response = { setHeader: vi.fn() };
 
     const result = await controller.convertRetainedSource(
@@ -167,7 +169,7 @@ describe('OrderCollectionSourceController', () => {
         contentType: 'application/json',
       }),
     };
-    const controller = new OrderCollectionSourceController(source as never, {} as never);
+    const controller = new OrderCollectionSourceController(source as never, {} as never, {} as never, {} as never);
 
     await expect(controller.readContinuation(ORG, ATTEMPT, TOKEN)).resolves.toEqual({
       mallKey: 'icecream-mall',
@@ -198,7 +200,7 @@ describe('OrderCollectionSourceController', () => {
       }),
       readSourceDownload: vi.fn(),
     };
-    const controller = new OrderCollectionSourceController(source as never, {} as never);
+    const controller = new OrderCollectionSourceController(source as never, {} as never, {} as never, {} as never);
 
     await expect(controller.readContinuation(ORG, ATTEMPT, TOKEN))
       .rejects.toThrow('ORDER_COLLECTION_CONTINUATION_UNSUPPORTED');
@@ -222,7 +224,7 @@ describe('OrderCollectionSourceController', () => {
       readSourceDownload: vi.fn(),
     };
     const service = { convertKidsnoteOrders: vi.fn() };
-    const controller = new OrderCollectionSourceController(source as never, service as never);
+    const controller = new OrderCollectionSourceController(source as never, service as never, {} as never, {} as never);
 
     await expect(controller.convertRetainedSource(
       ATTEMPT,
@@ -254,7 +256,7 @@ describe('OrderCollectionSourceController', () => {
       },
     };
     const source = { readSourceStatus: vi.fn().mockResolvedValue(status) };
-    const controller = new OrderCollectionSourceController(source as never, {} as never);
+    const controller = new OrderCollectionSourceController(source as never, {} as never, {} as never, {} as never);
 
     const view = await controller.readSourceStatus('art09', ORG);
 
@@ -291,7 +293,7 @@ describe('OrderCollectionSourceController', () => {
       },
     ];
     const source = { readSourceStatuses: vi.fn().mockResolvedValue(malls) };
-    const controller = new OrderCollectionSourceController(source as never, {} as never);
+    const controller = new OrderCollectionSourceController(source as never, {} as never, {} as never, {} as never);
 
     const view = await controller.readSourceStatuses(ORG);
 
@@ -302,7 +304,7 @@ describe('OrderCollectionSourceController', () => {
 
   it('refuses a mall source read with no mall key', async () => {
     const source = { readSourceStatus: vi.fn() };
-    const controller = new OrderCollectionSourceController(source as never, {} as never);
+    const controller = new OrderCollectionSourceController(source as never, {} as never, {} as never, {} as never);
 
     await expect(controller.readSourceStatus(undefined, ORG))
       .rejects.toThrow('INVALID_ORDER_COLLECTION_SCOPE');
@@ -314,7 +316,7 @@ describe('OrderCollectionSourceController', () => {
   it('stops a running mall attempt with organization scope only, never the attempt token', async () => {
     const stopped = { attemptId: ATTEMPT, state: 'FAILED', errorCode: 'USER_CANCELLED' };
     const source = { cancelAttempt: vi.fn().mockResolvedValue(stopped) };
-    const controller = new OrderCollectionSourceController(source as never, {} as never);
+    const controller = new OrderCollectionSourceController(source as never, {} as never, {} as never, {} as never);
 
     await expect(controller.cancelAttempt(ATTEMPT, ORG)).resolves.toEqual(stopped);
     expect(source.cancelAttempt).toHaveBeenCalledWith({
