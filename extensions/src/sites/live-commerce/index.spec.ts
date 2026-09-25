@@ -17,11 +17,12 @@ describe('live-commerce site (KID-360)', () => {
     expect(fake.log.at(-1)).toBe('close 7');
   });
 
-  it('keeps the tab open on a verification page', async () => {
+  it('keeps the tab open on a verification page the operator does not pass', async () => {
     const fake = fakeTabPages({ landAt: () => 'https://live.douyin.com/verify/abc', answer: () => ({}) });
     await expect(createLiveCommerceSite(fake.tabs).broadcast('https://live.douyin.com/1')).rejects.toMatchObject({ code: SITE_VERIFICATION_REQUIRED });
     expect(fake.log).not.toContain('close 7');
     expect(isLiveVerificationUrl('https://zb.1688.com/room?x=1')).toBe(false);
+    expect(isLiveVerificationUrl('https://www.douyin.com/login')).toBe(false);
   });
 
   it('stops on a login host without injecting and leaves the tab; an unknown host is a request failure', async () => {
@@ -34,5 +35,26 @@ describe('live-commerce site (KID-360)', () => {
     await expect(createLiveCommerceSite(other.tabs).broadcast('https://live.douyin.com/1'))
       .rejects.toMatchObject({ code: SITE_REQUEST_FAILED, details: { reason: 'unexpected_url' } });
     expect(other.log).not.toContain('close 7');
+  });
+
+  it('waits for the operator on a verification page and retries the broadcast', async () => {
+    let landings = 0;
+    const fake = fakeTabPages({
+      landAt: (url) => (landings++ === 0 ? 'https://live.douyin.com/verify/abc' : url),
+      answer: () => ({ ok: true, source: 'douyin', pageUrl: 'https://live.douyin.com/1', broadcast: { broadcastId: 'b-1' }, products: [] }),
+      verificationClears: true,
+    });
+    const attentions: unknown[] = [];
+    await expect(createLiveCommerceSite(fake.tabs).broadcast('https://live.douyin.com/1', { onAttention: (a) => { attentions.push(a); } }))
+      .resolves.toMatchObject({ broadcast: { broadcastId: 'b-1' } });
+    expect(attentions[0]).toEqual({ kind: 'verification', site: '라이브 방송', label: '방송' });
+    expect(attentions.at(-1)).toBeNull();
+  });
+
+  it('does not wait on a login page: SITE_LOGIN_REQUIRED at once, tab kept', async () => {
+    const fake = fakeTabPages({ landAt: () => 'https://www.douyin.com/login?redirect=x', answer: () => ({}), verificationClears: true });
+    await expect(createLiveCommerceSite(fake.tabs).broadcast('https://live.douyin.com/1')).rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED });
+    expect(fake.log).not.toContain('wait for operator');
+    expect(fake.log).not.toContain('close 7');
   });
 });

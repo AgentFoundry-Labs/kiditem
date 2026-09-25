@@ -1,7 +1,7 @@
 import { RuntimeError } from '../../core/errors';
 import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller';
 import type { SiteDefinition } from '../site';
-import { hostWithin, leftForOperator, type InjectFiles, type PageGuard, type TabPage, type TabPages } from '../tab-page';
+import { hostWithin, leftForOperator, waitForOperator, type AttentionListener, type InjectFiles, type PageGuard, type TabPage, type TabPages } from '../tab-page';
 
 const NAVIGATION_TIMEOUT_MS = 35_000;
 const EXTRACTION_TIMEOUT_MS = 25_000;
@@ -59,6 +59,20 @@ export function isTiktokBlockedUrl(value: string): boolean {
   }
 }
 
+/** TikTok 검증(캡차) 화면: 경로·쿼리의 verify·captcha. 운영자가 통과하길 기다린다. */
+export function isTiktokVerificationUrl(value: string): boolean {
+  try {
+    const url = new URL(value);
+    return /(?:verify|captcha)/i.test(url.pathname) || url.searchParams.has('captcha');
+  } catch {
+    return false;
+  }
+}
+
+export const SITE_VERIFICATION_REQUIRED = 'SITE_VERIFICATION_REQUIRED' as const;
+/** 한 대상에서 검증을 통과한 뒤에도 다시 걸리면 몇 번까지 기다리나. */
+const MAX_VERIFICATION_ROUNDS = 5;
+
 export function sanitizeTiktokRegion(value: unknown): string | null {
   if (typeof value !== 'string') return null;
   const cleaned = value.replace(/[^A-Za-z]/g, '').toUpperCase();
@@ -74,10 +88,10 @@ export function createTiktokCcSite(tabs: TabPages) {
   let keepOpen = false;
   return {
     targetFor: tiktokTargetFor,
-    async target(target: TiktokTarget, defaultRegion: string | null): Promise<TiktokTargetCapture> {
+    async target(target: TiktokTarget, defaultRegion: string | null, options: { onAttention?: AttentionListener } = {}): Promise<TiktokTargetCapture> {
       page ??= await tabs.open('about:blank');
       try {
-        return await readTarget(page, target, defaultRegion);
+        return await readTarget(page, target, defaultRegion, options.onAttention);
       } catch (error) {
         // 로그인·예상 밖 주소면 운영자가 볼 수 있게 탭을 남긴다.
         if (leftForOperator(error)) keepOpen = true;
@@ -90,8 +104,19 @@ export function createTiktokCcSite(tabs: TabPages) {
     },
   };
 
-  async function readTarget(page: TabPage, target: TiktokTarget, defaultRegion: string | null): Promise<TiktokTargetCapture> {
-    const landed = await page.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: isTiktokBlockedUrl, continueOnTimeout: true });
+  async function readTarget(page: TabPage, target: TiktokTarget, defaultRegion: string | null, onAttention?: AttentionListener): Promise<TiktokTargetCapture> {
+    const stopAt = (url: string) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
+    let landed = await page.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt, continueOnTimeout: true });
+    // 검증 화면이면 운영자를 기다렸다가 같은 대상을 다시 연다(KID-355 QA). 로그인은 기다리지 않는다.
+    for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
+      const cleared = round <= MAX_VERIFICATION_ROUNDS
+        && await waitForOperator(page, isTiktokVerificationUrl, { kind: 'verification', site: 'TikTok', label: target.id }, onAttention);
+      if (!cleared) {
+        keepOpen = true;
+        throw new RuntimeError(SITE_VERIFICATION_REQUIRED, 'TikTok이 검증을 요구합니다. 열려 있는 TikTok 탭에서 검증한 뒤 다시 수집해 주세요.', { url: landed, target: target.id });
+      }
+      landed = await page.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt, continueOnTimeout: true });
+    }
     if (isTiktokBlockedUrl(landed)) {
       throw new RuntimeError(SITE_LOGIN_REQUIRED, 'TikTok 로그인 또는 지역 차단으로 수집할 수 없습니다.', { url: landed, target: target.id });
     }

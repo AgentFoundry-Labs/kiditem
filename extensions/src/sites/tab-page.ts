@@ -13,6 +13,11 @@ export interface TabPage {
    * 시간이 다 돼도 실패하지 않고 그때 주소를 돌려준다(끝없이 불러오는 화면도 이미 그린 것을 읽는 사이트). 탭이 닫히면 늘 실패.
    */
   navigate(url: string, options: { timeoutMs: number; stopAt?: (url: string) => boolean; continueOnTimeout?: boolean }): Promise<string>;
+  /**
+   * 탭 주소가 `blocked`(검증 화면)인 동안 2초마다 본다 — 운영자가 열려 있는 탭에서 검증을 통과하길 기다린다. 벗어나면
+   * true, 10분이 지나면 false. 기다리는 동안 3분마다 `onRemind`(임대 연장·progress). 탭이 닫히면 실패.
+   */
+  waitWhile(blocked: (url: string) => boolean, options: { onRemind?(): void | Promise<void> }): Promise<boolean>;
   /** 지금 탭 주소를 기다리지 않고 읽는다(운영자 탭). */
   currentUrl(): Promise<string>;
   /**
@@ -87,6 +92,34 @@ export interface TabPages {
 
 export const SITE_TAB_UNAVAILABLE = 'SITE_TAB_UNAVAILABLE' as const;
 
+const OPERATOR_POLL_MS = 2_000;
+const OPERATOR_WAIT_MAX_MS = 10 * 60_000;
+const OPERATOR_REMIND_MS = 3 * 60_000;
+
+/** 사이트가 운영자를 기다리는 까닭(수집기가 progress.attention으로 올린다). */
+export interface SiteAttention {
+  kind: 'verification';
+  site: string;
+  label: string;
+}
+export type AttentionListener = (attention: SiteAttention | null) => void | Promise<void>;
+
+/**
+ * 검증 화면에서 운영자를 기다린다(KID-355 QA): 알리고(`onAttention`), 탭이 검증 화면을 벗어날 때까지 기다린 뒤
+ * 풀렸다고 알린다. 벗어나면 true — 사이트는 같은 대상을 다시 시도한다. 상한을 넘기면 false.
+ */
+export async function waitForOperator(
+  page: TabPage,
+  blocked: (url: string) => boolean,
+  attention: SiteAttention,
+  onAttention?: AttentionListener,
+): Promise<boolean> {
+  await onAttention?.(attention);
+  const cleared = await page.waitWhile(blocked, { onRemind: () => onAttention?.(attention) });
+  if (cleared) await onAttention?.(null);
+  return cleared;
+}
+
 /** `chrome.tabs`·`chrome.scripting`·`chrome.runtime`의 최소 모양(스펙은 이 경계만 가짜로 둔다). */
 export interface TabPageChrome {
   tabs: {
@@ -153,6 +186,21 @@ export function createTabPages(deps: TabPageDeps): TabPages {
             throw new RuntimeError(SITE_TAB_UNAVAILABLE, '페이지를 여는 데 시간이 너무 오래 걸립니다.', { url });
           }
           await deps.sleep(POLL_MS);
+        }
+      },
+      async waitWhile(blocked, { onRemind }) {
+        const started = deps.now();
+        let remindedAt = started;
+        for (;;) {
+          const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
+          if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, '수집 탭이 닫혔습니다.', { tabId });
+          if (!blocked(tab.url ?? '')) return true;
+          if (deps.now() - started >= OPERATOR_WAIT_MAX_MS) return false;
+          if (deps.now() - remindedAt >= OPERATOR_REMIND_MS) {
+            remindedAt = deps.now();
+            await onRemind?.();
+          }
+          await deps.sleep(OPERATOR_POLL_MS);
         }
       },
       async currentUrl() {

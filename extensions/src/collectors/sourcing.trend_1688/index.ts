@@ -1,10 +1,10 @@
 import { SOURCING_CHUNK_KINDS, SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
-import type { Collector } from '../collector';
+import { attentionReporter, type Collector, type OperatorAttention } from '../collector';
 import { registerCollector } from '../index';
 
 /** 이 수집기가 1688에서 쓰는 것(`sites/1688`이 구현). */
 export interface Trend1688Site {
-  offers(keyword: string): Promise<Array<Record<string, unknown>>>;
+  offers(keyword: string, options?: { onAttention?(attention: OperatorAttention | null): void | Promise<void> }): Promise<Array<Record<string, unknown>>>;
   close(): Promise<void>;
 }
 
@@ -20,11 +20,11 @@ export interface Trend1688Plan {
 export const sourcingTrend1688Collector: Collector<Trend1688Plan, Record<string, unknown>, Trend1688Site> = {
   kind: SOURCING_OPERATION_KINDS.trend1688,
   site: 'ali1688',
-  async *collect(plan, site, { signal }) {
+  async *collect(plan, site, { signal, report }) {
     try {
       for (const [index, keyword] of plan.keywords.entries()) {
         if (signal.aborted) return;
-        const items = await site.offers(keyword);
+        const items = await site.offers(keyword, { onAttention: attentionReporter(report, { current: index, total: plan.keywords.length, label: keyword }) });
         yield {
           chunkKind: SOURCING_CHUNK_KINDS.offers1688,
           payload: [{ keyword, items }],

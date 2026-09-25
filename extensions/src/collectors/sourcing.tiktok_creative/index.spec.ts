@@ -42,4 +42,21 @@ describe('sourcing.tiktok_creative collector (KID-360)', () => {
     const chunks = await run({ targetIds: ['hashtag'], maxItems: 5, regionOverride: null }, site({}, null));
     expect(chunks[0].region).toBe('US');
   });
+
+  it('reports the operator attention the site raises for a target and clears it', async () => {
+    const reports: Array<Record<string, unknown>> = [];
+    const site = {
+      targetFor: (id: string) => ({ id }),
+      target: async (target: { id: string }, _region: string | null, options?: { onAttention?(a: { kind: 'verification'; site: string; label: string } | null): void | Promise<void> }) => {
+        await options?.onAttention?.({ kind: 'verification', site: 'TikTok', label: target.id });
+        await options?.onAttention?.(null);
+        return { region: 'KR', items: [] };
+      },
+      close: async () => undefined,
+    };
+    for await (const _ of sourcingTiktokCreativeCollector.collect({ targetIds: ['hashtag'], maxItems: 10, regionOverride: null }, site,
+      { signal: new AbortController().signal, tabId: null, report: async (progress) => { reports.push(progress); } })) { /* drain */ }
+    expect(reports[0]).toMatchObject({ label: 'hashtag', attention: { kind: 'verification', site: 'TikTok' } });
+    expect(reports[1]).toMatchObject({ attention: null });
+  });
 });

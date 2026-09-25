@@ -27,4 +27,20 @@ describe('sourcing.trend_1688 collector (KID-360)', () => {
     for await (const chunk of sourcingTrend1688Collector.collect({ keywords: [] }, { offers: async () => [], close: async () => undefined }, { signal: new AbortController().signal, tabId: null })) chunks.push(chunk);
     expect(chunks).toEqual([]);
   });
+
+  it('reports the operator attention while the site waits and clears it when the site goes on', async () => {
+    const reports: Array<Record<string, unknown>> = [];
+    const site = {
+      async offers(keyword: string, options?: { onAttention?(attention: { kind: 'verification'; site: string; label: string } | null): void | Promise<void> }) {
+        await options?.onAttention?.({ kind: 'verification', site: '1688', label: keyword });
+        await options?.onAttention?.(null);
+        return [];
+      },
+      async close() { /* nothing */ },
+    };
+    const context = { signal: new AbortController().signal, tabId: null, report: async (progress: Record<string, unknown>) => { reports.push(progress); } };
+    for await (const _ of sourcingTrend1688Collector.collect({ keywords: ['笔袋', '文具'] }, site, context)) { /* drain */ }
+    expect(reports[0]).toMatchObject({ current: 0, total: 2, label: '笔袋', attention: { kind: 'verification', site: '1688', label: '笔袋', since: expect.any(String) } });
+    expect(reports[1]).toEqual({ current: 0, total: 2, label: '笔袋', attention: null });
+  });
 });

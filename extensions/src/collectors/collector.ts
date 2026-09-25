@@ -36,3 +36,31 @@ export interface Collector<
   collect(plan: TPlan, site: TSite, context: CollectContext): AsyncIterable<CollectedChunk>;
   summarize?(input: { chunks: number; items: number }): { window?: OperationWindow; result?: TResult };
 }
+
+/** 사이트가 운영자를 기다리는 까닭(검증 화면). null이면 풀렸다. */
+export interface OperatorAttention {
+  kind: 'verification';
+  site: string;
+  label: string;
+}
+
+/**
+ * 사이트가 운영자를 기다리는 동안 progress에 `attention`을 싣는다(웹이 "탭에서 검증을 통과해 주세요"로 보인다).
+ * 처음 알린 시각(`since`)은 다시 알려도 그대로다. 풀리면 `attention: null`.
+ */
+export function attentionReporter(
+  report: ((progress: Record<string, unknown>) => Promise<void>) | undefined,
+  base: Record<string, unknown>,
+): (attention: OperatorAttention | null) => Promise<void> {
+  let since: string | null = null;
+  return async (attention) => {
+    if (!report) return;
+    if (!attention) {
+      since = null;
+      await report({ ...base, attention: null });
+      return;
+    }
+    since ??= new Date().toISOString();
+    await report({ ...base, attention: { ...attention, since } });
+  };
+}

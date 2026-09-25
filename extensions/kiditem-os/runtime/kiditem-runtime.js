@@ -5451,13 +5451,28 @@ var KidItemRuntime = (() => {
   };
   registerCollector(sourcingCoupangKeywordSuggestionCollector);
 
+  // extensions/src/collectors/collector.ts
+  function attentionReporter(report, base) {
+    let since = null;
+    return async (attention) => {
+      if (!report) return;
+      if (!attention) {
+        since = null;
+        await report({ ...base, attention: null });
+        return;
+      }
+      since ??= (/* @__PURE__ */ new Date()).toISOString();
+      await report({ ...base, attention: { ...attention, since } });
+    };
+  }
+
   // extensions/src/collectors/sourcing.live_commerce/index.ts
   var sourcingLiveCommerceCollector = {
     kind: SOURCING_OPERATION_KINDS.liveCommerce,
     site: "live-commerce",
-    async *collect(plan, site, { signal }) {
+    async *collect(plan, site, { signal, report }) {
       if (signal.aborted) return;
-      const captured = await site.broadcast(plan.pageUrl);
+      const captured = await site.broadcast(plan.pageUrl, { onAttention: attentionReporter(report, { current: 0, total: 1, label: "\uBC29\uC1A1" }) });
       if (signal.aborted) return;
       yield {
         chunkKind: SOURCING_CHUNK_KINDS.liveBroadcast,
@@ -5489,7 +5504,7 @@ var KidItemRuntime = (() => {
   var sourcingTiktokCreativeCollector = {
     kind: SOURCING_OPERATION_KINDS.tiktokCreative,
     site: "tiktok",
-    async *collect(plan, site, { signal }) {
+    async *collect(plan, site, { signal, report }) {
       const visits = [];
       const seen = /* @__PURE__ */ new Set();
       let region = plan.regionOverride;
@@ -5497,7 +5512,9 @@ var KidItemRuntime = (() => {
       try {
         for (const targetId of plan.targetIds) {
           if (signal.aborted) return;
-          const captured = await site.target(site.targetFor(targetId), region);
+          const captured = await site.target(site.targetFor(targetId), region, {
+            onAttention: attentionReporter(report, { current: visits.length, total: plan.targetIds.length, label: targetId })
+          });
           region ??= captured.region;
           const items = [];
           for (const item of captured.items) {
@@ -5530,11 +5547,11 @@ var KidItemRuntime = (() => {
   var sourcingTrend1688Collector = {
     kind: SOURCING_OPERATION_KINDS.trend1688,
     site: "ali1688",
-    async *collect(plan, site, { signal }) {
+    async *collect(plan, site, { signal, report }) {
       try {
         for (const [index, keyword] of plan.keywords.entries()) {
           if (signal.aborted) return;
-          const items = await site.offers(keyword);
+          const items = await site.offers(keyword, { onAttention: attentionReporter(report, { current: index, total: plan.keywords.length, label: keyword }) });
           yield {
             chunkKind: SOURCING_CHUNK_KINDS.offers1688,
             payload: [{ keyword, items }],
@@ -5681,6 +5698,15 @@ var KidItemRuntime = (() => {
     return domains.some((domain) => host === domain || host.endsWith(`.${domain}`));
   }
   var SITE_TAB_UNAVAILABLE = "SITE_TAB_UNAVAILABLE";
+  var OPERATOR_POLL_MS = 2e3;
+  var OPERATOR_WAIT_MAX_MS = 10 * 6e4;
+  var OPERATOR_REMIND_MS = 3 * 6e4;
+  async function waitForOperator(page, blocked, attention, onAttention) {
+    await onAttention?.(attention);
+    const cleared = await page.waitWhile(blocked, { onRemind: () => onAttention?.(attention) });
+    if (cleared) await onAttention?.(null);
+    return cleared;
+  }
   var POLL_MS = 250;
   var MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
   function createTabPages(deps) {
@@ -5718,6 +5744,21 @@ var KidItemRuntime = (() => {
               throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uD398\uC774\uC9C0\uB97C \uC5EC\uB294 \uB370 \uC2DC\uAC04\uC774 \uB108\uBB34 \uC624\uB798 \uAC78\uB9BD\uB2C8\uB2E4.", { url });
             }
             await deps.sleep(POLL_MS);
+          }
+        },
+        async waitWhile(blocked, { onRemind }) {
+          const started = deps.now();
+          let remindedAt = started;
+          for (; ; ) {
+            const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
+            if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC774 \uB2EB\uD614\uC2B5\uB2C8\uB2E4.", { tabId });
+            if (!blocked(tab.url ?? "")) return true;
+            if (deps.now() - started >= OPERATOR_WAIT_MAX_MS) return false;
+            if (deps.now() - remindedAt >= OPERATOR_REMIND_MS) {
+              remindedAt = deps.now();
+              await onRemind?.();
+            }
+            await deps.sleep(OPERATOR_POLL_MS);
           }
         },
         async currentUrl() {
@@ -6919,6 +6960,7 @@ var KidItemRuntime = (() => {
   var NAVIGATION_TIMEOUT_MS = 3e4;
   var EXTRACTION_TIMEOUT_MS = 2e4;
   var MAX_RESULTS_PER_KEYWORD = 20;
+  var MAX_VERIFICATION_ROUNDS = 5;
   var ALIBABA_CONTENT_FILES = {
     isolated: [
       "content/sourcing/extractors/common.js",
@@ -6939,7 +6981,7 @@ var KidItemRuntime = (() => {
   function is1688VerificationUrl(value) {
     try {
       const url = new URL(value);
-      return url.pathname.includes("/punish") || url.searchParams.get("action") === "captcha";
+      return url.pathname.includes("/punish") || url.pathname.includes("/_____tmd_____/") || url.searchParams.get("action") === "captcha";
     } catch {
       return false;
     }
@@ -6948,31 +6990,54 @@ var KidItemRuntime = (() => {
     let page = null;
     let keepOpen = false;
     return {
-      async offers(keyword) {
+      /**
+       * 키워드 하나. 슬라이더 검증이 뜨면 실패하지 않고 운영자를 기다렸다가(`onAttention`으로 알림) 같은 키워드를 다시
+       * 시도한다 — 실행과 이미 올린 청크는 그대로다(KID-355 QA). 10분 안에 통과하지 않으면 `SITE_VERIFICATION_REQUIRED`.
+       */
+      async offers(keyword, options = {}) {
         page ??= await tabs.open("about:blank");
-        const landed = await page.navigate(build1688SearchUrl(keyword), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
-        if (is1688VerificationUrl(landed)) throw verification(landed, keyword, () => {
-          keepOpen = true;
-        });
-        let extracted;
-        try {
-          extracted = await page.ask(
-            { type: "TRIGGER_1688_TREND_EXTRACT", maxResults: MAX_RESULTS_PER_KEYWORD },
-            { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: ALIBABA_CONTENT_FILES, guard: ALIBABA_1688_PAGE_GUARD }
-          );
-        } catch (error) {
-          if (leftForOperator(error)) keepOpen = true;
-          throw error;
-        }
-        if (extracted.status === "verification_required") {
-          throw verification(extracted.verificationUrl ?? landed, keyword, () => {
+        const current = page;
+        const attention = { kind: "verification", site: "1688", label: keyword };
+        const waitOrFail = async (url) => {
+          if (await waitForOperator(current, is1688VerificationUrl, attention, options.onAttention)) return;
+          throw verification(url, keyword, () => {
             keepOpen = true;
           });
+        };
+        for (let round = 1; ; round += 1) {
+          const landed = await current.navigate(build1688SearchUrl(keyword), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
+          if (is1688VerificationUrl(landed)) {
+            if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword, () => {
+              keepOpen = true;
+            });
+            await waitOrFail(landed);
+            continue;
+          }
+          let extracted;
+          try {
+            extracted = await current.ask(
+              { type: "TRIGGER_1688_TREND_EXTRACT", maxResults: MAX_RESULTS_PER_KEYWORD },
+              { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: ALIBABA_CONTENT_FILES, guard: ALIBABA_1688_PAGE_GUARD }
+            );
+          } catch (error) {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          }
+          if (extracted.status === "verification_required") {
+            const here = await current.currentUrl().catch(() => extracted.verificationUrl ?? landed);
+            if (round > MAX_VERIFICATION_ROUNDS || !is1688VerificationUrl(here)) {
+              throw verification(extracted.verificationUrl ?? landed, keyword, () => {
+                keepOpen = true;
+              });
+            }
+            await waitOrFail(here);
+            continue;
+          }
+          if (!extracted.ok) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword });
+          }
+          return (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => typeof item?.offerId === "string" && item.offerId.length > 0).slice(0, MAX_RESULTS_PER_KEYWORD);
         }
-        if (!extracted.ok) {
-          throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword });
-        }
-        return (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => typeof item?.offerId === "string" && item.offerId.length > 0).slice(0, MAX_RESULTS_PER_KEYWORD);
       },
       /** 수집이 끝나면 탭을 닫는다. 검증 화면에서 멈췄으면 운영자가 풀 수 있게 남긴다. */
       async close() {
@@ -7182,21 +7247,38 @@ var KidItemRuntime = (() => {
   function isLiveVerificationUrl(value) {
     try {
       const url = new URL(value);
-      return url.pathname.includes("/punish") || url.searchParams.get("action") === "captcha" || /(?:verify|captcha|login)/i.test(url.pathname);
+      return url.pathname.includes("/punish") || url.searchParams.get("action") === "captcha" || /(?:verify|captcha)/i.test(url.pathname);
     } catch {
       return false;
     }
   }
+  function isLiveLoginUrl(value) {
+    try {
+      return LIVE_COMMERCE_PAGE_GUARD.isLogin(new URL(value)) || /\/login/i.test(new URL(value).pathname);
+    } catch {
+      return false;
+    }
+  }
+  var MAX_VERIFICATION_ROUNDS2 = 5;
   function createLiveCommerceSite(tabs) {
     return {
-      async broadcast(pageUrl) {
+      async broadcast(pageUrl, options = {}) {
         const page = await tabs.open("about:blank");
         let keepOpen = false;
         try {
-          const landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS2, stopAt: isLiveVerificationUrl });
-          if (isLiveVerificationUrl(landed)) {
+          const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
+          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS2, stopAt });
+          for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
+            const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
+            if (!cleared) {
+              keepOpen = true;
+              throw verification2(landed);
+            }
+            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS2, stopAt });
+          }
+          if (isLiveLoginUrl(landed)) {
             keepOpen = true;
-            throw verification2(landed);
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, LIVE_COMMERCE_PAGE_GUARD.loginMessage, { url: landed });
           }
           let extracted;
           try {
@@ -7413,6 +7495,16 @@ var KidItemRuntime = (() => {
       return false;
     }
   }
+  function isTiktokVerificationUrl(value) {
+    try {
+      const url = new URL(value);
+      return /(?:verify|captcha)/i.test(url.pathname) || url.searchParams.has("captcha");
+    } catch {
+      return false;
+    }
+  }
+  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
+  var MAX_VERIFICATION_ROUNDS3 = 5;
   function sanitizeTiktokRegion(value) {
     if (typeof value !== "string") return null;
     const cleaned = value.replace(/[^A-Za-z]/g, "").toUpperCase();
@@ -7423,10 +7515,10 @@ var KidItemRuntime = (() => {
     let keepOpen = false;
     return {
       targetFor: tiktokTargetFor,
-      async target(target, defaultRegion) {
+      async target(target, defaultRegion, options = {}) {
         page ??= await tabs.open("about:blank");
         try {
-          return await readTarget(page, target, defaultRegion);
+          return await readTarget(page, target, defaultRegion, options.onAttention);
         } catch (error) {
           if (leftForOperator(error)) keepOpen = true;
           throw error;
@@ -7437,8 +7529,17 @@ var KidItemRuntime = (() => {
         page = null;
       }
     };
-    async function readTarget(page2, target, defaultRegion) {
-      const landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt: isTiktokBlockedUrl, continueOnTimeout: true });
+    async function readTarget(page2, target, defaultRegion, onAttention) {
+      const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
+      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt, continueOnTimeout: true });
+      for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
+        const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
+        if (!cleared) {
+          keepOpen = true;
+          throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
+        }
+        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt, continueOnTimeout: true });
+      }
       if (isTiktokBlockedUrl(landed)) {
         throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
       }

@@ -1,7 +1,8 @@
 import { RuntimeError } from '../../core/errors';
 import { SITE_REQUEST_FAILED } from '../../core/site-caller';
 import type { SiteDefinition } from '../site';
-import { hostWithin, leftForOperator, type InjectFiles, type PageGuard, type TabPages } from '../tab-page';
+import { SITE_LOGIN_REQUIRED } from '../../core/site-caller';
+import { hostWithin, leftForOperator, waitForOperator, type AttentionListener, type InjectFiles, type PageGuard, type TabPages } from '../tab-page';
 
 const NAVIGATION_TIMEOUT_MS = 35_000;
 const EXTRACTION_TIMEOUT_MS = 25_000;
@@ -34,15 +35,27 @@ export interface LiveCommerceCapture {
   products: Array<Record<string, unknown>>;
 }
 
-/** 로그인·검증 화면(옛 규칙): `/punish`, `action=captcha`, 경로의 verify·captcha·login. */
+/** 검증 화면(옛 규칙): `/punish`, `action=captcha`, 경로의 verify·captcha. 운영자가 통과하길 기다린다. */
 export function isLiveVerificationUrl(value: string): boolean {
   try {
     const url = new URL(value);
-    return url.pathname.includes('/punish') || url.searchParams.get('action') === 'captcha' || /(?:verify|captcha|login)/i.test(url.pathname);
+    return url.pathname.includes('/punish') || url.searchParams.get('action') === 'captcha' || /(?:verify|captcha)/i.test(url.pathname);
   } catch {
     return false;
   }
 }
+
+/** 로그인 화면: 사이트 로그인 호스트나 경로의 login. 기다리지 않는다(세션 문제). */
+export function isLiveLoginUrl(value: string): boolean {
+  try {
+    return LIVE_COMMERCE_PAGE_GUARD.isLogin(new URL(value)) || /\/login/i.test(new URL(value).pathname);
+  } catch {
+    return false;
+  }
+}
+
+/** 한 방송에서 검증을 통과한 뒤에도 다시 걸리면 몇 번까지 기다리나. */
+const MAX_VERIFICATION_ROUNDS = 5;
 
 /**
  * 방송 하나(KID-360): 방송 주소로 백그라운드 탭을 열고 다 그려지면 content script(`TRIGGER_LIVE_COMMERCE_EXTRACT`,
@@ -50,14 +63,25 @@ export function isLiveVerificationUrl(value: string): boolean {
  */
 export function createLiveCommerceSite(tabs: TabPages) {
   return {
-    async broadcast(pageUrl: string): Promise<LiveCommerceCapture> {
+    async broadcast(pageUrl: string, options: { onAttention?: AttentionListener } = {}): Promise<LiveCommerceCapture> {
       const page = await tabs.open('about:blank');
       let keepOpen = false;
       try {
-        const landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: isLiveVerificationUrl });
-        if (isLiveVerificationUrl(landed)) {
+        const stopAt = (url: string) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
+        let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt });
+        // 검증 화면이면 운영자를 기다렸다가 같은 방송을 다시 연다(KID-355 QA). 로그인은 기다리지 않는다.
+        for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
+          const cleared = round <= MAX_VERIFICATION_ROUNDS
+            && await waitForOperator(page, isLiveVerificationUrl, { kind: 'verification', site: '라이브 방송', label: '방송' }, options.onAttention);
+          if (!cleared) {
+            keepOpen = true;
+            throw verification(landed);
+          }
+          landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt });
+        }
+        if (isLiveLoginUrl(landed)) {
           keepOpen = true;
-          throw verification(landed);
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, LIVE_COMMERCE_PAGE_GUARD.loginMessage, { url: landed });
         }
         let extracted: Partial<LiveCommerceCapture> & { ok?: boolean; error?: string; status?: string; verificationUrl?: string };
         try {

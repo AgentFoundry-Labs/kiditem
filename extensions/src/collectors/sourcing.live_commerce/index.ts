@@ -1,10 +1,10 @@
 import { SOURCING_CHUNK_KINDS, SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
-import type { Collector } from '../collector';
+import { attentionReporter, type Collector, type OperatorAttention } from '../collector';
 import { registerCollector } from '../index';
 
 /** 이 수집기가 방송 페이지에서 쓰는 것(`sites/live-commerce`가 구현). */
 export interface LiveCommerceSite {
-  broadcast(pageUrl: string): Promise<{
+  broadcast(pageUrl: string, options?: { onAttention?(attention: OperatorAttention | null): void | Promise<void> }): Promise<{
     source: '1688' | 'douyin';
     pageUrl: string;
     broadcast: Record<string, unknown>;
@@ -24,9 +24,9 @@ export interface LiveCommercePlan {
 export const sourcingLiveCommerceCollector: Collector<LiveCommercePlan, Record<string, unknown>, LiveCommerceSite> = {
   kind: SOURCING_OPERATION_KINDS.liveCommerce,
   site: 'live-commerce',
-  async *collect(plan, site, { signal }) {
+  async *collect(plan, site, { signal, report }) {
     if (signal.aborted) return;
-    const captured = await site.broadcast(plan.pageUrl);
+    const captured = await site.broadcast(plan.pageUrl, { onAttention: attentionReporter(report, { current: 0, total: 1, label: '방송' }) });
     if (signal.aborted) return;
     yield {
       chunkKind: SOURCING_CHUNK_KINDS.liveBroadcast,

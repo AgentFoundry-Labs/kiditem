@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createTabPages, type PageGuard, type TabPageChrome } from './tab-page';
 
-function fakeChrome(options: { sendMessage: (message: unknown, call: number) => Promise<unknown>; statuses?: string[]; url?: string }) {
+function fakeChrome(options: { sendMessage: (message: unknown, call: number) => Promise<unknown>; statuses?: string[]; url?: string; urls?: string[] }) {
   const log: string[] = [];
   let sends = 0;
   let gets = 0;
@@ -12,7 +12,7 @@ function fakeChrome(options: { sendMessage: (message: unknown, call: number) => 
       get: async () => {
         const status = options.statuses?.[gets] ?? 'complete';
         gets += 1;
-        return { status, url: options.url ?? 'https://s.1688.com/x' };
+        return { status, url: options.urls?.[Math.min(gets - 1, options.urls.length - 1)] ?? options.url ?? 'https://s.1688.com/x' };
       },
       remove: async (tabId) => { log.push(`remove ${tabId}`); },
       sendMessage: async (_tabId, message) => { sends += 1; return options.sendMessage(message, sends); },
@@ -101,6 +101,34 @@ describe('chrome tab pages (KID-360)', () => {
       await expect(createTabPages(deps(chromeApi)).attach(4).ask({ type: 'X' }, { timeoutMs: 1_000, inject: { isolated: ['a.js'] }, guard }))
         .resolves.toEqual({ ok: true });
       expect(log).toEqual(['inject ISOLATED a.js']);
+    });
+  });
+
+  describe('waiting for the operator on a verification page (KID-355 QA: 1688 slider at keyword 8/18)', () => {
+    const PUNISH = 'https://s.1688.com/_____tmd_____/punish?x5secdata=a';
+    const isPunish = (url: string) => url.includes('/punish');
+
+    it('polls every 2 seconds until the tab leaves the verification page, reminding every 3 minutes', async () => {
+      let clock = 0;
+      const urls = [...Array(100).fill(PUNISH), 'https://s.1688.com/selloffer/offer_search.htm'];
+      const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }), urls });
+      const sleeps: number[] = [];
+      const page = createTabPages({ chrome: chromeApi, fetch: async () => new Response('x'), sleep: async (ms) => { sleeps.push(ms); clock += ms; }, now: () => clock }).attach(4);
+      let reminders = 0;
+      await expect(page.waitWhile(isPunish, { onRemind: () => { reminders += 1; } })).resolves.toBe(true);
+      expect(new Set(sleeps)).toEqual(new Set([2_000]));
+      expect(reminders).toBe(1);
+    });
+
+    it('gives up after 10 minutes and fails at once when the tab is closed', async () => {
+      let clock = 0;
+      const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }), url: PUNISH });
+      const page = createTabPages({ chrome: chromeApi, fetch: async () => new Response('x'), sleep: async (ms) => { clock += ms; }, now: () => clock }).attach(4);
+      await expect(page.waitWhile(isPunish, {})).resolves.toBe(false);
+      expect(clock).toBeGreaterThanOrEqual(10 * 60_000);
+
+      chromeApi.tabs.get = async () => { throw new Error('No tab'); };
+      await expect(page.waitWhile(isPunish, {})).rejects.toMatchObject({ code: 'SITE_TAB_UNAVAILABLE' });
     });
   });
 });

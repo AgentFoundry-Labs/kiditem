@@ -39,4 +39,19 @@ describe('TikTok Creative Center site (KID-360)', () => {
     expect(fake.log.some((line) => line.startsWith('inject'))).toBe(false);
     expect(fake.log).not.toContain('close 7');
   });
+
+  it('waits for the operator on a verification page and retries the same target, or fails after the limit', async () => {
+    let landings = 0;
+    const verify = 'https://ads.tiktok.com/business/creativecenter/verify?x=1';
+    const fake = fakeTabPages({ landAt: (url) => (landings++ === 0 ? verify : url), answer: () => ({ ok: true, region: 'KR', items: [] }), verificationClears: true });
+    const attentions: unknown[] = [];
+    await expect(createTiktokCcSite(fake.tabs).target(tiktokTargetFor('hashtag'), null, { onAttention: (a) => { attentions.push(a); } }))
+      .resolves.toEqual({ region: 'KR', items: [] });
+    // 처음 알리고(기다리는 동안 다시 알릴 수 있다) 풀리면 null.
+    expect(attentions[0]).toEqual({ kind: 'verification', site: 'TikTok', label: 'hashtag' });
+    expect(attentions.at(-1)).toBeNull();
+
+    const stuck = fakeTabPages({ landAt: () => verify, answer: () => ({ ok: true }) });
+    await expect(createTiktokCcSite(stuck.tabs).target(tiktokTargetFor('hashtag'), null)).rejects.toMatchObject({ code: 'SITE_VERIFICATION_REQUIRED' });
+  });
 });

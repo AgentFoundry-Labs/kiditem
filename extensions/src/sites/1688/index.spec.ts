@@ -60,4 +60,43 @@ describe('1688 search site (KID-360)', () => {
     await site.close();
     expect(fake.log).not.toContain('close 7');
   });
+
+  describe('operator verification pause (KID-355 QA)', () => {
+    const PUNISH = 'https://s.1688.com/_____tmd_____/punish?x5secdata=a';
+
+    it('pauses on the slider, tells the collector, and retries the same keyword once the operator passes it', async () => {
+      let landings = 0;
+      const fake = fakeTabPages({
+        landAt: (url) => (landings++ === 0 ? PUNISH : url),
+        answer: () => ({ ok: true, items: [{ offerId: 'o-1' }] }),
+        verificationClears: true,
+      });
+      const attentions: unknown[] = [];
+      const site = create1688SearchSite(fake.tabs);
+      await expect(site.offers('笔袋', { onAttention: (attention) => { attentions.push(attention); } })).resolves.toEqual([{ offerId: 'o-1' }]);
+      expect(fake.log.filter((line) => line.startsWith('navigate'))).toHaveLength(2);
+      expect(attentions[0]).toEqual({ kind: 'verification', site: '1688', label: '笔袋' });
+      expect(attentions.at(-1)).toBeNull();
+    });
+
+    it('fails as SITE_VERIFICATION_REQUIRED and keeps the tab when the operator does not pass it in time', async () => {
+      const fake = fakeTabPages({ landAt: () => PUNISH, answer: () => ({ ok: true, items: [] }) });
+      const site = create1688SearchSite(fake.tabs);
+      await expect(site.offers('笔袋')).rejects.toMatchObject({ code: SITE_VERIFICATION_REQUIRED });
+      await site.close();
+      expect(fake.log).toContain('wait for operator');
+      expect(fake.log).not.toContain('close 7');
+    });
+
+    it('does not wait on a login page: SITE_LOGIN_REQUIRED at once', async () => {
+      const fake = fakeTabPages({ landAt: () => 'https://login.1688.com/member/signin.htm', answer: () => ({ ok: true, items: [] }), verificationClears: true });
+      await expect(create1688SearchSite(fake.tabs).offers('笔袋')).rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED });
+      expect(fake.log).not.toContain('wait for operator');
+    });
+
+    it('recognises the _____tmd_____ slider path', () => {
+      expect(is1688VerificationUrl(PUNISH)).toBe(true);
+      expect(is1688VerificationUrl('https://s.1688.com/_____tmd_____/newslidecaptcha')).toBe(true);
+    });
+  });
 });

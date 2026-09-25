@@ -1,5 +1,5 @@
 import { SOURCING_CHUNK_KINDS, SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
-import type { Collector } from '../collector';
+import { attentionReporter, type Collector, type OperatorAttention } from '../collector';
 import { registerCollector } from '../index';
 
 export interface TiktokTargetLike {
@@ -9,7 +9,7 @@ export interface TiktokTargetLike {
 /** 이 수집기가 Creative Center에서 쓰는 것(`sites/tiktok-cc`가 구현). */
 export interface TiktokCreativeSite<TTarget extends TiktokTargetLike = TiktokTargetLike> {
   targetFor(targetId: string): TTarget;
-  target(target: TTarget, defaultRegion: string | null): Promise<{ region: string | null; items: Array<Record<string, unknown>> }>;
+  target(target: TTarget, defaultRegion: string | null, options?: { onAttention?(attention: OperatorAttention | null): void | Promise<void> }): Promise<{ region: string | null; items: Array<Record<string, unknown>> }>;
   close(): Promise<void>;
 }
 
@@ -30,7 +30,7 @@ const FALLBACK_REGION = 'US';
 export const sourcingTiktokCreativeCollector: Collector<TiktokCreativePlan, Record<string, unknown>, TiktokCreativeSite> = {
   kind: SOURCING_OPERATION_KINDS.tiktokCreative,
   site: 'tiktok',
-  async *collect(plan, site, { signal }) {
+  async *collect(plan, site, { signal, report }) {
     const visits: Array<{ targetId: string; items: Array<Record<string, unknown>> }> = [];
     const seen = new Set<string>();
     let region: string | null = plan.regionOverride;
@@ -38,7 +38,9 @@ export const sourcingTiktokCreativeCollector: Collector<TiktokCreativePlan, Reco
     try {
       for (const targetId of plan.targetIds) {
         if (signal.aborted) return;
-        const captured = await site.target(site.targetFor(targetId), region);
+        const captured = await site.target(site.targetFor(targetId), region, {
+          onAttention: attentionReporter(report, { current: visits.length, total: plan.targetIds.length, label: targetId }),
+        });
         region ??= captured.region;
         const items: Array<Record<string, unknown>> = [];
         for (const item of captured.items) {
