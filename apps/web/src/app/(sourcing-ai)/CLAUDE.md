@@ -12,7 +12,8 @@ master data directly.
 
 ```text
 snapshot read -> owner API/read model -> React Query
-explicit collection CTA -> source-specific action -> owner begin/terminal
+explicit collection CTA -> extension operation.start{kind, scope} -> GET /api/operations
+explicit collection CTA (server-run source) -> owner begin/terminal
 explicit persisted-fact calculation CTA -> owner command
 ```
 
@@ -40,6 +41,7 @@ explicit persisted-fact calculation CTA -> owner command
   explicit error.
 - Read detailed rows and source status from the owning domain API. Extension
   responses carry correlation and progress, not canonical data for UI storage.
-- Browser collection must stay aligned with the relevant extension CLAUDE guide.
-  The 1688 refresh page calls the extension only; it does not begin or expose a
-  source attempt/token itself.
+- Browser collection kinds (`sourcing.*`, KID-360) go through
+  `sourcing-ai/lib/sourcing-operations.ts`: the page asks the extension to start
+  and reads the operations list; it never begins an operation or holds its
+  token. Wing search runs on the organization's primary Coupang account.

@@ -63,6 +63,18 @@ belong to Supply; supplier payments belong to Finance.
   cannot reactivate an attempt; a retry receives a new attempt identity.
 - Organization scope is enforced at every read and mutation. Unknown or
   disabled source controls produce no source record or evidence rows.
+- Browser collection is six operation kinds (`sourcing.wing_catalog`,
+  `coupang_keyword_suggestion`, `trend_1688`, `live_commerce`,
+  `tiktok_creative`, `product_extension`; KID-360) owned by
+  `adapter/in/operation/sourcing-extension-operation-owners.ts`. `plan` freezes
+  source/scope/target keys and lock keys; `finalize` writes ledger rows
+  (`operationId`) and one `sourcing_source_publications` row inside the finish
+  transaction, and throws on an incomplete plan so a failed run writes
+  nothing. These kinds have no attempt routes and write no
+  `sourcing_evidence_ingestion_runs` row; server-run sources still use attempts.
+- "Complete and current" is the publication row with `isCurrent`, one per
+  (organization, source, scope, target). Other owners (Supply's procurement
+  gate) reach it through `SOURCING_SOURCE_PUBLICATION_PORT`.
 
 ## Supplier URL security
 
