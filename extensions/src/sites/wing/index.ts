@@ -100,7 +100,7 @@ export function createWingSite(caller: SiteCaller, deps: WingSiteDeps) {
         try {
           product = buildCatalogDetailProduct(body);
         } catch (error) {
-          if (error instanceof WingPayloadError) throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, error.message, { externalProductId });
+          if (error instanceof WingPayloadError) throw new RuntimeError(error.code, error.message, { externalProductId });
           throw error;
         }
         if (product.externalProductId !== externalProductId) {

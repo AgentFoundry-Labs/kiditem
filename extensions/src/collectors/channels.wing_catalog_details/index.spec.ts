@@ -80,7 +80,26 @@ describe('collectors/channels.wing_catalog_details', () => {
   it('상세가 사라진(없음) 대상은 건너뛰고 progress에 남긴다 — 서버는 그 상품을 그대로 두고 다음 동기화가 다시 잡는다', async () => {
     const chunks = await collect(fakeWing({ missing: ['T1'] }).site, ['T0', 'T1', 'T2']);
     expect(chunks.flatMap((chunk) => chunk.payload.map((item) => (item as CoupangCatalogDetailProductV1).externalProductId))).toEqual(['T0', 'T2']);
-    expect(chunks.at(-1)?.progress).toMatchObject({ detailsDone: 2, detailsMissing: ['T1'] });
+    expect(chunks.at(-1)?.progress).toMatchObject({ detailsDone: 2, detailsMissing: [{ externalProductId: 'T1', reason: 'not_found' }] });
+  });
+
+  it('상한을 넘는 상세(상품 512KiB·청크 1MiB)는 실행 전체를 멈추지 않고 건너뛰어 사유와 함께 남긴다', async () => {
+    const site: WingCatalogDetailsSite = {
+      async productDetail(id) {
+        if (id === 'BIG') throw new RuntimeError('WING_CATALOG_PAYLOAD_TOO_LARGE', 'Wing 상세 상품 BIG가 허용 크기를 초과했습니다');
+        if (id === 'HUGE') return { ...detail(id), raw: { padding: 'x'.repeat(1_100_000) } };
+        return detail(id);
+      },
+      async probeDeleted() {
+        return [];
+      },
+    };
+    const chunks = await collect(site, ['T0', 'BIG', 'HUGE', 'T3']);
+    expect(chunks.flatMap((chunk) => chunk.payload.map((item) => (item as CoupangCatalogDetailProductV1).externalProductId))).toEqual(['T0', 'T3']);
+    expect(chunks.at(-1)?.progress).toMatchObject({
+      detailsDone: 2,
+      detailsMissing: [{ externalProductId: 'BIG', reason: 'too_large' }, { externalProductId: 'HUGE', reason: 'too_large' }],
+    });
   });
 
   it('로그인이 풀리면 그 오류로 멈춘다(runner가 failed로 닫는다)', async () => {

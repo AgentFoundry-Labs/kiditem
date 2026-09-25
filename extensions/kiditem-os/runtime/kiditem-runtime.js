@@ -4447,6 +4447,35 @@ var KidItemRuntime = (() => {
     skippedRowCount: external_exports.number().int().nonnegative()
   }).strict();
 
+  // extensions/src/core/errors.ts
+  var ErrorEnvelopeSchema = external_exports.object({
+    statusCode: external_exports.number().int().min(400).max(599),
+    code: external_exports.string().min(1),
+    kind: external_exports.string(),
+    message: external_exports.string(),
+    errors: external_exports.array(external_exports.unknown()).optional(),
+    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
+  }).passthrough();
+  var RuntimeError = class extends Error {
+    constructor(code, message, details = null, cause) {
+      super(message);
+      this.code = code;
+      this.details = details;
+      this.cause = cause;
+      this.name = "RuntimeError";
+    }
+    code;
+    details;
+    cause;
+  };
+  function parseErrorEnvelope(body) {
+    const parsed = ErrorEnvelopeSchema.safeParse(body);
+    return parsed.success ? parsed.data : null;
+  }
+  function isRuntimeError(value) {
+    return value instanceof RuntimeError;
+  }
+
   // packages/shared/src/schemas/common.ts
   var zIsoDate = external_exports.union([external_exports.string(), external_exports.date()]);
   var ApiErrorResponseSchema = external_exports.object({
@@ -4603,35 +4632,6 @@ var KidItemRuntime = (() => {
     payload: external_exports.array(external_exports.unknown())
   }).strict();
 
-  // extensions/src/core/errors.ts
-  var ErrorEnvelopeSchema = external_exports.object({
-    statusCode: external_exports.number().int().min(400).max(599),
-    code: external_exports.string().min(1),
-    kind: external_exports.string(),
-    message: external_exports.string(),
-    errors: external_exports.array(external_exports.unknown()).optional(),
-    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
-  }).passthrough();
-  var RuntimeError = class extends Error {
-    constructor(code, message, details = null, cause) {
-      super(message);
-      this.code = code;
-      this.details = details;
-      this.cause = cause;
-      this.name = "RuntimeError";
-    }
-    code;
-    details;
-    cause;
-  };
-  function parseErrorEnvelope(body) {
-    const parsed = ErrorEnvelopeSchema.safeParse(body);
-    return parsed.success ? parsed.data : null;
-  }
-  function isRuntimeError(value) {
-    return value instanceof RuntimeError;
-  }
-
   // extensions/src/collectors/chunk-items.ts
   var encoder = new TextEncoder();
   var ChunkBuffer = class {
@@ -4669,6 +4669,7 @@ var KidItemRuntime = (() => {
 
   // extensions/src/collectors/channels.wing_catalog_details/index.ts
   var DETAILS_PER_CHUNK = 20;
+  var TOO_LARGE_CODES = /* @__PURE__ */ new Set(["WING_CATALOG_PAYLOAD_TOO_LARGE", "RUNTIME_CHUNK_TOO_LARGE"]);
   var PROBE_BATCH = 100;
   var wingCatalogDetailsCollector = {
     kind: WING_CATALOG_DETAILS_KIND,
@@ -4690,13 +4691,23 @@ var KidItemRuntime = (() => {
       const chunk = (chunkKind, payload) => ({ chunkKind, payload, progress: progress() });
       for (const externalProductId of targets) {
         if (signal.aborted) return;
-        const product = await site.productDetail(externalProductId);
-        if (!product) {
-          missing.push(externalProductId);
-          continue;
+        let product;
+        let full;
+        try {
+          product = await site.productDetail(externalProductId);
+          if (!product) {
+            missing.push({ externalProductId, reason: "not_found" });
+            continue;
+          }
+          full = details.push(product);
+        } catch (error) {
+          if (isRuntimeError(error) && TOO_LARGE_CODES.has(error.code)) {
+            missing.push({ externalProductId, reason: "too_large" });
+            continue;
+          }
+          throw error;
         }
         detailsDone += 1;
-        const full = details.push(product);
         if (full) yield chunk(WING_CATALOG_CHUNK_KINDS.fullDetails, full);
       }
       const rest = details.flush();
@@ -5451,7 +5462,7 @@ var KidItemRuntime = (() => {
           try {
             product = buildCatalogDetailProduct(body);
           } catch (error) {
-            if (error instanceof WingPayloadError) throw new RuntimeError(WING_CATALOG_PAYLOAD_INVALID, error.message, { externalProductId });
+            if (error instanceof WingPayloadError) throw new RuntimeError(error.code, error.message, { externalProductId });
             throw error;
           }
           if (product.externalProductId !== externalProductId) {
