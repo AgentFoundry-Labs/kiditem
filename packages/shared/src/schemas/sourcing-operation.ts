@@ -1,4 +1,8 @@
 import { z } from 'zod';
+import {
+  SourcingKeywordSuggestionInputSchema,
+  SourcingWingCatalogBatchInputSchema,
+} from '../sourcing/browser-operations.js';
 
 /**
  * 소싱 수집을 실행 계약(ADR-0025) kind로 옮긴 이름표(KID-360). 옛 run 표(`sourcing_evidence_ingestion_runs`)의
@@ -52,36 +56,34 @@ export const SOURCING_SOURCE_KEY_BY_KIND: Readonly<Record<SourcingOperationKind,
   'sourcing.scrape_url': (platform) => `${platform}.scrape_url`,
 };
 
-const Keyword = z.string().trim().min(1).max(200);
-
-/** Wing 검색 소싱: 그 계정의 Wing 로그인을 쓰므로 lockKey는 `account:<channelAccountId>`(카탈로그 동기화와 서로 막음). */
-export const SourcingWingCatalogScopeSchema = z.object({
+/**
+ * Wing 검색 소싱: 옛 attempt plan(키워드 ≤12·키워드당 쪽수·용도)에 그 계정을 더한다. 계정의 Wing 로그인을 쓰므로
+ * lockKey는 `account:<channelAccountId>`(카탈로그 동기화와 서로 막음)다.
+ */
+export const SourcingWingCatalogScopeSchema = SourcingWingCatalogBatchInputSchema.innerType().extend({
   channelAccountId: z.string().uuid(),
-  keywords: z.array(Keyword).min(1).max(50),
-  /** 키워드당 페이지 수(기본 2, 최대 5). */
-  pages: z.number().int().min(1).max(5).default(2),
 }).strict();
 
-export const SourcingCoupangKeywordSuggestionScopeSchema = z.object({
-  keyword: Keyword,
-}).strict();
+/** 쿠팡 검색창 추천 키워드: 옛 attempt plan 그대로(키워드·결과 상한). */
+export const SourcingCoupangKeywordSuggestionScopeSchema = SourcingKeywordSuggestionInputSchema;
 
-export const SourcingTrend1688ScopeSchema = z.object({
-  keywords: z.array(Keyword).min(1).max(20),
-}).strict();
+/** 1688 인기상품: 키워드는 조직의 트렌드 시드에서 서버가 정한다(옛 attempt와 같다). */
+export const SourcingTrend1688ScopeSchema = z.object({}).strict();
 
 export const SourcingLiveCommerceScopeSchema = z.object({
   platform: z.enum(['1688', 'douyin']),
-  url: z.string().url(),
+  url: z.string().url().max(500),
 }).strict();
 
+/** TikTok Creative Center: 대상은 트렌드 시드에서 서버가 정하고, 실행마다 고르는 값은 상한·지역뿐이다. */
 export const SourcingTiktokCreativeScopeSchema = z.object({
-  region: z.string().min(2).max(8).default('KR'),
+  maxItems: z.number().int().min(1).max(100).optional(),
+  region: z.string().min(2).max(8).optional(),
 }).strict();
 
 export const SourcingProductExtensionScopeSchema = z.object({
   platform: z.enum(['1688', 'alibaba']),
-  url: z.string().url(),
+  url: z.string().url().max(2000),
 }).strict();
 
 export const SOURCING_EXTENSION_SCOPE_SCHEMAS = {
@@ -120,5 +122,10 @@ export const SourcingOperationResultSchema = z.object({
   duplicateCount: z.number().int().nonnegative(),
   rejectedCount: z.number().int().nonnegative(),
   coverage: z.object({ numerator: z.number().int().nonnegative(), denominator: z.number().int().positive() }).nullable(),
+  /** 발행의 원천 관측 창(timestamptz ISO). 진실은 발행 이력 표이고 이것은 화면용 요약이다. */
+  windowStartAt: z.string().datetime({ offset: true }).nullable(),
+  windowEndAt: z.string().datetime({ offset: true }).nullable(),
+  /** product_extension: 이 수집이 입장시킨 원본 기록과 그 초안. */
+  admitted: z.array(z.object({ sourceRecordId: z.string().uuid(), salesProductId: z.string().uuid() }).strict()).optional(),
 }).strict();
 export type SourcingOperationResult = z.infer<typeof SourcingOperationResultSchema>;
