@@ -75,7 +75,7 @@ describe('Keyword suggestion public source owner (disposable PostgreSQL)', () =>
       batch,
     });
     expect(await prisma.sourcingEvidenceObservation.count()).toBe(1);
-    await prisma.sourcingKeywordSuggestionFact.deleteMany({ where: { organizationId } });
+    await prisma.sourcingKeywordSuggestionSnapshot.deleteMany({ where: { organizationId } });
 
     await expect(service.snapshot({ organizationId, keyword: 'A Pencil' })).resolves.toMatchObject({
       generatedAt: null,

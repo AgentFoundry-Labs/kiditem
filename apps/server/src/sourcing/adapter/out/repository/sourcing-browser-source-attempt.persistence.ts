@@ -150,14 +150,14 @@ export async function persistBrowserSourceAttemptFacts(
     duplicateCount += typedRecords.shorts.length - created.count;
   }
   if (typedRecords.wingCatalog.length > 0) {
-    const created = await tx.sourcingWingCatalogProductFact.createMany({
+    const created = await tx.sourcingWingCatalogProductSnapshot.createMany({
       data: typedRecords.wingCatalog,
       skipDuplicates: true,
     });
     duplicateCount += typedRecords.wingCatalog.length - created.count;
   }
   if (typedRecords.keywordSuggestion.length > 0) {
-    const created = await tx.sourcingKeywordSuggestionFact.createMany({
+    const created = await tx.sourcingKeywordSuggestionSnapshot.createMany({
       data: typedRecords.keywordSuggestion,
       skipDuplicates: true,
     });
@@ -366,8 +366,8 @@ function toTypedCreateInputs(
   liveCommerceBroadcast: Prisma.LiveCommerceBroadcastDailySnapshotCreateManyInput[];
   liveCommerceProduct: Prisma.LiveCommerceProductDailySnapshotCreateManyInput[];
   tiktokCreative: Prisma.TiktokCreativeTrendDailySnapshotCreateManyInput[];
-  wingCatalog: Prisma.SourcingWingCatalogProductFactCreateManyInput[];
-  keywordSuggestion: Prisma.SourcingKeywordSuggestionFactCreateManyInput[];
+  wingCatalog: Prisma.SourcingWingCatalogProductSnapshotCreateManyInput[];
+  keywordSuggestion: Prisma.SourcingKeywordSuggestionSnapshotCreateManyInput[];
   naverKeywordAnalysis: Prisma.SourcingNaverKeywordAnalysisFactCreateManyInput[];
   marketShadow: Prisma.SourcingMarketShadowFactCreateManyInput[];
 } {
@@ -378,8 +378,8 @@ function toTypedCreateInputs(
   const liveCommerceBroadcast: Prisma.LiveCommerceBroadcastDailySnapshotCreateManyInput[] = [];
   const liveCommerceProduct: Prisma.LiveCommerceProductDailySnapshotCreateManyInput[] = [];
   const tiktokCreative: Prisma.TiktokCreativeTrendDailySnapshotCreateManyInput[] = [];
-  const wingCatalog: Prisma.SourcingWingCatalogProductFactCreateManyInput[] = [];
-  const keywordSuggestion: Prisma.SourcingKeywordSuggestionFactCreateManyInput[] = [];
+  const wingCatalog: Prisma.SourcingWingCatalogProductSnapshotCreateManyInput[] = [];
+  const keywordSuggestion: Prisma.SourcingKeywordSuggestionSnapshotCreateManyInput[] = [];
   const naverKeywordAnalysis: Prisma.SourcingNaverKeywordAnalysisFactCreateManyInput[] = [];
   const marketShadow: Prisma.SourcingMarketShadowFactCreateManyInput[] = [];
   for (const record of records) {

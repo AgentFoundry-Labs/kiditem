@@ -8,7 +8,7 @@ function createRepository() {
   const prisma = {
     sourcing1688OfferKeywordObservation: { findMany: vi.fn(async () => []) },
     sourcingEvidenceObservation: { findMany: vi.fn(async () => []) },
-    sourcingWingCatalogProductFact: {
+    sourcingWingCatalogProductSnapshot: {
       findMany: vi.fn(async () => []),
       groupBy: vi.fn(async () => []),
     },

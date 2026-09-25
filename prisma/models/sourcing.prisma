@@ -206,7 +206,7 @@ model Sourcing1688OfferKeywordObservation {
 
 /// @namespace Sourcing
 /// @describe Wing 카탈로그 source owner가 evidence와 같은 transaction에서 발행하는 immutable typed product fact. 화면과 추천은 COMPLETE run coverage를 통과한 이 행만 읽는다.
-model SourcingWingCatalogProductFact {
+model SourcingWingCatalogProductSnapshot {
   id                    String @id @default(uuid()) @db.Uuid
   organizationId        String @map("organization_id") @db.Uuid
   evidenceObservationId String @map("evidence_observation_id") @db.Uuid
@@ -248,7 +248,7 @@ model SourcingWingCatalogProductFact {
 
 /// @namespace Sourcing
 /// @describe 쿠팡 키워드 제안 source owner가 발행하는 schema-validated immutable snapshot. Header가 존재하고 item이 비어 있으면 confirmed-empty이다.
-model SourcingKeywordSuggestionFact {
+model SourcingKeywordSuggestionSnapshot {
   id                    String   @id @default(uuid()) @db.Uuid
   organizationId        String   @map("organization_id") @db.Uuid
   evidenceObservationId String   @map("evidence_observation_id") @db.Uuid
@@ -647,8 +647,8 @@ model SourcingEvidenceObservation {
   offerKeywordObservation    Sourcing1688OfferKeywordObservation?
   recommendationItemEvidence SourcingRecommendationItemEvidence[]
   validationCheckEvidence    SourcingValidationCheckEvidence[]
-  wingCatalogProductFact     SourcingWingCatalogProductFact?
-  keywordSuggestionFact      SourcingKeywordSuggestionFact?
+  wingCatalogProductSnapshot     SourcingWingCatalogProductSnapshot?
+  keywordSuggestionSnapshot      SourcingKeywordSuggestionSnapshot?
   naverKeywordAnalysisFact   SourcingNaverKeywordAnalysisFact?
   marketShadowFact           SourcingMarketShadowFact?
 

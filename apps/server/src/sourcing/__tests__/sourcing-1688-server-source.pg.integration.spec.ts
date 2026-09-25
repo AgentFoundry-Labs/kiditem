@@ -244,7 +244,7 @@ describe('1688 server source owner HTTP with disposable PostgreSQL', () => {
       missingTargetIds: ['product-1::'],
     });
 
-    await prisma.sourcingWingCatalogProductFact.deleteMany({
+    await prisma.sourcingWingCatalogProductSnapshot.deleteMany({
       where: { organizationId, operationId: latest.id },
     });
     await expect(read()).resolves.toEqual({

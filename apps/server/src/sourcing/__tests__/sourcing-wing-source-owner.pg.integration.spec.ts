@@ -238,7 +238,7 @@ describe('Wing source owner HTTP with disposable PostgreSQL', () => {
       where: { operationId: attempt.attemptId },
       data: { qualityReport: { snapshots: [{ keyword: 'a pencil' }] } },
     });
-    await prisma.sourcingWingCatalogProductFact.deleteMany({
+    await prisma.sourcingWingCatalogProductSnapshot.deleteMany({
       where: { organizationId, operationId: attempt.attemptId },
     });
 

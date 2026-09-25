@@ -607,7 +607,7 @@ export async function readCurrentKeywordSuggestionFact(
     collectorVersion: input.collectorVersion,
   });
   if (!publication) return null;
-  return tx.sourcingKeywordSuggestionFact.findFirst({
+  return tx.sourcingKeywordSuggestionSnapshot.findFirst({
     where: {
       organizationId: input.organizationId,
       operationId: publication.operationId,
@@ -690,7 +690,7 @@ interface WingPublicationCoverage {
   rejectedCount: number;
 }
 
-function wingCatalogFactWhere(input: WingCatalogFactFilter): Prisma.SourcingWingCatalogProductFactWhereInput {
+function wingCatalogFactWhere(input: WingCatalogFactFilter): Prisma.SourcingWingCatalogProductSnapshotWhereInput {
   return {
     organizationId: input.organizationId,
     schemaVersion: input.schemaVersion,
@@ -723,7 +723,7 @@ async function readWingCatalogFactsForRuns(
   input: WingCatalogFactFilter & { limit: number },
 ) {
   if (input.runBindings.length === 0 || input.limit <= 0) return [];
-  return tx.sourcingWingCatalogProductFact.findMany({
+  return tx.sourcingWingCatalogProductSnapshot.findMany({
     where: wingCatalogFactWhere(input),
     orderBy: [
       { capturedAt: 'desc' },
@@ -741,7 +741,7 @@ async function countWingCatalogFactsForRuns(
   input: WingCatalogFactFilter,
 ) {
   if (input.runBindings.length === 0) return [];
-  return tx.sourcingWingCatalogProductFact.groupBy({
+  return tx.sourcingWingCatalogProductSnapshot.groupBy({
     by: ['operationId', 'sourceKeywordNormalized'],
     where: wingCatalogFactWhere(input),
     _count: { _all: true },

@@ -303,11 +303,11 @@
       "name": "Sourcing Wing catalog product fact",
       "owner": "sourcing",
       "table": "sourcing_wing_catalog_product_facts",
-      "prismaModel": "sourcingWingCatalogProductFact",
-      "prismaType": "SourcingWingCatalogProductFact",
+      "prismaModel": "sourcingWingCatalogProductSnapshot",
+      "prismaType": "SourcingWingCatalogProductSnapshot",
       "relationNames": [
-        "sourcingWingCatalogProductFacts",
-        "wingCatalogProductFact"
+        "sourcingWingCatalogProductSnapshots",
+        "wingCatalogProductSnapshot"
       ],
       "ownerPublications": [
         {
@@ -331,11 +331,11 @@
       "name": "Sourcing keyword suggestion fact",
       "owner": "sourcing",
       "table": "sourcing_keyword_suggestion_facts",
-      "prismaModel": "sourcingKeywordSuggestionFact",
-      "prismaType": "SourcingKeywordSuggestionFact",
+      "prismaModel": "sourcingKeywordSuggestionSnapshot",
+      "prismaType": "SourcingKeywordSuggestionSnapshot",
       "relationNames": [
-        "keywordSuggestionFact",
-        "sourcingKeywordSuggestionFacts"
+        "keywordSuggestionSnapshot",
+        "sourcingKeywordSuggestionSnapshots"
       ],
       "ownerPublications": [
         {

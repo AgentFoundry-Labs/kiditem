@@ -259,7 +259,7 @@ export class SourcingBrowserSourceAttemptRepositoryAdapter
         throw new ConflictException('SOURCE_CHUNK_OUT_OF_ORDER');
       }
       await persistBrowserSourceAttemptFacts(tx, toPermit(attempt), input.output, now, this.drafts);
-      const acceptedCount = await tx.sourcingWingCatalogProductFact.count({
+      const acceptedCount = await tx.sourcingWingCatalogProductSnapshot.count({
         where: {
           organizationId: input.organizationId,
           operationId: attempt.id,
