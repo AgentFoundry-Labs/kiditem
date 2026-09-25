@@ -78,7 +78,7 @@ const mall = (key: string, name: string): OrderCollectionMallAccount => ({
   updatedAt: null,
 });
 
-// 옛 attempt 경로에 남은 몰(2차, H3′까지)만 쓴다 — 1차 몰 4곳은 실행 kind 경로다(KID-359 H3).
+// 옛 attempt 경로에 남은 몰(나머지 몰이 옮겨질 때까지)만 쓴다 — 1차 몰 4곳은 실행 kind 경로다(KID-359 H3).
 const MALLS = [
   mall('kidsnote', '키즈노트'),
   mall('onch', '온채널'),

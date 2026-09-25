@@ -801,7 +801,7 @@ export class OrderCollectionController {
   /**
    * 실행 kind(`orders.mall_orders`)로 옮긴 몰은 본문의 `operationId`로 온다(KID-359 H3): 성공한 그 몰 실행의 보관
    * 캡처를 다시 변환해 돌려준다. 수집 기록(주문 수·캡처)은 finish가 이미 적었으므로 여기서 쓰는 것은 없다 —
-   * `SourceImportRun`도 만지지 않는다. 옛 attempt 헤더 경로는 2차 몰을 위해 그대로 남는다(H3′까지).
+   * `SourceImportRun`도 만지지 않는다. 옛 attempt 헤더 경로는 2차 몰을 위해 그대로 남는다(나머지 몰이 옮겨질 때까지).
    */
   private async convertOperation(
     mallKey: string,

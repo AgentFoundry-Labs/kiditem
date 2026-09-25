@@ -81,7 +81,7 @@ summary, Rocket PO and directship are operation kinds collected by
   the runtime kind `orders.mall_orders`: `sites/mall-orders` routes the plan's
   mall key to `sites/<mallKey>`, which opens its own inactive tab and returns
   the old convert body's rows. Their worker collectors are gone; the other
-  malls keep the owner/lifecycle/converter path until H3′.
+  malls keep the owner/lifecycle/converter path until the remaining malls move (나머지 몰이 옮겨질 때까지).
 - Login before an operation runs from the web without an attempt
   (`ensureMallLoggedIn` with no `attemptId` logs in only); a mall site that
   still meets a login form stops with `SITE_LOGIN_REQUIRED` and keeps the tab.

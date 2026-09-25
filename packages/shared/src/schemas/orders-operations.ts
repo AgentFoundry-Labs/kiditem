@@ -191,7 +191,7 @@ export type CoupangDirectshipConvertRequest = z.infer<typeof CoupangDirectshipCo
 export const SellpiaShipmentTrackingScopeSchema = z.object({
   startDate: isoDay,
   endDate: isoDay,
-}).strict().refine((value) => value.startDate <= value.endDate, 'startDate must not be after endDate');
+}).strict().refine((value) => value.startDate <= value.endDate, '시작일이 끝일보다 늦을 수 없습니다.');
 export type SellpiaShipmentTrackingScope = z.infer<typeof SellpiaShipmentTrackingScopeSchema>;
 
 export const MallOrdersCollectionModeSchema = z.enum(['browser', 'manual-upload']);
@@ -215,7 +215,7 @@ export const MallOrdersScopeSchema = z.object({
 export type MallOrdersScope = z.infer<typeof MallOrdersScopeSchema>;
 
 /**
- * 몰 주문 kind로 옮긴 몰(1차, KID-359 H3). 여기 없는 몰은 옛 attempt 경로가 H3′까지 받는다 — 웹은 이 목록으로
+ * 몰 주문 kind로 옮긴 몰(1차, KID-359 H3). 여기 없는 몰은 옛 attempt 경로가 나머지 몰이 옮겨질 때까지 받는다 — 웹은 이 목록으로
  * 시작 경로를 가른다(KID-355 2026-09-26 03:27 리더 설계).
  */
 export const MALL_ORDER_OPERATION_MALLS = ['icecream-mall', 'kidkids', 'art09', 'domeggook'] as const;

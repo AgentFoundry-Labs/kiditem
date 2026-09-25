@@ -33,7 +33,7 @@ import {
 } from './order-operations';
 
 /**
- * 이 몰은 실행 kind `orders.mall_orders`로 수집한다(KID-359 H3 1차 몰). 나머지 몰은 옛 attempt 경로가 H3′까지 받는다.
+ * 이 몰은 실행 kind `orders.mall_orders`로 수집한다(KID-359 H3 1차 몰). 나머지 몰은 옛 attempt 경로가 나머지 몰이 옮겨질 때까지 받는다.
  * 어느 경로인지는 이 원천 파일이 답한다 — 루프와 카드는 몰 키를 비교하지 않는다.
  */
 export function collectsViaMallOrderOperation(mallKey: string): boolean {

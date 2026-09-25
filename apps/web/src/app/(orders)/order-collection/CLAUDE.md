@@ -17,7 +17,7 @@ convenience history.
 - Malls moved to the operation kind `orders.mall_orders` (the shared
   `MALL_ORDER_OPERATION_MALLS`) use `mall-order-operation-source.ts`: login,
   `operation.start`, the operations reader, and convert by `operationId`. The
-  other malls keep the attempt adapter until H3′.
+  other malls keep the attempt adapter until the remaining malls move (나머지 몰이 옮겨질 때까지).
 - The shared collection loop and the mall cards use only the source adapter
   (`OrderCollectionSourceAdapter`: start, status, stop, `card`) and the owner
   stamped on the run; they never compare a mall key. A source with its own

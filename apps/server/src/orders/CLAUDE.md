@@ -67,7 +67,7 @@ Action, collection, transmission, and reconciliation behavior is executable in
   keyed by `operationId` and writes the converted order count to
   `result.rowCount`; a day with no orders succeeds with 0. Convert routes and
   `attempts/:id/convert` accept a body `operationId` for these malls and write
-  nothing. The other malls stay on the attempt path until H3′.
+  nothing. The other malls stay on the attempt path until the remaining malls move (나머지 몰이 옮겨질 때까지).
 - Today's order count is one Orders capability
   (`ORDER_COLLECTION_TODAY_ORDERS_PORT`): per mall the latest succeeded
   operation's `rowCount`, else the latest completed legacy run. The order

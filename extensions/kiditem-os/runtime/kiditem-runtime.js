@@ -5449,7 +5449,7 @@ var KidItemRuntime = (() => {
   var SellpiaShipmentTrackingScopeSchema = external_exports.object({
     startDate: isoDay2,
     endDate: isoDay2
-  }).strict().refine((value) => value.startDate <= value.endDate, "startDate must not be after endDate");
+  }).strict().refine((value) => value.startDate <= value.endDate, "\uC2DC\uC791\uC77C\uC774 \uB05D\uC77C\uBCF4\uB2E4 \uB2A6\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
   var MallOrdersCollectionModeSchema = external_exports.enum(["browser", "manual-upload"]);
   var MallOrdersSelectionModeSchema = external_exports.enum(["manual", "automatic"]);
   var MALL_ORDERS_SEEN_ROW_KEYS_MAX = 8e3;
@@ -5475,7 +5475,12 @@ var KidItemRuntime = (() => {
   }).passthrough();
   var MallOrdersResultSchema = OrdersCaptureResultSchema.extend({
     mallKey: external_exports.string().min(1).max(64),
-    captured: external_exports.number().int().nonnegative()
+    captured: external_exports.number().int().nonnegative(),
+    /**
+     * 몰이 그 기간의 주문을 빠짐없이 보여 줬다는 확인(확인 범위를 내는 몰 — 도매꾹·해법몰 — 이 수집일로 걷은 성공 실행,
+     * 빈 날 포함). 주문 사실 리더가 몰 적용 범위로 읽는다(옛 run의 coverageStartDate/EndDate 자리).
+     */
+    coverage: external_exports.object({ startDate: isoDay2, endDate: isoDay2 }).strict().optional()
   });
 
   // extensions/src/collectors/orders.coupang_directship/index.ts

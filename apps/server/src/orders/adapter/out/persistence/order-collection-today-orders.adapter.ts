@@ -17,7 +17,7 @@ import type { OrderCollectionTodayOrdersPort } from '../../../application/port/i
 /** 실행 계약으로 옮긴 주문 수집 kind. result.rowCount가 그 수집의 주문 수다. */
 const OPERATION_KINDS = [MALL_ORDERS_KIND, COUPANG_DIRECTSHIP_KIND];
 /**
- * 아직 옛 attempt 경로에 남은 원천 — 2차 몰(H3′까지)과 옛 directship(H2가 옮기기 전). 이 목록은 여기 한 곳이다.
+ * 아직 옛 attempt 경로에 남은 원천 — 아직 옮기지 않은 몰(나머지 몰이 옮겨질 때까지)과 옛 directship run. 이 목록은 여기 한 곳이다.
  */
 const LEGACY_SOURCE_TYPES = ['order_collection_mall', 'coupang_direct_order_capture'] as const;
 /** 몰 키가 계획에 없는 원천은 그 원천 자체가 한 몰이다. */
