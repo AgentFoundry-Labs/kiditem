@@ -9,6 +9,8 @@ import { fileURLToPath } from 'node:url';
 //   collectors : core 중 site-caller·errors 와 collectors, shared. operation-client·runner·browser·api 금지
 //   sites      : core 중 site-caller·errors 와 shared 만
 // 옛 전역(KidItem*, sourceOwnerEnvironmentContext …)은 entry/legacy-bridge.ts 만 참조한다.
+// 상대 import 는 extensions/src 밖으로 나가지 못하고, entry 밖의 층은 층 밖(루트 index 등)도 못 본다.
+// 루트 index.ts 는 entry 와 같고, src 바로 아래에는 index.ts·스펙·선언 파일·README·네 층 폴더만 둔다.
 // 도메인 코드는 chrome.* 만 쓴다: import.meta 와 번들러 전용 API 금지.
 
 export const LAYERS = ['entry', 'core', 'collectors', 'sites'];
@@ -24,9 +26,25 @@ export function stripComments(source) {
 }
 const IMPORT_RE = /^\s*(?:import|export)\s[^'"]*?from\s+['"]([^'"]+)['"]|^\s*import\s+['"]([^'"]+)['"]/gm;
 
+// 루트 index.ts 는 번들 진입점이라 entry 와 같이 취급한다.
+const ROOT_ENTRY = 'index.ts';
+
 function layerOf(relative) {
+  if (relative === ROOT_ENTRY) return 'entry';
   const top = relative.split('/')[0];
-  return LAYERS.includes(top) ? top : null;
+  return relative.includes('/') && LAYERS.includes(top) ? top : null;
+}
+
+/** src 바로 아래에 둘 수 있는 것: 진입점·스펙·선언 파일·README·네 층 폴더. */
+export function topLevelViolations(entries) {
+  const violations = [];
+  for (const { name, directory } of entries) {
+    const allowed = directory
+      ? LAYERS.includes(name)
+      : name === ROOT_ENTRY || name === 'README.md' || /\.spec\.ts$/.test(name) || /\.d\.ts$/.test(name);
+    if (!allowed) violations.push(`${name}: extensions/src 바로 아래에는 index.ts·스펙·네 층 폴더(${LAYERS.join('·')})만 둔다`);
+  }
+  return violations;
 }
 
 function walk(dir) {
@@ -54,10 +72,17 @@ export function violationsFor(relative, source) {
     const specifier = match[1] ?? match[2];
     if (!specifier.startsWith('.')) continue; // @kiditem/shared, zod 등 패키지는 어느 층이나 가능
     const target = path.posix.normalize(path.posix.join(path.posix.dirname(relative), specifier));
-    const targetLayer = layerOf(target);
-    if (!targetLayer) continue;
-    const targetFile = target.split('/').slice(1).join('/').replace(/\.(ts|js)$/, '');
     const bad = (why) => violations.push(`${relative} → ${specifier}: ${why}`);
+    if (target.startsWith('../')) {
+      bad('extensions/src 밖(옛 JS 등)을 import 하지 않는다');
+      continue;
+    }
+    const targetLayer = layerOf(target) ?? (LAYERS.includes(target.split('/')[0]) ? target.split('/')[0] : null);
+    if (!targetLayer) {
+      if (layer !== 'entry') bad('층 밖(루트 index·src 의 다른 폴더)을 import 하지 않는다');
+      continue;
+    }
+    const targetFile = target.split('/').slice(1).join('/').replace(/\.(ts|js)$/, '');
     if (layer === 'entry') continue;
     if (layer === 'core' && targetLayer !== 'core') bad('core 는 core 만 import 한다');
     if (layer === 'collectors') {
@@ -72,7 +97,9 @@ export function violationsFor(relative, source) {
 }
 
 export function scan(srcDir) {
-  const violations = [];
+  const violations = topLevelViolations(
+    readdirSync(srcDir).map((name) => ({ name, directory: statSync(path.join(srcDir, name)).isDirectory() })),
+  );
   for (const file of walk(srcDir)) {
     const relative = path.relative(srcDir, file).split(path.sep).join('/');
     violations.push(...violationsFor(relative, readFileSync(file, 'utf8')));
