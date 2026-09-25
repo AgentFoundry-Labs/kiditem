@@ -212,7 +212,8 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     title: 'CS',
     owner: '운영팀',
     href: '/reviews',
-    alertSourceTypes: ['coupang_reviews'],
+    // 상품평은 실행 kind(orders.coupang_reviews)로 모으고 원천 실패 알림을 열지 않는다(KID-359).
+    alertSourceTypes: [],
     expectedEveryMs: null,
     noSourceReason: null,
   },
