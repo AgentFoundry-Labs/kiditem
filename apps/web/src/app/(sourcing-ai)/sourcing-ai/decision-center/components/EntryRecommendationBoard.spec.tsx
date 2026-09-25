@@ -195,6 +195,23 @@ describe('EntryRecommendationBoard review state', () => {
     expect(operationMocks.start).toHaveBeenCalledTimes(1);
   });
 
+  it.each([
+    ['a missing extension', () => operationMocks.start.mockRejectedValue(new Error('브라우저 수집 익스텐션을 찾을 수 없습니다.')), '브라우저 수집 익스텐션을 찾을 수 없습니다.'],
+    ['a lock held by another run', () => operationMocks.start.mockResolvedValue({ outcome: 'refused', message: '1688 공급 수집이 이미 진행 중입니다.' }), '1688 공급 수집이 이미 진행 중입니다.'],
+    ['a disabled source', () => operationMocks.start.mockRejectedValue(new Error('이 원천은 관리자가 수집을 꺼 두었습니다.')), '이 원천은 관리자가 수집을 꺼 두었습니다.'],
+  ])('shows the start refusal for %s even though nothing is running', async (_case, arrange, message) => {
+    const user = userEvent.setup();
+    arrange();
+    vi.mocked(useSourcingInterestTargets).mockReturnValue({
+      data: [{ targetType: 'keyword', sourceKeys: ['manual'], label: '미수집 키워드', keyword: '미수집 키워드' }],
+    } as never);
+    renderBoard();
+
+    await user.click(await screen.findByRole('button', { name: '1688 공급 찾기 (1)' }));
+
+    expect(await screen.findByText(message)).toBeInTheDocument();
+  });
+
   it('shows the running 1688 collection with a stop that ends it through the operation cancel, then shows it stopped', async () => {
     const user = userEvent.setup();
     operationMocks.list.mockResolvedValue({ operations: [operation1688('executing')] });

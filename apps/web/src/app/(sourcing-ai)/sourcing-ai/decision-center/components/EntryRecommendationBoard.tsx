@@ -325,15 +325,19 @@ function Sourcing1688SourceStatus({
   control: CollectionControlView & Readonly<{ stop: () => void }>;
 }) {
   const { latest, running } = sourcingOperationState(source);
-  const stopped = latest?.status === 'cancelled';
-  const failed = latest?.status === 'failed';
-  if (!source || (!running && !stopped && !failed)) return null;
+  const stopped = !running && latest?.status === 'cancelled';
+  const failed = !running && latest?.status === 'failed';
+  // 시작이 거절·실패한 안내(확장 없음·같은 대상 진행 중·원천 꺼짐)는 도는 실행이 없어도 보인다.
+  const notice = control.notice && control.notice.tone !== 'info' ? control.notice.message : null;
+  if (!running && !stopped && !failed && !notice) return null;
 
   const message = running
     ? '1688 공급 후보를 수집 중입니다. 마지막 완료 데이터는 계속 표시됩니다.'
-    : stopped
-      ? COLLECTION_STOPPED_MESSAGE
-      : attemptFailureText(latest, '1688') ?? '1688 공급 수집에 실패했습니다. 다시 시도해 주세요.';
+    : notice
+      ? notice
+      : stopped
+        ? COLLECTION_STOPPED_MESSAGE
+        : attemptFailureText(latest, '1688') ?? '1688 공급 수집에 실패했습니다. 다시 시도해 주세요.';
 
   return (
     <div
