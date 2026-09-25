@@ -59,7 +59,14 @@ lives in [docs/ARCHITECTURE.md](../../../../docs/ARCHITECTURE.md).
   `adapter/in/operation/`).
 - Executors return validated data and do not mutate AI tables. Sinks own
   generation projection, generated-image assets, and alert closure.
-- A saved result is reused without another model call. Cancelling a
+- A saved result is reused without another model call; that resume still
+  counts as a claim (`attempts + 1`, accepted in KID-358). A finish that fails
+  after the result was saved is left to lease expiry, never `fail()`, so the
+  saved result survives.
+- `GET /image-ai/tasks/:taskId` reads `running` between the saved result and
+  its finish; the output appears once the operation succeeds (accepted in
+  KID-358).
+- Cancelling a
   generation locks its live operation (`lockLive`) before the ledger row, then
   cancels both in one transaction; the claiming worker sees it through its
   heartbeat.
