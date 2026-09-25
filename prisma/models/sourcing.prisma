@@ -1088,16 +1088,20 @@ model SourcingReviewBatchItem {
 }
 
 /// @namespace Sourcing
-/// @describe (source, scope, target)마다 하나뿐인 "현재 완결 스냅샷"(KID-360). 옛 run 표의 is_current_complete·coverage·window를 대체한다. 실행 계약(operations)이 아니라 소싱 원장의 사실이며 finalize가 같은 트랜잭션에서 바꿔 끼운다. operationId는 스칼라(FK 없음).
-model SourcingSourceSnapshot {
+/// @describe 소싱 원천의 발행 이력(KID-360). 성공한 수집 하나(옛 COMPLETE run 하나)가 (source, scope, target) 발행 1행이다. isCurrent 행이 그 대상의 "현재 완결 스냅샷"이고, 이력 리더는 같은 표를 날짜·키워드로 읽는다. 옛 run 표의 is_current_complete·attemptPlan·coverage·window·qualityReport를 대체한다. 실행 계약(operations)이 아니라 소싱 원장의 사실이며 finalize가 같은 트랜잭션에서 쓴다. operationId는 스칼라(FK 없음) — 옛 run으로 만든 행은 옛 run id를 가진다.
+model SourcingSourcePublication {
   id             String @id @default(uuid()) @db.Uuid
   organizationId String @map("organization_id") @db.Uuid
   sourceKey      String @map("source_key") @db.VarChar(80)
   scopeKey       String @default("default") @map("scope_key") @db.VarChar(160)
   targetKey      String @map("target_key") @db.VarChar(300)
-  /// 이 스냅샷을 만든 실행. 원장 행의 operationId와 같으면 "현재" 사실이다.
+  /// 이 발행을 만든 실행. 원장 행의 operationId와 같으면 이 발행의 사실이다.
   operationId    String @map("operation_id") @db.Uuid
+  /// 그 대상의 현재 완결 스냅샷인가. (org, source, scope, target)마다 하나.
+  isCurrent      Boolean @default(false) @map("is_current")
 
+  /// 수집이 약속한 범위(옛 attemptPlan: keywords·boardKeys 등). 이력 리더가 "무엇을 덮었나"를 여기서 읽는다.
+  plan                Json?     @db.JsonB
   windowStartAt       DateTime? @map("window_start_at") @db.Timestamptz
   windowEndAt         DateTime? @map("window_end_at") @db.Timestamptz
   discoveredCount     Int       @default(0) @map("discovered_count")
@@ -1109,11 +1113,11 @@ model SourcingSourceSnapshot {
   qualityReport       Json?     @map("quality_report") @db.JsonB
   completedAt         DateTime  @map("completed_at") @db.Timestamptz
   createdAt           DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
 
-  @@unique([organizationId, sourceKey, scopeKey, targetKey], map: "sourcing_source_snapshots_target_key")
-  @@index([organizationId, operationId])
-  @@map("sourcing_source_snapshots")
+  @@unique([organizationId, operationId], map: "sourcing_source_publications_operation_key")
+  @@unique([organizationId, sourceKey, scopeKey, targetKey], map: "sourcing_source_publications_one_current_key", where: raw("(is_current = true)"))
+  @@index([organizationId, sourceKey, scopeKey, targetKey, completedAt(sort: Desc)], map: "sourcing_source_publications_target_completed_idx")
+  @@map("sourcing_source_publications")
 }

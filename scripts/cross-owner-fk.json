@@ -129,7 +129,7 @@
     "TrendSeedKeyword": "sourcing",
     "User": "scope",
     "Warehouse": "inventory",
-    "SourcingSourceSnapshot": "sourcing"
+    "SourcingSourcePublication": "sourcing"
   },
   "scopeTargets": [
     "Organization",

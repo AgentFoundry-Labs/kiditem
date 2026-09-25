@@ -212,7 +212,7 @@ erDiagram
 | Organization | organization | referenced by external | Sourcing | SourcingReviewBatch |
 | Organization | organization | referenced by external | Sourcing | SourcingReviewBatchItem |
 | Organization | organization | referenced by external | Sourcing | SourcingReviewSelection |
-| Organization | organization | referenced by external | Sourcing | SourcingSourceSnapshot |
+| Organization | organization | referenced by external | Sourcing | SourcingSourcePublication |
 | Organization | organization | referenced by external | Sourcing | SourcingValidationCheck |
 | Organization | organization | referenced by external | Sourcing | SourcingValidationCheckEvidence |
 | Organization | organization | referenced by external | Sourcing | SourcingValidationEpisode |
