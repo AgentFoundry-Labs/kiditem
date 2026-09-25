@@ -7,8 +7,8 @@ the operator's authenticated Chrome session, then returns non-secret rows or
 files to the KidItem web app for NestJS processing. It also owns Sellpia
 snapshot/profit collection, order-file upload, tracking
 registration, and Coupang cookie-overflow recovery. Coupang shipment date
-summary and Rocket PO are operation kinds collected by `extensions/src`
-(`sites/coupang-supplier`), not by this worker.
+summary, Rocket PO and directship are operation kinds collected by
+`extensions/src` (`sites/coupang-supplier`), not by this worker.
 
 ## Security And Environment
 
@@ -165,13 +165,10 @@ This guide inherits the extension verification gate; run the focused
 읽기가 다른 이유로 실패한 것(5xx · 끊김 · 429)은 여전히 `SOURCE_OWNER_UNAVAILABLE` 이다.
 그때는 서버가 아직 답을 못 한 것이지 시도가 없는 것이 아니다.
 
-## 쿠팡직배송 로그인은 몰 소유자로 감싸지 않는다
+## 소유자가 따로 있는 수집의 로그인은 몰 소유자로 감싸지 않는다
 
 `ensureMallLoggedIn` 은 보통 `runOwnedOrderCollection` 을 거쳐 **몰 소유자**(`orders.mall`) 안에서
-돈다. 쿠팡직배송은 제 소유자(`orders.coupang_directship`)가 따로 있어서 그 시도가 몰 쪽에는
-없다. 그래서 감싸면 몰 경로 조회가 404(`ORDER_COLLECTION_ATTEMPT_NOT_FOUND`)로 끝나고, 시도를
-빼고 보내면 `Owner attempt ID is required` 로 막힌다 — 어느 쪽이든 **로그인 문턱에서 수집이
-끝난다**.
-
-그래서 `coupang-direct` 는 로그인만 시키고, 시도의 마무리는 제 소유자가 한다. 소유자가 따로
-있는 수집을 더할 때도 같다.
+돈다. 제 소유자가 따로 있는 수집을 몰 소유자로 감싸면 몰 쪽에 없는 시도를 조회해 404
+(`ORDER_COLLECTION_ATTEMPT_NOT_FOUND`)로 로그인 문턱에서 끝난다(쿠팡직배송, 2026-09-21 라이브).
+쿠팡직배송은 이제 실행 kind `orders.coupang_directship`(`extensions/src`)이고, 로그인 문턱은
+`sites/coupang-supplier`의 주소 확인이 `SITE_LOGIN_REQUIRED`로 알린다.

@@ -4765,7 +4765,7 @@ var KidItemRuntime = (() => {
       let consecutiveFailures = 0;
       let detailsDone = 0;
       let absentChecked = 0;
-      const progress3 = () => ({
+      const progress4 = () => ({
         detailsDone,
         detailTargets: targets.length,
         absentChecked,
@@ -4773,7 +4773,7 @@ var KidItemRuntime = (() => {
         detailsMissing: [...missing]
       });
       const details = new ChunkBuffer({ maxItems: DETAILS_PER_CHUNK, label: "Wing \uC0C1\uC138 \uC0C1\uD488" });
-      const chunk = (chunkKind, payload) => ({ chunkKind, payload, progress: progress3() });
+      const chunk = (chunkKind, payload) => ({ chunkKind, payload, progress: progress4() });
       for (const externalProductId of targets) {
         if (signal.aborted) return;
         let product;
@@ -4840,15 +4840,15 @@ var KidItemRuntime = (() => {
     async *collect(_plan, site, { signal }) {
       const description = `kiditem_${(/* @__PURE__ */ new Date()).toISOString().replace(/[^0-9]/g, "").slice(0, 14)}`;
       await site.requestCatalogExcel(description);
-      const progress3 = (value) => ({ chunkKind: PROGRESS_CHUNK_KIND, payload: [], progress: value });
-      yield progress3({ status: "REQUESTED", executeCount: 0, totalCount: null });
+      const progress4 = (value) => ({ chunkKind: PROGRESS_CHUNK_KIND, payload: [], progress: value });
+      yield progress4({ status: "REQUESTED", executeCount: 0, totalCount: null });
       let completed = null;
       for (let poll = 0; poll < MAX_POLLS && !completed; poll += 1) {
         if (signal.aborted) return;
         if (poll > 0) await site.pause(POLL_INTERVAL_MS, signal);
         const request = await site.catalogExcelRequest(description);
         if (!request) continue;
-        yield progress3({ status: request.status, executeCount: request.executeCount, totalCount: request.totalCount });
+        yield progress4({ status: request.status, executeCount: request.executeCount, totalCount: request.totalCount });
         if (request.status === "COMPLETED") completed = request;
         else if (/FAIL|ABORT|CANCEL|ERROR/i.test(request.status)) {
           throw new RuntimeError(CATALOG_EXCEL_FAILED, `\uCFE0\uD321 \uC719\uC774 \uC0C1\uD488\uC815\uBCF4 \uC5D1\uC140 \uC0DD\uC131\uC744 \uBA48\uCDC4\uC2B5\uB2C8\uB2E4(${request.status}). \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.`, { status: request.status });
@@ -4889,8 +4889,8 @@ var KidItemRuntime = (() => {
       const buffer = new ChunkBuffer({ maxItems: PRODUCTS_PER_CHUNK, label: "Wing \uBAA9\uB85D \uC0C1\uD488" });
       const seen = /* @__PURE__ */ new Set();
       let expected = null;
-      let progress3 = {};
-      const chunk = (payload) => ({ chunkKind: WING_CATALOG_CHUNK_KINDS.listingBasics, payload, progress: progress3 });
+      let progress4 = {};
+      const chunk = (payload) => ({ chunkKind: WING_CATALOG_CHUNK_KINDS.listingBasics, payload, progress: progress4 });
       for (let page = 1; expected === null || page <= expected.totalPages; page += 1) {
         if (signal.aborted) return;
         const result = await site.searchInventory(page, plan.vendorId ?? null);
@@ -4898,7 +4898,7 @@ var KidItemRuntime = (() => {
         else if (result.totalItems !== expected.totalItems || result.totalPages !== expected.totalPages) {
           throw incomplete(`\uC218\uC9D1 \uC911 Wing \uC0C1\uD488 \uC218\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4(${expected.totalItems} \u2192 ${result.totalItems}). \uB2E4\uC2DC \uB3D9\uAE30\uD654\uD574 \uC8FC\uC138\uC694.`);
         }
-        progress3 = { listedProducts: seen.size + result.products.length, totalProducts: expected.totalItems, page, totalPages: expected.totalPages };
+        progress4 = { listedProducts: seen.size + result.products.length, totalProducts: expected.totalItems, page, totalPages: expected.totalPages };
         for (const product of result.products) {
           if (seen.has(product.externalProductId)) {
             throw incomplete(`Wing \uBAA9\uB85D\uC758 \uD398\uC774\uC9C0\uAC00 \uACB9\uCCE4\uC2B5\uB2C8\uB2E4(${product.externalProductId}). \uB2E4\uC2DC \uB3D9\uAE30\uD654\uD574 \uC8FC\uC138\uC694.`);
@@ -4919,198 +4919,6 @@ var KidItemRuntime = (() => {
     return new RuntimeError(CATALOG_LIST_INCOMPLETE, message);
   }
   registerCollector(wingCatalogListCollector);
-
-  // packages/shared/src/schemas/reviews.ts
-  var ReviewFilterSchema = external_exports.enum(["all", "new", "needs-response"]);
-  var ReviewListItemSchema = external_exports.object({
-    listingId: external_exports.string(),
-    productId: external_exports.string(),
-    productName: external_exports.string(),
-    sku: external_exports.string().nullable(),
-    organization: external_exports.string(),
-    grade: external_exports.string(),
-    totalReviews: external_exports.number(),
-    avgRating: external_exports.number(),
-    recentReviews: external_exports.number(),
-    // null means the order source has not been observed for this organization.
-    orderCount: external_exports.number().int().nonnegative().nullable(),
-    lastReviewAt: external_exports.string().nullable()
-  });
-  var ReviewSummarySchema = external_exports.object({
-    // 리뷰가 있는 active listing 수
-    listingCount: external_exports.number().int().nonnegative(),
-    // 회사 전체 누적 review 수
-    totalReviewCount: external_exports.number().int().nonnegative(),
-    // 회사 전체 review rating 의 가중 평균. review 가 0건이면 미측정(null).
-    weightedAvgRating: external_exports.number().nonnegative().nullable(),
-    // totalReviews < 5 인 listing 수.
-    newListingCount: external_exports.number().int().nonnegative(),
-    // avgRating < 3.5 이고 리뷰 5건 이상인 listing 수.
-    needsResponseCount: external_exports.number().int().nonnegative(),
-    // listing 단위로 (avgRating < 3.5) || (totalReviews < 5) 인 row 수.
-    // 임계값은 frontend filter (`needs-response`/`new`) 와 일치.
-    needsAttentionCount: external_exports.number().int().nonnegative()
-  });
-  var ReviewListResponseSchema = external_exports.object({
-    items: external_exports.array(ReviewListItemSchema),
-    total: external_exports.number().int().nonnegative(),
-    page: external_exports.number().int().positive(),
-    limit: external_exports.number().int().positive(),
-    summary: ReviewSummarySchema
-  });
-  var ReviewItemSchema = external_exports.object({
-    id: external_exports.string(),
-    listingId: external_exports.string().nullable(),
-    /** listing 매칭 실패 시 크롤링 당시 채널 상품명으로 폴백한다. */
-    productName: external_exports.string(),
-    optionName: external_exports.string().nullable(),
-    rating: external_exports.number().int(),
-    title: external_exports.string().nullable(),
-    content: external_exports.string().nullable(),
-    reviewerName: external_exports.string().nullable(),
-    reviewedAt: external_exports.string(),
-    imageCount: external_exports.number().int().nonnegative(),
-    videoCount: external_exports.number().int().nonnegative(),
-    /** 채널 상품 상세 링크용 노출상품ID. */
-    externalProductId: external_exports.string().nullable()
-  });
-  var ReviewItemListResponseSchema = external_exports.object({
-    items: external_exports.array(ReviewItemSchema),
-    total: external_exports.number().int().nonnegative(),
-    page: external_exports.number().int().positive(),
-    limit: external_exports.number().int().positive(),
-    /** 별점 1~5 별 건수. 현재 필터(별점 제외) 기준 분포. */
-    ratingCounts: external_exports.record(external_exports.string(), external_exports.number().int().nonnegative()),
-    /** 본문이 있는 리뷰 수. 쿠팡은 별점만 남기는 리뷰가 대부분이다. */
-    withContentCount: external_exports.number().int().nonnegative()
-  });
-  var ReviewIngestItemSchema = external_exports.object({
-    /** 쿠팡 reviewId. 재수집 멱등 키. */
-    externalReviewId: external_exports.string().min(1),
-    /** 쿠팡 vendorItemId(옵션ID). ChannelListingOption 매칭 키. */
-    externalOptionId: external_exports.string().min(1).nullable().default(null),
-    /** 쿠팡 productId(노출상품ID). */
-    externalProductId: external_exports.string().min(1).nullable().default(null),
-    itemName: external_exports.string().nullable().default(null),
-    rating: external_exports.number().int().min(1).max(5),
-    title: external_exports.string().nullable().default(null),
-    content: external_exports.string().nullable().default(null),
-    reviewerName: external_exports.string().nullable().default(null),
-    /** 리뷰 작성 시각(epoch ms). */
-    reviewedAt: external_exports.number().int().positive(),
-    imageCount: external_exports.number().int().nonnegative().default(0),
-    videoCount: external_exports.number().int().nonnegative().default(0),
-    isDeleted: external_exports.boolean().default(false),
-    isBlinded: external_exports.boolean().default(false)
-  });
-  var ReviewIngestRequestSchema = external_exports.object({
-    platform: external_exports.literal("coupang").default("coupang"),
-    items: external_exports.array(ReviewIngestItemSchema).min(1).max(200)
-  });
-  var ReviewIngestResponseSchema = external_exports.object({
-    received: external_exports.number().int().nonnegative(),
-    created: external_exports.number().int().nonnegative(),
-    updated: external_exports.number().int().nonnegative(),
-    /** listing 매칭에 성공한 건수. */
-    linked: external_exports.number().int().nonnegative(),
-    /** vendorItemId 로 ChannelListingOption 을 못 찾은 건수. */
-    unlinked: external_exports.number().int().nonnegative()
-  });
-  var COUPANG_REVIEWS_KIND = "orders.coupang_reviews";
-  var COUPANG_REVIEWS_CHUNK_KIND = "reviews";
-  var COUPANG_REVIEWS_MAX_MONTHS = 36;
-  var COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW = 40;
-  var COUPANG_REVIEWS_CHUNK_ITEMS = 200;
-  var CoupangReviewsScopeSchema = external_exports.object({
-    channelAccountId: external_exports.string().uuid(),
-    months: external_exports.number().int().min(1).max(COUPANG_REVIEWS_MAX_MONTHS),
-    maxPagesPerWindow: external_exports.number().int().min(1).max(COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW).default(COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW)
-  }).strict();
-  var CoupangReviewsWindowSchema = external_exports.object({
-    index: external_exports.number().int().nonnegative(),
-    label: external_exports.string().min(1),
-    start: external_exports.string().datetime({ offset: true }),
-    end: external_exports.string().datetime({ offset: true })
-  }).strict();
-  var CoupangReviewsChunkItemSchema = ReviewIngestItemSchema.extend({
-    windowIndex: external_exports.number().int().nonnegative()
-  });
-  var COUPANG_REVIEWS_WINDOW_CHUNK_KIND = "review_windows";
-  var CoupangReviewsWindowDoneSchema = external_exports.object({
-    index: external_exports.number().int().nonnegative(),
-    pages: external_exports.number().int().nonnegative(),
-    items: external_exports.number().int().nonnegative()
-  }).strict();
-  var CoupangReviewsProgressSchema = external_exports.object({
-    current: external_exports.string().nullable(),
-    windows: external_exports.array(external_exports.object({
-      index: external_exports.number().int().nonnegative(),
-      pages: external_exports.number().int().nonnegative(),
-      items: external_exports.number().int().nonnegative(),
-      done: external_exports.boolean()
-    }).strict())
-  }).strict();
-  var CoupangReviewsResultSchema = external_exports.object({
-    windows: external_exports.number().int().nonnegative(),
-    reviews: external_exports.number().int().nonnegative(),
-    inserted: external_exports.number().int().nonnegative(),
-    updated: external_exports.number().int().nonnegative()
-  }).strict();
-
-  // extensions/src/collectors/orders.coupang_reviews/index.ts
-  var CoupangReviewsPlanSchema = external_exports.object({
-    channelAccountId: external_exports.string().uuid(),
-    windows: external_exports.array(CoupangReviewsWindowSchema).min(1),
-    maxPagesPerWindow: external_exports.number().int().min(1)
-  });
-  var COUPANG_REVIEWS_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
-  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
-  var coupangReviewsCollector = {
-    kind: COUPANG_REVIEWS_KIND,
-    site: "wing-reviews",
-    async *collect(rawPlan, site, { signal }) {
-      const parsed = CoupangReviewsPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      const plan = parsed.data;
-      const done = [];
-      for (const window of plan.windows) {
-        const status = { index: window.index, pages: 0, items: 0, done: false };
-        const progress3 = (current) => ({ current, windows: [...done, { ...status }] });
-        let buffer = [];
-        for (let pageIndex = 0; ; pageIndex += 1) {
-          if (signal.aborted) return;
-          if (pageIndex >= plan.maxPagesPerWindow) {
-            throw new RuntimeError(COUPANG_REVIEWS_PAGE_LIMIT_REACHED, `${window.label} \uC0C1\uD488\uD3C9\uC774 ${plan.maxPagesPerWindow}\uCABD\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, {
-              windowIndex: window.index
-            });
-          }
-          const page = await site.searchReviews({ start: window.start, end: window.end, pageIndex });
-          status.pages += 1;
-          for (const item of page.items) {
-            buffer.push({ ...item, windowIndex: window.index });
-            status.items += 1;
-            if (buffer.length === COUPANG_REVIEWS_CHUNK_ITEMS) {
-              yield reviewsChunk(buffer, progress3(window.label));
-              buffer = [];
-            }
-          }
-          if (pageIndex + 1 >= page.totalPages) break;
-        }
-        if (signal.aborted) return;
-        if (buffer.length > 0) yield reviewsChunk(buffer, progress3(window.label));
-        status.done = true;
-        done.push({ ...status });
-        const last = window === plan.windows[plan.windows.length - 1];
-        const marker = { index: status.index, pages: status.pages, items: status.items };
-        yield { chunkKind: COUPANG_REVIEWS_WINDOW_CHUNK_KIND, payload: [marker], progress: { current: last ? null : window.label, windows: [...done] } };
-      }
-    }
-  };
-  function reviewsChunk(payload, progress3) {
-    return { chunkKind: COUPANG_REVIEWS_CHUNK_KIND, payload, progress: progress3 };
-  }
-  registerCollector(coupangReviewsCollector);
 
   // packages/shared/src/schemas/rocket-purchase-preview.ts
   var ROCKET_PO_ROW_LIMIT = 4e3;
@@ -5442,9 +5250,111 @@ var KidItemRuntime = (() => {
     exportId: external_exports.string().uuid()
   }).strict();
 
+  // packages/shared/src/schemas/coupang-direct-order.ts
+  var CoupangDirectTransportSchema = external_exports.enum(["SHIPMENT", "MILKRUN"]);
+  var CoupangDirectOrderStatusSchema = external_exports.enum(["PA", "\uBC1C\uC8FC\uD655\uC815"]);
+  var CoupangDirectOrderItemSchema = external_exports.object({
+    skuId: external_exports.string().trim().min(1),
+    barcode: external_exports.string().trim(),
+    name: external_exports.string().trim().min(1),
+    qty: external_exports.number().int().positive(),
+    amount: external_exports.number().nonnegative()
+  }).strict();
+  var optionalDisplayText = external_exports.preprocess((value) => {
+    if (value == null) return void 0;
+    const trimmed = String(value).trim();
+    return trimmed.length > 0 ? trimmed : void 0;
+  }, external_exports.string().optional());
+  var optionalDisplayZip = external_exports.preprocess((value) => {
+    if (value == null) return void 0;
+    if (typeof value === "number") return value;
+    const trimmed = String(value).trim();
+    return trimmed.length > 0 ? trimmed : void 0;
+  }, external_exports.union([external_exports.string(), external_exports.number().int().nonnegative()]).optional());
+  var optionalDisplayDate = external_exports.preprocess(
+    (value) => value == null ? "" : value,
+    external_exports.string().trim()
+  );
+  var CoupangDirectPurchaseOrderSchema = external_exports.object({
+    seq: external_exports.union([
+      external_exports.string().trim().min(1),
+      external_exports.number().int().nonnegative().transform(String)
+    ]),
+    status: CoupangDirectOrderStatusSchema,
+    center: external_exports.string().trim().min(1),
+    transport: CoupangDirectTransportSchema,
+    edd: optionalDisplayDate,
+    reg: external_exports.string().trim().min(1),
+    // 발주유형이 긴급인지(쿠팡 purchaseOrderType = URGENT). 구버전 확장은 안 보내므로 선택값.
+    urgent: external_exports.boolean().optional(),
+    items: external_exports.array(CoupangDirectOrderItemSchema)
+  }).strict();
+  var CoupangDirectCenterSchema = external_exports.object({
+    addr: optionalDisplayText,
+    zip: optionalDisplayZip,
+    contact: optionalDisplayText
+  }).strict().transform((center) => {
+    const clean2 = {};
+    if (center.addr !== void 0) clean2.addr = center.addr;
+    if (center.zip !== void 0) clean2.zip = center.zip;
+    if (center.contact !== void 0) clean2.contact = center.contact;
+    return clean2;
+  });
+  var CoupangDirectOrderCollectionRequestSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    pos: external_exports.array(CoupangDirectPurchaseOrderSchema).max(4e3),
+    centers: external_exports.record(external_exports.string(), CoupangDirectCenterSchema),
+    transport: CoupangDirectTransportSchema
+  }).strict().superRefine((request, ctx) => {
+    const seenLineKeys = /* @__PURE__ */ new Set();
+    request.pos.forEach((purchaseOrder, purchaseOrderIndex) => {
+      purchaseOrder.items.forEach((item, itemIndex) => {
+        const lineKey = `${purchaseOrder.seq}\0${item.skuId}`;
+        if (seenLineKeys.has(lineKey)) {
+          ctx.addIssue({
+            code: external_exports.ZodIssueCode.custom,
+            path: ["pos", purchaseOrderIndex, "items", itemIndex, "skuId"],
+            message: "Duplicate (seq, skuId) line"
+          });
+        }
+        seenLineKeys.add(lineKey);
+      });
+    });
+  });
+  var CoupangDirectPoSnapshotItemSchema = external_exports.object({
+    barcode: external_exports.string(),
+    name: external_exports.string(),
+    qty: external_exports.number().int().nonnegative(),
+    amount: external_exports.number().nonnegative()
+  }).strict();
+  var CoupangDirectPoSnapshotEntrySchema = external_exports.object({
+    purchaseOrderSeq: external_exports.string().trim().min(1),
+    centerName: external_exports.string(),
+    transport: CoupangDirectTransportSchema,
+    deliveryDate: external_exports.string().nullable(),
+    orderedDate: external_exports.string().nullable(),
+    isUrgent: external_exports.boolean(),
+    skuCount: external_exports.number().int().nonnegative(),
+    orderQuantity: external_exports.number().int().nonnegative(),
+    orderAmount: external_exports.number().nonnegative(),
+    items: external_exports.array(CoupangDirectPoSnapshotItemSchema)
+  }).strict();
+  var SaveCoupangDirectPoSnapshotRequestSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    /** 이 스냅샷의 근거인 성공한 directship 실행(`orders.coupang_directship`, KID-359). */
+    operationId: external_exports.string().uuid(),
+    entries: external_exports.array(CoupangDirectPoSnapshotEntrySchema).max(4e3)
+  }).strict();
+  var CoupangDirectPoSnapshotResponseSchema = external_exports.object({
+    channelAccountId: external_exports.string(),
+    collectedAt: external_exports.string().nullable(),
+    entries: external_exports.array(CoupangDirectPoSnapshotEntrySchema)
+  });
+
   // packages/shared/src/schemas/orders-operations.ts
   var COUPANG_SHIPMENT_SUMMARY_KIND = "orders.coupang_shipment_summary";
   var COUPANG_ROCKET_PO_KIND = "orders.coupang_rocket_po";
+  var COUPANG_DIRECTSHIP_KIND = "orders.coupang_directship";
   var isoDay2 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
   var CoupangShipmentSummaryScopeSchema = external_exports.object({
     maxPages: external_exports.number().int().min(1).max(60).optional()
@@ -5507,6 +5417,33 @@ var KidItemRuntime = (() => {
   var CoupangDirectshipScopeSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid()
   }).strict();
+  var CoupangDirectshipPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    captureMode: external_exports.literal("browser")
+  }).strict();
+  var CoupangDirectshipCaptureItemSchema = external_exports.union([
+    external_exports.object({ purchaseOrder: CoupangDirectPurchaseOrderSchema }).strict(),
+    external_exports.object({ centers: external_exports.record(external_exports.string(), CoupangDirectCenterSchema) }).strict()
+  ]);
+  var CoupangDirectshipProgressSchema = external_exports.object({
+    phase: external_exports.enum(["session", "list", "detail", "done"]),
+    current: external_exports.number().int().min(0),
+    total: external_exports.number().int().min(0)
+  }).passthrough();
+  var CoupangDirectshipResultSchema = external_exports.object({
+    rowCount: external_exports.number().int().nonnegative(),
+    purchaseOrders: external_exports.number().int().nonnegative(),
+    lines: external_exports.number().int().nonnegative(),
+    partialDetailCount: external_exports.number().int().nonnegative(),
+    transports: external_exports.object({ SHIPMENT: external_exports.number().int().nonnegative(), MILKRUN: external_exports.number().int().nonnegative() }).strict()
+  }).strict();
+  var CoupangDirectshipConvertRequestSchema = external_exports.object({
+    operationId: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    transport: CoupangDirectTransportSchema,
+    pos: external_exports.array(CoupangDirectPurchaseOrderSchema).max(4e3),
+    centers: external_exports.record(external_exports.string(), CoupangDirectCenterSchema)
+  }).strict();
   var SellpiaShipmentTrackingScopeSchema = external_exports.object({
     startDate: isoDay2,
     endDate: isoDay2
@@ -5527,22 +5464,354 @@ var KidItemRuntime = (() => {
   var COUPANG_SHIPMENT_SUMMARY_SCAN_CHUNK_KIND = "shipment_scan";
   var COUPANG_ROCKET_PO_CHUNK_KIND = "po_rows";
   var COUPANG_ROCKET_PO_SCAN_CHUNK_KIND = "po_scan";
+  var COUPANG_DIRECTSHIP_CHUNK_KIND = "orders_capture";
   var OrdersCaptureResultSchema = external_exports.object({
     rowCount: external_exports.number().int().nonnegative()
   }).passthrough();
 
+  // extensions/src/collectors/orders.coupang_directship/index.ts
+  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
+  var MAX_LIST_PAGES = 40;
+  var WINDOW_DAYS = 30;
+  var DETAIL_CONCURRENCY = 5;
+  var CHUNK_ITEMS = 200;
+  var KST_OFFSET_MS = 9 * 60 * 60 * 1e3;
+  var coupangDirectshipCollector = {
+    kind: COUPANG_DIRECTSHIP_KIND,
+    site: "coupang-supplier",
+    async *collect(rawPlan, site, { signal, report }) {
+      if (!CoupangDirectshipPlanSchema.safeParse(rawPlan).success) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+      }
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+      try {
+        const now = Date.now();
+        const query = { searchDateType: "WAREHOUSING_PLAN_DATE", from: kstDay(now, 0), to: kstDay(now, WINDOW_DAYS), status: "PA" };
+        const listed = [];
+        for (let page = 1; page <= MAX_LIST_PAGES; page += 1) {
+          if (signal.aborted) return;
+          let body;
+          try {
+            body = await site.purchaseOrderListPage(query, page);
+          } catch (error) {
+            if (page === 1 || isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED) throw error;
+            break;
+          }
+          for (const raw of body.rows) {
+            const purchaseOrder = listedPurchaseOrder(raw);
+            if (purchaseOrder) listed.push(purchaseOrder);
+          }
+          await report?.(progress("list", page, Math.min(Number(body.lastPageNumber) || 1, MAX_LIST_PAGES)));
+          if (page >= (Number(body.lastPageNumber) || 1)) break;
+        }
+        const buffer = new ChunkBuffer({ maxItems: CHUNK_ITEMS, label: "\uC9C1\uBC30\uC1A1 \uBC1C\uC8FC\uC11C" });
+        if (listed.length === 0) {
+          yield { chunkKind: COUPANG_DIRECTSHIP_CHUNK_KIND, payload: [{ centers: {} }], progress: progress("done", 0, 0) };
+          return;
+        }
+        const centers = await site.purchasableCenters().then(centerMap, () => ({}));
+        await site.enterScmContext(String(listed[0].seq));
+        let detailed = 0;
+        for (let offset = 0; offset < listed.length; offset += DETAIL_CONCURRENCY) {
+          if (signal.aborted) return;
+          const batch = await Promise.all(listed.slice(offset, offset + DETAIL_CONCURRENCY).map(async (purchaseOrder) => {
+            try {
+              return { ...purchaseOrder, items: detailItems(await site.purchaseOrderDetail(String(purchaseOrder.seq))) };
+            } catch (error) {
+              if (isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED) throw error;
+              return { ...purchaseOrder, items: [] };
+            }
+          }));
+          detailed += batch.length;
+          for (const purchaseOrder of batch) {
+            const full = buffer.push({ purchaseOrder });
+            if (full) yield { chunkKind: COUPANG_DIRECTSHIP_CHUNK_KIND, payload: full, progress: progress("detail", detailed, listed.length) };
+          }
+          await report?.(progress("detail", detailed, listed.length));
+        }
+        if (signal.aborted) return;
+        const rest = buffer.flush();
+        if (rest) yield { chunkKind: COUPANG_DIRECTSHIP_CHUNK_KIND, payload: rest, progress: progress("detail", detailed, listed.length) };
+        yield { chunkKind: COUPANG_DIRECTSHIP_CHUNK_KIND, payload: [{ centers }], progress: progress("done", detailed, listed.length) };
+      } finally {
+        await site.close();
+      }
+    }
+  };
+  function progress(phase, current, total) {
+    return { phase, current, total };
+  }
+  function kstDay(now, days) {
+    return new Date(now + KST_OFFSET_MS + days * 24 * 60 * 60 * 1e3).toISOString().slice(0, 10);
+  }
+  function kstYmd(value) {
+    const raw = String(value ?? "").trim();
+    if (!raw) return "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const parsed = Date.parse(raw);
+    if (Number.isNaN(parsed)) return raw.slice(0, 10);
+    return new Date(parsed + KST_OFFSET_MS).toISOString().slice(0, 10);
+  }
+  function isUrgent(row) {
+    const code = String(row.purchaseOrderType ?? "").trim().toUpperCase();
+    if (code) return code === "URGENT";
+    return /긴급/.test(String(row.purchaseOrderTypeDescription ?? ""));
+  }
+  function listedPurchaseOrder(raw) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const row = raw;
+    const status = String(row.purchaseOrderStatus ?? row.purchaseOrderStatusCode ?? "").toUpperCase();
+    const statusText = String(row.purchaseOrderStatusDescription ?? row.purchaseOrderStatusName ?? "");
+    if (status && status !== "PA") return null;
+    if (!status && statusText && !/발주\s*확정/.test(statusText)) return null;
+    return {
+      seq: String(row.purchaseOrderSeq ?? ""),
+      center: String(row.centerName ?? ""),
+      transport: row.transportType,
+      edd: kstYmd(row.expectedDeliveryDate),
+      reg: kstYmd(row.createdAt) || String(row.createdAt ?? ""),
+      status: status || statusText || "PA",
+      urgent: isUrgent(row),
+      items: []
+    };
+  }
+  function centerMap(value) {
+    const body = value?.body ?? value;
+    const list = Array.isArray(body) ? body : body?.body ?? [];
+    const centers = {};
+    for (const center of Array.isArray(list) ? list : []) {
+      const record = center;
+      if (!record?.centerName) continue;
+      const entry = {};
+      if (typeof record.address === "string" && record.address.trim()) entry.addr = record.address.trim();
+      if (typeof record.zipCode === "string" && record.zipCode.trim() || typeof record.zipCode === "number") {
+        entry.zip = typeof record.zipCode === "number" ? record.zipCode : String(record.zipCode).trim();
+      }
+      if (typeof record.contact === "string" && record.contact.trim()) entry.contact = record.contact.trim();
+      centers[String(record.centerName).trim()] = entry;
+    }
+    return centers;
+  }
+  function detailItems(tables) {
+    const num = (value) => Number(String(value ?? "").replace(/[^0-9.-]/g, "")) || 0;
+    for (const table of tables) {
+      if (!/바코드/.test(table.text)) continue;
+      const items = [];
+      for (const row of table.rows) {
+        const cells = row.cells.filter((cell) => !cell.header).map((cell) => cell.text.replace(/\s+/g, " ").trim());
+        const match = cells[2] ? /^(\d{12,14})\s+(.+)/.exec(cells[2]) : null;
+        if (match) items.push({ skuId: cells[1] ?? "", barcode: match[1], name: match[2], qty: num(cells[4]), amount: num(cells[9]) });
+      }
+      if (items.length) return items;
+    }
+    return [];
+  }
+  registerCollector(coupangDirectshipCollector);
+
+  // packages/shared/src/schemas/reviews.ts
+  var ReviewFilterSchema = external_exports.enum(["all", "new", "needs-response"]);
+  var ReviewListItemSchema = external_exports.object({
+    listingId: external_exports.string(),
+    productId: external_exports.string(),
+    productName: external_exports.string(),
+    sku: external_exports.string().nullable(),
+    organization: external_exports.string(),
+    grade: external_exports.string(),
+    totalReviews: external_exports.number(),
+    avgRating: external_exports.number(),
+    recentReviews: external_exports.number(),
+    // null means the order source has not been observed for this organization.
+    orderCount: external_exports.number().int().nonnegative().nullable(),
+    lastReviewAt: external_exports.string().nullable()
+  });
+  var ReviewSummarySchema = external_exports.object({
+    // 리뷰가 있는 active listing 수
+    listingCount: external_exports.number().int().nonnegative(),
+    // 회사 전체 누적 review 수
+    totalReviewCount: external_exports.number().int().nonnegative(),
+    // 회사 전체 review rating 의 가중 평균. review 가 0건이면 미측정(null).
+    weightedAvgRating: external_exports.number().nonnegative().nullable(),
+    // totalReviews < 5 인 listing 수.
+    newListingCount: external_exports.number().int().nonnegative(),
+    // avgRating < 3.5 이고 리뷰 5건 이상인 listing 수.
+    needsResponseCount: external_exports.number().int().nonnegative(),
+    // listing 단위로 (avgRating < 3.5) || (totalReviews < 5) 인 row 수.
+    // 임계값은 frontend filter (`needs-response`/`new`) 와 일치.
+    needsAttentionCount: external_exports.number().int().nonnegative()
+  });
+  var ReviewListResponseSchema = external_exports.object({
+    items: external_exports.array(ReviewListItemSchema),
+    total: external_exports.number().int().nonnegative(),
+    page: external_exports.number().int().positive(),
+    limit: external_exports.number().int().positive(),
+    summary: ReviewSummarySchema
+  });
+  var ReviewItemSchema = external_exports.object({
+    id: external_exports.string(),
+    listingId: external_exports.string().nullable(),
+    /** listing 매칭 실패 시 크롤링 당시 채널 상품명으로 폴백한다. */
+    productName: external_exports.string(),
+    optionName: external_exports.string().nullable(),
+    rating: external_exports.number().int(),
+    title: external_exports.string().nullable(),
+    content: external_exports.string().nullable(),
+    reviewerName: external_exports.string().nullable(),
+    reviewedAt: external_exports.string(),
+    imageCount: external_exports.number().int().nonnegative(),
+    videoCount: external_exports.number().int().nonnegative(),
+    /** 채널 상품 상세 링크용 노출상품ID. */
+    externalProductId: external_exports.string().nullable()
+  });
+  var ReviewItemListResponseSchema = external_exports.object({
+    items: external_exports.array(ReviewItemSchema),
+    total: external_exports.number().int().nonnegative(),
+    page: external_exports.number().int().positive(),
+    limit: external_exports.number().int().positive(),
+    /** 별점 1~5 별 건수. 현재 필터(별점 제외) 기준 분포. */
+    ratingCounts: external_exports.record(external_exports.string(), external_exports.number().int().nonnegative()),
+    /** 본문이 있는 리뷰 수. 쿠팡은 별점만 남기는 리뷰가 대부분이다. */
+    withContentCount: external_exports.number().int().nonnegative()
+  });
+  var ReviewIngestItemSchema = external_exports.object({
+    /** 쿠팡 reviewId. 재수집 멱등 키. */
+    externalReviewId: external_exports.string().min(1),
+    /** 쿠팡 vendorItemId(옵션ID). ChannelListingOption 매칭 키. */
+    externalOptionId: external_exports.string().min(1).nullable().default(null),
+    /** 쿠팡 productId(노출상품ID). */
+    externalProductId: external_exports.string().min(1).nullable().default(null),
+    itemName: external_exports.string().nullable().default(null),
+    rating: external_exports.number().int().min(1).max(5),
+    title: external_exports.string().nullable().default(null),
+    content: external_exports.string().nullable().default(null),
+    reviewerName: external_exports.string().nullable().default(null),
+    /** 리뷰 작성 시각(epoch ms). */
+    reviewedAt: external_exports.number().int().positive(),
+    imageCount: external_exports.number().int().nonnegative().default(0),
+    videoCount: external_exports.number().int().nonnegative().default(0),
+    isDeleted: external_exports.boolean().default(false),
+    isBlinded: external_exports.boolean().default(false)
+  });
+  var ReviewIngestRequestSchema = external_exports.object({
+    platform: external_exports.literal("coupang").default("coupang"),
+    items: external_exports.array(ReviewIngestItemSchema).min(1).max(200)
+  });
+  var ReviewIngestResponseSchema = external_exports.object({
+    received: external_exports.number().int().nonnegative(),
+    created: external_exports.number().int().nonnegative(),
+    updated: external_exports.number().int().nonnegative(),
+    /** listing 매칭에 성공한 건수. */
+    linked: external_exports.number().int().nonnegative(),
+    /** vendorItemId 로 ChannelListingOption 을 못 찾은 건수. */
+    unlinked: external_exports.number().int().nonnegative()
+  });
+  var COUPANG_REVIEWS_KIND = "orders.coupang_reviews";
+  var COUPANG_REVIEWS_CHUNK_KIND = "reviews";
+  var COUPANG_REVIEWS_MAX_MONTHS = 36;
+  var COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW = 40;
+  var COUPANG_REVIEWS_CHUNK_ITEMS = 200;
+  var CoupangReviewsScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    months: external_exports.number().int().min(1).max(COUPANG_REVIEWS_MAX_MONTHS),
+    maxPagesPerWindow: external_exports.number().int().min(1).max(COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW).default(COUPANG_REVIEWS_MAX_PAGES_PER_WINDOW)
+  }).strict();
+  var CoupangReviewsWindowSchema = external_exports.object({
+    index: external_exports.number().int().nonnegative(),
+    label: external_exports.string().min(1),
+    start: external_exports.string().datetime({ offset: true }),
+    end: external_exports.string().datetime({ offset: true })
+  }).strict();
+  var CoupangReviewsChunkItemSchema = ReviewIngestItemSchema.extend({
+    windowIndex: external_exports.number().int().nonnegative()
+  });
+  var COUPANG_REVIEWS_WINDOW_CHUNK_KIND = "review_windows";
+  var CoupangReviewsWindowDoneSchema = external_exports.object({
+    index: external_exports.number().int().nonnegative(),
+    pages: external_exports.number().int().nonnegative(),
+    items: external_exports.number().int().nonnegative()
+  }).strict();
+  var CoupangReviewsProgressSchema = external_exports.object({
+    current: external_exports.string().nullable(),
+    windows: external_exports.array(external_exports.object({
+      index: external_exports.number().int().nonnegative(),
+      pages: external_exports.number().int().nonnegative(),
+      items: external_exports.number().int().nonnegative(),
+      done: external_exports.boolean()
+    }).strict())
+  }).strict();
+  var CoupangReviewsResultSchema = external_exports.object({
+    windows: external_exports.number().int().nonnegative(),
+    reviews: external_exports.number().int().nonnegative(),
+    inserted: external_exports.number().int().nonnegative(),
+    updated: external_exports.number().int().nonnegative()
+  }).strict();
+
+  // extensions/src/collectors/orders.coupang_reviews/index.ts
+  var CoupangReviewsPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    windows: external_exports.array(CoupangReviewsWindowSchema).min(1),
+    maxPagesPerWindow: external_exports.number().int().min(1)
+  });
+  var COUPANG_REVIEWS_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
+  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var coupangReviewsCollector = {
+    kind: COUPANG_REVIEWS_KIND,
+    site: "wing-reviews",
+    async *collect(rawPlan, site, { signal }) {
+      const parsed = CoupangReviewsPlanSchema.safeParse(rawPlan);
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      const plan = parsed.data;
+      const done = [];
+      for (const window of plan.windows) {
+        const status = { index: window.index, pages: 0, items: 0, done: false };
+        const progress4 = (current) => ({ current, windows: [...done, { ...status }] });
+        let buffer = [];
+        for (let pageIndex = 0; ; pageIndex += 1) {
+          if (signal.aborted) return;
+          if (pageIndex >= plan.maxPagesPerWindow) {
+            throw new RuntimeError(COUPANG_REVIEWS_PAGE_LIMIT_REACHED, `${window.label} \uC0C1\uD488\uD3C9\uC774 ${plan.maxPagesPerWindow}\uCABD\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, {
+              windowIndex: window.index
+            });
+          }
+          const page = await site.searchReviews({ start: window.start, end: window.end, pageIndex });
+          status.pages += 1;
+          for (const item of page.items) {
+            buffer.push({ ...item, windowIndex: window.index });
+            status.items += 1;
+            if (buffer.length === COUPANG_REVIEWS_CHUNK_ITEMS) {
+              yield reviewsChunk(buffer, progress4(window.label));
+              buffer = [];
+            }
+          }
+          if (pageIndex + 1 >= page.totalPages) break;
+        }
+        if (signal.aborted) return;
+        if (buffer.length > 0) yield reviewsChunk(buffer, progress4(window.label));
+        status.done = true;
+        done.push({ ...status });
+        const last = window === plan.windows[plan.windows.length - 1];
+        const marker = { index: status.index, pages: status.pages, items: status.items };
+        yield { chunkKind: COUPANG_REVIEWS_WINDOW_CHUNK_KIND, payload: [marker], progress: { current: last ? null : window.label, windows: [...done] } };
+      }
+    }
+  };
+  function reviewsChunk(payload, progress4) {
+    return { chunkKind: COUPANG_REVIEWS_CHUNK_KIND, payload, progress: progress4 };
+  }
+  registerCollector(coupangReviewsCollector);
+
   // extensions/src/collectors/orders.coupang_rocket_po/index.ts
   var ROCKET_PO_COLLECTION_INCOMPLETE = "ROCKET_PO_COLLECTION_INCOMPLETE";
-  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
-  var DETAIL_CONCURRENCY = 5;
+  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
+  var DETAIL_CONCURRENCY2 = 5;
   var CHUNK_PURCHASE_ORDERS = 200;
   var coupangRocketPoCollector = {
     kind: COUPANG_ROCKET_PO_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed = CoupangRocketPoPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
       const plan = parsed.data;
       try {
         const query = { searchDateType: plan.dateType, from: plan.from, to: plan.to, status: plan.status };
@@ -5564,7 +5833,7 @@ var KidItemRuntime = (() => {
             seen.add(po.poNumber);
             listed.push(po);
           }
-          await report?.(progress("list", page, pageCount));
+          await report?.(progress2("list", page, pageCount));
           if (page >= totalListPages) break;
         }
         const vendorIds = listed.map((po) => po.vendorId);
@@ -5573,22 +5842,22 @@ var KidItemRuntime = (() => {
         const businessDateBasis = plan.dateType === "PURCHASE_ORDER_DATE" ? "ordered_at" : "expected_inbound";
         const buffer = new ChunkBuffer({ maxItems: CHUNK_PURCHASE_ORDERS, label: "\uBC1C\uC8FC\uC11C" });
         let detailed = 0;
-        for (let offset = 0; offset < listed.length; offset += DETAIL_CONCURRENCY) {
+        for (let offset = 0; offset < listed.length; offset += DETAIL_CONCURRENCY2) {
           if (signal.aborted) return;
-          const batch = await Promise.all(listed.slice(offset, offset + DETAIL_CONCURRENCY).map(async (po) => ({
+          const batch = await Promise.all(listed.slice(offset, offset + DETAIL_CONCURRENCY2).map(async (po) => ({
             po,
             rows: await detailWithRetry(site, po, businessDateBasis)
           })));
           detailed += batch.length;
           for (const { po, rows } of batch) {
             const full = buffer.push({ poNumber: po.poNumber, rows });
-            if (full) yield { chunkKind: COUPANG_ROCKET_PO_CHUNK_KIND, payload: full, progress: progress("detail", detailed, listed.length) };
+            if (full) yield { chunkKind: COUPANG_ROCKET_PO_CHUNK_KIND, payload: full, progress: progress2("detail", detailed, listed.length) };
           }
-          await report?.(progress("detail", detailed, listed.length));
+          await report?.(progress2("detail", detailed, listed.length));
         }
         if (signal.aborted) return;
         const rest = buffer.flush();
-        if (rest) yield { chunkKind: COUPANG_ROCKET_PO_CHUNK_KIND, payload: rest, progress: progress("detail", detailed, listed.length) };
+        if (rest) yield { chunkKind: COUPANG_ROCKET_PO_CHUNK_KIND, payload: rest, progress: progress2("detail", detailed, listed.length) };
         const scan = {
           vendorId,
           listPagesRead,
@@ -5596,13 +5865,13 @@ var KidItemRuntime = (() => {
           detailPoCount: detailed,
           proof: { from: plan.from, to: plan.to, status: plan.status, dateType: plan.dateType, validatedList: true }
         };
-        yield { chunkKind: COUPANG_ROCKET_PO_SCAN_CHUNK_KIND, payload: [scan], progress: progress("done", detailed, listed.length) };
+        yield { chunkKind: COUPANG_ROCKET_PO_SCAN_CHUNK_KIND, payload: [scan], progress: progress2("done", detailed, listed.length) };
       } finally {
         await site.close();
       }
     }
   };
-  function progress(phase, current, total) {
+  function progress2(phase, current, total) {
     return { phase, current, total };
   }
   function listedPo(raw, status, page) {
@@ -5762,14 +6031,14 @@ var KidItemRuntime = (() => {
   // extensions/src/collectors/orders.coupang_shipment_summary/index.ts
   var PlanSchema = external_exports.object({ maxPages: external_exports.number().int().min(1).max(60) });
   var PAGE_FETCH_CONCURRENCY = 6;
-  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
   var coupangShipmentSummaryCollector = {
     kind: COUPANG_SHIPMENT_SUMMARY_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed = PlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
       const { maxPages } = parsed.data;
       try {
         const seen = /* @__PURE__ */ new Set();
@@ -5807,17 +6076,17 @@ var KidItemRuntime = (() => {
               break;
             }
           }
-          await report?.(progress2(pageRowCounts.length, maxPages, false));
+          await report?.(progress3(pageRowCounts.length, maxPages, false));
         }
         if (signal.aborted) return;
         const buffer = new ChunkBuffer({ maxItems: 1e3, label: "\uBC1C\uC1A1\uC77C \uD56D\uBAA9" });
         const dates = [...byDate.entries()].map(([date, value]) => ({ date, count: value.count, boxes: value.boxes })).sort((a, b) => b.date.localeCompare(a.date));
         for (const item of dates) {
           const full = buffer.push(item);
-          if (full) yield datesChunk(full, progress2(pageRowCounts.length, maxPages, false));
+          if (full) yield datesChunk(full, progress3(pageRowCounts.length, maxPages, false));
         }
         const rest = buffer.flush();
-        if (rest) yield datesChunk(rest, progress2(pageRowCounts.length, maxPages, false));
+        if (rest) yield datesChunk(rest, progress3(pageRowCounts.length, maxPages, false));
         const scan = {
           maxPages,
           scannedPages: pageRowCounts.length,
@@ -5827,13 +6096,13 @@ var KidItemRuntime = (() => {
           pageRowCounts,
           validatedTable: true
         };
-        yield { chunkKind: COUPANG_SHIPMENT_SUMMARY_SCAN_CHUNK_KIND, payload: [scan], progress: progress2(pageRowCounts.length, maxPages, true) };
+        yield { chunkKind: COUPANG_SHIPMENT_SUMMARY_SCAN_CHUNK_KIND, payload: [scan], progress: progress3(pageRowCounts.length, maxPages, true) };
       } finally {
         await site.close();
       }
     }
   };
-  function progress2(current, total, done) {
+  function progress3(current, total, done) {
     return { current, total, done };
   }
   function datesChunk(payload, value) {
@@ -8363,12 +8632,12 @@ var KidItemRuntime = (() => {
     const base = "/api/operations";
     return {
       begin: (request) => call(api, base, { method: "POST", body: request }, OperationBeginResponseSchema),
-      async putChunk({ operationId, token, chunkKind, sequence, payload, progress: progress3 }) {
+      async putChunk({ operationId, token, chunkKind, sequence, payload, progress: progress4 }) {
         const checksum = await sha256Hex(JSON.stringify(payload));
         return call(
           api,
           `${base}/${encodeURIComponent(operationId)}/chunks/${encodeURIComponent(chunkKind)}/${sequence}`,
-          { method: "PUT", token, body: { checksum, payload, ...progress3 ? { progress: progress3 } : {} } },
+          { method: "PUT", token, body: { checksum, payload, ...progress4 ? { progress: progress4 } : {} } },
           OperationChunkPutResponseSchema
         );
       },
@@ -8522,11 +8791,11 @@ var KidItemRuntime = (() => {
       let chunks = 0;
       let items = 0;
       scheduleHeartbeat();
-      const report = async (progress3) => {
+      const report = async (progress4) => {
         if (collectionDone || local.signal.aborted) return;
-        lastProgress = progress3;
+        lastProgress = progress4;
         await write(
-          () => deps.client.putChunk({ operationId, token, chunkKind: HEARTBEAT_CHUNK_KIND, sequence: 1, payload: [], progress: progress3 })
+          () => deps.client.putChunk({ operationId, token, chunkKind: HEARTBEAT_CHUNK_KIND, sequence: 1, payload: [], progress: progress4 })
         );
         scheduleHeartbeat();
       };

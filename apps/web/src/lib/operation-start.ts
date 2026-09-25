@@ -18,11 +18,12 @@ const START_REPLY_TIMEOUT_MS = 60_000;
 export type OperationStartOutcome =
   | Readonly<{ outcome: 'started'; operationId: string }>
   | Readonly<{ outcome: 'running'; operationId: string | null }>
-  | Readonly<{ outcome: 'refused'; message: string }>;
+  /** `existingOperationId`: 잠금을 쥔 실행(확장이 거절에 실어 줄 때만). */
+  | Readonly<{ outcome: 'refused'; message: string; existingOperationId?: string | null }>;
 
 type StartReply =
   | { success: true; operationId: string; reused: boolean }
-  | { success: false; errorCode?: string; error?: string };
+  | { success: false; errorCode?: string; error?: string; details?: { existing?: { operationId?: unknown } | null } | null };
 
 async function extensionWithRuntime(capability: string): Promise<string> {
   const extensionId = await detectExtensionId();
@@ -44,17 +45,29 @@ async function extensionWithRuntime(capability: string): Promise<string> {
 export async function requestOperationStart(
   kind: OperationKind,
   scope: Record<string, unknown>,
-  /** 이 kind를 도는 빌드가 `ping`에 싣는 표시. 없으면 런타임 표시만 본다. */
-  options: { capability?: string } = {},
+  /**
+   * `capability`: 이 kind를 도는 빌드가 `ping`에 싣는 표시(없으면 런타임 표시만 본다). `idempotencyKey`: 같은 시작을
+   * 다시 보내도 같은 실행을 돌려받는다(끊긴 답을 되풀이할 때).
+   */
+  options: { capability?: string; idempotencyKey?: string } = {},
 ): Promise<OperationStartOutcome> {
   const extensionId = await extensionWithRuntime(options.capability ?? OPERATION_RUNTIME_CAPABILITY);
-  const reply = await sendToExtension<StartReply>(extensionId, { action: 'operation.start', kind, scope }, START_REPLY_TIMEOUT_MS);
+  const reply = await sendToExtension<StartReply>(
+    extensionId,
+    { action: 'operation.start', kind, scope, ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}) },
+    START_REPLY_TIMEOUT_MS,
+  );
   if (reply?.success === true && typeof reply.operationId === 'string') {
     return reply.reused ? { outcome: 'running', operationId: reply.operationId } : { outcome: 'started', operationId: reply.operationId };
   }
   const failure = reply && reply.success === false ? reply : null;
   if (failure?.errorCode === 'OPERATION_IN_PROGRESS') {
-    return { outcome: 'refused', message: operatorReason(failure.error, '같은 대상의 다른 실행이 진행 중입니다.') };
+    const existing = failure.details?.existing?.operationId;
+    return {
+      outcome: 'refused',
+      message: operatorReason(failure.error, '같은 대상의 다른 실행이 진행 중입니다.'),
+      ...(typeof existing === 'string' ? { existingOperationId: existing } : {}),
+    };
   }
   throw new Error(operatorReason(failure?.error, START_FAILED));
 }

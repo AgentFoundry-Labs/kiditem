@@ -35,11 +35,15 @@ Action, collection, transmission, and reconciliation behavior is executable in
   Observed acceptance finalizes it, explicit confirmed non-submission aborts
   it, and privileged reconciliation is audited. Unknown outcomes remain
   reconcilable and do not trigger Inventory work.
-- Directship conversion persists deterministic collection identities,
-  reconciles exact rows with the active Supply-owned Rocket workbook, and
-  exports every collected row for the selected transport. Unmatched rows remain
-  selectable.
-- Non-empty output carries the stable source-run/transport transmission key.
+- Directship capture is the operation kind `orders.coupang_directship`
+  (account lock); its finalize only stores the capture as an
+  `OrderCollectionArtifact` (`operationId`) and `result.rowCount` — completing
+  a collection publishes nothing downstream. Conversion takes a succeeded
+  operation's ID, persists deterministic collection identities
+  (`Order.operationId`), reconciles exact rows with the active Supply-owned
+  Rocket workbook, and exports every collected row for the selected transport.
+  Unmatched rows remain selectable.
+- Non-empty output carries the stable operation/transport transmission key.
   An empty SHIPMENT or MILKRUN probe persists no-match evidence and returns no
   transmission key.
 - Provider rejection is returned as the provider error rather than translated

@@ -162,7 +162,10 @@ erDiagram
     String id PK
     String organizationId FK
     String confirmationId FK
+     /**
     String sourceImportRunId FK
+     /**
+    String directshipOperationId
     String transport
     String intentKey
     DateTime observedAt

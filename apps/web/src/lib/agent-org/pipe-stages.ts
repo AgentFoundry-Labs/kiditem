@@ -189,7 +189,7 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     title: '주문 → 출고 → 송장',
     owner: '운영팀',
     href: '/order-collection',
-    alertSourceTypes: ['order_collection_mall', 'coupang_direct_order_capture', 'coupang_rocket_final_order', 'coupang_shipment_summary'],
+    alertSourceTypes: ['order_collection_mall', 'coupang_direct_order_capture', 'coupang_shipment_summary'],
     // 주문수집 · 셀피아 전송 · 송장 결과는 Orders 가 가진 사실이다.
     expectedEveryMs: null,
     noSourceReason: null,

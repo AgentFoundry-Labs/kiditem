@@ -133,6 +133,8 @@ export type CoupangDirectPoSnapshotEntry = z.infer<
 
 export const SaveCoupangDirectPoSnapshotRequestSchema = z.object({
   channelAccountId: z.string().uuid(),
+  /** 이 스냅샷의 근거인 성공한 directship 실행(`orders.coupang_directship`, KID-359). */
+  operationId: z.string().uuid(),
   entries: z.array(CoupangDirectPoSnapshotEntrySchema).max(4_000),
 }).strict();
 export type SaveCoupangDirectPoSnapshotRequest = z.infer<

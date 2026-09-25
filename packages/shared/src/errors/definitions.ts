@@ -172,6 +172,7 @@ export const ERROR_DEFINITIONS = {
   ORDERS_NO_SELECTION: def('orders', 'validation', '처리할 주문을 선택해 주세요.'),
   ORDERS_UNKNOWN_ACTION: def('orders', 'validation', '지원하지 않는 주문 작업입니다.'),
   ORDERS_CONTINUATION_REJECTED: def('orders', 'conflict', '주문 수집을 이어갈 수 없습니다. 다시 시작해 주세요.', { retryable: true }),
+  ORDERS_DIRECTSHIP_DETAIL_MISSING: def('orders', 'precondition', '쿠팡 발주 상세(품목)를 수집하지 못했습니다. 발주를 다시 수집한 뒤 시도해 주세요.'),
 
   // products
   PRODUCTS_NOT_FOUND: def('products', 'not_found', '상품을 찾을 수 없습니다.'),

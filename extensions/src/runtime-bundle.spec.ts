@@ -32,6 +32,7 @@ describe('committed runtime bundle', () => {
       'channels.wing_catalog_details',
       'channels.wing_catalog_excel',
       'channels.wing_catalog_list',
+      'orders.coupang_directship',
       'orders.coupang_reviews',
       'orders.coupang_rocket_po',
       'orders.coupang_shipment_summary',

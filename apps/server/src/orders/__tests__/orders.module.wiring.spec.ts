@@ -36,6 +36,8 @@ import { OrdersModule } from '../orders.module';
 import { ReturnTransfersController } from '../adapter/in/web/return-transfers/return-transfers.controller';
 import { ReturnTransfersService } from '../application/service/return-transfers/return-transfers.service';
 import { CoupangReviewsOperationOwner } from '../adapter/in/operation/coupang-reviews-operation-owner';
+import { CoupangDirectshipOperationOwner } from '../adapter/in/operation/coupang-directship-operation-owner';
+import { OperationModule } from '../../common/operation/operation.module';
 import { CoupangDirectPoSnapshotService } from '../application/service/coupang-direct-po-snapshot.service';
 import { OrderCollectionService } from '../application/service/order-collection.service';
 import { OrdersService } from '../application/service/orders.service';
@@ -57,6 +59,7 @@ describe('OrdersModule owner wiring', () => {
       SupplyModule,
       ShipmentsModule,
       ProductSourceModule,
+      OperationModule,
     ]);
     expect(controllers).toEqual([
       OrdersController,
@@ -83,6 +86,7 @@ describe('OrdersModule owner wiring', () => {
       OrderCollectionSourceRepository,
       SellpiaShipmentTrackingSourceRepository,
       CoupangReviewsOperationOwner,
+      CoupangDirectshipOperationOwner,
       {
         provide: COUPANG_DIRECT_ORDER_COLLECTION_PORT,
         useExisting: CoupangDirectOrderCollectionService,

@@ -408,7 +408,10 @@ model RocketPurchaseConfirmationTransmission {
   id                String   @id @default(uuid()) @db.Uuid
   organizationId    String   @map("organization_id") @db.Uuid
   confirmationId    String   @map("confirmation_id") @db.Uuid
-  sourceImportRunId String   @map("source_import_run_id") @db.Uuid
+  /** 옛 직배송 attempt run(N까지). 새 관측은 `directshipOperationId`만 갖는다(KID-359). */
+  sourceImportRunId String?  @map("source_import_run_id") @db.Uuid
+  /** 이 워크북을 관측한 Orders 직배송 실행(`orders.coupang_directship`, 스칼라 — 관계 없음). */
+  directshipOperationId String? @map("directship_operation_id") @db.Uuid
   transport         String   @db.VarChar(20)
   intentKey         String?  @map("intent_key") @db.VarChar(500)
   observedAt        DateTime @default(now()) @map("observed_at") @db.Timestamptz
@@ -417,10 +420,11 @@ model RocketPurchaseConfirmationTransmission {
 
   organization    Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   confirmation    RocketPurchaseConfirmation @relation(fields: [confirmationId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  sourceImportRun SourceImportRun            @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun SourceImportRun?           @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([confirmationId, transport])
   @@unique([organizationId, intentKey], map: "rocket_confirmation_transmissions_org_intent_key", where: raw("intent_key IS NOT NULL"))
   @@index([organizationId, sourceImportRunId])
+  @@index([organizationId, directshipOperationId], map: "rocket_confirmation_transmissions_org_directship_operation_idx")
   @@map("rocket_purchase_confirmation_transmissions")
 }

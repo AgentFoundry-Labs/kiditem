@@ -409,6 +409,9 @@ export const UNIQUE_KEYS_WITHOUT_CLEANUP: Readonly<Record<string, string>> = Obj
   sellpia_sales_daily_legacy_key: OFFICE_UNIQUE_SAME_COLUMNS,
   sellpia_product_monthly_sales_legacy_identity_key: OFFICE_UNIQUE_SAME_COLUMNS,
   shipment_date_summary_baseline_date_key: OFFICE_UNIQUE_SAME_COLUMNS,
+  shipment_date_summary_operation_date_key: NEW_NULLABLE_KEY_COLUMN,
+  rocket_po_catalog_snapshots_org_operation_key: NEW_NULLABLE_KEY_COLUMN,
+  coupang_direct_transport_consumptions_operation_transport_key: NEW_NULLABLE_KEY_COLUMN,
   reviews_org_platform_external_operation_key:
     'Its predicate is operation_id IS NOT NULL, and operation_id arrives without a database '
     + 'default, so no existing review row is in the index (KID-359).',

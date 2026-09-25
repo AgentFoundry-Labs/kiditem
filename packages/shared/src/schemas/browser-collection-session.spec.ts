@@ -63,7 +63,6 @@ describe('BrowserCollectionSessionViewSchema', () => {
       'dashboard.wing_kpi',
       'dashboard.wing_sales',
       'inventory.sellpia',
-      'orders.coupang_directship',
       'orders.mall',
       'orders.mall_admin_listings',
       'orders.sabangnet_mall_listings',

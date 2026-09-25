@@ -1,174 +1,79 @@
-import { BadRequestException, ConflictException, Inject, Injectable } from '@nestjs/common';
-import {
-  CoupangDirectOrderCollectionRequestSchema,
-} from '@kiditem/shared/coupang-direct-order';
-import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemConflictError, KiditemNotFoundError } from '@kiditem/shared/errors';
+import { COUPANG_DIRECTSHIP_KIND, CoupangDirectshipPlanSchema, type CoupangDirectshipPlan } from '@kiditem/shared/orders-operations';
+import { OPERATION_PORT, type OperationPort } from '../../../common/operation/application/port/in/operation.port';
+import type { OwnerTransaction } from '../../../common/owner-transaction';
 import type {
   CoupangDirectCapture,
   CoupangDirectOrderCollectionPort,
-  CoupangDirectOwnerAttempt,
-  CoupangDirectOwnerAttemptControl,
   CoupangDirectProjection,
+  CoupangDirectTransport,
+  CoupangDirectTransportReceipt,
 } from '../port/in/coupang-direct-order-collection.port';
 import {
   COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT,
   type CoupangDirectOrderCollectionTransactionPort,
 } from '../port/out/transaction/coupang-direct-order-collection.transaction.port';
+import { parseCapture } from '../../domain/coupang-directship-operation';
 
+/**
+ * 쿠팡 직배송 원천의 문(KID-359). 캡처를 읽거나 변환하기 전에 그 실행이 이 조직의 성공한 `orders.coupang_directship`
+ * 실행이고 계정이 맞는지 실행 계약에서 확인한다(옛 attempt 헤더 펜스 대신).
+ */
 @Injectable()
-export class CoupangDirectOrderCollectionService
-implements CoupangDirectOrderCollectionPort {
+export class CoupangDirectOrderCollectionService implements CoupangDirectOrderCollectionPort {
   constructor(
     @Inject(COUPANG_DIRECT_ORDER_COLLECTION_TRANSACTION_PORT)
     private readonly transactions: CoupangDirectOrderCollectionTransactionPort,
+    @Inject(OPERATION_PORT) private readonly operations: OperationPort,
   ) {}
 
-  beginAttempt(input: Parameters<CoupangDirectOrderCollectionPort['beginAttempt']>[0]) {
-    if (!input.idempotencyKey?.trim()) {
-      throw new BadRequestException('IDEMPOTENCY_KEY_REQUIRED');
+  async planOperation(input: { organizationId: string; channelAccountId: string }): Promise<CoupangDirectshipPlan> {
+    const channelAccountId = input.channelAccountId.toLowerCase();
+    if (!(await this.transactions.isActiveRocketAccount({ organizationId: input.organizationId, channelAccountId }))) {
+      throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'rocket_account', channelAccountId } });
     }
-    if (!isUuid(input.channelAccountId)) {
-      throw new BadRequestException('INVALID_CHANNEL_ACCOUNT_ID');
-    }
-    return this.transactions.beginAttempt({
-      ...input,
-      idempotencyKey: input.idempotencyKey.trim(),
-    });
+    return { channelAccountId, captureMode: 'browser' };
   }
 
-  readAttempt(
-    input: Parameters<CoupangDirectOrderCollectionPort['readAttempt']>[0],
-  ): Promise<CoupangDirectOwnerAttempt | null> {
-    return this.transactions.readAttempt(input);
+  publishCapture(transaction: OwnerTransaction, input: { organizationId: string; operationId: string; capture: CoupangDirectCapture }) {
+    return this.transactions.publishCapture(transaction, input);
   }
 
-  readAttemptControl(
-    input: Parameters<CoupangDirectOrderCollectionPort['readAttemptControl']>[0],
-  ): Promise<CoupangDirectOwnerAttemptControl | null> {
-    return this.transactions.readAttemptControl(input);
+  async readCapture(input: { organizationId: string; operationId: string; channelAccountId?: string }): Promise<CoupangDirectCapture> {
+    await this.assertSucceeded(input.organizationId, input.operationId, input.channelAccountId);
+    return this.transactions.readCapture(input);
   }
 
-  async completeAttempt(
-    input: Parameters<CoupangDirectOrderCollectionPort['completeAttempt']>[0],
-  ): Promise<CoupangDirectOwnerAttempt> {
-    try {
-      const capture = parseCapture(input.capture);
-      return await this.transactions.completeAttempt({ ...input, capture });
-    } catch (error) {
-      // The completion transaction rolls back all Orders/Supply/artifact writes;
-      // terminalize provider/mapping failures separately so the failed capture
-      // and Alert remain visible without inventing a second run ledger. Fence
-      // and terminal replay conflicts must not mutate the owner.
-      if (!(error instanceof ConflictException)) {
-        try {
-          await this.transactions.failAttempt({
-            organizationId: input.organizationId,
-            attemptId: input.attemptId,
-            attemptToken: input.attemptToken,
-            code: 'CAPTURE_FAILED',
-            message: failureMessage(error),
-          });
-        } catch {
-          // A concurrent terminal mutation must retain the original error.
-        }
-      }
-      throw error;
-    }
-  }
-
-  async consumeAttempt(input: {
+  async consume(input: {
     organizationId: string;
     userId: string;
-    attemptId: string;
-    attemptToken: string;
-    capture: unknown;
-    transport: unknown;
-  }) {
-    const capture = parseCapture(input.capture);
-    const transport = parseTransport(input.transport);
-    // Consumption is a downstream, transport-scoped projection. A malformed
-    // or unmappable selection must not turn the already-complete raw capture
-    // into a failed source attempt.
-    return this.transactions.consumeAttempt({
-      ...input,
-      capture,
-      transport,
-    });
+    operationId: string;
+    capture: CoupangDirectCapture;
+    transport: CoupangDirectTransport;
+  }): Promise<CoupangDirectTransportReceipt> {
+    await this.assertSucceeded(input.organizationId, input.operationId, input.capture.channelAccountId);
+    // 변환은 하위 투영이다. 고른 발주가 잘못돼도 성공한 캡처(실행)는 그대로 둔다.
+    return this.transactions.consume({ ...input, capture: parseCapture(input.capture) });
   }
 
-  failAttempt(
-    input: Parameters<CoupangDirectOrderCollectionPort['failAttempt']>[0],
-  ): Promise<CoupangDirectOwnerAttempt> {
-    return this.transactions.failAttempt(input);
-  }
-
-  cancelAttempt(
-    input: Parameters<CoupangDirectOrderCollectionPort['cancelAttempt']>[0],
-  ): Promise<CoupangDirectOwnerAttempt> {
-    return this.transactions.cancelAttempt(input);
-  }
-
-  readSourceStatus(
-    input: Parameters<CoupangDirectOrderCollectionPort['readSourceStatus']>[0],
-  ): Promise<OrderCollectionSourceStatus> {
-    return this.transactions.readSourceStatus(input);
-  }
-
-  readCaptured(
-    input: Parameters<CoupangDirectOrderCollectionPort['readCaptured']>[0],
-  ) {
-    return this.transactions.readCaptured(input);
-  }
-
-  readProjection(
-    input: Parameters<CoupangDirectOrderCollectionPort['readProjection']>[0],
-  ): Promise<CoupangDirectProjection> {
+  readProjection(input: { organizationId: string; operationId: string; transport: CoupangDirectTransport }): Promise<CoupangDirectProjection> {
     return this.transactions.readProjection(input);
   }
 
-}
-
-function parseCapture(value: unknown): CoupangDirectCapture {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new BadRequestException('Invalid Coupang direct order capture');
+  /** 이 조직의 성공한 directship 실행(그 계정)인가. 아니면 NOT_FOUND·STATE_CONFLICT. */
+  private async assertSucceeded(organizationId: string, operationId: string, channelAccountId?: string): Promise<CoupangDirectshipPlan> {
+    const operation = await this.operations.get(organizationId, operationId);
+    if (!operation || operation.kind !== COUPANG_DIRECTSHIP_KIND) {
+      throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'coupang_directship_operation', operationId } });
+    }
+    if (operation.status !== 'succeeded') {
+      throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'COUPANG_DIRECT_OPERATION_NOT_SUCCEEDED', status: operation.status } });
+    }
+    const plan = CoupangDirectshipPlanSchema.parse(operation.plan);
+    if (channelAccountId && channelAccountId.toLowerCase() !== plan.channelAccountId) {
+      throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'COUPANG_DIRECT_ACCOUNT_MISMATCH' } });
+    }
+    return plan;
   }
-  const candidate = value as Record<string, unknown>;
-  if (
-    candidate.transport !== undefined
-    && candidate.transport !== 'SHIPMENT'
-    && candidate.transport !== 'MILKRUN'
-  ) {
-    throw new BadRequestException('운송유형(transport)은 SHIPMENT 또는 MILKRUN 이어야 합니다.');
-  }
-  const parsed = CoupangDirectOrderCollectionRequestSchema.safeParse({
-    ...candidate,
-    // Validate the transport-independent payload with either allowed transport;
-    // the capture itself is persisted once and projected later per transport.
-    transport: 'SHIPMENT',
-  });
-  if (!parsed.success) {
-    throw new BadRequestException({
-      message: 'Invalid Coupang direct order capture',
-      errors: parsed.error.flatten(),
-    });
-  }
-  const { transport: _transport, ...capture } = parsed.data;
-  return capture;
-}
-
-function parseTransport(value: unknown): 'SHIPMENT' | 'MILKRUN' {
-  if (value !== 'SHIPMENT' && value !== 'MILKRUN') {
-    throw new BadRequestException('운송유형(transport)은 SHIPMENT 또는 MILKRUN 이어야 합니다.');
-  }
-  return value;
-}
-
-function isUuid(value: string): boolean {
-  return /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
-}
-
-function failureMessage(error: unknown): string {
-  if (error instanceof Error && error.message) return error.message.slice(0, 300);
-  if (typeof error === 'string') return error.slice(0, 300);
-  return 'Coupang direct order capture failed.';
 }

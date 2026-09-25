@@ -73,4 +73,16 @@ describe('coupang-supplier 발주 화면(KID-359)', () => {
     await expect(site({ lands: [READY], answer: () => ({ ...bridgeAnswer(tables), status: 500 }) }).supplier.purchaseOrderDetail('123'))
       .rejects.toMatchObject({ code: SITE_REQUEST_FAILED });
   });
+
+  it('직배송: 센터 목록은 JSON으로 읽고, 품목 전에 탭을 첫 발주서 상세(/scm)로 옮긴다', async () => {
+    const { fake, supplier } = site({ lands: [READY, 'https://supplier.coupang.com/scm/purchase/order/get/101'], answer: () => json({ body: [{ centerName: 'Seoul FC' }] }) });
+    await expect(supplier.purchasableCenters()).resolves.toEqual({ body: [{ centerName: 'Seoul FC' }] });
+    await supplier.enterScmContext('101');
+    expect(fake.log.filter((line) => line.startsWith('navigate'))).toEqual([
+      `navigate ${PO_BOOTSTRAP_URL}`,
+      'navigate https://supplier.coupang.com/scm/purchase/order/get/101',
+    ]);
+    await expect(site({ lands: [READY], answer: () => bridgeAnswer([], { text: '<html></html>' }) }).supplier.purchasableCenters())
+      .rejects.toMatchObject({ code: SITE_REQUEST_FAILED });
+  });
 });

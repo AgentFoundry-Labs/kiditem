@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import { ROCKET_PO_ROW_LIMIT, RocketPoCatalogRowSchema, RocketPoSourceBeginSchema } from './rocket-purchase-preview.js';
+import { CoupangDirectCenterSchema, CoupangDirectPurchaseOrderSchema, CoupangDirectTransportSchema } from './coupang-direct-order.js';
 
 /**
  * Orders owner의 확장 구동 실행 kind(ADR-0025, KID-359 wave2). scope는 웹이 begin에 싣는 입력이고 owner
@@ -134,6 +135,57 @@ export const CoupangDirectshipScopeSchema = z.object({
   channelAccountId: z.string().uuid(),
 }).strict();
 export type CoupangDirectshipScope = z.infer<typeof CoupangDirectshipScopeSchema>;
+
+/** directship plan: 계정과 캡처 방식(브라우저). 운송유형은 가리지 않고 다 읽는다(변환이 유형별로 나눈다). */
+export const CoupangDirectshipPlanSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  captureMode: z.literal('browser'),
+}).strict();
+export type CoupangDirectshipPlan = z.infer<typeof CoupangDirectshipPlanSchema>;
+
+/**
+ * `orders_capture` 청크 항목: 발주확정 발주서 하나(품목 포함) 또는 센터 주소표 하나(실행당 정확히 하나). 옛 캡처
+ * (`CoupangDirectOrderCollectionRequest`의 pos·centers)를 1MiB 청크로 나눈 모양이다.
+ */
+export const CoupangDirectshipCaptureItemSchema = z.union([
+  z.object({ purchaseOrder: CoupangDirectPurchaseOrderSchema }).strict(),
+  z.object({ centers: z.record(z.string(), CoupangDirectCenterSchema) }).strict(),
+]);
+export type CoupangDirectshipCaptureItem = z.infer<typeof CoupangDirectshipCaptureItemSchema>;
+
+/** directship 진행: 단계(목록·상세)와 읽은 수 / 전체. */
+export const CoupangDirectshipProgressSchema = z.object({
+  phase: z.enum(['session', 'list', 'detail', 'done']),
+  current: z.number().int().min(0),
+  total: z.number().int().min(0),
+}).passthrough();
+export type CoupangDirectshipProgress = z.infer<typeof CoupangDirectshipProgressSchema>;
+
+/**
+ * directship result: 보관한 캡처의 발주서 수(`rowCount` — 오늘 주문 카드가 읽는다), 품목 수, 품목을 못 읽은 발주서 수,
+ * 운송유형별 발주서 수. 원장(주문·워크북 대조)은 변환(`POST …/convert`)이 쓴다 — 수집 완료는 하위 계산을 발행하지 않는다.
+ */
+export const CoupangDirectshipResultSchema = z.object({
+  rowCount: z.number().int().nonnegative(),
+  purchaseOrders: z.number().int().nonnegative(),
+  lines: z.number().int().nonnegative(),
+  partialDetailCount: z.number().int().nonnegative(),
+  transports: z.object({ SHIPMENT: z.number().int().nonnegative(), MILKRUN: z.number().int().nonnegative() }).strict(),
+}).strict();
+export type CoupangDirectshipResult = z.infer<typeof CoupangDirectshipResultSchema>;
+
+/**
+ * directship 변환 요청(`POST orders/collection/coupang-directship/convert`). 옛 attempt 헤더 대신 성공한 실행 ID를
+ * 본문에 싣는다. `pos`·`centers`는 그 실행이 보관한 캡처에서 고른 것(입고예정일 달력 선택)이어야 한다.
+ */
+export const CoupangDirectshipConvertRequestSchema = z.object({
+  operationId: z.string().uuid(),
+  channelAccountId: z.string().uuid(),
+  transport: CoupangDirectTransportSchema,
+  pos: z.array(CoupangDirectPurchaseOrderSchema).max(4_000),
+  centers: z.record(z.string(), CoupangDirectCenterSchema),
+}).strict();
+export type CoupangDirectshipConvertRequest = z.infer<typeof CoupangDirectshipConvertRequestSchema>;
 
 /** 셀피아 송장: 주문일 범위. lockKey `org`. */
 export const SellpiaShipmentTrackingScopeSchema = z.object({

@@ -1,6 +1,7 @@
 import '../collectors/channels.wing_catalog_details';
 import '../collectors/channels.wing_catalog_excel';
 import '../collectors/channels.wing_catalog_list';
+import '../collectors/orders.coupang_directship';
 import '../collectors/orders.coupang_reviews';
 import '../collectors/orders.coupang_rocket_po';
 import '../collectors/orders.coupang_shipment_summary';

@@ -5,7 +5,6 @@ import type {
 } from '@kiditem/shared/coupang-direct-order';
 import type { CoupangDirectPo } from './coupang-directship-api';
 import type { OrderCollectionExtensionRun } from './order-collection-extension';
-import { coupangDirectOwnerAttemptHeaders } from './coupang-directship-source-owner';
 
 const PATH = '/api/orders/collection/coupang-directship/snapshot';
 
@@ -73,12 +72,10 @@ export async function saveCoupangDirectSnapshot(
   pos: readonly CoupangDirectPo[],
   run: OrderCollectionExtensionRun,
 ): Promise<void> {
-  await apiClient.post(
-    PATH,
-    {
-      channelAccountId,
-      entries: poToSnapshotEntries(pos),
-    },
-    { headers: coupangDirectOwnerAttemptHeaders(run) },
-  );
+  // 스냅샷은 그 계정의 성공한 직배송 실행(= run.attemptId, KID-359)이 보관한 캡처가 있을 때만 바뀐다.
+  await apiClient.post(PATH, {
+    channelAccountId,
+    operationId: run.attemptId,
+    entries: poToSnapshotEntries(pos),
+  });
 }
