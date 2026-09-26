@@ -4,7 +4,8 @@ import type { ApiPort } from '../core/api';
 import type { BrowserResources } from '../core/browser';
 import { createOperationClient } from '../core/operation-client';
 import { createRunner } from '../core/runner';
-import { createSourcingSiteHandles, type SourcingSiteDeps } from './sourcing-site-handles';
+import type { SiteDeps } from '../sites/registry';
+import { createSiteHandles } from './site-handles';
 
 /** 팝업 `현재 상품 수집`의 메시지(옛 sourcing 워커와 같은 모양). */
 export const COLLECT_CURRENT = 'COLLECT_CURRENT' as const;
@@ -14,7 +15,7 @@ export const HOST_KEEPALIVE_PORT = 'kiditem-1688-trend-keepalive' as const;
 export interface ProductCollectDeps {
   apiFor(environmentId: string): ApiPort;
   browser: BrowserResources;
-  site: SourcingSiteDeps;
+  site: SiteDeps;
   getTab(tabId: number): Promise<{ url?: string }>;
   keepAlive?(work: Promise<unknown>): void;
 }
@@ -47,7 +48,8 @@ export async function collectCurrentProduct(deps: ProductCollectDeps, input: { t
   const runner = createRunner({
     client: createOperationClient(deps.apiFor(input.environmentId)),
     browser: deps.browser,
-    siteFor: createSourcingSiteHandles(deps.site, input.tabId),
+    // 운영자 탭을 임대로 묶는다 — 상품 페이지 사이트는 이 탭에서만 읽는다.
+    siteFor: (kind) => createSiteHandles(deps.site)(kind, { tabId: input.tabId }),
   }, collectorFor);
   const work = runner.run({ kind: SOURCING_OPERATION_KINDS.productExtension, scope, signal: new AbortController().signal });
   deps.keepAlive?.(work);

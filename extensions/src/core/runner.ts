@@ -209,8 +209,9 @@ async function execute(
   };
 
   let lease: BrowserLease | null = null;
+  let failure: RuntimeError | null = null;
   try {
-    lease = await deps.browser.acquire({ operationId, lockKeys: operation.lockKeys, signal: local.signal });
+    lease = await deps.browser.acquire({ operationId, lockKeys: operation.lockKeys, site: collector.site, signal: local.signal });
     const site = deps.siteFor(operation.kind, lease);
     const sequences = new Map<string, number>();
     let chunks = 0;
@@ -272,6 +273,7 @@ async function execute(
     stopHeartbeat();
     if (!heartbeatStop && input.signal.aborted) return cancelled(operationId);
     const error = heartbeatStop ?? toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
+    failure = error;
     const stop = stopFor(error.code, error.details);
     if (stop.kind === 'fence_lost') return { kind: 'fence_lost', operationId, reason: stop.reason };
     await writes;
@@ -283,7 +285,7 @@ async function execute(
     stopHeartbeat();
     local.abort();
     input.signal.removeEventListener('abort', onAbort);
-    await lease?.release().catch(() => undefined);
+    await lease?.release({ error: failure }).catch(() => undefined);
   }
 }
 

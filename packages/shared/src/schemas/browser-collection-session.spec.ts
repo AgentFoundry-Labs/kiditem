@@ -63,16 +63,12 @@ describe('BrowserCollectionSessionViewSchema', () => {
       'dashboard.wing_kpi',
       'dashboard.wing_sales',
       'inventory.sellpia',
-      'orders.coupang_directship',
-      'orders.coupang_rocket_po',
-      'orders.coupang_shipment_summary',
       'orders.mall',
       'orders.mall_admin_listings',
       'orders.sabangnet_mall_listings',
       'orders.sellpia_manual_match',
       'orders.sellpia_product_profitability',
       'orders.sellpia_sales',
-      'orders.sellpia_shipment_tracking',
     ]);
     for (const producer of BROWSER_COLLECTION_PRODUCERS) {
       expect(BrowserCollectionProducerSchema.parse(producer)).toBe(producer);

@@ -1,56 +1,42 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { operatorErrorText } from '@kiditem/shared/errors';
-import {
-  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-  SOURCE_IMPORT_RUN_FAILED_STATUS,
-  SOURCE_IMPORT_RUN_RUNNING_STATUS,
-} from '@kiditem/shared/source-import';
-import { redact } from '../../../../common/redact';
-import {
-  OPERATOR_CANCEL_CODE,
-  OPERATOR_CANCEL_MESSAGE,
-} from '../../../../common/operator-cancel';
-import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
-import {
-  BadRequestException,
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException,
-  UnauthorizedException,
-} from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { Inject, Injectable } from '@nestjs/common';
+import { KiditemConflictError, KiditemInvalidValueError, KiditemNotFoundError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import { CoupangDirectOrderCollectionRequestSchema } from '@kiditem/shared/coupang-direct-order';
+import type { CoupangDirectOrderCollectionRequest } from '@kiditem/shared/coupang-direct-order';
+import { CoupangDirectshipResultSchema } from '@kiditem/shared/orders-operations';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
-import { canonicalOwnerInputHash, canonicalOwnerInputJson } from '../../../../common/owner-idempotency-key';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
+import { canonicalOwnerInputJson } from '../../../../common/owner-idempotency-key';
 import {
   ROCKET_FINAL_ORDER_RECONCILIATION_PORT,
   type RocketFinalOrderReconciliationPort,
 } from '../../../../supply/application/port/in/procurement/rocket-final-order-reconciliation.port';
 import {
-  COUPANG_DIRECT_PARSER_VERSION as DIRECT_PARSER_VERSION,
-  COUPANG_DIRECT_SOURCE_TYPE as DIRECT_SOURCE_TYPE,
-  type CoupangDirectCapture,
-  type CoupangDirectCapturePlan,
-  type CoupangDirectCollectionLineRef,
-  type CoupangDirectOwnerAttempt,
-  type CoupangDirectOwnerAttemptControl,
-  type CoupangDirectProjection,
-  type CoupangDirectTransportReceipt,
+  ORDER_OPERATION_CAPTURE_PORT,
+  type OrderOperationCapturePort,
+} from '../../../application/port/in/order-operation-capture.port';
+import type {
+  CoupangDirectCapture,
+  CoupangDirectCollectionLineRef,
+  CoupangDirectProjection,
+  CoupangDirectTransportReceipt,
 } from '../../../application/port/in/coupang-direct-order-collection.port';
 import type { CoupangDirectOrderCollectionTransactionPort } from '../../../application/port/out/transaction/coupang-direct-order-collection.transaction.port';
-import type { CoupangDirectOrderCollectionRequest } from '@kiditem/shared/coupang-direct-order';
 import {
   canonicalCoupangDirectOrderHash,
   mapCoupangDirectOrder,
 } from '../../../domain/coupang-direct-order.mapper';
 
 const LOCK_NAMESPACE = 'coupang-direct-order-collection';
-const SOURCE_TYPE = 'coupang_rocket_final_order';
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
-const ATTEMPT_EXPIRES_IN_MS = 30 * 60_000;
 
+/**
+ * 쿠팡 직배송 원장(Orders, KID-359). 실행 `orders.coupang_directship`의 finish가 캡처를 `OrderCollectionArtifact`
+ * (operationId)에 보관하고, 성공한 실행을 운송유형별로 변환할 때 주문(`Order.operationId`)·영수증
+ * (`effectOperationId`)·소비(`operationId`)·Supply 워크북 대조를 쓴다. 옛 `coupang_rocket_final_order` 영수증
+ * 되살리기와 attempt 경로는 지웠다.
+ */
 @Injectable()
 export class CoupangDirectOrderCollectionTransactionAdapter
 implements CoupangDirectOrderCollectionTransactionPort {
@@ -58,270 +44,63 @@ implements CoupangDirectOrderCollectionTransactionPort {
     private readonly prisma: PrismaService,
     @Inject(ROCKET_FINAL_ORDER_RECONCILIATION_PORT)
     private readonly reconciliation: RocketFinalOrderReconciliationPort,
-    private readonly alerts: SourceFailureAlerts,
+    /** 실행 캡처 보관함은 Orders에 하나다(셀피아 송장·몰 주문과 같은 쓰기 길). */
+    @Inject(ORDER_OPERATION_CAPTURE_PORT)
+    private readonly captures: OrderOperationCapturePort,
   ) {}
 
-  async beginAttempt(
-    input: Parameters<CoupangDirectOrderCollectionTransactionPort['beginAttempt']>[0],
-  ): Promise<CoupangDirectOwnerAttemptControl> {
-    return this.prisma.$transaction(async (tx) => {
-      await this.lockOwner(tx, input.organizationId);
-      await assertActiveActor(tx, input.organizationId, input.userId);
-      await assertRocketAccount(tx, input.organizationId, input.channelAccountId);
-
-      const plan: CoupangDirectCapturePlan = {
-        sourceType: DIRECT_SOURCE_TYPE,
-        parserVersion: DIRECT_PARSER_VERSION,
-        channelAccountId: input.channelAccountId,
-        captureMode: 'browser',
-        transportScope: 'ALL',
-      };
-      const requestFingerprint = canonicalOwnerInputHash({
-        sourceType: DIRECT_SOURCE_TYPE,
-        channelAccountId: input.channelAccountId,
-        transportScope: 'ALL',
-      });
-      const replay = await tx.sourceImportRun.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          sourceType: DIRECT_SOURCE_TYPE,
-          idempotencyKey: input.idempotencyKey,
-        },
-      });
-      if (replay) {
-        if (replay.requestFingerprint !== requestFingerprint) {
-          throw new ConflictException('SOURCE_IDEMPOTENCY_KEY_REUSED');
-        }
-        const row = expired(replay)
-          ? await this.failIn(
-            tx,
-            replay,
-            'ATTEMPT_EXPIRED',
-            operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
-          )
-          : replay;
-        return this.controlView(tx, row);
-      }
-
-      const running = await tx.sourceImportRun.findMany({
-        where: {
-          organizationId: input.organizationId,
-          sourceType: DIRECT_SOURCE_TYPE,
-          channelAccountId: input.channelAccountId,
-          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
-        },
-        orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-      });
-      const active = running.find((row) => !expired(row));
-      if (active) {
-        throw new ConflictException({ code: 'ATTEMPT_IN_PROGRESS', attemptId: active.id });
-      }
-      for (const stale of running) {
-        await this.failIn(
-          tx,
-          stale,
-          'ATTEMPT_EXPIRED',
-          operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
-        );
-      }
-
-      const row = await tx.sourceImportRun.create({
-        data: {
-          organizationId: input.organizationId,
-          sourceType: DIRECT_SOURCE_TYPE,
-          channelAccountId: input.channelAccountId,
-          idempotencyKey: input.idempotencyKey,
-          requestFingerprint,
-          attemptToken: randomUUID(),
-          plan: json(plan),
-          parserVersion: DIRECT_PARSER_VERSION,
-          expiresAt: new Date(Date.now() + ATTEMPT_EXPIRES_IN_MS),
-          createdBy: input.userId,
-        },
-      });
-      return this.controlView(tx, row);
-    }, TRANSACTION_OPTIONS);
+  async isActiveRocketAccount(input: { organizationId: string; channelAccountId: string }): Promise<boolean> {
+    const account = await this.prisma.channelAccount.findFirst({
+      where: { id: input.channelAccountId, organizationId: input.organizationId, channel: 'rocket', status: 'active' },
+      select: { id: true },
+    });
+    return account !== null;
   }
 
-  async readAttempt(
-    input: Parameters<CoupangDirectOrderCollectionTransactionPort['readAttempt']>[0],
-  ): Promise<CoupangDirectOwnerAttempt | null> {
-    return this.prisma.$transaction(async (tx) => {
-      const row = await tx.sourceImportRun.findFirst({
-        where: {
-          id: input.attemptId,
-          organizationId: input.organizationId,
-          sourceType: DIRECT_SOURCE_TYPE,
-        },
-      });
-      if (!row) return null;
-      // GET is a read-only preflight. The next begin/control mutation owns
-      // stale-run terminalization and Alert creation.
-      return this.attemptView(tx, row);
-    }, { ...TRANSACTION_OPTIONS, isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  async publishCapture(
+    transaction: OwnerTransaction,
+    input: { organizationId: string; operationId: string; capture: CoupangDirectCapture },
+  ) {
+    const captureBytes = Buffer.from(canonicalOwnerInputJson(input.capture), 'utf8');
+    const contentChecksum = checksum(captureBytes);
+    await this.captures.store(transaction, {
+      organizationId: input.organizationId,
+      operationId: input.operationId,
+      source: {
+        bytes: captureBytes,
+        fileName: `coupang-direct-order-${contentChecksum.slice(0, 12)}.json`,
+        contentType: 'application/json',
+      },
+    });
+    const count = (transport: DirectTransport) => input.capture.pos.filter((purchaseOrder) => purchaseOrder.transport === transport).length;
+    return CoupangDirectshipResultSchema.parse({
+      rowCount: input.capture.pos.length,
+      purchaseOrders: input.capture.pos.length,
+      lines: input.capture.pos.reduce((sum, purchaseOrder) => sum + purchaseOrder.items.length, 0),
+      partialDetailCount: input.capture.pos.filter(({ items }) => items.length === 0).length,
+      transports: { SHIPMENT: count('SHIPMENT'), MILKRUN: count('MILKRUN') },
+    });
   }
 
-  async readAttemptControl(
-    input: Parameters<CoupangDirectOrderCollectionTransactionPort['readAttemptControl']>[0],
-  ): Promise<CoupangDirectOwnerAttemptControl | null> {
-    return this.prisma.$transaction(async (tx) => {
-      const row = await tx.sourceImportRun.findFirst({
-        where: {
-          id: input.attemptId,
-          organizationId: input.organizationId,
-          sourceType: DIRECT_SOURCE_TYPE,
-        },
-      });
-      if (!row) return null;
-      return this.controlView(tx, row);
-    }, { ...TRANSACTION_OPTIONS, isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
+  async readCapture(input: { organizationId: string; operationId: string }): Promise<CoupangDirectCapture> {
+    return this.readStoredCapture(this.prisma, input.organizationId, input.operationId);
   }
 
-  /**
-   * 공용 시작 컨트롤이 폴링하는 계정별 현재 상태. 진행 중 판정은 begin이 409를 내는
-   * 판정과 같은 규칙이고, 임대가 지난 RUNNING 행은 여기서 끝내지 않고 마지막 시도
-   * 자리에 만료로만 비친다. 끝내는 일은 owner의 쓰기 경로가 한다.
-   */
-  async readSourceStatus(
-    input: Parameters<CoupangDirectOrderCollectionTransactionPort['readSourceStatus']>[0],
-  ): Promise<OrderCollectionSourceStatus> {
-    return this.prisma.$transaction(async (tx) => {
-      await assertRocketAccount(tx, input.organizationId, input.channelAccountId);
-      const scope = {
-        organizationId: input.organizationId,
-        sourceType: DIRECT_SOURCE_TYPE,
-        channelAccountId: input.channelAccountId,
-      } as const;
-      const order = [{ createdAt: 'desc' }, { id: 'desc' }] as const;
-
-      const running = (await tx.sourceImportRun.findMany({
-        where: { ...scope, status: SOURCE_IMPORT_RUN_RUNNING_STATUS },
-        orderBy: [...order],
-      })).find((row) => !expired(row)) ?? null;
-      const lastComplete = await tx.sourceImportRun.findFirst({
-        where: { ...scope, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
-        orderBy: [{ importedAt: 'desc' }, ...order],
-      });
-      const lastRow = await tx.sourceImportRun.findFirst({ where: scope, orderBy: [...order] });
-      const lastAttempt = lastRow ? await this.attemptView(tx, lastRow) : null;
-
-      return {
-        mallKey: null,
-        channelAccountId: input.channelAccountId,
-        running: running ? {
-          attemptId: running.id,
-          collectionMode: readPlan(running.plan).captureMode,
-          startedAt: running.createdAt.toISOString(),
-          expiresAt: running.expiresAt?.toISOString() ?? null,
-        } : null,
-        lastComplete: lastComplete ? {
-          attemptId: lastComplete.id,
-          completedAt: lastComplete.importedAt?.toISOString() ?? null,
-          publicationSequence: lastComplete.publicationSequence?.toString() ?? null,
-        } : null,
-        lastAttempt: lastRow && lastAttempt ? {
-          attemptId: lastAttempt.attemptId,
-          state: lastAttempt.state,
-          errorCode: lastAttempt.errorCode,
-          errorMessage: lastAttempt.errorMessage,
-          endedAt: endedAt(lastRow, lastAttempt.state),
-        } : null,
-      } satisfies OrderCollectionSourceStatus;
-    }, { ...TRANSACTION_OPTIONS, isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-  }
-
-  async completeAttempt(
-    input: Parameters<CoupangDirectOrderCollectionTransactionPort['completeAttempt']>[0],
-  ): Promise<CoupangDirectOwnerAttempt> {
-    return this.prisma.$transaction(async (tx) => {
-      await this.lockOwner(tx, input.organizationId);
-      const row = await this.findOwnerRun(tx, input.organizationId, input.attemptId);
-      if (row.attemptToken !== input.attemptToken) {
-        throw new ConflictException('ATTEMPT_FENCE_LOST');
-      }
-      const plan = readPlan(row.plan);
-      if (plan.channelAccountId !== input.capture.channelAccountId) {
-        throw new ConflictException('COUPANG_DIRECT_ACCOUNT_MISMATCH');
-      }
-      const captureBytes = Buffer.from(canonicalOwnerInputJson(input.capture), 'utf8');
-      const contentChecksum = checksum(captureBytes);
-      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
-        if (row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS && row.contentChecksum === contentChecksum) {
-          return this.attemptView(tx, row);
-        }
-        throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
-      }
-      if (expired(row)) {
-        throw new ConflictException('ATTEMPT_EXPIRED');
-      }
-
-      await tx.orderCollectionArtifact.create({
-        data: {
-          organizationId: input.organizationId,
-          sourceImportRunId: row.id,
-          sourceFileName: `coupang-direct-order-${contentChecksum.slice(0, 12)}.json`,
-          sourceContentType: 'application/json',
-          sourceBytes: new Uint8Array(captureBytes),
-        },
-      });
-      const partialDetailCount = input.capture.pos.filter(({ items }) => items.length === 0).length;
-      const emptyTransports = (['SHIPMENT', 'MILKRUN'] as const)
-        .filter((transport) => input.capture.pos.every((purchaseOrder) => purchaseOrder.transport !== transport));
-      const completedAt = new Date();
-      const completed = await tx.sourceImportRun.update({
-        where: { id: row.id, organizationId: input.organizationId },
-        data: {
-          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-          rowCount: input.capture.pos.length,
-          importedAt: completedAt,
-          lastVerifiedAt: completedAt,
-          verificationCount: { increment: 1 },
-          contentChecksum,
-          contentByteCount: captureBytes.length,
-          qualityReport: json({
-            source: DIRECT_SOURCE_TYPE,
-            parserVersion: DIRECT_PARSER_VERSION,
-            captureChecksum: contentChecksum,
-            sourceRowCount: input.capture.pos.length,
-            partialDetailCount,
-            emptyTransports,
-          }),
-          errorCode: null,
-          errorMessage: null,
-        },
-      });
-      await this.resolveAlert(tx, row);
-      return this.attemptView(tx, completed);
-    }, TRANSACTION_OPTIONS);
-  }
-
-  async consumeAttempt(
-    input: Parameters<CoupangDirectOrderCollectionTransactionPort['consumeAttempt']>[0],
+  async consume(
+    input: Parameters<CoupangDirectOrderCollectionTransactionPort['consume']>[0],
   ): Promise<CoupangDirectTransportReceipt> {
     return this.prisma.$transaction(async (tx) => {
       await this.lockOwner(tx, input.organizationId);
-      const row = await this.findOwnerRun(tx, input.organizationId, input.attemptId);
-      if (row.attemptToken !== input.attemptToken) {
-        throw new ConflictException('ATTEMPT_FENCE_LOST');
-      }
-      if (row.status !== SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
-        throw new ConflictException(row.status === SOURCE_IMPORT_RUN_FAILED_STATUS
-          ? 'SOURCE_ATTEMPT_FAILED'
-          : 'SOURCE_ATTEMPT_NOT_COMPLETE');
-      }
-      const plan = readPlan(row.plan);
-      if (plan.channelAccountId !== input.capture.channelAccountId) {
-        throw new ConflictException('COUPANG_DIRECT_ACCOUNT_MISMATCH');
-      }
-      const stored = await this.readStoredCapture(tx, input.organizationId, row.id);
+      const stored = await this.readStoredCapture(tx, input.organizationId, input.operationId);
+      if (stored.channelAccountId.toLowerCase() !== input.capture.channelAccountId.toLowerCase()) throw conflict('COUPANG_DIRECT_ACCOUNT_MISMATCH');
       assertTransportSelection(stored, input.capture);
 
       const projection = transportProjection(input.capture, input.transport);
       const existing = await tx.coupangDirectTransportConsumption.findUnique({
         where: {
-          organizationId_sourceImportRunId_transport: {
+          organizationId_operationId_transport: {
             organizationId: input.organizationId,
-            sourceImportRunId: row.id,
+            operationId: input.operationId,
             transport: input.transport,
           },
         },
@@ -330,17 +109,14 @@ implements CoupangDirectOrderCollectionTransactionPort {
       if (existing) {
         const storedKeys = new Map(stored.pos
           .filter((purchaseOrder) => purchaseOrder.items.length > 0)
-          .map((purchaseOrder) => [
-            purchaseOrderKey(purchaseOrder),
-            purchaseOrder.transport,
-          ]));
+          .map((purchaseOrder) => [purchaseOrderKey(purchaseOrder), purchaseOrder.transport]));
         const existingSelection = existing.selectedPurchaseOrderKeys
           .filter((key) => storedKeys.get(key) === input.transport);
         if (
           existing.selectedPurchaseOrderKeys.some((key) => !storedKeys.has(key))
           || !sameSelection(existingSelection, projection.selectionKeys)
         ) {
-          throw new ConflictException('SOURCE_TRANSPORT_REPLAY_CONFLICT');
+          throw conflict('SOURCE_TRANSPORT_REPLAY_CONFLICT');
         }
         return receiptView(existing.receipt, true);
       }
@@ -356,33 +132,16 @@ implements CoupangDirectOrderCollectionTransactionPort {
         },
       });
       if (canonical) {
-        await this.createConsumption(
-          tx,
-          input.organizationId,
-          row.id,
-          input.transport,
-          canonical.id,
-          projection.selectionKeys,
-        );
+        await this.createConsumption(tx, input.organizationId, input.operationId, input.transport, canonical.id, projection.selectionKeys);
         return receiptView(canonical, true);
       }
 
-      const reportReceipt = receiptFromQualityReport(row.qualityReport, input.transport);
-      if (reportReceipt && reportReceipt.payloadChecksum !== projection.payloadChecksum) {
-        throw new ConflictException('SOURCE_TRANSPORT_REPLAY_CONFLICT');
-      }
-      const receipt = reportReceipt ?? await this.publishTransport(
-        tx,
-        input,
-        row.id,
-        projection.request,
-        projection.payloadChecksum,
-      );
+      const receipt = await this.publishTransport(tx, input, projection.request, projection.payloadChecksum);
       const persisted = await tx.coupangDirectTransportReceipt.create({
         data: {
           organizationId: input.organizationId,
           channelAccountId: input.capture.channelAccountId,
-          effectSourceImportRunId: receipt.sourceImportRunId,
+          effectOperationId: input.operationId,
           rocketPurchaseConfirmationId: receipt.exportId,
           transport: receipt.transport,
           payloadChecksum: receipt.payloadChecksum,
@@ -394,194 +153,67 @@ implements CoupangDirectOrderCollectionTransactionPort {
           unmatchedLines: json(receipt.unmatchedLines),
         },
       });
-      await this.createConsumption(
-        tx,
-        input.organizationId,
-        row.id,
-        input.transport,
-        persisted.id,
-        projection.selectionKeys,
-      );
-      return receiptView(persisted, reportReceipt ? true : receipt.duplicate);
+      await this.createConsumption(tx, input.organizationId, input.operationId, input.transport, persisted.id, projection.selectionKeys);
+      return receiptView(persisted, false);
     }, TRANSACTION_OPTIONS);
-  }
-
-  async failAttempt(
-    input: Parameters<CoupangDirectOrderCollectionTransactionPort['failAttempt']>[0],
-  ): Promise<CoupangDirectOwnerAttempt> {
-    const message = redact(input.message).slice(0, 300);
-    return this.prisma.$transaction(async (tx) => {
-      await this.lockOwner(tx, input.organizationId);
-      const row = await this.findOwnerRun(tx, input.organizationId, input.attemptId);
-      if (row.attemptToken !== input.attemptToken) {
-        throw new ConflictException('ATTEMPT_FENCE_LOST');
-      }
-      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
-        if (
-          row.status === SOURCE_IMPORT_RUN_FAILED_STATUS
-          && row.errorCode === input.code
-          && row.errorMessage === message
-        ) {
-          return this.attemptView(tx, row);
-        }
-        throw new ConflictException('SOURCE_TERMINAL_REPLAY_CONFLICT');
-      }
-      const failed = expired(row)
-        ? await this.failIn(
-          tx,
-          row,
-          'ATTEMPT_EXPIRED',
-          operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
-        )
-        : await this.failIn(tx, row, input.code, message);
-      return this.attemptView(tx, failed);
-    }, TRANSACTION_OPTIONS);
-  }
-
-  /**
-   * Operator stop without the attempt token. It fails through the same terminal
-   * path as an extension-reported failure, so `USER_CANCELLED` is suppressed by
-   * the alert rule; a terminal attempt is returned as is.
-   */
-  async cancelAttempt(
-    input: Parameters<CoupangDirectOrderCollectionTransactionPort['cancelAttempt']>[0],
-  ): Promise<CoupangDirectOwnerAttempt> {
-    return this.prisma.$transaction(async (tx) => {
-      await this.lockOwner(tx, input.organizationId);
-      const row = await this.findOwnerRun(tx, input.organizationId, input.attemptId);
-      if (row.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) {
-        return this.attemptView(tx, row);
-      }
-      const failed = expired(row)
-        ? await this.failIn(
-          tx,
-          row,
-          'ATTEMPT_EXPIRED',
-          operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
-        )
-        : await this.failIn(tx, row, OPERATOR_CANCEL_CODE, OPERATOR_CANCEL_MESSAGE);
-      return this.attemptView(tx, failed);
-    }, TRANSACTION_OPTIONS);
-  }
-
-  async readCaptured(
-    input: Parameters<CoupangDirectOrderCollectionTransactionPort['readCaptured']>[0],
-  ): Promise<{ attempt: CoupangDirectOwnerAttempt; capture: CoupangDirectCapture }> {
-    return this.prisma.$transaction(async (tx) => {
-      const row = await this.findOwnerRun(tx, input.organizationId, input.attemptId);
-      const plan = readPlan(row.plan);
-      if (input.channelAccountId && input.channelAccountId !== plan.channelAccountId) {
-        throw new ConflictException('COUPANG_DIRECT_ACCOUNT_MISMATCH');
-      }
-      if (row.status !== SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
-        throw new ConflictException(row.status === SOURCE_IMPORT_RUN_FAILED_STATUS
-          ? 'SOURCE_ATTEMPT_FAILED'
-          : 'SOURCE_ATTEMPT_NOT_COMPLETE');
-      }
-      return {
-        attempt: await this.attemptView(tx, row),
-        capture: await this.readStoredCapture(tx, input.organizationId, row.id),
-      };
-    }, { ...TRANSACTION_OPTIONS, isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
   async readProjection(
     input: Parameters<CoupangDirectOrderCollectionTransactionPort['readProjection']>[0],
   ): Promise<CoupangDirectProjection> {
     return this.prisma.$transaction(async (tx) => {
-      const row = await this.findOwnerRun(tx, input.organizationId, input.attemptId);
-      const plan = readPlan(row.plan);
-      if (row.status !== SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
-        throw new ConflictException(row.status === SOURCE_IMPORT_RUN_FAILED_STATUS
-          ? 'SOURCE_ATTEMPT_FAILED'
-          : 'SOURCE_ATTEMPT_NOT_COMPLETE');
-      }
-      const capture = await this.readStoredCapture(tx, input.organizationId, row.id);
+      const capture = await this.readStoredCapture(tx, input.organizationId, input.operationId);
       const consumption = await tx.coupangDirectTransportConsumption.findUnique({
         where: {
-          organizationId_sourceImportRunId_transport: {
+          organizationId_operationId_transport: {
             organizationId: input.organizationId,
-            sourceImportRunId: row.id,
+            operationId: input.operationId,
             transport: input.transport,
           },
         },
         include: { receipt: true },
       });
-      const report = consumption ? null : readQualityReport(row.qualityReport);
-      const selectionKeys = consumption?.selectedPurchaseOrderKeys
-        ?? report?.transportSelections[input.transport];
-      const selected = selectionKeys
-        ? capture.pos.filter((purchaseOrder) =>
-          purchaseOrder.transport === input.transport
-          && selectionKeys.includes(purchaseOrderKey(purchaseOrder)))
-        : capture.pos.filter(({ transport }) => transport === input.transport);
+      if (!consumption) throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'coupang_direct_consumption', transport: input.transport } });
+      const selectionKeys = consumption.selectedPurchaseOrderKeys;
+      const selected = capture.pos.filter((purchaseOrder) =>
+        purchaseOrder.transport === input.transport && selectionKeys.includes(purchaseOrderKey(purchaseOrder)));
       const collectable = selected.filter(({ items }) => items.length > 0);
       if (selected.length > 0 && collectable.length === 0) {
-        throw new BadRequestException(
-          '쿠팡 발주 상세(품목)를 수집하지 못했습니다. 확장에서 발주를 다시 수집한 뒤 시도해주세요.',
-        );
+        throw new KiditemPreconditionError('ORDERS_DIRECTSHIP_DETAIL_MISSING', { details: { transport: input.transport } });
       }
-      const receipt = consumption
-        ? receiptView(
-          consumption.receipt,
-          consumption.receipt.effectSourceImportRunId !== consumption.sourceImportRunId,
-        )
-        : report?.transportRefs[input.transport] ?? null;
-      if (!receipt) throw new Error('COUPANG_DIRECT_RECEIPT_MISSING');
       return {
-        importRunId: row.id,
+        operationId: input.operationId,
         request: {
-          channelAccountId: plan.channelAccountId,
+          channelAccountId: capture.channelAccountId,
           centers: centersForPurchaseOrders(capture.centers, collectable),
           pos: collectable,
           transport: input.transport,
         },
-        receipt,
+        receipt: receiptView(consumption.receipt, consumption.receipt.effectOperationId !== input.operationId),
       };
     }, { ...TRANSACTION_OPTIONS, isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
   }
 
   private async readStoredCapture(
-    tx: Prisma.TransactionClient,
+    tx: Pick<Prisma.TransactionClient, 'orderCollectionArtifact'>,
     organizationId: string,
-    sourceImportRunId: string,
+    operationId: string,
   ): Promise<CoupangDirectCapture> {
     const artifact = await tx.orderCollectionArtifact.findFirst({
-      where: { organizationId, sourceImportRunId },
+      where: { organizationId, operationId },
       select: { sourceBytes: true },
     });
-    if (!artifact) throw new NotFoundException('COUPANG_DIRECT_CAPTURE_NOT_FOUND');
+    if (!artifact) throw new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'coupang_direct_capture', operationId } });
     return parseStoredCapture(Buffer.from(artifact.sourceBytes));
   }
 
   private async publishTransport(
     tx: Prisma.TransactionClient,
-    input: Parameters<CoupangDirectOrderCollectionTransactionPort['completeAttempt']>[0],
-    ownerRunId: string,
+    input: Parameters<CoupangDirectOrderCollectionTransactionPort['consume']>[0],
     request: CoupangDirectOrderCollectionRequest,
     payloadChecksum: string,
-  ): Promise<CoupangDirectTransportReceipt> {
+  ): Promise<Omit<CoupangDirectTransportReceipt, 'duplicate' | 'effectOperationId'>> {
     const { transport } = request;
-    const legacy = await tx.sourceImportRun.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        channelAccountId: request.channelAccountId,
-        sourceType: SOURCE_TYPE,
-        fileHash: payloadChecksum,
-        status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-      },
-      select: { id: true },
-    });
-    if (legacy) {
-      return this.legacyReceipt(
-        tx,
-        input.organizationId,
-        legacy.id,
-        request,
-        transport,
-        payloadChecksum,
-      );
-    }
     const reconciliationLines: Array<{
       finalOrderLineId: string;
       poNumber: string;
@@ -592,14 +224,12 @@ implements CoupangDirectOrderCollectionTransactionPort {
     for (const purchaseOrder of request.pos) {
       let mapped: ReturnType<typeof mapCoupangDirectOrder>;
       try {
-        mapped = mapCoupangDirectOrder(
-          purchaseOrder,
-          request.centers[purchaseOrder.center],
-        );
+        mapped = mapCoupangDirectOrder(purchaseOrder, request.centers[purchaseOrder.center]);
       } catch (error) {
-        throw new BadRequestException(
-          error instanceof Error ? error.message : 'Invalid Coupang direct order',
-        );
+        throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+          details: { reason: 'coupang_direct_order_invalid', seq: String(purchaseOrder.seq) },
+          cause: error,
+        });
       }
       const order = await tx.order.upsert({
         where: {
@@ -612,11 +242,11 @@ implements CoupangDirectOrderCollectionTransactionPort {
         create: {
           organizationId: input.organizationId,
           channelAccountId: request.channelAccountId,
-          sourceImportRunId: ownerRunId,
+          operationId: input.operationId,
           ...orderData(mapped),
         },
         update: {
-          sourceImportRunId: ownerRunId,
+          operationId: input.operationId,
           ...orderData(mapped),
         },
         select: { id: true },
@@ -625,12 +255,7 @@ implements CoupangDirectOrderCollectionTransactionPort {
         const line = mapped.lines[index]!;
         const source = purchaseOrder.items[index]!;
         const persisted = await tx.orderLineItem.upsert({
-          where: {
-            orderId_externalLineId: {
-              orderId: order.id,
-              externalLineId: line.externalLineId,
-            },
-          },
+          where: { orderId_externalLineId: { orderId: order.id, externalLineId: line.externalLineId } },
           create: {
             organizationId: input.organizationId,
             orderId: order.id,
@@ -658,219 +283,36 @@ implements CoupangDirectOrderCollectionTransactionPort {
       organizationId: input.organizationId,
       userId: input.userId,
       channelAccountId: request.channelAccountId,
-      sourceImportRunId: ownerRunId,
+      directshipOperationId: input.operationId,
       transport,
       lines: reconciliationLines,
     });
-    const collectedLines = dedupeLineRefs(
-      reconciliationLines.map(({ poNumber, productNo }) => ({ poNumber, productNo })),
-    );
+    const collectedLines = dedupeLineRefs(reconciliationLines.map(({ poNumber, productNo }) => ({ poNumber, productNo })));
     const unmatchedLines = dedupeLineRefs(reconciled.unmatchedLines);
     const unmatchedKeys = new Set(unmatchedLines.map(({ poNumber, productNo }) => lineKey(poNumber, productNo)));
     return {
       transport,
       payloadChecksum,
-      sourceImportRunId: ownerRunId,
       exportId: reconciled.exportId,
       transmissionIntentKey: reconciled.transmissionIntentKey,
       matchedLineCount: reconciled.reconciledRows,
       reconciledRows: reconciled.reconciledRows,
       collectedLines,
-      matchedLines: collectedLines.filter(({ poNumber, productNo }) =>
-        !unmatchedKeys.has(lineKey(poNumber, productNo))),
+      matchedLines: collectedLines.filter(({ poNumber, productNo }) => !unmatchedKeys.has(lineKey(poNumber, productNo))),
       unmatchedLines,
-      duplicate: false,
     };
   }
 
   private async createConsumption(
     tx: Prisma.TransactionClient,
     organizationId: string,
-    sourceImportRunId: string,
+    operationId: string,
     transport: DirectTransport,
     receiptId: string,
     selectedPurchaseOrderKeys: string[],
   ): Promise<void> {
     await tx.coupangDirectTransportConsumption.create({
-      data: {
-        organizationId,
-        sourceImportRunId,
-        receiptId,
-        transport,
-        selectedPurchaseOrderKeys,
-      },
-    });
-  }
-
-  private async legacyReceipt(
-    tx: Prisma.TransactionClient,
-    organizationId: string,
-    sourceImportRunId: string,
-    request: CoupangDirectOrderCollectionRequest,
-    transport: 'SHIPMENT' | 'MILKRUN',
-    payloadChecksum: string,
-  ): Promise<CoupangDirectTransportReceipt> {
-    const collectedLines = dedupeLineRefs(
-      request.pos.flatMap((purchaseOrder) => purchaseOrder.items.map((item) => ({
-        poNumber: String(purchaseOrder.seq),
-        productNo: item.skuId,
-      }))),
-    );
-    const transmission = await tx.rocketPurchaseConfirmationTransmission.findFirst({
-      where: {
-        organizationId,
-        sourceImportRunId,
-        transport,
-      },
-      select: {
-        confirmationId: true,
-        intentKey: true,
-      },
-    });
-    const orders = await tx.order.findMany({
-      where: { organizationId, sourceImportRunId },
-      select: {
-        externalOrderId: true,
-        lineItems: { select: { id: true, sku: true } },
-      },
-    });
-    const lineRefsById = new Map<string, CoupangDirectCollectionLineRef>();
-    for (const order of orders) {
-      for (const line of order.lineItems) {
-        if (typeof line.sku !== 'string') continue;
-        lineRefsById.set(line.id, {
-          poNumber: order.externalOrderId,
-          productNo: line.sku,
-        });
-      }
-    }
-    // The workbook lines this run actually linked: positive lines of the
-    // transmission's workbook whose collected order line belongs to the run.
-    const linkedLines = transmission
-      ? await tx.rocketPurchaseConfirmationLine.findMany({
-        where: {
-          organizationId,
-          confirmationId: transmission.confirmationId,
-          collectedOrderLineItemId: { in: [...lineRefsById.keys()] },
-          confirmedQuantity: { gt: 0 },
-        },
-        select: { collectedOrderLineItemId: true },
-      })
-      : [];
-    const matched = new Set(
-      linkedLines
-        .map(({ collectedOrderLineItemId }) => collectedOrderLineItemId)
-        .filter((value): value is string => Boolean(value)),
-    );
-    const matchedLines = dedupeLineRefs(
-      [...matched]
-        .map((id) => lineRefsById.get(id))
-        .filter((ref): ref is CoupangDirectCollectionLineRef => Boolean(ref)),
-    );
-    const matchedKeys = new Set(matchedLines.map(({ poNumber, productNo }) => lineKey(poNumber, productNo)));
-    return {
-      transport,
-      payloadChecksum,
-      sourceImportRunId,
-      exportId: transmission?.confirmationId ?? null,
-      transmissionIntentKey: transmission?.intentKey
-        ?? (collectedLines.length > 0
-          ? `rocket-final-order:${sourceImportRunId}:${transport.toLowerCase()}`
-          : null),
-      matchedLineCount: linkedLines.length,
-      reconciledRows: linkedLines.length,
-      collectedLines,
-      matchedLines,
-      unmatchedLines: collectedLines.filter(({ poNumber, productNo }) =>
-        !matchedKeys.has(lineKey(poNumber, productNo))),
-      duplicate: true,
-    };
-  }
-
-  private async findOwnerRun(
-    tx: Prisma.TransactionClient,
-    organizationId: string,
-    attemptId: string,
-  ) {
-    const row = await tx.sourceImportRun.findFirst({
-      where: { id: attemptId, organizationId, sourceType: DIRECT_SOURCE_TYPE },
-    });
-    if (!row) throw new NotFoundException('COUPANG_DIRECT_ATTEMPT_NOT_FOUND');
-    return row;
-  }
-
-  private async attemptView(
-    tx: Prisma.TransactionClient,
-    row: Prisma.SourceImportRunGetPayload<{}>,
-  ): Promise<CoupangDirectOwnerAttempt> {
-    const artifact = await tx.orderCollectionArtifact.findFirst({
-      where: { organizationId: row.organizationId, sourceImportRunId: row.id },
-      select: { id: true },
-    });
-    const plan = readPlan(row.plan);
-    const isExpired = expired(row);
-    return {
-      attemptId: row.id,
-      sourceImportRunId: row.id,
-      state: row.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
-        ? 'COMPLETE'
-        : row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && !isExpired
-          ? 'RUNNING'
-          : 'FAILED',
-      plan,
-      expiresAt: row.expiresAt?.toISOString() ?? null,
-      artifactId: artifact?.id ?? null,
-      contentChecksum: row.contentChecksum,
-      errorCode: isExpired ? 'ATTEMPT_EXPIRED' : row.errorCode,
-      errorMessage: isExpired ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' }) : row.errorMessage,
-    };
-  }
-
-  private async controlView(
-    tx: Prisma.TransactionClient,
-    row: Prisma.SourceImportRunGetPayload<{}>,
-  ): Promise<CoupangDirectOwnerAttemptControl> {
-    return {
-      ...(await this.attemptView(tx, row)),
-      attemptToken: row.attemptToken,
-    };
-  }
-
-  private async failIn(
-    tx: Prisma.TransactionClient,
-    row: Prisma.SourceImportRunGetPayload<{}>,
-    code: string,
-    message: string,
-  ) {
-    const failed = await tx.sourceImportRun.update({
-      where: { id: row.id, organizationId: row.organizationId },
-      data: {
-        status: SOURCE_IMPORT_RUN_FAILED_STATUS,
-        errorCode: code,
-        errorMessage: redact(message).slice(0, 300),
-      },
-    });
-    await this.alerts.recordTerminalOutcome(tx, {
-      code,
-      organizationId: row.organizationId,
-      sourceType: DIRECT_SOURCE_TYPE,
-      attemptId: row.id,
-      dedupeKey: `source:${DIRECT_SOURCE_TYPE}:${row.channelAccountId ?? 'unknown'}`,
-      title: '쿠팡 직배송 원본 수집 실패',
-      message: message,
-      href: '/order-collection',
-    });
-    return failed;
-  }
-
-  private async resolveAlert(
-    tx: Prisma.TransactionClient,
-    row: Prisma.SourceImportRunGetPayload<{}>,
-  ): Promise<void> {
-    await this.alerts.resolveSourceFailure(tx, {
-      organizationId: row.organizationId,
-      dedupeKey: `source:${DIRECT_SOURCE_TYPE}:${row.channelAccountId ?? 'unknown'}`,
-      attemptId: row.id,
+      data: { organizationId, operationId, receiptId, transport, selectedPurchaseOrderKeys },
     });
   }
 
@@ -883,7 +325,10 @@ implements CoupangDirectOrderCollectionTransactionPort {
       )
     `;
   }
+}
 
+function conflict(reason: string): KiditemConflictError {
+  return new KiditemConflictError('STATE_CONFLICT', { details: { reason } });
 }
 
 function orderData(mapped: ReturnType<typeof mapCoupangDirectOrder>) {
@@ -909,72 +354,26 @@ function dedupeLineRefs(
   return result;
 }
 
-function readPlan(value: Prisma.JsonValue | null): CoupangDirectCapturePlan {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('COUPANG_DIRECT_PLAN_MISSING');
-  }
-  const plan = value as Record<string, unknown>;
-  if (
-    plan.sourceType !== DIRECT_SOURCE_TYPE
-    || plan.parserVersion !== DIRECT_PARSER_VERSION
-    || typeof plan.channelAccountId !== 'string'
-    || plan.captureMode !== 'browser'
-    || plan.transportScope !== 'ALL'
-  ) {
-    throw new Error('COUPANG_DIRECT_PLAN_INVALID');
-  }
-  return plan as CoupangDirectCapturePlan;
-}
-
 function parseStoredCapture(bytes: Buffer): CoupangDirectCapture {
   let value: unknown;
   try {
     value = JSON.parse(bytes.toString('utf8'));
   } catch {
-    throw new Error('COUPANG_DIRECT_CAPTURE_INVALID');
+    throw conflict('COUPANG_DIRECT_CAPTURE_INVALID');
   }
   if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('COUPANG_DIRECT_CAPTURE_INVALID');
+    throw conflict('COUPANG_DIRECT_CAPTURE_INVALID');
   }
   const parsed = CoupangDirectOrderCollectionRequestSchema.safeParse({
     ...(value as Record<string, unknown>),
     transport: 'SHIPMENT',
   });
-  if (!parsed.success) throw new Error('COUPANG_DIRECT_CAPTURE_INVALID');
+  if (!parsed.success) throw conflict('COUPANG_DIRECT_CAPTURE_INVALID');
   const { transport: _transport, ...capture } = parsed.data;
   return capture;
 }
 
 type DirectTransport = 'SHIPMENT' | 'MILKRUN';
-type DirectQualityReport = {
-  [key: string]: unknown;
-  transportRefs: Partial<Record<DirectTransport, CoupangDirectTransportReceipt>>;
-  transportSelections: Partial<Record<DirectTransport, string[]>>;
-};
-
-function readQualityReport(value: Prisma.JsonValue | null): DirectQualityReport {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return { transportRefs: {}, transportSelections: {} };
-  }
-  const record = value as Record<string, unknown>;
-  const transportRefs: Partial<Record<DirectTransport, CoupangDirectTransportReceipt>> = {};
-  for (const transport of ['SHIPMENT', 'MILKRUN'] as const) {
-    const receipt = receiptFromQualityReport(value, transport);
-    if (receipt) transportRefs[transport] = receipt;
-  }
-  const rawSelections = record.transportSelections;
-  const transportSelections: Partial<Record<DirectTransport, string[]>> = {};
-  if (rawSelections && typeof rawSelections === 'object' && !Array.isArray(rawSelections)) {
-    for (const transport of ['SHIPMENT', 'MILKRUN'] as const) {
-      const selection = (rawSelections as Record<string, unknown>)[transport];
-      if (Array.isArray(selection) && selection.every((key) => typeof key === 'string')) {
-        transportSelections[transport] = selection;
-      }
-    }
-  }
-  return { ...record, transportRefs, transportSelections };
-}
-
 function transportProjection(
   capture: CoupangDirectCapture,
   transport: DirectTransport,
@@ -986,9 +385,7 @@ function transportProjection(
   const selected = capture.pos.filter((purchaseOrder) => purchaseOrder.transport === transport);
   const collectable = selected.filter((purchaseOrder) => purchaseOrder.items.length > 0);
   if (selected.length > 0 && collectable.length === 0) {
-    throw new BadRequestException(
-      '쿠팡 발주 상세(품목)를 수집하지 못했습니다. 확장에서 발주를 다시 수집한 뒤 시도해주세요.',
-    );
+    throw new KiditemPreconditionError('ORDERS_DIRECTSHIP_DETAIL_MISSING', { details: { transport } });
   }
   const request = {
     ...capture,
@@ -1033,55 +430,12 @@ function assertTransportSelection(
   selected: CoupangDirectCapture,
 ): void {
   if (canonicalOwnerInputJson(stored.centers) !== canonicalOwnerInputJson(selected.centers)) {
-    throw new ConflictException('COUPANG_DIRECT_CAPTURE_SELECTION_CONFLICT');
+    throw conflict('COUPANG_DIRECT_CAPTURE_SELECTION_CONFLICT');
   }
   const storedKeys = new Set(stored.pos.map(purchaseOrderKey));
   if (selected.pos.some((purchaseOrder) => !storedKeys.has(purchaseOrderKey(purchaseOrder)))) {
-    throw new ConflictException('COUPANG_DIRECT_CAPTURE_SELECTION_CONFLICT');
+    throw conflict('COUPANG_DIRECT_CAPTURE_SELECTION_CONFLICT');
   }
-}
-
-function receiptFromQualityReport(
-  value: Prisma.JsonValue | null,
-  transport: 'SHIPMENT' | 'MILKRUN',
-): CoupangDirectTransportReceipt | null {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) return null;
-  const refs = (value as Record<string, unknown>).transportRefs;
-  if (!refs || typeof refs !== 'object' || Array.isArray(refs)) return null;
-  const receipt = (refs as Record<string, unknown>)[transport];
-  if (!receipt || typeof receipt !== 'object' || Array.isArray(receipt)) return null;
-  const valueRecord = receipt as Record<string, unknown>;
-  const exportId = nullableString(valueRecord.exportId);
-  const transmissionIntentKey = nullableString(valueRecord.transmissionIntentKey);
-  const matchedLineCount = numberValue(valueRecord.matchedLineCount);
-  const reconciledRows = numberValue(valueRecord.reconciledRows);
-  if (
-    valueRecord.transport !== transport
-    || typeof valueRecord.payloadChecksum !== 'string'
-    || typeof valueRecord.sourceImportRunId !== 'string'
-    || exportId === undefined
-    || transmissionIntentKey === undefined
-    || matchedLineCount === undefined
-    || reconciledRows === undefined
-    || typeof valueRecord.duplicate !== 'boolean'
-  ) return null;
-  const collectedLines = parseLineRefs(valueRecord.collectedLines);
-  const matchedLines = parseLineRefs(valueRecord.matchedLines);
-  const unmatchedLines = parseLineRefs(valueRecord.unmatchedLines);
-  if (!collectedLines || !matchedLines || !unmatchedLines) return null;
-  return {
-    transport,
-    payloadChecksum: valueRecord.payloadChecksum,
-    sourceImportRunId: valueRecord.sourceImportRunId,
-    exportId,
-    transmissionIntentKey,
-    matchedLineCount,
-    reconciledRows,
-    collectedLines,
-    matchedLines,
-    unmatchedLines,
-    duplicate: valueRecord.duplicate,
-  };
 }
 
 function receiptView(
@@ -1089,18 +443,18 @@ function receiptView(
   duplicate: boolean,
 ): CoupangDirectTransportReceipt {
   if (row.transport !== 'SHIPMENT' && row.transport !== 'MILKRUN') {
-    throw new Error('COUPANG_DIRECT_RECEIPT_INVALID');
+    throw conflict('COUPANG_DIRECT_RECEIPT_INVALID');
   }
   const collectedLines = parseLineRefs(row.collectedLines);
   const matchedLines = parseLineRefs(row.matchedLines);
   const unmatchedLines = parseLineRefs(row.unmatchedLines);
   if (!collectedLines || !matchedLines || !unmatchedLines) {
-    throw new Error('COUPANG_DIRECT_RECEIPT_INVALID');
+    throw conflict('COUPANG_DIRECT_RECEIPT_INVALID');
   }
   return {
     transport: row.transport,
     payloadChecksum: row.payloadChecksum,
-    sourceImportRunId: row.effectSourceImportRunId,
+    effectOperationId: row.effectOperationId,
     exportId: row.rocketPurchaseConfirmationId,
     transmissionIntentKey: row.transmissionIntentKey,
     matchedLineCount: row.matchedLineCount,
@@ -1110,15 +464,6 @@ function receiptView(
     unmatchedLines,
     duplicate,
   };
-}
-
-function nullableString(value: unknown): string | null | undefined {
-  if (value === null) return null;
-  return typeof value === 'string' ? value : undefined;
-}
-
-function numberValue(value: unknown): number | undefined {
-  return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
 }
 
 function parseLineRefs(value: unknown): CoupangDirectCollectionLineRef[] | null {
@@ -1143,60 +488,4 @@ function checksum(bytes: Buffer): string {
 
 function json(value: unknown): Prisma.InputJsonValue {
   return value as Prisma.InputJsonValue;
-}
-
-function expired(row: Pick<Prisma.SourceImportRunGetPayload<{}>, 'status' | 'expiresAt'>): boolean {
-  return row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS && (!row.expiresAt || row.expiresAt.getTime() <= Date.now());
-}
-
-/**
- * 시도가 끝난 시각. 완료분은 발행 시각, 실패는 마지막 기록 시각이고, 아직 RUNNING인
- * 채로 임대만 지난 행은 그 임대가 끝난 시각이다.
- */
-function endedAt(
-  row: Prisma.SourceImportRunGetPayload<{}>,
-  state: 'RUNNING' | 'COMPLETE' | 'FAILED',
-): string | null {
-  if (state === 'RUNNING') return null;
-  if (row.status === SOURCE_IMPORT_RUN_RUNNING_STATUS) return row.expiresAt?.toISOString() ?? null;
-  return (row.importedAt ?? row.updatedAt).toISOString();
-}
-
-
-async function assertActiveActor(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  userId: string,
-) {
-  const membership = await tx.organizationMembership.findFirst({
-    where: {
-      organizationId,
-      userId,
-      status: 'active',
-      user: { isActive: true },
-    },
-    select: { id: true },
-  });
-  if (!membership) {
-    throw new UnauthorizedException('Active organization membership is required.');
-  }
-}
-
-async function assertRocketAccount(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  channelAccountId: string,
-) {
-  const account = await tx.channelAccount.findFirst({
-    where: {
-      id: channelAccountId,
-      organizationId,
-      channel: 'rocket',
-      status: 'active',
-    },
-    select: { id: true },
-  });
-  if (!account) {
-    throw new BadRequestException('Active Rocket channel account was not found.');
-  }
 }

@@ -317,7 +317,10 @@ model RocketPurchaseConfirmation {
   id                  String    @id @default(uuid()) @db.Uuid
   organizationId      String    @map("organization_id") @db.Uuid
   channelAccountId    String    @map("channel_account_id") @db.Uuid
-  sourceImportRunId   String    @map("source_import_run_id") @db.Uuid
+  /** 옛 로켓 PO attempt run(N까지). 새 워크북은 `rocketPoOperationId`만 갖는다(KID-359). */
+  sourceImportRunId   String?   @map("source_import_run_id") @db.Uuid
+  /** 워크북이 확정한 로켓 PO 수집 실행(Orders `orders.coupang_rocket_po`, 스칼라 — 관계 없음). */
+  rocketPoOperationId String?   @map("rocket_po_operation_id") @db.Uuid
   idempotencyKey      String    @map("idempotency_key") @db.Uuid
   requestHash         String    @map("request_hash") @db.VarChar(64)
   freshnessGeneration BigInt?   @map("freshness_generation") @db.BigInt
@@ -333,7 +336,7 @@ model RocketPurchaseConfirmation {
   updatedAt           DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
 
   organization                   Organization                             @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun                SourceImportRun                          @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun                SourceImportRun?                         @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   confirmer                      User                                     @relation("RocketPurchaseConfirmationConfirmer", fields: [confirmedBy], references: [id], onDelete: Restrict)
   lines                          RocketPurchaseConfirmationLine[]
   transmissions                  RocketPurchaseConfirmationTransmission[]
@@ -343,6 +346,7 @@ model RocketPurchaseConfirmation {
   @@unique([organizationId, idempotencyKey], map: "rocket_purchase_confirmations_org_idempotency_key")
   @@index([channelAccountId])
   @@index([sourceImportRunId])
+  @@index([organizationId, rocketPoOperationId])
   @@index([confirmedBy])
   @@map("rocket_purchase_confirmations")
 }
@@ -404,7 +408,10 @@ model RocketPurchaseConfirmationTransmission {
   id                String   @id @default(uuid()) @db.Uuid
   organizationId    String   @map("organization_id") @db.Uuid
   confirmationId    String   @map("confirmation_id") @db.Uuid
-  sourceImportRunId String   @map("source_import_run_id") @db.Uuid
+  /** 옛 직배송 attempt run(N까지). 새 관측은 `directshipOperationId`만 갖는다(KID-359). */
+  sourceImportRunId String?  @map("source_import_run_id") @db.Uuid
+  /** 이 워크북을 관측한 Orders 직배송 실행(`orders.coupang_directship`, 스칼라 — 관계 없음). */
+  directshipOperationId String? @map("directship_operation_id") @db.Uuid
   transport         String   @db.VarChar(20)
   intentKey         String?  @map("intent_key") @db.VarChar(500)
   observedAt        DateTime @default(now()) @map("observed_at") @db.Timestamptz
@@ -413,10 +420,11 @@ model RocketPurchaseConfirmationTransmission {
 
   organization    Organization               @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   confirmation    RocketPurchaseConfirmation @relation(fields: [confirmationId, organizationId], references: [id, organizationId], onDelete: Cascade)
-  sourceImportRun SourceImportRun            @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun SourceImportRun?           @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([confirmationId, transport])
   @@unique([organizationId, intentKey], map: "rocket_confirmation_transmissions_org_intent_key", where: raw("intent_key IS NOT NULL"))
   @@index([organizationId, sourceImportRunId])
+  @@index([organizationId, directshipOperationId], map: "rocket_confirmation_transmissions_org_directship_operation_idx")
   @@map("rocket_purchase_confirmation_transmissions")
 }

@@ -7,12 +7,7 @@ import type { CoupangShipmentDateSummaryRepositoryPort } from "../../port/out/pe
 function makeDateSummaryRepo(): CoupangShipmentDateSummaryRepositoryPort {
   return {
     listDateSummary: vi.fn().mockResolvedValue([]),
-    beginSummary: vi.fn(),
-    readSummarySource: vi.fn(),
-    readSummaryAttempt: vi.fn(),
-    completeSummary: vi.fn(),
-    failSummary: vi.fn(),
-    cancelSummary: vi.fn(),
+    publishOperation: vi.fn(),
   };
 }
 

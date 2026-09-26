@@ -14,7 +14,7 @@ import { RuntimeError } from '../../core/errors';
 import type { CollectedChunk, Collector } from '../collector';
 import { registerCollector } from '../index';
 
-/** 이 수집기가 Wing에서 쓰는 것(`sites/wing/reviews.ts`가 구현, 입구가 넘긴다). */
+/** 이 수집기가 Wing에서 쓰는 것(`sites/wing/reviews.ts`의 `wing-reviews`가 구현, 입구가 넘긴다). */
 export interface WingReviewsSite {
   /** 창(`start`·`end`) 안의 `pageIndex`쪽(0부터, 50건). `totalPages`는 Wing pagination 그대로. */
   searchReviews(input: { start: string; end: string; pageIndex: number }): Promise<{ items: ReviewIngestItem[]; totalPages: number }>;
@@ -39,7 +39,7 @@ const RUNTIME_PLAN_INVALID = 'RUNTIME_PLAN_INVALID' as const;
  */
 export const coupangReviewsCollector: Collector<CoupangReviewsPlan, Record<string, unknown>, WingReviewsSite> = {
   kind: COUPANG_REVIEWS_KIND,
-  site: 'wing',
+  site: 'wing-reviews',
   async *collect(rawPlan, site, { signal }) {
     const parsed = CoupangReviewsPlanSchema.safeParse(rawPlan);
     if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, '상품평 수집 계획이 올바르지 않습니다.', { kind: COUPANG_REVIEWS_KIND });

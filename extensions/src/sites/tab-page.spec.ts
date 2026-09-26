@@ -15,9 +15,20 @@ function fakeChrome(options: { sendMessage: (message: unknown, call: number) => 
         return { status, url: options.urls?.[Math.min(gets - 1, options.urls.length - 1)] ?? options.url ?? 'https://s.1688.com/x' };
       },
       remove: async (tabId) => { log.push(`remove ${tabId}`); },
-      sendMessage: async (_tabId, message) => { sends += 1; return options.sendMessage(message, sends); },
+      sendMessage: async (_tabId, message, sendOptions) => {
+        sends += 1;
+        if (sendOptions?.frameId !== undefined) log.push(`send frame ${sendOptions.frameId}`);
+        return options.sendMessage(message, sends);
+      },
     },
-    scripting: { executeScript: async (injection) => { log.push(`inject ${injection.world ?? 'ISOLATED'} ${injection.files.join(',')}`); } },
+    scripting: {
+      executeScript: async (injection) => {
+        const target = injection.target as { allFrames?: boolean; frameIds?: number[] };
+        const where = target.allFrames ? ' all frames' : target.frameIds ? ` frames ${target.frameIds.join(',')}` : '';
+        log.push(`inject ${injection.world ?? 'ISOLATED'} ${injection.files.join(',')}${where}`);
+        return target.allFrames ? [{ frameId: 0, result: { top: true } }, { frameId: 5, result: { top: false } }, { frameId: 6 }] : [];
+      },
+    },
     runtime: { onMessage: { addListener: () => undefined, removeListener: () => undefined } },
   };
   return { chromeApi, log };
@@ -46,6 +57,19 @@ describe('chrome tab pages (KID-360)', () => {
     const page = createTabPages(deps(chromeApi)).attach(4);
     await expect(page.ask({ type: 'X' }, { timeoutMs: 1_000, inject: { isolated: ['a.js'], main: ['b.js'] } })).resolves.toEqual({ ok: true, items: [] });
     expect(log).toEqual(['inject ISOLATED a.js', 'inject MAIN b.js']);
+  });
+
+  it('runs a file in every frame and returns each frame result; asks one frame and injects into that frame only (KID-359 H3)', async () => {
+    const { chromeApi, log } = fakeChrome({
+      sendMessage: async (_message, call) => {
+        if (call === 1) throw new Error('Could not establish connection. Receiving end does not exist.');
+        return { ok: true };
+      },
+    });
+    const page = createTabPages(deps(chromeApi)).attach(4);
+    await expect(page.frames(['detect.js'])).resolves.toEqual([{ frameId: 0, result: { top: true } }, { frameId: 5, result: { top: false } }]);
+    await expect(page.ask({ type: 'X' }, { timeoutMs: 1_000, frameId: 5, inject: { isolated: ['a.js'], main: ['b.js'] } })).resolves.toEqual({ ok: true });
+    expect(log).toEqual(['inject ISOLATED detect.js all frames', 'send frame 5', 'inject ISOLATED a.js frames 5', 'inject MAIN b.js frames 5', 'send frame 5']);
   });
 
   it('answers a timeout instead of hanging', async () => {

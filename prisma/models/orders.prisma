@@ -5,16 +5,20 @@
 model OrderCollectionArtifact {
   id                String   @id @default(uuid()) @db.Uuid
   organizationId    String   @map("organization_id") @db.Uuid
-  sourceImportRunId String   @map("source_import_run_id") @db.Uuid
+  /** 옛 attempt 경로의 run(H3′·KID-365까지). 실행 계약 kind가 보관한 캡처는 `operationId`만 갖는다. */
+  sourceImportRunId String?  @map("source_import_run_id") @db.Uuid
+  /** 실행 계약(ADR-0025) 실행 id — 스칼라, FK 없음. 청크는 finish에서 지워지므로 보관할 캡처는 여기 남는다(KID-359 wave2). */
+  operationId       String?  @map("operation_id") @db.Uuid
   sourceFileName    String?  @map("source_file_name") @db.VarChar(240)
   sourceContentType String   @map("source_content_type") @db.VarChar(120)
   sourceBytes       Bytes    @map("source_bytes")
   createdAt         DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   organization    Organization    @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun SourceImportRun @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun SourceImportRun? @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([sourceImportRunId, organizationId])
+  @@unique([operationId, organizationId])
   @@unique([id, organizationId])
   @@index([organizationId])
   @@map("order_collection_artifacts")
@@ -26,7 +30,10 @@ model CoupangDirectTransportReceipt {
   id                           String   @id @default(uuid()) @db.Uuid
   organizationId               String   @map("organization_id") @db.Uuid
   channelAccountId             String   @map("channel_account_id") @db.Uuid
-  effectSourceImportRunId      String   @map("effect_source_import_run_id") @db.Uuid
+  /** 옛 attempt run(N까지). 실행 계약 kind `orders.coupang_directship`의 변환이 만든 영수증은 `effectOperationId`만 갖는다. */
+  effectSourceImportRunId      String?  @map("effect_source_import_run_id") @db.Uuid
+  /** 이 영수증의 효과(주문·워크북 대조)를 처음 만든 directship 실행(스칼라, 관계 없음 — ADR-0025). */
+  effectOperationId            String?  @map("effect_operation_id") @db.Uuid
   rocketPurchaseConfirmationId String?  @map("rocket_purchase_confirmation_id") @db.Uuid
   transport                    String   @db.VarChar(20)
   payloadChecksum              String   @map("payload_checksum") @db.VarChar(64)
@@ -39,7 +46,7 @@ model CoupangDirectTransportReceipt {
   createdAt                    DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   organization               Organization                        @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  effectSourceImportRun      SourceImportRun                     @relation("CoupangDirectTransportReceiptEffectSource", fields: [effectSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  effectSourceImportRun      SourceImportRun?                    @relation("CoupangDirectTransportReceiptEffectSource", fields: [effectSourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   rocketPurchaseConfirmation RocketPurchaseConfirmation?         @relation(fields: [rocketPurchaseConfirmationId, organizationId], references: [id, organizationId], onDelete: Restrict)
   consumptions               CoupangDirectTransportConsumption[]
 
@@ -48,6 +55,7 @@ model CoupangDirectTransportReceipt {
   @@unique([organizationId, transmissionIntentKey], map: "coupang_direct_transport_receipts_org_intent_key", where: raw("transmission_intent_key IS NOT NULL"))
   @@index([channelAccountId, organizationId])
   @@index([effectSourceImportRunId, organizationId])
+  @@index([organizationId, effectOperationId])
   @@index([rocketPurchaseConfirmationId, organizationId])
   @@map("coupang_direct_transport_receipts")
 }
@@ -57,17 +65,21 @@ model CoupangDirectTransportReceipt {
 model CoupangDirectTransportConsumption {
   id                        String   @id @default(uuid()) @db.Uuid
   organizationId            String   @map("organization_id") @db.Uuid
-  sourceImportRunId         String   @map("source_import_run_id") @db.Uuid
+  /** 옛 attempt run(N까지). 실행이 변환한 소비는 `operationId`만 갖는다(KID-359). */
+  sourceImportRunId         String?  @map("source_import_run_id") @db.Uuid
+  /** 이 운송유형을 변환한 directship 실행(스칼라, 관계 없음 — ADR-0025). */
+  operationId               String?  @map("operation_id") @db.Uuid
   receiptId                 String   @map("receipt_id") @db.Uuid
   transport                 String   @db.VarChar(20)
   selectedPurchaseOrderKeys String[] @default([]) @map("selected_purchase_order_keys")
   createdAt                 DateTime @default(now()) @map("created_at") @db.Timestamptz
 
   organization    Organization                  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-  sourceImportRun SourceImportRun               @relation("CoupangDirectTransportConsumptionSource", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun SourceImportRun?              @relation("CoupangDirectTransportConsumptionSource", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   receipt         CoupangDirectTransportReceipt @relation(fields: [receiptId, organizationId, transport], references: [id, organizationId, transport], onDelete: Restrict)
 
   @@unique([organizationId, sourceImportRunId, transport], map: "coupang_direct_transport_consumptions_source_transport_key")
+  @@unique([organizationId, operationId, transport], map: "coupang_direct_transport_consumptions_operation_transport_key")
   @@index([sourceImportRunId, organizationId])
   @@index([receiptId, organizationId, transport])
   @@map("coupang_direct_transport_consumptions")
@@ -126,6 +138,8 @@ model Order {
   organizationId    String  @map("organization_id") @db.Uuid
   channelAccountId  String  @map("channel_account_id") @db.Uuid
   sourceImportRunId String? @map("source_import_run_id") @db.Uuid
+  /** 이 주문을 마지막으로 쓴 directship 실행(스칼라, 관계 없음 — ADR-0025, KID-359). 옛 run·다른 경로 주문은 null. */
+  operationId       String? @map("operation_id") @db.Uuid
 
   externalOrderId String  @map("external_order_id") @db.VarChar(60)
   externalNumber  String? @map("external_number") @db.VarChar(60)
@@ -157,6 +171,7 @@ model Order {
   sourceImportRun SourceImportRun? @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
   lineItems       OrderLineItem[]
 
+  @@index([organizationId, operationId])
   @@unique([id, organizationId])
   @@unique([organizationId, channelAccountId, externalOrderId])
   @@index([organizationId])
@@ -333,7 +348,10 @@ model CoupangDirectPoSnapshot {
 model CoupangShipmentDateSummary {
   id                String   @id @default(uuid()) @db.Uuid
   organizationId    String   @map("organization_id") @db.Uuid
+  /** 옛 attempt 경로의 run(N까지). 실행 계약 kind `orders.coupang_shipment_summary`가 쓴 행은 `operationId`만 갖는다(KID-359). */
   sourceImportRunId String?  @map("source_import_run_id") @db.Uuid
+  /** 이 발송일을 센 실행(스칼라, 관계 없음 — ADR-0025). 옛 run 행·기준 행은 null. */
+  operationId       String?  @map("operation_id") @db.Uuid
   shipmentDate      String   @map("shipment_date")
   count             Int      @default(0)
   boxes             Int      @default(0)
@@ -345,8 +363,10 @@ model CoupangShipmentDateSummary {
   sourceImportRun SourceImportRun? @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, sourceImportRunId, shipmentDate], map: "shipment_date_summary_attempt_date_key", where: raw("source_import_run_id IS NOT NULL"))
-  @@unique([organizationId, shipmentDate], map: "shipment_date_summary_baseline_date_key", where: raw("source_import_run_id IS NULL"))
+  @@unique([organizationId, operationId, shipmentDate], map: "shipment_date_summary_operation_date_key", where: raw("operation_id IS NOT NULL"))
+  @@unique([organizationId, shipmentDate], map: "shipment_date_summary_baseline_date_key", where: raw("source_import_run_id IS NULL AND operation_id IS NULL"))
   @@index([sourceImportRunId, organizationId])
+  @@index([organizationId, operationId])
   @@index([organizationId])
   @@map("coupang_shipment_date_summaries")
 }
@@ -359,8 +379,12 @@ model RocketPoCatalogSnapshot {
   id                String @id @default(uuid()) @db.Uuid
   organizationId    String @map("organization_id") @db.Uuid
   channelAccountId  String @map("channel_account_id") @db.Uuid
-  sourceImportRunId String @map("source_import_run_id") @db.Uuid
-  collectionRunId   String @map("collection_run_id") @db.Uuid
+  /** 옛 attempt 경로의 run(N까지). 실행 계약 kind `orders.coupang_rocket_po`가 쓴 스냅샷은 `operationId`만 갖는다(KID-359). */
+  sourceImportRunId String? @map("source_import_run_id") @db.Uuid
+  /** 이 스냅샷을 발행한 실행(스칼라, 관계 없음 — ADR-0025). 옛 run 스냅샷은 null. */
+  operationId       String? @map("operation_id") @db.Uuid
+  /** 수집 증거의 식별자. 실행이 쓴 스냅샷은 `operationId`와 같다. */
+  collectionRunId   String  @map("collection_run_id") @db.Uuid
 
   vendorId       String @map("vendor_id")
   listPagesRead  Int    @map("list_pages_read")
@@ -372,10 +396,11 @@ model RocketPoCatalogSnapshot {
 
   lines RocketPoCatalogLine[]
 
-  sourceImportRun SourceImportRun       @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
+  sourceImportRun SourceImportRun?      @relation(fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([id, organizationId], map: "rocket_po_catalog_snapshots_id_org_key")
   @@unique([sourceImportRunId, organizationId], map: "rocket_po_catalog_snapshots_run_org_key")
+  @@unique([organizationId, operationId], map: "rocket_po_catalog_snapshots_org_operation_key")
   @@unique([organizationId, channelAccountId, collectionRunId], map: "rocket_po_catalog_snapshots_org_account_collection_key")
   @@index([organizationId, channelAccountId, createdAt])
   @@index([channelAccountId])

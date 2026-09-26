@@ -9,12 +9,12 @@ import {
 import type { RocketSavedPoSummary } from '@kiditem/shared/rocket-purchase-preview';
 
 const rocketAccountId = '11111111-1111-4111-8111-111111111111';
-const sourceImportRunId = '22222222-2222-4222-8222-222222222222';
-const secondSourceImportRunId = '33333333-3333-4333-8333-333333333333';
+const rocketPoOperationId = '22222222-2222-4222-8222-222222222222';
+const secondRocketPoOperationId = '33333333-3333-4333-8333-333333333333';
 
 const savedOrders: RocketSavedPoSummary[] = [
   {
-    sourceImportRunId,
+    rocketPoOperationId,
     poNumber: 'PO-1001',
     orderedAt: '2026-07-17',
     plannedDeliveryDate: '2026-07-18',
@@ -29,7 +29,7 @@ const savedOrders: RocketSavedPoSummary[] = [
     collectedAt: '2026-07-18T03:00:00.000Z',
   },
   {
-    sourceImportRunId,
+    rocketPoOperationId,
     poNumber: 'PO-1002',
     orderedAt: '2026-07-18',
     plannedDeliveryDate: '2026-07-19',
@@ -148,7 +148,7 @@ function renderWorkspace(options?: {
 
 describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
   beforeEach(() => {
-    owner.id = sourceImportRunId;
+    owner.id = rocketPoOperationId;
     owner.complete = true;
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 18, 9, 0, 0));
@@ -157,8 +157,11 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
     replaceMock.mockReset();
     query.refetch.mockReset();
     query.isLoading = false;
-    queryMock.mockImplementation(({ enabled }: { enabled?: boolean }) => ({
-      data: enabled ? savedOrders : [],
+    // 서버처럼: 이 계정에 완료된 수집이 있을 때만 그 스냅샷의 발주를 준다(리뷰 M1 — 목록은 서버 스냅샷이 정한다).
+    queryMock.mockImplementation(({ enabled, queryKey }: { enabled?: boolean; queryKey?: unknown }) => ({
+      data: enabled
+        ? (owner.complete && JSON.stringify(queryKey ?? '').includes(rocketAccountId) ? savedOrders : [])
+        : [],
       isLoading: query.isLoading,
       isFetching: false,
       isError: false,
@@ -346,7 +349,7 @@ describe('<RocketOrdersWorkspace /> integrated order explorer', () => {
 
 describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
   beforeEach(() => {
-    owner.id = sourceImportRunId;
+    owner.id = rocketPoOperationId;
     owner.complete = true;
     vi.useFakeTimers();
     vi.setSystemTime(new Date(2026, 6, 18, 12, 0, 0));
@@ -355,8 +358,10 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
     replaceMock.mockReset();
     query.refetch.mockReset();
     query.isLoading = false;
-    queryMock.mockImplementation(({ enabled }: { enabled?: boolean }) => ({
-      data: enabled ? savedOrders : [],
+    queryMock.mockImplementation(({ enabled, queryKey }: { enabled?: boolean; queryKey?: unknown }) => ({
+      data: enabled
+        ? (owner.complete && JSON.stringify(queryKey ?? '').includes(rocketAccountId) ? savedOrders : [])
+        : [],
       isLoading: query.isLoading,
       isFetching: false,
       isError: false,
@@ -413,7 +418,7 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
 
     renderWorkspace({ onContext: (context) => { latestContext = context; } });
 
-    expect(latestContext?.selectedSourceImportRunId).toBe(sourceImportRunId);
+    expect(latestContext?.selectedRocketPoOperationId).toBe(rocketPoOperationId);
   });
 
   it('keeps the latest collection preview open when the selected day has no rows', () => {
@@ -423,7 +428,7 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
     renderWorkspace({ onContext: (context) => { latestContext = context; } });
 
     expect(latestContext?.selectedDateSourceRunCount).toBe(0);
-    expect(latestContext?.selectedSourceImportRunId).toBe(sourceImportRunId);
+    expect(latestContext?.selectedRocketPoOperationId).toBe(rocketPoOperationId);
   });
 
   it('clears the previous source while switching Rocket accounts', () => {
@@ -431,35 +436,35 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
     renderWorkspace({ onContext: (context) => { latestContext = context; } });
 
     fireEvent.click(screen.getByRole('button', { name: '2026-07-18 발주 1건' }));
-    expect(latestContext?.selectedSourceImportRunId).toBe(sourceImportRunId);
+    expect(latestContext?.selectedRocketPoOperationId).toBe(rocketPoOperationId);
 
     fireEvent.click(screen.getByRole('button', { name: '테스트 로켓 계정 변경' }));
     expect(latestContext?.channelAccountId).toBe('12121212-1212-4212-8212-121212121212');
-    expect(latestContext?.selectedSourceImportRunId).toBeNull();
+    expect(latestContext?.selectedRocketPoOperationId).toBeNull();
   });
 
   it('clears account and source context when the account selector reports no valid selection', () => {
     let latestContext: RocketDecisionWorkspaceContext | null = null;
     renderWorkspace({ onContext: (context) => { latestContext = context; } });
     fireEvent.click(screen.getByRole('button', { name: '2026-07-18 발주 1건' }));
-    expect(latestContext?.selectedSourceImportRunId).toBe(sourceImportRunId);
+    expect(latestContext?.selectedRocketPoOperationId).toBe(rocketPoOperationId);
 
     fireEvent.click(screen.getByRole('button', { name: '테스트 로켓 계정 해제' }));
     expect(latestContext?.channelAccountId).toBe('');
-    expect(latestContext?.selectedSourceImportRunId).toBeNull();
+    expect(latestContext?.selectedRocketPoOperationId).toBeNull();
   });
 
   it('selects the authoritative owner source instead of inferring identity from repeated rows', () => {
-    owner.id = secondSourceImportRunId;
+    owner.id = secondRocketPoOperationId;
     const repeatedRuns: RocketSavedPoSummary[] = [
       {
         ...savedOrders[0]!,
-        sourceImportRunId: secondSourceImportRunId,
+        rocketPoOperationId: secondRocketPoOperationId,
         collectedAt: '2026-07-18T04:00:00.000Z',
       },
       {
         ...savedOrders[0]!,
-        sourceImportRunId,
+        rocketPoOperationId,
         collectedAt: '2026-07-18T03:00:00.000Z',
       },
     ];
@@ -478,6 +483,6 @@ describe('<RocketOrdersWorkspace /> saved purchase preview wiring', () => {
 
     expect(screen.getByRole('button', { name: '2026-07-18 발주 1건' }))
       .toBeInTheDocument();
-    expect(latestContext?.selectedSourceImportRunId).toBe(secondSourceImportRunId);
+    expect(latestContext?.selectedRocketPoOperationId).toBe(secondRocketPoOperationId);
   });
 });

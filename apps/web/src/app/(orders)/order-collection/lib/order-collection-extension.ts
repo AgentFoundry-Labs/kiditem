@@ -7,17 +7,6 @@ import {
 import { extractSellpiaOrderNumbers } from './sellpia-order-targets';
 import type { OrderCollectionAttemptContext } from './order-collection-source-owner';
 
-export interface IcecreamMallExtensionRows {
-  mall: '아이스크림몰';
-  date: string | null;
-  headers: string[];
-  rows: string[][];
-  rowCount: number;
-  masked: boolean;
-  source: string;
-  url?: string;
-}
-
 export interface IcecreamMallExtensionCredentials {
   loginId: string;
   supplierLoginId?: string;
@@ -97,9 +86,6 @@ export function createOrderCollectionExtensionError(
   });
 }
 
-interface IcecreamMallExtensionResponse
-  extends Partial<IcecreamMallExtensionRows>, OrderCollectionFailureResponse {}
-
 export interface OrderCollectionExtensionRun extends OrderCollectionAttemptContext {
   extensionId?: string;
   date?: string | null;
@@ -109,7 +95,11 @@ export interface OrderCollectionExtensionRun extends OrderCollectionAttemptConte
   /** Frozen before an automatic attempt starts; never re-read while it runs. */
   selectionMode?: 'manual' | 'automatic';
   seenRowKeys?: string[];
-  sourceOwner?: 'order_collection_mall' | 'coupang_directship';
+  /**
+   * `mall_orders_operation`: 실행 kind `orders.mall_orders`로 옮긴 몰(KID-359 H3). 옛 몰 소유자의 시도가 없어
+   * 로그인은 시도 없이 보낸다.
+   */
+  sourceOwner?: 'order_collection_mall' | 'coupang_directship' | 'mall_orders_operation';
 }
 
 /** Fields shared by every named marketplace action sent to the extension. */
@@ -197,46 +187,6 @@ export function orderCollectionExtensionUnavailableMessage(
       `누락 기능: ${status.missingCapabilities.join(', ')}. extensions/kiditem-os를 다시 로드해주세요.`;
   }
   return '주문수집 확장프로그램을 찾지 못했습니다. extensions/kiditem-os를 Chrome에서 로드해주세요.';
-}
-
-async function requireOrderCollectionSessionExtension(): Promise<string> {
-  const status = await detectOrderCollectionSessionExtensionStatus();
-  if (status.status === 'ready') return status.extensionId;
-  throw new Error(orderCollectionExtensionUnavailableMessage(status));
-}
-
-export async function collectIcecreamMallRowsFromExtension(
-  date: string,
-  credentials?: IcecreamMallExtensionCredentials,
-  run?: OrderCollectionExtensionRun,
-): Promise<IcecreamMallExtensionRows> {
-  const extensionId = run?.extensionId ?? await requireOrderCollectionSessionExtension();
-  const response = await sendToExtension<IcecreamMallExtensionResponse>(extensionId, {
-    action: 'collectIcecreamMallOrders',
-    date,
-    credentials,
-    ...orderCollectionExtensionRunFields(run),
-  }, 90000);
-
-  if (!response?.success || !response.headers || !response.rows) {
-    throw createOrderCollectionExtensionError(
-      response,
-      response?.pendingLogin
-        ? '아이스크림몰 로그인 후 배송 조회 화면을 열어주세요.'
-        : '아이스크림몰 주문 수집 실패',
-    );
-  }
-
-  return {
-    mall: '아이스크림몰',
-    date: response.date ?? date,
-    headers: response.headers,
-    rows: response.rows,
-    rowCount: response.rowCount ?? response.rows.length,
-    masked: response.masked ?? false,
-    source: response.source ?? 'icecream-mall-delivery-grid',
-    url: response.url,
-  };
 }
 
 export const MALL_LOGIN_TEST_CAPABILITY = 'mallLoginTestV1';
@@ -340,8 +290,9 @@ export async function ensureMallLoggedInViaExtension(
         // 시도를 같이 보내면 확장이 그 로그인을 **몰 소유자**의 수집으로 감싼다. 쿠팡직배송
         // 시도는 제 소유자(coupang_directship)의 것이라 몰 쪽에는 없고, 그래서 로그인이
         // 시작되기도 전에 `ORDER_COLLECTION_ATTEMPT_NOT_FOUND` 로 끝났다. 직배송은 시도 없이
-        // 로그인만 시킨다 — 그 시도의 마무리는 제 소유자가 한다(사장님 2026-09-21).
-        ...(run && run.sourceOwner !== 'coupang_directship'
+        // 로그인만 시킨다 — 그 시도의 마무리는 제 소유자가 한다(사장님 2026-09-21). 실행 kind로 옮긴 몰도
+        // 옛 시도가 없어 같다(KID-359 H3).
+        ...(run && run.sourceOwner !== 'coupang_directship' && run.sourceOwner !== 'mall_orders_operation'
           ? { attemptId: run.attemptId, deferTerminal: true }
           : {}),
         date: run?.date ?? null,

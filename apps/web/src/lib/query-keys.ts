@@ -78,6 +78,7 @@ export const queryKeys = {
   inventory: {
     all: ['inventory'] as const,
     coupangShipmentSummary: () => [...queryKeys.inventory.all, 'coupang-shipment-summary'] as const,
+    coupangShipmentSummaryOperation: () => [...queryKeys.inventory.all, 'coupang-shipment-summary', 'operation'] as const,
     snapshots: () => [...queryKeys.inventory.all, 'sellpia-skus'] as const,
     snapshot: (params: Record<string, string>) =>
       [...queryKeys.inventory.snapshots(), params] as const,
@@ -183,7 +184,8 @@ export const queryKeys = {
     stats: () => [...queryKeys.orders.all, 'stats'] as const,
     pipeline: (params?: Record<string, string>) => [...queryKeys.orders.pipelines(), params] as const,
     action: (action: string) => [...queryKeys.orders.all, 'action', action] as const,
-    rocketPoSource: (channelAccountId: string) => [...queryKeys.orders.all, 'rocket-po-source', channelAccountId] as const,
+    /** 조직의 최근 로켓 PO 실행(`orders.coupang_rocket_po`) — 계정 화면이 나눠 본다. */
+    rocketPoOperations: () => [...queryKeys.orders.all, 'rocket-po-operations'] as const,
     rocketSavedPoLists: () => [...queryKeys.orders.all, 'rocket-saved-po-list'] as const,
     rocketSavedPoList: (params: {
       channelAccountId: string;
@@ -204,9 +206,6 @@ export const queryKeys = {
     /** 오늘 수집이 실어 온 주문 수(서버 기록). 대시보드의 '오늘 주문' 과 같은 사실. */
     collectionTodayOrders: (organizationId: string) =>
       [...queryKeys.orders.all, 'collection', 'today-orders', organizationId] as const,
-    /** The organization's Sellpia shipment-tracking collection owner status. */
-    sellpiaShipmentTrackingSource: () =>
-      [...queryKeys.orders.all, 'sellpia-shipment-tracking-source'] as const,
     /** One Rocket account's directship order-collection owner status. */
     coupangDirectshipSource: (channelAccountId: string) =>
       [...queryKeys.orders.all, 'collection', 'coupang-directship-source', channelAccountId] as const,

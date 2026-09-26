@@ -3,7 +3,7 @@ import type {
   WingCatalogDeletionConfirmationItem,
 } from '@kiditem/shared/coupang-catalog-snapshot';
 import { RuntimeError, isRuntimeError } from '../../core/errors';
-import { SITE_REQUEST_FAILED, type SiteCaller, type SiteRequestInit } from '../../core/site-caller';
+import { SITE_REQUEST_FAILED, createSiteCaller, type SiteCaller, type SiteRequestInit } from '../../core/site-caller';
 import type { SiteDefinition } from '../site';
 import {
   WingPayloadError,
@@ -13,6 +13,7 @@ import {
   normalizeWingCatalogSearchResponse,
   type WingInventoryPage,
 } from './parse';
+import { registerSite } from '../registry';
 
 const ORIGIN = 'https://wing.coupang.com';
 const SEARCH_URL = `${ORIGIN}/tenants/seller-web/v2/vendor-inventory/search`;
@@ -247,3 +248,9 @@ function totalCountOf(response: unknown): number {
   }
   return total as number;
 }
+
+registerSite({
+  name: WING_SITE.name,
+  origin: WING_SITE.origin,
+  create: (deps) => createWingSite(createSiteCaller(WING_SITE.caller, deps), { sleep: deps.sleep }),
+});

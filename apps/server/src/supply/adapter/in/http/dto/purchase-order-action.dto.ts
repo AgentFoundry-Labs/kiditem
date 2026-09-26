@@ -81,7 +81,7 @@ export class PurchaseOrderActionBodyDto {
 
   @ValidateIf(o => ['loadSavedRocketCollection', 'previewRocket'].includes(o.action))
   @IsUUID()
-  sourceImportRunId?: string;
+  rocketPoOperationId?: string;
 
   @ValidateIf(o => o.action === 'previewRocket')
   @IsObject() @IsOptional()

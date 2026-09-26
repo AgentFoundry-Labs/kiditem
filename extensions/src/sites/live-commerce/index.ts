@@ -3,6 +3,7 @@ import { SITE_REQUEST_FAILED } from '../../core/site-caller';
 import type { SiteDefinition } from '../site';
 import { SITE_LOGIN_REQUIRED } from '../../core/site-caller';
 import { hostWithin, leftForOperator, waitForOperator, type AttentionListener, type InjectFiles, type PageGuard, type TabPages } from '../tab-page';
+import { registerSite } from '../registry';
 
 const NAVIGATION_TIMEOUT_MS = 35_000;
 const EXTRACTION_TIMEOUT_MS = 25_000;
@@ -119,3 +120,5 @@ export type LiveCommerceSite = ReturnType<typeof createLiveCommerceSite>;
 function verification(url: string): RuntimeError {
   return new RuntimeError(SITE_VERIFICATION_REQUIRED, '방송 페이지가 로그인이나 검증을 요구합니다. 열려 있는 탭에서 처리한 뒤 다시 수집해 주세요.', { url });
 }
+
+registerSite({ name: LIVE_COMMERCE_SITE.name, create: (deps) => createLiveCommerceSite(deps.tabs) });

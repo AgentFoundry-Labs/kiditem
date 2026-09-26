@@ -33,8 +33,6 @@ export const RECORDED_DAY_ARITHMETIC = Object.freeze({
     { lines: 1, reason: 'publication cutoff and elapsed spans over captured instants' },
   'apps/server/src/auth/application/auth.service.ts':
     { lines: 1, reason: '30-day session lifetime' },
-  'apps/server/src/orders/adapter/out/repository/sellpia-shipment-tracking-source.repository.ts':
-    { lines: 1, reason: 'maximum 30-day request span between two instants' },
   'apps/server/src/sourcing/adapter/out/repository/sourcing-decision-batch.repository.adapter.ts':
     { lines: 1, reason: '7-day event window between two instants' },
   'apps/server/src/sourcing/adapter/out/shortstrend/shortstrend-trend.adapter.ts':

@@ -5,7 +5,7 @@ const organizationId = '11111111-1111-4111-8111-111111111111';
 const userId = '22222222-2222-4222-8222-222222222222';
 const channelAccountId = '33333333-3333-4333-8333-333333333333';
 const collectionRunId = '44444444-4444-4444-8444-444444444444';
-const sourceImportRunId = '55555555-5555-4555-8555-555555555555';
+const rocketPoOperationId = '55555555-5555-4555-8555-555555555555';
 const idempotencyKey = '66666666-6666-4666-8666-666666666666';
 const poLineId = '1001:P-1:8801234567890:1';
 const artifactBytes = Buffer.from('workbook-bytes');
@@ -59,7 +59,7 @@ function previewResult() {
     status: 'ready' as const,
     collectionRunId,
     catalog: {
-      sourceImportRunId, channelAccountId, generation: '1', actualCutoffAt: '2026-07-17T00:00:00.000Z', rowCount: 1,
+      rocketPoOperationId, channelAccountId, actualCutoffAt: '2026-07-17T00:00:00.000Z', rowCount: 1,
     },
     inventoryGeneration: '12',
     rows: [{
@@ -86,7 +86,7 @@ function previewResult() {
 
 function reference(source = request()) {
   const { collection: _collection, rows: _rows, ...decision } = source;
-  return { ...decision, sourceImportRunId, inventoryAttemptId: collectionRunId };
+  return { ...decision, rocketPoOperationId, inventoryAttemptId: collectionRunId };
 }
 
 function dependencies() {
@@ -230,7 +230,7 @@ describe('RocketWorkbookExportService', () => {
       userId,
       request: {
         channelAccountId,
-        sourceImportRunId,
+        rocketPoOperationId,
         inventoryAttemptId: collectionRunId,
         editedQuantities: request().editedQuantities,
         previewScope: 'confirmation_requested',
@@ -239,7 +239,7 @@ describe('RocketWorkbookExportService', () => {
     expect(deps.transactions.exportWorkbook).toHaveBeenCalledWith({
       organizationId,
       userId,
-      sourceImportRunId,
+      rocketPoOperationId,
       request: request(),
       preview: previewResult(),
       artifactBytes,
@@ -302,7 +302,7 @@ describe('RocketWorkbookExportService', () => {
     });
 
     expect(deps.preview.preview).toHaveBeenCalledWith(expect.objectContaining({
-      request: expect.objectContaining({ sourceImportRunId }),
+      request: expect.objectContaining({ rocketPoOperationId }),
     }));
     expect(deps.transactions.exportWorkbook).toHaveBeenCalledWith(
       expect.objectContaining({

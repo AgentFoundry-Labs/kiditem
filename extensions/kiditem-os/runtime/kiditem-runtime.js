@@ -4765,7 +4765,7 @@ var KidItemRuntime = (() => {
       let consecutiveFailures = 0;
       let detailsDone = 0;
       let absentChecked = 0;
-      const progress = () => ({
+      const progress4 = () => ({
         detailsDone,
         detailTargets: targets.length,
         absentChecked,
@@ -4773,7 +4773,7 @@ var KidItemRuntime = (() => {
         detailsMissing: [...missing]
       });
       const details = new ChunkBuffer({ maxItems: DETAILS_PER_CHUNK, label: "Wing \uC0C1\uC138 \uC0C1\uD488" });
-      const chunk = (chunkKind, payload) => ({ chunkKind, payload, progress: progress() });
+      const chunk = (chunkKind, payload) => ({ chunkKind, payload, progress: progress4() });
       for (const externalProductId of targets) {
         if (signal.aborted) return;
         let product;
@@ -4840,15 +4840,15 @@ var KidItemRuntime = (() => {
     async *collect(_plan, site, { signal }) {
       const description = `kiditem_${(/* @__PURE__ */ new Date()).toISOString().replace(/[^0-9]/g, "").slice(0, 14)}`;
       await site.requestCatalogExcel(description);
-      const progress = (value) => ({ chunkKind: PROGRESS_CHUNK_KIND, payload: [], progress: value });
-      yield progress({ status: "REQUESTED", executeCount: 0, totalCount: null });
+      const progress4 = (value) => ({ chunkKind: PROGRESS_CHUNK_KIND, payload: [], progress: value });
+      yield progress4({ status: "REQUESTED", executeCount: 0, totalCount: null });
       let completed = null;
       for (let poll = 0; poll < MAX_POLLS && !completed; poll += 1) {
         if (signal.aborted) return;
         if (poll > 0) await site.pause(POLL_INTERVAL_MS, signal);
         const request = await site.catalogExcelRequest(description);
         if (!request) continue;
-        yield progress({ status: request.status, executeCount: request.executeCount, totalCount: request.totalCount });
+        yield progress4({ status: request.status, executeCount: request.executeCount, totalCount: request.totalCount });
         if (request.status === "COMPLETED") completed = request;
         else if (/FAIL|ABORT|CANCEL|ERROR/i.test(request.status)) {
           throw new RuntimeError(CATALOG_EXCEL_FAILED, `\uCFE0\uD321 \uC719\uC774 \uC0C1\uD488\uC815\uBCF4 \uC5D1\uC140 \uC0DD\uC131\uC744 \uBA48\uCDC4\uC2B5\uB2C8\uB2E4(${request.status}). \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.`, { status: request.status });
@@ -4889,8 +4889,8 @@ var KidItemRuntime = (() => {
       const buffer = new ChunkBuffer({ maxItems: PRODUCTS_PER_CHUNK, label: "Wing \uBAA9\uB85D \uC0C1\uD488" });
       const seen = /* @__PURE__ */ new Set();
       let expected = null;
-      let progress = {};
-      const chunk = (payload) => ({ chunkKind: WING_CATALOG_CHUNK_KINDS.listingBasics, payload, progress });
+      let progress4 = {};
+      const chunk = (payload) => ({ chunkKind: WING_CATALOG_CHUNK_KINDS.listingBasics, payload, progress: progress4 });
       for (let page = 1; expected === null || page <= expected.totalPages; page += 1) {
         if (signal.aborted) return;
         const result = await site.searchInventory(page, plan.vendorId ?? null);
@@ -4898,7 +4898,7 @@ var KidItemRuntime = (() => {
         else if (result.totalItems !== expected.totalItems || result.totalPages !== expected.totalPages) {
           throw incomplete(`\uC218\uC9D1 \uC911 Wing \uC0C1\uD488 \uC218\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4(${expected.totalItems} \u2192 ${result.totalItems}). \uB2E4\uC2DC \uB3D9\uAE30\uD654\uD574 \uC8FC\uC138\uC694.`);
         }
-        progress = { listedProducts: seen.size + result.products.length, totalProducts: expected.totalItems, page, totalPages: expected.totalPages };
+        progress4 = { listedProducts: seen.size + result.products.length, totalProducts: expected.totalItems, page, totalPages: expected.totalPages };
         for (const product of result.products) {
           if (seen.has(product.externalProductId)) {
             throw incomplete(`Wing \uBAA9\uB85D\uC758 \uD398\uC774\uC9C0\uAC00 \uACB9\uCCE4\uC2B5\uB2C8\uB2E4(${product.externalProductId}). \uB2E4\uC2DC \uB3D9\uAE30\uD654\uD574 \uC8FC\uC138\uC694.`);
@@ -4919,6 +4919,717 @@ var KidItemRuntime = (() => {
     return new RuntimeError(CATALOG_LIST_INCOMPLETE, message);
   }
   registerCollector(wingCatalogListCollector);
+
+  // packages/shared/src/schemas/rocket-purchase-preview.ts
+  var ROCKET_PO_ROW_LIMIT = 4e3;
+  var ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT = 1e5;
+  var boundedText = (max) => external_exports.string().trim().max(max);
+  var requiredText = (max) => boundedText(max).min(1);
+  var isoDay = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+  var RocketPoSourceBeginSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    from: isoDay,
+    to: isoDay,
+    status: external_exports.enum(["RP", "PA", "RI", "CI", ""]),
+    dateType: external_exports.enum(["WAREHOUSING_PLAN_DATE", "PURCHASE_ORDER_DATE"]),
+    requireConfirmation: external_exports.boolean()
+  }).strict().refine((value) => value.from <= value.to, "Invalid date range");
+  var RocketPoCollectionEvidenceSchema = external_exports.object({
+    collectionRunId: external_exports.string().uuid(),
+    vendorId: boundedText(120),
+    listPagesRead: external_exports.number().int().min(0).max(ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT),
+    totalListPages: external_exports.number().int().min(0).max(ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT),
+    truncated: external_exports.boolean(),
+    detailPoCount: external_exports.number().int().min(0).max(ROCKET_PO_ROW_LIMIT),
+    failedPoNumbers: external_exports.array(requiredText(80)).max(ROCKET_PO_ROW_LIMIT)
+  }).strict().superRefine((value, ctx) => {
+    if (new Set(value.failedPoNumbers).size !== value.failedPoNumbers.length) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["failedPoNumbers"],
+        message: "Failed PO numbers must be unique"
+      });
+    }
+  });
+  var RocketPoCatalogRowSchema = external_exports.object({
+    poLineId: requiredText(300),
+    poNumber: requiredText(80),
+    vendorId: boundedText(120),
+    productNo: requiredText(60),
+    barcode: boundedText(80),
+    productName: requiredText(240),
+    orderQty: external_exports.number().int().nonnegative().max(1e7),
+    plannedDeliveryDate: isoDay,
+    poStatusCode: boundedText(20).optional(),
+    businessDateBasis: external_exports.enum(["ordered_at", "expected_inbound"]).optional(),
+    confirmation: external_exports.object({
+      center: boundedText(120),
+      inboundType: boundedText(80),
+      poStatus: boundedText(80),
+      returnManager: boundedText(120),
+      returnContact: boundedText(80),
+      returnAddress: boundedText(300),
+      purchasePrice: external_exports.number().int().nonnegative().max(1e9),
+      supplyPrice: external_exports.number().int().nonnegative().max(1e9),
+      vat: external_exports.number().int().nonnegative().max(1e9),
+      totalPurchase: external_exports.number().int().nonnegative().max(1e9),
+      poRegisteredAt: boundedText(40),
+      xdock: boundedText(20)
+    }).strict().optional()
+  }).strict();
+  var RocketSavedPoListRequestSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    from: isoDay,
+    to: isoDay,
+    status: boundedText(80).optional()
+  }).strict().superRefine((value, ctx) => {
+    if (value.to < value.from) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["to"],
+        message: "to must be on or after from"
+      });
+    }
+  });
+  var RocketSavedPoSummarySchema = external_exports.object({
+    /** 이 발주를 발행한 로켓 PO 수집 실행(Orders `orders.coupang_rocket_po`, KID-359). */
+    rocketPoOperationId: external_exports.string().uuid(),
+    poNumber: requiredText(80),
+    orderedAt: boundedText(40),
+    plannedDeliveryDate: isoDay,
+    status: boundedText(80),
+    vendorId: boundedText(120),
+    centerName: boundedText(120),
+    inboundType: boundedText(80),
+    firstProductName: requiredText(240),
+    skuCount: external_exports.number().int().nonnegative(),
+    orderQuantity: external_exports.number().int().nonnegative(),
+    /** Null when any listed line has no provider-confirmed total. */
+    orderAmount: external_exports.number().int().nonnegative().nullable(),
+    collectedAt: external_exports.string().datetime()
+  }).strict();
+  var RocketSavedPoSnapshotSchema = external_exports.object({
+    rocketPoOperationId: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    collection: RocketPoCollectionEvidenceSchema,
+    rows: external_exports.array(RocketPoCatalogRowSchema).max(ROCKET_PO_ROW_LIMIT)
+  }).strict();
+  var RocketSavedPoCollectionSchema = RocketSavedPoSnapshotSchema.extend({
+    // 이 계정에서 이미 확정 엑셀로 나간 PO 라인. 수집은 매번 전량 스냅샷이라 같은 라인이
+    // 여러 수집본에 반복 등장한다(`poLineId` 는 수집본 간에 안정적). 운영자가 "이번에
+    // 새로 들어온 것만" 보려면 이 집합을 빼야 한다. 행 스키마는 요청 본문으로도 쓰이므로
+    // 행에 필드를 더하지 않고 별도 목록으로 내려준다.
+    exportedPoLineIds: external_exports.array(requiredText(300)).max(ROCKET_PO_ROW_LIMIT)
+  }).strict();
+  var RocketPurchaseRequestBaseSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    collection: RocketPoCollectionEvidenceSchema,
+    rows: external_exports.array(RocketPoCatalogRowSchema).max(ROCKET_PO_ROW_LIMIT),
+    editedQuantities: external_exports.record(
+      external_exports.string().min(1).max(300),
+      external_exports.number().int().nonnegative().max(1e7)
+    ).default({}),
+    clampEditedQuantities: external_exports.boolean().optional()
+  }).strict();
+  function validateRocketPurchaseLines(value, ctx) {
+    const lineIds = value.rows.map(({ poLineId }) => poLineId);
+    if (new Set(lineIds).size !== lineIds.length) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["rows"],
+        message: "PO line IDs must be unique"
+      });
+    }
+    const known = new Set(lineIds);
+    for (const lineId of Object.keys(value.editedQuantities)) {
+      if (!known.has(lineId)) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["editedQuantities", lineId],
+          message: "Edited quantity references an unknown PO line"
+        });
+      }
+    }
+  }
+  var RocketPurchasePreviewScopeSchema = external_exports.enum([
+    "all_rows",
+    "confirmation_requested"
+  ]);
+  var RocketPurchasePreviewRequestSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    rocketPoOperationId: external_exports.string().uuid(),
+    inventoryAttemptId: external_exports.string().uuid(),
+    editedQuantities: RocketPurchaseRequestBaseSchema.shape.editedQuantities,
+    clampEditedQuantities: external_exports.boolean().optional(),
+    previewScope: RocketPurchasePreviewScopeSchema.optional()
+  }).strict();
+  var RocketPurchasePreviewDecisionSchema = RocketPurchaseRequestBaseSchema.extend({ previewScope: RocketPurchasePreviewScopeSchema.optional() }).strict().superRefine(validateRocketPurchaseLines);
+  var ROCKET_SHORTAGE_REASONS = [
+    "\uD611\uB825\uC0AC \uC7AC\uACE0\uBD80\uC871 - \uC218\uC694\uC608\uCE21 \uC624\uB958",
+    "\uD611\uB825\uC0AC \uC7AC\uACE0\uBD80\uC871 - \uC0DD\uC0B0\uCE90\uD30C \uBD80\uC871 (\uC124\uBE44\uB77C\uC778/\uC6D0\uC790\uC7AC/\uC778\uB825/\uD734\uBB34\u2026 \uB4F1\uB4F1)",
+    "\uD611\uB825\uC0AC \uC7AC\uACE0\uBD80\uC871 - \uD488\uC9C8\uC801 \uC774\uC288 (\uC720\uD574\uBB3C\uC9C8 \uBC1C\uACAC / \uC720\uD1B5\uAE30\uD55C \uBBF8\uB2EC)",
+    "\uD611\uB825\uC0AC \uC7AC\uACE0\uBD80\uC871 - \uC7AC\uACE0 \uD560\uB2F9\uC815\uCC45",
+    "\uD611\uB825\uC0AC \uC7AC\uACE0\uBD80\uC871 - \uC218\uC785\uC0C1\uD488 \uC785\uACE0\uC9C0\uC5F0 (\uC120\uC801/\uD1B5\uAD00\uC9C0\uC5F0)",
+    "\uC81C\uC870\uC0AC \uC0DD\uC0B0\uC911\uB2E8 \uD639\uC740 \uACF5\uAE09\uC0AC \uCDE8\uAE09\uC911\uB2E8 - \uC81C\uD488 \uB9AC\uB274\uC5BC/\uBAA8\uB378 \uBCC0\uACBD",
+    "\uC81C\uC870\uC0AC \uC0DD\uC0B0\uC911\uB2E8 \uD639\uC740 \uACF5\uAE09\uC0AC \uCDE8\uAE09\uC911\uB2E8 - \uC2DC\uC7A5 \uB2E8\uC885",
+    "\uC81C\uC870\uC0AC \uC0DD\uC0B0\uC911\uB2E8 \uD639\uC740 \uACF5\uAE09\uC0AC \uCDE8\uAE09\uC911\uB2E8 - \uC0AC\uC5C5\uC790\uBCC0\uACBD",
+    "FC \uC785\uACE0\uAE30\uC900 \uBBF8\uB2EC\uB85C \uD68C\uC1A1",
+    "\uAC00\uACA9 \uC774\uC288 (Price) - \uB9E4\uC785\uAC00 \uC778\uD558 \uD611\uC0C1 \uC911",
+    "\uAC00\uACA9 \uC774\uC288 (Price) - \uB9E4\uC785\uAC00 \uC778\uC0C1 \uD611\uC0C1 \uC911",
+    "\uAC00\uACA9 \uC774\uC288 (Price) - \uCFE0\uD321 \uCD5C\uC800\uAC00 \uB9E4\uCE6D",
+    "\uCD5C\uC18C\uBC1C\uC8FC\uB7C9 \uBCC0\uACBD \uD544\uC694 (MOQ)",
+    "\uCFE0\uD321 \uC694\uCCAD \uBBF8\uB0A9",
+    "\uC2DC\uC98C\uC0C1\uD488\uC73C\uB85C \uB2E4\uC74C \uC2DC\uC98C\uC804\uAE4C\uC9C0 \uC0DD\uC0B0 \uD639\uC740 \uCDE8\uAE09\uC911\uB2E8",
+    "\uCC9C\uC7AC\uC9C0\uBCC0/\uC7AC\uB09C\uACFC \uAC19\uC740 \uBD88\uAC00\uD56D\uB825\uC801\uC778 \uC0AC\uC720\uB85C \uBBF8\uB0A9",
+    "\uC5C5\uCCB4 \uD734\uBB34",
+    "\uC7AC\uBB34 \uAD00\uB828 \uC0AC\uC720",
+    "FC \uC785\uACE0 \uC774\uC288 - FC \uC2AC\uB86F \uC608\uC57D \uBD88\uAC00",
+    "FC \uC785\uACE0 \uC774\uC288 - \uBC00\uD06C\uB7F0 \uC608\uC57D\uBD88\uAC00"
+  ];
+  var RocketShortageReasonSchema = external_exports.enum(ROCKET_SHORTAGE_REASONS);
+  var RocketWorkbookDecisionRequestSchema = RocketPurchaseRequestBaseSchema.omit({ clampEditedQuantities: true }).extend({
+    idempotencyKey: external_exports.string().uuid(),
+    selectedPoLineIds: external_exports.array(requiredText(300)).min(1).max(4e3).optional(),
+    shortageReasons: external_exports.record(
+      external_exports.string().min(1).max(300),
+      RocketShortageReasonSchema
+    ),
+    artifactFileName: requiredText(240),
+    artifactContentType: external_exports.literal(
+      "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+    )
+  }).strict().superRefine((value, ctx) => {
+    validateRocketPurchaseLines(value, ctx);
+    const rowsByLineId = new Map(value.rows.map((row) => [row.poLineId, row]));
+    const selectedPoLineIds = value.selectedPoLineIds ?? value.rows.map(({ poLineId }) => poLineId);
+    if (new Set(selectedPoLineIds).size !== selectedPoLineIds.length) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["selectedPoLineIds"],
+        message: "Selected workbook PO line IDs must be unique"
+      });
+    }
+    for (const lineId of selectedPoLineIds) {
+      if (!rowsByLineId.has(lineId)) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["selectedPoLineIds", lineId],
+          message: "Selected workbook PO line references an unknown source line"
+        });
+      }
+    }
+    const selectedLineIds = new Set(selectedPoLineIds);
+    for (const row of value.rows.filter(({ poLineId }) => selectedLineIds.has(poLineId))) {
+      if (!row.confirmation || row.barcode.length === 0) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["rows", row.poLineId, "confirmation"],
+          message: "Every workbook line requires complete workbook evidence"
+        });
+      }
+      if (!Object.hasOwn(value.editedQuantities, row.poLineId)) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["editedQuantities", row.poLineId],
+          message: "Every workbook line requires an explicit reviewed quantity"
+        });
+        continue;
+      }
+      const quantity = value.editedQuantities[row.poLineId];
+      if (quantity > row.orderQty) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["editedQuantities", row.poLineId],
+          message: "Workbook quantity must not exceed the PO order quantity"
+        });
+      }
+      const hasShortageReason = Object.hasOwn(value.shortageReasons, row.poLineId);
+      if (quantity < row.orderQty && !hasShortageReason) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["shortageReasons", row.poLineId],
+          message: "Every short workbook line requires a shortage reason"
+        });
+      }
+      if (quantity >= row.orderQty && hasShortageReason) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["shortageReasons", row.poLineId],
+          message: "A full workbook line must not include a shortage reason"
+        });
+      }
+    }
+    for (const lineId of Object.keys(value.shortageReasons)) {
+      if (!selectedLineIds.has(lineId)) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["shortageReasons", lineId],
+          message: "Shortage reason references an unselected PO line"
+        });
+      }
+    }
+  });
+  var RocketWorkbookExportRequestSchema = RocketWorkbookDecisionRequestSchema.innerType().omit({ collection: true, rows: true }).extend({ rocketPoOperationId: external_exports.string().uuid(), inventoryAttemptId: external_exports.string().uuid() }).strict();
+  var RocketPurchasePreviewReasonSchema = external_exports.enum([
+    "mapping_required",
+    "configuration_required",
+    "review_required",
+    "inventory_unavailable",
+    "insufficient_capacity"
+  ]);
+  var RocketPoCatalogPublicationSchema = external_exports.object({
+    rocketPoOperationId: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    actualCutoffAt: external_exports.string().datetime(),
+    rowCount: external_exports.number().int().nonnegative().max(ROCKET_PO_ROW_LIMIT)
+  }).strict();
+  var RocketPurchasePreviewComponentSchema = external_exports.object({
+    masterProductId: external_exports.string().uuid(),
+    code: requiredText(120).nullable(),
+    name: requiredText(240).nullable(),
+    optionName: external_exports.string().trim().min(1).max(240).nullable(),
+    quantity: external_exports.number().int().positive(),
+    currentStock: external_exports.number().int().nonnegative().nullable()
+  }).strict();
+  var RocketPurchasePreviewRowSchema = external_exports.object({
+    poLineId: requiredText(300),
+    poNumber: requiredText(80),
+    productNo: requiredText(60),
+    productName: requiredText(240),
+    plannedDeliveryDate: isoDay,
+    orderQuantity: external_exports.number().int().nonnegative(),
+    recommendedQuantity: external_exports.number().int().nonnegative().nullable(),
+    maxQuantity: external_exports.number().int().nonnegative().nullable(),
+    editedQuantity: external_exports.number().int().nonnegative().nullable(),
+    reason: RocketPurchasePreviewReasonSchema.nullable(),
+    channelListingOptionId: external_exports.string().uuid().nullable(),
+    masterProductId: external_exports.string().uuid().nullable(),
+    components: external_exports.array(RocketPurchasePreviewComponentSchema).max(50)
+  }).strict().superRefine((row, ctx) => {
+    if (row.masterProductId !== null && row.channelListingOptionId === null) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["channelListingOptionId"],
+        message: "A confirmed product requires a channel listing option identity"
+      });
+    }
+  });
+  var RocketPurchasePreviewReadyResponseSchema = external_exports.object({
+    status: external_exports.literal("ready"),
+    collectionRunId: external_exports.string().uuid(),
+    catalog: RocketPoCatalogPublicationSchema.nullable(),
+    inventoryGeneration: external_exports.string().regex(/^\d+$/).nullable(),
+    rows: external_exports.array(RocketPurchasePreviewRowSchema).max(ROCKET_PO_ROW_LIMIT)
+  }).strict();
+  var RocketWorkbookExportResponseSchema = external_exports.object({
+    exportId: external_exports.string().uuid(),
+    duplicate: external_exports.boolean(),
+    inventoryGeneration: external_exports.string().regex(/^\d+$/).nullable(),
+    generatedAt: external_exports.string().datetime(),
+    artifact: external_exports.object({
+      fileName: requiredText(240),
+      contentType: external_exports.literal(
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+      ),
+      sha256: external_exports.string().regex(/^[a-f0-9]{64}$/),
+      byteLength: external_exports.number().int().positive().max(10 * 1024 * 1024)
+    }).strict(),
+    totals: external_exports.object({
+      lineCount: external_exports.number().int().nonnegative().max(ROCKET_PO_ROW_LIMIT),
+      orderQuantity: external_exports.number().int().nonnegative(),
+      workbookQuantity: external_exports.number().int().nonnegative(),
+      componentQuantity: external_exports.number().int().nonnegative()
+    }).strict(),
+    rows: external_exports.array(external_exports.object({
+      poLineId: requiredText(300),
+      workbookQuantity: external_exports.number().int().nonnegative(),
+      shortageReason: RocketShortageReasonSchema.nullable()
+    }).strict()).max(ROCKET_PO_ROW_LIMIT)
+  }).strict();
+  var RocketWorkbookAbandonRequestSchema = external_exports.object({
+    exportId: external_exports.string().uuid()
+  }).strict();
+
+  // packages/shared/src/schemas/coupang-direct-order.ts
+  var CoupangDirectTransportSchema = external_exports.enum(["SHIPMENT", "MILKRUN"]);
+  var CoupangDirectOrderStatusSchema = external_exports.enum(["PA", "\uBC1C\uC8FC\uD655\uC815"]);
+  var CoupangDirectOrderItemSchema = external_exports.object({
+    skuId: external_exports.string().trim().min(1),
+    barcode: external_exports.string().trim(),
+    name: external_exports.string().trim().min(1),
+    qty: external_exports.number().int().positive(),
+    amount: external_exports.number().nonnegative()
+  }).strict();
+  var optionalDisplayText = external_exports.preprocess((value) => {
+    if (value == null) return void 0;
+    const trimmed = String(value).trim();
+    return trimmed.length > 0 ? trimmed : void 0;
+  }, external_exports.string().optional());
+  var optionalDisplayZip = external_exports.preprocess((value) => {
+    if (value == null) return void 0;
+    if (typeof value === "number") return value;
+    const trimmed = String(value).trim();
+    return trimmed.length > 0 ? trimmed : void 0;
+  }, external_exports.union([external_exports.string(), external_exports.number().int().nonnegative()]).optional());
+  var optionalDisplayDate = external_exports.preprocess(
+    (value) => value == null ? "" : value,
+    external_exports.string().trim()
+  );
+  var CoupangDirectPurchaseOrderSchema = external_exports.object({
+    seq: external_exports.union([
+      external_exports.string().trim().min(1),
+      external_exports.number().int().nonnegative().transform(String)
+    ]),
+    status: CoupangDirectOrderStatusSchema,
+    center: external_exports.string().trim().min(1),
+    transport: CoupangDirectTransportSchema,
+    edd: optionalDisplayDate,
+    reg: external_exports.string().trim().min(1),
+    // 발주유형이 긴급인지(쿠팡 purchaseOrderType = URGENT). 구버전 확장은 안 보내므로 선택값.
+    urgent: external_exports.boolean().optional(),
+    items: external_exports.array(CoupangDirectOrderItemSchema)
+  }).strict();
+  var CoupangDirectCenterSchema = external_exports.object({
+    addr: optionalDisplayText,
+    zip: optionalDisplayZip,
+    contact: optionalDisplayText
+  }).strict().transform((center) => {
+    const clean2 = {};
+    if (center.addr !== void 0) clean2.addr = center.addr;
+    if (center.zip !== void 0) clean2.zip = center.zip;
+    if (center.contact !== void 0) clean2.contact = center.contact;
+    return clean2;
+  });
+  var CoupangDirectOrderCollectionRequestSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    pos: external_exports.array(CoupangDirectPurchaseOrderSchema).max(4e3),
+    centers: external_exports.record(external_exports.string(), CoupangDirectCenterSchema),
+    transport: CoupangDirectTransportSchema
+  }).strict().superRefine((request, ctx) => {
+    const seenLineKeys = /* @__PURE__ */ new Set();
+    request.pos.forEach((purchaseOrder, purchaseOrderIndex) => {
+      purchaseOrder.items.forEach((item, itemIndex) => {
+        const lineKey = `${purchaseOrder.seq}\0${item.skuId}`;
+        if (seenLineKeys.has(lineKey)) {
+          ctx.addIssue({
+            code: external_exports.ZodIssueCode.custom,
+            path: ["pos", purchaseOrderIndex, "items", itemIndex, "skuId"],
+            message: "Duplicate (seq, skuId) line"
+          });
+        }
+        seenLineKeys.add(lineKey);
+      });
+    });
+  });
+  var CoupangDirectPoSnapshotItemSchema = external_exports.object({
+    barcode: external_exports.string(),
+    name: external_exports.string(),
+    qty: external_exports.number().int().nonnegative(),
+    amount: external_exports.number().nonnegative()
+  }).strict();
+  var CoupangDirectPoSnapshotEntrySchema = external_exports.object({
+    purchaseOrderSeq: external_exports.string().trim().min(1),
+    centerName: external_exports.string(),
+    transport: CoupangDirectTransportSchema,
+    deliveryDate: external_exports.string().nullable(),
+    orderedDate: external_exports.string().nullable(),
+    isUrgent: external_exports.boolean(),
+    skuCount: external_exports.number().int().nonnegative(),
+    orderQuantity: external_exports.number().int().nonnegative(),
+    orderAmount: external_exports.number().nonnegative(),
+    items: external_exports.array(CoupangDirectPoSnapshotItemSchema)
+  }).strict();
+  var SaveCoupangDirectPoSnapshotRequestSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    /** 이 스냅샷의 근거인 성공한 directship 실행(`orders.coupang_directship`, KID-359). */
+    operationId: external_exports.string().uuid(),
+    entries: external_exports.array(CoupangDirectPoSnapshotEntrySchema).max(4e3)
+  }).strict();
+  var CoupangDirectPoSnapshotResponseSchema = external_exports.object({
+    channelAccountId: external_exports.string(),
+    collectedAt: external_exports.string().nullable(),
+    entries: external_exports.array(CoupangDirectPoSnapshotEntrySchema)
+  });
+
+  // packages/shared/src/schemas/orders-operations.ts
+  var COUPANG_SHIPMENT_SUMMARY_KIND = "orders.coupang_shipment_summary";
+  var COUPANG_ROCKET_PO_KIND = "orders.coupang_rocket_po";
+  var COUPANG_DIRECTSHIP_KIND = "orders.coupang_directship";
+  var SELLPIA_SHIPMENT_TRACKING_KIND = "orders.sellpia_shipment_tracking";
+  var MALL_ORDERS_KIND = "orders.mall_orders";
+  var isoDay2 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+  var CoupangShipmentSummaryScopeSchema = external_exports.object({
+    maxPages: external_exports.number().int().min(1).max(60).optional()
+  }).strict();
+  var COUPANG_SHIPMENT_SUMMARY_PAGE_ROWS = 10;
+  var CoupangShipmentDateItemSchema = external_exports.object({
+    date: isoDay2,
+    count: external_exports.number().int().min(1).max(1e6),
+    boxes: external_exports.number().int().min(0).max(1e6)
+  }).strict();
+  var CoupangShipmentScanSchema = external_exports.object({
+    maxPages: external_exports.number().int().min(1).max(60),
+    scannedPages: external_exports.number().int().min(1).max(60),
+    totalRows: external_exports.number().int().min(0),
+    stopReason: external_exports.enum(["empty_page", "short_page", "max_pages"]),
+    lastPageRowCount: external_exports.number().int().min(0),
+    pageRowCounts: external_exports.array(external_exports.number().int().min(0)).min(1).max(60),
+    validatedTable: external_exports.literal(true)
+  }).strict();
+  var CoupangShipmentSummaryProgressSchema = external_exports.object({
+    current: external_exports.number().int().min(0),
+    total: external_exports.number().int().min(1)
+  }).passthrough();
+  var CoupangShipmentSummaryResultSchema = external_exports.object({
+    dates: external_exports.number().int().nonnegative(),
+    rows: external_exports.number().int().nonnegative()
+  }).strict();
+  var CoupangRocketPoPlanSchema = RocketPoSourceBeginSchema.innerType().extend({
+    vendorExpectations: external_exports.object({
+      rocketVendorId: external_exports.string().max(120).nullable(),
+      sharedCoupangVendorId: external_exports.string().max(120).nullable()
+    }).strict()
+  }).strict();
+  var CoupangRocketPoChunkItemSchema = external_exports.object({
+    poNumber: external_exports.string().min(1).max(80),
+    rows: external_exports.array(RocketPoCatalogRowSchema).min(1).max(ROCKET_PO_ROW_LIMIT)
+  }).strict();
+  var CoupangRocketPoScanSchema = external_exports.object({
+    vendorId: external_exports.string().max(120),
+    listPagesRead: external_exports.number().int().min(0).max(1e5),
+    totalListPages: external_exports.number().int().min(0).max(1e5),
+    detailPoCount: external_exports.number().int().min(0).max(ROCKET_PO_ROW_LIMIT),
+    proof: external_exports.object({
+      from: isoDay2,
+      to: isoDay2,
+      status: external_exports.enum(["RP", "PA", "RI", "CI", ""]),
+      dateType: external_exports.enum(["WAREHOUSING_PLAN_DATE", "PURCHASE_ORDER_DATE"]),
+      validatedList: external_exports.literal(true)
+    }).strict()
+  }).strict();
+  var CoupangRocketPoProgressSchema = external_exports.object({
+    phase: external_exports.enum(["session", "list", "detail", "done"]),
+    current: external_exports.number().int().min(0),
+    total: external_exports.number().int().min(0)
+  }).passthrough();
+  var CoupangRocketPoResultSchema = external_exports.object({
+    purchaseOrders: external_exports.number().int().nonnegative(),
+    lines: external_exports.number().int().nonnegative()
+  }).strict();
+  var CoupangDirectshipScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid()
+  }).strict();
+  var CoupangDirectshipPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    captureMode: external_exports.literal("browser")
+  }).strict();
+  var CoupangDirectshipCaptureItemSchema = external_exports.union([
+    external_exports.object({ purchaseOrder: CoupangDirectPurchaseOrderSchema }).strict(),
+    external_exports.object({ centers: external_exports.record(external_exports.string(), CoupangDirectCenterSchema) }).strict()
+  ]);
+  var CoupangDirectshipProgressSchema = external_exports.object({
+    phase: external_exports.enum(["session", "list", "detail", "done"]),
+    current: external_exports.number().int().min(0),
+    total: external_exports.number().int().min(0)
+  }).passthrough();
+  var CoupangDirectshipResultSchema = external_exports.object({
+    rowCount: external_exports.number().int().nonnegative(),
+    purchaseOrders: external_exports.number().int().nonnegative(),
+    lines: external_exports.number().int().nonnegative(),
+    partialDetailCount: external_exports.number().int().nonnegative(),
+    transports: external_exports.object({ SHIPMENT: external_exports.number().int().nonnegative(), MILKRUN: external_exports.number().int().nonnegative() }).strict()
+  }).strict();
+  var CoupangDirectshipConvertRequestSchema = external_exports.object({
+    operationId: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    transport: CoupangDirectTransportSchema,
+    pos: external_exports.array(CoupangDirectPurchaseOrderSchema).max(4e3),
+    centers: external_exports.record(external_exports.string(), CoupangDirectCenterSchema)
+  }).strict();
+  var SellpiaShipmentTrackingScopeSchema = external_exports.object({
+    startDate: isoDay2,
+    endDate: isoDay2
+  }).strict().refine((value) => value.startDate <= value.endDate, "\uC2DC\uC791\uC77C\uC774 \uB05D\uC77C\uBCF4\uB2E4 \uB2A6\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
+  var MallOrdersCollectionModeSchema = external_exports.enum(["browser", "manual-upload"]);
+  var MallOrdersSelectionModeSchema = external_exports.enum(["manual", "automatic"]);
+  var MALL_ORDERS_ORDER_NUMBERS_MAX = 2e3;
+  var MALL_ORDERS_SEEN_ROW_KEYS_MAX = 8e3;
+  var MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH = 2e3;
+  var MallOrdersScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    mallKey: external_exports.string().min(1).max(64),
+    collectionDate: isoDay2.nullable().default(null),
+    collectionMode: MallOrdersCollectionModeSchema,
+    selectionMode: MallOrdersSelectionModeSchema.optional(),
+    seenRowKeys: external_exports.array(external_exports.string().min(1).max(MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH)).max(MALL_ORDERS_SEEN_ROW_KEYS_MAX).optional()
+  }).strict();
+  var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook"];
+  function isMallOrderOperationMall(mallKey) {
+    return MALL_ORDER_OPERATION_MALLS.includes(mallKey);
+  }
+  var COUPANG_SHIPMENT_SUMMARY_CHUNK_KIND = "shipment_dates";
+  var COUPANG_SHIPMENT_SUMMARY_SCAN_CHUNK_KIND = "shipment_scan";
+  var COUPANG_ROCKET_PO_CHUNK_KIND = "po_rows";
+  var COUPANG_ROCKET_PO_SCAN_CHUNK_KIND = "po_scan";
+  var COUPANG_DIRECTSHIP_CHUNK_KIND = "orders_capture";
+  var SELLPIA_SHIPMENT_TRACKING_CHUNK_KIND = "tracking_rows";
+  var MALL_ORDERS_CHUNK_KIND = "order_rows";
+  var MALL_ORDERS_CONTINUATION_CHUNK_KIND = "continuation";
+  var OrdersCaptureResultSchema = external_exports.object({
+    rowCount: external_exports.number().int().nonnegative()
+  }).passthrough();
+  var MallOrdersResultSchema = OrdersCaptureResultSchema.extend({
+    mallKey: external_exports.string().min(1).max(64),
+    captured: external_exports.number().int().nonnegative(),
+    /**
+     * 몰이 그 기간의 주문을 빠짐없이 보여 줬다는 확인(확인 범위를 내는 몰 — 도매꾹·해법몰 — 이 수집일로 걷은 성공 실행,
+     * 빈 날 포함). 주문 사실 리더가 몰 적용 범위로 읽는다(옛 run의 coverageStartDate/EndDate 자리).
+     */
+    coverage: external_exports.object({ startDate: isoDay2, endDate: isoDay2 }).strict().optional(),
+    /** 화면 표에 개인정보가 가려진 칸이 있었다(아이스크림몰) — 웹이 운영자에게 알린다. */
+    masked: external_exports.boolean().optional(),
+    /** 이번 수집(고른 행)의 서로 다른 주문번호, 최대 2,000개 — 웹의 생성 파일 항목(일일 건수·중복 판정)이 쓴다. */
+    orderNumbers: external_exports.array(external_exports.string().min(1).max(200)).max(MALL_ORDERS_ORDER_NUMBERS_MAX).optional()
+  });
+
+  // extensions/src/collectors/orders.coupang_directship/index.ts
+  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
+  var MAX_LIST_PAGES = 40;
+  var WINDOW_DAYS = 30;
+  var DETAIL_CONCURRENCY = 5;
+  var CHUNK_ITEMS = 200;
+  var KST_OFFSET_MS = 9 * 60 * 60 * 1e3;
+  var coupangDirectshipCollector = {
+    kind: COUPANG_DIRECTSHIP_KIND,
+    site: "coupang-supplier",
+    async *collect(rawPlan, site, { signal, report }) {
+      if (!CoupangDirectshipPlanSchema.safeParse(rawPlan).success) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+      }
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+      try {
+        const now = Date.now();
+        const query = { searchDateType: "WAREHOUSING_PLAN_DATE", from: kstDay(now, 0), to: kstDay(now, WINDOW_DAYS), status: "PA" };
+        const listed = [];
+        for (let page = 1; page <= MAX_LIST_PAGES; page += 1) {
+          if (signal.aborted) return;
+          let body;
+          try {
+            body = await site.purchaseOrderListPage(query, page);
+          } catch (error) {
+            if (page === 1 || isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED) throw error;
+            break;
+          }
+          for (const raw of body.rows) {
+            const purchaseOrder = listedPurchaseOrder(raw);
+            if (purchaseOrder) listed.push(purchaseOrder);
+          }
+          await report?.(progress("list", page, Math.min(Number(body.lastPageNumber) || 1, MAX_LIST_PAGES)));
+          if (page >= (Number(body.lastPageNumber) || 1)) break;
+        }
+        const buffer = new ChunkBuffer({ maxItems: CHUNK_ITEMS, label: "\uC9C1\uBC30\uC1A1 \uBC1C\uC8FC\uC11C" });
+        if (listed.length === 0) {
+          yield { chunkKind: COUPANG_DIRECTSHIP_CHUNK_KIND, payload: [{ centers: {} }], progress: progress("done", 0, 0) };
+          return;
+        }
+        const centers = await site.purchasableCenters().then(centerMap, () => ({}));
+        await site.enterScmContext(String(listed[0].seq));
+        let detailed = 0;
+        for (let offset = 0; offset < listed.length; offset += DETAIL_CONCURRENCY) {
+          if (signal.aborted) return;
+          const batch = await Promise.all(listed.slice(offset, offset + DETAIL_CONCURRENCY).map(async (purchaseOrder) => {
+            try {
+              return { ...purchaseOrder, items: detailItems(await site.purchaseOrderDetail(String(purchaseOrder.seq))) };
+            } catch (error) {
+              if (isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED) throw error;
+              return { ...purchaseOrder, items: [] };
+            }
+          }));
+          detailed += batch.length;
+          for (const purchaseOrder of batch) {
+            const full = buffer.push({ purchaseOrder });
+            if (full) yield { chunkKind: COUPANG_DIRECTSHIP_CHUNK_KIND, payload: full, progress: progress("detail", detailed, listed.length) };
+          }
+          await report?.(progress("detail", detailed, listed.length));
+        }
+        if (signal.aborted) return;
+        const rest = buffer.flush();
+        if (rest) yield { chunkKind: COUPANG_DIRECTSHIP_CHUNK_KIND, payload: rest, progress: progress("detail", detailed, listed.length) };
+        yield { chunkKind: COUPANG_DIRECTSHIP_CHUNK_KIND, payload: [{ centers }], progress: progress("done", detailed, listed.length) };
+      } finally {
+        await site.close();
+      }
+    }
+  };
+  function progress(phase, current, total) {
+    return { phase, current, total };
+  }
+  function kstDay(now, days) {
+    return new Date(now + KST_OFFSET_MS + days * 24 * 60 * 60 * 1e3).toISOString().slice(0, 10);
+  }
+  function kstYmd(value) {
+    const raw = String(value ?? "").trim();
+    if (!raw) return "";
+    if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
+    const parsed = Date.parse(raw);
+    if (Number.isNaN(parsed)) return raw.slice(0, 10);
+    return new Date(parsed + KST_OFFSET_MS).toISOString().slice(0, 10);
+  }
+  function isUrgent(row) {
+    const code = String(row.purchaseOrderType ?? "").trim().toUpperCase();
+    if (code) return code === "URGENT";
+    return /긴급/.test(String(row.purchaseOrderTypeDescription ?? ""));
+  }
+  function listedPurchaseOrder(raw) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+    const row = raw;
+    const status = String(row.purchaseOrderStatus ?? row.purchaseOrderStatusCode ?? "").toUpperCase();
+    const statusText = String(row.purchaseOrderStatusDescription ?? row.purchaseOrderStatusName ?? "");
+    if (status && status !== "PA") return null;
+    if (!status && statusText && !/발주\s*확정/.test(statusText)) return null;
+    return {
+      seq: String(row.purchaseOrderSeq ?? ""),
+      center: String(row.centerName ?? ""),
+      transport: row.transportType,
+      edd: kstYmd(row.expectedDeliveryDate),
+      reg: kstYmd(row.createdAt) || String(row.createdAt ?? ""),
+      status: status || statusText || "PA",
+      urgent: isUrgent(row),
+      items: []
+    };
+  }
+  function centerMap(value) {
+    const body = value?.body ?? value;
+    const list = Array.isArray(body) ? body : body?.body ?? [];
+    const centers = {};
+    for (const center of Array.isArray(list) ? list : []) {
+      const record = center;
+      if (!record?.centerName) continue;
+      const entry = {};
+      if (typeof record.address === "string" && record.address.trim()) entry.addr = record.address.trim();
+      if (typeof record.zipCode === "string" && record.zipCode.trim() || typeof record.zipCode === "number") {
+        entry.zip = typeof record.zipCode === "number" ? record.zipCode : String(record.zipCode).trim();
+      }
+      if (typeof record.contact === "string" && record.contact.trim()) entry.contact = record.contact.trim();
+      centers[String(record.centerName).trim()] = entry;
+    }
+    return centers;
+  }
+  function detailItems(tables) {
+    const num = (value) => Number(String(value ?? "").replace(/[^0-9.-]/g, "")) || 0;
+    for (const table of tables) {
+      if (!/바코드/.test(table.text)) continue;
+      const items = [];
+      for (const row of table.rows) {
+        const cells = row.cells.filter((cell) => !cell.header).map((cell) => cell.text.replace(/\s+/g, " ").trim());
+        const match = cells[2] ? /^(\d{12,14})\s+(.+)/.exec(cells[2]) : null;
+        if (match) items.push({ skuId: cells[1] ?? "", barcode: match[1], name: match[2], qty: num(cells[4]), amount: num(cells[9]) });
+      }
+      if (items.length) return items;
+    }
+    return [];
+  }
+  registerCollector(coupangDirectshipCollector);
 
   // packages/shared/src/schemas/reviews.ts
   var ReviewFilterSchema = external_exports.enum(["all", "new", "needs-response"]);
@@ -5064,19 +5775,19 @@ var KidItemRuntime = (() => {
     maxPagesPerWindow: external_exports.number().int().min(1)
   });
   var COUPANG_REVIEWS_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
-  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
   var coupangReviewsCollector = {
     kind: COUPANG_REVIEWS_KIND,
-    site: "wing",
+    site: "wing-reviews",
     async *collect(rawPlan, site, { signal }) {
       const parsed = CoupangReviewsPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
       const plan = parsed.data;
       const done = [];
       for (const window of plan.windows) {
         const status = { index: window.index, pages: 0, items: 0, done: false };
-        const progress = (current) => ({ current, windows: [...done, { ...status }] });
+        const progress4 = (current) => ({ current, windows: [...done, { ...status }] });
         let buffer = [];
         for (let pageIndex = 0; ; pageIndex += 1) {
           if (signal.aborted) return;
@@ -5091,14 +5802,14 @@ var KidItemRuntime = (() => {
             buffer.push({ ...item, windowIndex: window.index });
             status.items += 1;
             if (buffer.length === COUPANG_REVIEWS_CHUNK_ITEMS) {
-              yield reviewsChunk(buffer, progress(window.label));
+              yield reviewsChunk(buffer, progress4(window.label));
               buffer = [];
             }
           }
           if (pageIndex + 1 >= page.totalPages) break;
         }
         if (signal.aborted) return;
-        if (buffer.length > 0) yield reviewsChunk(buffer, progress(window.label));
+        if (buffer.length > 0) yield reviewsChunk(buffer, progress4(window.label));
         status.done = true;
         done.push({ ...status });
         const last = window === plan.windows[plan.windows.length - 1];
@@ -5107,10 +5818,394 @@ var KidItemRuntime = (() => {
       }
     }
   };
-  function reviewsChunk(payload, progress) {
-    return { chunkKind: COUPANG_REVIEWS_CHUNK_KIND, payload, progress };
+  function reviewsChunk(payload, progress4) {
+    return { chunkKind: COUPANG_REVIEWS_CHUNK_KIND, payload, progress: progress4 };
   }
   registerCollector(coupangReviewsCollector);
+
+  // extensions/src/collectors/orders.coupang_rocket_po/index.ts
+  var ROCKET_PO_COLLECTION_INCOMPLETE = "ROCKET_PO_COLLECTION_INCOMPLETE";
+  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
+  var DETAIL_CONCURRENCY2 = 5;
+  var CHUNK_PURCHASE_ORDERS = 200;
+  var coupangRocketPoCollector = {
+    kind: COUPANG_ROCKET_PO_KIND,
+    site: "coupang-supplier",
+    async *collect(rawPlan, site, { signal, report }) {
+      const parsed = CoupangRocketPoPlanSchema.safeParse(rawPlan);
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      const plan = parsed.data;
+      try {
+        const query = { searchDateType: plan.dateType, from: plan.from, to: plan.to, status: plan.status };
+        const listed = [];
+        const seen = /* @__PURE__ */ new Set();
+        let totalListPages = null;
+        let listPagesRead = 0;
+        for (let page = 1; ; page += 1) {
+          if (signal.aborted) return;
+          const body = await site.purchaseOrderListPage(query, page);
+          const pageCount = requiredInteger(body.lastPageNumber, "\uBC1C\uC8FC \uBAA9\uB85D \uC804\uCCB4 \uCABD \uC218");
+          if (pageCount < 1 || pageCount > 1e5) throw incomplete2("\uBC1C\uC8FC \uBAA9\uB85D \uC804\uCCB4 \uCABD \uC218\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+          totalListPages ??= pageCount;
+          if (totalListPages !== pageCount) throw incomplete2("\uC218\uC9D1\uD558\uB294 \uB3D9\uC548 \uBC1C\uC8FC \uBAA9\uB85D \uCABD \uC218\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4.");
+          listPagesRead = page;
+          for (const raw of body.rows) {
+            const po = listedPo(raw, plan.status, page);
+            if (seen.has(po.poNumber)) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uAC00 \uBAA9\uB85D\uC5D0 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.`);
+            seen.add(po.poNumber);
+            listed.push(po);
+          }
+          await report?.(progress2("list", page, pageCount));
+          if (page >= totalListPages) break;
+        }
+        const vendorIds = listed.map((po) => po.vendorId);
+        const vendorId = vendorIds.length > 0 && new Set(vendorIds).size === 1 ? vendorIds[0] : "";
+        if (listed.length > 0 && !vendorId) throw incomplete2("\uBC1C\uC8FC \uBAA9\uB85D\uC758 \uACF5\uAE09\uC790 ID\uAC00 \uBE44\uC5C8\uAC70\uB098 \uC11E\uC5EC \uC788\uC2B5\uB2C8\uB2E4.");
+        const businessDateBasis = plan.dateType === "PURCHASE_ORDER_DATE" ? "ordered_at" : "expected_inbound";
+        const buffer = new ChunkBuffer({ maxItems: CHUNK_PURCHASE_ORDERS, label: "\uBC1C\uC8FC\uC11C" });
+        let detailed = 0;
+        for (let offset = 0; offset < listed.length; offset += DETAIL_CONCURRENCY2) {
+          if (signal.aborted) return;
+          const batch = await Promise.all(listed.slice(offset, offset + DETAIL_CONCURRENCY2).map(async (po) => ({
+            po,
+            rows: await detailWithRetry(site, po, businessDateBasis)
+          })));
+          detailed += batch.length;
+          for (const { po, rows } of batch) {
+            const full = buffer.push({ poNumber: po.poNumber, rows });
+            if (full) yield { chunkKind: COUPANG_ROCKET_PO_CHUNK_KIND, payload: full, progress: progress2("detail", detailed, listed.length) };
+          }
+          await report?.(progress2("detail", detailed, listed.length));
+        }
+        if (signal.aborted) return;
+        const rest = buffer.flush();
+        if (rest) yield { chunkKind: COUPANG_ROCKET_PO_CHUNK_KIND, payload: rest, progress: progress2("detail", detailed, listed.length) };
+        const scan = {
+          vendorId,
+          listPagesRead,
+          totalListPages: totalListPages ?? 0,
+          detailPoCount: detailed,
+          proof: { from: plan.from, to: plan.to, status: plan.status, dateType: plan.dateType, validatedList: true }
+        };
+        yield { chunkKind: COUPANG_ROCKET_PO_SCAN_CHUNK_KIND, payload: [scan], progress: progress2("done", detailed, listed.length) };
+      } finally {
+        await site.close();
+      }
+    }
+  };
+  function progress2(phase, current, total) {
+    return { phase, current, total };
+  }
+  function listedPo(raw, status, page) {
+    if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw incomplete2(`\uBC1C\uC8FC \uBAA9\uB85D ${page}\uCABD\uC5D0 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC740 \uD589\uC774 \uC788\uC2B5\uB2C8\uB2E4.`);
+    const row = raw;
+    const poNumber = requiredText2(row.purchaseOrderSeq, "\uBC1C\uC8FC\uC11C \uBC88\uD638");
+    const purchaseOrderStatus = requiredText2(row.purchaseOrderStatus || row.purchaseOrderStatusCode, `\uBC1C\uC8FC\uC11C ${poNumber} \uC0C1\uD0DC`).toUpperCase();
+    if (status && purchaseOrderStatus !== status) throw incomplete2(`\uBC1C\uC8FC\uC11C ${poNumber}\uAC00 ${status} \uC870\uD68C\uC5D0 ${purchaseOrderStatus} \uC0C1\uD0DC\uB85C \uC654\uC2B5\uB2C8\uB2E4.`);
+    return {
+      poNumber,
+      vendorId: requiredText2(row.vendorId, `\uBC1C\uC8FC\uC11C ${poNumber} \uACF5\uAE09\uC790 ID`),
+      purchaseOrderStatus,
+      plannedDeliveryDate: requiredDate(row.expectedDeliveryDate, `\uBC1C\uC8FC\uC11C ${poNumber} \uC785\uACE0\uC608\uC815\uC77C`),
+      listSkuCount: requiredInteger(row.skuCount, `\uBC1C\uC8FC\uC11C ${poNumber} SKU \uC218`),
+      listOrderQty: requiredInteger(row.sumOfOrderQty, `\uBC1C\uC8FC\uC11C ${poNumber} \uBC1C\uC8FC \uC218\uB7C9`),
+      listOrderAmount: requiredInteger(row.sumOfOrderAmount, `\uBC1C\uC8FC\uC11C ${poNumber} \uBC1C\uC8FC \uAE08\uC561`),
+      centerName: row.centerName,
+      transportTypeDescription: row.transportTypeDescription,
+      purchaseOrderStatusDescription: row.purchaseOrderStatusDescription,
+      createdAt: row.createdAt
+    };
+  }
+  var DetailMismatch = class extends Error {
+  };
+  async function detailWithRetry(site, po, basis) {
+    try {
+      return detailRows(await site.purchaseOrderDetail(po.poNumber), po, basis);
+    } catch (error) {
+      if (!(error instanceof DetailMismatch)) throw error;
+      try {
+        return detailRows(await site.purchaseOrderDetail(po.poNumber), po, basis);
+      } catch (again) {
+        if (again instanceof DetailMismatch) throw incomplete2(again.message);
+        throw again;
+      }
+    }
+  }
+  function detailRows(tables, po, basis) {
+    const returnTable = tables.find((table) => /회송\s*담당자/.test(table.text) && /회송지/.test(table.text));
+    const returnRow = returnTable?.rows[1]?.cells.map((cell) => norm(cell.text)) ?? ["", "", ""];
+    const skuTable = tables.find((table) => /상품\s*번호/.test(table.text) && /발주금액/.test(table.text));
+    const rows = [];
+    const lineNumbers = /* @__PURE__ */ new Set();
+    const products = /* @__PURE__ */ new Set();
+    let orderQtyTotal = 0;
+    let orderAmountTotal = 0;
+    let skip = 0;
+    for (const raw of skuTable?.rows ?? []) {
+      if (skip > 0) {
+        skip -= 1;
+        continue;
+      }
+      const values = raw.cells.map((cell) => norm(cell.text));
+      const rowSpan = Number(raw.cells[0]?.rowSpan ?? 1);
+      if (!Number.isInteger(rowSpan) || rowSpan < 1) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC758 \uCCAB \uCE78 rowspan\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+      skip = rowSpan - 1;
+      if (!/^\d+$/.test(values[0] ?? "")) continue;
+      if (values.length <= 9) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uCE78\uC774 \uBAA8\uC790\uB780 SKU \uD589\uC774 \uC788\uC2B5\uB2C8\uB2E4.`);
+      const lineNumber = requiredText2(values[0], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC904 \uBC88\uD638`);
+      if (lineNumbers.has(lineNumber)) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uAC19\uC740 \uC904 \uBC88\uD638\uAC00 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.`);
+      lineNumbers.add(lineNumber);
+      const productNo = requiredText2(values[1], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488\uBC88\uD638`);
+      const productText = requiredText2(values[2], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488`);
+      const barcode = (/^\d{8,}/.exec(productText) ?? [""])[0];
+      const productName = clean(productText, 240);
+      if (!productName) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC758 \uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+      const identity = `${productNo}\0${barcode}`;
+      if (products.has(identity)) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uAC19\uC740 \uC0C1\uD488 \uC904\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.`);
+      products.add(identity);
+      const orderQty = requiredInteger(values[4], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uBC1C\uC8FC \uC218\uB7C9`);
+      const purchasePrice = requiredInteger(values[6], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uB9E4\uC785\uAC00`);
+      const supplyPrice = requiredInteger(values[7], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uACF5\uAE09\uAC00`);
+      const vat = requiredInteger(values[8], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uBD80\uAC00\uC138`);
+      const totalPurchase = requiredInteger(values[9], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uBC1C\uC8FC \uAE08\uC561`);
+      orderQtyTotal += orderQty;
+      orderAmountTotal += totalPurchase;
+      rows.push({
+        poLineId: [po.poNumber, productNo, barcode, lineNumber].join(":"),
+        poNumber: po.poNumber,
+        vendorId: po.vendorId,
+        productNo,
+        barcode,
+        productName,
+        orderQty,
+        plannedDeliveryDate: po.plannedDeliveryDate,
+        poStatusCode: po.purchaseOrderStatus,
+        ...basis ? { businessDateBasis: basis } : {},
+        confirmation: {
+          center: clean(po.centerName, 120),
+          inboundType: clean(po.transportTypeDescription, 80),
+          poStatus: clean(po.purchaseOrderStatusDescription, 80),
+          returnManager: clean(returnRow[0], 120),
+          returnContact: clean(returnRow[1], 80),
+          returnAddress: clean(returnRow[2], 300),
+          purchasePrice,
+          supplyPrice,
+          vat,
+          totalPurchase,
+          poRegisteredAt: String(po.createdAt ?? "").replace("T", " ").slice(0, 19),
+          xdock: "N"
+        }
+      });
+    }
+    if (!skuTable || rows.length === 0) throw new DetailMismatch(`\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uC138\uC5D0 SKU \uD589\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+    if (rows.length !== po.listSkuCount || orderQtyTotal !== po.listOrderQty || orderAmountTotal !== po.listOrderAmount) {
+      throw new DetailMismatch(
+        `\uBC1C\uC8FC\uC11C ${po.poNumber}\uC758 \uBAA9\uB85D\xB7\uC0C1\uC138 \uD569\uACC4\uAC00 \uB2E4\uB985\uB2C8\uB2E4(SKU ${rows.length}/${po.listSkuCount}, \uC218\uB7C9 ${orderQtyTotal}/${po.listOrderQty}, \uAE08\uC561 ${orderAmountTotal}/${po.listOrderAmount}).`
+      );
+    }
+    return rows;
+  }
+  function incomplete2(message) {
+    return new RuntimeError(ROCKET_PO_COLLECTION_INCOMPLETE, message.slice(0, 300), {});
+  }
+  function norm(value) {
+    return String(value ?? "").replace(/\s+/g, " ").trim();
+  }
+  function clean(value, max) {
+    return String(value ?? "").replace(/[\u0000-\u001F]/g, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, max);
+  }
+  function requiredText2(value, field) {
+    const text2 = norm(value);
+    if (!text2) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+    return text2;
+  }
+  function requiredInteger(value, field) {
+    if (typeof value === "number") {
+      if (!Number.isSafeInteger(value) || value < 0) throw incomplete2(`${field}\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+      return value;
+    }
+    if (typeof value !== "string") throw incomplete2(`${field}\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+    const raw = value.trim();
+    if (!raw || !/^\d+$/.test(raw) && !/^\d{1,3}(?:,\d{3})+$/.test(raw)) throw incomplete2(`${field}\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+    const parsed = Number(raw.replace(/,/g, ""));
+    if (!Number.isSafeInteger(parsed) || parsed < 0) throw incomplete2(`${field}\uAC00 \uBC94\uC704\uB97C \uBC97\uC5B4\uB0AC\uC2B5\uB2C8\uB2E4.`);
+    return parsed;
+  }
+  function isCalendarDate(year, month, day) {
+    if (month < 1 || month > 12 || day < 1) return false;
+    return day <= new Date(Date.UTC(year, month, 0)).getUTCDate();
+  }
+  function requiredDate(value, field) {
+    if (typeof value !== "string") throw incomplete2(`${field}\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+    const raw = value.trim();
+    const day = /^(\d{4})-(\d{2})-(\d{2})$/.exec(raw);
+    if (day) {
+      if (!isCalendarDate(Number(day[1]), Number(day[2]), Number(day[3]))) throw incomplete2(`${field}\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+      return raw;
+    }
+    const iso = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(raw);
+    const parsed = iso ? Date.parse(raw) : Number.NaN;
+    if (!iso || !isCalendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3])) || Number.isNaN(parsed)) throw incomplete2(`${field}\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+    return new Date(parsed + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
+  }
+  registerCollector(coupangRocketPoCollector);
+
+  // extensions/src/collectors/orders.coupang_shipment_summary/index.ts
+  var PlanSchema = external_exports.object({ maxPages: external_exports.number().int().min(1).max(60) });
+  var PAGE_FETCH_CONCURRENCY = 6;
+  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
+  var coupangShipmentSummaryCollector = {
+    kind: COUPANG_SHIPMENT_SUMMARY_KIND,
+    site: "coupang-supplier",
+    async *collect(rawPlan, site, { signal, report }) {
+      const parsed = PlanSchema.safeParse(rawPlan);
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      const { maxPages } = parsed.data;
+      try {
+        const seen = /* @__PURE__ */ new Set();
+        const byDate = /* @__PURE__ */ new Map();
+        const pageRowCounts = [];
+        let totalRows = 0;
+        let stopReason = "max_pages";
+        let reachedLastPage = false;
+        for (let batchStart = 1; batchStart <= maxPages && !reachedLastPage; batchStart += PAGE_FETCH_CONCURRENCY) {
+          if (signal.aborted) return;
+          const batchEnd = Math.min(batchStart + PAGE_FETCH_CONCURRENCY - 1, maxPages);
+          const pages = Array.from({ length: batchEnd - batchStart + 1 }, (_, index) => batchStart + index);
+          const batch = await Promise.all(pages.map(async (page) => site.parcelPage(page)));
+          for (const rows of batch) {
+            pageRowCounts.push(rows.length);
+            if (rows.length === 0) {
+              stopReason = "empty_page";
+              reachedLastPage = true;
+              break;
+            }
+            for (const row of rows) {
+              if (seen.has(row.seq)) continue;
+              seen.add(row.seq);
+              totalRows += 1;
+              const date = row.outbound.slice(0, 10);
+              const boxes = /(\d+)/.exec(row.boxes);
+              const current = byDate.get(date) ?? { count: 0, boxes: 0 };
+              current.count += 1;
+              current.boxes += boxes ? Number(boxes[1]) : 0;
+              byDate.set(date, current);
+            }
+            if (rows.length < COUPANG_SHIPMENT_SUMMARY_PAGE_ROWS) {
+              stopReason = "short_page";
+              reachedLastPage = true;
+              break;
+            }
+          }
+          await report?.(progress3(pageRowCounts.length, maxPages, false));
+        }
+        if (signal.aborted) return;
+        const buffer = new ChunkBuffer({ maxItems: 1e3, label: "\uBC1C\uC1A1\uC77C \uD56D\uBAA9" });
+        const dates = [...byDate.entries()].map(([date, value]) => ({ date, count: value.count, boxes: value.boxes })).sort((a, b) => b.date.localeCompare(a.date));
+        for (const item of dates) {
+          const full = buffer.push(item);
+          if (full) yield datesChunk(full, progress3(pageRowCounts.length, maxPages, false));
+        }
+        const rest = buffer.flush();
+        if (rest) yield datesChunk(rest, progress3(pageRowCounts.length, maxPages, false));
+        const scan = {
+          maxPages,
+          scannedPages: pageRowCounts.length,
+          totalRows,
+          stopReason,
+          lastPageRowCount: pageRowCounts.at(-1) ?? 0,
+          pageRowCounts,
+          validatedTable: true
+        };
+        yield { chunkKind: COUPANG_SHIPMENT_SUMMARY_SCAN_CHUNK_KIND, payload: [scan], progress: progress3(pageRowCounts.length, maxPages, true) };
+      } finally {
+        await site.close();
+      }
+    }
+  };
+  function progress3(current, total, done) {
+    return { current, total, done };
+  }
+  function datesChunk(payload, value) {
+    return { chunkKind: COUPANG_SHIPMENT_SUMMARY_CHUNK_KIND, payload, progress: value };
+  }
+  registerCollector(coupangShipmentSummaryCollector);
+
+  // extensions/src/collectors/orders.mall_orders/index.ts
+  var PlanSchema2 = external_exports.object({
+    mallKey: external_exports.string().min(1),
+    collectionDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
+    selectionMode: external_exports.enum(["manual", "automatic"]).optional(),
+    seenRowKeys: external_exports.array(external_exports.string()).optional()
+  });
+  var CHUNK_ROWS = 200;
+  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
+  var mallOrdersCollector = {
+    kind: MALL_ORDERS_KIND,
+    site: "mall-orders",
+    async *collect(rawPlan, site, { signal }) {
+      const parsed = PlanSchema2.safeParse(rawPlan);
+      const reader = parsed.success && site ? site.reader(parsed.data.mallKey) : null;
+      if (!parsed.success || !reader) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+          kind: MALL_ORDERS_KIND,
+          mallKey: parsed.success ? parsed.data.mallKey : null
+        });
+      }
+      const plan = parsed.data;
+      try {
+        const { rows, continuation } = await reader.readOrders({
+          collectionDate: plan.collectionDate,
+          selectionMode: plan.selectionMode ?? "manual",
+          seenRowKeys: plan.seenRowKeys ?? [],
+          signal
+        });
+        if (signal.aborted) return;
+        const progress4 = { mallKey: plan.mallKey, rows: rows.length };
+        const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS, label: "\uC8FC\uBB38 \uD55C \uAC74" });
+        for (const row of rows) {
+          const full = buffer.push(row);
+          if (full) yield { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: full, progress: progress4 };
+        }
+        const rest = buffer.flush();
+        if (rest) yield { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: rest, progress: progress4 };
+        if (continuation) yield { chunkKind: MALL_ORDERS_CONTINUATION_CHUNK_KIND, payload: [continuation], progress: progress4 };
+      } finally {
+        await reader.close?.();
+      }
+    }
+  };
+  registerCollector(mallOrdersCollector);
+
+  // extensions/src/collectors/orders.sellpia_shipment_tracking/index.ts
+  var PlanSchema3 = external_exports.object({
+    startDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+    endDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/)
+  });
+  var CHUNK_ROWS2 = 500;
+  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
+  var sellpiaShipmentTrackingCollector = {
+    kind: SELLPIA_SHIPMENT_TRACKING_KIND,
+    site: "sellpia",
+    async *collect(rawPlan, site, { signal }) {
+      const parsed = PlanSchema3.safeParse(rawPlan);
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      const { rows, total } = await site.shipmentTracking({ startDate: parsed.data.startDate, endDate: parsed.data.endDate });
+      if (signal.aborted) return;
+      const progress4 = { rows: rows.length, listed: total };
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS2, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
+      for (const row of rows) {
+        const full = buffer.push(row);
+        if (full) yield { chunkKind: SELLPIA_SHIPMENT_TRACKING_CHUNK_KIND, payload: full, progress: progress4 };
+      }
+      const rest = buffer.flush();
+      if (rest) yield { chunkKind: SELLPIA_SHIPMENT_TRACKING_CHUNK_KIND, payload: rest, progress: progress4 };
+    }
+  };
+  registerCollector(sellpiaShipmentTrackingCollector);
 
   // packages/shared/src/sourcing/operation-result.ts
   var BoundedCountSchema = external_exports.number().int().nonnegative().max(2147483647);
@@ -5570,7 +6665,7 @@ var KidItemRuntime = (() => {
   var SOURCING_COLLECTION_INCOMPLETE = "SOURCING_COLLECTION_INCOMPLETE";
   var sourcingWingCatalogCollector = {
     kind: SOURCING_OPERATION_KINDS.wingCatalog,
-    site: "wing",
+    site: "wing-search",
     async *collect(plan, site, { signal }) {
       for (const [index, keyword] of plan.keywords.entries()) {
         if (signal.aborted) return;
@@ -5622,57 +6717,6 @@ var KidItemRuntime = (() => {
   };
   registerCollector(testEchoCollector);
 
-  // extensions/src/core/browser.ts
-  var RUNTIME_BROWSER_ALREADY_ACQUIRED = "RUNTIME_BROWSER_ALREADY_ACQUIRED";
-  var RUNTIME_BROWSER_UNAVAILABLE = "RUNTIME_BROWSER_UNAVAILABLE";
-  function createBrowserResources(chromeApi, sites, options = {}) {
-    const held = /* @__PURE__ */ new Set();
-    return {
-      async acquire({ operationId, lockKeys, signal }) {
-        if (held.has(operationId)) {
-          throw new RuntimeError(RUNTIME_BROWSER_ALREADY_ACQUIRED, "\uC774 \uC2E4\uD589\uC740 \uC774\uBBF8 \uBE0C\uB77C\uC6B0\uC800 \uC790\uC6D0\uC744 \uC7A1\uACE0 \uC788\uC2B5\uB2C8\uB2E4.", { operationId });
-        }
-        signal.throwIfAborted();
-        const siteNames = [...new Set(lockKeys.map((key) => siteOfLockKey(key, options)).filter((name) => name !== null && name in sites))];
-        if (siteNames.length > 1) {
-          throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uD55C \uC2E4\uD589\uC774 \uB450 \uC0AC\uC774\uD2B8\uC758 \uD0ED\uC744 \uD568\uAED8 \uC7A1\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { sites: siteNames });
-        }
-        held.add(operationId);
-        try {
-          const tab = siteNames.length === 1 ? await openSiteTab(chromeApi, sites[siteNames[0]].origin) : null;
-          let released = false;
-          return {
-            tabId: tab?.tabId ?? null,
-            async release() {
-              if (released) return;
-              released = true;
-              held.delete(operationId);
-              if (tab?.opened) await chromeApi.tabs.remove(tab.tabId).catch(() => void 0);
-            }
-          };
-        } catch (error) {
-          held.delete(operationId);
-          throw error;
-        }
-      }
-    };
-  }
-  function siteOfLockKey(key, options) {
-    if (key.startsWith("resource:")) return key.split(":")[1] ?? null;
-    if (key.startsWith("account:")) return options.accountSite ?? null;
-    return null;
-  }
-  async function openSiteTab(chromeApi, origin) {
-    const base = origin.replace(/\/+$/, "");
-    const [existing] = await chromeApi.tabs.query({ url: `${base}/*` });
-    if (typeof existing?.id === "number") return { tabId: existing.id, opened: false };
-    const created = await chromeApi.tabs.create({ url: base, active: false });
-    if (typeof created.id !== "number") {
-      throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uC0AC\uC774\uD2B8 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { origin: base });
-    }
-    return { tabId: created.id, opened: true };
-  }
-
   // extensions/src/sites/tab-page.ts
   function checkPageUrl(guard, value) {
     let url;
@@ -5712,12 +6756,12 @@ var KidItemRuntime = (() => {
   function createTabPages(deps) {
     function page(tabId, owned) {
       let closed = false;
-      async function send(message, timeoutMs) {
+      async function send(message, timeoutMs, frameId) {
         let timer;
         const timeout = new Promise((resolve) => {
           timer = setTimeout(() => resolve({ ok: false, error: "timeout" }), timeoutMs);
         });
-        const answer = deps.chrome.tabs.sendMessage(tabId, message).then(
+        const answer = (frameId === void 0 ? deps.chrome.tabs.sendMessage(tabId, message) : deps.chrome.tabs.sendMessage(tabId, message, { frameId })).then(
           (response) => response ?? { ok: false, error: "empty_response" },
           (error) => ({ ok: false, error: MISSING_RECEIVER.test(String(error?.message ?? error)) ? "content_script_missing" : String(error?.message ?? error) })
         );
@@ -5766,7 +6810,7 @@ var KidItemRuntime = (() => {
           if (!tab?.url) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1\uD560 \uD0ED\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { tabId });
           return tab.url;
         },
-        async ask(message, { timeoutMs, inject, guard }) {
+        async ask(message, { timeoutMs, inject, guard, frameId }) {
           const checkHere = async () => {
             if (!guard) return;
             const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
@@ -5774,16 +6818,21 @@ var KidItemRuntime = (() => {
             checkPageUrl(guard, tab.url ?? "");
           };
           await checkHere();
-          const first = await send(message, timeoutMs);
+          const first = await send(message, timeoutMs, frameId);
           if (!inject || !isMissing(first)) return first;
           await checkHere();
-          await deps.chrome.scripting.executeScript({ target: { tabId }, files: [...inject.isolated] });
+          const target = frameId === void 0 ? { tabId } : { tabId, frameIds: [frameId] };
+          await deps.chrome.scripting.executeScript({ target, files: [...inject.isolated] });
           if (inject.main?.length) {
             await deps.sleep(300);
-            await deps.chrome.scripting.executeScript({ target: { tabId }, files: [...inject.main], world: "MAIN" });
+            await deps.chrome.scripting.executeScript({ target, files: [...inject.main], world: "MAIN" });
           }
           await deps.sleep(500);
-          return send(message, timeoutMs);
+          return send(message, timeoutMs, frameId);
+        },
+        async frames(files) {
+          const injected = await deps.chrome.scripting.executeScript({ target: { tabId, allFrames: true }, files: [...files] });
+          return (Array.isArray(injected) ? injected : []).filter((item) => typeof item?.frameId === "number" && item.result !== void 0 && item.result !== null).map((item) => ({ frameId: item.frameId, result: item.result }));
         },
         listen(listener) {
           const handler = (message, sender) => {
@@ -5820,6 +6869,1332 @@ var KidItemRuntime = (() => {
   function isMissing(value) {
     return typeof value === "object" && value !== null && value.error === "content_script_missing";
   }
+
+  // extensions/src/sites/registry.ts
+  var sites = /* @__PURE__ */ new Map();
+  function registerSite(factory) {
+    if (sites.has(factory.name)) throw new Error(`duplicate site: ${factory.name}`);
+    sites.set(factory.name, factory);
+  }
+  function siteFactoryFor(name) {
+    return sites.get(name) ?? null;
+  }
+  function registeredSites() {
+    return [...sites.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
+  }
+
+  // extensions/src/sites/1688/index.ts
+  var SEARCH_ORIGIN = "https://s.1688.com";
+  var NAVIGATION_TIMEOUT_MS = 3e4;
+  var EXTRACTION_TIMEOUT_MS = 2e4;
+  var MAX_RESULTS_PER_KEYWORD = 20;
+  var MAX_VERIFICATION_ROUNDS = 5;
+  var ALIBABA_CONTENT_FILES = {
+    isolated: [
+      "content/sourcing/extractors/common.js",
+      "content/sourcing/extractors/alibaba.js",
+      "content/sourcing/extractors/1688.js",
+      "content/sourcing/content.js"
+    ]
+  };
+  var SITE_VERIFICATION_REQUIRED = "SITE_VERIFICATION_REQUIRED";
+  var ALIBABA_1688_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["1688.com"]),
+    isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "passport.taobao.com"]),
+    loginMessage: "1688 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  var ALIBABA_1688_SITE = {
+    name: "ali1688",
+    origin: SEARCH_ORIGIN,
+    caller: { minIntervalMs: 0, displayName: "1688" }
+  };
+  function build1688SearchUrl(keyword) {
+    return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword)}&charset=utf8`;
+  }
+  function is1688VerificationUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.pathname.includes("/punish") || url.pathname.includes("/_____tmd_____/") || url.searchParams.get("action") === "captcha";
+    } catch {
+      return false;
+    }
+  }
+  function create1688SearchSite(tabs) {
+    let page = null;
+    let keepOpen = false;
+    return {
+      /**
+       * 키워드 하나. 슬라이더 검증이 뜨면 실패하지 않고 운영자를 기다렸다가(`onAttention`으로 알림) 같은 키워드를 다시
+       * 시도한다 — 실행과 이미 올린 청크는 그대로다(KID-355 QA). 10분 안에 통과하지 않으면 `SITE_VERIFICATION_REQUIRED`.
+       */
+      async offers(keyword, options = {}) {
+        page ??= await tabs.open("about:blank");
+        const current = page;
+        const attention = { kind: "verification", site: "1688", label: keyword };
+        const waitOrFail = async (url) => {
+          if (await waitForOperator(current, is1688VerificationUrl, attention, options.onAttention)) return;
+          throw verification(url, keyword, () => {
+            keepOpen = true;
+          });
+        };
+        for (let round = 1; ; round += 1) {
+          const landed = await current.navigate(build1688SearchUrl(keyword), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
+          if (is1688VerificationUrl(landed)) {
+            if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword, () => {
+              keepOpen = true;
+            });
+            await waitOrFail(landed);
+            continue;
+          }
+          let extracted;
+          try {
+            extracted = await current.ask(
+              { type: "TRIGGER_1688_TREND_EXTRACT", maxResults: MAX_RESULTS_PER_KEYWORD },
+              { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: ALIBABA_CONTENT_FILES, guard: ALIBABA_1688_PAGE_GUARD }
+            );
+          } catch (error) {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          }
+          if (extracted.status === "verification_required") {
+            const here = await current.currentUrl().catch(() => extracted.verificationUrl ?? landed);
+            if (round > MAX_VERIFICATION_ROUNDS || !is1688VerificationUrl(here)) {
+              throw verification(extracted.verificationUrl ?? landed, keyword, () => {
+                keepOpen = true;
+              });
+            }
+            await waitOrFail(here);
+            continue;
+          }
+          if (!extracted.ok) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword });
+          }
+          return (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => typeof item?.offerId === "string" && item.offerId.length > 0).slice(0, MAX_RESULTS_PER_KEYWORD);
+        }
+      },
+      /** 수집이 끝나면 탭을 닫는다. 검증 화면에서 멈췄으면 운영자가 풀 수 있게 남긴다. */
+      async close() {
+        if (page && !keepOpen) await page.close();
+        page = null;
+      }
+    };
+  }
+  function verification(url, keyword, keep) {
+    keep();
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword });
+  }
+  registerSite({ name: ALIBABA_1688_SITE.name, create: (deps) => create1688SearchSite(deps.tabs) });
+
+  // extensions/src/sites/fresh-tab.ts
+  var NAVIGATION_TIMEOUT_MS2 = 3e4;
+  async function withFreshTab(tabs, url, read, options = {}) {
+    const page = await tabs.open("about:blank");
+    let keepOpen = false;
+    try {
+      await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS2 });
+      return await read(page);
+    } catch (error) {
+      if (leftForOperator(error)) keepOpen = true;
+      throw error;
+    } finally {
+      if (!keepOpen) await page.close();
+    }
+  }
+
+  // extensions/src/sites/page-call.ts
+  var PAGE_CALL_BRIDGE_FILE = "content/page-call/bridge.js";
+  var PAGE_CALL_RUNNER_FILE = "content/page-call/runner.js";
+  var PAGE_CALL_MESSAGE = "KIDITEM_PAGE_CALL";
+  async function callPage(page, call2, args, options) {
+    const answer = await page.ask(
+      { type: PAGE_CALL_MESSAGE, call: call2, args },
+      {
+        timeoutMs: options.timeoutMs,
+        guard: options.guard,
+        ...options.frameId !== void 0 ? { frameId: options.frameId } : {},
+        inject: {
+          isolated: [PAGE_CALL_BRIDGE_FILE, ...options.isolated ?? []],
+          // MAIN world 처리기가 있을 때만 러너를 넣는다(ISOLATED 처리기는 브리지가 바로 부른다).
+          ...options.main?.length ? { main: [PAGE_CALL_RUNNER_FILE, ...options.main] } : {}
+        }
+      }
+    );
+    if (answer.ok === true) return answer.value;
+    if (answer.error === "timeout") {
+      throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC774 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "timeout", call: call2 });
+    }
+    throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC5D0\uC11C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, {
+      status: null,
+      reason: "page_error",
+      call: call2
+    });
+  }
+
+  // extensions/src/sites/art09/index.ts
+  var ART09_ORDER_URL = "https://zzogzzog1.cafe24.com/admin/php/shop1/s_new/order_list.php?1&shop_no=1";
+  var ART09_ORDERS_FILE = "content/orders/art09-orders.js";
+  var READ_TIMEOUT_MS = 18e4;
+  var LOGIN_MESSAGE = "\uC544\uD2B8\uACF5\uAD6C \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. zzogzzog1.cafe24.com \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
+  var ART09_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["zzogzzog1.cafe24.com"]),
+    isLogin: (url) => hostWithin(url, ["cafe24.com"]) && !/order_list\.php$/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE
+  };
+  function createArt09Site(tabs) {
+    return {
+      readOrders(input) {
+        return withFreshTab(tabs, ART09_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "art09.orders", { dateFilter: input.collectionDate ?? "" }, {
+            timeoutMs: READ_TIMEOUT_MS,
+            guard: ART09_PAGE_GUARD,
+            isolated: [ART09_ORDERS_FILE],
+            displayName: "\uC544\uD2B8\uACF5\uAD6C"
+          });
+          if (answer?.status === "ok") return { rows: answer.rows };
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE, { url: ART09_ORDER_URL });
+          throw new RuntimeError(SITE_REQUEST_FAILED, `\uC544\uD2B8\uACF5\uAD6C \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
+            status: null,
+            reason: "page_error",
+            url: ART09_ORDER_URL
+          });
+        });
+      }
+    };
+  }
+  registerSite({ name: "art09", create: (deps) => createArt09Site(deps.tabs) });
+
+  // extensions/src/sites/coupang-search/parse.ts
+  var PROVIDER_ATTENTION = /access\s*denied|unauthori[sz]ed|forbidden|too\s*many\s*requests|로그인|인증|접근\s*거부/i;
+  var STOP_WORDS = /* @__PURE__ */ new Set(["\uCFE0\uD321", "\uB85C\uCF13", "\uB85C\uCF13\uBC30\uC1A1", "\uBB34\uB8CC\uBC30\uC1A1", "\uBB34\uB8CC", "\uBC30\uC1A1", "\uC815\uD488", "\uAD6D\uB0B4", "\uB2F9\uC77C", "\uC624\uB298", "\uC0C8\uC0C1\uD488", "\uC0C1\uD488", "\uAD6C\uB9E4", "\uD560\uC778", "\uD2B9\uAC00", "\uC635\uC158", "\uC0C9\uC0C1", "\uB79C\uB364"]);
+  function parseCoupangSearchEvidence(evidence, seed, maxResults, origin = "https://www.coupang.com") {
+    const warnings = [];
+    const candidates = [];
+    let structuredResponse = false;
+    let domEvidence = false;
+    let providerError = null;
+    const add = (value, source) => {
+      if (typeof value !== "string") return;
+      const keyword = value.replace(/\s+/g, " ").trim();
+      if (usableKeyword(keyword, seed)) candidates.push({ keyword, source });
+    };
+    const walk = (value) => {
+      if (typeof value === "string") return add(value, "coupang-autocomplete");
+      if (Array.isArray(value)) return value.forEach(walk);
+      if (!value || typeof value !== "object") return;
+      for (const [key, nested] of Object.entries(value)) {
+        if (/keyword|query|term|suggest|name|label|word/i.test(key) && typeof nested === "string") add(nested, "coupang-autocomplete");
+        else walk(nested);
+      }
+    };
+    const autocomplete = evidence.autocomplete;
+    if (autocomplete?.error) warnings.push(autocomplete.error);
+    if (autocomplete && autocomplete.status !== 0 && (autocomplete.status < 200 || autocomplete.status >= 300)) {
+      warnings.push(`\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uD638\uCD9C \uC2E4\uD328 (${autocomplete.status})`);
+      if ([401, 403, 429].includes(autocomplete.status)) {
+        providerError = autocomplete.status === 429 ? { reason: "rate_limited", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC694\uCCAD\uC774 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694." } : { reason: "provider_denied", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574\uC8FC\uC138\uC694." };
+      }
+    }
+    const text2 = autocomplete?.text.trim() ?? "";
+    if (text2 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text2))) {
+      try {
+        const parsed = JSON.parse(text2);
+        if (parsed && typeof parsed === "object") {
+          if (isErrorEnvelope(parsed)) {
+            const message = errorEnvelopeMessage(parsed);
+            providerError ??= { reason: "provider_denied", message };
+          } else {
+            walk(parsed);
+            structuredResponse = hasSuggestionCollection(parsed);
+          }
+        } else {
+          warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uAD6C\uC870\uAC00 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+        }
+      } catch {
+        warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uD30C\uC2F1 \uC2E4\uD328");
+      }
+    } else if (text2) {
+      warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4");
+    }
+    const beforeDom = candidates.length;
+    for (const link of evidence.links) {
+      add(link.text, "coupang-search-dom");
+      try {
+        const parsed = new URL(link.href, origin);
+        add(parsed.searchParams.get("q") || parsed.searchParams.get("keyword") || "", "coupang-search-dom");
+      } catch {
+      }
+    }
+    if (candidates.length > beforeDom) domEvidence = true;
+    const productNames = [];
+    for (const raw of evidence.productNames) {
+      const name = raw.replace(/\s+/g, " ").trim();
+      if (name.length < 4 || name.length > 180 || /장바구니|구매|광고|무료배송|로켓배송만 보기/.test(name)) continue;
+      productNames.push(name);
+      domEvidence = true;
+    }
+    if (providerError) return { ok: false, ...providerError, warnings };
+    if (!structuredResponse && !domEvidence) {
+      return { ok: false, reason: "no_evidence", message: "\uCFE0\uD321 \uD0A4\uC6CC\uB4DC \uC751\uB2F5\uC5D0\uC11C \uC0AC\uC6A9\uD560 \uC218 \uC788\uB294 \uAC80\uC0C9 \uADFC\uAC70\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", warnings };
+    }
+    const seen = /* @__PURE__ */ new Set();
+    const items = [];
+    for (const candidate of candidates) {
+      const key = candidate.keyword.replace(/\s+/g, "").toLowerCase();
+      if (seen.has(key)) continue;
+      seen.add(key);
+      items.push({ rank: items.length + 1, keyword: candidate.keyword, source: candidate.source });
+      if (items.length >= maxResults) break;
+    }
+    return { ok: true, items, productNameTokens: countTokens(productNames, maxResults), warnings };
+  }
+  function usableKeyword(value, seed) {
+    if (value.length < 2 || value.length > 40) return false;
+    if (/https?:\/\//i.test(value) || /^[\d\s,.-]+$/.test(value) || /[₩원%]/.test(value)) return false;
+    if (["\uAC80\uC0C9", "\uBC14\uB85C\uAC00\uAE30", "\uCFE0\uD321", "\uB85C\uCF13\uBC30\uC1A1", "\uBB34\uB8CC\uBC30\uC1A1"].includes(value)) return false;
+    const compact = value.replace(/\s+/g, "").toLowerCase();
+    return compact.length > 1 && compact !== seed.replace(/\s+/g, "").toLowerCase();
+  }
+  function isErrorEnvelope(value) {
+    if (Array.isArray(value)) return false;
+    const record = value;
+    if (record.success === false || record.ok === false) return true;
+    for (const key of ["error", "errors", "errorCode", "error_code"]) {
+      const nested = record[key];
+      if (key in record && nested !== null && nested !== void 0 && String(nested).trim()) return true;
+    }
+    if (record.code !== void 0 && record.code !== null && record.code !== 0 && record.code !== "0" && String(record.code).trim() !== "") return true;
+    return typeof record.message === "string" && PROVIDER_ATTENTION.test(record.message);
+  }
+  function errorEnvelopeMessage(value) {
+    const record = value;
+    for (const key of ["error", "errors", "message", "errorCode", "error_code", "code"]) {
+      const nested = record[key];
+      if (nested !== null && nested !== void 0 && String(nested).trim()) return String(nested);
+    }
+    return "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC5D0\uC11C \uC624\uB958\uB97C \uBC18\uD658\uD588\uC2B5\uB2C8\uB2E4.";
+  }
+  function hasSuggestionCollection(value, depth = 0) {
+    if (Array.isArray(value)) return true;
+    if (!value || typeof value !== "object" || depth > 3) return false;
+    for (const [key, nested] of Object.entries(value)) {
+      if (!/suggest|keyword|query|term|result|item|product|data|list/i.test(key)) continue;
+      if (Array.isArray(nested) || typeof nested === "string" && nested.trim()) return true;
+      if (nested && typeof nested === "object" && hasSuggestionCollection(nested, depth + 1)) return true;
+    }
+    return false;
+  }
+  function countTokens(productNames, maxResults) {
+    const counts = /* @__PURE__ */ new Map();
+    for (const name of productNames) {
+      const tokens = new Set(name.replace(/[()[\]{}"'`~!@#$%^&*_+=|\\:;,.<>/?·•]/g, " ").split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 2 && token.length <= 20).filter((token) => !/^[\d개입묶음세트]+$/.test(token)).filter((token) => !STOP_WORDS.has(token)));
+      for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
+    }
+    return [...counts.entries()].map(([keyword, count]) => ({ keyword, count })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
+  }
+
+  // extensions/src/sites/coupang-search/index.ts
+  var ORIGIN = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS = 6e4;
+  var EVIDENCE_TIMEOUT_MS = 3e4;
+  var SETTLE_MS = 1500;
+  var CONTENT_FILE = "content/sourcing/coupang-search-page.js";
+  var COUPANG_SEARCH_SITE = {
+    name: "coupang-search",
+    origin: ORIGIN,
+    caller: { minIntervalMs: SETTLE_MS, displayName: "\uCFE0\uD321" }
+  };
+  function buildCoupangSearchUrl(keyword) {
+    return `${ORIGIN}/np/search?component=&q=${encodeURIComponent(keyword)}&channel=user`;
+  }
+  function isCoupangSearchUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname.toLowerCase() === "www.coupang.com" && url.port === "" && url.username === "" && url.password === "" && /^\/np\/search\/?$/.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+  function createCoupangSearchSite(tabs, deps) {
+    return {
+      async keywordSuggestions(keyword, maxResults) {
+        const url = buildCoupangSearchUrl(keyword);
+        const page = await tabs.open("about:blank");
+        try {
+          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS });
+          if (!isCoupangSearchUrl(landed)) {
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uCFE0\uD321 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
+          }
+          await deps.sleep(SETTLE_MS);
+          const evidence = await page.ask(
+            { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword },
+            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE] } }
+          );
+          if (!evidence.links || !evidence.productNames) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
+          }
+          const parsed = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword, maxResults);
+          if (!parsed.ok) {
+            throw new RuntimeError(
+              parsed.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
+              parsed.message,
+              { status: parsed.reason === "rate_limited" ? 429 : null, url, reason: parsed.reason, warnings: parsed.warnings }
+            );
+          }
+          return { items: parsed.items, productNameTokens: parsed.productNameTokens, warnings: parsed.warnings };
+        } finally {
+          await page.close();
+        }
+      }
+    };
+  }
+  registerSite({ name: COUPANG_SEARCH_SITE.name, create: (deps) => createCoupangSearchSite(deps.tabs, { sleep: deps.sleep }) });
+
+  // extensions/src/sites/coupang-supplier/page.ts
+  var COUPANG_SUPPLIER_ORIGIN = "https://supplier.coupang.com";
+  var COUPANG_SUPPLIER_PAGE_FILES = { isolated: ["content/orders/coupang-supplier-page.js"] };
+  var SITE_COOKIE_BLOAT = "SITE_COOKIE_BLOAT";
+  var COOKIE_BLOAT_MESSAGE = "\uCFE0\uD321 \uC811\uC18D\uC774 \uB9CE\uC544 supplier.coupang.com \uCFE0\uD0A4\uAC00 \uCEE4\uC838(HTTP 400) \uC694\uCCAD\uC774 \uAC70\uBD80\uB410\uC2B5\uB2C8\uB2E4. \uCFE0\uD321 \uCFE0\uD0A4\uB97C \uC815\uB9AC\uD558\uAC70\uB098 \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC870\uD68C\uD558\uC138\uC694.";
+  var SUPPLIER_LOGIN_MESSAGE = "\uCFE0\uD321 \uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. supplier.coupang.com \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var COUPANG_SUPPLIER_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["supplier.coupang.com"]),
+    isLogin: isSupplierLoginUrl,
+    loginMessage: SUPPLIER_LOGIN_MESSAGE
+  };
+  function isSupplierLoginUrl(url) {
+    return hostWithin(url, ["xauth.coupang.com"]) || /\/(?:login|sign-in|signin)(?:[/?#]|$)/i.test(url.pathname);
+  }
+  var SUPPLIER_REQUEST_TIMEOUT_MS = 6e4;
+  function supplierPage(tab) {
+    return {
+      tab,
+      async fetch(path, options = {}) {
+        const answer = await tab.ask(
+          { type: "KIDITEM_COUPANG_SUPPLIER_FETCH", url: path, headers: options.headers ?? {}, tables: options.tables === true },
+          { timeoutMs: options.timeoutMs ?? SUPPLIER_REQUEST_TIMEOUT_MS, inject: COUPANG_SUPPLIER_PAGE_FILES, guard: COUPANG_SUPPLIER_PAGE_GUARD }
+        );
+        if (answer.ok !== true && /failed to fetch/i.test(answer.error ?? "")) throw loginRequired(path);
+        if (answer.ok !== true || typeof answer.status !== "number" || typeof answer.text !== "string") {
+          const reason = answer.error === "timeout" ? "timeout" : "network";
+          throw new RuntimeError(SITE_REQUEST_FAILED, reason === "timeout" ? "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C\uAC00 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", {
+            status: null,
+            url: path,
+            reason,
+            bodyHead: answer.error ?? null
+          });
+        }
+        return {
+          status: answer.status,
+          redirected: answer.redirected === true,
+          url: answer.url ?? path,
+          text: answer.text,
+          tables: Array.isArray(answer.tables) ? answer.tables : null
+        };
+      },
+      async bodyText() {
+        const answer = await tab.ask(
+          { type: "KIDITEM_COUPANG_SUPPLIER_BODY_TEXT" },
+          { timeoutMs: 1e4, inject: COUPANG_SUPPLIER_PAGE_FILES }
+        );
+        return typeof answer.text === "string" ? answer.text : "";
+      }
+    };
+  }
+  function loginRequired(url) {
+    return new RuntimeError(SITE_LOGIN_REQUIRED, SUPPLIER_LOGIN_MESSAGE, { url });
+  }
+  function cookieBloat(url, status) {
+    return new RuntimeError(SITE_COOKIE_BLOAT, COOKIE_BLOAT_MESSAGE, { url, status });
+  }
+  function responseInvalid(url, message) {
+    return new RuntimeError(SITE_REQUEST_FAILED, message, { status: null, url, reason: "response_invalid", bodyHead: null });
+  }
+  function keepTabFor(error) {
+    return leftForOperator(error);
+  }
+
+  // extensions/src/sites/coupang-supplier/po.ts
+  var PO_BOOTSTRAP_URL = `${COUPANG_SUPPLIER_ORIGIN}/scm/purchase/order/list`;
+  var PO_READY_PATH_PREFIX = "/po-web/purchase/order";
+  var NAVIGATION_TIMEOUT_MS3 = 3e4;
+  function isReadyPoUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.origin === COUPANG_SUPPLIER_ORIGIN && url.pathname.startsWith(PO_READY_PATH_PREFIX);
+    } catch {
+      return false;
+    }
+  }
+  async function preparePoSession(tab) {
+    const page = supplierPage(tab);
+    for (let attempt = 1; ; attempt += 1) {
+      const landed = await tab.navigate(PO_BOOTSTRAP_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
+      if (isReadyPoUrl(landed)) return page;
+      const body = isSupplierUrl(landed) ? await page.bodyText().catch(() => "") : "";
+      if (/HTTP Status 400|Bad Request/i.test(body)) throw cookieBloat(landed, 400);
+      if (attempt >= 2) throw loginRequired(landed);
+    }
+  }
+  function isSupplierUrl(value) {
+    try {
+      return new URL(value).origin === COUPANG_SUPPLIER_ORIGIN;
+    } catch {
+      return false;
+    }
+  }
+  async function readPurchaseOrderListPage(page, path, pageNumber) {
+    const fetched = await page.fetch(path, { headers: { accept: "application/json" } });
+    const text2 = fetched.text;
+    const failed = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
+    if (fetched.status === 400 || fetched.status === 413 || fetched.status === 431) throw cookieBloat(path, fetched.status);
+    if (fetched.status < 200 || fetched.status >= 300 || text2.trim().charAt(0) === "<") throw failed();
+    let parsed;
+    try {
+      parsed = JSON.parse(text2);
+    } catch {
+      throw failed();
+    }
+    const body = parsed?.body;
+    if (!body || !Array.isArray(body.body)) throw responseInvalid(path, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC5D0 \uD589 \uBC30\uC5F4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+    return { rows: body.body, lastPageNumber: body.lastPageNumber };
+  }
+  function purchaseOrderDetailPath(poNumber) {
+    return `/scm/purchase/order/get/${encodeURIComponent(poNumber)}`;
+  }
+  async function readPurchaseOrderDetail(page, poNumber) {
+    const path = purchaseOrderDetailPath(poNumber);
+    const fetched = await page.fetch(path, { tables: true });
+    if (fetched.status < 200 || fetched.status >= 300 || !/^\s*</.test(fetched.text)) {
+      throw new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC\uC11C ${poNumber} \uC0C1\uC138\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
+    }
+    const tables = fetched.tables ?? [];
+    if (tables.length === 0 && /(?:login|로그인|session\s+expired|세션\s*만료)/i.test(fetched.text)) throw loginRequired(fetched.url);
+    return tables;
+  }
+  async function enterScmContext(tab, poNumber) {
+    await tab.navigate(`${COUPANG_SUPPLIER_ORIGIN}${purchaseOrderDetailPath(poNumber)}`, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
+  }
+  async function readPurchasableCenters(page) {
+    const path = "/po-web/app/center/purchasable/list";
+    const fetched = await page.fetch(path, { headers: { accept: "application/json" } });
+    if (fetched.status < 200 || fetched.status >= 300 || fetched.text.trim().charAt(0) === "<") {
+      throw new RuntimeError(SITE_REQUEST_FAILED, "\uC13C\uD130 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: fetched.status, url: path, reason: "http", bodyHead: null });
+    }
+    try {
+      return JSON.parse(fetched.text);
+    } catch {
+      throw responseInvalid(path, "\uC13C\uD130 \uBAA9\uB85D \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.");
+    }
+  }
+
+  // extensions/src/sites/coupang-supplier/shipments.ts
+  var COUPANG_SHIPMENT_URL = "https://supplier.coupang.com/ibs/asn/active";
+  function parcelListPath(pageNumber) {
+    return `/ibs/shipment/parcel/list?pageNumber=${pageNumber}&centerCode=&carrierCode=&estimatedDeliveryDate=&shipmentSeq=&purchaseOrderSeq=`;
+  }
+  var INVALID2 = "\uCFE0\uD321 \uC27D\uBA3C\uD2B8 \uBAA9\uB85D \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uD655\uC7A5 \uD504\uB85C\uADF8\uB7A8\uC744 \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
+  async function readParcelPage(page, pageNumber) {
+    const fetched = await page.fetch(parcelListPath(pageNumber), { headers: { "X-Requested-With": "XMLHttpRequest" }, tables: true });
+    return parseParcelPage(fetched, pageNumber);
+  }
+  function parseParcelPage(fetched, pageNumber) {
+    const path = parcelListPath(pageNumber);
+    if (fetched.status < 200 || fetched.status >= 300) {
+      if (fetched.status === 400 || fetched.status === 413 || fetched.status === 431) throw cookieBloat(path, fetched.status);
+      if (fetched.status === 401 || fetched.status === 403) throw loginRequired(fetched.url);
+      throw new RuntimeError(SITE_REQUEST_FAILED, `\uC27D\uBA3C\uD2B8 \uBAA9\uB85D \uC870\uD68C \uC2E4\uD328 (${pageNumber}\uCABD, HTTP ${fetched.status})`, {
+        status: fetched.status,
+        url: path,
+        reason: "http",
+        bodyHead: null
+      });
+    }
+    if (fetched.redirected || /\/(?:login|sign-in|signin)(?:[/?#]|$)/i.test(fetched.url)) throw loginRequired(fetched.url);
+    const table = fetched.tables?.find((candidate) => candidate.id === "parcel-tab");
+    if (!table) {
+      if (/(?:로그인|login|sign[ -]?in)/i.test(fetched.text)) throw loginRequired(fetched.url);
+      throw responseInvalid(path, INVALID2);
+    }
+    const heads = table.rows.filter((row) => row.section === "thead").flatMap((row) => row.cells.filter((cell) => cell.header).map((cell) => cell.text.trim()));
+    const index = (name) => heads.findIndex((head) => head.includes(name));
+    const iSeq = index("\uC27D\uBA3C\uD2B8 \uBC88\uD638");
+    const iOut = index("\uBC1C\uC1A1\uC77C");
+    const iBox = index("\uBC15\uC2A4\uC218");
+    if ([iSeq, iOut, iBox].some((position) => position < 0)) throw responseInvalid(path, INVALID2);
+    const required = Math.max(iSeq, iOut, iBox) + 1;
+    const rows = [];
+    for (const row of table.rows) {
+      if (row.section !== "tbody") continue;
+      const cells = row.cells.filter((cell) => !cell.header).map((cell) => cell.text.trim());
+      if (cells.length <= 1) continue;
+      if (cells.length < required) throw responseInvalid(path, INVALID2);
+      const seq = cells[iSeq];
+      const outbound = cells[iOut];
+      if (!seq || !/^\d{4}-\d{2}-\d{2}/.test(outbound)) throw responseInvalid(path, INVALID2);
+      rows.push({ seq, outbound, boxes: cells[iBox] });
+    }
+    return rows;
+  }
+
+  // extensions/src/sites/coupang-supplier/index.ts
+  var NAVIGATION_TIMEOUT_MS4 = 3e4;
+  function purchaseOrderListPath(query, pageNumber) {
+    return "/po-web/app/purchase-order/list?page=" + pageNumber + "&searchDateType=" + query.searchDateType + "&searchStartDate=" + query.from + "&searchEndDate=" + query.to + "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=" + query.status + "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
+  }
+  function createCoupangSupplierSite(deps, lease = { tabId: null }) {
+    let shipmentTab = null;
+    let shipmentPage = null;
+    let poTab = null;
+    let poPage = null;
+    let keepOpen = false;
+    const remember = (work) => work.catch((error) => {
+      if (keepTabFor(error)) keepOpen = true;
+      throw error;
+    });
+    function shipments() {
+      shipmentPage ??= (async () => {
+        const tab = await deps.tabs.open("about:blank");
+        shipmentTab = tab;
+        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS4, continueOnTimeout: true });
+        return supplierPage(tab);
+      })();
+      return shipmentPage;
+    }
+    function purchaseOrders() {
+      poPage ??= (async () => {
+        const tab = lease.tabId !== null ? deps.tabs.attach(lease.tabId) : await deps.tabs.open("about:blank");
+        poTab = tab;
+        return preparePoSession(tab);
+      })();
+      return poPage;
+    }
+    return {
+      /** 쉽먼트 목록 한 쪽(1부터). 여러 쪽을 함께 불러도 된다(탭 하나). */
+      parcelPage(pageNumber) {
+        return remember(shipments().then((page) => readParcelPage(page, pageNumber)));
+      },
+      /** 발주 목록 한 쪽(1부터)의 JSON 본문. 첫 쪽이 JSON이 아니면 로그인 필요. */
+      purchaseOrderListPage(query, pageNumber) {
+        return remember(purchaseOrders().then((page) => readPurchaseOrderListPage(page, purchaseOrderListPath(query, pageNumber), pageNumber)));
+      },
+      /** 발주서 상세의 표(칸 단위). */
+      purchaseOrderDetail(poNumber) {
+        return remember(purchaseOrders().then((page) => readPurchaseOrderDetail(page, poNumber)));
+      },
+      /** 직배송 센터 주소 목록 JSON. */
+      purchasableCenters() {
+        return remember(purchaseOrders().then((page) => readPurchasableCenters(page)));
+      },
+      /** 직배송: 품목 상세 전에 탭을 첫 발주서 상세로 옮긴다. */
+      enterScmContext(poNumber) {
+        return remember(purchaseOrders().then(() => enterScmContext(poTab, poNumber)));
+      },
+      /** 이 사이트가 연 탭을 닫는다(잠금이 준 탭은 브라우저 자원이 닫는다). 로그인·예상 밖 주소에서 멈췄으면 남긴다. */
+      async close() {
+        if (!keepOpen) {
+          if (shipmentTab) await shipmentTab.close();
+          if (poTab) await poTab.close();
+        }
+        shipmentTab = null;
+        shipmentPage = null;
+        poTab = null;
+        poPage = null;
+      }
+    };
+  }
+  registerSite({ name: "coupang-supplier", origin: PO_BOOTSTRAP_URL, create: (deps, lease) => createCoupangSupplierSite(deps, lease) });
+
+  // extensions/src/sites/domeggook/index.ts
+  var DOMEGGOOK_ORDER_LIST_URL = "https://domeggook.com/sc/order/lstAll";
+  var DOMEGGOOK_ORDER_LIST_API = "https://domeggook.com/sc/excel/getOrderList?format=grid&pg=1";
+  var DOMEGGOOK_ORDERS_FILE = "content/orders/domeggook-orders.js";
+  var DOMEGGOOK_PART_CHARS = 7e5;
+  var LIST_RENDER_WAIT_MS = 1500;
+  var REQUEST_TIMEOUT_MS = 6e4;
+  var POLL_MS2 = 5e3;
+  var POLL_ROUNDS = 48;
+  var LOGIN_MESSAGE2 = "\uB3C4\uB9E4\uAFB9 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. domeggook.com \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var DOMEGGOOK_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["domeggook.com"]),
+    isLogin: (url) => hostWithin(url, ["domeggook.com"]) && /login/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE2
+  };
+  async function orderList(caller) {
+    const text2 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
+    let body = null;
+    try {
+      body = text2.trim().startsWith("{") ? JSON.parse(text2) : null;
+    } catch {
+      body = null;
+    }
+    if (!body || typeof body !== "object" || Array.isArray(body) || body.res === false) {
+      throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE2, { url: DOMEGGOOK_ORDER_LIST_API });
+    }
+    const list = body.dat;
+    return Array.isArray(list) ? list : [];
+  }
+  function pickDomeggookCsvUrl(entries, afterReq) {
+    for (const entry of entries) {
+      if (entry?.state !== "SUCCESS" || !/ORDER_ALL/.test(String(entry.dlBtn ?? ""))) continue;
+      if (afterReq && !(String(entry.dateReq ?? "") > afterReq)) continue;
+      const url = (String(entry.dlBtn).match(/href=['"]([^'"]+)['"]/) ?? [])[1];
+      if (url) return url;
+    }
+    return null;
+  }
+  function base64Of(bytes) {
+    let binary = "";
+    for (let offset = 0; offset < bytes.length; offset += 32768) {
+      binary += String.fromCharCode(...bytes.subarray(offset, offset + 32768));
+    }
+    return btoa(binary);
+  }
+  function createDomeggookSite(tabs, deps) {
+    const caller = createSiteCaller({ minIntervalMs: 0, displayName: "\uB3C4\uB9E4\uAFB9", timeoutMs: 3e4 }, deps);
+    return {
+      async readOrders(input) {
+        const before = await orderList(caller);
+        const beforeReq = String(before[0]?.dateReq ?? "");
+        const dateDot = input.collectionDate ? input.collectionDate.replace(/-/g, ".") : "";
+        const listUrl = dateDot ? `${DOMEGGOOK_ORDER_LIST_URL}?dtbase=ord&dt1=${dateDot}&dt2=${dateDot}` : DOMEGGOOK_ORDER_LIST_URL;
+        return withFreshTab(tabs, listUrl, async (page) => {
+          await deps.sleep(LIST_RENDER_WAIT_MS);
+          const answer = await callPage(page, "domeggook.requestExcel", {}, {
+            timeoutMs: REQUEST_TIMEOUT_MS,
+            guard: DOMEGGOOK_PAGE_GUARD,
+            main: [DOMEGGOOK_ORDERS_FILE],
+            displayName: "\uB3C4\uB9E4\uAFB9"
+          });
+          if (answer?.status === "empty") return { rows: [] };
+          if (answer?.status !== "requested") {
+            throw new RuntimeError(SITE_REQUEST_FAILED, answer?.status === "failed" ? answer.error : "\uB3C4\uB9E4\uAFB9 \uC5D1\uC140 \uC0DD\uC131 \uC694\uCCAD \uC2E4\uD328", {
+              status: null,
+              reason: "page_error",
+              url: listUrl
+            });
+          }
+          let csvUrl = null;
+          for (let round = 0; round < POLL_ROUNDS && !csvUrl; round += 1) {
+            await deps.sleep(POLL_MS2);
+            input.signal?.throwIfAborted();
+            csvUrl = pickDomeggookCsvUrl(await orderList(caller), beforeReq);
+          }
+          if (!csvUrl) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, "\uB3C4\uB9E4\uAFB9 \uC5D1\uC140 \uC0DD\uC131\uC774 \uC9C0\uC5F0\uB429\uB2C8\uB2E4(\uCD5C\uB300 4\uBD84 \uB300\uAE30 \uCD08\uACFC). \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.", {
+              status: null,
+              reason: "excel_not_ready",
+              url: DOMEGGOOK_ORDER_LIST_API
+            });
+          }
+          const base642 = base64Of(await caller.bytes(csvUrl, { redirect: "follow" }));
+          const fileName = csvUrl.split("/").pop() || "domeggook.csv";
+          const parts = Math.max(1, Math.ceil(base642.length / DOMEGGOOK_PART_CHARS));
+          return {
+            rows: Array.from({ length: parts }, (_, part) => ({
+              fileName,
+              part,
+              parts,
+              base64: base642.slice(part * DOMEGGOOK_PART_CHARS, (part + 1) * DOMEGGOOK_PART_CHARS)
+            }))
+          };
+        });
+      }
+    };
+  }
+  registerSite({ name: "domeggook", create: (deps) => createDomeggookSite(deps.tabs, deps) });
+
+  // extensions/src/sites/icecream-mall/index.ts
+  var ICECREAM_MALL_URL = "https://po.i-screammall.co.kr/main.do";
+  var ICECREAM_FRAMES_FILE = "content/orders/icecream-frames.js";
+  var ICECREAM_MENU_FILE = "content/orders/icecream-menu.js";
+  var ICECREAM_GRID_FILE = "content/orders/icecream-delivery-grid.js";
+  var LOGIN_WATCH_ROUNDS = 16;
+  var LOGIN_WATCH_MS = 500;
+  var MENU_TIMEOUT_MS = 45e3;
+  var GRID_TIMEOUT_MS = 35e3;
+  var LOGIN_MESSAGE3 = "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var ICECREAM_DELIVERY_HEADERS = [
+    "No",
+    "\uC8FC\uBB38\uBC88\uD638",
+    "\uBC30\uC1A1\uBC88\uD638",
+    "\uC0AC\uC774\uD2B8",
+    "\uC8FC\uBB38\uC644\uB8CC\uC77C\uC2DC",
+    "\uC8FC\uBB38\uAD6C\uBD84",
+    "\uC8FC\uBB38\uB0B4\uC5ED\uAD6C\uBD84",
+    "\uC8FC\uBB38\uB0B4\uC5ED\uC0C1\uD0DC",
+    "\uBC30\uC1A1\uC720\uD615",
+    "\uBC30\uC1A1\uC885\uB958",
+    "\uBC30\uC1A1\uCC98\uB9AC\uC720\uD615",
+    "\uD0DD\uBC30\uC0AC",
+    "\uC1A1\uC7A5\uBC88\uD638",
+    "\uBC30\uC1A1\uC870\uD68C",
+    "\uC8FC\uBB38\uD310\uB9E4\uC720\uD615",
+    "\uAC70\uB798\uBA85\uC138\uC11C\uB3D9\uBD09\uC5EC\uBD80",
+    "\uD569\uBC30\uC1A1\uC5EC\uBD80",
+    "\uC9C1\uBC30\uBCC0\uACBD \uC0AC\uC720",
+    "\uC0C1\uD488\uBC88\uD638",
+    "\uC0C1\uD488\uBA85",
+    "\uB2E8\uD488\uBA85",
+    "\uCD9C\uACE0\uC218\uB7C9",
+    "\uCD94\uAC00\uC785\uB825\uC635\uC158",
+    "\uC99D\uC815\uD488",
+    "\uC815\uC0C1\uAC00",
+    "\uD310\uB9E4\uAC00",
+    "\uD310\uB9E4\uAC00(\uD569\uACC4)",
+    "\uACF5\uAE09\uAC00",
+    "\uACF5\uAE09\uAC00(\uD569\uACC4)",
+    "\uBC30\uC1A1\uBE44",
+    "Y\uC8FC\uBB38\uBC88\uD638",
+    "\uC785\uC810\uC0AC",
+    "\uD68C\uC6D0ID",
+    "\uC8FC\uBB38\uC790",
+    "\uC218\uCDE8\uC778",
+    "\uC218\uCDE8\uC778\uD734\uB300\uD3F0\uBC88\uD638",
+    "\uC6B0\uD3B8\uBC88\uD638",
+    "\uBC30\uC1A1\uC9C0",
+    "\uBC30\uC1A1\uC694\uCCAD\uC0AC\uD56D",
+    "\uBC30\uC1A1\uC9C0\uC2DC\uC77C\uC2DC",
+    "\uCD9C\uACE0\uC9C0\uC2DC\uC77C\uC2DC",
+    "\uCD9C\uACE0\uC644\uB8CC\uC77C\uC2DC"
+  ];
+  var ICECREAM_EXCLUDED_DELIVERY_STATUSES = [
+    "\uCD9C\uACE0\uC644\uB8CC",
+    "\uBC30\uC1A1\uC911",
+    "\uBC30\uC1A1\uC644\uB8CC",
+    "\uAD6C\uB9E4\uD655\uC815",
+    "\uBC18\uD488\uC811\uC218",
+    "\uD68C\uC218\uC9C0\uC2DC",
+    "\uD68C\uC218\uD655\uC778",
+    "\uD68C\uC218\uC644\uB8CC"
+  ];
+  var ICECREAM_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["i-screammall.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["i-screammall.co.kr"]) && /login/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE3
+  };
+  function icecreamHasNoPendingOrders(diagnosis) {
+    if (diagnosis.reason !== "data rows not found") return false;
+    const orderRows = diagnosis.orderRows ?? 0;
+    if (orderRows === 0) return (diagnosis.candidateRows ?? 0) > 0;
+    return (diagnosis.doneExcluded ?? 0) >= orderRows;
+  }
+  function icecreamGridFailureMessage(diagnosis) {
+    if (diagnosis.reason === "data rows not found") {
+      if ((diagnosis.candidateRows ?? 0) > 0) {
+        return `\uBC30\uC1A1\uBAA9\uB85D \uD45C(${diagnosis.candidateRows}\uD589)\uB294 \uCC3E\uC558\uC9C0\uB9CC \uC8FC\uBB38\uBC88\uD638(YYYYMMDDM\u2026) \uD615\uC2DD\uC758 \uC8FC\uBB38\uC774 \uC5C6\uC2B5\uB2C8\uB2E4. \uC8FC\uBB38\uBC88\uD638\uAC00 \uB9C8\uC2A4\uD0B9\uB418\uC5B4 \uC788\uC744 \uC218 \uC788\uC2B5\uB2C8\uB2E4.`;
+      }
+      return "\uBC30\uC1A1\uBAA9\uB85D \uD45C\uB294 \uCC3E\uC558\uC9C0\uB9CC \uC8FC\uBB38 \uD589\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC870\uD68C \uACB0\uACFC\uB97C \uD655\uC778\uD574\uC8FC\uC138\uC694.";
+    }
+    if (diagnosis.reason === "header not found") {
+      return "\uBC30\uC1A1\uC870\uD68C \uD654\uBA74\uC740 \uC5F4\uC5C8\uC9C0\uB9CC \uBC30\uC1A1\uBAA9\uB85D \uD45C \uBA38\uB9AC\uAE00\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uD45C\uAC00 \uB85C\uB529\uB41C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694.";
+    }
+    if (diagnosis.reason === "not delivery inquiry frame") return "\uBC30\uC1A1\uC870\uD68C \uD654\uBA74\uC740 \uC5F4\uC5C8\uC9C0\uB9CC \uC218\uC9D1 \uAC00\uB2A5\uD55C \uBC30\uC1A1\uC870\uD68C \uD504\uB808\uC784\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.";
+    return "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uBC30\uC1A1\uC870\uD68C \uD654\uBA74\uC740 \uC5F4\uC5C8\uC9C0\uB9CC \uBC30\uC1A1\uBAA9\uB85D \uD45C\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.";
+  }
+  function loginRequired2() {
+    return new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE3, { url: ICECREAM_MALL_URL });
+  }
+  function createIcecreamMallSite(tabs, sleep) {
+    async function inspect(page) {
+      return page.frames([ICECREAM_FRAMES_FILE]);
+    }
+    return {
+      readOrders(input) {
+        return withFreshTab(tabs, ICECREAM_MALL_URL, async (page) => {
+          for (let round = 0; round < LOGIN_WATCH_ROUNDS; round += 1) {
+            const frames = await inspect(page);
+            if (frames.some((frame) => frame.result.loginPage)) throw loginRequired2();
+            if (frames.some((frame) => frame.result.deliveryMenu || (frame.result.deliveryScore ?? 0) > 0)) break;
+            await sleep(LOGIN_WATCH_MS);
+          }
+          const menu = await callPage(page, "icecream.openDeliveryInquiry", {}, {
+            timeoutMs: MENU_TIMEOUT_MS,
+            guard: ICECREAM_PAGE_GUARD,
+            isolated: [ICECREAM_MENU_FILE],
+            displayName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0"
+          });
+          if (menu?.status === "login_required") throw loginRequired2();
+          if (menu?.status !== "opened") {
+            throw new RuntimeError(SITE_REQUEST_FAILED, menu?.status === "failed" ? menu.error : "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uBC30\uC1A1\uC870\uD68C \uD654\uBA74\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", {
+              status: null,
+              reason: "page_error",
+              url: ICECREAM_MALL_URL
+            });
+          }
+          const inspected = await inspect(page);
+          const scored = inspected.filter((frame) => (frame.result.deliveryScore ?? 0) > 0).sort((a, b) => (b.result.deliveryScore ?? 0) - (a.result.deliveryScore ?? 0));
+          const targets = scored.length > 0 ? [scored[0].frameId] : [.../* @__PURE__ */ new Set([0, ...inspected.map((frame) => frame.frameId)])];
+          const answers = [];
+          for (const frameId of targets) {
+            answers.push(await callPage(page, "icecream.deliveryGrid", {
+              date: input.collectionDate,
+              headers: ICECREAM_DELIVERY_HEADERS,
+              excludedStatuses: ICECREAM_EXCLUDED_DELIVERY_STATUSES
+            }, {
+              timeoutMs: GRID_TIMEOUT_MS,
+              guard: ICECREAM_PAGE_GUARD,
+              main: [ICECREAM_GRID_FILE],
+              displayName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
+              frameId
+            }));
+          }
+          const grid = answers.filter((answer) => answer?.status === "ok").sort((a, b) => b.rows.length - a.rows.length)[0] ?? answers.find((answer) => answer?.status === "none" && answer.reason === "data rows not found") ?? answers.find((answer) => answer?.status === "none" && answer.reason === "header not found") ?? answers[0];
+          if (grid?.status === "ok") return { rows: grid.rows, continuation: { headers: grid.headers, masked: grid.masked === true } };
+          const diagnosis = grid?.status === "none" ? grid : {};
+          if (icecreamHasNoPendingOrders(diagnosis)) return { rows: [] };
+          throw new RuntimeError(SITE_REQUEST_FAILED, icecreamGridFailureMessage(diagnosis), {
+            status: null,
+            reason: "page_error",
+            url: ICECREAM_MALL_URL,
+            diagnosis
+          });
+        });
+      }
+    };
+  }
+  registerSite({ name: "icecream-mall", create: (deps) => createIcecreamMallSite(deps.tabs, deps.sleep) });
+
+  // extensions/src/sites/kidkids/index.ts
+  var KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
+  var KIDKIDS_ORDERS_FILE = "content/orders/kidkids-orders.js";
+  var READ_TIMEOUT_MS2 = 18e4;
+  var LOGIN_MESSAGE4 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var KIDKIDS_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["kidkids.net"]),
+    isLogin: (url) => hostWithin(url, ["kidkids.net"]) && (/login|partnerlogin|partner_login/i.test(url.pathname) || /\/security\/verify_user\.htm$/i.test(url.pathname)),
+    loginMessage: LOGIN_MESSAGE4
+  };
+  function createKidkidsSite(tabs) {
+    return {
+      readOrders(input) {
+        return withFreshTab(tabs, KIDKIDS_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "kidkids.orders", { dateFilter: input.collectionDate ?? "" }, {
+            timeoutMs: READ_TIMEOUT_MS2,
+            guard: KIDKIDS_PAGE_GUARD,
+            isolated: [KIDKIDS_ORDERS_FILE],
+            displayName: "\uD0A4\uB4DC\uD0A4\uC988"
+          });
+          if (answer?.status === "ok") return { rows: answer.orders };
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE4, { url: KIDKIDS_ORDER_URL });
+          throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uB4DC\uD0A4\uC988 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
+            status: null,
+            reason: "page_error",
+            url: KIDKIDS_ORDER_URL
+          });
+        });
+      }
+    };
+  }
+  registerSite({ name: "kidkids", create: (deps) => createKidkidsSite(deps.tabs) });
+
+  // extensions/src/sites/live-commerce/index.ts
+  var NAVIGATION_TIMEOUT_MS5 = 35e3;
+  var EXTRACTION_TIMEOUT_MS2 = 25e3;
+  var MAX_PRODUCTS = 100;
+  var CONTENT_FILES = {
+    isolated: ["content/sourcing/live-commerce-extractor.js", "content/sourcing/live-commerce-content.js"]
+  };
+  var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
+  var LIVE_COMMERCE_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["1688.com", "douyin.com"]),
+    isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "sso.douyin.com", "passport.douyin.com"]) || hostWithin(url, ["douyin.com"]) && /\/login/i.test(url.pathname),
+    loginMessage: "\uB77C\uC774\uBE0C \uBC29\uC1A1 \uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  var LIVE_COMMERCE_SITE = {
+    name: "live-commerce",
+    origin: "https://live.douyin.com",
+    caller: { minIntervalMs: 0, displayName: "\uB77C\uC774\uBE0C \uBC29\uC1A1" }
+  };
+  function isLiveVerificationUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.pathname.includes("/punish") || url.searchParams.get("action") === "captcha" || /(?:verify|captcha)/i.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+  function isLiveLoginUrl(value) {
+    try {
+      return LIVE_COMMERCE_PAGE_GUARD.isLogin(new URL(value)) || /\/login/i.test(new URL(value).pathname);
+    } catch {
+      return false;
+    }
+  }
+  var MAX_VERIFICATION_ROUNDS2 = 5;
+  function createLiveCommerceSite(tabs) {
+    return {
+      async broadcast(pageUrl, options = {}) {
+        const page = await tabs.open("about:blank");
+        let keepOpen = false;
+        try {
+          const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
+          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS5, stopAt });
+          for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
+            const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
+            if (!cleared) {
+              keepOpen = true;
+              throw verification2(landed);
+            }
+            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS5, stopAt });
+          }
+          if (isLiveLoginUrl(landed)) {
+            keepOpen = true;
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, LIVE_COMMERCE_PAGE_GUARD.loginMessage, { url: landed });
+          }
+          let extracted;
+          try {
+            extracted = await page.ask(
+              { type: "TRIGGER_LIVE_COMMERCE_EXTRACT" },
+              { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: CONTENT_FILES, guard: LIVE_COMMERCE_PAGE_GUARD }
+            );
+          } catch (error) {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          }
+          if (extracted.status === "verification_required") {
+            keepOpen = true;
+            throw verification2(extracted.verificationUrl ?? landed);
+          }
+          if (!extracted.ok || !extracted.broadcast || !extracted.source || !extracted.pageUrl) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `\uBC29\uC1A1 \uC815\uBCF4\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}).`, { status: null, url: pageUrl });
+          }
+          return {
+            source: extracted.source,
+            pageUrl: extracted.pageUrl,
+            broadcast: extracted.broadcast,
+            products: (Array.isArray(extracted.products) ? extracted.products : []).slice(0, MAX_PRODUCTS)
+          };
+        } finally {
+          if (!keepOpen) await page.close();
+        }
+      }
+    };
+  }
+  function verification2(url) {
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED2, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
+  }
+  registerSite({ name: LIVE_COMMERCE_SITE.name, create: (deps) => createLiveCommerceSite(deps.tabs) });
+
+  // extensions/src/sites/mall-orders/index.ts
+  var MALL_ORDERS_SITE = "mall-orders";
+  registerSite({
+    name: MALL_ORDERS_SITE,
+    opensOwnTabs: true,
+    create: (deps, lease) => ({
+      reader: (mallKey) => isMallOrderOperationMall(mallKey) ? siteFactoryFor(mallKey)?.create(deps, lease) ?? null : null
+    })
+  });
+
+  // extensions/src/sites/product-page/description.ts
+  function parseDescriptionHtml(html) {
+    const content = offerDetailsContent(html) ?? html;
+    const images = [];
+    for (const match of content.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)) {
+      const src = match[1];
+      if (src.startsWith("data:") || src.includes("icon") || src.includes("logo")) continue;
+      const full = src.startsWith("//") ? `https:${src}` : src;
+      if (!images.includes(full)) images.push(full);
+    }
+    const blocks = [];
+    const seen = /* @__PURE__ */ new Set();
+    for (const match of content.matchAll(/<(?:p|h[1-6]|li|td|th|div|span)[^>]*>([^<]{5,})<\//gi)) {
+      const text2 = match[1].replace(/&[^;]+;/g, " ").trim();
+      if (text2.length < 5 || text2.length > 2e3 || seen.has(text2)) continue;
+      seen.add(text2);
+      blocks.push(text2);
+    }
+    if (images.length === 0 && blocks.length === 0) return null;
+    return { description_images: images, description_text: blocks.join("\n").slice(0, 1e4), description_image_count: images.length };
+  }
+  function offerDetailsContent(html) {
+    const marker = "var offer_details=";
+    const start = html.indexOf(marker);
+    if (start === -1) return null;
+    const jsonStart = start + marker.length;
+    let depth = 0;
+    let inString = false;
+    let escaped = false;
+    for (let index = jsonStart; index < html.length; index += 1) {
+      const char = html.charAt(index);
+      if (escaped) {
+        escaped = false;
+        continue;
+      }
+      if (char === "\\") {
+        escaped = true;
+        continue;
+      }
+      if (char === '"') {
+        inString = !inString;
+        continue;
+      }
+      if (inString) continue;
+      if (char === "{") depth += 1;
+      if (char === "}") {
+        depth -= 1;
+        if (depth === 0) {
+          try {
+            const parsed = JSON.parse(html.substring(jsonStart, index + 1));
+            return typeof parsed.content === "string" ? parsed.content : null;
+          } catch {
+            return null;
+          }
+        }
+      }
+    }
+    return null;
+  }
+  function allowedSupplierUrl(value) {
+    try {
+      const parsed = new URL(String(value ?? "").trim());
+      const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
+      if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port && parsed.port !== "443") return null;
+      if (!["1688.com", "alibaba.com"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) return null;
+      parsed.hostname = host;
+      parsed.hash = "";
+      return parsed.toString();
+    } catch {
+      return null;
+    }
+  }
+
+  // extensions/src/sites/product-page/index.ts
+  var EXTRACTION_TIMEOUT_MS3 = 2e4;
+  var TRIGGER_TIMEOUT_MS = 5e3;
+  var EXTRACTOR_FILES = [
+    "content/sourcing/extractors/common.js",
+    "content/sourcing/extractors/alibaba.js",
+    "content/sourcing/extractors/1688.js",
+    "content/sourcing/content.js"
+  ];
+  var PRODUCT_PAGE_MOVED = "PRODUCT_PAGE_MOVED";
+  var PRODUCT_EXTRACTION_TIMEOUT = "PRODUCT_EXTRACTION_TIMEOUT";
+  var PRODUCT_PAGE_SITE = {
+    name: "product-page",
+    origin: "https://detail.1688.com",
+    caller: { minIntervalMs: 0, displayName: "1688\xB7Alibaba \uC0C1\uD488" }
+  };
+  function productPageInjection(url) {
+    const host = new URL(url).hostname;
+    const main = host.endsWith("1688.com") ? ["content/sourcing/extractors/1688-bridge.js"] : host.endsWith("alibaba.com") ? ["content/sourcing/extractors/page-bridge.js"] : [];
+    return { isolated: EXTRACTOR_FILES, main };
+  }
+  function createProductPageSite(tabs, tabId, deps) {
+    return {
+      async extract(sourceUrl) {
+        const page = tabs.attach(tabId);
+        const current = await page.currentUrl();
+        if (current !== sourceUrl) {
+          throw new RuntimeError(PRODUCT_PAGE_MOVED, "\uC218\uC9D1\uC744 \uC2DC\uC791\uD55C \uB4A4 \uD0ED \uC8FC\uC18C\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC0C1\uD488 \uD398\uC774\uC9C0\uC5D0\uC11C \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: current });
+        }
+        const marker = deps.randomId();
+        let product = null;
+        let description;
+        let settle;
+        const settled = new Promise((resolve) => {
+          settle = resolve;
+        });
+        const stop = page.listen((message) => {
+          if (message.attemptId !== marker) return;
+          if (message.type === "PRODUCT_DATA" && !product && isRecord(message.data)) {
+            product = message.data;
+            if (product.page_type === "search") settle({ product: withSourceUrl(product, sourceUrl), hadDescription: false });
+          } else if (message.type === "DESCRIPTION_DATA" && isRecord(message.data)) {
+            description = message.data;
+          } else if (message.type === "EXTRACTION_COMPLETE" && product) {
+            const hadDescription = message.hadDescription === true;
+            if (hadDescription !== Boolean(description)) {
+              settle(new RuntimeError(SITE_REQUEST_FAILED, "\uC0C1\uD488 \uC124\uBA85 \uCD94\uCD9C \uC644\uB8CC\uB97C \uD655\uC778\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { status: null, url: sourceUrl }));
+            } else {
+              settle({ product: withSourceUrl(product, sourceUrl), ...description ? { description } : {}, hadDescription });
+            }
+          }
+        });
+        const timer = setTimeout(() => settle(new RuntimeError(PRODUCT_EXTRACTION_TIMEOUT, "\uC0C1\uD488 \uCD94\uCD9C \uC2DC\uAC04\uC774 \uCD08\uACFC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: sourceUrl })), EXTRACTION_TIMEOUT_MS3);
+        try {
+          const started = await page.ask({ type: "TRIGGER_EXTRACT", attemptId: marker }, { timeoutMs: TRIGGER_TIMEOUT_MS, inject: productPageInjection(sourceUrl) });
+          if (started.ok === false) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, "\uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { status: null, url: sourceUrl, reason: started.error });
+          }
+          const result = await settled;
+          if (result instanceof RuntimeError) throw result;
+          await enrich(result.product);
+          return result;
+        } finally {
+          clearTimeout(timer);
+          stop();
+        }
+      }
+    };
+    async function enrich(product) {
+      const detailUrl = product.source_platform === "1688" ? allowedSupplierUrl(product._detail_url) : null;
+      if (!detailUrl) return;
+      const html = await tabs.fetchText(detailUrl);
+      const content = html ? parseDescriptionHtml(html) : null;
+      if (content) Object.assign(product, content);
+    }
+  }
+  function withSourceUrl(product, sourceUrl) {
+    return { ...product, source_url: typeof product.source_url === "string" ? product.source_url : sourceUrl };
+  }
+  function isRecord(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value);
+  }
+  var PRODUCT_TAB_REQUIRED = "PRODUCT_TAB_REQUIRED";
+  registerSite({
+    name: PRODUCT_PAGE_SITE.name,
+    create: (deps, lease) => lease.tabId !== null ? createProductPageSite(deps.tabs, lease.tabId, { randomId: deps.randomId }) : {
+      extract: async () => {
+        throw new RuntimeError(PRODUCT_TAB_REQUIRED, "\uC0C1\uD488 \uC218\uC9D1\uC740 \uD655\uC7A5 \uD31D\uC5C5\uC758 [\uD604\uC7AC \uC0C1\uD488 \uC218\uC9D1]\uC5D0\uC11C \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
+      }
+    }
+  });
+
+  // extensions/src/sites/sellpia/index.ts
+  var SELLPIA_ORIGIN = "https://kiditem.sellpia.com";
+  var SELLPIA_REPRINT_URL = `${SELLPIA_ORIGIN}/order_delivery_reprint.html`;
+  var SELLPIA_SHIPMENT_TRACKING_FILE = "content/orders/sellpia-shipment-tracking.js";
+  var QUERY_TIMEOUT_MS = 6e4;
+  var LOGIN_MESSAGE5 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
+  var SELLPIA_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["sellpia.com"]),
+    isLogin: (url) => hostWithin(url, ["sellpia.com"]) && /login/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE5
+  };
+  function createSellpiaSite(tabs) {
+    return {
+      /** 기간(송장번호채번일자) 안 전 몰 송장. 행은 주문번호·송장번호가 있는 것만, `total`은 셀피아가 준 목록 수. */
+      shipmentTracking(input) {
+        return withFreshTab(tabs, SELLPIA_REPRINT_URL, async (page) => {
+          const answer = await callPage(page, "sellpia.shipmentTracking", { startDate: input.startDate, endDate: input.endDate }, {
+            timeoutMs: QUERY_TIMEOUT_MS,
+            guard: SELLPIA_PAGE_GUARD,
+            main: [SELLPIA_SHIPMENT_TRACKING_FILE],
+            displayName: "\uC140\uD53C\uC544"
+          });
+          switch (answer?.status) {
+            case "ok":
+              return { rows: answer.rows, total: answer.total };
+            case "login_required":
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE5, { url: SELLPIA_REPRINT_URL });
+            case "http_error":
+              throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
+                status: answer.httpStatus,
+                url: SELLPIA_REPRINT_URL,
+                reason: "http",
+                bodyHead: null
+              });
+            default:
+              throw new RuntimeError(SITE_REQUEST_FAILED, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", {
+                status: null,
+                url: SELLPIA_REPRINT_URL,
+                reason: "not_json",
+                bodyHead: null
+              });
+          }
+        });
+      }
+    };
+  }
+  registerSite({ name: "sellpia", create: (deps) => createSellpiaSite(deps.tabs) });
+
+  // extensions/src/sites/tiktok-cc/index.ts
+  var NAVIGATION_TIMEOUT_MS6 = 35e3;
+  var EXTRACTION_TIMEOUT_MS4 = 25e3;
+  var BASE_URLS = {
+    hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
+    product: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/pc/en",
+    keyword: "https://ads.tiktok.com/business/creativecenter/keyword-insights/pc/en"
+  };
+  var TIKTOK_CC_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["ads.tiktok.com"]),
+    isLogin: (url) => hostWithin(url, ["passport.tiktok.com"]) || /(?:\/login|\/passport|\/signup)/i.test(url.pathname),
+    loginMessage: "TikTok \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  var CONTENT_FILES2 = {
+    isolated: ["content/sourcing/tiktok-cc-extractor.js", "content/sourcing/tiktok-cc-content.js"],
+    main: ["content/sourcing/tiktok-cc-hook.js"]
+  };
+  var TIKTOK_CC_SITE = {
+    name: "tiktok",
+    origin: "https://ads.tiktok.com",
+    caller: { minIntervalMs: 0, displayName: "TikTok" }
+  };
+  function tiktokTargetFor(targetId) {
+    if (targetId === "hashtag" || targetId === "product") {
+      return { id: targetId, trendType: targetId, url: BASE_URLS[targetId], sourceKeyword: null };
+    }
+    const keyword = targetId.startsWith("keyword:") ? targetId.slice("keyword:".length) : targetId;
+    return { id: targetId, trendType: "keyword", url: `${BASE_URLS.keyword}?keyword=${encodeURIComponent(keyword)}`, sourceKeyword: keyword };
+  }
+  function isTiktokBlockedUrl(value) {
+    try {
+      return /(?:\/login|\/passport|\/signup)/i.test(new URL(value).pathname);
+    } catch {
+      return false;
+    }
+  }
+  function isTiktokVerificationUrl(value) {
+    try {
+      const url = new URL(value);
+      return /(?:verify|captcha)/i.test(url.pathname) || url.searchParams.has("captcha");
+    } catch {
+      return false;
+    }
+  }
+  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
+  var MAX_VERIFICATION_ROUNDS3 = 5;
+  function sanitizeTiktokRegion(value) {
+    if (typeof value !== "string") return null;
+    const cleaned = value.replace(/[^A-Za-z]/g, "").toUpperCase();
+    return cleaned.length >= 2 && cleaned.length <= 8 ? cleaned : null;
+  }
+  function createTiktokCcSite(tabs) {
+    let page = null;
+    let keepOpen = false;
+    return {
+      targetFor: tiktokTargetFor,
+      async target(target, defaultRegion, options = {}) {
+        page ??= await tabs.open("about:blank");
+        try {
+          return await readTarget(page, target, defaultRegion, options.onAttention);
+        } catch (error) {
+          if (leftForOperator(error)) keepOpen = true;
+          throw error;
+        }
+      },
+      async close() {
+        if (!keepOpen) await page?.close();
+        page = null;
+      }
+    };
+    async function readTarget(page2, target, defaultRegion, onAttention) {
+      const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
+      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS6, stopAt, continueOnTimeout: true });
+      for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
+        const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
+        if (!cleared) {
+          keepOpen = true;
+          throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
+        }
+        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS6, stopAt, continueOnTimeout: true });
+      }
+      if (isTiktokBlockedUrl(landed)) {
+        throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
+      }
+      const extracted = await page2.ask(
+        { type: "TRIGGER_TIKTOK_CC_EXTRACT", trendType: target.trendType, sourceKeyword: target.sourceKeyword, defaultRegion },
+        { timeoutMs: EXTRACTION_TIMEOUT_MS4, inject: CONTENT_FILES2, guard: TIKTOK_CC_PAGE_GUARD }
+      );
+      if (!extracted.ok) {
+        throw new RuntimeError(SITE_REQUEST_FAILED, `TikTok \uD2B8\uB80C\uB4DC '${target.id}'\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, target: target.id });
+      }
+      return {
+        region: sanitizeTiktokRegion(extracted.region),
+        items: (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => Boolean(item) && typeof item === "object")
+      };
+    }
+  }
+  registerSite({ name: TIKTOK_CC_SITE.name, create: (deps) => createTiktokCcSite(deps.tabs) });
 
   // extensions/src/sites/wing/parse.ts
   var MAX_ATTRIBUTES_PER_OPTION = 100;
@@ -5895,14 +8270,14 @@ var KidItemRuntime = (() => {
   }
   function normalizeWingCatalogSearchResponse(payload, page, expectedVendorId) {
     const requestedPage = requiredPositiveInteger(page, "Wing \uD398\uC774\uC9C0");
-    if (!isRecord(payload)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+    if (!isRecord2(payload)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
     if (Object.hasOwn(payload, "success") && (payload.success !== true || payload.message !== null)) {
       throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
     }
     const data = payload.data;
-    const pagination = isRecord(data) ? data.pagination : void 0;
-    const productList = isRecord(data) ? data.productList : void 0;
-    if (!isRecord(data) || !Array.isArray(productList) || !isRecord(pagination)) {
+    const pagination = isRecord2(data) ? data.pagination : void 0;
+    const productList = isRecord2(data) ? data.productList : void 0;
+    if (!isRecord2(data) || !Array.isArray(productList) || !isRecord2(pagination)) {
       throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D API \uB370\uC774\uD130\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
     }
     const responsePage = requiredPositiveInteger(pagination.page, "Wing \uC751\uB2F5 \uD398\uC774\uC9C0");
@@ -5925,7 +8300,7 @@ var KidItemRuntime = (() => {
     }
     const seen = /* @__PURE__ */ new Set();
     const products = productList.map((row) => {
-      if (!isRecord(row)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D \uD589\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+      if (!isRecord2(row)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D \uD589\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
       if (!Number.isSafeInteger(row.vendorInventoryId) || row.vendorInventoryId <= 0) {
         throw new WingPayloadError("Wing \uC0C1\uD488 ID\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
       }
@@ -5935,17 +8310,17 @@ var KidItemRuntime = (() => {
       if (row.vendorId !== void 0 && (typeof row.vendorId !== "string" || expectedVendorId && row.vendorId !== expectedVendorId)) {
         throw new WingPayloadError(`Wing \uD310\uB9E4\uC790 ID\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4: ${externalProductId}`);
       }
-      requiredText(row.productName, "Wing \uC0C1\uD488\uBA85");
+      requiredText3(row.productName, "Wing \uC0C1\uD488\uBA85");
       return buildCatalogBasicProduct(row);
     });
     return { page: requestedPage, pageSize, totalItems, totalPages, products };
   }
   function buildCatalogBasicProduct(inventoryProduct) {
-    if (!isRecord(inventoryProduct)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D \uD589\uC774 \uC5C6\uC2B5\uB2C8\uB2E4");
+    if (!isRecord2(inventoryProduct)) throw new WingPayloadError("Wing \uC0C1\uD488 \uBAA9\uB85D \uD589\uC774 \uC5C6\uC2B5\uB2C8\uB2E4");
     const externalProductId = strictRequiredId(inventoryProduct.vendorInventoryId, "vendorInventoryId");
     const items = Array.isArray(inventoryProduct.vendorInventoryItems) ? inventoryProduct.vendorInventoryItems : [];
     if (items.length === 0) throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId}\uC5D0 vendorInventoryItems\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    const saleStatus = saleStatusFromWingProductStatus(requiredText(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
+    const saleStatus = saleStatusFromWingProductStatus(requiredText3(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
     const optionIds = /* @__PURE__ */ new Set();
     const options = items.map((item) => {
       const option = buildCatalogBasicOption(item);
@@ -5987,7 +8362,7 @@ var KidItemRuntime = (() => {
     }, MAX_PRODUCT_BYTES, `Wing \uAE30\uBCF8 \uC0C1\uD488 ${externalProductId}\uAC00 \uD5C8\uC6A9 \uD06C\uAE30\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
   }
   function buildCatalogBasicOption(item) {
-    if (!isRecord(item)) throw new WingPayloadError("Wing vendorInventoryItem \uD589\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
+    if (!isRecord2(item)) throw new WingPayloadError("Wing vendorInventoryItem \uD589\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
     const externalOptionId = requiredOptionId(item, "basic");
     const vendorItemId = strictOptionalId(item.vendorItemId, "vendorItemId");
     const vendorInventoryItemId = strictRequiredId(item.vendorInventoryItemId, "vendorInventoryItemId");
@@ -6040,7 +8415,7 @@ var KidItemRuntime = (() => {
     "extraProperties"
   ];
   function buildCatalogDetailProduct(sellerProduct) {
-    if (!isRecord(sellerProduct)) throw new WingPayloadError("Wing \uC0C1\uD488 \uC0C1\uC138 JSON\uC774 \uC5C6\uC2B5\uB2C8\uB2E4");
+    if (!isRecord2(sellerProduct)) throw new WingPayloadError("Wing \uC0C1\uD488 \uC0C1\uC138 JSON\uC774 \uC5C6\uC2B5\uB2C8\uB2E4");
     const externalProductId = strictRequiredId(sellerProduct.sellerProductId, "sellerProductId");
     const items = Array.isArray(sellerProduct.items) ? sellerProduct.items : [];
     if (items.length === 0) throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId}\uC5D0 \uC635\uC158\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
@@ -6050,7 +8425,7 @@ var KidItemRuntime = (() => {
     const options = [];
     const optionIds = /* @__PURE__ */ new Set();
     for (const rawItem of items) {
-      const item = isRecord(rawItem) ? rawItem : {};
+      const item = isRecord2(rawItem) ? rawItem : {};
       const externalOptionId = requiredOptionId(item, "detail");
       if (optionIds.has(externalOptionId)) {
         throw new WingPayloadError(`Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId} \uC635\uC158 identity conflict: ${externalOptionId}`);
@@ -6071,7 +8446,7 @@ var KidItemRuntime = (() => {
         documentIds.push(document.id);
       }
       for (const image of Array.isArray(item.images) ? item.images : []) {
-        const record = isRecord(image) ? image : {};
+        const record = isRecord2(image) ? image : {};
         addDetailMedia(mediaByKey, "option", normalizeImageUrl(record.cdnPath || record.vendorPath), externalOptionId);
       }
       for (const sourceUrl of extractDetailImageUrls(item.contents)) {
@@ -6128,9 +8503,9 @@ var KidItemRuntime = (() => {
   function extractDetailImageUrls(contents) {
     const urls = [];
     for (const content of Array.isArray(contents) ? contents : []) {
-      const details = isRecord(content) && Array.isArray(content.contentDetails) ? content.contentDetails : [];
+      const details = isRecord2(content) && Array.isArray(content.contentDetails) ? content.contentDetails : [];
       for (const detail of details) {
-        const html = String(isRecord(detail) ? detail.content ?? "" : "");
+        const html = String(isRecord2(detail) ? detail.content ?? "" : "");
         for (const match of html.matchAll(/<img[^>]+src=["']([^"']+)["']/gi)) {
           const url = normalizeImageUrl(match[1]);
           if (url) urls.push(url);
@@ -6141,7 +8516,7 @@ var KidItemRuntime = (() => {
   }
   function normalizeDetailAttributes(attributes) {
     return (Array.isArray(attributes) ? attributes : []).map((attribute) => {
-      const record = isRecord(attribute) ? attribute : {};
+      const record = isRecord2(attribute) ? attribute : {};
       return {
         type: nullableText(record.attributeTypeName || record.attributeTypeId),
         value: nullableText(record.attributeValueName)
@@ -6207,7 +8582,7 @@ var KidItemRuntime = (() => {
     if (/^https?:\/\//i.test(text2)) return text2;
     return `https://image1.coupangcdn.com/image/${text2.replace(/^\/+/, "")}`;
   }
-  function isRecord(value) {
+  function isRecord2(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
   function nullableText(value) {
@@ -6251,7 +8626,7 @@ var KidItemRuntime = (() => {
     const number = Number(value);
     return Number.isInteger(number) && number >= 0 ? number : null;
   }
-  function requiredText(value, name) {
+  function requiredText3(value, name) {
     const text2 = typeof value === "string" ? value.trim() : "";
     if (!text2) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
     return text2;
@@ -6266,10 +8641,10 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/wing/index.ts
-  var ORIGIN = "https://wing.coupang.com";
-  var SEARCH_URL = `${ORIGIN}/tenants/seller-web/v2/vendor-inventory/search`;
-  var DETAIL_URL = `${ORIGIN}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
-  var EXCEL_BASE = `${ORIGIN}/tenants/seller-web/excel/request/download`;
+  var ORIGIN2 = "https://wing.coupang.com";
+  var SEARCH_URL = `${ORIGIN2}/tenants/seller-web/v2/vendor-inventory/search`;
+  var DETAIL_URL = `${ORIGIN2}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
+  var EXCEL_BASE = `${ORIGIN2}/tenants/seller-web/excel/request/download`;
   var EXCEL_REQUEST_TYPE = "EDITABLE_CATALOGUE";
   var CATALOGUE_TYPES = [
     "DISPLAY_PRODUCT_NAME",
@@ -6291,12 +8666,12 @@ var KidItemRuntime = (() => {
   var WING_CATALOG_PAYLOAD_INVALID = "WING_CATALOG_PAYLOAD_INVALID";
   var WING_SITE = {
     name: "wing",
-    origin: ORIGIN,
+    origin: ORIGIN2,
     caller: {
       minIntervalMs: 2e3,
       timeoutMs: WING_TIMEOUT_MS,
       displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+      xsrf: { cookieUrl: ORIGIN2, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingSite(caller, deps) {
@@ -6457,6 +8832,147 @@ var KidItemRuntime = (() => {
     }
     return total;
   }
+  registerSite({
+    name: WING_SITE.name,
+    origin: WING_SITE.origin,
+    create: (deps) => createWingSite(createSiteCaller(WING_SITE.caller, deps), { sleep: deps.sleep })
+  });
+
+  // extensions/src/sites/wing/pre-matching-search.ts
+  var ORIGIN3 = "https://wing.coupang.com";
+  var SEARCH_URL2 = `${ORIGIN3}/tenants/seller-web/pre-matching/search`;
+  var RETRY_ATTEMPTS = 4;
+  var REQUEST_TIMEOUT_MS2 = 2e4;
+  var WING_SEARCH_PAYLOAD_INVALID = "WING_SEARCH_PAYLOAD_INVALID";
+  var WING_SEARCH_SITE = {
+    name: "wing-search",
+    origin: ORIGIN3,
+    caller: {
+      minIntervalMs: 2200,
+      displayName: "\uCFE0\uD321 \uC719",
+      xsrf: { cookieUrl: ORIGIN3, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+    }
+  };
+  function createWingPreMatchingSearch(caller, deps) {
+    return {
+      /** 키워드 한 페이지. 429·5xx·연결 끊김은 네 번까지 다시 묻는다. */
+      async searchPage(keyword, searchPage) {
+        const body = JSON.stringify({ keyword, excludedProductIds: [], searchPage, searchOrder: "DEFAULT", sortType: "DEFAULT" });
+        for (let attempt = 1; ; attempt += 1) {
+          let response;
+          try {
+            response = await caller.json(SEARCH_URL2, {
+              requireXsrf: true,
+              method: "POST",
+              headers: { "content-type": "application/json", accept: "application/json, text/plain, */*" },
+              body,
+              signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS2)
+            });
+          } catch (error) {
+            if (searchPage === 0 && isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.status === 200 && error.details?.reason === "non_json") {
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, `${WING_SEARCH_SITE.caller.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.`, { reason: "non_json_first_page" }, error);
+            }
+            const status = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED ? error.details?.status : void 0;
+            const retryable = status === null || status === 429 || typeof status === "number" && status >= 500;
+            if (!retryable || attempt >= RETRY_ATTEMPTS) throw error;
+            await deps.sleep((status === 429 ? 4e3 : 1e3) * 2 ** (attempt - 1));
+            continue;
+          }
+          return parseWingSearchPage(response);
+        }
+      }
+    };
+  }
+  function createWingCatalogSearchSite(caller, deps) {
+    const search = createWingPreMatchingSearch(caller, deps);
+    return {
+      searchPage: search.searchPage,
+      identity: (row) => `${row.productId}:${row.itemId ?? ""}:${row.vendorItemId ?? ""}`,
+      toObservation: (row, keyword, capturedAt) => row.productName.trim() ? toSourcingWingCatalogObservation(row, keyword, capturedAt) : null
+    };
+  }
+  function parseWingSearchPage(body) {
+    const record = asRecord2(body);
+    if (!record || !Array.isArray(record.result)) {
+      throw new RuntimeError(WING_SEARCH_PAYLOAD_INVALID, "Wing \uAC80\uC0C9 \uC751\uB2F5\uC758 \uBAA8\uC591\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    }
+    const next = record.nextSearchPage;
+    return {
+      rows: record.result.map(normalizeWingSearchProduct).filter((row) => row !== null),
+      nextSearchPage: typeof next === "number" && Number.isInteger(next) ? next : null
+    };
+  }
+  function normalizeWingSearchProduct(raw) {
+    const product = asRecord2(raw);
+    if (!product || product.productId == null) return null;
+    const productId = String(product.productId);
+    if (!productId) return null;
+    const salePrice = nullableNumber(product.salePrice);
+    const salesLast28d = nullableNumber(product.salesLast28d);
+    const pvLast28Day = nullableNumber(product.pvLast28Day);
+    const category = Array.isArray(product.displayCategoryInfo) ? asRecord2(product.displayCategoryInfo[0])?.categoryHierarchy : null;
+    return {
+      productId,
+      itemId: product.itemId == null ? null : String(product.itemId),
+      vendorItemId: product.vendorItemId == null ? null : String(product.vendorItemId),
+      productName: String(product.productName || ""),
+      itemName: product.itemName ? String(product.itemName) : null,
+      brandName: product.brandName ? String(product.brandName) : null,
+      manufacture: product.manufacture ? String(product.manufacture) : null,
+      categoryHierarchy: typeof category === "string" && category ? category : null,
+      imagePath: product.imagePath ? String(product.imagePath) : null,
+      salePrice,
+      rating: nullableNumber(product.rating),
+      ratingCount: nullableNumber(product.ratingCount),
+      pvLast28Day,
+      salesLast28d,
+      estimatedRevenue28d: salePrice != null && salesLast28d != null ? Math.round(salePrice * salesLast28d) : null,
+      conversionRate28d: pvLast28Day != null && pvLast28Day > 0 && salesLast28d != null ? salesLast28d / pvLast28Day : null,
+      deliveryInfo: product.deliveryInfo ? String(product.deliveryInfo) : null
+    };
+  }
+  function toSourcingWingCatalogObservation(row, sourceKeyword, capturedAt) {
+    return {
+      productId: row.productId,
+      itemId: row.itemId,
+      vendorItemId: row.vendorItemId,
+      productName: row.productName.slice(0, 500),
+      itemName: row.itemName?.slice(0, 500) ?? null,
+      brandName: row.brandName?.slice(0, 500) ?? null,
+      manufacture: row.manufacture?.slice(0, 500) ?? null,
+      categoryHierarchy: row.categoryHierarchy?.slice(0, 1e3) ?? null,
+      imagePath: row.imagePath?.slice(0, 2e3) ?? null,
+      salePriceKrw: boundedInteger(row.salePrice),
+      ratingAverage: boundedNumber(row.rating, 0, 5),
+      ratingCount: boundedInteger(row.ratingCount),
+      viewsLast28d: boundedInteger(row.pvLast28Day),
+      salesLast28d: boundedInteger(row.salesLast28d),
+      estimatedRevenue28d: boundedNumber(row.estimatedRevenue28d, 0, 2147483647),
+      conversionRate28d: boundedNumber(row.conversionRate28d, 0, 1),
+      deliveryInfo: row.deliveryInfo?.slice(0, 1e3) ?? null,
+      sourceKeyword,
+      capturedAt
+    };
+  }
+  function nullableNumber(value) {
+    if (value == null || typeof value === "boolean" || typeof value === "object") return null;
+    if (typeof value === "string" && value.trim() === "") return null;
+    const numeric = Number(value);
+    return Number.isFinite(numeric) ? numeric : null;
+  }
+  function boundedInteger(value) {
+    return value !== null && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
+  }
+  function boundedNumber(value, minimum, maximum) {
+    return value !== null && Number.isFinite(value) && value >= minimum && value <= maximum ? value : null;
+  }
+  function asRecord2(value) {
+    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
+  }
+  registerSite({
+    name: WING_SEARCH_SITE.name,
+    create: (deps) => createWingCatalogSearchSite(createSiteCaller(WING_SEARCH_SITE.caller, deps), { sleep: deps.sleep })
+  });
 
   // extensions/src/sites/wing/reviews.ts
   var WING_ORIGIN = "https://wing.coupang.com";
@@ -6538,18 +9054,82 @@ var KidItemRuntime = (() => {
   function createWingReviewsSite(caller) {
     return { searchReviews: (input) => searchWingReviews(caller, input) };
   }
+  registerSite({
+    name: "wing-reviews",
+    origin: WING_ORIGIN,
+    create: (deps) => createWingReviewsSite(createSiteCaller(WING_REVIEW_CALLER, deps))
+  });
+
+  // extensions/src/core/browser.ts
+  var RUNTIME_BROWSER_ALREADY_ACQUIRED = "RUNTIME_BROWSER_ALREADY_ACQUIRED";
+  var RUNTIME_BROWSER_UNAVAILABLE = "RUNTIME_BROWSER_UNAVAILABLE";
+  function createBrowserResources(chromeApi, sites2, options = {}) {
+    const held = /* @__PURE__ */ new Set();
+    return {
+      async acquire({ operationId, lockKeys, site = null, signal }) {
+        if (held.has(operationId)) {
+          throw new RuntimeError(RUNTIME_BROWSER_ALREADY_ACQUIRED, "\uC774 \uC2E4\uD589\uC740 \uC774\uBBF8 \uBE0C\uB77C\uC6B0\uC800 \uC790\uC6D0\uC744 \uC7A1\uACE0 \uC788\uC2B5\uB2C8\uB2E4.", { operationId });
+        }
+        signal.throwIfAborted();
+        const accountSite = site !== null && site in sites2 ? site : site !== null && options.ownTabSites?.has(site) ? null : options.accountSite ?? null;
+        const siteNames = [...new Set(lockKeys.map((key) => siteOfLockKey(key, accountSite)).filter((name) => name !== null && name in sites2))];
+        if (siteNames.length > 1) {
+          throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uD55C \uC2E4\uD589\uC774 \uB450 \uC0AC\uC774\uD2B8\uC758 \uD0ED\uC744 \uD568\uAED8 \uC7A1\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { sites: siteNames });
+        }
+        held.add(operationId);
+        try {
+          const tab = siteNames.length === 1 ? await openSiteTab(chromeApi, sites2[siteNames[0]].origin) : null;
+          let released = false;
+          return {
+            tabId: tab?.tabId ?? null,
+            async release(outcome = {}) {
+              if (released) return;
+              released = true;
+              held.delete(operationId);
+              if (!tab?.opened) return;
+              if (operatorMustAct(outcome.error)) {
+                await chromeApi.tabs.update(tab.tabId, { active: true }).catch(() => void 0);
+                return;
+              }
+              await chromeApi.tabs.remove(tab.tabId).catch(() => void 0);
+            }
+          };
+        } catch (error) {
+          held.delete(operationId);
+          throw error;
+        }
+      }
+    };
+  }
+  function siteOfLockKey(key, accountSite) {
+    if (key.startsWith("resource:")) return key.split(":")[1] ?? null;
+    if (key.startsWith("account:")) return accountSite;
+    return null;
+  }
+  async function openSiteTab(chromeApi, origin) {
+    const base = origin.replace(/\/+$/, "");
+    const [existing] = await chromeApi.tabs.query({ url: `${base}/*` });
+    if (typeof existing?.id === "number") return { tabId: existing.id, opened: false };
+    const created = await chromeApi.tabs.create({ url: base, active: false });
+    if (typeof created.id !== "number") {
+      throw new RuntimeError(RUNTIME_BROWSER_UNAVAILABLE, "\uC0AC\uC774\uD2B8 \uD0ED\uC744 \uC5F4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { origin: base });
+    }
+    return { tabId: created.id, opened: true };
+  }
+  function operatorMustAct(error) {
+    return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === "unexpected_url");
+  }
 
   // extensions/src/entry/site-handles.ts
-  var ENTRY_SITES = { [WING_SITE.name]: { origin: WING_SITE.origin } };
-  var ACCOUNT_SITE = WING_SITE.name;
+  function entrySites() {
+    return Object.fromEntries(registeredSites().flatMap((site) => site.origin ? [[site.name, { origin: site.origin }]] : []));
+  }
+  function ownTabSites() {
+    return new Set(registeredSites().filter((site) => site.opensOwnTabs === true).map((site) => site.name));
+  }
+  var ACCOUNT_SITE = "wing";
   function createSiteHandles(deps) {
-    return (kind) => {
-      if (kind.startsWith("sourcing.")) return null;
-      if (kind === COUPANG_REVIEWS_KIND) return createWingReviewsSite(createSiteCaller(WING_REVIEW_CALLER, deps));
-      const site = collectorFor(kind)?.site ?? null;
-      if (site === WING_SITE.name) return createWingSite(createSiteCaller(WING_SITE.caller, deps), { sleep: deps.sleep });
-      return null;
-    };
+    return (kind, lease) => siteFactoryFor(collectorFor(kind)?.site ?? "")?.create(deps, lease) ?? null;
   }
 
   // extensions/src/entry/legacy-bridge.ts
@@ -6584,12 +9164,12 @@ var KidItemRuntime = (() => {
     const base = "/api/operations";
     return {
       begin: (request) => call(api, base, { method: "POST", body: request }, OperationBeginResponseSchema),
-      async putChunk({ operationId, token, chunkKind, sequence, payload, progress }) {
+      async putChunk({ operationId, token, chunkKind, sequence, payload, progress: progress4 }) {
         const checksum = await sha256Hex(JSON.stringify(payload));
         return call(
           api,
           `${base}/${encodeURIComponent(operationId)}/chunks/${encodeURIComponent(chunkKind)}/${sequence}`,
-          { method: "PUT", token, body: { checksum, payload, ...progress ? { progress } : {} } },
+          { method: "PUT", token, body: { checksum, payload, ...progress4 ? { progress: progress4 } : {} } },
           OperationChunkPutResponseSchema
         );
       },
@@ -6736,18 +9316,19 @@ var KidItemRuntime = (() => {
       }, HEARTBEAT_INTERVAL_MS);
     };
     let lease = null;
+    let failure2 = null;
     try {
-      lease = await deps.browser.acquire({ operationId, lockKeys: operation.lockKeys, signal: local.signal });
+      lease = await deps.browser.acquire({ operationId, lockKeys: operation.lockKeys, site: collector.site, signal: local.signal });
       const site = deps.siteFor(operation.kind, lease);
       const sequences = /* @__PURE__ */ new Map();
       let chunks = 0;
       let items = 0;
       scheduleHeartbeat();
-      const report = async (progress) => {
+      const report = async (progress4) => {
         if (collectionDone || local.signal.aborted) return;
-        lastProgress = progress;
+        lastProgress = progress4;
         await write(
-          () => deps.client.putChunk({ operationId, token, chunkKind: HEARTBEAT_CHUNK_KIND, sequence: 1, payload: [], progress })
+          () => deps.client.putChunk({ operationId, token, chunkKind: HEARTBEAT_CHUNK_KIND, sequence: 1, payload: [], progress: progress4 })
         );
         scheduleHeartbeat();
       };
@@ -6796,6 +9377,7 @@ var KidItemRuntime = (() => {
       stopHeartbeat();
       if (!heartbeatStop && input.signal.aborted) return cancelled(operationId);
       const error = heartbeatStop ?? toRuntimeError(caught, RUNTIME_COLLECT_FAILED);
+      failure2 = error;
       const stop = stopFor(error.code, error.details);
       if (stop.kind === "fence_lost") return { kind: "fence_lost", operationId, reason: stop.reason };
       await writes;
@@ -6805,7 +9387,7 @@ var KidItemRuntime = (() => {
       stopHeartbeat();
       local.abort();
       input.signal.removeEventListener("abort", onAbort);
-      await lease?.release().catch(() => void 0);
+      await lease?.release({ error: failure2 }).catch(() => void 0);
     }
   }
   function cancelled(operationId) {
@@ -6955,768 +9537,6 @@ var KidItemRuntime = (() => {
     };
   }
 
-  // extensions/src/sites/1688/index.ts
-  var SEARCH_ORIGIN = "https://s.1688.com";
-  var NAVIGATION_TIMEOUT_MS = 3e4;
-  var EXTRACTION_TIMEOUT_MS = 2e4;
-  var MAX_RESULTS_PER_KEYWORD = 20;
-  var MAX_VERIFICATION_ROUNDS = 5;
-  var ALIBABA_CONTENT_FILES = {
-    isolated: [
-      "content/sourcing/extractors/common.js",
-      "content/sourcing/extractors/alibaba.js",
-      "content/sourcing/extractors/1688.js",
-      "content/sourcing/content.js"
-    ]
-  };
-  var SITE_VERIFICATION_REQUIRED = "SITE_VERIFICATION_REQUIRED";
-  var ALIBABA_1688_PAGE_GUARD = {
-    allows: (url) => hostWithin(url, ["1688.com"]),
-    isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "passport.taobao.com"]),
-    loginMessage: "1688 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
-  };
-  function build1688SearchUrl(keyword) {
-    return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword)}&charset=utf8`;
-  }
-  function is1688VerificationUrl(value) {
-    try {
-      const url = new URL(value);
-      return url.pathname.includes("/punish") || url.pathname.includes("/_____tmd_____/") || url.searchParams.get("action") === "captcha";
-    } catch {
-      return false;
-    }
-  }
-  function create1688SearchSite(tabs) {
-    let page = null;
-    let keepOpen = false;
-    return {
-      /**
-       * 키워드 하나. 슬라이더 검증이 뜨면 실패하지 않고 운영자를 기다렸다가(`onAttention`으로 알림) 같은 키워드를 다시
-       * 시도한다 — 실행과 이미 올린 청크는 그대로다(KID-355 QA). 10분 안에 통과하지 않으면 `SITE_VERIFICATION_REQUIRED`.
-       */
-      async offers(keyword, options = {}) {
-        page ??= await tabs.open("about:blank");
-        const current = page;
-        const attention = { kind: "verification", site: "1688", label: keyword };
-        const waitOrFail = async (url) => {
-          if (await waitForOperator(current, is1688VerificationUrl, attention, options.onAttention)) return;
-          throw verification(url, keyword, () => {
-            keepOpen = true;
-          });
-        };
-        for (let round = 1; ; round += 1) {
-          const landed = await current.navigate(build1688SearchUrl(keyword), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
-          if (is1688VerificationUrl(landed)) {
-            if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword, () => {
-              keepOpen = true;
-            });
-            await waitOrFail(landed);
-            continue;
-          }
-          let extracted;
-          try {
-            extracted = await current.ask(
-              { type: "TRIGGER_1688_TREND_EXTRACT", maxResults: MAX_RESULTS_PER_KEYWORD },
-              { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: ALIBABA_CONTENT_FILES, guard: ALIBABA_1688_PAGE_GUARD }
-            );
-          } catch (error) {
-            if (leftForOperator(error)) keepOpen = true;
-            throw error;
-          }
-          if (extracted.status === "verification_required") {
-            const here = await current.currentUrl().catch(() => extracted.verificationUrl ?? landed);
-            if (round > MAX_VERIFICATION_ROUNDS || !is1688VerificationUrl(here)) {
-              throw verification(extracted.verificationUrl ?? landed, keyword, () => {
-                keepOpen = true;
-              });
-            }
-            await waitOrFail(here);
-            continue;
-          }
-          if (!extracted.ok) {
-            throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword });
-          }
-          return (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => typeof item?.offerId === "string" && item.offerId.length > 0).slice(0, MAX_RESULTS_PER_KEYWORD);
-        }
-      },
-      /** 수집이 끝나면 탭을 닫는다. 검증 화면에서 멈췄으면 운영자가 풀 수 있게 남긴다. */
-      async close() {
-        if (page && !keepOpen) await page.close();
-        page = null;
-      }
-    };
-  }
-  function verification(url, keyword, keep) {
-    keep();
-    return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword });
-  }
-
-  // extensions/src/sites/coupang-search/parse.ts
-  var PROVIDER_ATTENTION = /access\s*denied|unauthori[sz]ed|forbidden|too\s*many\s*requests|로그인|인증|접근\s*거부/i;
-  var STOP_WORDS = /* @__PURE__ */ new Set(["\uCFE0\uD321", "\uB85C\uCF13", "\uB85C\uCF13\uBC30\uC1A1", "\uBB34\uB8CC\uBC30\uC1A1", "\uBB34\uB8CC", "\uBC30\uC1A1", "\uC815\uD488", "\uAD6D\uB0B4", "\uB2F9\uC77C", "\uC624\uB298", "\uC0C8\uC0C1\uD488", "\uC0C1\uD488", "\uAD6C\uB9E4", "\uD560\uC778", "\uD2B9\uAC00", "\uC635\uC158", "\uC0C9\uC0C1", "\uB79C\uB364"]);
-  function parseCoupangSearchEvidence(evidence, seed, maxResults, origin = "https://www.coupang.com") {
-    const warnings = [];
-    const candidates = [];
-    let structuredResponse = false;
-    let domEvidence = false;
-    let providerError = null;
-    const add = (value, source) => {
-      if (typeof value !== "string") return;
-      const keyword = value.replace(/\s+/g, " ").trim();
-      if (usableKeyword(keyword, seed)) candidates.push({ keyword, source });
-    };
-    const walk = (value) => {
-      if (typeof value === "string") return add(value, "coupang-autocomplete");
-      if (Array.isArray(value)) return value.forEach(walk);
-      if (!value || typeof value !== "object") return;
-      for (const [key, nested] of Object.entries(value)) {
-        if (/keyword|query|term|suggest|name|label|word/i.test(key) && typeof nested === "string") add(nested, "coupang-autocomplete");
-        else walk(nested);
-      }
-    };
-    const autocomplete = evidence.autocomplete;
-    if (autocomplete?.error) warnings.push(autocomplete.error);
-    if (autocomplete && autocomplete.status !== 0 && (autocomplete.status < 200 || autocomplete.status >= 300)) {
-      warnings.push(`\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uD638\uCD9C \uC2E4\uD328 (${autocomplete.status})`);
-      if ([401, 403, 429].includes(autocomplete.status)) {
-        providerError = autocomplete.status === 429 ? { reason: "rate_limited", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC694\uCCAD\uC774 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694." } : { reason: "provider_denied", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574\uC8FC\uC138\uC694." };
-      }
-    }
-    const text2 = autocomplete?.text.trim() ?? "";
-    if (text2 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text2))) {
-      try {
-        const parsed = JSON.parse(text2);
-        if (parsed && typeof parsed === "object") {
-          if (isErrorEnvelope(parsed)) {
-            const message = errorEnvelopeMessage(parsed);
-            providerError ??= { reason: "provider_denied", message };
-          } else {
-            walk(parsed);
-            structuredResponse = hasSuggestionCollection(parsed);
-          }
-        } else {
-          warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uAD6C\uC870\uAC00 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
-        }
-      } catch {
-        warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uD30C\uC2F1 \uC2E4\uD328");
-      }
-    } else if (text2) {
-      warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4");
-    }
-    const beforeDom = candidates.length;
-    for (const link of evidence.links) {
-      add(link.text, "coupang-search-dom");
-      try {
-        const parsed = new URL(link.href, origin);
-        add(parsed.searchParams.get("q") || parsed.searchParams.get("keyword") || "", "coupang-search-dom");
-      } catch {
-      }
-    }
-    if (candidates.length > beforeDom) domEvidence = true;
-    const productNames = [];
-    for (const raw of evidence.productNames) {
-      const name = raw.replace(/\s+/g, " ").trim();
-      if (name.length < 4 || name.length > 180 || /장바구니|구매|광고|무료배송|로켓배송만 보기/.test(name)) continue;
-      productNames.push(name);
-      domEvidence = true;
-    }
-    if (providerError) return { ok: false, ...providerError, warnings };
-    if (!structuredResponse && !domEvidence) {
-      return { ok: false, reason: "no_evidence", message: "\uCFE0\uD321 \uD0A4\uC6CC\uB4DC \uC751\uB2F5\uC5D0\uC11C \uC0AC\uC6A9\uD560 \uC218 \uC788\uB294 \uAC80\uC0C9 \uADFC\uAC70\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", warnings };
-    }
-    const seen = /* @__PURE__ */ new Set();
-    const items = [];
-    for (const candidate of candidates) {
-      const key = candidate.keyword.replace(/\s+/g, "").toLowerCase();
-      if (seen.has(key)) continue;
-      seen.add(key);
-      items.push({ rank: items.length + 1, keyword: candidate.keyword, source: candidate.source });
-      if (items.length >= maxResults) break;
-    }
-    return { ok: true, items, productNameTokens: countTokens(productNames, maxResults), warnings };
-  }
-  function usableKeyword(value, seed) {
-    if (value.length < 2 || value.length > 40) return false;
-    if (/https?:\/\//i.test(value) || /^[\d\s,.-]+$/.test(value) || /[₩원%]/.test(value)) return false;
-    if (["\uAC80\uC0C9", "\uBC14\uB85C\uAC00\uAE30", "\uCFE0\uD321", "\uB85C\uCF13\uBC30\uC1A1", "\uBB34\uB8CC\uBC30\uC1A1"].includes(value)) return false;
-    const compact = value.replace(/\s+/g, "").toLowerCase();
-    return compact.length > 1 && compact !== seed.replace(/\s+/g, "").toLowerCase();
-  }
-  function isErrorEnvelope(value) {
-    if (Array.isArray(value)) return false;
-    const record = value;
-    if (record.success === false || record.ok === false) return true;
-    for (const key of ["error", "errors", "errorCode", "error_code"]) {
-      const nested = record[key];
-      if (key in record && nested !== null && nested !== void 0 && String(nested).trim()) return true;
-    }
-    if (record.code !== void 0 && record.code !== null && record.code !== 0 && record.code !== "0" && String(record.code).trim() !== "") return true;
-    return typeof record.message === "string" && PROVIDER_ATTENTION.test(record.message);
-  }
-  function errorEnvelopeMessage(value) {
-    const record = value;
-    for (const key of ["error", "errors", "message", "errorCode", "error_code", "code"]) {
-      const nested = record[key];
-      if (nested !== null && nested !== void 0 && String(nested).trim()) return String(nested);
-    }
-    return "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC5D0\uC11C \uC624\uB958\uB97C \uBC18\uD658\uD588\uC2B5\uB2C8\uB2E4.";
-  }
-  function hasSuggestionCollection(value, depth = 0) {
-    if (Array.isArray(value)) return true;
-    if (!value || typeof value !== "object" || depth > 3) return false;
-    for (const [key, nested] of Object.entries(value)) {
-      if (!/suggest|keyword|query|term|result|item|product|data|list/i.test(key)) continue;
-      if (Array.isArray(nested) || typeof nested === "string" && nested.trim()) return true;
-      if (nested && typeof nested === "object" && hasSuggestionCollection(nested, depth + 1)) return true;
-    }
-    return false;
-  }
-  function countTokens(productNames, maxResults) {
-    const counts = /* @__PURE__ */ new Map();
-    for (const name of productNames) {
-      const tokens = new Set(name.replace(/[()[\]{}"'`~!@#$%^&*_+=|\\:;,.<>/?·•]/g, " ").split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 2 && token.length <= 20).filter((token) => !/^[\d개입묶음세트]+$/.test(token)).filter((token) => !STOP_WORDS.has(token)));
-      for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
-    }
-    return [...counts.entries()].map(([keyword, count]) => ({ keyword, count })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
-  }
-
-  // extensions/src/sites/coupang-search/index.ts
-  var ORIGIN2 = "https://www.coupang.com";
-  var PAGE_TIMEOUT_MS = 6e4;
-  var EVIDENCE_TIMEOUT_MS = 3e4;
-  var SETTLE_MS = 1500;
-  var CONTENT_FILE = "content/sourcing/coupang-search-page.js";
-  function buildCoupangSearchUrl(keyword) {
-    return `${ORIGIN2}/np/search?component=&q=${encodeURIComponent(keyword)}&channel=user`;
-  }
-  function isCoupangSearchUrl(value) {
-    try {
-      const url = new URL(value);
-      return url.protocol === "https:" && url.hostname.toLowerCase() === "www.coupang.com" && url.port === "" && url.username === "" && url.password === "" && /^\/np\/search\/?$/.test(url.pathname);
-    } catch {
-      return false;
-    }
-  }
-  function createCoupangSearchSite(tabs, deps) {
-    return {
-      async keywordSuggestions(keyword, maxResults) {
-        const url = buildCoupangSearchUrl(keyword);
-        const page = await tabs.open("about:blank");
-        try {
-          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS });
-          if (!isCoupangSearchUrl(landed)) {
-            throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uCFE0\uD321 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
-          }
-          await deps.sleep(SETTLE_MS);
-          const evidence = await page.ask(
-            { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword },
-            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE] } }
-          );
-          if (!evidence.links || !evidence.productNames) {
-            throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
-          }
-          const parsed = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword, maxResults);
-          if (!parsed.ok) {
-            throw new RuntimeError(
-              parsed.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
-              parsed.message,
-              { status: parsed.reason === "rate_limited" ? 429 : null, url, reason: parsed.reason, warnings: parsed.warnings }
-            );
-          }
-          return { items: parsed.items, productNameTokens: parsed.productNameTokens, warnings: parsed.warnings };
-        } finally {
-          await page.close();
-        }
-      }
-    };
-  }
-
-  // extensions/src/sites/live-commerce/index.ts
-  var NAVIGATION_TIMEOUT_MS2 = 35e3;
-  var EXTRACTION_TIMEOUT_MS2 = 25e3;
-  var MAX_PRODUCTS = 100;
-  var CONTENT_FILES = {
-    isolated: ["content/sourcing/live-commerce-extractor.js", "content/sourcing/live-commerce-content.js"]
-  };
-  var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
-  var LIVE_COMMERCE_PAGE_GUARD = {
-    allows: (url) => hostWithin(url, ["1688.com", "douyin.com"]),
-    isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "sso.douyin.com", "passport.douyin.com"]) || hostWithin(url, ["douyin.com"]) && /\/login/i.test(url.pathname),
-    loginMessage: "\uB77C\uC774\uBE0C \uBC29\uC1A1 \uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
-  };
-  function isLiveVerificationUrl(value) {
-    try {
-      const url = new URL(value);
-      return url.pathname.includes("/punish") || url.searchParams.get("action") === "captcha" || /(?:verify|captcha)/i.test(url.pathname);
-    } catch {
-      return false;
-    }
-  }
-  function isLiveLoginUrl(value) {
-    try {
-      return LIVE_COMMERCE_PAGE_GUARD.isLogin(new URL(value)) || /\/login/i.test(new URL(value).pathname);
-    } catch {
-      return false;
-    }
-  }
-  var MAX_VERIFICATION_ROUNDS2 = 5;
-  function createLiveCommerceSite(tabs) {
-    return {
-      async broadcast(pageUrl, options = {}) {
-        const page = await tabs.open("about:blank");
-        let keepOpen = false;
-        try {
-          const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
-          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS2, stopAt });
-          for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
-            const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
-            if (!cleared) {
-              keepOpen = true;
-              throw verification2(landed);
-            }
-            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS2, stopAt });
-          }
-          if (isLiveLoginUrl(landed)) {
-            keepOpen = true;
-            throw new RuntimeError(SITE_LOGIN_REQUIRED, LIVE_COMMERCE_PAGE_GUARD.loginMessage, { url: landed });
-          }
-          let extracted;
-          try {
-            extracted = await page.ask(
-              { type: "TRIGGER_LIVE_COMMERCE_EXTRACT" },
-              { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: CONTENT_FILES, guard: LIVE_COMMERCE_PAGE_GUARD }
-            );
-          } catch (error) {
-            if (leftForOperator(error)) keepOpen = true;
-            throw error;
-          }
-          if (extracted.status === "verification_required") {
-            keepOpen = true;
-            throw verification2(extracted.verificationUrl ?? landed);
-          }
-          if (!extracted.ok || !extracted.broadcast || !extracted.source || !extracted.pageUrl) {
-            throw new RuntimeError(SITE_REQUEST_FAILED, `\uBC29\uC1A1 \uC815\uBCF4\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}).`, { status: null, url: pageUrl });
-          }
-          return {
-            source: extracted.source,
-            pageUrl: extracted.pageUrl,
-            broadcast: extracted.broadcast,
-            products: (Array.isArray(extracted.products) ? extracted.products : []).slice(0, MAX_PRODUCTS)
-          };
-        } finally {
-          if (!keepOpen) await page.close();
-        }
-      }
-    };
-  }
-  function verification2(url) {
-    return new RuntimeError(SITE_VERIFICATION_REQUIRED2, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
-  }
-
-  // extensions/src/sites/product-page/description.ts
-  function parseDescriptionHtml(html) {
-    const content = offerDetailsContent(html) ?? html;
-    const images = [];
-    for (const match of content.matchAll(/<img[^>]+src=["']([^"']+)["'][^>]*>/gi)) {
-      const src = match[1];
-      if (src.startsWith("data:") || src.includes("icon") || src.includes("logo")) continue;
-      const full = src.startsWith("//") ? `https:${src}` : src;
-      if (!images.includes(full)) images.push(full);
-    }
-    const blocks = [];
-    const seen = /* @__PURE__ */ new Set();
-    for (const match of content.matchAll(/<(?:p|h[1-6]|li|td|th|div|span)[^>]*>([^<]{5,})<\//gi)) {
-      const text2 = match[1].replace(/&[^;]+;/g, " ").trim();
-      if (text2.length < 5 || text2.length > 2e3 || seen.has(text2)) continue;
-      seen.add(text2);
-      blocks.push(text2);
-    }
-    if (images.length === 0 && blocks.length === 0) return null;
-    return { description_images: images, description_text: blocks.join("\n").slice(0, 1e4), description_image_count: images.length };
-  }
-  function offerDetailsContent(html) {
-    const marker = "var offer_details=";
-    const start = html.indexOf(marker);
-    if (start === -1) return null;
-    const jsonStart = start + marker.length;
-    let depth = 0;
-    let inString = false;
-    let escaped = false;
-    for (let index = jsonStart; index < html.length; index += 1) {
-      const char = html.charAt(index);
-      if (escaped) {
-        escaped = false;
-        continue;
-      }
-      if (char === "\\") {
-        escaped = true;
-        continue;
-      }
-      if (char === '"') {
-        inString = !inString;
-        continue;
-      }
-      if (inString) continue;
-      if (char === "{") depth += 1;
-      if (char === "}") {
-        depth -= 1;
-        if (depth === 0) {
-          try {
-            const parsed = JSON.parse(html.substring(jsonStart, index + 1));
-            return typeof parsed.content === "string" ? parsed.content : null;
-          } catch {
-            return null;
-          }
-        }
-      }
-    }
-    return null;
-  }
-  function allowedSupplierUrl(value) {
-    try {
-      const parsed = new URL(String(value ?? "").trim());
-      const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
-      if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port && parsed.port !== "443") return null;
-      if (!["1688.com", "alibaba.com"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) return null;
-      parsed.hostname = host;
-      parsed.hash = "";
-      return parsed.toString();
-    } catch {
-      return null;
-    }
-  }
-
-  // extensions/src/sites/product-page/index.ts
-  var EXTRACTION_TIMEOUT_MS3 = 2e4;
-  var TRIGGER_TIMEOUT_MS = 5e3;
-  var EXTRACTOR_FILES = [
-    "content/sourcing/extractors/common.js",
-    "content/sourcing/extractors/alibaba.js",
-    "content/sourcing/extractors/1688.js",
-    "content/sourcing/content.js"
-  ];
-  var PRODUCT_PAGE_MOVED = "PRODUCT_PAGE_MOVED";
-  var PRODUCT_EXTRACTION_TIMEOUT = "PRODUCT_EXTRACTION_TIMEOUT";
-  function productPageInjection(url) {
-    const host = new URL(url).hostname;
-    const main = host.endsWith("1688.com") ? ["content/sourcing/extractors/1688-bridge.js"] : host.endsWith("alibaba.com") ? ["content/sourcing/extractors/page-bridge.js"] : [];
-    return { isolated: EXTRACTOR_FILES, main };
-  }
-  function createProductPageSite(tabs, tabId, deps) {
-    return {
-      async extract(sourceUrl) {
-        const page = tabs.attach(tabId);
-        const current = await page.currentUrl();
-        if (current !== sourceUrl) {
-          throw new RuntimeError(PRODUCT_PAGE_MOVED, "\uC218\uC9D1\uC744 \uC2DC\uC791\uD55C \uB4A4 \uD0ED \uC8FC\uC18C\uAC00 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC0C1\uD488 \uD398\uC774\uC9C0\uC5D0\uC11C \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: current });
-        }
-        const marker = deps.randomId();
-        let product = null;
-        let description;
-        let settle;
-        const settled = new Promise((resolve) => {
-          settle = resolve;
-        });
-        const stop = page.listen((message) => {
-          if (message.attemptId !== marker) return;
-          if (message.type === "PRODUCT_DATA" && !product && isRecord2(message.data)) {
-            product = message.data;
-            if (product.page_type === "search") settle({ product: withSourceUrl(product, sourceUrl), hadDescription: false });
-          } else if (message.type === "DESCRIPTION_DATA" && isRecord2(message.data)) {
-            description = message.data;
-          } else if (message.type === "EXTRACTION_COMPLETE" && product) {
-            const hadDescription = message.hadDescription === true;
-            if (hadDescription !== Boolean(description)) {
-              settle(new RuntimeError(SITE_REQUEST_FAILED, "\uC0C1\uD488 \uC124\uBA85 \uCD94\uCD9C \uC644\uB8CC\uB97C \uD655\uC778\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { status: null, url: sourceUrl }));
-            } else {
-              settle({ product: withSourceUrl(product, sourceUrl), ...description ? { description } : {}, hadDescription });
-            }
-          }
-        });
-        const timer = setTimeout(() => settle(new RuntimeError(PRODUCT_EXTRACTION_TIMEOUT, "\uC0C1\uD488 \uCD94\uCD9C \uC2DC\uAC04\uC774 \uCD08\uACFC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: sourceUrl })), EXTRACTION_TIMEOUT_MS3);
-        try {
-          const started = await page.ask({ type: "TRIGGER_EXTRACT", attemptId: marker }, { timeoutMs: TRIGGER_TIMEOUT_MS, inject: productPageInjection(sourceUrl) });
-          if (started.ok === false) {
-            throw new RuntimeError(SITE_REQUEST_FAILED, "\uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { status: null, url: sourceUrl, reason: started.error });
-          }
-          const result = await settled;
-          if (result instanceof RuntimeError) throw result;
-          await enrich(result.product);
-          return result;
-        } finally {
-          clearTimeout(timer);
-          stop();
-        }
-      }
-    };
-    async function enrich(product) {
-      const detailUrl = product.source_platform === "1688" ? allowedSupplierUrl(product._detail_url) : null;
-      if (!detailUrl) return;
-      const html = await tabs.fetchText(detailUrl);
-      const content = html ? parseDescriptionHtml(html) : null;
-      if (content) Object.assign(product, content);
-    }
-  }
-  function withSourceUrl(product, sourceUrl) {
-    return { ...product, source_url: typeof product.source_url === "string" ? product.source_url : sourceUrl };
-  }
-  function isRecord2(value) {
-    return value !== null && typeof value === "object" && !Array.isArray(value);
-  }
-
-  // extensions/src/sites/tiktok-cc/index.ts
-  var NAVIGATION_TIMEOUT_MS3 = 35e3;
-  var EXTRACTION_TIMEOUT_MS4 = 25e3;
-  var BASE_URLS = {
-    hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
-    product: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/pc/en",
-    keyword: "https://ads.tiktok.com/business/creativecenter/keyword-insights/pc/en"
-  };
-  var TIKTOK_CC_PAGE_GUARD = {
-    allows: (url) => hostWithin(url, ["ads.tiktok.com"]),
-    isLogin: (url) => hostWithin(url, ["passport.tiktok.com"]) || /(?:\/login|\/passport|\/signup)/i.test(url.pathname),
-    loginMessage: "TikTok \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
-  };
-  var CONTENT_FILES2 = {
-    isolated: ["content/sourcing/tiktok-cc-extractor.js", "content/sourcing/tiktok-cc-content.js"],
-    main: ["content/sourcing/tiktok-cc-hook.js"]
-  };
-  function tiktokTargetFor(targetId) {
-    if (targetId === "hashtag" || targetId === "product") {
-      return { id: targetId, trendType: targetId, url: BASE_URLS[targetId], sourceKeyword: null };
-    }
-    const keyword = targetId.startsWith("keyword:") ? targetId.slice("keyword:".length) : targetId;
-    return { id: targetId, trendType: "keyword", url: `${BASE_URLS.keyword}?keyword=${encodeURIComponent(keyword)}`, sourceKeyword: keyword };
-  }
-  function isTiktokBlockedUrl(value) {
-    try {
-      return /(?:\/login|\/passport|\/signup)/i.test(new URL(value).pathname);
-    } catch {
-      return false;
-    }
-  }
-  function isTiktokVerificationUrl(value) {
-    try {
-      const url = new URL(value);
-      return /(?:verify|captcha)/i.test(url.pathname) || url.searchParams.has("captcha");
-    } catch {
-      return false;
-    }
-  }
-  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
-  var MAX_VERIFICATION_ROUNDS3 = 5;
-  function sanitizeTiktokRegion(value) {
-    if (typeof value !== "string") return null;
-    const cleaned = value.replace(/[^A-Za-z]/g, "").toUpperCase();
-    return cleaned.length >= 2 && cleaned.length <= 8 ? cleaned : null;
-  }
-  function createTiktokCcSite(tabs) {
-    let page = null;
-    let keepOpen = false;
-    return {
-      targetFor: tiktokTargetFor,
-      async target(target, defaultRegion, options = {}) {
-        page ??= await tabs.open("about:blank");
-        try {
-          return await readTarget(page, target, defaultRegion, options.onAttention);
-        } catch (error) {
-          if (leftForOperator(error)) keepOpen = true;
-          throw error;
-        }
-      },
-      async close() {
-        if (!keepOpen) await page?.close();
-        page = null;
-      }
-    };
-    async function readTarget(page2, target, defaultRegion, onAttention) {
-      const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
-      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt, continueOnTimeout: true });
-      for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
-        const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
-        if (!cleared) {
-          keepOpen = true;
-          throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
-        }
-        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt, continueOnTimeout: true });
-      }
-      if (isTiktokBlockedUrl(landed)) {
-        throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
-      }
-      const extracted = await page2.ask(
-        { type: "TRIGGER_TIKTOK_CC_EXTRACT", trendType: target.trendType, sourceKeyword: target.sourceKeyword, defaultRegion },
-        { timeoutMs: EXTRACTION_TIMEOUT_MS4, inject: CONTENT_FILES2, guard: TIKTOK_CC_PAGE_GUARD }
-      );
-      if (!extracted.ok) {
-        throw new RuntimeError(SITE_REQUEST_FAILED, `TikTok \uD2B8\uB80C\uB4DC '${target.id}'\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, target: target.id });
-      }
-      return {
-        region: sanitizeTiktokRegion(extracted.region),
-        items: (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => Boolean(item) && typeof item === "object")
-      };
-    }
-  }
-
-  // extensions/src/sites/wing/pre-matching-search.ts
-  var ORIGIN3 = "https://wing.coupang.com";
-  var SEARCH_URL2 = `${ORIGIN3}/tenants/seller-web/pre-matching/search`;
-  var RETRY_ATTEMPTS = 4;
-  var REQUEST_TIMEOUT_MS = 2e4;
-  var WING_SEARCH_PAYLOAD_INVALID = "WING_SEARCH_PAYLOAD_INVALID";
-  var WING_SEARCH_SITE = {
-    name: "wing",
-    origin: ORIGIN3,
-    caller: {
-      minIntervalMs: 2200,
-      displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN3, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
-    }
-  };
-  function createWingPreMatchingSearch(caller, deps) {
-    return {
-      /** 키워드 한 페이지. 429·5xx·연결 끊김은 네 번까지 다시 묻는다. */
-      async searchPage(keyword, searchPage) {
-        const body = JSON.stringify({ keyword, excludedProductIds: [], searchPage, searchOrder: "DEFAULT", sortType: "DEFAULT" });
-        for (let attempt = 1; ; attempt += 1) {
-          let response;
-          try {
-            response = await caller.json(SEARCH_URL2, {
-              requireXsrf: true,
-              method: "POST",
-              headers: { "content-type": "application/json", accept: "application/json, text/plain, */*" },
-              body,
-              signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS)
-            });
-          } catch (error) {
-            if (searchPage === 0 && isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.status === 200 && error.details?.reason === "non_json") {
-              throw new RuntimeError(SITE_LOGIN_REQUIRED, `${WING_SEARCH_SITE.caller.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.`, { reason: "non_json_first_page" }, error);
-            }
-            const status = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED ? error.details?.status : void 0;
-            const retryable = status === null || status === 429 || typeof status === "number" && status >= 500;
-            if (!retryable || attempt >= RETRY_ATTEMPTS) throw error;
-            await deps.sleep((status === 429 ? 4e3 : 1e3) * 2 ** (attempt - 1));
-            continue;
-          }
-          return parseWingSearchPage(response);
-        }
-      }
-    };
-  }
-  function createWingCatalogSearchSite(caller, deps) {
-    const search = createWingPreMatchingSearch(caller, deps);
-    return {
-      searchPage: search.searchPage,
-      identity: (row) => `${row.productId}:${row.itemId ?? ""}:${row.vendorItemId ?? ""}`,
-      toObservation: (row, keyword, capturedAt) => row.productName.trim() ? toSourcingWingCatalogObservation(row, keyword, capturedAt) : null
-    };
-  }
-  function parseWingSearchPage(body) {
-    const record = asRecord2(body);
-    if (!record || !Array.isArray(record.result)) {
-      throw new RuntimeError(WING_SEARCH_PAYLOAD_INVALID, "Wing \uAC80\uC0C9 \uC751\uB2F5\uC758 \uBAA8\uC591\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
-    }
-    const next = record.nextSearchPage;
-    return {
-      rows: record.result.map(normalizeWingSearchProduct).filter((row) => row !== null),
-      nextSearchPage: typeof next === "number" && Number.isInteger(next) ? next : null
-    };
-  }
-  function normalizeWingSearchProduct(raw) {
-    const product = asRecord2(raw);
-    if (!product || product.productId == null) return null;
-    const productId = String(product.productId);
-    if (!productId) return null;
-    const salePrice = nullableNumber(product.salePrice);
-    const salesLast28d = nullableNumber(product.salesLast28d);
-    const pvLast28Day = nullableNumber(product.pvLast28Day);
-    const category = Array.isArray(product.displayCategoryInfo) ? asRecord2(product.displayCategoryInfo[0])?.categoryHierarchy : null;
-    return {
-      productId,
-      itemId: product.itemId == null ? null : String(product.itemId),
-      vendorItemId: product.vendorItemId == null ? null : String(product.vendorItemId),
-      productName: String(product.productName || ""),
-      itemName: product.itemName ? String(product.itemName) : null,
-      brandName: product.brandName ? String(product.brandName) : null,
-      manufacture: product.manufacture ? String(product.manufacture) : null,
-      categoryHierarchy: typeof category === "string" && category ? category : null,
-      imagePath: product.imagePath ? String(product.imagePath) : null,
-      salePrice,
-      rating: nullableNumber(product.rating),
-      ratingCount: nullableNumber(product.ratingCount),
-      pvLast28Day,
-      salesLast28d,
-      estimatedRevenue28d: salePrice != null && salesLast28d != null ? Math.round(salePrice * salesLast28d) : null,
-      conversionRate28d: pvLast28Day != null && pvLast28Day > 0 && salesLast28d != null ? salesLast28d / pvLast28Day : null,
-      deliveryInfo: product.deliveryInfo ? String(product.deliveryInfo) : null
-    };
-  }
-  function toSourcingWingCatalogObservation(row, sourceKeyword, capturedAt) {
-    return {
-      productId: row.productId,
-      itemId: row.itemId,
-      vendorItemId: row.vendorItemId,
-      productName: row.productName.slice(0, 500),
-      itemName: row.itemName?.slice(0, 500) ?? null,
-      brandName: row.brandName?.slice(0, 500) ?? null,
-      manufacture: row.manufacture?.slice(0, 500) ?? null,
-      categoryHierarchy: row.categoryHierarchy?.slice(0, 1e3) ?? null,
-      imagePath: row.imagePath?.slice(0, 2e3) ?? null,
-      salePriceKrw: boundedInteger(row.salePrice),
-      ratingAverage: boundedNumber(row.rating, 0, 5),
-      ratingCount: boundedInteger(row.ratingCount),
-      viewsLast28d: boundedInteger(row.pvLast28Day),
-      salesLast28d: boundedInteger(row.salesLast28d),
-      estimatedRevenue28d: boundedNumber(row.estimatedRevenue28d, 0, 2147483647),
-      conversionRate28d: boundedNumber(row.conversionRate28d, 0, 1),
-      deliveryInfo: row.deliveryInfo?.slice(0, 1e3) ?? null,
-      sourceKeyword,
-      capturedAt
-    };
-  }
-  function nullableNumber(value) {
-    if (value == null || typeof value === "boolean" || typeof value === "object") return null;
-    if (typeof value === "string" && value.trim() === "") return null;
-    const numeric = Number(value);
-    return Number.isFinite(numeric) ? numeric : null;
-  }
-  function boundedInteger(value) {
-    return value !== null && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
-  }
-  function boundedNumber(value, minimum, maximum) {
-    return value !== null && Number.isFinite(value) && value >= minimum && value <= maximum ? value : null;
-  }
-  function asRecord2(value) {
-    return value !== null && typeof value === "object" && !Array.isArray(value) ? value : null;
-  }
-
-  // extensions/src/entry/sourcing-site-handles.ts
-  var PRODUCT_TAB_REQUIRED = "PRODUCT_TAB_REQUIRED";
-  function createSourcingSiteHandles(deps, productTabId = null) {
-    return (kind) => {
-      switch (collectorFor(kind)?.site ?? null) {
-        case WING_SEARCH_SITE.name:
-          return createWingCatalogSearchSite(createSiteCaller(WING_SEARCH_SITE.caller, deps), { sleep: deps.sleep });
-        case "coupang-search":
-          return createCoupangSearchSite(deps.tabs, { sleep: deps.sleep });
-        case "ali1688":
-          return create1688SearchSite(deps.tabs);
-        case "live-commerce":
-          return createLiveCommerceSite(deps.tabs);
-        case "tiktok":
-          return createTiktokCcSite(deps.tabs);
-        case "product-page":
-          if (productTabId !== null) return createProductPageSite(deps.tabs, productTabId, { randomId: deps.randomId });
-          return {
-            extract: async () => {
-              throw new RuntimeError(PRODUCT_TAB_REQUIRED, "\uC0C1\uD488 \uC218\uC9D1\uC740 \uD655\uC7A5 \uD31D\uC5C5\uC758 [\uD604\uC7AC \uC0C1\uD488 \uC218\uC9D1]\uC5D0\uC11C \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.");
-            }
-          };
-        default:
-          return null;
-      }
-    };
-  }
-
   // extensions/src/entry/sourcing-product-collect.ts
   var COLLECT_CURRENT = "COLLECT_CURRENT";
   var HOST_KEEPALIVE_PORT = "kiditem-1688-trend-keepalive";
@@ -7740,7 +9560,8 @@ var KidItemRuntime = (() => {
     const runner = createRunner({
       client: createOperationClient(deps.apiFor(input.environmentId)),
       browser: deps.browser,
-      siteFor: createSourcingSiteHandles(deps.site, input.tabId)
+      // 운영자 탭을 임대로 묶는다 — 상품 페이지 사이트는 이 탭에서만 읽는다.
+      siteFor: (kind) => createSiteHandles(deps.site)(kind, { tabId: input.tabId })
     }, collectorFor);
     const work = runner.run({ kind: SOURCING_OPERATION_KINDS.productExtension, scope, signal: new AbortController().signal });
     deps.keepAlive?.(work);
@@ -7782,18 +9603,20 @@ var KidItemRuntime = (() => {
       tabs: createTabPages({ chrome, fetch: (input, init) => fetch(input, init), sleep, now: () => Date.now() }),
       randomId: () => crypto.randomUUID()
     };
-    const browser = createBrowserResources(chrome, ENTRY_SITES, { accountSite: ACCOUNT_SITE });
-    const channelSites = createSiteHandles({ fetch: site.fetch, cookies: site.cookies, now: site.now, sleep: site.sleep });
-    const sourcingSites = createSourcingSiteHandles(site);
+    const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
+    const channelSites = createSiteHandles(site);
     const externalActions = createOperationActions({
       apiFor: legacyApiPort,
       // `account:<id>` 잠금은 그 계정의 Wing 탭을 쓴다(KID-354). 로그인 확인은 사이트 호출기의 SITE_LOGIN_REQUIRED.
       // DOM을 읽는 소싱 사이트는 탭을 스스로 열고 닫는다(KID-360).
       browser,
-      siteFor: (kind, lease) => channelSites(kind, lease) ?? sourcingSites(kind),
+      siteFor: channelSites,
       keepAlive: legacyKeepAlive
     });
-    registerWithLegacyDomains({ externalActions, capabilities: { operationRuntime: true, sourcingOperationKindsV1: true } });
+    registerWithLegacyDomains({
+      externalActions,
+      capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true }
+    });
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
     return true;
   }

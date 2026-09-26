@@ -30,9 +30,8 @@ import {
   useOrderAutoDetect,
 } from '../hooks/use-order-auto-detect';
 import { useSellpiaOrderTransmission } from '../hooks/use-sellpia-order-transmission';
-import { useSellpiaShipmentTrackingSourceOwner } from '../hooks/use-sellpia-shipment-tracking-source-owner';
+import { useSellpiaShipmentTracking } from '../hooks/use-sellpia-shipment-tracking';
 import type { SellpiaReconcileResult } from '../lib/sellpia-order-reconcile';
-import { ensureMallLoginForRun } from '../lib/browser-mall-collection';
 import { createGeneratedFileActionLock } from '../lib/generated-file-action-lock';
 import { isDuplicateGeneratedFile } from '../lib/generated-file-dedup';
 import {
@@ -51,6 +50,7 @@ import { downloadOrderCollectionFile } from '../lib/order-collection-download';
 import { type OrderCollectionExtensionRun } from '../lib/order-collection-extension';
 import { MallCollectionControl } from './MallCollectionControl';
 import { SellpiaShipmentTrackingControl } from './SellpiaShipmentTrackingControl';
+import { collectsViaMallOrderOperation } from '../lib/mall-order-operation-source';
 import {
   collectionAttentionNotice,
   ICECREAM_MALL_KEY,
@@ -110,7 +110,7 @@ const TODAY_ORDERS_POLL_MS = 60_000;
 export function OrderCollectionWorkspace() {
   const queryClient = useQueryClient();
   const { user } = useAuth();
-  const sellpiaShipmentTrackingOwner = useSellpiaShipmentTrackingSourceOwner();
+  const sellpiaShipmentTracking = useSellpiaShipmentTracking();
   const showConfirm = useStore((store) => store.showConfirm);
   const historyRef = useRef<ConversionHistoryItem[]>([]);
   // 쿠팡직배송은 바로 수집하지 않고 입고예정일 달력에서 처리할 날짜를 먼저 고른다.
@@ -356,6 +356,7 @@ export function OrderCollectionWorkspace() {
     collectAll,
     directshipCollectionAdapter,
     mallCollectionAdapter,
+    mallOperationCollectionAdapter,
     startMall,
     sessionControls,
   } = useAllMarketplaceOrderCollection({
@@ -512,8 +513,7 @@ export function OrderCollectionWorkspace() {
       run = await sessionControls.prepareDirectRun(account);
       if (!run) throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
       setDirectshipModal((cur) => (cur ? { ...cur, run } : cur));
-      // 발주 화면도 로그인해야 열린다. 카드에서 달력을 열 때도 수집과 같은 자동 로그인을 쓴다.
-      await ensureMallLoginForRun(account, run);
+      // 발주 화면 로그인은 확장 사이트가 확인한다(KID-359 — 로그인 화면이면 실행이 SITE_LOGIN_REQUIRED로 끝난다).
       const { collectCoupangDirectFromExtension } = await import(
         '../lib/coupang-directship-api'
       );
@@ -988,8 +988,12 @@ export function OrderCollectionWorkspace() {
             children: renderCard,
           };
           // 카드가 쓰는 컨트롤은 같고, 쿠팡 직배송만 제 원천 상태를 따로 읽는다(KID-214).
-          return collectsViaCoupangDirectship(account.key)
-            ? <MallCollectionControl {...card} buildAdapter={directshipCollectionAdapter} />
+          // 실행 kind로 옮긴 몰(KID-359 H3)은 실행 reader를 읽는다 — 어느 몰인지는 그 원천 파일이 답한다.
+          if (collectsViaCoupangDirectship(account.key)) {
+            return <MallCollectionControl {...card} buildAdapter={directshipCollectionAdapter} />;
+          }
+          return collectsViaMallOrderOperation(account.key)
+            ? <MallCollectionControl {...card} buildAdapter={mallOperationCollectionAdapter} />
             : <MallCollectionControl {...card} buildAdapter={mallCollectionAdapter} />;
         }}
         onOpenChooser={(account) => void handleOpenDirectshipCalendar(account)}
@@ -1010,7 +1014,7 @@ export function OrderCollectionWorkspace() {
             history,
             logError: (title, message) => logActivity('error', title, message),
             onGeneratedFile: addGeneratedTrackingFile,
-            collectTracking: sellpiaShipmentTrackingOwner.collect,
+            collectTracking: sellpiaShipmentTracking.collect,
           })
         }
       />

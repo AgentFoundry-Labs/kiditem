@@ -300,141 +300,31 @@ test("login preflight runs inside the matching order collection lifecycle", asyn
   assert.deepEqual({ ...calls[1][3].collection }, { runId: message.runId });
 });
 
-test("art09 collection ignores visible orders outside the 배송준비전 state", async () => {
+test("a login sent without an owner attempt logs in only — the mall moved to the orders.mall_orders operation (KID-359 H3)", async () => {
   const source = readFileSync(
     new URL("../kiditem-os/background/orders/worker.js", import.meta.url),
     "utf8",
   );
-  const cells = (values) => values.map((value) => ({ innerText: value, textContent: value }));
-  const header = {
-    cells: cells(["선택", "주문번호", "상품명", "처리상태"]),
-    innerText: "선택 주문번호 상품명 처리상태",
-    querySelector: () => null,
-    getBoundingClientRect: () => ({ width: 500, height: 30 }),
-  };
-  const shipped = {
-    cells: cells(["", "20260727-0000001", "이미 발송된 상품", "배송완료"]),
-    innerText: "20260727-0000001 이미 발송된 상품 배송완료",
-    querySelector: () => null,
-    getBoundingClientRect: () => ({ width: 500, height: 30 }),
-  };
-  const table = {
-    querySelectorAll(selector) {
-      return selector === "tr" ? [header, shipped] : [];
+  const calls = [];
+  const ensureMallLoginWithLifecycle = vm.runInNewContext(
+    `(${extractFunction(source, "ensureMallLoginWithLifecycle")})`,
+    {
+      ensureMallLoggedIn: async (mallKey, credentials, collection) => {
+        calls.push(["login", mallKey, collection]);
+        return { success: true };
+      },
+      runOwnedOrderCollection: () => {
+        throw new Error("an operation mall has no owner attempt to wrap the login in");
+      },
     },
-  };
-  header.closest = shipped.closest = () => table;
-  let detailFetchCount = 0;
-  const document = {
-    body: { innerText: "주문목록 검색 결과" },
-    querySelector: () => null,
-    querySelectorAll(selector) {
-      return selector === "tr" ? [header, shipped] : [];
-    },
-  };
-  const scrapeSource = extractFunction(source, "scrapeArt09Orders").replace(
-    /^function /,
-    "async function ",
   );
-  const scrape = vm.runInNewContext(`(${scrapeSource})`, {
-    document,
-    window: { getComputedStyle: () => ({ display: "table-row", visibility: "visible" }) },
-    fetch: async () => {
-      detailFetchCount += 1;
-      throw new Error("non-target order detail must not be fetched");
-    },
-    DOMParser: class DOMParser {},
-    TextDecoder,
-    Set,
-    Error,
+
+  const result = await ensureMallLoginWithLifecycle({
+    mallKey: "kidkids",
+    credentials: { loginId: "kid", password: "password" },
+    date: null,
   });
 
-  const result = await scrape();
-
   assert.equal(result.success, true);
-  assert.equal(result.count, 0);
-  assert.equal(Array.isArray(result.rows), true);
-  assert.equal(result.rows.length, 0);
-  assert.equal(detailFetchCount, 0);
-});
-
-test("art09 collection requires an actual order row from the requested date", async () => {
-  const source = readFileSync(
-    new URL("../kiditem-os/background/orders/worker.js", import.meta.url),
-    "utf8",
-  );
-  const cells = (values) => values.map((value) => ({ innerText: value, textContent: value }));
-  const header = {
-    cells: cells(["선택", "주문번호", "주문일시", "상품명", "처리상태"]),
-    innerText: "선택 주문번호 주문일시 상품명 처리상태",
-    querySelector: () => null,
-    getBoundingClientRect: () => ({ width: 500, height: 30 }),
-  };
-  const guide = {
-    cells: cells(["", "20260727-0000001", "2026-07-27 09:00:00", "주문번호 입력 안내", "배송준비전"]),
-    innerText: "20260727-0000001 2026-07-27 09:00:00 주문번호 입력 안내 배송준비전",
-    querySelector: () => null,
-    getBoundingClientRect: () => ({ width: 500, height: 30 }),
-  };
-  const staleCheckbox = { checked: false };
-  const stale = {
-    cells: cells(["", "20260726-0000002", "2026-07-26 09:00:00", "어제 주문", "배송준비전"]),
-    innerText: "20260726-0000002 2026-07-26 09:00:00 어제 주문 배송준비전",
-    querySelector: (selector) => selector === 'input[type="checkbox"]' ? staleCheckbox : null,
-    getBoundingClientRect: () => ({ width: 500, height: 30 }),
-  };
-  const orderCheckbox = { checked: false };
-  const order = {
-    cells: cells(["", "20260727-0000003", "2026-07-27 10:00:00", "오늘 정상 상품", "배송준비전"]),
-    innerText: "20260727-0000003 2026-07-27 10:00:00 오늘 정상 상품 배송준비전",
-    querySelector: (selector) => selector === 'input[type="checkbox"]' ? orderCheckbox : null,
-    getBoundingClientRect: () => ({ width: 500, height: 30 }),
-  };
-  const table = {
-    querySelectorAll(selector) {
-      return selector === "tr" ? [header, guide, stale, order] : [];
-    },
-  };
-  header.closest = guide.closest = stale.closest = order.closest = () => table;
-  const document = {
-    body: { innerText: "주문목록 검색 결과" },
-    querySelector: () => null,
-    querySelectorAll(selector) {
-      return selector === "tr" ? [header, guide, stale, order] : [];
-    },
-  };
-  const fetchedOrderIds = [];
-  const scrapeSource = extractFunction(source, "scrapeArt09Orders").replace(
-    /^function /,
-    "async function ",
-  );
-  const scrape = vm.runInNewContext(`(${scrapeSource})`, {
-    document,
-    window: { getComputedStyle: () => ({ display: "table-row", visibility: "visible" }) },
-    fetch: async (url) => {
-      fetchedOrderIds.push(new URL(url, "https://zzogzzog1.cafe24.com").searchParams.get("order_id"));
-      return {
-        ok: true,
-        headers: { get: () => "text/html;charset=utf-8" },
-        arrayBuffer: async () => new TextEncoder().encode("<html><body>상품 배송</body></html>").buffer,
-      };
-    },
-    DOMParser: class DOMParser {
-      parseFromString() {
-        return { body: { innerText: "상품 배송" }, querySelectorAll: () => [] };
-      }
-    },
-    TextDecoder,
-    TextEncoder,
-    URL,
-    Set,
-    Error,
-  });
-
-  const result = await scrape("2026-07-27");
-
-  assert.equal(result.success, true);
-  assert.deepEqual(fetchedOrderIds, ["20260727-0000003"]);
-  assert.equal(result.orderCount, 1);
-  assert.equal(result.rows[0]?.orderId, "20260727-0000003");
+  assert.deepEqual(calls, [["login", "kidkids", null]]);
 });

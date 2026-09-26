@@ -59,7 +59,7 @@ describe('useRocketPurchaseWorkflow', () => {
     vi.mocked(loadSavedRocketCollection).mockResolvedValue(source);
     vi.mocked(collectSellpiaInventoryBeforeCalculation).mockRejectedValueOnce(new Error('collection failed'));
     vi.mocked(previewRocketPurchases).mockResolvedValue(preview(source, [previewRow('LINE-A', null, 3)]));
-    const hook = renderWorkflow({ channelAccountId: ACCOUNT_A, savedSourceImportRunId: SOURCE_A });
+    const hook = renderWorkflow({ channelAccountId: ACCOUNT_A, savedRocketPoOperationId: SOURCE_A });
     await waitFor(() => expect(hook.result.current.error).not.toBeNull());
     expect(previewRocketPurchases).not.toHaveBeenCalled();
     act(() => hook.result.current.retryInventoryAndPreview());
@@ -84,7 +84,7 @@ describe('useRocketPurchaseWorkflow', () => {
         channelAccountId: ACCOUNT_A,
         from: '2026-07-01',
         to: '2026-07-31',
-        savedSourceImportRunId: SOURCE_A,
+        savedRocketPoOperationId: SOURCE_A,
         selectedDeliveryDate,
       } as never),
       { initialProps: { selectedDeliveryDate: '2026-07-10' }, wrapper: queryWrapper() },
@@ -113,7 +113,7 @@ describe('useRocketPurchaseWorkflow', () => {
       .mockResolvedValueOnce(preview(source, [previewRow('LINE-A', null, 3)]));
     const hook = renderWorkflow({
       channelAccountId: ACCOUNT_A,
-      savedSourceImportRunId: SOURCE_A,
+      savedRocketPoOperationId: SOURCE_A,
     });
     await waitFor(() => expect(hook.result.current.preview?.rows[0]?.reason)
       .toBe('mapping_required'));
@@ -124,7 +124,7 @@ describe('useRocketPurchaseWorkflow', () => {
 
     expect(previewRocketPurchases).toHaveBeenNthCalledWith(2, expect.objectContaining({
       channelAccountId: ACCOUNT_A,
-      sourceImportRunId: source.sourceImportRunId,
+      rocketPoOperationId: source.rocketPoOperationId,
       editedQuantities: {},
       clampEditedQuantities: true,
     }));
@@ -162,13 +162,13 @@ describe('useRocketPurchaseWorkflow', () => {
     );
     const hook = renderWorkflow({
       channelAccountId: ACCOUNT_A,
-      savedSourceImportRunId: SOURCE_A,
+      savedRocketPoOperationId: SOURCE_A,
     });
 
     await waitFor(() => expect(hook.result.current.preview?.rows).toHaveLength(1));
 
     expect(previewRocketPurchases).toHaveBeenCalledWith(expect.objectContaining({
-      sourceImportRunId: source.sourceImportRunId,
+      rocketPoOperationId: source.rocketPoOperationId,
       previewScope: 'all_rows',
     }));
     // 표에는 발주확정 행까지 모두 보여준다(달력 건수와 어긋나지 않게).
@@ -188,7 +188,7 @@ describe('useRocketPurchaseWorkflow', () => {
     );
     const hook = renderWorkflow({
       channelAccountId: ACCOUNT_A,
-      savedSourceImportRunId: SOURCE_A,
+      savedRocketPoOperationId: SOURCE_A,
     });
 
     await waitFor(() => expect(hook.result.current.stage).toBe('ready'));
@@ -221,13 +221,13 @@ describe('useRocketPurchaseWorkflow', () => {
 
     const hook = renderWorkflow({
       channelAccountId: ACCOUNT_A,
-      savedSourceImportRunId: SOURCE_A,
+      savedRocketPoOperationId: SOURCE_A,
       selectedDeliveryDate: '2026-07-21',
     });
 
     await waitFor(() => expect(hook.result.current.preview?.rows).toHaveLength(1));
     expect(previewRocketPurchases).toHaveBeenCalledWith(expect.objectContaining({
-      sourceImportRunId: source.sourceImportRunId,
+      rocketPoOperationId: source.rocketPoOperationId,
     }));
     expect(hook.result.current.preview?.rows[0]?.poLineId).toBe('LINE-B');
     expect(hook.result.current.sourceRows).toEqual([lineB]);
@@ -245,7 +245,7 @@ describe('useRocketPurchaseWorkflow', () => {
       }]));
     const hook = renderWorkflow({
       channelAccountId: ACCOUNT_A,
-      savedSourceImportRunId: SOURCE_A,
+      savedRocketPoOperationId: SOURCE_A,
     });
     await waitFor(() => expect(hook.result.current.editedQuantities['LINE-A']).toBe(3));
 
@@ -274,7 +274,7 @@ describe('useRocketPurchaseWorkflow', () => {
         channelAccountId: ACCOUNT_A,
         from: '2026-07-01',
         to: '2026-07-31',
-        savedSourceImportRunId: SOURCE_A,
+        savedRocketPoOperationId: SOURCE_A,
         selectedDeliveryDate,
         onActivity,
       }),
@@ -300,23 +300,23 @@ describe('useRocketPurchaseWorkflow', () => {
     const sourceA = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
     const sourceB = savedCollection(ACCOUNT_B, SOURCE_B, COLLECTION_B, [sourceRow('LINE-B')]);
     const stale = deferred<RocketPurchasePreviewResponse>();
-    vi.mocked(loadSavedRocketCollection).mockImplementation(async ({ sourceImportRunId }) =>
-      sourceImportRunId === SOURCE_A ? sourceA : sourceB);
+    vi.mocked(loadSavedRocketCollection).mockImplementation(async ({ rocketPoOperationId }) =>
+      rocketPoOperationId === SOURCE_A ? sourceA : sourceB);
     vi.mocked(previewRocketPurchases)
       .mockResolvedValueOnce(preview(sourceA, [previewRow('LINE-A', null, 3)]))
       .mockReturnValueOnce(stale.promise)
       .mockResolvedValueOnce(preview(sourceB, [previewRow('LINE-B', null, 2)]));
     const hook = renderHook(
-      ({ channelAccountId, savedSourceImportRunId }) => useRocketPurchaseWorkflow({
+      ({ channelAccountId, savedRocketPoOperationId }) => useRocketPurchaseWorkflow({
         channelAccountId,
         from: '2026-07-01',
         to: '2026-07-31',
-        savedSourceImportRunId,
+        savedRocketPoOperationId,
       }),
       {
         initialProps: {
           channelAccountId: ACCOUNT_A,
-          savedSourceImportRunId: SOURCE_A,
+          savedRocketPoOperationId: SOURCE_A,
         },
         wrapper: queryWrapper(),
       },
@@ -331,7 +331,7 @@ describe('useRocketPurchaseWorkflow', () => {
 
     hook.rerender({
       channelAccountId: ACCOUNT_B,
-      savedSourceImportRunId: SOURCE_B,
+      savedRocketPoOperationId: SOURCE_B,
     });
     await waitFor(() => expect(hook.result.current.preview?.rows[0]?.poLineId)
       .toBe('LINE-B'));
@@ -356,7 +356,7 @@ describe('useRocketPurchaseWorkflow', () => {
       ]));
     const hook = renderWorkflow({
       channelAccountId: ACCOUNT_A,
-      savedSourceImportRunId: SOURCE_A,
+      savedRocketPoOperationId: SOURCE_A,
     });
     await waitFor(() => expect(hook.result.current.preview?.rows).toHaveLength(3));
     act(() => hook.result.current.setShortageReasons({
@@ -375,30 +375,30 @@ describe('useRocketPurchaseWorkflow', () => {
   it('retains intersected and jointly clamped edits when a newer collection of the same review completes', async () => {
     const old = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A'), sourceRow('REMOVED')]);
     const fresh = savedCollection(ACCOUNT_A, SOURCE_B, COLLECTION_B, [sourceRow('LINE-A')]);
-    vi.mocked(loadSavedRocketCollection).mockImplementation(async ({ sourceImportRunId }) => (
-      sourceImportRunId === SOURCE_B ? fresh : old
+    vi.mocked(loadSavedRocketCollection).mockImplementation(async ({ rocketPoOperationId }) => (
+      rocketPoOperationId === SOURCE_B ? fresh : old
     ));
     vi.mocked(previewRocketPurchases)
       .mockResolvedValueOnce(preview(old, [previewRow('LINE-A', null, 4), previewRow('REMOVED', null, 4)]))
       .mockResolvedValueOnce(preview(fresh, [previewRow('LINE-A', null, 4)]))
       .mockResolvedValue(preview(fresh, [{ ...previewRow('LINE-A', null, 2), editedQuantity: 2 }]));
-    const hook = renderHook(({ savedSourceImportRunId }) => useRocketPurchaseWorkflow({
-      channelAccountId: ACCOUNT_A, from: '2026-07-01', to: '2026-07-31', savedSourceImportRunId,
-    }), { initialProps: { savedSourceImportRunId: SOURCE_A }, wrapper: queryWrapper() });
+    const hook = renderHook(({ savedRocketPoOperationId }) => useRocketPurchaseWorkflow({
+      channelAccountId: ACCOUNT_A, from: '2026-07-01', to: '2026-07-31', savedRocketPoOperationId,
+    }), { initialProps: { savedRocketPoOperationId: SOURCE_A }, wrapper: queryWrapper() });
     await waitFor(() => expect(hook.result.current.stage).toBe('ready'));
     act(() => { hook.result.current.setReviewedQuantity('LINE-A', 3); hook.result.current.setReviewedQuantity('REMOVED', 1); });
 
-    hook.rerender({ savedSourceImportRunId: SOURCE_B });
+    hook.rerender({ savedRocketPoOperationId: SOURCE_B });
 
     await waitFor(() => expect(previewRocketPurchases).toHaveBeenCalledTimes(3));
     expect(previewRocketPurchases).toHaveBeenNthCalledWith(3, expect.objectContaining({
-      sourceImportRunId: SOURCE_B, editedQuantities: { 'LINE-A': 3 }, clampEditedQuantities: true, previewScope: 'confirmation_requested',
+      rocketPoOperationId: SOURCE_B, editedQuantities: { 'LINE-A': 3 }, clampEditedQuantities: true, previewScope: 'confirmation_requested',
     }));
     await waitFor(() => expect(hook.result.current.editedQuantities).toEqual({ 'LINE-A': 2 }));
     expect(hook.result.current.stage).toBe('ready');
     expect(hook.result.current.displayPreview?.rows.map(({ poLineId }) => poLineId)).toEqual(['LINE-A']);
     await act(async () => hook.result.current.revalidateEditedQuantities());
-    expect(previewRocketPurchases).toHaveBeenLastCalledWith(expect.objectContaining({ sourceImportRunId: SOURCE_B, editedQuantities: { 'LINE-A': 2 } }));
+    expect(previewRocketPurchases).toHaveBeenLastCalledWith(expect.objectContaining({ rocketPoOperationId: SOURCE_B, editedQuantities: { 'LINE-A': 2 } }));
   });
 
   it('downloads the reviewed workbook directly without starting a post-download workflow', async () => {
@@ -420,7 +420,7 @@ describe('useRocketPurchaseWorkflow', () => {
     });
     const hook = renderWorkflow({
       channelAccountId: ACCOUNT_A,
-      savedSourceImportRunId: SOURCE_A,
+      savedRocketPoOperationId: SOURCE_A,
     });
     await waitFor(() => expect(hook.result.current.canExport).toBe(true));
 
@@ -440,20 +440,20 @@ describe('useRocketPurchaseWorkflow', () => {
   it('clears the previous display and edits when a newer empty collection completes', async () => {
     const old = savedCollection(ACCOUNT_A, SOURCE_A, COLLECTION_A, [sourceRow('LINE-A')]);
     const empty = savedCollection(ACCOUNT_A, SOURCE_B, COLLECTION_B, []);
-    vi.mocked(loadSavedRocketCollection).mockImplementation(async ({ sourceImportRunId }) => (
-      sourceImportRunId === SOURCE_B ? empty : old
+    vi.mocked(loadSavedRocketCollection).mockImplementation(async ({ rocketPoOperationId }) => (
+      rocketPoOperationId === SOURCE_B ? empty : old
     ));
     vi.mocked(previewRocketPurchases).mockResolvedValueOnce(preview(old, [previewRow('LINE-A', null, 4)]))
       .mockResolvedValueOnce(preview(empty, []));
-    const hook = renderHook(({ savedSourceImportRunId }) => useRocketPurchaseWorkflow({
-      channelAccountId: ACCOUNT_A, from: '2026-07-01', to: '2026-07-31', savedSourceImportRunId,
-    }), { initialProps: { savedSourceImportRunId: SOURCE_A }, wrapper: queryWrapper() });
+    const hook = renderHook(({ savedRocketPoOperationId }) => useRocketPurchaseWorkflow({
+      channelAccountId: ACCOUNT_A, from: '2026-07-01', to: '2026-07-31', savedRocketPoOperationId,
+    }), { initialProps: { savedRocketPoOperationId: SOURCE_A }, wrapper: queryWrapper() });
     await waitFor(() => expect(hook.result.current.stage).toBe('ready'));
     act(() => hook.result.current.setReviewedQuantity('LINE-A', 3));
 
-    hook.rerender({ savedSourceImportRunId: SOURCE_B });
+    hook.rerender({ savedRocketPoOperationId: SOURCE_B });
 
-    await waitFor(() => expect(hook.result.current.collectionRun?.sourceImportRunId).toBe(SOURCE_B));
+    await waitFor(() => expect(hook.result.current.collectionRun?.rocketPoOperationId).toBe(SOURCE_B));
     await waitFor(() => expect(hook.result.current.stage).toBe('ready'));
     expect(hook.result.current.displayPreview?.rows).toEqual([]);
     expect(hook.result.current.editedQuantities).toEqual({});
@@ -480,7 +480,7 @@ describe('useRocketPurchaseWorkflow', () => {
     });
     const hook = renderWorkflow({
       channelAccountId: ACCOUNT_A,
-      savedSourceImportRunId: SOURCE_A,
+      savedRocketPoOperationId: SOURCE_A,
     });
     await waitFor(() => expect(hook.result.current.canExport).toBe(true));
 
@@ -503,7 +503,7 @@ describe('useRocketPurchaseWorkflow', () => {
 
 function renderWorkflow(input: {
   channelAccountId: string;
-  savedSourceImportRunId: string | null;
+  savedRocketPoOperationId: string | null;
   selectedDeliveryDate?: string;
 }) {
   return renderHook(() => useRocketPurchaseWorkflow({
@@ -542,12 +542,12 @@ function sourceRow(poLineId: string): RocketPoCatalogRow {
 
 function savedCollection(
   channelAccountId: string,
-  sourceImportRunId: string,
+  rocketPoOperationId: string,
   collectionRunId: string,
   rows: RocketPoCatalogRow[],
 ): RocketSavedPoCollection {
   return {
-    sourceImportRunId,
+    rocketPoOperationId,
     channelAccountId,
     collection: {
       collectionRunId,
@@ -570,7 +570,7 @@ function preview(
   return {
     status: 'ready',
     collectionRunId: saved.collection.collectionRunId,
-    catalog: catalogPublication(saved.channelAccountId, saved.sourceImportRunId, rows.length),
+    catalog: catalogPublication(saved.channelAccountId, saved.rocketPoOperationId, rows.length),
     inventoryGeneration: '12',
     rows,
   };
@@ -620,12 +620,12 @@ function queryWrapper() {
 
 function catalogPublication(
   channelAccountId: string,
-  sourceImportRunId: string,
+  rocketPoOperationId: string,
   rowCount: number,
 ): RocketPoCatalogPublication {
   return {
     run: {
-      id: sourceImportRunId,
+      id: rocketPoOperationId,
       sourceType: 'coupang_rocket_po_catalog',
       channelAccountId,
       fileName: 'rocket-po-catalog.json',

@@ -73,23 +73,49 @@ export async function regenerateOrderCollectionSource(
 }
 
 /**
- * Reads the owner-retained Icecream capture metadata needed by the web-only
- * delivery-index and automatic-seen consumers. This is intentionally a
- * separate scoped read: the extension page response never carries provider
- * rows or raw source evidence.
+ * 실행 kind(`orders.mall_orders`, KID-359 H3)로 수집한 몰: 성공한 실행의 보관 캡처를 서버가 다시 변환한다. 경로의
+ * id와 본문의 `operationId`가 같은 실행이다. 주문이 없던 수집은 204(파일 없음).
  */
-export async function readOrderCollectionContinuation(
-  run: OrderCollectionExtensionRun,
-): Promise<IcecreamOrderCollectionContinuation> {
+export async function regenerateOrderOperationSource(
+  operationId: string,
+  options?: { download?: boolean },
+): Promise<OrderCollectionConversionResult> {
   const response = await apiClient.fetchRaw(
-    `/api/orders/collection/attempts/${encodeURIComponent(run.attemptId)}/continuation`,
+    `/api/orders/collection/attempts/${encodeURIComponent(operationId)}/convert`,
     {
-      method: 'GET',
-      headers: {
-        'x-source-attempt-token': run.attemptToken,
-      },
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ operationId }),
     },
   );
+  if (!response.ok) {
+    throw new Error(await readErrorMessage(response));
+  }
+  const blob = await response.blob();
+  const fileName =
+    fileNameFromContentDisposition(response.headers.get('Content-Disposition')) ??
+    '주문수집_셀피아변환.xls';
+  if (response.status !== 204 && options?.download !== false) downloadBlob(blob, fileName);
+  return {
+    fileName,
+    blob,
+    previewRows: response.status === 204 ? [] : await readPreviewRows(blob),
+    sourceRows: numericHeader(response, 'X-Order-Collection-Source-Rows'),
+    productRows: numericHeader(response, 'X-Order-Collection-Product-Rows'),
+    outputRows: numericHeader(response, 'X-Order-Collection-Output-Rows'),
+    skippedRows: numericHeader(response, 'X-Order-Collection-Skipped-Rows'),
+  };
+}
+
+/**
+ * 아이스크림몰 continuation(배송 색인·다음 자동 선택에 쓰는 원본 행·고른 행 키). 성공한 몰 주문 실행의 보관 캡처에서만
+ * 읽는다(KID-359 H3) — 경로 id와 query `operationId`가 같은 실행이다. 확장 응답은 원본 행을 싣지 않는다.
+ */
+export async function readOrderOperationContinuation(
+  operationId: string,
+): Promise<IcecreamOrderCollectionContinuation> {
+  const id = encodeURIComponent(operationId);
+  const response = await apiClient.fetchRaw(`/api/orders/collection/attempts/${id}/continuation?operationId=${id}`, { method: 'GET' });
   if (!response.ok) {
     throw new Error(await readErrorMessage(response));
   }

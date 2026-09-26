@@ -10,10 +10,7 @@ import {
   OPERATOR_CANCEL_CODE,
   OPERATOR_CANCEL_MESSAGE,
 } from '../../../../common/operator-cancel';
-import type {
-  OrderCollectionSourceStatus,
-  OrderCollectionTodayOrders,
-} from '@kiditem/shared/order-collection-source';
+import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import {
   BadRequestException,
   ConflictException,
@@ -26,9 +23,8 @@ import { PrismaService } from '../../../../prisma/prisma.service';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { canonicalOwnerInputHash } from '../../../../common/owner-idempotency-key';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
-import { addDays, businessDateKey, kstDayStart } from '../../../../common/kst';
+import { businessDateKey } from '../../../../common/kst';
 import { MALL_CHANNELS } from '@kiditem/shared/channel-registry';
-import { readCompletedImportRowCountsByScope } from '../../../../core/read/source-import-run.reader';
 import {
   CHANNEL_ACCOUNT_PORT,
   type ChannelAccountPort,
@@ -47,15 +43,6 @@ import type {
 } from '../../../application/port/in/order-collection-source.port';
 
 const SOURCE_TYPE = 'order_collection_mall' as const;
-/** 오늘 주문을 만드는 수집 원천. 대시보드의 '오늘 주문' 과 같은 목록이다. */
-const ORDER_COLLECTION_ORDER_SOURCE_TYPES = [
-  SOURCE_TYPE,
-  'coupang_direct_order_capture',
-] as const;
-/** 몰 키가 계획에 없는 원천은 그 원천 자체가 한 몰이다. */
-const MALL_KEY_BY_SOURCE_TYPE: Readonly<Record<string, string>> = {
-  coupang_direct_order_capture: 'coupang-direct',
-};
 const PARSER_VERSION = 'order-collection-v1';
 const SOURCE_ALERT_TITLE = '몰 주문 수집 실패';
 const ATTEMPT_EXPIRES_IN_MS = 30 * 60_000;
@@ -339,33 +326,6 @@ export class OrderCollectionSourceRepository implements OrderCollectionSourcePor
           : sourceStatusView({ id, mallKey: mall.key }, runs.get(id) ?? NO_STATUS_RUNS);
       });
     }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-  }
-
-  /**
-   * 오늘 수집이 실어 온 주문 수. 대시보드의 '오늘 주문' 과 **같은 Core 읽기**를 쓴다 — 여기서
-   * 따로 세면 두 화면이 또 다른 수를 말한다(사장님 2026-09-22: 63 대 82).
-   *
-   * 쿠팡직배송은 몰 키가 없는 원천이라 그 원천 자체가 한 몰이다.
-   */
-  async readTodayOrderCounts(input: {
-    organizationId: string;
-  }): Promise<OrderCollectionTodayOrders> {
-    const start = kstDayStart(new Date());
-    const end = addDays(start, 1);
-    const rows = await readCompletedImportRowCountsByScope(this.prisma, {
-      organizationId: input.organizationId,
-      sourceTypes: ORDER_COLLECTION_ORDER_SOURCE_TYPES,
-      from: start,
-      to: end,
-    });
-    if (rows === null) return { total: null, byMall: {} };
-    const byMall: Record<string, number> = {};
-    for (const row of rows) {
-      const mallKey = row.mallKey ?? MALL_KEY_BY_SOURCE_TYPE[row.sourceType];
-      if (!mallKey) continue;
-      byMall[mallKey] = (byMall[mallKey] ?? 0) + row.rowCount;
-    }
-    return { total: rows.reduce((sum, row) => sum + row.rowCount, 0), byMall };
   }
 
   /** 계정마다 진행 중·마지막 완료분·마지막 시도 행. 계정 수와 무관하게 조회 세 번이다. */
@@ -867,6 +827,9 @@ function json(value: unknown): Prisma.InputJsonValue {
 }
 
 function toArtifact(row: ArtifactRow): OrderCollectionArtifact {
+  // 옛 attempt 경로의 artifact는 run id가 있다. 실행 계약 kind가 보관한 artifact(`operationId`)는 이 리더를 거치지
+  // 않는다(KID-359 wave2 H3가 실행 id로 읽는다).
+  if (!row.sourceImportRunId) throw new Error('order collection artifact without source_import_run_id');
   return {
     artifactId: row.id,
     sourceImportRunId: row.sourceImportRunId,

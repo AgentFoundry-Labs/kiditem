@@ -152,7 +152,7 @@ function renderPanel(options?: {
   // 날짜 상태는 워크스페이스가 소유하므로 props 로 주입한다(클릭 없이 복원되는 경로까지 포함).
   selectedDate?: string | null;
   selectedDateSourceRunCount?: number;
-  selectedSourceImportRunId?: string | null;
+  selectedRocketPoOperationId?: string | null;
 }) {
   const sourceRunCount = options?.selectedDateSourceRunCount ?? 0;
   vi.mocked(useRocketPurchaseWorkflow).mockReturnValue({
@@ -176,7 +176,7 @@ function renderPanel(options?: {
       channelAccountName="로켓 1호점"
       from="2026-07-01"
       to="2026-07-31"
-      selectedSourceImportRunId={options?.selectedSourceImportRunId ?? null}
+      selectedRocketPoOperationId={options?.selectedRocketPoOperationId ?? null}
       selectedDate={options?.selectedDate ?? null}
       selectedDateSourceRunCount={sourceRunCount}
       onActivity={vi.fn()}
@@ -693,7 +693,7 @@ describe("<RocketConfirmPanel />", () => {
       preview: null,
       selectedDate: "2026-07-28",
       selectedDateSourceRunCount: 3,
-      selectedSourceImportRunId: null,
+      selectedRocketPoOperationId: null,
     });
     expect(
       screen.queryByText(/자동으로 정해지지|사용할 수집본을 하나/),
@@ -783,7 +783,7 @@ describe("<RocketConfirmPanel />", () => {
       preview: null,
       selectedDate: "2026-07-28",
       selectedDateSourceRunCount: 3,
-      selectedSourceImportRunId: "run-3",
+      selectedRocketPoOperationId: "run-3",
     });
 
     expect(screen.queryByText(/자동으로 정해지지 않습니다/)).toBeNull();

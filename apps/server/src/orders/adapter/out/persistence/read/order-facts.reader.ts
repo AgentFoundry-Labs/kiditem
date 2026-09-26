@@ -1,3 +1,5 @@
+import { MALL_ORDERS_KIND, MallOrdersResultSchema } from '@kiditem/shared/orders-operations';
+import { readSucceededOperationWindows } from '../../../../../common/operation/transaction/succeeded-operation-windows';
 import { Prisma } from '@prisma/client';
 import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import {
@@ -263,11 +265,12 @@ export async function readOrderWindowFacts(
       LEFT JOIN order_line_items oli
         ON oli.order_id = o.id
        AND oli.organization_id = ${input.organizationId}::uuid
-      INNER JOIN source_import_runs s
+      LEFT JOIN source_import_runs s
         ON s.id = o.source_import_run_id
        AND s.organization_id = o.organization_id
        AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
       WHERE o.organization_id = ${input.organizationId}::uuid
+        AND (s.id IS NOT NULL OR o.operation_id IS NOT NULL)
         AND o.ordered_at >= ${input.from}
         AND o.ordered_at < ${input.to}
     )
@@ -488,12 +491,12 @@ export async function readObservedOrderBounds(
         AT TIME ZONE 'Asia/Seoul' AS "to"
     FROM orders
     WHERE organization_id = ${organizationId}::uuid
-      AND EXISTS (
+      AND (orders.operation_id IS NOT NULL OR EXISTS (
         SELECT 1 FROM source_import_runs s
         WHERE s.id = orders.source_import_run_id
           AND s.organization_id = ${organizationId}::uuid
           AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
-      )
+      ))
   `);
   const row = rows[0];
   return row?.from && row.to ? { from: row.from, to: row.to } : null;
@@ -512,12 +515,12 @@ export async function readObservedOrderCount(
     SELECT COUNT(*)::bigint AS count
     FROM orders
     WHERE organization_id = ${organizationId}::uuid
-      AND EXISTS (
+      AND (orders.operation_id IS NOT NULL OR EXISTS (
         SELECT 1 FROM source_import_runs s
         WHERE s.id = orders.source_import_run_id
           AND s.organization_id = ${organizationId}::uuid
           AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
-      )
+      ))
   `);
   return Number(row?.count ?? 0n);
 }
@@ -578,12 +581,12 @@ export async function readOrderStatusCount(
     SELECT COUNT(*)::bigint AS count
     FROM orders
     WHERE organization_id = ${organizationId}::uuid AND status = ${status}
-      AND EXISTS (
+      AND (orders.operation_id IS NOT NULL OR EXISTS (
         SELECT 1 FROM source_import_runs s
         WHERE s.id = orders.source_import_run_id
           AND s.organization_id = ${organizationId}::uuid
           AND s.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
-      )
+      ))
   `);
   return Number(row?.count ?? 0n);
 }
@@ -599,12 +602,12 @@ function includedStatusPredicateSql(statuses: readonly string[] | undefined): Pr
 }
 
 function completeOrderFactSql(organizationId: string): Prisma.Sql {
-  return Prisma.sql`AND EXISTS (
+  return Prisma.sql`AND (o.operation_id IS NOT NULL OR EXISTS (
     SELECT 1 FROM source_import_runs completed_source
     WHERE completed_source.id = o.source_import_run_id
       AND completed_source.organization_id = ${organizationId}::uuid
       AND completed_source.status = ${SOURCE_IMPORT_RUN_COMPLETED_STATUS}
-  )`;
+  ))`;
 }
 
 function isEmptyWindow(input: Pick<OrderWindowInput, 'from' | 'to'>): boolean {
@@ -626,13 +629,22 @@ function emptyOrderWindowFacts(): OrderWindowFacts {
   };
 }
 
+/**
+ * 완료된 원천이 쓴 주문: 완료된 옛 run의 주문, 또는 성공한 directship 실행을 변환한 주문(`operationId`, KID-359 —
+ * 변환은 성공한 실행에서만 돈다).
+ */
 function completeOrderWhere(organizationId: string): Prisma.OrderWhereInput {
   return {
     organizationId,
-    sourceImportRunId: { not: null },
-    sourceImportRun: {
-      is: { organizationId, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
-    },
+    OR: [
+      { operationId: { not: null } },
+      {
+        sourceImportRunId: { not: null },
+        sourceImportRun: {
+          is: { organizationId, status: SOURCE_IMPORT_RUN_COMPLETED_STATUS },
+        },
+      },
+    ],
   };
 }
 
@@ -683,7 +695,11 @@ async function readCompletedOrderCoverageRuns(
       },
     },
   });
-  const accountIds = [...new Set(rows.flatMap((run) =>
+  const operationRuns = firstDate && lastDate
+    ? await readMallOrderCoverageOperations(tx, input.organizationId, firstDate, lastDate)
+    : [];
+  const allRuns = [...rows, ...operationRuns];
+  const accountIds = [...new Set(allRuns.flatMap((run) =>
     run.sourceType === 'order_collection_mall' && run.channelAccountId
       ? [run.channelAccountId]
       : [],
@@ -693,12 +709,44 @@ async function readCompletedOrderCoverageRuns(
     accountIds,
   });
   const accountById = new Map(accountFacts.map((account) => [account.id, account]));
-  return rows.map((run) => ({
+  return allRuns.map((run) => ({
     ...run,
     channelAccount: run.channelAccountId
       ? { channel: accountById.get(run.channelAccountId)?.channel ?? null }
       : null,
   }));
+}
+
+/**
+ * 실행 계약으로 옮긴 몰 주문 수집(`orders.mall_orders`, KID-359)이 확인한 기간. 성공 실행의 `result.coverage`가 옛 run의
+ * coverageStartDate/EndDate 자리이고, 계정·몰 키는 plan에서 온다. 옛 run과 같은 모양으로 돌려 한 규칙으로 센다. 실행 표는
+ * 실행 계약 모듈의 트랜잭션 리더로만 읽는다(ADR-0025).
+ */
+async function readMallOrderCoverageOperations(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+  firstDate: string,
+  lastDate: string,
+) {
+  const operations = await readSucceededOperationWindows(tx, { organizationId, kinds: [MALL_ORDERS_KIND], firstDate, lastDate });
+  return operations.flatMap((operation) => {
+    const result = MallOrdersResultSchema.safeParse(operation.result);
+    const plan = operation.plan && typeof operation.plan === 'object' && !Array.isArray(operation.plan) ? operation.plan as Prisma.JsonObject : null;
+    const channelAccountId = typeof plan?.channelAccountId === 'string' ? plan.channelAccountId : null;
+    if (!result.success || !result.data.coverage || !channelAccountId) return [];
+    const observedAt = operation.finishedAt ?? operation.startedAt;
+    return [{
+      sourceType: 'order_collection_mall',
+      channelAccountId,
+      plan: { mallKey: result.data.mallKey } as Prisma.JsonValue,
+      importedAt: observedAt as Date | null,
+      updatedAt: observedAt,
+      createdAt: operation.startedAt,
+      coverageStartDate: new Date(`${result.data.coverage.startDate}T00:00:00.000Z`) as Date | null,
+      coverageEndDate: new Date(`${result.data.coverage.endDate}T00:00:00.000Z`) as Date | null,
+      orders: [] as Array<{ orderedAt: Date }>,
+    }];
+  });
 }
 
 function buildOrderCoverage(

@@ -48,7 +48,10 @@ erDiagram
   CoupangDirectTransportConsumption {
     String id PK
     String organizationId FK
+     /**
     String sourceImportRunId FK
+     /**
+    String operationId
     String receiptId FK
     String transport FK
     StringArray selectedPurchaseOrderKeys
@@ -58,7 +61,10 @@ erDiagram
     String id PK
     String organizationId FK
     String channelAccountId
+     /**
     String effectSourceImportRunId FK
+     /**
+    String effectOperationId
     String rocketPurchaseConfirmationId FK
     String transport
     String payloadChecksum
@@ -73,7 +79,10 @@ erDiagram
   CoupangShipmentDateSummary {
     String id PK
     String organizationId FK
+     /**
     String sourceImportRunId FK
+     /**
+    String operationId
     String shipmentDate
     Int count
     Int boxes
@@ -86,6 +95,8 @@ erDiagram
     String organizationId FK
     String channelAccountId
     String sourceImportRunId FK
+     /**
+    String operationId
     String externalOrderId
     String externalNumber
     String customerName
@@ -109,7 +120,10 @@ erDiagram
   OrderCollectionArtifact {
     String id PK
     String organizationId FK
+     /**
     String sourceImportRunId FK
+     /**
+    String operationId
     String sourceFileName
     String sourceContentType
     Bytes sourceBytes
@@ -190,7 +204,11 @@ erDiagram
     String id PK
     String organizationId FK
     String channelAccountId
+     /**
     String sourceImportRunId FK
+     /**
+    String operationId
+     /**
     String collectionRunId
     String vendorId
     Int listPagesRead

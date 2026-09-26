@@ -57,7 +57,7 @@ describe('isMallAlert', () => {
 describe('mallKeyOfAlert', () => {
   it('쿠팡 원천은 원천 자체가 한 몰 것이다', () => {
     expect(mallKeyOfAlert(alert('a'))).toBe('rocket');
-    expect(mallKeyOfAlert(alert('b', { sourceType: 'coupang_rocket_final_order' }))).toBe('coupang-direct');
+    expect(mallKeyOfAlert(alert('b', { sourceType: 'coupang_direct_order_capture' }))).toBe('coupang-direct');
     expect(mallKeyOfAlert(alert('c', { sourceType: 'coupang_wing_traffic' }))).toBe('coupang');
   });
 
@@ -227,7 +227,6 @@ describe('몰 원천 → 채널 키', () => {
     'order_collection_mall',
     'coupang_shipment_summary',
     'coupang_rocket_po_catalog',
-    'coupang_rocket_final_order',
     'coupang_direct_order_capture',
     'coupang_wing_traffic',
     'coupang_wing_itemwinner',

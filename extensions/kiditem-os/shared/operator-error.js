@@ -533,6 +533,13 @@
       "text": "주문 수집을 이어갈 수 없습니다. 다시 시작해 주세요.",
       "retryable": true
     },
+    "ORDERS_DIRECTSHIP_DETAIL_MISSING": {
+      "owner": "orders",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "쿠팡 발주 상세(품목)를 수집하지 못했습니다. 발주를 다시 수집한 뒤 시도해 주세요.",
+      "retryable": false
+    },
     "PRODUCTS_NOT_FOUND": {
       "owner": "products",
       "kind": "not_found",

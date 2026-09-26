@@ -21,40 +21,6 @@ export const RocketPoSourceBeginSchema = z.object({
 }).strict().refine((value) => value.from <= value.to, 'Invalid date range');
 export type RocketPoSourceBegin = z.infer<typeof RocketPoSourceBeginSchema>;
 
-export const RocketPoSourcePlanSchema = RocketPoSourceBeginSchema.innerType().extend({
-  sourceType: z.literal('coupang_rocket_po_catalog'),
-  parserVersion: z.literal('rocket-po-v1'),
-  vendorExpectations: z.object({
-    rocketVendorId: boundedText(120).nullable(),
-    sharedCoupangVendorId: boundedText(120).nullable(),
-  }).strict(),
-}).strict();
-export type RocketPoSourcePlan = z.infer<typeof RocketPoSourcePlanSchema>;
-
-export const RocketPoSourceAttemptSchema = z.object({
-  attemptId: z.string().uuid(), channelAccountId: z.string().uuid(),
-  state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
-  generation: z.string().regex(/^\d+$/), plan: RocketPoSourcePlanSchema,
-  expiresAt: z.string().datetime(), actualCutoffAt: z.string().datetime().nullable(),
-  errorCode: boundedText(100).nullable(), errorMessage: boundedText(300).nullable(),
-}).strict();
-export type RocketPoSourceAttempt = z.infer<typeof RocketPoSourceAttemptSchema>;
-export const RocketPoSourceControlSchema = RocketPoSourceAttemptSchema.extend({
-  attemptToken: z.string().uuid(),
-}).strict();
-export type RocketPoSourceControl = z.infer<typeof RocketPoSourceControlSchema>;
-/** 발행된 run 이 덮는 기간(양 끝 포함, KST 날짜). coverage 를 적지 않은 run 은 null — 지어내지 않는다. */
-export const RocketPoCoverageSchema = z.object({ from: isoDay, to: isoDay }).strict();
-export type RocketPoCoverage = z.infer<typeof RocketPoCoverageSchema>;
-export const RocketPoSourceSchema = z.object({
-  ready: z.boolean(),
-  latestAttempt: RocketPoSourceAttemptSchema.nullable(),
-  latestComplete: RocketPoSourceAttemptSchema.nullable(),
-  /** `latestComplete` run 의 coverage 날짜(KID-126). */
-  latestCompleteCoverage: RocketPoCoverageSchema.nullable(),
-}).strict();
-export type RocketPoSource = z.infer<typeof RocketPoSourceSchema>;
-
 export const RocketPoCollectionEvidenceSchema = z.object({
   collectionRunId: z.string().uuid(),
   vendorId: boundedText(120),
@@ -104,14 +70,6 @@ export const RocketPoCatalogRowSchema = z.object({
 }).strict();
 export type RocketPoCatalogRow = z.infer<typeof RocketPoCatalogRowSchema>;
 
-export const RocketPoSourceSubmissionSchema = z.object({
-  collection: RocketPoCollectionEvidenceSchema,
-  rows: z.array(RocketPoCatalogRowSchema).max(ROCKET_PO_ROW_LIMIT),
-  proof: RocketPoSourcePlanSchema.pick({ from: true, to: true, status: true, dateType: true })
-    .extend({ validatedList: z.literal(true) }).strict(),
-}).strict();
-export type RocketPoSourceSubmission = z.infer<typeof RocketPoSourceSubmissionSchema>;
-
 export const RocketSavedPoListRequestSchema = z.object({
   channelAccountId: z.string().uuid(),
   from: isoDay,
@@ -131,7 +89,8 @@ export type RocketSavedPoListRequest = z.infer<
 >;
 
 export const RocketSavedPoSummarySchema = z.object({
-  sourceImportRunId: z.string().uuid(),
+  /** 이 발주를 발행한 로켓 PO 수집 실행(Orders `orders.coupang_rocket_po`, KID-359). */
+  rocketPoOperationId: z.string().uuid(),
   poNumber: requiredText(80),
   orderedAt: boundedText(40),
   plannedDeliveryDate: isoDay,
@@ -149,7 +108,7 @@ export const RocketSavedPoSummarySchema = z.object({
 export type RocketSavedPoSummary = z.infer<typeof RocketSavedPoSummarySchema>;
 
 export const RocketSavedPoSnapshotSchema = z.object({
-  sourceImportRunId: z.string().uuid(),
+  rocketPoOperationId: z.string().uuid(),
   channelAccountId: z.string().uuid(),
   collection: RocketPoCollectionEvidenceSchema,
   rows: z.array(RocketPoCatalogRowSchema).max(ROCKET_PO_ROW_LIMIT),
@@ -216,7 +175,7 @@ export type RocketPurchasePreviewScope = z.infer<
 
 export const RocketPurchasePreviewRequestSchema = z.object({
     channelAccountId: z.string().uuid(),
-    sourceImportRunId: z.string().uuid(),
+    rocketPoOperationId: z.string().uuid(),
     inventoryAttemptId: z.string().uuid(),
     editedQuantities: RocketPurchaseRequestBaseSchema.shape.editedQuantities,
     clampEditedQuantities: z.boolean().optional(),
@@ -350,7 +309,7 @@ export type RocketWorkbookDecisionRequest = z.infer<typeof RocketWorkbookDecisio
 
 export const RocketWorkbookExportRequestSchema = RocketWorkbookDecisionRequestSchema.innerType()
   .omit({ collection: true, rows: true })
-  .extend({ sourceImportRunId: z.string().uuid(), inventoryAttemptId: z.string().uuid() }).strict();
+  .extend({ rocketPoOperationId: z.string().uuid(), inventoryAttemptId: z.string().uuid() }).strict();
 export type RocketWorkbookExportRequest = z.infer<typeof RocketWorkbookExportRequestSchema>;
 
 export const RocketPurchasePreviewReasonSchema = z.enum([
@@ -378,9 +337,10 @@ export function isRocketWorkbookBlockingReason(
     && (ROCKET_WORKBOOK_BLOCKING_REASONS as readonly string[]).includes(reason);
 }
 
+/** 발행된 로켓 PO 수집(실행 하나). `actualCutoffAt`은 그 실행이 스냅샷을 쓴 시각이다. */
 export const RocketPoCatalogPublicationSchema = z.object({
-  sourceImportRunId: z.string().uuid(), channelAccountId: z.string().uuid(),
-  generation: z.string().regex(/^\d+$/), actualCutoffAt: z.string().datetime(),
+  rocketPoOperationId: z.string().uuid(), channelAccountId: z.string().uuid(),
+  actualCutoffAt: z.string().datetime(),
   rowCount: z.number().int().nonnegative().max(ROCKET_PO_ROW_LIMIT),
 }).strict();
 export type RocketPoCatalogPublication = z.infer<

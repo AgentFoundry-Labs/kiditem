@@ -5,6 +5,7 @@ import { DashboardFindingsService } from './application/service/dashboard/dashbo
 import { DashboardFindingsRepositoryAdapter } from './adapter/out/repository/dashboard/dashboard-findings.repository.adapter';
 import { DASHBOARD_FINDINGS_REPOSITORY_PORT } from './application/port/out/repository/dashboard/dashboard-findings.repository.port';
 import { Module } from '@nestjs/common';
+import { OrderCollectionTodayOrdersModule } from '../orders/order-collection-today-orders.module';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ProductAbcReadModule } from '../products/product-abc-read.module';
 import { AdvertisingModule } from '../advertising/advertising.module';
@@ -60,7 +61,7 @@ const dashboardServices = [
 ];
 
 @Module({
-  imports: [AiListingContentQueryModule, ChannelCatalogModule, SellpiaProductSalesModule, PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, ProductCollectionRuntimeModule],
+  imports: [AiListingContentQueryModule, ChannelCatalogModule, SellpiaProductSalesModule, PrismaModule, ProductAbcReadModule, AdvertisingModule, AlertsModule, ProductCollectionRuntimeModule, OrderCollectionTodayOrdersModule],
   providers: [
     ...repositoryAdapters,
     ...dashboardServices,

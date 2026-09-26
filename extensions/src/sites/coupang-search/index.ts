@@ -3,6 +3,7 @@ import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller
 import type { SiteDefinition } from '../site';
 import type { TabPages } from '../tab-page';
 import { parseCoupangSearchEvidence, type CoupangSearchEvidence, type CoupangSuggestionItem } from './parse';
+import { registerSite } from '../registry';
 
 const ORIGIN = 'https://www.coupang.com';
 const PAGE_TIMEOUT_MS = 60_000;
@@ -75,3 +76,5 @@ export function createCoupangSearchSite(tabs: TabPages, deps: { sleep(ms: number
 }
 
 export type CoupangSearchSite = ReturnType<typeof createCoupangSearchSite>;
+
+registerSite({ name: COUPANG_SEARCH_SITE.name, create: (deps) => createCoupangSearchSite(deps.tabs, { sleep: deps.sleep }) });

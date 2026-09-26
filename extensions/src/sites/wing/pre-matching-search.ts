@@ -1,7 +1,8 @@
 import type { SourcingWingCatalogObservation } from '@kiditem/shared/sourcing';
 import { RuntimeError, isRuntimeError } from '../../core/errors';
-import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED, type SiteCaller } from '../../core/site-caller';
+import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED, createSiteCaller, type SiteCaller } from '../../core/site-caller';
 import type { SiteDefinition } from '../site';
+import { registerSite } from '../registry';
 
 const ORIGIN = 'https://wing.coupang.com';
 const SEARCH_URL = `${ORIGIN}/tenants/seller-web/pre-matching/search`;
@@ -18,7 +19,7 @@ export const WING_SEARCH_PAYLOAD_INVALID = 'WING_SEARCH_PAYLOAD_INVALID' as cons
  * `sites/wing`과 같고, 공통 SiteDefinition은 F 머지 뒤 한 파일로 합친다.
  */
 export const WING_SEARCH_SITE: SiteDefinition = {
-  name: 'wing',
+  name: 'wing-search',
   origin: ORIGIN,
   caller: {
     minIntervalMs: 2_200,
@@ -190,3 +191,9 @@ function boundedNumber(value: number | null, minimum: number, maximum: number): 
 function asRecord(value: unknown): Record<string, unknown> | null {
   return value !== null && typeof value === 'object' && !Array.isArray(value) ? (value as Record<string, unknown>) : null;
 }
+
+// 채널 카탈로그의 `wing`과 호출기 옵션(간격)이 달라 이름을 따로 둔다. `account:` 잠금의 탭은 입구의 accountSite(wing)가 연다.
+registerSite({
+  name: WING_SEARCH_SITE.name,
+  create: (deps) => createWingCatalogSearchSite(createSiteCaller(WING_SEARCH_SITE.caller, deps), { sleep: deps.sleep }),
+});

@@ -1,6 +1,7 @@
 import type { ReviewIngestItem } from '@kiditem/shared/reviews';
 import { RuntimeError } from '../../core/errors';
-import { SITE_REQUEST_FAILED, type SiteCaller, type SiteCallerOptions } from '../../core/site-caller';
+import { SITE_REQUEST_FAILED, createSiteCaller, type SiteCaller, type SiteCallerOptions } from '../../core/site-caller';
+import { registerSite } from '../registry';
 
 /**
  * Wing 상품평 화면(`/tenants/cs/product/review`)이 쓰는 내부 검색 API. 쿠팡은 판매자 상품평을 Open API로
@@ -12,7 +13,7 @@ import { SITE_REQUEST_FAILED, type SiteCaller, type SiteCallerOptions } from '..
  * - `salesStatus: ""`가 판매중 + 판매중지 전체다(화면 기본값 "true"는 판매중지 상품을 빠뜨린다).
  * - XSRF 헤더는 필요 없다(쿠키만으로 200).
  *
- * Wing `SiteDefinition`은 카탈로그 kind(KID-354)와 합칠 때 둔다. 그때까지 호출기 옵션은 이 파일에 있다.
+ * 호출기 옵션(간격 350ms)이 카탈로그의 `wing`과 달라 사이트 이름 `wing-reviews`로 따로 등록한다(KID-355).
  */
 export const WING_ORIGIN = 'https://wing.coupang.com';
 export const WING_REVIEW_SEARCH_URL = `${WING_ORIGIN}/tenants/cs/product/review/search`;
@@ -119,3 +120,10 @@ export function createWingReviewsSite(caller: SiteCaller): {
 } {
   return { searchReviews: (input) => searchWingReviews(caller, input) };
 }
+
+// 상품평은 서비스워커에서 Wing 쿠키로 부른다(KID-359). `account:` 잠금은 윙 탭을 연다.
+registerSite({
+  name: 'wing-reviews',
+  origin: WING_ORIGIN,
+  create: (deps) => createWingReviewsSite(createSiteCaller(WING_REVIEW_CALLER, deps)),
+});

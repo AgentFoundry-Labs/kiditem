@@ -959,12 +959,6 @@
       "from": "apps/server/src/analytics/adapter/out/repository/dashboard/dashboard-inventory.repository.adapter.ts"
     },
     {
-      "to": "apps/server/src/core/read/source-import-run.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-324",
-      "from": "apps/server/src/analytics/adapter/out/repository/dashboard/dashboard-sales.repository.adapter.ts"
-    },
-    {
       "to": "apps/server/src/orders/adapter/out/persistence/read/order-facts.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
@@ -1074,9 +1068,9 @@
     },
     {
       "to": "apps/server/src/core/read/source-import-run.reader.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
+      "reason": "Legacy completed-run order counts for malls still on the attempt path; the two former callers (order collection repository, dashboard) now read this one Orders today-orders capability (KID-359 H3). Drop with the attempt path (H3', KID-365).",
       "removeWith": "KID-324",
-      "from": "apps/server/src/orders/adapter/out/repository/order-collection-source.repository.ts"
+      "from": "apps/server/src/orders/adapter/out/persistence/order-collection-today-orders.adapter.ts"
     },
     {
       "to": "apps/server/src/products/adapter/out/persistence/product-transactional-read.repository.adapter.ts",

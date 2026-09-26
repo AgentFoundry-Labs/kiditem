@@ -1,3 +1,5 @@
+import { ORDER_COLLECTION_TODAY_ORDERS_PORT } from '../../../orders/application/port/in/order-collection-today-orders.port';
+import { todayOrdersTestAdapter } from '../../../test-helpers/orders-operations';
 import { profitCatalogTestReaders } from '../../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts, channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
@@ -136,6 +138,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         { provide: PRODUCT_TRANSACTIONAL_READ_PORT, useClass: ProductTransactionalReadRepositoryAdapter },
         { provide: PRODUCT_ABC_READ_PORT, useValue: productAbcRead(prisma) },
         { provide: PrismaService, useValue: prisma },
+        { provide: ORDER_COLLECTION_TODAY_ORDERS_PORT, useValue: todayOrdersTestAdapter(prisma) },
         { provide: PROFIT_CALCULATION_REPOSITORY_PORT, useExisting: ProfitCalculationRepositoryAdapter },
         { provide: DASHBOARD_SALES_REPOSITORY_PORT, useExisting: DashboardSalesRepositoryAdapter },
         { provide: WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT, useExisting: WingTrafficAggregationRepositoryAdapter },
@@ -1568,7 +1571,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       const topProducts = await new DashboardSalesRepositoryAdapter(channelFactTestPorts(client).accounts, channelFactTestPorts(client).listings, channelFactTestPorts(client).recipes,
         client,
         new ProductTransactionalReadRepositoryAdapter(),
-        productAbcRead(prisma), profitCatalogTestReaders(client as never).content
+        productAbcRead(prisma), profitCatalogTestReaders(client as never).content, todayOrdersTestAdapter(prisma),
       )
         .fetchTopProducts(TEST_ORGANIZATION_ID, FROM, TO);
       const profitLoss = await new ProfitLossService(client, new ProductTransactionalReadRepositoryAdapter(), profitCatalogTestReaders(client as never).accounts, profitCatalogTestReaders(client as never).listings, profitCatalogTestReaders(client as never).recipes, profitCatalogTestReaders(client as never).content)

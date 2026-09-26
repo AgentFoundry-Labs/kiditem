@@ -16,7 +16,7 @@ export { previewRocketPurchases } from '@/lib/rocket-purchase-preview-api';
 
 const LoadSavedRocketCollectionRequestSchema = z.object({
   channelAccountId: z.string().uuid(),
-  sourceImportRunId: z.string().uuid(),
+  rocketPoOperationId: z.string().uuid(),
 }).strict();
 
 const ROCKET_SAVED_PO_PROFILE_HEADERS = {
@@ -54,7 +54,7 @@ export async function listSavedRocketPos(
 
 export async function loadSavedRocketCollection(input: {
   channelAccountId: string;
-  sourceImportRunId: string;
+  rocketPoOperationId: string;
 }): Promise<RocketSavedPoCollection> {
   const request = LoadSavedRocketCollectionRequestSchema.parse(input);
   const response = await apiClient.post('/api/purchase-orders', {

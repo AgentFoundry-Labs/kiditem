@@ -1,14 +1,10 @@
 import * as XLSX from 'xlsx';
-import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
 import type { OrderCollectionConversionResult } from './order-collection-api';
 import { fileNameFromContentDisposition } from './order-collection-conversion-response';
 import type { OrderCollectionExtensionRun } from './order-collection-extension';
-import {
-  coupangDirectOwnerAttemptHeaders,
-  readCoupangDirectCapture,
-} from './coupang-directship-source-owner';
+import { waitForCoupangDirectCapture } from './coupang-directship-source-owner';
 import type {
   CoupangDirectOrderCollectionRequest,
   CoupangDirectOrderItem,
@@ -21,11 +17,6 @@ export type CoupangDirectData = Pick<
   CoupangDirectOrderCollectionRequest,
   'pos' | 'centers'
 >;
-
-interface CoupangCollectResponse {
-  success?: boolean;
-  error?: string;
-}
 
 export type CoupangTransport = 'SHIPMENT' | 'MILKRUN';
 export const COUPANG_TRANSPORT_LABEL: Record<CoupangTransport, string> = {
@@ -44,49 +35,16 @@ export interface CoupangDirectConversionResult {
 }
 
 /**
- * order-collector 확장으로 쿠팡 공급사허브의 "발주확정(PA)" 발주를 수집한다.
- * 발주목록(po-web) + 발주별 품목(/scm 상세) + 센터주소(po-web) 를 모아 운송유형(쉽먼트/밀크런)까지 담아 온다.
+ * 쿠팡 공급사허브의 "발주확정(PA)" 발주 캡처(실행 kind `orders.coupang_directship`, KID-359). 확장은 실행을 시작할 때
+ * 이미 수집을 돌리고 있다 — 여기서는 그 실행이 끝나기를 기다렸다가 서버가 보관한 캡처를 읽는다. 이미 끝난 실행(달력을
+ * 다시 연 경우 등)은 곧바로 읽는다.
  */
 export async function collectCoupangDirectFromExtension(run: OrderCollectionExtensionRun): Promise<CoupangDirectData> {
-  // A completed owner is durable server state. Calendar reloads must be able
-  // to read that capture even when the extension/page that performed the
-  // provider capture is no longer available.
-  if (!run.extensionId && run.sourceOwner === 'coupang_directship') {
-    const owner = await readCoupangDirectCapture(run.attemptId);
-    if (owner.attempt.state !== 'COMPLETE') {
-      throw new Error('쿠팡직배송 원본 저장이 완료되지 않았습니다.');
-    }
-    return {
-      pos: owner.capture.pos,
-      centers: owner.capture.centers,
-    };
-  }
-  const extensionId = run.extensionId ?? await detectOrderCollectionExtensionId();
-  if (!extensionId) {
-    throw new Error(
-      '주문수집 확장프로그램이 필요합니다. extensions/kiditem-os 를 Chrome 에 로드하고 supplier.coupang.com 에 로그인한 뒤 다시 시도하세요.',
-    );
-  }
-  const res = await sendToExtension<CoupangCollectResponse>(
-    extensionId,
-    {
-      action: 'collectCoupangDirectOrders',
-      date: run.date ?? null,
-      attemptId: run.attemptId,
-    },
-    240000, // 발주별 /scm 상세 fetch 가 많아 넉넉히
-  );
-  if (!res?.success) {
-    throw new Error(res?.error ?? '쿠팡직배송 발주 수집에 실패했습니다.');
-  }
-  const owner = await readCoupangDirectCapture(run.attemptId);
+  const owner = await waitForCoupangDirectCapture(run.attemptId, { signal: run.signal });
   if (owner.attempt.state !== 'COMPLETE') {
     throw new Error('쿠팡직배송 원본 저장이 완료되지 않았습니다.');
   }
-  return {
-    pos: owner.capture.pos,
-    centers: owner.capture.centers,
-  };
+  return { pos: owner.capture.pos, centers: owner.capture.centers };
 }
 
 /** 수집한 발주 데이터를 운송유형별로 백엔드에서 셀피아 양식(.xls, 서식/시트 유지)으로 생성. */
@@ -97,16 +55,15 @@ export async function convertCoupangDirectToSellpiaFile(
     channelAccountId: string;
     download?: boolean;
     signal?: AbortSignal;
-    run?: OrderCollectionExtensionRun;
+    /** 이 캡처를 보관한 성공한 직배송 실행(`run.attemptId` = 실행 ID). */
+    run: OrderCollectionExtensionRun;
   },
 ): Promise<CoupangDirectConversionResult> {
   const res = await apiClient.fetchRaw('/api/orders/collection/coupang-directship/convert', {
     method: 'POST',
-    headers: {
-      'content-type': 'application/json',
-      ...(options.run ? coupangDirectOwnerAttemptHeaders(options.run) : {}),
-    },
+    headers: { 'content-type': 'application/json' },
     body: JSON.stringify({
+      operationId: options.run.attemptId,
       channelAccountId: options.channelAccountId,
       pos: data.pos,
       centers: data.centers,
@@ -117,7 +74,8 @@ export async function convertCoupangDirectToSellpiaFile(
   if (!res.ok) {
     throw new Error((await res.text().catch(() => '')) || '쿠팡직배송 변환에 실패했습니다.');
   }
-  const importRunId = requiredHeader(res, 'X-Order-Collection-Import-Run-Id');
+  // 변환 기록은 실행 ID로 남는다(옛 import run 칸 이름을 그대로 쓴다).
+  const importRunId = requiredHeader(res, 'X-Order-Collection-Operation-Id');
   const rocketWorkbookExportId = res.headers.get('X-Rocket-Workbook-Export-Id');
   const transmissionIntentKey = res.headers.get('X-Sellpia-Transmission-Intent-Key');
   const outputRows = numHeader(res, 'X-Order-Collection-Output-Rows') ?? 0;
