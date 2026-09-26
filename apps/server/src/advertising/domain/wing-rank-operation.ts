@@ -47,12 +47,11 @@ export function planWingRank(input: {
           candidateIndex,
         })),
     }))
-    .filter((entry) => entry.targets.length > 0);
+    .filter((entry) => entry.targets.length > 0)
+    // 서버가 고른 선택은 오늘 안 본 키워드가 앞에 있다 — 상한을 넘으면 앞에서부터 잘라 다음 실행이 나머지를 잇는다.
+    .slice(0, requested ? undefined : WING_RANK_MAX_KEYWORDS);
   if (keywords.length === 0) {
     throw new KiditemPreconditionError('ADVERTISING_RANK_TARGETS_EMPTY', { details: { reason: requested ? 'keywords_not_representative' : 'no_own_products' } });
-  }
-  if (keywords.length > WING_RANK_MAX_KEYWORDS) {
-    throw new KiditemPreconditionError('ADVERTISING_RANK_TARGETS_EMPTY', { details: { reason: 'too_many_keywords' } });
   }
   return {
     channelAccountId: input.channelAccountId,
