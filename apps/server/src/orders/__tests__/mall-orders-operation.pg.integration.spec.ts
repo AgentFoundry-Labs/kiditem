@@ -44,6 +44,7 @@ import { readOrderWindowFacts } from '../adapter/out/persistence/read/order-fact
 // 확장 수집기(orders.mall_orders)가 밟는 길을 서버에서 그대로: begin → order_rows 청크 → finish. 보관 캡처와
 // 주문 수(result.rowCount)는 finish 트랜잭션에서만 쓰인다(ADR-0025). 변환은 실제 변환기, DB는 실제 PostgreSQL.
 const TODAY = '2026-09-26';
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 function kidkidsOrder(om: string, items = 1) {
   return {
@@ -437,6 +438,10 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
 
   it('티쳐몰: SpreadsheetML(.xls) 조각을 이어 application/vnd.ms-excel 파일 캡처로 보관하고 teacherville 변환 라우트로 다시 변환한다', async () => {
     await excelMall({ mallKey: 'teacher-mall', name: '티쳐몰', route: 'teacherville/convert', fileName: '티쳐몰.xls', contentType: 'application/vnd.ms-excel', bookType: 'xlml' });
+  });
+
+  it('보리보리: 언마스킹 xlsx 조각을 이어 xlsx 파일 캡처로 보관하고 boribori 변환 라우트로 다시 변환한다', async () => {
+    await excelMall({ mallKey: 'boribori', name: '보리보리', route: 'boribori/convert', fileName: '보리보리.xlsx', contentType: XLSX_MIME });
   });
 
   it('오늘 주문 capability는 실행 표(몰 주문·directship의 최신 성공 rowCount)와 옛 run(2차 몰·옛 directship)을 한 수로 센다', async () => {

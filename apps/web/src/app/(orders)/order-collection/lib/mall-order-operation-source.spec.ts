@@ -71,7 +71,7 @@ function operation(id: string, status: OperationView['status'], patch: Partial<O
 
 const CREDENTIALS = { loginId: 'fake-id', password: 'fake-password' };
 /** 엑셀·blob 몰 — 몰마다 확장 사이트가 다 되면 더한다(KID-380). */
-const EXCEL_MALLS = ['kkomangse', 'teacher-mall'];
+const EXCEL_MALLS = ['kkomangse', 'teacher-mall', 'boribori'];
 
 function source(overrides: Partial<Parameters<typeof mallOrderOperationSource>[0]> = {}) {
   const handOff = vi.fn().mockResolvedValue(undefined);

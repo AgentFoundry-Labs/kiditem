@@ -60,6 +60,9 @@ interface MallCaptureRule {
   assemble(input: { rows: unknown[]; continuation: unknown | null; plan: MallOrdersPlan }): MallOrdersCapture;
 }
 
+/** 옛 확장 변환 요청의 엑셀 형식(`order-collection-server-converter.js` FILE_MIME). */
+const XLSX_CONTENT_TYPE = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
+
 const OrderObjectSchema = z.record(z.string(), z.unknown());
 
 /** 목록 하나를 JSON 본문의 한 칸으로 보관하는 몰(키드키즈 `orders`, 아트공구 `rows`). 옛 서버 변환 본문과 같다. */
@@ -224,6 +227,7 @@ const MALL_CAPTURE_RULES: Partial<Record<MallOrderOperationMall, MallCaptureRule
   domeggook: filePart('text/csv'),
   kkomangse: kkomangseRule,
   'teacher-mall': filePart('application/vnd.ms-excel'),
+  boribori: filePart(XLSX_CONTENT_TYPE),
   'icecream-mall': icecreamRule,
 };
 

@@ -29,6 +29,7 @@ import '../collectors/sourcing.wing_catalog';
 import '../collectors/test.echo';
 import '../sites/1688';
 import '../sites/art09';
+import '../sites/boribori';
 import '../sites/coupang-product';
 import '../sites/coupang-shop';
 import '../sites/coupang-search';
