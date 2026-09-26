@@ -4,6 +4,7 @@ import { transferExtensionAuthTo } from './extension-auth';
 import { detectExtensionId, sendToExtension } from './extension-bridge';
 import { operatorReason } from './operator-error';
 import type { OperationKind } from '@kiditem/shared/operation';
+import type { OperationLoginCredentials } from './operation-login';
 
 /** 확장 새 런타임이 `ping` capabilities에 싣는 표시(KID-357). */
 export const OPERATION_RUNTIME_CAPABILITY = 'operationRuntime' as const;
@@ -47,14 +48,21 @@ export async function requestOperationStart(
   scope: Record<string, unknown>,
   /**
    * `capability`: 이 kind를 도는 빌드가 `ping`에 싣는 표시(없으면 런타임 표시만 본다). `idempotencyKey`: 같은 시작을
-   * 다시 보내도 같은 실행을 돌려받는다(끊긴 답을 되풀이할 때).
+   * 다시 보내도 같은 실행을 돌려받는다(끊긴 답을 되풀이할 때). `credentials`: 사이트 자동 로그인에 쓸 그 몰의 저장 자격 —
+   * 확장 메시지에만 싣고 확장은 그 실행 동안만 쥔다(KID-377, `operation-login`).
    */
-  options: { capability?: string; idempotencyKey?: string } = {},
+  options: { capability?: string; idempotencyKey?: string; credentials?: OperationLoginCredentials } = {},
 ): Promise<OperationStartOutcome> {
   const extensionId = await extensionWithRuntime(options.capability ?? OPERATION_RUNTIME_CAPABILITY);
   const reply = await sendToExtension<StartReply>(
     extensionId,
-    { action: 'operation.start', kind, scope, ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}) },
+    {
+      action: 'operation.start',
+      kind,
+      scope,
+      ...(options.idempotencyKey ? { idempotencyKey: options.idempotencyKey } : {}),
+      ...(options.credentials ? { credentials: options.credentials } : {}),
+    },
     START_REPLY_TIMEOUT_MS,
   );
   if (reply?.success === true && typeof reply.operationId === 'string') {

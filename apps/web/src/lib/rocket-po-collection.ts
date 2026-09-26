@@ -12,6 +12,7 @@ import { z } from 'zod';
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
+import { operationLoginOptions, ROCKET_LOGIN_MALL_KEY } from '@/lib/operation-login';
 import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -136,7 +137,8 @@ export function rocketPoCollection(channelAccountId: string): CollectionSourceAd
         dateType: 'WAREHOUSING_PLAN_DATE',
         requireConfirmation: true,
       });
-      const outcome = await requestOperationStart(COUPANG_ROCKET_PO_KIND, scope);
+      // 로그인 화면이면 확장이 로켓 계정의 저장 자격으로 로그인한다(KID-377).
+      const outcome = await requestOperationStart(COUPANG_ROCKET_PO_KIND, scope, await operationLoginOptions(ROCKET_LOGIN_MALL_KEY));
       return outcome.outcome === 'refused' ? outcome : { outcome: outcome.outcome, attemptId: outcome.operationId };
     },
     cancelInExtension: (operationId) => requestOperationCancel(operationId),

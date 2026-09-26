@@ -37,10 +37,25 @@ function operation(overrides: Record<string, unknown> = {}) {
 describe('쿠팡 쉽먼트 발송일 조회 웹 다리(실행 계약 orders.coupang_shipment_summary)', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('확장에 빈 scope로 실행을 시작시킨다(쪽 상한은 서버 plan이 정한다)', async () => {
+  it('확장에 빈 scope로 실행을 시작시킨다(쪽 상한은 서버 plan이 정한다), 로켓 계정 저장 자격을 싣는다(KID-377)', async () => {
     start.requestOperationStart.mockResolvedValue({ outcome: 'started', operationId: OPERATION_ID });
+    api.get.mockImplementation(async (path: string) => {
+      if (path === '/api/orders/collection/malls') return [{ key: 'coupang-direct', name: '쿠팡직배송', loginId: 'fake-rocket-id', hasPassword: true }];
+      if (path === '/api/orders/collection/malls/coupang-direct/password') return { key: 'coupang-direct', password: 'fake-rocket-password' };
+      throw new Error(`unexpected GET ${path}`);
+    });
     await expect(startCoupangShipmentSummary()).resolves.toEqual({ outcome: 'started', operationId: OPERATION_ID });
-    expect(start.requestOperationStart).toHaveBeenCalledWith('orders.coupang_shipment_summary', {});
+    expect(start.requestOperationStart).toHaveBeenCalledWith('orders.coupang_shipment_summary', {}, {
+      credentials: { loginId: 'fake-rocket-id', password: 'fake-rocket-password' },
+    });
+
+    // 로켓 계정에 저장 비밀번호가 없으면 자격 없이 시작한다(로그인 화면이면 확장이 멈추고 탭을 남긴다).
+    api.get.mockImplementation(async (path: string) => {
+      if (path === '/api/orders/collection/malls') return [{ key: 'coupang-direct', name: '쿠팡직배송', loginId: null, hasPassword: false }];
+      throw new Error(`unexpected GET ${path}`);
+    });
+    await startCoupangShipmentSummary();
+    expect(start.requestOperationStart).toHaveBeenLastCalledWith('orders.coupang_shipment_summary', {}, {});
   });
 
   it('가장 최근 실행을 진행(쪽)·결과·실패 문장으로 읽는다', async () => {

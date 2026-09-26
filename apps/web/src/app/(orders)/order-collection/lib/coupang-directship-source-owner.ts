@@ -13,6 +13,7 @@ import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
 import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import { attemptFailureText } from '@/lib/operator-error';
+import { operationLoginOptions, ROCKET_LOGIN_MALL_KEY } from '@/lib/operation-login';
 import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
@@ -141,7 +142,11 @@ export async function beginCoupangDirectAttempt(
   idempotencyKey: string,
   channelAccountId: string,
 ): Promise<CoupangDirectOwnerAttemptControl> {
-  const outcome = await requestOperationStart(COUPANG_DIRECTSHIP_KIND, { channelAccountId }, { idempotencyKey });
+  // 로그인 화면이면 확장이 로켓 계정의 저장 자격으로 로그인한다(KID-377).
+  const outcome = await requestOperationStart(COUPANG_DIRECTSHIP_KIND, { channelAccountId }, {
+    idempotencyKey,
+    ...(await operationLoginOptions(ROCKET_LOGIN_MALL_KEY)),
+  });
   if (outcome.outcome === 'refused' || outcome.operationId === null) {
     const existing = outcome.outcome === 'refused' ? outcome.existingOperationId : null;
     throw new ApiError(409, 'ATTEMPT_IN_PROGRESS', outcome.outcome === 'refused' ? outcome.message : null, { attemptId: existing ?? undefined });

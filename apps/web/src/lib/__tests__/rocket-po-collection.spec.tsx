@@ -81,6 +81,9 @@ beforeEach(() => {
     return undefined;
   });
   vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
+    // 로켓 계정의 저장 자격(KID-377): 몰 목록의 coupang-direct 행과 그 비밀번호.
+    if (path === '/api/orders/collection/malls') return [{ key: 'coupang-direct', name: '쿠팡직배송', loginId: 'fake-rocket-id', hasPassword: true }];
+    if (path === '/api/orders/collection/malls/coupang-direct/password') return { key: 'coupang-direct', password: 'fake-rocket-password' };
     if (!path.startsWith('/api/operations?kinds=orders.coupang_rocket_po')) throw new Error(`unexpected GET ${path}`);
     return { operations };
   });
@@ -107,6 +110,8 @@ describe('로켓 PO 수집 컨트롤(실행 계약)', () => {
       action: 'operation.start',
       kind: 'orders.coupang_rocket_po',
       scope: { channelAccountId: ACCOUNT_A, ...RANGE, status: '', dateType: 'WAREHOUSING_PLAN_DATE', requireConfirmation: true },
+      // 서플라이어 허브가 로그인 화면이면 확장이 이 자격으로 로그인한다(KID-377).
+      credentials: { loginId: 'fake-rocket-id', password: 'fake-rocket-password' },
     }]);
   });
 

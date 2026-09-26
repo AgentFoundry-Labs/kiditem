@@ -10,6 +10,7 @@ import {
   CoupangShipmentSummaryResultSchema,
 } from '@kiditem/shared/orders-operations';
 import { apiClient } from './api-client';
+import { operationLoginOptions, ROCKET_LOGIN_MALL_KEY } from './operation-login';
 import { attemptFailureText } from './operator-error';
 import { requestOperationStart, type OperationStartOutcome } from './operation-start';
 
@@ -57,8 +58,9 @@ export type ShipmentSummaryRun =
 
 const PlanSchema = z.object({ maxPages: z.number().int() }).passthrough();
 
-export function startCoupangShipmentSummary(): Promise<OperationStartOutcome> {
-  return requestOperationStart(COUPANG_SHIPMENT_SUMMARY_KIND, {});
+/** 로그인 화면이면 확장이 로켓 계정의 저장 자격으로 로그인한다(KID-377). */
+export async function startCoupangShipmentSummary(): Promise<OperationStartOutcome> {
+  return requestOperationStart(COUPANG_SHIPMENT_SUMMARY_KIND, {}, await operationLoginOptions(ROCKET_LOGIN_MALL_KEY));
 }
 
 /** 가장 최근 발송일 조회. 없으면 idle. */
