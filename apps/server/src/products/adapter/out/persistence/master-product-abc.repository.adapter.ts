@@ -40,7 +40,8 @@ type FormulaStateRow = Readonly<{
 type ExistingAbcRow = Readonly<{
   masterProductId: string;
   evaluationGrade: string;
-  sellpiaOperationId: string;
+  /** NULL for evaluations published before the Sellpia operation cutover. */
+  sellpiaOperationId: string | null;
   advertisingSourceImportRunId: string | null;
 }>;
 
@@ -94,9 +95,11 @@ async function publishTx(
   input: ProductAbcPublicationInput,
   inventoryTransactionalRead: ProductTransactionalReadPort,
 ): Promise<MasterProductAbcPublicationResult> {
-  // Source owners lock source terminality before taking the shared mapping
-  // fence. ABC follows the same order, then serializes its own publication.
-  await lockNamed(tx, 'kiditem.sellpia-product-profitability', input.organizationId);
+  // The Coupang ad source owner locks its terminality before the shared
+  // mapping fence, so ABC takes that lock first. The Sellpia profitability
+  // finalize (operation kind analytics.sellpia_product_profitability) takes
+  // only `kiditem.product-mapping`, so ABC and it serialise on that fence.
+  // ABC then serialises its own publication.
   await lockNamed(tx, 'kiditem.coupang-ad-profitability', input.organizationId);
   await lockProductMapping(tx, input.organizationId);
   await lockNamed(tx, 'kiditem.master-product-abc', input.organizationId);
