@@ -41,7 +41,7 @@ function identity(row: Pick<SellpiaManualMatchRow, 'productCode' | 'aliasTitle' 
 /**
  * `channels.sellpia_manual_match`(KID-363 L3): 옛 `sellpia-manual-match.js`를 옮겼다. 서버가 얼린 대상 코드를 100개씩
  * 검색하고(묶음 사이 progress), 같은 md5 안의 (코드·제목) 중복은 수량이 같을 때만 합친다. 모은 md5를 100개씩 상태
- * 조회해 매칭 종류를 붙이고, (코드·제목·수량·종류)마다 근거 수를 세어 정렬한 줄을 `match_results`로 낸다.
+ * 조회해 매칭 종류를 붙이고, (코드·제목·수량·종류)마다 받은 후보 수를 근거 수로 세어 정렬한 줄을 `match_results`로 낸다.
  * 셀피아에는 읽기 요청만 한다. 별칭으로 남길지는 서버 finalize가 현재 리스팅 이름으로 정한다.
  */
 export const sellpiaManualMatchCollector: Collector<SellpiaManualMatchPlan, Record<string, unknown>, SellpiaManualMatchSite> = {
@@ -54,6 +54,8 @@ export const sellpiaManualMatchCollector: Collector<SellpiaManualMatchPlan, Reco
     const { targetCodes } = parsed.data;
     try {
       const byMd5 = new Map<string, ManualMatchCandidate[]>();
+      // 근거 수는 받은 후보마다 하나다(옛 수집기와 같다) — md5별 묶음은 상태 조회할 md5를 고르는 데만 쓴다.
+      const received: ManualMatchCandidate[] = [];
       let candidates = 0;
       for (let offset = 0; offset < targetCodes.length; offset += SEARCH_BATCH) {
         if (signal.aborted) return;
@@ -65,6 +67,7 @@ export const sellpiaManualMatchCollector: Collector<SellpiaManualMatchPlan, Reco
             throw new RuntimeError(MALL_CONTRACT_CHANGED, '셀피아 수동상품매칭 수량이 서로 다릅니다.', { stage: `search-quantity-conflict:${candidate.productCode}` });
           }
           candidates += 1;
+          received.push(candidate);
           if (!existing) group.push(candidate);
           byMd5.set(candidate.matchMd5, group);
         }
@@ -90,15 +93,13 @@ export const sellpiaManualMatchCollector: Collector<SellpiaManualMatchPlan, Reco
       }
 
       const aggregated = new Map<string, SellpiaManualMatchRow>();
-      for (const [matchMd5, group] of byMd5) {
-        const matchedType = typeByMd5.get(matchMd5)!;
-        for (const candidate of group) {
-          const key = identity({ ...candidate, matchedType });
-          const previous = aggregated.get(key);
-          aggregated.set(key, previous
-            ? { ...previous, evidenceCount: previous.evidenceCount + 1 }
-            : { productCode: candidate.productCode, aliasTitle: candidate.aliasTitle, itemCount: candidate.itemCount, matchedType, evidenceCount: 1 });
-        }
+      for (const candidate of received) {
+        const matchedType = typeByMd5.get(candidate.matchMd5)!;
+        const key = identity({ ...candidate, matchedType });
+        const previous = aggregated.get(key);
+        aggregated.set(key, previous
+          ? { ...previous, evidenceCount: previous.evidenceCount + 1 }
+          : { productCode: candidate.productCode, aliasTitle: candidate.aliasTitle, itemCount: candidate.itemCount, matchedType, evidenceCount: 1 });
       }
       const rows = [...aggregated.entries()].sort(([left], [right]) => (left < right ? -1 : left > right ? 1 : 0)).map(([, row]) => row);
       const progress = { searched: targetCodes.length, targets: targetCodes.length, candidates, rows: rows.length };

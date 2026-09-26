@@ -4982,6 +4982,7 @@ var KidItemRuntime = (() => {
       const { targetCodes } = parsed.data;
       try {
         const byMd5 = /* @__PURE__ */ new Map();
+        const received = [];
         let candidates = 0;
         for (let offset = 0; offset < targetCodes.length; offset += SEARCH_BATCH) {
           if (signal.aborted) return;
@@ -4993,6 +4994,7 @@ var KidItemRuntime = (() => {
               throw new RuntimeError(MALL_CONTRACT_CHANGED2, "\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uC218\uB7C9\uC774 \uC11C\uB85C \uB2E4\uB985\uB2C8\uB2E4.", { stage: `search-quantity-conflict:${candidate.productCode}` });
             }
             candidates += 1;
+            received.push(candidate);
             if (!existing) group.push(candidate);
             byMd5.set(candidate.matchMd5, group);
           }
@@ -5016,13 +5018,11 @@ var KidItemRuntime = (() => {
           }
         }
         const aggregated = /* @__PURE__ */ new Map();
-        for (const [matchMd5, group] of byMd5) {
-          const matchedType = typeByMd5.get(matchMd5);
-          for (const candidate of group) {
-            const key = identity({ ...candidate, matchedType });
-            const previous = aggregated.get(key);
-            aggregated.set(key, previous ? { ...previous, evidenceCount: previous.evidenceCount + 1 } : { productCode: candidate.productCode, aliasTitle: candidate.aliasTitle, itemCount: candidate.itemCount, matchedType, evidenceCount: 1 });
-          }
+        for (const candidate of received) {
+          const matchedType = typeByMd5.get(candidate.matchMd5);
+          const key = identity({ ...candidate, matchedType });
+          const previous = aggregated.get(key);
+          aggregated.set(key, previous ? { ...previous, evidenceCount: previous.evidenceCount + 1 } : { productCode: candidate.productCode, aliasTitle: candidate.aliasTitle, itemCount: candidate.itemCount, matchedType, evidenceCount: 1 });
         }
         const rows = [...aggregated.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([, row]) => row);
         const progress4 = { searched: targetCodes.length, targets: targetCodes.length, candidates, rows: rows.length };

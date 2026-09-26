@@ -59,7 +59,7 @@ describe('collectors/channels.sellpia_manual_match', () => {
     expect(sellpiaManualMatchCollector.site).toBe('sellpia');
   });
 
-  it('대상을 100개씩 검색하고, md5를 100개씩 상태 조회해 (코드·제목·수량·종류)마다 근거 수를 센 정렬된 줄을 낸다', async () => {
+  it('대상을 100개씩 검색하고, md5를 100개씩 상태 조회해 (코드·제목·수량·종류)마다 받은 후보 수를 근거 수로 센 정렬된 줄을 낸다', async () => {
     const targets = Array.from({ length: 150 }, (_, index) => `${1000 + index}-1`);
     const fake = fakeSellpia((codes) => codes.flatMap((code) => code === '1000-1'
       ? [
@@ -83,7 +83,7 @@ describe('collectors/channels.sellpia_manual_match', () => {
     expect(chunks.map((chunk) => chunk.chunkKind)).toEqual(['match_results']);
     const rows = chunks[0]!.payload.map((row) => SellpiaManualMatchRowSchema.parse(row));
     expect(rows).toEqual([
-      { productCode: '1000-1', aliasTitle: '샤이니 링', itemCount: 12, matchedType: 'M', evidenceCount: 2 },
+      { productCode: '1000-1', aliasTitle: '샤이니 링', itemCount: 12, matchedType: 'M', evidenceCount: 3 },
       { productCode: '1149-1', aliasTitle: '공룡 물총', itemCount: 1, matchedType: 'E', evidenceCount: 1 },
     ]);
   });
