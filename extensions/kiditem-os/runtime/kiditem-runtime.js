@@ -5418,7 +5418,8 @@ var KidItemRuntime = (() => {
     "11st",
     "gmarket",
     "auction",
-    "kakao"
+    "kakao",
+    "lotte-on"
   ];
   function isMallAdminListingOperationMall(mallKey) {
     return MALL_ADMIN_LISTING_OPERATION_MALLS.includes(mallKey);
@@ -10435,6 +10436,39 @@ var KidItemRuntime = (() => {
     return new RuntimeError(SITE_VERIFICATION_REQUIRED5, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
   }
   registerSite({ name: LIVE_COMMERCE_SITE.name, create: (deps) => createLiveCommerceSite(deps.tabs) });
+
+  // extensions/src/sites/lotte-on/listings.ts
+  var LOTTEON_LISTINGS_URL = "https://store.lotteon.com/cm/main/index_SO.wsp";
+  var LOTTEON_LISTINGS_FILE = "content/orders/lotte-on-listings.js";
+  var LOTTEON_TAB_PATTERN = "https://store.lotteon.com/*";
+  var isLotteonLogin = (url) => hostWithin(url, ["lotteon.com"]) && /login/i.test(url.pathname);
+  var LOTTEON_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["lotteon.com"]),
+    isLogin: isLotteonLogin,
+    loginMessage: "\uB86F\uB370ON \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uB86F\uB370ON \uD310\uB9E4\uC790\uC13C\uD130 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  var LOTTEON_LOGIN = {
+    displayName: "\uB86F\uB370ON",
+    loginUrl: "https://store.lotteon.com/cm/main/login_SO.wsp",
+    hosts: ["lotteon.com"],
+    isLoginUrl: isLotteonLogin,
+    fields: ["loginId", "password"]
+  };
+  function createLotteonListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "lotte-on",
+        displayName: "\uB86F\uB370ON",
+        startUrl: LOTTEON_LISTINGS_URL,
+        file: LOTTEON_LISTINGS_FILE,
+        call: "lotte-on.listings",
+        world: "main",
+        reuseTabMatching: LOTTEON_TAB_PATTERN,
+        guard: LOTTEON_LISTINGS_GUARD
+      }, plan, signIn)
+    };
+  }
+  registerSite({ name: "lotte-on", create: (deps, lease) => createLotteonListings(deps.tabs, createSiteSignIn(LOTTEON_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/mall-admin-listings/index.ts
   var MALL_ADMIN_LISTINGS_SITE = "mall-admin-listings";

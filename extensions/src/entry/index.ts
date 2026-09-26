@@ -43,6 +43,7 @@ import '../sites/kakao/listings';
 import '../sites/kidkids';
 import '../sites/kidsnote/listings';
 import '../sites/live-commerce';
+import '../sites/lotte-on/listings';
 import '../sites/mall-admin-listings';
 import '../sites/mall-orders';
 import '../sites/product-page';

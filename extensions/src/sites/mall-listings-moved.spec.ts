@@ -19,6 +19,8 @@ type Row = {
   call: string;
   /** 로그아웃이면 닿는 화면. */
   loginAt: string;
+  /** 세션이 탭에 묶인 몰(롯데ON)이 먼저 찾는 열린 탭 무늬. */
+  reuse?: string;
 };
 
 const MALLS: Row[] = [
@@ -71,6 +73,14 @@ const MALLS: Row[] = [
     call: 'kakao.listings',
     loginAt: 'https://accounts.kakao.com/login/?continue=https%3A%2F%2Fshopping-seller.kakao.com',
   },
+  {
+    mallKey: 'lotte-on',
+    startUrl: 'https://store.lotteon.com/cm/main/index_SO.wsp',
+    main: 'content/orders/lotte-on-listings.js',
+    call: 'lotte-on.listings',
+    loginAt: 'https://store.lotteon.com/cm/main/login_SO.wsp',
+    reuse: 'https://store.lotteon.com/*',
+  },
 ];
 
 /** 로그인 폼 명세가 없는 몰(결정 #3). */
@@ -116,7 +126,22 @@ describe('몰 관리자 목록 나머지 몰(KID-381)', () => {
     const injected = row.main
       ? `inject content/page-call/bridge.js,content/page-call/runner.js,${row.main}`
       : `inject content/page-call/bridge.js,${row.isolated}`;
-    expect(fake.log).toEqual(['open about:blank', `navigate ${row.startUrl}`, 'ask KIDITEM_PAGE_CALL', injected, 'ask KIDITEM_PAGE_CALL', 'close 7']);
+    expect(fake.log).toEqual([
+      ...(row.reuse ? [`find ${row.reuse}`] : []),
+      'open about:blank', `navigate ${row.startUrl}`, 'ask KIDITEM_PAGE_CALL', injected, 'ask KIDITEM_PAGE_CALL', 'close 7',
+    ]);
+  });
+
+  it.each(MALLS.filter((row) => row.reuse))('$mallKey: 로그인해 둔 판매자센터 탭이 있으면 그 탭에서 읽고 닫지 않는다(탭마다 로그인)', async (row) => {
+    const fake = fakeTabPages({
+      existingTab: (pattern) => (pattern === row.reuse ? 42 : null),
+      answer: (_message, injected) => (injected ? { ok: true, value: { success: true, snapshot: snapshotOf(row.mallKey) } } : { ok: false, error: 'content_script_missing' }),
+    });
+    await expect(routerFor(fake.tabs).reader(row.mallKey)!.readListings(planOf(row.mallKey))).resolves.toEqual(snapshotOf(row.mallKey));
+    expect(fake.log[0]).toBe(`find ${row.reuse}`);
+    expect(fake.log).not.toContain('open about:blank');
+    expect(fake.log).toContain(`navigate ${row.startUrl}`);
+    expect(fake.log.at(-1)).toBe('keep 42');
   });
 
   it.each(MALLS)('$mallKey: 로그아웃이면 SITE_LOGIN_REQUIRED로 멈추고 로그인할 탭을 남긴다', async (row) => {
