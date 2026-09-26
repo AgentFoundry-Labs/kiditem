@@ -29,7 +29,17 @@ const MALLS: Row[] = [
     call: 'always.listings',
     loginAt: 'https://alwayzseller.ilevit.com/login',
   },
+  {
+    mallKey: 'thirtymall',
+    startUrl: 'https://partner.shopby.co.kr/product/list',
+    isolated: 'content/orders/thirtymall-listings.js',
+    call: 'thirtymall.listings',
+    loginAt: 'https://partner.shopby.co.kr/login',
+  },
 ];
+
+/** 로그인 폼 명세가 없는 몰(결정 #3). */
+const NO_LOGIN_SPEC = ['always', 'thirtymall', '11st', 'gmarket', 'auction', 'kakao', 'smartstore'];
 
 function snapshotOf(mallKey: string) {
   return {
@@ -80,7 +90,7 @@ describe('몰 관리자 목록 나머지 몰(KID-381)', () => {
     expect(fake.log).not.toContain('close 7');
   });
 
-  it.each(MALLS.filter((row) => ['always'].includes(row.mallKey)))(
+  it.each(MALLS.filter((row) => NO_LOGIN_SPEC.includes(row.mallKey)))(
     '$mallKey: 로그인 명세가 없어 자격이 있어도 폼을 채우지 않고 운영자에게 탭을 남긴다(결정 #3)',
     async (row) => {
       const fake = fakeTabPages({ landAt: () => row.loginAt, answer: () => ({ ok: false, error: 'content_script_missing' }) });

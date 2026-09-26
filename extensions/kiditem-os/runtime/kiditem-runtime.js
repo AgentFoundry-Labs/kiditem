@@ -5412,7 +5412,8 @@ var KidItemRuntime = (() => {
     "kidkids",
     "art09",
     "domeggook",
-    "always"
+    "always",
+    "thirtymall"
   ];
   function isMallAdminListingOperationMall(mallKey) {
     return MALL_ADMIN_LISTING_OPERATION_MALLS.includes(mallKey);
@@ -10852,6 +10853,28 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "sellpia", opensOwnTabs: true, create: (deps) => createSellpiaSite(deps.tabs) });
+
+  // extensions/src/sites/thirtymall/listings.ts
+  var THIRTYMALL_LISTINGS_URL = "https://partner.shopby.co.kr/product/list";
+  var THIRTYMALL_LISTINGS_FILE = "content/orders/thirtymall-listings.js";
+  var THIRTYMALL_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["shopby.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["shopby.co.kr"]) && /login/i.test(url.pathname),
+    loginMessage: "\uB5A0\uB9AC\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uB5A0\uB9AC\uBAB0 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  function createThirtymallListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "thirtymall",
+        displayName: "\uB5A0\uB9AC\uBAB0",
+        startUrl: THIRTYMALL_LISTINGS_URL,
+        file: THIRTYMALL_LISTINGS_FILE,
+        call: "thirtymall.listings",
+        guard: THIRTYMALL_LISTINGS_GUARD
+      }, plan)
+    };
+  }
+  registerSite({ name: "thirtymall", create: (deps) => createThirtymallListings(deps.tabs) });
 
   // extensions/src/sites/tiktok-cc/index.ts
   var NAVIGATION_TIMEOUT_MS10 = 35e3;

@@ -36,6 +36,7 @@ export const MALL_ADMIN_LISTING_OPERATION_MALLS = [
   'art09',
   'domeggook',
   'always',
+  'thirtymall',
 ] as const;
 export type MallAdminListingOperationMall = (typeof MALL_ADMIN_LISTING_OPERATION_MALLS)[number];
 export function isMallAdminListingOperationMall(mallKey: string): mallKey is MallAdminListingOperationMall {
