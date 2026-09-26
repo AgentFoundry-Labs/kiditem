@@ -5225,7 +5225,7 @@ async function scrapeDomeggookShipUpload(fileBase64, fileName, tar) {
 // ── 통합 서비스워커 등록 ──
 // producer 접두사로 이 도메인이 만든 수집 세션을 식별한다.
 KidItemDomains.register({
-  producerPrefixes: ["orders", "inventory"],
+  producerPrefixes: ["orders"],
   externalActions: {
     collectMallAdminListings: {
       validate: KidItemMallAdminListingsSourceOwner.parseStart,

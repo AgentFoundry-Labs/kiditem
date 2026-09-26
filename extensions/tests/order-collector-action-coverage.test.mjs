@@ -328,7 +328,7 @@ test('order worker imports failure evidence, session lifecycle, and focused Sell
   }
   // 도메인은 자기 구현을 레지스트리로 넘긴다.
   assert.match(worker, /KidItemDomains\.register\(/);
-  assert.match(worker, /producerPrefixes:\s*\["orders",\s*"inventory"\]/);
+  assert.match(worker, /producerPrefixes:\s*\["orders"\]/);
 });
 
 test('order collector manifest publishes normalized failure evidence and scoped Sellpia invoice selection at version 0.1.95', () => {
