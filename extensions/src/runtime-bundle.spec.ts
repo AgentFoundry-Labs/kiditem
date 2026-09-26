@@ -36,6 +36,8 @@ describe('committed runtime bundle', () => {
       'advertising.wing_rank',
       'advertising.wing_tracked_products',
       'advertising.wing_traffic',
+      'analytics.sellpia_product_profitability',
+      'analytics.sellpia_sales',
       'channels.mall_admin_listings',
       'channels.sabangnet_mall_listings',
       'channels.sellpia_manual_match',
@@ -48,6 +50,7 @@ describe('committed runtime bundle', () => {
       'orders.coupang_shipment_summary',
       'orders.mall_orders',
       'orders.sellpia_shipment_tracking',
+      'products.sellpia_inventory',
       'sourcing.coupang_keyword_suggestion',
       'sourcing.live_commerce',
       'sourcing.product_extension',
@@ -95,6 +98,7 @@ describe('committed runtime bundle', () => {
       operationLoginV1: true,
       advertisingKeywordOperationKindsV1: true,
       wingDailyOperationKindsV1: true,
+      sellpiaOperationKindsV1: true,
     });
 
     const start = registered[0].externalActions['operation.start'];

@@ -2345,7 +2345,6 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
   for (const capability of [
     // 주문수집
     'orderCollectionIcecreamMall',
-    'collectSellpiaInventoryJsonV1',
     'orderCollectionFailureEvidenceV1',
     'orderCollectionConfirmedCoverageV1',
     'mallSessionProbeV1',
@@ -2377,7 +2376,6 @@ test('도메인이 서로 겹치지 않는 producer 접두사를 등록한다', 
   const expected = {
     'orders.mall': 'cancelCollectionSession',
     'orders.sellpia_manual_match': 'cancelCollectionSession',
-    'inventory.sellpia': 'cancelCollectionSession',
     'advertising.ad_sync': 'cancelCollectionSession',
     'channels.coupang_catalog': 'cancelCollectionSession',
     'advertising.ad_keyword': 'cancelCollectionSession',
@@ -2388,6 +2386,8 @@ test('도메인이 서로 겹치지 않는 producer 접두사를 등록한다', 
     assert.equal(typeof domain[operation], 'function', `${producer}.${operation}`);
   }
   assert.equal(domains.forProducer('unknown.thing'), null);
+  // 셀피아 재고는 수집 세션 producer가 아니라 실행 kind다(KID-361).
+  assert.equal(domains.forProducer('inventory.sellpia'), null);
   // 소싱 수집은 수집 세션 producer가 아니라 실행 kind다(KID-360).
   assert.equal(domains.forProducer('sourcing.1688_trend'), null);
 });

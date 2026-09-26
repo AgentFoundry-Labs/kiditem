@@ -6,7 +6,7 @@
  */
 export function extensionSessionReply(
   message: unknown,
-  producer = 'orders.sellpia_sales',
+  producer = 'orders.mall',
 ): Record<string, unknown> | undefined {
   const { action, attemptId } = (message ?? {}) as { action?: unknown; attemptId?: unknown };
   if (action !== 'getCollectionSession' || typeof attemptId !== 'string') return undefined;

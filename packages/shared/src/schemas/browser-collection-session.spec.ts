@@ -13,7 +13,7 @@ const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
 
 const createSession = () => ({
   attemptId: ATTEMPT_ID,
-  producer: 'inventory.sellpia' as const,
+  producer: 'orders.mall' as const,
   progress: {
     current: 0,
     total: 30,
@@ -55,11 +55,8 @@ describe('BrowserCollectionSessionViewSchema', () => {
       'advertising.profitability_import',
       'channels.coupang_catalog',
       'dashboard.coupang_products',
-      'inventory.sellpia',
       'orders.mall',
       'orders.mall_admin_listings',
-      'orders.sellpia_product_profitability',
-      'orders.sellpia_sales',
     ]);
     for (const producer of BROWSER_COLLECTION_PRODUCERS) {
       expect(BrowserCollectionProducerSchema.parse(producer)).toBe(producer);

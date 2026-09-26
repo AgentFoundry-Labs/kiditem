@@ -6,11 +6,8 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'advertising.profitability_import',
   'channels.coupang_catalog',
   'dashboard.coupang_products',
-  'inventory.sellpia',
   'orders.mall',
   'orders.mall_admin_listings',
-  'orders.sellpia_product_profitability',
-  'orders.sellpia_sales',
 ] as const;
 
 export const BROWSER_COLLECTION_ATTENTION_REASONS = [

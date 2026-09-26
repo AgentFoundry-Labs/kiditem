@@ -27,8 +27,8 @@ workflow.
   publication, current grade, and grade history. Source completion never calls
   ABC. Only the authenticated Product Hub **등급 새로고침** and Dashboard
   수익성 ABC **재계산** actions call `POST /api/products/abc/recalculate`.
-- A source `RUNNING` or `FAILED` attempt never replaces its owner's current
-  complete pointer. Readers show the latest attempt and the previous complete
+- A source `RUNNING` or `FAILED` attempt (for Sellpia, an executing or failed
+  operation) never replaces its owner's current complete pointer. Readers show the latest attempt and the previous complete
   cutoff together. A failed or stale source leaves the last normal official
   grade, evaluation, cache, publication provenance, and history unchanged.
 
@@ -36,8 +36,8 @@ workflow.
 
 | Responsibility | Current owner/interface | Operator-visible boundary |
 | --- | --- | --- |
-| Sellpia product-profit source | Analytics `SellpiaProfitabilitySourceService` and `SELLPIA_PROFITABILITY_SOURCE_READ_PORT` | `/api/sellpia-product-sales/attempts`, `/status`, and attempt status/control endpoints; the extension action is `collectSellpiaProductProfit` |
-| Sellpia inventory source | Inventory source-owner hook and API | Product Hub **상품 전체 데이터 갱신** starts `manual_request` inventory collection independently from product-profit collection |
+| Sellpia product-profit source | Analytics operation kind `analytics.sellpia_product_profitability` (KID-361; lock `resource:sellpia:login`) and `SELLPIA_PROFITABILITY_SOURCE_READ_PORT` (a generation is one succeeded operation) | Started through the extension's `operation.start`; state from `GET /api/operations?kinds=analytics.sellpia_product_profitability` |
+| Sellpia inventory source | Products operation kind `products.sellpia_inventory` | Product Hub starts inventory collection independently from product-profit collection |
 | Advertising profitability source | Advertising `PROFITABILITY_AD_IMPORT_PORT` and `ADVERTISING_PROFITABILITY_READ_PORT` | `/api/ads/profitability-imports`; the installed extension owner action is `collectAdvertisingProfitability` with capability `profitabilityAdvertisingSourceOwnerV1` |
 | Combined evidence | Finance `ProfitabilityEvidence.load({ organizationId, targetCutoff })` | Reads owner-published facts; it does not write source or ABC state |
 | ABC calculation/publication | Products `MasterProductAbcService` through `MASTER_PRODUCT_ABC_RECALCULATION_PORT` | Product Hub **ABC 등급 현황 → 등급 새로고침** and Dashboard 수익성 ABC **재계산**; response is `PUBLISHED` or `SOURCE_NOT_READY` |
@@ -69,10 +69,11 @@ dialog does not invent a pending ABC lifecycle.
 1. Sign in to the intended organization and Sellpia browser session. Keep the
    supported extension installed and enabled; the browser transports the
    original provider data and never writes canonical facts directly.
-2. Start the owner attempt from Product Hub **상품 전체 데이터 갱신** or the
-   existing Sellpia source-owner entrypoint. A lost page response is recovered
-   by reading the server attempt; do not start a second attempt to guess what
-   happened.
+2. Start the operation kind `analytics.sellpia_product_profitability` from
+   the Product Hub Sellpia product-profit control (the extension's
+   `operation.start`). A lost page response is recovered by reading the
+   operation (`GET /api/operations/:id`); the Sellpia login lock refuses a
+   second concurrent Sellpia operation.
 3. The server-owned plan covers the fixed 401 inclusive days ending KST
    yesterday. The current source parser is `sellpia-profitability-v2` and its
    provenance must be `sellpia_stat_prd_profit`,
@@ -81,13 +82,13 @@ dialog does not invent a pending ABC lifecycle.
    `total_in_amount`/`total_in_qty` evidence. Reconcile provider totals before
    terminal publication. Never distribute a monthly total across days, replace
    missing rows with zero, or substitute current purchase price times quantity.
-5. The owner validates identity, mapping generation, covered months, totals,
-   checksums, and the attempt token before atomically publishing the complete
-   generation. Unmapped valid rows remain auditable warnings; provider
+5. The owner's finalize validates identity, mapping generation, covered
+   months, totals, and checksums inside the finish transaction and publishes
+   the succeeded operation as one immutable generation. Unmapped valid rows remain auditable warnings; provider
    pagination/total/checksum/range failures fail the generation.
 
 Inventory stock and Sellpia product-profit facts remain separate owner outputs.
-An inventory failure must not suppress a profitability attempt, and a
+An inventory failure must not suppress a profitability operation, and a
 profitability failure must not blank the last complete inventory or profit
 read.
 

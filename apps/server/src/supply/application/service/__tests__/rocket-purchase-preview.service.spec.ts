@@ -8,7 +8,7 @@ import type { ProductCollectionFreshnessGatePort } from '../../../../products/ap
 const organizationId = '11111111-1111-4111-8111-111111111111';
 const userId = '22222222-2222-4222-8222-222222222222';
 const channelAccountId = '33333333-3333-4333-8333-333333333333';
-const inventoryAttemptId = '99999999-9999-4999-8999-999999999999';
+const inventoryOperationId = '99999999-9999-4999-8999-999999999999';
 const poLineId = '1001:P-1:8801234567890:1';
 const channelSkuId = '44444444-4444-4444-8444-444444444444';
 const masterProductId = '55555555-5555-4555-8555-555555555555';
@@ -41,7 +41,7 @@ function request() {
 }
 
 function reference(source: ReturnType<typeof request> & { previewScope?: 'confirmation_requested'; clampEditedQuantities?: boolean }) {
-  return { channelAccountId, inventoryAttemptId, rocketPoOperationId: '66666666-6666-4666-8666-666666666666',
+  return { channelAccountId, inventoryOperationId, rocketPoOperationId: '66666666-6666-4666-8666-666666666666',
     editedQuantities: source.editedQuantities, ...(source.previewScope && { previewScope: source.previewScope }),
     ...(source.clampEditedQuantities !== undefined && { clampEditedQuantities: source.clampEditedQuantities }) };
 }
@@ -112,7 +112,7 @@ describe('RocketPurchasePreviewService', () => {
       requireCollectedStock: ReturnType<typeof vi.fn>;
     }).requireCollectedStock).toHaveBeenCalledWith({
       organizationId,
-      attemptId: inventoryAttemptId,
+      operationId: inventoryOperationId,
       masterProductIds: [componentMasterProductId],
     });
     expect(result.status).toBe('ready');
@@ -137,7 +137,7 @@ describe('RocketPurchasePreviewService', () => {
 
   it('rejects a missing collection reference before reading or calculating', async () => {
     const deps = dependencies();
-    const { inventoryAttemptId: _omitted, ...withoutCollection } = reference(request());
+    const { inventoryOperationId: _omitted, ...withoutCollection } = reference(request());
     await expect(previewService(deps).preview({
       organizationId, userId, request: withoutCollection as ReturnType<typeof reference>,
     })).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'ROCKET_PREVIEW_REQUEST_INVALID' } });
@@ -300,7 +300,7 @@ describe('RocketPurchasePreviewService', () => {
     expect(result.rows[0]).toMatchObject({ reason, maxQuantity: 0 });
     expect((deps.freshness as unknown as {
       requireCollectedStock: ReturnType<typeof vi.fn>;
-    }).requireCollectedStock).toHaveBeenCalledWith({ organizationId, attemptId: inventoryAttemptId, masterProductIds: [] });
+    }).requireCollectedStock).toHaveBeenCalledWith({ organizationId, operationId: inventoryOperationId, masterProductIds: [] });
   });
 
   it('deduplicates a physical component shared by multiple PO lines before freshness read', async () => {
@@ -333,7 +333,7 @@ describe('RocketPurchasePreviewService', () => {
       requireCollectedStock: ReturnType<typeof vi.fn>;
     }).requireCollectedStock).toHaveBeenCalledWith({
       organizationId,
-      attemptId: inventoryAttemptId,
+      operationId: inventoryOperationId,
       masterProductIds: [componentMasterProductId],
     });
   });

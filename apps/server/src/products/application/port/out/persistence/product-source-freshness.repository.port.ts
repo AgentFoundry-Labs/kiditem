@@ -33,20 +33,6 @@ export interface ProductCollectionFreshnessRepositoryPort {
     organizationId: string,
   ): Promise<SellpiaInventoryCollectionState | null>;
 
-  /**
-   * The browser source attempt whose token holds the lease. A manual upload
-   * claims the lease with a token no attempt carries, so it names none.
-   */
-  findLeaseAttemptId(input: {
-    organizationId: string;
-    activeSyncToken: string;
-  }): Promise<string | null>;
-
-  /** Latest source attempt identity lets a waiting calculation fail fast. */
-  findLastAttemptId?(input: {
-    organizationId: string;
-  }): Promise<string | null>;
-
   withLockedState<T>(
     input: {
       organizationId: string;

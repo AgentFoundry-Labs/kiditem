@@ -156,7 +156,7 @@ export class DashboardInventoryRepositoryAdapter implements DashboardInventoryRe
         publicationRevision: snapshot.publication.publicationRevision,
         officialCutoffDate: snapshot.publication.officialCutoffDate,
         publishedAt: snapshot.publication.publishedAt,
-        sellpiaSourceImportRunId: snapshot.publication.sellpiaSourceImportRunId,
+        sellpiaOperationId: snapshot.publication.sellpiaOperationId,
         advertisingSourceImportRunId:
           snapshot.publication.advertisingSourceImportRunId,
         mappingGeneration: snapshot.publication.mappingGeneration,

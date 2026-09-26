@@ -179,6 +179,7 @@ export const ERROR_DEFINITIONS = {
   PRODUCTS_STATE_CONFLICT: def('products', 'conflict', '상품 상태가 바뀌어 이 작업을 할 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.'),
   PRODUCTS_SOURCE_REFERENCE_INVALID: def('products', 'precondition', '상품 원천 정보가 이 조직의 상품과 맞지 않습니다.'),
   PRODUCTS_MAPPING_CONFLICT: def('products', 'conflict', '상품 매핑이 동시에 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.', { retryable: true }),
+  PRODUCTS_SELLPIA_BINDING_REQUIRED: def('products', 'precondition', '셀피아 계정 연결을 먼저 확인한 뒤 재고를 수집해 주세요.'),
 
   // inventory · supply
   INVENTORY_NOT_FOUND: def('inventory', 'not_found', '재고 항목을 찾을 수 없습니다.'),
@@ -244,6 +245,8 @@ export const ERROR_DEFINITIONS = {
   ADVERTISING_COMPETITOR_SELLER_NOT_FOUND: def('advertising', 'not_found', '추적 중인 경쟁 판매자가 아닙니다. 판매자 목록을 새로고침한 뒤 다시 시도해 주세요.'),
   ADVERTISING_TRACKED_PRODUCT_NOT_FOUND: def('advertising', 'conflict', '윙 검색에서 찾지 못한 추적 상품이 있습니다. 추적 키워드를 확인한 뒤 다시 수집해 주세요.'),
   ANALYTICS_QUERY_FAILED: def('analytics', 'internal', '통계를 계산하지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
+  ANALYTICS_SELLPIA_PROFIT_MAPPING_CHANGED: def('analytics', 'conflict', '수집하는 동안 상품 매핑이 바뀌었습니다. 셀피아 상품 손익을 다시 수집해 주세요.'),
+  ANALYTICS_SELLPIA_PROFIT_EMPTY_UNPROVEN: def('analytics', 'validation', '셀피아 상품 손익에 판매 기록이 없는 상품만 있습니다. 셀피아 화면을 확인한 뒤 다시 수집해 주세요.'),
   FINANCE_QUERY_FAILED: def('finance', 'internal', '재무 데이터를 읽지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
 } as const satisfies Record<string, ErrorDefinition>;
 

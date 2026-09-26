@@ -82,50 +82,6 @@ const mallAdminListingsSourceOwner = KidItemMallAdminListingsSourceOwner.create(
   collect: mallAdminListings.collect,
   mallName: mallAdminListings.mallName,
 });
-const sellpiaInventoryCollector = KidItemSellpiaInventory.create({ chrome });
-const sellpiaInventorySourceOwner = KidItemSellpiaInventorySourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
-  collect: (collection) => sellpiaInventoryCollector.collect(collection),
-});
-const sellpiaSalesCollector = KidItemSellpiaSalesCollector.create({
-  chrome,
-  waitForTabReady,
-  withTimeout,
-  isMallAccessError,
-  mallAccessErrorResult,
-  mallGenericErrorResult,
-});
-const sellpiaSalesSourceOwner = KidItemSellpiaSalesSourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
-  collect: ({ plan, ...collection }) => sellpiaSalesCollector.collect({
-    startDate: plan.range.from,
-    endDate: plan.range.to,
-    collection,
-    keepTabOnLoginError: true,
-  }),
-});
-const sellpiaProductProfitCollector = KidItemSellpiaProductProfitCollector.create({
-  chrome,
-  waitForTabReady,
-  withTimeout,
-  isMallAccessError,
-  mallAccessErrorResult,
-  mallGenericErrorResult,
-});
-const sellpiaProductProfitabilitySourceOwner = KidItemSellpiaProductProfitabilitySourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
-  collect: ({ plan, ...collection }) => sellpiaProductProfitCollector.collect({
-    startDate: plan.from,
-    endDate: plan.to,
-    collection,
-  }),
-});
 
 async function lifecycleForAttempt(attemptId, environmentId) {
   const session = await collectionSessions.getOwned(attemptId, environmentId);
@@ -146,15 +102,6 @@ async function cancelOrdersCollectionSession(attemptId, environmentId) {
     : fencedSession?.session?.producer
       ? fencedSession.session
       : await collectionSessions.getOwned(attemptId, environmentId);
-  if (session?.producer === "inventory.sellpia") {
-    return sellpiaInventorySourceOwner.cancel({ attemptId, environmentId });
-  }
-  if (session?.producer === "orders.sellpia_sales") {
-    return sellpiaSalesSourceOwner.cancel({ attemptId, environmentId });
-  }
-  if (session?.producer === "orders.sellpia_product_profitability") {
-    return sellpiaProductProfitabilitySourceOwner.cancel({ attemptId, environmentId });
-  }
   if (session?.producer === "orders.mall_admin_listings") {
     return mallAdminListingsSourceOwner.cancel({ attemptId, environmentId });
   }
@@ -171,9 +118,6 @@ async function cancelOrdersCollectionSession(attemptId, environmentId) {
 // touching other Orders or Inventory sessions.
 async function recoverOrdersCollections(environmentId) {
   const owners = [
-    sellpiaInventorySourceOwner,
-    sellpiaSalesSourceOwner,
-    sellpiaProductProfitabilitySourceOwner,
   ];
   const results = await Promise.allSettled(
     owners
@@ -5281,26 +5225,8 @@ async function scrapeDomeggookShipUpload(fileBase64, fileName, tar) {
 // ── 통합 서비스워커 등록 ──
 // producer 접두사로 이 도메인이 만든 수집 세션을 식별한다.
 KidItemDomains.register({
-  producerPrefixes: ["orders", "inventory"],
+  producerPrefixes: ["orders"],
   externalActions: {
-    collectSellpiaInventory: {
-      validate: KidItemSellpiaInventorySourceOwner.parseAction,
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        sellpiaInventorySourceOwner.run({ attemptId, environmentId }),
-      ),
-    },
-    collectSellpiaSaleSummary: {
-      validate: KidItemSellpiaSalesSourceOwner.parseAction,
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        sellpiaSalesSourceOwner.run({ attemptId, environmentId }),
-      ),
-    },
-    collectSellpiaProductProfit: {
-      validate: KidItemSellpiaProductProfitabilitySourceOwner.parseAction,
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        sellpiaProductProfitabilitySourceOwner.run({ attemptId, environmentId }),
-      ),
-    },
     collectMallAdminListings: {
       validate: KidItemMallAdminListingsSourceOwner.parseStart,
       handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
@@ -5315,13 +5241,6 @@ KidItemDomains.register({
     clearCoupangCookies: true,
     boriboriOrders: true,
     collectKakaoOrders: true,
-    collectSellpiaSaleSummary: true,
-    collectSellpiaSaleSummaryAuthoritativeV1: true,
-    collectSellpiaProductProfit: true,
-    collectSellpiaProductProfitEvidenceV2: true,
-    sellpiaProductProfitabilitySourceOwnerV1: true,
-    collectSellpiaInventoryJsonV1: true,
-    sellpiaInventorySourceOwnerV1: true,
     // 키드키즈 · 아이스크림몰 관리자 화면에서 등록 상품을 직접 가져온다(KID-246 2단계).
     mallAdminListingsSourceOwnerV1: true,
     // 사방넷으로만 가져오던 몰(도매꾹 · 키즈노트 · 11번가 · 지마켓 · 옥션 · 카카오 · 롯데ON · 스마트스토어 · 티쳐몰)도 직접 읽는다.

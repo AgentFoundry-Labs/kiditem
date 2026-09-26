@@ -18,7 +18,7 @@ export type SellpiaInventoryCollectionState = {
   sourceAccountKey: string | null;
   /** Source completion time. Kept under the migration-era column name. */
   lastVerifiedAt: Date | null;
-  lastCompletedImportRunId: string | null;
+  lastCompletedOperationId: string | null;
   /** Request/lease fields remain internal fencing facts, not public freshness. */
   refreshReason: SellpiaInventoryStoredCollectionTrigger | null;
   requestedSyncScope: SellpiaSyncScope;
@@ -52,7 +52,7 @@ export function createInitialCollectionState(input: {
     sourceOrigin: SELLPIA_SOURCE_ORIGIN,
     sourceAccountKey: null,
     lastVerifiedAt: null,
-    lastCompletedImportRunId: null,
+    lastCompletedOperationId: null,
     refreshReason: 'initial_snapshot',
     requestedSyncScope: 'inventory',
     activeSyncToken: null,
@@ -91,7 +91,7 @@ export function toCollectionStatusView(
   now: Date,
   userId: string | null,
   leaseAttemptId: string | null,
-  lastAttemptId: string | null = leaseAttemptId ?? state.lastCompletedImportRunId,
+  lastAttemptId: string | null = leaseAttemptId ?? state.lastCompletedOperationId,
 ): SellpiaInventoryCollectionStatusView {
   const status = deriveCollectionStatus(state, now);
   const expiredCurrentAttempt = hasExpiredCurrentAttempt(state, now);
@@ -142,7 +142,7 @@ export function toCollectionStatusView(
       },
     requestedGeneration: state.requestedGeneration.toString(),
     verifiedGeneration: state.verifiedGeneration.toString(),
-    lastCompletedAttemptId: state.lastCompletedImportRunId,
+    lastCompletedAttemptId: state.lastCompletedOperationId,
     lastCompletedAt: state.lastVerifiedAt?.toISOString() ?? null,
     lastAttemptId,
     activeSync,
@@ -180,48 +180,6 @@ export function planSourceBindingConfirmation(
   };
 }
 
-export function planCollectionRequest(
-  state: SellpiaInventoryCollectionState,
-  reason: SellpiaInventoryStoredCollectionTrigger,
-  scope: SellpiaSyncScope,
-  now: Date,
-  freshnessFence: string,
-): SellpiaInventoryCollectionStatePatch {
-  const liveGeneration = hasLiveLease(state, now)
-    ? state.activeGeneration
-    : null;
-  const retryingCurrentFailure = reason === 'retry'
-    && state.failedGeneration === state.requestedGeneration
-    && state.failedGeneration > state.verifiedGeneration;
-  const needsFollowUp = liveGeneration !== null
-    && state.requestedGeneration <= liveGeneration;
-  const noPendingGeneration = liveGeneration === null
-    && state.requestedGeneration <= state.verifiedGeneration;
-  const advancesGeneration = retryingCurrentFailure
-    || needsFollowUp
-    || noPendingGeneration;
-  const requestedGeneration = advancesGeneration
-    ? state.requestedGeneration + 1n
-    : state.requestedGeneration;
-
-  if (!advancesGeneration) {
-    return {
-      requestedGeneration,
-      requestedSyncScope: strongestScope(state.requestedSyncScope, scope),
-      failedGeneration: state.failedGeneration,
-      freshnessFence,
-    };
-  }
-
-  return {
-    requestedGeneration,
-    failedGeneration: state.failedGeneration,
-    refreshReason: reason,
-    requestedSyncScope: scope,
-    freshnessFence,
-  };
-}
-
 export function hasLiveLease(
   state: SellpiaInventoryCollectionState,
   now: Date,
@@ -235,11 +193,4 @@ export function isSourceBindingConfirmed(
 ): boolean {
   return state.sourceOrigin === SELLPIA_SOURCE_ORIGIN
     && state.sourceAccountKey === SELLPIA_SOURCE_ACCOUNT_KEY;
-}
-
-function strongestScope(
-  current: SellpiaSyncScope,
-  requested: SellpiaSyncScope,
-): SellpiaSyncScope {
-  return current === 'full' || requested === 'full' ? 'full' : 'inventory';
 }

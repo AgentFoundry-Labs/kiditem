@@ -1,93 +1,30 @@
-import { createHash } from 'node:crypto';
-import { operatorErrorText } from '@kiditem/shared/errors';
-import {
-  BadRequestException,
-  ConflictException,
-  NotFoundException,
-  UnprocessableEntityException,
-} from '@nestjs/common';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
+import { UnprocessableEntityException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import {
-  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-  SOURCE_IMPORT_RUN_FAILED_STATUS,
-  SOURCE_IMPORT_RUN_RUNNING_STATUS,
-} from '@kiditem/shared/source-import';
-import {
-  addDays,
-  businessDateKey,
-  evidenceCutoffDate,
-  kstMonthEnd,
-  parseBusinessDate,
-} from '../../common/kst';
+import type { SellpiaProfitProduct } from '@kiditem/shared/sellpia-operations';
+import { businessDateKey, kstMonthEnd } from '../../common/kst';
 import { createSellpiaProductInventoryResolver } from './sellpia-product-inventory-resolver';
-import type {
-  SellpiaProfitabilityAttemptSummary,
-  SellpiaProfitabilityAttempt,
-  SellpiaProfitabilityCompleteGeneration,
-  SellpiaProfitabilityPlan,
-} from '@kiditem/shared/source-import';
 import type {
   SellpiaProfitabilityGenerationMetadata,
   SellpiaProfitabilityQuality,
   SellpiaProfitabilityParserVersion,
 } from '../application/port/in/sellpia-profitability-source-read.port';
-import type {
-  SellpiaProfitabilitySubmitBodyDto,
-} from './dto/sellpia-product-sales.dto';
+import type { SellpiaProfitabilityPlan } from './domain/sellpia-profitability-operation';
 import { SELLPIA_PROFITABILITY_SOURCE_TYPE } from './domain/sellpia-profitability-source';
+import type { SellpiaProductMonthlyGeneration } from './read/sellpia-product-monthly-facts';
 
+/**
+ * 셀피아 상품 손익 발행의 내부 규칙(KID-361 J3): 제출 상품 → 불변 월 사실(`freezeFacts`), 원장 넣기(`insertFacts`,
+ * 실행 id), 매핑 잠금·세대, 세대 품질 검증(`generationMetadata`). 실행 계약의 finalize·세대 리더가 부른다.
+ */
 export const SOURCE_TYPE = SELLPIA_PROFITABILITY_SOURCE_TYPE;
 export const PARSER_VERSION = 'sellpia-profitability-v2';
 export const LEGACY_PARSER_VERSION = 'sellpia-profitability-v1';
-export const ATTEMPT_TTL_MS = 30 * 60_000;
 export const TRANSACTION_TIMEOUT_MS = 30_000;
 export const INSERT_CHUNK_SIZE = 5_000;
 export const MAX_GENERATION_FACT_ROWS = 20_000 * 24;
 export const INT4_MAX = 2_147_483_647;
 export const ALERT_DEDUPE_KEY = 'source:sellpia-product-profitability';
-const SELLPIA_PROFITABILITY_WINDOW_DAYS = 401;
-
-export type SourceAttemptRecord = Readonly<{
-  id: string;
-  organizationId: string;
-  sourceType: string;
-  status: string;
-  attemptToken: string;
-  idempotencyKey: string | null;
-  requestFingerprint: string | null;
-  expiresAt: Date | null;
-  plan: unknown;
-  parserVersion: string | null;
-  contentChecksum: string | null;
-  contentByteCount: number | null;
-  rowCount: number;
-  qualityReport: unknown;
-  coveredMonths: string[];
-  mappingGeneration: bigint | null;
-  publicationSequence: bigint | null;
-  coverageStartDate: Date | null;
-  coverageEndDate: Date | null;
-  importedAt: Date | null;
-  errorCode: string | null;
-  errorMessage: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}>;
-
-export type PublishedGenerationRecord = Pick<SourceAttemptRecord,
-  | 'id'
-  | 'status'
-  | 'publicationSequence'
-  | 'mappingGeneration'
-  | 'coverageStartDate'
-  | 'coverageEndDate'
-  | 'coveredMonths'
-  | 'importedAt'
-  | 'updatedAt'
-  | 'contentChecksum'
-  | 'contentByteCount'
-  | 'rowCount'
-  | 'qualityReport'>;
 
 export type InventoryCandidate = Readonly<{
   id: string;
@@ -102,7 +39,7 @@ export type InventoryCandidate = Readonly<{
 }>;
 
 export type FrozenFact = Readonly<{
-  sourceImportRunId: string;
+  operationId: string;
   sellpiaInventorySkuId: string | null;
   masterProductId: string | null;
   productCode: string;
@@ -119,57 +56,10 @@ export type FrozenFact = Readonly<{
   barcode: string | null;
 }>;
 
-export function buildSellpiaProfitabilityPlan(
-  now: Date,
-  normalizedSourceAvailabilityDate?: string,
-): SellpiaProfitabilityPlan {
-  const end = evidenceCutoffDate(now);
-  const earliest = addDays(end, -(SELLPIA_PROFITABILITY_WINDOW_DAYS - 1));
-  let from = earliest;
-  if (normalizedSourceAvailabilityDate !== undefined) {
-    const availability = parseDate(normalizedSourceAvailabilityDate.trim());
-    if (!availability || availability > end) {
-      throw new BadRequestException('SOURCE_AVAILABILITY_OUTSIDE_PLAN');
-    }
-    if (availability > earliest) from = availability;
-  }
-  const fromString = isoDate(from);
-  const toString = isoDate(end);
-  return {
-    from: fromString,
-    to: toString,
-    coveredMonths: monthsBetween(fromString, toString),
-  };
-}
-
-export function normalizeSubmission(body: SellpiaProfitabilitySubmitBodyDto) {
-  if (body.parserVersion !== PARSER_VERSION) {
-    throw new UnprocessableEntityException('PARSER_VERSION_MISMATCH');
-  }
-  if (body.provenance?.source !== 'sellpia_stat_prd_profit'
-    || body.provenance.costBasis !== 'ORDER_TIME_SUPPLY_COST'
-    || body.provenance.vatIncluded !== true) {
-    throw new UnprocessableEntityException('PROFITABILITY_PROVENANCE_INVALID');
-  }
-  if (!Array.isArray(body.coveredMonths)) {
-    throw new UnprocessableEntityException('SOURCE_COVERAGE_INCOMPLETE');
-  }
-  if (!Array.isArray(body.products) || typeof body.providerBackedEmptyProof !== 'boolean') {
-    throw new UnprocessableEntityException('PROFITABILITY_PAYLOAD_INVALID');
-  }
-  return {
-    parserVersion: body.parserVersion,
-    coveredMonths: [...new Set(body.coveredMonths)].sort(),
-    providerBackedEmptyProof: body.providerBackedEmptyProof,
-    provenance: body.provenance,
-    products: body.products,
-  };
-}
-
 export function freezeFacts(
-  sourceImportRunId: string,
-  plan: SellpiaProfitabilityPlan,
-  products: SellpiaProfitabilitySubmitBodyDto['products'],
+  operationId: string,
+  plan: Pick<SellpiaProfitabilityPlan, 'from' | 'to' | 'coveredMonths'>,
+  products: readonly SellpiaProfitProduct[],
   candidates: readonly InventoryCandidate[],
 ): FrozenFact[] {
   const candidateById = new Map(candidates.map((candidate) => [candidate.id, candidate]));
@@ -182,7 +72,7 @@ export function freezeFacts(
     const optionCode = boundedString(product.optionCode, 64, true);
     const productIdentity = `${productCode}\u0000${optionCode}`;
     if (seenProductIdentities.has(productIdentity)) {
-      throw new UnprocessableEntityException('DUPLICATE_PRODUCT_IDENTITY');
+      throw invalid('duplicate_product_identity', { productCode, optionCode });
     }
     seenProductIdentities.add(productIdentity);
     const productName = boundedString(product.productName, 400, false);
@@ -209,7 +99,7 @@ export function freezeFacts(
     let summedInQty = 0;
     for (const month of product.months) {
       if (!coveredMonths.has(month.yearMonth)) {
-        throw new UnprocessableEntityException('SOURCE_MONTH_OUTSIDE_PLAN');
+        throw invalid('month_outside_plan', { yearMonth: month.yearMonth });
       }
       const coverage = monthIntersection(plan, month.yearMonth);
       const orderQty = boundedInt(month.orderQty);
@@ -221,7 +111,7 @@ export function freezeFacts(
       summedInAmount = boundedInt(summedInAmount + inAmount);
       summedInQty = boundedInt(summedInQty + inQty);
       const fact: FrozenFact = {
-        sourceImportRunId,
+        operationId,
         // New source rows are keyed by MasterProduct. The legacy column is
         // populated only when a caller supplies a retained historical ID.
         sellpiaInventorySkuId: frozenSku?.legacySellpiaInventorySkuId ?? null,
@@ -241,7 +131,7 @@ export function freezeFacts(
       };
       const factIdentity = `${productIdentity}\u0000${month.yearMonth}`;
       if (facts.has(factIdentity)) {
-        throw new UnprocessableEntityException('DUPLICATE_PRODUCT_MONTH');
+        throw invalid('duplicate_product_month', { productCode, optionCode, yearMonth: month.yearMonth });
       }
       facts.set(factIdentity, fact);
     }
@@ -251,7 +141,7 @@ export function freezeFacts(
       || summedInAmount !== totalInAmount
       || summedInQty !== totalInQty
     ) {
-      throw new UnprocessableEntityException('PROVIDER_TOTALS_MISMATCH');
+      throw invalid('provider_totals_mismatch', { productCode, optionCode });
     }
   }
   return [...facts.values()].sort((left, right) =>
@@ -269,7 +159,7 @@ export async function insertFacts(
     const batch = facts.slice(offset, offset + INSERT_CHUNK_SIZE);
     const inserted = await tx.$executeRaw(Prisma.sql`
       INSERT INTO sellpia_product_monthly_sales (
-        id, organization_id, source_import_run_id,
+        id, organization_id, operation_id,
         sellpia_inventory_sku_id, master_product_id,
         product_code, option_code, year_month,
         order_qty, order_amount, in_amount,
@@ -279,7 +169,7 @@ export async function insertFacts(
       )
       SELECT
         gen_random_uuid(), ${organizationId}::uuid,
-        (record->>'sourceImportRunId')::uuid,
+        (record->>'operationId')::uuid,
         (record->>'sellpiaInventorySkuId')::uuid,
         (record->>'masterProductId')::uuid,
         record->>'productCode', record->>'optionCode', record->>'yearMonth',
@@ -298,63 +188,6 @@ export async function insertFacts(
   }
 }
 
-export async function findAttempt(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  attemptId: string,
-): Promise<SourceAttemptRecord> {
-  const attempt = await tx.sourceImportRun.findFirst({
-    where: { id: attemptId, organizationId, sourceType: SOURCE_TYPE },
-  }) as SourceAttemptRecord | null;
-  if (!attempt) throw new NotFoundException('SOURCE_ATTEMPT_NOT_FOUND');
-  return attempt;
-}
-
-export function assertAttemptWritable(attempt: SourceAttemptRecord, attemptToken: string): void {
-  assertAttemptToken(attempt, attemptToken);
-  if (attempt.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS) throw new ConflictException('ATTEMPT_TERMINAL');
-  if (isExpiredRunning(attempt, new Date())) throw new ConflictException('ATTEMPT_EXPIRED');
-}
-
-export function assertAttemptToken(attempt: SourceAttemptRecord, attemptToken: string): void {
-  if (attempt.attemptToken !== attemptToken) {
-    throw new ConflictException('ATTEMPT_TOKEN_MISMATCH');
-  }
-}
-
-export function assertStagedReplay(
-  attempt: SourceAttemptRecord,
-  checksum: string,
-  byteCount: number,
-  rowCount?: number,
-): void {
-  if (attempt.contentChecksum !== checksum
-    || attempt.contentByteCount !== byteCount
-    || (rowCount !== undefined && attempt.rowCount !== rowCount)) {
-    throw new ConflictException('CONTENT_REPLAY_CONFLICT');
-  }
-}
-
-export function assertCoveredMonths(
-  plan: SellpiaProfitabilityPlan,
-  coveredMonths: readonly string[],
-): void {
-  if (coveredMonths.length !== plan.coveredMonths.length
-    || coveredMonths.some((month, index) => month !== plan.coveredMonths[index])) {
-    throw new UnprocessableEntityException('SOURCE_COVERAGE_INCOMPLETE');
-  }
-}
-
-export async function assertMappingGeneration(
-  tx: Prisma.TransactionClient,
-  attempt: SourceAttemptRecord,
-): Promise<void> {
-  const current = await readMappingGeneration(tx, attempt.organizationId);
-  if (current !== (attempt.mappingGeneration ?? 0n)) {
-    throw new ConflictException('MAPPING_GENERATION_CHANGED');
-  }
-}
-
 export async function readMappingGeneration(
   tx: Prisma.TransactionClient,
   organizationId: string,
@@ -364,18 +197,6 @@ export async function readMappingGeneration(
     select: { mappingGeneration: true },
   });
   return state?.mappingGeneration ?? 0n;
-}
-
-export async function lockSource(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<void> {
-  await tx.$queryRaw(Prisma.sql`
-    -- queryraw-tenancy-exempt: organization-scoped advisory lock; reads no tenant data.
-    SELECT pg_advisory_xact_lock(
-      hashtextextended(${`kiditem.sellpia-product-profitability:${organizationId}`}, 0)
-    )::text AS "lock"
-  `);
 }
 
 export async function lockMapping(
@@ -390,88 +211,6 @@ export async function lockMapping(
   `);
 }
 
-export function toAttemptView(
-  attempt: SourceAttemptRecord,
-  now = new Date(0),
-): SellpiaProfitabilityAttempt {
-  const expired = isExpiredRunning(attempt, now);
-  return {
-    attemptId: attempt.id,
-    attemptToken: attempt.attemptToken,
-    state: expired
-      ? 'FAILED'
-      : attempt.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
-        ? 'COMPLETE'
-        : attempt.status === SOURCE_IMPORT_RUN_FAILED_STATUS
-          ? 'FAILED'
-          : 'RUNNING',
-    expiresAt: attempt.expiresAt?.toISOString() ?? attempt.createdAt.toISOString(),
-    capturedAt: attempt.createdAt.toISOString(),
-    generation: attempt.publicationSequence?.toString() ?? null,
-    errorCode: expired ? 'ATTEMPT_EXPIRED' : attempt.errorCode,
-    errorMessage: expired
-      ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' })
-      : attempt.errorMessage,
-    plan: parsePlan(attempt.plan),
-  };
-}
-
-export function toAttemptSummary(
-  attempt: SourceAttemptRecord,
-  now = new Date(0),
-): SellpiaProfitabilityAttemptSummary {
-  const view = toAttemptView(attempt, now);
-  return {
-    attemptId: view.attemptId,
-    state: view.state,
-    expiresAt: new Date(view.expiresAt).toISOString(),
-    capturedAt: new Date(view.capturedAt).toISOString(),
-    generation: view.generation,
-    errorCode: view.errorCode,
-    errorMessage: view.errorMessage,
-    plan: {
-      from: view.plan.from,
-      to: view.plan.to,
-      coveredMonths: [...view.plan.coveredMonths],
-    },
-  };
-}
-
-export function toCompleteGeneration(
-  attempt: PublishedGenerationRecord,
-): SellpiaProfitabilityCompleteGeneration {
-  if (attempt.publicationSequence === null
-    || attempt.mappingGeneration === null
-    || attempt.coverageEndDate === null) {
-    throw new Error('Completed Sellpia profitability generation lacks provenance.');
-  }
-  return {
-    sourceImportRunId: attempt.id,
-    generation: attempt.publicationSequence.toString(),
-    coveredThrough: isoDate(attempt.coverageEndDate),
-    capturedAt: (attempt.importedAt ?? attempt.updatedAt).toISOString(),
-    mappingGeneration: attempt.mappingGeneration.toString(),
-  };
-}
-
-export function parsePlan(value: unknown): SellpiaProfitabilityPlan {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new Error('Sellpia profitability attempt plan is invalid.');
-  }
-  const plan = value as Record<string, unknown>;
-  if (typeof plan.from !== 'string'
-    || typeof plan.to !== 'string'
-    || !Array.isArray(plan.coveredMonths)
-    || plan.coveredMonths.some((month) => typeof month !== 'string')) {
-    throw new Error('Sellpia profitability attempt plan is invalid.');
-  }
-  return {
-    from: plan.from,
-    to: plan.to,
-    coveredMonths: plan.coveredMonths as string[],
-  };
-}
-
 export function failureAlert(
   organizationId: string,
   attemptId: string,
@@ -484,67 +223,32 @@ export function failureAlert(
     sourceType: SOURCE_TYPE,
     attemptId,
     code: errorCode,
-    title: 'Sellpia 수익성 수집 실패',
+    title: '셀피아 상품 손익 수집 실패',
     message: errorMessage,
     href: '/stock-ops',
   };
 }
 
-export function normalizeIdempotencyKey(value: string | undefined): string {
-  const key = value?.trim() ?? '';
-  if (key.length === 0 || key.length > 128) {
-    throw new BadRequestException('INVALID_IDEMPOTENCY_KEY');
-  }
-  return key;
-}
-
-export function hashJson(value: unknown): string {
-  return createHash('sha256').update(JSON.stringify(value)).digest('hex');
-}
-
-export function isExpiredRunning(attempt: SourceAttemptRecord, now: Date): boolean {
-  return attempt.status === SOURCE_IMPORT_RUN_RUNNING_STATUS
-    && attempt.expiresAt !== null
-    && attempt.expiresAt.getTime() <= now.getTime();
-}
-
 export function monthIntersection(
-  plan: SellpiaProfitabilityPlan,
+  plan: Pick<SellpiaProfitabilityPlan, 'from' | 'to'>,
   yearMonth: string,
 ): { from: string; to: string } {
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(yearMonth)) {
-    throw new UnprocessableEntityException('SOURCE_MONTH_INVALID');
+    throw invalid('month_invalid', { yearMonth });
   }
   const monthStart = `${yearMonth}-01`;
   const monthEnd = kstMonthEnd(yearMonth);
   const from = monthStart > plan.from ? monthStart : plan.from;
   const to = monthEnd < plan.to ? monthEnd : plan.to;
-  if (from > to) throw new UnprocessableEntityException('SOURCE_MONTH_OUTSIDE_PLAN');
+  if (from > to) throw invalid('month_outside_plan', { yearMonth });
   return { from, to };
 }
 
-export function monthsBetween(from: string, to: string): string[] {
-  const fromDate = parseDate(from);
-  const toDate = parseDate(to);
-  if (!fromDate || !toDate || fromDate > toDate) {
-    throw new BadRequestException('SOURCE_PLAN_INVALID');
-  }
-  const values: string[] = [];
-  for (
-    let index = fromDate.getUTCFullYear() * 12 + fromDate.getUTCMonth();
-    index <= toDate.getUTCFullYear() * 12 + toDate.getUTCMonth();
-    index += 1
-  ) {
-    values.push(`${Math.floor(index / 12)}-${String(index % 12 + 1).padStart(2, '0')}`);
-  }
-  return values;
-}
-
 export function boundedString(value: string, max: number, allowEmpty: boolean): string {
-  if (typeof value !== 'string') throw new UnprocessableEntityException('PROFITABILITY_PAYLOAD_INVALID');
+  if (typeof value !== 'string') throw invalid('invalid_profit_products', { field: 'text' });
   const normalized = value.trim();
   if ((!allowEmpty && normalized.length === 0) || normalized.length > max) {
-    throw new UnprocessableEntityException('PROFITABILITY_PAYLOAD_INVALID');
+    throw invalid('invalid_profit_products', { field: 'text' });
   }
   return normalized;
 }
@@ -556,26 +260,16 @@ export function nullableBoundedString(value: string | undefined, max: number): s
 
 export function boundedInt(value: number): number {
   if (!Number.isSafeInteger(value) || value < 0 || value > INT4_MAX) {
-    throw new UnprocessableEntityException('PROFITABILITY_AMOUNT_INVALID');
+    throw invalid('invalid_profit_products', { field: 'amount' });
   }
   return value;
 }
 
 export function sourceTotal(value: number): number {
   if (!Number.isSafeInteger(value) || value < 0 || value > INT4_MAX) {
-    throw new UnprocessableEntityException('PROFITABILITY_TOTAL_INVALID');
+    throw invalid('invalid_profit_products', { field: 'total' });
   }
   return value;
-}
-
-export function dateOnly(value: string): Date {
-  const parsed = parseDate(value);
-  if (!parsed) throw new BadRequestException('SOURCE_PLAN_INVALID');
-  return parsed;
-}
-
-export function parseDate(value: string): Date | null {
-  return parseBusinessDate(value);
 }
 
 export function boundedCatalogLimit(value: number | undefined): number {
@@ -591,11 +285,9 @@ export function isoDate(value: Date): string {
 }
 
 export function generationMetadata(
-  attempt: PublishedGenerationRecord,
+  attempt: SellpiaProductMonthlyGeneration,
 ): SellpiaProfitabilityGenerationMetadata {
-  if (attempt.status !== SOURCE_IMPORT_RUN_COMPLETED_STATUS
-    || attempt.publicationSequence === null
-    || attempt.mappingGeneration === null
+  if (attempt.mappingGeneration === null
     || attempt.coverageStartDate === null
     || attempt.coverageEndDate === null
     || attempt.importedAt === null) {
@@ -614,7 +306,7 @@ export function generationMetadata(
     throw new UnprocessableEntityException('SOURCE_COVERAGE_MALFORMED');
   }
   return {
-    sourceImportRunId: attempt.id,
+    operationId: attempt.id,
     publicationSequence: attempt.publicationSequence.toString(),
     mappingGeneration: attempt.mappingGeneration.toString(),
     coverage: {
@@ -690,4 +382,8 @@ function parseQualityReport(value: unknown): SellpiaProfitabilityQuality {
       vatIncluded: true,
     },
   };
+}
+
+function invalid(reason: string, details: Record<string, unknown>): KiditemInvalidValueError {
+  return new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason, ...details } });
 }

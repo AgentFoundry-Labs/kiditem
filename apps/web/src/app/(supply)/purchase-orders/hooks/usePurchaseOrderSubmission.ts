@@ -75,7 +75,7 @@ export function usePurchaseOrderSubmission() {
     setSubmittingId(purchaseOrderId);
     void (async () => {
       try {
-        const inventoryAttemptId = await collectSellpiaInventoryBeforeCalculation(
+        const inventoryOperationId = await collectSellpiaInventoryBeforeCalculation(
           queryClient,
           organizationId,
           activeSubmissionState.controller.signal,
@@ -91,7 +91,7 @@ export function usePurchaseOrderSubmission() {
         const idempotencyKey = createPurchaseOrderSubmissionIdempotencyKey();
         resolvePromise(await mutation.mutateAsync({
           purchaseOrderId: activeSubmissionState.purchaseOrderId,
-          inventoryAttemptId,
+          inventoryOperationId,
           idempotencyKey,
         }));
       } catch (error) {

@@ -6,10 +6,7 @@ export const SOURCE_OWNER_BY_PRODUCER = Object.freeze({
   "advertising.profitability_import": "advertising",
   "channels.coupang_catalog": "channels",
   "dashboard.coupang_products": "analytics",
-  "inventory.sellpia": "inventory",
   "orders.mall": "orders",
   "orders.mall_admin_listings": "channels",
-  "orders.sellpia_product_profitability": "analytics",
-  "orders.sellpia_sales": "analytics",
   // 소싱 수집은 브라우저 수집 세션이 아니라 실행 kind `sourcing.*`다(KID-360).
 });

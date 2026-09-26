@@ -128,7 +128,7 @@ function publishedEvaluation(abcGrade: ProductAbcGrade): ProductAbcEvaluation {
     publicationRevision: 1,
     gradeBasisCutoffDate: CUTOFF,
     saleStartDate: '2026-01-01',
-    sellpiaSourceImportRunId: SELLPIA_RUN_ID,
+    sellpiaOperationId: SELLPIA_RUN_ID,
     advertisingSourceImportRunId: ADVERTISING_RUN_ID,
     sellpiaGeneration: '1',
     advertisingGeneration: '1',

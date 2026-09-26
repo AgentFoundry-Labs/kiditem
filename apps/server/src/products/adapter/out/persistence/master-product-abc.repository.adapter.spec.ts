@@ -53,7 +53,7 @@ function stateRow(overrides: Record<string, unknown> = {}) {
     formulaRevision: 1,
     publicationRevision: 0,
     officialCutoffDate: null,
-    publishedSellpiaSourceImportRunId: null,
+    publishedSellpiaOperationId: null,
     publishedAdvertisingSourceImportRunId: null,
     publishedMappingGeneration: null,
     mappingGeneration: '7',
@@ -85,7 +85,6 @@ describe('MasterProductAbcRepositoryAdapter', () => {
 
     await expect(repository.publish(publication())).resolves.toEqual({ outcome: 'INPUT_CHANGED' });
     expect(calls).toEqual([
-      'kiditem.sellpia-product-profitability:' + organizationId,
       'kiditem.coupang-ad-profitability:' + organizationId,
       'kiditem.product-mapping:' + organizationId,
       'kiditem.master-product-abc:' + organizationId,

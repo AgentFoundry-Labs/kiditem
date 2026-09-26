@@ -104,9 +104,9 @@ export const SellpiaProfitabilityPlanSchema = z.object({
 }).strict();
 export type SellpiaProfitabilityPlan = z.infer<typeof SellpiaProfitabilityPlanSchema>;
 
-export const SellpiaProfitabilityAttemptSchema = z.object({
+/** 최근 셀피아 상품 손익 실행 요약(KID-361: 실행 `analytics.sellpia_product_profitability`를 옛 attempt 모양으로 보인다). */
+export const SellpiaProfitabilityAttemptSummarySchema = z.object({
   attemptId: z.string().uuid(),
-  attemptToken: z.string().uuid(),
   state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
   expiresAt: zIsoDate,
   capturedAt: zIsoDate,
@@ -115,44 +115,8 @@ export const SellpiaProfitabilityAttemptSchema = z.object({
   errorMessage: z.string().trim().min(1).max(300).nullable(),
   plan: SellpiaProfitabilityPlanSchema,
 }).strict();
-export type SellpiaProfitabilityAttempt = z.infer<typeof SellpiaProfitabilityAttemptSchema>;
-
-export const SellpiaProfitabilityAttemptSummarySchema =
-  SellpiaProfitabilityAttemptSchema.omit({ attemptToken: true });
 export type SellpiaProfitabilityAttemptSummary = z.infer<
   typeof SellpiaProfitabilityAttemptSummarySchema
->;
-
-export const SellpiaProfitabilityAttemptControlSchema =
-  SellpiaProfitabilityAttemptSchema.pick({
-    attemptId: true,
-    attemptToken: true,
-    state: true,
-    expiresAt: true,
-    plan: true,
-  }).extend({ state: z.literal('RUNNING') }).strict();
-export type SellpiaProfitabilityAttemptControl = z.infer<
-  typeof SellpiaProfitabilityAttemptControlSchema
->;
-
-export const SellpiaProfitabilityCompleteGenerationSchema = z.object({
-  sourceImportRunId: z.string().uuid(),
-  generation: PositiveGenerationSchema,
-  coveredThrough: DateOnlySchema,
-  capturedAt: zIsoDate,
-  mappingGeneration: z.string().regex(/^\d+$/),
-}).strict();
-export type SellpiaProfitabilityCompleteGeneration = z.infer<
-  typeof SellpiaProfitabilityCompleteGenerationSchema
->;
-
-export const SellpiaProfitabilitySourceStatusSchema = z.object({
-  latestAttempt: SellpiaProfitabilityAttemptSummarySchema.nullable(),
-  latestComplete: SellpiaProfitabilityCompleteGenerationSchema.nullable(),
-  ready: z.boolean(),
-}).strict();
-export type SellpiaProfitabilitySourceStatus = z.infer<
-  typeof SellpiaProfitabilitySourceStatusSchema
 >;
 
 const SourceImportRunObjectSchema = z.object({

@@ -45,7 +45,7 @@ export async function seedPublishedProductAbcGrades(
   }
 
   const completeEnvelope = state?.publicationRevision && state.officialCutoffDate
-    && state.publishedAt && state.publishedSellpiaSourceImportRunId
+    && state.publishedAt && state.publishedSellpiaOperationId
     && state.publishedAdvertisingSourceImportRunId
     && state.publishedMappingGeneration !== null;
   if (!completeEnvelope) {
@@ -72,7 +72,7 @@ export async function seedPublishedProductAbcGrades(
         publicationRevision: 1,
         officialCutoffDate: new Date('2026-08-31T00:00:00.000Z'),
         publishedAt: new Date('2026-09-01T00:00:00.000Z'),
-        publishedSellpiaSourceImportRunId: sellpia.id,
+        publishedSellpiaOperationId: sellpia.id,
         publishedAdvertisingSourceImportRunId: advertising.id,
         publishedMappingGeneration: 0n,
         mappingGeneration: 0n,
@@ -83,7 +83,7 @@ export async function seedPublishedProductAbcGrades(
         publicationRevision: Math.max(1, state?.publicationRevision ?? 0),
         officialCutoffDate: new Date('2026-08-31T00:00:00.000Z'),
         publishedAt: new Date('2026-09-01T00:00:00.000Z'),
-        publishedSellpiaSourceImportRunId: sellpia.id,
+        publishedSellpiaOperationId: sellpia.id,
         publishedAdvertisingSourceImportRunId: advertising.id,
         publishedMappingGeneration: state?.mappingGeneration ?? 0n,
       },
@@ -94,7 +94,7 @@ export async function seedPublishedProductAbcGrades(
   const formulaRevision = state!.formulaRevision;
   const cutoff = state!.officialCutoffDate!;
   const calculatedAt = state!.publishedAt!;
-  const sellpiaSourceImportRunId = state!.publishedSellpiaSourceImportRunId!;
+  const sellpiaOperationId = state!.publishedSellpiaOperationId!;
   const advertisingSourceImportRunId = state!.publishedAdvertisingSourceImportRunId!;
   const mappingGeneration = state!.publishedMappingGeneration!;
 
@@ -127,7 +127,7 @@ export async function seedPublishedProductAbcGrades(
         publicationRevision,
         gradeBasisCutoffDate: cutoff,
         saleStartDate: new Date('2026-01-01T00:00:00.000Z'),
-        sellpiaSourceImportRunId,
+        sellpiaOperationId,
         advertisingSourceImportRunId,
         sellpiaGeneration: 1n,
         advertisingGeneration: 1n,

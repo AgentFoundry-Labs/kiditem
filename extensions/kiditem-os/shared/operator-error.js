@@ -568,6 +568,13 @@
       "text": "상품 매핑이 동시에 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.",
       "retryable": true
     },
+    "PRODUCTS_SELLPIA_BINDING_REQUIRED": {
+      "owner": "products",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "셀피아 계정 연결을 먼저 확인한 뒤 재고를 수집해 주세요.",
+      "retryable": false
+    },
     "INVENTORY_NOT_FOUND": {
       "owner": "inventory",
       "kind": "not_found",
@@ -945,6 +952,20 @@
       "httpStatus": 500,
       "text": "통계를 계산하지 못했습니다. 잠시 뒤 다시 시도해 주세요.",
       "retryable": true
+    },
+    "ANALYTICS_SELLPIA_PROFIT_MAPPING_CHANGED": {
+      "owner": "analytics",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "수집하는 동안 상품 매핑이 바뀌었습니다. 셀피아 상품 손익을 다시 수집해 주세요.",
+      "retryable": false
+    },
+    "ANALYTICS_SELLPIA_PROFIT_EMPTY_UNPROVEN": {
+      "owner": "analytics",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "셀피아 상품 손익에 판매 기록이 없는 상품만 있습니다. 셀피아 화면을 확인한 뒤 다시 수집해 주세요.",
+      "retryable": false
     },
     "FINANCE_QUERY_FAILED": {
       "owner": "finance",

@@ -39,7 +39,8 @@ are executable in [the Supply tests](__tests__/).
 - Real ordering uses the submission port with an authenticated actor and
   caller-stable idempotency key; generic status updates cannot perform
   pending-to-ordered.
-- Submission verifies the completed Sellpia attempt and revalidates its
+- Submission verifies the completed Sellpia inventory operation
+  (`products.sellpia_inventory`, `inventoryOperationId`) and revalidates its
   generation and fence inside the submission transaction; elapsed time is not
   an inventory rejection rule.
 - Persist a prepared attempt before external checkout. Only its creator may

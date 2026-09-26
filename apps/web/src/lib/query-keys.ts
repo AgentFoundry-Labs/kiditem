@@ -85,14 +85,10 @@ export const queryKeys = {
     assets: () => [...queryKeys.inventory.all, 'sellpia-assets'] as const,
     assetList: (params: Record<string, string>) =>
       [...queryKeys.inventory.assets(), params] as const,
-    importRuns: () => [...queryKeys.inventory.all, 'sellpia-import-runs'] as const,
-    importRunList: (params: Record<string, string>) =>
-      [...queryKeys.inventory.importRuns(), params] as const,
     collectionStatus: () => [...queryKeys.inventory.all, 'sellpia-collection-status'] as const,
     // The collection control's read names the organization's running attempt.
     sellpiaCollectionStatus: (organizationId: string) =>
       [...queryKeys.inventory.collectionStatus(), 'source', organizationId] as const,
-    currentBasis: () => [...queryKeys.inventory.all, 'sellpia-current-basis'] as const,
     history: () => [...queryKeys.inventory.all, 'sellpia-history'] as const,
     historyList: (params: Record<string, string>) =>
       [...queryKeys.inventory.history(), params] as const,
@@ -100,8 +96,6 @@ export const queryKeys = {
     productSalesAll: () => [...queryKeys.inventory.all, 'sellpia-product-sales'] as const,
     productSales: (months?: number) =>
       [...queryKeys.inventory.all, 'sellpia-product-sales', months ?? 0] as const,
-    sellpiaProductProfitabilitySource: () =>
-      [...queryKeys.inventory.all, 'sellpia-product-profitability-source'] as const,
   },
   aiUsage: {
     summary: (params: Record<string, string>) => ['ai-usage', 'summary', params] as const,
@@ -139,7 +133,6 @@ export const queryKeys = {
     sellpiaSales: (from?: string, to?: string) =>
       [...queryKeys.dashboard.all, 'sellpia-sales', from ?? '', to ?? ''] as const,
     // The Sellpia sales collection control's owner status read.
-    sellpiaSalesSource: () => [...queryKeys.dashboard.all, 'sellpia-sales-source'] as const,
   },
   ads: {
     all: ['ads'] as const,

@@ -73,7 +73,7 @@ export function InventoryWorkspace({ headingLevel = 1 }: { headingLevel?: 1 | 2 
     <section className="space-y-5">
       <InventoryToolbar
         headingLevel={headingLevel}
-        latestImportAt={state.data?.latestImport?.importedAt ?? null}
+        latestImportAt={state.data?.latestCollection?.completedAt ?? null}
         busy={exporting}
         onBarcodePrint={handleBarcodePrint}
         onExcel={handleExcel}

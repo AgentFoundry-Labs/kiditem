@@ -46,7 +46,8 @@ describe('retired shared Sellpia drawer', () => {
     );
     expect(productOutflow).toContain('<SellpiaSyncAction compact showStatus />');
     expect(syncAction).toContain('onStart={() => control.start()}');
-    expect(sourceOwner).toContain('collectSellpiaInventory');
+    expect(sourceOwner).toContain('SELLPIA_INVENTORY_KIND');
+    expect(sourceOwner).not.toContain('collectSellpiaInventory');
     expect(sourceOwner).not.toContain('startSellpiaInventoryRefreshAction');
     expect(syncAction).toContain('startLabel="셀피아 재고 동기화"');
     expect(coordinator).toContain('useSellpiaInventoryCollection');

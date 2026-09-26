@@ -1002,8 +1002,11 @@ and images used by a current detail revision.
 
 ## Sellpia Current Inventory And Collection
 
-Products owns Sellpia collection attempts, the fixed source binding, generation
-and lease fences, and atomic publication of current stock. Its implementation
+Products owns the Sellpia inventory operation kind `products.sellpia_inventory`
+(ADR-0025; lock key `resource:sellpia:login`, shared by every Sellpia-login
+kind), the fixed source binding, the verified generation and
+`lastCompletedOperationId`, and atomic publication of current stock inside the
+operation's finish transaction. Its implementation
 separates `domain/`, `application/usecase/`, `application/port/in|out/`,
 `adapter/in/web/`, and `adapter/out/persistence/`; `products.module.ts` and its source runtime modules binds
 contracts to implementations. Consumers use published Products contracts.
@@ -1018,10 +1021,10 @@ See [ADR-0017](adr/0017-products-owns-source-products-channels-owns-recipes.md).
 Successful full collection updates existing product codes with stable MasterProduct UUIDs and KID codes,
 adds new codes, and sets missing codes to `currentStock = 0` while retaining rows
 and product links. A verified empty complete collection sets all quantities to
-zero. Incomplete, failed or cancelled attempts preserve the previous rows.
-Publication and terminal state commit together; a late or repeated completion
+zero. Incomplete, failed or cancelled operations preserve the previous rows.
+Publication and the terminal state commit together; a late or repeated finish
 cannot publish a second result. Failures update one deduplicated source Alert; successful publication resolves
-it. Failed collection attempts remain in source history. Cancellation has no
+it. Failed operations remain in the operations history. Cancellation has no
 failure Alert. Existing Alert policies apply to every source.
 
 All organization-scoped current DB rows are available for listing, detail,
@@ -1030,14 +1033,15 @@ membership. There is no duplicate `availableStock`, inventory active filter,
 age-based stock gate, 30% loss rejection or channel-reference quality warning.
 Basic shape, complete-source, organization and attempt checks remain mandatory.
 
-Collection control reports progress, terminal outcome and last successful
-publication. Lease expiry protects abandoned browser execution, not the age of
-usable stock. Extensions capture and transport facts; only Products publishes
+Collection control reports the running operation and terminal outcome from
+`GET /api/operations` and the last successful publication from the Products
+collection-status read. Lease expiry protects abandoned browser execution, not
+the age of usable stock. Extensions capture and transport facts; only Products publishes
 physical quantities. Manual recovery upload and transfer-state PATCH are retired.
 
 Before a purchase submission or Rocket calculation, the browser shared source
-control starts or joins Sellpia collection and waits for that exact execution to
-complete. The calculation request names its successful attempt. Products
+control starts or joins the Sellpia inventory operation and waits for that exact
+operation to succeed. The calculation request names it (`inventoryOperationId`). Products
 verifies the current completed generation; failed/cancelled collection cannot
 fall back to old stock. Supply preserves recipe ratios, bottleneck allocation,
 provider idempotency and explicit reconciliation. Ordinary inventory reads need
@@ -1106,7 +1110,9 @@ code, and a unique normalized barcode are deterministic resolution signals; miss
 or ambiguous candidates remain `mapping_required`, never synthetic
 zero stock. Products reuses this projection for operating-product summary
 badges while `/stock-ops?tab=product-outflow` preserves every linked product/
-variant destination. Analytics persists raw Sellpia product-profit coverage;
+variant destination. Analytics persists raw Sellpia product-profit coverage
+through the operation kind `analytics.sellpia_product_profitability` (one
+immutable monthly fact set per succeeded operation, KID-361);
 Finance assembles source-freshness and time-decayed contribution-profit
 evidence; Products owns the absolute ABC formula, explicit evaluation,
 publication and actual grade-transition history. Fixed anchors and thresholds

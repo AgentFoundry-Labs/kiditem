@@ -5,6 +5,8 @@ import '../collectors/advertising.wing_itemwinner';
 import '../collectors/advertising.wing_rank';
 import '../collectors/advertising.wing_tracked_products';
 import '../collectors/advertising.wing_traffic';
+import '../collectors/analytics.sellpia_product_profitability';
+import '../collectors/analytics.sellpia_sales';
 import '../collectors/channels.mall_admin_listings';
 import '../collectors/channels.sabangnet_mall_listings';
 import '../collectors/channels.sellpia_manual_match';
@@ -17,6 +19,7 @@ import '../collectors/orders.coupang_rocket_po';
 import '../collectors/orders.coupang_shipment_summary';
 import '../collectors/orders.mall_orders';
 import '../collectors/orders.sellpia_shipment_tracking';
+import '../collectors/products.sellpia_inventory';
 import '../collectors/sourcing.coupang_keyword_suggestion';
 import '../collectors/sourcing.live_commerce';
 import '../collectors/sourcing.product_extension';
@@ -46,6 +49,7 @@ import '../sites/wing/pre-matching-search';
 import '../sites/wing/reviews';
 import '../sites/wing/traffic';
 import { CHANNELS_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
+import { SELLPIA_OPERATION_CAPABILITY } from '@kiditem/shared/sellpia-operations';
 import { createBrowserResources } from '../core/browser';
 import { createTabPages } from '../sites/tab-page';
 import type { SiteDeps } from '../sites/registry';
@@ -85,6 +89,7 @@ export function installEntry(): boolean {
   // operationLoginV1: operation.start의 credentials(사이트 자동 로그인, KID-377)를 받는다 — 옛 빌드는 그 칸을 거절한다.
   // advertisingKeywordOperationKindsV1: 광고 키워드·경쟁사 kind 5종을 돈다(KID-362 K-a).
   // wingDailyOperationKindsV1: Wing 일별 사실 kind(트래픽·아이템위너)를 돈다(KID-362 K-b).
+  // sellpiaOperationKindsV1: 셀피아 재고·매출·상품 손익 kind를 돈다(KID-361).
   registerWithLegacyDomains({
     externalActions,
     capabilities: {
@@ -95,6 +100,7 @@ export function installEntry(): boolean {
       operationLoginV1: true,
       advertisingKeywordOperationKindsV1: true,
       wingDailyOperationKindsV1: true,
+      [SELLPIA_OPERATION_CAPABILITY]: true,
     },
   });
   installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });

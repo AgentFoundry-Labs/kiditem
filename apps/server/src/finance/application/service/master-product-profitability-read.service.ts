@@ -203,7 +203,7 @@ export class MasterProductProfitabilityReadService
 
     const sellpiaFacts = await this.sellpia.readGenerationFacts({
       organizationId,
-      sourceImportRunId: selected.sellpia.metadata.sourceImportRunId,
+      operationId: selected.sellpia.metadata.operationId,
       // Invalid mappings cannot contribute to the result; the source adapter
       // still validates the complete immutable generation before projecting.
       masterProductIds: products
@@ -377,7 +377,8 @@ function normalizeSellpiaGeneration(
   return {
     metadata: generation,
     view: {
-      sourceImportRunId: generation.sourceImportRunId,
+      // 셀피아 세대의 식별자는 상품 손익 실행 id다(KID-361). 광고와 같은 모양의 보기라 칸 이름은 그대로다.
+      sourceImportRunId: generation.operationId,
       publicationSequence: generation.publicationSequence,
       mappingGeneration: generation.mappingGeneration,
       coverageStartDate: from,
@@ -513,7 +514,7 @@ function aggregateSellpiaFacts(
     mappedProductIds.map((masterProductId) => [masterProductId, new Map<string, SellpiaMonth>()]),
   );
   for (const fact of facts) {
-    if (fact.sourceImportRunId !== selected.sellpia.metadata.sourceImportRunId
+    if (fact.operationId !== selected.sellpia.metadata.operationId
       || !allowedMonths.has(fact.yearMonth)) continue;
     const start = parseDate(fact.coverageStartDate, 'SOURCE_COVERAGE_MALFORMED');
     const end = parseDate(fact.coverageEndDate, 'SOURCE_COVERAGE_MALFORMED');
@@ -698,7 +699,7 @@ function assertSelectedSellpiaGeneration(
   facts: SellpiaProfitabilityGenerationFacts,
   selected: SellpiaProfitabilityGenerationMetadata,
 ): void {
-  if (facts.generation.sourceImportRunId !== selected.sourceImportRunId
+  if (facts.generation.operationId !== selected.operationId
     || facts.generation.mappingGeneration !== selected.mappingGeneration) {
     throw new UnprocessableEntityException('SOURCE_GENERATION_MISMATCH');
   }

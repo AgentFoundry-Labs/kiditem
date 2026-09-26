@@ -148,7 +148,7 @@ describe('handOffToExtensionRun', () => {
   const message = { action: 'collectSellpiaSaleSummary', attemptId: ATTEMPT_ID };
   const session = {
     attemptId: ATTEMPT_ID,
-    producer: 'orders.sellpia_sales',
+    producer: 'orders.mall',
     progress: { current: 0, total: 0, completed: 0, failed: 0, label: null },
     attention: null,
   };

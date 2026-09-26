@@ -3,7 +3,7 @@ import type {
   InventorySkuLinkedProduct,
   InventorySkuSnapshotSummary,
   InventorySkuStockStatus,
-  SellpiaImportRunSummary,
+  SellpiaInventoryLatestCollection,
   SellpiaInventorySkuLinkStatus,
 } from '@kiditem/shared/inventory';
 
@@ -34,7 +34,7 @@ export type ProductSourceSnapshotItem = Readonly<{
   currentStock: number;
   purchasePrice: number | null;
   stockValue: number | null;
-  lastImportRunId: string | null;
+  lastOperationId: string | null;
   lastImportedAt: string | null;
   linkedChannelOptionCount: number;
   linkedProductCount: number;
@@ -48,19 +48,7 @@ export type ProductSourceSnapshotListResponse = Readonly<{
   page: number;
   limit: number;
   summary: ProductSourceSnapshotSummary;
-  latestImport: SellpiaImportRunSummary | null;
-}>;
-
-export type ProductSourceImportRunListQuery = {
-  page?: number;
-  limit?: number;
-};
-
-export type ProductSourceImportRunListResponse = Readonly<{
-  items: SellpiaImportRunSummary[];
-  total: number;
-  page: number;
-  limit: number;
+  latestCollection: SellpiaInventoryLatestCollection | null;
 }>;
 
 export interface ProductSourceSnapshotPort {
@@ -74,15 +62,8 @@ export interface ProductSourceSnapshotPort {
     masterProductId: string,
   ): Promise<ProductSourceSnapshotItem>;
 
-  listImportRuns(
-    organizationId: string,
-    query: ProductSourceImportRunListQuery,
-  ): Promise<ProductSourceImportRunListResponse>;
-
   listSnapshotForExport(
     organizationId: string,
     query: ProductSourceSnapshotFilters,
   ): Promise<ProductSourceSnapshotListResponse>;
 }
-
-export type { SellpiaImportRunSummary };

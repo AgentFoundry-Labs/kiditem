@@ -12,6 +12,7 @@ import {
   seedBaseFixture,
   TEST_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
+import { seedSellpiaProfitabilityOperation } from '../../test-helpers/__tests__/sellpia-profitability-operation';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import type { PrismaClient } from '@prisma/client';
 
@@ -353,7 +354,7 @@ function input(sources: Sources) {
     organizationId: sources.organizationId,
     basisFromDate: BASIS_FROM,
     basisCutoffDate: BASIS_CUTOFF,
-    sellpiaSourceImportRunId: sources.sellpiaSourceImportRunId,
+    sellpiaOperationId: sources.sellpiaOperationId,
     advertisingSourceImportRunId: sources.advertisingSourceImportRunId,
   } as const;
 }
@@ -366,19 +367,13 @@ function sum(
 }
 
 async function seedCompleteSources(prisma: PrismaClient, organizationId: string) {
-  const sellpia = await prisma.sourceImportRun.create({
-    data: {
-      organizationId,
-      sourceType: 'sellpia_product_profitability',
-      status: 'completed',
-      publicationSequence: 1n,
-      mappingGeneration: 7n,
-      coverageStartDate: COVERAGE_START,
-      coverageEndDate: COVERAGE_END,
-      coveredMonths: ['2026-07'],
-      importedAt: new Date('2026-08-01T00:00:00.000Z'),
-      providerBackedEmptyProof: false,
-    },
+  // 셀피아 상품 손익 세대 = 성공한 실행(KID-361 J3). 월 사실은 이 실행 id로 넣는다.
+  const sellpia = await seedSellpiaProfitabilityOperation(prisma, {
+    organizationId,
+    from: COVERAGE_START.toISOString().slice(0, 10),
+    to: COVERAGE_END.toISOString().slice(0, 10),
+    mappingGeneration: 7n,
+    finishedAt: new Date('2026-08-01T00:00:00.000Z'),
   });
   const account = await prisma.channelAccount.create({
     data: {
@@ -406,7 +401,7 @@ async function seedCompleteSources(prisma: PrismaClient, organizationId: string)
   });
   return {
     organizationId,
-    sellpiaSourceImportRunId: sellpia.id,
+    sellpiaOperationId: sellpia.id,
     advertisingSourceImportRunId: advertising.id,
     accountId: account.id,
   };
@@ -442,7 +437,7 @@ async function seedProductFact(
     await prisma.sellpiaProductMonthlySales.create({
       data: {
         organizationId: sources.organizationId,
-        sourceImportRunId: sources.sellpiaSourceImportRunId,
+        operationId: sources.sellpiaOperationId,
         masterProductId: product.id,
         productCode: `SELLPIA-${fact.code}`,
         optionCode: '',

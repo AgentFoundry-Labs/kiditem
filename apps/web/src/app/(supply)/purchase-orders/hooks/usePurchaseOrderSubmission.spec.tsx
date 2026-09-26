@@ -69,7 +69,7 @@ describe('usePurchaseOrderSubmission', () => {
     );
     expect(purchaseOrdersApi.submit).toHaveBeenCalledWith({
       purchaseOrderId: 'po-1',
-      inventoryAttemptId: 'inventory-attempt-1',
+      inventoryOperationId: 'inventory-attempt-1',
       idempotencyKey: 'caller-key-1',
     });
     expect(invalidate).toHaveBeenCalledWith({ queryKey: ['purchaseOrders'] });

@@ -5,7 +5,6 @@ import {
   InventorySkuStockStatusSchema,
   SellpiaInventorySkuActiveStatusSchema,
   SellpiaInventorySkuLinkStatusSchema,
-  SellpiaImportRunListResponseSchema,
 } from './inventory-snapshot';
 
 const masterProductId = '00000000-0000-4000-8000-000000000001';
@@ -24,7 +23,7 @@ const snapshotItem = {
   currentStock: 8,
   purchasePrice: 1_000,
   stockValue: 8_000,
-  lastImportRunId: runId,
+  lastOperationId: runId,
   lastImportedAt: '2026-07-12T00:00:00.000Z',
   linkedChannelOptionCount: 2,
   linkedProductCount: 1,
@@ -52,25 +51,7 @@ describe('InventorySku snapshot contracts', () => {
         pricedAssetValue: 8_000,
         unpricedSkuCount: 0,
       },
-      latestImport: {
-        id: runId,
-        fileName: 'exported-list (3).xls',
-        fileHash: 'a'.repeat(64),
-        status: 'completed',
-        rowCount: 1_964,
-        importedAt: '2026-07-12T00:00:00.000Z',
-        lastVerifiedAt: '2026-07-12T00:00:00.000Z',
-        verificationCount: 1,
-        lastTrigger: 'legacy_manual_import',
-        freshnessGeneration: null,
-        manualFreshExportConfirmedAt: null,
-        manualFreshExportConfirmedBy: null,
-        qualityReport: null,
-        errorCode: null,
-        errorMessage: null,
-        createdAt: '2026-07-12T00:00:00.000Z',
-        updatedAt: '2026-07-12T00:00:00.000Z',
-      },
+      latestCollection: { operationId: runId, completedAt: '2026-07-12T00:00:00.000Z', generation: '7' },
     })).toBeDefined();
   });
 
@@ -90,7 +71,7 @@ describe('InventorySku snapshot contracts', () => {
         pricedAssetValue: 8_000,
         unpricedSkuCount: 0,
       },
-      latestImport: null,
+      latestCollection: null,
     })).toThrow(/Linked and unlinked SKU counts/);
   });
 
@@ -184,43 +165,8 @@ describe('InventorySku snapshot contracts', () => {
     })).toThrow();
   });
 
-  it('parses nullable pre-download failures and expanded verification provenance', () => {
-    const parsed = SellpiaImportRunListResponseSchema.parse({
-      items: [{
-        id: runId,
-        fileName: null,
-        fileHash: null,
-        status: 'failed',
-        rowCount: 0,
-        importedAt: null,
-        lastVerifiedAt: null,
-        verificationCount: 0,
-        lastTrigger: 'manual_request',
-        freshnessGeneration: '9007199254740993',
-        manualFreshExportConfirmedAt: null,
-        manualFreshExportConfirmedBy: null,
-        qualityReport: null,
-        errorCode: 'sellpia_network_failed',
-        errorMessage: 'network failed',
-        createdAt: '2026-07-12T00:00:00.000Z',
-        updatedAt: '2026-07-12T00:01:00.000Z',
-      }],
-      total: 1,
-      page: 1,
-      limit: 50,
-    });
-
-    expect(parsed.items[0]).toMatchObject({
-      fileName: null,
-      fileHash: null,
-      status: 'failed',
-      freshnessGeneration: '9007199254740993',
-      errorCode: 'sellpia_network_failed',
-    });
-  });
-
-  it('parses a completed browser JSON snapshot without inventing a file hash', () => {
-    const parsed = InventorySkuSnapshotListResponseSchema.parse({
+  it('names the published collection by operation id, completion time and generation only', () => {
+    const response = {
       items: [snapshotItem],
       total: 1,
       page: 1,
@@ -235,32 +181,12 @@ describe('InventorySku snapshot contracts', () => {
         pricedAssetValue: 8_000,
         unpricedSkuCount: 0,
       },
-      latestImport: {
-        id: runId,
-        fileName: 'sellpia-inventory-snapshot-v1.json',
-        fileHash: null,
-        status: 'completed',
-        rowCount: 1_820,
-        importedAt: '2026-07-12T00:00:00.000Z',
-        lastVerifiedAt: '2026-07-12T00:00:00.000Z',
-        verificationCount: 1,
-        lastTrigger: 'manual_request',
-        freshnessGeneration: '7',
-        manualFreshExportConfirmedAt: null,
-        manualFreshExportConfirmedBy: null,
-        qualityReport: null,
-        errorCode: null,
-        errorMessage: null,
-        createdAt: '2026-07-12T00:00:00.000Z',
-        updatedAt: '2026-07-12T00:00:00.000Z',
-      },
-    });
-
-    expect(parsed.latestImport).toMatchObject({
-      fileName: 'sellpia-inventory-snapshot-v1.json',
-      fileHash: null,
-      status: 'completed',
-      rowCount: 1_820,
-    });
+      latestCollection: { operationId: runId, completedAt: '2026-07-12T00:00:00.000Z', generation: '7' },
+    };
+    expect(InventorySkuSnapshotListResponseSchema.parse(response).latestCollection).toEqual(response.latestCollection);
+    expect(() => InventorySkuSnapshotListResponseSchema.parse({
+      ...response,
+      latestCollection: { ...response.latestCollection, generation: '-1' },
+    })).toThrow();
   });
 });

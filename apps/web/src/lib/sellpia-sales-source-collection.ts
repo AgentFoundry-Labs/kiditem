@@ -1,25 +1,11 @@
 'use client';
 
-import { SellpiaSalesSourceStatusSchema } from '@kiditem/shared/dashboard';
-import type {
-  CollectionSourceAdapter,
-  CollectionStartOutcome,
-} from '@/hooks/use-collection-source-control';
-import { apiClient } from '@/lib/api-client';
-import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { handOffToExtensionRun, startWebOpenedCollection } from '@/lib/collection-start';
-import { detectOrderCollectionExtensionId } from '@/lib/extension-bridge';
+import type { OperationListResponse } from '@kiditem/shared/operation';
+import { SELLPIA_SALES_KIND } from '@kiditem/shared/sellpia-operations';
+import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { queryKeys } from '@/lib/query-keys';
-import { beginSellpiaSalesSourceAttempt } from '@/lib/sellpia-sales-api';
-import type { z } from 'zod';
-import type { QueryKey } from '@tanstack/react-query';
+import { sellpiaOperationControl } from '@/lib/sellpia-operations';
 
-const SOURCE_PATH = '/api/sellpia-sales';
-const REQUIRED_CAPABILITY = 'collectSellpiaSaleSummaryAuthoritativeV1';
-const EXTENSION_ACTION = 'collectSellpiaSaleSummary';
-const IDLE_POLL_MS = 60_000;
-
-export type SellpiaSalesSourceStatus = z.infer<typeof SellpiaSalesSourceStatusSchema>;
 export type SellpiaSalesCollectionRange = Readonly<{ from: string; to: string }>;
 
 /** The dates a readiness check asks Sellpia sales to repair; none leaves the window to the owner. */
@@ -52,73 +38,26 @@ export function sellpiaSalesReadinessRange(check: Readonly<{
   };
 }
 
-function cancelSellpiaSalesAttempt(attemptId: string) {
-  return apiClient.post(`${SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}/cancel`);
-}
-
-function startSellpiaSalesCollection(
-  range: SellpiaSalesCollectionRange | void,
-): Promise<CollectionStartOutcome> {
-  return startWebOpenedCollection({
-    detectExtension: async () => {
-      const extensionId = await detectOrderCollectionExtensionId(1_200, REQUIRED_CAPABILITY);
-      if (!extensionId) {
-        throw new Error(
-          '안전한 판매현황 수집 기능이 필요합니다. extensions/kiditem-os를 Chrome에서 새로고침하고 kiditem.sellpia.com에 로그인한 뒤 다시 시도해주세요.',
-        );
-      }
-      return extensionId;
-    },
-    begin: async (idempotencyKey) => {
-      const started = await beginSellpiaSalesSourceAttempt({
-        idempotencyKey,
-        from: range ? range.from : undefined,
-        to: range ? range.to : undefined,
-      });
-      return { outcome: 'opened', attemptId: started.attemptId, running: started.state === 'RUNNING' };
-    },
-    handOff: ({ extensionId, attemptId }) =>
-      handOffToExtensionRun(extensionId, attemptId, { action: EXTENSION_ACTION, attemptId }),
-    cancel: ({ attemptId }) => cancelSellpiaSalesAttempt(attemptId),
-  });
-}
-
 /**
- * Sellpia sales (몰별 일매출) collection for the shared control. The page
- * opens the owner attempt for a range, or the owner's default window, and
- * hands it to the extension, which uploads the sale summary to the owner.
+ * 셀피아 판매현황(몰별 일매출) 수집 = 실행 kind `analytics.sellpia_sales`(KID-361 J2). 화면이 범위를 주면 그 창을,
+ * 안 주면 owner 기본 창(오늘까지 93일)을 확장에 시작시킨다. 새 성공 실행은 매출 화면·readiness·Wing 일매출 읽기를 새로 한다.
  */
 export const sellpiaSalesCollection: CollectionSourceAdapter<
-  SellpiaSalesSourceStatus,
+  OperationListResponse,
   SellpiaSalesCollectionRange | void
-> = {
+> = sellpiaOperationControl<SellpiaSalesCollectionRange | void>({
+  kind: SELLPIA_SALES_KIND,
   sourceKey: 'analytics.sellpia_sales',
   label: '셀피아 판매현황 수집',
-  statusQuery: collectionSourceStatusQueryOptions<
-    SellpiaSalesSourceStatus,
-    Error,
-    SellpiaSalesSourceStatus,
-    QueryKey
-  >({
-    queryKey: queryKeys.dashboard.sellpiaSalesSource(),
-    queryFn: () => apiClient.getParsed(`${SOURCE_PATH}/source`, SellpiaSalesSourceStatusSchema),
-    refetchInterval: IDLE_POLL_MS,
-    refetchIntervalInBackground: false,
-    meta: { suppressGlobalErrorToast: true },
-  }),
-  readRunning: (status) => {
-    const attempt = status.latestAttempt;
-    if (attempt?.state !== 'RUNNING') return null;
-    const { from, to } = attempt.plan.range;
-    return { attemptId: attempt.attemptId, scopeLabel: from === to ? from : `${from} ~ ${to}` };
+  scope: (range) => (range ? { startDate: range.from, endDate: range.to } : {}),
+  scopeLabel: (operation) => {
+    const window = operation.window;
+    if (!window) return null;
+    return window.start === window.end ? window.start : `${window.start} ~ ${window.end}`;
   },
-  start: (range) => startSellpiaSalesCollection(range),
-  cancelOnServer: cancelSellpiaSalesAttempt,
-  readCompleteId: (status) => status.latestComplete?.attemptId ?? null,
-  // A new COMPLETE republished the daily sales the sales screens, readiness and Wing daily sales read.
   onNewComplete: (queryClient) => {
     void queryClient.invalidateQueries({ queryKey: queryKeys.dashboard.sellpiaSalesAll() });
     void queryClient.invalidateQueries({ queryKey: ['readiness'] });
     void queryClient.invalidateQueries({ queryKey: ['traffic'] });
   },
-};
+});

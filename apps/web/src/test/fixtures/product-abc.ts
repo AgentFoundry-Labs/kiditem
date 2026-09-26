@@ -35,7 +35,7 @@ export function productAbcEvaluation(
     formulaRevision: 2,
     publicationRevision: 4,
     gradeBasisCutoffDate: '2026-07-31',
-    sellpiaSourceImportRunId: '11111111-1111-4111-8111-111111111112',
+    sellpiaOperationId: '11111111-1111-4111-8111-111111111112',
     advertisingSourceImportRunId: '11111111-1111-4111-8111-111111111113',
     sellpiaGeneration: '7',
     advertisingGeneration: '7',

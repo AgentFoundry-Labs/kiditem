@@ -13,6 +13,8 @@ model SellpiaInventoryState {
   sourceAccountKey         String?   @map("source_account_key")
   lastVerifiedAt           DateTime? @map("last_verified_at") @db.Timestamptz
   lastCompletedImportRunId String?   @map("last_completed_import_run_id") @db.Uuid
+  /// 마지막으로 발행을 끝낸 실행(`products.sellpia_inventory`, ADR-0025). 실행 표를 가리키는 스칼라 id(FK 없음).
+  lastCompletedOperationId String?   @map("last_completed_operation_id") @db.Uuid
   refreshReason            String?   @map("refresh_reason")
   requestedSyncScope       String    @default("inventory") @map("requested_sync_scope")
   activeSyncToken          String?   @map("active_sync_token") @db.Uuid
@@ -37,6 +39,7 @@ model SellpiaInventoryState {
   activeSyncOwner        User?            @relation("SellpiaInventoryStateActiveSyncOwner", fields: [activeSyncOwnerUserId], references: [id], onDelete: SetNull)
 
   @@index([lastCompletedImportRunId])
+  @@index([lastCompletedOperationId])
   @@index([activeSyncOwnerUserId])
   @@map("sellpia_inventory_states")
 }

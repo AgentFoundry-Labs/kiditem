@@ -144,7 +144,7 @@ describe('Rocket workbook export transaction (PG integration)', () => {
         lastVerifiedAt: inventoryVerifiedAt,
         requestedGeneration: 12n,
         verifiedGeneration: 12n,
-        lastCompletedImportRunId: inventoryRun.id,
+        lastCompletedOperationId: inventoryRun.id,
       },
     });
   });

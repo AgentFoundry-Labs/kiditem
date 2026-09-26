@@ -3,9 +3,8 @@ import {
   type SellpiaSalesSummary,
 } from '@kiditem/shared/dashboard';
 import { apiClient } from '@/lib/api-client';
-import { z } from 'zod';
 
-// Sellpia 판매현황(몰별 매출) 백엔드 read/ingest 래퍼.
+// Sellpia 판매현황(몰별 매출) 백엔드 read 래퍼. 수집은 실행 kind `analytics.sellpia_sales`(lib/sellpia-sales-source-collection).
 
 // 느린/지연 백엔드에서 무한 대기하지 않도록 타임아웃을 건다. 초과 시 throw →
 // React Query 가 재시도(백오프)한다. 기간 전환 시 한 요청이 지연돼도 카드가 멈추지 않는다.
@@ -32,47 +31,4 @@ export async function fetchSellpiaSalesSummary(params?: {
   } finally {
     clearTimeout(timeout);
   }
-}
-
-const SellpiaSalesYmdSchema = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
-const SellpiaSalesSourcePlanSchema = z.object({
-  sourceType: z.literal('sellpia_sales_daily'),
-  parserVersion: z.literal('sellpia-sales-v1'),
-  sourceOrigin: z.literal('https://kiditem.sellpia.com'),
-  sourcePath: z.literal('/sale_summary.html?mode=main_link'),
-  sourceAccountKey: z.literal('kiditem'),
-  range: z.object({ from: SellpiaSalesYmdSchema, to: SellpiaSalesYmdSchema }).strict(),
-  businessDates: z.array(SellpiaSalesYmdSchema),
-}).strict();
-
-export const SellpiaSalesSourceAttemptSchema = z.object({
-  attemptId: z.string().uuid(),
-  sourceType: z.literal('sellpia_sales_daily'),
-  state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
-  expiresAt: z.string().datetime({ offset: true }),
-  plan: SellpiaSalesSourcePlanSchema,
-  actualCutoffAt: z.string().datetime({ offset: true }).nullable(),
-  completedAt: z.string().datetime({ offset: true }).nullable(),
-  contentChecksum: z.string().regex(/^[0-9a-f]{64}$/i).nullable(),
-  contentByteCount: z.number().int().nonnegative().nullable(),
-  rowCount: z.number().int().nonnegative(),
-  sellerCount: z.number().int().nonnegative(),
-  businessDates: z.array(SellpiaSalesYmdSchema),
-  errorCode: z.string().nullable(),
-  errorMessage: z.string().nullable(),
-}).strict();
-
-export type SellpiaSalesSourceAttempt = z.infer<typeof SellpiaSalesSourceAttemptSchema>;
-
-export function beginSellpiaSalesSourceAttempt(input: {
-  idempotencyKey: string;
-  from?: string;
-  to?: string;
-}): Promise<SellpiaSalesSourceAttempt> {
-  const range = input.from || input.to ? { range: { from: input.from, to: input.to } } : {};
-  return apiClient
-    .post<unknown>('/api/sellpia-sales/attempts', range, {
-      headers: { 'Idempotency-Key': input.idempotencyKey },
-    })
-    .then((raw) => SellpiaSalesSourceAttemptSchema.parse(raw));
 }

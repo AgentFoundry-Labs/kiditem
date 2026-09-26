@@ -27,6 +27,19 @@ architecture spec therefore scopes its Prisma-free rules to `*/dashboard/`.
   Source terminal handling never invokes ABC. Analytics never treats a partial,
   failed, missing, or stale source as a successful zero and does not initiate
   collection.
+- Sellpia sales is the operation kind `analytics.sellpia_sales`
+  (`adapter/in/operation/`, ADR-0025, lock `resource:sellpia:login`): finalize
+  replaces the window's `SellpiaSalesDailySnapshot` rows inside the finish
+  transaction and stamps `operationId`. A date counts as collected only when a
+  succeeded operation's window covers it (`readSucceededOperationWindows`);
+  rows without `operationId` are not read.
+- Sellpia product profitability is the operation kind
+  `analytics.sellpia_product_profitability` (same lock): plan fixes the 401-day
+  window through yesterday and the product-mapping generation; finalize takes
+  the `kiditem.product-mapping:<org>` transaction lock, refuses a changed
+  mapping generation and inserts one immutable monthly fact set keyed by
+  `operationId`. A generation is one succeeded operation; ABC provenance
+  (`…SellpiaOperationId`) names it.
 - Products owns `MasterProduct` ABC evaluation, publication, current grade, and
   history. Analytics may read the stored result and expose reporting views, but
   it does not calculate or store a second grade and does not trigger refresh.

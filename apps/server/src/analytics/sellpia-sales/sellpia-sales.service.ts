@@ -43,8 +43,8 @@ import { isCoupangSeller } from './domain/channel-group';
 /**
  * Sellpia 판매현황(sale_summary) read model.
  *
- * Collection attempts and daily snapshots are owned by SellpiaSalesSourceService.
- * This service reads the owner's published facts and combines them
+ * Collection is the operation kind `analytics.sellpia_sales` (KID-361); its finish
+ * transaction writes the daily snapshots. This service reads those published facts and combines them
  * with the existing Coupang advertising cost projection for the dashboard.
  */
 @Injectable()

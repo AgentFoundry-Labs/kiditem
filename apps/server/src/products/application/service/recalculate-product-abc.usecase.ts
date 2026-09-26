@@ -167,7 +167,7 @@ function candidateRecord(
   }
   return {
     ...candidate,
-    sellpiaSourceImportRunId: sellpia.sourceImportRunId,
+    sellpiaOperationId: sellpia.sourceImportRunId,
     advertisingSourceImportRunId: advertisingExcluded ? null : advertising.sourceImportRunId,
     sellpiaGeneration: sellpia.publicationSequence,
     advertisingGeneration: advertisingExcluded ? null : advertising.publicationSequence,

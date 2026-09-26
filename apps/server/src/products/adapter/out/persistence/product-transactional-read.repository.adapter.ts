@@ -32,7 +32,7 @@ async lockCollectionFence<TClient>(
       freshness_fence AS "freshnessFence",
       verified_generation AS "freshnessGeneration",
       last_verified_at AS "lastVerifiedAt",
-      last_completed_import_run_id AS "lastCompletedImportRunId",
+      last_completed_operation_id AS "lastCompletedOperationId",
       requested_generation AS "requestedGeneration",
       active_generation AS "activeGeneration",
       failed_generation AS "failedGeneration",

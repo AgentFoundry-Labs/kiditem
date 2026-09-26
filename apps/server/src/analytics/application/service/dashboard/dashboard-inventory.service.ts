@@ -107,7 +107,7 @@ export class DashboardInventoryService {
           publicationRevision: abcFacts.publication?.publicationRevision ?? null,
           officialCutoffDate: abcFacts.publication?.officialCutoffDate ?? null,
           publishedAt: abcFacts.publication?.publishedAt ?? null,
-          sellpiaSourceImportRunId: abcFacts.publication?.sellpiaSourceImportRunId ?? null,
+          sellpiaOperationId: abcFacts.publication?.sellpiaOperationId ?? null,
           advertisingSourceImportRunId: abcFacts.publication?.advertisingSourceImportRunId ?? null,
           mappingGeneration: abcFacts.publication?.mappingGeneration ?? null,
           includedProductCount: abcFacts.contributionRows.length,
