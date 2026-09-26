@@ -45,6 +45,7 @@ vi.mock('../lib/order-collection-extension', async (importOriginal) => ({
       : '주문 수집 확장 프로그램을 찾지 못했습니다.',
 }));
 
+import { apiClient } from '@/lib/api-client';
 import { useOrderCollectionSessionControls } from './use-order-collection-session-controls';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
@@ -150,6 +151,32 @@ describe('useOrderCollectionSessionControls', () => {
       date: '2026-09-10',
       serverOwned: true,
     });
+  });
+
+  // 달력의 수집은 방금 끝낸 캡처 실행으로 변환한다(KID-198). 그 실행을 다시 잡을 뿐 새 실행을 시작하지 않는다.
+  it('re-activates a succeeded directship operation for conversion without beginning another', async () => {
+    const operationId = '66666666-6666-4666-8666-666666666666';
+    const rocketAccountId = '77777777-7777-4777-8777-777777777777';
+    vi.mocked(apiClient.getParsed).mockResolvedValue({
+      operation: {
+        id: operationId, kind: 'orders.coupang_directship', status: 'succeeded', plan: { channelAccountId: rocketAccountId },
+        startedAt: '2026-09-10T01:00:00.000Z', expiresAt: null, finishedAt: '2026-09-10T01:05:00.000Z', errorCode: null, errorMessage: null,
+      },
+    });
+    const direct = { ...account, key: 'coupang-direct', name: '쿠팡직배송' };
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([direct], rocketAccountId),
+      { wrapper },
+    );
+
+    const run = await result.current.prepareDirectRun(direct, operationId);
+
+    expect(apiClient.getParsed).toHaveBeenCalledWith(`/api/operations/${operationId}`, expect.anything());
+    expect(run).toMatchObject({ attemptId: operationId, sourceOwner: 'coupang_directship' });
+    expect(run.extensionId).toBeUndefined();
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.sendToExtension).not.toHaveBeenCalled();
+    expect(mocks.detectExtensionStatus).not.toHaveBeenCalled();
   });
 
   it('starts manual-upload owner attempts without extension admission', async () => {
