@@ -171,8 +171,11 @@ remains a separate existing action.
 Business owners retain their own facts and source status. An Alert is a human
 notification, not execution state. Owner attempts are fenced by an
 `attemptToken` so stale extension reports cannot change a newer attempt.
-The global notification view reads durable Alerts only, with ten-second
-foreground polling, focus refetch, and dismissal invalidation. It does not
+The global notification view reads `/api/alerts` only, with ten-second
+foreground polling, focus refetch, and dismissal invalidation. A kind moved to
+the operation contract records its failure only on its operation row; the
+alerts reader absorbs those failures (KID-355 policy B) and merges them with
+the remaining `source_failure` rows of unmoved sources. It does not
 merge run progress or replay an SSE stream. Source screens own their progress
 and current-source reads.
 
@@ -180,7 +183,7 @@ Sourcing collection uses its source owners directly:
 
 ```text
 screen / Agent -> Sourcing owner attempt + frozen plan
-browser source -> extension operation.start -> runtime collector chunks -> owner finalize (ledger + publication) + Alert
+browser source -> extension operation.start -> runtime collector chunks -> owner finalize (ledger + publication); failure stays on the operation row
 server source -> provider -> owner terminal + Alert
 COMPLETE observations + latest attempt status -> source screen / Agent
 ```
@@ -345,7 +348,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/server/src/agent-os/adapter/out/history/sqlite` | Platform | Outbound SQLite Adapter for the completed-event history Interface, with its Implementation and OSS characterization specs. |
 | `apps/server/src/content` | Owner Domain | Image/text/detail-page/thumbnail AI providers, durable direct-job execution, content-workspace ownership/branching, and Agent OS output boundaries. |
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
-| `apps/server/src/alerts` | Owner Capability | Organization-scoped source-failure notification storage; source owners call its terminal-transaction API and consumers poll open/resolved alerts. Human notifications only, with transaction-scoped failure upsert/resolution and no execution or freshness state. The writer keeps a Korean producer sentence and otherwise derives the message from the terminal code (`operatorErrorText`); the title is the producer's Korean title or `<source> 실패`. |
+| `apps/server/src/alerts` | Owner Capability | Organization-scoped source-failure notifications. Unmoved source owners call its terminal-transaction API; for kinds moved to the operation contract the reader derives one alert per (kind, plan channel account/mall) from the newest failed operation through `common/operation/transaction/latest-operation-outcomes` and stores only operator dismissals (`operation_failure` rows). Consumers poll open/resolved alerts. Human notifications only, with transaction-scoped failure upsert/resolution and no execution or freshness state. The writer keeps a Korean producer sentence and otherwise derives the message from the terminal code (`operatorErrorText`); the title is the producer's Korean title or `<source> 실패`. |
 | `apps/server/src/todo` | Owner Domain | Operator-written to-do list (`/api/todo`): who owes the work (operator or development), its area, and its status. Nothing derives it from other screens. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
 | `apps/server/src/channels` | Owner Domain | Marketplace account, common selling products and options, persistent registration target settings ([ADR-0020](adr/0020-channels-owns-reusable-registration-targets.md)), account-scoped listing/registration capability, the registration execution fence (`ProductRegistrationExecution`: many immutable executions per persistent registration target, read through its public capability — [ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)), one mall-neutral registration execution per target (`register` · `update` · `sold_out` · `resume` · `composition_change`) with channel adapters (`adapter/out/channel/<key>`) answering mall-specific identity, evidence and prepare-time facts, representative-image uploads as `thumbnail_update` executions on channels whose adapter supports them (Content supplies only the approved image), Wing/Rocket listing identity, typed exact-evidence extraction, option-to-MasterProduct recipes and matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and current browser login/form-fill results without a persisted observation log. |
@@ -1023,9 +1026,9 @@ adds new codes, and sets missing codes to `currentStock = 0` while retaining row
 and product links. A verified empty complete collection sets all quantities to
 zero. Incomplete, failed or cancelled operations preserve the previous rows.
 Publication and the terminal state commit together; a late or repeated finish
-cannot publish a second result. Failures update one deduplicated source Alert; successful publication resolves
-it. Failed operations remain in the operations history. Cancellation has no
-failure Alert. Existing Alert policies apply to every source.
+cannot publish a second result. Failures stay on the operation row, and the
+alerts reader shows the newest failure per source until a later success
+resolves it. Cancellation is not a failure alert.
 
 All organization-scoped current DB rows are available for listing, detail,
 search, totals, Excel and barcode operations, regardless of per-row snapshot
