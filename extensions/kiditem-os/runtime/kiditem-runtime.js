@@ -8407,6 +8407,7 @@ var KidItemRuntime = (() => {
     return cleared;
   }
   var POLL_MS = 250;
+  var LOGIN_LIKE_URL = /\/(?:login|signin|sign-in|auth)(?:[/?#.]|$)/i;
   var MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
   function createTabPages(deps) {
     function page(tabId, owned) {
@@ -8512,8 +8513,10 @@ var KidItemRuntime = (() => {
       },
       attach: (tabId) => page(tabId, false),
       async find(urlPattern) {
-        const [existing] = await deps.chrome.tabs.query({ url: urlPattern });
-        return typeof existing?.id === "number" ? page(existing.id, false) : null;
+        const candidates = (await deps.chrome.tabs.query({ url: urlPattern })).filter((tab) => typeof tab.id === "number");
+        const usable = candidates.filter((tab) => !LOGIN_LIKE_URL.test(tab.url ?? ""));
+        const picked = usable.find((tab) => tab.status === "complete") ?? usable[0] ?? null;
+        return picked && typeof picked.id === "number" ? page(picked.id, false) : null;
       },
       async fetchText(url, init) {
         try {
@@ -8647,10 +8650,11 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/fresh-tab.ts
   var NAVIGATION_TIMEOUT_MS2 = 3e4;
   async function withFreshTab(tabs, url, read, options = {}) {
-    const page = (options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null) ?? await tabs.open("about:blank");
+    const reused = options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null;
+    const page = reused ?? await tabs.open("about:blank");
     let keepOpen = false;
     try {
-      await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS2 });
+      if (!reused) await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS2 });
       return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
     } catch (error) {
       if (leftForOperator(error)) keepOpen = true;
