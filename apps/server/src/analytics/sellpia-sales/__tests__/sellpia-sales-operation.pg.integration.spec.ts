@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { operationFailureAlerts } from '../../../test-helpers/operation-failure-alerts';
 import type { PrismaClient } from '@prisma/client';
 import {
   SELLPIA_INVENTORY_KIND,
@@ -15,7 +16,6 @@ import {
   TEST_ORGANIZATION_ID as ORG,
 } from '../../../test-helpers/real-prisma';
 import { ordersOperationsApp } from '../../../test-helpers/orders-operations';
-import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { FactInputError } from '../../../common/errors/fact-errors';
 import { sellpiaInventoryOperationProviders } from '../../../products/product-source.module';
 import { SellpiaInventoryOperationOwner } from '../../../products/adapter/in/operation/sellpia-inventory-operation-owner';
@@ -30,7 +30,6 @@ import { SellpiaSalesService } from '../sellpia-sales.service';
 // 원장(SellpiaSalesDailySnapshot.operationId)은 finish 트랜잭션에서만 창 바꿔 쓰기로 쓰이고, 읽기는 성공한 실행의 창을
 // 덮은 날만 본다(KID-361 J2, ADR-0025).
 const base = '/api/sellpia-sales';
-const DEDUPE_KEY = 'source:sellpia_sales_daily';
 
 type Row = { sellerId: string; sellerName: string; date: string; price: number; amount: number; buyPrice: number };
 const row = (date: string, price: number, overrides: Partial<Row> = {}): Row => ({
@@ -167,7 +166,7 @@ describe('analytics.sellpia_sales owner over the operation contract + disposable
     expect(published).toMatchObject({ facts: [], coverage: { includedDates: ['2026-07-16'] } });
   });
 
-  it('실패·중단은 원장을 바꾸지 않는다 — 실패는 원천 알림 하나, 중단은 알림 없음, 다음 성공이 알림을 푼다', async () => {
+  it('실패·중단은 원장을 바꾸지 않는다 — 실패는 실행 표에만 남아 알림 reader가 보이고, 중단은 알림이 아니며, 다음 성공이 알림을 닫는다', async () => {
     await collect({ startDate: '2026-07-16', endDate: '2026-07-16' }, [row('2026-07-16', 1_200)]);
 
     const failed = await harness.beginRun(SELLPIA_SALES_KIND, { startDate: '2026-07-16', endDate: '2026-07-16' });
@@ -177,12 +176,19 @@ describe('analytics.sellpia_sales owner over the operation contract + disposable
     await request(harness.httpUrl).post(`/api/operations/${cancelled.operation.id}/cancel`).expect(200);
 
     await expect(facts('2026-07-16', '2026-07-16')).resolves.toMatchObject({ facts: [expect.objectContaining({ revenueKrw: 1_200 })] });
-    const alerts = new SourceFailureAlerts(prisma as never);
-    await expect(alerts.list(ORG)).resolves.toMatchObject([{ attemptId: failed.operation.id, status: 'OPEN', message: '셀피아 로그인이 필요합니다.' }]);
-    await expect(prisma.alert.count({ where: { organizationId: ORG, dedupeKey: DEDUPE_KEY } })).resolves.toBe(1);
+    await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({
+      rows: 0,
+      items: [{
+        type: 'operation_failure',
+        attemptId: failed.operation.id,
+        status: 'OPEN',
+        sourceType: SELLPIA_SALES_KIND,
+        message: '사이트에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도해 주세요.',
+      }],
+    });
 
     await collect({ startDate: '2026-07-17', endDate: '2026-07-17' }, [row('2026-07-17', 600)]);
-    await expect(prisma.alert.findFirstOrThrow({ where: { organizationId: ORG, dedupeKey: DEDUPE_KEY } })).resolves.toMatchObject({ status: 'RESOLVED' });
+    await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({ rows: 0, items: [{ status: 'RESOLVED', attemptId: failed.operation.id }] });
   });
 
   it('형식이 틀린 줄·창 밖 일자·계획 밖 창·모르는 청크는 VALIDATION_FAILED이고 원장에 아무것도 없다', async () => {

@@ -47,8 +47,6 @@ import { AdCampaignSourceRepository } from "./adapter/out/repository/ad-campaign
 import { WingTrackedProductRepositoryAdapter } from "./adapter/out/repository/wing-tracked-product.repository.adapter";
 import { KiditemStorefrontAdapter } from "./adapter/out/provider/kiditem-storefront.adapter";
 import { KeywordRelevanceJudgeAdapter } from "./adapter/out/ai/keyword-relevance-judge.adapter";
-import { AdvertisingSourceAlertAdapter } from "./adapter/out/repository/advertising-source-alert.adapter";
-import { ADVERTISING_SOURCE_ALERT_PORT } from "./application/port/out/repository/advertising-source-alert.port";
 // adapter/in/operation — 실행 계약 kind(ADR-0025, KID-362)
 import { WingTrackedProductsOperationOwner } from "./adapter/in/operation/wing-tracked-products-operation-owner";
 import { WingRankOperationOwner } from "./adapter/in/operation/wing-rank-operation-owner";
@@ -140,7 +138,6 @@ const REPOSITORY_PORT_BINDINGS = [
     useExisting: WingTrackedProductRepositoryAdapter,
   },
   { provide: KIDITEM_STOREFRONT_PORT, useExisting: KiditemStorefrontAdapter },
-  { provide: ADVERTISING_SOURCE_ALERT_PORT, useExisting: AdvertisingSourceAlertAdapter },
   {
     provide: KEYWORD_RELEVANCE_JUDGE_PORT,
     useExisting: KeywordRelevanceJudgeAdapter,
@@ -208,7 +205,6 @@ const REPOSITORY_PORT_BINDINGS = [
     WingTrackedProductRepositoryAdapter,
     KiditemStorefrontAdapter,
     KeywordRelevanceJudgeAdapter,
-    AdvertisingSourceAlertAdapter,
     // adapter/in/operation
     WingTrackedProductsOperationOwner,
     WingRankOperationOwner,

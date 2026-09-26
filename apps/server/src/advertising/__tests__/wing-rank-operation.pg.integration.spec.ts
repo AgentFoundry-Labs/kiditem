@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { operationFailureAlerts } from '../../test-helpers/operation-failure-alerts';
 import {
   WING_RANK_CHUNK_KIND,
   WING_RANK_KIND,
@@ -107,8 +108,10 @@ describe('advertising.wing_rank owner over the operation contract + disposable P
 
     await expect(prisma.coupangWingSalesRankDailySnapshot.count({ where: { organizationId: ORG, operationId: { not: null } } })).resolves.toBe(0);
     await expect(momentum.readWingSalesMomentum(ORG, 3650)).resolves.toEqual([]);
-    await expect(prisma.alert.findFirst({ where: { organizationId: ORG, dedupeKey: 'source:coupang_wing_rank' } }))
-      .resolves.toMatchObject({ status: 'OPEN', attemptId: run.operation.id });
+    await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({
+      rows: 0,
+      items: [{ type: 'operation_failure', status: 'OPEN', attemptId: run.operation.id, sourceType: WING_RANK_KIND }],
+    });
   });
 
   it('키워드를 주면 오늘 이미 본 키워드라도 그 키워드만 돌고, 같은 키워드 슬롯이 잡혀 있으면 다른 계정 실행도 OPERATION_IN_PROGRESS', async () => {

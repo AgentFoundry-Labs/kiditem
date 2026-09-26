@@ -2,7 +2,6 @@ import { ListingContentQueryRepositoryAdapter } from '../../../../../content/ada
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { SourceFailureAlerts } from '../../../../../alerts/alerts.service';
 import { ProductAvailabilityRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-availability.repository.adapter';
 import { ProductAvailabilityUseCase } from '../../../../../products/application/service/product-availability.usecase';
 import { ProductSourcePublicationRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-source-publication.repository.adapter';
@@ -256,7 +255,7 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
    */
   async function publishSellpiaSnapshot(rows: readonly string[]) {
     // 셀피아 재고 실행(products.sellpia_inventory)의 finish 트랜잭션이 하는 발행을 그대로 부른다(KID-361).
-    const publication = new ProductSourcePublicationRepositoryAdapter(new SourceFailureAlerts(prisma as never));
+    const publication = new ProductSourcePublicationRepositoryAdapter();
     const decoded = decodeSellpiaWorkbook(Buffer.from([SELLPIA_HEADER, ...rows].join('\n')));
     await prisma.$transaction((tx) => publication.publishSnapshot(ownerTransaction(tx), {
       organizationId: TEST_ORGANIZATION_ID,

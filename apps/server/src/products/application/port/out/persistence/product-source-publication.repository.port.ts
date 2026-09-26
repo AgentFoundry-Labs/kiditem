@@ -23,12 +23,6 @@ export interface ProductSourcePublicationRepositoryPort {
     transaction: OwnerTransaction,
     input: SellpiaSnapshotPublicationInput,
   ): Promise<SellpiaSnapshotPublicationChanges>;
-
-  /** 재시도 없는 최종 실패를 운영자 알림으로 남긴다(원천별 하나). */
-  recordFailure(
-    transaction: OwnerTransaction,
-    input: { organizationId: string; operationId: string; errorCode: string; errorMessage: string | null },
-  ): Promise<void>;
 }
 
 export const PRODUCT_SOURCE_PUBLICATION_REPOSITORY_PORT = Symbol(

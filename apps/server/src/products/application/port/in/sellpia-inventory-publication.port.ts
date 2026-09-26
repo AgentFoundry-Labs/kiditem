@@ -16,12 +16,4 @@ export interface SellpiaInventoryPublicationPort {
     trigger: SellpiaInventoryPlanTrigger | null;
     snapshot: SellpiaInventoryBrowserSnapshot;
   }): Promise<SellpiaInventoryResult>;
-
-  /** 재시도 없는 최종 실패(실행 계약 `onFailed`) — 운영자 알림만 남기고 상품·상태는 그대로다. */
-  recordFailure(transaction: OwnerTransaction, input: {
-    organizationId: string;
-    operationId: string;
-    errorCode: string;
-    errorMessage: string | null;
-  }): Promise<void>;
 }

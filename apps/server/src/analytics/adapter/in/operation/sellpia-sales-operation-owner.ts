@@ -7,7 +7,6 @@ import {
 } from '@kiditem/shared/sellpia-operations';
 import type {
   JsonObject,
-  OperationFailedContext,
   OperationFinalizeContext,
   OperationOwnerPort,
 } from '../../../../common/operation/application/port/out/owner/operation-owner.port';
@@ -22,7 +21,7 @@ import { SellpiaSalesPublicationRepository } from '../../../sellpia-sales/sellpi
 /**
  * 셀피아 매출(ADR-0025 kind `analytics.sellpia_sales`, KID-361 J2). 확장이 판매현황(`order_search.ajax.html`,
  * 주문일자 기준)을 판매처·일 줄로 올리고, finish 트랜잭션에서 창 안의 원장 줄을 바꿔 쓴다. 창은 plan 범위(기본 오늘까지
- * 93일, 100일 이하)다. 잠금은 셀피아 로그인 하나(`resource:sellpia:login`). 최종 실패는 원천 알림 하나로 남긴다.
+ * 93일, 100일 이하)다. 잠금은 셀피아 로그인 하나(`resource:sellpia:login`). 최종 실패는 실행 행에만 남는다(알림 reader가 읽는다, KID-355 정책 B).
  */
 @OperationOwner()
 @Injectable()
@@ -52,14 +51,5 @@ export class SellpiaSalesOperationOwner implements OperationOwnerPort {
       ...publication,
     });
     return { result };
-  }
-
-  onFailed(context: OperationFailedContext): Promise<void> {
-    return this.publication.recordFailure(context.tx, {
-      organizationId: context.organizationId,
-      operationId: context.operationId,
-      errorCode: context.errorCode,
-      errorMessage: context.errorMessage,
-    });
   }
 }

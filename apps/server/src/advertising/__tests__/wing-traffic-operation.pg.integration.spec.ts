@@ -23,7 +23,7 @@ import {
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { operationFailureAlerts } from '../../test-helpers/operation-failure-alerts';
 import { seedWingTrafficOperation } from '../../test-helpers/__tests__/wing-traffic-operation-seeds';
 import { readListingTrafficWindowFacts } from '../../channels/adapter/out/persistence/channel-listing-daily-facts';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
@@ -62,7 +62,6 @@ describe('advertising.wing_traffic owner over the operation contract + disposabl
     prisma = makeTestPrisma();
     await prisma.$connect();
     const ports = channelFactTestPorts(prisma as never);
-    const alerts = new SourceFailureAlerts(prisma as never);
     reader = new WingTrafficReadRepository(ports.accounts, prisma as never);
     const module = await Test.createTestingModule({
       imports: [DiscoveryModule],
@@ -72,8 +71,8 @@ describe('advertising.wing_traffic owner over the operation contract + disposabl
         OperationService,
         { provide: OPERATION_PORT, useExisting: OperationService },
         { provide: OPERATION_REPOSITORY, useValue: new OperationRepositoryAdapter(prisma as never) },
-        { provide: WingTrafficOperationOwner, useValue: new WingTrafficOperationOwner(new WingTrafficOperationRepository(ports.accounts, ports.listings, prisma as never, alerts)) },
-        { provide: WingItemwinnerOperationOwner, useValue: new WingItemwinnerOperationOwner(new WingItemwinnerOperationRepository(ports.accounts, ports.listings, prisma as never, alerts)) },
+        { provide: WingTrafficOperationOwner, useValue: new WingTrafficOperationOwner(new WingTrafficOperationRepository(ports.accounts, ports.listings, prisma as never)) },
+        { provide: WingItemwinnerOperationOwner, useValue: new WingItemwinnerOperationOwner(new WingItemwinnerOperationRepository(ports.accounts, ports.listings, prisma as never)) },
       ],
     }).compile();
     app = module.createNestApplication({ logger: false });
@@ -283,21 +282,22 @@ describe('advertising.wing_traffic owner over the operation contract + disposabl
     expect((await listingDays(listingA.id))[0]).toMatchObject({ isOfferWinner: true, sampleCount: 3, operationId: itemwinnerOp, trafficViews: 9 });
   });
 
-  it('refuses when the account changed its Wing identity during the run, and keeps one failure alert per account', async () => {
+  it('refuses when the account changed its Wing identity during the run; the failure stays on the operation row and the alert reader shows it per account', async () => {
     const day = closed();
     const run = await beginRun({ startDate: day, endDate: day });
     await collect(run, { [day]: [row(day, '1001')] });
     await prisma.channelAccount.update({ where: { id: accountId }, data: { vendorId: 'B0002' } });
     expect((await finish(run).expect(400)).body.details.reason).toBe('account_changed');
     await finish(run, { outcome: 'failed', errorCode: 'VALIDATION_FAILED', errorMessage: '계정이 바뀌었습니다.' }).expect(200);
-    await expect(prisma.alert.findMany({ where: { organizationId: ORG } })).resolves.toMatchObject([
-      { status: 'OPEN', sourceType: 'coupang_wing_traffic', dedupeKey: `source:coupang_wing_traffic:${accountId}`, attemptId: run.operation.id },
-    ]);
+    await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({
+      rows: 0,
+      items: [{ type: 'operation_failure', status: 'OPEN', sourceType: WING_TRAFFIC_KIND, attemptId: run.operation.id }],
+    });
     await prisma.channelAccount.update({ where: { id: accountId }, data: { vendorId: 'A0001' } });
     const next = await beginRun({ startDate: day, endDate: day });
     await collect(next, { [day]: [row(day, '1001')] });
     await finish(next).expect(200);
-    await expect(prisma.alert.findMany({ where: { organizationId: ORG } })).resolves.toMatchObject([{ status: 'RESOLVED', attemptId: next.operation.id }]);
+    await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({ rows: 0, items: [{ status: 'RESOLVED', attemptId: run.operation.id }] });
   });
 
   it('AD_TRAFFIC_READ_PORT reads each date from the newest run that confirmed it and reconciles an exact period', async () => {

@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import {
   COMPETITOR_CATALOG_KIND,
   COMPETITOR_SELLER_IDENTITY_KIND,
@@ -9,27 +9,14 @@ import {
 import { type OperationPlanResult, type OperationStagedChunk, type OperationWindow } from '@kiditem/shared/operation';
 import type {
   JsonObject,
-  OperationFailedContext,
   OperationFinalizeContext,
   OperationOwnerPort,
   OperationPlanContext,
 } from '../../../../common/operation/application/port/out/owner/operation-owner.port';
 import { OperationOwner } from '../../../../common/operation/application/port/out/owner/operation-owner.decorator';
 import { COMPETITOR_ENRICHMENT_LOCK_KEY } from '@kiditem/shared/advertising-operations';
-import {
-  ADVERTISING_SOURCE_ALERT_PORT,
-  type AdvertisingSourceAlert,
-  type AdvertisingSourceAlertPort,
-} from '../../../application/port/out/repository/advertising-source-alert.port';
 import { CompetitorTrackingService } from '../../../application/service/competitor-tracking.service';
-import { failureMessage, parseOperationScope } from './operation-scope';
-
-const ALERT: AdvertisingSourceAlert = {
-  sourceType: 'coupang_competitor_seller_identity',
-  dedupeKey: 'source:coupang_competitor_seller_identity',
-  title: '쿠팡 판매자 확인 실패',
-  href: '/rank-tracking',
-};
+import { parseOperationScope } from './operation-scope';
 
 /**
  * 경쟁 판매자 확인(ADR-0025 kind `advertising.competitor_seller_identity`, KID-362). 확장이 계획한 경쟁 상품의 상세
@@ -45,7 +32,6 @@ export class CompetitorSellerIdentityOperationOwner implements OperationOwnerPor
 
   constructor(
     private readonly competitors: CompetitorTrackingService,
-    @Inject(ADVERTISING_SOURCE_ALERT_PORT) private readonly alerts: AdvertisingSourceAlertPort,
   ) {}
 
   async plan(scope: JsonObject, context: OperationPlanContext): Promise<OperationPlanResult> {
@@ -65,21 +51,10 @@ export class CompetitorSellerIdentityOperationOwner implements OperationOwnerPor
       plan: CompetitorSellerIdentityPlanSchema.parse(context.plan),
       chunks,
     });
-    await this.alerts.resolve(context.tx, { organizationId: context.organizationId, operationId: context.operationId, alert: ALERT });
     // 연쇄(KID-354 규칙): 판매자를 하나라도 확인했으면 그 판매자샵 카탈로그 보강을 같은 환경이 이어서 시작한다
     // (옛 afterBatch의 카탈로그 단계). 확인한 판매자가 없으면 이을 것이 없다.
     return result.identities > 0
       ? { result: { ...result, next: { kind: COMPETITOR_CATALOG_KIND, scope: { rankEnrichment: true } } } }
       : { result };
-  }
-
-  onFailed(context: OperationFailedContext): Promise<void> {
-    return this.alerts.recordFailure(context.tx, {
-      organizationId: context.organizationId,
-      operationId: context.operationId,
-      alert: ALERT,
-      code: context.errorCode,
-      message: failureMessage(context, ALERT.sourceType),
-    });
   }
 }

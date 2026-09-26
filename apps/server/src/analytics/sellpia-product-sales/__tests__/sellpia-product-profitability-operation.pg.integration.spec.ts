@@ -1,5 +1,6 @@
 import request from 'supertest';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
+import { operationFailureAlerts } from '../../../test-helpers/operation-failure-alerts';
 import type { PrismaClient } from '@prisma/client';
 import {
   SELLPIA_PRODUCT_PROFITABILITY_KIND,
@@ -16,7 +17,6 @@ import {
 } from '../../../test-helpers/real-prisma';
 import { ordersOperationsApp } from '../../../test-helpers/orders-operations';
 import { seedSourceProduct } from '../../../test-helpers/inventory-seeds';
-import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';
 import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { advanceProductMappingGeneration } from '../../../products/adapter/out/persistence/product-mapping-generation';
@@ -29,7 +29,6 @@ import { SellpiaProfitabilitySourceService } from '../sellpia-profitability-sour
 // 확장 수집기(analytics.sellpia_product_profitability)가 밟는 길을 서버에서 그대로: begin → profit_months 청크 → finish.
 // 월 사실(sellpia_product_monthly_sales.operation_id)은 finish 트랜잭션에서만 한 벌(불변 세대)로 쓰이고, ABC 근거는
 // 성공한 실행을 세대로 읽는다(KID-361 J3, ADR-0025).
-const DEDUPE_KEY = 'source:sellpia-product-profitability';
 const NOW = new Date('2026-09-03T01:00:00.000Z');
 const COVERED = [
   '2025-07', '2025-08', '2025-09', '2025-10', '2025-11', '2025-12',
@@ -67,7 +66,6 @@ describe('analytics.sellpia_product_profitability owner over the operation contr
     harness = await ordersOperationsApp(prisma, {
       owners: [SellpiaProductProfitabilityOperationOwner, SellpiaSalesOperationOwner],
       providers: [
-        SourceFailureAlerts,
         SellpiaProfitabilityPublicationRepository,
         SellpiaSalesPublicationRepository,
         { provide: PRODUCT_TRANSACTIONAL_READ_PORT, useClass: ProductTransactionalReadRepositoryAdapter },
@@ -215,7 +213,7 @@ describe('analytics.sellpia_product_profitability owner over the operation contr
     await expect(prisma.sellpiaProductMonthlySales.count()).resolves.toBe(0);
   });
 
-  it('실패는 원천 알림 하나(원장 그대로), 중단은 알림 없음, 다음 성공이 알림을 푼다', async () => {
+  it('실패는 실행 표에만 남아 알림 reader가 보이고(원장 그대로), 중단은 알림이 아니며, 다음 성공이 알림을 닫는다', async () => {
     const failed = await harness.beginRun(SELLPIA_PRODUCT_PROFITABILITY_KIND, {});
     await harness.put(failed, [{ chunkKind: SELLPIA_PROFIT_CHUNK_KIND, payload: [product('P-1', [month('2026-08')])] }]);
     await harness.finish(failed, { outcome: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '셀피아 로그인이 필요합니다.' }).expect(200);
@@ -224,14 +222,15 @@ describe('analytics.sellpia_product_profitability owner over the operation contr
     await request(harness.httpUrl).post(`/api/operations/${cancelled.operation.id}/cancel`).expect(200);
 
     await expect(prisma.sellpiaProductMonthlySales.count()).resolves.toBe(0);
-    await expect(prisma.alert.findMany({ where: { organizationId: ORG, dedupeKey: DEDUPE_KEY } })).resolves.toEqual([
-      expect.objectContaining({ attemptId: failed.operation.id, status: 'OPEN' }),
-    ]);
+    await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({
+      rows: 0,
+      items: [{ type: 'operation_failure', attemptId: failed.operation.id, status: 'OPEN', sourceType: SELLPIA_PRODUCT_PROFITABILITY_KIND }],
+    });
     const catalog = await source.readGenerationCatalog({ organizationId: ORG });
     expect(catalog).toMatchObject({ latestAttempt: { attemptId: cancelled.operation.id, state: 'FAILED' }, completeGenerations: [] });
 
     await collect([product('P-1', [month('2026-08')])]);
-    await expect(prisma.alert.findFirstOrThrow({ where: { organizationId: ORG, dedupeKey: DEDUPE_KEY } })).resolves.toMatchObject({ status: 'RESOLVED' });
+    await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({ rows: 0, items: [{ status: 'RESOLVED', attemptId: failed.operation.id }] });
   });
 
   it('임대가 끝난 도는 실행은 실행 계약의 만료 규칙대로 읽힌다 — 시도가 남으면 다시 도는 중, 다 썼으면 만료 실패', async () => {

@@ -31,11 +31,4 @@ export interface WingItemwinnerOperationRepositoryPort {
       rows: readonly WingItemwinnerRow[];
     },
   ): Promise<WingItemwinnerPublication>;
-  /** 최종 실패를 계정마다 하나인 원천 실패 알림으로 남긴다(`*_CANCELLED`는 남기지 않는다 — 옛 attempt와 같다). */
-  recordFailure(
-    transaction: OwnerTransaction,
-    input: { organizationId: string; operationId: string; channelAccountId: string; errorCode: string; errorMessage: string | null },
-  ): Promise<void>;
-  /** 성공한 실행이 그 계정의 열린 실패 알림을 닫는다. */
-  resolveFailure(transaction: OwnerTransaction, input: { organizationId: string; operationId: string; channelAccountId: string }): Promise<void>;
 }

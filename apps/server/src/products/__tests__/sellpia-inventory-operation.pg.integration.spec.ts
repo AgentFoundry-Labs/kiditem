@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { operationFailureAlerts } from '../../test-helpers/operation-failure-alerts';
 import { SELLPIA_SHIPMENT_TRACKING_KIND } from '@kiditem/shared/orders-operations';
 import { SELLPIA_INVENTORY_CHUNK_KIND, SELLPIA_INVENTORY_KIND } from '@kiditem/shared/sellpia-operations';
 import {
@@ -163,7 +164,7 @@ describe('products.sellpia_inventory owner over the operation contract + disposa
     });
   });
 
-  it('실패로 끝난 실행은 상품·상태를 바꾸지 않고 잠금을 놓는다', async () => {
+  it('실패로 끝난 실행은 상품·상태를 바꾸지 않고 잠금을 놓는다 — 실패는 실행 표에만 남아 알림 reader가 보인다', async () => {
     await collect([row('P-1', 'RED')]);
     const before = await state();
     const run = await harness.beginRun(SELLPIA_INVENTORY_KIND, {});
@@ -172,6 +173,10 @@ describe('products.sellpia_inventory owner over the operation contract + disposa
     expect(failed.body.operation).toMatchObject({ status: 'failed', lockKeys: [] });
     await expect(products()).resolves.toEqual([expect.objectContaining({ currentStock: 5 })]);
     await expect(state()).resolves.toMatchObject({ lastCompletedOperationId: before.lastCompletedOperationId, verifiedGeneration: 1n });
+    await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({
+      rows: 0,
+      items: [{ type: 'operation_failure', attemptId: run.operation.id, status: 'OPEN', sourceType: SELLPIA_INVENTORY_KIND, href: '/product-hub' }],
+    });
     await harness.beginRun(SELLPIA_INVENTORY_KIND, {});
   });
 

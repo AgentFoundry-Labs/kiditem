@@ -24,7 +24,6 @@ export const TRANSACTION_TIMEOUT_MS = 30_000;
 export const INSERT_CHUNK_SIZE = 5_000;
 export const MAX_GENERATION_FACT_ROWS = 20_000 * 24;
 export const INT4_MAX = 2_147_483_647;
-export const ALERT_DEDUPE_KEY = 'source:sellpia-product-profitability';
 
 export type InventoryCandidate = Readonly<{
   id: string;
@@ -209,24 +208,6 @@ export async function lockMapping(
       hashtextextended(${`kiditem.product-mapping:${organizationId}`}, 0)
     )::text AS "lock"
   `);
-}
-
-export function failureAlert(
-  organizationId: string,
-  attemptId: string,
-  errorCode: string,
-  errorMessage: string,
-) {
-  return {
-    organizationId,
-    dedupeKey: ALERT_DEDUPE_KEY,
-    sourceType: SOURCE_TYPE,
-    attemptId,
-    code: errorCode,
-    title: '셀피아 상품 손익 수집 실패',
-    message: errorMessage,
-    href: '/stock-ops',
-  };
 }
 
 export function monthIntersection(

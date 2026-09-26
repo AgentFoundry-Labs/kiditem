@@ -6,9 +6,6 @@ import { WingTrackedProductsOperationOwner } from '../advertising/adapter/in/ope
 import { WingTrackedProductRepositoryAdapter } from '../advertising/adapter/out/repository/wing-tracked-product.repository.adapter';
 import { WING_TRACKED_PRODUCT_REPOSITORY_PORT } from '../advertising/application/port/out/repository/wing-tracked-product.repository.port';
 import { WingTrackedProductService } from '../advertising/application/service/wing-tracked-product.service';
-import { SourceFailureAlerts } from '../alerts/alerts.service';
-import { AdvertisingSourceAlertAdapter } from '../advertising/adapter/out/repository/advertising-source-alert.adapter';
-import { ADVERTISING_SOURCE_ALERT_PORT } from '../advertising/application/port/out/repository/advertising-source-alert.port';
 import { WingRankOperationOwner } from '../advertising/adapter/in/operation/wing-rank-operation-owner';
 import { KeywordSerpOperationOwner } from '../advertising/adapter/in/operation/keyword-serp-operation-owner';
 import { KeywordRankIngestHandler } from '../advertising/application/service/keyword-rank-ingest.handler';
@@ -46,7 +43,6 @@ export async function advertisingKeywordOperationsApp(prisma: PrismaClient, opti
       // KidItem 스토어프런트(외부 HTTP)는 시험에서 비운다 — 자사 상품은 Wing 카탈로그 옵션으로 충분하다.
       { provide: KIDITEM_STOREFRONT_PORT, useValue: { listNewProducts: async () => [] } },
       { provide: CHANNEL_ACCOUNT_PORT, useValue: accounts },
-      { provide: ADVERTISING_SOURCE_ALERT_PORT, useValue: new AdvertisingSourceAlertAdapter(new SourceFailureAlerts(prisma as never)) },
       WingTrackedProductService,
       { provide: WING_TRACKED_PRODUCT_REPOSITORY_PORT, useValue: new WingTrackedProductRepositoryAdapter(prisma as never) },
       ...(options.providers ?? []),

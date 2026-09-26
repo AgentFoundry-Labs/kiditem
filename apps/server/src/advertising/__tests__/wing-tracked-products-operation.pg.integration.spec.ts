@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { operationFailureAlerts } from '../../test-helpers/operation-failure-alerts';
 import {
   WING_TRACKED_PRODUCTS_CHUNK_KIND,
   WING_TRACKED_PRODUCTS_KIND,
@@ -108,15 +109,19 @@ describe('advertising.wing_tracked_products owner over the operation contract + 
     const rows = await prisma.coupangWingTrackedProductDailySnapshot.findMany({ where: { organizationId: ORG } });
     expect(rows).toHaveLength(1);
     expect(rows[0]).toMatchObject({ salePriceKrw: 1_000, operationId: null });
-    await expect(prisma.alert.findFirst({ where: { organizationId: ORG, dedupeKey: 'source:coupang-wing-tracked-products' } }))
-      .resolves.toMatchObject({ status: 'OPEN', attemptId: run.operation.id });
+    await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({
+      rows: 0,
+      items: [{ type: 'operation_failure', status: 'OPEN', attemptId: run.operation.id, sourceType: WING_TRACKED_PRODUCTS_KIND }],
+    });
 
-    // 다음 성공이 같은 트랜잭션에서 알림을 닫는다.
+    // 같은 계정의 다음 성공이 알림을 닫는다(알림 reader가 실행 표에서 본다).
     const retry = await harness.beginRun(WING_TRACKED_PRODUCTS_KIND, { channelAccountId: account, keywords: ['연필'] });
     await harness.put(retry, [{ chunkKind: WING_TRACKED_PRODUCTS_CHUNK_KIND, payload: [{ keyword: '연필', items: [metrics('p-1', 3_000)] }] }]);
     await harness.finish(retry).expect(200);
-    await expect(prisma.alert.findFirst({ where: { organizationId: ORG, dedupeKey: 'source:coupang-wing-tracked-products' } }))
-      .resolves.toMatchObject({ status: 'RESOLVED' });
+    await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({
+      rows: 0,
+      items: [{ status: 'RESOLVED', attemptId: run.operation.id }],
+    });
   });
 
   it('키워드 청크가 모자라면 수집 미완, 실행 중 추적 대상이 바뀌면 ADVERTISING_TRACKED_TARGETS_CHANGED', async () => {

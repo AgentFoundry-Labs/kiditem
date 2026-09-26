@@ -1,7 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { PrismaClient } from '@prisma/client';
 import { SELLPIA_PRODUCT_PROFITABILITY_KIND, type SellpiaProfitProduct } from '@kiditem/shared/sellpia-operations';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import {
   monthsBetween,
   sellpiaProfitabilityPlan,
@@ -91,7 +90,6 @@ export async function publishSellpiaProfitability(
 ): Promise<{ operationId: string; plan: SellpiaProfitabilityPlan }> {
   const publication = new SellpiaProfitabilityPublicationRepository(
     prisma as never,
-    new SourceFailureAlerts(prisma as never),
     new ProductTransactionalReadRepositoryAdapter(),
   );
   const now = new Date();

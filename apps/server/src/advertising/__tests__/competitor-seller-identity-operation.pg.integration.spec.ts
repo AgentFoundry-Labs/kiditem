@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { operationFailureAlerts } from '../../test-helpers/operation-failure-alerts';
 import {
   COMPETITOR_CATALOG_KIND,
   COMPETITOR_SELLER_IDENTITY_CHUNK_KIND,
@@ -106,6 +107,10 @@ describe('advertising.competitor_seller_identity owner over the operation contra
 
     const snapshot = await prisma.coupangKeywordSerpDailySnapshot.findFirstOrThrow({ where: { organizationId: ORG, keyword: '슬라임' } });
     expect((snapshot.items as { serpItems: Array<Record<string, unknown>> }).serpItems.every((item) => !item.sellerId && !item.sellerIdentityOperationId)).toBe(true);
+    await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({
+      rows: 0,
+      items: [{ type: 'operation_failure', status: 'OPEN', attemptId: run.operation.id, sourceType: COMPETITOR_SELLER_IDENTITY_KIND }],
+    });
 
     const foreign = await harness.beginRun(COMPETITOR_SELLER_IDENTITY_KIND, {});
     await harness.put(foreign, [{ chunkKind: COMPETITOR_SELLER_IDENTITY_CHUNK_KIND, payload: [identity({ ...first!, productKey: 'product:999' }, 'S9')] }]);

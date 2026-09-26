@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { operationFailureAlerts } from '../../test-helpers/operation-failure-alerts';
 import {
   KEYWORD_SERP_CHUNK_KIND,
   KEYWORD_SERP_KIND,
@@ -115,8 +116,10 @@ describe('advertising.keyword_serp owner over the operation contract + disposabl
     await expect(prisma.coupangKeywordSerpDailySnapshot.count({ where: { organizationId: ORG, operationId: { not: null } } })).resolves.toBe(0);
     await expect(prisma.coupangKeywordTracker.count({ where: { organizationId: ORG } })).resolves.toBe(0);
     await expect(rank.findLatestSerp(ORG, '슬라임')).resolves.toBeNull();
-    await expect(prisma.alert.findFirst({ where: { organizationId: ORG, dedupeKey: 'source:coupang_keyword_serp' } }))
-      .resolves.toMatchObject({ status: 'OPEN', attemptId: run.operation.id });
+    await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({
+      rows: 0,
+      items: [{ type: 'operation_failure', status: 'OPEN', attemptId: run.operation.id, sourceType: KEYWORD_SERP_KIND }],
+    });
   });
 
   it('보안 화면에서 멈춘 SERP(provider_wall)는 순위권 밖을 증명하지 못해 실행이 실패하고 원장에 아무것도 남지 않는다', async () => {

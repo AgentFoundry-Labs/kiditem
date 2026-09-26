@@ -1,12 +1,10 @@
 import { Injectable } from '@nestjs/common';
 import type { SellpiaSalesResult } from '@kiditem/shared/sellpia-operations';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { parseBusinessDate } from '../../common/kst';
 import type { OwnerTransaction } from '../../common/owner-transaction';
 import { ownerTransactionClient } from '../../prisma/owner-transaction';
 import type { SellpiaSalesLedgerRow } from './domain/sellpia-sales-operation';
 
-export const SELLPIA_SALES_ALERT_DEDUPE_KEY = 'source:sellpia_sales_daily';
 const INSERT_CHUNK_SIZE = 1_000;
 
 /**
@@ -15,8 +13,6 @@ const INSERT_CHUNK_SIZE = 1_000;
  */
 @Injectable()
 export class SellpiaSalesPublicationRepository {
-  constructor(private readonly alerts: SourceFailureAlerts) {}
-
   async replaceWindow(transaction: OwnerTransaction, input: {
     organizationId: string;
     operationId: string;
@@ -47,31 +43,7 @@ export class SellpiaSalesPublicationRepository {
     for (let offset = 0; offset < data.length; offset += INSERT_CHUNK_SIZE) {
       await tx.sellpiaSalesDailySnapshot.createMany({ data: data.slice(offset, offset + INSERT_CHUNK_SIZE) });
     }
-    await this.alerts.resolveSourceFailure(tx, {
-      organizationId: input.organizationId,
-      dedupeKey: SELLPIA_SALES_ALERT_DEDUPE_KEY,
-      attemptId: input.operationId,
-    });
     return { days: input.days, rows: data.length };
-  }
-
-  /** 재시도 없는 최종 실패: 원천 알림 하나(중단 코드는 알림 모듈이 거른다). 원장은 그대로다. */
-  async recordFailure(transaction: OwnerTransaction, input: {
-    organizationId: string;
-    operationId: string;
-    errorCode: string;
-    errorMessage: string | null;
-  }): Promise<void> {
-    await this.alerts.recordTerminalOutcome(ownerTransactionClient(transaction), {
-      code: input.errorCode,
-      organizationId: input.organizationId,
-      sourceType: 'sellpia_sales_daily',
-      attemptId: input.operationId,
-      dedupeKey: SELLPIA_SALES_ALERT_DEDUPE_KEY,
-      title: '셀피아 판매현황 수집 실패',
-      message: input.errorMessage ?? input.errorCode,
-      href: '/stock-ops',
-    });
   }
 }
 

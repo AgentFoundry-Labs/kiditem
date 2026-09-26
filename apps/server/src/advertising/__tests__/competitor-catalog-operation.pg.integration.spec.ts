@@ -1,5 +1,6 @@
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { operationFailureAlerts } from '../../test-helpers/operation-failure-alerts';
 import {
   COMPETITOR_CATALOG_CHUNK_KIND,
   COMPETITOR_CATALOG_KIND,
@@ -114,8 +115,10 @@ describe('advertising.competitor_catalog owner and the K3 → K4 → K5 chain ov
     await harness.put(standalone, [{ chunkKind: COMPETITOR_CATALOG_CHUNK_KIND, payload: [catalogOf(first!, 101)] }]);
     expect((await harness.finish(standalone).expect(400)).body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'catalog_product_limit' } });
     await harness.finish(standalone, { outcome: 'failed', errorCode: 'VALIDATION_FAILED' }).expect(200);
-    await expect(prisma.alert.findFirst({ where: { organizationId: ORG, dedupeKey: 'source:coupang-competitor-catalog' } }))
-      .resolves.toMatchObject({ status: 'OPEN' });
+    await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({
+      rows: 0,
+      items: [{ type: 'operation_failure', status: 'OPEN', attemptId: standalone.operation.id, sourceType: COMPETITOR_CATALOG_KIND }],
+    });
 
     const one = await harness.beginRun(COMPETITOR_CATALOG_KIND, { sellerId: first!.sellerId });
     expect((one.operation.plan as { targets: CompetitorCatalogTarget[] }).targets.map((target) => target.sellerId)).toEqual([first!.sellerId]);

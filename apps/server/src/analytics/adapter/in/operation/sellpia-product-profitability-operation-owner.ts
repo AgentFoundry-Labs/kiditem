@@ -7,7 +7,6 @@ import {
 } from '@kiditem/shared/sellpia-operations';
 import type {
   JsonObject,
-  OperationFailedContext,
   OperationFinalizeContext,
   OperationOwnerPort,
   OperationPlanContext,
@@ -24,7 +23,7 @@ import { SellpiaProfitabilityPublicationRepository } from '../../../sellpia-prod
  * 셀피아 상품 손익(ADR-0025 kind `analytics.sellpia_product_profitability`, KID-361 J3). 확장이 이익현황
  * (`stat_prd_profit`)을 어제까지 401일 판매 창 + 달마다의 구매기간으로 읽어 상품 하나씩 `profit_months` 청크로 올리고,
  * finish 트랜잭션에서 불변 월 사실 한 벌(실행 id = 세대)을 넣는다. ABC는 발행하지 않는다(명시 명령만).
- * 잠금은 셀피아 로그인 하나(`resource:sellpia:login`). 최종 실패는 원천 알림 하나로 남긴다.
+ * 잠금은 셀피아 로그인 하나(`resource:sellpia:login`). 최종 실패는 실행 행에만 남는다(알림 reader가 읽는다, KID-355 정책 B).
  */
 @OperationOwner()
 @Injectable()
@@ -57,14 +56,5 @@ export class SellpiaProductProfitabilityOperationOwner implements OperationOwner
       ...submission,
     });
     return { result };
-  }
-
-  onFailed(context: OperationFailedContext): Promise<void> {
-    return this.publication.recordFailure(context.tx, {
-      organizationId: context.organizationId,
-      operationId: context.operationId,
-      errorCode: context.errorCode,
-      errorMessage: context.errorMessage,
-    });
   }
 }

@@ -1,7 +1,6 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { KiditemConflictError, KiditemInvalidValueError } from '@kiditem/shared/errors';
 import type { SellpiaProductProfitabilityResult, SellpiaProfitProduct } from '@kiditem/shared/sellpia-operations';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { OwnerTransaction } from '../../common/owner-transaction';
 import { ownerTransactionClient } from '../../prisma/owner-transaction';
 import { PrismaService } from '../../prisma/prisma.service';
@@ -11,8 +10,6 @@ import {
 } from '../../products/application/port/in/product-transactional-read.port';
 import type { SellpiaProfitabilityPlan } from './domain/sellpia-profitability-operation';
 import {
-  ALERT_DEDUPE_KEY,
-  failureAlert,
   freezeFacts,
   insertFacts,
   lockMapping,
@@ -29,7 +26,6 @@ import {
 export class SellpiaProfitabilityPublicationRepository {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly alerts: SourceFailureAlerts,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly products: ProductTransactionalReadPort,
   ) {}
@@ -80,11 +76,6 @@ export class SellpiaProfitabilityPublicationRepository {
     if (persisted !== facts.length) {
       throw new Error(`Expected ${facts.length} Sellpia profitability facts, found ${persisted}`);
     }
-    await this.alerts.resolveSourceFailure(tx, {
-      organizationId: input.organizationId,
-      dedupeKey: ALERT_DEDUPE_KEY,
-      attemptId: input.operationId,
-    });
     const mappedRows = facts.filter((fact) => fact.masterProductId !== null).length;
     return {
       months: input.plan.coveredMonths.length,
@@ -96,18 +87,5 @@ export class SellpiaProfitabilityPublicationRepository {
         contentByteCount: input.contentByteCount,
       },
     };
-  }
-
-  /** 재시도 없는 최종 실패: 원천 알림 하나(중단 코드는 알림 모듈이 거른다). 원장은 그대로다. */
-  async recordFailure(transaction: OwnerTransaction, input: {
-    organizationId: string;
-    operationId: string;
-    errorCode: string;
-    errorMessage: string | null;
-  }): Promise<void> {
-    await this.alerts.recordTerminalOutcome(
-      ownerTransactionClient(transaction),
-      failureAlert(input.organizationId, input.operationId, input.errorCode, input.errorMessage ?? input.errorCode),
-    );
   }
 }

@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma, type SellpiaInventoryState } from '@prisma/client';
 import { KiditemConflictError, KiditemInvalidValueError, KiditemPreconditionError } from '@kiditem/shared/errors';
-import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { applySourceFacts, type MasterProduct as MasterProductDomain } from '../../../domain/master-product';
@@ -11,10 +10,6 @@ import { lockProductMapping } from '../../../transaction/product-mapping-lock';
 import { advanceProductMappingGeneration } from './product-mapping-generation';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { lockProductSource } from './transaction/product-source-lock';
-import {
-  PRODUCT_SOURCE_ALERT_DEDUPE_KEY,
-  productSourceFailureAlert,
-} from '../sellpia/product-source-failure-alert';
 import type {
   ProductSourcePublicationRepositoryPort,
   SellpiaSnapshotPublicationChanges,
@@ -43,8 +38,6 @@ type MappingIdentityBasis = {
 @Injectable()
 export class ProductSourcePublicationRepositoryAdapter
 implements ProductSourcePublicationRepositoryPort {
-  constructor(private readonly alerts: SourceFailureAlerts) {}
-
   async publishSnapshot(
     transaction: OwnerTransaction,
     input: SellpiaSnapshotPublicationInput,
@@ -86,25 +79,7 @@ implements ProductSourcePublicationRepositoryPort {
       // 상태 줄을 잠그고 읽었으므로 도달하지 않는 방어선이다.
       throw new KiditemConflictError('PRODUCTS_STATE_CONFLICT', { details: { reason: 'sellpia_inventory_state_fence_lost' } });
     }
-    await this.alerts.resolveSourceFailure(tx, {
-      organizationId: input.organizationId,
-      dedupeKey: PRODUCT_SOURCE_ALERT_DEDUPE_KEY,
-      attemptId: input.operationId,
-    });
     return changes;
-  }
-
-  /** 재시도 없는 최종 실패: 운영자 알림 하나(원천별로 합친다). 상품·상태는 그대로다. */
-  async recordFailure(
-    transaction: OwnerTransaction,
-    input: { organizationId: string; operationId: string; errorCode: string; errorMessage: string | null },
-  ): Promise<void> {
-    await this.alerts.recordTerminalOutcome(ownerTransactionClient(transaction), productSourceFailureAlert({
-      organizationId: input.organizationId,
-      attemptId: input.operationId,
-      errorCode: input.errorCode,
-      errorMessage: input.errorMessage ?? input.errorCode,
-    }));
   }
 }
 
