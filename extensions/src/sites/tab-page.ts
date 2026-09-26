@@ -165,7 +165,7 @@ export interface TabPageDeps {
 
 const POLL_MS = 250;
 /** 재사용 후보에서 빼는 주소(로그인·가입·인증 화면). */
-const LOGIN_LIKE_URL = /\/(?:login|signin|sign-in|auth)(?:[/?#.]|$)/i;
+const LOGIN_LIKE_URL = /\/[^/?#]*(?:login|signin|sign-in|auth)/i;
 const MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
 
 export function createTabPages(deps: TabPageDeps): TabPages {

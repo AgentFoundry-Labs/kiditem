@@ -8407,7 +8407,7 @@ var KidItemRuntime = (() => {
     return cleared;
   }
   var POLL_MS = 250;
-  var LOGIN_LIKE_URL = /\/(?:login|signin|sign-in|auth)(?:[/?#.]|$)/i;
+  var LOGIN_LIKE_URL = /\/[^/?#]*(?:login|signin|sign-in|auth)/i;
   var MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
   function createTabPages(deps) {
     function page(tabId, owned) {
