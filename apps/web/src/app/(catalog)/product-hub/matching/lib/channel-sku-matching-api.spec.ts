@@ -3,12 +3,9 @@ import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
 import {
   autoMatchChannelProducts,
-  beginSellpiaManualMatchSourceAttempt,
-  getSellpiaManualMatchTargets,
   importCoupangRocketMatchingCsv,
   listChannelProductMappings,
-  readSellpiaManualMatchSourceAttempt,
-  readSellpiaManualMatchSourceCurrent,
+  readSellpiaManualMatchSource,
   listRecipeComponentCandidates,
   saveProductInventoryMatching,
 } from './channel-sku-matching-api';
@@ -112,99 +109,13 @@ describe('channel product matching API', () => {
     ]);
   });
 
-  it('reads the target set and starts a frozen manual-match source attempt', async () => {
-    vi.mocked(apiClient.getParsed).mockResolvedValue({
-      sourceOrigin: 'https://kiditem.sellpia.com',
-      sourcePath: '/product_manual_match.html',
-      version: 1,
-      targetCount: 1,
-      targetCodes: ['634-1'],
-      currentSnapshot: null,
-    });
-    vi.mocked(apiClient.post).mockResolvedValue({
-      attemptId: '11111111-1111-4111-8111-111111111111',
-      attemptToken: '22222222-2222-4222-8222-222222222222',
-      state: 'RUNNING',
-      expiresAt: '2099-01-01T00:00:00.000Z',
-      plan: {
-        sourceType: 'sellpia_product_manual_match',
-        parserVersion: 'sellpia-manual-match-v1',
-        sourceOrigin: 'https://kiditem.sellpia.com',
-        sourcePath: '/product_manual_match.html',
-        targetCount: 1,
-        targetCodes: ['634-1'],
-      },
-      contentChecksum: null,
-      capturedAt: null,
-      errorCode: null,
-      errorMessage: null,
-    });
+  it('reads the manual-match source (latest operation and published snapshot)', async () => {
+    vi.mocked(apiClient.getParsed).mockResolvedValue({ latestOperation: null, currentSnapshot: null });
 
-    await getSellpiaManualMatchTargets();
-    await beginSellpiaManualMatchSourceAttempt({ idempotencyKey: 'key-1' });
-
+    await expect(readSellpiaManualMatchSource()).resolves.toEqual({ latestOperation: null, currentSnapshot: null });
     expect(apiClient.getParsed).toHaveBeenCalledWith(
-      '/api/channels/product-mappings/sellpia-manual-match/targets',
+      '/api/channels/product-mappings/sellpia-manual-match/source',
       expect.any(Object),
     );
-    expect(apiClient.post).toHaveBeenCalledWith(
-      '/api/channels/product-mappings/sellpia-manual-match/attempts',
-      {},
-      { headers: { 'Idempotency-Key': 'key-1' } },
-    );
-  });
-
-  it('reads the owner attempt and current status without re-importing a page snapshot', async () => {
-    vi.mocked(apiClient.getParsed)
-      .mockResolvedValueOnce({
-        attemptId: '11111111-1111-4111-8111-111111111111',
-        attemptToken: '22222222-2222-4222-8222-222222222222',
-        state: 'COMPLETE',
-        expiresAt: '2099-01-01T00:00:00.000Z',
-        plan: {
-          sourceType: 'sellpia_product_manual_match',
-          parserVersion: 'sellpia-manual-match-v1',
-          sourceOrigin: 'https://kiditem.sellpia.com',
-          sourcePath: '/product_manual_match.html',
-          targetCount: 1,
-          targetCodes: ['634-1'],
-        },
-        contentChecksum: 'c'.repeat(64),
-        capturedAt: '2026-07-31T04:00:00.000Z',
-        errorCode: null,
-        errorMessage: null,
-      })
-      .mockResolvedValueOnce({
-        latestAttempt: {
-          attemptId: '11111111-1111-4111-8111-111111111111',
-          state: 'COMPLETE',
-          expiresAt: '2099-01-01T00:00:00.000Z',
-          plan: {
-            sourceType: 'sellpia_product_manual_match',
-            parserVersion: 'sellpia-manual-match-v1',
-            sourceOrigin: 'https://kiditem.sellpia.com',
-            sourcePath: '/product_manual_match.html',
-            targetCount: 1,
-            targetCodes: ['634-1'],
-          },
-          contentChecksum: 'c'.repeat(64),
-          capturedAt: '2026-07-31T04:00:00.000Z',
-          errorCode: null,
-          errorMessage: null,
-        },
-        currentSnapshot: {
-          targetCount: 1,
-          matchedTargetCount: 1,
-          aliasCount: 1,
-          snapshotHash: 'c'.repeat(64),
-          capturedAt: '2026-07-31T04:00:00.000Z',
-        },
-      });
-
-    await expect(readSellpiaManualMatchSourceAttempt('11111111-1111-4111-8111-111111111111'))
-      .resolves.toMatchObject({ state: 'COMPLETE' });
-    await expect(readSellpiaManualMatchSourceCurrent()).resolves.toMatchObject({
-      currentSnapshot: { aliasCount: 1 },
-    });
   });
 });

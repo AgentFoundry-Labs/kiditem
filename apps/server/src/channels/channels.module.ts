@@ -53,6 +53,7 @@ import { ChannelCatalogPublicationRepositoryAdapter } from './adapter/out/reposi
 import { WING_CATALOG_OPERATION_OWNERS } from './adapter/in/operation/wing-catalog-operation-owners';
 import { RocketMatchingCsvOperationOwner } from './adapter/in/operation/rocket-matching-csv-operation-owner';
 import { SabangnetMallListingsOperationOwner } from './adapter/in/operation/sabangnet-mall-listings-operation-owner';
+import { SellpiaManualMatchOperationOwner } from './adapter/in/operation/sellpia-manual-match-operation-owner';
 import { WingCatalogOperationService } from './application/service/collection/wing-catalog-operation.service';
 import { WING_CATALOG_OPERATION_PORT } from './application/port/in/wing-catalog-operation.port';
 import { OperationModule } from '../common/operation/operation.module';
@@ -161,7 +162,9 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
     { provide: ChannelProductMatchingService, useFactory: (...dependencies: ConstructorParameters<typeof ChannelProductMatchingService>) => new ChannelProductMatchingService(...dependencies), inject: [CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT, CATALOG_DISPLAY_MEDIA_PORT, PRODUCT_AVAILABILITY_PORT, CHANNEL_ACTIVITY_PORT] },
     { provide: ChannelRecipeSuggestionService, useFactory: (...dependencies: ConstructorParameters<typeof ChannelRecipeSuggestionService>) => new ChannelRecipeSuggestionService(...dependencies), inject: [CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT, SELLPIA_RECIPE_EVIDENCE_PORT, SELLPIA_MANUAL_MATCH_REPOSITORY_PORT] },
     { provide: ChannelOptionRecipeCandidateService, useFactory: (...dependencies: ConstructorParameters<typeof ChannelOptionRecipeCandidateService>) => new ChannelOptionRecipeCandidateService(...dependencies), inject: [PRODUCT_AVAILABILITY_PORT] },
-    { provide: SellpiaManualMatchService, useFactory: (...dependencies: ConstructorParameters<typeof SellpiaManualMatchService>) => new SellpiaManualMatchService(...dependencies), inject: [SELLPIA_RECIPE_EVIDENCE_PORT, SELLPIA_MANUAL_MATCH_REPOSITORY_PORT] },
+    // 셀피아 수동상품매칭 실행 kind(KID-363). owner는 부팅 때 실행 계약에 등록된다.
+    SellpiaManualMatchService,
+    SellpiaManualMatchOperationOwner,
     {
       provide: ChannelSkuAvailabilityService,
       useFactory: (persistence: ChannelProductMatchingRepositoryPort, products: ChannelProductAvailabilityPort) => new ChannelSkuAvailabilityService(persistence, products),

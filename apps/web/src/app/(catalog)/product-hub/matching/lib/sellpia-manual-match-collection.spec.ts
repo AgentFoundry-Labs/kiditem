@@ -1,204 +1,94 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import {
-  collectSellpiaManualMatchSnapshot,
-  sellpiaManualMatchCorrelationStorageKey,
-} from './sellpia-manual-match-collection';
+import { apiClient } from '@/lib/api-client';
+import { requestOperationStart } from '@/lib/operation-start';
+import { readSellpiaManualMatchSource } from './channel-sku-matching-api';
+import { collectSellpiaManualMatchSnapshot } from './sellpia-manual-match-collection';
 
-const bridge = vi.hoisted(() => ({
-  collectSellpiaManualMatch: vi.fn(),
-  detectOrderCollectionExtensionRuntime: vi.fn(),
-}));
-const api = vi.hoisted(() => ({
-  beginSellpiaManualMatchSourceAttempt: vi.fn(),
-  readSellpiaManualMatchSourceAttempt: vi.fn(),
-  readSellpiaManualMatchSourceCurrent: vi.fn(),
-}));
-const auth = vi.hoisted(() => ({ transferExtensionAuthTo: vi.fn() }));
+vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn() } }));
+vi.mock('@/lib/operation-start', () => ({ requestOperationStart: vi.fn(), requestOperationCancel: vi.fn() }));
+vi.mock('./channel-sku-matching-api', () => ({ readSellpiaManualMatchSource: vi.fn() }));
 
-vi.mock('@/lib/extension-bridge', () => bridge);
-vi.mock('@/lib/extension-auth', () => auth);
-vi.mock('@/lib/secure-random-uuid', () => ({
-  createSecureRandomUuid: vi.fn(() => '33333333-3333-4333-8333-333333333333'),
-}));
-vi.mock('./channel-sku-matching-api', () => api);
-
-const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
-const snapshotStatus = {
-  targetCount: 1,
-  matchedTargetCount: 1,
-  aliasCount: 1,
-  snapshotHash: 'a'.repeat(64),
-  capturedAt: '2026-08-03T00:00:00.000Z',
-};
-const ATTEMPT_TOKEN = '22222222-2222-4222-8222-222222222222';
+const OPERATION_ID = '11111111-1111-4111-8111-111111111111';
 const SCOPE = { organizationId: 'org-1' };
-const plan = {
-  sourceType: 'sellpia_product_manual_match' as const,
-  parserVersion: 'sellpia-manual-match-v1' as const,
-  sourceOrigin: 'https://kiditem.sellpia.com' as const,
-  sourcePath: '/product_manual_match.html' as const,
-  targetCodes: ['634-1'],
-  targetCount: 1,
+const SNAPSHOT = {
+  targetCount: 2,
+  matchedTargetCount: 1,
+  aliasCount: 3,
+  snapshotHash: 'c'.repeat(64),
+  capturedAt: '2026-09-26T01:00:00.000Z',
 };
 
-function attempt(state: 'RUNNING' | 'COMPLETE' | 'FAILED' = 'RUNNING', patch = {}) {
+function operation(status: 'executing' | 'succeeded' | 'failed' | 'cancelled', patch: Record<string, unknown> = {}) {
   return {
-    attemptId: ATTEMPT_ID,
-    attemptToken: ATTEMPT_TOKEN,
-    state,
-    expiresAt: '2099-01-01T00:00:00.000Z',
-    plan,
-    errorCode: null,
-    errorMessage: null,
-    contentChecksum: null,
-    capturedAt: null,
-    ...patch,
+    operation: {
+      id: OPERATION_ID,
+      kind: 'channels.sellpia_manual_match',
+      status,
+      lockKeys: [],
+      plan: null,
+      progress: null,
+      result: status === 'succeeded' ? { targets: 2, matched: 1 } : null,
+      window: null,
+      errorCode: null,
+      errorMessage: null,
+      startedAt: '2026-09-26T00:59:00.000Z',
+      finishedAt: status === 'executing' ? null : '2026-09-26T01:00:00.000Z',
+      expiresAt: '2099-01-01T00:00:00.000Z',
+      attempts: 1,
+      maxAttempts: 1,
+      scheduledFor: null,
+      ...patch,
+    },
   };
 }
 
-describe('Sellpia manual-match source owner bridge', () => {
-  beforeEach(() => {
-    vi.clearAllMocks();
-    window.sessionStorage.clear();
-    bridge.detectOrderCollectionExtensionRuntime.mockResolvedValue({
-      status: 'ready',
-      extensionId: 'order-extension',
-      version: '0.1.95',
-    });
-    bridge.collectSellpiaManualMatch.mockResolvedValue({
-      success: true,
-      attemptId: ATTEMPT_ID,
-      terminalState: 'COMPLETE',
-      continuationRequired: false,
-    });
-    api.beginSellpiaManualMatchSourceAttempt.mockResolvedValue(attempt());
-    api.readSellpiaManualMatchSourceAttempt.mockResolvedValue(attempt('COMPLETE'));
-    api.readSellpiaManualMatchSourceCurrent.mockResolvedValue({
-      latestAttempt: attempt('COMPLETE'),
-      currentSnapshot: snapshotStatus,
-    });
-    auth.transferExtensionAuthTo.mockResolvedValue(undefined);
-  });
+const noSleep = { sleep: async () => undefined };
 
-  it('begins a server-owned attempt and sends only its ID to the extension', async () => {
-    await expect(collectSellpiaManualMatchSnapshot(SCOPE)).resolves.toMatchObject({
-      attempt: { attemptId: ATTEMPT_ID, state: 'COMPLETE' },
-      status: { aliasCount: 1 },
+beforeEach(() => {
+  vi.clearAllMocks();
+  vi.mocked(requestOperationStart).mockResolvedValue({ outcome: 'started', operationId: OPERATION_ID });
+  vi.mocked(readSellpiaManualMatchSource).mockResolvedValue({ latestOperation: null, currentSnapshot: SNAPSHOT });
+});
+
+describe('collectSellpiaManualMatchSnapshot', () => {
+  it('⭐ 확장에 수동매칭 kind를 시작시키고 그 실행 하나를 끝날 때까지 읽은 뒤 게시된 스냅샷을 돌려준다', async () => {
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce(operation('executing'))
+      .mockResolvedValueOnce(operation('succeeded'));
+
+    await expect(collectSellpiaManualMatchSnapshot(SCOPE, noSleep)).resolves.toMatchObject({
+      operation: { id: OPERATION_ID, status: 'succeeded' },
+      status: SNAPSHOT,
     });
-    expect(api.beginSellpiaManualMatchSourceAttempt).toHaveBeenCalledWith({
-      idempotencyKey: '33333333-3333-4333-8333-333333333333',
-    });
-    expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1_200, [
-      'browserCollectionSessions',
-      'orderCollectionFailureEvidenceV1',
-      'sellpiaManualMatchSourceOwnerV1',
+    expect(requestOperationStart).toHaveBeenCalledWith('channels.sellpia_manual_match', {}, { capability: 'channelsOperationKindsV1' });
+    expect(vi.mocked(apiClient.get).mock.calls).toEqual([
+      [`/api/operations/${OPERATION_ID}`],
+      [`/api/operations/${OPERATION_ID}`],
     ]);
-    expect(auth.transferExtensionAuthTo).toHaveBeenCalledWith('order-extension');
-    expect(bridge.collectSellpiaManualMatch).toHaveBeenCalledWith(
-      'order-extension',
-      ATTEMPT_ID,
-    );
   });
 
-  it('reconciles COMPLETE when the page loses the extension response', async () => {
-    bridge.collectSellpiaManualMatch.mockRejectedValue(new Error('page closed'));
-
-    await expect(collectSellpiaManualMatchSnapshot(SCOPE)).resolves.toMatchObject({
-      attempt: { state: 'COMPLETE' },
-      status: { snapshotHash: 'a'.repeat(64) },
-    });
-    expect(bridge.collectSellpiaManualMatch).toHaveBeenCalledOnce();
-    expect(api.readSellpiaManualMatchSourceAttempt).toHaveBeenCalledWith(ATTEMPT_ID);
-  });
-
-  it('reuses a persisted RUNNING attempt on an explicit retry', async () => {
-    window.sessionStorage.setItem(sellpiaManualMatchCorrelationStorageKey(SCOPE.organizationId), JSON.stringify({
-      idempotencyKey: 'retry-key',
-      attemptId: ATTEMPT_ID,
-    }));
-    api.readSellpiaManualMatchSourceAttempt
-      .mockResolvedValueOnce(attempt('RUNNING'))
-      .mockResolvedValueOnce(attempt('COMPLETE'));
-
-    await expect(collectSellpiaManualMatchSnapshot(SCOPE)).resolves.toMatchObject({
-      attempt: { state: 'COMPLETE' },
-    });
-    expect(api.beginSellpiaManualMatchSourceAttempt).not.toHaveBeenCalled();
-    expect(bridge.collectSellpiaManualMatch).toHaveBeenCalledWith('order-extension', ATTEMPT_ID);
-  });
-
-  it('reuses the same idempotency key when the begin response is lost', async () => {
-    api.beginSellpiaManualMatchSourceAttempt
-      .mockRejectedValueOnce(new Error('begin response lost'))
-      .mockResolvedValueOnce(attempt());
-
-    await expect(collectSellpiaManualMatchSnapshot(SCOPE)).rejects.toThrow('begin response lost');
-    await expect(collectSellpiaManualMatchSnapshot(SCOPE)).resolves.toMatchObject({
-      attempt: { state: 'COMPLETE' },
-    });
-    expect(api.beginSellpiaManualMatchSourceAttempt).toHaveBeenNthCalledWith(1, {
-      idempotencyKey: '33333333-3333-4333-8333-333333333333',
-    });
-    expect(api.beginSellpiaManualMatchSourceAttempt).toHaveBeenNthCalledWith(2, {
-      idempotencyKey: '33333333-3333-4333-8333-333333333333',
-    });
-  });
-
-  it('surfaces the persisted owner failure without importing a page snapshot', async () => {
-    api.readSellpiaManualMatchSourceAttempt.mockResolvedValue(attempt('FAILED', {
-      errorCode: 'sellpia_manual_match_login_required',
-      errorMessage: 'Sellpia login is required.',
-    }));
-    bridge.collectSellpiaManualMatch.mockResolvedValue({
-      success: false,
-      attemptId: ATTEMPT_ID,
-      terminalState: 'FAILED',
-      continuationRequired: false,
-      errorCode: 'sellpia_manual_match_login_required',
-      error: 'Sellpia login is required.',
-    });
-
-    await expect(collectSellpiaManualMatchSnapshot(SCOPE)).rejects.toMatchObject({
-      failureCode: 'sellpia_manual_match_login_required',
-    });
-    expect(api.readSellpiaManualMatchSourceCurrent).not.toHaveBeenCalled();
-  });
-
-  it('does not dispatch provider work when an idempotent begin already returned COMPLETE', async () => {
-    api.beginSellpiaManualMatchSourceAttempt.mockResolvedValue(attempt('COMPLETE'));
-
-    await expect(collectSellpiaManualMatchSnapshot(SCOPE)).resolves.toMatchObject({
-      attempt: { state: 'COMPLETE' },
-    });
-    expect(bridge.detectOrderCollectionExtensionRuntime).toHaveBeenCalledOnce();
-    expect(bridge.collectSellpiaManualMatch).not.toHaveBeenCalled();
-  });
-
-  it('uses the current publication when a later attempt is already running', async () => {
-    api.readSellpiaManualMatchSourceCurrent.mockResolvedValue({
-      latestAttempt: attempt('RUNNING', {
-        attemptId: '99999999-9999-4999-8999-999999999999',
-      }),
-      currentSnapshot: snapshotStatus,
-    });
-
-    await expect(collectSellpiaManualMatchSnapshot(SCOPE)).resolves.toMatchObject({
-      attempt: { attemptId: ATTEMPT_ID, state: 'COMPLETE' },
-      status: { snapshotHash: 'a'.repeat(64) },
-    });
-  });
-
-  it('does not reuse a correlation from another organization or origin scope', async () => {
-    window.sessionStorage.setItem(sellpiaManualMatchCorrelationStorageKey('org-2'), JSON.stringify({
-      idempotencyKey: 'other-org-key',
-      attemptId: ATTEMPT_ID,
+  it('실패한 실행은 운영자 문장으로 던지고 스냅샷을 읽지 않는다', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue(operation('failed', {
+      errorCode: 'SITE_LOGIN_REQUIRED',
+      errorMessage: '셀피아 로그인이 필요합니다. 열린 수동상품매칭 화면에서 로그인한 뒤 다시 시도해 주세요.',
     }));
 
-    await expect(collectSellpiaManualMatchSnapshot(SCOPE)).resolves.toMatchObject({
-      attempt: { attemptId: ATTEMPT_ID },
-    });
-    expect(api.beginSellpiaManualMatchSourceAttempt).toHaveBeenCalledWith({
-      idempotencyKey: '33333333-3333-4333-8333-333333333333',
-    });
+    await expect(collectSellpiaManualMatchSnapshot(SCOPE, noSleep)).rejects.toThrow(/셀피아 로그인이 필요합니다/);
+    expect(readSellpiaManualMatchSource).not.toHaveBeenCalled();
+  });
+
+  it('셀피아 로그인을 쓰는 다른 실행이 돌면 확장의 거절 문장을 그대로 던진다', async () => {
+    vi.mocked(requestOperationStart).mockResolvedValue({ outcome: 'refused', message: '같은 실행이 이미 진행 중입니다.' });
+
+    await expect(collectSellpiaManualMatchSnapshot(SCOPE, noSleep)).rejects.toThrow('같은 실행이 이미 진행 중입니다.');
+    expect(apiClient.get).not.toHaveBeenCalled();
+  });
+
+  it('상한 안에 끝나지 않으면 아직 끝나지 않았다고 알린다(실행은 확장에서 계속된다)', async () => {
+    vi.mocked(apiClient.get).mockResolvedValue(operation('executing'));
+    let clock = 0;
+
+    await expect(collectSellpiaManualMatchSnapshot(SCOPE, { sleep: async () => undefined, now: () => (clock += 20 * 60_000) }))
+      .rejects.toThrow(/아직 끝나지 않았습니다/);
   });
 });

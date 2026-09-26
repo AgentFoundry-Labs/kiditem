@@ -54,6 +54,10 @@ function operation(status: 'executing' | 'succeeded' | 'failed' | 'cancelled', p
     errorMessage: null,
     startedAt: new Date(Date.now() - 120_000).toISOString(),
     finishedAt: status === 'executing' ? null : new Date(Date.now() - 60_000).toISOString(),
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    attempts: 1,
+    maxAttempts: 1,
+    scheduledFor: null,
     ...patch,
   };
 }

@@ -30,6 +30,7 @@ describe('committed runtime bundle', () => {
 
     expect((runtime.runtime as { kinds(): string[] }).kinds()).toEqual([
       'channels.sabangnet_mall_listings',
+      'channels.sellpia_manual_match',
       'channels.wing_catalog_details',
       'channels.wing_catalog_excel',
       'channels.wing_catalog_list',

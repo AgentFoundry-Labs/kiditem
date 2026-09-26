@@ -300,8 +300,6 @@ export const queryKeys = {
       [...queryKeys.channelProductMappings.all, 'list', params] as const,
     productCandidates: (channelListingId: string, params: Record<string, string>) =>
       [...queryKeys.channelProductMappings.all, 'product-candidates', channelListingId, params] as const,
-    sellpiaManualMatchTargets: () =>
-      [...queryKeys.channelProductMappings.all, 'sellpia-manual-match-targets'] as const,
   },
   channelSkuAvailability: {
     all: ['channelSkuAvailability'] as const,

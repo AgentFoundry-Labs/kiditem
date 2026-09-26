@@ -1,11 +1,8 @@
 import { Inject } from '@nestjs/common';
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
-  Headers,
-  HttpCode,
   Param,
   ParseUUIDPipe,
   Post,
@@ -43,88 +40,15 @@ export class ChannelProductMatchingController {
     return this.matching.autoMatch(organizationId, body);
   }
 
-  @Get('sellpia-manual-match/targets')
-  sellpiaManualMatchTargets(
+  /**
+   * 셀피아 수동상품매칭의 현재 — 최근 실행과 게시된 스냅샷. 시작·진행·중단은 실행 계약
+   * (`channels.sellpia_manual_match`, KID-363)이 맡는다.
+   */
+  @Get('sellpia-manual-match/source')
+  sellpiaManualMatchSource(
     @CurrentOrganization() organizationId: string,
   ) {
-    return this.sellpiaManualMatches.targets(organizationId);
-  }
-
-  @Post('sellpia-manual-match/attempts')
-  beginSellpiaManualMatch(
-    @CurrentOrganization() organizationId: string,
-    @Headers('idempotency-key') idempotencyKey: string | undefined,
-  ) {
-    if (!idempotencyKey?.trim() || idempotencyKey.length > 128) {
-      throw new BadRequestException('INVALID_SELLPIA_MANUAL_MATCH_IDEMPOTENCY_KEY');
-    }
-    return this.sellpiaManualMatches.beginAttempt({
-      organizationId,
-      idempotencyKey,
-    });
-  }
-
-  @Get('sellpia-manual-match/attempts/current')
-  sellpiaManualMatchCurrent(
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.sellpiaManualMatches.readCurrent(organizationId);
-  }
-
-  @Get('sellpia-manual-match/attempts/:attemptId')
-  sellpiaManualMatchAttempt(
-    @CurrentOrganization() organizationId: string,
-    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
-  ) {
-    return this.sellpiaManualMatches.readAttempt({ organizationId, attemptId });
-  }
-
-  @Post('sellpia-manual-match/attempts/:attemptId/complete')
-  completeSellpiaManualMatch(
-    @CurrentOrganization() organizationId: string,
-    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
-    @Headers('x-source-attempt-token') attemptToken: string | undefined,
-    @Body() body: unknown,
-  ) {
-    if (!attemptToken?.trim()) {
-      throw new BadRequestException('INVALID_SELLPIA_MANUAL_MATCH_ATTEMPT_TOKEN');
-    }
-    return this.sellpiaManualMatches.completeAttempt({
-      organizationId,
-      attemptId,
-      attemptToken,
-      snapshot: body,
-    });
-  }
-
-  @Post('sellpia-manual-match/attempts/:attemptId/fail')
-  failSellpiaManualMatch(
-    @CurrentOrganization() organizationId: string,
-    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
-    @Headers('x-source-attempt-token') attemptToken: string | undefined,
-    @Body() body: unknown,
-  ) {
-    if (!attemptToken?.trim()) {
-      throw new BadRequestException('INVALID_SELLPIA_MANUAL_MATCH_ATTEMPT_TOKEN');
-    }
-    const failure = parseFailure(body);
-    return this.sellpiaManualMatches.failAttempt({
-      organizationId,
-      attemptId,
-      attemptToken,
-      errorCode: failure.errorCode,
-      errorMessage: failure.errorMessage,
-    });
-  }
-
-  /** 화면의 중단 버튼. 토큰 없이 조직 범위로만 끝내며 실패 알림을 남기지 않는다. */
-  @Post('sellpia-manual-match/attempts/:attemptId/cancel')
-  @HttpCode(200)
-  cancelSellpiaManualMatch(
-    @CurrentOrganization() organizationId: string,
-    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
-  ) {
-    return this.sellpiaManualMatches.cancelAttempt({ organizationId, attemptId });
+    return this.sellpiaManualMatches.readSource(organizationId);
   }
 
   @Get(':channelListingId/candidates')
@@ -144,25 +68,4 @@ export class ChannelProductMatchingController {
   ) {
     return this.matching.linkProduct(organizationId, channelListingId, body);
   }
-}
-
-function parseFailure(body: unknown): { errorCode: string; errorMessage: string } {
-  if (!body || typeof body !== 'object' || Array.isArray(body)) {
-    throw new BadRequestException('INVALID_SELLPIA_MANUAL_MATCH_FAILURE');
-  }
-  const value = body as Record<string, unknown>;
-  if (
-    typeof value.errorCode !== 'string'
-    || typeof value.errorMessage !== 'string'
-    || !value.errorCode.trim()
-    || !value.errorMessage.trim()
-    || value.errorCode.trim().length > 100
-    || value.errorMessage.trim().length > 300
-  ) {
-    throw new BadRequestException('INVALID_SELLPIA_MANUAL_MATCH_FAILURE');
-  }
-  return {
-    errorCode: value.errorCode.trim(),
-    errorMessage: value.errorMessage.trim(),
-  };
 }

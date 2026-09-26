@@ -1,262 +1,72 @@
 import {
-  collectSellpiaManualMatch,
-  detectOrderCollectionExtensionRuntime,
-} from '@/lib/extension-bridge';
-import { transferExtensionAuthTo } from '@/lib/extension-auth';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
-import {
-  beginSellpiaManualMatchSourceAttempt,
-  readSellpiaManualMatchSourceAttempt,
-  readSellpiaManualMatchSourceCurrent,
-  type SellpiaManualMatchSourceAttempt,
-} from './channel-sku-matching-api';
-import type {
-  SellpiaManualMatchCollectionFailureCode,
-  SellpiaManualMatchSnapshotStatus,
-} from '@kiditem/shared/sellpia-manual-match';
+  isOperationTerminal,
+  OperationFinishResponseSchema,
+  type OperationView,
+} from '@kiditem/shared/operation';
+import { SELLPIA_MANUAL_MATCH_KIND } from '@kiditem/shared/sellpia-operations';
+import type { SellpiaManualMatchSnapshotStatus } from '@kiditem/shared/sellpia-manual-match';
+import { COLLECTION_RUNNING_POLL_MS } from '@/hooks/use-collection-source-control';
+import { apiClient } from '@/lib/api-client';
+import { requestOperationStart } from '@/lib/operation-start';
 import { attemptFailureText } from '@/lib/operator-error';
+import { readSellpiaManualMatchSource } from './channel-sku-matching-api';
 
-const REQUIRED_CAPABILITIES = [
-  'browserCollectionSessions',
-  'orderCollectionFailureEvidenceV1',
-  'sellpiaManualMatchSourceOwnerV1',
-];
-const CORRELATION_STORAGE_PREFIX = 'kiditem.sellpia.manual-match.correlation.v1';
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
-
-export type SellpiaManualMatchCollectionScope = {
-  organizationId: string;
-  environmentKey?: string;
-};
-
-type AttemptCorrelation = {
-  idempotencyKey: string;
-  attemptId: string | null;
-};
-
-/** The browser origin distinguishes local and office extension environments. */
-export function getSellpiaManualMatchEnvironmentKey(): string {
-  if (typeof window === 'undefined') return 'server';
-  const origin = window.location.origin;
-  return origin && origin !== 'null'
-    ? origin
-    : `${window.location.protocol}//${window.location.host}`;
-}
-
-export function sellpiaManualMatchCorrelationStorageKey(
-  organizationId: string,
-  environmentKey = getSellpiaManualMatchEnvironmentKey(),
-): string {
-  return [
-    CORRELATION_STORAGE_PREFIX,
-    encodeURIComponent(organizationId),
-    encodeURIComponent(environmentKey),
-  ].join(':');
-}
+/** Channels 기타 kind(사방넷·몰 관리자·셀피아 수동매칭, KID-363)를 도는 확장 빌드가 `ping`에 싣는 표시. */
+export const CHANNELS_OPERATION_CAPABILITY = 'channelsOperationKindsV1' as const;
+/** 수동매칭 한 번을 기다리는 상한. 대상 2만 개 검색이 이 안에 끝난다(옛 포트 연결은 상한 없이 기다렸다). */
+const WAIT_LIMIT_MS = 30 * 60_000;
 
 export class SellpiaManualMatchCollectionError extends Error {
-  constructor(
-    message: string,
-    readonly failureCode?: SellpiaManualMatchCollectionFailureCode,
-  ) {
+  constructor(message: string, readonly operation: OperationView | null = null) {
     super(message);
     this.name = 'SellpiaManualMatchCollectionError';
   }
 }
 
 export type CollectedSellpiaManualMatch = {
-  attempt: SellpiaManualMatchSourceAttempt;
+  operation: OperationView;
   status: SellpiaManualMatchSnapshotStatus;
 };
 
-const FAILURE_CODES: ReadonlySet<string> = new Set<SellpiaManualMatchCollectionFailureCode>([
-  'sellpia_manual_match_login_required',
-  'sellpia_manual_match_contract_drift',
-  'sellpia_manual_match_invalid_snapshot',
-  'sellpia_manual_match_timeout',
-  'sellpia_manual_match_network_failed',
-]);
-
-function knownFailureCode(value: unknown): SellpiaManualMatchCollectionFailureCode | undefined {
-  return typeof value === 'string' && FAILURE_CODES.has(value)
-    ? value as SellpiaManualMatchCollectionFailureCode
-    : undefined;
-}
-
-function attemptFailure(attempt: SellpiaManualMatchSourceAttempt): SellpiaManualMatchCollectionError {
-  const code = knownFailureCode(attempt.errorCode);
-  return new SellpiaManualMatchCollectionError(
-    attemptFailureText(attempt, 'sellpia_manual_match') ?? 'Sellpia 수동상품매칭 근거 수집에 실패했습니다.',
-    code,
-  );
-}
-
-function browserSessionStorage(): Storage | null {
-  if (typeof window === 'undefined') return null;
-  try {
-    return window.sessionStorage;
-  } catch {
-    return null;
-  }
-}
-
-function readCorrelation(scope: SellpiaManualMatchCollectionScope): AttemptCorrelation | null {
-  const storage = browserSessionStorage();
-  if (!storage) return null;
-  try {
-    const raw = storage.getItem(sellpiaManualMatchCorrelationStorageKey(
-      scope.organizationId,
-      scope.environmentKey,
-    ));
-    if (!raw) return null;
-    const value = JSON.parse(raw) as Partial<AttemptCorrelation>;
-    if (
-      typeof value.idempotencyKey !== 'string'
-      || value.idempotencyKey.trim().length === 0
-      || value.idempotencyKey.length > 128
-      || (value.attemptId !== null && !UUID_PATTERN.test(value.attemptId || ''))
-    ) return null;
-    return {
-      idempotencyKey: value.idempotencyKey,
-      attemptId: value.attemptId ?? null,
-    };
-  } catch {
-    return null;
-  }
-}
-
-function writeCorrelation(
-  scope: SellpiaManualMatchCollectionScope,
-  value: AttemptCorrelation,
-): void {
-  const storage = browserSessionStorage();
-  if (!storage) return;
-  try {
-    storage.setItem(
-      sellpiaManualMatchCorrelationStorageKey(scope.organizationId, scope.environmentKey),
-      JSON.stringify(value),
-    );
-  } catch {
-    // The owner remains authoritative even if session storage is unavailable.
-  }
-}
-
-function clearCorrelation(scope: SellpiaManualMatchCollectionScope, attemptId: string): void {
-  const current = readCorrelation(scope);
-  if (!current || current.attemptId !== attemptId) return;
-  const storage = browserSessionStorage();
-  try {
-    storage?.removeItem(sellpiaManualMatchCorrelationStorageKey(
-      scope.organizationId,
-      scope.environmentKey,
-    ));
-  } catch { /* noop */ }
-}
-
-async function readCompleteSnapshotStatus(): Promise<SellpiaManualMatchSnapshotStatus> {
-  const current = await readSellpiaManualMatchSourceCurrent();
-  if (!current.currentSnapshot) {
-    throw new SellpiaManualMatchCollectionError(
-      'Sellpia 수동상품매칭 완료 결과를 현재 게시 상태와 연결하지 못했습니다.',
-      'sellpia_manual_match_invalid_snapshot',
-    );
-  }
-  return current.currentSnapshot;
-}
-
-async function reconcileTerminalAttempt(
-  scope: SellpiaManualMatchCollectionScope,
-  attemptId: string,
-): Promise<CollectedSellpiaManualMatch> {
-  const attempt = await readSellpiaManualMatchSourceAttempt(attemptId);
-  if (attempt.state === 'RUNNING') {
-    throw new SellpiaManualMatchCollectionError(
-      'Sellpia 수동상품매칭 수집이 아직 완료되지 않았습니다. 잠시 후 상태를 확인해주세요.',
-    );
-  }
-  if (attempt.state === 'FAILED') {
-    clearCorrelation(scope, attemptId);
-    throw attemptFailure(attempt);
-  }
-  const status = await readCompleteSnapshotStatus();
-  clearCorrelation(scope, attemptId);
-  return { attempt, status };
-}
-
-async function detectExtensionId(): Promise<string> {
-  const status = await detectOrderCollectionExtensionRuntime(1_200, REQUIRED_CAPABILITIES);
-  if (status.status === 'ready') return status.extensionId;
-  const detail = status.status === 'incompatible'
-    ? ` 현재 버전 ${status.version}에 필요한 기능이 없습니다: ${status.missingCapabilities.join(', ')}.`
-    : '';
-  throw new SellpiaManualMatchCollectionError(
-    `최신 주문수집 확장프로그램을 찾지 못했습니다.${detail}`,
-  );
-}
-
-async function beginOrResumeAttempt(
-  scope: SellpiaManualMatchCollectionScope,
-  correlation: AttemptCorrelation | null,
-): Promise<SellpiaManualMatchSourceAttempt> {
-  if (correlation?.attemptId) {
-    return readSellpiaManualMatchSourceAttempt(correlation.attemptId);
-  }
-  const idempotencyKey = correlation?.idempotencyKey ?? createSecureRandomUuid();
-  writeCorrelation(scope, { idempotencyKey, attemptId: null });
-  const attempt = await beginSellpiaManualMatchSourceAttempt({ idempotencyKey });
-  writeCorrelation(scope, { idempotencyKey, attemptId: attempt.attemptId });
-  return attempt;
+async function readOperation(operationId: string): Promise<OperationView> {
+  return OperationFinishResponseSchema.parse(await apiClient.get(`/api/operations/${encodeURIComponent(operationId)}`)).operation;
 }
 
 /**
- * Starts or resumes one server-owned attempt and asks the extension to collect
- * the server-frozen target set. The snapshot is completed by the extension
- * owner; this page only reconciles the terminal read and published status.
+ * 셀피아 수동상품매칭 근거를 새로 모은다 = 확장에 `channels.sellpia_manual_match` 실행 하나를 시작시키고(KID-363) 그
+ * 실행 하나(`GET /api/operations/:id`)를 끝날 때까지 읽는다. 성공이면 게시된 스냅샷 요약을 돌려주고, 실패·중단이면
+ * 운영자 문장으로 던진다. 셀피아 로그인을 쓰는 다른 실행이 돌면 확장의 거절 문장을 그대로 던진다.
  */
 export async function collectSellpiaManualMatchSnapshot(
-  scope: SellpiaManualMatchCollectionScope,
+  _scope: { organizationId: string },
+  options: { sleep?: (ms: number) => Promise<void>; now?: () => number } = {},
 ): Promise<CollectedSellpiaManualMatch> {
-  const correlation = readCorrelation(scope);
-  let attempt: SellpiaManualMatchSourceAttempt;
-  let extensionId: string | null = null;
-
-  if (correlation?.attemptId) {
-    attempt = await beginOrResumeAttempt(scope, correlation);
-  } else {
-    // Do not create a server attempt when the authoritative extension is not
-    // available. The idempotency key is stored before the begin request so a
-    // lost begin response can be retried without opening another attempt.
-    extensionId = await detectExtensionId();
-    attempt = await beginOrResumeAttempt(scope, correlation);
+  const sleep = options.sleep ?? ((ms: number) => new Promise<void>((resolve) => setTimeout(resolve, ms)));
+  const now = options.now ?? Date.now;
+  const outcome = await requestOperationStart(SELLPIA_MANUAL_MATCH_KIND, {}, { capability: CHANNELS_OPERATION_CAPABILITY });
+  if (outcome.outcome === 'refused') throw new SellpiaManualMatchCollectionError(outcome.message);
+  if (!outcome.operationId) {
+    throw new SellpiaManualMatchCollectionError('확장 프로그램이 실행 번호를 알려 주지 않았습니다. 잠시 후 다시 시도해 주세요.');
   }
-
-  if (attempt.state !== 'RUNNING') return reconcileTerminalAttempt(scope, attempt.attemptId);
-  extensionId ??= await detectExtensionId();
-
-  try {
-    await transferExtensionAuthTo(extensionId);
-    const response = await collectSellpiaManualMatch(extensionId, attempt.attemptId);
-    if (response.attemptId !== attempt.attemptId) {
-      throw new SellpiaManualMatchCollectionError(
-        'Sellpia 수동상품매칭 수집 시도 응답이 일치하지 않습니다.',
-      );
+  const deadline = now() + WAIT_LIMIT_MS;
+  for (;;) {
+    const operation = await readOperation(outcome.operationId);
+    if (isOperationTerminal(operation.status)) {
+      if (operation.status !== 'succeeded') {
+        throw new SellpiaManualMatchCollectionError(
+          attemptFailureText(operation, 'sellpia_manual_match') ?? '셀피아 수동상품매칭 근거 수집에 실패했습니다.',
+          operation,
+        );
+      }
+      const { currentSnapshot } = await readSellpiaManualMatchSource();
+      if (!currentSnapshot) {
+        throw new SellpiaManualMatchCollectionError('셀피아 수동상품매칭 완료 결과를 현재 게시 상태와 연결하지 못했습니다.', operation);
+      }
+      return { operation, status: currentSnapshot };
     }
-    if (!response.success) {
-      throw new SellpiaManualMatchCollectionError(
-        response.error || 'Sellpia 수동상품매칭 근거 수집에 실패했습니다.',
-        knownFailureCode(response.errorCode),
-      );
+    if (now() >= deadline) {
+      throw new SellpiaManualMatchCollectionError('셀피아 수동상품매칭 수집이 아직 끝나지 않았습니다. 잠시 후 상태를 확인해 주세요.', operation);
     }
-  } catch (error) {
-    // The extension may have committed COMPLETE and lost the page response.
-    // A read-only owner reconciliation preserves that terminal result without
-    // collecting from Sellpia a second time.
-    try {
-      return await reconcileTerminalAttempt(scope, attempt.attemptId);
-    } catch {
-      throw error;
-    }
+    await sleep(COLLECTION_RUNNING_POLL_MS);
   }
-
-  return reconcileTerminalAttempt(scope, attempt.attemptId);
 }

@@ -125,9 +125,8 @@ sync, registration, matching, and capacity behavior is executable in
   → `adapter/out`. Application and domain may use NestJS as described in the
   server guide; queries preserve the same owner and IO boundaries.
 - 오류는 `Kiditem*Error` + `CHANNELS_*` 등록 코드로 던진다(ADR-0023). 등록 실행 보고 경로의 거절은
-  409를 지킨다. Nest 예외 잔여는 수집 계열(`ChannelBusinessError`·`ListingException`, catalog·몰 관리자·
-  사방넷·셀피아 수동매칭)·`channel-account.persistence.adapter.ts` claim·`channel-product-matching.controller.ts`
-  (KID-338)과 `coupang-channel.adapter.ts` 4곳(웹 `wing-error-message.ts` 분류기, KID-339 파생)뿐이다.
+  409를 지킨다. Nest 예외 잔여는 수집 계열(`ChannelBusinessError`·`ListingException`, catalog·몰 관리자 옛
+  경로)·`channel-account.persistence.adapter.ts` claim과 `coupang-channel.adapter.ts` 4곳(웹 `wing-error-message.ts` 분류기, KID-339 파생)뿐이다.
 - Persistence adapters may query Channels-owned facts without a dedicated
   reader file. Other owners use public capabilities (ADR-0021); preserve
   organization scope, complete-source evidence, and required transactions.
@@ -190,6 +189,12 @@ sync, registration, matching, and capacity behavior is executable in
   is the mall's own seller code when the mall shows one, so matching may also
   link by the option name. Its list carries no barcode or model number column.
   Statuses come from the mall itself and fold without a Sabangnet warning.
+- Sellpia manual-match evidence is one `channels.sellpia_manual_match`
+  operation (KID-363) holding `resource:sellpia:login`, so it never overlaps
+  another Sellpia-login kind. Its plan freezes the sorted active Sellpia codes;
+  finalize re-reads them under the product lock, refuses a changed set, keeps
+  only aliases found in current published listing names, and replaces the
+  organization's single snapshot. A failed run leaves the prior snapshot.
 - Orders owns Rocket PO collection (operation kind `orders.coupang_rocket_po`),
   snapshots and lines. It publishes observed
   listing identity through Channels' catalog capability in its transaction;

@@ -15,6 +15,10 @@ import { ProductMappingGenerationRepositoryAdapter } from '../products/adapter/o
 import { SabangnetMallListingsRepositoryAdapter } from '../channels/adapter/out/repository/sabangnet-mall-listings.repository.adapter';
 import { SabangnetMallListingsService } from '../channels/application/service/collection/sabangnet-mall-listings.service';
 import { SabangnetMallListingsOperationOwner } from '../channels/adapter/in/operation/sabangnet-mall-listings-operation-owner';
+import { ProductTransactionalReadRepositoryAdapter } from '../products/adapter/out/persistence/product-transactional-read.repository.adapter';
+import { SellpiaManualMatchRepositoryAdapter } from '../channels/adapter/out/repository/sellpia-manual-match.repository.adapter';
+import { SellpiaManualMatchService } from '../channels/application/service/listing/sellpia-manual-match.service';
+import { SellpiaManualMatchOperationOwner } from '../channels/adapter/in/operation/sellpia-manual-match-operation-owner';
 import { TEST_ORGANIZATION_ID, TEST_USER_ID } from './real-prisma';
 
 const checksum = (payload: unknown[]) => createHash('sha256').update(JSON.stringify(payload)).digest('hex');
@@ -42,6 +46,11 @@ export function makeChannelsOperations(prisma: PrismaClient, options: { organiza
     new SabangnetMallListingsRepositoryAdapter(prismaService, productMapping),
   );
   registry.register(new SabangnetMallListingsOperationOwner(sabangnet));
+  const manualMatch = new SellpiaManualMatchService(
+    operations,
+    new SellpiaManualMatchRepositoryAdapter(prismaService, new ProductTransactionalReadRepositoryAdapter()),
+  );
+  registry.register(new SellpiaManualMatchOperationOwner(manualMatch));
 
   /** 확장이 하는 일: begin한 실행에 plan을 보고 청크를 보내고 finish(또는 failed). */
   async function runBegun(
@@ -80,6 +89,7 @@ export function makeChannelsOperations(prisma: PrismaClient, options: { organiza
     operations,
     rocketCsv,
     sabangnet,
+    manualMatch,
     runBegun,
     /** runner가 finalize 거절 뒤 하는 일: finish(failed)로 닫아 잠금을 푼다. */
     async fail(begun: OperationBeginResponse) {

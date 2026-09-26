@@ -1,10 +1,9 @@
 import type {
-  SellpiaManualMatchAttempt,
-  SellpiaManualMatchPublicAttempt,
-  SellpiaManualMatchSnapshot,
+  SellpiaManualMatchPlan,
+  SellpiaManualMatchRow,
   SellpiaManualMatchSnapshotStatus,
-  SellpiaManualMatchSourceStatus,
 } from '@kiditem/shared/sellpia-manual-match';
+import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 
 export const SELLPIA_MANUAL_MATCH_REPOSITORY_PORT = Symbol(
   'SELLPIA_MANUAL_MATCH_REPOSITORY_PORT',
@@ -19,11 +18,7 @@ export type SellpiaManualMatchAliasRecord = {
   evidenceCount: number;
 };
 
-export type SellpiaManualMatchAttemptInput = {
-  organizationId: string;
-  idempotencyKey: string;
-};
-
+/** 수동매칭 kind의 Channels 원장. `publish`는 실행 계약의 finish 트랜잭션 안에서만 부른다. */
 export interface SellpiaManualMatchRepositoryPort {
   getCurrentStatus(
     organizationId: string,
@@ -32,33 +27,14 @@ export interface SellpiaManualMatchRepositoryPort {
     organizationId: string,
     normalizedAliases: string[],
   ): Promise<SellpiaManualMatchAliasRecord[]>;
-  beginAttempt(input: SellpiaManualMatchAttemptInput): Promise<SellpiaManualMatchAttempt>;
-  readAttempt(input: {
-    organizationId: string;
-    attemptId: string;
-  }): Promise<SellpiaManualMatchAttempt>;
-  readCurrent(input: {
-    organizationId: string;
-  }): Promise<SellpiaManualMatchSourceStatus>;
-  completeAttempt(input: {
-    organizationId: string;
-    attemptId: string;
-    attemptToken: string;
-    snapshot: SellpiaManualMatchSnapshot;
-  }): Promise<SellpiaManualMatchAttempt>;
-  failAttempt(input: {
-    organizationId: string;
-    attemptId: string;
-    attemptToken: string;
-    errorCode: string;
-    errorMessage: string;
-  }): Promise<SellpiaManualMatchAttempt>;
+  /** 지금 활성인 셀피아 SKU 코드(정렬·중복 없음). 상품 잠금 아래에서 읽는다. */
+  readActiveTargetCodes(organizationId: string): Promise<string[]>;
   /**
-   * 화면의 중단 버튼. 토큰 없이 조직 범위로만 끝내며, 끝난 시도는 그대로
-   * 돌려준다. 페이지가 부르는 라우트라 fence 토큰은 빼고 돌려준다(KID-190).
+   * 상품 잠금 아래에서 대상 코드가 plan과 그대로인지 확인하고, 현재 리스팅 이름에 있는 별칭만 모아 조직의 스냅샷
+   * 하나를 바꿔 쓴다. 대상이 바뀌었으면 쓰지 않고 거절한다.
    */
-  cancelAttempt(input: {
-    organizationId: string;
-    attemptId: string;
-  }): Promise<SellpiaManualMatchPublicAttempt>;
+  publish(
+    tx: OwnerTransaction,
+    input: { organizationId: string; plan: SellpiaManualMatchPlan; rows: SellpiaManualMatchRow[] },
+  ): Promise<SellpiaManualMatchSnapshotStatus>;
 }

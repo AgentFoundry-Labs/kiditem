@@ -14,12 +14,8 @@ import {
 import { RocketMatchingCsvResultSchema, type RocketMatchingCsvResult } from '@kiditem/shared/channels-operations';
 import { OperationFinishResponseSchema } from '@kiditem/shared/operation';
 import {
-  SellpiaManualMatchAttemptSchema,
   SellpiaManualMatchSourceStatusSchema,
-  SellpiaManualMatchTargetsResponseSchema,
-  type SellpiaManualMatchAttempt,
   type SellpiaManualMatchSourceStatus,
-  type SellpiaManualMatchTargetsResponse,
 } from '@kiditem/shared/sellpia-manual-match';
 import {
   uploadWingCatalogWorkbook,
@@ -47,39 +43,10 @@ export function listChannelProductMappings(params: {
   );
 }
 
-export function getSellpiaManualMatchTargets(): Promise<SellpiaManualMatchTargetsResponse> {
+/** 셀피아 수동상품매칭의 현재 — 최근 `channels.sellpia_manual_match` 실행과 게시된 스냅샷(KID-363). */
+export function readSellpiaManualMatchSource(): Promise<SellpiaManualMatchSourceStatus> {
   return apiClient.getParsed(
-    '/api/channels/product-mappings/sellpia-manual-match/targets',
-    SellpiaManualMatchTargetsResponseSchema,
-  );
-}
-
-export type SellpiaManualMatchSourceAttempt = SellpiaManualMatchAttempt;
-
-export function beginSellpiaManualMatchSourceAttempt(input: {
-  idempotencyKey: string;
-}): Promise<SellpiaManualMatchSourceAttempt> {
-  return apiClient
-    .post<unknown>(
-      '/api/channels/product-mappings/sellpia-manual-match/attempts',
-      {},
-      { headers: { 'Idempotency-Key': input.idempotencyKey } },
-    )
-    .then((raw) => SellpiaManualMatchAttemptSchema.parse(raw));
-}
-
-export function readSellpiaManualMatchSourceAttempt(
-  attemptId: string,
-): Promise<SellpiaManualMatchSourceAttempt> {
-  return apiClient.getParsed(
-    `/api/channels/product-mappings/sellpia-manual-match/attempts/${encodeURIComponent(attemptId)}`,
-    SellpiaManualMatchAttemptSchema,
-  );
-}
-
-export function readSellpiaManualMatchSourceCurrent(): Promise<SellpiaManualMatchSourceStatus> {
-  return apiClient.getParsed(
-    '/api/channels/product-mappings/sellpia-manual-match/attempts/current',
+    '/api/channels/product-mappings/sellpia-manual-match/source',
     SellpiaManualMatchSourceStatusSchema,
   );
 }

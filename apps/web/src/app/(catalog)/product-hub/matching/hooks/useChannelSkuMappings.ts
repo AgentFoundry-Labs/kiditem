@@ -67,7 +67,7 @@ export function useRunChannelProductMatching() {
     },
     onSettled: () => Promise.all([
       queryClient.invalidateQueries({
-        queryKey: queryKeys.channelProductMappings.sellpiaManualMatchTargets(),
+        queryKey: queryKeys.channelSkuMappings.sellpiaManualMatchSource(),
       }),
       queryClient.invalidateQueries({
         queryKey: queryKeys.channelProductMappings.all,
