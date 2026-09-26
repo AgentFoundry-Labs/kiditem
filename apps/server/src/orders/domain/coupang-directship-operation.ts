@@ -1,5 +1,10 @@
 import { KiditemInvalidValueError } from '@kiditem/shared/errors';
-import { CoupangDirectOrderCollectionRequestSchema, type CoupangDirectCenter, type CoupangDirectPurchaseOrder } from '@kiditem/shared/coupang-direct-order';
+import {
+  CoupangDirectOrderCollectionRequestSchema,
+  type CoupangDirectCenter,
+  type CoupangDirectPoSnapshotEntry,
+  type CoupangDirectPurchaseOrder,
+} from '@kiditem/shared/coupang-direct-order';
 import type { OperationStagedChunk } from '@kiditem/shared/operation';
 import { COUPANG_DIRECTSHIP_CHUNK_KIND, CoupangDirectshipCaptureItemSchema } from '@kiditem/shared/orders-operations';
 
@@ -46,6 +51,28 @@ export function parseCapture(value: unknown): DirectshipCapture {
   }
   const { transport: _transport, ...capture } = parsed.data;
   return capture;
+}
+
+/**
+ * 캡처의 발주서를 입고예정일 달력 칸으로 줄인다(KID-370). 날짜는 KST 문자열 앞 10자리(YYYY-MM-DD), 수량·금액은 품목 합.
+ * 순서는 캡처 순서 그대로다.
+ */
+export function directshipCalendarEntries(pos: readonly CoupangDirectPurchaseOrder[]): CoupangDirectPoSnapshotEntry[] {
+  return pos.map((po) => {
+    const items = po.items.map((item) => ({ barcode: item.barcode, name: item.name, qty: item.qty, amount: item.amount }));
+    return {
+      purchaseOrderSeq: po.seq,
+      centerName: po.center,
+      transport: po.transport,
+      deliveryDate: po.edd ? po.edd.slice(0, 10) : null,
+      orderedDate: po.reg ? po.reg.slice(0, 10) : null,
+      isUrgent: po.urgent === true,
+      skuCount: items.length,
+      orderQuantity: items.reduce((sum, item) => sum + item.qty, 0),
+      orderAmount: items.reduce((sum, item) => sum + item.amount, 0),
+      items,
+    };
+  });
 }
 
 function invalid(reason: string, details: Record<string, unknown>): KiditemInvalidValueError {

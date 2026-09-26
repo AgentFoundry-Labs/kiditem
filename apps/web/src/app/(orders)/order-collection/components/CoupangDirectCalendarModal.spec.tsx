@@ -20,19 +20,24 @@ const POS = [
 
 function renderModal(over: Partial<Parameters<typeof CoupangDirectCalendarModal>[0]> = {}) {
   const onCollect = vi.fn();
+  const onRefresh = vi.fn();
   render(
     <CoupangDirectCalendarModal
       open
       loading={false}
+      refreshing={false}
+      hasCapture
+      collectedAt="2026-07-30T01:05:00.000Z"
       pos={POS}
       collectedSeqs={new Set()}
       today={TODAY}
       onClose={vi.fn()}
+      onRefresh={onRefresh}
       onCollect={onCollect}
       {...over}
     />,
   );
-  return { onCollect };
+  return { onCollect, onRefresh };
 }
 
 describe('<CoupangDirectCalendarModal />', () => {
@@ -46,8 +51,8 @@ describe('<CoupangDirectCalendarModal />', () => {
     // 07-31 에 열어도 회차가 08-04 면 8월이 보여야 처리할 날짜를 바로 고를 수 있다.
     render(
       <CoupangDirectCalendarModal
-        open loading={false} pos={POS} collectedSeqs={new Set()}
-        today="2026-07-31" onClose={vi.fn()} onCollect={vi.fn()}
+        open loading={false} refreshing={false} hasCapture collectedAt={null} pos={POS} collectedSeqs={new Set()}
+        today="2026-07-31" onClose={vi.fn()} onRefresh={vi.fn()} onCollect={vi.fn()}
       />,
     );
     expect(screen.getByText('2026.08')).toBeInTheDocument();
@@ -79,5 +84,29 @@ describe('<CoupangDirectCalendarModal />', () => {
   it('keeps the collect action disabled until a date is picked', () => {
     renderModal();
     expect(screen.getByRole('button', { name: '선택한 날짜 수집' })).toBeDisabled();
+  });
+
+  // KID-198: 달력은 마지막 수집분을 보여 줄 뿐이다. 쿠팡을 다시 읽는 일은 운영자가 누를 때만 시작한다.
+  it('shows the empty state with a collect button when the account has no capture yet', () => {
+    const { onRefresh, onCollect } = renderModal({ hasCapture: false, collectedAt: null, pos: [] });
+    expect(screen.getByText('아직 불러온 발주가 없습니다.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '쿠팡에서 발주 불러오기' }));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole('button', { name: '선택한 날짜 수집' })).toBeDisabled();
+    expect(onCollect).not.toHaveBeenCalled();
+  });
+
+  it('says when the shown capture was collected and offers a fresh read', () => {
+    const { onRefresh } = renderModal();
+    expect(screen.getByText(/마지막 수집/)).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: '다시 불러오기' }));
+    expect(onRefresh).toHaveBeenCalledTimes(1);
+  });
+
+  it('blocks picking and collecting while a fresh read runs', () => {
+    renderModal({ refreshing: true });
+    expect(screen.getByText(/쿠팡에서 발주를 불러오는 중/)).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: '선택한 날짜 수집' })).toBeDisabled();
+    expect(screen.getByRole('button', { name: '다시 불러오기' })).toBeDisabled();
   });
 });
