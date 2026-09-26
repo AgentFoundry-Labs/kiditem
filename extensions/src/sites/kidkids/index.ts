@@ -3,6 +3,7 @@ import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller
 import { withFreshTab } from '../fresh-tab';
 import { callPage } from '../page-call';
 import { registerSite } from '../registry';
+import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login';
 import { hostWithin, type PageGuard, type TabPages } from '../tab-page';
 
 /** 출고관리 화면. 목록·발주서 요청은 이 화면의 같은 출처 상대 주소다. */
@@ -20,6 +21,21 @@ export const KIDKIDS_PAGE_GUARD: PageGuard = {
   loginMessage: LOGIN_MESSAGE,
 };
 
+/**
+ * 키드키즈 로그인 입구(옛 `mall-session.js` kidkids 줄, KID-377). 미로그인이면 출고관리 → partnerLogin →
+ * www.kidkids.net/join/partner_login.htm으로 넘어가고, 로그인 뒤 본인확인(verify_user)이 올 수 있다(운영자가 푼다).
+ * 출고관리를 띄운 뒤 클라이언트 리다이렉트로 로그인 화면을 여는 구간이 있어 폼 없는 화면이 5초 이어져야 '폼 없음'이다.
+ */
+export const KIDKIDS_LOGIN: LoginSpec = {
+  displayName: '키드키즈',
+  loginUrl: KIDKIDS_ORDER_URL,
+  hosts: ['kidkids.net'],
+  isLoginUrl: (url) => hostWithin(url, ['kidkids.net']) && /login|partnerlogin|partner_login/i.test(url.pathname),
+  isVerificationUrl: (url) => /\/security\/verify_user\.htm$/i.test(url.pathname),
+  fields: ['loginId', 'password'],
+  settleMs: 5_000,
+};
+
 type KidkidsAnswer =
   | { status: 'ok'; orders: unknown[] }
   | { status: 'login_required' }
@@ -30,7 +46,7 @@ type KidkidsAnswer =
  * ISOLATED 처리기(`content/orders/kidkids-orders.js`, 옛 `scrapeKidkidsOrders`)가 그날 주문을 목록 + 발주서02로
  * 읽는다. 원소는 옛 변환 본문 `{orders}`의 주문 그대로다. 읽기만 한다.
  */
-export function createKidkidsSite(tabs: TabPages) {
+export function createKidkidsSite(tabs: TabPages, signIn?: SiteSignIn) {
   return {
     readOrders(input: { collectionDate: string | null }): Promise<{ rows: unknown[] }> {
       return withFreshTab(tabs, KIDKIDS_ORDER_URL, async (page) => {
@@ -47,9 +63,9 @@ export function createKidkidsSite(tabs: TabPages) {
           reason: 'page_error',
           url: KIDKIDS_ORDER_URL,
         });
-      });
+      }, signIn ? { signIn } : {});
     },
   };
 }
 
-registerSite({ name: 'kidkids', create: (deps) => createKidkidsSite(deps.tabs) });
+registerSite({ name: 'kidkids', create: (deps, lease) => createKidkidsSite(deps.tabs, createSiteSignIn(KIDKIDS_LOGIN, lease.credentials, deps)) });

@@ -6992,7 +6992,7 @@ var KidItemRuntime = (() => {
     let keepOpen = false;
     try {
       await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS2 });
-      return await read(page);
+      return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
     } catch (error) {
       if (leftForOperator(error)) keepOpen = true;
       throw error;
@@ -7030,6 +7030,196 @@ var KidItemRuntime = (() => {
     });
   }
 
+  // extensions/src/sites/site-login.ts
+  var LOGIN_FILL_FILE = "content/page-call/login-fill.js";
+  var LOGIN_DIALOGS_FILE = "content/page-call/login-dialogs.js";
+  var LOGIN_FILL_WINDOW_MS = 15e3;
+  var FILL_RETRY_MS = 500;
+  var AFTER_SUBMIT_MS = 1500;
+  var AFTER_REDIRECT_MS = 1200;
+  var NAVIGATION_TIMEOUT_MS3 = 3e4;
+  var CALL_TIMEOUT_MS = 5e3;
+  var REMAIN_CHECKS = 3;
+  var REMAIN_CHECK_GAP_MS = 1500;
+  var NO_ANSWER = /* @__PURE__ */ Symbol("no-answer");
+  async function ensureLoggedIn(page, spec, credentials, deps, options = {}) {
+    const guard = loginGuard(spec);
+    const values = Object.fromEntries(spec.fields.map((field) => [field, credentials[field] ?? null]));
+    if (isVerification(spec, await safeUrl(page))) return { status: "verification_required" };
+    const first = await loginFrame(page);
+    if (first === null && !isLogin(spec, await safeUrl(page))) {
+      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS3, continueOnTimeout: true });
+    }
+    const deadline = deps.now() + (options.timeoutMs ?? LOGIN_FILL_WINDOW_MS);
+    const watching = /* @__PURE__ */ new Set();
+    let noFormSince = null;
+    while (deps.now() < deadline) {
+      const url = await safeUrl(page);
+      if (isVerification(spec, url)) return { status: "verification_required" };
+      const frameId = await loginFrame(page);
+      if (frameId === null) {
+        if (isLogin(spec, url)) noFormSince = null;
+        else {
+          noFormSince ??= deps.now();
+          if (deps.now() - noFormSince >= (spec.settleMs ?? 0)) return { status: "no_form" };
+        }
+      } else if (frameId !== void 0) {
+        noFormSince = null;
+        if (!watching.has(frameId)) {
+          watching.add(frameId);
+          await pageCall(page, "login.watchDialogs", {}, guard, spec, frameId, "main");
+        }
+        const filled = await pageCall(page, "login.fill", { values }, guard, spec, frameId, "isolated");
+        if (filled?.state === "submitted") return afterSubmit(page, spec, guard, frameId, deps);
+      }
+      await deps.sleep(FILL_RETRY_MS);
+    }
+    return { status: "unconfirmed" };
+  }
+  async function afterSubmit(page, spec, guard, frameId, deps) {
+    await deps.sleep(AFTER_SUBMIT_MS);
+    await deps.sleep(AFTER_REDIRECT_MS);
+    const dialogs = await pageCall(page, "login.takeDialogs", {}, guard, spec, frameId, "main");
+    const mallMessage = (Array.isArray(dialogs) ? dialogs : []).map((message) => String(message).replace(/\s+/g, " ").trim()).find(Boolean);
+    const withMessage = mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {};
+    if (isVerification(spec, await safeUrl(page))) return { status: "verification_required", ...withMessage };
+    return await formRemains(page, deps) ? { status: "form_remains", ...withMessage } : { status: "ok", ...withMessage };
+  }
+  async function formRemains(page, deps) {
+    let lastSeen = false;
+    for (let check = 0; check < REMAIN_CHECKS; check += 1) {
+      if (check > 0) await deps.sleep(REMAIN_CHECK_GAP_MS);
+      const probed = await probe(page);
+      if (probed === NO_ANSWER) return true;
+      if (probed === null || probed.length === 0) continue;
+      lastSeen = probed.some((frame) => frame.result?.loginForm === true);
+      if (!lastSeen) return false;
+    }
+    return lastSeen;
+  }
+  async function loginFrame(page) {
+    const probed = await probe(page);
+    if (probed === NO_ANSWER || probed === null || probed.length === 0) return void 0;
+    const found = probed.filter((frame) => frame.result?.loginForm === true).sort((a, b) => a.frameId - b.frameId)[0];
+    return found ? found.frameId : null;
+  }
+  async function probe(page) {
+    try {
+      return await within(page.frames([LOGIN_FILL_FILE]), CALL_TIMEOUT_MS);
+    } catch {
+      return null;
+    }
+  }
+  async function pageCall(page, call2, args, guard, spec, frameId, world) {
+    try {
+      return await callPage(page, call2, args, {
+        timeoutMs: CALL_TIMEOUT_MS,
+        guard,
+        displayName: spec.displayName,
+        frameId,
+        ...world === "main" ? { main: [LOGIN_DIALOGS_FILE] } : { isolated: [LOGIN_FILL_FILE] }
+      });
+    } catch {
+      return null;
+    }
+  }
+  function loginGuard(spec) {
+    return {
+      allows: (url) => hostWithin(url, spec.hosts),
+      isLogin: () => false,
+      loginMessage: `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.`
+    };
+  }
+  async function safeUrl(page) {
+    return page.currentUrl().catch(() => "");
+  }
+  function parsed(value) {
+    try {
+      return new URL(value);
+    } catch {
+      return null;
+    }
+  }
+  function isLogin(spec, value) {
+    const url = parsed(value);
+    return url !== null && spec.isLoginUrl(url);
+  }
+  function isVerification(spec, value) {
+    const url = parsed(value);
+    return url !== null && spec.isVerificationUrl?.(url) === true;
+  }
+  function within(work, ms) {
+    let timer;
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(NO_ANSWER), ms);
+    });
+    return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+  }
+  function createSiteLoginGate(credentials) {
+    let attempt = null;
+    const usable = Boolean(credentials?.loginId && credentials.password);
+    return async function withLogin(call2, login) {
+      let blocked;
+      try {
+        return await call2();
+      } catch (error) {
+        if (!isLoginRequired(error)) throw error;
+        blocked = error;
+      }
+      if (!usable) throw loginFailure(blocked, "no_credentials");
+      attempt ??= login().catch(() => ({ status: "unconfirmed" }));
+      const outcome = await attempt;
+      if (outcome.status === "verification_required") throw loginFailure(blocked, "verification_required");
+      try {
+        return await call2();
+      } catch (error) {
+        if (!isLoginRequired(error)) throw error;
+        throw outcome.status === "form_remains" ? loginFailure(error, "credentials_rejected", outcome.mallMessage) : loginFailure(error, "login_unconfirmed");
+      }
+    };
+  }
+  function createSiteSignIn(spec, credentials, deps) {
+    const withLogin = createSiteLoginGate(credentials);
+    const login = (page) => ensureLoggedIn(page, spec, credentials, deps);
+    return {
+      onPage: (page, returnTo, read) => withLogin(read, async () => {
+        const outcome = await login(page);
+        if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
+        return outcome;
+      }),
+      beforeTab: (tabs, call2) => withLogin(call2, async () => {
+        const page = await tabs.open("about:blank");
+        const outcome = await login(page);
+        if (outcome.status === "ok" || outcome.status === "no_form") await page.close();
+        return outcome;
+      })
+    };
+  }
+  function callerWithLogin(caller, withLogin, login) {
+    return {
+      json: (url, init) => withLogin(() => caller.json(url, init), login),
+      text: (url, init) => withLogin(() => caller.text(url, init), login),
+      bytes: (url, init) => withLogin(() => caller.bytes(url, init), login)
+    };
+  }
+  function isLoginRequired(error) {
+    return isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED;
+  }
+  var REASON_TEXT = {
+    no_credentials: "",
+    credentials_rejected: " \uC800\uC7A5\uB41C \uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638\uB85C \uB85C\uADF8\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4",
+    verification_required: " \uBCF8\uC778 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC5D0\uC11C \uC778\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.",
+    login_unconfirmed: " \uC800\uC7A5\uB41C \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."
+  };
+  function loginFailure(error, reason, mallMessage) {
+    const text2 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}${mallMessage ? `: ${mallMessage}` : ""}.` : REASON_TEXT[reason];
+    return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text2}`, {
+      ...error.details ?? {},
+      reason,
+      ...mallMessage ? { mallMessage } : {}
+    }, error);
+  }
+
   // extensions/src/sites/art09/index.ts
   var ART09_ORDER_URL = "https://zzogzzog1.cafe24.com/admin/php/shop1/s_new/order_list.php?1&shop_no=1";
   var ART09_ORDERS_FILE = "content/orders/art09-orders.js";
@@ -7040,7 +7230,14 @@ var KidItemRuntime = (() => {
     isLogin: (url) => hostWithin(url, ["cafe24.com"]) && !/order_list\.php$/i.test(url.pathname),
     loginMessage: LOGIN_MESSAGE
   };
-  function createArt09Site(tabs) {
+  var ART09_LOGIN = {
+    displayName: "\uC544\uD2B8\uACF5\uAD6C",
+    loginUrl: ART09_ORDER_URL,
+    hosts: ["zzogzzog1.cafe24.com"],
+    isLoginUrl: (url) => ART09_PAGE_GUARD.isLogin(url),
+    fields: ["supplierLoginId", "loginId", "password"]
+  };
+  function createArt09Site(tabs, signIn) {
     return {
       readOrders(input) {
         return withFreshTab(tabs, ART09_ORDER_URL, async (page) => {
@@ -7057,11 +7254,11 @@ var KidItemRuntime = (() => {
             reason: "page_error",
             url: ART09_ORDER_URL
           });
-        });
+        }, signIn ? { signIn } : {});
       }
     };
   }
-  registerSite({ name: "art09", create: (deps) => createArt09Site(deps.tabs) });
+  registerSite({ name: "art09", create: (deps, lease) => createArt09Site(deps.tabs, createSiteSignIn(ART09_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/coupang-search/parse.ts
   var PROVIDER_ATTENTION = /access\s*denied|unauthori[sz]ed|forbidden|too\s*many\s*requests|로그인|인증|접근\s*거부/i;
@@ -7248,179 +7445,6 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: COUPANG_SEARCH_SITE.name, create: (deps) => createCoupangSearchSite(deps.tabs, { sleep: deps.sleep }) });
-
-  // extensions/src/sites/site-login.ts
-  var LOGIN_FILL_FILE = "content/page-call/login-fill.js";
-  var LOGIN_DIALOGS_FILE = "content/page-call/login-dialogs.js";
-  var LOGIN_FILL_WINDOW_MS = 15e3;
-  var FILL_RETRY_MS = 500;
-  var AFTER_SUBMIT_MS = 1500;
-  var AFTER_REDIRECT_MS = 1200;
-  var NAVIGATION_TIMEOUT_MS3 = 3e4;
-  var CALL_TIMEOUT_MS = 5e3;
-  var REMAIN_CHECKS = 3;
-  var REMAIN_CHECK_GAP_MS = 1500;
-  var NO_ANSWER = /* @__PURE__ */ Symbol("no-answer");
-  async function ensureLoggedIn(page, spec, credentials, deps, options = {}) {
-    const guard = loginGuard(spec);
-    const values = Object.fromEntries(spec.fields.map((field) => [field, credentials[field] ?? null]));
-    if (isVerification(spec, await safeUrl(page))) return { status: "verification_required" };
-    const first = await loginFrame(page);
-    if (first === null && !isLogin(spec, await safeUrl(page))) {
-      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS3, continueOnTimeout: true });
-    }
-    const deadline = deps.now() + (options.timeoutMs ?? LOGIN_FILL_WINDOW_MS);
-    const watching = /* @__PURE__ */ new Set();
-    let noFormSince = null;
-    while (deps.now() < deadline) {
-      const url = await safeUrl(page);
-      if (isVerification(spec, url)) return { status: "verification_required" };
-      const frameId = await loginFrame(page);
-      if (frameId === null) {
-        if (isLogin(spec, url)) noFormSince = null;
-        else {
-          noFormSince ??= deps.now();
-          if (deps.now() - noFormSince >= (spec.settleMs ?? 0)) return { status: "no_form" };
-        }
-      } else if (frameId !== void 0) {
-        noFormSince = null;
-        if (!watching.has(frameId)) {
-          watching.add(frameId);
-          await pageCall(page, "login.watchDialogs", {}, guard, spec, frameId, "main");
-        }
-        const filled = await pageCall(page, "login.fill", { values }, guard, spec, frameId, "isolated");
-        if (filled?.state === "submitted") return afterSubmit(page, spec, guard, frameId, deps);
-      }
-      await deps.sleep(FILL_RETRY_MS);
-    }
-    return { status: "unconfirmed" };
-  }
-  async function afterSubmit(page, spec, guard, frameId, deps) {
-    await deps.sleep(AFTER_SUBMIT_MS);
-    await deps.sleep(AFTER_REDIRECT_MS);
-    const dialogs = await pageCall(page, "login.takeDialogs", {}, guard, spec, frameId, "main");
-    const mallMessage = (Array.isArray(dialogs) ? dialogs : []).map((message) => String(message).replace(/\s+/g, " ").trim()).find(Boolean);
-    const withMessage = mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {};
-    if (isVerification(spec, await safeUrl(page))) return { status: "verification_required", ...withMessage };
-    return await formRemains(page, deps) ? { status: "form_remains", ...withMessage } : { status: "ok", ...withMessage };
-  }
-  async function formRemains(page, deps) {
-    let lastSeen = false;
-    for (let check = 0; check < REMAIN_CHECKS; check += 1) {
-      if (check > 0) await deps.sleep(REMAIN_CHECK_GAP_MS);
-      const probed = await probe(page);
-      if (probed === NO_ANSWER) return true;
-      if (probed === null || probed.length === 0) continue;
-      lastSeen = probed.some((frame) => frame.result?.loginForm === true);
-      if (!lastSeen) return false;
-    }
-    return lastSeen;
-  }
-  async function loginFrame(page) {
-    const probed = await probe(page);
-    if (probed === NO_ANSWER || probed === null || probed.length === 0) return void 0;
-    const found = probed.filter((frame) => frame.result?.loginForm === true).sort((a, b) => a.frameId - b.frameId)[0];
-    return found ? found.frameId : null;
-  }
-  async function probe(page) {
-    try {
-      return await within(page.frames([LOGIN_FILL_FILE]), CALL_TIMEOUT_MS);
-    } catch {
-      return null;
-    }
-  }
-  async function pageCall(page, call2, args, guard, spec, frameId, world) {
-    try {
-      return await callPage(page, call2, args, {
-        timeoutMs: CALL_TIMEOUT_MS,
-        guard,
-        displayName: spec.displayName,
-        frameId,
-        ...world === "main" ? { main: [LOGIN_DIALOGS_FILE] } : { isolated: [LOGIN_FILL_FILE] }
-      });
-    } catch {
-      return null;
-    }
-  }
-  function loginGuard(spec) {
-    return {
-      allows: (url) => hostWithin(url, spec.hosts),
-      isLogin: () => false,
-      loginMessage: `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.`
-    };
-  }
-  async function safeUrl(page) {
-    return page.currentUrl().catch(() => "");
-  }
-  function parsed(value) {
-    try {
-      return new URL(value);
-    } catch {
-      return null;
-    }
-  }
-  function isLogin(spec, value) {
-    const url = parsed(value);
-    return url !== null && spec.isLoginUrl(url);
-  }
-  function isVerification(spec, value) {
-    const url = parsed(value);
-    return url !== null && spec.isVerificationUrl?.(url) === true;
-  }
-  function within(work, ms) {
-    let timer;
-    const timeout = new Promise((resolve) => {
-      timer = setTimeout(() => resolve(NO_ANSWER), ms);
-    });
-    return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
-  }
-  function createSiteLoginGate(credentials) {
-    let attempt = null;
-    const usable = Boolean(credentials?.loginId && credentials.password);
-    return async function withLogin(call2, login) {
-      let blocked;
-      try {
-        return await call2();
-      } catch (error) {
-        if (!isLoginRequired(error)) throw error;
-        blocked = error;
-      }
-      if (!usable) throw loginFailure(blocked, "no_credentials");
-      attempt ??= login().catch(() => ({ status: "unconfirmed" }));
-      const outcome = await attempt;
-      if (outcome.status === "verification_required") throw loginFailure(blocked, "verification_required");
-      try {
-        return await call2();
-      } catch (error) {
-        if (!isLoginRequired(error)) throw error;
-        throw outcome.status === "form_remains" ? loginFailure(error, "credentials_rejected", outcome.mallMessage) : loginFailure(error, "login_unconfirmed");
-      }
-    };
-  }
-  function callerWithLogin(caller, withLogin, login) {
-    return {
-      json: (url, init) => withLogin(() => caller.json(url, init), login),
-      text: (url, init) => withLogin(() => caller.text(url, init), login),
-      bytes: (url, init) => withLogin(() => caller.bytes(url, init), login)
-    };
-  }
-  function isLoginRequired(error) {
-    return isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED;
-  }
-  var REASON_TEXT = {
-    no_credentials: "",
-    credentials_rejected: " \uC800\uC7A5\uB41C \uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638\uB85C \uB85C\uADF8\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4",
-    verification_required: " \uBCF8\uC778 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC5D0\uC11C \uC778\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.",
-    login_unconfirmed: " \uC800\uC7A5\uB41C \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."
-  };
-  function loginFailure(error, reason, mallMessage) {
-    const text2 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}${mallMessage ? `: ${mallMessage}` : ""}.` : REASON_TEXT[reason];
-    return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text2}`, {
-      ...error.details ?? {},
-      reason,
-      ...mallMessage ? { mallMessage } : {}
-    }, error);
-  }
 
   // extensions/src/sites/coupang-supplier/page.ts
   var COUPANG_SUPPLIER_ORIGIN = "https://supplier.coupang.com";
@@ -7714,6 +7738,13 @@ var KidItemRuntime = (() => {
     isLogin: (url) => hostWithin(url, ["domeggook.com"]) && /login/i.test(url.pathname),
     loginMessage: LOGIN_MESSAGE2
   };
+  var DOMEGGOOK_LOGIN = {
+    displayName: "\uB3C4\uB9E4\uAFB9",
+    loginUrl: DOMEGGOOK_ORDER_LIST_URL,
+    hosts: ["domeggook.com"],
+    isLoginUrl: (url) => DOMEGGOOK_PAGE_GUARD.isLogin(url),
+    fields: ["loginId", "password"]
+  };
   async function orderList(caller) {
     const text2 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
     let body = null;
@@ -7744,11 +7775,11 @@ var KidItemRuntime = (() => {
     }
     return btoa(binary);
   }
-  function createDomeggookSite(tabs, deps) {
+  function createDomeggookSite(tabs, deps, signIn) {
     const caller = createSiteCaller({ minIntervalMs: 0, displayName: "\uB3C4\uB9E4\uAFB9", timeoutMs: 3e4 }, deps);
     return {
       async readOrders(input) {
-        const before = await orderList(caller);
+        const before = await (signIn ? signIn.beforeTab(tabs, () => orderList(caller)) : orderList(caller));
         const beforeReq = String(before[0]?.dateReq ?? "");
         const dateDot = input.collectionDate ? input.collectionDate.replace(/-/g, ".") : "";
         const listUrl = dateDot ? `${DOMEGGOOK_ORDER_LIST_URL}?dtbase=ord&dt1=${dateDot}&dt2=${dateDot}` : DOMEGGOOK_ORDER_LIST_URL;
@@ -7792,11 +7823,11 @@ var KidItemRuntime = (() => {
               base64: base642.slice(part * DOMEGGOOK_PART_CHARS, (part + 1) * DOMEGGOOK_PART_CHARS)
             }))
           };
-        });
+        }, signIn ? { signIn } : {});
       }
     };
   }
-  registerSite({ name: "domeggook", create: (deps) => createDomeggookSite(deps.tabs, deps) });
+  registerSite({ name: "domeggook", create: (deps, lease) => createDomeggookSite(deps.tabs, deps, createSiteSignIn(DOMEGGOOK_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/icecream-mall/index.ts
   var ICECREAM_MALL_URL = "https://po.i-screammall.co.kr/main.do";
@@ -7867,6 +7898,14 @@ var KidItemRuntime = (() => {
     isLogin: (url) => hostWithin(url, ["i-screammall.co.kr"]) && /login/i.test(url.pathname),
     loginMessage: LOGIN_MESSAGE3
   };
+  var ICECREAM_LOGIN = {
+    displayName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
+    loginUrl: ICECREAM_MALL_URL,
+    hosts: ["i-screammall.co.kr"],
+    isLoginUrl: (url) => ICECREAM_PAGE_GUARD.isLogin(url),
+    fields: ["loginId", "password"],
+    settleMs: LOGIN_WATCH_ROUNDS * LOGIN_WATCH_MS
+  };
   function icecreamHasNoPendingOrders(diagnosis) {
     if (diagnosis.reason !== "data rows not found") return false;
     const orderRows = diagnosis.orderRows ?? 0;
@@ -7889,7 +7928,7 @@ var KidItemRuntime = (() => {
   function loginRequired2() {
     return new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE3, { url: ICECREAM_MALL_URL });
   }
-  function createIcecreamMallSite(tabs, sleep) {
+  function createIcecreamMallSite(tabs, sleep, signIn) {
     async function inspect(page) {
       return page.frames([ICECREAM_FRAMES_FILE]);
     }
@@ -7943,11 +7982,11 @@ var KidItemRuntime = (() => {
             url: ICECREAM_MALL_URL,
             diagnosis
           });
-        });
+        }, signIn ? { signIn } : {});
       }
     };
   }
-  registerSite({ name: "icecream-mall", create: (deps) => createIcecreamMallSite(deps.tabs, deps.sleep) });
+  registerSite({ name: "icecream-mall", create: (deps, lease) => createIcecreamMallSite(deps.tabs, deps.sleep, createSiteSignIn(ICECREAM_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/kidkids/index.ts
   var KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
@@ -7959,7 +7998,16 @@ var KidItemRuntime = (() => {
     isLogin: (url) => hostWithin(url, ["kidkids.net"]) && (/login|partnerlogin|partner_login/i.test(url.pathname) || /\/security\/verify_user\.htm$/i.test(url.pathname)),
     loginMessage: LOGIN_MESSAGE4
   };
-  function createKidkidsSite(tabs) {
+  var KIDKIDS_LOGIN = {
+    displayName: "\uD0A4\uB4DC\uD0A4\uC988",
+    loginUrl: KIDKIDS_ORDER_URL,
+    hosts: ["kidkids.net"],
+    isLoginUrl: (url) => hostWithin(url, ["kidkids.net"]) && /login|partnerlogin|partner_login/i.test(url.pathname),
+    isVerificationUrl: (url) => /\/security\/verify_user\.htm$/i.test(url.pathname),
+    fields: ["loginId", "password"],
+    settleMs: 5e3
+  };
+  function createKidkidsSite(tabs, signIn) {
     return {
       readOrders(input) {
         return withFreshTab(tabs, KIDKIDS_ORDER_URL, async (page) => {
@@ -7976,11 +8024,11 @@ var KidItemRuntime = (() => {
             reason: "page_error",
             url: KIDKIDS_ORDER_URL
           });
-        });
+        }, signIn ? { signIn } : {});
       }
     };
   }
-  registerSite({ name: "kidkids", create: (deps) => createKidkidsSite(deps.tabs) });
+  registerSite({ name: "kidkids", create: (deps, lease) => createKidkidsSite(deps.tabs, createSiteSignIn(KIDKIDS_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/live-commerce/index.ts
   var NAVIGATION_TIMEOUT_MS6 = 35e3;

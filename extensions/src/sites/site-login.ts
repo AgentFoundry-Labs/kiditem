@@ -2,7 +2,7 @@ import { RuntimeError, isRuntimeError } from '../core/errors';
 import { SITE_LOGIN_REQUIRED, type SiteCaller } from '../core/site-caller';
 import { callPage } from './page-call';
 import type { SiteCredentials } from './registry';
-import { hostWithin, type PageGuard, type TabPage } from './tab-page';
+import { hostWithin, type PageGuard, type TabPage, type TabPages } from './tab-page';
 
 /**
  * 사이트 자동 로그인(KID-377). 옛 `mall-session.js` `ensureLoggedIn`·`fillLoginForm`의 규칙을 새 런타임으로 옮겼다:
@@ -254,6 +254,36 @@ export function createSiteLoginGate(credentials: SiteCredentials | null | undefi
 }
 
 export type SiteLoginGate = ReturnType<typeof createSiteLoginGate>;
+
+/**
+ * 탭을 스스로 여는 사이트(몰 주문 몰, KID-359 H3)의 로그인 문턱. 한 실행(사이트 핸들)에 하나 — 로그인은 한 번만 한다.
+ * - `onPage`: 읽기가 로그인 화면에서 멈추면 그 탭에서 로그인하고 `returnTo`로 돌아가 같은 읽기를 한 번 다시 한다.
+ * - `beforeTab`: 탭 없이 서비스워커로 먼저 묻는 호출(도매꾹 엑셀 목록)이 멈추면 새 탭에서 로그인하고(로그인되면 닫는다)
+ *   같은 호출을 다시 한다.
+ */
+export interface SiteSignIn {
+  onPage<T>(page: TabPage, returnTo: string, read: () => Promise<T>): Promise<T>;
+  beforeTab<T>(tabs: TabPages, call: () => Promise<T>): Promise<T>;
+}
+
+export function createSiteSignIn(spec: LoginSpec, credentials: SiteCredentials | null | undefined, deps: LoginDeps): SiteSignIn {
+  const withLogin = createSiteLoginGate(credentials);
+  // 자격이 없으면 문턱이 로그인을 부르지 않는다(`no_credentials`).
+  const login = (page: TabPage) => ensureLoggedIn(page, spec, credentials as SiteCredentials, deps);
+  return {
+    onPage: (page, returnTo, read) => withLogin(read, async () => {
+      const outcome = await login(page);
+      if (outcome.status !== 'verification_required') await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS });
+      return outcome;
+    }),
+    beforeTab: (tabs, call) => withLogin(call, async () => {
+      const page = await tabs.open('about:blank');
+      const outcome = await login(page);
+      if (outcome.status === 'ok' || outcome.status === 'no_form') await page.close();
+      return outcome;
+    }),
+  };
+}
 
 /** 서비스워커 fetch 사이트(윙)의 호출기에 로그인 문턱을 건다: 요청마다 `withLogin`으로 감싼다. */
 export function callerWithLogin(caller: SiteCaller, withLogin: SiteLoginGate, login: () => Promise<LoginOutcome>): SiteCaller {
