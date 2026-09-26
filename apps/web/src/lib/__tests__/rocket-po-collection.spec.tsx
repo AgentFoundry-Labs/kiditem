@@ -82,8 +82,7 @@ beforeEach(() => {
   });
   vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
     // 로켓 계정의 저장 자격(KID-377): 몰 목록의 coupang-direct 행과 그 비밀번호.
-    if (path === '/api/orders/collection/malls') return [{ key: 'coupang-direct', name: '쿠팡직배송', loginId: 'fake-rocket-id', hasPassword: true }];
-    if (path === '/api/orders/collection/malls/coupang-direct/password') return { key: 'coupang-direct', password: 'fake-rocket-password' };
+    if (path === '/api/orders/collection/malls/coupang-direct/password') return { key: 'coupang-direct', loginId: 'fake-rocket-id', supplierLoginId: null, password: 'fake-rocket-password' };
     if (!path.startsWith('/api/operations?kinds=orders.coupang_rocket_po')) throw new Error(`unexpected GET ${path}`);
     return { operations };
   });

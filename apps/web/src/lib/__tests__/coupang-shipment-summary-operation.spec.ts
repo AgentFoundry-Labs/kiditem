@@ -9,6 +9,7 @@ const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), getParsed: vi.fn() 
 const start = vi.hoisted(() => ({ requestOperationStart: vi.fn() }));
 vi.mock('../api-client', () => ({ apiClient: api }));
 vi.mock('../operation-start', () => start);
+vi.mock('sonner', () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), warning: vi.fn(), error: vi.fn(), info: vi.fn() }) }));
 
 const OPERATION_ID = 'a1111111-1111-4111-8111-111111111111';
 
@@ -40,8 +41,7 @@ describe('쿠팡 쉽먼트 발송일 조회 웹 다리(실행 계약 orders.coup
   it('확장에 빈 scope로 실행을 시작시킨다(쪽 상한은 서버 plan이 정한다), 로켓 계정 저장 자격을 싣는다(KID-377)', async () => {
     start.requestOperationStart.mockResolvedValue({ outcome: 'started', operationId: OPERATION_ID });
     api.get.mockImplementation(async (path: string) => {
-      if (path === '/api/orders/collection/malls') return [{ key: 'coupang-direct', name: '쿠팡직배송', loginId: 'fake-rocket-id', hasPassword: true }];
-      if (path === '/api/orders/collection/malls/coupang-direct/password') return { key: 'coupang-direct', password: 'fake-rocket-password' };
+      if (path === '/api/orders/collection/malls/coupang-direct/password') return { key: 'coupang-direct', loginId: 'fake-rocket-id', supplierLoginId: null, password: 'fake-rocket-password' };
       throw new Error(`unexpected GET ${path}`);
     });
     await expect(startCoupangShipmentSummary()).resolves.toEqual({ outcome: 'started', operationId: OPERATION_ID });
@@ -51,7 +51,7 @@ describe('쿠팡 쉽먼트 발송일 조회 웹 다리(실행 계약 orders.coup
 
     // 로켓 계정에 저장 비밀번호가 없으면 자격 없이 시작한다(로그인 화면이면 확장이 멈추고 탭을 남긴다).
     api.get.mockImplementation(async (path: string) => {
-      if (path === '/api/orders/collection/malls') return [{ key: 'coupang-direct', name: '쿠팡직배송', loginId: null, hasPassword: false }];
+      if (path === '/api/orders/collection/malls/coupang-direct/password') return { key: 'coupang-direct', loginId: null, supplierLoginId: null, password: null };
       throw new Error(`unexpected GET ${path}`);
     });
     await startCoupangShipmentSummary();

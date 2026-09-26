@@ -93,6 +93,23 @@ describe('쿠팡 상품평 수집 웹 다리(실행 계약 orders.coupang_review
     });
   });
 
+  it('윙 저장 자격(coupang, 대표 윙 계정 행)이 있으면 실어 보낸다 — 윙이 로그인 화면이면 확장이 로그인한다(KID-377)', async () => {
+    api.get.mockImplementation(async (path: string) => {
+      if (path === '/api/orders/collection/malls/coupang/password') return { key: 'coupang', loginId: 'fake-wing-id', supplierLoginId: null, password: 'fake-wing-password' };
+      throw new Error(`unexpected GET ${path}`);
+    });
+    bridge.sendToExtension.mockResolvedValue({ success: true, operationId: OPERATION_ID, reused: false });
+    await startCoupangReviewCollection('ext', { channelAccountId: ACCOUNT_ID, months: 3 }, 'key-9');
+    expect(bridge.sendToExtension).toHaveBeenCalledWith('ext', {
+      action: 'operation.start',
+      kind: 'orders.coupang_reviews',
+      scope: { channelAccountId: ACCOUNT_ID, months: 3 },
+      idempotencyKey: 'key-9',
+      credentials: { loginId: 'fake-wing-id', password: 'fake-wing-password' },
+    });
+    api.get.mockReset();
+  });
+
   it('같은 계정 실행이 이미 돌고 있으면 그 실행을 이어서 본다, 다른 거절은 확장이 준 문장으로 던진다', async () => {
     bridge.sendToExtension.mockResolvedValueOnce({
       success: false, errorCode: 'OPERATION_IN_PROGRESS', error: '같은 실행이 이미 진행 중입니다.',

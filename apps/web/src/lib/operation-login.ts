@@ -9,6 +9,7 @@ import {
   mallRejectedCredentials,
   markMallAutoLoginAttempt,
 } from './mall-login-block';
+import { findChannel } from '@kiditem/shared/channel-registry';
 import { orderMallAccountApi } from './order-mall-account-api';
 
 /**
@@ -67,17 +68,29 @@ export async function loadOperationLoginCredentials(
 }
 
 /**
- * 몰 키로 계정을 찾아 저장 자격을 만든다 — 몰 카드 밖에서 시작하는 실행(로켓 계정 `coupang-direct`: 배송요약·로켓 PO·
- * 직배송). 사람이 누른 수집이다. 쿠팡 윙(`coupang`)은 마켓 행이라 이 저장소에 비밀번호가 없다(KID-377 열린 질문).
+ * 몰 키 하나의 저장 자격 — 몰 카드 밖에서 시작하는 실행(로켓 계정 `coupang-direct`: 배송요약·로켓 PO·직배송, 쿠팡 윙
+ * `coupang`: 카탈로그·상품평). 윙은 몰 목록에 없으므로 비밀번호 응답의 아이디를 쓴다. 사람이 누른 수집이다.
  */
 export async function loadOperationLoginCredentialsForMall(mallKey: string): Promise<OperationLoginCredentials | undefined> {
-  let account: OperationLoginAccount | undefined;
+  const mallName = findChannel(mallKey)?.name ?? mallKey;
+  if (mallAutoLoginBlock(mallKey)) {
+    toast.warning(`${mallName} 자동 로그인은 멈춰 있습니다`, {
+      description: '한 번 실패해 다시 시도하지 않습니다. 로그인이 풀렸다면 직접 로그인해 주세요.',
+    });
+    return undefined;
+  }
+  let saved: Awaited<ReturnType<typeof orderMallAccountApi.password>>;
   try {
-    account = (await orderMallAccountApi.list()).find((candidate) => candidate.key === mallKey);
+    saved = await orderMallAccountApi.password(mallKey);
   } catch {
     return undefined;
   }
-  return account ? loadOperationLoginCredentials(account, { automatic: false }) : undefined;
+  if (!saved?.loginId || !saved.password) return undefined;
+  return {
+    loginId: saved.loginId,
+    ...(saved.supplierLoginId ? { supplierLoginId: saved.supplierLoginId } : {}),
+    password: saved.password,
+  };
 }
 
 /** `requestOperationStart` 옵션 조각: 그 몰 키의 저장 자격이 있으면 `{ credentials }`, 없으면 빈 조각. */
@@ -88,6 +101,8 @@ export async function operationLoginOptions(mallKey: string): Promise<{ credenti
 
 /** 로켓 계정의 저장 자격이 있는 몰 키(ADR-0012) — 서플라이어 허브(배송요약·로켓 PO·직배송) 로그인. */
 export const ROCKET_LOGIN_MALL_KEY = 'coupang-direct' as const;
+/** 쿠팡 윙 저장 자격이 있는 키 — 대표 윙 계정 행(Channels, KID-377). 윙 카탈로그·상품평 로그인. */
+export const WING_LOGIN_MALL_KEY = 'coupang' as const;
 
 /**
  * 로그인 화면에서 멈춘 실행(`SITE_LOGIN_REQUIRED`, `result.login`)이 몰이 아이디·비밀번호를 거부했다고 말하면 그 몰의
@@ -102,3 +117,4 @@ export function noteOperationLoginFailure(account: Pick<OperationLoginAccount, '
   blockMallAutoLogin(account.key, mallMessage ?? '몰이 아이디·비밀번호를 거부했습니다.');
   toast.error(`${mallName} 로그인 실패 — 저장된 아이디·비밀번호를 고쳐 주세요`, { description: `${mallName}: ${mallMessage}` });
 }
+

@@ -81,17 +81,24 @@ describe('operation-login — 실행에 실어 보낼 저장 자격(KID-377)', (
     await expect(loadOperationLoginCredentials(ACCOUNT, { automatic: false })).resolves.toMatchObject({ loginId: 'fake-id' });
   });
 
-  it('몰 키로 계정을 찾아 자격을 만든다(로켓 계정 = coupang-direct), 저장 안 된 계정·없는 몰·목록 실패는 자격 없음', async () => {
-    vi.mocked(orderMallAccountApi.list).mockResolvedValue([
-      { key: 'coupang-direct', name: '쿠팡직배송', loginId: 'fake-rocket-id', hasPassword: true } as never,
-      { key: 'kidsnote', name: '키즈노트', loginId: null, hasPassword: false } as never,
-    ]);
-    vi.mocked(orderMallAccountApi.password).mockResolvedValue({ key: 'coupang-direct', password: 'fake-rocket-password' });
-    await expect(loadOperationLoginCredentialsForMall('coupang-direct')).resolves.toEqual({ loginId: 'fake-rocket-id', password: 'fake-rocket-password' });
-    await expect(loadOperationLoginCredentialsForMall('kidsnote')).resolves.toBeUndefined();
-    await expect(loadOperationLoginCredentialsForMall('nope')).resolves.toBeUndefined();
-    vi.mocked(orderMallAccountApi.list).mockRejectedValueOnce(new Error('offline'));
+  it('몰 키 하나로 저장 자격을 그때 읽는다(로켓 계정 coupang-direct·윙 coupang) — 저장 안 됨·읽기 실패는 자격 없음', async () => {
+    vi.mocked(orderMallAccountApi.password).mockResolvedValue({ key: 'coupang', loginId: 'fake-wing-id', supplierLoginId: null, password: 'fake-wing-password' });
+    await expect(loadOperationLoginCredentialsForMall('coupang')).resolves.toEqual({ loginId: 'fake-wing-id', password: 'fake-wing-password' });
+    expect(orderMallAccountApi.password).toHaveBeenCalledWith('coupang');
+    expect(orderMallAccountApi.list).not.toHaveBeenCalled();
+
+    vi.mocked(orderMallAccountApi.password).mockResolvedValue({ key: 'coupang-direct', loginId: null, supplierLoginId: null, password: 'fake-rocket-password' });
     await expect(loadOperationLoginCredentialsForMall('coupang-direct')).resolves.toBeUndefined();
+    vi.mocked(orderMallAccountApi.password).mockResolvedValue({ key: 'coupang-direct', loginId: 'fake-rocket-id', supplierLoginId: null, password: null });
+    await expect(loadOperationLoginCredentialsForMall('coupang-direct')).resolves.toBeUndefined();
+    vi.mocked(orderMallAccountApi.password).mockRejectedValueOnce(new Error('403'));
+    await expect(loadOperationLoginCredentialsForMall('coupang-direct')).resolves.toBeUndefined();
+  });
+
+  it('막힌 몰 키는 비밀번호를 읽지 않는다', async () => {
+    blockMallAutoLogin('coupang-direct', '비밀번호가 일치하지 않습니다.');
+    await expect(loadOperationLoginCredentialsForMall('coupang-direct')).resolves.toBeUndefined();
+    expect(orderMallAccountApi.password).not.toHaveBeenCalled();
   });
 });
 
@@ -115,3 +122,4 @@ describe('operation-login — 끝난 실행의 로그인 결과로 차단을 갱
     expect(mallAutoLoginBlock('kidkids')).toBeNull();
   });
 });
+
