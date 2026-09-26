@@ -3,13 +3,10 @@ export type { ListingTrafficTotals, ListingTrafficDailyFact, ListingTrafficWindo
 import { Prisma } from '@prisma/client';
 import { addDays, businessDateKey } from '../../../../common/kst';
 import { currentRowTieBreakSql } from '../../../../common/current-row';
-import { readSucceededOperationWindows } from '../../../../common/operation/transaction/succeeded-operation-windows';
+import { readWingTrafficConfirmedRuns } from '../../../../advertising/transaction/wing-traffic-coverage';
 import { wingListingRegistrationDate } from '../../../domain/registration/wing-listing-registration';
 import { readListingProductIds } from './listing-product-summary.reader';
 import {
-  WING_TRAFFIC_KIND,
-  WingTrafficPlanSchema,
-  WingTrafficResultSchema,
   dailyTrafficFactSource,
   type DailyTrafficFactSource,
 } from '@kiditem/shared/advertising-operations';
@@ -128,29 +125,14 @@ export async function readListingTrafficWindowFacts(
     ? populationAccountIds
     : fallbackAccounts.map((account) => account.id);
   // The Wing traffic runs are Advertising's `advertising.wing_traffic` operations
-  // (KID-362): each succeeded run names the dates it confirmed in its result.
-  const relevantAccounts = new Set(relevantAccountIds);
-  const completedAttempts = relevantAccountIds.length > 0
-    ? (await readSucceededOperationWindows(prisma, {
-        organizationId: input.organizationId,
-        kinds: [WING_TRAFFIC_KIND],
-        firstDate: input.from ? calendarDate(input.from) : '0001-01-01',
-        lastDate: input.to ? calendarDate(addDays(input.to, -1)) : '9999-12-31',
-      })).flatMap((operation): CompletedTrafficAttempt[] => {
-        const plan = WingTrafficPlanSchema.safeParse(operation.plan);
-        const result = WingTrafficResultSchema.safeParse(operation.result);
-        if (!plan.success || !result.success || !relevantAccounts.has(plan.data.channelAccountId)) return [];
-        return [{
-          id: operation.id,
-          channelAccountId: plan.data.channelAccountId,
-          confirmedDates: result.data.confirmedDates,
-          providerBackedEmptyDates: result.data.providerBackedEmptyDates,
-          unmatchedOptionIdsByDate: result.data.unmatchedOptionIdsByDate,
-          startedAt: operation.startedAt,
-          finishedAt: operation.finishedAt ?? operation.startedAt,
-        }];
-      })
-    : [];
+  // (KID-362), read through Advertising's transaction function. `startedAt` is the
+  // run's plan clock, the same one its zero-fill used.
+  const completedAttempts: CompletedTrafficAttempt[] = (await readWingTrafficConfirmedRuns(prisma, {
+    organizationId: input.organizationId,
+    accountIds: relevantAccountIds,
+    ...(input.from ? { from: calendarDate(input.from) } : {}),
+    ...(input.to ? { to: calendarDate(addDays(input.to, -1)) } : {}),
+  })).map((run) => ({ ...run, id: run.operationId }));
   const selectedAttempts = latestCompletedAttemptByAccountDate(completedAttempts, input);
   const facts = observedFacts.filter((fact) => {
     if (fact.source !== 'wing') return true;

@@ -24,6 +24,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { seedWingTrafficOperation } from '../../test-helpers/__tests__/wing-traffic-operation-seeds';
 import { readListingTrafficWindowFacts } from '../../channels/adapter/out/persistence/channel-listing-daily-facts';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import { OperationsController } from '../../common/operation/adapter/in/web/operations.controller';
@@ -321,6 +322,24 @@ describe('advertising.wing_traffic owner over the operation contract + disposabl
     // 창의 날을 더 새 실행이 바꿨으니 옛 기간 요약은 대조 근거가 아니다.
     expect(refreshed.reconciliation.views.periodValue).toBeNull();
     await expect(reader.readPublished({ organizationId: ORG, channelAccountId: randomUUID() })).rejects.toMatchObject({ code: 'CHANNELS_ACCOUNT_NOT_FOUND' });
+  });
+
+  it('the default read anchors on the newest 366 closed days, so old history never pushes recent days out, and a longer explicit range is refused (S2)', async () => {
+    const end = closed();
+    await seedWingTrafficOperation(prisma as never, {
+      organizationId: ORG, channelAccountId: accountId, confirmedDates: ['2024-01-01'], startedAt: new Date('2024-01-02T00:00:00.000Z'),
+    });
+    await seedWingTrafficOperation(prisma as never, {
+      organizationId: ORG, channelAccountId: accountId, confirmedDates: [end], accountDaily: { [end]: { views: 7 } },
+    });
+    const published = await reader.readPublished({ organizationId: ORG });
+    expect(published.coverage).toMatchObject({ from: end, to: end, targetDays: 1, completedDays: 1 });
+    expect(published.accountDaily.map((entry) => [entry.businessDate, entry.views])).toEqual([[end, 7]]);
+    await expect(reader.readPublished({ organizationId: ORG, from: shiftBusinessDateKey(end, -366), to: end }))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'traffic_date_range_too_long' } });
+    await expect(reader.readPublished({ organizationId: ORG, from: shiftBusinessDateKey(end, -365), to: end })).resolves.toMatchObject({
+      coverage: { targetDays: 366, completedDays: 1 },
+    });
   });
 
   describe('Channels traffic window over operation-published rows', () => {
