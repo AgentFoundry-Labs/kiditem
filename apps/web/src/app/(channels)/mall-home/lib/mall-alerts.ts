@@ -2,6 +2,7 @@ import type { AlertItem } from '@kiditem/shared/alerts';
 import { channelOutcomeKey } from '@kiditem/shared/channel-registry';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
 import { WING_ITEMWINNER_KIND, WING_TRAFFIC_KIND } from '@kiditem/shared/advertising-operations';
+import { MALL_ADMIN_LISTINGS_KIND } from '@kiditem/shared/channels-operations';
 import {
   COUPANG_DIRECTSHIP_KIND,
   COUPANG_ROCKET_PO_KIND,
@@ -43,7 +44,9 @@ const MALL_SOURCE_TYPES = new Map<string, string | null>([
   ['coupang_wing_traffic', 'coupang'],
   ['coupang_wing_itemwinner', 'coupang'],
   // 실행 계약으로 옮긴 원천: 알림 reader가 실행 표에서 만든 알림은 `sourceType`이 kind다(KID-355 정책 B).
+  // 몰마다 도는 kind는 알림의 대상 채널 계정(`targetType: 'channel_account'`)이 몰을 말한다.
   [MALL_ORDERS_KIND, null],
+  [MALL_ADMIN_LISTINGS_KIND, null],
   [COUPANG_SHIPMENT_SUMMARY_KIND, 'rocket'],
   [COUPANG_ROCKET_PO_KIND, 'rocket'],
   [COUPANG_DIRECTSHIP_KIND, 'coupang-direct'],
@@ -51,20 +54,36 @@ const MALL_SOURCE_TYPES = new Map<string, string | null>([
   [WING_ITEMWINNER_KIND, 'coupang'],
 ]);
 
+const CHANNEL_ACCOUNT_TARGET = 'channel_account';
+
 export type MallAlertState = 'attention' | 'done';
 export type MallAlertFilter = 'all' | 'attention';
 export type MallTileTone = 'failed' | 'attention' | 'running' | 'ok' | 'idle';
 
-type ChannelFacts = Pick<MallChannelSummary, 'mallKey' | 'mallName' | 'hasCredentials'>;
+type ChannelFacts = Pick<MallChannelSummary, 'mallKey' | 'mallName' | 'hasCredentials'> & {
+  channelAccountId?: string | null;
+};
 
 export function isMallAlert(item: AlertItem): boolean {
   return item.sourceType !== null && MALL_SOURCE_TYPES.has(item.sourceType);
 }
 
-/** 알림이 말하는 몰. 알림이 몰을 말하지 않으면 `null` — 짐작하지 않는다. */
-export function mallKeyOfAlert(item: AlertItem): string | null {
+/**
+ * 알림이 말하는 몰. 원천 자체가 한 몰 것이면 그 몰, 알림이 채널 계정을 대상으로 가리키면(`channel_account`) 그 계정의 몰
+ * (`accountMalls`: 채널 계정 id → 몰 키). 알림이 몰을 말하지 않으면 `null` — 짐작하지 않는다.
+ */
+export function mallKeyOfAlert(item: AlertItem, accountMalls?: ReadonlyMap<string, string>): string | null {
   if (item.sourceType === null || !MALL_SOURCE_TYPES.has(item.sourceType)) return null;
-  return MALL_SOURCE_TYPES.get(item.sourceType) ?? null;
+  const own = MALL_SOURCE_TYPES.get(item.sourceType) ?? null;
+  if (own) return own;
+  if (item.targetType === CHANNEL_ACCOUNT_TARGET && item.targetId) return accountMalls?.get(item.targetId.toLowerCase()) ?? null;
+  return null;
+}
+
+/** 채널 계정 id → 몰 키. 계정 행이 없는 몰은 싣지 않는다. */
+export function accountMallsOf(channels: readonly { mallKey: string; channelAccountId?: string | null }[] | null): ReadonlyMap<string, string> {
+  return new Map((channels ?? []).flatMap((channel) =>
+    channel.channelAccountId ? [[channel.channelAccountId.toLowerCase(), channel.mallKey] as const] : []));
 }
 
 /** 열린 알림은 사람이 볼 실패, 닫힌 알림은 다시 성공한 일이다. */
@@ -264,8 +283,9 @@ export function mallStatusTiles(
   sessions: Readonly<Record<string, TileLoginState>> = {},
 ): MallStatusTile[] {
   const byMall = new Map<string, AlertItem[]>();
+  const accountMalls = accountMallsOf(channels);
   for (const alert of alerts) {
-    const mallKey = mallKeyOfAlert(alert);
+    const mallKey = mallKeyOfAlert(alert, accountMalls);
     if (!mallKey) continue;
     // 타일은 계정 행의 채널로 선다. 계정 행을 함께 쓰는 몰(쿠팡직배송)의 알림을 제 키로 모으면
     // 그 키를 가진 타일이 없어 알림이 어느 타일에도 닿지 못한다 — 기록과 같은 키로 접는다.

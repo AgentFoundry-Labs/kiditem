@@ -152,6 +152,7 @@ export default function MallHomePage() {
             onFilterChange={setFilter}
             mall={selected ? { key: selected.mallKey, name: selected.mallName } : null}
             onClearMall={() => setMallKey(null)}
+            accountMalls={home.accountMalls}
             className="flex-1"
           />
         </div>

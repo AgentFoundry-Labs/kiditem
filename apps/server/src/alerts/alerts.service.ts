@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../prisma/prisma.service';
 import { operatorErrorText, sourceLabel } from '@kiditem/shared/errors';
+import { findChannel } from '@kiditem/shared/channel-registry';
 import { redact } from '../common/redact';
 import type {
   AlertItem,
@@ -15,6 +16,7 @@ import {
 import {
   OPERATION_FAILURE_IGNORED_CODES,
   OPERATION_FAILURE_KINDS,
+  OPERATION_FAILURE_MALL_KINDS,
   OPERATION_FAILURE_SCOPE_FIELDS,
   operationFailureHref,
 } from './operation-failure-sources';
@@ -36,6 +38,21 @@ const OPERATION_FAILURE_ALERT_TYPE = 'operation_failure';
 
 function operationReadKey(operationId: string): string {
   return `operation:${operationId}`;
+}
+
+const CHANNEL_ACCOUNT_TARGET = 'channel_account';
+const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+/** 몰마다 도는 kind가 plan에 남긴 몰 이름과 채널 계정(`planFields`로 읽은 값). */
+const MALL_PLAN_FIELDS = ['mallKey', 'mallName', 'channelAccountId'] as const;
+
+function mallTarget(row: OperationOutcomeRow): { name: string | null; channelAccountId: string | null } | null {
+  if (!OPERATION_FAILURE_MALL_KINDS.has(row.kind)) return null;
+  const mallKey = row.fields.mallKey ?? null;
+  const channelAccountId = row.fields.channelAccountId ?? null;
+  return {
+    name: row.fields.mallName ?? (mallKey ? findChannel(mallKey)?.name ?? null : null),
+    channelAccountId: channelAccountId && UUID.test(channelAccountId) ? channelAccountId.toLowerCase() : null,
+  };
 }
 
 /** 같은 밀리초에 끝났으면 뒤에 시작한 실행이, 그것도 같으면 id가 큰 쪽이 뒤다(읽기 정렬과 같은 순서). */
@@ -65,16 +82,17 @@ function operationFailureItems(
   for (const { failed, succeeded } of byIdentity.values()) {
     if (!failed) continue;
     const resolvedBy = succeeded && finishedAfter(succeeded, failed) ? succeeded : null;
+    const mall = mallTarget(failed);
     items.push({
       id: failed.id,
       attemptId: failed.id,
       status: resolvedBy ? 'RESOLVED' : 'OPEN',
       type: OPERATION_FAILURE_ALERT_TYPE,
-      title: `${sourceLabel(failed.kind)} 실패`,
+      title: `${mall?.name ? `${mall.name} ` : ''}${sourceLabel(failed.kind)} 실패`,
       // 실행의 `errorMessage`는 원문(영어·울타리 사유 `expired`)이라 싣지 않는다 — 코드의 레지스트리 문장만.
       message: operatorErrorText({ code: failed.errorCode, source: failed.kind }),
-      targetType: null,
-      targetId: null,
+      targetType: mall?.channelAccountId ? CHANNEL_ACCOUNT_TARGET : null,
+      targetId: mall?.channelAccountId ?? null,
       sourceType: failed.kind,
       href: operationFailureHref(failed.kind),
       isRead: readOperationIds.has(failed.id),
@@ -158,6 +176,7 @@ export class SourceFailureAlerts {
         kinds: OPERATION_FAILURE_KINDS,
         scopeFields: OPERATION_FAILURE_SCOPE_FIELDS,
         ignoredErrorCodes: OPERATION_FAILURE_IGNORED_CODES,
+        planFields: MALL_PLAN_FIELDS,
       }),
       this.prisma.alert.findMany({
         where: { organizationId, type: OPERATION_FAILURE_ALERT_TYPE, readAt: { not: null } },

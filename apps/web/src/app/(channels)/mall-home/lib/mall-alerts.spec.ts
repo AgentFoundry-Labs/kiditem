@@ -184,6 +184,25 @@ describe('mallStatusTiles', () => {
     expect(tiles[1]?.attentionCount).toBe(1);
   });
 
+  it('몰마다 도는 kind의 알림은 대상 채널 계정으로 그 몰 타일에 선다(KID-355)', () => {
+    const account = '55555555-5555-4555-8555-555555555555';
+    const mallChannels = [{ ...channel('gs-shop', 'GS샵'), channelAccountId: account }, channel('onch', '온채널')];
+    const item = alert('mall', {
+      type: 'operation_failure',
+      sourceType: 'orders.mall_orders',
+      title: 'GS샵 몰 주문 수집 실패',
+      targetType: 'channel_account',
+      targetId: account,
+    });
+    expect(mallKeyOfAlert(item)).toBeNull();
+    expect(mallKeyOfAlert(item, new Map([[account, 'gs-shop']]))).toBe('gs-shop');
+    expect(isMallAlert(alert('listings', { sourceType: 'channels.mall_admin_listings', targetType: 'channel_account', targetId: account }))).toBe(true);
+
+    const tiles = mallStatusTiles(mallChannels, [item], []);
+    expect(tiles.find((tile) => tile.mallKey === 'gs-shop')).toMatchObject({ tone: 'failed', label: 'GS샵 몰 주문 수집 실패 실패' });
+    expect(tiles.find((tile) => tile.mallKey === 'onch')?.tone).not.toBe('failed');
+  });
+
   it('원천이 다시 성공해 닫힌 알림이 가장 최근이면 예전 실패는 타일이 아니라 숫자로만 남는다', () => {
     const alerts = [
       alert('old', { updatedAt: '2026-09-11T01:00:00.000Z' }),

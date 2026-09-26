@@ -32,10 +32,11 @@ function alert(id: string, overrides: Partial<AlertItem> = {}): AlertItem {
   };
 }
 
-function panel(mall: { key: string; name: string } | null, alerts: AlertItem[]) {
+function panel(mall: { key: string; name: string } | null, alerts: AlertItem[], accountMalls?: ReadonlyMap<string, string>) {
   render(
     <MallAlertPanel
       alerts={alerts}
+      accountMalls={accountMalls}
       derived={[]}
       ready
       filter="all"
@@ -48,6 +49,19 @@ function panel(mall: { key: string; name: string } | null, alerts: AlertItem[]) 
 }
 
 describe('MallAlertPanel — 몰로 거르기', () => {
+  it('몰마다 도는 kind의 알림은 대상 채널 계정의 몰 카드에서 보인다(KID-355)', () => {
+    const account = '55555555-5555-4555-8555-555555555555';
+    const item = alert('mall', {
+      type: 'operation_failure',
+      sourceType: 'orders.mall_orders',
+      title: 'GS샵 몰 주문 수집 실패',
+      targetType: 'channel_account',
+      targetId: account,
+    });
+    const accounts = new Map([[account, 'gs-shop']]);
+    expect(panel({ key: 'gs-shop', name: 'GS샵' }, [item], accounts).getByText('GS샵 몰 주문 수집 실패')).toBeInTheDocument();
+  });
+
   /**
    * 쿠팡직배송은 로켓 계정 행을 함께 쓴다. 타일은 그 행의 채널로 서기 때문에 사람이 누르는
    * 카드는 언제나 로켓이다 — 접지 않으면 직배송 알림은 어느 카드로도 볼 수 없다.

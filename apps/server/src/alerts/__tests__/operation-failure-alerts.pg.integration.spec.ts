@@ -6,6 +6,7 @@ import { AlertItemSchema } from '@kiditem/shared/alerts';
 import { SELLPIA_INVENTORY_KIND } from '@kiditem/shared/sellpia-operations';
 import { WING_TRAFFIC_KIND } from '@kiditem/shared/advertising-operations';
 import { MALL_ORDERS_KIND } from '@kiditem/shared/orders-operations';
+import { MALL_ADMIN_LISTINGS_KIND } from '@kiditem/shared/channels-operations';
 import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
 import { SourceFailureAlerts } from '../alerts.service';
 import {
@@ -167,6 +168,18 @@ describe('SourceFailureAlerts — 실행 표의 실패를 알림으로 읽는다
     const failedGs = await finished({ kind: MALL_ORDERS_KIND, status: 'failed', errorCode: 'NETWORK_FAILED', plan: { mallKey: 'gs-shop' }, finishedAt: '2026-09-26T01:00:00Z' });
     await finished({ kind: MALL_ORDERS_KIND, status: 'succeeded', plan: { mallKey: 'onch' }, finishedAt: '2026-09-26T02:00:00Z' });
     await expect(alerts.list(ORG)).resolves.toMatchObject([{ id: failedGs, status: 'OPEN', sourceType: MALL_ORDERS_KIND }]);
+  });
+
+  it('몰마다 도는 kind의 알림은 몰 이름을 제목에 싣고 채널 계정을 대상(targetType channel_account)으로 가리킨다', async () => {
+    const gsAccount = randomUUID();
+    const onchAccount = randomUUID();
+    const orders = await finished({ kind: MALL_ORDERS_KIND, status: 'failed', errorCode: 'NETWORK_FAILED', plan: { mallKey: 'gs-shop', mallName: 'GS샵', channelAccountId: gsAccount }, finishedAt: '2026-09-26T02:00:00Z' });
+    const listings = await finished({ kind: MALL_ADMIN_LISTINGS_KIND, status: 'failed', errorCode: 'NETWORK_FAILED', plan: { mallKey: 'onch', channelAccountId: onchAccount }, finishedAt: '2026-09-26T01:00:00Z' });
+
+    await expect(alerts.list(ORG)).resolves.toMatchObject([
+      { id: orders, title: 'GS샵 몰 주문 수집 실패', targetType: 'channel_account', targetId: gsAccount },
+      { id: listings, title: '온채널 몰 등록 상품 가져오기 실패', targetType: 'channel_account', targetId: onchAccount },
+    ]);
   });
 
   it('원천 실패가 아닌 owner 거절(이미 수집한 원본)은 알림이 아니고, 앞선 진짜 실패를 가리지 않는다', async () => {

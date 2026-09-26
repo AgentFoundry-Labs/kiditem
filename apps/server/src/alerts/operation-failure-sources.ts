@@ -110,3 +110,9 @@ export function operationFailureHref(kind: string): string | null {
  * 다시 넣으려던 소싱 상품 수집(KID-313)은 옛 owner도 알림을 남기지 않았다.
  */
 export const OPERATION_FAILURE_IGNORED_CODES = ['SOURCING_DUPLICATE_RECORD'] as const satisfies readonly KiditemErrorCode[];
+
+/**
+ * 몰마다 도는 kind — 알림 제목에 몰 이름을 싣고 대상을 그 몰의 채널 계정(`targetType: 'channel_account'`)으로 둔다.
+ * 쇼핑몰 홈이 이 계정으로 알림을 몰 타일에 붙인다.
+ */
+export const OPERATION_FAILURE_MALL_KINDS: ReadonlySet<string> = new Set<OperationFailureKind>([MALL_ORDERS_KIND, MALL_ADMIN_LISTINGS_KIND]);

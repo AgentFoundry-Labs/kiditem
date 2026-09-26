@@ -45,6 +45,7 @@ export function MallAlertPanel({
   onFilterChange,
   mall,
   onClearMall,
+  accountMalls,
   className,
 }: {
   alerts: readonly AlertItem[];
@@ -55,12 +56,14 @@ export function MallAlertPanel({
   onFilterChange: (filter: MallAlertFilter) => void;
   mall: { key: string; name: string } | null;
   onClearMall: () => void;
+  /** 채널 계정 id → 몰 키. 몰마다 도는 kind의 알림(대상 = 채널 계정)을 몰 카드로 거를 때 쓴다. */
+  accountMalls?: ReadonlyMap<string, string>;
   /** 둘러싼 칸이 높이를 나눠 줄 때(쇼핑몰 홈 오른쪽 칸: AI 비용 아래 남은 높이). */
   className?: string;
 }) {
   const inMall = (item: AlertItem) => {
     if (!mall) return true;
-    const key = mallKeyOfAlert(item);
+    const key = mallKeyOfAlert(item, accountMalls);
     return key !== null && channelOutcomeKey(key) === channelOutcomeKey(mall.key);
   };
   const scopedAlerts = alerts.filter(inMall);
