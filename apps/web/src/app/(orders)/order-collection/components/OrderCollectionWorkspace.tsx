@@ -445,8 +445,8 @@ export function OrderCollectionWorkspace() {
   };
 
   /**
-   * 쿠팡직배송만 입고예정일 달력에서 고른 날짜로 수집한다. 달력이 보여 준 캡처의 성공한
-   * 실행으로 변환하고(KID-198), 다른 몰은 카드의 공용 시작 컨트롤이 시작한다(KID-189).
+   * 쿠팡직배송만 입고예정일 달력에서 고른 날짜로 수집한다. 달력이 방금 새로 받은 캡처의
+   * 성공한 실행으로 변환하고(KID-198), 다른 몰은 카드의 공용 시작 컨트롤이 시작한다(KID-189).
    */
   const handleCollectDirectship = async (
     account: OrderCollectionMallAccount,
@@ -482,6 +482,7 @@ export function OrderCollectionWorkspace() {
 
   // 카드 영역 클릭 전용 — 카드는 제 원천이 고르는 화면을 연다고 답할 때만 이리로 온다
   // (KID-255). 달력은 마지막 수집분을 읽기만 하고, 실행은 운영자가 불러오기·수집을 누를 때 시작한다(KID-198).
+  // 수집은 늘 새 실행의 캡처로 변환한다.
   const directshipCalendar = useCoupangDirectshipCalendar({
     channelAccountId: selectedRocketAccount?.id ?? null,
     sessionControls,

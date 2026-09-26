@@ -7,6 +7,7 @@ vi.mock('@/lib/api-client', () => ({
 }));
 vi.mock('sonner', () => ({ toast: { error: vi.fn(), info: vi.fn() } }));
 
+import { toast } from 'sonner';
 import { apiClient } from '@/lib/api-client';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import type { OrderCollectionExtensionRun } from '../lib/order-collection-extension';
@@ -113,20 +114,59 @@ describe('useCoupangDirectshipCalendar (KID-198)', () => {
     }));
   });
 
-  it('collecting picked dates converts against the operation the calendar came from', async () => {
+  // 수집·변환은 늘 쿠팡에서 새로 받은 값으로 한다(옛 규칙 유지): 보이는 캡처가 아무리 최근이어도 새 실행을 먼저 연다.
+  it('collecting picked dates first captures anew and converts against the new operation, never the displayed one', async () => {
     const { hook, sessionControls, collect } = setup(SNAPSHOT_OPERATION_ID);
     await act(async () => { await hook.result.current.open(account); });
     await act(async () => { await hook.result.current.collect(['2026-07-31']); });
-    expect(apiClient.getParsed).toHaveBeenCalledWith(
-      `/api/orders/collection/coupang-directship/operations/${SNAPSHOT_OPERATION_ID}/capture`,
-      expect.anything(),
-    );
-    expect(collect).toHaveBeenCalledWith(account, SNAPSHOT_OPERATION_ID, {
+    expect(sessionControls.prepareDirectRun).toHaveBeenCalledTimes(1);
+    expect(sessionControls.prepareDirectRun).toHaveBeenCalledWith(account);
+    expect(collect).toHaveBeenCalledTimes(1);
+    expect(collect).toHaveBeenCalledWith(account, FRESH_OPERATION_ID, {
       eddDates: ['2026-07-31'],
       data: { pos: capture.pos, centers: capture.centers },
     });
-    expect(sessionControls.prepareDirectRun).not.toHaveBeenCalled();
+    expect(JSON.stringify(collect.mock.calls)).not.toContain(SNAPSHOT_OPERATION_ID);
+    expect(vi.mocked(apiClient.getParsed).mock.calls.map(([path]) => path).join(' ')).not.toContain(SNAPSHOT_OPERATION_ID);
     expect(hook.result.current.calendar).toBeNull();
+  });
+
+  it('shows the capture in progress while collecting', async () => {
+    const { hook, sessionControls } = setup(SNAPSHOT_OPERATION_ID);
+    let finishPrepare: (run: OrderCollectionExtensionRun) => void = () => undefined;
+    sessionControls.prepareDirectRun.mockImplementationOnce(() => new Promise((resolve) => { finishPrepare = resolve; }));
+    await act(async () => { await hook.result.current.open(account); });
+    let pending: Promise<void> = Promise.resolve();
+    act(() => { pending = hook.result.current.collect(['2026-07-31']); });
+    expect(hook.result.current.calendar?.refreshing).toBe(true);
+    await act(async () => { finishPrepare(freshRun()); await pending; });
+    expect(hook.result.current.calendar).toBeNull();
+  });
+
+  it('converts only the picked dates the new capture still has, and names the ones that are gone', async () => {
+    const { hook, collect } = setup(SNAPSHOT_OPERATION_ID);
+    await act(async () => { await hook.result.current.open(account); });
+    await act(async () => { await hook.result.current.collect(['2026-07-31', '2026-08-01']); });
+    expect(collect).toHaveBeenCalledWith(account, FRESH_OPERATION_ID, expect.objectContaining({ eddDates: ['2026-07-31'] }));
+    expect(toast.info).toHaveBeenCalledWith(expect.stringContaining('2026-08-01'));
+  });
+
+  it('converts nothing when none of the picked dates is left in the new capture', async () => {
+    const { hook, collect } = setup(SNAPSHOT_OPERATION_ID);
+    await act(async () => { await hook.result.current.open(account); });
+    await act(async () => { await hook.result.current.collect(['2026-08-01']); });
+    expect(collect).not.toHaveBeenCalled();
+    expect(toast.info).toHaveBeenCalledWith(expect.stringContaining('2026-08-01'));
+    expect(hook.result.current.calendar).toMatchObject({ operationId: FRESH_OPERATION_ID, refreshing: false });
+  });
+
+  it('a failed capture converts nothing and keeps the calendar open', async () => {
+    const { hook, sessionControls, collect } = setup(SNAPSHOT_OPERATION_ID);
+    sessionControls.prepareDirectRun.mockRejectedValueOnce(new Error('확장 없음'));
+    await act(async () => { await hook.result.current.open(account); });
+    await act(async () => { await hook.result.current.collect(['2026-07-31']); });
+    expect(collect).not.toHaveBeenCalled();
+    expect(hook.result.current.calendar).toMatchObject({ operationId: SNAPSHOT_OPERATION_ID, refreshing: false });
   });
 
   it('closing without a running read cancels nothing; closing during a read stops that operation', async () => {
