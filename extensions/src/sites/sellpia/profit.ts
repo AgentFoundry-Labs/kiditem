@@ -42,18 +42,20 @@ type ProfitAnswer =
 /**
  * 셀피아 상품별 이익현황 읽기(KID-361 J3). 운영자 탭은 건드리지 않고 백그라운드 탭 하나를 새로 열어, 판매 창 전체를
  * 한 번 읽고(구매기간 = 판매 창) 달마다 구매기간만 바꿔 한 번씩 더 읽는다 — 옛 수집기와 같은 요청들이다. 달 하나를
- * 읽을 때마다 `onProgress`로 알린다. 대조·조립은 수집기가 한다. 로그인 화면이면 탭을 남긴다.
+ * 읽을 때마다 `onProgress`로 알리고, 다음 달을 읽기 전에 `signal` 중단을 확인한다(중단이면 AbortError, 탭은 닫는다).
+ * 대조·조립은 수집기가 한다. 로그인 화면이면 탭을 남긴다.
  */
 export function createSellpiaProfit(tabs: TabPages) {
   return {
     productProfit(
-      input: { start: string; end: string; periods: ReadonlyArray<{ yearMonth: string; from: string; to: string }> },
+      input: { start: string; end: string; periods: ReadonlyArray<{ yearMonth: string; from: string; to: string }>; signal?: AbortSignal },
       onProgress?: (done: number, total: number) => Promise<void>,
     ): Promise<{ baseline: SellpiaProfitRows; periods: Array<{ yearMonth: string; rows: SellpiaProfitRows }> }> {
       return withFreshTab(tabs, SELLPIA_PROFIT_URL, async (page) => {
         const baseline = await readRows(page, { start: input.start, end: input.end, purchaseStart: input.start, purchaseEnd: input.end });
         const periods: Array<{ yearMonth: string; rows: SellpiaProfitRows }> = [];
         for (const period of input.periods) {
+          input.signal?.throwIfAborted();
           periods.push({
             yearMonth: period.yearMonth,
             rows: await readRows(page, { start: input.start, end: input.end, purchaseStart: period.from, purchaseEnd: period.to }),

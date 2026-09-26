@@ -103,6 +103,30 @@ describe('collectors/analytics.sellpia_product_profitability', () => {
     expect(chunks[0]!.progress).toMatchObject({ products: 1, skippedAdjustments: 0 });
   });
 
+  it('중단 신호를 사이트에 넘겨 달 사이에서 멈추고, 청크를 내지 않는다', async () => {
+    const controller = new AbortController();
+    let monthsRead = 0;
+    const site: SellpiaProfitSite = {
+      async productProfit(input, onProgress) {
+        for (const period of input.periods) {
+          input.signal?.throwIfAborted();
+          monthsRead += 1;
+          await onProgress?.(monthsRead, input.periods.length);
+          void period;
+        }
+        return { baseline: rows([]), periods: [] };
+      },
+    };
+    const context = { signal: controller.signal, tabId: null, report: async () => { controller.abort(); } };
+    const chunks: CollectedChunk[] = [];
+    const collecting = (async () => {
+      for await (const chunk of sellpiaProductProfitabilityCollector.collect(PLAN as never, site, context)) chunks.push(chunk);
+    })();
+    await expect(collecting).rejects.toMatchObject({ name: 'AbortError' });
+    expect(monthsRead).toBe(1);
+    expect(chunks).toEqual([]);
+  });
+
   it('구매기간 응답에 상품이 빠지면 0원 매입을 지어내지 않고 실패한다', async () => {
     const error = await failure(collectAll(PLAN, fakeSellpia((yearMonth) => (yearMonth === '2026-06' ? rows([]) : purchase(yearMonth))).site));
     expect(error).toMatchObject({ code: 'SITE_REQUEST_FAILED', details: { detail: 'purchase_period_mismatch' } });

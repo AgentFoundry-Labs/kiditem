@@ -31,7 +31,7 @@ export interface SellpiaProfitRows {
 /** 이 수집기가 셀피아에서 쓰는 것(`sites/sellpia`가 구현). */
 export interface SellpiaProfitSite {
   productProfit(
-    input: { start: string; end: string; periods: ReadonlyArray<{ yearMonth: string; from: string; to: string }> },
+    input: { start: string; end: string; periods: ReadonlyArray<{ yearMonth: string; from: string; to: string }>; signal?: AbortSignal },
     onProgress?: (done: number, total: number) => Promise<void>,
   ): Promise<{ baseline: SellpiaProfitRows; periods: Array<{ yearMonth: string; rows: SellpiaProfitRows }> }>;
 }
@@ -168,7 +168,7 @@ export const sellpiaProductProfitabilityCollector: Collector<SellpiaProductProfi
     if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, '셀피아 사이트를 쓸 수 없습니다.', { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
     const periods = purchasePeriods(parsed.data);
     const read = await site.productProfit(
-      { start: parsed.data.from, end: parsed.data.to, periods },
+      { start: parsed.data.from, end: parsed.data.to, periods, signal },
       async (done, total) => { await report?.({ months: total, monthsRead: done }); },
     );
     if (signal.aborted) return;

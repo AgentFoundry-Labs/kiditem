@@ -49,6 +49,16 @@ describe('sites/sellpia product profit', () => {
     expect(fake.log.at(-1)).toBe('close 7');
   });
 
+  it('중단 신호가 오면 다음 달 페이지 호출 없이 멈추고 탭을 닫는다', async () => {
+    const asked: unknown[] = [];
+    const fake = fakeTabPages({ answer: (message) => { asked.push(message.args); return { ok: true, value: ROWS(0) }; } });
+    const controller = new AbortController();
+    const reading = createSellpiaSite(fake.tabs).productProfit({ ...INPUT, signal: controller.signal }, async () => { controller.abort(); });
+    await expect(reading).rejects.toMatchObject({ name: 'AbortError' });
+    expect(asked).toHaveLength(2);
+    expect(fake.log.at(-1)).toBe('close 7');
+  });
+
   it('로그인이 풀렸으면 SITE_LOGIN_REQUIRED이고 탭은 운영자에게 남긴다', async () => {
     const expired = fakeTabPages({ answer: () => ({ ok: true, value: { status: 'login_required' } }) });
     expect((await failure(createSellpiaSite(expired.tabs).productProfit(INPUT))).code).toBe('SITE_LOGIN_REQUIRED');
