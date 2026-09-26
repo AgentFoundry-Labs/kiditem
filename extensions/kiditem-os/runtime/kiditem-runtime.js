@@ -5350,7 +5350,7 @@ var KidItemRuntime = (() => {
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
       const periods = purchasePeriods(parsed2.data);
       const read = await site.productProfit(
-        { start: parsed2.data.from, end: parsed2.data.to, periods },
+        { start: parsed2.data.from, end: parsed2.data.to, periods, signal },
         async (done, total) => {
           await report?.({ months: total, monthsRead: done });
         }
@@ -10653,6 +10653,7 @@ var KidItemRuntime = (() => {
           const baseline = await readRows(page, { start: input.start, end: input.end, purchaseStart: input.start, purchaseEnd: input.end });
           const periods = [];
           for (const period of input.periods) {
+            input.signal?.throwIfAborted();
             periods.push({
               yearMonth: period.yearMonth,
               rows: await readRows(page, { start: input.start, end: input.end, purchaseStart: period.from, purchaseEnd: period.to })

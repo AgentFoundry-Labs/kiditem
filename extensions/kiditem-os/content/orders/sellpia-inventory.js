@@ -103,8 +103,15 @@
         || responseUrl.pathname !== SNAPSHOT_PATH
       ) return { status: "login_required" };
       if (!response.ok) return { status: "http_error", httpStatus: response.status };
-      const text = await response.text();
-      if (text.length > options.maxBytes) return { status: "unexpected_response", reason: "too_large" };
+      // 상한은 바이트다(한글은 글자 하나가 3바이트). 깨진 UTF-8은 JSON이 아니다.
+      const buffer = await response.arrayBuffer();
+      if (buffer.byteLength > options.maxBytes) return { status: "unexpected_response", reason: "too_large" };
+      let text;
+      try {
+        text = new TextDecoder("utf-8", { fatal: true }).decode(buffer);
+      } catch {
+        return { status: "unexpected_response", reason: "not_json" };
+      }
       if (looksLikeLogin(text)) return { status: "login_required" };
       let rawRows;
       try {

@@ -10,7 +10,7 @@ const RAW_ROWS = [
 ];
 
 type Handler = (args: Record<string, unknown>) => Promise<Record<string, unknown>>;
-type Reply = { status?: number; body?: unknown; text?: string; url?: string; redirected?: boolean; abort?: boolean; throws?: boolean };
+type Reply = { status?: number; body?: unknown; text?: string; bytes?: Uint8Array; url?: string; redirected?: boolean; abort?: boolean; throws?: boolean };
 
 function load(options: { replies?: Reply[]; pathname?: string; passwordInput?: boolean } = {}) {
   const requests: Array<{ url: string; init: RequestInit; body: URLSearchParams }> = [];
@@ -32,6 +32,7 @@ function load(options: { replies?: Reply[]; pathname?: string; passwordInput?: b
       redirected: reply.redirected ?? false,
       url: reply.url ?? `${ORIGIN}/product_search.ajax.html`,
       text: async () => reply.text ?? JSON.stringify(reply.body),
+      arrayBuffer: async () => (reply.bytes ?? new TextEncoder().encode(reply.text ?? JSON.stringify(reply.body))).buffer,
     };
   };
   new Function('window', 'document', 'fetch', source)(window, document, fetch);
@@ -115,5 +116,17 @@ describe('sellpia inventory page script', () => {
     for (const [reply, maxRows, reason] of cases) {
       await expect(load({ replies: [reply] }).handler({ maxRows })).resolves.toEqual({ status: 'unexpected_response', reason });
     }
+  });
+
+  it('크기 상한은 글자 수가 아니라 바이트로 재고, UTF-8이 깨진 응답은 not_json이다', async () => {
+    const korean = JSON.stringify(RAW_ROWS);
+    const bytes = new TextEncoder().encode(korean).byteLength;
+    expect(bytes).toBeGreaterThan(korean.length);
+    await expect(load({ replies: [{ text: korean }] }).handler({ maxRows: 20_000, maxBytes: korean.length }))
+      .resolves.toEqual({ status: 'unexpected_response', reason: 'too_large' });
+    await expect(load({ replies: [{ text: korean }] }).handler({ maxRows: 20_000, maxBytes: bytes }))
+      .resolves.toMatchObject({ status: 'ok' });
+    await expect(load({ replies: [{ bytes: new Uint8Array([0x5b, 0xff, 0x5d]) }] }).handler({ maxRows: 20_000 }))
+      .resolves.toEqual({ status: 'unexpected_response', reason: 'not_json' });
   });
 });
