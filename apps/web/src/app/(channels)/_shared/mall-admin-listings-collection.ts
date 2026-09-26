@@ -2,11 +2,12 @@
 
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import {
+  mallListingSiteCapability,
   type MallAdminListingMallKey,
   type MallAdminListingsSource,
   type MallAdminListingsSourceMall,
 } from '@kiditem/shared/mall-admin-listings';
-import { MALL_ADMIN_LISTINGS_KIND, CHANNELS_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
+import { MALL_ADMIN_LISTINGS_KIND } from '@kiditem/shared/channels-operations';
 import {
   COLLECTION_IDLE_POLL_MS,
   COLLECTION_RUNNING_POLL_MS,
@@ -139,8 +140,9 @@ export function mallAdminListingsCollection(mallKey: MallAdminListingMallKey): C
       const channelAccountId = mallFrom(status, mallKey)?.channelAccountId;
       if (!channelAccountId) return { outcome: 'refused', message: MALL_ADMIN_NO_ACCOUNT };
       // 사람이 누른 가져오기다 — 그 몰의 저장 자격을 싣는다(확장이 `operationLoginV1`일 때만 실린다, KID-377).
+      // 그 몰 목록 사이트를 가진 빌드에만 보낸다(KID-380 T4).
       const outcome = await requestOperationStart(MALL_ADMIN_LISTINGS_KIND, { channelAccountId, mallKey }, {
-        capability: CHANNELS_OPERATION_CAPABILITY,
+        capability: mallListingSiteCapability(mallKey),
         ...(await operationLoginOptions(mallKey, { automatic: false })),
       });
       if (outcome.outcome === 'refused') return outcome;

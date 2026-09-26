@@ -6,7 +6,6 @@ const mocks = vi.hoisted(() => ({
   detectExtension: vi.fn(),
   ensureLogin: vi.fn(),
   sendToExtension: vi.fn(),
-  regenerateSource: vi.fn(),
   password: vi.fn(),
   toast: Object.assign(vi.fn(), {
     error: vi.fn(),
@@ -37,9 +36,6 @@ vi.mock('./order-collection-extension', () => ({
     ...(run?.seenRowKeys ? { seenRowKeys: [...run.seenRowKeys] } : {}),
   }),
 }));
-vi.mock('./order-collection-api', () => ({
-  regenerateOrderCollectionSource: mocks.regenerateSource,
-}));
 vi.mock('@/lib/order-mall-account-api', () => ({
   orderMallAccountApi: { password: mocks.password },
 }));
@@ -49,7 +45,14 @@ import { isMallAutoLoginBlocked, resetMallLoginBlocksForTest } from '@/lib/mall-
 import { createBrowserMallCollector, ensureMallLoginForRun } from './browser-mall-collection';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
-// 옛 attempt 경로에 끝까지 남는 몰은 카카오뿐이다(KID-380) — 서버 소유 수집(serverOwned)으로 돈다.
+// KID-379: 옛 attempt 경로에 남는 몰은 카카오뿐이다 — 서버 소유 수집(serverOwned)으로 돌고, 셀피아 변환 규격이 없어
+// 확장이 그 시도를 원본과 함께 실패(UNSUPPORTED_CONVERSION)로 닫는다. 이 절차가 파일을 만드는 일은 없다.
+const KAKAO_UNSUPPORTED = {
+  success: false,
+  terminalState: 'FAILED',
+  errorCode: 'UNSUPPORTED_CONVERSION',
+  error: '카카오는 셀피아 변환 규격이 검증되지 않아 지원하지 않습니다.',
+};
 const RUN = {
   attemptId: '11111111-1111-4111-8111-111111111111',
   attemptToken: '22222222-2222-4222-8222-222222222222',
@@ -80,12 +83,7 @@ describe('createBrowserMallCollector', () => {
     mocks.detectExtension.mockResolvedValue(RUN.extensionId);
     mocks.password.mockResolvedValue({ password: 'secret' });
     mocks.sendToExtension.mockReset();
-    mocks.regenerateSource.mockReset();
-    mocks.sendToExtension.mockResolvedValue({ success: true, terminalState: 'COMPLETE' });
-    mocks.regenerateSource.mockResolvedValue({
-      fileName: '', blob: new Blob([]), previewRows: [],
-      sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
-    });
+    mocks.sendToExtension.mockResolvedValue(KAKAO_UNSUPPORTED);
   });
 
   it('stops collection when login preflight needs attention', async () => {
@@ -96,8 +94,6 @@ describe('createBrowserMallCollector', () => {
     });
     const collector = createBrowserMallCollector({
       mallAccounts: [ACCOUNT],
-      addGeneratedFile: vi.fn(),
-      setPreviewId: vi.fn(),
     });
 
     await expect(collector(ACCOUNT, RUN)).rejects.toThrow('로그인 확인이 필요합니다.');
@@ -116,11 +112,9 @@ describe('createBrowserMallCollector', () => {
     mocks.ensureLogin.mockResolvedValue({ success: true });
     const collector = createBrowserMallCollector({
       mallAccounts: [ACCOUNT],
-      addGeneratedFile: vi.fn(),
-      setPreviewId: vi.fn(),
     });
 
-    await collector(ACCOUNT, run);
+    await collector(ACCOUNT, run).catch(() => undefined);
 
     expect(mocks.sendToExtension).toHaveBeenCalledWith(
       RUN.extensionId,
@@ -133,11 +127,9 @@ describe('createBrowserMallCollector', () => {
     mocks.ensureLogin.mockResolvedValue({ success: true });
     const collector = createBrowserMallCollector({
       mallAccounts: [{ ...ACCOUNT, loginId: 'stale-operator' }],
-      addGeneratedFile: vi.fn(),
-      setPreviewId: vi.fn(),
     });
 
-    await collector({ ...ACCOUNT, loginId: 'fresh-operator' }, RUN);
+    await collector({ ...ACCOUNT, loginId: 'fresh-operator' }, RUN).catch(() => undefined);
 
     expect(mocks.ensureLogin).toHaveBeenCalledWith(
       'kakao',
@@ -146,136 +138,37 @@ describe('createBrowserMallCollector', () => {
     );
   });
 
-  it('keeps server-owned capture and conversion inside the extension and regenerates after a delayed ACK', async () => {
+  it('카카오 시도는 확장이 원본과 함께 실패로 닫는다 — 그 오류·원본을 그대로 올리고 파일을 만들지 않는다', async () => {
     mocks.ensureLogin.mockResolvedValue({ success: true });
-    mocks.sendToExtension.mockResolvedValue({
-      success: true,
-      terminalState: 'COMPLETE',
-      // The converter response may be lost after the source owner commits.
-    });
-    mocks.regenerateSource.mockResolvedValue({
-      fileName: 'kakao.xls',
-      blob: new Blob(['converted']),
-      previewRows: [['converted']],
-      sourceRows: 2,
-      productRows: 2,
-      outputRows: 2,
-      skippedRows: 0,
-    });
-    const addGeneratedFile = vi.fn();
-    const setPreviewId = vi.fn();
-    const collector = createBrowserMallCollector({
-      mallAccounts: [ACCOUNT],
-      addGeneratedFile,
-      setPreviewId,
-    });
+    mocks.sendToExtension.mockResolvedValue({ ...KAKAO_UNSUPPORTED, sourcePayload: { orders: [{ paymentId: 1 }] } });
+    const collector = createBrowserMallCollector({ mallAccounts: [ACCOUNT] });
 
-    const result = await collector(ACCOUNT, {
-      ...RUN,
-      date: '2026-09-10',
-      serverOwned: true,
-      selectionMode: 'manual',
+    await expect(collector(ACCOUNT, RUN)).rejects.toMatchObject({
+      message: KAKAO_UNSUPPORTED.error,
+      code: 'UNSUPPORTED_CONVERSION',
+      sourcePayload: { orders: [{ paymentId: 1 }] },
     });
-
     expect(mocks.sendToExtension).toHaveBeenCalledWith(
       RUN.extensionId,
-      expect.objectContaining({
-        action: 'collectKakaoOrders',
-        attemptId: RUN.attemptId,
-        serverOwned: true,
-        deferTerminal: true,
-        date: '2026-09-10',
-      }),
+      expect.objectContaining({ action: 'collectKakaoOrders', attemptId: RUN.attemptId, serverOwned: true, deferTerminal: true, date: '2026-09-10' }),
       200000,
     );
-    expect(mocks.regenerateSource).toHaveBeenCalledWith(
-      expect.objectContaining({ attemptId: RUN.attemptId }),
-      { download: false },
-    );
-    expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({
-      mallKey: 'kakao',
-      collectedRows: 2,
-      fileName: 'kakao.xls',
-    }));
-    expect(setPreviewId).toHaveBeenCalled();
-    expect(result).toEqual({
-      rowCount: 2,
-      masked: false,
-      date: '2026-09-10',
-    });
   });
 
-  it.each([false, true])('shows a confirmed empty collection without adding a generated file (lost response: %s)', async (lostResponse) => {
-    mocks.ensureLogin.mockResolvedValue({ success: true });
-    if (lostResponse) mocks.sendToExtension.mockRejectedValue(new Error('response lost'));
-    else mocks.sendToExtension.mockResolvedValue({ success: true, terminalState: 'COMPLETE' });
-    mocks.regenerateSource.mockResolvedValue({
-      fileName: '', blob: new Blob([]), previewRows: [],
-      sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
-    });
-    const addGeneratedFile = vi.fn();
-    const account = ACCOUNT;
-    const collector = createBrowserMallCollector({
-      mallAccounts: [account],
-      addGeneratedFile, setPreviewId: vi.fn(),
-    });
-    await expect(collector(account, { ...RUN, date: '2026-09-10', serverOwned: true }))
-      .resolves.toMatchObject({ rowCount: 0 });
-    expect(addGeneratedFile).not.toHaveBeenCalled();
-    expect(mocks.toast).toHaveBeenCalledWith('카카오 신규 주문이 없습니다.', undefined);
-  });
-
-  it('reconciles a lost extension response from the retained source without recollecting', async () => {
+  it('확장 응답을 잃으면 다시 걷지 않고 owner 상태로 맞추도록 남긴다(옛 재변환은 없다)', async () => {
     mocks.ensureLogin.mockResolvedValue({ success: true });
     mocks.sendToExtension.mockRejectedValue(new Error('extension response lost'));
-    mocks.regenerateSource.mockResolvedValue({
-      fileName: 'kakao.xls',
-      blob: new Blob(['converted']),
-      previewRows: [['converted']],
-      sourceRows: 3,
-      productRows: 3,
-      outputRows: 3,
-      skippedRows: 0,
-    });
-    const collector = createBrowserMallCollector({
-      mallAccounts: [ACCOUNT],
-      addGeneratedFile: vi.fn(),
-      setPreviewId: vi.fn(),
-    });
+    const collector = createBrowserMallCollector({ mallAccounts: [ACCOUNT] });
 
-    await expect(collector(ACCOUNT, {
-      ...RUN,
-      date: '2026-09-10',
-      serverOwned: true,
-    })).resolves.toMatchObject({ rowCount: 3 });
-
+    await expect(collector(ACCOUNT, RUN)).rejects.toMatchObject({ message: 'extension response lost', ownerReconciliationRequired: true });
     expect(mocks.sendToExtension).toHaveBeenCalledTimes(1);
-    expect(mocks.regenerateSource).toHaveBeenCalledTimes(1);
   });
 
-  it('passes both IDs from the single art09 account to the login preflight', async () => {
+  it('확장이 완료라고 답해도 옛 경로에는 변환이 없다 — 파일 없이 준비 중으로 끝난다', async () => {
     mocks.ensureLogin.mockResolvedValue({ success: true });
-    const art09Account: OrderCollectionMallAccount = {
-      ...ACCOUNT,
-      key: 'art09',
-      name: '아트공구',
-      supplierLoginId: 'supplier-operator',
-    };
-    // 아트공구는 실행 kind로 옮긴 몰이라 수집 전에 시도 없이 로그인만 맞춘다(KID-359 H3).
-    const run = { attemptId: '', attemptToken: '', extensionId: RUN.extensionId, date: null, sourceOwner: 'mall_orders_operation' as const };
-
-    await ensureMallLoginForRun(art09Account, run);
-
-    expect(mocks.ensureLogin).toHaveBeenCalledWith(
-      'art09',
-      {
-        loginId: 'operator',
-        supplierLoginId: 'supplier-operator',
-        password: 'secret',
-        siteUrl: 'https://shopping-seller.kakao.com',
-      },
-      run,
-    );
+    mocks.sendToExtension.mockResolvedValue({ success: true, terminalState: 'COMPLETE' });
+    await expect(createBrowserMallCollector({ mallAccounts: [ACCOUNT] })(ACCOUNT, RUN))
+      .rejects.toMatchObject({ message: '카카오 셀피아 변환은 아직 준비 중입니다.', code: 'UNSUPPORTED_CONVERSION' });
   });
 
   it('announces "no new orders" the same way for every mall', () => {
@@ -291,28 +184,12 @@ describe('createBrowserMallCollector', () => {
     expect(source.match(/신규 주문이 없습니다/g)).toHaveLength(1);
     // 주문 없음을 오류로 알리지 않는다.
     expect(source).not.toMatch(/toast\.(error|warning)\([^)]*주문[^)]*없/);
-    // 모든 몰 분기가 헬퍼를 거친다.
-    // 옛 절차 몰(generate*Sellpia)마다 한 번 이상 — 몰이 실행 kind로 옮겨 가면 함께 준다(KID-380).
-    const legacyMalls = (source.match(/const generate\w+Sellpia = async/g) ?? []).length;
-    expect(legacyMalls).toBeGreaterThan(0);
-    expect((source.match(/toastNoNewOrders\(/g) ?? []).length - 1).toBeGreaterThanOrEqual(legacyMalls);
     expect(source).not.toContain('/주문이 없|없습니다/');
-  });
-
-  it('derives every generated-file collection date from the resolved run', () => {
-    const source = readFileSync(
-      path.resolve(import.meta.dirname, 'browser-mall-collection.ts'),
-      'utf8',
-    );
-
-    expect(source.match(/todayYmd\(\)/g)).toHaveLength(2);
-    expect(source).toContain('function collectionDateOf(');
   });
 
   it('defers every managed mall session until web conversion finishes', () => {
     const apiFiles = [
       'order-collection-extension.ts',
-      'kakao-orders-api.ts',
       'coupang-directship-api.ts',
     ];
 
@@ -337,18 +214,12 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     window.localStorage.clear();
     mocks.detectExtension.mockResolvedValue(RUN.extensionId);
     mocks.password.mockResolvedValue({ password: 'secret' });
-    mocks.sendToExtension.mockResolvedValue({ success: true, terminalState: 'COMPLETE' });
-    mocks.regenerateSource.mockResolvedValue({
-      fileName: '', blob: new Blob([]), previewRows: [],
-      sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
-    });
+    mocks.sendToExtension.mockResolvedValue(KAKAO_UNSUPPORTED);
   });
 
   const collect = () =>
     createBrowserMallCollector({
       mallAccounts: [ACCOUNT],
-      addGeneratedFile: vi.fn(),
-      setPreviewId: vi.fn(),
     })(ACCOUNT, RUN);
 
   /**
@@ -364,7 +235,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
 
     // This is the login preflight deadline. A missing preflight reply must not
     // turn an otherwise runnable collection into a failed source run.
-    await collect();
+    await collect().catch(() => undefined);
     expect(mocks.sendToExtension).toHaveBeenCalledTimes(1);
     expect(isMallAutoLoginBlocked('kakao')).toBe(false);
   });
@@ -398,16 +269,14 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     const automatic = () =>
       createBrowserMallCollector({
         mallAccounts: [ACCOUNT],
-          addGeneratedFile: vi.fn(),
-        setPreviewId: vi.fn(),
       })(ACCOUNT, { ...RUN, selectionMode: 'automatic' as const });
 
-    await automatic();
+    await automatic().catch(() => undefined);
 
     expect(isMallAutoLoginBlocked('kakao')).toBe(false);
     expect(mocks.ensureLogin).toHaveBeenCalledTimes(1);
 
-    await automatic();
+    await automatic().catch(() => undefined);
     expect(mocks.ensureLogin).toHaveBeenCalledTimes(1);
   });
 
@@ -417,10 +286,8 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
 
     await createBrowserMallCollector({
       mallAccounts: [ACCOUNT],
-      addGeneratedFile: vi.fn(),
-      setPreviewId: vi.fn(),
-    })(ACCOUNT, { ...RUN, selectionMode: 'automatic' as const });
-    await collect();
+    })(ACCOUNT, { ...RUN, selectionMode: 'automatic' as const }).catch(() => undefined);
+    await collect().catch(() => undefined);
 
     expect(mocks.ensureLogin).toHaveBeenCalledTimes(2);
   });
@@ -437,7 +304,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
       mallMessage: '아이디 또는 비밀번호가 일치하지 않습니다.',
     });
 
-    await collect();
+    await collect().catch(() => undefined);
 
     expect(isMallAutoLoginBlocked('kakao')).toBe(true);
   });
@@ -450,7 +317,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
       mallMessage: '서비스 점검 중입니다.',
     });
 
-    await collect();
+    await collect().catch(() => undefined);
 
     expect(isMallAutoLoginBlocked('kakao')).toBe(false);
   });
@@ -493,19 +360,12 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     window.localStorage.clear();
     mocks.detectExtension.mockResolvedValue(RUN.extensionId);
     mocks.password.mockResolvedValue({ password: 'secret' });
-    mocks.sendToExtension.mockResolvedValue({ success: true, terminalState: 'COMPLETE' });
-    mocks.regenerateSource.mockResolvedValue({
-      fileName: '', blob: new Blob([]), previewRows: [],
-      sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
-    });
+    mocks.sendToExtension.mockResolvedValue(KAKAO_UNSUPPORTED);
   });
 
   const collect = () =>
     createBrowserMallCollector({
       mallAccounts: [ACCOUNT],
-      rocketChannelAccountId: null,
-      addGeneratedFile: vi.fn(),
-      setPreviewId: vi.fn(),
     })(ACCOUNT, RUN);
 
   /**
@@ -519,7 +379,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
       error: EXTENSION_TIMEOUT_MESSAGE,
     });
 
-    await collect();
+    await collect().catch(() => undefined);
     expect(isMallAutoLoginBlocked('kakao')).toBe(false);
   });
 
@@ -535,7 +395,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
       error: EXTENSION_TIMEOUT_MESSAGE,
     });
 
-    await expect(collect()).resolves.toBeDefined();
+    await expect(collect()).rejects.toThrow(KAKAO_UNSUPPORTED.error);
     expect(mocks.sendToExtension).toHaveBeenCalledTimes(1);
   });
 
@@ -568,17 +428,14 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     const automatic = () =>
       createBrowserMallCollector({
         mallAccounts: [ACCOUNT],
-        rocketChannelAccountId: null,
-        addGeneratedFile: vi.fn(),
-        setPreviewId: vi.fn(),
       })(ACCOUNT, { ...RUN, selectionMode: 'automatic' as const });
 
-    await automatic();
+    await automatic().catch(() => undefined);
 
     expect(isMallAutoLoginBlocked('kakao')).toBe(false);
     expect(mocks.ensureLogin).toHaveBeenCalledTimes(1);
 
-    await automatic();
+    await automatic().catch(() => undefined);
     expect(mocks.ensureLogin).toHaveBeenCalledTimes(1);
   });
 
@@ -588,11 +445,8 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
 
     await createBrowserMallCollector({
       mallAccounts: [ACCOUNT],
-      rocketChannelAccountId: null,
-      addGeneratedFile: vi.fn(),
-      setPreviewId: vi.fn(),
-    })(ACCOUNT, { ...RUN, selectionMode: 'automatic' as const });
-    await collect();
+    })(ACCOUNT, { ...RUN, selectionMode: 'automatic' as const }).catch(() => undefined);
+    await collect().catch(() => undefined);
 
     expect(mocks.ensureLogin).toHaveBeenCalledTimes(2);
   });
@@ -609,7 +463,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
       mallMessage: '아이디 또는 비밀번호가 일치하지 않습니다.',
     });
 
-    await collect();
+    await collect().catch(() => undefined);
 
     expect(isMallAutoLoginBlocked('kakao')).toBe(true);
   });
@@ -622,7 +476,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
       mallMessage: '서비스 점검 중입니다.',
     });
 
-    await collect();
+    await collect().catch(() => undefined);
 
     expect(isMallAutoLoginBlocked('kakao')).toBe(false);
   });

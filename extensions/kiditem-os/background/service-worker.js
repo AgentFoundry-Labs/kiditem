@@ -44,7 +44,6 @@ importScripts(
   // 주문수집 도메인 모듈
   "orders/collection-failure.js",
   "orders/order-collection-lifecycle.js",
-  "orders/order-collection-server-converter.js",
   "orders/order-collection-source-owner.js",
   "orders/sellpia-post-processing.js",
   "orders/kidsnote-product-register.js",

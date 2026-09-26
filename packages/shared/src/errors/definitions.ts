@@ -170,7 +170,7 @@ export const ERROR_DEFINITIONS = {
   REGISTRATION_ALREADY_REGISTERED: def('channels', 'conflict', '이미 이 몰 계정에 등록된 상품입니다. 몰 상품 목록을 확인해 주세요.'),
 
   // orders
-  // 확장 order-collection-server-converter.js가 body.code를 그대로 저장한다 — 철자 고정(접두 없음).
+  // 몰 주문 실행 owner(MallOrdersOperationService)가 변환기의 이 철자로 "신규 주문 없음"을 가른다 — 철자 고정(접두 없음).
   NO_NEW_ORDERS: def('orders', 'validation', '새로 들어온 주문이 없습니다.'),
   ORDERS_NO_SELECTION: def('orders', 'validation', '처리할 주문을 선택해 주세요.'),
   ORDERS_UNKNOWN_ACTION: def('orders', 'validation', '지원하지 않는 주문 작업입니다.'),

@@ -115,7 +115,7 @@ describe('몰 관리자 직접 가져오기 — 옮긴 몰(온채널)', () => {
     expect(requestOperationStart).toHaveBeenCalledWith(
       'channels.mall_admin_listings',
       { channelAccountId: KIDKIDS_ACCOUNT, mallKey: 'onch' },
-      { capability: 'channelsOperationKindsV1' },
+      { capability: 'mallListingSite.onch' },
     );
     expect(apiClient.post).not.toHaveBeenCalled();
     expect(detectOrderCollectionExtensionRuntime).not.toHaveBeenCalled();
@@ -195,7 +195,7 @@ describe('몰 관리자 직접 가져오기 — 실행 kind(1차 몰)', () => {
     expect(requestOperationStart).toHaveBeenCalledWith(
       'channels.mall_admin_listings',
       { channelAccountId: KIDKIDS_ACCOUNT, mallKey: 'kidkids' },
-      { capability: 'channelsOperationKindsV1' },
+      { capability: 'mallListingSite.kidkids' },
     );
     expect(apiClient.post).not.toHaveBeenCalled();
     expect(detectOrderCollectionExtensionRuntime).not.toHaveBeenCalled();

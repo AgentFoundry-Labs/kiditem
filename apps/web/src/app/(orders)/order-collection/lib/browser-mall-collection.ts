@@ -8,7 +8,6 @@ import {
   clearMallAutoLoginBlock,
   mallAutoLoginBlock,
 } from '@/lib/mall-login-block';
-import { formatNumber } from '@/lib/utils';
 import { EXTENSION_TIMEOUT_MESSAGE, sendToExtension } from '@/lib/extension-bridge';
 import {
   createOrderCollectionExtensionError,
@@ -21,13 +20,8 @@ import {
   orderMallAccountApi,
   type OrderCollectionMallAccount,
 } from '@/lib/order-mall-account-api';
-import {
-  todayYmd,
-  type ConversionHistoryItem,
-} from './order-collection-page-model';
-import {
-  regenerateOrderCollectionSource,
-} from './order-collection-api';
+import { todayYmd } from './order-collection-page-model';
+import { isMallOrderAttemptMall } from '@kiditem/shared/orders-operations';
 
 /**
  * 수집할 신규 주문이 없을 때의 안내.
@@ -46,16 +40,6 @@ export interface BrowserMallCollectionResult {
   date: string | null;
 }
 
-type ServerOwnedConversionReceipt = {
-  success?: boolean;
-  sourceRows?: number | null;
-  productRows?: number | null;
-  outputRows?: number | null;
-  skippedRows?: number | null;
-  fileName?: string | null;
-  artifactId?: string | null;
-};
-
 type ServerOwnedCollectionResponse = {
   success?: boolean;
   attemptId?: string;
@@ -67,18 +51,14 @@ type ServerOwnedCollectionResponse = {
   error?: string;
   ownerReconciliation?: string;
   sourcePayload?: unknown;
-  conversion?: ServerOwnedConversionReceipt;
-  /** Internal-only transient output recovered after a lost extension ACK. */
-  recoveredResult?: Awaited<ReturnType<typeof regenerateOrderCollectionSource>>;
 };
 
 interface BrowserMallCollectorOptions {
   mallAccounts: OrderCollectionMallAccount[];
-  addGeneratedFile: (historyItem: ConversionHistoryItem) => void;
-  setPreviewId: (id: string) => void;
 }
 
 /**
+ * KID-379: 옛 attempt 경로(카카오)의 로그인 준비. 실행 kind 몰은 확장이 실행 안에서 로그인한다(KID-377).
  * 몰에 들어가기 전에 저장된 아이디·비밀번호로 로그인해 둔다. 수집기 안에서도, 쿠팡직배송
  * 달력처럼 수집기 밖에서 몰 화면에 들어가는 길에서도 같은 규칙을 쓴다 — 차단·재시도 간격·
  * 몰이 남긴 답 처리까지 한 곳에 있다.
@@ -197,18 +177,16 @@ async function loadMallCredentialsForLogin(
   }
 }
 
+/**
+ * KID-379: 옛 주문 attempt 경로(카카오)의 브라우저 절차. 카카오는 셀피아 변환 규격이 없어 확장이 그 시도를 늘 원본과 함께
+ * 실패(`UNSUPPORTED_CONVERSION`)로 닫는다 — 이 절차가 파일을 만드는 일은 없다. 카카오가 실행 kind로 옮기면 사라진다.
+ */
 export function createBrowserMallCollector({
   mallAccounts,
-  addGeneratedFile,
-  setPreviewId,
 }: BrowserMallCollectorOptions) {
   const currentMallAccountByKey = new Map(
     mallAccounts.map((account) => [account.key, account]),
   );
-  const addBrowserGeneratedFile = (historyItem: ConversionHistoryItem) => {
-    addGeneratedFile(historyItem);
-    setPreviewId(historyItem.id);
-  };
 
   const ensureMallLogin = async (
     mallKey: string,
@@ -240,14 +218,11 @@ export function createBrowserMallCollector({
     const credentials = await loadMallCredentialsForLogin(account);
     if (credentials) await ensureMallLogin(account.key, run);
 
-    const actionByMall: Record<string, string> = {
-      kakao: 'collectKakaoOrders',
-    };
-    const action = actionByMall[account.key];
-    if (!action) throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
+    // KID-379: 옛 경로의 수집기는 카카오 하나다(`MALL_ORDER_ATTEMPT_MALLS`).
+    if (!isMallOrderAttemptMall(account.key)) throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
 
     const message: Record<string, unknown> = {
-      action,
+      action: 'collectKakaoOrders',
       date,
       ...orderCollectionExtensionRunFields(run),
     };
@@ -259,36 +234,15 @@ export function createBrowserMallCollector({
         200000,
       );
     } catch (error) {
-      // The extension may have committed COMPLETE immediately before its
-      // response channel disappeared. Probe the same attempt's retained
-      // source and regenerate the transient output; never recollect or
-      // convert a new owner input. If the probe is not COMPLETE yet, leave
-      // the attempt running so the caller can reconcile/resume it instead of
-      // sending a contradictory failure request.
-      try {
-        const recoveredResult = await regenerateOrderCollectionSource(run, { download: false });
-        return {
-          success: true,
-          attemptId: run.attemptId,
-          terminalState: 'COMPLETE',
-          recoveredResult,
-        };
-      } catch {
-        const uncertain = error instanceof Error
-          ? error
-          : new Error(`${account.name} 주문 수집 응답을 확인하지 못했습니다.`);
-        Object.assign(uncertain, { ownerReconciliationRequired: true });
-        throw uncertain;
-      }
+      // 확장이 시도를 끝냈는지 모른다 — 다시 걷지 않고 owner 상태로 맞추도록 남긴다(끝은 owner가 적는다).
+      const uncertain = error instanceof Error
+        ? error
+        : new Error(`${account.name} 주문 수집 응답을 확인하지 못했습니다.`);
+      Object.assign(uncertain, { ownerReconciliationRequired: true });
+      throw uncertain;
     }
 
-    // A converter response can be lost after the server has already committed
-    // the source artifact. COMPLETE is authoritative in that case; the
-    // explicit regeneration below recreates the transient workbook from the
-    // retained source instead of reporting a false failure or recollecting.
-    if (!response?.success || (
-      response.terminalState !== 'COMPLETE' && !response.conversion
-    )) {
+    if (!response?.success || response.terminalState !== 'COMPLETE') {
       const error = new Error(response?.error ?? `${account.name} 주문 수집 실패`);
       Object.assign(error, {
         code: response?.errorCode,
@@ -300,56 +254,6 @@ export function createBrowserMallCollector({
       throw error;
     }
     return response;
-  };
-
-  const generateServerOwnedSellpia = async (
-    account: OrderCollectionMallAccount,
-    run: OrderCollectionExtensionRun,
-  ): Promise<BrowserMallCollectionResult> => {
-    const receipt = await collectServerOwnedMall(account, run);
-    const result = receipt.recoveredResult
-      ?? await regenerateOrderCollectionSource(run, { download: false });
-    const conversion = receipt.conversion ?? {};
-    const collectedRows = conversion.sourceRows ?? result.sourceRows;
-    if (collectedRows === null || collectedRows === undefined) {
-      throw new Error('ORDER_COLLECTION_SOURCE_ROWS_UNAVAILABLE');
-    }
-    if (collectedRows === 0 && result.outputRows === 0) {
-      toastNoNewOrders(account.name);
-      return { rowCount: 0, masked: false, date: collectionDateOf(run) };
-    }
-    const convertedAt = Date.now();
-    const historyItem = {
-      ...result,
-      id: `${convertedAt}-${account.key}-browser`,
-      sourceName: `${account.name} 브라우저 수집 (${formatNumber(collectedRows)}행)`,
-      convertedAt,
-      collectionDate: collectionDateOf(run),
-      collectionMode: 'browser' as const,
-      collectedRows,
-      mallKey: account.key,
-      mallName: account.name,
-    };
-    addBrowserGeneratedFile(historyItem);
-    return {
-      rowCount: collectedRows,
-      masked: false,
-      date: collectionDateOf(run),
-    };
-  };
-
-  const generateKakaoSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectKakaoOrdersFromExtension, throwKakaoConversionUnsupported } = await import(
-      './kakao-orders-api'
-    );
-    // 카카오는 토큰/SSO 로그인이라 form-fill 자동로그인 불가 — collectKakao 가 미로그인을 감지해
-    // pendingLogin 으로 "로그인 필요"를 안내한다.
-    const orders = await collectKakaoOrdersFromExtension(undefined, run);
-    if (orders.length === 0) {
-      toastNoNewOrders('카카오', '배송준비중 상태 기준');
-      return 0;
-    }
-    return throwKakaoConversionUnsupported(orders);
   };
 
   return async function collectBrowserMall(
@@ -378,25 +282,10 @@ export function createBrowserMallCollector({
       // 끝난다 — 진짜 원인은 가려진 채 그 문구만 뜬다(사장님 2026-09-21).
       ...(run?.sourceOwner ? { sourceOwner: run.sourceOwner } : {}),
     };
-    if (resolvedRun.serverOwned) {
-      return generateServerOwnedSellpia(account, resolvedRun);
-    }
-    const today = collectionDateOf(resolvedRun);
-    if (account.key === 'kakao') return resultFor(await generateKakaoSellpia(resolvedRun), today);
-    // 실행 kind로 옮긴 몰(`MALL_ORDER_OPERATION_MALLS` — KID-359 H3·KID-380)은 이 옛 절차로 오지 않는다.
-    throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
+    // 브라우저 시도는 늘 서버 소유 수집이다(옛 페이지 절차는 없다).
+    if (!resolvedRun.serverOwned) throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
+    await collectServerOwnedMall(account, resolvedRun);
+    // 옛 경로에는 변환이 없다 — 확장이 시도를 완료로 닫는 일은 없어야 한다(카카오는 늘 UNSUPPORTED_CONVERSION).
+    throw Object.assign(new Error(`${account.name} 셀피아 변환은 아직 준비 중입니다.`), { code: 'UNSUPPORTED_CONVERSION' });
   };
-}
-
-function resultFor(rowCount: number, date: string): BrowserMallCollectionResult {
-  return {
-    rowCount,
-    masked: false,
-    date,
-  };
-}
-
-function collectionDateOf(run: OrderCollectionExtensionRun): string {
-  if (!run.date) throw new Error('Order collection date is required');
-  return run.date;
 }

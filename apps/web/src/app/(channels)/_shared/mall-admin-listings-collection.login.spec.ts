@@ -42,7 +42,7 @@ beforeEach(() => {
 
 describe('몰 관리자 가져오기 시작의 자동 로그인 자격', () => {
   it.each(['kidkids', 'onch'] as const)('⭐ %s: 확장이 operationLoginV1을 알리면 그 몰의 저장 자격을 operation.start에 싣는다', async (mallKey) => {
-    const starts = extension({ operationRuntime: true, channelsOperationKindsV1: true, operationLoginV1: true });
+    const starts = extension({ operationRuntime: true, channelsOperationKindsV1: true, operationLoginV1: true, [`mallListingSite.${mallKey}`]: true });
     const mallStatus = { malls: [{ ...status.malls[0], mallKey }] };
     await expect(mallAdminListingsCollection(mallKey).start!(undefined, { status: mallStatus as never }))
       .resolves.toEqual({ outcome: 'started', attemptId: OPERATION_ID });
@@ -56,10 +56,18 @@ describe('몰 관리자 가져오기 시작의 자동 로그인 자격', () => {
   });
 
   it('operationLoginV1이 없는 옛 빌드에는 자격을 싣지 않는다', async () => {
-    const starts = extension({ operationRuntime: true, channelsOperationKindsV1: true });
+    const starts = extension({ operationRuntime: true, channelsOperationKindsV1: true, 'mallListingSite.kidkids': true });
     await mallAdminListingsCollection('kidkids').start!(undefined, { status: status as never });
     expect(starts).toHaveLength(1);
     expect(starts[0]).not.toHaveProperty('credentials');
+  });
+
+  it('그 몰의 목록 사이트 표시(mallListingSite.<몰>)가 없는 옛 빌드는 업데이트 문장으로 거절하고 실행을 보내지 않는다(KID-380 T4)', async () => {
+    const starts = extension({ operationRuntime: true, channelsOperationKindsV1: true, operationLoginV1: true, 'mallListingSite.kidkids': true });
+    const mallStatus = { malls: [{ ...status.malls[0], mallKey: 'onch' }] };
+    await expect(mallAdminListingsCollection('onch').start!(undefined, { status: mallStatus as never }))
+      .rejects.toThrow('확장 프로그램을 업데이트해 주세요.');
+    expect(starts).toEqual([]);
   });
 
   it('끝난 실행이 몰의 아이디·비밀번호 거절로 멈췄으면 source를 읽을 때 그 몰의 자동 로그인을 멈춘다', async () => {

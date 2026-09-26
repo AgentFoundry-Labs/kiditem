@@ -48,9 +48,10 @@ import {
 } from '../lib/mall-order-collection-source';
 import { downloadOrderCollectionFile } from '../lib/order-collection-download';
 import { type OrderCollectionExtensionRun } from '../lib/order-collection-extension';
+import { toastNoNewOrders } from '../lib/browser-mall-collection';
 import { MallCollectionControl } from './MallCollectionControl';
 import { SellpiaShipmentTrackingControl } from './SellpiaShipmentTrackingControl';
-import { collectsViaMallOrderOperation } from '../lib/mall-order-operation-source';
+import { collectsViaMallOrderOperation, uploadMallOrderFile } from '../lib/mall-order-operation-source';
 import {
   collectionAttentionNotice,
   ICECREAM_MALL_KEY,
@@ -510,13 +511,14 @@ export function OrderCollectionWorkspace() {
     password?: string;
   }) => {
     setState('converting');
-    let run: OrderCollectionExtensionRun | null = null;
     try {
-      // Manual uploads are source-owner attempts too. They do not need
-      // extension admission, but their conversion must carry the same fence
-      // so the server can terminalize the exact attempt that owns the file.
-      run = await sessionControls.prepareManualUploadRun(mall);
-      const result = await convertUploadedFile(mall, file, password, run);
+      // 수동 업로드는 서버가 실행 하나로 돌린다(KID-380 T4) — attempt도 브라우저 시도 힌트도 없다.
+      const result = await uploadMallOrderFile({ account: mall, file, password });
+      if (!result) {
+        toastNoNewOrders(mall.name);
+        setState('idle');
+        return;
+      }
       const convertedAt = Date.now();
       const historyItem: ConversionHistoryItem = {
         ...result,
@@ -533,18 +535,8 @@ export function OrderCollectionWorkspace() {
       setState('success');
       toast.success(`${mall.name} 변환 완료`);
     } catch (err) {
-      // 운영자 중단이 이 변환을 끊었으면 terminal 은 owner 취소의 몫이다(KID-159).
-      if (run) {
-        await sessionControls.failRunUnlessStopped(
-          run,
-          'CONVERSION_FAILED',
-          `${mall.name} 파일 변환에 실패했습니다: ${friendlyError(err) ?? '변환 실패'}`,
-        );
-      }
       setState('error');
       throw err;
-    } finally {
-      if (run) sessionControls.releaseRun(mall.key, run.attemptId);
     }
   };
 
@@ -889,6 +881,7 @@ export function OrderCollectionWorkspace() {
           }
           return collectsViaMallOrderOperation(account.key)
             ? <MallCollectionControl {...card} buildAdapter={mallOperationCollectionAdapter} />
+            // KID-379: 카카오만 옛 attempt 어댑터.
             : <MallCollectionControl {...card} buildAdapter={mallCollectionAdapter} />;
         }}
         onOpenChooser={(account) => void directshipCalendar.open(account)}
@@ -957,25 +950,4 @@ export function OrderCollectionWorkspace() {
 
     </div>
   );
-}
-
-async function convertUploadedFile(
-  mall: OrderCollectionMallAccount,
-  file: File,
-  password?: string,
-  run?: OrderCollectionExtensionRun,
-) {
-  if (mall.key === 'domeggook') {
-    const { convertDomeggookOrderFile } = await import('../lib/order-collection-api');
-    return convertDomeggookOrderFile(file, { run });
-  }
-  if (mall.key === 'gs-shop') {
-    const { convertGsshopOrderFile } = await import('../lib/order-collection-api');
-    return convertGsshopOrderFile(file, { download: false, run });
-  }
-  if (mall.key === ICECREAM_MALL_KEY) {
-    const { convertIcecreamMallOrderFile } = await import('../lib/order-collection-api');
-    return convertIcecreamMallOrderFile(file, password, run);
-  }
-  throw new Error(`${mall.name} 업로드 변환은 아직 준비 중입니다.`);
 }

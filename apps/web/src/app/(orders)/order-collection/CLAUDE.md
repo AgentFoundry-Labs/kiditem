@@ -19,8 +19,13 @@ convenience history.
   `operation.start` carrying the stored credentials (the extension logs in
   inside the run; `lib/operation-login.ts` applies the block and hourly rules
   and blocks a mall the run reports as rejected), the operations reader, and
-  convert by `operationId`. The
-  other malls keep the attempt adapter until the remaining malls move (나머지 몰이 옮겨질 때까지).
+  convert by `operationId`. A manual excel upload posts the file to
+  `…/malls/:mallKey/upload` (a server-run operation), waits by operation id,
+  and converts by `operationId`; it opens no attempt. A mall run starts only
+  on a build whose `ping` carries `mallOrderSite.<mallKey>` (listings:
+  `mallListingSite.<mallKey>`); an older build is refused with the update
+  message before any server row exists. Only Kakao keeps the
+  attempt adapter (KID-379); code kept for it is marked `KID-379`.
 - The shared collection loop and the mall cards use only the source adapter
   (`OrderCollectionSourceAdapter`: start, status, stop, `card`) and the owner
   stamped on the run; they never compare a mall key. A source with its own

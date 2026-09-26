@@ -1,8 +1,9 @@
 'use client';
 
-import type { OperationListResponse, OperationView } from '@kiditem/shared/operation';
+import { OperationFinishResponseSchema, type OperationListResponse, type OperationView } from '@kiditem/shared/operation';
 import {
-  isMallOrderOperationMall,
+  isMallOrdersManualUploadMall,
+  mallOrderSiteCapability,
   MALL_ORDERS_KIND,
   MallOrdersResultSchema,
 } from '@kiditem/shared/orders-operations';
@@ -16,9 +17,13 @@ import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 import { toastNoNewOrders, type BrowserMallCollectionResult } from './browser-mall-collection';
-import type { MallOrderCollectionStartInput } from './mall-order-collection-source';
+import { collectsViaOrderAttempt, type MallOrderCollectionStartInput } from './mall-order-collection-source';
 import { saveIcecreamDeliveryIndex } from './icecream-delivery-index';
-import { readOrderOperationContinuation, regenerateOrderOperationSource } from './order-collection-api';
+import {
+  readOrderOperationContinuation,
+  regenerateOrderOperationSource,
+  type OrderCollectionConversionResult,
+} from './order-collection-api';
 import { addSeenOrderKeys } from './order-detect';
 import {
   detectOrderCollectionSessionExtensionStatus,
@@ -27,7 +32,6 @@ import {
 import { ICECREAM_MALL_KEY, todayYmd, type ConversionHistoryItem } from './order-collection-page-model';
 import type { OrderCollectionSourceAdapter } from './order-collection-source-adapter';
 import {
-  ORDER_CAPTURE_OPERATION_CAPABILITY,
   OrderOperationFailure,
   orderOperationsQueryKey,
   readOrderOperations,
@@ -35,11 +39,11 @@ import {
 } from './order-operations';
 
 /**
- * 이 몰은 실행 kind `orders.mall_orders`로 수집한다(KID-359 H3 1차 몰). 나머지 몰은 옛 attempt 경로가 나머지 몰이 옮겨질 때까지 받는다.
- * 어느 경로인지는 이 원천 파일이 답한다 — 루프와 카드는 몰 키를 비교하지 않는다.
+ * 이 몰은 실행 kind `orders.mall_orders`로 수집한다 — 옛 attempt 경로에 남은 카카오(KID-379)가 아니면 모두다.
+ * 어느 경로인지는 원천 파일이 답한다 — 루프와 카드는 몰 키를 비교하지 않는다.
  */
 export function collectsViaMallOrderOperation(mallKey: string): boolean {
-  return isMallOrderOperationMall(mallKey);
+  return !collectsViaOrderAttempt(mallKey);
 }
 
 /** 시작이 연 실행을 절차에 넘기는 것. 절차가 끝날 때까지 기다리고 변환한다. */
@@ -162,7 +166,8 @@ export function mallOrderOperationSource({
         collectionMode: 'browser',
         selectionMode,
         ...(input.seenRowKeys ? { seenRowKeys: [...input.seenRowKeys] } : {}),
-      }, { capability: ORDER_CAPTURE_OPERATION_CAPABILITY, ...(credentials ? { credentials } : {}) });
+      // 그 몰 사이트를 가진 빌드에만 보낸다 — 옛 빌드는 서버가 실행을 연 뒤 RUNTIME_PLAN_INVALID로 끝났다(KID-380 T4).
+      }, { capability: mallOrderSiteCapability(account.key), ...(credentials ? { credentials } : {}) });
       if (outcome.outcome === 'refused') return outcome;
       if (outcome.outcome === 'running') return { outcome: 'running', attemptId: outcome.operationId };
       await handOff({ extensionId: extension.extensionId, operationId: outcome.operationId, input, collectionDate });
@@ -244,4 +249,40 @@ export async function collectMallOrderOperation({
   // 이번에 고른 행을 다음 자동 선택의 본 행으로 적는다.
   if (continuation && continuation.selectedRowKeys.length > 0) addSeenOrderKeys(account.key, continuation.selectedRowKeys);
   return { rowCount: collectedRows, masked, date: collectionDate };
+}
+
+/**
+ * 수동 엑셀 업로드(KID-380 T4): 파일(과 엑셀 암호)을 그 몰의 업로드 라우트에 올리면 서버가 `orders.mall_orders`
+ * 실행 하나(`collectionMode: 'manual-upload'`)를 돌린다. 화면은 그 실행 id로 기다린 뒤 실행 id로 변환 파일을 받는다 —
+ * attempt도, 브라우저에 남기는 시도 힌트도 없다. 변환기가 신규 주문이 없다고 하면(204) null.
+ */
+export async function uploadMallOrderFile({
+  account,
+  file,
+  password,
+  sleep,
+}: Readonly<{
+  account: OrderCollectionMallAccount;
+  file: File;
+  password?: string;
+  sleep?: (ms: number) => Promise<void>;
+}>): Promise<(OrderCollectionConversionResult & { operationId: string }) | null> {
+  if (!isMallOrdersManualUploadMall(account.key)) {
+    throw new Error(`${account.name} 업로드 변환은 아직 준비 중입니다.`);
+  }
+  const form = new FormData();
+  form.append('file', file);
+  if (password) form.append('password', password);
+  const { operation } = await apiClient.uploadParsed(
+    `/api/orders/collection/malls/${encodeURIComponent(account.key)}/upload`,
+    OperationFinishResponseSchema,
+    form,
+  );
+  const done = await waitForOrderOperation(MALL_ORDERS_KIND, operation.id, {
+    source: 'order_collection_mall',
+    ...(sleep ? { sleep } : {}),
+  });
+  const converted = await regenerateOrderOperationSource(done.id);
+  if (converted.outputRows === 0 || converted.blob.size === 0) return null;
+  return { ...converted, operationId: done.id };
 }

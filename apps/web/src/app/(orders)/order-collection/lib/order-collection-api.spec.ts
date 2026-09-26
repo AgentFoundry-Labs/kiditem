@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { convertIcecreamMallOrderRows, regenerateOrderCollectionSource } from './order-collection-api';
+import { regenerateOrderOperationSource } from './order-collection-api';
 import { downloadBlob } from '@/lib/browser-download';
 import { read } from 'xlsx';
 
@@ -12,8 +12,7 @@ vi.mock('xlsx', () => ({
   utils: { sheet_to_json: vi.fn(() => []) },
 }));
 
-const ATTEMPT_ID = '00000000-0000-4000-8000-000000000011';
-const ATTEMPT_TOKEN = '00000000-0000-4000-8000-000000000012';
+const OPERATION_ID = '00000000-0000-4000-8000-000000000011';
 
 describe('order collection conversion transport', () => {
   beforeEach(() => {
@@ -30,27 +29,7 @@ describe('order collection conversion transport', () => {
     }));
   });
 
-  it('sends the source owner fence with browser-row conversion', async () => {
-    await convertIcecreamMallOrderRows(
-      { headers: ['주문번호'], rows: [['order-1']], fileName: 'orders' },
-      {
-        download: false,
-        run: { attemptId: ATTEMPT_ID, attemptToken: ATTEMPT_TOKEN },
-      },
-    );
-
-    expect(api.fetchRaw).toHaveBeenCalledWith(
-      '/api/orders/collection/icecream-mall/convert-rows',
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          'x-order-collection-attempt-id': ATTEMPT_ID,
-          'x-source-attempt-token': ATTEMPT_TOKEN,
-        }),
-      }),
-    );
-  });
-
-  it('retains measured zero without parsing or downloading a workbook for a confirmed-empty source', async () => {
+  it('주문이 없던 실행의 재변환(204)은 통합 문서를 읽거나 내려받지 않고 0건이다', async () => {
     api.fetchRaw.mockResolvedValue(new Response(null, {
       status: 204,
       headers: {
@@ -61,14 +40,11 @@ describe('order collection conversion transport', () => {
       },
     }));
 
-    const result = await regenerateOrderCollectionSource({
-      attemptId: ATTEMPT_ID,
-      attemptToken: ATTEMPT_TOKEN,
-    });
+    const result = await regenerateOrderOperationSource(OPERATION_ID);
 
     expect(result).toMatchObject({
       sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
-      importRunId: null, previewRows: [],
+      previewRows: [],
     });
     expect(result.blob.size).toBe(0);
     expect(read).not.toHaveBeenCalled();

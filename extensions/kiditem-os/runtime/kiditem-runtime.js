@@ -5570,6 +5570,9 @@ var KidItemRuntime = (() => {
   function isMallAdminListingMallKey(value) {
     return typeof value === "string" && Object.hasOwn(MALL_ADMIN_LISTING_READERS, value);
   }
+  function mallListingSiteCapability(mallKey) {
+    return `mallListingSite.${mallKey}`;
+  }
   var MallKeySchema = external_exports.enum(MALL_ADMIN_LISTING_MALL_KEYS);
   var YYYY_MM_DD = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var boundedText = (max) => external_exports.string().trim().max(max);
@@ -7160,6 +7163,9 @@ var KidItemRuntime = (() => {
   var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook", "kidsnote", "onch", "haebub-mall", "kkomangse", "teacher-mall", "boribori", "gs-shop", "always", "lotte-on"];
   function isMallOrderOperationMall(mallKey) {
     return MALL_ORDER_OPERATION_MALLS.includes(mallKey);
+  }
+  function mallOrderSiteCapability(mallKey) {
+    return `mallOrderSite.${mallKey}`;
   }
   var COUPANG_SHIPMENT_SUMMARY_CHUNK_KIND = "shipment_dates";
   var COUPANG_SHIPMENT_SUMMARY_SCAN_CHUNK_KIND = "shipment_scan";
@@ -13308,6 +13314,18 @@ var KidItemRuntime = (() => {
     });
   }
 
+  // extensions/src/entry/mall-site-capabilities.ts
+  function mallSiteCapabilities(resolve = siteFactoryFor) {
+    const capabilities = {};
+    for (const mallKey of MALL_ORDER_OPERATION_MALLS) {
+      if (resolve(mallKey)) capabilities[mallOrderSiteCapability(mallKey)] = true;
+    }
+    for (const mallKey of MALL_ADMIN_LISTING_MALL_KEYS) {
+      if (resolve(mallKey)) capabilities[mallListingSiteCapability(mallKey)] = true;
+    }
+    return capabilities;
+  }
+
   // extensions/src/entry/index.ts
   function installEntry() {
     if (!legacyGlobalsPresent()) return false;
@@ -13340,7 +13358,8 @@ var KidItemRuntime = (() => {
         operationLoginV1: true,
         advertisingKeywordOperationKindsV1: true,
         wingDailyOperationKindsV1: true,
-        [SELLPIA_OPERATION_CAPABILITY]: true
+        [SELLPIA_OPERATION_CAPABILITY]: true,
+        ...mallSiteCapabilities()
       }
     });
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });

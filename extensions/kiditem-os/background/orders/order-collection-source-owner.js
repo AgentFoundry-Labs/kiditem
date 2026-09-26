@@ -1,6 +1,9 @@
 (function installOrderCollectionSourceOwner(root) {
   "use strict";
 
+  // KID-379: 옛 주문 attempt 경로의 확장 쪽 소유자. 카카오만 쓴다(서버가 다른 몰의 시작을 거절한다) — 카카오가 실행
+  // kind로 옮기면 이 파일과 lifecycle·collection-failure가 함께 사라진다.
+
   const SOURCE_PATH = "/api/orders/collection/attempts";
   const PRODUCER = "orders.mall";
   const PARSER_VERSION = "order-collection-v1";

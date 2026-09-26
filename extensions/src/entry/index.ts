@@ -72,6 +72,7 @@ import { ACCOUNT_SITE, createSiteHandles, entrySites, ownTabSites } from './site
 import { legacyApiPort, legacyGlobalsPresent, legacyKeepAlive, registerWithLegacyDomains } from './legacy-bridge';
 import { createOperationActions } from './operation-actions';
 import { installProductCollect } from './sourcing-product-collect';
+import { mallSiteCapabilities } from './mall-site-capabilities';
 
 /**
  * 새 런타임을 옛 워커의 외부 메시지 표(`KidItemDomains`)에 건다. 옛 전역이 없으면(Vitest·번들 스펙) 아무것도 하지 않고
@@ -105,6 +106,7 @@ export function installEntry(): boolean {
   // advertisingKeywordOperationKindsV1: 광고 키워드·경쟁사 kind 5종을 돈다(KID-362 K-a).
   // wingDailyOperationKindsV1: Wing 일별 사실 kind(트래픽·아이템위너)를 돈다(KID-362 K-b).
   // sellpiaOperationKindsV1: 셀피아 재고·매출·상품 손익 kind를 돈다(KID-361).
+  // mallOrderSite.<몰>·mallListingSite.<몰>: 이 빌드가 사이트를 가진 몰(KID-380 T4) — 웹은 몰마다 이것으로 옛 빌드를 거른다.
   registerWithLegacyDomains({
     externalActions,
     capabilities: {
@@ -116,6 +118,7 @@ export function installEntry(): boolean {
       advertisingKeywordOperationKindsV1: true,
       wingDailyOperationKindsV1: true,
       [SELLPIA_OPERATION_CAPABILITY]: true,
+      ...mallSiteCapabilities(),
     },
   });
   installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });

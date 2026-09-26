@@ -44,9 +44,11 @@ describe('OrderCollectionWorkspace', () => {
     expect(source).not.toContain('<OrderCollectionRecovery');
     // 달력이 여는 직배송 시작 두 곳은 409 를 오류가 아니라 진행 중으로 읽는다(KID-106 Q6).
     expect(source.split('directshipAlreadyRunning(err)')).toHaveLength(3);
-    // 화면이 자기 절차에서 닫는 실패는 중단된 시도를 실패로 닫지 않는다(KID-159). 달력의 불러오기는
-    // use-coupang-directship-calendar 가 같은 규칙으로 닫는다(KID-198).
-    expect(source.split('sessionControls.failRunUnlessStopped(')).toHaveLength(2);
+    // 수동 업로드는 서버 실행이라(KID-380 T4) 화면이 닫을 시도가 없다. 달력의 불러오기는
+    // use-coupang-directship-calendar 가 중단된 시도를 실패로 닫지 않는 규칙으로 닫는다(KID-159, KID-198).
+    expect(source).not.toContain('sessionControls.failRunUnlessStopped(');
+    expect(source).not.toContain('prepareManualUploadRun');
+    expect(source).toContain('uploadMallOrderFile(');
     const calendarSource = readFileSync(
       path.join(import.meta.dirname, '../hooks/use-coupang-directship-calendar.ts'),
       'utf8',

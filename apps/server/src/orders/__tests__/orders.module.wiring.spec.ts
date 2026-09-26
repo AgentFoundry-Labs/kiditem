@@ -40,6 +40,8 @@ import { SellpiaShipmentTrackingOperationOwner } from '../adapter/in/operation/s
 import { OperationModule } from '../../common/operation/operation.module';
 import { MallOrdersOperationOwner } from '../adapter/in/operation/mall-orders-operation-owner';
 import { MallOrdersOperationService } from '../application/service/mall-orders-operation.service';
+import { MallOrdersUploadService } from '../application/service/mall-orders-upload.service';
+import { OrderCollectionUploadController } from '../adapter/in/web/order-collection-upload.controller';
 import { OrderMallAccountPersistenceAdapter } from '../adapter/out/persistence/order-mall-account.persistence.adapter';
 import { ORDER_MALL_ACCOUNT_PORT } from '../application/port/out/persistence/order-mall-account.port';
 import { OrderCollectionTodayOrdersModule } from '../order-collection-today-orders.module';
@@ -72,6 +74,7 @@ describe('OrdersModule owner wiring', () => {
       OrderCollectionController,
       CoupangDirectshipController,
       OrderCollectionSourceController,
+      OrderCollectionUploadController,
       SellpiaShipmentTrackingController,
       ReviewsController,
       ReturnTransfersController,
@@ -93,6 +96,7 @@ describe('OrdersModule owner wiring', () => {
       CoupangReviewsOperationOwner,
       SellpiaShipmentTrackingOperationOwner,
       MallOrdersOperationService,
+      MallOrdersUploadService,
       MallOrdersOperationOwner,
       OrderMallAccountPersistenceAdapter,
       CoupangDirectshipOperationOwner,

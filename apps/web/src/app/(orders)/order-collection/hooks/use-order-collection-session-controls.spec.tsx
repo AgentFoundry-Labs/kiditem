@@ -182,31 +182,6 @@ describe('useOrderCollectionSessionControls', () => {
     expect(mocks.detectExtensionStatus).not.toHaveBeenCalled();
   });
 
-  it('starts manual-upload owner attempts without extension admission', async () => {
-    mocks.begin.mockResolvedValue({
-      ...control(),
-      plan: { ...plan, collectionMode: 'manual-upload', collectionDate: null },
-    });
-    const { result } = renderHook(
-      () => useOrderCollectionSessionControls([account]),
-      { wrapper },
-    );
-
-    let run: Awaited<ReturnType<typeof result.current.prepareManualUploadRun>> | undefined;
-    await act(async () => {
-      run = await result.current.prepareManualUploadRun(account);
-    });
-
-    expect(mocks.begin).toHaveBeenCalledWith(
-      expect.any(String),
-      expect.objectContaining({ mallKey: account.key, collectionMode: 'manual-upload' }),
-    );
-    expect(mocks.detectExtensionStatus).not.toHaveBeenCalled();
-    expect(run).toMatchObject({ attemptId: ATTEMPT_ID, attemptToken: TOKEN });
-    expect(run?.extensionId).toBeUndefined();
-    expect(run?.serverOwned).toBeUndefined();
-  });
-
   it('forgets a stored attempt hint the owner no longer knows (404) instead of asking again on every visit', async () => {
     mocks.readActive.mockReturnValue({ attemptId: ATTEMPT_ID, idempotencyKey: null, mallKey: 'kidsnote' });
     mocks.readAttempt.mockRejectedValue(new ApiError(404, 'ORDER_COLLECTION_ATTEMPT_NOT_FOUND'));

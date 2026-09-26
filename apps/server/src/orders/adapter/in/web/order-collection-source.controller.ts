@@ -1,5 +1,4 @@
 import {
-  BadRequestException,
   Body,
   Controller,
   Get,
@@ -10,7 +9,6 @@ import {
   Param,
   ParseUUIDPipe,
   Post,
-  NotFoundException,
   Query,
   Res,
   StreamableFile,
@@ -19,6 +17,7 @@ import type {
   OrderCollectionSourceStatus,
   OrderCollectionTodayOrders,
 } from '@kiditem/shared/order-collection-source';
+import { isMallOrderAttemptMall } from '@kiditem/shared/orders-operations';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import {
@@ -34,27 +33,21 @@ import {
 } from '../../../application/port/in/order-collection-today-orders.port';
 import { MallOrdersOperationService } from '../../../application/service/mall-orders-operation.service';
 import type { IcecreamContinuation } from '../../../domain/mall-orders-operation';
-import { KiditemInvalidValueError } from '@kiditem/shared/errors';
+import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { conversionFile, operationIdOf } from './operation-conversion';
 import type { Response } from 'express';
-import {
-  confirmedEmptyOrdersSchema,
-  OrderCollectionService,
-  type OrderCollectionConversion,
-} from '../../../application/service/order-collection.service';
-
 
 @Controller('orders/collection')
 export class OrderCollectionSourceController {
   constructor(
     @Inject(ORDER_COLLECTION_SOURCE_PORT)
     private readonly source: OrderCollectionSourcePort,
-    private readonly orderCollectionService: OrderCollectionService,
     @Inject(ORDER_COLLECTION_TODAY_ORDERS_PORT)
     private readonly todayOrders: OrderCollectionTodayOrdersPort,
     private readonly mallOrders: MallOrdersOperationService,
   ) {}
 
+  /** KID-379: 옛 attempt 시작은 카카오(`MALL_ORDER_ATTEMPT_MALLS`)의 브라우저 수집만 받는다. */
   @Post('attempts')
   beginAttempt(
     @Body() rawBody: unknown,
@@ -66,23 +59,9 @@ export class OrderCollectionSourceController {
     return this.source.beginAttempt({
       organizationId,
       userId: user.id,
-      idempotencyKey: requireHeader(idempotencyKey, 'INVALID_IDEMPOTENCY_KEY'),
+      idempotencyKey: requireHeader(idempotencyKey, 'idempotency_key_invalid'),
       ...body,
     });
-  }
-
-  /**
-   * 공용 시작 컨트롤이 폴링하는 몰별 현재 상태. 시도 토큰은 담지 않는다 — fence
-   * 토큰은 확장이 부르는 `attempts/:id/control`에만 나간다.
-   */
-  @Get('source')
-  async readSourceStatus(
-    @Query('mallKey') mallKey: string | undefined,
-    @CurrentOrganization() organizationId: string,
-  ): Promise<OrderCollectionSourceStatus> {
-    const key = optionalText(mallKey);
-    if (!key) throw new BadRequestException('INVALID_ORDER_COLLECTION_SCOPE');
-    return this.source.readSourceStatus({ organizationId, mallKey: key });
   }
 
   /**
@@ -90,7 +69,7 @@ export class OrderCollectionSourceController {
    * 폴링만으로 전역 throttler를 넘겨 화면 전체가 429를 받는다(KID-170 D2). 몰 하나짜리
    * 읽기와 마찬가지로 시도 토큰은 담지 않는다.
    */
-  @Get('sources')
+  @Get('sources') // KID-379: 카카오 카드가 읽는다(옛 attempt 행).
   async readSourceStatuses(
     @CurrentOrganization() organizationId: string,
   ): Promise<{ malls: OrderCollectionSourceStatus[] }> {
@@ -110,23 +89,25 @@ export class OrderCollectionSourceController {
     return this.todayOrders.readTodayOrders({ organizationId });
   }
 
+  /** KID-379: 화면이 다시 열 때 이어 볼 카카오 시도. */
   @Get('attempts/:attemptId')
   async readAttempt(
     @CurrentOrganization() organizationId: string,
     @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
   ) {
     const attempt = await this.source.readAttempt({ organizationId, attemptId });
-    if (!attempt) throw new NotFoundException('ORDER_COLLECTION_ATTEMPT_NOT_FOUND');
+    if (!attempt) throw attemptNotFound(attemptId);
     return attempt;
   }
 
+  /** KID-379: 확장(`order-collection-source-owner.js`)이 카카오 시도의 fence 토큰과 상태를 읽는다. */
   @Get('attempts/:attemptId/control')
   async readAttemptControl(
     @CurrentOrganization() organizationId: string,
     @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
   ) {
     const control = await this.source.readAttemptControl({ organizationId, attemptId });
-    if (!control) throw new NotFoundException('ORDER_COLLECTION_ATTEMPT_NOT_FOUND');
+    if (!control) throw attemptNotFound(attemptId);
     return control;
   }
 
@@ -149,6 +130,7 @@ export class OrderCollectionSourceController {
     return this.mallOrders.readContinuation({ organizationId, operationId });
   }
 
+  /** KID-379: 확장이 카카오 시도를 원본(변환 규격 없음)과 함께 실패로 닫는다. */
   @Post('attempts/:attemptId/fail')
   async failAttempt(
     @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
@@ -165,7 +147,7 @@ export class OrderCollectionSourceController {
     });
   }
 
-  /** 화면의 중단 버튼. 토큰 없이 조직 범위로만 끝내며 실패 알림을 남기지 않는다. */
+  /** KID-379: 화면의 중단 버튼(카카오). 토큰 없이 조직 범위로만 끝내며 실패 알림을 남기지 않는다. */
   @Post('attempts/:attemptId/cancel')
   @HttpCode(200)
   async cancelAttempt(
@@ -175,47 +157,9 @@ export class OrderCollectionSourceController {
     return this.source.cancelAttempt({ organizationId, attemptId });
   }
 
-  @Post('attempts/:attemptId/complete-empty')
-  async completeEmptyAttempt(
-    @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
-    @Headers('x-source-attempt-token') attemptToken: string | undefined,
-    @CurrentOrganization() organizationId: string,
-    @Body() rawBody: unknown,
-    @Res({ passthrough: true }) response: Response,
-  ) {
-    const parsed = confirmedEmptyOrdersSchema.safeParse(rawBody);
-    if (!parsed.success) throw new BadRequestException('INVALID_EMPTY_ORDER_COLLECTION');
-    const evidence = parsed.data;
-    const artifact = await this.source.completeAttempt({
-      organizationId,
-      attemptId,
-      attemptToken: requireUuidHeader(attemptToken),
-      mallKey: evidence.mallKey,
-      source: orderCollectionJsonSubmission(evidence),
-      confirmedCoverage: evidence.confirmedCoverage,
-    });
-    setEmptyConversionHeaders(response, artifact.artifactId);
-    return artifact;
-  }
-
-  @Get('artifacts/:artifactId/source')
-  async downloadSource(
-    @Param('artifactId', new ParseUUIDPipe()) artifactId: string,
-    @CurrentOrganization() organizationId: string,
-    @Res({ passthrough: true }) response: Response,
-  ): Promise<StreamableFile> {
-    const download = await this.source.readSourceDownload({
-      organizationId,
-      artifactId,
-    });
-    setDownloadHeaders(response, download.fileName, download.contentType);
-    return new StreamableFile(download.bytes);
-  }
-
   /**
-   * Rebuilds a transient Sellpia workbook from the already-retained source
-   * artifact. This is a scoped replay of the same owner input, not a new
-   * collection attempt and never writes converted bytes to the database.
+   * 성공한 실행(`orders.mall_orders`)의 보관 캡처를 다시 변환한다 — 경로의 id와 본문 `operationId`가 같은 실행이다
+   * (KID-359 H3). 옛 attempt 재변환은 없다(KID-380 T4): 카카오 시도는 변환 규격이 없어 완료되지 않는다.
    */
   @Post('attempts/:attemptId/convert')
   @Header('Access-Control-Expose-Headers', [
@@ -227,81 +171,42 @@ export class OrderCollectionSourceController {
     'X-Order-Collection-Skipped-Rows',
     'Cache-Control',
   ].join(', '))
-  async convertRetainedSource(
+  async convertOperation(
     @Param('attemptId', new ParseUUIDPipe()) attemptId: string,
-    @Headers('x-source-attempt-token') attemptToken: string | undefined,
     @CurrentOrganization() organizationId: string,
     @Res({ passthrough: true }) response: Response,
     @Body('operationId') rawOperationId?: unknown,
   ): Promise<StreamableFile> {
-    // 실행 kind(`orders.mall_orders`)로 옮긴 몰은 본문의 operationId로 온다 — 경로의 id가 그 실행이다(KID-359 H3).
     const operationId = operationIdOf(rawOperationId, attemptId);
-    if (operationId) {
-      return conversionFile(response, await this.mallOrders.convertOperation({ organizationId, operationId }));
+    if (!operationId) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'operation_id_required' } });
     }
-    const control = await this.source.readAttemptControl({ organizationId, attemptId });
-    if (!control) throw new NotFoundException('ORDER_COLLECTION_ATTEMPT_NOT_FOUND');
-    if (control.attemptToken !== requireUuidHeader(attemptToken)) {
-      throw new BadRequestException('ATTEMPT_FENCE_LOST');
-    }
-    if (control.state !== 'COMPLETE' || !control.artifactId) {
-      throw new BadRequestException('ORDER_COLLECTION_SOURCE_NOT_COMPLETE');
-    }
-    const source = await this.source.readSourceDownload({
-      organizationId,
-      artifactId: control.artifactId,
-    });
-    const result = await this.orderCollectionService.convertRetainedSource(
-      control.plan.mallKey,
-      control.plan.collectionDate,
-      source,
-    );
-    // 이 수집이 몇 건을 실어 왔는지는 여기서야 안다. 장부에 적어 두지 않으면 성공한 수집도
-    // 건수 0 으로 남아, 대시보드의 '오늘 주문' 이 그만큼 모자라게 센다(사장님 2026-09-21).
-    // 0 건도 적는다 — "걷었는데 없었다" 는 측정이지 모름이 아니다.
-    await this.source.recordCollectedRows({
-      organizationId,
-      attemptId,
-      rowCount: result.outputRows,
-    });
-    if (result.sourceRows === 0 && result.outputRows === 0) {
-      setEmptyConversionHeaders(response, control.artifactId);
-      response.status(204);
-      return new StreamableFile(Buffer.alloc(0));
-    }
-    setConversionHeaders(response, result, control.artifactId, control.plan.mallKey);
-    return new StreamableFile(result.buffer);
+    return conversionFile(response, await this.mallOrders.convertOperation({ organizationId, operationId }));
   }
-
 }
 
 function parseBeginBody(value: unknown): {
   mallKey: string;
   collectionDate: string | null;
-  collectionMode: OrderCollectionMode;
+  collectionMode: Extract<OrderCollectionMode, 'browser'>;
   selectionMode?: 'manual' | 'automatic';
   seenRowKeys?: string[];
 } {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new BadRequestException('INVALID_ORDER_COLLECTION_SCOPE');
-  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid('order_collection_scope_invalid');
   const body = value as Record<string, unknown>;
   const mallKey = optionalText(body.mallKey);
   const date = body.collectionDate;
   const collectionDate = date === undefined || date === null ? null : optionalText(date);
-  if (!mallKey || (date !== undefined && date !== null && !collectionDate)) {
-    throw new BadRequestException('INVALID_ORDER_COLLECTION_SCOPE');
-  }
-  if (collectionDate && !/^\d{4}-\d{2}-\d{2}$/.test(collectionDate)) {
-    throw new BadRequestException('INVALID_ORDER_COLLECTION_DATE');
-  }
+  if (!mallKey || (date !== undefined && date !== null && !collectionDate)) throw invalid('order_collection_scope_invalid');
+  if (collectionDate && !/^\d{4}-\d{2}-\d{2}$/.test(collectionDate)) throw invalid('order_collection_date_invalid');
+  // KID-379: 옛 경로는 카카오만. 다른 몰은 실행 kind `orders.mall_orders`, 수동 업로드는 `…/malls/:mallKey/upload`다.
+  if (!isMallOrderAttemptMall(mallKey)) throw invalid('mall_not_attempt_path', { mallKey });
   const mode = body.collectionMode;
-  if (mode !== 'browser' && mode !== 'manual-upload') {
-    throw new BadRequestException('INVALID_ORDER_COLLECTION_MODE');
-  }
+  if (mode === 'manual-upload') throw invalid('manual_upload_moved_to_operation', { mallKey });
+  if (mode !== 'browser') throw invalid('order_collection_mode_invalid');
   const selectionMode = body.selectionMode;
   if (selectionMode !== undefined && selectionMode !== 'manual' && selectionMode !== 'automatic') {
-    throw new BadRequestException('INVALID_ORDER_COLLECTION_SELECTION');
+    throw invalid('order_collection_selection_invalid');
   }
   const rawSeenRowKeys = body.seenRowKeys;
   if (rawSeenRowKeys !== undefined && (
@@ -309,15 +214,13 @@ function parseBeginBody(value: unknown): {
     rawSeenRowKeys.length > 8_000 ||
     rawSeenRowKeys.some((key) => typeof key !== 'string' || key.length > 2_000)
   )) {
-    throw new BadRequestException('INVALID_ORDER_COLLECTION_SELECTION');
+    throw invalid('order_collection_selection_invalid');
   }
-  if (selectionMode === 'automatic' && !Array.isArray(rawSeenRowKeys)) {
-    throw new BadRequestException('INVALID_ORDER_COLLECTION_SELECTION');
-  }
+  if (selectionMode === 'automatic' && !Array.isArray(rawSeenRowKeys)) throw invalid('order_collection_selection_invalid');
   return {
     mallKey,
     collectionDate,
-    collectionMode: mode,
+    collectionMode: 'browser',
     ...(selectionMode ? { selectionMode } : {}),
     ...(Array.isArray(rawSeenRowKeys) ? { seenRowKeys: rawSeenRowKeys } : {}),
   };
@@ -328,15 +231,11 @@ function parseFailureBody(value: unknown): {
   message: string;
   source?: ReturnType<typeof orderCollectionJsonSubmission>;
 } {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    throw new BadRequestException('INVALID_ORDER_COLLECTION_FAILURE');
-  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) throw invalid('order_collection_failure_invalid');
   const body = value as Record<string, unknown>;
   const code = optionalText(body.code);
   const message = optionalText(body.message);
-  if (!code || !message || code.length > 80 || message.length > 500) {
-    throw new BadRequestException('INVALID_ORDER_COLLECTION_FAILURE');
-  }
+  if (!code || !message || code.length > 80 || message.length > 500) throw invalid('order_collection_failure_invalid');
   const raw = body.sourcePayload;
   return {
     code,
@@ -351,67 +250,24 @@ function optionalText(value: unknown): string | null {
   return text || null;
 }
 
-function requireHeader(value: string | undefined, code: string): string {
+function requireHeader(value: string | undefined, reason: string): string {
   const text = optionalText(value);
-  if (!text || text.length > 128) throw new BadRequestException(code);
+  if (!text || text.length > 128) throw invalid(reason);
   return text;
 }
 
 function requireUuidHeader(value: string | undefined): string {
   const text = optionalText(value);
   if (!text || !/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(text)) {
-    throw new BadRequestException('INVALID_SOURCE_ATTEMPT_TOKEN');
+    throw invalid('source_attempt_token_invalid');
   }
   return text;
 }
 
-function setDownloadHeaders(
-  response: Response,
-  fileName: string | null,
-  contentType: string,
-): void {
-  if (fileName) {
-    const asciiFallback = fileName.replace(/[^\x20-\x7E]/g, '_');
-    response.setHeader(
-      'Content-Disposition',
-      `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(fileName)}`,
-    );
-  }
-  response.setHeader('Content-Type', contentType);
-  response.setHeader('Cache-Control', 'private, no-store');
+function invalid(reason: string, details: Record<string, unknown> = {}): KiditemInvalidValueError {
+  return new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason, ...details } });
 }
 
-function setConversionHeaders(
-  response: Response,
-  result: OrderCollectionConversion,
-  artifactId: string,
-  mallKey: string,
-): void {
-  response.setHeader(
-    'Content-Disposition',
-    contentDispositionAttachment(result.fileName),
-  );
-  response.setHeader(
-    'Content-Type',
-    mallKey === 'art09' ? 'text/csv;charset=utf-8' : 'application/vnd.ms-excel',
-  );
-  response.setHeader('Cache-Control', 'private, no-store');
-  response.setHeader('X-Order-Collection-Artifact-Id', artifactId);
-  response.setHeader('X-Order-Collection-Source-Rows', String(result.sourceRows));
-  response.setHeader('X-Order-Collection-Product-Rows', String(result.productRows));
-  response.setHeader('X-Order-Collection-Output-Rows', String(result.outputRows));
-  response.setHeader('X-Order-Collection-Skipped-Rows', String(result.skippedRows));
-}
-
-function setEmptyConversionHeaders(response: Response, artifactId: string): void {
-  response.setHeader('Cache-Control', 'private, no-store');
-  response.setHeader('X-Order-Collection-Artifact-Id', artifactId);
-  for (const name of ['Source-Rows', 'Product-Rows', 'Output-Rows', 'Skipped-Rows']) {
-    response.setHeader(`X-Order-Collection-${name}`, '0');
-  }
-}
-
-function contentDispositionAttachment(fileName: string): string {
-  const asciiFallback = fileName.replace(/[^\x20-\x7E]/g, '_');
-  return `attachment; filename="${asciiFallback}"; filename*=UTF-8''${encodeURIComponent(fileName)}`;
+function attemptNotFound(attemptId: string): KiditemNotFoundError {
+  return new KiditemNotFoundError('NOT_FOUND', { details: { reason: 'ORDER_COLLECTION_ATTEMPT_NOT_FOUND', attemptId } });
 }

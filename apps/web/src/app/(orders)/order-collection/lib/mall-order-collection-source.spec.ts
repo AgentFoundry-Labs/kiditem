@@ -35,9 +35,10 @@ const ATTEMPT_TOKEN = '44444444-4444-4444-8444-444444444444';
 const STORED_KEY = '55555555-5555-4555-8555-555555555555';
 const BROWSER_KEY = '66666666-6666-4666-8666-666666666666';
 
+// KID-379: 옛 attempt 경로에 남은 몰은 카카오뿐이다.
 const ACCOUNT = {
-  key: 'icecream-mall',
-  name: '아이스크림몰',
+  key: 'kakao',
+  name: '카카오',
   enabled: true,
 } as unknown as OrderCollectionMallAccount;
 
@@ -116,22 +117,12 @@ function beginKeys(): (string | undefined)[] {
       ?.headers?.['Idempotency-Key']);
 }
 
-function manualUploadSource(handOff = vi.fn().mockResolvedValue(undefined)) {
-  return mallOrderCollectionSource({
-    organizationId: ORGANIZATION_ID,
-    account: ACCOUNT,
-    collectionMode: 'manual-upload',
-    handOff,
-  });
-}
-
 function adapter(handOff = vi.fn().mockResolvedValue(undefined)) {
   return {
     handOff,
     source: mallOrderCollectionSource({
       organizationId: ORGANIZATION_ID,
       account: ACCOUNT,
-      collectionMode: 'browser',
       handOff,
     }),
   };
@@ -394,30 +385,6 @@ describe('mallOrderCollectionSource', () => {
     // 브라우저 수집이 남긴 키는 그 모드로 적힌다.
     expect(readActiveOrderCollectionAttempt(ORGANIZATION_ID, undefined, ACCOUNT.key))
       .toMatchObject({ idempotencyKey: beginKeys()[0], collectionMode: 'browser' });
-
-    // 모드를 적지 않은 옛 키는 나머지 필드가 같아도 수동 업로드 시작이 재생하지 않는다.
-    rememberActiveOrderCollectionAttempt(ORGANIZATION_ID, {
-      attemptId: null,
-      idempotencyKey: STORED_KEY,
-      mallKey: ACCOUNT.key,
-      collectionDate: null,
-    }, undefined, ACCOUNT.key);
-    vi.mocked(apiClient.post).mockResolvedValue(openedAttempt());
-    await manualUploadSource().start!({}, { status: undefined });
-
-    expect(beginKeys()[1]).not.toBe(STORED_KEY);
-
-    // 브라우저 모드로 적힌 키도 마찬가지다.
-    rememberActiveOrderCollectionAttempt(ORGANIZATION_ID, {
-      attemptId: null,
-      idempotencyKey: BROWSER_KEY,
-      mallKey: ACCOUNT.key,
-      collectionDate: null,
-      collectionMode: 'browser',
-    }, undefined, ACCOUNT.key);
-    await manualUploadSource().start!({}, { status: undefined });
-
-    expect(beginKeys()[2]).not.toBe(BROWSER_KEY);
   });
 
   /**

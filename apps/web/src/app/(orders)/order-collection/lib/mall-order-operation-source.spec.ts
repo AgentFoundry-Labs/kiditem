@@ -12,9 +12,10 @@ import {
   collectsViaMallOrderOperation,
   mallOrderOperationSource,
   mallOrderOperationWaitMs,
+  uploadMallOrderFile,
 } from './mall-order-operation-source';
 
-vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn(), fetchRaw: vi.fn() } }));
+vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn(), fetchRaw: vi.fn(), uploadParsed: vi.fn() } }));
 vi.mock('@/lib/operation-start', () => ({ requestOperationStart: vi.fn(), requestOperationCancel: vi.fn() }));
 vi.mock('./order-collection-extension', () => ({
   detectOrderCollectionSessionExtensionStatus: vi.fn(),
@@ -89,7 +90,7 @@ beforeEach(() => {
 });
 
 describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
-  it('1차 몰 4곳과 사이트를 옮긴 2차 몰(HTML 몰 T1·엑셀·blob 몰 T2)만 실행 kind로 수집한다(KID-380)', () => {
+  it('옛 attempt 경로에 남은 카카오(KID-379)가 아니면 모두 실행 kind로 수집한다(KID-380 T4)', () => {
     expect(['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kidsnote', 'onch', 'haebub-mall', ...EXCEL_MALLS].every(collectsViaMallOrderOperation)).toBe(true);
     expect(collectsViaMallOrderOperation('kakao')).toBe(false);
   });
@@ -104,7 +105,7 @@ describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
       collectionDate: '2026-09-26',
       collectionMode: 'browser',
       selectionMode: 'manual',
-    }, { capability: 'orderCaptureOperationKindsV1', credentials: CREDENTIALS });
+    }, { capability: `mallOrderSite.${mallKey}`, credentials: CREDENTIALS });
     expect(handOff).toHaveBeenCalledWith(expect.objectContaining({ operationId: OPERATION_ID }));
   });
 
@@ -121,7 +122,7 @@ describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
       collectionMode: 'browser',
       selectionMode: 'automatic',
       seenRowKeys: ['A'],
-    }, { capability: 'orderCaptureOperationKindsV1', credentials: CREDENTIALS });
+    }, { capability: 'mallOrderSite.kidkids', credentials: CREDENTIALS });
     expect(handOff).toHaveBeenCalledWith({ extensionId: 'ext-1', operationId: OPERATION_ID, input: { selectionMode: 'automatic', seenRowKeys: ['A'] }, collectionDate: '2026-09-26' });
   });
 
@@ -131,7 +132,7 @@ describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
     const { adapter } = source({ loadLoginCredentials });
     await adapter.start!({}, { status: undefined });
     expect(loadLoginCredentials).toHaveBeenCalledWith(account, { automatic: false });
-    expect(vi.mocked(requestOperationStart).mock.calls[0]![2]).toEqual({ capability: 'orderCaptureOperationKindsV1' });
+    expect(vi.mocked(requestOperationStart).mock.calls[0]![2]).toEqual({ capability: 'mallOrderSite.kidkids' });
   });
 
   it('계정 행이 없는 몰은 아무것도 부르지 않고 설정 안내, 같은 계정이 이미 돌면 거절 문장이나 그 실행', async () => {
@@ -326,5 +327,44 @@ describe('collectMallOrderOperation — 실행이 끝나면 실행 id로 변환�
     await expect(collectMallOrderOperation({ account, operationId: OPERATION_ID, collectionDate: '2026-09-26', addGeneratedFile: vi.fn(), sleep }))
       .rejects.toMatchObject({ errorCode: 'login_required' });
     expect(mallAutoLoginBlock('kidkids')).toMatchObject({ reason: '아이디 또는 비밀번호가 일치하지 않습니다.' });
+  });
+  it('수동 업로드(KID-380 T4): 파일(과 암호)을 몰 업로드 라우트에 올리고 그 실행 id로 기다린 뒤 실행 id로 변환한다 — attempt는 열지 않는다', async () => {
+    const domeggook = { ...account, key: 'domeggook', name: '도매꾹' } as OrderCollectionMallAccount;
+    const uploaded = operation(OPERATION_ID, 'succeeded', { plan: { mallKey: 'domeggook', collectionMode: 'manual-upload', collectionDate: null }, result: { rowCount: 2, mallKey: 'domeggook', captured: 1 } });
+    vi.mocked(apiClient.uploadParsed).mockResolvedValueOnce({ operation: uploaded });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: uploaded });
+    vi.mocked(apiClient.fetchRaw).mockResolvedValueOnce(new Response('xls', {
+      status: 201,
+      headers: { 'X-Order-Collection-Source-Rows': '2', 'X-Order-Collection-Output-Rows': '2' },
+    }));
+    const file = new File(['a,b'], 'ORDER_ALL.csv', { type: 'text/csv' });
+
+    const converted = await uploadMallOrderFile({ account: domeggook, file, password: 'secret', sleep });
+
+    const [path, , form] = vi.mocked(apiClient.uploadParsed).mock.calls[0]!;
+    expect(path).toBe('/api/orders/collection/malls/domeggook/upload');
+    expect((form as FormData).get('file')).toBeInstanceOf(File);
+    expect((form as FormData).get('password')).toBe('secret');
+    expect(apiClient.get).toHaveBeenCalledWith(`/api/operations/${OPERATION_ID}`);
+    expect(apiClient.fetchRaw).toHaveBeenCalledWith(`/api/orders/collection/attempts/${OPERATION_ID}/convert`, expect.objectContaining({
+      body: JSON.stringify({ operationId: OPERATION_ID }),
+    }));
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(converted).toMatchObject({ outputRows: 2, sourceRows: 2, operationId: OPERATION_ID });
+  });
+
+  it('수동 업로드: 받지 않는 몰은 아무것도 부르지 않고 준비 중 문장, 변환기가 신규 주문이 없다고 하면(204) null', async () => {
+    await expect(uploadMallOrderFile({ account, file: new File(['x'], 'x.xlsx'), sleep }))
+      .rejects.toThrow('키드키즈 업로드 변환은 아직 준비 중입니다.');
+    expect(apiClient.uploadParsed).not.toHaveBeenCalled();
+
+    const gs = { ...account, key: 'gs-shop', name: 'GS샵' } as OrderCollectionMallAccount;
+    const uploaded = operation(OPERATION_ID, 'succeeded', { plan: { mallKey: 'gs-shop' }, result: { rowCount: 0, mallKey: 'gs-shop', captured: 1 } });
+    vi.mocked(apiClient.uploadParsed).mockResolvedValueOnce({ operation: uploaded });
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: uploaded });
+    vi.mocked(apiClient.fetchRaw).mockResolvedValueOnce(new Response(null, { status: 204, headers: { 'X-Order-Collection-Output-Rows': '0' } }));
+    await expect(uploadMallOrderFile({ account: gs, file: new File(['x'], 'gs.xlsx'), sleep })).resolves.toBeNull();
+    const form = vi.mocked(apiClient.uploadParsed).mock.calls[0]![2] as FormData;
+    expect(form.get('password')).toBeNull();
   });
 });

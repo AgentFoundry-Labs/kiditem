@@ -42,4 +42,15 @@ describe('requestOperationStart', () => {
     vi.mocked(sendToExtension).mockRejectedValueOnce(new Error('gone'));
     await expect(extensionAcceptsOperationLogin('ext-1')).resolves.toBe(false);
   });
+  it('옛 빌드가 그 몰의 사이트 표시(mallOrderSite.<몰>)를 싣지 않으면 서버에 실행을 만들기 전에 업데이트 문장으로 거절한다(KID-380 T4)', async () => {
+    vi.mocked(sendToExtension).mockImplementation(async (_id, message) =>
+      (message as { action: string }).action === 'ping'
+        ? { success: true, capabilities: { operationRuntime: true, orderCaptureOperationKindsV1: true, 'mallOrderSite.kidkids': true } }
+        : { success: true, operationId: OPERATION_ID, reused: false });
+    await expect(requestOperationStart('orders.mall_orders', { mallKey: 'lotte-on' }, { capability: 'mallOrderSite.lotte-on' }))
+      .rejects.toThrow('확장 프로그램을 업데이트해 주세요.');
+    expect(sendToExtension).not.toHaveBeenCalledWith('ext-1', expect.objectContaining({ action: 'operation.start' }), expect.anything());
+    await expect(requestOperationStart('orders.mall_orders', { mallKey: 'kidkids' }, { capability: 'mallOrderSite.kidkids' }))
+      .resolves.toEqual({ outcome: 'started', operationId: OPERATION_ID });
+  });
 });

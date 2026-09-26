@@ -226,6 +226,32 @@ export function isMallOrderOperationMall(mallKey: string): mallKey is MallOrderO
   return (MALL_ORDER_OPERATION_MALLS as readonly string[]).includes(mallKey);
 }
 
+/**
+ * 확장 `ping`에 싣는 몰마다의 주문 사이트 표시(KID-380 T4). 이 빌드에 그 몰 사이트가 있어야 실린다 — 웹은 이 표시가 없는
+ * 빌드에 그 몰 실행을 보내지 않는다(서버에 실행을 만들기 전에 "업데이트" 문장으로 거절).
+ */
+export function mallOrderSiteCapability(mallKey: string): string {
+  return `mallOrderSite.${mallKey}`;
+}
+
+/**
+ * 옛 주문 attempt 경로(`POST /api/orders/collection/attempts`)에 남은 몰. KID-379: 카카오는 셀피아 변환 규격이 생길 때까지
+ * 옛 경로로 수집하고(확장이 원본을 실패 artifact로 남긴다), 그 뒤 실행 kind로 옮기면 이 목록과 옛 경로가 함께 사라진다.
+ */
+export const MALL_ORDER_ATTEMPT_MALLS = ['kakao'] as const; // KID-379
+export function isMallOrderAttemptMall(mallKey: string): boolean {
+  return (MALL_ORDER_ATTEMPT_MALLS as readonly string[]).includes(mallKey);
+}
+
+/**
+ * 운영자가 몰에서 받은 주문 파일을 화면에서 올리는 수동 업로드(`collectionMode: 'manual-upload'`, KID-380 T4)를 받는 몰.
+ * 옛 업로드 화면이 받던 몰 그대로다 — 서버가 그 파일을 실행 하나로 보관하고 같은 변환기로 바꾼다.
+ */
+export const MALL_ORDERS_MANUAL_UPLOAD_MALLS = ['domeggook', 'gs-shop', 'icecream-mall'] as const satisfies readonly MallOrderOperationMall[];
+export function isMallOrdersManualUploadMall(mallKey: string): boolean {
+  return (MALL_ORDERS_MANUAL_UPLOAD_MALLS as readonly string[]).includes(mallKey);
+}
+
 /** 청크 종류(확장 수집기 → owner finalize). */
 export const COUPANG_SHIPMENT_SUMMARY_CHUNK_KIND = 'shipment_dates' as const;
 export const COUPANG_SHIPMENT_SUMMARY_SCAN_CHUNK_KIND = 'shipment_scan' as const;

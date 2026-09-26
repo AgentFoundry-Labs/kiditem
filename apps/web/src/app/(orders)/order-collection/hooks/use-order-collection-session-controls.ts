@@ -7,14 +7,11 @@ import { isApiError } from '@/lib/api-error';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { sendToExtension, type ExtensionRuntimeStatus } from '@/lib/extension-bridge';
 import {
-  beginOrderCollectionSourceAttempt,
   failOrderCollectionSourceAttempt,
   getOrderCollectionEnvironmentKey,
-  newOrderCollectionIdempotencyKey,
   forgetActiveOrderCollectionAttempt,
   readActiveOrderCollectionAttempt,
   readOrderCollectionSourceAttempt,
-  rememberActiveOrderCollectionAttempt,
   type ActiveOrderCollectionAttempt,
   type OrderCollectionSourceAttemptControl,
 } from '../lib/order-collection-source-owner';
@@ -69,6 +66,8 @@ function attemptQueryKey(
 }
 
 /**
+ * KID-379: the old mall attempt half of this hook (hint, attempt read, fail,
+ * cancel) serves only Kakao; the directship half has its own owner.
  * The mall-specific procedure around an owner attempt: turning an admitted
  * attempt into an extension run, conversion and upload fences, the terminal
  * submissions, and the reloaded screen's resume hint.
@@ -134,23 +133,8 @@ export function useOrderCollectionSessionControls(
   }, [attempt?.plan.mallKey, mallAccounts]);
 
   /**
-   * An attempt is remembered as the latest one, which a reloaded screen offers to
-   * resume, and under its mall. It is a hint only: whether a mall is collecting
-   * is the owner's status read, never this record.
-   */
-  const setScopedAttempt = useCallback((next: ActiveOrderCollectionAttempt, mallKey?: string) => {
-    if (!organizationId) return;
-    rememberActiveOrderCollectionAttempt(organizationId, next, environmentKey);
-    if (mallKey) {
-      rememberActiveOrderCollectionAttempt(organizationId, next, environmentKey, mallKey);
-    }
-    setActiveScope({ organizationId, environmentKey, attempt: next });
-  }, [environmentKey, organizationId]);
-
-  /**
    * Turns an attempt the owner already admitted into this browser's run. The
-   * fence token comes from the admission, so no second control read is needed,
-   * and a manual upload runs without an extension.
+   * fence token comes from the admission, so no second control read is needed.
    */
   const activateOwnerRun = useCallback((
     account: OrderCollectionMallAccount,
@@ -335,31 +319,6 @@ export function useOrderCollectionSessionControls(
   }, [activateDirectAttempt, environmentKey, organizationId, rocketChannelAccountId]);
 
   /**
-   * Manual uploads are source-owner attempts too. They need no extension
-   * admission, but their conversion carries the same fence so the server can
-   * terminalize the exact attempt that owns the file.
-   */
-  const prepareManualUploadRun = useCallback(async (
-    account: OrderCollectionMallAccount,
-  ): Promise<OrderCollectionExtensionRun> => {
-    if (!organizationId) {
-      throw new Error('주문 수집을 시작할 조직 정보가 없습니다. 다시 로그인해 주세요.');
-    }
-    const idempotencyKey = newOrderCollectionIdempotencyKey();
-    const started = await beginOrderCollectionSourceAttempt(idempotencyKey, {
-      mallKey: account.key,
-      collectionDate: null,
-      collectionMode: 'manual-upload',
-    });
-    setScopedAttempt({
-      attemptId: started.attemptId,
-      idempotencyKey,
-      mallKey: account.key,
-    }, account.key);
-    return activateOwnerRun(account, started);
-  }, [activateOwnerRun, organizationId, setScopedAttempt]);
-
-  /**
    * Drops this browser's bookkeeping for an attempt the owner no longer runs.
    * A mall generator that stalls without stopping never reaches the procedure's
    * `finally`, so its entry would outlive the attempt's lease and the next stop
@@ -424,7 +383,7 @@ export function useOrderCollectionSessionControls(
 
   /**
    * Ends the attempt this browser opened outside the shared control — the
-   * directship calendar's, or a manual upload's. The owner stop carries no
+   * directship calendar's. The owner stop carries no
    * fence token, and a stop the owner refused is reported instead of being
    * swallowed (KID-191).
    */
@@ -460,7 +419,7 @@ export function useOrderCollectionSessionControls(
 
   /**
    * Closes a failure of this browser's own procedure — the directship calendar's
-   * purchase-order read, a manual upload's conversion. An operator stop already
+   * purchase-order read. An operator stop already
    * ended this run, and then the terminal is the owner cancel's: writing a
    * failure here would beat it and leave a failure alert the `*_CANCELLED`
    * suppression never sees (KID-159). Answers whether the terminal was written,
@@ -504,7 +463,6 @@ export function useOrderCollectionSessionControls(
     failRun,
     failRunUnlessStopped,
     prepareDirectRun,
-    prepareManualUploadRun,
     releaseRun,
     restartAccount,
     syncRun,
