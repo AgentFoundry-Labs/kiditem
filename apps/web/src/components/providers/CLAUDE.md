@@ -48,6 +48,5 @@ here affect every route.
 - Do not add route-specific query defaults here.
 - Do not show generic global error toasts for transient dev fetch/chunk failures
   or handled auth-required errors.
-- `BrowserCollectionProvider` excludes `inventory.sellpia`; only the extension
-  browser runtime may upload/finalize that attempt. The source attempt is the
-  terminal owner record; generic Operation Alerts do not control this flow.
+- Sellpia inventory is the operation kind `products.sellpia_inventory`, not a
+  browser collection session; `BrowserCollectionProvider` never sees it.

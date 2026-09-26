@@ -4,14 +4,6 @@ import {
   type InventoryAvailabilityBatch,
 } from '@kiditem/shared/inventory-availability';
 import {
-  isSourceImportStatus,
-  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-} from '@kiditem/shared/source-import';
-import {
-  SellpiaInventoryQualityReportSchema,
-  SellpiaInventoryStoredCollectionTriggerSchema,
-} from '@kiditem/shared/sellpia-inventory-freshness';
-import {
   assertProductSourceLockCovers,
   type ProductSourceLock,
 } from '../transaction/product-source-lock';
@@ -105,7 +97,7 @@ type ProductSourceSnapshotRow = Readonly<{
   barcode: string | null;
   currentStock: number;
   purchasePrice: number | null;
-  lastImportRunId: string | null;
+  lastOperationId: string | null;
   lastImportedAt: Date | null;
   linkedChannelOptionCount: number;
   linkedProductCount: number;
@@ -113,28 +105,14 @@ type ProductSourceSnapshotRow = Readonly<{
   linkedChannelOptions: ProductSourceSnapshotLinkedChannelOption[];
 }>;
 
-type ProductSourceImportRunRow = Readonly<{
-  id: string;
-  fileName: string | null;
-  fileHash: string | null;
-  status: string;
-  rowCount: number;
-  importedAt: Date | null;
-  lastVerifiedAt: Date | null;
-  verificationCount: number;
-  lastTrigger: string | null;
-  freshnessGeneration: bigint | null;
-  manualFreshExportConfirmedAt: Date | null;
-  manualFreshExportConfirmedBy: string | null;
-  qualityReport: unknown;
-  errorCode: string | null;
-  errorMessage: string | null;
-  createdAt: Date;
-  updatedAt: Date;
+/** 지금 재고를 발행한 셀피아 재고 실행(상태 행). */
+type ProductSourceLatestCollectionRow = Readonly<{
+  operationId: string;
+  completedAt: Date;
+  generation: bigint;
 }>;
 
 const SOURCE_ACCOUNT_KEY = 'kiditem' as const;
-const SOURCE_TYPE = 'sellpia_inventory' as const;
 
 const PRODUCT_SOURCE_MASTER_PRODUCT_IDENTITY_SELECT = {
   id: true,
@@ -158,30 +136,6 @@ type ProductSourceIdentityStore = Pick<
   Prisma.TransactionClient,
   'masterProduct' | 'channelListing' | '$queryRaw'
 >;
-
-const PRODUCT_SOURCE_IMPORT_RUN_SELECT = {
-  id: true,
-  fileName: true,
-  fileHash: true,
-  status: true,
-  rowCount: true,
-  importedAt: true,
-  lastVerifiedAt: true,
-  verificationCount: true,
-  lastTrigger: true,
-  freshnessGeneration: true,
-  manualFreshExportConfirmedAt: true,
-  manualFreshExportConfirmedBy: true,
-  qualityReport: true,
-  errorCode: true,
-  errorMessage: true,
-  createdAt: true,
-  updatedAt: true,
-} as const;
-
-type ProductSourceImportRunSelect = Prisma.SourceImportRunGetPayload<{
-  select: typeof PRODUCT_SOURCE_IMPORT_RUN_SELECT;
-}>;
 
 type ProductSourceSummaryRow = {
   totalProducts: bigint;
@@ -303,9 +257,9 @@ export async function readProductSourceSnapshotList(
   rows: ProductSourceSnapshotRow[];
   total: number;
   summary: InventorySkuSnapshotSummary;
-  latestImport: ProductSourceImportRunRow | null;
+  latestCollection: ProductSourceLatestCollectionRow | null;
 }> {
-  const latestImport = await readPublishedInventoryImport(tx, organizationId);
+  const latestCollection = await readLatestCollection(tx, organizationId);
   const linkedMasterProductIds = await readLinkedProductSourceIds(
     tx,
     organizationId,
@@ -389,8 +343,8 @@ export async function readProductSourceSnapshotList(
         barcode: row.barcode,
         currentStock: row.currentStock,
         purchasePrice: row.purchasePrice,
-        lastImportRunId: latestImport?.id ?? null,
-        lastImportedAt: latestImport?.importedAt ?? null,
+        lastOperationId: latestCollection?.operationId ?? null,
+        lastImportedAt: latestCollection?.completedAt ?? null,
         linkedChannelOptionCount: linkedChannelOptions.length,
         linkedProductCount: linkedProducts.length,
         linkedProducts,
@@ -409,7 +363,7 @@ export async function readProductSourceSnapshotList(
       pricedAssetValue: productSourceSafeInteger(summary.pricedAssetValue, 'pricedAssetValue'),
       unpricedSkuCount: productSourceSafeInteger(summary.unpricedProductCount, 'unpricedProductCount'),
     },
-    latestImport,
+    latestCollection,
   };
 }
 
@@ -418,7 +372,7 @@ export async function readProductSourceSnapshot(
   organizationId: string,
   masterProductId: string,
 ): Promise<ProductSourceSnapshotRow | null> {
-  const [row, latestImport] = await Promise.all([
+  const [row, latestCollection] = await Promise.all([
     tx.masterProduct.findFirst({
       where: {
         id: masterProductId,
@@ -427,7 +381,7 @@ export async function readProductSourceSnapshot(
       },
       select: PRODUCT_SOURCE_SNAPSHOT_SELECT,
     }),
-    readPublishedInventoryImport(tx, organizationId),
+    readLatestCollection(tx, organizationId),
   ]);
   if (!row) return null;
   const destinationsByMasterProductId = await readInventoryLinkedDestinations(
@@ -446,8 +400,8 @@ export async function readProductSourceSnapshot(
     barcode: row.barcode,
     currentStock: row.currentStock,
     purchasePrice: row.purchasePrice,
-    lastImportRunId: latestImport?.id ?? null,
-    lastImportedAt: latestImport?.importedAt ?? null,
+    lastOperationId: latestCollection?.operationId ?? null,
+    lastImportedAt: latestCollection?.completedAt ?? null,
     linkedChannelOptionCount: linkedChannelOptions.length,
     linkedProductCount: linkedProducts.length,
     linkedProducts,
@@ -816,67 +770,43 @@ async function loadProductSources(
   });
 }
 
+/**
+ * 지금 발행된 재고의 근거: 완료 세대가 있고 그 발행을 끝낸 실행(`lastCompletedOperationId`)이 적혀 있어야 한다.
+ * 옛 import run을 되짚지 않는다 — 실행 계약에서는 finish 트랜잭션이 상태 행과 상품을 함께 쓴다(ADR-0025).
+ */
 async function loadPublishedInventoryBasis(
   tx: Prisma.TransactionClient,
   organizationId: string,
-): Promise<Readonly<{ runId: string; generation: string; verifiedAt: Date }> | null> {
+): Promise<Readonly<{ operationId: string; generation: string; verifiedAt: Date }> | null> {
+  const collection = await readLatestCollection(tx, organizationId);
+  return collection === null
+    ? null
+    : {
+        operationId: collection.operationId,
+        generation: collection.generation.toString(),
+        verifiedAt: collection.completedAt,
+      };
+}
+
+async function readLatestCollection(
+  tx: Prisma.TransactionClient,
+  organizationId: string,
+): Promise<ProductSourceLatestCollectionRow | null> {
   const state = await tx.sellpiaInventoryState.findUnique({
     where: { organizationId },
-    select: {
-      verifiedGeneration: true,
-      lastVerifiedAt: true,
-      lastCompletedImportRunId: true,
-    },
+    select: { verifiedGeneration: true, lastVerifiedAt: true, lastCompletedOperationId: true },
   });
   if (
     state === null
     || state.verifiedGeneration <= 0n
     || state.lastVerifiedAt === null
-    || state.lastCompletedImportRunId === null
+    || state.lastCompletedOperationId === null
   ) return null;
-  const publishedRun = await tx.sourceImportRun.findFirst({
-    where: {
-      id: state.lastCompletedImportRunId,
-      organizationId,
-      sourceType: SOURCE_TYPE,
-      channelAccountId: null,
-      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-      freshnessGeneration: state.verifiedGeneration,
-    },
-    select: { id: true },
-  });
-  return publishedRun === null
-    ? null
-    : {
-        runId: publishedRun.id,
-        generation: state.verifiedGeneration.toString(),
-        verifiedAt: state.lastVerifiedAt,
-      };
-}
-
-async function readPublishedInventoryImport(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-): Promise<ProductSourceImportRunRow | null> {
-  const state = await tx.sellpiaInventoryState.findUnique({
-    where: { organizationId },
-    select: { lastCompletedImportRunId: true, verifiedGeneration: true },
-  });
-  if (!state?.lastCompletedImportRunId) return null;
-  const row = await tx.sourceImportRun.findFirst({
-    where: {
-      id: state.lastCompletedImportRunId,
-      organizationId,
-      sourceType: SOURCE_TYPE,
-      channelAccountId: null,
-      status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-      ...(state.verifiedGeneration > 0n
-        ? { freshnessGeneration: state.verifiedGeneration }
-        : {}),
-    },
-    select: PRODUCT_SOURCE_IMPORT_RUN_SELECT,
-  });
-  return row ? mapInventoryImportRun(row) : null;
+  return {
+    operationId: state.lastCompletedOperationId,
+    completedAt: state.lastVerifiedAt,
+    generation: state.verifiedGeneration,
+  };
 }
 
 function toProductSourceIdentity(row: SelectedProductSourceIdentity): ProductSourceReadModel {
@@ -891,33 +821,6 @@ function toProductSourceIdentity(row: SelectedProductSourceIdentity): ProductSou
     barcode: row.barcode,
     purchasePrice: row.purchasePrice,
     imageUrls: row.imageUrls,
-  };
-}
-
-function mapInventoryImportRun(row: ProductSourceImportRunSelect): ProductSourceImportRunRow {
-  if (!isSourceImportStatus(row.status)) {
-    throw new Error(`Unknown source import status: ${row.status}`);
-  }
-  return {
-    id: row.id,
-    fileName: row.fileName,
-    fileHash: row.fileHash,
-    status: row.status,
-    rowCount: row.rowCount,
-    importedAt: row.importedAt,
-    lastVerifiedAt: row.lastVerifiedAt,
-    verificationCount: row.verificationCount,
-    lastTrigger: row.lastTrigger === null
-      ? null
-      : SellpiaInventoryStoredCollectionTriggerSchema.parse(row.lastTrigger),
-    freshnessGeneration: row.freshnessGeneration,
-    manualFreshExportConfirmedAt: row.manualFreshExportConfirmedAt,
-    manualFreshExportConfirmedBy: row.manualFreshExportConfirmedBy,
-    qualityReport: SellpiaInventoryQualityReportSchema.nullable().parse(row.qualityReport),
-    errorCode: row.errorCode,
-    errorMessage: row.errorMessage,
-    createdAt: row.createdAt,
-    updatedAt: row.updatedAt,
   };
 }
 

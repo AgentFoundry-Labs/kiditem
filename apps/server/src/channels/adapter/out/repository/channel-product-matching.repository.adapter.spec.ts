@@ -156,7 +156,7 @@ function withPublishedInventory(prisma: unknown) {
       findUnique: vi.fn().mockResolvedValue({
         verifiedGeneration: 1n,
         lastVerifiedAt: new Date('2026-09-01T00:00:00.000Z'),
-        lastCompletedImportRunId: 'inventory-run',
+        lastCompletedOperationId: 'inventory-run',
       }),
     };
     store.sourceImportRun ??= {

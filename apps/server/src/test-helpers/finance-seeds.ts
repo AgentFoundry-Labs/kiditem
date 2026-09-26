@@ -392,12 +392,12 @@ export async function seedCompletedInventorySnapshot(
       sourceAccountKey: 'dashboard-test',
       verifiedGeneration: 1n,
       lastVerifiedAt: verifiedAt,
-      lastCompletedImportRunId: run.id,
+      lastCompletedOperationId: run.id,
     },
     update: {
       verifiedGeneration: 1n,
       lastVerifiedAt: verifiedAt,
-      lastCompletedImportRunId: run.id,
+      lastCompletedOperationId: run.id,
     },
   });
   return run.id;

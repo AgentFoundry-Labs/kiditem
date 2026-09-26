@@ -2,7 +2,6 @@
 
 import {
   BrowserCollectionSessionViewSchema,
-  type BrowserCollectionSessionView,
 } from '@kiditem/shared/browser-collection-session';
 import { useQueryClient } from '@tanstack/react-query';
 import { useEffect } from 'react';
@@ -13,10 +12,6 @@ import {
 
 export const BROWSER_COLLECTION_SESSION_EVENT =
   'kiditem:browser-collection-session';
-
-function isProviderOwnedSession(session: BrowserCollectionSessionView): boolean {
-  return session.producer !== 'inventory.sellpia';
-}
 
 export function BrowserCollectionProvider({
   children,
@@ -35,7 +30,7 @@ export function BrowserCollectionProvider({
 
     const synchronize = async (value: unknown) => {
       const parsed = BrowserCollectionSessionViewSchema.safeParse(value);
-      if (!parsed.success || disposed || !isProviderOwnedSession(parsed.data)) return;
+      if (!parsed.success || disposed) return;
       updateBrowserCollectionSessionCache(queryClient, parsed.data);
     };
 
@@ -44,7 +39,7 @@ export function BrowserCollectionProvider({
       const operation = (async () => {
         const sessions = await listBrowserCollectionSessions();
         if (disposed) return;
-        await Promise.allSettled(sessions.filter(isProviderOwnedSession).map(synchronize));
+        await Promise.allSettled(sessions.map(synchronize));
       })();
       recoveryInFlight = operation.finally(() => {
         recoveryInFlight = null;

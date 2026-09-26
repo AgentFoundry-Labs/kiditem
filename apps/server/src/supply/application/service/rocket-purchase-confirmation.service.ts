@@ -90,7 +90,7 @@ implements RocketWorkbookExportPort {
   }): Promise<RocketWorkbookExportResponse> {
     const publicRequest = RocketWorkbookExportRequestSchema.parse(input.request);
     const source = await this.catalog.readComplete({ organizationId: input.organizationId, channelAccountId: publicRequest.channelAccountId, rocketPoOperationId: publicRequest.rocketPoOperationId });
-    const { rocketPoOperationId, inventoryAttemptId, ...decisionFields } = publicRequest;
+    const { rocketPoOperationId, inventoryOperationId, ...decisionFields } = publicRequest;
     const request = RocketWorkbookDecisionRequestSchema.parse({ ...decisionFields, collection: source.collection, rows: source.rows });
     if (input.artifactBytes.byteLength === 0 || input.artifactBytes.byteLength > 10 * 1024 * 1024) {
       throw new KiditemInvalidValueError('SUPPLY_ROCKET_WORKBOOK_FILE_INVALID', { details: { reason: 'ARTIFACT_SIZE_INVALID' } });
@@ -102,7 +102,7 @@ implements RocketWorkbookExportPort {
       request: {
         channelAccountId: publicRequest.channelAccountId,
         rocketPoOperationId,
-        inventoryAttemptId,
+        inventoryOperationId,
         editedQuantities: publicRequest.editedQuantities,
         previewScope: 'confirmation_requested',
       } satisfies RocketPurchasePreviewRequest,

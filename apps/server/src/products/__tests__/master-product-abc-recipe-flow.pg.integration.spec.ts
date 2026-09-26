@@ -624,7 +624,7 @@ async function seedProducts(prisma: PrismaClient): Promise<ProductsFixture> {
       requestedGeneration: 1n,
       verifiedGeneration: 1n,
       lastVerifiedAt: ACCEPTANCE_NOW,
-      lastCompletedImportRunId: inventoryRun.id,
+      lastCompletedOperationId: inventoryRun.id,
     },
   });
   const account = await prisma.channelAccount.create({

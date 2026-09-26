@@ -13,7 +13,6 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'dashboard.coupang_products',
   'dashboard.wing_kpi',
   'dashboard.wing_sales',
-  'inventory.sellpia',
   'orders.mall',
   'orders.mall_admin_listings',
   'orders.sabangnet_mall_listings',

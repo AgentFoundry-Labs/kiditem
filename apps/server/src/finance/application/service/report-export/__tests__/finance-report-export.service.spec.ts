@@ -79,7 +79,7 @@ function buildService() {
         currentStock: 3,
         purchasePrice: 400,
         stockValue: 1200,
-        lastImportRunId: null,
+        lastOperationId: null,
         lastImportedAt: '2026-08-01T00:00:00.000Z',
         linkedChannelOptionCount: 1,
         linkedProductCount: 1,
@@ -91,10 +91,9 @@ function buildService() {
       page: 1,
       limit: 200,
       summary: {},
-      latestImport: null,
+      latestCollection: null,
     } as never),
     getSnapshot: vi.fn(),
-    listImportRuns: vi.fn(),
     listSnapshotForExport: vi.fn(),
   };
   const ads: AdsHubData = {

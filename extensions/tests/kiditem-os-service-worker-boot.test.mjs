@@ -3654,7 +3654,6 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
   for (const capability of [
     // 주문수집
     'orderCollectionIcecreamMall',
-    'collectSellpiaInventoryJsonV1',
     'collectSellpiaManualMatchV1',
     'collectSellpiaManualMatchPortV1',
     'orderCollectionFailureEvidenceV1',

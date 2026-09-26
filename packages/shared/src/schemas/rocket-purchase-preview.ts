@@ -176,7 +176,7 @@ export type RocketPurchasePreviewScope = z.infer<
 export const RocketPurchasePreviewRequestSchema = z.object({
     channelAccountId: z.string().uuid(),
     rocketPoOperationId: z.string().uuid(),
-    inventoryAttemptId: z.string().uuid(),
+    inventoryOperationId: z.string().uuid(),
     editedQuantities: RocketPurchaseRequestBaseSchema.shape.editedQuantities,
     clampEditedQuantities: z.boolean().optional(),
     previewScope: RocketPurchasePreviewScopeSchema.optional(),
@@ -309,7 +309,7 @@ export type RocketWorkbookDecisionRequest = z.infer<typeof RocketWorkbookDecisio
 
 export const RocketWorkbookExportRequestSchema = RocketWorkbookDecisionRequestSchema.innerType()
   .omit({ collection: true, rows: true })
-  .extend({ rocketPoOperationId: z.string().uuid(), inventoryAttemptId: z.string().uuid() }).strict();
+  .extend({ rocketPoOperationId: z.string().uuid(), inventoryOperationId: z.string().uuid() }).strict();
 export type RocketWorkbookExportRequest = z.infer<typeof RocketWorkbookExportRequestSchema>;
 
 export const RocketPurchasePreviewReasonSchema = z.enum([

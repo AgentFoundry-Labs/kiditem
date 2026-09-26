@@ -13,7 +13,6 @@ export const SOURCE_OWNER_BY_PRODUCER = Object.freeze({
   "dashboard.coupang_products": "analytics",
   "dashboard.wing_kpi": "analytics",
   "dashboard.wing_sales": "analytics",
-  "inventory.sellpia": "inventory",
   "orders.mall": "orders",
   "orders.sabangnet_mall_listings": "channels",
   "orders.mall_admin_listings": "channels",

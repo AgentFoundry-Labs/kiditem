@@ -47,39 +47,6 @@ implements ProductCollectionFreshnessRepositoryPort {
     });
   }
 
-  async findLeaseAttemptId(input: {
-    organizationId: string;
-    activeSyncToken: string;
-  }): Promise<string | null> {
-    const attempt = await this.prisma.sourceImportRun.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        sourceType: 'sellpia_inventory',
-        channelAccountId: null,
-        idempotencyKey: { not: null },
-        attemptToken: input.activeSyncToken,
-      },
-      select: { id: true },
-    });
-    return attempt?.id ?? null;
-  }
-
-  async findLastAttemptId(input: { organizationId: string }): Promise<string | null> {
-    const attempt = await this.prisma.sourceImportRun.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        sourceType: 'sellpia_inventory',
-        channelAccountId: null,
-      },
-      orderBy: [
-        { createdAt: 'desc' },
-        { id: 'desc' },
-      ],
-      select: { id: true },
-    });
-    return attempt?.id ?? null;
-  }
-
   withLockedState<T>(
     input: {
       organizationId: string;
@@ -193,7 +160,7 @@ function mapState(row: SellpiaInventoryState): SellpiaInventoryCollectionState {
     sourceOrigin: row.sourceOrigin,
     sourceAccountKey: row.sourceAccountKey,
     lastVerifiedAt: row.lastVerifiedAt,
-    lastCompletedImportRunId: row.lastCompletedImportRunId,
+    lastCompletedOperationId: row.lastCompletedOperationId,
     refreshReason: row.refreshReason === null
       ? null
       : SellpiaInventoryStoredCollectionTriggerSchema.parse(row.refreshReason),

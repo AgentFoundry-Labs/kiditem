@@ -276,7 +276,7 @@ export function useRocketPurchaseWorkflow({
   }, []);
 
   const previewAfterCollection = async (input: {
-    request: Omit<RocketPurchasePreviewRequest, 'inventoryAttemptId'>;
+    request: Omit<RocketPurchasePreviewRequest, 'inventoryOperationId'>;
     generation: number;
     controller: AbortController;
   }): Promise<RocketPurchasePreviewReadyResponse> => {
@@ -292,10 +292,10 @@ export function useRocketPurchaseWorkflow({
       );
       calculationCollections.current.set(input.controller, collection);
     }
-    const inventoryAttemptId = await collection;
+    const inventoryOperationId = await collection;
     if (!isCurrent()) throw new Error('Stale Rocket collection response');
     setStage('calculating');
-    const result = await previewRocketPurchases({ ...input.request, inventoryAttemptId });
+    const result = await previewRocketPurchases({ ...input.request, inventoryOperationId });
     if (!isCurrent()) throw new Error('Stale Rocket preview response');
     return result;
   };

@@ -55,8 +55,6 @@ importScripts(
   "orders/order-collection-lifecycle.js",
   "orders/order-collection-server-converter.js",
   "orders/order-collection-source-owner.js",
-  "orders/sellpia-inventory.js",
-  "orders/sellpia-inventory-source-owner.js",
   "orders/sellpia-sales-collector.js",
   "orders/sellpia-product-profit-collector.js",
   "orders/sellpia-product-profitability-source-owner.js",

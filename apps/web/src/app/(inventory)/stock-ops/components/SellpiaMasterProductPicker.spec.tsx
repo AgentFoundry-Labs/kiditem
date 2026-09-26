@@ -23,7 +23,7 @@ beforeEach(() => {
       currentStock: 8,
       purchasePrice: null,
       stockValue: null,
-      lastImportRunId: null,
+      lastOperationId: null,
       lastImportedAt: null,
       linkedChannelOptionCount: 0,
       linkedProductCount: 0,
@@ -35,7 +35,7 @@ beforeEach(() => {
     page: 1,
     limit: 50,
     summary: { totalSkus: 1, inStockSkus: 1, outOfStockSkus: 0, totalUnits: 8, pricedAssetValue: 0, unpricedSkuCount: 1 },
-    latestImport: null,
+    latestCollection: null,
   });
 });
 

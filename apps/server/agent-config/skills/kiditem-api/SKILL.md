@@ -31,7 +31,7 @@ GET  /api/orders/stats                                — 주문 통계
 ```
 GET  /api/inventory/sellpia-skus                               — 셀피아 기준 재고 현황
 GET  /api/inventory/sellpia-skus/{masterProductId}             — 셀피아 상품별 재고
-GET  /api/inventory/sellpia-sync/import-runs                   — 셀피아 재고 Import 이력
+GET  /api/operations?kinds=products.sellpia_inventory          — 셀피아 재고 수집 실행 이력
 ```
 
 ### 광고

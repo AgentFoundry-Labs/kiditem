@@ -95,10 +95,12 @@ loads canonical COMPLETE rows through Channels. They never publish browser
 rows or change the source terminal state. Preview failure leaves COMPLETE
 intact. Reopening an existing snapshot performs no new provider collection.
 
-Before each calculation action, the UI starts or joins Sellpia inventory
-collection and waits for atomic publication. Preview and server export requests
-must include `inventoryAttemptId`. Supply verifies that exact successful
-current collection through Inventory's input port and reads `currentStock`.
+Before each calculation action, the UI starts or joins the Sellpia inventory
+operation (`products.sellpia_inventory`) and waits on that operation until its
+finish transaction publishes. Preview and server export requests must include
+`inventoryOperationId`. Supply verifies that exact operation is the state's
+`lastCompletedOperationId` through Products' input port and reads
+`currentStock`.
 Failed/cancelled collection stops calculation. There is no TTL gate or advisory
 calculation while waiting; absent SKU references stay unavailable, not zero.
 

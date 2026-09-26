@@ -232,7 +232,7 @@ const scenarios: readonly InvocationScenario[] = [
   }, { orderId: 'purchase-order-1', status: 'draft' }),
   scenario('supply.submit_purchase_order', 'supply.submitPurchaseOrder', 'high', {
     purchaseOrderId: PURCHASE_ORDER_ID,
-    inventoryAttemptId: '00000000-0000-4000-8000-000000000008',
+    inventoryOperationId: '00000000-0000-4000-8000-000000000008',
   }, {
     orderId: 'purchase-order-1',
     status: 'ordered',

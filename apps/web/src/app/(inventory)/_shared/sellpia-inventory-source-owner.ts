@@ -1,222 +1,101 @@
 'use client';
 
 import { useMemo } from 'react';
-import { useMutation, useQueryClient, type QueryKey } from '@tanstack/react-query';
-import { z } from 'zod';
-import {
-  isSellpiaInventoryCollectionStopped,
-  SellpiaInventoryGenerationSchema,
-  SellpiaSyncScopeSchema,
-  type SellpiaInventoryCollectionStatus,
-  type SellpiaInventoryCollectionStatusView,
+import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import type { OperationListResponse } from '@kiditem/shared/operation';
+import { SELLPIA_INVENTORY_KIND } from '@kiditem/shared/sellpia-operations';
+import type {
+  SellpiaInventoryCollectionStatus,
+  SellpiaInventoryCollectionStatusView,
 } from '@kiditem/shared/sellpia-inventory-freshness';
 import {
   COLLECTION_IDLE_POLL_MS,
   useCollectionSourceControl,
-  type CollectionRunning,
   type CollectionSourceAdapter,
 } from '@/hooks/use-collection-source-control';
 import { useAuth } from '@/hooks/useAuth';
-import { apiClient } from '@/lib/api-client';
-import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { handOffToExtensionRun, startWebOpenedCollection } from '@/lib/collection-start';
-import { detectOrderCollectionExtensionRuntime } from '@/lib/extension-bridge';
+import { attemptFailureText } from '@/lib/operator-error';
 import { queryKeys } from '@/lib/query-keys';
 import { sellpiaInventoryCollectionStatusApi } from '@/lib/sellpia-inventory-freshness-api';
+import { sellpiaOperationControl, sellpiaOperationState } from '@/lib/sellpia-operations';
 import { invalidateSellpiaInventory } from './invalidate-sellpia-inventory';
 
-export const SELLPIA_INVENTORY_SOURCE_PATH = '/api/inventory/sellpia-source';
-export const SELLPIA_INVENTORY_EXTENSION_ACTION = 'collectSellpiaInventory';
-export const SELLPIA_INVENTORY_EXTENSION_CAPABILITY =
-  'sellpiaInventorySourceOwnerV1';
-
-const SELLPIA_SOURCE_OWNER_TRIGGERS = [
-  'initial_snapshot',
-  'manual_request',
-  'retry',
-] as const;
-const SellpiaSourceOwnerTriggerSchema = z.enum(SELLPIA_SOURCE_OWNER_TRIGGERS);
-
-const SellpiaInventorySourcePlanSchema = z
-  .object({
-    sourceType: z.literal('sellpia_inventory'),
-    parserVersion: z.literal('sellpia-inventory-v1'),
-    scope: SellpiaSyncScopeSchema,
-    trigger: SellpiaSourceOwnerTriggerSchema,
-    sourceOrigin: z.literal('https://kiditem.sellpia.com'),
-    sourceAccountKey: z.literal('kiditem'),
-    generation: SellpiaInventoryGenerationSchema,
-  })
-  .strict();
-
-export const SellpiaInventorySourceAttemptSchema = z
-  .object({
-    attemptId: z.string().uuid(),
-    // The source-owner token is only returned to the owner boundary. The web
-    // screen never persists or forwards it; the extension reads it itself.
-    attemptToken: z.string().uuid(),
-    generation: SellpiaInventoryGenerationSchema,
-    state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
-    plan: SellpiaInventorySourcePlanSchema,
-    expiresAt: z.string().datetime({ offset: true }),
-    actualCutoffAt: z.string().datetime({ offset: true }).nullable(),
-    fileName: z.string().nullable(),
-    fileHash: z.string().regex(/^[0-9a-f]{64}$/i).nullable(),
-    contentChecksum: z.string().regex(/^[0-9a-f]{64}$/i).nullable(),
-    rowCount: z.number().int().nonnegative(),
-    errorCode: z.string().max(100).nullable(),
-    errorMessage: z.string().max(300).nullable(),
-  })
-  .strict();
-
-export type SellpiaInventorySourceAttempt = z.infer<
-  typeof SellpiaInventorySourceAttemptSchema
->;
-export type SellpiaInventorySourceOwnerTrigger = z.infer<
-  typeof SellpiaSourceOwnerTriggerSchema
->;
-
-export function beginSellpiaInventorySourceAttempt(
-  idempotencyKey: string,
-  trigger: Extract<
-    SellpiaInventorySourceOwnerTrigger,
-    'manual_request' | 'retry'
-  >,
-): Promise<SellpiaInventorySourceAttempt> {
-  return apiClient
-    .post<unknown>(
-      `${SELLPIA_INVENTORY_SOURCE_PATH}/attempts`,
-      { scope: 'inventory', trigger },
-      { headers: { 'Idempotency-Key': idempotencyKey } },
-    )
-    .then((response) => SellpiaInventorySourceAttemptSchema.parse(response));
-}
-
-async function detectSellpiaInventoryExtension(): Promise<string> {
-  const runtime = await detectOrderCollectionExtensionRuntime(1_200, [
-    SELLPIA_INVENTORY_EXTENSION_CAPABILITY,
-  ]);
-  if (runtime.status === 'incompatible') {
-    throw new Error('셀피아 재고 수집을 지원하는 익스텐션으로 새로고침해 주세요.');
-  }
-  if (runtime.status !== 'ready') {
-    throw new Error(
-      '셀피아 재고 수집 익스텐션을 연결한 뒤 다시 시도해 주세요.',
-    );
-  }
-  return runtime.extensionId;
-}
-
-function cancelSellpiaInventoryAttempt(attemptId: string) {
-  return apiClient.post(
-    `${SELLPIA_INVENTORY_SOURCE_PATH}/attempts/${encodeURIComponent(attemptId)}/cancel`,
-  );
-}
+/** 공용 수집 컨트롤·브라우저 수집 세션이 이 원천을 부르는 이름. */
+export const SELLPIA_INVENTORY_SOURCE_KEY = 'inventory.sellpia';
 
 export type SellpiaInventorySourceOwnerState = {
   status: SellpiaInventoryCollectionStatus;
   lastCompletedAt: string | null;
-  lastCompletedAttemptId: string | null;
-  lastAttemptId: string | null;
+  /** 지금 재고를 발행한 셀피아 재고 실행(`products.sellpia_inventory`). */
+  lastCompletedOperationId: string | null;
   errorMessage: string | null;
   sourceBindingConfirmed: boolean;
-  /** The last attempt was stopped; the previous snapshot stays in use. */
+  /** 마지막 실행을 운영자가 멈췄다 — 이전 재고가 그대로 쓰인다. */
   stopped: boolean;
 };
 
 /**
- * The owner's collection-status read names the attempt holding the live lease, so every
- * browser shows and stops the same collection. A manual upload holds the lease
- * without an attempt and shows as running without a stop.
- */
-function sellpiaInventoryRunning(status: SellpiaInventoryCollectionStatusView): CollectionRunning | null {
-  if (status.activeSync) {
-    return { attemptId: status.activeSync.attemptId, scopeLabel: null };
-  }
-  return status.status === 'running' ? { attemptId: null, scopeLabel: null } : null;
-}
-
-
-/**
- * Sellpia inventory collection for the shared control. The page opens the
- * owner attempt and hands it to the extension; the extension collects,
- * uploads and finalizes it.
+ * 셀피아 재고 수집(실행 kind `products.sellpia_inventory`, KID-361 J1). 화면은 확장에 `operation.start`만 보내고,
+ * 도는 실행·중단·끝은 실행 reader로, 발행된 재고(계정 연결·완료 시각·실행 id)는 Products 상태 읽기로 본다.
  */
 export function sellpiaInventoryCollection({
   organizationId,
-}: Readonly<{
-  organizationId: string | null;
-}>): CollectionSourceAdapter<SellpiaInventoryCollectionStatusView> {
-  return {
-    sourceKey: 'inventory.sellpia',
+}: Readonly<{ organizationId: string | null }>): CollectionSourceAdapter<OperationListResponse> {
+  return sellpiaOperationControl({
+    kind: SELLPIA_INVENTORY_KIND,
+    sourceKey: SELLPIA_INVENTORY_SOURCE_KEY,
     label: '셀피아 재고 수집',
-    statusQuery: collectionSourceStatusQueryOptions<
-      SellpiaInventoryCollectionStatusView,
-      Error,
-      SellpiaInventoryCollectionStatusView,
-      QueryKey
-    >({
-      queryKey: queryKeys.inventory.sellpiaCollectionStatus(organizationId ?? ''),
-      queryFn: () => sellpiaInventoryCollectionStatusApi.getState(),
-      enabled: Boolean(organizationId),
-      refetchInterval: COLLECTION_IDLE_POLL_MS,
-      refetchIntervalInBackground: false,
-      meta: { suppressGlobalErrorToast: true },
-    }),
-    readRunning: sellpiaInventoryRunning,
-    start: (_input, { status }) =>
-      startWebOpenedCollection({
-        detectExtension: detectSellpiaInventoryExtension,
-        begin: async (idempotencyKey) => {
-          const trigger = status?.status === 'failed' ? 'retry' : 'manual_request';
-          const started = await beginSellpiaInventorySourceAttempt(idempotencyKey, trigger);
-          return { outcome: 'opened', attemptId: started.attemptId, running: started.state === 'RUNNING' };
-        },
-        handOff: ({ extensionId, attemptId }) =>
-          handOffToExtensionRun(extensionId, attemptId, { action: SELLPIA_INVENTORY_EXTENSION_ACTION, attemptId }),
-        cancel: ({ attemptId }) => cancelSellpiaInventoryAttempt(attemptId),
-      }),
-    cancelOnServer: cancelSellpiaInventoryAttempt,
-    readCompleteId: (freshness) => freshness.verifiedGeneration,
-    // A newer verified generation republished the snapshot every stock screen reads.
+    scope: () => ({}),
+    enabled: Boolean(organizationId),
+    // 새 완료 실행은 모든 재고 화면이 읽는 스냅샷을 다시 발행했다.
     onNewComplete: (queryClient) => {
       void invalidateSellpiaInventory(queryClient);
     },
+  });
+}
+
+/** 발행된 재고 상태와 최근 실행으로 화면 상태를 정한다. 도는 실행·실패는 실행이, 완료·미수집은 발행 상태가 말한다. */
+export function sellpiaInventoryState(
+  freshness: SellpiaInventoryCollectionStatusView,
+  operations: OperationListResponse | undefined,
+): SellpiaInventorySourceOwnerState {
+  const { running, lastFinished } = sellpiaOperationState(operations);
+  const failed = !running && lastFinished?.status === 'failed';
+  const stopped = !running && lastFinished?.status === 'cancelled';
+  const completed = freshness.verifiedGeneration !== '0' && freshness.lastCompletedAt !== null;
+  return {
+    status: running ? 'running' : failed ? 'failed' : completed ? 'complete' : 'not_collected',
+    lastCompletedAt: freshness.lastCompletedAt,
+    lastCompletedOperationId: freshness.lastCompletedAttemptId,
+    errorMessage: failed ? attemptFailureText(lastFinished, 'sellpia_inventory') : null,
+    sourceBindingConfirmed: freshness.sourceBinding.confirmed,
+    stopped,
   };
 }
 
 /**
- * The Sellpia inventory collection control with the collection state its
- * screens show. Every mounted copy shares start, stop and running state.
+ * 셀피아 재고 수집 컨트롤과 화면이 보여 줄 상태. 마운트된 모든 사본이 시작·중단·도는 상태를 나눠 쓴다.
  */
 export function useSellpiaInventoryCollection({ enabled = true }: { enabled?: boolean } = {}) {
   const queryClient = useQueryClient();
   const { user } = useAuth();
   const organizationId = enabled ? user?.organizationId ?? null : null;
-  const adapter = useMemo(
-    () => sellpiaInventoryCollection({ organizationId }),
-    [organizationId],
-  );
+  const adapter = useMemo(() => sellpiaInventoryCollection({ organizationId }), [organizationId]);
   const control = useCollectionSourceControl(adapter);
-  const statusQueryKey = adapter.statusQuery.queryKey;
+  const statusQueryKey = queryKeys.inventory.sellpiaCollectionStatus(organizationId ?? '');
+  const freshness = useQuery({
+    queryKey: statusQueryKey,
+    queryFn: () => sellpiaInventoryCollectionStatusApi.getState(),
+    enabled: Boolean(organizationId),
+    refetchInterval: COLLECTION_IDLE_POLL_MS,
+    refetchIntervalInBackground: false,
+    meta: { suppressGlobalErrorToast: true },
+  });
   const binding = useMutation({
     mutationFn: sellpiaInventoryCollectionStatusApi.confirmSourceBinding,
     onSuccess: () => queryClient.invalidateQueries({ queryKey: statusQueryKey, exact: true }),
   });
-  const freshness = control.status;
-  const state: SellpiaInventorySourceOwnerState | null = freshness
-    ? {
-      status: freshness.status,
-      lastCompletedAt: freshness.lastCompletedAt,
-      lastCompletedAttemptId: freshness.lastCompletedAttemptId,
-      lastAttemptId: freshness.lastAttemptId,
-      errorMessage: freshness.status === 'failed'
-        ? freshness.lastAttempt?.errorMessage ?? null
-        : null,
-      sourceBindingConfirmed: freshness.sourceBinding.confirmed,
-      stopped: isSellpiaInventoryCollectionStopped(freshness),
-    }
-    : null;
+  const state = freshness.data ? sellpiaInventoryState(freshness.data, control.status) : null;
 
   return {
     control,

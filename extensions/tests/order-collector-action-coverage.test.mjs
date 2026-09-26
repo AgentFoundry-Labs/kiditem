@@ -299,11 +299,10 @@ test('order worker imports failure evidence, session lifecycle, and focused Sell
   );
   assert.match(
     entrySource,
-    /importScripts\([\s\S]*collection-session\.js[\s\S]*interactive-tabs\.js[\s\S]*orders\/collection-failure\.js[\s\S]*orders\/order-collection-lifecycle\.js[\s\S]*orders\/sellpia-inventory\.js[\s\S]*orders\/sellpia-inventory-source-owner\.js[\s\S]*orders\/sellpia-post-processing\.js/,
+    /importScripts\([\s\S]*collection-session\.js[\s\S]*interactive-tabs\.js[\s\S]*orders\/collection-failure\.js[\s\S]*orders\/order-collection-lifecycle\.js[\s\S]*orders\/sellpia-post-processing\.js/,
   );
   assert.doesNotMatch(worker, /^importScripts\(/m);
   assert.match(worker, /browserCollectionSessions:\s*true/);
-  assert.match(worker, /collectSellpiaInventoryJsonV1:\s*true/);
   assert.match(worker, /collectSellpiaSaleSummary:\s*true/);
   assert.match(worker, /collectSellpiaSaleSummaryAuthoritativeV1:\s*true/);
   assert.match(worker, /collectSellpiaProductProfit:\s*true/);
@@ -312,9 +311,6 @@ test('order worker imports failure evidence, session lifecycle, and focused Sell
   assert.match(worker, /orderCollectionFailureEvidenceV1:\s*true/);
   assert.match(worker, /orderCollectionConfirmedCoverageV1:\s*true/);
   assert.doesNotMatch(worker, /collectSellpiaProductStock/);
-  assert.match(worker, /collectSellpiaInventory:\s*\{/);
-  assert.match(worker, /KidItemSellpiaInventorySourceOwner\.parseAction/);
-  assert.match(worker, /sellpiaInventorySourceOwnerV1:\s*true/);
 
   // 수집 세션 공통 액션은 통합 dispatch 가 단독으로 처리한다. 도메인 워커가
   // 각자 응답하면 세 리스너가 같은 메시지에 경쟁 응답하게 된다.
@@ -348,24 +344,6 @@ test('order collector manifest publishes normalized failure evidence and scoped 
   const worker = readFileSync(workerPath, 'utf8');
   assert.match(worker, /sellpiaOrderFileUploadEvidenceV1:\s*true/);
   assert.match(worker, /sellpiaScopedAutoInvoiceV1:\s*true/);
-});
-
-test('Sellpia inventory delegates the server-issued attempt directly to the source owner', () => {
-  const worker = readFileSync(workerPath, 'utf8');
-  const owner = readFileSync(
-    path.join(repoRoot, 'extensions/kiditem-os/background/orders/sellpia-inventory-source-owner.js'),
-    'utf8',
-  );
-
-  assert.match(worker, /collectSellpiaInventory:\s*\{/);
-  assert.match(worker, /handle:\s*\(\{ attemptId \}, environmentId\)/);
-  assert.match(worker, /sellpiaInventorySourceOwner\.run\(\{ attemptId, environmentId \}\)/);
-  assert.match(owner, /\/api\/inventory\/sellpia-source\/attempts/);
-  assert.match(owner, /FormData/);
-  assert.match(owner, /x-source-attempt-token/);
-  assert.doesNotMatch(worker, /\/api\/operation-alerts/);
-  assert.doesNotMatch(worker, /\/api\/sellpia-product-sales\/attempts/);
-  assert.doesNotMatch(worker, /\/api\/sellpia-product-sales\/ingest/);
 });
 
 test('Sellpia profitability owner binds its task-owned tab to the collection session', () => {
@@ -490,19 +468,3 @@ test('collection-session dispatch exposes no restart or finalize command', () =>
   assert.doesNotMatch(worker, /msg\?\.action === ["'](?:restart|finalize)CollectionSession["']/);
 });
 
-test('Sellpia inventory is source-owner direct upload, not an Operation wrapper', () => {
-  const worker = readFileSync(workerPath, 'utf8');
-  const owner = readFileSync(
-    path.join(repoRoot, 'extensions/kiditem-os/background/orders/sellpia-inventory-source-owner.js'),
-    'utf8',
-  );
-  assert.match(owner, /\/api\/inventory\/sellpia-source\/attempts/);
-  assert.match(owner, /contentChecksum === requested\.contentChecksum/);
-  assert.doesNotMatch(owner, /fileHash/);
-  assert.match(owner, /SOURCE_OWNER_UNAVAILABLE/);
-  assert.doesNotMatch(worker, /\/api\/sellpia-product-sales\/attempts/);
-  assert.doesNotMatch(worker, /Idempotency-Key/);
-  assert.doesNotMatch(worker, /\/api\/sellpia-product-sales\/ingest/);
-  assert.doesNotMatch(worker, /runSellpiaInventoryOperation/);
-  assert.doesNotMatch(worker, /\/api\/operation-alerts/);
-});

@@ -149,9 +149,6 @@ function startMessages() {
 }
 
 const SELLPIA_COLLECTION_STATUS_PATH = '/api/inventory/sellpia-collection-status';
-const SELLPIA_BEGIN_PATH = '/api/inventory/sellpia-source/attempts';
-const SELLPIA_TOKEN = '44444444-4444-4444-8444-444444444444';
-let sellpiaAttempts: Record<string, unknown>;
 
 function sellpiaCollectionStatus(
   status: 'not_collected' | 'complete' | 'running' | 'failed',
@@ -188,46 +185,14 @@ function sellpiaCollectionStatus(
   };
 }
 
-function sellpiaAttempt(state: State) {
-  return {
-    attemptId: ATTEMPT_ID,
-    attemptToken: SELLPIA_TOKEN,
-    generation: '8',
-    state,
-    plan: {
-      sourceType: 'sellpia_inventory',
-      parserVersion: 'sellpia-inventory-v1',
-      scope: 'inventory',
-      trigger: 'manual_request',
-      sourceOrigin: 'https://kiditem.sellpia.com',
-      sourceAccountKey: 'kiditem',
-      generation: '8',
-    },
-    expiresAt: '2099-01-01T00:00:00.000Z',
-    actualCutoffAt: null,
-    fileName: null,
-    fileHash: null,
-    contentChecksum: null,
-    rowCount: 0,
-    errorCode: null,
-    errorMessage: null,
-  };
-}
-
 beforeEach(() => {
   vi.clearAllMocks();
   localStorage.clear();
   statuses = {};
-  sellpiaAttempts = {};
   vi.mocked(detectOrderCollectionExtensionRuntime).mockResolvedValue({
     status: 'ready',
     extensionId: EXTENSION_ID,
     version: '1',
-  });
-  vi.mocked(apiClient.getParsed).mockImplementation(async (path: string) => {
-    const attempt = sellpiaAttempts[path.split('/').at(-1) ?? ''];
-    if (!attempt) throw new ApiError(404, 'SELLPIA_INVENTORY_ATTEMPT_NOT_FOUND', 'not found');
-    return attempt;
   });
   extensionReplies = {
     ping: () => ({
@@ -395,51 +360,67 @@ describe('readiness ad source rows', () => {
 });
 
 describe('readiness Sellpia row', () => {
-  it('derives the Sellpia chip from collection status and the KST date of the last completion', async () => {
-    statuses[SELLPIA_COLLECTION_STATUS_PATH] = sellpiaCollectionStatus('complete', '2026-09-05T16:30:00.000Z');
+  // 셀피아 재고 = 실행 kind products.sellpia_inventory(KID-361 J1): 도는 실행·실패·중단은 실행 reader, 완료 시각은 Products 상태.
+  const OPERATIONS_PATH = '/api/operations?kinds=products.sellpia_inventory&limit=20';
+  const operation = (overrides: Record<string, unknown> = {}) => ({
+    id: ATTEMPT_ID,
+    kind: 'products.sellpia_inventory',
+    status: 'executing',
+    lockKeys: ['resource:sellpia:login'],
+    plan: {},
+    progress: null,
+    result: null,
+    window: null,
+    errorCode: null,
+    errorMessage: null,
+    startedAt: '2026-09-06T01:00:00.000Z',
+    finishedAt: null,
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    attempts: 1,
+    maxAttempts: 1,
+    scheduledFor: null,
+    ...overrides,
+  });
+  const collected = (lastCompletedAt: string | null) => ({
+    ...sellpiaCollectionStatus(lastCompletedAt ? 'complete' : 'not_collected', lastCompletedAt),
+    verifiedGeneration: lastCompletedAt ? '7' : '0',
+  });
+
+  beforeEach(() => {
+    statuses[OPERATIONS_PATH] = { operations: [] };
+    extensionReplies.ping = () => ({ success: true, capabilities: { operationRuntime: true, sellpiaOperationKindsV1: true } });
+  });
+
+  it('derives the Sellpia chip from the published completion and its KST date', async () => {
+    statuses[SELLPIA_COLLECTION_STATUS_PATH] = collected('2026-09-05T16:30:00.000Z');
     const view = renderRow(<StockSyncRow />);
     expect(await screen.findByText(SOURCE_READINESS_LABELS.ready)).toBeInTheDocument();
 
-    statuses[SELLPIA_COLLECTION_STATUS_PATH] = sellpiaCollectionStatus('not_collected', '2026-09-05T16:30:00.000Z');
-    await act(() => view.client.refetchQueries({ queryKey: queryKeys.inventory.collectionStatus() }));
-    expect(await screen.findByText(SOURCE_READINESS_LABELS.stale)).toBeInTheDocument();
-
-    statuses[SELLPIA_COLLECTION_STATUS_PATH] = sellpiaCollectionStatus('not_collected', null);
+    statuses[SELLPIA_COLLECTION_STATUS_PATH] = collected(null);
     await act(() => view.client.refetchQueries({ queryKey: queryKeys.inventory.collectionStatus() }));
     expect(await screen.findByText(SOURCE_READINESS_LABELS.missing)).toBeInTheDocument();
   });
 
-  it('shows a live Sellpia collection as running and a failure through the owner message', async () => {
-    statuses[SELLPIA_COLLECTION_STATUS_PATH] = sellpiaCollectionStatus('running', '2026-09-05T16:30:00.000Z');
+  it('shows a running operation as running and a failed one through its operator message', async () => {
+    statuses[SELLPIA_COLLECTION_STATUS_PATH] = collected('2026-09-05T16:30:00.000Z');
+    statuses[OPERATIONS_PATH] = { operations: [operation()] };
     const view = renderRow(<StockSyncRow />);
     expect(await screen.findByText('수집 중')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: '재고 동기화' })).not.toBeInTheDocument();
     expect(screen.getByText(SOURCE_READINESS_LABELS.stale)).toBeInTheDocument();
-    expect(screen.queryByText('갱신 중')).not.toBeInTheDocument();
 
-    statuses[SELLPIA_COLLECTION_STATUS_PATH] = sellpiaCollectionStatus(
-      'failed',
-      '2026-09-05T16:30:00.000Z',
-      '셀피아 로그인이 필요합니다.',
-    );
-    await act(() => view.client.refetchQueries({ queryKey: queryKeys.inventory.collectionStatus() }));
+    statuses[OPERATIONS_PATH] = {
+      operations: [operation({ status: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '셀피아 로그인이 필요합니다.', finishedAt: '2026-09-06T01:01:00.000Z' })],
+    };
+    await act(() => view.client.refetchQueries({ queryKey: ['sellpia-operations', 'products.sellpia_inventory'] }));
     expect(await screen.findByText('셀피아 로그인이 필요합니다.')).toBeInTheDocument();
     expect(screen.getByRole('button', { name: '재고 동기화' })).toBeEnabled();
     expect(screen.getByText(SOURCE_READINESS_LABELS.stale)).toBeInTheDocument();
-    expect(screen.queryByText('실패')).not.toBeInTheDocument();
   });
 
-  it('shows a stopped Sellpia collection as stopped, not a failure, while the previous snapshot stays in use', async () => {
-    statuses[SELLPIA_COLLECTION_STATUS_PATH] = {
-      ...sellpiaCollectionStatus('complete', '2026-09-05T16:30:00.000Z'),
-      lastAttempt: {
-        attemptedAt: '2026-09-06T01:00:00.000Z',
-        trigger: 'manual_request',
-        scope: 'inventory',
-        errorCode: null,
-        errorMessage: null,
-      },
-    };
+  it('shows a stopped operation as stopped, not a failure, while the previous snapshot stays in use', async () => {
+    statuses[SELLPIA_COLLECTION_STATUS_PATH] = collected('2026-09-05T16:30:00.000Z');
+    statuses[OPERATIONS_PATH] = { operations: [operation({ status: 'cancelled', errorCode: 'USER_CANCELLED', finishedAt: '2026-09-06T01:01:00.000Z' })] };
     renderRow(<StockSyncRow />);
 
     expect(await screen.findByText('수집을 중단했습니다. 저장된 완료본은 유지됩니다.')).toBeInTheDocument();
@@ -448,15 +429,11 @@ describe('readiness Sellpia row', () => {
   });
 
   it('starts Sellpia inventory once and shows it running on the stock screen control as well', async () => {
-    statuses[SELLPIA_COLLECTION_STATUS_PATH] = sellpiaCollectionStatus('not_collected', '2026-09-05T16:30:00.000Z');
-    extensionReplies.collectSellpiaInventory = () => new Promise(() => undefined);
-    vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
-      if (path === '/api/auth/extension-handoff') return { token: 'a'.repeat(43) };
-      if (path !== SELLPIA_BEGIN_PATH) throw new Error(`unexpected POST ${path}`);
-      sellpiaAttempts[ATTEMPT_ID] = sellpiaAttempt('RUNNING');
-      statuses[SELLPIA_COLLECTION_STATUS_PATH] = sellpiaCollectionStatus('running', '2026-09-05T16:30:00.000Z');
-      return sellpiaAttempts[ATTEMPT_ID];
-    });
+    statuses[SELLPIA_COLLECTION_STATUS_PATH] = collected(null);
+    extensionReplies['operation.start'] = () => {
+      statuses[OPERATIONS_PATH] = { operations: [operation()] };
+      return { success: true, operationId: ATTEMPT_ID, reused: false };
+    };
     renderRow(
       <>
         <StockSyncRow />
@@ -467,9 +444,7 @@ describe('readiness Sellpia row', () => {
     fireEvent.click(await screen.findByRole('button', { name: '재고 동기화' }));
 
     await waitFor(() => expect(screen.getAllByRole('button', { name: '수집 중단' })).toHaveLength(2));
-    expect(
-      vi.mocked(apiClient.post).mock.calls.filter(([path]) => path === SELLPIA_BEGIN_PATH),
-    ).toHaveLength(1);
+    expect(vi.mocked(sendToExtension).mock.calls.filter(([, message]) => (message as { action: string }).action === 'operation.start')).toHaveLength(1);
   });
 });
 

@@ -1002,14 +1002,3 @@ test('managed login closes only a fresh tab when attachment is refused', async (
   assert.deepEqual(events, [['create', false], ['remove', 404]]);
 });
 
-test('Sellpia inventory accepts only a server-issued attempt ID and never begins a legacy owner flow', async () => {
-  const runtime = loadWorker();
-  const response = await dispatch(runtime.externalMessageListeners, {
-    action: 'collectSellpiaInventory',
-    idempotencyKey: 'legacy-owner-key',
-  });
-
-  assert.equal(response.success, false);
-  assert.match(response.error, /Invalid Sellpia inventory source request/);
-  assert.deepEqual(runtime.storage.kiditem_collection_sessions || {}, {});
-});

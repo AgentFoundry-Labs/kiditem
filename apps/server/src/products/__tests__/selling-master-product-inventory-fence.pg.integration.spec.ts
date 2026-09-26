@@ -52,7 +52,7 @@ describe('selling MasterProduct inventory fence (PostgreSQL)', () => {
         requestedGeneration: 1n,
         verifiedGeneration: 1n,
         lastVerifiedAt: verifiedAt,
-        lastCompletedImportRunId: publishedRun.id,
+        lastCompletedOperationId: publishedRun.id,
       },
     });
     const account = await prisma.channelAccount.create({

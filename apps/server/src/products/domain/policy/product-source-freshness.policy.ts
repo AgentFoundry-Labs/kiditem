@@ -18,7 +18,7 @@ export type SellpiaInventoryCollectionState = {
   sourceAccountKey: string | null;
   /** Source completion time. Kept under the migration-era column name. */
   lastVerifiedAt: Date | null;
-  lastCompletedImportRunId: string | null;
+  lastCompletedOperationId: string | null;
   /** Request/lease fields remain internal fencing facts, not public freshness. */
   refreshReason: SellpiaInventoryStoredCollectionTrigger | null;
   requestedSyncScope: SellpiaSyncScope;
@@ -52,7 +52,7 @@ export function createInitialCollectionState(input: {
     sourceOrigin: SELLPIA_SOURCE_ORIGIN,
     sourceAccountKey: null,
     lastVerifiedAt: null,
-    lastCompletedImportRunId: null,
+    lastCompletedOperationId: null,
     refreshReason: 'initial_snapshot',
     requestedSyncScope: 'inventory',
     activeSyncToken: null,
@@ -91,7 +91,7 @@ export function toCollectionStatusView(
   now: Date,
   userId: string | null,
   leaseAttemptId: string | null,
-  lastAttemptId: string | null = leaseAttemptId ?? state.lastCompletedImportRunId,
+  lastAttemptId: string | null = leaseAttemptId ?? state.lastCompletedOperationId,
 ): SellpiaInventoryCollectionStatusView {
   const status = deriveCollectionStatus(state, now);
   const expiredCurrentAttempt = hasExpiredCurrentAttempt(state, now);
@@ -142,7 +142,7 @@ export function toCollectionStatusView(
       },
     requestedGeneration: state.requestedGeneration.toString(),
     verifiedGeneration: state.verifiedGeneration.toString(),
-    lastCompletedAttemptId: state.lastCompletedImportRunId,
+    lastCompletedAttemptId: state.lastCompletedOperationId,
     lastCompletedAt: state.lastVerifiedAt?.toISOString() ?? null,
     lastAttemptId,
     activeSync,

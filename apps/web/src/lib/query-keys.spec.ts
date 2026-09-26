@@ -226,9 +226,7 @@ describe('Sellpia authoritative inventory query keys', () => {
       'sellpia-assets',
       { page: '2', limit: '50' },
     ]);
-    expect(queryKeys.inventory.importRuns()).toEqual(['inventory', 'sellpia-import-runs']);
     expect(queryKeys.inventory.collectionStatus()).toEqual(['inventory', 'sellpia-collection-status']);
-    expect(queryKeys.inventory.currentBasis()).toEqual(['inventory', 'sellpia-current-basis']);
     expect(queryKeys.inventory.history()).toEqual(['inventory', 'sellpia-history']);
     expect(queryKeys.inventory.historyList({ page: '1', limit: '20' })).toEqual([
       'inventory',

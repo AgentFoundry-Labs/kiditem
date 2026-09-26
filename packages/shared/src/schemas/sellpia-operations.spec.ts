@@ -1,6 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { OperationKindSchema, OperationLockKeySchema } from './operation.js';
-import { SELLPIA_LOGIN_LOCK_KEY, SELLPIA_OPERATION_KINDS, SellpiaSalesScopeSchema } from './sellpia-operations.js';
+import {
+  SELLPIA_LOGIN_LOCK_KEY,
+  SELLPIA_OPERATION_KINDS,
+  SellpiaInventoryChunkHeaderSchema,
+  SellpiaInventoryResultSchema,
+  SellpiaSalesScopeSchema,
+} from './sellpia-operations.js';
 import {
   MALL_ADMIN_LISTINGS_KIND,
   MALL_ADMIN_LISTING_OPERATION_MALLS,
@@ -32,5 +38,12 @@ describe('wave3 kinds and lock keys (KID-361·363)', () => {
   it('sales scope rejects a reversed range and accepts an empty one', () => {
     expect(SellpiaSalesScopeSchema.safeParse({ startDate: '2026-09-02', endDate: '2026-09-01' }).success).toBe(false);
     expect(SellpiaSalesScopeSchema.safeParse({}).success).toBe(true);
+  });
+
+  it('inventory header names the old snapshot source and a row count within the old 20,000 cap', () => {
+    expect(SellpiaInventoryChunkHeaderSchema.parse({ source: 'sellpia_product_search', version: 1, rowCount: 2 })).toEqual({ source: 'sellpia_product_search', version: 1, rowCount: 2 });
+    expect(SellpiaInventoryChunkHeaderSchema.safeParse({ source: 'sellpia_product_search', version: 1, rowCount: 0 }).success).toBe(false);
+    expect(SellpiaInventoryChunkHeaderSchema.safeParse({ source: 'sellpia_product_search', version: 1, rowCount: 20_001 }).success).toBe(false);
+    expect(SellpiaInventoryResultSchema.parse({ rows: 3, products: 5 })).toEqual({ rows: 3, products: 5 });
   });
 });

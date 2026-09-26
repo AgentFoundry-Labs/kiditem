@@ -28,7 +28,6 @@ const expectedLegacyFiles = [
   'apps/web/src/app/(analytics)/dashboard/page.tsx',
 ];
 const automaticFocusSafeFiles = [
-  'extensions/kiditem-os/background/orders/sellpia-inventory.js',
   'extensions/kiditem-os/background/orders/sellpia-manual-match.js',
   'extensions/kiditem-os/background/orders/sabangnet-mall-listings.js',
   'extensions/kiditem-os/background/orders/sabangnet-mall-listings-source-owner.js',

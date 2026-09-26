@@ -383,14 +383,14 @@ describe('orders.coupang_rocket_po owner over the operation contract + disposabl
     await prisma.sellpiaInventoryState.create({
       data: {
         organizationId: ORG, requestedGeneration: 1n, verifiedGeneration: 1n, lastVerifiedAt: importedAt,
-        lastCompletedImportRunId: inventoryRun.id, sourceOrigin: 'https://kiditem.sellpia.com', sourceAccountKey: 'kiditem',
+        lastCompletedOperationId: inventoryRun.id, sourceOrigin: 'https://kiditem.sellpia.com', sourceAccountKey: 'kiditem',
       },
     });
     const preview = previewService();
     const previewInput = {
       organizationId: ORG,
       userId: USER,
-      request: { channelAccountId: ACCOUNT, rocketPoOperationId: a, inventoryAttemptId: inventoryRun.id, editedQuantities: {}, previewScope: 'confirmation_requested' as const },
+      request: { channelAccountId: ACCOUNT, rocketPoOperationId: a, inventoryOperationId: inventoryRun.id, editedQuantities: {}, previewScope: 'confirmation_requested' as const },
     };
     const result = await preview.preview(previewInput);
     expect(result.rows).toMatchObject([{ productNo: 'P1', orderQuantity: 4 }]);
@@ -414,7 +414,7 @@ describe('orders.coupang_rocket_po owner over the operation contract + disposabl
       userId: USER,
       artifactBytes: Buffer.from('unchanged workbook bytes'),
       request: {
-        channelAccountId: ACCOUNT, rocketPoOperationId: a, inventoryAttemptId: inventoryRun.id, idempotencyKey: randomUUID(),
+        channelAccountId: ACCOUNT, rocketPoOperationId: a, inventoryOperationId: inventoryRun.id, idempotencyKey: randomUUID(),
         editedQuantities: { [row('P1').poLineId]: 4 }, shortageReasons: {}, artifactFileName: 'rocket.xlsx',
         artifactContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' as const,
       },

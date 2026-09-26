@@ -179,6 +179,7 @@ export const ERROR_DEFINITIONS = {
   PRODUCTS_STATE_CONFLICT: def('products', 'conflict', '상품 상태가 바뀌어 이 작업을 할 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.'),
   PRODUCTS_SOURCE_REFERENCE_INVALID: def('products', 'precondition', '상품 원천 정보가 이 조직의 상품과 맞지 않습니다.'),
   PRODUCTS_MAPPING_CONFLICT: def('products', 'conflict', '상품 매핑이 동시에 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.', { retryable: true }),
+  PRODUCTS_SELLPIA_BINDING_REQUIRED: def('products', 'precondition', '셀피아 계정 연결을 먼저 확인한 뒤 재고를 수집해 주세요.'),
 
   // inventory · supply
   INVENTORY_NOT_FOUND: def('inventory', 'not_found', '재고 항목을 찾을 수 없습니다.'),

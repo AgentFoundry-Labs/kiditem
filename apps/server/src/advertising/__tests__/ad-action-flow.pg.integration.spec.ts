@@ -408,7 +408,7 @@ describe('AdAction flow (PG integration)', () => {
           requestedGeneration: 1n,
           verifiedGeneration: 1n,
           lastVerifiedAt: verifiedAt,
-          lastCompletedImportRunId: inventoryRun.id,
+          lastCompletedOperationId: inventoryRun.id,
         },
       });
     }

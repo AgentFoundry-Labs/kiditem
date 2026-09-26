@@ -20,7 +20,7 @@ function input() {
   return {
     channelAccountId: ACCOUNT_ID,
     rocketPoOperationId: RUN_ID,
-    inventoryAttemptId: RUN_ID,
+    inventoryOperationId: RUN_ID,
     editedQuantities: {},
   };
 }
@@ -89,7 +89,7 @@ describe('previewRocketPurchases', () => {
   });
 
   it('rejects requests without the successful inventory collection reference', async () => {
-    const { inventoryAttemptId: _omitted, ...missing } = input();
+    const { inventoryOperationId: _omitted, ...missing } = input();
     await expect(previewRocketPurchases(missing as ReturnType<typeof input>)).rejects.toThrow();
     expect(apiClient.post).not.toHaveBeenCalled();
   });

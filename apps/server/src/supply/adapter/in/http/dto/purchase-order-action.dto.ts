@@ -97,7 +97,7 @@ export class PurchaseOrderActionBodyDto {
 
   @ValidateIf(o => ['previewRocket', 'submit'].includes(o.action))
   @IsUUID()
-  inventoryAttemptId?: string;
+  inventoryOperationId?: string;
 
   @ValidateIf(o => ['convertRocketConfirmationWorkbook', 'exportRocketWorkbook'].includes(o.action))
   @IsString() @MinLength(2)

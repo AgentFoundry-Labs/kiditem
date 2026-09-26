@@ -29,13 +29,16 @@ physical stock includes all current organization-scoped inventory rows.
   Inventory API and is reused by `/inventory`. It does not reconstruct source
   facts from Products APIs or mutate stock, source price, channel price,
   product identity, or recipes.
-- Explicit actions begin the server-owned Sellpia source attempt. The extension
-  runtime collects, uploads, and finalizes it; a web tab only admits and
-  observes the attempt.
-- Inventory actions request physical-snapshot scope. Product Management alone
-  requests full scope with product-profit evidence and ABC recalculation.
-- Refresh acceptance is not completion; render terminal state from the source
-  attempt and collection history. Do not add a global/shared freshness drawer.
+- Explicit actions start the operation kind `products.sellpia_inventory`
+  through the extension (`operation.start`); the extension collects and
+  finishes it and the server publishes inside the finish transaction. A web
+  tab reads running/failed state from `GET /api/operations` and the published
+  completion from the collection-status read.
+- Sellpia inventory has one scope (the whole product list); product-profit
+  evidence is the separate kind `analytics.sellpia_product_profitability`.
+- Start acceptance is not completion; a calculation waits on that exact
+  operation (`GET /api/operations/:id`). Do not add a global/shared freshness
+  drawer.
 - Prepared order transmissions remain an Orders retry concern and neither block
   nor appear in Inventory.
 

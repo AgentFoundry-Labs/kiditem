@@ -11,7 +11,7 @@ const item: InventorySkuSnapshotItem = {
   currentStock: 7,
   purchasePrice: 100,
   stockValue: 700,
-  lastImportRunId: '00000000-0000-4000-8000-000000000002',
+  lastOperationId: '00000000-0000-4000-8000-000000000002',
   lastImportedAt: '2026-07-11T01:00:00.000Z',
 };
 

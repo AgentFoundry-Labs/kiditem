@@ -12,9 +12,7 @@ describe('invalidateSellpiaInventory', () => {
     expect(keys).toEqual(expect.arrayContaining([
       queryKeys.inventory.snapshots(),
       queryKeys.inventory.assets(),
-      queryKeys.inventory.importRuns(),
       queryKeys.inventory.collectionStatus(),
-      ['inventory', 'sellpia-current-basis'],
       queryKeys.inventory.history(),
       queryKeys.inventory.productSalesAll(),
       queryKeys.channelSkuAvailability.all,

@@ -4,7 +4,6 @@ import {
   type InventorySkuSnapshotListResponse,
   type InventorySkuStockStatus,
   type SellpiaInventorySkuLinkStatus,
-  type SellpiaImportRunListResponse,
 } from '@kiditem/shared/inventory';
 import {
   ChannelSkuAvailabilityListResponseSchema,
@@ -12,7 +11,6 @@ import {
   type ChannelSkuAvailabilityStatus,
 } from '@kiditem/shared/channel-sku-availability';
 import { apiClient } from '@/lib/api-client';
-import { sellpiaInventoryCollectionStatusApi } from '@/lib/sellpia-inventory-freshness-api';
 
 export interface SellpiaInventorySkuListParams {
   page?: number;
@@ -20,11 +18,6 @@ export interface SellpiaInventorySkuListParams {
   query?: string;
   stockStatus?: InventorySkuStockStatus;
   linkStatus?: SellpiaInventorySkuLinkStatus;
-}
-
-export interface SellpiaImportRunListParams {
-  page?: number;
-  limit?: number;
 }
 
 export interface ChannelSkuAvailabilityListParams {
@@ -57,12 +50,6 @@ export function sellpiaInventoryKeyParams(
   );
 }
 
-export function sellpiaImportRunKeyParams(
-  params: SellpiaImportRunListParams,
-): Record<string, string> {
-  return sellpiaInventoryKeyParams(params);
-}
-
 export function channelSkuAvailabilityKeyParams(
   params: ChannelSkuAvailabilityListParams,
 ): Record<string, string> {
@@ -89,12 +76,6 @@ export async function fetchAllSellpiaInventorySkus(
     throw new Error('Sellpia 재고 출력 스냅샷의 행 수가 일치하지 않습니다.');
   }
   return response.items;
-}
-
-export async function listSellpiaImportRuns(
-  params: SellpiaImportRunListParams = {},
-): Promise<SellpiaImportRunListResponse> {
-  return sellpiaInventoryCollectionStatusApi.listHistory(params);
 }
 
 export async function listChannelSkuAvailability(

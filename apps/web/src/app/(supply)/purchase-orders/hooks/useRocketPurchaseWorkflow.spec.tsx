@@ -64,7 +64,7 @@ describe('useRocketPurchaseWorkflow', () => {
     expect(previewRocketPurchases).not.toHaveBeenCalled();
     act(() => hook.result.current.retryInventoryAndPreview());
     await waitFor(() => expect(hook.result.current.stage).toBe('ready'));
-    expect(previewRocketPurchases).toHaveBeenCalledWith(expect.objectContaining({ inventoryAttemptId: SKU_ID }));
+    expect(previewRocketPurchases).toHaveBeenCalledWith(expect.objectContaining({ inventoryOperationId: SKU_ID }));
   });
 
   it('reuses the loaded source when only the delivery date changes', async () => {

@@ -63,7 +63,7 @@ implements PurchaseOrderSubmissionPort {
     }
     const gate = await this.freshness.requireCollectedStock({
       organizationId: input.organizationId,
-      attemptId: input.inventoryAttemptId,
+      operationId: input.inventoryOperationId,
       masterProductIds,
     });
     const externalOrder = {
@@ -80,7 +80,7 @@ implements PurchaseOrderSubmissionPort {
       organizationId: input.organizationId,
       purchaseOrderId: input.purchaseOrderId,
       masterProductIds,
-      inventoryAttemptId: gate.attemptId,
+      inventoryOperationId: gate.operationId,
       inventoryFence: gate.fence,
       inventoryGeneration: gate.generation,
       inventoryCompletedAt: gate.completedAt,
@@ -179,7 +179,7 @@ function cleanKey(value: string): string {
 function requiredCanonicalRequestHash(input: SubmitPurchaseOrderInput): string {
   const businessInput = {
     purchaseOrderId: input.purchaseOrderId,
-    inventoryAttemptId: input.inventoryAttemptId,
+    inventoryOperationId: input.inventoryOperationId,
     ...(input.externalOrderPlatform !== undefined && {
       externalOrderPlatform: input.externalOrderPlatform,
     }),

@@ -97,7 +97,7 @@ describe('collection start request', () => {
     expect(
       CollectionStartRequestSchema.safeParse({
         action: 'startCollection',
-        producer: 'inventory.sellpia',
+        producer: 'orders.mall',
         idempotencyKey,
         scope: {},
       }).success,

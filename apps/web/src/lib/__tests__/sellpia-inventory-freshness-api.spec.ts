@@ -13,26 +13,6 @@ vi.mock('../api-client', () => ({ apiClient }));
 describe('sellpiaInventoryCollectionStatusApi', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('reads the authoritative completed inventory basis independently of paged attempt history', async () => {
-    const latestImport = {
-      id: '33333333-3333-4333-8333-333333333333',
-      fileName: 'authoritative.xls',
-    };
-    apiClient.getParsed.mockResolvedValueOnce({ latestImport });
-    const api = sellpiaInventoryCollectionStatusApi as typeof sellpiaInventoryCollectionStatusApi & {
-      getCurrentBasis?: () => Promise<unknown>;
-    };
-
-    expect(typeof api.getCurrentBasis).toBe('function');
-    if (!api.getCurrentBasis) return;
-
-    await expect(api.getCurrentBasis()).resolves.toBe(latestImport);
-    expect(apiClient.getParsed).toHaveBeenCalledWith(
-      '/api/inventory/sellpia-skus?page=1&limit=1',
-      expect.anything(),
-    );
-  });
-
   it('confirms the fixed Sellpia source binding through the owner endpoint', async () => {
     const confirmed = {
       status: 'not_collected',

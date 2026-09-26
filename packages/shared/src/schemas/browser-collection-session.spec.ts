@@ -13,7 +13,7 @@ const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
 
 const createSession = () => ({
   attemptId: ATTEMPT_ID,
-  producer: 'inventory.sellpia' as const,
+  producer: 'orders.mall' as const,
   progress: {
     current: 0,
     total: 30,
@@ -62,7 +62,6 @@ describe('BrowserCollectionSessionViewSchema', () => {
       'dashboard.coupang_products',
       'dashboard.wing_kpi',
       'dashboard.wing_sales',
-      'inventory.sellpia',
       'orders.mall',
       'orders.mall_admin_listings',
       'orders.sabangnet_mall_listings',

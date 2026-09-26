@@ -568,6 +568,13 @@
       "text": "상품 매핑이 동시에 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.",
       "retryable": true
     },
+    "PRODUCTS_SELLPIA_BINDING_REQUIRED": {
+      "owner": "products",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "셀피아 계정 연결을 먼저 확인한 뒤 재고를 수집해 주세요.",
+      "retryable": false
+    },
     "INVENTORY_NOT_FOUND": {
       "owner": "inventory",
       "kind": "not_found",

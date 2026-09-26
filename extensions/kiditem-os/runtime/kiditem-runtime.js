@@ -4582,6 +4582,9 @@ var KidItemRuntime = (() => {
   var OperationKindSchema = external_exports.string().regex(OPERATION_KIND_PATTERN, "kind\uB294 owner.work \uD615\uC2DD\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4");
   var OPERATION_LOCK_KEY_PATTERN = /^(org|account:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|resource:[a-z][a-z0-9-]*:[^\s]+)$/;
   var OperationLockKeySchema = external_exports.string().max(256).regex(OPERATION_LOCK_KEY_PATTERN, "lockKey\uB294 org \xB7 account:<id> \xB7 resource:<site>:<id> \uC911 \uD558\uB098\uC5EC\uC57C \uD569\uB2C8\uB2E4");
+  function resourceLockKey(site, id) {
+    return `resource:${site}:${id}`;
+  }
   var OPERATION_FENCE_LOST_REASONS = ["expired", "terminal", "chunk_conflict"];
   var OperationFenceLostReasonSchema = external_exports.enum(OPERATION_FENCE_LOST_REASONS);
   var OperationInProgressDetailsSchema = external_exports.object({
@@ -5058,7 +5061,7 @@ var KidItemRuntime = (() => {
   var RocketPurchasePreviewRequestSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
     rocketPoOperationId: external_exports.string().uuid(),
-    inventoryAttemptId: external_exports.string().uuid(),
+    inventoryOperationId: external_exports.string().uuid(),
     editedQuantities: RocketPurchaseRequestBaseSchema.shape.editedQuantities,
     clampEditedQuantities: external_exports.boolean().optional(),
     previewScope: RocketPurchasePreviewScopeSchema.optional()
@@ -5169,7 +5172,7 @@ var KidItemRuntime = (() => {
       }
     }
   });
-  var RocketWorkbookExportRequestSchema = RocketWorkbookDecisionRequestSchema.innerType().omit({ collection: true, rows: true }).extend({ rocketPoOperationId: external_exports.string().uuid(), inventoryAttemptId: external_exports.string().uuid() }).strict();
+  var RocketWorkbookExportRequestSchema = RocketWorkbookDecisionRequestSchema.innerType().omit({ collection: true, rows: true }).extend({ rocketPoOperationId: external_exports.string().uuid(), inventoryOperationId: external_exports.string().uuid() }).strict();
   var RocketPurchasePreviewReasonSchema = external_exports.enum([
     "mapping_required",
     "configuration_required",
@@ -6206,6 +6209,62 @@ var KidItemRuntime = (() => {
     }
   };
   registerCollector(sellpiaShipmentTrackingCollector);
+
+  // packages/shared/src/schemas/sellpia-operations.ts
+  var SELLPIA_LOGIN_LOCK_KEY = resourceLockKey("sellpia", "login");
+  var SELLPIA_INVENTORY_KIND = "products.sellpia_inventory";
+  var isoDay3 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+  var SellpiaInventoryScopeSchema = external_exports.object({
+    trigger: external_exports.string().trim().min(1).max(64).optional()
+  }).strict();
+  var SellpiaSalesScopeSchema = external_exports.object({
+    startDate: isoDay3.optional(),
+    endDate: isoDay3.optional()
+  }).strict().refine((value) => !value.startDate || !value.endDate || value.startDate <= value.endDate, "\uC2DC\uC791\uC77C\uC774 \uC885\uB8CC\uC77C\uBCF4\uB2E4 \uB2A6\uC2B5\uB2C8\uB2E4");
+  var SellpiaProductProfitabilityScopeSchema = external_exports.object({
+    normalizedSourceAvailabilityDate: isoDay3.optional()
+  }).strict();
+  var SellpiaManualMatchScopeSchema = external_exports.object({}).strict();
+  var SELLPIA_INVENTORY_CHUNK_KIND = "inventory_rows";
+  var SELLPIA_INVENTORY_MAX_ROWS = 2e4;
+  var SellpiaInventoryChunkHeaderSchema = external_exports.object({
+    source: external_exports.literal("sellpia_product_search"),
+    version: external_exports.literal(1),
+    rowCount: external_exports.number().int().min(1).max(SELLPIA_INVENTORY_MAX_ROWS)
+  }).strict();
+  var SellpiaInventoryResultSchema = external_exports.object({
+    rows: external_exports.number().int().nonnegative(),
+    products: external_exports.number().int().nonnegative()
+  }).strict();
+
+  // extensions/src/collectors/products.sellpia_inventory/index.ts
+  var PlanSchema4 = external_exports.object({
+    parserVersion: external_exports.literal("sellpia-inventory-v1"),
+    sourceOrigin: external_exports.literal("https://kiditem.sellpia.com"),
+    sourceAccountKey: external_exports.literal("kiditem")
+  }).passthrough();
+  var CHUNK_ROWS3 = 5e3;
+  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
+  var sellpiaInventoryCollector = {
+    kind: SELLPIA_INVENTORY_KIND,
+    site: "sellpia",
+    async *collect(rawPlan, site, { signal }) {
+      const parsed = PlanSchema4.safeParse(rawPlan);
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC140\uD53C\uC544 \uC7AC\uACE0 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
+      const { rows } = await site.inventory();
+      if (signal.aborted) return;
+      const progress4 = { rows: rows.length };
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS3, label: "\uC140\uD53C\uC544 \uC0C1\uD488 \uD55C \uC904" });
+      for (const item of [{ source: "sellpia_product_search", version: 1, rowCount: rows.length }, ...rows]) {
+        const full = buffer.push(item);
+        if (full) yield { chunkKind: SELLPIA_INVENTORY_CHUNK_KIND, payload: full, progress: progress4 };
+      }
+      const rest = buffer.flush();
+      if (rest) yield { chunkKind: SELLPIA_INVENTORY_CHUNK_KIND, payload: rest, progress: progress4 };
+    }
+  };
+  registerCollector(sellpiaInventoryCollector);
 
   // packages/shared/src/sourcing/operation-result.ts
   var BoundedCountSchema = external_exports.number().int().nonnegative().max(2147483647);
@@ -7344,14 +7403,14 @@ var KidItemRuntime = (() => {
   async function readPurchaseOrderListPage(page, path, pageNumber) {
     const fetched = await page.fetch(path, { headers: { accept: "application/json" } });
     const text2 = fetched.text;
-    const failed = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
+    const failed2 = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
     if (fetched.status === 400 || fetched.status === 413 || fetched.status === 431) throw cookieBloat(path, fetched.status);
-    if (fetched.status < 200 || fetched.status >= 300 || text2.trim().charAt(0) === "<") throw failed();
+    if (fetched.status < 200 || fetched.status >= 300 || text2.trim().charAt(0) === "<") throw failed2();
     let parsed;
     try {
       parsed = JSON.parse(text2);
     } catch {
-      throw failed();
+      throw failed2();
     }
     const body = parsed?.body;
     if (!body || !Array.isArray(body.body)) throw responseInvalid(path, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC5D0 \uD589 \uBC30\uC5F4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
@@ -8096,10 +8155,52 @@ var KidItemRuntime = (() => {
     };
   }
 
+  // extensions/src/sites/sellpia/inventory.ts
+  var SELLPIA_INVENTORY_URL = `${SELLPIA_ORIGIN}/product_list_total.html`;
+  var SELLPIA_INVENTORY_FILE = "content/orders/sellpia-inventory.js";
+  var REQUEST_TIMEOUT_MS2 = 45e3;
+  var MAX_ROWS = 2e4;
+  var MAX_BYTES = 10 * 1024 * 1024;
+  var CALL_TIMEOUT_MS = REQUEST_TIMEOUT_MS2 + 1e3;
+  function createSellpiaInventory(tabs) {
+    return {
+      inventory() {
+        return withFreshTab(tabs, SELLPIA_INVENTORY_URL, async (page) => {
+          const answer = await callPage(page, "sellpia.inventory", { timeoutMs: REQUEST_TIMEOUT_MS2, maxRows: MAX_ROWS, maxBytes: MAX_BYTES }, {
+            timeoutMs: CALL_TIMEOUT_MS,
+            guard: SELLPIA_PAGE_GUARD,
+            main: [SELLPIA_INVENTORY_FILE],
+            displayName: "\uC140\uD53C\uC544"
+          });
+          switch (answer?.status) {
+            case "ok":
+              return { rows: answer.rows };
+            case "login_required":
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, SELLPIA_PAGE_GUARD.loginMessage, { url: SELLPIA_INVENTORY_URL });
+            case "http_error":
+              throw failed(`\uC140\uD53C\uC544 \uC7AC\uACE0 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, { status: answer.httpStatus, reason: "http" });
+            case "timeout":
+              throw failed("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC870\uD68C\uAC00 \uC81C\uB54C \uB05D\uB098\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { status: null, reason: "timeout" });
+            case "network_error":
+              throw failed("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC870\uD68C\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, reason: "network" });
+            case "unexpected_response":
+              throw failed("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json", detail: answer.reason ?? null });
+            default:
+              throw failed("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json" });
+          }
+        });
+      }
+    };
+  }
+  function failed(message, details) {
+    return new RuntimeError(SITE_REQUEST_FAILED, message, { url: SELLPIA_INVENTORY_URL, bodyHead: null, ...details });
+  }
+
   // extensions/src/sites/sellpia/index.ts
   function createSellpiaSite(tabs) {
     return {
-      ...createSellpiaTracking(tabs)
+      ...createSellpiaTracking(tabs),
+      ...createSellpiaInventory(tabs)
     };
   }
   registerSite({ name: "sellpia", opensOwnTabs: true, create: (deps) => createSellpiaSite(deps.tabs) });
@@ -8687,10 +8788,10 @@ var KidItemRuntime = (() => {
         try {
           return await caller.json(url, init);
         } catch (error) {
-          const failed = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
-          if (failed && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
+          const failed2 = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
+          if (failed2 && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
           const delay = READ_RETRY_DELAYS_MS[attempt];
-          if (!failed) throw error;
+          if (!failed2) throw error;
           if (delay === void 0) throw withResponseHint(error);
           await deps.sleep(delay);
         }
@@ -8849,7 +8950,7 @@ var KidItemRuntime = (() => {
   var ORIGIN3 = "https://wing.coupang.com";
   var SEARCH_URL2 = `${ORIGIN3}/tenants/seller-web/pre-matching/search`;
   var RETRY_ATTEMPTS = 4;
-  var REQUEST_TIMEOUT_MS2 = 2e4;
+  var REQUEST_TIMEOUT_MS3 = 2e4;
   var WING_SEARCH_PAYLOAD_INVALID = "WING_SEARCH_PAYLOAD_INVALID";
   var WING_SEARCH_SITE = {
     name: "wing-search",
@@ -8873,7 +8974,7 @@ var KidItemRuntime = (() => {
               method: "POST",
               headers: { "content-type": "application/json", accept: "application/json, text/plain, */*" },
               body,
-              signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS2)
+              signal: AbortSignal.timeout(REQUEST_TIMEOUT_MS3)
             });
           } catch (error) {
             if (searchPage === 0 && isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.status === 200 && error.details?.reason === "non_json") {
@@ -9622,7 +9723,7 @@ var KidItemRuntime = (() => {
     });
     registerWithLegacyDomains({
       externalActions,
-      capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true }
+      capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true, sellpiaOperationKindsV1: true }
     });
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
     return true;

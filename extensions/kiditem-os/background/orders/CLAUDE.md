@@ -138,9 +138,11 @@ summary, Rocket PO and directship are operation kinds collected by
   `orders.sellpia_shipment_tracking` (`extensions/src/sites/sellpia`), not a
   worker action: a fresh inactive tab, one page call into
   `content/orders/sellpia-shipment-tracking.js` (MAIN world), rows only.
-- Inventory collection uses the fixed authenticated full-snapshot JSON contract.
-  Full-scope runs additionally collect validated product-profit evidence before
-  backend publication; inventory scope does not.
+- Sellpia inventory is the runtime kind `products.sellpia_inventory`: a fresh
+  inactive tab on `product_list_total.html`, one page call into
+  `content/orders/sellpia-inventory.js` (MAIN world) for the whole list, then a
+  header item and the rows as `inventory_rows` chunks. It has one scope; there
+  is no product-profit branch.
 - Rocket summary/detail collection shares the managed Supplier Hub PO session,
   reads every requested page and detail with bounded concurrency, and publishes
   no rows when evidence is incomplete or vendor identity is missing/mixed.

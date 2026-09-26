@@ -145,7 +145,7 @@ beforeEach(() => {
       pricedAssetValue: 0,
       unpricedSkuCount: 0,
     },
-    latestImport: { importedAt: '2026-09-17T14:28:29.000Z', lastVerifiedAt: null },
+    latestCollection: { operationId: '11111111-1111-4111-8111-111111111111', completedAt: '2026-09-17T14:28:29.000Z', generation: '3' },
   };
   mallAccounts = [
     { key: 'kidsnote', loginId: 'store_kiditem', enabled: true, siteUrl: 'https://shop.kidsnote.com/_manage/' },
@@ -201,7 +201,7 @@ describe('쇼핑몰 현황 — 맨 위 요약', () => {
   it('셀피아 재고를 아직 가져오지 않았으면 0 대신 — 이다', () => {
     sellpiaSnapshot = { items: [], total: 0, page: 1, limit: 1, summary: {
       totalSkus: 0, linkedSkus: 0, unlinkedSkus: 0, inStockSkus: 0, outOfStockSkus: 0, totalUnits: 0, pricedAssetValue: 0, unpricedSkuCount: 0,
-    }, latestImport: null };
+    }, latestCollection: null };
     render(<MallChannelsPage />);
     const summary = screen.getByRole('region', { name: '셀피아' });
     expect(within(summary).getByText('셀피아 재고를 아직 가져오지 않았습니다.')).toBeInTheDocument();

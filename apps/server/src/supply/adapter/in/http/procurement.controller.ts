@@ -101,7 +101,7 @@ export class ProcurementController {
       return this.submissions.submit({
         organizationId,
         purchaseOrderId: businessInput.purchaseOrderId,
-        inventoryAttemptId: businessInput.inventoryAttemptId,
+        inventoryOperationId: businessInput.inventoryOperationId,
         idempotencyKey: body.idempotencyKey!,
         requestHash: canonicalOwnerInputHash(businessInput),
         userId: user.id,
@@ -132,7 +132,7 @@ export class ProcurementController {
         request: {
           channelAccountId: body.channelAccountId!,
           rocketPoOperationId: body.rocketPoOperationId!,
-          inventoryAttemptId: body.inventoryAttemptId!,
+          inventoryOperationId: body.inventoryOperationId!,
           editedQuantities: body.editedQuantities ?? {},
           ...(body.clampEditedQuantities !== undefined && {
             clampEditedQuantities: body.clampEditedQuantities,
@@ -239,14 +239,14 @@ export class ProcurementController {
 
 function purchaseOrderSubmissionInput(body: PurchaseOrderActionBodyDto): {
   purchaseOrderId: string;
-  inventoryAttemptId: string;
+  inventoryOperationId: string;
   externalOrderPlatform?: string | null;
   externalOrderId?: string | null;
   externalOrderUrl?: string | null;
 } {
   return {
     purchaseOrderId: body.id!,
-    inventoryAttemptId: body.inventoryAttemptId!,
+    inventoryOperationId: body.inventoryOperationId!,
     ...(body.externalOrderPlatform !== undefined && {
       externalOrderPlatform: body.externalOrderPlatform,
     }),

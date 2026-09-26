@@ -35,7 +35,7 @@ export type ProductSourceSnapshotRow = Readonly<{
   barcode: string | null;
   currentStock: number;
   purchasePrice: number | null;
-  lastImportRunId: string | null;
+  lastOperationId: string | null;
   lastImportedAt: Date | null;
   linkedChannelOptionCount: number;
   linkedProductCount: number;
@@ -43,24 +43,11 @@ export type ProductSourceSnapshotRow = Readonly<{
   linkedChannelOptions: ProductSourceSnapshotLinkedChannelOption[];
 }>;
 
-export type ProductSourceImportRunRow = Readonly<{
-  id: string;
-  fileName: string | null;
-  fileHash: string | null;
-  status: string;
-  rowCount: number;
-  importedAt: Date | null;
-  lastVerifiedAt: Date | null;
-  verificationCount: number;
-  lastTrigger: string | null;
-  freshnessGeneration: bigint | null;
-  manualFreshExportConfirmedAt: Date | null;
-  manualFreshExportConfirmedBy: string | null;
-  qualityReport: unknown;
-  errorCode: string | null;
-  errorMessage: string | null;
-  createdAt: Date;
-  updatedAt: Date;
+/** 지금 재고를 발행한 셀피아 재고 실행(상태 행의 `lastCompletedOperationId`·`lastVerifiedAt`·`verifiedGeneration`). */
+export type ProductSourceLatestCollectionRow = Readonly<{
+  operationId: string;
+  completedAt: Date;
+  generation: bigint;
 }>;
 
 export interface ProductSourceSnapshotRepositoryPort {
@@ -71,19 +58,11 @@ export interface ProductSourceSnapshotRepositoryPort {
     rows: ProductSourceSnapshotRow[];
     total: number;
     summary: ProductSourceSnapshotSummary;
-    latestImport: ProductSourceImportRunRow | null;
+    latestCollection: ProductSourceLatestCollectionRow | null;
   }>;
 
   getSnapshot(
     organizationId: string,
     masterProductId: string,
   ): Promise<ProductSourceSnapshotRow | null>;
-
-  listImportRuns(
-    organizationId: string,
-    query: { skip: number; take: number },
-  ): Promise<{
-    rows: ProductSourceImportRunRow[];
-    total: number;
-  }>;
 }

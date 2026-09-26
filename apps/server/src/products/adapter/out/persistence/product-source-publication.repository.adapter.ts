@@ -1,21 +1,21 @@
 import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
-import { Prisma, type SellpiaInventoryState, type SourceImportRun } from '@prisma/client';
-import {
-  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-  SOURCE_IMPORT_RUN_RUNNING_STATUS,
-} from '@kiditem/shared/source-import';
+import { Prisma, type SellpiaInventoryState } from '@prisma/client';
+import { KiditemPreconditionError } from '@kiditem/shared/errors';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
-import { PrismaService } from '../../../../prisma/prisma.service';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
+import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { ProductSourceConflictError } from '../../../application/exception/product-source.error';
 import { applySourceFacts, type MasterProduct as MasterProductDomain } from '../../../domain/master-product';
-import { evaluateSellpiaInventoryQuality } from '../../../domain/policy/product-source-quality.policy';
 import { lockProductMapping } from '../../../transaction/product-mapping-lock';
 import { advanceProductMappingGeneration } from './product-mapping-generation';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { lockProductSource } from './transaction/product-source-lock';
-import { PRODUCT_SOURCE_ALERT_DEDUPE_KEY } from '../sellpia/product-source-failure-alert';
+import {
+  PRODUCT_SOURCE_ALERT_DEDUPE_KEY,
+  productSourceFailureAlert,
+} from '../sellpia/product-source-failure-alert';
 import type {
   ProductSourcePublicationRepositoryPort,
   SellpiaSnapshotPublicationChanges,
@@ -26,7 +26,6 @@ const SOURCE_TYPE = 'sellpia_inventory';
 const SOURCE_ORIGIN = 'https://kiditem.sellpia.com';
 const SOURCE_ACCOUNT_KEY = 'kiditem';
 const UPSERT_BATCH_SIZE = 500;
-const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 60_000 } as const;
 
 type MappingIdentityBasis = {
   id: string;
@@ -36,105 +35,76 @@ type MappingIdentityBasis = {
   sourceOptionCode: string;
 };
 
+/**
+ * 셀피아 재고 발행(`products.sellpia_inventory` finalize, ADR-0025). 실행 계약의 finish 트랜잭션 안에서 매핑·원천 잠금을
+ * 잡고 MasterProduct를 통째로 바꾼 뒤 SellpiaInventoryState에 실행 id와 새 완료 세대를 적는다. 겹침은 실행 잠금
+ * (`resource:sellpia:login`)이 막으므로 옛 attempt 토큰·임대 울타리는 없다. 완료 세대는 저장된 요청·완료 세대보다 크게
+ * 정하고, 옛 생명주기 칸(요청·실행·실패 세대, 임대)은 그 완료 세대로 정리해 두 세대를 비교하던 읽기가 그대로 맞는다.
+ */
 @Injectable()
 export class ProductSourcePublicationRepositoryAdapter
 implements ProductSourcePublicationRepositoryPort {
-  constructor(
-    private readonly prisma: PrismaService,
-    private readonly alerts: SourceFailureAlerts,
-  ) {}
+  constructor(private readonly alerts: SourceFailureAlerts) {}
 
   async publishSnapshot(
+    transaction: OwnerTransaction,
     input: SellpiaSnapshotPublicationInput,
   ): Promise<SellpiaSnapshotPublicationChanges> {
-    return this.prisma.$transaction(async (tx) => {
-      await lockProductMapping(tx, input.organizationId);
-      await lockProductSource(tx, input.organizationId);
-      const [state, run] = await Promise.all([
-        lockedState(tx, input.organizationId),
-        lockedRun(tx, input.organizationId, input.runId),
-      ]);
-      const generation = assertPublicationFence(state, input);
-      assertRunningRun(run, input);
+    const tx = ownerTransactionClient(transaction);
+    await lockProductMapping(tx, input.organizationId);
+    await lockProductSource(tx, input.organizationId);
+    const state = await lockedState(tx, input.organizationId);
+    assertConfirmedBinding(state);
 
-      const [previousRows, previousRun] = await Promise.all([
-        tx.masterProduct.findMany({
-          where: {
-            organizationId: input.organizationId,
-            sourceAccountKey: SOURCE_ACCOUNT_KEY,
-          },
-          select: { sourceProductCode: true, sourceOptionCode: true },
-        }),
-        state.lastCompletedImportRunId
-          ? tx.sourceImportRun.findFirst({
-              where: {
-                id: state.lastCompletedImportRunId,
-                organizationId: input.organizationId,
-                sourceType: SOURCE_TYPE,
-                channelAccountId: null,
-                status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-              },
-              select: { rowCount: true },
-            })
-          : null,
-      ]);
-      const quality = evaluateSellpiaInventoryQuality({
-        fileHash: input.fileHash,
-        previousRowCount: previousRun?.rowCount ?? previousRows.length,
-        previousActiveProductCodes: previousRows.map((row) =>
-          sourceIdentityKey(row.sourceProductCode, row.sourceOptionCode)),
-        incomingProductCodes: input.rows.map((row) =>
-          sourceIdentityKey(row.sourceProductCode, row.sourceOptionCode)),
-        facts: input.qualityFacts,
-      });
+    const changes = await replaceProductSources(tx, input);
+    await allocatePublicationSequence(tx, input.organizationId, SOURCE_TYPE);
+    const generation = nextGeneration(state);
+    const now = new Date();
+    const updated = await tx.sellpiaInventoryState.updateMany({
+      where: { organizationId: input.organizationId, freshnessFence: state.freshnessFence },
+      data: {
+        lastVerifiedAt: now,
+        lastCompletedOperationId: input.operationId,
+        lastCompletedImportRunId: null,
+        refreshReason: input.trigger ?? (state.verifiedGeneration === 0n ? 'initial_snapshot' : 'manual_request'),
+        requestedGeneration: generation,
+        verifiedGeneration: generation,
+        activeGeneration: null,
+        failedGeneration: null,
+        activeSyncToken: null,
+        activeSyncOwnerUserId: null,
+        activeSyncStartedAt: null,
+        activeSyncLeaseExpiresAt: null,
+        activeSyncScope: null,
+        lastAttemptAt: now,
+        lastAttemptSyncScope: 'inventory',
+        lastErrorCode: null,
+        lastErrorMessage: null,
+        freshnessFence: randomUUID(),
+      },
+    });
+    if (updated.count !== 1) {
+      throw new ProductSourceConflictError('Sellpia inventory publication lost its state fence');
+    }
+    await this.alerts.resolveSourceFailure(tx, {
+      organizationId: input.organizationId,
+      dedupeKey: PRODUCT_SOURCE_ALERT_DEDUPE_KEY,
+      attemptId: input.operationId,
+    });
+    return changes;
+  }
 
-      const changes = await replaceProductSources(tx, input);
-      const now = new Date();
-      const publicationSequence = await allocatePublicationSequence(
-        tx,
-        input.organizationId,
-        SOURCE_TYPE,
-      );
-      const completed = await tx.sourceImportRun.updateMany({
-        where: {
-          id: input.runId,
-          organizationId: input.organizationId,
-          sourceType: SOURCE_TYPE,
-          channelAccountId: null,
-          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
-          attemptToken: input.attemptToken,
-        },
-        data: {
-          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-          rowCount: input.rows.length,
-          importedAt: now,
-          lastVerifiedAt: now,
-          verificationCount: 1,
-          lastTrigger: input.execution.trigger,
-          freshnessGeneration: generation,
-          qualityReport: quality.report as Prisma.InputJsonValue,
-          errorCode: null,
-          errorMessage: null,
-          fileHash: null,
-          contentChecksum: input.contentChecksum ?? input.fileHash,
-          ...(input.fileName !== undefined ? { fileName: input.fileName } : {}),
-          ...(input.contentByteCount !== undefined
-            ? { contentByteCount: input.contentByteCount }
-            : {}),
-          publicationSequence,
-        },
-      });
-      if (completed.count !== 1) {
-        throw new ProductSourceConflictError('Sellpia inventory publication lost its run fence');
-      }
-      await completeGeneration(tx, state, input, generation, now, input.runId);
-      await this.alerts.resolveSourceFailure(tx, {
-        organizationId: input.organizationId,
-        dedupeKey: PRODUCT_SOURCE_ALERT_DEDUPE_KEY,
-        attemptId: run.id,
-      });
-      return changes;
-    }, TRANSACTION_OPTIONS);
+  /** 재시도 없는 최종 실패: 운영자 알림 하나(원천별로 합친다). 상품·상태는 그대로다. */
+  async recordFailure(
+    transaction: OwnerTransaction,
+    input: { organizationId: string; operationId: string; errorCode: string; errorMessage: string | null },
+  ): Promise<void> {
+    await this.alerts.recordTerminalOutcome(ownerTransactionClient(transaction), productSourceFailureAlert({
+      organizationId: input.organizationId,
+      attemptId: input.operationId,
+      errorCode: input.errorCode,
+      errorMessage: input.errorMessage ?? input.errorCode,
+    }));
   }
 }
 
@@ -286,6 +256,7 @@ async function replaceProductSources(
     createdProductCount,
     updatedProductCount,
     inactivatedProductCount: 0,
+    productCount: upserts.length,
   };
 }
 
@@ -366,97 +337,19 @@ function mappingIdentityChanged(
   });
 }
 
-async function completeGeneration(
-  tx: Prisma.TransactionClient,
-  state: SellpiaInventoryState,
-  input: SellpiaSnapshotPublicationInput,
-  generation: bigint,
-  now: Date,
-  completedRunId: string,
-): Promise<void> {
-  await updateStateWithFence(tx, state, input, generation, {
-    lastVerifiedAt: now,
-    lastCompletedImportRunId: completedRunId,
-    activeSyncToken: null,
-    activeSyncOwnerUserId: null,
-    activeSyncStartedAt: null,
-    activeSyncLeaseExpiresAt: null,
-    activeSyncScope: null,
-    activeGeneration: null,
-    verifiedGeneration: generation,
-    failedGeneration: null,
-    lastAttemptAt: now,
-    lastAttemptSyncScope: state.activeSyncScope ?? state.requestedSyncScope,
-    lastErrorCode: null,
-    lastErrorMessage: null,
-    freshnessFence: randomUUID(),
-  });
+/**
+ * 새 완료 세대. 옛 요청이 아직 완료되지 않았으면(요청 > 완료 — 초기 상태의 요청 1 포함) 그 요청 세대를 완료하고,
+ * 아니면 완료 세대 다음이다. 옛 attempt의 발행 경로는 없어졌으므로 남은 요청 세대를 이 실행이 채운다.
+ */
+function nextGeneration(state: SellpiaInventoryState): bigint {
+  return state.requestedGeneration > state.verifiedGeneration
+    ? state.requestedGeneration
+    : state.verifiedGeneration + 1n;
 }
 
-async function updateStateWithFence(
-  tx: Prisma.TransactionClient,
-  state: SellpiaInventoryState,
-  input: SellpiaSnapshotPublicationInput,
-  generation: bigint,
-  data: Prisma.SellpiaInventoryStateUncheckedUpdateManyInput,
-): Promise<void> {
-  const updated = await tx.sellpiaInventoryState.updateMany({
-    where: {
-      organizationId: input.organizationId,
-      freshnessFence: state.freshnessFence,
-      sourceOrigin: SOURCE_ORIGIN,
-      sourceAccountKey: SOURCE_ACCOUNT_KEY,
-      activeSyncToken: input.execution.claimToken,
-      activeSyncOwnerUserId: input.userId,
-      activeGeneration: generation,
-    },
-    data,
-  });
-  if (updated.count !== 1) {
-    throw new ProductSourceConflictError('Sellpia inventory publication lost its generation fence');
-  }
-}
-
-function assertPublicationFence(
-  state: SellpiaInventoryState,
-  input: SellpiaSnapshotPublicationInput,
-): bigint {
+function assertConfirmedBinding(state: SellpiaInventoryState): void {
   if (state.sourceOrigin !== SOURCE_ORIGIN || state.sourceAccountKey !== SOURCE_ACCOUNT_KEY) {
-    throw new ProductSourceConflictError('Sellpia inventory source binding is not confirmed');
-  }
-  if (
-    input.execution.sourceOrigin !== SOURCE_ORIGIN
-    || input.execution.sourceAccountKey !== SOURCE_ACCOUNT_KEY
-    || input.execution.ownerAttempt !== true
-  ) {
-    throw new ProductSourceConflictError('Sellpia source binding does not match');
-  }
-  const generation = parseGeneration(input.execution.activeGeneration);
-  if (
-    state.activeSyncToken !== input.execution.claimToken
-    || state.activeSyncOwnerUserId !== input.userId
-    || state.activeGeneration !== generation
-  ) {
-    throw new ProductSourceConflictError('Sellpia inventory publication generation is stale');
-  }
-  return generation;
-}
-
-function assertRunningRun(
-  run: SourceImportRun,
-  input: SellpiaSnapshotPublicationInput,
-): void {
-  if (
-    run.organizationId !== input.organizationId
-    || run.sourceType !== SOURCE_TYPE
-    || run.channelAccountId !== null
-    || run.status !== SOURCE_IMPORT_RUN_RUNNING_STATUS
-    || run.attemptToken !== input.attemptToken
-  ) {
-    throw new ProductSourceConflictError('Sellpia inventory run publication fence is stale');
-  }
-  if (!run.expiresAt || run.expiresAt.getTime() <= Date.now()) {
-    throw new ProductSourceConflictError('ATTEMPT_EXPIRED');
+    throw new KiditemPreconditionError('PRODUCTS_SELLPIA_BINDING_REQUIRED');
   }
 }
 
@@ -471,30 +364,6 @@ async function lockedState(
     FOR UPDATE
   `;
   const state = await tx.sellpiaInventoryState.findUnique({ where: { organizationId } });
-  if (!state) throw new ProductSourceConflictError('Sellpia inventory state is missing');
+  if (!state) throw new KiditemPreconditionError('PRODUCTS_SELLPIA_BINDING_REQUIRED');
   return state;
-}
-
-async function lockedRun(
-  tx: Prisma.TransactionClient,
-  organizationId: string,
-  runId: string,
-): Promise<SourceImportRun> {
-  await tx.$queryRaw`
-    SELECT id
-    FROM source_import_runs
-    WHERE id = ${runId}::uuid
-      AND organization_id = ${organizationId}::uuid
-    FOR UPDATE
-  `;
-  const run = await tx.sourceImportRun.findFirst({ where: { id: runId, organizationId } });
-  if (!run) throw new ProductSourceConflictError('Sellpia inventory run is missing');
-  return run;
-}
-
-function parseGeneration(value: string): bigint {
-  if (!/^(0|[1-9]\d*)$/.test(value)) {
-    throw new ProductSourceConflictError('Sellpia inventory generation is invalid');
-  }
-  return BigInt(value);
 }

@@ -300,7 +300,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
       requestedGeneration: 1n,
       verifiedGeneration: 1n,
       lastVerifiedAt: importedAt,
-      lastCompletedImportRunId: inventoryRun.id,
+      lastCompletedOperationId: inventoryRun.id,
     } });
     const attempt = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, 'abc-display-status');
     const months = attempt.plan.coveredMonths.map((yearMonth) => ({

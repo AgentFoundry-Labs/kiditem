@@ -18,7 +18,7 @@ const ORDER_ID = '20000000-0000-4000-8000-000000000001';
 const SELLPIA_SKU_ID = '20000000-0000-4000-8000-000000000002';
 const FENCE = '20000000-0000-4000-8000-000000000003';
 let verifiedAt: Date;
-let inventoryAttemptId: string;
+let inventoryOperationId: string;
 
 describe('purchase-order submission transaction (PG integration)', () => {
   let prisma: PrismaClient;
@@ -56,7 +56,7 @@ describe('purchase-order submission transaction (PG integration)', () => {
         freshnessGeneration: 4n,
       },
     });
-    inventoryAttemptId = inventoryRun.id;
+    inventoryOperationId = inventoryRun.id;
     await seedSourceProduct(prisma, {
       id: SELLPIA_SKU_ID,
       organizationId: TEST_ORGANIZATION_ID,
@@ -92,7 +92,7 @@ describe('purchase-order submission transaction (PG integration)', () => {
         requestedGeneration: 4n,
         verifiedGeneration: 4n,
         freshnessFence: FENCE,
-        lastCompletedImportRunId: inventoryRun.id,
+        lastCompletedOperationId: inventoryRun.id,
       },
     });
   });
@@ -338,7 +338,7 @@ function submissionInput(
     organizationId: TEST_ORGANIZATION_ID,
     purchaseOrderId: ORDER_ID,
     masterProductIds: [SELLPIA_SKU_ID],
-    inventoryAttemptId,
+    inventoryOperationId,
     inventoryFence: FENCE,
     inventoryGeneration: '4',
     inventoryCompletedAt: verifiedAt.toISOString(),

@@ -86,7 +86,7 @@ function previewResult() {
 
 function reference(source = request()) {
   const { collection: _collection, rows: _rows, ...decision } = source;
-  return { ...decision, rocketPoOperationId, inventoryAttemptId: collectionRunId };
+  return { ...decision, rocketPoOperationId, inventoryOperationId: collectionRunId };
 }
 
 function dependencies() {
@@ -231,7 +231,7 @@ describe('RocketWorkbookExportService', () => {
       request: {
         channelAccountId,
         rocketPoOperationId,
-        inventoryAttemptId: collectionRunId,
+        inventoryOperationId: collectionRunId,
         editedQuantities: request().editedQuantities,
         previewScope: 'confirmation_requested',
       },

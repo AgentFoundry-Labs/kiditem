@@ -700,13 +700,13 @@ async function seedSellingProduct(prisma: PrismaClient): Promise<{ productId: st
       requestedGeneration: 1n,
       verifiedGeneration: 1n,
       lastVerifiedAt: inventoryVerifiedAt,
-      lastCompletedImportRunId: inventoryRun.id,
+      lastCompletedOperationId: inventoryRun.id,
     },
     update: {
       requestedGeneration: 1n,
       verifiedGeneration: 1n,
       lastVerifiedAt: inventoryVerifiedAt,
-      lastCompletedImportRunId: inventoryRun.id,
+      lastCompletedOperationId: inventoryRun.id,
     },
   });
   const sku = product;

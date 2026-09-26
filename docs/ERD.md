@@ -1547,6 +1547,7 @@ erDiagram
     String sourceAccountKey
     DateTime lastVerifiedAt
     String lastCompletedImportRunId FK
+    String lastCompletedOperationId
     String refreshReason
     String requestedSyncScope
     String activeSyncToken

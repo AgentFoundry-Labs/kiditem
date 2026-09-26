@@ -273,7 +273,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
         requestedGeneration: 1n,
         verifiedGeneration: 1n,
         lastVerifiedAt: importedAt,
-        lastCompletedImportRunId: inventoryRun.id,
+        lastCompletedOperationId: inventoryRun.id,
       },
     });
     const account = await prisma.channelAccount.create({ data: {

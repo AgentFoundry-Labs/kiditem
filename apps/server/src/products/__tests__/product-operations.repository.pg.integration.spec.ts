@@ -148,7 +148,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
           requestedGeneration: 1n,
           verifiedGeneration: 1n,
           lastVerifiedAt: verifiedAt,
-          lastCompletedImportRunId: run.id,
+          lastCompletedOperationId: run.id,
         },
       });
     }

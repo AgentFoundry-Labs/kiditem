@@ -54,3 +54,25 @@ export const SELLPIA_INVENTORY_CHUNK_KIND = 'inventory_rows' as const;
 export const SELLPIA_SALES_CHUNK_KIND = 'sales_rows' as const;
 export const SELLPIA_PROFIT_CHUNK_KIND = 'profit_months' as const;
 export const SELLPIA_MANUAL_MATCH_CHUNK_KIND = 'match_results' as const;
+
+/** 재고 한 번에 읽는 상품 줄 상한(옛 수집기 MAX_ROWS와 같다). */
+export const SELLPIA_INVENTORY_MAX_ROWS = 20_000;
+
+/**
+ * 재고 청크의 머리 항목 — 첫 `inventory_rows` 청크의 첫 항목이다. 나머지 항목은 상품 줄(옛 JSON 스냅샷
+ * `sellpia-inventory-snapshot-v1.json`의 `rows[]`와 같은 모양, `SellpiaInventoryBrowserSnapshotRowSchema`)이다.
+ * `rowCount`로 owner가 청크가 빠지지 않았는지 본다. 셀피아가 빈 목록을 주면 수집기가 실패로 끝낸다(옛 규칙).
+ */
+export const SellpiaInventoryChunkHeaderSchema = z.object({
+  source: z.literal('sellpia_product_search'),
+  version: z.literal(1),
+  rowCount: z.number().int().min(1).max(SELLPIA_INVENTORY_MAX_ROWS),
+}).strict();
+export type SellpiaInventoryChunkHeader = z.infer<typeof SellpiaInventoryChunkHeaderSchema>;
+
+/** 재고 finish 결과: 받은 줄 수와 발행 뒤 셀피아 원천 상품 수. */
+export const SellpiaInventoryResultSchema = z.object({
+  rows: z.number().int().nonnegative(),
+  products: z.number().int().nonnegative(),
+}).strict();
+export type SellpiaInventoryResult = z.infer<typeof SellpiaInventoryResultSchema>;

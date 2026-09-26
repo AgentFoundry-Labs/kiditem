@@ -16,6 +16,9 @@ export interface SellpiaSourceAccountPort {
     input: ProductActorScope,
   ): Promise<SellpiaInventoryCollectionStatusView>;
 
+  /** 셀피아 계정 연결을 운영자가 확인했는가(재고 실행 plan이 시작 전에 본다). */
+  isSourceBindingConfirmed(organizationId: string): Promise<boolean>;
+
   confirmSourceBinding(
     input: ProductActorScope & SellpiaInventorySourceBindingRequest,
   ): Promise<SellpiaInventoryCollectionStatusView>;

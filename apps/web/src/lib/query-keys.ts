@@ -85,14 +85,10 @@ export const queryKeys = {
     assets: () => [...queryKeys.inventory.all, 'sellpia-assets'] as const,
     assetList: (params: Record<string, string>) =>
       [...queryKeys.inventory.assets(), params] as const,
-    importRuns: () => [...queryKeys.inventory.all, 'sellpia-import-runs'] as const,
-    importRunList: (params: Record<string, string>) =>
-      [...queryKeys.inventory.importRuns(), params] as const,
     collectionStatus: () => [...queryKeys.inventory.all, 'sellpia-collection-status'] as const,
     // The collection control's read names the organization's running attempt.
     sellpiaCollectionStatus: (organizationId: string) =>
       [...queryKeys.inventory.collectionStatus(), 'source', organizationId] as const,
-    currentBasis: () => [...queryKeys.inventory.all, 'sellpia-current-basis'] as const,
     history: () => [...queryKeys.inventory.all, 'sellpia-history'] as const,
     historyList: (params: Record<string, string>) =>
       [...queryKeys.inventory.history(), params] as const,

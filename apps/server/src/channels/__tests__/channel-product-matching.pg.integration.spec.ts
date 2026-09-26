@@ -93,7 +93,7 @@ describe('ChannelProductMatchingRepositoryAdapter (PG integration)', () => {
         sourceAccountKey: 'kiditem',
         lastVerifiedAt: new Date('2026-08-01T00:00:00.000Z'),
         verifiedGeneration: 1n,
-        lastCompletedImportRunId: inventoryCompletedRunId,
+        lastCompletedOperationId: inventoryCompletedRunId,
       },
     });
     await prisma.channelAccount.createMany({

@@ -107,6 +107,7 @@ beforeEach(() => {
     extensionSessionReply(message) ?? new Promise(() => undefined));
   vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
     if (path === COLLECTION_STATUS_PATH) return collectionStatus;
+    if (path === '/api/operations?kinds=products.sellpia_inventory&limit=20') return { operations: [] };
     throw new Error(`unexpected GET ${path}`);
   });
   vi.mocked(apiClient.getParsed).mockImplementation(async (path: string) => {
@@ -143,7 +144,7 @@ describe('ProductOperationsSourceCollections', () => {
     expect(extensionMessages('collectSellpiaProductProfit')).toEqual([
       ['sellpia-extension', { action: 'collectSellpiaProductProfit', attemptId: ATTEMPT_ID }, 190_000],
     ]);
-    expect(extensionMessages('collectSellpiaInventory')).toEqual([]);
+    expect(extensionMessages('operation.start')).toEqual([]);
   });
 
   it('stops the profitability attempt it opened when the extension does not take it', async () => {

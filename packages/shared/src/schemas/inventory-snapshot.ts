@@ -1,14 +1,6 @@
 import { z } from 'zod';
 import { zIsoDate } from './common.js';
-import {
-  SOURCE_IMPORT_RUN_FAILED_STATUS,
-  SourceImportStatusSchema,
-} from './source-import.js';
-import {
-  SellpiaInventoryGenerationSchema,
-  SellpiaInventoryQualityReportSchema,
-  SellpiaInventoryStoredCollectionTriggerSchema,
-} from './sellpia-inventory-freshness.js';
+import { SellpiaInventoryGenerationSchema } from './sellpia-inventory-freshness.js';
 
 export const InventorySkuStockStatusSchema = z.enum([
   'all',
@@ -64,7 +56,8 @@ export const InventorySkuSnapshotItemSchema = z.object({
   currentStock: z.number().int().nonnegative(),
   purchasePrice: z.number().int().nonnegative().nullable(),
   stockValue: z.number().int().nonnegative().nullable(),
-  lastImportRunId: z.string().uuid().nullable(),
+  /** 이 재고를 발행한 셀피아 재고 실행(`products.sellpia_inventory`). */
+  lastOperationId: z.string().uuid().nullable(),
   lastImportedAt: zIsoDate.nullable(),
   linkedChannelOptionCount: z.number().int().nonnegative(),
   linkedProductCount: z.number().int().nonnegative(),
@@ -164,51 +157,16 @@ export type InventorySkuSnapshotSummary = z.infer<
   typeof InventorySkuSnapshotSummarySchema
 >;
 
-export const SellpiaImportRunSummarySchema = z.object({
-  id: z.string().uuid(),
-  fileName: z.string().min(1).nullable(),
-  fileHash: z.string().regex(/^[a-f0-9]{64}$/).nullable(),
-  status: SourceImportStatusSchema,
-  rowCount: z.number().int().nonnegative(),
-  importedAt: zIsoDate.nullable(),
-  lastVerifiedAt: zIsoDate.nullable(),
-  verificationCount: z.number().int().nonnegative(),
-  lastTrigger: SellpiaInventoryStoredCollectionTriggerSchema.nullable(),
-  freshnessGeneration: SellpiaInventoryGenerationSchema.nullable(),
-  manualFreshExportConfirmedAt: zIsoDate.nullable(),
-  manualFreshExportConfirmedBy: z.string().uuid().nullable(),
-  qualityReport: SellpiaInventoryQualityReportSchema.nullable(),
-  errorCode: z.string().trim().min(1).max(100).nullable(),
-  errorMessage: z.string().trim().min(1).max(300).nullable(),
-  createdAt: zIsoDate,
-  updatedAt: zIsoDate,
-}).strict().superRefine((run, ctx) => {
-  const missingFileName = run.fileName === null;
-  const missingFileHash = run.fileHash === null;
-  // This read summary exposes legacy file provenance independently. A Sellpia
-  // JSON snapshot may retain fileName while fileHash stays null; the
-  // canonical source-import contract validates artifact pairing separately.
-  if (!missingFileName || !missingFileHash) return;
-  if (
-    run.status !== SOURCE_IMPORT_RUN_FAILED_STATUS
-    || run.rowCount !== 0
-    || run.importedAt !== null
-    || run.lastVerifiedAt !== null
-    || run.verificationCount !== 0
-    || run.manualFreshExportConfirmedAt !== null
-    || run.manualFreshExportConfirmedBy !== null
-    || run.qualityReport !== null
-    || run.errorCode === null
-    || run.errorMessage === null
-  ) {
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      path: ['fileName'],
-      message: 'Null file provenance is reserved for pre-download failures',
-    });
-  }
-});
-export type SellpiaImportRunSummary = z.infer<typeof SellpiaImportRunSummarySchema>;
+/**
+ * 지금 재고를 발행한 셀피아 재고 실행(ADR-0025) — 실행 id·완료 시각·완료 세대. 옛 import run 요약(파일·해시·품질
+ * 보고서)은 실행 계약으로 옮기며 없앴다(KID-361).
+ */
+export const SellpiaInventoryLatestCollectionSchema = z.object({
+  operationId: z.string().uuid(),
+  completedAt: zIsoDate,
+  generation: SellpiaInventoryGenerationSchema,
+}).strict();
+export type SellpiaInventoryLatestCollection = z.infer<typeof SellpiaInventoryLatestCollectionSchema>;
 
 export const InventorySkuSnapshotListResponseSchema = z.object({
   items: z.array(InventorySkuSnapshotItemSchema),
@@ -216,18 +174,9 @@ export const InventorySkuSnapshotListResponseSchema = z.object({
   page: z.number().int().positive(),
   limit: z.number().int().positive(),
   summary: InventorySkuSnapshotSummarySchema,
-  latestImport: SellpiaImportRunSummarySchema.nullable(),
+  latestCollection: SellpiaInventoryLatestCollectionSchema.nullable(),
 });
 export type InventorySkuSnapshotListResponse = z.infer<
   typeof InventorySkuSnapshotListResponseSchema
 >;
 
-export const SellpiaImportRunListResponseSchema = z.object({
-  items: z.array(SellpiaImportRunSummarySchema),
-  total: z.number().int().nonnegative(),
-  page: z.number().int().positive(),
-  limit: z.number().int().positive(),
-});
-export type SellpiaImportRunListResponse = z.infer<
-  typeof SellpiaImportRunListResponseSchema
->;
