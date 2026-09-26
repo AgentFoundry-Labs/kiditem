@@ -5422,7 +5422,8 @@ var KidItemRuntime = (() => {
     "lotte-on",
     "smartstore",
     "teacher-mall",
-    "kkomangse"
+    "kkomangse",
+    "onch"
   ];
   function isMallAdminListingOperationMall(mallKey) {
     return MALL_ADMIN_LISTING_OPERATION_MALLS.includes(mallKey);
@@ -10522,6 +10523,36 @@ var KidItemRuntime = (() => {
       reader: (mallKey) => isMallOrderOperationMall(mallKey) ? siteFactoryFor(mallKey)?.create(deps, lease) ?? null : null
     })
   });
+
+  // extensions/src/sites/onch/listings.ts
+  var ONCH_LISTINGS_URL = "https://www.onch3.co.kr/products_management.php";
+  var ONCH_LISTINGS_FILE = "content/orders/onch-listings.js";
+  var isOnchLogin = (url) => hostWithin(url, ["onch3.co.kr"]) && /login/i.test(url.pathname);
+  var ONCH_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["onch3.co.kr"]),
+    isLogin: isOnchLogin,
+    loginMessage: "\uC628\uCC44\uB110 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC628\uCC44\uB110 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  var ONCH_LOGIN = {
+    displayName: "\uC628\uCC44\uB110",
+    loginUrl: "https://www.onch3.co.kr/supplier/orders.php?state=all",
+    hosts: ["onch3.co.kr"],
+    isLoginUrl: isOnchLogin,
+    fields: ["loginId", "password"]
+  };
+  function createOnchListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "onch",
+        displayName: "\uC628\uCC44\uB110",
+        startUrl: ONCH_LISTINGS_URL,
+        file: ONCH_LISTINGS_FILE,
+        call: "onch.listings",
+        guard: ONCH_LISTINGS_GUARD
+      }, plan, signIn)
+    };
+  }
+  registerSite({ name: "onch", create: (deps, lease) => createOnchListings(deps.tabs, createSiteSignIn(ONCH_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/product-page/description.ts
   function parseDescriptionHtml(html) {

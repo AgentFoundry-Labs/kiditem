@@ -102,6 +102,13 @@ const MALLS: Row[] = [
     call: 'kkomangse.listings',
     loginAt: 'https://nstore.edupre.co.kr/subAdmin/login.php',
   },
+  {
+    mallKey: 'onch',
+    startUrl: 'https://www.onch3.co.kr/products_management.php',
+    isolated: 'content/orders/onch-listings.js',
+    call: 'onch.listings',
+    loginAt: 'https://www.onch3.co.kr/login/login_web.php',
+  },
 ];
 
 /** 로그인 폼 명세가 없는 몰(결정 #3). */

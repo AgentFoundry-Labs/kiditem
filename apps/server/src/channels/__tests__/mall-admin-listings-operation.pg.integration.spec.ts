@@ -109,8 +109,8 @@ describe('Mall admin listings over the operation contract (PG integration)', () 
     expect(kidkids).toMatchObject({ channelAccountId: KIDKIDS, latestAttempt: null, latestComplete: null, latestOperation: { id: begun.operation.id, status: 'executing' }, latestSucceeded: null });
   });
 
-  it('refuses a mall that has not moved to the operation, a mall without an account row, and a stale account', async () => {
-    await expect(begin('onch', ONCH)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'mall_admin_operation_mall_unsupported' } });
+  it('refuses a mall without a listing reader, a mall without an account row, and a stale account', async () => {
+    await expect(begin('boribori', ONCH)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'mall_admin_operation_mall_unsupported' } });
     await expect(begin('art09', KIDKIDS)).rejects.toMatchObject({ code: 'CHANNELS_ACCOUNT_NOT_FOUND' });
     await expect(begin('kidkids', ICECREAM)).rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'mall_admin_account_mismatch' } });
     const other = makeChannelsOperations(prisma, { organizationId: OTHER_ORG });
@@ -147,6 +147,46 @@ describe('Mall admin listings over the operation contract (PG integration)', () 
     expect(kidkids?.latestPublication).toEqual({ listings: 3, deactivated: 0, missingNames: 1, codedListings: 1, statuses: { 판매중: 1, 품절: 1, 보류: 1 } });
     expect(await prisma.sourceImportRun.count()).toBe(0);
     expect(await prisma.operationChunk.count()).toBe(0);
+  });
+
+  it('writes the listing and its one option in the mall admin shape, folding the mall status words (옛 시도 스펙에서, KID-381)', async () => {
+    await finish(await begin(), [
+      row(),
+      row({ mallProductCode: '1038722', productName: '5000방울(킬라)_16mm', sellpiaName: '5000방울(킬라)', statusWords: ['일시품절'] }),
+    ]);
+    const listings = await prisma.channelListing.findMany({
+      where: { organizationId: ORG, channelAccountId: KIDKIDS },
+      orderBy: { externalId: 'asc' },
+      select: {
+        externalId: true,
+        channelName: true,
+        status: true,
+        rawJson: true,
+        options: { select: { externalOptionId: true, itemName: true, sellerSku: true, salePrice: true, status: true, rawJson: true } },
+      },
+    });
+    expect(listings.map((listing) => [listing.externalId, listing.status])).toEqual([['1038722', '품절'], ['1098464', '판매중']]);
+    expect(listings[1]).toMatchObject({
+      channelName: '[키드아이템] 왁스팝 말랑이 1p 왁뿌',
+      rawJson: { source: 'mall_admin_listings', mallKey: 'kidkids', statusWords: ['정상'] },
+      options: [{
+        externalOptionId: '1098464',
+        itemName: '3000왁스팝 말랑이',
+        sellerSku: null,
+        salePrice: 1900,
+        status: '판매중',
+        rawJson: expect.objectContaining({ source: 'mall_admin_listings', sellpiaName: '3000왁스팝 말랑이' }),
+      }],
+    });
+  });
+
+  it('refreshes the listing image on every run and keeps it when a list gives none (KID-313 W3a)', async () => {
+    const image = () => prisma.channelListing.findFirstOrThrow({ where: { organizationId: ORG, externalId: '1098464' }, select: { imageUrl: true } });
+    await finish(await begin(), [row({ imageUrl: 'https://mall.example.com/first.jpg' })]);
+    await finish(await begin(), [row({ imageUrl: 'https://mall.example.com/second.jpg' })]);
+    await expect(image()).resolves.toEqual({ imageUrl: 'https://mall.example.com/second.jpg' });
+    await finish(await begin(), [row()]);
+    await expect(image()).resolves.toEqual({ imageUrl: 'https://mall.example.com/second.jpg' });
   });
 
   it('turns off only its own listings that left the list — not a Sabangnet or KidItem listing on the row', async () => {
@@ -213,6 +253,7 @@ describe('Mall admin listings over the operation contract (PG integration)', () 
   });
 
   it.each(MOVED_MALLS)('%s (KID-381): publishes its list once under its account lock, a re-run replaces the list, a failed run writes nothing', async (mallKey) => {
+    await prisma.channelAccount.deleteMany({ where: { organizationId: ORG, channel: mallKey } });
     const account = await prisma.channelAccount.create({
       data: { organizationId: ORG, channel: mallKey, externalAccountId: `${mallKey}-moved`, name: mallKey, status: 'configured' },
       select: { id: true },

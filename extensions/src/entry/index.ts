@@ -47,6 +47,7 @@ import '../sites/live-commerce';
 import '../sites/lotte-on/listings';
 import '../sites/mall-admin-listings';
 import '../sites/mall-orders';
+import '../sites/onch/listings';
 import '../sites/product-page';
 import '../sites/sabangnet';
 import '../sites/sellpia';
