@@ -23,6 +23,13 @@ describe('sellpiaInventoryState', () => {
     expect(stopped).toMatchObject({ status: 'complete', errorMessage: null, stopped: true });
   });
 
+  it('임대가 끝나 만료로 닫힌 실행은 울타리 사유(`expired`)가 아니라 코드의 한국어 문장을 보인다', () => {
+    const expired = sellpiaInventoryState(sellpiaInventoryFreshness(), {
+      operations: [sellpiaOperation({ status: 'failed', errorCode: 'OPERATION_FENCE_LOST', errorMessage: 'expired' }), done()],
+    });
+    expect(expired).toMatchObject({ status: 'failed', errorMessage: '이 실행은 더 이상 유효하지 않습니다. 다시 시작해 주세요.' });
+  });
+
   it('실행이 없거나 성공으로 끝났으면 발행 상태가 완료·미수집을 정하고 발행 실행 id·완료 시각을 싣는다', () => {
     expect(sellpiaInventoryState(sellpiaInventoryFreshness(), { operations: [done()] })).toEqual({
       status: 'complete',

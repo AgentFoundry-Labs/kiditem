@@ -249,6 +249,31 @@ describe('셀피아 재고 수집 상태', () => {
   });
 });
 
+describe('셀피아 수집 상태 — 만료', () => {
+  it('임대가 끝나 만료로 닫힌 셀피아 실행은 울타리 사유(`expired`)가 아니라 코드의 한국어 문장이 사유다', () => {
+    const view = stage(
+      buildPipeSnapshot(
+        inputs({
+          collectionStatus: {
+            data: {
+              status: 'failed',
+              lastCompletedAttemptId: null,
+              lastCompletedAt: null,
+              lastAttemptId: null,
+              lastAttempt: { errorCode: 'OPERATION_FENCE_LOST', errorMessage: 'expired', attemptedAt: ago(3) },
+              activeSync: null,
+            } as unknown as SellpiaInventoryCollectionStatusView,
+            failed: false,
+          },
+        }),
+      ).stages,
+      'inventory',
+    );
+    expect(view).toMatchObject({ state: 'failed', reason: '이 실행은 더 이상 유효하지 않습니다. 다시 시작해 주세요.' });
+    expect(view.reason).not.toContain('expired');
+  });
+});
+
 describe('몰 연결', () => {
   it('uses current browser login blocks and leaves the rest unknown', () => {
     const { connectors } = buildPipeSnapshot(
