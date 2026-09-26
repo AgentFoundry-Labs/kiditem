@@ -190,16 +190,20 @@ describe('SourceFailureAlerts — 실행 표의 실패를 알림으로 읽는다
   });
 
   it('임대가 끝났는데 처분되지 않은 실행: 시도를 다 썼으면 만료 실패 알림(끝난 시각 = 임대 만료), 남았으면 알림이 아니다', async () => {
-    const retrying = await finished({ status: 'executing', finishedAt: '2026-09-26T01:00:00Z', maxAttempts: 2 });
-    await expect(alerts.list(ORG)).resolves.toEqual([]);
+    // 두 실행은 따로 만든다 — 시도가 남은 실행은 어느 claim이 집어도 실패가 아니고, 다 쓴 실행은 claim 후보가 아니다.
+    await finished({ kind: WING_TRAFFIC_KIND, status: 'executing', finishedAt: '2026-09-26T01:00:00Z', maxAttempts: 2, plan: { channelAccountId: randomUUID() } });
+    const exhausted = await finished({ status: 'executing', finishedAt: '2026-09-26T01:00:00Z', maxAttempts: 1 });
 
-    await prisma.operation.update({ where: { id: retrying }, data: { maxAttempts: 1 } });
-    await expect(alerts.list(ORG)).resolves.toMatchObject([{
-      id: retrying,
+    const listed = await alerts.list(ORG);
+    expect(listed).toMatchObject([{
+      id: exhausted,
       status: 'OPEN',
+      sourceType: SELLPIA_INVENTORY_KIND,
       message: '이 실행은 더 이상 유효하지 않습니다. 다시 시작해 주세요.',
-      createdAt: '2026-09-26T01:00:00.000Z',
     }]);
+    // 아직 처분되지 않았으면 끝난 시각은 임대 만료 시각이다(처분됐으면 처분 시각).
+    const row = await prisma.operation.findUniqueOrThrow({ where: { id: exhausted } });
+    expect(listed[0]?.createdAt).toBe((row.finishedAt ?? row.expiresAt).toISOString());
   });
 
   it('성공과 실패가 같은 밀리초에 끝나도 뒤에 시작한 성공이 알림을 닫는다', async () => {
