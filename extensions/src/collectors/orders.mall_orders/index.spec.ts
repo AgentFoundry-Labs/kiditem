@@ -46,7 +46,7 @@ describe('collectors/orders.mall_orders — 몰 키로 그 몰 사이트를 골�
     const orders = Array.from({ length: 450 }, (_, index) => ({ om: `K-${index}`, items: [] }));
     const fake = fakeSite({ rows: orders });
     const chunks = await collectAll(PLAN, fake.site);
-    expect(fake.asked).toEqual([{ collectionDate: '2026-09-26', selectionMode: 'automatic', seenRowKeys: ['A'], signal: expect.any(AbortSignal) }]);
+    expect(fake.asked).toEqual([{ collectionDate: '2026-09-26', selectionMode: 'automatic', seenRowKeys: ['A'], signal: expect.any(AbortSignal), onAttention: expect.any(Function) }]);
     expect(chunks.map((chunk) => [chunk.chunkKind, chunk.payload.length])).toEqual([
       ['order_rows', 200],
       ['order_rows', 200],
@@ -65,6 +65,24 @@ describe('collectors/orders.mall_orders — 몰 키로 그 몰 사이트를 골�
     const empty = fakeSite({ rows: [] });
     await expect(collectAll(PLAN, empty.site)).resolves.toEqual([]);
     expect(empty.closed()).toBe(1);
+  });
+
+  it('몰이 운영자를 기다리면(GS샵 SMS 인증, KID-380) progress에 attention을 곧바로 올리고 풀리면 null로 올린다', async () => {
+    const reports: Array<Record<string, unknown>> = [];
+    const reader: MallOrderReader = {
+      async readOrders(input) {
+        await input.onAttention?.({ kind: 'verification', site: 'gs-shop', label: 'SMS 인증' });
+        await input.onAttention?.(null);
+        return { rows: [] };
+      },
+    };
+    const site: MallOrdersSite = { reader: () => reader };
+    const context = { signal: new AbortController().signal, tabId: null, report: async (progress: Record<string, unknown>) => { reports.push(progress); } };
+    for await (const chunk of mallOrdersCollector.collect({ ...PLAN, mallKey: 'gs-shop' } as never, site, context)) void chunk;
+    expect(reports).toEqual([
+      { mallKey: 'gs-shop', attention: { kind: 'verification', site: 'gs-shop', label: 'SMS 인증', since: expect.any(String) } },
+      { mallKey: 'gs-shop', attention: null },
+    ]);
   });
 
   it('이 빌드에 없는 몰이거나 plan이 틀리면 읽지 않고 RUNTIME_PLAN_INVALID', async () => {

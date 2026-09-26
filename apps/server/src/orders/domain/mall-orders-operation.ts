@@ -228,6 +228,7 @@ const MALL_CAPTURE_RULES: Partial<Record<MallOrderOperationMall, MallCaptureRule
   kkomangse: kkomangseRule,
   'teacher-mall': filePart('application/vnd.ms-excel'),
   boribori: filePart(XLSX_CONTENT_TYPE),
+  'gs-shop': filePart(XLSX_CONTENT_TYPE),
   'icecream-mall': icecreamRule,
 };
 

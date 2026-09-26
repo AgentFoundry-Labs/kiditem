@@ -22,9 +22,9 @@ describe('orders operation kinds (KID-359 wave2)', () => {
     });
     expect(scope.collectionDate).toBeNull();
     expect(MallOrdersScopeSchema.safeParse({ ...scope, seenRowKeys: ['x'.repeat(2_001)] }).success).toBe(false);
-    expect(MALL_ORDER_OPERATION_MALLS).toEqual(['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kkomangse', 'teacher-mall', 'boribori']);
+    expect(MALL_ORDER_OPERATION_MALLS).toEqual(['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kkomangse', 'teacher-mall', 'boribori', 'gs-shop']);
     expect(isMallOrderOperationMall('kidkids')).toBe(true);
-    expect(isMallOrderOperationMall('gsshop')).toBe(false);
+    expect(isMallOrderOperationMall('kakao')).toBe(false);
   });
 
   it('sellpia tracking scope rejects a reversed date range', () => {

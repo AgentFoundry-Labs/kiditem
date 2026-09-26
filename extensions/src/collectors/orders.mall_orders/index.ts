@@ -6,7 +6,7 @@ import {
 import { z } from 'zod';
 import { RuntimeError } from '../../core/errors';
 import { ChunkBuffer } from '../chunk-items';
-import type { Collector } from '../collector';
+import { attentionReporter, type Collector, type OperatorAttention } from '../collector';
 import { registerCollector } from '../index';
 
 /**
@@ -20,6 +20,8 @@ export interface MallOrderReader {
     seenRowKeys: string[];
     /** 실행이 중단되면 끊긴다 — 오래 기다리는 몰(도매꾹 엑셀 생성 폴링)이 본다. */
     signal?: AbortSignal;
+    /** 몰이 운영자를 기다리는 동안(GS샵 SMS 인증, KID-380) 알린다 — progress `attention`으로 올라간다. */
+    onAttention?(attention: OperatorAttention | null): void | Promise<void>;
   }): Promise<{ rows: unknown[]; continuation?: Record<string, unknown> }>;
   close?(): Promise<void>;
 }
@@ -48,7 +50,7 @@ const RUNTIME_PLAN_INVALID = 'RUNTIME_PLAN_INVALID' as const;
 export const mallOrdersCollector: Collector<MallOrdersPlan, Record<string, unknown>, MallOrdersSite> = {
   kind: MALL_ORDERS_KIND,
   site: 'mall-orders',
-  async *collect(rawPlan, site, { signal }) {
+  async *collect(rawPlan, site, { signal, report }) {
     const parsed = PlanSchema.safeParse(rawPlan);
     const reader = parsed.success && site ? site.reader(parsed.data.mallKey) : null;
     if (!parsed.success || !reader) {
@@ -64,6 +66,7 @@ export const mallOrdersCollector: Collector<MallOrdersPlan, Record<string, unkno
         selectionMode: plan.selectionMode ?? 'manual',
         seenRowKeys: plan.seenRowKeys ?? [],
         signal,
+        onAttention: attentionReporter(report, { mallKey: plan.mallKey }),
       });
       if (signal.aborted) return;
       const progress = { mallKey: plan.mallKey, rows: rows.length };

@@ -18,7 +18,6 @@ const AUTOMATIC_ACTIONS = [
   ['collectKidsnoteOrders', 'collectKidsnoteOrders', 'kidsnote', { from: '2026-07-14', to: '2026-07-15' }],
   ['collectOnchannelOrders', 'collectOnchannelOrders', 'onch', { date: '2026-07-15' }],
   ['collectLotteonOrders', 'collectLotteonOrders', 'lotte-on', { date: '2026-07-15' }],
-  ['collectGsshopOrders', 'collectGsshopOrders', 'gs-shop', { date: '2026-07-15' }],
   ['collectAlwayzOrders', 'collectAlwayzOrders', 'always', { date: '2026-07-15' }],
   ['collectKakaoOrders', 'collectKakaoOrders', 'kakao', { date: '2026-07-15' }],
   ['collectHaebeopOrders', 'collectHaebeopOrders', 'haebub-mall', { date: '2026-07-15' }],
@@ -592,17 +591,17 @@ test('every automatic mall access failure requires personal attention without fo
 
 test('structured operator authentication remains attention instead of a failed run', async () => {
   const runtime = loadWorker();
-  installCollectorResult(runtime, 'collectGsshopOrders', () => ({
+  installCollectorResult(runtime, 'collectKakaoOrders', () => ({
     success: false,
     pendingAuth: true,
     errorCode: 'operator_action_required',
-    error: 'GS샵 SMS 인증이 필요합니다.',
+    error: '카카오 본인 인증이 필요합니다.',
   }));
 
   const attemptId = uuid(200);
-  runtime.setSourceMallForAttempt(attemptId, 'gs-shop');
+  runtime.setSourceMallForAttempt(attemptId, 'kakao');
   const response = await dispatch(runtime.externalMessageListeners, {
-    action: 'collectGsshopOrders',
+    action: 'collectKakaoOrders',
     date: '2026-07-15',
     runId: attemptId,
   });
@@ -610,7 +609,7 @@ test('structured operator authentication remains attention instead of a failed r
   assert.equal(response.collectionSession.attention.reason, 'marketplace_login');
   assert.equal(response.collectionSession.attention.reason, 'marketplace_login');
   assert.equal(response.failure.code, 'operator_action_required');
-  assert.equal(response.failure.operatorAction, 'complete_sms_auth');
+  assert.equal(response.failure.operatorAction, 'complete_auth');
 });
 
 test('rerunning a collection resumes the owner attempt without a second lifecycle', async () => {
@@ -747,7 +746,6 @@ test('named mall reads create a fresh inactive tab even when a provider tab exis
     ['findOrCreateDomeggookTab', 'https://domeggook.com/sc/order/lstAll'],
     ['findOrCreateKidkidsTab', 'https://partner.kidkids.net/new/pages/logis/management.htm'],
     ['findOrCreateLotteonTab', 'https://store.lotteon.com/cm/main/index_SO.wsp'],
-    ['findOrCreateGsshopTab', 'https://partners.gsshop.com/logistics/partner-logistics-mng'],
     ['findOrCreateAlwayzTab', 'https://alwayzseller.ilevit.com/shippings'],
     ['findOrCreateKakaoTab', 'https://shopping-seller.kakao.com/order/seller/store-order/integrate/list'],
     ['findOrCreateHaebeopTab', 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php'],
@@ -799,7 +797,6 @@ test('every named mall collector uses the production attach-before-readiness pat
     ['collectKidsnoteOrders', [{ from: '2026-07-15', to: '2026-07-15' }]],
     ['collectOnchannelOrders', ['2026-07-15']],
     ['collectLotteonOrders', []],
-    ['collectGsshopOrders', []],
     ['collectAlwayzOrders', []],
     ['collectKakaoOrders', ['2026-07-15']],
     ['collectHaebeopOrders', [{}]],
