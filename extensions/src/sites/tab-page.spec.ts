@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { createTabPages, type PageGuard, type TabPageChrome } from './tab-page';
 
-function fakeChrome(options: { sendMessage: (message: unknown, call: number) => Promise<unknown>; statuses?: string[]; url?: string; urls?: string[] }) {
+function fakeChrome(options: { sendMessage: (message: unknown, call: number) => Promise<unknown>; statuses?: string[]; url?: string; urls?: string[]; openTabs?: Array<{ id?: number; url?: string; status?: string }> }) {
   const log: string[] = [];
   let sends = 0;
   let gets = 0;
@@ -14,7 +14,7 @@ function fakeChrome(options: { sendMessage: (message: unknown, call: number) => 
         gets += 1;
         return { status, url: options.urls?.[Math.min(gets - 1, options.urls.length - 1)] ?? options.url ?? 'https://s.1688.com/x' };
       },
-      query: async (query) => { log.push(`query ${query.url}`); return []; },
+      query: async (query) => { log.push(`query ${query.url}`); return options.openTabs ?? []; },
       remove: async (tabId) => { log.push(`remove ${tabId}`); },
       sendMessage: async (_tabId, message, sendOptions) => {
         sends += 1;
@@ -155,5 +155,30 @@ describe('chrome tab pages (KID-360)', () => {
       chromeApi.tabs.get = async () => { throw new Error('No tab'); };
       await expect(page.waitWhile(isPunish, {})).rejects.toMatchObject({ code: 'SITE_TAB_UNAVAILABLE' });
     });
+  });
+});
+
+describe('TabPages.find — 열린 탭 재사용 고르기(옛 borrowOpenTab과 같다)', () => {
+  it('로그인·인증 화면 탭을 건너뛰고 다 그려진 탭을 먼저 고르며, 고른 탭은 닫지 않는다', async () => {
+    const { chromeApi, log } = fakeChrome({
+      sendMessage: async () => ({ ok: true }),
+      openTabs: [
+        { id: 1, url: 'https://store.lotteon.com/login_SO.wsp', status: 'complete' },
+        { id: 2, url: 'https://store.lotteon.com/order/list', status: 'loading' },
+        { id: 3, url: 'https://store.lotteon.com/index_SO.wsp', status: 'complete' },
+      ],
+    });
+    const tabs = createTabPages({ chrome: chromeApi, fetch: async () => new Response(''), sleep: async () => undefined, now: () => 0 });
+    const found = await tabs.find('https://store.lotteon.com/*');
+    expect(found?.tabId).toBe(3);
+    await found?.close();
+    expect(log).toContain('query https://store.lotteon.com/*');
+    expect(log).not.toContain('remove 3');
+  });
+
+  it('맞는 탭이 없으면 null', async () => {
+    const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }), openTabs: [] });
+    const tabs = createTabPages({ chrome: chromeApi, fetch: async () => new Response(''), sleep: async () => undefined, now: () => 0 });
+    expect(await tabs.find('https://store.lotteon.com/*')).toBeNull();
   });
 });

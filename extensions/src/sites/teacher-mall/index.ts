@@ -4,6 +4,7 @@ import { callPage } from '../page-call';
 import { registerSite } from '../registry';
 import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login';
 import { hostWithin, type PageGuard, type TabPages } from '../tab-page';
+import { createTeacherListings } from './listings';
 
 /** 티쳐몰(퍼스트몰 selleradmin) 입점사배송 주문상품 리스트 — 엑셀 폼(excel_down_form)이 이 화면에만 있다. */
 export const TEACHER_MALL_ORDER_URL = 'https://shop.teacherville.co.kr/selleradmin/order/catalog';
@@ -42,6 +43,7 @@ export const TEACHER_MALL_LOGIN: LoginSpec = {
  */
 export function createTeacherMallSite(tabs: TabPages, signIn?: SiteSignIn) {
   return {
+    ...createTeacherListings(tabs, signIn),
     readOrders(): Promise<{ rows: unknown[] }> {
       return withFreshTab(tabs, TEACHER_MALL_ORDER_URL, async (page) => {
         const answer = await callPage<MallExcelAnswer>(page, 'teacher-mall.orders', {

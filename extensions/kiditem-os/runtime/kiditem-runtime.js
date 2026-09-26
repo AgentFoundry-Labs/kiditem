@@ -5407,10 +5407,6 @@ var KidItemRuntime = (() => {
     channelAccountId: external_exports.string().uuid(),
     mallKey: external_exports.string().min(1).max(64)
   }).strict();
-  var MALL_ADMIN_LISTING_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook"];
-  function isMallAdminListingOperationMall(mallKey) {
-    return MALL_ADMIN_LISTING_OPERATION_MALLS.includes(mallKey);
-  }
   var RocketMatchingCsvScopeSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
     fileName: external_exports.string().trim().min(1).max(240)
@@ -5499,33 +5495,29 @@ var KidItemRuntime = (() => {
     },
     /*
       사방넷으로만 가져오던 몰(사장님 2026-09-19 "사방넷 이제 안쓸거야 … 상품 가져오기 버튼들 들어오면 바로 동기화").
-      몰 상품코드는 사방넷이 쓰던 모양 그대로라 이미 이어진 리스팅 · 레시피를 그대로 쓴다. 이 몰들은 확장
-      1.2.22(`mallAdminListingsMallsV2`)부터 읽고, 첫 라이브에서 고친 롯데ON(거래처로 좁히기 · 로그인 탭 빌리기) · 스마트스토어 ·
-      티쳐몰은 1.2.23(`mallAdminListingsMallsV3`)부터 읽는다.
+      몰 상품코드는 사방넷이 쓰던 모양 그대로라 이미 이어진 리스팅 · 레시피를 그대로 쓴다. 이 몰들도 실행 kind
+      `channels.mall_admin_listings`로 가져온다(KID-381, 확장 `sites/<mallKey>/listings.ts`).
     */
     /** 도매꾹 상품공급사센터. 목록 조회를 500개씩(라이브 2026-09-19: 493개 = 1쪽). 몰 상품코드는 도매꾹 상품번호. */
     domeggook: {
       mallName: "\uB3C4\uB9E4\uAFB9",
       origin: "https://www.domeggook.com",
       pageSize: 500,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     /** 키즈노트(WISA). 판매 상품 내역을 100개씩(라이브 2026-09-19: 1,107개 = 12쪽). 몰 상품코드는 상품번호(pno). */
     kidsnote: {
       mallName: "\uD0A4\uC988\uB178\uD2B8",
       origin: "https://shop.kidsnote.com",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     /** 11번가 셀러오피스. 목록 조회를 100개씩 앞에서부터(라이브 2026-09-19: 900개). 전체 수를 따로 주지 않는다. */
     "11st": {
       mallName: "11\uBC88\uAC00",
       origin: "https://soffice.11st.co.kr",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     /**
      * 지마켓 · 옥션(ESM Plus). 마스터 상품 목록을 500개씩 읽고 그 사이트에 올라간 것만 고른다(라이브 2026-09-19: 마스터
@@ -5535,59 +5527,53 @@ var KidItemRuntime = (() => {
       mallName: "\uC9C0\uB9C8\uCF13",
       origin: "https://item.esmplus.com",
       pageSize: 500,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     auction: {
       mallName: "\uC625\uC158",
       origin: "https://item.esmplus.com",
       pageSize: 500,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     /** 카카오 톡스토어 판매자센터. 목록 API 를 100개씩(라이브 2026-09-19: 386개 = 4쪽). 몰 상품코드는 상품번호(id). */
     kakao: {
       mallName: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4",
       origin: "https://shopping-seller.kakao.com",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     /** 롯데ON 판매자센터. 상품 조회를 100개씩(화면 안에서). 몰 상품코드는 판매자상품번호(`LO…`). */
     "lotte-on": {
       mallName: "\uB86F\uB370ON",
       origin: "https://store.lotteon.com",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV3"
+      detailNames: false
     },
     /** 스마트스토어센터. 원상품 목록 검색을 100개씩(화면 안에서). 몰 상품코드는 채널상품번호(원상품번호는 다른 코드). */
     smartstore: {
       mallName: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4",
       origin: "https://sell.smartstore.naver.com",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV3"
+      detailNames: false
     },
     /** 티쳐몰(퍼스트몰 selleradmin). 판매상품 목록을 100개씩. 몰 상품코드는 상품번호(goods_seq). */
     "teacher-mall": {
       mallName: "\uD2F0\uCCD0\uBAB0",
       origin: "https://shop.teacherville.co.kr",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV3"
+      detailNames: false
     }
   };
   var MALL_ADMIN_LISTING_MALL_KEYS = Object.keys(
     MALL_ADMIN_LISTING_READERS
   );
+  function isMallAdminListingMallKey(value) {
+    return typeof value === "string" && Object.hasOwn(MALL_ADMIN_LISTING_READERS, value);
+  }
   var MallKeySchema = external_exports.enum(MALL_ADMIN_LISTING_MALL_KEYS);
   var YYYY_MM_DD = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var boundedText = (max) => external_exports.string().trim().max(max);
   var requiredText = (max) => boundedText(max).min(1);
-  var MallAdminListingsBeginSchema = external_exports.object({
-    mallKey: MallKeySchema
-  }).strict();
   var MallAdminListingsPlanSchema = external_exports.object({
     sourceType: external_exports.literal(MALL_ADMIN_LISTINGS_SOURCE_TYPE),
     parserVersion: external_exports.literal(MALL_ADMIN_LISTINGS_PARSER_VERSION),
@@ -5605,19 +5591,6 @@ var KidItemRuntime = (() => {
       ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["pageSize"], message: "Unexpected page size" });
     }
   });
-  var MallAdminListingsAttemptSchema = external_exports.object({
-    attemptId: external_exports.string().uuid(),
-    state: external_exports.enum(["RUNNING", "COMPLETE", "FAILED"]),
-    generation: external_exports.string().regex(/^\d+$/),
-    plan: MallAdminListingsPlanSchema,
-    expiresAt: external_exports.string().datetime(),
-    completedAt: external_exports.string().datetime().nullable(),
-    errorCode: boundedText(100).nullable(),
-    errorMessage: boundedText(300).nullable()
-  }).strict();
-  var MallAdminListingsControlSchema = MallAdminListingsAttemptSchema.extend({
-    attemptToken: external_exports.string().uuid()
-  }).strict();
   var MallAdminListingsPublicationSchema = external_exports.object({
     /** 이번에 받은 몰 상품코드 수. */
     listings: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
@@ -5640,16 +5613,9 @@ var KidItemRuntime = (() => {
     mallName: requiredText(40),
     /** 그 몰의 계정 행. 없으면 가져올 곳이 없다. */
     channelAccountId: external_exports.string().uuid().nullable(),
-    latestAttempt: MallAdminListingsAttemptSchema.nullable(),
-    latestComplete: MallAdminListingsAttemptSchema.nullable(),
-    /**
-     * `latestComplete`(실행 kind로 옮긴 몰은 `latestSucceeded`)가 남긴 결과.
-     */
+    /** `latestSucceeded`가 남긴 발행 결과. */
     latestPublication: MallAdminListingsPublicationSchema.nullable(),
-    /**
-     * 실행 kind(`channels.mall_admin_listings`, KID-363)로 옮긴 몰(`MALL_ADMIN_LISTING_OPERATION_MALLS`)의 최근 실행과 최근
-     * 성공 실행. 옮긴 몰은 옛 시도(`latestAttempt`·`latestComplete`)를 읽지 않아 그 둘이 null이고, 나머지 몰은 이 둘이 null이다.
-     */
+    /** 그 몰 계정의 `channels.mall_admin_listings` 최근 실행과 최근 성공 실행(KID-363·381). */
     latestOperation: OperationViewSchema.nullable(),
     latestSucceeded: OperationViewSchema.nullable()
   }).strict();
@@ -5680,7 +5646,6 @@ var KidItemRuntime = (() => {
     imageUrl: external_exports.string().url().max(2e3).optional()
   }).strict();
   var MallAdminListingsCollectionSchema = external_exports.object({
-    collectionRunId: external_exports.string().uuid(),
     /** 몰이 알린 전체 상품 수. */
     totalRecords: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
     /** 실제로 읽은 상품 줄 수. */
@@ -5691,18 +5656,13 @@ var KidItemRuntime = (() => {
     detailsRead: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
     detailsMissing: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT)
   }).strict();
-  var MallAdminListingsSubmissionSchema = external_exports.object({
+  var MallAdminListingsScanSchema = external_exports.object({
     collection: MallAdminListingsCollectionSchema,
-    rows: external_exports.array(MallAdminListingRowSchema).max(MALL_ADMIN_LISTING_ROW_LIMIT),
     proof: external_exports.object({
       mallKey: MallKeySchema,
       pageSize: external_exports.number().int().positive().max(2e4),
       validatedList: external_exports.literal(true)
     }).strict()
-  }).strict();
-  var MallAdminListingsScanSchema = external_exports.object({
-    collection: MallAdminListingsCollectionSchema.omit({ collectionRunId: true }),
-    proof: MallAdminListingsSubmissionSchema.shape.proof
   }).strict();
   var MallAdminListingsResultSchema = MallAdminListingsPublicationSchema.extend({
     rows: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT)
@@ -8408,6 +8368,7 @@ var KidItemRuntime = (() => {
     return cleared;
   }
   var POLL_MS = 250;
+  var LOGIN_LIKE_URL = /\/[^/?#]*(?:login|signin|sign-in|auth)/i;
   var MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
   function createTabPages(deps) {
     function page(tabId, owned) {
@@ -8513,8 +8474,10 @@ var KidItemRuntime = (() => {
       },
       attach: (tabId) => page(tabId, false),
       async find(urlPattern) {
-        const [existing] = await deps.chrome.tabs.query({ url: urlPattern });
-        return typeof existing?.id === "number" ? page(existing.id, false) : null;
+        const candidates = (await deps.chrome.tabs.query({ url: urlPattern })).filter((tab) => typeof tab.id === "number");
+        const usable = candidates.filter((tab) => !LOGIN_LIKE_URL.test(tab.url ?? ""));
+        const picked = usable.find((tab) => tab.status === "complete") ?? usable[0] ?? null;
+        return picked && typeof picked.id === "number" ? page(picked.id, false) : null;
       },
       async fetchText(url, init) {
         try {
@@ -8530,6 +8493,89 @@ var KidItemRuntime = (() => {
     return typeof value === "object" && value !== null && value.error === "content_script_missing";
   }
 
+  // extensions/src/sites/fresh-tab.ts
+  var NAVIGATION_TIMEOUT_MS = 3e4;
+  async function withFreshTab(tabs, url, read, options = {}) {
+    const reused = options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null;
+    const page = reused ?? await tabs.open("about:blank");
+    let keepOpen = false;
+    try {
+      if (!reused) await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS });
+      return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
+    } catch (error) {
+      if (leftForOperator(error)) keepOpen = true;
+      throw error;
+    } finally {
+      if (!keepOpen) await page.close();
+    }
+  }
+
+  // extensions/src/sites/page-call.ts
+  var PAGE_CALL_BRIDGE_FILE = "content/page-call/bridge.js";
+  var PAGE_CALL_RUNNER_FILE = "content/page-call/runner.js";
+  var PAGE_CALL_MESSAGE = "KIDITEM_PAGE_CALL";
+  async function callPage(page, call2, args, options) {
+    const answer = await page.ask(
+      { type: PAGE_CALL_MESSAGE, call: call2, args, ...options.isolatedOnly ? { world: "isolated" } : {} },
+      {
+        timeoutMs: options.timeoutMs,
+        guard: options.guard,
+        ...options.frameId !== void 0 ? { frameId: options.frameId } : {},
+        inject: {
+          isolated: [PAGE_CALL_BRIDGE_FILE, ...options.isolated ?? []],
+          // MAIN world 처리기가 있을 때만 러너를 넣는다(ISOLATED 처리기는 브리지가 바로 부른다).
+          ...options.main?.length ? { main: [PAGE_CALL_RUNNER_FILE, ...options.main] } : {}
+        }
+      }
+    );
+    if (answer.ok === true) return answer.value;
+    if (answer.error === "timeout") {
+      throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC774 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "timeout", call: call2 });
+    }
+    throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC5D0\uC11C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, {
+      status: null,
+      reason: "page_error",
+      call: call2
+    });
+  }
+
+  // extensions/src/sites/mall-listings.ts
+  var READ_TIMEOUT_MS = 20 * 6e4;
+  var NAVIGATION_TIMEOUT_MS2 = 45e3;
+  var MALL_CONTRACT_CHANGED3 = "MALL_CONTRACT_CHANGED";
+  var SOURCE_SNAPSHOT_INVALID4 = "SOURCE_SNAPSHOT_INVALID";
+  function readMallListings(tabs, spec, plan, signIn) {
+    const login = `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${spec.displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`;
+    return withFreshTab(tabs, spec.startUrl, async (page) => {
+      const answer = await callPage(page, spec.call, { plan }, {
+        timeoutMs: READ_TIMEOUT_MS,
+        guard: spec.guard,
+        ...spec.world === "main" ? { main: [spec.file] } : { isolated: [spec.file] },
+        displayName: spec.displayName
+      });
+      if (answer?.success === true) return answer.snapshot;
+      const stage = answer?.stage ?? null;
+      switch (answer?.errorCode) {
+        case "mall_login_required":
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, login, { url: spec.startUrl });
+        case "mall_contract_drift":
+          throw new RuntimeError(MALL_CONTRACT_CHANGED3, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.${stage ? ` [${stage}]` : ""}`, { stage, mallKey: spec.mallKey });
+        case "mall_total_changed":
+          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `\uC77D\uB294 \uC0AC\uC774 ${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`, { stage: "total_changed", mallKey: spec.mallKey });
+        case "mall_invalid_snapshot":
+          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { stage, mallKey: spec.mallKey });
+        case "mall_timeout":
+          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "timeout", bodyHead: null });
+        default:
+          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "network", bodyHead: null });
+      }
+    }, {
+      navigationTimeoutMs: NAVIGATION_TIMEOUT_MS2,
+      ...signIn ? { signIn } : {},
+      ...spec.reuseTabMatching ? { reuseTabMatching: spec.reuseTabMatching } : {}
+    });
+  }
+
   // extensions/src/sites/registry.ts
   var sites = /* @__PURE__ */ new Map();
   function registerSite(factory) {
@@ -8543,9 +8589,31 @@ var KidItemRuntime = (() => {
     return [...sites.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
   }
 
+  // extensions/src/sites/11st/listings.ts
+  var ST11_LISTINGS_URL = "https://soffice.11st.co.kr/view/8006";
+  var ST11_LISTINGS_FILE = "content/orders/11st-listings.js";
+  var ST11_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["11st.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["11st.co.kr"]) && (url.hostname.toLowerCase().startsWith("login.") || /login/i.test(url.pathname)),
+    loginMessage: "11\uBC88\uAC00 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 11\uBC88\uAC00 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  function create11stListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "11st",
+        displayName: "11\uBC88\uAC00",
+        startUrl: ST11_LISTINGS_URL,
+        file: ST11_LISTINGS_FILE,
+        call: "11st.listings",
+        guard: ST11_LISTINGS_GUARD
+      }, plan)
+    };
+  }
+  registerSite({ name: "11st", create: (deps) => create11stListings(deps.tabs) });
+
   // extensions/src/sites/1688/index.ts
   var SEARCH_ORIGIN = "https://s.1688.com";
-  var NAVIGATION_TIMEOUT_MS = 3e4;
+  var NAVIGATION_TIMEOUT_MS3 = 3e4;
   var EXTRACTION_TIMEOUT_MS = 2e4;
   var MAX_RESULTS_PER_KEYWORD = 20;
   var MAX_VERIFICATION_ROUNDS = 5;
@@ -8598,7 +8666,7 @@ var KidItemRuntime = (() => {
           });
         };
         for (let round = 1; ; round += 1) {
-          const landed = await current.navigate(build1688SearchUrl(keyword2), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
+          const landed = await current.navigate(build1688SearchUrl(keyword2), { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt: is1688VerificationUrl, continueOnTimeout: true });
           if (is1688VerificationUrl(landed)) {
             if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword2, () => {
               keepOpen = true;
@@ -8645,25 +8713,9 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: ALIBABA_1688_SITE.name, create: (deps) => create1688SearchSite(deps.tabs) });
 
-  // extensions/src/sites/fresh-tab.ts
-  var NAVIGATION_TIMEOUT_MS2 = 3e4;
-  async function withFreshTab(tabs, url, read, options = {}) {
-    const page = (options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null) ?? await tabs.open("about:blank");
-    let keepOpen = false;
-    try {
-      await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS2 });
-      return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
-    } catch (error) {
-      if (leftForOperator(error)) keepOpen = true;
-      throw error;
-    } finally {
-      if (!keepOpen) await page.close();
-    }
-  }
-
   // extensions/src/sites/mall-excel.ts
   var MALL_FILE_PART_CHARS = 7e5;
-  var MALL_CONTRACT_CHANGED3 = "MALL_CONTRACT_CHANGED";
+  var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
   var OPERATOR_ACTION_REQUIRED = "OPERATOR_ACTION_REQUIRED";
   function filePartRows(fileName, base642, partChars = MALL_FILE_PART_CHARS) {
     const parts = Math.max(1, Math.ceil(base642.length / partChars));
@@ -8688,7 +8740,7 @@ var KidItemRuntime = (() => {
       throw new RuntimeError(SITE_LOGIN_REQUIRED, message, { url: context.url });
     }
     if (answer?.errorCode === "provider_contract_changed") {
-      throw new RuntimeError(MALL_CONTRACT_CHANGED3, message, { url: context.url });
+      throw new RuntimeError(MALL_CONTRACT_CHANGED4, message, { url: context.url });
     }
     if (answer?.pendingAuth === true || answer?.errorCode === "operator_action_required") {
       throw new RuntimeError(OPERATOR_ACTION_REQUIRED, message, { url: context.url });
@@ -8700,39 +8752,26 @@ var KidItemRuntime = (() => {
     });
   }
 
-  // extensions/src/sites/page-call.ts
-  var PAGE_CALL_BRIDGE_FILE = "content/page-call/bridge.js";
-  var PAGE_CALL_RUNNER_FILE = "content/page-call/runner.js";
-  var PAGE_CALL_MESSAGE = "KIDITEM_PAGE_CALL";
-  async function callPage(page, call2, args, options) {
-    const answer = await page.ask(
-      { type: PAGE_CALL_MESSAGE, call: call2, args, ...options.isolatedOnly ? { world: "isolated" } : {} },
-      {
-        timeoutMs: options.timeoutMs,
-        guard: options.guard,
-        ...options.frameId !== void 0 ? { frameId: options.frameId } : {},
-        inject: {
-          isolated: [PAGE_CALL_BRIDGE_FILE, ...options.isolated ?? []],
-          // MAIN world 처리기가 있을 때만 러너를 넣는다(ISOLATED 처리기는 브리지가 바로 부른다).
-          ...options.main?.length ? { main: [PAGE_CALL_RUNNER_FILE, ...options.main] } : {}
-        }
-      }
-    );
-    if (answer.ok === true) return answer.value;
-    if (answer.error === "timeout") {
-      throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC774 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "timeout", call: call2 });
-    }
-    throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC5D0\uC11C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, {
-      status: null,
-      reason: "page_error",
-      call: call2
-    });
+  // extensions/src/sites/always/listings.ts
+  var ALWAYS_LISTINGS_URL = "https://alwayzseller.ilevit.com/items/management";
+  var ALWAYS_LISTINGS_FILE = "content/orders/always-listings.js";
+  function createAlwaysListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "always",
+        displayName: "\uC62C\uC6E8\uC774\uC988",
+        startUrl: ALWAYS_LISTINGS_URL,
+        file: ALWAYS_LISTINGS_FILE,
+        call: "always.listings",
+        guard: ALWAYS_PAGE_GUARD
+      }, plan)
+    };
   }
 
   // extensions/src/sites/always/index.ts
   var ALWAYS_ORDER_URL = "https://alwayzseller.ilevit.com/shippings";
   var ALWAYS_ORDERS_FILE = "content/page-call/always-orders.js";
-  var READ_TIMEOUT_MS = 12e4;
+  var READ_TIMEOUT_MS2 = 12e4;
   var LOGIN_MESSAGE = "\uC62C\uC6E8\uC774\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC62C\uC6E8\uC774\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
   var ALWAYS_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["alwayzseller.ilevit.com"]),
@@ -8741,10 +8780,11 @@ var KidItemRuntime = (() => {
   };
   function createAlwaysSite(tabs) {
     return {
+      ...createAlwaysListings(tabs),
       readOrders() {
         return withFreshTab(tabs, ALWAYS_ORDER_URL, async (page) => {
           const answer = await callPage(page, "always.orders", {}, {
-            timeoutMs: READ_TIMEOUT_MS,
+            timeoutMs: READ_TIMEOUT_MS2,
             guard: ALWAYS_PAGE_GUARD,
             main: [ALWAYS_ORDERS_FILE],
             displayName: "\uC62C\uC6E8\uC774\uC988"
@@ -8763,7 +8803,7 @@ var KidItemRuntime = (() => {
   var FILL_RETRY_MS = 500;
   var AFTER_SUBMIT_MS = 1500;
   var AFTER_REDIRECT_MS = 1200;
-  var NAVIGATION_TIMEOUT_MS3 = 3e4;
+  var NAVIGATION_TIMEOUT_MS4 = 3e4;
   var CALL_TIMEOUT_MS = 5e3;
   var REMAIN_CHECKS = 3;
   var REMAIN_CHECK_GAP_MS = 1500;
@@ -8774,7 +8814,7 @@ var KidItemRuntime = (() => {
     if (isVerification(spec, await safeUrl(page))) return { status: "verification_required" };
     const first = await loginFrame(page);
     if (first === null && !isLogin(spec, await safeUrl(page))) {
-      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS3, continueOnTimeout: true });
+      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS4, continueOnTimeout: true });
     }
     const deadline = deps.now() + (options.timeoutMs ?? LOGIN_FILL_WINDOW_MS);
     const watching = /* @__PURE__ */ new Set();
@@ -8911,7 +8951,7 @@ var KidItemRuntime = (() => {
     return {
       onPage: (page, returnTo, read) => withLogin(read, async () => {
         const outcome = await login(page);
-        if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
+        if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS4 });
         return outcome;
       }),
       beforeTab: (tabs, call2) => withLoginTab(withLogin, call2, () => tabs.open("about:blank"), login)
@@ -8948,39 +8988,6 @@ var KidItemRuntime = (() => {
       reason,
       ...mallMessage ? { mallMessage } : {}
     }, error);
-  }
-
-  // extensions/src/sites/mall-listings.ts
-  var READ_TIMEOUT_MS2 = 20 * 6e4;
-  var NAVIGATION_TIMEOUT_MS4 = 45e3;
-  var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
-  var SOURCE_SNAPSHOT_INVALID4 = "SOURCE_SNAPSHOT_INVALID";
-  function readMallListings(tabs, spec, plan, signIn) {
-    const login = `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${spec.displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`;
-    return withFreshTab(tabs, spec.startUrl, async (page) => {
-      const answer = await callPage(page, spec.call, { plan }, {
-        timeoutMs: READ_TIMEOUT_MS2,
-        guard: spec.guard,
-        isolated: [spec.file],
-        displayName: spec.displayName
-      });
-      if (answer?.success === true) return answer.snapshot;
-      const stage = answer?.stage ?? null;
-      switch (answer?.errorCode) {
-        case "mall_login_required":
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, login, { url: spec.startUrl });
-        case "mall_contract_drift":
-          throw new RuntimeError(MALL_CONTRACT_CHANGED4, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.${stage ? ` [${stage}]` : ""}`, { stage, mallKey: spec.mallKey });
-        case "mall_total_changed":
-          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `\uC77D\uB294 \uC0AC\uC774 ${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`, { stage: "total_changed", mallKey: spec.mallKey });
-        case "mall_invalid_snapshot":
-          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { stage, mallKey: spec.mallKey });
-        case "mall_timeout":
-          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "timeout", bodyHead: null });
-        default:
-          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "network", bodyHead: null });
-      }
-    }, { navigationTimeoutMs: NAVIGATION_TIMEOUT_MS4, ...signIn ? { signIn } : {} });
   }
 
   // extensions/src/sites/art09/listings.ts
@@ -9044,6 +9051,33 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "art09", create: (deps, lease) => createArt09Site(deps.tabs, createSiteSignIn(ART09_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/gmarket/listings.ts
+  var ESM_LISTINGS_URL = "https://item.esmplus.com/goods/list";
+  var ESM_LISTINGS_FILE = "content/orders/esm-listings.js";
+  function esmListingsGuard(displayName) {
+    return {
+      allows: (url) => hostWithin(url, ["esmplus.com"]),
+      isLogin: (url) => hostWithin(url, ["esmplus.com"]) && (url.hostname.toLowerCase().startsWith("signin.") || /login|signin/i.test(url.pathname)),
+      loginMessage: `${displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ESM Plus \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`
+    };
+  }
+  function createEsmListings(tabs, mallKey, displayName) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey,
+        displayName,
+        startUrl: ESM_LISTINGS_URL,
+        file: ESM_LISTINGS_FILE,
+        call: "esm.listings",
+        guard: esmListingsGuard(displayName)
+      }, plan)
+    };
+  }
+  registerSite({ name: "gmarket", create: (deps) => createEsmListings(deps.tabs, "gmarket", "\uC9C0\uB9C8\uCF13") });
+
+  // extensions/src/sites/auction/listings.ts
+  registerSite({ name: "auction", create: (deps) => createEsmListings(deps.tabs, "auction", "\uC625\uC158") });
 
   // extensions/src/sites/boribori/index.ts
   var BORIBORI_ORDER_URL = "https://seller-club.co.kr/order/orderDeliList";
@@ -10344,6 +10378,28 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "icecream-mall", create: (deps, lease) => createIcecreamMallSite(deps.tabs, deps.sleep, createSiteSignIn(ICECREAM_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/kakao/listings.ts
+  var KAKAO_LISTINGS_URL = "https://shopping-seller.kakao.com/product/store-seller/list";
+  var KAKAO_LISTINGS_FILE = "content/orders/kakao-listings.js";
+  var KAKAO_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["shopping-seller.kakao.com"]),
+    isLogin: (url) => hostWithin(url, ["kakao.com"]) && (url.hostname.toLowerCase().startsWith("accounts.") || /login/i.test(url.pathname)),
+    loginMessage: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  function createKakaoListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "kakao",
+        displayName: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4",
+        startUrl: KAKAO_LISTINGS_URL,
+        file: KAKAO_LISTINGS_FILE,
+        call: "kakao.listings",
+        guard: KAKAO_LISTINGS_GUARD
+      }, plan)
+    };
+  }
+  registerSite({ name: "kakao", create: (deps) => createKakaoListings(deps.tabs) });
+
   // extensions/src/sites/kidkids/listings.ts
   var KIDKIDS_LISTINGS_URL = "https://partner.kidkids.net/sales/goods_list_renewal.htm?pNum=1";
   var KIDKIDS_LISTINGS_FILE = "content/orders/kidkids-listings.js";
@@ -10403,6 +10459,52 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "kidkids", create: (deps, lease) => createKidkidsSite(deps.tabs, createSiteSignIn(KIDKIDS_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/kidsnote/listings.ts
+  var KIDSNOTE_LISTINGS_URL = "https://shop.kidsnote.com/_manage/?body=2010";
+  var KIDSNOTE_LISTINGS_FILE = "content/orders/kidsnote-listings.js";
+  var isKidsnoteLogin = (url) => hostWithin(url, ["kidsnote.com"]) && /login/i.test(url.pathname + url.search);
+  var KIDSNOTE_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["kidsnote.com"]),
+    isLogin: isKidsnoteLogin,
+    loginMessage: "\uD0A4\uC988\uB178\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0A4\uC988\uB178\uD2B8 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  var KIDSNOTE_LOGIN = {
+    displayName: "\uD0A4\uC988\uB178\uD2B8",
+    loginUrl: "https://shop.kidsnote.com/_manage/?body=3010",
+    hosts: ["kidsnote.com"],
+    isLoginUrl: isKidsnoteLogin,
+    fields: ["loginId", "password"]
+  };
+  function createKidsnoteListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "kidsnote",
+        displayName: "\uD0A4\uC988\uB178\uD2B8",
+        startUrl: KIDSNOTE_LISTINGS_URL,
+        file: KIDSNOTE_LISTINGS_FILE,
+        call: "kidsnote.listings",
+        guard: KIDSNOTE_LISTINGS_GUARD
+      }, plan, signIn)
+    };
+  }
+  registerSite({ name: "kidsnote", create: (deps, lease) => createKidsnoteListings(deps.tabs, createSiteSignIn(KIDSNOTE_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/kkomangse/listings.ts
+  var KKOMANGSE_LISTINGS_URL = "https://nstore.edupre.co.kr/subAdmin/_product.list.php";
+  var KKOMANGSE_LISTINGS_FILE = "content/orders/kkomangse-listings.js";
+  function createKkomangseListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "kkomangse",
+        displayName: "\uAF2C\uB9DD\uC138",
+        startUrl: KKOMANGSE_LISTINGS_URL,
+        file: KKOMANGSE_LISTINGS_FILE,
+        call: "kkomangse.listings",
+        guard: KKOMANGSE_PAGE_GUARD
+      }, plan, signIn)
+    };
+  }
+
   // extensions/src/sites/kkomangse/index.ts
   var KKOMANGSE_ORDER_URL = "https://nstore.edupre.co.kr/subAdmin/_order_product.list.php?mode=search&pass_input_type=all&st=o_rdate&so=desc&listmaxcount=1000";
   var KKOMANGSE_ORDERS_FILE = "content/page-call/kkomangse-orders.js";
@@ -10422,6 +10524,7 @@ var KidItemRuntime = (() => {
   };
   function createKkomangseSite(tabs, signIn) {
     return {
+      ...createKkomangseListings(tabs, signIn),
       readOrders() {
         return withFreshTab(tabs, KKOMANGSE_ORDER_URL, async (page) => {
           const answer = await callPage(page, "kkomangse.orders", {}, {
@@ -10525,6 +10628,24 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: LIVE_COMMERCE_SITE.name, create: (deps) => createLiveCommerceSite(deps.tabs) });
 
+  // extensions/src/sites/lotte-on/listings.ts
+  var LOTTEON_LISTINGS_URL = "https://store.lotteon.com/cm/main/index_SO.wsp";
+  var LOTTEON_LISTINGS_FILE = "content/orders/lotte-on-listings.js";
+  function createLotteonListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "lotte-on",
+        displayName: "\uB86F\uB370ON",
+        startUrl: LOTTEON_LISTINGS_URL,
+        file: LOTTEON_LISTINGS_FILE,
+        call: "lotte-on.listings",
+        world: "main",
+        reuseTabMatching: LOTTE_ON_TAB_PATTERN,
+        guard: LOTTE_ON_PAGE_GUARD
+      }, plan, signIn)
+    };
+  }
+
   // extensions/src/sites/lotte-on/index.ts
   var LOTTE_ON_ORDER_URL = "https://store.lotteon.com/cm/main/index_SO.wsp";
   var LOTTE_ON_LOGIN_URL = "https://store.lotteon.com/cm/main/login_SO.wsp";
@@ -10549,6 +10670,7 @@ var KidItemRuntime = (() => {
   };
   function createLotteOnSite(tabs, signIn) {
     return {
+      ...createLotteonListings(tabs, signIn),
       readOrders() {
         return withFreshTab(tabs, LOTTE_ON_ORDER_URL, async (page) => {
           const answer = await callPage(page, "lotte-on.orders", { downloadReason: LOTTE_ON_DOWNLOAD_REASON }, {
@@ -10575,7 +10697,7 @@ var KidItemRuntime = (() => {
     name: MALL_ADMIN_LISTINGS_SITE,
     opensOwnTabs: true,
     create: (deps, lease) => ({
-      reader: (mallKey) => isMallAdminListingOperationMall(mallKey) ? siteFactoryFor(mallKey)?.create(deps, lease) ?? null : null
+      reader: (mallKey) => isMallAdminListingMallKey(mallKey) ? siteFactoryFor(mallKey)?.create(deps, lease) ?? null : null
     })
   });
 
@@ -10588,6 +10710,36 @@ var KidItemRuntime = (() => {
       reader: (mallKey) => isMallOrderOperationMall(mallKey) ? siteFactoryFor(mallKey)?.create(deps, lease) ?? null : null
     })
   });
+
+  // extensions/src/sites/onch/listings.ts
+  var ONCH_LISTINGS_URL = "https://www.onch3.co.kr/products_management.php";
+  var ONCH_LISTINGS_FILE = "content/orders/onch-listings.js";
+  var isOnchLogin = (url) => hostWithin(url, ["onch3.co.kr"]) && /login/i.test(url.pathname);
+  var ONCH_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["onch3.co.kr"]),
+    isLogin: isOnchLogin,
+    loginMessage: "\uC628\uCC44\uB110 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC628\uCC44\uB110 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  var ONCH_LOGIN = {
+    displayName: "\uC628\uCC44\uB110",
+    loginUrl: "https://www.onch3.co.kr/supplier/orders.php?state=all",
+    hosts: ["onch3.co.kr"],
+    isLoginUrl: isOnchLogin,
+    fields: ["loginId", "password"]
+  };
+  function createOnchListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "onch",
+        displayName: "\uC628\uCC44\uB110",
+        startUrl: ONCH_LISTINGS_URL,
+        file: ONCH_LISTINGS_FILE,
+        call: "onch.listings",
+        guard: ONCH_LISTINGS_GUARD
+      }, plan, signIn)
+    };
+  }
+  registerSite({ name: "onch", create: (deps, lease) => createOnchListings(deps.tabs, createSiteSignIn(ONCH_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/product-page/description.ts
   function parseDescriptionHtml(html) {
@@ -11093,6 +11245,45 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "sellpia", opensOwnTabs: true, create: (deps) => createSellpiaSite(deps.tabs) });
 
+  // extensions/src/sites/smartstore/listings.ts
+  var SMARTSTORE_LISTINGS_URL = "https://sell.smartstore.naver.com/#/products/origin-list";
+  var SMARTSTORE_LISTINGS_FILE = "content/orders/smartstore-listings.js";
+  var SMARTSTORE_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["sell.smartstore.naver.com"]),
+    isLogin: (url) => hostWithin(url, ["accounts.commerce.naver.com", "nid.naver.com"]) || hostWithin(url, ["naver.com"]) && /login/i.test(url.pathname),
+    loginMessage: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4\uC13C\uD130 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  function createSmartstoreListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "smartstore",
+        displayName: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4",
+        startUrl: SMARTSTORE_LISTINGS_URL,
+        file: SMARTSTORE_LISTINGS_FILE,
+        call: "smartstore.listings",
+        world: "main",
+        guard: SMARTSTORE_LISTINGS_GUARD
+      }, plan)
+    };
+  }
+  registerSite({ name: "smartstore", create: (deps) => createSmartstoreListings(deps.tabs) });
+
+  // extensions/src/sites/teacher-mall/listings.ts
+  var TEACHER_LISTINGS_URL = "https://shop.teacherville.co.kr/selleradmin/goods/catalog";
+  var TEACHER_LISTINGS_FILE = "content/orders/teacher-mall-listings.js";
+  function createTeacherListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "teacher-mall",
+        displayName: "\uD2F0\uCCD0\uBAB0",
+        startUrl: TEACHER_LISTINGS_URL,
+        file: TEACHER_LISTINGS_FILE,
+        call: "teacher-mall.listings",
+        guard: TEACHER_MALL_PAGE_GUARD
+      }, plan, signIn)
+    };
+  }
+
   // extensions/src/sites/teacher-mall/index.ts
   var TEACHER_MALL_ORDER_URL = "https://shop.teacherville.co.kr/selleradmin/order/catalog";
   var TEACHER_MALL_ORDERS_FILE = "content/page-call/teacher-mall-orders.js";
@@ -11115,6 +11306,7 @@ var KidItemRuntime = (() => {
   };
   function createTeacherMallSite(tabs, signIn) {
     return {
+      ...createTeacherListings(tabs, signIn),
       readOrders() {
         return withFreshTab(tabs, TEACHER_MALL_ORDER_URL, async (page) => {
           const answer = await callPage(page, "teacher-mall.orders", {
@@ -11133,6 +11325,28 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "teacher-mall", create: (deps, lease) => createTeacherMallSite(deps.tabs, createSiteSignIn(TEACHER_MALL_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/thirtymall/listings.ts
+  var THIRTYMALL_LISTINGS_URL = "https://partner.shopby.co.kr/product/list";
+  var THIRTYMALL_LISTINGS_FILE = "content/orders/thirtymall-listings.js";
+  var THIRTYMALL_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["shopby.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["shopby.co.kr"]) && /login/i.test(url.pathname),
+    loginMessage: "\uB5A0\uB9AC\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uB5A0\uB9AC\uBAB0 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  function createThirtymallListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "thirtymall",
+        displayName: "\uB5A0\uB9AC\uBAB0",
+        startUrl: THIRTYMALL_LISTINGS_URL,
+        file: THIRTYMALL_LISTINGS_FILE,
+        call: "thirtymall.listings",
+        guard: THIRTYMALL_LISTINGS_GUARD
+      }, plan)
+    };
+  }
+  registerSite({ name: "thirtymall", create: (deps) => createThirtymallListings(deps.tabs) });
 
   // extensions/src/sites/tiktok-cc/index.ts
   var NAVIGATION_TIMEOUT_MS11 = 35e3;

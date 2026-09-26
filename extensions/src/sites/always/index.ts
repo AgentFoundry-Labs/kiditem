@@ -3,6 +3,7 @@ import { mallExcelRows, type MallExcelAnswer } from '../mall-excel';
 import { callPage } from '../page-call';
 import { registerSite } from '../registry';
 import { hostWithin, type PageGuard, type TabPages } from '../tab-page';
+import { createAlwaysListings } from './listings';
 
 /** 올웨이즈 판매자센터 배송관리 — "팀모집완료(엑셀추출 이전)" 주문을 앱이 xlsx로 조립해 `URL.createObjectURL`로 내려준다. */
 export const ALWAYS_ORDER_URL = 'https://alwayzseller.ilevit.com/shippings';
@@ -29,6 +30,7 @@ export const ALWAYS_PAGE_GUARD: PageGuard = {
  */
 export function createAlwaysSite(tabs: TabPages) {
   return {
+    ...createAlwaysListings(tabs),
     readOrders(): Promise<{ rows: unknown[] }> {
       return withFreshTab(tabs, ALWAYS_ORDER_URL, async (page) => {
         const answer = await callPage<MallExcelAnswer>(page, 'always.orders', {}, {

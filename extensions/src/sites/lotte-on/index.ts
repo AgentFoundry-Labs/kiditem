@@ -4,6 +4,7 @@ import { callPage } from '../page-call';
 import { registerSite } from '../registry';
 import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login';
 import { hostWithin, type PageGuard, type TabPages } from '../tab-page';
+import { createLotteonListings } from './listings';
 
 /** 롯데ON 판매자센터 첫 화면. 로그아웃이면 `login_SO.wsp`로 넘어간다(2026-09-16 실측). */
 export const LOTTE_ON_ORDER_URL = 'https://store.lotteon.com/cm/main/index_SO.wsp';
@@ -42,14 +43,16 @@ export const LOTTE_ON_LOGIN: LoginSpec = {
 
 /**
  * 롯데ON 주문 읽기(KID-380, `orders.mall_orders`, 옛 worker.js `collectLotteonOrders` 이식). soapi 토큰이 탭별
- * sessionStorage(`AuthToken`)라 열린 판매자센터 탭을 재사용한다(`withFreshTab` `reuseTabMatching` — 운영자 탭이라 옮기지도
- * 닫지도 않는다, 옛 `borrowOpenTab`). 읽기는 soapi 요청뿐이라 그 탭이 어느 판매자센터 화면에 있든 된다.
+ * sessionStorage(`AuthToken`)라 열린 판매자센터 탭을 재사용한다(`withFreshTab` `reuseTabMatching`: 운영자 탭이라 그 화면에서
+ * 옮기지 않고 닫지도 않는다 — 옛 `borrowOpenTab`, `TabPages.find`는 로그인 화면이 아닌 다 그린 탭을 먼저 고른다). 읽기는
+ * soapi 요청뿐이라 그 탭이 어느 판매자센터 화면에 있든 된다.
  * 열린 탭이 없으면 새 탭을 여는데, 새 탭에는 토큰이 없어 로그인 화면으로 넘어가므로 실행 자격으로 그 탭에서 한 번 로그인한 뒤
  * 읽는다(자격이 없으면 SITE_LOGIN_REQUIRED로 탭을 남긴다). ISOLATED 처리기(`content/page-call/lotte-on-orders.js`, 옛
  * `scrapeLotteonOrders`)가 다운로드 사유 등록 → 신규주문 엑셀 요청 → 파일을 받아 base64로 돌려준다. 읽기만 한다.
  */
 export function createLotteOnSite(tabs: TabPages, signIn?: SiteSignIn) {
   return {
+    ...createLotteonListings(tabs, signIn),
     readOrders(): Promise<{ rows: unknown[] }> {
       return withFreshTab(tabs, LOTTE_ON_ORDER_URL, async (page) => {
         const answer = await callPage<MallExcelAnswer>(page, 'lotte-on.orders', { downloadReason: LOTTE_ON_DOWNLOAD_REASON }, {

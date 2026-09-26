@@ -4,6 +4,7 @@ import { callPage } from '../page-call';
 import { registerSite } from '../registry';
 import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login';
 import { hostWithin, type PageGuard, type TabPages } from '../tab-page';
+import { createKkomangseListings } from './listings';
 
 /** 꼬망세(EduPre) 입점관리자 전체주문 — listmaxcount를 크게 두어 검색결과 전부(옛 worker.js `KKOMANGSE_ORDER_URL`). */
 export const KKOMANGSE_ORDER_URL =
@@ -36,6 +37,7 @@ export const KKOMANGSE_LOGIN: LoginSpec = {
  */
 export function createKkomangseSite(tabs: TabPages, signIn?: SiteSignIn) {
   return {
+    ...createKkomangseListings(tabs, signIn),
     readOrders(): Promise<{ rows: unknown[] }> {
       return withFreshTab(tabs, KKOMANGSE_ORDER_URL, async (page) => {
         const answer = await callPage<MallExcelAnswer>(page, 'kkomangse.orders', {}, {

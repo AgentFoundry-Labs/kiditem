@@ -29,10 +29,10 @@ describe('sites/lotte-on — 롯데ON 판매자센터 신규주문 엑셀(soapi)
   });
 
   it('열린 판매자센터 탭을 재사용해(탭별 sessionStorage 토큰) 그 탭의 ISOLATED 처리기로 읽고, 운영자 탭은 닫지 않는다', async () => {
-    // 재사용한 탭은 어느 판매자센터 화면에 있든 읽는다(soapi 요청만 — 화면 주소에 기대지 않는다). wave4 골격의 `withFreshTab`은
-    // 재사용 탭을 옮기지 않으므로(옛 borrowOpenTab과 같다) 주소 이동 기록은 보지 않는다.
+    // 재사용한 탭은 옮기지 않고(옛 borrowOpenTab) 어느 판매자센터 화면에 있든 읽는다 — soapi 요청만이라 화면 주소에 기대지 않는다.
     const asked: Array<Record<string, unknown>> = [];
     const fake = fakeTabPages({
+      currentUrl: 'https://store.lotteon.com/po/product/list',
       existingTab: (pattern) => (pattern === LOTTE_ON_TAB_PATTERN ? 11 : null),
       answer: (message, injected) => {
         asked.push(message);
@@ -43,7 +43,7 @@ describe('sites/lotte-on — 롯데ON 판매자센터 신규주문 엑셀(soapi)
       rows: [{ fileName: '배송관리_신규주문.xlsx', part: 0, parts: 1, base64: XLSX_BASE64 }],
     });
     expect(asked[0]).toEqual({ type: 'KIDITEM_PAGE_CALL', call: 'lotte-on.orders', args: { downloadReason: '배송을 위한 주문정보 다운로드' } });
-    expect(fake.log.filter((line) => !line.startsWith('navigate '))).toEqual([
+    expect(fake.log).toEqual([
       `find ${LOTTE_ON_TAB_PATTERN}`,
       'ask KIDITEM_PAGE_CALL',
       'inject content/page-call/bridge.js,content/page-call/lotte-on-orders.js',

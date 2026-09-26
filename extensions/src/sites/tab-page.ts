@@ -136,7 +136,7 @@ export interface TabPageChrome {
     create(properties: { url: string; active: boolean }): Promise<{ id?: number }>;
     update(tabId: number, properties: { url: string }): Promise<unknown>;
     get(tabId: number): Promise<{ status?: string; url?: string }>;
-    query(query: { url: string }): Promise<Array<{ id?: number }>>;
+    query(query: { url: string }): Promise<Array<{ id?: number; url?: string; status?: string }>>;
     remove(tabId: number): Promise<void>;
     sendMessage(tabId: number, message: unknown, options?: { frameId?: number }): Promise<unknown>;
   };
@@ -164,6 +164,8 @@ export interface TabPageDeps {
 }
 
 const POLL_MS = 250;
+/** 재사용 후보에서 빼는 주소(로그인·가입·인증 화면). */
+const LOGIN_LIKE_URL = /\/[^/?#]*(?:login|signin|sign-in|auth)/i;
 const MISSING_RECEIVER = /(?:receiving end|could not establish|message port|no listener)/i;
 
 export function createTabPages(deps: TabPageDeps): TabPages {
@@ -276,8 +278,11 @@ export function createTabPages(deps: TabPageDeps): TabPages {
     },
     attach: (tabId) => page(tabId, false),
     async find(urlPattern) {
-      const [existing] = await deps.chrome.tabs.query({ url: urlPattern });
-      return typeof existing?.id === 'number' ? page(existing.id, false) : null;
+      // 옛 borrowOpenTab과 같은 고르기: 다 그려진 탭을, 로그인·인증 화면이 아닌 것부터 — 로그인 탭에 자격을 채우지 않게.
+      const candidates = (await deps.chrome.tabs.query({ url: urlPattern })).filter((tab) => typeof tab.id === 'number');
+      const usable = candidates.filter((tab) => !LOGIN_LIKE_URL.test(tab.url ?? ''));
+      const picked = usable.find((tab) => tab.status === 'complete') ?? usable[0] ?? null;
+      return picked && typeof picked.id === 'number' ? page(picked.id, false) : null;
     },
     async fetchText(url, init) {
       try {

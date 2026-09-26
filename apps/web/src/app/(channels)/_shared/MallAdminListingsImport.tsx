@@ -57,7 +57,7 @@ export function MallAdminListingsImport({
   const mallName = mall?.mallName ?? '몰';
   const publication = mall?.latestPublication ?? null;
   const listings = publication?.listings ?? 0;
-  // 1차 몰은 실행, 나머지 몰은 옛 시도에서 읽는다(KID-363). 멈춘 것은 실패가 아니다.
+  // 그 몰의 최근 실행에서 읽는다(KID-363·381). 멈춘 것은 실패가 아니다.
   const { completedAt, stopped, failure } = mallAdminRunView(mall);
   const hasAccount = mall ? mall.channelAccountId !== null : true;
   const statusTitle = publication
