@@ -7188,20 +7188,23 @@ var KidItemRuntime = (() => {
         if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
         return outcome;
       }),
-      beforeTab: (tabs, call2) => withLogin(call2, async () => {
-        const page = await tabs.open("about:blank");
-        const outcome = await login(page);
-        if (outcome.status === "ok" || outcome.status === "no_form") await page.close();
-        return outcome;
-      })
+      beforeTab: (tabs, call2) => withLoginTab(withLogin, call2, () => tabs.open("about:blank"), login)
     };
   }
-  function callerWithLogin(caller, withLogin, login) {
-    return {
-      json: (url, init) => withLogin(() => caller.json(url, init), login),
-      text: (url, init) => withLogin(() => caller.text(url, init), login),
-      bytes: (url, init) => withLogin(() => caller.bytes(url, init), login)
-    };
+  async function withLoginTab(withLogin, call2, open, login) {
+    let opened = null;
+    try {
+      const result = await withLogin(call2, async () => {
+        opened = await open();
+        return login(opened);
+      });
+      return result;
+    } catch (error) {
+      if (leftForOperator(error)) opened = null;
+      throw error;
+    } finally {
+      await opened?.close();
+    }
   }
   function isLoginRequired(error) {
     return isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED;
@@ -8902,14 +8905,14 @@ var KidItemRuntime = (() => {
   };
   function wingCallerWithLogin(caller, deps, lease) {
     const credentials = lease.credentials;
-    return callerWithLogin(caller, createSiteLoginGate(credentials), async () => {
-      if (!credentials) return { status: "unconfirmed" };
-      const opened = lease.tabId === null;
-      const page = opened ? await deps.tabs.open("about:blank") : deps.tabs.attach(lease.tabId);
-      const outcome = await ensureLoggedIn(page, WING_LOGIN, credentials, deps);
-      if (opened && (outcome.status === "ok" || outcome.status === "no_form")) await page.close();
-      return outcome;
-    });
+    const withLogin = createSiteLoginGate(credentials);
+    const login = (page) => credentials ? ensureLoggedIn(page, WING_LOGIN, credentials, deps) : Promise.resolve({ status: "unconfirmed" });
+    const gate = (call2) => lease.tabId !== null ? withLogin(call2, () => login(deps.tabs.attach(lease.tabId))) : withLoginTab(withLogin, call2, () => deps.tabs.open("about:blank"), login);
+    return {
+      json: (url, init) => gate(() => caller.json(url, init)),
+      text: (url, init) => gate(() => caller.text(url, init)),
+      bytes: (url, init) => gate(() => caller.bytes(url, init))
+    };
   }
 
   // extensions/src/sites/wing/index.ts

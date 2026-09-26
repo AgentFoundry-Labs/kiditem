@@ -13,8 +13,12 @@ const CREDENTIALS = { loginId: 'fake-wing-id', password: 'fake-wing-password' };
 const WING_TAB = 3;
 
 /** Wing 경계 가짜: 로그인 전에는 모든 요청이 401, 로그인 화면은 `fakeLoginScreen`. */
-function wing(options: { credentials?: typeof CREDENTIALS | null; accept?: boolean; tabId?: number | null } = {}) {
-  const login = fakeLoginScreen({ loginAt: XAUTH, ...(options.accept === false ? { accept: false } : {}) });
+function wing(options: { credentials?: typeof CREDENTIALS | null; accept?: boolean; tabId?: number | null; formStaysAfterLogin?: boolean } = {}) {
+  const login = fakeLoginScreen({
+    loginAt: XAUTH,
+    ...(options.accept === false ? { accept: false } : {}),
+    ...(options.formStaysAfterLogin ? { formStaysAfterLogin: true } : {}),
+  });
   const fake = fakeTabPages({ landAt: login.landAt, frames: login.frames, answer: (message) => login.answer(message) ?? { ok: false, error: 'unexpected' } });
   const sent: string[] = [];
   const clock = fastClock();
@@ -70,6 +74,11 @@ describe('wing 자동 로그인(KID-377)', () => {
     await (siteFactoryFor('wing')!.create(ok.deps, ok.lease) as WingSite).searchInventory(1, null);
     expect(ok.fake.log).toContain('open about:blank');
     expect(ok.fake.log).toContain('close 7');
+
+    // 로그인 결과가 form_remains여도 다시 묻기가 되면 연 탭을 닫는다(리뷰 S4).
+    const remains = wing({ tabId: null, formStaysAfterLogin: true });
+    await (siteFactoryFor('wing')!.create(remains.deps, remains.lease) as WingSite).searchInventory(1, null);
+    expect(remains.fake.log).toContain('close 7');
 
     const rejected = wing({ tabId: null, accept: false });
     await expect((siteFactoryFor('wing')!.create(rejected.deps, rejected.lease) as WingSite).searchInventory(1, null))

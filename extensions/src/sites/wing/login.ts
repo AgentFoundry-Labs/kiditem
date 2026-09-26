@@ -1,7 +1,7 @@
-import type { SiteCaller } from '../../core/site-caller';
+import type { SiteCaller, SiteRequestInit } from '../../core/site-caller';
 import type { SiteDeps, SiteLease } from '../registry';
-import { callerWithLogin, createSiteLoginGate, ensureLoggedIn, type LoginOutcome, type LoginSpec } from '../site-login';
-import { hostWithin } from '../tab-page';
+import { createSiteLoginGate, ensureLoggedIn, withLoginTab, type LoginOutcome, type LoginSpec } from '../site-login';
+import { hostWithin, type TabPage } from '../tab-page';
 
 /**
  * 쿠팡 윙 로그인 입구(옛 `mall-session.js` `coupang` 줄, 사장님 2026-09-22 "자동로그인 만들어"). 로그아웃 상태로 윙 첫 화면에
@@ -20,16 +20,20 @@ export const WING_LOGIN: LoginSpec = {
 /**
  * 윙 호출기에 자동 로그인을 건다(KID-377). 윙 요청은 서비스워커 fetch라 탭이 없다 — 401·403·로그인 리다이렉트·XSRF
  * 쿠키 없음(`SITE_LOGIN_REQUIRED`)이면 `account:` 잠금이 연 윙 탭(없으면 새 탭)에서 로그인하고 같은 요청을 한 번 다시 한다.
- * 새로 연 탭은 로그인됐을 때만 닫는다 — 아니면 운영자가 그 탭에서 로그인한다.
+ * 새로 연 탭은 다시 묻기가 되면 닫는다 — 그래도 로그인 화면이면 운영자가 그 탭에서 로그인한다.
  */
 export function wingCallerWithLogin(caller: SiteCaller, deps: Pick<SiteDeps, 'tabs' | 'now' | 'sleep'>, lease: SiteLease): SiteCaller {
   const credentials = lease.credentials;
-  return callerWithLogin(caller, createSiteLoginGate(credentials), async (): Promise<LoginOutcome> => {
-    if (!credentials) return { status: 'unconfirmed' };
-    const opened = lease.tabId === null;
-    const page = opened ? await deps.tabs.open('about:blank') : deps.tabs.attach(lease.tabId!);
-    const outcome = await ensureLoggedIn(page, WING_LOGIN, credentials, deps);
-    if (opened && (outcome.status === 'ok' || outcome.status === 'no_form')) await page.close();
-    return outcome;
-  });
+  const withLogin = createSiteLoginGate(credentials);
+  const login = (page: TabPage): Promise<LoginOutcome> =>
+    credentials ? ensureLoggedIn(page, WING_LOGIN, credentials, deps) : Promise.resolve({ status: 'unconfirmed' });
+  // 잠금 탭이 있으면 그 탭에서(닫는 것은 브라우저 자원), 없으면 새 탭에서 로그인하고 다시 묻기가 되면 닫는다.
+  const gate = (call: () => Promise<unknown>) => (lease.tabId !== null
+    ? withLogin(call, () => login(deps.tabs.attach(lease.tabId!)))
+    : withLoginTab(withLogin, call, () => deps.tabs.open('about:blank'), login));
+  return {
+    json: <T>(url: string, init?: SiteRequestInit) => gate(() => caller.json<T>(url, init)) as Promise<T>,
+    text: (url, init) => gate(() => caller.text(url, init)) as Promise<string>,
+    bytes: (url, init) => gate(() => caller.bytes(url, init)) as Promise<Uint8Array>,
+  };
 }

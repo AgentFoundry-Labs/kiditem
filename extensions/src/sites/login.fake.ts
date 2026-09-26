@@ -3,12 +3,22 @@
  * 프레임 살피기(`frames`)는 그 로그인 화면에서 로그인 폼을 보인다. 페이지 호출 `login.fill`이 오면 채운 값을 적고, `accept`면 로그인된다
  * (아니면 폼이 남고 `dialog`를 알림 창 문장으로 남긴다). 그 밖의 메시지는 `undefined` — 부른 쪽의 답으로 넘어간다.
  */
-export function fakeLoginScreen(options: { loginAt: string; accept?: boolean; dialog?: string; signedIn?: boolean }) {
+export function fakeLoginScreen(options: {
+  loginAt: string;
+  accept?: boolean;
+  dialog?: string;
+  signedIn?: boolean;
+  /** 로그인은 됐는데 그 화면에 폼이 남아 보인다(로그인 뒤 화면에도 비밀번호 칸이 있는 몰) — 결과는 form_remains. */
+  formStaysAfterLogin?: boolean;
+}) {
   const state = { signedIn: options.signedIn === true, filled: [] as Array<Record<string, unknown>>, dialogs: [] as string[] };
   return {
     state,
     landAt: (url: string) => (state.signedIn ? url : options.loginAt),
-    frames: (_files: readonly string[], _call: number, url: string) => [{ frameId: 0, result: { loginForm: !state.signedIn && url === options.loginAt } }],
+    frames: (_files: readonly string[], _call: number, url: string) => [{
+      frameId: 0,
+      result: { loginForm: url === options.loginAt && (!state.signedIn || options.formStaysAfterLogin === true) },
+    }],
     answer(message: Record<string, unknown>): unknown {
       if (message.type !== 'KIDITEM_PAGE_CALL' || !String(message.call).startsWith('login.')) return undefined;
       if (message.call === 'login.watchDialogs') return { ok: true, value: true };

@@ -1,8 +1,8 @@
 import { RuntimeError, isRuntimeError } from '../core/errors';
-import { SITE_LOGIN_REQUIRED, type SiteCaller } from '../core/site-caller';
+import { SITE_LOGIN_REQUIRED } from '../core/site-caller';
 import { callPage } from './page-call';
 import type { SiteCredentials } from './registry';
-import { hostWithin, type PageGuard, type TabPage, type TabPages } from './tab-page';
+import { hostWithin, leftForOperator, type PageGuard, type TabPage, type TabPages } from './tab-page';
 
 /**
  * 사이트 자동 로그인(KID-377). 옛 `mall-session.js` `ensureLoggedIn`·`fillLoginForm`의 규칙을 새 런타임으로 옮겼다:
@@ -277,22 +277,33 @@ export function createSiteSignIn(spec: LoginSpec, credentials: SiteCredentials |
       if (outcome.status !== 'verification_required') await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS });
       return outcome;
     }),
-    beforeTab: (tabs, call) => withLogin(call, async () => {
-      const page = await tabs.open('about:blank');
-      const outcome = await login(page);
-      if (outcome.status === 'ok' || outcome.status === 'no_form') await page.close();
-      return outcome;
-    }),
+    beforeTab: (tabs, call) => withLoginTab(withLogin, call, () => tabs.open('about:blank'), login),
   };
 }
 
-/** 서비스워커 fetch 사이트(윙)의 호출기에 로그인 문턱을 건다: 요청마다 `withLogin`으로 감싼다. */
-export function callerWithLogin(caller: SiteCaller, withLogin: SiteLoginGate, login: () => Promise<LoginOutcome>): SiteCaller {
-  return {
-    json: (url, init) => withLogin(() => caller.json(url, init), login),
-    text: (url, init) => withLogin(() => caller.text(url, init), login),
-    bytes: (url, init) => withLogin(() => caller.bytes(url, init), login),
-  };
+/**
+ * 로그인하러 새 탭을 여는 문턱(리뷰 S4). 호출이 (다시 해서) 되면 연 탭을 닫고, 문턱이 로그인 화면에서 멈추면
+ * (`leftForOperator`) 운영자가 그 탭에서 로그인하도록 남긴다. 그 밖의 실패도 탭을 닫는다.
+ */
+export async function withLoginTab<T>(
+  withLogin: SiteLoginGate,
+  call: () => Promise<T>,
+  open: () => Promise<TabPage>,
+  login: (page: TabPage) => Promise<LoginOutcome>,
+): Promise<T> {
+  let opened: TabPage | null = null;
+  try {
+    const result = await withLogin(call, async () => {
+      opened = await open();
+      return login(opened);
+    });
+    return result;
+  } catch (error) {
+    if (leftForOperator(error)) opened = null;
+    throw error;
+  } finally {
+    await (opened as TabPage | null)?.close();
+  }
 }
 
 function isLoginRequired(error: unknown): error is RuntimeError {

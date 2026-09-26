@@ -23,8 +23,14 @@ function mall(mallKey: string, options: {
   credentials?: typeof CREDENTIALS | null;
   accept?: boolean;
   dialog?: string;
+  formStaysAfterLogin?: boolean;
 }) {
-  const login = fakeLoginScreen({ loginAt: options.loginAt, ...(options.accept === false ? { accept: false } : {}), ...(options.dialog ? { dialog: options.dialog } : {}) });
+  const login = fakeLoginScreen({
+    loginAt: options.loginAt,
+    ...(options.accept === false ? { accept: false } : {}),
+    ...(options.dialog ? { dialog: options.dialog } : {}),
+    ...(options.formStaysAfterLogin ? { formStaysAfterLogin: true } : {}),
+  });
   const fake = fakeTabPages({
     landAt: login.landAt,
     frames: (files, call, url) => options.frames?.(files, url, login.state.signedIn) ?? login.frames(files, call, url),
@@ -126,6 +132,17 @@ describe('몰 주문 읽기의 자동 로그인(KID-377)', () => {
       'navigate https://domeggook.com/sc/order/lstAll?dtbase=ord&dt1=2026.09.26&dt2=2026.09.26',
       'close 7',
     ]);
+  });
+
+  it('도매꾹: 로그인 결과가 form_remains여도 다시 읽기가 되면 로그인하러 연 탭을 닫는다 — 남기는 것은 문턱이 멈출 때뿐(리뷰 S4)', async () => {
+    const { fake, reader } = mall('domeggook', {
+      loginAt: 'https://domeggook.com/ssl/member/mem_loginForm.php',
+      formStaysAfterLogin: true,
+      fetch: (url, signedIn) => (url === DOMEGGOOK_ORDER_LIST_API ? Response.json(signedIn ? { dat: [] } : { res: false }) : new Response('', { status: 404 })),
+      answer: (message) => (message.call === 'domeggook.requestExcel' ? { ok: true, value: { status: 'empty' } } : { ok: false, error: 'unexpected' }),
+    });
+    await expect(reader.readOrders(INPUT)).resolves.toEqual({ rows: [] });
+    expect(fake.log.filter((line) => /^(open|close)/.test(line))).toEqual(['open about:blank', 'close 7', 'open about:blank', 'close 7']);
   });
 
   it('아이스크림몰: 프레임에 로그인 폼이 보이면 그 화면에서 로그인하고 main.do로 돌아가 배송목록을 읽는다', async () => {
