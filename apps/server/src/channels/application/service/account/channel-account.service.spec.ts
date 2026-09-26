@@ -63,6 +63,8 @@ describe('ChannelAccountService', () => {
     expect(row.config).toMatchObject({ orderCollection: { password: encrypted('secret') } });
     expect(await fixture.service.getPassword(ORGANIZATION_ID, 'onch')).toEqual({
       key: 'onch',
+      loginId: 'merchant-id',
+      supplierLoginId: null,
       password: 'secret',
     });
   });
@@ -99,6 +101,8 @@ describe('ChannelAccountService', () => {
     expect(updated.hasPassword).toBe(true);
     expect(await fixture.service.getPassword(ORGANIZATION_ID, 'onch')).toEqual({
       key: 'onch',
+      loginId: 'new-id',
+      supplierLoginId: null,
       password: 'same-secret',
     });
   });
@@ -233,6 +237,38 @@ describe('ChannelAccountService', () => {
       .rejects.toMatchObject({ code: 'INTERNAL_ERROR', details: { reason: 'CREDENTIAL_KEY_MISSING' } });
   });
 
+  it('keeps the Wing login on the primary Wing account row in the same orderCollection shape, outside the mall list (KID-377)', async () => {
+    const primary = wingRow('row-wing-primary', { rootSetting: 'keep-root', orderCollection: { loginId: 'wing-id', password: encrypted('wing-secret') } });
+    const fixture = makeService([primary, wingRow('row-wing-second', { orderCollection: { loginId: 'other-id', password: encrypted('other-secret') } })]);
+
+    expect(await fixture.service.getPassword(ORGANIZATION_ID, 'coupang')).toEqual({
+      key: 'coupang',
+      loginId: 'wing-id',
+      supplierLoginId: null,
+      password: 'wing-secret',
+    });
+
+    const saved = await fixture.service.update(ORGANIZATION_ID, 'coupang', { loginId: ' new-wing-id ', password: ' new-wing-secret ' });
+    expect(saved).toMatchObject({ key: 'coupang', channelAccountId: 'row-wing-primary', loginId: 'new-wing-id', hasPassword: true });
+    const row = fixture.rows().find((candidate) => candidate.id === 'row-wing-primary')!;
+    expect(row).toMatchObject({ channel: 'coupang', name: 'Coupang Wing', status: 'active' });
+    expect(row.config).toMatchObject({ rootSetting: 'keep-root', orderCollection: { loginId: 'new-wing-id', password: encrypted('new-wing-secret') } });
+    expect(fixture.rows().find((candidate) => candidate.id === 'row-wing-second')!.config)
+      .toEqual({ orderCollection: { loginId: 'other-id', password: encrypted('other-secret') } });
+
+    // 주문 수집 몰 목록·순서에는 들어가지 않는다(주문 수집 화면이 윙을 몰로 돌리지 않게).
+    expect((await fixture.service.list(ORGANIZATION_ID)).map((account) => account.key)).not.toContain('coupang');
+    await expect(fixture.service.reorder(ORGANIZATION_ID, ['coupang'])).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+  });
+
+  it('never creates a Wing account row for a login save — the Wing account is connected first', async () => {
+    const fixture = makeService([]);
+    await expect(fixture.service.update(ORGANIZATION_ID, 'coupang', { loginId: 'wing-id', password: 'wing-secret' }))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'SHARED_CHANNEL_ACCOUNT_MISSING' } });
+    expect(fixture.rows()).toEqual([]);
+    expect(await fixture.service.getPassword(ORGANIZATION_ID, 'coupang')).toEqual({ key: 'coupang', loginId: null, supplierLoginId: null, password: null });
+  });
+
   it('rejects unknown malls and duplicate order keys through the public exception contract', async () => {
     const fixture = makeService([]);
     await expect(fixture.service.update(ORGANIZATION_ID, 'unknown', {}))
@@ -298,6 +334,10 @@ function makeService(initialRows: MallAccountRecord[]) {
     service: new ChannelAccountService(persistence as never, credentials as never, () => FIXED_NOW),
     rows: () => records,
   };
+}
+
+function wingRow(id: string, config: Record<string, unknown>): MallAccountRecord {
+  return { id, channel: 'coupang', externalAccountId: 'A00000001', name: 'Coupang Wing', status: 'active', config, updatedAt: FIXED_NOW };
 }
 
 function mallRow(key: string, config: Record<string, unknown>): MallAccountRecord {
