@@ -250,7 +250,6 @@ export function createBrowserMallCollector({
       always: 'collectAlwayzOrders',
       kakao: 'collectKakaoOrders',
       boribori: 'collectBoriboriOrders',
-      'teacher-mall': 'collectTeachervilleOrders',
     };
     const action = actionByMall[account.key];
     if (!action) throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
@@ -575,44 +574,6 @@ export function createBrowserMallCollector({
     return rows;
   };
 
-  const generateTeachervilleSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectTeachervilleXlsxFromExtension, convertTeachervilleToSellpiaFile } = await import(
-      './teacherville-orders-api'
-    );
-    await ensureMallLogin('teacher-mall', run);
-    const collected = await collectTeachervilleXlsxFromExtension(run);
-    if ('empty' in collected) {
-      toastNoNewOrders('티쳐몰', '출고 전 상태 기준');
-      return 0;
-    }
-    const { xlsxBase64, fileName } = collected;
-    let result: Awaited<ReturnType<typeof convertTeachervilleToSellpiaFile>>;
-    try {
-      result = await convertTeachervilleToSellpiaFile(xlsxBase64, fileName, { download: false, run });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (isNoNewOrdersMessage(msg)) {
-        toastNoNewOrders('티쳐몰', '출고 전 상태 기준');
-        return 0;
-      }
-      throw err;
-    }
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-teacher-mall-browser`,
-      sourceName: `티쳐몰 주문 (${formatNumber(rows)}건)`,
-      convertedAt,
-      collectionDate: collectionDateOf(run),
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'teacher-mall',
-      mallName: '티쳐몰',
-    });
-    return rows;
-  };
-
   const generateOnchannelSellpia = async (
     run: OrderCollectionExtensionRun,
     collectionDate: string,
@@ -694,7 +655,6 @@ export function createBrowserMallCollector({
     if (account.key === 'gs-shop') return resultFor(await generateGsshopSellpia(resolvedRun), today);
     if (account.key === 'always') return resultFor(await generateAlwayzSellpia(resolvedRun), today);
     if (account.key === 'boribori') return resultFor(await generateBoriboriSellpia(resolvedRun), today);
-    if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(resolvedRun), today);
     if (account.key === 'haebub-mall') return resultFor(await generateHaebeopSellpia(resolvedRun), today);
     // 실행 kind로 옮긴 몰(`MALL_ORDER_OPERATION_MALLS` — 1차 KID-359 H3, 엑셀·blob 몰 KID-380)은 이 옛 절차로 오지 않는다.
     throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);

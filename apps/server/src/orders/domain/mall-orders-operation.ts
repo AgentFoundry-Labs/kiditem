@@ -223,6 +223,7 @@ const MALL_CAPTURE_RULES: Partial<Record<MallOrderOperationMall, MallCaptureRule
   art09: jsonList('rows', OrderObjectSchema.and(z.object({ orderId: z.string() })), 'orderId'),
   domeggook: filePart('text/csv'),
   kkomangse: kkomangseRule,
+  'teacher-mall': filePart('application/vnd.ms-excel'),
   'icecream-mall': icecreamRule,
 };
 

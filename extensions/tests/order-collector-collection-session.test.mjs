@@ -22,7 +22,6 @@ const AUTOMATIC_ACTIONS = [
   ['collectAlwayzOrders', 'collectAlwayzOrders', 'always', { date: '2026-07-15' }],
   ['collectKakaoOrders', 'collectKakaoOrders', 'kakao', { date: '2026-07-15' }],
   ['collectBoriboriOrders', 'collectBoriboriOrders', 'boribori', { date: '2026-07-15' }],
-  ['collectTeachervilleOrders', 'collectTeachervilleOrders', 'teacher-mall', { date: '2026-07-15' }],
   ['collectHaebeopOrders', 'collectHaebeopOrders', 'haebub-mall', { date: '2026-07-15' }],
 ];
 
@@ -753,7 +752,6 @@ test('named mall reads create a fresh inactive tab even when a provider tab exis
     ['findOrCreateAlwayzTab', 'https://alwayzseller.ilevit.com/shippings'],
     ['findOrCreateKakaoTab', 'https://shopping-seller.kakao.com/order/seller/store-order/integrate/list'],
     ['findOrCreateBoriboriTab', 'https://seller-club.co.kr/order/orderDeliList'],
-    ['findOrCreateTeachervilleTab', 'https://shop.teacherville.co.kr/selleradmin/order/catalog'],
     ['findOrCreateHaebeopTab', 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php'],
   ];
 
@@ -807,7 +805,6 @@ test('every named mall collector uses the production attach-before-readiness pat
     ['collectAlwayzOrders', []],
     ['collectKakaoOrders', ['2026-07-15']],
     ['collectBoriboriOrders', [{}]],
-    ['collectTeachervilleOrders', []],
     ['collectHaebeopOrders', [{}]],
   ];
 

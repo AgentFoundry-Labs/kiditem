@@ -29,7 +29,6 @@ const automaticCollectors = [
   'collectAlwayzOrders',
   'collectKakaoOrders',
   'collectBoriboriOrders',
-  'collectTeachervilleOrders',
   'collectHaebeopOrders',
 ];
 // Directship receives its date range from the server-owned attempt control
@@ -40,7 +39,6 @@ const runDateActions = new Set([
   'collectAlwayzOrders',
   'collectKakaoOrders',
   'collectBoriboriOrders',
-  'collectTeachervilleOrders',
   'collectHaebeopOrders',
 ]);
 

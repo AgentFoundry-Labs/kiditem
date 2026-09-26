@@ -414,6 +414,31 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     expect((await harness.finish(empty).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: 'kkomangse', captured: 0 });
   });
 
+  /**
+   * 엑셀을 그대로 셀피아 양식으로 옮기는 몰(옛 확장 FILE_MIME·변환 라우트): 조각을 이어 파일 캡처로 보관하고, 변환 출력 줄 수를
+   * 주문 수로 적는다(상품 줄 0). 빈 날은 조각 없이 0건. 변환은 실행 id로 그 몰의 변환 라우트에서 다시 한다.
+   */
+  const excelMall = async (input: { mallKey: string; name: string; route: string; fileName: string; contentType: string; bookType?: XLSX.BookType }) => {
+    const account = await mallAccount(input.mallKey, input.name);
+    const bytes = workbook([['주문번호', '상품명', '수량'], ['O-1', '색종이', '1'], ['O-2', '크레파스', '2']], input.bookType);
+    const run = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: account, mallKey: input.mallKey }));
+    await harness.put(run, fileParts(input.fileName, bytes));
+    const finished = await harness.finish(run).expect(200);
+    expect(finished.body.operation.result).toEqual({ rowCount: 2, mallKey: input.mallKey, captured: 1 });
+    const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
+    expect(artifact).toMatchObject({ sourceFileName: input.fileName, sourceContentType: input.contentType });
+    expect(Buffer.from(artifact.sourceBytes).equals(bytes)).toBe(true);
+    const converted = await convert(input.route, run.operation.id).expect(201);
+    expect(converted.headers).toMatchObject({ 'x-order-collection-source-rows': '2', 'x-order-collection-output-rows': '2' });
+
+    const empty = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: account, mallKey: input.mallKey }));
+    expect((await harness.finish(empty).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: input.mallKey, captured: 0 });
+  };
+
+  it('티쳐몰: SpreadsheetML(.xls) 조각을 이어 application/vnd.ms-excel 파일 캡처로 보관하고 teacherville 변환 라우트로 다시 변환한다', async () => {
+    await excelMall({ mallKey: 'teacher-mall', name: '티쳐몰', route: 'teacherville/convert', fileName: '티쳐몰.xls', contentType: 'application/vnd.ms-excel', bookType: 'xlml' });
+  });
+
   it('오늘 주문 capability는 실행 표(몰 주문·directship의 최신 성공 rowCount)와 옛 run(2차 몰·옛 directship)을 한 수로 센다', async () => {
     // 옛 경로: 2차 몰(onch) 두 번 — 최신 하나만, 옮긴 몰(kidkids)의 옛 run은 실행이 있으면 실행이 이긴다, 옛 directship.
     const oldRun = (mallKey: string | null, sourceType: string, rowCount: number, createdAt: Date) =>

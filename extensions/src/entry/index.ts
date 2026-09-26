@@ -43,6 +43,7 @@ import '../sites/mall-orders';
 import '../sites/product-page';
 import '../sites/sabangnet';
 import '../sites/sellpia';
+import '../sites/teacher-mall';
 import '../sites/tiktok-cc';
 import '../sites/wing';
 import '../sites/wing/itemwinner';

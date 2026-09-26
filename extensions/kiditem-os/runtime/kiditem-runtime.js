@@ -7197,7 +7197,7 @@ var KidItemRuntime = (() => {
     selectionMode: MallOrdersSelectionModeSchema.optional(),
     seenRowKeys: external_exports.array(external_exports.string().min(1).max(MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH)).max(MALL_ORDERS_SEEN_ROW_KEYS_MAX).optional()
   }).strict();
-  var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook", "kkomangse"];
+  var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook", "kkomangse", "teacher-mall"];
   function isMallOrderOperationMall(mallKey) {
     return MALL_ORDER_OPERATION_MALLS.includes(mallKey);
   }
@@ -10893,6 +10893,47 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "sellpia", opensOwnTabs: true, create: (deps) => createSellpiaSite(deps.tabs) });
+
+  // extensions/src/sites/teacher-mall/index.ts
+  var TEACHER_MALL_ORDER_URL = "https://shop.teacherville.co.kr/selleradmin/order/catalog";
+  var TEACHER_MALL_ORDERS_FILE = "content/page-call/teacher-mall-orders.js";
+  var TEACHER_MALL_EXCEL_TEMPLATE_SEQ = "117";
+  var TEACHER_MALL_PROVIDER_SEQ = "708";
+  var TEACHER_MALL_DOWNLOAD_REASON = "\uBC30\uC1A1\uC900\uBE44\uD655\uC778";
+  var READ_TIMEOUT_MS5 = 12e4;
+  var LOGIN_MESSAGE9 = "\uD2F0\uCCD0\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. selleradmin\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
+  var TEACHER_MALL_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["teacherville.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["teacherville.co.kr"]) && /login/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE9
+  };
+  var TEACHER_MALL_LOGIN = {
+    displayName: "\uD2F0\uCCD0\uBAB0",
+    loginUrl: TEACHER_MALL_ORDER_URL,
+    hosts: ["teacherville.co.kr"],
+    isLoginUrl: (url) => TEACHER_MALL_PAGE_GUARD.isLogin(url),
+    fields: ["loginId", "password"]
+  };
+  function createTeacherMallSite(tabs, signIn) {
+    return {
+      readOrders() {
+        return withFreshTab(tabs, TEACHER_MALL_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "teacher-mall.orders", {
+            templateSeq: TEACHER_MALL_EXCEL_TEMPLATE_SEQ,
+            fallbackProviderSeq: TEACHER_MALL_PROVIDER_SEQ,
+            downloadReason: TEACHER_MALL_DOWNLOAD_REASON
+          }, {
+            timeoutMs: READ_TIMEOUT_MS5,
+            guard: TEACHER_MALL_PAGE_GUARD,
+            main: [TEACHER_MALL_ORDERS_FILE],
+            displayName: "\uD2F0\uCCD0\uBAB0"
+          });
+          return mallExcelRows(answer, { displayName: "\uD2F0\uCCD0\uBAB0", url: TEACHER_MALL_ORDER_URL, fileName: "\uD2F0\uCCD0\uBAB0.xls" });
+        }, signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({ name: "teacher-mall", create: (deps, lease) => createTeacherMallSite(deps.tabs, createSiteSignIn(TEACHER_MALL_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/tiktok-cc/index.ts
   var NAVIGATION_TIMEOUT_MS10 = 35e3;

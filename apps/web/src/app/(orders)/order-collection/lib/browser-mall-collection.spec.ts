@@ -317,7 +317,6 @@ describe('createBrowserMallCollector', () => {
       'alwayz-orders-api.ts',
       'kakao-orders-api.ts',
       'boribori-orders-api.ts',
-      'teacherville-orders-api.ts',
       'haebeop-orders-api.ts',
       'coupang-directship-api.ts',
     ];

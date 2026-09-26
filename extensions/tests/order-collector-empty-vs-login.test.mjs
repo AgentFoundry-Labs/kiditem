@@ -172,40 +172,6 @@ test("Alwayz accepts an authenticated empty preflight as zero orders", async () 
   });
 });
 
-function teachervilleDocument(bodyText) {
-  const form = { querySelector: () => null };
-  return {
-    body: { innerText: bodyText },
-    querySelector(selector) {
-      if (selector === "form#excel_down_form") return form;
-      if (selector === 'input[type="password"]') return null;
-      return null;
-    },
-    querySelectorAll: () => [],
-  };
-}
-
-test("Teacherville requires explicit empty-page evidence before returning zero", async () => {
-  const run = async (bodyText) => loadFunction("scrapeTeachervilleOrders", {
-    Promise,
-    URLSearchParams,
-    btoa: () => "",
-    document: teachervilleDocument(bodyText),
-    fetch: async () => { throw new Error("fetch should not run"); },
-    location: { href: "https://shop.teacherville.co.kr/selleradmin/order/catalog" },
-    setTimeout: (callback) => callback(),
-    window: { $: {} },
-  })();
-
-  const empty = await run("조회된 주문이 없습니다.");
-  const unresolved = await run("주문 관리");
-
-  assert.equal(empty.success, true);
-  assert.equal(empty.empty, true);
-  assert.equal(unresolved.success, false);
-  assert.equal(unresolved.errorCode, "provider_contract_changed");
-});
-
 function boriboriResponse(status, body) {
   return {
     ok: false,
