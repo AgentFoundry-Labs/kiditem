@@ -31,7 +31,6 @@ const automaticCollectors = [
 // record, so its extension message intentionally carries only attemptId.
 const runDateActions = new Set([
   'collectKakaoOrders',
-  'collectBoriboriOrders',
   'collectHaebeopOrders',
 ]);
 
