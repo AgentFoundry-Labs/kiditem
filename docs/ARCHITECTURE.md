@@ -139,6 +139,10 @@ Other browser sources open their attempt from the page through
 `startWebOpenedCollection`, which stops an attempt the extension does not take.
 The Wing catalog is Channels-owned operation kinds (list → details chained by
 `result.next`, workbook) started through the extension's `operation.start` and
+read through `GET /api/operations` (KID-354). The Wing daily facts are
+Advertising-owned operation kinds `advertising.wing_traffic` and
+`advertising.wing_itemwinner` (KID-362): the extension service worker reads Wing
+with its cookies, and each holds `account:<id>` plus `resource:wing-daily:<id>`.
 read through `GET /api/operations` (KID-354). Sabangnet mall listings
 (`resource:sabangnet:login`), first-batch mall admin listings (`account:<id>`)
 and Sellpia manual-match evidence (`resource:sellpia:login`) are Channels

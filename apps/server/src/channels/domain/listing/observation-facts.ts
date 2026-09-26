@@ -1,4 +1,4 @@
-import type { DailyTrafficFactSource } from '@kiditem/shared/advertising';
+import type { DailyTrafficFactSource } from '@kiditem/shared/advertising-operations';
 
 export type ListingTrafficTotals = Readonly<{
   visitors: number;

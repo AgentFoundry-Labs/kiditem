@@ -413,6 +413,7 @@ erDiagram
     DateTime firstObservedAt
     DateTime lastObservedAt
     String rawSnapshotId FK
+    String operationId
     Json metaJson
     DateTime createdAt
     DateTime updatedAt
@@ -461,6 +462,7 @@ erDiagram
     DateTime firstObservedAt
     DateTime lastObservedAt
     String rawSnapshotId FK
+    String operationId
     Json metaJson
     DateTime createdAt
     DateTime updatedAt

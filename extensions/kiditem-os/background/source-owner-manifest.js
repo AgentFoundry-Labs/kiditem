@@ -6,8 +6,6 @@ export const SOURCE_OWNER_BY_PRODUCER = Object.freeze({
   "advertising.profitability_import": "advertising",
   "channels.coupang_catalog": "channels",
   "dashboard.coupang_products": "analytics",
-  "dashboard.wing_kpi": "analytics",
-  "dashboard.wing_sales": "analytics",
   "inventory.sellpia": "inventory",
   "orders.mall": "orders",
   "orders.mall_admin_listings": "channels",

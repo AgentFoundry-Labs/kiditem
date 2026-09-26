@@ -79,12 +79,12 @@
       ],
       "ownerPublications": [
         {
-          "path": "apps/server/src/advertising/adapter/out/repository/ad-traffic-source.repository.ts",
-          "reason": "Publishes, resets, verifies, and reads back Wing traffic rows inside the source owner's fenced terminal workflow."
+          "path": "apps/server/src/advertising/adapter/out/repository/wing-traffic-operation.repository.ts",
+          "reason": "Publishes and resets Wing listing-day traffic rows inside the advertising.wing_traffic operation's finish transaction."
         },
         {
-          "path": "apps/server/src/advertising/adapter/out/repository/wing-itemwinner-kpi-source.repository.ts",
-          "reason": "Publishes verified Item Winner listing-day state into the canonical listing fact row in the source owner's terminal transaction."
+          "path": "apps/server/src/advertising/adapter/out/repository/wing-itemwinner-operation.repository.ts",
+          "reason": "Publishes verified Item Winner listing-day state into the canonical listing fact row inside the advertising.wing_itemwinner operation's finish transaction."
         },
         {
           "path": "apps/server/src/advertising/adapter/out/repository/daily-fact-helpers.ts",

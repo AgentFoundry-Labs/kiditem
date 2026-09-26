@@ -19,8 +19,6 @@ const WING_CATALOG_MAX_PAGES = 5;
 const BATCH_SCRAPE_STATUS_KEY = "kiditem_batch_scrape";
 const BATCH_SCRAPE_CANCEL_KEY = "kiditem_batch_scrape_cancel";
 const COLLECTION_WINDOW_STORAGE_KEY = "kiditem_coupang_collection_window";
-const WING_TRAFFIC_PRODUCER = "dashboard.wing_sales";
-const WING_ITEMWINNER_PRODUCER = "dashboard.wing_kpi";
 const adsEnvironmentContext = KidItemEnvironmentContext.create({
   chrome,
   fetchFn: fetch,
@@ -70,10 +68,6 @@ const coupangCollectionStart = KidItemCoupangCollectionStart.create({
     // its run replays the begin the admission already made.
     "advertising.profitability_import": ({ environmentId, idempotencyKey }) =>
       profitabilitySourceOwner.run({ environmentId, idempotencyKey }),
-    [WING_TRAFFIC_PRODUCER]: ({ environmentId, attemptId }) =>
-      runWingTrafficSourceOwner({ environmentId, attemptId }),
-    [WING_ITEMWINNER_PRODUCER]: ({ environmentId, attemptId }) =>
-      wingItemwinnerSourceOwner.run({ environmentId, attemptId }),
   },
 });
 
@@ -89,25 +83,9 @@ const adCenterCollectors = Object.fromEntries(
     }),
   ]),
 );
-const wingReportCollectors = Object.fromEntries(
-  adsEnvironmentContext.environmentIds.map((environmentId) => [
-    environmentId,
-    KidItemWingReportCollector.create({
-      window: collectionWindows[environmentId], chrome, sessions: collectionSessions,
-      statusKey: coupangEnvironment.stateKey(BATCH_SCRAPE_STATUS_KEY, environmentId),
-      cancelKey: coupangEnvironment.stateKey(BATCH_SCRAPE_CANCEL_KEY, environmentId),
-      bindTab: (tabId) => coupangEnvironment.bindTab(tabId, environmentId),
-      notify: () => notifyDashboard(environmentId),
-    }),
-  ]),
-);
 function adCenterCollectorFor(environmentId) {
   adsEnvironmentContext.requireEnvironment(environmentId);
   return adCenterCollectors[environmentId];
-}
-function wingReportCollectorFor(environmentId) {
-  adsEnvironmentContext.requireEnvironment(environmentId);
-  return wingReportCollectors[environmentId];
 }
 
 async function exportWingInventoryWorkbook(products, sender) {
@@ -170,11 +148,6 @@ function parseContentDispositionFilename(header) {
   return /filename="([^"]+)"/i.exec(header)?.[1] || null;
 }
 
-const collectionRuns = KidItemCollectionRuns.create({
-  chrome,
-  sessions: collectionSessions,
-  collectionWindowFor,
-});
 // The source owners that close through collectionWindowFor share one window
 // per environment. A run holds the window's turn until its outcome is reported
 // and its window and session are released. The turn never waits: a run finds
@@ -197,15 +170,6 @@ async function coupangCollectionAttemptEnded(environmentId, session) {
       return adKeywordSourceOwner.attemptEnded(environmentId, attemptId);
     case "advertising.profitability_import":
       return profitabilitySourceOwner.attemptEnded(environmentId, attemptId);
-    case WING_TRAFFIC_PRODUCER:
-      return wingTrafficSourceOwnerV2.attemptEnded(environmentId, attemptId).catch((error) => {
-        if (error?.code === "WING_TRAFFIC_LEGACY_PLAN") {
-          return wingTrafficSourceOwner.attemptEnded(environmentId, attemptId);
-        }
-        throw error;
-      });
-    case WING_ITEMWINNER_PRODUCER:
-      return wingItemwinnerSourceOwner.attemptEnded(environmentId, attemptId);
     default:
       return false;
   }
@@ -242,58 +206,6 @@ const adCampaignSourceOwner = KidItemAdCampaignSourceOwner.create({
   takeWindowTurn: coupangWindowTurn("advertising.ad_sync"),
 });
 chrome.runtime.onMessage.addListener(adCampaignSourceOwner.handleMessage);
-const wingTrafficSourceOwner = KidItemWingTrafficSourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  environmentForTab: tabId => coupangEnvironment.environmentForTab(tabId),
-  ownedTab: async (environmentId, attemptId) => (await collectionWindowFor(environmentId).reattach(attemptId))?.tabId,
-  collect: ({ environmentId, attemptId, control }) =>
-    wingReportCollectorFor(environmentId).collectTraffic({ environmentId, attemptId, control }),
-  closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
-  takeWindowTurn: coupangWindowTurn(WING_TRAFFIC_PRODUCER),
-});
-chrome.runtime.onMessage.addListener(wingTrafficSourceOwner.handleMessage);
-const wingTrafficSourceOwnerV2 = KidItemWingTrafficSourceOwnerV2.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  environmentForTab: tabId => coupangEnvironment.environmentForTab(tabId),
-  ownedTab: async (environmentId, attemptId) => (await collectionWindowFor(environmentId).reattach(attemptId))?.tabId,
-  collect: ({ environmentId, attemptId, control }) =>
-    wingReportCollectorFor(environmentId).collectTraffic({ environmentId, attemptId, control }),
-  closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
-  takeWindowTurn: coupangWindowTurn(WING_TRAFFIC_PRODUCER),
-});
-chrome.runtime.onMessage.addListener(wingTrafficSourceOwnerV2.handleMessage);
-
-function runWingTrafficSourceOwner(args) {
-  return wingTrafficSourceOwnerV2.run(args).catch((error) => {
-    if (error?.code === "WING_TRAFFIC_LEGACY_PLAN") return wingTrafficSourceOwner.run(args);
-    throw error;
-  });
-}
-
-async function cancelWingTrafficSourceOwner(args) {
-  await wingReportCollectorFor(args.environmentId).cancelRun({ attemptId: args.attemptId });
-  return wingTrafficSourceOwnerV2.cancel(args).catch((error) => {
-    if (error?.code === "WING_TRAFFIC_LEGACY_PLAN") return wingTrafficSourceOwner.cancel(args);
-    throw error;
-  });
-}
-
-const wingItemwinnerSourceOwner = KidItemWingItemwinnerSourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  environmentForTab: tabId => coupangEnvironment.environmentForTab(tabId),
-  ownedTab: async (environmentId, attemptId) => (await collectionWindowFor(environmentId).reattach(attemptId))?.tabId,
-  collect: ({ environmentId, attemptId, control }) =>
-    wingReportCollectorFor(environmentId).collectItemwinner({ environmentId, attemptId, control }),
-  closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
-  takeWindowTurn: coupangWindowTurn(WING_ITEMWINNER_PRODUCER),
-});
-chrome.runtime.onMessage.addListener(wingItemwinnerSourceOwner.handleMessage);
 const wingFormRuntimeCompat = KidItemWingFormRuntimeCompat.create({ chrome });
 const wingFormReadiness = KidItemWingFormReadiness.create({ chrome });
 const wingImageFetch = KidItemWingImageFetch.create({
@@ -1155,15 +1067,6 @@ async function cancelCollectionSession(runId, environmentId) {
     await adCenterCollectorFor(environmentId).cancelRun({ attemptId: runId });
     return adKeywordSourceOwner.cancel({ environmentId, attemptId: runId });
   }
-  if (session?.producer === WING_TRAFFIC_PRODUCER) {
-    // The router preserves the legacy v1 owner cancellation path
-    // (wingTrafficSourceOwner.cancel) while selecting the daily v2 owner.
-    return cancelWingTrafficSourceOwner({ environmentId, attemptId: runId });
-  }
-  if (session?.producer === WING_ITEMWINNER_PRODUCER) {
-    await wingReportCollectorFor(environmentId).cancelRun({ attemptId: runId });
-    return wingItemwinnerSourceOwner.cancel({ environmentId, attemptId: runId });
-  }
   if (session?.producer === "advertising.profitability_import") {
     await adCenterCollectorFor(environmentId).cancelRun({ attemptId: runId });
     return profitabilitySourceOwner.cancel({ environmentId, attemptId: runId });
@@ -1173,19 +1076,16 @@ async function cancelCollectionSession(runId, environmentId) {
 
 // A restarted worker continues a collection only through the web-app lifetime,
 // which recovers an environment after it confirms a connected KidItem tab there
-// and settles its stop requests. The ad campaign, keyword, Wing traffic and
-// itemwinner owners only settle attempts that already ended. Profitability
-// continues its same live import inside the window turn a new start would take.
-// The Wing catalog import continues its same unexpired attempt after taking the import turn a
+// and settles its stop requests. The ad campaign and keyword owners only
+// settle attempts that already ended. Profitability continues its same live
+// import inside the window turn a new start would take. The Wing catalog import
+// continues its same unexpired attempt after taking the import turn a
 // new start would take. The runs keep the worker alive on their own, so the
 // lifetime is not held until they end.
 function recoverCoupangCollections(environmentId) {
   for (const [label, recover] of [
     ["광고 캠페인 owner", () => adCampaignSourceOwner.recover(environmentId)],
     ["광고 키워드 owner", () => adKeywordSourceOwner.recover(environmentId)],
-    ["Wing 트래픽 owner", () => wingTrafficSourceOwner.recover(environmentId)],
-    ["Wing 트래픽 일별 owner", () => wingTrafficSourceOwnerV2.recover(environmentId)],
-    ["Wing 아이템위너 owner", () => wingItemwinnerSourceOwner.recover(environmentId)],
     ["수익성 광고비 source owner", () => profitabilitySourceOwner.recover(environmentId)],
   ]) {
     KidItemWorkerKeepAlive.during(Promise.resolve().then(recover)).catch((error) =>
@@ -1216,9 +1116,6 @@ KidItemDomains.register({
     collectionStartV1: true,
     advertisingKeywordSourceOwnerV1: true,
     advertisingCampaignSourceOwnerV1: true,
-    wingTrafficSourceOwnerV1: true,
-    wingTrafficSourceOwnerV2: true,
-    wingItemwinnerSourceOwnerV1: true,
     kiditemEnvironmentProfilesV1: true,
     wingFormRegister: true,
     wingFormRegisterSource: "wing-formV2-fill",

@@ -3,18 +3,21 @@
 import { useState } from 'react';
 import { Info, RefreshCw } from 'lucide-react';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
-import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
+import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
 import { cn } from '@/lib/utils';
 import {
   useWingTrafficCollection,
   type DashboardPeriod,
 } from '../hooks/use-wing-traffic-collection';
-import { formatWingTrafficRange } from '../lib/wing-traffic-collection';
+import { formatWingTrafficRange, wingTrafficConfirmedDays, wingTrafficReady } from '../lib/wing-traffic-collection';
 import { attemptFailureText } from '@/lib/operator-error';
 
+type RunState = 'RUNNING' | 'COMPLETE' | 'FAILED' | undefined;
+type SourceState = { ready: boolean; latestComplete: unknown } | undefined;
+
 function statusLabel(
-  state: 'RUNNING' | 'COMPLETE' | 'FAILED' | undefined,
-  source: { ready: boolean; latestComplete: unknown } | undefined,
+  state: RunState,
+  source: SourceState,
   cancelled = false,
 ): string {
   if (state === 'RUNNING') return '수집 중';
@@ -27,8 +30,8 @@ function statusLabel(
 }
 
 function statusClass(
-  state: 'RUNNING' | 'COMPLETE' | 'FAILED' | undefined,
-  source: { ready: boolean; latestComplete: unknown } | undefined,
+  state: RunState,
+  source: SourceState,
   cancelled = false,
 ): string {
   if (state === 'RUNNING') return 'border-sky-200 bg-sky-50 text-sky-700';
@@ -53,14 +56,22 @@ export function WingDailyTrafficCollection({
   const [detailsOpen, setDetailsOpen] = useState(false);
   const collection = useWingTrafficCollection({ period, selectedFrom, selectedTo });
   const { control } = collection;
-  const attempt = collection.latestAttempt;
-  const running = attempt?.state === 'RUNNING';
+  const latest = collection.latest?.operation ?? null;
+  const state: RunState = !latest
+    ? undefined
+    : latest.status === 'executing' || latest.status === 'prepared'
+      ? 'RUNNING'
+      : latest.status === 'succeeded' ? 'COMPLETE' : 'FAILED';
+  const running = collection.running !== null;
+  const source: SourceState = control.status
+    ? { ready: wingTrafficReady(control.status), latestComplete: collection.latestComplete }
+    : undefined;
   const statusUnknown = control.statusRead === 'loading' || control.statusRead === 'unavailable';
   const rangeMismatch = running && !collection.activeRangeMatches;
-  const cancelled = stoppedAttempt(attempt);
+  const cancelled = latest?.status === 'cancelled';
   const status = statusUnknown
     ? control.statusRead === 'loading' ? '상태 확인 중' : '상태 확인 필요'
-    : statusLabel(attempt?.state, control.status, cancelled);
+    : statusLabel(state, source, cancelled);
   return (
     <section
       className="rounded-xl border border-slate-200 bg-white px-4 py-3 shadow-sm"
@@ -74,7 +85,7 @@ export function WingDailyTrafficCollection({
               <span
                 className={cn(
                   'rounded-full border px-2 py-0.5 text-[11px] font-bold',
-                  statusClass(attempt?.state, control.status, cancelled),
+                  statusClass(state, source, cancelled),
                 )}
               >
                 {status}
@@ -133,34 +144,30 @@ export function WingDailyTrafficCollection({
             {rangeMismatch ? ' · 선택한 범위와 다름' : ''}
           </span>
         ) : null}
-        {running && (
+        {collection.running && (
           <span className="tabular-nums">
-            진행 상태: {attempt.plan.parserVersion === 'wing-traffic-daily-v2'
-              ? `${attempt.receiptCount}개 일별 데이터 확인 · 대상 ${attempt.plan.expectedDates.length}일`
-              : attempt.expectedPages === null
-                ? `${attempt.receiptCount} 페이지`
-                : `${attempt.receiptCount}/${attempt.expectedPages} 페이지`}
+            진행 상태: {`${wingTrafficConfirmedDays(collection.running.operation)}일 확인 · 대상 ${collection.running.expectedDays}일`}
           </span>
         )}
         {collection.latestComplete && (
           <span data-testid="wing-latest-complete-range">
-            마지막 완료 {formatWingTrafficRange(collection.latestComplete.plan)}
+            마지막 완료 {formatWingTrafficRange(collection.latestComplete.range)}
           </span>
         )}
       </div>
 
       {detailsOpen && (
         <div className="mt-2 rounded-lg border border-slate-100 bg-slate-50 px-4 py-3 text-xs leading-relaxed text-slate-600" role="region">
-          서버 source owner가 고정한 범위만 수집하며, 대시보드 수치는 완료된 원천 상태를 읽습니다.
-          수집 중에는 기존 완료본을 유지합니다.
+          서버가 고정한 범위만 수집하며(쿠팡이 아직 공개하지 않은 뒷날은 다음 수집으로 미룹니다), 대시보드 수치는
+          완료된 수집만 읽습니다. 수집 중에는 기존 완료본을 유지합니다.
         </div>
       )}
 
-      {attempt?.state === 'FAILED' && (
+      {latest && state === 'FAILED' && (
         <p className={cn('mt-2 text-[13px]', cancelled ? 'text-amber-700' : 'text-rose-700')} data-testid="wing-traffic-error">
           {cancelled
             ? COLLECTION_STOPPED_MESSAGE
-            : attemptFailureText(attempt, 'coupang_wing_traffic') ?? '최근 Wing 일별 트래픽 수집에 실패했습니다.'}
+            : attemptFailureText(latest, 'coupang_wing_traffic') ?? '최근 Wing 일별 트래픽 수집에 실패했습니다.'}
         </p>
       )}
     </section>

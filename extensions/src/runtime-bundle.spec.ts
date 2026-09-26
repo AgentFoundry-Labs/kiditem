@@ -32,8 +32,10 @@ describe('committed runtime bundle', () => {
       'advertising.competitor_catalog',
       'advertising.competitor_seller_identity',
       'advertising.keyword_serp',
+      'advertising.wing_itemwinner',
       'advertising.wing_rank',
       'advertising.wing_tracked_products',
+      'advertising.wing_traffic',
       'channels.mall_admin_listings',
       'channels.sabangnet_mall_listings',
       'channels.sellpia_manual_match',
@@ -92,6 +94,7 @@ describe('committed runtime bundle', () => {
       channelsOperationKindsV1: true,
       operationLoginV1: true,
       advertisingKeywordOperationKindsV1: true,
+      wingDailyOperationKindsV1: true,
     });
 
     const start = registered[0].externalActions['operation.start'];

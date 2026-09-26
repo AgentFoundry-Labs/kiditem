@@ -127,6 +127,12 @@ sync, registration, matching, and capacity behavior is executable in
 - 오류는 `Kiditem*Error` + `CHANNELS_*` 등록 코드로 던진다(ADR-0023). 등록 실행 보고 경로의 거절은
   409를 지킨다. Nest 예외 잔여는 수집 계열(`ChannelBusinessError`·`ListingException`, catalog·몰 관리자 옛
   경로)·`channel-account.persistence.adapter.ts` claim과 `coupang-channel.adapter.ts` 4곳(웹 `wing-error-message.ts` 분류기, KID-339 파생)뿐이다.
+- Listing-day traffic coverage comes from Advertising's succeeded
+  `advertising.wing_traffic` operations, read through Advertising's transaction
+  function `advertising/transaction/wing-traffic-coverage` (KID-362); Channels
+  never parses the operation plan or result: a date counts only when the
+  account's newest run confirmed it, no listing arrived after that run, and no
+  Wing row it could not match now belongs to an active listing (KID-217).
 - Persistence adapters may query Channels-owned facts without a dedicated
   reader file. Other owners use public capabilities (ADR-0021); preserve
   organization scope, complete-source evidence, and required transactions.

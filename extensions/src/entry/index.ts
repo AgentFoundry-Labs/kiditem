@@ -1,8 +1,10 @@
 import '../collectors/advertising.competitor_catalog';
 import '../collectors/advertising.competitor_seller_identity';
 import '../collectors/advertising.keyword_serp';
+import '../collectors/advertising.wing_itemwinner';
 import '../collectors/advertising.wing_rank';
 import '../collectors/advertising.wing_tracked_products';
+import '../collectors/advertising.wing_traffic';
 import '../collectors/channels.mall_admin_listings';
 import '../collectors/channels.sabangnet_mall_listings';
 import '../collectors/channels.sellpia_manual_match';
@@ -39,8 +41,10 @@ import '../sites/sabangnet';
 import '../sites/sellpia';
 import '../sites/tiktok-cc';
 import '../sites/wing';
+import '../sites/wing/itemwinner';
 import '../sites/wing/pre-matching-search';
 import '../sites/wing/reviews';
+import '../sites/wing/traffic';
 import { CHANNELS_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
 import { createBrowserResources } from '../core/browser';
 import { createTabPages } from '../sites/tab-page';
@@ -80,6 +84,7 @@ export function installEntry(): boolean {
   // channelsOperationKindsV1: Channels 기타 kind(사방넷 몰 목록·몰 관리자 목록·셀피아 수동매칭)를 돈다(KID-363).
   // operationLoginV1: operation.start의 credentials(사이트 자동 로그인, KID-377)를 받는다 — 옛 빌드는 그 칸을 거절한다.
   // advertisingKeywordOperationKindsV1: 광고 키워드·경쟁사 kind 5종을 돈다(KID-362 K-a).
+  // wingDailyOperationKindsV1: Wing 일별 사실 kind(트래픽·아이템위너)를 돈다(KID-362 K-b).
   registerWithLegacyDomains({
     externalActions,
     capabilities: {
@@ -89,6 +94,7 @@ export function installEntry(): boolean {
       [CHANNELS_OPERATION_CAPABILITY]: true,
       operationLoginV1: true,
       advertisingKeywordOperationKindsV1: true,
+      wingDailyOperationKindsV1: true,
     },
   });
   installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });

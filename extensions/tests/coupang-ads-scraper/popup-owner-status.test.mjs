@@ -17,9 +17,8 @@ const popupHtml = await readFile(
   'utf8',
 );
 
+// Wing 트래픽·아이템위너는 실행 kind다(KID-362) — 팝업은 옛 source 상태를 읽지 않는다.
 const OWNER_PATHS = [
-  '/api/ads/traffic/source',
-  '/api/ads/wing-itemwinner/source',
   '/api/ads/ad-campaigns/source',
 ];
 const ACTIONS_PATH = '/api/ads/actions?approvalStatus=approved&executeStatus=queued&limit=50';
@@ -191,67 +190,49 @@ test('owner reads render independently while the connection read is still pendin
   }
   await harness.reply(actions, response({ items: [] }));
   assert.equal(harness.document.getElementById('serverStatus').textContent, '확인중...');
-  assert.equal(harness.document.getElementById('trafficSync').textContent, '최신');
-  assert.match(harness.document.getElementById('trafficSyncDetail').textContent, /3행/);
+  assert.equal(harness.document.getElementById('adsSync').textContent, '최신');
+  assert.match(harness.document.getElementById('adsSyncDetail').textContent, /3캠페인/);
 
   await harness.reply(connection, response({ status: 'ok' }));
   assert.equal(harness.document.getElementById('serverStatus').textContent, '연결됨 ✅');
 });
 
-test('renders each owner status independently and preserves failed-attempt details beside prior complete evidence', async () => {
+test('renders the campaign owner status with failed-attempt details beside prior complete evidence and reads no retired Wing source', async () => {
   const harness = createPopupHarness({ connected: ['local'] });
   const failureMessage = '<img src=x onerror=alert(1)>';
   await completeStatusLoad(harness, 'local', {
-    '/api/ads/traffic/source': response(ownerStatus({ ready: false, latestAttempt: null })),
-    '/api/ads/wing-itemwinner/source': response(ownerStatus({
-      ready: false,
-      latestAttempt: { state: 'FAILED', errorCode: 'WING_TIMEOUT', errorMessage: failureMessage },
-      latestComplete: { state: 'COMPLETE', itemCount: 747, actualCutoffAt: '2026-09-06T08:30:00.000Z' },
-    })),
     '/api/ads/ad-campaigns/source': response(ownerStatus({
-      latestComplete: { state: 'COMPLETE', campaignCount: 12, actualCutoffAt: '2026-09-06T09:00:00.000Z' },
+      ready: false,
+      latestAttempt: { state: 'FAILED', errorCode: 'AD_TIMEOUT', errorMessage: failureMessage },
+      latestComplete: { state: 'COMPLETE', campaignCount: 12, actualCutoffAt: '2026-09-06T08:30:00.000Z' },
     })),
   });
 
-  assert.equal(harness.document.getElementById('trafficSync').textContent, '미수집');
-  assert.equal(harness.document.getElementById('trafficSyncDetail').textContent, '최근 완료: 없음');
-  assert.doesNotMatch(harness.document.getElementById('trafficSyncDetail').textContent, /0/);
-
-  const winnerValue = harness.document.getElementById('winnerSync');
-  const winnerDetail = harness.document.getElementById('winnerSyncDetail');
-  assert.equal(winnerValue.textContent, '갱신 필요');
-  assert.match(winnerDetail.textContent, /현재 실패: WING_TIMEOUT/);
-  assert.match(winnerDetail.textContent, /747개/);
-  assert.match(winnerDetail.textContent, /2026-09-06 17:30 KST/);
-  assert.match(winnerDetail.textContent, /<img src=x onerror=alert\(1\)>/);
-  assert.equal(winnerDetail.querySelector('img'), null);
-
-  assert.equal(harness.document.getElementById('adsSync').textContent, '최신');
-  assert.match(harness.document.getElementById('adsSyncDetail').textContent, /12캠페인/);
+  const value = harness.document.getElementById('adsSync');
+  const detail = harness.document.getElementById('adsSyncDetail');
+  assert.equal(value.textContent, '갱신 필요');
+  assert.match(detail.textContent, /현재 실패: AD_TIMEOUT/);
+  assert.match(detail.textContent, /12캠페인/);
+  assert.match(detail.textContent, /2026-09-06 17:30 KST/);
+  assert.match(detail.textContent, /<img src=x onerror=alert\(1\)>/);
+  assert.equal(detail.querySelector('img'), null);
 
   const requestedPaths = harness.requests
     .filter((request) => request.message.action === 'kiditemApiRequest')
     .map((request) => request.message.path);
-  for (const path of OWNER_PATHS) assert.ok(requestedPaths.includes(path), `missing ${path}`);
-  assert.ok(requestedPaths.every((path) => !path.includes('attemptToken')));
-  assert.ok(requestedPaths.every((path) => !path.includes('account-daily-kpis')));
-  assert.equal(harness.document.getElementById('accountDailySync'), null);
+  assert.ok(requestedPaths.includes('/api/ads/ad-campaigns/source'));
+  assert.ok(requestedPaths.every((path) => !path.includes('/api/ads/traffic') && !path.includes('wing-itemwinner')));
+  assert.equal(harness.document.getElementById('trafficSync'), null);
+  assert.equal(harness.document.getElementById('winnerSync'), null);
 });
 
-test('a failed owner read does not make independent owner cards fail or invent a zero count', async () => {
+test('a failed owner read shows 조회 실패 and invents no zero count', async () => {
   const harness = createPopupHarness({ connected: ['local'] });
   await completeStatusLoad(harness, 'local', {
-    '/api/ads/traffic/source': response({ error: '<b>server down</b>' }, { ok: false, status: 503 }),
-    '/api/ads/wing-itemwinner/source': response(ownerStatus({
-      latestComplete: { state: 'COMPLETE', itemCount: 8, actualCutoffAt: '2026-09-07T01:00:00.000Z' },
-    })),
-    '/api/ads/ad-campaigns/source': { success: false, error: 'campaign read failed' },
+    '/api/ads/ad-campaigns/source': response({ error: '<b>server down</b>' }, { ok: false, status: 503 }),
   });
-
-  assert.equal(harness.document.getElementById('trafficSync').textContent, '조회 실패');
-  assert.equal(harness.document.getElementById('winnerSync').textContent, '최신');
-  assert.match(harness.document.getElementById('winnerSyncDetail').textContent, /8개/);
   assert.equal(harness.document.getElementById('adsSync').textContent, '조회 실패');
+  assert.doesNotMatch(harness.document.getElementById('adsSyncDetail').textContent, /0캠페인/);
 });
 
 test('clearing the selector fences older owner callbacks and clears the cards', async () => {
@@ -269,7 +250,7 @@ test('clearing the selector fences older owner callbacks and clears the cards', 
   select.dispatchEvent(new harness.dom.window.Event('change', { bubbles: true }));
   await harness.flush();
   assert.equal(harness.document.getElementById('serverStatus').textContent, '환경을 선택해주세요.');
-  assert.equal(harness.document.getElementById('winnerSync').textContent, '-');
+  assert.equal(harness.document.getElementById('adsSync').textContent, '-');
 
   for (const request of localRequests) {
     await harness.reply(request, response(ownerStatus({
@@ -278,8 +259,8 @@ test('clearing the selector fences older owner callbacks and clears the cards', 
   }
   await harness.flush();
   assert.equal(harness.document.getElementById('serverStatus').textContent, '환경을 선택해주세요.');
-  assert.equal(harness.document.getElementById('trafficSync').textContent, '-');
-  assert.equal(harness.document.getElementById('winnerSyncDetail').textContent, '');
+  assert.equal(harness.document.getElementById('adsSync').textContent, '-');
+  assert.equal(harness.document.getElementById('adsSyncDetail').textContent, '');
 });
 
 test('out-of-order environment owner responses cannot overwrite the newer environment', async () => {
@@ -294,12 +275,6 @@ test('out-of-order environment owner responses cannot overwrite the newer enviro
 
   await selectEnvironment(harness, 'office');
   await completeStatusLoad(harness, 'office', {
-    '/api/ads/traffic/source': response(ownerStatus({
-      latestComplete: { state: 'COMPLETE', rowCount: 2, actualCutoffAt: '2026-09-08T01:00:00.000Z' },
-    })),
-    '/api/ads/wing-itemwinner/source': response(ownerStatus({
-      latestComplete: { state: 'COMPLETE', itemCount: 5, actualCutoffAt: '2026-09-08T01:00:00.000Z' },
-    })),
     '/api/ads/ad-campaigns/source': response(ownerStatus({
       latestComplete: { state: 'COMPLETE', campaignCount: 7, actualCutoffAt: '2026-09-08T01:00:00.000Z' },
     })),
@@ -313,13 +288,9 @@ test('out-of-order environment owner responses cannot overwrite the newer enviro
   }
   await harness.flush();
 
-  assert.equal(harness.document.getElementById('trafficSync').textContent, '최신');
-  assert.match(harness.document.getElementById('trafficSyncDetail').textContent, /2행/);
-  assert.equal(harness.document.getElementById('winnerSync').textContent, '최신');
-  assert.match(harness.document.getElementById('winnerSyncDetail').textContent, /5개/);
   assert.equal(harness.document.getElementById('adsSync').textContent, '최신');
   assert.match(harness.document.getElementById('adsSyncDetail').textContent, /7캠페인/);
-  assert.equal(harness.requests.filter((request) => request.message.environmentId === 'office').length, 5);
+  assert.equal(harness.requests.filter((request) => request.message.environmentId === 'office').length, 3);
 });
 
 test('a Run whose done report was lost warns to check the ad center instead of showing plain success', async () => {

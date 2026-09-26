@@ -4080,6 +4080,165 @@ var KidItemRuntime = (() => {
   };
   var NEVER = INVALID;
 
+  // packages/shared/src/schemas/common.ts
+  var zIsoDate = external_exports.union([external_exports.string(), external_exports.date()]);
+  var ApiErrorResponseSchema = external_exports.object({
+    statusCode: external_exports.number(),
+    message: external_exports.union([external_exports.string(), external_exports.array(external_exports.string())]),
+    error: external_exports.string().optional()
+  });
+  var SyncInfoSchema = external_exports.object({
+    lastSyncedAt: external_exports.string().nullable()
+  });
+
+  // packages/shared/src/schemas/operation.ts
+  var OPERATION_STATUSES = ["prepared", "executing", "succeeded", "failed", "cancelled"];
+  var OperationStatusSchema = external_exports.enum(OPERATION_STATUSES);
+  var OPERATION_OUTCOMES = ["succeeded", "failed"];
+  var OperationOutcomeSchema = external_exports.enum(OPERATION_OUTCOMES);
+  var OPERATION_CANCEL_CODE = "USER_CANCELLED";
+  var OPERATION_LEASE_MS = 30 * 60 * 1e3;
+  var OPERATION_CHUNK_MAX_BYTES = 1024 * 1024;
+  var OPERATION_CHUNKS_MAX = 1e3;
+  var OPERATION_KIND_PATTERN = /^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$/;
+  var OperationKindSchema = external_exports.string().regex(OPERATION_KIND_PATTERN, "kind\uB294 owner.work \uD615\uC2DD\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4");
+  var OPERATION_LOCK_KEY_PATTERN = /^(org|account:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|resource:[a-z][a-z0-9-]*:[^\s]+)$/;
+  var OperationLockKeySchema = external_exports.string().max(256).regex(OPERATION_LOCK_KEY_PATTERN, "lockKey\uB294 org \xB7 account:<id> \xB7 resource:<site>:<id> \uC911 \uD558\uB098\uC5EC\uC57C \uD569\uB2C8\uB2E4");
+  function resourceLockKey(site, id) {
+    return `resource:${site}:${id}`;
+  }
+  var OPERATION_FENCE_LOST_REASONS = ["expired", "terminal", "chunk_conflict"];
+  var OperationFenceLostReasonSchema = external_exports.enum(OPERATION_FENCE_LOST_REASONS);
+  var OperationInProgressDetailsSchema = external_exports.object({
+    operationId: external_exports.string().uuid(),
+    kind: OperationKindSchema,
+    lockKeys: external_exports.array(OperationLockKeySchema).min(1),
+    startedAt: zIsoDate,
+    expiresAt: zIsoDate
+  }).strict();
+  var OperationFenceLostDetailsSchema = external_exports.object({
+    operationId: external_exports.string().uuid(),
+    reason: OperationFenceLostReasonSchema
+  }).strict();
+  var JsonObjectSchema = external_exports.record(external_exports.unknown());
+  var OPERATION_TOKEN_HEADER = "x-operation-token";
+  var OperationWindowSchema = external_exports.object({
+    start: external_exports.string().date(),
+    end: external_exports.string().date()
+  }).strict();
+  var OperationChunkKindSchema = external_exports.string().regex(/^[a-z][a-z0-9_]*$/);
+  var OperationChunkSequenceSchema = external_exports.coerce.number().int().min(1).max(OPERATION_CHUNKS_MAX);
+  var OperationViewSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    kind: OperationKindSchema,
+    status: OperationStatusSchema,
+    lockKeys: external_exports.array(OperationLockKeySchema),
+    plan: JsonObjectSchema.nullable(),
+    progress: JsonObjectSchema.nullable(),
+    result: JsonObjectSchema.nullable(),
+    window: OperationWindowSchema.nullable(),
+    errorCode: external_exports.string().nullable(),
+    errorMessage: external_exports.string().nullable(),
+    startedAt: zIsoDate,
+    finishedAt: zIsoDate.nullable(),
+    expiresAt: zIsoDate,
+    /** claim이 지금까지 몇 번 있었나. begin으로 시작한 실행은 1. */
+    attempts: external_exports.number().int().nonnegative(),
+    maxAttempts: external_exports.number().int().min(1),
+    /** `prepared`가 claim될 수 있는 시각. begin으로 시작한 실행은 null. */
+    scheduledFor: zIsoDate.nullable()
+  }).strict();
+  var OperationBeginRequestSchema = external_exports.object({
+    kind: OperationKindSchema,
+    scope: JsonObjectSchema.default({}),
+    idempotencyKey: external_exports.string().min(1).max(128).optional(),
+    fileHash: external_exports.string().regex(/^[0-9a-f]{64}$/).optional()
+  }).strict();
+  var OperationBeginResponseSchema = external_exports.object({
+    operation: OperationViewSchema,
+    /** fenced 쓰기의 비밀. 확장의 operation client만 들고 있고 화면에 내지 않는다. */
+    token: external_exports.string().uuid(),
+    reused: external_exports.boolean()
+  }).strict();
+  var OperationChunkPutRequestSchema = external_exports.object({
+    /** payload 직렬화의 SHA-256 hex. */
+    checksum: external_exports.string().regex(/^[0-9a-f]{64}$/),
+    payload: external_exports.array(external_exports.unknown()),
+    progress: JsonObjectSchema.optional()
+  }).strict();
+  var OperationChunkPutResponseSchema = external_exports.object({
+    operationId: external_exports.string().uuid(),
+    chunkKind: OperationChunkKindSchema,
+    sequence: external_exports.number().int().min(1),
+    itemCount: external_exports.number().int().nonnegative(),
+    expiresAt: zIsoDate
+  }).strict();
+  var OperationFinishRequestSchema = external_exports.object({
+    outcome: OperationOutcomeSchema,
+    errorCode: external_exports.string().min(1).max(64).optional(),
+    errorMessage: external_exports.string().max(2e3).optional(),
+    window: OperationWindowSchema.optional(),
+    result: JsonObjectSchema.optional(),
+    /**
+     * failed일 때만. 재시도가 남아 있으면(`attempts < maxAttempts`) 같은 실행이 `prepared`로 돌아가
+     * `scheduledFor = now + retryAfterMs`가 된다(잠금 유지, 청크 삭제). 없거나 재시도가 없으면 terminal `failed`.
+     */
+    retryAfterMs: external_exports.number().int().nonnegative().max(7 * 24 * 60 * 60 * 1e3).optional()
+  }).strict().refine(
+    (value) => value.outcome !== "failed" || value.errorCode !== void 0,
+    { message: "failed\uC5D0\uB294 errorCode\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4", path: ["errorCode"] }
+  ).refine(
+    (value) => value.outcome === "failed" || value.retryAfterMs === void 0,
+    { message: "retryAfterMs\uB294 failed\uC5D0\uB9CC \uC4F4\uB2E4", path: ["retryAfterMs"] }
+  );
+  var OperationFinishResponseSchema = external_exports.object({
+    operation: OperationViewSchema
+  }).strict();
+  var OperationCancelResponseSchema = OperationFinishResponseSchema;
+  var OperationListQuerySchema = external_exports.object({
+    kinds: external_exports.string().min(1).transform((value) => value.split(",").map((kind) => kind.trim()).filter(Boolean)).pipe(external_exports.array(OperationKindSchema).min(1).max(50)),
+    status: OperationStatusSchema.optional(),
+    limit: external_exports.coerce.number().int().min(1).max(200).default(50)
+  }).strict();
+  var OperationNextSchema = external_exports.object({
+    kind: OperationKindSchema,
+    scope: JsonObjectSchema
+  }).strict();
+  var OperationListResponseSchema = external_exports.object({
+    operations: external_exports.array(OperationViewSchema)
+  }).strict();
+  var OperationPrepareRequestSchema = external_exports.object({
+    kind: OperationKindSchema,
+    scope: JsonObjectSchema.default({}),
+    idempotencyKey: external_exports.string().min(1).max(128).optional(),
+    /** 이 시각 전에는 claim되지 않는다. 없으면 바로. */
+    scheduledFor: zIsoDate.optional(),
+    /** claim 횟수 상한(재시도 포함). 기본 1 = 재시도 없음. */
+    maxAttempts: external_exports.number().int().min(1).max(20).default(1),
+    /** 실행을 시작한 사용자(있으면). owner `plan`이 `context.userId`로 받아 plan JSON에 보관한다(KID-354). */
+    userId: external_exports.string().uuid().optional()
+  }).strict();
+  var OperationClaimRequestSchema = external_exports.object({
+    kinds: external_exports.array(OperationKindSchema).min(1).max(50),
+    /** 로그·진단용. 잠금 판정에는 쓰지 않는다. */
+    workerId: external_exports.string().min(1).max(128)
+  }).strict();
+  var OperationClaimResultSchema = external_exports.object({
+    operation: OperationViewSchema,
+    token: external_exports.string().uuid()
+  }).strict();
+  var OperationPlanResultSchema = external_exports.object({
+    plan: JsonObjectSchema,
+    lockKeys: external_exports.array(OperationLockKeySchema).min(1),
+    window: OperationWindowSchema.optional()
+  }).strict();
+  var OperationStagedChunkSchema = external_exports.object({
+    chunkKind: OperationChunkKindSchema,
+    sequence: external_exports.number().int().min(1),
+    itemCount: external_exports.number().int().nonnegative(),
+    payload: external_exports.array(external_exports.unknown())
+  }).strict();
+
   // packages/shared/src/schemas/advertising-operations.ts
   var WING_TRACKED_PRODUCTS_KIND = "advertising.wing_tracked_products";
   var WING_RANK_KIND = "advertising.wing_rank";
@@ -4342,6 +4501,189 @@ var KidItemRuntime = (() => {
     captured: external_exports.number().int().nonnegative(),
     ignored: external_exports.number().int().nonnegative()
   }).passthrough();
+  var WING_VENDOR_IDENTITY_MISMATCH = "WING_VENDOR_IDENTITY_MISMATCH";
+  var WING_ITEMWINNER_KIND = "advertising.wing_itemwinner";
+  var WingItemwinnerScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid()
+  }).strict();
+  var WING_ITEMWINNER_MAX_ITEMS = 1e3;
+  var WING_ITEMWINNER_CHUNK_KIND = "itemwinner_rows";
+  var WING_ITEMWINNER_PAGE_CHUNK_KIND = "itemwinner_page";
+  var WingItemwinnerRowSchema = external_exports.object({
+    vendorItemId: external_exports.string().regex(/^\d+$/),
+    productName: external_exports.string().min(1).max(80),
+    isWinner: external_exports.boolean(),
+    myPrice: external_exports.number().int(),
+    winnerPrice: external_exports.number().int(),
+    salesQty: external_exports.number().int().nonnegative(),
+    suppressed: external_exports.boolean(),
+    providerWinnerStatus: external_exports.boolean()
+  }).strict();
+  var vendorId = external_exports.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/);
+  var WingItemwinnerPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    vendorId,
+    businessDate: external_exports.string().date()
+  }).strict();
+  var WingItemwinnerPageSchema = external_exports.object({
+    totalSize: external_exports.number().int().min(0).max(WING_ITEMWINNER_MAX_ITEMS),
+    observedAt: external_exports.string().datetime({ offset: true }),
+    /** 확장이 이 목록을 읽은 Wing 세션의 판매자 식별자. */
+    vendorId
+  }).strict();
+  var WingItemwinnerListingObservationSchema = external_exports.object({
+    listingId: external_exports.string().uuid(),
+    isOfferWinner: external_exports.boolean().nullable(),
+    lastObservedAt: external_exports.string().datetime({ offset: true })
+  }).strict();
+  var WingItemwinnerKpisSchema = external_exports.object({
+    winners: external_exports.number().int().nonnegative(),
+    suppressed: external_exports.number().int().nonnegative(),
+    losers: external_exports.number().int().nonnegative()
+  }).strict();
+  var WingItemwinnerResultSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    businessDate: external_exports.string().date(),
+    observedAt: external_exports.string().datetime({ offset: true }),
+    rowCount: external_exports.number().int().nonnegative(),
+    matchedCount: external_exports.number().int().nonnegative(),
+    unmatchedCount: external_exports.number().int().nonnegative(),
+    kpis: WingItemwinnerKpisSchema,
+    listingObservations: external_exports.array(WingItemwinnerListingObservationSchema)
+  }).strict();
+  var WING_TRAFFIC_KIND = "advertising.wing_traffic";
+  var WING_TRAFFIC_MAX_PAGES_PER_DAY = 100;
+  var calendarDate = external_exports.string().date();
+  var metric = external_exports.number().finite().int().safe();
+  var providerRatio = external_exports.number().finite().nullable();
+  var WingTrafficScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    startDate: calendarDate.optional(),
+    endDate: calendarDate.optional()
+  }).strict().refine((scope) => !scope.startDate || !scope.endDate || scope.startDate <= scope.endDate, {
+    message: "\uC2DC\uC791\uC77C\uC774 \uC885\uB8CC\uC77C\uBCF4\uB2E4 \uB2A6\uC2B5\uB2C8\uB2E4",
+    path: ["endDate"]
+  });
+  var WingTrafficPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    vendorId: external_exports.string().min(1),
+    startDate: calendarDate,
+    endDate: calendarDate,
+    expectedDates: external_exports.array(calendarDate).min(1).max(366),
+    maxPagesPerDay: external_exports.number().int().min(1).max(WING_TRAFFIC_MAX_PAGES_PER_DAY),
+    /** 실행이 시작된 시각. 그 뒤 카탈로그에 들어온 리스팅은 빠진 날을 0으로 채우지 않는다(owner가 쓴다). */
+    startedAt: external_exports.string().datetime({ offset: true })
+  }).strict();
+  var WING_TRAFFIC_ROWS_CHUNK_KIND = "traffic_rows";
+  var WING_TRAFFIC_DAY_CHUNK_KIND = "traffic_days";
+  var WING_TRAFFIC_PERIOD_CHUNK_KIND = "traffic_period";
+  var WingTrafficRowSchema = external_exports.object({
+    businessDate: calendarDate,
+    vendorItemId: external_exports.string().regex(/^[1-9]\d*$/),
+    /** Wing 등록상품 id(inventoryId). 옵션이 맞지 않을 때 listing으로 맞추는 근거. */
+    productId: external_exports.string().regex(/^[1-9]\d*$/).nullable(),
+    visitors: metric,
+    views: metric,
+    cartAdds: metric,
+    orders: metric,
+    salesQty: metric,
+    revenue: metric
+  }).strict();
+  var AdTrafficAccountSummarySchema = external_exports.object({
+    visitors: metric,
+    views: metric,
+    cartAdds: metric,
+    orders: metric,
+    salesQty: metric,
+    revenue: metric,
+    providerConversionRate: providerRatio
+  }).strict();
+  var WingTrafficDaySchema = external_exports.object({
+    businessDate: calendarDate,
+    pages: external_exports.number().int().min(1).max(WING_TRAFFIC_MAX_PAGES_PER_DAY),
+    rows: external_exports.number().int().nonnegative(),
+    /** Wing이 그날 결과 0개라고 답했다(0행이 수집 실패가 아니라는 증거). */
+    explicitEmpty: external_exports.boolean(),
+    capturedAt: external_exports.string().datetime({ offset: true }),
+    accountSummary: AdTrafficAccountSummarySchema
+  }).strict();
+  var WingTrafficPeriodSchema = external_exports.object({
+    startDate: calendarDate,
+    endDate: calendarDate,
+    capturedAt: external_exports.string().datetime({ offset: true }),
+    /** 확장이 이 창을 읽은 Wing 세션의 판매자 식별자. 빈 날만 있는 창도 이것으로 계정을 확인한다. */
+    vendorId: external_exports.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/),
+    accountSummary: AdTrafficAccountSummarySchema
+  }).strict();
+  var AdTrafficSourceAccountDailySchema = external_exports.object({
+    businessDate: calendarDate,
+    observedAt: external_exports.string().datetime({ offset: true }),
+    operationId: external_exports.string().uuid(),
+    providerConversionRate: providerRatio,
+    visitors: metric,
+    views: metric,
+    cartAdds: metric,
+    orders: metric,
+    salesQty: metric,
+    revenue: metric
+  }).strict();
+  var WingTrafficPeriodSummarySchema = external_exports.object({
+    startDate: calendarDate,
+    endDate: calendarDate,
+    observedAt: external_exports.string().datetime({ offset: true }),
+    operationId: external_exports.string().uuid(),
+    accountSummary: AdTrafficAccountSummarySchema
+  }).strict();
+  var WingTrafficResultSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    requestedStartDate: calendarDate,
+    requestedEndDate: calendarDate,
+    /** 이 실행이 확정한 날짜(plan 순서). 쿠팡이 아직 공개하지 않은 뒷날은 빠진다. */
+    confirmedDates: external_exports.array(calendarDate).min(1),
+    /** Wing이 0개라고 답한 확정 날짜. */
+    providerBackedEmptyDates: external_exports.array(calendarDate),
+    accountDaily: external_exports.array(AdTrafficSourceAccountDailySchema),
+    periodSummary: WingTrafficPeriodSummarySchema,
+    rowCount: external_exports.number().int().nonnegative(),
+    matchedCount: external_exports.number().int().nonnegative(),
+    unmatchedCount: external_exports.number().int().nonnegative(),
+    /**
+     * 날짜마다 카탈로그에 맞지 않은 Wing 옵션 id(KID-217). 그 뒤 카탈로그에 그 옵션이 들어오면(늦게 커밋된 가져오기·
+     * 다시 활성화) 그 계정의 그 날짜는 행이 합계에서 빠진 날이므로 수집 안 된 날로 친다.
+     */
+    unmatchedOptionIdsByDate: external_exports.record(calendarDate, external_exports.array(external_exports.string()))
+  }).strict();
+  var WingTrafficProgressSchema = external_exports.object({
+    current: calendarDate.nullable(),
+    confirmedDays: external_exports.number().int().nonnegative(),
+    plannedDays: external_exports.number().int().nonnegative(),
+    rows: external_exports.number().int().nonnegative()
+  }).strict();
+  var reconciliationMetricSchema = external_exports.object({
+    dailySum: metric.nullable(),
+    periodValue: metric.nullable()
+  }).strict();
+  var AdTrafficSourceReconciliationSchema = external_exports.object({
+    views: reconciliationMetricSchema,
+    cartAdds: reconciliationMetricSchema,
+    orders: reconciliationMetricSchema,
+    salesQty: reconciliationMetricSchema,
+    revenue: reconciliationMetricSchema
+  }).strict();
+  var AdTrafficSourceCoverageSchema = external_exports.object({
+    from: calendarDate,
+    to: calendarDate,
+    targetDays: external_exports.number().int().nonnegative(),
+    completedDays: external_exports.number().int().nonnegative(),
+    missingDates: external_exports.array(calendarDate)
+  }).strict();
+  var AdTrafficSourcePublishedSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    accountDaily: external_exports.array(AdTrafficSourceAccountDailySchema),
+    periodSummary: WingTrafficPeriodSummarySchema.nullable(),
+    coverage: AdTrafficSourceCoverageSchema,
+    reconciliation: AdTrafficSourceReconciliationSchema
+  }).strict();
 
   // extensions/src/collectors/collector.ts
   function attentionReporter(report, base) {
@@ -4476,6 +4818,80 @@ var KidItemRuntime = (() => {
     return value instanceof RuntimeError;
   }
 
+  // extensions/src/collectors/chunk-items.ts
+  var encoder = new TextEncoder();
+  var ChunkBuffer = class {
+    // "[]"
+    constructor(options) {
+      this.options = options;
+    }
+    options;
+    items = [];
+    bytes = 2;
+    /** 넣고 나서 내보낼 payload(있으면). */
+    push(item) {
+      const maxBytes = this.options.maxBytes ?? OPERATION_CHUNK_MAX_BYTES;
+      const itemBytes = encoder.encode(JSON.stringify(item)).byteLength;
+      if (itemBytes + 2 > maxBytes) {
+        throw new RuntimeError("RUNTIME_CHUNK_TOO_LARGE", `${this.options.label} \uD558\uB098\uAC00 \uCCAD\uD06C \uC0C1\uD55C(${maxBytes}\uBC14\uC774\uD2B8)\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, { bytes: itemBytes });
+      }
+      let flushed = null;
+      const separator = this.items.length > 0 ? 1 : 0;
+      if (this.items.length >= this.options.maxItems || this.bytes + separator + itemBytes > maxBytes) flushed = this.flush();
+      this.bytes += (this.items.length > 0 ? 1 : 0) + itemBytes;
+      this.items.push(item);
+      if (this.items.length >= this.options.maxItems) return flushed ?? this.flush();
+      return flushed;
+    }
+    /** 남은 원소(없으면 null). */
+    flush() {
+      if (this.items.length === 0) return null;
+      const out = this.items;
+      this.items = [];
+      this.bytes = 2;
+      return out;
+    }
+  };
+
+  // extensions/src/collectors/advertising.wing_itemwinner/index.ts
+  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
+  var CHUNK_ITEMS = 500;
+  var wingItemwinnerCollector = {
+    kind: WING_ITEMWINNER_KIND,
+    site: "wing-itemwinner",
+    async *collect(rawPlan, site, { signal }) {
+      const parsed2 = WingItemwinnerPlanSchema.safeParse(rawPlan);
+      if (!parsed2.success) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC544\uC774\uD15C\uC704\uB108 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
+      }
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
+      if (signal.aborted) return;
+      const vendorId2 = await site.readVendorId();
+      if (vendorId2 !== parsed2.data.vendorId) {
+        throw new RuntimeError(WING_VENDOR_IDENTITY_MISMATCH, "Wing\uC5D0 \uB2E4\uB978 \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uB3FC \uC788\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uD560 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", {
+          plannedVendorId: parsed2.data.vendorId,
+          observedVendorId: vendorId2
+        });
+      }
+      const list = await site.readItemwinnerList();
+      const observedAt = (/* @__PURE__ */ new Date()).toISOString();
+      if (signal.aborted) return;
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ITEMS, label: "\uC544\uC774\uD15C\uC704\uB108 \uD589" });
+      for (const row of list.rows) {
+        const full = buffer.push(row);
+        if (full) yield rowsChunk(full);
+      }
+      const rest = buffer.flush();
+      if (rest) yield rowsChunk(rest);
+      const marker = { totalSize: list.totalSize, observedAt, vendorId: vendorId2 };
+      yield { chunkKind: WING_ITEMWINNER_PAGE_CHUNK_KIND, payload: [marker], progress: { rows: list.rows.length } };
+    }
+  };
+  function rowsChunk(payload) {
+    return { chunkKind: WING_ITEMWINNER_CHUNK_KIND, payload };
+  }
+  registerCollector(wingItemwinnerCollector);
+
   // extensions/src/collectors/wing-search-keyword.ts
   var ADVERTISING_COLLECTION_INCOMPLETE = "ADVERTISING_COLLECTION_INCOMPLETE";
   async function readWingSearchKeyword(site, keyword2, maxPages, signal) {
@@ -4587,164 +5003,101 @@ var KidItemRuntime = (() => {
   }
   registerCollector(advertisingWingTrackedProductsCollector);
 
-  // packages/shared/src/schemas/common.ts
-  var zIsoDate = external_exports.union([external_exports.string(), external_exports.date()]);
-  var ApiErrorResponseSchema = external_exports.object({
-    statusCode: external_exports.number(),
-    message: external_exports.union([external_exports.string(), external_exports.array(external_exports.string())]),
-    error: external_exports.string().optional()
-  });
-  var SyncInfoSchema = external_exports.object({
-    lastSyncedAt: external_exports.string().nullable()
-  });
-
-  // packages/shared/src/schemas/operation.ts
-  var OPERATION_STATUSES = ["prepared", "executing", "succeeded", "failed", "cancelled"];
-  var OperationStatusSchema = external_exports.enum(OPERATION_STATUSES);
-  var OPERATION_OUTCOMES = ["succeeded", "failed"];
-  var OperationOutcomeSchema = external_exports.enum(OPERATION_OUTCOMES);
-  var OPERATION_CANCEL_CODE = "USER_CANCELLED";
-  var OPERATION_LEASE_MS = 30 * 60 * 1e3;
-  var OPERATION_CHUNK_MAX_BYTES = 1024 * 1024;
-  var OPERATION_CHUNKS_MAX = 1e3;
-  var OPERATION_KIND_PATTERN = /^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$/;
-  var OperationKindSchema = external_exports.string().regex(OPERATION_KIND_PATTERN, "kind\uB294 owner.work \uD615\uC2DD\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4");
-  var OPERATION_LOCK_KEY_PATTERN = /^(org|account:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|resource:[a-z][a-z0-9-]*:[^\s]+)$/;
-  var OperationLockKeySchema = external_exports.string().max(256).regex(OPERATION_LOCK_KEY_PATTERN, "lockKey\uB294 org \xB7 account:<id> \xB7 resource:<site>:<id> \uC911 \uD558\uB098\uC5EC\uC57C \uD569\uB2C8\uB2E4");
-  function resourceLockKey(site, id) {
-    return `resource:${site}:${id}`;
+  // extensions/src/collectors/advertising.wing_traffic/index.ts
+  var PAGE_SIZE = 100;
+  var CHUNK_ITEMS2 = 1e3;
+  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var WING_TRAFFIC_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
+  var WING_TRAFFIC_DATA_NOT_READY = "WING_TRAFFIC_DATA_NOT_READY";
+  var WING_TRAFFIC_PAGE_CONFLICT = "WING_TRAFFIC_PAGE_CONFLICT";
+  var wingTrafficCollector = {
+    kind: WING_TRAFFIC_KIND,
+    site: "wing-traffic",
+    async *collect(rawPlan, site, { signal, report }) {
+      const parsed2 = WingTrafficPlanSchema.safeParse(rawPlan);
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uD2B8\uB798\uD53D \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
+      const plan = parsed2.data;
+      if (signal.aborted) return;
+      const vendorId2 = await site.readVendorId();
+      if (vendorId2 !== plan.vendorId) {
+        throw new RuntimeError(WING_VENDOR_IDENTITY_MISMATCH, "Wing\uC5D0 \uB2E4\uB978 \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uB3FC \uC788\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uD560 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", {
+          plannedVendorId: plan.vendorId,
+          observedVendorId: vendorId2
+        });
+      }
+      const freshness = await site.readFreshness(/* @__PURE__ */ new Date());
+      const confirmedEnd = [freshness.salesLatest, freshness.trafficLatest, plan.endDate].reduce((earliest, date) => date < earliest ? date : earliest);
+      const dates = plan.expectedDates.filter((date) => date <= confirmedEnd);
+      if (dates.length === 0) {
+        throw new RuntimeError(
+          WING_TRAFFIC_DATA_NOT_READY,
+          `\uCFE0\uD321\uC774 ${plan.startDate} \uC774\uD6C4 \uD2B8\uB798\uD53D\uC744 \uC544\uC9C1 \uACF5\uAC1C\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uD2B8\uB798\uD53D ${freshness.trafficLatest} \xB7 \uB9E4\uCD9C ${freshness.salesLatest}\uAE4C\uC9C0 \uC9D1\uACC4\uB3FC \uC788\uC2B5\uB2C8\uB2E4.`,
+          { latestTrafficDate: freshness.trafficLatest, latestSalesDate: freshness.salesLatest }
+        );
+      }
+      if (plan.startDate < freshness.viewableStart || confirmedEnd > freshness.viewableEnd) {
+        throw new RuntimeError(WING_TRAFFIC_DATA_NOT_READY, "\uCFE0\uD321 \uB9E4\uCD9C\uBD84\uC11D\uC774 \uC694\uCCAD\uD55C \uB0A0\uC9DC \uBC94\uC704\uB97C \uC81C\uACF5\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", {
+          viewableStart: freshness.viewableStart,
+          viewableEnd: freshness.viewableEnd
+        });
+      }
+      let rowTotal = 0;
+      for (const [index, businessDate] of dates.entries()) {
+        const progress4 = (current) => ({ current, confirmedDays: index, plannedDays: dates.length, rows: rowTotal });
+        const buffer = new ChunkBuffer({ maxItems: CHUNK_ITEMS2, label: "\uD2B8\uB798\uD53D \uD589" });
+        let totalResults = null;
+        let totalPages = 1;
+        let pages = 0;
+        let rows = 0;
+        for (let pageNumber = 0; pageNumber < totalPages; pageNumber += 1) {
+          if (signal.aborted) return;
+          if (pageNumber >= plan.maxPagesPerDay) {
+            throw new RuntimeError(WING_TRAFFIC_PAGE_LIMIT_REACHED, `${businessDate} \uD2B8\uB798\uD53D\uC774 ${plan.maxPagesPerDay}\uCABD\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, { businessDate });
+          }
+          const page = await site.readDetailPage({ businessDate, pageNumber, vendorId: plan.vendorId });
+          if (page.pageNumber !== pageNumber || page.pageSize !== PAGE_SIZE || page.totalResults < 0) throw pageConflict(businessDate, pageNumber);
+          if (totalResults === null) {
+            totalResults = page.totalResults;
+            totalPages = totalResults === 0 ? 1 : Math.ceil(totalResults / PAGE_SIZE);
+            if (page.totalPages !== (totalResults === 0 ? 0 : totalPages)) throw pageConflict(businessDate, pageNumber);
+            if (totalPages > plan.maxPagesPerDay) {
+              throw new RuntimeError(WING_TRAFFIC_PAGE_LIMIT_REACHED, `${businessDate} \uD2B8\uB798\uD53D\uC774 ${plan.maxPagesPerDay}\uCABD\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, { businessDate });
+            }
+          } else if (page.totalResults !== totalResults || page.totalPages !== totalPages) {
+            throw pageConflict(businessDate, pageNumber);
+          }
+          const expectedRows = totalResults === 0 ? 0 : Math.min(PAGE_SIZE, totalResults - pageNumber * PAGE_SIZE);
+          if (page.rows.length !== expectedRows) throw pageConflict(businessDate, pageNumber);
+          pages += 1;
+          for (const option of page.rows) {
+            rows += 1;
+            const full = buffer.push({ businessDate, ...option });
+            if (full) yield rowsChunk2(full);
+          }
+          rowTotal += page.rows.length;
+          await report?.({ ...progress4(businessDate) });
+        }
+        const rest = buffer.flush();
+        if (rest) yield rowsChunk2(rest);
+        if (signal.aborted) return;
+        const accountSummary = await site.readSummary({ startDate: businessDate, endDate: businessDate });
+        const day = { businessDate, pages, rows, explicitEmpty: rows === 0, capturedAt: (/* @__PURE__ */ new Date()).toISOString(), accountSummary };
+        yield { chunkKind: WING_TRAFFIC_DAY_CHUNK_KIND, payload: [day], progress: { current: businessDate, confirmedDays: index + 1, plannedDays: dates.length, rows: rowTotal } };
+      }
+      if (signal.aborted) return;
+      const periodSummary = await site.readSummary({ startDate: dates[0], endDate: dates[dates.length - 1] });
+      const period = { startDate: dates[0], endDate: dates[dates.length - 1], capturedAt: (/* @__PURE__ */ new Date()).toISOString(), vendorId: vendorId2, accountSummary: periodSummary };
+      yield { chunkKind: WING_TRAFFIC_PERIOD_CHUNK_KIND, payload: [period], progress: { current: null, confirmedDays: dates.length, plannedDays: dates.length, rows: rowTotal } };
+    }
+  };
+  function rowsChunk2(payload) {
+    return { chunkKind: WING_TRAFFIC_ROWS_CHUNK_KIND, payload };
   }
-  var OPERATION_FENCE_LOST_REASONS = ["expired", "terminal", "chunk_conflict"];
-  var OperationFenceLostReasonSchema = external_exports.enum(OPERATION_FENCE_LOST_REASONS);
-  var OperationInProgressDetailsSchema = external_exports.object({
-    operationId: external_exports.string().uuid(),
-    kind: OperationKindSchema,
-    lockKeys: external_exports.array(OperationLockKeySchema).min(1),
-    startedAt: zIsoDate,
-    expiresAt: zIsoDate
-  }).strict();
-  var OperationFenceLostDetailsSchema = external_exports.object({
-    operationId: external_exports.string().uuid(),
-    reason: OperationFenceLostReasonSchema
-  }).strict();
-  var JsonObjectSchema = external_exports.record(external_exports.unknown());
-  var OPERATION_TOKEN_HEADER = "x-operation-token";
-  var OperationWindowSchema = external_exports.object({
-    start: external_exports.string().date(),
-    end: external_exports.string().date()
-  }).strict();
-  var OperationChunkKindSchema = external_exports.string().regex(/^[a-z][a-z0-9_]*$/);
-  var OperationChunkSequenceSchema = external_exports.coerce.number().int().min(1).max(OPERATION_CHUNKS_MAX);
-  var OperationViewSchema = external_exports.object({
-    id: external_exports.string().uuid(),
-    kind: OperationKindSchema,
-    status: OperationStatusSchema,
-    lockKeys: external_exports.array(OperationLockKeySchema),
-    plan: JsonObjectSchema.nullable(),
-    progress: JsonObjectSchema.nullable(),
-    result: JsonObjectSchema.nullable(),
-    window: OperationWindowSchema.nullable(),
-    errorCode: external_exports.string().nullable(),
-    errorMessage: external_exports.string().nullable(),
-    startedAt: zIsoDate,
-    finishedAt: zIsoDate.nullable(),
-    expiresAt: zIsoDate,
-    /** claim이 지금까지 몇 번 있었나. begin으로 시작한 실행은 1. */
-    attempts: external_exports.number().int().nonnegative(),
-    maxAttempts: external_exports.number().int().min(1),
-    /** `prepared`가 claim될 수 있는 시각. begin으로 시작한 실행은 null. */
-    scheduledFor: zIsoDate.nullable()
-  }).strict();
-  var OperationBeginRequestSchema = external_exports.object({
-    kind: OperationKindSchema,
-    scope: JsonObjectSchema.default({}),
-    idempotencyKey: external_exports.string().min(1).max(128).optional(),
-    fileHash: external_exports.string().regex(/^[0-9a-f]{64}$/).optional()
-  }).strict();
-  var OperationBeginResponseSchema = external_exports.object({
-    operation: OperationViewSchema,
-    /** fenced 쓰기의 비밀. 확장의 operation client만 들고 있고 화면에 내지 않는다. */
-    token: external_exports.string().uuid(),
-    reused: external_exports.boolean()
-  }).strict();
-  var OperationChunkPutRequestSchema = external_exports.object({
-    /** payload 직렬화의 SHA-256 hex. */
-    checksum: external_exports.string().regex(/^[0-9a-f]{64}$/),
-    payload: external_exports.array(external_exports.unknown()),
-    progress: JsonObjectSchema.optional()
-  }).strict();
-  var OperationChunkPutResponseSchema = external_exports.object({
-    operationId: external_exports.string().uuid(),
-    chunkKind: OperationChunkKindSchema,
-    sequence: external_exports.number().int().min(1),
-    itemCount: external_exports.number().int().nonnegative(),
-    expiresAt: zIsoDate
-  }).strict();
-  var OperationFinishRequestSchema = external_exports.object({
-    outcome: OperationOutcomeSchema,
-    errorCode: external_exports.string().min(1).max(64).optional(),
-    errorMessage: external_exports.string().max(2e3).optional(),
-    window: OperationWindowSchema.optional(),
-    result: JsonObjectSchema.optional(),
-    /**
-     * failed일 때만. 재시도가 남아 있으면(`attempts < maxAttempts`) 같은 실행이 `prepared`로 돌아가
-     * `scheduledFor = now + retryAfterMs`가 된다(잠금 유지, 청크 삭제). 없거나 재시도가 없으면 terminal `failed`.
-     */
-    retryAfterMs: external_exports.number().int().nonnegative().max(7 * 24 * 60 * 60 * 1e3).optional()
-  }).strict().refine(
-    (value) => value.outcome !== "failed" || value.errorCode !== void 0,
-    { message: "failed\uC5D0\uB294 errorCode\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4", path: ["errorCode"] }
-  ).refine(
-    (value) => value.outcome === "failed" || value.retryAfterMs === void 0,
-    { message: "retryAfterMs\uB294 failed\uC5D0\uB9CC \uC4F4\uB2E4", path: ["retryAfterMs"] }
-  );
-  var OperationFinishResponseSchema = external_exports.object({
-    operation: OperationViewSchema
-  }).strict();
-  var OperationCancelResponseSchema = OperationFinishResponseSchema;
-  var OperationListQuerySchema = external_exports.object({
-    kinds: external_exports.string().min(1).transform((value) => value.split(",").map((kind) => kind.trim()).filter(Boolean)).pipe(external_exports.array(OperationKindSchema).min(1).max(50)),
-    status: OperationStatusSchema.optional(),
-    limit: external_exports.coerce.number().int().min(1).max(200).default(50)
-  }).strict();
-  var OperationNextSchema = external_exports.object({
-    kind: OperationKindSchema,
-    scope: JsonObjectSchema
-  }).strict();
-  var OperationListResponseSchema = external_exports.object({
-    operations: external_exports.array(OperationViewSchema)
-  }).strict();
-  var OperationPrepareRequestSchema = external_exports.object({
-    kind: OperationKindSchema,
-    scope: JsonObjectSchema.default({}),
-    idempotencyKey: external_exports.string().min(1).max(128).optional(),
-    /** 이 시각 전에는 claim되지 않는다. 없으면 바로. */
-    scheduledFor: zIsoDate.optional(),
-    /** claim 횟수 상한(재시도 포함). 기본 1 = 재시도 없음. */
-    maxAttempts: external_exports.number().int().min(1).max(20).default(1),
-    /** 실행을 시작한 사용자(있으면). owner `plan`이 `context.userId`로 받아 plan JSON에 보관한다(KID-354). */
-    userId: external_exports.string().uuid().optional()
-  }).strict();
-  var OperationClaimRequestSchema = external_exports.object({
-    kinds: external_exports.array(OperationKindSchema).min(1).max(50),
-    /** 로그·진단용. 잠금 판정에는 쓰지 않는다. */
-    workerId: external_exports.string().min(1).max(128)
-  }).strict();
-  var OperationClaimResultSchema = external_exports.object({
-    operation: OperationViewSchema,
-    token: external_exports.string().uuid()
-  }).strict();
-  var OperationPlanResultSchema = external_exports.object({
-    plan: JsonObjectSchema,
-    lockKeys: external_exports.array(OperationLockKeySchema).min(1),
-    window: OperationWindowSchema.optional()
-  }).strict();
-  var OperationStagedChunkSchema = external_exports.object({
-    chunkKind: OperationChunkKindSchema,
-    sequence: external_exports.number().int().min(1),
-    itemCount: external_exports.number().int().nonnegative(),
-    payload: external_exports.array(external_exports.unknown())
-  }).strict();
+  function pageConflict(businessDate, pageNumber) {
+    return new RuntimeError(WING_TRAFFIC_PAGE_CONFLICT, "Wing \uD2B8\uB798\uD53D \uCABD \uC815\uBCF4\uAC00 \uBC14\uB00C\uC5C8\uAC70\uB098 \uC77C\uBD80\uB9CC \uC654\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { businessDate, pageNumber });
+  }
+  registerCollector(wingTrafficCollector);
 
   // packages/shared/src/schemas/channels-operations.ts
   var SABANGNET_MALL_LISTINGS_KIND = "channels.sabangnet_mall_listings";
@@ -5056,43 +5409,8 @@ var KidItemRuntime = (() => {
     rows: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT)
   }).strict();
 
-  // extensions/src/collectors/chunk-items.ts
-  var encoder = new TextEncoder();
-  var ChunkBuffer = class {
-    // "[]"
-    constructor(options) {
-      this.options = options;
-    }
-    options;
-    items = [];
-    bytes = 2;
-    /** 넣고 나서 내보낼 payload(있으면). */
-    push(item) {
-      const maxBytes = this.options.maxBytes ?? OPERATION_CHUNK_MAX_BYTES;
-      const itemBytes = encoder.encode(JSON.stringify(item)).byteLength;
-      if (itemBytes + 2 > maxBytes) {
-        throw new RuntimeError("RUNTIME_CHUNK_TOO_LARGE", `${this.options.label} \uD558\uB098\uAC00 \uCCAD\uD06C \uC0C1\uD55C(${maxBytes}\uBC14\uC774\uD2B8)\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, { bytes: itemBytes });
-      }
-      let flushed = null;
-      const separator = this.items.length > 0 ? 1 : 0;
-      if (this.items.length >= this.options.maxItems || this.bytes + separator + itemBytes > maxBytes) flushed = this.flush();
-      this.bytes += (this.items.length > 0 ? 1 : 0) + itemBytes;
-      this.items.push(item);
-      if (this.items.length >= this.options.maxItems) return flushed ?? this.flush();
-      return flushed;
-    }
-    /** 남은 원소(없으면 null). */
-    flush() {
-      if (this.items.length === 0) return null;
-      const out = this.items;
-      this.items = [];
-      this.bytes = 2;
-      return out;
-    }
-  };
-
   // extensions/src/collectors/channels.mall_admin_listings/index.ts
-  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
   var SOURCE_SNAPSHOT_INVALID = "SOURCE_SNAPSHOT_INVALID";
   var CHUNK_ROWS = 1e3;
   var mallAdminListingsCollector = {
@@ -5102,7 +5420,7 @@ var KidItemRuntime = (() => {
       const parsed2 = MallAdminListingsPlanSchema.safeParse(rawPlan);
       const reader = parsed2.success && site ? site.reader(parsed2.data.mallKey) : null;
       if (!parsed2.success || !reader?.readListings) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC774 \uD655\uC7A5\uC774 \uAC00\uC838\uC62C \uC218 \uC5C6\uB294 \uBAB0 \uC0C1\uD488 \uBAA9\uB85D \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC774 \uD655\uC7A5\uC774 \uAC00\uC838\uC62C \uC218 \uC5C6\uB294 \uBAB0 \uC0C1\uD488 \uBAA9\uB85D \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ADMIN_LISTINGS_KIND,
           mallKey: parsed2.success ? parsed2.data.mallKey : null
         });
@@ -5241,7 +5559,7 @@ var KidItemRuntime = (() => {
   }).strict();
 
   // extensions/src/collectors/channels.sabangnet_mall_listings/index.ts
-  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
   var MALL_CONTRACT_CHANGED = "MALL_CONTRACT_CHANGED";
   var SOURCE_SNAPSHOT_INVALID2 = "SOURCE_SNAPSHOT_INVALID";
   var CHUNK_ROWS2 = 500;
@@ -5271,8 +5589,8 @@ var KidItemRuntime = (() => {
     site: "sabangnet",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed2 = SabangnetMallListingsPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC0AC\uBC29\uB137 \uAC00\uC838\uC624\uAE30 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC0AC\uBC29\uB137 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC0AC\uBC29\uB137 \uAC00\uC838\uC624\uAE30 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC0AC\uBC29\uB137 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
       const plan = parsed2.data;
       const planned = new Set(plan.malls.flatMap((mall) => mall.sabangnetShopIds));
       const query = { listPath: plan.listPath, dateFrom: plan.dateFrom, dateTo: plan.dateTo, pageSize: plan.pageSize };
@@ -5442,7 +5760,7 @@ var KidItemRuntime = (() => {
   var SELLPIA_MANUAL_MATCH_CHUNK_KIND = "match_results";
 
   // extensions/src/collectors/channels.sellpia_manual_match/index.ts
-  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
   var MALL_CONTRACT_CHANGED2 = "MALL_CONTRACT_CHANGED";
   var SOURCE_SNAPSHOT_INVALID3 = "SOURCE_SNAPSHOT_INVALID";
   var SEARCH_BATCH = 100;
@@ -5456,8 +5774,8 @@ var KidItemRuntime = (() => {
     site: "sellpia",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed2 = SellpiaManualMatchPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
       const { targetCodes } = parsed2.data;
       try {
         const byMd5 = /* @__PURE__ */ new Map();
@@ -6709,20 +7027,20 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/collectors/orders.coupang_directship/index.ts
-  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
   var MAX_LIST_PAGES = 40;
   var WINDOW_DAYS = 30;
   var DETAIL_CONCURRENCY = 5;
-  var CHUNK_ITEMS = 200;
+  var CHUNK_ITEMS3 = 200;
   var KST_OFFSET_MS = 9 * 60 * 60 * 1e3;
   var coupangDirectshipCollector = {
     kind: COUPANG_DIRECTSHIP_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       if (!CoupangDirectshipPlanSchema.safeParse(rawPlan).success) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+        throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       }
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       try {
         const now = Date.now();
         const query = { searchDateType: "WAREHOUSING_PLAN_DATE", from: kstDay(now, 0), to: kstDay(now, WINDOW_DAYS), status: "PA" };
@@ -6743,7 +7061,7 @@ var KidItemRuntime = (() => {
           await report?.(progress("list", page, Math.min(Number(body.lastPageNumber) || 1, MAX_LIST_PAGES)));
           if (page >= (Number(body.lastPageNumber) || 1)) break;
         }
-        const buffer = new ChunkBuffer({ maxItems: CHUNK_ITEMS, label: "\uC9C1\uBC30\uC1A1 \uBC1C\uC8FC\uC11C" });
+        const buffer = new ChunkBuffer({ maxItems: CHUNK_ITEMS3, label: "\uC9C1\uBC30\uC1A1 \uBC1C\uC8FC\uC11C" });
         if (listed.length === 0) {
           yield { chunkKind: COUPANG_DIRECTSHIP_CHUNK_KIND, payload: [{ centers: {} }], progress: progress("done", 0, 0) };
           return;
@@ -6819,15 +7137,15 @@ var KidItemRuntime = (() => {
     const list = Array.isArray(body) ? body : body?.body ?? [];
     const centers = {};
     for (const center of Array.isArray(list) ? list : []) {
-      const record = center;
-      if (!record?.centerName) continue;
+      const record2 = center;
+      if (!record2?.centerName) continue;
       const entry = {};
-      if (typeof record.address === "string" && record.address.trim()) entry.addr = record.address.trim();
-      if (typeof record.zipCode === "string" && record.zipCode.trim() || typeof record.zipCode === "number") {
-        entry.zip = typeof record.zipCode === "number" ? record.zipCode : String(record.zipCode).trim();
+      if (typeof record2.address === "string" && record2.address.trim()) entry.addr = record2.address.trim();
+      if (typeof record2.zipCode === "string" && record2.zipCode.trim() || typeof record2.zipCode === "number") {
+        entry.zip = typeof record2.zipCode === "number" ? record2.zipCode : String(record2.zipCode).trim();
       }
-      if (typeof record.contact === "string" && record.contact.trim()) entry.contact = record.contact.trim();
-      centers[String(record.centerName).trim()] = entry;
+      if (typeof record2.contact === "string" && record2.contact.trim()) entry.contact = record2.contact.trim();
+      centers[String(record2.centerName).trim()] = entry;
     }
     return centers;
   }
@@ -6991,14 +7309,14 @@ var KidItemRuntime = (() => {
     maxPagesPerWindow: external_exports.number().int().min(1)
   });
   var COUPANG_REVIEWS_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
-  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
   var coupangReviewsCollector = {
     kind: COUPANG_REVIEWS_KIND,
     site: "wing-reviews",
     async *collect(rawPlan, site, { signal }) {
       const parsed2 = CoupangReviewsPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
       const plan = parsed2.data;
       const done = [];
       for (const window of plan.windows) {
@@ -7041,7 +7359,7 @@ var KidItemRuntime = (() => {
 
   // extensions/src/collectors/orders.coupang_rocket_po/index.ts
   var ROCKET_PO_COLLECTION_INCOMPLETE = "ROCKET_PO_COLLECTION_INCOMPLETE";
-  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID8 = "RUNTIME_PLAN_INVALID";
   var DETAIL_CONCURRENCY2 = 5;
   var CHUNK_PURCHASE_ORDERS = 200;
   var coupangRocketPoCollector = {
@@ -7049,8 +7367,8 @@ var KidItemRuntime = (() => {
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed2 = CoupangRocketPoPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
       const plan = parsed2.data;
       try {
         const query = { searchDateType: plan.dateType, from: plan.from, to: plan.to, status: plan.status };
@@ -7076,8 +7394,8 @@ var KidItemRuntime = (() => {
           if (page >= totalListPages) break;
         }
         const vendorIds = listed.map((po) => po.vendorId);
-        const vendorId = vendorIds.length > 0 && new Set(vendorIds).size === 1 ? vendorIds[0] : "";
-        if (listed.length > 0 && !vendorId) throw incomplete2("\uBC1C\uC8FC \uBAA9\uB85D\uC758 \uACF5\uAE09\uC790 ID\uAC00 \uBE44\uC5C8\uAC70\uB098 \uC11E\uC5EC \uC788\uC2B5\uB2C8\uB2E4.");
+        const vendorId2 = vendorIds.length > 0 && new Set(vendorIds).size === 1 ? vendorIds[0] : "";
+        if (listed.length > 0 && !vendorId2) throw incomplete2("\uBC1C\uC8FC \uBAA9\uB85D\uC758 \uACF5\uAE09\uC790 ID\uAC00 \uBE44\uC5C8\uAC70\uB098 \uC11E\uC5EC \uC788\uC2B5\uB2C8\uB2E4.");
         const businessDateBasis = plan.dateType === "PURCHASE_ORDER_DATE" ? "ordered_at" : "expected_inbound";
         const buffer = new ChunkBuffer({ maxItems: CHUNK_PURCHASE_ORDERS, label: "\uBC1C\uC8FC\uC11C" });
         let detailed = 0;
@@ -7098,7 +7416,7 @@ var KidItemRuntime = (() => {
         const rest = buffer.flush();
         if (rest) yield { chunkKind: COUPANG_ROCKET_PO_CHUNK_KIND, payload: rest, progress: progress2("detail", detailed, listed.length) };
         const scan = {
-          vendorId,
+          vendorId: vendorId2,
           listPagesRead,
           totalListPages: totalListPages ?? 0,
           detailPoCount: detailed,
@@ -7270,14 +7588,14 @@ var KidItemRuntime = (() => {
   // extensions/src/collectors/orders.coupang_shipment_summary/index.ts
   var PlanSchema = external_exports.object({ maxPages: external_exports.number().int().min(1).max(60) });
   var PAGE_FETCH_CONCURRENCY = 6;
-  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID9 = "RUNTIME_PLAN_INVALID";
   var coupangShipmentSummaryCollector = {
     kind: COUPANG_SHIPMENT_SUMMARY_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed2 = PlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
       const { maxPages } = parsed2.data;
       try {
         const seen = /* @__PURE__ */ new Set();
@@ -7357,7 +7675,7 @@ var KidItemRuntime = (() => {
     seenRowKeys: external_exports.array(external_exports.string()).optional()
   });
   var CHUNK_ROWS4 = 200;
-  var RUNTIME_PLAN_INVALID8 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID10 = "RUNTIME_PLAN_INVALID";
   var mallOrdersCollector = {
     kind: MALL_ORDERS_KIND,
     site: "mall-orders",
@@ -7365,7 +7683,7 @@ var KidItemRuntime = (() => {
       const parsed2 = PlanSchema2.safeParse(rawPlan);
       const reader = parsed2.success && site ? site.reader(parsed2.data.mallKey) : null;
       if (!parsed2.success || !reader) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ORDERS_KIND,
           mallKey: parsed2.success ? parsed2.data.mallKey : null
         });
@@ -7401,14 +7719,14 @@ var KidItemRuntime = (() => {
     endDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/)
   });
   var CHUNK_ROWS5 = 500;
-  var RUNTIME_PLAN_INVALID9 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID11 = "RUNTIME_PLAN_INVALID";
   var sellpiaShipmentTrackingCollector = {
     kind: SELLPIA_SHIPMENT_TRACKING_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
       const parsed2 = PlanSchema3.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
       const { rows, total } = await site.shipmentTracking({ startDate: parsed2.data.startDate, endDate: parsed2.data.endDate });
       if (signal.aborted) return;
       const progress4 = { rows: rows.length, listed: total };
@@ -8758,19 +9076,19 @@ var KidItemRuntime = (() => {
   }
   function isErrorEnvelope(value) {
     if (Array.isArray(value)) return false;
-    const record = value;
-    if (record.success === false || record.ok === false) return true;
+    const record2 = value;
+    if (record2.success === false || record2.ok === false) return true;
     for (const key of ["error", "errors", "errorCode", "error_code"]) {
-      const nested = record[key];
-      if (key in record && nested !== null && nested !== void 0 && String(nested).trim()) return true;
+      const nested = record2[key];
+      if (key in record2 && nested !== null && nested !== void 0 && String(nested).trim()) return true;
     }
-    if (record.code !== void 0 && record.code !== null && record.code !== 0 && record.code !== "0" && String(record.code).trim() !== "") return true;
-    return typeof record.message === "string" && PROVIDER_ATTENTION.test(record.message);
+    if (record2.code !== void 0 && record2.code !== null && record2.code !== 0 && record2.code !== "0" && String(record2.code).trim() !== "") return true;
+    return typeof record2.message === "string" && PROVIDER_ATTENTION.test(record2.message);
   }
   function errorEnvelopeMessage(value) {
-    const record = value;
+    const record2 = value;
     for (const key of ["error", "errors", "message", "errorCode", "error_code", "code"]) {
-      const nested = record[key];
+      const nested = record2[key];
       if (nested !== null && nested !== void 0 && String(nested).trim()) return String(nested);
     }
     return "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC5D0\uC11C \uC624\uB958\uB97C \uBC18\uD658\uD588\uC2B5\uB2C8\uB2E4.";
@@ -9125,14 +9443,14 @@ var KidItemRuntime = (() => {
   async function readPurchaseOrderListPage(page, path, pageNumber) {
     const fetched = await page.fetch(path, { headers: { accept: "application/json" } });
     const text5 = fetched.text;
-    const failed = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
+    const failed3 = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
     if (fetched.status === 400 || fetched.status === 413 || fetched.status === 431) throw cookieBloat(path, fetched.status);
-    if (fetched.status < 200 || fetched.status >= 300 || text5.trim().charAt(0) === "<") throw failed();
+    if (fetched.status < 200 || fetched.status >= 300 || text5.trim().charAt(0) === "<") throw failed3();
     let parsed2;
     try {
       parsed2 = JSON.parse(text5);
     } catch {
-      throw failed();
+      throw failed3();
     }
     const body = parsed2?.body;
     if (!body || !Array.isArray(body.body)) throw responseInvalid(path, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC5D0 \uD589 \uBC30\uC5F4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
@@ -10494,8 +10812,8 @@ var KidItemRuntime = (() => {
         documentIds.push(document.id);
       }
       for (const image of Array.isArray(item.images) ? item.images : []) {
-        const record = isRecord2(image) ? image : {};
-        addDetailMedia(mediaByKey, "option", normalizeImageUrl(record.cdnPath || record.vendorPath), externalOptionId);
+        const record2 = isRecord2(image) ? image : {};
+        addDetailMedia(mediaByKey, "option", normalizeImageUrl(record2.cdnPath || record2.vendorPath), externalOptionId);
       }
       for (const sourceUrl of extractDetailImageUrls(item.contents)) {
         addDetailMedia(mediaByKey, "detail", sourceUrl, externalOptionId);
@@ -10564,10 +10882,10 @@ var KidItemRuntime = (() => {
   }
   function normalizeDetailAttributes(attributes) {
     return (Array.isArray(attributes) ? attributes : []).map((attribute) => {
-      const record = isRecord2(attribute) ? attribute : {};
+      const record2 = isRecord2(attribute) ? attribute : {};
       return {
-        type: nullableText(record.attributeTypeName || record.attributeTypeId),
-        value: nullableText(record.attributeValueName)
+        type: nullableText(record2.attributeTypeName || record2.attributeTypeId),
+        value: nullableText(record2.attributeValueName)
       };
     }).filter((attribute) => Boolean(attribute.type && attribute.value)).slice(0, MAX_ATTRIBUTES_PER_OPTION);
   }
@@ -10671,8 +10989,8 @@ var KidItemRuntime = (() => {
   }
   function nullableInteger(value) {
     if (value === null || value === void 0 || value === "") return null;
-    const number = Number(value);
-    return Number.isInteger(number) && number >= 0 ? number : null;
+    const number2 = Number(value);
+    return Number.isInteger(number2) && number2 >= 0 ? number2 : null;
   }
   function requiredText5(value, name) {
     const text5 = typeof value === "string" ? value.trim() : "";
@@ -10748,10 +11066,10 @@ var KidItemRuntime = (() => {
         try {
           return await caller.json(url, init);
         } catch (error) {
-          const failed = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
-          if (failed && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
+          const failed3 = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
+          if (failed3 && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
           const delay = READ_RETRY_DELAYS_MS[attempt];
-          if (!failed) throw error;
+          if (!failed3) throw error;
           if (delay === void 0) throw withResponseHint(error);
           await deps.sleep(delay);
         }
@@ -10775,10 +11093,10 @@ var KidItemRuntime = (() => {
     }
     return {
       /** 목록 한 페이지(500개). 페이지 모양·행 수가 pagination과 맞지 않으면 `CATALOG_LIST_INCOMPLETE`. */
-      async searchInventory(page, vendorId) {
+      async searchInventory(page, vendorId2) {
         const response = await searchJson(buildWingCatalogSearchBody(page));
         try {
-          return normalizeWingCatalogSearchResponse(response, page, vendorId);
+          return normalizeWingCatalogSearchResponse(response, page, vendorId2);
         } catch (error) {
           if (error instanceof WingPayloadError) throw new RuntimeError(CATALOG_LIST_INCOMPLETE2, error.message, { page });
           throw error;
@@ -10835,9 +11153,9 @@ var KidItemRuntime = (() => {
           requestType: EXCEL_REQUEST_TYPE,
           selectedTypes: [...CATALOGUE_TYPES]
         }, true);
-        const record = asRecord(response);
-        if (record?.success !== true) {
-          const message = typeof record?.message === "string" && record.message ? `: ${record.message}` : "";
+        const record2 = asRecord(response);
+        if (record2?.success !== true) {
+          const message = typeof record2?.message === "string" && record2.message ? `: ${record2.message}` : "";
           throw new RuntimeError(CATALOG_EXCEL_FAILED2, `\uCFE0\uD321 \uC719\uC774 \uC0C1\uD488\uC815\uBCF4 \uC5D1\uC140 \uC0DD\uC131\uC744 \uAC70\uC808\uD588\uC2B5\uB2C8\uB2E4${message}`);
         }
       },
@@ -10907,6 +11225,148 @@ var KidItemRuntime = (() => {
     create: (deps, lease) => createWingSite(wingCallerWithLogin(createSiteCaller(WING_SITE.caller, deps), deps, lease), { sleep: deps.sleep })
   });
 
+  // extensions/src/sites/wing/vendor-identity.ts
+  var WING_VENDOR_IDENTITY_UNAVAILABLE = "WING_VENDOR_IDENTITY_UNAVAILABLE";
+  var WING_VENDOR_IDENTITY_AMBIGUOUS = "WING_VENDOR_IDENTITY_AMBIGUOUS";
+  var ID = "([A-Za-z0-9][A-Za-z0-9_-]{0,79})";
+  var INLINE_SCRIPT = /<script\b(?![^>]*\bsrc\s*=)[^>]*>([\s\S]*?)<\/script>/gi;
+  var SCRIPT_VENDOR_ID = new RegExp(`["']?vendorId["']?\\s*[:=]\\s*["']${ID}["']`, "g");
+  var LABELED_VENDOR_ID = new RegExp(`\uC5C5\uCCB4\uCF54\uB4DC[\\s:]*${ID}`, "g");
+  var DATA_VENDOR_ID = new RegExp(`data-vendor-id\\s*=\\s*["']${ID}["']`, "g");
+  function wingVendorIdsInPage(html) {
+    const found = /* @__PURE__ */ new Set();
+    for (const script of html.matchAll(INLINE_SCRIPT)) {
+      for (const match of (script[1] ?? "").matchAll(SCRIPT_VENDOR_ID)) found.add(match[1]);
+    }
+    const text5 = html.replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ");
+    for (const match of text5.matchAll(LABELED_VENDOR_ID)) found.add(match[1]);
+    for (const match of html.matchAll(DATA_VENDOR_ID)) found.add(match[1]);
+    return [...found];
+  }
+  async function readWingVendorId(caller, pageUrl) {
+    const html = await caller.text(pageUrl, { method: "GET", headers: { Accept: "text/html" } });
+    const candidates = wingVendorIdsInPage(html);
+    if (candidates.length === 0) {
+      throw new RuntimeError(WING_VENDOR_IDENTITY_UNAVAILABLE, "Wing \uB85C\uADF8\uC778 \uACC4\uC815\uC758 \uC5C5\uCCB4\uCF54\uB4DC\uB97C \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. Wing\uC744 \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { url: pageUrl });
+    }
+    if (candidates.length > 1) {
+      throw new RuntimeError(WING_VENDOR_IDENTITY_AMBIGUOUS, "Wing \uD654\uBA74\uC5D0 \uC5C5\uCCB4\uCF54\uB4DC\uAC00 \uC5EC\uB7EC \uAC1C \uBCF4\uC5EC \uB85C\uADF8\uC778 \uACC4\uC815\uC744 \uD655\uC815\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { url: pageUrl, candidates: candidates.length });
+    }
+    return candidates[0];
+  }
+
+  // extensions/src/sites/wing/itemwinner.ts
+  var WING_ORIGIN = "https://wing.coupang.com";
+  var WING_ITEMWINNER_URL = `${WING_ORIGIN}/tenants/seller-price-management/getProductList`;
+  var WING_ITEMWINNER_PAGE_URL = `${WING_ORIGIN}/tenants/seller-price-management`;
+  var PAGE_SIZE2 = 1e3;
+  var EMPTY_PAGE_SIZE = 10;
+  var WING_ITEMWINNER_CALLER = {
+    minIntervalMs: 1e3,
+    timeoutMs: 3e4,
+    displayName: "\uCFE0\uD321 \uC719",
+    xsrf: { cookieUrl: WING_ORIGIN, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+  };
+  var WING_ITEMWINNER_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
+  function requestBody() {
+    return {
+      searchIds: "",
+      sortType: "MY_VI_SALES_DESC",
+      keywords: "",
+      revamp: "B",
+      displayCategoryIds: [],
+      productName: "",
+      brandName: "",
+      alarmStatus: "ALL",
+      autoPriceStatus: "ALL",
+      vendorItemStatus: "ON_SALE",
+      itemWinnerStatus: "ALL",
+      rodBadge: "ALL",
+      pageSize: PAGE_SIZE2,
+      page: 0,
+      searchPresets: null,
+      isTopGMV: null
+    };
+  }
+  async function readWingItemwinnerList(caller) {
+    const body = await caller.json(WING_ITEMWINNER_URL, {
+      method: "POST",
+      requireXsrf: true,
+      headers: { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" },
+      body: JSON.stringify(requestBody())
+    });
+    if (!isRecord3(body) || !Array.isArray(body.result)) throw failed("wing_itemwinner_response_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    const totalSize = integer(body.totalSize);
+    const pageIndex = integer(body.page);
+    const pageSize = integer(body.pageSize);
+    const totalPages = integer(body.totalPages);
+    if (totalSize === null || pageIndex !== 0 || pageSize === null || totalPages === null || totalSize < 0 || totalPages < 0) {
+      throw failed("wing_itemwinner_response_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    }
+    if (totalSize > WING_ITEMWINNER_MAX_ITEMS) {
+      throw new RuntimeError(WING_ITEMWINNER_PAGE_LIMIT_REACHED, `\uD310\uB9E4\uC911 \uC0C1\uD488\uC774 ${WING_ITEMWINNER_MAX_ITEMS}\uAC1C\uB97C \uB118\uC5B4 \uC544\uC774\uD15C\uC704\uB108\uB97C \uD55C \uBC88\uC5D0 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { totalSize });
+    }
+    const rows = body.result;
+    const complete = totalSize === 0 ? rows.length === 0 && totalPages === 0 && pageSize === EMPTY_PAGE_SIZE : pageSize === PAGE_SIZE2 && totalPages === 1 && rows.length === totalSize;
+    if (!complete) throw failed("wing_itemwinner_partial", "Wing \uC544\uC774\uD15C\uC704\uB108 \uBAA9\uB85D\uC774 \uD55C \uBC88\uC5D0 \uC624\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { totalSize, rows: rows.length, totalPages });
+    const normalized = rows.map(normalizeRow);
+    if (new Set(normalized.map((row) => row.vendorItemId)).size !== normalized.length) {
+      throw failed("wing_itemwinner_duplicate", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5\uC5D0 \uAC19\uC740 \uC0C1\uD488\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.", { totalSize });
+    }
+    return { rows: normalized, totalSize };
+  }
+  function normalizeRow(value) {
+    if (!isRecord3(value) || typeof value.winnerStatus !== "boolean" || typeof value.suppressed !== "boolean") throw rowInvalid("winnerStatus");
+    const vendorItemId = positiveId(value.vendorItemId);
+    if (!vendorItemId) throw rowInvalid("vendorItemId");
+    const productName = typeof value.productName === "string" ? value.productName.trim() : "";
+    if (!productName) throw rowInvalid("productName");
+    const myPrice = integer(value.currentPrice);
+    const winnerPrice = integer(value.winnerPrice);
+    const salesQty = value.myViSales === "" ? 0 : integer(value.myViSales);
+    if (myPrice === null) throw rowInvalid("currentPrice");
+    if (winnerPrice === null) throw rowInvalid("winnerPrice");
+    if (salesQty === null || salesQty < 0) throw rowInvalid("myViSales");
+    return {
+      vendorItemId,
+      productName: productName.slice(0, 80),
+      isWinner: value.winnerStatus && !value.suppressed,
+      myPrice,
+      winnerPrice,
+      salesQty,
+      suppressed: value.suppressed,
+      providerWinnerStatus: value.winnerStatus
+    };
+  }
+  function positiveId(value) {
+    const text5 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
+    return /^\d+$/.test(text5) && BigInt(text5) > 0n ? text5 : null;
+  }
+  function integer(value) {
+    const number2 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+    return Number.isSafeInteger(number2) ? number2 : null;
+  }
+  function isRecord3(value) {
+    return !!value && typeof value === "object" && !Array.isArray(value);
+  }
+  function rowInvalid(field) {
+    return failed("wing_itemwinner_row_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uD589\uC5D0 \uD544\uC694\uD55C \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { field });
+  }
+  function failed(reason, message, details = {}) {
+    return new RuntimeError(SITE_REQUEST_FAILED, message, { reason, url: WING_ITEMWINNER_URL, ...details });
+  }
+  function createWingItemwinnerSite(caller) {
+    return {
+      readVendorId: () => readWingVendorId(caller, WING_ITEMWINNER_PAGE_URL),
+      readItemwinnerList: () => readWingItemwinnerList(caller)
+    };
+  }
+  registerSite({
+    name: "wing-itemwinner",
+    origin: WING_ORIGIN,
+    create: (deps) => createWingItemwinnerSite(createSiteCaller(WING_ITEMWINNER_CALLER, deps))
+  });
+
   // extensions/src/sites/wing/pre-matching-search.ts
   var ORIGIN6 = "https://wing.coupang.com";
   var SEARCH_URL2 = `${ORIGIN6}/tenants/seller-web/pre-matching/search`;
@@ -10961,13 +11421,13 @@ var KidItemRuntime = (() => {
     };
   }
   function parseWingSearchPage(body) {
-    const record = asRecord2(body);
-    if (!record || !Array.isArray(record.result)) {
+    const record2 = asRecord2(body);
+    if (!record2 || !Array.isArray(record2.result)) {
       throw new RuntimeError(WING_SEARCH_PAYLOAD_INVALID, "Wing \uAC80\uC0C9 \uC751\uB2F5\uC758 \uBAA8\uC591\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     }
-    const next = record.nextSearchPage;
+    const next = record2.nextSearchPage;
     return {
-      rows: record.result.map(normalizeWingSearchProduct).filter((row) => row !== null),
+      rows: record2.result.map(normalizeWingSearchProduct).filter((row) => row !== null),
       nextSearchPage: typeof next === "number" && Number.isInteger(next) ? next : null
     };
   }
@@ -11044,8 +11504,8 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/wing/reviews.ts
-  var WING_ORIGIN = "https://wing.coupang.com";
-  var WING_REVIEW_SEARCH_URL = `${WING_ORIGIN}/tenants/cs/product/review/search`;
+  var WING_ORIGIN2 = "https://wing.coupang.com";
+  var WING_REVIEW_SEARCH_URL = `${WING_ORIGIN2}/tenants/cs/product/review/search`;
   var WING_REVIEW_PAGE_SIZE = 50;
   var WING_REVIEW_CALLER = { minIntervalMs: 350 };
   var WING_REVIEW_TIMEOUT_MS = 2e4;
@@ -11125,8 +11585,156 @@ var KidItemRuntime = (() => {
   }
   registerSite({
     name: "wing-reviews",
-    origin: WING_ORIGIN,
+    origin: WING_ORIGIN2,
     create: (deps, lease) => createWingReviewsSite(wingCallerWithLogin(createSiteCaller(WING_REVIEW_CALLER, deps), deps, lease))
+  });
+
+  // extensions/src/sites/wing/traffic.ts
+  var WING_ORIGIN3 = "https://wing.coupang.com";
+  var WING_TRAFFIC_DETAIL_URL = `${WING_ORIGIN3}/tenants/rfm-ss/api/business-insight/vi-detail-search`;
+  var WING_TRAFFIC_SUMMARY_URL = `${WING_ORIGIN3}/tenants/rfm-ss/api/business-insight/vendor-summary`;
+  var WING_TRAFFIC_METADATA_URL = `${WING_ORIGIN3}/tenants/rfm-ss/api/metadata/business-insights`;
+  var WING_TRAFFIC_PAGE_SIZE = 100;
+  var WING_TRAFFIC_PAGE_URL = `${WING_ORIGIN3}/tenants/business-insight/sales-analysis`;
+  var REGISTRATION_TYPES = ["NORMAL", "RFM"];
+  var WING_TRAFFIC_CALLER = {
+    minIntervalMs: 300,
+    timeoutMs: 3e4,
+    displayName: "\uCFE0\uD321 \uC719",
+    xsrf: { cookieUrl: WING_ORIGIN3, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+  };
+  var JSON_HEADERS = { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" };
+  async function readWingTrafficFreshness(caller, now) {
+    const body = await caller.json(`${WING_TRAFFIC_METADATA_URL}?platform=WING&date=${encodeURIComponent(now.toISOString())}`, {
+      requireXsrf: true,
+      headers: { Accept: "application/json, text/plain, */*" }
+    });
+    const metrics = record(record(record(body)?.dataFreshness)?.metrics);
+    const viewable = record(record(record(body)?.viewablePeriods)?.sa);
+    const freshness = {
+      salesLatest: koreaDate(record(metrics?.SALES_DAILY)?.latestDataDate),
+      trafficLatest: koreaDate(record(metrics?.TRAFFIC_DAILY)?.latestDataDate),
+      viewableStart: koreaDate(viewable?.startDate),
+      viewableEnd: koreaDate(viewable?.endDate)
+    };
+    if (!freshness.salesLatest || !freshness.trafficLatest || !freshness.viewableStart || !freshness.viewableEnd) {
+      throw failed2("wing_traffic_metadata_invalid", "Wing \uB9E4\uCD9C\uBD84\uC11D \uACF5\uAC1C \uAE30\uAC04 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    }
+    return freshness;
+  }
+  async function readWingTrafficDetailPage(caller, input) {
+    const body = record(await caller.json(WING_TRAFFIC_DETAIL_URL, {
+      method: "POST",
+      requireXsrf: true,
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        startDate: input.businessDate,
+        endDate: input.businessDate,
+        registrationTypes: [...REGISTRATION_TYPES],
+        pageNumber: input.pageNumber,
+        pageSize: WING_TRAFFIC_PAGE_SIZE,
+        sortBy: "GMV",
+        sortOrder: "DESC",
+        includeSoldVICount: true
+      })
+    }));
+    const pagination = record(body?.paginationDetails);
+    const items = body?.vendorItems;
+    const totalResults = integer2(pagination?.totalResults);
+    const totalPages = integer2(pagination?.totalPages);
+    const pageSize = integer2(pagination?.pageSize);
+    const pageNumber = integer2(pagination?.pageNumber);
+    if (!Array.isArray(items) || totalResults === null || totalPages === null || pageSize === null || pageNumber === null) {
+      throw failed2("wing_traffic_response_invalid", "Wing \uD2B8\uB798\uD53D \uCABD \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { businessDate: input.businessDate, pageNumber: input.pageNumber });
+    }
+    return { rows: items.map((item) => normalizeRow2(item, input.vendorId)), totalResults, totalPages, pageSize, pageNumber };
+  }
+  async function readWingTrafficSummary(caller, input) {
+    const body = record(await caller.json(WING_TRAFFIC_SUMMARY_URL, {
+      method: "POST",
+      requireXsrf: true,
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ startDate: input.startDate, endDate: input.endDate, registrationTypes: [...REGISTRATION_TYPES], searchIds: [] })
+    }));
+    const metrics = record(body?.summaryMetrics);
+    const summary = {
+      visitors: integer2(metrics?.totalUniqueVisitor),
+      views: integer2(metrics?.totalPageViews),
+      cartAdds: integer2(metrics?.totalAddToCart),
+      orders: integer2(metrics?.totalOrders),
+      salesQty: integer2(metrics?.totalUnitsSold),
+      revenue: integer2(metrics?.totalGmv)
+    };
+    if (Object.values(summary).some((value) => value === null)) {
+      throw failed2("wing_traffic_summary_invalid", "Wing \uD2B8\uB798\uD53D \uC694\uC57D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", input);
+    }
+    const ratio = metrics?.pvToOrder;
+    const providerConversionRate = ratio === null || ratio === void 0 ? null : number(ratio);
+    if (ratio !== null && ratio !== void 0 && providerConversionRate === null) {
+      throw failed2("wing_traffic_summary_invalid", "Wing \uD2B8\uB798\uD53D \uC694\uC57D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", input);
+    }
+    return { ...summary, providerConversionRate: providerConversionRate === null ? null : providerConversionRate * 100 };
+  }
+  function normalizeRow2(value, vendorId2) {
+    const row = record(value);
+    const details = record(row?.vendorItemDetails);
+    const metrics = record(row?.businessInsightsMetricsResponse);
+    const vendorItemId = positiveId2(details?.vendorItemId);
+    const productId2 = positiveId2(details?.inventoryId);
+    if (!details || !metrics || !vendorItemId || !productId2) throw rowInvalid2("vendorItemDetails");
+    const rowVendorId = details.vendorId === null || details.vendorId === void 0 ? "" : String(details.vendorId).trim();
+    if (rowVendorId !== vendorId2) {
+      throw failed2("advertiser_identity_mismatch", "Wing \uACC4\uC815 \uC2DD\uBCC4\uC790\uAC00 \uC218\uC9D1 \uACC4\uD68D\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uB2E4\uB978 Wing \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { vendorItemId });
+    }
+    const values = {
+      visitors: integer2(metrics.totalUniqueVisitor),
+      views: integer2(metrics.totalPageViews),
+      cartAdds: integer2(metrics.totalAddToCart),
+      orders: integer2(metrics.totalOrders),
+      salesQty: integer2(metrics.totalUnitsSold),
+      revenue: integer2(metrics.totalGmv)
+    };
+    for (const [field, metric2] of Object.entries(values)) if (metric2 === null) throw rowInvalid2(field);
+    return { vendorItemId, productId: productId2, ...values };
+  }
+  function koreaDate(value) {
+    const timestamp = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? Date.parse(`${value}T00:00:00Z`) : typeof value === "string" || typeof value === "number" ? new Date(value).getTime() : Number.NaN;
+    if (!Number.isFinite(timestamp)) return null;
+    return new Date(timestamp + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
+  }
+  function positiveId2(value) {
+    const text5 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
+    return /^[1-9]\d*$/.test(text5) ? text5 : null;
+  }
+  function number(value) {
+    const parsed2 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+    return Number.isFinite(parsed2) ? parsed2 : null;
+  }
+  function integer2(value) {
+    const parsed2 = number(value);
+    return parsed2 !== null && Number.isSafeInteger(parsed2) ? parsed2 : null;
+  }
+  function record(value) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  }
+  function rowInvalid2(field) {
+    return failed2("wing_traffic_row_invalid", "Wing \uD2B8\uB798\uD53D \uD589\uC5D0 \uD544\uC694\uD55C \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { field });
+  }
+  function failed2(reason, message, details = {}) {
+    return new RuntimeError(SITE_REQUEST_FAILED, message, { reason, ...details });
+  }
+  function createWingTrafficSite(caller) {
+    return {
+      readVendorId: () => readWingVendorId(caller, WING_TRAFFIC_PAGE_URL),
+      readFreshness: (now) => readWingTrafficFreshness(caller, now),
+      readDetailPage: (input) => readWingTrafficDetailPage(caller, input),
+      readSummary: (input) => readWingTrafficSummary(caller, input)
+    };
+  }
+  registerSite({
+    name: "wing-traffic",
+    origin: WING_ORIGIN3,
+    create: (deps) => createWingTrafficSite(createSiteCaller(WING_TRAFFIC_CALLER, deps))
   });
 
   // extensions/src/core/browser.ts
@@ -11669,10 +12277,10 @@ var KidItemRuntime = (() => {
   }
   function installProductCollect(chromeApi, deps) {
     chromeApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-      const record = message && typeof message === "object" ? message : null;
-      if (record?.type !== COLLECT_CURRENT) return;
-      const tabId = record.tabId;
-      const environmentId = record.environmentId;
+      const record2 = message && typeof message === "object" ? message : null;
+      if (record2?.type !== COLLECT_CURRENT) return;
+      const tabId = record2.tabId;
+      const environmentId = record2.environmentId;
       if (typeof tabId !== "number" || typeof environmentId !== "string" || !environmentId) {
         sendResponse({ ok: false, error: "\uC218\uC9D1\uD560 \uD0ED\uACFC KidItem \uD658\uACBD\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694." });
         return;
@@ -11716,7 +12324,8 @@ var KidItemRuntime = (() => {
         orderCaptureOperationKindsV1: true,
         [CHANNELS_OPERATION_CAPABILITY]: true,
         operationLoginV1: true,
-        advertisingKeywordOperationKindsV1: true
+        advertisingKeywordOperationKindsV1: true,
+        wingDailyOperationKindsV1: true
       }
     });
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });

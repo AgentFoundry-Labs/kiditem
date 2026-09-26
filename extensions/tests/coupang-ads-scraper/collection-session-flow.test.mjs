@@ -15,10 +15,6 @@ const worker = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/worker.js'),
   'utf8',
 );
-const wingUnified = fs.readFileSync(
-  path.join(extensionRoot, 'content/coupang/wing-unified.js'),
-  'utf8',
-);
 const collectionWindowSource = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/collection-window.js'),
   'utf8',
@@ -70,17 +66,10 @@ test('loads the canonical session manager and focus owners before collector runt
   // 쿠팡 도메인은 requiresAuth 가 달라 자기 환경 컨텍스트를 따로 만든다.
   assert.match(worker, /const adsEnvironmentContext = KidItemEnvironmentContext\.create\(/);
 
-  const wingContentScript = (manifest.content_scripts ?? []).find((entry) =>
-    (entry.matches ?? []).includes('https://wing.coupang.com/*') &&
-    (entry.js ?? []).includes('content/coupang/wing-unified.js'),
-  );
-  assert.ok(wingContentScript, 'Wing unified content script must be declared');
-  assert.ok(
-    wingContentScript.js.indexOf('content/coupang/wing-read-api.js') >= 0 &&
-      wingContentScript.js.indexOf('content/coupang/wing-read-api.js') <
-        wingContentScript.js.indexOf('content/coupang/wing-unified.js'),
-    'Wing read API must load before the unified content script',
-  );
+  // Wing 트래픽·아이템위너는 서비스워커의 실행 kind다(KID-362) — Wing 전체에 싣던 content script는 없다.
+  const scripts = (manifest.content_scripts ?? []).flatMap((entry) => entry.js ?? []);
+  assert.ok(!scripts.includes('content/coupang/wing-unified.js'));
+  assert.ok(!scripts.includes('content/coupang/wing-read-api.js'));
 });
 
 // 세 도메인 워커가 각자 응답하면 같은 메시지에 경쟁 응답이 된다. 공통 액션은
@@ -114,14 +103,11 @@ test('retires the generic scrape ingress before producer actions', () => {
   assert.doesNotMatch(collectionRunsSource, /abortOperationSession/);
   assert.match(worker, /session\?\.producer === "advertising\.ad_sync"[\s\S]*adCampaignSourceOwner\.cancel/);
   assert.match(worker, /session\?\.producer === "advertising\.ad_keyword"[\s\S]*adKeywordSourceOwner\.cancel/);
-  assert.match(worker, /session\?\.producer === WING_TRAFFIC_PRODUCER[\s\S]*wingTrafficSourceOwner\.cancel/);
-  assert.match(worker, /session\?\.producer === WING_ITEMWINNER_PRODUCER[\s\S]*wingItemwinnerSourceOwner\.cancel/);
   assert.match(worker, /Collection producer source owner does not support cancellation/);
   assert.doesNotMatch(worker, /restartCollectionSession/);
   assert.doesNotMatch(worker, /function handleScrapeTargets\(/);
   assert.doesNotMatch(worker, /function prepareScrapeTargets\(/);
   assert.doesNotMatch(worker, /FromPopup|monthlyScrape|beginSourceOwnerAttempt/);
-  assert.doesNotMatch(wingUnified, /syncToServer/);
 });
 
 test('starts window collections only through the collection start contract', () => {
@@ -166,9 +152,7 @@ test('retires the advertising account-day KPI owner from every extension surface
 test('persists only allowlisted Coupang producers and advertises the capability', () => {
   const producerSources = `${sourceOwnerManifest}\n${worker}\n${collectionRunsSource}\n${profitabilitySourceOwner}`;
   for (const producer of [
-    'dashboard.wing_sales',
     'dashboard.coupang_products',
-    'dashboard.wing_kpi',
     'advertising.ad_sync',
     'advertising.profitability_import',
     'channels.coupang_catalog',
@@ -198,8 +182,7 @@ test('source capture policies share the environment-owned resource without a uni
   // Runtime serialization, teardown, retry and progress behavior are covered
   // through the production resource and named collector interfaces.
   assert.match(worker, /KidItemAdCenterCollector\.create\(\{\s*window: collectionWindows\[environmentId\]/);
-  assert.match(worker, /KidItemWingReportCollector\.create\(\{\s*window: collectionWindows\[environmentId\]/);
-  for (const method of ['collectCampaigns', 'collectKeywords', 'collectProfitabilitySlice', 'collectTraffic', 'collectItemwinner']) {
+  for (const method of ['collectCampaigns', 'collectKeywords', 'collectProfitabilitySlice']) {
     assert.match(worker, new RegExp(`\\.${method}\\(`));
   }
   assert.doesNotMatch(worker, /\.collectTargets\(/);

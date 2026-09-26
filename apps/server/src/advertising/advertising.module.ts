@@ -19,17 +19,15 @@ import { AdKeywordAgentController } from "./adapter/in/http/ad-keyword-agent.con
 import { KeywordRankController } from "./adapter/in/http/keyword-rank.controller";
 import { AdKeywordSourceController } from "./adapter/in/http/ad-keyword-source.controller";
 import { AdCampaignSourceController } from "./adapter/in/http/ad-campaign-source.controller";
-import { WingItemwinnerKpiSourceController } from "./adapter/in/http/wing-itemwinner-kpi-source.controller";
-import { WingItemwinnerKpiSourceRepository } from "./adapter/out/repository/wing-itemwinner-kpi-source.repository";
-import {
-  WING_ITEMWINNER_KPI_SOURCE_PORT,
-  WING_ITEMWINNER_KPI_READ_PORT,
-} from "./application/port/in/wing-itemwinner-kpi-source.port";
-import { AdTrafficSourceController } from "./adapter/in/http/ad-traffic-source.controller";
-import { AdTrafficSourceRepository } from "./adapter/out/repository/ad-traffic-source.repository";
+import { WingItemwinnerOperationOwner, WingTrafficOperationOwner } from "./adapter/in/operation/wing-daily-operation-owners";
+import { WingItemwinnerOperationRepository } from "./adapter/out/repository/wing-itemwinner-operation.repository";
+import { WING_ITEMWINNER_OPERATION_REPOSITORY_PORT } from "./application/port/out/repository/wing-itemwinner-operation.repository.port";
+import { OperationModule } from "../common/operation/operation.module";
+import { WingTrafficOperationRepository } from "./adapter/out/repository/wing-traffic-operation.repository";
+import { WingTrafficReadRepository } from "./adapter/out/repository/wing-traffic-read.repository";
+import { WING_TRAFFIC_OPERATION_REPOSITORY_PORT } from "./application/port/out/repository/wing-traffic-operation.repository.port";
 import {
   AD_TRAFFIC_READ_PORT,
-  AD_TRAFFIC_SOURCE_PORT,
 } from "./application/port/in/ad-traffic-source.port";
 import { CompetitorTrackingController } from "./adapter/in/http/competitor-tracking.controller";
 import { WingTrackedProductController } from "./adapter/in/http/wing-tracked-product.controller";
@@ -157,6 +155,7 @@ const REPOSITORY_PORT_BINDINGS = [
     AiModule,
     ChannelsModule,
     AdvertisingProfitabilityReadModule,
+    OperationModule,
   ],
   controllers: [
     AdvertisingConfigController,
@@ -171,8 +170,6 @@ const REPOSITORY_PORT_BINDINGS = [
     KeywordRankController,
     AdKeywordSourceController,
     AdCampaignSourceController,
-    WingItemwinnerKpiSourceController,
-    AdTrafficSourceController,
     CompetitorTrackingController,
     WingTrackedProductController,
   ],
@@ -190,23 +187,23 @@ const REPOSITORY_PORT_BINDINGS = [
     KeywordRankRepositoryAdapter,
     AdKeywordSourceRepository,
     AdCampaignSourceRepository,
-    WingItemwinnerKpiSourceRepository,
+    // Wing 일별 사실 실행 kind(ADR-0025, KID-362)
+    WingItemwinnerOperationRepository,
     {
-      provide: WING_ITEMWINNER_KPI_SOURCE_PORT,
-      useExisting: WingItemwinnerKpiSourceRepository,
+      provide: WING_ITEMWINNER_OPERATION_REPOSITORY_PORT,
+      useExisting: WingItemwinnerOperationRepository,
     },
+    WingItemwinnerOperationOwner,
+    WingTrafficOperationRepository,
     {
-      provide: WING_ITEMWINNER_KPI_READ_PORT,
-      useExisting: WingItemwinnerKpiSourceRepository,
+      provide: WING_TRAFFIC_OPERATION_REPOSITORY_PORT,
+      useExisting: WingTrafficOperationRepository,
     },
-    AdTrafficSourceRepository,
-    {
-      provide: AD_TRAFFIC_SOURCE_PORT,
-      useExisting: AdTrafficSourceRepository,
-    },
+    WingTrafficOperationOwner,
+    WingTrafficReadRepository,
     {
       provide: AD_TRAFFIC_READ_PORT,
-      useExisting: AdTrafficSourceRepository,
+      useExisting: WingTrafficReadRepository,
     },
     WingTrackedProductRepositoryAdapter,
     KiditemStorefrontAdapter,
@@ -253,7 +250,6 @@ const REPOSITORY_PORT_BINDINGS = [
   exports: [
     COUPANG_MOMENTUM_READ_CAPABILITY_PORT,
     AD_TRAFFIC_READ_PORT,
-    WING_ITEMWINNER_KPI_READ_PORT,
     ADVERTISING_HUB_READ_PORT,
   ],
 })

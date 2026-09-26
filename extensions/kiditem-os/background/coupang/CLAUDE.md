@@ -23,7 +23,10 @@ registrations, and supports explicit Wing page automation.
   generic extension sync endpoint is not a producer path.
 - Approved queued ad actions are fetched from `/api/ads/actions`.
 - The Wing catalog is not collected here: it runs in the TypeScript operation
-  runtime (`extensions/src/collectors/channels.wing_catalog_*`, KID-354).
+  runtime (`extensions/src/collectors/channels.wing_catalog_*`, KID-354). Wing
+  traffic and item winner are runtime kinds too (`advertising.wing_traffic`,
+  `advertising.wing_itemwinner`, KID-362); no content script runs on every Wing
+  page.
 - Tracked Wing products, Wing rank, public SERP rank, product-detail seller
   identity and seller-shop catalogs are not collected here either: they are
   the runtime kinds `advertising.*` (KID-362) on `sites/wing`,

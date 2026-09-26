@@ -19,7 +19,7 @@ import {
   businessDatesInWindow,
   type ResolvedDashboardPeriod,
 } from '../../../../domain/dashboard/period/dashboard-period';
-import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
+import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising-operations';
 import type {
   TrafficCoverage,
   TrafficMetricReconciliation,

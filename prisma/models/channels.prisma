@@ -202,6 +202,9 @@ model ChannelListingDailySnapshot {
   firstObservedAt DateTime @default(now()) @map("first_observed_at") @db.Timestamptz
   lastObservedAt  DateTime @default(now()) @map("last_observed_at") @db.Timestamptz
   rawSnapshotId   String?  @map("raw_snapshot_id") @db.Uuid
+  /// 이 행을 만든 Advertising 실행, 또는 위너(listing-state) 열을 마지막으로 쓴 아이템위너 실행(ADR-0025, KID-362).
+  /// 트래픽 갱신은 바꾸지 않는다 — 트래픽 출처는 metaJson `wing.traffic.sourceAttemptId`. 다른 owner라 FK 없이 id + 인덱스.
+  operationId     String?  @map("operation_id") @db.Uuid
 
   metaJson  Json?    @map("meta_json")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -213,6 +216,7 @@ model ChannelListingDailySnapshot {
   @@unique([organizationId, listingId, businessDate])
   @@index([organizationId, channel, externalId, businessDate])
   @@index([rawSnapshotId])
+  @@index([operationId])
   @@index([organizationId, businessDate])
   @@index([listingId, businessDate])
   @@index([organizationId, channel, businessDate])
@@ -248,6 +252,9 @@ model ChannelListingOptionDailySnapshot {
   firstObservedAt DateTime @default(now()) @map("first_observed_at") @db.Timestamptz
   lastObservedAt  DateTime @default(now()) @map("last_observed_at") @db.Timestamptz
   rawSnapshotId   String?  @map("raw_snapshot_id") @db.Uuid
+  /// 이 행을 만든 Advertising 실행, 또는 위너(listing-state) 열을 마지막으로 쓴 아이템위너 실행(ADR-0025, KID-362).
+  /// 트래픽 갱신은 바꾸지 않는다 — 트래픽 출처는 metaJson `wing.traffic.sourceAttemptId`. 다른 owner라 FK 없이 id + 인덱스.
+  operationId     String?  @map("operation_id") @db.Uuid
 
   metaJson  Json?    @map("meta_json")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -260,6 +267,7 @@ model ChannelListingOptionDailySnapshot {
   @@unique([organizationId, listingOptionId, businessDate])
   @@index([organizationId, channel, externalId, externalOptionId, businessDate])
   @@index([rawSnapshotId])
+  @@index([operationId])
   @@index([organizationId, businessDate])
   @@index([listingId, businessDate])
   @@index([listingOptionId, businessDate])
