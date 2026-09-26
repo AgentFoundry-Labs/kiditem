@@ -3,6 +3,7 @@ import type { OperationView } from '@kiditem/shared/operation';
 import { toast } from 'sonner';
 import {
   blockMallAutoLogin,
+  clearMallAutoLoginBlock,
   mallAutoLoginBlock,
   mallAutoLoginRetryAt,
   markMallAutoLoginAttempt,
@@ -136,5 +137,19 @@ describe('operation-login — 몰 카드 밖 실행(로켓 계정)의 거절도 
     noteOperationLoginFailureForMall('coupang-direct', operation, soon);
     expect(mallAutoLoginBlock('coupang-direct')).toMatchObject({ reason: '비밀번호가 일치하지 않습니다.' });
     expect(toast.error).toHaveBeenCalledTimes(1);
+  });
+
+  it('사람이 차단을 푼 뒤에는 그보다 먼저 끝난 거절 실행으로 다시 막지 않는다 — 다른 탭·새로고침도 같다(리뷰 S1)', () => {
+    const finished = Date.parse('2026-09-26T00:01:00.000Z');
+    const rejected = { ...failed({ login: { reason: 'credentials_rejected', mallMessage: '비밀번호가 일치하지 않습니다.' } }), id: '33333333-3333-4333-8333-333333333333' };
+    noteOperationLoginFailure({ key: 'coupang-direct' }, rejected);
+    expect(mallAutoLoginBlock('coupang-direct')).not.toBeNull();
+    clearMallAutoLoginBlock('coupang-direct', finished + 60_000);
+    noteOperationLoginFailure({ key: 'coupang-direct' }, rejected);
+    expect(mallAutoLoginBlock('coupang-direct')).toBeNull();
+
+    const later = { ...rejected, id: '44444444-4444-4444-8444-444444444444', finishedAt: '2026-09-26T00:05:00.000Z' };
+    noteOperationLoginFailure({ key: 'coupang-direct' }, later);
+    expect(mallAutoLoginBlock('coupang-direct')).not.toBeNull();
   });
 });

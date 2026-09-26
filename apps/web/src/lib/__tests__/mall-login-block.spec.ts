@@ -10,6 +10,7 @@ import {
   getMallLoginBlocks,
   isMallAutoLoginBlocked,
   mallAutoLoginBlock,
+  mallAutoLoginClearedAt,
   resetMallLoginBlocksForTest,
   subscribeMallLoginBlocks,
 } from '../mall-login-block';
@@ -45,6 +46,15 @@ describe('자동 로그인 차단', () => {
     clearMallAutoLoginBlock('onch');
     expect(isMallAutoLoginBlocked('onch')).toBe(false);
     expect(getMallLoginBlocks()).toEqual([]);
+  });
+
+  it('사람이 푼 시각을 몰마다 남긴다 — 새로고침·다른 탭에서도 읽힌다(KID-377 리뷰 S1)', () => {
+    expect(mallAutoLoginClearedAt('onch')).toBeNull();
+    blockMallAutoLogin('onch', '로그인 실패');
+    clearMallAutoLoginBlock('onch', 5_000);
+    expect(mallAutoLoginClearedAt('onch')).toBe(5_000);
+    resetMallLoginBlocksForTest();
+    expect(mallAutoLoginClearedAt('onch')).toBe(5_000);
   });
 
   it('⭐ 브라우저를 껐다 켜도 남는다 — 다시 켜자마자 또 시도하지 않게', () => {

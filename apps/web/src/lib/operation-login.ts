@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import {
   blockMallAutoLogin,
   mallAutoLoginBlock,
+  mallAutoLoginClearedAt,
   mallAutoLoginRetryAt,
   mallRejectedCredentials,
   markMallAutoLoginAttempt,
@@ -122,6 +123,10 @@ export function noteOperationLoginFailure(account: Pick<OperationLoginAccount, '
   const login = operation.result?.login as { reason?: unknown; mallMessage?: unknown } | undefined;
   const mallMessage = typeof login?.mallMessage === 'string' ? login.mallMessage : null;
   if (login?.reason !== 'credentials_rejected' || !mallRejectedCredentials(mallMessage)) return;
+  // 사람이 차단을 푼 뒤라면 그보다 먼저 끝난 실행의 거절로는 다시 막지 않는다(리뷰 S1).
+  const clearedAt = mallAutoLoginClearedAt(account.key);
+  const finishedAt = operation.finishedAt ? new Date(operation.finishedAt).getTime() : Number.NaN;
+  if (clearedAt !== null && (!Number.isFinite(finishedAt) || finishedAt <= clearedAt)) return;
   const mallName = account.name ?? account.key;
   blockMallAutoLogin(account.key, mallMessage ?? '몰이 아이디·비밀번호를 거부했습니다.');
   toast.error(`${mallName} 로그인 실패 — 저장된 아이디·비밀번호를 고쳐 주세요`, { description: `${mallName}: ${mallMessage}` });
