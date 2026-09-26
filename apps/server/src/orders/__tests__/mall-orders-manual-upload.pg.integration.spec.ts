@@ -143,6 +143,33 @@ describe('manual excel upload → orders.mall_orders (manual-upload) over the op
     expect(converted.headers['x-order-collection-source-rows']).toBe('2');
   });
 
+  it('GS샵(H3′ 몰): 올린 .xlsx를 그 이름·xlsx 형식 그대로 보관하고 gsshop 변환 라우트가 실행 id로 셀피아 행을 돌려준다', async () => {
+    await prisma.channelAccount.create({ data: { organizationId: ORG, channel: 'gs-shop', name: 'GS샵', externalAccountId: 'gs-shop', isPrimary: true } });
+    const headers = ['주문번호', '속성상품코드', '상품명', '수량'];
+    const xlsx = workbook([headers, ['G-1', 'A-1', '색종이', '1'], ['G-2', 'A-2', '크레파스', '2'], ['G-3', 'A-3', '풀', '1']]);
+    const response = await upload('gs-shop', { bytes: xlsx, name: 'GS샵_직송주문.xlsx' }).expect(201);
+    const operation = response.body.operation;
+    expect(operation).toMatchObject({
+      status: 'succeeded',
+      plan: { mallKey: 'gs-shop', mallName: 'GS샵', collectionDate: null, collectionMode: 'manual-upload' },
+      result: { rowCount: 3, mallKey: 'gs-shop', captured: 1 },
+    });
+    const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: operation.id } });
+    expect(artifact).toMatchObject({ sourceFileName: 'GS샵_직송주문.xlsx', sourceContentType: 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' });
+    expect(Buffer.from(artifact.sourceBytes).equals(xlsx)).toBe(true);
+
+    const converted = await convert('gsshop/convert', operation.id).buffer(true).parse((res, done) => {
+      const chunks: Buffer[] = [];
+      res.on('data', (chunk: Buffer) => chunks.push(chunk));
+      res.on('end', () => done(null, Buffer.concat(chunks)));
+    }).expect(201);
+    expect(converted.headers).toMatchObject({ 'x-order-collection-source-rows': '3', 'x-order-collection-output-rows': '3' });
+    const book = XLSX.read(converted.body as Buffer, { type: 'buffer' });
+    const rows = XLSX.utils.sheet_to_json<string[]>(book.Sheets[book.SheetNames[0]!]!, { header: 1, raw: false, defval: '' });
+    // 셀피아 참조 양식 머리글(속성상품코드 → 상품상세코드)과 올린 행 그대로.
+    expect(rows).toEqual([['주문번호', '상품상세코드', '상품명', '수량'], ['G-1', 'A-1', '색종이', '1'], ['G-2', 'A-2', '크레파스', '2'], ['G-3', 'A-3', '풀', '1']]);
+  });
+
   it('변환기가 거절한 파일은 실행을 실패로 닫고 그 문장을 돌려준다 — 캡처는 남지 않는다', async () => {
     const response = await upload('icecream-mall', { bytes: workbook([['주문번호'], ['X']]), name: '엉뚱한.xlsx' }).expect(400);
     expect(response.body.message).toContain('필수 컬럼');
