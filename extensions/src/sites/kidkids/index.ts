@@ -49,7 +49,7 @@ type KidkidsAnswer =
  */
 export function createKidkidsSite(tabs: TabPages, signIn?: SiteSignIn) {
   return {
-    ...createKidkidsListings(tabs),
+    ...createKidkidsListings(tabs, signIn),
     readOrders(input: { collectionDate: string | null }): Promise<{ rows: unknown[] }> {
       return withFreshTab(tabs, KIDKIDS_ORDER_URL, async (page) => {
         const answer = await callPage<KidkidsAnswer>(page, 'kidkids.orders', { dateFilter: input.collectionDate ?? '' }, {

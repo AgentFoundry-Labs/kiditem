@@ -115,7 +115,9 @@ summary, Rocket PO and directship are operation kinds collected by
 - The first batch (Kidkids, i-Scream, 아트공구, 도매꾹) is the runtime kind
   `channels.mall_admin_listings` (KID-363): `src/sites/mall-admin-listings`
   routes the plan's mall to `sites/<mall>/listings.ts`, which runs that mall's
-  reader moved verbatim into `content/orders/<mall>-listings.js` in a fresh tab.
+  reader moved verbatim into `content/orders/<mall>-listings.js` in a fresh tab;
+  a login page signs in once with the run's credentials (the mall's order
+  login spec, KID-377) and reads again.
 - The other readers live in `mall-admin-listings.js`, keyed by mall in `READERS`.
   Adding a mall is one reader plus one key there and one contract entry in
   `@kiditem/shared/mall-admin-listings`; the reader's origin and page size must

@@ -48,7 +48,7 @@ type Art09Answer =
  */
 export function createArt09Site(tabs: TabPages, signIn?: SiteSignIn) {
   return {
-    ...createArt09Listings(tabs),
+    ...createArt09Listings(tabs, signIn),
     readOrders(input: { collectionDate: string | null }): Promise<{ rows: unknown[] }> {
       return withFreshTab(tabs, ART09_ORDER_URL, async (page) => {
         const answer = await callPage<Art09Answer>(page, 'art09.orders', { dateFilter: input.collectionDate ?? '' }, {

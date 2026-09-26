@@ -44,7 +44,8 @@
 - 사방넷 등록 상품 가져오기와 1차 몰 넷(키드키즈 · 아이스크림몰 · 아트공구 · 도매꾹)의 몰 관리자 가져오기는
   실행 kind(`channels.sabangnet_mall_listings` · `channels.mall_admin_listings`, KID-363)다. 화면은 `operation-start`로
   시작하고 source 읽기의 최근 실행으로 진행 · 결과를 본다. 나머지 몰은 옮겨질 때까지 옛 시도 경로다
-  (`isMallAdminListingOperationMall`로 가른다).
+  (`isMallAdminListingOperationMall`로 가른다). 1차 몰 시작은 `operationLoginOptions`로 그 몰의 저장 자격을 싣고, source를
+  읽을 때 몰이 거절한 실행을 `noteOperationLoginFailureForMall`로 알린다(KID-377).
 - `_shared/CoupangCatalogEdit`(수정요청)은 가져오기가 아니다. 빈 칸만 채운 파일을 만들 뿐이고
   올리는 것은 사람이다. 윙 업로드 창 항목을 '쿠팡상품정보'로 바꿔야 접수된다(기본값은 가격/재고).
 - `/mall-listings`: 탭 두 개. **등록 현황**은 상품 마스터 × 몰 매트릭스이고,

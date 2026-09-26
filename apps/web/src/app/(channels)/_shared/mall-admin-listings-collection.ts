@@ -21,6 +21,7 @@ import {
 } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { stoppedAttempt } from '@/lib/collection-source-status-query';
+import { noteOperationLoginFailureForMall, operationLoginOptions } from '@/lib/operation-login';
 import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
 import { isApiError } from '@/lib/api-error';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
@@ -43,7 +44,16 @@ export function mallAdminListingsSourceQueryOptions() {
     QueryKey
   >({
     queryKey: queryKeys.mallPublishing.mallAdminListingsSource(),
-    queryFn: () => mallPublishingApi.mallAdminListingsSource(),
+    queryFn: async () => {
+      const source = await mallPublishingApi.mallAdminListingsSource();
+      // 1차 몰의 실행이 로그인 화면에서 몰의 거절로 끝났으면 그 몰의 자동 로그인을 멈춘다(KID-377, 계정 잠금 방지).
+      for (const mall of source.malls) {
+        if (isMallAdminListingOperationMall(mall.mallKey) && mall.latestOperation) {
+          noteOperationLoginFailureForMall(mall.mallKey, mall.latestOperation);
+        }
+      }
+      return source;
+    },
     // 실행 kind로 옮긴 몰의 실행이 돌면 도는 주기로 읽는다(옛 시도는 확장이 끝을 알려 준다).
     refetchInterval: (query) => ((query.state.data?.malls ?? []).some((mall) => operationRunning(mall))
       ? COLLECTION_RUNNING_POLL_MS
@@ -218,7 +228,11 @@ function mallAdminListingsOperation(mallKey: MallAdminListingMallKey): Collectio
     start: async (_input, { status }) => {
       const channelAccountId = mallFrom(status, mallKey)?.channelAccountId;
       if (!channelAccountId) return { outcome: 'refused', message: MALL_ADMIN_NO_ACCOUNT };
-      const outcome = await requestOperationStart(MALL_ADMIN_LISTINGS_KIND, { channelAccountId, mallKey }, { capability: CHANNELS_OPERATION_CAPABILITY });
+      // 사람이 누른 가져오기다 — 그 몰의 저장 자격을 싣는다(확장이 `operationLoginV1`일 때만 실린다, KID-377).
+      const outcome = await requestOperationStart(MALL_ADMIN_LISTINGS_KIND, { channelAccountId, mallKey }, {
+        capability: CHANNELS_OPERATION_CAPABILITY,
+        ...(await operationLoginOptions(mallKey, { automatic: false })),
+      });
       if (outcome.outcome === 'refused') return outcome;
       return { outcome: outcome.outcome, attemptId: outcome.operationId };
     },

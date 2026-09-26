@@ -87,7 +87,7 @@ function base64Of(bytes: Uint8Array): string {
 export function createDomeggookSite(tabs: TabPages, deps: SiteCallerDeps, signIn?: SiteSignIn) {
   const caller = createSiteCaller({ minIntervalMs: 0, displayName: '도매꾹', timeoutMs: 30_000 }, deps);
   return {
-    ...createDomeggookListings(tabs),
+    ...createDomeggookListings(tabs, signIn),
     async readOrders(input: { collectionDate: string | null; signal?: AbortSignal }): Promise<{ rows: unknown[] }> {
       // 엑셀 목록이 로그아웃이면 새 탭에서 한 번 로그인하고 다시 묻는다(KID-377).
       const before = await (signIn ? signIn.beforeTab(tabs, () => orderList(caller)) : orderList(caller));

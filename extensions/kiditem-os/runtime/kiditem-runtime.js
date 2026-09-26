@@ -7967,7 +7967,7 @@ var KidItemRuntime = (() => {
   var NAVIGATION_TIMEOUT_MS4 = 45e3;
   var MALL_CONTRACT_CHANGED3 = "MALL_CONTRACT_CHANGED";
   var SOURCE_SNAPSHOT_INVALID4 = "SOURCE_SNAPSHOT_INVALID";
-  function readMallListings(tabs, spec, plan) {
+  function readMallListings(tabs, spec, plan, signIn) {
     const login = `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${spec.displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`;
     return withFreshTab(tabs, spec.startUrl, async (page) => {
       const answer = await callPage(page, spec.call, { plan }, {
@@ -7992,7 +7992,7 @@ var KidItemRuntime = (() => {
         default:
           throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "network", bodyHead: null });
       }
-    }, { navigationTimeoutMs: NAVIGATION_TIMEOUT_MS4 });
+    }, { navigationTimeoutMs: NAVIGATION_TIMEOUT_MS4, ...signIn ? { signIn } : {} });
   }
 
   // extensions/src/sites/art09/listings.ts
@@ -8003,7 +8003,7 @@ var KidItemRuntime = (() => {
     isLogin: (url) => hostWithin(url, ["cafe24.com"]) && !/\/product\/ProductManage$/i.test(url.pathname),
     loginMessage: "\uC544\uD2B8\uACF5\uAD6C \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC544\uD2B8\uACF5\uAD6C \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
   };
-  function createArt09Listings(tabs) {
+  function createArt09Listings(tabs, signIn) {
     return {
       readListings: (plan) => readMallListings(tabs, {
         mallKey: "art09",
@@ -8012,7 +8012,7 @@ var KidItemRuntime = (() => {
         file: ART09_LISTINGS_FILE,
         call: "art09.listings",
         guard: ART09_LISTINGS_GUARD
-      }, plan)
+      }, plan, signIn)
     };
   }
 
@@ -8035,7 +8035,7 @@ var KidItemRuntime = (() => {
   };
   function createArt09Site(tabs, signIn) {
     return {
-      ...createArt09Listings(tabs),
+      ...createArt09Listings(tabs, signIn),
       readOrders(input) {
         return withFreshTab(tabs, ART09_ORDER_URL, async (page) => {
           const answer = await callPage(page, "art09.orders", { dateFilter: input.collectionDate ?? "" }, {
@@ -8523,7 +8523,7 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/domeggook/listings.ts
   var DOMEGGOOK_LISTINGS_URL = "https://www.domeggook.com/sc/item/lstAll";
   var DOMEGGOOK_LISTINGS_FILE = "content/orders/domeggook-listings.js";
-  function createDomeggookListings(tabs) {
+  function createDomeggookListings(tabs, signIn) {
     return {
       readListings: (plan) => readMallListings(tabs, {
         mallKey: "domeggook",
@@ -8532,7 +8532,7 @@ var KidItemRuntime = (() => {
         file: DOMEGGOOK_LISTINGS_FILE,
         call: "domeggook.listings",
         guard: DOMEGGOOK_PAGE_GUARD
-      }, plan)
+      }, plan, signIn)
     };
   }
 
@@ -8591,7 +8591,7 @@ var KidItemRuntime = (() => {
   function createDomeggookSite(tabs, deps, signIn) {
     const caller = createSiteCaller({ minIntervalMs: 0, displayName: "\uB3C4\uB9E4\uAFB9", timeoutMs: 3e4 }, deps);
     return {
-      ...createDomeggookListings(tabs),
+      ...createDomeggookListings(tabs, signIn),
       async readOrders(input) {
         const before = await (signIn ? signIn.beforeTab(tabs, () => orderList(caller)) : orderList(caller));
         const beforeReq = String(before[0]?.dateReq ?? "");
@@ -8646,7 +8646,7 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/icecream-mall/listings.ts
   var ICECREAM_LISTINGS_URL = "https://po.i-screammall.co.kr/goods/goodsMgmt.goodsMgmtView.do";
   var ICECREAM_LISTINGS_FILE = "content/orders/icecream-listings.js";
-  function createIcecreamListings(tabs) {
+  function createIcecreamListings(tabs, signIn) {
     return {
       readListings: (plan) => readMallListings(tabs, {
         mallKey: "icecream-mall",
@@ -8655,7 +8655,7 @@ var KidItemRuntime = (() => {
         file: ICECREAM_LISTINGS_FILE,
         call: "icecream-mall.listings",
         guard: ICECREAM_PAGE_GUARD
-      }, plan)
+      }, plan, signIn)
     };
   }
 
@@ -8763,7 +8763,7 @@ var KidItemRuntime = (() => {
       return page.frames([ICECREAM_FRAMES_FILE]);
     }
     return {
-      ...createIcecreamListings(tabs),
+      ...createIcecreamListings(tabs, signIn),
       readOrders(input) {
         return withFreshTab(tabs, ICECREAM_MALL_URL, async (page) => {
           for (let round = 0; round < LOGIN_WATCH_ROUNDS; round += 1) {
@@ -8822,7 +8822,7 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/kidkids/listings.ts
   var KIDKIDS_LISTINGS_URL = "https://partner.kidkids.net/sales/goods_list_renewal.htm?pNum=1";
   var KIDKIDS_LISTINGS_FILE = "content/orders/kidkids-listings.js";
-  function createKidkidsListings(tabs) {
+  function createKidkidsListings(tabs, signIn) {
     return {
       readListings: (plan) => readMallListings(tabs, {
         mallKey: "kidkids",
@@ -8831,7 +8831,7 @@ var KidItemRuntime = (() => {
         file: KIDKIDS_LISTINGS_FILE,
         call: "kidkids.listings",
         guard: KIDKIDS_PAGE_GUARD
-      }, plan)
+      }, plan, signIn)
     };
   }
 
@@ -8856,7 +8856,7 @@ var KidItemRuntime = (() => {
   };
   function createKidkidsSite(tabs, signIn) {
     return {
-      ...createKidkidsListings(tabs),
+      ...createKidkidsListings(tabs, signIn),
       readOrders(input) {
         return withFreshTab(tabs, KIDKIDS_ORDER_URL, async (page) => {
           const answer = await callPage(page, "kidkids.orders", { dateFilter: input.collectionDate ?? "" }, {

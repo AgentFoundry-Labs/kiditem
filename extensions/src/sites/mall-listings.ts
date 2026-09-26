@@ -1,6 +1,7 @@
 import { RuntimeError } from '../core/errors';
 import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../core/site-caller';
 import { withFreshTab } from './fresh-tab';
+import type { SiteSignIn } from './site-login';
 import { callPage } from './page-call';
 import type { PageGuard, TabPages } from './tab-page';
 
@@ -33,12 +34,14 @@ const SOURCE_SNAPSHOT_INVALID = 'SOURCE_SNAPSHOT_INVALID' as const;
 /**
  * 몰 관리자 목록 읽기(KID-363 L2, `channels.mall_admin_listings`). 운영자 탭을 빌리지 않고 백그라운드 탭을 새로 열어
  * (옛 `borrowOpenTab`은 롯데ON만 쓰던 규칙이라 1차 몰 넷에는 없다) 몰 관리자 화면에서 처리기 파일 하나로 목록 전체를 읽고
- * 닫는다. 로그인 화면이면 탭을 남긴다. 목록이 완전한지는 서버 finalize가 `listing_scan`으로 판정한다.
+ * 닫는다. 로그인 화면이면 실행 자격(`signIn`, KID-377 — 몰 주문 읽기와 같은 로그인 입구)으로 그 탭에서 한 번 로그인하고 시작
+ * 화면으로 돌아가 다시 읽는다. 자격이 없거나 그래도 로그인 화면이면 탭을 남긴다. 목록이 완전한지는 서버 finalize가 `listing_scan`으로 판정한다.
  */
 export function readMallListings(
   tabs: TabPages,
   spec: MallListingsSpec,
   plan: Record<string, unknown>,
+  signIn?: SiteSignIn,
 ): Promise<{ collection: Record<string, unknown>; rows: unknown[]; proof: Record<string, unknown> }> {
   const login = `${spec.displayName} 로그인이 필요합니다. 열린 ${spec.displayName} 화면에서 로그인한 뒤 다시 가져와 주세요.`;
   return withFreshTab(tabs, spec.startUrl, async (page) => {
@@ -64,5 +67,5 @@ export function readMallListings(
       default:
         throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} 상품 목록을 읽지 못했습니다.`, { status: null, url: spec.startUrl, reason: 'network', bodyHead: null });
     }
-  }, { navigationTimeoutMs: NAVIGATION_TIMEOUT_MS });
+  }, { navigationTimeoutMs: NAVIGATION_TIMEOUT_MS, ...(signIn ? { signIn } : {}) });
 }
