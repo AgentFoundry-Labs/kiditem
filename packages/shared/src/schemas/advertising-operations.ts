@@ -259,13 +259,19 @@ export type KeywordSerpResult = z.infer<typeof KeywordSerpResultSchema>;
 
 // ── K4 advertising.competitor_seller_identity ──
 
+/**
+ * 판매자 확인(K4)과 경쟁사 카탈로그(K5)가 함께 쥐는 잠금 키. 둘 다 최신 SERP 행을 고치므로 한 번에 하나다. 잠금은 조직 범위라
+ * 조직에 하나지만 `org`와 달리 조직 잠금을 쓰는 다른 owner의 kind(배송요약 등)와 겹치지 않는다.
+ */
+export const COMPETITOR_ENRICHMENT_LOCK_KEY = 'resource:competitor:serp-enrichment' as const;
+
 /** 한 실행에서 여는 상품 상세 상한(옛 attempt와 같다). */
 export const COMPETITOR_SELLER_IDENTITY_MAX_TARGETS = 200;
 
 /**
  * 경쟁 판매자 확인: 최근 SERP에서 판매자를 아직 모르는 경쟁 상품의 상세(www.coupang.com/vp/products)를 열어 판매자 상점
  * 링크를 읽는다. `keywords`를 주면 그 키워드의 SERP 상품만(SERP 순위 실행이 이어서 시작할 때), 없으면 최근 30일 전체에서
- * 고른다. lockKey `org`.
+ * 고른다. lockKey `resource:competitor:serp-enrichment`.
  */
 export const CompetitorSellerIdentityScopeSchema = z.object({
   keywords: keywordList(KEYWORD_SERP_MAX_KEYWORDS).optional(),
@@ -344,7 +350,7 @@ const boundedCount = z.number().int().nonnegative().max(2_147_483_647);
 
 /**
  * 경쟁사 카탈로그: 확인된 경쟁 판매자샵(shop.coupang.com)을 최신순으로 읽는다. `sellerId`를 주면 그 판매자 하나(추적 중인
- * 판매자여야 한다), `rankEnrichment`면 판매자 확인이 이어서 시작한 보강(상품 500개까지). lockKey `org`.
+ * 판매자여야 한다), `rankEnrichment`면 판매자 확인이 이어서 시작한 보강(상품 500개까지). lockKey `resource:competitor:serp-enrichment`.
  */
 export const CompetitorCatalogScopeSchema = z.object({
   sellerId: sellerId.optional(),

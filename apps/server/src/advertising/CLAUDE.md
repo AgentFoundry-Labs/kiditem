@@ -73,11 +73,13 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
 - `advertising.wing_rank` and `advertising.keyword_serp` hold one
   `resource:keyword:<kw>` slot per keyword (`keywordLockKey`), so the same
   keyword never runs both at once. Wing kinds also hold `account:<id>`;
-  seller identity and catalogs hold `org` because both rewrite SERP rows.
+  seller identity and catalogs share `resource:competitor:serp-enrichment`
+  because both rewrite SERP rows (not `org`, which other owners' kinds use).
 - SERP → seller identity → catalog is a `result.next` chain; each can also be
-  started alone. Finalize cannot read rows its own transaction has not
-  committed through another capability, so the chain passes keywords, not
-  derived targets.
+  started alone. The chain passes keywords, not derived targets: target
+  selection (`getProductDetailTargets`) reads SERP rows through
+  `PrismaService`, not the finish transaction, so it runs in the next kind's
+  plan. Seller identity chains to catalogs only when it identified a seller.
 - All five are read-only against Coupang; none writes to the ad center.
 
 ## Cross-Domain Boundaries

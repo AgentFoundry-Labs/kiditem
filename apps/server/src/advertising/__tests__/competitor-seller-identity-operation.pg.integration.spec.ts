@@ -1,6 +1,7 @@
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
+  COMPETITOR_CATALOG_KIND,
   COMPETITOR_SELLER_IDENTITY_CHUNK_KIND,
   COMPETITOR_SELLER_IDENTITY_KIND,
   KEYWORD_SERP_CHUNK_KIND,
@@ -69,7 +70,9 @@ describe('advertising.competitor_seller_identity owner over the operation contra
     expect(serp.result.next).toEqual({ kind: COMPETITOR_SELLER_IDENTITY_KIND, scope: { keywords: ['슬라임'] } });
 
     const run = await harness.beginRun(COMPETITOR_SELLER_IDENTITY_KIND, serp.result.next.scope);
-    expect(run.operation.lockKeys).toEqual(['org']);
+    // 조직 잠금 `org`(배송요약 등 다른 owner)과 겹치지 않는 전용 키. 경쟁사 카탈로그와는 같은 키라 서로 막는다.
+    expect(run.operation.lockKeys).toEqual(['resource:competitor:serp-enrichment']);
+    expect((await harness.begin(COMPETITOR_CATALOG_KIND, {}).expect(409)).body).toMatchObject({ code: 'OPERATION_IN_PROGRESS', details: { operationId: run.operation.id } });
     const targets = (run.operation.plan as { targets: CompetitorSellerIdentityTarget[] }).targets;
     expect(targets.map((target) => [target.keyword, target.productId])).toEqual([['슬라임', '101'], ['슬라임', '102']]);
     expect((await harness.begin(COMPETITOR_SELLER_IDENTITY_KIND, {}).expect(409)).body).toMatchObject({ code: 'OPERATION_IN_PROGRESS' });

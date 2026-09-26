@@ -91,7 +91,7 @@ describe('advertising.competitor_catalog owner and the K3 → K4 → K5 chain ov
     expect(identity.next).toEqual({ kind: COMPETITOR_CATALOG_KIND, scope: { rankEnrichment: true } });
 
     const begun = await harness.beginRun(identity.next!.kind, identity.next!.scope);
-    expect(begun.operation.lockKeys).toEqual(['org']);
+    expect(begun.operation.lockKeys).toEqual(['resource:competitor:serp-enrichment']);
     const targets = (begun.operation.plan as { targets: CompetitorCatalogTarget[]; productLimit: number });
     expect(targets.productLimit).toBe(500);
     expect(targets.targets.map((target) => [target.sellerId, target.keyword])).toContainEqual(['A100', '슬라임']);

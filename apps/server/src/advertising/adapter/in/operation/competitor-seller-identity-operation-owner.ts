@@ -6,7 +6,7 @@ import {
   CompetitorSellerIdentityScopeSchema,
   type CompetitorSellerIdentityResult,
 } from '@kiditem/shared/advertising-operations';
-import { ORG_LOCK_KEY, type OperationPlanResult, type OperationStagedChunk, type OperationWindow } from '@kiditem/shared/operation';
+import { type OperationPlanResult, type OperationStagedChunk, type OperationWindow } from '@kiditem/shared/operation';
 import type {
   JsonObject,
   OperationFailedContext,
@@ -15,6 +15,7 @@ import type {
   OperationPlanContext,
 } from '../../../../common/operation/application/port/out/owner/operation-owner.port';
 import { OperationOwner } from '../../../../common/operation/application/port/out/owner/operation-owner.decorator';
+import { COMPETITOR_ENRICHMENT_LOCK_KEY } from '@kiditem/shared/advertising-operations';
 import {
   ADVERTISING_SOURCE_ALERT_PORT,
   type AdvertisingSourceAlert,
@@ -33,8 +34,8 @@ const ALERT: AdvertisingSourceAlert = {
 /**
  * 경쟁 판매자 확인(ADR-0025 kind `advertising.competitor_seller_identity`, KID-362). 확장이 계획한 경쟁 상품의 상세
  * (www.coupang.com/vp/products)를 열어 판매자 상점 링크를 읽고 `seller_identity` 청크로 올린다. finish 트랜잭션에서 그
- * 키워드의 최신 SERP 스냅샷(실행이 발행한 행) 상품에 판매자를 적는다. 잠금은 조직(경쟁사 카탈로그와 같은 SERP 행을
- * 고치므로 한 번에 하나). 웹에서 따로 시작할 수도 있고, SERP 순위 실행이 끝나면 그 키워드로 이어서 시작된다.
+ * 키워드의 최신 SERP 스냅샷(실행이 발행한 행) 상품에 판매자를 적는다. 잠금은 `resource:competitor:serp-enrichment`
+ * (조직 범위 — 경쟁사 카탈로그와 같은 SERP 행을 고치므로 한 번에 하나, 조직 잠금 `org`을 쓰는 다른 kind와는 겹치지 않는다). 웹에서 따로 시작할 수도 있고, SERP 순위 실행이 끝나면 그 키워드로 이어서 시작된다.
  * 판매자를 하나라도 확인하면 `result.next`로 경쟁사 카탈로그 보강(`advertising.competitor_catalog`, 상품 500개)을 잇는다.
  */
 @OperationOwner()
@@ -50,7 +51,7 @@ export class CompetitorSellerIdentityOperationOwner implements OperationOwnerPor
   async plan(scope: JsonObject, context: OperationPlanContext): Promise<OperationPlanResult> {
     const parsed = parseOperationScope(CompetitorSellerIdentityScopeSchema, scope);
     const plan = await this.competitors.planSellerIdentityOperation(context.organizationId, parsed.keywords);
-    return { plan, lockKeys: [ORG_LOCK_KEY] };
+    return { plan, lockKeys: [COMPETITOR_ENRICHMENT_LOCK_KEY] };
   }
 
   async finalize(
