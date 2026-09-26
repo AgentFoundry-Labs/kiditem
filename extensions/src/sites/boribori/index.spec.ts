@@ -65,6 +65,9 @@ describe('sites/boribori — 보리보리 결제완료 주문 언마스킹 엑�
     expect(asked[0]?.args).toEqual({ downloadReason: '배송확인합니다', downloadPassword: '' });
     expect(error).toMatchObject({ code: 'OPERATOR_ACTION_REQUIRED' });
     expect(JSON.stringify(error.details)).not.toContain('fake-mall-password');
+    // 운영자가 그 탭에서 비밀번호를 확인한다 — 탭을 남기고 앞으로 가져온다(리뷰 SHOULD 2).
+    expect(needsPassword.log.slice(-1)).toEqual(['focus 7']);
+    expect(needsPassword.log).not.toContain('close 7');
 
     const empty = fakeTabPages({ answer: () => ({ ok: true, value: { success: true, empty: true, rowCount: 0 } }) });
     await expect(createBoriboriSite(empty.tabs, 'fake-mall-password').readOrders()).resolves.toEqual({ rows: [] });

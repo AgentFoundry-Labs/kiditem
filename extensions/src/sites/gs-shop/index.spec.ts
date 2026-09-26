@@ -63,6 +63,7 @@ describe('sites/gs-shop — GS샵 협력사 배송관리 엑셀(blob) 읽기', (
       'open about:blank',
       `navigate ${GS_SHOP_ORDER_URL}`,
       'ask KIDITEM_PAGE_CALL',
+      'focus 7',
       'wait for operator',
       `navigate ${GS_SHOP_ORDER_URL}`,
       'ask KIDITEM_PAGE_CALL',
@@ -90,8 +91,31 @@ describe('sites/gs-shop — GS샵 협력사 배송관리 엑셀(blob) 읽기', (
     expect(plainLogin.log).not.toContain('close 7');
   });
 
-  it('운영자가 10분 안에 SMS 인증을 마치지 않으면 옛 문장으로 OPERATOR_ACTION_REQUIRED', async () => {
+  it('운영자가 10분 안에 SMS 인증을 마치지 않으면 옛 문장으로 OPERATOR_ACTION_REQUIRED이고 탭을 남겨 앞으로 가져온다', async () => {
     const fake = fakeTabPages({ verificationClears: false, answer: () => SMS });
     expect(await failure(createGsShopSite(fake.tabs).readOrders({}))).toMatchObject({ code: 'OPERATOR_ACTION_REQUIRED', message: 'GS샵 SMS 인증이 필요합니다.' });
+    expect(fake.log).toContain('focus 7');
+    expect(fake.log).not.toContain('close 7');
+  });
+
+  it('기다리는 동안 화면을 다시 본다 — 주소가 그대로여도 SMS 벽이 걷히면 잇고, 사이트 밖·로그인 화면으로 옮긴 것은 풀린 것이 아니다', async () => {
+    let orders = 0;
+    let walls = 0;
+    const inPlace = fakeTabPages({
+      waitUrls: [GS_SHOP_ORDER_URL, GS_SHOP_ORDER_URL],
+      answer: (message) => {
+        if (message.call === 'gs-shop.smsWall') return { ok: true, value: { sms: walls++ === 0 } };
+        return orders++ === 0 ? SMS : OK;
+      },
+    });
+    await expect(createGsShopSite(inPlace.tabs).readOrders({})).resolves.toMatchObject({ rows: [{ fileName: 'GS샵.xlsx' }] });
+    expect(walls).toBe(2);
+
+    const wandered = fakeTabPages({
+      waitUrls: ['https://www.google.com/', SIGN_IN],
+      answer: (message) => (message.call === 'gs-shop.smsWall' ? { ok: true, value: { sms: false } } : SMS),
+    });
+    expect(await failure(createGsShopSite(wandered.tabs).readOrders({}))).toMatchObject({ code: 'OPERATOR_ACTION_REQUIRED' });
+    expect(wandered.log).not.toContain('close 7');
   });
 });

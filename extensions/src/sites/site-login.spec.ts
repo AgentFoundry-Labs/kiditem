@@ -48,6 +48,9 @@ function loginTab(options: {
     async waitWhile() {
       return false;
     },
+    async focus() {
+      log.push('focus');
+    },
     async currentUrl() {
       return state.url;
     },

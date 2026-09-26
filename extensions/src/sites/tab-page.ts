@@ -17,7 +17,9 @@ export interface TabPage {
    * 탭 주소가 `blocked`(검증 화면)인 동안 2초마다 본다 — 운영자가 열려 있는 탭에서 검증을 통과하길 기다린다. 벗어나면
    * true, 10분이 지나면 false. 기다리는 동안 3분마다 `onRemind`(임대 연장·progress). 탭이 닫히면 실패.
    */
-  waitWhile(blocked: (url: string) => boolean, options: { onRemind?(): void | Promise<void> }): Promise<boolean>;
+  waitWhile(blocked: (url: string) => boolean | Promise<boolean>, options: { onRemind?(): void | Promise<void> }): Promise<boolean>;
+  /** 이 탭을 활성 탭으로 앞으로 가져온다 — 운영자가 이 탭에서 할 일이 있을 때(GS샵 SMS 인증, KID-380). */
+  focus(): Promise<void>;
   /** 지금 탭 주소를 기다리지 않고 읽는다(운영자 탭). */
   currentUrl(): Promise<string>;
   /**
@@ -69,9 +71,13 @@ export function checkPageUrl(guard: PageGuard, value: string): void {
   }
 }
 
-/** 사이트 밖으로 옮겨 간 탭(로그인·예상 밖 주소)의 실패인가 — 그 탭은 닫지 않고 운영자에게 남긴다. */
+/** 운영자가 그 탭에서 해야 할 일(GS샵 SMS 인증 시간 초과·보리보리 다운로드 비밀번호, KID-380) — 탭을 남기고 앞으로 가져온다. */
+export const OPERATOR_ACTION_REQUIRED = 'OPERATOR_ACTION_REQUIRED' as const;
+
+/** 사이트 밖으로 옮겨 간 탭(로그인·예상 밖 주소)이나 운영자 조치의 실패인가 — 그 탭은 닫지 않고 운영자에게 남긴다. */
 export function leftForOperator(error: unknown): boolean {
-  return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === 'unexpected_url');
+  return isRuntimeError(error)
+    && (error.code === SITE_LOGIN_REQUIRED || error.code === OPERATOR_ACTION_REQUIRED || error.details?.reason === 'unexpected_url');
 }
 
 /** 호스트가 그 도메인이거나 그 하위 도메인인가. */
@@ -120,7 +126,7 @@ export type AttentionListener = (attention: SiteAttention | null) => void | Prom
  */
 export async function waitForOperator(
   page: TabPage,
-  blocked: (url: string) => boolean,
+  blocked: (url: string) => boolean | Promise<boolean>,
   attention: SiteAttention,
   onAttention?: AttentionListener,
 ): Promise<boolean> {
@@ -134,7 +140,7 @@ export async function waitForOperator(
 export interface TabPageChrome {
   tabs: {
     create(properties: { url: string; active: boolean }): Promise<{ id?: number }>;
-    update(tabId: number, properties: { url: string }): Promise<unknown>;
+    update(tabId: number, properties: { url?: string; active?: boolean }): Promise<unknown>;
     get(tabId: number): Promise<{ status?: string; url?: string }>;
     query(query: { url: string }): Promise<Array<{ id?: number; url?: string; status?: string }>>;
     remove(tabId: number): Promise<void>;
@@ -212,7 +218,7 @@ export function createTabPages(deps: TabPageDeps): TabPages {
         for (;;) {
           const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
           if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, '수집 탭이 닫혔습니다.', { tabId });
-          if (!blocked(tab.url ?? '')) return true;
+          if (!(await blocked(tab.url ?? ''))) return true;
           if (deps.now() - started >= OPERATOR_WAIT_MAX_MS) return false;
           if (deps.now() - remindedAt >= OPERATOR_REMIND_MS) {
             remindedAt = deps.now();
@@ -220,6 +226,9 @@ export function createTabPages(deps: TabPageDeps): TabPages {
           }
           await deps.sleep(OPERATOR_POLL_MS);
         }
+      },
+      async focus() {
+        await deps.chrome.tabs.update(tabId, { active: true }).catch(() => undefined);
       },
       async currentUrl() {
         const tab = await deps.chrome.tabs.get(tabId).catch(() => null);

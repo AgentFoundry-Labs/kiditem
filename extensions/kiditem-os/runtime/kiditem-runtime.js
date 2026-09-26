@@ -8350,8 +8350,9 @@ var KidItemRuntime = (() => {
       );
     }
   }
+  var OPERATOR_ACTION_REQUIRED = "OPERATOR_ACTION_REQUIRED";
   function leftForOperator(error) {
-    return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === "unexpected_url");
+    return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.code === OPERATOR_ACTION_REQUIRED || error.details?.reason === "unexpected_url");
   }
   function hostWithin(url, domains) {
     const host = url.hostname.toLowerCase();
@@ -8413,7 +8414,7 @@ var KidItemRuntime = (() => {
           for (; ; ) {
             const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
             if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC774 \uB2EB\uD614\uC2B5\uB2C8\uB2E4.", { tabId });
-            if (!blocked(tab.url ?? "")) return true;
+            if (!await blocked(tab.url ?? "")) return true;
             if (deps.now() - started >= OPERATOR_WAIT_MAX_MS) return false;
             if (deps.now() - remindedAt >= OPERATOR_REMIND_MS) {
               remindedAt = deps.now();
@@ -8421,6 +8422,9 @@ var KidItemRuntime = (() => {
             }
             await deps.sleep(OPERATOR_POLL_MS);
           }
+        },
+        async focus() {
+          await deps.chrome.tabs.update(tabId, { active: true }).catch(() => void 0);
         },
         async currentUrl() {
           const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
@@ -8504,6 +8508,7 @@ var KidItemRuntime = (() => {
       return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
     } catch (error) {
       if (leftForOperator(error)) keepOpen = true;
+      if (isRuntimeError(error) && error.code === OPERATOR_ACTION_REQUIRED) await page.focus().catch(() => void 0);
       throw error;
     } finally {
       if (!keepOpen) await page.close();
@@ -8716,7 +8721,7 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/mall-excel.ts
   var MALL_FILE_PART_CHARS = 7e5;
   var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
-  var OPERATOR_ACTION_REQUIRED = "OPERATOR_ACTION_REQUIRED";
+  var OPERATOR_ACTION_REQUIRED2 = "OPERATOR_ACTION_REQUIRED";
   function filePartRows(fileName, base642, partChars = MALL_FILE_PART_CHARS) {
     const parts = Math.max(1, Math.ceil(base642.length / partChars));
     return Array.from({ length: parts }, (_, part) => ({
@@ -8743,7 +8748,7 @@ var KidItemRuntime = (() => {
       throw new RuntimeError(MALL_CONTRACT_CHANGED4, message, { url: context.url });
     }
     if (answer?.pendingAuth === true || answer?.errorCode === "operator_action_required") {
-      throw new RuntimeError(OPERATOR_ACTION_REQUIRED, message, { url: context.url });
+      throw new RuntimeError(OPERATOR_ACTION_REQUIRED2, message, { url: context.url });
     }
     throw new RuntimeError(SITE_REQUEST_FAILED, message, {
       status: null,
@@ -10128,7 +10133,7 @@ var KidItemRuntime = (() => {
   var NAVIGATION_TIMEOUT_MS7 = 3e4;
   var LOGIN_MESSAGE5 = "GS\uC0F5 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
   var SMS_MESSAGE = "GS\uC0F5 SMS \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. GS\uC0F5 \uD611\uB825\uC0AC \uB85C\uADF8\uC778\uC5D0\uC11C [\uC778\uC99D\uBC88\uD638 \uBC1B\uAE30]\uB85C \uC778\uC99D\uC744 \uC644\uB8CC\uD55C \uB4A4 \uB2E4\uC2DC '\uC218\uC9D1\uD558\uAE30'\uB97C \uB20C\uB7EC\uC8FC\uC138\uC694.";
-  var OPERATOR_ACTION_REQUIRED2 = "OPERATOR_ACTION_REQUIRED";
+  var OPERATOR_ACTION_REQUIRED3 = "OPERATOR_ACTION_REQUIRED";
   var SMS_ATTENTION = { kind: "verification", site: "gs-shop", label: "SMS \uC778\uC99D" };
   var isGsShopLogin = (url) => hostWithin(url, ["gsshop.com"]) && /\/(?:sign-?in|login)(?:[/?#.]|$)/i.test(url.pathname);
   var GS_SHOP_PAGE_GUARD = {
@@ -10162,18 +10167,20 @@ var KidItemRuntime = (() => {
     }).catch(() => null);
     async function read(page, onAttention) {
       let waited = false;
+      const stillWalled = async (value) => {
+        let url;
+        try {
+          url = new URL(value);
+        } catch {
+          return true;
+        }
+        if (!GS_SHOP_PAGE_GUARD.allows(url) || isGsShopLogin(url)) return true;
+        return (await smsWall(page))?.sms !== false;
+      };
       const waitSms = async (message) => {
-        const wallUrl = await page.currentUrl();
-        const blocked = (value) => {
-          if (value === wallUrl) return true;
-          try {
-            return isGsShopLogin(new URL(value));
-          } catch {
-            return false;
-          }
-        };
-        if (!await waitForOperator(page, blocked, SMS_ATTENTION, onAttention)) {
-          throw new RuntimeError(OPERATOR_ACTION_REQUIRED2, message, { url: GS_SHOP_ORDER_URL });
+        await page.focus();
+        if (!await waitForOperator(page, stillWalled, SMS_ATTENTION, onAttention)) {
+          throw new RuntimeError(OPERATOR_ACTION_REQUIRED3, message, { url: GS_SHOP_ORDER_URL });
         }
         waited = true;
         await page.navigate(GS_SHOP_ORDER_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7 });
@@ -12678,8 +12685,9 @@ var KidItemRuntime = (() => {
     }
     return { tabId: created.id, opened: true };
   }
+  var OPERATOR_ACTION_REQUIRED4 = "OPERATOR_ACTION_REQUIRED";
   function operatorMustAct(error) {
-    return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === "unexpected_url");
+    return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.code === OPERATOR_ACTION_REQUIRED4 || error.details?.reason === "unexpected_url");
   }
 
   // extensions/src/entry/site-handles.ts

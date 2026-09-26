@@ -12,6 +12,11 @@ export function fakeTabPages(options: {
   urlBeforeInject?: string;
   /** 운영자가 검증을 통과하는가(`waitWhile`이 true). 없으면 상한까지 기다리다 false. */
   verificationClears?: boolean;
+  /**
+   * 기다리는 동안 탭이 차례로 있는 주소(KID-380). 주소마다 `blocked`를 물어 false면 거기서 풀린다 — 화면을 살피는
+   * `blocked`(GS샵 SMS 벽)를 스펙이 돌린다. 다 지나도 막혀 있으면 `verificationClears`로 끝난다.
+   */
+  waitUrls?: readonly string[];
   /** 모든 프레임에 넣은 파일의 프레임별 값(`frames`). */
   frames?: (files: readonly string[], call: number, url: string) => Array<{ frameId: number; result: unknown }>;
 }) {
@@ -29,10 +34,17 @@ export function fakeTabPages(options: {
         current = options.landAt ? options.landAt(url) : url;
         return current;
       },
-      async waitWhile(_blocked, waitOptions) {
+      async waitWhile(blocked, waitOptions) {
         log.push('wait for operator');
         await waitOptions.onRemind?.();
+        for (const url of options.waitUrls ?? []) {
+          current = url;
+          if (!(await blocked(url))) return true;
+        }
         return options.verificationClears === true;
+      },
+      async focus() {
+        log.push(`focus ${tabId}`);
       },
       async currentUrl() {
         return options.currentUrl ?? current ?? 'about:blank';

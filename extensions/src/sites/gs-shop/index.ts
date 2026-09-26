@@ -49,8 +49,9 @@ function isLoginRequired(error: unknown): boolean {
  * 총주문 → 다운로드 → 조립된 xlsx blob을 base64로 돌려준다. 조회 0건은 빈 수집이다. 읽기만 한다.
  *
  * SMS 인증(협력사 로그인의 [인증번호 받기])은 옛 수집기처럼 실패로 끝내지 않고 `waitForOperator`로 멈췄다 잇는다: 배송관리가
- * SMS 화면을 보이거나, 로그인 화면이 SMS 인증번호를 받는 화면이면 운영자에게 알리고(`onAttention` → progress.attention) 탭이
- * 그 화면을 벗어나면 배송관리로 돌아가 한 번 더 읽는다. 10분 안에 벗어나지 않으면 OPERATOR_ACTION_REQUIRED. SMS가 아닌
+ * SMS 화면을 보이거나, 로그인 화면이 SMS 인증번호를 받는 화면이면 탭을 앞으로 가져와 운영자에게 알리고(`onAttention` →
+ * progress.attention) 기다리는 동안 화면을 다시 본다 — GS 화면에서 SMS 벽이 걷히면 배송관리로 돌아가 한 번 더 읽는다. 10분
+ * 안에 걷히지 않으면 OPERATOR_ACTION_REQUIRED(탭은 남아 앞에 있다). SMS가 아닌
  * 로그인 화면은 SITE_LOGIN_REQUIRED(실행 자격이 있으면 로그인 문턱이 한 번 로그인한다 — 그 뒤 SMS 화면이 오면 여기서 기다린다).
  */
 export function createGsShopSite(tabs: TabPages, signIn?: SiteSignIn) {
@@ -69,17 +70,21 @@ export function createGsShopSite(tabs: TabPages, signIn?: SiteSignIn) {
 
   async function read(page: TabPage, onAttention?: AttentionListener): Promise<{ rows: unknown[] }> {
     let waited = false;
+    // 풀렸는지는 화면으로 본다: 사이트 밖·로그인 화면이면 아직이고, GS 화면이면 SMS 벽이 걷혔을 때만 풀린 것이다(주소가 그대로인
+    // 벽도, 벽과 상관없는 이동도 가린다). 벽을 읽지 못하면 아직으로 본다.
+    const stillWalled = async (value: string) => {
+      let url: URL;
+      try {
+        url = new URL(value);
+      } catch {
+        return true;
+      }
+      if (!GS_SHOP_PAGE_GUARD.allows(url) || isGsShopLogin(url)) return true;
+      return (await smsWall(page))?.sms !== false;
+    };
     const waitSms = async (message: string) => {
-      const wallUrl = await page.currentUrl();
-      const blocked = (value: string) => {
-        if (value === wallUrl) return true;
-        try {
-          return isGsShopLogin(new URL(value));
-        } catch {
-          return false;
-        }
-      };
-      if (!(await waitForOperator(page, blocked, SMS_ATTENTION, onAttention))) {
+      await page.focus();
+      if (!(await waitForOperator(page, stillWalled, SMS_ATTENTION, onAttention))) {
         throw new RuntimeError(OPERATOR_ACTION_REQUIRED, message, { url: GS_SHOP_ORDER_URL });
       }
       waited = true;
