@@ -176,6 +176,11 @@ export function isMallAdminListingMallKey(value: unknown): value is MallAdminLis
   return typeof value === 'string' && Object.hasOwn(MALL_ADMIN_LISTING_READERS, value);
 }
 
+/** 확장 `ping`에 싣는 몰마다의 관리자 목록 사이트 표시(KID-380 T4). 없는 빌드엔 그 몰 가져오기를 보내지 않는다. */
+export function mallListingSiteCapability(mallKey: string): string {
+  return `mallListingSite.${mallKey}`;
+}
+
 const MallKeySchema = z.enum(MALL_ADMIN_LISTING_MALL_KEYS);
 const YYYY_MM_DD = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const boundedText = (max: number) => z.string().trim().max(max);

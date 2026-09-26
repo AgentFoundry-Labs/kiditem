@@ -227,6 +227,14 @@ export function isMallOrderOperationMall(mallKey: string): mallKey is MallOrderO
 }
 
 /**
+ * 확장 `ping`에 싣는 몰마다의 주문 사이트 표시(KID-380 T4). 이 빌드에 그 몰 사이트가 있어야 실린다 — 웹은 이 표시가 없는
+ * 빌드에 그 몰 실행을 보내지 않는다(서버에 실행을 만들기 전에 "업데이트" 문장으로 거절).
+ */
+export function mallOrderSiteCapability(mallKey: string): string {
+  return `mallOrderSite.${mallKey}`;
+}
+
+/**
  * 옛 주문 attempt 경로(`POST /api/orders/collection/attempts`)에 남은 몰. KID-379: 카카오는 셀피아 변환 규격이 생길 때까지
  * 옛 경로로 수집하고(확장이 원본을 실패 artifact로 남긴다), 그 뒤 실행 kind로 옮기면 이 목록과 옛 경로가 함께 사라진다.
  */

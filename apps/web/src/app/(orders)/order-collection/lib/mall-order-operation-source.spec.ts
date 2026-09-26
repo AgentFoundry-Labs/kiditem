@@ -105,7 +105,7 @@ describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
       collectionDate: '2026-09-26',
       collectionMode: 'browser',
       selectionMode: 'manual',
-    }, { capability: 'orderCaptureOperationKindsV1', credentials: CREDENTIALS });
+    }, { capability: `mallOrderSite.${mallKey}`, credentials: CREDENTIALS });
     expect(handOff).toHaveBeenCalledWith(expect.objectContaining({ operationId: OPERATION_ID }));
   });
 
@@ -122,7 +122,7 @@ describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
       collectionMode: 'browser',
       selectionMode: 'automatic',
       seenRowKeys: ['A'],
-    }, { capability: 'orderCaptureOperationKindsV1', credentials: CREDENTIALS });
+    }, { capability: 'mallOrderSite.kidkids', credentials: CREDENTIALS });
     expect(handOff).toHaveBeenCalledWith({ extensionId: 'ext-1', operationId: OPERATION_ID, input: { selectionMode: 'automatic', seenRowKeys: ['A'] }, collectionDate: '2026-09-26' });
   });
 
@@ -132,7 +132,7 @@ describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
     const { adapter } = source({ loadLoginCredentials });
     await adapter.start!({}, { status: undefined });
     expect(loadLoginCredentials).toHaveBeenCalledWith(account, { automatic: false });
-    expect(vi.mocked(requestOperationStart).mock.calls[0]![2]).toEqual({ capability: 'orderCaptureOperationKindsV1' });
+    expect(vi.mocked(requestOperationStart).mock.calls[0]![2]).toEqual({ capability: 'mallOrderSite.kidkids' });
   });
 
   it('계정 행이 없는 몰은 아무것도 부르지 않고 설정 안내, 같은 계정이 이미 돌면 거절 문장이나 그 실행', async () => {

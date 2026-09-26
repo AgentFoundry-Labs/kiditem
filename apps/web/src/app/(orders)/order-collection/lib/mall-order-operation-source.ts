@@ -3,6 +3,7 @@
 import { OperationFinishResponseSchema, type OperationListResponse, type OperationView } from '@kiditem/shared/operation';
 import {
   isMallOrdersManualUploadMall,
+  mallOrderSiteCapability,
   MALL_ORDERS_KIND,
   MallOrdersResultSchema,
 } from '@kiditem/shared/orders-operations';
@@ -31,7 +32,6 @@ import {
 import { ICECREAM_MALL_KEY, todayYmd, type ConversionHistoryItem } from './order-collection-page-model';
 import type { OrderCollectionSourceAdapter } from './order-collection-source-adapter';
 import {
-  ORDER_CAPTURE_OPERATION_CAPABILITY,
   OrderOperationFailure,
   orderOperationsQueryKey,
   readOrderOperations,
@@ -166,7 +166,8 @@ export function mallOrderOperationSource({
         collectionMode: 'browser',
         selectionMode,
         ...(input.seenRowKeys ? { seenRowKeys: [...input.seenRowKeys] } : {}),
-      }, { capability: ORDER_CAPTURE_OPERATION_CAPABILITY, ...(credentials ? { credentials } : {}) });
+      // 그 몰 사이트를 가진 빌드에만 보낸다 — 옛 빌드는 서버가 실행을 연 뒤 RUNTIME_PLAN_INVALID로 끝났다(KID-380 T4).
+      }, { capability: mallOrderSiteCapability(account.key), ...(credentials ? { credentials } : {}) });
       if (outcome.outcome === 'refused') return outcome;
       if (outcome.outcome === 'running') return { outcome: 'running', attemptId: outcome.operationId };
       await handOff({ extensionId: extension.extensionId, operationId: outcome.operationId, input, collectionDate });
