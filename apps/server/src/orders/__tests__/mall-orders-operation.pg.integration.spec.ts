@@ -80,6 +80,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
   let domeggookAccount: string;
   let icecreamAccount: string;
   let kidsnoteAccount: string;
+  let onchAccount: string;
   let rocketAccount: string;
 
   beforeAll(async () => {
@@ -121,6 +122,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     domeggookAccount = (await create('domeggook', '도매꾹')).id;
     icecreamAccount = (await create('icecream-mall', '아이스크림몰')).id;
     kidsnoteAccount = (await create('kidsnote', '키즈노트')).id;
+    onchAccount = (await create('onch', '온채널')).id;
     rocketAccount = (await create('rocket', '쿠팡 로켓')).id;
   });
 
@@ -300,6 +302,32 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
       'x-order-collection-output-rows': '4',
     });
     await expect(prisma.sourceImportRun.count({ where: { organizationId: ORG } })).resolves.toBe(0);
+  });
+
+  it('온채널(KID-380): 옛 수집기 원소 그대로 {orders}로 보관하고 주문코드와 주문 수를 적는다(상세를 못 읽은 주문도 한 줄)', async () => {
+    const orders = [
+      {
+        orderCode: 'OC-2', date: `${TODAY} 14:00:00`, productCode: 'P-100', productName: '색종이', option: '빨강', qty: 2,
+        productPrice: 12000, shippingFee: 3000, customer: '행복유치원', phone: '010-1234-5678', emergency: '02-111-2222',
+        zip: '06000', address: '서울 강남구 테헤란로 1', message: '문 앞',
+      },
+      { orderCode: 'OC-1', date: `${TODAY} 09:30:00` },
+    ];
+    const run = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: onchAccount, mallKey: 'onch' }));
+    expect(run.operation.plan).toMatchObject({ mallKey: 'onch', mallName: '온채널' });
+    await harness.put(run, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: orders }]);
+    const finished = await harness.finish(run).expect(200);
+    expect(finished.body.operation.result).toEqual({ rowCount: 2, mallKey: 'onch', captured: 2, orderNumbers: ['OC-2', 'OC-1'] });
+    const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
+    expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ orders });
+    // 상품 두 줄 + 택배비 한 줄 = 3줄, 주문 2건.
+    const converted = await convert('onchannel/convert', run.operation.id).expect(201);
+    expect(converted.headers).toMatchObject({
+      'content-type': 'application/vnd.ms-excel',
+      'x-order-collection-source-rows': '2',
+      'x-order-collection-product-rows': '1',
+      'x-order-collection-output-rows': '3',
+    });
   });
 
   it('도매꾹: 나눠 올린 CSV 조각을 이어 파일 캡처(text/csv)로 보관하고 수집일로 거른 행 수를 적는다, 빈 날은 조각 없이 0건', async () => {

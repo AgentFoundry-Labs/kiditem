@@ -23,7 +23,6 @@ const sharedRunFieldsName = 'orderCollectionExtensionRunFields';
 const ownerCorrelationFields = new Set(['attemptId', 'runId']);
 const automaticCollectors = [
   'collectKkomangseOrders',
-  'collectOnchannelOrders',
   'collectLotteonOrders',
   'collectGsshopOrders',
   'collectAlwayzOrders',

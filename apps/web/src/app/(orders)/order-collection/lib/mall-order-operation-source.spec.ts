@@ -87,7 +87,7 @@ beforeEach(() => {
 
 describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
   it('1차 몰 4곳과 사이트를 옮긴 2차 몰만 실행 kind로 수집한다(KID-380)', () => {
-    expect(['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kidsnote'].every(collectsViaMallOrderOperation)).toBe(true);
+    expect(['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kidsnote', 'onch'].every(collectsViaMallOrderOperation)).toBe(true);
     expect(collectsViaMallOrderOperation('kakao')).toBe(false);
   });
 

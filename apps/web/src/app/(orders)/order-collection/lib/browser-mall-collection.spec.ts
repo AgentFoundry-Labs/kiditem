@@ -309,7 +309,6 @@ describe('createBrowserMallCollector', () => {
     const apiFiles = [
       'order-collection-extension.ts',
       'kkomangse-orders-api.ts',
-      'onchannel-orders-api.ts',
       'lotteon-orders-api.ts',
       'gsshop-orders-api.ts',
       'alwayz-orders-api.ts',

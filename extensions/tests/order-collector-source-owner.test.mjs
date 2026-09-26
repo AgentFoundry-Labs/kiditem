@@ -332,7 +332,7 @@ test('keeps server-owned failure evidence on the owner request without echoing r
   const harness = createHarness({ collectResult: captured });
   const result = await harness.owner.run({
     environmentId: 'local',
-    message: { action: 'collectKidsnoteOrders', attemptId: ATTEMPT_ID },
+    message: { action: 'collectKakaoOrders', attemptId: ATTEMPT_ID },
     mallKey: 'kakao',
     collect: async () => captured,
     submit: async () => {
@@ -357,7 +357,7 @@ test('terminalizes known local converter validation errors instead of waiting fo
     const harness = createHarness({ collectResult: captured });
     const result = await harness.owner.run({
       environmentId: 'local',
-      message: { action: 'collectKidsnoteOrders', attemptId: ATTEMPT_ID },
+      message: { action: 'collectKakaoOrders', attemptId: ATTEMPT_ID },
       mallKey: 'kakao',
       collect: async () => captured,
       submit: async () => {
@@ -389,7 +389,7 @@ test('keeps a nullable legacy browser owner running without provider date inject
   const result = await harness.owner.run({
     environmentId: 'local',
     message: {
-      action: 'collectKidsnoteOrders',
+      action: 'collectKakaoOrders',
       attemptId: ATTEMPT_ID,
       serverOwned: true,
       date: '2026-09-10',
@@ -417,7 +417,7 @@ test('holds reconciliation when pending storage cannot be read after a worker re
   let submitCalls = 0;
   const input = {
     environmentId: 'local',
-    message: { action: 'collectKidsnoteOrders', attemptId: ATTEMPT_ID },
+    message: { action: 'collectKakaoOrders', attemptId: ATTEMPT_ID },
     mallKey: 'kakao',
     collect: async () => {
       collectCalls += 1;
@@ -460,7 +460,7 @@ test('does not dispatch conversion until pending storage write succeeds and repl
   const submittedCaptures = [];
   const input = {
     environmentId: 'local',
-    message: { action: 'collectKidsnoteOrders', attemptId: ATTEMPT_ID },
+    message: { action: 'collectKakaoOrders', attemptId: ATTEMPT_ID },
     mallKey: 'kakao',
     collect: async () => {
       collectCalls += 1;
@@ -505,7 +505,7 @@ test('recollects after an unpersisted pending capture is lost across a worker re
   let submitCalls = 0;
   const input = {
     environmentId: 'local',
-    message: { action: 'collectKidsnoteOrders', attemptId: ATTEMPT_ID },
+    message: { action: 'collectKakaoOrders', attemptId: ATTEMPT_ID },
     mallKey: 'kakao',
     collect: async () => {
       collectCalls += 1;
@@ -593,7 +593,7 @@ test('does not inject a page dispatch date into a nullable legacy plan', async (
         run: async (input) => {
           ownerCalls.push(input);
           return input.collect({}, {
-            mallKey: 'onch',
+            mallKey: 'kakao',
             collectionDate: null,
             legacy: true,
           });
@@ -602,7 +602,7 @@ test('does not inject a page dispatch date into a nullable legacy plan', async (
     },
   );
   const message = {
-    action: 'collectOnchannelOrders',
+    action: 'collectKakaoOrders',
     environmentId: 'office',
     attemptId: ATTEMPT_ID,
     serverOwned: true,
@@ -613,7 +613,7 @@ test('does not inject a page dispatch date into a nullable legacy plan', async (
     return { success: true, orders: [] };
   };
 
-  await runOwnedOrderCollection(message, 'onch', collect);
+  await runOwnedOrderCollection(message, 'kakao', collect);
 
   assert.equal(ownerCalls.length, 1);
   assert.equal(providerPlan.collectionDate, null);

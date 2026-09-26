@@ -16,7 +16,6 @@ const backgroundRoot = path.join(repoRoot, 'extensions/kiditem-os/background/ord
 const workerPath = path.join(backgroundRoot, 'worker.js');
 const AUTOMATIC_ACTIONS = [
   ['collectKkomangseOrders', 'collectKkomangseOrders', 'kkomangse', { date: '2026-07-15' }],
-  ['collectOnchannelOrders', 'collectOnchannelOrders', 'onch', { date: '2026-07-15' }],
   ['collectLotteonOrders', 'collectLotteonOrders', 'lotte-on', { date: '2026-07-15' }],
   ['collectGsshopOrders', 'collectGsshopOrders', 'gs-shop', { date: '2026-07-15' }],
   ['collectAlwayzOrders', 'collectAlwayzOrders', 'always', { date: '2026-07-15' }],
@@ -799,7 +798,6 @@ test('every named mall collector uses the production attach-before-readiness pat
 
   const cases = [
     ['collectKkomangseOrders', []],
-    ['collectOnchannelOrders', ['2026-07-15']],
     ['collectLotteonOrders', []],
     ['collectGsshopOrders', []],
     ['collectAlwayzOrders', []],

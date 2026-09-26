@@ -37,6 +37,7 @@ import '../sites/domeggook';
 import '../sites/icecream-mall';
 import '../sites/kidkids';
 import '../sites/kidsnote';
+import '../sites/onch';
 import '../sites/live-commerce';
 import '../sites/mall-admin-listings';
 import '../sites/mall-orders';

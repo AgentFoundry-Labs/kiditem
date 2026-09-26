@@ -243,7 +243,6 @@ export function createBrowserMallCollector({
 
     const actionByMall: Record<string, string> = {
       kkomangse: 'collectKkomangseOrders',
-      onch: 'collectOnchannelOrders',
       'haebub-mall': 'collectHaebeopOrders',
       'lotte-on': 'collectLotteonOrders',
       'gs-shop': 'collectGsshopOrders',
@@ -611,36 +610,6 @@ export function createBrowserMallCollector({
     return rows;
   };
 
-  const generateOnchannelSellpia = async (
-    run: OrderCollectionExtensionRun,
-    collectionDate: string,
-  ): Promise<number> => {
-    const { collectOnchannelOrdersFromExtension, convertOnchannelToSellpiaFile } = await import(
-      './onchannel-orders-api'
-    );
-    await ensureMallLogin('onch', run);
-    const orders = await collectOnchannelOrdersFromExtension(collectionDate, run);
-    if (orders.length === 0) {
-      toastNoNewOrders('온채널');
-      return 0;
-    }
-    const result = await convertOnchannelToSellpiaFile(orders, { run });
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-onch-browser`,
-      sourceName: `온채널 주문 (${formatNumber(orders.length)}건)`,
-      convertedAt,
-      collectionDate,
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'onch',
-      mallName: '온채널',
-    });
-    return rows;
-  };
-
   const generateKakaoSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
     const { collectKakaoOrdersFromExtension, throwKakaoConversionUnsupported } = await import(
       './kakao-orders-api'
@@ -686,7 +655,6 @@ export function createBrowserMallCollector({
     }
     const today = collectionDateOf(resolvedRun);
     if (account.key === 'kkomangse') return resultFor(await generateKkomangseSellpia(resolvedRun), today);
-    if (account.key === 'onch') return resultFor(await generateOnchannelSellpia(resolvedRun, today), today);
     if (account.key === 'kakao') return resultFor(await generateKakaoSellpia(resolvedRun), today);
     if (account.key === 'lotte-on') return resultFor(await generateLotteonSellpia(resolvedRun), today);
     if (account.key === 'gs-shop') return resultFor(await generateGsshopSellpia(resolvedRun), today);
@@ -694,7 +662,7 @@ export function createBrowserMallCollector({
     if (account.key === 'boribori') return resultFor(await generateBoriboriSellpia(resolvedRun), today);
     if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(resolvedRun), today);
     if (account.key === 'haebub-mall') return resultFor(await generateHaebeopSellpia(resolvedRun), today);
-    // 실행 kind로 옮긴 몰(아이스크림몰 · 키드키즈 · 아트공구 · 도매꾹 KID-359 H3, 키즈노트 KID-380)은 이 옛 절차로 오지 않는다.
+    // 실행 kind로 옮긴 몰(아이스크림몰 · 키드키즈 · 아트공구 · 도매꾹 KID-359 H3, 키즈노트 · 온채널 KID-380)은 이 옛 절차로 오지 않는다.
     throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
   };
 }

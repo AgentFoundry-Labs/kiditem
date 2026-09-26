@@ -24,6 +24,7 @@ import '../sites/domeggook';
 import '../sites/icecream-mall';
 import '../sites/kidkids';
 import '../sites/kidsnote';
+import '../sites/onch';
 import '../sites/mall-admin-listings';
 import '../sites/mall-orders';
 import '../sites/product-page';
@@ -97,6 +98,7 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     expect(keys(handle.reader('icecream-mall'))).toEqual(['readListings', 'readOrders']);
     // 2차 몰(KID-380)은 주문 읽기만 옮겼다 — 목록 읽기는 KID-381.
     expect(keys(handle.reader('kidsnote'))).toEqual(['readOrders']);
+    expect(keys(handle.reader('onch'))).toEqual(['readOrders']);
     expect(handle.reader('no-such-mall')).toBeNull();
     expect(handle.reader('mall-orders')).toBeNull();
     // 등록된 사이트라도 몰 주문 kind로 옮긴 몰이 아니면 주지 않는다(리뷰 S9).

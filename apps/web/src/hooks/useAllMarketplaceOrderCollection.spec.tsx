@@ -81,7 +81,7 @@ const mall = (key: string, name: string): OrderCollectionMallAccount => ({
 // 옛 attempt 경로에 남은 몰(나머지 몰이 옮겨질 때까지)만 쓴다 — 1차 몰 4곳(KID-359 H3)과 옮긴 2차 몰(KID-380)은 실행 kind 경로다.
 const MALLS = [
   mall('kakao', '카카오'),
-  mall('onch', '온채널'),
+  mall('boribori', '보리보리'),
   mall('haebub-mall', '해법몰'),
   mall('kkomangse', '꼬망세'),
   mall('lotte-on', '롯데ON'),
@@ -271,7 +271,7 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
   it('⭐ 설정되지 않은 몰은 실패가 아니라 미설정으로 센다', async () => {
     const logActivity = vi.fn();
     const missing = mall('kakao', '카카오');
-    const ready = mall('onch', '온채널');
+    const ready = mall('kkomangse', '꼬망세');
     mocks.begin.mockImplementation(async (_key: string, input: { mallKey: string }) => {
       if (input.mallKey === missing.key) {
         throw new ApiError(404, 'NOT_FOUND', null, { reason: 'ORDER_COLLECTION_MALL_NOT_FOUND' });
@@ -788,6 +788,7 @@ describe('useAllMarketplaceOrderCollection — 실행 kind로 옮긴 몰(KID-359
   // 2차 몰(KID-380)도 사이트가 옮겨지면 같은 길이다 — 옛 시도·옛 로그인·옛 확장 액션 없이 실행을 연다.
   it.each([
     ['kidsnote', '키즈노트'],
+    ['onch', '온채널'],
   ] as const)('⭐ %s(2차 몰)는 옛 시도 없이 실행을 시작해 실행 id로 변환한다', async (mallKey, mallName) => {
     const account = { ...mall(mallKey, mallName), channelAccountId: '6a1d3f8e-8b0f-4a4f-8e72-1b5c3c9f2d22' };
     vi.mocked(apiClient.get).mockResolvedValue({

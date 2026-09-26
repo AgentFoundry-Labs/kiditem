@@ -22,7 +22,7 @@ describe('orders operation kinds (KID-359 wave2)', () => {
     });
     expect(scope.collectionDate).toBeNull();
     expect(MallOrdersScopeSchema.safeParse({ ...scope, seenRowKeys: ['x'.repeat(2_001)] }).success).toBe(false);
-    expect(MALL_ORDER_OPERATION_MALLS).toEqual(['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kidsnote']);
+    expect(MALL_ORDER_OPERATION_MALLS).toEqual(['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kidsnote', 'onch']);
     expect(isMallOrderOperationMall('kidkids')).toBe(true);
     expect(isMallOrderOperationMall('gsshop')).toBe(false);
   });

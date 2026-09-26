@@ -55,4 +55,18 @@ describe('mall orders capture rules (KID-359 H3)', () => {
     expect(() => mallOrdersCapture(plan({ mallKey: 'kidsnote', mallName: '키즈노트' }), [chunk('order_rows', 1, [{ ono: 'x' }])]))
       .toThrow(expect.objectContaining({ details: expect.objectContaining({ reason: 'invalid_order_rows' }) }));
   });
+
+  it('온채널 캡처: 옛 변환 본문 {orders} 그대로(상세를 못 읽은 주문도) 보관하고 주문코드(orderCode)를 센다, 주문코드 없는 원소는 거절', () => {
+    const onch = plan({ mallKey: 'onch', mallName: '온채널' });
+    const orders = [
+      { orderCode: 'OC-2', date: '2026-09-10 14:00:00', productName: '색종이', qty: 2, productPrice: 12000, shippingFee: 3000 },
+      { orderCode: 'OC-1', date: '2026-09-10 09:30:00' },
+    ];
+    const capture = mallOrdersCapture(onch, [chunk('order_rows', 1, orders)]);
+    expect(capture.captured).toBe(2);
+    expect(capture.orderNumbers).toEqual(['OC-2', 'OC-1']);
+    expect(JSON.parse(capture.source.bytes.toString('utf8'))).toEqual({ orders });
+    expect(() => mallOrdersCapture(onch, [chunk('order_rows', 1, [{ date: '2026-09-10' }])]))
+      .toThrow(expect.objectContaining({ details: expect.objectContaining({ reason: 'invalid_order_rows' }) }));
+  });
 });
