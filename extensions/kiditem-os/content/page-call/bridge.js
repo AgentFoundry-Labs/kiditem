@@ -3,6 +3,8 @@
 // (`__kiditemIsolatedPageCalls[call]`)를 부르거나 MAIN world 러너(`runner.js`)에 `postMessage`로 넘기고 답을 돌려준다.
 // 처리기가 어디에도 없으면 `content_script_missing`으로 답해 호출하는 쪽이 파일을 주입하고 다시 묻게 한다.
 // 인자는 파일 주입으로는 넘길 수 없어서(`func.toString()` 금지 — src/README.md) 이 메시지 길을 쓴다.
+// `world: "isolated"`인 호출(저장 자격을 싣는 로그인 폼 채우기, KID-377)은 ISOLATED 처리기에서만 돈다 — 처리기가 없으면
+// MAIN으로 넘기지 않고 `content_script_missing`으로 답해 호출하는 쪽이 처리기 파일을 다시 넣게 한다(자격이 페이지로 가지 않게).
 (function installKidItemPageBridge() {
   "use strict";
   if (globalThis.__kiditemPageBridgeLoaded) return;
@@ -34,11 +36,11 @@
 
   chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
     if (!message || message.type !== "KIDITEM_PAGE_CALL" || typeof message.call !== "string") return undefined;
-    run(message.call, message.args).then(sendResponse);
+    run(message.call, message.args, message.world === "isolated").then(sendResponse);
     return true;
   });
 
-  async function run(call, args) {
+  async function run(call, args, isolatedOnly) {
     const local = isolatedCalls[call];
     if (typeof local === "function") {
       try {
@@ -47,6 +49,7 @@
         return { ok: false, error: String((error && error.message) || error) };
       }
     }
+    if (isolatedOnly) return { ok: false, error: "content_script_missing" };
     return viaMain(call, args);
   }
 

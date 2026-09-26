@@ -2,6 +2,7 @@ import type { ReviewIngestItem } from '@kiditem/shared/reviews';
 import { RuntimeError } from '../../core/errors';
 import { SITE_REQUEST_FAILED, createSiteCaller, type SiteCaller, type SiteCallerOptions } from '../../core/site-caller';
 import { registerSite } from '../registry';
+import { wingCallerWithLogin } from './login';
 
 /**
  * Wing 상품평 화면(`/tenants/cs/product/review`)이 쓰는 내부 검색 API. 쿠팡은 판매자 상품평을 Open API로
@@ -125,5 +126,5 @@ export function createWingReviewsSite(caller: SiteCaller): {
 registerSite({
   name: 'wing-reviews',
   origin: WING_ORIGIN,
-  create: (deps) => createWingReviewsSite(createSiteCaller(WING_REVIEW_CALLER, deps)),
+  create: (deps, lease) => createWingReviewsSite(wingCallerWithLogin(createSiteCaller(WING_REVIEW_CALLER, deps), deps, lease)),
 });

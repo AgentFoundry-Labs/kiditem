@@ -4469,8 +4469,8 @@ var KidItemRuntime = (() => {
     cause;
   };
   function parseErrorEnvelope(body) {
-    const parsed = ErrorEnvelopeSchema.safeParse(body);
-    return parsed.success ? parsed.data : null;
+    const parsed2 = ErrorEnvelopeSchema.safeParse(body);
+    return parsed2.success ? parsed2.data : null;
   }
   function isRuntimeError(value) {
     return value instanceof RuntimeError;
@@ -5571,9 +5571,9 @@ var KidItemRuntime = (() => {
     const raw = String(value ?? "").trim();
     if (!raw) return "";
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-    const parsed = Date.parse(raw);
-    if (Number.isNaN(parsed)) return raw.slice(0, 10);
-    return new Date(parsed + KST_OFFSET_MS).toISOString().slice(0, 10);
+    const parsed2 = Date.parse(raw);
+    if (Number.isNaN(parsed2)) return raw.slice(0, 10);
+    return new Date(parsed2 + KST_OFFSET_MS).toISOString().slice(0, 10);
   }
   function isUrgent(row) {
     const code = String(row.purchaseOrderType ?? "").trim().toUpperCase();
@@ -5780,10 +5780,10 @@ var KidItemRuntime = (() => {
     kind: COUPANG_REVIEWS_KIND,
     site: "wing-reviews",
     async *collect(rawPlan, site, { signal }) {
-      const parsed = CoupangReviewsPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      const parsed2 = CoupangReviewsPlanSchema.safeParse(rawPlan);
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      const plan = parsed.data;
+      const plan = parsed2.data;
       const done = [];
       for (const window of plan.windows) {
         const status = { index: window.index, pages: 0, items: 0, done: false };
@@ -5832,10 +5832,10 @@ var KidItemRuntime = (() => {
     kind: COUPANG_ROCKET_PO_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed = CoupangRocketPoPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      const parsed2 = CoupangRocketPoPlanSchema.safeParse(rawPlan);
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
-      const plan = parsed.data;
+      const plan = parsed2.data;
       try {
         const query = { searchDateType: plan.dateType, from: plan.from, to: plan.to, status: plan.status };
         const listed = [];
@@ -6028,9 +6028,9 @@ var KidItemRuntime = (() => {
     if (typeof value !== "string") throw incomplete2(`${field}\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
     const raw = value.trim();
     if (!raw || !/^\d+$/.test(raw) && !/^\d{1,3}(?:,\d{3})+$/.test(raw)) throw incomplete2(`${field}\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
-    const parsed = Number(raw.replace(/,/g, ""));
-    if (!Number.isSafeInteger(parsed) || parsed < 0) throw incomplete2(`${field}\uAC00 \uBC94\uC704\uB97C \uBC97\uC5B4\uB0AC\uC2B5\uB2C8\uB2E4.`);
-    return parsed;
+    const parsed2 = Number(raw.replace(/,/g, ""));
+    if (!Number.isSafeInteger(parsed2) || parsed2 < 0) throw incomplete2(`${field}\uAC00 \uBC94\uC704\uB97C \uBC97\uC5B4\uB0AC\uC2B5\uB2C8\uB2E4.`);
+    return parsed2;
   }
   function isCalendarDate(year, month, day) {
     if (month < 1 || month > 12 || day < 1) return false;
@@ -6045,9 +6045,9 @@ var KidItemRuntime = (() => {
       return raw;
     }
     const iso = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(raw);
-    const parsed = iso ? Date.parse(raw) : Number.NaN;
-    if (!iso || !isCalendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3])) || Number.isNaN(parsed)) throw incomplete2(`${field}\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
-    return new Date(parsed + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
+    const parsed2 = iso ? Date.parse(raw) : Number.NaN;
+    if (!iso || !isCalendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3])) || Number.isNaN(parsed2)) throw incomplete2(`${field}\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+    return new Date(parsed2 + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
   }
   registerCollector(coupangRocketPoCollector);
 
@@ -6059,10 +6059,10 @@ var KidItemRuntime = (() => {
     kind: COUPANG_SHIPMENT_SUMMARY_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed = PlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      const parsed2 = PlanSchema.safeParse(rawPlan);
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      const { maxPages } = parsed.data;
+      const { maxPages } = parsed2.data;
       try {
         const seen = /* @__PURE__ */ new Set();
         const byDate = /* @__PURE__ */ new Map();
@@ -6146,15 +6146,15 @@ var KidItemRuntime = (() => {
     kind: MALL_ORDERS_KIND,
     site: "mall-orders",
     async *collect(rawPlan, site, { signal }) {
-      const parsed = PlanSchema2.safeParse(rawPlan);
-      const reader = parsed.success && site ? site.reader(parsed.data.mallKey) : null;
-      if (!parsed.success || !reader) {
+      const parsed2 = PlanSchema2.safeParse(rawPlan);
+      const reader = parsed2.success && site ? site.reader(parsed2.data.mallKey) : null;
+      if (!parsed2.success || !reader) {
         throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ORDERS_KIND,
-          mallKey: parsed.success ? parsed.data.mallKey : null
+          mallKey: parsed2.success ? parsed2.data.mallKey : null
         });
       }
-      const plan = parsed.data;
+      const plan = parsed2.data;
       try {
         const { rows, continuation } = await reader.readOrders({
           collectionDate: plan.collectionDate,
@@ -6190,10 +6190,10 @@ var KidItemRuntime = (() => {
     kind: SELLPIA_SHIPMENT_TRACKING_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
-      const parsed = PlanSchema3.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      const parsed2 = PlanSchema3.safeParse(rawPlan);
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
-      const { rows, total } = await site.shipmentTracking({ startDate: parsed.data.startDate, endDate: parsed.data.endDate });
+      const { rows, total } = await site.shipmentTracking({ startDate: parsed2.data.startDate, endDate: parsed2.data.endDate });
       if (signal.aborted) return;
       const progress4 = { rows: rows.length, listed: total };
       const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS2, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
@@ -6328,8 +6328,8 @@ var KidItemRuntime = (() => {
   });
   var CoupangSellerStoreUrlSchema = external_exports.string().trim().url().max(2e3).refine((value) => {
     try {
-      const parsed = new URL(value);
-      return parsed.protocol === "https:" && parsed.hostname === "shop.coupang.com";
+      const parsed2 = new URL(value);
+      return parsed2.protocol === "https:" && parsed2.hostname === "shop.coupang.com";
     } catch {
       return false;
     }
@@ -6992,7 +6992,7 @@ var KidItemRuntime = (() => {
     let keepOpen = false;
     try {
       await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS2 });
-      return await read(page);
+      return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
     } catch (error) {
       if (leftForOperator(error)) keepOpen = true;
       throw error;
@@ -7007,7 +7007,7 @@ var KidItemRuntime = (() => {
   var PAGE_CALL_MESSAGE = "KIDITEM_PAGE_CALL";
   async function callPage(page, call2, args, options) {
     const answer = await page.ask(
-      { type: PAGE_CALL_MESSAGE, call: call2, args },
+      { type: PAGE_CALL_MESSAGE, call: call2, args, ...options.isolatedOnly ? { world: "isolated" } : {} },
       {
         timeoutMs: options.timeoutMs,
         guard: options.guard,
@@ -7030,6 +7030,200 @@ var KidItemRuntime = (() => {
     });
   }
 
+  // extensions/src/sites/site-login.ts
+  var LOGIN_FILL_FILE = "content/page-call/login-fill.js";
+  var LOGIN_DIALOGS_FILE = "content/page-call/login-dialogs.js";
+  var LOGIN_FILL_WINDOW_MS = 15e3;
+  var FILL_RETRY_MS = 500;
+  var AFTER_SUBMIT_MS = 1500;
+  var AFTER_REDIRECT_MS = 1200;
+  var NAVIGATION_TIMEOUT_MS3 = 3e4;
+  var CALL_TIMEOUT_MS = 5e3;
+  var REMAIN_CHECKS = 3;
+  var REMAIN_CHECK_GAP_MS = 1500;
+  var NO_ANSWER = /* @__PURE__ */ Symbol("no-answer");
+  async function ensureLoggedIn(page, spec, credentials, deps, options = {}) {
+    const guard = loginGuard(spec);
+    const values = Object.fromEntries(spec.fields.map((field) => [field, credentials[field] ?? null]));
+    if (isVerification(spec, await safeUrl(page))) return { status: "verification_required" };
+    const first = await loginFrame(page);
+    if (first === null && !isLogin(spec, await safeUrl(page))) {
+      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS3, continueOnTimeout: true });
+    }
+    const deadline = deps.now() + (options.timeoutMs ?? LOGIN_FILL_WINDOW_MS);
+    const watching = /* @__PURE__ */ new Set();
+    let noFormSince = null;
+    while (deps.now() < deadline) {
+      const url = await safeUrl(page);
+      if (isVerification(spec, url)) return { status: "verification_required" };
+      const frameId = await loginFrame(page);
+      if (frameId === null) {
+        if (isLogin(spec, url)) noFormSince = null;
+        else {
+          noFormSince ??= deps.now();
+          if (deps.now() - noFormSince >= (spec.settleMs ?? 0)) return { status: "no_form" };
+        }
+      } else if (frameId !== void 0) {
+        noFormSince = null;
+        if (!watching.has(frameId)) {
+          watching.add(frameId);
+          await pageCall(page, "login.watchDialogs", {}, guard, spec, frameId, "main");
+        }
+        const filled = await pageCall(page, "login.fill", { values }, guard, spec, frameId, "isolated");
+        if (filled?.state === "submitted") return afterSubmit(page, spec, guard, frameId, deps);
+      }
+      await deps.sleep(FILL_RETRY_MS);
+    }
+    return { status: "unconfirmed" };
+  }
+  async function afterSubmit(page, spec, guard, frameId, deps) {
+    await deps.sleep(AFTER_SUBMIT_MS);
+    await deps.sleep(AFTER_REDIRECT_MS);
+    const dialogs = await pageCall(page, "login.takeDialogs", {}, guard, spec, frameId, "main");
+    const mallMessage = (Array.isArray(dialogs) ? dialogs : []).map((message) => String(message).replace(/\s+/g, " ").trim()).find(Boolean);
+    const withMessage = mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {};
+    if (isVerification(spec, await safeUrl(page))) return { status: "verification_required", ...withMessage };
+    return await formRemains(page, deps) ? { status: "form_remains", ...withMessage } : { status: "ok", ...withMessage };
+  }
+  async function formRemains(page, deps) {
+    let lastSeen = false;
+    for (let check = 0; check < REMAIN_CHECKS; check += 1) {
+      if (check > 0) await deps.sleep(REMAIN_CHECK_GAP_MS);
+      const probed = await probe(page);
+      if (probed === NO_ANSWER) return true;
+      if (probed === null || probed.length === 0) continue;
+      lastSeen = probed.some((frame) => frame.result?.loginForm === true);
+      if (!lastSeen) return false;
+    }
+    return lastSeen;
+  }
+  async function loginFrame(page) {
+    const probed = await probe(page);
+    if (probed === NO_ANSWER || probed === null || probed.length === 0) return void 0;
+    const found = probed.filter((frame) => frame.result?.loginForm === true).sort((a, b) => a.frameId - b.frameId)[0];
+    return found ? found.frameId : null;
+  }
+  async function probe(page) {
+    try {
+      return await within(page.frames([LOGIN_FILL_FILE]), CALL_TIMEOUT_MS);
+    } catch {
+      return null;
+    }
+  }
+  async function pageCall(page, call2, args, guard, spec, frameId, world) {
+    try {
+      return await callPage(page, call2, args, {
+        timeoutMs: CALL_TIMEOUT_MS,
+        guard,
+        displayName: spec.displayName,
+        frameId,
+        // 폼 채우기는 자격을 싣는다 — ISOLATED 처리기에서만 돌고 MAIN(페이지)으로 넘기지 않는다(리뷰 S2).
+        ...world === "main" ? { main: [LOGIN_DIALOGS_FILE] } : { isolated: [LOGIN_FILL_FILE], isolatedOnly: true }
+      });
+    } catch {
+      return null;
+    }
+  }
+  function loginGuard(spec) {
+    return {
+      allows: (url) => hostWithin(url, spec.hosts),
+      isLogin: () => false,
+      loginMessage: `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.`
+    };
+  }
+  async function safeUrl(page) {
+    return page.currentUrl().catch(() => "");
+  }
+  function parsed(value) {
+    try {
+      return new URL(value);
+    } catch {
+      return null;
+    }
+  }
+  function isLogin(spec, value) {
+    const url = parsed(value);
+    return url !== null && spec.isLoginUrl(url);
+  }
+  function isVerification(spec, value) {
+    const url = parsed(value);
+    return url !== null && spec.isVerificationUrl?.(url) === true;
+  }
+  function within(work, ms) {
+    let timer;
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(NO_ANSWER), ms);
+    });
+    return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+  }
+  function createSiteLoginGate(credentials) {
+    let attempt = null;
+    const usable = Boolean(credentials?.loginId && credentials.password);
+    return async function withLogin(call2, login) {
+      let blocked;
+      try {
+        return await call2();
+      } catch (error) {
+        if (!isLoginRequired(error)) throw error;
+        blocked = error;
+      }
+      if (!usable) throw loginFailure(blocked, "no_credentials");
+      attempt ??= login().catch(() => ({ status: "unconfirmed" }));
+      const outcome = await attempt;
+      if (outcome.status === "verification_required") throw loginFailure(blocked, "verification_required");
+      try {
+        return await call2();
+      } catch (error) {
+        if (!isLoginRequired(error)) throw error;
+        throw outcome.status === "form_remains" ? loginFailure(error, "credentials_rejected", outcome.mallMessage) : loginFailure(error, "login_unconfirmed");
+      }
+    };
+  }
+  function createSiteSignIn(spec, credentials, deps) {
+    const withLogin = createSiteLoginGate(credentials);
+    const login = (page) => ensureLoggedIn(page, spec, credentials, deps);
+    return {
+      onPage: (page, returnTo, read) => withLogin(read, async () => {
+        const outcome = await login(page);
+        if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
+        return outcome;
+      }),
+      beforeTab: (tabs, call2) => withLoginTab(withLogin, call2, () => tabs.open("about:blank"), login)
+    };
+  }
+  async function withLoginTab(withLogin, call2, open, login) {
+    let opened = null;
+    try {
+      const result = await withLogin(call2, async () => {
+        opened = await open();
+        return login(opened);
+      });
+      return result;
+    } catch (error) {
+      if (leftForOperator(error)) opened = null;
+      throw error;
+    } finally {
+      await opened?.close();
+    }
+  }
+  function isLoginRequired(error) {
+    return isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED;
+  }
+  var REASON_TEXT = {
+    no_credentials: "",
+    credentials_rejected: " \uC800\uC7A5\uB41C \uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638\uB85C \uB85C\uADF8\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4",
+    verification_required: " \uBCF8\uC778 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC5D0\uC11C \uC778\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.",
+    login_unconfirmed: " \uC800\uC7A5\uB41C \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."
+  };
+  function loginFailure(error, reason, mallMessage) {
+    const text2 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}${mallMessage ? `: ${mallMessage}` : ""}.` : REASON_TEXT[reason];
+    return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text2}`, {
+      ...error.details ?? {},
+      reason,
+      ...mallMessage ? { mallMessage } : {}
+    }, error);
+  }
+
   // extensions/src/sites/art09/index.ts
   var ART09_ORDER_URL = "https://zzogzzog1.cafe24.com/admin/php/shop1/s_new/order_list.php?1&shop_no=1";
   var ART09_ORDERS_FILE = "content/orders/art09-orders.js";
@@ -7040,7 +7234,14 @@ var KidItemRuntime = (() => {
     isLogin: (url) => hostWithin(url, ["cafe24.com"]) && !/order_list\.php$/i.test(url.pathname),
     loginMessage: LOGIN_MESSAGE
   };
-  function createArt09Site(tabs) {
+  var ART09_LOGIN = {
+    displayName: "\uC544\uD2B8\uACF5\uAD6C",
+    loginUrl: ART09_ORDER_URL,
+    hosts: ["zzogzzog1.cafe24.com"],
+    isLoginUrl: (url) => ART09_PAGE_GUARD.isLogin(url),
+    fields: ["supplierLoginId", "loginId", "password"]
+  };
+  function createArt09Site(tabs, signIn) {
     return {
       readOrders(input) {
         return withFreshTab(tabs, ART09_ORDER_URL, async (page) => {
@@ -7057,11 +7258,11 @@ var KidItemRuntime = (() => {
             reason: "page_error",
             url: ART09_ORDER_URL
           });
-        });
+        }, signIn ? { signIn } : {});
       }
     };
   }
-  registerSite({ name: "art09", create: (deps) => createArt09Site(deps.tabs) });
+  registerSite({ name: "art09", create: (deps, lease) => createArt09Site(deps.tabs, createSiteSignIn(ART09_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/coupang-search/parse.ts
   var PROVIDER_ATTENTION = /access\s*denied|unauthori[sz]ed|forbidden|too\s*many\s*requests|로그인|인증|접근\s*거부/i;
@@ -7097,14 +7298,14 @@ var KidItemRuntime = (() => {
     const text2 = autocomplete?.text.trim() ?? "";
     if (text2 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text2))) {
       try {
-        const parsed = JSON.parse(text2);
-        if (parsed && typeof parsed === "object") {
-          if (isErrorEnvelope(parsed)) {
-            const message = errorEnvelopeMessage(parsed);
+        const parsed2 = JSON.parse(text2);
+        if (parsed2 && typeof parsed2 === "object") {
+          if (isErrorEnvelope(parsed2)) {
+            const message = errorEnvelopeMessage(parsed2);
             providerError ??= { reason: "provider_denied", message };
           } else {
-            walk(parsed);
-            structuredResponse = hasSuggestionCollection(parsed);
+            walk(parsed2);
+            structuredResponse = hasSuggestionCollection(parsed2);
           }
         } else {
           warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uAD6C\uC870\uAC00 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
@@ -7119,8 +7320,8 @@ var KidItemRuntime = (() => {
     for (const link of evidence.links) {
       add(link.text, "coupang-search-dom");
       try {
-        const parsed = new URL(link.href, origin);
-        add(parsed.searchParams.get("q") || parsed.searchParams.get("keyword") || "", "coupang-search-dom");
+        const parsed2 = new URL(link.href, origin);
+        add(parsed2.searchParams.get("q") || parsed2.searchParams.get("keyword") || "", "coupang-search-dom");
       } catch {
       }
     }
@@ -7232,15 +7433,15 @@ var KidItemRuntime = (() => {
           if (!evidence.links || !evidence.productNames) {
             throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
           }
-          const parsed = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword, maxResults);
-          if (!parsed.ok) {
+          const parsed2 = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword, maxResults);
+          if (!parsed2.ok) {
             throw new RuntimeError(
-              parsed.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
-              parsed.message,
-              { status: parsed.reason === "rate_limited" ? 429 : null, url, reason: parsed.reason, warnings: parsed.warnings }
+              parsed2.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
+              parsed2.message,
+              { status: parsed2.reason === "rate_limited" ? 429 : null, url, reason: parsed2.reason, warnings: parsed2.warnings }
             );
           }
-          return { items: parsed.items, productNameTokens: parsed.productNameTokens, warnings: parsed.warnings };
+          return { items: parsed2.items, productNameTokens: parsed2.productNameTokens, warnings: parsed2.warnings };
         } finally {
           await page.close();
         }
@@ -7263,6 +7464,13 @@ var KidItemRuntime = (() => {
   function isSupplierLoginUrl(url) {
     return hostWithin(url, ["xauth.coupang.com"]) || /\/(?:login|sign-in|signin)(?:[/?#]|$)/i.test(url.pathname);
   }
+  var COUPANG_SUPPLIER_LOGIN = {
+    displayName: "\uCFE0\uD321 \uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C",
+    loginUrl: `${COUPANG_SUPPLIER_ORIGIN}/po-web/app/purchase-order/list`,
+    hosts: ["supplier.coupang.com", "xauth.coupang.com"],
+    isLoginUrl: isSupplierLoginUrl,
+    fields: ["loginId", "password"]
+  };
   var SUPPLIER_REQUEST_TIMEOUT_MS = 6e4;
   function supplierPage(tab) {
     return {
@@ -7315,7 +7523,7 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/coupang-supplier/po.ts
   var PO_BOOTSTRAP_URL = `${COUPANG_SUPPLIER_ORIGIN}/scm/purchase/order/list`;
   var PO_READY_PATH_PREFIX = "/po-web/purchase/order";
-  var NAVIGATION_TIMEOUT_MS3 = 3e4;
+  var NAVIGATION_TIMEOUT_MS4 = 3e4;
   function isReadyPoUrl(value) {
     try {
       const url = new URL(value);
@@ -7327,7 +7535,7 @@ var KidItemRuntime = (() => {
   async function preparePoSession(tab) {
     const page = supplierPage(tab);
     for (let attempt = 1; ; attempt += 1) {
-      const landed = await tab.navigate(PO_BOOTSTRAP_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
+      const landed = await tab.navigate(PO_BOOTSTRAP_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS4 });
       if (isReadyPoUrl(landed)) return page;
       const body = isSupplierUrl(landed) ? await page.bodyText().catch(() => "") : "";
       if (/HTTP Status 400|Bad Request/i.test(body)) throw cookieBloat(landed, 400);
@@ -7347,13 +7555,13 @@ var KidItemRuntime = (() => {
     const failed = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
     if (fetched.status === 400 || fetched.status === 413 || fetched.status === 431) throw cookieBloat(path, fetched.status);
     if (fetched.status < 200 || fetched.status >= 300 || text2.trim().charAt(0) === "<") throw failed();
-    let parsed;
+    let parsed2;
     try {
-      parsed = JSON.parse(text2);
+      parsed2 = JSON.parse(text2);
     } catch {
       throw failed();
     }
-    const body = parsed?.body;
+    const body = parsed2?.body;
     if (!body || !Array.isArray(body.body)) throw responseInvalid(path, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC5D0 \uD589 \uBC30\uC5F4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
     return { rows: body.body, lastPageNumber: body.lastPageNumber };
   }
@@ -7371,7 +7579,7 @@ var KidItemRuntime = (() => {
     return tables;
   }
   async function enterScmContext(tab, poNumber) {
-    await tab.navigate(`${COUPANG_SUPPLIER_ORIGIN}${purchaseOrderDetailPath(poNumber)}`, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
+    await tab.navigate(`${COUPANG_SUPPLIER_ORIGIN}${purchaseOrderDetailPath(poNumber)}`, { timeoutMs: NAVIGATION_TIMEOUT_MS4 });
   }
   async function readPurchasableCenters(page) {
     const path = "/po-web/app/center/purchasable/list";
@@ -7436,7 +7644,7 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/coupang-supplier/index.ts
-  var NAVIGATION_TIMEOUT_MS4 = 3e4;
+  var NAVIGATION_TIMEOUT_MS5 = 3e4;
   function purchaseOrderListPath(query, pageNumber) {
     return "/po-web/app/purchase-order/list?page=" + pageNumber + "&searchDateType=" + query.searchDateType + "&searchStartDate=" + query.from + "&searchEndDate=" + query.to + "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=" + query.status + "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
   }
@@ -7450,43 +7658,59 @@ var KidItemRuntime = (() => {
       if (keepTabFor(error)) keepOpen = true;
       throw error;
     });
+    const withLogin = createSiteLoginGate(lease.credentials);
+    const loginOn = (tab, reset) => async () => {
+      const page = tab();
+      if (!page || !lease.credentials) return { status: "unconfirmed" };
+      const outcome = await ensureLoggedIn(page, COUPANG_SUPPLIER_LOGIN, lease.credentials, deps);
+      reset();
+      return outcome;
+    };
+    const shipmentLogin = loginOn(() => shipmentTab, () => {
+      shipmentPage = null;
+    });
+    const poLogin = loginOn(() => poTab, () => {
+      poPage = null;
+    });
     function shipments() {
       shipmentPage ??= (async () => {
-        const tab = await deps.tabs.open("about:blank");
+        const tab = shipmentTab ?? await deps.tabs.open("about:blank");
         shipmentTab = tab;
-        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS4, continueOnTimeout: true });
+        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS5, continueOnTimeout: true });
         return supplierPage(tab);
       })();
       return shipmentPage;
     }
     function purchaseOrders() {
       poPage ??= (async () => {
-        const tab = lease.tabId !== null ? deps.tabs.attach(lease.tabId) : await deps.tabs.open("about:blank");
+        const tab = poTab ?? (lease.tabId !== null ? deps.tabs.attach(lease.tabId) : await deps.tabs.open("about:blank"));
         poTab = tab;
         return preparePoSession(tab);
       })();
       return poPage;
     }
+    const onShipments = (read) => remember(withLogin(() => shipments().then(read), shipmentLogin));
+    const onPurchaseOrders = (read) => remember(withLogin(() => purchaseOrders().then(read), poLogin));
     return {
       /** 쉽먼트 목록 한 쪽(1부터). 여러 쪽을 함께 불러도 된다(탭 하나). */
       parcelPage(pageNumber) {
-        return remember(shipments().then((page) => readParcelPage(page, pageNumber)));
+        return onShipments((page) => readParcelPage(page, pageNumber));
       },
       /** 발주 목록 한 쪽(1부터)의 JSON 본문. 첫 쪽이 JSON이 아니면 로그인 필요. */
       purchaseOrderListPage(query, pageNumber) {
-        return remember(purchaseOrders().then((page) => readPurchaseOrderListPage(page, purchaseOrderListPath(query, pageNumber), pageNumber)));
+        return onPurchaseOrders((page) => readPurchaseOrderListPage(page, purchaseOrderListPath(query, pageNumber), pageNumber));
       },
       /** 발주서 상세의 표(칸 단위). */
       purchaseOrderDetail(poNumber) {
-        return remember(purchaseOrders().then((page) => readPurchaseOrderDetail(page, poNumber)));
+        return onPurchaseOrders((page) => readPurchaseOrderDetail(page, poNumber));
       },
       /** 직배송 센터 주소 목록 JSON. */
       purchasableCenters() {
-        return remember(purchaseOrders().then((page) => readPurchasableCenters(page)));
+        return onPurchaseOrders((page) => readPurchasableCenters(page));
       },
       /** 직배송: 품목 상세 전에 탭을 첫 발주서 상세로 옮긴다. */
       enterScmContext(poNumber) {
-        return remember(purchaseOrders().then(() => enterScmContext(poTab, poNumber)));
+        return onPurchaseOrders(() => enterScmContext(poTab, poNumber));
       },
       /** 이 사이트가 연 탭을 닫는다(잠금이 준 탭은 브라우저 자원이 닫는다). 로그인·예상 밖 주소에서 멈췄으면 남긴다. */
       async close() {
@@ -7518,6 +7742,13 @@ var KidItemRuntime = (() => {
     isLogin: (url) => hostWithin(url, ["domeggook.com"]) && /login/i.test(url.pathname),
     loginMessage: LOGIN_MESSAGE2
   };
+  var DOMEGGOOK_LOGIN = {
+    displayName: "\uB3C4\uB9E4\uAFB9",
+    loginUrl: DOMEGGOOK_ORDER_LIST_URL,
+    hosts: ["domeggook.com"],
+    isLoginUrl: (url) => DOMEGGOOK_PAGE_GUARD.isLogin(url),
+    fields: ["loginId", "password"]
+  };
   async function orderList(caller) {
     const text2 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
     let body = null;
@@ -7548,11 +7779,11 @@ var KidItemRuntime = (() => {
     }
     return btoa(binary);
   }
-  function createDomeggookSite(tabs, deps) {
+  function createDomeggookSite(tabs, deps, signIn) {
     const caller = createSiteCaller({ minIntervalMs: 0, displayName: "\uB3C4\uB9E4\uAFB9", timeoutMs: 3e4 }, deps);
     return {
       async readOrders(input) {
-        const before = await orderList(caller);
+        const before = await (signIn ? signIn.beforeTab(tabs, () => orderList(caller)) : orderList(caller));
         const beforeReq = String(before[0]?.dateReq ?? "");
         const dateDot = input.collectionDate ? input.collectionDate.replace(/-/g, ".") : "";
         const listUrl = dateDot ? `${DOMEGGOOK_ORDER_LIST_URL}?dtbase=ord&dt1=${dateDot}&dt2=${dateDot}` : DOMEGGOOK_ORDER_LIST_URL;
@@ -7596,11 +7827,11 @@ var KidItemRuntime = (() => {
               base64: base642.slice(part * DOMEGGOOK_PART_CHARS, (part + 1) * DOMEGGOOK_PART_CHARS)
             }))
           };
-        });
+        }, signIn ? { signIn } : {});
       }
     };
   }
-  registerSite({ name: "domeggook", create: (deps) => createDomeggookSite(deps.tabs, deps) });
+  registerSite({ name: "domeggook", create: (deps, lease) => createDomeggookSite(deps.tabs, deps, createSiteSignIn(DOMEGGOOK_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/icecream-mall/index.ts
   var ICECREAM_MALL_URL = "https://po.i-screammall.co.kr/main.do";
@@ -7671,6 +7902,14 @@ var KidItemRuntime = (() => {
     isLogin: (url) => hostWithin(url, ["i-screammall.co.kr"]) && /login/i.test(url.pathname),
     loginMessage: LOGIN_MESSAGE3
   };
+  var ICECREAM_LOGIN = {
+    displayName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
+    loginUrl: ICECREAM_MALL_URL,
+    hosts: ["i-screammall.co.kr"],
+    isLoginUrl: (url) => ICECREAM_PAGE_GUARD.isLogin(url),
+    fields: ["loginId", "password"],
+    settleMs: LOGIN_WATCH_ROUNDS * LOGIN_WATCH_MS
+  };
   function icecreamHasNoPendingOrders(diagnosis) {
     if (diagnosis.reason !== "data rows not found") return false;
     const orderRows = diagnosis.orderRows ?? 0;
@@ -7693,7 +7932,7 @@ var KidItemRuntime = (() => {
   function loginRequired2() {
     return new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE3, { url: ICECREAM_MALL_URL });
   }
-  function createIcecreamMallSite(tabs, sleep) {
+  function createIcecreamMallSite(tabs, sleep, signIn) {
     async function inspect(page) {
       return page.frames([ICECREAM_FRAMES_FILE]);
     }
@@ -7747,11 +7986,11 @@ var KidItemRuntime = (() => {
             url: ICECREAM_MALL_URL,
             diagnosis
           });
-        });
+        }, signIn ? { signIn } : {});
       }
     };
   }
-  registerSite({ name: "icecream-mall", create: (deps) => createIcecreamMallSite(deps.tabs, deps.sleep) });
+  registerSite({ name: "icecream-mall", create: (deps, lease) => createIcecreamMallSite(deps.tabs, deps.sleep, createSiteSignIn(ICECREAM_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/kidkids/index.ts
   var KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
@@ -7763,7 +8002,16 @@ var KidItemRuntime = (() => {
     isLogin: (url) => hostWithin(url, ["kidkids.net"]) && (/login|partnerlogin|partner_login/i.test(url.pathname) || /\/security\/verify_user\.htm$/i.test(url.pathname)),
     loginMessage: LOGIN_MESSAGE4
   };
-  function createKidkidsSite(tabs) {
+  var KIDKIDS_LOGIN = {
+    displayName: "\uD0A4\uB4DC\uD0A4\uC988",
+    loginUrl: KIDKIDS_ORDER_URL,
+    hosts: ["kidkids.net"],
+    isLoginUrl: (url) => hostWithin(url, ["kidkids.net"]) && /login|partnerlogin|partner_login/i.test(url.pathname),
+    isVerificationUrl: (url) => /\/security\/verify_user\.htm$/i.test(url.pathname),
+    fields: ["loginId", "password"],
+    settleMs: 5e3
+  };
+  function createKidkidsSite(tabs, signIn) {
     return {
       readOrders(input) {
         return withFreshTab(tabs, KIDKIDS_ORDER_URL, async (page) => {
@@ -7780,14 +8028,14 @@ var KidItemRuntime = (() => {
             reason: "page_error",
             url: KIDKIDS_ORDER_URL
           });
-        });
+        }, signIn ? { signIn } : {});
       }
     };
   }
-  registerSite({ name: "kidkids", create: (deps) => createKidkidsSite(deps.tabs) });
+  registerSite({ name: "kidkids", create: (deps, lease) => createKidkidsSite(deps.tabs, createSiteSignIn(KIDKIDS_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/live-commerce/index.ts
-  var NAVIGATION_TIMEOUT_MS5 = 35e3;
+  var NAVIGATION_TIMEOUT_MS6 = 35e3;
   var EXTRACTION_TIMEOUT_MS2 = 25e3;
   var MAX_PRODUCTS = 100;
   var CONTENT_FILES = {
@@ -7827,14 +8075,14 @@ var KidItemRuntime = (() => {
         let keepOpen = false;
         try {
           const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
-          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS5, stopAt });
+          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS6, stopAt });
           for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
             const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
             if (!cleared) {
               keepOpen = true;
               throw verification2(landed);
             }
-            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS5, stopAt });
+            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS6, stopAt });
           }
           if (isLiveLoginUrl(landed)) {
             keepOpen = true;
@@ -7933,8 +8181,8 @@ var KidItemRuntime = (() => {
         depth -= 1;
         if (depth === 0) {
           try {
-            const parsed = JSON.parse(html.substring(jsonStart, index + 1));
-            return typeof parsed.content === "string" ? parsed.content : null;
+            const parsed2 = JSON.parse(html.substring(jsonStart, index + 1));
+            return typeof parsed2.content === "string" ? parsed2.content : null;
           } catch {
             return null;
           }
@@ -7945,13 +8193,13 @@ var KidItemRuntime = (() => {
   }
   function allowedSupplierUrl(value) {
     try {
-      const parsed = new URL(String(value ?? "").trim());
-      const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
-      if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port && parsed.port !== "443") return null;
+      const parsed2 = new URL(String(value ?? "").trim());
+      const host = parsed2.hostname.toLowerCase().replace(/\.$/, "");
+      if (parsed2.protocol !== "https:" || parsed2.username || parsed2.password || parsed2.port && parsed2.port !== "443") return null;
       if (!["1688.com", "alibaba.com"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) return null;
-      parsed.hostname = host;
-      parsed.hash = "";
-      return parsed.toString();
+      parsed2.hostname = host;
+      parsed2.hash = "";
+      return parsed2.toString();
     } catch {
       return null;
     }
@@ -8105,7 +8353,7 @@ var KidItemRuntime = (() => {
   registerSite({ name: "sellpia", opensOwnTabs: true, create: (deps) => createSellpiaSite(deps.tabs) });
 
   // extensions/src/sites/tiktok-cc/index.ts
-  var NAVIGATION_TIMEOUT_MS6 = 35e3;
+  var NAVIGATION_TIMEOUT_MS7 = 35e3;
   var EXTRACTION_TIMEOUT_MS4 = 25e3;
   var BASE_URLS = {
     hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
@@ -8176,14 +8424,14 @@ var KidItemRuntime = (() => {
     };
     async function readTarget(page2, target, defaultRegion, onAttention) {
       const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
-      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS6, stopAt, continueOnTimeout: true });
+      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS7, stopAt, continueOnTimeout: true });
       for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
         const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
         if (!cleared) {
           keepOpen = true;
           throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
         }
-        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS6, stopAt, continueOnTimeout: true });
+        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS7, stopAt, continueOnTimeout: true });
       }
       if (isTiktokBlockedUrl(landed)) {
         throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
@@ -8647,6 +8895,26 @@ var KidItemRuntime = (() => {
     return value;
   }
 
+  // extensions/src/sites/wing/login.ts
+  var WING_LOGIN = {
+    displayName: "\uCFE0\uD321 \uC719",
+    loginUrl: "https://wing.coupang.com/",
+    hosts: ["wing.coupang.com", "xauth.coupang.com"],
+    isLoginUrl: (url) => hostWithin(url, ["xauth.coupang.com"]) || /\/(?:login|sign-in|signin)(?:[/?#]|$)/i.test(url.pathname),
+    fields: ["loginId", "password"]
+  };
+  function wingCallerWithLogin(caller, deps, lease) {
+    const credentials = lease.credentials;
+    const withLogin = createSiteLoginGate(credentials);
+    const login = (page) => credentials ? ensureLoggedIn(page, WING_LOGIN, credentials, deps) : Promise.resolve({ status: "unconfirmed" });
+    const gate = (call2) => lease.tabId !== null ? withLogin(call2, () => login(deps.tabs.attach(lease.tabId))) : withLoginTab(withLogin, call2, () => deps.tabs.open("about:blank"), login);
+    return {
+      json: (url, init) => gate(() => caller.json(url, init)),
+      text: (url, init) => gate(() => caller.text(url, init)),
+      bytes: (url, init) => gate(() => caller.bytes(url, init))
+    };
+  }
+
   // extensions/src/sites/wing/index.ts
   var ORIGIN2 = "https://wing.coupang.com";
   var SEARCH_URL = `${ORIGIN2}/tenants/seller-web/v2/vendor-inventory/search`;
@@ -8842,7 +9110,8 @@ var KidItemRuntime = (() => {
   registerSite({
     name: WING_SITE.name,
     origin: WING_SITE.origin,
-    create: (deps) => createWingSite(createSiteCaller(WING_SITE.caller, deps), { sleep: deps.sleep })
+    // 로그인 화면이면 실행의 저장 자격으로 한 번 로그인하고 다시 묻는다(KID-377, `./login`).
+    create: (deps, lease) => createWingSite(wingCallerWithLogin(createSiteCaller(WING_SITE.caller, deps), deps, lease), { sleep: deps.sleep })
   });
 
   // extensions/src/sites/wing/pre-matching-search.ts
@@ -9044,10 +9313,10 @@ var KidItemRuntime = (() => {
   function attachmentCounts(value) {
     if (typeof value !== "string" || !value) return { images: 0, videos: 0 };
     try {
-      const parsed = JSON.parse(value);
+      const parsed2 = JSON.parse(value);
       return {
-        images: Array.isArray(parsed?.imageAttachments) ? parsed.imageAttachments.length : 0,
-        videos: Array.isArray(parsed?.videoAttachments) ? parsed.videoAttachments.length : 0
+        images: Array.isArray(parsed2?.imageAttachments) ? parsed2.imageAttachments.length : 0,
+        videos: Array.isArray(parsed2?.videoAttachments) ? parsed2.videoAttachments.length : 0
       };
     } catch {
       return { images: 0, videos: 0 };
@@ -9064,7 +9333,7 @@ var KidItemRuntime = (() => {
   registerSite({
     name: "wing-reviews",
     origin: WING_ORIGIN,
-    create: (deps) => createWingReviewsSite(createSiteCaller(WING_REVIEW_CALLER, deps))
+    create: (deps, lease) => createWingReviewsSite(wingCallerWithLogin(createSiteCaller(WING_REVIEW_CALLER, deps), deps, lease))
   });
 
   // extensions/src/core/browser.ts
@@ -9213,11 +9482,11 @@ var KidItemRuntime = (() => {
       }
       throw new RuntimeError(envelope.code, envelope.message, envelope.details ?? null);
     }
-    const parsed = schema.safeParse(body);
-    if (!parsed.success) {
+    const parsed2 = schema.safeParse(body);
+    if (!parsed2.success) {
       throw new RuntimeError(RUNTIME_API_UNREACHABLE, "KidItem \uC11C\uBC84 \uC751\uB2F5\uC774 \uC2E4\uD589 \uACC4\uC57D\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { path, status: response.status });
     }
-    return parsed.data;
+    return parsed2.data;
   }
   async function sha256Hex(text2) {
     const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text2));
@@ -9243,8 +9512,9 @@ var KidItemRuntime = (() => {
           const outcome = await runOne(deps, collectorFor2, step);
           const next = outcome.kind === "finished" && outcome.operation.status === "succeeded" ? nextOperationFrom(outcome.operation.result) : null;
           if (!next || input.signal.aborted) return outcome;
-          const { idempotencyKey: _previousKey, ...rest } = step;
-          step = { ...rest, kind: next.kind, scope: next.scope };
+          const { idempotencyKey: _previousKey, credentials, ...rest } = step;
+          const sameSite = credentials !== void 0 && (collectorFor2(next.kind)?.site ?? null) === (collectorFor2(step.kind)?.site ?? null);
+          step = { ...rest, ...sameSite ? { credentials } : {}, kind: next.kind, scope: next.scope };
         }
       }
     };
@@ -9326,7 +9596,7 @@ var KidItemRuntime = (() => {
     let failure2 = null;
     try {
       lease = await deps.browser.acquire({ operationId, lockKeys: operation.lockKeys, site: collector.site, signal: local.signal });
-      const site = deps.siteFor(operation.kind, lease);
+      const site = deps.siteFor(operation.kind, { tabId: lease.tabId, ...input.credentials ? { credentials: input.credentials } : {} });
       const sequences = /* @__PURE__ */ new Map();
       let chunks = 0;
       let items = 0;
@@ -9388,7 +9658,17 @@ var KidItemRuntime = (() => {
       const stop = stopFor(error.code, error.details);
       if (stop.kind === "fence_lost") return { kind: "fence_lost", operationId, reason: stop.reason };
       await writes;
-      await deps.client.finish({ operationId, token, request: { outcome: "failed", errorCode: error.code.slice(0, 64), errorMessage: error.message.slice(0, 2e3) } }).catch(() => void 0);
+      const login = loginFailureOf(error);
+      await deps.client.finish({
+        operationId,
+        token,
+        request: {
+          outcome: "failed",
+          errorCode: error.code.slice(0, 64),
+          errorMessage: error.message.slice(0, 2e3),
+          ...login ? { result: { login } } : {}
+        }
+      }).catch(() => void 0);
       return { kind: "failed", operationId, errorCode: error.code, errorMessage: error.message, ...error.details ? { details: error.details } : {} };
     } finally {
       stopHeartbeat();
@@ -9396,6 +9676,14 @@ var KidItemRuntime = (() => {
       input.signal.removeEventListener("abort", onAbort);
       await lease?.release({ error: failure2 }).catch(() => void 0);
     }
+  }
+  function loginFailureOf(error) {
+    if (error.code !== SITE_LOGIN_REQUIRED || typeof error.details?.reason !== "string") return null;
+    const mallMessage = error.details.mallMessage;
+    return {
+      reason: error.details.reason.slice(0, 64),
+      ...typeof mallMessage === "string" && mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {}
+    };
   }
   function cancelled(operationId) {
     return { kind: "failed", operationId, errorCode: OPERATION_CANCEL_CODE, errorMessage: "\uC2E4\uD589\uC744 \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4." };
@@ -9417,18 +9705,24 @@ var KidItemRuntime = (() => {
   function nextOperationFrom(result) {
     const next = result?.next;
     if (next === void 0 || next === null) return null;
-    const parsed = OperationNextSchema.safeParse(next);
-    return parsed.success ? parsed.data : null;
+    const parsed2 = OperationNextSchema.safeParse(next);
+    return parsed2.success ? parsed2.data : null;
   }
 
   // extensions/src/entry/actions.ts
   var OPERATION_START_ACTION = "operation.start";
   var OPERATION_CANCEL_ACTION = "operation.cancel";
+  var OperationStartCredentialsSchema = external_exports.object({
+    loginId: external_exports.string().min(1).max(200),
+    password: external_exports.string().min(1).max(500),
+    supplierLoginId: external_exports.string().min(1).max(200).nullable().optional()
+  }).strict();
   var OperationStartMessageSchema = external_exports.object({
     action: external_exports.literal(OPERATION_START_ACTION),
     kind: OperationKindSchema,
     scope: external_exports.record(external_exports.string(), external_exports.unknown()).default({}),
-    idempotencyKey: external_exports.string().min(1).max(128).optional()
+    idempotencyKey: external_exports.string().min(1).max(128).optional(),
+    credentials: OperationStartCredentialsSchema.optional()
   }).strict();
   var OperationCancelMessageSchema = external_exports.object({
     action: external_exports.literal(OPERATION_CANCEL_ACTION),
@@ -9459,7 +9753,7 @@ var KidItemRuntime = (() => {
         validate: (message) => validateWith(OperationStartMessageSchema, message),
         async handle(input, environmentId) {
           if (!input.ok) return input.response;
-          const { kind, scope, idempotencyKey } = input.message;
+          const { kind, scope, idempotencyKey, credentials } = input.message;
           const controller = new AbortController();
           const owned = [];
           let answer;
@@ -9470,6 +9764,7 @@ var KidItemRuntime = (() => {
             kind,
             scope,
             ...idempotencyKey !== void 0 ? { idempotencyKey } : {},
+            ...credentials !== void 0 ? { credentials } : {},
             signal: controller.signal,
             onBegun({ operationId, reused }) {
               running.set(operationId, controller);
@@ -9531,15 +9826,15 @@ var KidItemRuntime = (() => {
     return { success: false, errorCode: "RUNTIME_API_UNREACHABLE", error: error instanceof Error ? error.message : String(error) };
   }
   function validateWith(schema, message) {
-    const parsed = schema.safeParse(message);
-    if (parsed.success) return { ok: true, message: parsed.data };
+    const parsed2 = schema.safeParse(message);
+    if (parsed2.success) return { ok: true, message: parsed2.data };
     return {
       ok: false,
       response: {
         success: false,
         errorCode: "VALIDATION_FAILED",
         error: LOCAL_TEXT.VALIDATION_FAILED,
-        details: { errors: parsed.error.issues.map((issue) => ({ field: issue.path.join("."), reason: issue.message })) }
+        details: { errors: parsed2.error.issues.map((issue) => ({ field: issue.path.join("."), reason: issue.message })) }
       }
     };
   }
@@ -9550,11 +9845,11 @@ var KidItemRuntime = (() => {
   function productExtensionScope(url) {
     if (!url) return null;
     try {
-      const parsed = new URL(url);
-      if (parsed.protocol !== "https:") return null;
-      const host = parsed.hostname.toLowerCase();
-      if (host === "1688.com" || host.endsWith(".1688.com")) return { platform: "1688", url: parsed.toString() };
-      if (host === "alibaba.com" || host.endsWith(".alibaba.com")) return { platform: "alibaba", url: parsed.toString() };
+      const parsed2 = new URL(url);
+      if (parsed2.protocol !== "https:") return null;
+      const host = parsed2.hostname.toLowerCase();
+      if (host === "1688.com" || host.endsWith(".1688.com")) return { platform: "1688", url: parsed2.toString() };
+      if (host === "alibaba.com" || host.endsWith(".alibaba.com")) return { platform: "alibaba", url: parsed2.toString() };
       return null;
     } catch {
       return null;
@@ -9622,7 +9917,7 @@ var KidItemRuntime = (() => {
     });
     registerWithLegacyDomains({
       externalActions,
-      capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true }
+      capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true, operationLoginV1: true }
     });
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
     return true;
