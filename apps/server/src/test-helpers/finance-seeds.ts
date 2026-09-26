@@ -368,23 +368,17 @@ export async function seedCompletedOrderCoverageRun(
   return run.id;
 }
 
-/** Publish every current fixture SKU as one verified Inventory generation. */
+/**
+ * Publish every current fixture SKU as one verified Inventory generation.
+ * The completion is keyed by an operation id (KID-361); no operation row is
+ * needed because inventory reads only the state pointer.
+ */
 export async function seedCompletedInventorySnapshot(
   prisma: PrismaClient,
   organizationId: string,
 ): Promise<string> {
   const verifiedAt = new Date();
-  const run = await prisma.sourceImportRun.create({
-    data: {
-      organizationId,
-      sourceType: 'sellpia_inventory',
-      status: 'completed',
-      freshnessGeneration: 1n,
-      importedAt: verifiedAt,
-      lastVerifiedAt: verifiedAt,
-    },
-    select: { id: true },
-  });
+  const operationId = randomUUID();
   await prisma.sellpiaInventoryState.upsert({
     where: { organizationId },
     create: {
@@ -392,15 +386,15 @@ export async function seedCompletedInventorySnapshot(
       sourceAccountKey: 'dashboard-test',
       verifiedGeneration: 1n,
       lastVerifiedAt: verifiedAt,
-      lastCompletedOperationId: run.id,
+      lastCompletedOperationId: operationId,
     },
     update: {
       verifiedGeneration: 1n,
       lastVerifiedAt: verifiedAt,
-      lastCompletedOperationId: run.id,
+      lastCompletedOperationId: operationId,
     },
   });
-  return run.id;
+  return operationId;
 }
 
 // ---------------------------------------------------------------------------
