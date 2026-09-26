@@ -70,6 +70,8 @@ function operation(id: string, status: OperationView['status'], patch: Partial<O
 }
 
 const CREDENTIALS = { loginId: 'fake-id', password: 'fake-password' };
+/** 엑셀·blob 몰 — 몰마다 확장 사이트가 다 되면 더한다(KID-380). */
+const EXCEL_MALLS = ['kkomangse'];
 
 function source(overrides: Partial<Parameters<typeof mallOrderOperationSource>[0]> = {}) {
   const handOff = vi.fn().mockResolvedValue(undefined);
@@ -86,9 +88,23 @@ beforeEach(() => {
 });
 
 describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
-  it('1차 몰 4곳만 실행 kind로 수집한다', () => {
-    expect(['icecream-mall', 'kidkids', 'art09', 'domeggook'].every(collectsViaMallOrderOperation)).toBe(true);
+  it('옮긴 몰(1차 4곳 + 엑셀·blob 몰, KID-380)만 실행 kind로 수집한다', () => {
+    expect(['icecream-mall', 'kidkids', 'art09', 'domeggook', ...EXCEL_MALLS].every(collectsViaMallOrderOperation)).toBe(true);
     expect(collectsViaMallOrderOperation('kidsnote')).toBe(false);
+  });
+
+  it.each(EXCEL_MALLS)('%s: 옛 attempt 없이 그 계정의 operation.start로 시작해 절차에 넘긴다(KID-380)', async (mallKey) => {
+    vi.mocked(requestOperationStart).mockResolvedValue({ outcome: 'started', operationId: OPERATION_ID });
+    const { adapter, handOff } = source({ account: { ...account, key: mallKey } });
+    await expect(adapter.start!({}, { status: undefined })).resolves.toEqual({ outcome: 'started', attemptId: OPERATION_ID });
+    expect(requestOperationStart).toHaveBeenCalledWith('orders.mall_orders', {
+      channelAccountId: ACCOUNT_ID,
+      mallKey,
+      collectionDate: '2026-09-26',
+      collectionMode: 'browser',
+      selectionMode: 'manual',
+    }, { capability: 'orderCaptureOperationKindsV1', credentials: CREDENTIALS });
+    expect(handOff).toHaveBeenCalledWith(expect.objectContaining({ operationId: OPERATION_ID }));
   });
 
   it('시작: 저장 자격(차단·간격 규칙을 지난 것)을 실어 그 계정·오늘·선택 방식으로 실행을 연 뒤 절차에 넘긴다(KID-377 — 확장이 실행 안에서 로그인)', async () => {

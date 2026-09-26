@@ -503,10 +503,6 @@ function additionalCollectionCancelled(context, message) {
 }
 const KIDSNOTE_ORDER_URL = "https://shop.kidsnote.com/_manage/?body=3010";
 const KIDSNOTE_TAB_MATCHES = ["https://shop.kidsnote.com/*"];
-// 꼬망세(EduPre) 입점관리자 전체주문 (listmaxcount 크게 = 검색결과 전부)
-const KKOMANGSE_ORDER_URL =
-  "https://nstore.edupre.co.kr/subAdmin/_order_product.list.php?mode=search&pass_input_type=all&st=o_rdate&so=desc&listmaxcount=1000";
-const KKOMANGSE_TAB_MATCHES = ["https://nstore.edupre.co.kr/*"];
 // 온채널 입점관리자 전체주문 (리스트 스크랩 + 주문별 상세모달 fetch)
 const ONCHANNEL_ORDER_URL = "https://www.onch3.co.kr/supplier/orders.php?state=all";
 const ONCHANNEL_TAB_MATCHES = ["https://www.onch3.co.kr/*"];
@@ -942,14 +938,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
           },
         collection,
       ),
-    ));
-  }
-
-  if (msg?.action === "collectKkomangseOrders") {
-    return respond(runOwnedOrderCollection(
-      msg,
-      "kkomangse",
-      (collection) => collectKkomangseOrders(collection),
     ));
   }
 
@@ -1878,81 +1866,6 @@ async function findOrCreateInteractiveCoupangSupplierTab(reason) {
     return interactiveTabs.focusTab(tabs[0].id, reason);
   }
   return interactiveTabs.createTab({ url: COUPANG_SHIPMENT_URL, reason });
-}
-
-// ── 꼬망세(EduPre) 주문 수집: 입점관리자 "선택엑셀다운"(get_search_excel) xlsx export 를 fetch ──
-async function findOrCreateKkomangseTab(collection) {
-  return createFreshOrderCollectionTab(collection, KKOMANGSE_ORDER_URL);
-}
-
-async function collectKkomangseOrders(collection) {
-  const { tab, created } = await findOrCreateKkomangseTab(collection);
-  if (!tab?.id) return { success: false, error: "꼬망세(nstore.edupre.co.kr) 탭을 열 수 없습니다." };
-  const attached = await attachOrderCollectionTab(collection, tab, created);
-  if (attached === null || attached === false) {
-    await closeFreshOrderCollectionTab(tab);
-    return {
-      success: false,
-      errorCode: "COLLECTION_CANCELLED",
-      error: "Order collection is no longer active.",
-    };
-  }
-  let keepOpen = false;
-  try {
-    await waitForTabReady(tab.id);
-    await assertOrderCollectionActive(collection);
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({ target: { tabId: tab.id }, func: scrapeKkomangseExport }),
-      90000,
-      "꼬망세 주문 수집 시간이 초과되었습니다.",
-    );
-    const result = injected[0]?.result ?? { success: false, error: "꼬망세 화면에 접근하지 못했습니다." };
-    if (orderCollectionNeedsAttention(result)) keepOpen = true;
-    return result;
-  } catch (e) {
-    if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
-    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("꼬망세"); }
-    return mallGenericErrorResult("꼬망세", e);
-  } finally {
-    if (created && tab.id && !keepOpen) {
-      try {
-        await chrome.tabs.remove(tab.id); // 우리가 연 백그라운드 탭 정리
-      } catch {
-        /* 이미 닫힘 — 무시 */
-      }
-    }
-  }
-}
-
-// nstore.edupre.co.kr 페이지 컨텍스트: .form_list 직렬화 + _mode=get_search_excel 로 xlsx export fetch → base64.
-async function scrapeKkomangseExport() {
-  try {
-    const form = document.querySelector(".form_list") || document.forms[0];
-    if (!form) {
-      return { success: false, error: "꼬망세 주문 폼을 찾지 못했습니다. nstore.edupre.co.kr 로그인을 확인하세요." };
-    }
-    const params = new URLSearchParams();
-    for (const el of form.querySelectorAll("input[name],select[name],textarea[name]")) {
-      if ((el.type === "checkbox" || el.type === "radio") && !el.checked) continue;
-      params.append(el.name, el.value);
-    }
-    params.set("_mode", "get_search_excel");
-    const action = form.getAttribute("action") || location.pathname;
-    const res = await fetch(action + "?" + params.toString(), { credentials: "include" });
-    if (!res.ok) return { success: false, error: "꼬망세 엑셀 다운로드 실패 (HTTP " + res.status + ")" };
-    const buf = new Uint8Array(await res.arrayBuffer());
-    if (!(buf[0] === 0x50 && buf[1] === 0x4b)) {
-      return { success: false, error: "엑셀이 아닌 응답입니다. nstore.edupre.co.kr 로그인이 필요할 수 있습니다." };
-    }
-    let bin = "";
-    const CHUNK = 0x8000;
-    for (let i = 0; i < buf.length; i += CHUNK) {
-      bin += String.fromCharCode.apply(null, buf.subarray(i, i + CHUNK));
-    }
-    return { success: true, xlsxBase64: btoa(bin), size: buf.length };
-  } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
-  }
 }
 
 // ── 온채널(onch3) 주문 수집: orders.php 리스트(주문코드+일자) + 주문별 상세모달 fetch ──

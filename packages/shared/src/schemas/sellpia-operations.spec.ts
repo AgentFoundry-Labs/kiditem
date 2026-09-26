@@ -34,8 +34,11 @@ describe('wave3 kinds and lock keys (KID-361·363)', () => {
     expect(OperationLockKeySchema.parse(SABANGNET_LOGIN_LOCK_KEY)).toBe('resource:sabangnet:login');
   });
 
-  it('first-batch mall-admin malls equal the first-batch order malls', () => {
-    expect([...MALL_ADMIN_LISTING_OPERATION_MALLS].sort()).toEqual([...MALL_ORDER_OPERATION_MALLS].sort());
+  it('first-batch mall-admin malls are first-batch order malls (the order list grows mall by mall, KID-380)', () => {
+    for (const mallKey of ['icecream-mall', 'kidkids', 'art09', 'domeggook']) {
+      expect(MALL_ADMIN_LISTING_OPERATION_MALLS).toContain(mallKey);
+      expect(MALL_ORDER_OPERATION_MALLS).toContain(mallKey);
+    }
     expect(isMallAdminListingOperationMall('gsshop')).toBe(false);
   });
 

@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
+import * as XLSX from 'xlsx';
 import { accountLockKey } from '@kiditem/shared/operation';
 import {
   COUPANG_DIRECTSHIP_KIND,
@@ -372,6 +373,45 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
       missingDates: ['2026-09-21'],
     })]);
     expect(facts.includedDates).toEqual([day]);
+  });
+
+  /** 몰이 내려준 엑셀 한 장(첫 시트) — 확장이 base64 조각으로 올리는 원본 바이트. */
+  const workbook = (rows: Array<Array<string | number>>, bookType: XLSX.BookType = 'xlsx') => {
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), 'Sheet1');
+    return Buffer.from(XLSX.write(book, { bookType, type: 'buffer' }) as Buffer);
+  };
+  /** 확장 사이트(`sites/mall-excel.ts` filePartRows)와 같은 조각: 두 조각으로 나눠 순서를 바꿔 올린다. */
+  const fileParts = (fileName: string, bytes: Buffer) => {
+    const base64 = bytes.toString('base64');
+    const cut = Math.floor(base64.length / 2);
+    return [
+      { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [{ fileName, part: 1, parts: 2, base64: base64.slice(cut) }] },
+      { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [{ fileName, part: 0, parts: 2, base64: base64.slice(0, cut) }] },
+    ];
+  };
+  const mallAccount = async (mallKey: string, name: string) =>
+    (await prisma.channelAccount.create({ data: { organizationId: ORG, channel: mallKey, name, externalAccountId: mallKey, isPrimary: true } })).id;
+
+  it('꼬망세: 엑셀 조각을 이어 옛 변환 본문 {xlsxBase64, date}(JSON)로 보관하고 수집일 주문만 센다, 빈 날은 조각 없이 0건', async () => {
+    const account = await mallAccount('kkomangse', '꼬망세');
+    const xlsx = workbook([
+      ['고유번호', '주문번호', '주문일시', '받는분 이름', '대표상품명', '수량'],
+      ['1', 'KM-1', `${TODAY} 09:00:00`, '풍산초', '색종이', '1'],
+      ['2', 'KM-2', '2026-09-25 09:00:00', '풍산초', '크레파스', '1'],
+    ]);
+    const run = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: account, mallKey: 'kkomangse' }));
+    await harness.put(run, fileParts('kkomangse.xlsx', xlsx));
+    const finished = await harness.finish(run).expect(200);
+    expect(finished.body.operation.result).toEqual({ rowCount: 1, mallKey: 'kkomangse', captured: 1 });
+    const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
+    expect(artifact).toMatchObject({ sourceContentType: 'application/json' });
+    expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ xlsxBase64: xlsx.toString('base64'), date: TODAY });
+    const converted = await convert('kkomangse/convert', run.operation.id).expect(201);
+    expect(converted.headers['x-order-collection-output-rows']).toBe('1');
+
+    const empty = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: account, mallKey: 'kkomangse' }));
+    expect((await harness.finish(empty).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: 'kkomangse', captured: 0 });
   });
 
   it('오늘 주문 capability는 실행 표(몰 주문·directship의 최신 성공 rowCount)와 옛 run(2차 몰·옛 directship)을 한 수로 센다', async () => {

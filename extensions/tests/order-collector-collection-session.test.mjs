@@ -16,7 +16,6 @@ const backgroundRoot = path.join(repoRoot, 'extensions/kiditem-os/background/ord
 const workerPath = path.join(backgroundRoot, 'worker.js');
 const AUTOMATIC_ACTIONS = [
   ['collectKidsnoteOrders', 'collectKidsnoteOrders', 'kidsnote', { from: '2026-07-14', to: '2026-07-15' }],
-  ['collectKkomangseOrders', 'collectKkomangseOrders', 'kkomangse', { date: '2026-07-15' }],
   ['collectOnchannelOrders', 'collectOnchannelOrders', 'onch', { date: '2026-07-15' }],
   ['collectLotteonOrders', 'collectLotteonOrders', 'lotte-on', { date: '2026-07-15' }],
   ['collectGsshopOrders', 'collectGsshopOrders', 'gs-shop', { date: '2026-07-15' }],
@@ -125,7 +124,7 @@ function loadWorker(globals = {}) {
   const sourceMallByAttempt = new Map([
     [uuid(777), 'kidsnote'],
     [uuid(778), 'kidsnote'],
-    [uuid(782), 'kkomangse'],
+    [uuid(782), 'kakao'],
     [uuid(783), 'coupang-direct'],
   ]);
   fake.storage.kiditem_environment_profiles_v1 = {
@@ -698,14 +697,14 @@ test('cancelling an active collection removes local control state and fences lat
 
 test('invalid source identity never enters the owner-correlated session', async () => {
   const runtime = loadWorker();
-  installCollectorResult(runtime, 'collectKkomangseOrders', () => ({
+  installCollectorResult(runtime, 'collectKakaoOrders', () => ({
     success: true,
-    xlsxBase64: 'private-xlsx',
+    orders: [],
   }));
   const attemptId = uuid(782);
 
   const response = await dispatch(runtime.externalMessageListeners, {
-    action: 'collectKkomangseOrders',
+    action: 'collectKakaoOrders',
     date: '010-password-secret',
     attemptId,
   });
@@ -746,7 +745,6 @@ test('named mall reads create a fresh inactive tab even when a provider tab exis
   const collection = { assertActive: async () => true };
   const cases = [
     ['findOrCreateKidsnoteTab', 'https://shop.kidsnote.com/_manage/?body=3010'],
-    ['findOrCreateKkomangseTab', 'https://nstore.edupre.co.kr/subAdmin/_order_product.list.php?mode=search&pass_input_type=all&st=o_rdate&so=desc&listmaxcount=1000'],
     ['findOrCreateOnchannelTab', 'https://www.onch3.co.kr/supplier/orders.php?state=all'],
     ['findOrCreateDomeggookTab', 'https://domeggook.com/sc/order/lstAll'],
     ['findOrCreateKidkidsTab', 'https://partner.kidkids.net/new/pages/logis/management.htm'],
@@ -803,7 +801,6 @@ test('every named mall collector uses the production attach-before-readiness pat
 
   const cases = [
     ['collectKidsnoteOrders', [{ from: '2026-07-15', to: '2026-07-15' }]],
-    ['collectKkomangseOrders', []],
     ['collectOnchannelOrders', ['2026-07-15']],
     ['collectLotteonOrders', []],
     ['collectGsshopOrders', []],
@@ -877,7 +874,7 @@ test('managed order capture acknowledges attachment before readiness and fences 
     },
   };
 
-  const result = await runtime.context.collectKkomangseOrders(collection);
+  const result = await runtime.context.collectKakaoOrders('2026-07-15', collection);
 
   assert.equal(result.success, false);
   assert.equal(result.errorCode, 'COLLECTION_CANCELLED');
@@ -903,7 +900,7 @@ test('a refused managed attachment closes the fresh tab and never executes captu
     events.push('execute');
     return [{ result: { success: true } }];
   };
-  const result = await runtime.context.collectKkomangseOrders({
+  const result = await runtime.context.collectKakaoOrders('2026-07-15', {
     assertActive: async () => true,
     attachTab: async () => null,
   });

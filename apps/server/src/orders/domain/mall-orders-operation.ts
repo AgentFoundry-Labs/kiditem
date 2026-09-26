@@ -85,28 +85,49 @@ const FilePartSchema = z.object({
   base64: z.string().regex(/^[A-Za-z0-9+/=]*$/),
 }).strict();
 
+/** 조각(base64)을 순번대로 이어 파일 하나로. 조각이 없으면 null — "주문 없음"을 확인한 날이다. */
+function joinedFile(rows: unknown[]): { bytes: Buffer; fileName: string } | null {
+  const parsed = FilePartSchema.array().safeParse(rows);
+  if (!parsed.success) throw invalid('invalid_order_rows', { errors: issues(parsed.error) });
+  const parts = [...parsed.data].sort((a, b) => a.part - b.part);
+  if (parts.length === 0) return null;
+  const [first] = parts;
+  const complete = parts.every((part, index) => part.part === index && part.parts === first!.parts && part.fileName === first!.fileName)
+    && parts.length === first!.parts;
+  if (!complete) throw invalid('incomplete_file_parts', { parts: parts.map((part) => [part.part, part.parts]) });
+  return { bytes: Buffer.from(parts.map((part) => part.base64).join(''), 'base64'), fileName: first!.fileName };
+}
+
 /**
- * 몰이 내려준 파일 하나를 조각(base64, 청크 1MiB 안)으로 받아 이어 붙여 파일 캡처로 보관하는 몰(도매꾹 주문 CSV,
- * EUC-KR 원본 바이트 그대로 — 변환기가 디코딩한다). 조각이 없으면 "주문 없음"을 확인한 날이다.
+ * 몰이 내려준 파일 하나를 조각(base64, 청크 1MiB 안)으로 받아 이어 붙여 파일 캡처로 보관하는 몰(도매꾹 주문 CSV는
+ * EUC-KR 원본 바이트 그대로 — 변환기가 디코딩한다, 롯데ON·보리보리·티쳐몰·GS샵·올웨이즈 엑셀). `contentType`은 옛
+ * 확장 변환 요청(`order-collection-server-converter.js` FILE_MIME)의 값이다. 조각이 없으면 "주문 없음"을 확인한 날이다.
  */
 function filePart(contentType: string): MallCaptureRule {
   return {
     assemble({ rows }) {
-      const parsed = FilePartSchema.array().safeParse(rows);
-      if (!parsed.success) throw invalid('invalid_order_rows', { errors: issues(parsed.error) });
-      const parts = [...parsed.data].sort((a, b) => a.part - b.part);
-      if (parts.length === 0) return { source: { bytes: Buffer.alloc(0), fileName: null, contentType }, captured: 0 };
-      const [first] = parts;
-      const complete = parts.every((part, index) => part.part === index && part.parts === first!.parts && part.fileName === first!.fileName)
-        && parts.length === first!.parts;
-      if (!complete) throw invalid('incomplete_file_parts', { parts: parts.map((part) => [part.part, part.parts]) });
-      return {
-        source: { bytes: Buffer.from(parts.map((part) => part.base64).join(''), 'base64'), fileName: first!.fileName, contentType },
-        captured: 1,
-      };
+      const file = joinedFile(rows);
+      if (!file) return { source: { bytes: Buffer.alloc(0), fileName: null, contentType }, captured: 0 };
+      return { source: { bytes: file.bytes, fileName: file.fileName, contentType }, captured: 1 };
     },
   };
 }
+
+/**
+ * 꼬망세: 엑셀 조각을 이어 옛 변환 본문 `{xlsxBase64, date}`(JSON, 옛 확장 `jsonPayload` kkomangse)로 보관한다. `date`는
+ * plan의 수집일 — 변환기가 그날 주문만 거른다.
+ */
+const kkomangseRule: MallCaptureRule = {
+  assemble({ rows, plan }) {
+    const file = joinedFile(rows);
+    if (!file) return { source: { bytes: Buffer.alloc(0), fileName: null, contentType: 'application/json' }, captured: 0 };
+    const payload = { xlsxBase64: file.bytes.toString('base64'), date: plan.collectionDate };
+    return {
+      source: { bytes: Buffer.from(canonicalOwnerInputJson(payload), 'utf8'), fileName: null, contentType: 'application/json' },
+      captured: 1,
+    };
+  },
+};
 
 /** 아이스크림몰 행 하나를 가리는 키 — 칸마다 공백을 걷어 U+001F로 잇는다(웹 `order-detect.ts`의 본 행 키와 같다). */
 const ICECREAM_ROW_KEY_SEPARATOR = '\u001f';
@@ -201,6 +222,7 @@ const MALL_CAPTURE_RULES: Partial<Record<MallOrderOperationMall, MallCaptureRule
   kidkids: jsonList('orders', OrderObjectSchema.and(z.object({ items: z.array(z.unknown()) })), 'om'),
   art09: jsonList('rows', OrderObjectSchema.and(z.object({ orderId: z.string() })), 'orderId'),
   domeggook: filePart('text/csv'),
+  kkomangse: kkomangseRule,
   'icecream-mall': icecreamRule,
 };
 

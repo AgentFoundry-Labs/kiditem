@@ -243,7 +243,6 @@ export function createBrowserMallCollector({
 
     const actionByMall: Record<string, string> = {
       kidsnote: 'collectKidsnoteOrders',
-      kkomangse: 'collectKkomangseOrders',
       onch: 'collectOnchannelOrders',
       'haebub-mall': 'collectHaebeopOrders',
       'lotte-on': 'collectLotteonOrders',
@@ -387,42 +386,6 @@ export function createBrowserMallCollector({
       mallName: '키즈노트',
     });
     return orders.length;
-  };
-
-  const generateKkomangseSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectKkomangseXlsxFromExtension, convertKkomangseToSellpiaFile } = await import(
-      './kkomangse-orders-api'
-    );
-    await ensureMallLogin('kkomangse', run);
-    const xlsxBase64 = await collectKkomangseXlsxFromExtension(run);
-    let result: Awaited<ReturnType<typeof convertKkomangseToSellpiaFile>>;
-    try {
-      result = await convertKkomangseToSellpiaFile(xlsxBase64, {
-        date: collectionDateOf(run),
-        run,
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (isNoNewOrdersMessage(msg)) {
-        toastNoNewOrders('꼬망세');
-        return 0;
-      }
-      throw err;
-    }
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-kkomangse-browser`,
-      sourceName: `꼬망세 주문 (${formatNumber(rows)}건)`,
-      convertedAt,
-      collectionDate: collectionDateOf(run),
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'kkomangse',
-      mallName: '꼬망세',
-    });
-    return rows;
   };
 
   const generateHaebeopSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
@@ -725,7 +688,6 @@ export function createBrowserMallCollector({
     }
     const today = collectionDateOf(resolvedRun);
     if (account.key === 'kidsnote') return resultFor(await generateKidsnoteSellpia(resolvedRun, today), today);
-    if (account.key === 'kkomangse') return resultFor(await generateKkomangseSellpia(resolvedRun), today);
     if (account.key === 'onch') return resultFor(await generateOnchannelSellpia(resolvedRun, today), today);
     if (account.key === 'kakao') return resultFor(await generateKakaoSellpia(resolvedRun), today);
     if (account.key === 'lotte-on') return resultFor(await generateLotteonSellpia(resolvedRun), today);
@@ -734,7 +696,7 @@ export function createBrowserMallCollector({
     if (account.key === 'boribori') return resultFor(await generateBoriboriSellpia(resolvedRun), today);
     if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(resolvedRun), today);
     if (account.key === 'haebub-mall') return resultFor(await generateHaebeopSellpia(resolvedRun), today);
-    // 실행 kind로 옮긴 몰(아이스크림몰 · 키드키즈 · 아트공구 · 도매꾹, KID-359 H3)은 이 옛 절차로 오지 않는다.
+    // 실행 kind로 옮긴 몰(`MALL_ORDER_OPERATION_MALLS` — 1차 KID-359 H3, 엑셀·blob 몰 KID-380)은 이 옛 절차로 오지 않는다.
     throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
   };
 }

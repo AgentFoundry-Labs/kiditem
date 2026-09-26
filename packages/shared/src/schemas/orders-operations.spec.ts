@@ -14,7 +14,7 @@ describe('orders operation kinds (KID-359 wave2)', () => {
     expect(new Set(ORDERS_OPERATION_KINDS).size).toBe(ORDERS_OPERATION_KINDS.length);
   });
 
-  it('mall scope keeps the old attempt limits and the first-batch mall list', () => {
+  it('mall scope keeps the old attempt limits and the moved mall list', () => {
     const scope = MallOrdersScopeSchema.parse({
       channelAccountId: '11111111-1111-4111-8111-111111111111',
       mallKey: 'kidkids',
@@ -22,7 +22,7 @@ describe('orders operation kinds (KID-359 wave2)', () => {
     });
     expect(scope.collectionDate).toBeNull();
     expect(MallOrdersScopeSchema.safeParse({ ...scope, seenRowKeys: ['x'.repeat(2_001)] }).success).toBe(false);
-    expect(MALL_ORDER_OPERATION_MALLS).toHaveLength(4);
+    expect(MALL_ORDER_OPERATION_MALLS).toEqual(['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kkomangse']);
     expect(isMallOrderOperationMall('kidkids')).toBe(true);
     expect(isMallOrderOperationMall('gsshop')).toBe(false);
   });
