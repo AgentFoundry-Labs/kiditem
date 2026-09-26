@@ -151,7 +151,7 @@ describe('GlobalExceptionFilter → ADR-0023 envelope', () => {
     for (const code of ['EXECUTION_TASK_NOT_LATEST', 'EXECUTION_TASK_EXPIRED', 'EXECUTION_REPORT_INVALID_TRANSITION'] as const) {
       expect(envelope(new ConflictException({ code, message: '실행 보고를 반영할 수 없습니다.' }))).toMatchObject({ statusCode: 409, code });
     }
-    // background/orders/order-collection-server-converter.js:88 stores body.code; an empty day is not a failed conversion.
+    // The mall-orders owner (MallOrdersOperationService) reads this code; an empty day is not a failed conversion.
     expect(envelope(new BadRequestException({ code: 'NO_NEW_ORDERS', message: '변환할 키즈노트 주문이 없습니다.' })))
       .toMatchObject({ statusCode: 400, code: 'NO_NEW_ORDERS', message: '변환할 키즈노트 주문이 없습니다.' });
   });
