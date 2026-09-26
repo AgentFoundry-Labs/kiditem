@@ -5419,7 +5419,8 @@ var KidItemRuntime = (() => {
     "gmarket",
     "auction",
     "kakao",
-    "lotte-on"
+    "lotte-on",
+    "smartstore"
   ];
   function isMallAdminListingOperationMall(mallKey) {
     return MALL_ADMIN_LISTING_OPERATION_MALLS.includes(mallKey);
@@ -10993,6 +10994,29 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "sellpia", opensOwnTabs: true, create: (deps) => createSellpiaSite(deps.tabs) });
+
+  // extensions/src/sites/smartstore/listings.ts
+  var SMARTSTORE_LISTINGS_URL = "https://sell.smartstore.naver.com/#/products/origin-list";
+  var SMARTSTORE_LISTINGS_FILE = "content/orders/smartstore-listings.js";
+  var SMARTSTORE_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["sell.smartstore.naver.com"]),
+    isLogin: (url) => hostWithin(url, ["accounts.commerce.naver.com", "nid.naver.com"]) || hostWithin(url, ["naver.com"]) && /login/i.test(url.pathname),
+    loginMessage: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4\uC13C\uD130 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  function createSmartstoreListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "smartstore",
+        displayName: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4",
+        startUrl: SMARTSTORE_LISTINGS_URL,
+        file: SMARTSTORE_LISTINGS_FILE,
+        call: "smartstore.listings",
+        world: "main",
+        guard: SMARTSTORE_LISTINGS_GUARD
+      }, plan)
+    };
+  }
+  registerSite({ name: "smartstore", create: (deps) => createSmartstoreListings(deps.tabs) });
 
   // extensions/src/sites/thirtymall/listings.ts
   var THIRTYMALL_LISTINGS_URL = "https://partner.shopby.co.kr/product/list";

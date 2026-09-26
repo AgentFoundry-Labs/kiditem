@@ -81,6 +81,13 @@ const MALLS: Row[] = [
     loginAt: 'https://store.lotteon.com/cm/main/login_SO.wsp',
     reuse: 'https://store.lotteon.com/*',
   },
+  {
+    mallKey: 'smartstore',
+    startUrl: 'https://sell.smartstore.naver.com/#/products/origin-list',
+    main: 'content/orders/smartstore-listings.js',
+    call: 'smartstore.listings',
+    loginAt: 'https://accounts.commerce.naver.com/login?url=https%3A%2F%2Fsell.smartstore.naver.com',
+  },
 ];
 
 /** 로그인 폼 명세가 없는 몰(결정 #3). */

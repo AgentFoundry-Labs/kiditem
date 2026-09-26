@@ -49,6 +49,7 @@ import '../sites/mall-orders';
 import '../sites/product-page';
 import '../sites/sabangnet';
 import '../sites/sellpia';
+import '../sites/smartstore/listings';
 import '../sites/thirtymall/listings';
 import '../sites/tiktok-cc';
 import '../sites/wing';
