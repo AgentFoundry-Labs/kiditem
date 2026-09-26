@@ -3,6 +3,7 @@ import { apiClient } from '@/lib/api-client';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook } from '@testing-library/react';
 import { queryKeys } from '@/lib/query-keys';
+import { AlertItemSchema } from '@kiditem/shared/alerts';
 import {
   dismissAlert,
   fetchAlerts,
@@ -37,6 +38,30 @@ describe('alerts API', () => {
 
     await expect(dismissAlert('alert/1')).resolves.toEqual({ ok: true });
     expect(apiClient.post).toHaveBeenCalledWith('/api/alerts/alert%2F1/dismiss');
+  });
+
+  it('실행 표에서 온 실패 알림도 같은 계약으로 읽고, 실행 id로 닫는다 — 정책 B(KID-355)', async () => {
+    const operationId = '44444444-4444-4444-8444-444444444444';
+    const item = {
+      id: operationId,
+      attemptId: operationId,
+      status: 'OPEN',
+      type: 'operation_failure',
+      title: '셀피아 재고 수집 실패',
+      message: '이 실행은 더 이상 유효하지 않습니다. 다시 시작해 주세요.',
+      targetType: null,
+      targetId: null,
+      sourceType: 'products.sellpia_inventory',
+      href: '/product-hub',
+      isRead: false,
+      createdAt: '2026-09-26T02:00:00.000Z',
+      updatedAt: '2026-09-26T02:00:00.000Z',
+    };
+    expect(AlertItemSchema.parse(item)).toEqual(item);
+
+    vi.mocked(apiClient.post).mockResolvedValue({ ok: true });
+    await dismissAlert(item.id);
+    expect(apiClient.post).toHaveBeenCalledWith(`/api/alerts/${operationId}/dismiss`);
   });
 });
 

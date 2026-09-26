@@ -116,6 +116,9 @@ export const ERROR_DEFINITIONS = {
   SOURCE_OWNER_UNAVAILABLE: def('extension', 'external', '확장 프로그램이 수집을 시작하지 못했습니다. 확장 프로그램이 켜져 있는지 확인해 주세요.', { retryable: true }),
   OPERATOR_ACTION_REQUIRED: def('extension', 'precondition', '운영자가 직접 처리해야 하는 단계가 있습니다. 열린 탭을 확인해 주세요.'),
   MALL_LOGIN_REQUIRED: def('extension', 'precondition', '몰에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도해 주세요.'),
+  // 확장 4층 site 호출(`extensions/src/core/site-caller`)이 실행 실패 코드로 남긴다. 알림 reader가 실행 표에서 읽는다(KID-355).
+  SITE_LOGIN_REQUIRED: def('extension', 'precondition', '사이트에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도해 주세요.'),
+  SITE_REQUEST_FAILED: def('extension', 'external', '사이트 요청이 실패했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   MALL_LOGIN_PAGE_UNREACHABLE: def('extension', 'external', '몰 로그인 페이지를 열지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   MALL_CONTRACT_CHANGED: def('extension', 'external', '몰 화면이 바뀌어 읽지 못했습니다. 개발자에게 알려 주세요.'),
   SELLPIA_MANUAL_MATCH_LOGIN_REQUIRED: def('extension', 'precondition', '셀피아 로그인이 필요합니다. 열린 수동상품매칭 화면에서 로그인한 뒤 다시 시도해 주세요.'),

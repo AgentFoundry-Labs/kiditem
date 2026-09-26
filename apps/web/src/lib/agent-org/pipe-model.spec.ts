@@ -152,6 +152,32 @@ describe('원천 실패 알림', () => {
     expect(snapshot.inbox).toEqual([]);
   });
 
+  it('⭐ 실행 표에서 온 알림(sourceType = kind)도 옛 원천과 같은 단계에 선다 — 정책 B(KID-355)', () => {
+    const cases: Array<[string, string]> = [
+      ['advertising.keyword_serp', 'keyword'],
+      ['advertising.wing_rank', 'keyword'],
+      ['sourcing.tiktok_creative', 'sns'],
+      ['sourcing.trend_1688', 'rising'],
+      ['advertising.competitor_catalog', 'competitor'],
+      ['advertising.competitor_seller_identity', 'competitor'],
+      ['advertising.wing_itemwinner', 'competitor'],
+      ['advertising.wing_tracked_products', 'competitor'],
+      ['orders.mall_orders', 'orders'],
+      ['orders.coupang_directship', 'orders'],
+      ['orders.coupang_shipment_summary', 'orders'],
+      ['products.sellpia_inventory', 'inventory'],
+      ['analytics.sellpia_product_profitability', 'inventory'],
+      ['orders.coupang_reviews', 'cs'],
+      ['advertising.wing_traffic', 'ads'],
+    ];
+    for (const [sourceType, stageId] of cases) {
+      const snapshot = buildPipeSnapshot(
+        inputs({ alerts: { data: [alert({ type: 'operation_failure', sourceType, message: '네트워크 연결에 실패했습니다.' })], failed: false } }),
+      );
+      expect(stage(snapshot.stages, stageId).state, sourceType).toBe('failed');
+    }
+  });
+
   it('단계에 이어지지 않는 알림은 그림에 올리지 않는다', () => {
     const snapshot = buildPipeSnapshot(inputs({ alerts: { data: [alert({ sourceType: 'rules_evaluation' })], failed: false } }));
     expect(snapshot.inbox).toEqual([]);

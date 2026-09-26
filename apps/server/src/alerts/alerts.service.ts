@@ -8,6 +8,11 @@ import type {
   SourceFailureAlertInput,
 } from '@kiditem/shared/alerts';
 import type { Alert } from '@prisma/client';
+import {
+  readLatestOperationOutcomes,
+  type OperationOutcomeRow,
+} from '../common/operation/transaction/latest-operation-outcomes';
+import { OPERATION_FAILURE_HREFS, OPERATION_FAILURE_KINDS } from './operation-failure-sources';
 
 export type { SourceFailureAlertInput } from '@kiditem/shared/alerts';
 
@@ -17,6 +22,55 @@ export type { SourceFailureAlertInput } from '@kiditem/shared/alerts';
  * reader sees them.
  */
 const SOURCE_FAILURE_ALERT_TYPE = 'source_failure';
+
+/**
+ * 실행 계약으로 옮긴 kind의 실패(KID-355 정책 B). 알림 표에는 이 타입으로 운영자의 읽음 표시만 남고(`dedupeKey`
+ * `operation:<실행 id>`), 알림 자체는 `list`가 실행 표에서 만든다.
+ */
+const OPERATION_FAILURE_ALERT_TYPE = 'operation_failure';
+
+function operationReadKey(operationId: string): string {
+  return `operation:${operationId}`;
+}
+
+/**
+ * 원천 정체성(kind + 범위)마다 최신 실패가 알림 하나다. 그 뒤에 같은 정체성의 성공이 있으면 닫힌 알림(옛
+ * `resolveSourceFailure`와 같은 뜻), 실패가 한 번도 없으면 알림이 아니다.
+ */
+function operationFailureItems(
+  outcomes: readonly OperationOutcomeRow[],
+  readOperationIds: ReadonlySet<string>,
+): AlertItem[] {
+  const byIdentity = new Map<string, { failed?: OperationOutcomeRow; succeeded?: OperationOutcomeRow }>();
+  for (const row of outcomes) {
+    const key = `${row.kind} ${row.scope}`;
+    const entry = byIdentity.get(key) ?? {};
+    entry[row.outcome] = row;
+    byIdentity.set(key, entry);
+  }
+  const items: AlertItem[] = [];
+  for (const { failed, succeeded } of byIdentity.values()) {
+    if (!failed) continue;
+    const resolvedBy = succeeded && succeeded.finishedAt > failed.finishedAt ? succeeded : null;
+    items.push({
+      id: failed.id,
+      attemptId: failed.id,
+      status: resolvedBy ? 'RESOLVED' : 'OPEN',
+      type: OPERATION_FAILURE_ALERT_TYPE,
+      title: `${sourceLabel(failed.kind)} 실패`,
+      // 실행의 `errorMessage`는 원문(영어·울타리 사유 `expired`)이라 싣지 않는다 — 코드의 레지스트리 문장만.
+      message: operatorErrorText({ code: failed.errorCode, source: failed.kind }),
+      targetType: null,
+      targetId: null,
+      sourceType: failed.kind,
+      href: OPERATION_FAILURE_HREFS[failed.kind] ?? null,
+      isRead: readOperationIds.has(failed.id),
+      createdAt: failed.finishedAt.toISOString(),
+      updatedAt: (resolvedBy ?? failed).finishedAt.toISOString(),
+    });
+  }
+  return items;
+}
 
 function mapAlert(row: Alert): AlertItem {
   return {
@@ -69,31 +123,66 @@ export class SourceFailureAlerts {
     organizationId: string,
     options: { isRead?: boolean; status?: AlertItem['status']; limit?: number } = {},
   ): Promise<AlertItem[]> {
-    const rows = await this.prisma.alert.findMany({
-      where: {
-        organizationId,
-        type: SOURCE_FAILURE_ALERT_TYPE,
-        ...(options.isRead === undefined
-          ? {}
-          : { readAt: options.isRead ? { not: null } : null }),
-        ...(options.status ? { status: options.status } : {}),
-      },
-      orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
-      ...(options.limit === undefined ? {} : { take: options.limit }),
-    });
-    return rows.map(mapAlert);
+    const [rows, operationItems] = await Promise.all([
+      this.prisma.alert.findMany({
+        where: { organizationId, type: SOURCE_FAILURE_ALERT_TYPE },
+        orderBy: [{ updatedAt: 'desc' }, { id: 'desc' }],
+      }),
+      this.operationFailures(organizationId),
+    ]);
+    const items = [...rows.map(mapAlert), ...operationItems]
+      .filter((item) => options.isRead === undefined || item.isRead === options.isRead)
+      .filter((item) => !options.status || item.status === options.status)
+      .sort((left, right) => right.updatedAt.localeCompare(left.updatedAt) || right.id.localeCompare(left.id));
+    return options.limit === undefined ? items : items.slice(0, options.limit);
   }
 
+  /** 옮긴 kind의 실행 표에서 만든 알림(KID-355 정책 B). 읽음은 이 모듈 표의 `operation_failure` 행이 말한다. */
+  private async operationFailures(organizationId: string): Promise<AlertItem[]> {
+    const [outcomes, reads] = await Promise.all([
+      readLatestOperationOutcomes(this.prisma, { organizationId, kinds: OPERATION_FAILURE_KINDS }),
+      this.prisma.alert.findMany({
+        where: { organizationId, type: OPERATION_FAILURE_ALERT_TYPE, readAt: { not: null } },
+        select: { attemptId: true },
+      }),
+    ]);
+    const readIds = new Set(reads.flatMap((row) => (row.attemptId ? [row.attemptId] : [])));
+    return operationFailureItems(outcomes, readIds);
+  }
+
+  /**
+   * 알림 하나를 읽음으로. 옛 원천 실패 행이면 그 행에 `readAt`을, 아니면 실행 id로 보고 지금 열린 실행 실패 알림일
+   * 때만 이 모듈 표에 읽음 행(`operation_failure`, RESOLVED)을 쓴다 — 실행 표는 common/operation 것이라 건드리지 않는다.
+   */
   async dismiss(id: string, organizationId: string): Promise<void> {
     const result = await this.prisma.alert.updateMany({
       where: {
         id,
         organizationId,
+        type: SOURCE_FAILURE_ALERT_TYPE,
         status: 'OPEN',
       },
       data: { readAt: new Date() },
     });
-    if (result.count === 0) throw new NotFoundException('Alert not found');
+    if (result.count > 0) return;
+    const item = (await this.operationFailures(organizationId)).find((candidate) => candidate.id === id);
+    if (!item || item.status !== 'OPEN') throw new NotFoundException('Alert not found');
+    const readAt = new Date();
+    await this.prisma.alert.upsert({
+      where: { organizationId_dedupeKey: { organizationId, dedupeKey: operationReadKey(id) } },
+      create: {
+        organizationId,
+        dedupeKey: operationReadKey(id),
+        attemptId: id,
+        type: OPERATION_FAILURE_ALERT_TYPE,
+        status: 'RESOLVED',
+        title: item.title,
+        sourceType: item.sourceType,
+        href: item.href,
+        readAt,
+      },
+      update: {},
+    });
   }
 
   /**

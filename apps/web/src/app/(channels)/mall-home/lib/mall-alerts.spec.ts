@@ -48,6 +48,23 @@ describe('isMallAlert', () => {
     expect(isMallAlert(alert('g', { sourceType: null }))).toBe(false);
   });
 
+  it('실행 표에서 온 알림(sourceType = kind)도 몰 알림이고 같은 몰을 말한다 — 정책 B(KID-355)', () => {
+    const cases: Array<[string, string | null]> = [
+      ['orders.mall_orders', null],
+      ['orders.coupang_shipment_summary', 'rocket'],
+      ['orders.coupang_rocket_po', 'rocket'],
+      ['orders.coupang_directship', 'coupang-direct'],
+      ['advertising.wing_traffic', 'coupang'],
+      ['advertising.wing_itemwinner', 'coupang'],
+    ];
+    for (const [sourceType, mallKey] of cases) {
+      const item = alert(sourceType, { type: 'operation_failure', sourceType });
+      expect(isMallAlert(item), sourceType).toBe(true);
+      expect(mallKeyOfAlert(item), sourceType).toBe(mallKey);
+    }
+    expect(isMallAlert(alert('s', { type: 'operation_failure', sourceType: 'products.sellpia_inventory' }))).toBe(false);
+  });
+
   it('객체 기본 속성 이름에 속지 않는다', () => {
     expect(isMallAlert(alert('a', { sourceType: 'constructor' }))).toBe(false);
     expect(isMallAlert(alert('b', { sourceType: 'toString' }))).toBe(false);

@@ -1,6 +1,13 @@
 import type { AlertItem } from '@kiditem/shared/alerts';
 import { channelOutcomeKey } from '@kiditem/shared/channel-registry';
 import type { MallChannelSummary } from '@kiditem/shared/mall-publishing';
+import { WING_ITEMWINNER_KIND, WING_TRAFFIC_KIND } from '@kiditem/shared/advertising-operations';
+import {
+  COUPANG_DIRECTSHIP_KIND,
+  COUPANG_ROCKET_PO_KIND,
+  COUPANG_SHIPMENT_SUMMARY_KIND,
+  MALL_ORDERS_KIND,
+} from '@kiditem/shared/orders-operations';
 import { formatNumber } from '@/lib/utils';
 
 /**
@@ -35,6 +42,13 @@ const MALL_SOURCE_TYPES = new Map<string, string | null>([
   ['coupang_direct_order_capture', 'coupang-direct'],
   ['coupang_wing_traffic', 'coupang'],
   ['coupang_wing_itemwinner', 'coupang'],
+  // 실행 계약으로 옮긴 원천: 알림 reader가 실행 표에서 만든 알림은 `sourceType`이 kind다(KID-355 정책 B).
+  [MALL_ORDERS_KIND, null],
+  [COUPANG_SHIPMENT_SUMMARY_KIND, 'rocket'],
+  [COUPANG_ROCKET_PO_KIND, 'rocket'],
+  [COUPANG_DIRECTSHIP_KIND, 'coupang-direct'],
+  [WING_TRAFFIC_KIND, 'coupang'],
+  [WING_ITEMWINNER_KIND, 'coupang'],
 ]);
 
 export type MallAlertState = 'attention' | 'done';
