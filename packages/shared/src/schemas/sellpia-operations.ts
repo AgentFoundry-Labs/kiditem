@@ -9,6 +9,9 @@ import { resourceLockKey, type OperationLockKey } from './operation.js';
  */
 export const SELLPIA_LOGIN_LOCK_KEY: OperationLockKey = resourceLockKey('sellpia', 'login');
 
+/** 셀피아 실행 kind(재고·매출·상품 손익, KID-361)를 도는 확장 빌드가 `ping` capabilities에 싣는 표시. 웹이 시작 전에 본다. */
+export const SELLPIA_OPERATION_CAPABILITY = 'sellpiaOperationKindsV1' as const;
+
 export const SELLPIA_INVENTORY_KIND = 'products.sellpia_inventory' as const;
 export const SELLPIA_SALES_KIND = 'analytics.sellpia_sales' as const;
 export const SELLPIA_PRODUCT_PROFITABILITY_KIND = 'analytics.sellpia_product_profitability' as const;

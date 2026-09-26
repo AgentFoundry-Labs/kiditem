@@ -8,6 +8,7 @@ import {
   type OperationListResponse,
   type OperationView,
 } from '@kiditem/shared/operation';
+import { SELLPIA_OPERATION_CAPABILITY } from '@kiditem/shared/sellpia-operations';
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import {
   COLLECTION_IDLE_POLL_MS,
@@ -19,12 +20,6 @@ import { apiClient } from './api-client';
 import { collectionSourceStatusQueryOptions } from './collection-source-status-query';
 import { requestOperationCancel, requestOperationStart } from './operation-start';
 import { attemptFailureText } from './operator-error';
-
-/**
- * 셀피아 실행 kind(재고·매출·상품 손익, KID-361)를 도는 확장 빌드가 `ping`에 싣는 표시. 없는 빌드엔 시작을 보내지
- * 않는다(옛 빌드는 이 kind를 모른다).
- */
-export const SELLPIA_OPERATION_CAPABILITY = 'sellpiaOperationKindsV1' as const;
 
 /** reader가 한 kind에서 읽는 최근 실행 수. 첫 행이 가장 최근 실행이다. */
 const RECENT_LIMIT = 20;

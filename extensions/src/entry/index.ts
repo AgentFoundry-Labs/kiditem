@@ -49,6 +49,7 @@ import '../sites/wing/pre-matching-search';
 import '../sites/wing/reviews';
 import '../sites/wing/traffic';
 import { CHANNELS_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
+import { SELLPIA_OPERATION_CAPABILITY } from '@kiditem/shared/sellpia-operations';
 import { createBrowserResources } from '../core/browser';
 import { createTabPages } from '../sites/tab-page';
 import type { SiteDeps } from '../sites/registry';
@@ -99,7 +100,7 @@ export function installEntry(): boolean {
       operationLoginV1: true,
       advertisingKeywordOperationKindsV1: true,
       wingDailyOperationKindsV1: true,
-      sellpiaOperationKindsV1: true,
+      [SELLPIA_OPERATION_CAPABILITY]: true,
     },
   });
   installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });

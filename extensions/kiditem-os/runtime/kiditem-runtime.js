@@ -5101,6 +5101,7 @@ var KidItemRuntime = (() => {
 
   // packages/shared/src/schemas/sellpia-operations.ts
   var SELLPIA_LOGIN_LOCK_KEY = resourceLockKey("sellpia", "login");
+  var SELLPIA_OPERATION_CAPABILITY = "sellpiaOperationKindsV1";
   var SELLPIA_INVENTORY_KIND = "products.sellpia_inventory";
   var SELLPIA_SALES_KIND = "analytics.sellpia_sales";
   var SELLPIA_PRODUCT_PROFITABILITY_KIND = "analytics.sellpia_product_profitability";
@@ -12679,7 +12680,7 @@ var KidItemRuntime = (() => {
         operationLoginV1: true,
         advertisingKeywordOperationKindsV1: true,
         wingDailyOperationKindsV1: true,
-        sellpiaOperationKindsV1: true
+        [SELLPIA_OPERATION_CAPABILITY]: true
       }
     });
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
