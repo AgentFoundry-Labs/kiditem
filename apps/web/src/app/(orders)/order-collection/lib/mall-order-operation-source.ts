@@ -1,8 +1,9 @@
 'use client';
 
-import type { OperationListResponse, OperationView } from '@kiditem/shared/operation';
+import { OperationFinishResponseSchema, type OperationListResponse, type OperationView } from '@kiditem/shared/operation';
 import {
   isMallOrderOperationMall,
+  isMallOrdersManualUploadMall,
   MALL_ORDERS_KIND,
   MallOrdersResultSchema,
 } from '@kiditem/shared/orders-operations';
@@ -18,7 +19,11 @@ import { formatNumber } from '@/lib/utils';
 import { toastNoNewOrders, type BrowserMallCollectionResult } from './browser-mall-collection';
 import type { MallOrderCollectionStartInput } from './mall-order-collection-source';
 import { saveIcecreamDeliveryIndex } from './icecream-delivery-index';
-import { readOrderOperationContinuation, regenerateOrderOperationSource } from './order-collection-api';
+import {
+  readOrderOperationContinuation,
+  regenerateOrderOperationSource,
+  type OrderCollectionConversionResult,
+} from './order-collection-api';
 import { addSeenOrderKeys } from './order-detect';
 import {
   detectOrderCollectionSessionExtensionStatus,
@@ -244,4 +249,40 @@ export async function collectMallOrderOperation({
   // 이번에 고른 행을 다음 자동 선택의 본 행으로 적는다.
   if (continuation && continuation.selectedRowKeys.length > 0) addSeenOrderKeys(account.key, continuation.selectedRowKeys);
   return { rowCount: collectedRows, masked, date: collectionDate };
+}
+
+/**
+ * 수동 엑셀 업로드(KID-380 T4): 파일(과 엑셀 암호)을 그 몰의 업로드 라우트에 올리면 서버가 `orders.mall_orders`
+ * 실행 하나(`collectionMode: 'manual-upload'`)를 돌린다. 화면은 그 실행 id로 기다린 뒤 실행 id로 변환 파일을 받는다 —
+ * attempt도, 브라우저에 남기는 시도 힌트도 없다. 변환기가 신규 주문이 없다고 하면(204) null.
+ */
+export async function uploadMallOrderFile({
+  account,
+  file,
+  password,
+  sleep,
+}: Readonly<{
+  account: OrderCollectionMallAccount;
+  file: File;
+  password?: string;
+  sleep?: (ms: number) => Promise<void>;
+}>): Promise<(OrderCollectionConversionResult & { operationId: string }) | null> {
+  if (!isMallOrdersManualUploadMall(account.key)) {
+    throw new Error(`${account.name} 업로드 변환은 아직 준비 중입니다.`);
+  }
+  const form = new FormData();
+  form.append('file', file);
+  if (password) form.append('password', password);
+  const { operation } = await apiClient.uploadParsed(
+    `/api/orders/collection/malls/${encodeURIComponent(account.key)}/upload`,
+    OperationFinishResponseSchema,
+    form,
+  );
+  const done = await waitForOrderOperation(MALL_ORDERS_KIND, operation.id, {
+    source: 'order_collection_mall',
+    ...(sleep ? { sleep } : {}),
+  });
+  const converted = await regenerateOrderOperationSource(done.id);
+  if (converted.outputRows === 0 || converted.blob.size === 0) return null;
+  return { ...converted, operationId: done.id };
 }

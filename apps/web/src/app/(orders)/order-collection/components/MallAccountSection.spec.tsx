@@ -366,8 +366,8 @@ describe("MallAccountSection", () => {
     // explicit collect action.
     expect(workspace).not.toContain("BrowserCollectionRunControls");
     expect(sessionHook).toContain("readOrderCollectionSourceAttempt");
-    expect(sessionHook).toContain("beginOrderCollectionSourceAttempt");
-    expect(sessionHook).toContain("rememberActiveOrderCollectionAttempt");
+    // 시도를 여는 것은 원천 어댑터이고, 수동 업로드는 서버 실행이다(KID-380 T4) — 이 훅은 시도를 열지 않는다.
+    expect(sessionHook).not.toContain("beginOrderCollectionSourceAttempt");
     expect(sessionHook).toContain("getOrderCollectionEnvironmentKey");
     expect(sessionHook).not.toContain("issueBrowserCollectionRunId");
     expect(sessionHook).not.toContain("finalizeOrderCollectionSession");

@@ -408,6 +408,18 @@ export class OrderCollectionService {
     }
   }
 
+  /**
+   * 수동 업로드 파일(KID-380 T4)을 보관할 모양으로: multipart가 latin1로 읽은 이름을 바로잡고, 암호 걸린 엑셀은 여기서
+   * 푼다. 보관 캡처는 푼 파일이라 실행 id로 다시 변환할 때 암호가 필요 없다(암호는 어디에도 남기지 않는다).
+   */
+  async unlockUploadedFile(file: Pick<MulterFile, 'originalname' | 'buffer'>, password?: string): Promise<{ fileName: string; bytes: Buffer }> {
+    const fileName = normalizeUploadFileName(file.originalname);
+    const bytes = /\.(xls|xlsx)$/i.test(fileName)
+      ? await decryptSpreadsheetBuffer(Buffer.from(file.buffer), password)
+      : Buffer.from(file.buffer);
+    return { fileName, bytes };
+  }
+
   async convertIcecreamMallOrderFile(
     file: MulterFile,
     options: OrderCollectionConversionOptions = {},

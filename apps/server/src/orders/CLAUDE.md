@@ -72,6 +72,12 @@ Action, collection, transmission, and reconciliation behavior is executable in
   `result.rowCount`; a day with no orders succeeds with 0. Convert routes and
   `attempts/:id/convert` accept a body `operationId` for these malls and write
   nothing. The other malls stay on the attempt path until the remaining malls move (나머지 몰이 옮겨질 때까지).
+- A manual excel upload (`POST …/malls/:mallKey/upload`, the malls in
+  `MALL_ORDERS_MANUAL_UPLOAD_MALLS`) is the same kind with
+  `collectionMode: 'manual-upload'`: the server begins, chunks the file and
+  finishes in one request (the Rocket matching CSV shape). An encrypted
+  workbook is decrypted before begin, so the stored capture converts without
+  the password; the password is never stored.
 - Today's order count is one Orders capability
   (`ORDER_COLLECTION_TODAY_ORDERS_PORT`): per mall the latest succeeded
   operation's `rowCount`, else the latest completed legacy run. The order

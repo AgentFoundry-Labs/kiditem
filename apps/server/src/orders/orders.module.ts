@@ -38,6 +38,8 @@ import { OperationModule } from '../common/operation/operation.module';
 import { CoupangDirectshipOperationOwner } from './adapter/in/operation/coupang-directship-operation-owner';
 import { MallOrdersOperationOwner } from './adapter/in/operation/mall-orders-operation-owner';
 import { MallOrdersOperationService } from './application/service/mall-orders-operation.service';
+import { MallOrdersUploadService } from './application/service/mall-orders-upload.service';
+import { OrderCollectionUploadController } from './adapter/in/web/order-collection-upload.controller';
 import { OrderMallAccountPersistenceAdapter } from './adapter/out/persistence/order-mall-account.persistence.adapter';
 import { ORDER_MALL_ACCOUNT_PORT } from './application/port/out/persistence/order-mall-account.port';
 import { OrderCollectionTodayOrdersModule } from './order-collection-today-orders.module';
@@ -49,6 +51,7 @@ import { OrderCollectionTodayOrdersModule } from './order-collection-today-order
     OrderCollectionController,
     CoupangDirectshipController,
     OrderCollectionSourceController,
+    OrderCollectionUploadController,
     SellpiaShipmentTrackingController,
     ReviewsController,
     ReturnTransfersController,
@@ -70,6 +73,7 @@ import { OrderCollectionTodayOrdersModule } from './order-collection-today-order
     CoupangReviewsOperationOwner,
     SellpiaShipmentTrackingOperationOwner,
     MallOrdersOperationService,
+    MallOrdersUploadService,
     MallOrdersOperationOwner,
     OrderMallAccountPersistenceAdapter,
     CoupangDirectshipOperationOwner,

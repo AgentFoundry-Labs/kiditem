@@ -2,6 +2,7 @@ import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import type { OperationStagedChunk } from '@kiditem/shared/operation';
 import {
   isMallOrderOperationMall,
+  isMallOrdersManualUploadMall,
   MALL_ORDERS_CHUNK_KIND,
   MALL_ORDERS_CONTINUATION_CHUNK_KIND,
   MALL_ORDERS_ORDER_NUMBERS_MAX,
@@ -115,6 +116,26 @@ function filePart(contentType: string): MallCaptureRule {
     },
   };
 }
+
+/** 올린 파일 이름의 확장자 → 보관 형식. 변환기는 이름으로 엑셀과 구분 문자 파일을 가른다. */
+function uploadedContentType(fileName: string): string {
+  if (/\.csv$/i.test(fileName)) return 'text/csv';
+  if (/\.xlsx$/i.test(fileName)) return XLSX_CONTENT_TYPE;
+  if (/\.xls$/i.test(fileName)) return 'application/vnd.ms-excel';
+  return 'application/octet-stream';
+}
+
+/**
+ * 수동 업로드(`collectionMode: 'manual-upload'`, KID-380 T4): 서버가 받은 파일 하나를 조각으로 나눠 올린 것을 이어 그
+ * 파일 그대로 보관한다 — 아이스크림몰도 배송목록 행이 아니라 올린 파일이다(암호는 업로드 때 서버가 이미 풀었다).
+ */
+const manualUploadRule: MallCaptureRule = {
+  assemble({ rows, plan }) {
+    const file = joinedFile(rows);
+    if (!file) throw invalid('upload_file_missing', { mallKey: plan.mallKey });
+    return { source: { bytes: file.bytes, fileName: file.fileName, contentType: uploadedContentType(file.fileName) }, captured: 1 };
+  },
+};
 
 /**
  * 꼬망세: 엑셀 조각을 이어 옛 변환 본문 `{xlsxBase64, date}`(JSON, 옛 확장 `jsonPayload` kkomangse)로 보관한다. `date`는
@@ -266,6 +287,9 @@ export function mallOrdersScope(scope: unknown): MallOrdersScope & { mallKey: Ma
   if (!isMallOrderOperationMall(value.mallKey) || !mallCaptureReady(value.mallKey)) {
     throw invalid('mall_not_operation_kind', { mallKey: value.mallKey });
   }
+  if (value.collectionMode === 'manual-upload' && !isMallOrdersManualUploadMall(value.mallKey)) {
+    throw invalid('manual_upload_unsupported', { mallKey: value.mallKey });
+  }
   if (value.selectionMode === 'automatic' && !value.seenRowKeys) {
     throw invalid('automatic_selection_requires_seen_rows', { mallKey: value.mallKey });
   }
@@ -280,7 +304,7 @@ export function readMallOrdersPlan(value: unknown): MallOrdersPlan {
 
 /** 청크 → 보관 캡처. `order_rows`는 순번대로 이어 붙이고, `continuation`은 받는 몰에서 한 장만. */
 export function mallOrdersCapture(plan: MallOrdersPlan, chunks: readonly OperationStagedChunk[]): MallOrdersCapture {
-  const rule = MALL_CAPTURE_RULES[plan.mallKey];
+  const rule = plan.collectionMode === 'manual-upload' ? manualUploadRule : MALL_CAPTURE_RULES[plan.mallKey];
   if (!rule) throw invalid('mall_not_operation_kind', { mallKey: plan.mallKey });
   const rows: unknown[] = [];
   let continuation: unknown | null = null;

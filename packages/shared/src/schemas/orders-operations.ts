@@ -226,6 +226,15 @@ export function isMallOrderOperationMall(mallKey: string): mallKey is MallOrderO
   return (MALL_ORDER_OPERATION_MALLS as readonly string[]).includes(mallKey);
 }
 
+/**
+ * 운영자가 몰에서 받은 주문 파일을 화면에서 올리는 수동 업로드(`collectionMode: 'manual-upload'`, KID-380 T4)를 받는 몰.
+ * 옛 업로드 화면이 받던 몰 그대로다 — 서버가 그 파일을 실행 하나로 보관하고 같은 변환기로 바꾼다.
+ */
+export const MALL_ORDERS_MANUAL_UPLOAD_MALLS = ['domeggook', 'gs-shop', 'icecream-mall'] as const satisfies readonly MallOrderOperationMall[];
+export function isMallOrdersManualUploadMall(mallKey: string): boolean {
+  return (MALL_ORDERS_MANUAL_UPLOAD_MALLS as readonly string[]).includes(mallKey);
+}
+
 /** 청크 종류(확장 수집기 → owner finalize). */
 export const COUPANG_SHIPMENT_SUMMARY_CHUNK_KIND = 'shipment_dates' as const;
 export const COUPANG_SHIPMENT_SUMMARY_SCAN_CHUNK_KIND = 'shipment_scan' as const;

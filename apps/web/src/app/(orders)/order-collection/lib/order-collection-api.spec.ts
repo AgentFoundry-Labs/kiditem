@@ -1,5 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { convertIcecreamMallOrderRows, regenerateOrderCollectionSource } from './order-collection-api';
+import { regenerateOrderCollectionSource } from './order-collection-api';
 import { downloadBlob } from '@/lib/browser-download';
 import { read } from 'xlsx';
 
@@ -28,26 +28,6 @@ describe('order collection conversion transport', () => {
         'X-Order-Collection-Skipped-Rows': '0',
       },
     }));
-  });
-
-  it('sends the source owner fence with browser-row conversion', async () => {
-    await convertIcecreamMallOrderRows(
-      { headers: ['주문번호'], rows: [['order-1']], fileName: 'orders' },
-      {
-        download: false,
-        run: { attemptId: ATTEMPT_ID, attemptToken: ATTEMPT_TOKEN },
-      },
-    );
-
-    expect(api.fetchRaw).toHaveBeenCalledWith(
-      '/api/orders/collection/icecream-mall/convert-rows',
-      expect.objectContaining({
-        headers: expect.objectContaining({
-          'x-order-collection-attempt-id': ATTEMPT_ID,
-          'x-source-attempt-token': ATTEMPT_TOKEN,
-        }),
-      }),
-    );
   });
 
   it('retains measured zero without parsing or downloading a workbook for a confirmed-empty source', async () => {
