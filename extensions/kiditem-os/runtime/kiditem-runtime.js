@@ -4084,6 +4084,7 @@ var KidItemRuntime = (() => {
   var WING_TRACKED_PRODUCTS_KIND = "advertising.wing_tracked_products";
   var WING_RANK_KIND = "advertising.wing_rank";
   var KEYWORD_SERP_KIND = "advertising.keyword_serp";
+  var COMPETITOR_SELLER_IDENTITY_KIND = "advertising.competitor_seller_identity";
   function canonicalAdvertisingKeyword(value) {
     return value.trim().replace(/\s+/gu, " ").normalize("NFC");
   }
@@ -4235,6 +4236,49 @@ var KidItemRuntime = (() => {
     items: external_exports.number().int().nonnegative(),
     rankRows: external_exports.number().int().nonnegative()
   }).passthrough();
+  var COMPETITOR_SELLER_IDENTITY_MAX_TARGETS = 200;
+  var CompetitorSellerIdentityScopeSchema = external_exports.object({
+    keywords: keywordList(KEYWORD_SERP_MAX_KEYWORDS).optional()
+  }).strict();
+  var CompetitorSellerIdentityTargetSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    productKey: external_exports.string().min(1).max(2100),
+    productId: external_exports.string().max(40).nullable(),
+    vendorItemId: external_exports.string().max(40).nullable(),
+    name: external_exports.string().max(300),
+    link: external_exports.string().url().max(2e3),
+    rank: external_exports.number().int().positive(),
+    matchScore: external_exports.number().finite()
+  }).strict();
+  var CompetitorSellerIdentityPlanSchema = external_exports.object({
+    targets: external_exports.array(CompetitorSellerIdentityTargetSchema).max(COMPETITOR_SELLER_IDENTITY_MAX_TARGETS),
+    excludedTargetCount: external_exports.number().int().nonnegative()
+  }).strict();
+  function isSellerStoreUrl(value, sellerId) {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname === "shop.coupang.com" && (url.pathname === `/${sellerId}` || url.pathname === `/vid/${sellerId}`);
+    } catch {
+      return false;
+    }
+  }
+  var COMPETITOR_SELLER_IDENTITY_CHUNK_KIND = "seller_identity";
+  var CompetitorSellerIdentityItemSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    productKey: external_exports.string().min(1).max(2100),
+    productId: external_exports.string().max(40).nullable(),
+    vendorItemId: external_exports.string().max(40).nullable(),
+    link: external_exports.string().url().max(2e3),
+    sellerName: external_exports.string().min(1).max(120),
+    sellerId: external_exports.string().regex(/^[A-Za-z0-9_-]{1,80}$/),
+    sellerStoreUrl: external_exports.string().url().max(200),
+    capturedAt: external_exports.string().datetime()
+  }).strict().refine((item) => isSellerStoreUrl(item.sellerStoreUrl, item.sellerId), { message: "sellerStoreUrl\uC740 \uADF8 \uD310\uB9E4\uC790\uC758 shop.coupang.com \uC8FC\uC18C\uC5EC\uC57C \uD569\uB2C8\uB2E4", path: ["sellerStoreUrl"] });
+  var CompetitorSellerIdentityResultSchema = external_exports.object({
+    targets: external_exports.number().int().nonnegative(),
+    identities: external_exports.number().int().nonnegative(),
+    resolvedProductCount: external_exports.number().int().nonnegative()
+  }).passthrough();
 
   // extensions/src/collectors/collector.ts
   function attentionReporter(report, base) {
@@ -4250,6 +4294,46 @@ var KidItemRuntime = (() => {
       await report({ ...base, attention: { ...attention, since } });
     };
   }
+
+  // extensions/src/collectors/advertising.competitor_seller_identity/index.ts
+  var advertisingCompetitorSellerIdentityCollector = {
+    kind: COMPETITOR_SELLER_IDENTITY_KIND,
+    site: "coupang-product",
+    async *collect(plan, site, { signal, report }) {
+      const byProduct = /* @__PURE__ */ new Map();
+      for (const target of plan.targets) byProduct.set(target.productKey, [...byProduct.get(target.productKey) ?? [], target]);
+      try {
+        let index = 0;
+        for (const [productKey, targets] of byProduct) {
+          if (signal.aborted) return;
+          const first = targets[0];
+          const seller = await site.sellerIdentity(first.link, {
+            label: first.name || productKey,
+            onAttention: attentionReporter(report, { current: index, total: byProduct.size, label: first.name || productKey })
+          });
+          index += 1;
+          const capturedAt = (/* @__PURE__ */ new Date()).toISOString();
+          const items = seller ? targets.map((target) => ({
+            keyword: target.keyword,
+            productKey: target.productKey,
+            productId: target.productId,
+            vendorItemId: target.vendorItemId,
+            link: target.link,
+            ...seller,
+            capturedAt
+          })) : [];
+          yield {
+            chunkKind: COMPETITOR_SELLER_IDENTITY_CHUNK_KIND,
+            payload: items,
+            progress: { current: index, total: byProduct.size, label: first.name || productKey }
+          };
+        }
+      } finally {
+        await site.close();
+      }
+    }
+  };
+  registerCollector(advertisingCompetitorSellerIdentityCollector);
 
   // extensions/src/collectors/advertising.keyword_serp/index.ts
   var advertisingKeywordSerpCollector = {
@@ -7355,6 +7439,120 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "art09", create: (deps) => createArt09Site(deps.tabs) });
 
+  // extensions/src/sites/coupang-product/index.ts
+  var ORIGIN = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS = 6e4;
+  var ASK_TIMEOUT_MS = 2e4;
+  var RENDER_WAIT_MS = 1200;
+  var PRODUCT_DELAY_MS = [900, 1500];
+  var CONTENT_FILE = "content/advertising/coupang-product-seller.js";
+  var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
+  var COUPANG_PRODUCT_SITE = {
+    name: "coupang-product",
+    origin: ORIGIN,
+    caller: { minIntervalMs: 0, displayName: "\uCFE0\uD321" }
+  };
+  var COUPANG_PRODUCT_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["coupang.com"]),
+    isLogin: (url) => hostWithin(url, ["login.coupang.com"]),
+    loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  function isProductDetailUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname === "www.coupang.com" && url.port === "" && url.username === "" && /^\/vp\/products\/\d+$/.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+  function isExpectedProductUrl(actual, expected) {
+    if (!isProductDetailUrl(actual) || !isProductDetailUrl(expected)) return false;
+    const left = new URL(actual);
+    const right = new URL(expected);
+    if (left.pathname !== right.pathname) return false;
+    return ["itemId", "vendorItemId"].every((name) => right.searchParams.get(name) === null || left.searchParams.get(name) === right.searchParams.get(name));
+  }
+  function parseSellerShopLink(value) {
+    const href = typeof value?.href === "string" ? value.href.trim() : "";
+    let url;
+    try {
+      url = new URL(href);
+    } catch {
+      return null;
+    }
+    if (url.protocol !== "https:" || url.hostname !== "shop.coupang.com") return null;
+    const parts = url.pathname.split("/").filter(Boolean);
+    const vid = parts[0] === "vid";
+    const sellerId = vid ? parts[1] : parts[0];
+    if (!sellerId || !/^[A-Za-z0-9_-]{1,80}$/.test(sellerId)) return null;
+    const sellerName = String(value?.text ?? "").replace(/\s*판매자\s*상품\s*보러가기\s*$/i, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
+    if (!sellerName || /^(판매자|쿠팡|로켓배송)$/i.test(sellerName)) return null;
+    return { sellerName, sellerId, sellerStoreUrl: `https://shop.coupang.com${vid ? `/vid/${sellerId}` : `/${sellerId}`}` };
+  }
+  function createCoupangProductSite(tabs, deps) {
+    let page = null;
+    let keepOpen = false;
+    let productsRead = 0;
+    const ask = (current) => current.ask(
+      { type: "KIDITEM_COUPANG_PRODUCT_SELLER" },
+      { timeoutMs: ASK_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE] }, guard: COUPANG_PRODUCT_PAGE_GUARD }
+    );
+    return {
+      async sellerIdentity(link, options) {
+        if (!isProductDetailUrl(link)) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0C1\uD488 \uC0C1\uC138 \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.", { status: null, reason: "not_product_detail", url: link });
+        }
+        if (productsRead > 0) {
+          const [low, high] = PRODUCT_DELAY_MS;
+          await deps.sleep(Math.floor(low + deps.random() * (high - low)));
+        }
+        productsRead += 1;
+        page ??= await tabs.open("about:blank");
+        const current = page;
+        for (; ; ) {
+          const landed = await current.navigate(link, { timeoutMs: PAGE_TIMEOUT_MS, continueOnTimeout: true });
+          if (!isExpectedProductUrl(landed, link)) {
+            try {
+              checkPageUrl(COUPANG_PRODUCT_PAGE_GUARD, landed);
+            } catch (error) {
+              if (leftForOperator(error)) keepOpen = true;
+              throw error;
+            }
+            const cleared = await waitForOperator(
+              current,
+              (url) => !isExpectedProductUrl(url, link) && !isProductDetailUrl(url),
+              { kind: "verification", site: "\uCFE0\uD321", label: options.label },
+              options.onAttention
+            );
+            if (!cleared) {
+              keepOpen = true;
+              throw new RuntimeError(SITE_VERIFICATION_REQUIRED2, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
+            }
+            continue;
+          }
+          await deps.sleep(RENDER_WAIT_MS);
+          let answer = await ask(current).catch((error) => {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          });
+          let seller = answer?.ok ? parseSellerShopLink(answer.seller) : null;
+          if (!seller) {
+            await deps.sleep(RENDER_WAIT_MS);
+            answer = await ask(current);
+            seller = answer?.ok ? parseSellerShopLink(answer.seller) : null;
+          }
+          return seller;
+        }
+      },
+      /** 수집이 끝나면 탭을 닫는다. 보안 확인·로그인에서 멈췄으면 운영자가 볼 수 있게 남긴다. */
+      async close() {
+        if (page && !keepOpen) await page.close();
+        page = null;
+      }
+    };
+  }
+  registerSite({ name: COUPANG_PRODUCT_SITE.name, create: (deps) => createCoupangProductSite(deps.tabs, { sleep: deps.sleep, random: () => Math.random() }) });
+
   // extensions/src/sites/coupang-search/parse.ts
   var PROVIDER_ATTENTION = /access\s*denied|unauthori[sz]ed|forbidden|too\s*many\s*requests|로그인|인증|접근\s*거부/i;
   var STOP_WORDS = /* @__PURE__ */ new Set(["\uCFE0\uD321", "\uB85C\uCF13", "\uB85C\uCF13\uBC30\uC1A1", "\uBB34\uB8CC\uBC30\uC1A1", "\uBB34\uB8CC", "\uBC30\uC1A1", "\uC815\uD488", "\uAD6D\uB0B4", "\uB2F9\uC77C", "\uC624\uB298", "\uC0C8\uC0C1\uD488", "\uC0C1\uD488", "\uAD6C\uB9E4", "\uD560\uC778", "\uD2B9\uAC00", "\uC635\uC158", "\uC0C9\uC0C1", "\uB79C\uB364"]);
@@ -7485,24 +7683,24 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/coupang-search/serp.ts
-  var ORIGIN = "https://www.coupang.com";
-  var PAGE_TIMEOUT_MS = 6e4;
+  var ORIGIN2 = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS2 = 6e4;
   var EXTRACTION_TIMEOUT_MS2 = 2e4;
-  var RENDER_WAIT_MS = 1200;
+  var RENDER_WAIT_MS2 = 1200;
   var PAGE_DELAY_MS = [1500, 3e3];
   var KEYWORD_DELAY_MS = [4e3, 8e3];
   var WALL_POLL_MS = 5e3;
   var WALL_WAIT_MAX_MS = 10 * 6e4;
   var WALL_REMIND_MS = 3 * 6e4;
-  var CONTENT_FILE = "content/advertising/coupang-serp-page.js";
-  var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
+  var CONTENT_FILE2 = "content/advertising/coupang-serp-page.js";
+  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
   var COUPANG_SERP_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["coupang.com"]),
     isLogin: (url) => hostWithin(url, ["login.coupang.com"]),
     loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
   };
   function buildCoupangSerpUrl(keyword2, page) {
-    return `${ORIGIN}/np/search?q=${encodeURIComponent(keyword2)}&channel=user&page=${page}&listSize=36`;
+    return `${ORIGIN2}/np/search?q=${encodeURIComponent(keyword2)}&channel=user&page=${page}&listSize=36`;
   }
   function isExpectedSerpUrl(actual, expected) {
     try {
@@ -7520,13 +7718,13 @@ var KidItemRuntime = (() => {
     let keywordsRead = 0;
     const between = ([low, high]) => deps.sleep(Math.floor(low + deps.random() * (high - low)));
     async function read(current, url) {
-      const landed = await current.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS, continueOnTimeout: true });
+      const landed = await current.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS2, continueOnTimeout: true });
       if (!isExpectedSerpUrl(landed, url)) return { landed, read: null };
-      await deps.sleep(RENDER_WAIT_MS);
+      await deps.sleep(RENDER_WAIT_MS2);
       try {
         const answer = await current.ask(
           { type: "KIDITEM_COUPANG_SERP_ITEMS" },
-          { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE] }, guard: COUPANG_SERP_PAGE_GUARD }
+          { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE2] }, guard: COUPANG_SERP_PAGE_GUARD }
         );
         return { landed, read: answer };
       } catch (error) {
@@ -7541,7 +7739,7 @@ var KidItemRuntime = (() => {
       for (; ; ) {
         if (deps.now() - started >= WALL_WAIT_MAX_MS) {
           keepOpen = true;
-          throw new RuntimeError(SITE_VERIFICATION_REQUIRED2, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { keyword: attention.label });
+          throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { keyword: attention.label });
         }
         await deps.sleep(WALL_POLL_MS);
         if (deps.now() - remindedAt >= WALL_REMIND_MS) {
@@ -7559,7 +7757,7 @@ var KidItemRuntime = (() => {
     async function readInPlace(current) {
       return current.ask(
         { type: "KIDITEM_COUPANG_SERP_ITEMS" },
-        { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE] }, guard: COUPANG_SERP_PAGE_GUARD }
+        { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE2] }, guard: COUPANG_SERP_PAGE_GUARD }
       ).catch(() => null);
     }
     return {
@@ -7651,18 +7849,18 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/coupang-search/index.ts
-  var ORIGIN2 = "https://www.coupang.com";
-  var PAGE_TIMEOUT_MS2 = 6e4;
+  var ORIGIN3 = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS3 = 6e4;
   var EVIDENCE_TIMEOUT_MS = 3e4;
   var SETTLE_MS = 1500;
-  var CONTENT_FILE2 = "content/sourcing/coupang-search-page.js";
+  var CONTENT_FILE3 = "content/sourcing/coupang-search-page.js";
   var COUPANG_SEARCH_SITE = {
     name: "coupang-search",
-    origin: ORIGIN2,
+    origin: ORIGIN3,
     caller: { minIntervalMs: SETTLE_MS, displayName: "\uCFE0\uD321" }
   };
   function buildCoupangSearchUrl(keyword2) {
-    return `${ORIGIN2}/np/search?component=&q=${encodeURIComponent(keyword2)}&channel=user`;
+    return `${ORIGIN3}/np/search?component=&q=${encodeURIComponent(keyword2)}&channel=user`;
   }
   function isCoupangSearchUrl(value) {
     try {
@@ -7678,14 +7876,14 @@ var KidItemRuntime = (() => {
         const url = buildCoupangSearchUrl(keyword2);
         const page = await tabs.open("about:blank");
         try {
-          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS2 });
+          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS3 });
           if (!isCoupangSearchUrl(landed)) {
             throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uCFE0\uD321 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
           }
           await deps.sleep(SETTLE_MS);
           const evidence = await page.ask(
             { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword: keyword2 },
-            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE2] } }
+            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE3] } }
           );
           if (!evidence.links || !evidence.productNames) {
             throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
@@ -8257,7 +8455,7 @@ var KidItemRuntime = (() => {
   var CONTENT_FILES = {
     isolated: ["content/sourcing/live-commerce-extractor.js", "content/sourcing/live-commerce-content.js"]
   };
-  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
+  var SITE_VERIFICATION_REQUIRED4 = "SITE_VERIFICATION_REQUIRED";
   var LIVE_COMMERCE_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["1688.com", "douyin.com"]),
     isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "sso.douyin.com", "passport.douyin.com"]) || hostWithin(url, ["douyin.com"]) && /\/login/i.test(url.pathname),
@@ -8334,7 +8532,7 @@ var KidItemRuntime = (() => {
     };
   }
   function verification2(url) {
-    return new RuntimeError(SITE_VERIFICATION_REQUIRED3, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED4, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
   }
   registerSite({ name: LIVE_COMMERCE_SITE.name, create: (deps) => createLiveCommerceSite(deps.tabs) });
 
@@ -8612,7 +8810,7 @@ var KidItemRuntime = (() => {
       return false;
     }
   }
-  var SITE_VERIFICATION_REQUIRED4 = "SITE_VERIFICATION_REQUIRED";
+  var SITE_VERIFICATION_REQUIRED5 = "SITE_VERIFICATION_REQUIRED";
   var MAX_VERIFICATION_ROUNDS3 = 5;
   function sanitizeTiktokRegion(value) {
     if (typeof value !== "string") return null;
@@ -8645,7 +8843,7 @@ var KidItemRuntime = (() => {
         const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
         if (!cleared) {
           keepOpen = true;
-          throw new RuntimeError(SITE_VERIFICATION_REQUIRED4, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
+          throw new RuntimeError(SITE_VERIFICATION_REQUIRED5, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
         }
         landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS6, stopAt, continueOnTimeout: true });
       }
@@ -9112,10 +9310,10 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/wing/index.ts
-  var ORIGIN3 = "https://wing.coupang.com";
-  var SEARCH_URL = `${ORIGIN3}/tenants/seller-web/v2/vendor-inventory/search`;
-  var DETAIL_URL = `${ORIGIN3}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
-  var EXCEL_BASE = `${ORIGIN3}/tenants/seller-web/excel/request/download`;
+  var ORIGIN4 = "https://wing.coupang.com";
+  var SEARCH_URL = `${ORIGIN4}/tenants/seller-web/v2/vendor-inventory/search`;
+  var DETAIL_URL = `${ORIGIN4}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
+  var EXCEL_BASE = `${ORIGIN4}/tenants/seller-web/excel/request/download`;
   var EXCEL_REQUEST_TYPE = "EDITABLE_CATALOGUE";
   var CATALOGUE_TYPES = [
     "DISPLAY_PRODUCT_NAME",
@@ -9137,12 +9335,12 @@ var KidItemRuntime = (() => {
   var WING_CATALOG_PAYLOAD_INVALID = "WING_CATALOG_PAYLOAD_INVALID";
   var WING_SITE = {
     name: "wing",
-    origin: ORIGIN3,
+    origin: ORIGIN4,
     caller: {
       minIntervalMs: 2e3,
       timeoutMs: WING_TIMEOUT_MS,
       displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN3, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+      xsrf: { cookieUrl: ORIGIN4, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingSite(caller, deps) {
@@ -9310,18 +9508,18 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/wing/pre-matching-search.ts
-  var ORIGIN4 = "https://wing.coupang.com";
-  var SEARCH_URL2 = `${ORIGIN4}/tenants/seller-web/pre-matching/search`;
+  var ORIGIN5 = "https://wing.coupang.com";
+  var SEARCH_URL2 = `${ORIGIN5}/tenants/seller-web/pre-matching/search`;
   var RETRY_ATTEMPTS = 4;
   var REQUEST_TIMEOUT_MS2 = 2e4;
   var WING_SEARCH_PAYLOAD_INVALID = "WING_SEARCH_PAYLOAD_INVALID";
   var WING_SEARCH_SITE = {
     name: "wing-search",
-    origin: ORIGIN4,
+    origin: ORIGIN5,
     caller: {
       minIntervalMs: 2200,
       displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN4, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+      xsrf: { cookieUrl: ORIGIN5, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingPreMatchingSearch(caller, deps) {

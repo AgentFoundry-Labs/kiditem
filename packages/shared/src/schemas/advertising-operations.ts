@@ -252,3 +252,70 @@ export const KeywordSerpResultSchema = z.object({
   rankRows: z.number().int().nonnegative(),
 }).passthrough();
 export type KeywordSerpResult = z.infer<typeof KeywordSerpResultSchema>;
+
+// ── K4 advertising.competitor_seller_identity ──
+
+/** 한 실행에서 여는 상품 상세 상한(옛 attempt와 같다). */
+export const COMPETITOR_SELLER_IDENTITY_MAX_TARGETS = 200;
+
+/**
+ * 경쟁 판매자 확인: 최근 SERP에서 판매자를 아직 모르는 경쟁 상품의 상세(www.coupang.com/vp/products)를 열어 판매자 상점
+ * 링크를 읽는다. `keywords`를 주면 그 키워드의 SERP 상품만(SERP 순위 실행이 이어서 시작할 때), 없으면 최근 30일 전체에서
+ * 고른다. lockKey `org`.
+ */
+export const CompetitorSellerIdentityScopeSchema = z.object({
+  keywords: keywordList(KEYWORD_SERP_MAX_KEYWORDS).optional(),
+}).strict();
+export type CompetitorSellerIdentityScope = z.infer<typeof CompetitorSellerIdentityScopeSchema>;
+
+export const CompetitorSellerIdentityTargetSchema = z.object({
+  keyword: z.string().min(1).max(100),
+  productKey: z.string().min(1).max(2_100),
+  productId: z.string().max(40).nullable(),
+  vendorItemId: z.string().max(40).nullable(),
+  name: z.string().max(300),
+  link: z.string().url().max(2_000),
+  rank: z.number().int().positive(),
+  matchScore: z.number().finite(),
+}).strict();
+export type CompetitorSellerIdentityTarget = z.infer<typeof CompetitorSellerIdentityTargetSchema>;
+
+/** plan: 열 상품 상세(상품 상세 주소만 — 그 밖의 대상은 계획에서 뺀다)와 뺀 수. */
+export const CompetitorSellerIdentityPlanSchema = z.object({
+  targets: z.array(CompetitorSellerIdentityTargetSchema).max(COMPETITOR_SELLER_IDENTITY_MAX_TARGETS),
+  excludedTargetCount: z.number().int().nonnegative(),
+}).strict();
+export type CompetitorSellerIdentityPlan = z.infer<typeof CompetitorSellerIdentityPlanSchema>;
+
+/** 판매자 상점 주소: `https://shop.coupang.com/<id>` 또는 `/vid/<id>`. */
+export function isSellerStoreUrl(value: string, sellerId: string): boolean {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname === 'shop.coupang.com'
+      && (url.pathname === `/${sellerId}` || url.pathname === `/vid/${sellerId}`);
+  } catch {
+    return false;
+  }
+}
+
+/** 청크 `seller_identity`: 상품 상세 하나에서 읽은 판매자(계획한 대상마다 한 원소). */
+export const COMPETITOR_SELLER_IDENTITY_CHUNK_KIND = 'seller_identity' as const;
+export const CompetitorSellerIdentityItemSchema = z.object({
+  keyword: z.string().min(1).max(100),
+  productKey: z.string().min(1).max(2_100),
+  productId: z.string().max(40).nullable(),
+  vendorItemId: z.string().max(40).nullable(),
+  link: z.string().url().max(2_000),
+  sellerName: z.string().min(1).max(120),
+  sellerId: z.string().regex(/^[A-Za-z0-9_-]{1,80}$/),
+  sellerStoreUrl: z.string().url().max(200),
+  capturedAt: z.string().datetime(),
+}).strict().refine((item) => isSellerStoreUrl(item.sellerStoreUrl, item.sellerId), { message: 'sellerStoreUrl은 그 판매자의 shop.coupang.com 주소여야 합니다', path: ['sellerStoreUrl'] });
+export type CompetitorSellerIdentityItem = z.infer<typeof CompetitorSellerIdentityItemSchema>;
+
+export const CompetitorSellerIdentityResultSchema = z.object({
+  targets: z.number().int().nonnegative(),
+  identities: z.number().int().nonnegative(),
+  resolvedProductCount: z.number().int().nonnegative(),
+}).passthrough();
+export type CompetitorSellerIdentityResult = z.infer<typeof CompetitorSellerIdentityResultSchema>;

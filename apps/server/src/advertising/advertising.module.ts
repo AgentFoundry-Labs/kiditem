@@ -31,7 +31,6 @@ import {
   AD_TRAFFIC_READ_PORT,
   AD_TRAFFIC_SOURCE_PORT,
 } from "./application/port/in/ad-traffic-source.port";
-import { SellerIdentitySourceController } from "./adapter/in/http/seller-identity-source.controller";
 import { CompetitorTrackingController } from "./adapter/in/http/competitor-tracking.controller";
 import { CompetitorCatalogSourceController } from "./adapter/in/http/competitor-catalog-source.controller";
 import { WingTrackedProductController } from "./adapter/in/http/wing-tracked-product.controller";
@@ -48,7 +47,6 @@ import { ChannelTargetDailyRepositoryAdapter } from "./adapter/out/repository/ch
 import { KeywordRankRepositoryAdapter } from "./adapter/out/repository/keyword-rank.repository.adapter";
 import { AdKeywordSourceRepository } from "./adapter/out/repository/ad-keyword-source.repository";
 import { AdCampaignSourceRepository } from "./adapter/out/repository/ad-campaign-source.repository";
-import { SellerIdentitySourceRepository } from "./adapter/out/repository/seller-identity-source.repository";
 import { WingTrackedProductRepositoryAdapter } from "./adapter/out/repository/wing-tracked-product.repository.adapter";
 import { CompetitorCatalogSourceAttemptRepositoryAdapter } from "./adapter/out/repository/competitor-catalog-source-attempt.repository.adapter";
 import { KiditemStorefrontAdapter } from "./adapter/out/provider/kiditem-storefront.adapter";
@@ -59,6 +57,7 @@ import { ADVERTISING_SOURCE_ALERT_PORT } from "./application/port/out/repository
 import { WingTrackedProductsOperationOwner } from "./adapter/in/operation/wing-tracked-products-operation-owner";
 import { WingRankOperationOwner } from "./adapter/in/operation/wing-rank-operation-owner";
 import { KeywordSerpOperationOwner } from "./adapter/in/operation/keyword-serp-operation-owner";
+import { CompetitorSellerIdentityOperationOwner } from "./adapter/in/operation/competitor-seller-identity-operation-owner";
 // application/service + handlers
 import { AdvertisingService } from "./application/service/advertising.service";
 import { AdExportService } from "./application/service/ad-export.service";
@@ -181,7 +180,6 @@ const REPOSITORY_PORT_BINDINGS = [
     AdCampaignSourceController,
     WingItemwinnerKpiSourceController,
     AdTrafficSourceController,
-    SellerIdentitySourceController,
     CompetitorTrackingController,
     CompetitorCatalogSourceController,
     WingTrackedProductController,
@@ -218,7 +216,6 @@ const REPOSITORY_PORT_BINDINGS = [
       provide: AD_TRAFFIC_READ_PORT,
       useExisting: AdTrafficSourceRepository,
     },
-    SellerIdentitySourceRepository,
     WingTrackedProductRepositoryAdapter,
     CompetitorCatalogSourceAttemptRepositoryAdapter,
     KiditemStorefrontAdapter,
@@ -228,6 +225,7 @@ const REPOSITORY_PORT_BINDINGS = [
     WingTrackedProductsOperationOwner,
     WingRankOperationOwner,
     KeywordSerpOperationOwner,
+    CompetitorSellerIdentityOperationOwner,
     // application/service
     AdvertisingService,
     AdExportService,

@@ -27,6 +27,17 @@ import {
   KEYWORD_RANK_REPOSITORY_PORT,
   type KeywordRankRepositoryPort,
 } from "../port/out/repository/keyword-rank.repository.port";
+import type {
+  CompetitorSellerIdentityPlan,
+  CompetitorSellerIdentityResult,
+} from "@kiditem/shared/advertising-operations";
+import type { OperationStagedChunk } from "@kiditem/shared/operation";
+import type { OwnerTransaction } from "../../../common/owner-transaction";
+import {
+  assembleSellerIdentities,
+  planSellerIdentity,
+} from "../../domain/competitor-seller-identity-operation";
+import { KeywordRankIngestHandler } from "./keyword-rank-ingest.handler";
 
 @Injectable()
 export class CompetitorTrackingService {
@@ -37,7 +48,39 @@ export class CompetitorTrackingService {
     private readonly keywordRankRepo: KeywordRankRepositoryPort,
     @Inject(KIDITEM_STOREFRONT_PORT)
     private readonly kiditemStorefront: KiditemStorefrontPort,
+    private readonly ingest: KeywordRankIngestHandler,
   ) {}
+
+  /**
+   * 경쟁 판매자 확인 실행의 계획(`advertising.competitor_seller_identity`, KID-362): 최근 30일 SERP에서 판매자를 모르는
+   * 경쟁 상품 200개(옛 attempt 선택 그대로), 키워드를 주면 그 키워드만.
+   */
+  async planSellerIdentityOperation(organizationId: string, keywords?: readonly string[]): Promise<CompetitorSellerIdentityPlan> {
+    const selected = await this.getProductDetailTargets(organizationId, 30, 200);
+    return planSellerIdentity({ selected: selected.targets, keywords });
+  }
+
+  /** finish 트랜잭션에서 확인한 판매자를 그 키워드의 최신 SERP 스냅샷 상품에 적는다(실행이 발행한 SERP 행만). */
+  async publishSellerIdentityOperation(tx: OwnerTransaction, input: {
+    organizationId: string;
+    operationId: string;
+    plan: CompetitorSellerIdentityPlan;
+    chunks: readonly OperationStagedChunk[];
+  }): Promise<CompetitorSellerIdentityResult> {
+    const identities = assembleSellerIdentities(input.plan, input.chunks);
+    const capturedAt = identities.map((identity) => identity.capturedAt).sort().at(-1) ?? new Date().toISOString();
+    const applied = await this.keywordRankRepo.runInTransaction(tx, () =>
+      this.ingest.executeSellerIdentities(
+        { type: "competitor_seller_identity", source: "coupang-overlap-product-detail", timestamp: capturedAt, data: identities },
+        input.organizationId,
+        input.operationId,
+      ));
+    return {
+      targets: input.plan.targets.length,
+      identities: identities.length,
+      resolvedProductCount: applied.results.reduce((total, result) => total + result.resolvedProductCount, 0),
+    };
+  }
 
   async getOverview(organizationId: string, days: number, sellerLimit: number) {
     const [context, trackers, snapshots] = await Promise.all([

@@ -12,6 +12,9 @@ import { ADVERTISING_SOURCE_ALERT_PORT } from '../advertising/application/port/o
 import { WingRankOperationOwner } from '../advertising/adapter/in/operation/wing-rank-operation-owner';
 import { KeywordSerpOperationOwner } from '../advertising/adapter/in/operation/keyword-serp-operation-owner';
 import { KeywordRankIngestHandler } from '../advertising/application/service/keyword-rank-ingest.handler';
+import { CompetitorSellerIdentityOperationOwner } from '../advertising/adapter/in/operation/competitor-seller-identity-operation-owner';
+import { CompetitorTrackingService } from '../advertising/application/service/competitor-tracking.service';
+import { KIDITEM_STOREFRONT_PORT } from '../advertising/application/port/out/provider/kiditem-storefront.port';
 import { KeywordRankRepositoryAdapter } from '../advertising/adapter/out/repository/keyword-rank.repository.adapter';
 import { KEYWORD_RANK_REPOSITORY_PORT } from '../advertising/application/port/out/repository/keyword-rank.repository.port';
 import { KeywordRankService } from '../advertising/application/service/keyword-rank.service';
@@ -31,13 +34,16 @@ export async function advertisingKeywordOperationsApp(prisma: PrismaClient, opti
   const channelFacts = channelFactTestPorts(prisma as never);
   const keywordRank = new KeywordRankRepositoryAdapter(channelFacts.listings, channelFacts.recipes, prisma as never);
   return ordersOperationsApp(prisma, {
-    owners: [WingTrackedProductsOperationOwner, WingRankOperationOwner, KeywordSerpOperationOwner],
+    owners: [WingTrackedProductsOperationOwner, WingRankOperationOwner, KeywordSerpOperationOwner, CompetitorSellerIdentityOperationOwner],
     controllers: options.controllers,
     providers: [
       { provide: KEYWORD_RANK_REPOSITORY_PORT, useValue: keywordRank },
       KeywordRankService,
       WingSalesRankIngestHandler,
       KeywordRankIngestHandler,
+      CompetitorTrackingService,
+      // KidItem 스토어프런트(외부 HTTP)는 시험에서 비운다 — 자사 상품은 Wing 카탈로그 옵션으로 충분하다.
+      { provide: KIDITEM_STOREFRONT_PORT, useValue: { listNewProducts: async () => [] } },
       { provide: CHANNEL_ACCOUNT_PORT, useValue: accounts },
       { provide: ADVERTISING_SOURCE_ALERT_PORT, useValue: new AdvertisingSourceAlertAdapter(new SourceFailureAlerts(prisma as never)) },
       WingTrackedProductService,
