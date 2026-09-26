@@ -448,4 +448,3 @@ test('collection-session dispatch exposes no restart or finalize command', () =>
   assert.doesNotMatch(dispatchSource, /finalizeCollectionSession/);
   assert.doesNotMatch(worker, /msg\?\.action === ["'](?:restart|finalize)CollectionSession["']/);
 });
-

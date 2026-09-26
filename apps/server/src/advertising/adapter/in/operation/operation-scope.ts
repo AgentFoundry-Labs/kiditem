@@ -23,4 +23,3 @@ export async function assertActiveCoupangAccount(accounts: ChannelAccountPort, o
     throw new KiditemNotFoundError('ADVERTISING_ACCOUNT_NOT_FOUND', { details: { channelAccountId } });
   }
 }
-

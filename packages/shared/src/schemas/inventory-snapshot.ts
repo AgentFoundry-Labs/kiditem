@@ -179,4 +179,3 @@ export const InventorySkuSnapshotListResponseSchema = z.object({
 export type InventorySkuSnapshotListResponse = z.infer<
   typeof InventorySkuSnapshotListResponseSchema
 >;
-

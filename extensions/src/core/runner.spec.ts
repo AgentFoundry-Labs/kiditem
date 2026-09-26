@@ -521,4 +521,3 @@ describe('createRunner — 실행 하나의 순서', () => {
     expect(h.finishes).toEqual([{ outcome: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '로그인이 필요합니다.' }]);
   });
 });
-

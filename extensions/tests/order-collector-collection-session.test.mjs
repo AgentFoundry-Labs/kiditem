@@ -1001,4 +1001,3 @@ test('managed login closes only a fresh tab when attachment is refused', async (
   assert.equal(result.reason, 'collection_cancelled');
   assert.deepEqual(events, [['create', false], ['remove', 404]]);
 });
-

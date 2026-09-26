@@ -88,4 +88,3 @@ export async function seedWingTrafficOperation(
   });
   return { id };
 }
-

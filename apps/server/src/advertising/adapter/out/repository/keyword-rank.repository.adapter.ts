@@ -599,5 +599,3 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
 function toAbcGrade(value: string | null): "A" | "B" | "C" | null {
   return value === "A" || value === "B" || value === "C" ? value : null;
 }
-
-
