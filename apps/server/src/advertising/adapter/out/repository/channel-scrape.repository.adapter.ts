@@ -1,20 +1,27 @@
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
 import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
-// Advertising-side scrape-run status reads for the extension-status endpoint,
-// anchored on the published Wing itemwinner owner.
+// Advertising-side status read for the extension-status endpoint, anchored on
+// the newest succeeded Wing itemwinner operation (KID-362).
 
 import { Inject, Injectable } from '@nestjs/common';
-import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
+import { WING_ITEMWINNER_KIND, WingItemwinnerResultSchema } from '@kiditem/shared/advertising-operations';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
-  WING_ITEMWINNER_KPI_READ_PORT,
-  type WingItemwinnerKpiReadPort,
-} from '../../../application/port/in/wing-itemwinner-kpi-source.port';
+  OPERATION_PORT,
+  type OperationPort,
+} from '../../../../common/operation/application/port/in/operation.port';
 import type {
   ChannelScrapeRepositoryPort,
   ExtensionStatusSnapshot,
 } from '../../../application/port/out/repository/channel-scrape.repository.port';
+
+/** 상태 카드가 보여 온 이름(옛 확장 `itemwinnerKpis`의 칸 이름). */
+const KPI_LABELS = {
+  winners: '아이템위너 상품',
+  suppressed: '노출제한 상품',
+  losers: '아이템위너 아닌 상품',
+} as const;
 
 @Injectable()
 export class ChannelScrapeRepositoryAdapter
@@ -24,22 +31,26 @@ export class ChannelScrapeRepositoryAdapter
     @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
     @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
     private readonly prisma: PrismaService,
-    @Inject(WING_ITEMWINNER_KPI_READ_PORT)
-    private readonly wingItemwinnerRead: WingItemwinnerKpiReadPort,
+    @Inject(OPERATION_PORT) private readonly operations: OperationPort,
   ) {}
 
   async findExtensionStatusSnapshot(
     organizationId: string,
   ): Promise<ExtensionStatusSnapshot> {
-    // The itemwinner owner is the authority for which COMPLETE generation is
-    // published. Reuse that selection so this read cannot resurrect listing
-    // rows from an older generation when the newest capture is confirmed
-    // empty.
-    const wingPublished = await this.wingItemwinnerRead.readPublished({
-      organizationId,
+    // The newest succeeded itemwinner operation is the publication. Its result
+    // carries the listing observations it wrote, so a later same-day write to
+    // the mutable daily table cannot change what this card shows, and a failed
+    // or running operation never replaces it.
+    const { operations } = await this.operations.list(organizationId, {
+      kinds: [WING_ITEMWINNER_KIND],
+      status: 'succeeded',
+      limit: 1,
     });
+    const latest = operations[0] ?? null;
+    const parsed = latest ? WingItemwinnerResultSchema.safeParse(latest.result) : null;
+    const published = parsed?.success ? parsed.data : null;
     const channelAccountId =
-      wingPublished?.channelAccountId ??
+      published?.channelAccountId ??
       (await this.findActiveCoupangAccountId(organizationId));
     if (!channelAccountId) {
       return {
@@ -50,56 +61,39 @@ export class ChannelScrapeRepositoryAdapter
         wingKpi: null,
       };
     }
-
-    // Listing observations are captured in the selected COMPLETE owner's
-    // immutable normalized snapshot. Do not remap them through the mutable
-    // daily table: a later same-day publication can move that table's raw
-    // pointer while this read is still using the earlier KPI publication.
-    const latestPerListing =
-      wingPublished?.listingObservations.map((observation) => ({
-        isOfferWinner: observation.isOfferWinner,
-        lastObservedAt: new Date(observation.lastObservedAt),
-      })) ?? [];
-    const rawSnapshotCountPromise = wingPublished
-      ? this.prisma.channelScrapeSnapshot.count({
-          where: {
-            organizationId,
-            sourceImportRunId: wingPublished.attemptId,
-          },
-        })
-      : Promise.resolve(0);
-    const latestRunPromise = wingPublished
-      ? this.prisma.channelScrapeRun.findFirst({
-          where: {
-            organizationId,
-            channelAccountId,
-            sourceImportRunId: wingPublished.attemptId,
-          },
-          orderBy: [
-            { finishedAt: 'desc' },
-            { startedAt: 'desc' },
-            { id: 'desc' },
-          ],
-          select: { finishedAt: true, startedAt: true, pageType: true },
-        })
-      : Promise.resolve(null);
-
-    const [listingCount, rawSnapshotCount, latestRun] = await Promise.all([
-      this.channelListings.readCatalogFacts(ownerTransaction(this.prisma), { organizationId, accountIds: [channelAccountId], activeOnly: true }).then(rows => rows.length),
-      rawSnapshotCountPromise,
-      latestRunPromise,
-    ]);
+    const listingCount = (
+      await this.channelListings.readCatalogFacts(ownerTransaction(this.prisma), {
+        organizationId,
+        accountIds: [channelAccountId],
+        activeOnly: true,
+      })
+    ).length;
+    if (!latest || !published) {
+      return { listingCount, latestPerListing: [], rawSnapshotCount: 0, latestRun: null, wingKpi: null };
+    }
     return {
       listingCount,
-      latestPerListing,
-      rawSnapshotCount,
-      latestRun,
-      wingKpi: wingPublished
-        ? {
-            normalizedJson: wingPublished.normalizedJson,
-            lastObservedAt: new Date(wingPublished.observedAt),
-          }
-        : null,
+      latestPerListing: published.listingObservations.map((observation) => ({
+        isOfferWinner: observation.isOfferWinner,
+        lastObservedAt: new Date(observation.lastObservedAt),
+      })),
+      // Rows Wing returned in that run: the raw evidence count.
+      rawSnapshotCount: published.rowCount,
+      latestRun: {
+        finishedAt: latest.finishedAt ? new Date(latest.finishedAt) : null,
+        startedAt: new Date(latest.startedAt),
+        pageType: 'itemwinner',
+      },
+      wingKpi: {
+        normalizedJson: {
+          kpis: {
+            [KPI_LABELS.winners]: published.kpis.winners,
+            [KPI_LABELS.suppressed]: published.kpis.suppressed,
+            [KPI_LABELS.losers]: published.kpis.losers,
+          },
+        },
+        lastObservedAt: new Date(published.observedAt),
+      },
     };
   }
 

@@ -27,10 +27,6 @@ export function productPlan(sourceUrl: string) {
   return { source: `${supplier.platform}.product_extension`, sourceUrl: new URL(sourceUrl).toString(), platform: supplier.platform };
 }
 
-export function productAlert(source: string) {
-  return { sourceType: source, dedupeKey: `source:${source}`, title: `${source.startsWith('1688') ? '1688' : 'Alibaba'} 상품 수집 실패`, href: '/sourcing-ai' };
-}
-
 export interface ExtensionProductCommand {
   pageType: 'detail' | 'description';
   sourceUrl: string;

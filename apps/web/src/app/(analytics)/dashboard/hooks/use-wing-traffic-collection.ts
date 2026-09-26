@@ -1,6 +1,6 @@
 'use client';
 
-import { WING_TRAFFIC_MAX_COLLECTION_DAYS } from '@kiditem/shared/advertising';
+import { WING_TRAFFIC_MAX_COLLECTION_DAYS } from '@kiditem/shared/advertising-operations';
 import {
   closedMonthRangeFromCutoff,
   inclusiveDayCount,
@@ -8,7 +8,12 @@ import {
   shiftBusinessDateKey,
 } from '@kiditem/shared/common';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
-import { wingTrafficCollection, type WingTrafficRange } from '../lib/wing-traffic-collection';
+import {
+  isLiveOperation,
+  wingTrafficCollection,
+  wingTrafficRun,
+  type WingTrafficRange,
+} from '../lib/wing-traffic-collection';
 
 export type DashboardPeriod = 'month' | 'week' | 'day' | 'custom';
 
@@ -93,8 +98,11 @@ export function useWingTrafficCollection({
   const range = knownThrough
     ? resolveWingTrafficCollectionRange({ period, selectedFrom, selectedTo, knownThrough })
     : null;
-  const latestAttempt = control.status?.latestAttempt ?? null;
-  const activeRange = latestAttempt?.state === 'RUNNING' ? latestAttempt.plan : null;
+  const operations = control.status?.operations ?? [];
+  const latest = wingTrafficRun(operations[0]);
+  const running = wingTrafficRun(operations.find(isLiveOperation));
+  const latestComplete = wingTrafficRun(operations.find((operation) => operation.status === 'succeeded'));
+  const activeRange = running?.range ?? null;
   const startBlockedReason = control.status === undefined
     ? null
     : period === 'custom' && (!selectedFrom || !selectedTo)
@@ -108,8 +116,9 @@ export function useWingTrafficCollection({
   return {
     control,
     range,
-    latestAttempt,
-    latestComplete: control.status?.latestComplete ?? null,
+    latest,
+    running,
+    latestComplete,
     activeRange,
     activeRangeMatches: activeRange !== null && range !== null && sameRange(activeRange, range),
     startBlockedReason,

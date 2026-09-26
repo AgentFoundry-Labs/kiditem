@@ -3,7 +3,6 @@ import { apiClient } from '@/lib/api-client';
 import {
   fetchAllSellpiaInventorySkus,
   listChannelSkuAvailability,
-  listSellpiaImportRuns,
   listSellpiaInventorySkus,
 } from './inventory-api';
 import type {
@@ -23,7 +22,7 @@ function makeSku(index: number): InventorySkuSnapshotItem {
     currentStock: index,
     purchasePrice: 100,
     stockValue: index * 100,
-    lastImportRunId: RUN_ID,
+    lastOperationId: RUN_ID,
     lastImportedAt: '2026-07-11T01:00:00.000Z',
   };
 }
@@ -47,12 +46,10 @@ function snapshot(
       pricedAssetValue: items.reduce((sum, item) => sum + (item.stockValue ?? 0), 0),
       unpricedSkuCount: 0,
     },
-    latestImport: {
-      id: RUN_ID,
-      fileName: 'exported-list.xls',
-      status: 'completed',
-      rowCount: total,
-      importedAt: '2026-07-11T01:00:00.000Z',
+    latestCollection: {
+      operationId: RUN_ID,
+      completedAt: '2026-07-11T01:00:00.000Z',
+      generation: '1',
     },
   };
 }
@@ -117,9 +114,8 @@ describe('Sellpia inventory reads', () => {
     );
   });
 
-  it('loads import history and channel availability from owner endpoints', async () => {
+  it('loads channel availability from the owner endpoint', async () => {
     const getParsed = vi.spyOn(apiClient, 'getParsed')
-      .mockResolvedValueOnce({ items: [], total: 0, page: 3, limit: 20 } as never)
       .mockResolvedValueOnce({
         items: [],
         total: 0,
@@ -128,13 +124,9 @@ describe('Sellpia inventory reads', () => {
         summary: { total: 0, inStock: 0, outOfStock: 0, unmatched: 0, needsReview: 0 },
       } as never);
 
-    await listSellpiaImportRuns({ page: 3, limit: 20 });
     await listChannelSkuAvailability({ status: 'needs_review', search: '말랑이' });
 
     expect(getParsed.mock.calls[0]?.[0]).toBe(
-      '/api/inventory/sellpia-sync/import-runs?page=3&limit=20',
-    );
-    expect(getParsed.mock.calls[1]?.[0]).toBe(
       '/api/channels/sku-availability?status=needs_review&search=%EB%A7%90%EB%9E%91%EC%9D%B4',
     );
   });

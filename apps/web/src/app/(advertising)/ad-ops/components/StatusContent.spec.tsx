@@ -69,14 +69,8 @@ describe("wingKpiCount", () => {
 describe("StatusContent", () => {
   it("keeps the itemwinner collection on the status tab before any KPI is collected", async () => {
     mockApiGet.mockImplementation(async (path: string) =>
-      path === "/api/ads/wing-itemwinner/source"
-        ? {
-            channelAccountId: null,
-            ready: false,
-            latestAttempt: null,
-            latestComplete: null,
-            actualCutoffAt: null,
-          }
+      path === "/api/operations?kinds=advertising.wing_itemwinner&limit=5"
+        ? { operations: [] }
         : { roas: { thresholds: { excellent: 300, warning: 200, poor: 100 } } },
     );
 

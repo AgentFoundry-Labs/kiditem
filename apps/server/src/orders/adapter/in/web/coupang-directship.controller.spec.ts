@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import { CoupangDirectshipController } from './coupang-directship.controller';
 
-// 변환·스냅샷 라우트(KID-359): 옛 attempt 헤더 대신 성공한 directship 실행 ID를 본문으로 받는다. 원천 포트와 셀피아
+// 변환·달력 스냅샷 라우트(KID-359, KID-370): 옛 attempt 헤더 대신 성공한 directship 실행 ID를 본문으로 받는다. 원천 포트와 셀피아
 // 양식 생성기(파이썬)만 가짜로 둔다 — 응답 머리·상태 규칙이 이 스펙의 대상이다.
 const ORGANIZATION_ID = '22222222-2222-4222-8222-222222222222';
 const USER_ID = '33333333-3333-4333-8333-333333333333';
@@ -25,6 +25,8 @@ function receipt(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const snapshotResponse = { channelAccountId: CHANNEL_ACCOUNT_ID, operationId: OPERATION_ID, collectedAt: '2026-07-18T01:00:00.000Z', entries: [] };
+
 function setup(options: { receipt?: Record<string, unknown>; pos?: unknown[]; generate?: ReturnType<typeof vi.fn> } = {}) {
   const workbook = { generate: options.generate ?? vi.fn().mockResolvedValue({ buffer: Buffer.from('xls'), fileName: 'orders.xls', poCount: 1, rowCount: 2 }) };
   const collection = {
@@ -35,17 +37,17 @@ function setup(options: { receipt?: Record<string, unknown>; pos?: unknown[]; ge
       receipt: receipt(options.receipt),
     }),
     readCapture: vi.fn().mockResolvedValue({}),
+    readLatestSnapshot: vi.fn().mockResolvedValue(snapshotResponse),
   };
-  const snapshots = { replace: vi.fn().mockResolvedValue({ channelAccountId: CHANNEL_ACCOUNT_ID, collectedAt: null, entries: [] }) };
-  const controller = new CoupangDirectshipController(workbook as never, collection as never, snapshots as never);
+  const controller = new CoupangDirectshipController(workbook as never, collection as never);
   const response = { setHeader: vi.fn(), status: vi.fn().mockReturnThis() };
-  return { workbook, collection, snapshots, controller, response };
+  return { workbook, collection, controller, response };
 }
 
 const convert = (setupResult: ReturnType<typeof setup>, body: unknown = convertBody()) =>
   setupResult.controller.convertCoupangDirectship(body, ORGANIZATION_ID, { id: USER_ID } as never, { once: vi.fn() } as never, setupResult.response as never);
 
-describe('CoupangDirectshipController — 성공한 실행 ID로 변환·스냅샷(KID-359)', () => {
+describe('CoupangDirectshipController — 성공한 실행 ID로 변환, 최근 성공 캡처로 달력(KID-359, KID-370)', () => {
   it('고른 운송유형을 그 실행으로 소비하고, 모든 수집 줄로 셀피아 양식을 만들며 연결 수를 머리로 알린다', async () => {
     const s = setup();
     const file = await convert(s);
@@ -100,18 +102,17 @@ describe('CoupangDirectshipController — 성공한 실행 ID로 변환·스냅�
     expect(s.collection.consume).not.toHaveBeenCalled();
   });
 
-  it('스냅샷은 그 계정의 성공한 실행 캡처가 있을 때만 바꾼다(본문 operationId)', async () => {
+  it('달력 스냅샷은 계정의 최근 성공 캡처를 읽기만 한다 — 계정 ID가 UUID가 아니면 읽기 전에 VALIDATION_FAILED', async () => {
     const s = setup();
-    const body = { channelAccountId: CHANNEL_ACCOUNT_ID, operationId: OPERATION_ID, entries: [] };
-    await s.controller.saveCoupangDirectSnapshot(body, ORGANIZATION_ID);
-    expect(s.collection.readCapture).toHaveBeenCalledWith({ organizationId: ORGANIZATION_ID, operationId: OPERATION_ID, channelAccountId: CHANNEL_ACCOUNT_ID });
-    expect(s.snapshots.replace).toHaveBeenCalledWith(ORGANIZATION_ID, CHANNEL_ACCOUNT_ID, []);
+    await expect(s.controller.readCoupangDirectSnapshot(CHANNEL_ACCOUNT_ID, ORGANIZATION_ID)).resolves.toEqual(snapshotResponse);
+    expect(s.collection.readLatestSnapshot).toHaveBeenCalledWith({ organizationId: ORGANIZATION_ID, channelAccountId: CHANNEL_ACCOUNT_ID });
+    await expect(s.controller.readCoupangDirectSnapshot(undefined as never, ORGANIZATION_ID)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    await expect(s.controller.readCoupangDirectSnapshot('not-an-id', ORGANIZATION_ID)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+    expect(s.collection.readLatestSnapshot).toHaveBeenCalledTimes(1);
+  });
 
-    const refused = setup();
-    refused.collection.readCapture.mockRejectedValue(Object.assign(new Error('not succeeded'), { code: 'STATE_CONFLICT' }));
-    await expect(refused.controller.saveCoupangDirectSnapshot(body, ORGANIZATION_ID)).rejects.toMatchObject({ code: 'STATE_CONFLICT' });
-    expect(refused.snapshots.replace).not.toHaveBeenCalled();
-    await expect(s.controller.saveCoupangDirectSnapshot({ channelAccountId: CHANNEL_ACCOUNT_ID, entries: [] }, ORGANIZATION_ID)).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
+  it('스냅샷을 쓰는 라우트는 없다', () => {
+    expect('saveCoupangDirectSnapshot' in CoupangDirectshipController.prototype).toBe(false);
   });
 });
 

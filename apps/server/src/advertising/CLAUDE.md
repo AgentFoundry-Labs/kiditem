@@ -62,6 +62,29 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   AdActions in `pending_review` that require human approval. The operator
   pauses an approved keyword in the ad center (see Ownership).
 
+## Keyword And Competitor Collection
+
+- Tracked Wing products, Wing sales rank, Coupang SERP rank, competitor seller
+  identity and competitor catalogs are operation kinds (`advertising.*`,
+  ADR-0025) whose owners live in `adapter/in/operation/`. Ledger rows are
+  written only in `finalize` inside the finish transaction and carry
+  `operationId`; readers treat `operationId IS NOT NULL` as published and ignore
+  legacy attempt rows.
+- `advertising.wing_rank` and `advertising.keyword_serp` hold one
+  `resource:keyword:<kw>` slot per keyword (`keywordLockKey`), so the same
+  keyword never runs both at once. Wing kinds also hold `account:<id>`;
+  seller identity and catalogs share `resource:competitor:serp-enrichment`
+  because both rewrite SERP rows (not `org`, which other owners' kinds use).
+- SERP → seller identity → catalog is a `result.next` chain; each can also be
+  started alone. The chain passes keywords, not derived targets: target
+  selection (`getProductDetailTargets`) reads SERP rows through
+  `PrismaService`, not the finish transaction, so it runs in the next kind's
+  plan. Seller identity chains to catalogs only when it identified a seller.
+- All five are read-only against Coupang; none writes to the ad center.
+- A moved kind's failure stays on its operation row; the alerts reader absorbs
+  it (KID-355 policy B). These owners and the Wing daily owners have no
+  `onFailed` and write no alert rows.
+
 ## Cross-Domain Boundaries
 
 - A source attempt ends at Advertising's `COMPLETE`/`FAILED` owner record and
@@ -71,7 +94,18 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   `CHANNEL_SKU_AVAILABILITY_PORT`; use that projection as the sole stock balance
   instead of marketplace SKU metadata.
 - Advertising intentionally reads/writes channel daily fact models because the
-  scrape ingest path owns raw/fact projection traceability.
+  scrape ingest path owns raw/fact projection traceability. The Wing daily
+  facts are operation kinds (ADR-0025, KID-362;
+  `adapter/in/operation/wing-daily-operation-owners.ts`):
+  `advertising.wing_itemwinner` writes the listing/option winner columns and
+  `advertising.wing_traffic` the listing-day traffic columns (sum of options,
+  zero for a catalog listing Wing left out) in their finish transactions; a new
+  row carries `operationId`, `rawSnapshotId` stays null, and traffic provenance
+  is `wing.traffic.sourceAttemptId`. Every writer of Wing listing-day facts holds
+  `account:<id>` and `resource:wing-daily:<id>`, so one runs per account. The
+  traffic run's result (confirmed dates, account daily and period summaries,
+  unmatched Wing options per date) is what `AD_TRAFFIC_READ_PORT` and the
+  Channels traffic window read.
 - Product ABC reads go through Products' exported stored-grade port. An
   unclassified product stays `null`; consume the stored grade without deriving
   a product grade or coercing a missing/stale source to C.

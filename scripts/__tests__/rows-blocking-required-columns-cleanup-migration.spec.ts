@@ -729,7 +729,7 @@ describe('v0.1.31:014 remove rows blocking required columns and unique keys', ()
   it('accounts for every other unique index the release adds to a table Office already has', () => {
     const schema = prismaSchema();
     const skipped = Object.keys(UNIQUE_KEYS_WITHOUT_CLEANUP);
-    expect(skipped).toHaveLength(30);
+    expect(skipped).toHaveLength(27);
     for (const index of skipped) {
       // The six snapshot keys carry Prisma's generated names; the PostgreSQL
       // spec finds every name on the pushed schema.

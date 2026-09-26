@@ -4,19 +4,23 @@ import { z } from 'zod';
 import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { invalidateSourcingReads, isLiveOperation, sourcingOperationCollection } from './sourcing-operations';
-import type { ChannelAccountListItem } from '@kiditem/shared/channel-account';
+import {
+  WING_ACCOUNT_MISSING,
+  WING_ACCOUNTS_LOADING,
+  WING_ACCOUNTS_UNAVAILABLE,
+  type WingAccountRead,
+  type WingSearchAccount,
+} from '@/lib/wing-search-account';
 import type { OperationListResponse, OperationView } from '@kiditem/shared/operation';
 import type { SourcingWingCatalogBatchInput } from '@kiditem/shared/sourcing';
 
-export const WING_ACCOUNT_MISSING = '쿠팡 윙 계정을 먼저 연결해 주세요.';
-export const WING_ACCOUNTS_LOADING = '쿠팡 계정 목록을 불러오는 중입니다. 잠시 후 다시 시작해 주세요.';
-export const WING_ACCOUNTS_UNAVAILABLE = '쿠팡 계정 목록을 불러오지 못했습니다. 새로고침한 뒤 다시 시도해 주세요.';
-
-/** 계정 목록 읽기의 상태. 읽기 전·실패엔 시작을 보내지 않고 그 까닭을 따로 말한다. */
-export type WingAccountRead =
-  | Readonly<{ state: 'loading' }>
-  | Readonly<{ state: 'failed' }>
-  | Readonly<{ state: 'read'; account: WingCatalogAccount | null }>;
+export {
+  WING_ACCOUNT_MISSING,
+  WING_ACCOUNTS_LOADING,
+  WING_ACCOUNTS_UNAVAILABLE,
+  pickWingSearchAccount,
+  type WingAccountRead,
+} from '@/lib/wing-search-account';
 
 const PURPOSE_LABELS: Readonly<Record<string, string>> = {
   catalog_search: '카탈로그 검색',
@@ -43,18 +47,7 @@ export type WingCatalogAttempt = Readonly<{
   errorMessage: string | null;
 }>;
 
-export type WingCatalogAccount = Pick<ChannelAccountListItem, 'id' | 'name'>;
-
-/**
- * Wing 검색에 쓸 계정: 조직의 쿠팡 계정 중 대표 계정, 없으면 이름순 첫 계정(카탈로그 동기화·상품평과 같은 규칙).
- * 계정 선택 UI는 없다.
- */
-export function pickWingSearchAccount(accounts: readonly ChannelAccountListItem[] | undefined): WingCatalogAccount | null {
-  const coupang = (accounts ?? []).filter((account) => account.channel === 'coupang');
-  const [first] = [...coupang].sort((left, right) =>
-    Number(right.isPrimary) - Number(left.isPrimary) || left.name.localeCompare(right.name, 'ko'));
-  return first ? { id: first.id, name: first.name } : null;
-}
+export type WingCatalogAccount = WingSearchAccount;
 
 export function toWingCatalogAttempt(operation: OperationView | null): WingCatalogAttempt | null {
   if (!operation) return null;

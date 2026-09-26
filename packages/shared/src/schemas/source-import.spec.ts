@@ -1,16 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import {
   CompletedSourceArtifactRunSchema,
-  CoupangRocketMatchingCsvImportResponseSchema,
   CoupangWingCatalogImportResponseSchema,
   SellpiaInventoryBrowserSnapshotSchema,
   SellpiaInventoryImportOutcomeSchema,
   SellpiaInventoryImportResponseSchema,
-  SellpiaProfitabilityAttemptSchema,
-  SellpiaProfitabilityAttemptControlSchema,
   SellpiaProfitabilityAttemptSummarySchema,
   SellpiaProfitabilityPlanSchema,
-  SellpiaProfitabilitySourceStatusSchema,
   SourceImportRunSchema,
   SourceImportTypeSchema,
   VerifiedSellpiaSourceImportRunSchema,
@@ -140,25 +136,6 @@ describe('source import contracts', () => {
     });
 
     expect(parsed.run.channelAccountId).toBe(wingRun.channelAccountId);
-  });
-
-  it('parses a completed Rocket matching CSV catalog result', () => {
-    const parsed = CoupangRocketMatchingCsvImportResponseSchema.parse({
-      run: {
-        ...wingRun,
-        sourceType: 'coupang_rocket_matching_csv',
-        fileName: 'rocket443-sellpia-matching.csv',
-      },
-      duplicate: false,
-      changes: {
-        createdProductCount: 266,
-        updatedProductCount: 177,
-        createdSkuCount: 266,
-        updatedSkuCount: 177,
-      },
-    });
-
-    expect(parsed.run.sourceType).toBe('coupang_rocket_matching_csv');
   });
 
   it('rejects Wing responses without a completed imported run', () => {
@@ -404,10 +381,9 @@ describe('source import contracts', () => {
     );
   });
 
-  it('keeps Sellpia profitability control and token-free status bounded', () => {
-    const attempt = SellpiaProfitabilityAttemptSchema.parse({
+  it('keeps the Sellpia profitability attempt summary token-free and bounded', () => {
+    const summary = {
       attemptId: '00000000-0000-4000-8000-000000000010',
-      attemptToken: '00000000-0000-4000-8000-000000000011',
       state: 'COMPLETE',
       expiresAt: '2026-09-03T01:30:00.000Z',
       capturedAt: '2026-09-03T01:00:00.000Z',
@@ -419,44 +395,11 @@ describe('source import contracts', () => {
         to: '2026-08-31',
         coveredMonths: ['2025-09', '2026-08'],
       },
-    });
-    expect(attempt.generation).toBe('7');
-
-    expect(SellpiaProfitabilityAttemptControlSchema.parse({
-      attemptId: attempt.attemptId,
-      attemptToken: attempt.attemptToken,
-      state: 'RUNNING',
-      expiresAt: attempt.expiresAt,
-      plan: attempt.plan,
-    })).toMatchObject({ state: 'RUNNING' });
-
-    const summary = SellpiaProfitabilityAttemptSummarySchema.parse({
-      attemptId: attempt.attemptId,
-      state: attempt.state,
-      expiresAt: attempt.expiresAt,
-      capturedAt: attempt.capturedAt,
-      generation: attempt.generation,
-      errorCode: attempt.errorCode,
-      errorMessage: attempt.errorMessage,
-      plan: attempt.plan,
-    });
-    expect(summary).not.toHaveProperty('attemptToken');
-
-    expect(SellpiaProfitabilitySourceStatusSchema.parse({
-      latestAttempt: summary,
-      latestComplete: {
-        sourceImportRunId: attempt.attemptId,
-        generation: '7',
-        coveredThrough: '2026-08-31',
-        capturedAt: '2026-09-03T01:00:00.000Z',
-        mappingGeneration: '3',
-      },
-      ready: true,
-    }).ready).toBe(true);
-    expect(() => SellpiaProfitabilitySourceStatusSchema.parse({
-      latestAttempt: attempt,
-      latestComplete: null,
-      ready: false,
+    };
+    expect(SellpiaProfitabilityAttemptSummarySchema.parse(summary).generation).toBe('7');
+    expect(() => SellpiaProfitabilityAttemptSummarySchema.parse({
+      ...summary,
+      attemptToken: '00000000-0000-4000-8000-000000000011',
     })).toThrow();
   });
 

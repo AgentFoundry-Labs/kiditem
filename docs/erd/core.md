@@ -167,7 +167,6 @@ erDiagram
 | Organization | organization | referenced by external | Inventory | ReturnTransfer |
 | Organization | organization | referenced by external | Inventory | StockTransfer |
 | Organization | organization | referenced by external | Inventory | Warehouse |
-| Organization | organization | referenced by external | Orders | CoupangDirectPoSnapshot |
 | Organization | organization | referenced by external | Orders | CoupangDirectTransportConsumption |
 | Organization | organization | referenced by external | Orders | CoupangDirectTransportReceipt |
 | Organization | organization | referenced by external | Orders | CoupangShipmentDateSummary |
@@ -260,7 +259,6 @@ erDiagram
 | SourceImportRun | sourceImportRun | referenced by external | Orders | RocketPoCatalogSnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmation |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmationTransmission |
-| User | activeSyncOwner | referenced by external | Products | SellpiaInventoryState |
 | User | approvalDecidedByUser | referenced by external | AgentOS | CapabilityInvocation |
 | User | claimedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | confirmer | referenced by external | Supply | RocketPurchaseConfirmation |

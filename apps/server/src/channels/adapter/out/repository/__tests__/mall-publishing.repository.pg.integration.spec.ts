@@ -2,16 +2,13 @@ import { ListingContentQueryRepositoryAdapter } from '../../../../../content/ada
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
-import { SourceFailureAlerts } from '../../../../../alerts/alerts.service';
 import { ProductAvailabilityRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-availability.repository.adapter';
 import { ProductAvailabilityUseCase } from '../../../../../products/application/service/product-availability.usecase';
-import { ProductSourceCollectionRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-source-collection.repository.adapter';
 import { ProductSourcePublicationRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-source-publication.repository.adapter';
 import { ProductSourceReadRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-source-read.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../../../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
-import { SellpiaCollectionUseCase } from '../../../../../products/application/service/sellpia-collection.usecase';
-import { SellpiaPayloadDecoderAdapter } from '../../../../../products/adapter/out/sellpia/sellpia-payload-decoder.adapter';
-import { SellpiaPayloadValidator } from '../../../../../products/adapter/out/sellpia/sellpia-payload.validator';
+import { decodeSellpiaWorkbook } from '../../../../../products/adapter/out/sellpia/sellpia-workbook.decoder';
+import { ownerTransaction } from '../../../../../prisma/owner-transaction';
 import { PrismaService } from '../../../../../prisma/prisma.service';
 import { getMallAdapterManifest } from '../../../../domain/registration/mall-adapter-manifest';
 import { evaluateMallPreflight } from '../../../../domain/registration/mall-publish-preflight';
@@ -257,29 +254,16 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
    * 만든다 — 표가 보는 사실을 테스트가 손으로 적지 않게 한다.
    */
   async function publishSellpiaSnapshot(rows: readonly string[]) {
-    const alerts = new SourceFailureAlerts(prisma as never);
-    const collection = new SellpiaCollectionUseCase(
-      new ProductSourceCollectionRepositoryAdapter(prisma as never, alerts),
-      new ProductSourcePublicationRepositoryAdapter(prisma as never, alerts),
-      new SellpiaPayloadDecoderAdapter(new SellpiaPayloadValidator()),
-    );
-    const attempt = await collection.beginAttempt({
+    // 셀피아 재고 실행(products.sellpia_inventory)의 finish 트랜잭션이 하는 발행을 그대로 부른다(KID-361).
+    const publication = new ProductSourcePublicationRepositoryAdapter();
+    const decoded = decodeSellpiaWorkbook(Buffer.from([SELLPIA_HEADER, ...rows].join('\n')));
+    await prisma.$transaction((tx) => publication.publishSnapshot(ownerTransaction(tx), {
       organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      idempotencyKey: randomUUID(),
-      scope: 'inventory',
-    });
-    return collection.completeAttempt({
-      organizationId: TEST_ORGANIZATION_ID,
-      userId: TEST_USER_ID,
-      attemptId: attempt.attemptId,
-      attemptToken: attempt.attemptToken,
-      file: {
-        buffer: Buffer.from([SELLPIA_HEADER, ...rows].join('\n')),
-        fileName: 'sellpia.csv',
-        mimeType: 'text/csv',
-      },
-    });
+      operationId: randomUUID(),
+      trigger: null,
+      rows: decoded.rows,
+    }));
+    return { state: 'COMPLETE' as const };
   }
 
   async function sellpiaSku(code: string) {

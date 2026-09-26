@@ -154,6 +154,7 @@ export function buildMockKeywordRankRepo(): MockKeywordRankRepo {
     findRankHistory: vi.fn(),
     findRankOverviewSnapshots: vi.fn(),
     replaceWingSalesRankSnapshots: vi.fn(),
+    runInTransaction: vi.fn(async (_tx: unknown, work: () => Promise<unknown>) => work()),
     findWingSalesRankSnapshots: vi.fn(),
     findLatestSerp: vi.fn(),
     findRecentSerpSnapshots: vi.fn(),

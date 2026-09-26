@@ -52,7 +52,7 @@ export type PreparePurchaseOrderSubmissionInput = {
   organizationId: string;
   purchaseOrderId: string;
   masterProductIds: string[];
-  inventoryAttemptId: string;
+  inventoryOperationId: string;
   inventoryFence: string;
   inventoryGeneration: string;
   inventoryCompletedAt: string;

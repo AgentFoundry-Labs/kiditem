@@ -15,20 +15,12 @@ const worker = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/worker.js'),
   'utf8',
 );
-const wingUnified = fs.readFileSync(
-  path.join(extensionRoot, 'content/coupang/wing-unified.js'),
-  'utf8',
-);
 const collectionWindowSource = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/collection-window.js'),
   'utf8',
 );
 const collectionRunsSource = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/collection-runs.js'),
-  'utf8',
-);
-const wingSearchCollectorSource = fs.readFileSync(
-  path.join(extensionRoot, 'background/coupang/wing-search-collector.js'),
   'utf8',
 );
 const profitabilitySourceOwner = fs.readFileSync(
@@ -74,17 +66,10 @@ test('loads the canonical session manager and focus owners before collector runt
   // 쿠팡 도메인은 requiresAuth 가 달라 자기 환경 컨텍스트를 따로 만든다.
   assert.match(worker, /const adsEnvironmentContext = KidItemEnvironmentContext\.create\(/);
 
-  const wingContentScript = (manifest.content_scripts ?? []).find((entry) =>
-    (entry.matches ?? []).includes('https://wing.coupang.com/*') &&
-    (entry.js ?? []).includes('content/coupang/wing-unified.js'),
-  );
-  assert.ok(wingContentScript, 'Wing unified content script must be declared');
-  assert.ok(
-    wingContentScript.js.indexOf('content/coupang/wing-read-api.js') >= 0 &&
-      wingContentScript.js.indexOf('content/coupang/wing-read-api.js') <
-        wingContentScript.js.indexOf('content/coupang/wing-unified.js'),
-    'Wing read API must load before the unified content script',
-  );
+  // Wing 트래픽·아이템위너는 서비스워커의 실행 kind다(KID-362) — Wing 전체에 싣던 content script는 없다.
+  const scripts = (manifest.content_scripts ?? []).flatMap((entry) => entry.js ?? []);
+  assert.ok(!scripts.includes('content/coupang/wing-unified.js'));
+  assert.ok(!scripts.includes('content/coupang/wing-read-api.js'));
 });
 
 // 세 도메인 워커가 각자 응답하면 같은 메시지에 경쟁 응답이 된다. 공통 액션은
@@ -118,14 +103,11 @@ test('retires the generic scrape ingress before producer actions', () => {
   assert.doesNotMatch(collectionRunsSource, /abortOperationSession/);
   assert.match(worker, /session\?\.producer === "advertising\.ad_sync"[\s\S]*adCampaignSourceOwner\.cancel/);
   assert.match(worker, /session\?\.producer === "advertising\.ad_keyword"[\s\S]*adKeywordSourceOwner\.cancel/);
-  assert.match(worker, /session\?\.producer === WING_TRAFFIC_PRODUCER[\s\S]*wingTrafficSourceOwner\.cancel/);
-  assert.match(worker, /session\?\.producer === WING_ITEMWINNER_PRODUCER[\s\S]*wingItemwinnerSourceOwner\.cancel/);
   assert.match(worker, /Collection producer source owner does not support cancellation/);
   assert.doesNotMatch(worker, /restartCollectionSession/);
   assert.doesNotMatch(worker, /function handleScrapeTargets\(/);
   assert.doesNotMatch(worker, /function prepareScrapeTargets\(/);
   assert.doesNotMatch(worker, /FromPopup|monthlyScrape|beginSourceOwnerAttempt/);
-  assert.doesNotMatch(wingUnified, /syncToServer/);
 });
 
 test('starts window collections only through the collection start contract', () => {
@@ -170,14 +152,9 @@ test('retires the advertising account-day KPI owner from every extension surface
 test('persists only allowlisted Coupang producers and advertises the capability', () => {
   const producerSources = `${sourceOwnerManifest}\n${worker}\n${collectionRunsSource}\n${profitabilitySourceOwner}`;
   for (const producer of [
-    'dashboard.wing_sales',
     'dashboard.coupang_products',
-    'dashboard.wing_kpi',
     'advertising.ad_sync',
     'advertising.profitability_import',
-    'advertising.wing_rank',
-    'advertising.keyword_rank',
-    'advertising.competitor_catalog',
     'channels.coupang_catalog',
   ]) {
     assert.match(producerSources, new RegExp(producer.replace('.', '\\.')));
@@ -201,20 +178,11 @@ test('persists only allowlisted Coupang producers and advertises the capability'
   assert.match(dispatchSource, /onConnectExternal\?\.addListener\(handlePort\)/);
 });
 
-test('keeps single Wing catalog analysis separate from batch sales-rank collection', () => {
-  assert.match(worker, /const wingSearchCollector = KidItemWingSearchCollector\.create\(/);
-  assert.match(worker, /captureWingRank[\s\S]*wingSearchCollector\.collect/);
-  assert.match(worker, /collectAdvertisingTrackedWingProductsKeyword[\s\S]*wingSearchCollector\.collect/);
-  assert.match(wingSearchCollectorSource, /const PRODUCERS = new Set\(\[/);
-  assert.match(wingSearchCollectorSource, /advertising\.wing_rank/);
-});
-
 test('source capture policies share the environment-owned resource without a universal target loop', () => {
   // Runtime serialization, teardown, retry and progress behavior are covered
   // through the production resource and named collector interfaces.
   assert.match(worker, /KidItemAdCenterCollector\.create\(\{\s*window: collectionWindows\[environmentId\]/);
-  assert.match(worker, /KidItemWingReportCollector\.create\(\{\s*window: collectionWindows\[environmentId\]/);
-  for (const method of ['collectCampaigns', 'collectKeywords', 'collectProfitabilitySlice', 'collectTraffic', 'collectItemwinner']) {
+  for (const method of ['collectCampaigns', 'collectKeywords', 'collectProfitabilitySlice']) {
     assert.match(worker, new RegExp(`\\.${method}\\(`));
   }
   assert.doesNotMatch(worker, /\.collectTargets\(/);
@@ -241,33 +209,6 @@ test('automatic collectors never reuse or navigate a user-active tab', () => {
   assert.doesNotMatch(worker, /\.catch\(\(\) => reusableTab\)/);
 });
 
-test('public capture modules load before their worker consumers', () => {
-  const entry = fs.readFileSync(path.join(extensionRoot, 'background/service-worker.js'), 'utf8');
-  for (const [file, global] of [
-    ['coupang-serp-collector.js', 'KidItemCoupangSerpCollector'],
-    ['coupang-seller-identity-collector.js', 'KidItemCoupangSellerIdentityCollector'],
-    ['coupang-seller-catalog-collector.js', 'KidItemCoupangSellerCatalogCollector'],
-  ]) {
-    const position = entry.indexOf(`"coupang/${file}"`);
-    assert.ok(position >= 0 && position < entry.indexOf('"coupang/worker.js"'), file);
-    assert.match(worker, new RegExp(`${global}\\.create\\(`));
-  }
-});
-
-test('single Wing catalog search requires an existing source-owner attempt', () => {
-  assert.match(wingSearchCollectorSource, /const runId = input\.attemptId/);
-  assert.match(wingSearchCollectorSource, /sessions\.getOwned\(runId, environmentId\)/);
-  assert.match(wingSearchCollectorSource, /PRODUCERS\.has\(ownerSession\.producer\)/);
-  assert.doesNotMatch(wingSearchCollectorSource, /beginWebCollection/);
-  assert.doesNotMatch(wingSearchCollectorSource, /stableInputFingerprint/);
-});
-
-test('competitor cancellation retains its domain owner', () => {
-  assert.doesNotMatch(worker, /cancelCompetitorCatalog:\s*requestCoupangCompetitorCatalogCancellation/);
-  assert.match(worker, /session\?\.producer === "advertising\.competitor_catalog"[\s\S]*competitorCatalogSourceOwner\.cancel/);
-  assert.doesNotMatch(worker, /runCoupangCompetitorSellerCatalog/);
-});
-
 test('legacy batch controls are no longer exposed beside source-owner cancellation', () => {
   assert.doesNotMatch(worker, /function cancelBatchScrape\(/);
   assert.doesNotMatch(worker, /function autoScrape\(/);
@@ -276,10 +217,12 @@ test('legacy batch controls are no longer exposed beside source-owner cancellati
   assert.doesNotMatch(worker, /collectionSessions\.remove/);
 });
 
-test('retires the web-origin competitor seller collector and routes direct collection to its source owner', () => {
+test('keyword and competitor collection run only as runtime operation kinds (KID-362)', () => {
   assert.doesNotMatch(worker, /runCoupangCompetitorSellerCatalog/);
   assert.doesNotMatch(worker, /startCoupangCompetitorSellerCatalogCollection/);
-  assert.match(worker, /collectAdvertisingCompetitorCatalog:\s*\{/);
+  for (const action of ['collectAdvertisingCompetitorCatalog', 'collectAdvertisingSellerIdentities', 'collectAdvertisingWingRankBatch', 'collectAdvertisingKeywordSerpBatch', 'collectAdvertisingTrackedWingProducts']) {
+    assert.doesNotMatch(worker, new RegExp(`${action}:\\s*\\{`), action);
+  }
   assert.doesNotMatch(worker, /advertising\.collect_competitor_catalog/);
 });
 

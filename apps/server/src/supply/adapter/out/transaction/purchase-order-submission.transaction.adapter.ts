@@ -437,7 +437,7 @@ async function assertActor(
 function assertCollectedInventory(
   freshness: LockedFreshnessRow | null,
   input: Pick<PreparePurchaseOrderSubmissionInput,
-    'inventoryAttemptId' | 'inventoryFence' | 'inventoryGeneration' | 'inventoryCompletedAt'>,
+    'inventoryOperationId' | 'inventoryFence' | 'inventoryGeneration' | 'inventoryCompletedAt'>,
 ): asserts freshness is LockedFreshnessRow {
   const expectedCompletedAt = new Date(input.inventoryCompletedAt);
   let expectedGeneration: bigint;
@@ -449,17 +449,12 @@ function assertCollectedInventory(
   if (
     !freshness
     || freshness.freshnessFence !== input.inventoryFence
-    || freshness.lastCompletedImportRunId !== input.inventoryAttemptId
+    || freshness.lastCompletedOperationId !== input.inventoryOperationId
     || freshness.lastVerifiedAt === null
     || Number.isNaN(expectedCompletedAt.getTime())
     || freshness.lastVerifiedAt.getTime() !== expectedCompletedAt.getTime()
     || freshness.freshnessGeneration !== expectedGeneration
     || freshness.requestedGeneration !== freshness.freshnessGeneration
-    || freshness.activeGeneration !== null
-    || (
-      freshness.failedGeneration !== null
-      && freshness.failedGeneration > freshness.freshnessGeneration
-    )
   ) {
     throw new KiditemPreconditionError('SELLPIA_SYNC_REQUIRED');
   }

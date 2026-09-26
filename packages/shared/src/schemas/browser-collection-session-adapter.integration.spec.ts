@@ -142,13 +142,13 @@ describe('extension collection-session public contract', () => {
     const started = await manager.start({
       environmentId: 'local',
       attemptId: OTHER_ATTEMPT_ID,
-      producer: 'inventory.sellpia',
+      producer: 'orders.mall',
     });
 
     expect(BrowserCollectionSessionViewSchema.parse(started)).toEqual(started);
     expect(started).toMatchObject({
       attemptId: OTHER_ATTEMPT_ID,
-      producer: 'inventory.sellpia',
+      producer: 'orders.mall',
     });
     expect(started).not.toHaveProperty('runId');
     expect(started).not.toHaveProperty('status');

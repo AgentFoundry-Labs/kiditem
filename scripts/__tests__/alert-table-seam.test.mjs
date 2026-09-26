@@ -31,6 +31,8 @@ test('nothing outside the alerts module reaches the Alert table', () => {
     // Specs read the table to assert on what the module wrote, which is the
     // seam working rather than being bypassed.
     .filter((file) => !file.includes('.spec.'))
+    // Spec helpers under test-helpers read the table for the same reason.
+    .filter((file) => !file.startsWith('apps/server/src/test-helpers/'))
     .filter((file) => !file.startsWith('apps/server/src/alerts/'))
     .filter((file) => existsSync(join(repoRoot, file)));
 

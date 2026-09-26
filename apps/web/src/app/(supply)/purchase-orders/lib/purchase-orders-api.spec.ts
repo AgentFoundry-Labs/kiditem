@@ -16,7 +16,7 @@ describe('purchaseOrdersApi', () => {
 
     await purchaseOrdersApi.submit({
       purchaseOrderId: 'po-1',
-      inventoryAttemptId: 'inventory-attempt-1',
+      inventoryOperationId: 'inventory-attempt-1',
       idempotencyKey: 'stable-key',
     });
     await purchaseOrdersApi.reconcile({
@@ -28,7 +28,7 @@ describe('purchaseOrdersApi', () => {
     expect(apiClient.post).toHaveBeenNthCalledWith(1, '/api/purchase-orders', {
       action: 'submit',
       id: 'po-1',
-      inventoryAttemptId: 'inventory-attempt-1',
+      inventoryOperationId: 'inventory-attempt-1',
       idempotencyKey: 'stable-key',
     });
     expect(apiClient.post).toHaveBeenNthCalledWith(2, '/api/purchase-orders', {

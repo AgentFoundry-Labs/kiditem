@@ -22,7 +22,6 @@ import {
 import {
   ListProductSourcesQueryDto,
 } from './dto/list-product-sources-query.dto';
-import { ListProductSourceImportRunsQueryDto } from './dto/list-product-source-import-runs-query.dto';
 
 @Controller('inventory')
 export class ProductSourceSnapshotController {
@@ -72,14 +71,6 @@ export class ProductSourceSnapshotController {
     @Param('masterProductId', new ParseUUIDPipe()) masterProductId: string,
   ) {
     return this.snapshots.getSnapshot(organizationId, masterProductId);
-  }
-
-  @Get('sellpia-sync/import-runs')
-  listImportRuns(
-    @CurrentOrganization() organizationId: string,
-    @Query() query: ListProductSourceImportRunsQueryDto,
-  ) {
-    return this.snapshots.listImportRuns(organizationId, query);
   }
 }
 

@@ -6,9 +6,6 @@ import { SellpiaInventoryBrowserSnapshotSchema } from '@kiditem/shared/source-im
 import * as XLSX from 'xlsx';
 import * as cpexcel from 'xlsx/dist/cpexcel';
 import type {
-  SellpiaInventoryQualityFact,
-} from '../../../domain/policy/product-source-quality.policy';
-import type {
   ParsedProductSourceArtifact,
   ParsedProductSourceRow,
 } from '../../../application/port/out/source/sellpia-payload-decoder.port';
@@ -95,7 +92,6 @@ function decodeSellpiaBrowserSnapshot(
   return {
     headers: BROWSER_SNAPSHOT_HEADERS,
     rows,
-    qualityFacts: collectQualityFacts(rows),
   };
 }
 
@@ -161,45 +157,6 @@ export function decodeSellpiaWorkbook(
   return {
     headers: candidate.headers,
     rows,
-    qualityFacts: collectQualityFacts(rows),
-  };
-}
-
-function collectQualityFacts(
-  rows: ParsedProductSourceRow[],
-): SellpiaInventoryQualityFact[] {
-  const facts: SellpiaInventoryQualityFact[] = [];
-  const rowsByBarcode = new Map<string, ParsedProductSourceRow[]>();
-  for (const row of rows) {
-    if (!row.name.trim()) {
-      facts.push(fact('missing_name', row));
-    }
-    if (!row.barcode) {
-      facts.push(fact('missing_barcode', row));
-    } else {
-      const matching = rowsByBarcode.get(row.barcode) ?? [];
-      matching.push(row);
-      rowsByBarcode.set(row.barcode, matching);
-    }
-    if (row.purchasePrice === null) {
-      facts.push(fact('missing_price', row));
-    }
-  }
-  for (const matching of rowsByBarcode.values()) {
-    if (matching.length < 2) continue;
-    facts.push(...matching.map((row) => fact('duplicate_barcode', row)));
-  }
-  return facts;
-}
-
-function fact(
-  code: SellpiaInventoryQualityFact['code'],
-  row: ParsedProductSourceRow,
-): SellpiaInventoryQualityFact {
-  return {
-    code,
-    rowNumber: row.rowNumber,
-    productCode: row.sellpiaProductCode,
   };
 }
 

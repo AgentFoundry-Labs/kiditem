@@ -224,7 +224,7 @@ export class ProductQueryUseCase implements ProductQueryPort {
     return this.contribution.readContribution({
       organizationId,
       ...basis,
-      sellpiaSourceImportRunId: dataStatus.sourceVector.sellpia!.sourceImportRunId,
+      sellpiaOperationId: dataStatus.sourceVector.sellpia!.sourceImportRunId,
       advertisingSourceImportRunId:
         dataStatus.sourceVector.advertising!.sourceImportRunId,
       masterProductIds,

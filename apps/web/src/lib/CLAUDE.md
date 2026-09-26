@@ -45,10 +45,10 @@ multiple route groups.
   events and one-time removal of the retired localStorage bearer record.
 - `extension-auth.ts` owns the explicit, just-in-time extension token handoff;
   no general browser API caller may consume that token.
-- `sellpia-inventory-freshness-api.ts` owns collection-status reads, import history, and
-  the authoritative latest completed inventory basis read. The route-local
-  Sellpia source-owner helper owns source attempts, extension dispatch, and
-  terminal observation.
+- `sellpia-inventory-freshness-api.ts` owns collection-status reads and the
+  authoritative latest completed inventory basis read. `sellpia-operations.ts`
+  starts the Sellpia operation kinds through the extension and waits on the
+  operation by id.
 - `rocket-confirm-file-store.ts` owns the browser-local Rocket workbook history
   shared by the Supply confirmation workspace and the preserved Orders file
   list. It is operator convenience only, never server truth or provider proof.

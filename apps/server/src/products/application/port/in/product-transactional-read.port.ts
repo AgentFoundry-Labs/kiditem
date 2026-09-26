@@ -51,10 +51,8 @@ export type ProductCollectionFence = Readonly<{
   freshnessFence: string;
   freshnessGeneration: bigint;
   lastVerifiedAt: Date | null;
-  lastCompletedImportRunId: string | null;
+  lastCompletedOperationId: string | null;
   requestedGeneration: bigint;
-  activeGeneration: bigint | null;
-  failedGeneration: bigint | null;
   databaseNow: Date;
 }>;
 

@@ -21,7 +21,7 @@ describe('ProductCollectionFreshnessUseCase', () => {
     const repository = new MemoryRepository();
     repository.state = makeState({
       sourceAccountKey: 'kiditem',
-      lastCompletedImportRunId: ATTEMPT_ID,
+      lastCompletedOperationId: ATTEMPT_ID,
       lastVerifiedAt: new Date('2026-07-15T00:00:01.000Z'),
       requestedGeneration: 4n,
       verifiedGeneration: 4n,
@@ -30,10 +30,10 @@ describe('ProductCollectionFreshnessUseCase', () => {
 
     await expect(useCase.requireCollectedStock({
       organizationId: ORGANIZATION_ID,
-      attemptId: ATTEMPT_ID,
+      operationId: ATTEMPT_ID,
       masterProductIds: [MASTER_PRODUCT_ID],
     })).resolves.toEqual({
-      attemptId: ATTEMPT_ID,
+      operationId: ATTEMPT_ID,
       fence: repository.state.freshnessFence,
       generation: '4',
       completedAt: '2026-07-15T00:00:01.000Z',
@@ -45,7 +45,7 @@ describe('ProductCollectionFreshnessUseCase', () => {
     const repository = new MemoryRepository();
     repository.state = makeState({
       sourceAccountKey: 'kiditem',
-      lastCompletedImportRunId: ATTEMPT_ID,
+      lastCompletedOperationId: ATTEMPT_ID,
       lastVerifiedAt: new Date('2026-07-15T00:00:01.000Z'),
       requestedGeneration: 5n,
       verifiedGeneration: 4n,
@@ -54,7 +54,7 @@ describe('ProductCollectionFreshnessUseCase', () => {
 
     await expect(useCase.requireCollectedStock({
       organizationId: ORGANIZATION_ID,
-      attemptId: ATTEMPT_ID,
+      operationId: ATTEMPT_ID,
       masterProductIds: [MASTER_PRODUCT_ID],
     })).rejects.toMatchObject({ code: 'SELLPIA_SYNC_REQUIRED' });
   });
@@ -79,7 +79,7 @@ class MemoryRepository implements ProductCollectionFreshnessRepositoryPort {
     return Promise.resolve(this.state);
   }
 
-  findLeaseAttemptId(): Promise<string | null> {
+  readLatestSellpiaOperation(): Promise<null> {
     return Promise.resolve(null);
   }
 

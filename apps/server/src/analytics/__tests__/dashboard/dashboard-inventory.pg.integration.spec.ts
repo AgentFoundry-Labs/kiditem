@@ -9,6 +9,7 @@ import { snapshotPartialOf } from '../../../test-helpers/dashboard-basis-asserti
 import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
 import { SellpiaProfitabilitySourceService } from '../../sellpia-product-sales/sellpia-profitability-source.service';
+import { publishSellpiaProfitability, seedSellpiaProfitabilityOperation } from '../../../test-helpers/__tests__/sellpia-profitability-operation';
 import { MASTER_PRODUCT_PROFITABILITY_READ_PORT } from '../../../finance/application/port/in/master-product-profitability-read.port';
 import { MasterProductAbcRepositoryAdapter } from '../../../products/adapter/out/persistence/master-product-abc.repository.adapter';
 import { MASTER_PRODUCT_ABC_REPOSITORY_PORT } from '../../../products/application/port/out/persistence/master-product-abc.repository.port';
@@ -55,7 +56,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     await prisma.$connect();
     const inventoryTransactionalRead = new ProductTransactionalReadRepositoryAdapter();
     const alerts = new SourceFailureAlerts(prisma as never);
-    sellpiaSource = new SellpiaProfitabilitySourceService(prisma as never, alerts, inventoryTransactionalRead);
+    sellpiaSource = new SellpiaProfitabilitySourceService(prisma as never);
     advertisingSource = new ProfitabilityAdImportRepositoryAdapter(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).recipes, channelFactTestPorts(prisma as never).listings, prisma as never, alerts);
     const evidence = new MasterProductProfitabilityReadService(
       sellpiaSource,
@@ -725,12 +726,9 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       select: { mappingGeneration: true },
     });
     const mappingGeneration = state?.mappingGeneration ?? 0n;
-    const sellpia = await sellpiaSource.beginAttempt(organizationId, randomUUID());
-    await sellpiaSource.failAttempt(organizationId, sellpia.attemptId, {
-      attemptToken: sellpia.attemptToken,
-      errorCode: 'COLLECTION_FAILED',
-      errorMessage: 'Historical publication retained by fixture',
-    });
+    // 실패로 끝난 셀피아 상품 손익 실행 — 픽스처가 그 id를 옛 공식 발행으로 붙든다(KID-361 J3).
+    const sellpiaOperation = await seedSellpiaProfitabilityOperation(prisma, { organizationId, status: 'failed' });
+    const sellpia = { attemptId: sellpiaOperation.id };
     const advertising = await advertisingSource.beginAttempt({
       organizationId,
       idempotencyKey: randomUUID(),
@@ -746,6 +744,8 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       where: { organizationId, sourceType: { not: null } },
       data: { readAt: new Date() },
     });
+    // 실패한 셀피아 실행은 알림 reader가 실행 표에서 읽는다(KID-355 정책 B) — 옛 알림처럼 운영자가 이미 읽은 것으로 둔다.
+    await new SourceFailureAlerts(prisma as never).dismiss(sellpiaOperation.id, organizationId);
     await prisma.$transaction(async (tx) => {
       await tx.masterProductAbcFormulaState.upsert({
         where: { organizationId },
@@ -756,7 +756,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
           publicationRevision: 1,
           officialCutoffDate: cutoff,
           publishedAt: calculatedAt,
-          publishedSellpiaSourceImportRunId: sellpia.attemptId,
+          publishedSellpiaOperationId: sellpia.attemptId,
           publishedAdvertisingSourceImportRunId: advertising.attemptId,
           publishedMappingGeneration: mappingGeneration,
           mappingGeneration,
@@ -767,7 +767,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
           publicationRevision: 1,
           officialCutoffDate: cutoff,
           publishedAt: calculatedAt,
-          publishedSellpiaSourceImportRunId: sellpia.attemptId,
+          publishedSellpiaOperationId: sellpia.attemptId,
           publishedAdvertisingSourceImportRunId: advertising.attemptId,
           publishedMappingGeneration: mappingGeneration,
         },
@@ -792,7 +792,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
         formulaRevision: 1,
         publicationRevision: 1,
         gradeBasisCutoffDate: cutoff,
-        sellpiaSourceImportRunId: sellpia.attemptId,
+        sellpiaOperationId: sellpia.attemptId,
         advertisingSourceImportRunId: advertising.attemptId,
         sellpiaGeneration: 1n,
         advertisingGeneration: 1n,

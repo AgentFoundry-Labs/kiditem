@@ -1,11 +1,10 @@
 import { channelFactTestPorts, channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
-import { randomUUID } from 'node:crypto';
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import { Test } from '@nestjs/testing';
 import { TrafficService } from '../../application/service/traffic/traffic.service';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { SourceFailureAlerts } from '../../../alerts/alerts.service';
-import { AdTrafficSourceRepository } from '../../../advertising/adapter/out/repository/ad-traffic-source.repository';
+import { WingTrafficReadRepository } from '../../../advertising/adapter/out/repository/wing-traffic-read.repository';
+import { wingTrafficOperations } from '../../../test-helpers/wing-traffic-operations';
 import {
   AD_TRAFFIC_READ_PORT,
 } from '../../../advertising/application/port/in/ad-traffic-source.port';
@@ -18,15 +17,9 @@ import {
   OTHER_ORGANIZATION_ID,
   IDOR_SENTINEL,
 } from '../../../test-helpers/real-prisma';
-import type {
-  AdTrafficSourceDailyPlan,
-  AdTrafficSourceDailyReceiptInput,
-  AdTrafficSourcePeriodReceiptInput,
-} from '@kiditem/shared/advertising';
 import type { PrismaClient } from '@prisma/client';
 
 const DAY_MS = 86_400_000;
-const WING_URL = 'https://wing.coupang.com/tenants/business-insight/sales-analysis';
 
 type TrafficSummary = {
   visitors: number;
@@ -63,24 +56,6 @@ function summary(overrides: Partial<TrafficSummary> = {}): TrafficSummary {
   };
 }
 
-function rawSummary(label: string, values: TrafficSummary) {
-  return {
-    source: 'wing.summary.body',
-    label,
-    summaryMetrics: {
-      totalUniqueVisitor: values.visitors,
-      totalPageViews: values.views,
-      totalAddToCart: values.cartAdds,
-      totalOrders: values.orders,
-      totalUnitsSold: values.salesQty,
-      totalGmv: values.revenue,
-      pvToOrder: values.providerConversionRate === null
-        ? null
-        : values.providerConversionRate / 100,
-    },
-  };
-}
-
 function previousMonthRange(reference = currentBusinessDate()): MonthRange {
   const currentMonthStart = new Date(Date.UTC(
     reference.getUTCFullYear(),
@@ -109,28 +84,26 @@ function previousMonthRange(reference = currentBusinessDate()): MonthRange {
 describe('TrafficService (PG integration) — daily facts', () => {
   let prisma: PrismaClient;
   let service: TrafficService;
-  let trafficOwner: AdTrafficSourceRepository;
+  let traffic: Awaited<ReturnType<typeof wingTrafficOperations>>;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
-    trafficOwner = new AdTrafficSourceRepository(channelFactTestPorts(prismaService).accounts, channelFactTestPorts(prismaService).listings,
-      prismaService,
-      new SourceFailureAlerts(prismaService),
-    );
+    traffic = await wingTrafficOperations(prisma);
     const m = await Test.createTestingModule({
       providers: [
         ...channelFactTestProviders,
         TrafficService,
         { provide: PrismaService, useValue: prisma },
-        { provide: AD_TRAFFIC_READ_PORT, useValue: trafficOwner },
+        { provide: AD_TRAFFIC_READ_PORT, useValue: new WingTrafficReadRepository(channelFactTestPorts(prismaService).accounts, prismaService) },
       ],
     }).compile();
     service = m.get(TrafficService);
   });
 
   afterAll(async () => {
+    await traffic.close();
     await prisma.$disconnect();
   });
 
@@ -168,127 +141,7 @@ describe('TrafficService (PG integration) — daily facts', () => {
     return listing;
   }
 
-  function dailyReceipt(
-    attemptId: string,
-    plan: AdTrafficSourceDailyPlan,
-    businessDate: string,
-    values: TrafficSummary,
-  ): AdTrafficSourceDailyReceiptInput {
-    return {
-      key: `${attemptId}:daily:${businessDate}`,
-      capturedAt: `${businessDate}T01:00:00.000Z`,
-      url: WING_URL,
-      providerVendorId: plan.providerVendorId,
-      kind: 'daily_page',
-      filterScope: plan.filterScope,
-      businessDate,
-      startDate: businessDate,
-      endDate: businessDate,
-      period: 1,
-      pageIndex: 1,
-      proof: {
-        expectedPages: 1,
-        visitedPages: [1],
-        terminalPageObserved: true,
-        verified: true,
-        complete: true,
-      },
-      data: [{
-        vendorItemId: '1001',
-        visitors: values.visitors,
-        views: values.views,
-        cartAdds: values.cartAdds,
-        orders: values.orders,
-        salesQty: values.salesQty,
-        revenue: values.revenue,
-      }],
-      accountSummary: values,
-      accountSummaryRaw: rawSummary(`daily:${businessDate}`, values),
-    };
-  }
-
-  function periodReceipt(
-    attemptId: string,
-    plan: AdTrafficSourceDailyPlan,
-    values: TrafficSummary,
-  ): AdTrafficSourcePeriodReceiptInput {
-    return {
-      key: `${attemptId}:period`,
-      capturedAt: `${plan.endDate}T02:00:00.000Z`,
-      url: WING_URL,
-      providerVendorId: plan.providerVendorId,
-      kind: 'period_summary',
-      filterScope: plan.filterScope,
-      startDate: plan.startDate,
-      endDate: plan.endDate,
-      period: plan.periodDays,
-      accountSummary: values,
-      accountSummaryRaw: rawSummary('period', values),
-    };
-  }
-
-  /** Begins an owner attempt and uploads its receipts; the terminal submission is the caller's. */
-  async function stageOwnerRange(
-    organizationId: string,
-    channelAccountId: string,
-    startDate: string,
-    endDate: string,
-    dailyValues: TrafficSummary,
-  ) {
-    const started = await trafficOwner.beginAttempt({
-      organizationId,
-      idempotencyKey: randomUUID(),
-      request: {
-        channelAccountId,
-        startDate,
-        endDate,
-        url: WING_URL,
-      },
-    });
-    const control = await trafficOwner.readAttemptControl({
-      organizationId,
-      attemptId: started.attemptId,
-    });
-    if (!control) throw new Error('Owner attempt control was not created.');
-    const plan = started.plan as AdTrafficSourceDailyPlan;
-    const days = plan.expectedDates.length;
-    for (const [index, businessDate] of plan.expectedDates.entries()) {
-      await trafficOwner.uploadReceipt({
-        organizationId,
-        attemptId: started.attemptId,
-        attemptToken: control.attemptToken,
-        sequence: index * 100,
-        receipt: dailyReceipt(started.attemptId, plan, businessDate, dailyValues),
-      });
-    }
-    const periodValues: TrafficSummary = {
-      ...dailyValues,
-      visitors: dailyValues.visitors * days,
-      views: dailyValues.views * days,
-      cartAdds: dailyValues.cartAdds * days,
-      orders: dailyValues.orders * days,
-      salesQty: dailyValues.salesQty * days,
-      revenue: dailyValues.revenue * days,
-    };
-    await trafficOwner.uploadReceipt({
-      organizationId,
-      attemptId: started.attemptId,
-      attemptToken: control.attemptToken,
-      sequence: days * 100,
-      receipt: periodReceipt(started.attemptId, plan, periodValues),
-    });
-    const stagedControl = await trafficOwner.readAttemptControl({
-      organizationId,
-      attemptId: started.attemptId,
-    });
-    if (!stagedControl) throw new Error('Owner attempt control was lost.');
-    return {
-      attemptId: started.attemptId,
-      attemptToken: control.attemptToken,
-      manifestChecksum: stagedControl.manifestChecksum,
-    };
-  }
-
+  /** 한 범위를 실제 실행 계약으로 모은다(KID-362 `advertising.wing_traffic`). */
   async function collectOwnerRange(
     organizationId: string,
     channelAccountId: string,
@@ -296,9 +149,7 @@ describe('TrafficService (PG integration) — daily facts', () => {
     endDate: string,
     dailyValues: TrafficSummary,
   ) {
-    const staged = await stageOwnerRange(organizationId, channelAccountId, startDate, endDate, dailyValues);
-    await trafficOwner.finalizeAttempt({ organizationId, ...staged });
-    return staged;
+    return traffic.collect({ organizationId, channelAccountId, startDate, endDate, dailyValues });
   }
 
   it('getTrafficSummary — owner coverage includes today and withholds incomplete totals', async () => {

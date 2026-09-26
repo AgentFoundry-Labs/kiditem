@@ -10,7 +10,6 @@ import {
 } from '../port/out/persistence/product-source-freshness.repository.port';
 import {
   createInitialCollectionState,
-  hasLiveLease,
   isSourceBindingConfirmed,
   planSourceBindingConfirmation,
   SELLPIA_SOURCE_ACCOUNT_KEY,
@@ -46,6 +45,11 @@ implements
     return this.view(input, state);
   }
 
+  async isSourceBindingConfirmed(organizationId: string): Promise<boolean> {
+    const state = await this.repository.readState(organizationId);
+    return state !== null && isSourceBindingConfirmed(state);
+  }
+
   async confirmSourceBinding(input: ActorScope & {
     sourceOrigin: typeof SELLPIA_SOURCE_ORIGIN;
     sourceAccountKey: typeof SELLPIA_SOURCE_ACCOUNT_KEY;
@@ -69,38 +73,26 @@ implements
     return this.view(input, state);
   }
 
-  // A live lease names the source attempt holding it, so an operator can stop
-  // that attempt by id from any browser.
+  // 계정 연결·마지막 발행은 원천 줄이, 도는 수집·실패는 셀피아 세 kind의 최신 실행이 말한다(ADR-0025, KID-355 정책 B).
   private async view(
     input: ActorScope,
     state: SellpiaInventoryCollectionState,
   ): Promise<SellpiaInventoryCollectionStatusView> {
-    const now = new Date();
-    const leaseAttemptId = hasLiveLease(state, now) && state.activeSyncToken
-      ? await this.repository.findLeaseAttemptId({
-        organizationId: input.organizationId,
-        activeSyncToken: state.activeSyncToken,
-      })
-      : null;
-    const lastAttemptId = this.repository.findLastAttemptId
-      ? await this.repository.findLastAttemptId({ organizationId: input.organizationId })
-      : leaseAttemptId ?? state.lastCompletedImportRunId;
-    return toCollectionStatusView(state, now, input.userId, leaseAttemptId, lastAttemptId);
+    return toCollectionStatusView(state, await this.repository.readLatestSellpiaOperation(input.organizationId));
   }
 
   async requireCollectedStock(input: {
     organizationId: string;
-    attemptId: string;
+    operationId: string;
     masterProductIds: string[];
   }) {
-    if (!isUuid(input.attemptId)) throw referenceInvalid();
+    if (!isUuid(input.operationId)) throw referenceInvalid();
     validateMasterProductIds(input.masterProductIds);
     return this.withLockedState(input.organizationId, async (transaction) => {
       const state = await transaction.getState();
-      if (state.lastCompletedImportRunId !== input.attemptId || state.lastVerifiedAt === null
+      if (state.lastCompletedOperationId !== input.operationId || state.lastVerifiedAt === null
         || !isSourceBindingConfirmed(state)
-        || state.requestedGeneration !== state.verifiedGeneration
-        || state.activeGeneration !== null) {
+        || state.requestedGeneration !== state.verifiedGeneration) {
         throw syncRequired();
       }
       const availability = await readProductAvailability(transaction, [...new Set(input.masterProductIds)]);
@@ -111,7 +103,7 @@ implements
         throw syncRequired();
       }
       return {
-        attemptId: input.attemptId,
+        operationId: input.operationId,
         fence: state.freshnessFence,
         generation: state.verifiedGeneration.toString(),
         completedAt: state.lastVerifiedAt.toISOString(),
@@ -171,10 +163,6 @@ function expectation(
   return {
     freshnessFence: state.freshnessFence,
     requestedGeneration: state.requestedGeneration,
-    activeGeneration: state.activeGeneration,
-    activeSyncToken: state.activeSyncToken,
-    activeSyncOwnerUserId: state.activeSyncOwnerUserId,
-    activeSyncLeaseExpiresAt: state.activeSyncLeaseExpiresAt,
   };
 }
 

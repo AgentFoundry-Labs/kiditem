@@ -51,7 +51,7 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
       channelAccountId: parsed.data.channelAccountId,
       rocketPoOperationId: parsed.data.rocketPoOperationId,
     });
-    const { rocketPoOperationId: _sourceId, inventoryAttemptId, ...decisionFields } = parsed.data;
+    const { rocketPoOperationId: _sourceId, inventoryOperationId, ...decisionFields } = parsed.data;
     const decision = RocketPurchasePreviewDecisionSchema.safeParse({ ...decisionFields, collection: catalog.collection, rows: catalog.rows });
     if (!decision.success) {
       throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'ROCKET_PREVIEW_DECISION_INVALID' }, cause: decision.error });
@@ -101,7 +101,7 @@ export class RocketPurchasePreviewService implements RocketPurchasePreviewPort {
     }));
     const collected = await this.freshness.requireCollectedStock({
       organizationId: input.organizationId,
-      attemptId: inventoryAttemptId,
+      operationId: inventoryOperationId,
       masterProductIds,
     });
     const inventoryGeneration = collected.generation;

@@ -48,6 +48,7 @@ export async function upsertWingTrackedProductSnapshots(
       ...snapshotWriteValues(row),
       sourceKeyword: row.sourceKeyword,
       capturedAt: row.capturedAt,
+      operationId: row.operationId ?? null,
     })),
   });
 

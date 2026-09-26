@@ -18,7 +18,7 @@ import {
 } from "@/lib/collection-source-status-query";
 import { queryKeys } from "@/lib/query-keys";
 import { downloadBlob } from "@/lib/browser-download";
-import { formatNumber } from "@/lib/utils";
+import { formatDateTime, formatNumber } from "@/lib/utils";
 import { createSecureRandomUuid } from "@/lib/secure-random-uuid";
 import {
   cancelCoupangShipmentSummary,
@@ -440,7 +440,7 @@ export default function CoupangShipmentsPage() {
             {run.status === "done" && run.finishedAt && (
               <p>
                 마지막 완료:{" "}
-                <time dateTime={run.finishedAt}>{run.finishedAt}</time>
+                <time dateTime={run.finishedAt}>{formatDateTime(run.finishedAt)}</time>
               </p>
             )}
             {dateSummary.some((item) => !item.verified) && (

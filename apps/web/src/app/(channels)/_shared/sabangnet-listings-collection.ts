@@ -1,25 +1,29 @@
 'use client';
 
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
+import { SABANGNET_MALL_LISTINGS_KIND, CHANNELS_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
 import type { SabangnetMallListingsSource } from '@kiditem/shared/sabangnet-mall-listings';
 import {
   COLLECTION_IDLE_POLL_MS,
+  COLLECTION_RUNNING_POLL_MS,
   type CollectionSourceAdapter,
   type CollectionStartOutcome,
 } from '@/hooks/use-collection-source-control';
-import { isApiError } from '@/lib/api-error';
+import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { handOffToExtensionRun, startWebOpenedCollection } from '@/lib/collection-start';
-import { detectOrderCollectionExtensionRuntime } from '@/lib/extension-bridge';
+import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
 import { queryKeys } from '@/lib/query-keys';
 import { mallPublishingApi } from './mall-publishing-api';
 
-export const SABANGNET_LISTINGS_CAPABILITY = 'sabangnetMallListingsSourceOwnerV1';
-export const SABANGNET_LISTINGS_ACTION = 'collectSabangnetMallListings';
 export const SABANGNET_NO_MALL_ACCOUNTS =
   '사방넷 상품을 받을 몰 계정이 없습니다. 쇼핑몰 계정에서 몰을 먼저 연결해 주세요.';
 
-/** 사방넷 가져오기의 현재. 쇼핑몰 현황과 등록 현황이 같은 읽기를 쓴다. */
+function running(status: SabangnetMallListingsSource | undefined): boolean {
+  const operation = status?.latestOperation;
+  return operation?.status === 'executing' || operation?.status === 'prepared';
+}
+
+/** 사방넷 가져오기의 현재(몰 계정 행 + 이 kind의 최근 실행). 쇼핑몰 현황과 등록 현황이 같은 읽기를 쓴다. */
 export function sabangnetListingsSourceQueryOptions() {
   return collectionSourceStatusQueryOptions<
     SabangnetMallListingsSource,
@@ -29,39 +33,17 @@ export function sabangnetListingsSourceQueryOptions() {
   >({
     queryKey: queryKeys.mallPublishing.sabangnetListingsSource(),
     queryFn: () => mallPublishingApi.sabangnetListingsSource(),
-    refetchInterval: COLLECTION_IDLE_POLL_MS,
+    refetchInterval: (query) => (running(query.state.data) ? COLLECTION_RUNNING_POLL_MS : COLLECTION_IDLE_POLL_MS),
     refetchIntervalInBackground: false,
     meta: { suppressGlobalErrorToast: true },
   });
 }
 
-function startSabangnetListings(): Promise<CollectionStartOutcome> {
-  return startWebOpenedCollection({
-    detectExtension: async () => {
-      const runtime = await detectOrderCollectionExtensionRuntime(1_200, [SABANGNET_LISTINGS_CAPABILITY]);
-      if (runtime.status === 'incompatible') {
-        throw new Error('주문수집 확장프로그램이 이전 버전입니다. 확장을 새로고침(1.0.97 이상)한 뒤 다시 가져와 주세요.');
-      }
-      if (runtime.status !== 'ready') {
-        throw new Error('주문수집 확장프로그램을 찾지 못했습니다. 확장을 켜고 사방넷에 로그인한 뒤 다시 가져와 주세요.');
-      }
-      return runtime.extensionId;
-    },
-    begin: async (idempotencyKey) => {
-      try {
-        const attempt = await mallPublishingApi.beginSabangnetListings(idempotencyKey);
-        return { outcome: 'opened', attemptId: attempt.attemptId, running: attempt.state === 'RUNNING' };
-      } catch (error) {
-        if (isApiError(error) && error.status === 404) {
-          return { outcome: 'refused', message: SABANGNET_NO_MALL_ACCOUNTS };
-        }
-        throw error;
-      }
-    },
-    handOff: ({ extensionId, attemptId }) =>
-      handOffToExtensionRun(extensionId, attemptId, { action: SABANGNET_LISTINGS_ACTION, attemptId }),
-    cancel: ({ attemptId }) => mallPublishingApi.cancelSabangnetListings(attemptId),
-  });
+/** 확장에 `channels.sabangnet_mall_listings` 실행을 시작시킨다(KID-363). 몰 계정 행은 서버 plan이 얼린다. */
+async function startSabangnetListings(): Promise<CollectionStartOutcome> {
+  const outcome = await requestOperationStart(SABANGNET_MALL_LISTINGS_KIND, {}, { capability: CHANNELS_OPERATION_CAPABILITY });
+  if (outcome.outcome === 'refused') return outcome;
+  return { outcome: outcome.outcome, attemptId: outcome.operationId };
 }
 
 export type LinkImportedListingsResult = Readonly<{
@@ -107,22 +89,28 @@ export async function linkImportedListings(
 }
 
 /**
- * 사방넷 송신 기록으로 몰 등록 상품을 가져오는 원천(KID-246). 화면이 시도를 열어 확장에
- * 넘기고, 확장이 사방넷 목록을 한 번에 읽어 owner 에 제출한다.
+ * 사방넷 송신 기록으로 몰 등록 상품을 가져오는 원천(KID-246) = `channels.sabangnet_mall_listings` 실행 하나(KID-363).
+ * 확장이 실행을 열고 사방넷 목록을 끝까지 읽어 청크로 보내고, 서버 finish가 몰마다 발행한다. 중단은 이 브라우저의
+ * 실행을 멈추고 서버 실행을 취소한다.
  */
 export function sabangnetListingsCollection(): CollectionSourceAdapter<SabangnetMallListingsSource> {
   return {
-    sourceKey: 'orders.sabangnet_mall_listings',
+    sourceKey: SABANGNET_MALL_LISTINGS_KIND,
     label: '사방넷 등록 상품 가져오기',
     statusQuery: sabangnetListingsSourceQueryOptions(),
     readRunning: (status) => {
-      const attempt = status.latestAttempt;
-      if (attempt?.state !== 'RUNNING') return null;
-      return { attemptId: attempt.attemptId, scopeLabel: `몰 ${attempt.plan.malls.length}곳` };
+      const operation = status.latestOperation;
+      if (!operation || !running(status)) return null;
+      const malls = Array.isArray(operation.plan?.malls) ? operation.plan.malls.length : 0;
+      return { attemptId: operation.id, scopeLabel: `몰 ${malls}곳` };
     },
+    readProgress: (status) => (running(status) && status.latestOperation
+      ? `${status.latestOperation.id}:${JSON.stringify(status.latestOperation.progress ?? null)}`
+      : null),
     start: () => startSabangnetListings(),
-    cancelOnServer: (attemptId) => mallPublishingApi.cancelSabangnetListings(attemptId),
-    readCompleteId: (status) => status.latestComplete?.attemptId ?? null,
+    cancelInExtension: (operationId) => requestOperationCancel(operationId),
+    cancelOnServer: (operationId) => apiClient.post(`/api/operations/${encodeURIComponent(operationId)}/cancel`),
+    readCompleteId: (status) => status.latestSucceeded?.id ?? null,
     onNewComplete: (queryClient) => {
       void linkImportedListings(queryClient);
     },

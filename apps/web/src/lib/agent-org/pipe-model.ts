@@ -8,6 +8,11 @@ import {
 } from './pipe-stages';
 import { pipeStateRank, worstPipeState, type PipeState } from './pipe-states';
 import { attemptFailureText } from '@/lib/operator-error';
+import {
+  SELLPIA_INVENTORY_KIND,
+  SELLPIA_PRODUCT_PROFITABILITY_KIND,
+  SELLPIA_SALES_KIND,
+} from '@kiditem/shared/sellpia-operations';
 
 /**
  * Agent Org 판정 — 지금 있는 기록만으로 단계마다 "어떤 상태인가"를 정한다.
@@ -238,6 +243,18 @@ export function sourceAlertSignal(alert: AlertItem): PipeSignal | null {
   };
 }
 
+/** 셀피아 세 kind(셀피아 로그인 하나를 나눠 쓴다)의 이름과 운영자 문장 원천. 모르는 kind·옛 응답은 재고다. */
+const SELLPIA_KIND_LABELS: Readonly<Record<string, { label: string; source: string }>> = {
+  [SELLPIA_INVENTORY_KIND]: { label: '셀피아 재고', source: 'sellpia_inventory' },
+  [SELLPIA_SALES_KIND]: { label: '셀피아 매출', source: 'sellpia_sales_daily' },
+  [SELLPIA_PRODUCT_PROFITABILITY_KIND]: { label: '셀피아 상품 손익', source: 'sellpia_product_profitability' },
+};
+
+function sellpiaKindOf(view: SellpiaInventoryCollectionStatusView) {
+  const kind = view.lastAttempt?.kind ?? null;
+  return (kind ? SELLPIA_KIND_LABELS[kind] : undefined) ?? SELLPIA_KIND_LABELS[SELLPIA_INVENTORY_KIND]!;
+}
+
 export function collectionStatusSignal(view: SellpiaInventoryCollectionStatusView): PipeSignal {
   const base = {
     id: 'collection:sellpia',
@@ -266,12 +283,14 @@ export function collectionStatusSignal(view: SellpiaInventoryCollectionStatusVie
     case 'failed':
     default: {
       const code = view.lastAttempt?.errorCode ?? null;
-      if (code === 'sellpia_login_required') {
+      const failedKind = sellpiaKindOf(view);
+      // 옛 attempt 코드와 실행 표의 확장 site 호출 코드(KID-355 정책 B) 둘 다 로그인 필요다.
+      if (code === 'sellpia_login_required' || code === 'SITE_LOGIN_REQUIRED') {
         return {
           ...base,
           state: 'blocked_external',
           at: lastAttemptAt,
-          reason: attemptFailureText(view.lastAttempt, 'sellpia_inventory'),
+          reason: attemptFailureText(view.lastAttempt, failedKind.source),
           cause: { key: 'login:sellpia', label: '셀피아 · 로그인 필요' },
           actionable: true,
           lane: { dir: 'rejoin', label: '로그인하면 이어짐' },
@@ -281,8 +300,8 @@ export function collectionStatusSignal(view: SellpiaInventoryCollectionStatusVie
         ...base,
         state: 'failed',
         at: lastAttemptAt,
-        reason: attemptFailureText(view.lastAttempt, 'sellpia_inventory'),
-        cause: { key: `fail:sellpia:${code ?? 'unknown'}`, label: '셀피아 재고 · 수집 실패' },
+        reason: attemptFailureText(view.lastAttempt, failedKind.source),
+        cause: { key: `fail:sellpia:${code ?? 'unknown'}`, label: `${failedKind.label} · 수집 실패` },
         actionable: true,
         lane: { dir: 'exit', label: '실패' },
       };

@@ -26,11 +26,16 @@ export interface PageCallOptions {
   displayName: string;
   /** 물을 프레임(없으면 맨 위 문서). 처리기 파일도 그 프레임에만 넣는다. */
   frameId?: number;
+  /**
+   * ISOLATED 처리기에서만 부른다(`world: 'isolated'`). 처리기가 없으면 브리지가 MAIN으로 넘기지 않고 파일을 다시 넣게 한다 —
+   * 저장 자격을 싣는 로그인 폼 채우기(KID-377)처럼 인자가 페이지에 가면 안 되는 호출.
+   */
+  isolatedOnly?: boolean;
 }
 
 export async function callPage<T>(page: TabPage, call: string, args: unknown, options: PageCallOptions): Promise<T> {
   const answer = await page.ask<PageCallAnswer<T>>(
-    { type: PAGE_CALL_MESSAGE, call, args },
+    { type: PAGE_CALL_MESSAGE, call, args, ...(options.isolatedOnly ? { world: 'isolated' } : {}) },
     {
       timeoutMs: options.timeoutMs,
       guard: options.guard,

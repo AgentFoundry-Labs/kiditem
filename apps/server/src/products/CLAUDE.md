@@ -17,15 +17,21 @@ retains warehouse records only; no second mutable source stock exists.
   and nullable purchase price atomically with source-scope completion. Preserve
   UUID, KID code and images. Missing products remain with zero stock; a confirmed
   empty collection zeros the entire source scope. Failed/partial/cancelled
-  attempts do not change current products.
+  operations do not change current products.
 - Only images are manually editable. Unknown purchase price stays null, is
   excluded from priced asset totals and is counted separately. No product
   activation, sale-price, raw-payload or per-row import-run field is authoritative.
-- Preserve attempt fencing, idempotency, source-deduplicated failure alerts and
-  success resolution. A later attempt never rewrites an earlier failure record.
+- Sellpia collection is the operation kind `products.sellpia_inventory`
+  (`adapter/in/operation/`, ADR-0025): plan checks the source binding and holds
+  `resource:sellpia:login`; finalize publishes inside the finish transaction and
+  writes `SellpiaInventoryState.lastCompletedOperationId` with the next verified
+  generation. Failures stay on the operation row; the alerts reader absorbs
+  them (KID-355 policy B), so the owner has no `onFailed`. The Sellpia status
+  endpoint reads running/failed from the newest Sellpia operation (inventory,
+  sales, product profitability) and complete/not collected from this state.
 - Ordinary reads return stored current products. Purchase/Rocket calculations
-  use the exact completed collection attempt and locked current generation;
-  elapsed time is not an availability rule.
+  use the exact completed operation (`lastCompletedOperationId`) and locked
+  current generation; elapsed time is not an availability rule.
 - Source completion never triggers ABC or downstream calculations implicitly.
 - Sellpia transport may retain existing Inventory URLs during caller migration;
   its implementation and canonical mutation authority are Products.

@@ -21,5 +21,11 @@ esbuild로 IIFE 하나(`globalName: KidItemRuntime`)로 묶어
   content script는 API가 없어 DOM을 읽어야 할 때만, 페이지 주입은 파일 주입만.
   인자가 필요한 페이지 읽기는 `sites/page-call.ts`(ISOLATED 브리지 → MAIN 러너 → 처리기 파일, KID-359 H3)를 쓴다.
 
+사이트 자동 로그인(KID-377)은 `sites/site-login.ts` 한 곳이다. 저장 자격은 웹이 `operation.start`의 `credentials`로
+보내고 runner가 그 실행의 사이트 lease로만 넘긴다 — 서버·plan·progress·result·청크·로그·오류 details에 싣지 않는다.
+폼 채우기는 `content/page-call/login-fill.js`에 페이지 호출 인자로 그 탭에만 가며, 옛 `executeScript` 인자와 같은
+노출이다. 실패한 로그인은 `SITE_LOGIN_REQUIRED` details.reason(`credentials_rejected`·`no_credentials`·
+`verification_required`·`login_unconfirmed`)으로 알리고, runner가 failed finish의 `result.login`에 까닭과 몰의 말만 싣는다.
+
 새 수집은 collectors/sites에만 추가하고, 서버 통신은 operation client만 쓴다. 등록은 `entry/index.ts`의
 import 한 줄씩(수집기 하나, 사이트 하나)이다.

@@ -14,6 +14,9 @@ sales, ads, inventory, trends, health, and chart panels.
 ## State Rules
 
 - Use `queryKeys.dashboard.*` for dashboard read models.
+- Wing daily traffic starts the `advertising.wing_traffic` operation through the
+  extension (`operation.start`) and reads its runs from `GET /api/operations`;
+  the closed day is computed with the shared KST rule, not the browser clock.
 - Prefer `apiClient.getParsed()` with shared schemas for dashboard endpoints.
 - Filter state is local UI state; aggregation and calculations stay backend
   read-model responsibility.

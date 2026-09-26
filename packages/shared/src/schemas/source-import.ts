@@ -104,9 +104,9 @@ export const SellpiaProfitabilityPlanSchema = z.object({
 }).strict();
 export type SellpiaProfitabilityPlan = z.infer<typeof SellpiaProfitabilityPlanSchema>;
 
-export const SellpiaProfitabilityAttemptSchema = z.object({
+/** 최근 셀피아 상품 손익 실행 요약(KID-361: 실행 `analytics.sellpia_product_profitability`를 옛 attempt 모양으로 보인다). */
+export const SellpiaProfitabilityAttemptSummarySchema = z.object({
   attemptId: z.string().uuid(),
-  attemptToken: z.string().uuid(),
   state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
   expiresAt: zIsoDate,
   capturedAt: zIsoDate,
@@ -115,44 +115,8 @@ export const SellpiaProfitabilityAttemptSchema = z.object({
   errorMessage: z.string().trim().min(1).max(300).nullable(),
   plan: SellpiaProfitabilityPlanSchema,
 }).strict();
-export type SellpiaProfitabilityAttempt = z.infer<typeof SellpiaProfitabilityAttemptSchema>;
-
-export const SellpiaProfitabilityAttemptSummarySchema =
-  SellpiaProfitabilityAttemptSchema.omit({ attemptToken: true });
 export type SellpiaProfitabilityAttemptSummary = z.infer<
   typeof SellpiaProfitabilityAttemptSummarySchema
->;
-
-export const SellpiaProfitabilityAttemptControlSchema =
-  SellpiaProfitabilityAttemptSchema.pick({
-    attemptId: true,
-    attemptToken: true,
-    state: true,
-    expiresAt: true,
-    plan: true,
-  }).extend({ state: z.literal('RUNNING') }).strict();
-export type SellpiaProfitabilityAttemptControl = z.infer<
-  typeof SellpiaProfitabilityAttemptControlSchema
->;
-
-export const SellpiaProfitabilityCompleteGenerationSchema = z.object({
-  sourceImportRunId: z.string().uuid(),
-  generation: PositiveGenerationSchema,
-  coveredThrough: DateOnlySchema,
-  capturedAt: zIsoDate,
-  mappingGeneration: z.string().regex(/^\d+$/),
-}).strict();
-export type SellpiaProfitabilityCompleteGeneration = z.infer<
-  typeof SellpiaProfitabilityCompleteGenerationSchema
->;
-
-export const SellpiaProfitabilitySourceStatusSchema = z.object({
-  latestAttempt: SellpiaProfitabilityAttemptSummarySchema.nullable(),
-  latestComplete: SellpiaProfitabilityCompleteGenerationSchema.nullable(),
-  ready: z.boolean(),
-}).strict();
-export type SellpiaProfitabilitySourceStatus = z.infer<
-  typeof SellpiaProfitabilitySourceStatusSchema
 >;
 
 const SourceImportRunObjectSchema = z.object({
@@ -379,33 +343,4 @@ export const CoupangWingCatalogImportResponseSchema = z.object({
 }).superRefine(refineSuccessfulImportResponse);
 export type CoupangWingCatalogImportResponse = z.infer<
   typeof CoupangWingCatalogImportResponseSchema
->;
-
-export const CoupangRocketMatchingCsvImportResponseSchema = z.object({
-  run: CompletedSourceArtifactRunSchema.superRefine((value, ctx) => {
-    if (value.sourceType !== 'coupang_rocket_matching_csv') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['sourceType'],
-        message: 'Rocket matching CSV run must use sourceType coupang_rocket_matching_csv',
-      });
-    }
-    if (value.channelAccountId === null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['channelAccountId'],
-        message: 'Rocket matching CSV run requires a channel account',
-      });
-    }
-  }),
-  duplicate: z.boolean(),
-  changes: z.object({
-    createdProductCount: z.number().int().nonnegative(),
-    updatedProductCount: z.number().int().nonnegative(),
-    createdSkuCount: z.number().int().nonnegative(),
-    updatedSkuCount: z.number().int().nonnegative(),
-  }),
-}).superRefine(refineSuccessfulImportResponse);
-export type CoupangRocketMatchingCsvImportResponse = z.infer<
-  typeof CoupangRocketMatchingCsvImportResponseSchema
 >;

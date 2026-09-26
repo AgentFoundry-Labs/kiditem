@@ -5,7 +5,7 @@ import { PurchaseOrderSubmissionTransactionAdapter } from './purchase-order-subm
 
 const ORDER_ID = '0187e942-9098-7382-9a22-c5b821f2f5d1';
 const SELLPIA_SKU_ID = '00000000-0000-4000-8000-000000000001';
-const INVENTORY_ATTEMPT_ID = '00000000-0000-4000-8000-000000000002';
+const INVENTORY_OPERATION_ID = '00000000-0000-4000-8000-000000000002';
 const FENCE = '00000000-0000-4000-8000-000000000099';
 
 function makePrisma(input: {
@@ -19,10 +19,8 @@ function makePrisma(input: {
     freshnessFence: input.fence ?? FENCE,
     freshnessGeneration: 7n,
     lastVerifiedAt: new Date('2026-07-16T00:00:00.000Z'),
-    lastCompletedImportRunId: INVENTORY_ATTEMPT_ID,
+    lastCompletedOperationId: INVENTORY_OPERATION_ID,
     requestedGeneration: 7n,
-    activeGeneration: null,
-    failedGeneration: null,
     databaseNow: new Date('2026-07-16T00:05:00.000Z'),
   }];
   const order = input.orderOrganizationId === 'other'
@@ -49,7 +47,7 @@ function makePrisma(input: {
       findUnique: vi.fn().mockResolvedValue({
         verifiedGeneration: 7n,
         lastVerifiedAt: new Date('2026-07-16T00:00:00.000Z'),
-        lastCompletedImportRunId: 'inventory-run',
+        lastCompletedOperationId: 'inventory-run',
       }),
     },
     sourceImportRun: {
@@ -137,7 +135,7 @@ function prepareInput(requiresProvider = true) {
     idempotencyKey: 'submit-1',
     requestHash: 'a'.repeat(64),
     userId: 'user-1',
-    inventoryAttemptId: INVENTORY_ATTEMPT_ID,
+    inventoryOperationId: INVENTORY_OPERATION_ID,
     inventoryFence: FENCE,
     inventoryGeneration: '7',
     inventoryCompletedAt: '2026-07-16T00:00:00.000Z',
@@ -325,7 +323,7 @@ describe('PurchaseOrderSubmissionTransactionAdapter', () => {
 
     await expect(adapter.prepare({
       ...prepareInput(),
-      inventoryAttemptId: '00000000-0000-4000-8000-000000000099',
+      inventoryOperationId: '00000000-0000-4000-8000-000000000099',
     })).rejects.toMatchObject({ code: 'SELLPIA_SYNC_REQUIRED' });
     expect(tx.purchaseOrderSubmissionAttempt.create).not.toHaveBeenCalled();
   });

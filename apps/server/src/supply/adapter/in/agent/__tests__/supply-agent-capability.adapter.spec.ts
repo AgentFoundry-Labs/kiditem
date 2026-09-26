@@ -6,7 +6,7 @@ const ORG_ID = '0187e942-9098-7382-9a22-c5b821f2f5d1';
 const USER_ID = '0187e942-9098-7382-9a22-c5b821f2f5d2';
 const SKU_ID = '0187e942-9098-7382-9a22-c5b821f2f5d3';
 const PURCHASE_ORDER_ID = '0187e942-9098-7382-9a22-c5b821f2f5d4';
-const INVENTORY_ATTEMPT_ID = '0187e942-9098-7382-9a22-c5b821f2f5d5';
+const INVENTORY_OPERATION_ID = '0187e942-9098-7382-9a22-c5b821f2f5d5';
 
 describe('SupplyAgentCapabilityAdapter', () => {
   it('creates a purchase-order draft through the Supply owner port', async () => {
@@ -31,14 +31,14 @@ describe('SupplyAgentCapabilityAdapter', () => {
     const adapter = new SupplyAgentCapabilityAdapter({ createFromRecommendation: vi.fn() } as never, submissions as never);
     const inputHash = canonicalOwnerInputHash({
       purchaseOrderId: PURCHASE_ORDER_ID,
-      inventoryAttemptId: INVENTORY_ATTEMPT_ID,
+      inventoryOperationId: INVENTORY_OPERATION_ID,
     });
     const inputWithoutActor = {
       organizationId: ORG_ID,
       idempotencyKey: 'request:supply.submit_purchase_order',
       inputHash,
       purchaseOrderId: PURCHASE_ORDER_ID,
-      inventoryAttemptId: INVENTORY_ATTEMPT_ID,
+      inventoryOperationId: INVENTORY_OPERATION_ID,
     };
     await expect(adapter.submitPurchaseOrder(inputWithoutActor as never)).rejects.toMatchObject({ code: 'AUTH_REQUIRED' });
     await adapter.submitPurchaseOrder({ ...inputWithoutActor, userId: USER_ID });

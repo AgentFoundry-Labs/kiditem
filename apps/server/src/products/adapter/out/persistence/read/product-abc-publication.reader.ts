@@ -10,7 +10,7 @@ export type PublishedProductAbcFacts = Readonly<{
   publicationRevision: number;
   officialCutoffDate: string;
   publishedAt: string;
-  sellpiaSourceImportRunId: string;
+  sellpiaOperationId: string;
   /** Null under a formula that excludes advertising. */
   advertisingSourceImportRunId: string | null;
   mappingGeneration: string;
@@ -52,7 +52,7 @@ export async function readProductAbcPublication(
       publicationRevision: true,
       officialCutoffDate: true,
       publishedAt: true,
-      publishedSellpiaSourceImportRunId: true,
+      publishedSellpiaOperationId: true,
       publishedAdvertisingSourceImportRunId: true,
       publishedMappingGeneration: true,
       mappingGeneration: true,
@@ -163,19 +163,19 @@ function publicationEnvelope(state: Readonly<{
   publicationRevision: number;
   officialCutoffDate: Date | null;
   publishedAt: Date | null;
-  publishedSellpiaSourceImportRunId: string | null;
+  publishedSellpiaOperationId: string | null;
   publishedAdvertisingSourceImportRunId: string | null;
   publishedMappingGeneration: bigint | null;
 }> | null): Omit<PublishedProductAbcFacts, 'formulaRevision' | 'formula'> | null {
   if (!state || state.publicationRevision <= 0 || !state.officialCutoffDate
-    || !state.publishedAt || !state.publishedSellpiaSourceImportRunId
+    || !state.publishedAt || !state.publishedSellpiaOperationId
     // Advertising is absent under a formula that excludes it.
     || state.publishedMappingGeneration === null) return null;
   return {
     publicationRevision: state.publicationRevision,
     officialCutoffDate: calendarDate(state.officialCutoffDate),
     publishedAt: state.publishedAt.toISOString(),
-    sellpiaSourceImportRunId: state.publishedSellpiaSourceImportRunId,
+    sellpiaOperationId: state.publishedSellpiaOperationId,
     advertisingSourceImportRunId: state.publishedAdvertisingSourceImportRunId,
     mappingGeneration: state.publishedMappingGeneration.toString(),
   };
@@ -189,21 +189,21 @@ function matchesPublication(
   evaluation: Readonly<{
     publicationRevision: number;
     gradeBasisCutoffDate: Date;
-    sellpiaSourceImportRunId: string;
+    sellpiaOperationId: string | null;
     advertisingSourceImportRunId: string | null;
     mappingGeneration: bigint;
   }>,
   state: Readonly<{
     publicationRevision: number;
     officialCutoffDate: Date | null;
-    publishedSellpiaSourceImportRunId: string | null;
+    publishedSellpiaOperationId: string | null;
     publishedAdvertisingSourceImportRunId: string | null;
     publishedMappingGeneration: bigint | null;
   }>,
 ): boolean {
   return evaluation.publicationRevision === state.publicationRevision
     && evaluation.gradeBasisCutoffDate.getTime() === state.officialCutoffDate?.getTime()
-    && evaluation.sellpiaSourceImportRunId === state.publishedSellpiaSourceImportRunId
+    && evaluation.sellpiaOperationId === state.publishedSellpiaOperationId
     && evaluation.advertisingSourceImportRunId === state.publishedAdvertisingSourceImportRunId
     && evaluation.mappingGeneration === state.publishedMappingGeneration;
 }

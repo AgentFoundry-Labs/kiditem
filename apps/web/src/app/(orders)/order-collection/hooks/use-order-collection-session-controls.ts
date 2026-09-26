@@ -11,6 +11,7 @@ import {
   failOrderCollectionSourceAttempt,
   getOrderCollectionEnvironmentKey,
   newOrderCollectionIdempotencyKey,
+  forgetActiveOrderCollectionAttempt,
   readActiveOrderCollectionAttempt,
   readOrderCollectionSourceAttempt,
   rememberActiveOrderCollectionAttempt,
@@ -116,6 +117,15 @@ export function useOrderCollectionSessionControls(
     meta: { suppressGlobalErrorToast: true },
   }));
   const attempt = ownerQuery.data ?? null;
+  // 서버가 그 attempt를 모르면(404) 브라우저 힌트가 낡은 것이다 — 지우고 조회를 멈춘다.
+  const ownerError = ownerQuery.error;
+  useEffect(() => {
+    if (!organizationId || !scopedAttempt?.attemptId) return;
+    if (!isApiError(ownerError) || ownerError.status !== 404) return;
+    forgetActiveOrderCollectionAttempt(organizationId, environmentKey);
+    if (scopedAttempt.mallKey) forgetActiveOrderCollectionAttempt(organizationId, environmentKey, scopedAttempt.mallKey);
+    setActiveScope({ organizationId, environmentKey, attempt: null });
+  }, [environmentKey, organizationId, ownerError, scopedAttempt]);
   const restartAccount = useMemo(() => {
     const mallKey = attempt?.plan.mallKey;
     return typeof mallKey === 'string'
@@ -229,8 +239,9 @@ export function useOrderCollectionSessionControls(
   }, []);
 
   /**
-   * The directship purchase-order calendar opens its own attempt before the
-   * operator picks arrival dates, then collects against that same attempt.
+   * Opens (or resumes) a directship attempt when the operator asks the
+   * calendar to read Coupang, and re-activates a succeeded attempt the
+   * calendar converts against (KID-198). Opening the calendar starts none.
    */
   const prepareDirectRun = useCallback(async (
     account: OrderCollectionMallAccount,

@@ -218,6 +218,20 @@
       "text": "몰에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도해 주세요.",
       "retryable": false
     },
+    "SITE_LOGIN_REQUIRED": {
+      "owner": "extension",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "사이트에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "SITE_REQUEST_FAILED": {
+      "owner": "extension",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "사이트 요청이 실패했습니다. 잠시 뒤 다시 시도해 주세요.",
+      "retryable": true
+    },
     "MALL_LOGIN_PAGE_UNREACHABLE": {
       "owner": "extension",
       "kind": "external",
@@ -568,6 +582,13 @@
       "text": "상품 매핑이 동시에 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.",
       "retryable": true
     },
+    "PRODUCTS_SELLPIA_BINDING_REQUIRED": {
+      "owner": "products",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "셀피아 계정 연결을 먼저 확인한 뒤 재고를 수집해 주세요.",
+      "retryable": false
+    },
     "INVENTORY_NOT_FOUND": {
       "owner": "inventory",
       "kind": "not_found",
@@ -883,12 +904,82 @@
       "text": "광고센터 결과를 읽지 못했습니다. 잠시 뒤 다시 수집해 주세요.",
       "retryable": true
     },
+    "ADVERTISING_ACCOUNT_NOT_FOUND": {
+      "owner": "advertising",
+      "kind": "not_found",
+      "httpStatus": 404,
+      "text": "윙 검색에 쓸 쿠팡 계정을 찾을 수 없습니다. 쇼핑몰 계정 설정을 확인해 주세요.",
+      "retryable": false
+    },
+    "ADVERTISING_COLLECTION_INCOMPLETE": {
+      "owner": "advertising",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "수집이 요청한 범위를 다 채우지 못했습니다. 다시 수집해 주세요.",
+      "retryable": true
+    },
+    "ADVERTISING_TRACKED_TARGETS_CHANGED": {
+      "owner": "advertising",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "수집하는 동안 추적 상품이 바뀌었습니다. 다시 수집해 주세요.",
+      "retryable": true
+    },
+    "ADVERTISING_TRACKED_PRODUCT_LIMIT": {
+      "owner": "advertising",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "추적 상품이 300개를 넘어 한 번에 수집할 수 없습니다. 추적을 줄인 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "ADVERTISING_TRACKED_KEYWORDS_INCOMPLETE": {
+      "owner": "advertising",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "추적 상품의 수집 키워드가 요청에 모두 들어 있지 않습니다. 추적 키워드를 확인해 주세요.",
+      "retryable": false
+    },
+    "ADVERTISING_RANK_TARGETS_EMPTY": {
+      "owner": "advertising",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "순위를 확인할 자사 상품의 대표 키워드가 없습니다. 상품의 대표 키워드를 확인해 주세요.",
+      "retryable": false
+    },
+    "ADVERTISING_COMPETITOR_SELLER_NOT_FOUND": {
+      "owner": "advertising",
+      "kind": "not_found",
+      "httpStatus": 404,
+      "text": "추적 중인 경쟁 판매자가 아닙니다. 판매자 목록을 새로고침한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "ADVERTISING_TRACKED_PRODUCT_NOT_FOUND": {
+      "owner": "advertising",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "윙 검색에서 찾지 못한 추적 상품이 있습니다. 추적 키워드를 확인한 뒤 다시 수집해 주세요.",
+      "retryable": false
+    },
     "ANALYTICS_QUERY_FAILED": {
       "owner": "analytics",
       "kind": "internal",
       "httpStatus": 500,
       "text": "통계를 계산하지 못했습니다. 잠시 뒤 다시 시도해 주세요.",
       "retryable": true
+    },
+    "ANALYTICS_SELLPIA_PROFIT_MAPPING_CHANGED": {
+      "owner": "analytics",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "수집하는 동안 상품 매핑이 바뀌었습니다. 셀피아 상품 손익을 다시 수집해 주세요.",
+      "retryable": false
+    },
+    "ANALYTICS_SELLPIA_PROFIT_EMPTY_UNPROVEN": {
+      "owner": "analytics",
+      "kind": "validation",
+      "httpStatus": 400,
+      "text": "셀피아 상품 손익에 판매 기록이 없는 상품만 있습니다. 셀피아 화면을 확인한 뒤 다시 수집해 주세요.",
+      "retryable": false
     },
     "FINANCE_QUERY_FAILED": {
       "owner": "finance",

@@ -30,8 +30,11 @@ export interface UpdateOrderCollectionMallAccountInput {
   enabled: boolean;
 }
 
+/** 자동 로그인에 쓰는 저장 자격. 몰과 쿠팡 윙(`coupang`, 대표 윙 계정 행 — KID-377)이 같은 모양이다. */
 export interface OrderCollectionMallPassword {
   key: string;
+  loginId?: string | null;
+  supplierLoginId?: string | null;
   password: string | null;
 }
 

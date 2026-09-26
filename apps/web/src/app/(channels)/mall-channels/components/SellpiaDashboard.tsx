@@ -47,9 +47,9 @@ export function SellpiaDashboard() {
     queryFn: () => listSellpiaInventorySkus(SUMMARY_PARAMS),
   });
   const data = snapshotQuery.data;
-  const collected = Boolean(data?.latestImport);
+  const collected = Boolean(data?.latestCollection);
   const summary = collected ? data?.summary ?? null : null;
-  const syncedAt = data?.latestImport?.lastVerifiedAt ?? data?.latestImport?.importedAt ?? null;
+  const syncedAt = data?.latestCollection?.completedAt ?? null;
 
   const totalCaption = snapshotQuery.isError
     ? isApiError(snapshotQuery.error) ? snapshotQuery.error.message : '셀피아 재고를 불러오지 못했습니다.'

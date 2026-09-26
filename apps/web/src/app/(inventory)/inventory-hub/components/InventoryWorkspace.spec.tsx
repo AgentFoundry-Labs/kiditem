@@ -55,7 +55,7 @@ const data = {
     pricedAssetValue: 60_000,
     unpricedSkuCount: 1,
   },
-  latestImport: null,
+  latestCollection: null,
 };
 
 describe('<InventoryWorkspace>', () => {

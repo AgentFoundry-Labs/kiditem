@@ -1,3 +1,4 @@
+import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 // Outgoing port for Coupang Wing 카탈로그 상품 추적 persistence
 // (`CoupangWingTrackedProduct`, `CoupangWingTrackedProductDailySnapshot`).
 // WingTrackedProductService depends on this contract; the Prisma-backed adapter
@@ -66,52 +67,15 @@ export interface UpsertWingSnapshotByProductIdInput extends WingTrackedSnapshotV
   businessDate: Date;
   sourceKeyword: string | null;
   capturedAt: Date;
+  /** 이 행을 쓴 실행(ADR-0025). 추적 등록 때의 첫 스냅샷은 없다. */
+  operationId?: string | null;
 }
 
-export type WingTrackedProductAttemptPlan = Readonly<{
-  attemptId: string;
-  attemptToken: string;
-  state: 'RUNNING' | 'COMPLETE' | 'FAILED';
-  expiresAt: string;
-  businessDate: string;
-  sourceKeywordFallback: 'any_requested_keyword_for_unassigned_product';
-  keywords: readonly string[];
-  products: readonly {
-    productId: string;
-    sourceKeyword: string | null;
-  }[];
-}>;
-
-export type WingTrackedProductAttemptUpload = Readonly<{
-  organizationId: string;
-  attemptId: string;
-  attemptToken: string;
-  items: readonly (WingTrackedSnapshotValues & {
-    productId: string;
-    sourceKeyword: string | null;
-  })[];
-}>;
-
-export type WingTrackedProductSourceView = Readonly<{
-  latestAttempt: {
-    attemptId: string;
-    state: 'RUNNING' | 'COMPLETE' | 'FAILED';
-    startedAt: string;
-    capturedAt: string | null;
-    expiresAt: string;
-    errorCode: string | null;
-    errorMessage: string | null;
-  } | null;
-  latestComplete: {
-    sourceImportRunId: string;
-    businessDate: string;
-    capturedAt: string;
-    expectedProductCount: number;
-    capturedProductCount: number;
-    failedProductCount: number;
-  } | null;
-  ready: boolean;
-}>;
+/** 추적 대상 하나(켜진 추적 상품과 그 수집 키워드). */
+export interface WingTrackedTargetRow {
+  productId: string;
+  sourceKeyword: string | null;
+}
 
 export interface WingTrackedProductRepositoryPort {
   /** 추적상품 목록(각 상품의 최신 스냅샷 포함). */
@@ -139,4 +103,17 @@ export interface WingTrackedProductRepositoryPort {
     organizationId: string,
     days: number,
   ): Promise<WingTrackedHistory[]>;
+  /** 지금 켜진 추적 대상(productId 순). 수집 실행의 plan이 이것을 고정한다. */
+  listEnabledTargets(organizationId: string): Promise<WingTrackedTargetRow[]>;
+  /**
+   * 수집 실행 finish 트랜잭션(`tx`)에서 그 업무일 스냅샷을 실행 ID와 함께 바꿔 쓴다. 추적 대상이 계획 때와 달라졌으면
+   * `ADVERTISING_TRACKED_TARGETS_CHANGED`(추적 등록·해제와 같은 잠금으로 줄 세운다).
+   */
+  publishOperationSnapshots(tx: OwnerTransaction, input: {
+    organizationId: string;
+    operationId: string;
+    businessDate: Date;
+    plannedTargets: readonly WingTrackedTargetRow[];
+    captures: readonly (WingTrackedSnapshotValues & { productId: string; sourceKeyword: string })[];
+  }): Promise<{ captured: number }>;
 }

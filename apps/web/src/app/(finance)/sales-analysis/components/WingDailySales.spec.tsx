@@ -2,9 +2,10 @@ import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { OperationView } from '@kiditem/shared/operation';
 import { apiClient } from '@/lib/api-client';
-import { detectOrderCollectionExtensionId, sendToExtension } from '@/lib/extension-bridge';
-import { extensionSessionReply } from '@/test/fixtures/extension-collection-session';
+import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { SELLPIA_OPERATION_PING, sellpiaOperation } from '@/test/fixtures/sellpia-operations';
 import WingDailySales from './WingDailySales';
 
 vi.mock('@/lib/api-client', () => ({
@@ -12,7 +13,7 @@ vi.mock('@/lib/api-client', () => ({
 }));
 vi.mock('@/lib/extension-bridge', () => ({
   detectBrowserCollectionExtensionIds: vi.fn(async () => []),
-  detectOrderCollectionExtensionId: vi.fn(),
+  detectExtensionId: vi.fn(),
   sendToExtension: vi.fn(),
 }));
 vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
@@ -23,21 +24,9 @@ vi.mock('@/components/readiness/useReadinessCollection', () => ({
   },
 }));
 
-const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
-const SOURCE_PATH = '/api/sellpia-sales/source';
-const BEGIN_PATH = '/api/sellpia-sales/attempts';
+const OPERATION_ID = '11111111-1111-4111-8111-111111111111';
+const OPERATIONS_PATH = '/api/operations?kinds=analytics.sellpia_sales&limit=20';
 const RANGE = { from: '2026-07-12', to: '2026-07-15' };
-const BUSINESS_DATES = ['2026-07-12', '2026-07-13', '2026-07-14', '2026-07-15'];
-
-const plan = {
-  sourceType: 'sellpia_sales_daily',
-  parserVersion: 'sellpia-sales-v1',
-  sourceOrigin: 'https://kiditem.sellpia.com',
-  sourcePath: '/sale_summary.html?mode=main_link',
-  sourceAccountKey: 'kiditem',
-  range: RANGE,
-  businessDates: BUSINESS_DATES,
-};
 
 const readiness = {
   checks: [
@@ -71,7 +60,7 @@ const monthly = {
   coverage: { targetDays: 0, completedDays: 0, missingDates: [] },
 };
 
-let source: Record<string, unknown>;
+let operations: OperationView[];
 
 function renderDailySales(ui: ReactNode = <WingDailySales />) {
   const client = new QueryClient({
@@ -82,48 +71,25 @@ function renderDailySales(ui: ReactNode = <WingDailySales />) {
 
 beforeEach(() => {
   vi.clearAllMocks();
-  source = { latestAttempt: null, latestComplete: null };
-  vi.mocked(detectOrderCollectionExtensionId).mockResolvedValue('sellpia-extension');
-  vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) =>
-    extensionSessionReply(message) ?? new Promise(() => undefined));
+  operations = [];
+  vi.mocked(detectExtensionId).mockResolvedValue('ext');
+  vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) => {
+    const action = (message as { action: string }).action;
+    if (action === 'ping') return SELLPIA_OPERATION_PING;
+    if (action === 'operation.start') {
+      operations = [sellpiaOperation({ id: OPERATION_ID, kind: 'analytics.sellpia_sales', window: { start: RANGE.from, end: RANGE.to } })];
+      return { success: true, operationId: OPERATION_ID, reused: false };
+    }
+    throw new Error(`unexpected ${action}`);
+  });
   vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
     if (path.startsWith('/api/traffic/monthly')) return monthly;
     if (path === '/api/readiness') return readiness;
-    throw new Error(`unexpected GET ${path}`);
-  });
-  vi.mocked(apiClient.getParsed).mockImplementation(async (path: string) => {
-    if (path === SOURCE_PATH) return source;
+    if (path === OPERATIONS_PATH) return { operations };
     throw new Error(`unexpected GET ${path}`);
   });
   vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
-    if (path !== BEGIN_PATH) throw new Error(`unexpected POST ${path}`);
-    source = {
-      latestAttempt: {
-        attemptId: ATTEMPT_ID,
-        state: 'RUNNING',
-        plan,
-        expiresAt: '2099-01-01T00:00:00.000Z',
-        errorCode: null,
-        errorMessage: null,
-      },
-      latestComplete: null,
-    };
-    return {
-      attemptId: ATTEMPT_ID,
-      sourceType: 'sellpia_sales_daily',
-      state: 'RUNNING',
-      expiresAt: '2099-01-01T00:00:00.000Z',
-      plan,
-      actualCutoffAt: null,
-      completedAt: null,
-      contentChecksum: null,
-      contentByteCount: null,
-      rowCount: 0,
-      sellerCount: 0,
-      businessDates: BUSINESS_DATES,
-      errorCode: null,
-      errorMessage: null,
-    };
+    throw new Error(`unexpected POST ${path}`);
   });
 });
 
@@ -137,15 +103,11 @@ describe('WingDailySales collection', () => {
     fireEvent.click(start);
 
     expect(await screen.findByText('수집 중 · 2026-07-12 ~ 2026-07-15')).toBeInTheDocument();
-    expect(vi.mocked(apiClient.post).mock.calls).toEqual([[
-      BEGIN_PATH,
-      { range: RANGE },
-      { headers: { 'Idempotency-Key': expect.any(String) } },
-    ]]);
     expect(sendToExtension).toHaveBeenCalledWith(
-      'sellpia-extension',
-      { action: 'collectSellpiaSaleSummary', attemptId: ATTEMPT_ID },
-      190_000,
+      'ext',
+      { action: 'operation.start', kind: 'analytics.sellpia_sales', scope: { startDate: RANGE.from, endDate: RANGE.to } },
+      60_000,
     );
+    expect(apiClient.post).not.toHaveBeenCalled();
   });
 });

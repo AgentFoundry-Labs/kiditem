@@ -537,7 +537,7 @@ describe('v0.1.31:014 unique keys on source_import_runs (PostgreSQL)', () => {
       WHERE i.indisunique AND ic.relname::text = ANY(${NEW_UNIQUE_KEYS}::text[])
     `;
     expect(unique.map((row) => row.name).sort()).toEqual([...NEW_UNIQUE_KEYS].sort());
-    expect(NEW_UNIQUE_KEYS).toHaveLength(46);
+    expect(NEW_UNIQUE_KEYS).toHaveLength(43);
   });
 
   it('on the Office 0.1.30 shape, keeps the newest run of each key, removes the rest with what they take along, and lets every key be created', async () => {

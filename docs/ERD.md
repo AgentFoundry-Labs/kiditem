@@ -34,7 +34,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Finance](erd/finance.md) | 1 |
 | [Inventory](erd/inventory.md) | 3 |
 | [Operation](erd/operation.md) | 3 |
-| [Orders](erd/orders.md) | 13 |
+| [Orders](erd/orders.md) | 12 |
 | [Products](erd/products.md) | 6 |
 | [Sourcing](erd/sourcing.md) | 35 |
 | [Supply](erd/supply.md) | 13 |
@@ -100,7 +100,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Operation | Operation | `operations` | One run of any kind (collection, AI generation, ad action, registration) under the single operation contract (ADR-0025). Owned by common/operation; owner-specific values live in plan/progress/result JSON. |
 | OperationChunk | Operation | `operation_chunks` | A staged chunk of an executing operation. Deleted in the finish transaction whether the operation succeeded or failed. |
 | OperationLock | Operation | `operation_locks` | An overlap key an executing operation holds. Unique per organization without the kind, so one key fences across kinds (ADR-0025). |
-| CoupangDirectPoSnapshot | Orders | `coupang_direct_po_snapshots` | 쿠팡직배송 발주확정 스냅샷. 입고예정일 달력이 매번 쿠팡을 다시 긁지 않도록 |
 | CoupangDirectTransportConsumption | Orders | `coupang_direct_transport_consumptions` | Immutable alias from one completed source attempt and transport selection to its canonical downstream effect receipt. |
 | CoupangDirectTransportReceipt | Orders | `coupang_direct_transport_receipts` | Immutable transport effect receipt for one normalized Coupang direct-order payload. It owns downstream publication identity, not source collection state. |
 | CoupangShipmentDateSummary | Orders | `coupang_shipment_date_summaries` | Persisted Coupang shipment 발송일별 건수/박스 요약 snapshot so the calendar survives reload and only new dates are collected. |
@@ -118,7 +117,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | MasterProductAbcFormulaState | Products | `master_product_abc_formula_states` | One organization-owned formula and official publication envelope. |
 | MasterProductAbcFormulaVersion | Products | `master_product_abc_formula_versions` | Immutable organization-owned formula versions for absolute product ABC publication. |
 | MasterProductAbcGradeHistory | Products | `master_product_abc_grade_histories` | Immutable absolute ABC grade transitions after the initial baseline. |
-| SellpiaInventoryState | Products | `sellpia_inventory_states` | Organization-scoped Sellpia source binding, completion state, generation fence, and active collection lease. |
+| SellpiaInventoryState | Products | `sellpia_inventory_states` | Organization-scoped Sellpia source binding, completion state and generation fence. Running and failed collections live in the operation table (ADR-0025). |
 | LiveCommerceBroadcastDailySnapshot | Sourcing | `live_commerce_broadcast_daily_snapshots` | 타오바오 공식 API 또는 로그인된 1688·도우인 브라우저 화면에서 수집한 라이브 방송 일별 스냅샷. source와 broadcastId가 외부 방송 식별자를 이룬다. |
 | LiveCommerceProductDailySnapshot | Sourcing | `live_commerce_product_daily_snapshots` | 중국 라이브 방송에 노출된 상품의 일별 스냅샷. broadcastId로 방송 스냅샷과 논리적으로 연결하고 상품 단위 비교를 지원한다. |
 | NaverKeywordDailySnapshot | Sourcing | `naver_keyword_daily_snapshots` | 네이버 키워드(검색광고 월검색량 + 데이터랩 검색어트렌드) 일별 스냅샷. 수집 attempt별 키워드/날짜 불변 관측. COMPLETE 범위에서 최신 관측을 조회한다. trendRatio 는 latestRatio 반올림(0-100). |
@@ -414,6 +413,7 @@ erDiagram
     DateTime firstObservedAt
     DateTime lastObservedAt
     String rawSnapshotId FK
+    String operationId
     Json metaJson
     DateTime createdAt
     DateTime updatedAt
@@ -462,6 +462,7 @@ erDiagram
     DateTime firstObservedAt
     DateTime lastObservedAt
     String rawSnapshotId FK
+    String operationId
     Json metaJson
     DateTime createdAt
     DateTime updatedAt
@@ -572,24 +573,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  CoupangDirectPoSnapshot {
-    String id PK
-    String organizationId FK
-    String channelAccountId
-    String purchaseOrderSeq
-    String centerName
-    String transport
-    String deliveryDate
-    String orderedDate
-    Boolean isUrgent
-    Int skuCount
-    Int orderQuantity
-    Int orderAmount
-    Json itemsJson
-    DateTime collectedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
   CoupangDirectTransportConsumption {
     String id PK
     String organizationId FK
@@ -640,6 +623,7 @@ erDiagram
     Int reviewCount
     String source
     DateTime capturedAt
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }
@@ -653,6 +637,7 @@ erDiagram
     Int itemCount
     Int pagesScanned
     DateTime capturedAt
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }
@@ -714,6 +699,7 @@ erDiagram
     Int collectedCount
     Int totalResults
     DateTime capturedAt
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }
@@ -747,6 +733,7 @@ erDiagram
     Decimal conversionRate28d
     String sourceKeyword
     DateTime capturedAt
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }
@@ -961,6 +948,7 @@ erDiagram
     DateTime gradeBasisCutoffDate
     DateTime saleStartDate
     String sellpiaSourceImportRunId FK
+    String sellpiaOperationId
     String advertisingSourceImportRunId FK
     BigInt sellpiaGeneration
     BigInt advertisingGeneration
@@ -974,6 +962,7 @@ erDiagram
     Int publicationRevision
     DateTime officialCutoffDate
     String publishedSellpiaSourceImportRunId FK
+    String publishedSellpiaOperationId
     String publishedAdvertisingSourceImportRunId FK
     BigInt publishedMappingGeneration
     BigInt mappingGeneration
@@ -1002,6 +991,8 @@ erDiagram
     Decimal operatingMargin
     String previousSellpiaSourceImportRunId FK
     String nextSellpiaSourceImportRunId FK
+    String previousSellpiaOperationId
+    String nextSellpiaOperationId
     String previousAdvertisingSourceImportRunId FK
     String nextAdvertisingSourceImportRunId FK
     Int formulaRevision
@@ -1547,21 +1538,11 @@ erDiagram
     String sourceAccountKey
     DateTime lastVerifiedAt
     String lastCompletedImportRunId FK
+    String lastCompletedOperationId
     String refreshReason
     String requestedSyncScope
-    String activeSyncToken
-    String activeSyncOwnerUserId FK
-    DateTime activeSyncStartedAt
-    DateTime activeSyncLeaseExpiresAt
-    String activeSyncScope
     BigInt requestedGeneration
-    BigInt activeGeneration
     BigInt verifiedGeneration
-    BigInt failedGeneration
-    DateTime lastAttemptAt
-    String lastAttemptSyncScope
-    String lastErrorCode
-    String lastErrorMessage
     String freshnessFence
     DateTime createdAt
     DateTime updatedAt
@@ -1611,6 +1592,7 @@ erDiagram
     String id PK
     String organizationId FK
     String sourceImportRunId FK
+    String operationId
     String legacySellpiaInventorySkuId
     String masterProductId
     String productCode
@@ -1633,6 +1615,7 @@ erDiagram
     String id PK
     String organizationId FK
     String sourceImportRunId FK
+    String operationId
     DateTime businessDate
     String sellerId
     String sellerName
@@ -2453,7 +2436,6 @@ erDiagram
   Organization ||--o{ ChannelAdTargetDailySnapshot : "organization"
   Organization ||--o{ ContentAsset : "organization"
   Organization ||--o{ ContentWorkspace : "organization"
-  Organization ||--o{ CoupangDirectPoSnapshot : "organization"
   Organization ||--o{ CoupangDirectTransportConsumption : "organization"
   Organization ||--o{ CoupangDirectTransportReceipt : "organization"
   Organization ||--o{ CoupangKeywordRankDailySnapshot : "organization"
@@ -2569,7 +2551,7 @@ erDiagram
   SourceImportRun o|--o{ CoupangShipmentDateSummary : "sourceImportRun"
   SourceImportRun o|--o{ CoupangWingSalesRankDailySnapshot : "sourceImportRun"
   SourceImportRun o|--o{ MasterProductAbcEvaluation : "advertisingSourceImportRun"
-  SourceImportRun ||--o{ MasterProductAbcEvaluation : "sellpiaSourceImportRun"
+  SourceImportRun o|--o{ MasterProductAbcEvaluation : "sellpiaSourceImportRun"
   SourceImportRun o|--o{ MasterProductAbcFormulaState : "publishedAdvertisingSourceImportRun"
   SourceImportRun o|--o{ MasterProductAbcFormulaState : "publishedSellpiaSourceImportRun"
   SourceImportRun o|--o{ MasterProductAbcGradeHistory : "nextAdvertisingSourceImportRun"
@@ -2641,7 +2623,6 @@ erDiagram
   User o|--o{ ProcurementTestIntent : "reviewedByUser"
   User o|--o{ PurchaseOrderSubmissionAttempt : "reconciler"
   User ||--o{ RocketPurchaseConfirmation : "confirmer"
-  User o|--o{ SellpiaInventoryState : "activeSyncOwner"
   User ||--o{ SellpiaOrderTransmissionIntent : "creator"
   User ||--o{ SellpiaOrderTransmissionIntentReconciliation : "reconciler"
   User o|--o{ SourceImportRun : "manualFreshExportConfirmer"

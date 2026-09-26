@@ -1,6 +1,7 @@
 import type {
   CoupangDirectCenter,
   CoupangDirectOrderCollectionRequest,
+  CoupangDirectPoSnapshotResponse,
   CoupangDirectPurchaseOrder,
 } from '@kiditem/shared/coupang-direct-order';
 import type { CoupangDirectshipPlan, CoupangDirectshipResult } from '@kiditem/shared/orders-operations';
@@ -64,6 +65,12 @@ export interface CoupangDirectOrderCollectionPort {
     operationId: string;
     channelAccountId?: string;
   }): Promise<CoupangDirectCapture>;
+
+  /**
+   * 입고예정일 달력(KID-370): 그 계정의 가장 최근 성공한 directship 실행이 보관한 캡처를 달력 칸으로 줄여 준다. 조직의
+   * 최근 성공한 실행을 상한까지만 훑으므로, 성공한 실행이 없거나 그 창 밖이면 `operationId: null`과 빈 칸. 이 조직의 로켓 계정이 아니면 NOT_FOUND. 읽기만 하고 실행을 시작하지 않는다.
+   */
+  readLatestSnapshot(input: { organizationId: string; channelAccountId: string }): Promise<CoupangDirectPoSnapshotResponse>;
 
   /** 캡처에서 고른 한 운송유형을 주문·워크북 대조로 소비한다(같은 선택은 멱등). */
   consume(input: {

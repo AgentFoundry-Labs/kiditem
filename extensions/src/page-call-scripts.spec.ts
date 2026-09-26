@@ -8,6 +8,7 @@ const ORIGIN = 'https://kiditem.sellpia.com';
 
 function page() {
   const listeners: Array<(event: { source: unknown; origin: string; data: unknown }) => void> = [];
+  const posted: unknown[] = [];
   const window = {
     location: { origin: ORIGIN },
     addEventListener: (type: string, listener: (event: { source: unknown; origin: string; data: unknown }) => void) => {
@@ -15,6 +16,7 @@ function page() {
     },
     postMessage: (data: unknown, origin: string) => {
       expect(origin).toBe(ORIGIN);
+      posted.push(data);
       setTimeout(() => listeners.slice().forEach((listener) => listener({ source: window, origin: ORIGIN, data })), 0);
     },
   } as Record<string, unknown>;
@@ -27,6 +29,7 @@ function page() {
     installBridge: () => new Function('window', 'globalThis', 'chrome', bridgeSource)(window, isolated, chrome),
     installRunner: () => new Function('window', runnerSource)(window),
     isolated,
+    posted,
     send: (message: Record<string, unknown>) =>
       new Promise((resolve) => {
         if (!onMessage) throw new Error('bridge not installed');
@@ -67,5 +70,19 @@ describe('page-call bridge (ISOLATED) + runner (MAIN)', () => {
     tab.installBridge();
     (tab.isolated.__kiditemIsolatedPageCalls as Record<string, () => Promise<string>>)['site.dom'] = async () => 'from isolated';
     await expect(tab.send({ type: 'KIDITEM_PAGE_CALL', call: 'site.dom' })).resolves.toEqual({ ok: true, value: 'from isolated' });
+  });
+
+  it('ISOLATED 전용 호출(world: isolated — 로그인 폼 채우기)은 처리기가 없으면 MAIN으로 넘기지 않고 곧바로 content_script_missing(KID-377 리뷰 S2)', async () => {
+    // 프레임이 옮겨 가 브리지만 다시 들어온 문서: 로그인 처리기는 없고 MAIN 러너는 있다. 자격이 페이지로 새면 안 된다.
+    const tab = page();
+    tab.installBridge();
+    tab.installRunner();
+    const message = { type: 'KIDITEM_PAGE_CALL', call: 'login.fill', world: 'isolated', args: { values: { loginId: 'fake-id', password: 'fake-password' } } };
+    await expect(tab.send(message)).resolves.toEqual({ ok: false, error: 'content_script_missing' });
+    expect(JSON.stringify(tab.posted)).not.toContain('fake-password');
+    expect(tab.posted).toEqual([]);
+
+    (tab.isolated.__kiditemIsolatedPageCalls as Record<string, () => unknown>)['login.fill'] = () => ({ state: 'submitted' });
+    await expect(tab.send(message)).resolves.toEqual({ ok: true, value: { state: 'submitted' } });
   });
 });

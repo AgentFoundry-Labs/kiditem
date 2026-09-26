@@ -13,7 +13,7 @@ describe('InventoryTable', () => {
     currentStock: 0,
     purchasePrice: null,
     stockValue: null,
-    lastImportRunId: null,
+    lastOperationId: null,
     lastImportedAt: null,
     linkedChannelOptionCount: 2,
     linkedProductCount: 1,

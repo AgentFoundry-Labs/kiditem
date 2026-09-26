@@ -24,7 +24,7 @@ function session(
 ): BrowserCollectionSessionView {
   return {
     attemptId: ATTEMPT_ID,
-    producer: 'dashboard.wing_sales',
+    producer: 'advertising.ad_keyword',
     progress: {
       current: 1,
       total: 3,
@@ -105,27 +105,6 @@ describe('BrowserCollectionProvider', () => {
         queryKeys.browserCollection.session(current.attemptId),
       ),
     ).toEqual(current));
-  });
-
-  it('leaves inventory-owned sessions to the inventory owner', async () => {
-    const sellpia = session({ producer: 'inventory.sellpia' });
-    mockListSessions.mockResolvedValue([sellpia]);
-    const { queryClient } = renderProvider();
-
-    await waitFor(() => expect(mockListSessions).toHaveBeenCalledTimes(1));
-    expect(
-      queryClient.getQueryData(queryKeys.browserCollection.session(ATTEMPT_ID)),
-    ).toBeUndefined();
-
-    act(() => {
-      window.dispatchEvent(
-        new CustomEvent(BROWSER_COLLECTION_SESSION_EVENT, { detail: sellpia }),
-      );
-    });
-    await Promise.resolve();
-    expect(
-      queryClient.getQueryData(queryKeys.browserCollection.session(ATTEMPT_ID)),
-    ).toBeUndefined();
   });
 
   it('rejects malformed custom session events before caching', async () => {

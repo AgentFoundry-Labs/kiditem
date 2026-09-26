@@ -68,7 +68,7 @@ export interface DashboardAbcFacts {
     publicationRevision: number;
     officialCutoffDate: string;
     publishedAt: string;
-    sellpiaSourceImportRunId: string;
+    sellpiaOperationId: string;
     advertisingSourceImportRunId: string | null;
     mappingGeneration: string;
   } | null;

@@ -125,9 +125,14 @@ sync, registration, matching, and capacity behavior is executable in
   → `adapter/out`. Application and domain may use NestJS as described in the
   server guide; queries preserve the same owner and IO boundaries.
 - 오류는 `Kiditem*Error` + `CHANNELS_*` 등록 코드로 던진다(ADR-0023). 등록 실행 보고 경로의 거절은
-  409를 지킨다. Nest 예외 잔여는 수집 계열(`ChannelBusinessError`·`ListingException`, catalog·몰 관리자·
-  사방넷·셀피아 수동매칭)·`channel-account.persistence.adapter.ts` claim·`channel-product-matching.controller.ts`
-  (KID-338)과 `coupang-channel.adapter.ts` 4곳(웹 `wing-error-message.ts` 분류기, KID-339 파생)뿐이다.
+  409를 지킨다. Nest 예외 잔여는 수집 계열(`ChannelBusinessError`·`ListingException`, catalog·몰 관리자 옛
+  경로)·`channel-account.persistence.adapter.ts` claim과 `coupang-channel.adapter.ts` 4곳(웹 `wing-error-message.ts` 분류기, KID-339 파생)뿐이다.
+- Listing-day traffic coverage comes from Advertising's succeeded
+  `advertising.wing_traffic` operations, read through Advertising's transaction
+  function `advertising/transaction/wing-traffic-coverage` (KID-362); Channels
+  never parses the operation plan or result: a date counts only when the
+  account's newest run confirmed it, no listing arrived after that run, and no
+  Wing row it could not match now belongs to an active listing (KID-217).
 - Persistence adapters may query Channels-owned facts without a dedicated
   reader file. Other owners use public capabilities (ADR-0021); preserve
   organization scope, complete-source evidence, and required transactions.
@@ -160,6 +165,10 @@ sync, registration, matching, and capacity behavior is executable in
   failed or partial details run is retried by the next list with no bookkeeping.
   Rows detailed before this key existed have none, so the first sync after
   deploy fetches every detail once.
+- The Rocket-Sellpia matching CSV upload is one `channels.rocket_matching_csv`
+  operation (KID-363) that the server produces itself, like the Wing workbook:
+  `fileHash` is per account, rows go as `csv_rows` chunks, and the finish
+  transaction upserts identities with `lastOperationId`.
 - Readers treat a `lastOperationId` row as published (`completed-catalog-run.ts`);
   readiness reads catalog freshness through `CHANNEL_CATALOG_FRESHNESS_PORT`
   (latest succeeded details operation).
@@ -168,14 +177,16 @@ sync, registration, matching, and capacity behavior is executable in
 - Wing and Rocket account rows remain distinct. Shared vendor identity may be
   claimed only from complete authenticated evidence under the publication
   lock; a mismatch conflicts.
-- The Sabangnet listing import is one organization attempt whose
+- The Sabangnet listing import is one `channels.sabangnet_mall_listings`
+  operation per organization (KID-363) holding `resource:sabangnet:login`; its
   plan freezes the mall account rows the hub picks
-  (`adapter/out/repository/mall-account-rows.ts`, any status). Completion publishes each mall's
-  send records as listings with one option (`sellerSku` = Sabangnet model =
-  Sellpia SKU code) and turns off only listings this source created that left
-  the list. Its statuses carry the `사방넷 ` prefix and fold with a
+  (`adapter/out/repository/mall-account-rows.ts`, any status). Finalize checks
+  the `listing_scan` proof, publishes each mall's send records as listings with
+  one option (`sellerSku` = Sabangnet model = Sellpia SKU code), and turns off
+  only listings this source created that left the list, all with
+  `lastOperationId`. Its statuses carry the `사방넷 ` prefix and fold with a
   Sabangnet-basis warning.
-- The mall admin listing import is one attempt per mall
+- The mall admin listing import is one import per mall
   account for malls Sabangnet does not carry (`mall_admin_listings`, readers in
   `@kiditem/shared/mall-admin-listings`). Completion publishes that mall's
   products as listings with one option whose `itemName` is the Sellpia name the
@@ -184,6 +195,17 @@ sync, registration, matching, and capacity behavior is executable in
   is the mall's own seller code when the mall shows one, so matching may also
   link by the option name. Its list carries no barcode or model number column.
   Statuses come from the mall itself and fold without a Sabangnet warning.
+  The first batch (`MALL_ADMIN_LISTING_OPERATION_MALLS`: icecream-mall,
+  kidkids, art09, domeggook) runs as `channels.mall_admin_listings`
+  operations (KID-363) holding `account:<channelAccountId>`; their source read
+  shows operations only. The other malls stay on the old attempt path until
+  they move; both paths publish through the same repository function.
+- Sellpia manual-match evidence is one `channels.sellpia_manual_match`
+  operation (KID-363) holding `resource:sellpia:login`, so it never overlaps
+  another Sellpia-login kind. Its plan freezes the sorted active Sellpia codes;
+  finalize re-reads them under the product lock, refuses a changed set, keeps
+  only aliases found in current published listing names, and replaces the
+  organization's single snapshot. A failed run leaves the prior snapshot.
 - Orders owns Rocket PO collection (operation kind `orders.coupang_rocket_po`),
   snapshots and lines. It publishes observed
   listing identity through Channels' catalog capability in its transaction;

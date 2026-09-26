@@ -3,7 +3,9 @@ import { createSiteCaller, SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED, type SiteCa
 import { withFreshTab } from '../fresh-tab';
 import { callPage } from '../page-call';
 import { registerSite } from '../registry';
+import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login';
 import { hostWithin, type PageGuard, type TabPages } from '../tab-page';
+import { createDomeggookListings } from './listings';
 
 export const DOMEGGOOK_ORDER_LIST_URL = 'https://domeggook.com/sc/order/lstAll';
 /** 엑셀 생성 목록(JSON). 로그아웃이면 200에 `{res:false}`, 로그인이면 `{dat:[…]}`(mall-session.js 실측 규칙). */
@@ -23,6 +25,15 @@ export const DOMEGGOOK_PAGE_GUARD: PageGuard = {
   allows: (url) => hostWithin(url, ['domeggook.com']),
   isLogin: (url) => hostWithin(url, ['domeggook.com']) && /login/i.test(url.pathname),
   loginMessage: LOGIN_MESSAGE,
+};
+
+/** 도매꾹 로그인 입구(옛 `mall-session.js` domeggook 줄, KID-377). 로그아웃이면 주문목록이 로그인 화면으로 넘긴다. */
+export const DOMEGGOOK_LOGIN: LoginSpec = {
+  displayName: '도매꾹',
+  loginUrl: DOMEGGOOK_ORDER_LIST_URL,
+  hosts: ['domeggook.com'],
+  isLoginUrl: (url) => DOMEGGOOK_PAGE_GUARD.isLogin(url),
+  fields: ['loginId', 'password'],
 };
 
 type OrderListEntry = { state?: unknown; dlBtn?: unknown; dateReq?: unknown };
@@ -73,11 +84,13 @@ function base64Of(bytes: Uint8Array): string {
  * 서비스워커가 받아(EUC-KR 원본 바이트 그대로) base64 조각으로 돌려준다 — 서버가 이어 붙여 파일 캡처로 보관한다.
  * 생성 요청 폼이 끝까지 가도록 탭은 CSV를 받을 때까지 열어 둔다.
  */
-export function createDomeggookSite(tabs: TabPages, deps: SiteCallerDeps) {
+export function createDomeggookSite(tabs: TabPages, deps: SiteCallerDeps, signIn?: SiteSignIn) {
   const caller = createSiteCaller({ minIntervalMs: 0, displayName: '도매꾹', timeoutMs: 30_000 }, deps);
   return {
+    ...createDomeggookListings(tabs, signIn),
     async readOrders(input: { collectionDate: string | null; signal?: AbortSignal }): Promise<{ rows: unknown[] }> {
-      const before = await orderList(caller);
+      // 엑셀 목록이 로그아웃이면 새 탭에서 한 번 로그인하고 다시 묻는다(KID-377).
+      const before = await (signIn ? signIn.beforeTab(tabs, () => orderList(caller)) : orderList(caller));
       const beforeReq = String(before[0]?.dateReq ?? '');
       const dateDot = input.collectionDate ? input.collectionDate.replace(/-/g, '.') : '';
       const listUrl = dateDot ? `${DOMEGGOOK_ORDER_LIST_URL}?dtbase=ord&dt1=${dateDot}&dt2=${dateDot}` : DOMEGGOOK_ORDER_LIST_URL;
@@ -122,9 +135,9 @@ export function createDomeggookSite(tabs: TabPages, deps: SiteCallerDeps) {
             base64: base64.slice(part * DOMEGGOOK_PART_CHARS, (part + 1) * DOMEGGOOK_PART_CHARS),
           })),
         };
-      });
+      }, signIn ? { signIn } : {});
     },
   };
 }
 
-registerSite({ name: 'domeggook', create: (deps) => createDomeggookSite(deps.tabs, deps) });
+registerSite({ name: 'domeggook', create: (deps, lease) => createDomeggookSite(deps.tabs, deps, createSiteSignIn(DOMEGGOOK_LOGIN, lease.credentials, deps)) });

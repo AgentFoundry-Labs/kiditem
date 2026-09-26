@@ -15,6 +15,7 @@ import { SellpiaProductInventoryReader } from '../../analytics/sellpia-product-s
 import { SellpiaProductSalesService } from '../../analytics/sellpia-product-sales/sellpia-product-sales.service';
 import { SellpiaMasterProductProfitFactReader } from '../../analytics/sellpia-product-sales/sellpia-master-product-profit-fact.reader';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
+import { publishSellpiaProfitability } from '../../test-helpers/__tests__/sellpia-profitability-operation';
 import { MasterProductContributionRepositoryAdapter } from '../../finance/adapter/out/repository/master-product-contribution.repository.adapter';
 import { MasterProductContributionReadService } from '../../finance/application/service/master-product-contribution-read.service';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
@@ -73,11 +74,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     const channelFacts = channelFactTestPorts(prismaService);
     const channelAccounts = channelFacts.accounts;
     const alerts = new SourceFailureAlerts(prismaService);
-    sellpia = new SellpiaProfitabilitySourceService(
-      prismaService,
-      alerts,
-      new ProductTransactionalReadRepositoryAdapter(),
-    );
+    sellpia = new SellpiaProfitabilitySourceService(prismaService);
     advertising = new ProfitabilityAdImportRepositoryAdapter(
       channelFacts.accounts,
       channelFacts.recipes,
@@ -179,7 +176,6 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     const previousSources = await completeProfitabilitySources(fixture, null, 'previous');
     expect(previousSources).toMatchObject({
       mappingGeneration: '1',
-      sellpiaPublicationSequence: '1',
       advertisingPublicationSequence: '1',
     });
 
@@ -237,9 +233,10 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       fixture.insufficient.skuCode,
       'current',
     );
+    // 셀피아 세대 순서 = 상품 손익 실행이 끝난 순서(KID-361 J3).
+    expect(BigInt(currentSources.sellpiaPublicationSequence)).toBeGreaterThan(BigInt(previousSources.sellpiaPublicationSequence));
     expect(currentSources).toMatchObject({
       mappingGeneration: '2',
-      sellpiaPublicationSequence: '2',
       advertisingPublicationSequence: '2',
       sellpiaCoverage: { from: EXPECTED_SELLPIA_FROM, to: EXPECTED_CUTOFF },
       advertisingCoverage: { from: EXPECTED_ADVERTISING_FROM, to: EXPECTED_CUTOFF },
@@ -309,9 +306,9 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
         publicationRevision: 1,
         gradeBasisCutoffDate: EXPECTED_CUTOFF,
         saleStartDate: '2025-01-01',
-        sellpiaSourceImportRunId: currentSources.sellpiaSourceImportRunId,
+        sellpiaOperationId: currentSources.sellpiaOperationId,
         advertisingSourceImportRunId: currentSources.advertisingSourceImportRunId,
-        sellpiaGeneration: '2',
+        sellpiaGeneration: currentSources.sellpiaPublicationSequence,
         advertisingGeneration: '2',
         mappingGeneration: '2',
       },
@@ -476,51 +473,37 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
     vi.setSystemTime(new Date(
       ACCEPTANCE_NOW.getTime() + (label === 'current' ? 60_000 : 0),
     ));
-    const sellpiaAttempt = await sellpia.beginAttempt(
-      TEST_ORGANIZATION_ID,
-      `abc-acceptance-sellpia-${label}`,
-    );
-    expect(sellpiaAttempt.plan).toMatchObject({
-      from: EXPECTED_SELLPIA_FROM,
-      to: EXPECTED_CUTOFF,
-    });
-    await sellpia.submitAttempt(TEST_ORGANIZATION_ID, sellpiaAttempt.attemptId, {
-      attemptToken: sellpiaAttempt.attemptToken,
-      parserVersion: 'sellpia-profitability-v2',
-      providerBackedEmptyProof: true,
-      coveredMonths: sellpiaAttempt.plan.coveredMonths,
-      provenance: {
-        source: 'sellpia_stat_prd_profit',
-        costBasis: 'ORDER_TIME_SUPPLY_COST',
-        vatIncluded: true,
+    const published = await publishSellpiaProfitability(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      products: (plan) => {
+        expect(plan).toMatchObject({ from: EXPECTED_SELLPIA_FROM, to: EXPECTED_CUTOFF });
+        return [fixture.normal, fixture.insufficient].map((product) => {
+          const omittedMonth = product.skuCode === productWithHole ? plan.coveredMonths.at(-4) : null;
+          const months = plan.coveredMonths
+            .filter((yearMonth) => yearMonth !== omittedMonth)
+            .map((yearMonth) => ({
+              yearMonth,
+              orderQty: 10,
+              orderAmount: 1_000_000,
+              inQty: 10,
+              inAmount: 200_000,
+            }));
+          return {
+            productCode: product.skuCode,
+            optionCode: '',
+            productName: product.name,
+            salePrice: 100_000,
+            buyPrice: 20_000,
+            totalOrderAmount: months.length * 1_000_000,
+            totalOrderQty: months.length * 10,
+            totalInAmount: months.length * 200_000,
+            totalInQty: months.length * 10,
+            months,
+          };
+        });
       },
-      products: [fixture.normal, fixture.insufficient].map((product) => {
-        const omittedMonth = product.skuCode === productWithHole
-          ? sellpiaAttempt.plan.coveredMonths.at(-4)
-          : null;
-        const months = sellpiaAttempt.plan.coveredMonths
-          .filter((yearMonth) => yearMonth !== omittedMonth)
-          .map((yearMonth) => ({
-            yearMonth,
-            orderQty: 10,
-            orderAmount: 1_000_000,
-            inQty: 10,
-            inAmount: 200_000,
-          }));
-        return {
-          productCode: product.skuCode,
-          optionCode: '',
-          productName: product.name,
-          salePrice: 100_000,
-          buyPrice: 20_000,
-          totalOrderAmount: months.length * 1_000_000,
-          totalOrderQty: months.length * 10,
-          totalInAmount: months.length * 200_000,
-          totalInQty: months.length * 10,
-          months,
-        };
-      }),
     });
+    const sellpiaAttempt = { attemptId: published.operationId };
 
     const adAttempt = await advertising.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID,
@@ -551,7 +534,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
       .toBe(sellpiaGeneration.mappingGeneration);
     return {
       mappingGeneration: sellpiaGeneration.mappingGeneration,
-      sellpiaSourceImportRunId: sellpiaGeneration.sourceImportRunId,
+      sellpiaOperationId: sellpiaGeneration.operationId,
       advertisingSourceImportRunId: advertisingGeneration.sourceImportRunId,
       sellpiaPublicationSequence: sellpiaGeneration.publicationSequence,
       advertisingPublicationSequence: advertisingGeneration.publicationSequence,
@@ -624,7 +607,7 @@ async function seedProducts(prisma: PrismaClient): Promise<ProductsFixture> {
       requestedGeneration: 1n,
       verifiedGeneration: 1n,
       lastVerifiedAt: ACCEPTANCE_NOW,
-      lastCompletedImportRunId: inventoryRun.id,
+      lastCompletedOperationId: inventoryRun.id,
     },
   });
   const account = await prisma.channelAccount.create({

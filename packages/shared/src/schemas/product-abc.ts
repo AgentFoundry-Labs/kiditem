@@ -399,7 +399,7 @@ export type ProductAbcSourceFreshness = z.infer<typeof ProductAbcSourceFreshness
 
 export const ProductAbcEvaluationProvenanceSchema = z.object({
   gradeBasisCutoffDate: CalendarDateSchema,
-  sellpiaSourceImportRunId: UuidSchema,
+  sellpiaOperationId: UuidSchema,
   /** Null only under a formula that excludes advertising. */
   advertisingSourceImportRunId: UuidSchema.nullable(),
   sellpiaGeneration: GenerationSchema,
@@ -431,7 +431,7 @@ export const ProductAbcEvaluationSchema = z.object({
   publicationRevision: z.number().int().positive(),
   gradeBasisCutoffDate: CalendarDateSchema,
   saleStartDate: CalendarDateSchema.nullable(),
-  sellpiaSourceImportRunId: UuidSchema,
+  sellpiaOperationId: UuidSchema,
   /** Null only under a formula that excludes advertising. */
   advertisingSourceImportRunId: UuidSchema.nullable(),
   sellpiaGeneration: GenerationSchema,
@@ -518,8 +518,8 @@ export const ProductAbcGradeHistorySchema = z.object({
   publicationRevision: z.number().int().positive(),
   economicScore: FiniteNumberSchema.nullable(),
   sourceCutoffDate: CalendarDateSchema,
-  previousSellpiaSourceImportRunId: UuidSchema.nullable(),
-  nextSellpiaSourceImportRunId: UuidSchema.nullable(),
+  previousSellpiaOperationId: UuidSchema.nullable(),
+  nextSellpiaOperationId: UuidSchema.nullable(),
   previousAdvertisingSourceImportRunId: UuidSchema.nullable(),
   nextAdvertisingSourceImportRunId: UuidSchema.nullable(),
   reason: z.string().trim().min(1).max(100),
@@ -623,7 +623,7 @@ export const ProductAbcContributionBasisSchema = z.object({
   fromDate: CalendarDateSchema,
   cutoffDate: CalendarDateSchema,
   sourceCutoffDate: CalendarDateSchema.nullable(),
-  sellpiaSourceImportRunId: UuidSchema.nullable(),
+  sellpiaOperationId: UuidSchema.nullable(),
   advertisingSourceImportRunId: UuidSchema.nullable(),
 }).strict().superRefine((basis, context) => {
   if (basis.fromDate > basis.cutoffDate) {

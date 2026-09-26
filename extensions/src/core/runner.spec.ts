@@ -468,4 +468,56 @@ describe('createRunner — 실행 하나의 순서', () => {
     expect(h.steps.filter((step) => step === 'release')).toHaveLength(1);
     expect(h.puts.map((put) => `${put.chunkKind}#${put.sequence}`)).toEqual(['echo#1', 'heartbeat#1']);
   });
+
+  it('start의 자격은 사이트 lease로만 넘기고 청크·progress·finish에는 싣지 않는다(KID-377)', async () => {
+    const h = harness();
+    const leases: unknown[] = [];
+    const credentials = { loginId: 'fake-id', password: 'fake-password' };
+    const runner = createRunner({
+      client: h.client,
+      browser: h.browser,
+      siteFor: (_kind, lease) => {
+        leases.push(lease);
+        return null;
+      },
+    }, () => collector([echoChunk(1)]));
+
+    const outcome = await runner.run({ kind: 'test.echo', scope: {}, signal: new AbortController().signal, credentials });
+
+    expect(outcome.kind).toBe('finished');
+    expect(leases).toEqual([{ tabId: null, credentials }]);
+    expect(JSON.stringify([h.puts, h.finishes, outcome])).not.toMatch(/fake-password|fake-id/);
+  });
+
+  it('로그인 화면에서 멈춘 실행은 finish(failed)의 result.login에 까닭·몰의 말만 싣는다 — 웹이 자동 로그인을 막을지 정한다', async () => {
+    const h = harness();
+    const c = collector(() => (async function* (): AsyncIterable<RunnableChunk> {
+      throw new RuntimeError('SITE_LOGIN_REQUIRED', '테스트몰 로그인이 필요합니다.', {
+        url: 'https://auth.test/login',
+        reason: 'credentials_rejected',
+        mallMessage: '비밀번호가 일치하지 않습니다.',
+      });
+    })());
+    const runner = createRunner({ client: h.client, browser: h.browser, siteFor: () => null }, () => c);
+
+    const outcome = await runner.run({ kind: 'test.echo', scope: {}, signal: new AbortController().signal, credentials: { loginId: 'fake-id', password: 'fake-password' } });
+
+    expect(outcome).toMatchObject({ kind: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', details: { reason: 'credentials_rejected' } });
+    expect(h.finishes).toEqual([{
+      outcome: 'failed',
+      errorCode: 'SITE_LOGIN_REQUIRED',
+      errorMessage: '테스트몰 로그인이 필요합니다.',
+      result: { login: { reason: 'credentials_rejected', mallMessage: '비밀번호가 일치하지 않습니다.' } },
+    }]);
+    expect(JSON.stringify(h.finishes)).not.toMatch(/fake-password/);
+  });
+
+  it('로그인 까닭이 없는 실패는 result 없이 finish(failed)한다', async () => {
+    const h = harness();
+    const c = collector(() => (async function* (): AsyncIterable<RunnableChunk> {
+      throw new RuntimeError('SITE_LOGIN_REQUIRED', '로그인이 필요합니다.', { url: 'https://auth.test/login' });
+    })());
+    await runWith(h, c);
+    expect(h.finishes).toEqual([{ outcome: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '로그인이 필요합니다.' }]);
+  });
 });

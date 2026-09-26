@@ -1,6 +1,4 @@
-import { createHash } from 'node:crypto';
 import {
-  BadRequestException,
   Controller,
   Inject,
   Param,
@@ -10,6 +8,7 @@ import {
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
+import { KiditemInvalidValueError } from '@kiditem/shared/errors';
 import type { AuthUser } from '../../../../auth/auth.types';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
@@ -23,6 +22,10 @@ type UploadedCsvFile = {
   originalname: string;
 };
 
+/**
+ * 로켓-셀피아 매칭 CSV 업로드 → `channels.rocket_matching_csv` 실행 하나(KID-363). 응답은 `{ operation }`이고,
+ * 같은 파일 재업로드·같은 계정의 진행 중 실행은 실행 계약이 거절한다.
+ */
 @Controller('channels/accounts/:channelAccountId/catalog-imports/coupang-rocket-matching')
 export class RocketSellpiaMatchingCsvImportController {
   constructor(
@@ -39,15 +42,13 @@ export class RocketSellpiaMatchingCsvImportController {
     @UploadedFile() file: UploadedCsvFile | undefined,
   ) {
     if (!file?.buffer) {
-      throw new BadRequestException('Rocket-Sellpia matching CSV file is required');
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'matching_csv_missing', field: 'file' } });
     }
-    const fileHash = createHash('sha256').update(file.buffer).digest('hex');
     return this.importer.importMatchingCsv({
       organizationId,
       userId: user.id,
       channelAccountId,
       fileName: file.originalname,
-      fileHash,
       bytes: file.buffer,
     });
   }

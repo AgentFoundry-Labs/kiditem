@@ -6,7 +6,7 @@ import { Link2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
-import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
+import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
 import { cn, formatNumber, timeAgo } from '@/lib/utils';
 import {
   linkImportedListings,
@@ -46,11 +46,11 @@ export function SabangnetListingsImport({ className }: { className?: string }) {
   const publication = status?.latestPublication ?? [];
   const listings = publication.reduce((sum, mall) => sum + mall.listings, 0);
   const malls = publication.filter((mall) => mall.listings > 0).length;
-  const completedAt = status?.latestComplete?.completedAt ?? null;
-  const latest = status?.latestAttempt ?? null;
+  const completedAt = status?.latestSucceeded?.finishedAt ?? null;
+  const latest = status?.latestOperation ?? null;
   // 멈춘 것은 실패가 아니다. 이전에 가져온 결과가 그대로 쓰인다.
-  const stopped = stoppedAttempt(latest);
-  const failure = latest?.state === 'FAILED' && !stopped ? latest : null;
+  const stopped = latest?.status === 'cancelled';
+  const failure = latest?.status === 'failed' ? latest : null;
 
   return (
     <div className={cn('flex flex-wrap items-center justify-end gap-2', className)}>
@@ -68,7 +68,7 @@ export function SabangnetListingsImport({ className }: { className?: string }) {
       ) : null}
       {stopped ? (
         <span role="status" className="text-xs text-slate-500">{COLLECTION_STOPPED_MESSAGE}</span>
-      ) : failure?.errorMessage ? (
+      ) : failure ? (
         <span role="status" className="max-w-xs text-xs text-red-600">
           {attemptFailureText(failure, 'sabangnet_mall_listings')}
         </span>

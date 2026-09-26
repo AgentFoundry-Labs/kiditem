@@ -24,7 +24,7 @@ import {
   DashboardTrendItemSchema,
   type TrafficKpi,
 } from '@kiditem/shared/dashboard';
-import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
+import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising-operations';
 import { MallListingMatrixResponseSchema } from '@kiditem/shared/mall-publishing';
 import { z } from 'zod';
 import {

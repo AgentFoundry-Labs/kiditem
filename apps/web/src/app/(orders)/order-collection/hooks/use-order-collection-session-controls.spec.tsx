@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  forget: vi.fn(),
   begin: vi.fn(),
   detectExtensionStatus: vi.fn(),
   fail: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock('../lib/order-collection-source-owner', async () => {
     ...actual,
     beginOrderCollectionSourceAttempt: mocks.begin,
     failOrderCollectionSourceAttempt: mocks.fail,
+    forgetActiveOrderCollectionAttempt: mocks.forget,
     readActiveOrderCollectionAttempt: mocks.readActive,
     readOrderCollectionSourceAttempt: mocks.readAttempt,
     rememberActiveOrderCollectionAttempt: mocks.remember,
@@ -45,6 +47,8 @@ vi.mock('../lib/order-collection-extension', async (importOriginal) => ({
       : '주문 수집 확장 프로그램을 찾지 못했습니다.',
 }));
 
+import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@/lib/api-error';
 import { useOrderCollectionSessionControls } from './use-order-collection-session-controls';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
@@ -152,6 +156,32 @@ describe('useOrderCollectionSessionControls', () => {
     });
   });
 
+  // 달력의 수집은 방금 끝낸 캡처 실행으로 변환한다(KID-198). 그 실행을 다시 잡을 뿐 새 실행을 시작하지 않는다.
+  it('re-activates a succeeded directship operation for conversion without beginning another', async () => {
+    const operationId = '66666666-6666-4666-8666-666666666666';
+    const rocketAccountId = '77777777-7777-4777-8777-777777777777';
+    vi.mocked(apiClient.getParsed).mockResolvedValue({
+      operation: {
+        id: operationId, kind: 'orders.coupang_directship', status: 'succeeded', plan: { channelAccountId: rocketAccountId },
+        startedAt: '2026-09-10T01:00:00.000Z', expiresAt: null, finishedAt: '2026-09-10T01:05:00.000Z', errorCode: null, errorMessage: null,
+      },
+    });
+    const direct = { ...account, key: 'coupang-direct', name: '쿠팡직배송' };
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([direct], rocketAccountId),
+      { wrapper },
+    );
+
+    const run = await result.current.prepareDirectRun(direct, operationId);
+
+    expect(apiClient.getParsed).toHaveBeenCalledWith(`/api/operations/${operationId}`, expect.anything());
+    expect(run).toMatchObject({ attemptId: operationId, sourceOwner: 'coupang_directship' });
+    expect(run.extensionId).toBeUndefined();
+    expect(mocks.post).not.toHaveBeenCalled();
+    expect(mocks.sendToExtension).not.toHaveBeenCalled();
+    expect(mocks.detectExtensionStatus).not.toHaveBeenCalled();
+  });
+
   it('starts manual-upload owner attempts without extension admission', async () => {
     mocks.begin.mockResolvedValue({
       ...control(),
@@ -175,6 +205,19 @@ describe('useOrderCollectionSessionControls', () => {
     expect(run).toMatchObject({ attemptId: ATTEMPT_ID, attemptToken: TOKEN });
     expect(run?.extensionId).toBeUndefined();
     expect(run?.serverOwned).toBeUndefined();
+  });
+
+  it('forgets a stored attempt hint the owner no longer knows (404) instead of asking again on every visit', async () => {
+    mocks.readActive.mockReturnValue({ attemptId: ATTEMPT_ID, idempotencyKey: null, mallKey: 'kidsnote' });
+    mocks.readAttempt.mockRejectedValue(new ApiError(404, 'ORDER_COLLECTION_ATTEMPT_NOT_FOUND'));
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(mocks.forget).toHaveBeenCalled());
+    expect(mocks.forget.mock.calls.map((call) => call[2])).toEqual(expect.arrayContaining([undefined, 'kidsnote']));
+    expect(result.current.restartAccount).toBeNull();
   });
 
   it('reads only the public owner projection on reload, never the fence token', async () => {

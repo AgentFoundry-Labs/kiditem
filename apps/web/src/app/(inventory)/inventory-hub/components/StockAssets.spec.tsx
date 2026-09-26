@@ -32,7 +32,7 @@ beforeEach(() => {
       currentStock: 4,
       purchasePrice: null,
       stockValue: null,
-      lastImportRunId: null,
+      lastOperationId: null,
       lastImportedAt: null,
     }],
     total: 1,
@@ -46,7 +46,7 @@ beforeEach(() => {
       pricedAssetValue: 0,
       unpricedSkuCount: 1,
     },
-    latestImport: null,
+    latestCollection: null,
   });
 });
 
@@ -77,7 +77,7 @@ describe('StockAssets', () => {
         currentStock: 4,
         purchasePrice: 100,
         stockValue: 400,
-        lastImportRunId: null,
+        lastOperationId: null,
         lastImportedAt: null,
       }],
       total: 51,
@@ -91,7 +91,7 @@ describe('StockAssets', () => {
         pricedAssetValue: 20_400,
         unpricedSkuCount: 0,
       },
-      latestImport: null,
+      latestCollection: null,
     }));
     renderAssets();
 

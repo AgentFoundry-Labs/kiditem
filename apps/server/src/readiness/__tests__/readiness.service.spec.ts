@@ -1,3 +1,4 @@
+import { AdvertisingKeywordRankReadAdapter } from '../../advertising/adapter/out/repository/keyword-rank-read.adapter';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { snapshotBasisPartial, snapshotBasisStatus } from '@kiditem/shared/dashboard';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
@@ -74,37 +75,45 @@ function queriedOrganization(queryRaw: ReturnType<typeof vi.fn>): string | undef
   );
 }
 
+/**
+ * 셀피아 매출 사실 리더(KID-361 J2)를 도는 트랜잭션 가짜. 스펙이 주는 `sellpiaSalesDailySnapshot.findMany`의 날짜들을
+ * 성공한 `analytics.sellpia_sales` 실행 창(날짜마다 하루짜리 창)으로 돌려주고, 판매처 줄은 없다(매출 0으로 덮인 날).
+ */
 function withSellpiaReaderTransaction<T extends {
   sourceImportRun: object;
   sellpiaSalesDailySnapshot: { findMany: ReturnType<typeof vi.fn> };
 }>(prisma: T): T & { $transaction: ReturnType<typeof vi.fn> } {
-  const legacyFindMany = prisma.sellpiaSalesDailySnapshot.findMany;
+  const coverageRows = prisma.sellpiaSalesDailySnapshot.findMany;
   const tx = {
     ...prisma,
     sourceImportRun: {
       ...prisma.sourceImportRun,
       findMany: vi.fn(async () => [{ id: SELLPIA_COMPLETE_RUN_ID }]),
     },
-    sellpiaSalesDailySnapshot: {
-      findMany: vi.fn(async (query: unknown) => {
-        const rows = await legacyFindMany(query) as Array<{
-          businessDate: Date;
-          capturedAt?: Date;
-          lastObservedAt?: Date;
-        }>;
-        return rows.map((row) => ({
-          sourceImportRunId: SELLPIA_COMPLETE_RUN_ID,
-          businessDate: row.businessDate,
-          sellerId: '__kiditem_sellpia_sales_coverage__',
-          sellerName: 'KidItem 수집 완료',
-          channelGroup: 'others',
-          revenueKrw: 0,
-          qty: 0,
-          costKrw: 0,
-          capturedAt: row.capturedAt ?? row.lastObservedAt ?? row.businessDate,
+    operation: {
+      findMany: vi.fn(async (query: {
+        where: { organizationId: string; windowStart: { lte: Date }; windowEnd: { gte: Date } };
+      }) => {
+        const rows = await coverageRows({
+          where: {
+            organizationId: query.where.organizationId,
+            operationId: { not: null },
+            businessDate: { gte: query.where.windowEnd.gte, lte: query.where.windowStart.lte },
+          },
+        }) as Array<{ businessDate: Date; capturedAt?: Date; lastObservedAt?: Date }>;
+        return rows.map((row, index) => ({
+          id: `${SELLPIA_COMPLETE_RUN_ID.slice(0, -4)}${String(index).padStart(4, '0')}`,
+          kind: 'analytics.sellpia_sales',
+          plan: null,
+          result: null,
+          windowStart: row.businessDate,
+          windowEnd: row.businessDate,
+          startedAt: row.businessDate,
+          finishedAt: row.capturedAt ?? row.lastObservedAt ?? row.businessDate,
         }));
       }),
     },
+    sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
   };
   return Object.assign(prisma, {
     $transaction: vi.fn(async (callback: (client: typeof tx) => Promise<unknown>) =>
@@ -163,7 +172,7 @@ function readinessService(prisma: unknown): ReadinessService {
       status: (row.status as string | undefined) ?? 'active',
     })),
   };
-  return new ReadinessService(prisma as never, channelAccounts as never, { catalogFreshness });
+  return new ReadinessService(prisma as never, channelAccounts as never, { catalogFreshness }, new AdvertisingKeywordRankReadAdapter(prisma as never));
 }
 
 /** Channels 카탈로그 신선도 capability(KID-354)의 가짜 — 테스트마다 최신 상세 성공 시각을 정한다. */
@@ -263,7 +272,7 @@ describe('ReadinessService', () => {
     expect(queriedDates(queryRaw)).toEqual(['2026-04-02', '2026-05-02']);
     expect(sellpiaQuery.where).toMatchObject({
       organizationId: ORGANIZATION_ID,
-      sourceImportRunId: { in: [SELLPIA_COMPLETE_RUN_ID] },
+      operationId: { not: null },
     });
     // Which import runs count is proven over PostgreSQL in
     // catalog-readiness.pg.integration.spec.ts; this pins the account fence.
@@ -284,7 +293,7 @@ describe('ReadinessService', () => {
     const coupangProducts = status.checks.find(
       (check) => check.key === 'coupang_products',
     );
-    const wingRank = status.checks.find((check) => check.key === 'wing_kpi');
+    const wingRank = status.checks.find((check) => check.key === 'wing_rank');
     expect(readinessState(wingSales)).toBe('ok');
     expect(readinessState(coupangAds)).toBe('stale');
     expect(coupangAds?.missingDates).toEqual(['2026-04-02']);
@@ -395,7 +404,7 @@ describe('ReadinessService', () => {
     )).getStatus(
       ORGANIZATION_ID,
     );
-    const wingRank = status.checks.find((check) => check.key === 'wing_kpi');
+    const wingRank = status.checks.find((check) => check.key === 'wing_rank');
 
     expect(wingRank).toMatchObject({
       count: 1,
@@ -409,12 +418,7 @@ describe('ReadinessService', () => {
         organizationId: ORGANIZATION_ID,
         businessDate: latestBusinessDate,
         vendorItemId: { in: ['vendor-item-1', 'vendor-item-2'] },
-        sourceImportRun: {
-          organizationId: ORGANIZATION_ID,
-          sourceType: 'coupang_wing_rank',
-          parserVersion: 'wing-rank-v1',
-          status: 'completed',
-        },
+        operationId: { not: null },
       },
       select: { vendorItemId: true },
       distinct: ['vendorItemId'],
@@ -462,7 +466,7 @@ describe('ReadinessService', () => {
     expect(ads).toMatchObject({
       count: 0,
     });
-    const wingRank = status.checks.find((check) => check.key === 'wing_kpi');
+    const wingRank = status.checks.find((check) => check.key === 'wing_rank');
     expect(wingRank).toMatchObject({
       count: 0,
     });
@@ -703,10 +707,10 @@ describe('ReadinessService', () => {
         }),
       }),
     );
-    expect(status.checks.find((check) => check.key === 'wing_kpi')).toMatchObject({
+    expect(status.checks.find((check) => check.key === 'wing_rank')).toMatchObject({
       count: 2,
     });
-    expect(readinessState(status.checks.find((check) => check.key === 'wing_kpi'))).toBe('ok');
+    expect(readinessState(status.checks.find((check) => check.key === 'wing_rank'))).toBe('ok');
   });
 
   it('marks the catalog ready after a completed basics publication is followed by details', async () => {

@@ -6,9 +6,12 @@ import type { MallListingProfile } from '../../../../domain/account/mall-listing
 
 export const CHANNEL_ACCOUNT_PORT = Symbol('CHANNEL_ACCOUNT_PORT');
 
+/** 저장 로그인을 두는 계정 키: 주문 수집 몰 + 로그인만 두는 마켓 행(쿠팡 윙 `coupang`, KID-377). */
+export type LoginAccountKey = MallChannelKey | 'coupang';
+
 export interface MallAccount {
   channelAccountId: string | null;
-  key: MallChannelKey;
+  key: LoginAccountKey;
   name: string;
   configured: boolean;
   enabled: boolean;
@@ -34,8 +37,11 @@ export interface UpdateMallAccountInput {
   enabled?: unknown;
 }
 
+/** 자동 로그인에 쓰는 저장 자격. 평문 비밀번호는 이 응답(owner·admin)에만 있다. */
 export interface MallAccountPassword {
-  key: MallChannelKey;
+  key: LoginAccountKey;
+  loginId: string | null;
+  supplierLoginId: string | null;
   password: string | null;
 }
 

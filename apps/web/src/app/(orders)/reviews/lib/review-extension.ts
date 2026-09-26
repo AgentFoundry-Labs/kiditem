@@ -18,6 +18,8 @@ import {
 } from '@/lib/extension-bridge';
 import { KIDITEM_EXTENSION_MIN_VERSION } from '@/lib/extension-version';
 import { attemptFailureText } from '@/lib/operator-error';
+import { operationLoginOptions, WING_LOGIN_MALL_KEY } from '@/lib/operation-login';
+import { extensionAcceptsOperationLogin } from '@/lib/operation-start';
 
 export const REVIEW_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION;
 /** 확장 새 런타임(KID-357)이 `operation.start`를 받는다는 ping 표시. */
@@ -137,11 +139,13 @@ export async function startCoupangReviewCollection(
   scope: { channelAccountId: string; months: number },
   idempotencyKey: string,
 ): Promise<string> {
+  // 로그인 화면이면 확장이 윙 저장 자격으로 로그인한다(KID-377).
   const reply = OperationStartReplySchema.parse(await sendToExtension<unknown>(extensionId, {
     action: 'operation.start',
     kind: COUPANG_REVIEWS_KIND,
     scope,
     idempotencyKey,
+    ...(await reviewLoginOptions(extensionId)),
   }));
   if (reply.success) return reply.operationId;
   const existing = reply.details?.existing as { operationId?: unknown; kind?: unknown } | null | undefined;
@@ -149,6 +153,12 @@ export async function startCoupangReviewCollection(
     return existing.operationId;
   }
   throw new Error(reply.error || '쿠팡 리뷰 수집을 시작하지 못했습니다.');
+}
+
+/** 윙 저장 자격 — 있고, 이 확장이 받을 때(operationLoginV1)만 싣는다(옛 빌드는 credentials 칸을 거절한다). */
+async function reviewLoginOptions(extensionId: string) {
+  const options = await operationLoginOptions(WING_LOGIN_MALL_KEY);
+  return options.credentials && (await extensionAcceptsOperationLogin(extensionId)) ? options : {};
 }
 
 /** 가장 최근 상품평 실행. 없으면 idle. */

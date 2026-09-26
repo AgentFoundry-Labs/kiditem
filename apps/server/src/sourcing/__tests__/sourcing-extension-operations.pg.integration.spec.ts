@@ -9,7 +9,7 @@ import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { OPERATION_TOKEN_HEADER, OperationBeginResponseSchema } from '@kiditem/shared/operation';
 import { SOURCING_OPERATION_KINDS as KINDS } from '@kiditem/shared/sourcing-operation';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { operationFailureAlerts } from '../../test-helpers/operation-failure-alerts';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import { OperationsController } from '../../common/operation/adapter/in/web/operations.controller';
 import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/repository/operation.repository.adapter';
@@ -58,7 +58,7 @@ describe('sourcing extension-driven operation kinds (PostgreSQL)', () => {
     const history = new TrendCollectionRepositoryAdapter(db);
     const trends = new TrendCollectService({} as never, {} as never, {} as never, {} as never, history, {} as never);
     const service = new SourcingExtensionOperationService(
-      new SourcingOperationLedgerRepositoryAdapter(db, new SourceFailureAlerts(db), realSalesProductDraftPort(prisma)),
+      new SourcingOperationLedgerRepositoryAdapter(db, realSalesProductDraftPort(prisma)),
       // Channels 계정 capability 자리: 이 조직의 쿠팡 계정 행을 그대로 본다.
       { isActiveCoupangAccount: async (organizationId, id) =>
         (await prisma.channelAccount.count({ where: { id, organizationId, channel: 'coupang' } })) === 1 },
@@ -186,7 +186,7 @@ describe('sourcing extension-driven operation kinds (PostgreSQL)', () => {
         .resolves.toMatchObject({ items: [{ productId: 'p2' }] });
     });
 
-    it('refuses a finish that misses a planned keyword: no ledger rows, the publication stays, one source-failure alert', async () => {
+    it('refuses a finish that misses a planned keyword: no ledger rows, the publication stays, the failure is read from the operation row (no alert row)', async () => {
       const prior = await begin(KINDS.wingCatalog, { ...scope(), keywords: ['eraser'] });
       await put(prior, 'wing_search_page', 1, page('eraser', [item('eraser', 'p2')]));
       await finish(prior).expect(200);
@@ -197,9 +197,10 @@ describe('sourcing extension-driven operation kinds (PostgreSQL)', () => {
       expect(await prisma.sourcingWingCatalogProductSnapshot.count({ where: { operationId: partial.operation.id } })).toBe(0);
       expect(await prisma.sourcingEvidenceObservation.count({ where: { operationId: partial.operation.id } })).toBe(0);
       expect(await publications('coupang.wing_catalog')).toMatchObject([{ operationId: prior.operation.id, isCurrent: true }]);
-      await expect(prisma.alert.findMany({ select: { dedupeKey: true, status: true, attemptId: true } })).resolves.toEqual([
-        { dedupeKey: 'source:coupang-wing-catalog', status: 'OPEN', attemptId: partial.operation.id },
-      ]);
+      await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({
+        rows: 0,
+        items: [{ type: 'operation_failure', status: 'OPEN', attemptId: partial.operation.id, sourceType: KINDS.wingCatalog }],
+      });
     });
 
     it('refuses an account that is not this organization’s Coupang account', async () => {
@@ -330,10 +331,10 @@ describe('sourcing extension-driven operation kinds (PostgreSQL)', () => {
       const refused = await finish(again).expect(409);
       expect(refused.body).toMatchObject({ code: 'SOURCING_DUPLICATE_RECORD', details: {
         reason: 'draft_exists', existing: { sourceRecordId: record.id, salesProductId: draft.id } } });
-      // 확장 runner가 그 코드로 닫는다. 이미 수집한 원본은 원천 실패가 아니라 알림을 남기지 않는다.
+      // 확장 runner가 그 코드로 닫는다. 이미 수집한 원본은 원천 실패가 아니라 알림 reader도 알림으로 내지 않는다.
       await finish(again, { outcome: 'failed', errorCode: 'SOURCING_DUPLICATE_RECORD', errorMessage: refused.body.message }).expect(200);
       expect(await prisma.sourceRecord.count()).toBe(1);
-      expect(await prisma.alert.count()).toBe(0);
+      await expect(operationFailureAlerts(prisma, ORG)).resolves.toEqual({ rows: 0, items: [] });
     });
 
     it('merges the description page into the admitted record in the same commit', async () => {

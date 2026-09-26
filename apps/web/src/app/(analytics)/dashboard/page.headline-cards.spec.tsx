@@ -144,7 +144,7 @@ const inventory = {
   abcContributionProfit: {
     amountByGrade: { A: 12_000, B: 4_000, C: -500 },
     shareByGrade: { A: 0.77, B: 0.26, C: -0.03 },
-    basis: { publicationRevision: null, officialCutoffDate: null, publishedAt: null, sellpiaSourceImportRunId: null, advertisingSourceImportRunId: null, mappingGeneration: null, includedProductCount: 0, withheldProductCount: 0, denominator: 15_500 },
+    basis: { publicationRevision: null, officialCutoffDate: null, publishedAt: null, sellpiaOperationId: null, advertisingSourceImportRunId: null, mappingGeneration: null, includedProductCount: 0, withheldProductCount: 0, denominator: 15_500 },
   },
   abcFormula: null,
   alerts: [],

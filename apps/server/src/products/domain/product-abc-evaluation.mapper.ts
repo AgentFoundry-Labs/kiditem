@@ -32,7 +32,7 @@ export function productAbcEvaluation(
     publicationRevision: row.publicationRevision,
     gradeBasisCutoffDate: calendarDate(row.gradeBasisCutoffDate),
     saleStartDate: row.saleStartDate ? calendarDate(row.saleStartDate) : null,
-    sellpiaSourceImportRunId: row.sellpiaSourceImportRunId,
+    sellpiaOperationId: row.sellpiaOperationId,
     advertisingSourceImportRunId: row.advertisingSourceImportRunId,
     sellpiaGeneration: row.sellpiaGeneration.toString(),
     advertisingGeneration: row.advertisingGeneration?.toString() ?? null,

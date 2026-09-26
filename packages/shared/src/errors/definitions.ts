@@ -116,6 +116,9 @@ export const ERROR_DEFINITIONS = {
   SOURCE_OWNER_UNAVAILABLE: def('extension', 'external', '확장 프로그램이 수집을 시작하지 못했습니다. 확장 프로그램이 켜져 있는지 확인해 주세요.', { retryable: true }),
   OPERATOR_ACTION_REQUIRED: def('extension', 'precondition', '운영자가 직접 처리해야 하는 단계가 있습니다. 열린 탭을 확인해 주세요.'),
   MALL_LOGIN_REQUIRED: def('extension', 'precondition', '몰에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도해 주세요.'),
+  // 확장 4층 site 호출(`extensions/src/core/site-caller`)이 실행 실패 코드로 남긴다. 알림 reader가 실행 표에서 읽는다(KID-355).
+  SITE_LOGIN_REQUIRED: def('extension', 'precondition', '사이트에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도해 주세요.'),
+  SITE_REQUEST_FAILED: def('extension', 'external', '사이트 요청이 실패했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   MALL_LOGIN_PAGE_UNREACHABLE: def('extension', 'external', '몰 로그인 페이지를 열지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   MALL_CONTRACT_CHANGED: def('extension', 'external', '몰 화면이 바뀌어 읽지 못했습니다. 개발자에게 알려 주세요.'),
   SELLPIA_MANUAL_MATCH_LOGIN_REQUIRED: def('extension', 'precondition', '셀피아 로그인이 필요합니다. 열린 수동상품매칭 화면에서 로그인한 뒤 다시 시도해 주세요.'),
@@ -179,6 +182,7 @@ export const ERROR_DEFINITIONS = {
   PRODUCTS_STATE_CONFLICT: def('products', 'conflict', '상품 상태가 바뀌어 이 작업을 할 수 없습니다. 새로고침한 뒤 다시 시도해 주세요.'),
   PRODUCTS_SOURCE_REFERENCE_INVALID: def('products', 'precondition', '상품 원천 정보가 이 조직의 상품과 맞지 않습니다.'),
   PRODUCTS_MAPPING_CONFLICT: def('products', 'conflict', '상품 매핑이 동시에 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.', { retryable: true }),
+  PRODUCTS_SELLPIA_BINDING_REQUIRED: def('products', 'precondition', '셀피아 계정 연결을 먼저 확인한 뒤 재고를 수집해 주세요.'),
 
   // inventory · supply
   INVENTORY_NOT_FOUND: def('inventory', 'not_found', '재고 항목을 찾을 수 없습니다.'),
@@ -234,7 +238,18 @@ export const ERROR_DEFINITIONS = {
   EXECUTION_TASK_EXPIRED: def('advertising', 'conflict', '실행 보고를 반영할 수 없습니다. 실행 기한이 지나 이 실행 시도를 실패로 닫았습니다.'),
   EXECUTION_REPORT_INVALID_TRANSITION: def('advertising', 'conflict', '실행 보고를 반영할 수 없습니다. 최근 실행 작업 상태와 맞지 않습니다.'),
   ADVERTISING_RESULT_UNREADABLE: def('advertising', 'external', '광고센터 결과를 읽지 못했습니다. 잠시 뒤 다시 수집해 주세요.', { retryable: true }),
+  // 키워드·경쟁사 수집 kind(KID-362 K-a).
+  ADVERTISING_ACCOUNT_NOT_FOUND: def('advertising', 'not_found', '윙 검색에 쓸 쿠팡 계정을 찾을 수 없습니다. 쇼핑몰 계정 설정을 확인해 주세요.'),
+  ADVERTISING_COLLECTION_INCOMPLETE: def('advertising', 'conflict', '수집이 요청한 범위를 다 채우지 못했습니다. 다시 수집해 주세요.', { retryable: true }),
+  ADVERTISING_TRACKED_TARGETS_CHANGED: def('advertising', 'conflict', '수집하는 동안 추적 상품이 바뀌었습니다. 다시 수집해 주세요.', { retryable: true }),
+  ADVERTISING_TRACKED_PRODUCT_LIMIT: def('advertising', 'precondition', '추적 상품이 300개를 넘어 한 번에 수집할 수 없습니다. 추적을 줄인 뒤 다시 시도해 주세요.'),
+  ADVERTISING_TRACKED_KEYWORDS_INCOMPLETE: def('advertising', 'validation', '추적 상품의 수집 키워드가 요청에 모두 들어 있지 않습니다. 추적 키워드를 확인해 주세요.'),
+  ADVERTISING_RANK_TARGETS_EMPTY: def('advertising', 'precondition', '순위를 확인할 자사 상품의 대표 키워드가 없습니다. 상품의 대표 키워드를 확인해 주세요.'),
+  ADVERTISING_COMPETITOR_SELLER_NOT_FOUND: def('advertising', 'not_found', '추적 중인 경쟁 판매자가 아닙니다. 판매자 목록을 새로고침한 뒤 다시 시도해 주세요.'),
+  ADVERTISING_TRACKED_PRODUCT_NOT_FOUND: def('advertising', 'conflict', '윙 검색에서 찾지 못한 추적 상품이 있습니다. 추적 키워드를 확인한 뒤 다시 수집해 주세요.'),
   ANALYTICS_QUERY_FAILED: def('analytics', 'internal', '통계를 계산하지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
+  ANALYTICS_SELLPIA_PROFIT_MAPPING_CHANGED: def('analytics', 'conflict', '수집하는 동안 상품 매핑이 바뀌었습니다. 셀피아 상품 손익을 다시 수집해 주세요.'),
+  ANALYTICS_SELLPIA_PROFIT_EMPTY_UNPROVEN: def('analytics', 'validation', '셀피아 상품 손익에 판매 기록이 없는 상품만 있습니다. 셀피아 화면을 확인한 뒤 다시 수집해 주세요.'),
   FINANCE_QUERY_FAILED: def('finance', 'internal', '재무 데이터를 읽지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
 } as const satisfies Record<string, ErrorDefinition>;
 

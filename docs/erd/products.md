@@ -14,7 +14,7 @@
 | MasterProductAbcFormulaState | `master_product_abc_formula_states` | One organization-owned formula and official publication envelope. |
 | MasterProductAbcFormulaVersion | `master_product_abc_formula_versions` | Immutable organization-owned formula versions for absolute product ABC publication. |
 | MasterProductAbcGradeHistory | `master_product_abc_grade_histories` | Immutable absolute ABC grade transitions after the initial baseline. |
-| SellpiaInventoryState | `sellpia_inventory_states` | Organization-scoped Sellpia source binding, completion state, generation fence, and active collection lease. |
+| SellpiaInventoryState | `sellpia_inventory_states` | Organization-scoped Sellpia source binding, completion state and generation fence. Running and failed collections live in the operation table (ADR-0025). |
 
 ## Mermaid ER Diagram
 
@@ -59,6 +59,7 @@ erDiagram
     DateTime gradeBasisCutoffDate
     DateTime saleStartDate
     String sellpiaSourceImportRunId FK
+    String sellpiaOperationId
     String advertisingSourceImportRunId FK
     BigInt sellpiaGeneration
     BigInt advertisingGeneration
@@ -72,6 +73,7 @@ erDiagram
     Int publicationRevision
     DateTime officialCutoffDate
     String publishedSellpiaSourceImportRunId FK
+    String publishedSellpiaOperationId
     String publishedAdvertisingSourceImportRunId FK
     BigInt publishedMappingGeneration
     BigInt mappingGeneration
@@ -100,6 +102,8 @@ erDiagram
     Decimal operatingMargin
     String previousSellpiaSourceImportRunId FK
     String nextSellpiaSourceImportRunId FK
+    String previousSellpiaOperationId
+    String nextSellpiaOperationId
     String previousAdvertisingSourceImportRunId FK
     String nextAdvertisingSourceImportRunId FK
     Int formulaRevision
@@ -114,21 +118,11 @@ erDiagram
     String sourceAccountKey
     DateTime lastVerifiedAt
     String lastCompletedImportRunId FK
+    String lastCompletedOperationId
     String refreshReason
     String requestedSyncScope
-    String activeSyncToken
-    String activeSyncOwnerUserId FK
-    DateTime activeSyncStartedAt
-    DateTime activeSyncLeaseExpiresAt
-    String activeSyncScope
     BigInt requestedGeneration
-    BigInt activeGeneration
     BigInt verifiedGeneration
-    BigInt failedGeneration
-    DateTime lastAttemptAt
-    String lastAttemptSyncScope
-    String lastErrorCode
-    String lastErrorMessage
     String freshnessFence
     DateTime createdAt
     DateTime updatedAt
@@ -157,6 +151,5 @@ erDiagram
 | MasterProductAbcGradeHistory | organization | references external | Core | Organization |
 | MasterProductAbcGradeHistory | previousAdvertisingSourceImportRun | references external | Core | SourceImportRun |
 | MasterProductAbcGradeHistory | previousSellpiaSourceImportRun | references external | Core | SourceImportRun |
-| SellpiaInventoryState | activeSyncOwner | references external | Core | User |
 | SellpiaInventoryState | lastCompletedImportRun | references external | Core | SourceImportRun |
 | SellpiaInventoryState | organization | references external | Core | Organization |

@@ -1,61 +1,11 @@
-import type {
-  AdTrafficSourceAttempt,
-  AdTrafficSourceBegin,
-  AdTrafficSourceControl,
-  AdTrafficSourcePublished,
-  AdTrafficSourceReceipt,
-  AdTrafficSourceReceiptInput,
-  AdTrafficSourceStatus,
-} from '@kiditem/shared/advertising';
+import type { AdTrafficSourcePublished } from '@kiditem/shared/advertising-operations';
 
-export const AD_TRAFFIC_SOURCE_PORT = Symbol('AD_TRAFFIC_SOURCE_PORT');
 export const AD_TRAFFIC_READ_PORT = Symbol('AD_TRAFFIC_READ_PORT');
 
-export interface AdTrafficSourcePort {
-  beginAttempt(input: {
-    organizationId: string;
-    idempotencyKey: string;
-    request: AdTrafficSourceBegin;
-  }): Promise<AdTrafficSourceAttempt>;
-  readSourceStatus(input: {
-    organizationId: string;
-    channelAccountId?: string;
-  }): Promise<AdTrafficSourceStatus>;
-  readAttempt(input: {
-    organizationId: string;
-    attemptId: string;
-  }): Promise<AdTrafficSourceAttempt | null>;
-  readAttemptControl(input: {
-    organizationId: string;
-    attemptId: string;
-  }): Promise<AdTrafficSourceControl | null>;
-  uploadReceipt(input: {
-    organizationId: string;
-    attemptId: string;
-    attemptToken: string;
-    sequence: number;
-    receipt: AdTrafficSourceReceiptInput;
-  }): Promise<AdTrafficSourceReceipt>;
-  finalizeAttempt(input: {
-    organizationId: string;
-    attemptId: string;
-    attemptToken: string;
-    manifestChecksum: string;
-  }): Promise<AdTrafficSourceStatus>;
-  failAttempt(input: {
-    organizationId: string;
-    attemptId: string;
-    attemptToken: string;
-    code: string;
-    message: string;
-  }): Promise<AdTrafficSourceStatus>;
-  /** Operator stop without the attempt token; a terminal attempt is returned unchanged. */
-  cancelAttempt(input: {
-    organizationId: string;
-    attemptId: string;
-  }): Promise<AdTrafficSourceAttempt>;
-}
-
+/**
+ * Wing 트래픽 원장 읽기(Analytics·Finance). 날짜마다 그 날을 확정한 가장 최근 성공 `advertising.wing_traffic`
+ * 실행의 계정 요약을 읽는다(KID-362). 계정을 주지 않으면 대표 쿠팡 계정.
+ */
 export interface AdTrafficReadPort {
   readPublished(input: {
     organizationId: string;

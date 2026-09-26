@@ -85,14 +85,10 @@ export const queryKeys = {
     assets: () => [...queryKeys.inventory.all, 'sellpia-assets'] as const,
     assetList: (params: Record<string, string>) =>
       [...queryKeys.inventory.assets(), params] as const,
-    importRuns: () => [...queryKeys.inventory.all, 'sellpia-import-runs'] as const,
-    importRunList: (params: Record<string, string>) =>
-      [...queryKeys.inventory.importRuns(), params] as const,
     collectionStatus: () => [...queryKeys.inventory.all, 'sellpia-collection-status'] as const,
     // The collection control's read names the organization's running attempt.
     sellpiaCollectionStatus: (organizationId: string) =>
       [...queryKeys.inventory.collectionStatus(), 'source', organizationId] as const,
-    currentBasis: () => [...queryKeys.inventory.all, 'sellpia-current-basis'] as const,
     history: () => [...queryKeys.inventory.all, 'sellpia-history'] as const,
     historyList: (params: Record<string, string>) =>
       [...queryKeys.inventory.history(), params] as const,
@@ -100,8 +96,6 @@ export const queryKeys = {
     productSalesAll: () => [...queryKeys.inventory.all, 'sellpia-product-sales'] as const,
     productSales: (months?: number) =>
       [...queryKeys.inventory.all, 'sellpia-product-sales', months ?? 0] as const,
-    sellpiaProductProfitabilitySource: () =>
-      [...queryKeys.inventory.all, 'sellpia-product-profitability-source'] as const,
   },
   aiUsage: {
     summary: (params: Record<string, string>) => ['ai-usage', 'summary', params] as const,
@@ -139,14 +133,13 @@ export const queryKeys = {
     sellpiaSales: (from?: string, to?: string) =>
       [...queryKeys.dashboard.all, 'sellpia-sales', from ?? '', to ?? ''] as const,
     // The Sellpia sales collection control's owner status read.
-    sellpiaSalesSource: () => [...queryKeys.dashboard.all, 'sellpia-sales-source'] as const,
   },
   ads: {
     all: ['ads'] as const,
     keywordSource: () => [...queryKeys.ads.all, 'keyword-source'] as const,
     campaignSource: () => [...queryKeys.ads.all, 'campaign-source'] as const,
     profitabilitySource: () => [...queryKeys.ads.all, 'profitability-source'] as const,
-    itemwinnerSource: () => [...queryKeys.ads.all, 'wing-itemwinner-source'] as const,
+    itemwinnerOperations: () => [...queryKeys.ads.all, 'wing-itemwinner-operations'] as const,
     list: () => [...queryKeys.ads.all, 'list'] as const,
     products: (period?: string) => [...queryKeys.ads.all, 'products', period] as const,
     campaigns: (period?: string) => [...queryKeys.ads.all, 'campaigns', period] as const,
@@ -167,8 +160,9 @@ export const queryKeys = {
     benchmark: (period?: string | number) => [...queryKeys.ads.all, 'benchmark', period] as const,
     collectStatus: () => [...queryKeys.ads.all, 'collect', 'status'] as const,
     keywordRank: () => [...queryKeys.ads.all, 'keywordRank'] as const,
-    // The organization's newest Wing rank batch, read by its shared collection control.
-    wingRankCurrentBatch: () => [...queryKeys.ads.keywordRank(), 'batch', 'current'] as const,
+    // 실행 kind `advertising.wing_rank`의 최근 실행들(공용 수집 컨트롤이 읽는다).
+    wingRankOperations: () => [...queryKeys.ads.all, 'operations', 'source-status', 'advertising.wing_rank'] as const,
+    keywordSerpOperations: () => [...queryKeys.ads.all, 'operations', 'source-status', 'advertising.keyword_serp'] as const,
     keywordRankTrackers: () => [...queryKeys.ads.keywordRank(), 'trackers'] as const,
     keywordRankHistory: (keyword: string, days: number) =>
       [...queryKeys.ads.keywordRank(), 'history', keyword, days] as const,
@@ -300,8 +294,6 @@ export const queryKeys = {
       [...queryKeys.channelProductMappings.all, 'list', params] as const,
     productCandidates: (channelListingId: string, params: Record<string, string>) =>
       [...queryKeys.channelProductMappings.all, 'product-candidates', channelListingId, params] as const,
-    sellpiaManualMatchTargets: () =>
-      [...queryKeys.channelProductMappings.all, 'sellpia-manual-match-targets'] as const,
   },
   channelSkuAvailability: {
     all: ['channelSkuAvailability'] as const,
@@ -398,6 +390,8 @@ export const queryKeys = {
       [...queryKeys.sourcing.all, 'wing-tracked-products', 'source-status'] as const,
     competitorCatalogSourceStatus: () =>
       [...queryKeys.sourcing.all, 'competitors', 'source-status'] as const,
+    competitorSellerIdentitySourceStatus: () =>
+      [...queryKeys.sourcing.all, 'competitors', 'seller-identity', 'source-status'] as const,
     wingCatalog: (keyword: string) =>
       [...queryKeys.sourcing.all, 'wing-catalog', keyword.trim()] as const,
     keywordSuggestions: (keyword: string) =>

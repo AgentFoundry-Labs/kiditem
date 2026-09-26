@@ -11,7 +11,7 @@ export function fakeTabPages(options: {
   /** 운영자가 검증을 통과하는가(`waitWhile`이 true). 없으면 상한까지 기다리다 false. */
   verificationClears?: boolean;
   /** 모든 프레임에 넣은 파일의 프레임별 값(`frames`). */
-  frames?: (files: readonly string[], call: number) => Array<{ frameId: number; result: unknown }>;
+  frames?: (files: readonly string[], call: number, url: string) => Array<{ frameId: number; result: unknown }>;
 }) {
   const log: string[] = [];
   let injected = false;
@@ -33,7 +33,7 @@ export function fakeTabPages(options: {
         return options.verificationClears === true;
       },
       async currentUrl() {
-        return options.currentUrl ?? 'about:blank';
+        return options.currentUrl ?? current ?? 'about:blank';
       },
       async ask<T extends PageAnswer>(message: Record<string, unknown>, { inject, guard, frameId }: { timeoutMs: number; inject?: InjectFiles; guard?: PageGuard; frameId?: number }) {
         const here = () => current ?? options.currentUrl ?? 'about:blank';
@@ -53,7 +53,7 @@ export function fakeTabPages(options: {
       async frames<T>(files: readonly string[]) {
         frameCalls += 1;
         log.push(`frames ${files.join(',')}`);
-        return (options.frames?.(files, frameCalls) ?? []) as Array<{ frameId: number; result: T }>;
+        return (options.frames?.(files, frameCalls, current ?? options.currentUrl ?? 'about:blank') ?? []) as Array<{ frameId: number; result: T }>;
       },
       listen(listener) {
         listeners.push(listener);

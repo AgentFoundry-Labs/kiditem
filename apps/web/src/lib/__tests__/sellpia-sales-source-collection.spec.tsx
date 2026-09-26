@@ -2,96 +2,42 @@ import type { ReactNode } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import type { OperationView } from '@kiditem/shared/operation';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
-import { ApiError } from '@/lib/api-error';
-import {
-  detectBrowserCollectionExtensionIds,
-  detectOrderCollectionExtensionId,
-  sendToExtension,
-} from '@/lib/extension-bridge';
+import { detectBrowserCollectionExtensionIds, detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
+import { sellpiaOperationsQueryKey } from '@/lib/sellpia-operations';
 import {
   sellpiaSalesCollection,
   sellpiaSalesReadinessRange,
 } from '@/lib/sellpia-sales-source-collection';
-import { extensionSessionReply } from '@/test/fixtures/extension-collection-session';
+import { SELLPIA_OPERATION_PING, sellpiaOperation } from '@/test/fixtures/sellpia-operations';
 
-vi.mock('@/lib/api-client', () => ({
-  apiClient: { get: vi.fn(), getParsed: vi.fn(), post: vi.fn() },
-}));
+vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
 vi.mock('@/lib/extension-bridge', () => ({
+  detectExtensionId: vi.fn(),
   detectBrowserCollectionExtensionIds: vi.fn(),
-  detectOrderCollectionExtensionId: vi.fn(),
   sendToExtension: vi.fn(),
 }));
 vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
 
-const SOURCE_PATH = '/api/sellpia-sales/source';
-const BEGIN_PATH = '/api/sellpia-sales/attempts';
-const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
-const NEXT_ATTEMPT_ID = '33333333-3333-4333-8333-333333333333';
+// 셀피아 판매현황 = 실행 kind analytics.sellpia_sales(KID-361 J2). 시작은 확장 operation.start, 상태는 실행 reader.
+const OPERATIONS_PATH = '/api/operations?kinds=analytics.sellpia_sales&limit=20';
+const OPERATION_ID = '11111111-1111-4111-8111-111111111111';
 const RANGE = { from: '2026-07-12', to: '2026-07-15' };
-const BUSINESS_DATES = ['2026-07-12', '2026-07-13', '2026-07-14', '2026-07-15'];
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-type AttemptState = 'RUNNING' | 'COMPLETE' | 'FAILED';
+const salesOperation = (overrides: Partial<OperationView> = {}) => sellpiaOperation({
+  id: OPERATION_ID,
+  kind: 'analytics.sellpia_sales',
+  plan: { sourceOrigin: 'https://kiditem.sellpia.com', sourcePath: '/sale_summary.html?mode=main_link', range: RANGE },
+  window: { start: RANGE.from, end: RANGE.to },
+  ...overrides,
+});
 
-const plan = {
-  sourceType: 'sellpia_sales_daily',
-  parserVersion: 'sellpia-sales-v1',
-  sourceOrigin: 'https://kiditem.sellpia.com',
-  sourcePath: '/sale_summary.html?mode=main_link',
-  sourceAccountKey: 'kiditem',
-  range: RANGE,
-  businessDates: BUSINESS_DATES,
-};
-
-function latestAttempt(state: AttemptState, attemptId = ATTEMPT_ID, patch: Record<string, unknown> = {}) {
-  return {
-    attemptId,
-    state,
-    plan,
-    expiresAt: '2099-01-01T00:00:00.000Z',
-    errorCode: null,
-    errorMessage: null,
-    ...patch,
-  };
-}
-
-function latestComplete(attemptId = ATTEMPT_ID) {
-  return {
-    attemptId,
-    plan,
-    completedAt: '2026-07-15T01:00:00.000Z',
-    actualCutoffAt: '2026-07-15T00:00:00.000Z',
-    businessDates: BUSINESS_DATES,
-    rowCount: 4,
-    sellerCount: 2,
-  };
-}
-
-function beginReply() {
-  return {
-    attemptId: ATTEMPT_ID,
-    sourceType: 'sellpia_sales_daily',
-    state: 'RUNNING',
-    expiresAt: '2099-01-01T00:00:00.000Z',
-    plan,
-    actualCutoffAt: null,
-    completedAt: null,
-    contentChecksum: null,
-    contentByteCount: null,
-    rowCount: 0,
-    sellerCount: 0,
-    businessDates: BUSINESS_DATES,
-    errorCode: null,
-    errorMessage: null,
-  };
-}
-
-let source: Record<string, unknown>;
+let operations: OperationView[];
+let startReply: Record<string, unknown>;
 
 function SalesControl({ label, range }: { label: string; range?: { from: string; to: string } }) {
   const control = useCollectionSourceControl(sellpiaSalesCollection);
@@ -108,160 +54,96 @@ function SalesControl({ label, range }: { label: string; range?: { from: string;
 }
 
 function renderControls(ui: ReactNode) {
-  const client = new QueryClient({
-    defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
-  });
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false }, mutations: { retry: false } } });
   return { client, ...render(<QueryClientProvider client={client}>{ui}</QueryClientProvider>) };
+}
+
+function extensionMessages(action: string) {
+  return vi.mocked(sendToExtension).mock.calls.filter(([, message]) => (message as { action: string }).action === action);
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  source = { latestAttempt: null, latestComplete: null };
-  vi.mocked(detectOrderCollectionExtensionId).mockResolvedValue('sellpia-extension');
-  vi.mocked(detectBrowserCollectionExtensionIds).mockResolvedValue([]);
-  // The extension answers only when the collection ends; the session shows it took the attempt.
-  vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) =>
-    extensionSessionReply(message) ?? new Promise(() => undefined));
-  vi.mocked(apiClient.getParsed).mockImplementation(async (path: string) => {
-    if (path !== SOURCE_PATH) throw new Error(`unexpected GET ${path}`);
-    return source;
+  operations = [];
+  startReply = { success: true, operationId: OPERATION_ID, reused: false };
+  vi.mocked(detectExtensionId).mockResolvedValue('ext');
+  vi.mocked(detectBrowserCollectionExtensionIds).mockResolvedValue(['ext']);
+  vi.mocked(sendToExtension).mockImplementation(async (_id, message) => {
+    const action = (message as { action: string }).action;
+    if (action === 'ping') return SELLPIA_OPERATION_PING;
+    if (action === 'operation.start') {
+      if (startReply.success) operations = [salesOperation()];
+      return startReply;
+    }
+    if (action === 'operation.cancel') return { success: true };
+    throw new Error(`unexpected ${action}`);
+  });
+  vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
+    if (path === OPERATIONS_PATH) return { operations };
+    throw new Error(`unexpected GET ${path}`);
   });
   vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
-    if (path !== BEGIN_PATH) throw new Error(`unexpected POST ${path}`);
-    source = { latestAttempt: latestAttempt('RUNNING'), latestComplete: null };
-    return beginReply();
+    if (path === `/api/operations/${OPERATION_ID}/cancel`) {
+      operations = [salesOperation({ status: 'cancelled', errorCode: 'USER_CANCELLED' })];
+      return { operation: operations[0] };
+    }
+    throw new Error(`unexpected POST ${path}`);
   });
 });
 
 describe('Sellpia sales collection control', () => {
-  it('begins the requested range, sends only the attempt id and shows it running on every copy', async () => {
+  it('화면이 준 범위로 실행 하나를 시작시키고 모든 사본이 그 창을 도는 실행으로 보인다', async () => {
     renderControls(
       <>
-        <SalesControl label="준비 상태" range={RANGE} />
-        <SalesControl label="매출 분석" />
+        <SalesControl label="first" range={RANGE} />
+        <SalesControl label="second" range={RANGE} />
       </>,
     );
-    const readiness = within(screen.getByRole('region', { name: '준비 상태' }));
+    fireEvent.click(await within(screen.getByRole('region', { name: 'first' })).findByRole('button', { name: '매출 받기' }));
 
-    fireEvent.click(await readiness.findByRole('button', { name: '매출 받기' }));
-
-    expect(await readiness.findByText('수집 중 · 2026-07-12 ~ 2026-07-15')).toBeInTheDocument();
-    expect(
-      await within(screen.getByRole('region', { name: '매출 분석' })).findByText('수집 중 · 2026-07-12 ~ 2026-07-15'),
-    ).toBeInTheDocument();
-    expect(vi.mocked(apiClient.post).mock.calls).toEqual([[
-      BEGIN_PATH,
-      { range: RANGE },
-      { headers: { 'Idempotency-Key': expect.stringMatching(UUID) } },
-    ]]);
-    expect(
-      vi.mocked(sendToExtension).mock.calls.filter(([, message]) =>
-        (message as { action: string }).action === 'collectSellpiaSaleSummary'),
-    ).toEqual([
-      ['sellpia-extension', { action: 'collectSellpiaSaleSummary', attemptId: ATTEMPT_ID }, 190_000],
+    await waitFor(() => expect(screen.getAllByRole('button', { name: '수집 중단' })).toHaveLength(2));
+    expect(extensionMessages('operation.start')).toEqual([
+      ['ext', { action: 'operation.start', kind: 'analytics.sellpia_sales', scope: { startDate: RANGE.from, endDate: RANGE.to } }, 60_000],
     ]);
+    expect(screen.getAllByText(/2026-07-12 ~ 2026-07-15/).length).toBeGreaterThan(0);
   });
 
-  it('stops the attempt it opened and gives the reason when the extension does not take it', async () => {
-    const cancelPath = `${BEGIN_PATH}/${ATTEMPT_ID}/cancel`;
-    vi.mocked(sendToExtension).mockImplementation(async (_extensionId, message) =>
-      (message as { action: string }).action === 'collectSellpiaSaleSummary'
-        ? { success: false, error: '이전 셀피아 판매 현황 수집이 아직 진행 중입니다. 그 수집이 끝난 뒤 다시 시작해 주세요.' }
-        : null);
-    vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
-      if (path === BEGIN_PATH) return beginReply();
-      if (path === cancelPath) return {};
-      throw new Error(`unexpected POST ${path}`);
-    });
-    renderControls(<SalesControl label="매출 분석" />);
-
+  it('범위를 주지 않으면 빈 scope로 owner 기본 창을 쓴다', async () => {
+    renderControls(<SalesControl label="only" />);
     fireEvent.click(await screen.findByRole('button', { name: '매출 받기' }));
-
-    expect(
-      await screen.findByText('이전 셀피아 판매 현황 수집이 아직 진행 중입니다. 그 수집이 끝난 뒤 다시 시작해 주세요.'),
-    ).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '매출 받기' })).toBeEnabled();
-    expect(apiClient.post).toHaveBeenCalledWith(cancelPath);
+    await waitFor(() => expect(extensionMessages('operation.start')).toHaveLength(1));
+    expect(extensionMessages('operation.start')[0]?.[1]).toMatchObject({ scope: {} });
   });
 
-  it("begins the owner's default window when the screen names no range", async () => {
-    renderControls(<SalesControl label="매출 분석" />);
-
+  it('다른 셀피아 실행이 로그인을 쥐고 있으면 서버 문장으로 거절을 보인다', async () => {
+    startReply = { success: false, errorCode: 'OPERATION_IN_PROGRESS', error: '같은 셀피아 로그인을 쓰는 다른 실행이 진행 중입니다.' };
+    renderControls(<SalesControl label="only" range={RANGE} />);
     fireEvent.click(await screen.findByRole('button', { name: '매출 받기' }));
-
-    await waitFor(() => expect(apiClient.post).toHaveBeenCalledWith(
-      BEGIN_PATH,
-      {},
-      { headers: { 'Idempotency-Key': expect.stringMatching(UUID) } },
-    ));
+    expect(await screen.findByText('같은 셀피아 로그인을 쓰는 다른 실행이 진행 중입니다.')).toBeInTheDocument();
   });
 
-  it('joins the collection the owner already runs instead of opening another', async () => {
-    vi.mocked(apiClient.post).mockImplementation(async () => {
-      source = { latestAttempt: latestAttempt('RUNNING'), latestComplete: null };
-      throw new ApiError(409, 'ATTEMPT_IN_PROGRESS', 'Conflict', {
-
-        attemptId: ATTEMPT_ID,
-      });
-    });
-    renderControls(<SalesControl label="매출 분석" />);
-
-    fireEvent.click(await screen.findByRole('button', { name: '매출 받기' }));
-
-    expect(await screen.findByRole('button', { name: '수집 중단' })).toBeEnabled();
-    expect(sendToExtension).not.toHaveBeenCalled();
-  });
-
-  it('stops through the owner route when no extension holds the session', async () => {
-    source = { latestAttempt: latestAttempt('RUNNING'), latestComplete: null };
-    const cancelPath = `${BEGIN_PATH}/${ATTEMPT_ID}/cancel`;
-    vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
-      if (path !== cancelPath) throw new Error(`unexpected POST ${path}`);
-      source = {
-        latestAttempt: latestAttempt('FAILED', ATTEMPT_ID, {
-          errorCode: 'USER_CANCELLED',
-          errorMessage: '운영자가 수집을 중단했습니다.',
-        }),
-        latestComplete: null,
-      };
-      return {};
-    });
-    renderControls(<SalesControl label="매출 분석" />);
-
+  it('도는 실행을 실행 id로 멈춘다(확장 cancel 뒤 서버 cancel)', async () => {
+    operations = [salesOperation()];
+    renderControls(<SalesControl label="only" range={RANGE} />);
     fireEvent.click(await screen.findByRole('button', { name: '수집 중단' }));
-
     expect(await screen.findByRole('button', { name: '매출 받기' })).toBeEnabled();
-    expect(apiClient.post).toHaveBeenCalledWith(cancelPath);
+    expect(extensionMessages('operation.cancel')).toEqual([['ext', { action: 'operation.cancel', operationId: OPERATION_ID }]]);
   });
 
-  it('opens no attempt while the Sellpia sales extension is missing', async () => {
-    vi.mocked(detectOrderCollectionExtensionId).mockResolvedValue(null);
-    renderControls(<SalesControl label="매출 분석" />);
-
-    fireEvent.click(await screen.findByRole('button', { name: '매출 받기' }));
-
-    expect(await screen.findByText(/판매현황 수집 기능이 필요합니다/)).toBeInTheDocument();
-    expect(apiClient.post).not.toHaveBeenCalled();
-  });
-
-  it('refreshes the sales, readiness and daily traffic reads only after a new complete collection', async () => {
-    source = { latestAttempt: latestAttempt('COMPLETE'), latestComplete: latestComplete() };
-    const { client } = renderControls(<SalesControl label="매출 분석" />);
-    const salesKey = queryKeys.dashboard.sellpiaSales('2026-07-01', '2026-07-15');
-    const readinessKey = ['readiness'];
-    const trafficKey = ['traffic', 'monthly', 2026, 7];
-    for (const key of [salesKey, readinessKey, trafficKey]) client.setQueryData(key, {});
+  it('새 성공 실행이 보일 때만 매출·readiness·Wing 일매출 읽기를 새로 한다', async () => {
+    operations = [salesOperation({ id: '22222222-2222-4222-8222-222222222222', status: 'succeeded' })];
+    const { client } = renderControls(<SalesControl label="only" />);
+    const salesKey = queryKeys.dashboard.sellpiaSalesAll();
+    const readinessKey = ['readiness', 'status'];
+    const trafficKey = ['traffic', 'daily'];
+    for (const key of [salesKey, readinessKey, trafficKey]) client.setQueryData(key, { ready: true });
     expect(await screen.findByRole('button', { name: '매출 받기' })).toBeEnabled();
 
-    await act(() => client.refetchQueries({ queryKey: queryKeys.dashboard.sellpiaSalesSource() }));
+    await act(() => client.refetchQueries({ queryKey: sellpiaOperationsQueryKey('analytics.sellpia_sales') }));
     expect(client.getQueryState(salesKey)?.isInvalidated).toBe(false);
 
-    source = {
-      latestAttempt: latestAttempt('COMPLETE', NEXT_ATTEMPT_ID),
-      latestComplete: latestComplete(NEXT_ATTEMPT_ID),
-    };
-    await act(() => client.refetchQueries({ queryKey: queryKeys.dashboard.sellpiaSalesSource() }));
-
+    operations = [salesOperation({ status: 'succeeded' }), ...operations];
+    await act(() => client.refetchQueries({ queryKey: sellpiaOperationsQueryKey('analytics.sellpia_sales') }));
     await waitFor(() => expect(client.getQueryState(salesKey)?.isInvalidated).toBe(true));
     expect(client.getQueryState(readinessKey)?.isInvalidated).toBe(true);
     expect(client.getQueryState(trafficKey)?.isInvalidated).toBe(true);

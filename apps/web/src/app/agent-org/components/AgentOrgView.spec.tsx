@@ -23,7 +23,7 @@ function snapshot(overrides: Partial<PipeInputs> = {}) {
           message: null,
           targetType: null,
           targetId: null,
-          sourceType: 'coupang_keyword_serp',
+          sourceType: 'advertising.keyword_serp',
           href: '/rank-tracking',
           isRead: true,
           createdAt: ago(40),

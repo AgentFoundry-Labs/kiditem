@@ -1,167 +1,46 @@
-import { ConflictException, Injectable, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import {
-  type CompletedSourceArtifactRun,
-  CoupangRocketMatchingCsvImportResponseSchema,
-  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-  SOURCE_IMPORT_RUN_RUNNING_STATUS,
-} from '@kiditem/shared/source-import';
+import { Injectable } from '@nestjs/common';
+import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { PrismaService } from '../../../../prisma/prisma.service';
-import { allocatePublicationSequence } from '../../../../common/publication-sequence';
-import type { PersistRocketSellpiaMatchingCsvInput } from '../../../application/port/out/repository/rocket-sellpia-matching-csv-import.repository.port';
+import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import type { RocketSellpiaMatchingCsvImportRepositoryPort } from '../../../application/port/out/repository/rocket-sellpia-matching-csv-import.repository.port';
 import { ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE } from '../../../domain/collection/catalog-source-identity';
 import { upsertChannelCatalogIdentities } from './channel-catalog-identity-upsert';
 import { rocketMatchingCsvRowsToCatalogProducts } from './rocket-sellpia-matching-csv.catalog';
 
-const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 120_000 } as const;
-
+/**
+ * 로켓 매칭 CSV kind(KID-363)의 Channels 원장 쓰기. 반영 출처는 `lastOperationId`로 남기고
+ * `source_import_runs`는 쓰지 않는다. 계정 겹침은 실행 잠금(`account:<id>`)이 막는다.
+ */
 @Injectable()
-export class RocketSellpiaMatchingCsvImportRepositoryAdapter
-implements RocketSellpiaMatchingCsvImportRepositoryPort {
+export class RocketSellpiaMatchingCsvImportRepositoryAdapter implements RocketSellpiaMatchingCsvImportRepositoryPort {
   constructor(private readonly prisma: PrismaService) {}
 
-  importMatchingCsv(input: PersistRocketSellpiaMatchingCsvInput) {
-    return this.prisma.$transaction(async (tx) => {
-      const lockKey = `rocket-sellpia-matching-csv:${input.organizationId}:${input.channelAccountId}`;
-      await tx.$queryRaw`
-        SELECT pg_advisory_xact_lock(hashtextextended(${lockKey}, 0))::text AS "lock"
-        FROM channel_accounts
-        WHERE organization_id = ${input.organizationId}::uuid
-          AND id = ${input.channelAccountId}::uuid
-      `;
-      const account = await tx.channelAccount.findFirst({
-        where: {
-          id: input.channelAccountId,
-          organizationId: input.organizationId,
-          channel: 'rocket',
-          status: 'active',
-        },
-        select: { id: true },
-      });
-      if (!account) throw new NotFoundException('Active Rocket channel account not found');
-
-      const duplicate = await tx.sourceImportRun.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          sourceType: ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
-          channelAccountId: input.channelAccountId,
-          fileHash: input.fileHash,
-          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-        },
-      });
-      if (duplicate) {
-        await upsertChannelCatalogIdentities(tx, {
-          organizationId: input.organizationId,
-          channelAccountId: input.channelAccountId,
-          lastImportRunId: duplicate.id,
-          rawSource: ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
-          // 매칭 CSV 에는 판매가·모델번호 칸이 없다.
-          unobservedOptionFields: ['salePrice', 'modelNumber'],
-          products: rocketMatchingCsvRowsToCatalogProducts(input.rows),
-        });
-        return CoupangRocketMatchingCsvImportResponseSchema.parse({
-          run: toCompletedRun(duplicate),
-          duplicate: true,
-          changes: zeroChanges(),
-        });
-      }
-
-      const sourceRun = await tx.sourceImportRun.create({
-        data: {
-          organizationId: input.organizationId,
-          sourceType: ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
-          channelAccountId: input.channelAccountId,
-          fileName: input.fileName,
-          fileHash: input.fileHash,
-          status: SOURCE_IMPORT_RUN_RUNNING_STATUS,
-          rowCount: input.rows.length,
-          createdBy: input.userId,
-        },
-      });
-      const identities = await upsertChannelCatalogIdentities(tx, {
-        organizationId: input.organizationId,
-        channelAccountId: input.channelAccountId,
-        lastImportRunId: sourceRun.id,
-        rawSource: ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
-        // 매칭 CSV 에는 판매가·모델번호 칸이 없다.
-        unobservedOptionFields: ['salePrice', 'modelNumber'],
-        products: rocketMatchingCsvRowsToCatalogProducts(input.rows),
-      });
-      const completed = await tx.sourceImportRun.update({
-        where: { id: sourceRun.id },
-        data: {
-          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-          importedAt: new Date(),
-          publicationSequence: await allocatePublicationSequence(
-            tx,
-            input.organizationId,
-            ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
-          ),
-        },
-      });
-      return CoupangRocketMatchingCsvImportResponseSchema.parse({
-        run: toCompletedRun(completed),
-        duplicate: false,
-        changes: identities.changes,
-      });
-    }, TRANSACTION_OPTIONS);
+  async assertRocketAccount(scope: { organizationId: string; channelAccountId: string }): Promise<void> {
+    const account = await this.prisma.channelAccount.findFirst({
+      where: { id: scope.channelAccountId, organizationId: scope.organizationId, status: 'active' },
+      select: { channel: true },
+    });
+    if (!account) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
+    if (account.channel !== 'rocket') {
+      throw new KiditemInvalidValueError('CHANNELS_ACCOUNT_INVALID', { details: { reason: 'matching_csv_requires_rocket' } });
+    }
   }
-}
 
-function toCompletedRun(run: {
-  id: string;
-  sourceType: string;
-  channelAccountId: string | null;
-  fileName: string | null;
-  fileHash: string | null;
-  status: string;
-  rowCount: number;
-  importedAt: Date | null;
-  lastVerifiedAt: Date | null;
-  verificationCount: number;
-  lastTrigger: string | null;
-  freshnessGeneration: bigint | null;
-  manualFreshExportConfirmedAt: Date | null;
-  manualFreshExportConfirmedBy: string | null;
-  qualityReport: Prisma.JsonValue | null;
-  errorCode: string | null;
-  errorMessage: string | null;
-  createdAt: Date;
-  updatedAt: Date;
-}): CompletedSourceArtifactRun {
-  if (!run.fileName || !run.fileHash || !run.importedAt || run.status !== SOURCE_IMPORT_RUN_COMPLETED_STATUS) {
-    throw new ConflictException('Rocket matching CSV run is missing completed provenance');
+  async publishMatchingCsv(
+    transaction: OwnerTransaction,
+    input: Parameters<RocketSellpiaMatchingCsvImportRepositoryPort['publishMatchingCsv']>[1],
+  ) {
+    const identities = await upsertChannelCatalogIdentities(ownerTransactionClient(transaction), {
+      organizationId: input.organizationId,
+      channelAccountId: input.channelAccountId,
+      lastImportRunId: null,
+      lastOperationId: input.operationId,
+      rawSource: ROCKET_SELLPIA_MATCHING_CSV_SOURCE_TYPE,
+      // 매칭 CSV 에는 판매가·모델번호 칸이 없다.
+      unobservedOptionFields: ['salePrice', 'modelNumber'],
+      products: rocketMatchingCsvRowsToCatalogProducts(input.rows),
+    });
+    return identities.changes;
   }
-  return {
-    id: run.id,
-    sourceType: 'coupang_rocket_matching_csv',
-    channelAccountId: run.channelAccountId,
-    fileName: run.fileName,
-    fileHash: run.fileHash,
-    status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-    rowCount: run.rowCount,
-    importedAt: run.importedAt.toISOString(),
-    lastVerifiedAt: run.lastVerifiedAt?.toISOString() ?? null,
-    verificationCount: run.verificationCount,
-    lastTrigger: null,
-    freshnessGeneration: run.freshnessGeneration?.toString() ?? null,
-    manualFreshExportConfirmedAt:
-      run.manualFreshExportConfirmedAt?.toISOString() ?? null,
-    manualFreshExportConfirmedBy: run.manualFreshExportConfirmedBy,
-    qualityReport: null,
-    errorCode: run.errorCode,
-    errorMessage: run.errorMessage,
-    createdAt: run.createdAt.toISOString(),
-    updatedAt: run.updatedAt.toISOString(),
-  };
-}
-
-function zeroChanges() {
-  return {
-    createdProductCount: 0,
-    updatedProductCount: 0,
-    createdSkuCount: 0,
-    updatedSkuCount: 0,
-  };
 }

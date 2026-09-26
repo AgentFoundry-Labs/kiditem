@@ -1,4 +1,4 @@
-import { Inject, Injectable, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable } from '@nestjs/common';
 import { isKiditemError } from '@kiditem/shared/errors';
 import {
   addDays,
@@ -13,13 +13,8 @@ import {
   AD_TRAFFIC_READ_PORT,
   type AdTrafficReadPort,
 } from '../../../../advertising/application/port/in/ad-traffic-source.port';
-import type {
-  AdTrafficSourceAccountDaily,
-  AdTrafficSourceDailyPublished,
-  AdTrafficSourceReconciliation,
-  AdTrafficSourcePublished,
-} from '@kiditem/shared/advertising';
-import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
+import type { AdTrafficSourceAccountDaily, AdTrafficSourceDailyPublished, AdTrafficSourceReconciliation, AdTrafficSourcePublished } from '@kiditem/shared/advertising-operations';
+import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising-operations';
 
 interface DateRange {
   from: string;
@@ -198,8 +193,7 @@ export class TrafficService {
       });
     } catch (error) {
       if (
-        (isKiditemError(error) && error.code === 'CHANNELS_ACCOUNT_NOT_FOUND')
-        || (error instanceof NotFoundException && error.message === 'AD_TRAFFIC_SOURCE_MISSING')
+        isKiditemError(error) && error.code === 'CHANNELS_ACCOUNT_NOT_FOUND'
       ) {
         return { rows: [], coverage, reconciliation: null };
       }

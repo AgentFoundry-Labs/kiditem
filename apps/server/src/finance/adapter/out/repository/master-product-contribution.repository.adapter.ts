@@ -26,7 +26,7 @@ type RawContributionRow = Readonly<{
   basisFromDate: Date | string;
   basisCutoffDate: Date | string;
   sourceCutoffDate: Date | string | null;
-  sellpiaSourceImportRunId: string | null;
+  sellpiaOperationId: string | null;
   advertisingSourceImportRunId: string | null;
   revenueTotal: unknown;
   positiveOperatingProfitTotal: unknown;
@@ -76,10 +76,10 @@ export class MasterProductContributionRepositoryAdapter
     assertBasis(input.basisFromDate, input.basisCutoffDate);
     const productFilter = finalProductFilter(input.masterProductIds);
     const rows = await this.prisma.$transaction(async (tx) => {
-      const sellpia = input.sellpiaSourceImportRunId
+      const sellpia = input.sellpiaOperationId
         ? await readExactSellpiaProductMonthlyFacts(tx, {
             organizationId: input.organizationId,
-            sourceImportRunId: input.sellpiaSourceImportRunId,
+            operationId: input.sellpiaOperationId,
             scope: { yearMonths: yearMonths(input.basisFromDate, input.basisCutoffDate) },
           })
         : { generation: null, facts: [] };
@@ -484,7 +484,7 @@ export class MasterProductContributionRepositoryAdapter
         summary.basis_from_date AS "basisFromDate",
         summary.basis_cutoff_date AS "basisCutoffDate",
         summary.source_cutoff_date AS "sourceCutoffDate",
-        summary.sellpia_id AS "sellpiaSourceImportRunId",
+        summary.sellpia_id AS "sellpiaOperationId",
         summary.advertising_id AS "advertisingSourceImportRunId",
         CASE
           WHEN summary.sellpia_ready THEN COALESCE(summary.revenue_total, 0)::text
@@ -546,7 +546,7 @@ export class MasterProductContributionRepositoryAdapter
         fromDate: calendarDate(summary.basisFromDate),
         cutoffDate: calendarDate(summary.basisCutoffDate),
         sourceCutoffDate: nullableCalendarDate(summary.sourceCutoffDate),
-        sellpiaSourceImportRunId: summary.sellpiaSourceImportRunId,
+        sellpiaOperationId: summary.sellpiaOperationId,
         advertisingSourceImportRunId: summary.advertisingSourceImportRunId,
       },
       totals: {

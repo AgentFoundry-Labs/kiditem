@@ -34,7 +34,7 @@ const PurchaseOrderDraftOutputSchema = z.object({
 
 const PurchaseOrderSubmissionInputSchema = z.object({
   purchaseOrderId: z.string().uuid(),
-  inventoryAttemptId: z.string().uuid(),
+  inventoryOperationId: z.string().uuid(),
   externalOrderPlatform: z.string().trim().min(1).max(40).nullable().optional(),
   externalOrderId: z.string().trim().min(1).max(100).nullable().optional(),
   externalOrderUrl: z.string().trim().url().nullable().optional(),
@@ -100,7 +100,7 @@ export class SupplyAgentCapabilityAdapter implements SupplyPurchaseOrderCapabili
     const result = await this.submissions.submit({
       organizationId,
       purchaseOrderId: parsed.purchaseOrderId,
-      inventoryAttemptId: parsed.inventoryAttemptId,
+      inventoryOperationId: parsed.inventoryOperationId,
       idempotencyKey,
       requestHash,
       userId,

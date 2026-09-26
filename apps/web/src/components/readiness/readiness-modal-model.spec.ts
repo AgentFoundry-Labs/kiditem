@@ -64,7 +64,7 @@ describe('readiness modal model', () => {
       missingDates: [],
     });
     const data = response([ready, check({ key: 'wing_sales' }), check({
-      key: 'wing_kpi',
+      key: 'wing_rank',
       basis: buildSnapshotBasis({
         asOf: '2026-06-27',
         requiredAsOf: '2026-06-28',

@@ -142,6 +142,7 @@ describe('Rocket purchase decision boundary', () => {
     // 로켓 PO 수집은 실행 kind orders.coupang_rocket_po다(KID-359) — 옛 source owner 표시·액션이 없다.
     expect(extensionSource).not.toContain('coupangRocketPoSourceOwnerV1');
     expect(extensionSource).not.toContain('collectRocketPoRows');
-    expect(extensionSource).toContain('collectSellpiaInventoryJsonV1: true');
+    // 셀피아 재고도 실행 kind products.sellpia_inventory다(KID-361) — 옛 재고 액션 표시가 없다.
+    expect(extensionSource).not.toContain('collectSellpiaInventoryJsonV1');
   });
 });

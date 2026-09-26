@@ -2,10 +2,15 @@ import { ProductSourceConflictError } from '../../../application/exception/produ
 import { Injectable } from '@nestjs/common';
 import { Prisma, type SellpiaInventoryState } from '@prisma/client';
 import {
-  SellpiaInventoryCollectionFailureCodeSchema,
   SellpiaInventoryStoredCollectionTriggerSchema,
   SellpiaSyncScopeSchema,
 } from '@kiditem/shared/sellpia-inventory-freshness';
+import {
+  SELLPIA_INVENTORY_KIND,
+  SELLPIA_PRODUCT_PROFITABILITY_KIND,
+  SELLPIA_SALES_KIND,
+} from '@kiditem/shared/sellpia-operations';
+import { readLatestOperation } from '../../../../common/operation/transaction/operation-generations';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import {
   lockProductSource,
@@ -19,11 +24,15 @@ import type {
 } from '../../../application/port/out/persistence/product-source-freshness.repository.port';
 import type {
   SellpiaInventoryCollectionState,
+  SellpiaLatestOperation,
 } from '../../../domain/policy/product-source-freshness.policy';
 import { readProductSourceAvailability } from './read/product-source-availability';
 import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
+
+/** 셀피아 로그인 잠금(`resource:sellpia:login`)을 나눠 쓰는 kind들 — 조직도의 셀피아 상태가 이 셋의 최신 실행을 본다. */
+const SELLPIA_OPERATION_KINDS = [SELLPIA_INVENTORY_KIND, SELLPIA_SALES_KIND, SELLPIA_PRODUCT_PROFITABILITY_KIND] as const;
 
 @Injectable()
 export class ProductCollectionFreshnessRepositoryAdapter
@@ -47,37 +56,25 @@ implements ProductCollectionFreshnessRepositoryPort {
     });
   }
 
-  async findLeaseAttemptId(input: {
-    organizationId: string;
-    activeSyncToken: string;
-  }): Promise<string | null> {
-    const attempt = await this.prisma.sourceImportRun.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        sourceType: 'sellpia_inventory',
-        channelAccountId: null,
-        idempotencyKey: { not: null },
-        attemptToken: input.activeSyncToken,
-      },
-      select: { id: true },
+  async readLatestSellpiaOperation(organizationId: string): Promise<SellpiaLatestOperation | null> {
+    const now = new Date();
+    const latest = await Promise.all(SELLPIA_OPERATION_KINDS.map((kind) => readLatestOperation(this.prisma, { organizationId, kind, now })));
+    const candidates = latest.flatMap((operation): SellpiaLatestOperation[] => {
+      if (!operation || operation.status === 'cancelled' || operation.errorCode?.endsWith('_CANCELLED')) return [];
+      if (!['prepared', 'executing', 'reconciling', 'succeeded', 'failed'].includes(operation.status)) return [];
+      const plan = operation.plan && typeof operation.plan === 'object' && !Array.isArray(operation.plan) ? operation.plan : {};
+      return [{
+        id: operation.id,
+        kind: operation.kind,
+        status: operation.status as SellpiaLatestOperation['status'],
+        errorCode: operation.errorCode,
+        errorMessage: operation.errorMessage,
+        startedAt: operation.startedAt,
+        expiresAt: operation.expiresAt,
+        trigger: typeof plan.trigger === 'string' ? plan.trigger : null,
+      }];
     });
-    return attempt?.id ?? null;
-  }
-
-  async findLastAttemptId(input: { organizationId: string }): Promise<string | null> {
-    const attempt = await this.prisma.sourceImportRun.findFirst({
-      where: {
-        organizationId: input.organizationId,
-        sourceType: 'sellpia_inventory',
-        channelAccountId: null,
-      },
-      orderBy: [
-        { createdAt: 'desc' },
-        { id: 'desc' },
-      ],
-      select: { id: true },
-    });
-    return attempt?.id ?? null;
+    return candidates.sort((left, right) => right.startedAt.getTime() - left.startedAt.getTime())[0] ?? null;
   }
 
   withLockedState<T>(
@@ -162,18 +159,6 @@ function expectationWhere(
   if (hasOwn(expected, 'requestedGeneration')) {
     where.requestedGeneration = expected.requestedGeneration;
   }
-  if (hasOwn(expected, 'activeGeneration')) {
-    where.activeGeneration = expected.activeGeneration;
-  }
-  if (hasOwn(expected, 'activeSyncToken')) {
-    where.activeSyncToken = expected.activeSyncToken;
-  }
-  if (hasOwn(expected, 'activeSyncOwnerUserId')) {
-    where.activeSyncOwnerUserId = expected.activeSyncOwnerUserId;
-  }
-  if (hasOwn(expected, 'activeSyncLeaseExpiresAt')) {
-    where.activeSyncLeaseExpiresAt = expected.activeSyncLeaseExpiresAt;
-  }
   return where;
 }
 
@@ -193,30 +178,13 @@ function mapState(row: SellpiaInventoryState): SellpiaInventoryCollectionState {
     sourceOrigin: row.sourceOrigin,
     sourceAccountKey: row.sourceAccountKey,
     lastVerifiedAt: row.lastVerifiedAt,
-    lastCompletedImportRunId: row.lastCompletedImportRunId,
+    lastCompletedOperationId: row.lastCompletedOperationId,
     refreshReason: row.refreshReason === null
       ? null
       : SellpiaInventoryStoredCollectionTriggerSchema.parse(row.refreshReason),
     requestedSyncScope: SellpiaSyncScopeSchema.parse(row.requestedSyncScope),
-    activeSyncToken: row.activeSyncToken,
-    activeSyncOwnerUserId: row.activeSyncOwnerUserId,
-    activeSyncStartedAt: row.activeSyncStartedAt,
-    activeSyncLeaseExpiresAt: row.activeSyncLeaseExpiresAt,
-    activeSyncScope: row.activeSyncScope === null
-      ? null
-      : SellpiaSyncScopeSchema.parse(row.activeSyncScope),
     requestedGeneration: row.requestedGeneration,
-    activeGeneration: row.activeGeneration,
     verifiedGeneration: row.verifiedGeneration,
-    failedGeneration: row.failedGeneration,
-    lastAttemptAt: row.lastAttemptAt,
-    lastAttemptSyncScope: row.lastAttemptSyncScope === null
-      ? null
-      : SellpiaSyncScopeSchema.parse(row.lastAttemptSyncScope),
-    lastErrorCode: row.lastErrorCode === null
-      ? null
-      : SellpiaInventoryCollectionFailureCodeSchema.parse(row.lastErrorCode),
-    lastErrorMessage: row.lastErrorMessage,
     freshnessFence: row.freshnessFence,
   };
 }

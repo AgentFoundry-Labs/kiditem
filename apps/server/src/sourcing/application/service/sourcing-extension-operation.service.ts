@@ -74,7 +74,6 @@ import {
   extensionSourceRecordProjection,
   parseSupplierUrl,
   ProductExtensionDocumentSchema,
-  productAlert,
   productPlan,
   toV1Command,
 } from './sourcing-product-extension.mapper';
@@ -92,10 +91,9 @@ import { buildWingCatalogOutput } from './sourcing-wing-catalog.mapper';
 import { TrendCollectService } from './trend-collect.service';
 
 const KINDS = SOURCING_OPERATION_KINDS;
-const NOT_A_SOURCE_FAILURE = new Set(['SOURCING_DUPLICATE_RECORD']);
 const CHUNKS = SOURCING_CHUNK_KINDS;
 
-/** 모든 확장 kind의 plan JSON에 남는 값. 발행 이력의 키·수집기와 실패 알림이 여기서 나온다. */
+/** 모든 확장 kind의 plan JSON에 남는 값. 발행 이력의 키·수집기가 여기서 나온다(옛 plan의 `failureAlert`는 읽지 않는다). */
 const PlanBaseSchema = z.object({
   sourceKey: z.string().min(1),
   scopeKey: z.string().min(1),
@@ -103,12 +101,6 @@ const PlanBaseSchema = z.object({
   collectorKey: z.string().min(1),
   collectorVersion: z.string().min(1),
   startedBy: z.string().uuid().nullable(),
-  failureAlert: z.object({
-    sourceType: z.string(),
-    dedupeKey: z.string(),
-    title: z.string(),
-    href: z.string(),
-  }).strict(),
 }).passthrough();
 type PlanBase = z.infer<typeof PlanBaseSchema>;
 
@@ -118,7 +110,6 @@ interface PlannedBase {
   targetKey: string;
   collectorKey: string;
   collectorVersion: string;
-  failureAlert: { sourceType: string; dedupeKey: string; title: string; href: string };
 }
 
 interface Planned {
@@ -136,13 +127,7 @@ interface Assembled {
 }
 
 const WING_SOURCE = 'coupang.wing_catalog';
-const WING_ALERT = { sourceType: WING_SOURCE, dedupeKey: 'source:coupang-wing-catalog',
-  title: 'Wing 카탈로그 수집 실패', href: '/sourcing-ai/wing-catalog' };
 const KEYWORD_SOURCE = 'coupang.keyword_suggestion';
-const TREND_1688_ALERT = { sourceType: SOURCE_1688_HOT_PRODUCT, dedupeKey: 'source:1688-hot-product',
-  title: '1688 인기상품 수집 실패', href: '/sourcing-ai/market' };
-const TIKTOK_ALERT = { sourceType: SOURCE_TIKTOK_CREATIVE, dedupeKey: 'source:tiktok-creative',
-  title: 'TikTok 크리에이티브 트렌드 수집 실패', href: '/sourcing-ai/market' };
 
 const KeywordSuggestionDocumentSchema = SourcingKeywordSuggestionObservationBatchSchema.extend({
   warnings: z.array(z.string()).optional(),
@@ -243,11 +228,6 @@ export class SourcingExtensionOperationService implements SourcingExtensionOpera
       qualityReport,
       completedAt: now,
     });
-    await this.ledger.resolveSourceFailure(context.tx, {
-      organizationId: context.organizationId,
-      operationId: context.operationId,
-      alert: base.failureAlert,
-    });
     return {
       sourceKey: base.sourceKey,
       scopeKey: base.scopeKey,
@@ -261,22 +241,6 @@ export class SourcingExtensionOperationService implements SourcingExtensionOpera
       windowEndAt: assembled.windowEndAt?.toISOString() ?? null,
       ...(kind === KINDS.productExtension ? { admitted: persisted.admitted } : {}),
     };
-  }
-
-  async failed(
-    _kind: SourcingExtensionKind,
-    context: SourcingOperationFinalizeContext & { errorCode: string; errorMessage: string | null },
-  ): Promise<void> {
-    const parsed = PlanBaseSchema.safeParse(context.plan);
-    // 이미 수집한 원본(KID-313)은 원천이 실패한 것이 아니다 — 옛 attempt처럼 알림을 남기지 않는다.
-    if (!parsed.success || NOT_A_SOURCE_FAILURE.has(context.errorCode)) return;
-    await this.ledger.recordSourceFailure(context.tx, {
-      organizationId: context.organizationId,
-      operationId: context.operationId,
-      alert: parsed.data.failureAlert,
-      code: context.errorCode,
-      message: (context.errorMessage ?? context.errorCode).slice(0, 1_000),
-    });
   }
 
   // ── plan ──────────────────────────────────────────────────────────────────
@@ -296,7 +260,7 @@ export class SourcingExtensionOperationService implements SourcingExtensionOpera
         }
         return {
           base: { sourceKey: WING_SOURCE, scopeKey: 'default', targetKey: 'catalog', collectorKey: kind,
-            collectorVersion: 'coupang-wing-catalog/v2', failureAlert: WING_ALERT },
+            collectorVersion: 'coupang-wing-catalog/v2' },
           kindPlan: { source: WING_SOURCE, ...batch.data, channelAccountId: parsed.channelAccountId },
           // 그 계정의 Wing 로그인(카탈로그 동기화와 서로 막음) + 조직에 하나뿐인 발행 대상 'catalog'.
           lockKeys: [accountLockKey(parsed.channelAccountId), resourceLockKey('coupang-wing', 'catalog')],
@@ -307,9 +271,7 @@ export class SourcingExtensionOperationService implements SourcingExtensionOpera
         const targetKey = `keyword:${sourcingWingCatalogKeywordIdentity(parsed.keyword)}`;
         return {
           base: { sourceKey: KEYWORD_SOURCE, scopeKey: 'default', targetKey, collectorKey: kind,
-            collectorVersion: SOURCING_KEYWORD_SUGGESTION_SCHEMA_VERSION,
-            failureAlert: { sourceType: KEYWORD_SOURCE, dedupeKey: `source:coupang-keyword-suggestion:${targetKey}`,
-              title: '쿠팡 키워드 제안 수집 실패', href: '/sourcing-ai/market' } },
+            collectorVersion: SOURCING_KEYWORD_SUGGESTION_SCHEMA_VERSION },
           kindPlan: { source: KEYWORD_SOURCE, keyword: parsed.keyword, maxResults: parsed.maxResults },
           lockKeys: [resourceLockKey('coupang', lockId(targetKey))],
         };
@@ -319,7 +281,7 @@ export class SourcingExtensionOperationService implements SourcingExtensionOpera
         const plan = build1688SourcePlan(targets.map((target) => target.keyword));
         return {
           base: { sourceKey: SOURCE_1688_HOT_PRODUCT, scopeKey: 'default', targetKey: 'all', collectorKey: kind,
-            collectorVersion: 'source-owner/v1', failureAlert: TREND_1688_ALERT },
+            collectorVersion: 'source-owner/v1' },
           kindPlan: plan,
           lockKeys: [resourceLockKey('ali1688', 'all')],
         };
@@ -333,13 +295,7 @@ export class SourcingExtensionOperationService implements SourcingExtensionOpera
         const targetKey = liveCommerceTargetKey(plan.source, plan.pageUrl);
         return {
           base: { sourceKey: sourceKeyForBrowserLiveCommerce(plan.source), scopeKey: SOURCE_LIVE_COMMERCE_SCOPE, targetKey,
-            collectorKey: kind, collectorVersion: 'source-owner/v1',
-            failureAlert: {
-              sourceType: `${plan.source}.live_commerce`,
-              dedupeKey: `source:${plan.source}-live-commerce`,
-              title: `${plan.source === '1688' ? '1688' : '도우인'} 라이브 수집 실패`,
-              href: '/sourcing-ai/market',
-            } },
+            collectorKey: kind, collectorVersion: 'source-owner/v1' },
           kindPlan: plan,
           lockKeys: [resourceLockKey(plan.source === '1688' ? 'ali1688' : 'douyin', lockId(targetKey))],
         };
@@ -350,7 +306,7 @@ export class SourcingExtensionOperationService implements SourcingExtensionOpera
         const plan = buildTiktokSourcePlan({ targetSeeds, maxItems: parsed.maxItems, region: parsed.region });
         return {
           base: { sourceKey: SOURCE_TIKTOK_CREATIVE, scopeKey: TIKTOK_SOURCE_SCOPE, targetKey: TIKTOK_SOURCE_TARGET,
-            collectorKey: kind, collectorVersion: 'source-owner/v1', failureAlert: TIKTOK_ALERT },
+            collectorKey: kind, collectorVersion: 'source-owner/v1' },
           kindPlan: { ...plan, targetIds: plannedTiktokTargetIds(plan) },
           lockKeys: [resourceLockKey('tiktok', TIKTOK_SOURCE_TARGET)],
         };
@@ -364,7 +320,7 @@ export class SourcingExtensionOperationService implements SourcingExtensionOpera
         const targetKey = hashCollectionRequest(parseSupplierUrl(plan.sourceUrl).normalizedUrl);
         return {
           base: { sourceKey: plan.source, scopeKey: 'current-tab', targetKey, collectorKey: kind,
-            collectorVersion: 'kiditem-os/v1', failureAlert: productAlert(plan.source) },
+            collectorVersion: 'kiditem-os/v1' },
           kindPlan: plan,
           lockKeys: [resourceLockKey(plan.platform === '1688' ? 'ali1688' : 'alibaba', targetKey)],
         };

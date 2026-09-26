@@ -8,6 +8,7 @@ import {
   detectOrderCollectionExtensionRuntime,
   sendToExtension,
 } from '@/lib/extension-bridge';
+import { requestOperationStart } from '@/lib/operation-start';
 import { queryKeys } from '@/lib/query-keys';
 import { extensionSessionReply } from '@/test/fixtures/extension-collection-session';
 import { MallAdminListingsImport } from './MallAdminListingsImport';
@@ -30,6 +31,7 @@ vi.mock('@/lib/extension-bridge', () => ({
   sendToExtension: vi.fn(),
 }));
 vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
+vi.mock('@/lib/operation-start', () => ({ requestOperationStart: vi.fn(), requestOperationCancel: vi.fn() }));
 
 const KIDKIDS_ATTEMPT = '11111111-1111-4111-8111-111111111111';
 const KIDKIDS_ACCOUNT = '22222222-2222-4222-8222-222222222222';
@@ -37,13 +39,14 @@ const TOKEN = '44444444-4444-4444-8444-444444444444';
 const BASE = '/api/channels/mall-admin-listings';
 const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-const kidkidsPlan = {
+/** 옛 시도 경로에 남은 몰(온채널). 1차 몰 넷은 실행 kind다(KID-363) — 아래 '실행 kind' 묶음. */
+const onchPlan = {
   sourceType: 'mall_admin_listings',
   parserVersion: 'mall-admin-listings-v1',
-  mallKey: 'kidkids',
+  mallKey: 'onch',
   channelAccountId: KIDKIDS_ACCOUNT,
-  sourceOrigin: 'https://partner.kidkids.net',
-  pageSize: 20000,
+  sourceOrigin: 'https://www.onch3.co.kr',
+  pageSize: 15,
 };
 
 function attempt(state: 'RUNNING' | 'COMPLETE' | 'FAILED', patch: Record<string, unknown> = {}) {
@@ -51,7 +54,7 @@ function attempt(state: 'RUNNING' | 'COMPLETE' | 'FAILED', patch: Record<string,
     attemptId: KIDKIDS_ATTEMPT,
     state,
     generation: '1',
-    plan: kidkidsPlan,
+    plan: onchPlan,
     expiresAt: '2099-01-01T00:00:00.000Z',
     completedAt: state === 'COMPLETE' ? new Date(Date.now() - 60_000).toISOString() : null,
     errorCode: null,
@@ -62,25 +65,27 @@ function attempt(state: 'RUNNING' | 'COMPLETE' | 'FAILED', patch: Record<string,
 
 function mall(patch: Record<string, unknown> = {}) {
   return {
-    mallKey: 'kidkids',
-    mallName: '키드키즈',
+    mallKey: 'onch',
+    mallName: '온채널',
     channelAccountId: KIDKIDS_ACCOUNT,
     latestAttempt: null,
     latestComplete: null,
     latestPublication: null,
+    latestOperation: null,
+    latestSucceeded: null,
     ...patch,
   };
 }
 
 let source: { malls: Array<Record<string, unknown>> };
 
-function renderImport(layout: 'bar' | 'row' = 'bar') {
+function renderImport(layout: 'bar' | 'row' = 'bar', mallKey: 'onch' | 'kidkids' = 'onch') {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false }, mutations: { retry: false } },
   });
   render(
     <QueryClientProvider client={client}>
-      <MallAdminListingsImport mallKey="kidkids" layout={layout} />
+      <MallAdminListingsImport mallKey={mallKey} layout={layout} />
     </QueryClientProvider>,
   );
   return client;
@@ -114,7 +119,7 @@ beforeEach(() => {
   });
   vi.mocked(apiClient.post).mockImplementation(async (path: string, body: unknown) => {
     if (path !== `${BASE}/attempts`) throw new Error(`unexpected POST ${path}`);
-    expect(body).toEqual({ mallKey: 'kidkids' });
+    expect(body).toEqual({ mallKey: 'onch' });
     source = { malls: [mall({ latestAttempt: attempt('RUNNING') }), source.malls[1]] };
     return { ...attempt('RUNNING'), attemptToken: TOKEN };
   });
@@ -123,14 +128,14 @@ beforeEach(() => {
 describe('몰 관리자 직접 가져오기', () => {
   it('⭐ 몰 하나의 시도를 열고 확장에는 시도 ID만 넘긴다', async () => {
     renderImport();
-    expect(await screen.findByText('키드키즈에서 아직 가져오지 않았습니다')).toBeInTheDocument();
+    expect(await screen.findByText('온채널에서 아직 가져오지 않았습니다')).toBeInTheDocument();
 
-    fireEvent.click(await screen.findByRole('button', { name: '키드키즈에서 가져오기' }));
+    fireEvent.click(await screen.findByRole('button', { name: '온채널에서 가져오기' }));
 
     expect(await screen.findByText('수집 중')).toBeInTheDocument();
     expect(vi.mocked(apiClient.post).mock.calls).toEqual([[
       `${BASE}/attempts`,
-      { mallKey: 'kidkids' },
+      { mallKey: 'onch' },
       { headers: { 'Idempotency-Key': expect.stringMatching(UUID) } },
     ]]);
     expect(detectOrderCollectionExtensionRuntime).toHaveBeenCalledWith(1_200, [
@@ -157,7 +162,7 @@ describe('몰 관리자 직접 가져오기', () => {
     );
     renderImport();
 
-    fireEvent.click(await screen.findByRole('button', { name: '키드키즈에서 가져오기' }));
+    fireEvent.click(await screen.findByRole('button', { name: '온채널에서 가져오기' }));
 
     expect(await screen.findByText(/이 몰의 계정이 없습니다/)).toBeInTheDocument();
     expect(extensionMessages('collectMallAdminListings')).toEqual([]);
@@ -176,7 +181,7 @@ describe('몰 관리자 직접 가져오기', () => {
     };
     renderImport();
 
-    expect(await screen.findByText(/키드키즈 3,478개/)).toBeInTheDocument();
+    expect(await screen.findByText(/온채널 3,478개/)).toBeInTheDocument();
   });
 
   it('⭐ 가져온 리스팅이 있으면 셀피아 상품 연결을 사람이 다시 돌릴 수 있다', async () => {
@@ -220,7 +225,7 @@ describe('몰 관리자 직접 가져오기', () => {
     renderImport('row');
 
     expect(await screen.findByText(/^3,478개 · /)).toBeInTheDocument();
-    expect(screen.getByRole('button', { name: '키드키즈에서 가져오기' })).toHaveTextContent('가져오기');
+    expect(screen.getByRole('button', { name: '온채널에서 가져오기' })).toHaveTextContent('가져오기');
     expect(screen.getByRole('button', { name: '셀피아 상품에 연결' })).toBeInTheDocument();
   });
 
@@ -241,14 +246,88 @@ describe('몰 관리자 직접 가져오기', () => {
       malls: [
         mall({ latestAttempt: attempt('FAILED', {
           errorCode: 'mall_login_required',
-          errorMessage: '키드키즈 로그인이 필요합니다. 열린 키드키즈 화면에서 로그인한 뒤 다시 가져와 주세요.',
+          errorMessage: '온채널 로그인이 필요합니다. 열린 온채널 화면에서 로그인한 뒤 다시 가져와 주세요.',
         }) }),
         source.malls[1],
       ],
     };
     renderImport();
 
+    expect(await screen.findByText(/온채널 로그인이 필요합니다/)).toBeInTheDocument();
+  });
+});
+
+const OPERATION_ID = '55555555-5555-4555-8555-555555555555';
+
+function operation(status: 'executing' | 'succeeded' | 'failed' | 'cancelled', patch: Record<string, unknown> = {}) {
+  return {
+    id: OPERATION_ID,
+    kind: 'channels.mall_admin_listings',
+    status,
+    lockKeys: status === 'executing' ? [`account:${KIDKIDS_ACCOUNT}`] : [],
+    plan: { mallKey: 'kidkids', channelAccountId: KIDKIDS_ACCOUNT },
+    progress: null,
+    result: null,
+    window: null,
+    errorCode: null,
+    errorMessage: null,
+    startedAt: new Date(Date.now() - 120_000).toISOString(),
+    finishedAt: status === 'executing' ? null : new Date(Date.now() - 60_000).toISOString(),
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    attempts: 1,
+    maxAttempts: 1,
+    scheduledFor: null,
+    ...patch,
+  };
+}
+
+const kidkids = (patch: Record<string, unknown> = {}) => mall({ mallKey: 'kidkids', mallName: '키드키즈', ...patch });
+
+/** 1차 몰 넷(키드키즈 · 아이스크림몰 · 아트공구 · 도매꾹)은 `channels.mall_admin_listings` 실행 하나다(KID-363). */
+describe('몰 관리자 직접 가져오기 — 실행 kind(1차 몰)', () => {
+  it('⭐ 확장에 그 몰 계정 행과 몰 키로 실행을 시작시키고, 진행은 그 몰의 최근 실행으로 본다', async () => {
+    source = { malls: [kidkids()] };
+    vi.mocked(requestOperationStart).mockImplementation(async () => {
+      source = { malls: [kidkids({ latestOperation: operation('executing') })] };
+      return { outcome: 'started', operationId: OPERATION_ID };
+    });
+    renderImport('bar', 'kidkids');
+
+    fireEvent.click(await screen.findByRole('button', { name: '키드키즈에서 가져오기' }));
+
+    expect(await screen.findByText('수집 중')).toBeInTheDocument();
+    expect(requestOperationStart).toHaveBeenCalledWith(
+      'channels.mall_admin_listings',
+      { channelAccountId: KIDKIDS_ACCOUNT, mallKey: 'kidkids' },
+      { capability: 'channelsOperationKindsV1' },
+    );
+    expect(apiClient.post).not.toHaveBeenCalled();
+    expect(detectOrderCollectionExtensionRuntime).not.toHaveBeenCalled();
+  });
+
+  it('마지막 성공 실행의 발행 결과를 적고, 실패·중단은 최근 실행에서 읽는다', async () => {
+    source = { malls: [kidkids({
+      latestOperation: operation('succeeded'),
+      latestSucceeded: operation('succeeded'),
+      latestPublication: { listings: 3478, deactivated: 0, missingNames: 1484, codedListings: 0, statuses: { 판매중: 555 } },
+    })] };
+    renderImport('bar', 'kidkids');
+    expect(await screen.findByText(/키드키즈 3,478개/)).toBeInTheDocument();
+  });
+
+  it('로그인 때문에 실패한 실행은 그 이유를, 취소한 실행은 중단으로 적는다', async () => {
+    source = { malls: [kidkids({ latestOperation: operation('failed', {
+      errorCode: 'SITE_LOGIN_REQUIRED',
+      errorMessage: '키드키즈 로그인이 필요합니다. 열린 키드키즈 화면에서 로그인한 뒤 다시 가져와 주세요.',
+    }) })] };
+    renderImport('bar', 'kidkids');
     expect(await screen.findByText(/키드키즈 로그인이 필요합니다/)).toBeInTheDocument();
+  });
+
+  it('취소한 실행은 실패가 아니라 중단이다', async () => {
+    source = { malls: [kidkids({ latestOperation: operation('cancelled', { errorCode: 'USER_CANCELLED' }) })] };
+    renderImport('bar', 'kidkids');
+    expect(await screen.findByText('수집을 중단했습니다. 저장된 완료본은 유지됩니다.')).toBeInTheDocument();
   });
 });
 
@@ -267,7 +346,7 @@ describe('linkMallAdminListings', () => {
       configuredOptions: 1994,
     });
 
-    await expect(linkMallAdminListings(client, 'kidkids')).resolves.toEqual({
+    await expect(linkMallAdminListings(client, 'onch')).resolves.toEqual({
       matchedListings: 1994,
       failed: false,
     });
@@ -286,7 +365,7 @@ describe('linkMallAdminListings', () => {
       malls: [mall({ latestPublication: { listings: 0, deactivated: 1, missingNames: 0, statuses: {} } })],
     });
 
-    await expect(linkMallAdminListings(client, 'kidkids')).resolves.toEqual({
+    await expect(linkMallAdminListings(client, 'onch')).resolves.toEqual({
       matchedListings: 0,
       failed: false,
     });

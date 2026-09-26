@@ -1,5 +1,3 @@
-import type { SellpiaInventoryQualityFact } from '../../../../domain/policy/product-source-quality.policy';
-
 export type ParsedProductSourceRow = {
   rowNumber: number;
   sellpiaProductCode: string;
@@ -15,7 +13,6 @@ export type ParsedProductSourceRow = {
 export type ParsedProductSourceArtifact = {
   rows: ParsedProductSourceRow[];
   headers: string[];
-  qualityFacts: SellpiaInventoryQualityFact[];
 };
 
 export type SellpiaPayloadDecodeInput = {

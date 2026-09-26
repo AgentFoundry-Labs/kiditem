@@ -280,10 +280,25 @@
       "import": "./dist/sourcing-operation.js",
       "require": "./dist/sourcing-operation.cjs"
     },
+    "./advertising-operations": {
+      "types": "./dist/advertising-operations.d.ts",
+      "import": "./dist/advertising-operations.js",
+      "require": "./dist/advertising-operations.cjs"
+    },
     "./orders-operations": {
       "types": "./dist/orders-operations.d.ts",
       "import": "./dist/orders-operations.js",
       "require": "./dist/orders-operations.cjs"
+    },
+    "./sellpia-operations": {
+      "types": "./dist/sellpia-operations.d.ts",
+      "import": "./dist/sellpia-operations.js",
+      "require": "./dist/sellpia-operations.cjs"
+    },
+    "./channels-operations": {
+      "types": "./dist/channels-operations.d.ts",
+      "import": "./dist/channels-operations.js",
+      "require": "./dist/channels-operations.cjs"
     },
     "./order-collection-source": {
       "types": "./dist/order-collection-source.d.ts",
@@ -389,8 +404,17 @@
       "sourcing-operation": [
         "dist/sourcing-operation.d.ts"
       ],
+      "advertising-operations": [
+        "dist/advertising-operations.d.ts"
+      ],
       "orders-operations": [
         "dist/orders-operations.d.ts"
+      ],
+      "sellpia-operations": [
+        "dist/sellpia-operations.d.ts"
+      ],
+      "channels-operations": [
+        "dist/channels-operations.d.ts"
       ],
       "sellpia-inventory-freshness": [
         "dist/sellpia-inventory-freshness.d.ts"

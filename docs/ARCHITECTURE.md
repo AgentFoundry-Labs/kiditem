@@ -139,7 +139,15 @@ Other browser sources open their attempt from the page through
 `startWebOpenedCollection`, which stops an attempt the extension does not take.
 The Wing catalog is Channels-owned operation kinds (list → details chained by
 `result.next`, workbook) started through the extension's `operation.start` and
-read through `GET /api/operations` (KID-354).
+read through `GET /api/operations` (KID-354). The Wing daily facts are
+Advertising-owned operation kinds `advertising.wing_traffic` and
+`advertising.wing_itemwinner` (KID-362): the extension service worker reads Wing
+with its cookies, and each holds `account:<id>` plus `resource:wing-daily:<id>`.
+read through `GET /api/operations` (KID-354). Sabangnet mall listings
+(`resource:sabangnet:login`), first-batch mall admin listings (`account:<id>`)
+and Sellpia manual-match evidence (`resource:sellpia:login`) are Channels
+operation kinds too, and the Rocket-Sellpia matching CSV upload is one
+server-produced `channels.rocket_matching_csv` operation (KID-363).
 Every start uses a fresh idempotency key; there are no correlated retry keys.
 Stop ends the extension session first, then the owner's organization-scoped
 operator cancel. Competitor catalogs, 1688 trend, TikTok CC and browser live
@@ -163,8 +171,11 @@ remains a separate existing action.
 Business owners retain their own facts and source status. An Alert is a human
 notification, not execution state. Owner attempts are fenced by an
 `attemptToken` so stale extension reports cannot change a newer attempt.
-The global notification view reads durable Alerts only, with ten-second
-foreground polling, focus refetch, and dismissal invalidation. It does not
+The global notification view reads `/api/alerts` only, with ten-second
+foreground polling, focus refetch, and dismissal invalidation. A kind moved to
+the operation contract records its failure only on its operation row; the
+alerts reader absorbs those failures (KID-355 policy B) and merges them with
+the remaining `source_failure` rows of unmoved sources. It does not
 merge run progress or replay an SSE stream. Source screens own their progress
 and current-source reads.
 
@@ -172,7 +183,7 @@ Sourcing collection uses its source owners directly:
 
 ```text
 screen / Agent -> Sourcing owner attempt + frozen plan
-browser source -> extension operation.start -> runtime collector chunks -> owner finalize (ledger + publication) + Alert
+browser source -> extension operation.start -> runtime collector chunks -> owner finalize (ledger + publication); failure stays on the operation row
 server source -> provider -> owner terminal + Alert
 COMPLETE observations + latest attempt status -> source screen / Agent
 ```
@@ -331,13 +342,13 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/agent-gateway/src/provider/claude` | Platform | Claude CLI Implementation and adjacent specs. |
 | `apps/agent-gateway/src/security` | Platform Support | Provider environment and local-path redaction/validation. |
 | `apps/server/src/__tests__` | Test Support | Cross-root static architecture and process-composition policy checks. |
-| `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, authoritative exact-day profitability spend refresh/read evidence, daily facts, and strategy/action generation. |
+| `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, authoritative exact-day profitability spend refresh/read evidence, daily facts, and strategy/action generation. Keyword and competitor collection are operation kinds (`advertising.wing_tracked_products`, `advertising.wing_rank`, `advertising.keyword_serp` → `advertising.competitor_seller_identity` → `advertising.competitor_catalog` chained by `result.next`; the last two share the lock `resource:competitor:serp-enrichment`, KID-362); readiness reads Wing rank coverage through `ADVERTISING_KEYWORD_RANK_READ_PORT`. |
 | `apps/server/src/agent-os` | Platform | Agent/profile registry, transient Gateway control, conversation facade, stateless MCP, durable capability admission, and completed-event history composition. |
 | `apps/server/src/agent-os/application/port/out/history` | Platform | Completed-event history Interface at the outgoing history seam. |
 | `apps/server/src/agent-os/adapter/out/history/sqlite` | Platform | Outbound SQLite Adapter for the completed-event history Interface, with its Implementation and OSS characterization specs. |
 | `apps/server/src/content` | Owner Domain | Image/text/detail-page/thumbnail AI providers, durable direct-job execution, content-workspace ownership/branching, and Agent OS output boundaries. |
 | `apps/server/src/analytics` | Owner Read Model | Dashboard, statistics, traffic, and supplier-stats reporting. |
-| `apps/server/src/alerts` | Owner Capability | Organization-scoped source-failure notification storage; source owners call its terminal-transaction API and consumers poll open/resolved alerts. Human notifications only, with transaction-scoped failure upsert/resolution and no execution or freshness state. The writer keeps a Korean producer sentence and otherwise derives the message from the terminal code (`operatorErrorText`); the title is the producer's Korean title or `<source> 실패`. |
+| `apps/server/src/alerts` | Owner Capability | Organization-scoped source-failure notifications. Unmoved source owners call its terminal-transaction API; for kinds moved to the operation contract the reader derives one alert per source identity (kind plus the per-kind plan field in `alerts/operation-failure-sources.ts`: channel account, mall, keyword target or source key) from the newest failed operation through `common/operation/transaction/latest-operation-outcomes` and stores only operator dismissals (`operation_failure` rows). Consumers poll open/resolved alerts. Human notifications only, with transaction-scoped failure upsert/resolution and no execution or freshness state. The writer keeps a Korean producer sentence and otherwise derives the message from the terminal code (`operatorErrorText`); the title is the producer's Korean title or `<source> 실패`. |
 | `apps/server/src/todo` | Owner Domain | Operator-written to-do list (`/api/todo`): who owes the work (operator or development), its area, and its status. Nothing derives it from other screens. |
 | `apps/server/src/auth` | Platform Capability | Local password verification, durable hashed sessions, login/logout/me, guards, decorators, middleware, and auth operator CLI. |
 | `apps/server/src/channels` | Owner Domain | Marketplace account, common selling products and options, persistent registration target settings ([ADR-0020](adr/0020-channels-owns-reusable-registration-targets.md)), account-scoped listing/registration capability, the registration execution fence (`ProductRegistrationExecution`: many immutable executions per persistent registration target, read through its public capability — [ADR-0014](adr/0014-channels-owns-the-registration-execution-fence.md)), one mall-neutral registration execution per target (`register` · `update` · `sold_out` · `resume` · `composition_change`) with channel adapters (`adapter/out/channel/<key>`) answering mall-specific identity, evidence and prepare-time facts, representative-image uploads as `thumbnail_update` executions on channels whose adapter supports them (Content supplies only the approved image), Wing/Rocket listing identity, typed exact-evidence extraction, option-to-MasterProduct recipes and matching, derived listing-product summaries, direct option-component diagnostics, sellable-capacity projections, and current browser login/form-fill results without a persisted observation log. |
@@ -994,8 +1005,11 @@ and images used by a current detail revision.
 
 ## Sellpia Current Inventory And Collection
 
-Products owns Sellpia collection attempts, the fixed source binding, generation
-and lease fences, and atomic publication of current stock. Its implementation
+Products owns the Sellpia inventory operation kind `products.sellpia_inventory`
+(ADR-0025; lock key `resource:sellpia:login`, shared by every Sellpia-login
+kind), the fixed source binding, the verified generation and
+`lastCompletedOperationId`, and atomic publication of current stock inside the
+operation's finish transaction. Its implementation
 separates `domain/`, `application/usecase/`, `application/port/in|out/`,
 `adapter/in/web/`, and `adapter/out/persistence/`; `products.module.ts` and its source runtime modules binds
 contracts to implementations. Consumers use published Products contracts.
@@ -1010,11 +1024,11 @@ See [ADR-0017](adr/0017-products-owns-source-products-channels-owns-recipes.md).
 Successful full collection updates existing product codes with stable MasterProduct UUIDs and KID codes,
 adds new codes, and sets missing codes to `currentStock = 0` while retaining rows
 and product links. A verified empty complete collection sets all quantities to
-zero. Incomplete, failed or cancelled attempts preserve the previous rows.
-Publication and terminal state commit together; a late or repeated completion
-cannot publish a second result. Failures update one deduplicated source Alert; successful publication resolves
-it. Failed collection attempts remain in source history. Cancellation has no
-failure Alert. Existing Alert policies apply to every source.
+zero. Incomplete, failed or cancelled operations preserve the previous rows.
+Publication and the terminal state commit together; a late or repeated finish
+cannot publish a second result. Failures stay on the operation row, and the
+alerts reader shows the newest failure per source until a later success
+resolves it. Cancellation is not a failure alert.
 
 All organization-scoped current DB rows are available for listing, detail,
 search, totals, Excel and barcode operations, regardless of per-row snapshot
@@ -1022,14 +1036,15 @@ membership. There is no duplicate `availableStock`, inventory active filter,
 age-based stock gate, 30% loss rejection or channel-reference quality warning.
 Basic shape, complete-source, organization and attempt checks remain mandatory.
 
-Collection control reports progress, terminal outcome and last successful
-publication. Lease expiry protects abandoned browser execution, not the age of
-usable stock. Extensions capture and transport facts; only Products publishes
+Collection control reports the running operation and terminal outcome from
+`GET /api/operations` and the last successful publication from the Products
+collection-status read. Lease expiry protects abandoned browser execution, not
+the age of usable stock. Extensions capture and transport facts; only Products publishes
 physical quantities. Manual recovery upload and transfer-state PATCH are retired.
 
 Before a purchase submission or Rocket calculation, the browser shared source
-control starts or joins Sellpia collection and waits for that exact execution to
-complete. The calculation request names its successful attempt. Products
+control starts or joins the Sellpia inventory operation and waits for that exact
+operation to succeed. The calculation request names it (`inventoryOperationId`). Products
 verifies the current completed generation; failed/cancelled collection cannot
 fall back to old stock. Supply preserves recipe ratios, bottleneck allocation,
 provider idempotency and explicit reconciliation. Ordinary inventory reads need
@@ -1098,7 +1113,9 @@ code, and a unique normalized barcode are deterministic resolution signals; miss
 or ambiguous candidates remain `mapping_required`, never synthetic
 zero stock. Products reuses this projection for operating-product summary
 badges while `/stock-ops?tab=product-outflow` preserves every linked product/
-variant destination. Analytics persists raw Sellpia product-profit coverage;
+variant destination. Analytics persists raw Sellpia product-profit coverage
+through the operation kind `analytics.sellpia_product_profitability` (one
+immutable monthly fact set per succeeded operation, KID-361);
 Finance assembles source-freshness and time-decayed contribution-profit
 evidence; Products owns the absolute ABC formula, explicit evaluation,
 publication and actual grade-transition history. Fixed anchors and thresholds

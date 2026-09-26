@@ -29,6 +29,18 @@ describe('committed runtime bundle', () => {
     const runtime = loadRuntime({});
 
     expect((runtime.runtime as { kinds(): string[] }).kinds()).toEqual([
+      'advertising.competitor_catalog',
+      'advertising.competitor_seller_identity',
+      'advertising.keyword_serp',
+      'advertising.wing_itemwinner',
+      'advertising.wing_rank',
+      'advertising.wing_tracked_products',
+      'advertising.wing_traffic',
+      'analytics.sellpia_product_profitability',
+      'analytics.sellpia_sales',
+      'channels.mall_admin_listings',
+      'channels.sabangnet_mall_listings',
+      'channels.sellpia_manual_match',
       'channels.wing_catalog_details',
       'channels.wing_catalog_excel',
       'channels.wing_catalog_list',
@@ -38,6 +50,7 @@ describe('committed runtime bundle', () => {
       'orders.coupang_shipment_summary',
       'orders.mall_orders',
       'orders.sellpia_shipment_tracking',
+      'products.sellpia_inventory',
       'sourcing.coupang_keyword_suggestion',
       'sourcing.live_commerce',
       'sourcing.product_extension',
@@ -76,7 +89,17 @@ describe('committed runtime bundle', () => {
     expect(runtimeListeners).toEqual(['onMessage', 'onConnect']);
     expect(Object.keys(registered[0].externalActions).sort()).toEqual(['operation.cancel', 'operation.start']);
     // 소싱 kind(KID-360)를 도는 빌드만 sourcingOperationKindsV1을 싣는다 — 웹이 옛 빌드를 가려낸다.
-    expect(registered[0].capabilities).toEqual({ operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true });
+    // operationLoginV1: operation.start의 credentials를 받는 빌드(KID-377) — 웹은 이 표시가 있을 때만 자격을 싣는다.
+    expect(registered[0].capabilities).toEqual({
+      operationRuntime: true,
+      sourcingOperationKindsV1: true,
+      orderCaptureOperationKindsV1: true,
+      channelsOperationKindsV1: true,
+      operationLoginV1: true,
+      advertisingKeywordOperationKindsV1: true,
+      wingDailyOperationKindsV1: true,
+      sellpiaOperationKindsV1: true,
+    });
 
     const start = registered[0].externalActions['operation.start'];
     await expect(start.handle(start.validate({ action: 'operation.start', kind: 'Bad' }), 'local')).resolves.toMatchObject({

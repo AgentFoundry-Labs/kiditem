@@ -3,6 +3,7 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
+import { publishSellpiaProfitability } from '../../test-helpers/__tests__/sellpia-profitability-operation';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -36,10 +37,10 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
 
   it('shows the same missing compatible cutoff in Products as in ABC evidence after mapping changes', async () => {
     const alerts = new SourceFailureAlerts(prisma as never);
-    const sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts, new ProductTransactionalReadRepositoryAdapter());
+    const sellpia = new SellpiaProfitabilitySourceService(prisma as never);
     const advertising = new ProfitabilityAdImportRepositoryAdapter(profitCatalogTestReaders(prisma as never).accounts, profitCatalogTestReaders(prisma as never).recipes, profitCatalogTestReaders(prisma as never).listings, prisma as never, alerts);
     await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'OWN');
-    const published = await publishSellpia(sellpia, TEST_ORGANIZATION_ID, 'OWN', 2_000);
+    const published = await publishSellpia(prisma, TEST_ORGANIZATION_ID, 'OWN', 2_000);
     await publishEmptyAdvertising(advertising, TEST_ORGANIZATION_ID, 'own-ad');
     await prisma.masterProductAbcFormulaState.upsert({
       where: { organizationId: TEST_ORGANIZATION_ID },
@@ -67,18 +68,15 @@ describe('ProfitabilityEvidence (PostgreSQL)', () => {
   });
 
   it('loads one coherent source pair and excludes another organization', async () => {
-    const sellpia = new SellpiaProfitabilitySourceService(
-      prisma as never,
-      new SourceFailureAlerts(prisma as never),
-      new ProductTransactionalReadRepositoryAdapter());
+    const sellpia = new SellpiaProfitabilitySourceService(prisma as never);
     const advertising = new ProfitabilityAdImportRepositoryAdapter(profitCatalogTestReaders(prisma as never).accounts, profitCatalogTestReaders(prisma as never).recipes, profitCatalogTestReaders(prisma as never).listings, prisma as never, new SourceFailureAlerts(prisma as never)
     );
     const ownProductId = await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'OWN');
     const zeroProductId = await seedMappedProduct(prisma, TEST_ORGANIZATION_ID, 'ZERO');
     await seedMappedProduct(prisma, OTHER_ORGANIZATION_ID, 'FOREIGN');
 
-    const ownSellpia = await publishSellpia(sellpia, TEST_ORGANIZATION_ID, 'OWN', 2_000);
-    await publishSellpia(sellpia, OTHER_ORGANIZATION_ID, 'FOREIGN', 999_999);
+    const ownSellpia = await publishSellpia(prisma, TEST_ORGANIZATION_ID, 'OWN', 2_000);
+    await publishSellpia(prisma, OTHER_ORGANIZATION_ID, 'FOREIGN', 999_999);
     await publishEmptyAdvertising(advertising, TEST_ORGANIZATION_ID, 'own-ad');
     await publishEmptyAdvertising(advertising, OTHER_ORGANIZATION_ID, 'foreign-ad');
 
@@ -195,26 +193,15 @@ async function seedMappedProduct(
 }
 
 async function publishSellpia(
-  owner: SellpiaProfitabilitySourceService,
+  prisma: PrismaClient,
   organizationId: string,
   suffix: string,
   revenue: number,
 ) {
-  const attempt = await owner.beginAttempt(
+  // 실제 발행 경로(상품 손익 실행의 finalize가 부르는 publish)로 세대 하나를 세운다(KID-361 J3).
+  return publishSellpiaProfitability(prisma, {
     organizationId,
-    `11111111-1111-4111-8111-${suffix === 'OWN' ? '111111111111' : '222222222222'}`,
-  );
-  await owner.submitAttempt(organizationId, attempt.attemptId, {
-    attemptToken: attempt.attemptToken,
-    parserVersion: 'sellpia-profitability-v2',
-    providerBackedEmptyProof: true,
-    coveredMonths: attempt.plan.coveredMonths,
-    provenance: {
-      source: 'sellpia_stat_prd_profit',
-      costBasis: 'ORDER_TIME_SUPPLY_COST',
-      vatIncluded: true,
-    },
-    products: [{
+    products: (plan) => [{
       productCode: `SKU-${suffix}`,
       optionCode: '',
       productName: `${suffix} product`,
@@ -227,7 +214,7 @@ async function publishSellpia(
       months: [{
         // The source ends at the latest closed KST day. This deliberately
         // exercises the partial cutoff month without inventing daily rows.
-        yearMonth: attempt.plan.to.slice(0, 7),
+        yearMonth: plan.to.slice(0, 7),
         orderQty: 2,
         orderAmount: revenue,
         inQty: 2,
@@ -235,7 +222,6 @@ async function publishSellpia(
       }],
     }],
   });
-  return attempt;
 }
 
 async function publishEmptyAdvertising(

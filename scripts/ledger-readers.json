@@ -79,12 +79,12 @@
       ],
       "ownerPublications": [
         {
-          "path": "apps/server/src/advertising/adapter/out/repository/ad-traffic-source.repository.ts",
-          "reason": "Publishes, resets, verifies, and reads back Wing traffic rows inside the source owner's fenced terminal workflow."
+          "path": "apps/server/src/advertising/adapter/out/repository/wing-traffic-operation.repository.ts",
+          "reason": "Publishes and resets Wing listing-day traffic rows inside the advertising.wing_traffic operation's finish transaction."
         },
         {
-          "path": "apps/server/src/advertising/adapter/out/repository/wing-itemwinner-kpi-source.repository.ts",
-          "reason": "Publishes verified Item Winner listing-day state into the canonical listing fact row in the source owner's terminal transaction."
+          "path": "apps/server/src/advertising/adapter/out/repository/wing-itemwinner-operation.repository.ts",
+          "reason": "Publishes verified Item Winner listing-day state into the canonical listing fact row inside the advertising.wing_itemwinner operation's finish transaction."
         },
         {
           "path": "apps/server/src/advertising/adapter/out/repository/daily-fact-helpers.ts",
@@ -104,8 +104,8 @@
       ],
       "ownerPublications": [
         {
-          "path": "apps/server/src/analytics/sellpia-sales/sellpia-sales-source.service.ts",
-          "reason": "Stages and validates daily facts, writes per-date coverage evidence, and publishes the completed Sellpia sales generation atomically."
+          "path": "apps/server/src/analytics/sellpia-sales/sellpia-sales-publication.repository.ts",
+          "reason": "Replaces the operation window's daily facts inside the analytics.sellpia_sales finish transaction (KID-361)."
         }
       ],
       "legacyReaders": []
@@ -121,8 +121,8 @@
       ],
       "ownerPublications": [
         {
-          "path": "apps/server/src/analytics/sellpia-product-sales/sellpia-profitability-source.service.ts",
-          "reason": "Stages, verifies, and publishes immutable Sellpia profitability facts under a completed source generation."
+          "path": "apps/server/src/analytics/sellpia-product-sales/sellpia-profitability-publication.repository.ts",
+          "reason": "Publishes and counts immutable Sellpia profitability facts under the succeeded analytics.sellpia_product_profitability operation (KID-361)."
         },
         {
           "path": "apps/server/src/analytics/sellpia-product-sales/sellpia-profitability-source.internal.ts",
@@ -845,24 +845,6 @@
       "removeWith": "KID-324"
     },
     {
-      "from": "apps/server/src/advertising/adapter/in/http/keyword-serp-source.controller.ts",
-      "to": "apps/server/src/advertising/adapter/out/repository/keyword-serp-source.repository.ts",
-      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-324"
-    },
-    {
-      "from": "apps/server/src/advertising/adapter/in/http/seller-identity-source.controller.ts",
-      "to": "apps/server/src/advertising/adapter/out/repository/seller-identity-source.repository.ts",
-      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-324"
-    },
-    {
-      "from": "apps/server/src/advertising/adapter/in/http/wing-rank-source.controller.ts",
-      "to": "apps/server/src/advertising/adapter/out/repository/wing-rank-source.repository.ts",
-      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-324"
-    },
-    {
       "to": "apps/server/src/products/adapter/out/persistence/read/product-abc-publication.reader.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
@@ -1128,12 +1110,6 @@
     },
     {
       "to": "apps/server/src/advertising/adapter/out/persistence/read/ad-target-facts.ts",
-      "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
-      "removeWith": "KID-324",
-      "from": "apps/server/src/readiness/readiness.service.ts"
-    },
-    {
-      "to": "apps/server/src/advertising/adapter/out/persistence/read/keyword-rank-facts.ts",
       "reason": "Existing owner read/type contract retained during incremental capability migration; no new caller is permitted.",
       "removeWith": "KID-324",
       "from": "apps/server/src/readiness/readiness.service.ts"

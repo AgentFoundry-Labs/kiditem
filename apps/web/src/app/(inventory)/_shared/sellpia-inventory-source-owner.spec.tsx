@@ -1,128 +1,45 @@
-import { beforeEach, describe, expect, it, vi } from 'vitest';
-import { extensionSessionReply } from '@/test/fixtures/extension-collection-session';
-import {
-  beginSellpiaInventorySourceAttempt,
-  sellpiaInventoryCollection,
-} from './sellpia-inventory-source-owner';
+import { describe, expect, it } from 'vitest';
+import { sellpiaInventoryFreshness, sellpiaOperation } from '@/test/fixtures/sellpia-operations';
+import { sellpiaInventoryState } from './sellpia-inventory-source-owner';
 
-const api = vi.hoisted(() => ({
-  post: vi.fn(),
-}));
-const extension = vi.hoisted(() => ({
-  detect: vi.fn(),
-  send: vi.fn(),
-}));
+// 화면 상태 = 발행된 재고(Products 상태 읽기) + 최근 실행(실행 reader). 도는 실행·실패·중단은 실행이, 완료·미수집은
+// 발행 상태가 말한다(KID-361 J1).
+const done = (overrides = {}) => sellpiaOperation({ status: 'succeeded', finishedAt: '2026-09-26T01:01:00.000Z', ...overrides });
 
-vi.mock('@/lib/api-client', () => ({ apiClient: api }));
-vi.mock('@/lib/extension-bridge', () => ({
-  detectOrderCollectionExtensionRuntime: extension.detect,
-  sendToExtension: extension.send,
-}));
-vi.mock('@/lib/extension-auth', () => ({ transferExtensionAuthTo: vi.fn() }));
-
-const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
-const ATTEMPT_TOKEN = '22222222-2222-4222-8222-222222222222';
-const NEW_KEY = '55555555-5555-4555-8555-555555555555';
-const FILE_HASH = 'a'.repeat(64);
-
-function attempt(
-  state: 'RUNNING' | 'COMPLETE' | 'FAILED' = 'RUNNING',
-  patch: Record<string, unknown> = {},
-) {
-  return {
-    attemptId: ATTEMPT_ID,
-    attemptToken: ATTEMPT_TOKEN,
-    generation: '7',
-    state,
-    plan: {
-      sourceType: 'sellpia_inventory',
-      parserVersion: 'sellpia-inventory-v1',
-      scope: 'inventory',
-      trigger: 'manual_request',
-      sourceOrigin: 'https://kiditem.sellpia.com',
-      sourceAccountKey: 'kiditem',
-      generation: '7',
-    },
-    expiresAt: '2099-01-01T00:00:00.000Z',
-    actualCutoffAt: null,
-    fileName: null,
-    fileHash: null,
-    contentChecksum: null,
-    rowCount: 0,
-    errorCode: null,
-    errorMessage: null,
-    ...patch,
-  };
-}
-
-beforeEach(() => {
-  vi.clearAllMocks();
-  extension.detect.mockResolvedValue({ status: 'ready', extensionId: 'sellpia-extension', version: '1' });
-  // The run answers only when the collection ends; its session shows it took the attempt.
-  extension.send.mockImplementation(async (_extensionId: string, message: unknown) =>
-    extensionSessionReply(message, 'inventory.sellpia') ?? new Promise(() => undefined));
-});
-
-const CANCEL_PATH = `/api/inventory/sellpia-source/attempts/${ATTEMPT_ID}/cancel`;
-
-function startCollection() {
-  const { start } = sellpiaInventoryCollection({ organizationId: 'org-1' });
-  if (!start) throw new Error('The Sellpia inventory adapter has no start.');
-  return start(undefined, { status: undefined });
-}
-
-describe('Sellpia inventory source-owner transport', () => {
-  it('posts the inventory scope under the idempotency key', async () => {
-    const started = attempt('RUNNING', { fileHash: FILE_HASH });
-    api.post.mockResolvedValue(started);
-
-    await expect(beginSellpiaInventorySourceAttempt(NEW_KEY, 'manual_request'))
-      .resolves.toEqual(started);
-    expect(api.post).toHaveBeenCalledWith(
-      '/api/inventory/sellpia-source/attempts',
-      { scope: 'inventory', trigger: 'manual_request' },
-      { headers: { 'Idempotency-Key': NEW_KEY } },
-    );
+describe('sellpiaInventoryState', () => {
+  it('도는 실행이 있으면 발행 상태와 상관없이 수집 중이다', () => {
+    expect(sellpiaInventoryState(sellpiaInventoryFreshness(), { operations: [sellpiaOperation(), done()] }).status).toBe('running');
   });
 
-  it('posts an explicit retry trigger after a failed collection', async () => {
-    const started = attempt();
-    api.post.mockResolvedValue(started);
+  it('마지막으로 끝난 실행이 실패면 실패와 운영자 문장, 멈췄으면 중단(실패 아님)이다', () => {
+    const failed = sellpiaInventoryState(sellpiaInventoryFreshness(), {
+      operations: [sellpiaOperation({ status: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '셀피아 로그인이 필요합니다.' }), done()],
+    });
+    expect(failed).toMatchObject({ status: 'failed', errorMessage: '셀피아 로그인이 필요합니다.', stopped: false });
 
-    await expect(beginSellpiaInventorySourceAttempt(NEW_KEY, 'retry'))
-      .resolves.toEqual(started);
-    expect(api.post).toHaveBeenCalledWith(
-      '/api/inventory/sellpia-source/attempts',
-      { scope: 'inventory', trigger: 'retry' },
-      { headers: { 'Idempotency-Key': expect.any(String) } },
-    );
+    const stopped = sellpiaInventoryState(sellpiaInventoryFreshness(), {
+      operations: [sellpiaOperation({ status: 'cancelled', errorCode: 'USER_CANCELLED' }), done()],
+    });
+    expect(stopped).toMatchObject({ status: 'complete', errorMessage: null, stopped: true });
   });
 
-  it('hands the opened attempt to the extension and starts once the extension holds its session', async () => {
-    api.post.mockResolvedValue(attempt('RUNNING'));
-
-    await expect(startCollection()).resolves.toEqual({ outcome: 'started', attemptId: ATTEMPT_ID });
-
-    expect(extension.send).toHaveBeenCalledWith(
-      'sellpia-extension',
-      { action: 'collectSellpiaInventory', attemptId: ATTEMPT_ID },
-      190_000,
-    );
-    expect(api.post).not.toHaveBeenCalledWith(CANCEL_PATH);
+  it('임대가 끝나 만료로 닫힌 실행은 울타리 사유(`expired`)가 아니라 코드의 한국어 문장을 보인다', () => {
+    const expired = sellpiaInventoryState(sellpiaInventoryFreshness(), {
+      operations: [sellpiaOperation({ status: 'failed', errorCode: 'OPERATION_FENCE_LOST', errorMessage: 'expired' }), done()],
+    });
+    expect(expired).toMatchObject({ status: 'failed', errorMessage: '이 실행은 더 이상 유효하지 않습니다. 다시 시작해 주세요.' });
   });
 
-  it('stops the opened attempt through the owner when the extension does not take it', async () => {
-    api.post.mockImplementation(async (path: string) =>
-      path === CANCEL_PATH ? attempt('FAILED') : attempt('RUNNING'));
-    extension.send.mockImplementation(async (_extensionId: string, message: { action: string }) =>
-      message.action === 'collectSellpiaInventory'
-        ? { success: false, error: '이전 셀피아 재고 수집이 아직 진행 중입니다. 그 수집이 끝난 뒤 다시 시작해 주세요.' }
-        : null);
-
-    // 확장이 이유를 한국어로 말하면 그 이유를 그대로 보여 준다(KID-161).
-    await expect(startCollection()).rejects.toThrow(
-      '이전 셀피아 재고 수집이 아직 진행 중입니다. 그 수집이 끝난 뒤 다시 시작해 주세요.',
-    );
-    expect(api.post).toHaveBeenCalledWith(CANCEL_PATH);
+  it('실행이 없거나 성공으로 끝났으면 발행 상태가 완료·미수집을 정하고 발행 실행 id·완료 시각을 싣는다', () => {
+    expect(sellpiaInventoryState(sellpiaInventoryFreshness(), { operations: [done()] })).toEqual({
+      status: 'complete',
+      lastCompletedAt: '2026-09-14T00:30:00.000Z',
+      lastCompletedOperationId: '99999999-9999-4999-8999-999999999999',
+      errorMessage: null,
+      sourceBindingConfirmed: true,
+      stopped: false,
+    });
+    const empty = sellpiaInventoryFreshness({ verifiedGeneration: '0', lastCompletedAt: null, lastCompletedAttemptId: null });
+    expect(sellpiaInventoryState(empty, undefined).status).toBe('not_collected');
   });
 });

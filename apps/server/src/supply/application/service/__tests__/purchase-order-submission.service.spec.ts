@@ -8,7 +8,7 @@ import { PurchaseOrderSubmissionService } from '../purchase-order-submission.ser
 
 const ORDER_ID = '0187e942-9098-7382-9a22-c5b821f2f5d1';
 const SELLPIA_SKU_ID = '00000000-0000-4000-8000-000000000001';
-const INVENTORY_ATTEMPT_ID = '00000000-0000-4000-8000-000000000002';
+const INVENTORY_OPERATION_ID = '00000000-0000-4000-8000-000000000002';
 
 function snapshot() {
   return {
@@ -31,7 +31,7 @@ function submissionInput(input: {
   purchaseOrderId?: string;
   idempotencyKey?: string;
   userId?: string;
-  inventoryAttemptId?: string;
+  inventoryOperationId?: string;
   requestHash?: string;
   externalOrderPlatform?: string | null;
   externalOrderId?: string | null;
@@ -40,14 +40,14 @@ function submissionInput(input: {
   const value = {
     organizationId: 'org-1',
     purchaseOrderId: ORDER_ID,
-    inventoryAttemptId: INVENTORY_ATTEMPT_ID,
+    inventoryOperationId: INVENTORY_OPERATION_ID,
     idempotencyKey: 'submit-1',
     userId: 'user-1',
     ...input,
   };
   const businessInput = {
     purchaseOrderId: value.purchaseOrderId,
-    inventoryAttemptId: value.inventoryAttemptId,
+    inventoryOperationId: value.inventoryOperationId,
     ...(value.externalOrderPlatform !== undefined && {
       externalOrderPlatform: value.externalOrderPlatform,
     }),
@@ -70,7 +70,7 @@ function harness(options: { runtime?: boolean } = {}) {
   };
   const freshness = {
     requireCollectedStock: vi.fn().mockResolvedValue({
-      attemptId: INVENTORY_ATTEMPT_ID,
+      operationId: INVENTORY_OPERATION_ID,
       fence: '00000000-0000-4000-8000-000000000099',
       generation: '7',
       completedAt: '2026-07-16T00:00:00.000Z',
@@ -156,7 +156,7 @@ describe('PurchaseOrderSubmissionService', () => {
     );
     expect(freshness.requireCollectedStock).toHaveBeenCalledWith({
       organizationId: 'org-1',
-      attemptId: INVENTORY_ATTEMPT_ID,
+      operationId: INVENTORY_OPERATION_ID,
       masterProductIds: [SELLPIA_SKU_ID],
     });
     expect(freshness.requireCollectedStock).toHaveBeenCalledBefore(
@@ -169,7 +169,7 @@ describe('PurchaseOrderSubmissionService', () => {
       organizationId: 'org-1',
       purchaseOrderId: ORDER_ID,
       masterProductIds: [SELLPIA_SKU_ID],
-      inventoryAttemptId: INVENTORY_ATTEMPT_ID,
+      inventoryOperationId: INVENTORY_OPERATION_ID,
       inventoryFence: '00000000-0000-4000-8000-000000000099',
       inventoryGeneration: '7',
       inventoryCompletedAt: '2026-07-16T00:00:00.000Z',
