@@ -63,8 +63,6 @@ importScripts(
   "orders/sellpia-sales-source-owner.js",
   "orders/sellpia-manual-match.js",
   "orders/sellpia-manual-match-source-owner.js",
-  "orders/sabangnet-mall-listings.js",
-  "orders/sabangnet-mall-listings-source-owner.js",
   "orders/mall-admin-listings.js",
   "orders/mall-admin-listings-source-owner.js",
   "orders/sellpia-post-processing.js",

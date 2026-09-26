@@ -16,9 +16,7 @@ import {
   type ChannelProductAutoMatchResponse,
 } from '@kiditem/shared/channel-product-matching';
 import {
-  SabangnetMallListingsAttemptSchema,
   SabangnetMallListingsSourceSchema,
-  type SabangnetMallListingsAttempt,
   type SabangnetMallListingsSource,
 } from '@kiditem/shared/sabangnet-mall-listings';
 import {
@@ -103,25 +101,9 @@ export const mallPublishingApi = {
     );
   },
 
-  /** 사방넷 등록 상품 가져오기의 현재 — 받을 몰, 최근 시도, 최근 완료와 몰별 결과. */
+  /** 사방넷 등록 상품 가져오기의 현재 — 받을 몰, 최근 실행, 최근 성공 실행과 몰별 결과. */
   sabangnetListingsSource(): Promise<SabangnetMallListingsSource> {
     return apiClient.getParsed(`${SABANGNET_BASE}/source`, SabangnetMallListingsSourceSchema);
-  },
-
-  /**
-   * 사방넷 가져오기 시도를 연다. 사방넷을 읽는 것은 확장이고, 화면은 쓰기 토큰을 갖지
-   * 않는다 — 응답에서 버린다.
-   */
-  async beginSabangnetListings(idempotencyKey: string): Promise<SabangnetMallListingsAttempt> {
-    const raw = await apiClient.post(`${SABANGNET_BASE}/attempts`, {}, {
-      headers: { 'Idempotency-Key': idempotencyKey },
-    });
-    return SabangnetMallListingsAttemptSchema.strip().parse(raw);
-  },
-
-  /** 운영자 중단. 확장의 쓰기 토큰 없이 owner 가 시도를 끝낸다. */
-  cancelSabangnetListings(attemptId: string): Promise<unknown> {
-    return apiClient.post(`${SABANGNET_BASE}/attempts/${encodeURIComponent(attemptId)}/cancel`);
   },
 
   /** 몰 관리자에서 직접 가져오는 원천(키드키즈 · 아이스크림몰)의 현재 — 몰마다 한 줄. */

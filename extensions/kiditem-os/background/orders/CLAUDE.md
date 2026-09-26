@@ -91,13 +91,15 @@ summary, Rocket PO and directship are operation kinds collected by
 
 ## Sabangnet Listing Import
 
-- `orders.sabangnet_mall_listings` (Channels owner) reads Sabangnet's send
-  records — one row per mall × product with the mall product code — from the
-  fixed list API on the frozen plan's origin, all pages, in a fresh inactive
-  tab. It never opens send, save, or delete screens.
-- That list response also carries mall login IDs and passwords. Copy only the
-  schema's whitelisted fields; never return, log, or forward the rest. The
-  Sabangnet session token stays inside the injected function.
+- `channels.sabangnet_mall_listings` (Channels owner, KID-363) is a runtime
+  kind: `src/sites/sabangnet` opens one fresh inactive tab on the plan's origin
+  and calls `content/orders/sabangnet-mall-listings.js` once per page (500 rows,
+  800 ms apart); `src/collectors/channels.sabangnet_mall_listings` pages to the
+  end, emits `listing_rows`, then one `listing_scan` completeness proof. It
+  never opens send, save, or delete screens.
+- That list response also carries mall login IDs and passwords. The page file
+  copies only whitelisted fields; never return, log, or forward the rest. The
+  Sabangnet session token stays inside the page file.
 - A total that moves between pages, a short page, or an unknown response code
   stops the run; the owner publishes only a complete list.
 

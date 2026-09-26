@@ -236,7 +236,7 @@ export class MallAdminListingsRepositoryAdapter implements MallAdminListingsRepo
       const deactivated = await deactivateCatalogAbsence(tx, {
         organizationId: input.organizationId,
         channelAccountId: plan.channelAccountId,
-        sourceImportRunId: run.id,
+        provenance: { sourceImportRunId: run.id },
         // 같은 몰 계정에 사방넷 수집이나 KidItem 등록이 만든 행이 함께 있다.
         scope: { kind: 'source', sourceType: SOURCE_TYPE },
         presentExternalProductIds: present,

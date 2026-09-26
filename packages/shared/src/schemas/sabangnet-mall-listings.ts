@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { OperationViewSchema } from './operation.js';
 
 /**
  * 사방넷 송신 기록으로 몰마다 등록된 상품(몰 상품코드)을 가져오는 원천의 계약(KID-246).
@@ -61,10 +62,6 @@ export function sabangnetShopIdsByMallKey(): ReadonlyMap<SabangnetMallKey, reado
   return byMall;
 }
 
-/** 가져오기는 조직 단위다. 어느 몰을 받을지는 서버가 몰 계정 행으로 정한다. */
-export const SabangnetMallListingsBeginSchema = z.object({}).strict();
-export type SabangnetMallListingsBegin = z.infer<typeof SabangnetMallListingsBeginSchema>;
-
 export const SabangnetMallListingsPlanMallSchema = z.object({
   mallKey: requiredText(40),
   channelAccountId: z.string().uuid(),
@@ -97,25 +94,7 @@ export const SabangnetMallListingsPlanSchema = z.object({
 });
 export type SabangnetMallListingsPlan = z.infer<typeof SabangnetMallListingsPlanSchema>;
 
-export const SabangnetMallListingsAttemptSchema = z.object({
-  attemptId: z.string().uuid(),
-  state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
-  generation: z.string().regex(/^\d+$/),
-  plan: SabangnetMallListingsPlanSchema,
-  expiresAt: z.string().datetime(),
-  completedAt: z.string().datetime().nullable(),
-  errorCode: boundedText(100).nullable(),
-  errorMessage: boundedText(300).nullable(),
-}).strict();
-export type SabangnetMallListingsAttempt = z.infer<typeof SabangnetMallListingsAttemptSchema>;
-
-/** 확장만 받는 시도 모양. 쓰기 토큰이 붙는다. */
-export const SabangnetMallListingsControlSchema = SabangnetMallListingsAttemptSchema.extend({
-  attemptToken: z.string().uuid(),
-}).strict();
-export type SabangnetMallListingsControl = z.infer<typeof SabangnetMallListingsControlSchema>;
-
-/** 완료한 가져오기가 몰 하나에 남긴 결과. */
+/** 성공한 실행이 몰 하나에 남긴 결과(`result.malls`). */
 export const SabangnetMallListingsPublicationSchema = z.object({
   mallKey: requiredText(40),
   channelAccountId: z.string().uuid(),
@@ -134,13 +113,24 @@ export const SabangnetMallListingsSourceMallSchema = z.object({
 }).strict();
 export type SabangnetMallListingsSourceMall = z.infer<typeof SabangnetMallListingsSourceMallSchema>;
 
+/** `channels.sabangnet_mall_listings` 실행의 `result`(KID-363): 몰마다의 결과와 받은 송신 기록 수. */
+export const SabangnetMallListingsResultSchema = z.object({
+  malls: z.array(SabangnetMallListingsPublicationSchema),
+  rows: z.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT),
+}).strict();
+export type SabangnetMallListingsResult = z.infer<typeof SabangnetMallListingsResultSchema>;
+
+/**
+ * 사방넷 가져오기의 현재(`GET /channels/sabangnet-listings/source`) — 받을 몰(계정 행)과 이 kind의 최근 실행·최근
+ * 성공 실행, 그 성공이 몰마다 남긴 결과. 실행은 실행 계약의 모양 그대로다(ADR-0025).
+ */
 export const SabangnetMallListingsSourceSchema = z.object({
   /** 받을 몰 계정 행이 하나라도 있는가. */
   ready: z.boolean(),
   malls: z.array(SabangnetMallListingsSourceMallSchema),
-  latestAttempt: SabangnetMallListingsAttemptSchema.nullable(),
-  latestComplete: SabangnetMallListingsAttemptSchema.nullable(),
-  /** `latestComplete` 가 몰마다 남긴 결과. */
+  latestOperation: OperationViewSchema.nullable(),
+  latestSucceeded: OperationViewSchema.nullable(),
+  /** `latestSucceeded` 가 몰마다 남긴 결과. */
   latestPublication: z.array(SabangnetMallListingsPublicationSchema),
 }).strict();
 export type SabangnetMallListingsSource = z.infer<typeof SabangnetMallListingsSourceSchema>;
@@ -171,7 +161,6 @@ export const SabangnetMallListingRowSchema = z.object({
 export type SabangnetMallListingRow = z.infer<typeof SabangnetMallListingRowSchema>;
 
 export const SabangnetMallListingsCollectionSchema = z.object({
-  collectionRunId: z.string().uuid(),
   /** 사방넷이 알린 전체 송신 기록 수(모든 몰). */
   totalRecords: z.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT),
   /** 실제로 읽은 송신 기록 수(실패 메시지 줄 제외, 모든 몰). */
@@ -187,9 +176,12 @@ export const SabangnetMallListingsCollectionSchema = z.object({
 }).strict();
 export type SabangnetMallListingsCollection = z.infer<typeof SabangnetMallListingsCollectionSchema>;
 
-export const SabangnetMallListingsSubmissionSchema = z.object({
+/**
+ * 목록을 끝까지 읽었다는 증거(`listing_scan` 청크 하나, KID-363). owner finalize가 이것으로 송신 기록 전체인지
+ * 보고, 아니면 아무것도 쓰지 않는다 — 한 페이지만 빠져도 그 페이지의 상품이 몰에서 내려간 것으로 보인다.
+ */
+export const SabangnetMallListingsScanSchema = z.object({
   collection: SabangnetMallListingsCollectionSchema,
-  rows: z.array(SabangnetMallListingRowSchema).max(SABANGNET_MALL_LISTING_ROW_LIMIT),
   proof: z.object({
     dateFrom: YYYYMMDD,
     dateTo: YYYYMMDD,
@@ -197,15 +189,4 @@ export const SabangnetMallListingsSubmissionSchema = z.object({
     validatedList: z.literal(true),
   }).strict(),
 }).strict();
-export type SabangnetMallListingsSubmission = z.infer<typeof SabangnetMallListingsSubmissionSchema>;
-
-/** 확장이 돌려주는 실패 이유. 화면이 한국어 문장으로 바꾼다. */
-export const SABANGNET_MALL_LISTINGS_FAILURE_CODES = [
-  'sabangnet_login_required',
-  'sabangnet_contract_drift',
-  'sabangnet_total_changed',
-  'sabangnet_invalid_snapshot',
-  'sabangnet_timeout',
-  'sabangnet_network_failed',
-] as const;
-export type SabangnetMallListingsFailureCode = (typeof SABANGNET_MALL_LISTINGS_FAILURE_CODES)[number];
+export type SabangnetMallListingsScan = z.infer<typeof SabangnetMallListingsScanSchema>;

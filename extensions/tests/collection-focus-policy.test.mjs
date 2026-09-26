@@ -30,8 +30,6 @@ const expectedLegacyFiles = [
 const automaticFocusSafeFiles = [
   'extensions/kiditem-os/background/orders/sellpia-inventory.js',
   'extensions/kiditem-os/background/orders/sellpia-manual-match.js',
-  'extensions/kiditem-os/background/orders/sabangnet-mall-listings.js',
-  'extensions/kiditem-os/background/orders/sabangnet-mall-listings-source-owner.js',
   'extensions/kiditem-os/background/orders/mall-admin-listings.js',
   'extensions/kiditem-os/background/orders/mall-admin-listings-source-owner.js',
   // 소싱 수집(KID-360)은 새 런타임의 사이트가 백그라운드 탭으로만 연다.

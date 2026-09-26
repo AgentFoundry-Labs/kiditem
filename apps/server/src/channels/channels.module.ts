@@ -52,6 +52,7 @@ import { RocketSellpiaMatchingCsvImportRepositoryAdapter } from './adapter/out/r
 import { ChannelCatalogPublicationRepositoryAdapter } from './adapter/out/repository/channel-catalog-publication.repository.adapter';
 import { WING_CATALOG_OPERATION_OWNERS } from './adapter/in/operation/wing-catalog-operation-owners';
 import { RocketMatchingCsvOperationOwner } from './adapter/in/operation/rocket-matching-csv-operation-owner';
+import { SabangnetMallListingsOperationOwner } from './adapter/in/operation/sabangnet-mall-listings-operation-owner';
 import { WingCatalogOperationService } from './application/service/collection/wing-catalog-operation.service';
 import { WING_CATALOG_OPERATION_PORT } from './application/port/in/wing-catalog-operation.port';
 import { OperationModule } from '../common/operation/operation.module';
@@ -234,7 +235,9 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
       provide: CHANNEL_SKU_AVAILABILITY_PORT,
       useExisting: ChannelSkuAvailabilityService,
     },
-    { provide: SabangnetMallListingsService, useFactory: (...dependencies: ConstructorParameters<typeof SabangnetMallListingsService>) => new SabangnetMallListingsService(...dependencies), inject: [SABANGNET_MALL_LISTINGS_REPOSITORY_PORT] },
+    // 사방넷 몰 목록 실행 kind(KID-363). owner는 부팅 때 실행 계약에 등록된다.
+    SabangnetMallListingsService,
+    SabangnetMallListingsOperationOwner,
     SabangnetMallListingsRepositoryAdapter,
     {
       provide: SABANGNET_MALL_LISTINGS_REPOSITORY_PORT,

@@ -57,3 +57,6 @@ export const RocketMatchingCsvResultSchema = z.object({
   updatedSkuCount: z.number().int().nonnegative(),
 }).strict();
 export type RocketMatchingCsvResult = z.infer<typeof RocketMatchingCsvResultSchema>;
+
+/** 사방넷 목록을 끝까지 읽었다는 증거 하나(`SabangnetMallListingsScanSchema`). 행 청크 뒤에 한 번 보낸다. */
+export const SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND = 'listing_scan' as const;

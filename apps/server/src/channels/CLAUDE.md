@@ -172,12 +172,14 @@ sync, registration, matching, and capacity behavior is executable in
 - Wing and Rocket account rows remain distinct. Shared vendor identity may be
   claimed only from complete authenticated evidence under the publication
   lock; a mismatch conflicts.
-- The Sabangnet listing import is one organization attempt whose
+- The Sabangnet listing import is one `channels.sabangnet_mall_listings`
+  operation per organization (KID-363) holding `resource:sabangnet:login`; its
   plan freezes the mall account rows the hub picks
-  (`adapter/out/repository/mall-account-rows.ts`, any status). Completion publishes each mall's
-  send records as listings with one option (`sellerSku` = Sabangnet model =
-  Sellpia SKU code) and turns off only listings this source created that left
-  the list. Its statuses carry the `사방넷 ` prefix and fold with a
+  (`adapter/out/repository/mall-account-rows.ts`, any status). Finalize checks
+  the `listing_scan` proof, publishes each mall's send records as listings with
+  one option (`sellerSku` = Sabangnet model = Sellpia SKU code), and turns off
+  only listings this source created that left the list, all with
+  `lastOperationId`. Its statuses carry the `사방넷 ` prefix and fold with a
   Sabangnet-basis warning.
 - The mall admin listing import is one attempt per mall
   account for malls Sabangnet does not carry (`mall_admin_listings`, readers in

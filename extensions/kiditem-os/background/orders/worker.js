@@ -84,13 +84,6 @@ const sellpiaInvoiceTargets = sellpiaPostProcessing.createTargetStore({
   storageKeyForEnvironment: (base, environmentId) =>
     ordersEnvironmentContext.storageKey(base, environmentId),
 });
-const sabangnetMallListings = KidItemSabangnetMallListings.create({ chrome });
-const sabangnetMallListingsSourceOwner = KidItemSabangnetMallListingsSourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
-  collect: sabangnetMallListings.collect,
-});
 const mallAdminListings = KidItemMallAdminListings.create({ chrome });
 const mallAdminListingsSourceOwner = KidItemMallAdminListingsSourceOwner.create({
   chrome,
@@ -225,9 +218,6 @@ async function cancelOrdersCollectionSession(attemptId, environmentId) {
   }
   if (session?.producer === "orders.sellpia_manual_match") {
     return sellpiaManualMatchSourceOwner.cancel({ attemptId, environmentId });
-  }
-  if (session?.producer === "orders.sabangnet_mall_listings") {
-    return sabangnetMallListingsSourceOwner.cancel({ attemptId, environmentId });
   }
   if (session?.producer === "orders.mall_admin_listings") {
     return mallAdminListingsSourceOwner.cancel({ attemptId, environmentId });
@@ -5654,12 +5644,6 @@ KidItemDomains.register({
         sellpiaProductProfitabilitySourceOwner.run({ attemptId, environmentId }),
       ),
     },
-    collectSabangnetMallListings: {
-      validate: KidItemSabangnetMallListingsSourceOwner.parseStart,
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        sabangnetMallListingsSourceOwner.run({ attemptId, environmentId }),
-      ),
-    },
     collectMallAdminListings: {
       validate: KidItemMallAdminListingsSourceOwner.parseStart,
       handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
@@ -5688,8 +5672,6 @@ KidItemDomains.register({
     collectSellpiaManualMatchV1: true,
     collectSellpiaManualMatchPortV1: true,
     sellpiaManualMatchSourceOwnerV1: true,
-    // 사방넷 송신 기록으로 몰 등록 상품을 가져온다(KID-246).
-    sabangnetMallListingsSourceOwnerV1: true,
     // 키드키즈 · 아이스크림몰 관리자 화면에서 등록 상품을 직접 가져온다(KID-246 2단계).
     mallAdminListingsSourceOwnerV1: true,
     // 사방넷으로만 가져오던 몰(도매꾹 · 키즈노트 · 11번가 · 지마켓 · 옥션 · 카카오 · 롯데ON · 스마트스토어 · 티쳐몰)도 직접 읽는다.
