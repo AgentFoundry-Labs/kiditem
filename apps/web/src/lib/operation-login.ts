@@ -71,7 +71,10 @@ export async function loadOperationLoginCredentials(
  * 몰 키 하나의 저장 자격 — 몰 카드 밖에서 시작하는 실행(로켓 계정 `coupang-direct`: 배송요약·로켓 PO·직배송, 쿠팡 윙
  * `coupang`: 카탈로그·상품평). 윙은 몰 목록에 없으므로 비밀번호 응답의 아이디를 쓴다. 사람이 누른 수집이다.
  */
-export async function loadOperationLoginCredentialsForMall(mallKey: string): Promise<OperationLoginCredentials | undefined> {
+export async function loadOperationLoginCredentialsForMall(
+  mallKey: string,
+  { automatic = false }: { automatic?: boolean } = {},
+): Promise<OperationLoginCredentials | undefined> {
   const mallName = findChannel(mallKey)?.name ?? mallKey;
   if (mallAutoLoginBlock(mallKey)) {
     toast.warning(`${mallName} 자동 로그인은 멈춰 있습니다`, {
@@ -79,6 +82,8 @@ export async function loadOperationLoginCredentialsForMall(mallKey: string): Pro
     });
     return undefined;
   }
+  // 스스로 도는 수집(자동 운전 고리)은 몰 카드와 같이 한 시간에 한 번만 자격을 보낸다(계정 잠금 방지).
+  if (automatic && mallAutoLoginRetryAt(mallKey)) return undefined;
   let saved: Awaited<ReturnType<typeof orderMallAccountApi.password>>;
   try {
     saved = await orderMallAccountApi.password(mallKey);
@@ -86,6 +91,7 @@ export async function loadOperationLoginCredentialsForMall(mallKey: string): Pro
     return undefined;
   }
   if (!saved?.loginId || !saved.password) return undefined;
+  if (automatic) markMallAutoLoginAttempt(mallKey);
   return {
     loginId: saved.loginId,
     ...(saved.supplierLoginId ? { supplierLoginId: saved.supplierLoginId } : {}),
@@ -94,8 +100,11 @@ export async function loadOperationLoginCredentialsForMall(mallKey: string): Pro
 }
 
 /** `requestOperationStart` 옵션 조각: 그 몰 키의 저장 자격이 있으면 `{ credentials }`, 없으면 빈 조각. */
-export async function operationLoginOptions(mallKey: string): Promise<{ credentials?: OperationLoginCredentials }> {
-  const credentials = await loadOperationLoginCredentialsForMall(mallKey);
+export async function operationLoginOptions(
+  mallKey: string,
+  options: { automatic?: boolean } = {},
+): Promise<{ credentials?: OperationLoginCredentials }> {
+  const credentials = await loadOperationLoginCredentialsForMall(mallKey, options);
   return credentials ? { credentials } : {};
 }
 

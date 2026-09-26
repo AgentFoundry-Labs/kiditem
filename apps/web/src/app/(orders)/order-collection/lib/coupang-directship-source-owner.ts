@@ -141,11 +141,13 @@ export async function readRecentCoupangDirectOperations(): Promise<OperationView
 export async function beginCoupangDirectAttempt(
   idempotencyKey: string,
   channelAccountId: string,
+  /** 스스로 도는 수집이면 로켓 계정 자격을 한 시간에 한 번만 싣는다(KID-377). */
+  options: { automatic?: boolean } = {},
 ): Promise<CoupangDirectOwnerAttemptControl> {
   // 로그인 화면이면 확장이 로켓 계정의 저장 자격으로 로그인한다(KID-377).
   const outcome = await requestOperationStart(COUPANG_DIRECTSHIP_KIND, { channelAccountId }, {
     idempotencyKey,
-    ...(await operationLoginOptions(ROCKET_LOGIN_MALL_KEY)),
+    ...(await operationLoginOptions(ROCKET_LOGIN_MALL_KEY, options)),
   });
   if (outcome.outcome === 'refused' || outcome.operationId === null) {
     const existing = outcome.outcome === 'refused' ? outcome.existingOperationId : null;
