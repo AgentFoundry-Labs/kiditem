@@ -39,6 +39,7 @@ import '../sites/coupang-supplier';
 import '../sites/domeggook';
 import '../sites/gmarket/listings';
 import '../sites/icecream-mall';
+import '../sites/kakao/listings';
 import '../sites/kidkids';
 import '../sites/kidsnote/listings';
 import '../sites/live-commerce';

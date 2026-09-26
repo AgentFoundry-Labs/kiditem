@@ -64,6 +64,13 @@ const MALLS: Row[] = [
     call: 'esm.listings',
     loginAt: 'https://signin.esmplus.com/login',
   },
+  {
+    mallKey: 'kakao',
+    startUrl: 'https://shopping-seller.kakao.com/product/store-seller/list',
+    isolated: 'content/orders/kakao-listings.js',
+    call: 'kakao.listings',
+    loginAt: 'https://accounts.kakao.com/login/?continue=https%3A%2F%2Fshopping-seller.kakao.com',
+  },
 ];
 
 /** 로그인 폼 명세가 없는 몰(결정 #3). */

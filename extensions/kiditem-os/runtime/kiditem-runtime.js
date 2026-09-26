@@ -5417,7 +5417,8 @@ var KidItemRuntime = (() => {
     "kidsnote",
     "11st",
     "gmarket",
-    "auction"
+    "auction",
+    "kakao"
   ];
   function isMallAdminListingOperationMall(mallKey) {
     return MALL_ADMIN_LISTING_OPERATION_MALLS.includes(mallKey);
@@ -10235,6 +10236,28 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "icecream-mall", create: (deps, lease) => createIcecreamMallSite(deps.tabs, deps.sleep, createSiteSignIn(ICECREAM_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/kakao/listings.ts
+  var KAKAO_LISTINGS_URL = "https://shopping-seller.kakao.com/product/store-seller/list";
+  var KAKAO_LISTINGS_FILE = "content/orders/kakao-listings.js";
+  var KAKAO_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["shopping-seller.kakao.com"]),
+    isLogin: (url) => hostWithin(url, ["kakao.com"]) && (url.hostname.toLowerCase().startsWith("accounts.") || /login/i.test(url.pathname)),
+    loginMessage: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  function createKakaoListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "kakao",
+        displayName: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4",
+        startUrl: KAKAO_LISTINGS_URL,
+        file: KAKAO_LISTINGS_FILE,
+        call: "kakao.listings",
+        guard: KAKAO_LISTINGS_GUARD
+      }, plan)
+    };
+  }
+  registerSite({ name: "kakao", create: (deps) => createKakaoListings(deps.tabs) });
 
   // extensions/src/sites/kidkids/listings.ts
   var KIDKIDS_LISTINGS_URL = "https://partner.kidkids.net/sales/goods_list_renewal.htm?pNum=1";

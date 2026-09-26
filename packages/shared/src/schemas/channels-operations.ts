@@ -41,6 +41,7 @@ export const MALL_ADMIN_LISTING_OPERATION_MALLS = [
   '11st',
   'gmarket',
   'auction',
+  'kakao',
 ] as const;
 export type MallAdminListingOperationMall = (typeof MALL_ADMIN_LISTING_OPERATION_MALLS)[number];
 export function isMallAdminListingOperationMall(mallKey: string): mallKey is MallAdminListingOperationMall {
