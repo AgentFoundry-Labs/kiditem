@@ -7157,7 +7157,7 @@ var KidItemRuntime = (() => {
     selectionMode: MallOrdersSelectionModeSchema.optional(),
     seenRowKeys: external_exports.array(external_exports.string().min(1).max(MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH)).max(MALL_ORDERS_SEEN_ROW_KEYS_MAX).optional()
   }).strict();
-  var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook"];
+  var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook", "kidsnote", "onch", "haebub-mall"];
   function isMallOrderOperationMall(mallKey) {
     return MALL_ORDER_OPERATION_MALLS.includes(mallKey);
   }
@@ -9131,130 +9131,6 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: COUPANG_PRODUCT_SITE.name, create: (deps) => createCoupangProductSite(deps.tabs, { sleep: deps.sleep, random: () => Math.random() }) });
 
-  // extensions/src/sites/coupang-shop/index.ts
-  var ORIGIN2 = "https://shop.coupang.com";
-  var PAGE_TIMEOUT_MS2 = 6e4;
-  var CATALOG_TIMEOUT_MS = 9e4;
-  var SORT_TIMEOUT_MS = 2e4;
-  var RENDER_WAIT_MS2 = 1200;
-  var CONTENT_FILE2 = "content/advertising/coupang-shop-catalog.js";
-  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
-  var COUPANG_SHOP_SITE = {
-    name: "coupang-shop",
-    origin: ORIGIN2,
-    caller: { minIntervalMs: 0, displayName: "\uCFE0\uD321 \uD310\uB9E4\uC790\uC0F5" }
-  };
-  var COUPANG_SHOP_PAGE_GUARD = {
-    allows: (url) => hostWithin(url, ["coupang.com"]),
-    isLogin: (url) => hostWithin(url, ["login.coupang.com"]),
-    loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
-  };
-  function isExpectedShopUrl(actual, expected) {
-    try {
-      const left = new URL(actual);
-      const right = new URL(expected);
-      return left.protocol === "https:" && left.hostname === "shop.coupang.com" && right.hostname === "shop.coupang.com" && /^\/(?:vid\/)?[A-Za-z0-9_-]+\/?$/.test(right.pathname) && left.pathname === right.pathname && left.search === right.search;
-    } catch {
-      return false;
-    }
-  }
-  function createCoupangShopSite(tabs, deps) {
-    let page = null;
-    let keepOpen = false;
-    const ask = (current, message, timeoutMs) => current.ask(message, { timeoutMs, inject: { isolated: [CONTENT_FILE2] }, guard: COUPANG_SHOP_PAGE_GUARD }).catch((error) => {
-      if (leftForOperator(error)) keepOpen = true;
-      throw error;
-    });
-    return {
-      async catalog(target, productLimit, options = {}) {
-        page ??= await tabs.open("about:blank");
-        const current = page;
-        for (; ; ) {
-          const landed = await current.navigate(target.sellerStoreUrl, { timeoutMs: PAGE_TIMEOUT_MS2, continueOnTimeout: true });
-          if (isExpectedShopUrl(landed, target.sellerStoreUrl)) break;
-          try {
-            checkPageUrl(COUPANG_SHOP_PAGE_GUARD, landed);
-          } catch (error) {
-            if (leftForOperator(error)) keepOpen = true;
-            throw error;
-          }
-          const cleared = await waitForOperator(
-            current,
-            (url) => !isExpectedShopUrl(url, target.sellerStoreUrl),
-            { kind: "verification", site: "\uCFE0\uD321", label: target.sellerName },
-            options.onAttention
-          );
-          if (!cleared) {
-            keepOpen = true;
-            throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
-          }
-        }
-        await deps.sleep(RENDER_WAIT_MS2);
-        const sorted = await ask(current, { type: "KIDITEM_COUPANG_SHOP_SORT_NEWEST" }, SORT_TIMEOUT_MS);
-        if (sorted.clicked !== true) {
-          throw new RuntimeError(SITE_REQUEST_FAILED, `'${target.sellerName}' \uD310\uB9E4\uC790\uC0F5\uC758 \uCD5C\uC2E0\uC21C \uC815\uB82C\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, sellerId: target.sellerId });
-        }
-        await deps.sleep(RENDER_WAIT_MS2);
-        const answer = await ask(current, { type: "KIDITEM_COUPANG_SHOP_CATALOG", maxItems: productLimit }, CATALOG_TIMEOUT_MS);
-        const catalog = answer.ok ? toCatalog(answer, target, productLimit) : null;
-        if (!catalog) {
-          throw new RuntimeError(SITE_REQUEST_FAILED, `'${target.sellerName}' \uD310\uB9E4\uC790\uC0F5 \uC0C1\uD488 \uBAA9\uB85D\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, sellerId: target.sellerId });
-        }
-        return catalog;
-      },
-      /** 수집이 끝나면 탭을 닫는다. 보안 확인·로그인에서 멈췄으면 운영자가 볼 수 있게 남긴다. */
-      async close() {
-        if (page && !keepOpen) await page.close();
-        page = null;
-      }
-    };
-  }
-  function toCatalog(answer, target, productLimit) {
-    const products = [];
-    for (const raw of answer.products ?? []) {
-      if (!raw || typeof raw !== "object") continue;
-      const row = raw;
-      const productId2 = text2(row.productId, 200);
-      const itemId = text2(row.itemId, 200);
-      const vendorItemId = text2(row.vendorItemId, 200);
-      const name = text2(row.name, 500);
-      if (!name || !productId2 && !itemId && !vendorItemId) continue;
-      products.push({
-        sourceRank: products.length + 1,
-        productId: productId2,
-        itemId,
-        vendorItemId,
-        name,
-        priceKrw: count(row.priceKrw),
-        reviewCount: count(row.reviewCount),
-        imageUrl: text2(row.imageUrl, 2e3),
-        link: text2(row.link, 2e3)
-      });
-      if (products.length >= productLimit) break;
-    }
-    if (products.length === 0) return null;
-    const totalProductCount = count(answer.totalProductCount);
-    return {
-      keyword: target.keyword,
-      sellerId: target.sellerId,
-      sellerName: text2(answer.sellerName, 300) ?? target.sellerName,
-      sellerStoreUrl: target.sellerStoreUrl,
-      totalProductCount,
-      collectedProductCount: products.length,
-      isTruncated: totalProductCount !== null && totalProductCount > products.length,
-      sort: "newest",
-      capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
-      products
-    };
-  }
-  function text2(value, max) {
-    return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
-  }
-  function count(value) {
-    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
-  }
-  registerSite({ name: COUPANG_SHOP_SITE.name, create: (deps) => createCoupangShopSite(deps.tabs, { sleep: deps.sleep }) });
-
   // extensions/src/sites/coupang-search/parse.ts
   var PROVIDER_ATTENTION = /access\s*denied|unauthori[sz]ed|forbidden|too\s*many\s*requests|로그인|인증|접근\s*거부/i;
   var STOP_WORDS = /* @__PURE__ */ new Set(["\uCFE0\uD321", "\uB85C\uCF13", "\uB85C\uCF13\uBC30\uC1A1", "\uBB34\uB8CC\uBC30\uC1A1", "\uBB34\uB8CC", "\uBC30\uC1A1", "\uC815\uD488", "\uAD6D\uB0B4", "\uB2F9\uC77C", "\uC624\uB298", "\uC0C8\uC0C1\uD488", "\uC0C1\uD488", "\uAD6C\uB9E4", "\uD560\uC778", "\uD2B9\uAC00", "\uC635\uC158", "\uC0C9\uC0C1", "\uB79C\uB364"]);
@@ -9385,24 +9261,24 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/coupang-search/serp.ts
-  var ORIGIN3 = "https://www.coupang.com";
-  var PAGE_TIMEOUT_MS3 = 6e4;
+  var ORIGIN2 = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS2 = 6e4;
   var EXTRACTION_TIMEOUT_MS2 = 2e4;
-  var RENDER_WAIT_MS3 = 1200;
+  var RENDER_WAIT_MS2 = 1200;
   var PAGE_DELAY_MS = [1500, 3e3];
   var KEYWORD_DELAY_MS = [4e3, 8e3];
   var WALL_POLL_MS = 5e3;
   var WALL_WAIT_MAX_MS = 10 * 6e4;
   var WALL_REMIND_MS = 3 * 6e4;
-  var CONTENT_FILE3 = "content/advertising/coupang-serp-page.js";
-  var SITE_VERIFICATION_REQUIRED4 = "SITE_VERIFICATION_REQUIRED";
+  var CONTENT_FILE2 = "content/advertising/coupang-serp-page.js";
+  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
   var COUPANG_SERP_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["coupang.com"]),
     isLogin: (url) => hostWithin(url, ["login.coupang.com"]),
     loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
   };
   function buildCoupangSerpUrl(keyword2, page) {
-    return `${ORIGIN3}/np/search?q=${encodeURIComponent(keyword2)}&channel=user&page=${page}&listSize=36`;
+    return `${ORIGIN2}/np/search?q=${encodeURIComponent(keyword2)}&channel=user&page=${page}&listSize=36`;
   }
   function isExpectedSerpUrl(actual, expected) {
     try {
@@ -9420,13 +9296,13 @@ var KidItemRuntime = (() => {
     let keywordsRead = 0;
     const between = ([low, high]) => deps.sleep(Math.floor(low + deps.random() * (high - low)));
     async function read(current, url) {
-      const landed = await current.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS3, continueOnTimeout: true });
+      const landed = await current.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS2, continueOnTimeout: true });
       if (!isExpectedSerpUrl(landed, url)) return { landed, read: null };
-      await deps.sleep(RENDER_WAIT_MS3);
+      await deps.sleep(RENDER_WAIT_MS2);
       try {
         const answer = await current.ask(
           { type: "KIDITEM_COUPANG_SERP_ITEMS" },
-          { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE3] }, guard: COUPANG_SERP_PAGE_GUARD }
+          { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE2] }, guard: COUPANG_SERP_PAGE_GUARD }
         );
         return { landed, read: answer };
       } catch (error) {
@@ -9441,7 +9317,7 @@ var KidItemRuntime = (() => {
       for (; ; ) {
         if (deps.now() - started >= WALL_WAIT_MAX_MS) {
           keepOpen = true;
-          throw new RuntimeError(SITE_VERIFICATION_REQUIRED4, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { keyword: attention.label });
+          throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { keyword: attention.label });
         }
         await deps.sleep(WALL_POLL_MS);
         if (deps.now() - remindedAt >= WALL_REMIND_MS) {
@@ -9459,7 +9335,7 @@ var KidItemRuntime = (() => {
     async function readInPlace(current) {
       return current.ask(
         { type: "KIDITEM_COUPANG_SERP_ITEMS" },
-        { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE3] }, guard: COUPANG_SERP_PAGE_GUARD }
+        { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE2] }, guard: COUPANG_SERP_PAGE_GUARD }
       ).catch(() => null);
     }
     return {
@@ -9522,7 +9398,7 @@ var KidItemRuntime = (() => {
     for (const candidate of raw) {
       if (!candidate || typeof candidate !== "object") continue;
       const row = candidate;
-      const productId2 = text3(row.productId, 40);
+      const productId2 = text2(row.productId, 40);
       if (!productId2) continue;
       const position = items.length + 1;
       items.push({
@@ -9531,38 +9407,38 @@ var KidItemRuntime = (() => {
         positionInPage: position,
         isAd: row.isAd === true,
         productId: productId2,
-        itemId: text3(row.itemId, 40),
-        vendorItemId: text3(row.vendorItemId, 40),
-        name: text3(row.name, 300),
-        priceKrw: count2(row.priceKrw),
-        reviewCount: count2(row.reviewCount),
+        itemId: text2(row.itemId, 40),
+        vendorItemId: text2(row.vendorItemId, 40),
+        name: text2(row.name, 300),
+        priceKrw: count(row.priceKrw),
+        reviewCount: count(row.reviewCount),
         ratingScore: typeof row.ratingScore === "number" && row.ratingScore >= 0 && row.ratingScore <= 5 ? row.ratingScore : null,
-        imageUrl: text3(row.imageUrl, 2e3),
-        link: text3(row.link, 2e3)
+        imageUrl: text2(row.imageUrl, 2e3),
+        link: text2(row.link, 2e3)
       });
     }
     return items;
   }
-  function text3(value, max) {
+  function text2(value, max) {
     return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
   }
-  function count2(value) {
+  function count(value) {
     return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
   }
 
   // extensions/src/sites/coupang-search/index.ts
-  var ORIGIN4 = "https://www.coupang.com";
-  var PAGE_TIMEOUT_MS4 = 6e4;
+  var ORIGIN3 = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS3 = 6e4;
   var EVIDENCE_TIMEOUT_MS = 3e4;
   var SETTLE_MS = 1500;
-  var CONTENT_FILE4 = "content/sourcing/coupang-search-page.js";
+  var CONTENT_FILE3 = "content/sourcing/coupang-search-page.js";
   var COUPANG_SEARCH_SITE = {
     name: "coupang-search",
-    origin: ORIGIN4,
+    origin: ORIGIN3,
     caller: { minIntervalMs: SETTLE_MS, displayName: "\uCFE0\uD321" }
   };
   function buildCoupangSearchUrl(keyword2) {
-    return `${ORIGIN4}/np/search?component=&q=${encodeURIComponent(keyword2)}&channel=user`;
+    return `${ORIGIN3}/np/search?component=&q=${encodeURIComponent(keyword2)}&channel=user`;
   }
   function isCoupangSearchUrl(value) {
     try {
@@ -9578,14 +9454,14 @@ var KidItemRuntime = (() => {
         const url = buildCoupangSearchUrl(keyword2);
         const page = await tabs.open("about:blank");
         try {
-          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS4 });
+          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS3 });
           if (!isCoupangSearchUrl(landed)) {
             throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uCFE0\uD321 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
           }
           await deps.sleep(SETTLE_MS);
           const evidence = await page.ask(
             { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword: keyword2 },
-            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE4] } }
+            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE3] } }
           );
           if (!evidence.links || !evidence.productNames) {
             throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
@@ -9612,6 +9488,130 @@ var KidItemRuntime = (() => {
       ...createCoupangSerp(deps.tabs, { sleep: deps.sleep, now: deps.now, random: () => Math.random() })
     })
   });
+
+  // extensions/src/sites/coupang-shop/index.ts
+  var ORIGIN4 = "https://shop.coupang.com";
+  var PAGE_TIMEOUT_MS4 = 6e4;
+  var CATALOG_TIMEOUT_MS = 9e4;
+  var SORT_TIMEOUT_MS = 2e4;
+  var RENDER_WAIT_MS3 = 1200;
+  var CONTENT_FILE4 = "content/advertising/coupang-shop-catalog.js";
+  var SITE_VERIFICATION_REQUIRED4 = "SITE_VERIFICATION_REQUIRED";
+  var COUPANG_SHOP_SITE = {
+    name: "coupang-shop",
+    origin: ORIGIN4,
+    caller: { minIntervalMs: 0, displayName: "\uCFE0\uD321 \uD310\uB9E4\uC790\uC0F5" }
+  };
+  var COUPANG_SHOP_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["coupang.com"]),
+    isLogin: (url) => hostWithin(url, ["login.coupang.com"]),
+    loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  function isExpectedShopUrl(actual, expected) {
+    try {
+      const left = new URL(actual);
+      const right = new URL(expected);
+      return left.protocol === "https:" && left.hostname === "shop.coupang.com" && right.hostname === "shop.coupang.com" && /^\/(?:vid\/)?[A-Za-z0-9_-]+\/?$/.test(right.pathname) && left.pathname === right.pathname && left.search === right.search;
+    } catch {
+      return false;
+    }
+  }
+  function createCoupangShopSite(tabs, deps) {
+    let page = null;
+    let keepOpen = false;
+    const ask = (current, message, timeoutMs) => current.ask(message, { timeoutMs, inject: { isolated: [CONTENT_FILE4] }, guard: COUPANG_SHOP_PAGE_GUARD }).catch((error) => {
+      if (leftForOperator(error)) keepOpen = true;
+      throw error;
+    });
+    return {
+      async catalog(target, productLimit, options = {}) {
+        page ??= await tabs.open("about:blank");
+        const current = page;
+        for (; ; ) {
+          const landed = await current.navigate(target.sellerStoreUrl, { timeoutMs: PAGE_TIMEOUT_MS4, continueOnTimeout: true });
+          if (isExpectedShopUrl(landed, target.sellerStoreUrl)) break;
+          try {
+            checkPageUrl(COUPANG_SHOP_PAGE_GUARD, landed);
+          } catch (error) {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          }
+          const cleared = await waitForOperator(
+            current,
+            (url) => !isExpectedShopUrl(url, target.sellerStoreUrl),
+            { kind: "verification", site: "\uCFE0\uD321", label: target.sellerName },
+            options.onAttention
+          );
+          if (!cleared) {
+            keepOpen = true;
+            throw new RuntimeError(SITE_VERIFICATION_REQUIRED4, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
+          }
+        }
+        await deps.sleep(RENDER_WAIT_MS3);
+        const sorted = await ask(current, { type: "KIDITEM_COUPANG_SHOP_SORT_NEWEST" }, SORT_TIMEOUT_MS);
+        if (sorted.clicked !== true) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, `'${target.sellerName}' \uD310\uB9E4\uC790\uC0F5\uC758 \uCD5C\uC2E0\uC21C \uC815\uB82C\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, sellerId: target.sellerId });
+        }
+        await deps.sleep(RENDER_WAIT_MS3);
+        const answer = await ask(current, { type: "KIDITEM_COUPANG_SHOP_CATALOG", maxItems: productLimit }, CATALOG_TIMEOUT_MS);
+        const catalog = answer.ok ? toCatalog(answer, target, productLimit) : null;
+        if (!catalog) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, `'${target.sellerName}' \uD310\uB9E4\uC790\uC0F5 \uC0C1\uD488 \uBAA9\uB85D\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, sellerId: target.sellerId });
+        }
+        return catalog;
+      },
+      /** 수집이 끝나면 탭을 닫는다. 보안 확인·로그인에서 멈췄으면 운영자가 볼 수 있게 남긴다. */
+      async close() {
+        if (page && !keepOpen) await page.close();
+        page = null;
+      }
+    };
+  }
+  function toCatalog(answer, target, productLimit) {
+    const products = [];
+    for (const raw of answer.products ?? []) {
+      if (!raw || typeof raw !== "object") continue;
+      const row = raw;
+      const productId2 = text3(row.productId, 200);
+      const itemId = text3(row.itemId, 200);
+      const vendorItemId = text3(row.vendorItemId, 200);
+      const name = text3(row.name, 500);
+      if (!name || !productId2 && !itemId && !vendorItemId) continue;
+      products.push({
+        sourceRank: products.length + 1,
+        productId: productId2,
+        itemId,
+        vendorItemId,
+        name,
+        priceKrw: count2(row.priceKrw),
+        reviewCount: count2(row.reviewCount),
+        imageUrl: text3(row.imageUrl, 2e3),
+        link: text3(row.link, 2e3)
+      });
+      if (products.length >= productLimit) break;
+    }
+    if (products.length === 0) return null;
+    const totalProductCount = count2(answer.totalProductCount);
+    return {
+      keyword: target.keyword,
+      sellerId: target.sellerId,
+      sellerName: text3(answer.sellerName, 300) ?? target.sellerName,
+      sellerStoreUrl: target.sellerStoreUrl,
+      totalProductCount,
+      collectedProductCount: products.length,
+      isTruncated: totalProductCount !== null && totalProductCount > products.length,
+      sort: "newest",
+      capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      products
+    };
+  }
+  function text3(value, max) {
+    return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
+  }
+  function count2(value) {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
+  }
+  registerSite({ name: COUPANG_SHOP_SITE.name, create: (deps) => createCoupangShopSite(deps.tabs, { sleep: deps.sleep }) });
 
   // extensions/src/sites/coupang-supplier/page.ts
   var COUPANG_SUPPLIER_ORIGIN = "https://supplier.coupang.com";
@@ -10013,6 +10013,49 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "domeggook", create: (deps, lease) => createDomeggookSite(deps.tabs, deps, createSiteSignIn(DOMEGGOOK_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/haebub-mall/index.ts
+  var HAEBUB_MALL_ORDER_URL = "https://mallseller.genimarket.co.kr/mall/order/basket_list.php";
+  var HAEBUB_MALL_ORDERS_FILE = "content/page-call/haebub-mall-orders.js";
+  var HAEBUB_MALL_VENDOR = "\uAC70\uC601\uC544\uC774\uC564\uB514";
+  var READ_TIMEOUT_MS3 = 18e4;
+  var LOGIN_MESSAGE3 = "\uD574\uBC95\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. mallseller.genimarket.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var HOSTS = ["mallseller.genimarket.co.kr"];
+  var isHaebubLogin = (url) => hostWithin(url, HOSTS) && /\/login/i.test(url.pathname);
+  var HAEBUB_MALL_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, HOSTS),
+    isLogin: isHaebubLogin,
+    loginMessage: LOGIN_MESSAGE3
+  };
+  var HAEBUB_MALL_LOGIN = {
+    displayName: "\uD574\uBC95\uBAB0",
+    loginUrl: HAEBUB_MALL_ORDER_URL,
+    hosts: HOSTS,
+    isLoginUrl: isHaebubLogin,
+    fields: ["loginId", "password"]
+  };
+  function createHaebubMallSite(tabs, signIn) {
+    return {
+      readOrders(input) {
+        return withFreshTab(tabs, HAEBUB_MALL_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "haebub-mall.orders", { date: input.collectionDate ?? "", vendor: HAEBUB_MALL_VENDOR }, {
+            timeoutMs: READ_TIMEOUT_MS3,
+            guard: HAEBUB_MALL_PAGE_GUARD,
+            isolated: [HAEBUB_MALL_ORDERS_FILE],
+            displayName: "\uD574\uBC95\uBAB0"
+          });
+          if (answer?.status === "ok") return { rows: answer.orders };
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE3, { url: HAEBUB_MALL_ORDER_URL });
+          throw new RuntimeError(SITE_REQUEST_FAILED, `\uD574\uBC95\uBAB0 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
+            status: null,
+            reason: "page_error",
+            url: HAEBUB_MALL_ORDER_URL
+          });
+        }, signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({ name: "haebub-mall", create: (deps, lease) => createHaebubMallSite(deps.tabs, createSiteSignIn(HAEBUB_MALL_LOGIN, lease.credentials, deps)) });
+
   // extensions/src/sites/icecream-mall/listings.ts
   var ICECREAM_LISTINGS_URL = "https://po.i-screammall.co.kr/goods/goodsMgmt.goodsMgmtView.do";
   var ICECREAM_LISTINGS_FILE = "content/orders/icecream-listings.js";
@@ -10038,7 +10081,7 @@ var KidItemRuntime = (() => {
   var LOGIN_WATCH_MS = 500;
   var MENU_TIMEOUT_MS = 45e3;
   var GRID_TIMEOUT_MS = 35e3;
-  var LOGIN_MESSAGE3 = "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE4 = "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var ICECREAM_DELIVERY_HEADERS = [
     "No",
     "\uC8FC\uBB38\uBC88\uD638",
@@ -10096,7 +10139,7 @@ var KidItemRuntime = (() => {
   var ICECREAM_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["i-screammall.co.kr"]),
     isLogin: (url) => hostWithin(url, ["i-screammall.co.kr"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE3
+    loginMessage: LOGIN_MESSAGE4
   };
   var ICECREAM_LOGIN = {
     displayName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
@@ -10126,7 +10169,7 @@ var KidItemRuntime = (() => {
     return "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uBC30\uC1A1\uC870\uD68C \uD654\uBA74\uC740 \uC5F4\uC5C8\uC9C0\uB9CC \uBC30\uC1A1\uBAA9\uB85D \uD45C\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.";
   }
   function loginRequired2() {
-    return new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE3, { url: ICECREAM_MALL_URL });
+    return new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE4, { url: ICECREAM_MALL_URL });
   }
   function createIcecreamMallSite(tabs, sleep, signIn) {
     async function inspect(page) {
@@ -10230,12 +10273,12 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/kidkids/index.ts
   var KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
   var KIDKIDS_ORDERS_FILE = "content/orders/kidkids-orders.js";
-  var READ_TIMEOUT_MS3 = 18e4;
-  var LOGIN_MESSAGE4 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var READ_TIMEOUT_MS4 = 18e4;
+  var LOGIN_MESSAGE5 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var KIDKIDS_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["kidkids.net"]),
     isLogin: (url) => hostWithin(url, ["kidkids.net"]) && (/login|partnerlogin|partner_login/i.test(url.pathname) || /\/security\/verify_user\.htm$/i.test(url.pathname)),
-    loginMessage: LOGIN_MESSAGE4
+    loginMessage: LOGIN_MESSAGE5
   };
   var KIDKIDS_LOGIN = {
     displayName: "\uD0A4\uB4DC\uD0A4\uC988",
@@ -10252,13 +10295,13 @@ var KidItemRuntime = (() => {
       readOrders(input) {
         return withFreshTab(tabs, KIDKIDS_ORDER_URL, async (page) => {
           const answer = await callPage(page, "kidkids.orders", { dateFilter: input.collectionDate ?? "" }, {
-            timeoutMs: READ_TIMEOUT_MS3,
+            timeoutMs: READ_TIMEOUT_MS4,
             guard: KIDKIDS_PAGE_GUARD,
             isolated: [KIDKIDS_ORDERS_FILE],
             displayName: "\uD0A4\uB4DC\uD0A4\uC988"
           });
           if (answer?.status === "ok") return { rows: answer.orders };
-          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE4, { url: KIDKIDS_ORDER_URL });
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE5, { url: KIDKIDS_ORDER_URL });
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uB4DC\uD0A4\uC988 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -10273,19 +10316,6 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/kidsnote/listings.ts
   var KIDSNOTE_LISTINGS_URL = "https://shop.kidsnote.com/_manage/?body=2010";
   var KIDSNOTE_LISTINGS_FILE = "content/orders/kidsnote-listings.js";
-  var isKidsnoteLogin = (url) => hostWithin(url, ["kidsnote.com"]) && /login/i.test(url.pathname + url.search);
-  var KIDSNOTE_LISTINGS_GUARD = {
-    allows: (url) => hostWithin(url, ["kidsnote.com"]),
-    isLogin: isKidsnoteLogin,
-    loginMessage: "\uD0A4\uC988\uB178\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0A4\uC988\uB178\uD2B8 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
-  };
-  var KIDSNOTE_LOGIN = {
-    displayName: "\uD0A4\uC988\uB178\uD2B8",
-    loginUrl: "https://shop.kidsnote.com/_manage/?body=3010",
-    hosts: ["kidsnote.com"],
-    isLoginUrl: isKidsnoteLogin,
-    fields: ["loginId", "password"]
-  };
   function createKidsnoteListings(tabs, signIn) {
     return {
       readListings: (plan) => readMallListings(tabs, {
@@ -10294,11 +10324,73 @@ var KidItemRuntime = (() => {
         startUrl: KIDSNOTE_LISTINGS_URL,
         file: KIDSNOTE_LISTINGS_FILE,
         call: "kidsnote.listings",
-        guard: KIDSNOTE_LISTINGS_GUARD
+        guard: KIDSNOTE_PAGE_GUARD
       }, plan, signIn)
     };
   }
-  registerSite({ name: "kidsnote", create: (deps, lease) => createKidsnoteListings(deps.tabs, createSiteSignIn(KIDSNOTE_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/kidsnote/index.ts
+  var KIDSNOTE_ORDER_URL = "https://shop.kidsnote.com/_manage/?body=3010";
+  var KIDSNOTE_ORDERS_FILE = "content/page-call/kidsnote-orders.js";
+  var READ_TIMEOUT_MS5 = 19e4;
+  var LOGIN_MESSAGE6 = "shop.kidsnote.com \uAD00\uB9AC\uC790 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.";
+  var HOSTS2 = ["shop.kidsnote.com"];
+  var isKidsnoteLogin = (url) => hostWithin(url, HOSTS2) && /\/login/i.test(url.pathname);
+  var KIDSNOTE_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, HOSTS2),
+    isLogin: isKidsnoteLogin,
+    loginMessage: LOGIN_MESSAGE6
+  };
+  var KIDSNOTE_LOGIN = {
+    displayName: "\uD0A4\uC988\uB178\uD2B8",
+    loginUrl: KIDSNOTE_ORDER_URL,
+    hosts: HOSTS2,
+    isLoginUrl: isKidsnoteLogin,
+    fields: ["loginId", "password"]
+  };
+  function kidsnoteConvertOrder(order) {
+    return {
+      ono: order.ono,
+      orderedAt: order.orderedAt,
+      paidAt: order.paidAt ?? "",
+      buyer: order.ordererName,
+      total: order.totalAmount,
+      paid: order.paidAmount,
+      payMethod: order.payMethod,
+      status: order.status,
+      receiver: order.receiver || order.ordererName,
+      mobile: order.mobile ?? "",
+      tel: order.tel ?? "",
+      zip: order.zip ?? "",
+      address: order.address ?? "",
+      request: order.request ?? "",
+      items: order.items?.length ? order.items : [{ productName: order.productName, qty: 1, option: "", shipFee: 0 }]
+    };
+  }
+  function createKidsnoteSite(tabs, signIn) {
+    return {
+      ...createKidsnoteListings(tabs, signIn),
+      readOrders(input) {
+        return withFreshTab(tabs, KIDSNOTE_ORDER_URL, async (page) => {
+          const day = input.collectionDate ?? "";
+          const answer = await callPage(page, "kidsnote.orders", { from: day, to: day, status: "", withDetail: true }, {
+            timeoutMs: READ_TIMEOUT_MS5,
+            guard: KIDSNOTE_PAGE_GUARD,
+            isolated: [KIDSNOTE_ORDERS_FILE],
+            displayName: "\uD0A4\uC988\uB178\uD2B8"
+          });
+          if (answer?.status === "ok") return { rows: answer.orders.map(kidsnoteConvertOrder) };
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE6, { url: KIDSNOTE_ORDER_URL });
+          throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uC988\uB178\uD2B8 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
+            status: null,
+            reason: "page_error",
+            url: KIDSNOTE_ORDER_URL
+          });
+        }, signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({ name: "kidsnote", create: (deps, lease) => createKidsnoteSite(deps.tabs, createSiteSignIn(KIDSNOTE_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/kkomangse/listings.ts
   var KKOMANGSE_LISTINGS_URL = "https://nstore.edupre.co.kr/subAdmin/_product.list.php";
@@ -10474,19 +10566,6 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/onch/listings.ts
   var ONCH_LISTINGS_URL = "https://www.onch3.co.kr/products_management.php";
   var ONCH_LISTINGS_FILE = "content/orders/onch-listings.js";
-  var isOnchLogin = (url) => hostWithin(url, ["onch3.co.kr"]) && /login/i.test(url.pathname);
-  var ONCH_LISTINGS_GUARD = {
-    allows: (url) => hostWithin(url, ["onch3.co.kr"]),
-    isLogin: isOnchLogin,
-    loginMessage: "\uC628\uCC44\uB110 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC628\uCC44\uB110 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
-  };
-  var ONCH_LOGIN = {
-    displayName: "\uC628\uCC44\uB110",
-    loginUrl: "https://www.onch3.co.kr/supplier/orders.php?state=all",
-    hosts: ["onch3.co.kr"],
-    isLoginUrl: isOnchLogin,
-    fields: ["loginId", "password"]
-  };
   function createOnchListings(tabs, signIn) {
     return {
       readListings: (plan) => readMallListings(tabs, {
@@ -10495,11 +10574,53 @@ var KidItemRuntime = (() => {
         startUrl: ONCH_LISTINGS_URL,
         file: ONCH_LISTINGS_FILE,
         call: "onch.listings",
-        guard: ONCH_LISTINGS_GUARD
+        guard: ONCH_PAGE_GUARD
       }, plan, signIn)
     };
   }
-  registerSite({ name: "onch", create: (deps, lease) => createOnchListings(deps.tabs, createSiteSignIn(ONCH_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/onch/index.ts
+  var ONCH_ORDER_URL = "https://www.onch3.co.kr/supplier/orders.php?state=all";
+  var ONCH_ORDERS_FILE = "content/page-call/onch-orders.js";
+  var READ_TIMEOUT_MS6 = 12e4;
+  var LOGIN_MESSAGE7 = "\uC628\uCC44\uB110 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. onch3.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var HOSTS3 = ["onch3.co.kr"];
+  var isOnchLogin = (url) => hostWithin(url, HOSTS3) && /\/login\//i.test(url.pathname);
+  var ONCH_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, HOSTS3),
+    isLogin: isOnchLogin,
+    loginMessage: LOGIN_MESSAGE7
+  };
+  var ONCH_LOGIN = {
+    displayName: "\uC628\uCC44\uB110",
+    loginUrl: ONCH_ORDER_URL,
+    hosts: HOSTS3,
+    isLoginUrl: isOnchLogin,
+    fields: ["loginId", "password"]
+  };
+  function createOnchSite(tabs, signIn) {
+    return {
+      ...createOnchListings(tabs, signIn),
+      readOrders(input) {
+        return withFreshTab(tabs, ONCH_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "onch.orders", { dateFilter: input.collectionDate ?? "" }, {
+            timeoutMs: READ_TIMEOUT_MS6,
+            guard: ONCH_PAGE_GUARD,
+            isolated: [ONCH_ORDERS_FILE],
+            displayName: "\uC628\uCC44\uB110"
+          });
+          if (answer?.status === "ok") return { rows: answer.orders };
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE7, { url: ONCH_ORDER_URL });
+          throw new RuntimeError(SITE_REQUEST_FAILED, `\uC628\uCC44\uB110 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
+            status: null,
+            reason: "page_error",
+            url: ONCH_ORDER_URL
+          });
+        }, signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({ name: "onch", create: (deps, lease) => createOnchSite(deps.tabs, createSiteSignIn(ONCH_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/product-page/description.ts
   function parseDescriptionHtml(html) {
@@ -10673,12 +10794,12 @@ var KidItemRuntime = (() => {
   var NAVIGATION_TIMEOUT_MS8 = 45e3;
   var PAGE_CALL_TIMEOUT_MS = 35e3;
   var SABANGNET_PAGE_DELAY_MS = 800;
-  var LOGIN_MESSAGE5 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE8 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
   var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
   var SABANGNET_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sabangnet.co.kr"]),
     isLogin: (url) => hostWithin(url, ["sabangnet.co.kr"]) && /login/i.test(`${url.pathname}${url.hash}`),
-    loginMessage: LOGIN_MESSAGE5
+    loginMessage: LOGIN_MESSAGE8
   };
   function createSabangnetSite(tabs, sleep) {
     let pagesRead = 0;
@@ -10707,7 +10828,7 @@ var KidItemRuntime = (() => {
         case "ok":
           return { total: answer.total, items: answer.items };
         case "login_required":
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE5, { url: PAGE_URL });
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE8, { url: PAGE_URL });
         case "http_error":
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
             status: answer.httpStatus,
@@ -10748,11 +10869,11 @@ var KidItemRuntime = (() => {
   var SELLPIA_REPRINT_URL = `${SELLPIA_ORIGIN}/order_delivery_reprint.html`;
   var SELLPIA_SHIPMENT_TRACKING_FILE = "content/orders/sellpia-shipment-tracking.js";
   var QUERY_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE6 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE9 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
   var SELLPIA_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sellpia.com"]),
     isLogin: (url) => hostWithin(url, ["sellpia.com"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE6
+    loginMessage: LOGIN_MESSAGE9
   };
   function createSellpiaTracking(tabs) {
     return {
@@ -10769,7 +10890,7 @@ var KidItemRuntime = (() => {
             case "ok":
               return { rows: answer.rows, total: answer.total };
             case "login_required":
-              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE6, { url: SELLPIA_REPRINT_URL });
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE9, { url: SELLPIA_REPRINT_URL });
             case "http_error":
               throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
                 status: answer.httpStatus,
@@ -10918,7 +11039,7 @@ var KidItemRuntime = (() => {
   var NAVIGATION_TIMEOUT_MS9 = 45e3;
   var SEARCH_TIMEOUT_MS = 10 * 6e4;
   var STATUS_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE7 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE10 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
   var MALL_CONTRACT_CHANGED5 = "MALL_CONTRACT_CHANGED";
   function createSellpiaManualMatch(tabs) {
     let tab = null;
@@ -10945,7 +11066,7 @@ var KidItemRuntime = (() => {
           case "ok":
             return answer;
           case "login_required":
-            throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE7, { url: SELLPIA_MANUAL_MATCH_URL });
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE10, { url: SELLPIA_MANUAL_MATCH_URL });
           case "contract_drift":
             throw new RuntimeError(MALL_CONTRACT_CHANGED5, `\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
           case "http_error":

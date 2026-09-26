@@ -26,15 +26,16 @@ import '../sites/art09';
 import '../sites/auction/listings';
 import '../sites/domeggook';
 import '../sites/gmarket/listings';
+import '../sites/haebub-mall';
 import '../sites/icecream-mall';
 import '../sites/kakao/listings';
 import '../sites/kidkids';
-import '../sites/kidsnote/listings';
+import '../sites/kidsnote';
 import '../sites/kkomangse/listings';
 import '../sites/lotte-on/listings';
 import '../sites/mall-admin-listings';
 import '../sites/mall-orders';
-import '../sites/onch/listings';
+import '../sites/onch';
 import '../sites/product-page';
 import '../sites/sabangnet';
 import '../sites/sellpia';
@@ -108,6 +109,10 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     expect(keys(handle.reader('art09'))).toEqual(['readListings', 'readOrders']);
     expect(keys(handle.reader('domeggook'))).toEqual(['readListings', 'readOrders']);
     expect(keys(handle.reader('icecream-mall'))).toEqual(['readListings', 'readOrders']);
+    // 2차 몰(KID-380): 키즈노트·온채널은 목록 읽기(KID-381)도 같은 사이트, 해법몰은 주문만.
+    expect(keys(handle.reader('kidsnote'))).toEqual(['readListings', 'readOrders']);
+    expect(keys(handle.reader('onch'))).toEqual(['readListings', 'readOrders']);
+    expect(keys(handle.reader('haebub-mall'))).toEqual(['readOrders']);
     expect(handle.reader('no-such-mall')).toBeNull();
     expect(handle.reader('mall-orders')).toBeNull();
     // 등록된 사이트라도 몰 주문 kind로 옮긴 몰이 아니면 주지 않는다(리뷰 S9).

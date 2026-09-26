@@ -79,6 +79,9 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
   let art09Account: string;
   let domeggookAccount: string;
   let icecreamAccount: string;
+  let kidsnoteAccount: string;
+  let onchAccount: string;
+  let haebubAccount: string;
   let rocketAccount: string;
 
   beforeAll(async () => {
@@ -119,6 +122,9 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     art09Account = (await create('art09', '아트공구')).id;
     domeggookAccount = (await create('domeggook', '도매꾹')).id;
     icecreamAccount = (await create('icecream-mall', '아이스크림몰')).id;
+    kidsnoteAccount = (await create('kidsnote', '키즈노트')).id;
+    onchAccount = (await create('onch', '온채널')).id;
+    haebubAccount = (await create('haebub-mall', '해법몰')).id;
     rocketAccount = (await create('rocket', '쿠팡 로켓')).id;
   });
 
@@ -199,7 +205,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
       data: { organizationId: OTHER_ORG, channel: 'kidkids', name: '키드키즈', externalAccountId: 'kidkids', isPrimary: true },
     });
     for (const bad of [
-      scope({ mallKey: 'kidsnote' }),
+      scope({ mallKey: 'kakao' }),
       scope({ channelAccountId: art09Account }),
       scope({ channelAccountId: foreign.id }),
       scope({ selectionMode: 'automatic' }),
@@ -262,6 +268,102 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ rows });
     const converted = await convert('art09/convert', run.operation.id).expect(201);
     expect(converted.headers).toMatchObject({ 'content-type': 'text/csv;charset=utf-8', 'x-order-collection-source-rows': '1', 'x-order-collection-output-rows': '2' });
+  });
+
+  it('키즈노트(KID-380): 확장이 옛 kidsnotePayload 모양으로 올린 주문을 {orders}로 보관하고 주문번호(ono)와 주문 수를 적는다', async () => {
+    // 확장 `sites/kidsnote` kidsnoteConvertOrder가 만드는 원소 — 주문 하나는 품목 둘 + 택배비, 하나는 품목 하나(배송비 없음).
+    const orders = [
+      {
+        ono: '20260926-00002', orderedAt: `${TODAY} 15:10:00`, paidAt: `${TODAY} 15:12`, buyer: '박영희', total: 12000, paid: 11000,
+        payMethod: '무통장입금', status: '결제완료', receiver: '행복유치원', mobile: '010-1234-5678', tel: '', zip: '06000',
+        address: '서울 강남구 테헤란로 1', request: '문 앞에 두세요',
+        items: [
+          { productName: '색종이 세트', qty: 2, option: '', amount: 6000, shipFee: 3000 },
+          { productName: '풀', qty: 1, option: '', amount: 1000, shipFee: 0 },
+        ],
+      },
+      {
+        ono: '20260926-00001', orderedAt: `${TODAY} 10:05`, paidAt: '', buyer: '이*진', total: 5000, paid: 5000, payMethod: '카드',
+        status: '결제완료', receiver: '이*진', mobile: '', tel: '', zip: '', address: '', request: '',
+        items: [{ productName: '크레파스', qty: 1, option: '', shipFee: 0 }],
+      },
+    ];
+    const run = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: kidsnoteAccount, mallKey: 'kidsnote' }));
+    expect(run.operation.plan).toMatchObject({ mallKey: 'kidsnote', mallName: '키즈노트' });
+    await harness.put(run, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: orders }]);
+    const finished = await harness.finish(run).expect(200);
+    expect(finished.body.operation.result).toEqual({ rowCount: 2, mallKey: 'kidsnote', captured: 2, orderNumbers: ['20260926-00002', '20260926-00001'] });
+    const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
+    expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ orders });
+    const converted = await convert('kidsnote/convert', run.operation.id).expect(201);
+    // 품목 셋 + 택배비 한 줄 = 4줄, 주문 2건(옛 변환 라우트와 같은 셈).
+    expect(converted.headers).toMatchObject({
+      'content-type': 'application/vnd.ms-excel',
+      'x-order-collection-source-rows': '2',
+      'x-order-collection-product-rows': '2',
+      'x-order-collection-output-rows': '4',
+    });
+    await expect(prisma.sourceImportRun.count({ where: { organizationId: ORG } })).resolves.toBe(0);
+  });
+
+  it('온채널(KID-380): 옛 수집기 원소 그대로 {orders}로 보관하고 주문코드와 주문 수를 적는다(상세를 못 읽은 주문도 한 줄)', async () => {
+    const orders = [
+      {
+        orderCode: 'OC-2', date: `${TODAY} 14:00:00`, productCode: 'P-100', productName: '색종이', option: '빨강', qty: 2,
+        productPrice: 12000, shippingFee: 3000, customer: '행복유치원', phone: '010-1234-5678', emergency: '02-111-2222',
+        zip: '06000', address: '서울 강남구 테헤란로 1', message: '문 앞',
+      },
+      { orderCode: 'OC-1', date: `${TODAY} 09:30:00` },
+    ];
+    const run = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: onchAccount, mallKey: 'onch' }));
+    expect(run.operation.plan).toMatchObject({ mallKey: 'onch', mallName: '온채널' });
+    await harness.put(run, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: orders }]);
+    const finished = await harness.finish(run).expect(200);
+    expect(finished.body.operation.result).toEqual({ rowCount: 2, mallKey: 'onch', captured: 2, orderNumbers: ['OC-2', 'OC-1'] });
+    const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
+    expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ orders });
+    // 상품 두 줄 + 택배비 한 줄 = 3줄, 주문 2건.
+    const converted = await convert('onchannel/convert', run.operation.id).expect(201);
+    expect(converted.headers).toMatchObject({
+      'content-type': 'application/vnd.ms-excel',
+      'x-order-collection-source-rows': '2',
+      'x-order-collection-product-rows': '1',
+      'x-order-collection-output-rows': '3',
+    });
+  });
+
+  it('해법몰(KID-380): 상품행을 {orders}로 보관하고 주문번호·수집일 기간 확인을 적는다, 빈 날도 기간 확인과 0건', async () => {
+    const row = (orderNo: string, regNo: string, shipFee: number) => ({
+      orderNo, regNo, vendor: '거영아이앤디', productName: `상품 ${regNo}`, productCode: 'PRD-1', option: '', qty: 1,
+      sellPrice: 5000, sellAmount: 5000, shipFee, payMethod: '신 + 포', orderDate: `${TODAY} 19:54:20`, invoice: '',
+      ordName: '주문자', group: '일반', ordId: 'member', ordEmail: '', ordTel: '', ordMobile: '010-111', ordPost: '06000',
+      ordAddr: '서울 강남구', recvName: '수취인', recvTel: '', recvMobile: '010-222', recvPost: '07000', recvAddr: '서울 마포구',
+      demand: '', memo: '', status: '결제완료',
+    });
+    const rows = [row('1001', 'B-1', 3000), row('1001', 'B-2', 0), row('1002', 'B-3', 3000)];
+    const run = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: haebubAccount, mallKey: 'haebub-mall' }));
+    expect(run.operation.plan).toMatchObject({ mallKey: 'haebub-mall', mallName: '해법몰' });
+    await harness.put(run, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: rows }]);
+    const finished = await harness.finish(run).expect(200);
+    // 해법몰은 택배비가 같은 행의 칸이라 출력 줄 = 상품 줄 — 셈법(orderCollectionOrderCount)이 0을 낸다(옛 경로와 같다,
+    // 옛 웹은 주문번호를 따로 넘겼다 — 이제 result.orderNumbers). 캡처가 있으므로 변환 파일은 나온다.
+    expect(finished.body.operation.result).toEqual({
+      rowCount: 0, mallKey: 'haebub-mall', captured: 3, orderNumbers: ['1001', '1002'], coverage: { startDate: TODAY, endDate: TODAY },
+    });
+    const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
+    expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ orders: rows });
+    const converted = await convert('haebeop/convert', run.operation.id).expect(201);
+    expect(converted.headers).toMatchObject({
+      'content-type': 'application/vnd.ms-excel',
+      'x-order-collection-source-rows': '3',
+      'x-order-collection-product-rows': '3',
+      'x-order-collection-output-rows': '3',
+    });
+
+    const empty = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: haebubAccount, mallKey: 'haebub-mall' }));
+    expect((await harness.finish(empty).expect(200)).body.operation.result)
+      .toEqual({ rowCount: 0, mallKey: 'haebub-mall', captured: 0, orderNumbers: [], coverage: { startDate: TODAY, endDate: TODAY } });
+    await convert('haebeop/convert', empty.operation.id).expect(204);
   });
 
   it('도매꾹: 나눠 올린 CSV 조각을 이어 파일 캡처(text/csv)로 보관하고 수집일로 거른 행 수를 적는다, 빈 날은 조각 없이 0건', async () => {

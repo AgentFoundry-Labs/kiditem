@@ -5,7 +5,6 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mocks = vi.hoisted(() => ({
   detectExtension: vi.fn(),
   ensureLogin: vi.fn(),
-  collectKidsnote: vi.fn(),
   sendToExtension: vi.fn(),
   regenerateSource: vi.fn(),
   password: vi.fn(),
@@ -41,10 +40,6 @@ vi.mock('./order-collection-extension', () => ({
 vi.mock('./order-collection-api', () => ({
   regenerateOrderCollectionSource: mocks.regenerateSource,
 }));
-vi.mock('./kidsnote-orders-api', () => ({
-  collectKidsnoteOrdersFromExtension: mocks.collectKidsnote,
-  convertKidsnoteToSellpiaFile: vi.fn(),
-}));
 vi.mock('@/lib/order-mall-account-api', () => ({
   orderMallAccountApi: { password: mocks.password },
 }));
@@ -54,20 +49,23 @@ import { isMallAutoLoginBlocked, resetMallLoginBlocksForTest } from '@/lib/mall-
 import { createBrowserMallCollector, ensureMallLoginForRun } from './browser-mall-collection';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
+// 옛 attempt 경로에 끝까지 남는 몰은 카카오뿐이다(KID-380) — 서버 소유 수집(serverOwned)으로 돈다.
 const RUN = {
   attemptId: '11111111-1111-4111-8111-111111111111',
   attemptToken: '22222222-2222-4222-8222-222222222222',
   extensionId: 'order-extension',
+  date: '2026-09-10' as string | null,
+  serverOwned: true as const,
 };
 
 const ACCOUNT: OrderCollectionMallAccount = {
-  key: 'kidsnote',
-  name: '키즈노트',
+  key: 'kakao',
+  name: '카카오',
   configured: true,
   enabled: true,
   loginId: 'operator',
   hasPassword: true,
-  siteUrl: 'https://shop.kidsnote.com',
+  siteUrl: 'https://shopping-seller.kakao.com',
   memo: null,
   passwordUpdatedAt: null,
   updatedAt: null,
@@ -81,9 +79,13 @@ describe('createBrowserMallCollector', () => {
     window.localStorage.clear();
     mocks.detectExtension.mockResolvedValue(RUN.extensionId);
     mocks.password.mockResolvedValue({ password: 'secret' });
-    mocks.collectKidsnote.mockResolvedValue({ orders: [], count: 0 });
     mocks.sendToExtension.mockReset();
     mocks.regenerateSource.mockReset();
+    mocks.sendToExtension.mockResolvedValue({ success: true, terminalState: 'COMPLETE' });
+    mocks.regenerateSource.mockResolvedValue({
+      fileName: '', blob: new Blob([]), previewRows: [],
+      sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
+    });
   });
 
   it('stops collection when login preflight needs attention', async () => {
@@ -102,11 +104,11 @@ describe('createBrowserMallCollector', () => {
 
     // 확장에 고정 로그인 주소가 없는 몰은 이 주소로 들어가 로그인 버튼까지 누른다.
     expect(mocks.ensureLogin).toHaveBeenCalledWith(
-      'kidsnote',
-      { loginId: 'operator', password: 'secret', siteUrl: 'https://shop.kidsnote.com' },
+      'kakao',
+      { loginId: 'operator', password: 'secret', siteUrl: 'https://shopping-seller.kakao.com' },
       expect.objectContaining(RUN),
     );
-    expect(mocks.collectKidsnote).not.toHaveBeenCalled();
+    expect(mocks.sendToExtension).not.toHaveBeenCalled();
   });
 
   it('reuses the original date when restarting a managed collection', async () => {
@@ -120,12 +122,10 @@ describe('createBrowserMallCollector', () => {
 
     await collector(ACCOUNT, run);
 
-    expect(mocks.collectKidsnote).toHaveBeenCalledWith(
-      '2026-07-14',
-      '2026-07-14',
-      '',
-      true,
-      run,
+    expect(mocks.sendToExtension).toHaveBeenCalledWith(
+      RUN.extensionId,
+      expect.objectContaining({ action: 'collectKakaoOrders', attemptId: RUN.attemptId, date: '2026-07-14' }),
+      200000,
     );
   });
 
@@ -140,8 +140,8 @@ describe('createBrowserMallCollector', () => {
     await collector({ ...ACCOUNT, loginId: 'fresh-operator' }, RUN);
 
     expect(mocks.ensureLogin).toHaveBeenCalledWith(
-      'kidsnote',
-      { loginId: 'fresh-operator', password: 'secret', siteUrl: 'https://shop.kidsnote.com' },
+      'kakao',
+      { loginId: 'fresh-operator', password: 'secret', siteUrl: 'https://shopping-seller.kakao.com' },
       expect.objectContaining(RUN),
     );
   });
@@ -154,7 +154,7 @@ describe('createBrowserMallCollector', () => {
       // The converter response may be lost after the source owner commits.
     });
     mocks.regenerateSource.mockResolvedValue({
-      fileName: 'kidsnote.xls',
+      fileName: 'kakao.xls',
       blob: new Blob(['converted']),
       previewRows: [['converted']],
       sourceRows: 2,
@@ -180,7 +180,7 @@ describe('createBrowserMallCollector', () => {
     expect(mocks.sendToExtension).toHaveBeenCalledWith(
       RUN.extensionId,
       expect.objectContaining({
-        action: 'collectKidsnoteOrders',
+        action: 'collectKakaoOrders',
         attemptId: RUN.attemptId,
         serverOwned: true,
         deferTerminal: true,
@@ -193,9 +193,9 @@ describe('createBrowserMallCollector', () => {
       { download: false },
     );
     expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({
-      mallKey: 'kidsnote',
+      mallKey: 'kakao',
       collectedRows: 2,
-      fileName: 'kidsnote.xls',
+      fileName: 'kakao.xls',
     }));
     expect(setPreviewId).toHaveBeenCalled();
     expect(result).toEqual({
@@ -214,7 +214,7 @@ describe('createBrowserMallCollector', () => {
       sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
     });
     const addGeneratedFile = vi.fn();
-    const account = { ...ACCOUNT, key: 'haebub-mall' as const, name: '해법몰' };
+    const account = ACCOUNT;
     const collector = createBrowserMallCollector({
       mallAccounts: [account],
       addGeneratedFile, setPreviewId: vi.fn(),
@@ -222,14 +222,14 @@ describe('createBrowserMallCollector', () => {
     await expect(collector(account, { ...RUN, date: '2026-09-10', serverOwned: true }))
       .resolves.toMatchObject({ rowCount: 0 });
     expect(addGeneratedFile).not.toHaveBeenCalled();
-    expect(mocks.toast).toHaveBeenCalledWith('해법몰 신규 주문이 없습니다.', undefined);
+    expect(mocks.toast).toHaveBeenCalledWith('카카오 신규 주문이 없습니다.', undefined);
   });
 
   it('reconciles a lost extension response from the retained source without recollecting', async () => {
     mocks.ensureLogin.mockResolvedValue({ success: true });
     mocks.sendToExtension.mockRejectedValue(new Error('extension response lost'));
     mocks.regenerateSource.mockResolvedValue({
-      fileName: 'kidsnote.xls',
+      fileName: 'kakao.xls',
       blob: new Blob(['converted']),
       previewRows: [['converted']],
       sourceRows: 3,
@@ -272,7 +272,7 @@ describe('createBrowserMallCollector', () => {
         loginId: 'operator',
         supplierLoginId: 'supplier-operator',
         password: 'secret',
-        siteUrl: 'https://shop.kidsnote.com',
+        siteUrl: 'https://shopping-seller.kakao.com',
       },
       run,
     );
@@ -310,16 +310,7 @@ describe('createBrowserMallCollector', () => {
   it('defers every managed mall session until web conversion finishes', () => {
     const apiFiles = [
       'order-collection-extension.ts',
-      'kidsnote-orders-api.ts',
-      'kkomangse-orders-api.ts',
-      'onchannel-orders-api.ts',
-      'lotteon-orders-api.ts',
-      'gsshop-orders-api.ts',
-      'alwayz-orders-api.ts',
       'kakao-orders-api.ts',
-      'boribori-orders-api.ts',
-      'teacherville-orders-api.ts',
-      'haebeop-orders-api.ts',
       'coupang-directship-api.ts',
     ];
 
@@ -344,7 +335,11 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     window.localStorage.clear();
     mocks.detectExtension.mockResolvedValue(RUN.extensionId);
     mocks.password.mockResolvedValue({ password: 'secret' });
-    mocks.collectKidsnote.mockResolvedValue({ orders: [], count: 0 });
+    mocks.sendToExtension.mockResolvedValue({ success: true, terminalState: 'COMPLETE' });
+    mocks.regenerateSource.mockResolvedValue({
+      fileName: '', blob: new Blob([]), previewRows: [],
+      sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
+    });
   });
 
   const collect = () =>
@@ -368,8 +363,8 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     // This is the login preflight deadline. A missing preflight reply must not
     // turn an otherwise runnable collection into a failed source run.
     await collect();
-    expect(mocks.collectKidsnote).toHaveBeenCalledTimes(1);
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+    expect(mocks.sendToExtension).toHaveBeenCalledTimes(1);
+    expect(isMallAutoLoginBlocked('kakao')).toBe(false);
   });
 
   it('비밀번호가 거부되면 차단한다 — 또 두드리면 계정이 잠긴다', async () => {
@@ -380,7 +375,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     });
 
     await expect(collect()).rejects.toThrow();
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(true);
+    expect(isMallAutoLoginBlocked('kakao')).toBe(true);
   });
 
   /** 12:29 라이브: 전체수집이 서버 요청 한도(분당 120)를 넘겨 몰 20곳이 한꺼번에 차단됐다. */
@@ -392,7 +387,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     });
 
     await expect(collect()).rejects.toThrow();
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+    expect(isMallAutoLoginBlocked('kakao')).toBe(false);
   });
 
   /** 로그인 뒤 화면은 몰마다 다르다. 확인하지 못한 것을 실패로 굳히지 않고, 대신 자주 넣지 않는다. */
@@ -407,7 +402,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
 
     await automatic();
 
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+    expect(isMallAutoLoginBlocked('kakao')).toBe(false);
     expect(mocks.ensureLogin).toHaveBeenCalledTimes(1);
 
     await automatic();
@@ -429,7 +424,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
   });
 
   /**
-   * 키즈노트처럼 알림 창으로 답하는 몰이 많다. 그 답을 받아 오면 "확인 못 함"으로 얼버무리지
+   * 알림 창으로 답하는 몰이 많다. 그 답을 받아 오면 "확인 못 함"으로 얼버무리지
    * 않고 몰의 말을 그대로 보여 주고, 아이디·비밀번호를 거부한 것이면 더 두드리지 않는다.
    */
   it('⭐ 몰이 아이디·비밀번호를 거부했다고 말하면 그 몰의 자동 로그인을 막는다', async () => {
@@ -442,7 +437,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
 
     await collect();
 
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(true);
+    expect(isMallAutoLoginBlocked('kakao')).toBe(true);
   });
 
   it('몰이 다른 말을 남기면 막지 않는다 — 점검 중 · 세션 만료는 자격증명 문제가 아니다', async () => {
@@ -455,7 +450,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
 
     await collect();
 
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+    expect(isMallAutoLoginBlocked('kakao')).toBe(false);
   });
 
   /**
@@ -473,7 +468,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     });
 
     await expect(collect()).rejects.toThrow();
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+    expect(isMallAutoLoginBlocked('kakao')).toBe(false);
   });
 
   it('사람이 인증만 하면 되는 상태는 차단하지 않는다', async () => {
@@ -484,7 +479,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     });
 
     await expect(collect()).rejects.toThrow();
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+    expect(isMallAutoLoginBlocked('kakao')).toBe(false);
   });
 
 });
@@ -496,7 +491,11 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     window.localStorage.clear();
     mocks.detectExtension.mockResolvedValue(RUN.extensionId);
     mocks.password.mockResolvedValue({ password: 'secret' });
-    mocks.collectKidsnote.mockResolvedValue({ orders: [], count: 0 });
+    mocks.sendToExtension.mockResolvedValue({ success: true, terminalState: 'COMPLETE' });
+    mocks.regenerateSource.mockResolvedValue({
+      fileName: '', blob: new Blob([]), previewRows: [],
+      sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
+    });
   });
 
   const collect = () =>
@@ -519,7 +518,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     });
 
     await collect();
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+    expect(isMallAutoLoginBlocked('kakao')).toBe(false);
   });
 
   /**
@@ -535,7 +534,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     });
 
     await expect(collect()).resolves.toBeDefined();
-    expect(mocks.collectKidsnote).toHaveBeenCalledTimes(1);
+    expect(mocks.sendToExtension).toHaveBeenCalledTimes(1);
   });
 
   it('비밀번호가 거부되면 차단한다 — 또 두드리면 계정이 잠긴다', async () => {
@@ -546,7 +545,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     });
 
     await expect(collect()).rejects.toThrow();
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(true);
+    expect(isMallAutoLoginBlocked('kakao')).toBe(true);
   });
 
   /** 12:29 라이브: 전체수집이 서버 요청 한도(분당 120)를 넘겨 몰 20곳이 한꺼번에 차단됐다. */
@@ -558,7 +557,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     });
 
     await expect(collect()).rejects.toThrow();
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+    expect(isMallAutoLoginBlocked('kakao')).toBe(false);
   });
 
   /** 로그인 뒤 화면은 몰마다 다르다. 확인하지 못한 것을 실패로 굳히지 않고, 대신 자주 넣지 않는다. */
@@ -574,7 +573,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
 
     await automatic();
 
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+    expect(isMallAutoLoginBlocked('kakao')).toBe(false);
     expect(mocks.ensureLogin).toHaveBeenCalledTimes(1);
 
     await automatic();
@@ -597,7 +596,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
   });
 
   /**
-   * 키즈노트처럼 알림 창으로 답하는 몰이 많다. 그 답을 받아 오면 "확인 못 함"으로 얼버무리지
+   * 알림 창으로 답하는 몰이 많다. 그 답을 받아 오면 "확인 못 함"으로 얼버무리지
    * 않고 몰의 말을 그대로 보여 주고, 아이디·비밀번호를 거부한 것이면 더 두드리지 않는다.
    */
   it('⭐ 몰이 아이디·비밀번호를 거부했다고 말하면 그 몰의 자동 로그인을 막는다', async () => {
@@ -610,7 +609,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
 
     await collect();
 
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(true);
+    expect(isMallAutoLoginBlocked('kakao')).toBe(true);
   });
 
   it('몰이 다른 말을 남기면 막지 않는다 — 점검 중 · 세션 만료는 자격증명 문제가 아니다', async () => {
@@ -623,7 +622,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
 
     await collect();
 
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+    expect(isMallAutoLoginBlocked('kakao')).toBe(false);
   });
 
   /**
@@ -641,7 +640,7 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     });
 
     await expect(collect()).rejects.toThrow();
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+    expect(isMallAutoLoginBlocked('kakao')).toBe(false);
   });
 
   it('사람이 인증만 하면 되는 상태는 차단하지 않는다', async () => {
@@ -652,6 +651,6 @@ describe('자동 로그인 차단은 진짜 로그인 실패에만', () => {
     });
 
     await expect(collect()).rejects.toThrow();
-    expect(isMallAutoLoginBlocked('kidsnote')).toBe(false);
+    expect(isMallAutoLoginBlocked('kakao')).toBe(false);
   });
 });

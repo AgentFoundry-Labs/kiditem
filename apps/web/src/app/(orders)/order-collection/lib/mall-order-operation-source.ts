@@ -147,6 +147,15 @@ export function mallOrderOperationSource({
  * 생성 파일을 남긴다. 주문이 없던 수집은 변환하지 않는다. 실패는 `OrderOperationFailure`로 올라가 몰 카드가
  * 로그인 필요·인증 필요·실패를 가른다.
  */
+/**
+ * 실행을 기다리는 한도. 옛 확장 응답 제한(200초)이 기본이고, 도매꾹은 엑셀 생성을, 키즈노트(읽기 190초)·해법몰(180초)은
+ * 읽기 위에 실행 안 로그인(폼 15초 + 이동 30초 두 번)을 더 기다린다(KID-380).
+ */
+const LONG_WAIT_MALLS: ReadonlySet<string> = new Set(['domeggook', 'kidsnote', 'haebub-mall']);
+function operationWaitMs(mallKey: string): number {
+  return LONG_WAIT_MALLS.has(mallKey) ? 260_000 : 200_000;
+}
+
 export async function collectMallOrderOperation({
   account,
   operationId,
@@ -164,8 +173,7 @@ export async function collectMallOrderOperation({
 }>): Promise<BrowserMallCollectionResult> {
   const operation = await waitForOrderOperation(MALL_ORDERS_KIND, operationId, {
     source: 'order_collection_mall',
-    // 옛 확장 응답 제한과 같다(도매꾹은 엑셀 생성을 기다린다).
-    timeoutMs: account.key === 'domeggook' ? 260_000 : 200_000,
+    timeoutMs: operationWaitMs(account.key),
     ...(signal ? { signal } : {}),
     ...(sleep ? { sleep } : {}),
   }).catch((error: unknown) => {

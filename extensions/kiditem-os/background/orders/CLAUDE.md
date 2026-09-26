@@ -77,7 +77,7 @@ summary, Rocket PO and directship are operation kinds collected by
 
 ## Mall Order Operations
 
-- First-batch malls (icecream-mall, kidkids, art09, domeggook) collect through
+- Malls in `MALL_ORDER_OPERATION_MALLS` collect through
   the runtime kind `orders.mall_orders`: `sites/mall-orders` routes the plan's
   mall key to `sites/<mallKey>`, which opens its own inactive tab and returns
   the old convert body's rows. Their worker collectors are gone; the other

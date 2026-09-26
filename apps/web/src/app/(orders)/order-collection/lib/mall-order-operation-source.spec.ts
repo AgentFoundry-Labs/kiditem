@@ -86,9 +86,9 @@ beforeEach(() => {
 });
 
 describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
-  it('1차 몰 4곳만 실행 kind로 수집한다', () => {
-    expect(['icecream-mall', 'kidkids', 'art09', 'domeggook'].every(collectsViaMallOrderOperation)).toBe(true);
-    expect(collectsViaMallOrderOperation('kidsnote')).toBe(false);
+  it('1차 몰 4곳과 사이트를 옮긴 2차 몰만 실행 kind로 수집한다(KID-380)', () => {
+    expect(['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kidsnote', 'onch', 'haebub-mall'].every(collectsViaMallOrderOperation)).toBe(true);
+    expect(collectsViaMallOrderOperation('kakao')).toBe(false);
   });
 
   it('시작: 저장 자격(차단·간격 규칙을 지난 것)을 실어 그 계정·오늘·선택 방식으로 실행을 연 뒤 절차에 넘긴다(KID-377 — 확장이 실행 안에서 로그인)', async () => {
@@ -153,6 +153,34 @@ describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
 
 describe('collectMallOrderOperation — 실행이 끝나면 실행 id로 변환해 생성 파일을 남긴다', () => {
   const sleep = async () => undefined;
+
+  it.each([
+    ['kidkids', 200_000],
+    // 도매꾹은 엑셀 생성, 키즈노트(190초)·해법몰(180초)은 읽기 + 실행 안 로그인(폼 15초 + 이동 30초 두 번)을 기다린다(KID-380).
+    ['domeggook', 260_000],
+    ['kidsnote', 260_000],
+    ['haebub-mall', 260_000],
+    ['onch', 200_000],
+  ] as const)('%s 실행은 %i ms까지 기다린 뒤 아직 끝나지 않았다고 알린다', async (mallKey, limit) => {
+    let clock = 0;
+    const now = vi.spyOn(Date, 'now').mockImplementation(() => clock);
+    try {
+      vi.mocked(apiClient.get).mockResolvedValue({ operation: operation(OPERATION_ID, 'executing', { plan: { mallKey } }) });
+      const waited = collectMallOrderOperation({
+        account: { ...account, key: mallKey },
+        operationId: OPERATION_ID,
+        collectionDate: '2026-09-26',
+        addGeneratedFile: vi.fn(),
+        sleep: async (ms) => { clock += ms; },
+      });
+      await expect(waited).rejects.toThrow('실행이 아직 끝나지 않았습니다');
+      expect(clock).toBeGreaterThanOrEqual(limit);
+      expect(clock).toBeLessThan(limit + 10_000);
+    } finally {
+      now.mockRestore();
+      vi.mocked(apiClient.get).mockReset();
+    }
+  });
 
   it('성공한 실행을 실행 id로 다시 변환하고(본문 operationId), 수집 행 수를 생성 파일에 적는다', async () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(OPERATION_ID, 'succeeded') });
