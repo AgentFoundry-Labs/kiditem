@@ -21,17 +21,11 @@ import { channelFactTestPorts, channelFactTestProviders } from '../../../test-he
 // while the ad endpoint answered `none` for September — both under a `2026-09`
 // label (docs/adr/0001-dashboard-month-window-is-anchor-clipped.md).
 
-import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, describe, expect, it } from 'vitest';
 import { Test } from '@nestjs/testing';
 
 import { enumerateDashboardDates } from '@kiditem/shared/dashboard';
 import type { AdCoverage } from '@kiditem/shared/dashboard';
-import type {
-  AdTrafficSourceDailyPlan,
-  AdTrafficSourceDailyReceiptInput,
-  AdTrafficSourcePeriodReceiptInput,
-} from '@kiditem/shared/advertising';
 
 import { DashboardAdService } from '../../application/service/dashboard/dashboard-ad.service';
 import { DashboardSalesService } from '../../application/service/dashboard/dashboard-sales.service';
@@ -46,8 +40,8 @@ import { DASHBOARD_SALES_REPOSITORY_PORT } from '../../application/port/out/repo
 import { PROFIT_CALCULATION_REPOSITORY_PORT } from '../../application/port/out/repository/dashboard/profit-calculation.repository.port';
 import { WING_TRAFFIC_AGGREGATION_REPOSITORY_PORT } from '../../application/port/out/repository/dashboard/wing-traffic-aggregation.repository.port';
 import { PrismaService } from '../../../prisma/prisma.service';
-import { SourceFailureAlerts } from '../../../alerts/alerts.service';
-import { AdTrafficSourceRepository } from '../../../advertising/adapter/out/repository/ad-traffic-source.repository';
+import { WingTrafficReadRepository } from '../../../advertising/adapter/out/repository/wing-traffic-read.repository';
+import { wingTrafficOperations } from '../../../test-helpers/wing-traffic-operations';
 import { AD_TRAFFIC_READ_PORT } from '../../../advertising/application/port/in/ad-traffic-source.port';
 import {
   makeTestPrisma,
@@ -58,7 +52,6 @@ import {
 import type { PrismaClient } from '@prisma/client';
 import { seedAd } from '../../../test-helpers/finance-seeds';
 
-const WING_URL = 'https://wing.coupang.com/tenants/business-insight/sales-analysis';
 const VENDOR_ID = 'VENDOR-AGREEMENT';
 
 const EMPTY_PRODUCT_ABC_READ = {
@@ -124,16 +117,13 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
   let prisma: PrismaClient;
   let salesService: DashboardSalesService;
   let adService: DashboardAdService;
-  let trafficOwner: AdTrafficSourceRepository;
+  let traffic: Awaited<ReturnType<typeof wingTrafficOperations>>;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
     const prismaService = prisma as unknown as PrismaService;
-    trafficOwner = new AdTrafficSourceRepository(channelFactTestPorts(prismaService).accounts, channelFactTestPorts(prismaService).listings,
-      prismaService,
-      new SourceFailureAlerts(prismaService),
-    );
+    traffic = await wingTrafficOperations(prisma);
 
     const m = await Test.createTestingModule({
       providers: [
@@ -160,7 +150,7 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
           useExisting: WingTrafficAggregationRepositoryAdapter,
         },
         // The source owners themselves, against the same database.
-        { provide: AD_TRAFFIC_READ_PORT, useValue: trafficOwner },
+        { provide: AD_TRAFFIC_READ_PORT, useValue: new WingTrafficReadRepository(channelFactTestPorts(prismaService).accounts, prismaService) },
       ],
     }).compile();
     salesService = m.get(DashboardSalesService);
@@ -168,6 +158,7 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
   });
 
   afterAll(async () => {
+    await traffic?.close();
     await prisma?.$disconnect();
   });
 
@@ -227,133 +218,13 @@ describe('effectivePeriod source agreement across dashboard endpoints (PG integr
     return { channelAccountId: account.id, listingId: listing.id };
   }
 
-  function rawSummary(label: string, values: TrafficSummary) {
-    return {
-      source: 'wing.summary.body',
-      label,
-      summaryMetrics: {
-        totalUniqueVisitor: values.visitors,
-        totalPageViews: values.views,
-        totalAddToCart: values.cartAdds,
-        totalOrders: values.orders,
-        totalUnitsSold: values.salesQty,
-        totalGmv: values.revenue,
-        pvToOrder: null,
-      },
-    };
-  }
-
-  function dailyTrafficReceipt(
-    attemptId: string,
-    plan: AdTrafficSourceDailyPlan,
-    businessDate: string,
-  ): AdTrafficSourceDailyReceiptInput {
-    return {
-      key: `${attemptId}:daily:${businessDate}`,
-      capturedAt: `${businessDate}T01:00:00.000Z`,
-      url: WING_URL,
-      providerVendorId: plan.providerVendorId,
-      kind: 'daily_page',
-      filterScope: plan.filterScope,
-      businessDate,
-      startDate: businessDate,
-      endDate: businessDate,
-      period: 1,
-      pageIndex: 1,
-      proof: {
-        expectedPages: 1,
-        visitedPages: [1],
-        terminalPageObserved: true,
-        verified: true,
-        complete: true,
-      },
-      data: [{
-        vendorItemId: '1001',
-        visitors: WING_DAILY.visitors,
-        views: WING_DAILY.views,
-        cartAdds: WING_DAILY.cartAdds,
-        orders: WING_DAILY.orders,
-        salesQty: WING_DAILY.salesQty,
-        revenue: WING_DAILY.revenue,
-      }],
-      accountSummary: { ...WING_DAILY },
-      accountSummaryRaw: rawSummary(`daily:${businessDate}`, { ...WING_DAILY }),
-    };
-  }
-
-  function periodTrafficReceipt(
-    attemptId: string,
-    plan: AdTrafficSourceDailyPlan,
-    days: number,
-  ): AdTrafficSourcePeriodReceiptInput {
-    const values: TrafficSummary = {
-      visitors: WING_DAILY.visitors * days,
-      views: WING_DAILY.views * days,
-      cartAdds: WING_DAILY.cartAdds * days,
-      orders: WING_DAILY.orders * days,
-      salesQty: WING_DAILY.salesQty * days,
-      revenue: WING_DAILY.revenue * days,
-      providerConversionRate: null,
-    };
-    return {
-      key: `${attemptId}:period`,
-      capturedAt: `${plan.endDate}T02:00:00.000Z`,
-      url: WING_URL,
-      providerVendorId: plan.providerVendorId,
-      kind: 'period_summary',
-      filterScope: plan.filterScope,
-      startDate: plan.startDate,
-      endDate: plan.endDate,
-      period: plan.periodDays,
-      accountSummary: values,
-      accountSummaryRaw: rawSummary('period', values),
-    };
-  }
-
-  /** Publish one Wing traffic collection covering `[startDate, endDate]`. */
+  /** Publish one Wing traffic collection covering `[startDate, endDate]` (`advertising.wing_traffic`, KID-362). */
   async function publishWingTraffic(
     channelAccountId: string,
     startDate: string,
     endDate: string,
   ): Promise<void> {
-    const started = await trafficOwner.beginAttempt({
-      organizationId: TEST_ORGANIZATION_ID,
-      idempotencyKey: randomUUID(),
-      request: { channelAccountId, startDate, endDate, url: WING_URL },
-    });
-    const control = await trafficOwner.readAttemptControl({
-      organizationId: TEST_ORGANIZATION_ID,
-      attemptId: started.attemptId,
-    });
-    if (!control) throw new Error('Wing traffic attempt control was not created.');
-    const plan = started.plan as AdTrafficSourceDailyPlan;
-    for (const [index, businessDate] of plan.expectedDates.entries()) {
-      await trafficOwner.uploadReceipt({
-        organizationId: TEST_ORGANIZATION_ID,
-        attemptId: started.attemptId,
-        attemptToken: control.attemptToken,
-        sequence: index * 100,
-        receipt: dailyTrafficReceipt(started.attemptId, plan, businessDate),
-      });
-    }
-    await trafficOwner.uploadReceipt({
-      organizationId: TEST_ORGANIZATION_ID,
-      attemptId: started.attemptId,
-      attemptToken: control.attemptToken,
-      sequence: plan.expectedDates.length * 100,
-      receipt: periodTrafficReceipt(started.attemptId, plan, plan.expectedDates.length),
-    });
-    const staged = await trafficOwner.readAttemptControl({
-      organizationId: TEST_ORGANIZATION_ID,
-      attemptId: started.attemptId,
-    });
-    if (!staged) throw new Error('Wing traffic attempt control was lost.');
-    await trafficOwner.finalizeAttempt({
-      organizationId: TEST_ORGANIZATION_ID,
-      attemptId: started.attemptId,
-      attemptToken: control.attemptToken,
-      manifestChecksum: staged.manifestChecksum,
-    });
+    await traffic.collect({ organizationId: TEST_ORGANIZATION_ID, channelAccountId, startDate, endDate, dailyValues: { ...WING_DAILY } });
   }
 
   /**

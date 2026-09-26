@@ -49,8 +49,10 @@ test('does not retain the retired account-day KPI owner exception', () => {
   assert.ok(!readFileSync(scannerPath, 'utf8').includes('ad-account-daily-kpi-source'));
 });
 
-test('does not retain the Wing itemwinner exception after it became an operation kind (KID-362)', () => {
-  assert.ok(!readFileSync(scannerPath, 'utf8').includes('wing-itemwinner-kpi-source'));
+test('does not retain the Wing itemwinner and traffic exceptions after they became operation kinds (KID-362)', () => {
+  const scanner = readFileSync(scannerPath, 'utf8');
+  assert.ok(!scanner.includes('wing-itemwinner-kpi-source'));
+  assert.ok(!scanner.includes('ad-traffic-source'));
 });
 
 test('does not retain the deleted campaign sweep raw-snapshot exception', () => {

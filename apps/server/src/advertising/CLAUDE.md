@@ -74,10 +74,15 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   scrape ingest path owns raw/fact projection traceability. The Wing daily
   facts are operation kinds (ADR-0025, KID-362;
   `adapter/in/operation/wing-daily-operation-owners.ts`):
-  `advertising.wing_itemwinner` writes the listing/option winner columns in its
-  finish transaction, stamps `operationId` and leaves `rawSnapshotId` null.
-  Every writer of Wing listing-day facts holds `account:<id>` and
-  `resource:wing-daily:<id>`, so one runs per account.
+  `advertising.wing_itemwinner` writes the listing/option winner columns and
+  `advertising.wing_traffic` the listing-day traffic columns (sum of options,
+  zero for a catalog listing Wing left out) in their finish transactions; a new
+  row carries `operationId`, `rawSnapshotId` stays null, and traffic provenance
+  is `wing.traffic.sourceAttemptId`. Every writer of Wing listing-day facts holds
+  `account:<id>` and `resource:wing-daily:<id>`, so one runs per account. The
+  traffic run's result (confirmed dates, account daily and period summaries,
+  unmatched Wing options per date) is what `AD_TRAFFIC_READ_PORT` and the
+  Channels traffic window read.
 - Product ABC reads go through Products' exported stored-grade port. An
   unclassified product stays `null`; consume the stored grade without deriving
   a product grade or coercing a missing/stale source to C.

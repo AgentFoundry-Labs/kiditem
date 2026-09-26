@@ -30,6 +30,7 @@ describe('committed runtime bundle', () => {
 
     expect((runtime.runtime as { kinds(): string[] }).kinds()).toEqual([
       'advertising.wing_itemwinner',
+      'advertising.wing_traffic',
       'channels.wing_catalog_details',
       'channels.wing_catalog_excel',
       'channels.wing_catalog_list',

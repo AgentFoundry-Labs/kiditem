@@ -1,15 +1,18 @@
 import type { ListingTrafficTotals, ListingTrafficDailyFact, ListingTrafficWindowFacts, ListingSaleStatusFact, ListingStateFact } from '../../../domain/listing/observation-facts';
 export type { ListingTrafficTotals, ListingTrafficDailyFact, ListingTrafficWindowFacts, ListingSaleStatusFact, ListingStateFact } from '../../../domain/listing/observation-facts';
 import { Prisma } from '@prisma/client';
-import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
-import { businessDateKey } from '../../../../common/kst';
+import { addDays, businessDateKey } from '../../../../common/kst';
 import { currentRowTieBreakSql } from '../../../../common/current-row';
+import { readSucceededOperationWindows } from '../../../../common/operation/transaction/succeeded-operation-windows';
 import { wingListingRegistrationDate } from '../../../domain/registration/wing-listing-registration';
 import { readListingProductIds } from './listing-product-summary.reader';
 import {
+  WING_TRAFFIC_KIND,
+  WingTrafficPlanSchema,
+  WingTrafficResultSchema,
   dailyTrafficFactSource,
   type DailyTrafficFactSource,
-} from '@kiditem/shared/advertising';
+} from '@kiditem/shared/advertising-operations';
 
 export async function readListingTrafficWindowFacts(
   prisma: Prisma.TransactionClient,
@@ -124,25 +127,28 @@ export async function readListingTrafficWindowFacts(
   const relevantAccountIds = populationAccountIds.length > 0
     ? populationAccountIds
     : fallbackAccounts.map((account) => account.id);
+  // The Wing traffic runs are Advertising's `advertising.wing_traffic` operations
+  // (KID-362): each succeeded run names the dates it confirmed in its result.
+  const relevantAccounts = new Set(relevantAccountIds);
   const completedAttempts = relevantAccountIds.length > 0
-    ? await prisma.sourceImportRun.findMany({
-        where: {
-          organizationId: input.organizationId,
-          sourceType: 'coupang_wing_traffic',
-          status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-          channelAccountId: { in: relevantAccountIds },
-        },
-        select: {
-          id: true,
-          channelAccountId: true,
-          freshnessGeneration: true,
-          providerBackedEmptyProof: true,
-          qualityReport: true,
-          importedAt: true,
-          lastVerifiedAt: true,
-          createdAt: true,
-          updatedAt: true,
-        },
+    ? (await readSucceededOperationWindows(prisma, {
+        organizationId: input.organizationId,
+        kinds: [WING_TRAFFIC_KIND],
+        firstDate: input.from ? calendarDate(input.from) : '0001-01-01',
+        lastDate: input.to ? calendarDate(addDays(input.to, -1)) : '9999-12-31',
+      })).flatMap((operation): CompletedTrafficAttempt[] => {
+        const plan = WingTrafficPlanSchema.safeParse(operation.plan);
+        const result = WingTrafficResultSchema.safeParse(operation.result);
+        if (!plan.success || !result.success || !relevantAccounts.has(plan.data.channelAccountId)) return [];
+        return [{
+          id: operation.id,
+          channelAccountId: plan.data.channelAccountId,
+          confirmedDates: result.data.confirmedDates,
+          providerBackedEmptyDates: result.data.providerBackedEmptyDates,
+          unmatchedOptionIdsByDate: result.data.unmatchedOptionIdsByDate,
+          startedAt: operation.startedAt,
+          finishedAt: operation.finishedAt ?? operation.startedAt,
+        }];
       })
     : [];
   const selectedAttempts = latestCompletedAttemptByAccountDate(completedAttempts, input);
@@ -165,7 +171,7 @@ export async function readListingTrafficWindowFacts(
   // registration date.
   const selected = [...selectedAttempts.entries()];
   const earliestAttemptStart = selected.reduce<Date | null>(
-    (earliest, [, attempt]) => (!earliest || attempt.createdAt < earliest ? attempt.createdAt : earliest),
+    (earliest, [, attempt]) => (!earliest || attempt.startedAt < earliest ? attempt.startedAt : earliest),
     null,
   );
   const selectedAccountIds = [...new Set(selected.flatMap(([, attempt]) =>
@@ -192,14 +198,32 @@ export async function readListingTrafficWindowFacts(
         registeredOn: wingListingRegistrationDate(listing),
       }))
     : [];
+  // KID-217: a Wing row the run could not match to its catalog, whose option an
+  // active listing of the account now carries (a catalog write that committed
+  // after the run, or a listing active again), left that listing's traffic out
+  // of the day. The account-date is not collected, as with a late listing.
+  const unmatchedOptionIds = [...new Set(selected.flatMap(([key, attempt]) =>
+    attempt.unmatchedOptionIdsByDate[key.slice(key.lastIndexOf(':') + 1)] ?? []))];
+  const nowCatalogued = unmatchedOptionIds.length > 0
+    ? await prisma.channelListingOption.findMany({
+        where: {
+          organizationId: input.organizationId,
+          externalOptionId: { in: unmatchedOptionIds },
+          listing: { is: { organizationId: input.organizationId, isActive: true, channelAccountId: { in: selectedAccountIds } } },
+        },
+        select: { externalOptionId: true, listing: { select: { channelAccountId: true } } },
+      })
+    : [];
   const lateListingDates = new Set(selected.flatMap(([key, attempt]) => {
     const date = key.slice(key.lastIndexOf(':') + 1);
-    return lateListings.some((listing) =>
+    const late = lateListings.some((listing) =>
       listing.channelAccountId === attempt.channelAccountId
-      && listing.createdAt >= attempt.createdAt
-      && (listing.registeredOn === null || listing.registeredOn <= date))
-      ? [key]
-      : [];
+      && listing.createdAt >= attempt.startedAt
+      && (listing.registeredOn === null || listing.registeredOn <= date));
+    const unmatched = new Set(attempt.unmatchedOptionIdsByDate[date] ?? []);
+    const reportedButUnmatched = nowCatalogued.some((option) =>
+      option.listing.channelAccountId === attempt.channelAccountId && unmatched.has(option.externalOptionId));
+    return late || reportedButUnmatched ? [key] : [];
   }));
   const coverage = coverageFor(
     dates,
@@ -211,10 +235,7 @@ export async function readListingTrafficWindowFacts(
     lateListingDates,
   );
   const ownerObservedAt = [...selectedAttempts.values()].reduce<Date | null>(
-    (latest, attempt) => latestDate(
-      latest,
-      attempt.importedAt ?? attempt.lastVerifiedAt ?? attempt.updatedAt,
-    ),
+    (latest, attempt) => latestDate(latest, attempt.finishedAt),
     null,
   );
   const includedDates = new Set(coverage.includedDates);
@@ -336,16 +357,15 @@ type ObservedTrafficFact = ListingTrafficDailyFact & Readonly<{
   sourceAttemptId: string | null;
 }>;
 
+/** One succeeded `advertising.wing_traffic` operation of an account (KID-362). */
 type CompletedTrafficAttempt = Readonly<{
   id: string;
-  channelAccountId: string | null;
-  freshnessGeneration: bigint | null;
-  providerBackedEmptyProof: boolean | null;
-  qualityReport: Prisma.JsonValue | null;
-  importedAt: Date | null;
-  lastVerifiedAt: Date | null;
-  createdAt: Date;
-  updatedAt: Date;
+  channelAccountId: string;
+  confirmedDates: readonly string[];
+  providerBackedEmptyDates: readonly string[];
+  unmatchedOptionIdsByDate: Readonly<Record<string, readonly string[]>>;
+  startedAt: Date;
+  finishedAt: Date;
 }>;
 
 function latestCompletedAttemptByAccountDate(
@@ -355,7 +375,7 @@ function latestCompletedAttemptByAccountDate(
   const selected = new Map<string, CompletedTrafficAttempt>();
   for (const attempt of attempts) {
     if (!attempt.channelAccountId) continue;
-    for (const date of confirmedDates(attempt.qualityReport)) {
+    for (const date of [...new Set(attempt.confirmedDates)].sort()) {
       if (!dateInBounds(date, bounds)) continue;
       const key = accountDateKey(attempt.channelAccountId, date);
       const current = selected.get(key);
@@ -365,25 +385,9 @@ function latestCompletedAttemptByAccountDate(
   return selected;
 }
 
-function confirmedDates(value: Prisma.JsonValue | null): string[] {
-  if (!value || Array.isArray(value) || typeof value !== 'object') return [];
-  const dates = (value as Record<string, unknown>).confirmedDates;
-  if (!Array.isArray(dates)) return [];
-  return [...new Set(dates.filter(isCalendarDate))].sort();
-}
-
-function isCalendarDate(value: unknown): value is string {
-  if (typeof value !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
-  const date = new Date(`${value}T00:00:00.000Z`);
-  return !Number.isNaN(date.getTime()) && calendarDate(date) === value;
-}
-
 function newerAttempt(left: CompletedTrafficAttempt, right: CompletedTrafficAttempt): boolean {
-  const leftGeneration = left.freshnessGeneration ?? -1n;
-  const rightGeneration = right.freshnessGeneration ?? -1n;
-  if (leftGeneration !== rightGeneration) return leftGeneration > rightGeneration;
-  if (left.createdAt.getTime() !== right.createdAt.getTime()) {
-    return left.createdAt > right.createdAt;
+  if (left.startedAt.getTime() !== right.startedAt.getTime()) {
+    return left.startedAt > right.startedAt;
   }
   return left.id > right.id;
 }
@@ -490,14 +494,7 @@ function attemptProvesEmptyDate(
   businessDate: string,
 ): boolean {
   if (!attempt) return false;
-  // Older all-empty completions carry only the run-level proof. A mixed run
-  // must name the independently verified empty date in its quality report.
-  if (attempt.providerBackedEmptyProof === true) return true;
-  if (!attempt.qualityReport
-    || Array.isArray(attempt.qualityReport)
-    || typeof attempt.qualityReport !== 'object') return false;
-  const dates = (attempt.qualityReport as Record<string, unknown>).providerBackedEmptyDates;
-  return Array.isArray(dates) && dates.some((date) => date === businessDate);
+  return attempt.providerBackedEmptyDates.includes(businessDate);
 }
 
 function listingDateKey(listingId: string, date: string): string {

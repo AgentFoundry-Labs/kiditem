@@ -1,4 +1,5 @@
 import '../collectors/advertising.wing_itemwinner';
+import '../collectors/advertising.wing_traffic';
 import '../collectors/channels.wing_catalog_details';
 import '../collectors/channels.wing_catalog_excel';
 import '../collectors/channels.wing_catalog_list';
@@ -31,6 +32,7 @@ import '../sites/wing';
 import '../sites/wing/itemwinner';
 import '../sites/wing/pre-matching-search';
 import '../sites/wing/reviews';
+import '../sites/wing/traffic';
 import { createBrowserResources } from '../core/browser';
 import { createTabPages } from '../sites/tab-page';
 import type { SiteDeps } from '../sites/registry';

@@ -1,4 +1,5 @@
 import { ORDER_COLLECTION_TODAY_ORDERS_PORT } from '../../../orders/application/port/in/order-collection-today-orders.port';
+import { seedWingTrafficOperation } from '../../../test-helpers/__tests__/wing-traffic-operation-seeds';
 import { todayOrdersTestAdapter } from '../../../test-helpers/orders-operations';
 import { profitCatalogTestReaders } from '../../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts, channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
@@ -397,18 +398,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
     });
     const confirmedDates = ['2026-09-01', '2026-09-02'];
     const importedAt = new Date('2026-09-03T03:00:00.000Z');
-    await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: listing.channelAccountId,
-        sourceType: 'coupang_wing_traffic',
-        status: 'completed',
-        freshnessGeneration: 1n,
-        providerBackedEmptyProof: true,
-        qualityReport: { confirmedDates },
-        importedAt,
-      },
-    });
+    await seedWingTrafficOperation(prisma as never, { organizationId: TEST_ORGANIZATION_ID, channelAccountId: listing.channelAccountId, confirmedDates: confirmedDates, providerBackedEmptyDates: confirmedDates, startedAt: new Date(Date.now() + 1), finishedAt: importedAt });
 
     const result = await wingTraffic.aggregateTraffic(
       TEST_ORGANIZATION_ID,
@@ -449,18 +439,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       select: { channelAccountId: true },
     });
     // The provider confirmed 09-01 and 09-02 empty; nobody confirmed 09-03.
-    await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: listing.channelAccountId,
-        sourceType: 'coupang_wing_traffic',
-        status: 'completed',
-        freshnessGeneration: 1n,
-        providerBackedEmptyProof: true,
-        qualityReport: { confirmedDates: ['2026-09-01', '2026-09-02'] },
-        importedAt: new Date('2026-09-04T03:00:00.000Z'),
-      },
-    });
+    await seedWingTrafficOperation(prisma as never, { organizationId: TEST_ORGANIZATION_ID, channelAccountId: listing.channelAccountId, confirmedDates: ['2026-09-01', '2026-09-02'], providerBackedEmptyDates: ['2026-09-01', '2026-09-02'], startedAt: new Date(Date.now() + 1), finishedAt: new Date('2026-09-04T03:00:00.000Z') });
 
     const rows = await wingTraffic.fetchDailyTrend(
       TEST_ORGANIZATION_ID,
@@ -555,18 +534,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       where: { id: first.listingId },
       select: { channelAccountId: true },
     });
-    const attempt = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: account.channelAccountId,
-        sourceType: 'coupang_wing_traffic',
-        status: 'completed',
-        freshnessGeneration: 99n,
-        providerBackedEmptyProof: false,
-        qualityReport: { confirmedDates: [businessDate] },
-        importedAt: new Date('2026-09-02T01:00:00.000Z'),
-      },
-    });
+    const attempt = await seedWingTrafficOperation(prisma as never, { organizationId: TEST_ORGANIZATION_ID, channelAccountId: account.channelAccountId, confirmedDates: [businessDate], startedAt: new Date(Date.now() + 99), finishedAt: new Date('2026-09-02T01:00:00.000Z') });
     await prisma.channelListingDailySnapshot.createMany({
       data: [
         { listingId: first.listingId, externalId: 'EXT-T-FUNNEL-1', views: 100, carts: 10 },
@@ -732,18 +700,7 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       where: { id: listing.listingId },
       select: { channelAccountId: true },
     });
-    const attempt = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: account.channelAccountId,
-        sourceType: 'coupang_wing_traffic',
-        status: 'completed',
-        freshnessGeneration: 101n,
-        providerBackedEmptyProof: false,
-        qualityReport: { confirmedDates: [businessDate] },
-        importedAt: new Date('2026-09-02T01:00:00.000Z'),
-      },
-    });
+    const attempt = await seedWingTrafficOperation(prisma as never, { organizationId: TEST_ORGANIZATION_ID, channelAccountId: account.channelAccountId, confirmedDates: [businessDate], startedAt: new Date(Date.now() + 101), finishedAt: new Date('2026-09-02T01:00:00.000Z') });
     await prisma.channelListingDailySnapshot.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,

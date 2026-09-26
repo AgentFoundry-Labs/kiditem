@@ -20,7 +20,7 @@ import {
   type DashboardTrafficFunnelFacts,
   type TrafficAdditiveMetric,
 } from '../../port/out/repository/dashboard/wing-traffic-aggregation.repository.port';
-import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
+import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising-operations';
 import {
   buildEffectivePeriod,
   canUseWingRevenue,

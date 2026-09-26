@@ -1,4 +1,4 @@
-import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising';
+import { adTrafficReconciliationStatus } from '@kiditem/shared/advertising-operations';
 import type { DashboardEffectivePeriod } from '@kiditem/shared/dashboard';
 import type { DashboardContext } from '../context';
 import { businessDateKey } from '../../../../common/kst';

@@ -2,7 +2,7 @@ import { createElement } from 'react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { act } from 'react';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import {
   detectBrowserCollectionExtensionIds,
@@ -12,7 +12,6 @@ import {
 import { queryKeys } from '@/lib/query-keys';
 import { resolveWingTrafficCollectionRange } from '../hooks/use-wing-traffic-collection';
 import { WingDailyTrafficCollection } from './WingDailyTrafficCollection';
-import type { AdTrafficSourceAttempt, AdTrafficSourceStatus } from '@kiditem/shared/advertising';
 
 vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
 vi.mock('@/lib/extension-bridge', () => ({
@@ -26,66 +25,38 @@ vi.mock('sonner', () => ({
 
 const EXTENSION_ID = 'kiditem-extension';
 const ACCOUNT_ID = '22222222-2222-4222-8222-222222222222';
-const ATTEMPT_ID = '11111111-1111-4111-8111-111111111111';
-const NEXT_ATTEMPT_ID = '33333333-3333-4333-8333-333333333333';
-const SOURCE_PATH = '/api/ads/traffic/source';
+const OPERATION_ID = '11111111-1111-4111-8111-111111111111';
+const NEXT_OPERATION_ID = '33333333-3333-4333-8333-333333333333';
+const OPERATIONS_PATH = '/api/operations?kinds=advertising.wing_traffic&limit=10';
+const ACCOUNTS_PATH = '/api/channels/accounts';
 const START_LABEL = '일별 수집 시작';
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+const WEEK = ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05', '2026-09-06', '2026-09-07'];
 
-function attempt(
-  state: 'RUNNING' | 'COMPLETE' | 'FAILED',
-  overrides: Partial<AdTrafficSourceAttempt> = {},
-): AdTrafficSourceAttempt {
+type Status = 'executing' | 'succeeded' | 'failed' | 'cancelled';
+
+function operation(status: Status, overrides: Record<string, unknown> = {}) {
   return {
-    attemptId: ATTEMPT_ID,
-    channelAccountId: ACCOUNT_ID,
-    state,
-    plan: {
-      sourceType: 'coupang_wing_traffic',
-      parserVersion: 'wing-traffic-daily-v2',
-      channelAccountId: ACCOUNT_ID,
-      expectedAdvertiserId: 'A123',
-      providerVendorId: 'A123',
-      startDate: '2026-09-01',
-      endDate: '2026-09-07',
-      businessDate: '2026-09-07',
-      periodDays: 7,
-      expectedDates: ['2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04', '2026-09-05', '2026-09-06', '2026-09-07'],
-      filterScope: 'ALL_NORMAL_RFM',
-      targetUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis',
-    },
+    id: OPERATION_ID,
+    kind: 'advertising.wing_traffic',
+    status,
+    lockKeys: status === 'executing' ? [`account:${ACCOUNT_ID}`, `resource:wing-daily:${ACCOUNT_ID}`] : [],
+    plan: { channelAccountId: ACCOUNT_ID, vendorId: 'A123', startDate: WEEK[0], endDate: WEEK[6], expectedDates: WEEK, maxPagesPerDay: 100, startedAt: '2026-09-08T00:00:00.000Z' },
+    progress: status === 'executing' ? { current: '2026-09-03', confirmedDays: 2, plannedDays: 7, rows: 40 } : null,
+    result: status === 'succeeded' ? { confirmedDates: WEEK } : null,
+    window: { start: WEEK[0], end: WEEK[6] },
+    errorCode: status === 'failed' ? 'SITE_REQUEST_FAILED' : status === 'cancelled' ? 'USER_CANCELLED' : null,
+    errorMessage: status === 'failed' ? 'Wing 응답 오류' : null,
+    startedAt: '2026-09-08T00:00:00.000Z',
+    finishedAt: status === 'executing' ? null : '2026-09-08T00:05:00.000Z',
     expiresAt: '2099-01-01T00:00:00.000Z',
-    actualCutoffAt: state === 'COMPLETE' ? '2026-09-08T00:00:00.000Z' : null,
-    manifestChecksum: 'a'.repeat(64),
-    rowCount: 0,
-    matchedRowCount: 0,
-    unmatchedRowCount: 0,
-    receiptCount: state === 'RUNNING' ? 2 : 7,
-    expectedPages: 7,
-    terminalPageObserved: state === 'COMPLETE',
-    errorCode: state === 'FAILED' ? 'PROVIDER_FAILED' : null,
-    errorMessage: state === 'FAILED' ? 'Wing 응답 오류' : null,
+    attempts: 1,
+    maxAttempts: 1,
+    scheduledFor: null,
     ...overrides,
   };
 }
 
-function source(
-  latestAttempt: AdTrafficSourceAttempt | null,
-  latestComplete: AdTrafficSourceAttempt | null = latestAttempt?.state === 'COMPLETE'
-    ? latestAttempt
-    : null,
-): AdTrafficSourceStatus {
-  return {
-    channelAccountId: ACCOUNT_ID,
-    knownThrough: '2026-09-07',
-    ready: latestComplete !== null,
-    latestAttempt,
-    latestComplete,
-    actualCutoffAt: latestComplete?.actualCutoffAt ?? null,
-  };
-}
-
-let serverStatus: AdTrafficSourceStatus;
+let operations: Array<ReturnType<typeof operation>>;
 let extensionReplies: Record<string, (message: Record<string, unknown>) => unknown>;
 
 function renderControl(props: Partial<React.ComponentProps<typeof WingDailyTrafficCollection>> = {}) {
@@ -111,16 +82,19 @@ function renderControl(props: Partial<React.ComponentProps<typeof WingDailyTraff
 }
 
 function sourceReads(): number {
-  return vi.mocked(apiClient.get).mock.calls.filter(([path]) => path === SOURCE_PATH).length;
+  return vi.mocked(apiClient.get).mock.calls.filter(([path]) => path === OPERATIONS_PATH).length;
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
-  serverStatus = source(null);
+  // 마감된 날(어제 KST) = 2026-09-07.
+  vi.useFakeTimers({ toFake: ['Date'] });
+  vi.setSystemTime(new Date('2026-09-08T03:00:00.000Z'));
+  operations = [];
   extensionReplies = {
     ping: () => ({
       success: true,
-      capabilities: { kiditemEnvironmentProfilesV1: true, collectionStartV1: true },
+      capabilities: { operationRuntime: true, wingDailyOperationKindsV1: true },
     }),
     setAuthToken: () => ({ success: true }),
   };
@@ -133,7 +107,10 @@ beforeEach(() => {
     return reply(message as Record<string, unknown>);
   });
   vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
-    if (path === SOURCE_PATH) return serverStatus;
+    if (path === OPERATIONS_PATH) return { operations };
+    if (path === ACCOUNTS_PATH) {
+      return [{ id: ACCOUNT_ID, channel: 'coupang', name: 'Wing', externalAccountId: null, vendorId: 'A123', sellerId: null, isPrimary: true }];
+    }
     throw new Error(`unexpected GET ${path}`);
   });
   vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
@@ -142,13 +119,17 @@ beforeEach(() => {
   });
 });
 
+afterEach(() => {
+  vi.useRealTimers();
+});
+
 describe('WingDailyTrafficCollection', () => {
   it('does not collect the previous month or open day for an empty current month', async () => {
     expect(resolveWingTrafficCollectionRange({ period: 'month', knownThrough: '2026-08-31' })).toBeNull();
     expect(resolveWingTrafficCollectionRange({ period: 'month', knownThrough: '2026-09-01' })).toMatchObject({
       startDate: '2026-09-01', endDate: '2026-09-01',
     });
-    serverStatus = { ...source(null), knownThrough: '2026-08-31' };
+    vi.setSystemTime(new Date('2026-09-01T03:00:00.000Z'));
     renderControl({ period: 'month' });
 
     expect(await screen.findByText(/이번 달에 마감된 영업일이 없습니다/)).toBeInTheDocument();
@@ -207,9 +188,9 @@ describe('WingDailyTrafficCollection', () => {
   });
 
   it('starts the selected range through the start contract and shows the owner range while running', async () => {
-    extensionReplies.startCollection = (message) => {
-      serverStatus = source(attempt('RUNNING'));
-      return { success: true, outcome: 'started', producer: message.producer, attemptId: ATTEMPT_ID };
+    extensionReplies['operation.start'] = () => {
+      operations = [operation('executing')];
+      return { success: true, operationId: OPERATION_ID, reused: false };
     };
     renderControl();
 
@@ -220,22 +201,18 @@ describe('WingDailyTrafficCollection', () => {
       vi
         .mocked(sendToExtension)
         .mock.calls.map(([, message]) => message)
-        .filter((message) => (message as { action: string }).action === 'startCollection'),
+        .filter((message) => (message as { action: string }).action === 'operation.start'),
     ).toEqual([
       {
-        action: 'startCollection',
-        producer: 'dashboard.wing_sales',
-        idempotencyKey: expect.stringMatching(UUID),
-        scope: { startDate: '2026-09-01', endDate: '2026-09-07' },
+        action: 'operation.start',
+        kind: 'advertising.wing_traffic',
+        scope: { channelAccountId: ACCOUNT_ID, startDate: '2026-09-01', endDate: '2026-09-07' },
       },
-    ]);
-    expect(vi.mocked(apiClient.post).mock.calls.map(([path]) => path)).toEqual([
-      '/api/auth/extension-handoff',
     ]);
   });
 
   it('shows a running collection for another range with stop instead of a second start', async () => {
-    serverStatus = source(attempt('RUNNING'));
+    operations = [operation('executing')];
     renderControl({ selectedFrom: '2026-09-02', selectedTo: '2026-09-06' });
 
     expect(await screen.findByTestId('wing-active-range')).toHaveTextContent(
@@ -246,22 +223,15 @@ describe('WingDailyTrafficCollection', () => {
     expect(sendToExtension).not.toHaveBeenCalled();
   });
 
-  it('stops a running collection through the traffic owner route when the extension holds no session', async () => {
-    serverStatus = source(attempt('RUNNING'));
-    extensionReplies.cancelCollectionSession = () => ({
-      success: false,
-      error: 'Collection session not found',
-    });
+  it('stops a running operation in the extension and on the server', async () => {
+    operations = [operation('executing')];
+    extensionReplies['operation.cancel'] = () => ({ success: true });
     vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
-      if (path !== `/api/ads/traffic/attempts/${ATTEMPT_ID}/cancel`) {
+      if (path !== `/api/operations/${OPERATION_ID}/cancel`) {
         throw new Error(`unexpected POST ${path}`);
       }
-      const cancelled = attempt('FAILED', {
-        errorCode: 'USER_CANCELLED',
-        errorMessage: '운영자가 수집을 중단했습니다.',
-      });
-      serverStatus = source(cancelled);
-      return cancelled;
+      operations = [operation('cancelled')];
+      return { operation: operations[0] };
     });
     renderControl();
 
@@ -275,9 +245,11 @@ describe('WingDailyTrafficCollection', () => {
   });
 
   it('tells the operator when the running collection shows no extension progress for 90 seconds', async () => {
+    vi.useRealTimers();
     vi.useFakeTimers({ shouldAdvanceTime: true });
+    vi.setSystemTime(new Date('2026-09-08T03:00:00.000Z'));
     try {
-      serverStatus = source(attempt('RUNNING', { receiptCount: 0, rowCount: 0, expectedPages: null }));
+      operations = [operation('executing', { progress: null })];
       renderControl();
       expect(await screen.findByRole('button', { name: '수집 중단' })).toBeEnabled();
 
@@ -291,11 +263,8 @@ describe('WingDailyTrafficCollection', () => {
     }
   });
 
-  it('shows a collection stopped with its browser session as stopped, not failed', async () => {
-    serverStatus = source(attempt('FAILED', {
-      errorCode: 'COLLECTION_CANCELLED',
-      errorMessage: 'Collection was cancelled.',
-    }));
+  it('shows a cancelled operation as stopped, not failed', async () => {
+    operations = [operation('cancelled')];
     renderControl();
 
     expect(await screen.findByTestId('wing-traffic-error')).toHaveTextContent(
@@ -305,28 +274,21 @@ describe('WingDailyTrafficCollection', () => {
     expect(screen.queryByText('최근 수집 실패')).not.toBeInTheDocument();
   });
 
-  it('describes daily-v2 progress as source chunks and target days', async () => {
-    const dailyV2 = attempt('RUNNING', {
-      expectedPages: null,
-      plan: {
-        ...attempt('RUNNING').plan,
-        parserVersion: 'wing-traffic-daily-v2',
-        providerVendorId: 'A123',
-        businessDate: '2026-09-07',
-        expectedDates: [
-          '2026-09-01', '2026-09-02', '2026-09-03', '2026-09-04',
-          '2026-09-05', '2026-09-06', '2026-09-07',
-        ],
-        filterScope: 'ALL_NORMAL_RFM',
-      },
-    });
-    serverStatus = source(dailyV2);
+  it('describes progress as confirmed days of the planned days', async () => {
+    operations = [operation('executing')];
 
     renderControl();
 
-    expect(await screen.findByText(/2개 일별 데이터 확인/)).toBeInTheDocument();
-    expect(screen.getByText(/대상 7일/)).toBeInTheDocument();
-    expect(screen.queryByText(/페이지 확인됨/)).not.toBeInTheDocument();
+    expect(await screen.findByText(/2일 확인 · 대상 7일/)).toBeInTheDocument();
+  });
+
+  it('names a failed operation with its operator sentence', async () => {
+    operations = [operation('failed')];
+
+    renderControl();
+
+    expect(await screen.findByTestId('wing-traffic-error')).toBeInTheDocument();
+    expect(screen.getByText('최근 수집 실패')).toBeInTheDocument();
   });
 
   it('blocks collection while no status has ever been read', async () => {
@@ -353,13 +315,13 @@ describe('WingDailyTrafficCollection', () => {
   });
 
   it('refreshes dashboard reads only when a new traffic collection completes', async () => {
-    serverStatus = source(attempt('COMPLETE'));
+    operations = [operation('succeeded')];
     const view = renderControl();
     const invalidateQueries = vi.spyOn(view.client, 'invalidateQueries');
     expect(await screen.findByTestId('wing-latest-complete-range')).toBeInTheDocument();
     expect(invalidateQueries).not.toHaveBeenCalledWith({ queryKey: queryKeys.dashboard.all });
 
-    serverStatus = source(attempt('COMPLETE', { attemptId: NEXT_ATTEMPT_ID }));
+    operations = [operation('succeeded', { id: NEXT_OPERATION_ID }), operation('succeeded')];
     const refresh = screen.getByRole('button', { name: 'Wing 트래픽 상태 새로고침' });
     await waitFor(() => expect(refresh).toBeEnabled());
     fireEvent.click(refresh);

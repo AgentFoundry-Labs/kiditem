@@ -13,7 +13,6 @@
     "advertising.ad_sync": "쿠팡 광고 캠페인",
     "advertising.ad_keyword": "쿠팡 광고 키워드",
     "advertising.profitability_import": "쿠팡 상품별 광고 보고서",
-    "dashboard.wing_sales": "쿠팡 Wing 트래픽",
   });
   // The extension opens every attempt with its source owner, as the web app
   // did before this contract.
@@ -21,7 +20,6 @@
     "advertising.ad_sync": "/api/ads/ad-campaigns/attempts",
     "advertising.ad_keyword": "/api/ads/ad-keywords/attempts",
     "advertising.profitability_import": "/api/ads/profitability-imports",
-    "dashboard.wing_sales": "/api/ads/traffic/attempts",
   });
   const START_PRODUCERS = Object.freeze(Object.keys(BEGIN_PATHS));
   const REQUEST_KEYS = ["action", "producer", "idempotencyKey", "scope"];
@@ -73,14 +71,6 @@
       shiftDateKey(scope.startDate, MANUAL_REPORT_DAYS[scope.period] - 1) === scope.endDate;
   }
 
-  function trafficScope(scope) {
-    return hasOnlyKeys(scope, ["channelAccountId", "startDate", "endDate"]) &&
-      optionalUuid(scope.channelAccountId) &&
-      calendarDate(scope.startDate) &&
-      calendarDate(scope.endDate) &&
-      scope.startDate <= scope.endDate;
-  }
-
   function validScope(producer, scope) {
     if (!isRecord(scope)) return false;
     switch (producer) {
@@ -90,8 +80,6 @@
         return accountScope(scope);
       case "advertising.profitability_import":
         return Object.keys(scope).length === 0;
-      case "dashboard.wing_sales":
-        return trafficScope(scope);
       default:
         return false;
     }

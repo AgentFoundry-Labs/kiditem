@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { entrySites, createSiteHandles, ownTabSites } from './site-handles';
 import '../collectors/advertising.wing_itemwinner';
+import '../collectors/advertising.wing_traffic';
 import '../collectors/channels.wing_catalog_details';
 import '../collectors/channels.wing_catalog_excel';
 import '../collectors/channels.wing_catalog_list';
@@ -23,6 +24,7 @@ import '../sites/wing';
 import '../sites/wing/itemwinner';
 import '../sites/wing/pre-matching-search';
 import '../sites/wing/reviews';
+import '../sites/wing/traffic';
 import { wingCatalogDetailsCollector, type WingCatalogDetailsSite } from '../collectors/channels.wing_catalog_details';
 import { PRODUCT_TAB_REQUIRED } from '../sites/product-page';
 import type { TabPages } from '../sites/tab-page';
@@ -75,6 +77,10 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     expect(keys(createSiteHandles(deps)('advertising.wing_itemwinner', { tabId: null }))).toEqual(['readItemwinnerList']);
   });
 
+  it('트래픽 kind에는 공개 기간·상세 쪽·요약 읽기를 가진 wing-traffic 핸들을 준다(KID-362)', () => {
+    expect(keys(createSiteHandles(deps)('advertising.wing_traffic', { tabId: null }))).toEqual(['readDetailPage', 'readFreshness', 'readSummary']);
+  });
+
   it('상품평 kind에는 상품평 검색만 가진 wing-reviews 핸들을 준다', () => {
     expect(keys(createSiteHandles(deps)('orders.coupang_reviews', { tabId: null }))).toEqual(['searchReviews']);
   });
@@ -106,6 +112,7 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
       wing: { origin: 'https://wing.coupang.com' },
       'wing-itemwinner': { origin: 'https://wing.coupang.com' },
       'wing-reviews': { origin: 'https://wing.coupang.com' },
+      'wing-traffic': { origin: 'https://wing.coupang.com' },
     });
   });
 

@@ -4278,6 +4278,137 @@ var KidItemRuntime = (() => {
     kpis: WingItemwinnerKpisSchema,
     listingObservations: external_exports.array(WingItemwinnerListingObservationSchema)
   }).strict();
+  var WING_TRAFFIC_KIND = "advertising.wing_traffic";
+  var WING_TRAFFIC_MAX_PAGES_PER_DAY = 100;
+  var calendarDate = external_exports.string().date();
+  var metric = external_exports.number().finite().int().safe();
+  var providerRatio = external_exports.number().finite().nullable();
+  var WingTrafficScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    startDate: calendarDate.optional(),
+    endDate: calendarDate.optional()
+  }).strict().refine((scope) => !scope.startDate || !scope.endDate || scope.startDate <= scope.endDate, {
+    message: "\uC2DC\uC791\uC77C\uC774 \uC885\uB8CC\uC77C\uBCF4\uB2E4 \uB2A6\uC2B5\uB2C8\uB2E4",
+    path: ["endDate"]
+  });
+  var WingTrafficPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    vendorId: external_exports.string().min(1),
+    startDate: calendarDate,
+    endDate: calendarDate,
+    expectedDates: external_exports.array(calendarDate).min(1).max(366),
+    maxPagesPerDay: external_exports.number().int().min(1).max(WING_TRAFFIC_MAX_PAGES_PER_DAY),
+    /** 실행이 시작된 시각. 그 뒤 카탈로그에 들어온 리스팅은 빠진 날을 0으로 채우지 않는다(owner가 쓴다). */
+    startedAt: external_exports.string().datetime({ offset: true })
+  }).strict();
+  var WING_TRAFFIC_ROWS_CHUNK_KIND = "traffic_rows";
+  var WING_TRAFFIC_DAY_CHUNK_KIND = "traffic_days";
+  var WING_TRAFFIC_PERIOD_CHUNK_KIND = "traffic_period";
+  var WingTrafficRowSchema = external_exports.object({
+    businessDate: calendarDate,
+    vendorItemId: external_exports.string().regex(/^[1-9]\d*$/),
+    /** Wing 등록상품 id(inventoryId). 옵션이 맞지 않을 때 listing으로 맞추는 근거. */
+    productId: external_exports.string().regex(/^[1-9]\d*$/).nullable(),
+    visitors: metric,
+    views: metric,
+    cartAdds: metric,
+    orders: metric,
+    salesQty: metric,
+    revenue: metric
+  }).strict();
+  var AdTrafficAccountSummarySchema = external_exports.object({
+    visitors: metric,
+    views: metric,
+    cartAdds: metric,
+    orders: metric,
+    salesQty: metric,
+    revenue: metric,
+    providerConversionRate: providerRatio
+  }).strict();
+  var WingTrafficDaySchema = external_exports.object({
+    businessDate: calendarDate,
+    pages: external_exports.number().int().min(1).max(WING_TRAFFIC_MAX_PAGES_PER_DAY),
+    rows: external_exports.number().int().nonnegative(),
+    /** Wing이 그날 결과 0개라고 답했다(0행이 수집 실패가 아니라는 증거). */
+    explicitEmpty: external_exports.boolean(),
+    capturedAt: external_exports.string().datetime({ offset: true }),
+    accountSummary: AdTrafficAccountSummarySchema
+  }).strict();
+  var WingTrafficPeriodSchema = external_exports.object({
+    startDate: calendarDate,
+    endDate: calendarDate,
+    capturedAt: external_exports.string().datetime({ offset: true }),
+    accountSummary: AdTrafficAccountSummarySchema
+  }).strict();
+  var AdTrafficSourceAccountDailySchema = external_exports.object({
+    businessDate: calendarDate,
+    observedAt: external_exports.string().datetime({ offset: true }),
+    operationId: external_exports.string().uuid(),
+    providerConversionRate: providerRatio,
+    visitors: metric,
+    views: metric,
+    cartAdds: metric,
+    orders: metric,
+    salesQty: metric,
+    revenue: metric
+  }).strict();
+  var WingTrafficPeriodSummarySchema = external_exports.object({
+    startDate: calendarDate,
+    endDate: calendarDate,
+    observedAt: external_exports.string().datetime({ offset: true }),
+    operationId: external_exports.string().uuid(),
+    accountSummary: AdTrafficAccountSummarySchema
+  }).strict();
+  var WingTrafficResultSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    requestedStartDate: calendarDate,
+    requestedEndDate: calendarDate,
+    /** 이 실행이 확정한 날짜(plan 순서). 쿠팡이 아직 공개하지 않은 뒷날은 빠진다. */
+    confirmedDates: external_exports.array(calendarDate).min(1),
+    /** Wing이 0개라고 답한 확정 날짜. */
+    providerBackedEmptyDates: external_exports.array(calendarDate),
+    accountDaily: external_exports.array(AdTrafficSourceAccountDailySchema),
+    periodSummary: WingTrafficPeriodSummarySchema,
+    rowCount: external_exports.number().int().nonnegative(),
+    matchedCount: external_exports.number().int().nonnegative(),
+    unmatchedCount: external_exports.number().int().nonnegative(),
+    /**
+     * 날짜마다 카탈로그에 맞지 않은 Wing 옵션 id(KID-217). 그 뒤 카탈로그에 그 옵션이 들어오면(늦게 커밋된 가져오기·
+     * 다시 활성화) 그 계정의 그 날짜는 행이 합계에서 빠진 날이므로 수집 안 된 날로 친다.
+     */
+    unmatchedOptionIdsByDate: external_exports.record(calendarDate, external_exports.array(external_exports.string()))
+  }).strict();
+  var WingTrafficProgressSchema = external_exports.object({
+    current: calendarDate.nullable(),
+    confirmedDays: external_exports.number().int().nonnegative(),
+    plannedDays: external_exports.number().int().nonnegative(),
+    rows: external_exports.number().int().nonnegative()
+  }).strict();
+  var reconciliationMetricSchema = external_exports.object({
+    dailySum: metric.nullable(),
+    periodValue: metric.nullable()
+  }).strict();
+  var AdTrafficSourceReconciliationSchema = external_exports.object({
+    views: reconciliationMetricSchema,
+    cartAdds: reconciliationMetricSchema,
+    orders: reconciliationMetricSchema,
+    salesQty: reconciliationMetricSchema,
+    revenue: reconciliationMetricSchema
+  }).strict();
+  var AdTrafficSourceCoverageSchema = external_exports.object({
+    from: calendarDate,
+    to: calendarDate,
+    targetDays: external_exports.number().int().nonnegative(),
+    completedDays: external_exports.number().int().nonnegative(),
+    missingDates: external_exports.array(calendarDate)
+  }).strict();
+  var AdTrafficSourcePublishedSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    accountDaily: external_exports.array(AdTrafficSourceAccountDailySchema),
+    periodSummary: WingTrafficPeriodSummarySchema.nullable(),
+    coverage: AdTrafficSourceCoverageSchema,
+    reconciliation: AdTrafficSourceReconciliationSchema
+  }).strict();
 
   // extensions/src/core/errors.ts
   var ErrorEnvelopeSchema = external_exports.object({
@@ -4377,6 +4508,95 @@ var KidItemRuntime = (() => {
     return { chunkKind: WING_ITEMWINNER_CHUNK_KIND, payload };
   }
   registerCollector(wingItemwinnerCollector);
+
+  // extensions/src/collectors/advertising.wing_traffic/index.ts
+  var PAGE_SIZE = 100;
+  var CHUNK_ITEMS2 = 1e3;
+  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var WING_TRAFFIC_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
+  var WING_TRAFFIC_DATA_NOT_READY = "WING_TRAFFIC_DATA_NOT_READY";
+  var WING_TRAFFIC_PAGE_CONFLICT = "WING_TRAFFIC_PAGE_CONFLICT";
+  var wingTrafficCollector = {
+    kind: WING_TRAFFIC_KIND,
+    site: "wing-traffic",
+    async *collect(rawPlan, site, { signal, report }) {
+      const parsed = WingTrafficPlanSchema.safeParse(rawPlan);
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uD2B8\uB798\uD53D \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
+      const plan = parsed.data;
+      if (signal.aborted) return;
+      const freshness = await site.readFreshness(/* @__PURE__ */ new Date());
+      const confirmedEnd = [freshness.salesLatest, freshness.trafficLatest, plan.endDate].reduce((earliest, date) => date < earliest ? date : earliest);
+      const dates = plan.expectedDates.filter((date) => date <= confirmedEnd);
+      if (dates.length === 0) {
+        throw new RuntimeError(
+          WING_TRAFFIC_DATA_NOT_READY,
+          `\uCFE0\uD321\uC774 ${plan.startDate} \uC774\uD6C4 \uD2B8\uB798\uD53D\uC744 \uC544\uC9C1 \uACF5\uAC1C\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uD2B8\uB798\uD53D ${freshness.trafficLatest} \xB7 \uB9E4\uCD9C ${freshness.salesLatest}\uAE4C\uC9C0 \uC9D1\uACC4\uB3FC \uC788\uC2B5\uB2C8\uB2E4.`,
+          { latestTrafficDate: freshness.trafficLatest, latestSalesDate: freshness.salesLatest }
+        );
+      }
+      if (plan.startDate < freshness.viewableStart || confirmedEnd > freshness.viewableEnd) {
+        throw new RuntimeError(WING_TRAFFIC_DATA_NOT_READY, "\uCFE0\uD321 \uB9E4\uCD9C\uBD84\uC11D\uC774 \uC694\uCCAD\uD55C \uB0A0\uC9DC \uBC94\uC704\uB97C \uC81C\uACF5\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", {
+          viewableStart: freshness.viewableStart,
+          viewableEnd: freshness.viewableEnd
+        });
+      }
+      let rowTotal = 0;
+      for (const [index, businessDate] of dates.entries()) {
+        const progress4 = (current) => ({ current, confirmedDays: index, plannedDays: dates.length, rows: rowTotal });
+        const buffer = new ChunkBuffer({ maxItems: CHUNK_ITEMS2, label: "\uD2B8\uB798\uD53D \uD589" });
+        let totalResults = null;
+        let totalPages = 1;
+        let pages = 0;
+        let rows = 0;
+        for (let pageNumber = 0; pageNumber < totalPages; pageNumber += 1) {
+          if (signal.aborted) return;
+          if (pageNumber >= plan.maxPagesPerDay) {
+            throw new RuntimeError(WING_TRAFFIC_PAGE_LIMIT_REACHED, `${businessDate} \uD2B8\uB798\uD53D\uC774 ${plan.maxPagesPerDay}\uCABD\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, { businessDate });
+          }
+          const page = await site.readDetailPage({ businessDate, pageNumber, vendorId: plan.vendorId });
+          if (page.pageNumber !== pageNumber || page.pageSize !== PAGE_SIZE || page.totalResults < 0) throw pageConflict(businessDate, pageNumber);
+          if (totalResults === null) {
+            totalResults = page.totalResults;
+            totalPages = totalResults === 0 ? 1 : Math.ceil(totalResults / PAGE_SIZE);
+            if (page.totalPages !== (totalResults === 0 ? 0 : totalPages)) throw pageConflict(businessDate, pageNumber);
+            if (totalPages > plan.maxPagesPerDay) {
+              throw new RuntimeError(WING_TRAFFIC_PAGE_LIMIT_REACHED, `${businessDate} \uD2B8\uB798\uD53D\uC774 ${plan.maxPagesPerDay}\uCABD\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, { businessDate });
+            }
+          } else if (page.totalResults !== totalResults || page.totalPages !== totalPages) {
+            throw pageConflict(businessDate, pageNumber);
+          }
+          const expectedRows = totalResults === 0 ? 0 : Math.min(PAGE_SIZE, totalResults - pageNumber * PAGE_SIZE);
+          if (page.rows.length !== expectedRows) throw pageConflict(businessDate, pageNumber);
+          pages += 1;
+          for (const option of page.rows) {
+            rows += 1;
+            const full = buffer.push({ businessDate, ...option });
+            if (full) yield rowsChunk2(full);
+          }
+          rowTotal += page.rows.length;
+          await report?.({ ...progress4(businessDate) });
+        }
+        const rest = buffer.flush();
+        if (rest) yield rowsChunk2(rest);
+        if (signal.aborted) return;
+        const accountSummary = await site.readSummary({ startDate: businessDate, endDate: businessDate });
+        const day = { businessDate, pages, rows, explicitEmpty: rows === 0, capturedAt: (/* @__PURE__ */ new Date()).toISOString(), accountSummary };
+        yield { chunkKind: WING_TRAFFIC_DAY_CHUNK_KIND, payload: [day], progress: { current: businessDate, confirmedDays: index + 1, plannedDays: dates.length, rows: rowTotal } };
+      }
+      if (signal.aborted) return;
+      const periodSummary = await site.readSummary({ startDate: dates[0], endDate: dates[dates.length - 1] });
+      const period = { startDate: dates[0], endDate: dates[dates.length - 1], capturedAt: (/* @__PURE__ */ new Date()).toISOString(), accountSummary: periodSummary };
+      yield { chunkKind: WING_TRAFFIC_PERIOD_CHUNK_KIND, payload: [period], progress: { current: null, confirmedDays: dates.length, plannedDays: dates.length, rows: rowTotal } };
+    }
+  };
+  function rowsChunk2(payload) {
+    return { chunkKind: WING_TRAFFIC_ROWS_CHUNK_KIND, payload };
+  }
+  function pageConflict(businessDate, pageNumber) {
+    return new RuntimeError(WING_TRAFFIC_PAGE_CONFLICT, "Wing \uD2B8\uB798\uD53D \uCABD \uC815\uBCF4\uAC00 \uBC14\uB00C\uC5C8\uAC70\uB098 \uC77C\uBD80\uB9CC \uC654\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { businessDate, pageNumber });
+  }
+  registerCollector(wingTrafficCollector);
 
   // packages/shared/src/schemas/coupang-catalog-snapshot.ts
   var COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT = 500;
@@ -5571,20 +5791,20 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/collectors/orders.coupang_directship/index.ts
-  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
   var MAX_LIST_PAGES = 40;
   var WINDOW_DAYS = 30;
   var DETAIL_CONCURRENCY = 5;
-  var CHUNK_ITEMS2 = 200;
+  var CHUNK_ITEMS3 = 200;
   var KST_OFFSET_MS = 9 * 60 * 60 * 1e3;
   var coupangDirectshipCollector = {
     kind: COUPANG_DIRECTSHIP_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       if (!CoupangDirectshipPlanSchema.safeParse(rawPlan).success) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+        throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       }
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       try {
         const now = Date.now();
         const query = { searchDateType: "WAREHOUSING_PLAN_DATE", from: kstDay(now, 0), to: kstDay(now, WINDOW_DAYS), status: "PA" };
@@ -5605,7 +5825,7 @@ var KidItemRuntime = (() => {
           await report?.(progress("list", page, Math.min(Number(body.lastPageNumber) || 1, MAX_LIST_PAGES)));
           if (page >= (Number(body.lastPageNumber) || 1)) break;
         }
-        const buffer = new ChunkBuffer({ maxItems: CHUNK_ITEMS2, label: "\uC9C1\uBC30\uC1A1 \uBC1C\uC8FC\uC11C" });
+        const buffer = new ChunkBuffer({ maxItems: CHUNK_ITEMS3, label: "\uC9C1\uBC30\uC1A1 \uBC1C\uC8FC\uC11C" });
         if (listed.length === 0) {
           yield { chunkKind: COUPANG_DIRECTSHIP_CHUNK_KIND, payload: [{ centers: {} }], progress: progress("done", 0, 0) };
           return;
@@ -5681,15 +5901,15 @@ var KidItemRuntime = (() => {
     const list = Array.isArray(body) ? body : body?.body ?? [];
     const centers = {};
     for (const center of Array.isArray(list) ? list : []) {
-      const record = center;
-      if (!record?.centerName) continue;
+      const record2 = center;
+      if (!record2?.centerName) continue;
       const entry = {};
-      if (typeof record.address === "string" && record.address.trim()) entry.addr = record.address.trim();
-      if (typeof record.zipCode === "string" && record.zipCode.trim() || typeof record.zipCode === "number") {
-        entry.zip = typeof record.zipCode === "number" ? record.zipCode : String(record.zipCode).trim();
+      if (typeof record2.address === "string" && record2.address.trim()) entry.addr = record2.address.trim();
+      if (typeof record2.zipCode === "string" && record2.zipCode.trim() || typeof record2.zipCode === "number") {
+        entry.zip = typeof record2.zipCode === "number" ? record2.zipCode : String(record2.zipCode).trim();
       }
-      if (typeof record.contact === "string" && record.contact.trim()) entry.contact = record.contact.trim();
-      centers[String(record.centerName).trim()] = entry;
+      if (typeof record2.contact === "string" && record2.contact.trim()) entry.contact = record2.contact.trim();
+      centers[String(record2.centerName).trim()] = entry;
     }
     return centers;
   }
@@ -5853,14 +6073,14 @@ var KidItemRuntime = (() => {
     maxPagesPerWindow: external_exports.number().int().min(1)
   });
   var COUPANG_REVIEWS_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
-  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
   var coupangReviewsCollector = {
     kind: COUPANG_REVIEWS_KIND,
     site: "wing-reviews",
     async *collect(rawPlan, site, { signal }) {
       const parsed = CoupangReviewsPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
       const plan = parsed.data;
       const done = [];
       for (const window of plan.windows) {
@@ -5903,7 +6123,7 @@ var KidItemRuntime = (() => {
 
   // extensions/src/collectors/orders.coupang_rocket_po/index.ts
   var ROCKET_PO_COLLECTION_INCOMPLETE = "ROCKET_PO_COLLECTION_INCOMPLETE";
-  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
   var DETAIL_CONCURRENCY2 = 5;
   var CHUNK_PURCHASE_ORDERS = 200;
   var coupangRocketPoCollector = {
@@ -5911,8 +6131,8 @@ var KidItemRuntime = (() => {
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed = CoupangRocketPoPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
       const plan = parsed.data;
       try {
         const query = { searchDateType: plan.dateType, from: plan.from, to: plan.to, status: plan.status };
@@ -6132,14 +6352,14 @@ var KidItemRuntime = (() => {
   // extensions/src/collectors/orders.coupang_shipment_summary/index.ts
   var PlanSchema = external_exports.object({ maxPages: external_exports.number().int().min(1).max(60) });
   var PAGE_FETCH_CONCURRENCY = 6;
-  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
   var coupangShipmentSummaryCollector = {
     kind: COUPANG_SHIPMENT_SUMMARY_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed = PlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
       const { maxPages } = parsed.data;
       try {
         const seen = /* @__PURE__ */ new Set();
@@ -6219,7 +6439,7 @@ var KidItemRuntime = (() => {
     seenRowKeys: external_exports.array(external_exports.string()).optional()
   });
   var CHUNK_ROWS = 200;
-  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
   var mallOrdersCollector = {
     kind: MALL_ORDERS_KIND,
     site: "mall-orders",
@@ -6227,7 +6447,7 @@ var KidItemRuntime = (() => {
       const parsed = PlanSchema2.safeParse(rawPlan);
       const reader = parsed.success && site ? site.reader(parsed.data.mallKey) : null;
       if (!parsed.success || !reader) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ORDERS_KIND,
           mallKey: parsed.success ? parsed.data.mallKey : null
         });
@@ -6263,14 +6483,14 @@ var KidItemRuntime = (() => {
     endDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/)
   });
   var CHUNK_ROWS2 = 500;
-  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID8 = "RUNTIME_PLAN_INVALID";
   var sellpiaShipmentTrackingCollector = {
     kind: SELLPIA_SHIPMENT_TRACKING_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
       const parsed = PlanSchema3.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
       const { rows, total } = await site.shipmentTracking({ startDate: parsed.data.startDate, endDate: parsed.data.endDate });
       if (signal.aborted) return;
       const progress4 = { rows: rows.length, listed: total };
@@ -7234,19 +7454,19 @@ var KidItemRuntime = (() => {
   }
   function isErrorEnvelope(value) {
     if (Array.isArray(value)) return false;
-    const record = value;
-    if (record.success === false || record.ok === false) return true;
+    const record2 = value;
+    if (record2.success === false || record2.ok === false) return true;
     for (const key of ["error", "errors", "errorCode", "error_code"]) {
-      const nested = record[key];
-      if (key in record && nested !== null && nested !== void 0 && String(nested).trim()) return true;
+      const nested = record2[key];
+      if (key in record2 && nested !== null && nested !== void 0 && String(nested).trim()) return true;
     }
-    if (record.code !== void 0 && record.code !== null && record.code !== 0 && record.code !== "0" && String(record.code).trim() !== "") return true;
-    return typeof record.message === "string" && PROVIDER_ATTENTION.test(record.message);
+    if (record2.code !== void 0 && record2.code !== null && record2.code !== 0 && record2.code !== "0" && String(record2.code).trim() !== "") return true;
+    return typeof record2.message === "string" && PROVIDER_ATTENTION.test(record2.message);
   }
   function errorEnvelopeMessage(value) {
-    const record = value;
+    const record2 = value;
     for (const key of ["error", "errors", "message", "errorCode", "error_code", "code"]) {
-      const nested = record[key];
+      const nested = record2[key];
       if (nested !== null && nested !== void 0 && String(nested).trim()) return String(nested);
     }
     return "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC5D0\uC11C \uC624\uB958\uB97C \uBC18\uD658\uD588\uC2B5\uB2C8\uB2E4.";
@@ -7422,14 +7642,14 @@ var KidItemRuntime = (() => {
   async function readPurchaseOrderListPage(page, path, pageNumber) {
     const fetched = await page.fetch(path, { headers: { accept: "application/json" } });
     const text2 = fetched.text;
-    const failed2 = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
+    const failed3 = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
     if (fetched.status === 400 || fetched.status === 413 || fetched.status === 431) throw cookieBloat(path, fetched.status);
-    if (fetched.status < 200 || fetched.status >= 300 || text2.trim().charAt(0) === "<") throw failed2();
+    if (fetched.status < 200 || fetched.status >= 300 || text2.trim().charAt(0) === "<") throw failed3();
     let parsed;
     try {
       parsed = JSON.parse(text2);
     } catch {
-      throw failed2();
+      throw failed3();
     }
     const body = parsed?.body;
     if (!body || !Array.isArray(body.body)) throw responseInvalid(path, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC5D0 \uD589 \uBC30\uC5F4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
@@ -8531,8 +8751,8 @@ var KidItemRuntime = (() => {
         documentIds.push(document.id);
       }
       for (const image of Array.isArray(item.images) ? item.images : []) {
-        const record = isRecord2(image) ? image : {};
-        addDetailMedia(mediaByKey, "option", normalizeImageUrl(record.cdnPath || record.vendorPath), externalOptionId);
+        const record2 = isRecord2(image) ? image : {};
+        addDetailMedia(mediaByKey, "option", normalizeImageUrl(record2.cdnPath || record2.vendorPath), externalOptionId);
       }
       for (const sourceUrl of extractDetailImageUrls(item.contents)) {
         addDetailMedia(mediaByKey, "detail", sourceUrl, externalOptionId);
@@ -8601,10 +8821,10 @@ var KidItemRuntime = (() => {
   }
   function normalizeDetailAttributes(attributes) {
     return (Array.isArray(attributes) ? attributes : []).map((attribute) => {
-      const record = isRecord2(attribute) ? attribute : {};
+      const record2 = isRecord2(attribute) ? attribute : {};
       return {
-        type: nullableText(record.attributeTypeName || record.attributeTypeId),
-        value: nullableText(record.attributeValueName)
+        type: nullableText(record2.attributeTypeName || record2.attributeTypeId),
+        value: nullableText(record2.attributeValueName)
       };
     }).filter((attribute) => Boolean(attribute.type && attribute.value)).slice(0, MAX_ATTRIBUTES_PER_OPTION);
   }
@@ -8708,8 +8928,8 @@ var KidItemRuntime = (() => {
   }
   function nullableInteger(value) {
     if (value === null || value === void 0 || value === "") return null;
-    const number = Number(value);
-    return Number.isInteger(number) && number >= 0 ? number : null;
+    const number2 = Number(value);
+    return Number.isInteger(number2) && number2 >= 0 ? number2 : null;
   }
   function requiredText3(value, name) {
     const text2 = typeof value === "string" ? value.trim() : "";
@@ -8765,10 +8985,10 @@ var KidItemRuntime = (() => {
         try {
           return await caller.json(url, init);
         } catch (error) {
-          const failed2 = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
-          if (failed2 && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
+          const failed3 = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
+          if (failed3 && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
           const delay = READ_RETRY_DELAYS_MS[attempt];
-          if (!failed2) throw error;
+          if (!failed3) throw error;
           if (delay === void 0) throw withResponseHint(error);
           await deps.sleep(delay);
         }
@@ -8852,9 +9072,9 @@ var KidItemRuntime = (() => {
           requestType: EXCEL_REQUEST_TYPE,
           selectedTypes: [...CATALOGUE_TYPES]
         }, true);
-        const record = asRecord(response);
-        if (record?.success !== true) {
-          const message = typeof record?.message === "string" && record.message ? `: ${record.message}` : "";
+        const record2 = asRecord(response);
+        if (record2?.success !== true) {
+          const message = typeof record2?.message === "string" && record2.message ? `: ${record2.message}` : "";
           throw new RuntimeError(CATALOG_EXCEL_FAILED2, `\uCFE0\uD321 \uC719\uC774 \uC0C1\uD488\uC815\uBCF4 \uC5D1\uC140 \uC0DD\uC131\uC744 \uAC70\uC808\uD588\uC2B5\uB2C8\uB2E4${message}`);
         }
       },
@@ -8926,7 +9146,7 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/wing/itemwinner.ts
   var WING_ORIGIN = "https://wing.coupang.com";
   var WING_ITEMWINNER_URL = `${WING_ORIGIN}/tenants/seller-price-management/getProductList`;
-  var PAGE_SIZE = 1e3;
+  var PAGE_SIZE2 = 1e3;
   var EMPTY_PAGE_SIZE = 10;
   var WING_ITEMWINNER_CALLER = {
     minIntervalMs: 1e3,
@@ -8949,7 +9169,7 @@ var KidItemRuntime = (() => {
       vendorItemStatus: "ON_SALE",
       itemWinnerStatus: "ALL",
       rodBadge: "ALL",
-      pageSize: PAGE_SIZE,
+      pageSize: PAGE_SIZE2,
       page: 0,
       searchPresets: null,
       isTopGMV: null
@@ -8974,7 +9194,7 @@ var KidItemRuntime = (() => {
       throw new RuntimeError(WING_ITEMWINNER_PAGE_LIMIT_REACHED, `\uD310\uB9E4\uC911 \uC0C1\uD488\uC774 ${WING_ITEMWINNER_MAX_ITEMS}\uAC1C\uB97C \uB118\uC5B4 \uC544\uC774\uD15C\uC704\uB108\uB97C \uD55C \uBC88\uC5D0 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { totalSize });
     }
     const rows = body.result;
-    const complete = totalSize === 0 ? rows.length === 0 && totalPages === 0 && pageSize === EMPTY_PAGE_SIZE : pageSize === PAGE_SIZE && totalPages === 1 && rows.length === totalSize;
+    const complete = totalSize === 0 ? rows.length === 0 && totalPages === 0 && pageSize === EMPTY_PAGE_SIZE : pageSize === PAGE_SIZE2 && totalPages === 1 && rows.length === totalSize;
     if (!complete) throw failed("wing_itemwinner_partial", "Wing \uC544\uC774\uD15C\uC704\uB108 \uBAA9\uB85D\uC774 \uD55C \uBC88\uC5D0 \uC624\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { totalSize, rows: rows.length, totalPages });
     const normalized = rows.map(normalizeRow);
     if (new Set(normalized.map((row) => row.vendorItemId)).size !== normalized.length) {
@@ -9010,8 +9230,8 @@ var KidItemRuntime = (() => {
     return /^\d+$/.test(text2) && BigInt(text2) > 0n ? text2 : null;
   }
   function integer(value) {
-    const number = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
-    return Number.isSafeInteger(number) ? number : null;
+    const number2 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+    return Number.isSafeInteger(number2) ? number2 : null;
   }
   function isRecord3(value) {
     return !!value && typeof value === "object" && !Array.isArray(value);
@@ -9085,13 +9305,13 @@ var KidItemRuntime = (() => {
     };
   }
   function parseWingSearchPage(body) {
-    const record = asRecord2(body);
-    if (!record || !Array.isArray(record.result)) {
+    const record2 = asRecord2(body);
+    if (!record2 || !Array.isArray(record2.result)) {
       throw new RuntimeError(WING_SEARCH_PAYLOAD_INVALID, "Wing \uAC80\uC0C9 \uC751\uB2F5\uC758 \uBAA8\uC591\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     }
-    const next = record.nextSearchPage;
+    const next = record2.nextSearchPage;
     return {
-      rows: record.result.map(normalizeWingSearchProduct).filter((row) => row !== null),
+      rows: record2.result.map(normalizeWingSearchProduct).filter((row) => row !== null),
       nextSearchPage: typeof next === "number" && Number.isInteger(next) ? next : null
     };
   }
@@ -9251,6 +9471,152 @@ var KidItemRuntime = (() => {
     name: "wing-reviews",
     origin: WING_ORIGIN2,
     create: (deps) => createWingReviewsSite(createSiteCaller(WING_REVIEW_CALLER, deps))
+  });
+
+  // extensions/src/sites/wing/traffic.ts
+  var WING_ORIGIN3 = "https://wing.coupang.com";
+  var WING_TRAFFIC_DETAIL_URL = `${WING_ORIGIN3}/tenants/rfm-ss/api/business-insight/vi-detail-search`;
+  var WING_TRAFFIC_SUMMARY_URL = `${WING_ORIGIN3}/tenants/rfm-ss/api/business-insight/vendor-summary`;
+  var WING_TRAFFIC_METADATA_URL = `${WING_ORIGIN3}/tenants/rfm-ss/api/metadata/business-insights`;
+  var WING_TRAFFIC_PAGE_SIZE = 100;
+  var REGISTRATION_TYPES = ["NORMAL", "RFM"];
+  var WING_TRAFFIC_CALLER = {
+    minIntervalMs: 300,
+    timeoutMs: 3e4,
+    displayName: "\uCFE0\uD321 \uC719",
+    xsrf: { cookieUrl: WING_ORIGIN3, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+  };
+  var JSON_HEADERS = { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" };
+  async function readWingTrafficFreshness(caller, now) {
+    const body = await caller.json(`${WING_TRAFFIC_METADATA_URL}?platform=WING&date=${encodeURIComponent(now.toISOString())}`, {
+      requireXsrf: true,
+      headers: { Accept: "application/json, text/plain, */*" }
+    });
+    const metrics = record(record(record(body)?.dataFreshness)?.metrics);
+    const viewable = record(record(record(body)?.viewablePeriods)?.sa);
+    const freshness = {
+      salesLatest: koreaDate(record(metrics?.SALES_DAILY)?.latestDataDate),
+      trafficLatest: koreaDate(record(metrics?.TRAFFIC_DAILY)?.latestDataDate),
+      viewableStart: koreaDate(viewable?.startDate),
+      viewableEnd: koreaDate(viewable?.endDate)
+    };
+    if (!freshness.salesLatest || !freshness.trafficLatest || !freshness.viewableStart || !freshness.viewableEnd) {
+      throw failed2("wing_traffic_metadata_invalid", "Wing \uB9E4\uCD9C\uBD84\uC11D \uACF5\uAC1C \uAE30\uAC04 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    }
+    return freshness;
+  }
+  async function readWingTrafficDetailPage(caller, input) {
+    const body = record(await caller.json(WING_TRAFFIC_DETAIL_URL, {
+      method: "POST",
+      requireXsrf: true,
+      headers: JSON_HEADERS,
+      body: JSON.stringify({
+        startDate: input.businessDate,
+        endDate: input.businessDate,
+        registrationTypes: [...REGISTRATION_TYPES],
+        pageNumber: input.pageNumber,
+        pageSize: WING_TRAFFIC_PAGE_SIZE,
+        sortBy: "GMV",
+        sortOrder: "DESC",
+        includeSoldVICount: true
+      })
+    }));
+    const pagination = record(body?.paginationDetails);
+    const items = body?.vendorItems;
+    const totalResults = integer2(pagination?.totalResults);
+    const totalPages = integer2(pagination?.totalPages);
+    const pageSize = integer2(pagination?.pageSize);
+    const pageNumber = integer2(pagination?.pageNumber);
+    if (!Array.isArray(items) || totalResults === null || totalPages === null || pageSize === null || pageNumber === null) {
+      throw failed2("wing_traffic_response_invalid", "Wing \uD2B8\uB798\uD53D \uCABD \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { businessDate: input.businessDate, pageNumber: input.pageNumber });
+    }
+    return { rows: items.map((item) => normalizeRow2(item, input.vendorId)), totalResults, totalPages, pageSize, pageNumber };
+  }
+  async function readWingTrafficSummary(caller, input) {
+    const body = record(await caller.json(WING_TRAFFIC_SUMMARY_URL, {
+      method: "POST",
+      requireXsrf: true,
+      headers: JSON_HEADERS,
+      body: JSON.stringify({ startDate: input.startDate, endDate: input.endDate, registrationTypes: [...REGISTRATION_TYPES], searchIds: [] })
+    }));
+    const metrics = record(body?.summaryMetrics);
+    const summary = {
+      visitors: integer2(metrics?.totalUniqueVisitor),
+      views: integer2(metrics?.totalPageViews),
+      cartAdds: integer2(metrics?.totalAddToCart),
+      orders: integer2(metrics?.totalOrders),
+      salesQty: integer2(metrics?.totalUnitsSold),
+      revenue: integer2(metrics?.totalGmv)
+    };
+    if (Object.values(summary).some((value) => value === null)) {
+      throw failed2("wing_traffic_summary_invalid", "Wing \uD2B8\uB798\uD53D \uC694\uC57D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", input);
+    }
+    const ratio = metrics?.pvToOrder;
+    const providerConversionRate = ratio === null || ratio === void 0 ? null : number(ratio);
+    if (ratio !== null && ratio !== void 0 && providerConversionRate === null) {
+      throw failed2("wing_traffic_summary_invalid", "Wing \uD2B8\uB798\uD53D \uC694\uC57D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", input);
+    }
+    return { ...summary, providerConversionRate: providerConversionRate === null ? null : providerConversionRate * 100 };
+  }
+  function normalizeRow2(value, vendorId) {
+    const row = record(value);
+    const details = record(row?.vendorItemDetails);
+    const metrics = record(row?.businessInsightsMetricsResponse);
+    const vendorItemId = positiveId2(details?.vendorItemId);
+    const productId = positiveId2(details?.inventoryId);
+    if (!details || !metrics || !vendorItemId || !productId) throw rowInvalid2("vendorItemDetails");
+    const rowVendorId = details.vendorId === null || details.vendorId === void 0 ? "" : String(details.vendorId).trim();
+    if (rowVendorId !== vendorId) {
+      throw failed2("advertiser_identity_mismatch", "Wing \uACC4\uC815 \uC2DD\uBCC4\uC790\uAC00 \uC218\uC9D1 \uACC4\uD68D\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uB2E4\uB978 Wing \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { vendorItemId });
+    }
+    const values = {
+      visitors: integer2(metrics.totalUniqueVisitor),
+      views: integer2(metrics.totalPageViews),
+      cartAdds: integer2(metrics.totalAddToCart),
+      orders: integer2(metrics.totalOrders),
+      salesQty: integer2(metrics.totalUnitsSold),
+      revenue: integer2(metrics.totalGmv)
+    };
+    for (const [field, metric2] of Object.entries(values)) if (metric2 === null) throw rowInvalid2(field);
+    return { vendorItemId, productId, ...values };
+  }
+  function koreaDate(value) {
+    const timestamp = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? Date.parse(`${value}T00:00:00Z`) : typeof value === "string" || typeof value === "number" ? new Date(value).getTime() : Number.NaN;
+    if (!Number.isFinite(timestamp)) return null;
+    return new Date(timestamp + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
+  }
+  function positiveId2(value) {
+    const text2 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
+    return /^[1-9]\d*$/.test(text2) ? text2 : null;
+  }
+  function number(value) {
+    const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+    return Number.isFinite(parsed) ? parsed : null;
+  }
+  function integer2(value) {
+    const parsed = number(value);
+    return parsed !== null && Number.isSafeInteger(parsed) ? parsed : null;
+  }
+  function record(value) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  }
+  function rowInvalid2(field) {
+    return failed2("wing_traffic_row_invalid", "Wing \uD2B8\uB798\uD53D \uD589\uC5D0 \uD544\uC694\uD55C \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { field });
+  }
+  function failed2(reason, message, details = {}) {
+    return new RuntimeError(SITE_REQUEST_FAILED, message, { reason, ...details });
+  }
+  function createWingTrafficSite(caller) {
+    return {
+      readFreshness: (now) => readWingTrafficFreshness(caller, now),
+      readDetailPage: (input) => readWingTrafficDetailPage(caller, input),
+      readSummary: (input) => readWingTrafficSummary(caller, input)
+    };
+  }
+  registerSite({
+    name: "wing-traffic",
+    origin: WING_ORIGIN3,
+    create: (deps) => createWingTrafficSite(createSiteCaller(WING_TRAFFIC_CALLER, deps))
   });
 
   // extensions/src/core/browser.ts
@@ -9767,10 +10133,10 @@ var KidItemRuntime = (() => {
   }
   function installProductCollect(chromeApi, deps) {
     chromeApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-      const record = message && typeof message === "object" ? message : null;
-      if (record?.type !== COLLECT_CURRENT) return;
-      const tabId = record.tabId;
-      const environmentId = record.environmentId;
+      const record2 = message && typeof message === "object" ? message : null;
+      if (record2?.type !== COLLECT_CURRENT) return;
+      const tabId = record2.tabId;
+      const environmentId = record2.environmentId;
       if (typeof tabId !== "number" || typeof environmentId !== "string" || !environmentId) {
         sendResponse({ ok: false, error: "\uC218\uC9D1\uD560 \uD0ED\uACFC KidItem \uD658\uACBD\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694." });
         return;

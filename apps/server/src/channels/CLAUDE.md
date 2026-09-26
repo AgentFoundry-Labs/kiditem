@@ -128,6 +128,11 @@ sync, registration, matching, and capacity behavior is executable in
   409를 지킨다. Nest 예외 잔여는 수집 계열(`ChannelBusinessError`·`ListingException`, catalog·몰 관리자·
   사방넷·셀피아 수동매칭)·`channel-account.persistence.adapter.ts` claim·`channel-product-matching.controller.ts`
   (KID-338)과 `coupang-channel.adapter.ts` 4곳(웹 `wing-error-message.ts` 분류기, KID-339 파생)뿐이다.
+- Listing-day traffic coverage comes from Advertising's succeeded
+  `advertising.wing_traffic` operations (read through the operation contract's
+  `readSucceededOperationWindows`, KID-362): a date counts only when the
+  account's newest run confirmed it, no listing arrived after that run, and no
+  Wing row it could not match now belongs to an active listing (KID-217).
 - Persistence adapters may query Channels-owned facts without a dedicated
   reader file. Other owners use public capabilities (ADR-0021); preserve
   organization scope, complete-source evidence, and required transactions.

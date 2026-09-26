@@ -25,7 +25,10 @@ registrations, and supports explicit Wing page automation.
   generic extension sync endpoint is not a producer path.
 - Approved queued ad actions are fetched from `/api/ads/actions`.
 - The Wing catalog is not collected here: it runs in the TypeScript operation
-  runtime (`extensions/src/collectors/channels.wing_catalog_*`, KID-354).
+  runtime (`extensions/src/collectors/channels.wing_catalog_*`, KID-354). Wing
+  traffic and item winner are runtime kinds too (`advertising.wing_traffic`,
+  `advertising.wing_itemwinner`, KID-362); no content script runs on every Wing
+  page.
 - Every chunk and terminal request of an ad-center attempt carries the
   server-issued attempt ID/token and uses the owner's deterministic receipt
   identity. Replays are safe; stale, expired, or post-terminal mutations stop

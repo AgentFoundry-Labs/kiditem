@@ -95,18 +95,6 @@
         "https://wing.coupang.com/*"
       ],
       "js": [
-        "utils/dom.js",
-        "shared/wing-account-identity.js",
-        "content/coupang/wing-read-api.js",
-        "content/coupang/wing-unified.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://wing.coupang.com/*"
-      ],
-      "js": [
         "content/coupang/wing-thumbnail-register.js"
       ],
       "run_at": "document_idle"

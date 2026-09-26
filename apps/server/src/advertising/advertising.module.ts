@@ -20,15 +20,15 @@ import { KeywordRankController } from "./adapter/in/http/keyword-rank.controller
 import { KeywordSerpSourceController } from "./adapter/in/http/keyword-serp-source.controller";
 import { AdKeywordSourceController } from "./adapter/in/http/ad-keyword-source.controller";
 import { AdCampaignSourceController } from "./adapter/in/http/ad-campaign-source.controller";
-import { WingItemwinnerOperationOwner } from "./adapter/in/operation/wing-daily-operation-owners";
+import { WingItemwinnerOperationOwner, WingTrafficOperationOwner } from "./adapter/in/operation/wing-daily-operation-owners";
 import { WingItemwinnerOperationRepository } from "./adapter/out/repository/wing-itemwinner-operation.repository";
 import { WING_ITEMWINNER_OPERATION_REPOSITORY_PORT } from "./application/port/out/repository/wing-itemwinner-operation.repository.port";
 import { OperationModule } from "../common/operation/operation.module";
-import { AdTrafficSourceController } from "./adapter/in/http/ad-traffic-source.controller";
-import { AdTrafficSourceRepository } from "./adapter/out/repository/ad-traffic-source.repository";
+import { WingTrafficOperationRepository } from "./adapter/out/repository/wing-traffic-operation.repository";
+import { WingTrafficReadRepository } from "./adapter/out/repository/wing-traffic-read.repository";
+import { WING_TRAFFIC_OPERATION_REPOSITORY_PORT } from "./application/port/out/repository/wing-traffic-operation.repository.port";
 import {
   AD_TRAFFIC_READ_PORT,
-  AD_TRAFFIC_SOURCE_PORT,
 } from "./application/port/in/ad-traffic-source.port";
 import { WingRankSourceController } from "./adapter/in/http/wing-rank-source.controller";
 import { SellerIdentitySourceController } from "./adapter/in/http/seller-identity-source.controller";
@@ -182,7 +182,6 @@ const REPOSITORY_PORT_BINDINGS = [
     KeywordSerpSourceController,
     AdKeywordSourceController,
     AdCampaignSourceController,
-    AdTrafficSourceController,
     WingRankSourceController,
     SellerIdentitySourceController,
     CompetitorTrackingController,
@@ -211,14 +210,16 @@ const REPOSITORY_PORT_BINDINGS = [
       useExisting: WingItemwinnerOperationRepository,
     },
     WingItemwinnerOperationOwner,
-    AdTrafficSourceRepository,
+    WingTrafficOperationRepository,
     {
-      provide: AD_TRAFFIC_SOURCE_PORT,
-      useExisting: AdTrafficSourceRepository,
+      provide: WING_TRAFFIC_OPERATION_REPOSITORY_PORT,
+      useExisting: WingTrafficOperationRepository,
     },
+    WingTrafficOperationOwner,
+    WingTrafficReadRepository,
     {
       provide: AD_TRAFFIC_READ_PORT,
-      useExisting: AdTrafficSourceRepository,
+      useExisting: WingTrafficReadRepository,
     },
     WingRankSourceRepository,
     SellerIdentitySourceRepository,

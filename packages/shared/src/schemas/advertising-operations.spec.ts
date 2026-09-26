@@ -2,6 +2,12 @@ import { describe, expect, it } from 'vitest';
 import { OperationKindSchema, OperationLockKeySchema } from './operation.js';
 import {
   WING_ITEMWINNER_KIND,
+  WING_TRAFFIC_KIND,
+  WING_TRAFFIC_MAX_COLLECTION_DAYS,
+  WingTrafficRowSchema,
+  WingTrafficScopeSchema,
+  adTrafficReconciliationStatus,
+  dailyTrafficFactSource,
   WingItemwinnerRowSchema,
   WingItemwinnerScopeSchema,
   wingDailyLockKey,
@@ -29,3 +35,50 @@ describe('Wing daily fact kinds (KID-362 K-b)', () => {
   });
 });
 
+describe('Wing traffic kind (KID-362 K6)', () => {
+  it('is an Advertising kind with the daily lock of its account and a 92-day start limit', () => {
+    expect(OperationKindSchema.parse(WING_TRAFFIC_KIND)).toBe('advertising.wing_traffic');
+    expect(WING_TRAFFIC_MAX_COLLECTION_DAYS).toBe(92);
+  });
+
+  it('scope names the account and an optional ordered closed range', () => {
+    expect(WingTrafficScopeSchema.safeParse({ channelAccountId: ACCOUNT }).success).toBe(true);
+    expect(WingTrafficScopeSchema.safeParse({ channelAccountId: ACCOUNT, startDate: '2026-09-01', endDate: '2026-09-07' }).success).toBe(true);
+    expect(WingTrafficScopeSchema.safeParse({ channelAccountId: ACCOUNT, startDate: '2026-09-07', endDate: '2026-09-01' }).success).toBe(false);
+    expect(WingTrafficScopeSchema.safeParse({ startDate: '2026-09-01' }).success).toBe(false);
+    expect(WingTrafficScopeSchema.safeParse({ channelAccountId: ACCOUNT, url: 'https://wing.coupang.com' }).success).toBe(false);
+  });
+
+  it('a traffic row is one option-day with integer metrics', () => {
+    const row = { businessDate: '2026-09-01', vendorItemId: '101', productId: '55', visitors: 1, views: 2, cartAdds: 0, orders: 0, salesQty: 0, revenue: 0 };
+    expect(WingTrafficRowSchema.parse(row)).toEqual(row);
+    expect(WingTrafficRowSchema.safeParse({ ...row, vendorItemId: '0' }).success).toBe(false);
+    expect(WingTrafficRowSchema.safeParse({ ...row, views: 1.5 }).success).toBe(false);
+  });
+});
+
+describe('adTrafficReconciliationStatus', () => {
+  it('derives the word from the two measured totals only', () => {
+    expect(adTrafficReconciliationStatus({ dailySum: 20, periodValue: 20 })).toBe('MATCHED');
+    expect(adTrafficReconciliationStatus({ dailySum: 0, periodValue: 1 })).toBe('MISMATCH');
+    expect(adTrafficReconciliationStatus({ dailySum: 0, periodValue: null })).toBe('UNVERIFIED');
+    expect(adTrafficReconciliationStatus({ dailySum: null, periodValue: 0 })).toBe('UNVERIFIED');
+  });
+});
+
+describe('dailyTrafficFactSource', () => {
+  it('names the writer of a traffic fact from its namespace or its active marker', () => {
+    expect(dailyTrafficFactSource({ 'wing.traffic': { grain: 'listing_option_sum' } })).toBe('wing');
+    expect(dailyTrafficFactSource({ source: 'wing.traffic', data: { periodDays: 7 } })).toBe('wing');
+    expect(dailyTrafficFactSource(null)).toBeNull();
+    expect(dailyTrafficFactSource({})).toBeNull();
+    expect(dailyTrafficFactSource({ 'traffic.currentSource': 'wing.traffic', 'wing.traffic': {} })).toBe('wing');
+    expect(dailyTrafficFactSource({ 'traffic.currentSource': 'unknown' })).toBeNull();
+  });
+
+  /** 트래픽 CSV 업로드 lane 은 없다(KID-110) — Wing 이 리스팅-일 트래픽의 유일한 작성자다. */
+  it('reads any other marker as no known writer', () => {
+    expect(dailyTrafficFactSource({ 'traffic.future_source': { data: {} } })).toBeNull();
+    expect(dailyTrafficFactSource({ 'wing.traffic': { grain: 'listing_option_sum' }, 'traffic.future_source': { data: {} } })).toBe('wing');
+  });
+});

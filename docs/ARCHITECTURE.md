@@ -139,7 +139,10 @@ Other browser sources open their attempt from the page through
 `startWebOpenedCollection`, which stops an attempt the extension does not take.
 The Wing catalog is Channels-owned operation kinds (list → details chained by
 `result.next`, workbook) started through the extension's `operation.start` and
-read through `GET /api/operations` (KID-354).
+read through `GET /api/operations` (KID-354). The Wing daily facts are
+Advertising-owned operation kinds `advertising.wing_traffic` and
+`advertising.wing_itemwinner` (KID-362): the extension service worker reads Wing
+with its cookies, and each holds `account:<id>` plus `resource:wing-daily:<id>`.
 Every start uses a fresh idempotency key; there are no correlated retry keys.
 Stop ends the extension session first, then the owner's organization-scoped
 operator cancel. Competitor catalogs, 1688 trend, TikTok CC and browser live

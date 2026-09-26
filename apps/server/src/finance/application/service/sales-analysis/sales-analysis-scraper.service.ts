@@ -1,5 +1,5 @@
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
-import { Inject, Injectable, Logger, NotFoundException } from '@nestjs/common';
+import { Inject, Injectable, Logger } from '@nestjs/common';
 import { isKiditemError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';
 import {
@@ -18,12 +18,7 @@ import {
   readObservedOrderCount,
 } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import { readAdWindowFacts } from '../../../../advertising/adapter/out/persistence/read/ad-target-facts';
-import type {
-  AdTrafficSourceAccountDaily,
-  AdTrafficSourceCoverage,
-  AdTrafficSourceDailyPublished,
-  AdTrafficSourcePublished,
-} from '@kiditem/shared/advertising';
+import type { AdTrafficSourceAccountDaily, AdTrafficSourceCoverage, AdTrafficSourceDailyPublished, AdTrafficSourcePublished } from '@kiditem/shared/advertising-operations';
 import type { SalesAnalysisDataSources } from '@kiditem/shared/finance';
 
 /**
@@ -138,8 +133,7 @@ export class SalesAnalysisScraperService {
       return await this.adTrafficRead.readPublished({ organizationId });
     } catch (error) {
       if (
-        (isKiditemError(error) && error.code === 'CHANNELS_ACCOUNT_NOT_FOUND')
-        || (error instanceof NotFoundException && error.message === 'AD_TRAFFIC_SOURCE_MISSING')
+        isKiditemError(error) && error.code === 'CHANNELS_ACCOUNT_NOT_FOUND'
       ) {
         return null;
       }

@@ -60,7 +60,6 @@ describe('BrowserCollectionSessionViewSchema', () => {
       'advertising.wing_tracked_products',
       'channels.coupang_catalog',
       'dashboard.coupang_products',
-      'dashboard.wing_sales',
       'inventory.sellpia',
       'orders.mall',
       'orders.mall_admin_listings',
