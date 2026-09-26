@@ -57,7 +57,6 @@ describe('BrowserCollectionSessionViewSchema', () => {
       'advertising.competitor_seller_identity',
       'advertising.keyword_rank',
       'advertising.wing_rank',
-      'advertising.wing_tracked_products',
       'channels.coupang_catalog',
       'dashboard.coupang_products',
       'dashboard.wing_kpi',

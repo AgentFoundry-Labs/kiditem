@@ -213,6 +213,7 @@ erDiagram
     Decimal conversionRate28d
     String sourceKeyword
     DateTime capturedAt
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }

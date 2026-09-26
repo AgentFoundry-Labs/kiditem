@@ -55,6 +55,7 @@ export default defineConfig({
     'src/auth.ts',
     'src/operation-cancellation.ts',
     'src/sourcing-operation.ts',
+    'src/advertising-operations.ts',
     'src/orders-operations.ts',
     'src/sellpia-operations.ts',
     'src/channels-operations.ts',

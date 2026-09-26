@@ -4080,6 +4080,160 @@ var KidItemRuntime = (() => {
   };
   var NEVER = INVALID;
 
+  // packages/shared/src/schemas/advertising-operations.ts
+  var WING_TRACKED_PRODUCTS_KIND = "advertising.wing_tracked_products";
+  function canonicalAdvertisingKeyword(value) {
+    return value.trim().replace(/\s+/gu, " ").normalize("NFC");
+  }
+  function advertisingKeywordIdentity(value) {
+    return canonicalAdvertisingKeyword(value).toLocaleLowerCase("en-US");
+  }
+  var keyword = external_exports.string().transform(canonicalAdvertisingKeyword).pipe(external_exports.string().min(1).max(100));
+  var productId = external_exports.string().trim().min(1).max(40);
+  var isoDay = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+  function keywordList(max) {
+    return external_exports.array(keyword).min(1).max(max).transform((values) => {
+      const seen = /* @__PURE__ */ new Set();
+      return values.filter((value) => {
+        const identity = advertisingKeywordIdentity(value);
+        if (seen.has(identity)) return false;
+        seen.add(identity);
+        return true;
+      });
+    });
+  }
+  var WING_TRACKED_PRODUCTS_MAX_KEYWORDS = 12;
+  var WING_TRACKED_PRODUCTS_MAX_PRODUCTS = 300;
+  var WingTrackedProductsScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    keywords: keywordList(WING_TRACKED_PRODUCTS_MAX_KEYWORDS)
+  }).strict();
+  var WingTrackedProductsPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    businessDate: isoDay,
+    keywords: external_exports.array(external_exports.string().min(1).max(100)).min(1).max(WING_TRACKED_PRODUCTS_MAX_KEYWORDS),
+    maxPages: external_exports.number().int().min(1).max(10),
+    products: external_exports.array(external_exports.object({
+      productId,
+      sourceKeyword: external_exports.string().min(1).max(100).nullable()
+    }).strict()).max(WING_TRACKED_PRODUCTS_MAX_PRODUCTS)
+  }).strict();
+  var WingTrackedProductItemSchema = external_exports.object({
+    productId,
+    salePriceKrw: external_exports.number().int().nonnegative().max(2147483647).nullable(),
+    ratingCount: external_exports.number().int().nonnegative().max(2147483647).nullable(),
+    ratingAverage: external_exports.number().min(0).max(5).nullable(),
+    pvLast28Day: external_exports.number().int().nonnegative().max(2147483647).nullable(),
+    salesLast28d: external_exports.number().int().nonnegative().max(2147483647).nullable(),
+    estimatedRevenue28d: external_exports.number().nonnegative().max(2147483647).nullable(),
+    conversionRate28d: external_exports.number().min(0).max(1).nullable()
+  }).strict();
+  var WING_TRACKED_PRODUCTS_CHUNK_KIND = "wing_tracked_search";
+  var WingTrackedSearchChunkItemSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    items: external_exports.array(WingTrackedProductItemSchema).max(WING_TRACKED_PRODUCTS_MAX_PRODUCTS)
+  }).strict();
+  var WingTrackedProductsResultSchema = external_exports.object({
+    businessDate: isoDay,
+    expectedProductCount: external_exports.number().int().nonnegative(),
+    capturedProductCount: external_exports.number().int().nonnegative()
+  }).strict();
+
+  // extensions/src/core/errors.ts
+  var ErrorEnvelopeSchema = external_exports.object({
+    statusCode: external_exports.number().int().min(400).max(599),
+    code: external_exports.string().min(1),
+    kind: external_exports.string(),
+    message: external_exports.string(),
+    errors: external_exports.array(external_exports.unknown()).optional(),
+    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
+  }).passthrough();
+  var RuntimeError = class extends Error {
+    constructor(code, message, details = null, cause) {
+      super(message);
+      this.code = code;
+      this.details = details;
+      this.cause = cause;
+      this.name = "RuntimeError";
+    }
+    code;
+    details;
+    cause;
+  };
+  function parseErrorEnvelope(body) {
+    const parsed = ErrorEnvelopeSchema.safeParse(body);
+    return parsed.success ? parsed.data : null;
+  }
+  function isRuntimeError(value) {
+    return value instanceof RuntimeError;
+  }
+
+  // extensions/src/collectors/wing-search-keyword.ts
+  var ADVERTISING_COLLECTION_INCOMPLETE = "ADVERTISING_COLLECTION_INCOMPLETE";
+  async function readWingSearchKeyword(site, keyword2, maxPages, signal) {
+    const rows = /* @__PURE__ */ new Map();
+    let searchPage = 0;
+    for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
+      if (signal.aborted) return null;
+      const page = await site.searchPage(keyword2, searchPage);
+      for (const row of page.rows) {
+        const key = `${row.productId}:${row.itemId ?? ""}:${row.vendorItemId ?? ""}`;
+        if (!rows.has(key)) rows.set(key, row);
+      }
+      if (page.rows.length === 0 || page.nextSearchPage === null) break;
+      if (page.nextSearchPage === searchPage) {
+        if (pageIndex + 1 < maxPages) {
+          throw new RuntimeError(ADVERTISING_COLLECTION_INCOMPLETE, `Wing \uAC80\uC0C9 '${keyword2}'\uC758 \uB2E4\uC74C \uCABD\uC774 \uB118\uC5B4\uAC00\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.`, { keyword: keyword2 });
+        }
+        break;
+      }
+      searchPage = page.nextSearchPage;
+    }
+    return [...rows.values()];
+  }
+  function boundedInteger(value) {
+    return value !== null && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
+  }
+  function boundedNumber(value, minimum, maximum) {
+    return value !== null && Number.isFinite(value) && value >= minimum && value <= maximum ? value : null;
+  }
+
+  // extensions/src/collectors/advertising.wing_tracked_products/index.ts
+  var advertisingWingTrackedProductsCollector = {
+    kind: WING_TRACKED_PRODUCTS_KIND,
+    site: "wing-search",
+    async *collect(plan, site, { signal }) {
+      const planned = new Set(plan.products.map((product) => product.productId));
+      for (const [index, keyword2] of plan.keywords.entries()) {
+        const rows = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
+        if (rows === null) return;
+        const items = /* @__PURE__ */ new Map();
+        for (const row of rows) {
+          if (planned.has(row.productId) && !items.has(row.productId)) items.set(row.productId, trackedItem(row));
+        }
+        const chunk = { keyword: keyword2, items: [...items.values()] };
+        yield {
+          chunkKind: WING_TRACKED_PRODUCTS_CHUNK_KIND,
+          payload: [chunk],
+          progress: { current: index + 1, total: plan.keywords.length, label: keyword2 }
+        };
+      }
+    }
+  };
+  function trackedItem(row) {
+    return {
+      productId: row.productId,
+      salePriceKrw: boundedInteger(row.salePrice),
+      ratingCount: boundedInteger(row.ratingCount),
+      ratingAverage: boundedNumber(row.rating, 0, 5),
+      pvLast28Day: boundedInteger(row.pvLast28Day),
+      salesLast28d: boundedInteger(row.salesLast28d),
+      estimatedRevenue28d: boundedNumber(row.estimatedRevenue28d, 0, 2147483647),
+      conversionRate28d: boundedNumber(row.conversionRate28d, 0, 1)
+    };
+  }
+  registerCollector(advertisingWingTrackedProductsCollector);
+
   // packages/shared/src/schemas/coupang-catalog-snapshot.ts
   var COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT = 500;
   var COUPANG_CATALOG_MAX_MEDIA_PER_OWNER = 100;
@@ -4446,35 +4600,6 @@ var KidItemRuntime = (() => {
     updatedSkuCount: external_exports.number().int().nonnegative(),
     skippedRowCount: external_exports.number().int().nonnegative()
   }).strict();
-
-  // extensions/src/core/errors.ts
-  var ErrorEnvelopeSchema = external_exports.object({
-    statusCode: external_exports.number().int().min(400).max(599),
-    code: external_exports.string().min(1),
-    kind: external_exports.string(),
-    message: external_exports.string(),
-    errors: external_exports.array(external_exports.unknown()).optional(),
-    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
-  }).passthrough();
-  var RuntimeError = class extends Error {
-    constructor(code, message, details = null, cause) {
-      super(message);
-      this.code = code;
-      this.details = details;
-      this.cause = cause;
-      this.name = "RuntimeError";
-    }
-    code;
-    details;
-    cause;
-  };
-  function parseErrorEnvelope(body) {
-    const parsed = ErrorEnvelopeSchema.safeParse(body);
-    return parsed.success ? parsed.data : null;
-  }
-  function isRuntimeError(value) {
-    return value instanceof RuntimeError;
-  }
 
   // extensions/src/core/site-caller.ts
   function delayUntilNext(input) {
@@ -4925,11 +5050,11 @@ var KidItemRuntime = (() => {
   var ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT = 1e5;
   var boundedText = (max) => external_exports.string().trim().max(max);
   var requiredText = (max) => boundedText(max).min(1);
-  var isoDay = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+  var isoDay2 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var RocketPoSourceBeginSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
-    from: isoDay,
-    to: isoDay,
+    from: isoDay2,
+    to: isoDay2,
     status: external_exports.enum(["RP", "PA", "RI", "CI", ""]),
     dateType: external_exports.enum(["WAREHOUSING_PLAN_DATE", "PURCHASE_ORDER_DATE"]),
     requireConfirmation: external_exports.boolean()
@@ -4959,7 +5084,7 @@ var KidItemRuntime = (() => {
     barcode: boundedText(80),
     productName: requiredText(240),
     orderQty: external_exports.number().int().nonnegative().max(1e7),
-    plannedDeliveryDate: isoDay,
+    plannedDeliveryDate: isoDay2,
     poStatusCode: boundedText(20).optional(),
     businessDateBasis: external_exports.enum(["ordered_at", "expected_inbound"]).optional(),
     confirmation: external_exports.object({
@@ -4979,8 +5104,8 @@ var KidItemRuntime = (() => {
   }).strict();
   var RocketSavedPoListRequestSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
-    from: isoDay,
-    to: isoDay,
+    from: isoDay2,
+    to: isoDay2,
     status: boundedText(80).optional()
   }).strict().superRefine((value, ctx) => {
     if (value.to < value.from) {
@@ -4996,7 +5121,7 @@ var KidItemRuntime = (() => {
     rocketPoOperationId: external_exports.string().uuid(),
     poNumber: requiredText(80),
     orderedAt: boundedText(40),
-    plannedDeliveryDate: isoDay,
+    plannedDeliveryDate: isoDay2,
     status: boundedText(80),
     vendorId: boundedText(120),
     centerName: boundedText(120),
@@ -5196,7 +5321,7 @@ var KidItemRuntime = (() => {
     poNumber: requiredText(80),
     productNo: requiredText(60),
     productName: requiredText(240),
-    plannedDeliveryDate: isoDay,
+    plannedDeliveryDate: isoDay2,
     orderQuantity: external_exports.number().int().nonnegative(),
     recommendedQuantity: external_exports.number().int().nonnegative().nullable(),
     maxQuantity: external_exports.number().int().nonnegative().nullable(),
@@ -5357,13 +5482,13 @@ var KidItemRuntime = (() => {
   var COUPANG_DIRECTSHIP_KIND = "orders.coupang_directship";
   var SELLPIA_SHIPMENT_TRACKING_KIND = "orders.sellpia_shipment_tracking";
   var MALL_ORDERS_KIND = "orders.mall_orders";
-  var isoDay2 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+  var isoDay3 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
   var CoupangShipmentSummaryScopeSchema = external_exports.object({
     maxPages: external_exports.number().int().min(1).max(60).optional()
   }).strict();
   var COUPANG_SHIPMENT_SUMMARY_PAGE_ROWS = 10;
   var CoupangShipmentDateItemSchema = external_exports.object({
-    date: isoDay2,
+    date: isoDay3,
     count: external_exports.number().int().min(1).max(1e6),
     boxes: external_exports.number().int().min(0).max(1e6)
   }).strict();
@@ -5400,8 +5525,8 @@ var KidItemRuntime = (() => {
     totalListPages: external_exports.number().int().min(0).max(1e5),
     detailPoCount: external_exports.number().int().min(0).max(ROCKET_PO_ROW_LIMIT),
     proof: external_exports.object({
-      from: isoDay2,
-      to: isoDay2,
+      from: isoDay3,
+      to: isoDay3,
       status: external_exports.enum(["RP", "PA", "RI", "CI", ""]),
       dateType: external_exports.enum(["WAREHOUSING_PLAN_DATE", "PURCHASE_ORDER_DATE"]),
       validatedList: external_exports.literal(true)
@@ -5447,8 +5572,8 @@ var KidItemRuntime = (() => {
     centers: external_exports.record(external_exports.string(), CoupangDirectCenterSchema)
   }).strict();
   var SellpiaShipmentTrackingScopeSchema = external_exports.object({
-    startDate: isoDay2,
-    endDate: isoDay2
+    startDate: isoDay3,
+    endDate: isoDay3
   }).strict().refine((value) => value.startDate <= value.endDate, "\uC2DC\uC791\uC77C\uC774 \uB05D\uC77C\uBCF4\uB2E4 \uB2A6\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
   var MallOrdersCollectionModeSchema = external_exports.enum(["browser", "manual-upload"]);
   var MallOrdersSelectionModeSchema = external_exports.enum(["manual", "automatic"]);
@@ -5458,7 +5583,7 @@ var KidItemRuntime = (() => {
   var MallOrdersScopeSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
     mallKey: external_exports.string().min(1).max(64),
-    collectionDate: isoDay2.nullable().default(null),
+    collectionDate: isoDay3.nullable().default(null),
     collectionMode: MallOrdersCollectionModeSchema,
     selectionMode: MallOrdersSelectionModeSchema.optional(),
     seenRowKeys: external_exports.array(external_exports.string().min(1).max(MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH)).max(MALL_ORDERS_SEEN_ROW_KEYS_MAX).optional()
@@ -5485,7 +5610,7 @@ var KidItemRuntime = (() => {
      * 몰이 그 기간의 주문을 빠짐없이 보여 줬다는 확인(확인 범위를 내는 몰 — 도매꾹·해법몰 — 이 수집일로 걷은 성공 실행,
      * 빈 날 포함). 주문 사실 리더가 몰 적용 범위로 읽는다(옛 run의 coverageStartDate/EndDate 자리).
      */
-    coverage: external_exports.object({ startDate: isoDay2, endDate: isoDay2 }).strict().optional(),
+    coverage: external_exports.object({ startDate: isoDay3, endDate: isoDay3 }).strict().optional(),
     /** 화면 표에 개인정보가 가려진 칸이 있었다(아이스크림몰) — 웹이 운영자에게 알린다. */
     masked: external_exports.boolean().optional(),
     /** 이번 수집(고른 행)의 서로 다른 주문번호, 최대 2,000개 — 웹의 생성 파일 항목(일일 건수·중복 판정)이 쓴다. */
@@ -6267,8 +6392,8 @@ var KidItemRuntime = (() => {
     purpose: SourcingWingCatalogPurposeSchema
   }).strict().superRefine((value, context) => {
     const identities = /* @__PURE__ */ new Set();
-    value.keywords.forEach((keyword, index) => {
-      const identity = sourcingWingCatalogKeywordIdentity(keyword);
+    value.keywords.forEach((keyword2, index) => {
+      const identity = sourcingWingCatalogKeywordIdentity(keyword2);
       if (identities.has(identity)) {
         context.addIssue({
           code: external_exports.ZodIssueCode.custom,
@@ -6376,8 +6501,8 @@ var KidItemRuntime = (() => {
     trackedProductIds: external_exports.array(external_exports.string().trim().min(1).max(200)).min(1).max(200)
   }).strict().superRefine((value, context) => {
     const keywordIdentities = /* @__PURE__ */ new Set();
-    value.keywords.forEach((keyword, index) => {
-      const identity = sourcingWingCatalogKeywordIdentity(keyword);
+    value.keywords.forEach((keyword2, index) => {
+      const identity = sourcingWingCatalogKeywordIdentity(keyword2);
       if (keywordIdentities.has(identity)) {
         context.addIssue({
           code: external_exports.ZodIssueCode.custom,
@@ -6388,15 +6513,15 @@ var KidItemRuntime = (() => {
       keywordIdentities.add(identity);
     });
     const productIds = /* @__PURE__ */ new Set();
-    value.trackedProductIds.forEach((productId, index) => {
-      if (productIds.has(productId)) {
+    value.trackedProductIds.forEach((productId2, index) => {
+      if (productIds.has(productId2)) {
         context.addIssue({
           code: external_exports.ZodIssueCode.custom,
           path: ["trackedProductIds", index],
           message: "Tracked product IDs must be unique."
         });
       }
-      productIds.add(productId);
+      productIds.add(productId2);
     });
   });
   var SourcingWingCatalogObservationSchema = external_exports.object({
@@ -6644,13 +6769,13 @@ var KidItemRuntime = (() => {
     site: "ali1688",
     async *collect(plan, site, { signal, report }) {
       try {
-        for (const [index, keyword] of plan.keywords.entries()) {
+        for (const [index, keyword2] of plan.keywords.entries()) {
           if (signal.aborted) return;
-          const items = await site.offers(keyword, { onAttention: attentionReporter(report, { current: index, total: plan.keywords.length, label: keyword }) });
+          const items = await site.offers(keyword2, { onAttention: attentionReporter(report, { current: index, total: plan.keywords.length, label: keyword2 }) });
           yield {
             chunkKind: SOURCING_CHUNK_KINDS.offers1688,
-            payload: [{ keyword, items }],
-            progress: { current: index + 1, total: plan.keywords.length, label: keyword }
+            payload: [{ keyword: keyword2, items }],
+            progress: { current: index + 1, total: plan.keywords.length, label: keyword2 }
           };
         }
       } finally {
@@ -6667,13 +6792,13 @@ var KidItemRuntime = (() => {
     kind: SOURCING_OPERATION_KINDS.wingCatalog,
     site: "wing-search",
     async *collect(plan, site, { signal }) {
-      for (const [index, keyword] of plan.keywords.entries()) {
+      for (const [index, keyword2] of plan.keywords.entries()) {
         if (signal.aborted) return;
         const rows = /* @__PURE__ */ new Map();
         let searchPage = 0;
         for (let pageIndex = 0; pageIndex < plan.maxPages; pageIndex += 1) {
           if (signal.aborted) return;
-          const page = await site.searchPage(keyword, searchPage);
+          const page = await site.searchPage(keyword2, searchPage);
           for (const row of page.rows) {
             const key = site.identity(row);
             if (!rows.has(key)) rows.set(key, row);
@@ -6681,18 +6806,18 @@ var KidItemRuntime = (() => {
           if (page.rows.length === 0 || page.nextSearchPage === null) break;
           if (page.nextSearchPage === searchPage) {
             if (pageIndex + 1 < plan.maxPages) {
-              throw new RuntimeError(SOURCING_COLLECTION_INCOMPLETE, `Wing \uAC80\uC0C9 '${keyword}'\uC758 \uB2E4\uC74C \uCABD\uC774 \uB118\uC5B4\uAC00\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.`, { keyword });
+              throw new RuntimeError(SOURCING_COLLECTION_INCOMPLETE, `Wing \uAC80\uC0C9 '${keyword2}'\uC758 \uB2E4\uC74C \uCABD\uC774 \uB118\uC5B4\uAC00\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.`, { keyword: keyword2 });
             }
             break;
           }
           searchPage = page.nextSearchPage;
         }
         const capturedAt = (/* @__PURE__ */ new Date()).toISOString();
-        const items = [...rows.values()].map((row) => site.toObservation(row, keyword, capturedAt)).filter((item) => item !== null).slice(0, MAX_ITEMS_PER_KEYWORD);
+        const items = [...rows.values()].map((row) => site.toObservation(row, keyword2, capturedAt)).filter((item) => item !== null).slice(0, MAX_ITEMS_PER_KEYWORD);
         yield {
           chunkKind: SOURCING_CHUNK_KINDS.wingSearchPage,
-          payload: [{ keyword, maxPages: plan.maxPages, purpose: plan.purpose, items }],
-          progress: { current: index + 1, total: plan.keywords.length, label: keyword }
+          payload: [{ keyword: keyword2, maxPages: plan.maxPages, purpose: plan.purpose, items }],
+          progress: { current: index + 1, total: plan.keywords.length, label: keyword2 }
         };
       }
     }
@@ -6908,8 +7033,8 @@ var KidItemRuntime = (() => {
     origin: SEARCH_ORIGIN,
     caller: { minIntervalMs: 0, displayName: "1688" }
   };
-  function build1688SearchUrl(keyword) {
-    return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword)}&charset=utf8`;
+  function build1688SearchUrl(keyword2) {
+    return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword2)}&charset=utf8`;
   }
   function is1688VerificationUrl(value) {
     try {
@@ -6927,20 +7052,20 @@ var KidItemRuntime = (() => {
        * 키워드 하나. 슬라이더 검증이 뜨면 실패하지 않고 운영자를 기다렸다가(`onAttention`으로 알림) 같은 키워드를 다시
        * 시도한다 — 실행과 이미 올린 청크는 그대로다(KID-355 QA). 10분 안에 통과하지 않으면 `SITE_VERIFICATION_REQUIRED`.
        */
-      async offers(keyword, options = {}) {
+      async offers(keyword2, options = {}) {
         page ??= await tabs.open("about:blank");
         const current = page;
-        const attention = { kind: "verification", site: "1688", label: keyword };
+        const attention = { kind: "verification", site: "1688", label: keyword2 };
         const waitOrFail = async (url) => {
           if (await waitForOperator(current, is1688VerificationUrl, attention, options.onAttention)) return;
-          throw verification(url, keyword, () => {
+          throw verification(url, keyword2, () => {
             keepOpen = true;
           });
         };
         for (let round = 1; ; round += 1) {
-          const landed = await current.navigate(build1688SearchUrl(keyword), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
+          const landed = await current.navigate(build1688SearchUrl(keyword2), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
           if (is1688VerificationUrl(landed)) {
-            if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword, () => {
+            if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword2, () => {
               keepOpen = true;
             });
             await waitOrFail(landed);
@@ -6959,7 +7084,7 @@ var KidItemRuntime = (() => {
           if (extracted.status === "verification_required") {
             const here = await current.currentUrl().catch(() => extracted.verificationUrl ?? landed);
             if (round > MAX_VERIFICATION_ROUNDS || !is1688VerificationUrl(here)) {
-              throw verification(extracted.verificationUrl ?? landed, keyword, () => {
+              throw verification(extracted.verificationUrl ?? landed, keyword2, () => {
                 keepOpen = true;
               });
             }
@@ -6967,7 +7092,7 @@ var KidItemRuntime = (() => {
             continue;
           }
           if (!extracted.ok) {
-            throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword });
+            throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword2}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword: keyword2 });
           }
           return (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => typeof item?.offerId === "string" && item.offerId.length > 0).slice(0, MAX_RESULTS_PER_KEYWORD);
         }
@@ -6979,9 +7104,9 @@ var KidItemRuntime = (() => {
       }
     };
   }
-  function verification(url, keyword, keep) {
+  function verification(url, keyword2, keep) {
     keep();
-    return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword });
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword: keyword2 });
   }
   registerSite({ name: ALIBABA_1688_SITE.name, create: (deps) => create1688SearchSite(deps.tabs) });
 
@@ -7074,8 +7199,8 @@ var KidItemRuntime = (() => {
     let providerError = null;
     const add = (value, source) => {
       if (typeof value !== "string") return;
-      const keyword = value.replace(/\s+/g, " ").trim();
-      if (usableKeyword(keyword, seed)) candidates.push({ keyword, source });
+      const keyword2 = value.replace(/\s+/g, " ").trim();
+      if (usableKeyword(keyword2, seed)) candidates.push({ keyword: keyword2, source });
     };
     const walk = (value) => {
       if (typeof value === "string") return add(value, "coupang-autocomplete");
@@ -7189,7 +7314,7 @@ var KidItemRuntime = (() => {
       const tokens = new Set(name.replace(/[()[\]{}"'`~!@#$%^&*_+=|\\:;,.<>/?·•]/g, " ").split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 2 && token.length <= 20).filter((token) => !/^[\d개입묶음세트]+$/.test(token)).filter((token) => !STOP_WORDS.has(token)));
       for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
     }
-    return [...counts.entries()].map(([keyword, count]) => ({ keyword, count })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
+    return [...counts.entries()].map(([keyword2, count]) => ({ keyword: keyword2, count })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
   }
 
   // extensions/src/sites/coupang-search/index.ts
@@ -7203,8 +7328,8 @@ var KidItemRuntime = (() => {
     origin: ORIGIN,
     caller: { minIntervalMs: SETTLE_MS, displayName: "\uCFE0\uD321" }
   };
-  function buildCoupangSearchUrl(keyword) {
-    return `${ORIGIN}/np/search?component=&q=${encodeURIComponent(keyword)}&channel=user`;
+  function buildCoupangSearchUrl(keyword2) {
+    return `${ORIGIN}/np/search?component=&q=${encodeURIComponent(keyword2)}&channel=user`;
   }
   function isCoupangSearchUrl(value) {
     try {
@@ -7216,8 +7341,8 @@ var KidItemRuntime = (() => {
   }
   function createCoupangSearchSite(tabs, deps) {
     return {
-      async keywordSuggestions(keyword, maxResults) {
-        const url = buildCoupangSearchUrl(keyword);
+      async keywordSuggestions(keyword2, maxResults) {
+        const url = buildCoupangSearchUrl(keyword2);
         const page = await tabs.open("about:blank");
         try {
           const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS });
@@ -7226,13 +7351,13 @@ var KidItemRuntime = (() => {
           }
           await deps.sleep(SETTLE_MS);
           const evidence = await page.ask(
-            { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword },
+            { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword: keyword2 },
             { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE] } }
           );
           if (!evidence.links || !evidence.productNames) {
             throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
           }
-          const parsed = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword, maxResults);
+          const parsed = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword2, maxResults);
           if (!parsed.ok) {
             throw new RuntimeError(
               parsed.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
@@ -8130,8 +8255,8 @@ var KidItemRuntime = (() => {
     if (targetId === "hashtag" || targetId === "product") {
       return { id: targetId, trendType: targetId, url: BASE_URLS[targetId], sourceKeyword: null };
     }
-    const keyword = targetId.startsWith("keyword:") ? targetId.slice("keyword:".length) : targetId;
-    return { id: targetId, trendType: "keyword", url: `${BASE_URLS.keyword}?keyword=${encodeURIComponent(keyword)}`, sourceKeyword: keyword };
+    const keyword2 = targetId.startsWith("keyword:") ? targetId.slice("keyword:".length) : targetId;
+    return { id: targetId, trendType: "keyword", url: `${BASE_URLS.keyword}?keyword=${encodeURIComponent(keyword2)}`, sourceKeyword: keyword2 };
   }
   function isTiktokBlockedUrl(value) {
     try {
@@ -8863,8 +8988,8 @@ var KidItemRuntime = (() => {
   function createWingPreMatchingSearch(caller, deps) {
     return {
       /** 키워드 한 페이지. 429·5xx·연결 끊김은 네 번까지 다시 묻는다. */
-      async searchPage(keyword, searchPage) {
-        const body = JSON.stringify({ keyword, excludedProductIds: [], searchPage, searchOrder: "DEFAULT", sortType: "DEFAULT" });
+      async searchPage(keyword2, searchPage) {
+        const body = JSON.stringify({ keyword: keyword2, excludedProductIds: [], searchPage, searchOrder: "DEFAULT", sortType: "DEFAULT" });
         for (let attempt = 1; ; attempt += 1) {
           let response;
           try {
@@ -8895,7 +9020,7 @@ var KidItemRuntime = (() => {
     return {
       searchPage: search.searchPage,
       identity: (row) => `${row.productId}:${row.itemId ?? ""}:${row.vendorItemId ?? ""}`,
-      toObservation: (row, keyword, capturedAt) => row.productName.trim() ? toSourcingWingCatalogObservation(row, keyword, capturedAt) : null
+      toObservation: (row, keyword2, capturedAt) => row.productName.trim() ? toSourcingWingCatalogObservation(row, keyword2, capturedAt) : null
     };
   }
   function parseWingSearchPage(body) {
@@ -8912,14 +9037,14 @@ var KidItemRuntime = (() => {
   function normalizeWingSearchProduct(raw) {
     const product = asRecord2(raw);
     if (!product || product.productId == null) return null;
-    const productId = String(product.productId);
-    if (!productId) return null;
+    const productId2 = String(product.productId);
+    if (!productId2) return null;
     const salePrice = nullableNumber(product.salePrice);
     const salesLast28d = nullableNumber(product.salesLast28d);
     const pvLast28Day = nullableNumber(product.pvLast28Day);
     const category = Array.isArray(product.displayCategoryInfo) ? asRecord2(product.displayCategoryInfo[0])?.categoryHierarchy : null;
     return {
-      productId,
+      productId: productId2,
       itemId: product.itemId == null ? null : String(product.itemId),
       vendorItemId: product.vendorItemId == null ? null : String(product.vendorItemId),
       productName: String(product.productName || ""),
@@ -8949,13 +9074,13 @@ var KidItemRuntime = (() => {
       manufacture: row.manufacture?.slice(0, 500) ?? null,
       categoryHierarchy: row.categoryHierarchy?.slice(0, 1e3) ?? null,
       imagePath: row.imagePath?.slice(0, 2e3) ?? null,
-      salePriceKrw: boundedInteger(row.salePrice),
-      ratingAverage: boundedNumber(row.rating, 0, 5),
-      ratingCount: boundedInteger(row.ratingCount),
-      viewsLast28d: boundedInteger(row.pvLast28Day),
-      salesLast28d: boundedInteger(row.salesLast28d),
-      estimatedRevenue28d: boundedNumber(row.estimatedRevenue28d, 0, 2147483647),
-      conversionRate28d: boundedNumber(row.conversionRate28d, 0, 1),
+      salePriceKrw: boundedInteger2(row.salePrice),
+      ratingAverage: boundedNumber2(row.rating, 0, 5),
+      ratingCount: boundedInteger2(row.ratingCount),
+      viewsLast28d: boundedInteger2(row.pvLast28Day),
+      salesLast28d: boundedInteger2(row.salesLast28d),
+      estimatedRevenue28d: boundedNumber2(row.estimatedRevenue28d, 0, 2147483647),
+      conversionRate28d: boundedNumber2(row.conversionRate28d, 0, 1),
       deliveryInfo: row.deliveryInfo?.slice(0, 1e3) ?? null,
       sourceKeyword,
       capturedAt
@@ -8967,10 +9092,10 @@ var KidItemRuntime = (() => {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : null;
   }
-  function boundedInteger(value) {
+  function boundedInteger2(value) {
     return value !== null && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
   }
-  function boundedNumber(value, minimum, maximum) {
+  function boundedNumber2(value, minimum, maximum) {
     return value !== null && Number.isFinite(value) && value >= minimum && value <= maximum ? value : null;
   }
   function asRecord2(value) {
@@ -9622,7 +9747,7 @@ var KidItemRuntime = (() => {
     });
     registerWithLegacyDomains({
       externalActions,
-      capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true }
+      capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true, advertisingKeywordOperationKindsV1: true }
     });
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
     return true;

@@ -7,6 +7,7 @@ import { ProductTrackingPage } from './ProductTrackingPage';
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     get: vi.fn(),
+    getParsed: vi.fn(async () => []),
     delete: vi.fn(),
     post: vi.fn(),
   },
@@ -63,9 +64,7 @@ describe('ProductTrackingPage bulk history', () => {
           })),
         };
       }
-      if (path === `${BASE}/attempts/current`) {
-        return { ready: false, latestAttempt: null, latestComplete: null };
-      }
+      if (path.startsWith('/api/operations?')) return { operations: [] };
       if (/\/[^/]+\/history\?days=30$/.test(path)) {
         return { trackedProductId: 'unexpected', productName: 'unexpected', points: [] };
       }

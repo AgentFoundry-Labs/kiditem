@@ -204,7 +204,6 @@ test('persists only allowlisted Coupang producers and advertises the capability'
 test('keeps single Wing catalog analysis separate from batch sales-rank collection', () => {
   assert.match(worker, /const wingSearchCollector = KidItemWingSearchCollector\.create\(/);
   assert.match(worker, /captureWingRank[\s\S]*wingSearchCollector\.collect/);
-  assert.match(worker, /collectAdvertisingTrackedWingProductsKeyword[\s\S]*wingSearchCollector\.collect/);
   assert.match(wingSearchCollectorSource, /const PRODUCERS = new Set\(\[/);
   assert.match(wingSearchCollectorSource, /advertising\.wing_rank/);
 });

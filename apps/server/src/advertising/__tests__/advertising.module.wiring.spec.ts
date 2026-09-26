@@ -75,15 +75,6 @@ describe('AdvertisingModule retained wiring', () => {
     expect(providerNames).not.toContain('AdExecutionRepositoryAdapter');
   });
 
-  it('requires the concrete source-failure alert seam for tracked Wing terminal writes', () => {
-    const adapter = readFileSync(resolve(
-      __dirname,
-      '../adapter/out/repository/wing-tracked-product-source-attempt.repository.adapter.ts',
-    ), 'utf8');
-    expect(adapter).not.toMatch(/@Optional\(\)\s+private readonly alerts/);
-    expect(adapter).not.toMatch(/alerts\?\./);
-  });
-
   it('requires the concrete source-failure alert seam for competitor catalog terminal writes', () => {
     const adapter = readFileSync(resolve(
       __dirname,

@@ -14,7 +14,6 @@
   const HTTP_RETRY_ATTEMPTS = 4;
   const PRODUCERS = new Set([
     "advertising.wing_rank",
-    "advertising.wing_tracked_products",
   ]);
 
   function requiredDependencies(options) {

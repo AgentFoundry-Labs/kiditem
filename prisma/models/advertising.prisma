@@ -292,6 +292,8 @@ model CoupangWingTrackedProductDailySnapshot {
 
   sourceKeyword String?  @map("source_keyword")
   capturedAt    DateTime @map("captured_at") @db.Timestamptz
+  /// 이 행을 쓴 실행(`advertising.wing_tracked_products`, ADR-0025). 옛 attempt 행은 null.
+  operationId   String?  @map("operation_id") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -302,6 +304,7 @@ model CoupangWingTrackedProductDailySnapshot {
   @@unique([trackedProductId, businessDate])
   @@index([organizationId])
   @@index([trackedProductId, businessDate])
+  @@index([operationId])
   @@map("coupang_wing_tracked_product_daily_snapshots")
 }
 

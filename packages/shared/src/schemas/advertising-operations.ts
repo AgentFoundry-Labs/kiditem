@@ -1,0 +1,110 @@
+import { z } from 'zod';
+
+/**
+ * Advertising owner의 확장 구동 실행 kind(ADR-0025, KID-362 wave3). scope는 웹이 begin에 싣는 입력이고 owner
+ * `plan(scope)`가 검증한다. 청크 항목·result 모양은 서버 owner와 확장 수집기가 함께 쓰므로 여기에 둔다.
+ * 모든 kind는 읽기 전용이다 — Wing 검색·www.coupang.com·shop.coupang.com을 읽을 뿐 광고센터에 쓰지 않는다.
+ */
+
+// ── K-a: 키워드·경쟁사 계열 (KID-362 K-a) ─────────────────────────────────────────
+
+export const WING_TRACKED_PRODUCTS_KIND = 'advertising.wing_tracked_products' as const;
+export const WING_RANK_KIND = 'advertising.wing_rank' as const;
+export const KEYWORD_SERP_KIND = 'advertising.keyword_serp' as const;
+export const COMPETITOR_SELLER_IDENTITY_KIND = 'advertising.competitor_seller_identity' as const;
+export const COMPETITOR_CATALOG_KIND = 'advertising.competitor_catalog' as const;
+
+export const ADVERTISING_KEYWORD_OPERATION_KINDS = [
+  WING_TRACKED_PRODUCTS_KIND,
+  WING_RANK_KIND,
+  KEYWORD_SERP_KIND,
+  COMPETITOR_SELLER_IDENTITY_KIND,
+  COMPETITOR_CATALOG_KIND,
+] as const;
+export type AdvertisingKeywordOperationKind = (typeof ADVERTISING_KEYWORD_OPERATION_KINDS)[number];
+
+/** 이 kind들을 도는 확장 빌드가 `ping`에 싣는 표시. 웹은 이것으로 옛 빌드를 가려낸다. */
+export const ADVERTISING_KEYWORD_OPERATION_CAPABILITY = 'advertisingKeywordOperationKindsV1' as const;
+
+/** 키워드 표기: 앞뒤 공백을 떼고 연속 공백을 하나로, NFC. */
+export function canonicalAdvertisingKeyword(value: string): string {
+  return value.trim().replace(/\s+/gu, ' ').normalize('NFC');
+}
+
+/** 같은 키워드인지 가리는 값(대소문자 무시). 잠금 키 `resource:keyword:<identity>`에도 쓴다. */
+export function advertisingKeywordIdentity(value: string): string {
+  return canonicalAdvertisingKeyword(value).toLocaleLowerCase('en-US');
+}
+
+const keyword = z.string().transform(canonicalAdvertisingKeyword).pipe(z.string().min(1).max(100));
+const productId = z.string().trim().min(1).max(40);
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'YYYY-MM-DD');
+
+/** 키워드 목록: 같은 키워드(대소문자 무시)는 앞의 것 하나만 남긴다. */
+function keywordList(max: number) {
+  return z.array(keyword).min(1).max(max).transform((values) => {
+    const seen = new Set<string>();
+    return values.filter((value) => {
+      const identity = advertisingKeywordIdentity(value);
+      if (seen.has(identity)) return false;
+      seen.add(identity);
+      return true;
+    });
+  });
+}
+
+// ── K1 advertising.wing_tracked_products ──
+
+/** 한 번에 수집하는 키워드·추적 상품 상한(옛 attempt와 같다). */
+export const WING_TRACKED_PRODUCTS_MAX_KEYWORDS = 12;
+export const WING_TRACKED_PRODUCTS_MAX_PRODUCTS = 300;
+/** 키워드 하나에서 읽는 Wing 검색 쪽 수(옛 수집기 `WING_CATALOG_MAX_PAGES`). */
+export const WING_TRACKED_PRODUCTS_MAX_PAGES = 5;
+
+/** 추적 상품 지표: 그 계정의 Wing 로그인으로 키워드를 검색한다. lockKey `account:<channelAccountId>`. */
+export const WingTrackedProductsScopeSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  keywords: keywordList(WING_TRACKED_PRODUCTS_MAX_KEYWORDS),
+}).strict();
+export type WingTrackedProductsScope = z.infer<typeof WingTrackedProductsScopeSchema>;
+
+/** plan: begin 때 고정한 업무일·키워드·추적 대상(상품과 그 수집 키워드). finalize는 이 대상이 그대로인지 본다. */
+export const WingTrackedProductsPlanSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  businessDate: isoDay,
+  keywords: z.array(z.string().min(1).max(100)).min(1).max(WING_TRACKED_PRODUCTS_MAX_KEYWORDS),
+  maxPages: z.number().int().min(1).max(10),
+  products: z.array(z.object({
+    productId,
+    sourceKeyword: z.string().min(1).max(100).nullable(),
+  }).strict()).max(WING_TRACKED_PRODUCTS_MAX_PRODUCTS),
+}).strict();
+export type WingTrackedProductsPlan = z.infer<typeof WingTrackedProductsPlanSchema>;
+
+/** 추적 상품 하나의 Wing 28일 지표(옛 제출 항목과 같다). */
+export const WingTrackedProductItemSchema = z.object({
+  productId,
+  salePriceKrw: z.number().int().nonnegative().max(2_147_483_647).nullable(),
+  ratingCount: z.number().int().nonnegative().max(2_147_483_647).nullable(),
+  ratingAverage: z.number().min(0).max(5).nullable(),
+  pvLast28Day: z.number().int().nonnegative().max(2_147_483_647).nullable(),
+  salesLast28d: z.number().int().nonnegative().max(2_147_483_647).nullable(),
+  estimatedRevenue28d: z.number().nonnegative().max(2_147_483_647).nullable(),
+  conversionRate28d: z.number().min(0).max(1).nullable(),
+}).strict();
+export type WingTrackedProductItem = z.infer<typeof WingTrackedProductItemSchema>;
+
+/** 청크 `wing_tracked_search`: 키워드 하나를 끝까지 읽고 찾은 추적 상품들(키워드마다 한 장, 못 찾아도 한 장). */
+export const WING_TRACKED_PRODUCTS_CHUNK_KIND = 'wing_tracked_search' as const;
+export const WingTrackedSearchChunkItemSchema = z.object({
+  keyword: z.string().min(1).max(100),
+  items: z.array(WingTrackedProductItemSchema).max(WING_TRACKED_PRODUCTS_MAX_PRODUCTS),
+}).strict();
+export type WingTrackedSearchChunkItem = z.infer<typeof WingTrackedSearchChunkItemSchema>;
+
+export const WingTrackedProductsResultSchema = z.object({
+  businessDate: isoDay,
+  expectedProductCount: z.number().int().nonnegative(),
+  capturedProductCount: z.number().int().nonnegative(),
+}).strict();
+export type WingTrackedProductsResult = z.infer<typeof WingTrackedProductsResultSchema>;

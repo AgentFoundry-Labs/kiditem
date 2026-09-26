@@ -20,17 +20,24 @@ import { cn, formatDateTime, formatKRW, formatNumber } from '@/lib/utils';
 import { isApiError } from '@/lib/api-error';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
-import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
+import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
+import { apiClient } from '@/lib/api-client';
+import { ChannelAccountListItemSchema } from '@kiditem/shared/channel-account';
+import { z } from 'zod';
 import { queryKeys } from '@/lib/query-keys';
 import {
   deleteWingTrackedProduct,
   fetchWingTrackedHistories,
   listWingTrackedProducts,
   type WingTrackedProduct,
-  type WingTrackedProductSourceStatus,
   type WingTrackedSnapshot,
 } from '../../lib/wing-tracking-api';
-import { wingTrackedProductsCollection } from '../../lib/wing-tracked-products-collection';
+import {
+  wingTrackedCollectionSummary,
+  wingTrackedProductsCollection,
+  type WingTrackedCollectionSummary,
+} from '../../lib/wing-tracked-products-collection';
+import { pickWingSearchAccount } from '../../lib/sourcing-wing-source-owner';
 import {
   resolveCoupangCatalogImageUrl,
 } from '../../wing-catalog/lib/wing-catalog-presenter';
@@ -47,6 +54,7 @@ import { WingTrackedHistoryChart, TrendSparkline } from './WingTrackedHistoryCha
 import { attemptFailureText } from '@/lib/operator-error';
 
 const TRACKED_QUERY_KEY = queryKeys.sourcing.wingTrackedProducts();
+const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
 
 interface RankedProduct {
   product: WingTrackedProduct;
@@ -69,9 +77,21 @@ export function ProductTrackingPage() {
     queryKey: queryKeys.sourcing.wingTrackedHistories(30),
     queryFn: () => fetchWingTrackedHistories(30),
   });
-  // 지표 새로고침 starts the collection; the shared control shows it running and stops it.
-  const trackedSource = useCollectionSourceControl(wingTrackedProductsCollection);
-  const sourceStatus = trackedSource.status;
+  // 지표 새로고침 = 실행 kind `advertising.wing_tracked_products`(KID-362). 계정은 조직의 대표 쿠팡 계정이다.
+  const accountsQuery = useQuery({
+    queryKey: queryKeys.channelAccounts.active(),
+    queryFn: () => apiClient.getParsed('/api/channels/accounts', ChannelAccountListSchema),
+  });
+  const account = pickWingSearchAccount(accountsQuery.data);
+  const accountReadState = accountsQuery.data !== undefined ? 'read' : accountsQuery.isError ? 'failed' : 'loading';
+  const trackedAdapter = useMemo(
+    () => wingTrackedProductsCollection(accountReadState === 'read'
+      ? { state: 'read', account: account ? { id: account.id, name: account.name } : null }
+      : { state: accountReadState }),
+    [accountReadState, account?.id, account?.name],
+  );
+  const trackedSource = useCollectionSourceControl(trackedAdapter);
+  const sourceStatus = trackedSource.status ? wingTrackedCollectionSummary(trackedSource.status) : undefined;
   const historyByTrackedProductId = useMemo(
     () => new Map(
       (histories?.items ?? []).map((history) => [history.trackedProductId, history.points]),
@@ -513,32 +533,30 @@ function shortDate(businessDate: string): string {
 function TrackedWingSourceStatus({
   source,
 }: {
-  source: WingTrackedProductSourceStatus | undefined;
+  source: WingTrackedCollectionSummary | undefined;
 }) {
   if (!source) return null;
-  const summary = source.ready
-    ? '최신 스냅샷 준비됨'
-    : source.latestComplete
-      ? '이전 완료 스냅샷 표시 중'
-      : '완료된 추적 스냅샷 없음';
-  const latest = source.latestAttempt;
-  const stopped = stoppedAttempt(latest);
+  const { latest, lastSucceeded } = source;
+  const summary = lastSucceeded ? '완료된 추적 스냅샷 있음' : '완료된 추적 스냅샷 없음';
+  const running = latest?.status === 'executing' || latest?.status === 'prepared';
+  const stopped = latest?.status === 'cancelled';
   return (
     <section
       aria-label="추적 Wing 수집 상태"
       className="flex flex-wrap items-center gap-x-3 gap-y-1 rounded-xl border border-[var(--border)] bg-[var(--surface)] px-4 py-2.5 text-xs font-bold text-[var(--text-tertiary)]"
     >
       <span className="text-[var(--text-secondary)]">{summary}</span>
-      {latest?.state === 'RUNNING' && <span>새 수집 진행 중</span>}
+      {running && <span>새 수집 진행 중</span>}
       {stopped && <span className="text-[var(--text-secondary)]">{COLLECTION_STOPPED_MESSAGE}</span>}
-      {latest?.state === 'FAILED' && !stopped && (
+      {latest?.status === 'failed' && (
         <span role="alert" className="text-rose-600">
           마지막 수집 실패: {attemptFailureText(latest, 'wing_tracked_product')}
         </span>
       )}
-      {source.latestComplete && (
+      {lastSucceeded?.finishedAt && (
         <span>
-          마지막 완료 {formatDateTime(source.latestComplete.capturedAt)}
+          마지막 완료 {formatDateTime(lastSucceeded.finishedAt)}
+          {lastSucceeded.summary ? ` · 추적 ${formatNumber(lastSucceeded.summary.capturedProductCount)}개` : ''}
         </span>
       )}
     </section>

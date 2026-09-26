@@ -329,18 +329,6 @@ const coupangSellerCatalogCollector = KidItemCoupangSellerCatalogCollector.creat
   waitForTabComplete,
   delay: sleep,
 });
-const trackedWingProductsSourceOwner = KidItemTrackedWingProductsSourceOwner.create({
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  collectKeyword: collectAdvertisingTrackedWingProductsKeyword,
-  closeAttempt: async (_environmentId, attemptId, tabId) => {
-    if (!Number.isInteger(tabId)) return;
-    await collectionSessions.detachTab(attemptId, {
-      tabId,
-      closeManagedTab: true,
-    });
-  },
-});
 const competitorCatalogSourceOwner = KidItemCompetitorCatalogSourceOwner.create({
   sessions: collectionSessions,
   request: (environmentId, path, init) => authedFetch(environmentId, path, init),
@@ -796,144 +784,6 @@ async function captureWingRank(keyword, maxPages, { environmentId, attemptId }) 
         searchPage, itemCount, nextSearchPage, resultArrayObserved,
       })),
     },
-  };
-}
-
-function toAdvertisingTrackedWingSnapshot(row, sourceKeyword) {
-  return {
-    productId: String(row.productId),
-    sourceKeyword,
-    salePriceKrw: wingOperationBoundedInteger(row.salePrice),
-    ratingCount: wingOperationBoundedInteger(row.ratingCount),
-    ratingAverage: wingOperationBoundedNumber(row.rating, 0, 5),
-    pvLast28Day: wingOperationBoundedInteger(row.pvLast28Day),
-    salesLast28d: wingOperationBoundedInteger(row.salesLast28d),
-    estimatedRevenue28d: wingOperationBoundedNumber(
-      row.estimatedRevenue28d,
-      0,
-      2147483647,
-    ),
-    conversionRate28d: wingOperationBoundedNumber(
-      row.conversionRate28d,
-      0,
-      1,
-    ),
-  };
-}
-
-function wingOperationBoundedInteger(value) {
-  if (
-    value == null ||
-    typeof value === "boolean" ||
-    (typeof value === "string" && value.trim() === "") ||
-    (typeof value !== "number" && typeof value !== "string")
-  ) {
-    return null;
-  }
-  const numeric = Number(value);
-  return Number.isInteger(numeric) && numeric >= 0 && numeric <= 2147483647
-    ? numeric
-    : null;
-}
-
-function wingOperationBoundedNumber(value, minimum, maximum) {
-  if (
-    value == null ||
-    typeof value === "boolean" ||
-    (typeof value === "string" && value.trim() === "") ||
-    (typeof value !== "number" && typeof value !== "string")
-  ) {
-    return null;
-  }
-  const numeric = Number(value);
-  return Number.isFinite(numeric) && numeric >= minimum && numeric <= maximum
-    ? numeric
-    : null;
-}
-
-function wingSearchHasIncompleteProof(search) {
-  if (!search || search.success !== true) return true;
-  if (INCOMPLETE_WING_SEARCH_STOP_REASONS.has(search.stopReason)) return true;
-  return Array.isArray(search.pages)
-    && search.pages.some((page) => page?.resultArrayObserved !== true);
-}
-
-async function collectAdvertisingTrackedWingProductsKeyword({
-  environmentId,
-  attemptId,
-  keyword,
-  plannedProducts,
-  collectionTabId,
-}) {
-  const session = await collectionSessions.getOwned(attemptId, environmentId);
-  if (session?.producer !== ADVERTISING_TRACKED_WING_PRODUCTS_PRODUCER) {
-    throw new Error("tracked_wing_source_owner_session_invalid");
-  }
-  const search = await wingSearchCollector.collect({
-    keyword,
-    maxPages: WING_CATALOG_MAX_PAGES,
-    environmentId,
-    attemptId,
-    ...(Number.isInteger(collectionTabId) ? { collectionTabId } : {}),
-  });
-  if (search?.attentionRequired) {
-    return {
-      success: false,
-      attentionRequired: true,
-      reason: "marketplace_login",
-      error: search.error || "Coupang Wing login is required.",
-      ...(Number.isInteger(search.tabId) ? { tabId: search.tabId } : {}),
-    };
-  }
-  if (search?.cancelled) {
-    return {
-      success: false,
-      cancelled: true,
-      ...(Number.isInteger(search.tabId) ? { tabId: search.tabId } : {}),
-    };
-  }
-  if (!search?.success) {
-    return {
-      success: false,
-      error: search?.error || "Wing catalog search failed.",
-      ...(Number.isInteger(search?.tabId) ? { tabId: search.tabId } : {}),
-    };
-  }
-  if (wingSearchHasIncompleteProof(search)) {
-    return {
-      success: false,
-      errorCode: "INCOMPLETE_WING_SEARCH",
-      error: "Wing catalog search proof is incomplete.",
-      stopReason: search.stopReason || null,
-      ...(Array.isArray(search.pages) ? { pages: search.pages } : {}),
-      ...(search.pagination && typeof search.pagination === "object"
-        ? { pagination: search.pagination }
-        : {}),
-      ...(Number.isInteger(search.tabId) ? { tabId: search.tabId } : {}),
-    };
-  }
-  const frozenProducts = new Set(
-    Array.isArray(plannedProducts) ? plannedProducts : [],
-  );
-  const maxTrackedItems = Math.min(
-    frozenProducts.size,
-    ADVERTISING_TRACKED_WING_PRODUCTS_MAX_ITEMS,
-  );
-  return {
-    success: true,
-    ...(Number.isInteger(search.tabId) ? { tabId: search.tabId } : {}),
-    ...(search.pagination && typeof search.pagination === "object"
-      ? { pagination: search.pagination }
-      : {}),
-    items: (Array.isArray(search.rows) ? search.rows : [])
-      .filter(
-        (row) =>
-          row &&
-          row.productId != null &&
-          frozenProducts.has(String(row.productId)),
-      )
-      .slice(0, maxTrackedItems)
-      .map((row) => toAdvertisingTrackedWingSnapshot(row, keyword)),
   };
 }
 
@@ -1435,38 +1285,6 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-// Wing 검색 한 번에 넣는 키워드 상한(추적 상품 수집이 쓴다).
-const SOURCING_WING_CATALOG_MAX_KEYWORDS = 12;
-const ADVERTISING_TRACKED_WING_PRODUCTS_PRODUCER =
-  "advertising.wing_tracked_products";
-const ADVERTISING_TRACKED_WING_PRODUCTS_MAX_ITEMS = 300;
-const INCOMPLETE_WING_SEARCH_STOP_REASONS = new Set([
-  "authentication_token_missing",
-  "non_json_response",
-]);
-
-function parseAdvertisingTrackedWingProductsStart(message) {
-  if (
-    !message ||
-    typeof message !== "object" ||
-    Array.isArray(message) ||
-    Object.keys(message).some(
-      (key) => key !== "action" && key !== "idempotencyKey" && key !== "keywords",
-    ) ||
-    typeof message.idempotencyKey !== "string" ||
-    message.idempotencyKey.trim().length === 0 ||
-    message.idempotencyKey.length > 128 ||
-    !Array.isArray(message.keywords)
-  ) {
-    throw new Error("Invalid tracked Wing collection request");
-  }
-  const keywords = KidItemWingKeywordContract.parseBatchKeywords(
-    message.keywords,
-    SOURCING_WING_CATALOG_MAX_KEYWORDS,
-    100,
-  );
-  return { idempotencyKey: message.idempotencyKey.trim(), keywords };
-}
 async function collectSerpSellerEnrichment({ environmentId, idempotencyKey, isCancelled, setCancelActive }) {
   const collectCatalog = (phase, excludeCompletedAttemptId) => competitorCatalogSourceOwner.run({
     environmentId, idempotencyKey: `${idempotencyKey}:catalog:${phase}`,
@@ -1545,12 +1363,6 @@ async function cancelCollectionSession(runId, environmentId) {
     await adCenterCollectorFor(environmentId).cancelRun({ attemptId: runId });
     return profitabilitySourceOwner.cancel({ environmentId, attemptId: runId });
   }
-  if (session?.producer === ADVERTISING_TRACKED_WING_PRODUCTS_PRODUCER) {
-    return trackedWingProductsSourceOwner.cancel({
-      environmentId,
-      attemptId: runId,
-    });
-  }
   if (session?.producer === "advertising.competitor_catalog") {
     return competitorCatalogSourceOwner.cancel({
       environmentId,
@@ -1565,7 +1377,7 @@ async function cancelCollectionSession(runId, environmentId) {
 // and settles its stop requests. The ad campaign, keyword, Wing traffic and
 // itemwinner owners only settle attempts that already ended. Profitability
 // continues its same live import inside the window turn a new start would take;
-// tracked Wing products and competitor catalogs use no window. The Wing catalog
+// competitor catalogs use no window. The Wing catalog
 // import continues its same unexpired attempt after taking the import turn a
 // new start would take. The runs keep the worker alive on their own, so the
 // lifetime is not held until they end.
@@ -1577,7 +1389,6 @@ function recoverCoupangCollections(environmentId) {
     ["Wing 트래픽 일별 owner", () => wingTrafficSourceOwnerV2.recover(environmentId)],
     ["Wing 아이템위너 owner", () => wingItemwinnerSourceOwner.recover(environmentId)],
     ["수익성 광고비 source owner", () => profitabilitySourceOwner.recover(environmentId)],
-    ["추적 Wing source owner", () => trackedWingProductsSourceOwner.recover(environmentId)],
     ["경쟁 판매자 source owner", () => competitorCatalogSourceOwner.recover(environmentId)],
   ]) {
     KidItemWorkerKeepAlive.during(Promise.resolve().then(recover)).catch((error) =>
@@ -1636,17 +1447,6 @@ KidItemDomains.register({
         wingRankSourceOwner.run({ environmentId, attemptId }),
       ),
     },
-    collectAdvertisingTrackedWingProducts: {
-      validate: parseAdvertisingTrackedWingProductsStart,
-      handle: ({ idempotencyKey, keywords }, environmentId) =>
-        KidItemWorkerKeepAlive.during(
-          trackedWingProductsSourceOwner.run({
-            environmentId,
-            idempotencyKey,
-            keywords,
-          }),
-        ),
-    },
     collectAdvertisingCompetitorCatalog: {
       validate: KidItemCompetitorCatalogSourceOwner.parseStart,
       handle: ({ idempotencyKey, input }, environmentId) =>
@@ -1664,7 +1464,6 @@ KidItemDomains.register({
     keywordSerpSourceOwnerV1: true,
     wingRankSourceOwnerV1: true,
     profitabilityAdvertisingSourceOwnerV1: true,
-    trackedWingProductsSourceOwnerV1: true,
     competitorCatalogSourceOwnerV1: true,
     wingCatalogSearch: true,
     wingCatalogSearchSource: "wing-pre-matching",

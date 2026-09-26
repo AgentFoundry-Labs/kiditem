@@ -1840,7 +1840,6 @@ function storedSession(attemptId, producer) {
 test('a restarted worker continues its collections only while a connected KidItem tab is confirmed', async () => {
   const ids = {
     profitability: '9a111111-1111-4111-8111-111111111111',
-    tracked: '9a222222-2222-4222-8222-222222222222',
     competitor: '9a333333-3333-4333-8333-333333333333',
   };
   for (const presence of ['confirmed', 'unknown']) {
@@ -1851,7 +1850,6 @@ test('a restarted worker continues its collections only while a connected KidIte
         kiditem_environment_profiles_v1: { local: { accessToken: 'fixture' } },
         kiditem_collection_sessions: {
           [ids.profitability]: storedSession(ids.profitability, 'advertising.profitability_import'),
-          [ids.tracked]: storedSession(ids.tracked, 'advertising.wing_tracked_products'),
           [ids.competitor]: storedSession(ids.competitor, 'advertising.competitor_catalog'),
         },
       },
@@ -1861,8 +1859,7 @@ test('a restarted worker continues its collections only while a connected KidIte
         if (pathname === `/api/ads/profitability-imports/${ids.profitability}`) {
           return coupangWindowJson(coupangProfitabilityPlan(ids.profitability));
         }
-        if (pathname.startsWith('/api/ads/wing-tracked-products/attempts/') ||
-          pathname.startsWith('/api/ads/competitor-catalogs/attempts/')) {
+        if (pathname.startsWith('/api/ads/competitor-catalogs/attempts/')) {
           return coupangWindowJson({ message: 'not found' }, 404);
         }
         return coupangWindowJson({});
@@ -1881,7 +1878,6 @@ test('a restarted worker continues its collections only while a connected KidIte
       await settleCollections(h);
       const recoveryReads = [
         `/api/ads/profitability-imports/${ids.profitability}`,
-        `/api/ads/wing-tracked-products/attempts/${ids.tracked}`,
         `/api/ads/competitor-catalogs/attempts/${ids.competitor}`,
       ];
       if (presence === 'confirmed') {
@@ -3255,7 +3251,6 @@ test('Wing search keeps partial rows and original 5xx exhaustion while exposing 
 test('Wing catalog search reuses the existing session for both owners and rejects missing or foreign environments', async () => {
   for (const producer of [
     'advertising.wing_rank',
-    'advertising.wing_tracked_products',
   ]) {
     const h = bootWingSearch([{ status: 200, body: { result: [] } }], { producer });
     try {
@@ -3279,11 +3274,11 @@ test('Wing catalog search reuses the existing session for both owners and reject
     missing.close();
   }
 
-  const foreign = bootWingSearch([], { producer: 'advertising.wing_tracked_products' });
+  const foreign = bootWingSearch([], { producer: 'advertising.wing_rank' });
   try {
     await vm.runInContext(`collectionSessions.start({
       attemptId: '11111111-1111-4111-8111-111111111111',
-      producer: 'advertising.wing_tracked_products',
+      producer: 'advertising.wing_rank',
       environmentId: 'local',
     })`, foreign.context);
     await assert.rejects(

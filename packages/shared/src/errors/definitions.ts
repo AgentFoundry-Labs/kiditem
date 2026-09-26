@@ -234,6 +234,13 @@ export const ERROR_DEFINITIONS = {
   EXECUTION_TASK_EXPIRED: def('advertising', 'conflict', '실행 보고를 반영할 수 없습니다. 실행 기한이 지나 이 실행 시도를 실패로 닫았습니다.'),
   EXECUTION_REPORT_INVALID_TRANSITION: def('advertising', 'conflict', '실행 보고를 반영할 수 없습니다. 최근 실행 작업 상태와 맞지 않습니다.'),
   ADVERTISING_RESULT_UNREADABLE: def('advertising', 'external', '광고센터 결과를 읽지 못했습니다. 잠시 뒤 다시 수집해 주세요.', { retryable: true }),
+  // 키워드·경쟁사 수집 kind(KID-362 K-a).
+  ADVERTISING_ACCOUNT_NOT_FOUND: def('advertising', 'not_found', '윙 검색에 쓸 쿠팡 계정을 찾을 수 없습니다. 쇼핑몰 계정 설정을 확인해 주세요.'),
+  ADVERTISING_COLLECTION_INCOMPLETE: def('advertising', 'conflict', '수집이 요청한 범위를 다 채우지 못했습니다. 다시 수집해 주세요.', { retryable: true }),
+  ADVERTISING_TRACKED_TARGETS_CHANGED: def('advertising', 'conflict', '수집하는 동안 추적 상품이 바뀌었습니다. 다시 수집해 주세요.', { retryable: true }),
+  ADVERTISING_TRACKED_PRODUCT_LIMIT: def('advertising', 'precondition', '추적 상품이 300개를 넘어 한 번에 수집할 수 없습니다. 추적을 줄인 뒤 다시 시도해 주세요.'),
+  ADVERTISING_TRACKED_KEYWORDS_INCOMPLETE: def('advertising', 'validation', '추적 상품의 수집 키워드가 요청에 모두 들어 있지 않습니다. 추적 키워드를 확인해 주세요.'),
+  ADVERTISING_TRACKED_PRODUCT_NOT_FOUND: def('advertising', 'conflict', '윙 검색에서 찾지 못한 추적 상품이 있습니다. 추적 키워드를 확인한 뒤 다시 수집해 주세요.'),
   ANALYTICS_QUERY_FAILED: def('analytics', 'internal', '통계를 계산하지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   FINANCE_QUERY_FAILED: def('finance', 'internal', '재무 데이터를 읽지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
 } as const satisfies Record<string, ErrorDefinition>;
