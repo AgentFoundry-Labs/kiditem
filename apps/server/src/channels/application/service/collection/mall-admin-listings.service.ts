@@ -58,6 +58,12 @@ export class MallAdminListingsService implements MallAdminListingsPort, MallAdmi
   begin(input: Parameters<MallAdminListingsPort['begin']>[0]) {
     const parsed = MallAdminListingsBeginSchema.safeParse(input.request);
     if (!parsed.success) throw new BadRequestException('MALL_ADMIN_PLAN_INVALID');
+    if (isMallAdminListingOperationMall(parsed.data.mallKey)) {
+      // 1차 몰은 실행 kind로 옮겼다(KID-363) — 옛 시도는 어느 확장도 읽지 못해 열지 않는다.
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+        details: { reason: 'mall_admin_operation_mall_moved', mallKey: parsed.data.mallKey },
+      });
+    }
     return this.repository.begin({ ...input, request: parsed.data });
   }
 
