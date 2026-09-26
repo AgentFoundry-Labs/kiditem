@@ -2532,11 +2532,12 @@ async function probeMallSessionQuietly(mallKey) {
 
 // 수집 전 자동 로그인 보장: 몰 주문/홈 URL 을 백그라운드로 열어(미로그인 시 로그인 페이지로 리다이렉트)
 // 저장된 계정으로 로그인 후 닫는다. 이후 수집 탭은 같은 세션 쿠키라 로그인 상태. credentials 없으면 스킵.
+// KID-379: 시도를 싣고 오는 로그인은 옛 몰 소유자 경로(카카오)뿐이다 — 그 시도 안에서 로그인한다.
 function ensureMallLoginWithLifecycle(message) {
   // 옛 몰 소유자의 시도 없이 온 로그인은 로그인만 한다 — 쿠팡직배송(orders.coupang_directship)과 실행 kind
   // `orders.mall_orders`로 옮긴 몰(KID-359)은 몰 소유자 시도가 없다. 감싸면 몰 쪽에 없는 시도를 찾다가
-  // 로그인 문턱에서 수집이 끝났다(2026-09-21 라이브). 옛 경로의 몰은 지금처럼 몰 소유자 안에서 로그인한다.
-  if (message?.mallKey === "coupang-direct" || (!message?.attemptId && !message?.runId)) {
+  // 로그인 문턱에서 수집이 끝났다(2026-09-21 라이브). 시도 id는 `attemptId`만 본다(옛 `runId` 이름은 lifecycle이 받지 않는다).
+  if (message?.mallKey === "coupang-direct" || !message?.attemptId) {
     return ensureMallLoggedIn(message.mallKey, message.credentials, null);
   }
   // Keep the extracted login helper usable in the focused collector tests;
@@ -2908,6 +2909,7 @@ async function findOrCreateKakaoTab(collection) {
   return createFreshOrderCollectionTab(collection, KAKAO_ORDER_URL);
 }
 
+// KID-379: 옛 몰 소유자 경로에 남은 카카오 수집기(변환 규격이 없어 원본은 실패 증거로 남는다).
 async function collectKakaoOrders(dateFilter, collection) {
   const { tab, created } = await findOrCreateKakaoTab(collection);
   if (!tab?.id) return { success: false, error: "카카오쇼핑 판매자센터(shopping-seller.kakao.com) 탭을 열 수 없습니다." };

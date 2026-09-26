@@ -274,16 +274,17 @@ test("login preflight runs inside the matching order collection lifecycle", asyn
       orderCollectionLifecycle: {
         async run(message, identity, operation) {
           calls.push(["run", message, identity]);
-          return operation({ runId: message.runId });
+          return operation({ attemptId: message.attemptId });
         },
       },
     },
   );
+  // KID-379: 시도를 싣고 오는 로그인은 옛 몰 소유자 경로(카카오)뿐이다.
   const message = {
-    mallKey: "art09",
+    mallKey: "kakao",
     credentials: { loginId: "shop-id", password: "password" },
     date: "2026-07-28",
-    runId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
+    attemptId: "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa",
   };
 
   const result = await ensureMallLoginWithLifecycle(message);
@@ -292,12 +293,12 @@ test("login preflight runs inside the matching order collection lifecycle", asyn
   assert.deepEqual(calls[0], [
     "run",
     message,
-    { mallKey: "art09", date: "2026-07-28" },
+    { mallKey: "kakao", date: "2026-07-28" },
   ]);
   assert.equal(calls[1][0], "ensure");
-  assert.equal(calls[1][1], "art09");
+  assert.equal(calls[1][1], "kakao");
   // vm 안에서 만든 객체라 모양만 맞춰 본다.
-  assert.deepEqual({ ...calls[1][3].collection }, { runId: message.runId });
+  assert.deepEqual({ ...calls[1][3].collection }, { attemptId: message.attemptId });
 });
 
 test("a login sent without an owner attempt logs in only — the mall moved to the orders.mall_orders operation (KID-359 H3)", async () => {
