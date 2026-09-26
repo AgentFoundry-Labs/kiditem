@@ -1,6 +1,5 @@
 import { Prisma } from '@prisma/client';
 import { Injectable, UnprocessableEntityException } from '@nestjs/common';
-import { operatorErrorText } from '@kiditem/shared/errors';
 import { SELLPIA_PRODUCT_PROFITABILITY_KIND } from '@kiditem/shared/sellpia-operations';
 import type { SellpiaProfitabilityAttemptSummary } from '@kiditem/shared/source-import';
 import {
@@ -50,7 +49,7 @@ export class SellpiaProfitabilitySourceService
         readSellpiaProfitabilityGenerations(tx, { organizationId: input.organizationId, limit }),
       ]);
       return {
-        latestAttempt: latest ? attemptSummary(latest, new Date()) : null,
+        latestAttempt: latest ? attemptSummary(latest) : null,
         completeGenerations: completed.map(generationMetadata),
       };
     }, {
@@ -137,20 +136,20 @@ export class SellpiaProfitabilitySourceService
 }
 
 /**
- * 최신 실행을 옛 attempt 요약 모양으로(ABC 준비 상태가 상태·오류 코드를 본다). 임대가 끝난 도는 실행은 만료 실패다.
+ * 최신 실행을 옛 attempt 요약 모양으로(ABC 준비 상태가 상태·오류 코드를 본다). 임대 만료는 `readLatestOperation`이
+ * 실행 계약 규칙대로 이미 비춰 준다.
  */
-function attemptSummary(operation: OperationGenerationRow, now: Date): SellpiaProfitabilityAttemptSummary {
+function attemptSummary(operation: OperationGenerationRow): SellpiaProfitabilityAttemptSummary {
   const plan = storedSellpiaProfitabilityPlan(operation.plan);
   const running = operation.status === 'executing' || operation.status === 'prepared';
-  const expired = running && operation.expiresAt.getTime() <= now.getTime();
   return {
     attemptId: operation.id,
-    state: operation.status === 'succeeded' ? 'COMPLETE' : running && !expired ? 'RUNNING' : 'FAILED',
+    state: operation.status === 'succeeded' ? 'COMPLETE' : running ? 'RUNNING' : 'FAILED',
     expiresAt: operation.expiresAt.toISOString(),
     capturedAt: operation.startedAt.toISOString(),
     generation: operation.status === 'succeeded' && operation.finishedAt ? String(operation.finishedAt.getTime()) : null,
-    errorCode: expired ? 'ATTEMPT_EXPIRED' : operation.errorCode,
-    errorMessage: expired ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' }) : operation.errorMessage,
+    errorCode: operation.errorCode,
+    errorMessage: operation.errorMessage,
     plan: { from: plan.from, to: plan.to, coveredMonths: [...plan.coveredMonths] },
   };
 }

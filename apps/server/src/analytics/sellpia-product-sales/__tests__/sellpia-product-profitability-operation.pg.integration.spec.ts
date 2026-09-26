@@ -234,6 +234,19 @@ describe('analytics.sellpia_product_profitability owner over the operation contr
     await expect(prisma.alert.findFirstOrThrow({ where: { organizationId: ORG, dedupeKey: DEDUPE_KEY } })).resolves.toMatchObject({ status: 'RESOLVED' });
   });
 
+  it('임대가 끝난 도는 실행은 실행 계약의 만료 규칙대로 읽힌다 — 시도가 남으면 다시 도는 중, 다 썼으면 만료 실패', async () => {
+    const run = await harness.beginRun(SELLPIA_PRODUCT_PROFITABILITY_KIND, {});
+    await prisma.operation.update({ where: { id: run.operation.id }, data: { expiresAt: new Date(NOW.getTime() - 1), maxAttempts: 2 } });
+    await expect(source.readGenerationCatalog({ organizationId: ORG })).resolves.toMatchObject({
+      latestAttempt: { attemptId: run.operation.id, state: 'RUNNING', errorCode: 'OPERATION_FENCE_LOST' },
+    });
+
+    await prisma.operation.update({ where: { id: run.operation.id }, data: { maxAttempts: 1 } });
+    await expect(source.readGenerationCatalog({ organizationId: ORG })).resolves.toMatchObject({
+      latestAttempt: { attemptId: run.operation.id, state: 'FAILED', errorCode: 'OPERATION_FENCE_LOST' },
+    });
+  });
+
   it('셀피아 로그인 잠금은 하나다 — 매출이 도는 동안 상품 손익 begin은 OPERATION_IN_PROGRESS, 다른 조직은 막지 않는다', async () => {
     const sales = await harness.beginRun(SELLPIA_SALES_KIND, { startDate: '2026-09-01', endDate: '2026-09-02' });
     const refused = await harness.begin(SELLPIA_PRODUCT_PROFITABILITY_KIND, {}).expect(409);
