@@ -11,6 +11,7 @@ import {
   collectMallOrderOperation,
   collectsViaMallOrderOperation,
   mallOrderOperationSource,
+  mallOrderOperationWaitMs,
 } from './mall-order-operation-source';
 
 vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn(), fetchRaw: vi.fn() } }));
@@ -145,6 +146,26 @@ describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
 
     vi.mocked(requestOperationStart).mockResolvedValueOnce({ outcome: 'running', operationId: EARLIER });
     await expect(source().adapter.start!({}, { status: undefined })).resolves.toEqual({ outcome: 'running', attemptId: EARLIER });
+  });
+
+  it('기다리는 실행의 progress.attention(GS샵 SMS 인증)을 카드 안내로 답하고, 없으면 null(KID-380)', () => {
+    const gs = source({ account: { ...account, key: 'gs-shop', name: 'GS샵' } }).adapter;
+    const waiting = operation(OPERATION_ID, 'executing', {
+      plan: { mallKey: 'gs-shop' },
+      progress: { mallKey: 'gs-shop', attention: { kind: 'verification', site: 'gs-shop', label: 'SMS 인증', since: '2026-09-26T00:00:00.000Z' } },
+    });
+    expect(gs.readAttention!({ operations: [waiting] } as never)).toBe('GS샵 탭에서 SMS 인증을 마쳐 주세요 — 마치면 자동으로 이어집니다');
+    const plain = operation(OPERATION_ID, 'executing', { plan: { mallKey: 'gs-shop' }, progress: { mallKey: 'gs-shop', attention: null } });
+    expect(gs.readAttention!({ operations: [plain] } as never)).toBeNull();
+  });
+
+  it('몰마다 실행을 기다리는 시간 = 사이트 읽기 제한 + 로그인 채우기 15초 + 탭 이동 60초(옛 응답 제한 200초 밑으로는 안 간다), GS샵은 SMS 대기 10분까지', () => {
+    expect(mallOrderOperationWaitMs('kidkids')).toBe(255_000);
+    expect(mallOrderOperationWaitMs('domeggook')).toBe(260_000);
+    expect(mallOrderOperationWaitMs('kkomangse')).toBe(200_000);
+    for (const mallKey of ['teacher-mall', 'boribori', 'always', 'lotte-on']) expect(mallOrderOperationWaitMs(mallKey)).toBe(200_000);
+    expect(mallOrderOperationWaitMs('gs-shop')).toBe(985_000);
+    expect(mallOrderOperationWaitMs('gs-shop')).toBeGreaterThanOrEqual(660_000);
   });
 
   it('상태: 이 몰 실행만 보고 도는 것·마지막 성공을 읽고, 중단은 이 브라우저 절차 → 확장 → 서버', async () => {

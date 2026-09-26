@@ -55,6 +55,43 @@ const NOT_CONFIGURED = {
   message: '설정에서 사용을 켜고 저장한 뒤 수집할 수 있습니다.',
 } as const;
 
+/** 로그인 폼 채우기(15초)와 탭 이동(로그인 뒤 돌아가기 포함 60초) — 사이트 읽기 제한 위에 얹는다. */
+const LOGIN_AND_NAVIGATION_MS = 75_000;
+/** 옛 확장 응답 제한. 몰 실행 기다림은 이보다 짧지 않다. */
+const MIN_OPERATION_WAIT_MS = 200_000;
+/**
+ * 몰마다 확장 사이트의 읽기 제한(`extensions/src/sites/<mall>`의 READ_TIMEOUT_MS). GS샵은 읽기 → SMS 인증을 운영자가 마칠
+ * 때까지 최대 10분(`waitForOperator`) → 배송관리로 돌아가기 30초 → 다시 읽기다(KID-380). 도매꾹은 엑셀 생성 폴링(4분)이 있어
+ * 옛 제한 260초를 그대로 쓴다.
+ */
+const MALL_READ_MS: Readonly<Record<string, number>> = {
+  kidkids: 180_000,
+  art09: 180_000,
+  'icecream-mall': 80_000,
+  kkomangse: 90_000,
+  'teacher-mall': 120_000,
+  boribori: 120_000,
+  always: 120_000,
+  'lotte-on': 120_000,
+  'gs-shop': 140_000 + 600_000 + 30_000 + 140_000,
+};
+const FIXED_WAIT_MS: Readonly<Record<string, number>> = { domeggook: 260_000 };
+
+/** 웹이 몰 실행 하나를 기다리는 시간. 사이트가 운영자를 기다리는 동안 먼저 포기하지 않게 사이트 제한에서 계산한다. */
+export function mallOrderOperationWaitMs(mallKey: string): number {
+  return FIXED_WAIT_MS[mallKey] ?? Math.max(MIN_OPERATION_WAIT_MS, (MALL_READ_MS[mallKey] ?? 0) + LOGIN_AND_NAVIGATION_MS);
+}
+
+/** 도는 실행이 운영자를 기다리면(`progress.attention`, 확장 `attentionReporter`) 카드 안내. 아니면 null. */
+export function mallOrderAttentionText(operation: OperationView | null, mallName: string): string | null {
+  const attention = operation?.progress?.attention;
+  if (!attention || typeof attention !== 'object' || Array.isArray(attention)) return null;
+  const { kind, label } = attention as Record<string, unknown>;
+  if (kind !== 'verification') return null;
+  const step = typeof label === 'string' && label ? label : '인증';
+  return `${mallName} 탭에서 ${step}을 마쳐 주세요 — 마치면 자동으로 이어집니다`;
+}
+
 function forMall(mallKey: string) {
   return (operation: OperationView) => operation.plan?.mallKey === mallKey;
 }
@@ -105,6 +142,10 @@ export function mallOrderOperationSource({
         .find((operation) => operation.status === 'executing' || operation.status === 'prepared');
       return running ? { attemptId: running.id, scopeLabel: account.name } : null;
     },
+    readAttention: (status) => mallOrderAttentionText(
+      mallOperations(status, account.key).find((operation) => operation.status === 'executing' || operation.status === 'prepared') ?? null,
+      account.name,
+    ),
     readStatusIdentity: (status) =>
       mallOperations(status, account.key).map((operation) => `${operation.id}:${operation.status}`).join(','),
     start: async (input) => {
@@ -164,8 +205,8 @@ export async function collectMallOrderOperation({
 }>): Promise<BrowserMallCollectionResult> {
   const operation = await waitForOrderOperation(MALL_ORDERS_KIND, operationId, {
     source: 'order_collection_mall',
-    // 옛 확장 응답 제한과 같다(도매꾹은 엑셀 생성을 기다린다).
-    timeoutMs: account.key === 'domeggook' ? 260_000 : 200_000,
+    // 사이트 제한에서 계산한다 — GS샵은 SMS 인증을 운영자가 마칠 때까지 기다린다(KID-380).
+    timeoutMs: mallOrderOperationWaitMs(account.key),
     ...(signal ? { signal } : {}),
     ...(sleep ? { sleep } : {}),
   }).catch((error: unknown) => {

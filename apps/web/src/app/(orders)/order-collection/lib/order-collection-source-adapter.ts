@@ -28,4 +28,9 @@ export type OrderCollectionSourceAdapter<TStatus> = CollectionSourceAdapter<
 > &
   Readonly<{
     card: OrderCollectionCardPolicy;
+    /**
+     * 도는 수집이 운영자를 기다리면(확장이 progress.attention으로 알린다 — GS샵 SMS 인증) 카드에 보일 안내. 없으면 null.
+     * 없는 원천은 안내를 내지 않는다.
+     */
+    readAttention?: (status: TStatus) => string | null;
   }>;
