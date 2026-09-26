@@ -36,6 +36,7 @@ function loginTab(options: {
   state.form = formAt(state.url);
   const log: string[] = [];
   const filled: Array<Record<string, unknown>> = [];
+  const messages: Array<Record<string, unknown>> = [];
   const page: TabPage = {
     tabId: 9,
     async navigate(url) {
@@ -52,6 +53,7 @@ function loginTab(options: {
     },
     async ask<T extends PageAnswer>(message: Record<string, unknown>, askOptions: { inject?: { isolated: readonly string[]; main?: readonly string[] }; frameId?: number }) {
       const call = String(message.call);
+      messages.push(message);
       log.push(`call ${call}${askOptions.frameId !== undefined ? ` frame ${askOptions.frameId}` : ''}`);
       if (call === 'login.watchDialogs') return reply<T>({ ok: true, value: true });
       if (call === 'login.takeDialogs') {
@@ -87,7 +89,7 @@ function loginTab(options: {
       clock.now += ms;
     },
   };
-  return { page, deps, log, filled, state, clock };
+  return { page, deps, log, filled, state, clock, messages };
 }
 
 describe('sites/site-login — ensureLoggedIn(한 화면의 로그인)', () => {
@@ -99,6 +101,8 @@ describe('sites/site-login — ensureLoggedIn(한 화면의 로그인)', () => {
     expect(tab.log).toContain('navigate https://mall.test/admin');
     expect(tab.log).toContain('call login.watchDialogs frame 0');
     expect(tab.log).toContain('call login.takeDialogs frame 0');
+    // 자격을 싣는 폼 채우기만 ISOLATED 전용이다 — 브리지가 MAIN으로 넘기지 않는다(리뷰 S2).
+    expect(tab.messages.filter((message) => message.world === 'isolated').map((message) => message.call)).toEqual(['login.fill']);
   });
 
   it('이미 로그인 화면이면 옮기지 않고 그 화면에서 채운다, 세 칸 스펙은 공급사 아이디도 싣는다', async () => {

@@ -167,7 +167,8 @@ async function pageCall<T>(page: TabPage, call: string, args: unknown, guard: Pa
       guard,
       displayName: spec.displayName,
       frameId,
-      ...(world === 'main' ? { main: [LOGIN_DIALOGS_FILE] } : { isolated: [LOGIN_FILL_FILE] }),
+      // 폼 채우기는 자격을 싣는다 — ISOLATED 처리기에서만 돌고 MAIN(페이지)으로 넘기지 않는다(리뷰 S2).
+      ...(world === 'main' ? { main: [LOGIN_DIALOGS_FILE] } : { isolated: [LOGIN_FILL_FILE], isolatedOnly: true }),
     });
   } catch {
     // 화면이 넘어가거나 멈췄다 — 다음 바퀴에 다시 본다.

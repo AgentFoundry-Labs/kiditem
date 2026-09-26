@@ -7007,7 +7007,7 @@ var KidItemRuntime = (() => {
   var PAGE_CALL_MESSAGE = "KIDITEM_PAGE_CALL";
   async function callPage(page, call2, args, options) {
     const answer = await page.ask(
-      { type: PAGE_CALL_MESSAGE, call: call2, args },
+      { type: PAGE_CALL_MESSAGE, call: call2, args, ...options.isolatedOnly ? { world: "isolated" } : {} },
       {
         timeoutMs: options.timeoutMs,
         guard: options.guard,
@@ -7117,7 +7117,8 @@ var KidItemRuntime = (() => {
         guard,
         displayName: spec.displayName,
         frameId,
-        ...world === "main" ? { main: [LOGIN_DIALOGS_FILE] } : { isolated: [LOGIN_FILL_FILE] }
+        // 폼 채우기는 자격을 싣는다 — ISOLATED 처리기에서만 돌고 MAIN(페이지)으로 넘기지 않는다(리뷰 S2).
+        ...world === "main" ? { main: [LOGIN_DIALOGS_FILE] } : { isolated: [LOGIN_FILL_FILE], isolatedOnly: true }
       });
     } catch {
       return null;

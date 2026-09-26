@@ -4,7 +4,8 @@
 // - 페이지 호출(`bridge.js`)의 처리기 `login.fill`: `{ values: { loginId, password, supplierLoginId? } }`를 받아
 //   칸을 채우고 로그인 버튼을 누른 뒤 `{ state, method?, reason? }`만 돌려준다(값은 돌려주지 않는다).
 // 저장 자격은 런타임 메시지(`chrome.tabs.sendMessage`)로 이 탭의 이 파일에만 온다 — 옛 `executeScript` 인자와 같은
-// 노출이다(src/README.md). 저장하지도, 페이지(MAIN world)에 넘기지도 않는다.
+// 노출이다(src/README.md). 저장하지도, 페이지(MAIN world)에 넘기지도 않는다 — 호출은 `world: "isolated"`라 이 처리기가
+// 없는 문서(프레임이 옮겨 감)에서는 브리지가 MAIN으로 넘기지 않고 이 파일을 다시 넣게 한다.
 (function installKidItemLoginFill() {
   "use strict";
   const calls = globalThis.__kiditemIsolatedPageCalls || (globalThis.__kiditemIsolatedPageCalls = {});
