@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mallAutoLoginBlock, resetMallLoginBlocksForTest } from '../mall-login-block';
 import {
   cancelCoupangShipmentSummary,
   readLatestCoupangShipmentSummary,
@@ -9,6 +10,7 @@ const api = vi.hoisted(() => ({ get: vi.fn(), post: vi.fn(), getParsed: vi.fn() 
 const start = vi.hoisted(() => ({ requestOperationStart: vi.fn() }));
 vi.mock('../api-client', () => ({ apiClient: api }));
 vi.mock('../operation-start', () => start);
+vi.mock('sonner', () => ({ toast: Object.assign(vi.fn(), { success: vi.fn(), warning: vi.fn(), error: vi.fn(), info: vi.fn() }) }));
 
 const OPERATION_ID = 'a1111111-1111-4111-8111-111111111111';
 
@@ -37,10 +39,24 @@ function operation(overrides: Record<string, unknown> = {}) {
 describe('쿠팡 쉽먼트 발송일 조회 웹 다리(실행 계약 orders.coupang_shipment_summary)', () => {
   beforeEach(() => vi.clearAllMocks());
 
-  it('확장에 빈 scope로 실행을 시작시킨다(쪽 상한은 서버 plan이 정한다)', async () => {
+  it('확장에 빈 scope로 실행을 시작시킨다(쪽 상한은 서버 plan이 정한다), 로켓 계정 저장 자격을 싣는다(KID-377)', async () => {
     start.requestOperationStart.mockResolvedValue({ outcome: 'started', operationId: OPERATION_ID });
+    api.get.mockImplementation(async (path: string) => {
+      if (path === '/api/orders/collection/malls/coupang-direct/password') return { key: 'coupang-direct', loginId: 'fake-rocket-id', supplierLoginId: null, password: 'fake-rocket-password' };
+      throw new Error(`unexpected GET ${path}`);
+    });
     await expect(startCoupangShipmentSummary()).resolves.toEqual({ outcome: 'started', operationId: OPERATION_ID });
-    expect(start.requestOperationStart).toHaveBeenCalledWith('orders.coupang_shipment_summary', {});
+    expect(start.requestOperationStart).toHaveBeenCalledWith('orders.coupang_shipment_summary', {}, {
+      credentials: { loginId: 'fake-rocket-id', password: 'fake-rocket-password' },
+    });
+
+    // 로켓 계정에 저장 비밀번호가 없으면 자격 없이 시작한다(로그인 화면이면 확장이 멈추고 탭을 남긴다).
+    api.get.mockImplementation(async (path: string) => {
+      if (path === '/api/orders/collection/malls/coupang-direct/password') return { key: 'coupang-direct', loginId: null, supplierLoginId: null, password: null };
+      throw new Error(`unexpected GET ${path}`);
+    });
+    await startCoupangShipmentSummary();
+    expect(start.requestOperationStart).toHaveBeenLastCalledWith('orders.coupang_shipment_summary', {}, {});
   });
 
   it('가장 최근 실행을 진행(쪽)·결과·실패 문장으로 읽는다', async () => {
@@ -65,5 +81,20 @@ describe('쿠팡 쉽먼트 발송일 조회 웹 다리(실행 계약 orders.coup
   it('중단은 실행 계약의 cancel', async () => {
     await cancelCoupangShipmentSummary(OPERATION_ID);
     expect(api.post).toHaveBeenCalledWith(`/api/operations/${OPERATION_ID}/cancel`);
+  });
+
+  it('서플라이어 허브가 로켓 계정 자격을 거절해 막 끝난 조회를 읽으면 coupang-direct 자동 로그인을 멈춘다(KID-377)', async () => {
+    window.localStorage.clear();
+    resetMallLoginBlocksForTest();
+    api.get.mockResolvedValueOnce({ operations: [operation({
+      id: 'b2222222-2222-4222-8222-222222222222',
+      status: 'failed',
+      errorCode: 'SITE_LOGIN_REQUIRED',
+      errorMessage: '쿠팡 서플라이어 허브 로그인이 필요합니다.',
+      result: { login: { reason: 'credentials_rejected', mallMessage: '아이디 또는 비밀번호가 일치하지 않습니다.' } },
+      finishedAt: new Date().toISOString(),
+    })] });
+    await expect(readLatestCoupangShipmentSummary()).resolves.toMatchObject({ status: 'error', errorCode: 'SITE_LOGIN_REQUIRED' });
+    expect(mallAutoLoginBlock('coupang-direct')).toMatchObject({ reason: '아이디 또는 비밀번호가 일치하지 않습니다.' });
   });
 });

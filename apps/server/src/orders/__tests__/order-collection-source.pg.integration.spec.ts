@@ -731,7 +731,7 @@ describe('Order collection source owner over disposable PostgreSQL', () => {
       orderCollection: { loginId: 'supplier-user' },
     });
     expect(await channelAccounts.getPassword(ORG, 'coupang-direct'))
-      .toEqual({ key: 'coupang-direct', password: 'supplier-password' });
+      .toEqual({ key: 'coupang-direct', loginId: 'supplier-user', supplierLoginId: null, password: 'supplier-password' });
     expect(await prisma.channelAccount.count({ where: { channel: 'order_collection' } })).toBe(0);
     expect(await prisma.channelAccount.count({ where: { organizationId: ORG, channel: 'rocket' } })).toBe(1);
   });

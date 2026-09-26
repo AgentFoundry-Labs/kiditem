@@ -56,6 +56,32 @@ describe('OrderCollectionMallAccountController listing profile route (KID-235)',
   });
 });
 
+describe('OrderCollectionMallAccountController password route — Wing login (KID-377)', () => {
+  it('routes GET …/coupang/password to the account capability with the session organization and returns its answer', async () => {
+    const accounts = fakeAccounts();
+    accounts.getPassword.mockResolvedValue({ key: 'coupang', loginId: 'wing-id', supplierLoginId: null, password: 'fake-wing-password' });
+    const server = await mallAccountApp(accounts);
+
+    const response = await request(server.getHttpServer()).get('/api/orders/collection/malls/coupang/password').expect(200);
+
+    expect(response.body).toEqual({ key: 'coupang', loginId: 'wing-id', supplierLoginId: null, password: 'fake-wing-password' });
+    expect(accounts.getPassword).toHaveBeenCalledWith(ORGANIZATION_ID, 'coupang');
+  });
+
+  it('answers an unsupported key with 400 through the capability exception', async () => {
+    const accounts = fakeAccounts();
+    accounts.getPassword.mockRejectedValue(new KiditemInvalidValueError('VALIDATION_FAILED', { message: '지원하지 않는 몰입니다.' }));
+    const server = await mallAccountApp(accounts);
+    await request(server.getHttpServer()).get('/api/orders/collection/malls/rocket/password').expect(400);
+  });
+
+  it('keeps the password and login writes owner/admin only', () => {
+    for (const handler of [OrderCollectionMallAccountController.prototype.password, OrderCollectionMallAccountController.prototype.update]) {
+      expect(Reflect.getMetadata(ROLES_METADATA_KEY, handler)).toEqual(['owner', 'admin']);
+    }
+  });
+});
+
 function fakeAccounts() {
   return {
     list: vi.fn(),

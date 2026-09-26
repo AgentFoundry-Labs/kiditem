@@ -15,8 +15,11 @@ convenience history.
   The order screen and dashboard share
   `useAllMarketplaceOrderCollection`; do not create a count-only collector.
 - Malls moved to the operation kind `orders.mall_orders` (the shared
-  `MALL_ORDER_OPERATION_MALLS`) use `mall-order-operation-source.ts`: login,
-  `operation.start`, the operations reader, and convert by `operationId`. The
+  `MALL_ORDER_OPERATION_MALLS`) use `mall-order-operation-source.ts`:
+  `operation.start` carrying the stored credentials (the extension logs in
+  inside the run; `lib/operation-login.ts` applies the block and hourly rules
+  and blocks a mall the run reports as rejected), the operations reader, and
+  convert by `operationId`. The
   other malls keep the attempt adapter until the remaining malls move (나머지 몰이 옮겨질 때까지).
 - The shared collection loop and the mall cards use only the source adapter
   (`OrderCollectionSourceAdapter`: start, status, stop, `card`) and the owner

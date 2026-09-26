@@ -6,6 +6,8 @@ import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collecti
 import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
 import { detectOrderCollectionExtensionRuntime, sendToExtension } from '@/lib/extension-bridge';
+import { mallAutoLoginRetryAt, markMallAutoLoginAttempt, resetMallLoginBlocksForTest } from '@/lib/mall-login-block';
+import { ROCKET_LOGIN_MALL_KEY } from '@/lib/operation-login';
 import { queryKeys } from '@/lib/query-keys';
 import {
   coupangDirectshipCollectionSource,
@@ -26,7 +28,7 @@ vi.mock('@/lib/extension-bridge', () => ({
 function extensionAnswers(start: unknown) {
   vi.mocked(sendToExtension).mockImplementation(async (_id, message) => {
     const action = (message as { action: string }).action;
-    if (action === 'ping') return { success: true, capabilities: { operationRuntime: true } };
+    if (action === 'ping') return { success: true, capabilities: { operationRuntime: true, operationLoginV1: true } };
     if (action === 'operation.start') return start;
     return undefined;
   });
@@ -159,6 +161,36 @@ describe('coupangDirectshipCollectionSource', () => {
       extensionId: 'order-extension',
       attempt: expect.objectContaining({ attemptId: ATTEMPT_ID, state: 'RUNNING', plan: { channelAccountId: CHANNEL_ACCOUNT_ID } }),
     }));
+  });
+
+  it('스스로 도는 직배송 수집은 로켓 계정 자격을 한 시간에 한 번만 싣는다 — 사람이 누른 수집은 간격을 보지 않는다(KID-377 리뷰 M1)', async () => {
+    window.localStorage.clear();
+    resetMallLoginBlocksForTest();
+    vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
+      if (path === `/api/orders/collection/malls/${ROCKET_LOGIN_MALL_KEY}/password`) {
+        return { key: ROCKET_LOGIN_MALL_KEY, loginId: 'fake-rocket-id', supplierLoginId: null, password: 'fake-rocket-password' };
+      }
+      throw new Error(`unexpected GET ${path}`);
+    });
+    extensionAnswers({ success: true, operationId: ATTEMPT_ID, reused: false });
+    const starts = () => vi.mocked(sendToExtension).mock.calls
+      .map(([, message]) => message as { action: string; credentials?: unknown })
+      .filter((message) => message.action === 'operation.start');
+    const { source } = adapter();
+
+    await source.start!({ selectionMode: 'automatic' }, { status: undefined });
+    expect(starts().at(-1)?.credentials).toEqual({ loginId: 'fake-rocket-id', password: 'fake-rocket-password' });
+    expect(mallAutoLoginRetryAt(ROCKET_LOGIN_MALL_KEY)).not.toBeNull();
+
+    await source.start!({ selectionMode: 'automatic' }, { status: undefined });
+    expect(starts().at(-1)?.credentials).toBeUndefined();
+
+    await source.start!({ selectionMode: 'manual' }, { status: undefined });
+    expect(starts().at(-1)?.credentials).toBeDefined();
+
+    markMallAutoLoginAttempt(ROCKET_LOGIN_MALL_KEY, Date.now() - 61 * 60_000);
+    await source.start!({ selectionMode: 'automatic' }, { status: undefined });
+    expect(starts().at(-1)?.credentials).toBeDefined();
   });
 
   /**

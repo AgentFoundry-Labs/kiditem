@@ -101,6 +101,8 @@ describe('ChannelAccountPort + disposable Postgres', () => {
     });
     expect(await port.getPassword(TEST_ORGANIZATION_ID, 'onch')).toEqual({
       key: 'onch',
+      loginId: 'merchant-id',
+      supplierLoginId: null,
       password: 'preserved-password',
     });
     expect(JSON.stringify(await port.list(TEST_ORGANIZATION_ID))).not.toContain('preserved-password');
@@ -112,6 +114,33 @@ describe('ChannelAccountPort + disposable Postgres', () => {
     await expect(prisma.channelAccount.count({
       where: { organizationId: OTHER_ORGANIZATION_ID, channel: 'onch' },
     })).resolves.toBe(1);
+  });
+
+  it('stores and reads the Wing login on the organization primary Wing row only, never in the mall list (KID-377)', async () => {
+    await expect(port.update(TEST_ORGANIZATION_ID, 'coupang', { loginId: 'wing-id', password: 'wing-secret' }))
+      .rejects.toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'SHARED_CHANNEL_ACCOUNT_MISSING' } });
+    await prisma.channelAccount.create({
+      data: { organizationId: OTHER_ORGANIZATION_ID, channel: 'coupang', name: 'Other Wing', externalAccountId: 'B00000009', vendorId: 'B00000009', status: 'active', isPrimary: true,
+        config: { orderCollection: { loginId: 'OTHER_ORG_WING' } } },
+    });
+    await prisma.channelAccount.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang', name: 'Wing Second', externalAccountId: 'A00000002', vendorId: 'A00000002', status: 'active', isPrimary: false },
+    });
+    const primary = await prisma.channelAccount.create({
+      data: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang', name: 'Wing Primary', externalAccountId: 'A00000001', vendorId: 'A00000001', status: 'active', isPrimary: true,
+        config: { rootExtension: 'keep-me' } },
+    });
+
+    await port.update(TEST_ORGANIZATION_ID, 'coupang', { loginId: ' wing-id ', password: ' wing-secret ' });
+
+    expect(await port.getPassword(TEST_ORGANIZATION_ID, 'coupang')).toEqual({ key: 'coupang', loginId: 'wing-id', supplierLoginId: null, password: 'wing-secret' });
+    const saved = await prisma.channelAccount.findUniqueOrThrow({ where: { id: primary.id } });
+    expect(saved).toMatchObject({ name: 'Wing Primary', status: 'active' });
+    expect(saved.config).toMatchObject({ rootExtension: 'keep-me', orderCollection: { loginId: 'wing-id' } });
+    await expect(prisma.channelAccount.count({ where: { organizationId: TEST_ORGANIZATION_ID, channel: 'coupang' } })).resolves.toBe(2);
+    const listed = await port.list(TEST_ORGANIZATION_ID);
+    expect(listed.map((account) => account.key)).not.toContain('coupang');
+    expect(JSON.stringify(listed)).not.toMatch(/wing-secret|OTHER_ORG_WING/);
   });
 
   it('does not create a shared Rocket row during mall login updates or reactivate a paused row', async () => {

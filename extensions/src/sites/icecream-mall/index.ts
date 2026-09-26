@@ -3,6 +3,7 @@ import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller
 import { withFreshTab } from '../fresh-tab';
 import { callPage } from '../page-call';
 import { registerSite } from '../registry';
+import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login';
 import { hostWithin, type PageGuard, type TabPage, type TabPages } from '../tab-page';
 import { createIcecreamListings } from './listings';
 
@@ -79,6 +80,19 @@ export const ICECREAM_PAGE_GUARD: PageGuard = {
   loginMessage: LOGIN_MESSAGE,
 };
 
+/**
+ * 아이스크림몰 로그인 입구(옛 `mall-session.js` icecream-mall 줄, KID-377). main.do → loginForm.do 리다이렉트가 JS라 늦게
+ * 뜨므로 폼 없는 화면이 8초(옛 로그인 살피기 16×500ms) 이어져야 '폼 없음'이다. 로그인 폼은 프레임에 뜰 수 있다.
+ */
+export const ICECREAM_LOGIN: LoginSpec = {
+  displayName: '아이스크림몰',
+  loginUrl: ICECREAM_MALL_URL,
+  hosts: ['i-screammall.co.kr'],
+  isLoginUrl: (url) => ICECREAM_PAGE_GUARD.isLogin(url),
+  fields: ['loginId', 'password'],
+  settleMs: LOGIN_WATCH_ROUNDS * LOGIN_WATCH_MS,
+};
+
 /** 배송목록을 못 읽은 까닭(페이지 스크립트의 진단). */
 export interface IcecreamGridDiagnosis {
   reason?: string;
@@ -125,12 +139,12 @@ function loginRequired(): RuntimeError {
 
 /**
  * 아이스크림몰(po.i-screammall.co.kr) 주문 읽기(KID-359 H3, `orders.mall_orders`, 옛 worker.js `collectIcecreamMallOrders`
- * 이식). 새 백그라운드 탭에서 main.do를 열고, 로그인 폼이 보이면 SITE_LOGIN_REQUIRED(자동 로그인은 수집 전에 웹이
- * 저장된 계정으로 한다 — 옛 수집기처럼 탭 안에서 다시 넣지 않는다). '배송 조회'를 열고(ISOLATED, 맨 위 문서) 모든
+ * 이식). 새 백그라운드 탭에서 main.do를 열고, 로그인 폼이 보이면 실행의 저장 자격으로 그 탭에서 한 번 로그인하고
+ * main.do로 돌아가 다시 읽는다(KID-377, `ICECREAM_LOGIN`). 자격이 없거나 그래도 로그인 화면이면 SITE_LOGIN_REQUIRED. '배송 조회'를 열고(ISOLATED, 맨 위 문서) 모든
  * 프레임을 살펴 배송조회 프레임을 고른 뒤 그 프레임에서 MAIN world로 최근 30일 출고 전 주문 행을 읽는다. 행과 머리글
  * (continuation)을 돌려주고, 자동 선택(본 행 빼기)은 서버가 plan의 본 행 키로 한다.
  */
-export function createIcecreamMallSite(tabs: TabPages, sleep: (ms: number) => Promise<void>) {
+export function createIcecreamMallSite(tabs: TabPages, sleep: (ms: number) => Promise<void>, signIn?: SiteSignIn) {
   async function inspect(page: TabPage): Promise<Array<{ frameId: number; result: FrameInspection }>> {
     return page.frames<FrameInspection>([ICECREAM_FRAMES_FILE]);
   }
@@ -197,9 +211,9 @@ export function createIcecreamMallSite(tabs: TabPages, sleep: (ms: number) => Pr
           url: ICECREAM_MALL_URL,
           diagnosis,
         });
-      });
+      }, signIn ? { signIn } : {});
     },
   };
 }
 
-registerSite({ name: 'icecream-mall', create: (deps) => createIcecreamMallSite(deps.tabs, deps.sleep) });
+registerSite({ name: 'icecream-mall', create: (deps, lease) => createIcecreamMallSite(deps.tabs, deps.sleep, createSiteSignIn(ICECREAM_LOGIN, lease.credentials, deps)) });

@@ -1,5 +1,6 @@
 import { RuntimeError } from '../../core/errors';
 import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller';
+import type { LoginSpec } from '../site-login';
 import { hostWithin, leftForOperator, type InjectFiles, type PageGuard, type TabPage } from '../tab-page';
 
 /**
@@ -16,8 +17,9 @@ export const SITE_COOKIE_BLOAT = 'SITE_COOKIE_BLOAT' as const;
 export const COOKIE_BLOAT_MESSAGE =
   '쿠팡 접속이 많아 supplier.coupang.com 쿠키가 커져(HTTP 400) 요청이 거부됐습니다. 쿠팡 쿠키를 정리하거나 다시 로그인한 뒤 조회하세요.';
 /**
- * 저장된 계정으로 자동 로그인하던 옛 경로는 지웠다(재도입 여부는 사용자 결정 대기). 로그인 화면에서 멈추면 실행이 연 탭을
- * 남겨 앞으로 가져오므로(`core/browser` `operatorMustAct`) 운영자가 그 탭에서 로그인한다.
+ * 저장 자격이 오면 로그인 화면에서 한 번 자동 로그인하고 다시 읽는다(KID-377, `COUPANG_SUPPLIER_LOGIN`). 그래도 로그인
+ * 화면이거나 자격이 없으면 이 문장으로 멈추고, 실행이 연 탭을 남겨 앞으로 가져오므로(`core/browser` `operatorMustAct`)
+ * 운영자가 그 탭에서 로그인한다.
  */
 export const SUPPLIER_LOGIN_MESSAGE =
   '쿠팡 서플라이어 허브 로그인이 필요합니다. supplier.coupang.com 탭에서 로그인한 뒤 다시 수집해 주세요.';
@@ -32,6 +34,18 @@ export const COUPANG_SUPPLIER_PAGE_GUARD: PageGuard = {
 export function isSupplierLoginUrl(url: URL): boolean {
   return hostWithin(url, ['xauth.coupang.com']) || /\/(?:login|sign-in|signin)(?:[/?#]|$)/i.test(url.pathname);
 }
+
+/**
+ * 서플라이어 허브 로그인 입구(옛 `mall-session.js` `coupang-direct` 줄). 로켓 계정 행에 저장된 아이디·비밀번호를 쓰고
+ * (ADR-0012, 웹은 몰 키 `coupang-direct`의 비밀번호를 읽는다), 로그아웃이면 PO 목록 주소가 쿠팡 통합 로그인(xauth)으로 넘긴다.
+ */
+export const COUPANG_SUPPLIER_LOGIN: LoginSpec = {
+  displayName: '쿠팡 서플라이어 허브',
+  loginUrl: `${COUPANG_SUPPLIER_ORIGIN}/po-web/app/purchase-order/list`,
+  hosts: ['supplier.coupang.com', 'xauth.coupang.com'],
+  isLoginUrl: isSupplierLoginUrl,
+  fields: ['loginId', 'password'],
+};
 
 export interface PageCell {
   text: string;

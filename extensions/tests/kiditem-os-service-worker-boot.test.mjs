@@ -3667,6 +3667,8 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
     // 새 런타임(소싱 실행 kind, KID-360)
     'operationRuntime',
     'sourcingOperationKindsV1',
+    // 새 런타임이 operation.start의 사이트 로그인 자격을 받는다(KID-377)
+    'operationLoginV1',
     // 공통
     'browserCollectionSessions',
     'kiditemEnvironmentProfilesV1',
