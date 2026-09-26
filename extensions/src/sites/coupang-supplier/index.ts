@@ -59,6 +59,7 @@ export function createCoupangSupplierSite(deps: Pick<SiteDeps, 'tabs' | 'now' | 
       if (keepTabFor(error)) keepOpen = true;
       throw error;
     });
+  // 쉽먼트와 발주가 문턱 하나(로그인 한 번)를 나눠 쓴다 — 한 수집기가 둘을 섞지 않으므로 실행마다 한쪽만 쓴다.
   const withLogin = createSiteLoginGate(lease.credentials);
   /** 로그인 화면에 멈춘 탭에서 로그인하고, 다음 읽기가 그 탭을 다시 준비하도록 세션을 비운다. */
   const loginOn = (tab: () => TabPage | null, reset: () => void) => async (): Promise<LoginOutcome> => {

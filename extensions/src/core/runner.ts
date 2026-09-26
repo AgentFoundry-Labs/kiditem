@@ -127,9 +127,11 @@ export function createRunner(deps: RunnerDeps, collectorFor: (kind: OperationKin
           ? nextOperationFrom(outcome.operation.result)
           : null;
         if (!next || input.signal.aborted) return outcome;
-        // 이어지는 실행은 새 실행이다 — 앞 실행의 idempotencyKey를 물려주지 않는다.
-        const { idempotencyKey: _previousKey, ...rest } = step;
-        step = { ...rest, kind: next.kind, scope: next.scope };
+        // 이어지는 실행은 새 실행이다 — 앞 실행의 idempotencyKey를 물려주지 않는다. 자격은 다음 수집기가 같은 사이트일
+        // 때만 넘긴다(한 사이트의 자격이 다른 사이트로 가지 않게, KID-377).
+        const { idempotencyKey: _previousKey, credentials, ...rest } = step;
+        const sameSite = credentials !== undefined && (collectorFor(next.kind)?.site ?? null) === (collectorFor(step.kind)?.site ?? null);
+        step = { ...rest, ...(sameSite ? { credentials } : {}), kind: next.kind, scope: next.scope };
       }
     },
   };

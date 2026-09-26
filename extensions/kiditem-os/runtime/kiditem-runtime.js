@@ -9512,8 +9512,9 @@ var KidItemRuntime = (() => {
           const outcome = await runOne(deps, collectorFor2, step);
           const next = outcome.kind === "finished" && outcome.operation.status === "succeeded" ? nextOperationFrom(outcome.operation.result) : null;
           if (!next || input.signal.aborted) return outcome;
-          const { idempotencyKey: _previousKey, ...rest } = step;
-          step = { ...rest, kind: next.kind, scope: next.scope };
+          const { idempotencyKey: _previousKey, credentials, ...rest } = step;
+          const sameSite = credentials !== void 0 && (collectorFor2(next.kind)?.site ?? null) === (collectorFor2(step.kind)?.site ?? null);
+          step = { ...rest, ...sameSite ? { credentials } : {}, kind: next.kind, scope: next.scope };
         }
       }
     };
