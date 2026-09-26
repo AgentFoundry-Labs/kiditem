@@ -85,7 +85,7 @@ Action, collection, transmission, and reconciliation behavior is executable in
   the password; the password is never stored.
 - Today's order count is one Orders capability
   (`ORDER_COLLECTION_TODAY_ORDERS_PORT`): per mall the latest succeeded
-  operation's `rowCount`, else the latest completed legacy run (KID-379). The order
+  operation's `rowCount`; legacy attempt runs are not counted. The order
   screen and the dashboard both read it.
 - Coupang shipment date summary is the operation kind
   `orders.coupang_shipment_summary` (organization lock). Its finalize keeps the

@@ -88,14 +88,14 @@ export async function ordersOperationsApp(
 }
 
 /**
- * Orders 오늘 주문 capability의 실제 구현(실행 계약 reader + 옛 run 읽기). 대시보드 PG 스펙처럼 앱 없이 조립할 때 쓴다.
+ * Orders 오늘 주문 capability의 실제 구현(실행 계약 reader). 대시보드 PG 스펙처럼 앱 없이 조립할 때 쓴다.
  */
 export function todayOrdersTestAdapter(prisma: PrismaClient): OrderCollectionTodayOrdersAdapter {
   const operations = new OperationService(
     new OperationRepositoryAdapter(prisma as never),
     new OperationOwnerRegistry(undefined as never, undefined as never),
   );
-  return new OrderCollectionTodayOrdersAdapter(prisma as never, operations);
+  return new OrderCollectionTodayOrdersAdapter(operations);
 }
 
 /** Orders 수집 마지막 성공 시각 capability의 실제 구현(실행 계약 reader). */
