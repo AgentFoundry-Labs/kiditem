@@ -14,6 +14,8 @@ const mocks = vi.hoisted(() => ({
   closeTabs: vi.fn(),
   ensureLogin: vi.fn(),
   startOperation: vi.fn(),
+  /** 옛 attempt 경로로 보낼 몰(실행 kind 몰이라도). 옛 경로에 끝까지 남는 몰은 카카오 하나라 몰 여럿이 필요한 경우에 쓴다. */
+  oldPath: new Set<string>(),
 }));
 
 vi.mock('@/hooks/useAuth', () => ({
@@ -39,6 +41,13 @@ vi.mock('@/app/(orders)/order-collection/lib/browser-mall-collection', () => ({
   ensureMallLoginForRun: mocks.ensureLogin,
   toastNoNewOrders: vi.fn(),
 }));
+vi.mock('@/app/(orders)/order-collection/lib/mall-order-operation-source', async (importOriginal) => {
+  const original = await importOriginal<typeof import('@/app/(orders)/order-collection/lib/mall-order-operation-source')>();
+  return {
+    ...original,
+    collectsViaMallOrderOperation: (mallKey: string) => !mocks.oldPath.has(mallKey) && original.collectsViaMallOrderOperation(mallKey),
+  };
+});
 vi.mock('@/lib/operation-start', () => ({ requestOperationStart: mocks.startOperation, requestOperationCancel: vi.fn() }));
 vi.mock('@/app/(orders)/order-collection/lib/coupang-directship-collection', () => ({
   createCoupangDirectshipCollector: () => mocks.collectDirectship,
@@ -78,14 +87,18 @@ const mall = (key: string, name: string): OrderCollectionMallAccount => ({
   updatedAt: null,
 });
 
-// 옛 attempt 경로에 남은 몰(나머지 몰이 옮겨질 때까지)만 쓴다 — 1차 몰 4곳(KID-359 H3)과 옮긴 2차 몰(KID-380)은 실행 kind 경로다.
+// 옛 attempt 경로의 몰 여럿 — 카카오 말고는 실행 kind 몰이라 이 스펙이 옛 경로로 돌린다(mocks.oldPath).
 const MALLS = [
   mall('kakao', '카카오'),
-  mall('boribori', '보리보리'),
-  mall('gs-shop', 'GS샵'),
-  mall('kkomangse', '꼬망세'),
-  mall('lotte-on', '롯데ON'),
+  mall('kidsnote', '키즈노트'),
+  mall('onch', '온채널'),
+  mall('haebub-mall', '해법몰'),
+  mall('art09', '아트공구'),
 ];
+
+beforeEach(() => {
+  mocks.oldPath.clear();
+});
 
 /** 몰 키마다 서버가 따로 내어 주는 진행 중 시도. */
 function attemptFor(mallKey: string, index: number) {
@@ -126,6 +139,7 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
   beforeEach(() => {
     vi.clearAllMocks();
     window.localStorage.clear();
+    for (const account of MALLS) mocks.oldPath.add(account.key);
     const byMall = new Map(MALLS.map((account, index) => [account.key, attemptFor(account.key, index)]));
     const byId = new Map([...byMall.values()].map((attempt) => [attempt.attemptId, attempt]));
     mocks.begin.mockImplementation(async (_idempotencyKey: string, input: { mallKey: string }) => {
@@ -169,14 +183,14 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
    * 실패로 남는다.
    */
   it('⭐ 확장이 빈 스냅샷으로 끝낸 시도는 실패로 다시 닫지 않는다 — 신규 주문 없음으로 남긴다', async () => {
-    const lotteon = mall('lotte-on', '롯데ON');
-    const completed = { ...attemptFor('lotte-on', 7), state: 'COMPLETE' as const };
-    mocks.begin.mockResolvedValue({ ...attemptFor('lotte-on', 7), attemptToken: '33333333-3333-4333-8333-333333333333' });
+    const kakao = mall('kakao', '카카오');
+    const completed = { ...attemptFor('kakao', 7), state: 'COMPLETE' as const };
+    mocks.begin.mockResolvedValue({ ...attemptFor('kakao', 7), attemptToken: '33333333-3333-4333-8333-333333333333' });
     mocks.readAttempt.mockResolvedValue(completed);
     mocks.collectMall.mockResolvedValue({ rowCount: 0, masked: false, date: '2026-09-14' });
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [lotteon],
+        mallAccounts: [kakao],
         rocketChannelAccountId: null,
         addGeneratedFile: vi.fn(),
       }),
@@ -271,7 +285,7 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
   it('⭐ 설정되지 않은 몰은 실패가 아니라 미설정으로 센다', async () => {
     const logActivity = vi.fn();
     const missing = mall('kakao', '카카오');
-    const ready = mall('kkomangse', '꼬망세');
+    const ready = mall('kidsnote', '키즈노트');
     mocks.begin.mockImplementation(async (_key: string, input: { mallKey: string }) => {
       if (input.mallKey === missing.key) {
         throw new ApiError(404, 'NOT_FOUND', null, { reason: 'ORDER_COLLECTION_MALL_NOT_FOUND' });
@@ -378,21 +392,21 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
    * 사장님이 로그인하고 돌아와도 카드가 '중단'만 보여 다시 시작할 수 없었다.
    */
   it('⭐ 로그인·인증이 필요해 멈춘 시도는 그 자리에서 끝낸다 — 카드가 30분 동안 수집 중으로 서 있지 않게', async () => {
-    const lotteOn = mall('lotte-on', '롯데ON');
+    const kakao = mall('kakao', '카카오');
     const logActivity = vi.fn();
     mocks.begin.mockResolvedValue({
-      ...attemptFor('lotte-on', 9),
+      ...attemptFor('kakao', 9),
       attemptToken: '33333333-3333-4333-8333-333333333333',
     });
     // 확장이 로그인 화면을 만나 돌아왔을 뿐, owner 의 시도는 아직 돌고 있다.
-    mocks.readAttempt.mockResolvedValue(attemptFor('lotte-on', 9));
-    mocks.fail.mockResolvedValue({ ...attemptFor('lotte-on', 9), state: 'FAILED' });
+    mocks.readAttempt.mockResolvedValue(attemptFor('kakao', 9));
+    mocks.fail.mockResolvedValue({ ...attemptFor('kakao', 9), state: 'FAILED' });
     mocks.collectMall.mockRejectedValue(
-      Object.assign(new Error('롯데ON 로그인이 필요합니다.'), { errorCode: 'login_required' }),
+      Object.assign(new Error('카카오 로그인이 필요합니다.'), { errorCode: 'login_required' }),
     );
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [lotteOn],
+        mallAccounts: [kakao],
         rocketChannelAccountId: null,
         addGeneratedFile: vi.fn(),
         logActivity,
@@ -405,10 +419,10 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
     });
 
     expect(mocks.fail).toHaveBeenCalledWith(
-      expect.objectContaining({ attemptId: attemptFor('lotte-on', 9).attemptId }),
+      expect.objectContaining({ attemptId: attemptFor('kakao', 9).attemptId }),
       expect.objectContaining({ code: 'LOGIN_REQUIRED' }),
     );
-    expect(logActivity).toHaveBeenCalledWith('login', '롯데ON', expect.any(String));
+    expect(logActivity).toHaveBeenCalledWith('login', '카카오', expect.any(String));
   });
 
   /**
@@ -441,17 +455,17 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
   });
 
   it('인증이 필요한 몰의 탭은 사람이 끝내야 하므로 닫지 않는다', async () => {
-    const gsshop = mall('gs-shop', 'GS샵');
+    const kakao = mall('kakao', '카카오');
     mocks.begin.mockResolvedValue({
-      ...attemptFor('gs-shop', 8),
+      ...attemptFor('kakao', 8),
       attemptToken: '33333333-3333-4333-8333-333333333333',
     });
-    mocks.readAttempt.mockResolvedValue(attemptFor('gs-shop', 8));
-    mocks.fail.mockResolvedValue({ ...attemptFor('gs-shop', 8), state: 'FAILED' });
-    mocks.collectMall.mockRejectedValue(new Error('GS샵 SMS 인증이 필요합니다.'));
+    mocks.readAttempt.mockResolvedValue(attemptFor('kakao', 8));
+    mocks.fail.mockResolvedValue({ ...attemptFor('kakao', 8), state: 'FAILED' });
+    mocks.collectMall.mockRejectedValue(new Error('카카오 본인 인증이 필요합니다.'));
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [gsshop],
+        mallAccounts: [kakao],
         rocketChannelAccountId: null,
         addGeneratedFile: vi.fn(),
         logActivity: vi.fn(),
@@ -460,7 +474,7 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
     );
 
     await act(async () => {
-      await result.current.collectAccounts([gsshop]);
+      await result.current.collectAccounts([kakao]);
     });
 
     expect(mocks.closeTabs).not.toHaveBeenCalled();
@@ -532,8 +546,8 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
  * 약속을 기다리던 전체 수집도 풀리지 않는다.
  */
 describe('useAllMarketplaceOrderCollection — 운영자 중단 안내', () => {
-  const lotteOn = mall('lotte-on', '롯데ON');
-  const attempt = attemptFor('lotte-on', 5);
+  const kakao = mall('kakao', '카카오');
+  const attempt = attemptFor('kakao', 5);
 
   beforeEach(() => {
     vi.clearAllMocks();
@@ -548,7 +562,7 @@ describe('useAllMarketplaceOrderCollection — 운영자 중단 안내', () => {
   function renderOneMall() {
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [lotteOn],
+        mallAccounts: [kakao],
         rocketChannelAccountId: null,
         addGeneratedFile: vi.fn(),
       }),
@@ -560,7 +574,7 @@ describe('useAllMarketplaceOrderCollection — 운영자 중단 안내', () => {
   /** 카드의 공용 컨트롤이 시작하는 것과 같은 자리 — 이 시작만 운영자에게 결과를 알린다. */
   async function startFromCard(result: ReturnType<typeof renderOneMall>) {
     await act(async () => {
-      await result.current.mallCollectionAdapter(lotteOn).start?.({}, { status: undefined });
+      await result.current.mallCollectionAdapter(kakao).start?.({}, { status: undefined });
     });
   }
 
@@ -588,7 +602,7 @@ describe('useAllMarketplaceOrderCollection — 운영자 중단 안내', () => {
     });
 
     expect(toast.success).toHaveBeenCalledTimes(1);
-    expect(toast.success).toHaveBeenCalledWith('롯데ON 수집 완료');
+    expect(toast.success).toHaveBeenCalledWith('카카오 수집 완료');
     expect(toast.info).not.toHaveBeenCalled();
     expect(toast.error).not.toHaveBeenCalled();
   });
