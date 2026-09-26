@@ -1,5 +1,5 @@
-import { Module, type DynamicModule } from '@nestjs/common';
-import { NestFactory, type INestApplication } from '@nestjs/core';
+import { Module, type DynamicModule, type INestApplication } from '@nestjs/common';
+import { NestFactory } from '@nestjs/core';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { z } from 'zod';
 import { canonicalOwnerInputHash } from '../../common/owner-idempotency-key';
@@ -109,7 +109,7 @@ describe('CapabilityMutationDispatcher Nest bootstrap with PostgreSQL', () => {
       calls: [] as OwnerInvocation[],
       async invoke(invocation: OwnerInvocation): Promise<CapabilityResultEnvelope> {
         this.calls.push(invocation);
-        if (invocation.input.candidateId === ambiguous.canonicalInput.candidateId) {
+        if (invocation.context.executionId === ambiguous.id) {
           throw new Error('Owner response was lost after dispatch.');
         }
         return ownerResult(String(invocation.input.candidateId));
