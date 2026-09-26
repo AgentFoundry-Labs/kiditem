@@ -1,3 +1,4 @@
+import '../collectors/advertising.wing_itemwinner';
 import '../collectors/channels.wing_catalog_details';
 import '../collectors/channels.wing_catalog_excel';
 import '../collectors/channels.wing_catalog_list';
@@ -27,6 +28,7 @@ import '../sites/product-page';
 import '../sites/sellpia';
 import '../sites/tiktok-cc';
 import '../sites/wing';
+import '../sites/wing/itemwinner';
 import '../sites/wing/pre-matching-search';
 import '../sites/wing/reviews';
 import { createBrowserResources } from '../core/browser';
@@ -64,9 +66,10 @@ export function installEntry(): boolean {
   });
   // sourcingOperationKindsV1: 이 빌드가 소싱 kind 6종을 돈다(KID-360) — 웹은 이것으로 옛 빌드를 가려낸다.
   // orderCaptureOperationKindsV1: 셀피아 송장·몰 주문 kind를 돈다(KID-359 H3).
+  // wingDailyOperationKindsV1: Wing 일별 사실 kind(트래픽·아이템위너)를 돈다(KID-362).
   registerWithLegacyDomains({
     externalActions,
-    capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true },
+    capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true, wingDailyOperationKindsV1: true },
   });
   installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
   return true;

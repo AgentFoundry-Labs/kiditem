@@ -20,7 +20,7 @@ test("Wing pages do not auto-collect or self-close legacy batch tabs", () => {
   assert.doesNotMatch(source, /setTimeout\(\(\)\s*=>\s*\{\s*(?:batchSyncWithRetry|waitAndSync)/);
 });
 
-test("generic Wing dashboard cards cannot be saved as item-winner evidence", async () => {
+test("generic Wing dashboard cards are not collected — itemwinner moved to the operation kind (KID-362)", async () => {
   let listener = null;
   let syncMessages = 0;
   class FakeMutationObserver {
@@ -91,6 +91,6 @@ test("generic Wing dashboard cards cannot be saved as item-winner evidence", asy
   });
 
   assert.equal(result.success, false);
-  assert.match(result.error, /아이템위너 페이지가 아닙니다/);
+  assert.match(result.error, /매출분석 페이지가 아닙니다/);
   assert.equal(syncMessages, 0);
 });

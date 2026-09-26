@@ -20,12 +20,10 @@ import { KeywordRankController } from "./adapter/in/http/keyword-rank.controller
 import { KeywordSerpSourceController } from "./adapter/in/http/keyword-serp-source.controller";
 import { AdKeywordSourceController } from "./adapter/in/http/ad-keyword-source.controller";
 import { AdCampaignSourceController } from "./adapter/in/http/ad-campaign-source.controller";
-import { WingItemwinnerKpiSourceController } from "./adapter/in/http/wing-itemwinner-kpi-source.controller";
-import { WingItemwinnerKpiSourceRepository } from "./adapter/out/repository/wing-itemwinner-kpi-source.repository";
-import {
-  WING_ITEMWINNER_KPI_SOURCE_PORT,
-  WING_ITEMWINNER_KPI_READ_PORT,
-} from "./application/port/in/wing-itemwinner-kpi-source.port";
+import { WingItemwinnerOperationOwner } from "./adapter/in/operation/wing-daily-operation-owners";
+import { WingItemwinnerOperationRepository } from "./adapter/out/repository/wing-itemwinner-operation.repository";
+import { WING_ITEMWINNER_OPERATION_REPOSITORY_PORT } from "./application/port/out/repository/wing-itemwinner-operation.repository.port";
+import { OperationModule } from "../common/operation/operation.module";
 import { AdTrafficSourceController } from "./adapter/in/http/ad-traffic-source.controller";
 import { AdTrafficSourceRepository } from "./adapter/out/repository/ad-traffic-source.repository";
 import {
@@ -168,6 +166,7 @@ const REPOSITORY_PORT_BINDINGS = [
     AiModule,
     ChannelsModule,
     AdvertisingProfitabilityReadModule,
+    OperationModule,
   ],
   controllers: [
     AdvertisingConfigController,
@@ -183,7 +182,6 @@ const REPOSITORY_PORT_BINDINGS = [
     KeywordSerpSourceController,
     AdKeywordSourceController,
     AdCampaignSourceController,
-    WingItemwinnerKpiSourceController,
     AdTrafficSourceController,
     WingRankSourceController,
     SellerIdentitySourceController,
@@ -206,15 +204,13 @@ const REPOSITORY_PORT_BINDINGS = [
     KeywordSerpSourceRepository,
     AdKeywordSourceRepository,
     AdCampaignSourceRepository,
-    WingItemwinnerKpiSourceRepository,
+    // Wing 일별 사실 실행 kind(ADR-0025, KID-362)
+    WingItemwinnerOperationRepository,
     {
-      provide: WING_ITEMWINNER_KPI_SOURCE_PORT,
-      useExisting: WingItemwinnerKpiSourceRepository,
+      provide: WING_ITEMWINNER_OPERATION_REPOSITORY_PORT,
+      useExisting: WingItemwinnerOperationRepository,
     },
-    {
-      provide: WING_ITEMWINNER_KPI_READ_PORT,
-      useExisting: WingItemwinnerKpiSourceRepository,
-    },
+    WingItemwinnerOperationOwner,
     AdTrafficSourceRepository,
     {
       provide: AD_TRAFFIC_SOURCE_PORT,
@@ -267,7 +263,6 @@ const REPOSITORY_PORT_BINDINGS = [
   exports: [
     COUPANG_MOMENTUM_READ_CAPABILITY_PORT,
     AD_TRAFFIC_READ_PORT,
-    WING_ITEMWINNER_KPI_READ_PORT,
     ADVERTISING_HUB_READ_PORT,
   ],
 })

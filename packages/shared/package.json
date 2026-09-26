@@ -290,6 +290,11 @@
       "import": "./dist/sellpia-operations.js",
       "require": "./dist/sellpia-operations.cjs"
     },
+    "./advertising-operations": {
+      "types": "./dist/advertising-operations.d.ts",
+      "import": "./dist/advertising-operations.js",
+      "require": "./dist/advertising-operations.cjs"
+    },
     "./channels-operations": {
       "types": "./dist/channels-operations.d.ts",
       "import": "./dist/channels-operations.js",
@@ -404,6 +409,9 @@
       ],
       "sellpia-operations": [
         "dist/sellpia-operations.d.ts"
+      ],
+      "advertising-operations": [
+        "dist/advertising-operations.d.ts"
       ],
       "channels-operations": [
         "dist/channels-operations.d.ts"

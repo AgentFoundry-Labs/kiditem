@@ -60,57 +60,6 @@ function baseContext({ href, pageType, onMessage, querySelector, querySelectorAl
   };
 }
 
-test('Wing itemwinner owner mode sends one observed current-page capture and no legacy sync', async () => {
-  const sent = [];
-  const context = baseContext({
-    href: 'https://wing.coupang.com/tenants/seller-price-management',
-    pageType: 'itemwinner',
-    onMessage(message, callback) {
-      sent.push(message);
-      if (message.action === 'wingItemwinnerSourceStep') callback({ success: true, itemwinnerReceipt: { complete: true } });
-      else callback({ success: true });
-    },
-    querySelectorAll(selector) {
-      return [];
-    },
-  });
-  context.context.KidItemWingReadApi = {
-    async collectItemwinner({ control: observedControl }) {
-      assert.equal(observedControl.plan.expectedVendorId, 'A0001');
-      const row = {
-        vendorItemId: 'V1',
-        productName: 'API 아이템위너 상품',
-        isWinner: true,
-        myPrice: 1000,
-        winnerPrice: 1000,
-        salesQty: 1,
-        suppressed: false,
-        providerWinnerStatus: true,
-      };
-      return {
-        success: true,
-        products: [row],
-        kpis: {
-          '아이템위너 상품': 1,
-          '노출제한 상품': 0,
-          '아이템위너 아닌 상품': 0,
-        },
-      };
-    },
-  };
-  const result = await context.manual({
-    action: 'manualSync',
-    syncMode: 'wing_itemwinner',
-    wingItemwinnerControl: control({ expectedVendorId: 'A0001' }),
-  });
-  assert.equal(result.success, true);
-  assert.equal(sent.filter(message => message.action === 'syncToServer').length, 0);
-  assert.equal(sent.filter(message => message.action === 'wingItemwinnerSourceStep').length, 1);
-  assert.equal(sent[0].body.providerVendorId, 'A0001');
-  assert.equal(sent[0].body.data[0].productName, 'API 아이템위너 상품');
-  assert.equal(sent[0].body.kpis['아이템위너 상품'], 1);
-});
-
 test('Wing traffic owner mode sends a receipt with observed pagination proof and no legacy sync', async () => {
   const sent = [];
   const context = baseContext({

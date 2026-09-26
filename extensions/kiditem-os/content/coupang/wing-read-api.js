@@ -13,17 +13,8 @@
     "/tenants/rfm-ss/api/business-insight/vendor-summary";
   const METADATA_PATH =
     "/tenants/rfm-ss/api/metadata/business-insights";
-  const ITEMWINNER_PATH = "/tenants/seller-price-management/getProductList";
-  const ITEMWINNER_PAGE_PATHS = Object.freeze([
-    "/tenants/seller-price-management",
-    // Keep the previously issued target valid while a frozen owner attempt
-    // resumes. New captures use the exact observed path above.
-    "/tenants/seller-web/seller-price-management",
-  ]);
   const PAGE_SIZE = 100;
   const MAX_PAGES = 100;
-  const ITEMWINNER_PAGE_SIZE = 1000;
-  const ITEMWINNER_MAX_ITEMS = 1000;
   const REQUEST_TIMEOUT_MS = 30_000;
   const REGISTRATION_TYPES = Object.freeze(["NORMAL", "RFM"]);
   const TRAFFIC_FILTER_SCOPE = "ALL_NORMAL_RFM";
@@ -424,163 +415,6 @@
       salesQty: normalized.summary.salesQty,
       revenue: normalized.summary.revenue,
       providerConversionRate: normalized.summary.conversionRate,
-    };
-  }
-
-  function validateItemwinnerPage() {
-    let current;
-    try {
-      current = new URL(root.location?.href || "");
-    } catch {
-      return failure("WING_ITEMWINNER_URL_INVALID", "Wing 아이템위너 페이지 URL이 유효하지 않습니다.");
-    }
-    if (current.protocol !== "https:" || current.hostname.toLowerCase() !== "wing.coupang.com" ||
-      !ITEMWINNER_PAGE_PATHS.includes(current.pathname)) {
-      return failure("WING_ITEMWINNER_URL_INVALID", "Wing 아이템위너 페이지가 아닙니다.");
-    }
-    // The provider's `rf=menu` marker only records how the page was opened and
-    // does not alter the fixed API scope. Every other query filter would make
-    // the capture URL look broader than the request actually performed.
-    for (const [key] of current.searchParams) {
-      if (key !== "rf") {
-        return failure("WING_ITEMWINNER_FILTER_UNSUPPORTED", "Wing 아이템위너 URL 필터를 고정 API 범위로 검증할 수 없습니다.", { key });
-      }
-    }
-    return { success: true, url: current.href };
-  }
-
-  function itemwinnerRequestBody() {
-    return {
-      searchIds: "",
-      sortType: "MY_VI_SALES_DESC",
-      keywords: "",
-      revamp: "B",
-      displayCategoryIds: [],
-      productName: "",
-      brandName: "",
-      alarmStatus: "ALL",
-      autoPriceStatus: "ALL",
-      vendorItemStatus: "ON_SALE",
-      itemWinnerStatus: "ALL",
-      rodBadge: "ALL",
-      pageSize: ITEMWINNER_PAGE_SIZE,
-      page: 0,
-      searchPresets: null,
-      isTopGMV: null,
-    };
-  }
-
-  function requiredInteger(value, field, { emptyStringAsZero = false } = {}) {
-    if (emptyStringAsZero && value === "") return 0;
-    return finiteNumber(value, field, { integer: true });
-  }
-
-  function itemwinnerRows(body) {
-    if (!record(body)) throw new Error("invalid_itemwinner_response");
-    const totalSize = finiteNumber(body.totalSize, "totalSize", { integer: true });
-    const page = finiteNumber(body.page, "page", { integer: true });
-    const pageSize = finiteNumber(body.pageSize, "pageSize", { integer: true });
-    const totalPages = finiteNumber(body.totalPages, "totalPages", { integer: true });
-    if (totalSize < 0 || page !== 0 || totalPages < 0) {
-      throw Object.assign(new Error("itemwinner_page_conflict"), { code: "WING_ITEMWINNER_PAGE_CONFLICT" });
-    }
-    if (totalSize > ITEMWINNER_MAX_ITEMS) {
-      throw Object.assign(new Error("itemwinner_page_limit"), { code: "WING_ITEMWINNER_PAGE_LIMIT" });
-    }
-    const rows = body.result;
-    if (!Array.isArray(rows)) throw new Error("invalid_itemwinner_result");
-    if (totalSize === 0) {
-      if (rows.length !== 0 || totalPages !== 0 || pageSize !== 10) {
-        throw Object.assign(new Error("itemwinner_empty_page_conflict"), { code: "WING_ITEMWINNER_PAGE_CONFLICT" });
-      }
-    } else if (pageSize !== ITEMWINNER_PAGE_SIZE || totalPages !== 1 || rows.length !== totalSize) {
-      throw Object.assign(new Error("itemwinner_partial_page"), { code: "WING_ITEMWINNER_PAGE_PARTIAL" });
-    }
-    return { rows, totalSize, page, pageSize, totalPages };
-  }
-
-  function normalizeItemwinnerRow(row) {
-    if (!record(row) || typeof row.winnerStatus !== "boolean" || typeof row.suppressed !== "boolean") {
-      throw new Error("invalid_itemwinner_row");
-    }
-    const vendorItemId = positiveId(row.vendorItemId, "vendorItemId");
-    const productName = typeof row.productName === "string" ? row.productName.trim() : "";
-    if (!productName) throw new Error("invalid_itemwinner_product_name");
-    const currentPrice = requiredInteger(row.currentPrice, "currentPrice");
-    const winnerPrice = requiredInteger(row.winnerPrice, "winnerPrice");
-    const salesQty = requiredInteger(row.myViSales, "myViSales", { emptyStringAsZero: true });
-    return {
-      vendorItemId,
-      productName: productName.slice(0, 80),
-      isWinner: row.winnerStatus === true && row.suppressed !== true,
-      myPrice: currentPrice,
-      winnerPrice,
-      salesQty,
-      suppressed: row.suppressed,
-      providerWinnerStatus: row.winnerStatus,
-    };
-  }
-
-  function itemwinnerKpis(rows) {
-    let winners = 0;
-    let suppressed = 0;
-    let losers = 0;
-    for (const row of rows) {
-      if (row.suppressed) suppressed += 1;
-      else if (row.providerWinnerStatus) winners += 1;
-      else losers += 1;
-    }
-    return {
-      "아이템위너 상품": winners,
-      "노출제한 상품": suppressed,
-      "아이템위너 아닌 상품": losers,
-    };
-  }
-
-  async function collectItemwinner() {
-    const page = validateItemwinnerPage();
-    if (!page.success) return page;
-    const response = await requestJson(ITEMWINNER_PATH, {
-      method: "POST",
-      body: itemwinnerRequestBody(),
-    });
-    if (!response.success) return response;
-    let parsed;
-    try {
-      parsed = itemwinnerRows(response.body);
-    } catch (error) {
-      return failure(
-        error?.code || "WING_ITEMWINNER_RESPONSE_INVALID",
-        "Wing 아이템위너 응답 형식이 유효하지 않습니다.",
-        { cause: error?.message || String(error) },
-      );
-    }
-    let rows;
-    try {
-      rows = parsed.rows.map(normalizeItemwinnerRow);
-    } catch (error) {
-      return failure("WING_ITEMWINNER_ROW_INVALID", "Wing 아이템위너 행에 필요한 필드가 없습니다.", { cause: error?.message || String(error) });
-    }
-    const ids = new Set(rows.map((row) => row.vendorItemId));
-    if (ids.size !== rows.length || ids.size !== parsed.totalSize) {
-      return failure("WING_ITEMWINNER_DUPLICATE_ROW", "Wing 아이템위너 응답에 중복 상품이 있습니다.", { totalSize: parsed.totalSize, rowCount: rows.length, uniqueCount: ids.size });
-    }
-    const kpis = itemwinnerKpis(rows);
-    return {
-      success: true,
-      products: rows,
-      pages: [{ pageIndex: 1, data: rows, url: page.url }],
-      expectedPages: 1,
-      terminalPageObserved: true,
-      complete: true,
-      gridReady: true,
-      kpis,
-      itemwinner: {
-        totalSize: parsed.totalSize,
-        page: parsed.page,
-        pageSize: parsed.pageSize,
-        totalPages: parsed.totalPages,
-      },
     };
   }
 
@@ -1196,20 +1030,16 @@
   root.KidItemWingReadApi = Object.freeze({
     collectTraffic,
     collectTrafficDailyV2,
-    collectItemwinner,
     normalizeRow,
     normalizeSummary,
-    normalizeItemwinnerRow,
     validateMetadata,
     constants: Object.freeze({
       DETAIL_PATH,
       SUMMARY_PATH,
       METADATA_PATH,
-      ITEMWINNER_PATH,
       TRAFFIC_FILTER_SCOPE,
       TRAFFIC_SEQUENCE_PAGE_BASE,
       PAGE_SIZE,
-      ITEMWINNER_PAGE_SIZE,
       REQUEST_TIMEOUT_MS,
     }),
   });

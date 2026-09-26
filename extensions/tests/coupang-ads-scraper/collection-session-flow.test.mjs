@@ -119,7 +119,6 @@ test('retires the generic scrape ingress before producer actions', () => {
   assert.match(worker, /session\?\.producer === "advertising\.ad_sync"[\s\S]*adCampaignSourceOwner\.cancel/);
   assert.match(worker, /session\?\.producer === "advertising\.ad_keyword"[\s\S]*adKeywordSourceOwner\.cancel/);
   assert.match(worker, /session\?\.producer === WING_TRAFFIC_PRODUCER[\s\S]*wingTrafficSourceOwner\.cancel/);
-  assert.match(worker, /session\?\.producer === WING_ITEMWINNER_PRODUCER[\s\S]*wingItemwinnerSourceOwner\.cancel/);
   assert.match(worker, /Collection producer source owner does not support cancellation/);
   assert.doesNotMatch(worker, /restartCollectionSession/);
   assert.doesNotMatch(worker, /function handleScrapeTargets\(/);
@@ -172,7 +171,6 @@ test('persists only allowlisted Coupang producers and advertises the capability'
   for (const producer of [
     'dashboard.wing_sales',
     'dashboard.coupang_products',
-    'dashboard.wing_kpi',
     'advertising.ad_sync',
     'advertising.profitability_import',
     'advertising.wing_rank',
@@ -214,7 +212,7 @@ test('source capture policies share the environment-owned resource without a uni
   // through the production resource and named collector interfaces.
   assert.match(worker, /KidItemAdCenterCollector\.create\(\{\s*window: collectionWindows\[environmentId\]/);
   assert.match(worker, /KidItemWingReportCollector\.create\(\{\s*window: collectionWindows\[environmentId\]/);
-  for (const method of ['collectCampaigns', 'collectKeywords', 'collectProfitabilitySlice', 'collectTraffic', 'collectItemwinner']) {
+  for (const method of ['collectCampaigns', 'collectKeywords', 'collectProfitabilitySlice', 'collectTraffic']) {
     assert.match(worker, new RegExp(`\\.${method}\\(`));
   }
   assert.doesNotMatch(worker, /\.collectTargets\(/);

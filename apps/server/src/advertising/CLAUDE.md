@@ -71,7 +71,13 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   `CHANNEL_SKU_AVAILABILITY_PORT`; use that projection as the sole stock balance
   instead of marketplace SKU metadata.
 - Advertising intentionally reads/writes channel daily fact models because the
-  scrape ingest path owns raw/fact projection traceability.
+  scrape ingest path owns raw/fact projection traceability. The Wing daily
+  facts are operation kinds (ADR-0025, KID-362;
+  `adapter/in/operation/wing-daily-operation-owners.ts`):
+  `advertising.wing_itemwinner` writes the listing/option winner columns in its
+  finish transaction, stamps `operationId` and leaves `rawSnapshotId` null.
+  Every writer of Wing listing-day facts holds `account:<id>` and
+  `resource:wing-daily:<id>`, so one runs per account.
 - Product ABC reads go through Products' exported stored-grade port. An
   unclassified product stays `null`; consume the stored grade without deriving
   a product grade or coercing a missing/stale source to C.

@@ -20,7 +20,6 @@ const BATCH_SCRAPE_STATUS_KEY = "kiditem_batch_scrape";
 const BATCH_SCRAPE_CANCEL_KEY = "kiditem_batch_scrape_cancel";
 const COLLECTION_WINDOW_STORAGE_KEY = "kiditem_coupang_collection_window";
 const WING_TRAFFIC_PRODUCER = "dashboard.wing_sales";
-const WING_ITEMWINNER_PRODUCER = "dashboard.wing_kpi";
 const adsEnvironmentContext = KidItemEnvironmentContext.create({
   chrome,
   fetchFn: fetch,
@@ -72,8 +71,6 @@ const coupangCollectionStart = KidItemCoupangCollectionStart.create({
       profitabilitySourceOwner.run({ environmentId, idempotencyKey }),
     [WING_TRAFFIC_PRODUCER]: ({ environmentId, attemptId }) =>
       runWingTrafficSourceOwner({ environmentId, attemptId }),
-    [WING_ITEMWINNER_PRODUCER]: ({ environmentId, attemptId }) =>
-      wingItemwinnerSourceOwner.run({ environmentId, attemptId }),
   },
 });
 
@@ -218,8 +215,6 @@ async function coupangCollectionAttemptEnded(environmentId, session) {
         }
         throw error;
       });
-    case WING_ITEMWINNER_PRODUCER:
-      return wingItemwinnerSourceOwner.attemptEnded(environmentId, attemptId);
     default:
       return false;
   }
@@ -296,18 +291,6 @@ async function cancelWingTrafficSourceOwner(args) {
   });
 }
 
-const wingItemwinnerSourceOwner = KidItemWingItemwinnerSourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  environmentForTab: tabId => coupangEnvironment.environmentForTab(tabId),
-  ownedTab: async (environmentId, attemptId) => (await collectionWindowFor(environmentId).reattach(attemptId))?.tabId,
-  collect: ({ environmentId, attemptId, control }) =>
-    wingReportCollectorFor(environmentId).collectItemwinner({ environmentId, attemptId, control }),
-  closeAttempt: (environmentId, attemptId) => collectionWindowFor(environmentId).close(attemptId),
-  takeWindowTurn: coupangWindowTurn(WING_ITEMWINNER_PRODUCER),
-});
-chrome.runtime.onMessage.addListener(wingItemwinnerSourceOwner.handleMessage);
 const coupangSerpCollector = KidItemCoupangSerpCollector.create({
   chrome,
   sessions: collectionSessions,
@@ -1528,10 +1511,6 @@ async function cancelCollectionSession(runId, environmentId) {
     // (wingTrafficSourceOwner.cancel) while selecting the daily v2 owner.
     return cancelWingTrafficSourceOwner({ environmentId, attemptId: runId });
   }
-  if (session?.producer === WING_ITEMWINNER_PRODUCER) {
-    await wingReportCollectorFor(environmentId).cancelRun({ attemptId: runId });
-    return wingItemwinnerSourceOwner.cancel({ environmentId, attemptId: runId });
-  }
   if (session?.producer === "advertising.competitor_seller_identity") {
     return sellerIdentitySourceOwner.cancel({ environmentId, attemptId: runId });
   }
@@ -1562,8 +1541,8 @@ async function cancelCollectionSession(runId, environmentId) {
 
 // A restarted worker continues a collection only through the web-app lifetime,
 // which recovers an environment after it confirms a connected KidItem tab there
-// and settles its stop requests. The ad campaign, keyword, Wing traffic and
-// itemwinner owners only settle attempts that already ended. Profitability
+// and settles its stop requests. The ad campaign, keyword and Wing traffic
+// owners only settle attempts that already ended. Profitability
 // continues its same live import inside the window turn a new start would take;
 // tracked Wing products and competitor catalogs use no window. The Wing catalog
 // import continues its same unexpired attempt after taking the import turn a
@@ -1575,7 +1554,6 @@ function recoverCoupangCollections(environmentId) {
     ["광고 키워드 owner", () => adKeywordSourceOwner.recover(environmentId)],
     ["Wing 트래픽 owner", () => wingTrafficSourceOwner.recover(environmentId)],
     ["Wing 트래픽 일별 owner", () => wingTrafficSourceOwnerV2.recover(environmentId)],
-    ["Wing 아이템위너 owner", () => wingItemwinnerSourceOwner.recover(environmentId)],
     ["수익성 광고비 source owner", () => profitabilitySourceOwner.recover(environmentId)],
     ["추적 Wing source owner", () => trackedWingProductsSourceOwner.recover(environmentId)],
     ["경쟁 판매자 source owner", () => competitorCatalogSourceOwner.recover(environmentId)],
@@ -1687,7 +1665,6 @@ KidItemDomains.register({
     advertisingCampaignSourceOwnerV1: true,
     wingTrafficSourceOwnerV1: true,
     wingTrafficSourceOwnerV2: true,
-    wingItemwinnerSourceOwnerV1: true,
     kiditemEnvironmentProfilesV1: true,
     wingFormRegister: true,
     wingFormRegisterSource: "wing-formV2-fill",

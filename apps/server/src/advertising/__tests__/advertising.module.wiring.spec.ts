@@ -11,9 +11,10 @@ import { AlertsModule } from '../../alerts/alerts.module';
 import { AiModule } from '../../content/ai.module';
 import { ChannelsModule } from '../../channels/channels.module';
 import { AdvertisingProfitabilityReadModule } from '../advertising-profitability-read.module';
+import { OperationModule } from '../../common/operation/operation.module';
 
 describe('AdvertisingModule retained wiring', () => {
-  it('uses direct Advertising source owners without an Operations dependency', () => {
+  it('uses direct Advertising source owners and the operation contract for the Wing daily kinds (KID-362)', () => {
     const imports = Reflect.getMetadata('imports', AdvertisingModule) ?? [];
     expect(imports).toEqual([
       AiListingContentQueryModule,
@@ -24,6 +25,7 @@ describe('AdvertisingModule retained wiring', () => {
       AiModule,
       ChannelsModule,
       AdvertisingProfitabilityReadModule,
+      OperationModule,
     ]);
     const providerNames = (Reflect.getMetadata('providers', AdvertisingModule) ?? [])
       .map((provider: Function | { provide?: unknown }) =>
@@ -38,6 +40,8 @@ describe('AdvertisingModule retained wiring', () => {
     expect(providerNames).toContain('KeywordSerpSourceRepository');
     expect(providerNames).toContain('WingRankSourceRepository');
     expect(providerNames).not.toContain('AdvertisingTrackedWingProductsOperationHandler');
+    expect(providerNames).toContain('WingItemwinnerOperationOwner');
+    expect(providerNames).not.toContain('WingItemwinnerKpiSourceRepository');
     const controllerNames = (Reflect.getMetadata('controllers', AdvertisingModule) ?? []).map((controller: Function) => controller.name);
     expect(controllerNames).toContain('AdKeywordAgentController');
     expect(controllerNames).toContain('AdExportController');

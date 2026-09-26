@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { entrySites, createSiteHandles, ownTabSites } from './site-handles';
+import '../collectors/advertising.wing_itemwinner';
 import '../collectors/channels.wing_catalog_details';
 import '../collectors/channels.wing_catalog_excel';
 import '../collectors/channels.wing_catalog_list';
@@ -19,6 +20,7 @@ import '../sites/mall-orders';
 import '../sites/product-page';
 import '../sites/sellpia';
 import '../sites/wing';
+import '../sites/wing/itemwinner';
 import '../sites/wing/pre-matching-search';
 import '../sites/wing/reviews';
 import { wingCatalogDetailsCollector, type WingCatalogDetailsSite } from '../collectors/channels.wing_catalog_details';
@@ -69,6 +71,10 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     expect(ownTabSites().has('mall-orders')).toBe(true);
   });
 
+  it('아이템위너 kind에는 목록 읽기만 가진 wing-itemwinner 핸들을 준다(KID-362)', () => {
+    expect(keys(createSiteHandles(deps)('advertising.wing_itemwinner', { tabId: null }))).toEqual(['readItemwinnerList']);
+  });
+
   it('상품평 kind에는 상품평 검색만 가진 wing-reviews 핸들을 준다', () => {
     expect(keys(createSiteHandles(deps)('orders.coupang_reviews', { tabId: null }))).toEqual(['searchReviews']);
   });
@@ -95,9 +101,10 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     expect(siteFor('unknown.kind' as never, { tabId: null })).toBeNull();
   });
 
-  it('브라우저 자원에 넘길 사이트 표는 origin을 둔 윙 두 곳이다', () => {
+  it('브라우저 자원에 넘길 사이트 표는 origin을 둔 윙 사이트들이다', () => {
     expect(entrySites()).toEqual({
       wing: { origin: 'https://wing.coupang.com' },
+      'wing-itemwinner': { origin: 'https://wing.coupang.com' },
       'wing-reviews': { origin: 'https://wing.coupang.com' },
     });
   });

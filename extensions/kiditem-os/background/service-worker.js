@@ -41,7 +41,6 @@ importScripts(
   "coupang/ad-keyword-source-owner.js",
   "coupang/ad-campaign-source-owner.js",
   "coupang/wing-traffic-source-owner.js",
-  "coupang/wing-itemwinner-source-owner.js",
   "coupang/tracked-wing-products-source-owner.js",
   "coupang/competitor-catalog-source-owner.js",
   "coupang/keyword-rank-source-owner.js",

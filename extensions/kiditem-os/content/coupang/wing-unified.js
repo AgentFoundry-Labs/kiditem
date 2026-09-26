@@ -1,5 +1,5 @@
 // KIDITEM OS — Wing 페이지 데이터 수집
-// 아이템위너 + 매출분석(트래픽) 통합 파서
+// 매출분석(트래픽) 파서 — 아이템위너는 실행 kind로 옮겼다(KID-362)
 // 매출분석: CSS Grid 기반 (테이블 아님), 상품당 11개 div
 
 (function () {
@@ -13,7 +13,6 @@
     const url = location.href;
     if (url.includes("business-insight/sales-analysis")) return "sales-analysis";
     if (url.includes("business-insight")) return "business-insight";
-    if (url.includes("item-winner") || url.includes("price")) return "itemwinner";
     return "generic";
   }
 
@@ -523,74 +522,6 @@
     };
   }
 
-  // ===== 아이템위너 테이블 파싱 (기존) =====
-  function parseWingTable() {
-    const data = [];
-    const rows = document.querySelectorAll("table.w-ui-table tbody tr, .data-table-container table tbody tr, .data-body tr");
-
-    rows.forEach((row) => {
-      let vendorItemId = row.getAttribute("data-vendor-item-id") || "";
-      if (!vendorItemId) {
-        const rowKey = row.getAttribute("row-key") || row.className || "";
-        const keyMatch = rowKey.match(/(\d{8,})/);
-        if (keyMatch) vendorItemId = keyMatch[1];
-      }
-
-      let productName = "";
-      const nameEl = row.querySelector(".product-name-container, [class*='product-name'], [class*='item-name']");
-      if (nameEl) {
-        productName = nameEl.innerText.trim().split("\n")[0].substring(0, 80);
-      }
-      if (!productName) {
-        const firstTd = row.querySelector("td");
-        if (firstTd) {
-          const lines = firstTd.innerText.trim().split("\n").filter(s => s.trim().length > 3);
-          for (const line of lines) {
-            if (!line.match(/^\d+$/) && !line.includes("판매자배송") && !line.includes("로켓")) {
-              productName = line.trim().substring(0, 80);
-              break;
-            }
-          }
-        }
-      }
-
-      if (!productName && !vendorItemId) return;
-
-      let salesQty = 0;
-      const salesEl = row.querySelector(".cp-sales, [class*='sales']");
-      if (salesEl) {
-        salesQty = parseInt(salesEl.innerText.replace(/[^\d]/g, "")) || 0;
-      } else {
-        const qtyMatch = row.innerText.match(/(\d+)\s*개/);
-        if (qtyMatch) salesQty = parseInt(qtyMatch[1]);
-      }
-
-      const rowText = row.innerText;
-      const isWinner = rowText.includes("아이템위너");
-      const priceMatches = rowText.match(/[\d,]+\s*원/g) || [];
-      const prices = priceMatches.map(p => parseInt(p.replace(/[^\d]/g, ""))).filter(p => p > 100);
-      const myPrice = prices.length > 0 ? prices[prices.length - 1] : 0;
-      const winnerPrice = prices.length >= 2 ? prices[0] : null;
-
-      data.push({ vendorItemId, productName, isWinner, myPrice, winnerPrice, salesQty });
-    });
-
-    return data;
-  }
-
-  // ===== 대시보드 카드 수집 =====
-  function parseDashboardCards() {
-    const cards = {};
-    document.querySelectorAll(".dashboard-card, [class*='dashboard-card']").forEach((card) => {
-      const titleEl = card.querySelector(".title, [class*='title']");
-      const countEl = card.querySelector(".count, [class*='count']");
-      if (titleEl && countEl) {
-        cards[titleEl.innerText.trim()] = countEl.innerText.trim();
-      }
-    });
-    return cards;
-  }
-
   function trafficSummary(kpis) {
     return {
       visitors: kpis.visitor?.numValue || 0,
@@ -802,30 +733,6 @@
     return { success: true, type: "traffic", count: pagination.products.length, trafficReceipt: lastReceipt };
   }
 
-  async function syncItemWinnerToSourceOwner(control, tableData, cards, observedIdentity) {
-    if (!control?.attemptId || !control.plan) {
-      return { success: false, errorCode: "SOURCE_OWNER_UNAVAILABLE", error: "Wing 아이템위너 owner 허가가 없습니다." };
-    }
-    const identity = observedIdentity || observedWingVendorId(control.plan.expectedVendorId);
-    if (!identity.ok) return { success: false, errorCode: "VENDOR_IDENTITY_UNAVAILABLE", error: identity.error };
-    if (tableData.length === 0 && Object.keys(cards).length === 0) {
-      return { success: false, errorCode: "WING_ITEMWINNER_DATA_EMPTY", error: "Wing 아이템위너 현재 페이지에 데이터가 없습니다." };
-    }
-    const observedAt = new Date().toISOString();
-    const body = {
-      providerVendorId: identity.vendorId,
-      observedAt,
-      data: tableData,
-      kpis: cards,
-      url: window.location.href,
-      title: document.title,
-      timestamp: observedAt,
-    };
-    const response = await sendOwnerStep("wingItemwinnerSourceStep", control.attemptId, "capture", body);
-    if (!response?.success) return response || { success: false, errorCode: "SOURCE_OWNER_UNAVAILABLE", error: "Wing 아이템위너 capture 전송 실패" };
-    return { success: true, type: "wing", count: tableData.length, itemwinnerReceipt: response.itemwinnerReceipt || { complete: true } };
-  }
-
   // showBadge is loaded from utils/dom.js via manifest
 
   // ===== 메인 동기화 =====
@@ -903,84 +810,14 @@
       return { success: false, error: "그리드 데이터 없음" };
     }
 
-    if (pageType !== "itemwinner") {
-      // Wing 홈의 일반 대시보드 카드를 아이템위너 KPI로 저장하면 실제 순위
-      // 수집이 0건이어도 성공으로 보이는 false positive가 된다.
-      return {
-        success: false,
-        error: "아이템위너 페이지가 아닙니다. Wing 판매순위 수집을 사용해 주세요.",
-      };
-    }
-
-    if (ownerControl) {
-      const reader = globalThis.KidItemWingReadApi;
-      if (!reader || typeof reader.collectItemwinner !== "function") {
-        const error = "Wing 아이템위너 API 모듈을 사용할 수 없습니다.";
-        showBadge(`❌ ${error}`, "#ef4444");
-        return { success: false, errorCode: "WING_READ_API_UNAVAILABLE", error };
-      }
-      // Identity is a page-local guard. Re-check it after the provider read so
-      // a tab/account switch cannot publish the response under the old account.
-      const identityBefore = observedWingVendorId(ownerControl.plan.expectedVendorId);
-      if (!identityBefore.ok) {
-        showBadge(`❌ ${identityBefore.error}`, "#ef4444");
-        return { success: false, errorCode: "VENDOR_IDENTITY_UNAVAILABLE", error: identityBefore.error };
-      }
-      const capture = await reader.collectItemwinner({ control: ownerControl });
-      if (!capture?.success) {
-        showBadge(`❌ ${capture?.error || "Wing 아이템위너 API 수집 실패"}`, "#ef4444");
-        return {
-          success: false,
-          errorCode: capture?.errorCode || "WING_ITEMWINNER_COLLECTION_FAILED",
-          error: capture?.error || "Wing 아이템위너 API 수집 실패",
-          ...(capture?.attentionRequired ? { attentionRequired: true } : {}),
-        };
-      }
-      const identityAfter = observedWingVendorId(ownerControl.plan.expectedVendorId);
-      if (!identityAfter.ok || identityAfter.vendorId !== identityBefore.vendorId) {
-        const error = identityAfter.error || "Wing 계정 식별자가 수집 중 변경되었습니다.";
-        showBadge(`❌ ${error}`, "#ef4444");
-        return { success: false, errorCode: "VENDOR_IDENTITY_CHANGED", error };
-      }
-      const result = await syncItemWinnerToSourceOwner(
-        ownerControl,
-        capture.products || [],
-        capture.kpis || {},
-        identityAfter,
-      );
-      if (result?.success) {
-        showBadge(`✅ Wing 아이템위너 owner 수집 완료`, "#22c55e");
-        return { success: true, type: "wing", count: result.count, itemwinnerReceipt: result.itemwinnerReceipt };
-      }
-      showBadge(`❌ ${result?.error || "Wing 아이템위너 수집 실패"}`, "#ef4444");
-      return { success: false, errorCode: result?.errorCode, error: result?.error || "Wing 아이템위너 수집 실패" };
-    }
-
-    // Automatic/no-owner mode intentionally retains the legacy DOM-only signal
-    // path. It cannot publish anything without the source-owner permit above.
-    const tableData = parseWingTable();
-    const cards = parseDashboardCards();
-    const total = tableData.length + Object.keys(cards).length;
-
-    if (total > 0) {
-      showBadge("❌ Wing 아이템위너 source owner 허가가 없습니다.", "#ef4444");
-      return {
-        success: false,
-        errorCode: "SOURCE_OWNER_REQUIRED",
-        error: "Wing 아이템위너 수집은 source owner에서 시작해야 합니다.",
-      };
-    }
-    return { success: false, error: "데이터 없음" };
+    // 아이템위너는 실행 kind `advertising.wing_itemwinner`가 서비스워커에서 읽는다(KID-362).
+    return { success: false, error: "Wing 매출분석 페이지가 아닙니다." };
   }
 
   // 수동 동기화 — 서버 응답까지 대기 후 결과 반환 (sales-analysis는 전체 페이지 순회)
   chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === "manualSync") {
-      const ownerControl = msg.syncMode === "wing_traffic"
-        ? msg.wingTrafficControl
-        : msg.syncMode === "wing_itemwinner"
-          ? msg.wingItemwinnerControl
-          : null;
+      const ownerControl = msg.syncMode === "wing_traffic" ? msg.wingTrafficControl : null;
       doSync({ paginate: true, ownerControl })
         .then((result) => sendResponse(result))
         .catch((error) => sendResponse({ success: false, errorCode: "WING_COLLECTION_FAILED", error: error?.message || String(error) }));

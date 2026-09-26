@@ -16,7 +16,6 @@ describe('collection start request', () => {
       'advertising.ad_keyword',
       'advertising.ad_sync',
       'advertising.profitability_import',
-      'dashboard.wing_kpi',
       'dashboard.wing_sales',
     ]);
     expect(CollectionStartRequestSchema.safeParse({
@@ -106,6 +105,7 @@ describe('collection start request', () => {
       CollectionStartRequestSchema.safeParse({
         action: 'startCollection',
         producer: 'dashboard.wing_kpi',
+        idempotencyKey,
         scope: {},
       }).success,
     ).toBe(false);

@@ -202,6 +202,8 @@ model ChannelListingDailySnapshot {
   firstObservedAt DateTime @default(now()) @map("first_observed_at") @db.Timestamptz
   lastObservedAt  DateTime @default(now()) @map("last_observed_at") @db.Timestamptz
   rawSnapshotId   String?  @map("raw_snapshot_id") @db.Uuid
+  /// 이 행을 마지막으로 쓴 Advertising 실행(ADR-0025, KID-362). 실행 표는 다른 owner라 FK 없이 id + 인덱스.
+  operationId     String?  @map("operation_id") @db.Uuid
 
   metaJson  Json?    @map("meta_json")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -213,6 +215,7 @@ model ChannelListingDailySnapshot {
   @@unique([organizationId, listingId, businessDate])
   @@index([organizationId, channel, externalId, businessDate])
   @@index([rawSnapshotId])
+  @@index([operationId])
   @@index([organizationId, businessDate])
   @@index([listingId, businessDate])
   @@index([organizationId, channel, businessDate])
@@ -248,6 +251,8 @@ model ChannelListingOptionDailySnapshot {
   firstObservedAt DateTime @default(now()) @map("first_observed_at") @db.Timestamptz
   lastObservedAt  DateTime @default(now()) @map("last_observed_at") @db.Timestamptz
   rawSnapshotId   String?  @map("raw_snapshot_id") @db.Uuid
+  /// 이 행을 마지막으로 쓴 Advertising 실행(ADR-0025, KID-362). 실행 표는 다른 owner라 FK 없이 id + 인덱스.
+  operationId     String?  @map("operation_id") @db.Uuid
 
   metaJson  Json?    @map("meta_json")
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
@@ -260,6 +265,7 @@ model ChannelListingOptionDailySnapshot {
   @@unique([organizationId, listingOptionId, businessDate])
   @@index([organizationId, channel, externalId, externalOptionId, businessDate])
   @@index([rawSnapshotId])
+  @@index([operationId])
   @@index([organizationId, businessDate])
   @@index([listingId, businessDate])
   @@index([listingOptionId, businessDate])

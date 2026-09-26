@@ -59,18 +59,6 @@ test('traffic collection sends the same raw manualSync command for V1/V2 owner c
   assert.equal(fake.calls.created[0].url, control.plan.targetUrl);
 });
 
-test('itemwinner capture stays a single target and never inherits Ads resume policy', async () => {
-  const api = load();
-  const fake = harness([{ success: true, itemwinnerReceipt: { complete: true } }], { producer: 'dashboard.wing_kpi', environmentId: 'office' });
-  const collector = api.create({ window: fake.resource, chrome: fake.chrome, sessions: fake.sessions, statusKey: 'wing-status', cancelKey: 'wing-cancel', delay: async () => {} });
-  const control = { attemptId: 'attempt', plan: { targetUrl: 'https://wing.coupang.com/tenants/seller-price-management' } };
-  const result = await collector.collectItemwinner({ environmentId: 'office', attemptId: 'attempt', control });
-  assert.equal(result.success, true);
-  assert.equal(fake.calls.messages[0].message.syncMode, 'wing_itemwinner');
-  assert.deepEqual(JSON.parse(JSON.stringify(fake.calls.messages[0].message.wingItemwinnerControl)), control);
-  assert.equal(typeof collector.collectCampaigns, 'undefined');
-});
-
 test('Wing cancellation records a source-local marker and leaves cleanup to the active collector', async () => {
   const api = load();
   const fake = harness();
@@ -175,21 +163,6 @@ test('Wing collectors enforce exact target surfaces, authorities, and date range
     await assert.rejects(
       collector.collectTraffic({ environmentId: 'local', attemptId: 'attempt', control: { attemptId: 'attempt', plan: { ...trafficControl.plan, targetUrl } } }),
       expectedError,
-    );
-    assert.deepEqual(fake.calls.created, []);
-  }
-
-  const invalidItemwinnerTargets = [
-    'https://advertising.coupang.com/marketing/dashboard/sales',
-    'https://user@wing.coupang.com/tenants/seller-price-management',
-    'https://wing.coupang.com:443/tenants/seller-price-management',
-  ];
-  for (const targetUrl of invalidItemwinnerTargets) {
-    const fake = harness([], { producer: 'dashboard.wing_kpi' });
-    const collector = api.create({ window: fake.resource, chrome: fake.chrome, sessions: fake.sessions, statusKey: 'wing-status', cancelKey: 'wing-cancel', delay: async () => {} });
-    await assert.rejects(
-      collector.collectItemwinner({ environmentId: 'local', attemptId: 'attempt', control: { attemptId: 'attempt', plan: { targetUrl } } }),
-      /아이템위너/,
     );
     assert.deepEqual(fake.calls.created, []);
   }

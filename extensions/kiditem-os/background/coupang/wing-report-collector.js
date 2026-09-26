@@ -2,9 +2,7 @@
   "use strict";
 
   const WING_TRAFFIC_URL = "https://wing.coupang.com/tenants/business-insight/sales-analysis";
-  const WING_ITEMWINNER_PATH = "/tenants/seller-price-management";
   const WING_TRAFFIC_PRODUCER = "dashboard.wing_sales";
-  const WING_ITEMWINNER_PRODUCER = "dashboard.wing_kpi";
   const NORMAL_TARGET_SETTLE_MS = 4000;
   const DATE = /^\d{4}-\d{2}-\d{2}$/;
 
@@ -54,14 +52,6 @@
       throw new Error("Wing 매출분석 날짜 범위가 owner 허용 범위를 벗어났습니다.");
     }
     return url.href;
-  }
-
-  function itemwinnerUrl(control) {
-    const target = control?.plan?.targetUrl;
-    if (!isWingUrl(target, new RegExp(`${WING_ITEMWINNER_PATH.replaceAll("/", "\\/")}$`, "i"))) {
-      throw new Error("Wing 아이템위너 페이지가 아닙니다.");
-    }
-    return safeWingUrl(target).href;
   }
 
   function wingLoginUrl(value) {
@@ -229,7 +219,7 @@
         collectionAttempt: 1,
         environmentId,
         syncMode: mode,
-        ...(mode === "wing_traffic" ? { wingTrafficControl: control } : { wingItemwinnerControl: control }),
+        wingTrafficControl: control,
       };
       try {
         response = await windowResource.sendMessageWhenReady(owned.tabId, message);
@@ -290,31 +280,6 @@
       }
     }
 
-    async function collectItemwinner({ environmentId, attemptId, control }) {
-      const resourceRef = { value: null };
-      try {
-        return await capture({
-          environmentId,
-          attemptId,
-          control,
-          producer: WING_ITEMWINNER_PRODUCER,
-          target: { url: itemwinnerUrl(control) },
-          mode: "wing_itemwinner",
-          receiptKey: "itemwinnerReceipt",
-          resourceRef,
-        });
-      } catch (error) {
-        if (error?.code !== "USER_CANCELLED" && error?.code !== "SOURCE_OWNER_UNAVAILABLE") throw error;
-        if (error?.code === "SOURCE_OWNER_UNAVAILABLE") {
-          if (resourceRef.value) await windowResource.close(attemptId).catch(() => undefined);
-          throw error;
-        }
-        await writeStatus({ runId: attemptId, status: "cancelled", cancelled: true, endedAt: Date.now() });
-        notify();
-        return cancelledResult(attemptId);
-      }
-    }
-
     async function cancelRun(input) {
       if (!input || typeof input !== "object" || Array.isArray(input) ||
         typeof input.attemptId !== "string" || !input.attemptId.trim()) {
@@ -327,7 +292,7 @@
       return { success: true, cancelled: true, runId };
     }
 
-    return Object.freeze({ cancelRun, collectItemwinner, collectTraffic });
+    return Object.freeze({ cancelRun, collectTraffic });
   }
 
   root.KidItemWingReportCollector = Object.freeze({ create });
