@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'vitest';
+import { MALL_ADMIN_LISTING_MALL_KEYS } from '@kiditem/shared/mall-admin-listings';
 import { entrySites, createSiteHandles, ownTabSites } from './site-handles';
 import '../collectors/advertising.wing_itemwinner';
 import '../collectors/advertising.wing_traffic';
@@ -18,16 +19,28 @@ import '../collectors/sourcing.product_extension';
 import '../collectors/sourcing.trend_1688';
 import '../collectors/sourcing.wing_catalog';
 import '../collectors/test.echo';
+import '../sites/11st/listings';
 import '../sites/1688';
+import '../sites/always/listings';
 import '../sites/art09';
+import '../sites/auction/listings';
 import '../sites/domeggook';
+import '../sites/gmarket/listings';
 import '../sites/icecream-mall';
+import '../sites/kakao/listings';
 import '../sites/kidkids';
+import '../sites/kidsnote/listings';
+import '../sites/kkomangse/listings';
+import '../sites/lotte-on/listings';
 import '../sites/mall-admin-listings';
 import '../sites/mall-orders';
+import '../sites/onch/listings';
 import '../sites/product-page';
 import '../sites/sabangnet';
 import '../sites/sellpia';
+import '../sites/smartstore/listings';
+import '../sites/teacher-mall/listings';
+import '../sites/thirtymall/listings';
 import '../sites/wing';
 import '../sites/wing/itemwinner';
 import '../sites/wing/pre-matching-search';
@@ -70,13 +83,14 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     expect(entrySites()).not.toHaveProperty('sellpia');
   });
 
-  it('몰 관리자 목록 kind에는 1차 몰 넷만 찾는 라우터를 주고, 그 몰 사이트는 목록 읽기를 가진다', () => {
+  it('몰 관리자 목록 kind에는 읽기기가 있는 몰(16곳, KID-363·381)만 찾는 라우터를 주고, 그 몰 사이트는 목록 읽기를 가진다', () => {
     const handle = createSiteHandles(deps)('channels.mall_admin_listings', { tabId: null }) as { reader(mallKey: string): unknown };
     expect(keys(handle)).toEqual(['reader']);
-    for (const mallKey of ['kidkids', 'icecream-mall', 'art09', 'domeggook']) {
+    expect(MALL_ADMIN_LISTING_MALL_KEYS).toHaveLength(16);
+    for (const mallKey of MALL_ADMIN_LISTING_MALL_KEYS) {
       expect(keys(handle.reader(mallKey))).toContain('readListings');
     }
-    expect(handle.reader('onch')).toBeNull();
+    expect(handle.reader('boribori')).toBeNull();
     expect(handle.reader('sellpia')).toBeNull();
     expect(ownTabSites().has('mall-admin-listings')).toBe(true);
   });

@@ -11,9 +11,16 @@ export interface MallListingsSpec {
   displayName: string;
   /** 읽기를 시작하는 몰 관리자 화면(옛 읽기기의 `origin + startPath`). */
   startUrl: string;
-  /** ISOLATED 처리기 파일과 그 호출 이름. */
+  /** 처리기 파일과 그 호출 이름. */
   file: string;
   call: string;
+  /** 화면 함수·페이지 변수로 읽는 몰(롯데ON·스마트스토어)은 MAIN world 처리기다. 없으면 ISOLATED. */
+  world?: 'main';
+  /**
+   * 세션이 탭에 묶인 몰(롯데ON의 탭별 sessionStorage 토큰)은 이 주소 무늬의 열린 탭을 먼저 찾아 그 탭에서 읽는다
+   * (`withFreshTab`, KID-380 골격). 그 탭은 운영자 것이라 닫지 않는다.
+   */
+  reuseTabMatching?: string;
   guard: PageGuard;
 }
 
@@ -32,9 +39,9 @@ const MALL_CONTRACT_CHANGED = 'MALL_CONTRACT_CHANGED' as const;
 const SOURCE_SNAPSHOT_INVALID = 'SOURCE_SNAPSHOT_INVALID' as const;
 
 /**
- * 몰 관리자 목록 읽기(KID-363 L2, `channels.mall_admin_listings`). 운영자 탭을 빌리지 않고 백그라운드 탭을 새로 열어
- * (옛 `borrowOpenTab`은 롯데ON만 쓰던 규칙이라 1차 몰 넷에는 없다) 몰 관리자 화면에서 처리기 파일 하나로 목록 전체를 읽고
- * 닫는다. 로그인 화면이면 실행 자격(`signIn`, KID-377 — 몰 주문 읽기와 같은 로그인 입구)으로 그 탭에서 한 번 로그인하고 시작
+ * 몰 관리자 목록 읽기(KID-363 L2·KID-381, `channels.mall_admin_listings`). 백그라운드 탭을 새로 열어(롯데ON만 열린
+ * 판매자센터 탭을 재사용 — `reuseTabMatching`) 몰 관리자 화면에서 처리기 파일 하나로 목록 전체를 읽고 닫는다.
+ * 로그인 화면이면 실행 자격(`signIn`, KID-377 — 몰 주문 읽기와 같은 로그인 입구)으로 그 탭에서 한 번 로그인하고 시작
  * 화면으로 돌아가 다시 읽는다. 자격이 없거나 그래도 로그인 화면이면 탭을 남긴다. 목록이 완전한지는 서버 finalize가 `listing_scan`으로 판정한다.
  */
 export function readMallListings(
@@ -48,7 +55,7 @@ export function readMallListings(
     const answer = await callPage<ListingsAnswer>(page, spec.call, { plan }, {
       timeoutMs: READ_TIMEOUT_MS,
       guard: spec.guard,
-      isolated: [spec.file],
+      ...(spec.world === 'main' ? { main: [spec.file] } : { isolated: [spec.file] }),
       displayName: spec.displayName,
     });
     if (answer?.success === true) return answer.snapshot;
@@ -67,5 +74,9 @@ export function readMallListings(
       default:
         throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} 상품 목록을 읽지 못했습니다.`, { status: null, url: spec.startUrl, reason: 'network', bodyHead: null });
     }
-  }, { navigationTimeoutMs: NAVIGATION_TIMEOUT_MS, ...(signIn ? { signIn } : {}) });
+  }, {
+    navigationTimeoutMs: NAVIGATION_TIMEOUT_MS,
+    ...(signIn ? { signIn } : {}),
+    ...(spec.reuseTabMatching ? { reuseTabMatching: spec.reuseTabMatching } : {}),
+  });
 }

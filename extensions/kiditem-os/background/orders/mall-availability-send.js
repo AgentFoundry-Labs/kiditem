@@ -82,7 +82,7 @@
    *
    * `codeFrom` 은 그 몰이 상품코드를 어디에 두는지다. 우리가 가진 코드
    * (`ChannelListing.externalId`)와 같은 값이어야 줄을 짚을 수 있다 — 목록을 가져올 때
-   * 쓴 것과 같은 코드다(`mall-admin-listings.js`).
+   * 쓴 것과 같은 코드다(`content/orders/<mall>-listings.js`, `channels.mall_admin_listings`).
    *
    * `perCode` 는 "한 번에 한 상품" 이라는 뜻이다(폼을 직렬화해 보내는 몰에서만 쓴다). 그 몰의 화면이 그렇게
    * 생겼을 때만 켠다.

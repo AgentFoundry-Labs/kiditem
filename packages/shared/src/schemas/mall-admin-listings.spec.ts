@@ -7,14 +7,13 @@ import {
   MALL_ADMIN_LISTINGS_PARSER_VERSION,
   MALL_ADMIN_LISTINGS_SOURCE_TYPE,
   MallAdminListingRowSchema,
-  MallAdminListingsBeginSchema,
   MallAdminListingsPlanSchema,
   MallAdminListingsPublicationSchema,
-  MallAdminListingsSubmissionSchema,
+  MallAdminListingsScanSchema,
+  MallAdminListingsSourceMallSchema,
 } from './mall-admin-listings';
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
-const RUN = '22222222-2222-4222-8222-222222222222';
 
 function plan(overrides: Record<string, unknown> = {}) {
   return {
@@ -61,16 +60,6 @@ describe('MALL_ADMIN_LISTING_READERS', () => {
   });
 });
 
-describe('MallAdminListingsBeginSchema', () => {
-  it('몰 하나를 고른다 — 읽기기가 없는 몰은 받지 않는다', () => {
-    expect(MallAdminListingsBeginSchema.parse({ mallKey: 'kidkids' })).toEqual({ mallKey: 'kidkids' });
-    expect(MallAdminListingsBeginSchema.safeParse({ mallKey: 'boribori' }).success).toBe(false);
-    expect(MallAdminListingsBeginSchema.safeParse({}).success).toBe(false);
-    expect(MallAdminListingsBeginSchema.safeParse({ mallKey: 'kidkids', channelAccountId: ACCOUNT }).success)
-      .toBe(false);
-  });
-});
-
 describe('MallAdminListingsPlanSchema', () => {
   it('몰의 관리자 주소와 쪽 크기가 몰 표와 같아야 한다', () => {
     expect(MallAdminListingsPlanSchema.safeParse(plan()).success).toBe(true);
@@ -105,26 +94,24 @@ describe('MallAdminListingRowSchema', () => {
   });
 });
 
-describe('MallAdminListingsSubmissionSchema', () => {
-  it('목록을 끝까지 읽었다는 근거를 함께 받는다', () => {
-    const submission = {
-      collection: {
-        collectionRunId: RUN,
-        totalRecords: 1,
-        recordsRead: 1,
-        pagesRead: 1,
-        totalPages: 1,
-        detailsRead: 0,
-        detailsMissing: 0,
-      },
-      rows: [row()],
+describe('MallAdminListingsScanSchema', () => {
+  it('목록을 끝까지 읽었다는 근거를 받는다 — 끝까지 읽지 않았다는 근거는 거절한다', () => {
+    const scan = {
+      collection: { totalRecords: 1, recordsRead: 1, pagesRead: 1, totalPages: 1, detailsRead: 0, detailsMissing: 0 },
       proof: { mallKey: 'kidkids', pageSize: 20000, validatedList: true },
     };
-    expect(MallAdminListingsSubmissionSchema.safeParse(submission).success).toBe(true);
-    expect(MallAdminListingsSubmissionSchema.safeParse({
-      ...submission,
-      proof: { ...submission.proof, validatedList: false },
-    }).success).toBe(false);
+    expect(MallAdminListingsScanSchema.safeParse(scan).success).toBe(true);
+    expect(MallAdminListingsScanSchema.safeParse({ ...scan, proof: { ...scan.proof, validatedList: false } }).success).toBe(false);
+    // 옛 시도 제출의 시도 id 칸은 이제 없다(KID-381).
+    expect(MallAdminListingsScanSchema.safeParse({ ...scan, collection: { ...scan.collection, collectionRunId: ACCOUNT } }).success).toBe(false);
+  });
+});
+
+describe('MallAdminListingsSourceMallSchema', () => {
+  it('몰마다 계정 행과 그 몰의 최근 실행 · 최근 성공 실행만 싣는다 — 옛 시도 칸은 없다(KID-381)', () => {
+    const mall = { mallKey: 'onch', mallName: '온채널', channelAccountId: ACCOUNT, latestPublication: null, latestOperation: null, latestSucceeded: null };
+    expect(MallAdminListingsSourceMallSchema.safeParse(mall).success).toBe(true);
+    expect(MallAdminListingsSourceMallSchema.safeParse({ ...mall, latestAttempt: null, latestComplete: null }).success).toBe(false);
   });
 });
 
