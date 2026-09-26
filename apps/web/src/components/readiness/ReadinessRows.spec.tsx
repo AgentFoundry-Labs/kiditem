@@ -22,11 +22,17 @@ vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { organizationId: 'o
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(), getNullable: vi.fn(), getParsed: vi.fn(), post: vi.fn() },
 }));
-const operationMocks = vi.hoisted(() => ({ start: vi.fn(), cancel: vi.fn() }));
-vi.mock('@/lib/operation-start', () => ({
-  requestOperationStart: operationMocks.start,
-  requestOperationCancel: operationMocks.cancel,
+// Wing 판매순위 테스트만 시작 호출을 바꿔 끼운다. 기본은 실제 구현(확장 경계 가짜를 거친다) — 셀피아 컨트롤이 그걸 쓴다.
+const operationMocks = vi.hoisted(() => ({
+  start: vi.fn(),
+  cancel: vi.fn(),
+  actual: null as null | typeof import('@/lib/operation-start'),
 }));
+vi.mock('@/lib/operation-start', async (importOriginal) => {
+  const actual = await importOriginal<typeof import('@/lib/operation-start')>();
+  operationMocks.actual = actual;
+  return { ...actual, requestOperationStart: operationMocks.start, requestOperationCancel: operationMocks.cancel };
+});
 vi.mock('@/lib/extension-bridge', () => ({
   detectExtensionId: vi.fn(),
   detectBrowserCollectionExtensionIds: vi.fn(),
@@ -181,6 +187,10 @@ function sellpiaCollectionStatus(
 
 beforeEach(() => {
   vi.clearAllMocks();
+  operationMocks.start.mockReset().mockImplementation((...args: Parameters<typeof import('@/lib/operation-start').requestOperationStart>) =>
+    operationMocks.actual!.requestOperationStart(...args));
+  operationMocks.cancel.mockReset().mockImplementation((...args: Parameters<typeof import('@/lib/operation-start').requestOperationCancel>) =>
+    operationMocks.actual!.requestOperationCancel(...args));
   localStorage.clear();
   statuses = {};
   vi.mocked(detectOrderCollectionExtensionRuntime).mockResolvedValue({
