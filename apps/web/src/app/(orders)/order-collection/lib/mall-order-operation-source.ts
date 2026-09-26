@@ -10,6 +10,7 @@ import type { QueryKey } from '@tanstack/react-query';
 import { COLLECTION_IDLE_POLL_MS } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
+import { loadOperationLoginCredentials, noteOperationLoginFailure, type OperationLoginCredentials } from '@/lib/operation-login';
 import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import { queryKeys } from '@/lib/query-keys';
@@ -27,6 +28,7 @@ import { ICECREAM_MALL_KEY, todayYmd, type ConversionHistoryItem } from './order
 import type { OrderCollectionSourceAdapter } from './order-collection-source-adapter';
 import {
   ORDER_CAPTURE_OPERATION_CAPABILITY,
+  OrderOperationFailure,
   orderOperationsQueryKey,
   readOrderOperations,
   waitForOrderOperation,
@@ -64,24 +66,25 @@ function mallOperations(status: OperationListResponse | undefined, mallKey: stri
 /**
  * 실행 kind로 옮긴 몰 하나의 공용 컨트롤 어댑터. 상태는 실행 reader(`GET /api/operations?kinds=orders.mall_orders`)
  * 한 읽기를 네 몰 카드가 나눠 본다(옛 몰 목록 읽기와 따로, 탭당 유휴 60초·도는 동안 2초에 한 번).
- * 시작은 옛 몰과 같이 저장된 계정으로 로그인을 먼저 맞춘 뒤(확장이 수집을 곧바로 시작하므로 그 앞에서) 확장에
- * `operation.start`를 보낸다. 중단은 이 브라우저의 절차 → 확장 `operation.cancel` → 서버 cancel.
+ * 시작은 그 몰의 저장 자격을 `operation.start`에 실어 보내고, 확장이 실행 안에서 로그인 화면을 만나면 그 자격으로
+ * 로그인한다(KID-377). 보낼지는 옛 몰과 같은 차단·한 시간 간격 규칙이 정한다(`operation-login`). 중단은 이 브라우저의
+ * 절차 → 확장 `operation.cancel` → 서버 cancel.
  */
 export function mallOrderOperationSource({
   organizationId,
   account,
   handOff,
-  ensureLogin,
+  loadLoginCredentials = loadOperationLoginCredentials,
   abortLocalRun,
 }: Readonly<{
   organizationId: string | null;
   account: OrderCollectionMallAccount;
   handOff: (handoff: MallOrderOperationHandoff) => Promise<void>;
-  /** 저장된 아이디·비밀번호로 그 몰에 먼저 로그인해 둔다(옛 몰과 같은 차단·간격 규칙). */
-  ensureLogin: (
+  /** 실어 보낼 저장 자격(차단·간격 규칙을 지난 것). 없으면 자격 없이 연다. */
+  loadLoginCredentials?: (
     account: OrderCollectionMallAccount,
-    run: Readonly<{ extensionId: string; selectionMode: 'manual' | 'automatic' }>,
-  ) => Promise<void>;
+    options: { automatic: boolean },
+  ) => Promise<OperationLoginCredentials | undefined>;
   abortLocalRun?: (operationId: string) => void;
 }>): OrderCollectionSourceAdapter<OperationListResponse> {
   const match = forMall(account.key);
@@ -109,7 +112,7 @@ export function mallOrderOperationSource({
       const extension = await detectOrderCollectionSessionExtensionStatus();
       if (extension.status !== 'ready') throw new Error(orderCollectionExtensionUnavailableMessage(extension));
       const selectionMode = input.selectionMode ?? 'manual';
-      await ensureLogin(account, { extensionId: extension.extensionId, selectionMode });
+      const credentials = await loadLoginCredentials(account, { automatic: selectionMode === 'automatic' });
       const collectionDate = input.collectionDate ?? todayYmd();
       const outcome = await requestOperationStart(MALL_ORDERS_KIND, {
         channelAccountId: account.channelAccountId,
@@ -118,7 +121,7 @@ export function mallOrderOperationSource({
         collectionMode: 'browser',
         selectionMode,
         ...(input.seenRowKeys ? { seenRowKeys: [...input.seenRowKeys] } : {}),
-      }, { capability: ORDER_CAPTURE_OPERATION_CAPABILITY });
+      }, { capability: ORDER_CAPTURE_OPERATION_CAPABILITY, ...(credentials ? { credentials } : {}) });
       if (outcome.outcome === 'refused') return outcome;
       if (outcome.outcome === 'running') return { outcome: 'running', attemptId: outcome.operationId };
       await handOff({ extensionId: extension.extensionId, operationId: outcome.operationId, input, collectionDate });
@@ -165,6 +168,10 @@ export async function collectMallOrderOperation({
     timeoutMs: account.key === 'domeggook' ? 260_000 : 200_000,
     ...(signal ? { signal } : {}),
     ...(sleep ? { sleep } : {}),
+  }).catch((error: unknown) => {
+    // 몰이 저장된 아이디·비밀번호를 거부했으면 더 두드리지 않는다(KID-377).
+    if (error instanceof OrderOperationFailure) noteOperationLoginFailure(account, error.operation);
+    throw error;
   });
   const parsed = MallOrdersResultSchema.safeParse(operation.result);
   const result = parsed.success ? parsed.data : null;

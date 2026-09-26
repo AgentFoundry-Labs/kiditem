@@ -78,6 +78,9 @@ describe('createBrowserResources — lockKey 이름으로 탭을 잡고 푼다',
   it('운영자가 풀어야 하는 오류(로그인 필요·사이트 밖 주소)로 끝나면 새로 연 탭을 닫지 않고 앞으로 가져온다', async () => {
     for (const error of [
       new RuntimeError(SITE_LOGIN_REQUIRED, '로그인이 필요합니다.'),
+      // 자동 로그인이 거절됐거나 확인하지 못한 경우도 운영자가 그 탭에서 로그인한다(KID-377).
+      new RuntimeError(SITE_LOGIN_REQUIRED, '로그인이 필요합니다.', { reason: 'credentials_rejected', mallMessage: '비밀번호가 일치하지 않습니다.' }),
+      new RuntimeError(SITE_LOGIN_REQUIRED, '로그인이 필요합니다.', { reason: 'login_unconfirmed' }),
       new RuntimeError(SITE_REQUEST_FAILED, '사이트 밖으로 이동했습니다.', { reason: 'unexpected_url' }),
     ]) {
       const fake = fakeChrome();

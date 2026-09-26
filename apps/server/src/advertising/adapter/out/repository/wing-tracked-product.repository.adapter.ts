@@ -4,6 +4,10 @@ import { addDays, currentBusinessDate } from '../../../../common/kst';
 import { upsertWingTrackedProductSnapshots } from './wing-tracked-product-snapshot.persistence';
 import { lockWingTrackedProductsSource } from './wing-tracked-product-source-lock';
 import type { Prisma } from '@prisma/client';
+import { KiditemConflictError } from '@kiditem/shared/errors';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
+import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import { sameTrackedTargets } from '../../../domain/wing-tracked-products-operation';
 import type {
   UpsertWingTrackedProductInput,
   WingTrackedHistory,
@@ -12,6 +16,7 @@ import type {
   WingTrackedProductWithLatest,
   WingTrackedSnapshotRow,
   WingTrackedSnapshotValues,
+  WingTrackedTargetRow,
 } from '../../../application/port/out/repository/wing-tracked-product.repository.port';
 
 /** Organization-scoped tracker CRUD and snapshot reads. */
@@ -133,6 +138,46 @@ export class WingTrackedProductRepositoryAdapter implements WingTrackedProductRe
     return [...histories.values()];
   }
 
+  listEnabledTargets(organizationId: string): Promise<WingTrackedTargetRow[]> {
+    return listEnabledTargets(this.prisma, organizationId);
+  }
+
+  async publishOperationSnapshots(handle: OwnerTransaction, input: {
+    organizationId: string;
+    operationId: string;
+    businessDate: Date;
+    plannedTargets: readonly WingTrackedTargetRow[];
+    captures: readonly (WingTrackedSnapshotValues & { productId: string; sourceKeyword: string })[];
+  }): Promise<{ captured: number }> {
+    const tx = ownerTransactionClient(handle);
+    await lockWingTrackedProductsSource(tx, input.organizationId);
+    const current = await listEnabledTargets(tx, input.organizationId);
+    if (!sameTrackedTargets(input.plannedTargets, current)) {
+      throw new KiditemConflictError('ADVERTISING_TRACKED_TARGETS_CHANGED', { details: { operationId: input.operationId } });
+    }
+    const capturedAt = new Date();
+    const stored = await upsertWingTrackedProductSnapshots(tx, input.captures.map((capture) => ({
+      ...capture,
+      businessDate: input.businessDate,
+      capturedAt,
+      operationId: input.operationId,
+    })), input.organizationId);
+    if (stored.captured !== input.captures.length) {
+      throw new KiditemConflictError('ADVERTISING_TRACKED_TARGETS_CHANGED', { details: { operationId: input.operationId } });
+    }
+    return { captured: stored.captured };
+  }
+}
+
+function listEnabledTargets(
+  client: Pick<Prisma.TransactionClient, 'coupangWingTrackedProduct'>,
+  organizationId: string,
+): Promise<WingTrackedTargetRow[]> {
+  return client.coupangWingTrackedProduct.findMany({
+    where: { organizationId, enabled: true },
+    orderBy: { productId: 'asc' },
+    select: { productId: true, sourceKeyword: true },
+  });
 }
 
 type PrismaTrackerRow = Prisma.CoupangWingTrackedProductGetPayload<Record<string, never>>;

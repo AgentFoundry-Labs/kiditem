@@ -70,7 +70,7 @@ export function createOperationActions(deps: OperationActionsDeps): {
       validate: (message) => validateWith(OperationStartMessageSchema, message),
       async handle(input, environmentId) {
         if (!input.ok) return input.response;
-        const { kind, scope, idempotencyKey } = input.message;
+        const { kind, scope, idempotencyKey, credentials } = input.message;
         const controller = new AbortController();
         // 연쇄로 이어진 실행도 이 controller로 멈춘다 — 이어진 실행마다 취소 대상에 올린다.
         const owned: string[] = [];
@@ -80,6 +80,7 @@ export function createOperationActions(deps: OperationActionsDeps): {
           kind,
           scope,
           ...(idempotencyKey !== undefined ? { idempotencyKey } : {}),
+          ...(credentials !== undefined ? { credentials } : {}),
           signal: controller.signal,
           onBegun({ operationId, reused }) {
             running.set(operationId, controller);

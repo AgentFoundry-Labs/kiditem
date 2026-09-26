@@ -31,14 +31,13 @@ describe('AdvertisingModule retained wiring', () => {
       .map((provider: Function | { provide?: unknown }) =>
         typeof provider === 'function' ? provider.name : String(provider.provide));
     expect(providerNames).not.toContain('AdvertisingProfitabilityOperationHandler');
-    expect(providerNames).toContain('CompetitorCatalogSourceAttemptService');
-    expect(providerNames).toContain('CompetitorCatalogSourceAttemptRepositoryAdapter');
+    expect(providerNames).toContain('CompetitorCatalogOperationOwner');
     // The heuristic exposure score and the account-day KPI owner are retired.
     expect(providerNames).not.toContain('AdExposureService');
     expect(providerNames).not.toContain('AdAccountDailyKpiSourceRepository');
     expect(providerNames).toContain('AdExportService');
-    expect(providerNames).toContain('KeywordSerpSourceRepository');
-    expect(providerNames).toContain('WingRankSourceRepository');
+    expect(providerNames).toContain('KeywordSerpOperationOwner');
+    expect(providerNames).toContain('WingRankOperationOwner');
     expect(providerNames).not.toContain('AdvertisingTrackedWingProductsOperationHandler');
     expect(providerNames).toContain('WingItemwinnerOperationOwner');
     expect(providerNames).toContain('WingTrafficOperationOwner');
@@ -48,9 +47,9 @@ describe('AdvertisingModule retained wiring', () => {
     expect(controllerNames).toContain('AdKeywordAgentController');
     expect(controllerNames).toContain('AdExportController');
     expect(controllerNames).not.toContain('AdAccountDailyKpiSourceController');
-    expect(controllerNames).toContain('CompetitorCatalogSourceController');
-    expect(controllerNames).toContain('KeywordSerpSourceController');
-    expect(controllerNames).toContain('WingRankSourceController');
+    expect(controllerNames).not.toContain('CompetitorCatalogSourceController');
+    expect(controllerNames).not.toContain('KeywordSerpSourceController');
+    expect(controllerNames).not.toContain('WingRankSourceController');
     expect(controllerNames).not.toContain('AdStrategyAgentController');
     expect(controllerNames).not.toContain('ProfitabilityAdRefreshController');
   });
@@ -81,21 +80,4 @@ describe('AdvertisingModule retained wiring', () => {
     expect(providerNames).not.toContain('AdExecutionRepositoryAdapter');
   });
 
-  it('requires the concrete source-failure alert seam for tracked Wing terminal writes', () => {
-    const adapter = readFileSync(resolve(
-      __dirname,
-      '../adapter/out/repository/wing-tracked-product-source-attempt.repository.adapter.ts',
-    ), 'utf8');
-    expect(adapter).not.toMatch(/@Optional\(\)\s+private readonly alerts/);
-    expect(adapter).not.toMatch(/alerts\?\./);
-  });
-
-  it('requires the concrete source-failure alert seam for competitor catalog terminal writes', () => {
-    const adapter = readFileSync(resolve(
-      __dirname,
-      '../adapter/out/repository/competitor-catalog-source-attempt.repository.adapter.ts',
-    ), 'utf8');
-    expect(adapter).not.toMatch(/@Optional\(\)\s+private readonly alerts/);
-    expect(adapter).not.toMatch(/alerts\?\./);
-  });
 });

@@ -14,6 +14,7 @@ import {
   type WingInventoryPage,
 } from './parse';
 import { registerSite } from '../registry';
+import { wingCallerWithLogin } from './login';
 
 const ORIGIN = 'https://wing.coupang.com';
 const SEARCH_URL = `${ORIGIN}/tenants/seller-web/v2/vendor-inventory/search`;
@@ -50,7 +51,7 @@ export const WING_CATALOG_PAYLOAD_INVALID = 'WING_CATALOG_PAYLOAD_INVALID' as co
 /**
  * 쿠팡 윙. 탭은 `account:<channelAccountId>` 잠금이 잡는다(입구의 `accountSite: 'wing'`). 봇 센서가 있어 요청은
  * 직렬·2초 간격이다. `XSRF-TOKEN` 쿠키가 있으면 모든 요청에 `X-XSRF-TOKEN`으로 싣고, 엑셀 계열 요청은 그것이 꼭
- * 필요하다(KID-351 실측). 로그인 판정은 응답(401·403·로그인 리다이렉트)으로 한다 — 로그인 자동화는 KID-359.
+ * 필요하다(KID-351 실측). 로그인 판정은 응답(401·403·로그인 리다이렉트)으로 하고, 자동 로그인은 `./login`(KID-377).
  */
 export const WING_SITE: SiteDefinition = {
   name: 'wing',
@@ -252,5 +253,6 @@ function totalCountOf(response: unknown): number {
 registerSite({
   name: WING_SITE.name,
   origin: WING_SITE.origin,
-  create: (deps) => createWingSite(createSiteCaller(WING_SITE.caller, deps), { sleep: deps.sleep }),
+  // 로그인 화면이면 실행의 저장 자격으로 한 번 로그인하고 다시 묻는다(KID-377, `./login`).
+  create: (deps, lease) => createWingSite(wingCallerWithLogin(createSiteCaller(WING_SITE.caller, deps), deps, lease), { sleep: deps.sleep }),
 });

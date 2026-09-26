@@ -1,7 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import {
   CompletedSourceArtifactRunSchema,
-  CoupangRocketMatchingCsvImportResponseSchema,
   CoupangWingCatalogImportResponseSchema,
   SellpiaInventoryBrowserSnapshotSchema,
   SellpiaInventoryImportOutcomeSchema,
@@ -140,25 +139,6 @@ describe('source import contracts', () => {
     });
 
     expect(parsed.run.channelAccountId).toBe(wingRun.channelAccountId);
-  });
-
-  it('parses a completed Rocket matching CSV catalog result', () => {
-    const parsed = CoupangRocketMatchingCsvImportResponseSchema.parse({
-      run: {
-        ...wingRun,
-        sourceType: 'coupang_rocket_matching_csv',
-        fileName: 'rocket443-sellpia-matching.csv',
-      },
-      duplicate: false,
-      changes: {
-        createdProductCount: 266,
-        updatedProductCount: 177,
-        createdSkuCount: 266,
-        updatedSkuCount: 177,
-      },
-    });
-
-    expect(parsed.run.sourceType).toBe('coupang_rocket_matching_csv');
   });
 
   it('rejects Wing responses without a completed imported run', () => {

@@ -380,32 +380,3 @@ export const CoupangWingCatalogImportResponseSchema = z.object({
 export type CoupangWingCatalogImportResponse = z.infer<
   typeof CoupangWingCatalogImportResponseSchema
 >;
-
-export const CoupangRocketMatchingCsvImportResponseSchema = z.object({
-  run: CompletedSourceArtifactRunSchema.superRefine((value, ctx) => {
-    if (value.sourceType !== 'coupang_rocket_matching_csv') {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['sourceType'],
-        message: 'Rocket matching CSV run must use sourceType coupang_rocket_matching_csv',
-      });
-    }
-    if (value.channelAccountId === null) {
-      ctx.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['channelAccountId'],
-        message: 'Rocket matching CSV run requires a channel account',
-      });
-    }
-  }),
-  duplicate: z.boolean(),
-  changes: z.object({
-    createdProductCount: z.number().int().nonnegative(),
-    updatedProductCount: z.number().int().nonnegative(),
-    createdSkuCount: z.number().int().nonnegative(),
-    updatedSkuCount: z.number().int().nonnegative(),
-  }),
-}).superRefine(refineSuccessfulImportResponse);
-export type CoupangRocketMatchingCsvImportResponse = z.infer<
-  typeof CoupangRocketMatchingCsvImportResponseSchema
->;

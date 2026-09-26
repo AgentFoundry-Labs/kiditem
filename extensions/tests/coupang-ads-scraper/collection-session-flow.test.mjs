@@ -23,10 +23,6 @@ const collectionRunsSource = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/collection-runs.js'),
   'utf8',
 );
-const wingSearchCollectorSource = fs.readFileSync(
-  path.join(extensionRoot, 'background/coupang/wing-search-collector.js'),
-  'utf8',
-);
 const profitabilitySourceOwner = fs.readFileSync(
   path.join(extensionRoot, 'background/coupang/profitability-source-owner.js'),
   'utf8',
@@ -159,9 +155,6 @@ test('persists only allowlisted Coupang producers and advertises the capability'
     'dashboard.coupang_products',
     'advertising.ad_sync',
     'advertising.profitability_import',
-    'advertising.wing_rank',
-    'advertising.keyword_rank',
-    'advertising.competitor_catalog',
     'channels.coupang_catalog',
   ]) {
     assert.match(producerSources, new RegExp(producer.replace('.', '\\.')));
@@ -183,14 +176,6 @@ test('persists only allowlisted Coupang producers and advertises the capability'
     'utf8',
   );
   assert.match(dispatchSource, /onConnectExternal\?\.addListener\(handlePort\)/);
-});
-
-test('keeps single Wing catalog analysis separate from batch sales-rank collection', () => {
-  assert.match(worker, /const wingSearchCollector = KidItemWingSearchCollector\.create\(/);
-  assert.match(worker, /captureWingRank[\s\S]*wingSearchCollector\.collect/);
-  assert.match(worker, /collectAdvertisingTrackedWingProductsKeyword[\s\S]*wingSearchCollector\.collect/);
-  assert.match(wingSearchCollectorSource, /const PRODUCERS = new Set\(\[/);
-  assert.match(wingSearchCollectorSource, /advertising\.wing_rank/);
 });
 
 test('source capture policies share the environment-owned resource without a universal target loop', () => {
@@ -224,33 +209,6 @@ test('automatic collectors never reuse or navigate a user-active tab', () => {
   assert.doesNotMatch(worker, /\.catch\(\(\) => reusableTab\)/);
 });
 
-test('public capture modules load before their worker consumers', () => {
-  const entry = fs.readFileSync(path.join(extensionRoot, 'background/service-worker.js'), 'utf8');
-  for (const [file, global] of [
-    ['coupang-serp-collector.js', 'KidItemCoupangSerpCollector'],
-    ['coupang-seller-identity-collector.js', 'KidItemCoupangSellerIdentityCollector'],
-    ['coupang-seller-catalog-collector.js', 'KidItemCoupangSellerCatalogCollector'],
-  ]) {
-    const position = entry.indexOf(`"coupang/${file}"`);
-    assert.ok(position >= 0 && position < entry.indexOf('"coupang/worker.js"'), file);
-    assert.match(worker, new RegExp(`${global}\\.create\\(`));
-  }
-});
-
-test('single Wing catalog search requires an existing source-owner attempt', () => {
-  assert.match(wingSearchCollectorSource, /const runId = input\.attemptId/);
-  assert.match(wingSearchCollectorSource, /sessions\.getOwned\(runId, environmentId\)/);
-  assert.match(wingSearchCollectorSource, /PRODUCERS\.has\(ownerSession\.producer\)/);
-  assert.doesNotMatch(wingSearchCollectorSource, /beginWebCollection/);
-  assert.doesNotMatch(wingSearchCollectorSource, /stableInputFingerprint/);
-});
-
-test('competitor cancellation retains its domain owner', () => {
-  assert.doesNotMatch(worker, /cancelCompetitorCatalog:\s*requestCoupangCompetitorCatalogCancellation/);
-  assert.match(worker, /session\?\.producer === "advertising\.competitor_catalog"[\s\S]*competitorCatalogSourceOwner\.cancel/);
-  assert.doesNotMatch(worker, /runCoupangCompetitorSellerCatalog/);
-});
-
 test('legacy batch controls are no longer exposed beside source-owner cancellation', () => {
   assert.doesNotMatch(worker, /function cancelBatchScrape\(/);
   assert.doesNotMatch(worker, /function autoScrape\(/);
@@ -259,10 +217,12 @@ test('legacy batch controls are no longer exposed beside source-owner cancellati
   assert.doesNotMatch(worker, /collectionSessions\.remove/);
 });
 
-test('retires the web-origin competitor seller collector and routes direct collection to its source owner', () => {
+test('keyword and competitor collection run only as runtime operation kinds (KID-362)', () => {
   assert.doesNotMatch(worker, /runCoupangCompetitorSellerCatalog/);
   assert.doesNotMatch(worker, /startCoupangCompetitorSellerCatalogCollection/);
-  assert.match(worker, /collectAdvertisingCompetitorCatalog:\s*\{/);
+  for (const action of ['collectAdvertisingCompetitorCatalog', 'collectAdvertisingSellerIdentities', 'collectAdvertisingWingRankBatch', 'collectAdvertisingKeywordSerpBatch', 'collectAdvertisingTrackedWingProducts']) {
+    assert.doesNotMatch(worker, new RegExp(`${action}:\\s*\\{`), action);
+  }
   assert.doesNotMatch(worker, /advertising\.collect_competitor_catalog/);
 });
 

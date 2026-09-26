@@ -15,8 +15,11 @@ convenience history.
   The order screen and dashboard share
   `useAllMarketplaceOrderCollection`; do not create a count-only collector.
 - Malls moved to the operation kind `orders.mall_orders` (the shared
-  `MALL_ORDER_OPERATION_MALLS`) use `mall-order-operation-source.ts`: login,
-  `operation.start`, the operations reader, and convert by `operationId`. The
+  `MALL_ORDER_OPERATION_MALLS`) use `mall-order-operation-source.ts`:
+  `operation.start` carrying the stored credentials (the extension logs in
+  inside the run; `lib/operation-login.ts` applies the block and hourly rules
+  and blocks a mall the run reports as rejected), the operations reader, and
+  convert by `operationId`. The
   other malls keep the attempt adapter until the remaining malls move (나머지 몰이 옮겨질 때까지).
 - The shared collection loop and the mall cards use only the source adapter
   (`OrderCollectionSourceAdapter`: start, status, stop, `card`) and the owner
@@ -42,6 +45,10 @@ convenience history.
   A mall that is not blocked still waits out the auto-login retry interval: one
   submit per mall per hour, whatever the result. Our own failures (API throttling,
   extension timeouts, a login we could not confirm) never block a mall.
+- 쿠팡직배송 입고예정일 달력은 그 계정의 마지막 성공한 수집분을 서버에서 읽기만 한다
+  (`GET …/coupang-directship/snapshot`). 여는 것으로는 실행을 시작하지 않고, 운영자가 불러오기를
+  누를 때만 시작한다. "선택한 날짜 수집"은 늘 새 실행으로 먼저 다시 받고 그 새 `operationId` 로만
+  변환한다 — 보이는 캡처로는 변환하지 않는다.
 - 어느 소유자의 시도인지(`run.sourceOwner`)는 수집기 안까지 그대로 들고 간다. 수집기가 run 을
   다시 만들 때 이 칸을 빠뜨리면 쿠팡직배송 시도가 몰 소유자에게 가고, 몰 쪽에는 그 시도가
   없으므로 `ORDER_COLLECTION_ATTEMPT_NOT_FOUND` 로 끝난다 — 진짜 원인은 가려진 채 그 문구만

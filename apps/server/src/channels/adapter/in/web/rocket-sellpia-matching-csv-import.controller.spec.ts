@@ -1,4 +1,3 @@
-import { createHash } from 'node:crypto';
 import { describe, expect, it, vi } from 'vitest';
 import { RocketSellpiaMatchingCsvImportController } from './rocket-sellpia-matching-csv-import.controller';
 
@@ -22,8 +21,20 @@ describe('RocketSellpiaMatchingCsvImportController', () => {
       organizationId: '00000000-0000-4000-8000-000000000010',
       userId: '00000000-0000-4000-8000-000000000011',
       channelAccountId: '00000000-0000-4000-8000-000000000012',
-      fileHash: createHash('sha256').update(buffer).digest('hex'),
+      fileName: 'rocket443-sellpia-matching.csv',
       bytes: buffer,
     }));
+  });
+
+  it('rejects a missing file with VALIDATION_FAILED before any operation starts', () => {
+    const importer = { importMatchingCsv: vi.fn() };
+    const controller = new RocketSellpiaMatchingCsvImportController(importer as never);
+    expect(() => controller.importCsv(
+      '00000000-0000-4000-8000-000000000012',
+      '00000000-0000-4000-8000-000000000010',
+      { id: '00000000-0000-4000-8000-000000000011' } as never,
+      undefined,
+    )).toThrow(expect.objectContaining({ code: 'VALIDATION_FAILED' }));
+    expect(importer.importMatchingCsv).not.toHaveBeenCalled();
   });
 });

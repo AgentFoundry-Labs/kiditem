@@ -243,6 +243,46 @@ describe('orders.coupang_directship owner over the operation contract + disposab
     expect(receipt).toMatchObject({ transport: 'MILKRUN', duplicate: false });
   });
 
+  it('달력 스냅샷은 그 계정의 가장 최근 성공한 실행 캡처에서 읽는다 — 실패·옛 실행·다른 계정은 보지 않고, 없으면 빈 상태, 다른 조직 계정은 NOT_FOUND', async () => {
+    const OTHER_ACCOUNT_ID = '51000000-0000-4000-8000-000000000003';
+    await prisma.channelAccount.create({ data: { id: OTHER_ACCOUNT_ID, organizationId: ORG, channel: 'rocket', name: 'Rocket 2' } });
+    const read = (channelAccountId: string, organizationId = ORG) => service.readLatestSnapshot({ organizationId, channelAccountId });
+
+    await expect(read(CHANNEL_ACCOUNT_ID)).resolves.toEqual({ channelAccountId: CHANNEL_ACCOUNT_ID, operationId: null, collectedAt: null, entries: [] });
+
+    await capture(oneCapture('PO-OLD', 'P-OLD', '8801234567890', 1));
+    const latestId = await capture(mixedCapture());
+    const failed = OperationBeginResponseSchema.parse((await begin().expect(201)).body);
+    await finish(failed, { outcome: 'failed', errorCode: 'VALIDATION_FAILED' }).expect(200);
+    const otherRun = OperationBeginResponseSchema.parse((await begin({ channelAccountId: OTHER_ACCOUNT_ID }).expect(201)).body);
+    const other = { ...oneCapture('PO-OTHER-ACCOUNT', 'P-OTHER', '8801234567890', 1), channelAccountId: OTHER_ACCOUNT_ID };
+    await put(otherRun, 1, other.pos.map((purchaseOrder) => ({ purchaseOrder })));
+    await put(otherRun, 2, [{ centers: other.centers }]);
+    await finish(otherRun).expect(200);
+
+    const snapshot = await read(CHANNEL_ACCOUNT_ID.toUpperCase());
+    const latest = await request(httpUrl).get(`/api/operations/${latestId}`).expect(200);
+    expect(snapshot).toEqual({
+      channelAccountId: CHANNEL_ACCOUNT_ID,
+      operationId: latestId,
+      collectedAt: new Date(latest.body.operation.finishedAt).toISOString(),
+      entries: [
+        {
+          purchaseOrderSeq: 'PO-OWNER', centerName: 'Seoul FC', transport: 'SHIPMENT', deliveryDate: '2026-07-20', orderedDate: '2026-07-18',
+          isUrgent: false, skuCount: 1, orderQuantity: 2, orderAmount: 2000,
+          items: [{ barcode: '8801234567890', name: 'Rocket item', qty: 2, amount: 2000 }],
+        },
+        {
+          purchaseOrderSeq: 'PO-MILKRUN', centerName: 'Busan FC', transport: 'MILKRUN', deliveryDate: '2026-07-20', orderedDate: '2026-07-18',
+          isUrgent: false, skuCount: 1, orderQuantity: 2, orderAmount: 2000,
+          items: [{ barcode: '8801234567891', name: 'Rocket item', qty: 2, amount: 2000 }],
+        },
+      ],
+    });
+    await expect(read(OTHER_ACCOUNT_ID)).resolves.toMatchObject({ operationId: otherRun.operation.id, entries: [{ purchaseOrderSeq: 'PO-OTHER-ACCOUNT' }] });
+    await expect(read(CHANNEL_ACCOUNT_ID, OTHER_ORGANIZATION_ID)).rejects.toMatchObject({ code: 'NOT_FOUND' });
+  });
+
   it('보관된 캡처나 영수증이 깨져 있으면 STATE_CONFLICT(이유 코드)로 거절한다', async () => {
     const input = oneCapture('PO-BROKEN', 'P-BROKEN', '8801234567890', 2);
     const operationId = await capture(input);

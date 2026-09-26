@@ -1,8 +1,8 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { ChevronLeft, ChevronRight, Loader2, X } from 'lucide-react';
-import { cn, formatNumber } from '@/lib/utils';
+import { ChevronLeft, ChevronRight, Loader2, RefreshCw, X } from 'lucide-react';
+import { cn, formatDateTime, formatNumber } from '@/lib/utils';
 import type { CoupangDirectPo, CoupangTransport } from '../lib/coupang-directship-api';
 import {
   buildDirectshipEddCalendar,
@@ -123,21 +123,36 @@ function EddCalendar({
   );
 }
 
+/**
+ * 달력은 그 계정의 마지막 성공한 수집분을 보여 줄 뿐이다(KID-198). 여는 것만으로는 쿠팡을 다시 읽지 않고, 운영자가
+ * "쿠팡에서 발주 불러오기"·"다시 불러오기"를 누를 때만 수집을 시작한다(`onRefresh`).
+ */
 export function CoupangDirectCalendarModal({
   open,
   loading,
+  refreshing,
+  hasCapture,
+  collectedAt,
   pos,
   collectedSeqs,
   today,
   onClose,
+  onRefresh,
   onCollect,
 }: {
   open: boolean;
+  /** 마지막 수집분을 읽는 중. */
   loading: boolean;
+  /** 쿠팡에서 발주를 새로 불러오는 중(운영자가 시작한 수집). */
+  refreshing: boolean;
+  /** 이 계정에 성공한 수집분이 있는가. */
+  hasCapture: boolean;
+  collectedAt: string | null;
   pos: readonly CoupangDirectPo[];
   collectedSeqs: ReadonlySet<string>;
   today: string;
   onClose: () => void;
+  onRefresh: () => void;
   onCollect: (eddDates: string[]) => void;
 }) {
   const window = useMemo(() => directshipIntakeWindow(today), [today]);
@@ -213,6 +228,15 @@ export function CoupangDirectCalendarModal({
             className="rounded-md border border-amber-300 bg-amber-50 px-3 py-1.5 text-xs font-semibold text-amber-800">
             이번 회차 전체 선택
           </button>
+          {hasCapture ? (
+            <button type="button" onClick={onRefresh} disabled={loading || refreshing}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-3 py-1.5 text-xs text-slate-600 disabled:opacity-50">
+              <RefreshCw className="h-3 w-3" /> 다시 불러오기
+            </button>
+          ) : null}
+          {collectedAt ? (
+            <span className="text-xs text-slate-400">마지막 수집 {formatDateTime(collectedAt)}</span>
+          ) : null}
           <span className="ml-auto text-xs text-slate-500">
             선택 <b className="tabular-nums text-slate-900">{formatNumber(totals.po)}</b>건 ·{' '}
             <b className="tabular-nums text-slate-900">{formatNumber(totals.qty)}</b>개
@@ -220,9 +244,18 @@ export function CoupangDirectCalendarModal({
         </div>
 
         <div className="px-5 py-3">
-          {loading ? (
+          {loading || refreshing ? (
             <div className="flex min-h-[280px] items-center justify-center gap-2 text-sm text-slate-500">
-              <Loader2 className="h-4 w-4 animate-spin" /> 쿠팡에서 발주를 불러오는 중입니다…
+              <Loader2 className="h-4 w-4 animate-spin" />
+              {refreshing ? '쿠팡에서 발주를 불러오는 중입니다…' : '마지막 수집분을 읽는 중입니다…'}
+            </div>
+          ) : !hasCapture ? (
+            <div className="flex min-h-[280px] flex-col items-center justify-center gap-3 text-sm text-slate-500">
+              <span>아직 불러온 발주가 없습니다.</span>
+              <button type="button" onClick={onRefresh}
+                className="rounded-lg bg-slate-900 px-4 py-1.5 text-sm font-semibold text-white">
+                쿠팡에서 발주 불러오기
+              </button>
             </div>
           ) : (
             <EddCalendar
@@ -242,7 +275,7 @@ export function CoupangDirectCalendarModal({
           </button>
           <button
             type="button"
-            disabled={loading || selected.length === 0}
+            disabled={loading || refreshing || !hasCapture || selected.length === 0}
             onClick={() => onCollect(selected)}
             className="rounded-lg bg-slate-900 px-4 py-1.5 text-sm font-semibold text-white disabled:opacity-50"
           >

@@ -27,6 +27,26 @@ import {
   KEYWORD_RANK_REPOSITORY_PORT,
   type KeywordRankRepositoryPort,
 } from "../port/out/repository/keyword-rank.repository.port";
+import type {
+  CompetitorCatalogPlan,
+  CompetitorCatalogResult,
+  CompetitorCatalogScope,
+  CompetitorSellerIdentityPlan,
+  CompetitorSellerIdentityResult,
+} from "@kiditem/shared/advertising-operations";
+import { KiditemConflictError } from "@kiditem/shared/errors";
+import { advertisingKeywordIdentity } from "@kiditem/shared/advertising-operations";
+import {
+  assembleCompetitorCatalogs,
+  planCompetitorCatalog,
+} from "../../domain/competitor-catalog-operation";
+import type { OperationStagedChunk } from "@kiditem/shared/operation";
+import type { OwnerTransaction } from "../../../common/owner-transaction";
+import {
+  assembleSellerIdentities,
+  planSellerIdentity,
+} from "../../domain/competitor-seller-identity-operation";
+import { KeywordRankIngestHandler } from "./keyword-rank-ingest.handler";
 
 @Injectable()
 export class CompetitorTrackingService {
@@ -37,7 +57,40 @@ export class CompetitorTrackingService {
     private readonly keywordRankRepo: KeywordRankRepositoryPort,
     @Inject(KIDITEM_STOREFRONT_PORT)
     private readonly kiditemStorefront: KiditemStorefrontPort,
+    private readonly ingest: KeywordRankIngestHandler,
   ) {}
+
+  /**
+   * 경쟁 판매자 확인 실행의 계획(`advertising.competitor_seller_identity`, KID-362): 최근 30일 SERP에서 판매자를 모르는
+   * 경쟁 상품 200개(옛 attempt 선택 그대로), 키워드를 주면 그 키워드만.
+   */
+  async planSellerIdentityOperation(organizationId: string, keywords?: readonly string[]): Promise<CompetitorSellerIdentityPlan> {
+    // 키워드 한정은 상위 200개로 자르기 전에 건다 — 연쇄로 온 키워드의 대상이 다른 키워드에 밀려 빠지지 않게.
+    const selected = await this.getProductDetailTargets(organizationId, 30, 200, keywords);
+    return planSellerIdentity({ selected: selected.targets, keywords });
+  }
+
+  /** finish 트랜잭션에서 확인한 판매자를 그 키워드의 최신 SERP 스냅샷 상품에 적는다(실행이 발행한 SERP 행만). */
+  async publishSellerIdentityOperation(tx: OwnerTransaction, input: {
+    organizationId: string;
+    operationId: string;
+    plan: CompetitorSellerIdentityPlan;
+    chunks: readonly OperationStagedChunk[];
+  }): Promise<CompetitorSellerIdentityResult> {
+    const identities = assembleSellerIdentities(input.plan, input.chunks);
+    const capturedAt = identities.map((identity) => identity.capturedAt).sort().at(-1) ?? new Date().toISOString();
+    const applied = await this.keywordRankRepo.runInTransaction(tx, () =>
+      this.ingest.executeSellerIdentities(
+        { type: "competitor_seller_identity", source: "coupang-overlap-product-detail", timestamp: capturedAt, data: identities },
+        input.organizationId,
+        input.operationId,
+      ));
+    return {
+      targets: input.plan.targets.length,
+      identities: identities.length,
+      resolvedProductCount: applied.results.reduce((total, result) => total + result.resolvedProductCount, 0),
+    };
+  }
 
   async getOverview(organizationId: string, days: number, sellerLimit: number) {
     const [context, trackers, snapshots] = await Promise.all([
@@ -160,6 +213,35 @@ export class CompetitorTrackingService {
     };
   }
 
+  /** 경쟁사 카탈로그 실행의 계획(`advertising.competitor_catalog`, KID-362): 최근 30일 판매자 선택 20명(옛 attempt 그대로). */
+  async planCatalogOperation(organizationId: string, scope: CompetitorCatalogScope): Promise<CompetitorCatalogPlan> {
+    const selected = await this.getSellerTargets(organizationId, 30, 20);
+    return planCompetitorCatalog({ selected: selected.targets, scope });
+  }
+
+  /**
+   * finish 트랜잭션에서 판매자샵 카탈로그를 그 키워드의 최신 SERP 스냅샷(실행이 발행한 행)에 붙인다. SERP가 없거나 더 새
+   * 카탈로그가 있으면 그 판매자는 건너뛴다(ignored). 계획한 판매자가 모두 저장·건너뜀으로 끝나야 한다.
+   */
+  async publishCatalogOperation(tx: OwnerTransaction, input: {
+    organizationId: string;
+    plan: CompetitorCatalogPlan;
+    chunks: readonly OperationStagedChunk[];
+  }): Promise<CompetitorCatalogResult> {
+    const catalogs = assembleCompetitorCatalogs(input.plan, input.chunks);
+    if (catalogs.length === 0) return { targets: 0, captured: 0, ignored: 0 };
+    const capturedAt = catalogs.map((catalog) => catalog.capturedAt).sort().at(-1)!;
+    const persisted = await this.keywordRankRepo.runInTransaction(tx, () =>
+      this.ingest.executeSellerCatalogs(
+        { type: "competitor_seller_catalog", source: "coupang-seller-shop", timestamp: capturedAt, data: catalogs as unknown as Array<Record<string, unknown>> },
+        input.organizationId,
+      ));
+    if (persisted.results.length + persisted.ignored.length !== input.plan.targets.length) {
+      throw new KiditemConflictError("ADVERTISING_COLLECTION_INCOMPLETE", { details: { reason: "catalog_publication_incomplete" } });
+    }
+    return { targets: input.plan.targets.length, captured: persisted.results.length, ignored: persisted.ignored.length };
+  }
+
   async getSellerTargets(organizationId: string, days: number, limit: number) {
     const [context, snapshots] = await Promise.all([
       this.loadOwnProductContext(organizationId),
@@ -213,7 +295,10 @@ export class CompetitorTrackingService {
     organizationId: string,
     days: number,
     limit: number,
+    /** 있으면 이 키워드의 대상만(대소문자·공백 무시), 상한을 자르기 전에 고른다. */
+    keywords?: readonly string[],
   ) {
+    const requested = keywords ? new Set(keywords.map(advertisingKeywordIdentity)) : null;
     const [context, snapshots] = await Promise.all([
       this.loadOwnProductContext(organizationId),
       this.keywordRankRepo.findRecentSerpSnapshots(organizationId, days),
@@ -241,6 +326,7 @@ export class CompetitorTrackingService {
       .filter((target): target is typeof target & { link: string } =>
         Boolean(target.link),
       )
+      .filter((target) => requested === null || requested.has(advertisingKeywordIdentity(target.keyword)))
       .sort((a, b) => b.matchScore - a.matchScore || a.rank - b.rank);
     return {
       targets: [

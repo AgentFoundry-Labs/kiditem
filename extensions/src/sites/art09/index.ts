@@ -3,7 +3,9 @@ import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller
 import { withFreshTab } from '../fresh-tab';
 import { callPage } from '../page-call';
 import { registerSite } from '../registry';
+import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login';
 import { hostWithin, type PageGuard, type TabPages } from '../tab-page';
+import { createArt09Listings } from './listings';
 
 /** Cafe24 공급사 관리자 주문목록. 배송정보 상세는 이 화면의 같은 출처 상대 주소다. */
 export const ART09_ORDER_URL = 'https://zzogzzog1.cafe24.com/admin/php/shop1/s_new/order_list.php?1&shop_no=1';
@@ -22,6 +24,18 @@ export const ART09_PAGE_GUARD: PageGuard = {
   loginMessage: LOGIN_MESSAGE,
 };
 
+/**
+ * 아트공구 로그인 입구(옛 `mall-session.js` art09 줄, KID-377). Cafe24는 쇼핑몰 아이디와 공급사(운영자) 아이디를 따로
+ * 받아 세 칸이다. 로그인 화면은 주문목록에 머물지 못한 Cafe24 화면이다(수집 guard와 같은 규칙).
+ */
+export const ART09_LOGIN: LoginSpec = {
+  displayName: '아트공구',
+  loginUrl: ART09_ORDER_URL,
+  hosts: ['zzogzzog1.cafe24.com'],
+  isLoginUrl: (url) => ART09_PAGE_GUARD.isLogin(url),
+  fields: ['supplierLoginId', 'loginId', 'password'],
+};
+
 type Art09Answer =
   | { status: 'ok'; rows: unknown[]; failures: string[] }
   | { status: 'login_required' }
@@ -32,8 +46,9 @@ type Art09Answer =
  * 처리기(`content/orders/art09-orders.js`, 옛 `scrapeArt09Orders`)가 그날 배송준비전 주문의 배송정보를 읽는다. 원소는
  * 옛 변환 본문 `{rows}`의 Cafe24 CSV 행 그대로다. 일부 주문 상세만 실패하면 읽은 행으로 끝난다(옛 규칙).
  */
-export function createArt09Site(tabs: TabPages) {
+export function createArt09Site(tabs: TabPages, signIn?: SiteSignIn) {
   return {
+    ...createArt09Listings(tabs, signIn),
     readOrders(input: { collectionDate: string | null }): Promise<{ rows: unknown[] }> {
       return withFreshTab(tabs, ART09_ORDER_URL, async (page) => {
         const answer = await callPage<Art09Answer>(page, 'art09.orders', { dateFilter: input.collectionDate ?? '' }, {
@@ -49,9 +64,9 @@ export function createArt09Site(tabs: TabPages) {
           reason: 'page_error',
           url: ART09_ORDER_URL,
         });
-      });
+      }, signIn ? { signIn } : {});
     },
   };
 }
 
-registerSite({ name: 'art09', create: (deps) => createArt09Site(deps.tabs) });
+registerSite({ name: 'art09', create: (deps, lease) => createArt09Site(deps.tabs, createSiteSignIn(ART09_LOGIN, lease.credentials, deps)) });

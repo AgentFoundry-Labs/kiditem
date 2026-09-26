@@ -280,6 +280,11 @@
       "import": "./dist/sourcing-operation.js",
       "require": "./dist/sourcing-operation.cjs"
     },
+    "./advertising-operations": {
+      "types": "./dist/advertising-operations.d.ts",
+      "import": "./dist/advertising-operations.js",
+      "require": "./dist/advertising-operations.cjs"
+    },
     "./orders-operations": {
       "types": "./dist/orders-operations.d.ts",
       "import": "./dist/orders-operations.js",
@@ -403,6 +408,9 @@
       ],
       "sourcing-operation": [
         "dist/sourcing-operation.d.ts"
+      ],
+      "advertising-operations": [
+        "dist/advertising-operations.d.ts"
       ],
       "orders-operations": [
         "dist/orders-operations.d.ts"

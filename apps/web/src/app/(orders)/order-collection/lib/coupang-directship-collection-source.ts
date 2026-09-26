@@ -149,12 +149,14 @@ export function coupangDirectshipCollectionSource({
     // control then shows only what the owner already has.
     ...(channelAccountId
       ? {
-        start: () => {
+        start: (input) => {
           let opened: CoupangDirectOwnerAttemptControl | null = null;
           return startWebOpenedCollection({
             detectExtension: detectDirectshipExtension,
             begin: async (idempotencyKey) => {
-              const started = await beginCoupangDirectAttempt(idempotencyKey, channelAccountId);
+              const started = await beginCoupangDirectAttempt(idempotencyKey, channelAccountId, {
+                automatic: input?.selectionMode === 'automatic',
+              });
               opened = started;
               return {
                 outcome: 'opened',

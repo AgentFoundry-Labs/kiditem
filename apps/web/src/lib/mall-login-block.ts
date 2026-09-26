@@ -24,6 +24,7 @@ import { ERROR_DEFINITIONS } from '@kiditem/shared/errors';
 
 const STORAGE_KEY = 'kiditem.mall-auto-login-block.v1';
 const ATTEMPT_STORAGE_KEY = 'kiditem.mall-auto-login-attempt.v1';
+const CLEARED_STORAGE_KEY = 'kiditem.mall-auto-login-cleared.v1';
 
 /** 확인하지 못한 자동 로그인을 다시 시도하기까지 기다리는 시간. */
 export const AUTO_LOGIN_RETRY_INTERVAL_MS = 60 * 60_000;
@@ -162,15 +163,40 @@ export function blockMallAutoLogin(
   return block;
 }
 
-/** 풀렸다 — 사람이 직접 로그인했거나 로그인 테스트가 성공했다. */
-export function clearMallAutoLoginBlock(mallKey: string): void {
+/** 풀렸다 — 사람이 직접 로그인했거나 로그인 테스트가 성공했다. 푼 시각은 몰마다 남긴다(`mallAutoLoginClearedAt`). */
+export function clearMallAutoLoginBlock(mallKey: string, at = Date.now()): void {
   hydrate();
+  recordClearedAt(mallKey, at);
   if (!blocks[mallKey]) return;
   const next = { ...blocks };
   delete next[mallKey];
   blocks = next;
   persist();
   refresh();
+}
+
+/**
+ * 사람이 이 몰의 차단을 마지막으로 푼 시각(KID-377 리뷰 S1). 그보다 먼저 끝난 실행의 거절로는 다시 막지 않는다 — 다른 탭·
+ * 새로고침이 옛 실행을 다시 읽어도 사람이 푼 차단이 되살아나지 않게. 탭마다 새로 읽도록 저장소에서 바로 읽는다.
+ */
+export function mallAutoLoginClearedAt(mallKey: string): number | null {
+  const at = readClearedAt()[mallKey];
+  return typeof at === 'number' ? at : null;
+}
+
+function readClearedAt(): Record<string, number> {
+  const raw = safeStorageGet('local', CLEARED_STORAGE_KEY);
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    return Object.fromEntries(Object.entries(parsed).filter((entry): entry is [string, number] => typeof entry[1] === 'number'));
+  } catch {
+    return {};
+  }
+}
+
+function recordClearedAt(mallKey: string, at: number): void {
+  safeStorageSet('local', CLEARED_STORAGE_KEY, JSON.stringify({ ...readClearedAt(), [mallKey]: at }));
 }
 
 export function subscribeMallLoginBlocks(listener: () => void): () => void {

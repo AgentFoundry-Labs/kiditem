@@ -21,7 +21,6 @@
     "ChannelScrapeSnapshot": "channels",
     "ContentAsset": "content",
     "ContentWorkspace": "content",
-    "CoupangDirectPoSnapshot": "orders",
     "CoupangDirectTransportConsumption": "orders",
     "CoupangDirectTransportReceipt": "orders",
     "CoupangKeywordRankDailySnapshot": "advertising",

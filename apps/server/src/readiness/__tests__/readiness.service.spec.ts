@@ -1,3 +1,4 @@
+import { AdvertisingKeywordRankReadAdapter } from '../../advertising/adapter/out/repository/keyword-rank-read.adapter';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { snapshotBasisPartial, snapshotBasisStatus } from '@kiditem/shared/dashboard';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
@@ -163,7 +164,7 @@ function readinessService(prisma: unknown): ReadinessService {
       status: (row.status as string | undefined) ?? 'active',
     })),
   };
-  return new ReadinessService(prisma as never, channelAccounts as never, { catalogFreshness });
+  return new ReadinessService(prisma as never, channelAccounts as never, { catalogFreshness }, new AdvertisingKeywordRankReadAdapter(prisma as never));
 }
 
 /** Channels 카탈로그 신선도 capability(KID-354)의 가짜 — 테스트마다 최신 상세 성공 시각을 정한다. */
@@ -284,7 +285,7 @@ describe('ReadinessService', () => {
     const coupangProducts = status.checks.find(
       (check) => check.key === 'coupang_products',
     );
-    const wingRank = status.checks.find((check) => check.key === 'wing_kpi');
+    const wingRank = status.checks.find((check) => check.key === 'wing_rank');
     expect(readinessState(wingSales)).toBe('ok');
     expect(readinessState(coupangAds)).toBe('stale');
     expect(coupangAds?.missingDates).toEqual(['2026-04-02']);
@@ -395,7 +396,7 @@ describe('ReadinessService', () => {
     )).getStatus(
       ORGANIZATION_ID,
     );
-    const wingRank = status.checks.find((check) => check.key === 'wing_kpi');
+    const wingRank = status.checks.find((check) => check.key === 'wing_rank');
 
     expect(wingRank).toMatchObject({
       count: 1,
@@ -409,12 +410,7 @@ describe('ReadinessService', () => {
         organizationId: ORGANIZATION_ID,
         businessDate: latestBusinessDate,
         vendorItemId: { in: ['vendor-item-1', 'vendor-item-2'] },
-        sourceImportRun: {
-          organizationId: ORGANIZATION_ID,
-          sourceType: 'coupang_wing_rank',
-          parserVersion: 'wing-rank-v1',
-          status: 'completed',
-        },
+        operationId: { not: null },
       },
       select: { vendorItemId: true },
       distinct: ['vendorItemId'],
@@ -462,7 +458,7 @@ describe('ReadinessService', () => {
     expect(ads).toMatchObject({
       count: 0,
     });
-    const wingRank = status.checks.find((check) => check.key === 'wing_kpi');
+    const wingRank = status.checks.find((check) => check.key === 'wing_rank');
     expect(wingRank).toMatchObject({
       count: 0,
     });
@@ -703,10 +699,10 @@ describe('ReadinessService', () => {
         }),
       }),
     );
-    expect(status.checks.find((check) => check.key === 'wing_kpi')).toMatchObject({
+    expect(status.checks.find((check) => check.key === 'wing_rank')).toMatchObject({
       count: 2,
     });
-    expect(readinessState(status.checks.find((check) => check.key === 'wing_kpi'))).toBe('ok');
+    expect(readinessState(status.checks.find((check) => check.key === 'wing_rank'))).toBe('ok');
   });
 
   it('marks the catalog ready after a completed basics publication is followed by details', async () => {

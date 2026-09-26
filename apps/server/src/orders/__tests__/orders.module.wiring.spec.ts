@@ -44,7 +44,6 @@ import { OrderMallAccountPersistenceAdapter } from '../adapter/out/persistence/o
 import { ORDER_MALL_ACCOUNT_PORT } from '../application/port/out/persistence/order-mall-account.port';
 import { OrderCollectionTodayOrdersModule } from '../order-collection-today-orders.module';
 import { CoupangDirectshipOperationOwner } from '../adapter/in/operation/coupang-directship-operation-owner';
-import { CoupangDirectPoSnapshotService } from '../application/service/coupang-direct-po-snapshot.service';
 import { OrderCollectionService } from '../application/service/order-collection.service';
 import { OrdersService } from '../application/service/orders.service';
 import { ReviewIngestService } from '../application/service/review-ingest.service';
@@ -81,7 +80,6 @@ describe('OrdersModule owner wiring', () => {
     expect(providers).toEqual([
       OrdersService,
       OrderCollectionService,
-      CoupangDirectPoSnapshotService,
       CoupangDirectshipService,
       ReviewsService,
       ReviewIngestService,

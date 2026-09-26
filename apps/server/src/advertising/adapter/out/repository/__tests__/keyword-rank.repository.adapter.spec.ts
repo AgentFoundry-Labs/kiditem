@@ -73,7 +73,7 @@ describe('KeywordRankRepositoryAdapter', () => {
 
     await adapter.replaceWingSalesRankSnapshots([
       {
-        sourceImportRunId: 'source-new',
+        operationId: 'operation-new',
         organizationId: 'organization-1',
         keyword: '슬라임',
         vendorItemId: 'V-NEW',
@@ -100,7 +100,7 @@ describe('KeywordRankRepositoryAdapter', () => {
     ]);
     const staleCount = await adapter.replaceWingSalesRankSnapshots([
       {
-        sourceImportRunId: 'source-stale',
+        operationId: 'operation-stale',
         organizationId: 'organization-1',
         keyword: '슬라임',
         vendorItemId: 'V-STALE',
@@ -144,13 +144,8 @@ describe('KeywordRankRepositoryAdapter', () => {
     const businessDate = new Date('2026-07-14T00:00:00.000Z');
     const stored = {
       id: 'serp-1',
-      sourceImportRun: {
-        organizationId: 'organization-1',
-        rankKeyword: '문구',
-        sourceType: 'coupang_keyword_serp',
-        parserVersion: 'keyword-serp-v1',
-        status: 'completed',
-      },
+      // 성공한 실행이 쓴 행(ADR-0025).
+      operationId: 'operation-published',
       keyword: '문구',
       businessDate,
       capturedAt: new Date('2026-07-14T04:00:00.000Z'),
@@ -184,7 +179,7 @@ describe('KeywordRankRepositoryAdapter', () => {
 
     await adapter.upsertSerpSnapshot(
       {
-        sourceImportRunId: 'source-stale',
+        operationId: 'operation-stale',
         organizationId: 'organization-1',
         keyword: '문구',
         businessDate,
@@ -197,7 +192,7 @@ describe('KeywordRankRepositoryAdapter', () => {
     );
     await adapter.upsertSerpSnapshot(
       {
-        sourceImportRunId: 'source-fresh',
+        operationId: 'operation-fresh',
         organizationId: 'organization-1',
         keyword: '문구',
         businessDate,

@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller';
+import { fastClock } from '../login.fake';
 import { fakeTabPages } from '../tab-page.fake';
 import { createCoupangSupplierSite } from './index';
 import { SITE_COOKIE_BLOAT } from './page';
@@ -18,7 +19,7 @@ function site(answer: (message: Record<string, unknown>) => unknown) {
   const fake = fakeTabPages({
     answer: (message, injected) => (injected ? answer(message) : { ok: false, error: 'content_script_missing' }),
   });
-  return { fake, supplier: createCoupangSupplierSite({ tabs: fake.tabs }) };
+  return { fake, supplier: createCoupangSupplierSite({ tabs: fake.tabs, ...fastClock() }) };
 }
 
 describe('coupang-supplier 쉽먼트 목록(KID-359)', () => {

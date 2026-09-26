@@ -5,6 +5,7 @@ import {
   orderCollectionMallAccountIdentity,
   pickOrderCollectionMallAccounts,
   type OrderCollectionMall,
+  type OrderCollectionMallEntry,
   type OrderCollectionMallKey,
 } from '../../../domain/account/mall-account-identity';
 import { KiditemError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
@@ -19,14 +20,16 @@ import {
 import type { ChannelAccountListRow } from '../../../domain/account/channel-account';
 import type {
   ChannelAccountPort,
+  LoginAccountKey,
   MallAccount,
   MallAccountPassword,
   UpdateMallAccountInput,
 } from '../../port/in/account/channel-account.port';
-import type {
-  ChannelAccountPersistencePort,
-  MallAccountRecord,
-  MallAccountWrite,
+import {
+  LOGIN_ACCOUNT_MARKETS,
+  type ChannelAccountPersistencePort,
+  type MallAccountRecord,
+  type MallAccountWrite,
 } from '../../port/out/persistence/channel-account.persistence.port';
 import type { ChannelCredentialsPort } from '../../port/out/credentials/channel-credentials.port';
 
@@ -121,7 +124,7 @@ export class ChannelAccountService implements ChannelAccountPort {
     mallKey: string,
     input: UpdateMallAccountInput,
   ): Promise<MallAccount> {
-    const mall = findMall(mallKey);
+    const mall = findLoginAccount(mallKey);
     const loginId = trimToNullable(input.loginId);
     const supplierLoginId = trimToNullable(input.supplierLoginId);
     const password = trimToOptional(input.password);
@@ -132,7 +135,7 @@ export class ChannelAccountService implements ChannelAccountPort {
 
     const saved = await this.persistence.withMallAccounts(organizationId, async (accounts) => {
       const rows = await accounts.list();
-      const existing = pickOrderCollectionMallAccounts(rows).get(mall.key) ?? null;
+      const existing = pickLoginAccount(rows, mall);
       if (!existing && identity.kind === 'shared') {
         throw new KiditemInvalidValueError('VALIDATION_FAILED', {
           details: { reason: 'SHARED_CHANNEL_ACCOUNT_MISSING' },
@@ -215,21 +218,47 @@ export class ChannelAccountService implements ChannelAccountPort {
     return toMallAccount(mall.key, mall.name, saved, this.credentials);
   }
 
+  /** 자동 로그인에 쓰는 저장 자격(아이디·공급사 아이디·평문 비밀번호). 몰과 쿠팡 윙(KID-377)이 같은 모양이다. */
   async getPassword(organizationId: string, mallKey: string): Promise<MallAccountPassword> {
-    const mall = findMall(mallKey);
+    const mall = findLoginAccount(mallKey);
     const rows = await this.persistence.listMallAccounts(organizationId);
-    const existing = pickOrderCollectionMallAccounts(rows).get(mall.key);
+    const existing = pickLoginAccount(rows, mall);
     const orderCollection = readOrderCollectionConfig(toJsonRecord(existing?.config));
+    const login = {
+      key: mall.key,
+      loginId: readString(orderCollection.loginId),
+      supplierLoginId: readString(orderCollection.supplierLoginId),
+    };
     if (!this.credentials.isEncrypted(orderCollection.password)) {
-      return { key: mall.key, password: null };
+      return { ...login, password: null };
     }
 
     try {
-      return { key: mall.key, password: this.credentials.decrypt(orderCollection.password) };
+      return { ...login, password: this.credentials.decrypt(orderCollection.password) };
     } catch (error) {
       mapCredentialKeyError(error);
     }
   }
+}
+
+type LoginAccountEntry = OrderCollectionMallEntry & { key: LoginAccountKey };
+
+/** 저장 로그인을 두는 계정: 주문 수집 몰, 또는 로그인만 두는 마켓 행(쿠팡 윙, KID-377). */
+function findLoginAccount(key: string): LoginAccountEntry {
+  const mall = findOrderCollectionMall(key);
+  if (mall) return mall;
+  const market = LOGIN_ACCOUNT_MARKETS.find((entry) => entry.key === key);
+  if (!market) throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '지원하지 않는 몰입니다.' });
+  return market;
+}
+
+/**
+ * 그 계정의 행. 몰은 몰 규칙대로, 로그인만 두는 마켓은 고르는 순서(대표 계정 먼저)의 연결된(`active`) 첫 마켓 행 —
+ * 연결이 끊긴 윙 행에 로그인을 두거나 거기서 읽지 않는다.
+ */
+function pickLoginAccount<T extends MallAccountRecord>(rows: readonly T[], entry: LoginAccountEntry): T | null {
+  if (findOrderCollectionMall(entry.key)) return pickOrderCollectionMallAccounts(rows).get(entry.key as OrderCollectionMallKey) ?? null;
+  return rows.find((row) => row.channel === entry.sharedAccountChannel && row.status === 'active') ?? null;
 }
 
 function findMall(mallKey: string): OrderCollectionMall {
@@ -255,7 +284,7 @@ function toMallAccountList(
 }
 
 function toMallAccount(
-  key: OrderCollectionMallKey,
+  key: LoginAccountKey,
   name: string,
   account: Pick<MallAccountRecord, 'id' | 'config' | 'updatedAt'> | null,
   credentials: ChannelCredentialsPort,

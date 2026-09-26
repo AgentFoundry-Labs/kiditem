@@ -1,40 +1,28 @@
-import { randomUUID } from 'node:crypto';
-import type { NestExpressApplication } from '@nestjs/platform-express';
-import { Test } from '@nestjs/testing';
-import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
+import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import {
+  SABANGNET_LOGIN_LOCK_KEY,
+  SABANGNET_MALL_LISTINGS_CHUNK_KIND,
+  SABANGNET_MALL_LISTINGS_KIND,
+  SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND,
+} from '@kiditem/shared/channels-operations';
 import type {
   SabangnetMallListingRow,
-  SabangnetMallListingsSubmission,
+  SabangnetMallListingsScan,
 } from '@kiditem/shared/sabangnet-mall-listings';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { configureAgentRuntimeBodyParsers } from '../../common/http/agent-runtime-body-parser';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID as OTHER_ORG,
   resetDb,
   seedBaseFixture,
   TEST_ORGANIZATION_ID as ORG,
-  TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { SabangnetMallListingsController } from '../adapter/in/web/sabangnet-mall-listings.controller';
-import { SabangnetMallListingsRepositoryAdapter } from '../adapter/out/repository/sabangnet-mall-listings.repository.adapter';
-import { SABANGNET_MALL_LISTINGS_PORT } from '../application/port/in/sabangnet-mall-listings.port';
-import { SabangnetMallListingsService } from '../application/service/collection/sabangnet-mall-listings.service';
-import { completedCatalogRunWhere } from '../adapter/out/repository/completed-catalog-run';
-import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
-import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
-import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
-import { ChannelBusinessExceptionFilter } from '../adapter/in/web/channel-business-exception.filter';
+import { makeChannelsOperations } from '../../test-helpers/channels-operations';
 
 const KIDSNOTE = '11111111-1111-4111-8111-111111111111';
 const KIDSNOTE_LATER = '11111111-1111-4111-8111-111111111112';
 const ELEVENST = '22222222-2222-4222-8222-222222222222';
 const COUPANG = '33333333-3333-4333-8333-333333333333';
-const base = '/api/channels/sabangnet-listings';
-
-type Attempt = { attemptId: string; attemptToken: string; plan: { dateTo: string } };
 
 function row(overrides: Partial<SabangnetMallListingRow> = {}): SabangnetMallListingRow {
   return {
@@ -52,17 +40,16 @@ function row(overrides: Partial<SabangnetMallListingRow> = {}): SabangnetMallLis
   };
 }
 
-function submission(
-  attempt: Attempt,
+function scan(
+  dateTo: string,
   rows: SabangnetMallListingRow[],
-  overrides: Partial<SabangnetMallListingsSubmission['collection']> = {},
+  overrides: Partial<SabangnetMallListingsScan['collection']> = {},
   skippedByShop: Record<string, number> = {},
-): SabangnetMallListingsSubmission {
+): SabangnetMallListingsScan {
   const skipped = Object.values(skippedByShop).reduce((sum, count) => sum + count, 0);
   const total = rows.length + skipped;
   return {
     collection: {
-      collectionRunId: attempt.attemptId,
       totalRecords: total,
       recordsRead: total,
       pagesRead: 1,
@@ -72,61 +59,26 @@ function submission(
       missingMallCode: 0,
       ...overrides,
     },
-    rows,
-    proof: {
-      dateFrom: '20000101',
-      dateTo: attempt.plan.dateTo,
-      pageSize: 500,
-      validatedList: true,
-    },
+    proof: { dateFrom: '20000101', dateTo, pageSize: 500, validatedList: true },
   };
 }
 
-describe('Sabangnet mall listings owner — public HTTP + disposable PG', () => {
+/**
+ * 사방넷 송신 기록 = `channels.sabangnet_mall_listings` 실행 하나(KID-363 L1). plan은 몰 계정 행을 얼리고 잠금
+ * `resource:sabangnet:login` 하나를 잡는다. 확장은 행을 `listing_rows`, 끝까지 읽은 증거를 `listing_scan`으로 보내고,
+ * finish 트랜잭션만 몰 계정마다 리스팅을 쓰고 이 원천이 만든 행 중 사라진 것을 끈다.
+ */
+describe('Sabangnet mall listings over the operation contract (PG integration)', () => {
   let prisma: PrismaClient;
-  let app: NestExpressApplication;
-  let httpUrl: string;
+  let channels: ReturnType<typeof makeChannelsOperations>;
 
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const repository = new SabangnetMallListingsRepositoryAdapter(
-      prisma as never,
-      new SourceFailureAlerts(prisma as never),
-    new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter()),
-    );
-    const module = await Test.createTestingModule({
-      controllers: [SabangnetMallListingsController],
-      providers: [
-        {
-          provide: SABANGNET_MALL_LISTINGS_PORT,
-          useValue: new SabangnetMallListingsService(repository),
-        },
-      ],
-    }).compile();
-    app = module.createNestApplication<NestExpressApplication>({ logger: false, bodyParser: false });
-    configureAgentRuntimeBodyParsers(app);
-    app.setGlobalPrefix('api');
-    app.use(
-      (
-        req: { headers: Record<string, string>; authUser?: unknown },
-        _res: unknown,
-        next: () => void,
-      ) => {
-        if (req.headers['x-test-org']) {
-          req.authUser = { id: USER, organizationId: req.headers['x-test-org'] };
-        }
-        next();
-      },
-    );
-    app.useGlobalFilters(new GlobalExceptionFilter(), new ChannelBusinessExceptionFilter());
-    await app.init();
-    await app.listen(0, '127.0.0.1');
-    httpUrl = await app.getUrl();
+    channels = makeChannelsOperations(prisma);
   });
 
   afterAll(async () => {
-    await app?.close();
     await prisma?.$disconnect();
   });
 
@@ -135,65 +87,33 @@ describe('Sabangnet mall listings owner — public HTTP + disposable PG', () => 
     await seedBaseFixture(prisma);
     await prisma.channelAccount.createMany({
       data: [
-        {
-          id: KIDSNOTE,
-          organizationId: ORG,
-          channel: 'kidsnote',
-          externalAccountId: 'kidsnote',
-          name: '키즈노트',
-          status: 'configured',
-          createdAt: new Date('2026-01-01T00:00:00Z'),
-        },
-        {
-          id: ELEVENST,
-          organizationId: ORG,
-          channel: '11st',
-          externalAccountId: '11st',
-          name: '11번가',
-          status: 'paused',
-        },
-        {
-          id: COUPANG,
-          organizationId: ORG,
-          channel: 'coupang',
-          name: 'Coupang Wing',
-          status: 'active',
-          vendorId: 'V1',
-        },
+        { id: KIDSNOTE, organizationId: ORG, channel: 'kidsnote', externalAccountId: 'kidsnote', name: '키즈노트', status: 'configured', createdAt: new Date('2026-01-01T00:00:00Z') },
+        { id: ELEVENST, organizationId: ORG, channel: '11st', externalAccountId: '11st', name: '11번가', status: 'paused' },
+        { id: COUPANG, organizationId: ORG, channel: 'coupang', name: 'Coupang Wing', status: 'active', vendorId: 'V1' },
       ],
     });
   });
 
-  const start = (key = randomUUID(), org = ORG) =>
-    request(httpUrl)
-      .post(`${base}/attempts`)
-      .set('x-test-org', org)
-      .set('Idempotency-Key', key)
-      .send({});
-  const readSource = (org = ORG) =>
-    request(httpUrl).get(`${base}/source`).set('x-test-org', org).expect(200);
-  const finish = (attempt: Attempt, body: SabangnetMallListingsSubmission, token = attempt.attemptToken) =>
-    request(httpUrl)
-      .put(`${base}/attempts/${attempt.attemptId}`)
-      .set('x-test-org', ORG)
-      .set('x-source-attempt-token', token)
-      .send(body);
-  async function begin(): Promise<Attempt> {
-    return (await start().expect(201)).body;
-  }
-  async function complete(rows: SabangnetMallListingRow[], skippedByShop: Record<string, number> = {}) {
-    const attempt = await begin();
-    return { attempt, response: await finish(attempt, submission(attempt, rows, {}, skippedByShop)) };
+  async function begin() {
+    return channels.operations.begin(ORG, { kind: SABANGNET_MALL_LISTINGS_KIND, scope: {} }, { userId: null });
   }
 
-  it('freezes the mall account rows it will write, replays a begin, and refuses a second run', async () => {
-    const key = randomUUID();
-    const first = await start(key).expect(201);
-    expect(first.body).toMatchObject({
-      state: 'RUNNING',
-      generation: '1',
+  async function complete(rows: SabangnetMallListingRow[], skippedByShop: Record<string, number> = {}, overrides = {}) {
+    return channels.runBegun(await begin(), (plan) => [
+      { chunkKind: SABANGNET_MALL_LISTINGS_CHUNK_KIND, items: rows },
+      { chunkKind: SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND, items: [scan(String(plan.dateTo), rows, overrides, skippedByShop)] },
+    ]);
+  }
+
+  it('freezes the mall account rows it will write under the Sabangnet login lock, and refuses a second run', async () => {
+    const begun = await begin();
+    expect(begun.operation).toMatchObject({
+      status: 'executing',
+      lockKeys: [SABANGNET_LOGIN_LOCK_KEY],
       plan: {
         sourceType: 'sabangnet_mall_listings',
+        sourceOrigin: 'https://sbadmin08.sabangnet.co.kr',
+        pageSize: 500,
         dateFrom: '20000101',
         // 쿠팡 행은 받지 않고, 계정 행이 없는 몰도 계획에 없다. 상태(configured · paused)는 가리지 않는다.
         malls: [
@@ -202,65 +122,42 @@ describe('Sabangnet mall listings owner — public HTTP + disposable PG', () => 
         ],
       },
     });
-    expect((await start(key).expect(201)).body).toEqual(first.body);
-    const second = await start().expect(409);
-    expect(second.body).toMatchObject({ code: 'ATTEMPT_IN_PROGRESS', attemptId: first.body.attemptId });
+    await expect(begin()).rejects.toMatchObject({ code: 'OPERATION_IN_PROGRESS' });
 
-    const source = (await readSource()).body;
+    const source = await channels.sabangnet.readSource(ORG);
     expect(source).toMatchObject({
       ready: true,
-      latestAttempt: { attemptId: first.body.attemptId, state: 'RUNNING' },
-      latestComplete: null,
+      latestOperation: { id: begun.operation.id, status: 'executing' },
+      latestSucceeded: null,
       latestPublication: [],
     });
-    expect(source.latestAttempt).not.toHaveProperty('attemptToken');
-    expect(source.malls).toContainEqual({
-      mallKey: 'ssg',
-      channelAccountId: null,
-      sabangnetShopIds: ['shop0100'],
-    });
+    expect(source.malls).toContainEqual({ mallKey: 'ssg', channelAccountId: null, sabangnetShopIds: ['shop0100'] });
   });
 
-  it('refuses to begin when no mall has an account row, and hides attempts across organizations', async () => {
-    await start(randomUUID(), OTHER_ORG).expect(404);
-    const mine = await begin();
-    await request(httpUrl)
-      .get(`${base}/attempts/${mine.attemptId}`)
-      .set('x-test-org', OTHER_ORG)
-      .expect(404);
+  it('refuses to begin when no mall has an account row', async () => {
+    const other = makeChannelsOperations(prisma, { organizationId: OTHER_ORG });
+    await expect(other.operations.begin(OTHER_ORG, { kind: SABANGNET_MALL_LISTINGS_KIND, scope: {} }, { userId: null }))
+      .rejects.toMatchObject({ code: 'CHANNELS_ACCOUNT_NOT_FOUND' });
+    expect(await prisma.operation.count()).toBe(0);
+    expect((await other.sabangnet.readSource(OTHER_ORG)).ready).toBe(false);
   });
 
   it('publishes one listing per mall product code under the mall row, with the Sabangnet model as seller SKU', async () => {
-    const { attempt, response } = await complete(
+    const operation = await complete(
       [
         row(),
-        row({
-          sendSerial: '5010000002',
-          sabangnetShopId: 'shop0464',
-          mallProductCode: '8123',
-          supplyStatus: '일시중지',
-          firstSentAt: '20260101 09:00',
-        }),
+        row({ sendSerial: '5010000002', sabangnetShopId: 'shop0464', mallProductCode: '8123', supplyStatus: '일시중지', firstSentAt: '20260101 09:00' }),
         // 11번가(구)에 같은 몰 상품코드로 먼저 보낸 기록 — 최근 기록이 남는다.
-        row({
-          sendSerial: '5010000003',
-          sabangnetShopId: 'shop0003',
-          mallProductCode: '8123',
-          supplyStatus: '공급중',
-          firstSentAt: '20210306 10:00',
-        }),
-        row({
-          sendSerial: '5010000004',
-          sabangnetShopId: 'shop0464',
-          mallProductCode: '8124',
-          ownProductCode: '8806384825817XE2001',
-          modelName: null,
-        }),
+        row({ sendSerial: '5010000003', sabangnetShopId: 'shop0003', mallProductCode: '8123', supplyStatus: '공급중', firstSentAt: '20210306 10:00' }),
+        row({ sendSerial: '5010000004', sabangnetShopId: 'shop0464', mallProductCode: '8124', ownProductCode: '8806384825817XE2001', modelName: null }),
       ],
       { shop0075: 2 },
     );
-    expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({ state: 'COMPLETE', attemptId: attempt.attemptId });
+    expect(operation).toMatchObject({ status: 'succeeded', result: { rows: 4 } });
+    expect(operation.result?.malls).toEqual(expect.arrayContaining([
+      { mallKey: 'kidsnote', channelAccountId: KIDSNOTE, listings: 1, deactivated: 0 },
+      { mallKey: '11st', channelAccountId: ELEVENST, listings: 2, deactivated: 0 },
+    ]));
 
     const listings = await prisma.channelListing.findMany({
       where: { organizationId: ORG },
@@ -269,25 +166,17 @@ describe('Sabangnet mall listings owner — public HTTP + disposable PG', () => 
         channelAccountId: true,
         externalId: true,
         status: true,
-        isActive: true,
         rawJson: true,
-        options: {
-          select: {
-            externalOptionId: true,
-            sellerSku: true,
-            barcode: true,
-            salePrice: true,
-            status: true,
-            rawJson: true,
-          },
-        },
+        lastOperationId: true,
+        lastImportRunId: true,
+        options: { select: { externalOptionId: true, sellerSku: true, barcode: true, salePrice: true, status: true, rawJson: true, lastOperationId: true } },
       },
     });
-    expect(listings.map((listing) => [listing.channelAccountId, listing.externalId, listing.status]))
+    expect(listings.map((listing) => [listing.channelAccountId, listing.externalId, listing.status, listing.lastOperationId, listing.lastImportRunId]))
       .toEqual([
-        [ELEVENST, '8123', '사방넷 일시중지'],
-        [ELEVENST, '8124', '사방넷 공급중'],
-        [KIDSNOTE, 'KN-1', '사방넷 공급중'],
+        [ELEVENST, '8123', '사방넷 일시중지', operation.id, null],
+        [ELEVENST, '8124', '사방넷 공급중', operation.id, null],
+        [KIDSNOTE, 'KN-1', '사방넷 공급중', operation.id, null],
       ]);
     expect(listings[2]!.options).toEqual([
       expect.objectContaining({
@@ -296,6 +185,7 @@ describe('Sabangnet mall listings owner — public HTTP + disposable PG', () => 
         barcode: '8806381806625',
         salePrice: 1950,
         status: '사방넷 공급중',
+        lastOperationId: operation.id,
         rawJson: expect.objectContaining({ source: 'sabangnet_mall_listings', sendSerial: '5010000001' }),
       }),
     ]);
@@ -303,102 +193,91 @@ describe('Sabangnet mall listings owner — public HTTP + disposable PG', () => 
     // 바코드 뒤에 글자가 붙은 자체코드는 바코드로 쓰지 않는다.
     expect(listings[1]!.options[0]).toMatchObject({ sellerSku: null, barcode: null });
 
-    const source = (await readSource()).body;
-    expect(source.latestComplete).toMatchObject({ attemptId: attempt.attemptId, state: 'COMPLETE' });
-    expect(source.latestPublication).toEqual(expect.arrayContaining([
-      { mallKey: 'kidsnote', channelAccountId: KIDSNOTE, listings: 1, deactivated: 0 },
-      { mallKey: '11st', channelAccountId: ELEVENST, listings: 2, deactivated: 0 },
-    ]));
-
-    // 매칭 가용성 규칙이 이 원천의 완료를 카탈로그로 본다.
-    await expect(prisma.sourceImportRun.count({
-      where: completedCatalogRunWhere(ORG),
-    })).resolves.toBe(1);
+    const source = await channels.sabangnet.readSource(ORG);
+    expect(source.latestSucceeded).toMatchObject({ id: operation.id, status: 'succeeded' });
+    expect(source.latestPublication).toEqual(operation.result?.malls);
+    expect(await prisma.sourceImportRun.count()).toBe(0);
+    expect(await prisma.operationChunk.count()).toBe(0);
   });
 
   it('turns off only its own listings that left the list, and keeps other listings on the same row', async () => {
     await complete([row(), row({ sendSerial: '5010000002', mallProductCode: 'KN-2' })]);
     const foreign = await prisma.channelListing.create({
-      data: {
-        organizationId: ORG,
-        channelAccountId: KIDSNOTE,
-        externalId: 'KIDITEM-REGISTERED',
-        status: 'active',
-        rawJson: { source: 'kiditem_registration' },
-      },
+      data: { organizationId: ORG, channelAccountId: KIDSNOTE, externalId: 'KIDITEM-REGISTERED', status: 'active', rawJson: { source: 'kiditem_registration' } },
     });
 
-    const { response } = await complete([row()]);
-    expect(response.status).toBe(200);
+    const second = await complete([row()]);
+    expect(second.status).toBe('succeeded');
     const byId = new Map(
       (await prisma.channelListing.findMany({
         where: { organizationId: ORG, channelAccountId: KIDSNOTE },
-        select: { externalId: true, isActive: true, options: { select: { isActive: true } } },
+        select: { externalId: true, isActive: true, lastOperationId: true, options: { select: { isActive: true, lastOperationId: true } } },
       })).map((listing) => [listing.externalId, listing]),
     );
     expect(byId.get('KN-1')).toMatchObject({ isActive: true, options: [{ isActive: true }] });
-    expect(byId.get('KN-2')).toMatchObject({ isActive: false, options: [{ isActive: false }] });
+    expect(byId.get('KN-2')).toMatchObject({
+      isActive: false,
+      lastOperationId: second.id,
+      options: [{ isActive: false, lastOperationId: second.id }],
+    });
     expect(byId.get(foreign.externalId)).toMatchObject({ isActive: true });
-    expect((await readSource()).body.latestPublication).toEqual(expect.arrayContaining([
+    expect(second.result?.malls).toEqual(expect.arrayContaining([
       { mallKey: 'kidsnote', channelAccountId: KIDSNOTE, listings: 1, deactivated: 1 },
     ]));
   });
 
-  it('replays the same completion, and rejects a different body after the attempt ended', async () => {
-    const attempt = await begin();
-    const body = submission(attempt, [row()]);
-    const first = await finish(attempt, body).expect(200);
-    expect((await finish(attempt, body).expect(200)).body).toEqual(first.body);
-    await finish(attempt, submission(attempt, [row({ salePrice: 2000 })])).expect(409);
+  it('refuses a list that was not read to the end or carries an unplanned shop, and publishes nothing', async () => {
+    const begun = await begin();
+    await expect(channels.runBegun(begun, (plan) => [
+      { chunkKind: SABANGNET_MALL_LISTINGS_CHUNK_KIND, items: [row()] },
+      { chunkKind: SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND, items: [scan(String(plan.dateTo), [row()], { totalRecords: 2, recordsRead: 1 })] },
+    ])).rejects.toMatchObject({ code: 'SOURCE_SNAPSHOT_INVALID', details: { reason: 'incomplete_records' } });
+    expect(await prisma.channelListing.count({ where: { organizationId: ORG } })).toBe(0);
+    // runner가 finish(failed)로 닫으면 잠금이 풀리고 다음 가져오기가 시작된다.
+    await channels.fail(begun);
+    expect(await prisma.operationLock.count()).toBe(0);
+
+    const unplanned = row({ sabangnetShopId: 'shop0100' });
+    await expect(complete([unplanned])).rejects.toMatchObject({ details: { reason: 'unplanned_shop' } });
   });
 
-  it('fails an attempt whose list was not read to the end, and publishes nothing', async () => {
-    const attempt = await begin();
-    const body = submission(attempt, [row()], { totalRecords: 2, totalPages: 1, recordsRead: 1 });
-    const response = await finish(attempt, body).expect(200);
-    expect(response.body).toMatchObject({
-      state: 'FAILED',
-      errorCode: 'SABANGNET_COLLECTION_INCOMPLETE',
-    });
-    await expect(prisma.channelListing.count({ where: { organizationId: ORG } })).resolves.toBe(0);
-    await expect(prisma.alert.count({
-      where: { organizationId: ORG, dedupeKey: `channels:sabangnet-mall-listings:${ORG}` },
-    })).resolves.toBe(1);
+  it('refuses a list without the completeness evidence', async () => {
+    const begun = await begin();
+    await expect(channels.runBegun(begun, () => [
+      { chunkKind: SABANGNET_MALL_LISTINGS_CHUNK_KIND, items: [row()] },
+    ])).rejects.toMatchObject({ code: 'SOURCE_SNAPSHOT_INVALID' });
   });
 
-  it('refuses a row for a shop outside the plan', async () => {
-    const attempt = await begin();
-    const response = await finish(attempt, submission(attempt, [row({ sabangnetShopId: 'shop0100' })]))
-      .expect(200);
-    expect(response.body).toMatchObject({ state: 'FAILED', errorCode: 'SABANGNET_COLLECTION_INCOMPLETE' });
+  it('writes nothing when the operation fails', async () => {
+    const begun = await begin();
+    const failed = await channels.runBegun(begun, (plan) => [
+      { chunkKind: SABANGNET_MALL_LISTINGS_CHUNK_KIND, items: [row()] },
+      { chunkKind: SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND, items: [scan(String(plan.dateTo), [row()])] },
+    ], { outcome: 'failed' });
+    expect(failed.status).toBe('failed');
+    expect(await prisma.channelListing.count()).toBe(0);
+    expect(await prisma.operationChunk.count()).toBe(0);
   });
 
   it('writes to the row the hub picks when a mall has two rows', async () => {
     await prisma.channelAccount.create({
-      data: {
-        id: KIDSNOTE_LATER,
-        organizationId: ORG,
-        channel: 'kidsnote',
-        externalAccountId: 'kidsnote-2',
-        name: '키즈노트 2',
-        status: 'configured',
-        createdAt: new Date('2026-06-01T00:00:00Z'),
-      },
+      data: { id: KIDSNOTE_LATER, organizationId: ORG, channel: 'kidsnote', externalAccountId: 'kidsnote-2', name: '키즈노트 2', status: 'configured', createdAt: new Date('2026-06-01T00:00:00Z') },
     });
     await complete([row()]);
-    await expect(prisma.channelListing.findFirstOrThrow({
-      where: { organizationId: ORG, externalId: 'KN-1' },
-    })).resolves.toMatchObject({ channelAccountId: KIDSNOTE });
+    await expect(prisma.channelListing.findFirstOrThrow({ where: { organizationId: ORG, externalId: 'KN-1' } }))
+      .resolves.toMatchObject({ channelAccountId: KIDSNOTE });
   });
 
-  it('rejects a stale token and lets the operator stop a running attempt without one', async () => {
-    const attempt = await begin();
-    await finish(attempt, submission(attempt, [row()]), randomUUID()).expect(409);
-    const stopped = await request(httpUrl)
-      .post(`${base}/attempts/${attempt.attemptId}/cancel`)
-      .set('x-test-org', ORG)
-      .expect(200);
-    expect(stopped.body).toMatchObject({ state: 'FAILED', errorCode: 'USER_CANCELLED' });
-    await start().expect(201);
+  it('refuses to publish when the mall account rows changed after the plan', async () => {
+    const begun = await begin();
+    await prisma.channelAccount.update({ where: { id: KIDSNOTE }, data: { isPrimary: false, createdAt: new Date('2026-09-01T00:00:00Z') } });
+    await prisma.channelAccount.create({
+      data: { id: KIDSNOTE_LATER, organizationId: ORG, channel: 'kidsnote', externalAccountId: 'kidsnote-2', name: '키즈노트 2', status: 'configured', isPrimary: true },
+    });
+    await expect(channels.runBegun(begun, (plan) => [
+      { chunkKind: SABANGNET_MALL_LISTINGS_CHUNK_KIND, items: [row()] },
+      { chunkKind: SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND, items: [scan(String(plan.dateTo), [row()])] },
+    ])).rejects.toMatchObject({ code: 'SOURCE_SNAPSHOT_INVALID', details: { reason: 'mall_account_changed' } });
+    expect(await prisma.channelListing.count()).toBe(0);
   });
 });

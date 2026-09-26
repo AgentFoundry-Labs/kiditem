@@ -1,5 +1,4 @@
 import { Prisma } from '@prisma/client';
-import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from '@kiditem/shared/source-import';
 import { addDays, currentBusinessDate } from '../../../../../common/kst';
 
 export interface RankHistoryRow {
@@ -56,17 +55,17 @@ export interface SerpSnapshotRow {
   items: unknown;
 }
 
-const COMPLETE_SERP_SOURCE = {
-  sourceType: 'coupang_keyword_serp',
-  parserVersion: 'keyword-serp-v1',
-  status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-} as const;
+/**
+ * SERP·키워드 순위 행은 `advertising.keyword_serp` 실행의 finish 트랜잭션에서만 같이 쓰인다(ADR-0025) — operationId가 있으면
+ * 성공한 실행이 발행한 행이다. 옛 attempt 행(operationId null)은 읽지 않는다.
+ */
+const PUBLISHED_SERP = { operationId: { not: null } } as const;
 
-const COMPLETE_WING_RANK_SOURCE = {
-  sourceType: 'coupang_wing_rank',
-  parserVersion: 'wing-rank-v1',
-  status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-} as const;
+/**
+ * Wing 판매순위 행은 `advertising.wing_rank` 실행의 finish 트랜잭션에서만 쓰인다(ADR-0025) — operationId가 있으면
+ * 성공한 실행이 발행한 행이다. 옛 attempt 행(operationId null)은 읽지 않는다.
+ */
+const PUBLISHED_WING_RANK = { operationId: { not: null } } as const;
 
 function inclusiveWindowStart(days: number): Date {
   return addDays(currentBusinessDate(), -(Math.max(1, days) - 1));
@@ -80,18 +79,7 @@ export function readKeywordRankHistory(
   return tx.coupangKeywordRankDailySnapshot.findMany({
     where: {
       organizationId: input.organizationId,
-      sourceImportRun: {
-        organizationId: input.organizationId,
-        ...COMPLETE_SERP_SOURCE,
-        rankKeyword: input.keyword,
-        keywordSerpDailyProjections: {
-          some: {
-            organizationId: input.organizationId,
-            keyword: input.keyword,
-            businessDate: { gte: since },
-          },
-        },
-      },
+      ...PUBLISHED_SERP,
       keyword: input.keyword,
       businessDate: { gte: since },
     },
@@ -116,16 +104,7 @@ export function readKeywordRankOverviewSnapshots(
   return tx.coupangKeywordRankDailySnapshot.findMany({
     where: {
       organizationId: input.organizationId,
-      sourceImportRun: {
-        organizationId: input.organizationId,
-        ...COMPLETE_SERP_SOURCE,
-        keywordSerpDailyProjections: {
-          some: {
-            organizationId: input.organizationId,
-            businessDate: { gte: since },
-          },
-        },
-      },
+      ...PUBLISHED_SERP,
       businessDate: { gte: since },
     },
     orderBy: [
@@ -160,10 +139,7 @@ export async function readWingSalesRankSnapshots(
     where: {
       organizationId: input.organizationId,
       businessDate: { gte: since },
-      sourceImportRun: {
-        organizationId: input.organizationId,
-        ...COMPLETE_WING_RANK_SOURCE,
-      },
+      ...PUBLISHED_WING_RANK,
     },
     orderBy: [
       { keyword: 'asc' },
@@ -214,10 +190,7 @@ export function readLatestSerpSnapshot(
   return tx.coupangKeywordSerpDailySnapshot.findFirst({
     where: {
       organizationId: input.organizationId,
-      sourceImportRun: {
-        organizationId: input.organizationId,
-        ...COMPLETE_SERP_SOURCE,
-      },
+      ...PUBLISHED_SERP,
       keyword: input.keyword,
     },
     orderBy: [{ businessDate: 'desc' }, { capturedAt: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
@@ -242,10 +215,7 @@ export function readRecentSerpSnapshots(
   return tx.coupangKeywordSerpDailySnapshot.findMany({
     where: {
       organizationId: input.organizationId,
-      sourceImportRun: {
-        organizationId: input.organizationId,
-        ...COMPLETE_SERP_SOURCE,
-      },
+      ...PUBLISHED_SERP,
       businessDate: { gte: since },
     },
     orderBy: [
@@ -286,10 +256,7 @@ export async function readWingRankCoverage(
     where: {
       organizationId: input.organizationId,
       vendorItemId: { in: [...input.vendorItemIds] },
-      sourceImportRun: {
-        organizationId: input.organizationId,
-        ...COMPLETE_WING_RANK_SOURCE,
-      },
+      ...PUBLISHED_WING_RANK,
     },
     orderBy: [{ businessDate: 'desc' }, { capturedAt: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
     select: { capturedAt: true, businessDate: true },
@@ -301,10 +268,7 @@ export async function readWingRankCoverage(
     organizationId: input.organizationId,
     businessDate: latest.businessDate,
     vendorItemId: { in: [...input.vendorItemIds] },
-    sourceImportRun: {
-      organizationId: input.organizationId,
-      ...COMPLETE_WING_RANK_SOURCE,
-    },
+    ...PUBLISHED_WING_RANK,
   } satisfies Prisma.CoupangWingSalesRankDailySnapshotWhereInput;
   const rows = await tx.coupangWingSalesRankDailySnapshot.findMany({
     where,

@@ -1,9 +1,12 @@
 import { Inject, Injectable } from '@nestjs/common';
+import type { WingRankPlan, WingRankResult } from '@kiditem/shared/advertising-operations';
+import type { OperationStagedChunk } from '@kiditem/shared/operation';
+import type { OwnerTransaction } from '../../../common/owner-transaction';
+import { assembleWingRankCaptures, planWingRank } from '../../domain/wing-rank-operation';
+import { advertisingKeywordIdentity } from '@kiditem/shared/advertising-operations';
+import { KeywordRankService } from './keyword-rank.service';
 import { resolveBusinessDate } from '../../domain/business-date';
-import {
-  buildRepresentativeKeywordSearchAssignments,
-  type RepresentativeKeywordSearchAssignment,
-} from '../../domain/representative-keyword';
+import type { RepresentativeKeywordSearchAssignment } from '../../domain/representative-keyword';
 import {
   cleanString,
   toNumberOrNull,
@@ -35,35 +38,43 @@ export class WingSalesRankIngestHandler {
   constructor(
     @Inject(KEYWORD_RANK_REPOSITORY_PORT)
     private readonly keywordRankRepo: KeywordRankRepositoryPort,
+    private readonly keywordRank: KeywordRankService,
   ) {}
 
-  async resolveTargets(organizationId: string, keyword: string) {
-    const [ownItems, overrides, previousSnapshots] = await Promise.all([
-      this.keywordRankRepo.listOwnVendorItems(organizationId),
-      this.keywordRankRepo.listRepresentativeKeywordOverrides(organizationId),
-      this.keywordRankRepo.findWingSalesRankSnapshots(organizationId, 365),
-    ]);
-    const manualKeywordByVendorItemId = new Map(
-      overrides.map((override) => [override.vendorItemId, override.keyword]),
-    );
-    const products = applyObservedCategories(
-      dedupeOwnItems(ownItems),
-      previousSnapshots,
-    );
-    const assignments = buildRepresentativeKeywordSearchAssignments(
-      products,
-      manualKeywordByVendorItemId,
-    );
+  /**
+   * Wing 판매순위 실행의 계획(`advertising.wing_rank`, KID-362). 키워드 선택은 옛 batch와 같다 — 오늘 아직 안 본 대표 키워드
+   * 먼저, 모두 봤으면 전체. 계정 확인은 owner가 한다.
+   */
+  async planOperation(input: { organizationId: string; channelAccountId: string; keywords?: readonly string[] }): Promise<WingRankPlan> {
+    const { selection, assignments } = await this.keywordRank.resolveWingSalesRankSelection(input.organizationId);
+    return planWingRank({ channelAccountId: input.channelAccountId, selection, assignments, keywords: input.keywords });
+  }
 
-    return assignments
-      .filter((assignment) => assignment.keyword === keyword)
-      .map(({ vendorItemId, productName, category, candidateIndex }) => ({
-        vendorItemId,
-        productName,
-        category,
-        keyword,
-        candidateIndex,
-      }));
+  /** finish 트랜잭션에서 키워드마다 그날 자사 상품 판매순위를 실행 ID와 함께 바꿔 쓴다. */
+  async publishOperation(tx: OwnerTransaction, input: {
+    organizationId: string;
+    operationId: string;
+    plan: WingRankPlan;
+    chunks: readonly OperationStagedChunk[];
+  }): Promise<WingRankResult> {
+    const captures = assembleWingRankCaptures(input.plan, input.chunks);
+    return this.keywordRankRepo.runInTransaction(tx, async () => {
+      let rows = 0;
+      let rankedCount = 0;
+      for (const entry of input.plan.keywords) {
+        const capture = captures.get(advertisingKeywordIdentity(entry.keyword))!;
+        const normalized = this.normalizeCapture(
+          { keyword: entry.keyword, capturedAt: capture.capturedAt, items: capture.items, pagesScanned: capture.pagesScanned, collectedCount: capture.items.length, totalResults: null },
+          entry.targets.map((target) => ({ ...target, keyword: entry.keyword })),
+          input.organizationId,
+        );
+        rows += await this.keywordRankRepo.replaceWingSalesRankSnapshots(
+          normalized.rows.map((row) => ({ ...row, operationId: input.operationId })),
+        );
+        rankedCount += normalized.rankedCount;
+      }
+      return { keywords: input.plan.keywords.length, rows, rankedCount };
+    });
   }
 
   normalizeCapture(
@@ -98,7 +109,7 @@ export class WingSalesRankIngestHandler {
     const collectedCount = toNumberOrNull(entry.collectedCount) ?? items.length;
     const totalResults = toNumberOrNull(entry.totalResults);
     const keywordMetrics = aggregateKeywordMetrics(items);
-    const rows: Omit<ReplaceWingSalesRankSnapshotInput, 'sourceImportRunId'>[] =
+    const rows: Omit<ReplaceWingSalesRankSnapshotInput, 'operationId'>[] =
       targets.map((target) => {
         const item = bestByVendorItemId.get(target.vendorItemId) ?? null;
         return {
@@ -172,43 +183,6 @@ function parseItems(raw: unknown): ParsedWingSalesItem[] {
       },
     ];
   });
-}
-
-function dedupeOwnItems<T extends { vendorItemId: string }>(items: T[]): T[] {
-  return [...new Map(items.map((item) => [item.vendorItemId, item])).values()];
-}
-
-function applyObservedCategories<
-  T extends {
-    vendorItemId: string;
-    category: string | null;
-  },
->(
-  products: T[],
-  snapshots: Array<{
-    vendorItemId: string;
-    categoryHierarchy: string | null;
-    capturedAt: Date;
-  }>,
-): T[] {
-  const latestCategory = new Map<string, { value: string; capturedAt: Date }>();
-  for (const snapshot of snapshots) {
-    if (!snapshot.categoryHierarchy) continue;
-    const previous = latestCategory.get(snapshot.vendorItemId);
-    if (!previous || snapshot.capturedAt > previous.capturedAt) {
-      latestCategory.set(snapshot.vendorItemId, {
-        value: snapshot.categoryHierarchy,
-        capturedAt: snapshot.capturedAt,
-      });
-    }
-  }
-  return products.map((product) => ({
-    ...product,
-    category:
-      product.category ??
-      latestCategory.get(product.vendorItemId)?.value ??
-      null,
-  }));
 }
 
 function aggregateKeywordMetrics(items: ParsedWingSalesItem[]) {

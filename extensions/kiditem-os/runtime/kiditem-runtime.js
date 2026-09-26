@@ -4104,6 +4104,9 @@ var KidItemRuntime = (() => {
   var OperationKindSchema = external_exports.string().regex(OPERATION_KIND_PATTERN, "kind\uB294 owner.work \uD615\uC2DD\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4");
   var OPERATION_LOCK_KEY_PATTERN = /^(org|account:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|resource:[a-z][a-z0-9-]*:[^\s]+)$/;
   var OperationLockKeySchema = external_exports.string().max(256).regex(OPERATION_LOCK_KEY_PATTERN, "lockKey\uB294 org \xB7 account:<id> \xB7 resource:<site>:<id> \uC911 \uD558\uB098\uC5EC\uC57C \uD569\uB2C8\uB2E4");
+  function resourceLockKey(site, id) {
+    return `resource:${site}:${id}`;
+  }
   var OPERATION_FENCE_LOST_REASONS = ["expired", "terminal", "chunk_conflict"];
   var OperationFenceLostReasonSchema = external_exports.enum(OPERATION_FENCE_LOST_REASONS);
   var OperationInProgressDetailsSchema = external_exports.object({
@@ -4237,6 +4240,267 @@ var KidItemRuntime = (() => {
   }).strict();
 
   // packages/shared/src/schemas/advertising-operations.ts
+  var WING_TRACKED_PRODUCTS_KIND = "advertising.wing_tracked_products";
+  var WING_RANK_KIND = "advertising.wing_rank";
+  var KEYWORD_SERP_KIND = "advertising.keyword_serp";
+  var COMPETITOR_SELLER_IDENTITY_KIND = "advertising.competitor_seller_identity";
+  var COMPETITOR_CATALOG_KIND = "advertising.competitor_catalog";
+  function canonicalAdvertisingKeyword(value) {
+    return value.trim().replace(/\s+/gu, " ").normalize("NFC");
+  }
+  function advertisingKeywordIdentity(value) {
+    return canonicalAdvertisingKeyword(value).toLocaleLowerCase("en-US");
+  }
+  var keyword = external_exports.string().transform(canonicalAdvertisingKeyword).pipe(external_exports.string().min(1).max(100));
+  var productId = external_exports.string().trim().min(1).max(40);
+  var isoDay = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+  function keywordList(max) {
+    return external_exports.array(keyword).min(1).max(max).transform((values) => {
+      const seen = /* @__PURE__ */ new Set();
+      return values.filter((value) => {
+        const identity2 = advertisingKeywordIdentity(value);
+        if (seen.has(identity2)) return false;
+        seen.add(identity2);
+        return true;
+      });
+    });
+  }
+  var WING_TRACKED_PRODUCTS_MAX_KEYWORDS = 12;
+  var WING_TRACKED_PRODUCTS_MAX_PRODUCTS = 300;
+  var WingTrackedProductsScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    keywords: keywordList(WING_TRACKED_PRODUCTS_MAX_KEYWORDS)
+  }).strict();
+  var WingTrackedProductsPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    businessDate: isoDay,
+    keywords: external_exports.array(external_exports.string().min(1).max(100)).min(1).max(WING_TRACKED_PRODUCTS_MAX_KEYWORDS),
+    maxPages: external_exports.number().int().min(1).max(10),
+    products: external_exports.array(external_exports.object({
+      productId,
+      sourceKeyword: external_exports.string().min(1).max(100).nullable()
+    }).strict()).max(WING_TRACKED_PRODUCTS_MAX_PRODUCTS)
+  }).strict();
+  var WingTrackedProductItemSchema = external_exports.object({
+    productId,
+    salePriceKrw: external_exports.number().int().nonnegative().max(2147483647).nullable(),
+    ratingCount: external_exports.number().int().nonnegative().max(2147483647).nullable(),
+    ratingAverage: external_exports.number().min(0).max(5).nullable(),
+    pvLast28Day: external_exports.number().int().nonnegative().max(2147483647).nullable(),
+    salesLast28d: external_exports.number().int().nonnegative().max(2147483647).nullable(),
+    estimatedRevenue28d: external_exports.number().nonnegative().max(2147483647).nullable(),
+    conversionRate28d: external_exports.number().min(0).max(1).nullable()
+  }).strict();
+  var WING_TRACKED_PRODUCTS_CHUNK_KIND = "wing_tracked_search";
+  var WingTrackedSearchChunkItemSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    items: external_exports.array(WingTrackedProductItemSchema).max(WING_TRACKED_PRODUCTS_MAX_PRODUCTS)
+  }).strict();
+  var WingTrackedProductsResultSchema = external_exports.object({
+    businessDate: isoDay,
+    expectedProductCount: external_exports.number().int().nonnegative(),
+    capturedProductCount: external_exports.number().int().nonnegative()
+  }).strict();
+  var WING_RANK_MAX_PAGES = 5;
+  var WING_RANK_MAX_KEYWORDS = 200;
+  var WingRankScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    keywords: keywordList(WING_RANK_MAX_KEYWORDS).optional()
+  }).strict();
+  var WingRankTargetSchema = external_exports.object({
+    vendorItemId: external_exports.string().min(1).max(40),
+    productName: external_exports.string().max(500),
+    category: external_exports.string().max(1e3).nullable(),
+    candidateIndex: external_exports.number().int().nonnegative()
+  }).strict();
+  var WingRankPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    maxPages: external_exports.number().int().min(1).max(WING_RANK_MAX_PAGES),
+    keywords: external_exports.array(external_exports.object({
+      keyword: external_exports.string().min(1).max(100),
+      targets: external_exports.array(WingRankTargetSchema).min(1)
+    }).strict()).min(1).max(WING_RANK_MAX_KEYWORDS),
+    selection: external_exports.object({
+      productCount: external_exports.number().int().nonnegative(),
+      keywordCount: external_exports.number().int().nonnegative(),
+      resumed: external_exports.boolean(),
+      pendingProductCount: external_exports.number().int().nonnegative()
+    }).strict()
+  }).strict();
+  var nullableMetric = external_exports.number().finite().nullable();
+  var WingRankItemSchema = external_exports.object({
+    productId: external_exports.string().min(1).max(40),
+    itemId: external_exports.string().max(40).nullable(),
+    vendorItemId: external_exports.string().max(40).nullable(),
+    productName: external_exports.string().max(500).nullable(),
+    categoryHierarchy: external_exports.string().max(1e3).nullable(),
+    salesRank: external_exports.number().int().min(1),
+    salePrice: nullableMetric,
+    ratingCount: nullableMetric,
+    pvLast28Day: nullableMetric,
+    salesLast28d: nullableMetric,
+    estimatedRevenue28d: nullableMetric,
+    conversionRate28d: nullableMetric
+  }).strict();
+  var WING_RANK_CHUNK_KIND = "wing_rank_keyword";
+  var WingRankChunkItemSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    capturedAt: external_exports.string().datetime(),
+    pagesScanned: external_exports.number().int().nonnegative().max(WING_RANK_MAX_PAGES),
+    items: external_exports.array(WingRankItemSchema).max(2e3)
+  }).strict();
+  var WingRankResultSchema = external_exports.object({
+    keywords: external_exports.number().int().nonnegative(),
+    rows: external_exports.number().int().nonnegative(),
+    rankedCount: external_exports.number().int().nonnegative()
+  }).strict();
+  var KEYWORD_SERP_MAX_PAGES = 3;
+  var KEYWORD_SERP_MAX_KEYWORDS = 100;
+  var KeywordSerpScopeSchema = external_exports.object({
+    keywords: keywordList(KEYWORD_SERP_MAX_KEYWORDS)
+  }).strict();
+  var KeywordSerpPlanSchema = external_exports.object({
+    keywords: external_exports.array(external_exports.object({
+      keyword: external_exports.string().min(1).max(100),
+      maxPages: external_exports.number().int().min(1).max(KEYWORD_SERP_MAX_PAGES),
+      explicitVendorItemIds: external_exports.array(external_exports.string().min(1).max(40)).max(500)
+    }).strict()).min(1).max(KEYWORD_SERP_MAX_KEYWORDS),
+    ownItems: external_exports.array(external_exports.object({ vendorItemId: external_exports.string().min(1).max(40), productName: external_exports.string().max(500) }).strict())
+  }).strict();
+  var KeywordSerpItemSchema = external_exports.object({
+    rank: external_exports.number().int().min(1),
+    page: external_exports.number().int().min(1).max(KEYWORD_SERP_MAX_PAGES),
+    positionInPage: external_exports.number().int().min(1),
+    isAd: external_exports.boolean(),
+    productId: external_exports.string().min(1).max(40),
+    itemId: external_exports.string().max(40).nullable(),
+    vendorItemId: external_exports.string().max(40).nullable(),
+    name: external_exports.string().max(300).nullable(),
+    priceKrw: external_exports.number().int().nonnegative().nullable(),
+    reviewCount: external_exports.number().int().nonnegative().nullable(),
+    ratingScore: external_exports.number().min(0).max(5).nullable(),
+    imageUrl: external_exports.string().max(2e3).nullable(),
+    link: external_exports.string().max(2e3).nullable()
+  }).strict();
+  var KEYWORD_SERP_STOP_REASONS = ["page_limit", "empty_page", "provider_wall", "invalid_result"];
+  var KEYWORD_SERP_CHUNK_KIND = "keyword_serp";
+  var KeywordSerpChunkItemSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    capturedAt: external_exports.string().datetime(),
+    pagesScanned: external_exports.number().int().min(1).max(KEYWORD_SERP_MAX_PAGES),
+    stopReason: external_exports.enum(KEYWORD_SERP_STOP_REASONS),
+    items: external_exports.array(KeywordSerpItemSchema).min(1).max(1e3)
+  }).strict();
+  var KeywordSerpResultSchema = external_exports.object({
+    keywords: external_exports.number().int().nonnegative(),
+    items: external_exports.number().int().nonnegative(),
+    rankRows: external_exports.number().int().nonnegative()
+  }).passthrough();
+  var COMPETITOR_SELLER_IDENTITY_MAX_TARGETS = 200;
+  var CompetitorSellerIdentityScopeSchema = external_exports.object({
+    keywords: keywordList(KEYWORD_SERP_MAX_KEYWORDS).optional()
+  }).strict();
+  var CompetitorSellerIdentityTargetSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    productKey: external_exports.string().min(1).max(2100),
+    productId: external_exports.string().max(40).nullable(),
+    vendorItemId: external_exports.string().max(40).nullable(),
+    name: external_exports.string().max(300),
+    link: external_exports.string().url().max(2e3),
+    rank: external_exports.number().int().positive(),
+    matchScore: external_exports.number().finite()
+  }).strict();
+  var CompetitorSellerIdentityPlanSchema = external_exports.object({
+    targets: external_exports.array(CompetitorSellerIdentityTargetSchema).max(COMPETITOR_SELLER_IDENTITY_MAX_TARGETS),
+    excludedTargetCount: external_exports.number().int().nonnegative()
+  }).strict();
+  function isSellerStoreUrl(value, sellerId2) {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname === "shop.coupang.com" && (url.pathname === `/${sellerId2}` || url.pathname === `/vid/${sellerId2}`);
+    } catch {
+      return false;
+    }
+  }
+  var COMPETITOR_SELLER_IDENTITY_CHUNK_KIND = "seller_identity";
+  var CompetitorSellerIdentityItemSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    productKey: external_exports.string().min(1).max(2100),
+    productId: external_exports.string().max(40).nullable(),
+    vendorItemId: external_exports.string().max(40).nullable(),
+    link: external_exports.string().url().max(2e3),
+    sellerName: external_exports.string().min(1).max(120),
+    sellerId: external_exports.string().regex(/^[A-Za-z0-9_-]{1,80}$/),
+    sellerStoreUrl: external_exports.string().url().max(200),
+    capturedAt: external_exports.string().datetime()
+  }).strict().refine((item) => isSellerStoreUrl(item.sellerStoreUrl, item.sellerId), { message: "sellerStoreUrl\uC740 \uADF8 \uD310\uB9E4\uC790\uC758 shop.coupang.com \uC8FC\uC18C\uC5EC\uC57C \uD569\uB2C8\uB2E4", path: ["sellerStoreUrl"] });
+  var CompetitorSellerIdentityResultSchema = external_exports.object({
+    targets: external_exports.number().int().nonnegative(),
+    identities: external_exports.number().int().nonnegative(),
+    resolvedProductCount: external_exports.number().int().nonnegative()
+  }).passthrough();
+  var COMPETITOR_CATALOG_MAX_TARGETS = 20;
+  var COMPETITOR_CATALOG_ENRICHMENT_MAX_PRODUCTS = 500;
+  var COMPETITOR_CATALOG_MAX_PRODUCTS = 100;
+  var sellerId = external_exports.string().trim().min(1).max(80).regex(/^[A-Za-z0-9_-]+$/u);
+  var sellerStoreUrl = external_exports.string().trim().url().max(2e3).refine((value) => {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname === "shop.coupang.com";
+    } catch {
+      return false;
+    }
+  }, "\uD310\uB9E4\uC790\uC0F5 \uC8FC\uC18C\uB294 shop.coupang.com\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4");
+  var boundedCount = external_exports.number().int().nonnegative().max(2147483647);
+  var CompetitorCatalogScopeSchema = external_exports.object({
+    sellerId: sellerId.optional(),
+    rankEnrichment: external_exports.boolean().optional()
+  }).strict().refine((scope) => !(scope.sellerId && scope.rankEnrichment), { message: "\uD310\uB9E4\uC790 \uD558\uB098 \uC218\uC9D1\uC740 \uBCF4\uAC15 \uC5F0\uC1C4\uAC00 \uC544\uB2D9\uB2C8\uB2E4", path: ["rankEnrichment"] });
+  var CompetitorCatalogTargetSchema = external_exports.object({
+    sellerId,
+    sellerName: external_exports.string().trim().min(1).max(300),
+    sellerStoreUrl,
+    keyword: external_exports.string().min(1).max(100)
+  }).strict();
+  var CompetitorCatalogPlanSchema = external_exports.object({
+    targets: external_exports.array(CompetitorCatalogTargetSchema).max(COMPETITOR_CATALOG_MAX_TARGETS),
+    productLimit: external_exports.union([external_exports.literal(COMPETITOR_CATALOG_MAX_PRODUCTS), external_exports.literal(COMPETITOR_CATALOG_ENRICHMENT_MAX_PRODUCTS)])
+  }).strict();
+  var CompetitorCatalogProductSchema = external_exports.object({
+    sourceRank: external_exports.number().int().min(1).max(COMPETITOR_CATALOG_ENRICHMENT_MAX_PRODUCTS),
+    productId: external_exports.string().trim().min(1).max(200).nullable(),
+    itemId: external_exports.string().trim().min(1).max(200).nullable(),
+    vendorItemId: external_exports.string().trim().min(1).max(200).nullable(),
+    name: external_exports.string().trim().min(1).max(500),
+    priceKrw: boundedCount.nullable(),
+    reviewCount: boundedCount.nullable(),
+    imageUrl: external_exports.string().trim().max(2e3).nullable(),
+    link: external_exports.string().trim().max(2e3).nullable()
+  }).strict().refine((product) => Boolean(product.productId || product.itemId || product.vendorItemId), {
+    message: "\uACBD\uC7C1\uC0AC \uC0C1\uD488\uC740 \uC0C1\uD488\xB7\uC544\uC774\uD15C\xB7\uC635\uC158 ID \uC911 \uD558\uB098\uAC00 \uC788\uC5B4\uC57C \uD569\uB2C8\uB2E4",
+    path: ["productId"]
+  });
+  var COMPETITOR_CATALOG_CHUNK_KIND = "seller_catalog";
+  var CompetitorCatalogItemSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    sellerId,
+    sellerName: external_exports.string().trim().min(1).max(300),
+    sellerStoreUrl,
+    totalProductCount: boundedCount.nullable(),
+    collectedProductCount: external_exports.number().int().min(1).max(COMPETITOR_CATALOG_ENRICHMENT_MAX_PRODUCTS),
+    isTruncated: external_exports.boolean(),
+    sort: external_exports.literal("newest"),
+    capturedAt: external_exports.string().datetime(),
+    products: external_exports.array(CompetitorCatalogProductSchema).min(1).max(COMPETITOR_CATALOG_ENRICHMENT_MAX_PRODUCTS)
+  }).strict().refine((catalog) => catalog.collectedProductCount === catalog.products.length, {
+    message: "collectedProductCount\uB294 \uC77D\uC740 \uC0C1\uD488 \uC218\uC640 \uAC19\uC544\uC57C \uD569\uB2C8\uB2E4",
+    path: ["collectedProductCount"]
+  });
+  var CompetitorCatalogResultSchema = external_exports.object({
+    targets: external_exports.number().int().nonnegative(),
+    captured: external_exports.number().int().nonnegative(),
+    ignored: external_exports.number().int().nonnegative()
+  }).passthrough();
   var WING_VENDOR_IDENTITY_MISMATCH = "WING_VENDOR_IDENTITY_MISMATCH";
   var WING_ITEMWINNER_KIND = "advertising.wing_itemwinner";
   var WingItemwinnerScopeSchema = external_exports.object({
@@ -4421,6 +4685,110 @@ var KidItemRuntime = (() => {
     reconciliation: AdTrafficSourceReconciliationSchema
   }).strict();
 
+  // extensions/src/collectors/collector.ts
+  function attentionReporter(report, base) {
+    let since = null;
+    return async (attention) => {
+      if (!report) return;
+      if (!attention) {
+        since = null;
+        await report({ ...base, attention: null });
+        return;
+      }
+      since ??= (/* @__PURE__ */ new Date()).toISOString();
+      await report({ ...base, attention: { ...attention, since } });
+    };
+  }
+
+  // extensions/src/collectors/advertising.competitor_catalog/index.ts
+  var advertisingCompetitorCatalogCollector = {
+    kind: COMPETITOR_CATALOG_KIND,
+    site: "coupang-shop",
+    async *collect(plan, site, { signal, report }) {
+      try {
+        for (const [index, target] of plan.targets.entries()) {
+          if (signal.aborted) return;
+          const catalog = await site.catalog(target, plan.productLimit, {
+            onAttention: attentionReporter(report, { current: index, total: plan.targets.length, label: target.sellerName })
+          });
+          yield {
+            chunkKind: COMPETITOR_CATALOG_CHUNK_KIND,
+            payload: [catalog],
+            progress: { current: index + 1, total: plan.targets.length, label: target.sellerName }
+          };
+        }
+      } finally {
+        await site.close();
+      }
+    }
+  };
+  registerCollector(advertisingCompetitorCatalogCollector);
+
+  // extensions/src/collectors/advertising.competitor_seller_identity/index.ts
+  var advertisingCompetitorSellerIdentityCollector = {
+    kind: COMPETITOR_SELLER_IDENTITY_KIND,
+    site: "coupang-product",
+    async *collect(plan, site, { signal, report }) {
+      const byProduct = /* @__PURE__ */ new Map();
+      for (const target of plan.targets) byProduct.set(target.productKey, [...byProduct.get(target.productKey) ?? [], target]);
+      try {
+        let index = 0;
+        for (const [productKey, targets] of byProduct) {
+          if (signal.aborted) return;
+          const first = targets[0];
+          const seller = await site.sellerIdentity(first.link, {
+            label: first.name || productKey,
+            onAttention: attentionReporter(report, { current: index, total: byProduct.size, label: first.name || productKey })
+          });
+          index += 1;
+          const capturedAt = (/* @__PURE__ */ new Date()).toISOString();
+          const items = seller ? targets.map((target) => ({
+            keyword: target.keyword,
+            productKey: target.productKey,
+            productId: target.productId,
+            vendorItemId: target.vendorItemId,
+            link: target.link,
+            ...seller,
+            capturedAt
+          })) : [];
+          yield {
+            chunkKind: COMPETITOR_SELLER_IDENTITY_CHUNK_KIND,
+            payload: items,
+            progress: { current: index, total: byProduct.size, label: first.name || productKey }
+          };
+        }
+      } finally {
+        await site.close();
+      }
+    }
+  };
+  registerCollector(advertisingCompetitorSellerIdentityCollector);
+
+  // extensions/src/collectors/advertising.keyword_serp/index.ts
+  var advertisingKeywordSerpCollector = {
+    kind: KEYWORD_SERP_KIND,
+    site: "coupang-search",
+    async *collect(plan, site, { signal, report }) {
+      try {
+        for (const [index, { keyword: keyword2, maxPages }] of plan.keywords.entries()) {
+          if (signal.aborted) return;
+          const read = await site.serp(keyword2, maxPages, {
+            onAttention: attentionReporter(report, { current: index, total: plan.keywords.length, label: keyword2 })
+          });
+          const chunk = { keyword: keyword2, capturedAt: (/* @__PURE__ */ new Date()).toISOString(), ...read };
+          yield {
+            chunkKind: KEYWORD_SERP_CHUNK_KIND,
+            payload: [chunk],
+            progress: { current: index + 1, total: plan.keywords.length, label: keyword2 }
+          };
+        }
+      } finally {
+        await site.closeSerp();
+      }
+    }
+  };
+  registerCollector(advertisingKeywordSerpCollector);
+
   // extensions/src/core/errors.ts
   var ErrorEnvelopeSchema = external_exports.object({
     statusCode: external_exports.number().int().min(400).max(599),
@@ -4443,8 +4811,8 @@ var KidItemRuntime = (() => {
     cause;
   };
   function parseErrorEnvelope(body) {
-    const parsed = ErrorEnvelopeSchema.safeParse(body);
-    return parsed.success ? parsed.data : null;
+    const parsed2 = ErrorEnvelopeSchema.safeParse(body);
+    return parsed2.success ? parsed2.data : null;
   }
   function isRuntimeError(value) {
     return value instanceof RuntimeError;
@@ -4492,16 +4860,16 @@ var KidItemRuntime = (() => {
     kind: WING_ITEMWINNER_KIND,
     site: "wing-itemwinner",
     async *collect(rawPlan, site, { signal }) {
-      const parsed = WingItemwinnerPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) {
+      const parsed2 = WingItemwinnerPlanSchema.safeParse(rawPlan);
+      if (!parsed2.success) {
         throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC544\uC774\uD15C\uC704\uB108 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
       }
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
       if (signal.aborted) return;
       const vendorId2 = await site.readVendorId();
-      if (vendorId2 !== parsed.data.vendorId) {
+      if (vendorId2 !== parsed2.data.vendorId) {
         throw new RuntimeError(WING_VENDOR_IDENTITY_MISMATCH, "Wing\uC5D0 \uB2E4\uB978 \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uB3FC \uC788\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uD560 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", {
-          plannedVendorId: parsed.data.vendorId,
+          plannedVendorId: parsed2.data.vendorId,
           observedVendorId: vendorId2
         });
       }
@@ -4524,6 +4892,117 @@ var KidItemRuntime = (() => {
   }
   registerCollector(wingItemwinnerCollector);
 
+  // extensions/src/collectors/wing-search-keyword.ts
+  var ADVERTISING_COLLECTION_INCOMPLETE = "ADVERTISING_COLLECTION_INCOMPLETE";
+  async function readWingSearchKeyword(site, keyword2, maxPages, signal) {
+    const rows = /* @__PURE__ */ new Map();
+    let searchPage = 0;
+    let pagesScanned = 0;
+    for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
+      if (signal.aborted) return null;
+      const page = await site.searchPage(keyword2, searchPage);
+      pagesScanned += 1;
+      for (const row of page.rows) {
+        const key = `${row.productId}:${row.itemId ?? ""}:${row.vendorItemId ?? ""}`;
+        if (!rows.has(key)) rows.set(key, row);
+      }
+      if (page.rows.length === 0 || page.nextSearchPage === null) break;
+      if (page.nextSearchPage === searchPage) {
+        if (pageIndex + 1 < maxPages) {
+          throw new RuntimeError(ADVERTISING_COLLECTION_INCOMPLETE, `Wing \uAC80\uC0C9 '${keyword2}'\uC758 \uB2E4\uC74C \uCABD\uC774 \uB118\uC5B4\uAC00\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.`, { keyword: keyword2 });
+        }
+        break;
+      }
+      searchPage = page.nextSearchPage;
+    }
+    return { rows: [...rows.values()], pagesScanned };
+  }
+  function boundedInteger(value) {
+    return value !== null && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
+  }
+  function boundedNumber(value, minimum, maximum) {
+    return value !== null && Number.isFinite(value) && value >= minimum && value <= maximum ? value : null;
+  }
+
+  // extensions/src/collectors/advertising.wing_rank/index.ts
+  var advertisingWingRankCollector = {
+    kind: WING_RANK_KIND,
+    site: "wing-search",
+    async *collect(plan, site, { signal }) {
+      for (const [index, { keyword: keyword2 }] of plan.keywords.entries()) {
+        const read = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
+        if (read === null) return;
+        const chunk = {
+          keyword: keyword2,
+          capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          pagesScanned: read.pagesScanned,
+          items: rankBySales(read.rows)
+        };
+        yield {
+          chunkKind: WING_RANK_CHUNK_KIND,
+          payload: [chunk],
+          progress: { current: index + 1, total: plan.keywords.length, label: keyword2 }
+        };
+      }
+    }
+  };
+  function rankBySales(rows) {
+    return [...rows].sort((a, b) => (b.salesLast28d ?? 0) - (a.salesLast28d ?? 0) || (b.estimatedRevenue28d ?? 0) - (a.estimatedRevenue28d ?? 0) || a.productId.localeCompare(b.productId)).map((row, index) => ({
+      productId: row.productId.slice(0, 40),
+      itemId: row.itemId?.slice(0, 40) ?? null,
+      vendorItemId: row.vendorItemId?.slice(0, 40) ?? null,
+      productName: row.productName ? row.productName.slice(0, 500) : null,
+      categoryHierarchy: row.categoryHierarchy?.slice(0, 1e3) ?? null,
+      salesRank: index + 1,
+      salePrice: finite(row.salePrice),
+      ratingCount: finite(row.ratingCount),
+      pvLast28Day: finite(row.pvLast28Day),
+      salesLast28d: finite(row.salesLast28d),
+      estimatedRevenue28d: finite(row.estimatedRevenue28d),
+      conversionRate28d: finite(row.conversionRate28d)
+    }));
+  }
+  function finite(value) {
+    return value !== null && Number.isFinite(value) ? value : null;
+  }
+  registerCollector(advertisingWingRankCollector);
+
+  // extensions/src/collectors/advertising.wing_tracked_products/index.ts
+  var advertisingWingTrackedProductsCollector = {
+    kind: WING_TRACKED_PRODUCTS_KIND,
+    site: "wing-search",
+    async *collect(plan, site, { signal }) {
+      const planned = new Set(plan.products.map((product) => product.productId));
+      for (const [index, keyword2] of plan.keywords.entries()) {
+        const read = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
+        if (read === null) return;
+        const items = /* @__PURE__ */ new Map();
+        for (const row of read.rows) {
+          if (planned.has(row.productId) && !items.has(row.productId)) items.set(row.productId, trackedItem(row));
+        }
+        const chunk = { keyword: keyword2, items: [...items.values()] };
+        yield {
+          chunkKind: WING_TRACKED_PRODUCTS_CHUNK_KIND,
+          payload: [chunk],
+          progress: { current: index + 1, total: plan.keywords.length, label: keyword2 }
+        };
+      }
+    }
+  };
+  function trackedItem(row) {
+    return {
+      productId: row.productId,
+      salePriceKrw: boundedInteger(row.salePrice),
+      ratingCount: boundedInteger(row.ratingCount),
+      ratingAverage: boundedNumber(row.rating, 0, 5),
+      pvLast28Day: boundedInteger(row.pvLast28Day),
+      salesLast28d: boundedInteger(row.salesLast28d),
+      estimatedRevenue28d: boundedNumber(row.estimatedRevenue28d, 0, 2147483647),
+      conversionRate28d: boundedNumber(row.conversionRate28d, 0, 1)
+    };
+  }
+  registerCollector(advertisingWingTrackedProductsCollector);
+
   // extensions/src/collectors/advertising.wing_traffic/index.ts
   var PAGE_SIZE = 100;
   var CHUNK_ITEMS2 = 1e3;
@@ -4535,10 +5014,10 @@ var KidItemRuntime = (() => {
     kind: WING_TRAFFIC_KIND,
     site: "wing-traffic",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed = WingTrafficPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uD2B8\uB798\uD53D \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
+      const parsed2 = WingTrafficPlanSchema.safeParse(rawPlan);
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uD2B8\uB798\uD53D \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
-      const plan = parsed.data;
+      const plan = parsed2.data;
       if (signal.aborted) return;
       const vendorId2 = await site.readVendorId();
       if (vendorId2 !== plan.vendorId) {
@@ -4619,6 +5098,744 @@ var KidItemRuntime = (() => {
     return new RuntimeError(WING_TRAFFIC_PAGE_CONFLICT, "Wing \uD2B8\uB798\uD53D \uCABD \uC815\uBCF4\uAC00 \uBC14\uB00C\uC5C8\uAC70\uB098 \uC77C\uBD80\uB9CC \uC654\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { businessDate, pageNumber });
   }
   registerCollector(wingTrafficCollector);
+
+  // packages/shared/src/schemas/channels-operations.ts
+  var SABANGNET_MALL_LISTINGS_KIND = "channels.sabangnet_mall_listings";
+  var MALL_ADMIN_LISTINGS_KIND = "channels.mall_admin_listings";
+  var SABANGNET_LOGIN_LOCK_KEY = resourceLockKey("sabangnet", "login");
+  var SabangnetMallListingsScopeSchema = external_exports.object({}).strict();
+  var MallAdminListingsScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    mallKey: external_exports.string().min(1).max(64)
+  }).strict();
+  var MALL_ADMIN_LISTING_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook"];
+  function isMallAdminListingOperationMall(mallKey) {
+    return MALL_ADMIN_LISTING_OPERATION_MALLS.includes(mallKey);
+  }
+  var RocketMatchingCsvScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    fileName: external_exports.string().trim().min(1).max(240)
+  }).strict();
+  var SABANGNET_MALL_LISTINGS_CHUNK_KIND = "listing_rows";
+  var MALL_ADMIN_LISTINGS_CHUNK_KIND = "listing_rows";
+  var RocketMatchingCsvResultSchema = external_exports.object({
+    rowCount: external_exports.number().int().nonnegative(),
+    createdProductCount: external_exports.number().int().nonnegative(),
+    updatedProductCount: external_exports.number().int().nonnegative(),
+    createdSkuCount: external_exports.number().int().nonnegative(),
+    updatedSkuCount: external_exports.number().int().nonnegative()
+  }).strict();
+  var SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND = "listing_scan";
+  var MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND = "listing_scan";
+  var CHANNELS_OPERATION_CAPABILITY = "channelsOperationKindsV1";
+
+  // packages/shared/src/schemas/mall-admin-listings.ts
+  var MALL_ADMIN_LISTINGS_SOURCE_TYPE = "mall_admin_listings";
+  var MALL_ADMIN_LISTINGS_PARSER_VERSION = "mall-admin-listings-v1";
+  var MALL_ADMIN_LISTING_ROW_LIMIT = 2e4;
+  var MALL_ADMIN_LISTING_PAGE_LIMIT = 1e3;
+  var MALL_ADMIN_LISTING_READERS = {
+    kidkids: {
+      mallName: "\uD0A4\uB4DC\uD0A4\uC988",
+      origin: "https://partner.kidkids.net",
+      pageSize: 2e4,
+      detailNames: false
+    },
+    "icecream-mall": {
+      mallName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
+      origin: "https://po.i-screammall.co.kr",
+      pageSize: 1e4,
+      detailNames: true
+    },
+    /**
+     * 온채널 공급사. 등록 상품 관리 화면이 쪽 크기를 고르지 못해 15줄씩 46쪽을 다 돈다
+     * (라이브 2026-09-17: 687개). 쪽 경계가 상품코드로 갈려 겹치지 않는다.
+     */
+    onch: {
+      mallName: "\uC628\uCC44\uB110",
+      origin: "https://www.onch3.co.kr",
+      pageSize: 15,
+      detailNames: false
+    },
+    /**
+     * 꼬망세(EduPre) 입점관리자. 배송상품 목록이 쪽 크기를 받아 줘 전체가 한 번에 들어온다
+     * (라이브 2026-09-18: 2,602개).
+     */
+    kkomangse: {
+      mallName: "\uAF2C\uB9DD\uC138",
+      origin: "https://nstore.edupre.co.kr",
+      pageSize: 1e4,
+      detailNames: false
+    },
+    /**
+     * 올웨이즈 판매자센터. 상품 조회/수정 화면이 부르는 목록 API(백엔드 alwayz-seller-back)를 화면 안에서 쪽마다
+     * 읽는다 — 100개씩 1쪽부터(라이브 2026-09-19: 197개 = 100 + 97). 토큰은 화면 안에서만 쓴다.
+     */
+    always: {
+      mallName: "\uC62C\uC6E8\uC774\uC988",
+      origin: "https://alwayzseller.ilevit.com",
+      pageSize: 100,
+      detailNames: false
+    },
+    /**
+     * 아트공구(카페24 공급사 관리자). 상품목록(ProductManage)을 100개씩 1쪽부터 끝까지 읽는다
+     * (라이브 2026-09-19: 550개 = 6쪽, 겹침 없음). 몰 상품코드는 카페24 상품번호(product_no)다.
+     */
+    art09: {
+      mallName: "\uC544\uD2B8\uACF5\uAD6C",
+      origin: "https://zzogzzog1.cafe24.com",
+      pageSize: 100,
+      detailNames: false
+    },
+    /**
+     * 떠리몰(샵바이 파트너 어드민). 상품정보 조회/수정 화면이 부르는 상품 검색 API(`admin-api.e-ncp.com`
+     * `POST /products/search`)를 화면 안에서 100개씩 1쪽부터 읽는다(라이브 2026-09-19: 479개 = 5쪽). 몰 상품코드는
+     * 샵바이 상품번호(mallProductNo)다. 토큰은 화면 쿠키에서 화면 안에서만 쓴다.
+     */
+    thirtymall: {
+      mallName: "\uB5A0\uB9AC\uBAB0",
+      origin: "https://partner.shopby.co.kr",
+      pageSize: 100,
+      detailNames: false
+    },
+    /*
+      사방넷으로만 가져오던 몰(사장님 2026-09-19 "사방넷 이제 안쓸거야 … 상품 가져오기 버튼들 들어오면 바로 동기화").
+      몰 상품코드는 사방넷이 쓰던 모양 그대로라 이미 이어진 리스팅 · 레시피를 그대로 쓴다. 이 몰들은 확장
+      1.2.22(`mallAdminListingsMallsV2`)부터 읽고, 첫 라이브에서 고친 롯데ON(거래처로 좁히기 · 로그인 탭 빌리기) · 스마트스토어 ·
+      티쳐몰은 1.2.23(`mallAdminListingsMallsV3`)부터 읽는다.
+    */
+    /** 도매꾹 상품공급사센터. 목록 조회를 500개씩(라이브 2026-09-19: 493개 = 1쪽). 몰 상품코드는 도매꾹 상품번호. */
+    domeggook: {
+      mallName: "\uB3C4\uB9E4\uAFB9",
+      origin: "https://www.domeggook.com",
+      pageSize: 500,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV2"
+    },
+    /** 키즈노트(WISA). 판매 상품 내역을 100개씩(라이브 2026-09-19: 1,107개 = 12쪽). 몰 상품코드는 상품번호(pno). */
+    kidsnote: {
+      mallName: "\uD0A4\uC988\uB178\uD2B8",
+      origin: "https://shop.kidsnote.com",
+      pageSize: 100,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV2"
+    },
+    /** 11번가 셀러오피스. 목록 조회를 100개씩 앞에서부터(라이브 2026-09-19: 900개). 전체 수를 따로 주지 않는다. */
+    "11st": {
+      mallName: "11\uBC88\uAC00",
+      origin: "https://soffice.11st.co.kr",
+      pageSize: 100,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV2"
+    },
+    /**
+     * 지마켓 · 옥션(ESM Plus). 마스터 상품 목록을 500개씩 읽고 그 사이트에 올라간 것만 고른다(라이브 2026-09-19: 마스터
+     * 1,584 · 지마켓 934 · 옥션 754). 몰 상품코드는 사방넷 모양 `{사이트상품번호}_{마스터상품번호}`.
+     */
+    gmarket: {
+      mallName: "\uC9C0\uB9C8\uCF13",
+      origin: "https://item.esmplus.com",
+      pageSize: 500,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV2"
+    },
+    auction: {
+      mallName: "\uC625\uC158",
+      origin: "https://item.esmplus.com",
+      pageSize: 500,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV2"
+    },
+    /** 카카오 톡스토어 판매자센터. 목록 API 를 100개씩(라이브 2026-09-19: 386개 = 4쪽). 몰 상품코드는 상품번호(id). */
+    kakao: {
+      mallName: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4",
+      origin: "https://shopping-seller.kakao.com",
+      pageSize: 100,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV2"
+    },
+    /** 롯데ON 판매자센터. 상품 조회를 100개씩(화면 안에서). 몰 상품코드는 판매자상품번호(`LO…`). */
+    "lotte-on": {
+      mallName: "\uB86F\uB370ON",
+      origin: "https://store.lotteon.com",
+      pageSize: 100,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV3"
+    },
+    /** 스마트스토어센터. 원상품 목록 검색을 100개씩(화면 안에서). 몰 상품코드는 채널상품번호(원상품번호는 다른 코드). */
+    smartstore: {
+      mallName: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4",
+      origin: "https://sell.smartstore.naver.com",
+      pageSize: 100,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV3"
+    },
+    /** 티쳐몰(퍼스트몰 selleradmin). 판매상품 목록을 100개씩. 몰 상품코드는 상품번호(goods_seq). */
+    "teacher-mall": {
+      mallName: "\uD2F0\uCCD0\uBAB0",
+      origin: "https://shop.teacherville.co.kr",
+      pageSize: 100,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV3"
+    }
+  };
+  var MALL_ADMIN_LISTING_MALL_KEYS = Object.keys(
+    MALL_ADMIN_LISTING_READERS
+  );
+  var MallKeySchema = external_exports.enum(MALL_ADMIN_LISTING_MALL_KEYS);
+  var YYYY_MM_DD = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+  var boundedText = (max) => external_exports.string().trim().max(max);
+  var requiredText = (max) => boundedText(max).min(1);
+  var MallAdminListingsBeginSchema = external_exports.object({
+    mallKey: MallKeySchema
+  }).strict();
+  var MallAdminListingsPlanSchema = external_exports.object({
+    sourceType: external_exports.literal(MALL_ADMIN_LISTINGS_SOURCE_TYPE),
+    parserVersion: external_exports.literal(MALL_ADMIN_LISTINGS_PARSER_VERSION),
+    mallKey: MallKeySchema,
+    /** 몰 허브가 고르는 그 몰의 계정 행. 완료할 때 같은 행인지 다시 본다. */
+    channelAccountId: external_exports.string().uuid(),
+    sourceOrigin: external_exports.string().url(),
+    pageSize: external_exports.number().int().positive().max(2e4)
+  }).strict().superRefine((plan, ctx) => {
+    const reader = MALL_ADMIN_LISTING_READERS[plan.mallKey];
+    if (plan.sourceOrigin !== reader.origin) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["sourceOrigin"], message: "Unknown mall origin" });
+    }
+    if (plan.pageSize !== reader.pageSize) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["pageSize"], message: "Unexpected page size" });
+    }
+  });
+  var MallAdminListingsAttemptSchema = external_exports.object({
+    attemptId: external_exports.string().uuid(),
+    state: external_exports.enum(["RUNNING", "COMPLETE", "FAILED"]),
+    generation: external_exports.string().regex(/^\d+$/),
+    plan: MallAdminListingsPlanSchema,
+    expiresAt: external_exports.string().datetime(),
+    completedAt: external_exports.string().datetime().nullable(),
+    errorCode: boundedText(100).nullable(),
+    errorMessage: boundedText(300).nullable()
+  }).strict();
+  var MallAdminListingsControlSchema = MallAdminListingsAttemptSchema.extend({
+    attemptToken: external_exports.string().uuid()
+  }).strict();
+  var MallAdminListingsPublicationSchema = external_exports.object({
+    /** 이번에 받은 몰 상품코드 수. */
+    listings: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+    /** 전에 받았는데 이번 목록에 없어 끈 리스팅 수. */
+    deactivated: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+    /** 셀피아 쪽 이름을 읽지 못한 상품 수. 그 상품은 상품명으로만 잇는다. */
+    missingNames: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+    /**
+     * 몰에 셀피아 코드가 심겨 있어 코드로 정확히 이을 수 있는 상품 수.
+     *
+     * 이 칸이 생기기 전에 저장된 발행 결과에도 기본값으로 붙는다 — 새 칸 하나 때문에 옛
+     * 결과를 통째로 못 읽으면 화면이 "0개 가져옴"이라고 거짓말을 한다.
+     */
+    codedListings: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT).default(0),
+    /** 우리 상태 글자별 상품 수. */
+    statuses: external_exports.record(requiredText(20), external_exports.number().int().min(1).max(MALL_ADMIN_LISTING_ROW_LIMIT)).refine((value) => Object.keys(value).length <= 20, "Too many statuses")
+  }).strict();
+  var MallAdminListingsSourceMallSchema = external_exports.object({
+    mallKey: MallKeySchema,
+    mallName: requiredText(40),
+    /** 그 몰의 계정 행. 없으면 가져올 곳이 없다. */
+    channelAccountId: external_exports.string().uuid().nullable(),
+    latestAttempt: MallAdminListingsAttemptSchema.nullable(),
+    latestComplete: MallAdminListingsAttemptSchema.nullable(),
+    /**
+     * `latestComplete`(실행 kind로 옮긴 몰은 `latestSucceeded`)가 남긴 결과.
+     */
+    latestPublication: MallAdminListingsPublicationSchema.nullable(),
+    /**
+     * 실행 kind(`channels.mall_admin_listings`, KID-363)로 옮긴 몰(`MALL_ADMIN_LISTING_OPERATION_MALLS`)의 최근 실행과 최근
+     * 성공 실행. 옮긴 몰은 옛 시도(`latestAttempt`·`latestComplete`)를 읽지 않아 그 둘이 null이고, 나머지 몰은 이 둘이 null이다.
+     */
+    latestOperation: OperationViewSchema.nullable(),
+    latestSucceeded: OperationViewSchema.nullable()
+  }).strict();
+  var MallAdminListingsSourceSchema = external_exports.object({
+    malls: external_exports.array(MallAdminListingsSourceMallSchema)
+  }).strict();
+  var MallAdminListingRowSchema = external_exports.object({
+    /** 몰 상품코드. 옵션 외부 ID 칸이 60자다. */
+    mallProductCode: requiredText(60),
+    /**
+     * 같은 상품을 다른 번호로 가져온 적이 있을 때 그 번호(사방넷이 ESM 사이트번호만 · 스마트스토어 원상품번호로 준 것).
+     * 그 번호로 이미 이어진 리스팅이 있으면 서버가 그 번호를 쓴다 — 레시피가 그 리스팅에 붙어 있다.
+     */
+    alternateCodes: external_exports.array(requiredText(60)).max(3).optional(),
+    productName: requiredText(400),
+    /** 몰에 적어 둔 셀피아 상품 이름 — 키드키즈 송장용 상품명, 아이스크림몰 고시 품명. */
+    sellpiaName: requiredText(400).nullable(),
+    /**
+     * 몰의 자체상품코드 칸에 우리가 심어 둔 셀피아 SKU 코드(키드키즈 `P 코드`, 아이스크림몰
+     * `업체상품코드`). 사방넷이 `모델명`에 셀피아 코드를 넣어 보낸 것과 같은 자리다 — 이 값이
+     * 있으면 이름이 아니라 코드로 정확히 잇는다. 아직 안 심은 상품은 비어 있다.
+     */
+    sellerCode: requiredText(60).nullable(),
+    salePrice: external_exports.number().int().nonnegative().max(1e9).nullable(),
+    statusWords: external_exports.array(requiredText(20)).min(1).max(4),
+    registeredOn: YYYY_MM_DD.nullable(),
+    /** 몰이 들고 있는 대표 사진. 목록에 사진이 있는 몰만 싣는다. */
+    imageUrl: external_exports.string().url().max(2e3).optional()
+  }).strict();
+  var MallAdminListingsCollectionSchema = external_exports.object({
+    collectionRunId: external_exports.string().uuid(),
+    /** 몰이 알린 전체 상품 수. */
+    totalRecords: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+    /** 실제로 읽은 상품 줄 수. */
+    recordsRead: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+    pagesRead: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_PAGE_LIMIT),
+    totalPages: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_PAGE_LIMIT),
+    /** 셀피아 쪽 이름을 읽으려고 연 상세 화면 가운데 읽은 수와 읽지 못한 수. */
+    detailsRead: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+    detailsMissing: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT)
+  }).strict();
+  var MallAdminListingsSubmissionSchema = external_exports.object({
+    collection: MallAdminListingsCollectionSchema,
+    rows: external_exports.array(MallAdminListingRowSchema).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+    proof: external_exports.object({
+      mallKey: MallKeySchema,
+      pageSize: external_exports.number().int().positive().max(2e4),
+      validatedList: external_exports.literal(true)
+    }).strict()
+  }).strict();
+  var MallAdminListingsScanSchema = external_exports.object({
+    collection: MallAdminListingsCollectionSchema.omit({ collectionRunId: true }),
+    proof: MallAdminListingsSubmissionSchema.shape.proof
+  }).strict();
+  var MallAdminListingsResultSchema = MallAdminListingsPublicationSchema.extend({
+    rows: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT)
+  }).strict();
+
+  // extensions/src/collectors/channels.mall_admin_listings/index.ts
+  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
+  var SOURCE_SNAPSHOT_INVALID = "SOURCE_SNAPSHOT_INVALID";
+  var CHUNK_ROWS = 1e3;
+  var mallAdminListingsCollector = {
+    kind: MALL_ADMIN_LISTINGS_KIND,
+    site: "mall-admin-listings",
+    async *collect(rawPlan, site, { signal }) {
+      const parsed2 = MallAdminListingsPlanSchema.safeParse(rawPlan);
+      const reader = parsed2.success && site ? site.reader(parsed2.data.mallKey) : null;
+      if (!parsed2.success || !reader?.readListings) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC774 \uD655\uC7A5\uC774 \uAC00\uC838\uC62C \uC218 \uC5C6\uB294 \uBAB0 \uC0C1\uD488 \uBAA9\uB85D \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+          kind: MALL_ADMIN_LISTINGS_KIND,
+          mallKey: parsed2.success ? parsed2.data.mallKey : null
+        });
+      }
+      const plan = parsed2.data;
+      const snapshot = await reader.readListings(plan);
+      if (signal.aborted) return;
+      const scan = MallAdminListingsScanSchema.safeParse({ collection: snapshot.collection, proof: snapshot.proof });
+      if (!scan.success) {
+        throw new RuntimeError(SOURCE_SNAPSHOT_INVALID, "\uBAB0 \uC0C1\uD488 \uBAA9\uB85D\uC758 \uC77D\uC740 \uC99D\uAC70\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey, stage: "scan" });
+      }
+      const progress4 = { mallKey: plan.mallKey, rows: snapshot.rows.length };
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS, label: "\uBAB0 \uC0C1\uD488 \uD55C \uC904" });
+      for (const [index, row] of snapshot.rows.entries()) {
+        const checked = MallAdminListingRowSchema.safeParse(row);
+        if (!checked.success) {
+          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID, "\uBAB0 \uC0C1\uD488 \uBAA9\uB85D\uC5D0 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC740 \uC904\uC774 \uC788\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey, stage: "row", index });
+        }
+        const full = buffer.push(checked.data);
+        if (full) yield { chunkKind: MALL_ADMIN_LISTINGS_CHUNK_KIND, payload: full, progress: progress4 };
+      }
+      const rest = buffer.flush();
+      if (rest) yield { chunkKind: MALL_ADMIN_LISTINGS_CHUNK_KIND, payload: rest, progress: progress4 };
+      yield { chunkKind: MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND, payload: [scan.data], progress: progress4 };
+    }
+  };
+  registerCollector(mallAdminListingsCollector);
+
+  // packages/shared/src/schemas/sabangnet-mall-listings.ts
+  var SABANGNET_ADMIN_ORIGIN = "https://sbadmin08.sabangnet.co.kr";
+  var SABANGNET_MALL_LISTING_LIST_PATH = "/prod-api/customer/mall/MallProductUpdate/getMallProductUpdateLists";
+  var SABANGNET_MALL_LISTINGS_SOURCE_TYPE = "sabangnet_mall_listings";
+  var SABANGNET_MALL_LISTINGS_PARSER_VERSION = "sabangnet-mall-listings-v1";
+  var SABANGNET_MALL_LISTING_PAGE_SIZE = 500;
+  var SABANGNET_MALL_LISTING_ROW_LIMIT = 2e4;
+  var SABANGNET_MALL_LISTING_PAGE_LIMIT = 100;
+  var SHOP_ID = external_exports.string().regex(/^shop\d{4}$/);
+  var YYYYMMDD = external_exports.string().regex(/^\d{8}$/);
+  var boundedText2 = (max) => external_exports.string().trim().max(max);
+  var requiredText2 = (max) => boundedText2(max).min(1);
+  var SabangnetMallListingsPlanMallSchema = external_exports.object({
+    mallKey: requiredText2(40),
+    channelAccountId: external_exports.string().uuid(),
+    sabangnetShopIds: external_exports.array(SHOP_ID).min(1).max(10)
+  }).strict();
+  var SabangnetMallListingsPlanSchema = external_exports.object({
+    sourceType: external_exports.literal(SABANGNET_MALL_LISTINGS_SOURCE_TYPE),
+    parserVersion: external_exports.literal(SABANGNET_MALL_LISTINGS_PARSER_VERSION),
+    sourceOrigin: external_exports.literal(SABANGNET_ADMIN_ORIGIN),
+    listPath: external_exports.literal(SABANGNET_MALL_LISTING_LIST_PATH),
+    pageSize: external_exports.literal(SABANGNET_MALL_LISTING_PAGE_SIZE),
+    /** 사방넷 첫 송신일 검색 범위. 끝은 시작한 날(KST)이다. */
+    dateFrom: YYYYMMDD,
+    dateTo: YYYYMMDD,
+    malls: external_exports.array(SabangnetMallListingsPlanMallSchema).min(1).max(40)
+  }).strict().superRefine((plan, ctx) => {
+    if (plan.dateFrom > plan.dateTo) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["dateFrom"], message: "Invalid date range" });
+    }
+    const shopIds = plan.malls.flatMap((mall) => mall.sabangnetShopIds);
+    if (new Set(shopIds).size !== shopIds.length) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["malls"], message: "Shop ids must be unique" });
+    }
+    const accounts = plan.malls.map((mall) => mall.channelAccountId);
+    if (new Set(accounts).size !== accounts.length) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["malls"], message: "Accounts must be unique" });
+    }
+  });
+  var SabangnetMallListingsPublicationSchema = external_exports.object({
+    mallKey: requiredText2(40),
+    channelAccountId: external_exports.string().uuid(),
+    /** 이번에 받은 몰 상품코드 수. */
+    listings: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT),
+    /** 전에 받았는데 이번 목록에 없어 끈 리스팅 수. */
+    deactivated: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT)
+  }).strict();
+  var SabangnetMallListingsSourceMallSchema = external_exports.object({
+    mallKey: requiredText2(40),
+    /** 그 몰의 계정 행. 없으면 가져올 곳이 없다. */
+    channelAccountId: external_exports.string().uuid().nullable(),
+    sabangnetShopIds: external_exports.array(SHOP_ID).min(1).max(10)
+  }).strict();
+  var SabangnetMallListingsResultSchema = external_exports.object({
+    malls: external_exports.array(SabangnetMallListingsPublicationSchema),
+    rows: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT)
+  }).strict();
+  var SabangnetMallListingsSourceSchema = external_exports.object({
+    /** 받을 몰 계정 행이 하나라도 있는가. */
+    ready: external_exports.boolean(),
+    malls: external_exports.array(SabangnetMallListingsSourceMallSchema),
+    latestOperation: OperationViewSchema.nullable(),
+    latestSucceeded: OperationViewSchema.nullable(),
+    /** `latestSucceeded` 가 몰마다 남긴 결과. */
+    latestPublication: external_exports.array(SabangnetMallListingsPublicationSchema)
+  }).strict();
+  var SabangnetMallListingRowSchema = external_exports.object({
+    /** 사방넷 송신번호(`prdRegsTrnmSrno`). 같은 기록이 두 번 오면 거절한다. */
+    sendSerial: external_exports.string().regex(/^\d{1,30}$/),
+    sabangnetShopId: SHOP_ID,
+    /** 몰 상품코드(`shmaPrdNo`). 옵션 외부 ID 칸이 60자다. */
+    mallProductCode: requiredText2(60),
+    /** 사방넷 품번(`prdNo`). */
+    sabangnetProductNo: external_exports.string().regex(/^\d{1,30}$/),
+    /** 사방넷 모델명(`modlNm`). 셀피아 재고 SKU 코드와 같다. */
+    modelName: requiredText2(120).nullable(),
+    /** 사방넷 자체상품코드(`onsfPrdCd`). 바코드인 경우가 많다. */
+    ownProductCode: requiredText2(120).nullable(),
+    productName: requiredText2(400),
+    salePrice: external_exports.number().int().nonnegative().max(1e9).nullable(),
+    /** 사방넷 공급상태 이름(`prdSplyStsCdNm`) — 공급중 · 일시중지 · 완전품절 · 대기중. */
+    supplyStatus: requiredText2(20),
+    /** 첫 송신 시각(`prdRegsFstTrnmDt`, `yyyyMMdd HH:mm`). */
+    firstSentAt: external_exports.string().regex(/^\d{8} \d{2}:\d{2}$/).nullable()
+  }).strict();
+  var SabangnetMallListingsCollectionSchema = external_exports.object({
+    /** 사방넷이 알린 전체 송신 기록 수(모든 몰). */
+    totalRecords: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT),
+    /** 실제로 읽은 송신 기록 수(실패 메시지 줄 제외, 모든 몰). */
+    recordsRead: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT),
+    pagesRead: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_PAGE_LIMIT),
+    totalPages: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_PAGE_LIMIT),
+    truncated: external_exports.boolean(),
+    /** 계획에 없는 쇼핑몰의 기록 수. 넘기지 않고 세기만 한다. */
+    skippedByShop: external_exports.record(SHOP_ID, external_exports.number().int().min(1).max(SABANGNET_MALL_LISTING_ROW_LIMIT)).refine((value) => Object.keys(value).length <= 200, "Too many skipped shops"),
+    /** 몰 상품코드가 비어 넘기지 못한 기록 수. */
+    missingMallCode: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT)
+  }).strict();
+  var SabangnetMallListingsScanSchema = external_exports.object({
+    collection: SabangnetMallListingsCollectionSchema,
+    proof: external_exports.object({
+      dateFrom: YYYYMMDD,
+      dateTo: YYYYMMDD,
+      pageSize: external_exports.literal(SABANGNET_MALL_LISTING_PAGE_SIZE),
+      validatedList: external_exports.literal(true)
+    }).strict()
+  }).strict();
+
+  // extensions/src/collectors/channels.sabangnet_mall_listings/index.ts
+  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
+  var MALL_CONTRACT_CHANGED = "MALL_CONTRACT_CHANGED";
+  var SOURCE_SNAPSHOT_INVALID2 = "SOURCE_SNAPSHOT_INVALID";
+  var CHUNK_ROWS2 = 500;
+  function drift(stage) {
+    throw new RuntimeError(MALL_CONTRACT_CHANGED, `\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4. [${stage}]`, { stage });
+  }
+  function text(value, maximum) {
+    if (typeof value !== "string" && typeof value !== "number") return null;
+    const normalized = String(value).replace(/\s+/g, " ").trim();
+    return normalized && normalized.length <= maximum ? normalized : null;
+  }
+  function digits(value, maximum) {
+    const normalized = text(value, maximum);
+    return normalized && /^\d+$/.test(normalized) ? normalized : null;
+  }
+  function price(value) {
+    if (value === null || value === void 0 || value === "") return null;
+    const parsed2 = Number(value);
+    return Number.isSafeInteger(parsed2) && parsed2 >= 0 && parsed2 <= 1e9 ? parsed2 : null;
+  }
+  function sentAt(value) {
+    const normalized = text(value, 20);
+    return normalized && /^\d{8} \d{2}:\d{2}$/.test(normalized) ? normalized : null;
+  }
+  var sabangnetMallListingsCollector = {
+    kind: SABANGNET_MALL_LISTINGS_KIND,
+    site: "sabangnet",
+    async *collect(rawPlan, site, { signal, report }) {
+      const parsed2 = SabangnetMallListingsPlanSchema.safeParse(rawPlan);
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC0AC\uBC29\uB137 \uAC00\uC838\uC624\uAE30 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC0AC\uBC29\uB137 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
+      const plan = parsed2.data;
+      const planned = new Set(plan.malls.flatMap((mall) => mall.sabangnetShopIds));
+      const query = { listPath: plan.listPath, dateFrom: plan.dateFrom, dateTo: plan.dateTo, pageSize: plan.pageSize };
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS2, label: "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D \uD55C \uC904" });
+      const seen = /* @__PURE__ */ new Set();
+      const skippedByShop = {};
+      let missingMallCode = 0;
+      let recordsRead = 0;
+      let rows = 0;
+      let pagesRead = 0;
+      let totalRecords = null;
+      let totalPages = 1;
+      try {
+        for (let currentPage = 1; currentPage <= totalPages; currentPage += 1) {
+          if (signal.aborted) return;
+          const page = await site.mallListingPage(query, currentPage);
+          if (totalRecords === null) {
+            totalRecords = page.total;
+            if (totalRecords > SABANGNET_MALL_LISTING_ROW_LIMIT) {
+              throw new RuntimeError(SOURCE_SNAPSHOT_INVALID2, "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC774 \uD55C \uBC88\uC5D0 \uAC00\uC838\uC62C \uC218 \uC788\uB294 \uC218\uB97C \uB118\uC2B5\uB2C8\uB2E4.", { stage: "row_limit", totalRecords });
+            }
+            totalPages = Math.max(1, Math.ceil(totalRecords / plan.pageSize));
+            if (totalPages > SABANGNET_MALL_LISTING_PAGE_LIMIT) {
+              throw new RuntimeError(SOURCE_SNAPSHOT_INVALID2, "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D \uCABD \uC218\uAC00 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4.", { stage: "page_limit", totalPages });
+            }
+          } else if (page.total !== totalRecords) {
+            throw new RuntimeError(SOURCE_SNAPSHOT_INVALID2, "\uC77D\uB294 \uC0AC\uC774 \uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC774 \uB298\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.", { stage: "total_changed" });
+          }
+          pagesRead += 1;
+          for (const item of page.items) {
+            const shopId = text(item.shmaId, 20);
+            if (!shopId || !/^shop\d{4}$/.test(shopId)) drift("shop");
+            const sendSerial = digits(item.prdRegsTrnmSrno, 30);
+            if (!sendSerial) drift("send_serial");
+            if (seen.has(sendSerial)) continue;
+            seen.add(sendSerial);
+            recordsRead += 1;
+            if (!planned.has(shopId)) {
+              skippedByShop[shopId] = (skippedByShop[shopId] ?? 0) + 1;
+              continue;
+            }
+            const mallProductCode = text(item.shmaPrdNo, 60);
+            if (!mallProductCode) {
+              missingMallCode += 1;
+              continue;
+            }
+            const sabangnetProductNo = digits(item.prdNo, 30);
+            const productName = text(item.prdNm, 400);
+            const supplyStatus = text(item.prdSplyStsCdNm, 20);
+            if (!sabangnetProductNo) drift("product_no");
+            if (!productName) drift("product_name");
+            if (!supplyStatus) drift("supply_status");
+            rows += 1;
+            const full = buffer.push({
+              sendSerial,
+              sabangnetShopId: shopId,
+              mallProductCode,
+              sabangnetProductNo,
+              modelName: text(item.modlNm, 120),
+              ownProductCode: text(item.onsfPrdCd, 120),
+              productName,
+              salePrice: price(item.sepr),
+              supplyStatus,
+              firstSentAt: sentAt(item.prdRegsFstTrnmDt)
+            });
+            if (full) yield { chunkKind: SABANGNET_MALL_LISTINGS_CHUNK_KIND, payload: full, progress: { pagesRead, totalPages, rows } };
+          }
+          const expected = currentPage < totalPages ? plan.pageSize : totalRecords - plan.pageSize * (totalPages - 1);
+          if (page.items.length !== expected) drift("page_size");
+          await report?.({ pagesRead, totalPages, rows });
+        }
+        const rest = buffer.flush();
+        if (rest) yield { chunkKind: SABANGNET_MALL_LISTINGS_CHUNK_KIND, payload: rest, progress: { pagesRead, totalPages, rows } };
+        const scan = {
+          collection: {
+            totalRecords: totalRecords ?? 0,
+            recordsRead,
+            pagesRead,
+            totalPages,
+            truncated: false,
+            skippedByShop,
+            missingMallCode
+          },
+          proof: { dateFrom: plan.dateFrom, dateTo: plan.dateTo, pageSize: plan.pageSize, validatedList: true }
+        };
+        yield { chunkKind: SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND, payload: [scan], progress: { pagesRead, totalPages, rows } };
+      } finally {
+        await site.close();
+      }
+    }
+  };
+  registerCollector(sabangnetMallListingsCollector);
+
+  // packages/shared/src/schemas/sellpia-manual-match.ts
+  var SELLPIA_MANUAL_MATCH_SOURCE_TYPE = "sellpia_product_manual_match";
+  var SELLPIA_MANUAL_MATCH_PARSER_VERSION = "sellpia-manual-match-v1";
+  var SELLPIA_MANUAL_MATCH_SOURCE_ORIGIN = "https://kiditem.sellpia.com";
+  var SELLPIA_MANUAL_MATCH_SOURCE_PATH = "/product_manual_match.html";
+  var MAX_SELLPIA_MANUAL_MATCH_TARGETS = 2e4;
+  var MAX_SELLPIA_MANUAL_MATCH_ROWS = 1e5;
+  var POSTGRES_INTEGER_MAX = 2147483647;
+  var SellpiaManualMatchCodeSchema = external_exports.string().trim().min(1).max(100).regex(/^\d+(?:-\d+)*$/);
+  var SellpiaManualMatchRowSchema = external_exports.object({
+    productCode: SellpiaManualMatchCodeSchema,
+    aliasTitle: external_exports.string().trim().min(1).max(500),
+    itemCount: external_exports.number().int().min(1).max(POSTGRES_INTEGER_MAX),
+    matchedType: external_exports.enum(["M", "P", "E"]),
+    evidenceCount: external_exports.number().int().min(1).max(MAX_SELLPIA_MANUAL_MATCH_ROWS)
+  }).strict();
+  var SellpiaManualMatchSnapshotStatusSchema = external_exports.object({
+    targetCount: external_exports.number().int().nonnegative(),
+    matchedTargetCount: external_exports.number().int().nonnegative(),
+    aliasCount: external_exports.number().int().nonnegative(),
+    snapshotHash: external_exports.string().regex(/^[a-f0-9]{64}$/),
+    capturedAt: zIsoDate
+  }).strict();
+  var SellpiaManualMatchPlanSchema = external_exports.object({
+    sourceType: external_exports.literal(SELLPIA_MANUAL_MATCH_SOURCE_TYPE),
+    parserVersion: external_exports.literal(SELLPIA_MANUAL_MATCH_PARSER_VERSION),
+    sourceOrigin: external_exports.literal(SELLPIA_MANUAL_MATCH_SOURCE_ORIGIN),
+    sourcePath: external_exports.literal(SELLPIA_MANUAL_MATCH_SOURCE_PATH),
+    targetCount: external_exports.number().int().min(0).max(MAX_SELLPIA_MANUAL_MATCH_TARGETS),
+    targetCodes: external_exports.array(SellpiaManualMatchCodeSchema).max(MAX_SELLPIA_MANUAL_MATCH_TARGETS)
+  }).strict().superRefine((plan, ctx) => {
+    if (plan.targetCount !== plan.targetCodes.length) {
+      ctx.addIssue({
+        code: external_exports.ZodIssueCode.custom,
+        path: ["targetCount"],
+        message: "targetCount must equal targetCodes length"
+      });
+    }
+    plan.targetCodes.forEach((code, index) => {
+      const previous = plan.targetCodes[index - 1];
+      if (previous !== void 0 && code <= previous) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["targetCodes", index],
+          message: code === previous ? "targetCodes must be unique" : "targetCodes must be sorted"
+        });
+      }
+    });
+  });
+  var SellpiaManualMatchSourceStatusSchema = external_exports.object({
+    latestOperation: OperationViewSchema.nullable(),
+    currentSnapshot: SellpiaManualMatchSnapshotStatusSchema.nullable()
+  }).strict();
+  var SellpiaManualMatchResultSchema = external_exports.object({
+    targets: external_exports.number().int().min(0).max(MAX_SELLPIA_MANUAL_MATCH_TARGETS),
+    matched: external_exports.number().int().min(0).max(MAX_SELLPIA_MANUAL_MATCH_TARGETS)
+  }).strict();
+
+  // packages/shared/src/schemas/sellpia-operations.ts
+  var SELLPIA_LOGIN_LOCK_KEY = resourceLockKey("sellpia", "login");
+  var SELLPIA_MANUAL_MATCH_KIND = "channels.sellpia_manual_match";
+  var isoDay2 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+  var SellpiaInventoryScopeSchema = external_exports.object({
+    trigger: external_exports.string().trim().min(1).max(64).optional()
+  }).strict();
+  var SellpiaSalesScopeSchema = external_exports.object({
+    startDate: isoDay2.optional(),
+    endDate: isoDay2.optional()
+  }).strict().refine((value) => !value.startDate || !value.endDate || value.startDate <= value.endDate, "\uC2DC\uC791\uC77C\uC774 \uC885\uB8CC\uC77C\uBCF4\uB2E4 \uB2A6\uC2B5\uB2C8\uB2E4");
+  var SellpiaProductProfitabilityScopeSchema = external_exports.object({
+    normalizedSourceAvailabilityDate: isoDay2.optional()
+  }).strict();
+  var SellpiaManualMatchScopeSchema = external_exports.object({}).strict();
+  var SELLPIA_MANUAL_MATCH_CHUNK_KIND = "match_results";
+
+  // extensions/src/collectors/channels.sellpia_manual_match/index.ts
+  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
+  var MALL_CONTRACT_CHANGED2 = "MALL_CONTRACT_CHANGED";
+  var SOURCE_SNAPSHOT_INVALID3 = "SOURCE_SNAPSHOT_INVALID";
+  var SEARCH_BATCH = 100;
+  var STATUS_BATCH = 100;
+  var CHUNK_ROWS3 = 2e3;
+  function identity(row) {
+    return [row.productCode, row.aliasTitle, String(row.itemCount).padStart(10, "0"), row.matchedType].join("\0");
+  }
+  var sellpiaManualMatchCollector = {
+    kind: SELLPIA_MANUAL_MATCH_KIND,
+    site: "sellpia",
+    async *collect(rawPlan, site, { signal, report }) {
+      const parsed2 = SellpiaManualMatchPlanSchema.safeParse(rawPlan);
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
+      const { targetCodes } = parsed2.data;
+      try {
+        const byMd5 = /* @__PURE__ */ new Map();
+        const received = [];
+        let candidates = 0;
+        for (let offset = 0; offset < targetCodes.length; offset += SEARCH_BATCH) {
+          if (signal.aborted) return;
+          const found = await site.manualMatchSearch(targetCodes.slice(offset, offset + SEARCH_BATCH));
+          for (const candidate of found) {
+            const group = byMd5.get(candidate.matchMd5) ?? [];
+            const existing = group.find((value) => value.productCode === candidate.productCode && value.aliasTitle === candidate.aliasTitle);
+            if (existing && existing.itemCount !== candidate.itemCount) {
+              throw new RuntimeError(MALL_CONTRACT_CHANGED2, "\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uC218\uB7C9\uC774 \uC11C\uB85C \uB2E4\uB985\uB2C8\uB2E4.", { stage: `search-quantity-conflict:${candidate.productCode}` });
+            }
+            candidates += 1;
+            received.push(candidate);
+            if (!existing) group.push(candidate);
+            byMd5.set(candidate.matchMd5, group);
+          }
+          if (candidates > MAX_SELLPIA_MANUAL_MATCH_ROWS) {
+            throw new RuntimeError(SOURCE_SNAPSHOT_INVALID3, "\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uADFC\uAC70\uAC00 \uD55C \uBC88\uC5D0 \uBC1B\uC744 \uC218 \uC788\uB294 \uC218\uB97C \uB118\uC2B5\uB2C8\uB2E4.", { candidates });
+          }
+          await report?.({ searched: Math.min(offset + SEARCH_BATCH, targetCodes.length), targets: targetCodes.length, candidates });
+        }
+        const md5s = [...byMd5.keys()].sort();
+        const typeByMd5 = /* @__PURE__ */ new Map();
+        for (let offset = 0; offset < md5s.length; offset += STATUS_BATCH) {
+          if (signal.aborted) return;
+          const batch = md5s.slice(offset, offset + STATUS_BATCH);
+          const types = await site.manualMatchStatus(batch);
+          for (const matchMd5 of batch) {
+            const matchedType = types[matchMd5];
+            if (matchedType !== "M" && matchedType !== "P" && matchedType !== "E") {
+              throw new RuntimeError(MALL_CONTRACT_CHANGED2, "\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uC0C1\uD0DC \uC751\uB2F5\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { stage: `status-target:${matchMd5.slice(0, 12)}` });
+            }
+            typeByMd5.set(matchMd5, matchedType);
+          }
+        }
+        const aggregated = /* @__PURE__ */ new Map();
+        for (const candidate of received) {
+          const matchedType = typeByMd5.get(candidate.matchMd5);
+          const key = identity({ ...candidate, matchedType });
+          const previous = aggregated.get(key);
+          aggregated.set(key, previous ? { ...previous, evidenceCount: previous.evidenceCount + 1 } : { productCode: candidate.productCode, aliasTitle: candidate.aliasTitle, itemCount: candidate.itemCount, matchedType, evidenceCount: 1 });
+        }
+        const rows = [...aggregated.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([, row]) => row);
+        const progress4 = { searched: targetCodes.length, targets: targetCodes.length, candidates, rows: rows.length };
+        const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS3, label: "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uADFC\uAC70 \uD55C \uC904" });
+        for (const row of rows) {
+          const full = buffer.push(row);
+          if (full) yield { chunkKind: SELLPIA_MANUAL_MATCH_CHUNK_KIND, payload: full, progress: progress4 };
+        }
+        const rest = buffer.flush();
+        if (rest) yield { chunkKind: SELLPIA_MANUAL_MATCH_CHUNK_KIND, payload: rest, progress: progress4 };
+      } finally {
+        await site.closeManualMatch();
+      }
+    }
+  };
+  registerCollector(sellpiaManualMatchCollector);
 
   // packages/shared/src/schemas/coupang-catalog-snapshot.ts
   var COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT = 500;
@@ -4896,8 +6113,8 @@ var KidItemRuntime = (() => {
         }
       }
     }
-    for (const [optionId, count] of mediaCountByOption.entries()) {
-      if (count > COUPANG_CATALOG_MAX_MEDIA_PER_OWNER) {
+    for (const [optionId, count3] of mediaCountByOption.entries()) {
+      if (count3 > COUPANG_CATALOG_MAX_MEDIA_PER_OWNER) {
         ctx.addIssue({
           code: external_exports.ZodIssueCode.custom,
           path: ["media"],
@@ -5243,25 +6460,25 @@ var KidItemRuntime = (() => {
   // packages/shared/src/schemas/rocket-purchase-preview.ts
   var ROCKET_PO_ROW_LIMIT = 4e3;
   var ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT = 1e5;
-  var boundedText = (max) => external_exports.string().trim().max(max);
-  var requiredText = (max) => boundedText(max).min(1);
-  var isoDay = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+  var boundedText3 = (max) => external_exports.string().trim().max(max);
+  var requiredText3 = (max) => boundedText3(max).min(1);
+  var isoDay3 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var RocketPoSourceBeginSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
-    from: isoDay,
-    to: isoDay,
+    from: isoDay3,
+    to: isoDay3,
     status: external_exports.enum(["RP", "PA", "RI", "CI", ""]),
     dateType: external_exports.enum(["WAREHOUSING_PLAN_DATE", "PURCHASE_ORDER_DATE"]),
     requireConfirmation: external_exports.boolean()
   }).strict().refine((value) => value.from <= value.to, "Invalid date range");
   var RocketPoCollectionEvidenceSchema = external_exports.object({
     collectionRunId: external_exports.string().uuid(),
-    vendorId: boundedText(120),
+    vendorId: boundedText3(120),
     listPagesRead: external_exports.number().int().min(0).max(ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT),
     totalListPages: external_exports.number().int().min(0).max(ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT),
     truncated: external_exports.boolean(),
     detailPoCount: external_exports.number().int().min(0).max(ROCKET_PO_ROW_LIMIT),
-    failedPoNumbers: external_exports.array(requiredText(80)).max(ROCKET_PO_ROW_LIMIT)
+    failedPoNumbers: external_exports.array(requiredText3(80)).max(ROCKET_PO_ROW_LIMIT)
   }).strict().superRefine((value, ctx) => {
     if (new Set(value.failedPoNumbers).size !== value.failedPoNumbers.length) {
       ctx.addIssue({
@@ -5272,36 +6489,36 @@ var KidItemRuntime = (() => {
     }
   });
   var RocketPoCatalogRowSchema = external_exports.object({
-    poLineId: requiredText(300),
-    poNumber: requiredText(80),
-    vendorId: boundedText(120),
-    productNo: requiredText(60),
-    barcode: boundedText(80),
-    productName: requiredText(240),
+    poLineId: requiredText3(300),
+    poNumber: requiredText3(80),
+    vendorId: boundedText3(120),
+    productNo: requiredText3(60),
+    barcode: boundedText3(80),
+    productName: requiredText3(240),
     orderQty: external_exports.number().int().nonnegative().max(1e7),
-    plannedDeliveryDate: isoDay,
-    poStatusCode: boundedText(20).optional(),
+    plannedDeliveryDate: isoDay3,
+    poStatusCode: boundedText3(20).optional(),
     businessDateBasis: external_exports.enum(["ordered_at", "expected_inbound"]).optional(),
     confirmation: external_exports.object({
-      center: boundedText(120),
-      inboundType: boundedText(80),
-      poStatus: boundedText(80),
-      returnManager: boundedText(120),
-      returnContact: boundedText(80),
-      returnAddress: boundedText(300),
+      center: boundedText3(120),
+      inboundType: boundedText3(80),
+      poStatus: boundedText3(80),
+      returnManager: boundedText3(120),
+      returnContact: boundedText3(80),
+      returnAddress: boundedText3(300),
       purchasePrice: external_exports.number().int().nonnegative().max(1e9),
       supplyPrice: external_exports.number().int().nonnegative().max(1e9),
       vat: external_exports.number().int().nonnegative().max(1e9),
       totalPurchase: external_exports.number().int().nonnegative().max(1e9),
-      poRegisteredAt: boundedText(40),
-      xdock: boundedText(20)
+      poRegisteredAt: boundedText3(40),
+      xdock: boundedText3(20)
     }).strict().optional()
   }).strict();
   var RocketSavedPoListRequestSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
-    from: isoDay,
-    to: isoDay,
-    status: boundedText(80).optional()
+    from: isoDay3,
+    to: isoDay3,
+    status: boundedText3(80).optional()
   }).strict().superRefine((value, ctx) => {
     if (value.to < value.from) {
       ctx.addIssue({
@@ -5314,14 +6531,14 @@ var KidItemRuntime = (() => {
   var RocketSavedPoSummarySchema = external_exports.object({
     /** 이 발주를 발행한 로켓 PO 수집 실행(Orders `orders.coupang_rocket_po`, KID-359). */
     rocketPoOperationId: external_exports.string().uuid(),
-    poNumber: requiredText(80),
-    orderedAt: boundedText(40),
-    plannedDeliveryDate: isoDay,
-    status: boundedText(80),
-    vendorId: boundedText(120),
-    centerName: boundedText(120),
-    inboundType: boundedText(80),
-    firstProductName: requiredText(240),
+    poNumber: requiredText3(80),
+    orderedAt: boundedText3(40),
+    plannedDeliveryDate: isoDay3,
+    status: boundedText3(80),
+    vendorId: boundedText3(120),
+    centerName: boundedText3(120),
+    inboundType: boundedText3(80),
+    firstProductName: requiredText3(240),
     skuCount: external_exports.number().int().nonnegative(),
     orderQuantity: external_exports.number().int().nonnegative(),
     /** Null when any listed line has no provider-confirmed total. */
@@ -5339,7 +6556,7 @@ var KidItemRuntime = (() => {
     // 여러 수집본에 반복 등장한다(`poLineId` 는 수집본 간에 안정적). 운영자가 "이번에
     // 새로 들어온 것만" 보려면 이 집합을 빼야 한다. 행 스키마는 요청 본문으로도 쓰이므로
     // 행에 필드를 더하지 않고 별도 목록으로 내려준다.
-    exportedPoLineIds: external_exports.array(requiredText(300)).max(ROCKET_PO_ROW_LIMIT)
+    exportedPoLineIds: external_exports.array(requiredText3(300)).max(ROCKET_PO_ROW_LIMIT)
   }).strict();
   var RocketPurchaseRequestBaseSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
@@ -5409,12 +6626,12 @@ var KidItemRuntime = (() => {
   var RocketShortageReasonSchema = external_exports.enum(ROCKET_SHORTAGE_REASONS);
   var RocketWorkbookDecisionRequestSchema = RocketPurchaseRequestBaseSchema.omit({ clampEditedQuantities: true }).extend({
     idempotencyKey: external_exports.string().uuid(),
-    selectedPoLineIds: external_exports.array(requiredText(300)).min(1).max(4e3).optional(),
+    selectedPoLineIds: external_exports.array(requiredText3(300)).min(1).max(4e3).optional(),
     shortageReasons: external_exports.record(
       external_exports.string().min(1).max(300),
       RocketShortageReasonSchema
     ),
-    artifactFileName: requiredText(240),
+    artifactFileName: requiredText3(240),
     artifactContentType: external_exports.literal(
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
@@ -5505,18 +6722,18 @@ var KidItemRuntime = (() => {
   }).strict();
   var RocketPurchasePreviewComponentSchema = external_exports.object({
     masterProductId: external_exports.string().uuid(),
-    code: requiredText(120).nullable(),
-    name: requiredText(240).nullable(),
+    code: requiredText3(120).nullable(),
+    name: requiredText3(240).nullable(),
     optionName: external_exports.string().trim().min(1).max(240).nullable(),
     quantity: external_exports.number().int().positive(),
     currentStock: external_exports.number().int().nonnegative().nullable()
   }).strict();
   var RocketPurchasePreviewRowSchema = external_exports.object({
-    poLineId: requiredText(300),
-    poNumber: requiredText(80),
-    productNo: requiredText(60),
-    productName: requiredText(240),
-    plannedDeliveryDate: isoDay,
+    poLineId: requiredText3(300),
+    poNumber: requiredText3(80),
+    productNo: requiredText3(60),
+    productName: requiredText3(240),
+    plannedDeliveryDate: isoDay3,
     orderQuantity: external_exports.number().int().nonnegative(),
     recommendedQuantity: external_exports.number().int().nonnegative().nullable(),
     maxQuantity: external_exports.number().int().nonnegative().nullable(),
@@ -5547,7 +6764,7 @@ var KidItemRuntime = (() => {
     inventoryGeneration: external_exports.string().regex(/^\d+$/).nullable(),
     generatedAt: external_exports.string().datetime(),
     artifact: external_exports.object({
-      fileName: requiredText(240),
+      fileName: requiredText3(240),
       contentType: external_exports.literal(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       ),
@@ -5561,7 +6778,7 @@ var KidItemRuntime = (() => {
       componentQuantity: external_exports.number().int().nonnegative()
     }).strict(),
     rows: external_exports.array(external_exports.object({
-      poLineId: requiredText(300),
+      poLineId: requiredText3(300),
       workbookQuantity: external_exports.number().int().nonnegative(),
       shortageReason: RocketShortageReasonSchema.nullable()
     }).strict()).max(ROCKET_PO_ROW_LIMIT)
@@ -5659,14 +6876,11 @@ var KidItemRuntime = (() => {
     orderAmount: external_exports.number().nonnegative(),
     items: external_exports.array(CoupangDirectPoSnapshotItemSchema)
   }).strict();
-  var SaveCoupangDirectPoSnapshotRequestSchema = external_exports.object({
-    channelAccountId: external_exports.string().uuid(),
-    /** 이 스냅샷의 근거인 성공한 directship 실행(`orders.coupang_directship`, KID-359). */
-    operationId: external_exports.string().uuid(),
-    entries: external_exports.array(CoupangDirectPoSnapshotEntrySchema).max(4e3)
-  }).strict();
   var CoupangDirectPoSnapshotResponseSchema = external_exports.object({
     channelAccountId: external_exports.string(),
+    /** 이 달력의 근거인 성공한 directship 실행. 변환은 이 실행으로 보낸다. 아직 성공한 수집이 없으면 null. */
+    operationId: external_exports.string().uuid().nullable(),
+    /** 그 실행이 끝난 시각. */
     collectedAt: external_exports.string().nullable(),
     entries: external_exports.array(CoupangDirectPoSnapshotEntrySchema)
   });
@@ -5677,13 +6891,13 @@ var KidItemRuntime = (() => {
   var COUPANG_DIRECTSHIP_KIND = "orders.coupang_directship";
   var SELLPIA_SHIPMENT_TRACKING_KIND = "orders.sellpia_shipment_tracking";
   var MALL_ORDERS_KIND = "orders.mall_orders";
-  var isoDay2 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+  var isoDay4 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
   var CoupangShipmentSummaryScopeSchema = external_exports.object({
     maxPages: external_exports.number().int().min(1).max(60).optional()
   }).strict();
   var COUPANG_SHIPMENT_SUMMARY_PAGE_ROWS = 10;
   var CoupangShipmentDateItemSchema = external_exports.object({
-    date: isoDay2,
+    date: isoDay4,
     count: external_exports.number().int().min(1).max(1e6),
     boxes: external_exports.number().int().min(0).max(1e6)
   }).strict();
@@ -5720,8 +6934,8 @@ var KidItemRuntime = (() => {
     totalListPages: external_exports.number().int().min(0).max(1e5),
     detailPoCount: external_exports.number().int().min(0).max(ROCKET_PO_ROW_LIMIT),
     proof: external_exports.object({
-      from: isoDay2,
-      to: isoDay2,
+      from: isoDay4,
+      to: isoDay4,
       status: external_exports.enum(["RP", "PA", "RI", "CI", ""]),
       dateType: external_exports.enum(["WAREHOUSING_PLAN_DATE", "PURCHASE_ORDER_DATE"]),
       validatedList: external_exports.literal(true)
@@ -5767,8 +6981,8 @@ var KidItemRuntime = (() => {
     centers: external_exports.record(external_exports.string(), CoupangDirectCenterSchema)
   }).strict();
   var SellpiaShipmentTrackingScopeSchema = external_exports.object({
-    startDate: isoDay2,
-    endDate: isoDay2
+    startDate: isoDay4,
+    endDate: isoDay4
   }).strict().refine((value) => value.startDate <= value.endDate, "\uC2DC\uC791\uC77C\uC774 \uB05D\uC77C\uBCF4\uB2E4 \uB2A6\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
   var MallOrdersCollectionModeSchema = external_exports.enum(["browser", "manual-upload"]);
   var MallOrdersSelectionModeSchema = external_exports.enum(["manual", "automatic"]);
@@ -5778,7 +6992,7 @@ var KidItemRuntime = (() => {
   var MallOrdersScopeSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
     mallKey: external_exports.string().min(1).max(64),
-    collectionDate: isoDay2.nullable().default(null),
+    collectionDate: isoDay4.nullable().default(null),
     collectionMode: MallOrdersCollectionModeSchema,
     selectionMode: MallOrdersSelectionModeSchema.optional(),
     seenRowKeys: external_exports.array(external_exports.string().min(1).max(MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH)).max(MALL_ORDERS_SEEN_ROW_KEYS_MAX).optional()
@@ -5805,7 +7019,7 @@ var KidItemRuntime = (() => {
      * 몰이 그 기간의 주문을 빠짐없이 보여 줬다는 확인(확인 범위를 내는 몰 — 도매꾹·해법몰 — 이 수집일로 걷은 성공 실행,
      * 빈 날 포함). 주문 사실 리더가 몰 적용 범위로 읽는다(옛 run의 coverageStartDate/EndDate 자리).
      */
-    coverage: external_exports.object({ startDate: isoDay2, endDate: isoDay2 }).strict().optional(),
+    coverage: external_exports.object({ startDate: isoDay4, endDate: isoDay4 }).strict().optional(),
     /** 화면 표에 개인정보가 가려진 칸이 있었다(아이스크림몰) — 웹이 운영자에게 알린다. */
     masked: external_exports.boolean().optional(),
     /** 이번 수집(고른 행)의 서로 다른 주문번호, 최대 2,000개 — 웹의 생성 파일 항목(일일 건수·중복 판정)이 쓴다. */
@@ -5813,7 +7027,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/collectors/orders.coupang_directship/index.ts
-  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
   var MAX_LIST_PAGES = 40;
   var WINDOW_DAYS = 30;
   var DETAIL_CONCURRENCY = 5;
@@ -5824,9 +7038,9 @@ var KidItemRuntime = (() => {
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       if (!CoupangDirectshipPlanSchema.safeParse(rawPlan).success) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+        throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       }
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       try {
         const now = Date.now();
         const query = { searchDateType: "WAREHOUSING_PLAN_DATE", from: kstDay(now, 0), to: kstDay(now, WINDOW_DAYS), status: "PA" };
@@ -5891,9 +7105,9 @@ var KidItemRuntime = (() => {
     const raw = String(value ?? "").trim();
     if (!raw) return "";
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-    const parsed = Date.parse(raw);
-    if (Number.isNaN(parsed)) return raw.slice(0, 10);
-    return new Date(parsed + KST_OFFSET_MS).toISOString().slice(0, 10);
+    const parsed2 = Date.parse(raw);
+    if (Number.isNaN(parsed2)) return raw.slice(0, 10);
+    return new Date(parsed2 + KST_OFFSET_MS).toISOString().slice(0, 10);
   }
   function isUrgent(row) {
     const code = String(row.purchaseOrderType ?? "").trim().toUpperCase();
@@ -6095,15 +7309,15 @@ var KidItemRuntime = (() => {
     maxPagesPerWindow: external_exports.number().int().min(1)
   });
   var COUPANG_REVIEWS_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
-  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
   var coupangReviewsCollector = {
     kind: COUPANG_REVIEWS_KIND,
     site: "wing-reviews",
     async *collect(rawPlan, site, { signal }) {
-      const parsed = CoupangReviewsPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      const plan = parsed.data;
+      const parsed2 = CoupangReviewsPlanSchema.safeParse(rawPlan);
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      const plan = parsed2.data;
       const done = [];
       for (const window of plan.windows) {
         const status = { index: window.index, pages: 0, items: 0, done: false };
@@ -6145,17 +7359,17 @@ var KidItemRuntime = (() => {
 
   // extensions/src/collectors/orders.coupang_rocket_po/index.ts
   var ROCKET_PO_COLLECTION_INCOMPLETE = "ROCKET_PO_COLLECTION_INCOMPLETE";
-  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID8 = "RUNTIME_PLAN_INVALID";
   var DETAIL_CONCURRENCY2 = 5;
   var CHUNK_PURCHASE_ORDERS = 200;
   var coupangRocketPoCollector = {
     kind: COUPANG_ROCKET_PO_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed = CoupangRocketPoPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
-      const plan = parsed.data;
+      const parsed2 = CoupangRocketPoPlanSchema.safeParse(rawPlan);
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      const plan = parsed2.data;
       try {
         const query = { searchDateType: plan.dateType, from: plan.from, to: plan.to, status: plan.status };
         const listed = [];
@@ -6220,12 +7434,12 @@ var KidItemRuntime = (() => {
   function listedPo(raw, status, page) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw incomplete2(`\uBC1C\uC8FC \uBAA9\uB85D ${page}\uCABD\uC5D0 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC740 \uD589\uC774 \uC788\uC2B5\uB2C8\uB2E4.`);
     const row = raw;
-    const poNumber = requiredText2(row.purchaseOrderSeq, "\uBC1C\uC8FC\uC11C \uBC88\uD638");
-    const purchaseOrderStatus = requiredText2(row.purchaseOrderStatus || row.purchaseOrderStatusCode, `\uBC1C\uC8FC\uC11C ${poNumber} \uC0C1\uD0DC`).toUpperCase();
+    const poNumber = requiredText4(row.purchaseOrderSeq, "\uBC1C\uC8FC\uC11C \uBC88\uD638");
+    const purchaseOrderStatus = requiredText4(row.purchaseOrderStatus || row.purchaseOrderStatusCode, `\uBC1C\uC8FC\uC11C ${poNumber} \uC0C1\uD0DC`).toUpperCase();
     if (status && purchaseOrderStatus !== status) throw incomplete2(`\uBC1C\uC8FC\uC11C ${poNumber}\uAC00 ${status} \uC870\uD68C\uC5D0 ${purchaseOrderStatus} \uC0C1\uD0DC\uB85C \uC654\uC2B5\uB2C8\uB2E4.`);
     return {
       poNumber,
-      vendorId: requiredText2(row.vendorId, `\uBC1C\uC8FC\uC11C ${poNumber} \uACF5\uAE09\uC790 ID`),
+      vendorId: requiredText4(row.vendorId, `\uBC1C\uC8FC\uC11C ${poNumber} \uACF5\uAE09\uC790 ID`),
       purchaseOrderStatus,
       plannedDeliveryDate: requiredDate(row.expectedDeliveryDate, `\uBC1C\uC8FC\uC11C ${poNumber} \uC785\uACE0\uC608\uC815\uC77C`),
       listSkuCount: requiredInteger(row.skuCount, `\uBC1C\uC8FC\uC11C ${poNumber} SKU \uC218`),
@@ -6273,17 +7487,17 @@ var KidItemRuntime = (() => {
       skip = rowSpan - 1;
       if (!/^\d+$/.test(values[0] ?? "")) continue;
       if (values.length <= 9) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uCE78\uC774 \uBAA8\uC790\uB780 SKU \uD589\uC774 \uC788\uC2B5\uB2C8\uB2E4.`);
-      const lineNumber = requiredText2(values[0], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC904 \uBC88\uD638`);
+      const lineNumber = requiredText4(values[0], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC904 \uBC88\uD638`);
       if (lineNumbers.has(lineNumber)) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uAC19\uC740 \uC904 \uBC88\uD638\uAC00 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.`);
       lineNumbers.add(lineNumber);
-      const productNo = requiredText2(values[1], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488\uBC88\uD638`);
-      const productText = requiredText2(values[2], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488`);
+      const productNo = requiredText4(values[1], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488\uBC88\uD638`);
+      const productText = requiredText4(values[2], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488`);
       const barcode = (/^\d{8,}/.exec(productText) ?? [""])[0];
       const productName = clean(productText, 240);
       if (!productName) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC758 \uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
-      const identity = `${productNo}\0${barcode}`;
-      if (products.has(identity)) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uAC19\uC740 \uC0C1\uD488 \uC904\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.`);
-      products.add(identity);
+      const identity2 = `${productNo}\0${barcode}`;
+      if (products.has(identity2)) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uAC19\uC740 \uC0C1\uD488 \uC904\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.`);
+      products.add(identity2);
       const orderQty = requiredInteger(values[4], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uBC1C\uC8FC \uC218\uB7C9`);
       const purchasePrice = requiredInteger(values[6], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uB9E4\uC785\uAC00`);
       const supplyPrice = requiredInteger(values[7], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uACF5\uAE09\uAC00`);
@@ -6335,10 +7549,10 @@ var KidItemRuntime = (() => {
   function clean(value, max) {
     return String(value ?? "").replace(/[\u0000-\u001F]/g, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, max);
   }
-  function requiredText2(value, field) {
-    const text2 = norm(value);
-    if (!text2) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
-    return text2;
+  function requiredText4(value, field) {
+    const text5 = norm(value);
+    if (!text5) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+    return text5;
   }
   function requiredInteger(value, field) {
     if (typeof value === "number") {
@@ -6348,9 +7562,9 @@ var KidItemRuntime = (() => {
     if (typeof value !== "string") throw incomplete2(`${field}\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
     const raw = value.trim();
     if (!raw || !/^\d+$/.test(raw) && !/^\d{1,3}(?:,\d{3})+$/.test(raw)) throw incomplete2(`${field}\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
-    const parsed = Number(raw.replace(/,/g, ""));
-    if (!Number.isSafeInteger(parsed) || parsed < 0) throw incomplete2(`${field}\uAC00 \uBC94\uC704\uB97C \uBC97\uC5B4\uB0AC\uC2B5\uB2C8\uB2E4.`);
-    return parsed;
+    const parsed2 = Number(raw.replace(/,/g, ""));
+    if (!Number.isSafeInteger(parsed2) || parsed2 < 0) throw incomplete2(`${field}\uAC00 \uBC94\uC704\uB97C \uBC97\uC5B4\uB0AC\uC2B5\uB2C8\uB2E4.`);
+    return parsed2;
   }
   function isCalendarDate(year, month, day) {
     if (month < 1 || month > 12 || day < 1) return false;
@@ -6365,24 +7579,24 @@ var KidItemRuntime = (() => {
       return raw;
     }
     const iso = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(raw);
-    const parsed = iso ? Date.parse(raw) : Number.NaN;
-    if (!iso || !isCalendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3])) || Number.isNaN(parsed)) throw incomplete2(`${field}\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
-    return new Date(parsed + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
+    const parsed2 = iso ? Date.parse(raw) : Number.NaN;
+    if (!iso || !isCalendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3])) || Number.isNaN(parsed2)) throw incomplete2(`${field}\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+    return new Date(parsed2 + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
   }
   registerCollector(coupangRocketPoCollector);
 
   // extensions/src/collectors/orders.coupang_shipment_summary/index.ts
   var PlanSchema = external_exports.object({ maxPages: external_exports.number().int().min(1).max(60) });
   var PAGE_FETCH_CONCURRENCY = 6;
-  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID9 = "RUNTIME_PLAN_INVALID";
   var coupangShipmentSummaryCollector = {
     kind: COUPANG_SHIPMENT_SUMMARY_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed = PlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      const { maxPages } = parsed.data;
+      const parsed2 = PlanSchema.safeParse(rawPlan);
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      const { maxPages } = parsed2.data;
       try {
         const seen = /* @__PURE__ */ new Set();
         const byDate = /* @__PURE__ */ new Map();
@@ -6460,21 +7674,21 @@ var KidItemRuntime = (() => {
     selectionMode: external_exports.enum(["manual", "automatic"]).optional(),
     seenRowKeys: external_exports.array(external_exports.string()).optional()
   });
-  var CHUNK_ROWS = 200;
-  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
+  var CHUNK_ROWS4 = 200;
+  var RUNTIME_PLAN_INVALID10 = "RUNTIME_PLAN_INVALID";
   var mallOrdersCollector = {
     kind: MALL_ORDERS_KIND,
     site: "mall-orders",
     async *collect(rawPlan, site, { signal }) {
-      const parsed = PlanSchema2.safeParse(rawPlan);
-      const reader = parsed.success && site ? site.reader(parsed.data.mallKey) : null;
-      if (!parsed.success || !reader) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+      const parsed2 = PlanSchema2.safeParse(rawPlan);
+      const reader = parsed2.success && site ? site.reader(parsed2.data.mallKey) : null;
+      if (!parsed2.success || !reader) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ORDERS_KIND,
-          mallKey: parsed.success ? parsed.data.mallKey : null
+          mallKey: parsed2.success ? parsed2.data.mallKey : null
         });
       }
-      const plan = parsed.data;
+      const plan = parsed2.data;
       try {
         const { rows, continuation } = await reader.readOrders({
           collectionDate: plan.collectionDate,
@@ -6484,7 +7698,7 @@ var KidItemRuntime = (() => {
         });
         if (signal.aborted) return;
         const progress4 = { mallKey: plan.mallKey, rows: rows.length };
-        const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS, label: "\uC8FC\uBB38 \uD55C \uAC74" });
+        const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS4, label: "\uC8FC\uBB38 \uD55C \uAC74" });
         for (const row of rows) {
           const full = buffer.push(row);
           if (full) yield { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: full, progress: progress4 };
@@ -6504,19 +7718,19 @@ var KidItemRuntime = (() => {
     startDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     endDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/)
   });
-  var CHUNK_ROWS2 = 500;
-  var RUNTIME_PLAN_INVALID8 = "RUNTIME_PLAN_INVALID";
+  var CHUNK_ROWS5 = 500;
+  var RUNTIME_PLAN_INVALID11 = "RUNTIME_PLAN_INVALID";
   var sellpiaShipmentTrackingCollector = {
     kind: SELLPIA_SHIPMENT_TRACKING_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
-      const parsed = PlanSchema3.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
-      const { rows, total } = await site.shipmentTracking({ startDate: parsed.data.startDate, endDate: parsed.data.endDate });
+      const parsed2 = PlanSchema3.safeParse(rawPlan);
+      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      const { rows, total } = await site.shipmentTracking({ startDate: parsed2.data.startDate, endDate: parsed2.data.endDate });
       if (signal.aborted) return;
       const progress4 = { rows: rows.length, listed: total };
-      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS2, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS5, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
       for (const row of rows) {
         const full = buffer.push(row);
         if (full) yield { chunkKind: SELLPIA_SHIPMENT_TRACKING_CHUNK_KIND, payload: full, progress: progress4 };
@@ -6587,16 +7801,16 @@ var KidItemRuntime = (() => {
     purpose: SourcingWingCatalogPurposeSchema
   }).strict().superRefine((value, context) => {
     const identities = /* @__PURE__ */ new Set();
-    value.keywords.forEach((keyword, index) => {
-      const identity = sourcingWingCatalogKeywordIdentity(keyword);
-      if (identities.has(identity)) {
+    value.keywords.forEach((keyword2, index) => {
+      const identity2 = sourcingWingCatalogKeywordIdentity(keyword2);
+      if (identities.has(identity2)) {
         context.addIssue({
           code: external_exports.ZodIssueCode.custom,
           path: ["keywords", index],
           message: "Wing catalog keywords must be unique after normalization."
         });
       }
-      identities.add(identity);
+      identities.add(identity2);
     });
   });
   var SourcingKeywordSuggestionInputSchema = external_exports.object({
@@ -6626,99 +7840,6 @@ var KidItemRuntime = (() => {
     items: external_exports.array(SourcingKeywordSuggestionItemSchema).max(30),
     productNameTokens: external_exports.array(SourcingKeywordSuggestionTokenSchema).max(30)
   }).strict();
-  var CoupangSellerIdSchema = external_exports.string().trim().min(1).max(80).regex(/^[A-Za-z0-9_-]+$/u);
-  var AdvertisingCompetitorCatalogProductSchema = external_exports.object({
-    sourceRank: external_exports.number().int().min(1).max(500),
-    productId: external_exports.string().trim().min(1).max(200).nullable(),
-    itemId: external_exports.string().trim().min(1).max(200).nullable(),
-    vendorItemId: external_exports.string().trim().min(1).max(200).nullable(),
-    name: external_exports.string().trim().min(1).max(500),
-    priceKrw: BoundedCountSchema2.nullable(),
-    reviewCount: BoundedCountSchema2.nullable(),
-    imageUrl: external_exports.string().trim().max(2e3).nullable(),
-    link: external_exports.string().trim().max(2e3).nullable()
-  }).strict().superRefine((value, context) => {
-    if (!value.productId && !value.itemId && !value.vendorItemId) {
-      context.addIssue({
-        code: external_exports.ZodIssueCode.custom,
-        path: ["productId"],
-        message: "A competitor catalog product requires an exact identity."
-      });
-    }
-  });
-  var CoupangSellerStoreUrlSchema = external_exports.string().trim().url().max(2e3).refine((value) => {
-    try {
-      const parsed = new URL(value);
-      return parsed.protocol === "https:" && parsed.hostname === "shop.coupang.com";
-    } catch {
-      return false;
-    }
-  }, "Only Coupang seller-store URLs are accepted as catalog evidence.");
-  var AdvertisingCompetitorCatalogItemSchema = external_exports.object({
-    keyword: SourcingWingCatalogKeywordSchema,
-    sellerId: CoupangSellerIdSchema,
-    sellerName: external_exports.string().trim().min(1).max(300),
-    sellerStoreUrl: CoupangSellerStoreUrlSchema,
-    totalProductCount: BoundedCountSchema2.nullable(),
-    collectedProductCount: external_exports.number().int().min(1).max(500),
-    isTruncated: external_exports.boolean(),
-    sort: external_exports.literal("newest"),
-    capturedAt: InstantSchema,
-    products: external_exports.array(AdvertisingCompetitorCatalogProductSchema).min(1).max(500)
-  }).strict().superRefine((value, context) => {
-    if (value.collectedProductCount !== value.products.length) {
-      context.addIssue({
-        code: external_exports.ZodIssueCode.custom,
-        path: ["collectedProductCount"],
-        message: "Collected product count must match the bounded rows."
-      });
-    }
-  });
-  var AdvertisingCompetitorCatalogBatchSchema = external_exports.object({
-    catalogs: external_exports.array(AdvertisingCompetitorCatalogItemSchema).min(1).max(20)
-  }).strict().superRefine((value, context) => {
-    const sellers = /* @__PURE__ */ new Set();
-    value.catalogs.forEach((catalog, index) => {
-      if (sellers.has(catalog.sellerId)) {
-        context.addIssue({
-          code: external_exports.ZodIssueCode.custom,
-          path: ["catalogs", index, "sellerId"],
-          message: "Competitor seller IDs must be unique per owner batch."
-        });
-      }
-      sellers.add(catalog.sellerId);
-    });
-  });
-  var AdvertisingTrackedWingProductsInputSchema = external_exports.object({
-    keywords: external_exports.array(SourcingWingCatalogKeywordSchema).min(1).max(12),
-    maxPages: external_exports.number().int().min(1).max(5),
-    purpose: external_exports.literal("tracked_metrics"),
-    trackedProductIds: external_exports.array(external_exports.string().trim().min(1).max(200)).min(1).max(200)
-  }).strict().superRefine((value, context) => {
-    const keywordIdentities = /* @__PURE__ */ new Set();
-    value.keywords.forEach((keyword, index) => {
-      const identity = sourcingWingCatalogKeywordIdentity(keyword);
-      if (keywordIdentities.has(identity)) {
-        context.addIssue({
-          code: external_exports.ZodIssueCode.custom,
-          path: ["keywords", index],
-          message: "Wing catalog keywords must be unique after normalization."
-        });
-      }
-      keywordIdentities.add(identity);
-    });
-    const productIds = /* @__PURE__ */ new Set();
-    value.trackedProductIds.forEach((productId, index) => {
-      if (productIds.has(productId)) {
-        context.addIssue({
-          code: external_exports.ZodIssueCode.custom,
-          path: ["trackedProductIds", index],
-          message: "Tracked product IDs must be unique."
-        });
-      }
-      productIds.add(productId);
-    });
-  });
   var SourcingWingCatalogObservationSchema = external_exports.object({
     productId: external_exports.string().trim().min(1).max(200),
     itemId: external_exports.string().trim().max(200).nullable(),
@@ -6866,21 +7987,6 @@ var KidItemRuntime = (() => {
   };
   registerCollector(sourcingCoupangKeywordSuggestionCollector);
 
-  // extensions/src/collectors/collector.ts
-  function attentionReporter(report, base) {
-    let since = null;
-    return async (attention) => {
-      if (!report) return;
-      if (!attention) {
-        since = null;
-        await report({ ...base, attention: null });
-        return;
-      }
-      since ??= (/* @__PURE__ */ new Date()).toISOString();
-      await report({ ...base, attention: { ...attention, since } });
-    };
-  }
-
   // extensions/src/collectors/sourcing.live_commerce/index.ts
   var sourcingLiveCommerceCollector = {
     kind: SOURCING_OPERATION_KINDS.liveCommerce,
@@ -6964,13 +8070,13 @@ var KidItemRuntime = (() => {
     site: "ali1688",
     async *collect(plan, site, { signal, report }) {
       try {
-        for (const [index, keyword] of plan.keywords.entries()) {
+        for (const [index, keyword2] of plan.keywords.entries()) {
           if (signal.aborted) return;
-          const items = await site.offers(keyword, { onAttention: attentionReporter(report, { current: index, total: plan.keywords.length, label: keyword }) });
+          const items = await site.offers(keyword2, { onAttention: attentionReporter(report, { current: index, total: plan.keywords.length, label: keyword2 }) });
           yield {
             chunkKind: SOURCING_CHUNK_KINDS.offers1688,
-            payload: [{ keyword, items }],
-            progress: { current: index + 1, total: plan.keywords.length, label: keyword }
+            payload: [{ keyword: keyword2, items }],
+            progress: { current: index + 1, total: plan.keywords.length, label: keyword2 }
           };
         }
       } finally {
@@ -6987,13 +8093,13 @@ var KidItemRuntime = (() => {
     kind: SOURCING_OPERATION_KINDS.wingCatalog,
     site: "wing-search",
     async *collect(plan, site, { signal }) {
-      for (const [index, keyword] of plan.keywords.entries()) {
+      for (const [index, keyword2] of plan.keywords.entries()) {
         if (signal.aborted) return;
         const rows = /* @__PURE__ */ new Map();
         let searchPage = 0;
         for (let pageIndex = 0; pageIndex < plan.maxPages; pageIndex += 1) {
           if (signal.aborted) return;
-          const page = await site.searchPage(keyword, searchPage);
+          const page = await site.searchPage(keyword2, searchPage);
           for (const row of page.rows) {
             const key = site.identity(row);
             if (!rows.has(key)) rows.set(key, row);
@@ -7001,18 +8107,18 @@ var KidItemRuntime = (() => {
           if (page.rows.length === 0 || page.nextSearchPage === null) break;
           if (page.nextSearchPage === searchPage) {
             if (pageIndex + 1 < plan.maxPages) {
-              throw new RuntimeError(SOURCING_COLLECTION_INCOMPLETE, `Wing \uAC80\uC0C9 '${keyword}'\uC758 \uB2E4\uC74C \uCABD\uC774 \uB118\uC5B4\uAC00\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.`, { keyword });
+              throw new RuntimeError(SOURCING_COLLECTION_INCOMPLETE, `Wing \uAC80\uC0C9 '${keyword2}'\uC758 \uB2E4\uC74C \uCABD\uC774 \uB118\uC5B4\uAC00\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.`, { keyword: keyword2 });
             }
             break;
           }
           searchPage = page.nextSearchPage;
         }
         const capturedAt = (/* @__PURE__ */ new Date()).toISOString();
-        const items = [...rows.values()].map((row) => site.toObservation(row, keyword, capturedAt)).filter((item) => item !== null).slice(0, MAX_ITEMS_PER_KEYWORD);
+        const items = [...rows.values()].map((row) => site.toObservation(row, keyword2, capturedAt)).filter((item) => item !== null).slice(0, MAX_ITEMS_PER_KEYWORD);
         yield {
           chunkKind: SOURCING_CHUNK_KINDS.wingSearchPage,
-          payload: [{ keyword, maxPages: plan.maxPages, purpose: plan.purpose, items }],
-          progress: { current: index + 1, total: plan.keywords.length, label: keyword }
+          payload: [{ keyword: keyword2, maxPages: plan.maxPages, purpose: plan.purpose, items }],
+          progress: { current: index + 1, total: plan.keywords.length, label: keyword2 }
         };
       }
     }
@@ -7228,8 +8334,8 @@ var KidItemRuntime = (() => {
     origin: SEARCH_ORIGIN,
     caller: { minIntervalMs: 0, displayName: "1688" }
   };
-  function build1688SearchUrl(keyword) {
-    return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword)}&charset=utf8`;
+  function build1688SearchUrl(keyword2) {
+    return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword2)}&charset=utf8`;
   }
   function is1688VerificationUrl(value) {
     try {
@@ -7247,20 +8353,20 @@ var KidItemRuntime = (() => {
        * 키워드 하나. 슬라이더 검증이 뜨면 실패하지 않고 운영자를 기다렸다가(`onAttention`으로 알림) 같은 키워드를 다시
        * 시도한다 — 실행과 이미 올린 청크는 그대로다(KID-355 QA). 10분 안에 통과하지 않으면 `SITE_VERIFICATION_REQUIRED`.
        */
-      async offers(keyword, options = {}) {
+      async offers(keyword2, options = {}) {
         page ??= await tabs.open("about:blank");
         const current = page;
-        const attention = { kind: "verification", site: "1688", label: keyword };
+        const attention = { kind: "verification", site: "1688", label: keyword2 };
         const waitOrFail = async (url) => {
           if (await waitForOperator(current, is1688VerificationUrl, attention, options.onAttention)) return;
-          throw verification(url, keyword, () => {
+          throw verification(url, keyword2, () => {
             keepOpen = true;
           });
         };
         for (let round = 1; ; round += 1) {
-          const landed = await current.navigate(build1688SearchUrl(keyword), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
+          const landed = await current.navigate(build1688SearchUrl(keyword2), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
           if (is1688VerificationUrl(landed)) {
-            if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword, () => {
+            if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword2, () => {
               keepOpen = true;
             });
             await waitOrFail(landed);
@@ -7279,7 +8385,7 @@ var KidItemRuntime = (() => {
           if (extracted.status === "verification_required") {
             const here = await current.currentUrl().catch(() => extracted.verificationUrl ?? landed);
             if (round > MAX_VERIFICATION_ROUNDS || !is1688VerificationUrl(here)) {
-              throw verification(extracted.verificationUrl ?? landed, keyword, () => {
+              throw verification(extracted.verificationUrl ?? landed, keyword2, () => {
                 keepOpen = true;
               });
             }
@@ -7287,7 +8393,7 @@ var KidItemRuntime = (() => {
             continue;
           }
           if (!extracted.ok) {
-            throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword });
+            throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword2}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword: keyword2 });
           }
           return (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => typeof item?.offerId === "string" && item.offerId.length > 0).slice(0, MAX_RESULTS_PER_KEYWORD);
         }
@@ -7299,9 +8405,9 @@ var KidItemRuntime = (() => {
       }
     };
   }
-  function verification(url, keyword, keep) {
+  function verification(url, keyword2, keep) {
     keep();
-    return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword });
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword: keyword2 });
   }
   registerSite({ name: ALIBABA_1688_SITE.name, create: (deps) => create1688SearchSite(deps.tabs) });
 
@@ -7312,7 +8418,7 @@ var KidItemRuntime = (() => {
     let keepOpen = false;
     try {
       await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS2 });
-      return await read(page);
+      return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
     } catch (error) {
       if (leftForOperator(error)) keepOpen = true;
       throw error;
@@ -7327,7 +8433,7 @@ var KidItemRuntime = (() => {
   var PAGE_CALL_MESSAGE = "KIDITEM_PAGE_CALL";
   async function callPage(page, call2, args, options) {
     const answer = await page.ask(
-      { type: PAGE_CALL_MESSAGE, call: call2, args },
+      { type: PAGE_CALL_MESSAGE, call: call2, args, ...options.isolatedOnly ? { world: "isolated" } : {} },
       {
         timeoutMs: options.timeoutMs,
         guard: options.guard,
@@ -7350,22 +8456,278 @@ var KidItemRuntime = (() => {
     });
   }
 
+  // extensions/src/sites/site-login.ts
+  var LOGIN_FILL_FILE = "content/page-call/login-fill.js";
+  var LOGIN_DIALOGS_FILE = "content/page-call/login-dialogs.js";
+  var LOGIN_FILL_WINDOW_MS = 15e3;
+  var FILL_RETRY_MS = 500;
+  var AFTER_SUBMIT_MS = 1500;
+  var AFTER_REDIRECT_MS = 1200;
+  var NAVIGATION_TIMEOUT_MS3 = 3e4;
+  var CALL_TIMEOUT_MS = 5e3;
+  var REMAIN_CHECKS = 3;
+  var REMAIN_CHECK_GAP_MS = 1500;
+  var NO_ANSWER = /* @__PURE__ */ Symbol("no-answer");
+  async function ensureLoggedIn(page, spec, credentials, deps, options = {}) {
+    const guard = loginGuard(spec);
+    const values = Object.fromEntries(spec.fields.map((field) => [field, credentials[field] ?? null]));
+    if (isVerification(spec, await safeUrl(page))) return { status: "verification_required" };
+    const first = await loginFrame(page);
+    if (first === null && !isLogin(spec, await safeUrl(page))) {
+      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS3, continueOnTimeout: true });
+    }
+    const deadline = deps.now() + (options.timeoutMs ?? LOGIN_FILL_WINDOW_MS);
+    const watching = /* @__PURE__ */ new Set();
+    let noFormSince = null;
+    while (deps.now() < deadline) {
+      const url = await safeUrl(page);
+      if (isVerification(spec, url)) return { status: "verification_required" };
+      const frameId = await loginFrame(page);
+      if (frameId === null) {
+        if (isLogin(spec, url)) noFormSince = null;
+        else {
+          noFormSince ??= deps.now();
+          if (deps.now() - noFormSince >= (spec.settleMs ?? 0)) return { status: "no_form" };
+        }
+      } else if (frameId !== void 0) {
+        noFormSince = null;
+        if (!watching.has(frameId)) {
+          watching.add(frameId);
+          await pageCall(page, "login.watchDialogs", {}, guard, spec, frameId, "main");
+        }
+        const filled = await pageCall(page, "login.fill", { values }, guard, spec, frameId, "isolated");
+        if (filled?.state === "submitted") return afterSubmit(page, spec, guard, frameId, deps);
+      }
+      await deps.sleep(FILL_RETRY_MS);
+    }
+    return { status: "unconfirmed" };
+  }
+  async function afterSubmit(page, spec, guard, frameId, deps) {
+    await deps.sleep(AFTER_SUBMIT_MS);
+    await deps.sleep(AFTER_REDIRECT_MS);
+    const dialogs = await pageCall(page, "login.takeDialogs", {}, guard, spec, frameId, "main");
+    const mallMessage = (Array.isArray(dialogs) ? dialogs : []).map((message) => String(message).replace(/\s+/g, " ").trim()).find(Boolean);
+    const withMessage = mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {};
+    if (isVerification(spec, await safeUrl(page))) return { status: "verification_required", ...withMessage };
+    return await formRemains(page, deps) ? { status: "form_remains", ...withMessage } : { status: "ok", ...withMessage };
+  }
+  async function formRemains(page, deps) {
+    let lastSeen = false;
+    for (let check = 0; check < REMAIN_CHECKS; check += 1) {
+      if (check > 0) await deps.sleep(REMAIN_CHECK_GAP_MS);
+      const probed = await probe(page);
+      if (probed === NO_ANSWER) return true;
+      if (probed === null || probed.length === 0) continue;
+      lastSeen = probed.some((frame) => frame.result?.loginForm === true);
+      if (!lastSeen) return false;
+    }
+    return lastSeen;
+  }
+  async function loginFrame(page) {
+    const probed = await probe(page);
+    if (probed === NO_ANSWER || probed === null || probed.length === 0) return void 0;
+    const found = probed.filter((frame) => frame.result?.loginForm === true).sort((a, b) => a.frameId - b.frameId)[0];
+    return found ? found.frameId : null;
+  }
+  async function probe(page) {
+    try {
+      return await within(page.frames([LOGIN_FILL_FILE]), CALL_TIMEOUT_MS);
+    } catch {
+      return null;
+    }
+  }
+  async function pageCall(page, call2, args, guard, spec, frameId, world) {
+    try {
+      return await callPage(page, call2, args, {
+        timeoutMs: CALL_TIMEOUT_MS,
+        guard,
+        displayName: spec.displayName,
+        frameId,
+        // 폼 채우기는 자격을 싣는다 — ISOLATED 처리기에서만 돌고 MAIN(페이지)으로 넘기지 않는다(리뷰 S2).
+        ...world === "main" ? { main: [LOGIN_DIALOGS_FILE] } : { isolated: [LOGIN_FILL_FILE], isolatedOnly: true }
+      });
+    } catch {
+      return null;
+    }
+  }
+  function loginGuard(spec) {
+    return {
+      allows: (url) => hostWithin(url, spec.hosts),
+      isLogin: () => false,
+      loginMessage: `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.`
+    };
+  }
+  async function safeUrl(page) {
+    return page.currentUrl().catch(() => "");
+  }
+  function parsed(value) {
+    try {
+      return new URL(value);
+    } catch {
+      return null;
+    }
+  }
+  function isLogin(spec, value) {
+    const url = parsed(value);
+    return url !== null && spec.isLoginUrl(url);
+  }
+  function isVerification(spec, value) {
+    const url = parsed(value);
+    return url !== null && spec.isVerificationUrl?.(url) === true;
+  }
+  function within(work, ms) {
+    let timer;
+    const timeout = new Promise((resolve) => {
+      timer = setTimeout(() => resolve(NO_ANSWER), ms);
+    });
+    return Promise.race([work, timeout]).finally(() => clearTimeout(timer));
+  }
+  function createSiteLoginGate(credentials) {
+    let attempt = null;
+    const usable = Boolean(credentials?.loginId && credentials.password);
+    return async function withLogin(call2, login) {
+      let blocked;
+      try {
+        return await call2();
+      } catch (error) {
+        if (!isLoginRequired(error)) throw error;
+        blocked = error;
+      }
+      if (!usable) throw loginFailure(blocked, "no_credentials");
+      attempt ??= login().catch(() => ({ status: "unconfirmed" }));
+      const outcome = await attempt;
+      if (outcome.status === "verification_required") throw loginFailure(blocked, "verification_required");
+      try {
+        return await call2();
+      } catch (error) {
+        if (!isLoginRequired(error)) throw error;
+        throw outcome.status === "form_remains" ? loginFailure(error, "credentials_rejected", outcome.mallMessage) : loginFailure(error, "login_unconfirmed");
+      }
+    };
+  }
+  function createSiteSignIn(spec, credentials, deps) {
+    const withLogin = createSiteLoginGate(credentials);
+    const login = (page) => ensureLoggedIn(page, spec, credentials, deps);
+    return {
+      onPage: (page, returnTo, read) => withLogin(read, async () => {
+        const outcome = await login(page);
+        if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
+        return outcome;
+      }),
+      beforeTab: (tabs, call2) => withLoginTab(withLogin, call2, () => tabs.open("about:blank"), login)
+    };
+  }
+  async function withLoginTab(withLogin, call2, open, login) {
+    let opened = null;
+    try {
+      const result = await withLogin(call2, async () => {
+        opened = await open();
+        return login(opened);
+      });
+      return result;
+    } catch (error) {
+      if (leftForOperator(error)) opened = null;
+      throw error;
+    } finally {
+      await opened?.close();
+    }
+  }
+  function isLoginRequired(error) {
+    return isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED;
+  }
+  var REASON_TEXT = {
+    no_credentials: "",
+    credentials_rejected: " \uC800\uC7A5\uB41C \uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638\uB85C \uB85C\uADF8\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4",
+    verification_required: " \uBCF8\uC778 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC5D0\uC11C \uC778\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.",
+    login_unconfirmed: " \uC800\uC7A5\uB41C \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."
+  };
+  function loginFailure(error, reason, mallMessage) {
+    const text5 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}${mallMessage ? `: ${mallMessage}` : ""}.` : REASON_TEXT[reason];
+    return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text5}`, {
+      ...error.details ?? {},
+      reason,
+      ...mallMessage ? { mallMessage } : {}
+    }, error);
+  }
+
+  // extensions/src/sites/mall-listings.ts
+  var READ_TIMEOUT_MS = 20 * 6e4;
+  var NAVIGATION_TIMEOUT_MS4 = 45e3;
+  var MALL_CONTRACT_CHANGED3 = "MALL_CONTRACT_CHANGED";
+  var SOURCE_SNAPSHOT_INVALID4 = "SOURCE_SNAPSHOT_INVALID";
+  function readMallListings(tabs, spec, plan, signIn) {
+    const login = `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${spec.displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`;
+    return withFreshTab(tabs, spec.startUrl, async (page) => {
+      const answer = await callPage(page, spec.call, { plan }, {
+        timeoutMs: READ_TIMEOUT_MS,
+        guard: spec.guard,
+        isolated: [spec.file],
+        displayName: spec.displayName
+      });
+      if (answer?.success === true) return answer.snapshot;
+      const stage = answer?.stage ?? null;
+      switch (answer?.errorCode) {
+        case "mall_login_required":
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, login, { url: spec.startUrl });
+        case "mall_contract_drift":
+          throw new RuntimeError(MALL_CONTRACT_CHANGED3, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.${stage ? ` [${stage}]` : ""}`, { stage, mallKey: spec.mallKey });
+        case "mall_total_changed":
+          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `\uC77D\uB294 \uC0AC\uC774 ${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`, { stage: "total_changed", mallKey: spec.mallKey });
+        case "mall_invalid_snapshot":
+          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { stage, mallKey: spec.mallKey });
+        case "mall_timeout":
+          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "timeout", bodyHead: null });
+        default:
+          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "network", bodyHead: null });
+      }
+    }, { navigationTimeoutMs: NAVIGATION_TIMEOUT_MS4, ...signIn ? { signIn } : {} });
+  }
+
+  // extensions/src/sites/art09/listings.ts
+  var ART09_LISTINGS_URL = "https://zzogzzog1.cafe24.com/disp/admin/shop1/product/ProductManage";
+  var ART09_LISTINGS_FILE = "content/orders/art09-listings.js";
+  var ART09_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["cafe24.com"]),
+    isLogin: (url) => hostWithin(url, ["cafe24.com"]) && !/\/product\/ProductManage$/i.test(url.pathname),
+    loginMessage: "\uC544\uD2B8\uACF5\uAD6C \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC544\uD2B8\uACF5\uAD6C \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  function createArt09Listings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "art09",
+        displayName: "\uC544\uD2B8\uACF5\uAD6C",
+        startUrl: ART09_LISTINGS_URL,
+        file: ART09_LISTINGS_FILE,
+        call: "art09.listings",
+        guard: ART09_LISTINGS_GUARD
+      }, plan, signIn)
+    };
+  }
+
   // extensions/src/sites/art09/index.ts
   var ART09_ORDER_URL = "https://zzogzzog1.cafe24.com/admin/php/shop1/s_new/order_list.php?1&shop_no=1";
   var ART09_ORDERS_FILE = "content/orders/art09-orders.js";
-  var READ_TIMEOUT_MS = 18e4;
+  var READ_TIMEOUT_MS2 = 18e4;
   var LOGIN_MESSAGE = "\uC544\uD2B8\uACF5\uAD6C \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. zzogzzog1.cafe24.com \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
   var ART09_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["zzogzzog1.cafe24.com"]),
     isLogin: (url) => hostWithin(url, ["cafe24.com"]) && !/order_list\.php$/i.test(url.pathname),
     loginMessage: LOGIN_MESSAGE
   };
-  function createArt09Site(tabs) {
+  var ART09_LOGIN = {
+    displayName: "\uC544\uD2B8\uACF5\uAD6C",
+    loginUrl: ART09_ORDER_URL,
+    hosts: ["zzogzzog1.cafe24.com"],
+    isLoginUrl: (url) => ART09_PAGE_GUARD.isLogin(url),
+    fields: ["supplierLoginId", "loginId", "password"]
+  };
+  function createArt09Site(tabs, signIn) {
     return {
+      ...createArt09Listings(tabs, signIn),
       readOrders(input) {
         return withFreshTab(tabs, ART09_ORDER_URL, async (page) => {
           const answer = await callPage(page, "art09.orders", { dateFilter: input.collectionDate ?? "" }, {
-            timeoutMs: READ_TIMEOUT_MS,
+            timeoutMs: READ_TIMEOUT_MS2,
             guard: ART09_PAGE_GUARD,
             isolated: [ART09_ORDERS_FILE],
             displayName: "\uC544\uD2B8\uACF5\uAD6C"
@@ -7377,11 +8739,249 @@ var KidItemRuntime = (() => {
             reason: "page_error",
             url: ART09_ORDER_URL
           });
-        });
+        }, signIn ? { signIn } : {});
       }
     };
   }
-  registerSite({ name: "art09", create: (deps) => createArt09Site(deps.tabs) });
+  registerSite({ name: "art09", create: (deps, lease) => createArt09Site(deps.tabs, createSiteSignIn(ART09_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/coupang-product/index.ts
+  var ORIGIN = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS = 6e4;
+  var ASK_TIMEOUT_MS = 2e4;
+  var RENDER_WAIT_MS = 1200;
+  var PRODUCT_DELAY_MS = [900, 1500];
+  var CONTENT_FILE = "content/advertising/coupang-product-seller.js";
+  var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
+  var COUPANG_PRODUCT_SITE = {
+    name: "coupang-product",
+    origin: ORIGIN,
+    caller: { minIntervalMs: 0, displayName: "\uCFE0\uD321" }
+  };
+  var COUPANG_PRODUCT_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["coupang.com"]),
+    isLogin: (url) => hostWithin(url, ["login.coupang.com"]),
+    loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  function isProductDetailUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname === "www.coupang.com" && url.port === "" && url.username === "" && /^\/vp\/products\/\d+$/.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+  function isExpectedProductUrl(actual, expected) {
+    if (!isProductDetailUrl(actual) || !isProductDetailUrl(expected)) return false;
+    const left = new URL(actual);
+    const right = new URL(expected);
+    if (left.pathname !== right.pathname) return false;
+    return ["itemId", "vendorItemId"].every((name) => right.searchParams.get(name) === null || left.searchParams.get(name) === right.searchParams.get(name));
+  }
+  function parseSellerShopLink(value) {
+    const href = typeof value?.href === "string" ? value.href.trim() : "";
+    let url;
+    try {
+      url = new URL(href);
+    } catch {
+      return null;
+    }
+    if (url.protocol !== "https:" || url.hostname !== "shop.coupang.com") return null;
+    const parts = url.pathname.split("/").filter(Boolean);
+    const vid = parts[0] === "vid";
+    const sellerId2 = vid ? parts[1] : parts[0];
+    if (!sellerId2 || !/^[A-Za-z0-9_-]{1,80}$/.test(sellerId2)) return null;
+    const sellerName = String(value?.text ?? "").replace(/\s*판매자\s*상품\s*보러가기\s*$/i, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
+    if (!sellerName || /^(판매자|쿠팡|로켓배송)$/i.test(sellerName)) return null;
+    return { sellerName, sellerId: sellerId2, sellerStoreUrl: `https://shop.coupang.com${vid ? `/vid/${sellerId2}` : `/${sellerId2}`}` };
+  }
+  function createCoupangProductSite(tabs, deps) {
+    let page = null;
+    let keepOpen = false;
+    let productsRead = 0;
+    const ask = (current) => current.ask(
+      { type: "KIDITEM_COUPANG_PRODUCT_SELLER" },
+      { timeoutMs: ASK_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE] }, guard: COUPANG_PRODUCT_PAGE_GUARD }
+    );
+    return {
+      async sellerIdentity(link, options) {
+        if (!isProductDetailUrl(link)) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0C1\uD488 \uC0C1\uC138 \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.", { status: null, reason: "not_product_detail", url: link });
+        }
+        if (productsRead > 0) {
+          const [low, high] = PRODUCT_DELAY_MS;
+          await deps.sleep(Math.floor(low + deps.random() * (high - low)));
+        }
+        productsRead += 1;
+        page ??= await tabs.open("about:blank");
+        const current = page;
+        for (; ; ) {
+          const landed = await current.navigate(link, { timeoutMs: PAGE_TIMEOUT_MS, continueOnTimeout: true });
+          if (!isExpectedProductUrl(landed, link)) {
+            try {
+              checkPageUrl(COUPANG_PRODUCT_PAGE_GUARD, landed);
+            } catch (error) {
+              if (leftForOperator(error)) keepOpen = true;
+              throw error;
+            }
+            const cleared = await waitForOperator(
+              current,
+              (url) => !isExpectedProductUrl(url, link) && !isProductDetailUrl(url),
+              { kind: "verification", site: "\uCFE0\uD321", label: options.label },
+              options.onAttention
+            );
+            if (!cleared) {
+              keepOpen = true;
+              throw new RuntimeError(SITE_VERIFICATION_REQUIRED2, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
+            }
+            continue;
+          }
+          await deps.sleep(RENDER_WAIT_MS);
+          let answer = await ask(current).catch((error) => {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          });
+          let seller = answer?.ok ? parseSellerShopLink(answer.seller) : null;
+          if (!seller) {
+            await deps.sleep(RENDER_WAIT_MS);
+            answer = await ask(current);
+            seller = answer?.ok ? parseSellerShopLink(answer.seller) : null;
+          }
+          return seller;
+        }
+      },
+      /** 수집이 끝나면 탭을 닫는다. 보안 확인·로그인에서 멈췄으면 운영자가 볼 수 있게 남긴다. */
+      async close() {
+        if (page && !keepOpen) await page.close();
+        page = null;
+      }
+    };
+  }
+  registerSite({ name: COUPANG_PRODUCT_SITE.name, create: (deps) => createCoupangProductSite(deps.tabs, { sleep: deps.sleep, random: () => Math.random() }) });
+
+  // extensions/src/sites/coupang-shop/index.ts
+  var ORIGIN2 = "https://shop.coupang.com";
+  var PAGE_TIMEOUT_MS2 = 6e4;
+  var CATALOG_TIMEOUT_MS = 9e4;
+  var SORT_TIMEOUT_MS = 2e4;
+  var RENDER_WAIT_MS2 = 1200;
+  var CONTENT_FILE2 = "content/advertising/coupang-shop-catalog.js";
+  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
+  var COUPANG_SHOP_SITE = {
+    name: "coupang-shop",
+    origin: ORIGIN2,
+    caller: { minIntervalMs: 0, displayName: "\uCFE0\uD321 \uD310\uB9E4\uC790\uC0F5" }
+  };
+  var COUPANG_SHOP_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["coupang.com"]),
+    isLogin: (url) => hostWithin(url, ["login.coupang.com"]),
+    loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  function isExpectedShopUrl(actual, expected) {
+    try {
+      const left = new URL(actual);
+      const right = new URL(expected);
+      return left.protocol === "https:" && left.hostname === "shop.coupang.com" && right.hostname === "shop.coupang.com" && /^\/(?:vid\/)?[A-Za-z0-9_-]+\/?$/.test(right.pathname) && left.pathname === right.pathname && left.search === right.search;
+    } catch {
+      return false;
+    }
+  }
+  function createCoupangShopSite(tabs, deps) {
+    let page = null;
+    let keepOpen = false;
+    const ask = (current, message, timeoutMs) => current.ask(message, { timeoutMs, inject: { isolated: [CONTENT_FILE2] }, guard: COUPANG_SHOP_PAGE_GUARD }).catch((error) => {
+      if (leftForOperator(error)) keepOpen = true;
+      throw error;
+    });
+    return {
+      async catalog(target, productLimit, options = {}) {
+        page ??= await tabs.open("about:blank");
+        const current = page;
+        for (; ; ) {
+          const landed = await current.navigate(target.sellerStoreUrl, { timeoutMs: PAGE_TIMEOUT_MS2, continueOnTimeout: true });
+          if (isExpectedShopUrl(landed, target.sellerStoreUrl)) break;
+          try {
+            checkPageUrl(COUPANG_SHOP_PAGE_GUARD, landed);
+          } catch (error) {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          }
+          const cleared = await waitForOperator(
+            current,
+            (url) => !isExpectedShopUrl(url, target.sellerStoreUrl),
+            { kind: "verification", site: "\uCFE0\uD321", label: target.sellerName },
+            options.onAttention
+          );
+          if (!cleared) {
+            keepOpen = true;
+            throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
+          }
+        }
+        await deps.sleep(RENDER_WAIT_MS2);
+        const sorted = await ask(current, { type: "KIDITEM_COUPANG_SHOP_SORT_NEWEST" }, SORT_TIMEOUT_MS);
+        if (sorted.clicked !== true) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, `'${target.sellerName}' \uD310\uB9E4\uC790\uC0F5\uC758 \uCD5C\uC2E0\uC21C \uC815\uB82C\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, sellerId: target.sellerId });
+        }
+        await deps.sleep(RENDER_WAIT_MS2);
+        const answer = await ask(current, { type: "KIDITEM_COUPANG_SHOP_CATALOG", maxItems: productLimit }, CATALOG_TIMEOUT_MS);
+        const catalog = answer.ok ? toCatalog(answer, target, productLimit) : null;
+        if (!catalog) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, `'${target.sellerName}' \uD310\uB9E4\uC790\uC0F5 \uC0C1\uD488 \uBAA9\uB85D\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, sellerId: target.sellerId });
+        }
+        return catalog;
+      },
+      /** 수집이 끝나면 탭을 닫는다. 보안 확인·로그인에서 멈췄으면 운영자가 볼 수 있게 남긴다. */
+      async close() {
+        if (page && !keepOpen) await page.close();
+        page = null;
+      }
+    };
+  }
+  function toCatalog(answer, target, productLimit) {
+    const products = [];
+    for (const raw of answer.products ?? []) {
+      if (!raw || typeof raw !== "object") continue;
+      const row = raw;
+      const productId2 = text2(row.productId, 200);
+      const itemId = text2(row.itemId, 200);
+      const vendorItemId = text2(row.vendorItemId, 200);
+      const name = text2(row.name, 500);
+      if (!name || !productId2 && !itemId && !vendorItemId) continue;
+      products.push({
+        sourceRank: products.length + 1,
+        productId: productId2,
+        itemId,
+        vendorItemId,
+        name,
+        priceKrw: count(row.priceKrw),
+        reviewCount: count(row.reviewCount),
+        imageUrl: text2(row.imageUrl, 2e3),
+        link: text2(row.link, 2e3)
+      });
+      if (products.length >= productLimit) break;
+    }
+    if (products.length === 0) return null;
+    const totalProductCount = count(answer.totalProductCount);
+    return {
+      keyword: target.keyword,
+      sellerId: target.sellerId,
+      sellerName: text2(answer.sellerName, 300) ?? target.sellerName,
+      sellerStoreUrl: target.sellerStoreUrl,
+      totalProductCount,
+      collectedProductCount: products.length,
+      isTruncated: totalProductCount !== null && totalProductCount > products.length,
+      sort: "newest",
+      capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      products
+    };
+  }
+  function text2(value, max) {
+    return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
+  }
+  function count(value) {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
+  }
+  registerSite({ name: COUPANG_SHOP_SITE.name, create: (deps) => createCoupangShopSite(deps.tabs, { sleep: deps.sleep }) });
 
   // extensions/src/sites/coupang-search/parse.ts
   var PROVIDER_ATTENTION = /access\s*denied|unauthori[sz]ed|forbidden|too\s*many\s*requests|로그인|인증|접근\s*거부/i;
@@ -7394,8 +8994,8 @@ var KidItemRuntime = (() => {
     let providerError = null;
     const add = (value, source) => {
       if (typeof value !== "string") return;
-      const keyword = value.replace(/\s+/g, " ").trim();
-      if (usableKeyword(keyword, seed)) candidates.push({ keyword, source });
+      const keyword2 = value.replace(/\s+/g, " ").trim();
+      if (usableKeyword(keyword2, seed)) candidates.push({ keyword: keyword2, source });
     };
     const walk = (value) => {
       if (typeof value === "string") return add(value, "coupang-autocomplete");
@@ -7414,17 +9014,17 @@ var KidItemRuntime = (() => {
         providerError = autocomplete.status === 429 ? { reason: "rate_limited", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC694\uCCAD\uC774 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694." } : { reason: "provider_denied", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574\uC8FC\uC138\uC694." };
       }
     }
-    const text2 = autocomplete?.text.trim() ?? "";
-    if (text2 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text2))) {
+    const text5 = autocomplete?.text.trim() ?? "";
+    if (text5 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text5))) {
       try {
-        const parsed = JSON.parse(text2);
-        if (parsed && typeof parsed === "object") {
-          if (isErrorEnvelope(parsed)) {
-            const message = errorEnvelopeMessage(parsed);
+        const parsed2 = JSON.parse(text5);
+        if (parsed2 && typeof parsed2 === "object") {
+          if (isErrorEnvelope(parsed2)) {
+            const message = errorEnvelopeMessage(parsed2);
             providerError ??= { reason: "provider_denied", message };
           } else {
-            walk(parsed);
-            structuredResponse = hasSuggestionCollection(parsed);
+            walk(parsed2);
+            structuredResponse = hasSuggestionCollection(parsed2);
           }
         } else {
           warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uAD6C\uC870\uAC00 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
@@ -7432,15 +9032,15 @@ var KidItemRuntime = (() => {
       } catch {
         warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uD30C\uC2F1 \uC2E4\uD328");
       }
-    } else if (text2) {
+    } else if (text5) {
       warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4");
     }
     const beforeDom = candidates.length;
     for (const link of evidence.links) {
       add(link.text, "coupang-search-dom");
       try {
-        const parsed = new URL(link.href, origin);
-        add(parsed.searchParams.get("q") || parsed.searchParams.get("keyword") || "", "coupang-search-dom");
+        const parsed2 = new URL(link.href, origin);
+        add(parsed2.searchParams.get("q") || parsed2.searchParams.get("keyword") || "", "coupang-search-dom");
       } catch {
       }
     }
@@ -7509,22 +9109,188 @@ var KidItemRuntime = (() => {
       const tokens = new Set(name.replace(/[()[\]{}"'`~!@#$%^&*_+=|\\:;,.<>/?·•]/g, " ").split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 2 && token.length <= 20).filter((token) => !/^[\d개입묶음세트]+$/.test(token)).filter((token) => !STOP_WORDS.has(token)));
       for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
     }
-    return [...counts.entries()].map(([keyword, count]) => ({ keyword, count })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
+    return [...counts.entries()].map(([keyword2, count3]) => ({ keyword: keyword2, count: count3 })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
+  }
+
+  // extensions/src/sites/coupang-search/serp.ts
+  var ORIGIN3 = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS3 = 6e4;
+  var EXTRACTION_TIMEOUT_MS2 = 2e4;
+  var RENDER_WAIT_MS3 = 1200;
+  var PAGE_DELAY_MS = [1500, 3e3];
+  var KEYWORD_DELAY_MS = [4e3, 8e3];
+  var WALL_POLL_MS = 5e3;
+  var WALL_WAIT_MAX_MS = 10 * 6e4;
+  var WALL_REMIND_MS = 3 * 6e4;
+  var CONTENT_FILE3 = "content/advertising/coupang-serp-page.js";
+  var SITE_VERIFICATION_REQUIRED4 = "SITE_VERIFICATION_REQUIRED";
+  var COUPANG_SERP_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["coupang.com"]),
+    isLogin: (url) => hostWithin(url, ["login.coupang.com"]),
+    loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  function buildCoupangSerpUrl(keyword2, page) {
+    return `${ORIGIN3}/np/search?q=${encodeURIComponent(keyword2)}&channel=user&page=${page}&listSize=36`;
+  }
+  function isExpectedSerpUrl(actual, expected) {
+    try {
+      const left = new URL(actual);
+      const right = new URL(expected);
+      if (left.protocol !== "https:" || left.hostname !== "www.coupang.com" || left.pathname !== "/np/search") return false;
+      return ["q", "channel", "page", "listSize"].every((name) => left.searchParams.get(name) === right.searchParams.get(name));
+    } catch {
+      return false;
+    }
+  }
+  function createCoupangSerp(tabs, deps) {
+    let page = null;
+    let keepOpen = false;
+    let keywordsRead = 0;
+    const between = ([low, high]) => deps.sleep(Math.floor(low + deps.random() * (high - low)));
+    async function read(current, url) {
+      const landed = await current.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS3, continueOnTimeout: true });
+      if (!isExpectedSerpUrl(landed, url)) return { landed, read: null };
+      await deps.sleep(RENDER_WAIT_MS3);
+      try {
+        const answer = await current.ask(
+          { type: "KIDITEM_COUPANG_SERP_ITEMS" },
+          { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE3] }, guard: COUPANG_SERP_PAGE_GUARD }
+        );
+        return { landed, read: answer };
+      } catch (error) {
+        if (leftForOperator(error)) keepOpen = true;
+        throw error;
+      }
+    }
+    async function waitThroughWall(current, url, attention, onAttention) {
+      const started = deps.now();
+      let remindedAt = started;
+      await onAttention?.(attention);
+      for (; ; ) {
+        if (deps.now() - started >= WALL_WAIT_MAX_MS) {
+          keepOpen = true;
+          throw new RuntimeError(SITE_VERIFICATION_REQUIRED4, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { keyword: attention.label });
+        }
+        await deps.sleep(WALL_POLL_MS);
+        if (deps.now() - remindedAt >= WALL_REMIND_MS) {
+          remindedAt = deps.now();
+          await onAttention?.(attention);
+        }
+        const here = await current.currentUrl().catch(() => "");
+        const again = isExpectedSerpUrl(here, url) ? await readInPlace(current) : await read(current, url).then((result) => result.read);
+        if (again && again.ok && again.wall !== "captcha") {
+          await onAttention?.(null);
+          return again;
+        }
+      }
+    }
+    async function readInPlace(current) {
+      return current.ask(
+        { type: "KIDITEM_COUPANG_SERP_ITEMS" },
+        { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE3] }, guard: COUPANG_SERP_PAGE_GUARD }
+      ).catch(() => null);
+    }
+    return {
+      async serp(keyword2, maxPages, options = {}) {
+        if (keywordsRead > 0) await between(KEYWORD_DELAY_MS);
+        keywordsRead += 1;
+        page ??= await tabs.open("about:blank");
+        const current = page;
+        const attention = { kind: "verification", site: "\uCFE0\uD321", label: keyword2 };
+        const items = [];
+        let stopReason = "page_limit";
+        let pagesScanned = 0;
+        for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
+          const url = buildCoupangSerpUrl(keyword2, pageNumber);
+          const first = await read(current, url);
+          let answer = first.read;
+          if (answer === null) failIfLeftSite(first.landed, () => {
+            keepOpen = true;
+          });
+          if (answer === null || answer.wall === "captcha") {
+            answer = await waitThroughWall(current, url, attention, options.onAttention);
+          }
+          if (!answer?.ok) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 '${keyword2}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${answer?.error ?? "\uC54C \uC218 \uC5C6\uC74C"}).`, { status: null, keyword: keyword2 });
+          }
+          const pageItems = normalizeSerpItems(answer.items ?? [], pageNumber, items.length);
+          if (pageItems.length === 0) {
+            if (pageNumber === 1) {
+              throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 '${keyword2}' \uACB0\uACFC\uAC00 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4 \u2014 \uC0C1\uD488 \uBAA9\uB85D\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, keyword: keyword2, reason: "empty_first_page" });
+            }
+            stopReason = answer.wall ? "provider_wall" : answer.resultListObserved === true ? "empty_page" : "invalid_result";
+            break;
+          }
+          items.push(...pageItems);
+          pagesScanned = pageNumber;
+          if (pageNumber < maxPages) await between(PAGE_DELAY_MS);
+        }
+        return { pagesScanned, stopReason, items };
+      },
+      /** 수집이 끝나면 탭을 닫는다. 보안 확인·로그인에서 멈췄으면 운영자가 볼 수 있게 남긴다. */
+      async closeSerp() {
+        if (page && !keepOpen) await page.close();
+        page = null;
+      }
+    };
+  }
+  function failIfLeftSite(landed, keep) {
+    let url;
+    try {
+      url = new URL(landed);
+    } catch {
+      return;
+    }
+    if (!COUPANG_SERP_PAGE_GUARD.isLogin(url) && COUPANG_SERP_PAGE_GUARD.allows(url)) return;
+    keep();
+    checkPageUrl(COUPANG_SERP_PAGE_GUARD, landed);
+  }
+  function normalizeSerpItems(raw, page, offset) {
+    const items = [];
+    for (const candidate of raw) {
+      if (!candidate || typeof candidate !== "object") continue;
+      const row = candidate;
+      const productId2 = text3(row.productId, 40);
+      if (!productId2) continue;
+      const position = items.length + 1;
+      items.push({
+        rank: offset + position,
+        page,
+        positionInPage: position,
+        isAd: row.isAd === true,
+        productId: productId2,
+        itemId: text3(row.itemId, 40),
+        vendorItemId: text3(row.vendorItemId, 40),
+        name: text3(row.name, 300),
+        priceKrw: count2(row.priceKrw),
+        reviewCount: count2(row.reviewCount),
+        ratingScore: typeof row.ratingScore === "number" && row.ratingScore >= 0 && row.ratingScore <= 5 ? row.ratingScore : null,
+        imageUrl: text3(row.imageUrl, 2e3),
+        link: text3(row.link, 2e3)
+      });
+    }
+    return items;
+  }
+  function text3(value, max) {
+    return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
+  }
+  function count2(value) {
+    return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
   }
 
   // extensions/src/sites/coupang-search/index.ts
-  var ORIGIN = "https://www.coupang.com";
-  var PAGE_TIMEOUT_MS = 6e4;
+  var ORIGIN4 = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS4 = 6e4;
   var EVIDENCE_TIMEOUT_MS = 3e4;
   var SETTLE_MS = 1500;
-  var CONTENT_FILE = "content/sourcing/coupang-search-page.js";
+  var CONTENT_FILE4 = "content/sourcing/coupang-search-page.js";
   var COUPANG_SEARCH_SITE = {
     name: "coupang-search",
-    origin: ORIGIN,
+    origin: ORIGIN4,
     caller: { minIntervalMs: SETTLE_MS, displayName: "\uCFE0\uD321" }
   };
-  function buildCoupangSearchUrl(keyword) {
-    return `${ORIGIN}/np/search?component=&q=${encodeURIComponent(keyword)}&channel=user`;
+  function buildCoupangSearchUrl(keyword2) {
+    return `${ORIGIN4}/np/search?component=&q=${encodeURIComponent(keyword2)}&channel=user`;
   }
   function isCoupangSearchUrl(value) {
     try {
@@ -7536,38 +9302,44 @@ var KidItemRuntime = (() => {
   }
   function createCoupangSearchSite(tabs, deps) {
     return {
-      async keywordSuggestions(keyword, maxResults) {
-        const url = buildCoupangSearchUrl(keyword);
+      async keywordSuggestions(keyword2, maxResults) {
+        const url = buildCoupangSearchUrl(keyword2);
         const page = await tabs.open("about:blank");
         try {
-          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS });
+          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS4 });
           if (!isCoupangSearchUrl(landed)) {
             throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uCFE0\uD321 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
           }
           await deps.sleep(SETTLE_MS);
           const evidence = await page.ask(
-            { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword },
-            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE] } }
+            { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword: keyword2 },
+            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE4] } }
           );
           if (!evidence.links || !evidence.productNames) {
             throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
           }
-          const parsed = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword, maxResults);
-          if (!parsed.ok) {
+          const parsed2 = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword2, maxResults);
+          if (!parsed2.ok) {
             throw new RuntimeError(
-              parsed.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
-              parsed.message,
-              { status: parsed.reason === "rate_limited" ? 429 : null, url, reason: parsed.reason, warnings: parsed.warnings }
+              parsed2.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
+              parsed2.message,
+              { status: parsed2.reason === "rate_limited" ? 429 : null, url, reason: parsed2.reason, warnings: parsed2.warnings }
             );
           }
-          return { items: parsed.items, productNameTokens: parsed.productNameTokens, warnings: parsed.warnings };
+          return { items: parsed2.items, productNameTokens: parsed2.productNameTokens, warnings: parsed2.warnings };
         } finally {
           await page.close();
         }
       }
     };
   }
-  registerSite({ name: COUPANG_SEARCH_SITE.name, create: (deps) => createCoupangSearchSite(deps.tabs, { sleep: deps.sleep }) });
+  registerSite({
+    name: COUPANG_SEARCH_SITE.name,
+    create: (deps) => ({
+      ...createCoupangSearchSite(deps.tabs, { sleep: deps.sleep }),
+      ...createCoupangSerp(deps.tabs, { sleep: deps.sleep, now: deps.now, random: () => Math.random() })
+    })
+  });
 
   // extensions/src/sites/coupang-supplier/page.ts
   var COUPANG_SUPPLIER_ORIGIN = "https://supplier.coupang.com";
@@ -7583,6 +9355,13 @@ var KidItemRuntime = (() => {
   function isSupplierLoginUrl(url) {
     return hostWithin(url, ["xauth.coupang.com"]) || /\/(?:login|sign-in|signin)(?:[/?#]|$)/i.test(url.pathname);
   }
+  var COUPANG_SUPPLIER_LOGIN = {
+    displayName: "\uCFE0\uD321 \uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C",
+    loginUrl: `${COUPANG_SUPPLIER_ORIGIN}/po-web/app/purchase-order/list`,
+    hosts: ["supplier.coupang.com", "xauth.coupang.com"],
+    isLoginUrl: isSupplierLoginUrl,
+    fields: ["loginId", "password"]
+  };
   var SUPPLIER_REQUEST_TIMEOUT_MS = 6e4;
   function supplierPage(tab) {
     return {
@@ -7635,7 +9414,7 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/coupang-supplier/po.ts
   var PO_BOOTSTRAP_URL = `${COUPANG_SUPPLIER_ORIGIN}/scm/purchase/order/list`;
   var PO_READY_PATH_PREFIX = "/po-web/purchase/order";
-  var NAVIGATION_TIMEOUT_MS3 = 3e4;
+  var NAVIGATION_TIMEOUT_MS5 = 3e4;
   function isReadyPoUrl(value) {
     try {
       const url = new URL(value);
@@ -7647,7 +9426,7 @@ var KidItemRuntime = (() => {
   async function preparePoSession(tab) {
     const page = supplierPage(tab);
     for (let attempt = 1; ; attempt += 1) {
-      const landed = await tab.navigate(PO_BOOTSTRAP_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
+      const landed = await tab.navigate(PO_BOOTSTRAP_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS5 });
       if (isReadyPoUrl(landed)) return page;
       const body = isSupplierUrl(landed) ? await page.bodyText().catch(() => "") : "";
       if (/HTTP Status 400|Bad Request/i.test(body)) throw cookieBloat(landed, 400);
@@ -7663,17 +9442,17 @@ var KidItemRuntime = (() => {
   }
   async function readPurchaseOrderListPage(page, path, pageNumber) {
     const fetched = await page.fetch(path, { headers: { accept: "application/json" } });
-    const text2 = fetched.text;
+    const text5 = fetched.text;
     const failed3 = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
     if (fetched.status === 400 || fetched.status === 413 || fetched.status === 431) throw cookieBloat(path, fetched.status);
-    if (fetched.status < 200 || fetched.status >= 300 || text2.trim().charAt(0) === "<") throw failed3();
-    let parsed;
+    if (fetched.status < 200 || fetched.status >= 300 || text5.trim().charAt(0) === "<") throw failed3();
+    let parsed2;
     try {
-      parsed = JSON.parse(text2);
+      parsed2 = JSON.parse(text5);
     } catch {
       throw failed3();
     }
-    const body = parsed?.body;
+    const body = parsed2?.body;
     if (!body || !Array.isArray(body.body)) throw responseInvalid(path, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC5D0 \uD589 \uBC30\uC5F4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
     return { rows: body.body, lastPageNumber: body.lastPageNumber };
   }
@@ -7691,7 +9470,7 @@ var KidItemRuntime = (() => {
     return tables;
   }
   async function enterScmContext(tab, poNumber) {
-    await tab.navigate(`${COUPANG_SUPPLIER_ORIGIN}${purchaseOrderDetailPath(poNumber)}`, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
+    await tab.navigate(`${COUPANG_SUPPLIER_ORIGIN}${purchaseOrderDetailPath(poNumber)}`, { timeoutMs: NAVIGATION_TIMEOUT_MS5 });
   }
   async function readPurchasableCenters(page) {
     const path = "/po-web/app/center/purchasable/list";
@@ -7756,7 +9535,7 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/coupang-supplier/index.ts
-  var NAVIGATION_TIMEOUT_MS4 = 3e4;
+  var NAVIGATION_TIMEOUT_MS6 = 3e4;
   function purchaseOrderListPath(query, pageNumber) {
     return "/po-web/app/purchase-order/list?page=" + pageNumber + "&searchDateType=" + query.searchDateType + "&searchStartDate=" + query.from + "&searchEndDate=" + query.to + "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=" + query.status + "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
   }
@@ -7770,43 +9549,59 @@ var KidItemRuntime = (() => {
       if (keepTabFor(error)) keepOpen = true;
       throw error;
     });
+    const withLogin = createSiteLoginGate(lease.credentials);
+    const loginOn = (tab, reset) => async () => {
+      const page = tab();
+      if (!page || !lease.credentials) return { status: "unconfirmed" };
+      const outcome = await ensureLoggedIn(page, COUPANG_SUPPLIER_LOGIN, lease.credentials, deps);
+      reset();
+      return outcome;
+    };
+    const shipmentLogin = loginOn(() => shipmentTab, () => {
+      shipmentPage = null;
+    });
+    const poLogin = loginOn(() => poTab, () => {
+      poPage = null;
+    });
     function shipments() {
       shipmentPage ??= (async () => {
-        const tab = await deps.tabs.open("about:blank");
+        const tab = shipmentTab ?? await deps.tabs.open("about:blank");
         shipmentTab = tab;
-        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS4, continueOnTimeout: true });
+        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS6, continueOnTimeout: true });
         return supplierPage(tab);
       })();
       return shipmentPage;
     }
     function purchaseOrders() {
       poPage ??= (async () => {
-        const tab = lease.tabId !== null ? deps.tabs.attach(lease.tabId) : await deps.tabs.open("about:blank");
+        const tab = poTab ?? (lease.tabId !== null ? deps.tabs.attach(lease.tabId) : await deps.tabs.open("about:blank"));
         poTab = tab;
         return preparePoSession(tab);
       })();
       return poPage;
     }
+    const onShipments = (read) => remember(withLogin(() => shipments().then(read), shipmentLogin));
+    const onPurchaseOrders = (read) => remember(withLogin(() => purchaseOrders().then(read), poLogin));
     return {
       /** 쉽먼트 목록 한 쪽(1부터). 여러 쪽을 함께 불러도 된다(탭 하나). */
       parcelPage(pageNumber) {
-        return remember(shipments().then((page) => readParcelPage(page, pageNumber)));
+        return onShipments((page) => readParcelPage(page, pageNumber));
       },
       /** 발주 목록 한 쪽(1부터)의 JSON 본문. 첫 쪽이 JSON이 아니면 로그인 필요. */
       purchaseOrderListPage(query, pageNumber) {
-        return remember(purchaseOrders().then((page) => readPurchaseOrderListPage(page, purchaseOrderListPath(query, pageNumber), pageNumber)));
+        return onPurchaseOrders((page) => readPurchaseOrderListPage(page, purchaseOrderListPath(query, pageNumber), pageNumber));
       },
       /** 발주서 상세의 표(칸 단위). */
       purchaseOrderDetail(poNumber) {
-        return remember(purchaseOrders().then((page) => readPurchaseOrderDetail(page, poNumber)));
+        return onPurchaseOrders((page) => readPurchaseOrderDetail(page, poNumber));
       },
       /** 직배송 센터 주소 목록 JSON. */
       purchasableCenters() {
-        return remember(purchaseOrders().then((page) => readPurchasableCenters(page)));
+        return onPurchaseOrders((page) => readPurchasableCenters(page));
       },
       /** 직배송: 품목 상세 전에 탭을 첫 발주서 상세로 옮긴다. */
       enterScmContext(poNumber) {
-        return remember(purchaseOrders().then(() => enterScmContext(poTab, poNumber)));
+        return onPurchaseOrders(() => enterScmContext(poTab, poNumber));
       },
       /** 이 사이트가 연 탭을 닫는다(잠금이 준 탭은 브라우저 자원이 닫는다). 로그인·예상 밖 주소에서 멈췄으면 남긴다. */
       async close() {
@@ -7823,6 +9618,22 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "coupang-supplier", origin: PO_BOOTSTRAP_URL, create: (deps, lease) => createCoupangSupplierSite(deps, lease) });
 
+  // extensions/src/sites/domeggook/listings.ts
+  var DOMEGGOOK_LISTINGS_URL = "https://www.domeggook.com/sc/item/lstAll";
+  var DOMEGGOOK_LISTINGS_FILE = "content/orders/domeggook-listings.js";
+  function createDomeggookListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "domeggook",
+        displayName: "\uB3C4\uB9E4\uAFB9",
+        startUrl: DOMEGGOOK_LISTINGS_URL,
+        file: DOMEGGOOK_LISTINGS_FILE,
+        call: "domeggook.listings",
+        guard: DOMEGGOOK_PAGE_GUARD
+      }, plan, signIn)
+    };
+  }
+
   // extensions/src/sites/domeggook/index.ts
   var DOMEGGOOK_ORDER_LIST_URL = "https://domeggook.com/sc/order/lstAll";
   var DOMEGGOOK_ORDER_LIST_API = "https://domeggook.com/sc/excel/getOrderList?format=grid&pg=1";
@@ -7838,11 +9649,18 @@ var KidItemRuntime = (() => {
     isLogin: (url) => hostWithin(url, ["domeggook.com"]) && /login/i.test(url.pathname),
     loginMessage: LOGIN_MESSAGE2
   };
+  var DOMEGGOOK_LOGIN = {
+    displayName: "\uB3C4\uB9E4\uAFB9",
+    loginUrl: DOMEGGOOK_ORDER_LIST_URL,
+    hosts: ["domeggook.com"],
+    isLoginUrl: (url) => DOMEGGOOK_PAGE_GUARD.isLogin(url),
+    fields: ["loginId", "password"]
+  };
   async function orderList(caller) {
-    const text2 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
+    const text5 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
     let body = null;
     try {
-      body = text2.trim().startsWith("{") ? JSON.parse(text2) : null;
+      body = text5.trim().startsWith("{") ? JSON.parse(text5) : null;
     } catch {
       body = null;
     }
@@ -7868,11 +9686,12 @@ var KidItemRuntime = (() => {
     }
     return btoa(binary);
   }
-  function createDomeggookSite(tabs, deps) {
+  function createDomeggookSite(tabs, deps, signIn) {
     const caller = createSiteCaller({ minIntervalMs: 0, displayName: "\uB3C4\uB9E4\uAFB9", timeoutMs: 3e4 }, deps);
     return {
+      ...createDomeggookListings(tabs, signIn),
       async readOrders(input) {
-        const before = await orderList(caller);
+        const before = await (signIn ? signIn.beforeTab(tabs, () => orderList(caller)) : orderList(caller));
         const beforeReq = String(before[0]?.dateReq ?? "");
         const dateDot = input.collectionDate ? input.collectionDate.replace(/-/g, ".") : "";
         const listUrl = dateDot ? `${DOMEGGOOK_ORDER_LIST_URL}?dtbase=ord&dt1=${dateDot}&dt2=${dateDot}` : DOMEGGOOK_ORDER_LIST_URL;
@@ -7916,11 +9735,27 @@ var KidItemRuntime = (() => {
               base64: base642.slice(part * DOMEGGOOK_PART_CHARS, (part + 1) * DOMEGGOOK_PART_CHARS)
             }))
           };
-        });
+        }, signIn ? { signIn } : {});
       }
     };
   }
-  registerSite({ name: "domeggook", create: (deps) => createDomeggookSite(deps.tabs, deps) });
+  registerSite({ name: "domeggook", create: (deps, lease) => createDomeggookSite(deps.tabs, deps, createSiteSignIn(DOMEGGOOK_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/icecream-mall/listings.ts
+  var ICECREAM_LISTINGS_URL = "https://po.i-screammall.co.kr/goods/goodsMgmt.goodsMgmtView.do";
+  var ICECREAM_LISTINGS_FILE = "content/orders/icecream-listings.js";
+  function createIcecreamListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "icecream-mall",
+        displayName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
+        startUrl: ICECREAM_LISTINGS_URL,
+        file: ICECREAM_LISTINGS_FILE,
+        call: "icecream-mall.listings",
+        guard: ICECREAM_PAGE_GUARD
+      }, plan, signIn)
+    };
+  }
 
   // extensions/src/sites/icecream-mall/index.ts
   var ICECREAM_MALL_URL = "https://po.i-screammall.co.kr/main.do";
@@ -7991,6 +9826,14 @@ var KidItemRuntime = (() => {
     isLogin: (url) => hostWithin(url, ["i-screammall.co.kr"]) && /login/i.test(url.pathname),
     loginMessage: LOGIN_MESSAGE3
   };
+  var ICECREAM_LOGIN = {
+    displayName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
+    loginUrl: ICECREAM_MALL_URL,
+    hosts: ["i-screammall.co.kr"],
+    isLoginUrl: (url) => ICECREAM_PAGE_GUARD.isLogin(url),
+    fields: ["loginId", "password"],
+    settleMs: LOGIN_WATCH_ROUNDS * LOGIN_WATCH_MS
+  };
   function icecreamHasNoPendingOrders(diagnosis) {
     if (diagnosis.reason !== "data rows not found") return false;
     const orderRows = diagnosis.orderRows ?? 0;
@@ -8013,11 +9856,12 @@ var KidItemRuntime = (() => {
   function loginRequired2() {
     return new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE3, { url: ICECREAM_MALL_URL });
   }
-  function createIcecreamMallSite(tabs, sleep) {
+  function createIcecreamMallSite(tabs, sleep, signIn) {
     async function inspect(page) {
       return page.frames([ICECREAM_FRAMES_FILE]);
     }
     return {
+      ...createIcecreamListings(tabs, signIn),
       readOrders(input) {
         return withFreshTab(tabs, ICECREAM_MALL_URL, async (page) => {
           for (let round = 0; round < LOGIN_WATCH_ROUNDS; round += 1) {
@@ -8067,28 +9911,54 @@ var KidItemRuntime = (() => {
             url: ICECREAM_MALL_URL,
             diagnosis
           });
-        });
+        }, signIn ? { signIn } : {});
       }
     };
   }
-  registerSite({ name: "icecream-mall", create: (deps) => createIcecreamMallSite(deps.tabs, deps.sleep) });
+  registerSite({ name: "icecream-mall", create: (deps, lease) => createIcecreamMallSite(deps.tabs, deps.sleep, createSiteSignIn(ICECREAM_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/kidkids/listings.ts
+  var KIDKIDS_LISTINGS_URL = "https://partner.kidkids.net/sales/goods_list_renewal.htm?pNum=1";
+  var KIDKIDS_LISTINGS_FILE = "content/orders/kidkids-listings.js";
+  function createKidkidsListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "kidkids",
+        displayName: "\uD0A4\uB4DC\uD0A4\uC988",
+        startUrl: KIDKIDS_LISTINGS_URL,
+        file: KIDKIDS_LISTINGS_FILE,
+        call: "kidkids.listings",
+        guard: KIDKIDS_PAGE_GUARD
+      }, plan, signIn)
+    };
+  }
 
   // extensions/src/sites/kidkids/index.ts
   var KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
   var KIDKIDS_ORDERS_FILE = "content/orders/kidkids-orders.js";
-  var READ_TIMEOUT_MS2 = 18e4;
+  var READ_TIMEOUT_MS3 = 18e4;
   var LOGIN_MESSAGE4 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var KIDKIDS_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["kidkids.net"]),
     isLogin: (url) => hostWithin(url, ["kidkids.net"]) && (/login|partnerlogin|partner_login/i.test(url.pathname) || /\/security\/verify_user\.htm$/i.test(url.pathname)),
     loginMessage: LOGIN_MESSAGE4
   };
-  function createKidkidsSite(tabs) {
+  var KIDKIDS_LOGIN = {
+    displayName: "\uD0A4\uB4DC\uD0A4\uC988",
+    loginUrl: KIDKIDS_ORDER_URL,
+    hosts: ["kidkids.net"],
+    isLoginUrl: (url) => hostWithin(url, ["kidkids.net"]) && /login|partnerlogin|partner_login/i.test(url.pathname),
+    isVerificationUrl: (url) => /\/security\/verify_user\.htm$/i.test(url.pathname),
+    fields: ["loginId", "password"],
+    settleMs: 5e3
+  };
+  function createKidkidsSite(tabs, signIn) {
     return {
+      ...createKidkidsListings(tabs, signIn),
       readOrders(input) {
         return withFreshTab(tabs, KIDKIDS_ORDER_URL, async (page) => {
           const answer = await callPage(page, "kidkids.orders", { dateFilter: input.collectionDate ?? "" }, {
-            timeoutMs: READ_TIMEOUT_MS2,
+            timeoutMs: READ_TIMEOUT_MS3,
             guard: KIDKIDS_PAGE_GUARD,
             isolated: [KIDKIDS_ORDERS_FILE],
             displayName: "\uD0A4\uB4DC\uD0A4\uC988"
@@ -8100,20 +9970,20 @@ var KidItemRuntime = (() => {
             reason: "page_error",
             url: KIDKIDS_ORDER_URL
           });
-        });
+        }, signIn ? { signIn } : {});
       }
     };
   }
-  registerSite({ name: "kidkids", create: (deps) => createKidkidsSite(deps.tabs) });
+  registerSite({ name: "kidkids", create: (deps, lease) => createKidkidsSite(deps.tabs, createSiteSignIn(KIDKIDS_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/live-commerce/index.ts
-  var NAVIGATION_TIMEOUT_MS5 = 35e3;
-  var EXTRACTION_TIMEOUT_MS2 = 25e3;
+  var NAVIGATION_TIMEOUT_MS7 = 35e3;
+  var EXTRACTION_TIMEOUT_MS3 = 25e3;
   var MAX_PRODUCTS = 100;
   var CONTENT_FILES = {
     isolated: ["content/sourcing/live-commerce-extractor.js", "content/sourcing/live-commerce-content.js"]
   };
-  var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
+  var SITE_VERIFICATION_REQUIRED5 = "SITE_VERIFICATION_REQUIRED";
   var LIVE_COMMERCE_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["1688.com", "douyin.com"]),
     isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "sso.douyin.com", "passport.douyin.com"]) || hostWithin(url, ["douyin.com"]) && /\/login/i.test(url.pathname),
@@ -8147,14 +10017,14 @@ var KidItemRuntime = (() => {
         let keepOpen = false;
         try {
           const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
-          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS5, stopAt });
+          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS7, stopAt });
           for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
             const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
             if (!cleared) {
               keepOpen = true;
               throw verification2(landed);
             }
-            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS5, stopAt });
+            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS7, stopAt });
           }
           if (isLiveLoginUrl(landed)) {
             keepOpen = true;
@@ -8164,7 +10034,7 @@ var KidItemRuntime = (() => {
           try {
             extracted = await page.ask(
               { type: "TRIGGER_LIVE_COMMERCE_EXTRACT" },
-              { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: CONTENT_FILES, guard: LIVE_COMMERCE_PAGE_GUARD }
+              { timeoutMs: EXTRACTION_TIMEOUT_MS3, inject: CONTENT_FILES, guard: LIVE_COMMERCE_PAGE_GUARD }
             );
           } catch (error) {
             if (leftForOperator(error)) keepOpen = true;
@@ -8190,9 +10060,19 @@ var KidItemRuntime = (() => {
     };
   }
   function verification2(url) {
-    return new RuntimeError(SITE_VERIFICATION_REQUIRED2, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED5, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
   }
   registerSite({ name: LIVE_COMMERCE_SITE.name, create: (deps) => createLiveCommerceSite(deps.tabs) });
+
+  // extensions/src/sites/mall-admin-listings/index.ts
+  var MALL_ADMIN_LISTINGS_SITE = "mall-admin-listings";
+  registerSite({
+    name: MALL_ADMIN_LISTINGS_SITE,
+    opensOwnTabs: true,
+    create: (deps, lease) => ({
+      reader: (mallKey) => isMallAdminListingOperationMall(mallKey) ? siteFactoryFor(mallKey)?.create(deps, lease) ?? null : null
+    })
+  });
 
   // extensions/src/sites/mall-orders/index.ts
   var MALL_ORDERS_SITE = "mall-orders";
@@ -8217,10 +10097,10 @@ var KidItemRuntime = (() => {
     const blocks = [];
     const seen = /* @__PURE__ */ new Set();
     for (const match of content.matchAll(/<(?:p|h[1-6]|li|td|th|div|span)[^>]*>([^<]{5,})<\//gi)) {
-      const text2 = match[1].replace(/&[^;]+;/g, " ").trim();
-      if (text2.length < 5 || text2.length > 2e3 || seen.has(text2)) continue;
-      seen.add(text2);
-      blocks.push(text2);
+      const text5 = match[1].replace(/&[^;]+;/g, " ").trim();
+      if (text5.length < 5 || text5.length > 2e3 || seen.has(text5)) continue;
+      seen.add(text5);
+      blocks.push(text5);
     }
     if (images.length === 0 && blocks.length === 0) return null;
     return { description_images: images, description_text: blocks.join("\n").slice(0, 1e4), description_image_count: images.length };
@@ -8253,8 +10133,8 @@ var KidItemRuntime = (() => {
         depth -= 1;
         if (depth === 0) {
           try {
-            const parsed = JSON.parse(html.substring(jsonStart, index + 1));
-            return typeof parsed.content === "string" ? parsed.content : null;
+            const parsed2 = JSON.parse(html.substring(jsonStart, index + 1));
+            return typeof parsed2.content === "string" ? parsed2.content : null;
           } catch {
             return null;
           }
@@ -8265,20 +10145,20 @@ var KidItemRuntime = (() => {
   }
   function allowedSupplierUrl(value) {
     try {
-      const parsed = new URL(String(value ?? "").trim());
-      const host = parsed.hostname.toLowerCase().replace(/\.$/, "");
-      if (parsed.protocol !== "https:" || parsed.username || parsed.password || parsed.port && parsed.port !== "443") return null;
+      const parsed2 = new URL(String(value ?? "").trim());
+      const host = parsed2.hostname.toLowerCase().replace(/\.$/, "");
+      if (parsed2.protocol !== "https:" || parsed2.username || parsed2.password || parsed2.port && parsed2.port !== "443") return null;
       if (!["1688.com", "alibaba.com"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) return null;
-      parsed.hostname = host;
-      parsed.hash = "";
-      return parsed.toString();
+      parsed2.hostname = host;
+      parsed2.hash = "";
+      return parsed2.toString();
     } catch {
       return null;
     }
   }
 
   // extensions/src/sites/product-page/index.ts
-  var EXTRACTION_TIMEOUT_MS3 = 2e4;
+  var EXTRACTION_TIMEOUT_MS4 = 2e4;
   var TRIGGER_TIMEOUT_MS = 5e3;
   var EXTRACTOR_FILES = [
     "content/sourcing/extractors/common.js",
@@ -8329,7 +10209,7 @@ var KidItemRuntime = (() => {
             }
           }
         });
-        const timer = setTimeout(() => settle(new RuntimeError(PRODUCT_EXTRACTION_TIMEOUT, "\uC0C1\uD488 \uCD94\uCD9C \uC2DC\uAC04\uC774 \uCD08\uACFC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: sourceUrl })), EXTRACTION_TIMEOUT_MS3);
+        const timer = setTimeout(() => settle(new RuntimeError(PRODUCT_EXTRACTION_TIMEOUT, "\uC0C1\uD488 \uCD94\uCD9C \uC2DC\uAC04\uC774 \uCD08\uACFC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: sourceUrl })), EXTRACTION_TIMEOUT_MS4);
         try {
           const started = await page.ask({ type: "TRIGGER_EXTRACT", attemptId: marker }, { timeoutMs: TRIGGER_TIMEOUT_MS, inject: productPageInjection(sourceUrl) });
           if (started.ok === false) {
@@ -8369,16 +10249,93 @@ var KidItemRuntime = (() => {
     }
   });
 
+  // extensions/src/sites/sabangnet/index.ts
+  var SABANGNET_ORIGIN = "https://sbadmin08.sabangnet.co.kr";
+  var PAGE_URL = `${SABANGNET_ORIGIN}/`;
+  var SABANGNET_MALL_LISTINGS_FILE = "content/orders/sabangnet-mall-listings.js";
+  var NAVIGATION_TIMEOUT_MS8 = 45e3;
+  var PAGE_CALL_TIMEOUT_MS = 35e3;
+  var SABANGNET_PAGE_DELAY_MS = 800;
+  var LOGIN_MESSAGE5 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
+  var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
+  var SABANGNET_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["sabangnet.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["sabangnet.co.kr"]) && /login/i.test(`${url.pathname}${url.hash}`),
+    loginMessage: LOGIN_MESSAGE5
+  };
+  function createSabangnetSite(tabs, sleep) {
+    let pagesRead = 0;
+    let tab = null;
+    let opened = null;
+    let keepOpen = false;
+    function page() {
+      tab ??= (async () => {
+        const next = await tabs.open("about:blank");
+        opened = next;
+        await next.navigate(PAGE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS8 });
+        return next;
+      })();
+      return tab;
+    }
+    async function read(query, currentPage) {
+      if (pagesRead > 0) await sleep(SABANGNET_PAGE_DELAY_MS);
+      pagesRead += 1;
+      const answer = await callPage(await page(), "sabangnet.mallListingPage", { ...query, currentPage }, {
+        timeoutMs: PAGE_CALL_TIMEOUT_MS,
+        guard: SABANGNET_PAGE_GUARD,
+        isolated: [SABANGNET_MALL_LISTINGS_FILE],
+        displayName: "\uC0AC\uBC29\uB137"
+      });
+      switch (answer?.status) {
+        case "ok":
+          return { total: answer.total, items: answer.items };
+        case "login_required":
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE5, { url: PAGE_URL });
+        case "http_error":
+          throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
+            status: answer.httpStatus,
+            url: PAGE_URL,
+            reason: "http",
+            bodyHead: null
+          });
+        case "contract_drift":
+          throw new RuntimeError(MALL_CONTRACT_CHANGED4, `\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
+        case "timeout":
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL, reason: "timeout", bodyHead: null });
+        default:
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL, reason: "network", bodyHead: null });
+      }
+    }
+    return {
+      /** "쇼핑몰상품수정" 목록 한 쪽(1부터). 실패 이력 줄은 뺀다. `total`은 사방넷이 알린 전체 송신 기록 수. */
+      async mallListingPage(query, currentPage) {
+        try {
+          return await read(query, currentPage);
+        } catch (error) {
+          if (leftForOperator(error)) keepOpen = true;
+          throw error;
+        }
+      },
+      /** 이 사이트가 연 탭을 닫는다. 로그인·예상 밖 주소에서 멈췄으면 남긴다. */
+      async close() {
+        if (opened && !keepOpen) await opened.close();
+        opened = null;
+        tab = null;
+      }
+    };
+  }
+  registerSite({ name: "sabangnet", opensOwnTabs: true, create: (deps) => createSabangnetSite(deps.tabs, deps.sleep) });
+
   // extensions/src/sites/sellpia/tracking.ts
   var SELLPIA_ORIGIN = "https://kiditem.sellpia.com";
   var SELLPIA_REPRINT_URL = `${SELLPIA_ORIGIN}/order_delivery_reprint.html`;
   var SELLPIA_SHIPMENT_TRACKING_FILE = "content/orders/sellpia-shipment-tracking.js";
   var QUERY_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE5 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE6 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
   var SELLPIA_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sellpia.com"]),
     isLogin: (url) => hostWithin(url, ["sellpia.com"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE5
+    loginMessage: LOGIN_MESSAGE6
   };
   function createSellpiaTracking(tabs) {
     return {
@@ -8395,7 +10352,7 @@ var KidItemRuntime = (() => {
             case "ok":
               return { rows: answer.rows, total: answer.total };
             case "login_required":
-              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE5, { url: SELLPIA_REPRINT_URL });
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE6, { url: SELLPIA_REPRINT_URL });
             case "http_error":
               throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
                 status: answer.httpStatus,
@@ -8416,17 +10373,99 @@ var KidItemRuntime = (() => {
     };
   }
 
+  // extensions/src/sites/sellpia/manual-match.ts
+  var SELLPIA_MANUAL_MATCH_URL = `${SELLPIA_ORIGIN}/product_manual_match.html`;
+  var SELLPIA_MANUAL_MATCH_FILE = "content/orders/sellpia-manual-match.js";
+  var NAVIGATION_TIMEOUT_MS9 = 45e3;
+  var SEARCH_TIMEOUT_MS = 10 * 6e4;
+  var STATUS_TIMEOUT_MS = 6e4;
+  var LOGIN_MESSAGE7 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
+  var MALL_CONTRACT_CHANGED5 = "MALL_CONTRACT_CHANGED";
+  function createSellpiaManualMatch(tabs) {
+    let tab = null;
+    let opened = null;
+    let keepOpen = false;
+    function page() {
+      tab ??= (async () => {
+        const next = await tabs.open("about:blank");
+        opened = next;
+        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS9 });
+        return next;
+      })();
+      return tab;
+    }
+    async function ask(call2, args, timeoutMs) {
+      try {
+        const answer = await callPage(await page(), call2, args, {
+          timeoutMs,
+          guard: SELLPIA_PAGE_GUARD,
+          isolated: [SELLPIA_MANUAL_MATCH_FILE],
+          displayName: "\uC140\uD53C\uC544"
+        });
+        switch (answer?.status) {
+          case "ok":
+            return answer;
+          case "login_required":
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE7, { url: SELLPIA_MANUAL_MATCH_URL });
+          case "contract_drift":
+            throw new RuntimeError(MALL_CONTRACT_CHANGED5, `\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
+          case "http_error":
+            throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
+              status: answer.httpStatus,
+              url: SELLPIA_MANUAL_MATCH_URL,
+              reason: "http",
+              bodyHead: null
+            });
+          case "timeout":
+            throw new RuntimeError(SITE_REQUEST_FAILED, "\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uADFC\uAC70 \uC218\uC9D1 \uC2DC\uAC04\uC774 \uCD08\uACFC\uB418\uC5C8\uC2B5\uB2C8\uB2E4.", {
+              status: null,
+              url: SELLPIA_MANUAL_MATCH_URL,
+              reason: "timeout",
+              bodyHead: null
+            });
+          default:
+            throw new RuntimeError(SITE_REQUEST_FAILED, "\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", {
+              status: null,
+              url: SELLPIA_MANUAL_MATCH_URL,
+              reason: "not_json",
+              bodyHead: null
+            });
+        }
+      } catch (error) {
+        if (leftForOperator(error)) keepOpen = true;
+        throw error;
+      }
+    }
+    return {
+      /** 대상 코드마다 매칭 검색(동시 4). 매칭 제목이 없는 줄은 뺀다. */
+      async manualMatchSearch(codes) {
+        return (await ask("sellpia.manualMatchSearch", { codes: [...codes] }, SEARCH_TIMEOUT_MS)).candidates;
+      },
+      /** md5 100개 이하의 매칭 종류(M·P·E). */
+      async manualMatchStatus(matchMd5s) {
+        return (await ask("sellpia.manualMatchStatus", { matchMd5s: [...matchMd5s] }, STATUS_TIMEOUT_MS)).types;
+      },
+      /** 수동매칭이 연 탭을 닫는다. 로그인·예상 밖 주소에서 멈췄으면 남긴다. */
+      async closeManualMatch() {
+        if (opened && !keepOpen) await opened.close();
+        opened = null;
+        tab = null;
+      }
+    };
+  }
+
   // extensions/src/sites/sellpia/index.ts
   function createSellpiaSite(tabs) {
     return {
-      ...createSellpiaTracking(tabs)
+      ...createSellpiaTracking(tabs),
+      ...createSellpiaManualMatch(tabs)
     };
   }
   registerSite({ name: "sellpia", opensOwnTabs: true, create: (deps) => createSellpiaSite(deps.tabs) });
 
   // extensions/src/sites/tiktok-cc/index.ts
-  var NAVIGATION_TIMEOUT_MS6 = 35e3;
-  var EXTRACTION_TIMEOUT_MS4 = 25e3;
+  var NAVIGATION_TIMEOUT_MS10 = 35e3;
+  var EXTRACTION_TIMEOUT_MS5 = 25e3;
   var BASE_URLS = {
     hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
     product: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/pc/en",
@@ -8450,8 +10489,8 @@ var KidItemRuntime = (() => {
     if (targetId === "hashtag" || targetId === "product") {
       return { id: targetId, trendType: targetId, url: BASE_URLS[targetId], sourceKeyword: null };
     }
-    const keyword = targetId.startsWith("keyword:") ? targetId.slice("keyword:".length) : targetId;
-    return { id: targetId, trendType: "keyword", url: `${BASE_URLS.keyword}?keyword=${encodeURIComponent(keyword)}`, sourceKeyword: keyword };
+    const keyword2 = targetId.startsWith("keyword:") ? targetId.slice("keyword:".length) : targetId;
+    return { id: targetId, trendType: "keyword", url: `${BASE_URLS.keyword}?keyword=${encodeURIComponent(keyword2)}`, sourceKeyword: keyword2 };
   }
   function isTiktokBlockedUrl(value) {
     try {
@@ -8468,7 +10507,7 @@ var KidItemRuntime = (() => {
       return false;
     }
   }
-  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
+  var SITE_VERIFICATION_REQUIRED6 = "SITE_VERIFICATION_REQUIRED";
   var MAX_VERIFICATION_ROUNDS3 = 5;
   function sanitizeTiktokRegion(value) {
     if (typeof value !== "string") return null;
@@ -8496,21 +10535,21 @@ var KidItemRuntime = (() => {
     };
     async function readTarget(page2, target, defaultRegion, onAttention) {
       const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
-      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS6, stopAt, continueOnTimeout: true });
+      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS10, stopAt, continueOnTimeout: true });
       for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
         const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
         if (!cleared) {
           keepOpen = true;
-          throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
+          throw new RuntimeError(SITE_VERIFICATION_REQUIRED6, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
         }
-        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS6, stopAt, continueOnTimeout: true });
+        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS10, stopAt, continueOnTimeout: true });
       }
       if (isTiktokBlockedUrl(landed)) {
         throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
       }
       const extracted = await page2.ask(
         { type: "TRIGGER_TIKTOK_CC_EXTRACT", trendType: target.trendType, sourceKeyword: target.sourceKeyword, defaultRegion },
-        { timeoutMs: EXTRACTION_TIMEOUT_MS4, inject: CONTENT_FILES2, guard: TIKTOK_CC_PAGE_GUARD }
+        { timeoutMs: EXTRACTION_TIMEOUT_MS5, inject: CONTENT_FILES2, guard: TIKTOK_CC_PAGE_GUARD }
       );
       if (!extracted.ok) {
         throw new RuntimeError(SITE_REQUEST_FAILED, `TikTok \uD2B8\uB80C\uB4DC '${target.id}'\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, target: target.id });
@@ -8637,7 +10676,7 @@ var KidItemRuntime = (() => {
       if (row.vendorId !== void 0 && (typeof row.vendorId !== "string" || expectedVendorId && row.vendorId !== expectedVendorId)) {
         throw new WingPayloadError(`Wing \uD310\uB9E4\uC790 ID\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4: ${externalProductId}`);
       }
-      requiredText3(row.productName, "Wing \uC0C1\uD488\uBA85");
+      requiredText5(row.productName, "Wing \uC0C1\uD488\uBA85");
       return buildCatalogBasicProduct(row);
     });
     return { page: requestedPage, pageSize, totalItems, totalPages, products };
@@ -8647,7 +10686,7 @@ var KidItemRuntime = (() => {
     const externalProductId = strictRequiredId(inventoryProduct.vendorInventoryId, "vendorInventoryId");
     const items = Array.isArray(inventoryProduct.vendorInventoryItems) ? inventoryProduct.vendorInventoryItems : [];
     if (items.length === 0) throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId}\uC5D0 vendorInventoryItems\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    const saleStatus = saleStatusFromWingProductStatus(requiredText3(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
+    const saleStatus = saleStatusFromWingProductStatus(requiredText5(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
     const optionIds = /* @__PURE__ */ new Set();
     const options = items.map((item) => {
       const option = buildCatalogBasicOption(item);
@@ -8800,11 +10839,11 @@ var KidItemRuntime = (() => {
     const mediaCountByOption = /* @__PURE__ */ new Map();
     for (const entry of media) {
       for (const owner of entry.externalOptionIds) {
-        const count = (mediaCountByOption.get(owner) ?? 0) + 1;
-        if (count > MAX_MEDIA_PER_OWNER) {
+        const count3 = (mediaCountByOption.get(owner) ?? 0) + 1;
+        if (count3 > MAX_MEDIA_PER_OWNER) {
           throw new WingPayloadError(`Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId} \uC635\uC158 ${owner}\uC758 \uBBF8\uB514\uC5B4\uAC00 \uD5C8\uC6A9 \uAC1C\uC218\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
         }
-        mediaCountByOption.set(owner, count);
+        mediaCountByOption.set(owner, count3);
       }
     }
     if (documents.length > MAX_DOCUMENTS_PER_PRODUCT) {
@@ -8877,10 +10916,10 @@ var KidItemRuntime = (() => {
     mediaByKey.set(key, { sourceUrl, role, externalOptionIds: /* @__PURE__ */ new Set([externalOptionId]) });
   }
   function makeStableDocumentId(field, value, ordinal) {
-    const text2 = `${field}\0${stableStringify(value)}`;
+    const text5 = `${field}\0${stableStringify(value)}`;
     let hash = 2166136261;
-    for (let index = 0; index < text2.length; index += 1) {
-      hash ^= text2.charCodeAt(index);
+    for (let index = 0; index < text5.length; index += 1) {
+      hash ^= text5.charCodeAt(index);
       hash = Math.imul(hash, 16777619);
     }
     return `doc:${field}:${(hash >>> 0).toString(16).padStart(8, "0")}:${ordinal}`;
@@ -8903,19 +10942,19 @@ var KidItemRuntime = (() => {
     }
   }
   function normalizeImageUrl(value) {
-    const text2 = typeof value === "string" ? value.trim() : "";
-    if (!text2) return null;
-    if (text2.startsWith("//")) return `https:${text2}`;
-    if (/^https?:\/\//i.test(text2)) return text2;
-    return `https://image1.coupangcdn.com/image/${text2.replace(/^\/+/, "")}`;
+    const text5 = typeof value === "string" ? value.trim() : "";
+    if (!text5) return null;
+    if (text5.startsWith("//")) return `https:${text5}`;
+    if (/^https?:\/\//i.test(text5)) return text5;
+    return `https://image1.coupangcdn.com/image/${text5.replace(/^\/+/, "")}`;
   }
   function isRecord2(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
   function nullableText(value) {
     if (value === null || value === void 0) return null;
-    const text2 = String(value).trim();
-    return text2 || null;
+    const text5 = String(value).trim();
+    return text5 || null;
   }
   function optionalId(value) {
     if (value === null || value === void 0 || value === "") return null;
@@ -8953,10 +10992,10 @@ var KidItemRuntime = (() => {
     const number2 = Number(value);
     return Number.isInteger(number2) && number2 >= 0 ? number2 : null;
   }
-  function requiredText3(value, name) {
-    const text2 = typeof value === "string" ? value.trim() : "";
-    if (!text2) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    return text2;
+  function requiredText5(value, name) {
+    const text5 = typeof value === "string" ? value.trim() : "";
+    if (!text5) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    return text5;
   }
   function requiredPositiveInteger(value, name) {
     if (!Number.isSafeInteger(value) || value <= 0) throw new WingPayloadError(`${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
@@ -8967,11 +11006,31 @@ var KidItemRuntime = (() => {
     return value;
   }
 
+  // extensions/src/sites/wing/login.ts
+  var WING_LOGIN = {
+    displayName: "\uCFE0\uD321 \uC719",
+    loginUrl: "https://wing.coupang.com/",
+    hosts: ["wing.coupang.com", "xauth.coupang.com"],
+    isLoginUrl: (url) => hostWithin(url, ["xauth.coupang.com"]) || /\/(?:login|sign-in|signin)(?:[/?#]|$)/i.test(url.pathname),
+    fields: ["loginId", "password"]
+  };
+  function wingCallerWithLogin(caller, deps, lease) {
+    const credentials = lease.credentials;
+    const withLogin = createSiteLoginGate(credentials);
+    const login = (page) => credentials ? ensureLoggedIn(page, WING_LOGIN, credentials, deps) : Promise.resolve({ status: "unconfirmed" });
+    const gate = (call2) => lease.tabId !== null ? withLogin(call2, () => login(deps.tabs.attach(lease.tabId))) : withLoginTab(withLogin, call2, () => deps.tabs.open("about:blank"), login);
+    return {
+      json: (url, init) => gate(() => caller.json(url, init)),
+      text: (url, init) => gate(() => caller.text(url, init)),
+      bytes: (url, init) => gate(() => caller.bytes(url, init))
+    };
+  }
+
   // extensions/src/sites/wing/index.ts
-  var ORIGIN2 = "https://wing.coupang.com";
-  var SEARCH_URL = `${ORIGIN2}/tenants/seller-web/v2/vendor-inventory/search`;
-  var DETAIL_URL = `${ORIGIN2}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
-  var EXCEL_BASE = `${ORIGIN2}/tenants/seller-web/excel/request/download`;
+  var ORIGIN5 = "https://wing.coupang.com";
+  var SEARCH_URL = `${ORIGIN5}/tenants/seller-web/v2/vendor-inventory/search`;
+  var DETAIL_URL = `${ORIGIN5}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
+  var EXCEL_BASE = `${ORIGIN5}/tenants/seller-web/excel/request/download`;
   var EXCEL_REQUEST_TYPE = "EDITABLE_CATALOGUE";
   var CATALOGUE_TYPES = [
     "DISPLAY_PRODUCT_NAME",
@@ -8993,12 +11052,12 @@ var KidItemRuntime = (() => {
   var WING_CATALOG_PAYLOAD_INVALID = "WING_CATALOG_PAYLOAD_INVALID";
   var WING_SITE = {
     name: "wing",
-    origin: ORIGIN2,
+    origin: ORIGIN5,
     caller: {
       minIntervalMs: 2e3,
       timeoutMs: WING_TIMEOUT_MS,
       displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN2, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+      xsrf: { cookieUrl: ORIGIN5, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingSite(caller, deps) {
@@ -9162,7 +11221,8 @@ var KidItemRuntime = (() => {
   registerSite({
     name: WING_SITE.name,
     origin: WING_SITE.origin,
-    create: (deps) => createWingSite(createSiteCaller(WING_SITE.caller, deps), { sleep: deps.sleep })
+    // 로그인 화면이면 실행의 저장 자격으로 한 번 로그인하고 다시 묻는다(KID-377, `./login`).
+    create: (deps, lease) => createWingSite(wingCallerWithLogin(createSiteCaller(WING_SITE.caller, deps), deps, lease), { sleep: deps.sleep })
   });
 
   // extensions/src/sites/wing/vendor-identity.ts
@@ -9178,8 +11238,8 @@ var KidItemRuntime = (() => {
     for (const script of html.matchAll(INLINE_SCRIPT)) {
       for (const match of (script[1] ?? "").matchAll(SCRIPT_VENDOR_ID)) found.add(match[1]);
     }
-    const text2 = html.replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ");
-    for (const match of text2.matchAll(LABELED_VENDOR_ID)) found.add(match[1]);
+    const text5 = html.replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ");
+    for (const match of text5.matchAll(LABELED_VENDOR_ID)) found.add(match[1]);
     for (const match of html.matchAll(DATA_VENDOR_ID)) found.add(match[1]);
     return [...found];
   }
@@ -9279,8 +11339,8 @@ var KidItemRuntime = (() => {
     };
   }
   function positiveId(value) {
-    const text2 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
-    return /^\d+$/.test(text2) && BigInt(text2) > 0n ? text2 : null;
+    const text5 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
+    return /^\d+$/.test(text5) && BigInt(text5) > 0n ? text5 : null;
   }
   function integer(value) {
     const number2 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
@@ -9308,25 +11368,25 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/wing/pre-matching-search.ts
-  var ORIGIN3 = "https://wing.coupang.com";
-  var SEARCH_URL2 = `${ORIGIN3}/tenants/seller-web/pre-matching/search`;
+  var ORIGIN6 = "https://wing.coupang.com";
+  var SEARCH_URL2 = `${ORIGIN6}/tenants/seller-web/pre-matching/search`;
   var RETRY_ATTEMPTS = 4;
   var REQUEST_TIMEOUT_MS2 = 2e4;
   var WING_SEARCH_PAYLOAD_INVALID = "WING_SEARCH_PAYLOAD_INVALID";
   var WING_SEARCH_SITE = {
     name: "wing-search",
-    origin: ORIGIN3,
+    origin: ORIGIN6,
     caller: {
       minIntervalMs: 2200,
       displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN3, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+      xsrf: { cookieUrl: ORIGIN6, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingPreMatchingSearch(caller, deps) {
     return {
       /** 키워드 한 페이지. 429·5xx·연결 끊김은 네 번까지 다시 묻는다. */
-      async searchPage(keyword, searchPage) {
-        const body = JSON.stringify({ keyword, excludedProductIds: [], searchPage, searchOrder: "DEFAULT", sortType: "DEFAULT" });
+      async searchPage(keyword2, searchPage) {
+        const body = JSON.stringify({ keyword: keyword2, excludedProductIds: [], searchPage, searchOrder: "DEFAULT", sortType: "DEFAULT" });
         for (let attempt = 1; ; attempt += 1) {
           let response;
           try {
@@ -9357,7 +11417,7 @@ var KidItemRuntime = (() => {
     return {
       searchPage: search.searchPage,
       identity: (row) => `${row.productId}:${row.itemId ?? ""}:${row.vendorItemId ?? ""}`,
-      toObservation: (row, keyword, capturedAt) => row.productName.trim() ? toSourcingWingCatalogObservation(row, keyword, capturedAt) : null
+      toObservation: (row, keyword2, capturedAt) => row.productName.trim() ? toSourcingWingCatalogObservation(row, keyword2, capturedAt) : null
     };
   }
   function parseWingSearchPage(body) {
@@ -9374,14 +11434,14 @@ var KidItemRuntime = (() => {
   function normalizeWingSearchProduct(raw) {
     const product = asRecord2(raw);
     if (!product || product.productId == null) return null;
-    const productId = String(product.productId);
-    if (!productId) return null;
+    const productId2 = String(product.productId);
+    if (!productId2) return null;
     const salePrice = nullableNumber(product.salePrice);
     const salesLast28d = nullableNumber(product.salesLast28d);
     const pvLast28Day = nullableNumber(product.pvLast28Day);
     const category = Array.isArray(product.displayCategoryInfo) ? asRecord2(product.displayCategoryInfo[0])?.categoryHierarchy : null;
     return {
-      productId,
+      productId: productId2,
       itemId: product.itemId == null ? null : String(product.itemId),
       vendorItemId: product.vendorItemId == null ? null : String(product.vendorItemId),
       productName: String(product.productName || ""),
@@ -9411,13 +11471,13 @@ var KidItemRuntime = (() => {
       manufacture: row.manufacture?.slice(0, 500) ?? null,
       categoryHierarchy: row.categoryHierarchy?.slice(0, 1e3) ?? null,
       imagePath: row.imagePath?.slice(0, 2e3) ?? null,
-      salePriceKrw: boundedInteger(row.salePrice),
-      ratingAverage: boundedNumber(row.rating, 0, 5),
-      ratingCount: boundedInteger(row.ratingCount),
-      viewsLast28d: boundedInteger(row.pvLast28Day),
-      salesLast28d: boundedInteger(row.salesLast28d),
-      estimatedRevenue28d: boundedNumber(row.estimatedRevenue28d, 0, 2147483647),
-      conversionRate28d: boundedNumber(row.conversionRate28d, 0, 1),
+      salePriceKrw: boundedInteger2(row.salePrice),
+      ratingAverage: boundedNumber2(row.rating, 0, 5),
+      ratingCount: boundedInteger2(row.ratingCount),
+      viewsLast28d: boundedInteger2(row.pvLast28Day),
+      salesLast28d: boundedInteger2(row.salesLast28d),
+      estimatedRevenue28d: boundedNumber2(row.estimatedRevenue28d, 0, 2147483647),
+      conversionRate28d: boundedNumber2(row.conversionRate28d, 0, 1),
       deliveryInfo: row.deliveryInfo?.slice(0, 1e3) ?? null,
       sourceKeyword,
       capturedAt
@@ -9429,10 +11489,10 @@ var KidItemRuntime = (() => {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : null;
   }
-  function boundedInteger(value) {
+  function boundedInteger2(value) {
     return value !== null && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
   }
-  function boundedNumber(value, minimum, maximum) {
+  function boundedNumber2(value, minimum, maximum) {
     return value !== null && Number.isFinite(value) && value >= minimum && value <= maximum ? value : null;
   }
   function asRecord2(value) {
@@ -9491,11 +11551,11 @@ var KidItemRuntime = (() => {
       externalReviewId: String(raw.reviewId),
       externalOptionId: raw.vendorItemId === null || raw.vendorItemId === void 0 ? null : String(raw.vendorItemId),
       externalProductId: raw.productId === null || raw.productId === void 0 ? null : String(raw.productId),
-      itemName: text(raw.itemName),
+      itemName: text4(raw.itemName),
       rating: Math.round(rating),
-      title: text(raw.reviewTitle),
-      content: text(raw.reviewContent),
-      reviewerName: text(raw.memberName),
+      title: text4(raw.reviewTitle),
+      content: text4(raw.reviewContent),
+      reviewerName: text4(raw.memberName),
       reviewedAt: Math.trunc(reviewedAt),
       imageCount: attachment.images,
       videoCount: attachment.videos,
@@ -9506,16 +11566,16 @@ var KidItemRuntime = (() => {
   function attachmentCounts(value) {
     if (typeof value !== "string" || !value) return { images: 0, videos: 0 };
     try {
-      const parsed = JSON.parse(value);
+      const parsed2 = JSON.parse(value);
       return {
-        images: Array.isArray(parsed?.imageAttachments) ? parsed.imageAttachments.length : 0,
-        videos: Array.isArray(parsed?.videoAttachments) ? parsed.videoAttachments.length : 0
+        images: Array.isArray(parsed2?.imageAttachments) ? parsed2.imageAttachments.length : 0,
+        videos: Array.isArray(parsed2?.videoAttachments) ? parsed2.videoAttachments.length : 0
       };
     } catch {
       return { images: 0, videos: 0 };
     }
   }
-  function text(value) {
+  function text4(value) {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
     return trimmed || null;
@@ -9526,7 +11586,7 @@ var KidItemRuntime = (() => {
   registerSite({
     name: "wing-reviews",
     origin: WING_ORIGIN2,
-    create: (deps) => createWingReviewsSite(createSiteCaller(WING_REVIEW_CALLER, deps))
+    create: (deps, lease) => createWingReviewsSite(wingCallerWithLogin(createSiteCaller(WING_REVIEW_CALLER, deps), deps, lease))
   });
 
   // extensions/src/sites/wing/traffic.ts
@@ -9620,8 +11680,8 @@ var KidItemRuntime = (() => {
     const details = record(row?.vendorItemDetails);
     const metrics = record(row?.businessInsightsMetricsResponse);
     const vendorItemId = positiveId2(details?.vendorItemId);
-    const productId = positiveId2(details?.inventoryId);
-    if (!details || !metrics || !vendorItemId || !productId) throw rowInvalid2("vendorItemDetails");
+    const productId2 = positiveId2(details?.inventoryId);
+    if (!details || !metrics || !vendorItemId || !productId2) throw rowInvalid2("vendorItemDetails");
     const rowVendorId = details.vendorId === null || details.vendorId === void 0 ? "" : String(details.vendorId).trim();
     if (rowVendorId !== vendorId2) {
       throw failed2("advertiser_identity_mismatch", "Wing \uACC4\uC815 \uC2DD\uBCC4\uC790\uAC00 \uC218\uC9D1 \uACC4\uD68D\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uB2E4\uB978 Wing \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { vendorItemId });
@@ -9635,7 +11695,7 @@ var KidItemRuntime = (() => {
       revenue: integer2(metrics.totalGmv)
     };
     for (const [field, metric2] of Object.entries(values)) if (metric2 === null) throw rowInvalid2(field);
-    return { vendorItemId, productId, ...values };
+    return { vendorItemId, productId: productId2, ...values };
   }
   function koreaDate(value) {
     const timestamp = typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value) ? Date.parse(`${value}T00:00:00Z`) : typeof value === "string" || typeof value === "number" ? new Date(value).getTime() : Number.NaN;
@@ -9643,16 +11703,16 @@ var KidItemRuntime = (() => {
     return new Date(timestamp + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
   }
   function positiveId2(value) {
-    const text2 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
-    return /^[1-9]\d*$/.test(text2) ? text2 : null;
+    const text5 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
+    return /^[1-9]\d*$/.test(text5) ? text5 : null;
   }
   function number(value) {
-    const parsed = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
-    return Number.isFinite(parsed) ? parsed : null;
+    const parsed2 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+    return Number.isFinite(parsed2) ? parsed2 : null;
   }
   function integer2(value) {
-    const parsed = number(value);
-    return parsed !== null && Number.isSafeInteger(parsed) ? parsed : null;
+    const parsed2 = number(value);
+    return parsed2 !== null && Number.isSafeInteger(parsed2) ? parsed2 : null;
   }
   function record(value) {
     return value && typeof value === "object" && !Array.isArray(value) ? value : null;
@@ -9823,14 +11883,14 @@ var KidItemRuntime = (() => {
       }
       throw new RuntimeError(envelope.code, envelope.message, envelope.details ?? null);
     }
-    const parsed = schema.safeParse(body);
-    if (!parsed.success) {
+    const parsed2 = schema.safeParse(body);
+    if (!parsed2.success) {
       throw new RuntimeError(RUNTIME_API_UNREACHABLE, "KidItem \uC11C\uBC84 \uC751\uB2F5\uC774 \uC2E4\uD589 \uACC4\uC57D\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { path, status: response.status });
     }
-    return parsed.data;
+    return parsed2.data;
   }
-  async function sha256Hex(text2) {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text2));
+  async function sha256Hex(text5) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text5));
     return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   }
 
@@ -9853,8 +11913,9 @@ var KidItemRuntime = (() => {
           const outcome = await runOne(deps, collectorFor2, step);
           const next = outcome.kind === "finished" && outcome.operation.status === "succeeded" ? nextOperationFrom(outcome.operation.result) : null;
           if (!next || input.signal.aborted) return outcome;
-          const { idempotencyKey: _previousKey, ...rest } = step;
-          step = { ...rest, kind: next.kind, scope: next.scope };
+          const { idempotencyKey: _previousKey, credentials, ...rest } = step;
+          const sameSite = credentials !== void 0 && (collectorFor2(next.kind)?.site ?? null) === (collectorFor2(step.kind)?.site ?? null);
+          step = { ...rest, ...sameSite ? { credentials } : {}, kind: next.kind, scope: next.scope };
         }
       }
     };
@@ -9936,7 +11997,7 @@ var KidItemRuntime = (() => {
     let failure2 = null;
     try {
       lease = await deps.browser.acquire({ operationId, lockKeys: operation.lockKeys, site: collector.site, signal: local.signal });
-      const site = deps.siteFor(operation.kind, lease);
+      const site = deps.siteFor(operation.kind, { tabId: lease.tabId, ...input.credentials ? { credentials: input.credentials } : {} });
       const sequences = /* @__PURE__ */ new Map();
       let chunks = 0;
       let items = 0;
@@ -9998,7 +12059,17 @@ var KidItemRuntime = (() => {
       const stop = stopFor(error.code, error.details);
       if (stop.kind === "fence_lost") return { kind: "fence_lost", operationId, reason: stop.reason };
       await writes;
-      await deps.client.finish({ operationId, token, request: { outcome: "failed", errorCode: error.code.slice(0, 64), errorMessage: error.message.slice(0, 2e3) } }).catch(() => void 0);
+      const login = loginFailureOf(error);
+      await deps.client.finish({
+        operationId,
+        token,
+        request: {
+          outcome: "failed",
+          errorCode: error.code.slice(0, 64),
+          errorMessage: error.message.slice(0, 2e3),
+          ...login ? { result: { login } } : {}
+        }
+      }).catch(() => void 0);
       return { kind: "failed", operationId, errorCode: error.code, errorMessage: error.message, ...error.details ? { details: error.details } : {} };
     } finally {
       stopHeartbeat();
@@ -10006,6 +12077,14 @@ var KidItemRuntime = (() => {
       input.signal.removeEventListener("abort", onAbort);
       await lease?.release({ error: failure2 }).catch(() => void 0);
     }
+  }
+  function loginFailureOf(error) {
+    if (error.code !== SITE_LOGIN_REQUIRED || typeof error.details?.reason !== "string") return null;
+    const mallMessage = error.details.mallMessage;
+    return {
+      reason: error.details.reason.slice(0, 64),
+      ...typeof mallMessage === "string" && mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {}
+    };
   }
   function cancelled(operationId) {
     return { kind: "failed", operationId, errorCode: OPERATION_CANCEL_CODE, errorMessage: "\uC2E4\uD589\uC744 \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4." };
@@ -10027,18 +12106,24 @@ var KidItemRuntime = (() => {
   function nextOperationFrom(result) {
     const next = result?.next;
     if (next === void 0 || next === null) return null;
-    const parsed = OperationNextSchema.safeParse(next);
-    return parsed.success ? parsed.data : null;
+    const parsed2 = OperationNextSchema.safeParse(next);
+    return parsed2.success ? parsed2.data : null;
   }
 
   // extensions/src/entry/actions.ts
   var OPERATION_START_ACTION = "operation.start";
   var OPERATION_CANCEL_ACTION = "operation.cancel";
+  var OperationStartCredentialsSchema = external_exports.object({
+    loginId: external_exports.string().min(1).max(200),
+    password: external_exports.string().min(1).max(500),
+    supplierLoginId: external_exports.string().min(1).max(200).nullable().optional()
+  }).strict();
   var OperationStartMessageSchema = external_exports.object({
     action: external_exports.literal(OPERATION_START_ACTION),
     kind: OperationKindSchema,
     scope: external_exports.record(external_exports.string(), external_exports.unknown()).default({}),
-    idempotencyKey: external_exports.string().min(1).max(128).optional()
+    idempotencyKey: external_exports.string().min(1).max(128).optional(),
+    credentials: OperationStartCredentialsSchema.optional()
   }).strict();
   var OperationCancelMessageSchema = external_exports.object({
     action: external_exports.literal(OPERATION_CANCEL_ACTION),
@@ -10069,7 +12154,7 @@ var KidItemRuntime = (() => {
         validate: (message) => validateWith(OperationStartMessageSchema, message),
         async handle(input, environmentId) {
           if (!input.ok) return input.response;
-          const { kind, scope, idempotencyKey } = input.message;
+          const { kind, scope, idempotencyKey, credentials } = input.message;
           const controller = new AbortController();
           const owned = [];
           let answer;
@@ -10080,6 +12165,7 @@ var KidItemRuntime = (() => {
             kind,
             scope,
             ...idempotencyKey !== void 0 ? { idempotencyKey } : {},
+            ...credentials !== void 0 ? { credentials } : {},
             signal: controller.signal,
             onBegun({ operationId, reused }) {
               running.set(operationId, controller);
@@ -10141,15 +12227,15 @@ var KidItemRuntime = (() => {
     return { success: false, errorCode: "RUNTIME_API_UNREACHABLE", error: error instanceof Error ? error.message : String(error) };
   }
   function validateWith(schema, message) {
-    const parsed = schema.safeParse(message);
-    if (parsed.success) return { ok: true, message: parsed.data };
+    const parsed2 = schema.safeParse(message);
+    if (parsed2.success) return { ok: true, message: parsed2.data };
     return {
       ok: false,
       response: {
         success: false,
         errorCode: "VALIDATION_FAILED",
         error: LOCAL_TEXT.VALIDATION_FAILED,
-        details: { errors: parsed.error.issues.map((issue) => ({ field: issue.path.join("."), reason: issue.message })) }
+        details: { errors: parsed2.error.issues.map((issue) => ({ field: issue.path.join("."), reason: issue.message })) }
       }
     };
   }
@@ -10160,11 +12246,11 @@ var KidItemRuntime = (() => {
   function productExtensionScope(url) {
     if (!url) return null;
     try {
-      const parsed = new URL(url);
-      if (parsed.protocol !== "https:") return null;
-      const host = parsed.hostname.toLowerCase();
-      if (host === "1688.com" || host.endsWith(".1688.com")) return { platform: "1688", url: parsed.toString() };
-      if (host === "alibaba.com" || host.endsWith(".alibaba.com")) return { platform: "alibaba", url: parsed.toString() };
+      const parsed2 = new URL(url);
+      if (parsed2.protocol !== "https:") return null;
+      const host = parsed2.hostname.toLowerCase();
+      if (host === "1688.com" || host.endsWith(".1688.com")) return { platform: "1688", url: parsed2.toString() };
+      if (host === "alibaba.com" || host.endsWith(".alibaba.com")) return { platform: "alibaba", url: parsed2.toString() };
       return null;
     } catch {
       return null;
@@ -10232,7 +12318,15 @@ var KidItemRuntime = (() => {
     });
     registerWithLegacyDomains({
       externalActions,
-      capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true, wingDailyOperationKindsV1: true }
+      capabilities: {
+        operationRuntime: true,
+        sourcingOperationKindsV1: true,
+        orderCaptureOperationKindsV1: true,
+        [CHANNELS_OPERATION_CAPABILITY]: true,
+        operationLoginV1: true,
+        advertisingKeywordOperationKindsV1: true,
+        wingDailyOperationKindsV1: true
+      }
     });
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
     return true;

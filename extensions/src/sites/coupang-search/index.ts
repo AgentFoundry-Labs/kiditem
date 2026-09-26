@@ -4,6 +4,7 @@ import type { SiteDefinition } from '../site';
 import type { TabPages } from '../tab-page';
 import { parseCoupangSearchEvidence, type CoupangSearchEvidence, type CoupangSuggestionItem } from './parse';
 import { registerSite } from '../registry';
+import { createCoupangSerp } from './serp';
 
 const ORIGIN = 'https://www.coupang.com';
 const PAGE_TIMEOUT_MS = 60_000;
@@ -12,7 +13,7 @@ const EVIDENCE_TIMEOUT_MS = 30_000;
 const SETTLE_MS = 1_500;
 const CONTENT_FILE = 'content/sourcing/coupang-search-page.js';
 
-/** 쿠팡 검색(www.coupang.com/np/search). 탭은 이 사이트가 열고 닫는다(잠금 키 `resource:coupang:*`는 탭을 잡지 않는다). */
+/** 쿠팡 검색(www.coupang.com/np/search). 탭은 이 사이트가 열고 닫는다(잠금 키 `resource:coupang:*`·`resource:keyword:*`는 탭을 잡지 않는다). */
 export const COUPANG_SEARCH_SITE: SiteDefinition = {
   name: 'coupang-search',
   origin: ORIGIN,
@@ -77,4 +78,11 @@ export function createCoupangSearchSite(tabs: TabPages, deps: { sleep(ms: number
 
 export type CoupangSearchSite = ReturnType<typeof createCoupangSearchSite>;
 
-registerSite({ name: COUPANG_SEARCH_SITE.name, create: (deps) => createCoupangSearchSite(deps.tabs, { sleep: deps.sleep }) });
+// 추천 키워드(소싱)와 SERP 순위(광고, KID-362)가 같은 사이트다 — 수집기가 필요한 모양만 쓴다.
+registerSite({
+  name: COUPANG_SEARCH_SITE.name,
+  create: (deps) => ({
+    ...createCoupangSearchSite(deps.tabs, { sleep: deps.sleep }),
+    ...createCoupangSerp(deps.tabs, { sleep: deps.sleep, now: deps.now, random: () => Math.random() }),
+  }),
+});

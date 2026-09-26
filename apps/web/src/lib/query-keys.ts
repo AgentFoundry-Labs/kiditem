@@ -167,8 +167,9 @@ export const queryKeys = {
     benchmark: (period?: string | number) => [...queryKeys.ads.all, 'benchmark', period] as const,
     collectStatus: () => [...queryKeys.ads.all, 'collect', 'status'] as const,
     keywordRank: () => [...queryKeys.ads.all, 'keywordRank'] as const,
-    // The organization's newest Wing rank batch, read by its shared collection control.
-    wingRankCurrentBatch: () => [...queryKeys.ads.keywordRank(), 'batch', 'current'] as const,
+    // 실행 kind `advertising.wing_rank`의 최근 실행들(공용 수집 컨트롤이 읽는다).
+    wingRankOperations: () => [...queryKeys.ads.all, 'operations', 'source-status', 'advertising.wing_rank'] as const,
+    keywordSerpOperations: () => [...queryKeys.ads.all, 'operations', 'source-status', 'advertising.keyword_serp'] as const,
     keywordRankTrackers: () => [...queryKeys.ads.keywordRank(), 'trackers'] as const,
     keywordRankHistory: (keyword: string, days: number) =>
       [...queryKeys.ads.keywordRank(), 'history', keyword, days] as const,
@@ -300,8 +301,6 @@ export const queryKeys = {
       [...queryKeys.channelProductMappings.all, 'list', params] as const,
     productCandidates: (channelListingId: string, params: Record<string, string>) =>
       [...queryKeys.channelProductMappings.all, 'product-candidates', channelListingId, params] as const,
-    sellpiaManualMatchTargets: () =>
-      [...queryKeys.channelProductMappings.all, 'sellpia-manual-match-targets'] as const,
   },
   channelSkuAvailability: {
     all: ['channelSkuAvailability'] as const,
@@ -398,6 +397,8 @@ export const queryKeys = {
       [...queryKeys.sourcing.all, 'wing-tracked-products', 'source-status'] as const,
     competitorCatalogSourceStatus: () =>
       [...queryKeys.sourcing.all, 'competitors', 'source-status'] as const,
+    competitorSellerIdentitySourceStatus: () =>
+      [...queryKeys.sourcing.all, 'competitors', 'seller-identity', 'source-status'] as const,
     wingCatalog: (keyword: string) =>
       [...queryKeys.sourcing.all, 'wing-catalog', keyword.trim()] as const,
     keywordSuggestions: (keyword: string) =>

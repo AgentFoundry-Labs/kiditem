@@ -143,6 +143,11 @@ read through `GET /api/operations` (KID-354). The Wing daily facts are
 Advertising-owned operation kinds `advertising.wing_traffic` and
 `advertising.wing_itemwinner` (KID-362): the extension service worker reads Wing
 with its cookies, and each holds `account:<id>` plus `resource:wing-daily:<id>`.
+read through `GET /api/operations` (KID-354). Sabangnet mall listings
+(`resource:sabangnet:login`), first-batch mall admin listings (`account:<id>`)
+and Sellpia manual-match evidence (`resource:sellpia:login`) are Channels
+operation kinds too, and the Rocket-Sellpia matching CSV upload is one
+server-produced `channels.rocket_matching_csv` operation (KID-363).
 Every start uses a fresh idempotency key; there are no correlated retry keys.
 Stop ends the extension session first, then the owner's organization-scoped
 operator cancel. Competitor catalogs, 1688 trend, TikTok CC and browser live
@@ -334,7 +339,7 @@ their implementation structures are listed in the Backend Implementation Map.
 | `apps/agent-gateway/src/provider/claude` | Platform | Claude CLI Implementation and adjacent specs. |
 | `apps/agent-gateway/src/security` | Platform Support | Provider environment and local-path redaction/validation. |
 | `apps/server/src/__tests__` | Test Support | Cross-root static architecture and process-composition policy checks. |
-| `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, authoritative exact-day profitability spend refresh/read evidence, daily facts, and strategy/action generation. |
+| `apps/server/src/advertising` | Owner Domain | Coupang ad operations, scrape ingest, authoritative exact-day profitability spend refresh/read evidence, daily facts, and strategy/action generation. Keyword and competitor collection are operation kinds (`advertising.wing_tracked_products`, `advertising.wing_rank`, `advertising.keyword_serp` → `advertising.competitor_seller_identity` → `advertising.competitor_catalog` chained by `result.next`; the last two share the lock `resource:competitor:serp-enrichment`, KID-362); readiness reads Wing rank coverage through `ADVERTISING_KEYWORD_RANK_READ_PORT`. |
 | `apps/server/src/agent-os` | Platform | Agent/profile registry, transient Gateway control, conversation facade, stateless MCP, durable capability admission, and completed-event history composition. |
 | `apps/server/src/agent-os/application/port/out/history` | Platform | Completed-event history Interface at the outgoing history seam. |
 | `apps/server/src/agent-os/adapter/out/history/sqlite` | Platform | Outbound SQLite Adapter for the completed-event history Interface, with its Implementation and OSS characterization specs. |

@@ -19,6 +19,7 @@ import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-cont
 import { apiClient } from '@/lib/api-client';
 import { isApiError } from '@/lib/api-error';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
+import { operationLoginOptions, WING_LOGIN_MALL_KEY } from '@/lib/operation-login';
 import { requestOperationCancel, requestOperationStart, type OperationStartOutcome } from '@/lib/operation-start';
 import { queryKeys } from '@/lib/query-keys';
 import { awaitingChainedDetails } from './wing-catalog-progress';
@@ -101,7 +102,8 @@ export function wingCatalogCollection(
     // 비교는 `!==`라 문자열이어야 한다.
     readStatusIdentity: (status) =>
       accountCatalogOperations(status, account.id).map((operation) => `${operation.id}:${operation.status}`).join(','),
-    start: async () => startOutcome(await requestOperationStart(startKind, { channelAccountId: account.id })),
+    // 로그인 화면이면 확장이 윙 저장 자격으로 로그인한다(KID-377). 연쇄로 이어지는 상세도 같은 자격을 쓴다.
+    start: async () => startOutcome(await requestOperationStart(startKind, { channelAccountId: account.id }, await operationLoginOptions(WING_LOGIN_MALL_KEY))),
     cancelInExtension: (operationId) => requestOperationCancel(operationId),
     cancelOnServer: (operationId) => apiClient.post(`/api/operations/${encodeURIComponent(operationId)}/cancel`),
     readCompleteId: (status) =>
@@ -124,12 +126,12 @@ export function wingCatalogCollection(
 /**
  * 상품 하나 상세 다시 받기(KID-351 작업 ③): 목록 없이 상세 kind를 그 상품 하나로 직접 시작한다.
  */
-export function refetchWingCatalogProduct(channelAccountId: string, externalProductId: string) {
+export async function refetchWingCatalogProduct(channelAccountId: string, externalProductId: string) {
   return requestOperationStart(WING_CATALOG_DETAILS_KIND, {
     channelAccountId,
     detailTargetProductIds: [externalProductId],
     absentProductIds: [],
-  });
+  }, await operationLoginOptions(WING_LOGIN_MALL_KEY));
 }
 
 export type WingCatalogWorkbookUpload = Readonly<{

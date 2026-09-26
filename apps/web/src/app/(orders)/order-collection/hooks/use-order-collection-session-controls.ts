@@ -229,8 +229,9 @@ export function useOrderCollectionSessionControls(
   }, []);
 
   /**
-   * The directship purchase-order calendar opens its own attempt before the
-   * operator picks arrival dates, then collects against that same attempt.
+   * Opens (or resumes) a directship attempt when the operator asks the
+   * calendar to read Coupang, and re-activates a succeeded attempt the
+   * calendar converts against (KID-198). Opening the calendar starts none.
    */
   const prepareDirectRun = useCallback(async (
     account: OrderCollectionMallAccount,

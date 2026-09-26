@@ -8,7 +8,7 @@ import {
   SABANGNET_SHOP_MALL_KEYS,
   SabangnetMallListingRowSchema,
   SabangnetMallListingsPlanSchema,
-  SabangnetMallListingsSubmissionSchema,
+  SabangnetMallListingsScanSchema,
   sabangnetShopIdsByMallKey,
 } from './sabangnet-mall-listings';
 
@@ -102,11 +102,10 @@ describe('SabangnetMallListingRowSchema', () => {
   });
 });
 
-describe('SabangnetMallListingsSubmissionSchema', () => {
-  it('완결성 근거와 줄을 함께 받는다', () => {
-    const parsed = SabangnetMallListingsSubmissionSchema.parse({
+describe('SabangnetMallListingsScanSchema', () => {
+  it('완결성 근거(읽은 쪽·기록 수·넘긴 쇼핑몰)와 조회 조건을 함께 받는다', () => {
+    const parsed = SabangnetMallListingsScanSchema.parse({
       collection: {
-        collectionRunId: ACCOUNT_A,
         totalRecords: 2,
         recordsRead: 2,
         pagesRead: 1,
@@ -115,9 +114,16 @@ describe('SabangnetMallListingsSubmissionSchema', () => {
         skippedByShop: { shop0075: 1 },
         missingMallCode: 0,
       },
-      rows: [row({ sabangnetShopId: 'shop0100' })],
       proof: { dateFrom: '20000101', dateTo: '20260917', pageSize: 500, validatedList: true },
     });
     expect(parsed.collection.skippedByShop).toEqual({ shop0075: 1 });
+  });
+
+  it('행을 싣는 옛 제출 모양은 받지 않는다 — 행은 listing_rows 청크로 따로 온다', () => {
+    expect(SabangnetMallListingsScanSchema.safeParse({
+      collection: { totalRecords: 0, recordsRead: 0, pagesRead: 1, totalPages: 1, truncated: false, skippedByShop: {}, missingMallCode: 0 },
+      rows: [],
+      proof: { dateFrom: '20000101', dateTo: '20260917', pageSize: 500, validatedList: true },
+    }).success).toBe(false);
   });
 });
