@@ -28,9 +28,17 @@ import {
   type KeywordRankRepositoryPort,
 } from "../port/out/repository/keyword-rank.repository.port";
 import type {
+  CompetitorCatalogPlan,
+  CompetitorCatalogResult,
+  CompetitorCatalogScope,
   CompetitorSellerIdentityPlan,
   CompetitorSellerIdentityResult,
 } from "@kiditem/shared/advertising-operations";
+import { KiditemConflictError } from "@kiditem/shared/errors";
+import {
+  assembleCompetitorCatalogs,
+  planCompetitorCatalog,
+} from "../../domain/competitor-catalog-operation";
 import type { OperationStagedChunk } from "@kiditem/shared/operation";
 import type { OwnerTransaction } from "../../../common/owner-transaction";
 import {
@@ -201,6 +209,35 @@ export class CompetitorTrackingService {
       keywords: trackers.map((tracker) => tracker.keyword),
       storefrontProductCount: storefrontProducts.length,
     };
+  }
+
+  /** 경쟁사 카탈로그 실행의 계획(`advertising.competitor_catalog`, KID-362): 최근 30일 판매자 선택 20명(옛 attempt 그대로). */
+  async planCatalogOperation(organizationId: string, scope: CompetitorCatalogScope): Promise<CompetitorCatalogPlan> {
+    const selected = await this.getSellerTargets(organizationId, 30, 20);
+    return planCompetitorCatalog({ selected: selected.targets, scope });
+  }
+
+  /**
+   * finish 트랜잭션에서 판매자샵 카탈로그를 그 키워드의 최신 SERP 스냅샷(실행이 발행한 행)에 붙인다. SERP가 없거나 더 새
+   * 카탈로그가 있으면 그 판매자는 건너뛴다(ignored). 계획한 판매자가 모두 저장·건너뜀으로 끝나야 한다.
+   */
+  async publishCatalogOperation(tx: OwnerTransaction, input: {
+    organizationId: string;
+    plan: CompetitorCatalogPlan;
+    chunks: readonly OperationStagedChunk[];
+  }): Promise<CompetitorCatalogResult> {
+    const catalogs = assembleCompetitorCatalogs(input.plan, input.chunks);
+    if (catalogs.length === 0) return { targets: 0, captured: 0, ignored: 0 };
+    const capturedAt = catalogs.map((catalog) => catalog.capturedAt).sort().at(-1)!;
+    const persisted = await this.keywordRankRepo.runInTransaction(tx, () =>
+      this.ingest.executeSellerCatalogs(
+        { type: "competitor_seller_catalog", source: "coupang-seller-shop", timestamp: capturedAt, data: catalogs as unknown as Array<Record<string, unknown>> },
+        input.organizationId,
+      ));
+    if (persisted.results.length + persisted.ignored.length !== input.plan.targets.length) {
+      throw new KiditemConflictError("ADVERTISING_COLLECTION_INCOMPLETE", { details: { reason: "catalog_publication_incomplete" } });
+    }
+    return { targets: input.plan.targets.length, captured: persisted.results.length, ignored: persisted.ignored.length };
   }
 
   async getSellerTargets(organizationId: string, days: number, limit: number) {

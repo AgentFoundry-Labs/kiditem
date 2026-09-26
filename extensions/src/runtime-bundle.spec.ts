@@ -29,6 +29,7 @@ describe('committed runtime bundle', () => {
     const runtime = loadRuntime({});
 
     expect((runtime.runtime as { kinds(): string[] }).kinds()).toEqual([
+      'advertising.competitor_catalog',
       'advertising.competitor_seller_identity',
       'advertising.keyword_serp',
       'advertising.wing_rank',

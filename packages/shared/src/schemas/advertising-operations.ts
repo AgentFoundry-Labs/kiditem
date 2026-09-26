@@ -319,3 +319,85 @@ export const CompetitorSellerIdentityResultSchema = z.object({
   resolvedProductCount: z.number().int().nonnegative(),
 }).passthrough();
 export type CompetitorSellerIdentityResult = z.infer<typeof CompetitorSellerIdentityResultSchema>;
+
+// ── K5 advertising.competitor_catalog ──
+
+/** 한 실행이 여는 판매자샵 상한과 판매자 하나에서 읽는 상품 상한(연쇄 보강 500, 그 밖 100 — 옛 attempt와 같다). */
+export const COMPETITOR_CATALOG_MAX_TARGETS = 20;
+export const COMPETITOR_CATALOG_ENRICHMENT_MAX_PRODUCTS = 500;
+export const COMPETITOR_CATALOG_MAX_PRODUCTS = 100;
+
+const sellerId = z.string().trim().min(1).max(80).regex(/^[A-Za-z0-9_-]+$/u);
+const sellerStoreUrl = z.string().trim().url().max(2_000).refine((value) => {
+  try {
+    const url = new URL(value);
+    return url.protocol === 'https:' && url.hostname === 'shop.coupang.com';
+  } catch {
+    return false;
+  }
+}, '판매자샵 주소는 shop.coupang.com이어야 합니다');
+const boundedCount = z.number().int().nonnegative().max(2_147_483_647);
+
+/**
+ * 경쟁사 카탈로그: 확인된 경쟁 판매자샵(shop.coupang.com)을 최신순으로 읽는다. `sellerId`를 주면 그 판매자 하나(추적 중인
+ * 판매자여야 한다), `rankEnrichment`면 판매자 확인이 이어서 시작한 보강(상품 500개까지). lockKey `org`.
+ */
+export const CompetitorCatalogScopeSchema = z.object({
+  sellerId: sellerId.optional(),
+  rankEnrichment: z.boolean().optional(),
+}).strict().refine((scope) => !(scope.sellerId && scope.rankEnrichment), { message: '판매자 하나 수집은 보강 연쇄가 아닙니다', path: ['rankEnrichment'] });
+export type CompetitorCatalogScope = z.infer<typeof CompetitorCatalogScopeSchema>;
+
+export const CompetitorCatalogTargetSchema = z.object({
+  sellerId,
+  sellerName: z.string().trim().min(1).max(300),
+  sellerStoreUrl,
+  keyword: z.string().min(1).max(100),
+}).strict();
+export type CompetitorCatalogTarget = z.infer<typeof CompetitorCatalogTargetSchema>;
+
+export const CompetitorCatalogPlanSchema = z.object({
+  targets: z.array(CompetitorCatalogTargetSchema).max(COMPETITOR_CATALOG_MAX_TARGETS),
+  productLimit: z.union([z.literal(COMPETITOR_CATALOG_MAX_PRODUCTS), z.literal(COMPETITOR_CATALOG_ENRICHMENT_MAX_PRODUCTS)]),
+}).strict();
+export type CompetitorCatalogPlan = z.infer<typeof CompetitorCatalogPlanSchema>;
+
+export const CompetitorCatalogProductSchema = z.object({
+  sourceRank: z.number().int().min(1).max(COMPETITOR_CATALOG_ENRICHMENT_MAX_PRODUCTS),
+  productId: z.string().trim().min(1).max(200).nullable(),
+  itemId: z.string().trim().min(1).max(200).nullable(),
+  vendorItemId: z.string().trim().min(1).max(200).nullable(),
+  name: z.string().trim().min(1).max(500),
+  priceKrw: boundedCount.nullable(),
+  reviewCount: boundedCount.nullable(),
+  imageUrl: z.string().trim().max(2_000).nullable(),
+  link: z.string().trim().max(2_000).nullable(),
+}).strict().refine((product) => Boolean(product.productId || product.itemId || product.vendorItemId), {
+  message: '경쟁사 상품은 상품·아이템·옵션 ID 중 하나가 있어야 합니다', path: ['productId'],
+});
+export type CompetitorCatalogProduct = z.infer<typeof CompetitorCatalogProductSchema>;
+
+/** 청크 `seller_catalog`: 판매자샵 하나(최신순)를 읽은 결과(계획한 판매자마다 한 원소). */
+export const COMPETITOR_CATALOG_CHUNK_KIND = 'seller_catalog' as const;
+export const CompetitorCatalogItemSchema = z.object({
+  keyword: z.string().min(1).max(100),
+  sellerId,
+  sellerName: z.string().trim().min(1).max(300),
+  sellerStoreUrl,
+  totalProductCount: boundedCount.nullable(),
+  collectedProductCount: z.number().int().min(1).max(COMPETITOR_CATALOG_ENRICHMENT_MAX_PRODUCTS),
+  isTruncated: z.boolean(),
+  sort: z.literal('newest'),
+  capturedAt: z.string().datetime(),
+  products: z.array(CompetitorCatalogProductSchema).min(1).max(COMPETITOR_CATALOG_ENRICHMENT_MAX_PRODUCTS),
+}).strict().refine((catalog) => catalog.collectedProductCount === catalog.products.length, {
+  message: 'collectedProductCount는 읽은 상품 수와 같아야 합니다', path: ['collectedProductCount'],
+});
+export type CompetitorCatalogItem = z.infer<typeof CompetitorCatalogItemSchema>;
+
+export const CompetitorCatalogResultSchema = z.object({
+  targets: z.number().int().nonnegative(),
+  captured: z.number().int().nonnegative(),
+  ignored: z.number().int().nonnegative(),
+}).passthrough();
+export type CompetitorCatalogResult = z.infer<typeof CompetitorCatalogResultSchema>;

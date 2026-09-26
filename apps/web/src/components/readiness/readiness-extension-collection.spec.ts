@@ -193,13 +193,6 @@ describe('readiness extension collection', () => {
       resolve(process.cwd(), 'src/app/(analytics)/dashboard/hooks/use-wing-traffic-collection.ts'),
       'utf8',
     );
-    const competitorExtensionSource = readFileSync(
-      resolve(
-        process.cwd(),
-        'src/app/(sourcing-ai)/sourcing-ai/competitor-analysis/lib/competitor-extension.ts',
-      ),
-      'utf8',
-    );
     const competitorPageSource = readFileSync(
       resolve(
         process.cwd(),
@@ -215,12 +208,9 @@ describe('readiness extension collection', () => {
     expect(dashboardSource).not.toContain('window.open');
     expect(wingCollectionSource).toContain('useCollectionSourceControl(wingTrafficCollection)');
     expect(wingCollectionSource).not.toContain('fallbackOpenTabs');
-    expect(competitorExtensionSource).toContain(
-      'COMPETITOR_EXTENSION_MIN_VERSION = KIDITEM_EXTENSION_MIN_VERSION',
-    );
-    expect(competitorExtensionSource).toContain('browserCollectionSessions');
-    expect(competitorPageSource).toContain('collectCompetitorCatalogFromExtension');
-    expect(competitorPageSource).toContain('requireCompetitorCatalogExtension');
+    // 경쟁사 수집은 실행 kind(KID-362)라 공용 컨트롤이 시작한다.
+    expect(competitorPageSource).toContain('useCollectionSourceControl(competitorCatalogCollection)');
+    expect(competitorPageSource).not.toContain('collectCompetitorCatalogFromExtension');
     expect(competitorPageSource).not.toContain('beginCompetitorCatalogAttempt');
     expect(competitorPageSource).not.toContain('useSourcingOperationAction');
     expect(competitorPageSource).not.toContain('SourcingOperationRunPanel');

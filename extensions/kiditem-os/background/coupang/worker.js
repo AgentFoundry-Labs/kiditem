@@ -175,20 +175,6 @@ const collectionRuns = KidItemCollectionRuns.create({
   sessions: collectionSessions,
   collectionWindowFor,
 });
-// Wing search is a source-capture module. The worker supplies only concrete
-// browser/session/attention adapters; request, retry, cursor, normalization,
-// and proof policy stay behind its collect interface.
-const wingSearchCollector = KidItemWingSearchCollector.create({
-  chrome,
-  sessions: collectionSessions,
-  environment: {
-    bindTab: (tabId, environmentId) =>
-      coupangEnvironment.bindTab(tabId, environmentId),
-  },
-  waitForTabComplete,
-  attention: (runId, tabId, reason, message) =>
-    collectionRuns.requireAttention(runId, tabId, reason, message),
-});
 // The source owners that close through collectionWindowFor share one window
 // per environment. A run holds the window's turn until its outcome is reported
 // and its window and session are released. The turn never waits: a run finds
@@ -308,70 +294,7 @@ const wingItemwinnerSourceOwner = KidItemWingItemwinnerSourceOwner.create({
   takeWindowTurn: coupangWindowTurn(WING_ITEMWINNER_PRODUCER),
 });
 chrome.runtime.onMessage.addListener(wingItemwinnerSourceOwner.handleMessage);
-const coupangSerpCollector = KidItemCoupangSerpCollector.create({
-  chrome,
-  sessions: collectionSessions,
-  environment: coupangEnvironment,
-  waitForTabComplete,
-  delay: sleep,
-});
-const coupangSellerIdentityCollector = KidItemCoupangSellerIdentityCollector.create({
-  chrome,
-  sessions: collectionSessions,
-  environment: coupangEnvironment,
-  waitForTabComplete,
-  delay: sleep,
-});
-const coupangSellerCatalogCollector = KidItemCoupangSellerCatalogCollector.create({
-  chrome,
-  sessions: collectionSessions,
-  environment: coupangEnvironment,
-  waitForTabComplete,
-  delay: sleep,
-});
-const competitorCatalogSourceOwner = KidItemCompetitorCatalogSourceOwner.create({
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  collectTarget: collectAdvertisingCompetitorCatalogTarget,
-  closeAttempt: async (_environmentId, attemptId, tabId) => {
-    if (!Number.isInteger(tabId)) return;
-    await collectionSessions.detachTab(attemptId, {
-      tabId,
-      closeManagedTab: true,
-    });
-  },
-});
 const wingFormRuntimeCompat = KidItemWingFormRuntimeCompat.create({ chrome });
-const keywordSerpSourceOwner = KidItemKeywordRankSourceOwner.create({
-  kind: "serp",
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  collect: captureCoupangKeywordSerp,
-});
-const wingRankSourceOwner = KidItemKeywordRankSourceOwner.create({
-  kind: "wing",
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  collect: captureWingRank,
-});
-const sellerIdentitySourceOwner = KidItemKeywordRankSourceOwner.create({
-  kind: "identity",
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => authedFetch(environmentId, path, init),
-  collect: captureSellerIdentities,
-});
-const wingRankBatch = KidItemKeywordRankBatch.create({
-  kind: "wing", request: authedFetch, sourceOwner: wingRankSourceOwner,
-  sleep, randomDelayMs, keepAlive: (work) => KidItemWorkerKeepAlive.during(work),
-});
-const serpRankBatch = KidItemKeywordRankBatch.create({
-  kind: "serp", request: authedFetch, sourceOwner: keywordSerpSourceOwner,
-  sleep, randomDelayMs, keepAlive: (work) => KidItemWorkerKeepAlive.during(work),
-  afterBatch: collectSerpSellerEnrichment,
-});
 const wingFormReadiness = KidItemWingFormReadiness.create({ chrome });
 const wingImageFetch = KidItemWingImageFetch.create({
   runtimeId: chrome.runtime.id,
@@ -753,80 +676,6 @@ async function registerToWingForm(message) {
       error: `${e?.message || "content script 미응답"} — 확장을 리로드(chrome://extensions)한 뒤 다시 시도하세요.`,
     };
   }
-}
-
-async function captureWingRank(keyword, maxPages, { environmentId, attemptId }) {
-  let search, tabId;
-  for (let attempt = 1; attempt <= 2; attempt++) {
-    if (!await collectionSessions.getOwned(attemptId, environmentId)) return { cancelled: true };
-    try {
-      search = await wingSearchCollector.collect({
-        keyword, maxPages, environmentId, attemptId, collectionTabId: tabId,
-      });
-      if (search?.tabId) tabId = search.tabId;
-      if (search?.attentionRequired || search?.cancelled) return search;
-      if (!search?.success) throw new Error(search?.error || "Wing 상품분석 조회 실패");
-      break;
-    } catch (error) {
-      if (!await collectionSessions.getOwned(attemptId, environmentId)) return { cancelled: true };
-      if (attempt === 2) throw error;
-      await sleep(randomDelayMs(5000, 9000));
-    }
-  }
-  return {
-    success: true,
-    pagesScanned: search.pages.length,
-    collectedCount: search.collectedCount,
-    totalResults: search.upstreamTotal,
-    items: sortWingCatalogRowsBySales(search.rows),
-    proof: { maxPages: search.maxPages, stopReason: search.stopReason,
-      pages: search.pages.map(({ searchPage, itemCount, nextSearchPage, resultArrayObserved }) => ({
-        searchPage, itemCount, nextSearchPage, resultArrayObserved,
-      })),
-    },
-  };
-}
-
-function sortWingCatalogRowsBySales(rows) {
-  return [...(Array.isArray(rows) ? rows : [])]
-    .sort(
-      (a, b) =>
-        (Number(b?.salesLast28d) || 0) - (Number(a?.salesLast28d) || 0) ||
-        (Number(b?.estimatedRevenue28d) || 0) -
-          (Number(a?.estimatedRevenue28d) || 0) ||
-        String(a?.productId || "").localeCompare(String(b?.productId || "")),
-    )
-    .map((item, index) => ({ ...item, salesRank: index + 1 }));
-}
-
-// ═══ 공개 쿠팡 검색 노출순위 (수동 호환용) ═══
-// 공개 검색 페이지(www.coupang.com/np/search)를 열어 상품 목록을 DOM 순서대로 수집한다.
-
-async function captureCoupangKeywordSerp(keyword, maxPages, options = {}) {
-  return coupangSerpCollector.collect(keyword, maxPages, options);
-}
-
-async function captureSellerIdentities(targets, { environmentId, attemptId, expiresAt }) {
-  return coupangSellerIdentityCollector.collect(targets, {
-    environmentId,
-    attemptId,
-    expiresAt,
-    onProgress: ({ processed, targetCount }) => collectionSessions.progress(attemptId, {
-      current: processed,
-      total: targetCount,
-      completed: processed,
-      failed: 0,
-      label: "겹치는 상품 판매자 확인",
-    }),
-  });
-}
-
-async function collectAdvertisingCompetitorCatalogTarget(input) {
-  return coupangSellerCatalogCollector.collectTarget(input);
-}
-
-function randomDelayMs(minMs, maxMs) {
-  return Math.floor(minMs + Math.random() * (maxMs - minMs));
 }
 
 function stableInputFingerprint(value) {
@@ -1285,41 +1134,6 @@ function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
-async function collectSerpSellerEnrichment({ environmentId, idempotencyKey, isCancelled, setCancelActive }) {
-  const collectCatalog = (phase, excludeCompletedAttemptId) => competitorCatalogSourceOwner.run({
-    environmentId, idempotencyKey: `${idempotencyKey}:catalog:${phase}`,
-    input: { target: "rank_enrichment", ...(excludeCompletedAttemptId ? { excludeCompletedAttemptId } : {}) },
-    onAttempt: async ({ attemptId }) => {
-      const cancel = () => competitorCatalogSourceOwner.cancel({ environmentId, attemptId });
-      setCancelActive(cancel);
-      if (isCancelled()) await cancel();
-    },
-  });
-  try {
-    if (isCancelled()) return;
-    const initial = await collectCatalog("initial");
-    if (isCancelled() || initial.terminalState !== "COMPLETE") return;
-
-    const response = await authedFetch(environmentId, "/api/ads/competitor-seller-identities/attempts", {
-      method: "POST", headers: { "Content-Type": "application/json", "Idempotency-Key": `${idempotencyKey}:identity` },
-      body: "{}",
-    });
-    if (!response.ok) throw new Error(`판매자 식별 대상 조회 실패 (${response.status})`);
-    const identity = KidItemKeywordRankSourceOwner.parseStart({
-      action: "collectAdvertisingSellerIdentities", attemptId: (await response.json())?.attemptId,
-    }, "identity");
-    const cancelIdentity = () => sellerIdentitySourceOwner.fail({ environmentId, attemptId: identity.attemptId,
-      code: "COLLECTION_CANCELLED", message: "판매자 식별 수집이 취소되었습니다." });
-    setCancelActive(cancelIdentity);
-    if (isCancelled()) { await cancelIdentity(); return; }
-    const outcome = await sellerIdentitySourceOwner.run({ environmentId, attemptId: identity.attemptId });
-    if (isCancelled() || outcome.terminalState !== "COMPLETE") return;
-    await collectCatalog("new", initial.attemptId);
-  } finally {
-    setCancelActive(null);
-  }
-}
-
 async function collectAdvertisingProfitabilitySlice({
   environmentId,
   attemptId,
@@ -1350,24 +1164,9 @@ async function cancelCollectionSession(runId, environmentId) {
     await wingReportCollectorFor(environmentId).cancelRun({ attemptId: runId });
     return wingItemwinnerSourceOwner.cancel({ environmentId, attemptId: runId });
   }
-  if (session?.producer === "advertising.competitor_seller_identity") {
-    return sellerIdentitySourceOwner.cancel({ environmentId, attemptId: runId });
-  }
-  if (session?.producer === "advertising.keyword_rank") {
-    return keywordSerpSourceOwner.cancel({ environmentId, attemptId: runId });
-  }
-  if (session?.producer === "advertising.wing_rank") {
-    return wingRankSourceOwner.cancel({ environmentId, attemptId: runId });
-  }
   if (session?.producer === "advertising.profitability_import") {
     await adCenterCollectorFor(environmentId).cancelRun({ attemptId: runId });
     return profitabilitySourceOwner.cancel({ environmentId, attemptId: runId });
-  }
-  if (session?.producer === "advertising.competitor_catalog") {
-    return competitorCatalogSourceOwner.cancel({
-      environmentId,
-      attemptId: runId,
-    });
   }
   throw new Error("Collection producer source owner does not support cancellation");
 }
@@ -1376,9 +1175,8 @@ async function cancelCollectionSession(runId, environmentId) {
 // which recovers an environment after it confirms a connected KidItem tab there
 // and settles its stop requests. The ad campaign, keyword, Wing traffic and
 // itemwinner owners only settle attempts that already ended. Profitability
-// continues its same live import inside the window turn a new start would take;
-// competitor catalogs use no window. The Wing catalog
-// import continues its same unexpired attempt after taking the import turn a
+// continues its same live import inside the window turn a new start would take.
+// The Wing catalog import continues its same unexpired attempt after taking the import turn a
 // new start would take. The runs keep the worker alive on their own, so the
 // lifetime is not held until they end.
 function recoverCoupangCollections(environmentId) {
@@ -1389,7 +1187,6 @@ function recoverCoupangCollections(environmentId) {
     ["Wing 트래픽 일별 owner", () => wingTrafficSourceOwnerV2.recover(environmentId)],
     ["Wing 아이템위너 owner", () => wingItemwinnerSourceOwner.recover(environmentId)],
     ["수익성 광고비 source owner", () => profitabilitySourceOwner.recover(environmentId)],
-    ["경쟁 판매자 source owner", () => competitorCatalogSourceOwner.recover(environmentId)],
   ]) {
     KidItemWorkerKeepAlive.during(Promise.resolve().then(recover)).catch((error) =>
       console.error(`[KIDITEM] ${label} 복구 실패:`, error?.message || error));
@@ -1409,74 +1206,9 @@ KidItemDomains.register({
       handle: (request, environmentId) =>
         KidItemWorkerKeepAlive.during(coupangCollectionStart.start(request, environmentId)),
     },
-    collectAdvertisingSellerIdentities: {
-      validate: (message) => KidItemKeywordRankSourceOwner.parseStart(message, "identity"),
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        sellerIdentitySourceOwner.run({ environmentId, attemptId }),
-      ),
-    },
-    collectAdvertisingWingRankBatch: {
-      validate: (message) => KidItemKeywordRankBatch.parseStart(message, "collectAdvertisingWingRankBatch"),
-      handle: ({ idempotencyKey }, environmentId) => wingRankBatch.start({ environmentId, idempotencyKey }),
-    },
-    cancelAdvertisingWingRankBatch: {
-      validate: (message) => KidItemKeywordRankBatch.parseStart(message, "cancelAdvertisingWingRankBatch"),
-      handle: ({ idempotencyKey }, environmentId) => KidItemWorkerKeepAlive.during(
-        wingRankBatch.cancel({ environmentId, idempotencyKey }),
-      ),
-    },
-    collectAdvertisingKeywordSerpBatch: {
-      validate: (message) => KidItemKeywordRankBatch.parseStart(message, "collectAdvertisingKeywordSerpBatch"),
-      handle: ({ idempotencyKey }, environmentId) => serpRankBatch.start({ environmentId, idempotencyKey }),
-    },
-    cancelAdvertisingKeywordSerpBatch: {
-      validate: (message) => KidItemKeywordRankBatch.parseStart(message, "cancelAdvertisingKeywordSerpBatch"),
-      handle: ({ idempotencyKey }, environmentId) => KidItemWorkerKeepAlive.during(
-        serpRankBatch.cancel({ environmentId, idempotencyKey }),
-      ),
-    },
-    collectAdvertisingKeywordSerp: {
-      validate: (message) => KidItemKeywordRankSourceOwner.parseStart(message, "serp"),
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        keywordSerpSourceOwner.run({ environmentId, attemptId }),
-      ),
-    },
-    collectAdvertisingWingRank: {
-      validate: (message) => KidItemKeywordRankSourceOwner.parseStart(message, "wing"),
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        wingRankSourceOwner.run({ environmentId, attemptId }),
-      ),
-    },
-    collectAdvertisingCompetitorCatalog: {
-      validate: KidItemCompetitorCatalogSourceOwner.parseStart,
-      handle: ({ idempotencyKey, input }, environmentId) =>
-        KidItemWorkerKeepAlive.during(
-          competitorCatalogSourceOwner.run({
-            environmentId,
-            idempotencyKey,
-            input,
-          }),
-        ),
-    },
   },
   capabilities: {
-    sellerIdentitySourceOwnerV1: true,
-    keywordSerpSourceOwnerV1: true,
-    wingRankSourceOwnerV1: true,
     profitabilityAdvertisingSourceOwnerV1: true,
-    competitorCatalogSourceOwnerV1: true,
-    wingCatalogSearch: true,
-    wingCatalogSearchSource: "wing-pre-matching",
-    coupangKeywordRank: true,
-    coupangKeywordRankSource: "coupang-search-page",
-    coupangCompetitorSeller: true,
-    coupangCompetitorSellerSource: "coupang-product-detail",
-    coupangCompetitorSellerCatalog: true,
-    coupangCompetitorSellerCatalogSource: "coupang-seller-shop-newest-first",
-    coupangCompetitorSellerCatalogOnDemand: true,
-    wingCatalogSalesRank: true,
-    wingCatalogSalesRankCancel: true,
-    wingCatalogSalesRankSource: "wing-pre-matching-sales-28d",
     coupangCatalogSnapshot: true,
     coupangCatalogSourceAttempts: true,
     coupangCatalogSnapshotSource: "wing-inventory-v1",

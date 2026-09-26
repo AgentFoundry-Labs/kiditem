@@ -62,6 +62,24 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   AdActions in `pending_review` that require human approval. The operator
   pauses an approved keyword in the ad center (see Ownership).
 
+## Keyword And Competitor Collection
+
+- Tracked Wing products, Wing sales rank, Coupang SERP rank, competitor seller
+  identity and competitor catalogs are operation kinds (`advertising.*`,
+  ADR-0025) whose owners live in `adapter/in/operation/`. Ledger rows are
+  written only in `finalize` inside the finish transaction and carry
+  `operationId`; readers treat `operationId IS NOT NULL` as published and ignore
+  legacy attempt rows.
+- `advertising.wing_rank` and `advertising.keyword_serp` hold one
+  `resource:keyword:<kw>` slot per keyword (`keywordLockKey`), so the same
+  keyword never runs both at once. Wing kinds also hold `account:<id>`;
+  seller identity and catalogs hold `org` because both rewrite SERP rows.
+- SERP → seller identity → catalog is a `result.next` chain; each can also be
+  started alone. Finalize cannot read rows its own transaction has not
+  committed through another capability, so the chain passes keywords, not
+  derived targets.
+- All five are read-only against Coupang; none writes to the ad center.
+
 ## Cross-Domain Boundaries
 
 - A source attempt ends at Advertising's `COMPLETE`/`FAILED` owner record and

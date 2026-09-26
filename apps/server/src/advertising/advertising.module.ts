@@ -32,7 +32,6 @@ import {
   AD_TRAFFIC_SOURCE_PORT,
 } from "./application/port/in/ad-traffic-source.port";
 import { CompetitorTrackingController } from "./adapter/in/http/competitor-tracking.controller";
-import { CompetitorCatalogSourceController } from "./adapter/in/http/competitor-catalog-source.controller";
 import { WingTrackedProductController } from "./adapter/in/http/wing-tracked-product.controller";
 // adapter/out/repository
 import { AdConfigRepositoryAdapter } from "./adapter/out/repository/ad-config.repository.adapter";
@@ -48,7 +47,6 @@ import { KeywordRankRepositoryAdapter } from "./adapter/out/repository/keyword-r
 import { AdKeywordSourceRepository } from "./adapter/out/repository/ad-keyword-source.repository";
 import { AdCampaignSourceRepository } from "./adapter/out/repository/ad-campaign-source.repository";
 import { WingTrackedProductRepositoryAdapter } from "./adapter/out/repository/wing-tracked-product.repository.adapter";
-import { CompetitorCatalogSourceAttemptRepositoryAdapter } from "./adapter/out/repository/competitor-catalog-source-attempt.repository.adapter";
 import { KiditemStorefrontAdapter } from "./adapter/out/provider/kiditem-storefront.adapter";
 import { KeywordRelevanceJudgeAdapter } from "./adapter/out/ai/keyword-relevance-judge.adapter";
 import { AdvertisingSourceAlertAdapter } from "./adapter/out/repository/advertising-source-alert.adapter";
@@ -58,6 +56,7 @@ import { WingTrackedProductsOperationOwner } from "./adapter/in/operation/wing-t
 import { WingRankOperationOwner } from "./adapter/in/operation/wing-rank-operation-owner";
 import { KeywordSerpOperationOwner } from "./adapter/in/operation/keyword-serp-operation-owner";
 import { CompetitorSellerIdentityOperationOwner } from "./adapter/in/operation/competitor-seller-identity-operation-owner";
+import { CompetitorCatalogOperationOwner } from "./adapter/in/operation/competitor-catalog-operation-owner";
 // application/service + handlers
 import { AdvertisingService } from "./application/service/advertising.service";
 import { AdExportService } from "./application/service/ad-export.service";
@@ -73,7 +72,6 @@ import { AdActionService } from "./application/service/ad-action.service";
 import { AdConfigService } from "./application/service/ad-config.service";
 import { KeywordRankService } from "./application/service/keyword-rank.service";
 import { CompetitorTrackingService } from "./application/service/competitor-tracking.service";
-import { CompetitorCatalogSourceAttemptService } from "./application/service/competitor-catalog-source-attempt.service";
 import { WingTrackedProductService } from "./application/service/wing-tracked-product.service";
 import { CoupangMomentumReadService } from "./application/service/coupang-momentum-read.service";
 import { KeywordRankIngestHandler } from "./application/service/keyword-rank-ingest.handler";
@@ -90,7 +88,6 @@ import { CHANNEL_OPTION_DAILY_REPOSITORY_PORT } from "./application/port/out/rep
 import { CHANNEL_TARGET_DAILY_REPOSITORY_PORT } from "./application/port/out/repository/channel-target-daily.repository.port";
 import { KEYWORD_RANK_REPOSITORY_PORT } from "./application/port/out/repository/keyword-rank.repository.port";
 import { WING_TRACKED_PRODUCT_REPOSITORY_PORT } from "./application/port/out/repository/wing-tracked-product.repository.port";
-import { COMPETITOR_CATALOG_SOURCE_ATTEMPT_REPOSITORY_PORT } from "./application/port/out/repository/competitor-catalog-source-attempt.repository.port";
 import { KEYWORD_RELEVANCE_JUDGE_PORT } from "./application/port/out/cross-domain/keyword-relevance-judge.port";
 import { KIDITEM_STOREFRONT_PORT } from "./application/port/out/provider/kiditem-storefront.port";
 import { COUPANG_MOMENTUM_READ_CAPABILITY_PORT } from "./application/port/in/capability/coupang-momentum-read.port";
@@ -144,10 +141,6 @@ const REPOSITORY_PORT_BINDINGS = [
     provide: WING_TRACKED_PRODUCT_REPOSITORY_PORT,
     useExisting: WingTrackedProductRepositoryAdapter,
   },
-  {
-    provide: COMPETITOR_CATALOG_SOURCE_ATTEMPT_REPOSITORY_PORT,
-    useExisting: CompetitorCatalogSourceAttemptRepositoryAdapter,
-  },
   { provide: KIDITEM_STOREFRONT_PORT, useExisting: KiditemStorefrontAdapter },
   { provide: ADVERTISING_SOURCE_ALERT_PORT, useExisting: AdvertisingSourceAlertAdapter },
   {
@@ -181,7 +174,6 @@ const REPOSITORY_PORT_BINDINGS = [
     WingItemwinnerKpiSourceController,
     AdTrafficSourceController,
     CompetitorTrackingController,
-    CompetitorCatalogSourceController,
     WingTrackedProductController,
   ],
   providers: [
@@ -217,7 +209,6 @@ const REPOSITORY_PORT_BINDINGS = [
       useExisting: AdTrafficSourceRepository,
     },
     WingTrackedProductRepositoryAdapter,
-    CompetitorCatalogSourceAttemptRepositoryAdapter,
     KiditemStorefrontAdapter,
     KeywordRelevanceJudgeAdapter,
     AdvertisingSourceAlertAdapter,
@@ -226,6 +217,7 @@ const REPOSITORY_PORT_BINDINGS = [
     WingRankOperationOwner,
     KeywordSerpOperationOwner,
     CompetitorSellerIdentityOperationOwner,
+    CompetitorCatalogOperationOwner,
     // application/service
     AdvertisingService,
     AdExportService,
@@ -241,7 +233,6 @@ const REPOSITORY_PORT_BINDINGS = [
     AdConfigService,
     KeywordRankService,
     CompetitorTrackingService,
-    CompetitorCatalogSourceAttemptService,
     WingTrackedProductService,
     CoupangMomentumReadService,
     // application/service — source-owner support

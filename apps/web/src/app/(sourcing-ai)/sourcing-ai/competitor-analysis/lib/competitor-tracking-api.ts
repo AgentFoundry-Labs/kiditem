@@ -121,31 +121,6 @@ export interface AutoConfigureCompetitorTrackersResponse {
   storefrontProductCount: number;
 }
 
-export type CompetitorCatalogAttemptInput =
-  | { target: 'all' }
-  | { target: 'seller_id'; sellerId: string };
-
-export interface CompetitorCatalogSourceStatus {
-  ready: boolean;
-  latestAttempt: {
-    attemptId: string;
-    state: 'RUNNING' | 'COMPLETE' | 'FAILED';
-    startedAt: string;
-    capturedAt: string | null;
-    expiresAt: string;
-    errorCode: string | null;
-    errorMessage: string | null;
-  } | null;
-  latestComplete: {
-    sourceImportRunId: string;
-    coveredThrough: string;
-    capturedAt: string;
-    expectedTargetCount: number;
-    capturedTargetCount: number;
-    ignoredTargetCount: number;
-  } | null;
-}
-
 export function fetchCompetitorTrackingOverview(
   days: number,
 ): Promise<CompetitorTrackingOverview> {
@@ -161,15 +136,4 @@ export function autoConfigureCompetitorTrackers(
     "/api/ads/competitors/trackers/auto",
     { maxKeywords },
   );
-}
-
-export function fetchCompetitorCatalogSourceStatus(): Promise<CompetitorCatalogSourceStatus> {
-  return apiClient.get<CompetitorCatalogSourceStatus>(
-    '/api/ads/competitor-catalogs/attempts/current',
-  );
-}
-
-/** The owner's operator stop for a running competitor catalog attempt; it needs no attempt token. */
-export function cancelCompetitorCatalogAttempt(attemptId: string): Promise<unknown> {
-  return apiClient.post(`/api/ads/competitor-catalogs/attempts/${encodeURIComponent(attemptId)}/cancel`);
 }

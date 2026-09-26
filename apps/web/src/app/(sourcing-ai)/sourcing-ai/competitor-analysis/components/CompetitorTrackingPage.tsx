@@ -1,13 +1,8 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import {
-  keepPreviousData,
-  useMutation,
-  useQuery,
-  useQueryClient,
-} from "@tanstack/react-query";
+import { keepPreviousData, useQuery } from "@tanstack/react-query";
 import {
   AlertCircle,
   Building2,
@@ -25,44 +20,33 @@ import {
 import { friendlyError } from "@/lib/api-error";
 import { CollectionStartControl } from "@/components/collection/CollectionStartControl";
 import { useCollectionSourceControl, type CollectionControlView } from "@/hooks/use-collection-source-control";
-import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from "@/lib/collection-source-status-query";
+import { COLLECTION_STOPPED_MESSAGE } from "@/lib/collection-source-status-query";
+import { advertisingOperationState } from "@/lib/advertising-operation-collection";
+import type { OperationListResponse } from "@kiditem/shared/operation";
 import { queryKeys } from "@/lib/query-keys";
 import { formatDateTime, formatNumber } from "@/lib/utils";
 import {
   fetchCompetitorTrackingOverview,
-  type CompetitorCatalogAttemptInput,
-  type CompetitorCatalogSourceStatus,
   type CompetitorSeller,
 } from "../lib/competitor-tracking-api";
-import { competitorCatalogCollection } from "../lib/competitor-catalog-collection";
 import {
-  collectCompetitorCatalogFromExtension,
-  competitorExtensionGateMessage,
-  detectCompetitorExtensionGate,
-  requireCompetitorCatalogExtension,
-  type CompetitorExtensionGate,
-} from "../lib/competitor-extension";
+  competitorCatalogCollection,
+  competitorSellerIdentityCollection,
+  type CompetitorCatalogInput,
+} from "../lib/competitor-catalog-collection";
 import { useCompetitorProductTracking } from "../hooks/useCompetitorProductTracking";
 import { CompetitorSellerDetail } from "./CompetitorSellerDetail";
 import { CompetitorSellerList } from "./CompetitorSellerList";
 import { attemptFailureText } from '@/lib/operator-error';
 
-type GateState = CompetitorExtensionGate | { status: "checking" };
-const COMPETITOR_SOURCE_STATUS_QUERY_KEY =
-  queryKeys.sourcing.competitorCatalogSourceStatus();
-
 export function CompetitorTrackingPage() {
-  const queryClient = useQueryClient();
   const productTracking = useCompetitorProductTracking();
   const [periodDays, setPeriodDays] = useState(30);
   const [search, setSearch] = useState("");
   const [selectedSellerKey, setSelectedSellerKey] = useState<string | null>(
     null,
   );
-  const [gate, setGate] = useState<GateState>({ status: "checking" });
   const [requestedSellerKey, setRequestedSellerKey] = useState<string | null>(null);
-  const snapshotQueryKey = queryKeys.sourcing.competitors(periodDays);
-  const retryKeysByRequestFingerprint = useRef(new Map<string, string>());
 
   const overviewQuery = useQuery({
     queryKey: queryKeys.sourcing.competitors(periodDays),
@@ -71,75 +55,10 @@ export function CompetitorTrackingPage() {
     // 기간 전환 시 전체화면 스켈레톤으로 되돌아가지 않도록 직전 데이터를 유지한다.
     placeholderData: keepPreviousData,
   });
-  // The collection CTAs start it; the shared control shows it running and stops it.
+  // 판매자 수집(`advertising.competitor_catalog`)과 판매자 확인(`advertising.competitor_seller_identity`, KID-362)은
+  // 확장이 도는 실행 kind다. 공용 컨트롤이 시작·진행·중단을 맡고, 완료되면 경쟁사 읽기를 다시 읽는다.
   const catalogSource = useCollectionSourceControl(competitorCatalogCollection);
-  const collectionMutation = useMutation({
-    mutationFn: async ({
-      input,
-    }: {
-      input: CompetitorCatalogAttemptInput;
-      requestedSeller: CompetitorSeller | null;
-    }) => {
-      const requestFingerprint = JSON.stringify(input);
-      const idempotencyKey = retryKeysByRequestFingerprint.current.get(requestFingerprint)
-        ?? crypto.randomUUID();
-      retryKeysByRequestFingerprint.current.set(requestFingerprint, idempotencyKey);
-      const clearRetryKey = () => {
-        if (retryKeysByRequestFingerprint.current.get(requestFingerprint) === idempotencyKey) {
-          retryKeysByRequestFingerprint.current.delete(requestFingerprint);
-        }
-      };
-      const extensionId = await requireCompetitorCatalogExtension();
-      const result = await collectCompetitorCatalogFromExtension({
-        extensionId,
-        idempotencyKey,
-        input,
-      });
-      if (result.terminalState === "COMPLETE") {
-        if (!result.success) {
-          throw new Error("KIDITEM 쿠팡 확장프로그램이 완료 상태와 충돌하는 결과를 반환했습니다.");
-        }
-        clearRetryKey();
-        return;
-      }
-      if (result.terminalState === "FAILED") {
-        clearRetryKey();
-        throw new Error(result.error ?? "경쟁 판매자 수집에 실패했습니다.");
-      }
-      if (!result.success) {
-        throw new Error(result.error ?? "경쟁 판매자 수집 결과를 확인하지 못했습니다.");
-      }
-      throw new Error("KIDITEM 쿠팡 확장프로그램이 완료되지 않은 경쟁 판매자 수집 결과를 반환했습니다.");
-    },
-    onSuccess: (_result, request) => {
-      setRequestedSellerKey(null);
-      void queryClient.invalidateQueries({ queryKey: snapshotQueryKey });
-      void queryClient.invalidateQueries({ queryKey: COMPETITOR_SOURCE_STATUS_QUERY_KEY });
-      toast.success(
-        request.requestedSeller
-          ? `${request.requestedSeller.brandName ?? request.requestedSeller.sellerName} 전체상품 수집을 완료했습니다.`
-          : "설정된 경쟁 판매자 수집을 완료했습니다.",
-      );
-    },
-    onError: (error) => {
-      toast.error(friendlyError(error) ?? "판매자 수집 실패");
-      void queryClient.invalidateQueries({ queryKey: COMPETITOR_SOURCE_STATUS_QUERY_KEY });
-    },
-  });
-
-  useEffect(() => {
-    let active = true;
-    detectCompetitorExtensionGate()
-      .then((nextGate) => {
-        if (active) setGate(nextGate);
-      })
-      .catch(() => {
-        if (active) setGate({ status: "missing" });
-      });
-    return () => {
-      active = false;
-    };
-  }, []);
+  const identitySource = useCollectionSourceControl(competitorSellerIdentityCollection);
 
   const data = overviewQuery.data;
   const filteredSellers = useMemo(() => {
@@ -166,24 +85,16 @@ export function CompetitorTrackingPage() {
     filteredSellers.find((seller) => seller.sellerKey === selectedSellerKey) ??
     filteredSellers[0] ??
     null;
-  const gateMessage =
-    gate.status === "checking"
-      ? null
-      : competitorExtensionGateMessage(gate as CompetitorExtensionGate);
-  const sourceStatus = catalogSource.status;
-  const collecting = collectionMutation.isPending || catalogSource.running !== null;
+  const collecting = catalogSource.state === "starting" || catalogSource.running !== null;
+  // 판매자 하나를 수집 중이면 그 판매자 행에 표시한다(시작한 판매자를 기억한다).
+  useEffect(() => {
+    if (!collecting) setRequestedSellerKey(null);
+  }, [collecting]);
   const collectingSellerKey = collecting ? requestedSellerKey : null;
 
-  const startCollection = (
-    input: CompetitorCatalogAttemptInput,
-    requestedSeller: CompetitorSeller | null = null,
-  ) => {
-    if (input.target === "seller_id" && !requestedSeller?.sellerId) {
-      toast.error("검증된 판매자 ID가 필요합니다.");
-      return;
-    }
+  const startCollection = (input: CompetitorCatalogInput, requestedSeller: CompetitorSeller | null = null) => {
     setRequestedSellerKey(requestedSeller?.sellerKey ?? null);
-    collectionMutation.mutate({ input, requestedSeller });
+    catalogSource.start(input);
   };
 
   if (overviewQuery.isLoading) return <LoadingState />;
@@ -239,7 +150,7 @@ export function CompetitorTrackingPage() {
             </select>
             <button
               type="button"
-              onClick={() => startCollection({ target: "all" })}
+              onClick={() => startCollection({})}
               disabled={collecting}
               className="inline-flex h-10 items-center gap-2 rounded-lg bg-purple-600 px-4 text-sm font-semibold text-white hover:bg-purple-700 disabled:cursor-not-allowed disabled:opacity-50"
             >
@@ -253,18 +164,22 @@ export function CompetitorTrackingPage() {
         </div>
       </section>
 
-      {(gateMessage ||
-        collecting ||
-        sourceStatus?.ready === false ||
-        sourceStatus?.latestComplete ||
-        data.summary.unresolvedSellerProductCount > 0) && (
-        <CollectionNotice
-          gateMessage={gateMessage}
-          collecting={collecting}
-          sourceStatus={sourceStatus}
-          control={catalogSource}
-          unresolvedCount={data.summary.unresolvedSellerProductCount}
-        />
+      <CollectionNotice
+        collecting={collecting}
+        sourceStatus={catalogSource.status}
+        control={catalogSource}
+      />
+      {data.summary.unresolvedSellerProductCount > 0 && (
+        <div className="flex flex-wrap items-center justify-between gap-2 rounded-lg border border-[var(--border)] bg-[var(--surface)] px-4 py-3 text-xs text-[var(--text-secondary)]">
+          <p>판매자를 아직 모르는 경쟁 상품 {formatNumber(data.summary.unresolvedSellerProductCount)}개 — 상품 상세에서 판매자를 확인하면 판매자샵 상품까지 이어서 수집합니다.</p>
+          <CollectionStartControl
+            control={identitySource}
+            startLabel="판매자 확인"
+            startTitle="최근 검색 순위의 경쟁 상품 상세를 열어 판매자를 확인합니다(최대 200개)."
+            onStart={() => identitySource.start()}
+            onStop={identitySource.stop}
+          />
+        </div>
       )}
 
       <section
@@ -305,7 +220,7 @@ export function CompetitorTrackingPage() {
         <DataEmptyState
           status={competitorCollectionStatus(data.collection)}
           keywords={data.collection.suggestedKeywords}
-          onCollect={() => startCollection({ target: "all" })}
+          onCollect={() => startCollection({})}
           pending={collecting}
         />
       ) : (
@@ -321,10 +236,7 @@ export function CompetitorTrackingPage() {
                 toast.error("검증된 판매자 ID가 필요합니다.");
                 return;
               }
-              void startCollection(
-                { target: "seller_id", sellerId: seller.sellerId },
-                seller,
-              );
+              startCollection({ sellerId: seller.sellerId }, seller);
             }}
             collectingSellerKey={collectingSellerKey}
             collectionDisabled={collecting}
@@ -383,36 +295,30 @@ function SummaryCard({
 }
 
 function CollectionNotice({
-  gateMessage,
   collecting,
   sourceStatus,
   control,
-  unresolvedCount,
 }: {
-  gateMessage: string | null;
   collecting: boolean;
-  sourceStatus: CompetitorCatalogSourceStatus | undefined;
+  sourceStatus: OperationListResponse | undefined;
   control: CollectionControlView & Readonly<{ stop: () => void }>;
-  unresolvedCount: number;
 }) {
-  const latestAttempt = sourceStatus?.latestAttempt;
-  const sourceMessage = collecting
+  const { latest, lastSucceeded } = advertisingOperationState(sourceStatus);
+  const message = collecting
     ? "새 경쟁 판매자 수집 진행 중입니다. 이전 완료 스냅샷은 계속 표시됩니다."
-    : stoppedAttempt(latestAttempt)
+    : latest?.status === "cancelled"
       ? COLLECTION_STOPPED_MESSAGE
-      : latestAttempt?.state === "FAILED"
-        ? `마지막 수집 실패: ${attemptFailureText(latestAttempt, "coupang_competitor_catalog")}`
-        : sourceStatus?.latestComplete
-          ? `마지막 완료 ${formatDateTime(sourceStatus.latestComplete.capturedAt)} · 기준일 ${sourceStatus.latestComplete.coveredThrough}`
+      : latest?.status === "failed"
+        ? `마지막 수집 실패: ${attemptFailureText(latest, "coupang_competitor_catalog")}`
+        : lastSucceeded?.finishedAt
+          ? `마지막 완료 ${formatDateTime(lastSucceeded.finishedAt)}`
           : null;
-  const message = gateMessage
-    ?? sourceMessage
-    ?? `기존 스냅샷 ${formatNumber(unresolvedCount)}개 상품은 판매자 정보가 없습니다. 확장프로그램 1.2.33+로 재수집하면 내 상품과 겹치는 판매자만 선별해 전체 상품과 이미지를 추적합니다.`;
+  if (!message && !control.running) return null;
   return (
     <div className="flex flex-wrap items-start justify-between gap-2 rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-xs leading-5 text-amber-900">
       <div className="flex min-w-0 items-start gap-2">
         <AlertCircle size={15} className="mt-0.5 shrink-0" />
-        <p>{message}</p>
+        <p>{message ?? "경쟁 판매자 수집 진행 중입니다."}</p>
       </div>
       {control.running && (
         <CollectionStartControl

@@ -13,6 +13,7 @@ import { WingRankOperationOwner } from '../advertising/adapter/in/operation/wing
 import { KeywordSerpOperationOwner } from '../advertising/adapter/in/operation/keyword-serp-operation-owner';
 import { KeywordRankIngestHandler } from '../advertising/application/service/keyword-rank-ingest.handler';
 import { CompetitorSellerIdentityOperationOwner } from '../advertising/adapter/in/operation/competitor-seller-identity-operation-owner';
+import { CompetitorCatalogOperationOwner } from '../advertising/adapter/in/operation/competitor-catalog-operation-owner';
 import { CompetitorTrackingService } from '../advertising/application/service/competitor-tracking.service';
 import { KIDITEM_STOREFRONT_PORT } from '../advertising/application/port/out/provider/kiditem-storefront.port';
 import { KeywordRankRepositoryAdapter } from '../advertising/adapter/out/repository/keyword-rank.repository.adapter';
@@ -34,7 +35,7 @@ export async function advertisingKeywordOperationsApp(prisma: PrismaClient, opti
   const channelFacts = channelFactTestPorts(prisma as never);
   const keywordRank = new KeywordRankRepositoryAdapter(channelFacts.listings, channelFacts.recipes, prisma as never);
   return ordersOperationsApp(prisma, {
-    owners: [WingTrackedProductsOperationOwner, WingRankOperationOwner, KeywordSerpOperationOwner, CompetitorSellerIdentityOperationOwner],
+    owners: [WingTrackedProductsOperationOwner, WingRankOperationOwner, KeywordSerpOperationOwner, CompetitorSellerIdentityOperationOwner, CompetitorCatalogOperationOwner],
     controllers: options.controllers,
     providers: [
       { provide: KEYWORD_RANK_REPOSITORY_PORT, useValue: keywordRank },

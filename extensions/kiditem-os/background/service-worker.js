@@ -41,13 +41,9 @@ importScripts(
   "coupang/ad-campaign-source-owner.js",
   "coupang/wing-traffic-source-owner.js",
   "coupang/wing-itemwinner-source-owner.js",
-  "coupang/competitor-catalog-source-owner.js",
-  "coupang/keyword-rank-source-owner.js",
-  "coupang/keyword-rank-batch.js",
   "coupang/wing-image-fetch.js",
   "coupang/wing-form-runtime-compat.js",
   "coupang/wing-form-readiness.js",
-  "../utils/coupang-seller-detail.js",
   // 주문수집 도메인 모듈
   "orders/collection-failure.js",
   "orders/order-collection-lifecycle.js",
@@ -71,11 +67,7 @@ importScripts(
   "orders/mall-availability-send.js",
   "orders/mall-session-probe.js",
   "orders/mall-session.js",
-  // 소싱 수집(KID-360)은 새 런타임(kiditem-runtime.js)의 실행 kind다. 아래 모듈은 광고·경쟁 수집이 쓴다.
-  "coupang/wing-search-collector.js",
-  "coupang/coupang-serp-collector.js",
-  "coupang/coupang-seller-identity-collector.js",
-  "coupang/coupang-seller-catalog-collector.js",
+  // 소싱 수집(KID-360)과 광고 키워드·경쟁사 수집(KID-362)은 새 런타임(kiditem-runtime.js)의 실행 kind다.
   // 도메인 워커 — 위 모듈의 전역을 최상위에서 바로 쓰므로 반드시 마지막이다.
   "coupang/worker.js",
   "orders/worker.js",

@@ -1,3 +1,4 @@
+import '../collectors/advertising.competitor_catalog';
 import '../collectors/advertising.competitor_seller_identity';
 import '../collectors/advertising.keyword_serp';
 import '../collectors/advertising.wing_rank';
@@ -21,6 +22,7 @@ import '../collectors/test.echo';
 import '../sites/1688';
 import '../sites/art09';
 import '../sites/coupang-product';
+import '../sites/coupang-shop';
 import '../sites/coupang-search';
 import '../sites/coupang-supplier';
 import '../sites/domeggook';

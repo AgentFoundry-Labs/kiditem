@@ -925,6 +925,13 @@
       "text": "순위를 확인할 자사 상품의 대표 키워드가 없습니다. 상품의 대표 키워드를 확인해 주세요.",
       "retryable": false
     },
+    "ADVERTISING_COMPETITOR_SELLER_NOT_FOUND": {
+      "owner": "advertising",
+      "kind": "not_found",
+      "httpStatus": 404,
+      "text": "추적 중인 경쟁 판매자가 아닙니다. 판매자 목록을 새로고침한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
     "ADVERTISING_TRACKED_PRODUCT_NOT_FOUND": {
       "owner": "advertising",
       "kind": "conflict",

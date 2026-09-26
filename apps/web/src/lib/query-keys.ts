@@ -399,6 +399,8 @@ export const queryKeys = {
       [...queryKeys.sourcing.all, 'wing-tracked-products', 'source-status'] as const,
     competitorCatalogSourceStatus: () =>
       [...queryKeys.sourcing.all, 'competitors', 'source-status'] as const,
+    competitorSellerIdentitySourceStatus: () =>
+      [...queryKeys.sourcing.all, 'competitors', 'seller-identity', 'source-status'] as const,
     wingCatalog: (keyword: string) =>
       [...queryKeys.sourcing.all, 'wing-catalog', keyword.trim()] as const,
     keywordSuggestions: (keyword: string) =>
