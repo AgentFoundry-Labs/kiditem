@@ -5420,7 +5420,8 @@ var KidItemRuntime = (() => {
     "auction",
     "kakao",
     "lotte-on",
-    "smartstore"
+    "smartstore",
+    "teacher-mall"
   ];
   function isMallAdminListingOperationMall(mallKey) {
     return MALL_ADMIN_LISTING_OPERATION_MALLS.includes(mallKey);
@@ -11017,6 +11018,36 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "smartstore", create: (deps) => createSmartstoreListings(deps.tabs) });
+
+  // extensions/src/sites/teacher-mall/listings.ts
+  var TEACHER_LISTINGS_URL = "https://shop.teacherville.co.kr/selleradmin/goods/catalog";
+  var TEACHER_LISTINGS_FILE = "content/orders/teacher-mall-listings.js";
+  var isTeacherLogin = (url) => hostWithin(url, ["teacherville.co.kr"]) && /login/i.test(url.pathname);
+  var TEACHER_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["teacherville.co.kr"]),
+    isLogin: isTeacherLogin,
+    loginMessage: "\uD2F0\uCCD0\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uD2F0\uCCD0\uBAB0 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  var TEACHER_LOGIN = {
+    displayName: "\uD2F0\uCCD0\uBAB0",
+    loginUrl: "https://shop.teacherville.co.kr/selleradmin/order/catalog",
+    hosts: ["teacherville.co.kr"],
+    isLoginUrl: isTeacherLogin,
+    fields: ["loginId", "password"]
+  };
+  function createTeacherListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "teacher-mall",
+        displayName: "\uD2F0\uCCD0\uBAB0",
+        startUrl: TEACHER_LISTINGS_URL,
+        file: TEACHER_LISTINGS_FILE,
+        call: "teacher-mall.listings",
+        guard: TEACHER_LISTINGS_GUARD
+      }, plan, signIn)
+    };
+  }
+  registerSite({ name: "teacher-mall", create: (deps, lease) => createTeacherListings(deps.tabs, createSiteSignIn(TEACHER_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/thirtymall/listings.ts
   var THIRTYMALL_LISTINGS_URL = "https://partner.shopby.co.kr/product/list";

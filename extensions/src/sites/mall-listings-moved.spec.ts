@@ -88,6 +88,13 @@ const MALLS: Row[] = [
     call: 'smartstore.listings',
     loginAt: 'https://accounts.commerce.naver.com/login?url=https%3A%2F%2Fsell.smartstore.naver.com',
   },
+  {
+    mallKey: 'teacher-mall',
+    startUrl: 'https://shop.teacherville.co.kr/selleradmin/goods/catalog',
+    isolated: 'content/orders/teacher-mall-listings.js',
+    call: 'teacher-mall.listings',
+    loginAt: 'https://shop.teacherville.co.kr/selleradmin/login/index',
+  },
 ];
 
 /** 로그인 폼 명세가 없는 몰(결정 #3). */
