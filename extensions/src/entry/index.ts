@@ -28,6 +28,7 @@ import '../collectors/sourcing.trend_1688';
 import '../collectors/sourcing.wing_catalog';
 import '../collectors/test.echo';
 import '../sites/1688';
+import '../sites/always/listings';
 import '../sites/art09';
 import '../sites/coupang-product';
 import '../sites/coupang-shop';

@@ -27,10 +27,16 @@ export const MallAdminListingsScopeSchema = z.object({
 export type MallAdminListingsScope = z.infer<typeof MallAdminListingsScopeSchema>;
 
 /**
- * 몰 관리자 목록 kind로 옮긴 몰(1차, KID-363 wave3) — 몰 주문 1차(`MALL_ORDER_OPERATION_MALLS`)와 같은 넷.
+ * 몰 관리자 목록 kind로 옮긴 몰 — 1차 넷(KID-363 wave3) 뒤에 나머지 몰을 하나씩 더한다(KID-381, 확장 `sites/<mall>/listings.ts`).
  * 여기 없는 몰은 옛 attempt 경로가 나머지 몰이 옮겨질 때까지 받는다(웹이 이 목록으로 시작 경로를 가른다).
  */
-export const MALL_ADMIN_LISTING_OPERATION_MALLS = ['icecream-mall', 'kidkids', 'art09', 'domeggook'] as const;
+export const MALL_ADMIN_LISTING_OPERATION_MALLS = [
+  'icecream-mall',
+  'kidkids',
+  'art09',
+  'domeggook',
+  'always',
+] as const;
 export type MallAdminListingOperationMall = (typeof MALL_ADMIN_LISTING_OPERATION_MALLS)[number];
 export function isMallAdminListingOperationMall(mallKey: string): mallKey is MallAdminListingOperationMall {
   return (MALL_ADMIN_LISTING_OPERATION_MALLS as readonly string[]).includes(mallKey);

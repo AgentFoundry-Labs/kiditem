@@ -1,11 +1,12 @@
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
+  MALL_ADMIN_LISTING_OPERATION_MALLS,
   MALL_ADMIN_LISTINGS_CHUNK_KIND,
   MALL_ADMIN_LISTINGS_KIND,
   MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND,
 } from '@kiditem/shared/channels-operations';
-import type { MallAdminListingRow, MallAdminListingsScan } from '@kiditem/shared/mall-admin-listings';
+import { MALL_ADMIN_LISTING_READERS, type MallAdminListingRow, type MallAdminListingsScan } from '@kiditem/shared/mall-admin-listings';
 import type { OperationBeginResponse } from '@kiditem/shared/operation';
 import {
   makeTestPrisma,
@@ -19,6 +20,8 @@ import { makeChannelsOperations } from '../../test-helpers/channels-operations';
 const KIDKIDS = '11111111-1111-4111-8111-111111111111';
 const ICECREAM = '22222222-2222-4222-8222-222222222222';
 const ONCH = '33333333-3333-4333-8333-333333333333';
+/** 1차 넷 뒤에 옮긴 몰(KID-381). 몰마다 계정 행 하나. */
+const MOVED_MALLS = MALL_ADMIN_LISTING_OPERATION_MALLS.filter((mallKey) => !['icecream-mall', 'kidkids', 'art09', 'domeggook'].includes(mallKey));
 
 function row(overrides: Partial<MallAdminListingRow> = {}): MallAdminListingRow {
   return {
@@ -207,6 +210,46 @@ describe('Mall admin listings over the operation contract (PG integration)', () 
       latestPublication: { listings: 1 },
     });
     expect(source.malls.find((mall) => mall.mallKey === 'icecream-mall')?.latestOperation).toMatchObject({ status: 'failed' });
+  });
+
+  it.each(MOVED_MALLS)('%s (KID-381): publishes its list once under its account lock, a re-run replaces the list, a failed run writes nothing', async (mallKey) => {
+    const account = await prisma.channelAccount.create({
+      data: { organizationId: ORG, channel: mallKey, externalAccountId: `${mallKey}-moved`, name: mallKey, status: 'configured' },
+      select: { id: true },
+    });
+    const begun = await begin(mallKey, account.id);
+    const reader = MALL_ADMIN_LISTING_READERS[mallKey as keyof typeof MALL_ADMIN_LISTING_READERS];
+    expect(begun.operation).toMatchObject({
+      lockKeys: [`account:${account.id}`],
+      plan: { mallKey, channelAccountId: account.id, sourceOrigin: reader.origin, pageSize: reader.pageSize },
+    });
+    const first = await finish(begun, [
+      row({ mallProductCode: 'A-1', productName: '첫 상품', sellpiaName: null, statusWords: ['판매중'] }),
+      row({ mallProductCode: 'A-2', productName: '둘째 상품', sellpiaName: null, statusWords: ['품절'] }),
+    ]);
+    expect(first).toMatchObject({ status: 'succeeded', result: { rows: 2, listings: 2, deactivated: 0 } });
+
+    const failed = await channels.runBegun(await begin(mallKey, account.id), (plan) => [
+      { chunkKind: MALL_ADMIN_LISTINGS_CHUNK_KIND, items: [row({ mallProductCode: 'A-9' })] },
+      { chunkKind: MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND, items: [scan(plan, [row({ mallProductCode: 'A-9' })])] },
+    ], { outcome: 'failed' });
+    expect(failed.status).toBe('failed');
+
+    const second = await finish(await begin(mallKey, account.id), [row({ mallProductCode: 'A-1', productName: '첫 상품', sellpiaName: null, statusWords: ['판매중'] })]);
+    expect(second.result).toMatchObject({ listings: 1, deactivated: 1 });
+    const listings = await prisma.channelListing.findMany({
+      where: { organizationId: ORG, channelAccountId: account.id },
+      orderBy: { externalId: 'asc' },
+      select: { externalId: true, isActive: true, lastOperationId: true },
+    });
+    expect(listings).toEqual([
+      { externalId: 'A-1', isActive: true, lastOperationId: second.id },
+      { externalId: 'A-2', isActive: false, lastOperationId: second.id },
+    ]);
+    expect(await prisma.sourceImportRun.count()).toBe(0);
+    expect(await prisma.operationLock.count()).toBe(0);
+    const source = await channels.mallAdmin.readSource({ organizationId: ORG });
+    expect(source.malls.find((mall) => mall.mallKey === mallKey)).toMatchObject({ latestSucceeded: { id: second.id }, latestPublication: { listings: 1, deactivated: 1 } });
   });
 
   it('refuses to publish when the hub picks another row for the mall after the plan', async () => {
