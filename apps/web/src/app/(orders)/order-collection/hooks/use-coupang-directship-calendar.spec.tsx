@@ -53,11 +53,9 @@ function freshRun(): OrderCollectionExtensionRun {
 }
 
 function setup(stored: string | null) {
-  vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
-    if (path.startsWith('/api/orders/collection/coupang-directship/snapshot?')) return snapshot(stored);
-    throw new Error(`unexpected GET ${path}`);
-  });
-  vi.mocked(apiClient.getParsed).mockImplementation(async (path: string) => {
+  vi.mocked(apiClient.getParsed).mockImplementation(async (path: string, schema?: { parse: (value: unknown) => unknown }) => {
+    // 달력 응답은 계약 스키마로 읽는다 — 변환에 쓰일 operationId가 이 응답에서 나온다.
+    if (path.startsWith('/api/orders/collection/coupang-directship/snapshot?')) return schema!.parse(snapshot(stored));
     const operation = /^\/api\/operations\/([0-9a-f-]+)$/.exec(path);
     if (operation) return succeededOperation(operation[1]!);
     if (/^\/api\/orders\/collection\/coupang-directship\/operations\/[0-9a-f-]+\/capture$/.test(path)) return capture;
@@ -86,7 +84,7 @@ describe('useCoupangDirectshipCalendar (KID-198)', () => {
   it('opening reads the latest capture and starts no operation', async () => {
     const { hook, sessionControls } = setup(SNAPSHOT_OPERATION_ID);
     await act(async () => { await hook.result.current.open(account); });
-    expect(apiClient.get).toHaveBeenCalledWith(`/api/orders/collection/coupang-directship/snapshot?channelAccountId=${ACCOUNT_ID}`);
+    expect(apiClient.getParsed).toHaveBeenCalledWith(`/api/orders/collection/coupang-directship/snapshot?channelAccountId=${ACCOUNT_ID}`, expect.anything());
     expect(hook.result.current.calendar).toMatchObject({
       operationId: SNAPSHOT_OPERATION_ID,
       collectedAt: '2026-07-30T01:05:00.000Z',
@@ -96,6 +94,17 @@ describe('useCoupangDirectshipCalendar (KID-198)', () => {
     });
     expect(sessionControls.prepareDirectRun).not.toHaveBeenCalled();
     expect(apiClient.post).not.toHaveBeenCalled();
+  });
+
+  it('a snapshot response outside the contract opens nothing to convert', async () => {
+    const { hook } = setup(SNAPSHOT_OPERATION_ID);
+    const parsed = vi.mocked(apiClient.getParsed).getMockImplementation()!;
+    vi.mocked(apiClient.getParsed).mockImplementation(async (path: string, schema?: never) => (
+      path.includes('/snapshot?') ? (schema as unknown as { parse: (value: unknown) => unknown }).parse({ ...snapshot(SNAPSHOT_OPERATION_ID), operationId: 'not-an-id' }) : parsed(path, schema)
+    ));
+    await act(async () => { await hook.result.current.open(account); });
+    expect(hook.result.current.calendar).toMatchObject({ operationId: null, pos: [], loading: false });
+    expect(toast.error).toHaveBeenCalled();
   });
 
   it('an account with no capture opens empty; asking to collect starts one operation and shows its capture', async () => {
@@ -127,7 +136,7 @@ describe('useCoupangDirectshipCalendar (KID-198)', () => {
       data: { pos: capture.pos, centers: capture.centers },
     });
     expect(JSON.stringify(collect.mock.calls)).not.toContain(SNAPSHOT_OPERATION_ID);
-    expect(vi.mocked(apiClient.getParsed).mock.calls.map(([path]) => path).join(' ')).not.toContain(SNAPSHOT_OPERATION_ID);
+    expect(vi.mocked(apiClient.getParsed).mock.calls.map(([path]) => path).filter((path) => !path.includes('/snapshot?')).join(' ')).not.toContain(SNAPSHOT_OPERATION_ID);
     expect(hook.result.current.calendar).toBeNull();
   });
 

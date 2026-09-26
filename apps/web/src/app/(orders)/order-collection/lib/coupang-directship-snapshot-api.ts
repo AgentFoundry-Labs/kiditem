@@ -1,7 +1,7 @@
 import { apiClient } from '@/lib/api-client';
-import type {
-  CoupangDirectPoSnapshotEntry,
-  CoupangDirectPoSnapshotResponse,
+import {
+  CoupangDirectPoSnapshotResponseSchema,
+  type CoupangDirectPoSnapshotEntry,
 } from '@kiditem/shared/coupang-direct-order';
 import type { CoupangDirectPo } from './coupang-directship-api';
 
@@ -40,12 +40,13 @@ export type CoupangDirectCalendarSnapshot = {
 export async function readCoupangDirectSnapshot(
   channelAccountId: string,
 ): Promise<CoupangDirectCalendarSnapshot> {
-  const res = await apiClient.get<CoupangDirectPoSnapshotResponse>(
+  const res = await apiClient.getParsed(
     `${PATH}?channelAccountId=${encodeURIComponent(channelAccountId)}`,
+    CoupangDirectPoSnapshotResponseSchema,
   );
   return {
-    operationId: res.operationId ?? null,
-    collectedAt: res.collectedAt ?? null,
-    pos: snapshotEntriesToPo(res.entries ?? []),
+    operationId: res.operationId,
+    collectedAt: res.collectedAt,
+    pos: snapshotEntriesToPo(res.entries),
   };
 }
