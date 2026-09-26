@@ -6,6 +6,7 @@ import {
   type WingTrackedProductsResult,
 } from '@kiditem/shared/advertising-operations';
 import type { OperationListResponse, OperationView } from '@kiditem/shared/operation';
+import { businessDateKey, kstBusinessDate } from '@kiditem/shared/common';
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { advertisingOperationCollection, advertisingOperationState } from '@/lib/advertising-operation-collection';
 import { queryKeys } from '@/lib/query-keys';
@@ -34,17 +35,29 @@ export function wingTrackedProductsCollection(
   });
 }
 
-/** 화면이 보는 추적 수집 상태: 마지막 실행과 마지막 성공(그 결과). */
+/**
+ * 화면이 보는 추적 수집 상태: 마지막 실행과 마지막 성공(그 결과), 그리고 최신인가 — 마지막 성공의 업무일이 오늘(KST)이고
+ * 그때 수집한 추적 대상 수가 지금 켜진 추적 상품 수와 같으면 최신이다(옛 attempt 읽기의 ready와 같은 뜻).
+ */
 export type WingTrackedCollectionSummary = Readonly<{
   latest: OperationView | null;
   lastSucceeded: (OperationView & { summary: WingTrackedProductsResult | null }) | null;
+  ready: boolean;
 }>;
 
-export function wingTrackedCollectionSummary(status: OperationListResponse | undefined): WingTrackedCollectionSummary {
+export function wingTrackedCollectionSummary(
+  status: OperationListResponse | undefined,
+  enabledTrackedCount: number,
+  now = new Date(),
+): WingTrackedCollectionSummary {
   const { latest, lastSucceeded } = advertisingOperationState(status);
   const result = WingTrackedProductsResultSchema.safeParse(lastSucceeded?.result);
+  const summary = result.success ? result.data : null;
   return {
     latest,
-    lastSucceeded: lastSucceeded ? { ...lastSucceeded, summary: result.success ? result.data : null } : null,
+    lastSucceeded: lastSucceeded ? { ...lastSucceeded, summary } : null,
+    ready: summary !== null
+      && summary.businessDate === businessDateKey(kstBusinessDate(now))
+      && summary.expectedProductCount === enabledTrackedCount,
   };
 }

@@ -77,7 +77,8 @@ export function ProductTrackingPage() {
   const wingAccount = useWingSearchAccountRead();
   const trackedAdapter = useMemo(() => wingTrackedProductsCollection(wingAccount), [wingAccount]);
   const trackedSource = useCollectionSourceControl(trackedAdapter);
-  const sourceStatus = trackedSource.status ? wingTrackedCollectionSummary(trackedSource.status) : undefined;
+  const enabledCount = products.filter((product) => product.enabled).length;
+  const sourceStatus = trackedSource.status ? wingTrackedCollectionSummary(trackedSource.status, enabledCount) : undefined;
   const historyByTrackedProductId = useMemo(
     () => new Map(
       (histories?.items ?? []).map((history) => [history.trackedProductId, history.points]),
@@ -523,7 +524,11 @@ function TrackedWingSourceStatus({
 }) {
   if (!source) return null;
   const { latest, lastSucceeded } = source;
-  const summary = lastSucceeded ? '완료된 추적 스냅샷 있음' : '완료된 추적 스냅샷 없음';
+  const summary = source.ready
+    ? '최신 스냅샷 준비됨'
+    : lastSucceeded
+      ? '이전 완료 스냅샷 표시 중'
+      : '완료된 추적 스냅샷 없음';
   const running = latest?.status === 'executing' || latest?.status === 'prepared';
   const stopped = latest?.status === 'cancelled';
   return (

@@ -2,6 +2,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import { toast } from 'sonner';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { businessDateKey, kstBusinessDate } from '@kiditem/shared/common';
 import { ProductTrackingPage } from './ProductTrackingPage';
 
 const mocks = vi.hoisted(() => ({
@@ -152,7 +153,28 @@ describe('ProductTrackingPage tracked Wing operation (KID-362)', () => {
     renderPage();
 
     await waitFor(() => expect(screen.getByRole('alert')).toHaveTextContent('윙 검색에서 찾지 못한 추적 상품이 있습니다.'));
-    expect(screen.getByText('완료된 추적 스냅샷 있음')).toBeInTheDocument();
+    expect(screen.getByText('이전 완료 스냅샷 표시 중')).toBeInTheDocument();
     expect(screen.getByText(/마지막 완료 .* · 추적 1개/)).toBeInTheDocument();
+  });
+
+  it('shows the snapshot as ready only when the last success is today (KST) and covered every enabled tracked product', async () => {
+    const today = businessDateKey(kstBusinessDate(new Date()));
+    const succeeded = (businessDate: string, expectedProductCount: number) =>
+      operation('succeeded', { result: { businessDate, expectedProductCount, capturedProductCount: expectedProductCount } });
+    products = [trackedProduct(0)];
+    operations = [succeeded(today, 1)];
+    const first = renderPage();
+    expect(await screen.findByText('최신 스냅샷 준비됨')).toBeInTheDocument();
+    first.unmount();
+
+    operations = [succeeded('2026-01-01', 1)];
+    const stale = renderPage();
+    expect(await screen.findByText('이전 완료 스냅샷 표시 중')).toBeInTheDocument();
+    stale.unmount();
+
+    products = [trackedProduct(0), trackedProduct(1)];
+    operations = [succeeded(today, 1)];
+    renderPage();
+    expect(await screen.findByText('이전 완료 스냅샷 표시 중')).toBeInTheDocument();
   });
 });
