@@ -1,4 +1,5 @@
-import { ownerTransaction } from '../../../../prisma/owner-transaction';
+import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
 // Coupang keyword rank tracking persistence adapter.
@@ -29,6 +30,7 @@ import {
 } from "../../../../products/application/port/in/product-transactional-read.port";
 import {
   adIngestRepositoryClient,
+  runWithAdIngestTransaction,
   withAdIngestRepositoryTransaction,
 } from "./ad-ingest-transaction-context";
 import type {
@@ -513,15 +515,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         `wing-sales-rank:${organizationId}:${keyword}:${businessDateKey(businessDate)}`,
       );
       const latest = await tx.coupangWingSalesRankDailySnapshot.findFirst({
-        where: {
-          organizationId,
-          keyword,
-          businessDate,
-          sourceImportRun: {
-            ...completeWingRankSource(organizationId),
-            rankKeyword: keyword,
-          },
-        },
+        where: { organizationId, keyword, businessDate, operationId: { not: null } },
         orderBy: { capturedAt: "desc" },
         select: { capturedAt: true },
       });
@@ -541,7 +535,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
       const created = await tx.coupangWingSalesRankDailySnapshot.createMany({
         data: rows.map((row) => ({
           organizationId: row.organizationId,
-          sourceImportRunId: row.sourceImportRunId,
+          operationId: row.operationId,
           keyword: row.keyword,
           vendorItemId: row.vendorItemId,
           businessDate: row.businessDate,
@@ -599,6 +593,10 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
     );
   }
 
+  runInTransaction<T>(tx: OwnerTransaction, work: () => Promise<T>): Promise<T> {
+    return runWithAdIngestTransaction(ownerTransactionClient(tx), work);
+  }
+
   private async getTrackerOrThrow(
     id: string,
     organizationId: string,
@@ -652,11 +650,3 @@ function matchingCompleteSource(
   );
 }
 
-function completeWingRankSource(organizationId: string) {
-  return {
-    organizationId,
-    sourceType: "coupang_wing_rank",
-    parserVersion: "wing-rank-v1",
-    status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-  };
-}

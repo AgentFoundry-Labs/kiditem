@@ -73,7 +73,7 @@ describe('KeywordRankRepositoryAdapter', () => {
 
     await adapter.replaceWingSalesRankSnapshots([
       {
-        sourceImportRunId: 'source-new',
+        operationId: 'operation-new',
         organizationId: 'organization-1',
         keyword: '슬라임',
         vendorItemId: 'V-NEW',
@@ -100,7 +100,7 @@ describe('KeywordRankRepositoryAdapter', () => {
     ]);
     const staleCount = await adapter.replaceWingSalesRankSnapshots([
       {
-        sourceImportRunId: 'source-stale',
+        operationId: 'operation-stale',
         organizationId: 'organization-1',
         keyword: '슬라임',
         vendorItemId: 'V-STALE',

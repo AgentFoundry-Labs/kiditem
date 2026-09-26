@@ -26,10 +26,10 @@ export const advertisingWingTrackedProductsCollector: Collector<WingTrackedProdu
   async *collect(plan, site, { signal }) {
     const planned = new Set(plan.products.map((product) => product.productId));
     for (const [index, keyword] of plan.keywords.entries()) {
-      const rows = await readWingSearchKeyword(site, keyword, plan.maxPages, signal);
-      if (rows === null) return;
+      const read = await readWingSearchKeyword(site, keyword, plan.maxPages, signal);
+      if (read === null) return;
       const items = new Map<string, WingTrackedProductItem>();
-      for (const row of rows) {
+      for (const row of read.rows) {
         if (planned.has(row.productId) && !items.has(row.productId)) items.set(row.productId, trackedItem(row));
       }
       const chunk: WingTrackedSearchChunkItem = { keyword, items: [...items.values()] };

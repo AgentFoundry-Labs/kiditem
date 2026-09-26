@@ -23,7 +23,10 @@ import {
 import { countPublishedCatalogListings } from '../channels/adapter/out/repository/completed-catalog-run';
 import { readSellpiaSalesDailyFacts } from '../analytics/sellpia-sales/read/sellpia-sales-daily-facts';
 import { readAdEvidenceCutoff, readAdWindowFacts } from '../advertising/adapter/out/persistence/read/ad-target-facts';
-import { readWingRankCoverage } from '../advertising/adapter/out/persistence/read/keyword-rank-facts';
+import {
+  ADVERTISING_KEYWORD_RANK_READ_PORT,
+  type AdvertisingKeywordRankReadPort,
+} from '../advertising/application/port/in/capability/keyword-rank-read.port';
 import type {
   ReadinessCheck,
   ReadinessResponse,
@@ -50,6 +53,8 @@ export class ReadinessService {
     private readonly channelAccounts: ChannelAccountPort,
     @Inject(CHANNEL_CATALOG_FRESHNESS_PORT)
     private readonly catalogFreshness: ChannelCatalogFreshnessPort,
+    @Inject(ADVERTISING_KEYWORD_RANK_READ_PORT)
+    private readonly keywordRank: AdvertisingKeywordRankReadPort,
   ) {}
 
   /**
@@ -186,10 +191,8 @@ export class ReadinessService {
     const activeWingVendorIdList = [...activeWingVendorIds];
     // Rank rows do not carry channelAccountId. Fence their date/coverage to
     // vendor items belonging to the selected active account.
-    const wingRankCoverage = await readWingRankCoverage(tx, {
-      organizationId,
-      vendorItemIds: activeWingVendorIdList,
-    });
+    // Wing 판매순위는 Advertising capability가 준다(KID-362: `advertising.wing_rank` 실행이 발행한 행만).
+    const wingRankCoverage = await this.keywordRank.readWingRankCoverage(organizationId, activeWingVendorIdList);
 
     // 일별 매출(wing_sales) readiness 상태 원천 — 셀피아 판매현황(몰별 일별 매출).
     const sellpiaPresent = new Set(sellpiaDailyRows.coverage.includedDates);
@@ -296,7 +299,7 @@ export class ReadinessService {
         missingDates: null,
       },
       {
-        key: 'wing_kpi',
+        key: 'wing_rank',
         label: 'Wing 판매순위',
         basis: buildSnapshotBasis({
           asOf: wingSalesRankBusinessDate,

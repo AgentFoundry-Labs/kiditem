@@ -371,6 +371,8 @@ model CoupangWingSalesRankDailySnapshot {
   collectedCount Int      @default(0) @map("collected_count")
   totalResults   Int?     @map("total_results")
   capturedAt     DateTime @map("captured_at") @db.Timestamptz
+  /// 이 행을 쓴 실행(`advertising.wing_rank`, ADR-0025). 옛 attempt 행은 null(`source_import_run_id`만 있다).
+  operationId    String?  @map("operation_id") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -383,5 +385,6 @@ model CoupangWingSalesRankDailySnapshot {
   @@index([organizationId, keyword, businessDate])
   @@index([organizationId, vendorItemId, businessDate])
   @@index([sourceImportRunId, organizationId])
+  @@index([operationId])
   @@map("coupang_wing_sales_rank_daily_snapshots")
 }

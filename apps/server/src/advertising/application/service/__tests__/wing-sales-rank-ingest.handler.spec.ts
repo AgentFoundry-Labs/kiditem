@@ -4,6 +4,7 @@ import {
   buildMockKeywordRankRepo,
   type MockKeywordRankRepo,
 } from '../../../__tests__/test-helpers/build-mock-ports';
+import { KeywordRankService } from '../keyword-rank.service';
 import { WingSalesRankIngestHandler } from '../wing-sales-rank-ingest.handler';
 
 describe('WingSalesRankIngestHandler', () => {
@@ -14,6 +15,7 @@ describe('WingSalesRankIngestHandler', () => {
     repo = buildMockKeywordRankRepo();
     handler = new WingSalesRankIngestHandler(
       repo as unknown as KeywordRankRepositoryPort,
+      new KeywordRankService(repo as unknown as KeywordRankRepositoryPort),
     );
     repo.listRepresentativeKeywordOverrides.mockResolvedValue([]);
     repo.findWingSalesRankSnapshots.mockResolvedValue([]);
@@ -58,7 +60,13 @@ describe('WingSalesRankIngestHandler', () => {
       ],
     };
 
-    const targets = await handler.resolveTargets('organization-1', '슬라임');
+    const plan = await handler.planOperation({
+      organizationId: 'organization-1',
+      channelAccountId: '11111111-1111-4111-8111-111111111111',
+      keywords: ['슬라임'],
+    });
+    expect(plan.keywords.map((entry) => entry.keyword)).toEqual(['슬라임']);
+    const targets = plan.keywords[0]!.targets.map((target) => ({ ...target, keyword: '슬라임' }));
     const result = handler.normalizeCapture(payload, targets, 'organization-1');
 
     const rows = result.rows;

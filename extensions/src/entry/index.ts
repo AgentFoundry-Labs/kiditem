@@ -1,3 +1,4 @@
+import '../collectors/advertising.wing_rank';
 import '../collectors/advertising.wing_tracked_products';
 import '../collectors/channels.wing_catalog_details';
 import '../collectors/channels.wing_catalog_excel';

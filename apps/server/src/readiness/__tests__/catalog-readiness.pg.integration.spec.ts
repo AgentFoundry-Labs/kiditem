@@ -1,3 +1,4 @@
+import { AdvertisingKeywordRankReadAdapter } from '../../advertising/adapter/out/repository/keyword-rank-read.adapter';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -50,6 +51,7 @@ describe('Coupang catalog readiness count over PostgreSQL', () => {
         new ChannelCredentialsAdapter(),
       ),
       new ChannelCatalogFreshnessAdapter(makeWingCatalogOperations(prisma).operations),
+      new AdvertisingKeywordRankReadAdapter(prisma as never),
     );
   }
 

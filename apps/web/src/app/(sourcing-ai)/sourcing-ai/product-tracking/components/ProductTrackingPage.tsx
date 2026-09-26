@@ -21,9 +21,7 @@ import { isApiError } from '@/lib/api-error';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
 import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
-import { apiClient } from '@/lib/api-client';
-import { ChannelAccountListItemSchema } from '@kiditem/shared/channel-account';
-import { z } from 'zod';
+import { useWingSearchAccountRead } from '@/lib/wing-search-account';
 import { queryKeys } from '@/lib/query-keys';
 import {
   deleteWingTrackedProduct,
@@ -37,7 +35,6 @@ import {
   wingTrackedProductsCollection,
   type WingTrackedCollectionSummary,
 } from '../../lib/wing-tracked-products-collection';
-import { pickWingSearchAccount } from '../../lib/sourcing-wing-source-owner';
 import {
   resolveCoupangCatalogImageUrl,
 } from '../../wing-catalog/lib/wing-catalog-presenter';
@@ -54,7 +51,6 @@ import { WingTrackedHistoryChart, TrendSparkline } from './WingTrackedHistoryCha
 import { attemptFailureText } from '@/lib/operator-error';
 
 const TRACKED_QUERY_KEY = queryKeys.sourcing.wingTrackedProducts();
-const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
 
 interface RankedProduct {
   product: WingTrackedProduct;
@@ -78,18 +74,8 @@ export function ProductTrackingPage() {
     queryFn: () => fetchWingTrackedHistories(30),
   });
   // 지표 새로고침 = 실행 kind `advertising.wing_tracked_products`(KID-362). 계정은 조직의 대표 쿠팡 계정이다.
-  const accountsQuery = useQuery({
-    queryKey: queryKeys.channelAccounts.active(),
-    queryFn: () => apiClient.getParsed('/api/channels/accounts', ChannelAccountListSchema),
-  });
-  const account = pickWingSearchAccount(accountsQuery.data);
-  const accountReadState = accountsQuery.data !== undefined ? 'read' : accountsQuery.isError ? 'failed' : 'loading';
-  const trackedAdapter = useMemo(
-    () => wingTrackedProductsCollection(accountReadState === 'read'
-      ? { state: 'read', account: account ? { id: account.id, name: account.name } : null }
-      : { state: accountReadState }),
-    [accountReadState, account?.id, account?.name],
-  );
+  const wingAccount = useWingSearchAccountRead();
+  const trackedAdapter = useMemo(() => wingTrackedProductsCollection(wingAccount), [wingAccount]);
   const trackedSource = useCollectionSourceControl(trackedAdapter);
   const sourceStatus = trackedSource.status ? wingTrackedCollectionSummary(trackedSource.status) : undefined;
   const historyByTrackedProductId = useMemo(

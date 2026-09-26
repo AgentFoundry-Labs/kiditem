@@ -9,12 +9,7 @@ import type { OperationListResponse, OperationView } from '@kiditem/shared/opera
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { advertisingOperationCollection, advertisingOperationState } from '@/lib/advertising-operation-collection';
 import { queryKeys } from '@/lib/query-keys';
-import {
-  WING_ACCOUNT_MISSING,
-  WING_ACCOUNTS_LOADING,
-  WING_ACCOUNTS_UNAVAILABLE,
-  type WingAccountRead,
-} from './sourcing-wing-source-owner';
+import { requireWingSearchAccount, type WingAccountRead } from '@/lib/wing-search-account';
 
 /**
  * 추적 상품 지표 수집(실행 kind `advertising.wing_tracked_products`, KID-362)을 공용 컨트롤에 건다. 지표 새로고침은
@@ -29,12 +24,7 @@ export function wingTrackedProductsCollection(
     sourceKey: WING_TRACKED_PRODUCTS_KIND,
     label: '추적 상품 지표 수집',
     queryKey: queryKeys.sourcing.wingTrackedSourceStatus(),
-    scope: (keywords) => {
-      if (accountRead.state === 'loading') throw new Error(WING_ACCOUNTS_LOADING);
-      if (accountRead.state === 'failed') throw new Error(WING_ACCOUNTS_UNAVAILABLE);
-      if (!accountRead.account) throw new Error(WING_ACCOUNT_MISSING);
-      return { channelAccountId: accountRead.account.id, keywords: [...keywords] };
-    },
+    scope: (keywords) => ({ channelAccountId: requireWingSearchAccount(accountRead).id, keywords: [...keywords] }),
     onNewComplete: (queryClient) => {
       void queryClient.invalidateQueries({
         queryKey: queryKeys.sourcing.wingTrackedProducts(),

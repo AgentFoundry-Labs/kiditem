@@ -108,3 +108,86 @@ export const WingTrackedProductsResultSchema = z.object({
   capturedProductCount: z.number().int().nonnegative(),
 }).strict();
 export type WingTrackedProductsResult = z.infer<typeof WingTrackedProductsResultSchema>;
+
+// ── K2 advertising.wing_rank ──
+
+/** 키워드 하나의 순위 슬롯 잠금 키. Wing 순위(K2)와 SERP(K3)가 같은 키워드를 동시에 돌리지 않게 같은 키를 잡는다. */
+export function keywordLockKey(value: string): `resource:keyword:${string}` {
+  return `resource:keyword:${advertisingKeywordIdentity(value).replace(/\s+/gu, '_')}`;
+}
+
+/** Wing 판매순위 한 키워드에서 읽는 쪽 수(옛 attempt와 같다). */
+export const WING_RANK_MAX_PAGES = 5;
+/** 한 실행이 돌 수 있는 키워드 상한(잠금 키 수). */
+export const WING_RANK_MAX_KEYWORDS = 200;
+
+/**
+ * Wing 판매순위: 그 계정의 Wing 상품등록 검색으로 자사 상품의 대표 키워드 판매순위를 본다. `keywords`가 없으면 서버가
+ * 오늘 아직 수집하지 않은 키워드부터(모두 수집했으면 전체) 고른다(옛 batch와 같다). 주면 그 키워드만.
+ * lockKey `account:<channelAccountId>` + 키워드마다 `resource:keyword:<kw>`.
+ */
+export const WingRankScopeSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  keywords: keywordList(WING_RANK_MAX_KEYWORDS).optional(),
+}).strict();
+export type WingRankScope = z.infer<typeof WingRankScopeSchema>;
+
+export const WingRankTargetSchema = z.object({
+  vendorItemId: z.string().min(1).max(40),
+  productName: z.string().max(500),
+  category: z.string().max(1_000).nullable(),
+  candidateIndex: z.number().int().nonnegative(),
+}).strict();
+export type WingRankTarget = z.infer<typeof WingRankTargetSchema>;
+
+export const WingRankPlanSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  maxPages: z.number().int().min(1).max(WING_RANK_MAX_PAGES),
+  keywords: z.array(z.object({
+    keyword: z.string().min(1).max(100),
+    targets: z.array(WingRankTargetSchema).min(1),
+  }).strict()).min(1).max(WING_RANK_MAX_KEYWORDS),
+  selection: z.object({
+    productCount: z.number().int().nonnegative(),
+    keywordCount: z.number().int().nonnegative(),
+    resumed: z.boolean(),
+    pendingProductCount: z.number().int().nonnegative(),
+  }).strict(),
+}).strict();
+export type WingRankPlan = z.infer<typeof WingRankPlanSchema>;
+
+const nullableMetric = z.number().finite().nullable();
+
+/** Wing 검색 결과 한 줄(28일 판매량 내림차순, `salesRank` 1부터). */
+export const WingRankItemSchema = z.object({
+  productId: z.string().min(1).max(40),
+  itemId: z.string().max(40).nullable(),
+  vendorItemId: z.string().max(40).nullable(),
+  productName: z.string().max(500).nullable(),
+  categoryHierarchy: z.string().max(1_000).nullable(),
+  salesRank: z.number().int().min(1),
+  salePrice: nullableMetric,
+  ratingCount: nullableMetric,
+  pvLast28Day: nullableMetric,
+  salesLast28d: nullableMetric,
+  estimatedRevenue28d: nullableMetric,
+  conversionRate28d: nullableMetric,
+}).strict();
+export type WingRankItem = z.infer<typeof WingRankItemSchema>;
+
+/** 청크 `wing_rank_keyword`: 키워드 하나를 끝까지 읽은 결과(키워드마다 한 장). */
+export const WING_RANK_CHUNK_KIND = 'wing_rank_keyword' as const;
+export const WingRankChunkItemSchema = z.object({
+  keyword: z.string().min(1).max(100),
+  capturedAt: z.string().datetime(),
+  pagesScanned: z.number().int().nonnegative().max(WING_RANK_MAX_PAGES),
+  items: z.array(WingRankItemSchema).max(2_000),
+}).strict();
+export type WingRankChunkItem = z.infer<typeof WingRankChunkItemSchema>;
+
+export const WingRankResultSchema = z.object({
+  keywords: z.number().int().nonnegative(),
+  rows: z.number().int().nonnegative(),
+  rankedCount: z.number().int().nonnegative(),
+}).strict();
+export type WingRankResult = z.infer<typeof WingRankResultSchema>;

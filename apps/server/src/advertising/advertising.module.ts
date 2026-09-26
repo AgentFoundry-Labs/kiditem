@@ -32,7 +32,6 @@ import {
   AD_TRAFFIC_READ_PORT,
   AD_TRAFFIC_SOURCE_PORT,
 } from "./application/port/in/ad-traffic-source.port";
-import { WingRankSourceController } from "./adapter/in/http/wing-rank-source.controller";
 import { SellerIdentitySourceController } from "./adapter/in/http/seller-identity-source.controller";
 import { CompetitorTrackingController } from "./adapter/in/http/competitor-tracking.controller";
 import { CompetitorCatalogSourceController } from "./adapter/in/http/competitor-catalog-source.controller";
@@ -51,7 +50,6 @@ import { KeywordRankRepositoryAdapter } from "./adapter/out/repository/keyword-r
 import { KeywordSerpSourceRepository } from "./adapter/out/repository/keyword-serp-source.repository";
 import { AdKeywordSourceRepository } from "./adapter/out/repository/ad-keyword-source.repository";
 import { AdCampaignSourceRepository } from "./adapter/out/repository/ad-campaign-source.repository";
-import { WingRankSourceRepository } from "./adapter/out/repository/wing-rank-source.repository";
 import { SellerIdentitySourceRepository } from "./adapter/out/repository/seller-identity-source.repository";
 import { WingTrackedProductRepositoryAdapter } from "./adapter/out/repository/wing-tracked-product.repository.adapter";
 import { CompetitorCatalogSourceAttemptRepositoryAdapter } from "./adapter/out/repository/competitor-catalog-source-attempt.repository.adapter";
@@ -61,6 +59,7 @@ import { AdvertisingSourceAlertAdapter } from "./adapter/out/repository/advertis
 import { ADVERTISING_SOURCE_ALERT_PORT } from "./application/port/out/repository/advertising-source-alert.port";
 // adapter/in/operation — 실행 계약 kind(ADR-0025, KID-362)
 import { WingTrackedProductsOperationOwner } from "./adapter/in/operation/wing-tracked-products-operation-owner";
+import { WingRankOperationOwner } from "./adapter/in/operation/wing-rank-operation-owner";
 // application/service + handlers
 import { AdvertisingService } from "./application/service/advertising.service";
 import { AdExportService } from "./application/service/ad-export.service";
@@ -184,7 +183,6 @@ const REPOSITORY_PORT_BINDINGS = [
     AdCampaignSourceController,
     WingItemwinnerKpiSourceController,
     AdTrafficSourceController,
-    WingRankSourceController,
     SellerIdentitySourceController,
     CompetitorTrackingController,
     CompetitorCatalogSourceController,
@@ -223,7 +221,6 @@ const REPOSITORY_PORT_BINDINGS = [
       provide: AD_TRAFFIC_READ_PORT,
       useExisting: AdTrafficSourceRepository,
     },
-    WingRankSourceRepository,
     SellerIdentitySourceRepository,
     WingTrackedProductRepositoryAdapter,
     CompetitorCatalogSourceAttemptRepositoryAdapter,
@@ -232,6 +229,7 @@ const REPOSITORY_PORT_BINDINGS = [
     AdvertisingSourceAlertAdapter,
     // adapter/in/operation
     WingTrackedProductsOperationOwner,
+    WingRankOperationOwner,
     // application/service
     AdvertisingService,
     AdExportService,

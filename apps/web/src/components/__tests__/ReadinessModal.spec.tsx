@@ -13,8 +13,9 @@ const mockCatalog = vi.hoisted(() => ({ value: null as unknown }));
 vi.mock('@/lib/api-client', () => ({
   apiClient: {
     get: mockApiGet,
-    // The Wing rank card reads the current batch; none is running.
     getNullable: vi.fn(async () => null),
+    // The Wing rank card picks the primary Coupang account for its operation scope.
+    getParsed: vi.fn(async () => []),
     post: vi.fn(),
   },
 }));
@@ -283,6 +284,8 @@ describe('ReadinessModal', () => {
       if (path === CAMPAIGN_SOURCE_PATH) return campaignSource;
       if (path === KEYWORD_SOURCE_PATH) return EMPTY_OWNER_SOURCE;
       if (path === CATALOG_OPERATIONS_PATH) return { operations: catalogOperations };
+      // The Wing rank card reads its operations; none is running.
+      if (path === '/api/operations?kinds=advertising.wing_rank&limit=20') return { operations: [] };
       return readiness;
     });
     setReadiness(makeReadinessResponse());
@@ -607,7 +610,7 @@ describe('ReadinessModal', () => {
   it('labels the Wing rank action as Wing sales ranking and starts it from the shared control', async () => {
     const response = makeReadinessResponse();
     const wingRank: ReadinessResponse['checks'][number] = {
-      key: 'wing_kpi',
+      key: 'wing_rank',
       label: 'Wing 판매순위',
       basis: {
         asOf: null,

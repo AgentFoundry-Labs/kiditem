@@ -3,7 +3,6 @@ export * from './schemas/ad-keyword-source.js';
 export * from './schemas/ad-campaign-source.js';
 export * from './schemas/ad-traffic-source.js';
 export * from './schemas/keyword-serp-source.js';
-export * from './schemas/wing-rank-source.js';
 export * from './schemas/wing-itemwinner-source.js';
 export * from './schemas/seller-identity-source.js';
 export * from './schemas/keyword-rank.js';

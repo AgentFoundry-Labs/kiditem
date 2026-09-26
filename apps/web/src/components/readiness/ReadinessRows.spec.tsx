@@ -4,7 +4,6 @@ import { act, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { SOURCE_READINESS_LABELS } from '@kiditem/shared/source-readiness';
 import { SellpiaSyncAction } from '@/app/(inventory)/_shared/SellpiaSyncAction';
-import { runWingSalesRankCheck } from '@/app/(advertising)/rank-tracking/lib/rank-extension';
 import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
 import {
@@ -23,15 +22,10 @@ vi.mock('@/hooks/useAuth', () => ({ useAuth: () => ({ user: { organizationId: 'o
 vi.mock('@/lib/api-client', () => ({
   apiClient: { get: vi.fn(), getNullable: vi.fn(), getParsed: vi.fn(), post: vi.fn() },
 }));
-vi.mock('@/app/(advertising)/rank-tracking/lib/rank-extension', () => ({
-  detectRankExtensionGate: vi.fn(async () => ({
-    status: 'ready',
-    extensionId: 'kiditem-extension',
-    version: '1.2.102',
-  })),
-  rankExtensionGateMessage: () => null,
-  runWingSalesRankCheck: vi.fn(async () => ({ success: true, started: true })),
-  cancelWingRankBatch: vi.fn(),
+const operationMocks = vi.hoisted(() => ({ start: vi.fn(), cancel: vi.fn() }));
+vi.mock('@/lib/operation-start', () => ({
+  requestOperationStart: operationMocks.start,
+  requestOperationCancel: operationMocks.cancel,
 }));
 vi.mock('@/lib/extension-bridge', () => ({
   detectExtensionId: vi.fn(),
@@ -565,47 +559,28 @@ describe('readiness Sellpia sales card', () => {
 });
 
 describe('readiness Wing rank card', () => {
-  const RANK_BATCH_PATH = '/api/ads/keyword-rank/wing/batch-attempts';
-  const rankBatch = {
-    attempts: [{
-      attemptId: NEXT_ATTEMPT_ID,
-      keyword: '연필',
-      generation: '1',
-      state: 'RUNNING',
-      expiresAt: '2099-01-01T00:00:00.000Z',
-      actualCutoffAt: null,
-      itemCount: 0,
-      errorCode: null,
-      errorMessage: null,
-      plan: {
-        sourceType: 'coupang_wing_rank',
-        parserVersion: 'wing-rank-v1',
-        keyword: '연필',
-        maxPages: 5,
-        targets: [{ vendorItemId: 'V1', productName: '연필', category: null, keyword: '연필', candidateIndex: 0 }],
-      },
-    }],
-    selection: {
-      productCount: 1,
-      candidateCount: 1,
-      keywordCount: 1,
-      targetKeywordCount: 1,
-      resumed: false,
-      pendingProductCount: 1,
-      targets: [{
-        keyword: '연필',
-        vendorItemIds: ['V1'],
-        productCount: 1,
-        primaryProductCount: 1,
-        pendingProductCount: 1,
-        pendingPrimaryProductCount: 1,
-        phase: 'primary',
-        maxPages: 5,
-      }],
-    },
+  const OPERATIONS_PATH = '/api/operations?kinds=advertising.wing_rank&limit=20';
+  const COUPANG_ACCOUNT = '55555555-5555-4555-8555-555555555555';
+  const runningRank = {
+    id: NEXT_ATTEMPT_ID,
+    kind: 'advertising.wing_rank',
+    status: 'executing',
+    lockKeys: [`account:${COUPANG_ACCOUNT}`, 'resource:keyword:연필'],
+    plan: { channelAccountId: COUPANG_ACCOUNT, maxPages: 5, keywords: [{ keyword: '연필', targets: [] }], selection: {} },
+    progress: null,
+    result: null,
+    window: null,
+    errorCode: null,
+    errorMessage: null,
+    startedAt: '2026-09-05T00:00:00.000Z',
+    finishedAt: null,
+    expiresAt: '2099-01-01T00:00:00.000Z',
+    attempts: 1,
+    maxAttempts: 1,
+    scheduledFor: null,
   };
   const rankCheck = {
-    key: 'wing_kpi',
+    key: 'wing_rank',
     label: 'Wing 판매순위',
     basis: {
       asOf: null,
@@ -623,18 +598,25 @@ describe('readiness Wing rank card', () => {
     missingDates: [],
   } as unknown as ReadinessCheck;
 
-  it('starts the Wing rank batch through the shared control, not the readiness handler', async () => {
-    let rankOwner: unknown = null;
-    vi.mocked(apiClient.getNullable).mockImplementation(async (path: string) => {
-      if (path === `${RANK_BATCH_PATH}/current`) return rankOwner;
+  function serveRank(operations: () => unknown[]) {
+    vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
+      if (path === OPERATIONS_PATH) return { operations: operations() };
       throw new Error(`unexpected GET ${path}`);
     });
-    vi.mocked(apiClient.post).mockImplementation(async (path: string, _body?: unknown, options?: unknown) => {
-      if (path === '/api/auth/extension-handoff') return { token: 'a'.repeat(43) };
-      if (path !== RANK_BATCH_PATH) throw new Error(`unexpected POST ${path}`);
-      const key = (options as { headers: Record<string, string> }).headers['Idempotency-Key'];
-      rankOwner = { batchKey: key, ...rankBatch };
-      return rankBatch;
+    vi.mocked(apiClient.getParsed).mockImplementation(async (path: string) => {
+      if (path === '/api/channels/accounts') {
+        return [{ id: COUPANG_ACCOUNT, channel: 'coupang', name: '대표', externalAccountId: null, vendorId: null, sellerId: null, isPrimary: true }];
+      }
+      throw new Error(`unexpected GET ${path}`);
+    });
+  }
+
+  it('starts advertising.wing_rank with the primary Coupang account through the shared control, not the readiness handler', async () => {
+    let operations: unknown[] = [];
+    serveRank(() => operations);
+    operationMocks.start.mockImplementation(async () => {
+      operations = [runningRank];
+      return { outcome: 'started', operationId: NEXT_ATTEMPT_ID };
     });
     const onCollect = vi.fn();
     renderRow(<ActionCheckCard check={rankCheck} onCollect={onCollect} pending={false} />);
@@ -644,15 +626,14 @@ describe('readiness Wing rank card', () => {
     fireEvent.click(start);
 
     expect(await screen.findByText('수집 중 · 0/1개 키워드')).toBeInTheDocument();
-    expect(runWingSalesRankCheck).toHaveBeenCalledWith(EXTENSION_ID, expect.stringMatching(UUID));
+    expect(operationMocks.start.mock.calls).toEqual([
+      ['advertising.wing_rank', { channelAccountId: COUPANG_ACCOUNT }, { capability: 'advertisingKeywordOperationKindsV1' }],
+    ]);
     expect(onCollect).not.toHaveBeenCalled();
   });
 
-  it('links the running batch to rank tracking, where its progress and attention are shown', async () => {
-    vi.mocked(apiClient.getNullable).mockImplementation(async (path: string) => {
-      if (path === `${RANK_BATCH_PATH}/current`) return { batchKey: NEXT_ATTEMPT_ID, ...rankBatch };
-      throw new Error(`unexpected GET ${path}`);
-    });
+  it('links the running operation to rank tracking', async () => {
+    serveRank(() => [runningRank]);
     renderRow(<ActionCheckCard check={rankCheck} onCollect={vi.fn()} pending={false} />);
 
     const link = await screen.findByRole('link', { name: '진행 보기' });

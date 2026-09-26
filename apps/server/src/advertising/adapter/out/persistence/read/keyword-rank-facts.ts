@@ -62,11 +62,11 @@ const COMPLETE_SERP_SOURCE = {
   status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
 } as const;
 
-const COMPLETE_WING_RANK_SOURCE = {
-  sourceType: 'coupang_wing_rank',
-  parserVersion: 'wing-rank-v1',
-  status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-} as const;
+/**
+ * Wing 판매순위 행은 `advertising.wing_rank` 실행의 finish 트랜잭션에서만 쓰인다(ADR-0025) — operationId가 있으면
+ * 성공한 실행이 발행한 행이다. 옛 attempt 행(operationId null)은 읽지 않는다.
+ */
+const PUBLISHED_WING_RANK = { operationId: { not: null } } as const;
 
 function inclusiveWindowStart(days: number): Date {
   return addDays(currentBusinessDate(), -(Math.max(1, days) - 1));
@@ -160,10 +160,7 @@ export async function readWingSalesRankSnapshots(
     where: {
       organizationId: input.organizationId,
       businessDate: { gte: since },
-      sourceImportRun: {
-        organizationId: input.organizationId,
-        ...COMPLETE_WING_RANK_SOURCE,
-      },
+      ...PUBLISHED_WING_RANK,
     },
     orderBy: [
       { keyword: 'asc' },
@@ -286,10 +283,7 @@ export async function readWingRankCoverage(
     where: {
       organizationId: input.organizationId,
       vendorItemId: { in: [...input.vendorItemIds] },
-      sourceImportRun: {
-        organizationId: input.organizationId,
-        ...COMPLETE_WING_RANK_SOURCE,
-      },
+      ...PUBLISHED_WING_RANK,
     },
     orderBy: [{ businessDate: 'desc' }, { capturedAt: 'desc' }, { updatedAt: 'desc' }, { id: 'desc' }],
     select: { capturedAt: true, businessDate: true },
@@ -301,10 +295,7 @@ export async function readWingRankCoverage(
     organizationId: input.organizationId,
     businessDate: latest.businessDate,
     vendorItemId: { in: [...input.vendorItemIds] },
-    sourceImportRun: {
-      organizationId: input.organizationId,
-      ...COMPLETE_WING_RANK_SOURCE,
-    },
+    ...PUBLISHED_WING_RANK,
   } satisfies Prisma.CoupangWingSalesRankDailySnapshotWhereInput;
   const rows = await tx.coupangWingSalesRankDailySnapshot.findMany({
     where,

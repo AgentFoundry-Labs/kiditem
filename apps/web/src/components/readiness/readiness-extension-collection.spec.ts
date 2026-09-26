@@ -5,11 +5,9 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { act, renderHook, waitFor } from '@testing-library/react';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
-import { runWingSalesRankCheck } from '@/app/(advertising)/rank-tracking/lib/rank-extension';
 import { useReadinessCollection } from './useReadinessCollection';
 import type { ReadinessCheck } from '@kiditem/shared/readiness';
 
-const WING_BATCH_PATH = '/api/ads/keyword-rank/wing/batch-attempts';
 const PRIMARY_ACCOUNT_ID = '00000000-0000-4000-8000-000000000001';
 const SECOND_ACCOUNT_ID = '00000000-0000-4000-8000-000000000007';
 const UNKNOWN_ACCOUNT_ID = '00000000-0000-4000-8000-000000000008';
@@ -18,8 +16,7 @@ const LINKED_ATTEMPT_ID = '00000000-0000-4000-8000-000000000002';
 const mocks = vi.hoisted(() => ({
   detectExtensionId: vi.fn(),
   sendToExtension: vi.fn(),
-  detectRankExtensionGate: vi.fn(),
-  runWingSalesRankCheck: vi.fn(),
+  requestOperationStart: vi.fn(),
 }));
 
 vi.mock('@/lib/extension-bridge', () => ({
@@ -31,10 +28,9 @@ vi.mock('@/hooks/useAuth', () => ({
   useAuth: () => ({ status: 'ready', user: { organizationId: 'org-1' } }),
 }));
 
-vi.mock('@/app/(advertising)/rank-tracking/lib/rank-extension', () => ({
-  detectRankExtensionGate: mocks.detectRankExtensionGate,
-  rankExtensionGateMessage: () => '브라우저 수집 익스텐션을 찾을 수 없습니다.',
-  runWingSalesRankCheck: mocks.runWingSalesRankCheck,
+vi.mock('@/lib/operation-start', () => ({
+  requestOperationStart: mocks.requestOperationStart,
+  requestOperationCancel: vi.fn(),
 }));
 
 vi.mock('@/lib/api-client', () => ({
@@ -109,16 +105,15 @@ describe('readiness extension collection', () => {
     expect(mocks.sendToExtension).not.toHaveBeenCalled();
   });
 
-  it("leaves Wing rank to the card's shared control and admits no batch from the readiness hook", async () => {
+  it("leaves Wing rank to the card's shared control and starts no operation from the readiness hook", async () => {
     const { result } = renderHook(() => useReadinessCollection({}), { wrapper: wrapper() });
 
     await act(async () => {
-      await result.current.handleCollect(check('wing_kpi'));
+      await result.current.handleCollect(check('wing_rank'));
     });
 
-    expect(requestedApiPaths().filter((path) => path.startsWith(WING_BATCH_PATH))).toEqual([]);
-    expect(mocks.detectRankExtensionGate).not.toHaveBeenCalled();
-    expect(runWingSalesRankCheck).not.toHaveBeenCalled();
+    expect(requestedApiPaths().filter((path) => path.startsWith('/api/operations'))).toEqual([]);
+    expect(mocks.requestOperationStart).not.toHaveBeenCalled();
   });
 
   it('leaves 상품 받기 to the shared control: the readiness hook opens no catalog attempt and talks to no extension', async () => {

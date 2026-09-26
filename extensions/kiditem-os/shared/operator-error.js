@@ -918,6 +918,13 @@
       "text": "추적 상품의 수집 키워드가 요청에 모두 들어 있지 않습니다. 추적 키워드를 확인해 주세요.",
       "retryable": false
     },
+    "ADVERTISING_RANK_TARGETS_EMPTY": {
+      "owner": "advertising",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "순위를 확인할 자사 상품의 대표 키워드가 없습니다. 상품의 대표 키워드를 확인해 주세요.",
+      "retryable": false
+    },
     "ADVERTISING_TRACKED_PRODUCT_NOT_FOUND": {
       "owner": "advertising",
       "kind": "conflict",

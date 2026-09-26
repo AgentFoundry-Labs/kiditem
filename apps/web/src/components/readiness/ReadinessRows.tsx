@@ -24,7 +24,7 @@ import {
 } from '@kiditem/shared/source-readiness';
 import { adCampaignSweepCollection } from '@/app/(advertising)/ad-ops/lib/ad-campaign-collection';
 import { adKeywordCollection } from '@/app/(advertising)/ad-ops/lib/ad-keyword-collection';
-import { wingRankBatchCollection } from '@/app/(advertising)/rank-tracking/lib/wing-rank-batch-collection';
+import { useWingRankCollection } from '@/app/(advertising)/rank-tracking/lib/wing-rank-collection';
 import { SELLPIA_INVENTORY_START_TITLE } from '@/app/(inventory)/_shared/SellpiaSyncAction';
 import { useSellpiaInventoryCollection } from '@/app/(inventory)/_shared/sellpia-inventory-source-owner';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
@@ -48,7 +48,7 @@ const DISPLAY: Record<string, DisplayMeta> = {
   wing_sales: { title: '일별 매출', hint: '셀피아 몰별 매출', icon: LineChart },
   coupang_ads: { title: '광고 성과', hint: '클릭·전환·지출', icon: Megaphone },
   coupang_products: { title: '상품 목록', hint: '등록된 SKU 동기화', icon: Package },
-  wing_kpi: { title: 'Wing 판매순위', hint: '자사 상품 판매순위', icon: Trophy },
+  wing_rank: { title: 'Wing 판매순위', hint: '자사 상품 판매순위', icon: Trophy },
 };
 
 function getDisplay(check: ReadinessCheck): DisplayMeta {
@@ -266,11 +266,11 @@ function SellpiaSalesCardControl({ check }: { check: ReadinessCheck }) {
 }
 
 /**
- * The readiness card's Wing rank control: the same batch as the rank tracking
- * screen, which alone shows its per-keyword progress, failures and attention tabs.
+ * The readiness card's Wing rank control: the same `advertising.wing_rank`
+ * operation as the rank tracking screen, which also shows its last failure.
  */
 function WingRankCardControl() {
-  const control = useCollectionSourceControl(wingRankBatchCollection);
+  const control = useWingRankCollection();
   return (
     <CollectionStartControl
       control={control}
@@ -307,7 +307,7 @@ export function ActionCheckCard({
   const collectsThroughAdSync = check.key === 'coupang_ads';
   // Sellpia sales keeps one shared control across readiness and the sales screens.
   const collectsThroughSalesControl = check.key === 'wing_sales';
-  const collectsThroughRankControl = check.key === 'wing_kpi';
+  const collectsThroughRankControl = check.key === 'wing_rank';
 
   const subline = (() => {
     if (missingCount > 0) {

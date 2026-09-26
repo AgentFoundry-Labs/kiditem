@@ -4082,6 +4082,7 @@ var KidItemRuntime = (() => {
 
   // packages/shared/src/schemas/advertising-operations.ts
   var WING_TRACKED_PRODUCTS_KIND = "advertising.wing_tracked_products";
+  var WING_RANK_KIND = "advertising.wing_rank";
   function canonicalAdvertisingKeyword(value) {
     return value.trim().replace(/\s+/gu, " ").normalize("NFC");
   }
@@ -4138,6 +4139,59 @@ var KidItemRuntime = (() => {
     expectedProductCount: external_exports.number().int().nonnegative(),
     capturedProductCount: external_exports.number().int().nonnegative()
   }).strict();
+  var WING_RANK_MAX_PAGES = 5;
+  var WING_RANK_MAX_KEYWORDS = 200;
+  var WingRankScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    keywords: keywordList(WING_RANK_MAX_KEYWORDS).optional()
+  }).strict();
+  var WingRankTargetSchema = external_exports.object({
+    vendorItemId: external_exports.string().min(1).max(40),
+    productName: external_exports.string().max(500),
+    category: external_exports.string().max(1e3).nullable(),
+    candidateIndex: external_exports.number().int().nonnegative()
+  }).strict();
+  var WingRankPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    maxPages: external_exports.number().int().min(1).max(WING_RANK_MAX_PAGES),
+    keywords: external_exports.array(external_exports.object({
+      keyword: external_exports.string().min(1).max(100),
+      targets: external_exports.array(WingRankTargetSchema).min(1)
+    }).strict()).min(1).max(WING_RANK_MAX_KEYWORDS),
+    selection: external_exports.object({
+      productCount: external_exports.number().int().nonnegative(),
+      keywordCount: external_exports.number().int().nonnegative(),
+      resumed: external_exports.boolean(),
+      pendingProductCount: external_exports.number().int().nonnegative()
+    }).strict()
+  }).strict();
+  var nullableMetric = external_exports.number().finite().nullable();
+  var WingRankItemSchema = external_exports.object({
+    productId: external_exports.string().min(1).max(40),
+    itemId: external_exports.string().max(40).nullable(),
+    vendorItemId: external_exports.string().max(40).nullable(),
+    productName: external_exports.string().max(500).nullable(),
+    categoryHierarchy: external_exports.string().max(1e3).nullable(),
+    salesRank: external_exports.number().int().min(1),
+    salePrice: nullableMetric,
+    ratingCount: nullableMetric,
+    pvLast28Day: nullableMetric,
+    salesLast28d: nullableMetric,
+    estimatedRevenue28d: nullableMetric,
+    conversionRate28d: nullableMetric
+  }).strict();
+  var WING_RANK_CHUNK_KIND = "wing_rank_keyword";
+  var WingRankChunkItemSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    capturedAt: external_exports.string().datetime(),
+    pagesScanned: external_exports.number().int().nonnegative().max(WING_RANK_MAX_PAGES),
+    items: external_exports.array(WingRankItemSchema).max(2e3)
+  }).strict();
+  var WingRankResultSchema = external_exports.object({
+    keywords: external_exports.number().int().nonnegative(),
+    rows: external_exports.number().int().nonnegative(),
+    rankedCount: external_exports.number().int().nonnegative()
+  }).strict();
 
   // extensions/src/core/errors.ts
   var ErrorEnvelopeSchema = external_exports.object({
@@ -4173,9 +4227,11 @@ var KidItemRuntime = (() => {
   async function readWingSearchKeyword(site, keyword2, maxPages, signal) {
     const rows = /* @__PURE__ */ new Map();
     let searchPage = 0;
+    let pagesScanned = 0;
     for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
       if (signal.aborted) return null;
       const page = await site.searchPage(keyword2, searchPage);
+      pagesScanned += 1;
       for (const row of page.rows) {
         const key = `${row.productId}:${row.itemId ?? ""}:${row.vendorItemId ?? ""}`;
         if (!rows.has(key)) rows.set(key, row);
@@ -4189,7 +4245,7 @@ var KidItemRuntime = (() => {
       }
       searchPage = page.nextSearchPage;
     }
-    return [...rows.values()];
+    return { rows: [...rows.values()], pagesScanned };
   }
   function boundedInteger(value) {
     return value !== null && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
@@ -4198,6 +4254,49 @@ var KidItemRuntime = (() => {
     return value !== null && Number.isFinite(value) && value >= minimum && value <= maximum ? value : null;
   }
 
+  // extensions/src/collectors/advertising.wing_rank/index.ts
+  var advertisingWingRankCollector = {
+    kind: WING_RANK_KIND,
+    site: "wing-search",
+    async *collect(plan, site, { signal }) {
+      for (const [index, { keyword: keyword2 }] of plan.keywords.entries()) {
+        const read = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
+        if (read === null) return;
+        const chunk = {
+          keyword: keyword2,
+          capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          pagesScanned: read.pagesScanned,
+          items: rankBySales(read.rows)
+        };
+        yield {
+          chunkKind: WING_RANK_CHUNK_KIND,
+          payload: [chunk],
+          progress: { current: index + 1, total: plan.keywords.length, label: keyword2 }
+        };
+      }
+    }
+  };
+  function rankBySales(rows) {
+    return [...rows].sort((a, b) => (b.salesLast28d ?? 0) - (a.salesLast28d ?? 0) || (b.estimatedRevenue28d ?? 0) - (a.estimatedRevenue28d ?? 0) || a.productId.localeCompare(b.productId)).map((row, index) => ({
+      productId: row.productId.slice(0, 40),
+      itemId: row.itemId?.slice(0, 40) ?? null,
+      vendorItemId: row.vendorItemId?.slice(0, 40) ?? null,
+      productName: row.productName ? row.productName.slice(0, 500) : null,
+      categoryHierarchy: row.categoryHierarchy?.slice(0, 1e3) ?? null,
+      salesRank: index + 1,
+      salePrice: finite(row.salePrice),
+      ratingCount: finite(row.ratingCount),
+      pvLast28Day: finite(row.pvLast28Day),
+      salesLast28d: finite(row.salesLast28d),
+      estimatedRevenue28d: finite(row.estimatedRevenue28d),
+      conversionRate28d: finite(row.conversionRate28d)
+    }));
+  }
+  function finite(value) {
+    return value !== null && Number.isFinite(value) ? value : null;
+  }
+  registerCollector(advertisingWingRankCollector);
+
   // extensions/src/collectors/advertising.wing_tracked_products/index.ts
   var advertisingWingTrackedProductsCollector = {
     kind: WING_TRACKED_PRODUCTS_KIND,
@@ -4205,10 +4304,10 @@ var KidItemRuntime = (() => {
     async *collect(plan, site, { signal }) {
       const planned = new Set(plan.products.map((product) => product.productId));
       for (const [index, keyword2] of plan.keywords.entries()) {
-        const rows = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
-        if (rows === null) return;
+        const read = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
+        if (read === null) return;
         const items = /* @__PURE__ */ new Map();
-        for (const row of rows) {
+        for (const row of read.rows) {
           if (planned.has(row.productId) && !items.has(row.productId)) items.set(row.productId, trackedItem(row));
         }
         const chunk = { keyword: keyword2, items: [...items.values()] };

@@ -714,6 +714,7 @@ erDiagram
     Int collectedCount
     Int totalResults
     DateTime capturedAt
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }

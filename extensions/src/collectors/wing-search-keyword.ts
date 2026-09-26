@@ -11,6 +11,7 @@ export interface WingSearchMetricsRow {
   itemId: string | null;
   vendorItemId: string | null;
   productName: string;
+  categoryHierarchy: string | null;
   salePrice: number | null;
   rating: number | null;
   ratingCount: number | null;
@@ -25,18 +26,21 @@ export const ADVERTISING_COLLECTION_INCOMPLETE = 'ADVERTISING_COLLECTION_INCOMPL
 /**
  * 키워드 하나를 최대 `maxPages`쪽 읽어 행을 모은다(같은 상품·옵션은 한 번). 결과가 비거나 마지막 쪽이면 멈추고,
  * 쪽 상한 전에 Wing이 다음 쪽으로 넘어가지 않으면 부분 결과로 실패한다(옛 수집기의 불완전 증거 규칙). 중단되면 null.
+ * 키워드 사이 간격은 사이트 호출기의 요청 간격(2.2초)이 맡는다 — 옛 순위 batch의 키워드 사이 1.2–2.5초보다 길다.
  */
 export async function readWingSearchKeyword<TRow extends { productId: string; itemId: string | null; vendorItemId: string | null }>(
   site: WingSearchKeywordSite<TRow>,
   keyword: string,
   maxPages: number,
   signal: AbortSignal,
-): Promise<TRow[] | null> {
+): Promise<{ rows: TRow[]; pagesScanned: number } | null> {
   const rows = new Map<string, TRow>();
   let searchPage = 0;
+  let pagesScanned = 0;
   for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
     if (signal.aborted) return null;
     const page = await site.searchPage(keyword, searchPage);
+    pagesScanned += 1;
     for (const row of page.rows) {
       const key = `${row.productId}:${row.itemId ?? ''}:${row.vendorItemId ?? ''}`;
       if (!rows.has(key)) rows.set(key, row);
@@ -50,7 +54,7 @@ export async function readWingSearchKeyword<TRow extends { productId: string; it
     }
     searchPage = page.nextSearchPage;
   }
-  return [...rows.values()];
+  return { rows: [...rows.values()], pagesScanned };
 }
 
 export function boundedInteger(value: number | null): number | null {

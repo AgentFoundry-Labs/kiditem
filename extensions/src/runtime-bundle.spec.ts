@@ -29,6 +29,7 @@ describe('committed runtime bundle', () => {
     const runtime = loadRuntime({});
 
     expect((runtime.runtime as { kinds(): string[] }).kinds()).toEqual([
+      'advertising.wing_rank',
       'advertising.wing_tracked_products',
       'channels.wing_catalog_details',
       'channels.wing_catalog_excel',

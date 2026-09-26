@@ -4,7 +4,7 @@ import { ADVERTISING_COLLECTION_INCOMPLETE, type WingSearchKeywordSite, type Win
 import { advertisingWingTrackedProductsCollector } from './index';
 
 function row(productId: string, salePrice: number): WingSearchMetricsRow {
-  return { productId, itemId: null, vendorItemId: null, productName: productId, salePrice, rating: 4.5, ratingCount: 3,
+  return { productId, itemId: null, vendorItemId: null, productName: productId, categoryHierarchy: null, salePrice, rating: 4.5, ratingCount: 3,
     pvLast28Day: 100, salesLast28d: 5, estimatedRevenue28d: salePrice * 5, conversionRate28d: 0.05 };
 }
 

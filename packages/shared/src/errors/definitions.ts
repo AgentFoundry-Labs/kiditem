@@ -240,6 +240,7 @@ export const ERROR_DEFINITIONS = {
   ADVERTISING_TRACKED_TARGETS_CHANGED: def('advertising', 'conflict', '수집하는 동안 추적 상품이 바뀌었습니다. 다시 수집해 주세요.', { retryable: true }),
   ADVERTISING_TRACKED_PRODUCT_LIMIT: def('advertising', 'precondition', '추적 상품이 300개를 넘어 한 번에 수집할 수 없습니다. 추적을 줄인 뒤 다시 시도해 주세요.'),
   ADVERTISING_TRACKED_KEYWORDS_INCOMPLETE: def('advertising', 'validation', '추적 상품의 수집 키워드가 요청에 모두 들어 있지 않습니다. 추적 키워드를 확인해 주세요.'),
+  ADVERTISING_RANK_TARGETS_EMPTY: def('advertising', 'precondition', '순위를 확인할 자사 상품의 대표 키워드가 없습니다. 상품의 대표 키워드를 확인해 주세요.'),
   ADVERTISING_TRACKED_PRODUCT_NOT_FOUND: def('advertising', 'conflict', '윙 검색에서 찾지 못한 추적 상품이 있습니다. 추적 키워드를 확인한 뒤 다시 수집해 주세요.'),
   ANALYTICS_QUERY_FAILED: def('analytics', 'internal', '통계를 계산하지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   FINANCE_QUERY_FAILED: def('finance', 'internal', '재무 데이터를 읽지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),

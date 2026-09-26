@@ -1,9 +1,11 @@
 import { describe, expect, it } from 'vitest';
-import { OperationKindSchema } from './operation.js';
+import { OperationKindSchema, OperationLockKeySchema } from './operation.js';
 import {
   ADVERTISING_KEYWORD_OPERATION_KINDS,
+  WingRankScopeSchema,
   WingTrackedProductsScopeSchema,
   advertisingKeywordIdentity,
+  keywordLockKey,
 } from './advertising-operations.js';
 
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
@@ -20,5 +22,11 @@ describe('advertising keyword operation kinds (KID-362 K-a)', () => {
     expect(WingTrackedProductsScopeSchema.safeParse({ channelAccountId: ACCOUNT, keywords: Array.from({ length: 13 }, (_, i) => `k${i}`) }).success).toBe(false);
     expect(WingTrackedProductsScopeSchema.safeParse({ keywords: ['a'] }).success).toBe(false);
     expect(advertisingKeywordIdentity(' Baby  Wipes ')).toBe('baby wipes');
+  });
+
+  it('keyword lock keys satisfy the lock key grammar and fold case and spacing into one rank slot', () => {
+    expect(keywordLockKey(' Baby  Wipes ')).toBe('resource:keyword:baby_wipes');
+    expect(OperationLockKeySchema.parse(keywordLockKey('아기 물티슈'))).toBe('resource:keyword:아기_물티슈');
+    expect(WingRankScopeSchema.parse({ channelAccountId: ACCOUNT })).toEqual({ channelAccountId: ACCOUNT });
   });
 });

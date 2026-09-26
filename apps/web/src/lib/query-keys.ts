@@ -167,8 +167,8 @@ export const queryKeys = {
     benchmark: (period?: string | number) => [...queryKeys.ads.all, 'benchmark', period] as const,
     collectStatus: () => [...queryKeys.ads.all, 'collect', 'status'] as const,
     keywordRank: () => [...queryKeys.ads.all, 'keywordRank'] as const,
-    // The organization's newest Wing rank batch, read by its shared collection control.
-    wingRankCurrentBatch: () => [...queryKeys.ads.keywordRank(), 'batch', 'current'] as const,
+    // 실행 kind `advertising.wing_rank`의 최근 실행들(공용 수집 컨트롤이 읽는다).
+    wingRankOperations: () => [...queryKeys.ads.all, 'operations', 'source-status', 'advertising.wing_rank'] as const,
     keywordRankTrackers: () => [...queryKeys.ads.keywordRank(), 'trackers'] as const,
     keywordRankHistory: (keyword: string, days: number) =>
       [...queryKeys.ads.keywordRank(), 'history', keyword, days] as const,
