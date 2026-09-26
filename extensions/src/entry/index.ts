@@ -1,3 +1,8 @@
+import '../collectors/advertising.competitor_catalog';
+import '../collectors/advertising.competitor_seller_identity';
+import '../collectors/advertising.keyword_serp';
+import '../collectors/advertising.wing_rank';
+import '../collectors/advertising.wing_tracked_products';
 import '../collectors/channels.mall_admin_listings';
 import '../collectors/channels.sabangnet_mall_listings';
 import '../collectors/channels.sellpia_manual_match';
@@ -19,6 +24,8 @@ import '../collectors/sourcing.wing_catalog';
 import '../collectors/test.echo';
 import '../sites/1688';
 import '../sites/art09';
+import '../sites/coupang-product';
+import '../sites/coupang-shop';
 import '../sites/coupang-search';
 import '../sites/coupang-supplier';
 import '../sites/domeggook';
@@ -72,9 +79,17 @@ export function installEntry(): boolean {
   // orderCaptureOperationKindsV1: 셀피아 송장·몰 주문 kind를 돈다(KID-359 H3).
   // channelsOperationKindsV1: Channels 기타 kind(사방넷 몰 목록·몰 관리자 목록·셀피아 수동매칭)를 돈다(KID-363).
   // operationLoginV1: operation.start의 credentials(사이트 자동 로그인, KID-377)를 받는다 — 옛 빌드는 그 칸을 거절한다.
+  // advertisingKeywordOperationKindsV1: 광고 키워드·경쟁사 kind 5종을 돈다(KID-362 K-a).
   registerWithLegacyDomains({
     externalActions,
-    capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true, [CHANNELS_OPERATION_CAPABILITY]: true, operationLoginV1: true },
+    capabilities: {
+      operationRuntime: true,
+      sourcingOperationKindsV1: true,
+      orderCaptureOperationKindsV1: true,
+      [CHANNELS_OPERATION_CAPABILITY]: true,
+      operationLoginV1: true,
+      advertisingKeywordOperationKindsV1: true,
+    },
   });
   installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
   return true;

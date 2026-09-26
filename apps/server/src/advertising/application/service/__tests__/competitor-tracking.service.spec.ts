@@ -21,6 +21,8 @@ describe("CompetitorTrackingService", () => {
     service = new CompetitorTrackingService(
       repo as unknown as KeywordRankRepositoryPort,
       storefront as unknown as KiditemStorefrontPort,
+      // 판매자 확인·카탈로그 발행(finalize)은 이 스펙이 부르지 않는다.
+      {} as never,
     );
     repo.listOwnVendorItems.mockResolvedValue([
       {

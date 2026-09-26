@@ -1,13 +1,9 @@
 // /api/ads/keyword-rank/* 라우트 전용 API 래퍼 — 키워드 트래커 CRUD 와
-// 순위 추이/최신 SERP 조회. 순위 수집 자체는 확장(rank-extension.ts)이 담당.
+// 순위 추이/최신 SERP 조회. 순위 수집은 실행 kind `advertising.wing_rank`·`advertising.keyword_serp`다(KID-362).
 
 import {
   ProductKeywordRankOverviewResponseSchema,
-  WingRankBatchSchema,
-  WingRankCurrentBatchSchema,
   type ProductKeywordRankOverviewResponse as SharedProductKeywordRankOverviewResponse,
-  type WingRankBatch,
-  type WingRankCurrentBatch,
 } from '@kiditem/shared/advertising';
 import { apiClient } from '@/lib/api-client';
 
@@ -16,27 +12,6 @@ export type {
   ProductKeywordRankRow,
   RepresentativeKeywordCandidate,
 } from '@kiditem/shared/advertising';
-
-const WING_BATCH_PATH = '/api/ads/keyword-rank/wing/batch-attempts';
-
-export async function beginWingRankBatch(idempotencyKey: string): Promise<WingRankBatch> {
-  return WingRankBatchSchema.parse(await apiClient.post(WING_BATCH_PATH, {}, {
-    headers: { 'Idempotency-Key': idempotencyKey },
-  }));
-}
-
-/** The organization's newest Wing rank batch, running or finished; null before the first. */
-export async function readCurrentWingRankBatch(): Promise<WingRankCurrentBatch | null> {
-  const current = await apiClient.getNullable<unknown>(`${WING_BATCH_PATH}/current`);
-  return current === null ? null : WingRankCurrentBatchSchema.parse(current);
-}
-
-/** The owner's operator stop for every running attempt of the batch admitted under this key. */
-export async function cancelWingRankBatchOnServer(batchKey: string): Promise<void> {
-  await apiClient.post(`${WING_BATCH_PATH}/cancel`, undefined, {
-    headers: { 'Idempotency-Key': batchKey },
-  });
-}
 
 export interface KeywordTracker {
   id: string;

@@ -96,125 +96,6 @@ export const SourcingKeywordSuggestionSnapshotSchema = z
   })
   .strict();
 
-const CoupangSellerIdSchema = z.string()
-  .trim()
-  .min(1)
-  .max(80)
-  .regex(/^[A-Za-z0-9_-]+$/u);
-
-const AdvertisingCompetitorCatalogProductSchema = z
-  .object({
-    sourceRank: z.number().int().min(1).max(500),
-    productId: z.string().trim().min(1).max(200).nullable(),
-    itemId: z.string().trim().min(1).max(200).nullable(),
-    vendorItemId: z.string().trim().min(1).max(200).nullable(),
-    name: z.string().trim().min(1).max(500),
-    priceKrw: BoundedCountSchema.nullable(),
-    reviewCount: BoundedCountSchema.nullable(),
-    imageUrl: z.string().trim().max(2_000).nullable(),
-    link: z.string().trim().max(2_000).nullable(),
-  })
-  .strict()
-  .superRefine((value, context) => {
-    if (!value.productId && !value.itemId && !value.vendorItemId) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['productId'],
-        message: 'A competitor catalog product requires an exact identity.',
-      });
-    }
-  });
-
-const CoupangSellerStoreUrlSchema = z.string()
-  .trim()
-  .url()
-  .max(2_000)
-  .refine((value) => {
-    try {
-      const parsed = new URL(value);
-      return parsed.protocol === 'https:' && parsed.hostname === 'shop.coupang.com';
-    } catch {
-      return false;
-    }
-  }, 'Only Coupang seller-store URLs are accepted as catalog evidence.');
-
-export const AdvertisingCompetitorCatalogItemSchema = z
-  .object({
-    keyword: SourcingWingCatalogKeywordSchema,
-    sellerId: CoupangSellerIdSchema,
-    sellerName: z.string().trim().min(1).max(300),
-    sellerStoreUrl: CoupangSellerStoreUrlSchema,
-    totalProductCount: BoundedCountSchema.nullable(),
-    collectedProductCount: z.number().int().min(1).max(500),
-    isTruncated: z.boolean(),
-    sort: z.literal('newest'),
-    capturedAt: InstantSchema,
-    products: z.array(AdvertisingCompetitorCatalogProductSchema).min(1).max(500),
-  })
-  .strict()
-  .superRefine((value, context) => {
-    if (value.collectedProductCount !== value.products.length) {
-      context.addIssue({
-        code: z.ZodIssueCode.custom,
-        path: ['collectedProductCount'],
-        message: 'Collected product count must match the bounded rows.',
-      });
-    }
-  });
-
-export const AdvertisingCompetitorCatalogBatchSchema = z
-  .object({
-    catalogs: z.array(AdvertisingCompetitorCatalogItemSchema).min(1).max(20),
-  })
-  .strict()
-  .superRefine((value, context) => {
-    const sellers = new Set<string>();
-    value.catalogs.forEach((catalog, index) => {
-      if (sellers.has(catalog.sellerId)) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['catalogs', index, 'sellerId'],
-          message: 'Competitor seller IDs must be unique per owner batch.',
-        });
-      }
-      sellers.add(catalog.sellerId);
-    });
-  });
-
-export const AdvertisingTrackedWingProductsInputSchema = z
-  .object({
-    keywords: z.array(SourcingWingCatalogKeywordSchema).min(1).max(12),
-    maxPages: z.number().int().min(1).max(5),
-    purpose: z.literal('tracked_metrics'),
-    trackedProductIds: z.array(z.string().trim().min(1).max(200)).min(1).max(200),
-  })
-  .strict()
-  .superRefine((value, context) => {
-    const keywordIdentities = new Set<string>();
-    value.keywords.forEach((keyword, index) => {
-      const identity = sourcingWingCatalogKeywordIdentity(keyword);
-      if (keywordIdentities.has(identity)) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['keywords', index],
-          message: 'Wing catalog keywords must be unique after normalization.',
-        });
-      }
-      keywordIdentities.add(identity);
-    });
-    const productIds = new Set<string>();
-    value.trackedProductIds.forEach((productId, index) => {
-      if (productIds.has(productId)) {
-        context.addIssue({
-          code: z.ZodIssueCode.custom,
-          path: ['trackedProductIds', index],
-          message: 'Tracked product IDs must be unique.',
-        });
-      }
-      productIds.add(productId);
-    });
-  });
-
 export const SourcingWingCatalogObservationSchema = z
   .object({
     productId: z.string().trim().min(1).max(200),
@@ -299,17 +180,8 @@ export type SourcingKeywordSuggestionObservationBatch = z.infer<
 export type SourcingKeywordSuggestionSnapshot = z.infer<
   typeof SourcingKeywordSuggestionSnapshotSchema
 >;
-export type AdvertisingCompetitorCatalogItem = z.infer<
-  typeof AdvertisingCompetitorCatalogItemSchema
->;
-export type AdvertisingCompetitorCatalogBatch = z.infer<
-  typeof AdvertisingCompetitorCatalogBatchSchema
->;
 export type SourcingWingCatalogBatchInput = z.infer<
   typeof SourcingWingCatalogBatchInputSchema
->;
-export type AdvertisingTrackedWingProductsInput = z.infer<
-  typeof AdvertisingTrackedWingProductsInputSchema
 >;
 export type SourcingWingCatalogObservation = z.infer<
   typeof SourcingWingCatalogObservationSchema

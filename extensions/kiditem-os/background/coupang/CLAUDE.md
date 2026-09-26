@@ -9,8 +9,6 @@ registrations, and supports explicit Wing page automation.
 ## Owned Surfaces
 
 - Coupang ad-center scrape and approved campaign-registration execution
-- Public Coupang keyword SERP collection, bounded product-detail seller
-  resolution, and server-selected seller-shop catalog collection
 - Extension popup/manual control UI
 - Host bridge status exposed to committed KidItem web origins
 
@@ -26,6 +24,10 @@ registrations, and supports explicit Wing page automation.
 - Approved queued ad actions are fetched from `/api/ads/actions`.
 - The Wing catalog is not collected here: it runs in the TypeScript operation
   runtime (`extensions/src/collectors/channels.wing_catalog_*`, KID-354).
+- Tracked Wing products, Wing rank, public SERP rank, product-detail seller
+  identity and seller-shop catalogs are not collected here either: they are
+  the runtime kinds `advertising.*` (KID-362) on `sites/wing`,
+  `sites/coupang-search`, `sites/coupang-product` and `sites/coupang-shop`.
 - Every chunk and terminal request of an ad-center attempt carries the
   server-issued attempt ID/token and uses the owner's deterministic receipt
   identity. Replays are safe; stale, expired, or post-terminal mutations stop
@@ -67,11 +69,9 @@ registrations, and supports explicit Wing page automation.
   server refuses every claim for the actions the operator applies by hand with
   `EXECUTION_REPORT_MANUAL_ACTION` (`MANUAL_AD_ACTION_TYPES` in
   `apps/server/src/advertising/domain/execution-task-lifecycle.ts`).
-- Public SERP collection stays on Coupang search URLs; seller enrichment may
-  fetch only exact `www.coupang.com/vp/products/{id}` links discovered in that
-  SERP and must remain bounded and rate-limited.
-- Seller-shop catalog collection stays on exact `shop.coupang.com` URLs selected
-  by the backend from resolved competitor identities and must remain bounded.
+- The runtime SERP site stays on Coupang search URLs; seller identity opens
+  only the server-planned `www.coupang.com/vp/products/{id}` links and catalogs
+  only the server-planned `shop.coupang.com` URLs, bounded and rate-limited.
 - Do not add generic arbitrary URL fetch or navigation executors.
 - Login-required states return explicit user-facing errors, not silent success.
 - Keep action execution idempotent from the backend perspective.

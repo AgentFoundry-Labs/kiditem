@@ -1,68 +1,63 @@
 'use client';
 
-import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
-import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { handOffToExtensionRun, startWebOpenedCollection } from '@/lib/collection-start';
-import { queryKeys } from '@/lib/query-keys';
 import {
-  beginWingTrackedProductAttempt,
-  cancelWingTrackedProductAttempt,
-  fetchWingTrackedProductSourceStatus,
-  requireWingTrackedProductExtension,
-  type WingTrackedProductSourceStatus,
-} from './wing-tracking-api';
-import type { QueryKey } from '@tanstack/react-query';
-
-const TRACKED_WING_ACTION = 'collectAdvertisingTrackedWingProducts';
+  WING_TRACKED_PRODUCTS_KIND,
+  WingTrackedProductsResultSchema,
+  type WingTrackedProductsResult,
+} from '@kiditem/shared/advertising-operations';
+import type { OperationListResponse, OperationView } from '@kiditem/shared/operation';
+import { businessDateKey, kstBusinessDate } from '@kiditem/shared/common';
+import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
+import { advertisingOperationCollection, advertisingOperationState } from '@/lib/advertising-operation-collection';
+import { queryKeys } from '@/lib/query-keys';
+import { requireWingSearchAccount, type WingAccountRead } from '@/lib/wing-search-account';
 
 /**
- * The tracked Wing products collection for the shared control. 지표 새로고침
- * finds the extension, opens the owner attempt for the tracked keywords and
- * hands it to the extension run; an attempt the run does not take is stopped
- * through the owner.
+ * 추적 상품 지표 수집(실행 kind `advertising.wing_tracked_products`, KID-362)을 공용 컨트롤에 건다. 지표 새로고침은
+ * 활성 추적 상품의 키워드와 조직의 대표 쿠팡 계정을 scope로 확장에 시작시킨다(잠금 `account:<id>` — 그 계정의 다른
+ * Wing 수집과 서로 막는다). 완료는 추적 상품·이력 읽기를 다시 읽는다.
  */
-export const wingTrackedProductsCollection: CollectionSourceAdapter<
-  WingTrackedProductSourceStatus,
-  readonly string[]
-> = {
-  sourceKey: 'advertising.wing_tracked_products',
-  label: '추적 상품 지표 수집',
-  statusQuery: collectionSourceStatusQueryOptions<
-    WingTrackedProductSourceStatus,
-    Error,
-    WingTrackedProductSourceStatus,
-    QueryKey
-  >({
+export function wingTrackedProductsCollection(
+  accountRead: WingAccountRead,
+): CollectionSourceAdapter<OperationListResponse, readonly string[]> {
+  return advertisingOperationCollection<readonly string[]>({
+    kind: WING_TRACKED_PRODUCTS_KIND,
+    sourceKey: WING_TRACKED_PRODUCTS_KIND,
+    label: '추적 상품 지표 수집',
     queryKey: queryKeys.sourcing.wingTrackedSourceStatus(),
-    queryFn: fetchWingTrackedProductSourceStatus,
-  }),
-  readRunning: (status) =>
-    status.latestAttempt?.state === 'RUNNING'
-      ? { attemptId: status.latestAttempt.attemptId, scopeLabel: null }
-      : null,
-  start: (keywords) =>
-    startWebOpenedCollection({
-      detectExtension: requireWingTrackedProductExtension,
-      begin: async (idempotencyKey) => {
-        const plan = await beginWingTrackedProductAttempt({ idempotencyKey, keywords: [...keywords] });
-        return { outcome: 'opened', attemptId: plan.attemptId, running: plan.state === 'RUNNING' };
-      },
-      // The run begins again under the same key, which returns this attempt.
-      handOff: ({ extensionId, attemptId, idempotencyKey }) =>
-        handOffToExtensionRun(extensionId, attemptId, {
-          action: TRACKED_WING_ACTION,
-          idempotencyKey,
-          keywords: [...keywords],
-        }),
-      cancel: ({ attemptId }) => cancelWingTrackedProductAttempt(attemptId),
-    }),
-  cancelOnServer: (attemptId) => cancelWingTrackedProductAttempt(attemptId),
-  readCompleteId: (status) => status.latestComplete?.sourceImportRunId ?? null,
-  // A new COMPLETE republished the tracked products and their histories.
-  onNewComplete: (queryClient) => {
-    void queryClient.invalidateQueries({
-      queryKey: queryKeys.sourcing.wingTrackedProducts(),
-      predicate: (query) => !query.queryKey.includes('source-status'),
-    });
-  },
-};
+    scope: (keywords) => ({ channelAccountId: requireWingSearchAccount(accountRead).id, keywords: [...keywords] }),
+    onNewComplete: (queryClient) => {
+      void queryClient.invalidateQueries({
+        queryKey: queryKeys.sourcing.wingTrackedProducts(),
+        predicate: (query) => !query.queryKey.includes('source-status'),
+      });
+    },
+  });
+}
+
+/**
+ * 화면이 보는 추적 수집 상태: 마지막 실행과 마지막 성공(그 결과), 그리고 최신인가 — 마지막 성공의 업무일이 오늘(KST)이고
+ * 그때 수집한 추적 대상 수가 지금 켜진 추적 상품 수와 같으면 최신이다(옛 attempt 읽기의 ready와 같은 뜻).
+ */
+export type WingTrackedCollectionSummary = Readonly<{
+  latest: OperationView | null;
+  lastSucceeded: (OperationView & { summary: WingTrackedProductsResult | null }) | null;
+  ready: boolean;
+}>;
+
+export function wingTrackedCollectionSummary(
+  status: OperationListResponse | undefined,
+  enabledTrackedCount: number,
+  now = new Date(),
+): WingTrackedCollectionSummary {
+  const { latest, lastSucceeded } = advertisingOperationState(status);
+  const result = WingTrackedProductsResultSchema.safeParse(lastSucceeded?.result);
+  const summary = result.success ? result.data : null;
+  return {
+    latest,
+    lastSucceeded: lastSucceeded ? { ...lastSucceeded, summary } : null,
+    ready: summary !== null
+      && summary.businessDate === businessDateKey(kstBusinessDate(now))
+      && summary.expectedProductCount === enabledTrackedCount,
+  };
+}

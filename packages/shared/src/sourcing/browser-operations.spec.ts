@@ -1,7 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  AdvertisingCompetitorCatalogBatchSchema,
-  AdvertisingTrackedWingProductsInputSchema,
   SourcingKeywordSuggestionInputSchema,
   SourcingKeywordSuggestionSnapshotSchema,
   SourcingWingCatalogBatchInputSchema,
@@ -45,29 +43,6 @@ const observation = {
 } as const;
 
 describe('Wing catalog browser-operation contracts', () => {
-  it('accepts only an exact bounded tracked-products batch', () => {
-    expect(AdvertisingTrackedWingProductsInputSchema.parse({
-      keywords: ['  Ａ   Pencil  ', '키워드'],
-      maxPages: 2,
-      purpose: 'tracked_metrics',
-      trackedProductIds: ['wing-1', 'wing-2'],
-    })).toEqual({
-      keywords: ['A Pencil', '키워드'],
-      maxPages: 2,
-      purpose: 'tracked_metrics',
-      trackedProductIds: ['wing-1', 'wing-2'],
-    });
-
-    for (const invalid of [
-      { keywords: ['x'], maxPages: 2, purpose: 'catalog_search', trackedProductIds: ['wing-1'] },
-      { keywords: ['x'], maxPages: 2, purpose: 'tracked_metrics', trackedProductIds: [] },
-      { keywords: ['x'], maxPages: 2, purpose: 'tracked_metrics', trackedProductIds: ['wing-1', 'wing-1'] },
-      { keywords: ['x'], maxPages: 2, purpose: 'tracked_metrics', trackedProductIds: ['wing-1'], url: 'https://wing.coupang.com' },
-    ]) {
-      expect(AdvertisingTrackedWingProductsInputSchema.safeParse(invalid).success).toBe(false);
-    }
-  });
-
   it('accepts only a strict bounded batch input and trims keywords', () => {
     expect(SourcingWingCatalogBatchInputSchema.parse({
       keywords: ['  슬라임  ', '클레이'],
@@ -245,47 +220,5 @@ describe('keyword and competitor browser-operation contracts', () => {
       })),
       productNameTokens: [],
     }).success).toBe(false);
-  });
-
-  it('bounds exact competitor catalog owner rows without permitting generic payloads', () => {
-    const catalog = {
-      keyword: '노루잡화점 크런치 슬랑이',
-      sellerId: 'A00219251',
-      sellerName: '도그블랑',
-      sellerStoreUrl: 'https://shop.coupang.com/A00219251',
-      totalProductCount: 1,
-      collectedProductCount: 1,
-      isTruncated: false,
-      sort: 'newest' as const,
-      capturedAt: '2026-08-14T00:00:30.000Z',
-      products: [{
-        sourceRank: 1,
-        productId: '123',
-        itemId: null,
-        vendorItemId: '456',
-        name: '슬랑이',
-        priceKrw: 12_000,
-        reviewCount: 4,
-        imageUrl: null,
-        link: 'https://www.coupang.com/vp/products/123',
-      }],
-    };
-    expect(AdvertisingCompetitorCatalogBatchSchema.parse({ catalogs: [catalog] }))
-      .toEqual({ catalogs: [catalog] });
-    const rankCatalog = { ...catalog, collectedProductCount: 500, products: Array.from({ length: 500 }, (_, index) => ({ ...catalog.products[0], sourceRank: index + 1 })) };
-    expect(AdvertisingCompetitorCatalogBatchSchema.parse({ catalogs: [rankCatalog] }).catalogs[0].products).toHaveLength(500);
-    for (const invalid of [
-      { catalogs: [] },
-      { catalogs: [{ ...catalog, sellerId: 'seller id' }] },
-      { catalogs: [{ ...catalog, sellerStoreUrl: 'https://example.com/A00219251' }] },
-      { catalogs: [{ ...catalog, products: [] }] },
-      { catalogs: [{ ...catalog, url: 'https://example.com' }] },
-      { catalogs: Array.from({ length: 21 }, () => catalog) },
-      { catalogs: [{ ...catalog, collectedProductCount: 501, products: Array.from({ length: 501 }, () => catalog.products[0]) }] },
-      { catalogs: [{ ...catalog, products: [{ ...catalog.products[0], sourceRank: 501 }] }] },
-    ]) {
-      expect(AdvertisingCompetitorCatalogBatchSchema.safeParse(invalid).success)
-        .toBe(false);
-    }
   });
 });

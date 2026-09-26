@@ -16,7 +16,7 @@ cd "$ROOT_DIR"
 
 TARGETS=(apps/server/src apps/web/src packages/shared/src)
 OWNER_GLOBS=()
-for owner in keyword-serp-source wing-rank-source seller-identity-source wing-itemwinner-kpi-source ad-traffic-source; do
+for owner in wing-itemwinner-kpi-source ad-traffic-source; do
   OWNER_GLOBS+=(--glob "!apps/server/src/advertising/adapter/out/repository/${owner}.repository.ts")
 done
 

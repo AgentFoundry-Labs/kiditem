@@ -4080,6 +4080,513 @@ var KidItemRuntime = (() => {
   };
   var NEVER = INVALID;
 
+  // packages/shared/src/schemas/advertising-operations.ts
+  var WING_TRACKED_PRODUCTS_KIND = "advertising.wing_tracked_products";
+  var WING_RANK_KIND = "advertising.wing_rank";
+  var KEYWORD_SERP_KIND = "advertising.keyword_serp";
+  var COMPETITOR_SELLER_IDENTITY_KIND = "advertising.competitor_seller_identity";
+  var COMPETITOR_CATALOG_KIND = "advertising.competitor_catalog";
+  function canonicalAdvertisingKeyword(value) {
+    return value.trim().replace(/\s+/gu, " ").normalize("NFC");
+  }
+  function advertisingKeywordIdentity(value) {
+    return canonicalAdvertisingKeyword(value).toLocaleLowerCase("en-US");
+  }
+  var keyword = external_exports.string().transform(canonicalAdvertisingKeyword).pipe(external_exports.string().min(1).max(100));
+  var productId = external_exports.string().trim().min(1).max(40);
+  var isoDay = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+  function keywordList(max) {
+    return external_exports.array(keyword).min(1).max(max).transform((values) => {
+      const seen = /* @__PURE__ */ new Set();
+      return values.filter((value) => {
+        const identity2 = advertisingKeywordIdentity(value);
+        if (seen.has(identity2)) return false;
+        seen.add(identity2);
+        return true;
+      });
+    });
+  }
+  var WING_TRACKED_PRODUCTS_MAX_KEYWORDS = 12;
+  var WING_TRACKED_PRODUCTS_MAX_PRODUCTS = 300;
+  var WingTrackedProductsScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    keywords: keywordList(WING_TRACKED_PRODUCTS_MAX_KEYWORDS)
+  }).strict();
+  var WingTrackedProductsPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    businessDate: isoDay,
+    keywords: external_exports.array(external_exports.string().min(1).max(100)).min(1).max(WING_TRACKED_PRODUCTS_MAX_KEYWORDS),
+    maxPages: external_exports.number().int().min(1).max(10),
+    products: external_exports.array(external_exports.object({
+      productId,
+      sourceKeyword: external_exports.string().min(1).max(100).nullable()
+    }).strict()).max(WING_TRACKED_PRODUCTS_MAX_PRODUCTS)
+  }).strict();
+  var WingTrackedProductItemSchema = external_exports.object({
+    productId,
+    salePriceKrw: external_exports.number().int().nonnegative().max(2147483647).nullable(),
+    ratingCount: external_exports.number().int().nonnegative().max(2147483647).nullable(),
+    ratingAverage: external_exports.number().min(0).max(5).nullable(),
+    pvLast28Day: external_exports.number().int().nonnegative().max(2147483647).nullable(),
+    salesLast28d: external_exports.number().int().nonnegative().max(2147483647).nullable(),
+    estimatedRevenue28d: external_exports.number().nonnegative().max(2147483647).nullable(),
+    conversionRate28d: external_exports.number().min(0).max(1).nullable()
+  }).strict();
+  var WING_TRACKED_PRODUCTS_CHUNK_KIND = "wing_tracked_search";
+  var WingTrackedSearchChunkItemSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    items: external_exports.array(WingTrackedProductItemSchema).max(WING_TRACKED_PRODUCTS_MAX_PRODUCTS)
+  }).strict();
+  var WingTrackedProductsResultSchema = external_exports.object({
+    businessDate: isoDay,
+    expectedProductCount: external_exports.number().int().nonnegative(),
+    capturedProductCount: external_exports.number().int().nonnegative()
+  }).strict();
+  var WING_RANK_MAX_PAGES = 5;
+  var WING_RANK_MAX_KEYWORDS = 200;
+  var WingRankScopeSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    keywords: keywordList(WING_RANK_MAX_KEYWORDS).optional()
+  }).strict();
+  var WingRankTargetSchema = external_exports.object({
+    vendorItemId: external_exports.string().min(1).max(40),
+    productName: external_exports.string().max(500),
+    category: external_exports.string().max(1e3).nullable(),
+    candidateIndex: external_exports.number().int().nonnegative()
+  }).strict();
+  var WingRankPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    maxPages: external_exports.number().int().min(1).max(WING_RANK_MAX_PAGES),
+    keywords: external_exports.array(external_exports.object({
+      keyword: external_exports.string().min(1).max(100),
+      targets: external_exports.array(WingRankTargetSchema).min(1)
+    }).strict()).min(1).max(WING_RANK_MAX_KEYWORDS),
+    selection: external_exports.object({
+      productCount: external_exports.number().int().nonnegative(),
+      keywordCount: external_exports.number().int().nonnegative(),
+      resumed: external_exports.boolean(),
+      pendingProductCount: external_exports.number().int().nonnegative()
+    }).strict()
+  }).strict();
+  var nullableMetric = external_exports.number().finite().nullable();
+  var WingRankItemSchema = external_exports.object({
+    productId: external_exports.string().min(1).max(40),
+    itemId: external_exports.string().max(40).nullable(),
+    vendorItemId: external_exports.string().max(40).nullable(),
+    productName: external_exports.string().max(500).nullable(),
+    categoryHierarchy: external_exports.string().max(1e3).nullable(),
+    salesRank: external_exports.number().int().min(1),
+    salePrice: nullableMetric,
+    ratingCount: nullableMetric,
+    pvLast28Day: nullableMetric,
+    salesLast28d: nullableMetric,
+    estimatedRevenue28d: nullableMetric,
+    conversionRate28d: nullableMetric
+  }).strict();
+  var WING_RANK_CHUNK_KIND = "wing_rank_keyword";
+  var WingRankChunkItemSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    capturedAt: external_exports.string().datetime(),
+    pagesScanned: external_exports.number().int().nonnegative().max(WING_RANK_MAX_PAGES),
+    items: external_exports.array(WingRankItemSchema).max(2e3)
+  }).strict();
+  var WingRankResultSchema = external_exports.object({
+    keywords: external_exports.number().int().nonnegative(),
+    rows: external_exports.number().int().nonnegative(),
+    rankedCount: external_exports.number().int().nonnegative()
+  }).strict();
+  var KEYWORD_SERP_MAX_PAGES = 3;
+  var KEYWORD_SERP_MAX_KEYWORDS = 100;
+  var KeywordSerpScopeSchema = external_exports.object({
+    keywords: keywordList(KEYWORD_SERP_MAX_KEYWORDS)
+  }).strict();
+  var KeywordSerpPlanSchema = external_exports.object({
+    keywords: external_exports.array(external_exports.object({
+      keyword: external_exports.string().min(1).max(100),
+      maxPages: external_exports.number().int().min(1).max(KEYWORD_SERP_MAX_PAGES),
+      explicitVendorItemIds: external_exports.array(external_exports.string().min(1).max(40)).max(500)
+    }).strict()).min(1).max(KEYWORD_SERP_MAX_KEYWORDS),
+    ownItems: external_exports.array(external_exports.object({ vendorItemId: external_exports.string().min(1).max(40), productName: external_exports.string().max(500) }).strict())
+  }).strict();
+  var KeywordSerpItemSchema = external_exports.object({
+    rank: external_exports.number().int().min(1),
+    page: external_exports.number().int().min(1).max(KEYWORD_SERP_MAX_PAGES),
+    positionInPage: external_exports.number().int().min(1),
+    isAd: external_exports.boolean(),
+    productId: external_exports.string().min(1).max(40),
+    itemId: external_exports.string().max(40).nullable(),
+    vendorItemId: external_exports.string().max(40).nullable(),
+    name: external_exports.string().max(300).nullable(),
+    priceKrw: external_exports.number().int().nonnegative().nullable(),
+    reviewCount: external_exports.number().int().nonnegative().nullable(),
+    ratingScore: external_exports.number().min(0).max(5).nullable(),
+    imageUrl: external_exports.string().max(2e3).nullable(),
+    link: external_exports.string().max(2e3).nullable()
+  }).strict();
+  var KEYWORD_SERP_STOP_REASONS = ["page_limit", "empty_page", "provider_wall", "invalid_result"];
+  var KEYWORD_SERP_CHUNK_KIND = "keyword_serp";
+  var KeywordSerpChunkItemSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    capturedAt: external_exports.string().datetime(),
+    pagesScanned: external_exports.number().int().min(1).max(KEYWORD_SERP_MAX_PAGES),
+    stopReason: external_exports.enum(KEYWORD_SERP_STOP_REASONS),
+    items: external_exports.array(KeywordSerpItemSchema).min(1).max(1e3)
+  }).strict();
+  var KeywordSerpResultSchema = external_exports.object({
+    keywords: external_exports.number().int().nonnegative(),
+    items: external_exports.number().int().nonnegative(),
+    rankRows: external_exports.number().int().nonnegative()
+  }).passthrough();
+  var COMPETITOR_SELLER_IDENTITY_MAX_TARGETS = 200;
+  var CompetitorSellerIdentityScopeSchema = external_exports.object({
+    keywords: keywordList(KEYWORD_SERP_MAX_KEYWORDS).optional()
+  }).strict();
+  var CompetitorSellerIdentityTargetSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    productKey: external_exports.string().min(1).max(2100),
+    productId: external_exports.string().max(40).nullable(),
+    vendorItemId: external_exports.string().max(40).nullable(),
+    name: external_exports.string().max(300),
+    link: external_exports.string().url().max(2e3),
+    rank: external_exports.number().int().positive(),
+    matchScore: external_exports.number().finite()
+  }).strict();
+  var CompetitorSellerIdentityPlanSchema = external_exports.object({
+    targets: external_exports.array(CompetitorSellerIdentityTargetSchema).max(COMPETITOR_SELLER_IDENTITY_MAX_TARGETS),
+    excludedTargetCount: external_exports.number().int().nonnegative()
+  }).strict();
+  function isSellerStoreUrl(value, sellerId2) {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname === "shop.coupang.com" && (url.pathname === `/${sellerId2}` || url.pathname === `/vid/${sellerId2}`);
+    } catch {
+      return false;
+    }
+  }
+  var COMPETITOR_SELLER_IDENTITY_CHUNK_KIND = "seller_identity";
+  var CompetitorSellerIdentityItemSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    productKey: external_exports.string().min(1).max(2100),
+    productId: external_exports.string().max(40).nullable(),
+    vendorItemId: external_exports.string().max(40).nullable(),
+    link: external_exports.string().url().max(2e3),
+    sellerName: external_exports.string().min(1).max(120),
+    sellerId: external_exports.string().regex(/^[A-Za-z0-9_-]{1,80}$/),
+    sellerStoreUrl: external_exports.string().url().max(200),
+    capturedAt: external_exports.string().datetime()
+  }).strict().refine((item) => isSellerStoreUrl(item.sellerStoreUrl, item.sellerId), { message: "sellerStoreUrl\uC740 \uADF8 \uD310\uB9E4\uC790\uC758 shop.coupang.com \uC8FC\uC18C\uC5EC\uC57C \uD569\uB2C8\uB2E4", path: ["sellerStoreUrl"] });
+  var CompetitorSellerIdentityResultSchema = external_exports.object({
+    targets: external_exports.number().int().nonnegative(),
+    identities: external_exports.number().int().nonnegative(),
+    resolvedProductCount: external_exports.number().int().nonnegative()
+  }).passthrough();
+  var COMPETITOR_CATALOG_MAX_TARGETS = 20;
+  var COMPETITOR_CATALOG_ENRICHMENT_MAX_PRODUCTS = 500;
+  var COMPETITOR_CATALOG_MAX_PRODUCTS = 100;
+  var sellerId = external_exports.string().trim().min(1).max(80).regex(/^[A-Za-z0-9_-]+$/u);
+  var sellerStoreUrl = external_exports.string().trim().url().max(2e3).refine((value) => {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname === "shop.coupang.com";
+    } catch {
+      return false;
+    }
+  }, "\uD310\uB9E4\uC790\uC0F5 \uC8FC\uC18C\uB294 shop.coupang.com\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4");
+  var boundedCount = external_exports.number().int().nonnegative().max(2147483647);
+  var CompetitorCatalogScopeSchema = external_exports.object({
+    sellerId: sellerId.optional(),
+    rankEnrichment: external_exports.boolean().optional()
+  }).strict().refine((scope) => !(scope.sellerId && scope.rankEnrichment), { message: "\uD310\uB9E4\uC790 \uD558\uB098 \uC218\uC9D1\uC740 \uBCF4\uAC15 \uC5F0\uC1C4\uAC00 \uC544\uB2D9\uB2C8\uB2E4", path: ["rankEnrichment"] });
+  var CompetitorCatalogTargetSchema = external_exports.object({
+    sellerId,
+    sellerName: external_exports.string().trim().min(1).max(300),
+    sellerStoreUrl,
+    keyword: external_exports.string().min(1).max(100)
+  }).strict();
+  var CompetitorCatalogPlanSchema = external_exports.object({
+    targets: external_exports.array(CompetitorCatalogTargetSchema).max(COMPETITOR_CATALOG_MAX_TARGETS),
+    productLimit: external_exports.union([external_exports.literal(COMPETITOR_CATALOG_MAX_PRODUCTS), external_exports.literal(COMPETITOR_CATALOG_ENRICHMENT_MAX_PRODUCTS)])
+  }).strict();
+  var CompetitorCatalogProductSchema = external_exports.object({
+    sourceRank: external_exports.number().int().min(1).max(COMPETITOR_CATALOG_ENRICHMENT_MAX_PRODUCTS),
+    productId: external_exports.string().trim().min(1).max(200).nullable(),
+    itemId: external_exports.string().trim().min(1).max(200).nullable(),
+    vendorItemId: external_exports.string().trim().min(1).max(200).nullable(),
+    name: external_exports.string().trim().min(1).max(500),
+    priceKrw: boundedCount.nullable(),
+    reviewCount: boundedCount.nullable(),
+    imageUrl: external_exports.string().trim().max(2e3).nullable(),
+    link: external_exports.string().trim().max(2e3).nullable()
+  }).strict().refine((product) => Boolean(product.productId || product.itemId || product.vendorItemId), {
+    message: "\uACBD\uC7C1\uC0AC \uC0C1\uD488\uC740 \uC0C1\uD488\xB7\uC544\uC774\uD15C\xB7\uC635\uC158 ID \uC911 \uD558\uB098\uAC00 \uC788\uC5B4\uC57C \uD569\uB2C8\uB2E4",
+    path: ["productId"]
+  });
+  var COMPETITOR_CATALOG_CHUNK_KIND = "seller_catalog";
+  var CompetitorCatalogItemSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    sellerId,
+    sellerName: external_exports.string().trim().min(1).max(300),
+    sellerStoreUrl,
+    totalProductCount: boundedCount.nullable(),
+    collectedProductCount: external_exports.number().int().min(1).max(COMPETITOR_CATALOG_ENRICHMENT_MAX_PRODUCTS),
+    isTruncated: external_exports.boolean(),
+    sort: external_exports.literal("newest"),
+    capturedAt: external_exports.string().datetime(),
+    products: external_exports.array(CompetitorCatalogProductSchema).min(1).max(COMPETITOR_CATALOG_ENRICHMENT_MAX_PRODUCTS)
+  }).strict().refine((catalog) => catalog.collectedProductCount === catalog.products.length, {
+    message: "collectedProductCount\uB294 \uC77D\uC740 \uC0C1\uD488 \uC218\uC640 \uAC19\uC544\uC57C \uD569\uB2C8\uB2E4",
+    path: ["collectedProductCount"]
+  });
+  var CompetitorCatalogResultSchema = external_exports.object({
+    targets: external_exports.number().int().nonnegative(),
+    captured: external_exports.number().int().nonnegative(),
+    ignored: external_exports.number().int().nonnegative()
+  }).passthrough();
+
+  // extensions/src/collectors/collector.ts
+  function attentionReporter(report, base) {
+    let since = null;
+    return async (attention) => {
+      if (!report) return;
+      if (!attention) {
+        since = null;
+        await report({ ...base, attention: null });
+        return;
+      }
+      since ??= (/* @__PURE__ */ new Date()).toISOString();
+      await report({ ...base, attention: { ...attention, since } });
+    };
+  }
+
+  // extensions/src/collectors/advertising.competitor_catalog/index.ts
+  var advertisingCompetitorCatalogCollector = {
+    kind: COMPETITOR_CATALOG_KIND,
+    site: "coupang-shop",
+    async *collect(plan, site, { signal, report }) {
+      try {
+        for (const [index, target] of plan.targets.entries()) {
+          if (signal.aborted) return;
+          const catalog = await site.catalog(target, plan.productLimit, {
+            onAttention: attentionReporter(report, { current: index, total: plan.targets.length, label: target.sellerName })
+          });
+          yield {
+            chunkKind: COMPETITOR_CATALOG_CHUNK_KIND,
+            payload: [catalog],
+            progress: { current: index + 1, total: plan.targets.length, label: target.sellerName }
+          };
+        }
+      } finally {
+        await site.close();
+      }
+    }
+  };
+  registerCollector(advertisingCompetitorCatalogCollector);
+
+  // extensions/src/collectors/advertising.competitor_seller_identity/index.ts
+  var advertisingCompetitorSellerIdentityCollector = {
+    kind: COMPETITOR_SELLER_IDENTITY_KIND,
+    site: "coupang-product",
+    async *collect(plan, site, { signal, report }) {
+      const byProduct = /* @__PURE__ */ new Map();
+      for (const target of plan.targets) byProduct.set(target.productKey, [...byProduct.get(target.productKey) ?? [], target]);
+      try {
+        let index = 0;
+        for (const [productKey, targets] of byProduct) {
+          if (signal.aborted) return;
+          const first = targets[0];
+          const seller = await site.sellerIdentity(first.link, {
+            label: first.name || productKey,
+            onAttention: attentionReporter(report, { current: index, total: byProduct.size, label: first.name || productKey })
+          });
+          index += 1;
+          const capturedAt = (/* @__PURE__ */ new Date()).toISOString();
+          const items = seller ? targets.map((target) => ({
+            keyword: target.keyword,
+            productKey: target.productKey,
+            productId: target.productId,
+            vendorItemId: target.vendorItemId,
+            link: target.link,
+            ...seller,
+            capturedAt
+          })) : [];
+          yield {
+            chunkKind: COMPETITOR_SELLER_IDENTITY_CHUNK_KIND,
+            payload: items,
+            progress: { current: index, total: byProduct.size, label: first.name || productKey }
+          };
+        }
+      } finally {
+        await site.close();
+      }
+    }
+  };
+  registerCollector(advertisingCompetitorSellerIdentityCollector);
+
+  // extensions/src/collectors/advertising.keyword_serp/index.ts
+  var advertisingKeywordSerpCollector = {
+    kind: KEYWORD_SERP_KIND,
+    site: "coupang-search",
+    async *collect(plan, site, { signal, report }) {
+      try {
+        for (const [index, { keyword: keyword2, maxPages }] of plan.keywords.entries()) {
+          if (signal.aborted) return;
+          const read = await site.serp(keyword2, maxPages, {
+            onAttention: attentionReporter(report, { current: index, total: plan.keywords.length, label: keyword2 })
+          });
+          const chunk = { keyword: keyword2, capturedAt: (/* @__PURE__ */ new Date()).toISOString(), ...read };
+          yield {
+            chunkKind: KEYWORD_SERP_CHUNK_KIND,
+            payload: [chunk],
+            progress: { current: index + 1, total: plan.keywords.length, label: keyword2 }
+          };
+        }
+      } finally {
+        await site.closeSerp();
+      }
+    }
+  };
+  registerCollector(advertisingKeywordSerpCollector);
+
+  // extensions/src/core/errors.ts
+  var ErrorEnvelopeSchema = external_exports.object({
+    statusCode: external_exports.number().int().min(400).max(599),
+    code: external_exports.string().min(1),
+    kind: external_exports.string(),
+    message: external_exports.string(),
+    errors: external_exports.array(external_exports.unknown()).optional(),
+    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
+  }).passthrough();
+  var RuntimeError = class extends Error {
+    constructor(code, message, details = null, cause) {
+      super(message);
+      this.code = code;
+      this.details = details;
+      this.cause = cause;
+      this.name = "RuntimeError";
+    }
+    code;
+    details;
+    cause;
+  };
+  function parseErrorEnvelope(body) {
+    const parsed2 = ErrorEnvelopeSchema.safeParse(body);
+    return parsed2.success ? parsed2.data : null;
+  }
+  function isRuntimeError(value) {
+    return value instanceof RuntimeError;
+  }
+
+  // extensions/src/collectors/wing-search-keyword.ts
+  var ADVERTISING_COLLECTION_INCOMPLETE = "ADVERTISING_COLLECTION_INCOMPLETE";
+  async function readWingSearchKeyword(site, keyword2, maxPages, signal) {
+    const rows = /* @__PURE__ */ new Map();
+    let searchPage = 0;
+    let pagesScanned = 0;
+    for (let pageIndex = 0; pageIndex < maxPages; pageIndex += 1) {
+      if (signal.aborted) return null;
+      const page = await site.searchPage(keyword2, searchPage);
+      pagesScanned += 1;
+      for (const row of page.rows) {
+        const key = `${row.productId}:${row.itemId ?? ""}:${row.vendorItemId ?? ""}`;
+        if (!rows.has(key)) rows.set(key, row);
+      }
+      if (page.rows.length === 0 || page.nextSearchPage === null) break;
+      if (page.nextSearchPage === searchPage) {
+        if (pageIndex + 1 < maxPages) {
+          throw new RuntimeError(ADVERTISING_COLLECTION_INCOMPLETE, `Wing \uAC80\uC0C9 '${keyword2}'\uC758 \uB2E4\uC74C \uCABD\uC774 \uB118\uC5B4\uAC00\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.`, { keyword: keyword2 });
+        }
+        break;
+      }
+      searchPage = page.nextSearchPage;
+    }
+    return { rows: [...rows.values()], pagesScanned };
+  }
+  function boundedInteger(value) {
+    return value !== null && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
+  }
+  function boundedNumber(value, minimum, maximum) {
+    return value !== null && Number.isFinite(value) && value >= minimum && value <= maximum ? value : null;
+  }
+
+  // extensions/src/collectors/advertising.wing_rank/index.ts
+  var advertisingWingRankCollector = {
+    kind: WING_RANK_KIND,
+    site: "wing-search",
+    async *collect(plan, site, { signal }) {
+      for (const [index, { keyword: keyword2 }] of plan.keywords.entries()) {
+        const read = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
+        if (read === null) return;
+        const chunk = {
+          keyword: keyword2,
+          capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+          pagesScanned: read.pagesScanned,
+          items: rankBySales(read.rows)
+        };
+        yield {
+          chunkKind: WING_RANK_CHUNK_KIND,
+          payload: [chunk],
+          progress: { current: index + 1, total: plan.keywords.length, label: keyword2 }
+        };
+      }
+    }
+  };
+  function rankBySales(rows) {
+    return [...rows].sort((a, b) => (b.salesLast28d ?? 0) - (a.salesLast28d ?? 0) || (b.estimatedRevenue28d ?? 0) - (a.estimatedRevenue28d ?? 0) || a.productId.localeCompare(b.productId)).map((row, index) => ({
+      productId: row.productId.slice(0, 40),
+      itemId: row.itemId?.slice(0, 40) ?? null,
+      vendorItemId: row.vendorItemId?.slice(0, 40) ?? null,
+      productName: row.productName ? row.productName.slice(0, 500) : null,
+      categoryHierarchy: row.categoryHierarchy?.slice(0, 1e3) ?? null,
+      salesRank: index + 1,
+      salePrice: finite(row.salePrice),
+      ratingCount: finite(row.ratingCount),
+      pvLast28Day: finite(row.pvLast28Day),
+      salesLast28d: finite(row.salesLast28d),
+      estimatedRevenue28d: finite(row.estimatedRevenue28d),
+      conversionRate28d: finite(row.conversionRate28d)
+    }));
+  }
+  function finite(value) {
+    return value !== null && Number.isFinite(value) ? value : null;
+  }
+  registerCollector(advertisingWingRankCollector);
+
+  // extensions/src/collectors/advertising.wing_tracked_products/index.ts
+  var advertisingWingTrackedProductsCollector = {
+    kind: WING_TRACKED_PRODUCTS_KIND,
+    site: "wing-search",
+    async *collect(plan, site, { signal }) {
+      const planned = new Set(plan.products.map((product) => product.productId));
+      for (const [index, keyword2] of plan.keywords.entries()) {
+        const read = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
+        if (read === null) return;
+        const items = /* @__PURE__ */ new Map();
+        for (const row of read.rows) {
+          if (planned.has(row.productId) && !items.has(row.productId)) items.set(row.productId, trackedItem(row));
+        }
+        const chunk = { keyword: keyword2, items: [...items.values()] };
+        yield {
+          chunkKind: WING_TRACKED_PRODUCTS_CHUNK_KIND,
+          payload: [chunk],
+          progress: { current: index + 1, total: plan.keywords.length, label: keyword2 }
+        };
+      }
+    }
+  };
+  function trackedItem(row) {
+    return {
+      productId: row.productId,
+      salePriceKrw: boundedInteger(row.salePrice),
+      ratingCount: boundedInteger(row.ratingCount),
+      ratingAverage: boundedNumber(row.rating, 0, 5),
+      pvLast28Day: boundedInteger(row.pvLast28Day),
+      salesLast28d: boundedInteger(row.salesLast28d),
+      estimatedRevenue28d: boundedNumber(row.estimatedRevenue28d, 0, 2147483647),
+      conversionRate28d: boundedNumber(row.conversionRate28d, 0, 1)
+    };
+  }
+  registerCollector(advertisingWingTrackedProductsCollector);
+
   // packages/shared/src/schemas/common.ts
   var zIsoDate = external_exports.union([external_exports.string(), external_exports.date()]);
   var ApiErrorResponseSchema = external_exports.object({
@@ -4549,35 +5056,6 @@ var KidItemRuntime = (() => {
     rows: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT)
   }).strict();
 
-  // extensions/src/core/errors.ts
-  var ErrorEnvelopeSchema = external_exports.object({
-    statusCode: external_exports.number().int().min(400).max(599),
-    code: external_exports.string().min(1),
-    kind: external_exports.string(),
-    message: external_exports.string(),
-    errors: external_exports.array(external_exports.unknown()).optional(),
-    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
-  }).passthrough();
-  var RuntimeError = class extends Error {
-    constructor(code, message, details = null, cause) {
-      super(message);
-      this.code = code;
-      this.details = details;
-      this.cause = cause;
-      this.name = "RuntimeError";
-    }
-    code;
-    details;
-    cause;
-  };
-  function parseErrorEnvelope(body) {
-    const parsed2 = ErrorEnvelopeSchema.safeParse(body);
-    return parsed2.success ? parsed2.data : null;
-  }
-  function isRuntimeError(value) {
-    return value instanceof RuntimeError;
-  }
-
   // extensions/src/collectors/chunk-items.ts
   var encoder = new TextEncoder();
   var ChunkBuffer = class {
@@ -4949,16 +5427,16 @@ var KidItemRuntime = (() => {
   // packages/shared/src/schemas/sellpia-operations.ts
   var SELLPIA_LOGIN_LOCK_KEY = resourceLockKey("sellpia", "login");
   var SELLPIA_MANUAL_MATCH_KIND = "channels.sellpia_manual_match";
-  var isoDay = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+  var isoDay2 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
   var SellpiaInventoryScopeSchema = external_exports.object({
     trigger: external_exports.string().trim().min(1).max(64).optional()
   }).strict();
   var SellpiaSalesScopeSchema = external_exports.object({
-    startDate: isoDay.optional(),
-    endDate: isoDay.optional()
+    startDate: isoDay2.optional(),
+    endDate: isoDay2.optional()
   }).strict().refine((value) => !value.startDate || !value.endDate || value.startDate <= value.endDate, "\uC2DC\uC791\uC77C\uC774 \uC885\uB8CC\uC77C\uBCF4\uB2E4 \uB2A6\uC2B5\uB2C8\uB2E4");
   var SellpiaProductProfitabilityScopeSchema = external_exports.object({
-    normalizedSourceAvailabilityDate: isoDay.optional()
+    normalizedSourceAvailabilityDate: isoDay2.optional()
   }).strict();
   var SellpiaManualMatchScopeSchema = external_exports.object({}).strict();
   var SELLPIA_MANUAL_MATCH_CHUNK_KIND = "match_results";
@@ -5317,8 +5795,8 @@ var KidItemRuntime = (() => {
         }
       }
     }
-    for (const [optionId, count] of mediaCountByOption.entries()) {
-      if (count > COUPANG_CATALOG_MAX_MEDIA_PER_OWNER) {
+    for (const [optionId, count3] of mediaCountByOption.entries()) {
+      if (count3 > COUPANG_CATALOG_MAX_MEDIA_PER_OWNER) {
         ctx.addIssue({
           code: external_exports.ZodIssueCode.custom,
           path: ["media"],
@@ -5666,11 +6144,11 @@ var KidItemRuntime = (() => {
   var ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT = 1e5;
   var boundedText3 = (max) => external_exports.string().trim().max(max);
   var requiredText3 = (max) => boundedText3(max).min(1);
-  var isoDay2 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+  var isoDay3 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var RocketPoSourceBeginSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
-    from: isoDay2,
-    to: isoDay2,
+    from: isoDay3,
+    to: isoDay3,
     status: external_exports.enum(["RP", "PA", "RI", "CI", ""]),
     dateType: external_exports.enum(["WAREHOUSING_PLAN_DATE", "PURCHASE_ORDER_DATE"]),
     requireConfirmation: external_exports.boolean()
@@ -5700,7 +6178,7 @@ var KidItemRuntime = (() => {
     barcode: boundedText3(80),
     productName: requiredText3(240),
     orderQty: external_exports.number().int().nonnegative().max(1e7),
-    plannedDeliveryDate: isoDay2,
+    plannedDeliveryDate: isoDay3,
     poStatusCode: boundedText3(20).optional(),
     businessDateBasis: external_exports.enum(["ordered_at", "expected_inbound"]).optional(),
     confirmation: external_exports.object({
@@ -5720,8 +6198,8 @@ var KidItemRuntime = (() => {
   }).strict();
   var RocketSavedPoListRequestSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
-    from: isoDay2,
-    to: isoDay2,
+    from: isoDay3,
+    to: isoDay3,
     status: boundedText3(80).optional()
   }).strict().superRefine((value, ctx) => {
     if (value.to < value.from) {
@@ -5737,7 +6215,7 @@ var KidItemRuntime = (() => {
     rocketPoOperationId: external_exports.string().uuid(),
     poNumber: requiredText3(80),
     orderedAt: boundedText3(40),
-    plannedDeliveryDate: isoDay2,
+    plannedDeliveryDate: isoDay3,
     status: boundedText3(80),
     vendorId: boundedText3(120),
     centerName: boundedText3(120),
@@ -5937,7 +6415,7 @@ var KidItemRuntime = (() => {
     poNumber: requiredText3(80),
     productNo: requiredText3(60),
     productName: requiredText3(240),
-    plannedDeliveryDate: isoDay2,
+    plannedDeliveryDate: isoDay3,
     orderQuantity: external_exports.number().int().nonnegative(),
     recommendedQuantity: external_exports.number().int().nonnegative().nullable(),
     maxQuantity: external_exports.number().int().nonnegative().nullable(),
@@ -6095,13 +6573,13 @@ var KidItemRuntime = (() => {
   var COUPANG_DIRECTSHIP_KIND = "orders.coupang_directship";
   var SELLPIA_SHIPMENT_TRACKING_KIND = "orders.sellpia_shipment_tracking";
   var MALL_ORDERS_KIND = "orders.mall_orders";
-  var isoDay3 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+  var isoDay4 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
   var CoupangShipmentSummaryScopeSchema = external_exports.object({
     maxPages: external_exports.number().int().min(1).max(60).optional()
   }).strict();
   var COUPANG_SHIPMENT_SUMMARY_PAGE_ROWS = 10;
   var CoupangShipmentDateItemSchema = external_exports.object({
-    date: isoDay3,
+    date: isoDay4,
     count: external_exports.number().int().min(1).max(1e6),
     boxes: external_exports.number().int().min(0).max(1e6)
   }).strict();
@@ -6138,8 +6616,8 @@ var KidItemRuntime = (() => {
     totalListPages: external_exports.number().int().min(0).max(1e5),
     detailPoCount: external_exports.number().int().min(0).max(ROCKET_PO_ROW_LIMIT),
     proof: external_exports.object({
-      from: isoDay3,
-      to: isoDay3,
+      from: isoDay4,
+      to: isoDay4,
       status: external_exports.enum(["RP", "PA", "RI", "CI", ""]),
       dateType: external_exports.enum(["WAREHOUSING_PLAN_DATE", "PURCHASE_ORDER_DATE"]),
       validatedList: external_exports.literal(true)
@@ -6185,8 +6663,8 @@ var KidItemRuntime = (() => {
     centers: external_exports.record(external_exports.string(), CoupangDirectCenterSchema)
   }).strict();
   var SellpiaShipmentTrackingScopeSchema = external_exports.object({
-    startDate: isoDay3,
-    endDate: isoDay3
+    startDate: isoDay4,
+    endDate: isoDay4
   }).strict().refine((value) => value.startDate <= value.endDate, "\uC2DC\uC791\uC77C\uC774 \uB05D\uC77C\uBCF4\uB2E4 \uB2A6\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
   var MallOrdersCollectionModeSchema = external_exports.enum(["browser", "manual-upload"]);
   var MallOrdersSelectionModeSchema = external_exports.enum(["manual", "automatic"]);
@@ -6196,7 +6674,7 @@ var KidItemRuntime = (() => {
   var MallOrdersScopeSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
     mallKey: external_exports.string().min(1).max(64),
-    collectionDate: isoDay3.nullable().default(null),
+    collectionDate: isoDay4.nullable().default(null),
     collectionMode: MallOrdersCollectionModeSchema,
     selectionMode: MallOrdersSelectionModeSchema.optional(),
     seenRowKeys: external_exports.array(external_exports.string().min(1).max(MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH)).max(MALL_ORDERS_SEEN_ROW_KEYS_MAX).optional()
@@ -6223,7 +6701,7 @@ var KidItemRuntime = (() => {
      * 몰이 그 기간의 주문을 빠짐없이 보여 줬다는 확인(확인 범위를 내는 몰 — 도매꾹·해법몰 — 이 수집일로 걷은 성공 실행,
      * 빈 날 포함). 주문 사실 리더가 몰 적용 범위로 읽는다(옛 run의 coverageStartDate/EndDate 자리).
      */
-    coverage: external_exports.object({ startDate: isoDay3, endDate: isoDay3 }).strict().optional(),
+    coverage: external_exports.object({ startDate: isoDay4, endDate: isoDay4 }).strict().optional(),
     /** 화면 표에 개인정보가 가려진 칸이 있었다(아이스크림몰) — 웹이 운영자에게 알린다. */
     masked: external_exports.boolean().optional(),
     /** 이번 수집(고른 행)의 서로 다른 주문번호, 최대 2,000개 — 웹의 생성 파일 항목(일일 건수·중복 판정)이 쓴다. */
@@ -6754,9 +7232,9 @@ var KidItemRuntime = (() => {
     return String(value ?? "").replace(/[\u0000-\u001F]/g, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, max);
   }
   function requiredText4(value, field) {
-    const text3 = norm(value);
-    if (!text3) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
-    return text3;
+    const text5 = norm(value);
+    if (!text5) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+    return text5;
   }
   function requiredInteger(value, field) {
     if (typeof value === "number") {
@@ -7005,8 +7483,8 @@ var KidItemRuntime = (() => {
     purpose: SourcingWingCatalogPurposeSchema
   }).strict().superRefine((value, context) => {
     const identities = /* @__PURE__ */ new Set();
-    value.keywords.forEach((keyword, index) => {
-      const identity2 = sourcingWingCatalogKeywordIdentity(keyword);
+    value.keywords.forEach((keyword2, index) => {
+      const identity2 = sourcingWingCatalogKeywordIdentity(keyword2);
       if (identities.has(identity2)) {
         context.addIssue({
           code: external_exports.ZodIssueCode.custom,
@@ -7044,99 +7522,6 @@ var KidItemRuntime = (() => {
     items: external_exports.array(SourcingKeywordSuggestionItemSchema).max(30),
     productNameTokens: external_exports.array(SourcingKeywordSuggestionTokenSchema).max(30)
   }).strict();
-  var CoupangSellerIdSchema = external_exports.string().trim().min(1).max(80).regex(/^[A-Za-z0-9_-]+$/u);
-  var AdvertisingCompetitorCatalogProductSchema = external_exports.object({
-    sourceRank: external_exports.number().int().min(1).max(500),
-    productId: external_exports.string().trim().min(1).max(200).nullable(),
-    itemId: external_exports.string().trim().min(1).max(200).nullable(),
-    vendorItemId: external_exports.string().trim().min(1).max(200).nullable(),
-    name: external_exports.string().trim().min(1).max(500),
-    priceKrw: BoundedCountSchema2.nullable(),
-    reviewCount: BoundedCountSchema2.nullable(),
-    imageUrl: external_exports.string().trim().max(2e3).nullable(),
-    link: external_exports.string().trim().max(2e3).nullable()
-  }).strict().superRefine((value, context) => {
-    if (!value.productId && !value.itemId && !value.vendorItemId) {
-      context.addIssue({
-        code: external_exports.ZodIssueCode.custom,
-        path: ["productId"],
-        message: "A competitor catalog product requires an exact identity."
-      });
-    }
-  });
-  var CoupangSellerStoreUrlSchema = external_exports.string().trim().url().max(2e3).refine((value) => {
-    try {
-      const parsed2 = new URL(value);
-      return parsed2.protocol === "https:" && parsed2.hostname === "shop.coupang.com";
-    } catch {
-      return false;
-    }
-  }, "Only Coupang seller-store URLs are accepted as catalog evidence.");
-  var AdvertisingCompetitorCatalogItemSchema = external_exports.object({
-    keyword: SourcingWingCatalogKeywordSchema,
-    sellerId: CoupangSellerIdSchema,
-    sellerName: external_exports.string().trim().min(1).max(300),
-    sellerStoreUrl: CoupangSellerStoreUrlSchema,
-    totalProductCount: BoundedCountSchema2.nullable(),
-    collectedProductCount: external_exports.number().int().min(1).max(500),
-    isTruncated: external_exports.boolean(),
-    sort: external_exports.literal("newest"),
-    capturedAt: InstantSchema,
-    products: external_exports.array(AdvertisingCompetitorCatalogProductSchema).min(1).max(500)
-  }).strict().superRefine((value, context) => {
-    if (value.collectedProductCount !== value.products.length) {
-      context.addIssue({
-        code: external_exports.ZodIssueCode.custom,
-        path: ["collectedProductCount"],
-        message: "Collected product count must match the bounded rows."
-      });
-    }
-  });
-  var AdvertisingCompetitorCatalogBatchSchema = external_exports.object({
-    catalogs: external_exports.array(AdvertisingCompetitorCatalogItemSchema).min(1).max(20)
-  }).strict().superRefine((value, context) => {
-    const sellers = /* @__PURE__ */ new Set();
-    value.catalogs.forEach((catalog, index) => {
-      if (sellers.has(catalog.sellerId)) {
-        context.addIssue({
-          code: external_exports.ZodIssueCode.custom,
-          path: ["catalogs", index, "sellerId"],
-          message: "Competitor seller IDs must be unique per owner batch."
-        });
-      }
-      sellers.add(catalog.sellerId);
-    });
-  });
-  var AdvertisingTrackedWingProductsInputSchema = external_exports.object({
-    keywords: external_exports.array(SourcingWingCatalogKeywordSchema).min(1).max(12),
-    maxPages: external_exports.number().int().min(1).max(5),
-    purpose: external_exports.literal("tracked_metrics"),
-    trackedProductIds: external_exports.array(external_exports.string().trim().min(1).max(200)).min(1).max(200)
-  }).strict().superRefine((value, context) => {
-    const keywordIdentities = /* @__PURE__ */ new Set();
-    value.keywords.forEach((keyword, index) => {
-      const identity2 = sourcingWingCatalogKeywordIdentity(keyword);
-      if (keywordIdentities.has(identity2)) {
-        context.addIssue({
-          code: external_exports.ZodIssueCode.custom,
-          path: ["keywords", index],
-          message: "Wing catalog keywords must be unique after normalization."
-        });
-      }
-      keywordIdentities.add(identity2);
-    });
-    const productIds = /* @__PURE__ */ new Set();
-    value.trackedProductIds.forEach((productId, index) => {
-      if (productIds.has(productId)) {
-        context.addIssue({
-          code: external_exports.ZodIssueCode.custom,
-          path: ["trackedProductIds", index],
-          message: "Tracked product IDs must be unique."
-        });
-      }
-      productIds.add(productId);
-    });
-  });
   var SourcingWingCatalogObservationSchema = external_exports.object({
     productId: external_exports.string().trim().min(1).max(200),
     itemId: external_exports.string().trim().max(200).nullable(),
@@ -7284,21 +7669,6 @@ var KidItemRuntime = (() => {
   };
   registerCollector(sourcingCoupangKeywordSuggestionCollector);
 
-  // extensions/src/collectors/collector.ts
-  function attentionReporter(report, base) {
-    let since = null;
-    return async (attention) => {
-      if (!report) return;
-      if (!attention) {
-        since = null;
-        await report({ ...base, attention: null });
-        return;
-      }
-      since ??= (/* @__PURE__ */ new Date()).toISOString();
-      await report({ ...base, attention: { ...attention, since } });
-    };
-  }
-
   // extensions/src/collectors/sourcing.live_commerce/index.ts
   var sourcingLiveCommerceCollector = {
     kind: SOURCING_OPERATION_KINDS.liveCommerce,
@@ -7382,13 +7752,13 @@ var KidItemRuntime = (() => {
     site: "ali1688",
     async *collect(plan, site, { signal, report }) {
       try {
-        for (const [index, keyword] of plan.keywords.entries()) {
+        for (const [index, keyword2] of plan.keywords.entries()) {
           if (signal.aborted) return;
-          const items = await site.offers(keyword, { onAttention: attentionReporter(report, { current: index, total: plan.keywords.length, label: keyword }) });
+          const items = await site.offers(keyword2, { onAttention: attentionReporter(report, { current: index, total: plan.keywords.length, label: keyword2 }) });
           yield {
             chunkKind: SOURCING_CHUNK_KINDS.offers1688,
-            payload: [{ keyword, items }],
-            progress: { current: index + 1, total: plan.keywords.length, label: keyword }
+            payload: [{ keyword: keyword2, items }],
+            progress: { current: index + 1, total: plan.keywords.length, label: keyword2 }
           };
         }
       } finally {
@@ -7405,13 +7775,13 @@ var KidItemRuntime = (() => {
     kind: SOURCING_OPERATION_KINDS.wingCatalog,
     site: "wing-search",
     async *collect(plan, site, { signal }) {
-      for (const [index, keyword] of plan.keywords.entries()) {
+      for (const [index, keyword2] of plan.keywords.entries()) {
         if (signal.aborted) return;
         const rows = /* @__PURE__ */ new Map();
         let searchPage = 0;
         for (let pageIndex = 0; pageIndex < plan.maxPages; pageIndex += 1) {
           if (signal.aborted) return;
-          const page = await site.searchPage(keyword, searchPage);
+          const page = await site.searchPage(keyword2, searchPage);
           for (const row of page.rows) {
             const key = site.identity(row);
             if (!rows.has(key)) rows.set(key, row);
@@ -7419,18 +7789,18 @@ var KidItemRuntime = (() => {
           if (page.rows.length === 0 || page.nextSearchPage === null) break;
           if (page.nextSearchPage === searchPage) {
             if (pageIndex + 1 < plan.maxPages) {
-              throw new RuntimeError(SOURCING_COLLECTION_INCOMPLETE, `Wing \uAC80\uC0C9 '${keyword}'\uC758 \uB2E4\uC74C \uCABD\uC774 \uB118\uC5B4\uAC00\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.`, { keyword });
+              throw new RuntimeError(SOURCING_COLLECTION_INCOMPLETE, `Wing \uAC80\uC0C9 '${keyword2}'\uC758 \uB2E4\uC74C \uCABD\uC774 \uB118\uC5B4\uAC00\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.`, { keyword: keyword2 });
             }
             break;
           }
           searchPage = page.nextSearchPage;
         }
         const capturedAt = (/* @__PURE__ */ new Date()).toISOString();
-        const items = [...rows.values()].map((row) => site.toObservation(row, keyword, capturedAt)).filter((item) => item !== null).slice(0, MAX_ITEMS_PER_KEYWORD);
+        const items = [...rows.values()].map((row) => site.toObservation(row, keyword2, capturedAt)).filter((item) => item !== null).slice(0, MAX_ITEMS_PER_KEYWORD);
         yield {
           chunkKind: SOURCING_CHUNK_KINDS.wingSearchPage,
-          payload: [{ keyword, maxPages: plan.maxPages, purpose: plan.purpose, items }],
-          progress: { current: index + 1, total: plan.keywords.length, label: keyword }
+          payload: [{ keyword: keyword2, maxPages: plan.maxPages, purpose: plan.purpose, items }],
+          progress: { current: index + 1, total: plan.keywords.length, label: keyword2 }
         };
       }
     }
@@ -7646,8 +8016,8 @@ var KidItemRuntime = (() => {
     origin: SEARCH_ORIGIN,
     caller: { minIntervalMs: 0, displayName: "1688" }
   };
-  function build1688SearchUrl(keyword) {
-    return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword)}&charset=utf8`;
+  function build1688SearchUrl(keyword2) {
+    return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword2)}&charset=utf8`;
   }
   function is1688VerificationUrl(value) {
     try {
@@ -7665,20 +8035,20 @@ var KidItemRuntime = (() => {
        * 키워드 하나. 슬라이더 검증이 뜨면 실패하지 않고 운영자를 기다렸다가(`onAttention`으로 알림) 같은 키워드를 다시
        * 시도한다 — 실행과 이미 올린 청크는 그대로다(KID-355 QA). 10분 안에 통과하지 않으면 `SITE_VERIFICATION_REQUIRED`.
        */
-      async offers(keyword, options = {}) {
+      async offers(keyword2, options = {}) {
         page ??= await tabs.open("about:blank");
         const current = page;
-        const attention = { kind: "verification", site: "1688", label: keyword };
+        const attention = { kind: "verification", site: "1688", label: keyword2 };
         const waitOrFail = async (url) => {
           if (await waitForOperator(current, is1688VerificationUrl, attention, options.onAttention)) return;
-          throw verification(url, keyword, () => {
+          throw verification(url, keyword2, () => {
             keepOpen = true;
           });
         };
         for (let round = 1; ; round += 1) {
-          const landed = await current.navigate(build1688SearchUrl(keyword), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
+          const landed = await current.navigate(build1688SearchUrl(keyword2), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
           if (is1688VerificationUrl(landed)) {
-            if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword, () => {
+            if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword2, () => {
               keepOpen = true;
             });
             await waitOrFail(landed);
@@ -7697,7 +8067,7 @@ var KidItemRuntime = (() => {
           if (extracted.status === "verification_required") {
             const here = await current.currentUrl().catch(() => extracted.verificationUrl ?? landed);
             if (round > MAX_VERIFICATION_ROUNDS || !is1688VerificationUrl(here)) {
-              throw verification(extracted.verificationUrl ?? landed, keyword, () => {
+              throw verification(extracted.verificationUrl ?? landed, keyword2, () => {
                 keepOpen = true;
               });
             }
@@ -7705,7 +8075,7 @@ var KidItemRuntime = (() => {
             continue;
           }
           if (!extracted.ok) {
-            throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword });
+            throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword2}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword: keyword2 });
           }
           return (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => typeof item?.offerId === "string" && item.offerId.length > 0).slice(0, MAX_RESULTS_PER_KEYWORD);
         }
@@ -7717,9 +8087,9 @@ var KidItemRuntime = (() => {
       }
     };
   }
-  function verification(url, keyword, keep) {
+  function verification(url, keyword2, keep) {
     keep();
-    return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword });
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword: keyword2 });
   }
   registerSite({ name: ALIBABA_1688_SITE.name, create: (deps) => create1688SearchSite(deps.tabs) });
 
@@ -7954,8 +8324,8 @@ var KidItemRuntime = (() => {
     login_unconfirmed: " \uC800\uC7A5\uB41C \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."
   };
   function loginFailure(error, reason, mallMessage) {
-    const text3 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}${mallMessage ? `: ${mallMessage}` : ""}.` : REASON_TEXT[reason];
-    return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text3}`, {
+    const text5 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}${mallMessage ? `: ${mallMessage}` : ""}.` : REASON_TEXT[reason];
+    return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text5}`, {
       ...error.details ?? {},
       reason,
       ...mallMessage ? { mallMessage } : {}
@@ -8057,6 +8427,244 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "art09", create: (deps, lease) => createArt09Site(deps.tabs, createSiteSignIn(ART09_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/coupang-product/index.ts
+  var ORIGIN = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS = 6e4;
+  var ASK_TIMEOUT_MS = 2e4;
+  var RENDER_WAIT_MS = 1200;
+  var PRODUCT_DELAY_MS = [900, 1500];
+  var CONTENT_FILE = "content/advertising/coupang-product-seller.js";
+  var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
+  var COUPANG_PRODUCT_SITE = {
+    name: "coupang-product",
+    origin: ORIGIN,
+    caller: { minIntervalMs: 0, displayName: "\uCFE0\uD321" }
+  };
+  var COUPANG_PRODUCT_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["coupang.com"]),
+    isLogin: (url) => hostWithin(url, ["login.coupang.com"]),
+    loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  function isProductDetailUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.protocol === "https:" && url.hostname === "www.coupang.com" && url.port === "" && url.username === "" && /^\/vp\/products\/\d+$/.test(url.pathname);
+    } catch {
+      return false;
+    }
+  }
+  function isExpectedProductUrl(actual, expected) {
+    if (!isProductDetailUrl(actual) || !isProductDetailUrl(expected)) return false;
+    const left = new URL(actual);
+    const right = new URL(expected);
+    if (left.pathname !== right.pathname) return false;
+    return ["itemId", "vendorItemId"].every((name) => right.searchParams.get(name) === null || left.searchParams.get(name) === right.searchParams.get(name));
+  }
+  function parseSellerShopLink(value) {
+    const href = typeof value?.href === "string" ? value.href.trim() : "";
+    let url;
+    try {
+      url = new URL(href);
+    } catch {
+      return null;
+    }
+    if (url.protocol !== "https:" || url.hostname !== "shop.coupang.com") return null;
+    const parts = url.pathname.split("/").filter(Boolean);
+    const vid = parts[0] === "vid";
+    const sellerId2 = vid ? parts[1] : parts[0];
+    if (!sellerId2 || !/^[A-Za-z0-9_-]{1,80}$/.test(sellerId2)) return null;
+    const sellerName = String(value?.text ?? "").replace(/\s*판매자\s*상품\s*보러가기\s*$/i, "").replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim().slice(0, 120);
+    if (!sellerName || /^(판매자|쿠팡|로켓배송)$/i.test(sellerName)) return null;
+    return { sellerName, sellerId: sellerId2, sellerStoreUrl: `https://shop.coupang.com${vid ? `/vid/${sellerId2}` : `/${sellerId2}`}` };
+  }
+  function createCoupangProductSite(tabs, deps) {
+    let page = null;
+    let keepOpen = false;
+    let productsRead = 0;
+    const ask = (current) => current.ask(
+      { type: "KIDITEM_COUPANG_PRODUCT_SELLER" },
+      { timeoutMs: ASK_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE] }, guard: COUPANG_PRODUCT_PAGE_GUARD }
+    );
+    return {
+      async sellerIdentity(link, options) {
+        if (!isProductDetailUrl(link)) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0C1\uD488 \uC0C1\uC138 \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.", { status: null, reason: "not_product_detail", url: link });
+        }
+        if (productsRead > 0) {
+          const [low, high] = PRODUCT_DELAY_MS;
+          await deps.sleep(Math.floor(low + deps.random() * (high - low)));
+        }
+        productsRead += 1;
+        page ??= await tabs.open("about:blank");
+        const current = page;
+        for (; ; ) {
+          const landed = await current.navigate(link, { timeoutMs: PAGE_TIMEOUT_MS, continueOnTimeout: true });
+          if (!isExpectedProductUrl(landed, link)) {
+            try {
+              checkPageUrl(COUPANG_PRODUCT_PAGE_GUARD, landed);
+            } catch (error) {
+              if (leftForOperator(error)) keepOpen = true;
+              throw error;
+            }
+            const cleared = await waitForOperator(
+              current,
+              (url) => !isExpectedProductUrl(url, link) && !isProductDetailUrl(url),
+              { kind: "verification", site: "\uCFE0\uD321", label: options.label },
+              options.onAttention
+            );
+            if (!cleared) {
+              keepOpen = true;
+              throw new RuntimeError(SITE_VERIFICATION_REQUIRED2, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
+            }
+            continue;
+          }
+          await deps.sleep(RENDER_WAIT_MS);
+          let answer = await ask(current).catch((error) => {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          });
+          let seller = answer?.ok ? parseSellerShopLink(answer.seller) : null;
+          if (!seller) {
+            await deps.sleep(RENDER_WAIT_MS);
+            answer = await ask(current);
+            seller = answer?.ok ? parseSellerShopLink(answer.seller) : null;
+          }
+          return seller;
+        }
+      },
+      /** 수집이 끝나면 탭을 닫는다. 보안 확인·로그인에서 멈췄으면 운영자가 볼 수 있게 남긴다. */
+      async close() {
+        if (page && !keepOpen) await page.close();
+        page = null;
+      }
+    };
+  }
+  registerSite({ name: COUPANG_PRODUCT_SITE.name, create: (deps) => createCoupangProductSite(deps.tabs, { sleep: deps.sleep, random: () => Math.random() }) });
+
+  // extensions/src/sites/coupang-shop/index.ts
+  var ORIGIN2 = "https://shop.coupang.com";
+  var PAGE_TIMEOUT_MS2 = 6e4;
+  var CATALOG_TIMEOUT_MS = 9e4;
+  var SORT_TIMEOUT_MS = 2e4;
+  var RENDER_WAIT_MS2 = 1200;
+  var CONTENT_FILE2 = "content/advertising/coupang-shop-catalog.js";
+  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
+  var COUPANG_SHOP_SITE = {
+    name: "coupang-shop",
+    origin: ORIGIN2,
+    caller: { minIntervalMs: 0, displayName: "\uCFE0\uD321 \uD310\uB9E4\uC790\uC0F5" }
+  };
+  var COUPANG_SHOP_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["coupang.com"]),
+    isLogin: (url) => hostWithin(url, ["login.coupang.com"]),
+    loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  function isExpectedShopUrl(actual, expected) {
+    try {
+      const left = new URL(actual);
+      const right = new URL(expected);
+      return left.protocol === "https:" && left.hostname === "shop.coupang.com" && right.hostname === "shop.coupang.com" && /^\/(?:vid\/)?[A-Za-z0-9_-]+\/?$/.test(right.pathname) && left.pathname === right.pathname && left.search === right.search;
+    } catch {
+      return false;
+    }
+  }
+  function createCoupangShopSite(tabs, deps) {
+    let page = null;
+    let keepOpen = false;
+    const ask = (current, message, timeoutMs) => current.ask(message, { timeoutMs, inject: { isolated: [CONTENT_FILE2] }, guard: COUPANG_SHOP_PAGE_GUARD }).catch((error) => {
+      if (leftForOperator(error)) keepOpen = true;
+      throw error;
+    });
+    return {
+      async catalog(target, productLimit, options = {}) {
+        page ??= await tabs.open("about:blank");
+        const current = page;
+        for (; ; ) {
+          const landed = await current.navigate(target.sellerStoreUrl, { timeoutMs: PAGE_TIMEOUT_MS2, continueOnTimeout: true });
+          if (isExpectedShopUrl(landed, target.sellerStoreUrl)) break;
+          try {
+            checkPageUrl(COUPANG_SHOP_PAGE_GUARD, landed);
+          } catch (error) {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          }
+          const cleared = await waitForOperator(
+            current,
+            (url) => !isExpectedShopUrl(url, target.sellerStoreUrl),
+            { kind: "verification", site: "\uCFE0\uD321", label: target.sellerName },
+            options.onAttention
+          );
+          if (!cleared) {
+            keepOpen = true;
+            throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
+          }
+        }
+        await deps.sleep(RENDER_WAIT_MS2);
+        const sorted = await ask(current, { type: "KIDITEM_COUPANG_SHOP_SORT_NEWEST" }, SORT_TIMEOUT_MS);
+        if (sorted.clicked !== true) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, `'${target.sellerName}' \uD310\uB9E4\uC790\uC0F5\uC758 \uCD5C\uC2E0\uC21C \uC815\uB82C\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, sellerId: target.sellerId });
+        }
+        await deps.sleep(RENDER_WAIT_MS2);
+        const answer = await ask(current, { type: "KIDITEM_COUPANG_SHOP_CATALOG", maxItems: productLimit }, CATALOG_TIMEOUT_MS);
+        const catalog = answer.ok ? toCatalog(answer, target, productLimit) : null;
+        if (!catalog) {
+          throw new RuntimeError(SITE_REQUEST_FAILED, `'${target.sellerName}' \uD310\uB9E4\uC790\uC0F5 \uC0C1\uD488 \uBAA9\uB85D\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, sellerId: target.sellerId });
+        }
+        return catalog;
+      },
+      /** 수집이 끝나면 탭을 닫는다. 보안 확인·로그인에서 멈췄으면 운영자가 볼 수 있게 남긴다. */
+      async close() {
+        if (page && !keepOpen) await page.close();
+        page = null;
+      }
+    };
+  }
+  function toCatalog(answer, target, productLimit) {
+    const products = [];
+    for (const raw of answer.products ?? []) {
+      if (!raw || typeof raw !== "object") continue;
+      const row = raw;
+      const productId2 = text2(row.productId, 200);
+      const itemId = text2(row.itemId, 200);
+      const vendorItemId = text2(row.vendorItemId, 200);
+      const name = text2(row.name, 500);
+      if (!name || !productId2 && !itemId && !vendorItemId) continue;
+      products.push({
+        sourceRank: products.length + 1,
+        productId: productId2,
+        itemId,
+        vendorItemId,
+        name,
+        priceKrw: count(row.priceKrw),
+        reviewCount: count(row.reviewCount),
+        imageUrl: text2(row.imageUrl, 2e3),
+        link: text2(row.link, 2e3)
+      });
+      if (products.length >= productLimit) break;
+    }
+    if (products.length === 0) return null;
+    const totalProductCount = count(answer.totalProductCount);
+    return {
+      keyword: target.keyword,
+      sellerId: target.sellerId,
+      sellerName: text2(answer.sellerName, 300) ?? target.sellerName,
+      sellerStoreUrl: target.sellerStoreUrl,
+      totalProductCount,
+      collectedProductCount: products.length,
+      isTruncated: totalProductCount !== null && totalProductCount > products.length,
+      sort: "newest",
+      capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+      products
+    };
+  }
+  function text2(value, max) {
+    return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
+  }
+  function count(value) {
+    return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
+  }
+  registerSite({ name: COUPANG_SHOP_SITE.name, create: (deps) => createCoupangShopSite(deps.tabs, { sleep: deps.sleep }) });
+
   // extensions/src/sites/coupang-search/parse.ts
   var PROVIDER_ATTENTION = /access\s*denied|unauthori[sz]ed|forbidden|too\s*many\s*requests|로그인|인증|접근\s*거부/i;
   var STOP_WORDS = /* @__PURE__ */ new Set(["\uCFE0\uD321", "\uB85C\uCF13", "\uB85C\uCF13\uBC30\uC1A1", "\uBB34\uB8CC\uBC30\uC1A1", "\uBB34\uB8CC", "\uBC30\uC1A1", "\uC815\uD488", "\uAD6D\uB0B4", "\uB2F9\uC77C", "\uC624\uB298", "\uC0C8\uC0C1\uD488", "\uC0C1\uD488", "\uAD6C\uB9E4", "\uD560\uC778", "\uD2B9\uAC00", "\uC635\uC158", "\uC0C9\uC0C1", "\uB79C\uB364"]);
@@ -8068,8 +8676,8 @@ var KidItemRuntime = (() => {
     let providerError = null;
     const add = (value, source) => {
       if (typeof value !== "string") return;
-      const keyword = value.replace(/\s+/g, " ").trim();
-      if (usableKeyword(keyword, seed)) candidates.push({ keyword, source });
+      const keyword2 = value.replace(/\s+/g, " ").trim();
+      if (usableKeyword(keyword2, seed)) candidates.push({ keyword: keyword2, source });
     };
     const walk = (value) => {
       if (typeof value === "string") return add(value, "coupang-autocomplete");
@@ -8088,10 +8696,10 @@ var KidItemRuntime = (() => {
         providerError = autocomplete.status === 429 ? { reason: "rate_limited", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC694\uCCAD\uC774 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694." } : { reason: "provider_denied", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574\uC8FC\uC138\uC694." };
       }
     }
-    const text3 = autocomplete?.text.trim() ?? "";
-    if (text3 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text3))) {
+    const text5 = autocomplete?.text.trim() ?? "";
+    if (text5 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text5))) {
       try {
-        const parsed2 = JSON.parse(text3);
+        const parsed2 = JSON.parse(text5);
         if (parsed2 && typeof parsed2 === "object") {
           if (isErrorEnvelope(parsed2)) {
             const message = errorEnvelopeMessage(parsed2);
@@ -8106,7 +8714,7 @@ var KidItemRuntime = (() => {
       } catch {
         warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uD30C\uC2F1 \uC2E4\uD328");
       }
-    } else if (text3) {
+    } else if (text5) {
       warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4");
     }
     const beforeDom = candidates.length;
@@ -8183,22 +8791,188 @@ var KidItemRuntime = (() => {
       const tokens = new Set(name.replace(/[()[\]{}"'`~!@#$%^&*_+=|\\:;,.<>/?·•]/g, " ").split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 2 && token.length <= 20).filter((token) => !/^[\d개입묶음세트]+$/.test(token)).filter((token) => !STOP_WORDS.has(token)));
       for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
     }
-    return [...counts.entries()].map(([keyword, count]) => ({ keyword, count })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
+    return [...counts.entries()].map(([keyword2, count3]) => ({ keyword: keyword2, count: count3 })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
+  }
+
+  // extensions/src/sites/coupang-search/serp.ts
+  var ORIGIN3 = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS3 = 6e4;
+  var EXTRACTION_TIMEOUT_MS2 = 2e4;
+  var RENDER_WAIT_MS3 = 1200;
+  var PAGE_DELAY_MS = [1500, 3e3];
+  var KEYWORD_DELAY_MS = [4e3, 8e3];
+  var WALL_POLL_MS = 5e3;
+  var WALL_WAIT_MAX_MS = 10 * 6e4;
+  var WALL_REMIND_MS = 3 * 6e4;
+  var CONTENT_FILE3 = "content/advertising/coupang-serp-page.js";
+  var SITE_VERIFICATION_REQUIRED4 = "SITE_VERIFICATION_REQUIRED";
+  var COUPANG_SERP_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["coupang.com"]),
+    isLogin: (url) => hostWithin(url, ["login.coupang.com"]),
+    loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  function buildCoupangSerpUrl(keyword2, page) {
+    return `${ORIGIN3}/np/search?q=${encodeURIComponent(keyword2)}&channel=user&page=${page}&listSize=36`;
+  }
+  function isExpectedSerpUrl(actual, expected) {
+    try {
+      const left = new URL(actual);
+      const right = new URL(expected);
+      if (left.protocol !== "https:" || left.hostname !== "www.coupang.com" || left.pathname !== "/np/search") return false;
+      return ["q", "channel", "page", "listSize"].every((name) => left.searchParams.get(name) === right.searchParams.get(name));
+    } catch {
+      return false;
+    }
+  }
+  function createCoupangSerp(tabs, deps) {
+    let page = null;
+    let keepOpen = false;
+    let keywordsRead = 0;
+    const between = ([low, high]) => deps.sleep(Math.floor(low + deps.random() * (high - low)));
+    async function read(current, url) {
+      const landed = await current.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS3, continueOnTimeout: true });
+      if (!isExpectedSerpUrl(landed, url)) return { landed, read: null };
+      await deps.sleep(RENDER_WAIT_MS3);
+      try {
+        const answer = await current.ask(
+          { type: "KIDITEM_COUPANG_SERP_ITEMS" },
+          { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE3] }, guard: COUPANG_SERP_PAGE_GUARD }
+        );
+        return { landed, read: answer };
+      } catch (error) {
+        if (leftForOperator(error)) keepOpen = true;
+        throw error;
+      }
+    }
+    async function waitThroughWall(current, url, attention, onAttention) {
+      const started = deps.now();
+      let remindedAt = started;
+      await onAttention?.(attention);
+      for (; ; ) {
+        if (deps.now() - started >= WALL_WAIT_MAX_MS) {
+          keepOpen = true;
+          throw new RuntimeError(SITE_VERIFICATION_REQUIRED4, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { keyword: attention.label });
+        }
+        await deps.sleep(WALL_POLL_MS);
+        if (deps.now() - remindedAt >= WALL_REMIND_MS) {
+          remindedAt = deps.now();
+          await onAttention?.(attention);
+        }
+        const here = await current.currentUrl().catch(() => "");
+        const again = isExpectedSerpUrl(here, url) ? await readInPlace(current) : await read(current, url).then((result) => result.read);
+        if (again && again.ok && again.wall !== "captcha") {
+          await onAttention?.(null);
+          return again;
+        }
+      }
+    }
+    async function readInPlace(current) {
+      return current.ask(
+        { type: "KIDITEM_COUPANG_SERP_ITEMS" },
+        { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE3] }, guard: COUPANG_SERP_PAGE_GUARD }
+      ).catch(() => null);
+    }
+    return {
+      async serp(keyword2, maxPages, options = {}) {
+        if (keywordsRead > 0) await between(KEYWORD_DELAY_MS);
+        keywordsRead += 1;
+        page ??= await tabs.open("about:blank");
+        const current = page;
+        const attention = { kind: "verification", site: "\uCFE0\uD321", label: keyword2 };
+        const items = [];
+        let stopReason = "page_limit";
+        let pagesScanned = 0;
+        for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
+          const url = buildCoupangSerpUrl(keyword2, pageNumber);
+          const first = await read(current, url);
+          let answer = first.read;
+          if (answer === null) failIfLeftSite(first.landed, () => {
+            keepOpen = true;
+          });
+          if (answer === null || answer.wall === "captcha") {
+            answer = await waitThroughWall(current, url, attention, options.onAttention);
+          }
+          if (!answer?.ok) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 '${keyword2}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${answer?.error ?? "\uC54C \uC218 \uC5C6\uC74C"}).`, { status: null, keyword: keyword2 });
+          }
+          const pageItems = normalizeSerpItems(answer.items ?? [], pageNumber, items.length);
+          if (pageItems.length === 0) {
+            if (pageNumber === 1) {
+              throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 '${keyword2}' \uACB0\uACFC\uAC00 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4 \u2014 \uC0C1\uD488 \uBAA9\uB85D\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, keyword: keyword2, reason: "empty_first_page" });
+            }
+            stopReason = answer.wall ? "provider_wall" : answer.resultListObserved === true ? "empty_page" : "invalid_result";
+            break;
+          }
+          items.push(...pageItems);
+          pagesScanned = pageNumber;
+          if (pageNumber < maxPages) await between(PAGE_DELAY_MS);
+        }
+        return { pagesScanned, stopReason, items };
+      },
+      /** 수집이 끝나면 탭을 닫는다. 보안 확인·로그인에서 멈췄으면 운영자가 볼 수 있게 남긴다. */
+      async closeSerp() {
+        if (page && !keepOpen) await page.close();
+        page = null;
+      }
+    };
+  }
+  function failIfLeftSite(landed, keep) {
+    let url;
+    try {
+      url = new URL(landed);
+    } catch {
+      return;
+    }
+    if (!COUPANG_SERP_PAGE_GUARD.isLogin(url) && COUPANG_SERP_PAGE_GUARD.allows(url)) return;
+    keep();
+    checkPageUrl(COUPANG_SERP_PAGE_GUARD, landed);
+  }
+  function normalizeSerpItems(raw, page, offset) {
+    const items = [];
+    for (const candidate of raw) {
+      if (!candidate || typeof candidate !== "object") continue;
+      const row = candidate;
+      const productId2 = text3(row.productId, 40);
+      if (!productId2) continue;
+      const position = items.length + 1;
+      items.push({
+        rank: offset + position,
+        page,
+        positionInPage: position,
+        isAd: row.isAd === true,
+        productId: productId2,
+        itemId: text3(row.itemId, 40),
+        vendorItemId: text3(row.vendorItemId, 40),
+        name: text3(row.name, 300),
+        priceKrw: count2(row.priceKrw),
+        reviewCount: count2(row.reviewCount),
+        ratingScore: typeof row.ratingScore === "number" && row.ratingScore >= 0 && row.ratingScore <= 5 ? row.ratingScore : null,
+        imageUrl: text3(row.imageUrl, 2e3),
+        link: text3(row.link, 2e3)
+      });
+    }
+    return items;
+  }
+  function text3(value, max) {
+    return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
+  }
+  function count2(value) {
+    return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
   }
 
   // extensions/src/sites/coupang-search/index.ts
-  var ORIGIN = "https://www.coupang.com";
-  var PAGE_TIMEOUT_MS = 6e4;
+  var ORIGIN4 = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS4 = 6e4;
   var EVIDENCE_TIMEOUT_MS = 3e4;
   var SETTLE_MS = 1500;
-  var CONTENT_FILE = "content/sourcing/coupang-search-page.js";
+  var CONTENT_FILE4 = "content/sourcing/coupang-search-page.js";
   var COUPANG_SEARCH_SITE = {
     name: "coupang-search",
-    origin: ORIGIN,
+    origin: ORIGIN4,
     caller: { minIntervalMs: SETTLE_MS, displayName: "\uCFE0\uD321" }
   };
-  function buildCoupangSearchUrl(keyword) {
-    return `${ORIGIN}/np/search?component=&q=${encodeURIComponent(keyword)}&channel=user`;
+  function buildCoupangSearchUrl(keyword2) {
+    return `${ORIGIN4}/np/search?component=&q=${encodeURIComponent(keyword2)}&channel=user`;
   }
   function isCoupangSearchUrl(value) {
     try {
@@ -8210,23 +8984,23 @@ var KidItemRuntime = (() => {
   }
   function createCoupangSearchSite(tabs, deps) {
     return {
-      async keywordSuggestions(keyword, maxResults) {
-        const url = buildCoupangSearchUrl(keyword);
+      async keywordSuggestions(keyword2, maxResults) {
+        const url = buildCoupangSearchUrl(keyword2);
         const page = await tabs.open("about:blank");
         try {
-          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS });
+          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS4 });
           if (!isCoupangSearchUrl(landed)) {
             throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uCFE0\uD321 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
           }
           await deps.sleep(SETTLE_MS);
           const evidence = await page.ask(
-            { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword },
-            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE] } }
+            { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword: keyword2 },
+            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE4] } }
           );
           if (!evidence.links || !evidence.productNames) {
             throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
           }
-          const parsed2 = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword, maxResults);
+          const parsed2 = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword2, maxResults);
           if (!parsed2.ok) {
             throw new RuntimeError(
               parsed2.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
@@ -8241,7 +9015,13 @@ var KidItemRuntime = (() => {
       }
     };
   }
-  registerSite({ name: COUPANG_SEARCH_SITE.name, create: (deps) => createCoupangSearchSite(deps.tabs, { sleep: deps.sleep }) });
+  registerSite({
+    name: COUPANG_SEARCH_SITE.name,
+    create: (deps) => ({
+      ...createCoupangSearchSite(deps.tabs, { sleep: deps.sleep }),
+      ...createCoupangSerp(deps.tabs, { sleep: deps.sleep, now: deps.now, random: () => Math.random() })
+    })
+  });
 
   // extensions/src/sites/coupang-supplier/page.ts
   var COUPANG_SUPPLIER_ORIGIN = "https://supplier.coupang.com";
@@ -8344,13 +9124,13 @@ var KidItemRuntime = (() => {
   }
   async function readPurchaseOrderListPage(page, path, pageNumber) {
     const fetched = await page.fetch(path, { headers: { accept: "application/json" } });
-    const text3 = fetched.text;
+    const text5 = fetched.text;
     const failed = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
     if (fetched.status === 400 || fetched.status === 413 || fetched.status === 431) throw cookieBloat(path, fetched.status);
-    if (fetched.status < 200 || fetched.status >= 300 || text3.trim().charAt(0) === "<") throw failed();
+    if (fetched.status < 200 || fetched.status >= 300 || text5.trim().charAt(0) === "<") throw failed();
     let parsed2;
     try {
-      parsed2 = JSON.parse(text3);
+      parsed2 = JSON.parse(text5);
     } catch {
       throw failed();
     }
@@ -8559,10 +9339,10 @@ var KidItemRuntime = (() => {
     fields: ["loginId", "password"]
   };
   async function orderList(caller) {
-    const text3 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
+    const text5 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
     let body = null;
     try {
-      body = text3.trim().startsWith("{") ? JSON.parse(text3) : null;
+      body = text5.trim().startsWith("{") ? JSON.parse(text5) : null;
     } catch {
       body = null;
     }
@@ -8880,12 +9660,12 @@ var KidItemRuntime = (() => {
 
   // extensions/src/sites/live-commerce/index.ts
   var NAVIGATION_TIMEOUT_MS7 = 35e3;
-  var EXTRACTION_TIMEOUT_MS2 = 25e3;
+  var EXTRACTION_TIMEOUT_MS3 = 25e3;
   var MAX_PRODUCTS = 100;
   var CONTENT_FILES = {
     isolated: ["content/sourcing/live-commerce-extractor.js", "content/sourcing/live-commerce-content.js"]
   };
-  var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
+  var SITE_VERIFICATION_REQUIRED5 = "SITE_VERIFICATION_REQUIRED";
   var LIVE_COMMERCE_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["1688.com", "douyin.com"]),
     isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "sso.douyin.com", "passport.douyin.com"]) || hostWithin(url, ["douyin.com"]) && /\/login/i.test(url.pathname),
@@ -8936,7 +9716,7 @@ var KidItemRuntime = (() => {
           try {
             extracted = await page.ask(
               { type: "TRIGGER_LIVE_COMMERCE_EXTRACT" },
-              { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: CONTENT_FILES, guard: LIVE_COMMERCE_PAGE_GUARD }
+              { timeoutMs: EXTRACTION_TIMEOUT_MS3, inject: CONTENT_FILES, guard: LIVE_COMMERCE_PAGE_GUARD }
             );
           } catch (error) {
             if (leftForOperator(error)) keepOpen = true;
@@ -8962,7 +9742,7 @@ var KidItemRuntime = (() => {
     };
   }
   function verification2(url) {
-    return new RuntimeError(SITE_VERIFICATION_REQUIRED2, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED5, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
   }
   registerSite({ name: LIVE_COMMERCE_SITE.name, create: (deps) => createLiveCommerceSite(deps.tabs) });
 
@@ -8999,10 +9779,10 @@ var KidItemRuntime = (() => {
     const blocks = [];
     const seen = /* @__PURE__ */ new Set();
     for (const match of content.matchAll(/<(?:p|h[1-6]|li|td|th|div|span)[^>]*>([^<]{5,})<\//gi)) {
-      const text3 = match[1].replace(/&[^;]+;/g, " ").trim();
-      if (text3.length < 5 || text3.length > 2e3 || seen.has(text3)) continue;
-      seen.add(text3);
-      blocks.push(text3);
+      const text5 = match[1].replace(/&[^;]+;/g, " ").trim();
+      if (text5.length < 5 || text5.length > 2e3 || seen.has(text5)) continue;
+      seen.add(text5);
+      blocks.push(text5);
     }
     if (images.length === 0 && blocks.length === 0) return null;
     return { description_images: images, description_text: blocks.join("\n").slice(0, 1e4), description_image_count: images.length };
@@ -9060,7 +9840,7 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/product-page/index.ts
-  var EXTRACTION_TIMEOUT_MS3 = 2e4;
+  var EXTRACTION_TIMEOUT_MS4 = 2e4;
   var TRIGGER_TIMEOUT_MS = 5e3;
   var EXTRACTOR_FILES = [
     "content/sourcing/extractors/common.js",
@@ -9111,7 +9891,7 @@ var KidItemRuntime = (() => {
             }
           }
         });
-        const timer = setTimeout(() => settle(new RuntimeError(PRODUCT_EXTRACTION_TIMEOUT, "\uC0C1\uD488 \uCD94\uCD9C \uC2DC\uAC04\uC774 \uCD08\uACFC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: sourceUrl })), EXTRACTION_TIMEOUT_MS3);
+        const timer = setTimeout(() => settle(new RuntimeError(PRODUCT_EXTRACTION_TIMEOUT, "\uC0C1\uD488 \uCD94\uCD9C \uC2DC\uAC04\uC774 \uCD08\uACFC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: sourceUrl })), EXTRACTION_TIMEOUT_MS4);
         try {
           const started = await page.ask({ type: "TRIGGER_EXTRACT", attemptId: marker }, { timeoutMs: TRIGGER_TIMEOUT_MS, inject: productPageInjection(sourceUrl) });
           if (started.ok === false) {
@@ -9367,7 +10147,7 @@ var KidItemRuntime = (() => {
 
   // extensions/src/sites/tiktok-cc/index.ts
   var NAVIGATION_TIMEOUT_MS10 = 35e3;
-  var EXTRACTION_TIMEOUT_MS4 = 25e3;
+  var EXTRACTION_TIMEOUT_MS5 = 25e3;
   var BASE_URLS = {
     hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
     product: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/pc/en",
@@ -9391,8 +10171,8 @@ var KidItemRuntime = (() => {
     if (targetId === "hashtag" || targetId === "product") {
       return { id: targetId, trendType: targetId, url: BASE_URLS[targetId], sourceKeyword: null };
     }
-    const keyword = targetId.startsWith("keyword:") ? targetId.slice("keyword:".length) : targetId;
-    return { id: targetId, trendType: "keyword", url: `${BASE_URLS.keyword}?keyword=${encodeURIComponent(keyword)}`, sourceKeyword: keyword };
+    const keyword2 = targetId.startsWith("keyword:") ? targetId.slice("keyword:".length) : targetId;
+    return { id: targetId, trendType: "keyword", url: `${BASE_URLS.keyword}?keyword=${encodeURIComponent(keyword2)}`, sourceKeyword: keyword2 };
   }
   function isTiktokBlockedUrl(value) {
     try {
@@ -9409,7 +10189,7 @@ var KidItemRuntime = (() => {
       return false;
     }
   }
-  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
+  var SITE_VERIFICATION_REQUIRED6 = "SITE_VERIFICATION_REQUIRED";
   var MAX_VERIFICATION_ROUNDS3 = 5;
   function sanitizeTiktokRegion(value) {
     if (typeof value !== "string") return null;
@@ -9442,7 +10222,7 @@ var KidItemRuntime = (() => {
         const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
         if (!cleared) {
           keepOpen = true;
-          throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
+          throw new RuntimeError(SITE_VERIFICATION_REQUIRED6, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
         }
         landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS10, stopAt, continueOnTimeout: true });
       }
@@ -9451,7 +10231,7 @@ var KidItemRuntime = (() => {
       }
       const extracted = await page2.ask(
         { type: "TRIGGER_TIKTOK_CC_EXTRACT", trendType: target.trendType, sourceKeyword: target.sourceKeyword, defaultRegion },
-        { timeoutMs: EXTRACTION_TIMEOUT_MS4, inject: CONTENT_FILES2, guard: TIKTOK_CC_PAGE_GUARD }
+        { timeoutMs: EXTRACTION_TIMEOUT_MS5, inject: CONTENT_FILES2, guard: TIKTOK_CC_PAGE_GUARD }
       );
       if (!extracted.ok) {
         throw new RuntimeError(SITE_REQUEST_FAILED, `TikTok \uD2B8\uB80C\uB4DC '${target.id}'\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, target: target.id });
@@ -9741,11 +10521,11 @@ var KidItemRuntime = (() => {
     const mediaCountByOption = /* @__PURE__ */ new Map();
     for (const entry of media) {
       for (const owner of entry.externalOptionIds) {
-        const count = (mediaCountByOption.get(owner) ?? 0) + 1;
-        if (count > MAX_MEDIA_PER_OWNER) {
+        const count3 = (mediaCountByOption.get(owner) ?? 0) + 1;
+        if (count3 > MAX_MEDIA_PER_OWNER) {
           throw new WingPayloadError(`Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId} \uC635\uC158 ${owner}\uC758 \uBBF8\uB514\uC5B4\uAC00 \uD5C8\uC6A9 \uAC1C\uC218\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
         }
-        mediaCountByOption.set(owner, count);
+        mediaCountByOption.set(owner, count3);
       }
     }
     if (documents.length > MAX_DOCUMENTS_PER_PRODUCT) {
@@ -9818,10 +10598,10 @@ var KidItemRuntime = (() => {
     mediaByKey.set(key, { sourceUrl, role, externalOptionIds: /* @__PURE__ */ new Set([externalOptionId]) });
   }
   function makeStableDocumentId(field, value, ordinal) {
-    const text3 = `${field}\0${stableStringify(value)}`;
+    const text5 = `${field}\0${stableStringify(value)}`;
     let hash = 2166136261;
-    for (let index = 0; index < text3.length; index += 1) {
-      hash ^= text3.charCodeAt(index);
+    for (let index = 0; index < text5.length; index += 1) {
+      hash ^= text5.charCodeAt(index);
       hash = Math.imul(hash, 16777619);
     }
     return `doc:${field}:${(hash >>> 0).toString(16).padStart(8, "0")}:${ordinal}`;
@@ -9844,19 +10624,19 @@ var KidItemRuntime = (() => {
     }
   }
   function normalizeImageUrl(value) {
-    const text3 = typeof value === "string" ? value.trim() : "";
-    if (!text3) return null;
-    if (text3.startsWith("//")) return `https:${text3}`;
-    if (/^https?:\/\//i.test(text3)) return text3;
-    return `https://image1.coupangcdn.com/image/${text3.replace(/^\/+/, "")}`;
+    const text5 = typeof value === "string" ? value.trim() : "";
+    if (!text5) return null;
+    if (text5.startsWith("//")) return `https:${text5}`;
+    if (/^https?:\/\//i.test(text5)) return text5;
+    return `https://image1.coupangcdn.com/image/${text5.replace(/^\/+/, "")}`;
   }
   function isRecord2(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
   function nullableText(value) {
     if (value === null || value === void 0) return null;
-    const text3 = String(value).trim();
-    return text3 || null;
+    const text5 = String(value).trim();
+    return text5 || null;
   }
   function optionalId(value) {
     if (value === null || value === void 0 || value === "") return null;
@@ -9895,9 +10675,9 @@ var KidItemRuntime = (() => {
     return Number.isInteger(number) && number >= 0 ? number : null;
   }
   function requiredText5(value, name) {
-    const text3 = typeof value === "string" ? value.trim() : "";
-    if (!text3) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    return text3;
+    const text5 = typeof value === "string" ? value.trim() : "";
+    if (!text5) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    return text5;
   }
   function requiredPositiveInteger(value, name) {
     if (!Number.isSafeInteger(value) || value <= 0) throw new WingPayloadError(`${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
@@ -9929,10 +10709,10 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/wing/index.ts
-  var ORIGIN2 = "https://wing.coupang.com";
-  var SEARCH_URL = `${ORIGIN2}/tenants/seller-web/v2/vendor-inventory/search`;
-  var DETAIL_URL = `${ORIGIN2}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
-  var EXCEL_BASE = `${ORIGIN2}/tenants/seller-web/excel/request/download`;
+  var ORIGIN5 = "https://wing.coupang.com";
+  var SEARCH_URL = `${ORIGIN5}/tenants/seller-web/v2/vendor-inventory/search`;
+  var DETAIL_URL = `${ORIGIN5}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
+  var EXCEL_BASE = `${ORIGIN5}/tenants/seller-web/excel/request/download`;
   var EXCEL_REQUEST_TYPE = "EDITABLE_CATALOGUE";
   var CATALOGUE_TYPES = [
     "DISPLAY_PRODUCT_NAME",
@@ -9954,12 +10734,12 @@ var KidItemRuntime = (() => {
   var WING_CATALOG_PAYLOAD_INVALID = "WING_CATALOG_PAYLOAD_INVALID";
   var WING_SITE = {
     name: "wing",
-    origin: ORIGIN2,
+    origin: ORIGIN5,
     caller: {
       minIntervalMs: 2e3,
       timeoutMs: WING_TIMEOUT_MS,
       displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN2, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+      xsrf: { cookieUrl: ORIGIN5, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingSite(caller, deps) {
@@ -10128,25 +10908,25 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/wing/pre-matching-search.ts
-  var ORIGIN3 = "https://wing.coupang.com";
-  var SEARCH_URL2 = `${ORIGIN3}/tenants/seller-web/pre-matching/search`;
+  var ORIGIN6 = "https://wing.coupang.com";
+  var SEARCH_URL2 = `${ORIGIN6}/tenants/seller-web/pre-matching/search`;
   var RETRY_ATTEMPTS = 4;
   var REQUEST_TIMEOUT_MS2 = 2e4;
   var WING_SEARCH_PAYLOAD_INVALID = "WING_SEARCH_PAYLOAD_INVALID";
   var WING_SEARCH_SITE = {
     name: "wing-search",
-    origin: ORIGIN3,
+    origin: ORIGIN6,
     caller: {
       minIntervalMs: 2200,
       displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN3, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+      xsrf: { cookieUrl: ORIGIN6, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingPreMatchingSearch(caller, deps) {
     return {
       /** 키워드 한 페이지. 429·5xx·연결 끊김은 네 번까지 다시 묻는다. */
-      async searchPage(keyword, searchPage) {
-        const body = JSON.stringify({ keyword, excludedProductIds: [], searchPage, searchOrder: "DEFAULT", sortType: "DEFAULT" });
+      async searchPage(keyword2, searchPage) {
+        const body = JSON.stringify({ keyword: keyword2, excludedProductIds: [], searchPage, searchOrder: "DEFAULT", sortType: "DEFAULT" });
         for (let attempt = 1; ; attempt += 1) {
           let response;
           try {
@@ -10177,7 +10957,7 @@ var KidItemRuntime = (() => {
     return {
       searchPage: search.searchPage,
       identity: (row) => `${row.productId}:${row.itemId ?? ""}:${row.vendorItemId ?? ""}`,
-      toObservation: (row, keyword, capturedAt) => row.productName.trim() ? toSourcingWingCatalogObservation(row, keyword, capturedAt) : null
+      toObservation: (row, keyword2, capturedAt) => row.productName.trim() ? toSourcingWingCatalogObservation(row, keyword2, capturedAt) : null
     };
   }
   function parseWingSearchPage(body) {
@@ -10194,14 +10974,14 @@ var KidItemRuntime = (() => {
   function normalizeWingSearchProduct(raw) {
     const product = asRecord2(raw);
     if (!product || product.productId == null) return null;
-    const productId = String(product.productId);
-    if (!productId) return null;
+    const productId2 = String(product.productId);
+    if (!productId2) return null;
     const salePrice = nullableNumber(product.salePrice);
     const salesLast28d = nullableNumber(product.salesLast28d);
     const pvLast28Day = nullableNumber(product.pvLast28Day);
     const category = Array.isArray(product.displayCategoryInfo) ? asRecord2(product.displayCategoryInfo[0])?.categoryHierarchy : null;
     return {
-      productId,
+      productId: productId2,
       itemId: product.itemId == null ? null : String(product.itemId),
       vendorItemId: product.vendorItemId == null ? null : String(product.vendorItemId),
       productName: String(product.productName || ""),
@@ -10231,13 +11011,13 @@ var KidItemRuntime = (() => {
       manufacture: row.manufacture?.slice(0, 500) ?? null,
       categoryHierarchy: row.categoryHierarchy?.slice(0, 1e3) ?? null,
       imagePath: row.imagePath?.slice(0, 2e3) ?? null,
-      salePriceKrw: boundedInteger(row.salePrice),
-      ratingAverage: boundedNumber(row.rating, 0, 5),
-      ratingCount: boundedInteger(row.ratingCount),
-      viewsLast28d: boundedInteger(row.pvLast28Day),
-      salesLast28d: boundedInteger(row.salesLast28d),
-      estimatedRevenue28d: boundedNumber(row.estimatedRevenue28d, 0, 2147483647),
-      conversionRate28d: boundedNumber(row.conversionRate28d, 0, 1),
+      salePriceKrw: boundedInteger2(row.salePrice),
+      ratingAverage: boundedNumber2(row.rating, 0, 5),
+      ratingCount: boundedInteger2(row.ratingCount),
+      viewsLast28d: boundedInteger2(row.pvLast28Day),
+      salesLast28d: boundedInteger2(row.salesLast28d),
+      estimatedRevenue28d: boundedNumber2(row.estimatedRevenue28d, 0, 2147483647),
+      conversionRate28d: boundedNumber2(row.conversionRate28d, 0, 1),
       deliveryInfo: row.deliveryInfo?.slice(0, 1e3) ?? null,
       sourceKeyword,
       capturedAt
@@ -10249,10 +11029,10 @@ var KidItemRuntime = (() => {
     const numeric = Number(value);
     return Number.isFinite(numeric) ? numeric : null;
   }
-  function boundedInteger(value) {
+  function boundedInteger2(value) {
     return value !== null && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
   }
-  function boundedNumber(value, minimum, maximum) {
+  function boundedNumber2(value, minimum, maximum) {
     return value !== null && Number.isFinite(value) && value >= minimum && value <= maximum ? value : null;
   }
   function asRecord2(value) {
@@ -10311,11 +11091,11 @@ var KidItemRuntime = (() => {
       externalReviewId: String(raw.reviewId),
       externalOptionId: raw.vendorItemId === null || raw.vendorItemId === void 0 ? null : String(raw.vendorItemId),
       externalProductId: raw.productId === null || raw.productId === void 0 ? null : String(raw.productId),
-      itemName: text2(raw.itemName),
+      itemName: text4(raw.itemName),
       rating: Math.round(rating),
-      title: text2(raw.reviewTitle),
-      content: text2(raw.reviewContent),
-      reviewerName: text2(raw.memberName),
+      title: text4(raw.reviewTitle),
+      content: text4(raw.reviewContent),
+      reviewerName: text4(raw.memberName),
       reviewedAt: Math.trunc(reviewedAt),
       imageCount: attachment.images,
       videoCount: attachment.videos,
@@ -10335,7 +11115,7 @@ var KidItemRuntime = (() => {
       return { images: 0, videos: 0 };
     }
   }
-  function text2(value) {
+  function text4(value) {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
     return trimmed || null;
@@ -10501,8 +11281,8 @@ var KidItemRuntime = (() => {
     }
     return parsed2.data;
   }
-  async function sha256Hex(text3) {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text3));
+  async function sha256Hex(text5) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text5));
     return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   }
 
@@ -10930,7 +11710,14 @@ var KidItemRuntime = (() => {
     });
     registerWithLegacyDomains({
       externalActions,
-      capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true, [CHANNELS_OPERATION_CAPABILITY]: true, operationLoginV1: true }
+      capabilities: {
+        operationRuntime: true,
+        sourcingOperationKindsV1: true,
+        orderCaptureOperationKindsV1: true,
+        [CHANNELS_OPERATION_CAPABILITY]: true,
+        operationLoginV1: true,
+        advertisingKeywordOperationKindsV1: true
+      }
     });
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
     return true;

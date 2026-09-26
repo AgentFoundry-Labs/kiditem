@@ -621,6 +621,7 @@ erDiagram
     Int reviewCount
     String source
     DateTime capturedAt
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }
@@ -634,6 +635,7 @@ erDiagram
     Int itemCount
     Int pagesScanned
     DateTime capturedAt
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }
@@ -695,6 +697,7 @@ erDiagram
     Int collectedCount
     Int totalResults
     DateTime capturedAt
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }
@@ -728,6 +731,7 @@ erDiagram
     Decimal conversionRate28d
     String sourceKeyword
     DateTime capturedAt
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }
