@@ -15,10 +15,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const backgroundRoot = path.join(repoRoot, 'extensions/kiditem-os/background/orders');
 const workerPath = path.join(backgroundRoot, 'worker.js');
 const AUTOMATIC_ACTIONS = [
-  ['collectKidsnoteOrders', 'collectKidsnoteOrders', 'kidsnote', { from: '2026-07-14', to: '2026-07-15' }],
-  ['collectOnchannelOrders', 'collectOnchannelOrders', 'onch', { date: '2026-07-15' }],
   ['collectKakaoOrders', 'collectKakaoOrders', 'kakao', { date: '2026-07-15' }],
-  ['collectHaebeopOrders', 'collectHaebeopOrders', 'haebub-mall', { date: '2026-07-15' }],
 ];
 
 function uuid(index) {
@@ -117,8 +114,8 @@ function loadWorker(globals = {}) {
   const fake = createFakeChrome();
   const sourceAttempts = new Map();
   const sourceMallByAttempt = new Map([
-    [uuid(777), 'kidsnote'],
-    [uuid(778), 'kidsnote'],
+    [uuid(777), 'kakao'],
+    [uuid(778), 'kakao'],
     [uuid(782), 'kakao'],
     [uuid(783), 'coupang-direct'],
   ]);
@@ -139,7 +136,7 @@ function loadWorker(globals = {}) {
       plan: {
         sourceType: 'order_collection_mall',
         parserVersion: 'order-collection-v1',
-        mallKey: sourceMallByAttempt.get(attemptId) || 'kidsnote',
+        mallKey: sourceMallByAttempt.get(attemptId) || 'kakao',
         mallName: '테스트 몰',
         channelAccountId: uuid(992),
         collectionDate: null,
@@ -281,92 +278,6 @@ function loadWorker(globals = {}) {
   };
 }
 
-function textResponse(text, { ok = true, status = 200, url = 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php' } = {}) {
-  return {
-    ok,
-    status,
-    url,
-    async arrayBuffer() {
-      return new TextEncoder().encode(text).buffer;
-    },
-  };
-}
-
-function rowCheckbox(cells) {
-  const row = {
-    tagName: 'TR',
-    cells: cells.map((textContent) => ({ textContent })),
-  };
-  return { tagName: 'INPUT', parentElement: row };
-}
-
-function haebeopListDocument(rows, pages = []) {
-  return {
-    querySelector(selector) {
-      return selector === 'input[type="password"]' ? null : null;
-    },
-    querySelectorAll(selector) {
-      if (selector === 'input[name="select_checkbox"]') {
-        return rows.map(({ orderId, product = '해법 상품' }) => rowCheckbox([
-          '',
-          '2026-07-31 12:00:00',
-          orderId,
-          '주문자',
-          '일반',
-          product,
-          '카드',
-        ]));
-      }
-      if (selector === 'a[href]') {
-        return pages.map((page) => ({
-          getAttribute(name) {
-            return name === 'href' ? `/mall/order/basket_list.php?page=${page}` : null;
-          },
-        }));
-      }
-      return [];
-    },
-  };
-}
-
-function haebeopDetailDocument(orderId) {
-  const item = rowCheckbox([
-    '',
-    '공급사',
-    '',
-    `상품 ${orderId}`,
-    '2',
-    '5,000',
-    '10,000',
-    '-',
-    '결제완료',
-  ]);
-  return {
-    querySelector(selector) {
-      const field = /^\[name="(.+)"\]$/.exec(selector)?.[1];
-      const values = {
-        total_price: '12,000',
-        send_name: '주문자',
-        rece_name: '수취인',
-      };
-      return field && field in values ? { value: values[field] } : null;
-    },
-    querySelectorAll(selector) {
-      if (selector === 'input[name="select_basket_no"]') return [item];
-      if (selector === 'tr') return [];
-      return [];
-    },
-  };
-}
-
-function createHaebeopDomParser(documents) {
-  return class {
-    parseFromString(html) {
-      return documents.get(html);
-    }
-  };
-}
-
 function dispatch(listeners, message) {
   return dispatchExternalMessage(listeners, message, {
     url: 'http://localhost:3000/order-collection',
@@ -384,124 +295,6 @@ function installCollectorResult(runtime, functionName, resultFactory) {
     return resultFactory();
   };
 }
-
-test('Haebeop collects every marketplace list page before expanding order details', async () => {
-  const documents = new Map([
-    ['list:1', haebeopListDocument([{ orderId: '1001' }], [1, 2])],
-    ['list:2', haebeopListDocument([{ orderId: '1002' }], [1, 2])],
-    ['detail:1001', haebeopDetailDocument('1001')],
-    ['detail:1002', haebeopDetailDocument('1002')],
-  ]);
-  const listPages = [];
-  const postedWindows = [];
-  const runtime = loadWorker({
-    DOMParser: createHaebeopDomParser(documents),
-    document: { querySelector: () => null },
-    location: { href: 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php' },
-    async fetch(url, init = {}) {
-      if (url === '/mall/order/basket_list.php') {
-        const page = new URLSearchParams(init.body).get('page') || '1';
-        const body = new URLSearchParams(init.body);
-        listPages.push(page);
-        postedWindows.push([body.get('str_date'), body.get('end_date')]);
-        return textResponse(`list:${page}`);
-      }
-      const orderId = new URL(url, 'https://mallseller.genimarket.co.kr').searchParams.get('orderid');
-      return textResponse(`detail:${orderId}`);
-    },
-  });
-
-  const result = await runtime.context.scrapeHaebeopOrders({
-    date: '2026-07-31',
-    vendor: '공급사',
-  });
-
-  assert.equal(result.success, true);
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(result.orders.map((order) => order.orderNo))),
-    ['1001', '1002'],
-  );
-  assert.deepEqual(listPages, ['1', '2']);
-  assert.deepEqual(postedWindows, [
-    ['2026-07-31', '2026-07-31'],
-    ['2026-07-31', '2026-07-31'],
-  ]);
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(result.confirmedCoverage)),
-    { startDate: '2026-07-31', endDate: '2026-07-31' },
-  );
-});
-
-test('Haebeop fails collection instead of producing a zero-value order when detail loading fails', async () => {
-  const documents = new Map([
-    ['list:1', haebeopListDocument([{ orderId: '1001' }])],
-  ]);
-  const runtime = loadWorker({
-    DOMParser: createHaebeopDomParser(documents),
-    document: { querySelector: () => null },
-    location: { href: 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php' },
-    async fetch(url, init = {}) {
-      if (url === '/mall/order/basket_list.php') {
-        return textResponse(`list:${new URLSearchParams(init.body).get('page') || '1'}`);
-      }
-      return textResponse('', { ok: false, status: 503 });
-    },
-  });
-
-  const result = await runtime.context.scrapeHaebeopOrders({ date: '2026-07-31' });
-
-  assert.deepEqual(
-    JSON.parse(JSON.stringify(result)),
-    {
-      success: false,
-      error: '해법몰 주문 상세 조회 실패: 1001 (HTTP 503)',
-    },
-  );
-});
-
-test('Haebeop confirms the queried day when every discovered page is valid and empty', async () => {
-  const runtime = loadWorker({
-    DOMParser: createHaebeopDomParser(new Map([
-      ['list:1', haebeopListDocument([])],
-    ])),
-    document: { querySelector: () => null },
-    location: { href: 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php' },
-    async fetch() {
-      return textResponse('list:1');
-    },
-  });
-
-  const result = await runtime.context.scrapeHaebeopOrders({ date: '2026-07-31' });
-
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), {
-    success: true,
-    orders: [],
-    count: 0,
-    confirmedCoverage: { startDate: '2026-07-31', endDate: '2026-07-31' },
-  });
-});
-
-test('Haebeop does not confirm coverage when discovered pagination exceeds its safe bound', async () => {
-  const pages = Array.from({ length: 101 }, (_, index) => index + 1);
-  const documents = new Map([
-    ['list:1', haebeopListDocument([], pages)],
-    ...pages.slice(1, 100).map((page) => [`list:${page}`, haebeopListDocument([])]),
-  ]);
-  const runtime = loadWorker({
-    DOMParser: createHaebeopDomParser(documents),
-    document: { querySelector: () => null },
-    location: { href: 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php' },
-    async fetch(_url, init = {}) {
-      return textResponse(`list:${new URLSearchParams(init.body).get('page') || '1'}`);
-    },
-  });
-
-  const result = await runtime.context.scrapeHaebeopOrders({ date: '2026-07-31' });
-
-  assert.equal(result.success, false);
-  assert.match(result.error, /100페이지를 초과/);
-  assert.equal(result.confirmedCoverage, undefined);
-});
 
 test('automatic order actions publish safe domain-specific sessions from inactive tabs', async () => {
   const runtime = loadWorker();
@@ -613,7 +406,7 @@ test('structured operator authentication remains attention instead of a failed r
 test('rerunning a collection resumes the owner attempt without a second lifecycle', async () => {
   const runtime = loadWorker();
   let collectionCount = 0;
-  installCollectorResult(runtime, 'collectKidsnoteOrders', () => {
+  installCollectorResult(runtime, 'collectKakaoOrders', () => {
     collectionCount += 1;
     return collectionCount === 1
       ? { success: false, pendingLogin: true, error: '로그인이 필요합니다.' }
@@ -621,9 +414,8 @@ test('rerunning a collection resumes the owner attempt without a second lifecycl
   });
   const attemptId = uuid(777);
   const message = {
-    action: 'collectKidsnoteOrders',
-    from: '2026-07-15',
-    to: '2026-07-15',
+    action: 'collectKakaoOrders',
+    date: '2026-07-15',
     attemptId,
   };
 
@@ -649,10 +441,10 @@ test('cancelling an active collection removes local control state and fences lat
   const attached = new Promise((resolve) => {
     signalAttached = resolve;
   });
-  runtime.context.collectKidsnoteOrders = async (...args) => {
+  runtime.context.collectKakaoOrders = async (...args) => {
     const collection = args.at(-1);
     const tab = await runtime.chrome.tabs.create({
-      url: 'https://shop.kidsnote.com/_manage/',
+      url: 'https://shopping-seller.kakao.com/order/seller/store-order/integrate/list',
       active: false,
     });
     await collection.attachTab(tab, { owned: true });
@@ -662,9 +454,8 @@ test('cancelling an active collection removes local control state and fences lat
   };
   const attemptId = uuid(778);
   const pending = dispatch(runtime.externalMessageListeners, {
-    action: 'collectKidsnoteOrders',
-    from: '2026-07-15',
-    to: '2026-07-15',
+    action: 'collectKakaoOrders',
+    date: '2026-07-15',
     attemptId,
   });
   await attached;
@@ -739,12 +530,10 @@ test('named mall reads create a fresh inactive tab even when a provider tab exis
   };
   const collection = { assertActive: async () => true };
   const cases = [
-    ['findOrCreateKidsnoteTab', 'https://shop.kidsnote.com/_manage/?body=3010'],
     ['findOrCreateOnchannelTab', 'https://www.onch3.co.kr/supplier/orders.php?state=all'],
     ['findOrCreateDomeggookTab', 'https://domeggook.com/sc/order/lstAll'],
     ['findOrCreateKidkidsTab', 'https://partner.kidkids.net/new/pages/logis/management.htm'],
     ['findOrCreateKakaoTab', 'https://shopping-seller.kakao.com/order/seller/store-order/integrate/list'],
-    ['findOrCreateHaebeopTab', 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php'],
   ];
 
   for (const [functionName, url] of cases) {
@@ -790,10 +579,7 @@ test('every named mall collector uses the production attach-before-readiness pat
   };
 
   const cases = [
-    ['collectKidsnoteOrders', [{ from: '2026-07-15', to: '2026-07-15' }]],
-    ['collectOnchannelOrders', ['2026-07-15']],
     ['collectKakaoOrders', ['2026-07-15']],
-    ['collectHaebeopOrders', [{}]],
   ];
 
   for (const [functionName, args] of cases) {

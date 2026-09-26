@@ -60,14 +60,10 @@ const LOGIN_AND_NAVIGATION_MS = 75_000;
 /** 옛 확장 응답 제한. 몰 실행 기다림은 이보다 짧지 않다. */
 const MIN_OPERATION_WAIT_MS = 200_000;
 /**
- * 몰마다 확장 사이트의 읽기 제한(`extensions/src/sites/<mall>`의 READ_TIMEOUT_MS). GS샵은 읽기 → SMS 인증을 운영자가 마칠
- * 때까지 최대 10분(`waitForOperator`) → 배송관리로 돌아가기 30초 → 다시 읽기다(KID-380). 도매꾹은 엑셀 생성 폴링(4분)이 있어
- * 옛 제한 260초를 그대로 쓴다.
+ * 엑셀·blob 몰마다 확장 사이트의 읽기 제한(`extensions/src/sites/<mall>`의 READ_TIMEOUT_MS). GS샵은 읽기 → SMS 인증을
+ * 운영자가 마칠 때까지 최대 10분(`waitForOperator`) → 배송관리로 돌아가기 30초 → 다시 읽기다(KID-380 T2).
  */
 const MALL_READ_MS: Readonly<Record<string, number>> = {
-  kidkids: 180_000,
-  art09: 180_000,
-  'icecream-mall': 80_000,
   kkomangse: 90_000,
   'teacher-mall': 120_000,
   boribori: 120_000,
@@ -75,7 +71,11 @@ const MALL_READ_MS: Readonly<Record<string, number>> = {
   'lotte-on': 120_000,
   'gs-shop': 140_000 + 600_000 + 30_000 + 140_000,
 };
-const FIXED_WAIT_MS: Readonly<Record<string, number>> = { domeggook: 260_000 };
+/**
+ * 정해 둔 한도: 도매꾹은 엑셀 생성을, 키즈노트(읽기 190초)·해법몰(180초)은 읽기 위에 실행 안 로그인(폼 15초 + 이동 30초 두 번)을
+ * 더 기다린다(KID-380 T1). 여기에도 표에도 없는 몰(1차 셋·온채널)은 옛 확장 응답 제한 200초다.
+ */
+const FIXED_WAIT_MS: Readonly<Record<string, number>> = { domeggook: 260_000, kidsnote: 260_000, 'haebub-mall': 260_000 };
 
 /** 웹이 몰 실행 하나를 기다리는 시간. 사이트가 운영자를 기다리는 동안 먼저 포기하지 않게 사이트 제한에서 계산한다. */
 export function mallOrderOperationWaitMs(mallKey: string): number {

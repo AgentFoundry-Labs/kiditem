@@ -22,16 +22,12 @@ const sharedRunFieldsModule = './order-collection-extension';
 const sharedRunFieldsName = 'orderCollectionExtensionRunFields';
 const ownerCorrelationFields = new Set(['attemptId', 'runId']);
 const automaticCollectors = [
-  'collectKidsnoteOrders',
-  'collectOnchannelOrders',
   'collectKakaoOrders',
-  'collectHaebeopOrders',
 ];
 // Directship receives its date range from the server-owned attempt control
 // record, so its extension message intentionally carries only attemptId.
 const runDateActions = new Set([
   'collectKakaoOrders',
-  'collectHaebeopOrders',
 ]);
 
 function sourceFilesUnder(directory) {

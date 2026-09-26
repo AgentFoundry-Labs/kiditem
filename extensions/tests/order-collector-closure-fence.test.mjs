@@ -11,7 +11,9 @@ const workerPath = path.join(repoRoot, "extensions/kiditem-os/background/orders/
 function loadAdditionalCollectionContext(sessionStorage = {}, options = {}) {
   const source = readFileSync(workerPath, "utf8");
   const start = source.indexOf("const ordersAdditionalCollections = new Map();");
-  const end = source.indexOf("const KIDSNOTE_ORDER_URL", start);
+  // 추가 수집 문맥은 additionalCollectionCancelled 함수로 끝난다(그 뒤의 몰 상수는 몰이 실행 kind로 옮겨 가며 사라진다, KID-380).
+  const lastHelper = source.indexOf("function additionalCollectionCancelled(", start);
+  const end = lastHelper < 0 ? -1 : source.indexOf("\n}\n", lastHelper) + 3;
   assert.ok(start >= 0 && end > start, "worker must define the additional collection context");
   const removedTabs = [];
   const context = vm.createContext({

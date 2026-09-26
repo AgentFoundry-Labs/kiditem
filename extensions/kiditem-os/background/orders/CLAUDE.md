@@ -77,12 +77,10 @@ summary, Rocket PO and directship are operation kinds collected by
 
 ## Mall Order Operations
 
-- Malls in `MALL_ORDER_OPERATION_MALLS` (the first batch plus the spreadsheet
-  malls kkomangse, teacher-mall, boribori, gs-shop, always, lotte-on) collect
-  through the runtime kind `orders.mall_orders`: `sites/mall-orders` routes the
-  plan's mall key to `sites/<mallKey>`, which opens its own inactive tab (lotte-on
-  reuses an open seller tab) and returns the old convert body's rows or file
-  parts. Their worker collectors are gone; the other
+- Malls in `MALL_ORDER_OPERATION_MALLS` collect through
+  the runtime kind `orders.mall_orders`: `sites/mall-orders` routes the plan's
+  mall key to `sites/<mallKey>`, which opens its own inactive tab and returns
+  the old convert body's rows or file parts. Their worker collectors are gone; the other
   malls keep the owner/lifecycle/converter path until the remaining malls move (나머지 몰이 옮겨질 때까지).
 - Operation-kind sites log in inside the run (KID-377): the web sends the
   mall's stored credentials with `operation.start`, and `src/sites/site-login.ts`

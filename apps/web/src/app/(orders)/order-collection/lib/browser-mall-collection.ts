@@ -241,9 +241,6 @@ export function createBrowserMallCollector({
     if (credentials) await ensureMallLogin(account.key, run);
 
     const actionByMall: Record<string, string> = {
-      kidsnote: 'collectKidsnoteOrders',
-      onch: 'collectOnchannelOrders',
-      'haebub-mall': 'collectHaebeopOrders',
       kakao: 'collectKakaoOrders',
     };
     const action = actionByMall[account.key];
@@ -254,9 +251,6 @@ export function createBrowserMallCollector({
       date,
       ...orderCollectionExtensionRunFields(run),
     };
-    if (account.key === 'kidsnote') {
-      Object.assign(message, { from: date, to: date, status: '', withDetail: true });
-    }
     let response: ServerOwnedCollectionResponse | undefined;
     try {
       response = await sendToExtension<ServerOwnedCollectionResponse>(
@@ -344,104 +338,6 @@ export function createBrowserMallCollector({
     };
   };
 
-  const generateKidsnoteSellpia = async (
-    run: OrderCollectionExtensionRun,
-    collectionDate: string,
-  ): Promise<number> => {
-    const { collectKidsnoteOrdersFromExtension, convertKidsnoteToSellpiaFile } = await import(
-      './kidsnote-orders-api'
-    );
-    await ensureMallLogin('kidsnote', run);
-    const { orders } = await collectKidsnoteOrdersFromExtension(
-      collectionDate,
-      collectionDate,
-      '',
-      true,
-      run,
-    );
-    if (!orders.length) {
-      toastNoNewOrders('키즈노트');
-      return 0;
-    }
-    const result = await convertKidsnoteToSellpiaFile(orders, { run });
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-kidsnote-browser`,
-      sourceName: `키즈노트 주문 (${formatNumber(orders.length)}건)`,
-      convertedAt,
-      collectionDate,
-      collectionMode: 'browser',
-      collectedRows: orders.length,
-      mallKey: 'kidsnote',
-      mallName: '키즈노트',
-    });
-    return orders.length;
-  };
-
-  const generateHaebeopSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectHaebeopOrdersFromExtension, convertHaebeopToSellpiaFile } = await import(
-      './haebeop-orders-api'
-    );
-    await ensureMallLogin('haebub-mall', run);
-    // 해법몰은 엑셀 다운로드가 암호 ZIP 이라, 주문 상세 팝업을 읽어 다운로드 없이 수집한다.
-    const orders = await collectHaebeopOrdersFromExtension({ date: collectionDateOf(run) }, run);
-    if (orders.length === 0) {
-      toastNoNewOrders('해법몰', `발주일 ${collectionDateOf(run)} · 결제완료 기준`);
-      return 0;
-    }
-    const result = await convertHaebeopToSellpiaFile(orders, { download: false, run });
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      // 해법몰은 택배비가 별도 행이 아니라 같은 행의 컬럼이라 "출력행 - 상품행" 주문수 추정이
-      // 0 이 된다. 주문번호를 직접 넘겨 몰 카드 집계와 셀피아 대조가 실주문 기준으로 돌게 한다.
-      orderNumbers: [...new Set(
-        orders.map((order) => String(order.orderNo ?? '').trim()).filter(Boolean),
-      )],
-      id: `${convertedAt}-haebub-mall-browser`,
-      sourceName: `해법몰 주문 (${formatNumber(orders.length)}건)`,
-      convertedAt,
-      collectionDate: collectionDateOf(run),
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'haebub-mall',
-      mallName: '해법몰',
-    });
-    return rows;
-  };
-
-  const generateOnchannelSellpia = async (
-    run: OrderCollectionExtensionRun,
-    collectionDate: string,
-  ): Promise<number> => {
-    const { collectOnchannelOrdersFromExtension, convertOnchannelToSellpiaFile } = await import(
-      './onchannel-orders-api'
-    );
-    await ensureMallLogin('onch', run);
-    const orders = await collectOnchannelOrdersFromExtension(collectionDate, run);
-    if (orders.length === 0) {
-      toastNoNewOrders('온채널');
-      return 0;
-    }
-    const result = await convertOnchannelToSellpiaFile(orders, { run });
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-onch-browser`,
-      sourceName: `온채널 주문 (${formatNumber(orders.length)}건)`,
-      convertedAt,
-      collectionDate,
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'onch',
-      mallName: '온채널',
-    });
-    return rows;
-  };
-
   const generateKakaoSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
     const { collectKakaoOrdersFromExtension, throwKakaoConversionUnsupported } = await import(
       './kakao-orders-api'
@@ -486,11 +382,8 @@ export function createBrowserMallCollector({
       return generateServerOwnedSellpia(account, resolvedRun);
     }
     const today = collectionDateOf(resolvedRun);
-    if (account.key === 'kidsnote') return resultFor(await generateKidsnoteSellpia(resolvedRun, today), today);
-    if (account.key === 'onch') return resultFor(await generateOnchannelSellpia(resolvedRun, today), today);
     if (account.key === 'kakao') return resultFor(await generateKakaoSellpia(resolvedRun), today);
-    if (account.key === 'haebub-mall') return resultFor(await generateHaebeopSellpia(resolvedRun), today);
-    // 실행 kind로 옮긴 몰(`MALL_ORDER_OPERATION_MALLS` — 1차 KID-359 H3, 엑셀·blob 몰 KID-380)은 이 옛 절차로 오지 않는다.
+    // 실행 kind로 옮긴 몰(`MALL_ORDER_OPERATION_MALLS` — KID-359 H3·KID-380)은 이 옛 절차로 오지 않는다.
     throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
   };
 }

@@ -28,15 +28,16 @@ import '../sites/boribori';
 import '../sites/domeggook';
 import '../sites/gmarket/listings';
 import '../sites/gs-shop';
+import '../sites/haebub-mall';
 import '../sites/icecream-mall';
 import '../sites/kakao/listings';
 import '../sites/kidkids';
-import '../sites/kidsnote/listings';
+import '../sites/kidsnote';
 import '../sites/kkomangse';
 import '../sites/lotte-on';
 import '../sites/mall-admin-listings';
 import '../sites/mall-orders';
-import '../sites/onch/listings';
+import '../sites/onch';
 import '../sites/product-page';
 import '../sites/sabangnet';
 import '../sites/sellpia';
@@ -110,6 +111,10 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     expect(keys(handle.reader('art09'))).toEqual(['readListings', 'readOrders']);
     expect(keys(handle.reader('domeggook'))).toEqual(['readListings', 'readOrders']);
     expect(keys(handle.reader('icecream-mall'))).toEqual(['readListings', 'readOrders']);
+    // 2차 몰(KID-380): 키즈노트·온채널은 목록 읽기(KID-381)도 같은 사이트, 해법몰은 주문만.
+    expect(keys(handle.reader('kidsnote'))).toEqual(['readListings', 'readOrders']);
+    expect(keys(handle.reader('onch'))).toEqual(['readListings', 'readOrders']);
+    expect(keys(handle.reader('haebub-mall'))).toEqual(['readOrders']);
     // 엑셀·blob 몰(KID-380): 목록 읽기(KID-381)와 주문 읽기를 한 사이트로(보리보리·GS샵은 주문만).
     expect(keys(handle.reader('kkomangse'))).toEqual(['readListings', 'readOrders']);
     expect(keys(handle.reader('teacher-mall'))).toEqual(['readListings', 'readOrders']);
