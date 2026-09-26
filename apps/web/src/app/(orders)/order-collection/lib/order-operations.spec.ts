@@ -65,6 +65,12 @@ describe('order operations (KID-359 H3)', () => {
     expect(sleeps).toEqual([2_000]);
   });
 
+  it('운영자 조치가 필요한 실패(보리보리 다운로드 비밀번호·GS샵 SMS 인증, OPERATOR_ACTION_REQUIRED)는 옛 수집처럼 인증 필요로 분류한다(KID-380)', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(ID, 'failed', { errorCode: 'OPERATOR_ACTION_REQUIRED', errorMessage: '보리보리 언마스킹 다운로드에 비밀번호가 필요합니다.' }) });
+    await expect(waitForOrderOperation(KIND, ID, { sleep: async () => undefined, timeoutMs: 60_000 }))
+      .rejects.toMatchObject({ errorCode: 'operator_action_required', message: '보리보리 언마스킹 다운로드에 비밀번호가 필요합니다.' });
+  });
+
   it('실패·중단은 운영자 문장으로 던지고, 상한을 넘기면 아직 끝나지 않았다고 알린다', async () => {
     vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(ID, 'failed', { errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '셀피아 로그인이 필요합니다. 열려 있는 셀피아 탭에서 로그인한 뒤 다시 조회해 주세요.' }) });
     await expect(waitForOrderOperation(KIND, ID, { sleep: async () => undefined, timeoutMs: 60_000 })).rejects.toThrow('셀피아 로그인이 필요합니다');
