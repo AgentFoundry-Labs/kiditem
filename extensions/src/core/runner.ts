@@ -14,6 +14,7 @@ import { OperationNextSchema, type OperationNext } from '@kiditem/shared/operati
 import type { BrowserLease, BrowserResources } from './browser';
 import { RuntimeError, isRuntimeError } from './errors';
 import { stopFor, type OperationClient } from './operation-client';
+import { SITE_LOGIN_REQUIRED } from './site-caller';
 
 /**
  * 실행 하나를 끝까지 돌리는 순서(core가 소유, 수집기는 모른다):
@@ -25,12 +26,30 @@ export interface RunInput {
   kind: OperationKind;
   scope: Record<string, unknown>;
   idempotencyKey?: string;
+  /**
+   * 사이트 로그인에 쓸 저장 자격(KID-377). 이 실행(과 연쇄로 이어진 실행)의 사이트 lease로만 넘긴다 — begin·청크·progress·
+   * finish·outcome에는 싣지 않는다.
+   */
+  credentials?: RunCredentials;
   signal: AbortSignal;
   /**
    * 새 실행의 begin이 성공한 직후(브라우저 자원·수집 전에). reused면 부르지 않는다. 입구가 웹앱에 바로 답할 때 쓴다.
    * 연쇄로 이어진 실행마다 한 번씩 불린다(입구가 취소 대상을 알도록).
    */
   onBegun?(begun: { operationId: string; reused: boolean }): void;
+}
+
+/** `sites/registry`의 `SiteCredentials`와 같은 모양(core는 sites를 import하지 않는다). */
+export interface RunCredentials {
+  loginId: string;
+  password: string;
+  supplierLoginId?: string | null;
+}
+
+/** 사이트 핸들을 만들 때 넘기는 것: 브라우저 자원이 잡은 탭과 이 실행의 자격. */
+export interface RunSiteLease {
+  tabId: number | null;
+  credentials?: RunCredentials | null;
 }
 
 export type RunOutcome =
@@ -48,7 +67,7 @@ export interface RunnerDeps {
    * kind → 그 kind의 수집기에 넘길 사이트 핸들(없으면 null — 더미 kind). 사이트마다 모양이 달라(`sites/<site>`의 API)
    * core는 모양을 모른다 — 입구가 사이트를 조립하고 수집기가 자기에게 필요한 모양을 선언한다(KID-354).
    */
-  siteFor(kind: OperationKind, lease: { tabId: number | null }): unknown;
+  siteFor(kind: OperationKind, lease: RunSiteLease): unknown;
 }
 
 export interface OperationRunner {
@@ -212,7 +231,7 @@ async function execute(
   let failure: RuntimeError | null = null;
   try {
     lease = await deps.browser.acquire({ operationId, lockKeys: operation.lockKeys, site: collector.site, signal: local.signal });
-    const site = deps.siteFor(operation.kind, lease);
+    const site = deps.siteFor(operation.kind, { tabId: lease.tabId, ...(input.credentials ? { credentials: input.credentials } : {}) });
     const sequences = new Map<string, number>();
     let chunks = 0;
     let items = 0;
@@ -277,8 +296,18 @@ async function execute(
     const stop = stopFor(error.code, error.details);
     if (stop.kind === 'fence_lost') return { kind: 'fence_lost', operationId, reason: stop.reason };
     await writes;
+    const login = loginFailureOf(error);
     await deps.client
-      .finish({ operationId, token, request: { outcome: 'failed', errorCode: error.code.slice(0, 64), errorMessage: error.message.slice(0, 2_000) } })
+      .finish({
+        operationId,
+        token,
+        request: {
+          outcome: 'failed',
+          errorCode: error.code.slice(0, 64),
+          errorMessage: error.message.slice(0, 2_000),
+          ...(login ? { result: { login } } : {}),
+        },
+      })
       .catch(() => undefined);
     return { kind: 'failed', operationId, errorCode: error.code, errorMessage: error.message, ...(error.details ? { details: error.details } : {}) };
   } finally {
@@ -287,6 +316,20 @@ async function execute(
     input.signal.removeEventListener('abort', onAbort);
     await lease?.release({ error: failure }).catch(() => undefined);
   }
+}
+
+/**
+ * 로그인 화면에서 멈춘 실행의 까닭(KID-377). 웹은 실행 표(`GET /api/operations`)만 보므로 failed finish의 `result.login`에
+ * 까닭(`reason`)과 몰이 알림 창으로 남긴 말(`mallMessage`)만 싣는다 — 실행 표는 모든 읽는 사람이 보므로 그 밖의 details는
+ * 싣지 않는다(자격은 details에도 없다).
+ */
+function loginFailureOf(error: RuntimeError): Record<string, string> | null {
+  if (error.code !== SITE_LOGIN_REQUIRED || typeof error.details?.reason !== 'string') return null;
+  const mallMessage = error.details.mallMessage;
+  return {
+    reason: error.details.reason.slice(0, 64),
+    ...(typeof mallMessage === 'string' && mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {}),
+  };
 }
 
 /** 서버 cancel은 입구가 이미 불렀다 — finish를 보내지 않는다. */

@@ -250,4 +250,37 @@ describe('operation.start · operation.cancel 입구', () => {
     });
     expect(server.requests.map((request) => `${request.method} ${request.path}`)).toEqual(['POST /api/operations']);
   });
+
+  it('start의 credentials는 그 실행의 사이트 lease로만 가고 서버 요청 어디에도 실리지 않는다(KID-377)', async () => {
+    const server = fakeServer();
+    const leases: unknown[] = [];
+    const actions = createOperationActions({
+      apiFor: server.apiFor,
+      browser: orgOnlyBrowser(),
+      siteFor: (_kind, lease) => {
+        leases.push(lease);
+        return null;
+      },
+    });
+    const credentials = { loginId: 'fake-id', password: 'fake-password', supplierLoginId: 'fake-supplier' };
+
+    const response = await send(actions, { action: 'operation.start', kind: 'test.echo', credentials });
+    await server.finished;
+    await settle();
+
+    expect(response).toEqual({ success: true, operationId: OP, reused: false });
+    expect(leases).toEqual([{ tabId: null, credentials }]);
+    expect(JSON.stringify(server.requests)).not.toMatch(/fake-password|fake-id|fake-supplier/);
+  });
+
+  it('credentials 모양이 틀리면 VALIDATION_FAILED로 답하고 그 값을 되돌려 싣지 않는다', async () => {
+    const server = fakeServer();
+    const actions = createOperationActions({ apiFor: server.apiFor, browser: orgOnlyBrowser() });
+
+    const response = await send(actions, { action: 'operation.start', kind: 'test.echo', credentials: { loginId: 'fake-id', password: '', extra: 'fake-password' } });
+
+    expect(response).toMatchObject({ success: false, errorCode: 'VALIDATION_FAILED' });
+    expect(JSON.stringify(response)).not.toMatch(/fake-password|fake-id/);
+    expect(server.requests).toEqual([]);
+  });
 });

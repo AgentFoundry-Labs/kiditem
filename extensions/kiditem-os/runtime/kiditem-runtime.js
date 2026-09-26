@@ -9326,7 +9326,7 @@ var KidItemRuntime = (() => {
     let failure2 = null;
     try {
       lease = await deps.browser.acquire({ operationId, lockKeys: operation.lockKeys, site: collector.site, signal: local.signal });
-      const site = deps.siteFor(operation.kind, lease);
+      const site = deps.siteFor(operation.kind, { tabId: lease.tabId, ...input.credentials ? { credentials: input.credentials } : {} });
       const sequences = /* @__PURE__ */ new Map();
       let chunks = 0;
       let items = 0;
@@ -9388,7 +9388,17 @@ var KidItemRuntime = (() => {
       const stop = stopFor(error.code, error.details);
       if (stop.kind === "fence_lost") return { kind: "fence_lost", operationId, reason: stop.reason };
       await writes;
-      await deps.client.finish({ operationId, token, request: { outcome: "failed", errorCode: error.code.slice(0, 64), errorMessage: error.message.slice(0, 2e3) } }).catch(() => void 0);
+      const login = loginFailureOf(error);
+      await deps.client.finish({
+        operationId,
+        token,
+        request: {
+          outcome: "failed",
+          errorCode: error.code.slice(0, 64),
+          errorMessage: error.message.slice(0, 2e3),
+          ...login ? { result: { login } } : {}
+        }
+      }).catch(() => void 0);
       return { kind: "failed", operationId, errorCode: error.code, errorMessage: error.message, ...error.details ? { details: error.details } : {} };
     } finally {
       stopHeartbeat();
@@ -9396,6 +9406,14 @@ var KidItemRuntime = (() => {
       input.signal.removeEventListener("abort", onAbort);
       await lease?.release({ error: failure2 }).catch(() => void 0);
     }
+  }
+  function loginFailureOf(error) {
+    if (error.code !== SITE_LOGIN_REQUIRED || typeof error.details?.reason !== "string") return null;
+    const mallMessage = error.details.mallMessage;
+    return {
+      reason: error.details.reason.slice(0, 64),
+      ...typeof mallMessage === "string" && mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {}
+    };
   }
   function cancelled(operationId) {
     return { kind: "failed", operationId, errorCode: OPERATION_CANCEL_CODE, errorMessage: "\uC2E4\uD589\uC744 \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4." };
@@ -9424,11 +9442,17 @@ var KidItemRuntime = (() => {
   // extensions/src/entry/actions.ts
   var OPERATION_START_ACTION = "operation.start";
   var OPERATION_CANCEL_ACTION = "operation.cancel";
+  var OperationStartCredentialsSchema = external_exports.object({
+    loginId: external_exports.string().min(1).max(200),
+    password: external_exports.string().min(1).max(500),
+    supplierLoginId: external_exports.string().min(1).max(200).nullable().optional()
+  }).strict();
   var OperationStartMessageSchema = external_exports.object({
     action: external_exports.literal(OPERATION_START_ACTION),
     kind: OperationKindSchema,
     scope: external_exports.record(external_exports.string(), external_exports.unknown()).default({}),
-    idempotencyKey: external_exports.string().min(1).max(128).optional()
+    idempotencyKey: external_exports.string().min(1).max(128).optional(),
+    credentials: OperationStartCredentialsSchema.optional()
   }).strict();
   var OperationCancelMessageSchema = external_exports.object({
     action: external_exports.literal(OPERATION_CANCEL_ACTION),
@@ -9459,7 +9483,7 @@ var KidItemRuntime = (() => {
         validate: (message) => validateWith(OperationStartMessageSchema, message),
         async handle(input, environmentId) {
           if (!input.ok) return input.response;
-          const { kind, scope, idempotencyKey } = input.message;
+          const { kind, scope, idempotencyKey, credentials } = input.message;
           const controller = new AbortController();
           const owned = [];
           let answer;
@@ -9470,6 +9494,7 @@ var KidItemRuntime = (() => {
             kind,
             scope,
             ...idempotencyKey !== void 0 ? { idempotencyKey } : {},
+            ...credentials !== void 0 ? { credentials } : {},
             signal: controller.signal,
             onBegun({ operationId, reused }) {
               running.set(operationId, controller);
