@@ -15,13 +15,9 @@ import {
 import type { Request, Response } from 'express';
 import { z } from 'zod';
 import { KiditemInvalidValueError } from '@kiditem/shared/errors';
-import {
-  type CoupangDirectPoSnapshotResponse,
-  SaveCoupangDirectPoSnapshotRequestSchema,
-} from '@kiditem/shared/coupang-direct-order';
+import type { CoupangDirectPoSnapshotResponse } from '@kiditem/shared/coupang-direct-order';
 import { CoupangDirectshipConvertRequestSchema } from '@kiditem/shared/orders-operations';
 import { CoupangDirectshipService } from '../../../coupang-directship/coupang-directship.service';
-import { CoupangDirectPoSnapshotService } from '../../../application/service/coupang-direct-po-snapshot.service';
 import { CurrentOrganization } from '../../../../auth/decorators/current-organization.decorator';
 import { CurrentUser } from '../../../../auth/decorators/current-user.decorator';
 import type { AuthUser } from '../../../../auth/auth.types';
@@ -31,8 +27,9 @@ import {
 } from '../../../application/port/in/coupang-direct-order-collection.port';
 
 /**
- * 쿠팡 directship(로켓 최종주문) 캡처 읽기·스냅샷·변환 라우트(KID-359). 수집은 실행 kind `orders.coupang_directship`
- * (`/api/operations`)이고 attempt 라우트는 없다. 캡처·스냅샷·변환은 성공한 실행의 ID로만 받는다.
+ * 쿠팡 directship(로켓 최종주문) 캡처 읽기·달력 스냅샷·변환 라우트(KID-359, KID-370). 수집은 실행 kind
+ * `orders.coupang_directship`(`/api/operations`)이고 attempt 라우트는 없다. 달력은 계정의 최근 성공한 실행 캡처를 읽기만
+ * 하고(실행을 시작하지 않는다), 변환은 그 실행의 ID로만 받는다.
  */
 @Controller('orders/collection')
 export class CoupangDirectshipController {
@@ -40,7 +37,6 @@ export class CoupangDirectshipController {
     private readonly coupangDirectshipService: CoupangDirectshipService,
     @Inject(COUPANG_DIRECT_ORDER_COLLECTION_PORT)
     private readonly coupangDirectOrderCollection: CoupangDirectOrderCollectionPort,
-    private readonly coupangDirectPoSnapshot: CoupangDirectPoSnapshotService,
   ) {}
 
   /** 성공한 directship 실행이 보관한 캡처(달력·변환 화면이 다시 읽는다). */
@@ -52,28 +48,14 @@ export class CoupangDirectshipController {
     return this.coupangDirectOrderCollection.readCapture({ organizationId, operationId });
   }
 
-  // 입고예정일 달력이 즉시 뜨도록 마지막 수집분을 계정 범위로 보관/조회한다.
+  /** 입고예정일 달력: 그 계정의 가장 최근 성공한 directship 실행 캡처(`operationId` 포함). 없으면 빈 칸. */
   @Get('coupang-directship/snapshot')
   async readCoupangDirectSnapshot(
     @Query('channelAccountId') channelAccountId: string,
     @CurrentOrganization() organizationId: string,
   ): Promise<CoupangDirectPoSnapshotResponse> {
-    return this.coupangDirectPoSnapshot.read(organizationId, channelAccountId);
-  }
-
-  /** 스냅샷은 그 계정의 성공한 directship 실행(본문 `operationId`)이 보관한 캡처가 있을 때만 바꾼다. */
-  @Post('coupang-directship/snapshot')
-  async saveCoupangDirectSnapshot(
-    @Body() body: unknown,
-    @CurrentOrganization() organizationId: string,
-  ): Promise<CoupangDirectPoSnapshotResponse> {
-    const request = parseBody(SaveCoupangDirectPoSnapshotRequestSchema, body);
-    await this.coupangDirectOrderCollection.readCapture({
-      organizationId,
-      operationId: request.operationId,
-      channelAccountId: request.channelAccountId,
-    });
-    return this.coupangDirectPoSnapshot.replace(organizationId, request.channelAccountId, request.entries);
+    const query = parseBody(SnapshotQuerySchema, { channelAccountId });
+    return this.coupangDirectOrderCollection.readLatestSnapshot({ organizationId, channelAccountId: query.channelAccountId });
   }
 
   @Post('coupang-directship/convert')
@@ -142,6 +124,8 @@ export class CoupangDirectshipController {
     return new StreamableFile(result.buffer);
   }
 }
+
+const SnapshotQuerySchema = z.object({ channelAccountId: z.string().uuid() }).strict();
 
 function contentDispositionAttachment(fileName: string): string {
   const asciiFallback = fileName.replace(/[^\x20-\x7E]/g, '_');

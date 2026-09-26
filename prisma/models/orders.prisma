@@ -304,46 +304,6 @@ model Review {
 }
 
 /// @namespace Orders
-/// @describe 쿠팡직배송 발주확정 스냅샷. 입고예정일 달력이 매번 쿠팡을 다시 긁지 않도록
-/// 마지막 수집분을 보관한다. 조회 편의용 캐시이며 주문 진실은 Order/OrderLineItem 이 갖는다.
-model CoupangDirectPoSnapshot {
-  id               String @id @default(uuid()) @db.Uuid
-  organizationId   String @map("organization_id") @db.Uuid
-  channelAccountId String @map("channel_account_id") @db.Uuid
-
-  /// 쿠팡 발주번호(purchaseOrderSeq)
-  purchaseOrderSeq String @map("purchase_order_seq") @db.VarChar(40)
-
-  centerName   String  @map("center_name")
-  /// SHIPMENT | MILKRUN
-  transport    String
-  /// 입고예정일(KST, YYYY-MM-DD). 달력의 그룹 키다.
-  deliveryDate String? @map("delivery_date") @db.VarChar(10)
-  /// 발주일(KST, YYYY-MM-DD)
-  orderedDate  String? @map("ordered_date") @db.VarChar(10)
-  /// 발주유형이 긴급(purchaseOrderType = URGENT)인지
-  isUrgent     Boolean @default(false) @map("is_urgent")
-
-  skuCount      Int @default(0) @map("sku_count")
-  orderQuantity Int @default(0) @map("order_quantity")
-  orderAmount   Int @default(0) @map("order_amount")
-
-  /// 품목 원본(바코드·상품명·수량·금액). 엑셀 생성은 수집 시 새로 받은 값을 쓴다.
-  itemsJson Json? @map("items_json")
-
-  collectedAt DateTime @default(now()) @map("collected_at") @db.Timestamptz
-  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt   DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
-
-  organization Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
-
-  @@unique([organizationId, channelAccountId, purchaseOrderSeq], map: "coupang_direct_po_snapshots_org_account_seq_key")
-  @@index([organizationId])
-  @@index([organizationId, channelAccountId, deliveryDate])
-  @@map("coupang_direct_po_snapshots")
-}
-
-/// @namespace Orders
 /// @describe Persisted Coupang shipment 발송일별 건수/박스 요약 snapshot so the calendar survives reload and only new dates are collected.
 model CoupangShipmentDateSummary {
   id                String   @id @default(uuid()) @db.Uuid

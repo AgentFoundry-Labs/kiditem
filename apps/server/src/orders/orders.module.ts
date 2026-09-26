@@ -15,7 +15,6 @@ import { OrderCollectionController } from './adapter/in/web/order-collection.con
 import { CoupangDirectshipController } from './adapter/in/web/coupang-directship.controller';
 import { OrderCollectionService } from './application/service/order-collection.service';
 import { CoupangDirectshipService } from './coupang-directship/coupang-directship.service';
-import { CoupangDirectPoSnapshotService } from './application/service/coupang-direct-po-snapshot.service';
 import { ReturnTransfersController } from './adapter/in/web/return-transfers/return-transfers.controller';
 import { ReturnTransfersService } from './application/service/return-transfers/return-transfers.service';
 import { CoupangDirectOrderCollectionService } from './application/service/coupang-direct-order-collection.service';
@@ -58,7 +57,6 @@ import { OrderCollectionTodayOrdersModule } from './order-collection-today-order
   providers: [
     OrdersService,
     OrderCollectionService,
-    CoupangDirectPoSnapshotService,
     CoupangDirectshipService,
     ReviewsService,
     ReviewIngestService,

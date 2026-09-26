@@ -99,10 +99,7 @@ import {
   writeMemoryCachedDirectshipPos,
   type CoupangDirectPoCacheScope,
 } from '../lib/coupang-directship-po-cache';
-import {
-  readCoupangDirectSnapshot,
-  saveCoupangDirectSnapshot,
-} from '../lib/coupang-directship-snapshot-api';
+import { readCoupangDirectSnapshot } from '../lib/coupang-directship-snapshot-api';
 
 /** 오늘 주문은 수집이 끝나야 바뀐다. 원천 목록(2초)과 달리 자주 물을 이유가 없다. */
 const TODAY_ORDERS_POLL_MS = 60_000;
@@ -566,13 +563,6 @@ export function OrderCollectionWorkspace() {
     try {
       run = await sessionControls.prepareDirectRun(account, existingAttemptId);
       const collected = await collectAccount(account, run, directship);
-      if (directship?.data && directshipCacheScope && run) {
-        await saveCoupangDirectSnapshot(
-          directshipCacheScope.channelAccountId,
-          directship.data.pos,
-          run,
-        ).catch(() => undefined);
-      }
       setState('success');
       if (collected.masked) toast.warning('화면 표는 일부 개인정보가 마스킹되어 있습니다.');
       if (collected.rowCount > 0) toast.success(`${account.name} 수집 완료`);

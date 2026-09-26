@@ -167,7 +167,6 @@ erDiagram
 | Organization | organization | referenced by external | Inventory | ReturnTransfer |
 | Organization | organization | referenced by external | Inventory | StockTransfer |
 | Organization | organization | referenced by external | Inventory | Warehouse |
-| Organization | organization | referenced by external | Orders | CoupangDirectPoSnapshot |
 | Organization | organization | referenced by external | Orders | CoupangDirectTransportConsumption |
 | Organization | organization | referenced by external | Orders | CoupangDirectTransportReceipt |
 | Organization | organization | referenced by external | Orders | CoupangShipmentDateSummary |
