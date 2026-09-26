@@ -95,6 +95,13 @@ const MALLS: Row[] = [
     call: 'teacher-mall.listings',
     loginAt: 'https://shop.teacherville.co.kr/selleradmin/login/index',
   },
+  {
+    mallKey: 'kkomangse',
+    startUrl: 'https://nstore.edupre.co.kr/subAdmin/_product.list.php',
+    isolated: 'content/orders/kkomangse-listings.js',
+    call: 'kkomangse.listings',
+    loginAt: 'https://nstore.edupre.co.kr/subAdmin/login.php',
+  },
 ];
 
 /** 로그인 폼 명세가 없는 몰(결정 #3). */

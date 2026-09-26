@@ -45,6 +45,7 @@ export const MALL_ADMIN_LISTING_OPERATION_MALLS = [
   'lotte-on',
   'smartstore',
   'teacher-mall',
+  'kkomangse',
 ] as const;
 export type MallAdminListingOperationMall = (typeof MALL_ADMIN_LISTING_OPERATION_MALLS)[number];
 export function isMallAdminListingOperationMall(mallKey: string): mallKey is MallAdminListingOperationMall {

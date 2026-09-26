@@ -42,6 +42,7 @@ import '../sites/icecream-mall';
 import '../sites/kakao/listings';
 import '../sites/kidkids';
 import '../sites/kidsnote/listings';
+import '../sites/kkomangse/listings';
 import '../sites/live-commerce';
 import '../sites/lotte-on/listings';
 import '../sites/mall-admin-listings';

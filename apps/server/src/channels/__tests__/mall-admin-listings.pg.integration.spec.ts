@@ -4,6 +4,7 @@ import { Test } from '@nestjs/testing';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
+import { MALL_ADMIN_LISTING_OPERATION_MALLS } from '@kiditem/shared/channels-operations';
 import {
   MALL_ADMIN_LISTING_MALL_KEYS,
   MALL_ADMIN_LISTING_READERS,
@@ -208,15 +209,6 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
     expect((await start('onch', key).expect(201)).body).toEqual(first.body);
     const second = await start('onch').expect(409);
     expect(second.body).toMatchObject({ code: 'ATTEMPT_IN_PROGRESS', attemptId: first.body.attemptId });
-    // 다른 몰은 따로 돈다 — 한 몰의 로그인 실패가 다른 몰을 막지 않는다. 상태(paused)는 가리지 않는다.
-    const kkomangse = await start('kkomangse').expect(201);
-    expect(kkomangse.body.plan).toMatchObject({
-      mallKey: 'kkomangse',
-      channelAccountId: KKOMANGSE,
-      sourceOrigin: 'https://nstore.edupre.co.kr',
-      pageSize: 10000,
-    });
-
     const source = (await readSource()).body;
     // 읽기기가 있는 몰은 모두 목록에 선다. 계정 행이 없는 몰은 channelAccountId null 로 선다.
     expect(source.malls).toEqual(
@@ -234,10 +226,8 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
           };
         }
         if (mallKey === 'kkomangse') {
-          return expect.objectContaining({
-            mallKey: 'kkomangse',
-            latestAttempt: expect.objectContaining({ attemptId: kkomangse.body.attemptId }),
-          });
+          // 실행 kind로 옮긴 몰(KID-381)은 옛 시도가 없다.
+          return expect.objectContaining({ mallKey: 'kkomangse', channelAccountId: KKOMANGSE, latestAttempt: null, latestOperation: null });
         }
         return {
           mallKey,
@@ -254,11 +244,11 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
     expect(source.malls.find((mall: { mallKey: string }) => mall.mallKey === 'onch').latestAttempt).not.toHaveProperty('attemptToken');
   });
 
-  it('refuses the four malls moved to the channels.mall_admin_listings operation (KID-363)', async () => {
+  it('refuses every mall moved to the channels.mall_admin_listings operation (KID-363, KID-381)', async () => {
     await prisma.channelAccount.create({
       data: { id: KIDKIDS, organizationId: ORG, channel: 'kidkids', externalAccountId: 'kidkids', name: '키드키즈', status: 'configured' },
     });
-    for (const mallKey of ['kidkids', 'icecream-mall', 'art09', 'domeggook']) {
+    for (const mallKey of MALL_ADMIN_LISTING_OPERATION_MALLS) {
       const refused = await start(mallKey).expect(400);
       expect(refused.body).toMatchObject({
         code: 'VALIDATION_FAILED',

@@ -5421,7 +5421,8 @@ var KidItemRuntime = (() => {
     "kakao",
     "lotte-on",
     "smartstore",
-    "teacher-mall"
+    "teacher-mall",
+    "kkomangse"
   ];
   function isMallAdminListingOperationMall(mallKey) {
     return MALL_ADMIN_LISTING_OPERATION_MALLS.includes(mallKey);
@@ -10350,6 +10351,36 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "kidsnote", create: (deps, lease) => createKidsnoteListings(deps.tabs, createSiteSignIn(KIDSNOTE_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/kkomangse/listings.ts
+  var KKOMANGSE_LISTINGS_URL = "https://nstore.edupre.co.kr/subAdmin/_product.list.php";
+  var KKOMANGSE_LISTINGS_FILE = "content/orders/kkomangse-listings.js";
+  var isKkomangseLogin = (url) => hostWithin(url, ["edupre.co.kr"]) && /login/i.test(url.pathname);
+  var KKOMANGSE_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["edupre.co.kr"]),
+    isLogin: isKkomangseLogin,
+    loginMessage: "\uAF2C\uB9DD\uC138 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uAF2C\uB9DD\uC138 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  var KKOMANGSE_LOGIN = {
+    displayName: "\uAF2C\uB9DD\uC138",
+    loginUrl: "https://nstore.edupre.co.kr/subAdmin/_order_product.list.php?mode=search&pass_input_type=all&st=o_rdate&so=desc&listmaxcount=1000",
+    hosts: ["edupre.co.kr"],
+    isLoginUrl: isKkomangseLogin,
+    fields: ["loginId", "password"]
+  };
+  function createKkomangseListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "kkomangse",
+        displayName: "\uAF2C\uB9DD\uC138",
+        startUrl: KKOMANGSE_LISTINGS_URL,
+        file: KKOMANGSE_LISTINGS_FILE,
+        call: "kkomangse.listings",
+        guard: KKOMANGSE_LISTINGS_GUARD
+      }, plan, signIn)
+    };
+  }
+  registerSite({ name: "kkomangse", create: (deps, lease) => createKkomangseListings(deps.tabs, createSiteSignIn(KKOMANGSE_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/live-commerce/index.ts
   var NAVIGATION_TIMEOUT_MS7 = 35e3;
