@@ -69,6 +69,7 @@ describe("data migration registry", () => {
       "v0.1.31:030_rename_sourcing_ingestion_run_ids_to_operation_ids",
       "v0.1.31:031_publish_complete_sourcing_runs",
       "v0.1.31:032_remove_retired_source_failure_alerts",
+      "v0.1.31:033_remove_retired_mall_admin_listing_alerts",
     ]);
     expect(
       DATA_MIGRATION_IDS.filter((id) =>
@@ -382,6 +383,7 @@ describe("data migration registry", () => {
       "v0.1.31:029_close_generations_left_by_direct_job_cutover",
       "v0.1.31:031_publish_complete_sourcing_runs",
       "v0.1.31:032_remove_retired_source_failure_alerts",
+      "v0.1.31:033_remove_retired_mall_admin_listing_alerts",
     ]);
   });
 
