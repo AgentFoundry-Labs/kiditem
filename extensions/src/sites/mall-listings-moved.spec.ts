@@ -4,7 +4,7 @@ import { isMallAdminListingOperationMall } from '@kiditem/shared/channels-operat
 import { SITE_LOGIN_REQUIRED } from '../core/site-caller';
 import '../entry/index';
 import { siteFactoryFor, type SiteDeps, type SiteLease } from './registry';
-import { fastClock } from './login.fake';
+import { fakeLoginScreen, fastClock } from './login.fake';
 import { fakeTabPages } from './tab-page.fake';
 
 // 몰 관리자 목록 나머지 몰(KID-381 L′)을 몰 관리자 목록 라우터(`mall-admin-listings`)로 읽는다 — 몰마다 시작 화면, 처리기
@@ -35,6 +35,13 @@ const MALLS: Row[] = [
     isolated: 'content/orders/thirtymall-listings.js',
     call: 'thirtymall.listings',
     loginAt: 'https://partner.shopby.co.kr/login',
+  },
+  {
+    mallKey: 'kidsnote',
+    startUrl: 'https://shop.kidsnote.com/_manage/?body=2010',
+    isolated: 'content/orders/kidsnote-listings.js',
+    call: 'kidsnote.listings',
+    loginAt: 'https://shop.kidsnote.com/member/login.php',
   },
 ];
 
@@ -98,6 +105,28 @@ describe('몰 관리자 목록 나머지 몰(KID-381)', () => {
       expect(fake.log.filter((line) => line.startsWith('navigate'))).toEqual([`navigate ${row.startUrl}`]);
       expect(fake.log.some((line) => line.startsWith('frames'))).toBe(false);
       expect(fake.log).not.toContain('close 7');
+    },
+  );
+
+  it.each(MALLS.filter((row) => !NO_LOGIN_SPEC.includes(row.mallKey)))(
+    '$mallKey: 로그인 화면이면 실행 자격으로 같은 탭에서 한 번 로그인하고 목록 화면으로 돌아가 다시 읽은 뒤 탭을 닫는다',
+    async (row) => {
+      const login = fakeLoginScreen({ loginAt: row.loginAt });
+      const fake = fakeTabPages({
+        landAt: login.landAt,
+        frames: (files, call, url) => login.frames(files, call, url),
+        answer: (message, injected) => login.answer(message)
+          ?? (injected
+            ? (message.call === row.call ? { ok: true, value: { success: true, snapshot: snapshotOf(row.mallKey) } } : { ok: false, error: 'unexpected' })
+            : { ok: false, error: 'content_script_missing' }),
+      });
+      await expect(routerFor(fake.tabs).reader(row.mallKey)!.readListings(planOf(row.mallKey))).resolves.toEqual(snapshotOf(row.mallKey));
+      expect(login.state.filled).toEqual([CREDENTIALS]);
+      expect(fake.log.filter((line) => line.startsWith('navigate') || line.startsWith('close'))).toEqual([
+        `navigate ${row.startUrl}`,
+        `navigate ${row.startUrl}`,
+        'close 7',
+      ]);
     },
   );
 });

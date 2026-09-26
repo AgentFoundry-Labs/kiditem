@@ -5413,7 +5413,8 @@ var KidItemRuntime = (() => {
     "art09",
     "domeggook",
     "always",
-    "thirtymall"
+    "thirtymall",
+    "kidsnote"
   ];
   function isMallAdminListingOperationMall(mallKey) {
     return MALL_ADMIN_LISTING_OPERATION_MALLS.includes(mallKey);
@@ -10241,6 +10242,36 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "kidkids", create: (deps, lease) => createKidkidsSite(deps.tabs, createSiteSignIn(KIDKIDS_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/kidsnote/listings.ts
+  var KIDSNOTE_LISTINGS_URL = "https://shop.kidsnote.com/_manage/?body=2010";
+  var KIDSNOTE_LISTINGS_FILE = "content/orders/kidsnote-listings.js";
+  var isKidsnoteLogin = (url) => hostWithin(url, ["kidsnote.com"]) && /login/i.test(url.pathname + url.search);
+  var KIDSNOTE_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["kidsnote.com"]),
+    isLogin: isKidsnoteLogin,
+    loginMessage: "\uD0A4\uC988\uB178\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0A4\uC988\uB178\uD2B8 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  var KIDSNOTE_LOGIN = {
+    displayName: "\uD0A4\uC988\uB178\uD2B8",
+    loginUrl: "https://shop.kidsnote.com/_manage/?body=3010",
+    hosts: ["kidsnote.com"],
+    isLoginUrl: isKidsnoteLogin,
+    fields: ["loginId", "password"]
+  };
+  function createKidsnoteListings(tabs, signIn) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "kidsnote",
+        displayName: "\uD0A4\uC988\uB178\uD2B8",
+        startUrl: KIDSNOTE_LISTINGS_URL,
+        file: KIDSNOTE_LISTINGS_FILE,
+        call: "kidsnote.listings",
+        guard: KIDSNOTE_LISTINGS_GUARD
+      }, plan, signIn)
+    };
+  }
+  registerSite({ name: "kidsnote", create: (deps, lease) => createKidsnoteListings(deps.tabs, createSiteSignIn(KIDSNOTE_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/live-commerce/index.ts
   var NAVIGATION_TIMEOUT_MS7 = 35e3;
