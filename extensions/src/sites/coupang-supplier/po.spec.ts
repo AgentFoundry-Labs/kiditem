@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller';
+import { fastClock } from '../login.fake';
 import { fakeTabPages } from '../tab-page.fake';
 import { createCoupangSupplierSite, purchaseOrderListPath } from './index';
 import { SITE_COOKIE_BLOAT } from './page';
@@ -16,7 +17,7 @@ function site(options: { lands: string[]; answer: (message: Record<string, unkno
     landAt: () => lands.shift() ?? READY,
     answer: (message, injected) => (injected ? options.answer(message) : { ok: false, error: 'content_script_missing' }),
   });
-  return { fake, supplier: createCoupangSupplierSite({ tabs: fake.tabs }, { tabId: LEASE_TAB }) };
+  return { fake, supplier: createCoupangSupplierSite({ tabs: fake.tabs, ...fastClock() }, { tabId: LEASE_TAB }) };
 }
 const json = (value: unknown) => bridgeAnswer([], { text: JSON.stringify(value) });
 

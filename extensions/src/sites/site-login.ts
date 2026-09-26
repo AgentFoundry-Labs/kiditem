@@ -1,5 +1,5 @@
 import { RuntimeError, isRuntimeError } from '../core/errors';
-import { SITE_LOGIN_REQUIRED } from '../core/site-caller';
+import { SITE_LOGIN_REQUIRED, type SiteCaller } from '../core/site-caller';
 import { callPage } from './page-call';
 import type { SiteCredentials } from './registry';
 import { hostWithin, type PageGuard, type TabPage } from './tab-page';
@@ -254,6 +254,15 @@ export function createSiteLoginGate(credentials: SiteCredentials | null | undefi
 }
 
 export type SiteLoginGate = ReturnType<typeof createSiteLoginGate>;
+
+/** 서비스워커 fetch 사이트(윙)의 호출기에 로그인 문턱을 건다: 요청마다 `withLogin`으로 감싼다. */
+export function callerWithLogin(caller: SiteCaller, withLogin: SiteLoginGate, login: () => Promise<LoginOutcome>): SiteCaller {
+  return {
+    json: (url, init) => withLogin(() => caller.json(url, init), login),
+    text: (url, init) => withLogin(() => caller.text(url, init), login),
+    bytes: (url, init) => withLogin(() => caller.bytes(url, init), login),
+  };
+}
 
 function isLoginRequired(error: unknown): error is RuntimeError {
   return isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED;
