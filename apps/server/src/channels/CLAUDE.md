@@ -180,7 +180,7 @@ sync, registration, matching, and capacity behavior is executable in
   only listings this source created that left the list, all with
   `lastOperationId`. Its statuses carry the `사방넷 ` prefix and fold with a
   Sabangnet-basis warning.
-- The mall admin listing import is one attempt per mall
+- The mall admin listing import is one import per mall
   account for malls Sabangnet does not carry (`mall_admin_listings`, readers in
   `@kiditem/shared/mall-admin-listings`). Completion publishes that mall's
   products as listings with one option whose `itemName` is the Sellpia name the
@@ -189,6 +189,11 @@ sync, registration, matching, and capacity behavior is executable in
   is the mall's own seller code when the mall shows one, so matching may also
   link by the option name. Its list carries no barcode or model number column.
   Statuses come from the mall itself and fold without a Sabangnet warning.
+  The first batch (`MALL_ADMIN_LISTING_OPERATION_MALLS`: icecream-mall,
+  kidkids, art09, domeggook) runs as `channels.mall_admin_listings`
+  operations (KID-363) holding `account:<channelAccountId>`; their source read
+  shows operations only. The other malls stay on the old attempt path until
+  they move; both paths publish through the same repository function.
 - Sellpia manual-match evidence is one `channels.sellpia_manual_match`
   operation (KID-363) holding `resource:sellpia:login`, so it never overlaps
   another Sellpia-login kind. Its plan freezes the sorted active Sellpia codes;

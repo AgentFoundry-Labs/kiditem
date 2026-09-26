@@ -60,6 +60,7 @@ import { SellpiaManualMatchService } from '../application/service/listing/sellpi
 import { SellpiaManualMatchOperationOwner } from '../adapter/in/operation/sellpia-manual-match-operation-owner';
 import { SabangnetMallListingsOperationOwner } from '../adapter/in/operation/sabangnet-mall-listings-operation-owner';
 import { RocketMatchingCsvOperationOwner } from '../adapter/in/operation/rocket-matching-csv-operation-owner';
+import { MallAdminListingsOperationOwner } from '../adapter/in/operation/mall-admin-listings-operation-owner';
 import { CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT } from '../application/port/out/repository/channel-product-matching.repository.port';
 import { CATALOG_DISPLAY_MEDIA_PORT } from '../../content/application/port/in/workspace/catalog-display-media.port';
 import { PRODUCT_AVAILABILITY_PORT } from '../../products/application/port/in/product-availability.port';
@@ -231,6 +232,7 @@ describe('ChannelsModule canonical owner wiring', () => {
       SellpiaManualMatchOperationOwner,
       SabangnetMallListingsOperationOwner,
       RocketMatchingCsvOperationOwner,
+      MallAdminListingsOperationOwner,
     ]));
     const manualMatchInjectTokens: Array<{ index: number; param: unknown }> =
       Reflect.getMetadata('self:paramtypes', SellpiaManualMatchService) ?? [];

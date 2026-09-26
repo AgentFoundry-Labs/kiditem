@@ -41,6 +41,10 @@
   경로가 없는 일에 초록을 칠하지 않는다.
 - 쿠팡 윙은 엑셀로도 가져온다(`_shared/CoupangWingExcelImport`). 업로드는 `channels.wing_catalog_excel`
   실행 하나이고(KID-351) 확장의 '상품 받기'(목록·상세 kind)와 둘 다 산다 — 엑셀은 가격 · 재고 · 사진이 없다.
+- 사방넷 등록 상품 가져오기와 1차 몰 넷(키드키즈 · 아이스크림몰 · 아트공구 · 도매꾹)의 몰 관리자 가져오기는
+  실행 kind(`channels.sabangnet_mall_listings` · `channels.mall_admin_listings`, KID-363)다. 화면은 `operation-start`로
+  시작하고 source 읽기의 최근 실행으로 진행 · 결과를 본다. 나머지 몰은 옮겨질 때까지 옛 시도 경로다
+  (`isMallAdminListingOperationMall`로 가른다).
 - `_shared/CoupangCatalogEdit`(수정요청)은 가져오기가 아니다. 빈 칸만 채운 파일을 만들 뿐이고
   올리는 것은 사람이다. 윙 업로드 창 항목을 '쿠팡상품정보'로 바꿔야 접수된다(기본값은 가격/재고).
 - `/mall-listings`: 탭 두 개. **등록 현황**은 상품 마스터 × 몰 매트릭스이고,

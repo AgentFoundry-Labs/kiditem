@@ -4241,17 +4241,23 @@ var KidItemRuntime = (() => {
 
   // packages/shared/src/schemas/channels-operations.ts
   var SABANGNET_MALL_LISTINGS_KIND = "channels.sabangnet_mall_listings";
+  var MALL_ADMIN_LISTINGS_KIND = "channels.mall_admin_listings";
   var SABANGNET_LOGIN_LOCK_KEY = resourceLockKey("sabangnet", "login");
   var SabangnetMallListingsScopeSchema = external_exports.object({}).strict();
   var MallAdminListingsScopeSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
     mallKey: external_exports.string().min(1).max(64)
   }).strict();
+  var MALL_ADMIN_LISTING_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook"];
+  function isMallAdminListingOperationMall(mallKey) {
+    return MALL_ADMIN_LISTING_OPERATION_MALLS.includes(mallKey);
+  }
   var RocketMatchingCsvScopeSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
     fileName: external_exports.string().trim().min(1).max(240)
   }).strict();
   var SABANGNET_MALL_LISTINGS_CHUNK_KIND = "listing_rows";
+  var MALL_ADMIN_LISTINGS_CHUNK_KIND = "listing_rows";
   var RocketMatchingCsvResultSchema = external_exports.object({
     rowCount: external_exports.number().int().nonnegative(),
     createdProductCount: external_exports.number().int().nonnegative(),
@@ -4260,114 +4266,286 @@ var KidItemRuntime = (() => {
     updatedSkuCount: external_exports.number().int().nonnegative()
   }).strict();
   var SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND = "listing_scan";
+  var MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND = "listing_scan";
 
-  // packages/shared/src/schemas/sabangnet-mall-listings.ts
-  var SABANGNET_ADMIN_ORIGIN = "https://sbadmin08.sabangnet.co.kr";
-  var SABANGNET_MALL_LISTING_LIST_PATH = "/prod-api/customer/mall/MallProductUpdate/getMallProductUpdateLists";
-  var SABANGNET_MALL_LISTINGS_SOURCE_TYPE = "sabangnet_mall_listings";
-  var SABANGNET_MALL_LISTINGS_PARSER_VERSION = "sabangnet-mall-listings-v1";
-  var SABANGNET_MALL_LISTING_PAGE_SIZE = 500;
-  var SABANGNET_MALL_LISTING_ROW_LIMIT = 2e4;
-  var SABANGNET_MALL_LISTING_PAGE_LIMIT = 100;
-  var SHOP_ID = external_exports.string().regex(/^shop\d{4}$/);
-  var YYYYMMDD = external_exports.string().regex(/^\d{8}$/);
+  // packages/shared/src/schemas/mall-admin-listings.ts
+  var MALL_ADMIN_LISTINGS_SOURCE_TYPE = "mall_admin_listings";
+  var MALL_ADMIN_LISTINGS_PARSER_VERSION = "mall-admin-listings-v1";
+  var MALL_ADMIN_LISTING_ROW_LIMIT = 2e4;
+  var MALL_ADMIN_LISTING_PAGE_LIMIT = 1e3;
+  var MALL_ADMIN_LISTING_READERS = {
+    kidkids: {
+      mallName: "\uD0A4\uB4DC\uD0A4\uC988",
+      origin: "https://partner.kidkids.net",
+      pageSize: 2e4,
+      detailNames: false
+    },
+    "icecream-mall": {
+      mallName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
+      origin: "https://po.i-screammall.co.kr",
+      pageSize: 1e4,
+      detailNames: true
+    },
+    /**
+     * 온채널 공급사. 등록 상품 관리 화면이 쪽 크기를 고르지 못해 15줄씩 46쪽을 다 돈다
+     * (라이브 2026-09-17: 687개). 쪽 경계가 상품코드로 갈려 겹치지 않는다.
+     */
+    onch: {
+      mallName: "\uC628\uCC44\uB110",
+      origin: "https://www.onch3.co.kr",
+      pageSize: 15,
+      detailNames: false
+    },
+    /**
+     * 꼬망세(EduPre) 입점관리자. 배송상품 목록이 쪽 크기를 받아 줘 전체가 한 번에 들어온다
+     * (라이브 2026-09-18: 2,602개).
+     */
+    kkomangse: {
+      mallName: "\uAF2C\uB9DD\uC138",
+      origin: "https://nstore.edupre.co.kr",
+      pageSize: 1e4,
+      detailNames: false
+    },
+    /**
+     * 올웨이즈 판매자센터. 상품 조회/수정 화면이 부르는 목록 API(백엔드 alwayz-seller-back)를 화면 안에서 쪽마다
+     * 읽는다 — 100개씩 1쪽부터(라이브 2026-09-19: 197개 = 100 + 97). 토큰은 화면 안에서만 쓴다.
+     */
+    always: {
+      mallName: "\uC62C\uC6E8\uC774\uC988",
+      origin: "https://alwayzseller.ilevit.com",
+      pageSize: 100,
+      detailNames: false
+    },
+    /**
+     * 아트공구(카페24 공급사 관리자). 상품목록(ProductManage)을 100개씩 1쪽부터 끝까지 읽는다
+     * (라이브 2026-09-19: 550개 = 6쪽, 겹침 없음). 몰 상품코드는 카페24 상품번호(product_no)다.
+     */
+    art09: {
+      mallName: "\uC544\uD2B8\uACF5\uAD6C",
+      origin: "https://zzogzzog1.cafe24.com",
+      pageSize: 100,
+      detailNames: false
+    },
+    /**
+     * 떠리몰(샵바이 파트너 어드민). 상품정보 조회/수정 화면이 부르는 상품 검색 API(`admin-api.e-ncp.com`
+     * `POST /products/search`)를 화면 안에서 100개씩 1쪽부터 읽는다(라이브 2026-09-19: 479개 = 5쪽). 몰 상품코드는
+     * 샵바이 상품번호(mallProductNo)다. 토큰은 화면 쿠키에서 화면 안에서만 쓴다.
+     */
+    thirtymall: {
+      mallName: "\uB5A0\uB9AC\uBAB0",
+      origin: "https://partner.shopby.co.kr",
+      pageSize: 100,
+      detailNames: false
+    },
+    /*
+      사방넷으로만 가져오던 몰(사장님 2026-09-19 "사방넷 이제 안쓸거야 … 상품 가져오기 버튼들 들어오면 바로 동기화").
+      몰 상품코드는 사방넷이 쓰던 모양 그대로라 이미 이어진 리스팅 · 레시피를 그대로 쓴다. 이 몰들은 확장
+      1.2.22(`mallAdminListingsMallsV2`)부터 읽고, 첫 라이브에서 고친 롯데ON(거래처로 좁히기 · 로그인 탭 빌리기) · 스마트스토어 ·
+      티쳐몰은 1.2.23(`mallAdminListingsMallsV3`)부터 읽는다.
+    */
+    /** 도매꾹 상품공급사센터. 목록 조회를 500개씩(라이브 2026-09-19: 493개 = 1쪽). 몰 상품코드는 도매꾹 상품번호. */
+    domeggook: {
+      mallName: "\uB3C4\uB9E4\uAFB9",
+      origin: "https://www.domeggook.com",
+      pageSize: 500,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV2"
+    },
+    /** 키즈노트(WISA). 판매 상품 내역을 100개씩(라이브 2026-09-19: 1,107개 = 12쪽). 몰 상품코드는 상품번호(pno). */
+    kidsnote: {
+      mallName: "\uD0A4\uC988\uB178\uD2B8",
+      origin: "https://shop.kidsnote.com",
+      pageSize: 100,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV2"
+    },
+    /** 11번가 셀러오피스. 목록 조회를 100개씩 앞에서부터(라이브 2026-09-19: 900개). 전체 수를 따로 주지 않는다. */
+    "11st": {
+      mallName: "11\uBC88\uAC00",
+      origin: "https://soffice.11st.co.kr",
+      pageSize: 100,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV2"
+    },
+    /**
+     * 지마켓 · 옥션(ESM Plus). 마스터 상품 목록을 500개씩 읽고 그 사이트에 올라간 것만 고른다(라이브 2026-09-19: 마스터
+     * 1,584 · 지마켓 934 · 옥션 754). 몰 상품코드는 사방넷 모양 `{사이트상품번호}_{마스터상품번호}`.
+     */
+    gmarket: {
+      mallName: "\uC9C0\uB9C8\uCF13",
+      origin: "https://item.esmplus.com",
+      pageSize: 500,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV2"
+    },
+    auction: {
+      mallName: "\uC625\uC158",
+      origin: "https://item.esmplus.com",
+      pageSize: 500,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV2"
+    },
+    /** 카카오 톡스토어 판매자센터. 목록 API 를 100개씩(라이브 2026-09-19: 386개 = 4쪽). 몰 상품코드는 상품번호(id). */
+    kakao: {
+      mallName: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4",
+      origin: "https://shopping-seller.kakao.com",
+      pageSize: 100,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV2"
+    },
+    /** 롯데ON 판매자센터. 상품 조회를 100개씩(화면 안에서). 몰 상품코드는 판매자상품번호(`LO…`). */
+    "lotte-on": {
+      mallName: "\uB86F\uB370ON",
+      origin: "https://store.lotteon.com",
+      pageSize: 100,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV3"
+    },
+    /** 스마트스토어센터. 원상품 목록 검색을 100개씩(화면 안에서). 몰 상품코드는 채널상품번호(원상품번호는 다른 코드). */
+    smartstore: {
+      mallName: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4",
+      origin: "https://sell.smartstore.naver.com",
+      pageSize: 100,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV3"
+    },
+    /** 티쳐몰(퍼스트몰 selleradmin). 판매상품 목록을 100개씩. 몰 상품코드는 상품번호(goods_seq). */
+    "teacher-mall": {
+      mallName: "\uD2F0\uCCD0\uBAB0",
+      origin: "https://shop.teacherville.co.kr",
+      pageSize: 100,
+      detailNames: false,
+      capability: "mallAdminListingsMallsV3"
+    }
+  };
+  var MALL_ADMIN_LISTING_MALL_KEYS = Object.keys(
+    MALL_ADMIN_LISTING_READERS
+  );
+  var MallKeySchema = external_exports.enum(MALL_ADMIN_LISTING_MALL_KEYS);
+  var YYYY_MM_DD = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var boundedText = (max) => external_exports.string().trim().max(max);
   var requiredText = (max) => boundedText(max).min(1);
-  var SabangnetMallListingsPlanMallSchema = external_exports.object({
-    mallKey: requiredText(40),
-    channelAccountId: external_exports.string().uuid(),
-    sabangnetShopIds: external_exports.array(SHOP_ID).min(1).max(10)
+  var MallAdminListingsBeginSchema = external_exports.object({
+    mallKey: MallKeySchema
   }).strict();
-  var SabangnetMallListingsPlanSchema = external_exports.object({
-    sourceType: external_exports.literal(SABANGNET_MALL_LISTINGS_SOURCE_TYPE),
-    parserVersion: external_exports.literal(SABANGNET_MALL_LISTINGS_PARSER_VERSION),
-    sourceOrigin: external_exports.literal(SABANGNET_ADMIN_ORIGIN),
-    listPath: external_exports.literal(SABANGNET_MALL_LISTING_LIST_PATH),
-    pageSize: external_exports.literal(SABANGNET_MALL_LISTING_PAGE_SIZE),
-    /** 사방넷 첫 송신일 검색 범위. 끝은 시작한 날(KST)이다. */
-    dateFrom: YYYYMMDD,
-    dateTo: YYYYMMDD,
-    malls: external_exports.array(SabangnetMallListingsPlanMallSchema).min(1).max(40)
+  var MallAdminListingsPlanSchema = external_exports.object({
+    sourceType: external_exports.literal(MALL_ADMIN_LISTINGS_SOURCE_TYPE),
+    parserVersion: external_exports.literal(MALL_ADMIN_LISTINGS_PARSER_VERSION),
+    mallKey: MallKeySchema,
+    /** 몰 허브가 고르는 그 몰의 계정 행. 완료할 때 같은 행인지 다시 본다. */
+    channelAccountId: external_exports.string().uuid(),
+    sourceOrigin: external_exports.string().url(),
+    pageSize: external_exports.number().int().positive().max(2e4)
   }).strict().superRefine((plan, ctx) => {
-    if (plan.dateFrom > plan.dateTo) {
-      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["dateFrom"], message: "Invalid date range" });
+    const reader = MALL_ADMIN_LISTING_READERS[plan.mallKey];
+    if (plan.sourceOrigin !== reader.origin) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["sourceOrigin"], message: "Unknown mall origin" });
     }
-    const shopIds = plan.malls.flatMap((mall) => mall.sabangnetShopIds);
-    if (new Set(shopIds).size !== shopIds.length) {
-      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["malls"], message: "Shop ids must be unique" });
-    }
-    const accounts = plan.malls.map((mall) => mall.channelAccountId);
-    if (new Set(accounts).size !== accounts.length) {
-      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["malls"], message: "Accounts must be unique" });
+    if (plan.pageSize !== reader.pageSize) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["pageSize"], message: "Unexpected page size" });
     }
   });
-  var SabangnetMallListingsPublicationSchema = external_exports.object({
-    mallKey: requiredText(40),
-    channelAccountId: external_exports.string().uuid(),
-    /** 이번에 받은 몰 상품코드 수. */
-    listings: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT),
-    /** 전에 받았는데 이번 목록에 없어 끈 리스팅 수. */
-    deactivated: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT)
+  var MallAdminListingsAttemptSchema = external_exports.object({
+    attemptId: external_exports.string().uuid(),
+    state: external_exports.enum(["RUNNING", "COMPLETE", "FAILED"]),
+    generation: external_exports.string().regex(/^\d+$/),
+    plan: MallAdminListingsPlanSchema,
+    expiresAt: external_exports.string().datetime(),
+    completedAt: external_exports.string().datetime().nullable(),
+    errorCode: boundedText(100).nullable(),
+    errorMessage: boundedText(300).nullable()
   }).strict();
-  var SabangnetMallListingsSourceMallSchema = external_exports.object({
-    mallKey: requiredText(40),
+  var MallAdminListingsControlSchema = MallAdminListingsAttemptSchema.extend({
+    attemptToken: external_exports.string().uuid()
+  }).strict();
+  var MallAdminListingsPublicationSchema = external_exports.object({
+    /** 이번에 받은 몰 상품코드 수. */
+    listings: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+    /** 전에 받았는데 이번 목록에 없어 끈 리스팅 수. */
+    deactivated: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+    /** 셀피아 쪽 이름을 읽지 못한 상품 수. 그 상품은 상품명으로만 잇는다. */
+    missingNames: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+    /**
+     * 몰에 셀피아 코드가 심겨 있어 코드로 정확히 이을 수 있는 상품 수.
+     *
+     * 이 칸이 생기기 전에 저장된 발행 결과에도 기본값으로 붙는다 — 새 칸 하나 때문에 옛
+     * 결과를 통째로 못 읽으면 화면이 "0개 가져옴"이라고 거짓말을 한다.
+     */
+    codedListings: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT).default(0),
+    /** 우리 상태 글자별 상품 수. */
+    statuses: external_exports.record(requiredText(20), external_exports.number().int().min(1).max(MALL_ADMIN_LISTING_ROW_LIMIT)).refine((value) => Object.keys(value).length <= 20, "Too many statuses")
+  }).strict();
+  var MallAdminListingsSourceMallSchema = external_exports.object({
+    mallKey: MallKeySchema,
+    mallName: requiredText(40),
     /** 그 몰의 계정 행. 없으면 가져올 곳이 없다. */
     channelAccountId: external_exports.string().uuid().nullable(),
-    sabangnetShopIds: external_exports.array(SHOP_ID).min(1).max(10)
-  }).strict();
-  var SabangnetMallListingsResultSchema = external_exports.object({
-    malls: external_exports.array(SabangnetMallListingsPublicationSchema),
-    rows: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT)
-  }).strict();
-  var SabangnetMallListingsSourceSchema = external_exports.object({
-    /** 받을 몰 계정 행이 하나라도 있는가. */
-    ready: external_exports.boolean(),
-    malls: external_exports.array(SabangnetMallListingsSourceMallSchema),
+    latestAttempt: MallAdminListingsAttemptSchema.nullable(),
+    latestComplete: MallAdminListingsAttemptSchema.nullable(),
+    /**
+     * `latestComplete`(실행 kind로 옮긴 몰은 `latestSucceeded`)가 남긴 결과.
+     */
+    latestPublication: MallAdminListingsPublicationSchema.nullable(),
+    /**
+     * 실행 kind(`channels.mall_admin_listings`, KID-363)로 옮긴 몰(`MALL_ADMIN_LISTING_OPERATION_MALLS`)의 최근 실행과 최근
+     * 성공 실행. 옮긴 몰은 옛 시도(`latestAttempt`·`latestComplete`)를 읽지 않아 그 둘이 null이고, 나머지 몰은 이 둘이 null이다.
+     */
     latestOperation: OperationViewSchema.nullable(),
-    latestSucceeded: OperationViewSchema.nullable(),
-    /** `latestSucceeded` 가 몰마다 남긴 결과. */
-    latestPublication: external_exports.array(SabangnetMallListingsPublicationSchema)
+    latestSucceeded: OperationViewSchema.nullable()
   }).strict();
-  var SabangnetMallListingRowSchema = external_exports.object({
-    /** 사방넷 송신번호(`prdRegsTrnmSrno`). 같은 기록이 두 번 오면 거절한다. */
-    sendSerial: external_exports.string().regex(/^\d{1,30}$/),
-    sabangnetShopId: SHOP_ID,
-    /** 몰 상품코드(`shmaPrdNo`). 옵션 외부 ID 칸이 60자다. */
+  var MallAdminListingsSourceSchema = external_exports.object({
+    malls: external_exports.array(MallAdminListingsSourceMallSchema)
+  }).strict();
+  var MallAdminListingRowSchema = external_exports.object({
+    /** 몰 상품코드. 옵션 외부 ID 칸이 60자다. */
     mallProductCode: requiredText(60),
-    /** 사방넷 품번(`prdNo`). */
-    sabangnetProductNo: external_exports.string().regex(/^\d{1,30}$/),
-    /** 사방넷 모델명(`modlNm`). 셀피아 재고 SKU 코드와 같다. */
-    modelName: requiredText(120).nullable(),
-    /** 사방넷 자체상품코드(`onsfPrdCd`). 바코드인 경우가 많다. */
-    ownProductCode: requiredText(120).nullable(),
+    /**
+     * 같은 상품을 다른 번호로 가져온 적이 있을 때 그 번호(사방넷이 ESM 사이트번호만 · 스마트스토어 원상품번호로 준 것).
+     * 그 번호로 이미 이어진 리스팅이 있으면 서버가 그 번호를 쓴다 — 레시피가 그 리스팅에 붙어 있다.
+     */
+    alternateCodes: external_exports.array(requiredText(60)).max(3).optional(),
     productName: requiredText(400),
+    /** 몰에 적어 둔 셀피아 상품 이름 — 키드키즈 송장용 상품명, 아이스크림몰 고시 품명. */
+    sellpiaName: requiredText(400).nullable(),
+    /**
+     * 몰의 자체상품코드 칸에 우리가 심어 둔 셀피아 SKU 코드(키드키즈 `P 코드`, 아이스크림몰
+     * `업체상품코드`). 사방넷이 `모델명`에 셀피아 코드를 넣어 보낸 것과 같은 자리다 — 이 값이
+     * 있으면 이름이 아니라 코드로 정확히 잇는다. 아직 안 심은 상품은 비어 있다.
+     */
+    sellerCode: requiredText(60).nullable(),
     salePrice: external_exports.number().int().nonnegative().max(1e9).nullable(),
-    /** 사방넷 공급상태 이름(`prdSplyStsCdNm`) — 공급중 · 일시중지 · 완전품절 · 대기중. */
-    supplyStatus: requiredText(20),
-    /** 첫 송신 시각(`prdRegsFstTrnmDt`, `yyyyMMdd HH:mm`). */
-    firstSentAt: external_exports.string().regex(/^\d{8} \d{2}:\d{2}$/).nullable()
+    statusWords: external_exports.array(requiredText(20)).min(1).max(4),
+    registeredOn: YYYY_MM_DD.nullable(),
+    /** 몰이 들고 있는 대표 사진. 목록에 사진이 있는 몰만 싣는다. */
+    imageUrl: external_exports.string().url().max(2e3).optional()
   }).strict();
-  var SabangnetMallListingsCollectionSchema = external_exports.object({
-    /** 사방넷이 알린 전체 송신 기록 수(모든 몰). */
-    totalRecords: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT),
-    /** 실제로 읽은 송신 기록 수(실패 메시지 줄 제외, 모든 몰). */
-    recordsRead: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT),
-    pagesRead: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_PAGE_LIMIT),
-    totalPages: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_PAGE_LIMIT),
-    truncated: external_exports.boolean(),
-    /** 계획에 없는 쇼핑몰의 기록 수. 넘기지 않고 세기만 한다. */
-    skippedByShop: external_exports.record(SHOP_ID, external_exports.number().int().min(1).max(SABANGNET_MALL_LISTING_ROW_LIMIT)).refine((value) => Object.keys(value).length <= 200, "Too many skipped shops"),
-    /** 몰 상품코드가 비어 넘기지 못한 기록 수. */
-    missingMallCode: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT)
+  var MallAdminListingsCollectionSchema = external_exports.object({
+    collectionRunId: external_exports.string().uuid(),
+    /** 몰이 알린 전체 상품 수. */
+    totalRecords: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+    /** 실제로 읽은 상품 줄 수. */
+    recordsRead: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+    pagesRead: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_PAGE_LIMIT),
+    totalPages: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_PAGE_LIMIT),
+    /** 셀피아 쪽 이름을 읽으려고 연 상세 화면 가운데 읽은 수와 읽지 못한 수. */
+    detailsRead: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+    detailsMissing: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT)
   }).strict();
-  var SabangnetMallListingsScanSchema = external_exports.object({
-    collection: SabangnetMallListingsCollectionSchema,
+  var MallAdminListingsSubmissionSchema = external_exports.object({
+    collection: MallAdminListingsCollectionSchema,
+    rows: external_exports.array(MallAdminListingRowSchema).max(MALL_ADMIN_LISTING_ROW_LIMIT),
     proof: external_exports.object({
-      dateFrom: YYYYMMDD,
-      dateTo: YYYYMMDD,
-      pageSize: external_exports.literal(SABANGNET_MALL_LISTING_PAGE_SIZE),
+      mallKey: MallKeySchema,
+      pageSize: external_exports.number().int().positive().max(2e4),
       validatedList: external_exports.literal(true)
     }).strict()
+  }).strict();
+  var MallAdminListingsScanSchema = external_exports.object({
+    collection: MallAdminListingsCollectionSchema.omit({ collectionRunId: true }),
+    proof: MallAdminListingsSubmissionSchema.shape.proof
+  }).strict();
+  var MallAdminListingsResultSchema = MallAdminListingsPublicationSchema.extend({
+    rows: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT)
   }).strict();
 
   // extensions/src/core/errors.ts
@@ -4434,11 +4612,160 @@ var KidItemRuntime = (() => {
     }
   };
 
-  // extensions/src/collectors/channels.sabangnet_mall_listings/index.ts
+  // extensions/src/collectors/channels.mall_admin_listings/index.ts
   var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
-  var MALL_CONTRACT_CHANGED = "MALL_CONTRACT_CHANGED";
   var SOURCE_SNAPSHOT_INVALID = "SOURCE_SNAPSHOT_INVALID";
-  var CHUNK_ROWS = 500;
+  var CHUNK_ROWS = 1e3;
+  var mallAdminListingsCollector = {
+    kind: MALL_ADMIN_LISTINGS_KIND,
+    site: "mall-admin-listings",
+    async *collect(rawPlan, site, { signal }) {
+      const parsed = MallAdminListingsPlanSchema.safeParse(rawPlan);
+      const reader = parsed.success && site ? site.reader(parsed.data.mallKey) : null;
+      if (!parsed.success || !reader?.readListings) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC774 \uD655\uC7A5\uC774 \uAC00\uC838\uC62C \uC218 \uC5C6\uB294 \uBAB0 \uC0C1\uD488 \uBAA9\uB85D \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+          kind: MALL_ADMIN_LISTINGS_KIND,
+          mallKey: parsed.success ? parsed.data.mallKey : null
+        });
+      }
+      const plan = parsed.data;
+      const snapshot = await reader.readListings(plan);
+      if (signal.aborted) return;
+      const scan = MallAdminListingsScanSchema.safeParse({ collection: snapshot.collection, proof: snapshot.proof });
+      if (!scan.success) {
+        throw new RuntimeError(SOURCE_SNAPSHOT_INVALID, "\uBAB0 \uC0C1\uD488 \uBAA9\uB85D\uC758 \uC77D\uC740 \uC99D\uAC70\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey, stage: "scan" });
+      }
+      const progress4 = { mallKey: plan.mallKey, rows: snapshot.rows.length };
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS, label: "\uBAB0 \uC0C1\uD488 \uD55C \uC904" });
+      for (const [index, row] of snapshot.rows.entries()) {
+        const checked = MallAdminListingRowSchema.safeParse(row);
+        if (!checked.success) {
+          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID, "\uBAB0 \uC0C1\uD488 \uBAA9\uB85D\uC5D0 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC740 \uC904\uC774 \uC788\uC2B5\uB2C8\uB2E4.", { mallKey: plan.mallKey, stage: "row", index });
+        }
+        const full = buffer.push(checked.data);
+        if (full) yield { chunkKind: MALL_ADMIN_LISTINGS_CHUNK_KIND, payload: full, progress: progress4 };
+      }
+      const rest = buffer.flush();
+      if (rest) yield { chunkKind: MALL_ADMIN_LISTINGS_CHUNK_KIND, payload: rest, progress: progress4 };
+      yield { chunkKind: MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND, payload: [scan.data], progress: progress4 };
+    }
+  };
+  registerCollector(mallAdminListingsCollector);
+
+  // packages/shared/src/schemas/sabangnet-mall-listings.ts
+  var SABANGNET_ADMIN_ORIGIN = "https://sbadmin08.sabangnet.co.kr";
+  var SABANGNET_MALL_LISTING_LIST_PATH = "/prod-api/customer/mall/MallProductUpdate/getMallProductUpdateLists";
+  var SABANGNET_MALL_LISTINGS_SOURCE_TYPE = "sabangnet_mall_listings";
+  var SABANGNET_MALL_LISTINGS_PARSER_VERSION = "sabangnet-mall-listings-v1";
+  var SABANGNET_MALL_LISTING_PAGE_SIZE = 500;
+  var SABANGNET_MALL_LISTING_ROW_LIMIT = 2e4;
+  var SABANGNET_MALL_LISTING_PAGE_LIMIT = 100;
+  var SHOP_ID = external_exports.string().regex(/^shop\d{4}$/);
+  var YYYYMMDD = external_exports.string().regex(/^\d{8}$/);
+  var boundedText2 = (max) => external_exports.string().trim().max(max);
+  var requiredText2 = (max) => boundedText2(max).min(1);
+  var SabangnetMallListingsPlanMallSchema = external_exports.object({
+    mallKey: requiredText2(40),
+    channelAccountId: external_exports.string().uuid(),
+    sabangnetShopIds: external_exports.array(SHOP_ID).min(1).max(10)
+  }).strict();
+  var SabangnetMallListingsPlanSchema = external_exports.object({
+    sourceType: external_exports.literal(SABANGNET_MALL_LISTINGS_SOURCE_TYPE),
+    parserVersion: external_exports.literal(SABANGNET_MALL_LISTINGS_PARSER_VERSION),
+    sourceOrigin: external_exports.literal(SABANGNET_ADMIN_ORIGIN),
+    listPath: external_exports.literal(SABANGNET_MALL_LISTING_LIST_PATH),
+    pageSize: external_exports.literal(SABANGNET_MALL_LISTING_PAGE_SIZE),
+    /** 사방넷 첫 송신일 검색 범위. 끝은 시작한 날(KST)이다. */
+    dateFrom: YYYYMMDD,
+    dateTo: YYYYMMDD,
+    malls: external_exports.array(SabangnetMallListingsPlanMallSchema).min(1).max(40)
+  }).strict().superRefine((plan, ctx) => {
+    if (plan.dateFrom > plan.dateTo) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["dateFrom"], message: "Invalid date range" });
+    }
+    const shopIds = plan.malls.flatMap((mall) => mall.sabangnetShopIds);
+    if (new Set(shopIds).size !== shopIds.length) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["malls"], message: "Shop ids must be unique" });
+    }
+    const accounts = plan.malls.map((mall) => mall.channelAccountId);
+    if (new Set(accounts).size !== accounts.length) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["malls"], message: "Accounts must be unique" });
+    }
+  });
+  var SabangnetMallListingsPublicationSchema = external_exports.object({
+    mallKey: requiredText2(40),
+    channelAccountId: external_exports.string().uuid(),
+    /** 이번에 받은 몰 상품코드 수. */
+    listings: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT),
+    /** 전에 받았는데 이번 목록에 없어 끈 리스팅 수. */
+    deactivated: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT)
+  }).strict();
+  var SabangnetMallListingsSourceMallSchema = external_exports.object({
+    mallKey: requiredText2(40),
+    /** 그 몰의 계정 행. 없으면 가져올 곳이 없다. */
+    channelAccountId: external_exports.string().uuid().nullable(),
+    sabangnetShopIds: external_exports.array(SHOP_ID).min(1).max(10)
+  }).strict();
+  var SabangnetMallListingsResultSchema = external_exports.object({
+    malls: external_exports.array(SabangnetMallListingsPublicationSchema),
+    rows: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT)
+  }).strict();
+  var SabangnetMallListingsSourceSchema = external_exports.object({
+    /** 받을 몰 계정 행이 하나라도 있는가. */
+    ready: external_exports.boolean(),
+    malls: external_exports.array(SabangnetMallListingsSourceMallSchema),
+    latestOperation: OperationViewSchema.nullable(),
+    latestSucceeded: OperationViewSchema.nullable(),
+    /** `latestSucceeded` 가 몰마다 남긴 결과. */
+    latestPublication: external_exports.array(SabangnetMallListingsPublicationSchema)
+  }).strict();
+  var SabangnetMallListingRowSchema = external_exports.object({
+    /** 사방넷 송신번호(`prdRegsTrnmSrno`). 같은 기록이 두 번 오면 거절한다. */
+    sendSerial: external_exports.string().regex(/^\d{1,30}$/),
+    sabangnetShopId: SHOP_ID,
+    /** 몰 상품코드(`shmaPrdNo`). 옵션 외부 ID 칸이 60자다. */
+    mallProductCode: requiredText2(60),
+    /** 사방넷 품번(`prdNo`). */
+    sabangnetProductNo: external_exports.string().regex(/^\d{1,30}$/),
+    /** 사방넷 모델명(`modlNm`). 셀피아 재고 SKU 코드와 같다. */
+    modelName: requiredText2(120).nullable(),
+    /** 사방넷 자체상품코드(`onsfPrdCd`). 바코드인 경우가 많다. */
+    ownProductCode: requiredText2(120).nullable(),
+    productName: requiredText2(400),
+    salePrice: external_exports.number().int().nonnegative().max(1e9).nullable(),
+    /** 사방넷 공급상태 이름(`prdSplyStsCdNm`) — 공급중 · 일시중지 · 완전품절 · 대기중. */
+    supplyStatus: requiredText2(20),
+    /** 첫 송신 시각(`prdRegsFstTrnmDt`, `yyyyMMdd HH:mm`). */
+    firstSentAt: external_exports.string().regex(/^\d{8} \d{2}:\d{2}$/).nullable()
+  }).strict();
+  var SabangnetMallListingsCollectionSchema = external_exports.object({
+    /** 사방넷이 알린 전체 송신 기록 수(모든 몰). */
+    totalRecords: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT),
+    /** 실제로 읽은 송신 기록 수(실패 메시지 줄 제외, 모든 몰). */
+    recordsRead: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT),
+    pagesRead: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_PAGE_LIMIT),
+    totalPages: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_PAGE_LIMIT),
+    truncated: external_exports.boolean(),
+    /** 계획에 없는 쇼핑몰의 기록 수. 넘기지 않고 세기만 한다. */
+    skippedByShop: external_exports.record(SHOP_ID, external_exports.number().int().min(1).max(SABANGNET_MALL_LISTING_ROW_LIMIT)).refine((value) => Object.keys(value).length <= 200, "Too many skipped shops"),
+    /** 몰 상품코드가 비어 넘기지 못한 기록 수. */
+    missingMallCode: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT)
+  }).strict();
+  var SabangnetMallListingsScanSchema = external_exports.object({
+    collection: SabangnetMallListingsCollectionSchema,
+    proof: external_exports.object({
+      dateFrom: YYYYMMDD,
+      dateTo: YYYYMMDD,
+      pageSize: external_exports.literal(SABANGNET_MALL_LISTING_PAGE_SIZE),
+      validatedList: external_exports.literal(true)
+    }).strict()
+  }).strict();
+
+  // extensions/src/collectors/channels.sabangnet_mall_listings/index.ts
+  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var MALL_CONTRACT_CHANGED = "MALL_CONTRACT_CHANGED";
+  var SOURCE_SNAPSHOT_INVALID2 = "SOURCE_SNAPSHOT_INVALID";
+  var CHUNK_ROWS2 = 500;
   function drift(stage) {
     throw new RuntimeError(MALL_CONTRACT_CHANGED, `\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4. [${stage}]`, { stage });
   }
@@ -4465,12 +4792,12 @@ var KidItemRuntime = (() => {
     site: "sabangnet",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed = SabangnetMallListingsPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC0AC\uBC29\uB137 \uAC00\uC838\uC624\uAE30 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC0AC\uBC29\uB137 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC0AC\uBC29\uB137 \uAC00\uC838\uC624\uAE30 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC0AC\uBC29\uB137 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
       const plan = parsed.data;
       const planned = new Set(plan.malls.flatMap((mall) => mall.sabangnetShopIds));
       const query = { listPath: plan.listPath, dateFrom: plan.dateFrom, dateTo: plan.dateTo, pageSize: plan.pageSize };
-      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS, label: "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D \uD55C \uC904" });
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS2, label: "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D \uD55C \uC904" });
       const seen = /* @__PURE__ */ new Set();
       const skippedByShop = {};
       let missingMallCode = 0;
@@ -4486,14 +4813,14 @@ var KidItemRuntime = (() => {
           if (totalRecords === null) {
             totalRecords = page.total;
             if (totalRecords > SABANGNET_MALL_LISTING_ROW_LIMIT) {
-              throw new RuntimeError(SOURCE_SNAPSHOT_INVALID, "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC774 \uD55C \uBC88\uC5D0 \uAC00\uC838\uC62C \uC218 \uC788\uB294 \uC218\uB97C \uB118\uC2B5\uB2C8\uB2E4.", { stage: "row_limit", totalRecords });
+              throw new RuntimeError(SOURCE_SNAPSHOT_INVALID2, "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC774 \uD55C \uBC88\uC5D0 \uAC00\uC838\uC62C \uC218 \uC788\uB294 \uC218\uB97C \uB118\uC2B5\uB2C8\uB2E4.", { stage: "row_limit", totalRecords });
             }
             totalPages = Math.max(1, Math.ceil(totalRecords / plan.pageSize));
             if (totalPages > SABANGNET_MALL_LISTING_PAGE_LIMIT) {
-              throw new RuntimeError(SOURCE_SNAPSHOT_INVALID, "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D \uCABD \uC218\uAC00 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4.", { stage: "page_limit", totalPages });
+              throw new RuntimeError(SOURCE_SNAPSHOT_INVALID2, "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D \uCABD \uC218\uAC00 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4.", { stage: "page_limit", totalPages });
             }
           } else if (page.total !== totalRecords) {
-            throw new RuntimeError(SOURCE_SNAPSHOT_INVALID, "\uC77D\uB294 \uC0AC\uC774 \uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC774 \uB298\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.", { stage: "total_changed" });
+            throw new RuntimeError(SOURCE_SNAPSHOT_INVALID2, "\uC77D\uB294 \uC0AC\uC774 \uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC774 \uB298\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.", { stage: "total_changed" });
           }
           pagesRead += 1;
           for (const item of page.items) {
@@ -4636,12 +4963,12 @@ var KidItemRuntime = (() => {
   var SELLPIA_MANUAL_MATCH_CHUNK_KIND = "match_results";
 
   // extensions/src/collectors/channels.sellpia_manual_match/index.ts
-  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
   var MALL_CONTRACT_CHANGED2 = "MALL_CONTRACT_CHANGED";
-  var SOURCE_SNAPSHOT_INVALID2 = "SOURCE_SNAPSHOT_INVALID";
+  var SOURCE_SNAPSHOT_INVALID3 = "SOURCE_SNAPSHOT_INVALID";
   var SEARCH_BATCH = 100;
   var STATUS_BATCH = 100;
-  var CHUNK_ROWS2 = 2e3;
+  var CHUNK_ROWS3 = 2e3;
   function identity(row) {
     return [row.productCode, row.aliasTitle, String(row.itemCount).padStart(10, "0"), row.matchedType].join("\0");
   }
@@ -4650,8 +4977,8 @@ var KidItemRuntime = (() => {
     site: "sellpia",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed = SellpiaManualMatchPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
       const { targetCodes } = parsed.data;
       try {
         const byMd5 = /* @__PURE__ */ new Map();
@@ -4670,7 +4997,7 @@ var KidItemRuntime = (() => {
             byMd5.set(candidate.matchMd5, group);
           }
           if (candidates > MAX_SELLPIA_MANUAL_MATCH_ROWS) {
-            throw new RuntimeError(SOURCE_SNAPSHOT_INVALID2, "\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uADFC\uAC70\uAC00 \uD55C \uBC88\uC5D0 \uBC1B\uC744 \uC218 \uC788\uB294 \uC218\uB97C \uB118\uC2B5\uB2C8\uB2E4.", { candidates });
+            throw new RuntimeError(SOURCE_SNAPSHOT_INVALID3, "\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uADFC\uAC70\uAC00 \uD55C \uBC88\uC5D0 \uBC1B\uC744 \uC218 \uC788\uB294 \uC218\uB97C \uB118\uC2B5\uB2C8\uB2E4.", { candidates });
           }
           await report?.({ searched: Math.min(offset + SEARCH_BATCH, targetCodes.length), targets: targetCodes.length, candidates });
         }
@@ -4699,7 +5026,7 @@ var KidItemRuntime = (() => {
         }
         const rows = [...aggregated.entries()].sort(([left], [right]) => left < right ? -1 : left > right ? 1 : 0).map(([, row]) => row);
         const progress4 = { searched: targetCodes.length, targets: targetCodes.length, candidates, rows: rows.length };
-        const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS2, label: "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uADFC\uAC70 \uD55C \uC904" });
+        const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS3, label: "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uADFC\uAC70 \uD55C \uC904" });
         for (const row of rows) {
           const full = buffer.push(row);
           if (full) yield { chunkKind: SELLPIA_MANUAL_MATCH_CHUNK_KIND, payload: full, progress: progress4 };
@@ -5336,8 +5663,8 @@ var KidItemRuntime = (() => {
   // packages/shared/src/schemas/rocket-purchase-preview.ts
   var ROCKET_PO_ROW_LIMIT = 4e3;
   var ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT = 1e5;
-  var boundedText2 = (max) => external_exports.string().trim().max(max);
-  var requiredText2 = (max) => boundedText2(max).min(1);
+  var boundedText3 = (max) => external_exports.string().trim().max(max);
+  var requiredText3 = (max) => boundedText3(max).min(1);
   var isoDay2 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var RocketPoSourceBeginSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
@@ -5349,12 +5676,12 @@ var KidItemRuntime = (() => {
   }).strict().refine((value) => value.from <= value.to, "Invalid date range");
   var RocketPoCollectionEvidenceSchema = external_exports.object({
     collectionRunId: external_exports.string().uuid(),
-    vendorId: boundedText2(120),
+    vendorId: boundedText3(120),
     listPagesRead: external_exports.number().int().min(0).max(ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT),
     totalListPages: external_exports.number().int().min(0).max(ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT),
     truncated: external_exports.boolean(),
     detailPoCount: external_exports.number().int().min(0).max(ROCKET_PO_ROW_LIMIT),
-    failedPoNumbers: external_exports.array(requiredText2(80)).max(ROCKET_PO_ROW_LIMIT)
+    failedPoNumbers: external_exports.array(requiredText3(80)).max(ROCKET_PO_ROW_LIMIT)
   }).strict().superRefine((value, ctx) => {
     if (new Set(value.failedPoNumbers).size !== value.failedPoNumbers.length) {
       ctx.addIssue({
@@ -5365,36 +5692,36 @@ var KidItemRuntime = (() => {
     }
   });
   var RocketPoCatalogRowSchema = external_exports.object({
-    poLineId: requiredText2(300),
-    poNumber: requiredText2(80),
-    vendorId: boundedText2(120),
-    productNo: requiredText2(60),
-    barcode: boundedText2(80),
-    productName: requiredText2(240),
+    poLineId: requiredText3(300),
+    poNumber: requiredText3(80),
+    vendorId: boundedText3(120),
+    productNo: requiredText3(60),
+    barcode: boundedText3(80),
+    productName: requiredText3(240),
     orderQty: external_exports.number().int().nonnegative().max(1e7),
     plannedDeliveryDate: isoDay2,
-    poStatusCode: boundedText2(20).optional(),
+    poStatusCode: boundedText3(20).optional(),
     businessDateBasis: external_exports.enum(["ordered_at", "expected_inbound"]).optional(),
     confirmation: external_exports.object({
-      center: boundedText2(120),
-      inboundType: boundedText2(80),
-      poStatus: boundedText2(80),
-      returnManager: boundedText2(120),
-      returnContact: boundedText2(80),
-      returnAddress: boundedText2(300),
+      center: boundedText3(120),
+      inboundType: boundedText3(80),
+      poStatus: boundedText3(80),
+      returnManager: boundedText3(120),
+      returnContact: boundedText3(80),
+      returnAddress: boundedText3(300),
       purchasePrice: external_exports.number().int().nonnegative().max(1e9),
       supplyPrice: external_exports.number().int().nonnegative().max(1e9),
       vat: external_exports.number().int().nonnegative().max(1e9),
       totalPurchase: external_exports.number().int().nonnegative().max(1e9),
-      poRegisteredAt: boundedText2(40),
-      xdock: boundedText2(20)
+      poRegisteredAt: boundedText3(40),
+      xdock: boundedText3(20)
     }).strict().optional()
   }).strict();
   var RocketSavedPoListRequestSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
     from: isoDay2,
     to: isoDay2,
-    status: boundedText2(80).optional()
+    status: boundedText3(80).optional()
   }).strict().superRefine((value, ctx) => {
     if (value.to < value.from) {
       ctx.addIssue({
@@ -5407,14 +5734,14 @@ var KidItemRuntime = (() => {
   var RocketSavedPoSummarySchema = external_exports.object({
     /** 이 발주를 발행한 로켓 PO 수집 실행(Orders `orders.coupang_rocket_po`, KID-359). */
     rocketPoOperationId: external_exports.string().uuid(),
-    poNumber: requiredText2(80),
-    orderedAt: boundedText2(40),
+    poNumber: requiredText3(80),
+    orderedAt: boundedText3(40),
     plannedDeliveryDate: isoDay2,
-    status: boundedText2(80),
-    vendorId: boundedText2(120),
-    centerName: boundedText2(120),
-    inboundType: boundedText2(80),
-    firstProductName: requiredText2(240),
+    status: boundedText3(80),
+    vendorId: boundedText3(120),
+    centerName: boundedText3(120),
+    inboundType: boundedText3(80),
+    firstProductName: requiredText3(240),
     skuCount: external_exports.number().int().nonnegative(),
     orderQuantity: external_exports.number().int().nonnegative(),
     /** Null when any listed line has no provider-confirmed total. */
@@ -5432,7 +5759,7 @@ var KidItemRuntime = (() => {
     // 여러 수집본에 반복 등장한다(`poLineId` 는 수집본 간에 안정적). 운영자가 "이번에
     // 새로 들어온 것만" 보려면 이 집합을 빼야 한다. 행 스키마는 요청 본문으로도 쓰이므로
     // 행에 필드를 더하지 않고 별도 목록으로 내려준다.
-    exportedPoLineIds: external_exports.array(requiredText2(300)).max(ROCKET_PO_ROW_LIMIT)
+    exportedPoLineIds: external_exports.array(requiredText3(300)).max(ROCKET_PO_ROW_LIMIT)
   }).strict();
   var RocketPurchaseRequestBaseSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
@@ -5502,12 +5829,12 @@ var KidItemRuntime = (() => {
   var RocketShortageReasonSchema = external_exports.enum(ROCKET_SHORTAGE_REASONS);
   var RocketWorkbookDecisionRequestSchema = RocketPurchaseRequestBaseSchema.omit({ clampEditedQuantities: true }).extend({
     idempotencyKey: external_exports.string().uuid(),
-    selectedPoLineIds: external_exports.array(requiredText2(300)).min(1).max(4e3).optional(),
+    selectedPoLineIds: external_exports.array(requiredText3(300)).min(1).max(4e3).optional(),
     shortageReasons: external_exports.record(
       external_exports.string().min(1).max(300),
       RocketShortageReasonSchema
     ),
-    artifactFileName: requiredText2(240),
+    artifactFileName: requiredText3(240),
     artifactContentType: external_exports.literal(
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
@@ -5598,17 +5925,17 @@ var KidItemRuntime = (() => {
   }).strict();
   var RocketPurchasePreviewComponentSchema = external_exports.object({
     masterProductId: external_exports.string().uuid(),
-    code: requiredText2(120).nullable(),
-    name: requiredText2(240).nullable(),
+    code: requiredText3(120).nullable(),
+    name: requiredText3(240).nullable(),
     optionName: external_exports.string().trim().min(1).max(240).nullable(),
     quantity: external_exports.number().int().positive(),
     currentStock: external_exports.number().int().nonnegative().nullable()
   }).strict();
   var RocketPurchasePreviewRowSchema = external_exports.object({
-    poLineId: requiredText2(300),
-    poNumber: requiredText2(80),
-    productNo: requiredText2(60),
-    productName: requiredText2(240),
+    poLineId: requiredText3(300),
+    poNumber: requiredText3(80),
+    productNo: requiredText3(60),
+    productName: requiredText3(240),
     plannedDeliveryDate: isoDay2,
     orderQuantity: external_exports.number().int().nonnegative(),
     recommendedQuantity: external_exports.number().int().nonnegative().nullable(),
@@ -5640,7 +5967,7 @@ var KidItemRuntime = (() => {
     inventoryGeneration: external_exports.string().regex(/^\d+$/).nullable(),
     generatedAt: external_exports.string().datetime(),
     artifact: external_exports.object({
-      fileName: requiredText2(240),
+      fileName: requiredText3(240),
       contentType: external_exports.literal(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       ),
@@ -5654,7 +5981,7 @@ var KidItemRuntime = (() => {
       componentQuantity: external_exports.number().int().nonnegative()
     }).strict(),
     rows: external_exports.array(external_exports.object({
-      poLineId: requiredText2(300),
+      poLineId: requiredText3(300),
       workbookQuantity: external_exports.number().int().nonnegative(),
       shortageReason: RocketShortageReasonSchema.nullable()
     }).strict()).max(ROCKET_PO_ROW_LIMIT)
@@ -5906,7 +6233,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/collectors/orders.coupang_directship/index.ts
-  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
   var MAX_LIST_PAGES = 40;
   var WINDOW_DAYS = 30;
   var DETAIL_CONCURRENCY = 5;
@@ -5917,9 +6244,9 @@ var KidItemRuntime = (() => {
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       if (!CoupangDirectshipPlanSchema.safeParse(rawPlan).success) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+        throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       }
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       try {
         const now = Date.now();
         const query = { searchDateType: "WAREHOUSING_PLAN_DATE", from: kstDay(now, 0), to: kstDay(now, WINDOW_DAYS), status: "PA" };
@@ -6188,14 +6515,14 @@ var KidItemRuntime = (() => {
     maxPagesPerWindow: external_exports.number().int().min(1)
   });
   var COUPANG_REVIEWS_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
-  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
   var coupangReviewsCollector = {
     kind: COUPANG_REVIEWS_KIND,
     site: "wing-reviews",
     async *collect(rawPlan, site, { signal }) {
       const parsed = CoupangReviewsPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
       const plan = parsed.data;
       const done = [];
       for (const window of plan.windows) {
@@ -6238,7 +6565,7 @@ var KidItemRuntime = (() => {
 
   // extensions/src/collectors/orders.coupang_rocket_po/index.ts
   var ROCKET_PO_COLLECTION_INCOMPLETE = "ROCKET_PO_COLLECTION_INCOMPLETE";
-  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
   var DETAIL_CONCURRENCY2 = 5;
   var CHUNK_PURCHASE_ORDERS = 200;
   var coupangRocketPoCollector = {
@@ -6246,8 +6573,8 @@ var KidItemRuntime = (() => {
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed = CoupangRocketPoPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
       const plan = parsed.data;
       try {
         const query = { searchDateType: plan.dateType, from: plan.from, to: plan.to, status: plan.status };
@@ -6313,12 +6640,12 @@ var KidItemRuntime = (() => {
   function listedPo(raw, status, page) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw incomplete2(`\uBC1C\uC8FC \uBAA9\uB85D ${page}\uCABD\uC5D0 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC740 \uD589\uC774 \uC788\uC2B5\uB2C8\uB2E4.`);
     const row = raw;
-    const poNumber = requiredText3(row.purchaseOrderSeq, "\uBC1C\uC8FC\uC11C \uBC88\uD638");
-    const purchaseOrderStatus = requiredText3(row.purchaseOrderStatus || row.purchaseOrderStatusCode, `\uBC1C\uC8FC\uC11C ${poNumber} \uC0C1\uD0DC`).toUpperCase();
+    const poNumber = requiredText4(row.purchaseOrderSeq, "\uBC1C\uC8FC\uC11C \uBC88\uD638");
+    const purchaseOrderStatus = requiredText4(row.purchaseOrderStatus || row.purchaseOrderStatusCode, `\uBC1C\uC8FC\uC11C ${poNumber} \uC0C1\uD0DC`).toUpperCase();
     if (status && purchaseOrderStatus !== status) throw incomplete2(`\uBC1C\uC8FC\uC11C ${poNumber}\uAC00 ${status} \uC870\uD68C\uC5D0 ${purchaseOrderStatus} \uC0C1\uD0DC\uB85C \uC654\uC2B5\uB2C8\uB2E4.`);
     return {
       poNumber,
-      vendorId: requiredText3(row.vendorId, `\uBC1C\uC8FC\uC11C ${poNumber} \uACF5\uAE09\uC790 ID`),
+      vendorId: requiredText4(row.vendorId, `\uBC1C\uC8FC\uC11C ${poNumber} \uACF5\uAE09\uC790 ID`),
       purchaseOrderStatus,
       plannedDeliveryDate: requiredDate(row.expectedDeliveryDate, `\uBC1C\uC8FC\uC11C ${poNumber} \uC785\uACE0\uC608\uC815\uC77C`),
       listSkuCount: requiredInteger(row.skuCount, `\uBC1C\uC8FC\uC11C ${poNumber} SKU \uC218`),
@@ -6366,11 +6693,11 @@ var KidItemRuntime = (() => {
       skip = rowSpan - 1;
       if (!/^\d+$/.test(values[0] ?? "")) continue;
       if (values.length <= 9) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uCE78\uC774 \uBAA8\uC790\uB780 SKU \uD589\uC774 \uC788\uC2B5\uB2C8\uB2E4.`);
-      const lineNumber = requiredText3(values[0], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC904 \uBC88\uD638`);
+      const lineNumber = requiredText4(values[0], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC904 \uBC88\uD638`);
       if (lineNumbers.has(lineNumber)) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uAC19\uC740 \uC904 \uBC88\uD638\uAC00 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.`);
       lineNumbers.add(lineNumber);
-      const productNo = requiredText3(values[1], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488\uBC88\uD638`);
-      const productText = requiredText3(values[2], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488`);
+      const productNo = requiredText4(values[1], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488\uBC88\uD638`);
+      const productText = requiredText4(values[2], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488`);
       const barcode = (/^\d{8,}/.exec(productText) ?? [""])[0];
       const productName = clean(productText, 240);
       if (!productName) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC758 \uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
@@ -6428,7 +6755,7 @@ var KidItemRuntime = (() => {
   function clean(value, max) {
     return String(value ?? "").replace(/[\u0000-\u001F]/g, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, max);
   }
-  function requiredText3(value, field) {
+  function requiredText4(value, field) {
     const text3 = norm(value);
     if (!text3) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
     return text3;
@@ -6467,14 +6794,14 @@ var KidItemRuntime = (() => {
   // extensions/src/collectors/orders.coupang_shipment_summary/index.ts
   var PlanSchema = external_exports.object({ maxPages: external_exports.number().int().min(1).max(60) });
   var PAGE_FETCH_CONCURRENCY = 6;
-  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
   var coupangShipmentSummaryCollector = {
     kind: COUPANG_SHIPMENT_SUMMARY_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed = PlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
       const { maxPages } = parsed.data;
       try {
         const seen = /* @__PURE__ */ new Set();
@@ -6553,8 +6880,8 @@ var KidItemRuntime = (() => {
     selectionMode: external_exports.enum(["manual", "automatic"]).optional(),
     seenRowKeys: external_exports.array(external_exports.string()).optional()
   });
-  var CHUNK_ROWS3 = 200;
-  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
+  var CHUNK_ROWS4 = 200;
+  var RUNTIME_PLAN_INVALID8 = "RUNTIME_PLAN_INVALID";
   var mallOrdersCollector = {
     kind: MALL_ORDERS_KIND,
     site: "mall-orders",
@@ -6562,7 +6889,7 @@ var KidItemRuntime = (() => {
       const parsed = PlanSchema2.safeParse(rawPlan);
       const reader = parsed.success && site ? site.reader(parsed.data.mallKey) : null;
       if (!parsed.success || !reader) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ORDERS_KIND,
           mallKey: parsed.success ? parsed.data.mallKey : null
         });
@@ -6577,7 +6904,7 @@ var KidItemRuntime = (() => {
         });
         if (signal.aborted) return;
         const progress4 = { mallKey: plan.mallKey, rows: rows.length };
-        const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS3, label: "\uC8FC\uBB38 \uD55C \uAC74" });
+        const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS4, label: "\uC8FC\uBB38 \uD55C \uAC74" });
         for (const row of rows) {
           const full = buffer.push(row);
           if (full) yield { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: full, progress: progress4 };
@@ -6597,19 +6924,19 @@ var KidItemRuntime = (() => {
     startDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     endDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/)
   });
-  var CHUNK_ROWS4 = 500;
-  var RUNTIME_PLAN_INVALID8 = "RUNTIME_PLAN_INVALID";
+  var CHUNK_ROWS5 = 500;
+  var RUNTIME_PLAN_INVALID9 = "RUNTIME_PLAN_INVALID";
   var sellpiaShipmentTrackingCollector = {
     kind: SELLPIA_SHIPMENT_TRACKING_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
       const parsed = PlanSchema3.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
       const { rows, total } = await site.shipmentTracking({ startDate: parsed.data.startDate, endDate: parsed.data.endDate });
       if (signal.aborted) return;
       const progress4 = { rows: rows.length, listed: total };
-      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS4, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS5, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
       for (const row of rows) {
         const full = buffer.push(row);
         if (full) yield { chunkKind: SELLPIA_SHIPMENT_TRACKING_CHUNK_KIND, payload: full, progress: progress4 };
@@ -7443,10 +7770,64 @@ var KidItemRuntime = (() => {
     });
   }
 
+  // extensions/src/sites/mall-listings.ts
+  var READ_TIMEOUT_MS = 20 * 6e4;
+  var NAVIGATION_TIMEOUT_MS3 = 45e3;
+  var MALL_CONTRACT_CHANGED3 = "MALL_CONTRACT_CHANGED";
+  var SOURCE_SNAPSHOT_INVALID4 = "SOURCE_SNAPSHOT_INVALID";
+  function readMallListings(tabs, spec, plan) {
+    const login = `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${spec.displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`;
+    return withFreshTab(tabs, spec.startUrl, async (page) => {
+      const answer = await callPage(page, spec.call, { plan }, {
+        timeoutMs: READ_TIMEOUT_MS,
+        guard: spec.guard,
+        isolated: [spec.file],
+        displayName: spec.displayName
+      });
+      if (answer?.success === true) return answer.snapshot;
+      const stage = answer?.stage ?? null;
+      switch (answer?.errorCode) {
+        case "mall_login_required":
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, login, { url: spec.startUrl });
+        case "mall_contract_drift":
+          throw new RuntimeError(MALL_CONTRACT_CHANGED3, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.${stage ? ` [${stage}]` : ""}`, { stage, mallKey: spec.mallKey });
+        case "mall_total_changed":
+          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `\uC77D\uB294 \uC0AC\uC774 ${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`, { stage: "total_changed", mallKey: spec.mallKey });
+        case "mall_invalid_snapshot":
+          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { stage, mallKey: spec.mallKey });
+        case "mall_timeout":
+          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "timeout", bodyHead: null });
+        default:
+          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "network", bodyHead: null });
+      }
+    }, { navigationTimeoutMs: NAVIGATION_TIMEOUT_MS3 });
+  }
+
+  // extensions/src/sites/art09/listings.ts
+  var ART09_LISTINGS_URL = "https://zzogzzog1.cafe24.com/disp/admin/shop1/product/ProductManage";
+  var ART09_LISTINGS_FILE = "content/orders/art09-listings.js";
+  var ART09_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["cafe24.com"]),
+    isLogin: (url) => hostWithin(url, ["cafe24.com"]) && !/\/product\/ProductManage$/i.test(url.pathname),
+    loginMessage: "\uC544\uD2B8\uACF5\uAD6C \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC544\uD2B8\uACF5\uAD6C \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  function createArt09Listings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "art09",
+        displayName: "\uC544\uD2B8\uACF5\uAD6C",
+        startUrl: ART09_LISTINGS_URL,
+        file: ART09_LISTINGS_FILE,
+        call: "art09.listings",
+        guard: ART09_LISTINGS_GUARD
+      }, plan)
+    };
+  }
+
   // extensions/src/sites/art09/index.ts
   var ART09_ORDER_URL = "https://zzogzzog1.cafe24.com/admin/php/shop1/s_new/order_list.php?1&shop_no=1";
   var ART09_ORDERS_FILE = "content/orders/art09-orders.js";
-  var READ_TIMEOUT_MS = 18e4;
+  var READ_TIMEOUT_MS2 = 18e4;
   var LOGIN_MESSAGE = "\uC544\uD2B8\uACF5\uAD6C \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. zzogzzog1.cafe24.com \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
   var ART09_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["zzogzzog1.cafe24.com"]),
@@ -7455,10 +7836,11 @@ var KidItemRuntime = (() => {
   };
   function createArt09Site(tabs) {
     return {
+      ...createArt09Listings(tabs),
       readOrders(input) {
         return withFreshTab(tabs, ART09_ORDER_URL, async (page) => {
           const answer = await callPage(page, "art09.orders", { dateFilter: input.collectionDate ?? "" }, {
-            timeoutMs: READ_TIMEOUT_MS,
+            timeoutMs: READ_TIMEOUT_MS2,
             guard: ART09_PAGE_GUARD,
             isolated: [ART09_ORDERS_FILE],
             displayName: "\uC544\uD2B8\uACF5\uAD6C"
@@ -7728,7 +8110,7 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/coupang-supplier/po.ts
   var PO_BOOTSTRAP_URL = `${COUPANG_SUPPLIER_ORIGIN}/scm/purchase/order/list`;
   var PO_READY_PATH_PREFIX = "/po-web/purchase/order";
-  var NAVIGATION_TIMEOUT_MS3 = 3e4;
+  var NAVIGATION_TIMEOUT_MS4 = 3e4;
   function isReadyPoUrl(value) {
     try {
       const url = new URL(value);
@@ -7740,7 +8122,7 @@ var KidItemRuntime = (() => {
   async function preparePoSession(tab) {
     const page = supplierPage(tab);
     for (let attempt = 1; ; attempt += 1) {
-      const landed = await tab.navigate(PO_BOOTSTRAP_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
+      const landed = await tab.navigate(PO_BOOTSTRAP_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS4 });
       if (isReadyPoUrl(landed)) return page;
       const body = isSupplierUrl(landed) ? await page.bodyText().catch(() => "") : "";
       if (/HTTP Status 400|Bad Request/i.test(body)) throw cookieBloat(landed, 400);
@@ -7784,7 +8166,7 @@ var KidItemRuntime = (() => {
     return tables;
   }
   async function enterScmContext(tab, poNumber) {
-    await tab.navigate(`${COUPANG_SUPPLIER_ORIGIN}${purchaseOrderDetailPath(poNumber)}`, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
+    await tab.navigate(`${COUPANG_SUPPLIER_ORIGIN}${purchaseOrderDetailPath(poNumber)}`, { timeoutMs: NAVIGATION_TIMEOUT_MS4 });
   }
   async function readPurchasableCenters(page) {
     const path = "/po-web/app/center/purchasable/list";
@@ -7849,7 +8231,7 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/coupang-supplier/index.ts
-  var NAVIGATION_TIMEOUT_MS4 = 3e4;
+  var NAVIGATION_TIMEOUT_MS5 = 3e4;
   function purchaseOrderListPath(query, pageNumber) {
     return "/po-web/app/purchase-order/list?page=" + pageNumber + "&searchDateType=" + query.searchDateType + "&searchStartDate=" + query.from + "&searchEndDate=" + query.to + "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=" + query.status + "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
   }
@@ -7867,7 +8249,7 @@ var KidItemRuntime = (() => {
       shipmentPage ??= (async () => {
         const tab = await deps.tabs.open("about:blank");
         shipmentTab = tab;
-        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS4, continueOnTimeout: true });
+        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS5, continueOnTimeout: true });
         return supplierPage(tab);
       })();
       return shipmentPage;
@@ -7915,6 +8297,22 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "coupang-supplier", origin: PO_BOOTSTRAP_URL, create: (deps, lease) => createCoupangSupplierSite(deps, lease) });
+
+  // extensions/src/sites/domeggook/listings.ts
+  var DOMEGGOOK_LISTINGS_URL = "https://www.domeggook.com/sc/item/lstAll";
+  var DOMEGGOOK_LISTINGS_FILE = "content/orders/domeggook-listings.js";
+  function createDomeggookListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "domeggook",
+        displayName: "\uB3C4\uB9E4\uAFB9",
+        startUrl: DOMEGGOOK_LISTINGS_URL,
+        file: DOMEGGOOK_LISTINGS_FILE,
+        call: "domeggook.listings",
+        guard: DOMEGGOOK_PAGE_GUARD
+      }, plan)
+    };
+  }
 
   // extensions/src/sites/domeggook/index.ts
   var DOMEGGOOK_ORDER_LIST_URL = "https://domeggook.com/sc/order/lstAll";
@@ -7964,6 +8362,7 @@ var KidItemRuntime = (() => {
   function createDomeggookSite(tabs, deps) {
     const caller = createSiteCaller({ minIntervalMs: 0, displayName: "\uB3C4\uB9E4\uAFB9", timeoutMs: 3e4 }, deps);
     return {
+      ...createDomeggookListings(tabs),
       async readOrders(input) {
         const before = await orderList(caller);
         const beforeReq = String(before[0]?.dateReq ?? "");
@@ -8014,6 +8413,22 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "domeggook", create: (deps) => createDomeggookSite(deps.tabs, deps) });
+
+  // extensions/src/sites/icecream-mall/listings.ts
+  var ICECREAM_LISTINGS_URL = "https://po.i-screammall.co.kr/goods/goodsMgmt.goodsMgmtView.do";
+  var ICECREAM_LISTINGS_FILE = "content/orders/icecream-listings.js";
+  function createIcecreamListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "icecream-mall",
+        displayName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
+        startUrl: ICECREAM_LISTINGS_URL,
+        file: ICECREAM_LISTINGS_FILE,
+        call: "icecream-mall.listings",
+        guard: ICECREAM_PAGE_GUARD
+      }, plan)
+    };
+  }
 
   // extensions/src/sites/icecream-mall/index.ts
   var ICECREAM_MALL_URL = "https://po.i-screammall.co.kr/main.do";
@@ -8111,6 +8526,7 @@ var KidItemRuntime = (() => {
       return page.frames([ICECREAM_FRAMES_FILE]);
     }
     return {
+      ...createIcecreamListings(tabs),
       readOrders(input) {
         return withFreshTab(tabs, ICECREAM_MALL_URL, async (page) => {
           for (let round = 0; round < LOGIN_WATCH_ROUNDS; round += 1) {
@@ -8166,10 +8582,26 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "icecream-mall", create: (deps) => createIcecreamMallSite(deps.tabs, deps.sleep) });
 
+  // extensions/src/sites/kidkids/listings.ts
+  var KIDKIDS_LISTINGS_URL = "https://partner.kidkids.net/sales/goods_list_renewal.htm?pNum=1";
+  var KIDKIDS_LISTINGS_FILE = "content/orders/kidkids-listings.js";
+  function createKidkidsListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "kidkids",
+        displayName: "\uD0A4\uB4DC\uD0A4\uC988",
+        startUrl: KIDKIDS_LISTINGS_URL,
+        file: KIDKIDS_LISTINGS_FILE,
+        call: "kidkids.listings",
+        guard: KIDKIDS_PAGE_GUARD
+      }, plan)
+    };
+  }
+
   // extensions/src/sites/kidkids/index.ts
   var KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
   var KIDKIDS_ORDERS_FILE = "content/orders/kidkids-orders.js";
-  var READ_TIMEOUT_MS2 = 18e4;
+  var READ_TIMEOUT_MS3 = 18e4;
   var LOGIN_MESSAGE4 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var KIDKIDS_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["kidkids.net"]),
@@ -8178,10 +8610,11 @@ var KidItemRuntime = (() => {
   };
   function createKidkidsSite(tabs) {
     return {
+      ...createKidkidsListings(tabs),
       readOrders(input) {
         return withFreshTab(tabs, KIDKIDS_ORDER_URL, async (page) => {
           const answer = await callPage(page, "kidkids.orders", { dateFilter: input.collectionDate ?? "" }, {
-            timeoutMs: READ_TIMEOUT_MS2,
+            timeoutMs: READ_TIMEOUT_MS3,
             guard: KIDKIDS_PAGE_GUARD,
             isolated: [KIDKIDS_ORDERS_FILE],
             displayName: "\uD0A4\uB4DC\uD0A4\uC988"
@@ -8200,7 +8633,7 @@ var KidItemRuntime = (() => {
   registerSite({ name: "kidkids", create: (deps) => createKidkidsSite(deps.tabs) });
 
   // extensions/src/sites/live-commerce/index.ts
-  var NAVIGATION_TIMEOUT_MS5 = 35e3;
+  var NAVIGATION_TIMEOUT_MS6 = 35e3;
   var EXTRACTION_TIMEOUT_MS2 = 25e3;
   var MAX_PRODUCTS = 100;
   var CONTENT_FILES = {
@@ -8240,14 +8673,14 @@ var KidItemRuntime = (() => {
         let keepOpen = false;
         try {
           const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
-          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS5, stopAt });
+          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS6, stopAt });
           for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
             const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
             if (!cleared) {
               keepOpen = true;
               throw verification2(landed);
             }
-            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS5, stopAt });
+            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS6, stopAt });
           }
           if (isLiveLoginUrl(landed)) {
             keepOpen = true;
@@ -8286,6 +8719,16 @@ var KidItemRuntime = (() => {
     return new RuntimeError(SITE_VERIFICATION_REQUIRED2, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
   }
   registerSite({ name: LIVE_COMMERCE_SITE.name, create: (deps) => createLiveCommerceSite(deps.tabs) });
+
+  // extensions/src/sites/mall-admin-listings/index.ts
+  var MALL_ADMIN_LISTINGS_SITE = "mall-admin-listings";
+  registerSite({
+    name: MALL_ADMIN_LISTINGS_SITE,
+    opensOwnTabs: true,
+    create: (deps, lease) => ({
+      reader: (mallKey) => isMallAdminListingOperationMall(mallKey) ? siteFactoryFor(mallKey)?.create(deps, lease) ?? null : null
+    })
+  });
 
   // extensions/src/sites/mall-orders/index.ts
   var MALL_ORDERS_SITE = "mall-orders";
@@ -8466,11 +8909,11 @@ var KidItemRuntime = (() => {
   var SABANGNET_ORIGIN = "https://sbadmin08.sabangnet.co.kr";
   var PAGE_URL = `${SABANGNET_ORIGIN}/`;
   var SABANGNET_MALL_LISTINGS_FILE = "content/orders/sabangnet-mall-listings.js";
-  var NAVIGATION_TIMEOUT_MS6 = 45e3;
+  var NAVIGATION_TIMEOUT_MS7 = 45e3;
   var PAGE_CALL_TIMEOUT_MS = 35e3;
   var SABANGNET_PAGE_DELAY_MS = 800;
   var LOGIN_MESSAGE5 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
-  var MALL_CONTRACT_CHANGED3 = "MALL_CONTRACT_CHANGED";
+  var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
   var SABANGNET_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sabangnet.co.kr"]),
     isLogin: (url) => hostWithin(url, ["sabangnet.co.kr"]) && /login/i.test(`${url.pathname}${url.hash}`),
@@ -8485,7 +8928,7 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(PAGE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS6 });
+        await next.navigate(PAGE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7 });
         return next;
       })();
       return tab;
@@ -8512,7 +8955,7 @@ var KidItemRuntime = (() => {
             bodyHead: null
           });
         case "contract_drift":
-          throw new RuntimeError(MALL_CONTRACT_CHANGED3, `\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
+          throw new RuntimeError(MALL_CONTRACT_CHANGED4, `\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
         case "timeout":
           throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL, reason: "timeout", bodyHead: null });
         default:
@@ -8589,11 +9032,11 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/sellpia/manual-match.ts
   var SELLPIA_MANUAL_MATCH_URL = `${SELLPIA_ORIGIN}/product_manual_match.html`;
   var SELLPIA_MANUAL_MATCH_FILE = "content/orders/sellpia-manual-match.js";
-  var NAVIGATION_TIMEOUT_MS7 = 45e3;
+  var NAVIGATION_TIMEOUT_MS8 = 45e3;
   var SEARCH_TIMEOUT_MS = 10 * 6e4;
   var STATUS_TIMEOUT_MS = 6e4;
   var LOGIN_MESSAGE7 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
-  var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
+  var MALL_CONTRACT_CHANGED5 = "MALL_CONTRACT_CHANGED";
   function createSellpiaManualMatch(tabs) {
     let tab = null;
     let opened = null;
@@ -8602,7 +9045,7 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7 });
+        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS8 });
         return next;
       })();
       return tab;
@@ -8621,7 +9064,7 @@ var KidItemRuntime = (() => {
           case "login_required":
             throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE7, { url: SELLPIA_MANUAL_MATCH_URL });
           case "contract_drift":
-            throw new RuntimeError(MALL_CONTRACT_CHANGED4, `\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
+            throw new RuntimeError(MALL_CONTRACT_CHANGED5, `\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
           case "http_error":
             throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
               status: answer.httpStatus,
@@ -8677,7 +9120,7 @@ var KidItemRuntime = (() => {
   registerSite({ name: "sellpia", opensOwnTabs: true, create: (deps) => createSellpiaSite(deps.tabs) });
 
   // extensions/src/sites/tiktok-cc/index.ts
-  var NAVIGATION_TIMEOUT_MS8 = 35e3;
+  var NAVIGATION_TIMEOUT_MS9 = 35e3;
   var EXTRACTION_TIMEOUT_MS4 = 25e3;
   var BASE_URLS = {
     hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
@@ -8748,14 +9191,14 @@ var KidItemRuntime = (() => {
     };
     async function readTarget(page2, target, defaultRegion, onAttention) {
       const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
-      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS8, stopAt, continueOnTimeout: true });
+      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS9, stopAt, continueOnTimeout: true });
       for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
         const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
         if (!cleared) {
           keepOpen = true;
           throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
         }
-        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS8, stopAt, continueOnTimeout: true });
+        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS9, stopAt, continueOnTimeout: true });
       }
       if (isTiktokBlockedUrl(landed)) {
         throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
@@ -8889,7 +9332,7 @@ var KidItemRuntime = (() => {
       if (row.vendorId !== void 0 && (typeof row.vendorId !== "string" || expectedVendorId && row.vendorId !== expectedVendorId)) {
         throw new WingPayloadError(`Wing \uD310\uB9E4\uC790 ID\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4: ${externalProductId}`);
       }
-      requiredText4(row.productName, "Wing \uC0C1\uD488\uBA85");
+      requiredText5(row.productName, "Wing \uC0C1\uD488\uBA85");
       return buildCatalogBasicProduct(row);
     });
     return { page: requestedPage, pageSize, totalItems, totalPages, products };
@@ -8899,7 +9342,7 @@ var KidItemRuntime = (() => {
     const externalProductId = strictRequiredId(inventoryProduct.vendorInventoryId, "vendorInventoryId");
     const items = Array.isArray(inventoryProduct.vendorInventoryItems) ? inventoryProduct.vendorInventoryItems : [];
     if (items.length === 0) throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId}\uC5D0 vendorInventoryItems\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    const saleStatus = saleStatusFromWingProductStatus(requiredText4(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
+    const saleStatus = saleStatusFromWingProductStatus(requiredText5(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
     const optionIds = /* @__PURE__ */ new Set();
     const options = items.map((item) => {
       const option = buildCatalogBasicOption(item);
@@ -9205,7 +9648,7 @@ var KidItemRuntime = (() => {
     const number = Number(value);
     return Number.isInteger(number) && number >= 0 ? number : null;
   }
-  function requiredText4(value, name) {
+  function requiredText5(value, name) {
     const text3 = typeof value === "string" ? value.trim() : "";
     if (!text3) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
     return text3;

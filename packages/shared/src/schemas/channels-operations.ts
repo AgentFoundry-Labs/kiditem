@@ -60,3 +60,6 @@ export type RocketMatchingCsvResult = z.infer<typeof RocketMatchingCsvResultSche
 
 /** 사방넷 목록을 끝까지 읽었다는 증거 하나(`SabangnetMallListingsScanSchema`). 행 청크 뒤에 한 번 보낸다. */
 export const SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND = 'listing_scan' as const;
+
+/** 몰 관리자 목록을 끝까지 읽었다는 증거 하나(`MallAdminListingsScanSchema`). 행 청크 뒤에 한 번 보낸다. */
+export const MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND = 'listing_scan' as const;

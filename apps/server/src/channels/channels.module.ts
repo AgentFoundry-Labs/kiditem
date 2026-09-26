@@ -78,7 +78,9 @@ import { SABANGNET_MALL_LISTINGS_REPOSITORY_PORT } from './application/port/out/
 import { MallAdminListingsService } from './application/service/collection/mall-admin-listings.service';
 import { MallAdminListingsRepositoryAdapter } from './adapter/out/repository/mall-admin-listings.repository.adapter';
 import { MALL_ADMIN_LISTINGS_PORT } from './application/port/in/mall-admin-listings.port';
-import { MALL_ADMIN_LISTINGS_REPOSITORY_PORT } from './application/port/out/repository/mall-admin-listings.repository.port';
+import { MALL_ADMIN_LISTINGS_OPERATION_REPOSITORY_PORT, MALL_ADMIN_LISTINGS_REPOSITORY_PORT } from './application/port/out/repository/mall-admin-listings.repository.port';
+import { MALL_ADMIN_LISTINGS_OPERATION_PORT } from './application/port/in/mall-admin-listings-operation.port';
+import { MallAdminListingsOperationOwner } from './adapter/in/operation/mall-admin-listings-operation-owner';
 import { CHANNEL_REGISTRATION_PORT } from './application/port/in/registration/channel-registration.port';
 import { ROCKET_SELLPIA_MATCHING_CSV_IMPORT_PORT } from './application/port/in/rocket-sellpia-matching-csv-import.port';
 import { CHANNEL_DASHBOARD_REPOSITORY_PORT } from './application/port/out/repository/channel-dashboard.repository.port';
@@ -247,7 +249,11 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
       useExisting: SabangnetMallListingsRepositoryAdapter,
     },
     { provide: SABANGNET_MALL_LISTINGS_PORT, useExisting: SabangnetMallListingsService },
-    { provide: MallAdminListingsService, useFactory: (...dependencies: ConstructorParameters<typeof MallAdminListingsService>) => new MallAdminListingsService(...dependencies), inject: [MALL_ADMIN_LISTINGS_REPOSITORY_PORT] },
+    // 몰 관리자 목록: 1차 몰은 실행 kind(KID-363), 나머지는 옛 시도 경로.
+    MallAdminListingsService,
+    MallAdminListingsOperationOwner,
+    { provide: MALL_ADMIN_LISTINGS_OPERATION_PORT, useExisting: MallAdminListingsService },
+    { provide: MALL_ADMIN_LISTINGS_OPERATION_REPOSITORY_PORT, useExisting: MallAdminListingsRepositoryAdapter },
     MallAdminListingsRepositoryAdapter,
     {
       provide: MALL_ADMIN_LISTINGS_REPOSITORY_PORT,

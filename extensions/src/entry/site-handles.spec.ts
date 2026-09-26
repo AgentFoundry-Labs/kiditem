@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { entrySites, createSiteHandles, ownTabSites } from './site-handles';
+import '../collectors/channels.mall_admin_listings';
 import '../collectors/channels.sabangnet_mall_listings';
 import '../collectors/channels.sellpia_manual_match';
 import '../collectors/channels.wing_catalog_details';
@@ -17,6 +18,7 @@ import '../sites/art09';
 import '../sites/domeggook';
 import '../sites/icecream-mall';
 import '../sites/kidkids';
+import '../sites/mall-admin-listings';
 import '../sites/mall-orders';
 import '../sites/product-page';
 import '../sites/sabangnet';
@@ -59,6 +61,17 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     expect(entrySites()).not.toHaveProperty('sellpia');
   });
 
+  it('몰 관리자 목록 kind에는 1차 몰 넷만 찾는 라우터를 주고, 그 몰 사이트는 목록 읽기를 가진다', () => {
+    const handle = createSiteHandles(deps)('channels.mall_admin_listings', { tabId: null }) as { reader(mallKey: string): unknown };
+    expect(keys(handle)).toEqual(['reader']);
+    for (const mallKey of ['kidkids', 'icecream-mall', 'art09', 'domeggook']) {
+      expect(keys(handle.reader(mallKey))).toContain('readListings');
+    }
+    expect(handle.reader('onch')).toBeNull();
+    expect(handle.reader('sellpia')).toBeNull();
+    expect(ownTabSites().has('mall-admin-listings')).toBe(true);
+  });
+
   it('사방넷 몰 목록 kind에는 쪽 읽기와 닫기를 가진 sabangnet 핸들을 주고, 사방넷도 탭을 스스로 연다', () => {
     expect(keys(createSiteHandles(deps)('channels.sabangnet_mall_listings', { tabId: null }))).toEqual(['close', 'mallListingPage']);
     expect(entrySites()).not.toHaveProperty('sabangnet');
@@ -68,10 +81,10 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
   it('몰 주문 kind에는 몰 키로 그 몰 사이트를 찾는 라우터를 주고, 라우터는 탭을 스스로 여는 사이트다', () => {
     const handle = createSiteHandles(deps)('orders.mall_orders', { tabId: null }) as { reader(mallKey: string): unknown };
     expect(keys(handle)).toEqual(['reader']);
-    expect(keys(handle.reader('kidkids'))).toEqual(['readOrders']);
-    expect(keys(handle.reader('art09'))).toEqual(['readOrders']);
-    expect(keys(handle.reader('domeggook'))).toEqual(['readOrders']);
-    expect(keys(handle.reader('icecream-mall'))).toEqual(['readOrders']);
+    expect(keys(handle.reader('kidkids'))).toEqual(['readListings', 'readOrders']);
+    expect(keys(handle.reader('art09'))).toEqual(['readListings', 'readOrders']);
+    expect(keys(handle.reader('domeggook'))).toEqual(['readListings', 'readOrders']);
+    expect(keys(handle.reader('icecream-mall'))).toEqual(['readListings', 'readOrders']);
     expect(handle.reader('no-such-mall')).toBeNull();
     expect(handle.reader('mall-orders')).toBeNull();
     // 등록된 사이트라도 몰 주문 kind로 옮긴 몰이 아니면 주지 않는다(리뷰 S9).

@@ -9,9 +9,18 @@ import {
   type MallAdminListingsSourceMall,
 } from '@kiditem/shared/mall-admin-listings';
 import {
+  MALL_ADMIN_LISTINGS_KIND,
+  isMallAdminListingOperationMall,
+} from '@kiditem/shared/channels-operations';
+import {
+  COLLECTION_IDLE_POLL_MS,
+  COLLECTION_RUNNING_POLL_MS,
   type CollectionSourceAdapter,
   type CollectionStartOutcome,
 } from '@/hooks/use-collection-source-control';
+import { apiClient } from '@/lib/api-client';
+import { stoppedAttempt } from '@/lib/collection-source-status-query';
+import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
 import { isApiError } from '@/lib/api-error';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { handOffToExtensionRun, startWebOpenedCollection } from '@/lib/collection-start';
@@ -34,10 +43,47 @@ export function mallAdminListingsSourceQueryOptions() {
   >({
     queryKey: queryKeys.mallPublishing.mallAdminListingsSource(),
     queryFn: () => mallPublishingApi.mallAdminListingsSource(),
-    refetchInterval: 60_000,
+    // 실행 kind로 옮긴 몰의 실행이 돌면 도는 주기로 읽는다(옛 시도는 확장이 끝을 알려 준다).
+    refetchInterval: (query) => ((query.state.data?.malls ?? []).some((mall) => operationRunning(mall))
+      ? COLLECTION_RUNNING_POLL_MS
+      : COLLECTION_IDLE_POLL_MS),
     refetchIntervalInBackground: false,
     meta: { suppressGlobalErrorToast: true },
   });
+}
+
+/** Channels 기타 kind(사방넷·몰 관리자·셀피아 수동매칭, KID-363)를 도는 확장 빌드가 `ping`에 싣는 표시. */
+export const CHANNELS_OPERATION_CAPABILITY = 'channelsOperationKindsV1' as const;
+
+function operationRunning(mall: MallAdminListingsSourceMall | null | undefined): boolean {
+  const status = mall?.latestOperation?.status;
+  return status === 'executing' || status === 'prepared';
+}
+
+/**
+ * 화면이 보는 그 몰의 마지막 가져오기 — 실행 kind로 옮긴 1차 몰은 실행(`latestOperation`·`latestSucceeded`), 나머지 몰은
+ * 옛 시도에서 읽는다. 멈춘 것은 실패가 아니다(이전에 가져온 결과가 그대로 쓰인다).
+ */
+export function mallAdminRunView(mall: MallAdminListingsSourceMall | null): Readonly<{
+  completedAt: string | Date | null;
+  stopped: boolean;
+  failure: Readonly<{ errorCode: string | null; errorMessage: string | null }> | null;
+}> {
+  if (mall && isMallAdminListingOperationMall(mall.mallKey)) {
+    const latest = mall.latestOperation;
+    return {
+      completedAt: mall.latestSucceeded?.finishedAt ?? null,
+      stopped: latest?.status === 'cancelled',
+      failure: latest?.status === 'failed' ? latest : null,
+    };
+  }
+  const latest = mall?.latestAttempt ?? null;
+  const stopped = stoppedAttempt(latest);
+  return {
+    completedAt: mall?.latestComplete?.completedAt ?? null,
+    stopped,
+    failure: latest?.state === 'FAILED' && !stopped && latest.errorMessage ? latest : null,
+  };
 }
 
 /** 그 몰의 슬라이스. 아직 못 받았으면 null. */
@@ -126,6 +172,7 @@ export async function linkMallAdminListings(
 export function mallAdminListingsCollection(
   mallKey: MallAdminListingMallKey,
 ): CollectionSourceAdapter<MallAdminListingsSource> {
+  if (isMallAdminListingOperationMall(mallKey)) return mallAdminListingsOperation(mallKey);
   return {
     sourceKey: `${MALL_ADMIN_LISTINGS_PRODUCER}:${mallKey}`,
     label: '몰 등록 상품 가져오기',
@@ -139,6 +186,46 @@ export function mallAdminListingsCollection(
     start: startMallAdmin(mallKey),
     cancelOnServer: (attemptId) => mallPublishingApi.cancelMallAdminListings(attemptId),
     readCompleteId: (status) => mallFrom(status, mallKey)?.latestComplete?.attemptId ?? null,
+    onNewComplete: (queryClient) => {
+      void linkMallAdminListings(queryClient, mallKey);
+    },
+  };
+}
+
+/**
+ * 1차 몰(`MALL_ADMIN_LISTING_OPERATION_MALLS`)의 가져오기 = `channels.mall_admin_listings` 실행 하나(KID-363). 확장이 실행을
+ * 열고 그 몰 관리자 목록을 읽어 청크로 보내고, 서버 finish가 발행한다. 계정 행은 화면이 본 그 몰의 행을 scope로 싣고
+ * 서버 plan이 몰 허브의 행과 같은지 다시 본다. 중단은 이 브라우저의 실행을 멈추고 서버 실행을 취소한다.
+ */
+function mallAdminListingsOperation(mallKey: MallAdminListingMallKey): CollectionSourceAdapter<MallAdminListingsSource> {
+  return {
+    sourceKey: `${MALL_ADMIN_LISTINGS_KIND}:${mallKey}`,
+    label: '몰 등록 상품 가져오기',
+    statusQuery: mallAdminListingsSourceQueryOptions(),
+    readStatusIdentity: (status) => {
+      const operation = mallFrom(status, mallKey)?.latestOperation;
+      return operation ? `${operation.id}:${operation.status}` : null;
+    },
+    readRunning: (status) => {
+      const mall = mallFrom(status, mallKey);
+      return mall?.latestOperation && operationRunning(mall) ? { attemptId: mall.latestOperation.id, scopeLabel: null } : null;
+    },
+    readProgress: (status) => {
+      const mall = mallFrom(status, mallKey);
+      return mall?.latestOperation && operationRunning(mall)
+        ? `${mall.latestOperation.id}:${JSON.stringify(mall.latestOperation.progress ?? null)}`
+        : null;
+    },
+    start: async (_input, { status }) => {
+      const channelAccountId = mallFrom(status, mallKey)?.channelAccountId;
+      if (!channelAccountId) return { outcome: 'refused', message: MALL_ADMIN_NO_ACCOUNT };
+      const outcome = await requestOperationStart(MALL_ADMIN_LISTINGS_KIND, { channelAccountId, mallKey }, { capability: CHANNELS_OPERATION_CAPABILITY });
+      if (outcome.outcome === 'refused') return outcome;
+      return { outcome: outcome.outcome, attemptId: outcome.operationId };
+    },
+    cancelInExtension: (operationId) => requestOperationCancel(operationId),
+    cancelOnServer: (operationId) => apiClient.post(`/api/operations/${encodeURIComponent(operationId)}/cancel`),
+    readCompleteId: (status) => mallFrom(status, mallKey)?.latestSucceeded?.id ?? null,
     onNewComplete: (queryClient) => {
       void linkMallAdminListings(queryClient, mallKey);
     },

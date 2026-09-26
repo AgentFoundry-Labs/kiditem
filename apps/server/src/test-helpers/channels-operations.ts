@@ -19,6 +19,10 @@ import { ProductTransactionalReadRepositoryAdapter } from '../products/adapter/o
 import { SellpiaManualMatchRepositoryAdapter } from '../channels/adapter/out/repository/sellpia-manual-match.repository.adapter';
 import { SellpiaManualMatchService } from '../channels/application/service/listing/sellpia-manual-match.service';
 import { SellpiaManualMatchOperationOwner } from '../channels/adapter/in/operation/sellpia-manual-match-operation-owner';
+import { MallAdminListingsRepositoryAdapter } from '../channels/adapter/out/repository/mall-admin-listings.repository.adapter';
+import { MallAdminListingsService } from '../channels/application/service/collection/mall-admin-listings.service';
+import { MallAdminListingsOperationOwner } from '../channels/adapter/in/operation/mall-admin-listings-operation-owner';
+import { SourceFailureAlerts } from '../alerts/alerts.service';
 import { TEST_ORGANIZATION_ID, TEST_USER_ID } from './real-prisma';
 
 const checksum = (payload: unknown[]) => createHash('sha256').update(JSON.stringify(payload)).digest('hex');
@@ -51,6 +55,9 @@ export function makeChannelsOperations(prisma: PrismaClient, options: { organiza
     new SellpiaManualMatchRepositoryAdapter(prismaService, new ProductTransactionalReadRepositoryAdapter()),
   );
   registry.register(new SellpiaManualMatchOperationOwner(manualMatch));
+  const mallAdminRepository = new MallAdminListingsRepositoryAdapter(prismaService, new SourceFailureAlerts(prismaService), productMapping);
+  const mallAdmin = new MallAdminListingsService(mallAdminRepository, mallAdminRepository, operations);
+  registry.register(new MallAdminListingsOperationOwner(mallAdmin));
 
   /** 확장이 하는 일: begin한 실행에 plan을 보고 청크를 보내고 finish(또는 failed). */
   async function runBegun(
@@ -90,6 +97,7 @@ export function makeChannelsOperations(prisma: PrismaClient, options: { organiza
     rocketCsv,
     sabangnet,
     manualMatch,
+    mallAdmin,
     runBegun,
     /** runner가 finalize 거절 뒤 하는 일: finish(failed)로 닫아 잠금을 푼다. */
     async fail(begun: OperationBeginResponse) {

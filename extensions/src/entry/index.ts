@@ -1,3 +1,4 @@
+import '../collectors/channels.mall_admin_listings';
 import '../collectors/channels.sabangnet_mall_listings';
 import '../collectors/channels.sellpia_manual_match';
 import '../collectors/channels.wing_catalog_details';
@@ -24,6 +25,7 @@ import '../sites/domeggook';
 import '../sites/icecream-mall';
 import '../sites/kidkids';
 import '../sites/live-commerce';
+import '../sites/mall-admin-listings';
 import '../sites/mall-orders';
 import '../sites/product-page';
 import '../sites/sabangnet';

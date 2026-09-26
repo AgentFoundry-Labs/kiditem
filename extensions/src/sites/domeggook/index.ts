@@ -4,6 +4,7 @@ import { withFreshTab } from '../fresh-tab';
 import { callPage } from '../page-call';
 import { registerSite } from '../registry';
 import { hostWithin, type PageGuard, type TabPages } from '../tab-page';
+import { createDomeggookListings } from './listings';
 
 export const DOMEGGOOK_ORDER_LIST_URL = 'https://domeggook.com/sc/order/lstAll';
 /** 엑셀 생성 목록(JSON). 로그아웃이면 200에 `{res:false}`, 로그인이면 `{dat:[…]}`(mall-session.js 실측 규칙). */
@@ -76,6 +77,7 @@ function base64Of(bytes: Uint8Array): string {
 export function createDomeggookSite(tabs: TabPages, deps: SiteCallerDeps) {
   const caller = createSiteCaller({ minIntervalMs: 0, displayName: '도매꾹', timeoutMs: 30_000 }, deps);
   return {
+    ...createDomeggookListings(tabs),
     async readOrders(input: { collectionDate: string | null; signal?: AbortSignal }): Promise<{ rows: unknown[] }> {
       const before = await orderList(caller);
       const beforeReq = String(before[0]?.dateReq ?? '');

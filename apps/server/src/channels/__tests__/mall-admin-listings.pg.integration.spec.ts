@@ -25,6 +25,7 @@ import { MallAdminListingsController } from '../adapter/in/web/mall-admin-listin
 import { MallAdminListingsRepositoryAdapter } from '../adapter/out/repository/mall-admin-listings.repository.adapter';
 import { MALL_ADMIN_LISTINGS_PORT } from '../application/port/in/mall-admin-listings.port';
 import { MallAdminListingsService } from '../application/service/collection/mall-admin-listings.service';
+import { makeChannelsOperations } from '../../test-helpers/channels-operations';
 import { completedCatalogRunWhere } from '../adapter/out/repository/completed-catalog-run';
 import { ChannelsProductMappingGenerationAdapter } from "../adapter/out/products/product-mapping-generation.adapter";
 import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
@@ -99,7 +100,7 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
       providers: [
         {
           provide: MALL_ADMIN_LISTINGS_PORT,
-          useValue: new MallAdminListingsService(repository),
+          useValue: new MallAdminListingsService(repository, repository, makeChannelsOperations(prisma).operations),
         },
       ],
     }).compile();
@@ -177,6 +178,17 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
     return { attempt, response: await finish(attempt, submission(attempt, rows)) };
   }
 
+  async function publicationOf(attemptId: string) {
+    const run = await prisma.sourceImportRun.findUniqueOrThrow({ where: { id: attemptId }, select: { qualityReport: true } });
+    return (run.qualityReport as { publication?: unknown } | null)?.publication;
+  }
+  function latestKidkidsRun() {
+    return prisma.sourceImportRun.findFirstOrThrow({
+      where: { organizationId: ORG, channelAccountId: KIDKIDS, status: 'completed' },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
   it('freezes the mall row it will write, replays a begin, and runs one import per mall at a time', async () => {
     const key = randomUUID();
     const first = await start('kidkids', key).expect(201);
@@ -204,24 +216,21 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
     });
 
     const source = (await readSource()).body;
-    // 읽기기가 있는 몰은 모두 목록에 선다. 계정 행이 없는 몰은 channelAccountId null 로 선다.
+    // 읽기기가 있는 몰은 모두 목록에 선다. 계정 행이 없는 몰은 channelAccountId null 로 선다. 실행 kind로 옮긴 1차 몰
+    // (키드키즈·아이스크림몰, KID-363)은 옛 시도를 읽지 않는다 — 옛 경로로 연 시도도 화면에 나오지 않는다.
     expect(source.malls).toEqual(
       MALL_ADMIN_LISTING_MALL_KEYS.map((mallKey) => {
-        if (mallKey === 'kidkids') {
+        if (mallKey === 'kidkids' || mallKey === 'icecream-mall') {
           return {
-            mallKey: 'kidkids',
-            mallName: '키드키즈',
-            channelAccountId: KIDKIDS,
-            latestAttempt: expect.objectContaining({ attemptId: first.body.attemptId, state: 'RUNNING' }),
+            mallKey,
+            mallName: MALL_ADMIN_LISTING_READERS[mallKey].mallName,
+            channelAccountId: mallKey === 'kidkids' ? KIDKIDS : ICECREAM,
+            latestAttempt: null,
             latestComplete: null,
             latestPublication: null,
+            latestOperation: null,
+            latestSucceeded: null,
           };
-        }
-        if (mallKey === 'icecream-mall') {
-          return expect.objectContaining({
-            mallKey: 'icecream-mall',
-            latestAttempt: expect.objectContaining({ attemptId: icecream.body.attemptId }),
-          });
         }
         return {
           mallKey,
@@ -230,10 +239,11 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
           latestAttempt: null,
           latestComplete: null,
           latestPublication: null,
+          latestOperation: null,
+          latestSucceeded: null,
         };
       }),
     );
-    expect(source.malls[0].latestAttempt).not.toHaveProperty('attemptToken');
   });
 
   it('refuses a mall without an account row or a reader, and hides attempts across organizations', async () => {
@@ -309,9 +319,8 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
       }],
     });
 
-    const kidkids = (await readSource()).body.malls[0];
-    expect(kidkids.latestComplete).toMatchObject({ attemptId: attempt.attemptId, state: 'COMPLETE' });
-    expect(kidkids.latestPublication).toEqual({
+    // 옛 경로의 발행 결과는 시도 행에 남는다(1차 몰은 화면 읽기가 실행만 본다, KID-363).
+    expect(await publicationOf(attempt.attemptId)).toEqual({
       listings: 3,
       deactivated: 0,
       missingNames: 0,
@@ -352,9 +361,8 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
       }),
     ], 'icecream-mall');
     expect(response.status).toBe(200);
-    expect(response.body).toMatchObject({ state: 'COMPLETE' });
-    const icecream = (await readSource()).body.malls[1];
-    expect(icecream.latestPublication).toEqual({
+    expect(response.body).toMatchObject({ state: 'COMPLETE', attemptId: expect.any(String) });
+    expect(await publicationOf(response.body.attemptId)).toEqual({
       listings: 2,
       deactivated: 0,
       missingNames: 1,
@@ -400,7 +408,7 @@ describe('Mall admin listings owner — public HTTP + disposable PG', () => {
     expect(byId.get('176227')).toMatchObject({ isActive: false, options: [{ isActive: false }] });
     expect(byId.get('KIDITEM-REGISTERED')).toMatchObject({ isActive: true });
     expect(byId.get('SABANGNET-SENT')).toMatchObject({ isActive: true });
-    expect((await readSource()).body.malls[0].latestPublication).toMatchObject({
+    expect(await publicationOf((await latestKidkidsRun()).id)).toMatchObject({
       listings: 1,
       deactivated: 1,
     });
