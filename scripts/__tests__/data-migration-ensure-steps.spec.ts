@@ -155,7 +155,6 @@ describe('ensure:absolute_product_abc_formula', () => {
       'apps/server/src/products/adapter/out/persistence/master-product-abc.repository.adapter.ts',
     );
     const lockOrder = [
-      "await lockNamed(tx, 'kiditem.sellpia-product-profitability', input.organizationId);",
       "await lockNamed(tx, 'kiditem.coupang-ad-profitability', input.organizationId);",
       'await lockProductMapping(tx, input.organizationId);',
       "await lockNamed(tx, 'kiditem.master-product-abc', input.organizationId);",
