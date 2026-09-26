@@ -261,6 +261,18 @@ describe('ChannelAccountService', () => {
     await expect(fixture.service.reorder(ORGANIZATION_ID, ['coupang'])).rejects.toMatchObject({ code: 'VALIDATION_FAILED' });
   });
 
+  it('skips a disconnected Wing row — the login lives on the first active Wing row in preference order', async () => {
+    const inactive = { ...wingRow('row-wing-inactive', { orderCollection: { loginId: 'old-id', password: encrypted('old-secret') } }), status: 'inactive' };
+    const fixture = makeService([inactive, wingRow('row-wing-active', { orderCollection: { loginId: 'wing-id', password: encrypted('wing-secret') } })]);
+    expect(await fixture.service.getPassword(ORGANIZATION_ID, 'coupang')).toMatchObject({ loginId: 'wing-id', password: 'wing-secret' });
+    const saved = await fixture.service.update(ORGANIZATION_ID, 'coupang', { loginId: 'new-id' });
+    expect(saved.channelAccountId).toBe('row-wing-active');
+
+    const onlyInactive = makeService([inactive]);
+    expect(await onlyInactive.service.getPassword(ORGANIZATION_ID, 'coupang')).toMatchObject({ loginId: null, password: null });
+    await expect(onlyInactive.service.update(ORGANIZATION_ID, 'coupang', { loginId: 'x' })).rejects.toMatchObject({ details: { reason: 'SHARED_CHANNEL_ACCOUNT_MISSING' } });
+  });
+
   it('never creates a Wing account row for a login save — the Wing account is connected first', async () => {
     const fixture = makeService([]);
     await expect(fixture.service.update(ORGANIZATION_ID, 'coupang', { loginId: 'wing-id', password: 'wing-secret' }))

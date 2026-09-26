@@ -252,10 +252,13 @@ function findLoginAccount(key: string): LoginAccountEntry {
   return market;
 }
 
-/** 그 계정의 행. 몰은 몰 규칙대로, 로그인만 두는 마켓은 고르는 순서(대표 계정 먼저)의 첫 마켓 행. */
+/**
+ * 그 계정의 행. 몰은 몰 규칙대로, 로그인만 두는 마켓은 고르는 순서(대표 계정 먼저)의 연결된(`active`) 첫 마켓 행 —
+ * 연결이 끊긴 윙 행에 로그인을 두거나 거기서 읽지 않는다.
+ */
 function pickLoginAccount<T extends MallAccountRecord>(rows: readonly T[], entry: LoginAccountEntry): T | null {
   if (findOrderCollectionMall(entry.key)) return pickOrderCollectionMallAccounts(rows).get(entry.key as OrderCollectionMallKey) ?? null;
-  return rows.find((row) => row.channel === entry.sharedAccountChannel) ?? null;
+  return rows.find((row) => row.channel === entry.sharedAccountChannel && row.status === 'active') ?? null;
 }
 
 function findMall(mallKey: string): OrderCollectionMall {
