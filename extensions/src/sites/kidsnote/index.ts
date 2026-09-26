@@ -5,6 +5,7 @@ import { callPage } from '../page-call';
 import { registerSite } from '../registry';
 import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login';
 import { hostWithin, type PageGuard, type TabPages } from '../tab-page';
+import { createKidsnoteListings } from './listings';
 
 /** 전체주문조회(WISA 관리자). 목록·주문서 인쇄·주문보기는 이 화면의 같은 출처 상대 주소다. */
 export const KIDSNOTE_ORDER_URL = 'https://shop.kidsnote.com/_manage/?body=3010';
@@ -93,6 +94,7 @@ export function kidsnoteConvertOrder(order: KidsnoteScrapedOrder) {
  */
 export function createKidsnoteSite(tabs: TabPages, signIn?: SiteSignIn) {
   return {
+    ...createKidsnoteListings(tabs, signIn),
     readOrders(input: { collectionDate: string | null }): Promise<{ rows: unknown[] }> {
       return withFreshTab(tabs, KIDSNOTE_ORDER_URL, async (page) => {
         const day = input.collectionDate ?? '';

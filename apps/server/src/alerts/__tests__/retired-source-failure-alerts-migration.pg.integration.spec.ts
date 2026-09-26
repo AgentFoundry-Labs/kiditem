@@ -16,7 +16,7 @@ import {
 /*
  * 정책 B(KID-355): 실행 계약으로 옮긴 kind는 알림 행을 더 쓰지도 닫지도 않는다. 옮기기 전에 열린 원천 실패 행은 영원히
  * 열려 있게 되므로 컷오버에서 지운다. 아직 옛 writer가 도는 원천(광고 캠페인·키워드·수익성, 몰 주문수집, 소싱 서버 구동,
- * 몰 관리자 가져오기, 수동 Wing 카탈로그 적재)과 알림 모듈의 읽음 행은 남는다.
+ * 수동 Wing 카탈로그 적재)과 알림 모듈의 읽음 행은 남는다. 몰 관리자 가져오기(`mall_admin_listings`)는 KID-381에서 옮겼다.
  */
 describe('v0.1.31:032 remove retired source-failure alerts (PostgreSQL)', () => {
   let prisma: PrismaClient;
@@ -57,13 +57,15 @@ describe('v0.1.31:032 remove retired source-failure alerts (PostgreSQL)', () => 
       await alert({ sourceType: 'sellpia_inventory', dedupeKey: 'source:sellpia-products' }),
       await alert({ sourceType: 'sellpia_sales_daily', organizationId: OTHER_ORGANIZATION_ID }),
       await alert({ sourceType: '1688.product_extension' }),
+      // 몰 관리자 가져오기(KID-381): 옛 시도 경로의 마지막 writer가 사라졌다.
+      await alert({ sourceType: 'mall_admin_listings', dedupeKey: 'channels:mall-admin-listings:org:acc' }),
     ];
     const kept = [
       await alert({ sourceType: 'coupang_ad_campaign' }),
       await alert({ sourceType: 'order_collection_mall' }),
       await alert({ sourceType: 'coupang.wing_catalog' }),
       await alert({ sourceType: 'naver.trend' }),
-      await alert({ sourceType: 'mall_admin_listings' }),
+      await alert({ sourceType: 'channels.mall_admin_listings', type: 'operation_failure', status: 'RESOLVED' }),
       await alert({ sourceType: 'products.sellpia_inventory', type: 'operation_failure', status: 'RESOLVED' }),
     ];
 
@@ -77,7 +79,7 @@ describe('v0.1.31:032 remove retired source-failure alerts (PostgreSQL)', () => 
   });
 
   it('옮긴 kind의 옛 원천 이름은 도는 writer가 쓰는 이름과 겹치지 않는다', () => {
-    for (const live of ['coupang_ad_campaign', 'coupang_ad_keyword', 'coupang_ad_profitability', 'order_collection_mall', 'coupang.wing_catalog', 'mall_admin_listings']) {
+    for (const live of ['coupang_ad_campaign', 'coupang_ad_keyword', 'coupang_ad_profitability', 'order_collection_mall', 'coupang.wing_catalog']) {
       expect(RETIRED_SOURCE_FAILURE_SOURCE_TYPES).not.toContain(live);
     }
   });

@@ -74,14 +74,6 @@ const sellpiaInvoiceTargets = sellpiaPostProcessing.createTargetStore({
   storageKeyForEnvironment: (base, environmentId) =>
     ordersEnvironmentContext.storageKey(base, environmentId),
 });
-const mallAdminListings = KidItemMallAdminListings.create({ chrome });
-const mallAdminListingsSourceOwner = KidItemMallAdminListingsSourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
-  collect: mallAdminListings.collect,
-  mallName: mallAdminListings.mallName,
-});
 
 async function lifecycleForAttempt(attemptId, environmentId) {
   const session = await collectionSessions.getOwned(attemptId, environmentId);
@@ -102,9 +94,6 @@ async function cancelOrdersCollectionSession(attemptId, environmentId) {
     : fencedSession?.session?.producer
       ? fencedSession.session
       : await collectionSessions.getOwned(attemptId, environmentId);
-  if (session?.producer === "orders.mall_admin_listings") {
-    return mallAdminListingsSourceOwner.cancel({ attemptId, environmentId });
-  }
   if (session?.producer === "orders.mall") {
     return orderCollectionSourceOwner.cancel({ attemptId, environmentId });
   }
@@ -4494,14 +4483,8 @@ async function scrapeDomeggookShipUpload(fileBase64, fileName, tar) {
 // producer 접두사로 이 도메인이 만든 수집 세션을 식별한다.
 KidItemDomains.register({
   producerPrefixes: ["orders"],
-  externalActions: {
-    collectMallAdminListings: {
-      validate: KidItemMallAdminListingsSourceOwner.parseStart,
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        mallAdminListingsSourceOwner.run({ attemptId, environmentId }),
-      ),
-    },
-  },
+  // 몰 관리자 목록 가져오기는 실행 kind `channels.mall_admin_listings`다(KID-363·381) — 옛 `collectMallAdminListings`는 없다.
+  externalActions: {},
   capabilities: {
     orderCollectionIcecreamMall: true,
     coupangShipmentDownloads: true,
@@ -4509,12 +4492,6 @@ KidItemDomains.register({
     clearCoupangCookies: true,
     boriboriOrders: true,
     collectKakaoOrders: true,
-    // 키드키즈 · 아이스크림몰 관리자 화면에서 등록 상품을 직접 가져온다(KID-246 2단계).
-    mallAdminListingsSourceOwnerV1: true,
-    // 사방넷으로만 가져오던 몰(도매꾹 · 키즈노트 · 11번가 · 지마켓 · 옥션 · 카카오 · 롯데ON · 스마트스토어 · 티쳐몰)도 직접 읽는다.
-    mallAdminListingsMallsV2: true,
-    // 롯데ON(우리 거래처로 좁혀 로그인된 탭에서) · 스마트스토어(원상품 목록 검색 폼 그대로) · 티쳐몰(칸 머리로) 읽기기를 고친 판.
-    mallAdminListingsMallsV3: true,
     browserCollectionSessions: true,
     orderCollectionFailureEvidenceV1: true,
     orderCollectionConfirmedCoverageV1: true,

@@ -13,13 +13,10 @@ import {
 } from './sellpia-operations.js';
 import {
   MALL_ADMIN_LISTINGS_KIND,
-  MALL_ADMIN_LISTING_OPERATION_MALLS,
   ROCKET_MATCHING_CSV_KIND,
   SABANGNET_LOGIN_LOCK_KEY,
   SABANGNET_MALL_LISTINGS_KIND,
-  isMallAdminListingOperationMall,
 } from './channels-operations.js';
-import { MALL_ORDER_OPERATION_MALLS } from './orders-operations.js';
 
 describe('wave3 kinds and lock keys (KID-361·363)', () => {
   it('kind names satisfy the contract grammar and owner prefixes', () => {
@@ -32,14 +29,6 @@ describe('wave3 kinds and lock keys (KID-361·363)', () => {
   it('login lock keys are contract resource keys', () => {
     expect(OperationLockKeySchema.parse(SELLPIA_LOGIN_LOCK_KEY)).toBe('resource:sellpia:login');
     expect(OperationLockKeySchema.parse(SABANGNET_LOGIN_LOCK_KEY)).toBe('resource:sabangnet:login');
-  });
-
-  it('the first-batch malls moved both their orders and their admin listings (later malls move each separately, KID-380·381)', () => {
-    for (const mallKey of ['icecream-mall', 'kidkids', 'art09', 'domeggook']) {
-      expect(MALL_ADMIN_LISTING_OPERATION_MALLS as readonly string[]).toContain(mallKey);
-      expect(MALL_ORDER_OPERATION_MALLS as readonly string[]).toContain(mallKey);
-    }
-    expect(isMallAdminListingOperationMall('gsshop')).toBe(false);
   });
 
   it('sales scope rejects a reversed range and accepts an empty one', () => {

@@ -2,17 +2,16 @@ import { describe, expect, it } from 'vitest';
 import type {
   MallAdminListingRow,
   MallAdminListingsPlan,
-  MallAdminListingsSubmission,
+  MallAdminListingsScan,
 } from '@kiditem/shared/mall-admin-listings';
 import {
   mallAdminListingProducts,
   mallAdminListingStatus,
   mallAdminStatusCounts,
-  mallAdminSubmissionProblem,
+  mallAdminScanProblem,
   resolveMallAdminRowCodes,
 } from './mall-admin-listings';
 
-const RUN = '99999999-9999-4999-8999-999999999999';
 const ACCOUNT = '11111111-1111-4111-8111-111111111111';
 
 const kidkids: MallAdminListingsPlan = {
@@ -44,14 +43,15 @@ function row(overrides: Partial<MallAdminListingRow> = {}): MallAdminListingRow 
   };
 }
 
+type Submission = MallAdminListingsScan & { rows: MallAdminListingRow[] };
+
 function submission(
   rows: MallAdminListingRow[],
-  collection: Partial<MallAdminListingsSubmission['collection']> = {},
-  proof: Partial<MallAdminListingsSubmission['proof']> = {},
-): MallAdminListingsSubmission {
+  collection: Partial<MallAdminListingsScan['collection']> = {},
+  proof: Partial<MallAdminListingsScan['proof']> = {},
+): Submission {
   return {
     collection: {
-      collectionRunId: RUN,
       totalRecords: rows.length,
       recordsRead: rows.length,
       pagesRead: 1,
@@ -63,6 +63,10 @@ function submission(
     rows,
     proof: { mallKey: 'kidkids', pageSize: 20000, validatedList: true, ...proof },
   };
+}
+
+function check(plan: MallAdminListingsPlan, input: Submission) {
+  return mallAdminScanProblem(plan, { collection: input.collection, proof: input.proof }, input.rows);
 }
 
 describe('mallAdminListingStatus', () => {
@@ -117,64 +121,61 @@ describe('mallAdminListingStatus', () => {
   });
 });
 
-describe('mallAdminSubmissionProblem', () => {
+describe('mallAdminScanProblem', () => {
   it('목록 전체를 읽은 제출은 통과한다', () => {
-    expect(mallAdminSubmissionProblem(kidkids, RUN, submission([row()]))).toBeNull();
+    expect(check(kidkids, submission([row()]))).toBeNull();
   });
 
-  it('다른 시도 · 다른 몰 · 다른 쪽 크기의 제출은 계획이 아니다', () => {
-    expect(mallAdminSubmissionProblem(kidkids, RUN, submission([row()], {
-      collectionRunId: ACCOUNT,
-    }))).toBe('plan_fence_lost');
-    expect(mallAdminSubmissionProblem(kidkids, RUN, submission([row()], {}, {
+  it('다른 몰 · 다른 쪽 크기의 증거는 계획이 아니다', () => {
+    expect(check(kidkids, submission([row()], {}, {
       mallKey: 'icecream-mall',
     }))).toBe('plan_fence_lost');
-    expect(mallAdminSubmissionProblem(kidkids, RUN, submission([row()], {}, {
+    expect(check(kidkids, submission([row()], {}, {
       pageSize: 20,
     }))).toBe('plan_fence_lost');
   });
 
   it('⭐ 한 줄이라도 빠지면 저장하지 않는다 — 그 상품이 내려간 것으로 보인다', () => {
     const rows = Array.from({ length: 41 }, (_, index) => row({ mallProductCode: String(index + 1) }));
-    expect(mallAdminSubmissionProblem(kidkids, RUN, submission(rows))).toBeNull();
+    expect(check(kidkids, submission(rows))).toBeNull();
     // 다운로드가 전체를 담지 못해 목록 건수보다 적으면 멈춘다.
-    expect(mallAdminSubmissionProblem(kidkids, RUN, submission(rows.slice(0, 40), {
+    expect(check(kidkids, submission(rows.slice(0, 40), {
       totalRecords: 41,
       recordsRead: 40,
     }))).toBe('incomplete_records');
     // 쪽을 둘로 나눠 보내면(이 원천은 한 요청이다) 쪽 수 검사에 걸린다.
-    expect(mallAdminSubmissionProblem(kidkids, RUN, submission(rows, {
+    expect(check(kidkids, submission(rows, {
       totalPages: 2,
       pagesRead: 2,
     }))).toBe('incomplete_pages');
   });
 
   it('빈 목록은 한 쪽을 읽은 것이다', () => {
-    expect(mallAdminSubmissionProblem(kidkids, RUN, submission([], {
+    expect(check(kidkids, submission([], {
       totalPages: 1,
       pagesRead: 1,
     }))).toBeNull();
   });
 
   it('읽었다는 수와 넘긴 줄 수가 다르거나 상품코드가 겹치면 거절한다', () => {
-    expect(mallAdminSubmissionProblem(kidkids, RUN, submission([row()], {
+    expect(check(kidkids, submission([row()], {
       totalRecords: 2,
       recordsRead: 2,
     }))).toBe('row_count_mismatch');
-    expect(mallAdminSubmissionProblem(kidkids, RUN, submission([row(), row()]))).toBe('duplicate_code');
+    expect(check(kidkids, submission([row(), row()]))).toBe('duplicate_code');
   });
 
   it('상세에서 이름을 읽는 몰은 상품마다 상세를 열었어야 한다', () => {
     const rows = [row({ mallProductCode: '11218365' }), row({ mallProductCode: '985846' })];
     const icecreamProof = { mallKey: 'icecream-mall' as const, pageSize: 10000 };
-    expect(mallAdminSubmissionProblem(icecream, RUN, submission(rows, {
+    expect(check(icecream, submission(rows, {
       detailsRead: 1,
       detailsMissing: 1,
     }, icecreamProof))).toBeNull();
-    expect(mallAdminSubmissionProblem(icecream, RUN, submission(rows, {
+    expect(check(icecream, submission(rows, {
       detailsRead: 1,
     }, icecreamProof))).toBe('detail_count_mismatch');
-    expect(mallAdminSubmissionProblem(kidkids, RUN, submission([row()], {
+    expect(check(kidkids, submission([row()], {
       detailsRead: 1,
     }))).toBe('detail_count_mismatch');
   });

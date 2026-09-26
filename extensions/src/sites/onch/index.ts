@@ -5,6 +5,7 @@ import { callPage } from '../page-call';
 import { registerSite } from '../registry';
 import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login';
 import { hostWithin, type PageGuard, type TabPages } from '../tab-page';
+import { createOnchListings } from './listings';
 
 /** 공급사 주문 목록(전체 상태). 목록·상세 모달은 이 화면의 같은 출처 상대 주소다. */
 export const ONCH_ORDER_URL = 'https://www.onch3.co.kr/supplier/orders.php?state=all';
@@ -44,6 +45,7 @@ type OnchAnswer =
  */
 export function createOnchSite(tabs: TabPages, signIn?: SiteSignIn) {
   return {
+    ...createOnchListings(tabs, signIn),
     readOrders(input: { collectionDate: string | null }): Promise<{ rows: unknown[] }> {
       return withFreshTab(tabs, ONCH_ORDER_URL, async (page) => {
         const answer = await callPage<OnchAnswer>(page, 'onch.orders', { dateFilter: input.collectionDate ?? '' }, {
