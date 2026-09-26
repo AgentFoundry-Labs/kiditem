@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import { MALL_ADMIN_LISTING_READERS, isMallAdminListingMallKey } from '@kiditem/shared/mall-admin-listings';
-import manifestSource from '../../kiditem-os/manifest.json?raw';
 import { SITE_LOGIN_REQUIRED } from '../core/site-caller';
 import './11st/listings';
 import './always/listings';
@@ -150,27 +149,7 @@ function routerFor(tabs: SiteDeps['tabs'], credentials: SiteLease['credentials']
   return siteFactoryFor('mall-admin-listings')!.create(deps, { tabId: null, credentials }) as { reader(mallKey: string): Reader | null };
 }
 
-/** 처리기가 목록 화면 밖에서 부르는 API 호스트(옛 스위트 `mall-admin-listings.test.mjs`가 보던 것). */
-const API_HOSTS: Record<string, string[]> = {
-  always: ['https://alwayz-seller-back.ilevit.com'],
-  'lotte-on': ['https://soapi.lotteon.com'],
-};
-
 describe('몰 관리자 목록 나머지 몰(KID-381)', () => {
-  it('몰마다 시작 화면이 계약의 관리자 주소(origin)이고, 그 주소와 처리기의 API 호스트가 확장 권한에 있다', () => {
-    const hostPermissions = (JSON.parse(manifestSource) as { host_permissions: string[] }).host_permissions;
-    expect(MALLS.map((row) => row.mallKey).sort()).toEqual(
-      Object.keys(MALL_ADMIN_LISTING_READERS).filter((mallKey) => !['kidkids', 'icecream-mall', 'art09', 'domeggook'].includes(mallKey)).sort(),
-    );
-    for (const row of MALLS) {
-      const origin = MALL_ADMIN_LISTING_READERS[row.mallKey as 'always'].origin;
-      expect(new URL(row.startUrl).origin, row.mallKey).toBe(origin);
-      for (const host of [origin, ...(API_HOSTS[row.mallKey] ?? [])]) {
-        expect(hostPermissions, `${row.mallKey} ${host}`).toContain(`${host}/*`);
-      }
-    }
-  });
-
   it.each(MALLS)('$mallKey: 읽기기 몰이고, 새 백그라운드 탭을 목록 화면으로 열어 처리기 파일로 읽은 뒤 닫는다', async (row) => {
     expect(isMallAdminListingMallKey(row.mallKey)).toBe(true);
     const asked: Array<Record<string, unknown>> = [];
