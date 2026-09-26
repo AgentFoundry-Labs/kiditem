@@ -285,6 +285,16 @@
       "import": "./dist/orders-operations.js",
       "require": "./dist/orders-operations.cjs"
     },
+    "./sellpia-operations": {
+      "types": "./dist/sellpia-operations.d.ts",
+      "import": "./dist/sellpia-operations.js",
+      "require": "./dist/sellpia-operations.cjs"
+    },
+    "./channels-operations": {
+      "types": "./dist/channels-operations.d.ts",
+      "import": "./dist/channels-operations.js",
+      "require": "./dist/channels-operations.cjs"
+    },
     "./order-collection-source": {
       "types": "./dist/order-collection-source.d.ts",
       "import": "./dist/order-collection-source.js",
@@ -391,6 +401,12 @@
       ],
       "orders-operations": [
         "dist/orders-operations.d.ts"
+      ],
+      "sellpia-operations": [
+        "dist/sellpia-operations.d.ts"
+      ],
+      "channels-operations": [
+        "dist/channels-operations.d.ts"
       ],
       "sellpia-inventory-freshness": [
         "dist/sellpia-inventory-freshness.d.ts"
