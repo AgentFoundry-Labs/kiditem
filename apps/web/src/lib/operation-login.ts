@@ -118,3 +118,19 @@ export function noteOperationLoginFailure(account: Pick<OperationLoginAccount, '
   toast.error(`${mallName} 로그인 실패 — 저장된 아이디·비밀번호를 고쳐 주세요`, { description: `${mallName}: ${mallMessage}` });
 }
 
+/** 이미 본 끝난 실행(이 탭에서 한 번만 알린다). */
+const notedOperations = new Set<string>();
+/** 이보다 오래전에 끝난 실행은 막는 근거로 쓰지 않는다 — 사람이 푼 차단을 옛 실행이 되살리지 않게. */
+const RECENT_FAILURE_MS = 15 * 60_000;
+
+/**
+ * 몰 카드 밖에서 끝난 실행을 읽는 곳(배송요약·로켓 PO·직배송 상태 읽기)이 부른다: 몰 키로 `noteOperationLoginFailure`를
+ * 한 번 적용한다. 같은 실행은 다시 보지 않고, 끝난 지 오래된 실행은 막는 근거로 쓰지 않는다.
+ */
+export function noteOperationLoginFailureForMall(mallKey: string, operation: OperationView, now = Date.now()): void {
+  if (operation.status !== 'failed' || notedOperations.has(operation.id)) return;
+  const finishedAt = operation.finishedAt ? new Date(operation.finishedAt).getTime() : Number.NaN;
+  if (!Number.isFinite(finishedAt) || now - finishedAt > RECENT_FAILURE_MS) return;
+  notedOperations.add(operation.id);
+  noteOperationLoginFailure({ key: mallKey, name: findChannel(mallKey)?.name ?? mallKey }, operation);
+}

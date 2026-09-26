@@ -13,7 +13,7 @@ import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
 import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import { attemptFailureText } from '@/lib/operator-error';
-import { operationLoginOptions, ROCKET_LOGIN_MALL_KEY } from '@/lib/operation-login';
+import { noteOperationLoginFailureForMall, operationLoginOptions, ROCKET_LOGIN_MALL_KEY } from '@/lib/operation-login';
 import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
@@ -170,6 +170,8 @@ export async function beginCoupangDirectAttempt(
 export async function readCoupangDirectAttempt(attemptId: string): Promise<CoupangDirectOwnerAttempt> {
   const { operation } = await apiClient.getParsed(`${OPERATIONS_PATH}/${encodeURIComponent(attemptId)}`, OperationGetResponseSchema);
   if (operation.kind !== COUPANG_DIRECTSHIP_KIND) throw new ApiError(404, 'OPERATION_NOT_FOUND', null, { reason: 'coupang_directship_operation' });
+  // 로켓 계정 자격을 서플라이어 허브가 거절했으면 그 계정의 자동 로그인을 멈춘다(KID-377).
+  noteOperationLoginFailureForMall(ROCKET_LOGIN_MALL_KEY, operation);
   return directshipAttemptView(operation);
 }
 

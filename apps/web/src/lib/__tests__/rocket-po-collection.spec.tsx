@@ -160,6 +160,23 @@ describe('readRocketPoOperations — 성공한 실행은 넓게 읽는다(리뷰
   });
 });
 
+describe('readRocketPoOperations — 로켓 계정 자격 거절(KID-377)', () => {
+  it('서플라이어 허브가 로켓 계정 자격을 거절해 막 끝난 실행을 읽으면 coupang-direct 자동 로그인을 멈춘다', async () => {
+    const { readRocketPoOperations } = await import('@/lib/rocket-po-collection');
+    const { mallAutoLoginBlock, resetMallLoginBlocksForTest } = await import('@/lib/mall-login-block');
+    window.localStorage.clear();
+    resetMallLoginBlocksForTest();
+    const rejected = operation(ACCOUNT_A, 'failed', '55555555-5555-4555-8555-555555555555', {
+      errorCode: 'SITE_LOGIN_REQUIRED',
+      result: { login: { reason: 'credentials_rejected', mallMessage: '비밀번호가 일치하지 않습니다.' } },
+      finishedAt: new Date().toISOString(),
+    });
+    vi.mocked(apiClient.get).mockImplementation(async (path: string) => (path.includes('status=succeeded') ? { operations: [] } : { operations: [rejected] }));
+    await readRocketPoOperations();
+    expect(mallAutoLoginBlock('coupang-direct')).toMatchObject({ reason: '비밀번호가 일치하지 않습니다.' });
+  });
+});
+
 describe('rocketPoSourceView — 계정 하나의 원천 보기', () => {
   const list = (items: unknown[]) => OperationListResponseSchema.parse({ operations: items });
   const now = new Date('2026-08-01T03:00:00.000Z');

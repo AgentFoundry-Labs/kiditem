@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { mallAutoLoginBlock, resetMallLoginBlocksForTest } from '../mall-login-block';
 import {
   cancelCoupangShipmentSummary,
   readLatestCoupangShipmentSummary,
@@ -80,5 +81,20 @@ describe('쿠팡 쉽먼트 발송일 조회 웹 다리(실행 계약 orders.coup
   it('중단은 실행 계약의 cancel', async () => {
     await cancelCoupangShipmentSummary(OPERATION_ID);
     expect(api.post).toHaveBeenCalledWith(`/api/operations/${OPERATION_ID}/cancel`);
+  });
+
+  it('서플라이어 허브가 로켓 계정 자격을 거절해 막 끝난 조회를 읽으면 coupang-direct 자동 로그인을 멈춘다(KID-377)', async () => {
+    window.localStorage.clear();
+    resetMallLoginBlocksForTest();
+    api.get.mockResolvedValueOnce({ operations: [operation({
+      id: 'b2222222-2222-4222-8222-222222222222',
+      status: 'failed',
+      errorCode: 'SITE_LOGIN_REQUIRED',
+      errorMessage: '쿠팡 서플라이어 허브 로그인이 필요합니다.',
+      result: { login: { reason: 'credentials_rejected', mallMessage: '아이디 또는 비밀번호가 일치하지 않습니다.' } },
+      finishedAt: new Date().toISOString(),
+    })] });
+    await expect(readLatestCoupangShipmentSummary()).resolves.toMatchObject({ status: 'error', errorCode: 'SITE_LOGIN_REQUIRED' });
+    expect(mallAutoLoginBlock('coupang-direct')).toMatchObject({ reason: '아이디 또는 비밀번호가 일치하지 않습니다.' });
   });
 });

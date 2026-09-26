@@ -12,7 +12,7 @@ import { z } from 'zod';
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
-import { operationLoginOptions, ROCKET_LOGIN_MALL_KEY } from '@/lib/operation-login';
+import { noteOperationLoginFailureForMall, operationLoginOptions, ROCKET_LOGIN_MALL_KEY } from '@/lib/operation-login';
 import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
 import { queryKeys } from '@/lib/query-keys';
 
@@ -35,6 +35,8 @@ export async function readRocketPoOperations(): Promise<OperationListResponse> {
   const byId = new Map<string, OperationView>();
   for (const operation of [...recent.operations, ...succeeded.operations]) byId.set(operation.id, operation);
   const operations = [...byId.values()].sort((a, b) => new Date(b.startedAt).getTime() - new Date(a.startedAt).getTime());
+  // 로켓 계정 자격을 서플라이어 허브가 거절했으면 그 계정의 자동 로그인을 멈춘다(KID-377).
+  for (const operation of recent.operations) noteOperationLoginFailureForMall(ROCKET_LOGIN_MALL_KEY, operation);
   return { ...recent, operations };
 }
 

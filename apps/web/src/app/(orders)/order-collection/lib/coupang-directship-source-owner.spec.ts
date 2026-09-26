@@ -1,7 +1,8 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
 import { requestOperationStart } from '@/lib/operation-start';
-import { beginCoupangDirectAttempt } from './coupang-directship-source-owner';
+import { mallAutoLoginBlock, resetMallLoginBlocksForTest } from '@/lib/mall-login-block';
+import { beginCoupangDirectAttempt, readCoupangDirectAttempt } from './coupang-directship-source-owner';
 
 vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn(), getParsed: vi.fn() } }));
 vi.mock('@/lib/operation-start', () => ({ requestOperationStart: vi.fn(), requestOperationCancel: vi.fn() }));
@@ -33,5 +34,18 @@ describe('beginCoupangDirectAttempt — 직배송 실행 시작(KID-377)', () =>
     vi.mocked(apiClient.get).mockRejectedValue(new Error('offline'));
     await beginCoupangDirectAttempt('key-2', ACCOUNT_ID);
     expect(requestOperationStart).toHaveBeenCalledWith('orders.coupang_directship', { channelAccountId: ACCOUNT_ID }, { idempotencyKey: 'key-2' });
+  });
+
+  it('서플라이어 허브가 로켓 계정 자격을 거절해 끝난 실행을 읽으면 coupang-direct 자동 로그인을 멈춘다', async () => {
+    resetMallLoginBlocksForTest();
+    vi.mocked(apiClient.getParsed).mockResolvedValue({ operation: {
+      id: OPERATION_ID, kind: 'orders.coupang_directship', status: 'failed', lockKeys: [], plan: { channelAccountId: ACCOUNT_ID },
+      progress: null, result: { login: { reason: 'credentials_rejected', mallMessage: '아이디 또는 비밀번호가 일치하지 않습니다.' } }, window: null,
+      errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '쿠팡 서플라이어 허브 로그인이 필요합니다.',
+      startedAt: new Date().toISOString(), finishedAt: new Date().toISOString(), expiresAt: new Date().toISOString(),
+      attempts: 1, maxAttempts: 1, scheduledFor: null,
+    } } as never);
+    await expect(readCoupangDirectAttempt(OPERATION_ID)).resolves.toMatchObject({ state: 'FAILED' });
+    expect(mallAutoLoginBlock('coupang-direct')).toMatchObject({ reason: '아이디 또는 비밀번호가 일치하지 않습니다.' });
   });
 });

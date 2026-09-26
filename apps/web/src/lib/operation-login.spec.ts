@@ -13,6 +13,7 @@ import {
   loadOperationLoginCredentials,
   loadOperationLoginCredentialsForMall,
   noteOperationLoginFailure,
+  noteOperationLoginFailureForMall,
 } from './operation-login';
 
 vi.mock('./order-mall-account-api', () => ({ orderMallAccountApi: { password: vi.fn(), list: vi.fn() } }));
@@ -123,3 +124,17 @@ describe('operation-login — 끝난 실행의 로그인 결과로 차단을 갱
   });
 });
 
+describe('operation-login — 몰 카드 밖 실행(로켓 계정)의 거절도 막는다', () => {
+  it('몰 키와 끝난 실행으로 막는다 — 같은 실행은 한 번만 알리고, 끝난 지 오래된 실행은 근거로 쓰지 않는다', () => {
+    const soon = Date.parse('2026-09-26T00:05:00.000Z');
+    const old = { ...failed({ login: { reason: 'credentials_rejected', mallMessage: '비밀번호가 일치하지 않습니다.' } }), id: '22222222-2222-4222-8222-222222222222' };
+    noteOperationLoginFailureForMall('coupang-direct', old, Date.parse('2026-09-26T03:00:00.000Z'));
+    expect(mallAutoLoginBlock('coupang-direct')).toBeNull();
+
+    const operation = failed({ login: { reason: 'credentials_rejected', mallMessage: '비밀번호가 일치하지 않습니다.' } });
+    noteOperationLoginFailureForMall('coupang-direct', operation, soon);
+    noteOperationLoginFailureForMall('coupang-direct', operation, soon);
+    expect(mallAutoLoginBlock('coupang-direct')).toMatchObject({ reason: '비밀번호가 일치하지 않습니다.' });
+    expect(toast.error).toHaveBeenCalledTimes(1);
+  });
+});
