@@ -21,6 +21,7 @@ import {
   type OrderCollectionMallAccount,
 } from '@/lib/order-mall-account-api';
 import { todayYmd } from './order-collection-page-model';
+import { isMallOrderAttemptMall } from '@kiditem/shared/orders-operations';
 
 /**
  * 수집할 신규 주문이 없을 때의 안내.
@@ -217,14 +218,11 @@ export function createBrowserMallCollector({
     const credentials = await loadMallCredentialsForLogin(account);
     if (credentials) await ensureMallLogin(account.key, run);
 
-    const actionByMall: Record<string, string> = {
-      kakao: 'collectKakaoOrders',
-    };
-    const action = actionByMall[account.key];
-    if (!action) throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
+    // KID-379: 옛 경로의 수집기는 카카오 하나다(`MALL_ORDER_ATTEMPT_MALLS`).
+    if (!isMallOrderAttemptMall(account.key)) throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
 
     const message: Record<string, unknown> = {
-      action,
+      action: 'collectKakaoOrders',
       date,
       ...orderCollectionExtensionRunFields(run),
     };

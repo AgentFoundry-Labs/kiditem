@@ -55,7 +55,7 @@ test('attaches normalized evidence to returned collector failures', async () => 
   });
 
   const result = await lifecycle.run(
-    { runId: RUN_ID, environmentId: 'office' },
+    { attemptId: RUN_ID, environmentId: 'office' },
     lifecycleModule.createIdentity('kakao', '2026-07-27'),
     async () => ({ success: false, pendingLogin: true, error: '로그인이 필요합니다.' }),
   );
@@ -88,7 +88,7 @@ test('keeps local session running while a throwing collector exposes failure evi
   });
 
   const result = await lifecycle.run(
-    { runId: RUN_ID, environmentId: 'local' },
+    { attemptId: RUN_ID, environmentId: 'local' },
     lifecycleModule.createIdentity('boribori', '2026-07-27'),
     async () => { throw new Error('Failed to fetch'); },
   );
@@ -120,7 +120,7 @@ test('promotes normalized login evidence to attention before terminal failure', 
   });
 
   const result = await lifecycle.run(
-    { runId: RUN_ID, environmentId: 'local' },
+    { attemptId: RUN_ID, environmentId: 'local' },
     lifecycleModule.createIdentity('onch', '2026-08-01'),
     async () => ({ success: false, error: '온채널 로그인을 확인하세요.' }),
   );
@@ -138,7 +138,7 @@ test('keeps the office environment session running after owner success', async (
   });
 
   const result = await lifecycle.run(
-    { runId: RUN_ID, environmentId: 'office' },
+    { attemptId: RUN_ID, environmentId: 'office' },
     lifecycleModule.createIdentity('sellpia', '2026-07-29'),
     async () => ({ success: true }),
   );

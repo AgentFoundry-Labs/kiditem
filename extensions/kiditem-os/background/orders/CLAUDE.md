@@ -80,8 +80,13 @@ summary, Rocket PO and directship are operation kinds collected by
 - Malls in `MALL_ORDER_OPERATION_MALLS` collect through
   the runtime kind `orders.mall_orders`: `sites/mall-orders` routes the plan's
   mall key to `sites/<mallKey>`, which opens its own inactive tab and returns
-  the old convert body's rows or file parts. Their worker collectors are gone; the other
-  malls keep the owner/lifecycle/converter path until the remaining malls move (나머지 몰이 옮겨질 때까지).
+  the old convert body's rows or file parts. Their worker collectors are gone.
+- Only Kakao keeps the old owner path (KID-379): `order-collection-source-owner.js`,
+  `order-collection-lifecycle.js`, `collection-failure.js`, and
+  `collectKakaoOrders`. It sends no conversion — Kakao has no Sellpia format —
+  and hands the capture to the owner as `UNSUPPORTED_CONVERSION` failure
+  evidence. The server converter file is gone; code kept for Kakao is marked
+  `KID-379`.
 - Operation-kind sites log in inside the run (KID-377): the web sends the
   mall's stored credentials with `operation.start`, and `src/sites/site-login.ts`
   logs in once on a login screen and retries once. A site that still meets a

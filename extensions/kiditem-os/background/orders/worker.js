@@ -14,7 +14,6 @@ const ordersEnvironmentContext = KidItemEnvironmentContext.create({
 const orderCollectionLifecycle = KidItemOrderCollectionLifecycle.create({
   sessions: collectionSessions,
   producer: "orders.mall",
-  requireAttemptId: true,
   normalizeFailure(provider, value) {
     return KidItemOrderCollectionFailure.createEvidence(provider, value);
   },
@@ -36,10 +35,18 @@ const orderCollectionSourceOwner = KidItemOrderCollectionSourceOwner.create({
   request: (environmentId, path, init) =>
     sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
 });
-const orderCollectionServerConverter = KidItemOrderCollectionServerConverter.create({
-  request: (environmentId, path, init) =>
-    sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
-});
+// KID-379: 옛 몰 소유자 경로(`orders.mall`)는 카카오만 쓴다. 카카오는 셀피아 변환 규격이 없어 서버에 변환을 보내지
+// 않고, 걷은 원본을 그대로 실패 증거(`UNSUPPORTED_CONVERSION`)로 소유자에게 넘긴다 — 소유자가 그 원본과 함께 시도를
+// 실패로 닫는다. 옛 서버 변환기(`order-collection-server-converter.js`)는 다른 몰이 모두 실행 kind로 옮겨 지웠다(KID-380).
+function refuseUnsupportedConversion(capture) {
+  const error = new Error("카카오는 셀피아 변환 규격이 검증되지 않아 지원하지 않습니다.");
+  error.code = "UNSUPPORTED_CONVERSION";
+  // 이름 붙은 수집기의 캡처를 그대로 남긴다 — `orders`로 줄이면 몰이 준 부가 정보가 사라진다.
+  error.sourcePayload = capture;
+  // 요청을 보내기 전에 거절했다 — 결과가 불확실한 전송 실패가 아니다.
+  error.conversionLocal = true;
+  throw error;
+}
 function runOwnedOrderCollection(message, mallKey, collect) {
   return orderCollectionSourceOwner.run({
     environmentId: message.environmentId,
@@ -47,14 +54,7 @@ function runOwnedOrderCollection(message, mallKey, collect) {
     mallKey,
     collect,
     ...(message.serverOwned === true ? {
-      submit: (capture, plan, attempt) => orderCollectionServerConverter.convert({
-        environmentId: message.environmentId,
-        attempt,
-        mallKey,
-        capture,
-        plan,
-        input: message,
-      }),
+      submit: (capture) => refuseUnsupportedConversion(capture),
     } : {}),
   });
 }
@@ -124,11 +124,6 @@ async function recoverOrdersCollections(environmentId) {
   return results;
 }
 
-const ICECREAM_MALL_TAB_MATCHES = [
-  "https://*.i-screammall.co.kr/*",
-  "https://*.i-screammedia.com/*",
-  "https://*.i-screammedia.co.kr/*",
-];
 const SELLPIA_ORDER_UPLOAD_URL = "https://kiditem.sellpia.com/order_collect.html?ctype=OM_FILE";
 const SELLPIA_TAB_MATCHES = ["https://*.sellpia.com/*"];
 // 셀피아 전송 이후 후처리: 재고매칭 화면(조회/자동합포/자동재고매칭) + 송장채번 화면.
@@ -499,7 +494,6 @@ const ONCHANNEL_TAB_MATCHES = ["https://www.onch3.co.kr/*"];
 // manifest host_permissions 에 https://www.kidkids.net/* 가 반드시 있어야 한다(없으면 주입 실패=로그인 불가).
 const KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
 const KIDKIDS_TAB_MATCHES = ["https://partner.kidkids.net/*"];
-const ELEVENST_ORDER_URL = "https://msoffice.11st.co.kr/cx/delivery";
 const KAKAO_ORDER_URL = "https://shopping-seller.kakao.com/order/seller/store-order/integrate/list";
 const KAKAO_TAB_MATCHES = ["https://shopping-seller.kakao.com/*"];
 // 몰 상품등록. 주문수집이 이미 키즈노트 세션·탭을 소유하므로 그 옆에 둔다.
@@ -963,17 +957,7 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
     ));
   }
 
-  if (msg?.action === "collect11stOrders") {
-    return respond(runOwnedOrderCollection(
-      msg,
-      "11st",
-      (collection, plan) => collect11stOrders(
-        providerCollectionDate(msg, plan),
-        collection,
-      ),
-    ));
-  }
-
+  // KID-379: 옛 몰 소유자 경로에 남은 유일한 수집기.
   if (msg?.action === "collectKakaoOrders") {
     return respond(runOwnedOrderCollection(
       msg,
@@ -3409,169 +3393,3 @@ KidItemDomains.register({
   cancelAdditionalCollections: (environmentId) => cancelAdditionalCollections(environmentId),
   retryAdditionalCollections: (environmentId) => retryAdditionalCollections(environmentId),
 });
-// ── 11번가(11st) 주문 수집 ─────────────────────────────────────────────────────
-// 데스크톱 셀러오피스(soffice)는 React 껍데기 + ExtJS 레거시 iframe 하이브리드라 스크랩이
-// 지저분하다. 대신 모바일 셀러오피스(msoffice)가 같은 세션 쿠키로 도는 **순수 JSON API** 라
-// 그쪽을 쓴다. 응답이 EUC-KR 이므로 반드시 arrayBuffer + TextDecoder('euc-kr') 로 읽는다.
-//
-// 목록(shippingManager2)에는 주소·연락처가 없어 주문마다 상세(getOrderDetail2)를 한 번 더
-// 부른다(N+1). 11번가 호출 상한이 비공개라 상세 호출 사이에 간격을 둔다.
-async function findOrCreate11stTab(collection) {
-  // 이미 열린 11번가 탭은 이 수집이 가진 탭이 아니다 — 다른 수집기처럼 새 비활성 탭을 연다.
-  return createFreshOrderCollectionTab(collection, ELEVENST_ORDER_URL);
-}
-
-async function collect11stOrders(dateFilter, collection) {
-  const { tab, created } = await findOrCreate11stTab(collection);
-  if (!tab?.id) return { success: false, error: "11번가 셀러오피스(msoffice.11st.co.kr) 탭을 열 수 없습니다." };
-  const attached = await attachOrderCollectionTab(collection, tab, created);
-  if (attached === null || attached === false) {
-    await closeFreshOrderCollectionTab(tab);
-    return {
-      success: false,
-      errorCode: "COLLECTION_CANCELLED",
-      error: "Order collection is no longer active.",
-    };
-  }
-  let keepOpen = false;
-  try {
-    await waitForTabReady(tab.id);
-    await assertOrderCollectionActive(collection);
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: scrape11stOrders,
-        args: [dateFilter || ""],
-      }),
-      180000,
-      "11번가 주문 수집 시간이 초과되었습니다.",
-    );
-    const result = injected[0]?.result ?? { success: false, error: "11번가 화면에 접근하지 못했습니다." };
-    if (orderCollectionNeedsAttention(result)) keepOpen = true;
-    return result;
-  } catch (e) {
-    if (e?.code === "COLLECTION_CANCELLED") return orderCollectionCancelledResult(e);
-    if (isMallAccessError(e)) { keepOpen = created; return mallAccessErrorResult("11번가"); }
-    return mallGenericErrorResult("11번가", e);
-  } finally {
-    if (created && tab.id && !keepOpen) {
-      try {
-        await chrome.tabs.remove(tab.id);
-      } catch {
-        /* 이미 닫힘 — 무시 */
-      }
-    }
-  }
-}
-
-/**
- * msoffice 페이지 컨텍스트에서 실행. 세션 쿠키로 JSON API 를 직접 호출한다.
- *
- * 수집 상태는 **결제완료(202)** 다. 보리보리에서 겪은 것처럼 상태코드를 잘못 잡으면
- * 늘 빈 목록이 나오므로 여기서 바꾸지 말 것.
- */
-async function scrape11stOrders(dateFilter) {
-  const API = "https://msoffice.11st.co.kr/cx/api/11ed";
-  const pad = (n) => String(n).padStart(2, "0");
-  const ymd = (d) => `${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}`;
-  const delay = (ms) => new Promise((r) => setTimeout(r, ms));
-
-  // 응답이 EUC-KR 이라 text() 로 읽으면 한글이 깨진다.
-  async function postForm(path, params) {
-    const body = new URLSearchParams(params).toString();
-    const res = await fetch(`${API}${path}`, {
-      method: "POST",
-      credentials: "include",
-      headers: { "Content-Type": "application/x-www-form-urlencoded;charset=UTF-8" },
-      body,
-    });
-    const text = new TextDecoder("euc-kr").decode(await res.arrayBuffer());
-    try {
-      return { ok: res.ok, status: res.status, json: JSON.parse(text) };
-    } catch {
-      return { ok: false, status: res.status, json: null, raw: text.slice(0, 200) };
-    }
-  }
-
-  const loginResult = {
-    success: false,
-    pendingLogin: true,
-    error:
-      "11번가 셀러오피스에 로그인되어 있지 않습니다. 열린 11번가 탭에서 로그인한 뒤 다시 '수집하기'를 눌러주세요.",
-  };
-
-  try {
-    const now = new Date();
-    let from;
-    let to;
-    if (/^\d{4}-\d{2}-\d{2}$/.test(dateFilter || "")) {
-      from = to = dateFilter.replace(/-/g, "");
-    } else {
-      // 기본 최근 7일 — 발송 전 주문이 며칠 누적돼도 놓치지 않게.
-      const start = new Date(now);
-      start.setDate(start.getDate() - 7);
-      from = ymd(start);
-      to = ymd(now);
-    }
-
-    const listParams = {
-      shBuyerType: "01",
-      shBuyerText: "",
-      shBuyerTextInput: "",
-      shProductStat: "202", // 결제완료
-      statusFilter: "202",
-      shDateFrom: from,
-      shDateTo: to,
-      shDateType: "01",
-      start: "0",
-      limit: "200",
-      isPaging: "Y",
-      listType: "orderingLogistics",
-      shDelayReport: "",
-      shPurchaseConfirm: "",
-      shToday: "",
-      shDelay: "",
-    };
-
-    const list = await postForm("/escrow/shippingManager2", listParams);
-    if (!list.json) return { ...loginResult, error: `11번가 주문 목록 응답을 읽지 못했습니다. (HTTP ${list.status})` };
-    if (list.json.success === false) {
-      if (/로그인/.test(String(list.json.msg || ""))) return loginResult;
-      return { success: false, error: `11번가 주문 조회 실패: ${list.json.msg || "알 수 없는 오류"}` };
-    }
-
-    const rows = Array.isArray(list.json.data)
-      ? list.json.data
-      : Array.isArray(list.json.list)
-        ? list.json.list
-        : Array.isArray(list.json.rows)
-          ? list.json.rows
-          : [];
-    if (rows.length === 0) {
-      return { success: true, orders: [], count: 0, dateFrom: from, dateTo: to };
-    }
-
-    // 주소·연락처는 목록에 없다. 주문별 상세를 이어붙인다.
-    const orders = [];
-    for (const row of rows) {
-      const ordNo = row.ORD_NO ?? row.ordNo;
-      const ordPrdSeq = row.ORD_PRD_SEQ ?? row.ordPrdSeq;
-      const dlvNo = row.DLV_NO ?? row.dlvNo;
-      let detail = null;
-      if (ordNo != null) {
-        const res = await postForm("/escrow/getOrderDetail2", {
-          ordNo: String(ordNo),
-          ordPrdSeq: String(ordPrdSeq ?? ""),
-          dlvNo: String(dlvNo ?? ""),
-        });
-        detail = res.json?.data ?? res.json ?? null;
-        await delay(250); // 호출 상한이 비공개라 보수적으로 간격을 둔다
-      }
-      orders.push({ ...row, __detail: detail });
-    }
-
-    return { success: true, orders, count: orders.length, dateFrom: from, dateTo: to };
-  } catch (error) {
-    return { success: false, error: error instanceof Error ? error.message : String(error) };
-  }
-}

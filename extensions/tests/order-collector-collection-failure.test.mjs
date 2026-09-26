@@ -25,17 +25,18 @@ test('normalizes provider failures into stable operator evidence', () => {
   const helper = loadHelper();
   const cases = [
     {
-      provider: 'gs-shop',
-      value: { success: false, pendingLogin: true, error: 'GS샵 SMS 인증이 필요합니다.' },
-      expected: ['operator_action_required', true, 'complete_sms_auth'],
-    },
-    {
       provider: 'teacher-mall',
       value: { success: false, error: 'teacherville 로그인을 확인하세요.' },
       expected: ['login_required', true, 'complete_login'],
     },
     {
-      // 인증은 gs-shop 전용이 아니다. 다른 몰의 인증 화면도 로그인이 아니라 인증으로 떠야 한다.
+      // SMS 인증도 인증이다 — 몰에 상관없이 complete_auth(GS샵 전용 분기는 GS샵이 실행 kind로 옮겨 지웠다, KID-380).
+      provider: 'kakao',
+      value: { success: false, pendingLogin: true, error: 'SMS 인증이 필요합니다.' },
+      expected: ['operator_action_required', true, 'complete_auth'],
+    },
+    {
+      // 인증은 몰 전용이 아니다. 다른 몰의 인증 화면도 로그인이 아니라 인증으로 떠야 한다.
       provider: 'kakao',
       value: { success: false, pendingLogin: true, error: '카카오 로그인 후 인증번호를 입력해 주세요.' },
       expected: ['operator_action_required', true, 'complete_auth'],
@@ -68,23 +69,8 @@ test('normalizes provider failures into stable operator evidence', () => {
     },
     {
       provider: 'domeggook',
-      value: { success: false, error: '도매꾹 생성 요청 모달을 열지 못했습니다.' },
-      expected: ['provider_contract_changed', false, null],
-    },
-    {
-      provider: 'domeggook',
       value: { success: false, error: '엑셀다운로드 버튼을 찾지 못했습니다. (로그인/화면 확인)' },
       expected: ['login_required', true, 'complete_login'],
-    },
-    {
-      provider: 'icecream-mall',
-      value: { success: false, error: '로그인 후 화면으로 넘어가지 않았습니다.' },
-      expected: ['provider_contract_changed', false, null],
-    },
-    {
-      provider: 'art09',
-      value: { success: false, error: '주문목록에서 주문번호를 찾지 못했습니다.' },
-      expected: ['provider_contract_changed', false, null],
     },
     {
       provider: 'boribori',
