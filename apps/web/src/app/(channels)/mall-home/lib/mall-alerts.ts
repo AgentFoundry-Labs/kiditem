@@ -37,13 +37,10 @@ import { formatNumber } from '@/lib/utils';
  * 명세(`mall-alerts.spec.ts`)가 레지스트리와 맞춰 본다.
  */
 const MALL_SOURCE_TYPES = new Map<string, string | null>([
+  // 아직 옛 attempt 경로로 도는 몰 주문수집.
   ['order_collection_mall', null],
-  ['coupang_shipment_summary', 'rocket'],
-  ['coupang_rocket_po_catalog', 'rocket'],
-  ['coupang_direct_order_capture', 'coupang-direct'],
-  ['coupang_wing_traffic', 'coupang'],
-  ['coupang_wing_itemwinner', 'coupang'],
   // 실행 계약으로 옮긴 원천: 알림 reader가 실행 표에서 만든 알림은 `sourceType`이 kind다(KID-355 정책 B).
+  // 옮긴 원천의 옛 행은 컷오버(`v0.1.31:032`)가 지운다.
   // 몰마다 도는 kind는 알림의 대상 채널 계정(`targetType: 'channel_account'`)이 몰을 말한다.
   [MALL_ORDERS_KIND, null],
   [MALL_ADMIN_LISTINGS_KIND, null],

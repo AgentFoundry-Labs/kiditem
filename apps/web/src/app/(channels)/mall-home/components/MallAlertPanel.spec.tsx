@@ -23,7 +23,7 @@ function alert(id: string, overrides: Partial<AlertItem> = {}): AlertItem {
     message: null,
     targetType: null,
     targetId: null,
-    sourceType: 'coupang_shipment_summary',
+    sourceType: 'orders.coupang_shipment_summary',
     href: '/coupang-shipments',
     isRead: false,
     createdAt: '2026-09-11T01:00:00.000Z',
@@ -68,8 +68,8 @@ describe('MallAlertPanel — 몰로 거르기', () => {
    */
   it('⭐ 쿠팡 로켓 카드가 함께 쓰는 쿠팡직배송 알림을 보여 준다', () => {
     const list = panel({ key: 'rocket', name: '쿠팡 로켓' }, [
-      alert('direct', { sourceType: 'coupang_direct_order_capture', title: '쿠팡 직배송 주문 수집 실패' }),
-      alert('wing', { sourceType: 'coupang_wing_traffic', title: '윙 트래픽 수집 실패' }),
+      alert('direct', { sourceType: 'orders.coupang_directship', title: '쿠팡 직배송 주문 수집 실패' }),
+      alert('wing', { sourceType: 'advertising.wing_traffic', title: '윙 트래픽 수집 실패' }),
     ]);
     expect(list.getByText('쿠팡 직배송 주문 수집 실패')).toBeInTheDocument();
     // 다른 몰 알림까지 끌어오지는 않는다 — 거르기는 여전히 거른다.

@@ -125,8 +125,8 @@ describe('원천 실패 알림', () => {
       inputs({
         alerts: {
           data: [
-            alert({ id: '1a111111-1111-4111-8111-111111111111', sourceType: 'coupang_wing_rank', status: 'OPEN', updatedAt: ago(300) }),
-            alert({ id: '1b111111-1111-4111-8111-111111111111', sourceType: 'coupang_wing_rank', status: 'RESOLVED', updatedAt: ago(10) }),
+            alert({ id: '1a111111-1111-4111-8111-111111111111', sourceType: 'advertising.wing_rank', status: 'OPEN', updatedAt: ago(300) }),
+            alert({ id: '1b111111-1111-4111-8111-111111111111', sourceType: 'advertising.wing_rank', status: 'RESOLVED', updatedAt: ago(10) }),
           ],
           failed: false,
         },
@@ -140,7 +140,7 @@ describe('원천 실패 알림', () => {
 
   it('로그인 때문에 멈췄다는 알림은 외부 막힘이다', () => {
     const snapshot = buildPipeSnapshot(
-      inputs({ alerts: { data: [alert({ sourceType: 'sellpia_inventory', title: '셀피아 재고 수집 실패', message: '셀피아 로그인이 필요합니다.' })], failed: false } }),
+      inputs({ alerts: { data: [alert({ sourceType: 'products.sellpia_inventory', title: '셀피아 재고 수집 실패', message: '셀피아 로그인이 필요합니다.' })], failed: false } }),
     );
     expect(stage(snapshot.stages, 'inventory').state).toBe('blocked_external');
     expect(snapshot.inbox[0]?.title).toBe('셀피아 재고 수집 실패 · 로그인 필요');
@@ -214,7 +214,7 @@ describe('원인이 같으면 한 장이다', () => {
 describe('셀피아 재고 수집 상태', () => {
   it('⭐ 신호 단계가 하루 반 넘게 성공이 없으면 오래됨이다', () => {
     const snapshot = buildPipeSnapshot(
-      inputs({ alerts: { data: [alert({ sourceType: 'coupang_keyword_serp', status: 'RESOLVED', updatedAt: ago(40 * 60) })], failed: false } }),
+      inputs({ alerts: { data: [alert({ sourceType: 'advertising.keyword_serp', status: 'RESOLVED', updatedAt: ago(40 * 60) })], failed: false } }),
     );
     expect(stage(snapshot.stages, 'keyword').state).toBe('stale');
     expect(snapshot.inbox[0]).toMatchObject({ key: 'stale:keyword', state: 'stale' });

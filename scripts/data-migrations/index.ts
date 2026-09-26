@@ -32,6 +32,7 @@ import { normalizeSalesProductStatusMigration } from './v0.1.31/027_normalize_sa
 import { closeGenerationsLeftByDirectJobCutoverMigration } from './v0.1.31/029_close_generations_left_by_direct_job_cutover';
 import { renameSourcingIngestionRunIdsMigration } from './v0.1.31/030_rename_sourcing_ingestion_run_ids_to_operation_ids';
 import { publishCompleteSourcingRunsMigration } from './v0.1.31/031_publish_complete_sourcing_runs';
+import { removeRetiredSourceFailureAlertsMigration } from './v0.1.31/032_remove_retired_source_failure_alerts';
 import retiredDataMigrationCatalog from "./retired.json";
 import type { DataMigration, RetiredDataMigration } from "./types";
 
@@ -82,6 +83,7 @@ export const dataMigrations: readonly DataMigration[] = [
   // 030 runs after 014, which empties Office 0.1.30 runs and their observations first.
   renameSourcingIngestionRunIdsMigration,
   publishCompleteSourcingRunsMigration,
+  removeRetiredSourceFailureAlertsMigration,
 ];
 
 export const DATA_MIGRATION_IDS = Object.freeze(
