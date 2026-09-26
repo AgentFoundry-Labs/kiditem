@@ -50,6 +50,13 @@ const MALLS: Row[] = [
     call: '11st.listings',
     loginAt: 'https://login.11st.co.kr/auth/front/selleroffice/login.tmall',
   },
+  {
+    mallKey: 'gmarket',
+    startUrl: 'https://item.esmplus.com/goods/list',
+    isolated: 'content/orders/esm-listings.js',
+    call: 'esm.listings',
+    loginAt: 'https://signin.esmplus.com/login',
+  },
 ];
 
 /** 로그인 폼 명세가 없는 몰(결정 #3). */

@@ -36,6 +36,7 @@ import '../sites/coupang-shop';
 import '../sites/coupang-search';
 import '../sites/coupang-supplier';
 import '../sites/domeggook';
+import '../sites/gmarket/listings';
 import '../sites/icecream-mall';
 import '../sites/kidkids';
 import '../sites/kidsnote/listings';
