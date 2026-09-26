@@ -10,9 +10,20 @@ export interface SiteDeps extends SiteCallerDeps {
   randomId(): string;
 }
 
-/** 브라우저 자원이 잡은 탭. 운영자 탭에 묶이는 사이트(상품 페이지)만 쓴다. */
+/**
+ * 사이트 로그인에 쓸 저장 자격(KID-377). 웹이 `operation.start`에 실어 보내고 실행 동안 메모리에만 있다 — plan·progress·
+ * result·로그에 싣지 않는다(실행 표는 화면이 그대로 본다). 없으면 로그인 화면에서 `SITE_LOGIN_REQUIRED`로 멈춘다.
+ */
+export interface SiteCredentials {
+  loginId: string;
+  password: string;
+  supplierLoginId?: string | null;
+}
+
+/** 브라우저 자원이 잡은 탭과 실행의 자격. 운영자 탭에 묶이는 사이트(상품 페이지)는 `tabId`를, 로그인 단계는 `credentials`를 쓴다. */
 export interface SiteLease {
   tabId: number | null;
+  credentials?: SiteCredentials | null;
 }
 
 export interface SiteFactory {

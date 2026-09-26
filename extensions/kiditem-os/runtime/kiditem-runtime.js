@@ -8049,7 +8049,7 @@ var KidItemRuntime = (() => {
     }
   });
 
-  // extensions/src/sites/sellpia/index.ts
+  // extensions/src/sites/sellpia/tracking.ts
   var SELLPIA_ORIGIN = "https://kiditem.sellpia.com";
   var SELLPIA_REPRINT_URL = `${SELLPIA_ORIGIN}/order_delivery_reprint.html`;
   var SELLPIA_SHIPMENT_TRACKING_FILE = "content/orders/sellpia-shipment-tracking.js";
@@ -8060,7 +8060,7 @@ var KidItemRuntime = (() => {
     isLogin: (url) => hostWithin(url, ["sellpia.com"]) && /login/i.test(url.pathname),
     loginMessage: LOGIN_MESSAGE5
   };
-  function createSellpiaSite(tabs) {
+  function createSellpiaTracking(tabs) {
     return {
       /** 기간(송장번호채번일자) 안 전 몰 송장. 행은 주문번호·송장번호가 있는 것만, `total`은 셀피아가 준 목록 수. */
       shipmentTracking(input) {
@@ -8095,7 +8095,14 @@ var KidItemRuntime = (() => {
       }
     };
   }
-  registerSite({ name: "sellpia", create: (deps) => createSellpiaSite(deps.tabs) });
+
+  // extensions/src/sites/sellpia/index.ts
+  function createSellpiaSite(tabs) {
+    return {
+      ...createSellpiaTracking(tabs)
+    };
+  }
+  registerSite({ name: "sellpia", opensOwnTabs: true, create: (deps) => createSellpiaSite(deps.tabs) });
 
   // extensions/src/sites/tiktok-cc/index.ts
   var NAVIGATION_TIMEOUT_MS6 = 35e3;
