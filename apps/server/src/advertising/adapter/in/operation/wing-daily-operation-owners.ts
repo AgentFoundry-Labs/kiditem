@@ -6,6 +6,7 @@ import {
   WING_ITEMWINNER_KIND,
   WING_TRAFFIC_KIND,
   WING_TRAFFIC_MAX_PAGES_PER_DAY,
+  WingItemwinnerPlanSchema,
   WingItemwinnerResultSchema,
   WingItemwinnerScopeSchema,
   WingTrafficPlanSchema,
@@ -36,15 +37,11 @@ import {
   type WingItemwinnerOperationRepositoryPort,
 } from '../../../application/port/out/repository/wing-itemwinner-operation.repository.port';
 
-const WingItemwinnerPlanSchema = z.object({
-  channelAccountId: z.string().uuid(),
-  businessDate: z.string().date(),
-}).strict();
-
 /**
  * Wing 아이템위너(ADR-0025 kind `advertising.wing_itemwinner`, KID-362). 확장이 서비스워커에서 Wing
  * `getProductList`를 한 번 읽어 `itemwinner_rows` 청크와 `itemwinner_page` 표식을 올린다. finish 트랜잭션에서
- * 완결을 확인하고 그날 listing·option 일별 행의 위너 열을 실행 id와 함께 upsert한다. `onFailed` 없음.
+ * 완결과 Wing 판매자 식별자를 확인하고 그날 listing·option 일별 행의 위너 열을 실행 id와 함께 upsert한다. 최종 실패는
+ * `onFailed`에서 계정의 원천 실패 알림으로 남긴다.
  * 잠금: 계정 로그인(`account:`) + Wing 일별 사실(`resource:wing-daily:`, 트래픽 kind와 같은 키).
  */
 @OperationOwner()
@@ -60,13 +57,15 @@ export class WingItemwinnerOperationOwner implements OperationOwnerPort {
   async plan(scope: JsonObject, context: OperationPlanContext): Promise<OperationPlanResult> {
     const parsed = parse(WingItemwinnerScopeSchema, scope, 'invalid_scope');
     const channelAccountId = parsed.channelAccountId.toLowerCase();
-    if (!(await this.repository.isActiveCoupangAccount(context.organizationId, channelAccountId))) {
-      throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
+    const account = await this.repository.readAccount(context.organizationId, channelAccountId);
+    if (!account) throw new KiditemNotFoundError('CHANNELS_ACCOUNT_NOT_FOUND');
+    if (!account.vendorId) {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'vendor_identity_missing', channelAccountId } });
     }
     const businessDate = businessDateKey(currentBusinessDate());
     return {
       lockKeys: [accountLockKey(channelAccountId), wingDailyLockKey(channelAccountId)],
-      plan: { channelAccountId, businessDate },
+      plan: { channelAccountId, vendorId: account.vendorId, businessDate },
       window: { start: businessDate, end: businessDate },
     };
   }
@@ -77,8 +76,9 @@ export class WingItemwinnerOperationOwner implements OperationOwnerPort {
     context: OperationFinalizeContext,
   ): Promise<{ result: WingItemwinnerResult }> {
     const plan = WingItemwinnerPlanSchema.parse(context.plan);
-    const { rows, observedAt } = completeWingItemwinner(chunks, plan.businessDate);
-    if (!(await this.repository.isActiveCoupangAccount(context.organizationId, plan.channelAccountId, context.tx))) {
+    const { rows, observedAt } = completeWingItemwinner(chunks, plan.businessDate, plan.vendorId);
+    const account = await this.repository.readAccount(context.organizationId, plan.channelAccountId, context.tx);
+    if (!account || account.vendorId !== plan.vendorId) {
       throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'account_changed', channelAccountId: plan.channelAccountId } });
     }
     const published = await this.repository.publish(context.tx, {
@@ -166,7 +166,7 @@ export class WingTrafficOperationOwner implements OperationOwnerPort {
     context: OperationFinalizeContext,
   ): Promise<{ result: WingTrafficResult }> {
     const plan = WingTrafficPlanSchema.parse(context.plan);
-    const complete = completeWingTraffic(chunks, plan.expectedDates);
+    const complete = completeWingTraffic(chunks, plan.expectedDates, plan.vendorId);
     // 수집 중 계정이 비활성이 되거나 Wing 판매자 식별자가 바뀌었으면 그 행을 이 계정에 쓰지 않는다.
     const account = await this.repository.readAccount(context.organizationId, plan.channelAccountId, context.tx);
     if (!account || account.vendorId !== plan.vendorId) {

@@ -13,8 +13,12 @@ export interface WingItemwinnerPublication {
  * `ChannelListingOptionDailySnapshot`)의 위너 열을 쓰는 유일한 길이다(advertising/CLAUDE.md). 쓰기는 finish 트랜잭션 안에서만.
  */
 export interface WingItemwinnerOperationRepositoryPort {
-  /** 활성 쿠팡 계정인가. `transaction`이 없으면 자기 읽기로 본다(plan). */
-  isActiveCoupangAccount(organizationId: string, channelAccountId: string, transaction?: OwnerTransaction): Promise<boolean>;
+  /** 활성 쿠팡 계정과 그 Wing 판매자 식별자. 없으면 null. `transaction`이 없으면 자기 읽기로 본다(plan). */
+  readAccount(
+    organizationId: string,
+    channelAccountId: string,
+    transaction?: OwnerTransaction,
+  ): Promise<{ id: string; vendorId: string | null } | null>;
   /** 행을 listing·option에 맞춰 그날 행에 upsert하고 실행 id를 찍는다. 맞지 않는 행은 세기만 한다. */
   publish(
     transaction: OwnerTransaction,

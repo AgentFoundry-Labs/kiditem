@@ -3,6 +3,7 @@ import {
   WING_TRAFFIC_KIND,
   WING_TRAFFIC_PERIOD_CHUNK_KIND,
   WING_TRAFFIC_ROWS_CHUNK_KIND,
+  WING_VENDOR_IDENTITY_MISMATCH,
   WingTrafficPlanSchema,
   type AdTrafficAccountSummary,
   type WingTrafficDay,
@@ -18,6 +19,8 @@ import { registerCollector } from '../index';
 
 /** 이 수집기가 Wing에서 쓰는 것(`sites/wing/traffic.ts`의 `wing-traffic`가 구현, 입구가 넘긴다). */
 export interface WingTrafficSite {
+  /** 로그인한 Wing 세션의 판매자 식별자(업체코드). 근거가 없거나 모호하면 멈춘다. */
+  readVendorId(): Promise<string>;
   readFreshness(now: Date): Promise<{ salesLatest: string; trafficLatest: string; viewableStart: string; viewableEnd: string }>;
   readDetailPage(input: { businessDate: string; pageNumber: number; vendorId: string }): Promise<{
     rows: Array<Omit<WingTrafficRow, 'businessDate' | 'productId'> & { productId: string | null }>;
@@ -52,6 +55,15 @@ export const wingTrafficCollector: Collector<WingTrafficPlan, Record<string, unk
     if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, 'Wing 사이트를 쓸 수 없습니다.', { kind: WING_TRAFFIC_KIND });
     const plan = parsed.data;
     if (signal.aborted) return;
+    // 다른 Wing 계정으로 로그인한 세션이면 아무것도 읽지 않는다 — 빈 날의 행은 판매자 식별자를 싣지 않으므로 먼저 확인하고,
+    // 읽은 식별자를 기간 표식에 실어 서버도 대조한다.
+    const vendorId = await site.readVendorId();
+    if (vendorId !== plan.vendorId) {
+      throw new RuntimeError(WING_VENDOR_IDENTITY_MISMATCH, 'Wing에 다른 계정으로 로그인돼 있습니다. 수집할 계정으로 다시 로그인한 뒤 시작해 주세요.', {
+        plannedVendorId: plan.vendorId,
+        observedVendorId: vendorId,
+      });
+    }
     const freshness = await site.readFreshness(new Date());
     const confirmedEnd = [freshness.salesLatest, freshness.trafficLatest, plan.endDate].reduce((earliest, date) => (date < earliest ? date : earliest));
     const dates = plan.expectedDates.filter((date) => date <= confirmedEnd);
@@ -113,7 +125,7 @@ export const wingTrafficCollector: Collector<WingTrafficPlan, Record<string, unk
     }
     if (signal.aborted) return;
     const periodSummary = await site.readSummary({ startDate: dates[0]!, endDate: dates[dates.length - 1]! });
-    const period: WingTrafficPeriod = { startDate: dates[0]!, endDate: dates[dates.length - 1]!, capturedAt: new Date().toISOString(), accountSummary: periodSummary };
+    const period: WingTrafficPeriod = { startDate: dates[0]!, endDate: dates[dates.length - 1]!, capturedAt: new Date().toISOString(), vendorId, accountSummary: periodSummary };
     yield { chunkKind: WING_TRAFFIC_PERIOD_CHUNK_KIND, payload: [period], progress: { current: null, confirmedDays: dates.length, plannedDays: dates.length, rows: rowTotal } };
   },
 };

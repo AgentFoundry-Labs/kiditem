@@ -98,6 +98,7 @@ export async function wingTrafficOperations(prisma: PrismaClient) {
       startDate: plan.startDate,
       endDate: plan.endDate,
       capturedAt: `${plan.endDate}T02:00:00.000Z`,
+      vendorId: plan.vendorId,
       accountSummary: {
         visitors: summary.visitors * days,
         views: summary.views * days,

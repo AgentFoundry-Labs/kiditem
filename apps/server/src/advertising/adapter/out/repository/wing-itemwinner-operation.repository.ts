@@ -7,6 +7,7 @@ import { parseBusinessDate } from '../../../../common/kst';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { resolveCoupangVendorId } from '../../../../channels/domain/account/coupang-account-identity';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { operatorErrorText } from '@kiditem/shared/errors';
 import { matchListingFromRow, type ListingMap } from '../../../domain/listing-match';
@@ -62,13 +63,14 @@ export class WingItemwinnerOperationRepository implements WingItemwinnerOperatio
     });
   }
 
-  async isActiveCoupangAccount(organizationId: string, channelAccountId: string, transaction?: OwnerTransaction): Promise<boolean> {
+  async readAccount(organizationId: string, channelAccountId: string, transaction?: OwnerTransaction) {
     const account = await this.channelAccounts.resolveActiveProvider(transaction ?? ownerTransaction(this.prisma), {
       organizationId,
       channel: 'coupang',
       accountId: channelAccountId,
     });
-    return account?.id === channelAccountId;
+    if (!account || account.id !== channelAccountId) return null;
+    return { id: account.id, vendorId: resolveCoupangVendorId(account) };
   }
 
   async publish(

@@ -124,22 +124,33 @@ describe('advertising.wing_itemwinner owner over the operation contract + dispos
     return request(httpUrl).post(`/api/operations/${run.operation.id}/finish`).set(OPERATION_TOKEN_HEADER, run.token).send(body);
   }
   /** 확장 수집기의 순서: 행 청크(있으면) → 응답 표식. */
-  async function collect(run: OperationBeginResponse, rows: WingItemwinnerRow[], observedAt = new Date().toISOString(), totalSize = rows.length) {
+  async function collect(run: OperationBeginResponse, rows: WingItemwinnerRow[], observedAt = new Date().toISOString(), totalSize = rows.length, vendorId = 'VENDOR-A') {
     if (rows.length > 0) await put(run, WING_ITEMWINNER_CHUNK_KIND, 1, rows);
-    await put(run, WING_ITEMWINNER_PAGE_CHUNK_KIND, 1, [{ totalSize, observedAt }]);
+    await put(run, WING_ITEMWINNER_PAGE_CHUNK_KIND, 1, [{ totalSize, observedAt, vendorId }]);
   }
   const extensionStatus = () => request(httpUrl).get('/api/ads/extension/status').expect(200);
 
   it('plan locks the account and the Wing daily resource, freezes the KST business date and refuses a bad scope', async () => {
     const run = await beginRun();
     expect(run.operation.lockKeys).toEqual([`account:${accountId}`, `resource:wing-daily:${accountId}`]);
-    expect(run.operation.plan).toEqual({ channelAccountId: accountId, businessDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
+    expect(run.operation.plan).toEqual({ channelAccountId: accountId, vendorId: 'VENDOR-A', businessDate: expect.stringMatching(/^\d{4}-\d{2}-\d{2}$/) });
     expect(run.operation.window).toEqual({ start: run.operation.plan?.businessDate, end: run.operation.plan?.businessDate });
 
     await begin({}).expect(400);
     await begin({ channelAccountId: accountId, targetUrl: 'https://wing.coupang.com/x' }).expect(400);
     const missing = await begin({ channelAccountId: randomUUID() }).expect(404);
     expect(missing.body.code).toBe('CHANNELS_ACCOUNT_NOT_FOUND');
+    await finish(run, { outcome: 'failed', errorCode: 'SITE_REQUEST_FAILED' }).expect(200);
+    await prisma.channelAccount.update({ where: { id: accountId }, data: { vendorId: null } });
+    expect((await begin({ channelAccountId: accountId }).expect(400)).body.details.reason).toBe('vendor_identity_missing');
+  });
+
+  it('refuses a list read under another Wing vendor (old VENDOR_IDENTITY_MISMATCH) and writes nothing', async () => {
+    const run = await beginRun();
+    await collect(run, [row('1001')], new Date().toISOString(), 1, 'VENDOR-B');
+    const refused = await finish(run).expect(400);
+    expect(refused.body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'vendor_identity_mismatch' } });
+    await expect(prisma.channelListingDailySnapshot.count({ where: { organizationId: ORG } })).resolves.toBe(0);
   });
 
   it('a second run on the same account is refused with OPERATION_IN_PROGRESS while the first holds the daily lock', async () => {

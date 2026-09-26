@@ -74,11 +74,11 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
   });
 
   it('아이템위너 kind에는 목록 읽기만 가진 wing-itemwinner 핸들을 준다(KID-362)', () => {
-    expect(keys(createSiteHandles(deps)('advertising.wing_itemwinner', { tabId: null }))).toEqual(['readItemwinnerList']);
+    expect(keys(createSiteHandles(deps)('advertising.wing_itemwinner', { tabId: null }))).toEqual(['readItemwinnerList', 'readVendorId']);
   });
 
   it('트래픽 kind에는 공개 기간·상세 쪽·요약 읽기를 가진 wing-traffic 핸들을 준다(KID-362)', () => {
-    expect(keys(createSiteHandles(deps)('advertising.wing_traffic', { tabId: null }))).toEqual(['readDetailPage', 'readFreshness', 'readSummary']);
+    expect(keys(createSiteHandles(deps)('advertising.wing_traffic', { tabId: null }))).toEqual(['readDetailPage', 'readFreshness', 'readSummary', 'readVendorId']);
   });
 
   it('상품평 kind에는 상품평 검색만 가진 wing-reviews 핸들을 준다', () => {

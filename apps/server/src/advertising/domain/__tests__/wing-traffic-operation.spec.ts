@@ -12,8 +12,8 @@ function row(businessDate: string, vendorItemId: string) {
 function day(businessDate: string, rows: number, explicitEmpty = rows === 0) {
   return { businessDate, pages: 1, rows, explicitEmpty, capturedAt: `${businessDate}T20:00:00.000Z`, accountSummary: SUMMARY };
 }
-function period(startDate: string, endDate: string) {
-  return { startDate, endDate, capturedAt: '2026-09-04T01:00:00.000Z', accountSummary: SUMMARY };
+function period(startDate: string, endDate: string, vendorId = 'A0001') {
+  return { startDate, endDate, capturedAt: '2026-09-04T01:00:00.000Z', vendorId, accountSummary: SUMMARY };
 }
 function chunk(chunkKind: string, payload: unknown[], sequence = 1): OperationStagedChunk {
   return { chunkKind, sequence, itemCount: payload.length, payload };
@@ -51,43 +51,50 @@ describe('completeWingTraffic — the confirmed window and every day of it', () 
       chunk('traffic_rows', [row('2026-09-01', '1'), row('2026-09-01', '2')]),
       chunk('traffic_days', [day('2026-09-01', 2), day('2026-09-02', 0)]),
       chunk('traffic_period', [period('2026-09-01', '2026-09-02')]),
-    ], DATES);
+    ], DATES, 'A0001');
     expect(result.confirmedDates).toEqual(['2026-09-01', '2026-09-02']);
     expect(result.providerBackedEmptyDates).toEqual(['2026-09-02']);
     expect(result.rows).toHaveLength(2);
   });
 
   it('refuses a missing period, a day without its marker, a marker that miscounts, and a zero day Wing did not call empty', () => {
-    expect(reason(() => completeWingTraffic([chunk('traffic_days', [day('2026-09-01', 0)])], DATES))).toBe('traffic_incomplete');
+    expect(reason(() => completeWingTraffic([chunk('traffic_days', [day('2026-09-01', 0)])], DATES, 'A0001'))).toBe('traffic_incomplete');
     expect(reason(() => completeWingTraffic([
       chunk('traffic_days', [day('2026-09-01', 0)]),
       chunk('traffic_period', [period('2026-09-01', '2026-09-02')]),
-    ], DATES))).toBe('traffic_incomplete');
+    ], DATES, 'A0001'))).toBe('traffic_incomplete');
     expect(reason(() => completeWingTraffic([
       chunk('traffic_rows', [row('2026-09-01', '1')]),
       chunk('traffic_days', [day('2026-09-01', 2)]),
       chunk('traffic_period', [period('2026-09-01', '2026-09-01')]),
-    ], DATES))).toBe('traffic_incomplete');
+    ], DATES, 'A0001'))).toBe('traffic_incomplete');
     expect(reason(() => completeWingTraffic([
       chunk('traffic_days', [day('2026-09-01', 0, false)]),
       chunk('traffic_period', [period('2026-09-01', '2026-09-01')]),
-    ], DATES))).toBe('traffic_empty_proof_required');
+    ], DATES, 'A0001'))).toBe('traffic_empty_proof_required');
+  });
+
+  it('refuses an all-empty window read under another Wing vendor, so it can zero-fill nothing', () => {
+    expect(reason(() => completeWingTraffic([
+      chunk('traffic_days', [day('2026-09-01', 0)]),
+      chunk('traffic_period', [period('2026-09-01', '2026-09-01', 'B0002')]),
+    ], DATES, 'A0001'))).toBe('vendor_identity_mismatch');
   });
 
   it('refuses a date the owner never planned, rows outside the confirmed window and an option twice in a day', () => {
     expect(reason(() => completeWingTraffic([
       chunk('traffic_days', [day('2026-08-31', 0)]),
       chunk('traffic_period', [period('2026-08-31', '2026-09-01')]),
-    ], DATES))).toBe('traffic_scope_conflict');
+    ], DATES, 'A0001'))).toBe('traffic_scope_conflict');
     expect(reason(() => completeWingTraffic([
       chunk('traffic_rows', [row('2026-09-03', '1')]),
       chunk('traffic_days', [day('2026-09-01', 0)]),
       chunk('traffic_period', [period('2026-09-01', '2026-09-01')]),
-    ], DATES))).toBe('traffic_scope_conflict');
+    ], DATES, 'A0001'))).toBe('traffic_scope_conflict');
     expect(reason(() => completeWingTraffic([
       chunk('traffic_rows', [row('2026-09-01', '1'), row('2026-09-01', '1')]),
       chunk('traffic_days', [day('2026-09-01', 2)]),
       chunk('traffic_period', [period('2026-09-01', '2026-09-01')]),
-    ], DATES))).toBe('traffic_duplicate_row');
+    ], DATES, 'A0001'))).toBe('traffic_duplicate_row');
   });
 });

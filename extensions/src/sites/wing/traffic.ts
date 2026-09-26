@@ -2,6 +2,7 @@ import type { AdTrafficAccountSummary } from '@kiditem/shared/advertising-operat
 import { RuntimeError } from '../../core/errors';
 import { SITE_REQUEST_FAILED, createSiteCaller, type SiteCaller, type SiteCallerOptions } from '../../core/site-caller';
 import { registerSite } from '../registry';
+import { readWingVendorId } from './vendor-identity';
 
 /**
  * Wing 매출분석(business-insight) 읽기 API — 읽기 전용 조회다. 옛 content script `wing-read-api.js`의 일별 v2 수집을
@@ -13,6 +14,8 @@ export const WING_TRAFFIC_DETAIL_URL = `${WING_ORIGIN}/tenants/rfm-ss/api/busine
 export const WING_TRAFFIC_SUMMARY_URL = `${WING_ORIGIN}/tenants/rfm-ss/api/business-insight/vendor-summary`;
 export const WING_TRAFFIC_METADATA_URL = `${WING_ORIGIN}/tenants/rfm-ss/api/metadata/business-insights`;
 export const WING_TRAFFIC_PAGE_SIZE = 100;
+/** 옛 수집이 열던 매출분석 화면. 판매자 식별자를 이 화면의 HTML로 확인한다. */
+export const WING_TRAFFIC_PAGE_URL = `${WING_ORIGIN}/tenants/business-insight/sales-analysis`;
 const REGISTRATION_TYPES = ['NORMAL', 'RFM'] as const;
 export const WING_TRAFFIC_CALLER: SiteCallerOptions = {
   minIntervalMs: 300,
@@ -195,6 +198,7 @@ function failed(reason: string, message: string, details: Record<string, unknown
 /** 트래픽 수집기(`collectors/advertising.wing_traffic`)에 넘길 핸들. */
 export function createWingTrafficSite(caller: SiteCaller) {
   return {
+    readVendorId: () => readWingVendorId(caller, WING_TRAFFIC_PAGE_URL),
     readFreshness: (now: Date) => readWingTrafficFreshness(caller, now),
     readDetailPage: (input: { businessDate: string; pageNumber: number; vendorId: string }) => readWingTrafficDetailPage(caller, input),
     readSummary: (input: { startDate: string; endDate: string }) => readWingTrafficSummary(caller, input),

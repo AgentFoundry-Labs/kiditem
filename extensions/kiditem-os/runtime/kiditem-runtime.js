@@ -4237,6 +4237,7 @@ var KidItemRuntime = (() => {
   }).strict();
 
   // packages/shared/src/schemas/advertising-operations.ts
+  var WING_VENDOR_IDENTITY_MISMATCH = "WING_VENDOR_IDENTITY_MISMATCH";
   var WING_ITEMWINNER_KIND = "advertising.wing_itemwinner";
   var WingItemwinnerScopeSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid()
@@ -4254,9 +4255,17 @@ var KidItemRuntime = (() => {
     suppressed: external_exports.boolean(),
     providerWinnerStatus: external_exports.boolean()
   }).strict();
+  var vendorId = external_exports.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/);
+  var WingItemwinnerPlanSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    vendorId,
+    businessDate: external_exports.string().date()
+  }).strict();
   var WingItemwinnerPageSchema = external_exports.object({
     totalSize: external_exports.number().int().min(0).max(WING_ITEMWINNER_MAX_ITEMS),
-    observedAt: external_exports.string().datetime({ offset: true })
+    observedAt: external_exports.string().datetime({ offset: true }),
+    /** 확장이 이 목록을 읽은 Wing 세션의 판매자 식별자. */
+    vendorId
   }).strict();
   var WingItemwinnerListingObservationSchema = external_exports.object({
     listingId: external_exports.string().uuid(),
@@ -4338,6 +4347,8 @@ var KidItemRuntime = (() => {
     startDate: calendarDate,
     endDate: calendarDate,
     capturedAt: external_exports.string().datetime({ offset: true }),
+    /** 확장이 이 창을 읽은 Wing 세션의 판매자 식별자. 빈 날만 있는 창도 이것으로 계정을 확인한다. */
+    vendorId: external_exports.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/),
     accountSummary: AdTrafficAccountSummarySchema
   }).strict();
   var AdTrafficSourceAccountDailySchema = external_exports.object({
@@ -4475,21 +4486,25 @@ var KidItemRuntime = (() => {
   };
 
   // extensions/src/collectors/advertising.wing_itemwinner/index.ts
-  var WingItemwinnerPlanSchema = external_exports.object({
-    channelAccountId: external_exports.string().uuid(),
-    businessDate: external_exports.string().date()
-  });
   var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
   var CHUNK_ITEMS = 500;
   var wingItemwinnerCollector = {
     kind: WING_ITEMWINNER_KIND,
     site: "wing-itemwinner",
     async *collect(rawPlan, site, { signal }) {
-      if (!WingItemwinnerPlanSchema.safeParse(rawPlan).success) {
+      const parsed = WingItemwinnerPlanSchema.safeParse(rawPlan);
+      if (!parsed.success) {
         throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC544\uC774\uD15C\uC704\uB108 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
       }
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
       if (signal.aborted) return;
+      const vendorId2 = await site.readVendorId();
+      if (vendorId2 !== parsed.data.vendorId) {
+        throw new RuntimeError(WING_VENDOR_IDENTITY_MISMATCH, "Wing\uC5D0 \uB2E4\uB978 \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uB3FC \uC788\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uD560 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", {
+          plannedVendorId: parsed.data.vendorId,
+          observedVendorId: vendorId2
+        });
+      }
       const list = await site.readItemwinnerList();
       const observedAt = (/* @__PURE__ */ new Date()).toISOString();
       if (signal.aborted) return;
@@ -4500,7 +4515,7 @@ var KidItemRuntime = (() => {
       }
       const rest = buffer.flush();
       if (rest) yield rowsChunk(rest);
-      const marker = { totalSize: list.totalSize, observedAt };
+      const marker = { totalSize: list.totalSize, observedAt, vendorId: vendorId2 };
       yield { chunkKind: WING_ITEMWINNER_PAGE_CHUNK_KIND, payload: [marker], progress: { rows: list.rows.length } };
     }
   };
@@ -4525,6 +4540,13 @@ var KidItemRuntime = (() => {
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
       const plan = parsed.data;
       if (signal.aborted) return;
+      const vendorId2 = await site.readVendorId();
+      if (vendorId2 !== plan.vendorId) {
+        throw new RuntimeError(WING_VENDOR_IDENTITY_MISMATCH, "Wing\uC5D0 \uB2E4\uB978 \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uB3FC \uC788\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uD560 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", {
+          plannedVendorId: plan.vendorId,
+          observedVendorId: vendorId2
+        });
+      }
       const freshness = await site.readFreshness(/* @__PURE__ */ new Date());
       const confirmedEnd = [freshness.salesLatest, freshness.trafficLatest, plan.endDate].reduce((earliest, date) => date < earliest ? date : earliest);
       const dates = plan.expectedDates.filter((date) => date <= confirmedEnd);
@@ -4586,7 +4608,7 @@ var KidItemRuntime = (() => {
       }
       if (signal.aborted) return;
       const periodSummary = await site.readSummary({ startDate: dates[0], endDate: dates[dates.length - 1] });
-      const period = { startDate: dates[0], endDate: dates[dates.length - 1], capturedAt: (/* @__PURE__ */ new Date()).toISOString(), accountSummary: periodSummary };
+      const period = { startDate: dates[0], endDate: dates[dates.length - 1], capturedAt: (/* @__PURE__ */ new Date()).toISOString(), vendorId: vendorId2, accountSummary: periodSummary };
       yield { chunkKind: WING_TRAFFIC_PERIOD_CHUNK_KIND, payload: [period], progress: { current: null, confirmedDays: dates.length, plannedDays: dates.length, rows: rowTotal } };
     }
   };
@@ -6158,8 +6180,8 @@ var KidItemRuntime = (() => {
           if (page >= totalListPages) break;
         }
         const vendorIds = listed.map((po) => po.vendorId);
-        const vendorId = vendorIds.length > 0 && new Set(vendorIds).size === 1 ? vendorIds[0] : "";
-        if (listed.length > 0 && !vendorId) throw incomplete2("\uBC1C\uC8FC \uBAA9\uB85D\uC758 \uACF5\uAE09\uC790 ID\uAC00 \uBE44\uC5C8\uAC70\uB098 \uC11E\uC5EC \uC788\uC2B5\uB2C8\uB2E4.");
+        const vendorId2 = vendorIds.length > 0 && new Set(vendorIds).size === 1 ? vendorIds[0] : "";
+        if (listed.length > 0 && !vendorId2) throw incomplete2("\uBC1C\uC8FC \uBAA9\uB85D\uC758 \uACF5\uAE09\uC790 ID\uAC00 \uBE44\uC5C8\uAC70\uB098 \uC11E\uC5EC \uC788\uC2B5\uB2C8\uB2E4.");
         const businessDateBasis = plan.dateType === "PURCHASE_ORDER_DATE" ? "ordered_at" : "expected_inbound";
         const buffer = new ChunkBuffer({ maxItems: CHUNK_PURCHASE_ORDERS, label: "\uBC1C\uC8FC\uC11C" });
         let detailed = 0;
@@ -6180,7 +6202,7 @@ var KidItemRuntime = (() => {
         const rest = buffer.flush();
         if (rest) yield { chunkKind: COUPANG_ROCKET_PO_CHUNK_KIND, payload: rest, progress: progress2("detail", detailed, listed.length) };
         const scan = {
-          vendorId,
+          vendorId: vendorId2,
           listPagesRead,
           totalListPages: totalListPages ?? 0,
           detailPoCount: detailed,
@@ -9012,10 +9034,10 @@ var KidItemRuntime = (() => {
     }
     return {
       /** 목록 한 페이지(500개). 페이지 모양·행 수가 pagination과 맞지 않으면 `CATALOG_LIST_INCOMPLETE`. */
-      async searchInventory(page, vendorId) {
+      async searchInventory(page, vendorId2) {
         const response = await searchJson(buildWingCatalogSearchBody(page));
         try {
-          return normalizeWingCatalogSearchResponse(response, page, vendorId);
+          return normalizeWingCatalogSearchResponse(response, page, vendorId2);
         } catch (error) {
           if (error instanceof WingPayloadError) throw new RuntimeError(CATALOG_LIST_INCOMPLETE2, error.message, { page });
           throw error;
@@ -9143,9 +9165,40 @@ var KidItemRuntime = (() => {
     create: (deps) => createWingSite(createSiteCaller(WING_SITE.caller, deps), { sleep: deps.sleep })
   });
 
+  // extensions/src/sites/wing/vendor-identity.ts
+  var WING_VENDOR_IDENTITY_UNAVAILABLE = "WING_VENDOR_IDENTITY_UNAVAILABLE";
+  var WING_VENDOR_IDENTITY_AMBIGUOUS = "WING_VENDOR_IDENTITY_AMBIGUOUS";
+  var ID = "([A-Za-z0-9][A-Za-z0-9_-]{0,79})";
+  var INLINE_SCRIPT = /<script\b(?![^>]*\bsrc\s*=)[^>]*>([\s\S]*?)<\/script>/gi;
+  var SCRIPT_VENDOR_ID = new RegExp(`["']?vendorId["']?\\s*[:=]\\s*["']${ID}["']`, "g");
+  var LABELED_VENDOR_ID = new RegExp(`\uC5C5\uCCB4\uCF54\uB4DC[\\s:]*${ID}`, "g");
+  var DATA_VENDOR_ID = new RegExp(`data-vendor-id\\s*=\\s*["']${ID}["']`, "g");
+  function wingVendorIdsInPage(html) {
+    const found = /* @__PURE__ */ new Set();
+    for (const script of html.matchAll(INLINE_SCRIPT)) {
+      for (const match of (script[1] ?? "").matchAll(SCRIPT_VENDOR_ID)) found.add(match[1]);
+    }
+    const text2 = html.replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ");
+    for (const match of text2.matchAll(LABELED_VENDOR_ID)) found.add(match[1]);
+    for (const match of html.matchAll(DATA_VENDOR_ID)) found.add(match[1]);
+    return [...found];
+  }
+  async function readWingVendorId(caller, pageUrl) {
+    const html = await caller.text(pageUrl, { method: "GET", headers: { Accept: "text/html" } });
+    const candidates = wingVendorIdsInPage(html);
+    if (candidates.length === 0) {
+      throw new RuntimeError(WING_VENDOR_IDENTITY_UNAVAILABLE, "Wing \uB85C\uADF8\uC778 \uACC4\uC815\uC758 \uC5C5\uCCB4\uCF54\uB4DC\uB97C \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. Wing\uC744 \uC0C8\uB85C \uACE0\uCE5C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.", { url: pageUrl });
+    }
+    if (candidates.length > 1) {
+      throw new RuntimeError(WING_VENDOR_IDENTITY_AMBIGUOUS, "Wing \uD654\uBA74\uC5D0 \uC5C5\uCCB4\uCF54\uB4DC\uAC00 \uC5EC\uB7EC \uAC1C \uBCF4\uC5EC \uB85C\uADF8\uC778 \uACC4\uC815\uC744 \uD655\uC815\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { url: pageUrl, candidates: candidates.length });
+    }
+    return candidates[0];
+  }
+
   // extensions/src/sites/wing/itemwinner.ts
   var WING_ORIGIN = "https://wing.coupang.com";
   var WING_ITEMWINNER_URL = `${WING_ORIGIN}/tenants/seller-price-management/getProductList`;
+  var WING_ITEMWINNER_PAGE_URL = `${WING_ORIGIN}/tenants/seller-price-management`;
   var PAGE_SIZE2 = 1e3;
   var EMPTY_PAGE_SIZE = 10;
   var WING_ITEMWINNER_CALLER = {
@@ -9243,7 +9296,10 @@ var KidItemRuntime = (() => {
     return new RuntimeError(SITE_REQUEST_FAILED, message, { reason, url: WING_ITEMWINNER_URL, ...details });
   }
   function createWingItemwinnerSite(caller) {
-    return { readItemwinnerList: () => readWingItemwinnerList(caller) };
+    return {
+      readVendorId: () => readWingVendorId(caller, WING_ITEMWINNER_PAGE_URL),
+      readItemwinnerList: () => readWingItemwinnerList(caller)
+    };
   }
   registerSite({
     name: "wing-itemwinner",
@@ -9479,6 +9535,7 @@ var KidItemRuntime = (() => {
   var WING_TRAFFIC_SUMMARY_URL = `${WING_ORIGIN3}/tenants/rfm-ss/api/business-insight/vendor-summary`;
   var WING_TRAFFIC_METADATA_URL = `${WING_ORIGIN3}/tenants/rfm-ss/api/metadata/business-insights`;
   var WING_TRAFFIC_PAGE_SIZE = 100;
+  var WING_TRAFFIC_PAGE_URL = `${WING_ORIGIN3}/tenants/business-insight/sales-analysis`;
   var REGISTRATION_TYPES = ["NORMAL", "RFM"];
   var WING_TRAFFIC_CALLER = {
     minIntervalMs: 300,
@@ -9558,7 +9615,7 @@ var KidItemRuntime = (() => {
     }
     return { ...summary, providerConversionRate: providerConversionRate === null ? null : providerConversionRate * 100 };
   }
-  function normalizeRow2(value, vendorId) {
+  function normalizeRow2(value, vendorId2) {
     const row = record(value);
     const details = record(row?.vendorItemDetails);
     const metrics = record(row?.businessInsightsMetricsResponse);
@@ -9566,7 +9623,7 @@ var KidItemRuntime = (() => {
     const productId = positiveId2(details?.inventoryId);
     if (!details || !metrics || !vendorItemId || !productId) throw rowInvalid2("vendorItemDetails");
     const rowVendorId = details.vendorId === null || details.vendorId === void 0 ? "" : String(details.vendorId).trim();
-    if (rowVendorId !== vendorId) {
+    if (rowVendorId !== vendorId2) {
       throw failed2("advertiser_identity_mismatch", "Wing \uACC4\uC815 \uC2DD\uBCC4\uC790\uAC00 \uC218\uC9D1 \uACC4\uD68D\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uB2E4\uB978 Wing \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { vendorItemId });
     }
     const values = {
@@ -9608,6 +9665,7 @@ var KidItemRuntime = (() => {
   }
   function createWingTrafficSite(caller) {
     return {
+      readVendorId: () => readWingVendorId(caller, WING_TRAFFIC_PAGE_URL),
       readFreshness: (now) => readWingTrafficFreshness(caller, now),
       readDetailPage: (input) => readWingTrafficDetailPage(caller, input),
       readSummary: (input) => readWingTrafficSummary(caller, input)

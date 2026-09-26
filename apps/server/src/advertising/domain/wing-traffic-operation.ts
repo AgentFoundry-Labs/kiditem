@@ -58,6 +58,7 @@ export interface CompleteWingTraffic {
 export function completeWingTraffic(
   chunks: readonly OperationStagedChunk[],
   expectedDates: readonly string[],
+  plannedVendorId: string,
 ): CompleteWingTraffic {
   const known = new Set<string>([WING_TRAFFIC_ROWS_CHUNK_KIND, WING_TRAFFIC_DAY_CHUNK_KIND, WING_TRAFFIC_PERIOD_CHUNK_KIND]);
   const unknown = chunks.find((chunk) => !known.has(chunk.chunkKind));
@@ -67,6 +68,11 @@ export function completeWingTraffic(
   const periods = chunkItems(chunks, WING_TRAFFIC_PERIOD_CHUNK_KIND, WingTrafficPeriodSchema);
   if (periods.length !== 1) throw invalid('traffic_incomplete', { periods: periods.length });
   const [period] = periods as [WingTrafficPeriod];
+  // 행마다 확인하는 판매자 식별자는 빈 날엔 없다. 창 표식의 것으로 확인해 다른 Wing 계정의 빈 창이 이 계정 리스팅을
+  // 0으로 채우지 못하게 한다.
+  if (period.vendorId !== plannedVendorId) {
+    throw invalid('vendor_identity_mismatch', { plannedVendorId, observedVendorId: period.vendorId });
+  }
   const start = expectedDates.indexOf(period.startDate);
   const end = expectedDates.indexOf(period.endDate);
   // 계획 밖 날짜는 범위 충돌이다: 무엇을 모을지는 owner가 정한다.

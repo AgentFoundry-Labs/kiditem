@@ -2,10 +2,12 @@ import {
   WING_ITEMWINNER_CHUNK_KIND,
   WING_ITEMWINNER_KIND,
   WING_ITEMWINNER_PAGE_CHUNK_KIND,
+  WING_VENDOR_IDENTITY_MISMATCH,
+  WingItemwinnerPlanSchema,
   type WingItemwinnerPage,
+  type WingItemwinnerPlan,
   type WingItemwinnerRow,
 } from '@kiditem/shared/advertising-operations';
-import { z } from 'zod';
 import { RuntimeError } from '../../core/errors';
 import { ChunkBuffer } from '../chunk-items';
 import type { CollectedChunk, Collector } from '../collector';
@@ -13,15 +15,12 @@ import { registerCollector } from '../index';
 
 /** 이 수집기가 Wing에서 쓰는 것(`sites/wing/itemwinner.ts`의 `wing-itemwinner`가 구현, 입구가 넘긴다). */
 export interface WingItemwinnerSite {
+  /** 로그인한 Wing 세션의 판매자 식별자(업체코드). 근거가 없거나 모호하면 멈춘다. */
+  readVendorId(): Promise<string>;
   /** 판매중 상품 전체(최대 1,000개)의 아이템위너 상태. 완결 검증은 사이트가 한다. */
   readItemwinnerList(): Promise<{ rows: WingItemwinnerRow[]; totalSize: number }>;
 }
 
-const WingItemwinnerPlanSchema = z.object({
-  channelAccountId: z.string().uuid(),
-  businessDate: z.string().date(),
-});
-export type WingItemwinnerPlan = z.infer<typeof WingItemwinnerPlanSchema>;
 
 const RUNTIME_PLAN_INVALID = 'RUNTIME_PLAN_INVALID' as const;
 const CHUNK_ITEMS = 500;
@@ -34,11 +33,20 @@ export const wingItemwinnerCollector: Collector<WingItemwinnerPlan, Record<strin
   kind: WING_ITEMWINNER_KIND,
   site: 'wing-itemwinner',
   async *collect(rawPlan, site, { signal }) {
-    if (!WingItemwinnerPlanSchema.safeParse(rawPlan).success) {
+    const parsed = WingItemwinnerPlanSchema.safeParse(rawPlan);
+    if (!parsed.success) {
       throw new RuntimeError(RUNTIME_PLAN_INVALID, '아이템위너 수집 계획이 올바르지 않습니다.', { kind: WING_ITEMWINNER_KIND });
     }
     if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, 'Wing 사이트를 쓸 수 없습니다.', { kind: WING_ITEMWINNER_KIND });
     if (signal.aborted) return;
+    // 다른 Wing 계정으로 로그인한 세션이면 목록을 읽지 않는다. 읽은 식별자는 표식에 실어 서버도 대조한다.
+    const vendorId = await site.readVendorId();
+    if (vendorId !== parsed.data.vendorId) {
+      throw new RuntimeError(WING_VENDOR_IDENTITY_MISMATCH, 'Wing에 다른 계정으로 로그인돼 있습니다. 수집할 계정으로 다시 로그인한 뒤 시작해 주세요.', {
+        plannedVendorId: parsed.data.vendorId,
+        observedVendorId: vendorId,
+      });
+    }
     const list = await site.readItemwinnerList();
     const observedAt = new Date().toISOString();
     if (signal.aborted) return;
@@ -49,7 +57,7 @@ export const wingItemwinnerCollector: Collector<WingItemwinnerPlan, Record<strin
     }
     const rest = buffer.flush();
     if (rest) yield rowsChunk(rest);
-    const marker: WingItemwinnerPage = { totalSize: list.totalSize, observedAt };
+    const marker: WingItemwinnerPage = { totalSize: list.totalSize, observedAt, vendorId };
     yield { chunkKind: WING_ITEMWINNER_PAGE_CHUNK_KIND, payload: [marker], progress: { rows: list.rows.length } };
   },
 };

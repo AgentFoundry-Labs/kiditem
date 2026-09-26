@@ -14,10 +14,11 @@ function option(vendorItemId: string) {
 }
 
 /** 가짜 Wing: 날짜 → 옵션 수. 쪽은 100개씩. */
-function fakeWing(countByDate: Record<string, number>, freshness = { salesLatest: '2026-09-03', trafficLatest: '2026-09-03', viewableStart: '2025-01-01', viewableEnd: '2026-09-03' }) {
+function fakeWing(countByDate: Record<string, number>, freshness = { salesLatest: '2026-09-03', trafficLatest: '2026-09-03', viewableStart: '2025-01-01', viewableEnd: '2026-09-03' }, vendorId = 'A0001') {
   const pages: Array<{ businessDate: string; pageNumber: number }> = [];
   const summaries: Array<{ startDate: string; endDate: string }> = [];
   const site: WingTrafficSite = {
+    readVendorId: async () => vendorId,
     readFreshness: async () => freshness,
     async readDetailPage({ businessDate, pageNumber }) {
       pages.push({ businessDate, pageNumber });
@@ -62,7 +63,7 @@ describe('collectors/advertising.wing_traffic — Wing 일별 트래픽', () => 
       { businessDate: '2026-09-01', pages: 2, rows: 150, explicitEmpty: false, accountSummary: SUMMARY },
       { businessDate: '2026-09-02', pages: 1, rows: 0, explicitEmpty: true },
     ]);
-    expect(chunks.at(-1)).toMatchObject({ chunkKind: 'traffic_period', payload: [{ startDate: '2026-09-01', endDate: '2026-09-02' }] });
+    expect(chunks.at(-1)).toMatchObject({ chunkKind: 'traffic_period', payload: [{ startDate: '2026-09-01', endDate: '2026-09-02', vendorId: 'A0001' }] });
     expect(wing.summaries).toEqual([
       { startDate: '2026-09-01', endDate: '2026-09-01' },
       { startDate: '2026-09-02', endDate: '2026-09-02' },
@@ -90,6 +91,13 @@ describe('collectors/advertising.wing_traffic — Wing 일별 트래픽', () => 
     const original = shifting.site.readDetailPage;
     shifting.site.readDetailPage = async (input) => ({ ...(await original(input)), totalResults: input.pageNumber === 0 ? 150 : 160 });
     await expect(collectAll(plan(['2026-09-01']), shifting.site)).rejects.toBeInstanceOf(RuntimeError);
+  });
+
+  it('로그인한 Wing 세션의 업체코드가 plan 계정과 다르면 매출분석을 읽지 않고 멈춘다(빈 날만 있는 창도)', async () => {
+    const other = fakeWing({ '2026-09-01': 0 }, undefined, 'B0002');
+    await expect(collectAll(plan(['2026-09-01']), other.site)).rejects.toMatchObject({ code: 'WING_VENDOR_IDENTITY_MISMATCH' });
+    expect(other.pages).toEqual([]);
+    expect(other.summaries).toEqual([]);
   });
 
   it('plan이 틀리면 멈추고, 중단되면 더 읽지 않는다', async () => {

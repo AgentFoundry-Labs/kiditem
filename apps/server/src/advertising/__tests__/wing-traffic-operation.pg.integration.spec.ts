@@ -137,7 +137,7 @@ describe('advertising.wing_traffic owner over the operation contract + disposabl
     return request(httpUrl).post(`/api/operations/${run.operation.id}/finish`).set(OPERATION_TOKEN_HEADER, run.token).send(body);
   }
   /** 수집기의 순서: 날마다 행 청크 → 날 표식, 끝에 확정 창 기간 표식. `days`의 키 순서가 확정 창이다. */
-  async function collect(run: OperationBeginResponse, days: Record<string, WingTrafficRow[]>) {
+  async function collect(run: OperationBeginResponse, days: Record<string, WingTrafficRow[]>, vendorId = 'A0001') {
     const dates = Object.keys(days);
     let rowSequence = 0;
     for (const [index, date] of dates.entries()) {
@@ -149,7 +149,7 @@ describe('advertising.wing_traffic owner over the operation contract + disposabl
       }]);
     }
     await put(run, WING_TRAFFIC_PERIOD_CHUNK_KIND, 1, [{
-      startDate: dates[0], endDate: dates[dates.length - 1], capturedAt: new Date().toISOString(),
+      startDate: dates[0], endDate: dates[dates.length - 1], capturedAt: new Date().toISOString(), vendorId,
       accountSummary: { ...SUMMARY, views: SUMMARY.views * dates.length },
     }]);
   }
@@ -245,7 +245,7 @@ describe('advertising.wing_traffic owner over the operation contract + disposabl
     const day = closed();
     const refused = await beginRun({ startDate: day, endDate: day });
     await put(refused, WING_TRAFFIC_DAY_CHUNK_KIND, 1, [{ businessDate: day, pages: 1, rows: 0, explicitEmpty: false, capturedAt: `${day}T20:00:00.000Z`, accountSummary: SUMMARY }]);
-    await put(refused, WING_TRAFFIC_PERIOD_CHUNK_KIND, 1, [{ startDate: day, endDate: day, capturedAt: `${day}T21:00:00.000Z`, accountSummary: SUMMARY }]);
+    await put(refused, WING_TRAFFIC_PERIOD_CHUNK_KIND, 1, [{ startDate: day, endDate: day, capturedAt: `${day}T21:00:00.000Z`, vendorId: 'A0001', accountSummary: SUMMARY }]);
     expect((await finish(refused).expect(400)).body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'traffic_empty_proof_required' } });
     await finish(refused, { outcome: 'failed', errorCode: 'VALIDATION_FAILED' }).expect(200);
     await expect(prisma.channelListingDailySnapshot.count({ where: { organizationId: ORG } })).resolves.toBe(0);
@@ -255,6 +255,16 @@ describe('advertising.wing_traffic owner over the operation contract + disposabl
     const finished = await finish(empty).expect(200);
     expect(finished.body.operation.result.providerBackedEmptyDates).toEqual([day]);
     expect((await listingDays(listingA.id))[0]).toMatchObject({ trafficViews: 0 });
+  });
+
+  it('an all-empty window read under another Wing vendor is refused and zero-fills nothing (M1)', async () => {
+    const day = closed();
+    const run = await beginRun({ startDate: day, endDate: day });
+    await collect(run, { [day]: [] }, 'B0002');
+    expect((await finish(run).expect(400)).body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'vendor_identity_mismatch' } });
+    await finish(run, { outcome: 'failed', errorCode: 'VALIDATION_FAILED' }).expect(200);
+    await expect(prisma.channelListingDailySnapshot.count({ where: { organizationId: ORG } })).resolves.toBe(0);
+    await expect(reader.readPublished({ organizationId: ORG, from: day, to: day })).resolves.toMatchObject({ accountDaily: [] });
   });
 
   it('keeps an item-winner row\'s observation count and operation, and changes only the traffic columns', async () => {

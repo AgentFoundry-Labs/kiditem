@@ -2,6 +2,7 @@ import { WING_ITEMWINNER_MAX_ITEMS, type WingItemwinnerRow } from '@kiditem/shar
 import { RuntimeError } from '../../core/errors';
 import { SITE_REQUEST_FAILED, createSiteCaller, type SiteCaller, type SiteCallerOptions } from '../../core/site-caller';
 import { registerSite } from '../registry';
+import { readWingVendorId } from './vendor-identity';
 
 /**
  * Wing 가격관리 화면(`/tenants/seller-price-management`)이 쓰는 아이템위너 목록 API. 읽기 전용 조회다(POST지만
@@ -13,6 +14,8 @@ import { registerSite } from '../registry';
  */
 export const WING_ORIGIN = 'https://wing.coupang.com';
 export const WING_ITEMWINNER_URL = `${WING_ORIGIN}/tenants/seller-price-management/getProductList`;
+/** 옛 수집이 열던 아이템위너 화면. 판매자 식별자를 이 화면의 HTML로 확인한다(옛 content script가 같은 화면에서 확인했다). */
+export const WING_ITEMWINNER_PAGE_URL = `${WING_ORIGIN}/tenants/seller-price-management`;
 const PAGE_SIZE = 1_000;
 const EMPTY_PAGE_SIZE = 10;
 export const WING_ITEMWINNER_CALLER: SiteCallerOptions = {
@@ -128,8 +131,11 @@ function failed(reason: string, message: string, details: Record<string, unknown
 }
 
 /** 아이템위너 수집기(`collectors/advertising.wing_itemwinner`)에 넘길 핸들. */
-export function createWingItemwinnerSite(caller: SiteCaller): { readItemwinnerList(): Promise<WingItemwinnerList> } {
-  return { readItemwinnerList: () => readWingItemwinnerList(caller) };
+export function createWingItemwinnerSite(caller: SiteCaller): { readVendorId(): Promise<string>; readItemwinnerList(): Promise<WingItemwinnerList> } {
+  return {
+    readVendorId: () => readWingVendorId(caller, WING_ITEMWINNER_PAGE_URL),
+    readItemwinnerList: () => readWingItemwinnerList(caller),
+  };
 }
 
 // 서비스워커에서 Wing 쿠키로 부른다(KID-362, 상품평과 같은 방식). `account:` 잠금은 윙 탭을 열어 로그인을 유지한다.

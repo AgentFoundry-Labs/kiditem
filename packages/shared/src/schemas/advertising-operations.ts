@@ -12,6 +12,12 @@ import { resourceLockKey, type OperationLockKey } from './operation.js';
  * Wing 일별 사실(`ChannelListingDailySnapshot` 트래픽·아이템위너 열)을 쓰는 kind는 계정마다 하나씩만 돈다.
  * 옛 advisory `lockListingTraffic`("listing-day 트래픽을 쓰는 쪽은 한 번에 하나")을 대신하는 잠금 키다 — K6·K7이 같은 키를 잡는다.
  */
+/**
+ * 확장 수집기가 로그인한 Wing 세션의 판매자 식별자(업체코드)가 plan 계정 것과 다를 때 내는 런타임 코드(KID-362 M1).
+ * 서버 finalize도 청크 표식의 식별자로 같은 대조를 한다(`vendor_identity_mismatch`).
+ */
+export const WING_VENDOR_IDENTITY_MISMATCH = 'WING_VENDOR_IDENTITY_MISMATCH' as const;
+
 export function wingDailyLockKey(channelAccountId: string): OperationLockKey {
   return resourceLockKey('wing-daily', channelAccountId);
 }
@@ -47,9 +53,22 @@ export const WingItemwinnerRowSchema = z.object({
 }).strict();
 export type WingItemwinnerRow = z.infer<typeof WingItemwinnerRowSchema>;
 
+/** Wing 판매자 식별자(업체코드). 확장이 읽은 Wing 세션의 것 — owner가 plan의 계정 것과 대조한다. */
+const vendorId = z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/);
+
+/** owner plan(확장 수집기가 받는 것). `vendorId`는 계정의 Wing 판매자 식별자다. */
+export const WingItemwinnerPlanSchema = z.object({
+  channelAccountId: z.string().uuid(),
+  vendorId,
+  businessDate: z.string().date(),
+}).strict();
+export type WingItemwinnerPlan = z.infer<typeof WingItemwinnerPlanSchema>;
+
 export const WingItemwinnerPageSchema = z.object({
   totalSize: z.number().int().min(0).max(WING_ITEMWINNER_MAX_ITEMS),
   observedAt: z.string().datetime({ offset: true }),
+  /** 확장이 이 목록을 읽은 Wing 세션의 판매자 식별자. */
+  vendorId,
 }).strict();
 export type WingItemwinnerPage = z.infer<typeof WingItemwinnerPageSchema>;
 
@@ -165,6 +184,8 @@ export const WingTrafficPeriodSchema = z.object({
   startDate: calendarDate,
   endDate: calendarDate,
   capturedAt: z.string().datetime({ offset: true }),
+  /** 확장이 이 창을 읽은 Wing 세션의 판매자 식별자. 빈 날만 있는 창도 이것으로 계정을 확인한다. */
+  vendorId: z.string().regex(/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/),
   accountSummary: AdTrafficAccountSummarySchema,
 }).strict();
 export type WingTrafficPeriod = z.infer<typeof WingTrafficPeriodSchema>;
