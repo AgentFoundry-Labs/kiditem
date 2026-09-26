@@ -1,5 +1,6 @@
 import { readMallListings } from '../mall-listings';
 import { registerSite } from '../registry';
+import type { SiteSignIn } from '../site-login';
 import { hostWithin, type PageGuard, type TabPages } from '../tab-page';
 
 export const ALWAYS_LISTINGS_URL = 'https://alwayzseller.ilevit.com/items/management';
@@ -15,8 +16,11 @@ export const ALWAYS_LISTINGS_GUARD: PageGuard = {
   loginMessage: '올웨이즈 로그인이 필요합니다. 열린 올웨이즈 화면에서 로그인한 뒤 다시 가져와 주세요.',
 };
 
-/** 올웨이즈 등록 상품 목록(KID-381) — 전체 수를 읽고 1쪽부터 100개씩 목록 API를 화면 안에서(옛 읽기기 그대로). */
-export function createAlwaysListings(tabs: TabPages) {
+/**
+ * 올웨이즈 등록 상품 목록(KID-381) — 전체 수를 읽고 1쪽부터 100개씩 목록 API를 화면 안에서(옛 읽기기 그대로). `signIn`은
+ * 다른 몰 사이트와 같은 모양으로 합칠 수 있게만 받는다 — 올웨이즈는 로그인 폼 명세가 없어 등록은 넘기지 않는다(결정 #3).
+ */
+export function createAlwaysListings(tabs: TabPages, signIn?: SiteSignIn) {
   return {
     readListings: (plan: Record<string, unknown>) => readMallListings(tabs, {
       mallKey: 'always',
@@ -25,7 +29,7 @@ export function createAlwaysListings(tabs: TabPages) {
       file: ALWAYS_LISTINGS_FILE,
       call: 'always.listings',
       guard: ALWAYS_LISTINGS_GUARD,
-    }, plan),
+    }, plan, signIn),
   };
 }
 

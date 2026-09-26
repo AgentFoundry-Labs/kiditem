@@ -5495,9 +5495,8 @@ var KidItemRuntime = (() => {
     },
     /*
       사방넷으로만 가져오던 몰(사장님 2026-09-19 "사방넷 이제 안쓸거야 … 상품 가져오기 버튼들 들어오면 바로 동기화").
-      몰 상품코드는 사방넷이 쓰던 모양 그대로라 이미 이어진 리스팅 · 레시피를 그대로 쓴다. 이 몰들은 확장
-      1.2.22(`mallAdminListingsMallsV2`)부터 읽고, 첫 라이브에서 고친 롯데ON(거래처로 좁히기 · 로그인 탭 빌리기) · 스마트스토어 ·
-      티쳐몰은 1.2.23(`mallAdminListingsMallsV3`)부터 읽는다.
+      몰 상품코드는 사방넷이 쓰던 모양 그대로라 이미 이어진 리스팅 · 레시피를 그대로 쓴다. 이 몰들도 실행 kind
+      `channels.mall_admin_listings`로 가져온다(KID-381, 확장 `sites/<mallKey>/listings.ts`).
     */
     /** 도매꾹 상품공급사센터. 목록 조회를 500개씩(라이브 2026-09-19: 493개 = 1쪽). 몰 상품코드는 도매꾹 상품번호. */
     domeggook: {
@@ -8718,7 +8717,7 @@ var KidItemRuntime = (() => {
     isLogin: (url) => hostWithin(url, ["ilevit.com"]) && /login|signin/i.test(url.pathname),
     loginMessage: "\uC62C\uC6E8\uC774\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC62C\uC6E8\uC774\uC988 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
   };
-  function createAlwaysListings(tabs) {
+  function createAlwaysListings(tabs, signIn) {
     return {
       readListings: (plan) => readMallListings(tabs, {
         mallKey: "always",
@@ -8727,7 +8726,7 @@ var KidItemRuntime = (() => {
         file: ALWAYS_LISTINGS_FILE,
         call: "always.listings",
         guard: ALWAYS_LISTINGS_GUARD
-      }, plan)
+      }, plan, signIn)
     };
   }
   registerSite({ name: "always", create: (deps) => createAlwaysListings(deps.tabs) });
