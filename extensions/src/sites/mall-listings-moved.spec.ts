@@ -171,15 +171,18 @@ describe('몰 관리자 목록 나머지 몰(KID-381)', () => {
     ]);
   });
 
-  it.each(MALLS.filter((row) => row.reuse))('$mallKey: 로그인해 둔 판매자센터 탭이 있으면 그 탭에서 읽고 닫지 않는다(탭마다 로그인)', async (row) => {
+  it.each(MALLS.filter((row) => row.reuse))('$mallKey: 로그인해 둔 판매자센터 탭이 있으면 그 탭의 지금 화면에서 읽고 옮기지도 닫지도 않는다(탭마다 로그인)', async (row) => {
     const fake = fakeTabPages({
       existingTab: (pattern) => (pattern === row.reuse ? 42 : null),
+      // 운영자가 판매자센터의 다른 화면(상품 조회)에 있다 — 처리기는 화면 함수·세션 토큰만 기다리므로 그 화면에서 읽는다.
+      currentUrl: 'https://store.lotteon.com/pd/product/productList_SO.wsp',
       answer: (_message, injected) => (injected ? { ok: true, value: { success: true, snapshot: snapshotOf(row.mallKey) } } : { ok: false, error: 'content_script_missing' }),
     });
     await expect(routerFor(fake.tabs).reader(row.mallKey)!.readListings(planOf(row.mallKey))).resolves.toEqual(snapshotOf(row.mallKey));
     expect(fake.log[0]).toBe(`find ${row.reuse}`);
     expect(fake.log).not.toContain('open about:blank');
-    expect(fake.log).toContain(`navigate ${row.startUrl}`);
+    expect(fake.log).not.toContain(`navigate ${row.startUrl}`);
+    expect(fake.log.some((line) => line.startsWith('navigate'))).toBe(false);
     expect(fake.log.at(-1)).toBe('keep 42');
   });
 

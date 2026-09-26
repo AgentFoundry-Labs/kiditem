@@ -8493,10 +8493,11 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/fresh-tab.ts
   var NAVIGATION_TIMEOUT_MS = 3e4;
   async function withFreshTab(tabs, url, read, options = {}) {
-    const page = (options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null) ?? await tabs.open("about:blank");
+    const reused = options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null;
+    const page = reused ?? await tabs.open("about:blank");
     let keepOpen = false;
     try {
-      await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS });
+      if (!reused) await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS });
       return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
     } catch (error) {
       if (leftForOperator(error)) keepOpen = true;

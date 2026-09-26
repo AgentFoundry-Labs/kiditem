@@ -54,6 +54,12 @@ describe('lotte-on listings page script (MAIN)', () => {
     expect(result.snapshot.collection.totalRecords).toBe(3);
   });
 
+  it('재사용한 운영자 탭이 판매자센터의 다른 화면이어도 화면 함수·세션 토큰으로 읽는다(탭을 옮기지 않는다)', async () => {
+    const { read, sent } = lotte(OURS, { total: DATA.length, rows: DATA }, `${LOTTE}/pd/product/productList_SO.wsp`);
+    expect(await read()).toMatchObject({ success: true, snapshot: { collection: { totalRecords: 3 } } });
+    expect(sent).toHaveLength(1);
+  });
+
   it('거래처 정보가 없는 탭 · 로그인 화면은 읽지 않고 로그인이 필요하다', async () => {
     const noUser = lotte({ getTrNo: () => { throw new Error('no user'); } }, { total: 3, rows: DATA });
     expect(await noUser.read()).toEqual({ success: false, errorCode: 'mall_login_required' });
