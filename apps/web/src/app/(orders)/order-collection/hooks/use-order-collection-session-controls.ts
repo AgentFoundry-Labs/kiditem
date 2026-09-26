@@ -66,6 +66,8 @@ function attemptQueryKey(
 }
 
 /**
+ * KID-379: the old mall attempt half of this hook (hint, attempt read, fail,
+ * cancel) serves only Kakao; the directship half has its own owner.
  * The mall-specific procedure around an owner attempt: turning an admitted
  * attempt into an extension run, conversion and upload fences, the terminal
  * submissions, and the reloaded screen's resume hint.

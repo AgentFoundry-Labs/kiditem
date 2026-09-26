@@ -1,7 +1,6 @@
 import { BadRequestException, Injectable } from '@nestjs/common';
 import officeCrypto = require('officecrypto-tool');
 import * as XLSX from 'xlsx';
-import { z } from 'zod';
 import { TextDecoder } from 'util';
 import { basename, extname } from 'path';
 
@@ -16,17 +15,6 @@ import { KIDSNOTE_SUMMARY_INFO, KIDSNOTE_DOC_SUMMARY_INFO } from './kidsnote-sel
 function noNewOrders(message: string): BadRequestException {
   return new BadRequestException({ code: 'NO_NEW_ORDERS', message });
 }
-
-/** 확인된 빈 수집의 보관 본문(해법몰·도매꾹 — 확인 기간이 있는 몰만). */
-export const confirmedEmptyOrdersSchema = z.object({
-  kind: z.literal('confirmed-empty-orders'),
-  mallKey: z.enum(['haebub-mall', 'domeggook']),
-  orders: z.array(z.never()).length(0),
-  confirmedCoverage: z.object({
-    startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-    endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
-  }).strict(),
-}).strict();
 
 const OUTPUT_HEADERS = [
   'No',
@@ -332,8 +320,7 @@ export interface HaebeopConvertInput {
 @Injectable()
 export class OrderCollectionService {
   /**
-   * 보관한 원천(옛 attempt artifact·실행 캡처)을 다시 변환한다. 확인된 빈 수집(`confirmed-empty-orders`)은 빈 변환이다.
-   * 원천 형식(JSON·파일)과 몰 키로 변환기를 고른다 — 옛 재생 라우트와 실행 kind `orders.mall_orders`가 같이 쓴다.
+   * 실행 kind `orders.mall_orders`가 보관한 캡처를 변환한다. 원천 형식(JSON·파일)과 몰 키로 변환기를 고른다.
    */
   async convertRetainedSource(
     mallKey: string,
@@ -348,13 +335,6 @@ export class OrderCollectionService {
         payload = JSON.parse(source.bytes.toString('utf8'));
       } catch {
         throw new BadRequestException('ORDER_COLLECTION_SOURCE_INVALID');
-      }
-      const empty = confirmedEmptyOrdersSchema.safeParse(payload);
-      if (empty.success && empty.data.mallKey === mallKey) {
-        return {
-          buffer: Buffer.alloc(0), fileName: '',
-          sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
-        };
       }
       switch (mallKey) {
         case 'icecream-mall':
@@ -371,8 +351,6 @@ export class OrderCollectionService {
           return this.convertHaebeopOrders(payload as never);
         case 'art09':
           return this.convertArt09Orders(payload as never);
-        case 'kakao':
-          throw new BadRequestException('ORDER_COLLECTION_UNSUPPORTED_CONVERSION');
         default:
           throw new BadRequestException('ORDER_COLLECTION_SOURCE_UNSUPPORTED');
       }

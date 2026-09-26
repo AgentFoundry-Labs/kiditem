@@ -2,7 +2,6 @@
 
 import { OperationFinishResponseSchema, type OperationListResponse, type OperationView } from '@kiditem/shared/operation';
 import {
-  isMallOrderOperationMall,
   isMallOrdersManualUploadMall,
   MALL_ORDERS_KIND,
   MallOrdersResultSchema,
@@ -17,7 +16,7 @@ import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
 import { toastNoNewOrders, type BrowserMallCollectionResult } from './browser-mall-collection';
-import type { MallOrderCollectionStartInput } from './mall-order-collection-source';
+import { collectsViaOrderAttempt, type MallOrderCollectionStartInput } from './mall-order-collection-source';
 import { saveIcecreamDeliveryIndex } from './icecream-delivery-index';
 import {
   readOrderOperationContinuation,
@@ -40,11 +39,11 @@ import {
 } from './order-operations';
 
 /**
- * 이 몰은 실행 kind `orders.mall_orders`로 수집한다(KID-359 H3 1차 몰). 나머지 몰은 옛 attempt 경로가 나머지 몰이 옮겨질 때까지 받는다.
- * 어느 경로인지는 이 원천 파일이 답한다 — 루프와 카드는 몰 키를 비교하지 않는다.
+ * 이 몰은 실행 kind `orders.mall_orders`로 수집한다 — 옛 attempt 경로에 남은 카카오(KID-379)가 아니면 모두다.
+ * 어느 경로인지는 원천 파일이 답한다 — 루프와 카드는 몰 키를 비교하지 않는다.
  */
 export function collectsViaMallOrderOperation(mallKey: string): boolean {
-  return isMallOrderOperationMall(mallKey);
+  return !collectsViaOrderAttempt(mallKey);
 }
 
 /** 시작이 연 실행을 절차에 넘기는 것. 절차가 끝날 때까지 기다리고 변환한다. */

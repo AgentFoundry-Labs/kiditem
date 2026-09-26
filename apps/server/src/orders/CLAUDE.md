@@ -70,8 +70,13 @@ Action, collection, transmission, and reconciliation behavior is executable in
   capture (the body the old convert route took) as `OrderCollectionArtifact`
   keyed by `operationId` and writes the converted order count to
   `result.rowCount`; a day with no orders succeeds with 0. Convert routes and
-  `attempts/:id/convert` accept a body `operationId` for these malls and write
-  nothing. The other malls stay on the attempt path until the remaining malls move (나머지 몰이 옮겨질 때까지).
+  `attempts/:id/convert` take only a body `operationId` and write nothing;
+  there is no attempt-header conversion.
+- Only Kakao (`MALL_ORDER_ATTEMPT_MALLS`, KID-379) stays on the old attempt
+  path: begin, read, control, `sources`, fail (raw source artifact plus the
+  mall failure alert), and cancel. It never completes — Kakao has no Sellpia
+  conversion — so there is no complete, replay, or source download. Code kept
+  for it is marked `KID-379`; remove it when Kakao moves to the kind.
 - A manual excel upload (`POST …/malls/:mallKey/upload`, the malls in
   `MALL_ORDERS_MANUAL_UPLOAD_MALLS`) is the same kind with
   `collectionMode: 'manual-upload'`: the server begins, chunks the file and
@@ -80,7 +85,7 @@ Action, collection, transmission, and reconciliation behavior is executable in
   the password; the password is never stored.
 - Today's order count is one Orders capability
   (`ORDER_COLLECTION_TODAY_ORDERS_PORT`): per mall the latest succeeded
-  operation's `rowCount`, else the latest completed legacy run. The order
+  operation's `rowCount`, else the latest completed legacy run (KID-379). The order
   screen and the dashboard both read it.
 - Coupang shipment date summary is the operation kind
   `orders.coupang_shipment_summary` (organization lock). Its finalize keeps the

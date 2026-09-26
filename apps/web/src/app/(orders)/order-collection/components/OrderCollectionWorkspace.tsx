@@ -881,6 +881,7 @@ export function OrderCollectionWorkspace() {
           }
           return collectsViaMallOrderOperation(account.key)
             ? <MallCollectionControl {...card} buildAdapter={mallOperationCollectionAdapter} />
+            // KID-379: 카카오만 옛 attempt 어댑터.
             : <MallCollectionControl {...card} buildAdapter={mallCollectionAdapter} />;
         }}
         onOpenChooser={(account) => void directshipCalendar.open(account)}

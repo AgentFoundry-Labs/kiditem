@@ -227,6 +227,15 @@ export function isMallOrderOperationMall(mallKey: string): mallKey is MallOrderO
 }
 
 /**
+ * 옛 주문 attempt 경로(`POST /api/orders/collection/attempts`)에 남은 몰. KID-379: 카카오는 셀피아 변환 규격이 생길 때까지
+ * 옛 경로로 수집하고(확장이 원본을 실패 artifact로 남긴다), 그 뒤 실행 kind로 옮기면 이 목록과 옛 경로가 함께 사라진다.
+ */
+export const MALL_ORDER_ATTEMPT_MALLS = ['kakao'] as const; // KID-379
+export function isMallOrderAttemptMall(mallKey: string): boolean {
+  return (MALL_ORDER_ATTEMPT_MALLS as readonly string[]).includes(mallKey);
+}
+
+/**
  * 운영자가 몰에서 받은 주문 파일을 화면에서 올리는 수동 업로드(`collectionMode: 'manual-upload'`, KID-380 T4)를 받는 몰.
  * 옛 업로드 화면이 받던 몰 그대로다 — 서버가 그 파일을 실행 하나로 보관하고 같은 변환기로 바꾼다.
  */

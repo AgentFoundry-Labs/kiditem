@@ -90,7 +90,7 @@ beforeEach(() => {
 });
 
 describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
-  it('1차 몰 4곳과 사이트를 옮긴 2차 몰(HTML 몰 T1·엑셀·blob 몰 T2)만 실행 kind로 수집한다(KID-380)', () => {
+  it('옛 attempt 경로에 남은 카카오(KID-379)가 아니면 모두 실행 kind로 수집한다(KID-380 T4)', () => {
     expect(['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kidsnote', 'onch', 'haebub-mall', ...EXCEL_MALLS].every(collectsViaMallOrderOperation)).toBe(true);
     expect(collectsViaMallOrderOperation('kakao')).toBe(false);
   });

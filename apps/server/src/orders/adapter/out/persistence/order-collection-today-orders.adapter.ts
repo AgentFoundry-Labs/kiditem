@@ -74,6 +74,7 @@ export class OrderCollectionTodayOrdersAdapter implements OrderCollectionTodayOr
     }
     for (const [mallKey, entry] of operationTotals) latest.set(mallKey, entry);
 
+    // KID-379: 옛 attempt 행(SourceImportRun) 읽기는 카카오가 옛 경로를 쓰는 동안 남긴다 — 그날 옮기기 전에 끝난 옛 행도 센다.
     const legacy = await readCompletedImportRowCountsByScope(this.prisma, {
       organizationId: input.organizationId,
       sourceTypes: LEGACY_SOURCE_TYPES,

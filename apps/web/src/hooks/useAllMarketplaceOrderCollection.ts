@@ -178,9 +178,10 @@ export function useAllMarketplaceOrderCollection({
   } = sessionControls;
   /** The collection each mall's hand-off left running, for a caller that waits on it. */
   const collectionsRef = useRef(new Map<string, Promise<BrowserMallCollectionResult>>());
+  // KID-379: 옛 attempt 경로(카카오)의 브라우저 절차.
   const collectBrowserMall = useMemo(
-    () => createBrowserMallCollector({ mallAccounts, addGeneratedFile, setPreviewId }),
-    [addGeneratedFile, mallAccounts, setPreviewId],
+    () => createBrowserMallCollector({ mallAccounts }),
+    [mallAccounts],
   );
   const collectDirectship = useMemo(
     () => createCoupangDirectshipCollector({
@@ -280,6 +281,7 @@ export function useAllMarketplaceOrderCollection({
           }
         }
         if (activeRun && !stopped && !attentionKind && !ownerReconciliationRequired) {
+          // KID-379: 변환 규격이 없는 카카오 원본은 실패와 함께 남긴다(확장이 이미 적었으면 owner가 같은 답을 돌려준다).
           const unsupported = error instanceof Error && 'sourcePayload' in error
             ? (error as Error & { sourcePayload?: unknown }).sourcePayload
             : undefined;
@@ -385,6 +387,7 @@ export function useAllMarketplaceOrderCollection({
   }, [activateDirectOwnerRun, collectAccount, startCollectionProcedure]);
 
   /**
+   * KID-379: the old attempt adapter, used only by Kakao.
    * One mall's adapter for the shared control. The card that renders it starts,
    * shows and stops the same collection every other browser sees.
    */
@@ -508,6 +511,7 @@ export function useAllMarketplaceOrderCollection({
       ? startCollectionSource(queryClient, directshipCollectionAdapter(account, false), input)
       : collectsViaMallOrderOperation(account.key)
         ? startCollectionSource(queryClient, mallOperationCollectionAdapter(account, false), input)
+        // KID-379: 카카오만 옛 attempt 어댑터.
         : startCollectionSource(queryClient, mallCollectionAdapter(account, false), input));
     return {
       outcome,

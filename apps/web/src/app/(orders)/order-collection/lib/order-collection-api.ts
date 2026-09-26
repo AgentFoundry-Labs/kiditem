@@ -1,7 +1,6 @@
 import * as XLSX from 'xlsx';
 import { apiClient } from '@/lib/api-client';
 import { downloadBlob } from '@/lib/browser-download';
-import type { OrderCollectionExtensionRun } from './order-collection-extension';
 import { fileNameFromContentDisposition } from './order-collection-conversion-response';
 
 export interface OrderCollectionConversionResult {
@@ -26,44 +25,6 @@ export interface IcecreamOrderCollectionContinuation {
   selectedRowKeys: string[];
   selectionMode: 'manual' | 'automatic';
   sourceRows: number;
-}
-
-/**
- * Regenerates a transient workbook from a completed source owner artifact.
- * Converted bytes are deliberately not part of the owner response; this
- * scoped read is the explicit UI download/reopen path.
- */
-export async function regenerateOrderCollectionSource(
-  run: OrderCollectionExtensionRun,
-  options?: { download?: boolean },
-): Promise<OrderCollectionConversionResult> {
-  const response = await apiClient.fetchRaw(
-    `/api/orders/collection/attempts/${encodeURIComponent(run.attemptId)}/convert`,
-    {
-      method: 'POST',
-      headers: {
-        'x-source-attempt-token': run.attemptToken,
-      },
-    },
-  );
-  if (!response.ok) {
-    throw new Error(await readErrorMessage(response));
-  }
-  const blob = await response.blob();
-  const fileName =
-    fileNameFromContentDisposition(response.headers.get('Content-Disposition')) ??
-    '주문수집_셀피아변환.xls';
-  if (response.status !== 204 && options?.download !== false) downloadBlob(blob, fileName);
-  return {
-    fileName,
-    blob,
-    previewRows: response.status === 204 ? [] : await readPreviewRows(blob),
-    sourceRows: numericHeader(response, 'X-Order-Collection-Source-Rows'),
-    productRows: numericHeader(response, 'X-Order-Collection-Product-Rows'),
-    outputRows: numericHeader(response, 'X-Order-Collection-Output-Rows'),
-    skippedRows: numericHeader(response, 'X-Order-Collection-Skipped-Rows'),
-    importRunId: response.headers.get('X-Order-Collection-Import-Run-Id'),
-  };
 }
 
 /**
