@@ -4,7 +4,7 @@ import { fakeLoginScreen, fastClock } from '../login.fake';
 import '../mall-orders';
 import { siteFactoryFor, type SiteDeps } from '../registry';
 import { fakeTabPages } from '../tab-page.fake';
-import { createHaebubMallSite, HAEBUB_MALL_LOGIN, HAEBUB_MALL_ORDER_URL, HAEBUB_MALL_VENDOR } from './index';
+import { createHaebubMallSite, HAEBUB_MALL_LOGIN, HAEBUB_MALL_ORDER_URL, HAEBUB_MALL_PAGE_GUARD, HAEBUB_MALL_VENDOR } from './index';
 
 const INPUT = { collectionDate: '2026-09-26', selectionMode: 'manual' as const, seenRowKeys: [] };
 /** 페이지 스크립트가 돌려주는 상품행(옛 `scrapeHaebeopOrders`의 원소 = 옛 변환 본문 `{orders}`의 원소). */
@@ -61,7 +61,7 @@ describe('sites/haebub-mall — 몰 주문 읽기(KID-380)', () => {
   });
 
   it('로그인 입구는 옛 mall-session.js haebub-mall 줄: 주문건수목록으로 들어가 로그인 화면에서 두 칸', () => {
-    expect(HAEBUB_MALL_LOGIN).toMatchObject({ loginUrl: HAEBUB_MALL_ORDER_URL, hosts: ['genimarket.co.kr'], fields: ['loginId', 'password'] });
+    expect(HAEBUB_MALL_LOGIN).toMatchObject({ loginUrl: HAEBUB_MALL_ORDER_URL, hosts: ['mallseller.genimarket.co.kr'], fields: ['loginId', 'password'] });
     expect(HAEBUB_MALL_LOGIN.isLoginUrl(new URL(LOGIN_PAGE))).toBe(true);
     expect(HAEBUB_MALL_LOGIN.isLoginUrl(new URL(HAEBUB_MALL_ORDER_URL))).toBe(false);
   });
@@ -79,5 +79,31 @@ describe('sites/haebub-mall — 몰 주문 읽기(KID-380)', () => {
     await expect(site.readOrders(INPUT)).resolves.toEqual({ rows: [ROW] });
     expect(login.state.filled).toEqual([{ loginId: 'fake-id', password: 'fake-password' }]);
     expect(fake.log.at(-1)).toBe('close 7');
+  });
+
+  it('로그인 폼이 주문 화면 주소 자체에 뜨면(옛 mall-session.js 줄: entry = login) 처리기의 login_required로 그 탭에서 로그인하고 다시 읽는다', async () => {
+    const login = fakeLoginScreen({ loginAt: HAEBUB_MALL_ORDER_URL });
+    const fake = fakeTabPages({
+      landAt: login.landAt,
+      frames: login.frames,
+      answer: (message, injected) => login.answer(message)
+        ?? (!injected ? { ok: false, error: 'content_script_missing' }
+          : login.state.signedIn ? { ok: true, value: { status: 'ok', orders: [ROW] } } : { ok: true, value: { status: 'login_required' } }),
+    });
+    const deps = { tabs: fake.tabs, randomId: () => 'id', ...fastClock() } as unknown as SiteDeps;
+    const site = siteFactoryFor('haebub-mall')!.create(deps, { tabId: null, credentials: { loginId: 'fake-id', password: 'fake-password' } }) as { readOrders(input: typeof INPUT): Promise<{ rows: unknown[] }> };
+    const { rows } = await site.readOrders(INPUT);
+    expect(rows).toHaveLength(1);
+    expect(login.state.filled).toEqual([{ loginId: 'fake-id', password: 'fake-password' }]);
+    expect(fake.log.filter((line) => line.startsWith('navigate'))).toEqual([`navigate ${HAEBUB_MALL_ORDER_URL}`, `navigate ${HAEBUB_MALL_ORDER_URL}`]);
+    expect(fake.log.at(-1)).toBe('close 7');
+  });
+
+  it('로그인 주소 추측은 경로의 /login 마디만 본다(쿼리의 login은 로그인 화면이 아니다)', () => {
+    expect(HAEBUB_MALL_LOGIN.isLoginUrl(new URL('https://mallseller.genimarket.co.kr/mall/login.php'))).toBe(true);
+    expect(HAEBUB_MALL_LOGIN.isLoginUrl(new URL('https://mallseller.genimarket.co.kr/mall/order/basket_list.php?ref=login'))).toBe(false);
+    // 확장 권한(host_permissions)이 여는 호스트만.
+    expect(HAEBUB_MALL_LOGIN.hosts).toEqual(['mallseller.genimarket.co.kr']);
+    expect(HAEBUB_MALL_PAGE_GUARD.allows(new URL('https://www.genimarket.co.kr/'))).toBe(false);
   });
 });

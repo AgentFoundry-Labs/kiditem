@@ -128,4 +128,28 @@ describe('sites/kidsnote — 몰 주문 읽기(KID-380)', () => {
     expect(fake.log.filter((line) => line.startsWith('navigate'))).toEqual([`navigate ${KIDSNOTE_ORDER_URL}`, `navigate ${KIDSNOTE_ORDER_URL}`]);
     expect(fake.log.at(-1)).toBe('close 7');
   });
+
+  it('로그인 폼이 주문 화면 주소 자체에 뜨면(옛 mall-session.js 줄: entry = login) 처리기의 login_required로 그 탭에서 로그인하고 다시 읽는다', async () => {
+    const login = fakeLoginScreen({ loginAt: KIDSNOTE_ORDER_URL });
+    const fake = fakeTabPages({
+      landAt: login.landAt,
+      frames: login.frames,
+      answer: (message, injected) => login.answer(message)
+        ?? (!injected ? { ok: false, error: 'content_script_missing' }
+          : login.state.signedIn ? { ok: true, value: { status: 'ok', orders: [SCRAPED] } } : { ok: true, value: { status: 'login_required' } }),
+    });
+    const deps = { tabs: fake.tabs, randomId: () => 'id', ...fastClock() } as unknown as SiteDeps;
+    const site = siteFactoryFor('kidsnote')!.create(deps, { tabId: null, credentials: { loginId: 'fake-id', password: 'fake-password' } }) as { readOrders(input: typeof INPUT): Promise<{ rows: unknown[] }> };
+    const { rows } = await site.readOrders(INPUT);
+    expect(rows).toHaveLength(1);
+    expect(login.state.filled).toEqual([{ loginId: 'fake-id', password: 'fake-password' }]);
+    expect(fake.log.filter((line) => line.startsWith('navigate'))).toEqual([`navigate ${KIDSNOTE_ORDER_URL}`, `navigate ${KIDSNOTE_ORDER_URL}`]);
+    expect(fake.log.at(-1)).toBe('close 7');
+  });
+
+  it('로그인 주소 추측은 경로의 /login 마디만 본다(쿼리의 login은 로그인 화면이 아니다)', () => {
+    expect(KIDSNOTE_LOGIN.isLoginUrl(new URL('https://shop.kidsnote.com/member/login.php'))).toBe(true);
+    expect(KIDSNOTE_LOGIN.isLoginUrl(new URL('https://shop.kidsnote.com/_manage/?body=3010&from=login'))).toBe(false);
+    expect(KIDSNOTE_LOGIN.hosts).toEqual(['shop.kidsnote.com']);
+  });
 });

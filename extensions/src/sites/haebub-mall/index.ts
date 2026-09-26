@@ -17,10 +17,10 @@ export const HAEBUB_MALL_VENDOR = '거영아이앤디';
 /** 옛 수집기의 주입 제한 시간(주문마다 상세 팝업을 읽는다). */
 const READ_TIMEOUT_MS = 180_000;
 const LOGIN_MESSAGE = '해법몰 로그인이 필요합니다. mallseller.genimarket.co.kr 에 로그인한 뒤 다시 수집해 주세요.';
-const HOSTS = ['genimarket.co.kr'];
+const HOSTS = ['mallseller.genimarket.co.kr'];
 
-/** 주소에 login이 든 해법몰 화면(옛 수집기의 로그인 판정 `/login/i.test(location.href)`와 같다). */
-const isHaebubLogin = (url: URL) => hostWithin(url, HOSTS) && /login/i.test(url.pathname + url.search);
+/** 경로에 login으로 시작하는 마디가 있는 해법몰 화면. 처리기는 옛 수집기처럼 주소 전체의 login도 본다. */
+const isHaebubLogin = (url: URL) => hostWithin(url, HOSTS) && /\/login/i.test(url.pathname);
 
 export const HAEBUB_MALL_PAGE_GUARD: PageGuard = {
   allows: (url) => hostWithin(url, HOSTS),

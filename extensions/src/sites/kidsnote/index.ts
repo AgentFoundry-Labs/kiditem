@@ -15,8 +15,8 @@ const READ_TIMEOUT_MS = 190_000;
 const LOGIN_MESSAGE = 'shop.kidsnote.com 관리자 로그인이 필요합니다. 로그인 후 다시 시도하세요.';
 const HOSTS = ['shop.kidsnote.com'];
 
-/** 주소나 쿼리에 login이 든 키즈노트 화면(옛 목록 읽기 `readKidsnoteListings`의 로그인 판정과 같다). */
-const isKidsnoteLogin = (url: URL) => hostWithin(url, HOSTS) && /login/i.test(url.pathname + url.search);
+/** 경로에 login으로 시작하는 마디가 있는 키즈노트 화면(예: /member/login.php). 쿼리의 login은 보지 않는다. */
+const isKidsnoteLogin = (url: URL) => hostWithin(url, HOSTS) && /\/login/i.test(url.pathname);
 
 export const KIDSNOTE_PAGE_GUARD: PageGuard = {
   allows: (url) => hostWithin(url, HOSTS),

@@ -10019,8 +10019,8 @@ var KidItemRuntime = (() => {
   var HAEBUB_MALL_VENDOR = "\uAC70\uC601\uC544\uC774\uC564\uB514";
   var READ_TIMEOUT_MS3 = 18e4;
   var LOGIN_MESSAGE3 = "\uD574\uBC95\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. mallseller.genimarket.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
-  var HOSTS = ["genimarket.co.kr"];
-  var isHaebubLogin = (url) => hostWithin(url, HOSTS) && /login/i.test(url.pathname + url.search);
+  var HOSTS = ["mallseller.genimarket.co.kr"];
+  var isHaebubLogin = (url) => hostWithin(url, HOSTS) && /\/login/i.test(url.pathname);
   var HAEBUB_MALL_PAGE_GUARD = {
     allows: (url) => hostWithin(url, HOSTS),
     isLogin: isHaebubLogin,
@@ -10335,7 +10335,7 @@ var KidItemRuntime = (() => {
   var READ_TIMEOUT_MS5 = 19e4;
   var LOGIN_MESSAGE6 = "shop.kidsnote.com \uAD00\uB9AC\uC790 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.";
   var HOSTS2 = ["shop.kidsnote.com"];
-  var isKidsnoteLogin = (url) => hostWithin(url, HOSTS2) && /login/i.test(url.pathname + url.search);
+  var isKidsnoteLogin = (url) => hostWithin(url, HOSTS2) && /\/login/i.test(url.pathname);
   var KIDSNOTE_PAGE_GUARD = {
     allows: (url) => hostWithin(url, HOSTS2),
     isLogin: isKidsnoteLogin,
