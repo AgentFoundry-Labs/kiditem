@@ -35,6 +35,7 @@ import type {
   CompetitorSellerIdentityResult,
 } from "@kiditem/shared/advertising-operations";
 import { KiditemConflictError } from "@kiditem/shared/errors";
+import { advertisingKeywordIdentity } from "@kiditem/shared/advertising-operations";
 import {
   assembleCompetitorCatalogs,
   planCompetitorCatalog,
@@ -64,7 +65,8 @@ export class CompetitorTrackingService {
    * 경쟁 상품 200개(옛 attempt 선택 그대로), 키워드를 주면 그 키워드만.
    */
   async planSellerIdentityOperation(organizationId: string, keywords?: readonly string[]): Promise<CompetitorSellerIdentityPlan> {
-    const selected = await this.getProductDetailTargets(organizationId, 30, 200);
+    // 키워드 한정은 상위 200개로 자르기 전에 건다 — 연쇄로 온 키워드의 대상이 다른 키워드에 밀려 빠지지 않게.
+    const selected = await this.getProductDetailTargets(organizationId, 30, 200, keywords);
     return planSellerIdentity({ selected: selected.targets, keywords });
   }
 
@@ -293,7 +295,10 @@ export class CompetitorTrackingService {
     organizationId: string,
     days: number,
     limit: number,
+    /** 있으면 이 키워드의 대상만(대소문자·공백 무시), 상한을 자르기 전에 고른다. */
+    keywords?: readonly string[],
   ) {
+    const requested = keywords ? new Set(keywords.map(advertisingKeywordIdentity)) : null;
     const [context, snapshots] = await Promise.all([
       this.loadOwnProductContext(organizationId),
       this.keywordRankRepo.findRecentSerpSnapshots(organizationId, days),
@@ -321,6 +326,7 @@ export class CompetitorTrackingService {
       .filter((target): target is typeof target & { link: string } =>
         Boolean(target.link),
       )
+      .filter((target) => requested === null || requested.has(advertisingKeywordIdentity(target.keyword)))
       .sort((a, b) => b.matchScore - a.matchScore || a.rank - b.rank);
     return {
       targets: [

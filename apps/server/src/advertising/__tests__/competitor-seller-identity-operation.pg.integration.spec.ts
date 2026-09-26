@@ -104,4 +104,23 @@ describe('advertising.competitor_seller_identity owner over the operation contra
     await harness.put(foreign, [{ chunkKind: COMPETITOR_SELLER_IDENTITY_CHUNK_KIND, payload: [identity({ ...first!, productKey: 'product:999' }, 'S9')] }]);
     expect((await harness.finish(foreign).expect(400)).body).toMatchObject({ code: 'VALIDATION_FAILED', details: { reason: 'identity_target_mismatch' } });
   });
+
+  it('연쇄로 온 키워드의 대상은 다른 키워드의 판매자 미확인 상품 200개 넘게 있어도 상위 200개로 자르기 전에 골라진다', async () => {
+    // 다른 키워드: 자사 상품과 이름이 똑같은(겹침 점수가 가장 높은) 경쟁 상품 210개, 실행이 발행한 SERP 행으로 둔다.
+    await prisma.coupangKeywordSerpDailySnapshot.create({ data: {
+      organizationId: ORG, operationId: '00000000-0000-4000-8000-0000000000aa', keyword: '말랑 슬라임 세트', businessDate: new Date(), capturedAt: new Date(),
+      itemCount: 210, pagesScanned: 3,
+      items: { serpItems: Array.from({ length: 210 }, (_, index) => ({ ...competitor(index + 1, String(1_000 + index)), name: '말랑 슬라임 세트' })), sellerCatalogs: [] },
+    } });
+    const serp = await publishSerp('액체괴물', [{ ...competitor(1, '777'), name: '액체괴물 슬라임' }]);
+    const run = await harness.beginRun(COMPETITOR_SELLER_IDENTITY_KIND, serp.result.next.scope);
+    const targets = (run.operation.plan as { targets: CompetitorSellerIdentityTarget[] }).targets;
+    expect(targets.map((target) => [target.keyword, target.productId])).toEqual([['액체괴물', '777']]);
+    // 키워드 없이 고르면 상위 200개가 다른 키워드로 차서 이 대상은 빠진다(자르기 전 한정이 필요한 까닭).
+    await harness.finish(run, { outcome: 'failed', errorCode: 'USER_CANCELLED' }).expect(200);
+    const all = await harness.beginRun(COMPETITOR_SELLER_IDENTITY_KIND, {});
+    const allTargets = (all.operation.plan as { targets: CompetitorSellerIdentityTarget[] }).targets;
+    expect(allTargets).toHaveLength(200);
+    expect(allTargets.some((target) => target.productId === '777')).toBe(false);
+  });
 });
