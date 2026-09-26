@@ -53,7 +53,33 @@ export function assembleKeywordSerpCaptures(plan: KeywordSerpPlan, chunks: reado
   if (plan.keywords.some((entry) => !byKeyword.has(advertisingKeywordIdentity(entry.keyword)))) {
     throw new KiditemConflictError('ADVERTISING_COLLECTION_INCOMPLETE', { details: { reason: 'keywords_missing' } });
   }
+  for (const entry of plan.keywords) {
+    if (!completeSerpCapture(byKeyword.get(advertisingKeywordIdentity(entry.keyword))!, entry.maxPages)) {
+      throw new KiditemConflictError('ADVERTISING_COLLECTION_INCOMPLETE', { details: { reason: 'serp_capture_incomplete' } });
+    }
+  }
   return byKeyword;
+}
+
+/**
+ * 키워드 하나의 SERP가 끝까지 읽혔다는 증거(옛 attempt `validCapture`와 같은 규칙): 계획한 쪽 수를 다 읽었거나(`page_limit`),
+ * 그 전에 빈 쪽을 봤다(`empty_page`, 읽은 쪽 < 계획). 보안 화면·모양 불명(`provider_wall`·`invalid_result`)은 순위권 밖을
+ * 증명하지 못한다. 순번은 1부터 끊김 없이, 쪽은 1부터 읽은 쪽까지 이어지고 쪽 안 위치는 1부터 다시 센다.
+ */
+export function completeSerpCapture(capture: KeywordSerpChunkItem, maxPages: number): boolean {
+  const pagesComplete = capture.stopReason === 'page_limit'
+    ? capture.pagesScanned === maxPages
+    : capture.stopReason === 'empty_page' && capture.pagesScanned >= 1 && capture.pagesScanned < maxPages;
+  if (!pagesComplete || capture.items.length === 0) return false;
+  let lastPage = 0;
+  let position = 0;
+  const continuous = capture.items.every((item, index) => {
+    if (item.page < lastPage || item.page > lastPage + 1 || item.page > capture.pagesScanned) return false;
+    position = item.page === lastPage ? position + 1 : 1;
+    lastPage = item.page;
+    return item.rank === index + 1 && item.positionInPage === position;
+  });
+  return continuous && lastPage === capture.pagesScanned;
 }
 
 function invalid(reason: string): never {

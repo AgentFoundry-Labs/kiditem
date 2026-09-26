@@ -233,6 +233,10 @@ export const KeywordSerpItemSchema = z.object({
 }).strict();
 export type KeywordSerpItem = z.infer<typeof KeywordSerpItemSchema>;
 
+/**
+ * 쪽 읽기가 멈춘 까닭. 서버는 `page_limit`(계획한 쪽을 다 읽음)·`empty_page`(그 전에 빈 쪽)만 완결로 받는다 —
+ * `provider_wall`·`invalid_result`는 확장이 사실대로 보고하고 서버가 거절하도록 남겨 둔다.
+ */
 export const KEYWORD_SERP_STOP_REASONS = ['page_limit', 'empty_page', 'provider_wall', 'invalid_result'] as const;
 
 /** 청크 `keyword_serp`: 키워드 하나를 읽은 결과(키워드마다 한 장). 첫 쪽이 비면 수집기가 실패한다. */

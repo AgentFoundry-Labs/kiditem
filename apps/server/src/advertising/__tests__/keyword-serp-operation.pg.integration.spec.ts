@@ -119,6 +119,15 @@ describe('advertising.keyword_serp owner over the operation contract + disposabl
       .resolves.toMatchObject({ status: 'OPEN', attemptId: run.operation.id });
   });
 
+  it('보안 화면에서 멈춘 SERP(provider_wall)는 순위권 밖을 증명하지 못해 실행이 실패하고 원장에 아무것도 남지 않는다', async () => {
+    const run = await harness.beginRun(KEYWORD_SERP_KIND, { keywords: ['슬라임'] });
+    await harness.put(run, [{ chunkKind: KEYWORD_SERP_CHUNK_KIND, payload: [{ ...chunk('슬라임', [item(1, 'OWN')]), stopReason: 'provider_wall' }] }]);
+    expect((await harness.finish(run).expect(409)).body).toMatchObject({ code: 'ADVERTISING_COLLECTION_INCOMPLETE', details: { reason: 'serp_capture_incomplete' } });
+    await harness.finish(run, { outcome: 'failed', errorCode: 'ADVERTISING_COLLECTION_INCOMPLETE' }).expect(200);
+    await expect(prisma.coupangKeywordRankDailySnapshot.count({ where: { organizationId: ORG } })).resolves.toBe(0);
+    await expect(prisma.coupangKeywordSerpDailySnapshot.count({ where: { organizationId: ORG } })).resolves.toBe(0);
+  });
+
   it('같은 키워드의 Wing 순위와 SERP 순위는 한 슬롯이라 나중에 시작한 쪽이 OPERATION_IN_PROGRESS를 받는다', async () => {
     const wing = await harness.beginRun(WING_RANK_KIND, { channelAccountId: account, keywords: ['슬라임'] });
     expect((await harness.begin(KEYWORD_SERP_KIND, { keywords: ['연필', ' 슬라임 '] }).expect(409)).body)
