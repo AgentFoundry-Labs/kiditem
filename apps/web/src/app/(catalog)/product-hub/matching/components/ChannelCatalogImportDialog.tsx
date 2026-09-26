@@ -5,8 +5,8 @@ import * as Dialog from '@radix-ui/react-dialog';
 import { FileSpreadsheet, Loader2, X } from 'lucide-react';
 import type { ChannelAccountListItem } from '@kiditem/shared/channel-account';
 import type { WingCatalogWorkbookUpload } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/wing-catalog-collection';
-import type { CoupangRocketMatchingCsvImportResponse } from '@kiditem/shared/source-import';
 import { friendlyError } from '@/lib/api-error';
+import type { RocketMatchingCsvUpload } from '../lib/channel-sku-matching-api';
 import { formatNumber } from '@/lib/utils';
 import {
   type ChannelCatalogImportSource,
@@ -23,7 +23,7 @@ type ChannelCatalogImportDialogProps = {
 
 type CatalogImportResponse =
   | WingCatalogWorkbookUpload
-  | CoupangRocketMatchingCsvImportResponse;
+  | RocketMatchingCsvUpload;
 
 type AutomaticMatchingSummary = {
   collectedAliases: number;

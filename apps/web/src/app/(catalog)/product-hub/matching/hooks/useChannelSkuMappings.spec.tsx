@@ -244,31 +244,11 @@ function importResponse() {
 }
 
 function rocketImportResponse() {
-  const now = '2026-08-03T00:00:00.000Z';
   return {
-    run: {
-      id: '55555555-5555-4555-8555-555555555555',
-      sourceType: 'coupang_rocket_matching_csv' as const,
-      channelAccountId: ACCOUNT_B,
-      fileName: 'rocket443-sellpia-matching.csv',
-      fileHash: 'a'.repeat(64),
-      status: 'completed' as const,
-      rowCount: 1,
-      importedAt: now,
-      lastVerifiedAt: null,
-      verificationCount: 0,
-      lastTrigger: null,
-      freshnessGeneration: null,
-      manualFreshExportConfirmedAt: null,
-      manualFreshExportConfirmedBy: null,
-      qualityReport: null,
-      errorCode: null,
-      errorMessage: null,
-      createdAt: now,
-      updatedAt: now,
-    },
     duplicate: false,
+    operationId: '55555555-5555-4555-8555-555555555555',
     changes: {
+      rowCount: 1,
       createdProductCount: 1,
       updatedProductCount: 0,
       createdSkuCount: 1,

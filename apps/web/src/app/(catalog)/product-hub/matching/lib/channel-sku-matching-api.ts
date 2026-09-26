@@ -11,10 +11,8 @@ import {
   type ProductRecipeComponentCandidateListResponse,
   type ReplaceChannelOptionInventoryInput,
 } from '@kiditem/shared/product-operations';
-import {
-  CoupangRocketMatchingCsvImportResponseSchema,
-  type CoupangRocketMatchingCsvImportResponse,
-} from '@kiditem/shared/source-import';
+import { RocketMatchingCsvResultSchema, type RocketMatchingCsvResult } from '@kiditem/shared/channels-operations';
+import { OperationFinishResponseSchema } from '@kiditem/shared/operation';
 import {
   SellpiaManualMatchAttemptSchema,
   SellpiaManualMatchSourceStatusSchema,
@@ -28,6 +26,7 @@ import {
   type WingCatalogWorkbookUpload,
 } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/wing-catalog-collection';
 import { apiClient } from '@/lib/api-client';
+import { isApiError } from '@/lib/api-error';
 const ChannelAccountListSchema = z.array(ChannelAccountListItemSchema);
 
 export function listChannelAccounts(): Promise<ChannelAccountListItem[]> {
@@ -136,15 +135,43 @@ export function importCoupangWingCatalog(
   return uploadWingCatalogWorkbook(channelAccountId, file);
 }
 
-export function importCoupangRocketMatchingCsv(
+export type RocketMatchingCsvUpload = Readonly<{
+  /** 같은 파일을 이 계정에 이미 반영했다 — 서버가 다시 쓰지 않았다. */
+  duplicate: boolean;
+  operationId: string | null;
+  changes: RocketMatchingCsvResult;
+}>;
+
+const NO_ROCKET_CSV_CHANGES: RocketMatchingCsvResult = {
+  rowCount: 0,
+  createdProductCount: 0,
+  updatedProductCount: 0,
+  createdSkuCount: 0,
+  updatedSkuCount: 0,
+};
+
+/**
+ * 로켓-셀피아 매칭 CSV 업로드 = `channels.rocket_matching_csv` 실행 하나(KID-363). 응답은 `{ operation }`이고 반영
+ * 수는 `operation.result`다. 같은 파일 재업로드는 서버가 거절한다(`DB_CONFLICT file_already_applied`) — 그것을
+ * "이미 가져왔다"로 돌려준다.
+ */
+export async function importCoupangRocketMatchingCsv(
   channelAccountId: string,
   file: File,
-): Promise<CoupangRocketMatchingCsvImportResponse> {
+): Promise<RocketMatchingCsvUpload> {
   const form = new FormData();
   form.append('file', file);
-  return apiClient.uploadParsed(
-    `/api/channels/accounts/${encodeURIComponent(channelAccountId)}/catalog-imports/coupang-rocket-matching`,
-    CoupangRocketMatchingCsvImportResponseSchema,
-    form,
-  );
+  try {
+    const { operation } = await apiClient.uploadParsed(
+      `/api/channels/accounts/${encodeURIComponent(channelAccountId)}/catalog-imports/coupang-rocket-matching`,
+      OperationFinishResponseSchema,
+      form,
+    );
+    return { duplicate: false, operationId: operation.id, changes: RocketMatchingCsvResultSchema.parse(operation.result) };
+  } catch (error) {
+    if (isApiError(error) && error.code === 'DB_CONFLICT' && error.details.reason === 'file_already_applied') {
+      return { duplicate: true, operationId: null, changes: NO_ROCKET_CSV_CHANGES };
+    }
+    throw error;
+  }
 }

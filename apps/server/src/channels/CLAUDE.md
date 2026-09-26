@@ -160,6 +160,10 @@ sync, registration, matching, and capacity behavior is executable in
   failed or partial details run is retried by the next list with no bookkeeping.
   Rows detailed before this key existed have none, so the first sync after
   deploy fetches every detail once.
+- The Rocket-Sellpia matching CSV upload is one `channels.rocket_matching_csv`
+  operation (KID-363) that the server produces itself, like the Wing workbook:
+  `fileHash` is per account, rows go as `csv_rows` chunks, and the finish
+  transaction upserts identities with `lastOperationId`.
 - Readers treat a `lastOperationId` row as published (`completed-catalog-run.ts`);
   readiness reads catalog freshness through `CHANNEL_CATALOG_FRESHNESS_PORT`
   (latest succeeded details operation).

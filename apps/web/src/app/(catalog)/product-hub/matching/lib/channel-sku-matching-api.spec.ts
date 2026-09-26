@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@/lib/api-error';
 import {
   autoMatchChannelProducts,
   beginSellpiaManualMatchSourceAttempt,
@@ -19,6 +20,7 @@ vi.mock('@/lib/api-client', () => ({
 const LISTING_ID = '11111111-1111-4111-8111-111111111111';
 const ACCOUNT_ID = '55555555-5555-4555-8555-555555555555';
 const OPTION_ID = '44444444-4444-4444-8444-444444444444';
+const OPERATION_ID = '66666666-6666-4666-8666-666666666666';
 
 describe('channel product matching API', () => {
   beforeEach(() => vi.clearAllMocks());
@@ -53,25 +55,27 @@ describe('channel product matching API', () => {
     );
   });
 
-  it('uploads a Rocket-Sellpia matching CSV through the Rocket catalog endpoint', async () => {
+  it('uploads a Rocket-Sellpia matching CSV as one rocket_matching_csv operation and reads its result', async () => {
     const file = new File(['rocket'], 'rocket443-sellpia-matching.csv', { type: 'text/csv' });
-    vi.mocked(apiClient.uploadParsed).mockResolvedValue({
-      duplicate: false,
-      changes: {
-        createdProductCount: 266,
-        updatedProductCount: 177,
-        createdSkuCount: 266,
-        updatedSkuCount: 177,
-      },
-    });
+    const changes = { rowCount: 443, createdProductCount: 266, updatedProductCount: 177, createdSkuCount: 266, updatedSkuCount: 177 };
+    vi.mocked(apiClient.uploadParsed).mockResolvedValue({ operation: { id: OPERATION_ID, result: changes } });
 
-    await importCoupangRocketMatchingCsv(ACCOUNT_ID, file);
-
+    await expect(importCoupangRocketMatchingCsv(ACCOUNT_ID, file))
+      .resolves.toEqual({ duplicate: false, operationId: OPERATION_ID, changes });
     expect(apiClient.uploadParsed).toHaveBeenCalledWith(
       `/api/channels/accounts/${ACCOUNT_ID}/catalog-imports/coupang-rocket-matching`,
       expect.any(Object),
       expect.any(FormData),
     );
+  });
+
+  it('reports a re-upload of the same CSV as already imported', async () => {
+    const file = new File(['rocket'], 'rocket443-sellpia-matching.csv', { type: 'text/csv' });
+    vi.mocked(apiClient.uploadParsed).mockRejectedValue(
+      new ApiError(409, 'DB_CONFLICT', '이미 반영한 파일입니다', { reason: 'file_already_applied' }),
+    );
+
+    await expect(importCoupangRocketMatchingCsv(ACCOUNT_ID, file)).resolves.toMatchObject({ duplicate: true, operationId: null });
   });
 
   it('searches Products-owned Sellpia inventory candidates', async () => {

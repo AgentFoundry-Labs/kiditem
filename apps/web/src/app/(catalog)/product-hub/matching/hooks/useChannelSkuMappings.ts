@@ -6,6 +6,7 @@ import { queryKeys } from '@/lib/query-keys';
 import {
   autoMatchChannelProducts,
   importCoupangRocketMatchingCsv,
+  type RocketMatchingCsvUpload,
   importCoupangWingCatalog,
   listChannelAccounts,
   listChannelProductMappings,
@@ -15,7 +16,6 @@ import {
 import {
   collectSellpiaManualMatchSnapshot,
 } from '../lib/sellpia-manual-match-collection';
-import type { CoupangRocketMatchingCsvImportResponse } from '@kiditem/shared/source-import';
 import type { WingCatalogWorkbookUpload } from '@/app/(product-pipeline)/product-pipeline/registered-products/lib/wing-catalog-collection';
 
 export function useChannelAccounts() {
@@ -118,7 +118,7 @@ export type ChannelCatalogImportSource = 'wing' | 'rocket';
 
 type ChannelCatalogImportResponse =
   | WingCatalogWorkbookUpload
-  | CoupangRocketMatchingCsvImportResponse;
+  | RocketMatchingCsvUpload;
 
 export function useImportChannelCatalog() {
   const queryClient = useQueryClient();
