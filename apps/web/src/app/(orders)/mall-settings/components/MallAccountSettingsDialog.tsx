@@ -1,6 +1,7 @@
 'use client';
 
 import { useEffect, useRef } from 'react';
+import { channelDelivery } from '@kiditem/shared/channel-registry';
 import * as Dialog from '@radix-ui/react-dialog';
 import { AlertCircle, Loader2, Save, X } from 'lucide-react';
 import { isApiError } from '@/lib/api-error';
@@ -58,6 +59,7 @@ function SettingsBody({
   const editor = useMallAccountEditor();
   const { mallsQuery, rows, summary, reveal } = editor;
   const row = target === 'all' ? null : rows.find((candidate) => candidate.account.key === target) ?? null;
+  const supportsListingProfile = row !== null && channelDelivery(row.account.key) !== 'none';
   const title = target === 'all' ? '쇼핑몰 계정' : `${row?.account.name ?? mallName ?? '몰'} 계정 설정`;
 
   // 저장된 비밀번호는 창을 열 때 한 번, 저장해 계정이 바뀌면 다시 한 번 불러온다. 못 불러와도 되풀이하지 않고,
@@ -81,7 +83,9 @@ function SettingsBody({
           <Dialog.Description className="mt-1 text-xs text-slate-500">
             {target === 'all'
               ? '주문수집 · 송장등록 · 상품등록에 쓰는 쇼핑몰 계정입니다.'
-              : '아이디 · 비밀번호 · 사이트 주소와 등록 기본값을 바꾸고 로그인을 시험합니다.'}
+              : supportsListingProfile
+                ? '아이디 · 비밀번호 · 사이트 주소와 등록 기본값을 바꾸고 로그인을 시험합니다.'
+                : '아이디 · 비밀번호 · 사이트 주소를 바꾸고 로그인을 시험합니다.'}
           </Dialog.Description>
         </div>
         <div className="flex items-center gap-2">
@@ -160,7 +164,7 @@ function SettingsBody({
               onSave={() => void editor.saveRow(row.account.key, row.account.name)}
               onTestLogin={() => void editor.loginTest.test(row.account.key, row.account.name)}
             />
-            <MallListingProfileForm key={row.account.key} account={row.account} />
+            {supportsListingProfile ? <MallListingProfileForm key={row.account.key} account={row.account} /> : null}
           </div>
         ) : (
           <p className="text-sm text-slate-500">

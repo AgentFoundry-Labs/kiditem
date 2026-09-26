@@ -1,4 +1,4 @@
-import { MALL_CHANNELS } from '@kiditem/shared/channel-registry';
+import { channelDelivery, MALL_CHANNELS } from '@kiditem/shared/channel-registry';
 import {
   findOrderCollectionMall,
   orderCollectionMallAccountChannels,
@@ -192,6 +192,12 @@ export class ChannelAccountService implements ChannelAccountPort {
 
   async updateListingProfile(organizationId: string, mallKey: string, input: unknown): Promise<MallAccount> {
     const mall = findMall(mallKey);
+    if (channelDelivery(mall.key) === 'none') {
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+        message: '상품 등록 경로가 없는 몰은 등록 기본값을 저장할 수 없습니다.',
+        details: { mallKey, reason: 'LISTING_DELIVERY_UNAVAILABLE' },
+      });
+    }
     const parsed = UpdateMallListingProfileSchema.safeParse(input);
     if (!parsed.success) {
       const issue = parsed.error.issues[0];

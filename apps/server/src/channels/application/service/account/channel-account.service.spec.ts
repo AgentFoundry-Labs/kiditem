@@ -173,6 +173,18 @@ describe('ChannelAccountService', () => {
   });
 
   describe('updateListingProfile (KID-235)', () => {
+    it.each(['coupang-direct', 'icecream-mall'] as const)('refuses registration defaults without a delivery route (%s) and preserves the account', async (mallKey) => {
+      const original = mallRow(mallKey === 'coupang-direct' ? 'rocket' : mallKey, {
+        orderCollection: { loginId: 'keep', password: encrypted('keep-secret') },
+        listingProfile: { namePrefix: 'keep-existing' },
+      });
+      const fixture = makeService([original]);
+
+      await expect(fixture.service.updateListingProfile(ORGANIZATION_ID, mallKey, { namePrefix: 'overwrite' }))
+        .rejects.toMatchObject({ code: 'VALIDATION_FAILED', kind: 'validation' });
+      expect(fixture.rows()).toEqual([original]);
+    });
+
     it('refuses an input outside the listing profile document as invalid and writes nothing', async () => {
       const fixture = makeService([mallRow('onch', { orderCollection: { loginId: 'keep' } })]);
 

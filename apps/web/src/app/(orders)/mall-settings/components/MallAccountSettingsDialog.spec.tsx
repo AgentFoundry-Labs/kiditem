@@ -156,6 +156,21 @@ describe('쇼핑몰 계정 설정 창', () => {
 describe('쇼핑몰 계정 설정 창 — 등록 기본값', () => {
   const LABELS = ['몰 카테고리 코드', '배송비 정책', '반품·교환비', '출고지', '반품지', 'A/S 연락처', '상품명 접두어', '상품명 접미어'];
 
+  it.each(['coupang-direct', 'icecream-mall'] as const)('%s는 등록 기본값을 숨기고 로그인 계정은 계속 편집한다', async (key) => {
+    accounts = [account({ key, name: '수집 전용 몰', channelAccountId: 'rocket-row', hasPassword: false })];
+    const user = userEvent.setup();
+    render(<MallAccountSettingsDialog target={key} onClose={vi.fn()} />);
+
+    expect(screen.queryByRole('region', { name: '등록 기본값' })).not.toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: '등록 기본값 저장' })).not.toBeInTheDocument();
+    const login = screen.getByDisplayValue('store_kiditem');
+    await user.clear(login);
+    await user.type(login, 'new-login');
+    await user.click(screen.getByRole('button', { name: '저장' }));
+    expect(mockUpdate).toHaveBeenCalledWith(key, expect.objectContaining({ loginId: 'new-login' }));
+    expect(mockUpdateListingProfile).not.toHaveBeenCalled();
+  });
+
   it('⭐ 몰 하나의 창에 등록 기본값 절이 서버 문서와 같은 여덟 칸으로 선다', () => {
     render(<MallAccountSettingsDialog target="kidsnote" onClose={vi.fn()} />);
     const section = screen.getByRole('region', { name: '등록 기본값' });
