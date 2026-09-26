@@ -99,8 +99,8 @@ describe('useCoupangDirectshipCalendar (KID-198)', () => {
   it('a snapshot response outside the contract opens nothing to convert', async () => {
     const { hook } = setup(SNAPSHOT_OPERATION_ID);
     const parsed = vi.mocked(apiClient.getParsed).getMockImplementation()!;
-    vi.mocked(apiClient.getParsed).mockImplementation(async (path: string, schema?: never) => (
-      path.includes('/snapshot?') ? (schema as unknown as { parse: (value: unknown) => unknown }).parse({ ...snapshot(SNAPSHOT_OPERATION_ID), operationId: 'not-an-id' }) : parsed(path, schema)
+    vi.mocked(apiClient.getParsed).mockImplementation(async (path, schema) => (
+      path.includes('/snapshot?') ? schema.parse({ ...snapshot(SNAPSHOT_OPERATION_ID), operationId: 'not-an-id' }) : parsed(path, schema)
     ));
     await act(async () => { await hook.result.current.open(account); });
     expect(hook.result.current.calendar).toMatchObject({ operationId: null, pos: [], loading: false });
