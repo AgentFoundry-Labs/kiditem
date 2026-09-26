@@ -35,7 +35,7 @@ const ALERT: AdvertisingSourceAlert = {
  * (www.coupang.com/vp/products)를 열어 판매자 상점 링크를 읽고 `seller_identity` 청크로 올린다. finish 트랜잭션에서 그
  * 키워드의 최신 SERP 스냅샷(실행이 발행한 행) 상품에 판매자를 적는다. 잠금은 조직(경쟁사 카탈로그와 같은 SERP 행을
  * 고치므로 한 번에 하나). 웹에서 따로 시작할 수도 있고, SERP 순위 실행이 끝나면 그 키워드로 이어서 시작된다.
- * 성공하면 `result.next`로 경쟁사 카탈로그 보강(`advertising.competitor_catalog`, 상품 500개)을 잇는다.
+ * 판매자를 하나라도 확인하면 `result.next`로 경쟁사 카탈로그 보강(`advertising.competitor_catalog`, 상품 500개)을 잇는다.
  */
 @OperationOwner()
 @Injectable()
@@ -65,8 +65,11 @@ export class CompetitorSellerIdentityOperationOwner implements OperationOwnerPor
       chunks,
     });
     await this.alerts.resolve(context.tx, { organizationId: context.organizationId, operationId: context.operationId, alert: ALERT });
-    // 연쇄(KID-354 규칙): 확인된 판매자의 판매자샵 카탈로그 보강을 같은 환경이 이어서 시작한다(옛 afterBatch의 카탈로그 단계).
-    return { result: { ...result, next: { kind: COMPETITOR_CATALOG_KIND, scope: { rankEnrichment: true } } } };
+    // 연쇄(KID-354 규칙): 판매자를 하나라도 확인했으면 그 판매자샵 카탈로그 보강을 같은 환경이 이어서 시작한다
+    // (옛 afterBatch의 카탈로그 단계). 확인한 판매자가 없으면 이을 것이 없다.
+    return result.identities > 0
+      ? { result: { ...result, next: { kind: COMPETITOR_CATALOG_KIND, scope: { rankEnrichment: true } } } }
+      : { result };
   }
 
   onFailed(context: OperationFailedContext): Promise<void> {

@@ -84,9 +84,13 @@ describe('advertising.competitor_seller_identity owner over the operation contra
       ['101', 'S1', run.operation.id],
       ['102', 'S2', run.operation.id],
     ]);
-    // 판매자를 알게 된 상품은 다음 계획에서 빠진다.
+    expect(done.body.operation.result.next).toEqual({ kind: 'advertising.competitor_catalog', scope: { rankEnrichment: true } });
+    // 판매자를 알게 된 상품은 다음 계획에서 빠지고, 확인할 것이 없던 실행은 카탈로그 보강을 잇지 않는다.
     const again = await harness.beginRun(COMPETITOR_SELLER_IDENTITY_KIND, {});
     expect(again.operation.plan).toMatchObject({ targets: [] });
+    const empty = (await harness.finish(again).expect(200)).body.operation;
+    expect(empty).toMatchObject({ status: 'succeeded', result: { identities: 0 } });
+    expect(empty.result.next).toBeUndefined();
   });
 
   it('계획한 상품 하나라도 판매자를 못 읽으면 수집 미완, 계획 밖 상품이면 VALIDATION_FAILED — failed로 끝나면 SERP 행은 그대로다', async () => {
