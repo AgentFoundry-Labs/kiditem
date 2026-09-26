@@ -1,9 +1,9 @@
 import request from 'supertest';
-import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
+import { afterAll, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
 import * as XLSX from 'xlsx';
 import officeCrypto = require('officecrypto-tool');
-import { MALL_ORDERS_KIND } from '@kiditem/shared/orders-operations';
+import { MALL_ORDERS_CHUNK_KIND, MALL_ORDERS_KIND } from '@kiditem/shared/orders-operations';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID as OTHER_ORG,
@@ -12,6 +12,7 @@ import {
   TEST_ORGANIZATION_ID as ORG,
 } from '../../test-helpers/real-prisma';
 import { ordersOperationsApp } from '../../test-helpers/orders-operations';
+import { OPERATION_PORT, type OperationPort } from '../../common/operation/application/port/in/operation.port';
 import { CHANNEL_ACCOUNT_PORT } from '../../channels/application/port/in/account/channel-account.port';
 import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
 import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';
@@ -28,7 +29,7 @@ import { ORDER_COLLECTION_SOURCE_PORT } from '../application/port/in/order-colle
 import { ORDER_OPERATION_CAPTURE_PORT } from '../application/port/in/order-operation-capture.port';
 import { ORDER_MALL_ACCOUNT_PORT } from '../application/port/out/persistence/order-mall-account.port';
 import { MallOrdersOperationService } from '../application/service/mall-orders-operation.service';
-import { MallOrdersUploadService } from '../application/service/mall-orders-upload.service';
+import { MALL_ORDERS_UPLOAD_PART_BYTES, MallOrdersUploadService } from '../application/service/mall-orders-upload.service';
 import { OrderCollectionService } from '../application/service/order-collection.service';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 
@@ -168,6 +169,29 @@ describe('manual excel upload → orders.mall_orders (manual-upload) over the op
     const rows = XLSX.utils.sheet_to_json<string[]>(book.Sheets[book.SheetNames[0]!]!, { header: 1, raw: false, defval: '' });
     // 셀피아 참조 양식 머리글(속성상품코드 → 상품상세코드)과 올린 행 그대로.
     expect(rows).toEqual([['주문번호', '상품상세코드', '상품명', '수량'], ['G-1', 'A-1', '색종이', '1'], ['G-2', 'A-2', '크레파스', '2'], ['G-3', 'A-3', '풀', '1']]);
+  });
+
+  it('조각 크기보다 큰 파일은 여러 청크로 나눠 올리고 finalize가 바이트 그대로 잇는다', async () => {
+    const line = (index: number) => `D-${String(index).padStart(6, '0')},2026/09/26 10:00,${'가'.repeat(40)}\r\n`;
+    let csv = '주문번호,주문일시,memo\r\n';
+    for (let index = 0; Buffer.byteLength(csv) < MALL_ORDERS_UPLOAD_PART_BYTES * 2 + 1000; index += 1) csv += line(index);
+    const bytes = Buffer.from(csv, 'utf8');
+    expect(bytes.length).toBeGreaterThan(MALL_ORDERS_UPLOAD_PART_BYTES * 2);
+    // 조각을 따로 base64로 바꿔 글자로 잇는다 — 3의 배수가 아니면 중간 조각의 `=` 채움이 이은 바이트를 깨뜨린다.
+    expect(MALL_ORDERS_UPLOAD_PART_BYTES % 3).toBe(0);
+    // 청크 표는 실행이 끝나면 비워진다 — 실행 계약의 문(putChunk)에서 조각을 본다.
+    const putChunk = vi.spyOn(harness.app.get<OperationPort>(OPERATION_PORT), 'putChunk');
+    const response = await upload('domeggook', { bytes, name: 'ORDER_BIG.csv' }).expect(201);
+    const operationId = response.body.operation.id as string;
+    const puts = putChunk.mock.calls.map(([input]) => input);
+    putChunk.mockRestore();
+    expect(puts.map((input) => [input.chunkKind, input.sequence])).toEqual([[MALL_ORDERS_CHUNK_KIND, 1], [MALL_ORDERS_CHUNK_KIND, 2], [MALL_ORDERS_CHUNK_KIND, 3]]);
+    expect(puts.map((input) => (input.request.payload[0] as { part: number; parts: number }))).toEqual([
+      expect.objectContaining({ part: 0, parts: 3 }), expect.objectContaining({ part: 1, parts: 3 }), expect.objectContaining({ part: 2, parts: 3 }),
+    ]);
+    expect(response.body.operation).toMatchObject({ status: 'succeeded', result: { captured: 1 } });
+    const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId } });
+    expect(Buffer.from(artifact.sourceBytes).equals(bytes)).toBe(true);
   });
 
   it('변환기가 거절한 파일은 실행을 실패로 닫고 그 문장을 돌려준다 — 캡처는 남지 않는다', async () => {

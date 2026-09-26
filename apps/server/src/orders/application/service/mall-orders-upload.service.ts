@@ -14,7 +14,11 @@ import {
 } from '../port/out/persistence/order-mall-account.port';
 import { OrderCollectionService } from './order-collection.service';
 
-/** 청크 하나에 싣는 파일 조각(base64 전) 크기. 실행 계약의 청크 상한(1MiB, 직렬화)에 base64 부풀림과 여유를 둔다. */
+/**
+ * 청크 하나에 싣는 파일 조각(base64 전) 크기. 실행 계약의 청크 상한(1MiB, 직렬화)에 base64 부풀림과 여유를 둔다.
+ * 반드시 3의 배수로 둔다 — 조각마다 따로 base64로 바꾸고 owner(`joinedFile`)는 base64 글자를 그대로 이어 한 번에 푼다.
+ * 3의 배수가 아니면 마지막이 아닌 조각에 `=` 채움이 붙어 이은 바이트가 깨진다.
+ */
 export const MALL_ORDERS_UPLOAD_PART_BYTES = 600_000;
 
 export interface MallOrdersUploadInput {
