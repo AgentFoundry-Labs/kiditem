@@ -59,7 +59,6 @@ export default defineConfig({
     'src/orders-operations.ts',
     'src/sellpia-operations.ts',
     'src/channels-operations.ts',
-    'src/advertising-operations.ts',
     'src/operations.ts',
     'src/browser-collection-session.ts',
     'src/collection-start.ts',
