@@ -16,6 +16,7 @@ import {
   OPERATION_FAILURE_HREFS,
   OPERATION_FAILURE_IGNORED_CODES,
   OPERATION_FAILURE_KINDS,
+  OPERATION_FAILURE_SCOPE_FIELDS,
 } from './operation-failure-sources';
 
 export type { SourceFailureAlertInput } from '@kiditem/shared/alerts';
@@ -37,6 +38,14 @@ function operationReadKey(operationId: string): string {
   return `operation:${operationId}`;
 }
 
+/** 같은 밀리초에 끝났으면 뒤에 시작한 실행이, 그것도 같으면 id가 큰 쪽이 뒤다(읽기 정렬과 같은 순서). */
+function finishedAfter(left: OperationOutcomeRow, right: OperationOutcomeRow): boolean {
+  const byFinish = left.finishedAt.getTime() - right.finishedAt.getTime();
+  if (byFinish !== 0) return byFinish > 0;
+  const byStart = left.startedAt.getTime() - right.startedAt.getTime();
+  return byStart !== 0 ? byStart > 0 : left.id > right.id;
+}
+
 /**
  * 원천 정체성(kind + 범위)마다 최신 실패가 알림 하나다. 그 뒤에 같은 정체성의 성공이 있으면 닫힌 알림(옛
  * `resolveSourceFailure`와 같은 뜻), 실패가 한 번도 없으면 알림이 아니다.
@@ -55,7 +64,7 @@ function operationFailureItems(
   const items: AlertItem[] = [];
   for (const { failed, succeeded } of byIdentity.values()) {
     if (!failed) continue;
-    const resolvedBy = succeeded && succeeded.finishedAt > failed.finishedAt ? succeeded : null;
+    const resolvedBy = succeeded && finishedAfter(succeeded, failed) ? succeeded : null;
     items.push({
       id: failed.id,
       attemptId: failed.id,
@@ -147,6 +156,7 @@ export class SourceFailureAlerts {
       readLatestOperationOutcomes(this.prisma, {
         organizationId,
         kinds: OPERATION_FAILURE_KINDS,
+        scopeFields: OPERATION_FAILURE_SCOPE_FIELDS,
         ignoredErrorCodes: OPERATION_FAILURE_IGNORED_CODES,
       }),
       this.prisma.alert.findMany({

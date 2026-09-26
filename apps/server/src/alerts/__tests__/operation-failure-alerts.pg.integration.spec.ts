@@ -5,6 +5,8 @@ import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { AlertItemSchema } from '@kiditem/shared/alerts';
 import { SELLPIA_INVENTORY_KIND } from '@kiditem/shared/sellpia-operations';
 import { WING_TRAFFIC_KIND } from '@kiditem/shared/advertising-operations';
+import { MALL_ORDERS_KIND } from '@kiditem/shared/orders-operations';
+import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
 import { SourceFailureAlerts } from '../alerts.service';
 import {
   makeTestPrisma,
@@ -39,12 +41,14 @@ describe('SourceFailureAlerts — 실행 표의 실패를 알림으로 읽는다
 
   async function finished(input: {
     kind?: string;
-    status: 'succeeded' | 'failed' | 'cancelled';
+    status: 'succeeded' | 'failed' | 'cancelled' | 'executing';
     errorCode?: string | null;
     errorMessage?: string | null;
     finishedAt: string;
+    startedAt?: string;
     plan?: Record<string, unknown>;
     organizationId?: string;
+    maxAttempts?: number;
   }): Promise<string> {
     const id = randomUUID();
     const finishedAt = new Date(input.finishedAt);
@@ -55,13 +59,15 @@ describe('SourceFailureAlerts — 실행 표의 실패를 알림으로 읽는다
         kind: input.kind ?? SELLPIA_INVENTORY_KIND,
         status: input.status,
         token: randomUUID(),
+        // 도는 실행이면 `finishedAt`을 임대 만료 시각으로 쓴다.
         expiresAt: finishedAt,
         plan: (input.plan ?? {}) as never,
         errorCode: input.errorCode ?? null,
         errorMessage: input.errorMessage ?? null,
-        startedAt: new Date(finishedAt.getTime() - 60_000),
-        finishedAt,
+        startedAt: input.startedAt ? new Date(input.startedAt) : new Date(finishedAt.getTime() - 60_000),
+        finishedAt: input.status === 'executing' ? null : finishedAt,
         attempts: 1,
+        maxAttempts: input.maxAttempts ?? 1,
       },
     });
     return id;
@@ -133,6 +139,60 @@ describe('SourceFailureAlerts — 실행 표의 실패를 알림으로 읽는다
     await expect(alerts.list(ORG)).resolves.toMatchObject([
       { id: failedA, status: 'OPEN', sourceType: WING_TRAFFIC_KIND, href: '/ad-ops', title: '쿠팡 윙 트래픽 수집 실패' },
     ]);
+  });
+
+  it('소싱 키워드 제안은 키워드(targetKey)마다 원천이다 — 키워드 B의 성공이 키워드 A의 실패를 닫지 않는다', async () => {
+    const kind = SOURCING_OPERATION_KINDS.coupangKeywordSuggestion;
+    const failedA = await finished({ kind, status: 'failed', errorCode: 'NETWORK_FAILED', plan: { targetKey: 'keyword:a' }, finishedAt: '2026-09-26T01:00:00Z' });
+    await finished({ kind, status: 'succeeded', plan: { targetKey: 'keyword:b' }, finishedAt: '2026-09-26T02:00:00Z' });
+    await expect(alerts.list(ORG)).resolves.toMatchObject([{ id: failedA, status: 'OPEN', sourceType: kind }]);
+
+    await finished({ kind, status: 'succeeded', plan: { targetKey: 'keyword:a' }, finishedAt: '2026-09-26T03:00:00Z' });
+    await expect(alerts.list(ORG)).resolves.toMatchObject([{ id: failedA, status: 'RESOLVED' }]);
+  });
+
+  it('라이브 수집·상품 수집은 원천(sourceKey)마다 원천이다 — 도우인 성공이 1688 실패를 닫지 않는다', async () => {
+    const kind = SOURCING_OPERATION_KINDS.liveCommerce;
+    const failed1688 = await finished({ kind, status: 'failed', errorCode: 'NETWORK_FAILED', plan: { sourceKey: '1688.live_commerce' }, finishedAt: '2026-09-26T01:00:00Z' });
+    await finished({ kind, status: 'succeeded', plan: { sourceKey: 'douyin.live_commerce' }, finishedAt: '2026-09-26T02:00:00Z' });
+    const product = SOURCING_OPERATION_KINDS.productExtension;
+    const failedAlibaba = await finished({ kind: product, status: 'failed', errorCode: 'NETWORK_FAILED', plan: { sourceKey: 'alibaba.product_extension' }, finishedAt: '2026-09-26T01:30:00Z' });
+    await finished({ kind: product, status: 'succeeded', plan: { sourceKey: '1688.product_extension' }, finishedAt: '2026-09-26T02:30:00Z' });
+
+    const listed = await alerts.list(ORG);
+    expect(listed.map((item) => [item.id, item.status])).toEqual([[failedAlibaba, 'OPEN'], [failed1688, 'OPEN']]);
+  });
+
+  it('몰 주문 수집은 몰(mallKey)마다 원천이다 — 한 몰의 성공이 다른 몰의 실패를 닫지 않는다', async () => {
+    const failedGs = await finished({ kind: MALL_ORDERS_KIND, status: 'failed', errorCode: 'NETWORK_FAILED', plan: { mallKey: 'gs-shop' }, finishedAt: '2026-09-26T01:00:00Z' });
+    await finished({ kind: MALL_ORDERS_KIND, status: 'succeeded', plan: { mallKey: 'onch' }, finishedAt: '2026-09-26T02:00:00Z' });
+    await expect(alerts.list(ORG)).resolves.toMatchObject([{ id: failedGs, status: 'OPEN', sourceType: MALL_ORDERS_KIND }]);
+  });
+
+  it('원천 실패가 아닌 owner 거절(이미 수집한 원본)은 알림이 아니고, 앞선 진짜 실패를 가리지 않는다', async () => {
+    const product = SOURCING_OPERATION_KINDS.productExtension;
+    const failed = await finished({ kind: product, status: 'failed', errorCode: 'NETWORK_FAILED', plan: { sourceKey: '1688.product_extension' }, finishedAt: '2026-09-26T01:00:00Z' });
+    await finished({ kind: product, status: 'failed', errorCode: 'SOURCING_DUPLICATE_RECORD', plan: { sourceKey: '1688.product_extension' }, finishedAt: '2026-09-26T02:00:00Z' });
+    await expect(alerts.list(ORG)).resolves.toMatchObject([{ id: failed, status: 'OPEN', message: '네트워크 연결에 실패했습니다. 연결을 확인하고 다시 시도해 주세요.' }]);
+  });
+
+  it('임대가 끝났는데 처분되지 않은 실행: 시도를 다 썼으면 만료 실패 알림(끝난 시각 = 임대 만료), 남았으면 알림이 아니다', async () => {
+    const retrying = await finished({ status: 'executing', finishedAt: '2026-09-26T01:00:00Z', maxAttempts: 2 });
+    await expect(alerts.list(ORG)).resolves.toEqual([]);
+
+    await prisma.operation.update({ where: { id: retrying }, data: { maxAttempts: 1 } });
+    await expect(alerts.list(ORG)).resolves.toMatchObject([{
+      id: retrying,
+      status: 'OPEN',
+      message: '이 실행은 더 이상 유효하지 않습니다. 다시 시작해 주세요.',
+      createdAt: '2026-09-26T01:00:00.000Z',
+    }]);
+  });
+
+  it('성공과 실패가 같은 밀리초에 끝나도 뒤에 시작한 성공이 알림을 닫는다', async () => {
+    const failed = await finished({ status: 'failed', errorCode: 'NETWORK_FAILED', startedAt: '2026-09-26T00:59:00Z', finishedAt: '2026-09-26T01:00:00Z' });
+    await finished({ status: 'succeeded', startedAt: '2026-09-26T00:59:30Z', finishedAt: '2026-09-26T01:00:00Z' });
+    await expect(alerts.list(ORG)).resolves.toMatchObject([{ id: failed, status: 'RESOLVED' }]);
   });
 
   it('옛 source_failure 행과 합쳐 최근 순으로 내려 준다', async () => {

@@ -73,6 +73,30 @@ export const OPERATION_FAILURE_HREFS: Readonly<Record<string, string>> = {
   [WING_ITEMWINNER_KIND]: '/ad-ops',
 };
 
+/**
+ * 한 kind 안에서 원천을 가르는 plan 필드 — 옛 알림 writer의 dedupeKey와 같은 알갱이. 채널 계정 로그인을 쓰는 kind는
+ * 계정, 몰마다 도는 kind는 몰, 소싱 키워드 제안은 키워드(`targetKey`), 라이브·상품 수집은 원천(`sourceKey`)이다.
+ * 여기 없는 kind는 조직에 원천 하나(kind 하나가 알림 하나)다.
+ */
+export const OPERATION_FAILURE_SCOPE_FIELDS: Readonly<Record<string, string>> = {
+  [WING_CATALOG_LIST_KIND]: 'channelAccountId',
+  [WING_CATALOG_DETAILS_KIND]: 'channelAccountId',
+  [WING_CATALOG_EXCEL_KIND]: 'channelAccountId',
+  [COUPANG_REVIEWS_KIND]: 'channelAccountId',
+  [SOURCING_OPERATION_KINDS.wingCatalog]: 'channelAccountId',
+  [SOURCING_OPERATION_KINDS.coupangKeywordSuggestion]: 'targetKey',
+  [SOURCING_OPERATION_KINDS.liveCommerce]: 'sourceKey',
+  [SOURCING_OPERATION_KINDS.productExtension]: 'sourceKey',
+  [COUPANG_ROCKET_PO_KIND]: 'channelAccountId',
+  [COUPANG_DIRECTSHIP_KIND]: 'channelAccountId',
+  [MALL_ORDERS_KIND]: 'mallKey',
+  [MALL_ADMIN_LISTINGS_KIND]: 'mallKey',
+  [WING_TRACKED_PRODUCTS_KIND]: 'channelAccountId',
+  [WING_RANK_KIND]: 'channelAccountId',
+  [WING_TRAFFIC_KIND]: 'channelAccountId',
+  [WING_ITEMWINNER_KIND]: 'channelAccountId',
+};
+
 export const OPERATION_FAILURE_KINDS: readonly string[] = Object.keys(OPERATION_FAILURE_HREFS);
 
 /**
