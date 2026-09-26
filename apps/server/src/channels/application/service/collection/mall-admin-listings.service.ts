@@ -39,8 +39,13 @@ import {
 type PlanContext = { organizationId: string; userId: string | null };
 type FinalizeContext = { tx: OwnerTransaction; organizationId: string; operationId: string; plan: Record<string, unknown> };
 
-/** 화면이 몰마다 최근 실행을 찾으려고 읽는 최근 실행 수(1차 몰 넷이 나눠 쓴다). */
-const RECENT_OPERATIONS = 50;
+/**
+ * 화면이 몰마다 최근 실행·최근 성공 실행을 찾으려고 읽는 창 — 실행 reader 한 번의 상한(200)이다. 1차 몰 넷이 이 창을
+ * 나눠 쓰므로, 한 몰이 다른 몰의 가장 최근 실행 뒤로 200번 넘게 돌지 않는 한 몰마다 제 실행이 창 안에 있다(상태별로
+ * 따로 읽어 성공 실행은 실패가 아무리 많아도 성공끼리 센다). 창을 넘어선 몰은 실행이 없는 것처럼 보인다 — 나머지 몰을
+ * 옮길 때 실행 reader에 plan 계정 거르기가 생기면 몰마다 한 번 읽는 것으로 바꾼다.
+ */
+const RECENT_OPERATIONS = 200;
 
 /**
  * 몰 관리자 직접 가져오기 owner. 1차 몰(`MALL_ADMIN_LISTING_OPERATION_MALLS`)은 실행 kind

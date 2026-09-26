@@ -195,6 +195,20 @@ describe('Mall admin listings over the operation contract (PG integration)', () 
     expect(await prisma.operationLock.count()).toBe(0);
   });
 
+  it('keeps a rarely run mall in the source read while another mall runs many times', async () => {
+    const kidkids = await finish(await begin(), [row()]);
+    for (let index = 0; index < 60; index += 1) {
+      await channels.fail(await begin('icecream-mall', ICECREAM));
+    }
+    const source = await channels.mallAdmin.readSource({ organizationId: ORG });
+    expect(source.malls.find((mall) => mall.mallKey === 'kidkids')).toMatchObject({
+      latestOperation: { id: kidkids.id },
+      latestSucceeded: { id: kidkids.id },
+      latestPublication: { listings: 1 },
+    });
+    expect(source.malls.find((mall) => mall.mallKey === 'icecream-mall')?.latestOperation).toMatchObject({ status: 'failed' });
+  });
+
   it('refuses to publish when the hub picks another row for the mall after the plan', async () => {
     const begun = await begin();
     await prisma.channelAccount.create({
