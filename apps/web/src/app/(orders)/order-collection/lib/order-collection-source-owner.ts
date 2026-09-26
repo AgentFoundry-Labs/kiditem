@@ -1,7 +1,7 @@
 import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
 import { ApiError, isApiError } from '@/lib/api-error';
-import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
+import { safeStorageGet, safeStorageRemove, safeStorageSet } from '@/lib/browser-storage';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 
 export const ORDER_COLLECTION_SOURCE_PATH = '/api/orders/collection';
@@ -125,6 +125,19 @@ export function rememberActiveOrderCollectionAttempt(
     'local',
     orderCollectionSourceAttemptStorageKey(organizationId, environmentKey, mallKey),
     JSON.stringify(attempt),
+  );
+}
+
+/** 서버에 없는 attempt(404)를 가리키는 힌트는 지운다 — 남겨 두면 화면을 열 때마다 404를 되풀이한다. */
+export function forgetActiveOrderCollectionAttempt(
+  organizationId: string,
+  environmentKey = getOrderCollectionEnvironmentKey(),
+  mallKey?: string,
+): void {
+  if (!organizationId) return;
+  safeStorageRemove(
+    'local',
+    orderCollectionSourceAttemptStorageKey(organizationId, environmentKey, mallKey),
   );
 }
 

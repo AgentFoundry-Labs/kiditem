@@ -4,6 +4,7 @@ import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mocks = vi.hoisted(() => ({
+  forget: vi.fn(),
   begin: vi.fn(),
   detectExtensionStatus: vi.fn(),
   fail: vi.fn(),
@@ -29,6 +30,7 @@ vi.mock('../lib/order-collection-source-owner', async () => {
     ...actual,
     beginOrderCollectionSourceAttempt: mocks.begin,
     failOrderCollectionSourceAttempt: mocks.fail,
+    forgetActiveOrderCollectionAttempt: mocks.forget,
     readActiveOrderCollectionAttempt: mocks.readActive,
     readOrderCollectionSourceAttempt: mocks.readAttempt,
     rememberActiveOrderCollectionAttempt: mocks.remember,
@@ -46,6 +48,7 @@ vi.mock('../lib/order-collection-extension', async (importOriginal) => ({
 }));
 
 import { apiClient } from '@/lib/api-client';
+import { ApiError } from '@/lib/api-error';
 import { useOrderCollectionSessionControls } from './use-order-collection-session-controls';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 
@@ -202,6 +205,19 @@ describe('useOrderCollectionSessionControls', () => {
     expect(run).toMatchObject({ attemptId: ATTEMPT_ID, attemptToken: TOKEN });
     expect(run?.extensionId).toBeUndefined();
     expect(run?.serverOwned).toBeUndefined();
+  });
+
+  it('forgets a stored attempt hint the owner no longer knows (404) instead of asking again on every visit', async () => {
+    mocks.readActive.mockReturnValue({ attemptId: ATTEMPT_ID, idempotencyKey: null, mallKey: 'kidsnote' });
+    mocks.readAttempt.mockRejectedValue(new ApiError(404, 'ORDER_COLLECTION_ATTEMPT_NOT_FOUND'));
+    const { result } = renderHook(
+      () => useOrderCollectionSessionControls([account]),
+      { wrapper },
+    );
+
+    await waitFor(() => expect(mocks.forget).toHaveBeenCalled());
+    expect(mocks.forget.mock.calls.map((call) => call[2])).toEqual(expect.arrayContaining([undefined, 'kidsnote']));
+    expect(result.current.restartAccount).toBeNull();
   });
 
   it('reads only the public owner projection on reload, never the fence token', async () => {

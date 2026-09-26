@@ -90,7 +90,11 @@ describe("쿠팡 쉽먼트 발송일 조회 — 실행 계약 읽기와 달력(H
   it("URL의 날짜를 되살리고, 마지막 성공 조회 시각과 미인증 기준 칸을 보인다 — 열 때 조회하지 않는다", async () => {
     navigation.params = new URLSearchParams({ month: "2026-06", date: "2026-06-20" });
     mount();
-    expect(await screen.findByText(/마지막 완료/)).toHaveTextContent("2026-09-01T00:00:10.000Z");
+    const finished = await screen.findByText(/마지막 완료/);
+    // 화면은 KST 문장으로 보이고, 기계용 ISO 문자열은 dateTime 속성에만 남는다.
+    expect(finished).not.toHaveTextContent("2026-09-01T00:00:10.000Z");
+    expect(finished.querySelector("time")?.getAttribute("dateTime")).toBe("2026-09-01T00:00:10.000Z");
+    expect(finished).toHaveTextContent(/2026/);
     expect(screen.getByText(/최근 조회 결과 1일/)).toBeInTheDocument();
     expect(screen.getByText("2026년 6월")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /20/ })).toHaveClass("bg-purple-50");
