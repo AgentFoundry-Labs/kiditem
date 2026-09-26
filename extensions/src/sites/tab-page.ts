@@ -91,6 +91,11 @@ export interface TabPages {
   open(url: string): Promise<TabPage>;
   /** 운영자가 연 탭을 그대로 쓴다. `close()`는 아무것도 하지 않는다. */
   attach(tabId: number): TabPage;
+  /**
+   * 주소 무늬(`https://host/*`)에 맞는 열린 탭을 찾아 `attach`한다(없으면 null). 세션이 탭에 묶인 사이트(롯데ON의 탭별
+   * sessionStorage 토큰, KID-380)만 쓴다 — 그 탭의 세션으로 읽고, 운영자 탭이므로 닫지 않는다.
+   */
+  find(urlPattern: string): Promise<TabPage | null>;
   /** 브라우저 밖 fetch(서비스워커). 설명 본문처럼 탭 없이 읽을 때만 쓴다. */
   fetchText(url: string, init?: RequestInit): Promise<string | null>;
 }
@@ -131,6 +136,7 @@ export interface TabPageChrome {
     create(properties: { url: string; active: boolean }): Promise<{ id?: number }>;
     update(tabId: number, properties: { url: string }): Promise<unknown>;
     get(tabId: number): Promise<{ status?: string; url?: string }>;
+    query(query: { url: string }): Promise<Array<{ id?: number }>>;
     remove(tabId: number): Promise<void>;
     sendMessage(tabId: number, message: unknown, options?: { frameId?: number }): Promise<unknown>;
   };
@@ -269,6 +275,10 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       return page(created.id, true);
     },
     attach: (tabId) => page(tabId, false),
+    async find(urlPattern) {
+      const [existing] = await deps.chrome.tabs.query({ url: urlPattern });
+      return typeof existing?.id === 'number' ? page(existing.id, false) : null;
+    },
     async fetchText(url, init) {
       try {
         const response = await deps.fetch(url, { credentials: 'include', redirect: 'error', ...init });

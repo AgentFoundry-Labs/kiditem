@@ -5,6 +5,8 @@ export function fakeTabPages(options: {
   landAt?: (url: string) => string;
   answer: (message: Record<string, unknown>, injected: boolean) => unknown;
   fetchText?: (url: string) => string | null;
+  /** `find(urlPattern)`이 돌려줄 열린 탭 id(없으면 null). */
+  existingTab?: (urlPattern: string) => number | null;
   currentUrl?: string;
   /** 추출하는 사이에 탭이 옮겨 간 주소(예: 슬라이더 뒤 로그인 리다이렉트). 주입 직전에 탭이 이 주소에 있다. */
   urlBeforeInject?: string;
@@ -70,6 +72,11 @@ export function fakeTabPages(options: {
       return page(7, true);
     },
     attach: (tabId) => page(tabId, false),
+    async find(urlPattern) {
+      log.push(`find ${urlPattern}`);
+      const tabId = options.existingTab?.(urlPattern) ?? null;
+      return tabId === null ? null : page(tabId, false);
+    },
     async fetchText(url) {
       log.push(`fetch ${url}`);
       return options.fetchText?.(url) ?? null;

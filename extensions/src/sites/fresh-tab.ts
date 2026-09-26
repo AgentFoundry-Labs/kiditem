@@ -6,15 +6,16 @@ const NAVIGATION_TIMEOUT_MS = 30_000;
 /**
  * 운영자 탭은 건드리지 않고 백그라운드 탭을 새로 열어 `url`로 옮긴 뒤 읽고 닫는다(옛 주문 수집기의 탭 규칙, KID-359 H3).
  * 로그인 화면·예상 밖 주소로 끝나면 운영자가 볼 수 있게 탭을 남긴다. `signIn`이 있으면 읽기가 로그인 화면에서 멈출 때
- * 그 탭에서 한 번 로그인하고 `url`로 돌아가 다시 읽는다(KID-377).
+ * 그 탭에서 한 번 로그인하고 `url`로 돌아가 다시 읽는다(KID-377). `reuseTabMatching`이 있으면 그 주소 무늬의 열린
+ * 탭을 먼저 찾아 그 탭에서 읽는다 — 세션이 탭에 묶인 사이트(롯데ON, KID-380). 그 탭은 운영자 것이라 닫지 않는다.
  */
 export async function withFreshTab<T>(
   tabs: TabPages,
   url: string,
   read: (page: TabPage) => Promise<T>,
-  options: { navigationTimeoutMs?: number; signIn?: SiteSignIn } = {},
+  options: { navigationTimeoutMs?: number; signIn?: SiteSignIn; reuseTabMatching?: string } = {},
 ): Promise<T> {
-  const page = await tabs.open('about:blank');
+  const page = (options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null) ?? (await tabs.open('about:blank'));
   let keepOpen = false;
   try {
     await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS });

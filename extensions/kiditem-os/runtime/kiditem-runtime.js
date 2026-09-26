@@ -8511,6 +8511,10 @@ var KidItemRuntime = (() => {
         return page(created.id, true);
       },
       attach: (tabId) => page(tabId, false),
+      async find(urlPattern) {
+        const [existing] = await deps.chrome.tabs.query({ url: urlPattern });
+        return typeof existing?.id === "number" ? page(existing.id, false) : null;
+      },
       async fetchText(url, init) {
         try {
           const response = await deps.fetch(url, { credentials: "include", redirect: "error", ...init });
@@ -8643,7 +8647,7 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/fresh-tab.ts
   var NAVIGATION_TIMEOUT_MS2 = 3e4;
   async function withFreshTab(tabs, url, read, options = {}) {
-    const page = await tabs.open("about:blank");
+    const page = (options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null) ?? await tabs.open("about:blank");
     let keepOpen = false;
     try {
       await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS2 });

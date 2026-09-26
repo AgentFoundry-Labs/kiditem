@@ -27,5 +27,13 @@ esbuild로 IIFE 하나(`globalName: KidItemRuntime`)로 묶어
 노출이다. 실패한 로그인은 `SITE_LOGIN_REQUIRED` details.reason(`credentials_rejected`·`no_credentials`·
 `verification_required`·`login_unconfirmed`)으로 알리고, runner가 failed finish의 `result.login`에 까닭과 몰의 말만 싣는다.
 
+몰 이관 규칙(H3′·L′, KID-380·381): 로그인 폼 명세가 없는 사이트(올웨이즈 JWT, 지마켓·옥션·스마트스토어·떠리몰·11번가 목록)는
+`loginSpec` 없이 `PageGuard.isLogin`만 두어 로그인 화면이면 `SITE_LOGIN_REQUIRED`로 멈추고 탭을 남긴다(운영자가 로그인).
+세션이 탭에 묶인 사이트(롯데ON)는 `withFreshTab(..., { reuseTabMatching })`으로 열린 탭을 재사용한다. 엑셀·blob을 내려받는
+몰(꼬망세·롯데ON·보리보리·티쳐몰·GS샵·올웨이즈)은 MAIN world 파일(`content/page-call/*`)이 blob을 잡아 base64 청크로
+보내고, 개인정보 다운로드 사유·엑셀 템플릿 번호·벤더명 같은 몰 상수는 옛 값 그대로 사이트 모듈 상수다. 다운로드 암호로
+계정 비밀번호를 쓰는 몰(보리보리)은 `lease.credentials.password`를 페이지 호출 인자로만 넘긴다(자격 노출 규칙 동일).
+SMS·본인확인 화면(GS샵)은 `waitForOperator`로 멈췄다 잇는다.
+
 새 수집은 collectors/sites에만 추가하고, 서버 통신은 operation client만 쓴다. 등록은 `entry/index.ts`의
 import 한 줄씩(수집기 하나, 사이트 하나)이다.
