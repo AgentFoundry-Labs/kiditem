@@ -7197,7 +7197,7 @@ var KidItemRuntime = (() => {
     selectionMode: MallOrdersSelectionModeSchema.optional(),
     seenRowKeys: external_exports.array(external_exports.string().min(1).max(MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH)).max(MALL_ORDERS_SEEN_ROW_KEYS_MAX).optional()
   }).strict();
-  var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook"];
+  var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook", "kidsnote"];
   function isMallOrderOperationMall(mallKey) {
     return MALL_ORDER_OPERATION_MALLS.includes(mallKey);
   }
@@ -10209,6 +10209,68 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "kidkids", create: (deps, lease) => createKidkidsSite(deps.tabs, createSiteSignIn(KIDKIDS_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/kidsnote/index.ts
+  var KIDSNOTE_ORDER_URL = "https://shop.kidsnote.com/_manage/?body=3010";
+  var KIDSNOTE_ORDERS_FILE = "content/page-call/kidsnote-orders.js";
+  var READ_TIMEOUT_MS4 = 19e4;
+  var LOGIN_MESSAGE5 = "shop.kidsnote.com \uAD00\uB9AC\uC790 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.";
+  var HOSTS = ["shop.kidsnote.com"];
+  var isKidsnoteLogin = (url) => hostWithin(url, HOSTS) && /login/i.test(url.pathname + url.search);
+  var KIDSNOTE_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, HOSTS),
+    isLogin: isKidsnoteLogin,
+    loginMessage: LOGIN_MESSAGE5
+  };
+  var KIDSNOTE_LOGIN = {
+    displayName: "\uD0A4\uC988\uB178\uD2B8",
+    loginUrl: KIDSNOTE_ORDER_URL,
+    hosts: HOSTS,
+    isLoginUrl: isKidsnoteLogin,
+    fields: ["loginId", "password"]
+  };
+  function kidsnoteConvertOrder(order) {
+    return {
+      ono: order.ono,
+      orderedAt: order.orderedAt,
+      paidAt: order.paidAt ?? "",
+      buyer: order.ordererName,
+      total: order.totalAmount,
+      paid: order.paidAmount,
+      payMethod: order.payMethod,
+      status: order.status,
+      receiver: order.receiver || order.ordererName,
+      mobile: order.mobile ?? "",
+      tel: order.tel ?? "",
+      zip: order.zip ?? "",
+      address: order.address ?? "",
+      request: order.request ?? "",
+      items: order.items?.length ? order.items : [{ productName: order.productName, qty: 1, option: "", shipFee: 0 }]
+    };
+  }
+  function createKidsnoteSite(tabs, signIn) {
+    return {
+      readOrders(input) {
+        return withFreshTab(tabs, KIDSNOTE_ORDER_URL, async (page) => {
+          const day = input.collectionDate ?? "";
+          const answer = await callPage(page, "kidsnote.orders", { from: day, to: day, status: "", withDetail: true }, {
+            timeoutMs: READ_TIMEOUT_MS4,
+            guard: KIDSNOTE_PAGE_GUARD,
+            isolated: [KIDSNOTE_ORDERS_FILE],
+            displayName: "\uD0A4\uC988\uB178\uD2B8"
+          });
+          if (answer?.status === "ok") return { rows: answer.orders.map(kidsnoteConvertOrder) };
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE5, { url: KIDSNOTE_ORDER_URL });
+          throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uC988\uB178\uD2B8 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
+            status: null,
+            reason: "page_error",
+            url: KIDSNOTE_ORDER_URL
+          });
+        }, signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({ name: "kidsnote", create: (deps, lease) => createKidsnoteSite(deps.tabs, createSiteSignIn(KIDSNOTE_LOGIN, lease.credentials, deps)) });
+
   // extensions/src/sites/live-commerce/index.ts
   var NAVIGATION_TIMEOUT_MS7 = 35e3;
   var EXTRACTION_TIMEOUT_MS3 = 25e3;
@@ -10489,12 +10551,12 @@ var KidItemRuntime = (() => {
   var NAVIGATION_TIMEOUT_MS8 = 45e3;
   var PAGE_CALL_TIMEOUT_MS = 35e3;
   var SABANGNET_PAGE_DELAY_MS = 800;
-  var LOGIN_MESSAGE5 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE6 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
   var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
   var SABANGNET_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sabangnet.co.kr"]),
     isLogin: (url) => hostWithin(url, ["sabangnet.co.kr"]) && /login/i.test(`${url.pathname}${url.hash}`),
-    loginMessage: LOGIN_MESSAGE5
+    loginMessage: LOGIN_MESSAGE6
   };
   function createSabangnetSite(tabs, sleep) {
     let pagesRead = 0;
@@ -10523,7 +10585,7 @@ var KidItemRuntime = (() => {
         case "ok":
           return { total: answer.total, items: answer.items };
         case "login_required":
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE5, { url: PAGE_URL });
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE6, { url: PAGE_URL });
         case "http_error":
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
             status: answer.httpStatus,
@@ -10564,11 +10626,11 @@ var KidItemRuntime = (() => {
   var SELLPIA_REPRINT_URL = `${SELLPIA_ORIGIN}/order_delivery_reprint.html`;
   var SELLPIA_SHIPMENT_TRACKING_FILE = "content/orders/sellpia-shipment-tracking.js";
   var QUERY_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE6 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE7 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
   var SELLPIA_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sellpia.com"]),
     isLogin: (url) => hostWithin(url, ["sellpia.com"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE6
+    loginMessage: LOGIN_MESSAGE7
   };
   function createSellpiaTracking(tabs) {
     return {
@@ -10585,7 +10647,7 @@ var KidItemRuntime = (() => {
             case "ok":
               return { rows: answer.rows, total: answer.total };
             case "login_required":
-              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE6, { url: SELLPIA_REPRINT_URL });
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE7, { url: SELLPIA_REPRINT_URL });
             case "http_error":
               throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
                 status: answer.httpStatus,
@@ -10734,7 +10796,7 @@ var KidItemRuntime = (() => {
   var NAVIGATION_TIMEOUT_MS9 = 45e3;
   var SEARCH_TIMEOUT_MS = 10 * 6e4;
   var STATUS_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE7 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE8 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
   var MALL_CONTRACT_CHANGED5 = "MALL_CONTRACT_CHANGED";
   function createSellpiaManualMatch(tabs) {
     let tab = null;
@@ -10761,7 +10823,7 @@ var KidItemRuntime = (() => {
           case "ok":
             return answer;
           case "login_required":
-            throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE7, { url: SELLPIA_MANUAL_MATCH_URL });
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE8, { url: SELLPIA_MANUAL_MATCH_URL });
           case "contract_drift":
             throw new RuntimeError(MALL_CONTRACT_CHANGED5, `\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
           case "http_error":

@@ -44,4 +44,15 @@ describe('mall orders capture rules (KID-359 H3)', () => {
     expect(() => mallOrdersCapture(plan(), [chunk('continuation', 1, [{ headers: ['h'] }]), chunk('continuation', 2, [{ headers: ['h'] }])]))
       .toThrow(expect.objectContaining({ details: expect.objectContaining({ reason: 'unexpected_chunk_kind' }) }));
   });
+
+  it('키즈노트 캡처: 옛 변환 본문 {orders} 그대로 보관하고 주문번호(ono)를 센다, 주문번호·품목이 없는 원소는 거절', () => {
+    const order = (ono: string) => ({ ono, orderedAt: '2026-09-10 10:00:00', buyer: '박영희', receiver: '행복유치원', items: [{ productName: '색종이', qty: 1, option: '', shipFee: 0 }] });
+    const capture = mallOrdersCapture(plan({ mallKey: 'kidsnote', mallName: '키즈노트' }), [chunk('order_rows', 1, [order('20260910-1'), order('20260910-2')])]);
+    expect(capture.captured).toBe(2);
+    expect(capture.orderNumbers).toEqual(['20260910-1', '20260910-2']);
+    expect(capture.source.contentType).toBe('application/json');
+    expect(JSON.parse(capture.source.bytes.toString('utf8'))).toEqual({ orders: [order('20260910-1'), order('20260910-2')] });
+    expect(() => mallOrdersCapture(plan({ mallKey: 'kidsnote', mallName: '키즈노트' }), [chunk('order_rows', 1, [{ ono: 'x' }])]))
+      .toThrow(expect.objectContaining({ details: expect.objectContaining({ reason: 'invalid_order_rows' }) }));
+  });
 });

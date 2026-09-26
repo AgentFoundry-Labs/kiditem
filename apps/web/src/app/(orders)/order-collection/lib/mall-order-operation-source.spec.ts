@@ -86,9 +86,9 @@ beforeEach(() => {
 });
 
 describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
-  it('1차 몰 4곳만 실행 kind로 수집한다', () => {
-    expect(['icecream-mall', 'kidkids', 'art09', 'domeggook'].every(collectsViaMallOrderOperation)).toBe(true);
-    expect(collectsViaMallOrderOperation('kidsnote')).toBe(false);
+  it('1차 몰 4곳과 사이트를 옮긴 2차 몰만 실행 kind로 수집한다(KID-380)', () => {
+    expect(['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kidsnote'].every(collectsViaMallOrderOperation)).toBe(true);
+    expect(collectsViaMallOrderOperation('kakao')).toBe(false);
   });
 
   it('시작: 저장 자격(차단·간격 규칙을 지난 것)을 실어 그 계정·오늘·선택 방식으로 실행을 연 뒤 절차에 넘긴다(KID-377 — 확장이 실행 안에서 로그인)', async () => {

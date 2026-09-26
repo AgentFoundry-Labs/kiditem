@@ -62,7 +62,7 @@ interface MallCaptureRule {
 
 const OrderObjectSchema = z.record(z.string(), z.unknown());
 
-/** 목록 하나를 JSON 본문의 한 칸으로 보관하는 몰(키드키즈 `orders`, 아트공구 `rows`). 옛 서버 변환 본문과 같다. */
+/** 목록 하나를 JSON 본문의 한 칸으로 보관하는 몰(키드키즈·키즈노트 `orders`, 아트공구 `rows`). 옛 서버 변환 본문과 같다. */
 function jsonList(field: string, item: z.ZodTypeAny, orderNumberField: string): MallCaptureRule {
   return {
     assemble({ rows }) {
@@ -199,6 +199,8 @@ export function icecreamContinuation(mallKey: string, bytes: Buffer): IcecreamCo
 
 const MALL_CAPTURE_RULES: Partial<Record<MallOrderOperationMall, MallCaptureRule>> = {
   kidkids: jsonList('orders', OrderObjectSchema.and(z.object({ items: z.array(z.unknown()) })), 'om'),
+  // 키즈노트(KID-380): 확장이 옛 `kidsnotePayload` 모양으로 바꿔 올린 주문(주문번호 `ono`, 품목 `items`).
+  kidsnote: jsonList('orders', OrderObjectSchema.and(z.object({ ono: z.string().min(1), items: z.array(z.unknown()) })), 'ono'),
   art09: jsonList('rows', OrderObjectSchema.and(z.object({ orderId: z.string() })), 'orderId'),
   domeggook: filePart('text/csv'),
   'icecream-mall': icecreamRule,

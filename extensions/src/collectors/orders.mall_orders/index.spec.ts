@@ -68,7 +68,7 @@ describe('collectors/orders.mall_orders — 몰 키로 그 몰 사이트를 골�
   });
 
   it('이 빌드에 없는 몰이거나 plan이 틀리면 읽지 않고 RUNTIME_PLAN_INVALID', async () => {
-    for (const plan of [{ ...PLAN, mallKey: 'kidsnote' }, { mallKey: 'kidkids' }]) {
+    for (const plan of [{ ...PLAN, mallKey: 'kakao' }, { mallKey: 'kidkids' }]) {
       const fake = fakeSite({ rows: [] });
       const error = await collectAll(plan, fake.site).then(() => null, (caught: unknown) => caught);
       expect(isRuntimeError(error) && error.code).toBe('RUNTIME_PLAN_INVALID');

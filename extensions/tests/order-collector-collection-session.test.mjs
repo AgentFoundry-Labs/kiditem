@@ -15,7 +15,6 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const backgroundRoot = path.join(repoRoot, 'extensions/kiditem-os/background/orders');
 const workerPath = path.join(backgroundRoot, 'worker.js');
 const AUTOMATIC_ACTIONS = [
-  ['collectKidsnoteOrders', 'collectKidsnoteOrders', 'kidsnote', { from: '2026-07-14', to: '2026-07-15' }],
   ['collectKkomangseOrders', 'collectKkomangseOrders', 'kkomangse', { date: '2026-07-15' }],
   ['collectOnchannelOrders', 'collectOnchannelOrders', 'onch', { date: '2026-07-15' }],
   ['collectLotteonOrders', 'collectLotteonOrders', 'lotte-on', { date: '2026-07-15' }],
@@ -123,8 +122,8 @@ function loadWorker(globals = {}) {
   const fake = createFakeChrome();
   const sourceAttempts = new Map();
   const sourceMallByAttempt = new Map([
-    [uuid(777), 'kidsnote'],
-    [uuid(778), 'kidsnote'],
+    [uuid(777), 'kakao'],
+    [uuid(778), 'kakao'],
     [uuid(782), 'kkomangse'],
     [uuid(783), 'coupang-direct'],
   ]);
@@ -145,7 +144,7 @@ function loadWorker(globals = {}) {
       plan: {
         sourceType: 'order_collection_mall',
         parserVersion: 'order-collection-v1',
-        mallKey: sourceMallByAttempt.get(attemptId) || 'kidsnote',
+        mallKey: sourceMallByAttempt.get(attemptId) || 'kakao',
         mallName: '테스트 몰',
         channelAccountId: uuid(992),
         collectionDate: null,
@@ -619,7 +618,7 @@ test('structured operator authentication remains attention instead of a failed r
 test('rerunning a collection resumes the owner attempt without a second lifecycle', async () => {
   const runtime = loadWorker();
   let collectionCount = 0;
-  installCollectorResult(runtime, 'collectKidsnoteOrders', () => {
+  installCollectorResult(runtime, 'collectKakaoOrders', () => {
     collectionCount += 1;
     return collectionCount === 1
       ? { success: false, pendingLogin: true, error: '로그인이 필요합니다.' }
@@ -627,9 +626,8 @@ test('rerunning a collection resumes the owner attempt without a second lifecycl
   });
   const attemptId = uuid(777);
   const message = {
-    action: 'collectKidsnoteOrders',
-    from: '2026-07-15',
-    to: '2026-07-15',
+    action: 'collectKakaoOrders',
+    date: '2026-07-15',
     attemptId,
   };
 
@@ -655,10 +653,10 @@ test('cancelling an active collection removes local control state and fences lat
   const attached = new Promise((resolve) => {
     signalAttached = resolve;
   });
-  runtime.context.collectKidsnoteOrders = async (...args) => {
+  runtime.context.collectKakaoOrders = async (...args) => {
     const collection = args.at(-1);
     const tab = await runtime.chrome.tabs.create({
-      url: 'https://shop.kidsnote.com/_manage/',
+      url: 'https://shopping-seller.kakao.com/order/seller/store-order/integrate/list',
       active: false,
     });
     await collection.attachTab(tab, { owned: true });
@@ -668,9 +666,8 @@ test('cancelling an active collection removes local control state and fences lat
   };
   const attemptId = uuid(778);
   const pending = dispatch(runtime.externalMessageListeners, {
-    action: 'collectKidsnoteOrders',
-    from: '2026-07-15',
-    to: '2026-07-15',
+    action: 'collectKakaoOrders',
+    date: '2026-07-15',
     attemptId,
   });
   await attached;
@@ -745,7 +742,6 @@ test('named mall reads create a fresh inactive tab even when a provider tab exis
   };
   const collection = { assertActive: async () => true };
   const cases = [
-    ['findOrCreateKidsnoteTab', 'https://shop.kidsnote.com/_manage/?body=3010'],
     ['findOrCreateKkomangseTab', 'https://nstore.edupre.co.kr/subAdmin/_order_product.list.php?mode=search&pass_input_type=all&st=o_rdate&so=desc&listmaxcount=1000'],
     ['findOrCreateOnchannelTab', 'https://www.onch3.co.kr/supplier/orders.php?state=all'],
     ['findOrCreateDomeggookTab', 'https://domeggook.com/sc/order/lstAll'],
@@ -802,7 +798,6 @@ test('every named mall collector uses the production attach-before-readiness pat
   };
 
   const cases = [
-    ['collectKidsnoteOrders', [{ from: '2026-07-15', to: '2026-07-15' }]],
     ['collectKkomangseOrders', []],
     ['collectOnchannelOrders', ['2026-07-15']],
     ['collectLotteonOrders', []],

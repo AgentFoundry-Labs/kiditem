@@ -327,8 +327,8 @@ function orderControl(overrides = {}) {
     plan: {
       sourceType: 'order_collection_mall',
       parserVersion: 'order-collection-v1',
-      mallKey: 'kidsnote',
-      mallName: '키즈노트',
+      mallKey: 'kkomangse',
+      mallName: '꼬망세',
       channelAccountId: ORDER_CHANNEL_ACCOUNT_ID,
       collectionDate: '2026-09-06',
       collectionMode: 'browser',
@@ -370,7 +370,7 @@ function installOrderProviderSeam(fake, capture, { onProviderCall = null } = {})
   fake.chrome.tabs.get = async (id, callback) => {
     const current = tab && tab.id === id
       ? tab
-      : { id, windowId: 1, status: 'complete', url: 'https://shop.kidsnote.com/_manage/?body=3010' };
+      : { id, windowId: 1, status: 'complete', url: 'https://nstore.edupre.co.kr/subAdmin/_order_product.list.php' };
     callback?.(current);
     return current;
   };
@@ -379,7 +379,7 @@ function installOrderProviderSeam(fake, capture, { onProviderCall = null } = {})
     if (tab?.id === id) tab = null;
   };
   fake.chrome.scripting.executeScript = async ({ func, args } = {}) => {
-    if (func?.name !== 'scrapeKidsnoteOrders') return [];
+    if (func?.name !== 'scrapeKkomangseExport') return [];
     onProviderCall?.({ func, args, tabId: tab?.id });
     return [{ result: structuredClone(capture) }];
   };
@@ -406,7 +406,7 @@ function createOrderInterfaceHarness({
     if (href.endsWith(`/api/orders/collection/attempts/${ORDER_ATTEMPT_ID}/control`)) {
       return orderJsonResponse(current);
     }
-    if (href.endsWith('/api/orders/collection/kidsnote/convert')) {
+    if (href.endsWith('/api/orders/collection/kkomangse/convert')) {
       converterCalls += 1;
       const input = {
         call: converterCalls,
@@ -428,7 +428,7 @@ function createOrderInterfaceHarness({
           'X-Order-Collection-Product-Rows': '1',
           'X-Order-Collection-Output-Rows': '1',
           'X-Order-Collection-Skipped-Rows': '0',
-          'Content-Disposition': 'attachment; filename="kidsnote.xls"',
+          'Content-Disposition': 'attachment; filename="kkomangse.xls"',
         },
       });
     }
@@ -502,18 +502,10 @@ function createStorageAdapter(state, { beforeSet } = {}) {
   };
 }
 
+// 공용 옛 소유자 경로(원천 보관·재생·취소 울타리)를 도는 옛 경로 몰 하나(키즈노트가 실행 kind로 옮겨 가 꼬망세로, KID-380).
 const orderCapture = {
   success: true,
-  orders: [{
-    ono: '20260906-K-1',
-    orderedAt: '2026-09-06 10:20',
-    productName: '실물 주문',
-    ordererName: '구매자',
-    totalAmount: 12000,
-    paidAmount: 12000,
-    payMethod: 'card',
-    status: '배송준비중',
-  }],
+  xlsxBase64: 'UEsDBBQAAAAIAA==',
   rawProviderEvidence: { page: 1 },
 };
 
@@ -531,7 +523,7 @@ test('real Orders entry fences a cancellation while saving the captured provider
   const harness = createOrderInterfaceHarness({ storage, storageAdapter });
   const first = harness.boot({ capture: orderCapture });
   const request = {
-    action: 'collectKidsnoteOrders',
+    action: 'collectKkomangseOrders',
     attemptId: ORDER_ATTEMPT_ID,
     serverOwned: true,
   };
@@ -594,7 +586,7 @@ test('real Orders entry fences a cancellation while saving a durable replay', as
   });
   const worker = harness.boot({ capture: orderCapture });
   const request = {
-    action: 'collectKidsnoteOrders',
+    action: 'collectKkomangseOrders',
     attemptId: ORDER_ATTEMPT_ID,
     serverOwned: true,
   };
@@ -646,7 +638,7 @@ test('real Orders entry replays the durable capture after a lost conversion ackn
   });
   const first = harness.boot({ capture: orderCapture });
   const request = {
-    action: 'collectKidsnoteOrders',
+    action: 'collectKkomangseOrders',
     attemptId: ORDER_ATTEMPT_ID,
     serverOwned: true,
   };
@@ -672,23 +664,7 @@ test('real Orders entry replays the durable capture after a lost conversion ackn
     assert.equal(JSON.stringify(storage).includes(ORDER_ATTEMPT_TOKEN), false);
     assert.equal(JSON.stringify(storage).includes(ORDER_REFRESHED_ATTEMPT_TOKEN), false);
     assert.equal(converterAttempts[1].headers.get('x-source-attempt-token'), ORDER_ATTEMPT_TOKEN);
-    assert.deepEqual(JSON.parse(String(converterAttempts[1].body)).orders, orderCapture.orders.map((order) => ({
-      ono: order.ono,
-      orderedAt: order.orderedAt,
-      paidAt: '',
-      buyer: order.ordererName,
-      total: order.totalAmount,
-      paid: order.paidAmount,
-      payMethod: order.payMethod,
-      status: order.status,
-      receiver: order.ordererName,
-      mobile: '',
-      tel: '',
-      zip: '',
-      address: '',
-      request: '',
-      items: [{ productName: order.productName, qty: 1, option: '', shipFee: 0 }],
-    })));
+    assert.deepEqual(JSON.parse(String(converterAttempts[1].body)), { xlsxBase64: orderCapture.xlsxBase64, date: '2026-09-06' });
     assert.equal(harness.control.artifactId, ORDER_ARTIFACT_ID);
   } finally {
     first.close();
@@ -710,7 +686,7 @@ test('real Orders entry reconciles a conversion committed before its acknowledge
   });
   const worker = harness.boot({ capture: orderCapture });
   const request = {
-    action: 'collectKidsnoteOrders',
+    action: 'collectKkomangseOrders',
     attemptId: ORDER_ATTEMPT_ID,
     serverOwned: true,
   };
@@ -754,7 +730,7 @@ test('real Orders entry survives a worker restart and rereads the refreshed atte
     },
   });
   const request = {
-    action: 'collectKidsnoteOrders',
+    action: 'collectKkomangseOrders',
     attemptId: ORDER_ATTEMPT_ID,
     serverOwned: true,
   };
@@ -815,7 +791,7 @@ test('real Orders entry returns an existing artifact without duplicate provider 
   const worker = harness.boot({ capture: orderCapture });
   try {
     const result = await externalRequest(worker.fake, {
-      action: 'collectKidsnoteOrders',
+      action: 'collectKkomangseOrders',
       runId: ORDER_ATTEMPT_ID,
       serverOwned: true,
     });

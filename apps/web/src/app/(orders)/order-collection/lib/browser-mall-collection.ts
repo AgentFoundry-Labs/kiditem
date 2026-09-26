@@ -242,7 +242,6 @@ export function createBrowserMallCollector({
     if (credentials) await ensureMallLogin(account.key, run);
 
     const actionByMall: Record<string, string> = {
-      kidsnote: 'collectKidsnoteOrders',
       kkomangse: 'collectKkomangseOrders',
       onch: 'collectOnchannelOrders',
       'haebub-mall': 'collectHaebeopOrders',
@@ -261,9 +260,6 @@ export function createBrowserMallCollector({
       date,
       ...orderCollectionExtensionRunFields(run),
     };
-    if (account.key === 'kidsnote') {
-      Object.assign(message, { from: date, to: date, status: '', withDetail: true });
-    }
     if (account.key === 'boribori') {
       Object.assign(message, { password: credentials?.password ?? '' });
     }
@@ -352,41 +348,6 @@ export function createBrowserMallCollector({
       masked: false,
       date: collectionDateOf(run),
     };
-  };
-
-  const generateKidsnoteSellpia = async (
-    run: OrderCollectionExtensionRun,
-    collectionDate: string,
-  ): Promise<number> => {
-    const { collectKidsnoteOrdersFromExtension, convertKidsnoteToSellpiaFile } = await import(
-      './kidsnote-orders-api'
-    );
-    await ensureMallLogin('kidsnote', run);
-    const { orders } = await collectKidsnoteOrdersFromExtension(
-      collectionDate,
-      collectionDate,
-      '',
-      true,
-      run,
-    );
-    if (!orders.length) {
-      toastNoNewOrders('키즈노트');
-      return 0;
-    }
-    const result = await convertKidsnoteToSellpiaFile(orders, { run });
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-kidsnote-browser`,
-      sourceName: `키즈노트 주문 (${formatNumber(orders.length)}건)`,
-      convertedAt,
-      collectionDate,
-      collectionMode: 'browser',
-      collectedRows: orders.length,
-      mallKey: 'kidsnote',
-      mallName: '키즈노트',
-    });
-    return orders.length;
   };
 
   const generateKkomangseSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
@@ -724,7 +685,6 @@ export function createBrowserMallCollector({
       return generateServerOwnedSellpia(account, resolvedRun);
     }
     const today = collectionDateOf(resolvedRun);
-    if (account.key === 'kidsnote') return resultFor(await generateKidsnoteSellpia(resolvedRun, today), today);
     if (account.key === 'kkomangse') return resultFor(await generateKkomangseSellpia(resolvedRun), today);
     if (account.key === 'onch') return resultFor(await generateOnchannelSellpia(resolvedRun, today), today);
     if (account.key === 'kakao') return resultFor(await generateKakaoSellpia(resolvedRun), today);
@@ -734,7 +694,7 @@ export function createBrowserMallCollector({
     if (account.key === 'boribori') return resultFor(await generateBoriboriSellpia(resolvedRun), today);
     if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(resolvedRun), today);
     if (account.key === 'haebub-mall') return resultFor(await generateHaebeopSellpia(resolvedRun), today);
-    // 실행 kind로 옮긴 몰(아이스크림몰 · 키드키즈 · 아트공구 · 도매꾹, KID-359 H3)은 이 옛 절차로 오지 않는다.
+    // 실행 kind로 옮긴 몰(아이스크림몰 · 키드키즈 · 아트공구 · 도매꾹 KID-359 H3, 키즈노트 KID-380)은 이 옛 절차로 오지 않는다.
     throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
   };
 }
