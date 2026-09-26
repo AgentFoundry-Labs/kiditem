@@ -120,18 +120,8 @@ const BROWSER_QA_SELLPIA_INVENTORY_STATE = {
   sourceAccountKey: 'kiditem',
   refreshReason: null,
   requestedSyncScope: 'inventory',
-  activeSyncToken: null,
-  activeSyncOwnerUserId: null,
-  activeSyncStartedAt: null,
-  activeSyncLeaseExpiresAt: null,
-  activeSyncScope: null,
   requestedGeneration: 1n,
-  activeGeneration: null,
   verifiedGeneration: 1n,
-  failedGeneration: null,
-  lastAttemptSyncScope: 'inventory',
-  lastErrorCode: null,
-  lastErrorMessage: null,
 } as const;
 
 const BROWSER_QA_PURCHASE_ORDER = {
@@ -286,7 +276,6 @@ export type BrowserQaSeedPlan = {
   masterProduct?: typeof BROWSER_QA_MASTER_PRODUCT;
   sellpiaInventoryState?: typeof BROWSER_QA_SELLPIA_INVENTORY_STATE & {
     lastVerifiedAt: Date;
-    lastAttemptAt: Date;
   };
   purchaseOrder?: typeof BROWSER_QA_PURCHASE_ORDER & { externalOrderId: string };
   purchaseOrderItem?: typeof BROWSER_QA_PURCHASE_ORDER_ITEM;
@@ -561,7 +550,6 @@ export function createBrowserQaSeedPlan({
       sellpiaInventoryState: {
         ...BROWSER_QA_SELLPIA_INVENTORY_STATE,
         lastVerifiedAt: now,
-        lastAttemptAt: now,
       },
       purchaseOrder: {
         ...BROWSER_QA_PURCHASE_ORDER,

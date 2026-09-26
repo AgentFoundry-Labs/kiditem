@@ -125,8 +125,8 @@ describe('원천 실패 알림', () => {
       inputs({
         alerts: {
           data: [
-            alert({ id: '1a111111-1111-4111-8111-111111111111', sourceType: 'coupang_wing_rank', status: 'OPEN', updatedAt: ago(300) }),
-            alert({ id: '1b111111-1111-4111-8111-111111111111', sourceType: 'coupang_wing_rank', status: 'RESOLVED', updatedAt: ago(10) }),
+            alert({ id: '1a111111-1111-4111-8111-111111111111', sourceType: 'advertising.wing_rank', status: 'OPEN', updatedAt: ago(300) }),
+            alert({ id: '1b111111-1111-4111-8111-111111111111', sourceType: 'advertising.wing_rank', status: 'RESOLVED', updatedAt: ago(10) }),
           ],
           failed: false,
         },
@@ -140,7 +140,7 @@ describe('원천 실패 알림', () => {
 
   it('로그인 때문에 멈췄다는 알림은 외부 막힘이다', () => {
     const snapshot = buildPipeSnapshot(
-      inputs({ alerts: { data: [alert({ sourceType: 'sellpia_inventory', title: '셀피아 재고 수집 실패', message: '셀피아 로그인이 필요합니다.' })], failed: false } }),
+      inputs({ alerts: { data: [alert({ sourceType: 'products.sellpia_inventory', title: '셀피아 재고 수집 실패', message: '셀피아 로그인이 필요합니다.' })], failed: false } }),
     );
     expect(stage(snapshot.stages, 'inventory').state).toBe('blocked_external');
     expect(snapshot.inbox[0]?.title).toBe('셀피아 재고 수집 실패 · 로그인 필요');
@@ -150,6 +150,32 @@ describe('원천 실패 알림', () => {
     const snapshot = buildPipeSnapshot(inputs({ alerts: { data: [alert({ isRead: true })], failed: false } }));
     expect(stage(snapshot.stages, 'orders').state).toBe('failed');
     expect(snapshot.inbox).toEqual([]);
+  });
+
+  it('⭐ 실행 표에서 온 알림(sourceType = kind)도 옛 원천과 같은 단계에 선다 — 정책 B(KID-355)', () => {
+    const cases: Array<[string, string]> = [
+      ['advertising.keyword_serp', 'keyword'],
+      ['advertising.wing_rank', 'keyword'],
+      ['sourcing.tiktok_creative', 'sns'],
+      ['sourcing.trend_1688', 'rising'],
+      ['advertising.competitor_catalog', 'competitor'],
+      ['advertising.competitor_seller_identity', 'competitor'],
+      ['advertising.wing_itemwinner', 'competitor'],
+      ['advertising.wing_tracked_products', 'competitor'],
+      ['orders.mall_orders', 'orders'],
+      ['orders.coupang_directship', 'orders'],
+      ['orders.coupang_shipment_summary', 'orders'],
+      ['products.sellpia_inventory', 'inventory'],
+      ['analytics.sellpia_product_profitability', 'inventory'],
+      ['orders.coupang_reviews', 'cs'],
+      ['advertising.wing_traffic', 'ads'],
+    ];
+    for (const [sourceType, stageId] of cases) {
+      const snapshot = buildPipeSnapshot(
+        inputs({ alerts: { data: [alert({ type: 'operation_failure', sourceType, message: '네트워크 연결에 실패했습니다.' })], failed: false } }),
+      );
+      expect(stage(snapshot.stages, stageId).state, sourceType).toBe('failed');
+    }
   });
 
   it('단계에 이어지지 않는 알림은 그림에 올리지 않는다', () => {
@@ -188,7 +214,7 @@ describe('원인이 같으면 한 장이다', () => {
 describe('셀피아 재고 수집 상태', () => {
   it('⭐ 신호 단계가 하루 반 넘게 성공이 없으면 오래됨이다', () => {
     const snapshot = buildPipeSnapshot(
-      inputs({ alerts: { data: [alert({ sourceType: 'coupang_keyword_serp', status: 'RESOLVED', updatedAt: ago(40 * 60) })], failed: false } }),
+      inputs({ alerts: { data: [alert({ sourceType: 'advertising.keyword_serp', status: 'RESOLVED', updatedAt: ago(40 * 60) })], failed: false } }),
     );
     expect(stage(snapshot.stages, 'keyword').state).toBe('stale');
     expect(snapshot.inbox[0]).toMatchObject({ key: 'stale:keyword', state: 'stale' });
@@ -216,7 +242,61 @@ describe('셀피아 재고 수집 상태', () => {
       ).state;
     expect(view('not_collected')).toBe('failed');
     expect(view('failed', 'sellpia_login_required')).toBe('blocked_external');
+    // 실행 표에서 읽은 셀피아 실패(KID-355 정책 B): 확장 site 호출의 로그인 필요 코드도 외부 막힘이다.
+    expect(view('failed', 'SITE_LOGIN_REQUIRED')).toBe('blocked_external');
+    expect(view('failed', 'NETWORK_FAILED')).toBe('failed');
     expect(view('complete')).toBe('done');
+  });
+});
+
+describe('셀피아 수집 상태 — 실패한 kind', () => {
+  const failedView = (kind: string | null, errorCode = 'NETWORK_FAILED') => buildPipeSnapshot(
+    inputs({
+      collectionStatus: {
+        data: {
+          status: 'failed',
+          lastCompletedAttemptId: null,
+          lastCompletedAt: null,
+          lastAttemptId: null,
+          lastAttempt: { kind, errorCode, errorMessage: null, attemptedAt: ago(3) },
+          activeSync: null,
+        } as unknown as SellpiaInventoryCollectionStatusView,
+        failed: false,
+      },
+    }),
+  );
+
+  it('실패한 셀피아 실행의 kind로 이름을 붙인다 — 매출·상품 손익 실패를 재고 실패로 적지 않는다(KID-355)', () => {
+    expect(failedView('analytics.sellpia_sales').inbox[0]?.title).toBe('셀피아 매출 · 수집 실패');
+    expect(failedView('analytics.sellpia_product_profitability').inbox[0]?.title).toBe('셀피아 상품 손익 · 수집 실패');
+    expect(failedView('products.sellpia_inventory').inbox[0]?.title).toBe('셀피아 재고 · 수집 실패');
+    expect(failedView(null).inbox[0]?.title).toBe('셀피아 재고 · 수집 실패');
+    expect(failedView('analytics.sellpia_sales', 'SITE_LOGIN_REQUIRED').inbox[0]?.title).toBe('셀피아 · 로그인 필요');
+  });
+});
+
+describe('셀피아 수집 상태 — 만료', () => {
+  it('임대가 끝나 만료로 닫힌 셀피아 실행은 울타리 사유(`expired`)가 아니라 코드의 한국어 문장이 사유다', () => {
+    const view = stage(
+      buildPipeSnapshot(
+        inputs({
+          collectionStatus: {
+            data: {
+              status: 'failed',
+              lastCompletedAttemptId: null,
+              lastCompletedAt: null,
+              lastAttemptId: null,
+              lastAttempt: { errorCode: 'OPERATION_FENCE_LOST', errorMessage: 'expired', attemptedAt: ago(3) },
+              activeSync: null,
+            } as unknown as SellpiaInventoryCollectionStatusView,
+            failed: false,
+          },
+        }),
+      ).stages,
+      'inventory',
+    );
+    expect(view).toMatchObject({ state: 'failed', reason: '이 실행은 더 이상 유효하지 않습니다. 다시 시작해 주세요.' });
+    expect(view.reason).not.toContain('expired');
   });
 });
 

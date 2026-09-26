@@ -17,6 +17,7 @@ import {
   mallAlertCounts,
   mallAlertsFrom,
   mallStatusTiles,
+  accountMallsOf,
 } from '../lib/mall-alerts';
 import {
   countMallSessions,
@@ -115,6 +116,7 @@ export function useMallAlerts() {
     [channels, alerts, derived, sessionStates],
   );
   const counts = useMemo(() => mallAlertCounts(alerts, derived), [alerts, derived]);
+  const accountMalls = useMemo(() => accountMallsOf(channels), [channels]);
   const noLoginCount = channels ? channels.filter((channel) => !channel.hasCredentials).length : null;
   // 로그인해야 하는 몰 — 세션이 풀렸거나 계정 정보가 없는 몰. 겹치면 한 번. 자동 로그인
   // 차단은 이 브라우저에만 있는 값이라 숫자에 섞지 않는다(알림판과 몰 타일에는 보인다).
@@ -146,6 +148,7 @@ export function useMallAlerts() {
     derived,
     tiles,
     counts,
+    accountMalls,
     noLoginCount,
     loginNeeded,
     session,

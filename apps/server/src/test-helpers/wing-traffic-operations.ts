@@ -12,7 +12,6 @@ import {
 } from '@kiditem/shared/advertising-operations';
 import { WingTrafficOperationOwner } from '../advertising/adapter/in/operation/wing-daily-operation-owners';
 import { WingTrafficOperationRepository } from '../advertising/adapter/out/repository/wing-traffic-operation.repository';
-import { SourceFailureAlerts } from '../alerts/alerts.service';
 import { OperationRepositoryAdapter } from '../common/operation/adapter/out/repository/operation.repository.adapter';
 import { OPERATION_PORT, type OperationPort } from '../common/operation/application/port/in/operation.port';
 import { OPERATION_REPOSITORY } from '../common/operation/application/port/out/repository/operation.repository.port';
@@ -40,7 +39,7 @@ export async function wingTrafficOperations(prisma: PrismaClient) {
       {
         provide: WingTrafficOperationOwner,
         useValue: new WingTrafficOperationOwner(
-          new WingTrafficOperationRepository(ports.accounts, ports.listings, prisma as never, new SourceFailureAlerts(prisma as never)),
+          new WingTrafficOperationRepository(ports.accounts, ports.listings, prisma as never),
         ),
       },
     ],

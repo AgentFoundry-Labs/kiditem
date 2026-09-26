@@ -41,11 +41,4 @@ export class SellpiaInventoryPublicationUseCase implements SellpiaInventoryPubli
     });
     return { rows: parsed.rows.length, products: changes.productCount };
   }
-
-  recordFailure(
-    transaction: OwnerTransaction,
-    input: Parameters<SellpiaInventoryPublicationPort['recordFailure']>[1],
-  ): Promise<void> {
-    return this.publication.recordFailure(transaction, input);
-  }
 }

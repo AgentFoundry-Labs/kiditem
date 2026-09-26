@@ -1,6 +1,4 @@
 import { Module, type Provider } from '@nestjs/common';
-import { AlertsModule } from '../alerts/alerts.module';
-import { SourceFailureAlerts } from '../alerts/alerts.service';
 import { PrismaModule } from '../prisma/prisma.module';
 import { ProductCollectionRuntimeModule } from './product-collection-runtime.module';
 import { ProductCollectionStatusController } from './adapter/in/web/product-collection-status.controller';
@@ -45,7 +43,6 @@ export const sellpiaInventoryPublicationProviders: Provider[] = [
 /** 시험 앱용: 발행 조립 + 계정 연결 확인(런타임 모듈 없이). */
 export const sellpiaInventoryOperationProviders: Provider[] = [
   ...sellpiaInventoryPublicationProviders,
-  SourceFailureAlerts,
   ProductCollectionFreshnessRepositoryAdapter,
   ProductCollectionFreshnessUseCase,
   { provide: PRODUCT_COLLECTION_FRESHNESS_REPOSITORY_PORT, useExisting: ProductCollectionFreshnessRepositoryAdapter },
@@ -54,7 +51,7 @@ export const sellpiaInventoryOperationProviders: Provider[] = [
 
 /** Products-owned source collection, snapshot, freshness and export surface. */
 @Module({
-  imports: [ProductCollectionRuntimeModule, AlertsModule, PrismaModule],
+  imports: [ProductCollectionRuntimeModule, PrismaModule],
   controllers: [
     ProductCollectionStatusController,
     ProductSourceSnapshotController,

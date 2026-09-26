@@ -25,8 +25,10 @@ retains warehouse records only; no second mutable source stock exists.
   (`adapter/in/operation/`, ADR-0025): plan checks the source binding and holds
   `resource:sellpia:login`; finalize publishes inside the finish transaction and
   writes `SellpiaInventoryState.lastCompletedOperationId` with the next verified
-  generation. Keep source-deduplicated failure alerts (`onFailed`) and success
-  resolution.
+  generation. Failures stay on the operation row; the alerts reader absorbs
+  them (KID-355 policy B), so the owner has no `onFailed`. The Sellpia status
+  endpoint reads running/failed from the newest Sellpia operation (inventory,
+  sales, product profitability) and complete/not collected from this state.
 - Ordinary reads return stored current products. Purchase/Rocket calculations
   use the exact completed operation (`lastCompletedOperationId`) and locked
   current generation; elapsed time is not an availability rule.

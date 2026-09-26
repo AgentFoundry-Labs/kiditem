@@ -218,6 +218,20 @@
       "text": "몰에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도해 주세요.",
       "retryable": false
     },
+    "SITE_LOGIN_REQUIRED": {
+      "owner": "extension",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "사이트에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도해 주세요.",
+      "retryable": false
+    },
+    "SITE_REQUEST_FAILED": {
+      "owner": "extension",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "사이트 요청이 실패했습니다. 잠시 뒤 다시 시도해 주세요.",
+      "retryable": true
+    },
     "MALL_LOGIN_PAGE_UNREACHABLE": {
       "owner": "extension",
       "kind": "external",

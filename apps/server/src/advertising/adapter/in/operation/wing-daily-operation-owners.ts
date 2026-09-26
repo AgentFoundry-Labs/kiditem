@@ -19,7 +19,6 @@ import {
 import { z } from 'zod';
 import type {
   JsonObject,
-  OperationFailedContext,
   OperationFinalizeContext,
   OperationOwnerPort,
   OperationPlanContext,
@@ -41,7 +40,7 @@ import {
  * Wing 아이템위너(ADR-0025 kind `advertising.wing_itemwinner`, KID-362). 확장이 서비스워커에서 Wing
  * `getProductList`를 한 번 읽어 `itemwinner_rows` 청크와 `itemwinner_page` 표식을 올린다. finish 트랜잭션에서
  * 완결과 Wing 판매자 식별자를 확인하고 그날 listing·option 일별 행의 위너 열을 실행 id와 함께 upsert한다. 최종 실패는
- * `onFailed`에서 계정의 원천 실패 알림으로 남긴다.
+ * 실행 행에만 남고 알림 reader가 계정별로 읽는다(KID-355 정책 B).
  * 잠금: 계정 로그인(`account:`) + Wing 일별 사실(`resource:wing-daily:`, 트래픽 kind와 같은 키).
  */
 @OperationOwner()
@@ -89,11 +88,6 @@ export class WingItemwinnerOperationOwner implements OperationOwnerPort {
       observedAt: new Date(observedAt),
       rows,
     });
-    await this.repository.resolveFailure(context.tx, {
-      organizationId: context.organizationId,
-      operationId: context.operationId,
-      channelAccountId: plan.channelAccountId,
-    });
     return {
       result: WingItemwinnerResultSchema.parse({
         channelAccountId: plan.channelAccountId,
@@ -108,17 +102,6 @@ export class WingItemwinnerOperationOwner implements OperationOwnerPort {
     };
   }
 
-  /** 최종 실패는 계정의 원천 실패 알림으로 남는다(옛 attempt와 같다; 취소는 계약이 부르지 않는다). */
-  async onFailed(context: OperationFailedContext): Promise<void> {
-    const plan = WingItemwinnerPlanSchema.parse(context.plan);
-    await this.repository.recordFailure(context.tx, {
-      organizationId: context.organizationId,
-      operationId: context.operationId,
-      channelAccountId: plan.channelAccountId,
-      errorCode: context.errorCode,
-      errorMessage: context.errorMessage,
-    });
-  }
 }
 
 /**
@@ -126,7 +109,7 @@ export class WingItemwinnerOperationOwner implements OperationOwnerPort {
  * 날짜마다 읽어 옵션-일 `traffic_rows`와 날 표식 `traffic_days`, 확정 창의 `traffic_period`를 올린다. finish 트랜잭션에서
  * 완결을 확인하고 그 카탈로그로 listing을 맞춰 listing-day 트래픽 열을 쓴다(빠진 카탈로그 리스팅은 0). 계정 일별 요약과
  * 기간 요약은 결과에 남아 `AD_TRAFFIC_READ_PORT`가 읽는다. 잠금은 아이템위너와 같다(`resource:wing-daily:`가 옛
- * `lockListingTraffic`을 대신한다). 최종 실패는 계정의 원천 실패 알림을 남긴다.
+ * `lockListingTraffic`을 대신한다). 최종 실패는 실행 행에만 남는다(알림 reader가 읽는다, KID-355 정책 B).
  */
 @OperationOwner()
 @Injectable()
@@ -180,11 +163,6 @@ export class WingTrafficOperationOwner implements OperationOwnerPort {
       confirmedDays: complete.days,
       rows: complete.rows,
     });
-    await this.repository.resolveFailure(context.tx, {
-      organizationId: context.organizationId,
-      operationId: context.operationId,
-      channelAccountId: plan.channelAccountId,
-    });
     return {
       result: WingTrafficResultSchema.parse({
         channelAccountId: plan.channelAccountId,
@@ -213,16 +191,6 @@ export class WingTrafficOperationOwner implements OperationOwnerPort {
     };
   }
 
-  async onFailed(context: OperationFailedContext): Promise<void> {
-    const plan = WingTrafficPlanSchema.parse(context.plan);
-    await this.repository.recordFailure(context.tx, {
-      organizationId: context.organizationId,
-      operationId: context.operationId,
-      channelAccountId: plan.channelAccountId,
-      errorCode: context.errorCode,
-      errorMessage: context.errorMessage,
-    });
-  }
 }
 
 function parse<S extends z.ZodTypeAny>(schema: S, value: unknown, reason: string): z.output<S> {

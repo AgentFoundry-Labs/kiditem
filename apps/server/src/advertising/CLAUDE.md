@@ -81,6 +81,9 @@ modal (`cmg-api/tableMetric` with `tableType='keyword'`), not the report grid.
   `PrismaService`, not the finish transaction, so it runs in the next kind's
   plan. Seller identity chains to catalogs only when it identified a seller.
 - All five are read-only against Coupang; none writes to the ad center.
+- A moved kind's failure stays on its operation row; the alerts reader absorbs
+  it (KID-355 policy B). These owners and the Wing daily owners have no
+  `onFailed` and write no alert rows.
 
 ## Cross-Domain Boundaries
 

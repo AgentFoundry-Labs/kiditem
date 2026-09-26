@@ -8,8 +8,6 @@ import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { PrismaService } from '../../../../prisma/prisma.service';
 import { resolveCoupangVendorId } from '../../../../channels/domain/account/coupang-account-identity';
-import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
-import { operatorErrorText } from '@kiditem/shared/errors';
 import { matchListingFromRow, type ListingMap } from '../../../domain/listing-match';
 import { normalizeWingListingState, normalizeWingOptionState } from '../../../domain/scrape-row-normalizers';
 import type {
@@ -18,13 +16,6 @@ import type {
 } from '../../../application/port/out/repository/wing-itemwinner-operation.repository.port';
 
 type Tx = Prisma.TransactionClient;
-
-/** 알림의 원천 이름은 옛 attempt 그대로 둔다 — 몰 홈·조직도가 이 이름으로 알림을 몰에 붙인다. */
-const ALERT_SOURCE_TYPE = 'coupang_wing_itemwinner';
-const ALERT_TITLE = '쿠팡 Wing 아이템위너 수집 실패';
-function alertDedupeKey(channelAccountId: string): string {
-  return `source:${ALERT_SOURCE_TYPE}:${channelAccountId}`;
-}
 
 /**
  * Wing 아이템위너 원장 쓰기(KID-362). 옛 `wing-itemwinner-kpi-source.repository.ts`의 listing/option 일별 upsert를
@@ -36,32 +27,7 @@ export class WingItemwinnerOperationRepository implements WingItemwinnerOperatio
     @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
     @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
     private readonly prisma: PrismaService,
-    private readonly alerts: SourceFailureAlerts,
   ) {}
-
-  async recordFailure(
-    transaction: OwnerTransaction,
-    input: { organizationId: string; operationId: string; channelAccountId: string; errorCode: string; errorMessage: string | null },
-  ): Promise<void> {
-    await this.alerts.recordTerminalOutcome(ownerTransactionClient(transaction), {
-      code: input.errorCode,
-      organizationId: input.organizationId,
-      sourceType: ALERT_SOURCE_TYPE,
-      attemptId: input.operationId,
-      dedupeKey: alertDedupeKey(input.channelAccountId),
-      title: ALERT_TITLE,
-      message: input.errorMessage || operatorErrorText({ code: input.errorCode, source: ALERT_SOURCE_TYPE }),
-      href: '/ad-ops',
-    });
-  }
-
-  async resolveFailure(transaction: OwnerTransaction, input: { organizationId: string; operationId: string; channelAccountId: string }): Promise<void> {
-    await this.alerts.resolveSourceFailure(ownerTransactionClient(transaction), {
-      organizationId: input.organizationId,
-      dedupeKey: alertDedupeKey(input.channelAccountId),
-      attemptId: input.operationId,
-    });
-  }
 
   async readAccount(organizationId: string, channelAccountId: string, transaction?: OwnerTransaction) {
     const account = await this.channelAccounts.resolveActiveProvider(transaction ?? ownerTransaction(this.prisma), {

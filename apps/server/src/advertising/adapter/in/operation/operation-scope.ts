@@ -1,4 +1,4 @@
-import { KiditemInvalidValueError, KiditemNotFoundError, operatorErrorText } from '@kiditem/shared/errors';
+import { KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import type { z } from 'zod';
 import type { ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
 
@@ -24,7 +24,3 @@ export async function assertActiveCoupangAccount(accounts: ChannelAccountPort, o
   }
 }
 
-/** 최종 실패 알림 문장: 코드의 레지스트리 문장(원문 errorMessage는 싣지 않는다 — 운영자 문장 규칙). */
-export function failureMessage(context: { errorCode: string }, sourceType: string): string {
-  return operatorErrorText({ code: context.errorCode, source: sourceType });
-}

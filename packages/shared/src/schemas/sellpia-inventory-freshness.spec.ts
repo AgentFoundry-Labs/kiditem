@@ -1,6 +1,5 @@
 import { describe, expect, it } from 'vitest';
 import {
-  deriveSellpiaInventoryCollectionStatus,
   isSellpiaInventoryCollectionStopped,
   SELLPIA_INVENTORY_COLLECTION_STATUSES,
   SELLPIA_INVENTORY_COLLECTION_TRIGGERS,
@@ -36,37 +35,6 @@ describe('Sellpia inventory collection status vocabulary', () => {
     ]);
     expect(SELLPIA_INVENTORY_COLLECTION_TRIGGERS).not.toContain('ttl_expired');
     expect(SELLPIA_INVENTORY_COLLECTION_TRIGGERS).not.toContain('purchase_preflight');
-  });
-
-  it('derives state from collection facts and ignores elapsed time', () => {
-    expect(deriveSellpiaInventoryCollectionStatus({
-      now: new Date('2036-01-01T00:00:00.000Z'),
-      requestedGeneration: 2n,
-      verifiedGeneration: 1n,
-      failedGeneration: null,
-      activeSyncLeaseExpiresAt: new Date('2036-01-01T00:00:01.000Z'),
-    })).toBe('running');
-    expect(deriveSellpiaInventoryCollectionStatus({
-      now: new Date('2036-01-01T00:00:00.000Z'),
-      requestedGeneration: 2n,
-      verifiedGeneration: 1n,
-      failedGeneration: 2n,
-      activeSyncLeaseExpiresAt: null,
-    })).toBe('failed');
-    expect(deriveSellpiaInventoryCollectionStatus({
-      now: new Date('2036-01-01T00:00:00.000Z'),
-      requestedGeneration: 1n,
-      verifiedGeneration: 1n,
-      failedGeneration: null,
-      activeSyncLeaseExpiresAt: null,
-    })).toBe('complete');
-    expect(deriveSellpiaInventoryCollectionStatus({
-      now: new Date('2036-01-01T00:00:00.000Z'),
-      requestedGeneration: 1n,
-      verifiedGeneration: 0n,
-      failedGeneration: null,
-      activeSyncLeaseExpiresAt: null,
-    })).toBe('not_collected');
   });
 });
 

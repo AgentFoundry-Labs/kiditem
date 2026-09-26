@@ -21,7 +21,7 @@ import {
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
+import { operationFailureAlerts } from '../../test-helpers/operation-failure-alerts';
 import { GlobalExceptionFilter } from '../../common/filters/global-exception.filter';
 import { OperationsController } from '../../common/operation/adapter/in/web/operations.controller';
 import { OperationRepositoryAdapter } from '../../common/operation/adapter/out/repository/operation.repository.adapter';
@@ -65,7 +65,7 @@ describe('advertising.wing_itemwinner owner over the operation contract + dispos
         { provide: OPERATION_REPOSITORY, useValue: new OperationRepositoryAdapter(prisma as never) },
         {
           provide: WingItemwinnerOperationOwner,
-          useValue: new WingItemwinnerOperationOwner(new WingItemwinnerOperationRepository(ports.accounts, ports.listings, prisma as never, new SourceFailureAlerts(prisma as never))),
+          useValue: new WingItemwinnerOperationOwner(new WingItemwinnerOperationRepository(ports.accounts, ports.listings, prisma as never)),
         },
         {
           provide: AdvertisingExtensionService,
@@ -234,29 +234,29 @@ describe('advertising.wing_itemwinner owner over the operation contract + dispos
     await expect(prisma.channelListingDailySnapshot.count({ where: { organizationId: ORG } })).resolves.toBe(0);
   });
 
-  it('a final failure keeps one open failure alert per account (not for a cancel), and the next success resolves it', async () => {
+  it('a final failure stays on the operation row (no alert row) and the alert reader shows it per account until the next success resolves it — a cancel changes nothing', async () => {
     const failed = await beginRun();
     await finish(failed, { outcome: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '쿠팡 윙 로그인이 필요합니다.' }).expect(200);
-    const open = await prisma.alert.findMany({ where: { organizationId: ORG } });
-    expect(open).toHaveLength(1);
-    expect(open[0]).toMatchObject({
-      status: 'OPEN',
-      sourceType: 'coupang_wing_itemwinner',
-      dedupeKey: `source:coupang_wing_itemwinner:${accountId}`,
-      attemptId: failed.operation.id,
-      href: '/ad-ops',
+    await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({
+      rows: 0,
+      items: [{
+        type: 'operation_failure',
+        status: 'OPEN',
+        sourceType: WING_ITEMWINNER_KIND,
+        attemptId: failed.operation.id,
+        href: '/ad-ops',
+        message: '사이트에 로그인되어 있지 않습니다. 로그인한 뒤 다시 시도해 주세요.',
+      }],
     });
 
     const cancelled = await beginRun();
     await request(httpUrl).post(`/api/operations/${cancelled.operation.id}/cancel`).expect(200);
-    await expect(prisma.alert.count({ where: { organizationId: ORG } })).resolves.toBe(1);
+    await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({ rows: 0, items: [{ status: 'OPEN', attemptId: failed.operation.id }] });
 
     const succeeded = await beginRun();
     await collect(succeeded, [row('1001')]);
     await finish(succeeded).expect(200);
-    const resolved = await prisma.alert.findMany({ where: { organizationId: ORG } });
-    expect(resolved).toHaveLength(1);
-    expect(resolved[0]).toMatchObject({ status: 'RESOLVED', attemptId: succeeded.operation.id });
+    await expect(operationFailureAlerts(prisma, ORG)).resolves.toMatchObject({ rows: 0, items: [{ status: 'RESOLVED', attemptId: failed.operation.id }] });
   });
 
   it('extension status reads the newest succeeded run, keeps a confirmed-empty publication after a later failure, and stays in its organization', async () => {

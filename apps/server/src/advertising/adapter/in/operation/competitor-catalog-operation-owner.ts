@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import {
   COMPETITOR_CATALOG_KIND,
   CompetitorCatalogPlanSchema,
@@ -8,27 +8,14 @@ import {
 import { type OperationPlanResult, type OperationStagedChunk, type OperationWindow } from '@kiditem/shared/operation';
 import type {
   JsonObject,
-  OperationFailedContext,
   OperationFinalizeContext,
   OperationOwnerPort,
   OperationPlanContext,
 } from '../../../../common/operation/application/port/out/owner/operation-owner.port';
 import { OperationOwner } from '../../../../common/operation/application/port/out/owner/operation-owner.decorator';
 import { COMPETITOR_ENRICHMENT_LOCK_KEY } from '@kiditem/shared/advertising-operations';
-import {
-  ADVERTISING_SOURCE_ALERT_PORT,
-  type AdvertisingSourceAlert,
-  type AdvertisingSourceAlertPort,
-} from '../../../application/port/out/repository/advertising-source-alert.port';
 import { CompetitorTrackingService } from '../../../application/service/competitor-tracking.service';
-import { failureMessage, parseOperationScope } from './operation-scope';
-
-const ALERT: AdvertisingSourceAlert = {
-  sourceType: 'coupang_competitor_catalog',
-  dedupeKey: 'source:coupang-competitor-catalog',
-  title: '쿠팡 경쟁 판매자 수집 실패',
-  href: '/sourcing-ai/competitor-analysis',
-};
+import { parseOperationScope } from './operation-scope';
 
 /**
  * 경쟁사 카탈로그(ADR-0025 kind `advertising.competitor_catalog`, KID-362). 확장이 계획한 경쟁 판매자샵
@@ -44,7 +31,6 @@ export class CompetitorCatalogOperationOwner implements OperationOwnerPort {
 
   constructor(
     private readonly competitors: CompetitorTrackingService,
-    @Inject(ADVERTISING_SOURCE_ALERT_PORT) private readonly alerts: AdvertisingSourceAlertPort,
   ) {}
 
   async plan(scope: JsonObject, context: OperationPlanContext): Promise<OperationPlanResult> {
@@ -63,17 +49,6 @@ export class CompetitorCatalogOperationOwner implements OperationOwnerPort {
       plan: CompetitorCatalogPlanSchema.parse(context.plan),
       chunks,
     });
-    await this.alerts.resolve(context.tx, { organizationId: context.organizationId, operationId: context.operationId, alert: ALERT });
     return { result };
-  }
-
-  onFailed(context: OperationFailedContext): Promise<void> {
-    return this.alerts.recordFailure(context.tx, {
-      organizationId: context.organizationId,
-      operationId: context.operationId,
-      alert: ALERT,
-      code: context.errorCode,
-      message: failureMessage(context, ALERT.sourceType),
-    });
   }
 }

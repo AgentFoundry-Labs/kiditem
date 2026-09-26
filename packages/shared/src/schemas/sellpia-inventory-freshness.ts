@@ -113,6 +113,11 @@ const SellpiaInventoryActiveSyncViewSchema = z
 
 const SellpiaInventoryLastAttemptViewSchema = z
   .object({
+    /**
+     * 이 시도가 어느 셀피아 kind의 실행인가(재고·매출·상품 손익 — 셀피아 로그인 하나를 나눠 쓴다, KID-355). 옛
+     * 응답에는 없어 null로 읽는다.
+     */
+    kind: z.string().max(128).nullable().default(null),
     attemptedAt: IsoDateTimeStringSchema,
     trigger: SellpiaInventoryCollectionTriggerSchema.nullable(),
     scope: SellpiaSyncScopeSchema,
@@ -169,29 +174,6 @@ export type SellpiaInventoryCollectionStatusView = z.infer<
 export type SellpiaInventorySourceBindingRequest = z.infer<
   typeof SellpiaInventorySourceBindingRequestSchema
 >;
-
-export type SellpiaCollectionStatusDerivationInput = {
-  now: Date;
-  requestedGeneration: bigint;
-  verifiedGeneration: bigint;
-  failedGeneration: bigint | null;
-  activeSyncLeaseExpiresAt: Date | null;
-};
-
-export function deriveSellpiaInventoryCollectionStatus(
-  input: SellpiaCollectionStatusDerivationInput,
-): SellpiaInventoryCollectionStatus {
-  if (input.activeSyncLeaseExpiresAt && input.activeSyncLeaseExpiresAt > input.now) {
-    return 'running';
-  }
-  if (
-    input.failedGeneration === input.requestedGeneration
-    && input.failedGeneration > input.verifiedGeneration
-  ) {
-    return 'failed';
-  }
-  return input.verifiedGeneration > 0n ? 'complete' : 'not_collected';
-}
 
 /**
  * A stopped attempt leaves the previous completed snapshot in use. The owner

@@ -1,9 +1,7 @@
 import { randomUUID } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { operatorErrorText } from '@kiditem/shared/errors';
 import type { WingTrafficDay, WingTrafficPlan, WingTrafficRow } from '@kiditem/shared/advertising-operations';
-import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
 import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import { resolveCoupangVendorId } from '../../../../channels/domain/account/coupang-account-identity';
@@ -17,9 +15,6 @@ import type {
   WingTrafficPublication,
 } from '../../../application/port/out/repository/wing-traffic-operation.repository.port';
 
-/** 알림의 원천 이름은 옛 attempt 그대로 둔다 — 몰 홈·조직도가 이 이름으로 알림을 몰에 붙인다. */
-const ALERT_SOURCE_TYPE = 'coupang_wing_traffic';
-const ALERT_TITLE = '쿠팡 Wing 트래픽 수집 실패';
 const FILTER_SCOPE = 'ALL_NORMAL_RFM';
 const DAILY_PUBLICATION_BATCH_SIZE = 1_000;
 
@@ -34,10 +29,6 @@ type DailyFactPublication = {
   metaJson: Record<string, unknown>;
   metrics: TrafficMetrics;
 };
-
-function alertDedupeKey(channelAccountId: string): string {
-  return `source:${ALERT_SOURCE_TYPE}:${channelAccountId}`;
-}
 
 /**
  * The zero traffic a daily publication writes for its confirmed days.
@@ -353,7 +344,6 @@ export class WingTrafficOperationRepository implements WingTrafficOperationRepos
     @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
     @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
     private readonly prisma: PrismaService,
-    private readonly alerts: SourceFailureAlerts,
   ) {}
 
   async readAccount(organizationId: string, channelAccountId: string, transaction?: OwnerTransaction) {
@@ -453,29 +443,6 @@ export class WingTrafficOperationRepository implements WingTrafficOperationRepos
     return { matchedCount, unmatchedCount: input.rows.length - matchedCount, unmatchedOptionIdsByDate };
   }
 
-  async recordFailure(
-    transaction: OwnerTransaction,
-    input: { organizationId: string; operationId: string; channelAccountId: string; errorCode: string; errorMessage: string | null },
-  ): Promise<void> {
-    await this.alerts.recordTerminalOutcome(ownerTransactionClient(transaction), {
-      code: input.errorCode,
-      organizationId: input.organizationId,
-      sourceType: ALERT_SOURCE_TYPE,
-      attemptId: input.operationId,
-      dedupeKey: alertDedupeKey(input.channelAccountId),
-      title: ALERT_TITLE,
-      message: input.errorMessage || operatorErrorText({ code: input.errorCode, source: ALERT_SOURCE_TYPE }),
-      href: '/ad-ops',
-    });
-  }
-
-  async resolveFailure(transaction: OwnerTransaction, input: { organizationId: string; operationId: string; channelAccountId: string }): Promise<void> {
-    await this.alerts.resolveSourceFailure(ownerTransactionClient(transaction), {
-      organizationId: input.organizationId,
-      dedupeKey: alertDedupeKey(input.channelAccountId),
-      attemptId: input.operationId,
-    });
-  }
 }
 
 const METRICS = ['visitors', 'views', 'cartAdds', 'orders', 'salesQty', 'revenue'] as const;

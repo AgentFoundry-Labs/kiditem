@@ -3,7 +3,6 @@ import { resolve } from 'node:path';
 import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { SOURCING_OPERATION_KINDS as KINDS } from '@kiditem/shared/sourcing-operation';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { PrismaService } from '../../prisma/prisma.service';
 import { makeTestPrisma, OTHER_ORGANIZATION_ID, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG } from '../../test-helpers/real-prisma';
 import { realSalesProductDraftPort } from '../../test-helpers/sales-product-draft-port';
@@ -134,19 +133,6 @@ describe('sourcing extension kinds → history readers (PostgreSQL)', () => {
       expect(new Set(rows.map((row) => row.operationId))).toEqual(new Set([first.operation.id, second.operation.id]));
       for (const row of rows) expect(row.evidenceObservation.operationId).toBe(row.operationId);
       expect(rows[0].evidenceObservation.payloadHash).toBe(rows[1].evidenceObservation.payloadHash);
-    });
-
-    it('rolls back facts and the publication when resolving the source alert fails', async () => {
-      const alerts = new SourceFailureAlerts(prisma as never);
-      alerts.resolveSourceFailure = async () => { throw new Error('alert write failed'); };
-      const failing = sourcingExtensionOperations(prisma, realSalesProductDraftPort(prisma), { alerts });
-      const outcome = await failing.run(ORG, KINDS.trend1688, {}, (plan) => (plan.keywords as string[]).map((keyword) => ({
-        chunkKind: 'offers_1688', payload: [{ keyword, items: [{ offerId: 'rollback', title: 't', priceCny: 1, rank: 1 }] }] })));
-
-      expect(outcome.operation.status).toBe('failed');
-      expect(await prisma.sourcing1688OfferKeywordObservation.count()).toBe(0);
-      expect(await prisma.sourcingEvidenceObservation.count({ where: { operationId: outcome.operation.id } })).toBe(0);
-      expect(await prisma.sourcingSourcePublication.count()).toBe(0);
     });
   });
 

@@ -33,9 +33,4 @@ export interface WingTrafficOperationRepositoryPort {
       rows: readonly WingTrafficRow[];
     },
   ): Promise<WingTrafficPublication>;
-  recordFailure(
-    transaction: OwnerTransaction,
-    input: { organizationId: string; operationId: string; channelAccountId: string; errorCode: string; errorMessage: string | null },
-  ): Promise<void>;
-  resolveFailure(transaction: OwnerTransaction, input: { organizationId: string; operationId: string; channelAccountId: string }): Promise<void>;
 }

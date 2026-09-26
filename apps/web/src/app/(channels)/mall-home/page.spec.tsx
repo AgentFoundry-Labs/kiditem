@@ -122,7 +122,7 @@ const orderCollectionFailed = alertItem('11111111-1111-4111-8111-111111111111', 
 });
 /** 쿠팡 로켓 원천 — 원천 자체가 로켓 몰 것이다. 다시 성공해서 닫혔다. */
 const rocketResolved = alertItem('33333333-3333-4333-8333-333333333333', {
-  sourceType: 'coupang_rocket_po_catalog',
+  sourceType: 'orders.coupang_rocket_po',
   title: '로켓 PO 수집',
   status: 'RESOLVED',
   message: 'PO 목록을 다시 받았습니다',
@@ -252,7 +252,7 @@ describe('쇼핑몰 홈 — 대시보드와 알림판', () => {
   /** 몰은 알림이 스스로 말할 때만 — 쿠팡 로켓 원천은 로켓 몰 것이고, 몰 주문수집 원천은 몰을 말하지 않는다. */
   it('⭐ 몰 타일을 누르면 그 몰 알림만 본다', () => {
     const rocketFailed = alertItem('44444444-4444-4444-8444-444444444444', {
-      sourceType: 'coupang_rocket_po_catalog',
+      sourceType: 'orders.coupang_rocket_po',
       title: '로켓 PO 수집',
       message: 'PO 목록을 받지 못했습니다',
     });

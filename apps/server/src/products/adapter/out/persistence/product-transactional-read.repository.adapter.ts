@@ -34,8 +34,6 @@ async lockCollectionFence<TClient>(
       last_verified_at AS "lastVerifiedAt",
       last_completed_operation_id AS "lastCompletedOperationId",
       requested_generation AS "requestedGeneration",
-      active_generation AS "activeGeneration",
-      failed_generation AS "failedGeneration",
       CURRENT_TIMESTAMP AS "databaseNow"
     FROM sellpia_inventory_states
     WHERE organization_id = ${organizationId}::uuid

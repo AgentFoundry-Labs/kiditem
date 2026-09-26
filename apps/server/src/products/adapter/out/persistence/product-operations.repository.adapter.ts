@@ -1,3 +1,6 @@
+import { KiditemConflictError } from '@kiditem/shared/errors';
+import { readLatestOperation } from '../../../../common/operation/transaction/operation-generations';
+import { SELLPIA_INVENTORY_KIND } from '@kiditem/shared/sellpia-operations';
 import {
   BadRequestException,
   ConflictException,
@@ -364,9 +367,12 @@ implements ProductOperationsRepositoryPort {
         await lockProductSource(tx, organizationId);
         const product = await tx.masterProduct.findFirst({ where: { id: masterProductId, organizationId } });
         if (!product) throw new ProductStateException('NOT_FOUND', 'MasterProduct was not found');
-        const state = await tx.sellpiaInventoryState.findUnique({ where: { organizationId } });
-        if (state?.activeGeneration !== null && state?.activeGeneration !== undefined) {
-          throw new ProductStateException('SOURCE_CONFLICT', 'Source codes cannot change during collection.');
+        // 도는 셀피아 재고 실행은 이 원천 코드로 발행한다 — 그 사이 코드를 바꾸면 발행이 옛 코드의 상품을 되살린다.
+        const inventory = await readLatestOperation(tx, { organizationId, kind: SELLPIA_INVENTORY_KIND });
+        if (inventory && (inventory.status === 'prepared' || inventory.status === 'executing')) {
+          throw new KiditemConflictError('PRODUCTS_STATE_CONFLICT', {
+            details: { reason: 'sellpia_inventory_running', operationId: inventory.id },
+          });
         }
         if (product.sourceProductCode === change.sourceProductCode && product.sourceOptionCode === change.sourceOptionCode) return;
         await tx.masterProduct.updateMany({ where: { id: masterProductId, organizationId }, data: change });

@@ -42,6 +42,7 @@ function existingAlert(overrides: Partial<AlertState> = {}): AlertState {
     id: ALERT_ID,
     organizationId: ORGANIZATION_ID,
     dedupeKey: DEDUPE_KEY,
+    type: 'source_failure',
     sourceType: 'sellpia_product_profitability',
     attemptId: ATTEMPT_ID_1,
     title: 'Sellpia 수익성 수집 실패',
@@ -102,7 +103,8 @@ function makeDb(initial: AlertState | null = null) {
       return { count: 1 };
     }),
   };
-  return { db: { alert } as any, getRow: () => row };
+  // 실행 표 읽기(옮긴 kind의 실패)는 이 이중에서 비어 있다 — 그 규칙은 PostgreSQL 스펙이 본다.
+  return { db: { alert, $queryRaw: vi.fn(async () => []) } as any, getRow: () => row };
 }
 
 function expectNoRetiredColumns(row: AlertState | null) {

@@ -1,4 +1,4 @@
-import { Inject, Injectable } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import {
   COMPETITOR_SELLER_IDENTITY_KIND,
   KEYWORD_SERP_KIND,
@@ -10,27 +10,13 @@ import {
 import type { OperationPlanResult, OperationStagedChunk, OperationWindow } from '@kiditem/shared/operation';
 import type {
   JsonObject,
-  OperationFailedContext,
   OperationFinalizeContext,
   OperationOwnerPort,
   OperationPlanContext,
 } from '../../../../common/operation/application/port/out/owner/operation-owner.port';
 import { OperationOwner } from '../../../../common/operation/application/port/out/owner/operation-owner.decorator';
-import {
-  ADVERTISING_SOURCE_ALERT_PORT,
-  type AdvertisingSourceAlert,
-  type AdvertisingSourceAlertPort,
-} from '../../../application/port/out/repository/advertising-source-alert.port';
 import { KeywordRankIngestHandler } from '../../../application/service/keyword-rank-ingest.handler';
-import { failureMessage, parseOperationScope } from './operation-scope';
-
-const ALERT: AdvertisingSourceAlert = {
-  sourceType: 'coupang_keyword_serp',
-  // 옛 attempt는 키워드마다 알림을 열었다. 실행 하나가 여러 키워드를 돌므로 알림도 하나다.
-  dedupeKey: 'source:coupang_keyword_serp',
-  title: '쿠팡 키워드 순위 수집 실패',
-  href: '/rank-tracking',
-};
+import { parseOperationScope } from './operation-scope';
 
 /**
  * 쿠팡 검색 SERP 순위(ADR-0025 kind `advertising.keyword_serp`, KID-362). 확장이 www.coupang.com 검색 결과를 키워드마다
@@ -46,7 +32,6 @@ export class KeywordSerpOperationOwner implements OperationOwnerPort {
 
   constructor(
     private readonly serp: KeywordRankIngestHandler,
-    @Inject(ADVERTISING_SOURCE_ALERT_PORT) private readonly alerts: AdvertisingSourceAlertPort,
   ) {}
 
   async plan(scope: JsonObject, context: OperationPlanContext): Promise<OperationPlanResult> {
@@ -66,19 +51,8 @@ export class KeywordSerpOperationOwner implements OperationOwnerPort {
       plan: KeywordSerpPlanSchema.parse(context.plan),
       chunks,
     });
-    await this.alerts.resolve(context.tx, { organizationId: context.organizationId, operationId: context.operationId, alert: ALERT });
     // 연쇄(KID-354 규칙): 방금 발행한 키워드의 경쟁 상품 판매자 확인을 같은 환경이 이어서 시작한다(옛 batch의 afterBatch 보강).
     const next = { kind: COMPETITOR_SELLER_IDENTITY_KIND, scope: { keywords: KeywordSerpPlanSchema.parse(context.plan).keywords.map((entry) => entry.keyword) } };
     return { result: { ...result, next } };
-  }
-
-  onFailed(context: OperationFailedContext): Promise<void> {
-    return this.alerts.recordFailure(context.tx, {
-      organizationId: context.organizationId,
-      operationId: context.operationId,
-      alert: ALERT,
-      code: context.errorCode,
-      message: failureMessage(context, ALERT.sourceType),
-    });
   }
 }

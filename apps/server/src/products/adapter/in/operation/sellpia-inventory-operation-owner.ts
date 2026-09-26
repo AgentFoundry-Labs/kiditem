@@ -8,7 +8,6 @@ import {
 } from '@kiditem/shared/sellpia-operations';
 import type {
   JsonObject,
-  OperationFailedContext,
   OperationFinalizeContext,
   OperationOwnerPort,
   OperationPlanContext,
@@ -32,7 +31,7 @@ import {
  * 셀피아 재고(ADR-0025 kind `products.sellpia_inventory`, KID-361 J1). 확장이 셀피아 상품 목록 전체를 읽어
  * `inventory_rows` 청크(머리 하나 + 상품 줄)로 올리고, finish 트랜잭션에서 MasterProduct를 통째로 발행한다.
  * 잠금은 `resource:sellpia:login` — 셀피아 로그인을 쓰는 kind는 모두 이 키 하나를 나눠 쥔다(KID-361 결정).
- * 계정 연결을 확인하지 않은 조직은 시작하지 못한다(옛 begin과 같다). 최종 실패는 원천 알림 하나로 남긴다.
+ * 계정 연결을 확인하지 않은 조직은 시작하지 못한다(옛 begin과 같다). 최종 실패는 실행 행에만 남는다(알림 reader가 읽는다, KID-355 정책 B).
  */
 @OperationOwner()
 @Injectable()
@@ -65,14 +64,5 @@ export class SellpiaInventoryOperationOwner implements OperationOwnerPort {
       snapshot: sellpiaInventorySnapshot(chunks),
     });
     return { result };
-  }
-
-  onFailed(context: OperationFailedContext): Promise<void> {
-    return this.publication.recordFailure(context.tx, {
-      organizationId: context.organizationId,
-      operationId: context.operationId,
-      errorCode: context.errorCode,
-      errorMessage: context.errorMessage,
-    });
   }
 }

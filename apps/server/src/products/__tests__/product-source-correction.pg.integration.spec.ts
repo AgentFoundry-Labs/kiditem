@@ -59,6 +59,34 @@ describe('product source correction (PostgreSQL)', () => {
     expect(await prisma.masterProduct.findUniqueOrThrow({ where: { id: before.id } })).toEqual(before);
   });
 
+  it('셀피아 재고 실행이 도는(prepared·executing) 동안 원천 코드를 바꾸지 않는다 — 끝나면 바꾼다', async () => {
+    const before = await seed('KID00000001', 'original');
+    const running = await prisma.operation.create({ data: {
+      organizationId: TEST_ORGANIZATION_ID, kind: 'products.sellpia_inventory', status: 'executing', token: randomUUID(),
+      expiresAt: new Date(Date.now() + 30 * 60_000), plan: {}, attempts: 1,
+    } });
+    await expect(usecase.correctSourceBinding(TEST_ORGANIZATION_ID, before.id, { sourceProductCode: 'corrected', sourceOptionCode: '' }))
+      .rejects.toMatchObject({ code: 'PRODUCTS_STATE_CONFLICT', details: { reason: 'sellpia_inventory_running', operationId: running.id } });
+    await prisma.operation.update({ where: { id: running.id }, data: { status: 'prepared' } });
+    await expect(usecase.correctSourceBinding(TEST_ORGANIZATION_ID, before.id, { sourceProductCode: 'corrected', sourceOptionCode: '' }))
+      .rejects.toMatchObject({ code: 'PRODUCTS_STATE_CONFLICT' });
+    expect(await prisma.masterProduct.findUniqueOrThrow({ where: { id: before.id } })).toEqual(before);
+
+    await prisma.operation.update({ where: { id: running.id }, data: { status: 'succeeded', finishedAt: new Date() } });
+    await usecase.correctSourceBinding(TEST_ORGANIZATION_ID, before.id, { sourceProductCode: 'corrected', sourceOptionCode: '' });
+    expect(await prisma.masterProduct.findUniqueOrThrow({ where: { id: before.id } })).toMatchObject({ sourceProductCode: 'corrected' });
+  });
+
+  it('다른 조직의 도는 셀피아 재고 실행은 이 조직의 교정을 막지 않는다', async () => {
+    const before = await seed('KID00000001', 'original');
+    await prisma.operation.create({ data: {
+      organizationId: OTHER_ORGANIZATION_ID, kind: 'products.sellpia_inventory', status: 'executing', token: randomUUID(),
+      expiresAt: new Date(Date.now() + 30 * 60_000), plan: {}, attempts: 1,
+    } });
+    await usecase.correctSourceBinding(TEST_ORGANIZATION_ID, before.id, { sourceProductCode: 'corrected', sourceOptionCode: '' });
+    expect(await prisma.masterProduct.findUniqueOrThrow({ where: { id: before.id } })).toMatchObject({ sourceProductCode: 'corrected' });
+  });
+
   it('cannot correct a product in another organization', async () => {
     const before = await seed('KID00000001', 'first');
     await expect(usecase.correctSourceBinding(OTHER_ORGANIZATION_ID, before.id, { sourceProductCode: 'other', sourceOptionCode: '' })).rejects.toMatchObject({ code: 'NOT_FOUND' });

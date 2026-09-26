@@ -3,7 +3,6 @@ import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma, type SellpiaInventoryState } from '@prisma/client';
 import { KiditemConflictError, KiditemInvalidValueError, KiditemPreconditionError } from '@kiditem/shared/errors';
-import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { applySourceFacts, type MasterProduct as MasterProductDomain } from '../../../domain/master-product';
@@ -11,10 +10,6 @@ import { lockProductMapping } from '../../../transaction/product-mapping-lock';
 import { advanceProductMappingGeneration } from './product-mapping-generation';
 import { allocatePublicationSequence } from '../../../../common/publication-sequence';
 import { lockProductSource } from './transaction/product-source-lock';
-import {
-  PRODUCT_SOURCE_ALERT_DEDUPE_KEY,
-  productSourceFailureAlert,
-} from '../sellpia/product-source-failure-alert';
 import type {
   ProductSourcePublicationRepositoryPort,
   SellpiaSnapshotPublicationChanges,
@@ -38,13 +33,11 @@ type MappingIdentityBasis = {
  * 셀피아 재고 발행(`products.sellpia_inventory` finalize, ADR-0025). 실행 계약의 finish 트랜잭션 안에서 매핑·원천 잠금을
  * 잡고 MasterProduct를 통째로 바꾼 뒤 SellpiaInventoryState에 실행 id와 새 완료 세대를 적는다. 겹침은 실행 잠금
  * (`resource:sellpia:login`)이 막으므로 옛 attempt 토큰·임대 울타리는 없다. 완료 세대는 저장된 요청·완료 세대보다 크게
- * 정하고, 옛 생명주기 칸(요청·실행·실패 세대, 임대)은 그 완료 세대로 정리해 두 세대를 비교하던 읽기가 그대로 맞는다.
+ * 정하고 요청 세대도 그 완료 세대로 맞춘다. 도는 수집·실패는 실행 표가 말한다(KID-355 정책 B).
  */
 @Injectable()
 export class ProductSourcePublicationRepositoryAdapter
 implements ProductSourcePublicationRepositoryPort {
-  constructor(private readonly alerts: SourceFailureAlerts) {}
-
   async publishSnapshot(
     transaction: OwnerTransaction,
     input: SellpiaSnapshotPublicationInput,
@@ -68,17 +61,6 @@ implements ProductSourcePublicationRepositoryPort {
         refreshReason: input.trigger ?? (state.verifiedGeneration === 0n ? 'initial_snapshot' : 'manual_request'),
         requestedGeneration: generation,
         verifiedGeneration: generation,
-        activeGeneration: null,
-        failedGeneration: null,
-        activeSyncToken: null,
-        activeSyncOwnerUserId: null,
-        activeSyncStartedAt: null,
-        activeSyncLeaseExpiresAt: null,
-        activeSyncScope: null,
-        lastAttemptAt: now,
-        lastAttemptSyncScope: 'inventory',
-        lastErrorCode: null,
-        lastErrorMessage: null,
         freshnessFence: randomUUID(),
       },
     });
@@ -86,25 +68,7 @@ implements ProductSourcePublicationRepositoryPort {
       // 상태 줄을 잠그고 읽었으므로 도달하지 않는 방어선이다.
       throw new KiditemConflictError('PRODUCTS_STATE_CONFLICT', { details: { reason: 'sellpia_inventory_state_fence_lost' } });
     }
-    await this.alerts.resolveSourceFailure(tx, {
-      organizationId: input.organizationId,
-      dedupeKey: PRODUCT_SOURCE_ALERT_DEDUPE_KEY,
-      attemptId: input.operationId,
-    });
     return changes;
-  }
-
-  /** 재시도 없는 최종 실패: 운영자 알림 하나(원천별로 합친다). 상품·상태는 그대로다. */
-  async recordFailure(
-    transaction: OwnerTransaction,
-    input: { organizationId: string; operationId: string; errorCode: string; errorMessage: string | null },
-  ): Promise<void> {
-    await this.alerts.recordTerminalOutcome(ownerTransactionClient(transaction), productSourceFailureAlert({
-      organizationId: input.organizationId,
-      attemptId: input.operationId,
-      errorCode: input.errorCode,
-      errorMessage: input.errorMessage ?? input.errorCode,
-    }));
   }
 }
 

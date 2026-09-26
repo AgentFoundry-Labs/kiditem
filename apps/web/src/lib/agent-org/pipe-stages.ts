@@ -1,3 +1,21 @@
+import {
+  COMPETITOR_CATALOG_KIND,
+  COMPETITOR_SELLER_IDENTITY_KIND,
+  KEYWORD_SERP_KIND,
+  WING_ITEMWINNER_KIND,
+  WING_RANK_KIND,
+  WING_TRACKED_PRODUCTS_KIND,
+  WING_TRAFFIC_KIND,
+} from '@kiditem/shared/advertising-operations';
+import {
+  COUPANG_DIRECTSHIP_KIND,
+  COUPANG_SHIPMENT_SUMMARY_KIND,
+  MALL_ORDERS_KIND,
+} from '@kiditem/shared/orders-operations';
+import { COUPANG_REVIEWS_KIND } from '@kiditem/shared/reviews';
+import { SELLPIA_INVENTORY_KIND, SELLPIA_PRODUCT_PROFITABILITY_KIND } from '@kiditem/shared/sellpia-operations';
+import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
+
 /**
  * Agent Org 의 단계 목록 — 소싱부터 CS 까지.
  *
@@ -44,7 +62,9 @@ export interface PipeStageDef {
   gate?: boolean;
   /**
    * 이 단계의 원천 실패 알림 `sourceType`. 원천 소유자가 끝내 실패한 수집에 알림을 열고 다음
-   * 성공이 닫으므로, 알림으로 그 원천의 실패 · 회복을 본다.
+   * 성공이 닫으므로, 알림으로 그 원천의 실패 · 회복을 본다. 실행 계약으로 옮긴 원천은 알림 reader가
+   * 실행 표에서 만든 알림이라 `sourceType`이 kind다(KID-355 정책 B). 옮긴 원천의 옛 행은 컷오버가 지운다
+   * (`v0.1.31:032`); 옛 이름은 아직 옛 writer가 도는 원천만 남는다.
    */
   alertSourceTypes: readonly string[];
   /** 이 간격 안에 성공이 한 번은 있어야 '최신'이다. 신호 단계만 가진다. */
@@ -66,7 +86,7 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     title: '실시간 키워드',
     owner: '소싱팀',
     href: '/sourcing-ai/market',
-    alertSourceTypes: ['coupang_keyword_serp', 'coupang_wing_rank'],
+    alertSourceTypes: [KEYWORD_SERP_KIND, WING_RANK_KIND],
     expectedEveryMs: DAY_MS,
     noSourceReason: null,
   },
@@ -77,7 +97,7 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     title: 'SNS 키워드',
     owner: '소싱팀',
     href: '/sourcing-ai/market',
-    alertSourceTypes: ['tiktok.creative'],
+    alertSourceTypes: [SOURCING_OPERATION_KINDS.tiktokCreative],
     expectedEveryMs: DAY_MS,
     noSourceReason: null,
   },
@@ -88,7 +108,7 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     title: '신상품',
     owner: '소싱팀',
     href: '/sourcing-ai/rising-products',
-    alertSourceTypes: ['1688.hot_product'],
+    alertSourceTypes: [SOURCING_OPERATION_KINDS.trend1688],
     expectedEveryMs: DAY_MS,
     noSourceReason: null,
   },
@@ -99,7 +119,7 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     title: '경쟁사',
     owner: '광고팀',
     href: '/sourcing-ai/competitor-analysis',
-    alertSourceTypes: ['coupang_competitor_catalog', 'coupang_competitor_seller_identity', 'coupang_wing_itemwinner', 'coupang_wing_tracked_products'],
+    alertSourceTypes: [COMPETITOR_CATALOG_KIND, COMPETITOR_SELLER_IDENTITY_KIND, WING_ITEMWINNER_KIND, WING_TRACKED_PRODUCTS_KIND],
     expectedEveryMs: DAY_MS,
     noSourceReason: null,
   },
@@ -189,7 +209,8 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     title: '주문 → 출고 → 송장',
     owner: '운영팀',
     href: '/order-collection',
-    alertSourceTypes: ['order_collection_mall', 'coupang_direct_order_capture', 'coupang_shipment_summary'],
+    // 몰 주문수집 중 아직 옛 attempt 경로로 도는 몰은 `order_collection_mall` 알림을 연다.
+    alertSourceTypes: ['order_collection_mall', MALL_ORDERS_KIND, COUPANG_DIRECTSHIP_KIND, COUPANG_SHIPMENT_SUMMARY_KIND],
     // 주문수집 · 셀피아 전송 · 송장 결과는 Orders 가 가진 사실이다.
     expectedEveryMs: null,
     noSourceReason: null,
@@ -201,7 +222,7 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     title: '재고',
     owner: '상품관리팀',
     href: '/inventory-hub',
-    alertSourceTypes: ['sellpia_inventory', 'sellpia_product_profitability'],
+    alertSourceTypes: [SELLPIA_INVENTORY_KIND, SELLPIA_PRODUCT_PROFITABILITY_KIND],
     expectedEveryMs: null,
     noSourceReason: null,
   },
@@ -212,8 +233,8 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     title: 'CS',
     owner: '운영팀',
     href: '/reviews',
-    // 상품평은 실행 kind(orders.coupang_reviews)로 모으고 원천 실패 알림을 열지 않는다(KID-359).
-    alertSourceTypes: [],
+    // 상품평은 실행 kind로 모은다. 실패는 알림 reader가 실행 표에서 읽어 알림으로 낸다(KID-355 정책 B).
+    alertSourceTypes: [COUPANG_REVIEWS_KIND],
     expectedEveryMs: null,
     noSourceReason: null,
   },
@@ -247,7 +268,7 @@ export const PIPE_STAGES: readonly PipeStageDef[] = [
     title: '광고 마케팅',
     owner: '마케팅팀',
     href: '/ad-ops',
-    alertSourceTypes: ['coupang_ad_campaign', 'coupang_ad_keyword', 'coupang_ads_daily', 'coupang_ad_profitability', 'coupang_wing_traffic'],
+    alertSourceTypes: ['coupang_ad_campaign', 'coupang_ad_keyword', 'coupang_ads_daily', 'coupang_ad_profitability', WING_TRAFFIC_KIND],
     expectedEveryMs: null,
     noSourceReason: null,
   },

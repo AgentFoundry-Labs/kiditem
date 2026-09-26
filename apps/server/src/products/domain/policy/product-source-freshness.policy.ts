@@ -1,9 +1,7 @@
 import {
-  deriveSellpiaInventoryCollectionStatus,
-  type SellpiaInventoryCollectionFailureCode,
+  SellpiaInventoryCollectionTriggerSchema,
   type SellpiaInventoryCollectionStatus,
   type SellpiaInventoryCollectionStatusView,
-  type SellpiaInventoryCollectionTrigger,
   type SellpiaInventoryStoredCollectionTrigger,
   type SellpiaSyncScope,
 } from '@kiditem/shared/sellpia-inventory-freshness';
@@ -11,7 +9,10 @@ import {
 export const SELLPIA_SOURCE_ORIGIN = 'https://kiditem.sellpia.com' as const;
 export const SELLPIA_SOURCE_ACCOUNT_KEY = 'kiditem' as const;
 
-/** The database row is an organization-scoped collection control record. */
+/**
+ * 조직마다 하나인 셀피아 원천 줄: 계정 연결, 마지막 발행(실행 id·완료 시각·세대)과 발주 울타리. 도는 수집·실패는
+ * 여기 없다 — 실행 표가 말한다(ADR-0025, KID-355 정책 B). 옛 임대·시도 칸은 지웠다.
+ */
 export type SellpiaInventoryCollectionState = {
   organizationId: string;
   sourceOrigin: string;
@@ -19,28 +20,32 @@ export type SellpiaInventoryCollectionState = {
   /** Source completion time. Kept under the migration-era column name. */
   lastVerifiedAt: Date | null;
   lastCompletedOperationId: string | null;
-  /** Request/lease fields remain internal fencing facts, not public freshness. */
   refreshReason: SellpiaInventoryStoredCollectionTrigger | null;
   requestedSyncScope: SellpiaSyncScope;
-  activeSyncToken: string | null;
-  activeSyncOwnerUserId: string | null;
-  activeSyncStartedAt: Date | null;
-  activeSyncLeaseExpiresAt: Date | null;
-  activeSyncScope: SellpiaSyncScope | null;
   requestedGeneration: bigint;
-  activeGeneration: bigint | null;
   verifiedGeneration: bigint;
-  failedGeneration: bigint | null;
-  lastAttemptAt: Date | null;
-  lastAttemptSyncScope: SellpiaSyncScope | null;
-  lastErrorCode: SellpiaInventoryCollectionFailureCode | null;
-  lastErrorMessage: string | null;
   freshnessFence: string;
 };
 
 export type SellpiaInventoryCollectionStatePatch = Partial<
   Omit<SellpiaInventoryCollectionState, 'organizationId'>
 >;
+
+/**
+ * 셀피아 세 kind(재고·매출·상품 손익 — 셀피아 로그인 잠금 하나를 나눠 쓴다) 중 가장 최근에 시작한 실행 하나. 운영자가
+ * 멈춘 실행은 빼고 고른다. 임대가 끝난 실행은 실행 계약의 만료 규칙대로 비춘 상태다(`readLatestOperation`).
+ */
+export type SellpiaLatestOperation = {
+  id: string;
+  kind: string;
+  status: 'prepared' | 'executing' | 'reconciling' | 'succeeded' | 'failed';
+  errorCode: string | null;
+  errorMessage: string | null;
+  startedAt: Date;
+  expiresAt: Date;
+  /** 재고 실행 plan의 `trigger`(없으면 null). */
+  trigger: string | null;
+};
 
 export function createInitialCollectionState(input: {
   organizationId: string;
@@ -55,80 +60,36 @@ export function createInitialCollectionState(input: {
     lastCompletedOperationId: null,
     refreshReason: 'initial_snapshot',
     requestedSyncScope: 'inventory',
-    activeSyncToken: null,
-    activeSyncOwnerUserId: null,
-    activeSyncStartedAt: null,
-    activeSyncLeaseExpiresAt: null,
-    activeSyncScope: null,
     requestedGeneration: 1n,
-    activeGeneration: null,
     verifiedGeneration: 0n,
-    failedGeneration: null,
-    lastAttemptAt: null,
-    lastAttemptSyncScope: null,
-    lastErrorCode: null,
-    lastErrorMessage: null,
     freshnessFence: input.freshnessFence,
   };
 }
 
+const ERROR_MESSAGE_LIMIT = 300;
+
+function runningOperation(operation: SellpiaLatestOperation | null): SellpiaLatestOperation | null {
+  return operation && operation.status !== 'succeeded' && operation.status !== 'failed' ? operation : null;
+}
+
+/** 도는 실행이 있으면 running, 최신 실행이 실패면 failed, 아니면 발행 상태로 complete / not_collected. */
 export function deriveCollectionStatus(
   state: SellpiaInventoryCollectionState,
-  now: Date,
+  latest: SellpiaLatestOperation | null,
 ): SellpiaInventoryCollectionStatus {
-  if (hasExpiredCurrentAttempt(state, now)) return 'failed';
-  return deriveSellpiaInventoryCollectionStatus({
-    now,
-    requestedGeneration: state.requestedGeneration,
-    verifiedGeneration: state.verifiedGeneration,
-    failedGeneration: state.failedGeneration,
-    activeSyncLeaseExpiresAt: state.activeSyncLeaseExpiresAt,
-  });
+  if (runningOperation(latest)) return 'running';
+  if (latest?.status === 'failed') return 'failed';
+  return state.verifiedGeneration > 0n && state.lastVerifiedAt !== null ? 'complete' : 'not_collected';
 }
 
 export function toCollectionStatusView(
   state: SellpiaInventoryCollectionState,
-  now: Date,
-  userId: string | null,
-  leaseAttemptId: string | null,
-  lastAttemptId: string | null = leaseAttemptId ?? state.lastCompletedOperationId,
+  latest: SellpiaLatestOperation | null,
 ): SellpiaInventoryCollectionStatusView {
-  const status = deriveCollectionStatus(state, now);
-  const expiredCurrentAttempt = hasExpiredCurrentAttempt(state, now);
-  const activeSync = hasLiveLease(state, now)
-    && state.activeSyncToken
-    && state.activeGeneration !== null
-    && state.activeSyncStartedAt
-    && state.activeSyncLeaseExpiresAt
-    ? {
-      attemptId: leaseAttemptId,
-      generation: state.activeGeneration.toString(),
-      scope: state.activeSyncScope ?? 'inventory',
-      startedAt: state.activeSyncStartedAt.toISOString(),
-      leaseExpiresAt: state.activeSyncLeaseExpiresAt.toISOString(),
-      canControl: userId !== null && state.activeSyncOwnerUserId === userId,
-    }
-    : null;
-  const lastAttempt = expiredCurrentAttempt && state.activeSyncStartedAt
-    ? {
-      attemptedAt: state.activeSyncStartedAt.toISOString(),
-      trigger: publicTrigger(state.refreshReason),
-      scope: state.activeSyncScope ?? state.requestedSyncScope,
-      errorCode: 'sellpia_background_timeout',
-      errorMessage: 'Sellpia inventory collection attempt expired.',
-    }
-    : state.lastAttemptAt
-      ? {
-        attemptedAt: state.lastAttemptAt.toISOString(),
-        trigger: publicTrigger(state.refreshReason),
-        scope: state.lastAttemptSyncScope ?? 'inventory',
-        errorCode: state.lastErrorCode,
-        errorMessage: state.lastErrorMessage,
-      }
-      : null;
-
+  const failed = latest?.status === 'failed';
+  const running = runningOperation(latest);
   return {
-    status,
+    status: deriveCollectionStatus(state, latest),
     sourceBinding: isSourceBindingConfirmed(state)
       ? {
         origin: SELLPIA_SOURCE_ORIGIN,
@@ -144,29 +105,35 @@ export function toCollectionStatusView(
     verifiedGeneration: state.verifiedGeneration.toString(),
     lastCompletedAttemptId: state.lastCompletedOperationId,
     lastCompletedAt: state.lastVerifiedAt?.toISOString() ?? null,
-    lastAttemptId,
-    activeSync,
-    lastAttempt,
+    lastAttemptId: latest?.id ?? state.lastCompletedOperationId,
+    activeSync: running
+      ? {
+        attemptId: running.id,
+        // 재고 실행이면 이 세대로 발행한다(다른 셀피아 kind는 재고 세대를 바꾸지 않는다).
+        generation: (state.verifiedGeneration + 1n).toString(),
+        scope: 'inventory',
+        startedAt: running.startedAt.toISOString(),
+        leaseExpiresAt: running.expiresAt.toISOString(),
+        // 시작·중단은 실행 계약(`/api/operations`)이 한다. 이 보기로는 조작하지 않는다.
+        canControl: false,
+      }
+      : null,
+    lastAttempt: latest
+      ? {
+        kind: latest.kind,
+        attemptedAt: latest.startedAt.toISOString(),
+        trigger: publicTrigger(latest.trigger),
+        scope: 'inventory',
+        errorCode: failed ? latest.errorCode : null,
+        errorMessage: failed ? latest.errorMessage?.slice(0, ERROR_MESSAGE_LIMIT) ?? null : null,
+      }
+      : null,
   };
 }
 
-function publicTrigger(
-  trigger: SellpiaInventoryStoredCollectionTrigger | null,
-): SellpiaInventoryCollectionTrigger | null {
-  return trigger && trigger !== 'ttl_expired' && trigger !== 'purchase_preflight'
-    ? trigger
-    : null;
-}
-
-function hasExpiredCurrentAttempt(
-  state: SellpiaInventoryCollectionState,
-  now: Date,
-): boolean {
-  return state.activeGeneration !== null
-    && state.activeGeneration === state.requestedGeneration
-    && state.activeGeneration > state.verifiedGeneration
-    && state.activeSyncLeaseExpiresAt !== null
-    && state.activeSyncLeaseExpiresAt <= now;
+function publicTrigger(trigger: string | null) {
+  const parsed = SellpiaInventoryCollectionTriggerSchema.safeParse(trigger);
+  return parsed.success ? parsed.data : null;
 }
 
 export function planSourceBindingConfirmation(
@@ -178,14 +145,6 @@ export function planSourceBindingConfirmation(
     sourceAccountKey: SELLPIA_SOURCE_ACCOUNT_KEY,
     freshnessFence,
   };
-}
-
-export function hasLiveLease(
-  state: SellpiaInventoryCollectionState,
-  now: Date,
-): boolean {
-  return state.activeSyncLeaseExpiresAt !== null
-    && state.activeSyncLeaseExpiresAt > now;
 }
 
 export function isSourceBindingConfirmed(

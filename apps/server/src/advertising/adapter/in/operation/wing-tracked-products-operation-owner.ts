@@ -9,26 +9,13 @@ import { accountLockKey, type OperationPlanResult, type OperationStagedChunk, ty
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
 import type {
   JsonObject,
-  OperationFailedContext,
   OperationFinalizeContext,
   OperationOwnerPort,
   OperationPlanContext,
 } from '../../../../common/operation/application/port/out/owner/operation-owner.port';
 import { OperationOwner } from '../../../../common/operation/application/port/out/owner/operation-owner.decorator';
-import {
-  ADVERTISING_SOURCE_ALERT_PORT,
-  type AdvertisingSourceAlert,
-  type AdvertisingSourceAlertPort,
-} from '../../../application/port/out/repository/advertising-source-alert.port';
 import { WingTrackedProductService } from '../../../application/service/wing-tracked-product.service';
-import { assertActiveCoupangAccount, failureMessage, parseOperationScope } from './operation-scope';
-
-const ALERT: AdvertisingSourceAlert = {
-  sourceType: 'coupang_wing_tracked_products',
-  dedupeKey: 'source:coupang-wing-tracked-products',
-  title: 'Coupang Wing 추적상품 수집 실패',
-  href: '/sourcing-ai/product-tracking',
-};
+import { assertActiveCoupangAccount, parseOperationScope } from './operation-scope';
 
 /**
  * 추적 상품 Wing 지표(ADR-0025 kind `advertising.wing_tracked_products`, KID-362). 확장이 그 계정의 Wing 상품등록 검색을
@@ -44,7 +31,6 @@ export class WingTrackedProductsOperationOwner implements OperationOwnerPort {
   constructor(
     private readonly trackedProducts: WingTrackedProductService,
     @Inject(CHANNEL_ACCOUNT_PORT) private readonly accounts: ChannelAccountPort,
-    @Inject(ADVERTISING_SOURCE_ALERT_PORT) private readonly alerts: AdvertisingSourceAlertPort,
   ) {}
 
   async plan(scope: JsonObject, context: OperationPlanContext): Promise<OperationPlanResult> {
@@ -65,17 +51,6 @@ export class WingTrackedProductsOperationOwner implements OperationOwnerPort {
       plan: WingTrackedProductsPlanSchema.parse(context.plan),
       chunks,
     });
-    await this.alerts.resolve(context.tx, { organizationId: context.organizationId, operationId: context.operationId, alert: ALERT });
     return { result };
-  }
-
-  onFailed(context: OperationFailedContext): Promise<void> {
-    return this.alerts.recordFailure(context.tx, {
-      organizationId: context.organizationId,
-      operationId: context.operationId,
-      alert: ALERT,
-      code: context.errorCode,
-      message: failureMessage(context, ALERT.sourceType),
-    });
   }
 }

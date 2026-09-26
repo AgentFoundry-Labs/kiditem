@@ -22,7 +22,7 @@ function alert(id: string, overrides: Partial<AlertItem> = {}): AlertItem {
     message: null,
     targetType: null,
     targetId: null,
-    sourceType: 'coupang_shipment_summary',
+    sourceType: 'orders.coupang_shipment_summary',
     href: '/coupang-shipments',
     isRead: false,
     createdAt: '2026-09-11T01:00:00.000Z',
@@ -41,11 +41,28 @@ describe('isMallAlert', () => {
   it('몰에서 일한 원천의 알림만 고른다 — 광고 · 소싱 · Sellpia 는 몰 알림이 아니다', () => {
     expect(isMallAlert(alert('a'))).toBe(true);
     expect(isMallAlert(alert('b', { sourceType: 'order_collection_mall' }))).toBe(true);
-    expect(isMallAlert(alert('c', { sourceType: 'coupang_direct_order_capture' }))).toBe(true);
+    expect(isMallAlert(alert('c', { sourceType: 'orders.coupang_directship' }))).toBe(true);
     expect(isMallAlert(alert('d', { sourceType: 'coupang_ad_campaign' }))).toBe(false);
     expect(isMallAlert(alert('e', { sourceType: '1688.hot_product' }))).toBe(false);
-    expect(isMallAlert(alert('f', { sourceType: 'sellpia_inventory' }))).toBe(false);
+    expect(isMallAlert(alert('f', { sourceType: 'products.sellpia_inventory' }))).toBe(false);
     expect(isMallAlert(alert('g', { sourceType: null }))).toBe(false);
+  });
+
+  it('실행 표에서 온 알림(sourceType = kind)도 몰 알림이고 같은 몰을 말한다 — 정책 B(KID-355)', () => {
+    const cases: Array<[string, string | null]> = [
+      ['orders.mall_orders', null],
+      ['orders.coupang_shipment_summary', 'rocket'],
+      ['orders.coupang_rocket_po', 'rocket'],
+      ['orders.coupang_directship', 'coupang-direct'],
+      ['advertising.wing_traffic', 'coupang'],
+      ['advertising.wing_itemwinner', 'coupang'],
+    ];
+    for (const [sourceType, mallKey] of cases) {
+      const item = alert(sourceType, { type: 'operation_failure', sourceType });
+      expect(isMallAlert(item), sourceType).toBe(true);
+      expect(mallKeyOfAlert(item), sourceType).toBe(mallKey);
+    }
+    expect(isMallAlert(alert('s', { type: 'operation_failure', sourceType: 'products.sellpia_inventory' }))).toBe(false);
   });
 
   it('객체 기본 속성 이름에 속지 않는다', () => {
@@ -57,8 +74,8 @@ describe('isMallAlert', () => {
 describe('mallKeyOfAlert', () => {
   it('쿠팡 원천은 원천 자체가 한 몰 것이다', () => {
     expect(mallKeyOfAlert(alert('a'))).toBe('rocket');
-    expect(mallKeyOfAlert(alert('b', { sourceType: 'coupang_direct_order_capture' }))).toBe('coupang-direct');
-    expect(mallKeyOfAlert(alert('c', { sourceType: 'coupang_wing_traffic' }))).toBe('coupang');
+    expect(mallKeyOfAlert(alert('b', { sourceType: 'orders.coupang_directship' }))).toBe('coupang-direct');
+    expect(mallKeyOfAlert(alert('c', { sourceType: 'advertising.wing_traffic' }))).toBe('coupang');
   });
 
   /** 몰 주문수집 원천은 알림이 어느 몰인지 말하지 않는다. 제목에 몰 이름이 있어도 짐작하지 않는다. */
@@ -153,7 +170,7 @@ describe('mallStatusTiles', () => {
 
   it('몰마다 지금 상태 — 문제 있는 몰부터', () => {
     const alerts = [
-      alert('ok', { status: 'RESOLVED', sourceType: 'coupang_wing_traffic', title: '윙 트래픽 수집 실패' }),
+      alert('ok', { status: 'RESOLVED', sourceType: 'advertising.wing_traffic', title: '윙 트래픽 수집 실패' }),
       alert('fail', { title: '쿠팡 쉽먼트 수집 실패' }),
     ];
     const tiles = mallStatusTiles(channels, alerts, derivedMallAlerts({ channels, soldOutTotal: null, coupangPendingAccept: null }));
@@ -165,6 +182,25 @@ describe('mallStatusTiles', () => {
     ]);
     expect(tiles[0]?.attentionCount).toBe(1);
     expect(tiles[1]?.attentionCount).toBe(1);
+  });
+
+  it('몰마다 도는 kind의 알림은 대상 채널 계정으로 그 몰 타일에 선다(KID-355)', () => {
+    const account = '55555555-5555-4555-8555-555555555555';
+    const mallChannels = [{ ...channel('gs-shop', 'GS샵'), channelAccountId: account }, channel('onch', '온채널')];
+    const item = alert('mall', {
+      type: 'operation_failure',
+      sourceType: 'orders.mall_orders',
+      title: 'GS샵 몰 주문 수집 실패',
+      targetType: 'channel_account',
+      targetId: account,
+    });
+    expect(mallKeyOfAlert(item)).toBeNull();
+    expect(mallKeyOfAlert(item, new Map([[account, 'gs-shop']]))).toBe('gs-shop');
+    expect(isMallAlert(alert('listings', { sourceType: 'channels.mall_admin_listings', targetType: 'channel_account', targetId: account }))).toBe(true);
+
+    const tiles = mallStatusTiles(mallChannels, [item], []);
+    expect(tiles.find((tile) => tile.mallKey === 'gs-shop')).toMatchObject({ tone: 'failed', label: 'GS샵 몰 주문 수집 실패 실패' });
+    expect(tiles.find((tile) => tile.mallKey === 'onch')?.tone).not.toBe('failed');
   });
 
   it('원천이 다시 성공해 닫힌 알림이 가장 최근이면 예전 실패는 타일이 아니라 숫자로만 남는다', () => {
@@ -184,7 +220,7 @@ describe('mallStatusTiles', () => {
    */
   it('⭐ 쿠팡직배송 원천 알림이 함께 쓰는 로켓 타일에 닿는다', () => {
     const direct = alert('direct', {
-      sourceType: 'coupang_direct_order_capture',
+      sourceType: 'orders.coupang_directship',
       title: '쿠팡 직배송 주문 수집 실패',
     });
     const tile = mallStatusTiles([channel('rocket', '쿠팡 로켓')], [direct], [])[0];
@@ -225,11 +261,11 @@ describe('mallAlertCounts', () => {
 describe('몰 원천 → 채널 키', () => {
   const SOURCE_TYPES = [
     'order_collection_mall',
-    'coupang_shipment_summary',
-    'coupang_rocket_po_catalog',
-    'coupang_direct_order_capture',
-    'coupang_wing_traffic',
-    'coupang_wing_itemwinner',
+    'orders.coupang_shipment_summary',
+    'orders.coupang_rocket_po',
+    'orders.coupang_directship',
+    'advertising.wing_traffic',
+    'advertising.wing_itemwinner',
   ];
 
   it('⭐ 몰을 말하는 원천의 몰 키가 모두 레지스트리에 있다', () => {
