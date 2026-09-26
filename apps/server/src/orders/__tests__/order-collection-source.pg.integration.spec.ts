@@ -111,7 +111,7 @@ describe('Order collection source owner (kakao old attempt path, KID-379) over d
   const sources = async (organizationId = ORG): Promise<Map<string, OrderCollectionSourceStatus>> =>
     new Map(((await readSources(organizationId).expect(200)).body.malls as unknown[])
       .map((mall) => OrderCollectionSourceStatusSchema.parse(mall))
-      .map((mall) => [mall.mallKey, mall]));
+      .map((mall) => [String(mall.mallKey), mall] as const));
 
   it('시작은 카카오의 브라우저 수집만 받는다 — 실행 kind로 옮긴 몰·수동 업로드는 VALIDATION_FAILED', async () => {
     const started = (await begin().expect(201)).body;
