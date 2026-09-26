@@ -246,7 +246,6 @@ export function createBrowserMallCollector({
       onch: 'collectOnchannelOrders',
       'haebub-mall': 'collectHaebeopOrders',
       'lotte-on': 'collectLotteonOrders',
-      always: 'collectAlwayzOrders',
       kakao: 'collectKakaoOrders',
     };
     const action = actionByMall[account.key];
@@ -451,46 +450,6 @@ export function createBrowserMallCollector({
     return rows;
   };
 
-  const generateAlwayzSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectAlwayzXlsxFromExtension, convertAlwayzToSellpiaFile } = await import(
-      './alwayz-orders-api'
-    );
-    await ensureMallLogin('always', run);
-    const collected = await collectAlwayzXlsxFromExtension(run);
-    if ('empty' in collected) {
-      toastNoNewOrders('올웨이즈');
-      return 0;
-    }
-    let result: Awaited<ReturnType<typeof convertAlwayzToSellpiaFile>>;
-    try {
-      result = await convertAlwayzToSellpiaFile(collected.xlsxBase64, collected.fileName, {
-        download: false,
-        run,
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (isNoNewOrdersMessage(msg)) {
-        toastNoNewOrders('올웨이즈');
-        return 0;
-      }
-      throw err;
-    }
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-always-browser`,
-      sourceName: `올웨이즈 주문 (${formatNumber(rows)}건)`,
-      convertedAt,
-      collectionDate: collectionDateOf(run),
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'always',
-      mallName: '올웨이즈',
-    });
-    return rows;
-  };
-
   const generateOnchannelSellpia = async (
     run: OrderCollectionExtensionRun,
     collectionDate: string,
@@ -569,7 +528,6 @@ export function createBrowserMallCollector({
     if (account.key === 'onch') return resultFor(await generateOnchannelSellpia(resolvedRun, today), today);
     if (account.key === 'kakao') return resultFor(await generateKakaoSellpia(resolvedRun), today);
     if (account.key === 'lotte-on') return resultFor(await generateLotteonSellpia(resolvedRun), today);
-    if (account.key === 'always') return resultFor(await generateAlwayzSellpia(resolvedRun), today);
     if (account.key === 'haebub-mall') return resultFor(await generateHaebeopSellpia(resolvedRun), today);
     // 실행 kind로 옮긴 몰(`MALL_ORDER_OPERATION_MALLS` — 1차 KID-359 H3, 엑셀·blob 몰 KID-380)은 이 옛 절차로 오지 않는다.
     throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);

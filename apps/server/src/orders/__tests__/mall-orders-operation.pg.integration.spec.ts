@@ -448,6 +448,10 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     await excelMall({ mallKey: 'gs-shop', name: 'GS샵', route: 'gsshop/convert', fileName: 'GS샵.xlsx', contentType: XLSX_MIME });
   });
 
+  it('올웨이즈: 앱이 조립한 xlsx blob 조각을 이어 xlsx 파일 캡처로 보관하고 alwayz 변환 라우트로 다시 변환한다', async () => {
+    await excelMall({ mallKey: 'always', name: '올웨이즈', route: 'alwayz/convert', fileName: '올웨이즈.xlsx', contentType: XLSX_MIME });
+  });
+
   it('오늘 주문 capability는 실행 표(몰 주문·directship의 최신 성공 rowCount)와 옛 run(2차 몰·옛 directship)을 한 수로 센다', async () => {
     // 옛 경로: 2차 몰(onch) 두 번 — 최신 하나만, 옮긴 몰(kidkids)의 옛 run은 실행이 있으면 실행이 이긴다, 옛 directship.
     const oldRun = (mallKey: string | null, sourceType: string, rowCount: number, createdAt: Date) =>

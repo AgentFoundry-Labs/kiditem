@@ -25,7 +25,6 @@ const automaticCollectors = [
   'collectKidsnoteOrders',
   'collectOnchannelOrders',
   'collectLotteonOrders',
-  'collectAlwayzOrders',
   'collectKakaoOrders',
   'collectHaebeopOrders',
 ];
@@ -33,7 +32,6 @@ const automaticCollectors = [
 // record, so its extension message intentionally carries only attemptId.
 const runDateActions = new Set([
   'collectLotteonOrders',
-  'collectAlwayzOrders',
   'collectKakaoOrders',
   'collectBoriboriOrders',
   'collectHaebeopOrders',
@@ -389,7 +387,7 @@ test('automatic order correlation guard rejects arbitrary spreads', () => {
   const syntheticSource = `
     const orderCollectionExtensionRunFields = (run: unknown) => ({ attemptId: run });
     sendToExtension({
-      action: 'collectAlwayzOrders',
+      action: 'collectKakaoOrders',
       // attemptId: run.attemptId must not satisfy the source guard by comment alone.
       ...orderCollectionExtensionRunFields(run),
     });

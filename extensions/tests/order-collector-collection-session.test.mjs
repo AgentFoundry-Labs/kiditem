@@ -18,7 +18,6 @@ const AUTOMATIC_ACTIONS = [
   ['collectKidsnoteOrders', 'collectKidsnoteOrders', 'kidsnote', { from: '2026-07-14', to: '2026-07-15' }],
   ['collectOnchannelOrders', 'collectOnchannelOrders', 'onch', { date: '2026-07-15' }],
   ['collectLotteonOrders', 'collectLotteonOrders', 'lotte-on', { date: '2026-07-15' }],
-  ['collectAlwayzOrders', 'collectAlwayzOrders', 'always', { date: '2026-07-15' }],
   ['collectKakaoOrders', 'collectKakaoOrders', 'kakao', { date: '2026-07-15' }],
   ['collectHaebeopOrders', 'collectHaebeopOrders', 'haebub-mall', { date: '2026-07-15' }],
 ];
@@ -746,7 +745,6 @@ test('named mall reads create a fresh inactive tab even when a provider tab exis
     ['findOrCreateDomeggookTab', 'https://domeggook.com/sc/order/lstAll'],
     ['findOrCreateKidkidsTab', 'https://partner.kidkids.net/new/pages/logis/management.htm'],
     ['findOrCreateLotteonTab', 'https://store.lotteon.com/cm/main/index_SO.wsp'],
-    ['findOrCreateAlwayzTab', 'https://alwayzseller.ilevit.com/shippings'],
     ['findOrCreateKakaoTab', 'https://shopping-seller.kakao.com/order/seller/store-order/integrate/list'],
     ['findOrCreateHaebeopTab', 'https://mallseller.genimarket.co.kr/mall/order/basket_list.php'],
   ];
@@ -797,7 +795,6 @@ test('every named mall collector uses the production attach-before-readiness pat
     ['collectKidsnoteOrders', [{ from: '2026-07-15', to: '2026-07-15' }]],
     ['collectOnchannelOrders', ['2026-07-15']],
     ['collectLotteonOrders', []],
-    ['collectAlwayzOrders', []],
     ['collectKakaoOrders', ['2026-07-15']],
     ['collectHaebeopOrders', [{}]],
   ];
