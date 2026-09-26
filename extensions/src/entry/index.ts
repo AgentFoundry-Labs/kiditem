@@ -31,6 +31,7 @@ import '../sites/11st/listings';
 import '../sites/1688';
 import '../sites/always/listings';
 import '../sites/art09';
+import '../sites/auction/listings';
 import '../sites/coupang-product';
 import '../sites/coupang-shop';
 import '../sites/coupang-search';

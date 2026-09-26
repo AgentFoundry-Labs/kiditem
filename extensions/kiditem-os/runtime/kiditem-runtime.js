@@ -5416,7 +5416,8 @@ var KidItemRuntime = (() => {
     "thirtymall",
     "kidsnote",
     "11st",
-    "gmarket"
+    "gmarket",
+    "auction"
   ];
   function isMallAdminListingOperationMall(mallKey) {
     return MALL_ADMIN_LISTING_OPERATION_MALLS.includes(mallKey);
@@ -9036,6 +9037,33 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "art09", create: (deps, lease) => createArt09Site(deps.tabs, createSiteSignIn(ART09_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/gmarket/listings.ts
+  var ESM_LISTINGS_URL = "https://item.esmplus.com/goods/list";
+  var ESM_LISTINGS_FILE = "content/orders/esm-listings.js";
+  function esmListingsGuard(displayName) {
+    return {
+      allows: (url) => hostWithin(url, ["esmplus.com"]),
+      isLogin: (url) => hostWithin(url, ["esmplus.com"]) && (url.hostname.toLowerCase().startsWith("signin.") || /login|signin/i.test(url.pathname)),
+      loginMessage: `${displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ESM Plus \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`
+    };
+  }
+  function createEsmListings(tabs, mallKey, displayName) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey,
+        displayName,
+        startUrl: ESM_LISTINGS_URL,
+        file: ESM_LISTINGS_FILE,
+        call: "esm.listings",
+        guard: esmListingsGuard(displayName)
+      }, plan)
+    };
+  }
+  registerSite({ name: "gmarket", create: (deps) => createEsmListings(deps.tabs, "gmarket", "\uC9C0\uB9C8\uCF13") });
+
+  // extensions/src/sites/auction/listings.ts
+  registerSite({ name: "auction", create: (deps) => createEsmListings(deps.tabs, "auction", "\uC625\uC158") });
+
   // extensions/src/sites/coupang-product/index.ts
   var ORIGIN = "https://www.coupang.com";
   var PAGE_TIMEOUT_MS = 6e4;
@@ -10031,30 +10059,6 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "domeggook", create: (deps, lease) => createDomeggookSite(deps.tabs, deps, createSiteSignIn(DOMEGGOOK_LOGIN, lease.credentials, deps)) });
-
-  // extensions/src/sites/gmarket/listings.ts
-  var ESM_LISTINGS_URL = "https://item.esmplus.com/goods/list";
-  var ESM_LISTINGS_FILE = "content/orders/esm-listings.js";
-  function esmListingsGuard(displayName) {
-    return {
-      allows: (url) => hostWithin(url, ["esmplus.com"]),
-      isLogin: (url) => hostWithin(url, ["esmplus.com"]) && (url.hostname.toLowerCase().startsWith("signin.") || /login|signin/i.test(url.pathname)),
-      loginMessage: `${displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ESM Plus \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`
-    };
-  }
-  function createEsmListings(tabs, mallKey, displayName) {
-    return {
-      readListings: (plan) => readMallListings(tabs, {
-        mallKey,
-        displayName,
-        startUrl: ESM_LISTINGS_URL,
-        file: ESM_LISTINGS_FILE,
-        call: "esm.listings",
-        guard: esmListingsGuard(displayName)
-      }, plan)
-    };
-  }
-  registerSite({ name: "gmarket", create: (deps) => createEsmListings(deps.tabs, "gmarket", "\uC9C0\uB9C8\uCF13") });
 
   // extensions/src/sites/icecream-mall/listings.ts
   var ICECREAM_LISTINGS_URL = "https://po.i-screammall.co.kr/goods/goodsMgmt.goodsMgmtView.do";
