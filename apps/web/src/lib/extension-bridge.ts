@@ -5,8 +5,6 @@ export const KIDITEM_EXTENSION_ID_KEY = 'kiditem-ext-id';
 export const KIDITEM_SOURCING_EXTENSION_ID_KEY = 'kiditem-sourcing-ext-id';
 export const KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY = 'kiditem-order-ext-id';
 export const KIDITEM_WING_FORM_PORT_NAME = 'kiditem-wing-form-v1';
-export const KIDITEM_SELLPIA_MANUAL_MATCH_PORT_NAME =
-  'kiditem-sellpia-manual-match-v1';
 
 type ChromeRuntime = {
   runtime?: {
@@ -465,53 +463,6 @@ export async function detectOrderCollectionExtensionRuntime(
     (status) => status?.status === 'incompatible',
   );
   return incompatible ?? storedStatus ?? { status: 'not_found' };
-}
-
-const SellpiaManualMatchExtensionReplySchema = z.discriminatedUnion('success', [
-  z.object({
-    success: z.literal(true),
-    attemptId: z.string().uuid(),
-    terminalState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
-    continuationRequired: z.boolean(),
-  }).strict(),
-  z.object({
-    success: z.literal(false),
-    attemptId: z.string().uuid(),
-    terminalState: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
-    continuationRequired: z.boolean(),
-    errorCode: z.string().min(1).max(100).optional(),
-    error: z.string().min(1).max(300),
-  }).strict(),
-]);
-
-export type SellpiaManualMatchExtensionReply = z.infer<
-  typeof SellpiaManualMatchExtensionReplySchema
->;
-
-export async function collectSellpiaManualMatch(
-  extensionId: string,
-  attemptId: string,
-): Promise<SellpiaManualMatchExtensionReply> {
-  const response = await sendToExtensionViaPort<unknown>(
-    extensionId,
-    KIDITEM_SELLPIA_MANUAL_MATCH_PORT_NAME,
-    {
-      action: 'collectSellpiaManualMatch',
-      attemptId,
-    },
-    {
-      timeoutMs: null,
-      keepAlive: {
-        intervalMs: 15_000,
-        message: { action: 'keepAlive' },
-      },
-    },
-  );
-  const parsed = SellpiaManualMatchExtensionReplySchema.parse(response);
-  if (parsed.attemptId !== attemptId) {
-    throw new Error('Sellpia manual-match extension returned a mismatched attempt ID');
-  }
-  return parsed;
 }
 
 export async function detectBrowserCollectionExtensionIds(): Promise<string[]> {

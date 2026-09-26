@@ -22,12 +22,19 @@ export async function deactivateCatalogAbsence(
   input: {
     organizationId: string;
     channelAccountId: string;
-    sourceImportRunId: string;
+    /**
+     * 끈 행에 남길 출처. 실행 계약으로 옮긴 원천(KID-363)은 `operationId`(`lastOperationId`, `lastImportRunId`는 비운다),
+     * 아직 옛 시도로 도는 원천은 `sourceImportRunId`.
+     */
+    provenance: { operationId: string } | { sourceImportRunId: string };
     scope: ChannelCatalogAbsenceScope;
     presentExternalProductIds: readonly string[] | null;
     presentExternalOptionIds: readonly string[] | null;
   },
 ): Promise<{ listings: number; options: number }> {
+  const provenance = 'operationId' in input.provenance
+    ? { lastOperationId: input.provenance.operationId, lastImportRunId: null }
+    : { lastImportRunId: input.provenance.sourceImportRunId };
   const fromThisSource = {
     rawJson: {
       path: ['source'],
@@ -47,7 +54,7 @@ export async function deactivateCatalogAbsence(
         externalOptionId: { notIn: [...input.presentExternalOptionIds] },
         isActive: true,
       },
-      data: { isActive: false, lastImportRunId: input.sourceImportRunId },
+      data: { isActive: false, ...provenance },
     });
   const listings = input.presentExternalProductIds === null
     ? { count: 0 }
@@ -59,7 +66,7 @@ export async function deactivateCatalogAbsence(
         externalId: { notIn: [...input.presentExternalProductIds] },
         isActive: true,
       },
-      data: { isActive: false, lastImportRunId: input.sourceImportRunId },
+      data: { isActive: false, ...provenance },
     });
   return { listings: listings.count, options: options.count };
 }

@@ -76,7 +76,7 @@ describe('channel product matching hooks', () => {
 
   it('collects Sellpia evidence once and auto-matches every selected account', async () => {
     vi.mocked(collectSellpiaManualMatchSnapshot).mockResolvedValue({
-      attempt: manualMatchAttempt(),
+      operation: manualMatchOperation(),
       status: manualMatchStatus(),
     });
     vi.mocked(autoMatchChannelProducts)
@@ -98,7 +98,7 @@ describe('channel product matching hooks', () => {
   it('runs Sellpia evidence collection and option configuration after a Wing workbook upload', async () => {
     vi.mocked(importCoupangWingCatalog).mockResolvedValue(importResponse());
     vi.mocked(collectSellpiaManualMatchSnapshot).mockResolvedValue({
-      attempt: manualMatchAttempt(),
+      operation: manualMatchOperation(),
       status: manualMatchStatus(),
     });
     vi.mocked(autoMatchChannelProducts).mockResolvedValue({
@@ -133,7 +133,7 @@ describe('channel product matching hooks', () => {
   it('uses the same automatic matching workflow after a Rocket matching CSV upload', async () => {
     vi.mocked(importCoupangRocketMatchingCsv).mockResolvedValue(rocketImportResponse());
     vi.mocked(collectSellpiaManualMatchSnapshot).mockResolvedValue({
-      attempt: manualMatchAttempt(),
+      operation: manualMatchOperation(),
       status: manualMatchStatus(),
     });
     vi.mocked(autoMatchChannelProducts).mockResolvedValue({
@@ -200,21 +200,25 @@ function emptyQueue() {
   };
 }
 
-function manualMatchAttempt() {
+/** 끝난 `channels.sellpia_manual_match` 실행(KID-363). */
+function manualMatchOperation() {
   return {
-    attemptId: '11111111-1111-4111-8111-111111111111',
-    state: 'COMPLETE' as const,
-    expiresAt: '2099-01-01T00:00:00.000Z',
-    plan: {
-      sourceType: 'sellpia_product_manual_match' as const,
-      parserVersion: 'sellpia-manual-match-v1' as const,
-      sourceOrigin: 'https://kiditem.sellpia.com' as const,
-      sourcePath: '/product_manual_match.html' as const,
-      targetCodes: ['634-1'],
-      targetCount: 1,
-    },
+    id: '11111111-1111-4111-8111-111111111111',
+    kind: 'channels.sellpia_manual_match',
+    status: 'succeeded' as const,
+    lockKeys: [],
+    plan: null,
+    progress: null,
+    result: { targets: 1, matched: 1 },
+    window: null,
     errorCode: null,
     errorMessage: null,
+    startedAt: '2026-08-03T00:00:00.000Z',
+    finishedAt: '2026-08-03T00:00:10.000Z',
+    expiresAt: '2026-08-03T00:30:00.000Z',
+    attempts: 1,
+    maxAttempts: 1,
+    scheduledFor: null,
   };
 }
 
@@ -244,31 +248,11 @@ function importResponse() {
 }
 
 function rocketImportResponse() {
-  const now = '2026-08-03T00:00:00.000Z';
   return {
-    run: {
-      id: '55555555-5555-4555-8555-555555555555',
-      sourceType: 'coupang_rocket_matching_csv' as const,
-      channelAccountId: ACCOUNT_B,
-      fileName: 'rocket443-sellpia-matching.csv',
-      fileHash: 'a'.repeat(64),
-      status: 'completed' as const,
-      rowCount: 1,
-      importedAt: now,
-      lastVerifiedAt: null,
-      verificationCount: 0,
-      lastTrigger: null,
-      freshnessGeneration: null,
-      manualFreshExportConfirmedAt: null,
-      manualFreshExportConfirmedBy: null,
-      qualityReport: null,
-      errorCode: null,
-      errorMessage: null,
-      createdAt: now,
-      updatedAt: now,
-    },
     duplicate: false,
+    operationId: '55555555-5555-4555-8555-555555555555',
     changes: {
+      rowCount: 1,
       createdProductCount: 1,
       updatedProductCount: 0,
       createdSkuCount: 1,

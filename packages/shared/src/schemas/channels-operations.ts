@@ -47,3 +47,22 @@ export type RocketMatchingCsvScope = z.infer<typeof RocketMatchingCsvScopeSchema
 export const SABANGNET_MALL_LISTINGS_CHUNK_KIND = 'listing_rows' as const;
 export const MALL_ADMIN_LISTINGS_CHUNK_KIND = 'listing_rows' as const;
 export const ROCKET_MATCHING_CSV_CHUNK_KIND = 'csv_rows' as const;
+
+/** 로켓 매칭 CSV 실행의 `result`: 받은 행 수와 리스팅·옵션 반영 수. 화면이 업로드 결과로 보여 준다. */
+export const RocketMatchingCsvResultSchema = z.object({
+  rowCount: z.number().int().nonnegative(),
+  createdProductCount: z.number().int().nonnegative(),
+  updatedProductCount: z.number().int().nonnegative(),
+  createdSkuCount: z.number().int().nonnegative(),
+  updatedSkuCount: z.number().int().nonnegative(),
+}).strict();
+export type RocketMatchingCsvResult = z.infer<typeof RocketMatchingCsvResultSchema>;
+
+/** 사방넷 목록을 끝까지 읽었다는 증거 하나(`SabangnetMallListingsScanSchema`). 행 청크 뒤에 한 번 보낸다. */
+export const SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND = 'listing_scan' as const;
+
+/** 몰 관리자 목록을 끝까지 읽었다는 증거 하나(`MallAdminListingsScanSchema`). 행 청크 뒤에 한 번 보낸다. */
+export const MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND = 'listing_scan' as const;
+
+/** Channels 기타 kind(사방넷·몰 관리자·셀피아 수동매칭)를 도는 확장 빌드가 `ping` capabilities에 싣는 표시. 웹이 시작 전에 본다. */
+export const CHANNELS_OPERATION_CAPABILITY = 'channelsOperationKindsV1' as const;

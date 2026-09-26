@@ -1,6 +1,7 @@
 import { registerSite } from '../registry';
 import type { TabPages } from '../tab-page';
 import { createSellpiaTracking } from './tracking';
+import { createSellpiaManualMatch } from './manual-match';
 
 export { SELLPIA_ORIGIN, SELLPIA_PAGE_GUARD, SELLPIA_REPRINT_URL, SELLPIA_SHIPMENT_TRACKING_FILE, type SellpiaTrackingRow } from './tracking';
 
@@ -13,6 +14,7 @@ export { SELLPIA_ORIGIN, SELLPIA_PAGE_GUARD, SELLPIA_REPRINT_URL, SELLPIA_SHIPME
 export function createSellpiaSite(tabs: TabPages) {
   return {
     ...createSellpiaTracking(tabs),
+    ...createSellpiaManualMatch(tabs),
   };
 }
 

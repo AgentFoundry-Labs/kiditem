@@ -11,7 +11,6 @@ const ordersEnvironmentContext = KidItemEnvironmentContext.create({
   requiresAuth: false,
   legacyStorageKeys: ["apiBase", "kiditem_auth_token"],
 });
-const SELLPIA_MANUAL_MATCH_PORT_NAME = "kiditem-sellpia-manual-match-v1";
 const orderCollectionLifecycle = KidItemOrderCollectionLifecycle.create({
   sessions: collectionSessions,
   producer: "orders.mall",
@@ -69,27 +68,11 @@ function providerCollectionDate(message, plan) {
     : plan?.collectionDate;
 }
 
-const sellpiaManualMatch = KidItemSellpiaManualMatch.create({ chrome });
-const sellpiaManualMatchSourceOwner = KidItemSellpiaManualMatchSourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) =>
-    sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
-  collect: ({ plan, ...collection }) =>
-    sellpiaManualMatch.collect(collection, plan.targetCodes),
-});
 const sellpiaPostProcessing = KidItemSellpiaPostProcessing;
 const sellpiaInvoiceTargets = sellpiaPostProcessing.createTargetStore({
   chrome,
   storageKeyForEnvironment: (base, environmentId) =>
     ordersEnvironmentContext.storageKey(base, environmentId),
-});
-const sabangnetMallListings = KidItemSabangnetMallListings.create({ chrome });
-const sabangnetMallListingsSourceOwner = KidItemSabangnetMallListingsSourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
-  collect: sabangnetMallListings.collect,
 });
 const mallAdminListings = KidItemMallAdminListings.create({ chrome });
 const mallAdminListingsSourceOwner = KidItemMallAdminListingsSourceOwner.create({
@@ -144,57 +127,6 @@ const sellpiaProductProfitabilitySourceOwner = KidItemSellpiaProductProfitabilit
   }),
 });
 
-function runSellpiaManualMatchCollection(message) {
-  return sellpiaManualMatchSourceOwner.run({
-    environmentId: message.environmentId,
-    attemptId: message.attemptId,
-  });
-}
-
-function handleSellpiaManualMatchPort(port, senderEnvironment) {
-  let started = false;
-  const finish = (result) => {
-    try {
-      port.postMessage(result);
-    } catch {
-      // The web page may have closed while a read-only collection was finishing.
-    }
-    try {
-      port.disconnect();
-    } catch {
-      // The terminal message and the remote disconnect may race.
-    }
-  };
-  port.onMessage.addListener((message) => {
-    if (message?.action === "keepAlive") return;
-    if (started) return;
-    started = true;
-    if (message?.action !== "collectSellpiaManualMatch") {
-      finish({ success: false, error: "Unsupported Sellpia manual-match request." });
-      return;
-    }
-    const environmentId = senderEnvironment.environmentId;
-    let parsed;
-    try {
-      parsed = KidItemSellpiaManualMatchSourceOwner.parseAction(message);
-    } catch (error) {
-      finish({ success: false, error: error?.message || "Invalid Sellpia manual-match request." });
-      return;
-    }
-    const scopedMessage = { ...parsed, environmentId };
-    ordersEnvironmentContext.connect(environmentId).catch(() => undefined);
-    Promise.resolve(runSellpiaManualMatchCollection(scopedMessage))
-      .then(finish)
-      .catch((error) => finish({
-        success: false,
-        attemptId: scopedMessage.attemptId,
-        terminalState: "FAILED",
-        errorCode: "SOURCE_OWNER_UNAVAILABLE",
-        error: error?.message || "Sellpia manual-match collection failed.",
-      }));
-  });
-}
-
 async function lifecycleForAttempt(attemptId, environmentId) {
   const session = await collectionSessions.getOwned(attemptId, environmentId);
   if (session?.producer === "orders.mall") return orderCollectionLifecycle;
@@ -223,12 +155,6 @@ async function cancelOrdersCollectionSession(attemptId, environmentId) {
   if (session?.producer === "orders.sellpia_product_profitability") {
     return sellpiaProductProfitabilitySourceOwner.cancel({ attemptId, environmentId });
   }
-  if (session?.producer === "orders.sellpia_manual_match") {
-    return sellpiaManualMatchSourceOwner.cancel({ attemptId, environmentId });
-  }
-  if (session?.producer === "orders.sabangnet_mall_listings") {
-    return sabangnetMallListingsSourceOwner.cancel({ attemptId, environmentId });
-  }
   if (session?.producer === "orders.mall_admin_listings") {
     return mallAdminListingsSourceOwner.cancel({ attemptId, environmentId });
   }
@@ -248,7 +174,6 @@ async function recoverOrdersCollections(environmentId) {
     sellpiaInventorySourceOwner,
     sellpiaSalesSourceOwner,
     sellpiaProductProfitabilitySourceOwner,
-    sellpiaManualMatchSourceOwner,
   ];
   const results = await Promise.allSettled(
     owners
@@ -922,22 +847,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   // 몰 가격 보내기(KID-247). 사람이 판매상품 화면에서 누른 가격만 보내고, 몰을 다시 읽어 확인한다.
   if (msg?.action === "sendMallPrice") {
     return respond(mallAvailabilitySend().sendPrice(msg));
-  }
-
-  if (msg?.action === "collectSellpiaManualMatch") {
-    try {
-      const parsed = KidItemSellpiaManualMatchSourceOwner.parseAction(rawMessage);
-      return respond(runSellpiaManualMatchCollection({
-        ...parsed,
-        environmentId,
-      }));
-    } catch (error) {
-      sendResponse({
-        success: false,
-        error: error?.message || "Invalid Sellpia manual-match request.",
-      });
-      return false;
-    }
   }
 
   if (msg?.action === "sendOrderFileToSellpia") {
@@ -5392,22 +5301,12 @@ KidItemDomains.register({
         sellpiaProductProfitabilitySourceOwner.run({ attemptId, environmentId }),
       ),
     },
-    collectSabangnetMallListings: {
-      validate: KidItemSabangnetMallListingsSourceOwner.parseStart,
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        sabangnetMallListingsSourceOwner.run({ attemptId, environmentId }),
-      ),
-    },
     collectMallAdminListings: {
       validate: KidItemMallAdminListingsSourceOwner.parseStart,
       handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
         mallAdminListingsSourceOwner.run({ attemptId, environmentId }),
       ),
     },
-  },
-  externalPorts: {
-    [SELLPIA_MANUAL_MATCH_PORT_NAME]: (port, senderEnvironment) =>
-      handleSellpiaManualMatchPort(port, senderEnvironment),
   },
   capabilities: {
     orderCollectionIcecreamMall: true,
@@ -5423,11 +5322,6 @@ KidItemDomains.register({
     sellpiaProductProfitabilitySourceOwnerV1: true,
     collectSellpiaInventoryJsonV1: true,
     sellpiaInventorySourceOwnerV1: true,
-    collectSellpiaManualMatchV1: true,
-    collectSellpiaManualMatchPortV1: true,
-    sellpiaManualMatchSourceOwnerV1: true,
-    // 사방넷 송신 기록으로 몰 등록 상품을 가져온다(KID-246).
-    sabangnetMallListingsSourceOwnerV1: true,
     // 키드키즈 · 아이스크림몰 관리자 화면에서 등록 상품을 직접 가져온다(KID-246 2단계).
     mallAdminListingsSourceOwnerV1: true,
     // 사방넷으로만 가져오던 몰(도매꾹 · 키즈노트 · 11번가 · 지마켓 · 옥션 · 카카오 · 롯데ON · 스마트스토어 · 티쳐몰)도 직접 읽는다.

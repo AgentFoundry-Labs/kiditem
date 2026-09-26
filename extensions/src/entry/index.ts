@@ -1,3 +1,6 @@
+import '../collectors/channels.mall_admin_listings';
+import '../collectors/channels.sabangnet_mall_listings';
+import '../collectors/channels.sellpia_manual_match';
 import '../collectors/channels.wing_catalog_details';
 import '../collectors/channels.wing_catalog_excel';
 import '../collectors/channels.wing_catalog_list';
@@ -22,13 +25,16 @@ import '../sites/domeggook';
 import '../sites/icecream-mall';
 import '../sites/kidkids';
 import '../sites/live-commerce';
+import '../sites/mall-admin-listings';
 import '../sites/mall-orders';
 import '../sites/product-page';
+import '../sites/sabangnet';
 import '../sites/sellpia';
 import '../sites/tiktok-cc';
 import '../sites/wing';
 import '../sites/wing/pre-matching-search';
 import '../sites/wing/reviews';
+import { CHANNELS_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
 import { createBrowserResources } from '../core/browser';
 import { createTabPages } from '../sites/tab-page';
 import type { SiteDeps } from '../sites/registry';
@@ -64,10 +70,11 @@ export function installEntry(): boolean {
   });
   // sourcingOperationKindsV1: 이 빌드가 소싱 kind 6종을 돈다(KID-360) — 웹은 이것으로 옛 빌드를 가려낸다.
   // orderCaptureOperationKindsV1: 셀피아 송장·몰 주문 kind를 돈다(KID-359 H3).
+  // channelsOperationKindsV1: Channels 기타 kind(사방넷 몰 목록·몰 관리자 목록·셀피아 수동매칭)를 돈다(KID-363).
   // operationLoginV1: operation.start의 credentials(사이트 자동 로그인, KID-377)를 받는다 — 옛 빌드는 그 칸을 거절한다.
   registerWithLegacyDomains({
     externalActions,
-    capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true, operationLoginV1: true },
+    capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true, [CHANNELS_OPERATION_CAPABILITY]: true, operationLoginV1: true },
   });
   installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
   return true;

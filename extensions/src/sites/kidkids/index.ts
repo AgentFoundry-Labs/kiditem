@@ -5,6 +5,7 @@ import { callPage } from '../page-call';
 import { registerSite } from '../registry';
 import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login';
 import { hostWithin, type PageGuard, type TabPages } from '../tab-page';
+import { createKidkidsListings } from './listings';
 
 /** 출고관리 화면. 목록·발주서 요청은 이 화면의 같은 출처 상대 주소다. */
 export const KIDKIDS_ORDER_URL = 'https://partner.kidkids.net/new/pages/logis/management.htm';
@@ -48,6 +49,7 @@ type KidkidsAnswer =
  */
 export function createKidkidsSite(tabs: TabPages, signIn?: SiteSignIn) {
   return {
+    ...createKidkidsListings(tabs, signIn),
     readOrders(input: { collectionDate: string | null }): Promise<{ rows: unknown[] }> {
       return withFreshTab(tabs, KIDKIDS_ORDER_URL, async (page) => {
         const answer = await callPage<KidkidsAnswer>(page, 'kidkids.orders', { dateFilter: input.collectionDate ?? '' }, {

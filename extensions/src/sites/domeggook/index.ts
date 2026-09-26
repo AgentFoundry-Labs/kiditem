@@ -5,6 +5,7 @@ import { callPage } from '../page-call';
 import { registerSite } from '../registry';
 import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login';
 import { hostWithin, type PageGuard, type TabPages } from '../tab-page';
+import { createDomeggookListings } from './listings';
 
 export const DOMEGGOOK_ORDER_LIST_URL = 'https://domeggook.com/sc/order/lstAll';
 /** 엑셀 생성 목록(JSON). 로그아웃이면 200에 `{res:false}`, 로그인이면 `{dat:[…]}`(mall-session.js 실측 규칙). */
@@ -86,6 +87,7 @@ function base64Of(bytes: Uint8Array): string {
 export function createDomeggookSite(tabs: TabPages, deps: SiteCallerDeps, signIn?: SiteSignIn) {
   const caller = createSiteCaller({ minIntervalMs: 0, displayName: '도매꾹', timeoutMs: 30_000 }, deps);
   return {
+    ...createDomeggookListings(tabs, signIn),
     async readOrders(input: { collectionDate: string | null; signal?: AbortSignal }): Promise<{ rows: unknown[] }> {
       // 엑셀 목록이 로그아웃이면 새 탭에서 한 번 로그인하고 다시 묻는다(KID-377).
       const before = await (signIn ? signIn.beforeTab(tabs, () => orderList(caller)) : orderList(caller));

@@ -3,14 +3,12 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import {
   KIDITEM_EXTENSION_ID_KEY,
   KIDITEM_ORDER_COLLECTION_EXTENSION_ID_KEY,
-  KIDITEM_SELLPIA_MANUAL_MATCH_PORT_NAME,
   KIDITEM_SOURCING_EXTENSION_ID_KEY,
   detectExtensionId,
   detectWingFormExtensionId,
   detectOrderCollectionExtensionId,
   detectOrderCollectionExtensionRuntime,
   detectSourcingExtensionId,
-  collectSellpiaManualMatch,
   sendToExtensionViaPort,
 } from '../extension-bridge';
 
@@ -322,102 +320,5 @@ describe('durable extension command port', () => {
       name: 'kiditem-wing-form-v1',
     });
     expect(disconnect).toHaveBeenCalledOnce();
-  });
-});
-
-describe('Sellpia manual-match extension command', () => {
-  it('uses the durable manual-match port and validates the reply', async () => {
-    const attemptId = '11111111-1111-4111-8111-111111111111';
-    const messageListeners: Array<(message: unknown) => void> = [];
-    const disconnect = vi.fn();
-    const postMessage = vi.fn((message: unknown) => {
-      if ((message as { action?: string }).action !== 'collectSellpiaManualMatch') return;
-      queueMicrotask(() => messageListeners.forEach((listener) => listener({
-        success: true,
-        attemptId,
-        terminalState: 'COMPLETE',
-        continuationRequired: false,
-      })));
-    });
-    const connect = vi.fn(() => ({
-      postMessage,
-      disconnect,
-      onMessage: {
-        addListener: (listener: (message: unknown) => void) => messageListeners.push(listener),
-        removeListener: vi.fn(),
-      },
-      onDisconnect: {
-        addListener: vi.fn(),
-        removeListener: vi.fn(),
-      },
-    }));
-    Object.defineProperty(window, 'chrome', {
-      configurable: true,
-      value: { runtime: { lastError: undefined, connect } },
-    });
-
-    await expect(collectSellpiaManualMatch(
-      'order-extension',
-      attemptId,
-    )).resolves.toMatchObject({ success: true, attemptId });
-    expect(connect).toHaveBeenCalledWith('order-extension', {
-      name: KIDITEM_SELLPIA_MANUAL_MATCH_PORT_NAME,
-    });
-    expect(postMessage).toHaveBeenCalledWith({
-      action: 'collectSellpiaManualMatch',
-      attemptId,
-    });
-    expect(disconnect).toHaveBeenCalledOnce();
-  });
-
-  it('keeps a bounded manual-match scan alive without a fixed total timeout', async () => {
-    vi.useFakeTimers();
-    const attemptId = '11111111-1111-4111-8111-111111111111';
-    const messageListeners: Array<(message: unknown) => void> = [];
-    const postMessage = vi.fn();
-    const disconnect = vi.fn();
-    Object.defineProperty(window, 'chrome', {
-      configurable: true,
-      value: {
-        runtime: {
-          lastError: undefined,
-          connect: vi.fn(() => ({
-            postMessage,
-            disconnect,
-            onMessage: {
-              addListener: (listener: (message: unknown) => void) =>
-                messageListeners.push(listener),
-              removeListener: vi.fn(),
-            },
-            onDisconnect: {
-              addListener: vi.fn(),
-              removeListener: vi.fn(),
-            },
-          })),
-        },
-      },
-    });
-
-    const pending = collectSellpiaManualMatch('order-extension', attemptId);
-    expect(postMessage).toHaveBeenNthCalledWith(1, {
-      action: 'collectSellpiaManualMatch',
-      attemptId,
-    });
-    await vi.advanceTimersByTimeAsync(15_000);
-    expect(postMessage).toHaveBeenNthCalledWith(2, {
-      action: 'keepAlive',
-    });
-    await vi.advanceTimersByTimeAsync(10 * 60_000);
-    expect(postMessage.mock.calls.length).toBeGreaterThan(2);
-    messageListeners.forEach((listener) => listener({
-      success: true,
-      attemptId,
-      terminalState: 'COMPLETE',
-      continuationRequired: false,
-    }));
-
-    await expect(pending).resolves.toMatchObject({ success: true, attemptId });
-    expect(disconnect).toHaveBeenCalledOnce();
-    vi.useRealTimers();
   });
 });

@@ -3655,8 +3655,6 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
     // 주문수집
     'orderCollectionIcecreamMall',
     'collectSellpiaInventoryJsonV1',
-    'collectSellpiaManualMatchV1',
-    'collectSellpiaManualMatchPortV1',
     'orderCollectionFailureEvidenceV1',
     'orderCollectionConfirmedCoverageV1',
     'mallSessionProbeV1',
@@ -3771,7 +3769,8 @@ test('외부 장기 실행 포트를 공용 dispatch 하나가 소유 도메인�
   assert.equal(fake.connectExternalListeners.length, 1);
   const [dispatch] = fake.connectExternalListeners;
 
-  for (const name of ['kiditem-wing-form-v1', 'kiditem-sellpia-manual-match-v1']) {
+  // 셀피아 수동매칭 포트(kiditem-sellpia-manual-match-v1)는 실행 계약 kind로 옮겨 없다(KID-363).
+  for (const name of ['kiditem-wing-form-v1']) {
     const messageListeners = [];
     let disconnected = 0;
     dispatch({

@@ -5,6 +5,7 @@ import { callPage } from '../page-call';
 import { registerSite } from '../registry';
 import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login';
 import { hostWithin, type PageGuard, type TabPage, type TabPages } from '../tab-page';
+import { createIcecreamListings } from './listings';
 
 export const ICECREAM_MALL_URL = 'https://po.i-screammall.co.kr/main.do';
 export const ICECREAM_FRAMES_FILE = 'content/orders/icecream-frames.js';
@@ -149,6 +150,7 @@ export function createIcecreamMallSite(tabs: TabPages, sleep: (ms: number) => Pr
   }
 
   return {
+    ...createIcecreamListings(tabs, signIn),
     readOrders(input: { collectionDate: string | null }): Promise<{ rows: unknown[]; continuation?: Record<string, unknown> }> {
       return withFreshTab(tabs, ICECREAM_MALL_URL, async (page) => {
         // 로그인 화면이 JS로 늦게 뜨므로 잠시 살핀다 — 배송 메뉴(또는 배송조회 화면)가 보이면 로그인된 것이라 곧바로 끝낸다.

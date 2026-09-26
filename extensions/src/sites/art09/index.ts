@@ -5,6 +5,7 @@ import { callPage } from '../page-call';
 import { registerSite } from '../registry';
 import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login';
 import { hostWithin, type PageGuard, type TabPages } from '../tab-page';
+import { createArt09Listings } from './listings';
 
 /** Cafe24 공급사 관리자 주문목록. 배송정보 상세는 이 화면의 같은 출처 상대 주소다. */
 export const ART09_ORDER_URL = 'https://zzogzzog1.cafe24.com/admin/php/shop1/s_new/order_list.php?1&shop_no=1';
@@ -47,6 +48,7 @@ type Art09Answer =
  */
 export function createArt09Site(tabs: TabPages, signIn?: SiteSignIn) {
   return {
+    ...createArt09Listings(tabs, signIn),
     readOrders(input: { collectionDate: string | null }): Promise<{ rows: unknown[] }> {
       return withFreshTab(tabs, ART09_ORDER_URL, async (page) => {
         const answer = await callPage<Art09Answer>(page, 'art09.orders', { dateFilter: input.collectionDate ?? '' }, {

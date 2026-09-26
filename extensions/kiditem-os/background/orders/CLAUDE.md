@@ -93,13 +93,15 @@ summary, Rocket PO and directship are operation kinds collected by
 
 ## Sabangnet Listing Import
 
-- `orders.sabangnet_mall_listings` (Channels owner) reads Sabangnet's send
-  records — one row per mall × product with the mall product code — from the
-  fixed list API on the frozen plan's origin, all pages, in a fresh inactive
-  tab. It never opens send, save, or delete screens.
-- That list response also carries mall login IDs and passwords. Copy only the
-  schema's whitelisted fields; never return, log, or forward the rest. The
-  Sabangnet session token stays inside the injected function.
+- `channels.sabangnet_mall_listings` (Channels owner, KID-363) is a runtime
+  kind: `src/sites/sabangnet` opens one fresh inactive tab on the plan's origin
+  and calls `content/orders/sabangnet-mall-listings.js` once per page (500 rows,
+  800 ms apart); `src/collectors/channels.sabangnet_mall_listings` pages to the
+  end, emits `listing_rows`, then one `listing_scan` completeness proof. It
+  never opens send, save, or delete screens.
+- That list response also carries mall login IDs and passwords. The page file
+  copies only whitelisted fields; never return, log, or forward the rest. The
+  Sabangnet session token stays inside the page file.
 - A total that moves between pages, a short page, or an unknown response code
   stops the run; the owner publishes only a complete list.
 
@@ -110,7 +112,13 @@ summary, Rocket PO and directship are operation kinds collected by
   one attempt for one mall account; the frozen plan names the
   mall, its origin, and its page-size cap. It opens only list and read-only
   product-view screens, never save, approval, or delete.
-- The reader lives in `mall-admin-listings.js`, keyed by mall in `READERS`.
+- The first batch (Kidkids, i-Scream, 아트공구, 도매꾹) is the runtime kind
+  `channels.mall_admin_listings` (KID-363): `src/sites/mall-admin-listings`
+  routes the plan's mall to `sites/<mall>/listings.ts`, which runs that mall's
+  reader moved verbatim into `content/orders/<mall>-listings.js` in a fresh tab;
+  a login page signs in once with the run's credentials (the mall's order
+  login spec, KID-377) and reads again.
+- The other readers live in `mall-admin-listings.js`, keyed by mall in `READERS`.
   Adding a mall is one reader plus one key there and one contract entry in
   `@kiditem/shared/mall-admin-listings`; the reader's origin and page size must
   match that contract, which the owner re-validates.
