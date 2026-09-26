@@ -2,11 +2,10 @@ import { allocateKidItemCode } from '../../../../common/kid-item-code';
 import { randomUUID } from 'node:crypto';
 import { Injectable } from '@nestjs/common';
 import { Prisma, type SellpiaInventoryState } from '@prisma/client';
-import { KiditemPreconditionError } from '@kiditem/shared/errors';
+import { KiditemConflictError, KiditemInvalidValueError, KiditemPreconditionError } from '@kiditem/shared/errors';
 import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
-import { ProductSourceConflictError } from '../../../application/exception/product-source.error';
 import { applySourceFacts, type MasterProduct as MasterProductDomain } from '../../../domain/master-product';
 import { lockProductMapping } from '../../../transaction/product-mapping-lock';
 import { advanceProductMappingGeneration } from './product-mapping-generation';
@@ -84,7 +83,8 @@ implements ProductSourcePublicationRepositoryPort {
       },
     });
     if (updated.count !== 1) {
-      throw new ProductSourceConflictError('Sellpia inventory publication lost its state fence');
+      // 상태 줄을 잠그고 읽었으므로 도달하지 않는 방어선이다.
+      throw new KiditemConflictError('PRODUCTS_STATE_CONFLICT', { details: { reason: 'sellpia_inventory_state_fence_lost' } });
     }
     await this.alerts.resolveSourceFailure(tx, {
       organizationId: input.organizationId,
@@ -160,7 +160,8 @@ async function replaceProductSources(
   for (const row of input.rows) {
     const identityKey = sourceIdentityKey(row.sourceProductCode, row.sourceOptionCode);
     if (incomingKeys.has(identityKey)) {
-      throw new ProductSourceConflictError('Sellpia snapshot contains a duplicate source identity');
+      // 스냅샷 스키마가 이미 거절하는 겹침이라 도달하지 않는 방어선이다.
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'duplicate_source_identity' } });
     }
     incomingKeys.add(identityKey);
     const previous = existingByIdentity.get(identityKey);
