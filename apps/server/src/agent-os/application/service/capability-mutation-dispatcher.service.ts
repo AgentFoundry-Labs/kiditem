@@ -1,4 +1,4 @@
-import { Injectable, Logger, type OnApplicationBootstrap } from '@nestjs/common';
+import { Injectable, type OnApplicationBootstrap } from '@nestjs/common';
 import {
   CapabilityResultEnvelopeSchema,
   CapabilityResultReceiptSchema,
@@ -54,18 +54,11 @@ export class OwnerResultAmbiguousError extends AgentOsError {
 export class CapabilityMutationDispatcher
   implements CapabilityMutationDispatcherPort, OnApplicationBootstrap
 {
-  private readonly logger = new Logger(CapabilityMutationDispatcher.name);
   private readonly inFlightByInvocationId = new Map<
     string,
     Promise<CapabilityInvocationRecord>
   >();
-  /**
-   * Latched on the single attempt, not on success. Nest calls the bootstrap
-   * hook once per process, so re-arming this after a failure would only add a
-   * retry path no caller reaches. A lost sweep is recovered by the next API
-   * start, which is what the error log below points at.
-   */
-  private bootstrapSweepAttempted = false;
+  private bootstrapSweep?: Promise<void>;
 
   constructor(
     private readonly repository: CapabilityInvocationRepositoryPort,
@@ -91,34 +84,19 @@ export class CapabilityMutationDispatcher
     return flight;
   }
 
-  /**
-   * Best-effort recovery of receipts that were admitted but never executed.
-   * Nest awaits this hook during bootstrap, so it must never reject: losing
-   * the sweep strands approved work, but it must not stop the API from
-   * serving every unrelated route.
-   */
-  async onApplicationBootstrap(): Promise<void> {
-    if (this.bootstrapSweepAttempted) return;
-    this.bootstrapSweepAttempted = true;
-    try {
-      const approvedPending = await this.repository.listApprovedPending({
-        limit: CAPABILITY_APPROVED_PENDING_BOOTSTRAP_LIMIT,
-      });
-      await Promise.allSettled(
-        approvedPending.map((invocation) => this.dispatch(invocation)),
-      );
-    } catch (error) {
-      this.logger.error(
-        'Bootstrap capability recovery sweep failed; up to '
-        + `${CAPABILITY_APPROVED_PENDING_BOOTSTRAP_LIMIT} approved capability `
-        + 'invocations stay pending until the next API start: '
-        + boundedMessage(
-          error instanceof Error ? error.message : String(error),
-          'unknown error',
-        ),
-        error instanceof Error ? error.stack : undefined,
-      );
-    }
+  /** Nest waits for this one bounded recovery sweep before the API can listen. */
+  onApplicationBootstrap(): Promise<void> {
+    this.bootstrapSweep ??= this.runBootstrapSweep();
+    return this.bootstrapSweep;
+  }
+
+  private async runBootstrapSweep(): Promise<void> {
+    const approvedPending = await this.repository.listApprovedPending({
+      limit: CAPABILITY_APPROVED_PENDING_BOOTSTRAP_LIMIT,
+    });
+    await Promise.allSettled(
+      approvedPending.map((invocation) => this.dispatch(invocation)),
+    );
   }
 
   private clearFlight(

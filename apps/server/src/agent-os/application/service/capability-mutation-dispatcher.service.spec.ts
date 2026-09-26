@@ -1,14 +1,13 @@
-import { Logger } from '@nestjs/common';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { z } from 'zod';
 import { canonicalOwnerInputHash } from '../../../common/owner-idempotency-key';
 import { AgentOsError } from '../../domain/agent-os.errors';
-import type { CapabilityInvocationRecord } from '../port/out/capability-invocation.repository.port';
 import {
   CAPABILITY_APPROVED_PENDING_BOOTSTRAP_LIMIT,
   CapabilityMutationDispatcher,
   OwnerResultAmbiguousError,
 } from './capability-mutation-dispatcher.service';
+import type { CapabilityInvocationRecord } from '../port/out/capability-invocation.repository.port';
 
 const ORGANIZATION_ID = '00000000-0000-4000-8000-000000000001';
 const USER_ID = '00000000-0000-4000-8000-000000000002';
@@ -143,32 +142,22 @@ describe('CapabilityMutationDispatcher', () => {
     }));
   });
 
-  it('completes API bootstrap and records the failure when the sweep read rejects', async () => {
+  it('rejects bootstrap with the repository error and keeps the failed sweep latched', async () => {
     const approved = invocation();
     const repository = repositoryFor(approved, approved);
-    repository.listApprovedPending.mockRejectedValue(
-      new Error('The table `public.capability_invocations` does not exist'),
-    );
+    const listError = new Error('The table `public.capability_invocations` does not exist');
+    repository.listApprovedPending.mockRejectedValue(listError);
     const owner = { capabilityKey: definition.key, invoke: vi.fn() };
     const dispatcher = new CapabilityMutationDispatcher(
       repository as never,
       registry(owner) as never,
     );
-    const loggedError = vi
-      .spyOn(Logger.prototype, 'error')
-      .mockImplementation(() => undefined);
 
-    await expect(dispatcher.onApplicationBootstrap()).resolves.toBeUndefined();
-    await expect(dispatcher.onApplicationBootstrap()).resolves.toBeUndefined();
+    await expect(dispatcher.onApplicationBootstrap()).rejects.toBe(listError);
+    await expect(dispatcher.onApplicationBootstrap()).rejects.toBe(listError);
 
     expect(owner.invoke).not.toHaveBeenCalled();
-    // The sweep is attempted once per process; a failed attempt is not re-armed.
     expect(repository.listApprovedPending).toHaveBeenCalledTimes(1);
-    expect(loggedError).toHaveBeenCalledTimes(1);
-    expect(loggedError).toHaveBeenCalledWith(
-      expect.stringContaining('public.capability_invocations'),
-      expect.any(String),
-    );
   });
 
   it('still dispatches every approved receipt a successful sweep finds', async () => {
