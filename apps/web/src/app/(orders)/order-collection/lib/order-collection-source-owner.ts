@@ -2,7 +2,6 @@ import { z } from 'zod';
 import { apiClient } from '@/lib/api-client';
 import { ApiError, isApiError } from '@/lib/api-error';
 import { safeStorageGet, safeStorageRemove, safeStorageSet } from '@/lib/browser-storage';
-import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 
 /*
  * KID-379: 옛 주문 attempt 경로의 웹 쪽(시작·읽기·실패·브라우저 시도 힌트). 카카오(`MALL_ORDER_ATTEMPT_MALLS`)만
@@ -144,10 +143,6 @@ export function forgetActiveOrderCollectionAttempt(
     'local',
     orderCollectionSourceAttemptStorageKey(organizationId, environmentKey, mallKey),
   );
-}
-
-export function newOrderCollectionIdempotencyKey(): string {
-  return createSecureRandomUuid();
 }
 
 export function readOrderCollectionSourceAttempt(
