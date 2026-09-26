@@ -21,8 +21,6 @@ function makePrisma(input: {
     lastVerifiedAt: new Date('2026-07-16T00:00:00.000Z'),
     lastCompletedOperationId: INVENTORY_OPERATION_ID,
     requestedGeneration: 7n,
-    activeGeneration: null,
-    failedGeneration: null,
     databaseNow: new Date('2026-07-16T00:05:00.000Z'),
   }];
   const order = input.orderOrganizationId === 'other'

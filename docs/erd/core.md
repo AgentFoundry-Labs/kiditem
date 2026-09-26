@@ -259,7 +259,6 @@ erDiagram
 | SourceImportRun | sourceImportRun | referenced by external | Orders | RocketPoCatalogSnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmation |
 | SourceImportRun | sourceImportRun | referenced by external | Supply | RocketPurchaseConfirmationTransmission |
-| User | activeSyncOwner | referenced by external | Products | SellpiaInventoryState |
 | User | approvalDecidedByUser | referenced by external | AgentOS | CapabilityInvocation |
 | User | claimedBy | referenced by external | AI | DetailPageImageRenderIntent |
 | User | confirmer | referenced by external | Supply | RocketPurchaseConfirmation |

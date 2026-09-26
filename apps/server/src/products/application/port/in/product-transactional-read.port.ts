@@ -53,8 +53,6 @@ export type ProductCollectionFence = Readonly<{
   lastVerifiedAt: Date | null;
   lastCompletedOperationId: string | null;
   requestedGeneration: bigint;
-  activeGeneration: bigint | null;
-  failedGeneration: bigint | null;
   databaseNow: Date;
 }>;
 

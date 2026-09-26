@@ -73,13 +73,12 @@ implements
     return this.view(input, state);
   }
 
-  // 실행 계약(ADR-0025)에서 도는 수집·실패는 실행 reader(`GET /api/operations`)가 말한다. 이 보기는 계정 연결과
-  // 마지막 발행(실행 id·완료 시각·세대)만 말한다 — 옛 임대 attempt는 없다.
+  // 계정 연결·마지막 발행은 원천 줄이, 도는 수집·실패는 셀피아 세 kind의 최신 실행이 말한다(ADR-0025, KID-355 정책 B).
   private async view(
     input: ActorScope,
     state: SellpiaInventoryCollectionState,
   ): Promise<SellpiaInventoryCollectionStatusView> {
-    return toCollectionStatusView(state, new Date(), input.userId, null, state.lastCompletedOperationId);
+    return toCollectionStatusView(state, await this.repository.readLatestSellpiaOperation(input.organizationId));
   }
 
   async requireCollectedStock(input: {
@@ -93,8 +92,7 @@ implements
       const state = await transaction.getState();
       if (state.lastCompletedOperationId !== input.operationId || state.lastVerifiedAt === null
         || !isSourceBindingConfirmed(state)
-        || state.requestedGeneration !== state.verifiedGeneration
-        || state.activeGeneration !== null) {
+        || state.requestedGeneration !== state.verifiedGeneration) {
         throw syncRequired();
       }
       const availability = await readProductAvailability(transaction, [...new Set(input.masterProductIds)]);
@@ -165,10 +163,6 @@ function expectation(
   return {
     freshnessFence: state.freshnessFence,
     requestedGeneration: state.requestedGeneration,
-    activeGeneration: state.activeGeneration,
-    activeSyncToken: state.activeSyncToken,
-    activeSyncOwnerUserId: state.activeSyncOwnerUserId,
-    activeSyncLeaseExpiresAt: state.activeSyncLeaseExpiresAt,
   };
 }
 

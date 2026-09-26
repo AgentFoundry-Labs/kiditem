@@ -117,7 +117,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | MasterProductAbcFormulaState | Products | `master_product_abc_formula_states` | One organization-owned formula and official publication envelope. |
 | MasterProductAbcFormulaVersion | Products | `master_product_abc_formula_versions` | Immutable organization-owned formula versions for absolute product ABC publication. |
 | MasterProductAbcGradeHistory | Products | `master_product_abc_grade_histories` | Immutable absolute ABC grade transitions after the initial baseline. |
-| SellpiaInventoryState | Products | `sellpia_inventory_states` | Organization-scoped Sellpia source binding, completion state, generation fence, and active collection lease. |
+| SellpiaInventoryState | Products | `sellpia_inventory_states` | Organization-scoped Sellpia source binding, completion state and generation fence. Running and failed collections live in the operation table (ADR-0025). |
 | LiveCommerceBroadcastDailySnapshot | Sourcing | `live_commerce_broadcast_daily_snapshots` | 타오바오 공식 API 또는 로그인된 1688·도우인 브라우저 화면에서 수집한 라이브 방송 일별 스냅샷. source와 broadcastId가 외부 방송 식별자를 이룬다. |
 | LiveCommerceProductDailySnapshot | Sourcing | `live_commerce_product_daily_snapshots` | 중국 라이브 방송에 노출된 상품의 일별 스냅샷. broadcastId로 방송 스냅샷과 논리적으로 연결하고 상품 단위 비교를 지원한다. |
 | NaverKeywordDailySnapshot | Sourcing | `naver_keyword_daily_snapshots` | 네이버 키워드(검색광고 월검색량 + 데이터랩 검색어트렌드) 일별 스냅샷. 수집 attempt별 키워드/날짜 불변 관측. COMPLETE 범위에서 최신 관측을 조회한다. trendRatio 는 latestRatio 반올림(0-100). |
@@ -1541,19 +1541,8 @@ erDiagram
     String lastCompletedOperationId
     String refreshReason
     String requestedSyncScope
-    String activeSyncToken
-    String activeSyncOwnerUserId FK
-    DateTime activeSyncStartedAt
-    DateTime activeSyncLeaseExpiresAt
-    String activeSyncScope
     BigInt requestedGeneration
-    BigInt activeGeneration
     BigInt verifiedGeneration
-    BigInt failedGeneration
-    DateTime lastAttemptAt
-    String lastAttemptSyncScope
-    String lastErrorCode
-    String lastErrorMessage
     String freshnessFence
     DateTime createdAt
     DateTime updatedAt
@@ -2634,7 +2623,6 @@ erDiagram
   User o|--o{ ProcurementTestIntent : "reviewedByUser"
   User o|--o{ PurchaseOrderSubmissionAttempt : "reconciler"
   User ||--o{ RocketPurchaseConfirmation : "confirmer"
-  User o|--o{ SellpiaInventoryState : "activeSyncOwner"
   User ||--o{ SellpiaOrderTransmissionIntent : "creator"
   User ||--o{ SellpiaOrderTransmissionIntentReconciliation : "reconciler"
   User o|--o{ SourceImportRun : "manualFreshExportConfirmer"

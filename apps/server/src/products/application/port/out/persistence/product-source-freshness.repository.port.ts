@@ -1,6 +1,7 @@
 import type {
   SellpiaInventoryCollectionState,
   SellpiaInventoryCollectionStatePatch,
+  SellpiaLatestOperation,
 } from '../../../../domain/policy/product-source-freshness.policy';
 import type { InventoryAvailabilityBatch } from '@kiditem/shared/inventory-availability';
 
@@ -9,10 +10,6 @@ export type ProductSourceStatePatch = SellpiaInventoryCollectionStatePatch;
 export type ProductSourceStateExpectation = {
   freshnessFence: string;
   requestedGeneration?: bigint;
-  activeGeneration?: bigint | null;
-  activeSyncToken?: string | null;
-  activeSyncOwnerUserId?: string | null;
-  activeSyncLeaseExpiresAt?: Date | null;
 };
 
 export interface ProductCollectionFreshnessRepositoryTransaction {
@@ -32,6 +29,14 @@ export interface ProductCollectionFreshnessRepositoryPort {
   readState(
     organizationId: string,
   ): Promise<SellpiaInventoryCollectionState | null>;
+
+  /**
+   * 셀피아 세 kind(재고·매출·상품 손익)의 가장 최근 실행(멈춘 실행 제외). 실행 표는 common/operation의 읽기 함수로만
+   * 읽는다(ADR-0025). 상태 보기의 도는 중·실패는 이것이 말한다(KID-355 정책 B).
+   */
+  readLatestSellpiaOperation(
+    organizationId: string,
+  ): Promise<SellpiaLatestOperation | null>;
 
   withLockedState<T>(
     input: {

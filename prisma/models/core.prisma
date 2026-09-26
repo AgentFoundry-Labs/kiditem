@@ -183,7 +183,6 @@ model User {
   createdDetailPageImageArtifacts            DetailPageImageArtifact[]                      @relation("DetailPageImageArtifactCreatedBy")
   requestedDetailPageImageRenderIntents      DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentRequestedBy")
   claimedDetailPageImageRenderIntents        DetailPageImageRenderIntent[]                  @relation("DetailPageImageRenderIntentClaimedBy")
-  activeSellpiaInventoryStates               SellpiaInventoryState[]                        @relation("SellpiaInventoryStateActiveSyncOwner")
   createdSellpiaOrderTransmissionIntents     SellpiaOrderTransmissionIntent[]               @relation("SellpiaOrderTransmissionIntentCreator")
   reconciledSellpiaOrderTransmissionIntents  SellpiaOrderTransmissionIntentReconciliation[] @relation("SellpiaOrderTransmissionIntentReconciler")
   confirmedSourceImportRuns                  SourceImportRun[]                              @relation("SourceImportRunManualFreshExportConfirmer")

@@ -455,11 +455,6 @@ function assertCollectedInventory(
     || freshness.lastVerifiedAt.getTime() !== expectedCompletedAt.getTime()
     || freshness.freshnessGeneration !== expectedGeneration
     || freshness.requestedGeneration !== freshness.freshnessGeneration
-    || freshness.activeGeneration !== null
-    || (
-      freshness.failedGeneration !== null
-      && freshness.failedGeneration > freshness.freshnessGeneration
-    )
   ) {
     throw new KiditemPreconditionError('SELLPIA_SYNC_REQUIRED');
   }

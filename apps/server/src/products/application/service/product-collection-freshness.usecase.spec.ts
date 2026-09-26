@@ -79,7 +79,7 @@ class MemoryRepository implements ProductCollectionFreshnessRepositoryPort {
     return Promise.resolve(this.state);
   }
 
-  findLeaseAttemptId(): Promise<string | null> {
+  readLatestSellpiaOperation(): Promise<null> {
     return Promise.resolve(null);
   }
 

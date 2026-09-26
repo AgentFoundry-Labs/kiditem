@@ -364,10 +364,6 @@ implements ProductOperationsRepositoryPort {
         await lockProductSource(tx, organizationId);
         const product = await tx.masterProduct.findFirst({ where: { id: masterProductId, organizationId } });
         if (!product) throw new ProductStateException('NOT_FOUND', 'MasterProduct was not found');
-        const state = await tx.sellpiaInventoryState.findUnique({ where: { organizationId } });
-        if (state?.activeGeneration !== null && state?.activeGeneration !== undefined) {
-          throw new ProductStateException('SOURCE_CONFLICT', 'Source codes cannot change during collection.');
-        }
         if (product.sourceProductCode === change.sourceProductCode && product.sourceOptionCode === change.sourceOptionCode) return;
         await tx.masterProduct.updateMany({ where: { id: masterProductId, organizationId }, data: change });
         await advanceProductMappingGeneration(tx, organizationId);

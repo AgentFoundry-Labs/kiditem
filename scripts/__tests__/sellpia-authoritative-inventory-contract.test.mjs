@@ -181,20 +181,28 @@ describe("Sellpia authoritative final-schema contract", () => {
       "sourceAccountKey",
       "lastVerifiedAt",
       "lastCompletedImportRunId",
+      "lastCompletedOperationId",
+      "requestedGeneration",
+      "verifiedGeneration",
+      "freshnessFence",
+    ]) {
+      assert.match(state, new RegExp(`^\\s*${field}\\s+`, "m"));
+    }
+    // 도는 수집·실패는 실행 표가 말한다(ADR-0025, KID-355 정책 B) — 옛 임대·시도 칸은 없다.
+    for (const field of [
       "activeSyncToken",
       "activeSyncOwnerUserId",
       "activeSyncStartedAt",
       "activeSyncLeaseExpiresAt",
-      "requestedGeneration",
+      "activeSyncScope",
       "activeGeneration",
-      "verifiedGeneration",
       "failedGeneration",
       "lastAttemptAt",
+      "lastAttemptSyncScope",
       "lastErrorCode",
       "lastErrorMessage",
-      "freshnessFence",
     ]) {
-      assert.match(state, new RegExp(`^\\s*${field}\\s+`, "m"));
+      assert.doesNotMatch(state, new RegExp(`^\\s*${field}\\s+`, "m"));
     }
     // The last attempt outcome is derived, not stored (KID-90).
     assert.doesNotMatch(state, /^\s*lastAttemptStatus\s+/m);
@@ -204,7 +212,6 @@ describe("Sellpia authoritative final-schema contract", () => {
       /^\s*freshnessFence\s+String[^\n]*@default\(uuid\(\)\)[^\n]*@db\.Uuid/m,
     );
     assert.match(state, /@@index\(\[lastCompletedImportRunId\]\)/);
-    assert.match(state, /@@index\(\[activeSyncOwnerUserId\]\)/);
     assert.doesNotMatch(schema, /^enum\s+/m);
   });
 

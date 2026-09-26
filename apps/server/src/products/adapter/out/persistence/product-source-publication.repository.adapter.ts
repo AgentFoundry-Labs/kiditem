@@ -33,7 +33,7 @@ type MappingIdentityBasis = {
  * 셀피아 재고 발행(`products.sellpia_inventory` finalize, ADR-0025). 실행 계약의 finish 트랜잭션 안에서 매핑·원천 잠금을
  * 잡고 MasterProduct를 통째로 바꾼 뒤 SellpiaInventoryState에 실행 id와 새 완료 세대를 적는다. 겹침은 실행 잠금
  * (`resource:sellpia:login`)이 막으므로 옛 attempt 토큰·임대 울타리는 없다. 완료 세대는 저장된 요청·완료 세대보다 크게
- * 정하고, 옛 생명주기 칸(요청·실행·실패 세대, 임대)은 그 완료 세대로 정리해 두 세대를 비교하던 읽기가 그대로 맞는다.
+ * 정하고 요청 세대도 그 완료 세대로 맞춘다. 도는 수집·실패는 실행 표가 말한다(KID-355 정책 B).
  */
 @Injectable()
 export class ProductSourcePublicationRepositoryAdapter
@@ -61,17 +61,6 @@ implements ProductSourcePublicationRepositoryPort {
         refreshReason: input.trigger ?? (state.verifiedGeneration === 0n ? 'initial_snapshot' : 'manual_request'),
         requestedGeneration: generation,
         verifiedGeneration: generation,
-        activeGeneration: null,
-        failedGeneration: null,
-        activeSyncToken: null,
-        activeSyncOwnerUserId: null,
-        activeSyncStartedAt: null,
-        activeSyncLeaseExpiresAt: null,
-        activeSyncScope: null,
-        lastAttemptAt: now,
-        lastAttemptSyncScope: 'inventory',
-        lastErrorCode: null,
-        lastErrorMessage: null,
         freshnessFence: randomUUID(),
       },
     });

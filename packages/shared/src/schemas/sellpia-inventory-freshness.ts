@@ -170,29 +170,6 @@ export type SellpiaInventorySourceBindingRequest = z.infer<
   typeof SellpiaInventorySourceBindingRequestSchema
 >;
 
-export type SellpiaCollectionStatusDerivationInput = {
-  now: Date;
-  requestedGeneration: bigint;
-  verifiedGeneration: bigint;
-  failedGeneration: bigint | null;
-  activeSyncLeaseExpiresAt: Date | null;
-};
-
-export function deriveSellpiaInventoryCollectionStatus(
-  input: SellpiaCollectionStatusDerivationInput,
-): SellpiaInventoryCollectionStatus {
-  if (input.activeSyncLeaseExpiresAt && input.activeSyncLeaseExpiresAt > input.now) {
-    return 'running';
-  }
-  if (
-    input.failedGeneration === input.requestedGeneration
-    && input.failedGeneration > input.verifiedGeneration
-  ) {
-    return 'failed';
-  }
-  return input.verifiedGeneration > 0n ? 'complete' : 'not_collected';
-}
-
 /**
  * A stopped attempt leaves the previous completed snapshot in use. The owner
  * publishes a last attempt without error facts for that case; this predicate

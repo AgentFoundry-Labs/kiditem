@@ -242,6 +242,9 @@ describe('셀피아 재고 수집 상태', () => {
       ).state;
     expect(view('not_collected')).toBe('failed');
     expect(view('failed', 'sellpia_login_required')).toBe('blocked_external');
+    // 실행 표에서 읽은 셀피아 실패(KID-355 정책 B): 확장 site 호출의 로그인 필요 코드도 외부 막힘이다.
+    expect(view('failed', 'SITE_LOGIN_REQUIRED')).toBe('blocked_external');
+    expect(view('failed', 'NETWORK_FAILED')).toBe('failed');
     expect(view('complete')).toBe('done');
   });
 });

@@ -266,7 +266,8 @@ export function collectionStatusSignal(view: SellpiaInventoryCollectionStatusVie
     case 'failed':
     default: {
       const code = view.lastAttempt?.errorCode ?? null;
-      if (code === 'sellpia_login_required') {
+      // 옛 attempt 코드와 실행 표의 확장 site 호출 코드(KID-355 정책 B) 둘 다 로그인 필요다.
+      if (code === 'sellpia_login_required' || code === 'SITE_LOGIN_REQUIRED') {
         return {
           ...base,
           state: 'blocked_external',
