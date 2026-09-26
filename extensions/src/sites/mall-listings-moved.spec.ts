@@ -43,6 +43,13 @@ const MALLS: Row[] = [
     call: 'kidsnote.listings',
     loginAt: 'https://shop.kidsnote.com/member/login.php',
   },
+  {
+    mallKey: '11st',
+    startUrl: 'https://soffice.11st.co.kr/view/8006',
+    isolated: 'content/orders/11st-listings.js',
+    call: '11st.listings',
+    loginAt: 'https://login.11st.co.kr/auth/front/selleroffice/login.tmall',
+  },
 ];
 
 /** 로그인 폼 명세가 없는 몰(결정 #3). */

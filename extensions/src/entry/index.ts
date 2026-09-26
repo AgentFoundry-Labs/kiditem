@@ -27,6 +27,7 @@ import '../collectors/sourcing.tiktok_creative';
 import '../collectors/sourcing.trend_1688';
 import '../collectors/sourcing.wing_catalog';
 import '../collectors/test.echo';
+import '../sites/11st/listings';
 import '../sites/1688';
 import '../sites/always/listings';
 import '../sites/art09';

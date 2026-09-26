@@ -5414,7 +5414,8 @@ var KidItemRuntime = (() => {
     "domeggook",
     "always",
     "thirtymall",
-    "kidsnote"
+    "kidsnote",
+    "11st"
   ];
   function isMallAdminListingOperationMall(mallKey) {
     return MALL_ADMIN_LISTING_OPERATION_MALLS.includes(mallKey);
@@ -8537,6 +8538,88 @@ var KidItemRuntime = (() => {
     return typeof value === "object" && value !== null && value.error === "content_script_missing";
   }
 
+  // extensions/src/sites/fresh-tab.ts
+  var NAVIGATION_TIMEOUT_MS = 3e4;
+  async function withFreshTab(tabs, url, read, options = {}) {
+    const page = (options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null) ?? await tabs.open("about:blank");
+    let keepOpen = false;
+    try {
+      await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS });
+      return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
+    } catch (error) {
+      if (leftForOperator(error)) keepOpen = true;
+      throw error;
+    } finally {
+      if (!keepOpen) await page.close();
+    }
+  }
+
+  // extensions/src/sites/page-call.ts
+  var PAGE_CALL_BRIDGE_FILE = "content/page-call/bridge.js";
+  var PAGE_CALL_RUNNER_FILE = "content/page-call/runner.js";
+  var PAGE_CALL_MESSAGE = "KIDITEM_PAGE_CALL";
+  async function callPage(page, call2, args, options) {
+    const answer = await page.ask(
+      { type: PAGE_CALL_MESSAGE, call: call2, args, ...options.isolatedOnly ? { world: "isolated" } : {} },
+      {
+        timeoutMs: options.timeoutMs,
+        guard: options.guard,
+        ...options.frameId !== void 0 ? { frameId: options.frameId } : {},
+        inject: {
+          isolated: [PAGE_CALL_BRIDGE_FILE, ...options.isolated ?? []],
+          // MAIN world 처리기가 있을 때만 러너를 넣는다(ISOLATED 처리기는 브리지가 바로 부른다).
+          ...options.main?.length ? { main: [PAGE_CALL_RUNNER_FILE, ...options.main] } : {}
+        }
+      }
+    );
+    if (answer.ok === true) return answer.value;
+    if (answer.error === "timeout") {
+      throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC774 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "timeout", call: call2 });
+    }
+    throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC5D0\uC11C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, {
+      status: null,
+      reason: "page_error",
+      call: call2
+    });
+  }
+
+  // extensions/src/sites/mall-listings.ts
+  var READ_TIMEOUT_MS = 20 * 6e4;
+  var NAVIGATION_TIMEOUT_MS2 = 45e3;
+  var MALL_CONTRACT_CHANGED3 = "MALL_CONTRACT_CHANGED";
+  var SOURCE_SNAPSHOT_INVALID4 = "SOURCE_SNAPSHOT_INVALID";
+  function readMallListings(tabs, spec, plan, signIn) {
+    const login = `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${spec.displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`;
+    return withFreshTab(tabs, spec.startUrl, async (page) => {
+      const answer = await callPage(page, spec.call, { plan }, {
+        timeoutMs: READ_TIMEOUT_MS,
+        guard: spec.guard,
+        ...spec.world === "main" ? { main: [spec.file] } : { isolated: [spec.file] },
+        displayName: spec.displayName
+      });
+      if (answer?.success === true) return answer.snapshot;
+      const stage = answer?.stage ?? null;
+      switch (answer?.errorCode) {
+        case "mall_login_required":
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, login, { url: spec.startUrl });
+        case "mall_contract_drift":
+          throw new RuntimeError(MALL_CONTRACT_CHANGED3, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.${stage ? ` [${stage}]` : ""}`, { stage, mallKey: spec.mallKey });
+        case "mall_total_changed":
+          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `\uC77D\uB294 \uC0AC\uC774 ${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`, { stage: "total_changed", mallKey: spec.mallKey });
+        case "mall_invalid_snapshot":
+          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { stage, mallKey: spec.mallKey });
+        case "mall_timeout":
+          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "timeout", bodyHead: null });
+        default:
+          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "network", bodyHead: null });
+      }
+    }, {
+      navigationTimeoutMs: NAVIGATION_TIMEOUT_MS2,
+      ...signIn ? { signIn } : {},
+      ...spec.reuseTabMatching ? { reuseTabMatching: spec.reuseTabMatching } : {}
+    });
+  }
+
   // extensions/src/sites/registry.ts
   var sites = /* @__PURE__ */ new Map();
   function registerSite(factory) {
@@ -8550,9 +8633,31 @@ var KidItemRuntime = (() => {
     return [...sites.values()].sort((a, b) => a.name < b.name ? -1 : a.name > b.name ? 1 : 0);
   }
 
+  // extensions/src/sites/11st/listings.ts
+  var ST11_LISTINGS_URL = "https://soffice.11st.co.kr/view/8006";
+  var ST11_LISTINGS_FILE = "content/orders/11st-listings.js";
+  var ST11_LISTINGS_GUARD = {
+    allows: (url) => hostWithin(url, ["11st.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["11st.co.kr"]) && (url.hostname.toLowerCase().startsWith("login.") || /login/i.test(url.pathname)),
+    loginMessage: "11\uBC88\uAC00 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 11\uBC88\uAC00 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
+  };
+  function create11stListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "11st",
+        displayName: "11\uBC88\uAC00",
+        startUrl: ST11_LISTINGS_URL,
+        file: ST11_LISTINGS_FILE,
+        call: "11st.listings",
+        guard: ST11_LISTINGS_GUARD
+      }, plan)
+    };
+  }
+  registerSite({ name: "11st", create: (deps) => create11stListings(deps.tabs) });
+
   // extensions/src/sites/1688/index.ts
   var SEARCH_ORIGIN = "https://s.1688.com";
-  var NAVIGATION_TIMEOUT_MS = 3e4;
+  var NAVIGATION_TIMEOUT_MS3 = 3e4;
   var EXTRACTION_TIMEOUT_MS = 2e4;
   var MAX_RESULTS_PER_KEYWORD = 20;
   var MAX_VERIFICATION_ROUNDS = 5;
@@ -8605,7 +8710,7 @@ var KidItemRuntime = (() => {
           });
         };
         for (let round = 1; ; round += 1) {
-          const landed = await current.navigate(build1688SearchUrl(keyword2), { timeoutMs: NAVIGATION_TIMEOUT_MS, stopAt: is1688VerificationUrl, continueOnTimeout: true });
+          const landed = await current.navigate(build1688SearchUrl(keyword2), { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt: is1688VerificationUrl, continueOnTimeout: true });
           if (is1688VerificationUrl(landed)) {
             if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword2, () => {
               keepOpen = true;
@@ -8651,88 +8756,6 @@ var KidItemRuntime = (() => {
     return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword: keyword2 });
   }
   registerSite({ name: ALIBABA_1688_SITE.name, create: (deps) => create1688SearchSite(deps.tabs) });
-
-  // extensions/src/sites/fresh-tab.ts
-  var NAVIGATION_TIMEOUT_MS2 = 3e4;
-  async function withFreshTab(tabs, url, read, options = {}) {
-    const page = (options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null) ?? await tabs.open("about:blank");
-    let keepOpen = false;
-    try {
-      await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS2 });
-      return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
-    } catch (error) {
-      if (leftForOperator(error)) keepOpen = true;
-      throw error;
-    } finally {
-      if (!keepOpen) await page.close();
-    }
-  }
-
-  // extensions/src/sites/page-call.ts
-  var PAGE_CALL_BRIDGE_FILE = "content/page-call/bridge.js";
-  var PAGE_CALL_RUNNER_FILE = "content/page-call/runner.js";
-  var PAGE_CALL_MESSAGE = "KIDITEM_PAGE_CALL";
-  async function callPage(page, call2, args, options) {
-    const answer = await page.ask(
-      { type: PAGE_CALL_MESSAGE, call: call2, args, ...options.isolatedOnly ? { world: "isolated" } : {} },
-      {
-        timeoutMs: options.timeoutMs,
-        guard: options.guard,
-        ...options.frameId !== void 0 ? { frameId: options.frameId } : {},
-        inject: {
-          isolated: [PAGE_CALL_BRIDGE_FILE, ...options.isolated ?? []],
-          // MAIN world 처리기가 있을 때만 러너를 넣는다(ISOLATED 처리기는 브리지가 바로 부른다).
-          ...options.main?.length ? { main: [PAGE_CALL_RUNNER_FILE, ...options.main] } : {}
-        }
-      }
-    );
-    if (answer.ok === true) return answer.value;
-    if (answer.error === "timeout") {
-      throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC774 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "timeout", call: call2 });
-    }
-    throw new RuntimeError(SITE_REQUEST_FAILED, `${options.displayName} \uD654\uBA74\uC5D0\uC11C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, {
-      status: null,
-      reason: "page_error",
-      call: call2
-    });
-  }
-
-  // extensions/src/sites/mall-listings.ts
-  var READ_TIMEOUT_MS = 20 * 6e4;
-  var NAVIGATION_TIMEOUT_MS3 = 45e3;
-  var MALL_CONTRACT_CHANGED3 = "MALL_CONTRACT_CHANGED";
-  var SOURCE_SNAPSHOT_INVALID4 = "SOURCE_SNAPSHOT_INVALID";
-  function readMallListings(tabs, spec, plan, signIn) {
-    const login = `${spec.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 ${spec.displayName} \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`;
-    return withFreshTab(tabs, spec.startUrl, async (page) => {
-      const answer = await callPage(page, spec.call, { plan }, {
-        timeoutMs: READ_TIMEOUT_MS,
-        guard: spec.guard,
-        ...spec.world === "main" ? { main: [spec.file] } : { isolated: [spec.file] },
-        displayName: spec.displayName
-      });
-      if (answer?.success === true) return answer.snapshot;
-      const stage = answer?.stage ?? null;
-      switch (answer?.errorCode) {
-        case "mall_login_required":
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, login, { url: spec.startUrl });
-        case "mall_contract_drift":
-          throw new RuntimeError(MALL_CONTRACT_CHANGED3, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.${stage ? ` [${stage}]` : ""}`, { stage, mallKey: spec.mallKey });
-        case "mall_total_changed":
-          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `\uC77D\uB294 \uC0AC\uC774 ${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`, { stage: "total_changed", mallKey: spec.mallKey });
-        case "mall_invalid_snapshot":
-          throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { stage, mallKey: spec.mallKey });
-        case "mall_timeout":
-          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "timeout", bodyHead: null });
-        default:
-          throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "network", bodyHead: null });
-      }
-    }, {
-      navigationTimeoutMs: NAVIGATION_TIMEOUT_MS3,
-      ...signIn ? { signIn } : {},
-      ...spec.reuseTabMatching ? { reuseTabMatching: spec.reuseTabMatching } : {}
-    });
-  }
 
   // extensions/src/sites/always/listings.ts
   var ALWAYS_LISTINGS_URL = "https://alwayzseller.ilevit.com/items/management";
