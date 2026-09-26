@@ -13,10 +13,10 @@ import {
   type OperationOutcomeRow,
 } from '../common/operation/transaction/latest-operation-outcomes';
 import {
-  OPERATION_FAILURE_HREFS,
   OPERATION_FAILURE_IGNORED_CODES,
   OPERATION_FAILURE_KINDS,
   OPERATION_FAILURE_SCOPE_FIELDS,
+  operationFailureHref,
 } from './operation-failure-sources';
 
 export type { SourceFailureAlertInput } from '@kiditem/shared/alerts';
@@ -76,7 +76,7 @@ function operationFailureItems(
       targetType: null,
       targetId: null,
       sourceType: failed.kind,
-      href: OPERATION_FAILURE_HREFS[failed.kind] ?? null,
+      href: operationFailureHref(failed.kind),
       isRead: readOperationIds.has(failed.id),
       createdAt: failed.finishedAt.toISOString(),
       updatedAt: (resolvedBy ?? failed).finishedAt.toISOString(),

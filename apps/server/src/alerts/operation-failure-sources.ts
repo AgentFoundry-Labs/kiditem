@@ -32,13 +32,14 @@ import {
   SELLPIA_SALES_KIND,
 } from '@kiditem/shared/sellpia-operations';
 import { SOURCING_OPERATION_KINDS } from '@kiditem/shared/sourcing-operation';
+import type { KiditemErrorCode, OperationFailureKind } from '@kiditem/shared/errors';
 
 /**
  * 실행 계약(ADR-0025)으로 옮긴 kind → 실패 알림이 보내는 화면(KID-355 정책 B). 옮긴 kind의 실패는 `operations` 행에만
  * 남고 알림 reader가 이 kind들의 실행을 읽어 알림으로 만든다. 새 kind를 옮기면 여기 한 줄, 이름은 shared
  * `SOURCE_LABELS`에 한 줄. 서버가 도는 AI 작업(`content.*`)은 자기 생성 기록에 실패를 적으므로 여기 없다.
  */
-export const OPERATION_FAILURE_HREFS: Readonly<Record<string, string>> = {
+export const OPERATION_FAILURE_HREFS = {
   // wave1 — 카탈로그 · 상품평 · 소싱 확장 6종
   [WING_CATALOG_LIST_KIND]: '/mall-channels',
   [WING_CATALOG_DETAILS_KIND]: '/mall-channels',
@@ -71,14 +72,14 @@ export const OPERATION_FAILURE_HREFS: Readonly<Record<string, string>> = {
   [COMPETITOR_CATALOG_KIND]: '/sourcing-ai/competitor-analysis',
   [WING_TRAFFIC_KIND]: '/ad-ops',
   [WING_ITEMWINNER_KIND]: '/ad-ops',
-};
+} as const satisfies Record<OperationFailureKind, string>;
 
 /**
  * 한 kind 안에서 원천을 가르는 plan 필드 — 옛 알림 writer의 dedupeKey와 같은 알갱이. 채널 계정 로그인을 쓰는 kind는
  * 계정, 몰마다 도는 kind는 몰, 소싱 키워드 제안은 키워드(`targetKey`), 라이브·상품 수집은 원천(`sourceKey`)이다.
  * 여기 없는 kind는 조직에 원천 하나(kind 하나가 알림 하나)다.
  */
-export const OPERATION_FAILURE_SCOPE_FIELDS: Readonly<Record<string, string>> = {
+export const OPERATION_FAILURE_SCOPE_FIELDS: Readonly<Partial<Record<OperationFailureKind, string>>> = {
   [WING_CATALOG_LIST_KIND]: 'channelAccountId',
   [WING_CATALOG_DETAILS_KIND]: 'channelAccountId',
   [WING_CATALOG_EXCEL_KIND]: 'channelAccountId',
@@ -97,10 +98,15 @@ export const OPERATION_FAILURE_SCOPE_FIELDS: Readonly<Record<string, string>> = 
   [WING_ITEMWINNER_KIND]: 'channelAccountId',
 };
 
-export const OPERATION_FAILURE_KINDS: readonly string[] = Object.keys(OPERATION_FAILURE_HREFS);
+export const OPERATION_FAILURE_KINDS = Object.keys(OPERATION_FAILURE_HREFS) as OperationFailureKind[];
+
+/** 실행 표에서 읽은 kind의 화면 주소(모르는 kind는 null). */
+export function operationFailureHref(kind: string): string | null {
+  return (OPERATION_FAILURE_HREFS as Readonly<Record<string, string>>)[kind] ?? null;
+}
 
 /**
  * 실행은 실패로 닫혔지만 원천이 실패한 것이 아닌 코드 — 알림이 아니다(취소 `*_CANCELLED`와 같은 자리). 이미 수집한 원본을
  * 다시 넣으려던 소싱 상품 수집(KID-313)은 옛 owner도 알림을 남기지 않았다.
  */
-export const OPERATION_FAILURE_IGNORED_CODES: readonly string[] = ['SOURCING_DUPLICATE_RECORD'];
+export const OPERATION_FAILURE_IGNORED_CODES = ['SOURCING_DUPLICATE_RECORD'] as const satisfies readonly KiditemErrorCode[];
