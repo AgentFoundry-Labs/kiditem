@@ -18,8 +18,9 @@ import {
 import { directshipCalendarEntries, parseCapture } from '../../domain/coupang-directship-operation';
 
 /**
- * 달력이 계정의 마지막 성공을 찾을 때 훑는 조직의 최근 성공한 directship 실행 수(reader 상한). 로켓 계정은 몇 개이고 수집은
- * 하루 몇 번이라, 한 계정의 마지막 성공이 이 창 밖으로 밀려나지 않는다.
+ * 달력이 계정의 마지막 성공을 찾을 때 훑는 조직 전체의 최근 성공한 directship 실행 수(reader 상한). 창은 계정을 가리지
+ * 않으므로, 다른 계정의 성공이 이 창을 채우면 한 계정의 마지막 성공이 창 밖으로 밀려날 수 있다 — 그 계정은 빈 달력
+ * (`operationId: null`)으로 보이고, 운영자가 불러오기를 누르면 새 성공이 창 안에 든다.
  */
 const SNAPSHOT_SCAN = 200;
 
@@ -62,7 +63,7 @@ export class CoupangDirectOrderCollectionService implements CoupangDirectOrderCo
       status: 'succeeded',
       limit: SNAPSHOT_SCAN,
     });
-    // reader는 최근 시작한 것부터 준다 — 이 계정에서 처음 만난 성공이 마지막 수집이다.
+    // reader는 최근 시작한 것부터 준다 — 창 안에서 이 계정에 처음 만난 성공이 마지막 수집이다(창 밖이면 빈 달력).
     const latest = operations.find((operation) => {
       const plan = CoupangDirectshipPlanSchema.safeParse(operation.plan);
       return plan.success && plan.data.channelAccountId === channelAccountId;

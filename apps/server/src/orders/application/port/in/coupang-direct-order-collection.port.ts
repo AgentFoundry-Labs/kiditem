@@ -67,8 +67,8 @@ export interface CoupangDirectOrderCollectionPort {
   }): Promise<CoupangDirectCapture>;
 
   /**
-   * 입고예정일 달력(KID-370): 그 계정의 가장 최근 성공한 directship 실행이 보관한 캡처를 달력 칸으로 줄여 준다. 성공한
-   * 실행이 없으면 `operationId: null`과 빈 칸. 이 조직의 로켓 계정이 아니면 NOT_FOUND. 읽기만 하고 실행을 시작하지 않는다.
+   * 입고예정일 달력(KID-370): 그 계정의 가장 최근 성공한 directship 실행이 보관한 캡처를 달력 칸으로 줄여 준다. 조직의
+   * 최근 성공한 실행을 상한까지만 훑으므로, 성공한 실행이 없거나 그 창 밖이면 `operationId: null`과 빈 칸. 이 조직의 로켓 계정이 아니면 NOT_FOUND. 읽기만 하고 실행을 시작하지 않는다.
    */
   readLatestSnapshot(input: { organizationId: string; channelAccountId: string }): Promise<CoupangDirectPoSnapshotResponse>;
 
