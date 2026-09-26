@@ -744,6 +744,8 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       where: { organizationId, sourceType: { not: null } },
       data: { readAt: new Date() },
     });
+    // 실패한 셀피아 실행은 알림 reader가 실행 표에서 읽는다(KID-355 정책 B) — 옛 알림처럼 운영자가 이미 읽은 것으로 둔다.
+    await new SourceFailureAlerts(prisma as never).dismiss(sellpiaOperation.id, organizationId);
     await prisma.$transaction(async (tx) => {
       await tx.masterProductAbcFormulaState.upsert({
         where: { organizationId },
