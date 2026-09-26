@@ -293,12 +293,15 @@ describe('Mall admin listings over the operation contract (PG integration)', () 
       row({ mallProductCode: 'A-2', productName: '둘째 상품', sellpiaName: null, statusWords: ['품절'] }),
     ]);
     expect(first).toMatchObject({ status: 'succeeded', result: { rows: 2, listings: 2, deactivated: 0 } });
+    // 정책 B: 실행은 알림 행을 쓰지도 닫지도 않는다(성공도 실패도).
+    expect(await prisma.alert.count()).toBe(0);
 
     const failed = await channels.runBegun(await begin(mallKey, account.id), (plan) => [
       { chunkKind: MALL_ADMIN_LISTINGS_CHUNK_KIND, items: [row({ mallProductCode: 'A-9' })] },
       { chunkKind: MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND, items: [scan(plan, [row({ mallProductCode: 'A-9' })])] },
     ], { outcome: 'failed' });
     expect(failed.status).toBe('failed');
+    expect(await prisma.alert.count()).toBe(0);
 
     const second = await finish(await begin(mallKey, account.id), [row({ mallProductCode: 'A-1', productName: '첫 상품', sellpiaName: null, statusWords: ['판매중'] })]);
     expect(second.result).toMatchObject({ listings: 1, deactivated: 1 });
@@ -312,6 +315,7 @@ describe('Mall admin listings over the operation contract (PG integration)', () 
       { externalId: 'A-2', isActive: false, lastOperationId: second.id },
     ]);
     expect(await prisma.sourceImportRun.count()).toBe(0);
+    expect(await prisma.alert.count()).toBe(0);
     expect(await prisma.operationLock.count()).toBe(0);
     const source = await channels.mallAdmin.readSource({ organizationId: ORG });
     expect(source.malls.find((mall) => mall.mallKey === mallKey)).toMatchObject({ latestSucceeded: { id: second.id }, latestPublication: { listings: 1, deactivated: 1 } });
