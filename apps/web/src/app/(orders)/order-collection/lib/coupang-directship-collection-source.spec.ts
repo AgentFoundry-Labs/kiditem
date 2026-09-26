@@ -28,7 +28,7 @@ vi.mock('@/lib/extension-bridge', () => ({
 function extensionAnswers(start: unknown) {
   vi.mocked(sendToExtension).mockImplementation(async (_id, message) => {
     const action = (message as { action: string }).action;
-    if (action === 'ping') return { success: true, capabilities: { operationRuntime: true } };
+    if (action === 'ping') return { success: true, capabilities: { operationRuntime: true, operationLoginV1: true } };
     if (action === 'operation.start') return start;
     return undefined;
   });

@@ -98,7 +98,10 @@ describe('쿠팡 상품평 수집 웹 다리(실행 계약 orders.coupang_review
       if (path === '/api/orders/collection/malls/coupang/password') return { key: 'coupang', loginId: 'fake-wing-id', supplierLoginId: null, password: 'fake-wing-password' };
       throw new Error(`unexpected GET ${path}`);
     });
-    bridge.sendToExtension.mockResolvedValue({ success: true, operationId: OPERATION_ID, reused: false });
+    bridge.sendToExtension.mockImplementation(async (_id: string, message: { action: string }) =>
+      message.action === 'ping'
+        ? { success: true, capabilities: { operationRuntime: true, operationLoginV1: true } }
+        : { success: true, operationId: OPERATION_ID, reused: false });
     await startCoupangReviewCollection('ext', { channelAccountId: ACCOUNT_ID, months: 3 }, 'key-9');
     expect(bridge.sendToExtension).toHaveBeenCalledWith('ext', {
       action: 'operation.start',
@@ -107,7 +110,19 @@ describe('쿠팡 상품평 수집 웹 다리(실행 계약 orders.coupang_review
       idempotencyKey: 'key-9',
       credentials: { loginId: 'fake-wing-id', password: 'fake-wing-password' },
     });
+
+    // operationLoginV1을 싣지 않은 옛 빌드에는 자격을 보내지 않는다(리뷰 S3).
+    bridge.sendToExtension.mockImplementation(async (_id: string, message: { action: string }) =>
+      message.action === 'ping' ? { success: true, capabilities: { operationRuntime: true } } : { success: true, operationId: OPERATION_ID, reused: false });
+    await startCoupangReviewCollection('ext', { channelAccountId: ACCOUNT_ID, months: 3 }, 'key-10');
+    expect(bridge.sendToExtension).toHaveBeenLastCalledWith('ext', {
+      action: 'operation.start',
+      kind: 'orders.coupang_reviews',
+      scope: { channelAccountId: ACCOUNT_ID, months: 3 },
+      idempotencyKey: 'key-10',
+    });
     api.get.mockReset();
+    bridge.sendToExtension.mockReset();
   });
 
   it('같은 계정 실행이 이미 돌고 있으면 그 실행을 이어서 본다, 다른 거절은 확장이 준 문장으로 던진다', async () => {

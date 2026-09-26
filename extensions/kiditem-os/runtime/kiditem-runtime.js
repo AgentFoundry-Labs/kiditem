@@ -9913,7 +9913,7 @@ var KidItemRuntime = (() => {
     });
     registerWithLegacyDomains({
       externalActions,
-      capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true }
+      capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true, operationLoginV1: true }
     });
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
     return true;

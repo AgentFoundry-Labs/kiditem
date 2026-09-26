@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { detectExtensionId, sendToExtension } from './extension-bridge';
-import { requestOperationStart } from './operation-start';
+import { extensionAcceptsOperationLogin, requestOperationStart } from './operation-start';
 
 vi.mock('./extension-auth', () => ({ transferExtensionAuthTo: vi.fn().mockResolvedValue(undefined) }));
 vi.mock('./extension-bridge', () => ({ detectExtensionId: vi.fn(), sendToExtension: vi.fn() }));
@@ -12,7 +12,7 @@ beforeEach(() => {
   vi.mocked(detectExtensionId).mockResolvedValue('ext-1');
   vi.mocked(sendToExtension).mockImplementation(async (_id, message) =>
     (message as { action: string }).action === 'ping'
-      ? { success: true, capabilities: { operationRuntime: true } }
+      ? { success: true, capabilities: { operationRuntime: true, operationLoginV1: true } }
       : { success: true, operationId: OPERATION_ID, reused: false });
 });
 
@@ -24,5 +24,22 @@ describe('requestOperationStart', () => {
 
     await requestOperationStart('orders.coupang_shipment_summary', {});
     expect(sendToExtension).toHaveBeenLastCalledWith('ext-1', { action: 'operation.start', kind: 'orders.coupang_shipment_summary', scope: {} }, 60_000);
+  });
+
+  it('operationLoginV1을 싣지 않은 옛 확장에는 자격을 보내지 않는다 — 옛 빌드는 credentials 칸이 있는 시작을 거절한다(리뷰 S3)', async () => {
+    vi.mocked(sendToExtension).mockImplementation(async (_id, message) =>
+      (message as { action: string }).action === 'ping'
+        ? { success: true, capabilities: { operationRuntime: true } }
+        : { success: true, operationId: OPERATION_ID, reused: false });
+    await requestOperationStart('orders.coupang_shipment_summary', {}, { credentials: { loginId: 'fake-id', password: 'fake-password' } });
+    expect(sendToExtension).toHaveBeenLastCalledWith('ext-1', { action: 'operation.start', kind: 'orders.coupang_shipment_summary', scope: {} }, 60_000);
+  });
+
+  it('extensionAcceptsOperationLogin은 ping의 operationLoginV1을 본다', async () => {
+    await expect(extensionAcceptsOperationLogin('ext-1')).resolves.toBe(true);
+    vi.mocked(sendToExtension).mockResolvedValueOnce({ success: true, capabilities: { operationRuntime: true } });
+    await expect(extensionAcceptsOperationLogin('ext-1')).resolves.toBe(false);
+    vi.mocked(sendToExtension).mockRejectedValueOnce(new Error('gone'));
+    await expect(extensionAcceptsOperationLogin('ext-1')).resolves.toBe(false);
   });
 });

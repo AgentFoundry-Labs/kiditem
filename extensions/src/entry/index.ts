@@ -64,9 +64,10 @@ export function installEntry(): boolean {
   });
   // sourcingOperationKindsV1: 이 빌드가 소싱 kind 6종을 돈다(KID-360) — 웹은 이것으로 옛 빌드를 가려낸다.
   // orderCaptureOperationKindsV1: 셀피아 송장·몰 주문 kind를 돈다(KID-359 H3).
+  // operationLoginV1: operation.start의 credentials(사이트 자동 로그인, KID-377)를 받는다 — 옛 빌드는 그 칸을 거절한다.
   registerWithLegacyDomains({
     externalActions,
-    capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true },
+    capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true, operationLoginV1: true },
   });
   installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
   return true;
