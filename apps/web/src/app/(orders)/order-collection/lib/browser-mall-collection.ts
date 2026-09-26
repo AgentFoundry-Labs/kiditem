@@ -22,7 +22,6 @@ import {
   type OrderCollectionMallAccount,
 } from '@/lib/order-mall-account-api';
 import {
-  isNoNewOrdersMessage,
   todayYmd,
   type ConversionHistoryItem,
 } from './order-collection-page-model';
@@ -245,7 +244,6 @@ export function createBrowserMallCollector({
       kidsnote: 'collectKidsnoteOrders',
       onch: 'collectOnchannelOrders',
       'haebub-mall': 'collectHaebeopOrders',
-      'lotte-on': 'collectLotteonOrders',
       kakao: 'collectKakaoOrders',
     };
     const action = actionByMall[account.key];
@@ -414,42 +412,6 @@ export function createBrowserMallCollector({
     return rows;
   };
 
-  const generateLotteonSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectLotteonXlsxFromExtension, convertLotteonToSellpiaFile } = await import(
-      './lotteon-orders-api'
-    );
-    // 로그인 화면(login_SO.wsp)은 <form> 없는 WebSquare 지만 사용자ID/비밀번호 input 과
-    // <a id="mf_btn_login">로그인</a> 이 실재해 form-fill 이 된다(2026-09-01 DOM 확인).
-    // 자동 로그인이 실패하면 collectLotteon 이 로그인 탭을 띄우고 "로그인 필요"로 안내한다.
-    await ensureMallLogin('lotte-on', run);
-    const { xlsxBase64, fileName } = await collectLotteonXlsxFromExtension(run);
-    let result: Awaited<ReturnType<typeof convertLotteonToSellpiaFile>>;
-    try {
-      result = await convertLotteonToSellpiaFile(xlsxBase64, fileName, { download: false, run });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (isNoNewOrdersMessage(msg)) {
-        toastNoNewOrders('롯데ON');
-        return 0;
-      }
-      throw err;
-    }
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-lotte-on-browser`,
-      sourceName: `롯데ON 주문 (${formatNumber(rows)}건)`,
-      convertedAt,
-      collectionDate: collectionDateOf(run),
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'lotte-on',
-      mallName: '롯데ON',
-    });
-    return rows;
-  };
-
   const generateOnchannelSellpia = async (
     run: OrderCollectionExtensionRun,
     collectionDate: string,
@@ -527,7 +489,6 @@ export function createBrowserMallCollector({
     if (account.key === 'kidsnote') return resultFor(await generateKidsnoteSellpia(resolvedRun, today), today);
     if (account.key === 'onch') return resultFor(await generateOnchannelSellpia(resolvedRun, today), today);
     if (account.key === 'kakao') return resultFor(await generateKakaoSellpia(resolvedRun), today);
-    if (account.key === 'lotte-on') return resultFor(await generateLotteonSellpia(resolvedRun), today);
     if (account.key === 'haebub-mall') return resultFor(await generateHaebeopSellpia(resolvedRun), today);
     // 실행 kind로 옮긴 몰(`MALL_ORDER_OPERATION_MALLS` — 1차 KID-359 H3, 엑셀·blob 몰 KID-380)은 이 옛 절차로 오지 않는다.
     throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);

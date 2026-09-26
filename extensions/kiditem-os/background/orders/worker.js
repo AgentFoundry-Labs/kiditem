@@ -512,9 +512,6 @@ const ONCHANNEL_TAB_MATCHES = ["https://www.onch3.co.kr/*"];
 // manifest host_permissions 에 https://www.kidkids.net/* 가 반드시 있어야 한다(없으면 주입 실패=로그인 불가).
 const KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
 const KIDKIDS_TAB_MATCHES = ["https://partner.kidkids.net/*"];
-const LOTTEON_ORDER_URL = "https://store.lotteon.com/cm/main/index_SO.wsp";
-const LOTTEON_LOGIN_URL = "https://store.lotteon.com/cm/main/login_SO.wsp";
-const LOTTEON_TAB_MATCHES = ["https://store.lotteon.com/*"];
 const ELEVENST_ORDER_URL = "https://msoffice.11st.co.kr/cx/delivery";
 const KAKAO_ORDER_URL = "https://shopping-seller.kakao.com/order/seller/store-order/integrate/list";
 const KAKAO_TAB_MATCHES = ["https://shopping-seller.kakao.com/*"];
@@ -1036,14 +1033,6 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
           },
         collection,
       ),
-    ));
-  }
-
-  if (msg?.action === "collectLotteonOrders") {
-    return respond(runOwnedOrderCollection(
-      msg,
-      "lotte-on",
-      (collection) => collectLotteonOrders(collection),
     ));
   }
 
@@ -2278,156 +2267,6 @@ async function scrapeHaebeopOrders(options) {
       detailCount: detailByOrder.size,
       confirmedCoverage: { startDate: from, endDate: to },
     };
-  } catch (e) {
-    return { success: false, error: String((e && e.message) || e) };
-  }
-}
-
-// ── 롯데ON(store.lotteon.com) 주문 수집: 판매자센터 배송관리 "신규주문" 엑셀을 백그라운드 다운로드 ──
-// 롯데ON 판매자센터는 soapi.lotteon.com REST(Authorization: Bearer, 토큰은 sessionStorage.AuthToken).
-// 개인정보 다운로드 사유(saveDownloadReason)를 먼저 등록해 encryptKey 를 받고, 그걸 _dnldKey 쿼리로
-// downloadDeliveryExcel 에 넘겨 fileId 발급 → fileManage CDN 다운로드. 반환은 xlsx(OpenXML) base64.
-async function findOrCreateLotteonTab(collection) {
-  return createFreshOrderCollectionTab(collection, LOTTEON_ORDER_URL);
-}
-
-async function collectLotteonOrders(collection) {
-  const { tab, created } = await findOrCreateLotteonTab(collection);
-  if (!tab?.id) return { success: false, error: "롯데ON(store.lotteon.com) 탭을 열 수 없습니다." };
-  const attached = await attachOrderCollectionTab(collection, tab, created);
-  if (attached === null || attached === false) {
-    await closeFreshOrderCollectionTab(tab);
-    return {
-      success: false,
-      errorCode: "COLLECTION_CANCELLED",
-      error: "Order collection is no longer active.",
-    };
-  }
-  // 수집 자체는 sessionStorage.AuthToken 을 쓰지만, 로그인 화면은 평범한 ID/비번 폼이라
-  // ensureMallLoggedIn 이 먼저 자동 로그인을 시도한다. 그래도 미로그인이면 여기서 로그인 탭을
-  // 앞으로 띄워 사용자가 직접 로그인하도록 안내한다.
-  let loginNeeded = false;
-  try {
-    await waitForTabReady(tab.id);
-    await assertOrderCollectionActive(collection);
-    const injected = await withTimeout(
-      chrome.scripting.executeScript({
-        target: { tabId: tab.id },
-        func: scrapeLotteonOrders,
-      }),
-      120000,
-      "롯데ON 주문 수집 시간이 초과되었습니다.",
-    );
-    const result = injected[0]?.result ?? { success: false, error: "롯데ON 화면에 접근하지 못했습니다." };
-    if (!result.success && /로그인|인증|세션/.test(result.error || "")) {
-      loginNeeded = true;
-      return {
-        success: false,
-        pendingLogin: true,
-        error:
-          "롯데ON 판매자센터 로그인이 필요합니다. 쇼핑몰 계정의 아이디·비밀번호를 확인하거나 롯데ON 에 직접 로그인한 뒤 다시 수집해 주세요.",
-      };
-    }
-    return result;
-  } finally {
-    // 로그인 안내로 띄운 탭은 사용자가 로그인해야 하므로 닫지 않는다.
-    if (created && tab.id && !loginNeeded) {
-      try {
-        await chrome.tabs.remove(tab.id);
-      } catch {
-        /* 이미 닫힘 — 무시 */
-      }
-    }
-  }
-}
-
-// store.lotteon.com 페이지 컨텍스트: sessionStorage 토큰으로 soapi 3단계(사유등록→엑셀요청→파일다운) 호출.
-async function scrapeLotteonOrders() {
-  try {
-    // 판매자센터는 SPA 라서 화면이 뜬 뒤에야 `sessionStorage.AuthToken` 을 채운다. 문서 로드만
-    // 보고 읽으면 사장님이 로그인해 두셨어도 토큰이 아직 없어 "로그인 필요"로 읽힌다.
-    // 로그인 화면으로 밀려난 것이 아니면 토큰이 설 때까지 기다린다(최대 20초).
-    const loginScreen = () => /login/i.test(location.href);
-    let tok = sessionStorage.getItem("AuthToken");
-    const deadline = Date.now() + 20000;
-    while (!tok && !loginScreen() && Date.now() < deadline) {
-      await new Promise((resolve) => { setTimeout(resolve, 500); });
-      tok = sessionStorage.getItem("AuthToken");
-    }
-    if (!tok) {
-      return { success: false, error: "롯데ON 판매자센터 로그인이 필요합니다. 로그인 후 다시 시도하세요." };
-    }
-    const API = "https://soapi.lotteon.com";
-    const H = {
-      authorization: "Bearer " + tok,
-      accept: "application/json",
-      "content-type": 'application/json; charset="UTF-8"',
-    };
-    // 배송관리 신규주문 검색 조건 = 최근 31일(주문접수 owhoDttm) + 진행단계 11(신규주문/상품준비). 판매자센터 기본값과 동일.
-    const ymd = (d) =>
-      d.getFullYear() +
-      String(d.getMonth() + 1).padStart(2, "0") +
-      String(d.getDate()).padStart(2, "0");
-    const end = new Date();
-    const start = new Date(end.getTime() - 31 * 24 * 60 * 60 * 1000);
-
-    // 1) 개인정보 다운로드 사유 등록 → encryptKey
-    const saveRes = await fetch(API + "/soapi/v1/bocommon/auth/saveDownloadReason", {
-      method: "POST",
-      headers: H,
-      credentials: "include",
-      body: JSON.stringify({ dnldRsnCnts: "배송을 위한 주문정보 다운로드" }),
-    });
-    const saveJson = await saveRes.json();
-    if (saveJson?.returnCode !== "SUCCESS" || !saveJson?.data) {
-      return { success: false, error: "롯데ON 다운로드 사유 등록에 실패했습니다. (" + (saveJson?.returnCode || saveRes.status) + ")" };
-    }
-    const encryptKey = saveJson.data;
-
-    // 2) 엑셀 다운로드 요청(_dnldKey 필수) → fileId 발급
-    const params = new URLSearchParams({
-      _dnldKey: encryptKey,
-      searchDateType: "owhoDttm",
-      strtDt: ymd(start),
-      endDt: ymd(end),
-      odPrgsStepCd: "11",
-      dtlCndType: "",
-      dtlCndCnts: "",
-      sndDlYn: "",
-      sndCloseYn: "",
-      cmbnDvPsbYn: "all",
-      cnclReqYn: "",
-      alrdDvYn: "",
-      menuId: "ML000003707",
-      pageNo: "1",
-      rowsPerPage: "500",
-    });
-    const dlRes = await fetch(
-      API + "/soapi/v2/delivery/sodeliverymanagement/sodeliverymanagement/downloadDeliveryExcel?" + params.toString(),
-      { headers: H, credentials: "include" },
-    );
-    const dlJson = await dlRes.json();
-    if (dlJson?.returnCode !== "SUCCESS" || !dlJson?.data?.fileId) {
-      if (dlJson?.returnCode === "REQUIRED_DOWN_LOAD_REASON") {
-        return { success: false, error: "롯데ON 다운로드 사유 인증에 실패했습니다. 다시 시도하세요." };
-      }
-      return { success: false, error: "롯데ON 엑셀 생성에 실패했습니다. (" + (dlJson?.returnCode || dlRes.status) + ")" };
-    }
-    const fileId = dlJson.data.fileId;
-    const fileName = dlJson.data.fileName || "롯데ON.xlsx";
-
-    // 3) 발급된 fileId 로 실제 파일(xlsx) 다운로드 → base64
-    const fileRes = await fetch(API + "/soapi/v1/bocommon/o/fileManage/download/" + fileId, {
-      headers: { authorization: "Bearer " + tok, "x-timezone": "GMT+09:00" },
-      credentials: "include",
-    });
-    if (!fileRes.ok) {
-      return { success: false, error: "롯데ON 파일 다운로드에 실패했습니다. (" + fileRes.status + ")" };
-    }
-    const buf = new Uint8Array(await fileRes.arrayBuffer());
-    let bin = "";
-    for (let i = 0; i < buf.length; i += 1) bin += String.fromCharCode(buf[i]);
-    return { success: true, xlsxBase64: btoa(bin), fileName, size: buf.length };
   } catch (e) {
     return { success: false, error: String((e && e.message) || e) };
   }

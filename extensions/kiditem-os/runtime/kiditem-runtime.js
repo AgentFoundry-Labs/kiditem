@@ -7197,7 +7197,7 @@ var KidItemRuntime = (() => {
     selectionMode: MallOrdersSelectionModeSchema.optional(),
     seenRowKeys: external_exports.array(external_exports.string().min(1).max(MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH)).max(MALL_ORDERS_SEEN_ROW_KEYS_MAX).optional()
   }).strict();
-  var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook", "kkomangse", "teacher-mall", "boribori", "gs-shop", "always"];
+  var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook", "kkomangse", "teacher-mall", "boribori", "gs-shop", "always", "lotte-on"];
   function isMallOrderOperationMall(mallKey) {
     return MALL_ORDER_OPERATION_MALLS.includes(mallKey);
   }
@@ -10525,6 +10525,50 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: LIVE_COMMERCE_SITE.name, create: (deps) => createLiveCommerceSite(deps.tabs) });
 
+  // extensions/src/sites/lotte-on/index.ts
+  var LOTTE_ON_ORDER_URL = "https://store.lotteon.com/cm/main/index_SO.wsp";
+  var LOTTE_ON_LOGIN_URL = "https://store.lotteon.com/cm/main/login_SO.wsp";
+  var LOTTE_ON_TAB_PATTERN = "https://store.lotteon.com/*";
+  var LOTTE_ON_ORDERS_FILE = "content/page-call/lotte-on-orders.js";
+  var LOTTE_ON_DOWNLOAD_REASON = "\uBC30\uC1A1\uC744 \uC704\uD55C \uC8FC\uBB38\uC815\uBCF4 \uB2E4\uC6B4\uB85C\uB4DC";
+  var READ_TIMEOUT_MS8 = 12e4;
+  var LOGIN_FAILURE = /로그인|인증|세션/;
+  var LOGIN_MESSAGE9 = "\uB86F\uB370ON \uD310\uB9E4\uC790\uC13C\uD130 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC1FC\uD551\uBAB0 \uACC4\uC815\uC758 \uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD558\uAC70\uB098 \uB86F\uB370ON \uC5D0 \uC9C1\uC811 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var isLotteOnLogin = (url) => hostWithin(url, ["lotteon.com"]) && /login_so|\/login(?:[/?#.]|$)/i.test(url.pathname);
+  var LOTTE_ON_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["store.lotteon.com"]),
+    isLogin: isLotteOnLogin,
+    loginMessage: LOGIN_MESSAGE9
+  };
+  var LOTTE_ON_LOGIN = {
+    displayName: "\uB86F\uB370ON",
+    loginUrl: LOTTE_ON_LOGIN_URL,
+    hosts: ["store.lotteon.com"],
+    isLoginUrl: isLotteOnLogin,
+    fields: ["loginId", "password"]
+  };
+  function createLotteOnSite(tabs, signIn) {
+    return {
+      readOrders() {
+        return withFreshTab(tabs, LOTTE_ON_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "lotte-on.orders", { downloadReason: LOTTE_ON_DOWNLOAD_REASON }, {
+            timeoutMs: READ_TIMEOUT_MS8,
+            guard: LOTTE_ON_PAGE_GUARD,
+            isolated: [LOTTE_ON_ORDERS_FILE],
+            displayName: "\uB86F\uB370ON"
+          });
+          const loginFailure2 = answer?.success !== true && LOGIN_FAILURE.test(answer?.error ?? "");
+          return mallExcelRows(loginFailure2 ? { ...answer, pendingLogin: true, error: LOGIN_MESSAGE9 } : answer, {
+            displayName: "\uB86F\uB370ON",
+            url: LOTTE_ON_ORDER_URL,
+            fileName: "\uB86F\uB370ON.xlsx"
+          });
+        }, { reuseTabMatching: LOTTE_ON_TAB_PATTERN, ...signIn ? { signIn } : {} });
+      }
+    };
+  }
+  registerSite({ name: "lotte-on", create: (deps, lease) => createLotteOnSite(deps.tabs, createSiteSignIn(LOTTE_ON_LOGIN, lease.credentials, deps)) });
+
   // extensions/src/sites/mall-admin-listings/index.ts
   var MALL_ADMIN_LISTINGS_SITE = "mall-admin-listings";
   registerSite({
@@ -10717,12 +10761,12 @@ var KidItemRuntime = (() => {
   var NAVIGATION_TIMEOUT_MS9 = 45e3;
   var PAGE_CALL_TIMEOUT_MS = 35e3;
   var SABANGNET_PAGE_DELAY_MS = 800;
-  var LOGIN_MESSAGE9 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE10 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
   var MALL_CONTRACT_CHANGED5 = "MALL_CONTRACT_CHANGED";
   var SABANGNET_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sabangnet.co.kr"]),
     isLogin: (url) => hostWithin(url, ["sabangnet.co.kr"]) && /login/i.test(`${url.pathname}${url.hash}`),
-    loginMessage: LOGIN_MESSAGE9
+    loginMessage: LOGIN_MESSAGE10
   };
   function createSabangnetSite(tabs, sleep) {
     let pagesRead = 0;
@@ -10751,7 +10795,7 @@ var KidItemRuntime = (() => {
         case "ok":
           return { total: answer.total, items: answer.items };
         case "login_required":
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE9, { url: PAGE_URL });
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE10, { url: PAGE_URL });
         case "http_error":
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
             status: answer.httpStatus,
@@ -10792,11 +10836,11 @@ var KidItemRuntime = (() => {
   var SELLPIA_REPRINT_URL = `${SELLPIA_ORIGIN}/order_delivery_reprint.html`;
   var SELLPIA_SHIPMENT_TRACKING_FILE = "content/orders/sellpia-shipment-tracking.js";
   var QUERY_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE10 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE11 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
   var SELLPIA_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sellpia.com"]),
     isLogin: (url) => hostWithin(url, ["sellpia.com"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE10
+    loginMessage: LOGIN_MESSAGE11
   };
   function createSellpiaTracking(tabs) {
     return {
@@ -10813,7 +10857,7 @@ var KidItemRuntime = (() => {
             case "ok":
               return { rows: answer.rows, total: answer.total };
             case "login_required":
-              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE10, { url: SELLPIA_REPRINT_URL });
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE11, { url: SELLPIA_REPRINT_URL });
             case "http_error":
               throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
                 status: answer.httpStatus,
@@ -10962,7 +11006,7 @@ var KidItemRuntime = (() => {
   var NAVIGATION_TIMEOUT_MS10 = 45e3;
   var SEARCH_TIMEOUT_MS = 10 * 6e4;
   var STATUS_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE11 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE12 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
   var MALL_CONTRACT_CHANGED6 = "MALL_CONTRACT_CHANGED";
   function createSellpiaManualMatch(tabs) {
     let tab = null;
@@ -10989,7 +11033,7 @@ var KidItemRuntime = (() => {
           case "ok":
             return answer;
           case "login_required":
-            throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE11, { url: SELLPIA_MANUAL_MATCH_URL });
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE12, { url: SELLPIA_MANUAL_MATCH_URL });
           case "contract_drift":
             throw new RuntimeError(MALL_CONTRACT_CHANGED6, `\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
           case "http_error":
@@ -11055,12 +11099,12 @@ var KidItemRuntime = (() => {
   var TEACHER_MALL_EXCEL_TEMPLATE_SEQ = "117";
   var TEACHER_MALL_PROVIDER_SEQ = "708";
   var TEACHER_MALL_DOWNLOAD_REASON = "\uBC30\uC1A1\uC900\uBE44\uD655\uC778";
-  var READ_TIMEOUT_MS8 = 12e4;
-  var LOGIN_MESSAGE12 = "\uD2F0\uCCD0\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. selleradmin\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
+  var READ_TIMEOUT_MS9 = 12e4;
+  var LOGIN_MESSAGE13 = "\uD2F0\uCCD0\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. selleradmin\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
   var TEACHER_MALL_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["teacherville.co.kr"]),
     isLogin: (url) => hostWithin(url, ["teacherville.co.kr"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE12
+    loginMessage: LOGIN_MESSAGE13
   };
   var TEACHER_MALL_LOGIN = {
     displayName: "\uD2F0\uCCD0\uBAB0",
@@ -11078,7 +11122,7 @@ var KidItemRuntime = (() => {
             fallbackProviderSeq: TEACHER_MALL_PROVIDER_SEQ,
             downloadReason: TEACHER_MALL_DOWNLOAD_REASON
           }, {
-            timeoutMs: READ_TIMEOUT_MS8,
+            timeoutMs: READ_TIMEOUT_MS9,
             guard: TEACHER_MALL_PAGE_GUARD,
             main: [TEACHER_MALL_ORDERS_FILE],
             displayName: "\uD2F0\uCCD0\uBAB0"

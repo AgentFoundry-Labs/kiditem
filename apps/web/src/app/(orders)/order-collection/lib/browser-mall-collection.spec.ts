@@ -296,7 +296,6 @@ describe('createBrowserMallCollector', () => {
     expect(legacyMalls).toBeGreaterThan(0);
     expect((source.match(/toastNoNewOrders\(/g) ?? []).length - 1).toBeGreaterThanOrEqual(legacyMalls);
     expect(source).not.toContain('/주문이 없|없습니다/');
-    expect(source).toContain('isNoNewOrdersMessage(msg)');
   });
 
   it('derives every generated-file collection date from the resolved run', () => {
@@ -314,7 +313,6 @@ describe('createBrowserMallCollector', () => {
       'order-collection-extension.ts',
       'kidsnote-orders-api.ts',
       'onchannel-orders-api.ts',
-      'lotteon-orders-api.ts',
       'kakao-orders-api.ts',
       'haebeop-orders-api.ts',
       'coupang-directship-api.ts',

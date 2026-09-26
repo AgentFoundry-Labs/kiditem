@@ -230,6 +230,7 @@ const MALL_CAPTURE_RULES: Partial<Record<MallOrderOperationMall, MallCaptureRule
   boribori: filePart(XLSX_CONTENT_TYPE),
   'gs-shop': filePart(XLSX_CONTENT_TYPE),
   always: filePart(XLSX_CONTENT_TYPE),
+  'lotte-on': filePart(XLSX_CONTENT_TYPE),
   'icecream-mall': icecreamRule,
 };
 

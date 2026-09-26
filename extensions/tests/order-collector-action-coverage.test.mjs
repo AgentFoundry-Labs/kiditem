@@ -24,14 +24,12 @@ const ownerCorrelationFields = new Set(['attemptId', 'runId']);
 const automaticCollectors = [
   'collectKidsnoteOrders',
   'collectOnchannelOrders',
-  'collectLotteonOrders',
   'collectKakaoOrders',
   'collectHaebeopOrders',
 ];
 // Directship receives its date range from the server-owned attempt control
 // record, so its extension message intentionally carries only attemptId.
 const runDateActions = new Set([
-  'collectLotteonOrders',
   'collectKakaoOrders',
   'collectBoriboriOrders',
   'collectHaebeopOrders',
