@@ -82,7 +82,7 @@ const mall = (key: string, name: string): OrderCollectionMallAccount => ({
 const MALLS = [
   mall('kakao', '카카오'),
   mall('boribori', '보리보리'),
-  mall('haebub-mall', '해법몰'),
+  mall('gs-shop', 'GS샵'),
   mall('kkomangse', '꼬망세'),
   mall('lotte-on', '롯데ON'),
 ];
@@ -164,19 +164,19 @@ describe('useAllMarketplaceOrderCollection — 전체 수집', () => {
   });
 
   /**
-   * 해법몰 · 도매꾹은 주문이 없다는 확인을 받으면 확장이 시도를 빈 스냅샷으로 끝낸다. 끝난 시도에
+   * 주문이 없다는 확인을 받은 옛 경로 몰(해법몰 · 도매꾹이 그랬다)은 확장이 시도를 빈 스냅샷으로 끝낸다. 끝난 시도에
    * '신규 주문 없음' 실패를 또 보내면 서버가 거절해(SOURCE_TERMINAL_REPLAY_CONFLICT) 수집
    * 실패로 남는다.
    */
   it('⭐ 확장이 빈 스냅샷으로 끝낸 시도는 실패로 다시 닫지 않는다 — 신규 주문 없음으로 남긴다', async () => {
-    const haebub = mall('haebub-mall', '해법몰');
-    const completed = { ...attemptFor('haebub-mall', 7), state: 'COMPLETE' as const };
-    mocks.begin.mockResolvedValue({ ...attemptFor('haebub-mall', 7), attemptToken: '33333333-3333-4333-8333-333333333333' });
+    const lotteon = mall('lotte-on', '롯데ON');
+    const completed = { ...attemptFor('lotte-on', 7), state: 'COMPLETE' as const };
+    mocks.begin.mockResolvedValue({ ...attemptFor('lotte-on', 7), attemptToken: '33333333-3333-4333-8333-333333333333' });
     mocks.readAttempt.mockResolvedValue(completed);
     mocks.collectMall.mockResolvedValue({ rowCount: 0, masked: false, date: '2026-09-14' });
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({
-        mallAccounts: [haebub],
+        mallAccounts: [lotteon],
         rocketChannelAccountId: null,
         addGeneratedFile: vi.fn(),
       }),
@@ -789,6 +789,7 @@ describe('useAllMarketplaceOrderCollection — 실행 kind로 옮긴 몰(KID-359
   it.each([
     ['kidsnote', '키즈노트'],
     ['onch', '온채널'],
+    ['haebub-mall', '해법몰'],
   ] as const)('⭐ %s(2차 몰)는 옛 시도 없이 실행을 시작해 실행 id로 변환한다', async (mallKey, mallName) => {
     const account = { ...mall(mallKey, mallName), channelAccountId: '6a1d3f8e-8b0f-4a4f-8e72-1b5c3c9f2d22' };
     vi.mocked(apiClient.get).mockResolvedValue({

@@ -212,7 +212,7 @@ describe('createBrowserMallCollector', () => {
       sourceRows: 0, productRows: 0, outputRows: 0, skippedRows: 0,
     });
     const addGeneratedFile = vi.fn();
-    const account = { ...ACCOUNT, key: 'haebub-mall' as const, name: '해법몰' };
+    const account = { ...ACCOUNT, key: 'lotte-on' as const, name: '롯데ON' };
     const collector = createBrowserMallCollector({
       mallAccounts: [account],
       addGeneratedFile, setPreviewId: vi.fn(),
@@ -220,7 +220,7 @@ describe('createBrowserMallCollector', () => {
     await expect(collector(account, { ...RUN, date: '2026-09-10', serverOwned: true }))
       .resolves.toMatchObject({ rowCount: 0 });
     expect(addGeneratedFile).not.toHaveBeenCalled();
-    expect(mocks.toast).toHaveBeenCalledWith('해법몰 신규 주문이 없습니다.', undefined);
+    expect(mocks.toast).toHaveBeenCalledWith('롯데ON 신규 주문이 없습니다.', undefined);
   });
 
   it('reconciles a lost extension response from the retained source without recollecting', async () => {
@@ -315,7 +315,6 @@ describe('createBrowserMallCollector', () => {
       'kakao-orders-api.ts',
       'boribori-orders-api.ts',
       'teacherville-orders-api.ts',
-      'haebeop-orders-api.ts',
       'coupang-directship-api.ts',
     ];
 

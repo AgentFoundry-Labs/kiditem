@@ -81,6 +81,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
   let icecreamAccount: string;
   let kidsnoteAccount: string;
   let onchAccount: string;
+  let haebubAccount: string;
   let rocketAccount: string;
 
   beforeAll(async () => {
@@ -123,6 +124,7 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     icecreamAccount = (await create('icecream-mall', '아이스크림몰')).id;
     kidsnoteAccount = (await create('kidsnote', '키즈노트')).id;
     onchAccount = (await create('onch', '온채널')).id;
+    haebubAccount = (await create('haebub-mall', '해법몰')).id;
     rocketAccount = (await create('rocket', '쿠팡 로켓')).id;
   });
 
@@ -328,6 +330,40 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
       'x-order-collection-product-rows': '1',
       'x-order-collection-output-rows': '3',
     });
+  });
+
+  it('해법몰(KID-380): 상품행을 {orders}로 보관하고 주문번호·수집일 기간 확인을 적는다, 빈 날도 기간 확인과 0건', async () => {
+    const row = (orderNo: string, regNo: string, shipFee: number) => ({
+      orderNo, regNo, vendor: '거영아이앤디', productName: `상품 ${regNo}`, productCode: 'PRD-1', option: '', qty: 1,
+      sellPrice: 5000, sellAmount: 5000, shipFee, payMethod: '신 + 포', orderDate: `${TODAY} 19:54:20`, invoice: '',
+      ordName: '주문자', group: '일반', ordId: 'member', ordEmail: '', ordTel: '', ordMobile: '010-111', ordPost: '06000',
+      ordAddr: '서울 강남구', recvName: '수취인', recvTel: '', recvMobile: '010-222', recvPost: '07000', recvAddr: '서울 마포구',
+      demand: '', memo: '', status: '결제완료',
+    });
+    const rows = [row('1001', 'B-1', 3000), row('1001', 'B-2', 0), row('1002', 'B-3', 3000)];
+    const run = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: haebubAccount, mallKey: 'haebub-mall' }));
+    expect(run.operation.plan).toMatchObject({ mallKey: 'haebub-mall', mallName: '해법몰' });
+    await harness.put(run, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: rows }]);
+    const finished = await harness.finish(run).expect(200);
+    // 해법몰은 택배비가 같은 행의 칸이라 출력 줄 = 상품 줄 — 셈법(orderCollectionOrderCount)이 0을 낸다(옛 경로와 같다,
+    // 옛 웹은 주문번호를 따로 넘겼다 — 이제 result.orderNumbers). 캡처가 있으므로 변환 파일은 나온다.
+    expect(finished.body.operation.result).toEqual({
+      rowCount: 0, mallKey: 'haebub-mall', captured: 3, orderNumbers: ['1001', '1002'], coverage: { startDate: TODAY, endDate: TODAY },
+    });
+    const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
+    expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ orders: rows });
+    const converted = await convert('haebeop/convert', run.operation.id).expect(201);
+    expect(converted.headers).toMatchObject({
+      'content-type': 'application/vnd.ms-excel',
+      'x-order-collection-source-rows': '3',
+      'x-order-collection-product-rows': '3',
+      'x-order-collection-output-rows': '3',
+    });
+
+    const empty = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: haebubAccount, mallKey: 'haebub-mall' }));
+    expect((await harness.finish(empty).expect(200)).body.operation.result)
+      .toEqual({ rowCount: 0, mallKey: 'haebub-mall', captured: 0, orderNumbers: [], coverage: { startDate: TODAY, endDate: TODAY } });
+    await convert('haebeop/convert', empty.operation.id).expect(204);
   });
 
   it('도매꾹: 나눠 올린 CSV 조각을 이어 파일 캡처(text/csv)로 보관하고 수집일로 거른 행 수를 적는다, 빈 날은 조각 없이 0건', async () => {

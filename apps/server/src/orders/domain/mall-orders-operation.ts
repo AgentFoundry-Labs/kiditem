@@ -62,7 +62,7 @@ interface MallCaptureRule {
 
 const OrderObjectSchema = z.record(z.string(), z.unknown());
 
-/** 목록 하나를 JSON 본문의 한 칸으로 보관하는 몰(키드키즈·키즈노트·온채널 `orders`, 아트공구 `rows`). 옛 서버 변환 본문과 같다. */
+/** 목록 하나를 JSON 본문의 한 칸으로 보관하는 몰(키드키즈·키즈노트·온채널·해법몰 `orders`, 아트공구 `rows`). 옛 서버 변환 본문과 같다. */
 function jsonList(field: string, item: z.ZodTypeAny, orderNumberField: string): MallCaptureRule {
   return {
     assemble({ rows }) {
@@ -203,6 +203,8 @@ const MALL_CAPTURE_RULES: Partial<Record<MallOrderOperationMall, MallCaptureRule
   kidsnote: jsonList('orders', OrderObjectSchema.and(z.object({ ono: z.string().min(1), items: z.array(z.unknown()) })), 'ono'),
   // 온채널(KID-380): 옛 수집기 원소 그대로(상세 모달을 못 읽은 주문은 주문코드·일자만).
   onch: jsonList('orders', OrderObjectSchema.and(z.object({ orderCode: z.string().min(1) })), 'orderCode'),
+  // 해법몰(KID-380): 상품행(등록번호 하나 = 셀피아 한 행), 주문번호 orderNo. 기간 확인은 COVERAGE_CAPABLE_MALLS.
+  'haebub-mall': jsonList('orders', OrderObjectSchema.and(z.object({ orderNo: z.string().min(1) })), 'orderNo'),
   art09: jsonList('rows', OrderObjectSchema.and(z.object({ orderId: z.string() })), 'orderId'),
   domeggook: filePart('text/csv'),
   'icecream-mall': icecreamRule,

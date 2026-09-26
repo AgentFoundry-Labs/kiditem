@@ -69,4 +69,19 @@ describe('mall orders capture rules (KID-359 H3)', () => {
     expect(() => mallOrdersCapture(onch, [chunk('order_rows', 1, [{ date: '2026-09-10' }])]))
       .toThrow(expect.objectContaining({ details: expect.objectContaining({ reason: 'invalid_order_rows' }) }));
   });
+
+  it('해법몰 캡처: 상품행을 옛 변환 본문 {orders}로 보관하고 서로 다른 주문번호(orderNo)를 센다, 주문번호 없는 원소는 거절', () => {
+    const haebub = plan({ mallKey: 'haebub-mall', mallName: '해법몰' });
+    const rows = [
+      { orderNo: '1001', regNo: 'B-1', productName: '색종이', qty: 2, sellAmount: 10000, shipFee: 2000 },
+      { orderNo: '1001', regNo: 'B-2', productName: '풀', qty: 1, sellAmount: 1000, shipFee: 0 },
+      { orderNo: '1002', regNo: 'B-3', productName: '크레파스', qty: 1, sellAmount: 3000, shipFee: 3000 },
+    ];
+    const capture = mallOrdersCapture(haebub, [chunk('order_rows', 1, rows)]);
+    expect(capture.captured).toBe(3);
+    expect(capture.orderNumbers).toEqual(['1001', '1002']);
+    expect(JSON.parse(capture.source.bytes.toString('utf8'))).toEqual({ orders: rows });
+    expect(() => mallOrdersCapture(haebub, [chunk('order_rows', 1, [{ regNo: 'B-1' }])]))
+      .toThrow(expect.objectContaining({ details: expect.objectContaining({ reason: 'invalid_order_rows' }) }));
+  });
 });

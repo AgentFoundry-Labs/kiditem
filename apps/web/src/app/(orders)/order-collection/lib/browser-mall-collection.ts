@@ -243,7 +243,6 @@ export function createBrowserMallCollector({
 
     const actionByMall: Record<string, string> = {
       kkomangse: 'collectKkomangseOrders',
-      'haebub-mall': 'collectHaebeopOrders',
       'lotte-on': 'collectLotteonOrders',
       'gs-shop': 'collectGsshopOrders',
       always: 'collectAlwayzOrders',
@@ -381,39 +380,6 @@ export function createBrowserMallCollector({
       collectedRows: rows,
       mallKey: 'kkomangse',
       mallName: '꼬망세',
-    });
-    return rows;
-  };
-
-  const generateHaebeopSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectHaebeopOrdersFromExtension, convertHaebeopToSellpiaFile } = await import(
-      './haebeop-orders-api'
-    );
-    await ensureMallLogin('haebub-mall', run);
-    // 해법몰은 엑셀 다운로드가 암호 ZIP 이라, 주문 상세 팝업을 읽어 다운로드 없이 수집한다.
-    const orders = await collectHaebeopOrdersFromExtension({ date: collectionDateOf(run) }, run);
-    if (orders.length === 0) {
-      toastNoNewOrders('해법몰', `발주일 ${collectionDateOf(run)} · 결제완료 기준`);
-      return 0;
-    }
-    const result = await convertHaebeopToSellpiaFile(orders, { download: false, run });
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      // 해법몰은 택배비가 별도 행이 아니라 같은 행의 컬럼이라 "출력행 - 상품행" 주문수 추정이
-      // 0 이 된다. 주문번호를 직접 넘겨 몰 카드 집계와 셀피아 대조가 실주문 기준으로 돌게 한다.
-      orderNumbers: [...new Set(
-        orders.map((order) => String(order.orderNo ?? '').trim()).filter(Boolean),
-      )],
-      id: `${convertedAt}-haebub-mall-browser`,
-      sourceName: `해법몰 주문 (${formatNumber(orders.length)}건)`,
-      convertedAt,
-      collectionDate: collectionDateOf(run),
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'haebub-mall',
-      mallName: '해법몰',
     });
     return rows;
   };
@@ -661,8 +627,7 @@ export function createBrowserMallCollector({
     if (account.key === 'always') return resultFor(await generateAlwayzSellpia(resolvedRun), today);
     if (account.key === 'boribori') return resultFor(await generateBoriboriSellpia(resolvedRun), today);
     if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(resolvedRun), today);
-    if (account.key === 'haebub-mall') return resultFor(await generateHaebeopSellpia(resolvedRun), today);
-    // 실행 kind로 옮긴 몰(아이스크림몰 · 키드키즈 · 아트공구 · 도매꾹 KID-359 H3, 키즈노트 · 온채널 KID-380)은 이 옛 절차로 오지 않는다.
+    // 실행 kind로 옮긴 몰(아이스크림몰 · 키드키즈 · 아트공구 · 도매꾹 KID-359 H3, 키즈노트 · 온채널 · 해법몰 KID-380)은 이 옛 절차로 오지 않는다.
     throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
   };
 }

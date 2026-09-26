@@ -64,8 +64,9 @@ Action, collection, transmission, and reconciliation behavior is executable in
   `operationId`; the tracking screen downloads it by operation id. There is no
   tracking attempt route.
 - Mall order collection is the operation kind `orders.mall_orders` for the
-  first-batch malls (`MALL_ORDER_OPERATION_MALLS`: icecream-mall, kidkids,
-  art09, domeggook), locked by `account:<channelAccountId>`. Finalize keeps the
+  malls in `MALL_ORDER_OPERATION_MALLS` (first batch icecream-mall, kidkids,
+  art09, domeggook; then kidsnote, onch, haebub-mall — KID-380), locked by
+  `account:<channelAccountId>`. Finalize keeps the
   capture (the body the old convert route took) as `OrderCollectionArtifact`
   keyed by `operationId` and writes the converted order count to
   `result.rowCount`; a day with no orders succeeds with 0. Convert routes and

@@ -220,7 +220,7 @@ export type MallOrdersScope = z.infer<typeof MallOrdersScopeSchema>;
  * 몰 주문 kind로 옮긴 몰(1차 넷 KID-359 H3, 2차는 사이트가 다 옮겨진 몰부터 KID-380). 여기 없는 몰은 옛 attempt 경로가 나머지
  * 몰이 옮겨질 때까지 받는다 — 웹은 이 목록으로 시작 경로를 가른다(KID-355 2026-09-26 03:27 리더 설계).
  */
-export const MALL_ORDER_OPERATION_MALLS = ['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kidsnote', 'onch'] as const;
+export const MALL_ORDER_OPERATION_MALLS = ['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kidsnote', 'onch', 'haebub-mall'] as const;
 export type MallOrderOperationMall = (typeof MALL_ORDER_OPERATION_MALLS)[number];
 export function isMallOrderOperationMall(mallKey: string): mallKey is MallOrderOperationMall {
   return (MALL_ORDER_OPERATION_MALLS as readonly string[]).includes(mallKey);

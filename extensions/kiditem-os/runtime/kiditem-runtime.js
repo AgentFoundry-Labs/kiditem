@@ -7197,7 +7197,7 @@ var KidItemRuntime = (() => {
     selectionMode: MallOrdersSelectionModeSchema.optional(),
     seenRowKeys: external_exports.array(external_exports.string().min(1).max(MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH)).max(MALL_ORDERS_SEEN_ROW_KEYS_MAX).optional()
   }).strict();
-  var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook", "kidsnote", "onch"];
+  var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook", "kidsnote", "onch", "haebub-mall"];
   function isMallOrderOperationMall(mallKey) {
     return MALL_ORDER_OPERATION_MALLS.includes(mallKey);
   }
@@ -9974,6 +9974,49 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "domeggook", create: (deps, lease) => createDomeggookSite(deps.tabs, deps, createSiteSignIn(DOMEGGOOK_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/haebub-mall/index.ts
+  var HAEBUB_MALL_ORDER_URL = "https://mallseller.genimarket.co.kr/mall/order/basket_list.php";
+  var HAEBUB_MALL_ORDERS_FILE = "content/page-call/haebub-mall-orders.js";
+  var HAEBUB_MALL_VENDOR = "\uAC70\uC601\uC544\uC774\uC564\uB514";
+  var READ_TIMEOUT_MS3 = 18e4;
+  var LOGIN_MESSAGE3 = "\uD574\uBC95\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. mallseller.genimarket.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var HOSTS = ["genimarket.co.kr"];
+  var isHaebubLogin = (url) => hostWithin(url, HOSTS) && /login/i.test(url.pathname + url.search);
+  var HAEBUB_MALL_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, HOSTS),
+    isLogin: isHaebubLogin,
+    loginMessage: LOGIN_MESSAGE3
+  };
+  var HAEBUB_MALL_LOGIN = {
+    displayName: "\uD574\uBC95\uBAB0",
+    loginUrl: HAEBUB_MALL_ORDER_URL,
+    hosts: HOSTS,
+    isLoginUrl: isHaebubLogin,
+    fields: ["loginId", "password"]
+  };
+  function createHaebubMallSite(tabs, signIn) {
+    return {
+      readOrders(input) {
+        return withFreshTab(tabs, HAEBUB_MALL_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "haebub-mall.orders", { date: input.collectionDate ?? "", vendor: HAEBUB_MALL_VENDOR }, {
+            timeoutMs: READ_TIMEOUT_MS3,
+            guard: HAEBUB_MALL_PAGE_GUARD,
+            isolated: [HAEBUB_MALL_ORDERS_FILE],
+            displayName: "\uD574\uBC95\uBAB0"
+          });
+          if (answer?.status === "ok") return { rows: answer.orders };
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE3, { url: HAEBUB_MALL_ORDER_URL });
+          throw new RuntimeError(SITE_REQUEST_FAILED, `\uD574\uBC95\uBAB0 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
+            status: null,
+            reason: "page_error",
+            url: HAEBUB_MALL_ORDER_URL
+          });
+        }, signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({ name: "haebub-mall", create: (deps, lease) => createHaebubMallSite(deps.tabs, createSiteSignIn(HAEBUB_MALL_LOGIN, lease.credentials, deps)) });
+
   // extensions/src/sites/icecream-mall/listings.ts
   var ICECREAM_LISTINGS_URL = "https://po.i-screammall.co.kr/goods/goodsMgmt.goodsMgmtView.do";
   var ICECREAM_LISTINGS_FILE = "content/orders/icecream-listings.js";
@@ -9999,7 +10042,7 @@ var KidItemRuntime = (() => {
   var LOGIN_WATCH_MS = 500;
   var MENU_TIMEOUT_MS = 45e3;
   var GRID_TIMEOUT_MS = 35e3;
-  var LOGIN_MESSAGE3 = "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE4 = "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var ICECREAM_DELIVERY_HEADERS = [
     "No",
     "\uC8FC\uBB38\uBC88\uD638",
@@ -10057,7 +10100,7 @@ var KidItemRuntime = (() => {
   var ICECREAM_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["i-screammall.co.kr"]),
     isLogin: (url) => hostWithin(url, ["i-screammall.co.kr"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE3
+    loginMessage: LOGIN_MESSAGE4
   };
   var ICECREAM_LOGIN = {
     displayName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
@@ -10087,7 +10130,7 @@ var KidItemRuntime = (() => {
     return "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uBC30\uC1A1\uC870\uD68C \uD654\uBA74\uC740 \uC5F4\uC5C8\uC9C0\uB9CC \uBC30\uC1A1\uBAA9\uB85D \uD45C\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.";
   }
   function loginRequired2() {
-    return new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE3, { url: ICECREAM_MALL_URL });
+    return new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE4, { url: ICECREAM_MALL_URL });
   }
   function createIcecreamMallSite(tabs, sleep, signIn) {
     async function inspect(page) {
@@ -10169,12 +10212,12 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/kidkids/index.ts
   var KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
   var KIDKIDS_ORDERS_FILE = "content/orders/kidkids-orders.js";
-  var READ_TIMEOUT_MS3 = 18e4;
-  var LOGIN_MESSAGE4 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var READ_TIMEOUT_MS4 = 18e4;
+  var LOGIN_MESSAGE5 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var KIDKIDS_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["kidkids.net"]),
     isLogin: (url) => hostWithin(url, ["kidkids.net"]) && (/login|partnerlogin|partner_login/i.test(url.pathname) || /\/security\/verify_user\.htm$/i.test(url.pathname)),
-    loginMessage: LOGIN_MESSAGE4
+    loginMessage: LOGIN_MESSAGE5
   };
   var KIDKIDS_LOGIN = {
     displayName: "\uD0A4\uB4DC\uD0A4\uC988",
@@ -10191,13 +10234,13 @@ var KidItemRuntime = (() => {
       readOrders(input) {
         return withFreshTab(tabs, KIDKIDS_ORDER_URL, async (page) => {
           const answer = await callPage(page, "kidkids.orders", { dateFilter: input.collectionDate ?? "" }, {
-            timeoutMs: READ_TIMEOUT_MS3,
+            timeoutMs: READ_TIMEOUT_MS4,
             guard: KIDKIDS_PAGE_GUARD,
             isolated: [KIDKIDS_ORDERS_FILE],
             displayName: "\uD0A4\uB4DC\uD0A4\uC988"
           });
           if (answer?.status === "ok") return { rows: answer.orders };
-          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE4, { url: KIDKIDS_ORDER_URL });
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE5, { url: KIDKIDS_ORDER_URL });
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uB4DC\uD0A4\uC988 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -10212,19 +10255,19 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/kidsnote/index.ts
   var KIDSNOTE_ORDER_URL = "https://shop.kidsnote.com/_manage/?body=3010";
   var KIDSNOTE_ORDERS_FILE = "content/page-call/kidsnote-orders.js";
-  var READ_TIMEOUT_MS4 = 19e4;
-  var LOGIN_MESSAGE5 = "shop.kidsnote.com \uAD00\uB9AC\uC790 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.";
-  var HOSTS = ["shop.kidsnote.com"];
-  var isKidsnoteLogin = (url) => hostWithin(url, HOSTS) && /login/i.test(url.pathname + url.search);
+  var READ_TIMEOUT_MS5 = 19e4;
+  var LOGIN_MESSAGE6 = "shop.kidsnote.com \uAD00\uB9AC\uC790 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.";
+  var HOSTS2 = ["shop.kidsnote.com"];
+  var isKidsnoteLogin = (url) => hostWithin(url, HOSTS2) && /login/i.test(url.pathname + url.search);
   var KIDSNOTE_PAGE_GUARD = {
-    allows: (url) => hostWithin(url, HOSTS),
+    allows: (url) => hostWithin(url, HOSTS2),
     isLogin: isKidsnoteLogin,
-    loginMessage: LOGIN_MESSAGE5
+    loginMessage: LOGIN_MESSAGE6
   };
   var KIDSNOTE_LOGIN = {
     displayName: "\uD0A4\uC988\uB178\uD2B8",
     loginUrl: KIDSNOTE_ORDER_URL,
-    hosts: HOSTS,
+    hosts: HOSTS2,
     isLoginUrl: isKidsnoteLogin,
     fields: ["loginId", "password"]
   };
@@ -10253,13 +10296,13 @@ var KidItemRuntime = (() => {
         return withFreshTab(tabs, KIDSNOTE_ORDER_URL, async (page) => {
           const day = input.collectionDate ?? "";
           const answer = await callPage(page, "kidsnote.orders", { from: day, to: day, status: "", withDetail: true }, {
-            timeoutMs: READ_TIMEOUT_MS4,
+            timeoutMs: READ_TIMEOUT_MS5,
             guard: KIDSNOTE_PAGE_GUARD,
             isolated: [KIDSNOTE_ORDERS_FILE],
             displayName: "\uD0A4\uC988\uB178\uD2B8"
           });
           if (answer?.status === "ok") return { rows: answer.orders.map(kidsnoteConvertOrder) };
-          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE5, { url: KIDSNOTE_ORDER_URL });
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE6, { url: KIDSNOTE_ORDER_URL });
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uC988\uB178\uD2B8 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -10274,19 +10317,19 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/onch/index.ts
   var ONCH_ORDER_URL = "https://www.onch3.co.kr/supplier/orders.php?state=all";
   var ONCH_ORDERS_FILE = "content/page-call/onch-orders.js";
-  var READ_TIMEOUT_MS5 = 12e4;
-  var LOGIN_MESSAGE6 = "\uC628\uCC44\uB110 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. onch3.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
-  var HOSTS2 = ["onch3.co.kr"];
-  var isOnchLogin = (url) => hostWithin(url, HOSTS2) && /\/login\//i.test(url.pathname);
+  var READ_TIMEOUT_MS6 = 12e4;
+  var LOGIN_MESSAGE7 = "\uC628\uCC44\uB110 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. onch3.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var HOSTS3 = ["onch3.co.kr"];
+  var isOnchLogin = (url) => hostWithin(url, HOSTS3) && /\/login\//i.test(url.pathname);
   var ONCH_PAGE_GUARD = {
-    allows: (url) => hostWithin(url, HOSTS2),
+    allows: (url) => hostWithin(url, HOSTS3),
     isLogin: isOnchLogin,
-    loginMessage: LOGIN_MESSAGE6
+    loginMessage: LOGIN_MESSAGE7
   };
   var ONCH_LOGIN = {
     displayName: "\uC628\uCC44\uB110",
     loginUrl: ONCH_ORDER_URL,
-    hosts: HOSTS2,
+    hosts: HOSTS3,
     isLoginUrl: isOnchLogin,
     fields: ["loginId", "password"]
   };
@@ -10295,13 +10338,13 @@ var KidItemRuntime = (() => {
       readOrders(input) {
         return withFreshTab(tabs, ONCH_ORDER_URL, async (page) => {
           const answer = await callPage(page, "onch.orders", { dateFilter: input.collectionDate ?? "" }, {
-            timeoutMs: READ_TIMEOUT_MS5,
+            timeoutMs: READ_TIMEOUT_MS6,
             guard: ONCH_PAGE_GUARD,
             isolated: [ONCH_ORDERS_FILE],
             displayName: "\uC628\uCC44\uB110"
           });
           if (answer?.status === "ok") return { rows: answer.orders };
-          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE6, { url: ONCH_ORDER_URL });
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE7, { url: ONCH_ORDER_URL });
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC628\uCC44\uB110 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -10593,12 +10636,12 @@ var KidItemRuntime = (() => {
   var NAVIGATION_TIMEOUT_MS8 = 45e3;
   var PAGE_CALL_TIMEOUT_MS = 35e3;
   var SABANGNET_PAGE_DELAY_MS = 800;
-  var LOGIN_MESSAGE7 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE8 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
   var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
   var SABANGNET_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sabangnet.co.kr"]),
     isLogin: (url) => hostWithin(url, ["sabangnet.co.kr"]) && /login/i.test(`${url.pathname}${url.hash}`),
-    loginMessage: LOGIN_MESSAGE7
+    loginMessage: LOGIN_MESSAGE8
   };
   function createSabangnetSite(tabs, sleep) {
     let pagesRead = 0;
@@ -10627,7 +10670,7 @@ var KidItemRuntime = (() => {
         case "ok":
           return { total: answer.total, items: answer.items };
         case "login_required":
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE7, { url: PAGE_URL });
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE8, { url: PAGE_URL });
         case "http_error":
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
             status: answer.httpStatus,
@@ -10668,11 +10711,11 @@ var KidItemRuntime = (() => {
   var SELLPIA_REPRINT_URL = `${SELLPIA_ORIGIN}/order_delivery_reprint.html`;
   var SELLPIA_SHIPMENT_TRACKING_FILE = "content/orders/sellpia-shipment-tracking.js";
   var QUERY_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE8 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE9 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
   var SELLPIA_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sellpia.com"]),
     isLogin: (url) => hostWithin(url, ["sellpia.com"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE8
+    loginMessage: LOGIN_MESSAGE9
   };
   function createSellpiaTracking(tabs) {
     return {
@@ -10689,7 +10732,7 @@ var KidItemRuntime = (() => {
             case "ok":
               return { rows: answer.rows, total: answer.total };
             case "login_required":
-              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE8, { url: SELLPIA_REPRINT_URL });
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE9, { url: SELLPIA_REPRINT_URL });
             case "http_error":
               throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
                 status: answer.httpStatus,
@@ -10838,7 +10881,7 @@ var KidItemRuntime = (() => {
   var NAVIGATION_TIMEOUT_MS9 = 45e3;
   var SEARCH_TIMEOUT_MS = 10 * 6e4;
   var STATUS_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE9 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE10 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
   var MALL_CONTRACT_CHANGED5 = "MALL_CONTRACT_CHANGED";
   function createSellpiaManualMatch(tabs) {
     let tab = null;
@@ -10865,7 +10908,7 @@ var KidItemRuntime = (() => {
           case "ok":
             return answer;
           case "login_required":
-            throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE9, { url: SELLPIA_MANUAL_MATCH_URL });
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE10, { url: SELLPIA_MANUAL_MATCH_URL });
           case "contract_drift":
             throw new RuntimeError(MALL_CONTRACT_CHANGED5, `\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
           case "http_error":
