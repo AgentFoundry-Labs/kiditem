@@ -17,7 +17,6 @@ import { AdvertisingOverviewController } from "./adapter/in/http/advertising-ove
 import { AdvertisingStrategyController } from "./adapter/in/http/advertising-strategy.controller";
 import { AdKeywordAgentController } from "./adapter/in/http/ad-keyword-agent.controller";
 import { KeywordRankController } from "./adapter/in/http/keyword-rank.controller";
-import { KeywordSerpSourceController } from "./adapter/in/http/keyword-serp-source.controller";
 import { AdKeywordSourceController } from "./adapter/in/http/ad-keyword-source.controller";
 import { AdCampaignSourceController } from "./adapter/in/http/ad-campaign-source.controller";
 import { WingItemwinnerKpiSourceController } from "./adapter/in/http/wing-itemwinner-kpi-source.controller";
@@ -47,7 +46,6 @@ import { ChannelScrapeRepositoryAdapter } from "./adapter/out/repository/channel
 import { ChannelOptionDailyRepositoryAdapter } from "./adapter/out/repository/channel-option-daily.repository.adapter";
 import { ChannelTargetDailyRepositoryAdapter } from "./adapter/out/repository/channel-target-daily.repository.adapter";
 import { KeywordRankRepositoryAdapter } from "./adapter/out/repository/keyword-rank.repository.adapter";
-import { KeywordSerpSourceRepository } from "./adapter/out/repository/keyword-serp-source.repository";
 import { AdKeywordSourceRepository } from "./adapter/out/repository/ad-keyword-source.repository";
 import { AdCampaignSourceRepository } from "./adapter/out/repository/ad-campaign-source.repository";
 import { SellerIdentitySourceRepository } from "./adapter/out/repository/seller-identity-source.repository";
@@ -60,6 +58,7 @@ import { ADVERTISING_SOURCE_ALERT_PORT } from "./application/port/out/repository
 // adapter/in/operation — 실행 계약 kind(ADR-0025, KID-362)
 import { WingTrackedProductsOperationOwner } from "./adapter/in/operation/wing-tracked-products-operation-owner";
 import { WingRankOperationOwner } from "./adapter/in/operation/wing-rank-operation-owner";
+import { KeywordSerpOperationOwner } from "./adapter/in/operation/keyword-serp-operation-owner";
 // application/service + handlers
 import { AdvertisingService } from "./application/service/advertising.service";
 import { AdExportService } from "./application/service/ad-export.service";
@@ -178,7 +177,6 @@ const REPOSITORY_PORT_BINDINGS = [
     AdExportController,
     AdKeywordAgentController,
     KeywordRankController,
-    KeywordSerpSourceController,
     AdKeywordSourceController,
     AdCampaignSourceController,
     WingItemwinnerKpiSourceController,
@@ -200,7 +198,6 @@ const REPOSITORY_PORT_BINDINGS = [
     ChannelOptionDailyRepositoryAdapter,
     ChannelTargetDailyRepositoryAdapter,
     KeywordRankRepositoryAdapter,
-    KeywordSerpSourceRepository,
     AdKeywordSourceRepository,
     AdCampaignSourceRepository,
     WingItemwinnerKpiSourceRepository,
@@ -230,6 +227,7 @@ const REPOSITORY_PORT_BINDINGS = [
     // adapter/in/operation
     WingTrackedProductsOperationOwner,
     WingRankOperationOwner,
+    KeywordSerpOperationOwner,
     // application/service
     AdvertisingService,
     AdExportService,

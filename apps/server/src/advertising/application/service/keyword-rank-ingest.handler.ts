@@ -20,6 +20,14 @@
 // 때문에 전체 ingest 를 실패시키지 않는다.
 
 import { Inject, Injectable, Logger } from "@nestjs/common";
+import {
+  advertisingKeywordIdentity,
+  type KeywordSerpPlan,
+  type KeywordSerpResult,
+} from "@kiditem/shared/advertising-operations";
+import type { OperationStagedChunk } from "@kiditem/shared/operation";
+import type { OwnerTransaction } from "../../../common/owner-transaction";
+import { assembleKeywordSerpCaptures, planKeywordSerp } from "../../domain/keyword-serp-operation";
 import { resolveBusinessDate } from "../../domain/business-date";
 import {
   cleanString,
@@ -108,7 +116,7 @@ export class KeywordRankIngestHandler {
         ownNameByVendorItemId.has(vendorItemId),
     );
 
-    const rankRows: Omit<UpsertRankSnapshotInput, "sourceImportRunId">[] = [];
+    const rankRows: Omit<UpsertRankSnapshotInput, "operationId">[] = [];
     for (const [vendorItemId, fold] of folds) {
       const best = fold.bestItem;
       rankRows.push({
@@ -166,9 +174,46 @@ export class KeywordRankIngestHandler {
     };
   }
 
+  /**
+   * SERP 순위 실행의 계획(`advertising.keyword_serp`, KID-362): 키워드마다 트래커 설정과 자사 옵션 목록을 고정한다.
+   */
+  async planSerpOperation(organizationId: string, keywords: readonly string[]): Promise<KeywordSerpPlan> {
+    const [trackers, ownItems] = await Promise.all([
+      this.keywordRankRepo.listTrackers(organizationId),
+      this.keywordRankRepo.listOwnVendorItems(organizationId),
+    ]);
+    return planKeywordSerp({ keywords, trackers, ownItems });
+  }
+
+  /** finish 트랜잭션에서 키워드마다 트래커·순위·SERP 스냅샷을 실행 ID와 함께 쓴다. */
+  async publishSerpOperation(tx: OwnerTransaction, input: {
+    organizationId: string;
+    operationId: string;
+    plan: KeywordSerpPlan;
+    chunks: readonly OperationStagedChunk[];
+  }): Promise<KeywordSerpResult> {
+    const captures = assembleKeywordSerpCaptures(input.plan, input.chunks);
+    return this.keywordRankRepo.runInTransaction(tx, async () => {
+      let items = 0;
+      let rankRows = 0;
+      for (const entry of input.plan.keywords) {
+        const capture = captures.get(advertisingKeywordIdentity(entry.keyword))!;
+        const normalized = this.normalizeCapture(
+          { keyword: entry.keyword, capturedAt: capture.capturedAt, items: capture.items, pagesScanned: capture.pagesScanned },
+          { explicitVendorItemIds: entry.explicitVendorItemIds, ownItems: input.plan.ownItems },
+          input.organizationId,
+        );
+        await this.publishCapture(normalized, input.operationId, input.organizationId, entry.keyword, capture.pagesScanned);
+        items += normalized.items.length;
+        rankRows += normalized.rankRows.length;
+      }
+      return { keywords: input.plan.keywords.length, items, rankRows };
+    });
+  }
+
   async publishCapture(
     normalized: ReturnType<KeywordRankIngestHandler["normalizeCapture"]>,
-    sourceImportRunId: string,
+    operationId: string,
     organizationId: string,
     keyword: string,
     pagesScanned: number,
@@ -185,13 +230,13 @@ export class KeywordRankIngestHandler {
       );
     }
     await this.keywordRankRepo.upsertRankSnapshots(
-      rankRows.map((row) => ({ ...row, sourceImportRunId })),
+      rankRows.map((row) => ({ ...row, operationId })),
     );
     const serpItems = items.map((item) => ({ ...item }));
     await this.keywordRankRepo.upsertSerpSnapshot(
       {
         organizationId,
-        sourceImportRunId,
+        operationId,
         keyword,
         businessDate,
         items: { serpItems, sellerCatalogs: [] },

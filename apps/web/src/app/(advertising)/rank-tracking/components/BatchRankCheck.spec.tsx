@@ -14,10 +14,12 @@ vi.mock('@/lib/api-client', () => ({
   apiClient: {
     get: async (path: string) => {
       if (path === WING_PATH) return { operations: wingOperations };
+      if (path === SERP_PATH) return { operations: serpOperations };
       throw new Error(`unexpected GET ${path}`);
     },
     getParsed: async (path: string) => {
       if (path === '/api/channels/accounts') return accounts;
+      if (path === '/api/ads/keyword-rank/products?days=30') return { rows: overviewRows };
       throw new Error(`unexpected GET ${path}`);
     },
     post: (path: string) => mocks.post(path),
@@ -25,6 +27,7 @@ vi.mock('@/lib/api-client', () => ({
 }));
 
 const WING_PATH = '/api/operations?kinds=advertising.wing_rank&limit=20';
+const SERP_PATH = '/api/operations?kinds=advertising.keyword_serp&limit=20';
 const ACCOUNT_ID = '44444444-4444-4444-8444-444444444444';
 const RUN_ID = '11111111-1111-4111-8111-111111111111';
 const PREVIOUS_ID = '22222222-2222-4222-8222-222222222222';
@@ -52,6 +55,8 @@ function operation(id: string, status: 'executing' | 'succeeded' | 'failed', pat
 }
 
 let wingOperations: ReturnType<typeof operation>[];
+let serpOperations: ReturnType<typeof operation>[];
+let overviewRows: Array<{ keyword: string }>;
 let accounts: unknown[];
 
 function renderCheck(onCompleted = vi.fn()) {
@@ -63,6 +68,8 @@ function renderCheck(onCompleted = vi.fn()) {
 beforeEach(() => {
   vi.clearAllMocks();
   wingOperations = [];
+  serpOperations = [];
+  overviewRows = [{ keyword: '연필' }, { keyword: '슬라임' }, { keyword: '연필' }];
   accounts = [{ id: ACCOUNT_ID, channel: 'coupang', name: '대표 스토어', externalAccountId: null, vendorId: null, sellerId: null, isPrimary: true }];
   mocks.start.mockImplementation(async () => {
     wingOperations = [operation(RUN_ID, 'executing')];
@@ -78,6 +85,19 @@ describe('BatchRankCheck (advertising.wing_rank, KID-362)', () => {
 
     expect(await screen.findByText('수집 중 · 1/2개 키워드')).toBeInTheDocument();
     expect(mocks.start.mock.calls).toEqual([['advertising.wing_rank', { channelAccountId: ACCOUNT_ID }, { capability: 'advertisingKeywordOperationKindsV1' }]]);
+  });
+
+  it('starts SERP rank for the representative keywords of the rank overview and names a refusal from the shared keyword slot', async () => {
+    mocks.start.mockImplementation(async () => ({ outcome: 'refused', message: '같은 실행이 이미 진행 중입니다. 끝나거나 중단한 뒤 다시 시작해 주세요.' }));
+    renderCheck();
+    const start = await screen.findByRole('button', { name: 'SERP 순위' });
+    // 대표 키워드 목록을 읽기 전의 클릭은 키워드 없음으로 멈춘다 — 읽은 뒤 다시 누른다.
+    await waitFor(() => {
+      fireEvent.click(start);
+      expect(mocks.start).toHaveBeenCalled();
+    });
+    expect(mocks.start.mock.calls[0]).toEqual(['advertising.keyword_serp', { keywords: ['연필', '슬라임'] }, { capability: 'advertisingKeywordOperationKindsV1' }]);
+    expect(await screen.findByText('같은 실행이 이미 진행 중입니다. 끝나거나 중단한 뒤 다시 시작해 주세요.')).toBeInTheDocument();
   });
 
   it('refuses to start without a Coupang account and names the reason', async () => {

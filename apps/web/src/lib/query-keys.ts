@@ -169,6 +169,7 @@ export const queryKeys = {
     keywordRank: () => [...queryKeys.ads.all, 'keywordRank'] as const,
     // 실행 kind `advertising.wing_rank`의 최근 실행들(공용 수집 컨트롤이 읽는다).
     wingRankOperations: () => [...queryKeys.ads.all, 'operations', 'source-status', 'advertising.wing_rank'] as const,
+    keywordSerpOperations: () => [...queryKeys.ads.all, 'operations', 'source-status', 'advertising.keyword_serp'] as const,
     keywordRankTrackers: () => [...queryKeys.ads.keywordRank(), 'trackers'] as const,
     keywordRankHistory: (keyword: string, days: number) =>
       [...queryKeys.ads.keywordRank(), 'history', keyword, days] as const,

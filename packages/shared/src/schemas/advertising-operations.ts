@@ -191,3 +191,64 @@ export const WingRankResultSchema = z.object({
   rankedCount: z.number().int().nonnegative(),
 }).strict();
 export type WingRankResult = z.infer<typeof WingRankResultSchema>;
+
+// ── K3 advertising.keyword_serp ──
+
+/** 쿠팡 검색 한 키워드에서 읽는 쪽 수 상한(옛 수집기 MAX_PAGES). */
+export const KEYWORD_SERP_MAX_PAGES = 3;
+export const KEYWORD_SERP_MAX_KEYWORDS = 100;
+
+/** SERP 순위: www.coupang.com 검색 결과를 키워드마다 최대 3쪽 읽는다. lockKey 키워드마다 `resource:keyword:<kw>`(Wing 순위와 같은 슬롯). */
+export const KeywordSerpScopeSchema = z.object({
+  keywords: keywordList(KEYWORD_SERP_MAX_KEYWORDS),
+}).strict();
+export type KeywordSerpScope = z.infer<typeof KeywordSerpScopeSchema>;
+
+/** plan: 키워드마다 쪽 수와 명시 추적 옵션(트래커), 자사 옵션 목록(순위 행을 만들 대상). */
+export const KeywordSerpPlanSchema = z.object({
+  keywords: z.array(z.object({
+    keyword: z.string().min(1).max(100),
+    maxPages: z.number().int().min(1).max(KEYWORD_SERP_MAX_PAGES),
+    explicitVendorItemIds: z.array(z.string().min(1).max(40)).max(500),
+  }).strict()).min(1).max(KEYWORD_SERP_MAX_KEYWORDS),
+  ownItems: z.array(z.object({ vendorItemId: z.string().min(1).max(40), productName: z.string().max(500) }).strict()),
+}).strict();
+export type KeywordSerpPlan = z.infer<typeof KeywordSerpPlanSchema>;
+
+/** 검색 결과 한 줄(DOM 순서, 광고 포함). `rank`는 1부터 전체 순번. */
+export const KeywordSerpItemSchema = z.object({
+  rank: z.number().int().min(1),
+  page: z.number().int().min(1).max(KEYWORD_SERP_MAX_PAGES),
+  positionInPage: z.number().int().min(1),
+  isAd: z.boolean(),
+  productId: z.string().min(1).max(40),
+  itemId: z.string().max(40).nullable(),
+  vendorItemId: z.string().max(40).nullable(),
+  name: z.string().max(300).nullable(),
+  priceKrw: z.number().int().nonnegative().nullable(),
+  reviewCount: z.number().int().nonnegative().nullable(),
+  ratingScore: z.number().min(0).max(5).nullable(),
+  imageUrl: z.string().max(2_000).nullable(),
+  link: z.string().max(2_000).nullable(),
+}).strict();
+export type KeywordSerpItem = z.infer<typeof KeywordSerpItemSchema>;
+
+export const KEYWORD_SERP_STOP_REASONS = ['page_limit', 'empty_page', 'provider_wall', 'invalid_result'] as const;
+
+/** 청크 `keyword_serp`: 키워드 하나를 읽은 결과(키워드마다 한 장). 첫 쪽이 비면 수집기가 실패한다. */
+export const KEYWORD_SERP_CHUNK_KIND = 'keyword_serp' as const;
+export const KeywordSerpChunkItemSchema = z.object({
+  keyword: z.string().min(1).max(100),
+  capturedAt: z.string().datetime(),
+  pagesScanned: z.number().int().min(1).max(KEYWORD_SERP_MAX_PAGES),
+  stopReason: z.enum(KEYWORD_SERP_STOP_REASONS),
+  items: z.array(KeywordSerpItemSchema).min(1).max(1_000),
+}).strict();
+export type KeywordSerpChunkItem = z.infer<typeof KeywordSerpChunkItemSchema>;
+
+export const KeywordSerpResultSchema = z.object({
+  keywords: z.number().int().nonnegative(),
+  items: z.number().int().nonnegative(),
+  rankRows: z.number().int().nonnegative(),
+}).passthrough();
+export type KeywordSerpResult = z.infer<typeof KeywordSerpResultSchema>;

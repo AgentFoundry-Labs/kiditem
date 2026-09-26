@@ -4083,6 +4083,7 @@ var KidItemRuntime = (() => {
   // packages/shared/src/schemas/advertising-operations.ts
   var WING_TRACKED_PRODUCTS_KIND = "advertising.wing_tracked_products";
   var WING_RANK_KIND = "advertising.wing_rank";
+  var KEYWORD_SERP_KIND = "advertising.keyword_serp";
   function canonicalAdvertisingKeyword(value) {
     return value.trim().replace(/\s+/gu, " ").normalize("NFC");
   }
@@ -4192,6 +4193,88 @@ var KidItemRuntime = (() => {
     rows: external_exports.number().int().nonnegative(),
     rankedCount: external_exports.number().int().nonnegative()
   }).strict();
+  var KEYWORD_SERP_MAX_PAGES = 3;
+  var KEYWORD_SERP_MAX_KEYWORDS = 100;
+  var KeywordSerpScopeSchema = external_exports.object({
+    keywords: keywordList(KEYWORD_SERP_MAX_KEYWORDS)
+  }).strict();
+  var KeywordSerpPlanSchema = external_exports.object({
+    keywords: external_exports.array(external_exports.object({
+      keyword: external_exports.string().min(1).max(100),
+      maxPages: external_exports.number().int().min(1).max(KEYWORD_SERP_MAX_PAGES),
+      explicitVendorItemIds: external_exports.array(external_exports.string().min(1).max(40)).max(500)
+    }).strict()).min(1).max(KEYWORD_SERP_MAX_KEYWORDS),
+    ownItems: external_exports.array(external_exports.object({ vendorItemId: external_exports.string().min(1).max(40), productName: external_exports.string().max(500) }).strict())
+  }).strict();
+  var KeywordSerpItemSchema = external_exports.object({
+    rank: external_exports.number().int().min(1),
+    page: external_exports.number().int().min(1).max(KEYWORD_SERP_MAX_PAGES),
+    positionInPage: external_exports.number().int().min(1),
+    isAd: external_exports.boolean(),
+    productId: external_exports.string().min(1).max(40),
+    itemId: external_exports.string().max(40).nullable(),
+    vendorItemId: external_exports.string().max(40).nullable(),
+    name: external_exports.string().max(300).nullable(),
+    priceKrw: external_exports.number().int().nonnegative().nullable(),
+    reviewCount: external_exports.number().int().nonnegative().nullable(),
+    ratingScore: external_exports.number().min(0).max(5).nullable(),
+    imageUrl: external_exports.string().max(2e3).nullable(),
+    link: external_exports.string().max(2e3).nullable()
+  }).strict();
+  var KEYWORD_SERP_STOP_REASONS = ["page_limit", "empty_page", "provider_wall", "invalid_result"];
+  var KEYWORD_SERP_CHUNK_KIND = "keyword_serp";
+  var KeywordSerpChunkItemSchema = external_exports.object({
+    keyword: external_exports.string().min(1).max(100),
+    capturedAt: external_exports.string().datetime(),
+    pagesScanned: external_exports.number().int().min(1).max(KEYWORD_SERP_MAX_PAGES),
+    stopReason: external_exports.enum(KEYWORD_SERP_STOP_REASONS),
+    items: external_exports.array(KeywordSerpItemSchema).min(1).max(1e3)
+  }).strict();
+  var KeywordSerpResultSchema = external_exports.object({
+    keywords: external_exports.number().int().nonnegative(),
+    items: external_exports.number().int().nonnegative(),
+    rankRows: external_exports.number().int().nonnegative()
+  }).passthrough();
+
+  // extensions/src/collectors/collector.ts
+  function attentionReporter(report, base) {
+    let since = null;
+    return async (attention) => {
+      if (!report) return;
+      if (!attention) {
+        since = null;
+        await report({ ...base, attention: null });
+        return;
+      }
+      since ??= (/* @__PURE__ */ new Date()).toISOString();
+      await report({ ...base, attention: { ...attention, since } });
+    };
+  }
+
+  // extensions/src/collectors/advertising.keyword_serp/index.ts
+  var advertisingKeywordSerpCollector = {
+    kind: KEYWORD_SERP_KIND,
+    site: "coupang-search",
+    async *collect(plan, site, { signal, report }) {
+      try {
+        for (const [index, { keyword: keyword2, maxPages }] of plan.keywords.entries()) {
+          if (signal.aborted) return;
+          const read = await site.serp(keyword2, maxPages, {
+            onAttention: attentionReporter(report, { current: index, total: plan.keywords.length, label: keyword2 })
+          });
+          const chunk = { keyword: keyword2, capturedAt: (/* @__PURE__ */ new Date()).toISOString(), ...read };
+          yield {
+            chunkKind: KEYWORD_SERP_CHUNK_KIND,
+            payload: [chunk],
+            progress: { current: index + 1, total: plan.keywords.length, label: keyword2 }
+          };
+        }
+      } finally {
+        await site.closeSerp();
+      }
+    }
+  };
+  registerCollector(advertisingKeywordSerpCollector);
 
   // extensions/src/core/errors.ts
   var ErrorEnvelopeSchema = external_exports.object({
@@ -4609,8 +4692,8 @@ var KidItemRuntime = (() => {
         }
       }
     }
-    for (const [optionId, count] of mediaCountByOption.entries()) {
-      if (count > COUPANG_CATALOG_MAX_MEDIA_PER_OWNER) {
+    for (const [optionId, count2] of mediaCountByOption.entries()) {
+      if (count2 > COUPANG_CATALOG_MAX_MEDIA_PER_OWNER) {
         ctx.addIssue({
           code: external_exports.ZodIssueCode.custom,
           path: ["media"],
@@ -6240,9 +6323,9 @@ var KidItemRuntime = (() => {
     return String(value ?? "").replace(/[\u0000-\u001F]/g, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, max);
   }
   function requiredText2(value, field) {
-    const text2 = norm(value);
-    if (!text2) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
-    return text2;
+    const text3 = norm(value);
+    if (!text3) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+    return text3;
   }
   function requiredInteger(value, field) {
     if (typeof value === "number") {
@@ -6769,21 +6852,6 @@ var KidItemRuntime = (() => {
     }
   };
   registerCollector(sourcingCoupangKeywordSuggestionCollector);
-
-  // extensions/src/collectors/collector.ts
-  function attentionReporter(report, base) {
-    let since = null;
-    return async (attention) => {
-      if (!report) return;
-      if (!attention) {
-        since = null;
-        await report({ ...base, attention: null });
-        return;
-      }
-      since ??= (/* @__PURE__ */ new Date()).toISOString();
-      await report({ ...base, attention: { ...attention, since } });
-    };
-  }
 
   // extensions/src/collectors/sourcing.live_commerce/index.ts
   var sourcingLiveCommerceCollector = {
@@ -7318,10 +7386,10 @@ var KidItemRuntime = (() => {
         providerError = autocomplete.status === 429 ? { reason: "rate_limited", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC694\uCCAD\uC774 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694." } : { reason: "provider_denied", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574\uC8FC\uC138\uC694." };
       }
     }
-    const text2 = autocomplete?.text.trim() ?? "";
-    if (text2 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text2))) {
+    const text3 = autocomplete?.text.trim() ?? "";
+    if (text3 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text3))) {
       try {
-        const parsed = JSON.parse(text2);
+        const parsed = JSON.parse(text3);
         if (parsed && typeof parsed === "object") {
           if (isErrorEnvelope(parsed)) {
             const message = errorEnvelopeMessage(parsed);
@@ -7336,7 +7404,7 @@ var KidItemRuntime = (() => {
       } catch {
         warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uD30C\uC2F1 \uC2E4\uD328");
       }
-    } else if (text2) {
+    } else if (text3) {
       warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4");
     }
     const beforeDom = candidates.length;
@@ -7413,22 +7481,188 @@ var KidItemRuntime = (() => {
       const tokens = new Set(name.replace(/[()[\]{}"'`~!@#$%^&*_+=|\\:;,.<>/?·•]/g, " ").split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 2 && token.length <= 20).filter((token) => !/^[\d개입묶음세트]+$/.test(token)).filter((token) => !STOP_WORDS.has(token)));
       for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
     }
-    return [...counts.entries()].map(([keyword2, count]) => ({ keyword: keyword2, count })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
+    return [...counts.entries()].map(([keyword2, count2]) => ({ keyword: keyword2, count: count2 })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
+  }
+
+  // extensions/src/sites/coupang-search/serp.ts
+  var ORIGIN = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS = 6e4;
+  var EXTRACTION_TIMEOUT_MS2 = 2e4;
+  var RENDER_WAIT_MS = 1200;
+  var PAGE_DELAY_MS = [1500, 3e3];
+  var KEYWORD_DELAY_MS = [4e3, 8e3];
+  var WALL_POLL_MS = 5e3;
+  var WALL_WAIT_MAX_MS = 10 * 6e4;
+  var WALL_REMIND_MS = 3 * 6e4;
+  var CONTENT_FILE = "content/advertising/coupang-serp-page.js";
+  var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
+  var COUPANG_SERP_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["coupang.com"]),
+    isLogin: (url) => hostWithin(url, ["login.coupang.com"]),
+    loginMessage: "\uCFE0\uD321 \uB85C\uADF8\uC778 \uD654\uBA74\uC73C\uB85C \uC62E\uACA8 \uAC14\uC2B5\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC744 \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  function buildCoupangSerpUrl(keyword2, page) {
+    return `${ORIGIN}/np/search?q=${encodeURIComponent(keyword2)}&channel=user&page=${page}&listSize=36`;
+  }
+  function isExpectedSerpUrl(actual, expected) {
+    try {
+      const left = new URL(actual);
+      const right = new URL(expected);
+      if (left.protocol !== "https:" || left.hostname !== "www.coupang.com" || left.pathname !== "/np/search") return false;
+      return ["q", "channel", "page", "listSize"].every((name) => left.searchParams.get(name) === right.searchParams.get(name));
+    } catch {
+      return false;
+    }
+  }
+  function createCoupangSerp(tabs, deps) {
+    let page = null;
+    let keepOpen = false;
+    let keywordsRead = 0;
+    const between = ([low, high]) => deps.sleep(Math.floor(low + deps.random() * (high - low)));
+    async function read(current, url) {
+      const landed = await current.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS, continueOnTimeout: true });
+      if (!isExpectedSerpUrl(landed, url)) return { landed, read: null };
+      await deps.sleep(RENDER_WAIT_MS);
+      try {
+        const answer = await current.ask(
+          { type: "KIDITEM_COUPANG_SERP_ITEMS" },
+          { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE] }, guard: COUPANG_SERP_PAGE_GUARD }
+        );
+        return { landed, read: answer };
+      } catch (error) {
+        if (leftForOperator(error)) keepOpen = true;
+        throw error;
+      }
+    }
+    async function waitThroughWall(current, url, attention, onAttention) {
+      const started = deps.now();
+      let remindedAt = started;
+      await onAttention?.(attention);
+      for (; ; ) {
+        if (deps.now() - started >= WALL_WAIT_MAX_MS) {
+          keepOpen = true;
+          throw new RuntimeError(SITE_VERIFICATION_REQUIRED2, "\uCFE0\uD321\uC774 \uBCF4\uC548 \uD655\uC778\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uD655\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { keyword: attention.label });
+        }
+        await deps.sleep(WALL_POLL_MS);
+        if (deps.now() - remindedAt >= WALL_REMIND_MS) {
+          remindedAt = deps.now();
+          await onAttention?.(attention);
+        }
+        const here = await current.currentUrl().catch(() => "");
+        const again = isExpectedSerpUrl(here, url) ? await readInPlace(current) : await read(current, url).then((result) => result.read);
+        if (again && again.ok && again.wall !== "captcha") {
+          await onAttention?.(null);
+          return again;
+        }
+      }
+    }
+    async function readInPlace(current) {
+      return current.ask(
+        { type: "KIDITEM_COUPANG_SERP_ITEMS" },
+        { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: { isolated: [CONTENT_FILE] }, guard: COUPANG_SERP_PAGE_GUARD }
+      ).catch(() => null);
+    }
+    return {
+      async serp(keyword2, maxPages, options = {}) {
+        if (keywordsRead > 0) await between(KEYWORD_DELAY_MS);
+        keywordsRead += 1;
+        page ??= await tabs.open("about:blank");
+        const current = page;
+        const attention = { kind: "verification", site: "\uCFE0\uD321", label: keyword2 };
+        const items = [];
+        let stopReason = "page_limit";
+        let pagesScanned = 0;
+        for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
+          const url = buildCoupangSerpUrl(keyword2, pageNumber);
+          const first = await read(current, url);
+          let answer = first.read;
+          if (answer === null) failIfLeftSite(first.landed, () => {
+            keepOpen = true;
+          });
+          if (answer === null || answer.wall === "captcha") {
+            answer = await waitThroughWall(current, url, attention, options.onAttention);
+          }
+          if (!answer?.ok) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 '${keyword2}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${answer?.error ?? "\uC54C \uC218 \uC5C6\uC74C"}).`, { status: null, keyword: keyword2 });
+          }
+          const pageItems = normalizeSerpItems(answer.items ?? [], pageNumber, items.length);
+          if (pageItems.length === 0) {
+            if (pageNumber === 1) {
+              throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 '${keyword2}' \uACB0\uACFC\uAC00 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4 \u2014 \uC0C1\uD488 \uBAA9\uB85D\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: null, keyword: keyword2, reason: "empty_first_page" });
+            }
+            stopReason = answer.wall ? "provider_wall" : answer.resultListObserved === true ? "empty_page" : "invalid_result";
+            break;
+          }
+          items.push(...pageItems);
+          pagesScanned = pageNumber;
+          if (pageNumber < maxPages) await between(PAGE_DELAY_MS);
+        }
+        return { pagesScanned, stopReason, items };
+      },
+      /** 수집이 끝나면 탭을 닫는다. 보안 확인·로그인에서 멈췄으면 운영자가 볼 수 있게 남긴다. */
+      async closeSerp() {
+        if (page && !keepOpen) await page.close();
+        page = null;
+      }
+    };
+  }
+  function failIfLeftSite(landed, keep) {
+    let url;
+    try {
+      url = new URL(landed);
+    } catch {
+      return;
+    }
+    if (!COUPANG_SERP_PAGE_GUARD.isLogin(url) && COUPANG_SERP_PAGE_GUARD.allows(url)) return;
+    keep();
+    checkPageUrl(COUPANG_SERP_PAGE_GUARD, landed);
+  }
+  function normalizeSerpItems(raw, page, offset) {
+    const items = [];
+    for (const candidate of raw) {
+      if (!candidate || typeof candidate !== "object") continue;
+      const row = candidate;
+      const productId2 = text(row.productId, 40);
+      if (!productId2) continue;
+      const position = items.length + 1;
+      items.push({
+        rank: offset + position,
+        page,
+        positionInPage: position,
+        isAd: row.isAd === true,
+        productId: productId2,
+        itemId: text(row.itemId, 40),
+        vendorItemId: text(row.vendorItemId, 40),
+        name: text(row.name, 300),
+        priceKrw: count(row.priceKrw),
+        reviewCount: count(row.reviewCount),
+        ratingScore: typeof row.ratingScore === "number" && row.ratingScore >= 0 && row.ratingScore <= 5 ? row.ratingScore : null,
+        imageUrl: text(row.imageUrl, 2e3),
+        link: text(row.link, 2e3)
+      });
+    }
+    return items;
+  }
+  function text(value, max) {
+    return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
+  }
+  function count(value) {
+    return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
   }
 
   // extensions/src/sites/coupang-search/index.ts
-  var ORIGIN = "https://www.coupang.com";
-  var PAGE_TIMEOUT_MS = 6e4;
+  var ORIGIN2 = "https://www.coupang.com";
+  var PAGE_TIMEOUT_MS2 = 6e4;
   var EVIDENCE_TIMEOUT_MS = 3e4;
   var SETTLE_MS = 1500;
-  var CONTENT_FILE = "content/sourcing/coupang-search-page.js";
+  var CONTENT_FILE2 = "content/sourcing/coupang-search-page.js";
   var COUPANG_SEARCH_SITE = {
     name: "coupang-search",
-    origin: ORIGIN,
+    origin: ORIGIN2,
     caller: { minIntervalMs: SETTLE_MS, displayName: "\uCFE0\uD321" }
   };
   function buildCoupangSearchUrl(keyword2) {
-    return `${ORIGIN}/np/search?component=&q=${encodeURIComponent(keyword2)}&channel=user`;
+    return `${ORIGIN2}/np/search?component=&q=${encodeURIComponent(keyword2)}&channel=user`;
   }
   function isCoupangSearchUrl(value) {
     try {
@@ -7444,14 +7678,14 @@ var KidItemRuntime = (() => {
         const url = buildCoupangSearchUrl(keyword2);
         const page = await tabs.open("about:blank");
         try {
-          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS });
+          const landed = await page.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS2 });
           if (!isCoupangSearchUrl(landed)) {
             throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uCFE0\uD321 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed });
           }
           await deps.sleep(SETTLE_MS);
           const evidence = await page.ask(
             { type: "KIDITEM_COUPANG_SEARCH_EVIDENCE", keyword: keyword2 },
-            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE] } }
+            { timeoutMs: EVIDENCE_TIMEOUT_MS, inject: { isolated: [CONTENT_FILE2] } }
           );
           if (!evidence.links || !evidence.productNames) {
             throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
@@ -7471,7 +7705,13 @@ var KidItemRuntime = (() => {
       }
     };
   }
-  registerSite({ name: COUPANG_SEARCH_SITE.name, create: (deps) => createCoupangSearchSite(deps.tabs, { sleep: deps.sleep }) });
+  registerSite({
+    name: COUPANG_SEARCH_SITE.name,
+    create: (deps) => ({
+      ...createCoupangSearchSite(deps.tabs, { sleep: deps.sleep }),
+      ...createCoupangSerp(deps.tabs, { sleep: deps.sleep, now: deps.now, random: () => Math.random() })
+    })
+  });
 
   // extensions/src/sites/coupang-supplier/page.ts
   var COUPANG_SUPPLIER_ORIGIN = "https://supplier.coupang.com";
@@ -7567,13 +7807,13 @@ var KidItemRuntime = (() => {
   }
   async function readPurchaseOrderListPage(page, path, pageNumber) {
     const fetched = await page.fetch(path, { headers: { accept: "application/json" } });
-    const text2 = fetched.text;
+    const text3 = fetched.text;
     const failed = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
     if (fetched.status === 400 || fetched.status === 413 || fetched.status === 431) throw cookieBloat(path, fetched.status);
-    if (fetched.status < 200 || fetched.status >= 300 || text2.trim().charAt(0) === "<") throw failed();
+    if (fetched.status < 200 || fetched.status >= 300 || text3.trim().charAt(0) === "<") throw failed();
     let parsed;
     try {
-      parsed = JSON.parse(text2);
+      parsed = JSON.parse(text3);
     } catch {
       throw failed();
     }
@@ -7743,10 +7983,10 @@ var KidItemRuntime = (() => {
     loginMessage: LOGIN_MESSAGE2
   };
   async function orderList(caller) {
-    const text2 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
+    const text3 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
     let body = null;
     try {
-      body = text2.trim().startsWith("{") ? JSON.parse(text2) : null;
+      body = text3.trim().startsWith("{") ? JSON.parse(text3) : null;
     } catch {
       body = null;
     }
@@ -8012,12 +8252,12 @@ var KidItemRuntime = (() => {
 
   // extensions/src/sites/live-commerce/index.ts
   var NAVIGATION_TIMEOUT_MS5 = 35e3;
-  var EXTRACTION_TIMEOUT_MS2 = 25e3;
+  var EXTRACTION_TIMEOUT_MS3 = 25e3;
   var MAX_PRODUCTS = 100;
   var CONTENT_FILES = {
     isolated: ["content/sourcing/live-commerce-extractor.js", "content/sourcing/live-commerce-content.js"]
   };
-  var SITE_VERIFICATION_REQUIRED2 = "SITE_VERIFICATION_REQUIRED";
+  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
   var LIVE_COMMERCE_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["1688.com", "douyin.com"]),
     isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "sso.douyin.com", "passport.douyin.com"]) || hostWithin(url, ["douyin.com"]) && /\/login/i.test(url.pathname),
@@ -8068,7 +8308,7 @@ var KidItemRuntime = (() => {
           try {
             extracted = await page.ask(
               { type: "TRIGGER_LIVE_COMMERCE_EXTRACT" },
-              { timeoutMs: EXTRACTION_TIMEOUT_MS2, inject: CONTENT_FILES, guard: LIVE_COMMERCE_PAGE_GUARD }
+              { timeoutMs: EXTRACTION_TIMEOUT_MS3, inject: CONTENT_FILES, guard: LIVE_COMMERCE_PAGE_GUARD }
             );
           } catch (error) {
             if (leftForOperator(error)) keepOpen = true;
@@ -8094,7 +8334,7 @@ var KidItemRuntime = (() => {
     };
   }
   function verification2(url) {
-    return new RuntimeError(SITE_VERIFICATION_REQUIRED2, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED3, "\uBC29\uC1A1 \uD398\uC774\uC9C0\uAC00 \uB85C\uADF8\uC778\uC774\uB098 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0ED\uC5D0\uC11C \uCC98\uB9AC\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url });
   }
   registerSite({ name: LIVE_COMMERCE_SITE.name, create: (deps) => createLiveCommerceSite(deps.tabs) });
 
@@ -8121,10 +8361,10 @@ var KidItemRuntime = (() => {
     const blocks = [];
     const seen = /* @__PURE__ */ new Set();
     for (const match of content.matchAll(/<(?:p|h[1-6]|li|td|th|div|span)[^>]*>([^<]{5,})<\//gi)) {
-      const text2 = match[1].replace(/&[^;]+;/g, " ").trim();
-      if (text2.length < 5 || text2.length > 2e3 || seen.has(text2)) continue;
-      seen.add(text2);
-      blocks.push(text2);
+      const text3 = match[1].replace(/&[^;]+;/g, " ").trim();
+      if (text3.length < 5 || text3.length > 2e3 || seen.has(text3)) continue;
+      seen.add(text3);
+      blocks.push(text3);
     }
     if (images.length === 0 && blocks.length === 0) return null;
     return { description_images: images, description_text: blocks.join("\n").slice(0, 1e4), description_image_count: images.length };
@@ -8182,7 +8422,7 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/product-page/index.ts
-  var EXTRACTION_TIMEOUT_MS3 = 2e4;
+  var EXTRACTION_TIMEOUT_MS4 = 2e4;
   var TRIGGER_TIMEOUT_MS = 5e3;
   var EXTRACTOR_FILES = [
     "content/sourcing/extractors/common.js",
@@ -8233,7 +8473,7 @@ var KidItemRuntime = (() => {
             }
           }
         });
-        const timer = setTimeout(() => settle(new RuntimeError(PRODUCT_EXTRACTION_TIMEOUT, "\uC0C1\uD488 \uCD94\uCD9C \uC2DC\uAC04\uC774 \uCD08\uACFC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: sourceUrl })), EXTRACTION_TIMEOUT_MS3);
+        const timer = setTimeout(() => settle(new RuntimeError(PRODUCT_EXTRACTION_TIMEOUT, "\uC0C1\uD488 \uCD94\uCD9C \uC2DC\uAC04\uC774 \uCD08\uACFC\uB418\uC5C8\uC2B5\uB2C8\uB2E4. \uD398\uC774\uC9C0\uB97C \uC0C8\uB85C\uACE0\uCE68\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: sourceUrl })), EXTRACTION_TIMEOUT_MS4);
         try {
           const started = await page.ask({ type: "TRIGGER_EXTRACT", attemptId: marker }, { timeoutMs: TRIGGER_TIMEOUT_MS, inject: productPageInjection(sourceUrl) });
           if (started.ok === false) {
@@ -8330,7 +8570,7 @@ var KidItemRuntime = (() => {
 
   // extensions/src/sites/tiktok-cc/index.ts
   var NAVIGATION_TIMEOUT_MS6 = 35e3;
-  var EXTRACTION_TIMEOUT_MS4 = 25e3;
+  var EXTRACTION_TIMEOUT_MS5 = 25e3;
   var BASE_URLS = {
     hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
     product: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/pc/en",
@@ -8372,7 +8612,7 @@ var KidItemRuntime = (() => {
       return false;
     }
   }
-  var SITE_VERIFICATION_REQUIRED3 = "SITE_VERIFICATION_REQUIRED";
+  var SITE_VERIFICATION_REQUIRED4 = "SITE_VERIFICATION_REQUIRED";
   var MAX_VERIFICATION_ROUNDS3 = 5;
   function sanitizeTiktokRegion(value) {
     if (typeof value !== "string") return null;
@@ -8405,7 +8645,7 @@ var KidItemRuntime = (() => {
         const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
         if (!cleared) {
           keepOpen = true;
-          throw new RuntimeError(SITE_VERIFICATION_REQUIRED3, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
+          throw new RuntimeError(SITE_VERIFICATION_REQUIRED4, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
         }
         landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS6, stopAt, continueOnTimeout: true });
       }
@@ -8414,7 +8654,7 @@ var KidItemRuntime = (() => {
       }
       const extracted = await page2.ask(
         { type: "TRIGGER_TIKTOK_CC_EXTRACT", trendType: target.trendType, sourceKeyword: target.sourceKeyword, defaultRegion },
-        { timeoutMs: EXTRACTION_TIMEOUT_MS4, inject: CONTENT_FILES2, guard: TIKTOK_CC_PAGE_GUARD }
+        { timeoutMs: EXTRACTION_TIMEOUT_MS5, inject: CONTENT_FILES2, guard: TIKTOK_CC_PAGE_GUARD }
       );
       if (!extracted.ok) {
         throw new RuntimeError(SITE_REQUEST_FAILED, `TikTok \uD2B8\uB80C\uB4DC '${target.id}'\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, target: target.id });
@@ -8704,11 +8944,11 @@ var KidItemRuntime = (() => {
     const mediaCountByOption = /* @__PURE__ */ new Map();
     for (const entry of media) {
       for (const owner of entry.externalOptionIds) {
-        const count = (mediaCountByOption.get(owner) ?? 0) + 1;
-        if (count > MAX_MEDIA_PER_OWNER) {
+        const count2 = (mediaCountByOption.get(owner) ?? 0) + 1;
+        if (count2 > MAX_MEDIA_PER_OWNER) {
           throw new WingPayloadError(`Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId} \uC635\uC158 ${owner}\uC758 \uBBF8\uB514\uC5B4\uAC00 \uD5C8\uC6A9 \uAC1C\uC218\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
         }
-        mediaCountByOption.set(owner, count);
+        mediaCountByOption.set(owner, count2);
       }
     }
     if (documents.length > MAX_DOCUMENTS_PER_PRODUCT) {
@@ -8781,10 +9021,10 @@ var KidItemRuntime = (() => {
     mediaByKey.set(key, { sourceUrl, role, externalOptionIds: /* @__PURE__ */ new Set([externalOptionId]) });
   }
   function makeStableDocumentId(field, value, ordinal) {
-    const text2 = `${field}\0${stableStringify(value)}`;
+    const text3 = `${field}\0${stableStringify(value)}`;
     let hash = 2166136261;
-    for (let index = 0; index < text2.length; index += 1) {
-      hash ^= text2.charCodeAt(index);
+    for (let index = 0; index < text3.length; index += 1) {
+      hash ^= text3.charCodeAt(index);
       hash = Math.imul(hash, 16777619);
     }
     return `doc:${field}:${(hash >>> 0).toString(16).padStart(8, "0")}:${ordinal}`;
@@ -8807,19 +9047,19 @@ var KidItemRuntime = (() => {
     }
   }
   function normalizeImageUrl(value) {
-    const text2 = typeof value === "string" ? value.trim() : "";
-    if (!text2) return null;
-    if (text2.startsWith("//")) return `https:${text2}`;
-    if (/^https?:\/\//i.test(text2)) return text2;
-    return `https://image1.coupangcdn.com/image/${text2.replace(/^\/+/, "")}`;
+    const text3 = typeof value === "string" ? value.trim() : "";
+    if (!text3) return null;
+    if (text3.startsWith("//")) return `https:${text3}`;
+    if (/^https?:\/\//i.test(text3)) return text3;
+    return `https://image1.coupangcdn.com/image/${text3.replace(/^\/+/, "")}`;
   }
   function isRecord2(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
   function nullableText(value) {
     if (value === null || value === void 0) return null;
-    const text2 = String(value).trim();
-    return text2 || null;
+    const text3 = String(value).trim();
+    return text3 || null;
   }
   function optionalId(value) {
     if (value === null || value === void 0 || value === "") return null;
@@ -8858,9 +9098,9 @@ var KidItemRuntime = (() => {
     return Number.isInteger(number) && number >= 0 ? number : null;
   }
   function requiredText3(value, name) {
-    const text2 = typeof value === "string" ? value.trim() : "";
-    if (!text2) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    return text2;
+    const text3 = typeof value === "string" ? value.trim() : "";
+    if (!text3) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    return text3;
   }
   function requiredPositiveInteger(value, name) {
     if (!Number.isSafeInteger(value) || value <= 0) throw new WingPayloadError(`${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
@@ -8872,10 +9112,10 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/wing/index.ts
-  var ORIGIN2 = "https://wing.coupang.com";
-  var SEARCH_URL = `${ORIGIN2}/tenants/seller-web/v2/vendor-inventory/search`;
-  var DETAIL_URL = `${ORIGIN2}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
-  var EXCEL_BASE = `${ORIGIN2}/tenants/seller-web/excel/request/download`;
+  var ORIGIN3 = "https://wing.coupang.com";
+  var SEARCH_URL = `${ORIGIN3}/tenants/seller-web/v2/vendor-inventory/search`;
+  var DETAIL_URL = `${ORIGIN3}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
+  var EXCEL_BASE = `${ORIGIN3}/tenants/seller-web/excel/request/download`;
   var EXCEL_REQUEST_TYPE = "EDITABLE_CATALOGUE";
   var CATALOGUE_TYPES = [
     "DISPLAY_PRODUCT_NAME",
@@ -8897,12 +9137,12 @@ var KidItemRuntime = (() => {
   var WING_CATALOG_PAYLOAD_INVALID = "WING_CATALOG_PAYLOAD_INVALID";
   var WING_SITE = {
     name: "wing",
-    origin: ORIGIN2,
+    origin: ORIGIN3,
     caller: {
       minIntervalMs: 2e3,
       timeoutMs: WING_TIMEOUT_MS,
       displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN2, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+      xsrf: { cookieUrl: ORIGIN3, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingSite(caller, deps) {
@@ -9070,18 +9310,18 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/wing/pre-matching-search.ts
-  var ORIGIN3 = "https://wing.coupang.com";
-  var SEARCH_URL2 = `${ORIGIN3}/tenants/seller-web/pre-matching/search`;
+  var ORIGIN4 = "https://wing.coupang.com";
+  var SEARCH_URL2 = `${ORIGIN4}/tenants/seller-web/pre-matching/search`;
   var RETRY_ATTEMPTS = 4;
   var REQUEST_TIMEOUT_MS2 = 2e4;
   var WING_SEARCH_PAYLOAD_INVALID = "WING_SEARCH_PAYLOAD_INVALID";
   var WING_SEARCH_SITE = {
     name: "wing-search",
-    origin: ORIGIN3,
+    origin: ORIGIN4,
     caller: {
       minIntervalMs: 2200,
       displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN3, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+      xsrf: { cookieUrl: ORIGIN4, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingPreMatchingSearch(caller, deps) {
@@ -9253,11 +9493,11 @@ var KidItemRuntime = (() => {
       externalReviewId: String(raw.reviewId),
       externalOptionId: raw.vendorItemId === null || raw.vendorItemId === void 0 ? null : String(raw.vendorItemId),
       externalProductId: raw.productId === null || raw.productId === void 0 ? null : String(raw.productId),
-      itemName: text(raw.itemName),
+      itemName: text2(raw.itemName),
       rating: Math.round(rating),
-      title: text(raw.reviewTitle),
-      content: text(raw.reviewContent),
-      reviewerName: text(raw.memberName),
+      title: text2(raw.reviewTitle),
+      content: text2(raw.reviewContent),
+      reviewerName: text2(raw.memberName),
       reviewedAt: Math.trunc(reviewedAt),
       imageCount: attachment.images,
       videoCount: attachment.videos,
@@ -9277,7 +9517,7 @@ var KidItemRuntime = (() => {
       return { images: 0, videos: 0 };
     }
   }
-  function text(value) {
+  function text2(value) {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
     return trimmed || null;
@@ -9443,8 +9683,8 @@ var KidItemRuntime = (() => {
     }
     return parsed.data;
   }
-  async function sha256Hex(text2) {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text2));
+  async function sha256Hex(text3) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text3));
     return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   }
 

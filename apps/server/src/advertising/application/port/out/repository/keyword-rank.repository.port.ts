@@ -68,7 +68,8 @@ export interface RepresentativeKeywordOverrideRow {
 }
 
 export interface UpsertRankSnapshotInput {
-  sourceImportRunId: string;
+  /** 이 행을 쓴 실행(`advertising.keyword_serp`, ADR-0025). */
+  operationId: string;
   organizationId: string;
   keyword: string;
   vendorItemId: string;
@@ -88,7 +89,8 @@ export interface UpsertRankSnapshotInput {
 }
 
 export interface UpsertSerpSnapshotInput {
-  sourceImportRunId: string;
+  /** 이 행을 쓴 실행(`advertising.keyword_serp`, ADR-0025). */
+  operationId: string;
   organizationId: string;
   keyword: string;
   businessDate: Date;

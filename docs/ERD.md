@@ -640,6 +640,7 @@ erDiagram
     Int reviewCount
     String source
     DateTime capturedAt
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }
@@ -653,6 +654,7 @@ erDiagram
     Int itemCount
     Int pagesScanned
     DateTime capturedAt
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }

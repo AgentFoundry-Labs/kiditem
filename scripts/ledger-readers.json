@@ -845,12 +845,6 @@
       "removeWith": "KID-324"
     },
     {
-      "from": "apps/server/src/advertising/adapter/in/http/keyword-serp-source.controller.ts",
-      "to": "apps/server/src/advertising/adapter/out/repository/keyword-serp-source.repository.ts",
-      "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",
-      "removeWith": "KID-324"
-    },
-    {
       "from": "apps/server/src/advertising/adapter/in/http/seller-identity-source.controller.ts",
       "to": "apps/server/src/advertising/adapter/out/repository/seller-identity-source.repository.ts",
       "reason": "Existing input adapter dependency outside the Channels query slice; retain behavior until owner capability migration.",

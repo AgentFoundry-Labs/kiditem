@@ -35,7 +35,7 @@ describe('AdvertisingModule retained wiring', () => {
     expect(providerNames).not.toContain('AdExposureService');
     expect(providerNames).not.toContain('AdAccountDailyKpiSourceRepository');
     expect(providerNames).toContain('AdExportService');
-    expect(providerNames).toContain('KeywordSerpSourceRepository');
+    expect(providerNames).toContain('KeywordSerpOperationOwner');
     expect(providerNames).toContain('WingRankOperationOwner');
     expect(providerNames).not.toContain('AdvertisingTrackedWingProductsOperationHandler');
     const controllerNames = (Reflect.getMetadata('controllers', AdvertisingModule) ?? []).map((controller: Function) => controller.name);
@@ -43,7 +43,7 @@ describe('AdvertisingModule retained wiring', () => {
     expect(controllerNames).toContain('AdExportController');
     expect(controllerNames).not.toContain('AdAccountDailyKpiSourceController');
     expect(controllerNames).toContain('CompetitorCatalogSourceController');
-    expect(controllerNames).toContain('KeywordSerpSourceController');
+    expect(controllerNames).not.toContain('KeywordSerpSourceController');
     expect(controllerNames).not.toContain('WingRankSourceController');
     expect(controllerNames).not.toContain('AdStrategyAgentController');
     expect(controllerNames).not.toContain('ProfitabilityAdRefreshController');

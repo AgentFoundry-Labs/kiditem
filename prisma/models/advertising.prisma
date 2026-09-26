@@ -226,6 +226,8 @@ model CoupangKeywordRankDailySnapshot {
 
   source     String   @default("coupang_search")
   capturedAt DateTime @map("captured_at") @db.Timestamptz
+  /// 이 행을 쓴 실행(`advertising.keyword_serp`, ADR-0025). 옛 attempt 행은 null.
+  operationId String? @map("operation_id") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -237,6 +239,7 @@ model CoupangKeywordRankDailySnapshot {
   @@index([sourceImportRunId, organizationId])
   @@index([organizationId, keyword, businessDate])
   @@index([organizationId, vendorItemId, businessDate])
+  @@index([operationId])
   @@map("coupang_keyword_rank_daily_snapshots")
 }
 
@@ -324,6 +327,8 @@ model CoupangKeywordSerpDailySnapshot {
   pagesScanned Int  @default(0) @map("pages_scanned")
 
   capturedAt DateTime @map("captured_at") @db.Timestamptz
+  /// 이 행을 쓴 실행(`advertising.keyword_serp`, ADR-0025). 옛 attempt 행은 null. 판매자 보강(K4·K5)은 이 행만 고친다.
+  operationId String? @map("operation_id") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz
@@ -334,6 +339,7 @@ model CoupangKeywordSerpDailySnapshot {
   @@unique([organizationId, keyword, businessDate])
   @@index([sourceImportRunId, organizationId])
   @@index([organizationId, businessDate])
+  @@index([operationId])
   @@map("coupang_keyword_serp_daily_snapshots")
 }
 

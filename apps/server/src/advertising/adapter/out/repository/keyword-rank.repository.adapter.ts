@@ -13,7 +13,6 @@ import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../
 
 import { Inject, Injectable, NotFoundException, Optional } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
-import { SOURCE_IMPORT_RUN_COMPLETED_STATUS } from "@kiditem/shared/source-import";
 import { PrismaService } from "../../../../prisma/prisma.service";
 import { businessDateKey } from '../../../../common/kst';
 import {
@@ -49,13 +48,6 @@ import type {
   WingSalesRankSnapshotRow,
 } from "../../../application/port/out/repository/keyword-rank.repository.port";
 
-const sourceProvenanceSelect = {
-  organizationId: true,
-  rankKeyword: true,
-  sourceType: true,
-  parserVersion: true,
-  status: true,
-} as const;
 
 @Injectable()
 export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
@@ -297,25 +289,14 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         };
         const existing = await tx.coupangKeywordRankDailySnapshot.findUnique({
           where,
-          select: {
-            id: true,
-            capturedAt: true,
-            sourceImportRun: { select: sourceProvenanceSelect },
-          },
+          select: { id: true, capturedAt: true, operationId: true },
         });
-        if (
-          existing &&
-          matchingCompleteSource(
-            existing.sourceImportRun,
-            row.organizationId,
-            row.keyword,
-          ) &&
-          existing.capturedAt > row.capturedAt
-        )
+        // 실행이 발행한 더 새 행은 늦게 끝난 옛 캡처로 덮지 않는다(operationId 있는 행 = 성공한 실행의 행).
+        if (existing && existing.operationId !== null && existing.capturedAt > row.capturedAt)
           continue;
 
         const data = {
-          sourceImportRunId: row.sourceImportRunId,
+          operationId: row.operationId,
           productId: row.productId,
           itemId: row.itemId,
           productName: row.productName,
@@ -379,17 +360,11 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
           pagesScanned: true,
           itemCount: true,
           items: true,
-          sourceImportRun: { select: sourceProvenanceSelect },
+          operationId: true,
         },
       });
-      const certified =
-        existing &&
-        matchingCompleteSource(
-          existing.sourceImportRun,
-          input.organizationId,
-          input.keyword,
-        );
-      if (certified && existing.capturedAt > input.capturedAt) {
+      const certified = existing !== null && existing.operationId !== null;
+      if (certified && existing!.capturedAt > input.capturedAt) {
         return { id: existing.id };
       }
 
@@ -407,7 +382,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         mergeItems ? mergeItems(existingSnapshot) : input.items
       ) as Prisma.InputJsonValue;
       const data = {
-        sourceImportRunId: input.sourceImportRunId,
+        operationId: input.operationId,
         items,
         itemCount: input.itemCount,
         pagesScanned: input.pagesScanned,
@@ -445,7 +420,7 @@ export class KeywordRankRepositoryAdapter implements KeywordRankRepositoryPort {
         where: {
           organizationId: input.organizationId,
           keyword: input.keyword,
-          sourceImportRun: completeSerpSource(input.organizationId),
+          operationId: { not: null },
         },
         orderBy: [
           { businessDate: "desc" },
@@ -625,28 +600,4 @@ function toAbcGrade(value: string | null): "A" | "B" | "C" | null {
   return value === "A" || value === "B" || value === "C" ? value : null;
 }
 
-function completeSerpSource(organizationId: string) {
-  return {
-    organizationId,
-    sourceType: "coupang_keyword_serp",
-    parserVersion: "keyword-serp-v1",
-    status: SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-  };
-}
-
-function matchingCompleteSource(
-  source: Prisma.SourceImportRunGetPayload<{
-    select: typeof sourceProvenanceSelect;
-  }> | null,
-  organizationId: string,
-  keyword: string,
-) {
-  return (
-    source?.organizationId === organizationId &&
-    source.rankKeyword === keyword &&
-    source.sourceType === "coupang_keyword_serp" &&
-    source.parserVersion === "keyword-serp-v1" &&
-    source.status === SOURCE_IMPORT_RUN_COMPLETED_STATUS
-  );
-}
 

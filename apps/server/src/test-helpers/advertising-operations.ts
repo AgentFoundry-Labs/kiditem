@@ -10,6 +10,8 @@ import { SourceFailureAlerts } from '../alerts/alerts.service';
 import { AdvertisingSourceAlertAdapter } from '../advertising/adapter/out/repository/advertising-source-alert.adapter';
 import { ADVERTISING_SOURCE_ALERT_PORT } from '../advertising/application/port/out/repository/advertising-source-alert.port';
 import { WingRankOperationOwner } from '../advertising/adapter/in/operation/wing-rank-operation-owner';
+import { KeywordSerpOperationOwner } from '../advertising/adapter/in/operation/keyword-serp-operation-owner';
+import { KeywordRankIngestHandler } from '../advertising/application/service/keyword-rank-ingest.handler';
 import { KeywordRankRepositoryAdapter } from '../advertising/adapter/out/repository/keyword-rank.repository.adapter';
 import { KEYWORD_RANK_REPOSITORY_PORT } from '../advertising/application/port/out/repository/keyword-rank.repository.port';
 import { KeywordRankService } from '../advertising/application/service/keyword-rank.service';
@@ -29,12 +31,13 @@ export async function advertisingKeywordOperationsApp(prisma: PrismaClient, opti
   const channelFacts = channelFactTestPorts(prisma as never);
   const keywordRank = new KeywordRankRepositoryAdapter(channelFacts.listings, channelFacts.recipes, prisma as never);
   return ordersOperationsApp(prisma, {
-    owners: [WingTrackedProductsOperationOwner, WingRankOperationOwner],
+    owners: [WingTrackedProductsOperationOwner, WingRankOperationOwner, KeywordSerpOperationOwner],
     controllers: options.controllers,
     providers: [
       { provide: KEYWORD_RANK_REPOSITORY_PORT, useValue: keywordRank },
       KeywordRankService,
       WingSalesRankIngestHandler,
+      KeywordRankIngestHandler,
       { provide: CHANNEL_ACCOUNT_PORT, useValue: accounts },
       { provide: ADVERTISING_SOURCE_ALERT_PORT, useValue: new AdvertisingSourceAlertAdapter(new SourceFailureAlerts(prisma as never)) },
       WingTrackedProductService,
