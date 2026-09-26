@@ -15,13 +15,7 @@ const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../
 const backgroundRoot = path.join(repoRoot, 'extensions/kiditem-os/background/orders');
 const workerPath = path.join(backgroundRoot, 'worker.js');
 const AUTOMATIC_ACTIONS = [
-  ['collectKkomangseOrders', 'collectKkomangseOrders', 'kkomangse', { date: '2026-07-15' }],
-  ['collectLotteonOrders', 'collectLotteonOrders', 'lotte-on', { date: '2026-07-15' }],
-  ['collectGsshopOrders', 'collectGsshopOrders', 'gs-shop', { date: '2026-07-15' }],
-  ['collectAlwayzOrders', 'collectAlwayzOrders', 'always', { date: '2026-07-15' }],
   ['collectKakaoOrders', 'collectKakaoOrders', 'kakao', { date: '2026-07-15' }],
-  ['collectBoriboriOrders', 'collectBoriboriOrders', 'boribori', { date: '2026-07-15' }],
-  ['collectTeachervilleOrders', 'collectTeachervilleOrders', 'teacher-mall', { date: '2026-07-15' }],
 ];
 
 function uuid(index) {
@@ -122,7 +116,7 @@ function loadWorker(globals = {}) {
   const sourceMallByAttempt = new Map([
     [uuid(777), 'kakao'],
     [uuid(778), 'kakao'],
-    [uuid(782), 'kkomangse'],
+    [uuid(782), 'kakao'],
     [uuid(783), 'coupang-direct'],
   ]);
   fake.storage.kiditem_environment_profiles_v1 = {
@@ -388,17 +382,17 @@ test('every automatic mall access failure requires personal attention without fo
 
 test('structured operator authentication remains attention instead of a failed run', async () => {
   const runtime = loadWorker();
-  installCollectorResult(runtime, 'collectGsshopOrders', () => ({
+  installCollectorResult(runtime, 'collectKakaoOrders', () => ({
     success: false,
     pendingAuth: true,
     errorCode: 'operator_action_required',
-    error: 'GS샵 SMS 인증이 필요합니다.',
+    error: '카카오 본인 인증이 필요합니다.',
   }));
 
   const attemptId = uuid(200);
-  runtime.setSourceMallForAttempt(attemptId, 'gs-shop');
+  runtime.setSourceMallForAttempt(attemptId, 'kakao');
   const response = await dispatch(runtime.externalMessageListeners, {
-    action: 'collectGsshopOrders',
+    action: 'collectKakaoOrders',
     date: '2026-07-15',
     runId: attemptId,
   });
@@ -406,7 +400,7 @@ test('structured operator authentication remains attention instead of a failed r
   assert.equal(response.collectionSession.attention.reason, 'marketplace_login');
   assert.equal(response.collectionSession.attention.reason, 'marketplace_login');
   assert.equal(response.failure.code, 'operator_action_required');
-  assert.equal(response.failure.operatorAction, 'complete_sms_auth');
+  assert.equal(response.failure.operatorAction, 'complete_auth');
 });
 
 test('rerunning a collection resumes the owner attempt without a second lifecycle', async () => {
@@ -489,14 +483,14 @@ test('cancelling an active collection removes local control state and fences lat
 
 test('invalid source identity never enters the owner-correlated session', async () => {
   const runtime = loadWorker();
-  installCollectorResult(runtime, 'collectKkomangseOrders', () => ({
+  installCollectorResult(runtime, 'collectKakaoOrders', () => ({
     success: true,
-    xlsxBase64: 'private-xlsx',
+    orders: [],
   }));
   const attemptId = uuid(782);
 
   const response = await dispatch(runtime.externalMessageListeners, {
-    action: 'collectKkomangseOrders',
+    action: 'collectKakaoOrders',
     date: '010-password-secret',
     attemptId,
   });
@@ -536,16 +530,10 @@ test('named mall reads create a fresh inactive tab even when a provider tab exis
   };
   const collection = { assertActive: async () => true };
   const cases = [
-    ['findOrCreateKkomangseTab', 'https://nstore.edupre.co.kr/subAdmin/_order_product.list.php?mode=search&pass_input_type=all&st=o_rdate&so=desc&listmaxcount=1000'],
     ['findOrCreateOnchannelTab', 'https://www.onch3.co.kr/supplier/orders.php?state=all'],
     ['findOrCreateDomeggookTab', 'https://domeggook.com/sc/order/lstAll'],
     ['findOrCreateKidkidsTab', 'https://partner.kidkids.net/new/pages/logis/management.htm'],
-    ['findOrCreateLotteonTab', 'https://store.lotteon.com/cm/main/index_SO.wsp'],
-    ['findOrCreateGsshopTab', 'https://partners.gsshop.com/logistics/partner-logistics-mng'],
-    ['findOrCreateAlwayzTab', 'https://alwayzseller.ilevit.com/shippings'],
     ['findOrCreateKakaoTab', 'https://shopping-seller.kakao.com/order/seller/store-order/integrate/list'],
-    ['findOrCreateBoriboriTab', 'https://seller-club.co.kr/order/orderDeliList'],
-    ['findOrCreateTeachervilleTab', 'https://shop.teacherville.co.kr/selleradmin/order/catalog'],
   ];
 
   for (const [functionName, url] of cases) {
@@ -591,13 +579,7 @@ test('every named mall collector uses the production attach-before-readiness pat
   };
 
   const cases = [
-    ['collectKkomangseOrders', []],
-    ['collectLotteonOrders', []],
-    ['collectGsshopOrders', []],
-    ['collectAlwayzOrders', []],
     ['collectKakaoOrders', ['2026-07-15']],
-    ['collectBoriboriOrders', [{}]],
-    ['collectTeachervilleOrders', []],
   ];
 
   for (const [functionName, args] of cases) {
@@ -663,7 +645,7 @@ test('managed order capture acknowledges attachment before readiness and fences 
     },
   };
 
-  const result = await runtime.context.collectKkomangseOrders(collection);
+  const result = await runtime.context.collectKakaoOrders('2026-07-15', collection);
 
   assert.equal(result.success, false);
   assert.equal(result.errorCode, 'COLLECTION_CANCELLED');
@@ -689,7 +671,7 @@ test('a refused managed attachment closes the fresh tab and never executes captu
     events.push('execute');
     return [{ result: { success: true } }];
   };
-  const result = await runtime.context.collectKkomangseOrders({
+  const result = await runtime.context.collectKakaoOrders('2026-07-15', {
     assertActive: async () => true,
     attachTab: async () => null,
   });

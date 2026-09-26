@@ -22,7 +22,6 @@ import {
   type OrderCollectionMallAccount,
 } from '@/lib/order-mall-account-api';
 import {
-  isNoNewOrdersMessage,
   todayYmd,
   type ConversionHistoryItem,
 } from './order-collection-page-model';
@@ -242,13 +241,7 @@ export function createBrowserMallCollector({
     if (credentials) await ensureMallLogin(account.key, run);
 
     const actionByMall: Record<string, string> = {
-      kkomangse: 'collectKkomangseOrders',
-      'lotte-on': 'collectLotteonOrders',
-      'gs-shop': 'collectGsshopOrders',
-      always: 'collectAlwayzOrders',
       kakao: 'collectKakaoOrders',
-      boribori: 'collectBoriboriOrders',
-      'teacher-mall': 'collectTeachervilleOrders',
     };
     const action = actionByMall[account.key];
     if (!action) throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
@@ -258,9 +251,6 @@ export function createBrowserMallCollector({
       date,
       ...orderCollectionExtensionRunFields(run),
     };
-    if (account.key === 'boribori') {
-      Object.assign(message, { password: credentials?.password ?? '' });
-    }
     let response: ServerOwnedCollectionResponse | undefined;
     try {
       response = await sendToExtension<ServerOwnedCollectionResponse>(
@@ -348,234 +338,6 @@ export function createBrowserMallCollector({
     };
   };
 
-  const generateKkomangseSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectKkomangseXlsxFromExtension, convertKkomangseToSellpiaFile } = await import(
-      './kkomangse-orders-api'
-    );
-    await ensureMallLogin('kkomangse', run);
-    const xlsxBase64 = await collectKkomangseXlsxFromExtension(run);
-    let result: Awaited<ReturnType<typeof convertKkomangseToSellpiaFile>>;
-    try {
-      result = await convertKkomangseToSellpiaFile(xlsxBase64, {
-        date: collectionDateOf(run),
-        run,
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (isNoNewOrdersMessage(msg)) {
-        toastNoNewOrders('꼬망세');
-        return 0;
-      }
-      throw err;
-    }
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-kkomangse-browser`,
-      sourceName: `꼬망세 주문 (${formatNumber(rows)}건)`,
-      convertedAt,
-      collectionDate: collectionDateOf(run),
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'kkomangse',
-      mallName: '꼬망세',
-    });
-    return rows;
-  };
-
-  const generateLotteonSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectLotteonXlsxFromExtension, convertLotteonToSellpiaFile } = await import(
-      './lotteon-orders-api'
-    );
-    // 로그인 화면(login_SO.wsp)은 <form> 없는 WebSquare 지만 사용자ID/비밀번호 input 과
-    // <a id="mf_btn_login">로그인</a> 이 실재해 form-fill 이 된다(2026-09-01 DOM 확인).
-    // 자동 로그인이 실패하면 collectLotteon 이 로그인 탭을 띄우고 "로그인 필요"로 안내한다.
-    await ensureMallLogin('lotte-on', run);
-    const { xlsxBase64, fileName } = await collectLotteonXlsxFromExtension(run);
-    let result: Awaited<ReturnType<typeof convertLotteonToSellpiaFile>>;
-    try {
-      result = await convertLotteonToSellpiaFile(xlsxBase64, fileName, { download: false, run });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (isNoNewOrdersMessage(msg)) {
-        toastNoNewOrders('롯데ON');
-        return 0;
-      }
-      throw err;
-    }
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-lotte-on-browser`,
-      sourceName: `롯데ON 주문 (${formatNumber(rows)}건)`,
-      convertedAt,
-      collectionDate: collectionDateOf(run),
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'lotte-on',
-      mallName: '롯데ON',
-    });
-    return rows;
-  };
-
-  const generateGsshopSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectGsshopXlsxFromExtension, convertGsshopToSellpiaFile } = await import(
-      './gsshop-orders-api'
-    );
-    await ensureMallLogin('gs-shop', run);
-    const collected = await collectGsshopXlsxFromExtension(run);
-    if ('empty' in collected) {
-      toastNoNewOrders('GS샵');
-      return 0;
-    }
-    let result: Awaited<ReturnType<typeof convertGsshopToSellpiaFile>>;
-    try {
-      result = await convertGsshopToSellpiaFile(collected.xlsxBase64, collected.fileName, {
-        download: false,
-        run,
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (isNoNewOrdersMessage(msg)) {
-        toastNoNewOrders('GS샵');
-        return 0;
-      }
-      throw err;
-    }
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-gs-shop-browser`,
-      sourceName: `GS샵 주문 (${formatNumber(rows)}건)`,
-      convertedAt,
-      collectionDate: collectionDateOf(run),
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'gs-shop',
-      mallName: 'GS샵',
-    });
-    return rows;
-  };
-
-  const generateAlwayzSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectAlwayzXlsxFromExtension, convertAlwayzToSellpiaFile } = await import(
-      './alwayz-orders-api'
-    );
-    await ensureMallLogin('always', run);
-    const collected = await collectAlwayzXlsxFromExtension(run);
-    if ('empty' in collected) {
-      toastNoNewOrders('올웨이즈');
-      return 0;
-    }
-    let result: Awaited<ReturnType<typeof convertAlwayzToSellpiaFile>>;
-    try {
-      result = await convertAlwayzToSellpiaFile(collected.xlsxBase64, collected.fileName, {
-        download: false,
-        run,
-      });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (isNoNewOrdersMessage(msg)) {
-        toastNoNewOrders('올웨이즈');
-        return 0;
-      }
-      throw err;
-    }
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-always-browser`,
-      sourceName: `올웨이즈 주문 (${formatNumber(rows)}건)`,
-      convertedAt,
-      collectionDate: collectionDateOf(run),
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'always',
-      mallName: '올웨이즈',
-    });
-    return rows;
-  };
-
-  const generateBoriboriSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectBoriboriXlsxFromExtension, convertBoriboriToSellpiaFile } = await import(
-      './boribori-orders-api'
-    );
-    await ensureMallLogin('boribori', run);
-    const collected = await collectBoriboriXlsxFromExtension({ run });
-    if ('empty' in collected) {
-      toastNoNewOrders('보리보리', '결제완료 상태 기준');
-      return 0;
-    }
-    const { xlsxBase64, fileName } = collected;
-    let result: Awaited<ReturnType<typeof convertBoriboriToSellpiaFile>>;
-    try {
-      result = await convertBoriboriToSellpiaFile(xlsxBase64, fileName, { download: false, run });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (isNoNewOrdersMessage(msg)) {
-        toastNoNewOrders('보리보리', '결제완료 상태 기준');
-        return 0;
-      }
-      throw err;
-    }
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-boribori-browser`,
-      sourceName: `보리보리 주문 (${formatNumber(rows)}건)`,
-      convertedAt,
-      collectionDate: collectionDateOf(run),
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'boribori',
-      mallName: '보리보리',
-    });
-    return rows;
-  };
-
-  const generateTeachervilleSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
-    const { collectTeachervilleXlsxFromExtension, convertTeachervilleToSellpiaFile } = await import(
-      './teacherville-orders-api'
-    );
-    await ensureMallLogin('teacher-mall', run);
-    const collected = await collectTeachervilleXlsxFromExtension(run);
-    if ('empty' in collected) {
-      toastNoNewOrders('티쳐몰', '출고 전 상태 기준');
-      return 0;
-    }
-    const { xlsxBase64, fileName } = collected;
-    let result: Awaited<ReturnType<typeof convertTeachervilleToSellpiaFile>>;
-    try {
-      result = await convertTeachervilleToSellpiaFile(xlsxBase64, fileName, { download: false, run });
-    } catch (err) {
-      const msg = err instanceof Error ? err.message : String(err);
-      if (isNoNewOrdersMessage(msg)) {
-        toastNoNewOrders('티쳐몰', '출고 전 상태 기준');
-        return 0;
-      }
-      throw err;
-    }
-    const rows = result.outputRows ?? 0;
-    const convertedAt = Date.now();
-    addBrowserGeneratedFile({
-      ...result,
-      id: `${convertedAt}-teacher-mall-browser`,
-      sourceName: `티쳐몰 주문 (${formatNumber(rows)}건)`,
-      convertedAt,
-      collectionDate: collectionDateOf(run),
-      collectionMode: 'browser',
-      collectedRows: rows,
-      mallKey: 'teacher-mall',
-      mallName: '티쳐몰',
-    });
-    return rows;
-  };
-
   const generateKakaoSellpia = async (run: OrderCollectionExtensionRun): Promise<number> => {
     const { collectKakaoOrdersFromExtension, throwKakaoConversionUnsupported } = await import(
       './kakao-orders-api'
@@ -620,14 +382,8 @@ export function createBrowserMallCollector({
       return generateServerOwnedSellpia(account, resolvedRun);
     }
     const today = collectionDateOf(resolvedRun);
-    if (account.key === 'kkomangse') return resultFor(await generateKkomangseSellpia(resolvedRun), today);
     if (account.key === 'kakao') return resultFor(await generateKakaoSellpia(resolvedRun), today);
-    if (account.key === 'lotte-on') return resultFor(await generateLotteonSellpia(resolvedRun), today);
-    if (account.key === 'gs-shop') return resultFor(await generateGsshopSellpia(resolvedRun), today);
-    if (account.key === 'always') return resultFor(await generateAlwayzSellpia(resolvedRun), today);
-    if (account.key === 'boribori') return resultFor(await generateBoriboriSellpia(resolvedRun), today);
-    if (account.key === 'teacher-mall') return resultFor(await generateTeachervilleSellpia(resolvedRun), today);
-    // 실행 kind로 옮긴 몰(아이스크림몰 · 키드키즈 · 아트공구 · 도매꾹 KID-359 H3, 키즈노트 · 온채널 · 해법몰 KID-380)은 이 옛 절차로 오지 않는다.
+    // 실행 kind로 옮긴 몰(`MALL_ORDER_OPERATION_MALLS` — KID-359 H3·KID-380)은 이 옛 절차로 오지 않는다.
     throw new Error(`${account.name} 자동 수집은 준비 중입니다.`);
   };
 }

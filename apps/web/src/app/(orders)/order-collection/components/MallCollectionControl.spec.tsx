@@ -5,7 +5,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OrderCollectionSourceStatus } from '@kiditem/shared/order-collection-source';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
-import { MallCollectionControl } from './MallCollectionControl';
+import { MallCollectionControl, type MallCollectionAdapter } from './MallCollectionControl';
 import {
   COUPANG_DIRECT_MALL_KEY,
   coupangDirectshipCollectionSource,
@@ -306,5 +306,28 @@ describe('MallCollectionControl', () => {
 
     expect(await screen.findByText('중지된 계정입니다.')).toBeInTheDocument();
     expect(screen.queryByText('쿠팡 로켓 계정을 먼저 선택해 주세요.')).not.toBeInTheDocument();
+  });
+});
+
+describe('MallCollectionControl — 운영자를 기다리는 수집(KID-380)', () => {
+  it('원천이 운영자 안내(progress.attention)를 답하면 카드에 그 줄을 보인다', async () => {
+    const GS: OrderCollectionMallAccount = { ...ACCOUNT, key: 'gs-shop', name: 'GS샵' };
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    const adapter: MallCollectionAdapter<string> = {
+      sourceKey: 'orders.mall:gs-shop',
+      label: 'GS샵 주문 수집',
+      card: { opensChooser: false, startBlockedReason: null },
+      statusQuery: { queryKey: ['mall-attention-test'], queryFn: async () => 'status' },
+      readRunning: () => ({ attemptId: RUNNING_ATTEMPT_ID, scopeLabel: 'GS샵' }),
+      readCompleteId: () => null,
+      onNewComplete: () => undefined,
+      readAttention: () => 'GS샵 탭에서 SMS 인증을 마쳐 주세요 — 마치면 자동으로 이어집니다',
+    };
+    render(
+      <QueryClientProvider client={client}>
+        <MallCollectionControl account={GS} buildAdapter={() => adapter} />
+      </QueryClientProvider>,
+    );
+    expect(await screen.findByText('GS샵 탭에서 SMS 인증을 마쳐 주세요 — 마치면 자동으로 이어집니다')).toBeInTheDocument();
   });
 });

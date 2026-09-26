@@ -2,6 +2,7 @@ import { Injectable } from '@nestjs/common';
 import request from 'supertest';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { PrismaClient } from '@prisma/client';
+import * as XLSX from 'xlsx';
 import { accountLockKey } from '@kiditem/shared/operation';
 import {
   COUPANG_DIRECTSHIP_KIND,
@@ -43,6 +44,7 @@ import { readOrderWindowFacts } from '../adapter/out/persistence/read/order-fact
 // 확장 수집기(orders.mall_orders)가 밟는 길을 서버에서 그대로: begin → order_rows 청크 → finish. 보관 캡처와
 // 주문 수(result.rowCount)는 finish 트랜잭션에서만 쓰인다(ADR-0025). 변환은 실제 변환기, DB는 실제 PostgreSQL.
 const TODAY = '2026-09-26';
+const XLSX_MIME = 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet';
 
 function kidkidsOrder(om: string, items = 1) {
   return {
@@ -474,6 +476,86 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
       missingDates: ['2026-09-21'],
     })]);
     expect(facts.includedDates).toEqual([day]);
+  });
+
+  /** 몰이 내려준 엑셀 한 장(첫 시트) — 확장이 base64 조각으로 올리는 원본 바이트. */
+  const workbook = (rows: Array<Array<string | number>>, bookType: XLSX.BookType = 'xlsx') => {
+    const book = XLSX.utils.book_new();
+    XLSX.utils.book_append_sheet(book, XLSX.utils.aoa_to_sheet(rows), 'Sheet1');
+    return Buffer.from(XLSX.write(book, { bookType, type: 'buffer' }) as Buffer);
+  };
+  /** 확장 사이트(`sites/mall-excel.ts` filePartRows)와 같은 조각: 두 조각으로 나눠 순서를 바꿔 올린다. */
+  const fileParts = (fileName: string, bytes: Buffer) => {
+    const base64 = bytes.toString('base64');
+    const cut = Math.floor(base64.length / 2);
+    return [
+      { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [{ fileName, part: 1, parts: 2, base64: base64.slice(cut) }] },
+      { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: [{ fileName, part: 0, parts: 2, base64: base64.slice(0, cut) }] },
+    ];
+  };
+  const mallAccount = async (mallKey: string, name: string) =>
+    (await prisma.channelAccount.create({ data: { organizationId: ORG, channel: mallKey, name, externalAccountId: mallKey, isPrimary: true } })).id;
+
+  it('꼬망세: 엑셀 조각을 이어 옛 변환 본문 {xlsxBase64, date}(JSON)로 보관하고 수집일 주문만 센다, 빈 날은 조각 없이 0건', async () => {
+    const account = await mallAccount('kkomangse', '꼬망세');
+    const xlsx = workbook([
+      ['고유번호', '주문번호', '주문일시', '받는분 이름', '대표상품명', '수량'],
+      ['1', 'KM-1', `${TODAY} 09:00:00`, '풍산초', '색종이', '1'],
+      ['2', 'KM-2', '2026-09-25 09:00:00', '풍산초', '크레파스', '1'],
+    ]);
+    const run = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: account, mallKey: 'kkomangse' }));
+    await harness.put(run, fileParts('kkomangse.xlsx', xlsx));
+    const finished = await harness.finish(run).expect(200);
+    expect(finished.body.operation.result).toEqual({ rowCount: 1, mallKey: 'kkomangse', captured: 1 });
+    const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
+    expect(artifact).toMatchObject({ sourceContentType: 'application/json' });
+    expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ xlsxBase64: xlsx.toString('base64'), date: TODAY });
+    const converted = await convert('kkomangse/convert', run.operation.id).expect(201);
+    expect(converted.headers['x-order-collection-output-rows']).toBe('1');
+
+    const empty = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: account, mallKey: 'kkomangse' }));
+    expect((await harness.finish(empty).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: 'kkomangse', captured: 0 });
+  });
+
+  /**
+   * 엑셀을 그대로 셀피아 양식으로 옮기는 몰(옛 확장 FILE_MIME·변환 라우트): 조각을 이어 파일 캡처로 보관하고, 변환 출력 줄 수를
+   * 주문 수로 적는다(상품 줄 0). 빈 날은 조각 없이 0건. 변환은 실행 id로 그 몰의 변환 라우트에서 다시 한다.
+   */
+  const excelMall = async (input: { mallKey: string; name: string; route: string; fileName: string; contentType: string; bookType?: XLSX.BookType }) => {
+    const account = await mallAccount(input.mallKey, input.name);
+    const bytes = workbook([['주문번호', '상품명', '수량'], ['O-1', '색종이', '1'], ['O-2', '크레파스', '2']], input.bookType);
+    const run = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: account, mallKey: input.mallKey }));
+    await harness.put(run, fileParts(input.fileName, bytes));
+    const finished = await harness.finish(run).expect(200);
+    expect(finished.body.operation.result).toEqual({ rowCount: 2, mallKey: input.mallKey, captured: 1 });
+    const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
+    expect(artifact).toMatchObject({ sourceFileName: input.fileName, sourceContentType: input.contentType });
+    expect(Buffer.from(artifact.sourceBytes).equals(bytes)).toBe(true);
+    const converted = await convert(input.route, run.operation.id).expect(201);
+    expect(converted.headers).toMatchObject({ 'x-order-collection-source-rows': '2', 'x-order-collection-output-rows': '2' });
+
+    const empty = await harness.beginRun(MALL_ORDERS_KIND, scope({ channelAccountId: account, mallKey: input.mallKey }));
+    expect((await harness.finish(empty).expect(200)).body.operation.result).toEqual({ rowCount: 0, mallKey: input.mallKey, captured: 0 });
+  };
+
+  it('티쳐몰: SpreadsheetML(.xls) 조각을 이어 application/vnd.ms-excel 파일 캡처로 보관하고 teacherville 변환 라우트로 다시 변환한다', async () => {
+    await excelMall({ mallKey: 'teacher-mall', name: '티쳐몰', route: 'teacherville/convert', fileName: '티쳐몰.xls', contentType: 'application/vnd.ms-excel', bookType: 'xlml' });
+  });
+
+  it('보리보리: 언마스킹 xlsx 조각을 이어 xlsx 파일 캡처로 보관하고 boribori 변환 라우트로 다시 변환한다', async () => {
+    await excelMall({ mallKey: 'boribori', name: '보리보리', route: 'boribori/convert', fileName: '보리보리.xlsx', contentType: XLSX_MIME });
+  });
+
+  it('GS샵: 화면이 조립한 xlsx blob 조각을 이어 xlsx 파일 캡처로 보관하고 gsshop 변환 라우트로 다시 변환한다', async () => {
+    await excelMall({ mallKey: 'gs-shop', name: 'GS샵', route: 'gsshop/convert', fileName: 'GS샵.xlsx', contentType: XLSX_MIME });
+  });
+
+  it('올웨이즈: 앱이 조립한 xlsx blob 조각을 이어 xlsx 파일 캡처로 보관하고 alwayz 변환 라우트로 다시 변환한다', async () => {
+    await excelMall({ mallKey: 'always', name: '올웨이즈', route: 'alwayz/convert', fileName: '올웨이즈.xlsx', contentType: XLSX_MIME });
+  });
+
+  it('롯데ON: soapi에서 받은 xlsx 조각을 이어 xlsx 파일 캡처로 보관하고 lotteon 변환 라우트로 다시 변환한다', async () => {
+    await excelMall({ mallKey: 'lotte-on', name: '롯데ON', route: 'lotteon/convert', fileName: '신규주문.xlsx', contentType: XLSX_MIME });
   });
 
   it('오늘 주문 capability는 실행 표(몰 주문·directship의 최신 성공 rowCount)와 옛 run(2차 몰·옛 directship)을 한 수로 센다', async () => {

@@ -292,9 +292,11 @@ describe('createBrowserMallCollector', () => {
     // 주문 없음을 오류로 알리지 않는다.
     expect(source).not.toMatch(/toast\.(error|warning)\([^)]*주문[^)]*없/);
     // 모든 몰 분기가 헬퍼를 거친다.
-    expect((source.match(/toastNoNewOrders\(/g) ?? []).length).toBeGreaterThanOrEqual(13);
+    // 옛 절차 몰(generate*Sellpia)마다 한 번 이상 — 몰이 실행 kind로 옮겨 가면 함께 준다(KID-380).
+    const legacyMalls = (source.match(/const generate\w+Sellpia = async/g) ?? []).length;
+    expect(legacyMalls).toBeGreaterThan(0);
+    expect((source.match(/toastNoNewOrders\(/g) ?? []).length - 1).toBeGreaterThanOrEqual(legacyMalls);
     expect(source).not.toContain('/주문이 없|없습니다/');
-    expect(source).toContain('isNoNewOrdersMessage(msg)');
   });
 
   it('derives every generated-file collection date from the resolved run', () => {

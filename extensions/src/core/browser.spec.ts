@@ -82,6 +82,8 @@ describe('createBrowserResources — lockKey 이름으로 탭을 잡고 푼다',
       new RuntimeError(SITE_LOGIN_REQUIRED, '로그인이 필요합니다.', { reason: 'credentials_rejected', mallMessage: '비밀번호가 일치하지 않습니다.' }),
       new RuntimeError(SITE_LOGIN_REQUIRED, '로그인이 필요합니다.', { reason: 'login_unconfirmed' }),
       new RuntimeError(SITE_REQUEST_FAILED, '사이트 밖으로 이동했습니다.', { reason: 'unexpected_url' }),
+      // 운영자 조치(GS샵 SMS 인증 시간 초과·보리보리 다운로드 비밀번호 필요, KID-380)도 그 탭에서 한다.
+      new RuntimeError('OPERATOR_ACTION_REQUIRED', '운영자 조치가 필요합니다.'),
     ]) {
       const fake = fakeChrome();
       const lease = await createBrowserResources(fake.chrome, SITES).acquire({ operationId: OP, lockKeys: ['resource:wing:vendor-1'], signal: signal() });

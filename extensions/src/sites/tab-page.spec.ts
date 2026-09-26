@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
-import { createTabPages, type PageGuard, type TabPageChrome } from './tab-page';
+import { RuntimeError } from '../core/errors';
+import { createTabPages, leftForOperator, type PageGuard, type TabPageChrome } from './tab-page';
 
 function fakeChrome(options: { sendMessage: (message: unknown, call: number) => Promise<unknown>; statuses?: string[]; url?: string; urls?: string[]; openTabs?: Array<{ id?: number; url?: string; status?: string }> }) {
   const log: string[] = [];
@@ -8,7 +9,7 @@ function fakeChrome(options: { sendMessage: (message: unknown, call: number) => 
   const chromeApi: TabPageChrome = {
     tabs: {
       create: async (properties) => { log.push(`create ${properties.url} active=${properties.active}`); return { id: 9 }; },
-      update: async (tabId, properties) => { log.push(`update ${tabId} ${properties.url}`); },
+      update: async (tabId, properties) => { log.push(properties.active ? `activate ${tabId}` : `update ${tabId} ${properties.url}`); },
       get: async () => {
         const status = options.statuses?.[gets] ?? 'complete';
         gets += 1;
@@ -145,6 +146,15 @@ describe('chrome tab pages (KID-360)', () => {
       expect(reminders).toBe(1);
     });
 
+    it('blocked may look at the page (async) — GS샵 SMS 화면처럼 주소가 그대로인 벽도 풀리면 멈춘다(KID-380)', async () => {
+      const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }), url: 'https://partners.gsshop.com/logistics/partner-logistics-mng' });
+      let clock = 0;
+      const page = createTabPages({ ...deps(chromeApi), sleep: async (ms) => { clock += ms; }, now: () => clock }).attach(4);
+      let checks = 0;
+      await expect(page.waitWhile(async () => (checks += 1) < 3, {})).resolves.toBe(true);
+      expect(checks).toBe(3);
+    });
+
     it('gives up after 10 minutes and fails at once when the tab is closed', async () => {
       let clock = 0;
       const { chromeApi } = fakeChrome({ sendMessage: async () => ({ ok: true }), url: PUNISH });
@@ -155,6 +165,23 @@ describe('chrome tab pages (KID-360)', () => {
       chromeApi.tabs.get = async () => { throw new Error('No tab'); };
       await expect(page.waitWhile(isPunish, {})).rejects.toMatchObject({ code: 'SITE_TAB_UNAVAILABLE' });
     });
+  });
+});
+
+describe('TabPage.focus — 운영자가 할 일이 있는 탭을 앞으로(KID-380)', () => {
+  it('그 탭을 활성 탭으로 만든다', async () => {
+    const { chromeApi, log } = fakeChrome({ sendMessage: async () => ({ ok: true }) });
+    await createTabPages(deps(chromeApi)).attach(4).focus();
+    expect(log).toEqual(['activate 4']);
+  });
+});
+
+describe('leftForOperator — 운영자에게 남기는 탭', () => {
+  it('로그인 필요·사이트 밖 주소·운영자 조치(OPERATOR_ACTION_REQUIRED)는 남기고, 다른 실패는 아니다', () => {
+    expect(leftForOperator(new RuntimeError('SITE_LOGIN_REQUIRED', 'x'))).toBe(true);
+    expect(leftForOperator(new RuntimeError('SITE_REQUEST_FAILED', 'x', { reason: 'unexpected_url' }))).toBe(true);
+    expect(leftForOperator(new RuntimeError('OPERATOR_ACTION_REQUIRED', 'x'))).toBe(true);
+    expect(leftForOperator(new RuntimeError('SITE_REQUEST_FAILED', 'x', { reason: 'page_error' }))).toBe(false);
   });
 });
 

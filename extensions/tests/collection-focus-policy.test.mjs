@@ -31,6 +31,11 @@ const automaticFocusSafeFiles = [
   // 소싱 수집(KID-360)과 몰 관리자 목록(KID-381)은 새 런타임의 사이트가 백그라운드 탭으로만 연다.
   'extensions/src/sites/tab-page.ts',
 ];
+// 운영자가 그 탭에서 할 일이 있을 때만 앞으로 가져오는 `TabPage.focus` 하나(KID-380 리뷰 MUST 1 — GS샵 SMS 인증, 운영자 조치로
+// 남긴 탭). 수집 경로가 스스로 부르지 않는다: `waitForOperator` 앞과 `withFreshTab`의 OPERATOR_ACTION_REQUIRED에서만 부른다.
+const operatorAttentionFocus = {
+  'extensions/src/sites/tab-page.ts': 1,
+};
 
 function countFocusTokens(source) {
   return focusTokens.reduce(
@@ -62,6 +67,6 @@ test('legacy automatic collector focus counts never increase', () => {
 test('new automatic collectors contain no focus-changing primitives', () => {
   for (const relativePath of automaticFocusSafeFiles) {
     const source = fs.readFileSync(path.join(repoRoot, relativePath), 'utf8');
-    assert.equal(countFocusTokens(source), 0, relativePath);
+    assert.equal(countFocusTokens(source), operatorAttentionFocus[relativePath] ?? 0, relativePath);
   }
 });

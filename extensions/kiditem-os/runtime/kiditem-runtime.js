@@ -7157,7 +7157,7 @@ var KidItemRuntime = (() => {
     selectionMode: MallOrdersSelectionModeSchema.optional(),
     seenRowKeys: external_exports.array(external_exports.string().min(1).max(MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH)).max(MALL_ORDERS_SEEN_ROW_KEYS_MAX).optional()
   }).strict();
-  var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook", "kidsnote", "onch", "haebub-mall"];
+  var MALL_ORDER_OPERATION_MALLS = ["icecream-mall", "kidkids", "art09", "domeggook", "kidsnote", "onch", "haebub-mall", "kkomangse", "teacher-mall", "boribori", "gs-shop", "always", "lotte-on"];
   function isMallOrderOperationMall(mallKey) {
     return MALL_ORDER_OPERATION_MALLS.includes(mallKey);
   }
@@ -7839,7 +7839,7 @@ var KidItemRuntime = (() => {
   var mallOrdersCollector = {
     kind: MALL_ORDERS_KIND,
     site: "mall-orders",
-    async *collect(rawPlan, site, { signal }) {
+    async *collect(rawPlan, site, { signal, report }) {
       const parsed2 = PlanSchema4.safeParse(rawPlan);
       const reader = parsed2.success && site ? site.reader(parsed2.data.mallKey) : null;
       if (!parsed2.success || !reader) {
@@ -7854,7 +7854,8 @@ var KidItemRuntime = (() => {
           collectionDate: plan.collectionDate,
           selectionMode: plan.selectionMode ?? "manual",
           seenRowKeys: plan.seenRowKeys ?? [],
-          signal
+          signal,
+          onAttention: attentionReporter(report, { mallKey: plan.mallKey })
         });
         if (signal.aborted) return;
         const progress4 = { mallKey: plan.mallKey, rows: rows.length };
@@ -8349,8 +8350,9 @@ var KidItemRuntime = (() => {
       );
     }
   }
+  var OPERATOR_ACTION_REQUIRED = "OPERATOR_ACTION_REQUIRED";
   function leftForOperator(error) {
-    return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === "unexpected_url");
+    return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.code === OPERATOR_ACTION_REQUIRED || error.details?.reason === "unexpected_url");
   }
   function hostWithin(url, domains) {
     const host = url.hostname.toLowerCase();
@@ -8412,7 +8414,7 @@ var KidItemRuntime = (() => {
           for (; ; ) {
             const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
             if (!tab) throw new RuntimeError(SITE_TAB_UNAVAILABLE, "\uC218\uC9D1 \uD0ED\uC774 \uB2EB\uD614\uC2B5\uB2C8\uB2E4.", { tabId });
-            if (!blocked(tab.url ?? "")) return true;
+            if (!await blocked(tab.url ?? "")) return true;
             if (deps.now() - started >= OPERATOR_WAIT_MAX_MS) return false;
             if (deps.now() - remindedAt >= OPERATOR_REMIND_MS) {
               remindedAt = deps.now();
@@ -8420,6 +8422,9 @@ var KidItemRuntime = (() => {
             }
             await deps.sleep(OPERATOR_POLL_MS);
           }
+        },
+        async focus() {
+          await deps.chrome.tabs.update(tabId, { active: true }).catch(() => void 0);
         },
         async currentUrl() {
           const tab = await deps.chrome.tabs.get(tabId).catch(() => null);
@@ -8503,6 +8508,7 @@ var KidItemRuntime = (() => {
       return await (options.signIn ? options.signIn.onPage(page, url, () => read(page)) : read(page));
     } catch (error) {
       if (leftForOperator(error)) keepOpen = true;
+      if (isRuntimeError(error) && error.code === OPERATOR_ACTION_REQUIRED) await page.focus().catch(() => void 0);
       throw error;
     } finally {
       if (!keepOpen) await page.close();
@@ -8712,15 +8718,49 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: ALIBABA_1688_SITE.name, create: (deps) => create1688SearchSite(deps.tabs) });
 
+  // extensions/src/sites/mall-excel.ts
+  var MALL_FILE_PART_CHARS = 7e5;
+  var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
+  var OPERATOR_ACTION_REQUIRED2 = "OPERATOR_ACTION_REQUIRED";
+  function filePartRows(fileName, base642, partChars = MALL_FILE_PART_CHARS) {
+    const parts = Math.max(1, Math.ceil(base642.length / partChars));
+    return Array.from({ length: parts }, (_, part) => ({
+      fileName,
+      part,
+      parts,
+      base64: base642.slice(part * partChars, (part + 1) * partChars)
+    }));
+  }
+  function mallExcelRows(answer, context) {
+    const message = answer?.error || `${context.displayName} \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`;
+    if (answer?.success === true) {
+      if (answer.empty === true) return { rows: [] };
+      const base642 = typeof answer.xlsxBase64 === "string" ? answer.xlsxBase64.trim() : "";
+      if (!base642) {
+        throw new RuntimeError(SITE_REQUEST_FAILED, `${context.displayName} \uC8FC\uBB38 \uC6D0\uBCF8 \uD30C\uC77C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "page_error", url: context.url });
+      }
+      return { rows: filePartRows(answer.fileName || context.fileName, base642) };
+    }
+    if (answer?.pendingLogin === true || answer?.errorCode === "login_required") {
+      throw new RuntimeError(SITE_LOGIN_REQUIRED, message, { url: context.url });
+    }
+    if (answer?.errorCode === "provider_contract_changed") {
+      throw new RuntimeError(MALL_CONTRACT_CHANGED4, message, { url: context.url });
+    }
+    if (answer?.pendingAuth === true || answer?.errorCode === "operator_action_required") {
+      throw new RuntimeError(OPERATOR_ACTION_REQUIRED2, message, { url: context.url });
+    }
+    throw new RuntimeError(SITE_REQUEST_FAILED, message, {
+      status: null,
+      reason: answer?.errorCode === "network_failed" ? "network" : "page_error",
+      url: context.url
+    });
+  }
+
   // extensions/src/sites/always/listings.ts
   var ALWAYS_LISTINGS_URL = "https://alwayzseller.ilevit.com/items/management";
   var ALWAYS_LISTINGS_FILE = "content/orders/always-listings.js";
-  var ALWAYS_LISTINGS_GUARD = {
-    allows: (url) => hostWithin(url, ["ilevit.com"]),
-    isLogin: (url) => hostWithin(url, ["ilevit.com"]) && /login|signin/i.test(url.pathname),
-    loginMessage: "\uC62C\uC6E8\uC774\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC62C\uC6E8\uC774\uC988 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
-  };
-  function createAlwaysListings(tabs, signIn) {
+  function createAlwaysListings(tabs) {
     return {
       readListings: (plan) => readMallListings(tabs, {
         mallKey: "always",
@@ -8728,11 +8768,38 @@ var KidItemRuntime = (() => {
         startUrl: ALWAYS_LISTINGS_URL,
         file: ALWAYS_LISTINGS_FILE,
         call: "always.listings",
-        guard: ALWAYS_LISTINGS_GUARD
-      }, plan, signIn)
+        guard: ALWAYS_PAGE_GUARD
+      }, plan)
     };
   }
-  registerSite({ name: "always", create: (deps) => createAlwaysListings(deps.tabs) });
+
+  // extensions/src/sites/always/index.ts
+  var ALWAYS_ORDER_URL = "https://alwayzseller.ilevit.com/shippings";
+  var ALWAYS_ORDERS_FILE = "content/page-call/always-orders.js";
+  var READ_TIMEOUT_MS2 = 12e4;
+  var LOGIN_MESSAGE = "\uC62C\uC6E8\uC774\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC62C\uC6E8\uC774\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
+  var ALWAYS_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["alwayzseller.ilevit.com"]),
+    isLogin: (url) => hostWithin(url, ["alwayzseller.ilevit.com"]) && /\/login(?:[/?#.]|$)/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE
+  };
+  function createAlwaysSite(tabs) {
+    return {
+      ...createAlwaysListings(tabs),
+      readOrders() {
+        return withFreshTab(tabs, ALWAYS_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "always.orders", {}, {
+            timeoutMs: READ_TIMEOUT_MS2,
+            guard: ALWAYS_PAGE_GUARD,
+            main: [ALWAYS_ORDERS_FILE],
+            displayName: "\uC62C\uC6E8\uC774\uC988"
+          });
+          return mallExcelRows(answer, { displayName: "\uC62C\uC6E8\uC774\uC988", url: ALWAYS_ORDER_URL, fileName: "\uC62C\uC6E8\uC774\uC988.xlsx" });
+        });
+      }
+    };
+  }
+  registerSite({ name: "always", create: (deps) => createAlwaysSite(deps.tabs) });
 
   // extensions/src/sites/site-login.ts
   var LOGIN_FILL_FILE = "content/page-call/login-fill.js";
@@ -8952,12 +9019,12 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/art09/index.ts
   var ART09_ORDER_URL = "https://zzogzzog1.cafe24.com/admin/php/shop1/s_new/order_list.php?1&shop_no=1";
   var ART09_ORDERS_FILE = "content/orders/art09-orders.js";
-  var READ_TIMEOUT_MS2 = 18e4;
-  var LOGIN_MESSAGE = "\uC544\uD2B8\uACF5\uAD6C \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. zzogzzog1.cafe24.com \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
+  var READ_TIMEOUT_MS3 = 18e4;
+  var LOGIN_MESSAGE2 = "\uC544\uD2B8\uACF5\uAD6C \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. zzogzzog1.cafe24.com \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
   var ART09_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["zzogzzog1.cafe24.com"]),
     isLogin: (url) => hostWithin(url, ["cafe24.com"]) && !/order_list\.php$/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE
+    loginMessage: LOGIN_MESSAGE2
   };
   var ART09_LOGIN = {
     displayName: "\uC544\uD2B8\uACF5\uAD6C",
@@ -8972,13 +9039,13 @@ var KidItemRuntime = (() => {
       readOrders(input) {
         return withFreshTab(tabs, ART09_ORDER_URL, async (page) => {
           const answer = await callPage(page, "art09.orders", { dateFilter: input.collectionDate ?? "" }, {
-            timeoutMs: READ_TIMEOUT_MS2,
+            timeoutMs: READ_TIMEOUT_MS3,
             guard: ART09_PAGE_GUARD,
             isolated: [ART09_ORDERS_FILE],
             displayName: "\uC544\uD2B8\uACF5\uAD6C"
           });
           if (answer?.status === "ok") return { rows: answer.rows };
-          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE, { url: ART09_ORDER_URL });
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE2, { url: ART09_ORDER_URL });
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC544\uD2B8\uACF5\uAD6C \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -9016,6 +9083,51 @@ var KidItemRuntime = (() => {
 
   // extensions/src/sites/auction/listings.ts
   registerSite({ name: "auction", create: (deps) => createEsmListings(deps.tabs, "auction", "\uC625\uC158") });
+
+  // extensions/src/sites/boribori/index.ts
+  var BORIBORI_ORDER_URL = "https://seller-club.co.kr/order/orderDeliList";
+  var BORIBORI_ORDERS_FILE = "content/page-call/boribori-orders.js";
+  var BORIBORI_DOWNLOAD_REASON = "\uBC30\uC1A1\uD655\uC778\uD569\uB2C8\uB2E4";
+  var READ_TIMEOUT_MS4 = 12e4;
+  var LOGIN_MESSAGE3 = "\uBCF4\uB9AC\uBCF4\uB9AC \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. seller-club.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
+  var BORIBORI_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["seller-club.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["seller-club.co.kr"]) && /\/login(?:[/?#.]|$)/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE3
+  };
+  var BORIBORI_LOGIN = {
+    displayName: "\uBCF4\uB9AC\uBCF4\uB9AC",
+    loginUrl: BORIBORI_ORDER_URL,
+    hosts: ["seller-club.co.kr"],
+    isLoginUrl: (url) => BORIBORI_PAGE_GUARD.isLogin(url),
+    fields: ["loginId", "password"]
+  };
+  function createBoriboriSite(tabs, downloadPassword, signIn) {
+    return {
+      readOrders() {
+        return withFreshTab(tabs, BORIBORI_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "boribori.orders", {
+            downloadReason: BORIBORI_DOWNLOAD_REASON,
+            downloadPassword
+          }, {
+            timeoutMs: READ_TIMEOUT_MS4,
+            guard: BORIBORI_PAGE_GUARD,
+            main: [BORIBORI_ORDERS_FILE],
+            displayName: "\uBCF4\uB9AC\uBCF4\uB9AC"
+          });
+          return mallExcelRows(answer, { displayName: "\uBCF4\uB9AC\uBCF4\uB9AC", url: BORIBORI_ORDER_URL, fileName: "\uBCF4\uB9AC\uBCF4\uB9AC.xlsx" });
+        }, signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({
+    name: "boribori",
+    create: (deps, lease) => createBoriboriSite(
+      deps.tabs,
+      lease.credentials?.password ?? "",
+      createSiteSignIn(BORIBORI_LOGIN, lease.credentials, deps)
+    )
+  });
 
   // extensions/src/sites/coupang-product/index.ts
   var ORIGIN = "https://www.coupang.com";
@@ -9915,11 +10027,11 @@ var KidItemRuntime = (() => {
   var REQUEST_TIMEOUT_MS = 6e4;
   var POLL_MS2 = 5e3;
   var POLL_ROUNDS = 48;
-  var LOGIN_MESSAGE2 = "\uB3C4\uB9E4\uAFB9 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. domeggook.com \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE4 = "\uB3C4\uB9E4\uAFB9 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. domeggook.com \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var DOMEGGOOK_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["domeggook.com"]),
     isLogin: (url) => hostWithin(url, ["domeggook.com"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE2
+    loginMessage: LOGIN_MESSAGE4
   };
   var DOMEGGOOK_LOGIN = {
     displayName: "\uB3C4\uB9E4\uAFB9",
@@ -9937,7 +10049,7 @@ var KidItemRuntime = (() => {
       body = null;
     }
     if (!body || typeof body !== "object" || Array.isArray(body) || body.res === false) {
-      throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE2, { url: DOMEGGOOK_ORDER_LIST_API });
+      throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE4, { url: DOMEGGOOK_ORDER_LIST_API });
     }
     const list = body.dat;
     return Array.isArray(list) ? list : [];
@@ -10013,18 +10125,102 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "domeggook", create: (deps, lease) => createDomeggookSite(deps.tabs, deps, createSiteSignIn(DOMEGGOOK_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/gs-shop/index.ts
+  var GS_SHOP_ORDER_URL = "https://partners.gsshop.com/logistics/partner-logistics-mng";
+  var GS_SHOP_ORDERS_FILE = "content/page-call/gs-shop-orders.js";
+  var READ_TIMEOUT_MS5 = 14e4;
+  var WALL_TIMEOUT_MS = 1e4;
+  var NAVIGATION_TIMEOUT_MS7 = 3e4;
+  var LOGIN_MESSAGE5 = "GS\uC0F5 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
+  var SMS_MESSAGE = "GS\uC0F5 SMS \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. GS\uC0F5 \uD611\uB825\uC0AC \uB85C\uADF8\uC778\uC5D0\uC11C [\uC778\uC99D\uBC88\uD638 \uBC1B\uAE30]\uB85C \uC778\uC99D\uC744 \uC644\uB8CC\uD55C \uB4A4 \uB2E4\uC2DC '\uC218\uC9D1\uD558\uAE30'\uB97C \uB20C\uB7EC\uC8FC\uC138\uC694.";
+  var OPERATOR_ACTION_REQUIRED3 = "OPERATOR_ACTION_REQUIRED";
+  var SMS_ATTENTION = { kind: "verification", site: "gs-shop", label: "SMS \uC778\uC99D" };
+  var isGsShopLogin = (url) => hostWithin(url, ["gsshop.com"]) && /\/(?:sign-?in|login)(?:[/?#.]|$)/i.test(url.pathname);
+  var GS_SHOP_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["partners.gsshop.com"]),
+    isLogin: isGsShopLogin,
+    loginMessage: LOGIN_MESSAGE5
+  };
+  var WALL_GUARD = { ...GS_SHOP_PAGE_GUARD, isLogin: () => false };
+  var GS_SHOP_LOGIN = {
+    displayName: "GS\uC0F5",
+    loginUrl: GS_SHOP_ORDER_URL,
+    hosts: ["partners.gsshop.com"],
+    isLoginUrl: isGsShopLogin,
+    fields: ["loginId", "password"]
+  };
+  function isLoginRequired2(error) {
+    return isRuntimeError(error) && error.code === SITE_LOGIN_REQUIRED;
+  }
+  function createGsShopSite(tabs, signIn) {
+    const orders = (page) => callPage(page, "gs-shop.orders", {}, {
+      timeoutMs: READ_TIMEOUT_MS5,
+      guard: GS_SHOP_PAGE_GUARD,
+      main: [GS_SHOP_ORDERS_FILE],
+      displayName: "GS\uC0F5"
+    });
+    const smsWall = (page) => callPage(page, "gs-shop.smsWall", {}, {
+      timeoutMs: WALL_TIMEOUT_MS,
+      guard: WALL_GUARD,
+      main: [GS_SHOP_ORDERS_FILE],
+      displayName: "GS\uC0F5"
+    }).catch(() => null);
+    async function read(page, onAttention) {
+      let waited = false;
+      const stillWalled = async (value) => {
+        let url;
+        try {
+          url = new URL(value);
+        } catch {
+          return true;
+        }
+        if (!GS_SHOP_PAGE_GUARD.allows(url) || isGsShopLogin(url)) return true;
+        return (await smsWall(page))?.sms !== false;
+      };
+      const waitSms = async (message) => {
+        await page.focus();
+        if (!await waitForOperator(page, stillWalled, SMS_ATTENTION, onAttention)) {
+          throw new RuntimeError(OPERATOR_ACTION_REQUIRED3, message, { url: GS_SHOP_ORDER_URL });
+        }
+        waited = true;
+        await page.navigate(GS_SHOP_ORDER_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7 });
+      };
+      for (; ; ) {
+        let answer;
+        try {
+          answer = await orders(page);
+        } catch (error) {
+          if (!isLoginRequired2(error) || waited || (await smsWall(page))?.sms !== true) throw error;
+          await waitSms(SMS_MESSAGE);
+          continue;
+        }
+        if (answer?.pendingAuth === true && !waited) {
+          await waitSms(answer.error || SMS_MESSAGE);
+          continue;
+        }
+        return mallExcelRows(answer, { displayName: "GS\uC0F5", url: GS_SHOP_ORDER_URL, fileName: "GS\uC0F5.xlsx" });
+      }
+    }
+    return {
+      readOrders(input = {}) {
+        return withFreshTab(tabs, GS_SHOP_ORDER_URL, (page) => read(page, input.onAttention), signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({ name: "gs-shop", create: (deps, lease) => createGsShopSite(deps.tabs, createSiteSignIn(GS_SHOP_LOGIN, lease.credentials, deps)) });
+
   // extensions/src/sites/haebub-mall/index.ts
   var HAEBUB_MALL_ORDER_URL = "https://mallseller.genimarket.co.kr/mall/order/basket_list.php";
   var HAEBUB_MALL_ORDERS_FILE = "content/page-call/haebub-mall-orders.js";
   var HAEBUB_MALL_VENDOR = "\uAC70\uC601\uC544\uC774\uC564\uB514";
-  var READ_TIMEOUT_MS3 = 18e4;
-  var LOGIN_MESSAGE3 = "\uD574\uBC95\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. mallseller.genimarket.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var READ_TIMEOUT_MS6 = 18e4;
+  var LOGIN_MESSAGE6 = "\uD574\uBC95\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. mallseller.genimarket.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var HOSTS = ["mallseller.genimarket.co.kr"];
   var isHaebubLogin = (url) => hostWithin(url, HOSTS) && /\/login/i.test(url.pathname);
   var HAEBUB_MALL_PAGE_GUARD = {
     allows: (url) => hostWithin(url, HOSTS),
     isLogin: isHaebubLogin,
-    loginMessage: LOGIN_MESSAGE3
+    loginMessage: LOGIN_MESSAGE6
   };
   var HAEBUB_MALL_LOGIN = {
     displayName: "\uD574\uBC95\uBAB0",
@@ -10038,13 +10234,13 @@ var KidItemRuntime = (() => {
       readOrders(input) {
         return withFreshTab(tabs, HAEBUB_MALL_ORDER_URL, async (page) => {
           const answer = await callPage(page, "haebub-mall.orders", { date: input.collectionDate ?? "", vendor: HAEBUB_MALL_VENDOR }, {
-            timeoutMs: READ_TIMEOUT_MS3,
+            timeoutMs: READ_TIMEOUT_MS6,
             guard: HAEBUB_MALL_PAGE_GUARD,
             isolated: [HAEBUB_MALL_ORDERS_FILE],
             displayName: "\uD574\uBC95\uBAB0"
           });
           if (answer?.status === "ok") return { rows: answer.orders };
-          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE3, { url: HAEBUB_MALL_ORDER_URL });
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE6, { url: HAEBUB_MALL_ORDER_URL });
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD574\uBC95\uBAB0 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -10081,7 +10277,7 @@ var KidItemRuntime = (() => {
   var LOGIN_WATCH_MS = 500;
   var MENU_TIMEOUT_MS = 45e3;
   var GRID_TIMEOUT_MS = 35e3;
-  var LOGIN_MESSAGE4 = "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE7 = "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var ICECREAM_DELIVERY_HEADERS = [
     "No",
     "\uC8FC\uBB38\uBC88\uD638",
@@ -10139,7 +10335,7 @@ var KidItemRuntime = (() => {
   var ICECREAM_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["i-screammall.co.kr"]),
     isLogin: (url) => hostWithin(url, ["i-screammall.co.kr"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE4
+    loginMessage: LOGIN_MESSAGE7
   };
   var ICECREAM_LOGIN = {
     displayName: "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0",
@@ -10169,7 +10365,7 @@ var KidItemRuntime = (() => {
     return "\uC544\uC774\uC2A4\uD06C\uB9BC\uBAB0 \uBC30\uC1A1\uC870\uD68C \uD654\uBA74\uC740 \uC5F4\uC5C8\uC9C0\uB9CC \uBC30\uC1A1\uBAA9\uB85D \uD45C\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.";
   }
   function loginRequired2() {
-    return new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE4, { url: ICECREAM_MALL_URL });
+    return new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE7, { url: ICECREAM_MALL_URL });
   }
   function createIcecreamMallSite(tabs, sleep, signIn) {
     async function inspect(page) {
@@ -10273,12 +10469,12 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/kidkids/index.ts
   var KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/management.htm";
   var KIDKIDS_ORDERS_FILE = "content/orders/kidkids-orders.js";
-  var READ_TIMEOUT_MS4 = 18e4;
-  var LOGIN_MESSAGE5 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var READ_TIMEOUT_MS7 = 18e4;
+  var LOGIN_MESSAGE8 = "\uD0A4\uB4DC\uD0A4\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uD0A4\uB4DC\uD0A4\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778(\uBCF8\uC778\uD655\uC778)\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var KIDKIDS_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["kidkids.net"]),
     isLogin: (url) => hostWithin(url, ["kidkids.net"]) && (/login|partnerlogin|partner_login/i.test(url.pathname) || /\/security\/verify_user\.htm$/i.test(url.pathname)),
-    loginMessage: LOGIN_MESSAGE5
+    loginMessage: LOGIN_MESSAGE8
   };
   var KIDKIDS_LOGIN = {
     displayName: "\uD0A4\uB4DC\uD0A4\uC988",
@@ -10295,13 +10491,13 @@ var KidItemRuntime = (() => {
       readOrders(input) {
         return withFreshTab(tabs, KIDKIDS_ORDER_URL, async (page) => {
           const answer = await callPage(page, "kidkids.orders", { dateFilter: input.collectionDate ?? "" }, {
-            timeoutMs: READ_TIMEOUT_MS4,
+            timeoutMs: READ_TIMEOUT_MS7,
             guard: KIDKIDS_PAGE_GUARD,
             isolated: [KIDKIDS_ORDERS_FILE],
             displayName: "\uD0A4\uB4DC\uD0A4\uC988"
           });
           if (answer?.status === "ok") return { rows: answer.orders };
-          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE5, { url: KIDKIDS_ORDER_URL });
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE8, { url: KIDKIDS_ORDER_URL });
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uB4DC\uD0A4\uC988 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -10332,14 +10528,14 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/kidsnote/index.ts
   var KIDSNOTE_ORDER_URL = "https://shop.kidsnote.com/_manage/?body=3010";
   var KIDSNOTE_ORDERS_FILE = "content/page-call/kidsnote-orders.js";
-  var READ_TIMEOUT_MS5 = 19e4;
-  var LOGIN_MESSAGE6 = "shop.kidsnote.com \uAD00\uB9AC\uC790 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.";
+  var READ_TIMEOUT_MS8 = 19e4;
+  var LOGIN_MESSAGE9 = "shop.kidsnote.com \uAD00\uB9AC\uC790 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778 \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.";
   var HOSTS2 = ["shop.kidsnote.com"];
   var isKidsnoteLogin = (url) => hostWithin(url, HOSTS2) && /\/login/i.test(url.pathname);
   var KIDSNOTE_PAGE_GUARD = {
     allows: (url) => hostWithin(url, HOSTS2),
     isLogin: isKidsnoteLogin,
-    loginMessage: LOGIN_MESSAGE6
+    loginMessage: LOGIN_MESSAGE9
   };
   var KIDSNOTE_LOGIN = {
     displayName: "\uD0A4\uC988\uB178\uD2B8",
@@ -10374,13 +10570,13 @@ var KidItemRuntime = (() => {
         return withFreshTab(tabs, KIDSNOTE_ORDER_URL, async (page) => {
           const day = input.collectionDate ?? "";
           const answer = await callPage(page, "kidsnote.orders", { from: day, to: day, status: "", withDetail: true }, {
-            timeoutMs: READ_TIMEOUT_MS5,
+            timeoutMs: READ_TIMEOUT_MS8,
             guard: KIDSNOTE_PAGE_GUARD,
             isolated: [KIDSNOTE_ORDERS_FILE],
             displayName: "\uD0A4\uC988\uB178\uD2B8"
           });
           if (answer?.status === "ok") return { rows: answer.orders.map(kidsnoteConvertOrder) };
-          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE6, { url: KIDSNOTE_ORDER_URL });
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE9, { url: KIDSNOTE_ORDER_URL });
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uC988\uB178\uD2B8 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -10395,19 +10591,6 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/kkomangse/listings.ts
   var KKOMANGSE_LISTINGS_URL = "https://nstore.edupre.co.kr/subAdmin/_product.list.php";
   var KKOMANGSE_LISTINGS_FILE = "content/orders/kkomangse-listings.js";
-  var isKkomangseLogin = (url) => hostWithin(url, ["edupre.co.kr"]) && /login/i.test(url.pathname);
-  var KKOMANGSE_LISTINGS_GUARD = {
-    allows: (url) => hostWithin(url, ["edupre.co.kr"]),
-    isLogin: isKkomangseLogin,
-    loginMessage: "\uAF2C\uB9DD\uC138 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uAF2C\uB9DD\uC138 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
-  };
-  var KKOMANGSE_LOGIN = {
-    displayName: "\uAF2C\uB9DD\uC138",
-    loginUrl: "https://nstore.edupre.co.kr/subAdmin/_order_product.list.php?mode=search&pass_input_type=all&st=o_rdate&so=desc&listmaxcount=1000",
-    hosts: ["edupre.co.kr"],
-    isLoginUrl: isKkomangseLogin,
-    fields: ["loginId", "password"]
-  };
   function createKkomangseListings(tabs, signIn) {
     return {
       readListings: (plan) => readMallListings(tabs, {
@@ -10416,14 +10599,48 @@ var KidItemRuntime = (() => {
         startUrl: KKOMANGSE_LISTINGS_URL,
         file: KKOMANGSE_LISTINGS_FILE,
         call: "kkomangse.listings",
-        guard: KKOMANGSE_LISTINGS_GUARD
+        guard: KKOMANGSE_PAGE_GUARD
       }, plan, signIn)
     };
   }
-  registerSite({ name: "kkomangse", create: (deps, lease) => createKkomangseListings(deps.tabs, createSiteSignIn(KKOMANGSE_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/kkomangse/index.ts
+  var KKOMANGSE_ORDER_URL = "https://nstore.edupre.co.kr/subAdmin/_order_product.list.php?mode=search&pass_input_type=all&st=o_rdate&so=desc&listmaxcount=1000";
+  var KKOMANGSE_ORDERS_FILE = "content/page-call/kkomangse-orders.js";
+  var READ_TIMEOUT_MS9 = 9e4;
+  var LOGIN_MESSAGE10 = "\uAF2C\uB9DD\uC138 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. nstore.edupre.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var KKOMANGSE_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["edupre.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["edupre.co.kr"]) && /login/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE10
+  };
+  var KKOMANGSE_LOGIN = {
+    displayName: "\uAF2C\uB9DD\uC138",
+    loginUrl: KKOMANGSE_ORDER_URL,
+    hosts: ["edupre.co.kr"],
+    isLoginUrl: (url) => KKOMANGSE_PAGE_GUARD.isLogin(url),
+    fields: ["loginId", "password"]
+  };
+  function createKkomangseSite(tabs, signIn) {
+    return {
+      ...createKkomangseListings(tabs, signIn),
+      readOrders() {
+        return withFreshTab(tabs, KKOMANGSE_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "kkomangse.orders", {}, {
+            timeoutMs: READ_TIMEOUT_MS9,
+            guard: KKOMANGSE_PAGE_GUARD,
+            isolated: [KKOMANGSE_ORDERS_FILE],
+            displayName: "\uAF2C\uB9DD\uC138"
+          });
+          return mallExcelRows(answer, { displayName: "\uAF2C\uB9DD\uC138", url: KKOMANGSE_ORDER_URL, fileName: "kkomangse.xlsx" });
+        }, signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({ name: "kkomangse", create: (deps, lease) => createKkomangseSite(deps.tabs, createSiteSignIn(KKOMANGSE_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/live-commerce/index.ts
-  var NAVIGATION_TIMEOUT_MS7 = 35e3;
+  var NAVIGATION_TIMEOUT_MS8 = 35e3;
   var EXTRACTION_TIMEOUT_MS3 = 25e3;
   var MAX_PRODUCTS = 100;
   var CONTENT_FILES = {
@@ -10463,14 +10680,14 @@ var KidItemRuntime = (() => {
         let keepOpen = false;
         try {
           const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
-          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS7, stopAt });
+          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS8, stopAt });
           for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
             const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
             if (!cleared) {
               keepOpen = true;
               throw verification2(landed);
             }
-            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS7, stopAt });
+            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS8, stopAt });
           }
           if (isLiveLoginUrl(landed)) {
             keepOpen = true;
@@ -10513,20 +10730,6 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/lotte-on/listings.ts
   var LOTTEON_LISTINGS_URL = "https://store.lotteon.com/cm/main/index_SO.wsp";
   var LOTTEON_LISTINGS_FILE = "content/orders/lotte-on-listings.js";
-  var LOTTEON_TAB_PATTERN = "https://store.lotteon.com/*";
-  var isLotteonLogin = (url) => hostWithin(url, ["lotteon.com"]) && /login/i.test(url.pathname);
-  var LOTTEON_LISTINGS_GUARD = {
-    allows: (url) => hostWithin(url, ["lotteon.com"]),
-    isLogin: isLotteonLogin,
-    loginMessage: "\uB86F\uB370ON \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uB86F\uB370ON \uD310\uB9E4\uC790\uC13C\uD130 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
-  };
-  var LOTTEON_LOGIN = {
-    displayName: "\uB86F\uB370ON",
-    loginUrl: "https://store.lotteon.com/cm/main/login_SO.wsp",
-    hosts: ["lotteon.com"],
-    isLoginUrl: isLotteonLogin,
-    fields: ["loginId", "password"]
-  };
   function createLotteonListings(tabs, signIn) {
     return {
       readListings: (plan) => readMallListings(tabs, {
@@ -10536,12 +10739,56 @@ var KidItemRuntime = (() => {
         file: LOTTEON_LISTINGS_FILE,
         call: "lotte-on.listings",
         world: "main",
-        reuseTabMatching: LOTTEON_TAB_PATTERN,
-        guard: LOTTEON_LISTINGS_GUARD
+        reuseTabMatching: LOTTE_ON_TAB_PATTERN,
+        guard: LOTTE_ON_PAGE_GUARD
       }, plan, signIn)
     };
   }
-  registerSite({ name: "lotte-on", create: (deps, lease) => createLotteonListings(deps.tabs, createSiteSignIn(LOTTEON_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/lotte-on/index.ts
+  var LOTTE_ON_ORDER_URL = "https://store.lotteon.com/cm/main/index_SO.wsp";
+  var LOTTE_ON_LOGIN_URL = "https://store.lotteon.com/cm/main/login_SO.wsp";
+  var LOTTE_ON_TAB_PATTERN = "https://store.lotteon.com/*";
+  var LOTTE_ON_ORDERS_FILE = "content/page-call/lotte-on-orders.js";
+  var LOTTE_ON_DOWNLOAD_REASON = "\uBC30\uC1A1\uC744 \uC704\uD55C \uC8FC\uBB38\uC815\uBCF4 \uB2E4\uC6B4\uB85C\uB4DC";
+  var READ_TIMEOUT_MS10 = 12e4;
+  var LOGIN_FAILURE = /로그인|인증|세션/;
+  var LOGIN_MESSAGE11 = "\uB86F\uB370ON \uD310\uB9E4\uC790\uC13C\uD130 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC1FC\uD551\uBAB0 \uACC4\uC815\uC758 \uC544\uC774\uB514\xB7\uBE44\uBC00\uBC88\uD638\uB97C \uD655\uC778\uD558\uAC70\uB098 \uB86F\uB370ON \uC5D0 \uC9C1\uC811 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var isLotteOnLogin = (url) => hostWithin(url, ["lotteon.com"]) && /login_so|\/login(?:[/?#.]|$)/i.test(url.pathname);
+  var LOTTE_ON_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["store.lotteon.com"]),
+    isLogin: isLotteOnLogin,
+    loginMessage: LOGIN_MESSAGE11
+  };
+  var LOTTE_ON_LOGIN = {
+    displayName: "\uB86F\uB370ON",
+    loginUrl: LOTTE_ON_LOGIN_URL,
+    hosts: ["store.lotteon.com"],
+    isLoginUrl: isLotteOnLogin,
+    fields: ["loginId", "password"]
+  };
+  function createLotteOnSite(tabs, signIn) {
+    return {
+      ...createLotteonListings(tabs, signIn),
+      readOrders() {
+        return withFreshTab(tabs, LOTTE_ON_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "lotte-on.orders", { downloadReason: LOTTE_ON_DOWNLOAD_REASON }, {
+            timeoutMs: READ_TIMEOUT_MS10,
+            guard: LOTTE_ON_PAGE_GUARD,
+            isolated: [LOTTE_ON_ORDERS_FILE],
+            displayName: "\uB86F\uB370ON"
+          });
+          const loginFailure2 = answer?.success !== true && LOGIN_FAILURE.test(answer?.error ?? "");
+          return mallExcelRows(loginFailure2 ? { ...answer, pendingLogin: true, error: LOGIN_MESSAGE11 } : answer, {
+            displayName: "\uB86F\uB370ON",
+            url: LOTTE_ON_ORDER_URL,
+            fileName: "\uB86F\uB370ON.xlsx"
+          });
+        }, { reuseTabMatching: LOTTE_ON_TAB_PATTERN, ...signIn ? { signIn } : {} });
+      }
+    };
+  }
+  registerSite({ name: "lotte-on", create: (deps, lease) => createLotteOnSite(deps.tabs, createSiteSignIn(LOTTE_ON_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/mall-admin-listings/index.ts
   var MALL_ADMIN_LISTINGS_SITE = "mall-admin-listings";
@@ -10582,14 +10829,14 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/onch/index.ts
   var ONCH_ORDER_URL = "https://www.onch3.co.kr/supplier/orders.php?state=all";
   var ONCH_ORDERS_FILE = "content/page-call/onch-orders.js";
-  var READ_TIMEOUT_MS6 = 12e4;
-  var LOGIN_MESSAGE7 = "\uC628\uCC44\uB110 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. onch3.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
+  var READ_TIMEOUT_MS11 = 12e4;
+  var LOGIN_MESSAGE12 = "\uC628\uCC44\uB110 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. onch3.co.kr \uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.";
   var HOSTS3 = ["onch3.co.kr"];
   var isOnchLogin = (url) => hostWithin(url, HOSTS3) && /\/login\//i.test(url.pathname);
   var ONCH_PAGE_GUARD = {
     allows: (url) => hostWithin(url, HOSTS3),
     isLogin: isOnchLogin,
-    loginMessage: LOGIN_MESSAGE7
+    loginMessage: LOGIN_MESSAGE12
   };
   var ONCH_LOGIN = {
     displayName: "\uC628\uCC44\uB110",
@@ -10604,13 +10851,13 @@ var KidItemRuntime = (() => {
       readOrders(input) {
         return withFreshTab(tabs, ONCH_ORDER_URL, async (page) => {
           const answer = await callPage(page, "onch.orders", { dateFilter: input.collectionDate ?? "" }, {
-            timeoutMs: READ_TIMEOUT_MS6,
+            timeoutMs: READ_TIMEOUT_MS11,
             guard: ONCH_PAGE_GUARD,
             isolated: [ONCH_ORDERS_FILE],
             displayName: "\uC628\uCC44\uB110"
           });
           if (answer?.status === "ok") return { rows: answer.orders };
-          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE7, { url: ONCH_ORDER_URL });
+          if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE12, { url: ONCH_ORDER_URL });
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC628\uCC44\uB110 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -10791,15 +11038,15 @@ var KidItemRuntime = (() => {
   var SABANGNET_ORIGIN = "https://sbadmin08.sabangnet.co.kr";
   var PAGE_URL = `${SABANGNET_ORIGIN}/`;
   var SABANGNET_MALL_LISTINGS_FILE = "content/orders/sabangnet-mall-listings.js";
-  var NAVIGATION_TIMEOUT_MS8 = 45e3;
+  var NAVIGATION_TIMEOUT_MS9 = 45e3;
   var PAGE_CALL_TIMEOUT_MS = 35e3;
   var SABANGNET_PAGE_DELAY_MS = 800;
-  var LOGIN_MESSAGE8 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
-  var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
+  var LOGIN_MESSAGE13 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
+  var MALL_CONTRACT_CHANGED5 = "MALL_CONTRACT_CHANGED";
   var SABANGNET_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sabangnet.co.kr"]),
     isLogin: (url) => hostWithin(url, ["sabangnet.co.kr"]) && /login/i.test(`${url.pathname}${url.hash}`),
-    loginMessage: LOGIN_MESSAGE8
+    loginMessage: LOGIN_MESSAGE13
   };
   function createSabangnetSite(tabs, sleep) {
     let pagesRead = 0;
@@ -10810,7 +11057,7 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(PAGE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS8 });
+        await next.navigate(PAGE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS9 });
         return next;
       })();
       return tab;
@@ -10828,7 +11075,7 @@ var KidItemRuntime = (() => {
         case "ok":
           return { total: answer.total, items: answer.items };
         case "login_required":
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE8, { url: PAGE_URL });
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE13, { url: PAGE_URL });
         case "http_error":
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
             status: answer.httpStatus,
@@ -10837,7 +11084,7 @@ var KidItemRuntime = (() => {
             bodyHead: null
           });
         case "contract_drift":
-          throw new RuntimeError(MALL_CONTRACT_CHANGED4, `\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
+          throw new RuntimeError(MALL_CONTRACT_CHANGED5, `\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
         case "timeout":
           throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL, reason: "timeout", bodyHead: null });
         default:
@@ -10869,11 +11116,11 @@ var KidItemRuntime = (() => {
   var SELLPIA_REPRINT_URL = `${SELLPIA_ORIGIN}/order_delivery_reprint.html`;
   var SELLPIA_SHIPMENT_TRACKING_FILE = "content/orders/sellpia-shipment-tracking.js";
   var QUERY_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE9 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
+  var LOGIN_MESSAGE14 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 \uC140\uD53C\uC544 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC870\uD68C\uD574 \uC8FC\uC138\uC694.";
   var SELLPIA_PAGE_GUARD = {
     allows: (url) => hostWithin(url, ["sellpia.com"]),
     isLogin: (url) => hostWithin(url, ["sellpia.com"]) && /login/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE9
+    loginMessage: LOGIN_MESSAGE14
   };
   function createSellpiaTracking(tabs) {
     return {
@@ -10890,7 +11137,7 @@ var KidItemRuntime = (() => {
             case "ok":
               return { rows: answer.rows, total: answer.total };
             case "login_required":
-              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE9, { url: SELLPIA_REPRINT_URL });
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE14, { url: SELLPIA_REPRINT_URL });
             case "http_error":
               throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
                 status: answer.httpStatus,
@@ -11036,11 +11283,11 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/sellpia/manual-match.ts
   var SELLPIA_MANUAL_MATCH_URL = `${SELLPIA_ORIGIN}/product_manual_match.html`;
   var SELLPIA_MANUAL_MATCH_FILE = "content/orders/sellpia-manual-match.js";
-  var NAVIGATION_TIMEOUT_MS9 = 45e3;
+  var NAVIGATION_TIMEOUT_MS10 = 45e3;
   var SEARCH_TIMEOUT_MS = 10 * 6e4;
   var STATUS_TIMEOUT_MS = 6e4;
-  var LOGIN_MESSAGE10 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
-  var MALL_CONTRACT_CHANGED5 = "MALL_CONTRACT_CHANGED";
+  var LOGIN_MESSAGE15 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
+  var MALL_CONTRACT_CHANGED6 = "MALL_CONTRACT_CHANGED";
   function createSellpiaManualMatch(tabs) {
     let tab = null;
     let opened = null;
@@ -11049,7 +11296,7 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS9 });
+        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS10 });
         return next;
       })();
       return tab;
@@ -11066,9 +11313,9 @@ var KidItemRuntime = (() => {
           case "ok":
             return answer;
           case "login_required":
-            throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE10, { url: SELLPIA_MANUAL_MATCH_URL });
+            throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE15, { url: SELLPIA_MANUAL_MATCH_URL });
           case "contract_drift":
-            throw new RuntimeError(MALL_CONTRACT_CHANGED5, `\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
+            throw new RuntimeError(MALL_CONTRACT_CHANGED6, `\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. [${answer.stage}]`, { stage: answer.stage });
           case "http_error":
             throw new RuntimeError(SITE_REQUEST_FAILED, `\uC140\uD53C\uC544 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
               status: answer.httpStatus,
@@ -11152,19 +11399,6 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/teacher-mall/listings.ts
   var TEACHER_LISTINGS_URL = "https://shop.teacherville.co.kr/selleradmin/goods/catalog";
   var TEACHER_LISTINGS_FILE = "content/orders/teacher-mall-listings.js";
-  var isTeacherLogin = (url) => hostWithin(url, ["teacherville.co.kr"]) && /login/i.test(url.pathname);
-  var TEACHER_LISTINGS_GUARD = {
-    allows: (url) => hostWithin(url, ["teacherville.co.kr"]),
-    isLogin: isTeacherLogin,
-    loginMessage: "\uD2F0\uCCD0\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uD2F0\uCCD0\uBAB0 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694."
-  };
-  var TEACHER_LOGIN = {
-    displayName: "\uD2F0\uCCD0\uBAB0",
-    loginUrl: "https://shop.teacherville.co.kr/selleradmin/order/catalog",
-    hosts: ["teacherville.co.kr"],
-    isLoginUrl: isTeacherLogin,
-    fields: ["loginId", "password"]
-  };
   function createTeacherListings(tabs, signIn) {
     return {
       readListings: (plan) => readMallListings(tabs, {
@@ -11173,11 +11407,52 @@ var KidItemRuntime = (() => {
         startUrl: TEACHER_LISTINGS_URL,
         file: TEACHER_LISTINGS_FILE,
         call: "teacher-mall.listings",
-        guard: TEACHER_LISTINGS_GUARD
+        guard: TEACHER_MALL_PAGE_GUARD
       }, plan, signIn)
     };
   }
-  registerSite({ name: "teacher-mall", create: (deps, lease) => createTeacherListings(deps.tabs, createSiteSignIn(TEACHER_LOGIN, lease.credentials, deps)) });
+
+  // extensions/src/sites/teacher-mall/index.ts
+  var TEACHER_MALL_ORDER_URL = "https://shop.teacherville.co.kr/selleradmin/order/catalog";
+  var TEACHER_MALL_ORDERS_FILE = "content/page-call/teacher-mall-orders.js";
+  var TEACHER_MALL_EXCEL_TEMPLATE_SEQ = "117";
+  var TEACHER_MALL_PROVIDER_SEQ = "708";
+  var TEACHER_MALL_DOWNLOAD_REASON = "\uBC30\uC1A1\uC900\uBE44\uD655\uC778";
+  var READ_TIMEOUT_MS12 = 12e4;
+  var LOGIN_MESSAGE16 = "\uD2F0\uCCD0\uBAB0 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. selleradmin\uC5D0 \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
+  var TEACHER_MALL_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["teacherville.co.kr"]),
+    isLogin: (url) => hostWithin(url, ["teacherville.co.kr"]) && /login/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE16
+  };
+  var TEACHER_MALL_LOGIN = {
+    displayName: "\uD2F0\uCCD0\uBAB0",
+    loginUrl: TEACHER_MALL_ORDER_URL,
+    hosts: ["teacherville.co.kr"],
+    isLoginUrl: (url) => TEACHER_MALL_PAGE_GUARD.isLogin(url),
+    fields: ["loginId", "password"]
+  };
+  function createTeacherMallSite(tabs, signIn) {
+    return {
+      ...createTeacherListings(tabs, signIn),
+      readOrders() {
+        return withFreshTab(tabs, TEACHER_MALL_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "teacher-mall.orders", {
+            templateSeq: TEACHER_MALL_EXCEL_TEMPLATE_SEQ,
+            fallbackProviderSeq: TEACHER_MALL_PROVIDER_SEQ,
+            downloadReason: TEACHER_MALL_DOWNLOAD_REASON
+          }, {
+            timeoutMs: READ_TIMEOUT_MS12,
+            guard: TEACHER_MALL_PAGE_GUARD,
+            main: [TEACHER_MALL_ORDERS_FILE],
+            displayName: "\uD2F0\uCCD0\uBAB0"
+          });
+          return mallExcelRows(answer, { displayName: "\uD2F0\uCCD0\uBAB0", url: TEACHER_MALL_ORDER_URL, fileName: "\uD2F0\uCCD0\uBAB0.xls" });
+        }, signIn ? { signIn } : {});
+      }
+    };
+  }
+  registerSite({ name: "teacher-mall", create: (deps, lease) => createTeacherMallSite(deps.tabs, createSiteSignIn(TEACHER_MALL_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/thirtymall/listings.ts
   var THIRTYMALL_LISTINGS_URL = "https://partner.shopby.co.kr/product/list";
@@ -11202,7 +11477,7 @@ var KidItemRuntime = (() => {
   registerSite({ name: "thirtymall", create: (deps) => createThirtymallListings(deps.tabs) });
 
   // extensions/src/sites/tiktok-cc/index.ts
-  var NAVIGATION_TIMEOUT_MS10 = 35e3;
+  var NAVIGATION_TIMEOUT_MS11 = 35e3;
   var EXTRACTION_TIMEOUT_MS5 = 25e3;
   var BASE_URLS = {
     hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
@@ -11273,14 +11548,14 @@ var KidItemRuntime = (() => {
     };
     async function readTarget(page2, target, defaultRegion, onAttention) {
       const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
-      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS10, stopAt, continueOnTimeout: true });
+      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS11, stopAt, continueOnTimeout: true });
       for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
         const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
         if (!cleared) {
           keepOpen = true;
           throw new RuntimeError(SITE_VERIFICATION_REQUIRED6, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
         }
-        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS10, stopAt, continueOnTimeout: true });
+        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS11, stopAt, continueOnTimeout: true });
       }
       if (isTiktokBlockedUrl(landed)) {
         throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
@@ -12531,8 +12806,9 @@ var KidItemRuntime = (() => {
     }
     return { tabId: created.id, opened: true };
   }
+  var OPERATOR_ACTION_REQUIRED4 = "OPERATOR_ACTION_REQUIRED";
   function operatorMustAct(error) {
-    return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.details?.reason === "unexpected_url");
+    return isRuntimeError(error) && (error.code === SITE_LOGIN_REQUIRED || error.code === OPERATOR_ACTION_REQUIRED4 || error.details?.reason === "unexpected_url");
   }
 
   // extensions/src/entry/site-handles.ts

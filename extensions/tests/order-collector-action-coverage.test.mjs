@@ -22,24 +22,12 @@ const sharedRunFieldsModule = './order-collection-extension';
 const sharedRunFieldsName = 'orderCollectionExtensionRunFields';
 const ownerCorrelationFields = new Set(['attemptId', 'runId']);
 const automaticCollectors = [
-  'collectKkomangseOrders',
-  'collectLotteonOrders',
-  'collectGsshopOrders',
-  'collectAlwayzOrders',
   'collectKakaoOrders',
-  'collectBoriboriOrders',
-  'collectTeachervilleOrders',
 ];
 // Directship receives its date range from the server-owned attempt control
 // record, so its extension message intentionally carries only attemptId.
 const runDateActions = new Set([
-  'collectKkomangseOrders',
-  'collectLotteonOrders',
-  'collectGsshopOrders',
-  'collectAlwayzOrders',
   'collectKakaoOrders',
-  'collectBoriboriOrders',
-  'collectTeachervilleOrders',
 ]);
 
 function sourceFilesUnder(directory) {
@@ -392,7 +380,7 @@ test('automatic order correlation guard rejects arbitrary spreads', () => {
   const syntheticSource = `
     const orderCollectionExtensionRunFields = (run: unknown) => ({ attemptId: run });
     sendToExtension({
-      action: 'collectAlwayzOrders',
+      action: 'collectKakaoOrders',
       // attemptId: run.attemptId must not satisfy the source guard by comment alone.
       ...orderCollectionExtensionRunFields(run),
     });

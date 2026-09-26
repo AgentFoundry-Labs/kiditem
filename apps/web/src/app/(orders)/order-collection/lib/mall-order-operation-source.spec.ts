@@ -11,6 +11,7 @@ import {
   collectMallOrderOperation,
   collectsViaMallOrderOperation,
   mallOrderOperationSource,
+  mallOrderOperationWaitMs,
 } from './mall-order-operation-source';
 
 vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn(), fetchRaw: vi.fn() } }));
@@ -70,6 +71,8 @@ function operation(id: string, status: OperationView['status'], patch: Partial<O
 }
 
 const CREDENTIALS = { loginId: 'fake-id', password: 'fake-password' };
+/** 엑셀·blob 몰 — 몰마다 확장 사이트가 다 되면 더한다(KID-380). */
+const EXCEL_MALLS = ['kkomangse', 'teacher-mall', 'boribori', 'gs-shop', 'always', 'lotte-on'];
 
 function source(overrides: Partial<Parameters<typeof mallOrderOperationSource>[0]> = {}) {
   const handOff = vi.fn().mockResolvedValue(undefined);
@@ -86,9 +89,23 @@ beforeEach(() => {
 });
 
 describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
-  it('1차 몰 4곳과 사이트를 옮긴 2차 몰만 실행 kind로 수집한다(KID-380)', () => {
-    expect(['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kidsnote', 'onch', 'haebub-mall'].every(collectsViaMallOrderOperation)).toBe(true);
+  it('1차 몰 4곳과 사이트를 옮긴 2차 몰(HTML 몰 T1·엑셀·blob 몰 T2)만 실행 kind로 수집한다(KID-380)', () => {
+    expect(['icecream-mall', 'kidkids', 'art09', 'domeggook', 'kidsnote', 'onch', 'haebub-mall', ...EXCEL_MALLS].every(collectsViaMallOrderOperation)).toBe(true);
     expect(collectsViaMallOrderOperation('kakao')).toBe(false);
+  });
+
+  it.each(EXCEL_MALLS)('%s: 옛 attempt 없이 그 계정의 operation.start로 시작해 절차에 넘긴다(KID-380)', async (mallKey) => {
+    vi.mocked(requestOperationStart).mockResolvedValue({ outcome: 'started', operationId: OPERATION_ID });
+    const { adapter, handOff } = source({ account: { ...account, key: mallKey } });
+    await expect(adapter.start!({}, { status: undefined })).resolves.toEqual({ outcome: 'started', attemptId: OPERATION_ID });
+    expect(requestOperationStart).toHaveBeenCalledWith('orders.mall_orders', {
+      channelAccountId: ACCOUNT_ID,
+      mallKey,
+      collectionDate: '2026-09-26',
+      collectionMode: 'browser',
+      selectionMode: 'manual',
+    }, { capability: 'orderCaptureOperationKindsV1', credentials: CREDENTIALS });
+    expect(handOff).toHaveBeenCalledWith(expect.objectContaining({ operationId: OPERATION_ID }));
   });
 
   it('시작: 저장 자격(차단·간격 규칙을 지난 것)을 실어 그 계정·오늘·선택 방식으로 실행을 연 뒤 절차에 넘긴다(KID-377 — 확장이 실행 안에서 로그인)', async () => {
@@ -131,6 +148,26 @@ describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
     await expect(source().adapter.start!({}, { status: undefined })).resolves.toEqual({ outcome: 'running', attemptId: EARLIER });
   });
 
+  it('기다리는 실행의 progress.attention(GS샵 SMS 인증)을 카드 안내로 답하고, 없으면 null(KID-380)', () => {
+    const gs = source({ account: { ...account, key: 'gs-shop', name: 'GS샵' } }).adapter;
+    const waiting = operation(OPERATION_ID, 'executing', {
+      plan: { mallKey: 'gs-shop' },
+      progress: { mallKey: 'gs-shop', attention: { kind: 'verification', site: 'gs-shop', label: 'SMS 인증', since: '2026-09-26T00:00:00.000Z' } },
+    });
+    expect(gs.readAttention!({ operations: [waiting] } as never)).toBe('GS샵 탭에서 SMS 인증을 마쳐 주세요 — 마치면 자동으로 이어집니다');
+    const plain = operation(OPERATION_ID, 'executing', { plan: { mallKey: 'gs-shop' }, progress: { mallKey: 'gs-shop', attention: null } });
+    expect(gs.readAttention!({ operations: [plain] } as never)).toBeNull();
+  });
+
+  it('엑셀·blob 몰의 실행 기다림 = 사이트 읽기 제한 + 로그인 채우기 15초 + 탭 이동 60초(옛 응답 제한 200초 밑으로는 안 간다), GS샵은 SMS 대기 10분까지, T1 몰은 정해 둔 한도', () => {
+    expect(mallOrderOperationWaitMs('kidkids')).toBe(200_000);
+    for (const mallKey of ['domeggook', 'kidsnote', 'haebub-mall']) expect(mallOrderOperationWaitMs(mallKey)).toBe(260_000);
+    expect(mallOrderOperationWaitMs('kkomangse')).toBe(200_000);
+    for (const mallKey of ['teacher-mall', 'boribori', 'always', 'lotte-on']) expect(mallOrderOperationWaitMs(mallKey)).toBe(200_000);
+    expect(mallOrderOperationWaitMs('gs-shop')).toBe(985_000);
+    expect(mallOrderOperationWaitMs('gs-shop')).toBeGreaterThanOrEqual(660_000);
+  });
+
   it('상태: 이 몰 실행만 보고 도는 것·마지막 성공을 읽고, 중단은 이 브라우저 절차 → 확장 → 서버', async () => {
     const abortLocalRun = vi.fn();
     const { adapter } = source({ abortLocalRun });
@@ -161,6 +198,10 @@ describe('collectMallOrderOperation — 실행이 끝나면 실행 id로 변환�
     ['kidsnote', 260_000],
     ['haebub-mall', 260_000],
     ['onch', 200_000],
+    // 엑셀·blob 몰(KID-380 T2): 사이트 읽기 + 로그인·이동 75초(200초 밑으로는 안 간다), GS샵은 SMS 대기 10분까지.
+    ['kkomangse', 200_000],
+    ['lotte-on', 200_000],
+    ['gs-shop', 985_000],
   ] as const)('%s 실행은 %i ms까지 기다린 뒤 아직 끝나지 않았다고 알린다', async (mallKey, limit) => {
     let clock = 0;
     const now = vi.spyOn(Date, 'now').mockImplementation(() => clock);

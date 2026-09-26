@@ -69,7 +69,7 @@ export class OrderOperationFailure extends Error {
     this.operation = operation;
     this.errorCode = operation.errorCode === 'SITE_LOGIN_REQUIRED'
       ? 'login_required'
-      : operation.errorCode === 'SITE_VERIFICATION_REQUIRED'
+      : operation.errorCode === 'SITE_VERIFICATION_REQUIRED' || operation.errorCode === 'OPERATOR_ACTION_REQUIRED'
         ? 'operator_action_required'
         : null;
   }
