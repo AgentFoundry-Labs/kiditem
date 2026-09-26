@@ -34,6 +34,7 @@ import '../sites/tiktok-cc';
 import '../sites/wing';
 import '../sites/wing/pre-matching-search';
 import '../sites/wing/reviews';
+import { CHANNELS_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
 import { createBrowserResources } from '../core/browser';
 import { createTabPages } from '../sites/tab-page';
 import type { SiteDeps } from '../sites/registry';
@@ -72,7 +73,7 @@ export function installEntry(): boolean {
   // channelsOperationKindsV1: Channels 기타 kind(사방넷 몰 목록·몰 관리자 목록·셀피아 수동매칭)를 돈다(KID-363).
   registerWithLegacyDomains({
     externalActions,
-    capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true, channelsOperationKindsV1: true },
+    capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true, [CHANNELS_OPERATION_CAPABILITY]: true },
   });
   installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
   return true;

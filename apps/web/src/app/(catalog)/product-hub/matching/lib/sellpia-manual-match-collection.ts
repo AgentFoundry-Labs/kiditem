@@ -4,6 +4,7 @@ import {
   type OperationView,
 } from '@kiditem/shared/operation';
 import { SELLPIA_MANUAL_MATCH_KIND } from '@kiditem/shared/sellpia-operations';
+import { CHANNELS_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
 import type { SellpiaManualMatchSnapshotStatus } from '@kiditem/shared/sellpia-manual-match';
 import { COLLECTION_RUNNING_POLL_MS } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
@@ -11,8 +12,6 @@ import { requestOperationStart } from '@/lib/operation-start';
 import { attemptFailureText } from '@/lib/operator-error';
 import { readSellpiaManualMatchSource } from './channel-sku-matching-api';
 
-/** Channels 기타 kind(사방넷·몰 관리자·셀피아 수동매칭, KID-363)를 도는 확장 빌드가 `ping`에 싣는 표시. */
-export const CHANNELS_OPERATION_CAPABILITY = 'channelsOperationKindsV1' as const;
 /** 수동매칭 한 번을 기다리는 상한. 대상 2만 개 검색이 이 안에 끝난다(옛 포트 연결은 상한 없이 기다렸다). */
 const WAIT_LIMIT_MS = 30 * 60_000;
 

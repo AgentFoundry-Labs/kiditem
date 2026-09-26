@@ -21,7 +21,10 @@ type ListingsAnswer =
   | { success: true; snapshot: { collection: Record<string, unknown>; rows: unknown[]; proof: Record<string, unknown> } }
   | { success: false; errorCode?: string; stage?: string };
 
-/** 목록 전체 + 아이스크림몰은 상품마다 상세 한 번(옛 시도 임대 20분과 같은 상한). */
+/**
+ * 목록 전체 + 아이스크림몰은 상품마다 상세 한 번(옛 시도 임대 20분과 같은 상한). 이 한 번의 호출 동안 `report()`를 올리지
+ * 않지만 실행 임대(30분)가 이 상한보다 길어 끊기지 않는다.
+ */
 const READ_TIMEOUT_MS = 20 * 60_000;
 const NAVIGATION_TIMEOUT_MS = 45_000;
 const MALL_CONTRACT_CHANGED = 'MALL_CONTRACT_CHANGED' as const;

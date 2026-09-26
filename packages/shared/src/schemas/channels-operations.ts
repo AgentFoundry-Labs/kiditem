@@ -63,3 +63,6 @@ export const SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND = 'listing_scan' as const;
 
 /** 몰 관리자 목록을 끝까지 읽었다는 증거 하나(`MallAdminListingsScanSchema`). 행 청크 뒤에 한 번 보낸다. */
 export const MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND = 'listing_scan' as const;
+
+/** Channels 기타 kind(사방넷·몰 관리자·셀피아 수동매칭)를 도는 확장 빌드가 `ping` capabilities에 싣는 표시. 웹이 시작 전에 본다. */
+export const CHANNELS_OPERATION_CAPABILITY = 'channelsOperationKindsV1' as const;

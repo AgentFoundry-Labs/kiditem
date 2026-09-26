@@ -11,6 +11,7 @@ import {
 import {
   MALL_ADMIN_LISTINGS_KIND,
   isMallAdminListingOperationMall,
+  CHANNELS_OPERATION_CAPABILITY,
 } from '@kiditem/shared/channels-operations';
 import {
   COLLECTION_IDLE_POLL_MS,
@@ -52,8 +53,6 @@ export function mallAdminListingsSourceQueryOptions() {
   });
 }
 
-/** Channels 기타 kind(사방넷·몰 관리자·셀피아 수동매칭, KID-363)를 도는 확장 빌드가 `ping`에 싣는 표시. */
-export const CHANNELS_OPERATION_CAPABILITY = 'channelsOperationKindsV1' as const;
 
 function operationRunning(mall: MallAdminListingsSourceMall | null | undefined): boolean {
   const status = mall?.latestOperation?.status;

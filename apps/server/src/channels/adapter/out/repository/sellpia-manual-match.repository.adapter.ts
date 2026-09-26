@@ -1,7 +1,7 @@
 import { createHash } from 'node:crypto';
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
-import { KiditemInvalidValueError } from '@kiditem/shared/errors';
+import { KiditemConflictError, KiditemInvalidValueError } from '@kiditem/shared/errors';
 import {
   SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
   MAX_SELLPIA_MANUAL_MATCH_TARGETS,
@@ -280,7 +280,9 @@ function aggregateRows(
   const aggregated = new Map<string, SellpiaManualMatchAliasRecord>();
   for (const row of rows) {
     const sku = activeByCode.get(row.productCode);
-    if (!sku) throw new Error(`Sellpia manual-match row references inactive code ${row.productCode}`);
+    if (!sku) {
+      throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'sellpia_match_row_inactive_code', productCode: row.productCode } });
+    }
     const normalizedAlias = normalizeSellpiaManualMatchAlias(row.aliasTitle);
     if (!normalizedAlias || !currentChannelAliases.has(normalizedAlias)) continue;
     const key = [normalizedAlias, sku.id, row.itemCount].join('\u0000');
@@ -334,5 +336,5 @@ function toStatus(value: {
 
 function checkedMatchedType(value: string): 'M' | 'P' | 'E' {
   if (value === 'M' || value === 'P' || value === 'E') return value;
-  throw new Error(`Unsupported Sellpia manual-match type: ${value}`);
+  throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'sellpia_match_type_unsupported', matchedType: value } });
 }

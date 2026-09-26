@@ -4267,6 +4267,7 @@ var KidItemRuntime = (() => {
   }).strict();
   var SABANGNET_MALL_LISTINGS_SCAN_CHUNK_KIND = "listing_scan";
   var MALL_ADMIN_LISTINGS_SCAN_CHUNK_KIND = "listing_scan";
+  var CHANNELS_OPERATION_CAPABILITY = "channelsOperationKindsV1";
 
   // packages/shared/src/schemas/mall-admin-listings.ts
   var MALL_ADMIN_LISTINGS_SOURCE_TYPE = "mall_admin_listings";
@@ -10634,7 +10635,7 @@ var KidItemRuntime = (() => {
     });
     registerWithLegacyDomains({
       externalActions,
-      capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true, channelsOperationKindsV1: true }
+      capabilities: { operationRuntime: true, sourcingOperationKindsV1: true, orderCaptureOperationKindsV1: true, [CHANNELS_OPERATION_CAPABILITY]: true }
     });
     installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });
     return true;

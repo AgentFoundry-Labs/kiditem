@@ -1,7 +1,7 @@
 'use client';
 
 import type { QueryClient, QueryKey } from '@tanstack/react-query';
-import { SABANGNET_MALL_LISTINGS_KIND } from '@kiditem/shared/channels-operations';
+import { SABANGNET_MALL_LISTINGS_KIND, CHANNELS_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
 import type { SabangnetMallListingsSource } from '@kiditem/shared/sabangnet-mall-listings';
 import {
   COLLECTION_IDLE_POLL_MS,
@@ -15,8 +15,6 @@ import { requestOperationCancel, requestOperationStart } from '@/lib/operation-s
 import { queryKeys } from '@/lib/query-keys';
 import { mallPublishingApi } from './mall-publishing-api';
 
-/** Channels 기타 kind(사방넷·몰 관리자·셀피아 수동매칭, KID-363)를 도는 확장 빌드가 `ping`에 싣는 표시. */
-export const CHANNELS_OPERATION_CAPABILITY = 'channelsOperationKindsV1' as const;
 export const SABANGNET_NO_MALL_ACCOUNTS =
   '사방넷 상품을 받을 몰 계정이 없습니다. 쇼핑몰 계정에서 몰을 먼저 연결해 주세요.';
 
