@@ -6079,14 +6079,11 @@ var KidItemRuntime = (() => {
     orderAmount: external_exports.number().nonnegative(),
     items: external_exports.array(CoupangDirectPoSnapshotItemSchema)
   }).strict();
-  var SaveCoupangDirectPoSnapshotRequestSchema = external_exports.object({
-    channelAccountId: external_exports.string().uuid(),
-    /** 이 스냅샷의 근거인 성공한 directship 실행(`orders.coupang_directship`, KID-359). */
-    operationId: external_exports.string().uuid(),
-    entries: external_exports.array(CoupangDirectPoSnapshotEntrySchema).max(4e3)
-  }).strict();
   var CoupangDirectPoSnapshotResponseSchema = external_exports.object({
     channelAccountId: external_exports.string(),
+    /** 이 달력의 근거인 성공한 directship 실행. 변환은 이 실행으로 보낸다. 아직 성공한 수집이 없으면 null. */
+    operationId: external_exports.string().uuid().nullable(),
+    /** 그 실행이 끝난 시각. */
     collectedAt: external_exports.string().nullable(),
     entries: external_exports.array(CoupangDirectPoSnapshotEntrySchema)
   });
