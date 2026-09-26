@@ -14,6 +14,7 @@ function fakeChrome(options: { sendMessage: (message: unknown, call: number) => 
         gets += 1;
         return { status, url: options.urls?.[Math.min(gets - 1, options.urls.length - 1)] ?? options.url ?? 'https://s.1688.com/x' };
       },
+      query: async (query) => { log.push(`query ${query.url}`); return []; },
       remove: async (tabId) => { log.push(`remove ${tabId}`); },
       sendMessage: async (_tabId, message, sendOptions) => {
         sends += 1;

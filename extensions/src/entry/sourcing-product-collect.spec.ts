@@ -12,6 +12,7 @@ import '../sites/wing/pre-matching-search';
 const noTabs = {
   open: async () => { throw new Error('no tabs'); },
   attach: () => { throw new Error('no tabs'); },
+  find: async () => null,
   fetchText: async () => null,
 };
 const siteDeps = { fetch: async () => new Response('{}'), cookies: { get: async () => null }, now: () => 0, sleep: async () => undefined, tabs: noTabs, randomId: () => 'x' };

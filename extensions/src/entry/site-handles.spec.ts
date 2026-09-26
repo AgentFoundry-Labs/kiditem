@@ -41,6 +41,7 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
   const tabs: TabPages = {
     open: async () => { throw new Error('no tabs'); },
     attach: () => { throw new Error('no tabs'); },
+    find: async () => null,
     fetchText: async () => null,
   };
   const deps = {
