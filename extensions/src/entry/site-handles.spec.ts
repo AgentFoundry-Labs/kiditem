@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MALL_ADMIN_LISTING_OPERATION_MALLS } from '@kiditem/shared/channels-operations';
+import { MALL_ADMIN_LISTING_MALL_KEYS } from '@kiditem/shared/mall-admin-listings';
 import { entrySites, createSiteHandles, ownTabSites } from './site-handles';
 import '../collectors/advertising.wing_itemwinner';
 import '../collectors/advertising.wing_traffic';
@@ -83,11 +83,11 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     expect(entrySites()).not.toHaveProperty('sellpia');
   });
 
-  it('몰 관리자 목록 kind에는 실행 몰(16곳, KID-363·381)만 찾는 라우터를 주고, 그 몰 사이트는 목록 읽기를 가진다', () => {
+  it('몰 관리자 목록 kind에는 읽기기가 있는 몰(16곳, KID-363·381)만 찾는 라우터를 주고, 그 몰 사이트는 목록 읽기를 가진다', () => {
     const handle = createSiteHandles(deps)('channels.mall_admin_listings', { tabId: null }) as { reader(mallKey: string): unknown };
     expect(keys(handle)).toEqual(['reader']);
-    expect(MALL_ADMIN_LISTING_OPERATION_MALLS).toHaveLength(16);
-    for (const mallKey of MALL_ADMIN_LISTING_OPERATION_MALLS) {
+    expect(MALL_ADMIN_LISTING_MALL_KEYS).toHaveLength(16);
+    for (const mallKey of MALL_ADMIN_LISTING_MALL_KEYS) {
       expect(keys(handle.reader(mallKey))).toContain('readListings');
     }
     expect(handle.reader('boribori')).toBeNull();

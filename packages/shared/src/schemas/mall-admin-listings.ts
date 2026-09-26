@@ -5,8 +5,8 @@ import { OperationViewSchema } from './operation.js';
  * 몰 관리자 화면에서 등록 상품(몰 상품코드)을 직접 가져오는 원천의 계약(KID-246 2단계).
  *
  * 사방넷에 없는 몰은 그 몰의 상품 목록을 확장이 읽는다. 가져오기 한 번은 몰 계정 행
- * (ADR-0012) 하나의 시도 하나이고, 완료 스냅샷은 그 몰의 상품 목록 전체다. 몰마다 읽는
- * 방법은 확장의 읽기기가 알고, 몰이 준 상태 글자를 우리 어휘로 접는 것은 서버 도메인이 한다.
+ * (ADR-0012) 하나의 `channels.mall_admin_listings` 실행 하나이고(KID-363·381), 발행은 그 몰의 상품 목록 전체다. 몰마다
+ * 읽는 방법은 확장 사이트(`sites/<mallKey>/listings.ts`)가 알고, 몰이 준 상태 글자를 우리 어휘로 접는 것은 서버 도메인이 한다.
  *
  * 몰 상품 목록에는 셀피아 상품코드가 없다. 대신 몰마다 셀피아 상품 이름을 적어 두는 칸이
  * 있어(키드키즈 송장용 상품명, 아이스크림몰 고시 품명) 옵션 이름으로 넘기면 기존 이름
@@ -15,7 +15,6 @@ import { OperationViewSchema } from './operation.js';
 
 export const MALL_ADMIN_LISTINGS_SOURCE_TYPE = 'mall_admin_listings';
 export const MALL_ADMIN_LISTINGS_PARSER_VERSION = 'mall-admin-listings-v1';
-export const MALL_ADMIN_LISTINGS_PRODUCER = 'orders.mall_admin_listings';
 export const MALL_ADMIN_LISTING_ROW_LIMIT = 20_000;
 export const MALL_ADMIN_LISTING_PAGE_LIMIT = 1_000;
 
@@ -104,7 +103,6 @@ export const MALL_ADMIN_LISTING_READERS = {
     origin: 'https://www.domeggook.com',
     pageSize: 500,
     detailNames: false,
-    capability: 'mallAdminListingsMallsV2',
   },
   /** 키즈노트(WISA). 판매 상품 내역을 100개씩(라이브 2026-09-19: 1,107개 = 12쪽). 몰 상품코드는 상품번호(pno). */
   kidsnote: {
@@ -112,7 +110,6 @@ export const MALL_ADMIN_LISTING_READERS = {
     origin: 'https://shop.kidsnote.com',
     pageSize: 100,
     detailNames: false,
-    capability: 'mallAdminListingsMallsV2',
   },
   /** 11번가 셀러오피스. 목록 조회를 100개씩 앞에서부터(라이브 2026-09-19: 900개). 전체 수를 따로 주지 않는다. */
   '11st': {
@@ -120,7 +117,6 @@ export const MALL_ADMIN_LISTING_READERS = {
     origin: 'https://soffice.11st.co.kr',
     pageSize: 100,
     detailNames: false,
-    capability: 'mallAdminListingsMallsV2',
   },
   /**
    * 지마켓 · 옥션(ESM Plus). 마스터 상품 목록을 500개씩 읽고 그 사이트에 올라간 것만 고른다(라이브 2026-09-19: 마스터
@@ -131,14 +127,12 @@ export const MALL_ADMIN_LISTING_READERS = {
     origin: 'https://item.esmplus.com',
     pageSize: 500,
     detailNames: false,
-    capability: 'mallAdminListingsMallsV2',
   },
   auction: {
     mallName: '옥션',
     origin: 'https://item.esmplus.com',
     pageSize: 500,
     detailNames: false,
-    capability: 'mallAdminListingsMallsV2',
   },
   /** 카카오 톡스토어 판매자센터. 목록 API 를 100개씩(라이브 2026-09-19: 386개 = 4쪽). 몰 상품코드는 상품번호(id). */
   kakao: {
@@ -146,7 +140,6 @@ export const MALL_ADMIN_LISTING_READERS = {
     origin: 'https://shopping-seller.kakao.com',
     pageSize: 100,
     detailNames: false,
-    capability: 'mallAdminListingsMallsV2',
   },
   /** 롯데ON 판매자센터. 상품 조회를 100개씩(화면 안에서). 몰 상품코드는 판매자상품번호(`LO…`). */
   'lotte-on': {
@@ -154,7 +147,6 @@ export const MALL_ADMIN_LISTING_READERS = {
     origin: 'https://store.lotteon.com',
     pageSize: 100,
     detailNames: false,
-    capability: 'mallAdminListingsMallsV3',
   },
   /** 스마트스토어센터. 원상품 목록 검색을 100개씩(화면 안에서). 몰 상품코드는 채널상품번호(원상품번호는 다른 코드). */
   smartstore: {
@@ -162,7 +154,6 @@ export const MALL_ADMIN_LISTING_READERS = {
     origin: 'https://sell.smartstore.naver.com',
     pageSize: 100,
     detailNames: false,
-    capability: 'mallAdminListingsMallsV3',
   },
   /** 티쳐몰(퍼스트몰 selleradmin). 판매상품 목록을 100개씩. 몰 상품코드는 상품번호(goods_seq). */
   'teacher-mall': {
@@ -170,15 +161,12 @@ export const MALL_ADMIN_LISTING_READERS = {
     origin: 'https://shop.teacherville.co.kr',
     pageSize: 100,
     detailNames: false,
-    capability: 'mallAdminListingsMallsV3',
   },
 } as const satisfies Record<string, {
   mallName: string;
   origin: string;
   pageSize: number;
   detailNames: boolean;
-  /** 이 몰을 읽는 확장 기능 이름. 없으면 첫 읽기기(`mallAdminListingsSourceOwnerV1`)부터 읽는다. */
-  capability?: string;
 }>;
 export type MallAdminListingMallKey = keyof typeof MALL_ADMIN_LISTING_READERS;
 export const MALL_ADMIN_LISTING_MALL_KEYS = Object.keys(
@@ -193,11 +181,6 @@ const MallKeySchema = z.enum(MALL_ADMIN_LISTING_MALL_KEYS);
 const YYYY_MM_DD = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 const boundedText = (max: number) => z.string().trim().max(max);
 const requiredText = (max: number) => boundedText(max).min(1);
-
-export const MallAdminListingsBeginSchema = z.object({
-  mallKey: MallKeySchema,
-}).strict();
-export type MallAdminListingsBegin = z.infer<typeof MallAdminListingsBeginSchema>;
 
 export const MallAdminListingsPlanSchema = z.object({
   sourceType: z.literal(MALL_ADMIN_LISTINGS_SOURCE_TYPE),
@@ -217,24 +200,6 @@ export const MallAdminListingsPlanSchema = z.object({
   }
 });
 export type MallAdminListingsPlan = z.infer<typeof MallAdminListingsPlanSchema>;
-
-export const MallAdminListingsAttemptSchema = z.object({
-  attemptId: z.string().uuid(),
-  state: z.enum(['RUNNING', 'COMPLETE', 'FAILED']),
-  generation: z.string().regex(/^\d+$/),
-  plan: MallAdminListingsPlanSchema,
-  expiresAt: z.string().datetime(),
-  completedAt: z.string().datetime().nullable(),
-  errorCode: boundedText(100).nullable(),
-  errorMessage: boundedText(300).nullable(),
-}).strict();
-export type MallAdminListingsAttempt = z.infer<typeof MallAdminListingsAttemptSchema>;
-
-/** 확장만 받는 시도 모양. 쓰기 토큰이 붙는다. */
-export const MallAdminListingsControlSchema = MallAdminListingsAttemptSchema.extend({
-  attemptToken: z.string().uuid(),
-}).strict();
-export type MallAdminListingsControl = z.infer<typeof MallAdminListingsControlSchema>;
 
 /** 완료한 가져오기가 남긴 결과. */
 export const MallAdminListingsPublicationSchema = z.object({
@@ -262,16 +227,9 @@ export const MallAdminListingsSourceMallSchema = z.object({
   mallName: requiredText(40),
   /** 그 몰의 계정 행. 없으면 가져올 곳이 없다. */
   channelAccountId: z.string().uuid().nullable(),
-  latestAttempt: MallAdminListingsAttemptSchema.nullable(),
-  latestComplete: MallAdminListingsAttemptSchema.nullable(),
-  /**
-   * `latestComplete`(실행 kind로 옮긴 몰은 `latestSucceeded`)가 남긴 결과.
-   */
+  /** `latestSucceeded`가 남긴 발행 결과. */
   latestPublication: MallAdminListingsPublicationSchema.nullable(),
-  /**
-   * 실행 kind(`channels.mall_admin_listings`, KID-363)로 옮긴 몰(`MALL_ADMIN_LISTING_OPERATION_MALLS`)의 최근 실행과 최근
-   * 성공 실행. 옮긴 몰은 옛 시도(`latestAttempt`·`latestComplete`)를 읽지 않아 그 둘이 null이고, 나머지 몰은 이 둘이 null이다.
-   */
+  /** 그 몰 계정의 `channels.mall_admin_listings` 최근 실행과 최근 성공 실행(KID-363·381). */
   latestOperation: OperationViewSchema.nullable(),
   latestSucceeded: OperationViewSchema.nullable(),
 }).strict();
@@ -315,7 +273,6 @@ export const MallAdminListingRowSchema = z.object({
 export type MallAdminListingRow = z.infer<typeof MallAdminListingRowSchema>;
 
 export const MallAdminListingsCollectionSchema = z.object({
-  collectionRunId: z.string().uuid(),
   /** 몰이 알린 전체 상품 수. */
   totalRecords: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
   /** 실제로 읽은 상품 줄 수. */
@@ -328,24 +285,17 @@ export const MallAdminListingsCollectionSchema = z.object({
 }).strict();
 export type MallAdminListingsCollection = z.infer<typeof MallAdminListingsCollectionSchema>;
 
-export const MallAdminListingsSubmissionSchema = z.object({
+/**
+ * 목록을 끝까지 읽었다는 증거(`listing_scan` 청크 하나, KID-363). 읽은 수(`collection`)와 그 몰 · 쪽 크기로 끝까지 읽었다는
+ * `proof`다. owner finalize가 이것으로 목록 전체인지 보고, 아니면 아무것도 쓰지 않는다.
+ */
+export const MallAdminListingsScanSchema = z.object({
   collection: MallAdminListingsCollectionSchema,
-  rows: z.array(MallAdminListingRowSchema).max(MALL_ADMIN_LISTING_ROW_LIMIT),
   proof: z.object({
     mallKey: MallKeySchema,
     pageSize: z.number().int().positive().max(20_000),
     validatedList: z.literal(true),
   }).strict(),
-}).strict();
-export type MallAdminListingsSubmission = z.infer<typeof MallAdminListingsSubmissionSchema>;
-
-/**
- * 목록을 끝까지 읽었다는 증거(`listing_scan` 청크 하나, KID-363). 옛 제출의 `collection`(시도 id 없이)과 `proof`다.
- * owner finalize가 이것으로 목록 전체인지 보고, 아니면 아무것도 쓰지 않는다.
- */
-export const MallAdminListingsScanSchema = z.object({
-  collection: MallAdminListingsCollectionSchema.omit({ collectionRunId: true }),
-  proof: MallAdminListingsSubmissionSchema.shape.proof,
 }).strict();
 export type MallAdminListingsScan = z.infer<typeof MallAdminListingsScanSchema>;
 

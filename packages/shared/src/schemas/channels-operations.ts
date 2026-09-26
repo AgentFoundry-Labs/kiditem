@@ -19,39 +19,15 @@ export const SABANGNET_LOGIN_LOCK_KEY: OperationLockKey = resourceLockKey('saban
 export const SabangnetMallListingsScopeSchema = z.object({}).strict();
 export type SabangnetMallListingsScope = z.infer<typeof SabangnetMallListingsScopeSchema>;
 
-/** 몰 관리자 목록: 몰 계정 하나. lockKey `account:<channelAccountId>`. */
+/**
+ * 몰 관리자 목록: 몰 계정 하나. lockKey `account:<channelAccountId>`. 직접 읽기기가 있는 몰(`MALL_ADMIN_LISTING_READERS`)은
+ * 모두 이 kind다(KID-363 1차 넷 → KID-381 나머지 12곳) — 옛 attempt 경로는 없다.
+ */
 export const MallAdminListingsScopeSchema = z.object({
   channelAccountId: z.string().uuid(),
   mallKey: z.string().min(1).max(64),
 }).strict();
 export type MallAdminListingsScope = z.infer<typeof MallAdminListingsScopeSchema>;
-
-/**
- * 몰 관리자 목록 kind로 옮긴 몰 — 1차 넷(KID-363 wave3) 뒤에 나머지 몰을 하나씩 더한다(KID-381, 확장 `sites/<mall>/listings.ts`).
- * 여기 없는 몰은 옛 attempt 경로가 나머지 몰이 옮겨질 때까지 받는다(웹이 이 목록으로 시작 경로를 가른다).
- */
-export const MALL_ADMIN_LISTING_OPERATION_MALLS = [
-  'icecream-mall',
-  'kidkids',
-  'art09',
-  'domeggook',
-  'always',
-  'thirtymall',
-  'kidsnote',
-  '11st',
-  'gmarket',
-  'auction',
-  'kakao',
-  'lotte-on',
-  'smartstore',
-  'teacher-mall',
-  'kkomangse',
-  'onch',
-] as const;
-export type MallAdminListingOperationMall = (typeof MALL_ADMIN_LISTING_OPERATION_MALLS)[number];
-export function isMallAdminListingOperationMall(mallKey: string): mallKey is MallAdminListingOperationMall {
-  return (MALL_ADMIN_LISTING_OPERATION_MALLS as readonly string[]).includes(mallKey);
-}
 
 /** 로켓 매칭 CSV: 웹 업로드, 서버가 자기 producer(엑셀 kind와 같은 모양). 같은 파일은 계약 `fileHash`로 한 번만. */
 export const RocketMatchingCsvScopeSchema = z.object({

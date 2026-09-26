@@ -107,21 +107,23 @@ summary, Rocket PO and directship are operation kinds collected by
 
 ## Mall Admin Listing Import
 
-- `orders.mall_admin_listings` (Channels owner) reads registered products
-  directly from a mall admin for malls Sabangnet does not carry. One import is
-  one attempt for one mall account; the frozen plan names the
-  mall, its origin, and its page-size cap. It opens only list and read-only
-  product-view screens, never save, approval, or delete.
-- The first batch (Kidkids, i-Scream, 아트공구, 도매꾹) is the runtime kind
-  `channels.mall_admin_listings` (KID-363): `src/sites/mall-admin-listings`
-  routes the plan's mall to `sites/<mall>/listings.ts`, which runs that mall's
-  reader moved verbatim into `content/orders/<mall>-listings.js` in a fresh tab;
-  a login page signs in once with the run's credentials (the mall's order
-  login spec, KID-377) and reads again.
-- The other readers live in `mall-admin-listings.js`, keyed by mall in `READERS`.
-  Adding a mall is one reader plus one key there and one contract entry in
-  `@kiditem/shared/mall-admin-listings`; the reader's origin and page size must
-  match that contract, which the owner re-validates.
+- Mall admin listings (Channels owner) read registered products directly
+  from a mall admin for malls Sabangnet does not carry. Every mall with a
+  reader in `@kiditem/shared/mall-admin-listings` is the runtime kind
+  `channels.mall_admin_listings` (KID-363 first batch, KID-381 the rest);
+  there is no attempt path or `collectMallAdminListings` action. One run is
+  one mall account; the frozen plan names the mall, its origin, and its
+  page-size cap. It opens only list and read-only product-view screens, never
+  save, approval, or delete.
+- `src/sites/mall-admin-listings` routes the plan's mall to
+  `sites/<mall>/listings.ts`, which runs that mall's reader (moved verbatim)
+  from `content/orders/<mall>-listings.js` in a fresh tab. Malls with a login
+  form spec sign in once with the run's credentials (KID-377) and read again;
+  the others stop with `SITE_LOGIN_REQUIRED` and leave the tab (KID-380
+  decision #3). 롯데ON reuses an open seller-center tab (per-tab session).
+  Adding a mall is one contract entry plus one site `listings.ts` and its
+  page-call file; the reader's origin and page size must match the contract,
+  which the owner re-validates.
 - Kidkids paginates its list by modification date with many ties, so paging
   drops rows; the reader instead replays the seller's own "상품리스트 다운받기"
   link (a complete EUC-KR HTML table) and cross-checks its row count against
@@ -136,8 +138,8 @@ summary, Rocket PO and directship are operation kinds collected by
   (`admin-api.e-ncp.com`) from inside the partner page with the partner
   cookie token and the list screen as `ClientLocation` (omitting it is a 403);
   the token never leaves that page. Malls collected through their own admin (도매꾹,
-  키즈노트, 11번가, 지마켓·옥션, 카카오, 롯데ON, 스마트스토어, 티쳐몰) need
-  `mallAdminListingsMallsV2` and must emit Sabangnet's product-code shape (ESM
+  키즈노트, 11번가, 지마켓·옥션, 카카오, 롯데ON, 스마트스토어, 티쳐몰) must
+  emit Sabangnet's product-code shape (ESM
   `{site}_{master}`; other numbers go in `alternateCodes`) so existing recipes
   survive. 11번가 and 롯데ON give no total, so a short page ends the read.
   롯데ON and 스마트스토어 run in the page's MAIN world (page header functions).

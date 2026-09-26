@@ -5407,27 +5407,6 @@ var KidItemRuntime = (() => {
     channelAccountId: external_exports.string().uuid(),
     mallKey: external_exports.string().min(1).max(64)
   }).strict();
-  var MALL_ADMIN_LISTING_OPERATION_MALLS = [
-    "icecream-mall",
-    "kidkids",
-    "art09",
-    "domeggook",
-    "always",
-    "thirtymall",
-    "kidsnote",
-    "11st",
-    "gmarket",
-    "auction",
-    "kakao",
-    "lotte-on",
-    "smartstore",
-    "teacher-mall",
-    "kkomangse",
-    "onch"
-  ];
-  function isMallAdminListingOperationMall(mallKey) {
-    return MALL_ADMIN_LISTING_OPERATION_MALLS.includes(mallKey);
-  }
   var RocketMatchingCsvScopeSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
     fileName: external_exports.string().trim().min(1).max(240)
@@ -5525,24 +5504,21 @@ var KidItemRuntime = (() => {
       mallName: "\uB3C4\uB9E4\uAFB9",
       origin: "https://www.domeggook.com",
       pageSize: 500,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     /** 키즈노트(WISA). 판매 상품 내역을 100개씩(라이브 2026-09-19: 1,107개 = 12쪽). 몰 상품코드는 상품번호(pno). */
     kidsnote: {
       mallName: "\uD0A4\uC988\uB178\uD2B8",
       origin: "https://shop.kidsnote.com",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     /** 11번가 셀러오피스. 목록 조회를 100개씩 앞에서부터(라이브 2026-09-19: 900개). 전체 수를 따로 주지 않는다. */
     "11st": {
       mallName: "11\uBC88\uAC00",
       origin: "https://soffice.11st.co.kr",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     /**
      * 지마켓 · 옥션(ESM Plus). 마스터 상품 목록을 500개씩 읽고 그 사이트에 올라간 것만 고른다(라이브 2026-09-19: 마스터
@@ -5552,59 +5528,53 @@ var KidItemRuntime = (() => {
       mallName: "\uC9C0\uB9C8\uCF13",
       origin: "https://item.esmplus.com",
       pageSize: 500,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     auction: {
       mallName: "\uC625\uC158",
       origin: "https://item.esmplus.com",
       pageSize: 500,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     /** 카카오 톡스토어 판매자센터. 목록 API 를 100개씩(라이브 2026-09-19: 386개 = 4쪽). 몰 상품코드는 상품번호(id). */
     kakao: {
       mallName: "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4",
       origin: "https://shopping-seller.kakao.com",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV2"
+      detailNames: false
     },
     /** 롯데ON 판매자센터. 상품 조회를 100개씩(화면 안에서). 몰 상품코드는 판매자상품번호(`LO…`). */
     "lotte-on": {
       mallName: "\uB86F\uB370ON",
       origin: "https://store.lotteon.com",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV3"
+      detailNames: false
     },
     /** 스마트스토어센터. 원상품 목록 검색을 100개씩(화면 안에서). 몰 상품코드는 채널상품번호(원상품번호는 다른 코드). */
     smartstore: {
       mallName: "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4",
       origin: "https://sell.smartstore.naver.com",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV3"
+      detailNames: false
     },
     /** 티쳐몰(퍼스트몰 selleradmin). 판매상품 목록을 100개씩. 몰 상품코드는 상품번호(goods_seq). */
     "teacher-mall": {
       mallName: "\uD2F0\uCCD0\uBAB0",
       origin: "https://shop.teacherville.co.kr",
       pageSize: 100,
-      detailNames: false,
-      capability: "mallAdminListingsMallsV3"
+      detailNames: false
     }
   };
   var MALL_ADMIN_LISTING_MALL_KEYS = Object.keys(
     MALL_ADMIN_LISTING_READERS
   );
+  function isMallAdminListingMallKey(value) {
+    return typeof value === "string" && Object.hasOwn(MALL_ADMIN_LISTING_READERS, value);
+  }
   var MallKeySchema = external_exports.enum(MALL_ADMIN_LISTING_MALL_KEYS);
   var YYYY_MM_DD = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var boundedText = (max) => external_exports.string().trim().max(max);
   var requiredText = (max) => boundedText(max).min(1);
-  var MallAdminListingsBeginSchema = external_exports.object({
-    mallKey: MallKeySchema
-  }).strict();
   var MallAdminListingsPlanSchema = external_exports.object({
     sourceType: external_exports.literal(MALL_ADMIN_LISTINGS_SOURCE_TYPE),
     parserVersion: external_exports.literal(MALL_ADMIN_LISTINGS_PARSER_VERSION),
@@ -5622,19 +5592,6 @@ var KidItemRuntime = (() => {
       ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["pageSize"], message: "Unexpected page size" });
     }
   });
-  var MallAdminListingsAttemptSchema = external_exports.object({
-    attemptId: external_exports.string().uuid(),
-    state: external_exports.enum(["RUNNING", "COMPLETE", "FAILED"]),
-    generation: external_exports.string().regex(/^\d+$/),
-    plan: MallAdminListingsPlanSchema,
-    expiresAt: external_exports.string().datetime(),
-    completedAt: external_exports.string().datetime().nullable(),
-    errorCode: boundedText(100).nullable(),
-    errorMessage: boundedText(300).nullable()
-  }).strict();
-  var MallAdminListingsControlSchema = MallAdminListingsAttemptSchema.extend({
-    attemptToken: external_exports.string().uuid()
-  }).strict();
   var MallAdminListingsPublicationSchema = external_exports.object({
     /** 이번에 받은 몰 상품코드 수. */
     listings: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
@@ -5657,16 +5614,9 @@ var KidItemRuntime = (() => {
     mallName: requiredText(40),
     /** 그 몰의 계정 행. 없으면 가져올 곳이 없다. */
     channelAccountId: external_exports.string().uuid().nullable(),
-    latestAttempt: MallAdminListingsAttemptSchema.nullable(),
-    latestComplete: MallAdminListingsAttemptSchema.nullable(),
-    /**
-     * `latestComplete`(실행 kind로 옮긴 몰은 `latestSucceeded`)가 남긴 결과.
-     */
+    /** `latestSucceeded`가 남긴 발행 결과. */
     latestPublication: MallAdminListingsPublicationSchema.nullable(),
-    /**
-     * 실행 kind(`channels.mall_admin_listings`, KID-363)로 옮긴 몰(`MALL_ADMIN_LISTING_OPERATION_MALLS`)의 최근 실행과 최근
-     * 성공 실행. 옮긴 몰은 옛 시도(`latestAttempt`·`latestComplete`)를 읽지 않아 그 둘이 null이고, 나머지 몰은 이 둘이 null이다.
-     */
+    /** 그 몰 계정의 `channels.mall_admin_listings` 최근 실행과 최근 성공 실행(KID-363·381). */
     latestOperation: OperationViewSchema.nullable(),
     latestSucceeded: OperationViewSchema.nullable()
   }).strict();
@@ -5697,7 +5647,6 @@ var KidItemRuntime = (() => {
     imageUrl: external_exports.string().url().max(2e3).optional()
   }).strict();
   var MallAdminListingsCollectionSchema = external_exports.object({
-    collectionRunId: external_exports.string().uuid(),
     /** 몰이 알린 전체 상품 수. */
     totalRecords: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
     /** 실제로 읽은 상품 줄 수. */
@@ -5708,18 +5657,13 @@ var KidItemRuntime = (() => {
     detailsRead: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
     detailsMissing: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT)
   }).strict();
-  var MallAdminListingsSubmissionSchema = external_exports.object({
+  var MallAdminListingsScanSchema = external_exports.object({
     collection: MallAdminListingsCollectionSchema,
-    rows: external_exports.array(MallAdminListingRowSchema).max(MALL_ADMIN_LISTING_ROW_LIMIT),
     proof: external_exports.object({
       mallKey: MallKeySchema,
       pageSize: external_exports.number().int().positive().max(2e4),
       validatedList: external_exports.literal(true)
     }).strict()
-  }).strict();
-  var MallAdminListingsScanSchema = external_exports.object({
-    collection: MallAdminListingsCollectionSchema.omit({ collectionRunId: true }),
-    proof: MallAdminListingsSubmissionSchema.shape.proof
   }).strict();
   var MallAdminListingsResultSchema = MallAdminListingsPublicationSchema.extend({
     rows: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT)
@@ -10510,7 +10454,7 @@ var KidItemRuntime = (() => {
     name: MALL_ADMIN_LISTINGS_SITE,
     opensOwnTabs: true,
     create: (deps, lease) => ({
-      reader: (mallKey) => isMallAdminListingOperationMall(mallKey) ? siteFactoryFor(mallKey)?.create(deps, lease) ?? null : null
+      reader: (mallKey) => isMallAdminListingMallKey(mallKey) ? siteFactoryFor(mallKey)?.create(deps, lease) ?? null : null
     })
   });
 

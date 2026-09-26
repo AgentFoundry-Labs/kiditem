@@ -1,8 +1,19 @@
 import { describe, expect, it } from 'vitest';
-import { MALL_ADMIN_LISTING_READERS } from '@kiditem/shared/mall-admin-listings';
-import { isMallAdminListingOperationMall } from '@kiditem/shared/channels-operations';
+import { MALL_ADMIN_LISTING_READERS, isMallAdminListingMallKey } from '@kiditem/shared/mall-admin-listings';
 import { SITE_LOGIN_REQUIRED } from '../core/site-caller';
-import '../entry/index';
+import './11st/listings';
+import './always/listings';
+import './auction/listings';
+import './gmarket/listings';
+import './kakao/listings';
+import './kidsnote/listings';
+import './kkomangse/listings';
+import './lotte-on/listings';
+import './mall-admin-listings';
+import './onch/listings';
+import './smartstore/listings';
+import './teacher-mall/listings';
+import './thirtymall/listings';
 import { siteFactoryFor, type SiteDeps, type SiteLease } from './registry';
 import { fakeLoginScreen, fastClock } from './login.fake';
 import { fakeTabPages } from './tab-page.fake';
@@ -139,8 +150,8 @@ function routerFor(tabs: SiteDeps['tabs'], credentials: SiteLease['credentials']
 }
 
 describe('몰 관리자 목록 나머지 몰(KID-381)', () => {
-  it.each(MALLS)('$mallKey: 실행 몰이고, 새 백그라운드 탭을 목록 화면으로 열어 처리기 파일로 읽은 뒤 닫는다', async (row) => {
-    expect(isMallAdminListingOperationMall(row.mallKey)).toBe(true);
+  it.each(MALLS)('$mallKey: 읽기기 몰이고, 새 백그라운드 탭을 목록 화면으로 열어 처리기 파일로 읽은 뒤 닫는다', async (row) => {
+    expect(isMallAdminListingMallKey(row.mallKey)).toBe(true);
     const asked: Array<Record<string, unknown>> = [];
     const fake = fakeTabPages({
       answer: (message, injected) => {

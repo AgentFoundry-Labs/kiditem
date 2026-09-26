@@ -4,8 +4,8 @@ import type { DataMigration, MigrationResult } from '../types';
 /**
  * 실행 계약(ADR-0025)으로 옮긴 원천이 옛 attempt 시절 알림 행에 적던 `sourceType` — v0.1.31의 한 순간이라 문자열로
  * 적는다(마이그레이션은 그때를 기록한다). KID-355 정책 B 뒤로 이 원천들은 알림 행을 쓰지도 닫지도 않고, 알림 reader가
- * 실행 표에서 실패를 읽는다. 아직 옛 writer가 도는 원천(`coupang_ad_*`, `order_collection_mall`,
- * `mall_admin_listings`, 수동 적재 `coupang.wing_catalog`, 소싱 서버 구동)은 여기 없다.
+ * 실행 표에서 실패를 읽는다. 아직 옛 writer가 도는 원천(`coupang_ad_*`, `order_collection_mall`, 수동 적재
+ * `coupang.wing_catalog`, 소싱 서버 구동)은 여기 없다.
  */
 export const RETIRED_SOURCE_FAILURE_SOURCE_TYPES = [
   // 광고 kind 7종(wave3)
@@ -34,6 +34,8 @@ export const RETIRED_SOURCE_FAILURE_SOURCE_TYPES = [
   'coupang_direct_order_capture',
   'coupang_shipment_summary',
   'coupang_rocket_po_catalog',
+  // 몰 관리자 가져오기(wave4, KID-381) — 옛 시도 경로의 완료·실패·취소가 쓰던 이름
+  'mall_admin_listings',
 ] as const;
 
 const SOURCE_FAILURE_ALERT_TYPE = 'source_failure';
