@@ -53,7 +53,7 @@ export default function BatchRankCheck({ onCompleted }: { onCompleted: () => voi
       <CollectionStartControl
         control={serp}
         startLabel="SERP 순위"
-        startTitle="대표 키워드의 쿠팡 검색 노출 순위를 수집합니다(검색 결과 최대 3쪽)."
+        startTitle="대표 키워드(앞에서부터 최대 100개)의 쿠팡 검색 노출 순위를 수집합니다(키워드마다 검색 결과 최대 3쪽)."
         onStart={() => serp.start(keywords)}
         onStop={serp.stop}
       />
