@@ -5,6 +5,8 @@ import {
   SELLPIA_OPERATION_KINDS,
   SellpiaInventoryChunkHeaderSchema,
   SellpiaInventoryResultSchema,
+  SellpiaSalesResultSchema,
+  SellpiaSalesRowSchema,
   SellpiaSalesScopeSchema,
 } from './sellpia-operations.js';
 import {
@@ -45,5 +47,14 @@ describe('wave3 kinds and lock keys (KID-361·363)', () => {
     expect(SellpiaInventoryChunkHeaderSchema.safeParse({ source: 'sellpia_product_search', version: 1, rowCount: 0 }).success).toBe(false);
     expect(SellpiaInventoryChunkHeaderSchema.safeParse({ source: 'sellpia_product_search', version: 1, rowCount: 20_001 }).success).toBe(false);
     expect(SellpiaInventoryResultSchema.parse({ rows: 3, products: 5 })).toEqual({ rows: 3, products: 5 });
+  });
+
+  it('a sales row is one seller-day with finite metrics (negative allowed, the owner clamps)', () => {
+    const row = { sellerId: '118', sellerName: '스마트스토어', date: '2026-09-01', price: -1_200.5, amount: 2, buyPrice: 700 };
+    expect(SellpiaSalesRowSchema.parse(row)).toEqual(row);
+    expect(SellpiaSalesRowSchema.safeParse({ ...row, date: '2026-9-1' }).success).toBe(false);
+    expect(SellpiaSalesRowSchema.safeParse({ ...row, sellerName: ' ' }).success).toBe(false);
+    expect(SellpiaSalesRowSchema.safeParse({ ...row, extra: 1 }).success).toBe(false);
+    expect(SellpiaSalesResultSchema.parse({ days: 3, rows: 2 })).toEqual({ days: 3, rows: 2 });
   });
 });

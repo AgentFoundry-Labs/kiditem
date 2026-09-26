@@ -76,3 +76,25 @@ export const SellpiaInventoryResultSchema = z.object({
   products: z.number().int().nonnegative(),
 }).strict();
 export type SellpiaInventoryResult = z.infer<typeof SellpiaInventoryResultSchema>;
+
+/**
+ * 매출 청크 한 항목 = 판매처 하나의 하루(옛 판매현황 수집 `sellers[].days[]`를 판매처·일자로 편 모양). 금액·수량은
+ * 셀피아가 준 그대로(음수·소수 포함)이고, owner가 원장에 넣을 때 0 이상의 정수로 자른다. `sellerName`은 셀피아
+ * 판매처 이름표(`provider_list_all`)에서 온다.
+ */
+export const SellpiaSalesRowSchema = z.object({
+  sellerId: z.string().trim().min(1).max(64),
+  sellerName: z.string().trim().min(1).max(200),
+  date: isoDay,
+  price: z.number().finite(),
+  amount: z.number().finite(),
+  buyPrice: z.number().finite(),
+}).strict();
+export type SellpiaSalesRow = z.infer<typeof SellpiaSalesRowSchema>;
+
+/** 매출 finish 결과: 바꿔 쓴 업무일 수와 넣은 판매처·일 줄 수. */
+export const SellpiaSalesResultSchema = z.object({
+  days: z.number().int().nonnegative(),
+  rows: z.number().int().nonnegative(),
+}).strict();
+export type SellpiaSalesResult = z.infer<typeof SellpiaSalesResultSchema>;

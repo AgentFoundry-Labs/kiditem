@@ -1,3 +1,4 @@
+import '../collectors/analytics.sellpia_sales';
 import '../collectors/channels.wing_catalog_details';
 import '../collectors/channels.wing_catalog_excel';
 import '../collectors/channels.wing_catalog_list';

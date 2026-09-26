@@ -4080,6 +4080,298 @@ var KidItemRuntime = (() => {
   };
   var NEVER = INVALID;
 
+  // packages/shared/src/schemas/common.ts
+  var zIsoDate = external_exports.union([external_exports.string(), external_exports.date()]);
+  var ApiErrorResponseSchema = external_exports.object({
+    statusCode: external_exports.number(),
+    message: external_exports.union([external_exports.string(), external_exports.array(external_exports.string())]),
+    error: external_exports.string().optional()
+  });
+  var SyncInfoSchema = external_exports.object({
+    lastSyncedAt: external_exports.string().nullable()
+  });
+
+  // packages/shared/src/schemas/operation.ts
+  var OPERATION_STATUSES = ["prepared", "executing", "succeeded", "failed", "cancelled"];
+  var OperationStatusSchema = external_exports.enum(OPERATION_STATUSES);
+  var OPERATION_OUTCOMES = ["succeeded", "failed"];
+  var OperationOutcomeSchema = external_exports.enum(OPERATION_OUTCOMES);
+  var OPERATION_CANCEL_CODE = "USER_CANCELLED";
+  var OPERATION_LEASE_MS = 30 * 60 * 1e3;
+  var OPERATION_CHUNK_MAX_BYTES = 1024 * 1024;
+  var OPERATION_CHUNKS_MAX = 1e3;
+  var OPERATION_KIND_PATTERN = /^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$/;
+  var OperationKindSchema = external_exports.string().regex(OPERATION_KIND_PATTERN, "kind\uB294 owner.work \uD615\uC2DD\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4");
+  var OPERATION_LOCK_KEY_PATTERN = /^(org|account:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|resource:[a-z][a-z0-9-]*:[^\s]+)$/;
+  var OperationLockKeySchema = external_exports.string().max(256).regex(OPERATION_LOCK_KEY_PATTERN, "lockKey\uB294 org \xB7 account:<id> \xB7 resource:<site>:<id> \uC911 \uD558\uB098\uC5EC\uC57C \uD569\uB2C8\uB2E4");
+  function resourceLockKey(site, id) {
+    return `resource:${site}:${id}`;
+  }
+  var OPERATION_FENCE_LOST_REASONS = ["expired", "terminal", "chunk_conflict"];
+  var OperationFenceLostReasonSchema = external_exports.enum(OPERATION_FENCE_LOST_REASONS);
+  var OperationInProgressDetailsSchema = external_exports.object({
+    operationId: external_exports.string().uuid(),
+    kind: OperationKindSchema,
+    lockKeys: external_exports.array(OperationLockKeySchema).min(1),
+    startedAt: zIsoDate,
+    expiresAt: zIsoDate
+  }).strict();
+  var OperationFenceLostDetailsSchema = external_exports.object({
+    operationId: external_exports.string().uuid(),
+    reason: OperationFenceLostReasonSchema
+  }).strict();
+  var JsonObjectSchema = external_exports.record(external_exports.unknown());
+  var OPERATION_TOKEN_HEADER = "x-operation-token";
+  var OperationWindowSchema = external_exports.object({
+    start: external_exports.string().date(),
+    end: external_exports.string().date()
+  }).strict();
+  var OperationChunkKindSchema = external_exports.string().regex(/^[a-z][a-z0-9_]*$/);
+  var OperationChunkSequenceSchema = external_exports.coerce.number().int().min(1).max(OPERATION_CHUNKS_MAX);
+  var OperationViewSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    kind: OperationKindSchema,
+    status: OperationStatusSchema,
+    lockKeys: external_exports.array(OperationLockKeySchema),
+    plan: JsonObjectSchema.nullable(),
+    progress: JsonObjectSchema.nullable(),
+    result: JsonObjectSchema.nullable(),
+    window: OperationWindowSchema.nullable(),
+    errorCode: external_exports.string().nullable(),
+    errorMessage: external_exports.string().nullable(),
+    startedAt: zIsoDate,
+    finishedAt: zIsoDate.nullable(),
+    expiresAt: zIsoDate,
+    /** claim이 지금까지 몇 번 있었나. begin으로 시작한 실행은 1. */
+    attempts: external_exports.number().int().nonnegative(),
+    maxAttempts: external_exports.number().int().min(1),
+    /** `prepared`가 claim될 수 있는 시각. begin으로 시작한 실행은 null. */
+    scheduledFor: zIsoDate.nullable()
+  }).strict();
+  var OperationBeginRequestSchema = external_exports.object({
+    kind: OperationKindSchema,
+    scope: JsonObjectSchema.default({}),
+    idempotencyKey: external_exports.string().min(1).max(128).optional(),
+    fileHash: external_exports.string().regex(/^[0-9a-f]{64}$/).optional()
+  }).strict();
+  var OperationBeginResponseSchema = external_exports.object({
+    operation: OperationViewSchema,
+    /** fenced 쓰기의 비밀. 확장의 operation client만 들고 있고 화면에 내지 않는다. */
+    token: external_exports.string().uuid(),
+    reused: external_exports.boolean()
+  }).strict();
+  var OperationChunkPutRequestSchema = external_exports.object({
+    /** payload 직렬화의 SHA-256 hex. */
+    checksum: external_exports.string().regex(/^[0-9a-f]{64}$/),
+    payload: external_exports.array(external_exports.unknown()),
+    progress: JsonObjectSchema.optional()
+  }).strict();
+  var OperationChunkPutResponseSchema = external_exports.object({
+    operationId: external_exports.string().uuid(),
+    chunkKind: OperationChunkKindSchema,
+    sequence: external_exports.number().int().min(1),
+    itemCount: external_exports.number().int().nonnegative(),
+    expiresAt: zIsoDate
+  }).strict();
+  var OperationFinishRequestSchema = external_exports.object({
+    outcome: OperationOutcomeSchema,
+    errorCode: external_exports.string().min(1).max(64).optional(),
+    errorMessage: external_exports.string().max(2e3).optional(),
+    window: OperationWindowSchema.optional(),
+    result: JsonObjectSchema.optional(),
+    /**
+     * failed일 때만. 재시도가 남아 있으면(`attempts < maxAttempts`) 같은 실행이 `prepared`로 돌아가
+     * `scheduledFor = now + retryAfterMs`가 된다(잠금 유지, 청크 삭제). 없거나 재시도가 없으면 terminal `failed`.
+     */
+    retryAfterMs: external_exports.number().int().nonnegative().max(7 * 24 * 60 * 60 * 1e3).optional()
+  }).strict().refine(
+    (value) => value.outcome !== "failed" || value.errorCode !== void 0,
+    { message: "failed\uC5D0\uB294 errorCode\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4", path: ["errorCode"] }
+  ).refine(
+    (value) => value.outcome === "failed" || value.retryAfterMs === void 0,
+    { message: "retryAfterMs\uB294 failed\uC5D0\uB9CC \uC4F4\uB2E4", path: ["retryAfterMs"] }
+  );
+  var OperationFinishResponseSchema = external_exports.object({
+    operation: OperationViewSchema
+  }).strict();
+  var OperationCancelResponseSchema = OperationFinishResponseSchema;
+  var OperationListQuerySchema = external_exports.object({
+    kinds: external_exports.string().min(1).transform((value) => value.split(",").map((kind) => kind.trim()).filter(Boolean)).pipe(external_exports.array(OperationKindSchema).min(1).max(50)),
+    status: OperationStatusSchema.optional(),
+    limit: external_exports.coerce.number().int().min(1).max(200).default(50)
+  }).strict();
+  var OperationNextSchema = external_exports.object({
+    kind: OperationKindSchema,
+    scope: JsonObjectSchema
+  }).strict();
+  var OperationListResponseSchema = external_exports.object({
+    operations: external_exports.array(OperationViewSchema)
+  }).strict();
+  var OperationPrepareRequestSchema = external_exports.object({
+    kind: OperationKindSchema,
+    scope: JsonObjectSchema.default({}),
+    idempotencyKey: external_exports.string().min(1).max(128).optional(),
+    /** 이 시각 전에는 claim되지 않는다. 없으면 바로. */
+    scheduledFor: zIsoDate.optional(),
+    /** claim 횟수 상한(재시도 포함). 기본 1 = 재시도 없음. */
+    maxAttempts: external_exports.number().int().min(1).max(20).default(1),
+    /** 실행을 시작한 사용자(있으면). owner `plan`이 `context.userId`로 받아 plan JSON에 보관한다(KID-354). */
+    userId: external_exports.string().uuid().optional()
+  }).strict();
+  var OperationClaimRequestSchema = external_exports.object({
+    kinds: external_exports.array(OperationKindSchema).min(1).max(50),
+    /** 로그·진단용. 잠금 판정에는 쓰지 않는다. */
+    workerId: external_exports.string().min(1).max(128)
+  }).strict();
+  var OperationClaimResultSchema = external_exports.object({
+    operation: OperationViewSchema,
+    token: external_exports.string().uuid()
+  }).strict();
+  var OperationPlanResultSchema = external_exports.object({
+    plan: JsonObjectSchema,
+    lockKeys: external_exports.array(OperationLockKeySchema).min(1),
+    window: OperationWindowSchema.optional()
+  }).strict();
+  var OperationStagedChunkSchema = external_exports.object({
+    chunkKind: OperationChunkKindSchema,
+    sequence: external_exports.number().int().min(1),
+    itemCount: external_exports.number().int().nonnegative(),
+    payload: external_exports.array(external_exports.unknown())
+  }).strict();
+
+  // packages/shared/src/schemas/sellpia-operations.ts
+  var SELLPIA_LOGIN_LOCK_KEY = resourceLockKey("sellpia", "login");
+  var SELLPIA_INVENTORY_KIND = "products.sellpia_inventory";
+  var SELLPIA_SALES_KIND = "analytics.sellpia_sales";
+  var isoDay = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+  var SellpiaInventoryScopeSchema = external_exports.object({
+    trigger: external_exports.string().trim().min(1).max(64).optional()
+  }).strict();
+  var SellpiaSalesScopeSchema = external_exports.object({
+    startDate: isoDay.optional(),
+    endDate: isoDay.optional()
+  }).strict().refine((value) => !value.startDate || !value.endDate || value.startDate <= value.endDate, "\uC2DC\uC791\uC77C\uC774 \uC885\uB8CC\uC77C\uBCF4\uB2E4 \uB2A6\uC2B5\uB2C8\uB2E4");
+  var SellpiaProductProfitabilityScopeSchema = external_exports.object({
+    normalizedSourceAvailabilityDate: isoDay.optional()
+  }).strict();
+  var SellpiaManualMatchScopeSchema = external_exports.object({}).strict();
+  var SELLPIA_INVENTORY_CHUNK_KIND = "inventory_rows";
+  var SELLPIA_SALES_CHUNK_KIND = "sales_rows";
+  var SELLPIA_INVENTORY_MAX_ROWS = 2e4;
+  var SellpiaInventoryChunkHeaderSchema = external_exports.object({
+    source: external_exports.literal("sellpia_product_search"),
+    version: external_exports.literal(1),
+    rowCount: external_exports.number().int().min(1).max(SELLPIA_INVENTORY_MAX_ROWS)
+  }).strict();
+  var SellpiaInventoryResultSchema = external_exports.object({
+    rows: external_exports.number().int().nonnegative(),
+    products: external_exports.number().int().nonnegative()
+  }).strict();
+  var SellpiaSalesRowSchema = external_exports.object({
+    sellerId: external_exports.string().trim().min(1).max(64),
+    sellerName: external_exports.string().trim().min(1).max(200),
+    date: isoDay,
+    price: external_exports.number().finite(),
+    amount: external_exports.number().finite(),
+    buyPrice: external_exports.number().finite()
+  }).strict();
+  var SellpiaSalesResultSchema = external_exports.object({
+    days: external_exports.number().int().nonnegative(),
+    rows: external_exports.number().int().nonnegative()
+  }).strict();
+
+  // extensions/src/core/errors.ts
+  var ErrorEnvelopeSchema = external_exports.object({
+    statusCode: external_exports.number().int().min(400).max(599),
+    code: external_exports.string().min(1),
+    kind: external_exports.string(),
+    message: external_exports.string(),
+    errors: external_exports.array(external_exports.unknown()).optional(),
+    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
+  }).passthrough();
+  var RuntimeError = class extends Error {
+    constructor(code, message, details = null, cause) {
+      super(message);
+      this.code = code;
+      this.details = details;
+      this.cause = cause;
+      this.name = "RuntimeError";
+    }
+    code;
+    details;
+    cause;
+  };
+  function parseErrorEnvelope(body) {
+    const parsed = ErrorEnvelopeSchema.safeParse(body);
+    return parsed.success ? parsed.data : null;
+  }
+  function isRuntimeError(value) {
+    return value instanceof RuntimeError;
+  }
+
+  // extensions/src/collectors/chunk-items.ts
+  var encoder = new TextEncoder();
+  var ChunkBuffer = class {
+    // "[]"
+    constructor(options) {
+      this.options = options;
+    }
+    options;
+    items = [];
+    bytes = 2;
+    /** 넣고 나서 내보낼 payload(있으면). */
+    push(item) {
+      const maxBytes = this.options.maxBytes ?? OPERATION_CHUNK_MAX_BYTES;
+      const itemBytes = encoder.encode(JSON.stringify(item)).byteLength;
+      if (itemBytes + 2 > maxBytes) {
+        throw new RuntimeError("RUNTIME_CHUNK_TOO_LARGE", `${this.options.label} \uD558\uB098\uAC00 \uCCAD\uD06C \uC0C1\uD55C(${maxBytes}\uBC14\uC774\uD2B8)\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, { bytes: itemBytes });
+      }
+      let flushed = null;
+      const separator = this.items.length > 0 ? 1 : 0;
+      if (this.items.length >= this.options.maxItems || this.bytes + separator + itemBytes > maxBytes) flushed = this.flush();
+      this.bytes += (this.items.length > 0 ? 1 : 0) + itemBytes;
+      this.items.push(item);
+      if (this.items.length >= this.options.maxItems) return flushed ?? this.flush();
+      return flushed;
+    }
+    /** 남은 원소(없으면 null). */
+    flush() {
+      if (this.items.length === 0) return null;
+      const out = this.items;
+      this.items = [];
+      this.bytes = 2;
+      return out;
+    }
+  };
+
+  // extensions/src/collectors/analytics.sellpia_sales/index.ts
+  var isoDay2 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+  var PlanSchema = external_exports.object({
+    range: external_exports.object({ from: isoDay2, to: isoDay2 })
+  }).passthrough();
+  var CHUNK_ROWS = 500;
+  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
+  var sellpiaSalesCollector = {
+    kind: SELLPIA_SALES_KIND,
+    site: "sellpia",
+    async *collect(rawPlan, site, { signal }) {
+      const parsed = PlanSchema.safeParse(rawPlan);
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC140\uD53C\uC544 \uB9E4\uCD9C \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
+      const { rows, sellers } = await site.sales({ startDate: parsed.data.range.from, endDate: parsed.data.range.to });
+      if (signal.aborted) return;
+      const progress4 = { rows: rows.length, sellers };
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS, label: "\uC140\uD53C\uC544 \uD310\uB9E4\uCC98\xB7\uC77C \uD55C \uC904" });
+      for (const row of rows) {
+        const full = buffer.push(row);
+        if (full) yield { chunkKind: SELLPIA_SALES_CHUNK_KIND, payload: full, progress: progress4 };
+      }
+      const rest = buffer.flush();
+      if (rest) yield { chunkKind: SELLPIA_SALES_CHUNK_KIND, payload: rest, progress: progress4 };
+    }
+  };
+  registerCollector(sellpiaSalesCollector);
+
   // packages/shared/src/schemas/coupang-catalog-snapshot.ts
   var COUPANG_CATALOG_MAX_OPTIONS_PER_PRODUCT = 500;
   var COUPANG_CATALOG_MAX_MEDIA_PER_OWNER = 100;
@@ -4447,35 +4739,6 @@ var KidItemRuntime = (() => {
     skippedRowCount: external_exports.number().int().nonnegative()
   }).strict();
 
-  // extensions/src/core/errors.ts
-  var ErrorEnvelopeSchema = external_exports.object({
-    statusCode: external_exports.number().int().min(400).max(599),
-    code: external_exports.string().min(1),
-    kind: external_exports.string(),
-    message: external_exports.string(),
-    errors: external_exports.array(external_exports.unknown()).optional(),
-    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
-  }).passthrough();
-  var RuntimeError = class extends Error {
-    constructor(code, message, details = null, cause) {
-      super(message);
-      this.code = code;
-      this.details = details;
-      this.cause = cause;
-      this.name = "RuntimeError";
-    }
-    code;
-    details;
-    cause;
-  };
-  function parseErrorEnvelope(body) {
-    const parsed = ErrorEnvelopeSchema.safeParse(body);
-    return parsed.success ? parsed.data : null;
-  }
-  function isRuntimeError(value) {
-    return value instanceof RuntimeError;
-  }
-
   // extensions/src/core/site-caller.ts
   function delayUntilNext(input) {
     if (input.lastSentAt === null) return 0;
@@ -4557,200 +4820,6 @@ var KidItemRuntime = (() => {
       return null;
     }
   }
-
-  // packages/shared/src/schemas/common.ts
-  var zIsoDate = external_exports.union([external_exports.string(), external_exports.date()]);
-  var ApiErrorResponseSchema = external_exports.object({
-    statusCode: external_exports.number(),
-    message: external_exports.union([external_exports.string(), external_exports.array(external_exports.string())]),
-    error: external_exports.string().optional()
-  });
-  var SyncInfoSchema = external_exports.object({
-    lastSyncedAt: external_exports.string().nullable()
-  });
-
-  // packages/shared/src/schemas/operation.ts
-  var OPERATION_STATUSES = ["prepared", "executing", "succeeded", "failed", "cancelled"];
-  var OperationStatusSchema = external_exports.enum(OPERATION_STATUSES);
-  var OPERATION_OUTCOMES = ["succeeded", "failed"];
-  var OperationOutcomeSchema = external_exports.enum(OPERATION_OUTCOMES);
-  var OPERATION_CANCEL_CODE = "USER_CANCELLED";
-  var OPERATION_LEASE_MS = 30 * 60 * 1e3;
-  var OPERATION_CHUNK_MAX_BYTES = 1024 * 1024;
-  var OPERATION_CHUNKS_MAX = 1e3;
-  var OPERATION_KIND_PATTERN = /^[a-z][a-z0-9]*\.[a-z][a-z0-9_]*$/;
-  var OperationKindSchema = external_exports.string().regex(OPERATION_KIND_PATTERN, "kind\uB294 owner.work \uD615\uC2DD\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4");
-  var OPERATION_LOCK_KEY_PATTERN = /^(org|account:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|resource:[a-z][a-z0-9-]*:[^\s]+)$/;
-  var OperationLockKeySchema = external_exports.string().max(256).regex(OPERATION_LOCK_KEY_PATTERN, "lockKey\uB294 org \xB7 account:<id> \xB7 resource:<site>:<id> \uC911 \uD558\uB098\uC5EC\uC57C \uD569\uB2C8\uB2E4");
-  function resourceLockKey(site, id) {
-    return `resource:${site}:${id}`;
-  }
-  var OPERATION_FENCE_LOST_REASONS = ["expired", "terminal", "chunk_conflict"];
-  var OperationFenceLostReasonSchema = external_exports.enum(OPERATION_FENCE_LOST_REASONS);
-  var OperationInProgressDetailsSchema = external_exports.object({
-    operationId: external_exports.string().uuid(),
-    kind: OperationKindSchema,
-    lockKeys: external_exports.array(OperationLockKeySchema).min(1),
-    startedAt: zIsoDate,
-    expiresAt: zIsoDate
-  }).strict();
-  var OperationFenceLostDetailsSchema = external_exports.object({
-    operationId: external_exports.string().uuid(),
-    reason: OperationFenceLostReasonSchema
-  }).strict();
-  var JsonObjectSchema = external_exports.record(external_exports.unknown());
-  var OPERATION_TOKEN_HEADER = "x-operation-token";
-  var OperationWindowSchema = external_exports.object({
-    start: external_exports.string().date(),
-    end: external_exports.string().date()
-  }).strict();
-  var OperationChunkKindSchema = external_exports.string().regex(/^[a-z][a-z0-9_]*$/);
-  var OperationChunkSequenceSchema = external_exports.coerce.number().int().min(1).max(OPERATION_CHUNKS_MAX);
-  var OperationViewSchema = external_exports.object({
-    id: external_exports.string().uuid(),
-    kind: OperationKindSchema,
-    status: OperationStatusSchema,
-    lockKeys: external_exports.array(OperationLockKeySchema),
-    plan: JsonObjectSchema.nullable(),
-    progress: JsonObjectSchema.nullable(),
-    result: JsonObjectSchema.nullable(),
-    window: OperationWindowSchema.nullable(),
-    errorCode: external_exports.string().nullable(),
-    errorMessage: external_exports.string().nullable(),
-    startedAt: zIsoDate,
-    finishedAt: zIsoDate.nullable(),
-    expiresAt: zIsoDate,
-    /** claim이 지금까지 몇 번 있었나. begin으로 시작한 실행은 1. */
-    attempts: external_exports.number().int().nonnegative(),
-    maxAttempts: external_exports.number().int().min(1),
-    /** `prepared`가 claim될 수 있는 시각. begin으로 시작한 실행은 null. */
-    scheduledFor: zIsoDate.nullable()
-  }).strict();
-  var OperationBeginRequestSchema = external_exports.object({
-    kind: OperationKindSchema,
-    scope: JsonObjectSchema.default({}),
-    idempotencyKey: external_exports.string().min(1).max(128).optional(),
-    fileHash: external_exports.string().regex(/^[0-9a-f]{64}$/).optional()
-  }).strict();
-  var OperationBeginResponseSchema = external_exports.object({
-    operation: OperationViewSchema,
-    /** fenced 쓰기의 비밀. 확장의 operation client만 들고 있고 화면에 내지 않는다. */
-    token: external_exports.string().uuid(),
-    reused: external_exports.boolean()
-  }).strict();
-  var OperationChunkPutRequestSchema = external_exports.object({
-    /** payload 직렬화의 SHA-256 hex. */
-    checksum: external_exports.string().regex(/^[0-9a-f]{64}$/),
-    payload: external_exports.array(external_exports.unknown()),
-    progress: JsonObjectSchema.optional()
-  }).strict();
-  var OperationChunkPutResponseSchema = external_exports.object({
-    operationId: external_exports.string().uuid(),
-    chunkKind: OperationChunkKindSchema,
-    sequence: external_exports.number().int().min(1),
-    itemCount: external_exports.number().int().nonnegative(),
-    expiresAt: zIsoDate
-  }).strict();
-  var OperationFinishRequestSchema = external_exports.object({
-    outcome: OperationOutcomeSchema,
-    errorCode: external_exports.string().min(1).max(64).optional(),
-    errorMessage: external_exports.string().max(2e3).optional(),
-    window: OperationWindowSchema.optional(),
-    result: JsonObjectSchema.optional(),
-    /**
-     * failed일 때만. 재시도가 남아 있으면(`attempts < maxAttempts`) 같은 실행이 `prepared`로 돌아가
-     * `scheduledFor = now + retryAfterMs`가 된다(잠금 유지, 청크 삭제). 없거나 재시도가 없으면 terminal `failed`.
-     */
-    retryAfterMs: external_exports.number().int().nonnegative().max(7 * 24 * 60 * 60 * 1e3).optional()
-  }).strict().refine(
-    (value) => value.outcome !== "failed" || value.errorCode !== void 0,
-    { message: "failed\uC5D0\uB294 errorCode\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4", path: ["errorCode"] }
-  ).refine(
-    (value) => value.outcome === "failed" || value.retryAfterMs === void 0,
-    { message: "retryAfterMs\uB294 failed\uC5D0\uB9CC \uC4F4\uB2E4", path: ["retryAfterMs"] }
-  );
-  var OperationFinishResponseSchema = external_exports.object({
-    operation: OperationViewSchema
-  }).strict();
-  var OperationCancelResponseSchema = OperationFinishResponseSchema;
-  var OperationListQuerySchema = external_exports.object({
-    kinds: external_exports.string().min(1).transform((value) => value.split(",").map((kind) => kind.trim()).filter(Boolean)).pipe(external_exports.array(OperationKindSchema).min(1).max(50)),
-    status: OperationStatusSchema.optional(),
-    limit: external_exports.coerce.number().int().min(1).max(200).default(50)
-  }).strict();
-  var OperationNextSchema = external_exports.object({
-    kind: OperationKindSchema,
-    scope: JsonObjectSchema
-  }).strict();
-  var OperationListResponseSchema = external_exports.object({
-    operations: external_exports.array(OperationViewSchema)
-  }).strict();
-  var OperationPrepareRequestSchema = external_exports.object({
-    kind: OperationKindSchema,
-    scope: JsonObjectSchema.default({}),
-    idempotencyKey: external_exports.string().min(1).max(128).optional(),
-    /** 이 시각 전에는 claim되지 않는다. 없으면 바로. */
-    scheduledFor: zIsoDate.optional(),
-    /** claim 횟수 상한(재시도 포함). 기본 1 = 재시도 없음. */
-    maxAttempts: external_exports.number().int().min(1).max(20).default(1),
-    /** 실행을 시작한 사용자(있으면). owner `plan`이 `context.userId`로 받아 plan JSON에 보관한다(KID-354). */
-    userId: external_exports.string().uuid().optional()
-  }).strict();
-  var OperationClaimRequestSchema = external_exports.object({
-    kinds: external_exports.array(OperationKindSchema).min(1).max(50),
-    /** 로그·진단용. 잠금 판정에는 쓰지 않는다. */
-    workerId: external_exports.string().min(1).max(128)
-  }).strict();
-  var OperationClaimResultSchema = external_exports.object({
-    operation: OperationViewSchema,
-    token: external_exports.string().uuid()
-  }).strict();
-  var OperationPlanResultSchema = external_exports.object({
-    plan: JsonObjectSchema,
-    lockKeys: external_exports.array(OperationLockKeySchema).min(1),
-    window: OperationWindowSchema.optional()
-  }).strict();
-  var OperationStagedChunkSchema = external_exports.object({
-    chunkKind: OperationChunkKindSchema,
-    sequence: external_exports.number().int().min(1),
-    itemCount: external_exports.number().int().nonnegative(),
-    payload: external_exports.array(external_exports.unknown())
-  }).strict();
-
-  // extensions/src/collectors/chunk-items.ts
-  var encoder = new TextEncoder();
-  var ChunkBuffer = class {
-    // "[]"
-    constructor(options) {
-      this.options = options;
-    }
-    options;
-    items = [];
-    bytes = 2;
-    /** 넣고 나서 내보낼 payload(있으면). */
-    push(item) {
-      const maxBytes = this.options.maxBytes ?? OPERATION_CHUNK_MAX_BYTES;
-      const itemBytes = encoder.encode(JSON.stringify(item)).byteLength;
-      if (itemBytes + 2 > maxBytes) {
-        throw new RuntimeError("RUNTIME_CHUNK_TOO_LARGE", `${this.options.label} \uD558\uB098\uAC00 \uCCAD\uD06C \uC0C1\uD55C(${maxBytes}\uBC14\uC774\uD2B8)\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, { bytes: itemBytes });
-      }
-      let flushed = null;
-      const separator = this.items.length > 0 ? 1 : 0;
-      if (this.items.length >= this.options.maxItems || this.bytes + separator + itemBytes > maxBytes) flushed = this.flush();
-      this.bytes += (this.items.length > 0 ? 1 : 0) + itemBytes;
-      this.items.push(item);
-      if (this.items.length >= this.options.maxItems) return flushed ?? this.flush();
-      return flushed;
-    }
-    /** 남은 원소(없으면 null). */
-    flush() {
-      if (this.items.length === 0) return null;
-      const out = this.items;
-      this.items = [];
-      this.bytes = 2;
-      return out;
-    }
-  };
 
   // extensions/src/collectors/channels.wing_catalog_details/index.ts
   var DETAILS_PER_CHUNK = 20;
@@ -4928,11 +4997,11 @@ var KidItemRuntime = (() => {
   var ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT = 1e5;
   var boundedText = (max) => external_exports.string().trim().max(max);
   var requiredText = (max) => boundedText(max).min(1);
-  var isoDay = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+  var isoDay3 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var RocketPoSourceBeginSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
-    from: isoDay,
-    to: isoDay,
+    from: isoDay3,
+    to: isoDay3,
     status: external_exports.enum(["RP", "PA", "RI", "CI", ""]),
     dateType: external_exports.enum(["WAREHOUSING_PLAN_DATE", "PURCHASE_ORDER_DATE"]),
     requireConfirmation: external_exports.boolean()
@@ -4962,7 +5031,7 @@ var KidItemRuntime = (() => {
     barcode: boundedText(80),
     productName: requiredText(240),
     orderQty: external_exports.number().int().nonnegative().max(1e7),
-    plannedDeliveryDate: isoDay,
+    plannedDeliveryDate: isoDay3,
     poStatusCode: boundedText(20).optional(),
     businessDateBasis: external_exports.enum(["ordered_at", "expected_inbound"]).optional(),
     confirmation: external_exports.object({
@@ -4982,8 +5051,8 @@ var KidItemRuntime = (() => {
   }).strict();
   var RocketSavedPoListRequestSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
-    from: isoDay,
-    to: isoDay,
+    from: isoDay3,
+    to: isoDay3,
     status: boundedText(80).optional()
   }).strict().superRefine((value, ctx) => {
     if (value.to < value.from) {
@@ -4999,7 +5068,7 @@ var KidItemRuntime = (() => {
     rocketPoOperationId: external_exports.string().uuid(),
     poNumber: requiredText(80),
     orderedAt: boundedText(40),
-    plannedDeliveryDate: isoDay,
+    plannedDeliveryDate: isoDay3,
     status: boundedText(80),
     vendorId: boundedText(120),
     centerName: boundedText(120),
@@ -5199,7 +5268,7 @@ var KidItemRuntime = (() => {
     poNumber: requiredText(80),
     productNo: requiredText(60),
     productName: requiredText(240),
-    plannedDeliveryDate: isoDay,
+    plannedDeliveryDate: isoDay3,
     orderQuantity: external_exports.number().int().nonnegative(),
     recommendedQuantity: external_exports.number().int().nonnegative().nullable(),
     maxQuantity: external_exports.number().int().nonnegative().nullable(),
@@ -5360,13 +5429,13 @@ var KidItemRuntime = (() => {
   var COUPANG_DIRECTSHIP_KIND = "orders.coupang_directship";
   var SELLPIA_SHIPMENT_TRACKING_KIND = "orders.sellpia_shipment_tracking";
   var MALL_ORDERS_KIND = "orders.mall_orders";
-  var isoDay2 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
+  var isoDay4 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
   var CoupangShipmentSummaryScopeSchema = external_exports.object({
     maxPages: external_exports.number().int().min(1).max(60).optional()
   }).strict();
   var COUPANG_SHIPMENT_SUMMARY_PAGE_ROWS = 10;
   var CoupangShipmentDateItemSchema = external_exports.object({
-    date: isoDay2,
+    date: isoDay4,
     count: external_exports.number().int().min(1).max(1e6),
     boxes: external_exports.number().int().min(0).max(1e6)
   }).strict();
@@ -5403,8 +5472,8 @@ var KidItemRuntime = (() => {
     totalListPages: external_exports.number().int().min(0).max(1e5),
     detailPoCount: external_exports.number().int().min(0).max(ROCKET_PO_ROW_LIMIT),
     proof: external_exports.object({
-      from: isoDay2,
-      to: isoDay2,
+      from: isoDay4,
+      to: isoDay4,
       status: external_exports.enum(["RP", "PA", "RI", "CI", ""]),
       dateType: external_exports.enum(["WAREHOUSING_PLAN_DATE", "PURCHASE_ORDER_DATE"]),
       validatedList: external_exports.literal(true)
@@ -5450,8 +5519,8 @@ var KidItemRuntime = (() => {
     centers: external_exports.record(external_exports.string(), CoupangDirectCenterSchema)
   }).strict();
   var SellpiaShipmentTrackingScopeSchema = external_exports.object({
-    startDate: isoDay2,
-    endDate: isoDay2
+    startDate: isoDay4,
+    endDate: isoDay4
   }).strict().refine((value) => value.startDate <= value.endDate, "\uC2DC\uC791\uC77C\uC774 \uB05D\uC77C\uBCF4\uB2E4 \uB2A6\uC744 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.");
   var MallOrdersCollectionModeSchema = external_exports.enum(["browser", "manual-upload"]);
   var MallOrdersSelectionModeSchema = external_exports.enum(["manual", "automatic"]);
@@ -5461,7 +5530,7 @@ var KidItemRuntime = (() => {
   var MallOrdersScopeSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
     mallKey: external_exports.string().min(1).max(64),
-    collectionDate: isoDay2.nullable().default(null),
+    collectionDate: isoDay4.nullable().default(null),
     collectionMode: MallOrdersCollectionModeSchema,
     selectionMode: MallOrdersSelectionModeSchema.optional(),
     seenRowKeys: external_exports.array(external_exports.string().min(1).max(MALL_ORDERS_SEEN_ROW_KEY_MAX_LENGTH)).max(MALL_ORDERS_SEEN_ROW_KEYS_MAX).optional()
@@ -5488,7 +5557,7 @@ var KidItemRuntime = (() => {
      * 몰이 그 기간의 주문을 빠짐없이 보여 줬다는 확인(확인 범위를 내는 몰 — 도매꾹·해법몰 — 이 수집일로 걷은 성공 실행,
      * 빈 날 포함). 주문 사실 리더가 몰 적용 범위로 읽는다(옛 run의 coverageStartDate/EndDate 자리).
      */
-    coverage: external_exports.object({ startDate: isoDay2, endDate: isoDay2 }).strict().optional(),
+    coverage: external_exports.object({ startDate: isoDay4, endDate: isoDay4 }).strict().optional(),
     /** 화면 표에 개인정보가 가려진 칸이 있었다(아이스크림몰) — 웹이 운영자에게 알린다. */
     masked: external_exports.boolean().optional(),
     /** 이번 수집(고른 행)의 서로 다른 주문번호, 최대 2,000개 — 웹의 생성 파일 항목(일일 건수·중복 판정)이 쓴다. */
@@ -5496,7 +5565,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/collectors/orders.coupang_directship/index.ts
-  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
   var MAX_LIST_PAGES = 40;
   var WINDOW_DAYS = 30;
   var DETAIL_CONCURRENCY = 5;
@@ -5507,9 +5576,9 @@ var KidItemRuntime = (() => {
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       if (!CoupangDirectshipPlanSchema.safeParse(rawPlan).success) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+        throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       }
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       try {
         const now = Date.now();
         const query = { searchDateType: "WAREHOUSING_PLAN_DATE", from: kstDay(now, 0), to: kstDay(now, WINDOW_DAYS), status: "PA" };
@@ -5778,14 +5847,14 @@ var KidItemRuntime = (() => {
     maxPagesPerWindow: external_exports.number().int().min(1)
   });
   var COUPANG_REVIEWS_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
-  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
   var coupangReviewsCollector = {
     kind: COUPANG_REVIEWS_KIND,
     site: "wing-reviews",
     async *collect(rawPlan, site, { signal }) {
       const parsed = CoupangReviewsPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
       const plan = parsed.data;
       const done = [];
       for (const window of plan.windows) {
@@ -5828,7 +5897,7 @@ var KidItemRuntime = (() => {
 
   // extensions/src/collectors/orders.coupang_rocket_po/index.ts
   var ROCKET_PO_COLLECTION_INCOMPLETE = "ROCKET_PO_COLLECTION_INCOMPLETE";
-  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
   var DETAIL_CONCURRENCY2 = 5;
   var CHUNK_PURCHASE_ORDERS = 200;
   var coupangRocketPoCollector = {
@@ -5836,8 +5905,8 @@ var KidItemRuntime = (() => {
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       const parsed = CoupangRocketPoPlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
       const plan = parsed.data;
       try {
         const query = { searchDateType: plan.dateType, from: plan.from, to: plan.to, status: plan.status };
@@ -6055,16 +6124,16 @@ var KidItemRuntime = (() => {
   registerCollector(coupangRocketPoCollector);
 
   // extensions/src/collectors/orders.coupang_shipment_summary/index.ts
-  var PlanSchema = external_exports.object({ maxPages: external_exports.number().int().min(1).max(60) });
+  var PlanSchema2 = external_exports.object({ maxPages: external_exports.number().int().min(1).max(60) });
   var PAGE_FETCH_CONCURRENCY = 6;
-  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
   var coupangShipmentSummaryCollector = {
     kind: COUPANG_SHIPMENT_SUMMARY_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed = PlanSchema.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      const parsed = PlanSchema2.safeParse(rawPlan);
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
       const { maxPages } = parsed.data;
       try {
         const seen = /* @__PURE__ */ new Set();
@@ -6137,22 +6206,22 @@ var KidItemRuntime = (() => {
   registerCollector(coupangShipmentSummaryCollector);
 
   // extensions/src/collectors/orders.mall_orders/index.ts
-  var PlanSchema2 = external_exports.object({
+  var PlanSchema3 = external_exports.object({
     mallKey: external_exports.string().min(1),
     collectionDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/).nullable(),
     selectionMode: external_exports.enum(["manual", "automatic"]).optional(),
     seenRowKeys: external_exports.array(external_exports.string()).optional()
   });
-  var CHUNK_ROWS = 200;
-  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
+  var CHUNK_ROWS2 = 200;
+  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
   var mallOrdersCollector = {
     kind: MALL_ORDERS_KIND,
     site: "mall-orders",
     async *collect(rawPlan, site, { signal }) {
-      const parsed = PlanSchema2.safeParse(rawPlan);
+      const parsed = PlanSchema3.safeParse(rawPlan);
       const reader = parsed.success && site ? site.reader(parsed.data.mallKey) : null;
       if (!parsed.success || !reader) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ORDERS_KIND,
           mallKey: parsed.success ? parsed.data.mallKey : null
         });
@@ -6167,7 +6236,7 @@ var KidItemRuntime = (() => {
         });
         if (signal.aborted) return;
         const progress4 = { mallKey: plan.mallKey, rows: rows.length };
-        const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS, label: "\uC8FC\uBB38 \uD55C \uAC74" });
+        const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS2, label: "\uC8FC\uBB38 \uD55C \uAC74" });
         for (const row of rows) {
           const full = buffer.push(row);
           if (full) yield { chunkKind: MALL_ORDERS_CHUNK_KIND, payload: full, progress: progress4 };
@@ -6183,23 +6252,23 @@ var KidItemRuntime = (() => {
   registerCollector(mallOrdersCollector);
 
   // extensions/src/collectors/orders.sellpia_shipment_tracking/index.ts
-  var PlanSchema3 = external_exports.object({
+  var PlanSchema4 = external_exports.object({
     startDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/),
     endDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/)
   });
-  var CHUNK_ROWS2 = 500;
-  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
+  var CHUNK_ROWS3 = 500;
+  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
   var sellpiaShipmentTrackingCollector = {
     kind: SELLPIA_SHIPMENT_TRACKING_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
-      const parsed = PlanSchema3.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      const parsed = PlanSchema4.safeParse(rawPlan);
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
       const { rows, total } = await site.shipmentTracking({ startDate: parsed.data.startDate, endDate: parsed.data.endDate });
       if (signal.aborted) return;
       const progress4 = { rows: rows.length, listed: total };
-      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS2, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS3, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
       for (const row of rows) {
         const full = buffer.push(row);
         if (full) yield { chunkKind: SELLPIA_SHIPMENT_TRACKING_CHUNK_KIND, payload: full, progress: progress4 };
@@ -6210,52 +6279,25 @@ var KidItemRuntime = (() => {
   };
   registerCollector(sellpiaShipmentTrackingCollector);
 
-  // packages/shared/src/schemas/sellpia-operations.ts
-  var SELLPIA_LOGIN_LOCK_KEY = resourceLockKey("sellpia", "login");
-  var SELLPIA_INVENTORY_KIND = "products.sellpia_inventory";
-  var isoDay3 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/, "YYYY-MM-DD");
-  var SellpiaInventoryScopeSchema = external_exports.object({
-    trigger: external_exports.string().trim().min(1).max(64).optional()
-  }).strict();
-  var SellpiaSalesScopeSchema = external_exports.object({
-    startDate: isoDay3.optional(),
-    endDate: isoDay3.optional()
-  }).strict().refine((value) => !value.startDate || !value.endDate || value.startDate <= value.endDate, "\uC2DC\uC791\uC77C\uC774 \uC885\uB8CC\uC77C\uBCF4\uB2E4 \uB2A6\uC2B5\uB2C8\uB2E4");
-  var SellpiaProductProfitabilityScopeSchema = external_exports.object({
-    normalizedSourceAvailabilityDate: isoDay3.optional()
-  }).strict();
-  var SellpiaManualMatchScopeSchema = external_exports.object({}).strict();
-  var SELLPIA_INVENTORY_CHUNK_KIND = "inventory_rows";
-  var SELLPIA_INVENTORY_MAX_ROWS = 2e4;
-  var SellpiaInventoryChunkHeaderSchema = external_exports.object({
-    source: external_exports.literal("sellpia_product_search"),
-    version: external_exports.literal(1),
-    rowCount: external_exports.number().int().min(1).max(SELLPIA_INVENTORY_MAX_ROWS)
-  }).strict();
-  var SellpiaInventoryResultSchema = external_exports.object({
-    rows: external_exports.number().int().nonnegative(),
-    products: external_exports.number().int().nonnegative()
-  }).strict();
-
   // extensions/src/collectors/products.sellpia_inventory/index.ts
-  var PlanSchema4 = external_exports.object({
+  var PlanSchema5 = external_exports.object({
     parserVersion: external_exports.literal("sellpia-inventory-v1"),
     sourceOrigin: external_exports.literal("https://kiditem.sellpia.com"),
     sourceAccountKey: external_exports.literal("kiditem")
   }).passthrough();
-  var CHUNK_ROWS3 = 5e3;
-  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
+  var CHUNK_ROWS4 = 5e3;
+  var RUNTIME_PLAN_INVALID8 = "RUNTIME_PLAN_INVALID";
   var sellpiaInventoryCollector = {
     kind: SELLPIA_INVENTORY_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
-      const parsed = PlanSchema4.safeParse(rawPlan);
-      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC140\uD53C\uC544 \uC7AC\uACE0 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
+      const parsed = PlanSchema5.safeParse(rawPlan);
+      if (!parsed.success) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC140\uD53C\uC544 \uC7AC\uACE0 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
       const { rows } = await site.inventory();
       if (signal.aborted) return;
       const progress4 = { rows: rows.length };
-      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS3, label: "\uC140\uD53C\uC544 \uC0C1\uD488 \uD55C \uC904" });
+      const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS4, label: "\uC140\uD53C\uC544 \uC0C1\uD488 \uD55C \uC904" });
       for (const item of [{ source: "sellpia_product_search", version: 1, rowCount: rows.length }, ...rows]) {
         const full = buffer.push(item);
         if (full) yield { chunkKind: SELLPIA_INVENTORY_CHUNK_KIND, payload: full, progress: progress4 };
@@ -7403,14 +7445,14 @@ var KidItemRuntime = (() => {
   async function readPurchaseOrderListPage(page, path, pageNumber) {
     const fetched = await page.fetch(path, { headers: { accept: "application/json" } });
     const text2 = fetched.text;
-    const failed2 = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
+    const failed3 = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
     if (fetched.status === 400 || fetched.status === 413 || fetched.status === 431) throw cookieBloat(path, fetched.status);
-    if (fetched.status < 200 || fetched.status >= 300 || text2.trim().charAt(0) === "<") throw failed2();
+    if (fetched.status < 200 || fetched.status >= 300 || text2.trim().charAt(0) === "<") throw failed3();
     let parsed;
     try {
       parsed = JSON.parse(text2);
     } catch {
-      throw failed2();
+      throw failed3();
     }
     const body = parsed?.body;
     if (!body || !Array.isArray(body.body)) throw responseInvalid(path, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC5D0 \uD589 \uBC30\uC5F4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
@@ -8196,11 +8238,46 @@ var KidItemRuntime = (() => {
     return new RuntimeError(SITE_REQUEST_FAILED, message, { url: SELLPIA_INVENTORY_URL, bodyHead: null, ...details });
   }
 
+  // extensions/src/sites/sellpia/sales.ts
+  var SELLPIA_SALES_URL = `${SELLPIA_ORIGIN}/sale_summary.html?mode=main_link`;
+  var SELLPIA_SALES_FILE = "content/orders/sellpia-sales.js";
+  var QUERY_TIMEOUT_MS2 = 6e4;
+  function createSellpiaSales(tabs) {
+    return {
+      sales(input) {
+        return withFreshTab(tabs, SELLPIA_SALES_URL, async (page) => {
+          const answer = await callPage(page, "sellpia.sales", { startDate: input.startDate, endDate: input.endDate }, {
+            timeoutMs: QUERY_TIMEOUT_MS2,
+            guard: SELLPIA_PAGE_GUARD,
+            main: [SELLPIA_SALES_FILE],
+            displayName: "\uC140\uD53C\uC544"
+          });
+          switch (answer?.status) {
+            case "ok":
+              return { rows: answer.rows, sellers: answer.sellers };
+            case "login_required":
+              throw new RuntimeError(SITE_LOGIN_REQUIRED, SELLPIA_PAGE_GUARD.loginMessage, { url: SELLPIA_SALES_URL });
+            case "http_error":
+              throw failed2(`\uC140\uD53C\uC544 \uD310\uB9E4\uD604\uD669 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, { status: answer.httpStatus, reason: "http" });
+            case "unexpected_response":
+              throw failed2("\uC140\uD53C\uC544 \uD310\uB9E4\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json", detail: answer.reason ?? null });
+            default:
+              throw failed2("\uC140\uD53C\uC544 \uD310\uB9E4\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json" });
+          }
+        });
+      }
+    };
+  }
+  function failed2(message, details) {
+    return new RuntimeError(SITE_REQUEST_FAILED, message, { url: SELLPIA_SALES_URL, bodyHead: null, ...details });
+  }
+
   // extensions/src/sites/sellpia/index.ts
   function createSellpiaSite(tabs) {
     return {
       ...createSellpiaTracking(tabs),
-      ...createSellpiaInventory(tabs)
+      ...createSellpiaInventory(tabs),
+      ...createSellpiaSales(tabs)
     };
   }
   registerSite({ name: "sellpia", opensOwnTabs: true, create: (deps) => createSellpiaSite(deps.tabs) });
@@ -8788,10 +8865,10 @@ var KidItemRuntime = (() => {
         try {
           return await caller.json(url, init);
         } catch (error) {
-          const failed2 = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
-          if (failed2 && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
+          const failed3 = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
+          if (failed3 && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
           const delay = READ_RETRY_DELAYS_MS[attempt];
-          if (!failed2) throw error;
+          if (!failed3) throw error;
           if (delay === void 0) throw withResponseHint(error);
           await deps.sleep(delay);
         }

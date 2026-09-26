@@ -449,19 +449,9 @@ describe('readiness Sellpia row', () => {
 });
 
 describe('readiness Sellpia sales card', () => {
-  const SALES_SOURCE_PATH = '/api/sellpia-sales/source';
-  const SALES_BEGIN_PATH = '/api/sellpia-sales/attempts';
+  // 셀피아 판매현황 = 실행 kind analytics.sellpia_sales(KID-361 J2).
+  const SALES_OPERATIONS_PATH = '/api/operations?kinds=analytics.sellpia_sales&limit=20';
   const SALES_RANGE = { from: '2026-07-12', to: '2026-07-15' };
-  const SALES_DATES = ['2026-07-12', '2026-07-13', '2026-07-14', '2026-07-15'];
-  const salesPlan = {
-    sourceType: 'sellpia_sales_daily',
-    parserVersion: 'sellpia-sales-v1',
-    sourceOrigin: 'https://kiditem.sellpia.com',
-    sourcePath: '/sale_summary.html?mode=main_link',
-    sourceAccountKey: 'kiditem',
-    range: SALES_RANGE,
-    businessDates: SALES_DATES,
-  };
   const salesCheck = {
     key: 'wing_sales',
     label: 'Wing 매출',
@@ -482,44 +472,31 @@ describe('readiness Sellpia sales card', () => {
   } as unknown as ReadinessCheck;
 
   it('collects the missing dates through the shared Sellpia sales control, not the readiness handler', async () => {
-    let salesSource: Record<string, unknown> = { latestAttempt: null, latestComplete: null };
-    vi.mocked(detectOrderCollectionExtensionId).mockResolvedValue(EXTENSION_ID);
-    vi.mocked(apiClient.getParsed).mockImplementation(async (path: string) => {
-      if (path === SALES_SOURCE_PATH) return salesSource;
-      throw new Error(`unexpected GET ${path}`);
-    });
-    extensionReplies.collectSellpiaSaleSummary = () => new Promise(() => undefined);
-    vi.mocked(apiClient.post).mockImplementation(async (path: string) => {
-      if (path === '/api/auth/extension-handoff') return { token: 'a'.repeat(43) };
-      if (path !== SALES_BEGIN_PATH) throw new Error(`unexpected POST ${path}`);
-      salesSource = {
-        latestAttempt: {
-          attemptId: ATTEMPT_ID,
-          state: 'RUNNING',
-          plan: salesPlan,
-          expiresAt: '2099-01-01T00:00:00.000Z',
+    statuses[SALES_OPERATIONS_PATH] = { operations: [] };
+    extensionReplies.ping = () => ({ success: true, capabilities: { operationRuntime: true, sellpiaOperationKindsV1: true } });
+    extensionReplies['operation.start'] = () => {
+      statuses[SALES_OPERATIONS_PATH] = {
+        operations: [{
+          id: ATTEMPT_ID,
+          kind: 'analytics.sellpia_sales',
+          status: 'executing',
+          lockKeys: ['resource:sellpia:login'],
+          plan: {},
+          progress: null,
+          result: null,
+          window: { start: SALES_RANGE.from, end: SALES_RANGE.to },
           errorCode: null,
           errorMessage: null,
-        },
-        latestComplete: null,
+          startedAt: '2026-07-15T01:00:00.000Z',
+          finishedAt: null,
+          expiresAt: '2099-01-01T00:00:00.000Z',
+          attempts: 1,
+          maxAttempts: 1,
+          scheduledFor: null,
+        }],
       };
-      return {
-        attemptId: ATTEMPT_ID,
-        sourceType: 'sellpia_sales_daily',
-        state: 'RUNNING',
-        expiresAt: '2099-01-01T00:00:00.000Z',
-        plan: salesPlan,
-        actualCutoffAt: null,
-        completedAt: null,
-        contentChecksum: null,
-        contentByteCount: null,
-        rowCount: 0,
-        sellerCount: 0,
-        businessDates: SALES_DATES,
-        errorCode: null,
-        errorMessage: null,
-      };
-    });
+      return { success: true, operationId: ATTEMPT_ID, reused: false };
+    };
     const onCollect = vi.fn();
     renderRow(<ActionCheckCard check={salesCheck} onCollect={onCollect} pending={false} />);
     const start = await screen.findByRole('button', { name: '매출 받기' });
@@ -528,13 +505,9 @@ describe('readiness Sellpia sales card', () => {
     fireEvent.click(start);
 
     expect(await screen.findByText('수집 중 · 2026-07-12 ~ 2026-07-15')).toBeInTheDocument();
-    expect(
-      vi.mocked(apiClient.post).mock.calls.filter(([path]) => path === SALES_BEGIN_PATH),
-    ).toEqual([[
-      SALES_BEGIN_PATH,
-      { range: SALES_RANGE },
-      { headers: { 'Idempotency-Key': expect.stringMatching(UUID) } },
-    ]]);
+    expect(vi.mocked(sendToExtension).mock.calls.filter(([, message]) => (message as { action: string }).action === 'operation.start')).toEqual([
+      [EXTENSION_ID, { action: 'operation.start', kind: 'analytics.sellpia_sales', scope: { startDate: SALES_RANGE.from, endDate: SALES_RANGE.to } }, 60_000],
+    ]);
     expect(onCollect).not.toHaveBeenCalled();
   });
 });

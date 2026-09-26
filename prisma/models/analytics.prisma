@@ -6,6 +6,8 @@ model SellpiaSalesDailySnapshot {
   id                String   @id @default(uuid()) @db.Uuid
   organizationId    String   @map("organization_id") @db.Uuid
   sourceImportRunId String?  @map("source_import_run_id") @db.Uuid
+  /// 이 줄을 쓴 셀피아 매출 실행(`analytics.sellpia_sales`, ADR-0025). 실행 표를 가리키는 스칼라 id(FK 없음). 옛 run 줄은 null.
+  operationId       String?  @map("operation_id") @db.Uuid
   businessDate      DateTime @map("business_date") @db.Date
 
   sellerId     String @map("seller_id") // Sellpia 판매처 id (예 "129")
@@ -23,9 +25,11 @@ model SellpiaSalesDailySnapshot {
   organization    Organization     @relation(fields: [organizationId], references: [id], onDelete: Cascade)
   sourceImportRun SourceImportRun? @relation("SellpiaSalesSource", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
-  @@unique([organizationId, sourceImportRunId, businessDate, sellerId], map: "sellpia_sales_daily_source_run_key", where: raw("source_import_run_id IS NOT NULL"))
-  @@unique([organizationId, businessDate, sellerId], map: "sellpia_sales_daily_legacy_key", where: raw("source_import_run_id IS NULL"))
+  // 창 바꿔 쓰기(KID-361): 실행 finish가 창 안 줄을 지우고 다시 넣으므로 실행이 쓴 줄은 조직·일자·판매처마다 하나다.
+  // 옛 run 줄(operation_id null)은 이관하지 않아 이 unique 밖에 둔다.
+  @@unique([organizationId, businessDate, sellerId], map: "sellpia_sales_daily_operation_key", where: raw("operation_id IS NOT NULL"))
   @@index([organizationId, sourceImportRunId, businessDate])
+  @@index([operationId])
   @@index([organizationId, businessDate])
   @@index([organizationId, channelGroup, businessDate])
   @@map("sellpia_sales_daily_snapshots")

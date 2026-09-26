@@ -99,25 +99,6 @@ const mallAdminListingsSourceOwner = KidItemMallAdminListingsSourceOwner.create(
   collect: mallAdminListings.collect,
   mallName: mallAdminListings.mallName,
 });
-const sellpiaSalesCollector = KidItemSellpiaSalesCollector.create({
-  chrome,
-  waitForTabReady,
-  withTimeout,
-  isMallAccessError,
-  mallAccessErrorResult,
-  mallGenericErrorResult,
-});
-const sellpiaSalesSourceOwner = KidItemSellpiaSalesSourceOwner.create({
-  chrome,
-  sessions: collectionSessions,
-  request: (environmentId, path, init) => sourceOwnerEnvironmentContext.authedFetch(environmentId, path, init),
-  collect: ({ plan, ...collection }) => sellpiaSalesCollector.collect({
-    startDate: plan.range.from,
-    endDate: plan.range.to,
-    collection,
-    keepTabOnLoginError: true,
-  }),
-});
 const sellpiaProductProfitCollector = KidItemSellpiaProductProfitCollector.create({
   chrome,
   waitForTabReady,
@@ -207,9 +188,6 @@ async function cancelOrdersCollectionSession(attemptId, environmentId) {
     : fencedSession?.session?.producer
       ? fencedSession.session
       : await collectionSessions.getOwned(attemptId, environmentId);
-  if (session?.producer === "orders.sellpia_sales") {
-    return sellpiaSalesSourceOwner.cancel({ attemptId, environmentId });
-  }
   if (session?.producer === "orders.sellpia_product_profitability") {
     return sellpiaProductProfitabilitySourceOwner.cancel({ attemptId, environmentId });
   }
@@ -235,7 +213,6 @@ async function cancelOrdersCollectionSession(attemptId, environmentId) {
 // touching other Orders or Inventory sessions.
 async function recoverOrdersCollections(environmentId) {
   const owners = [
-    sellpiaSalesSourceOwner,
     sellpiaProductProfitabilitySourceOwner,
     sellpiaManualMatchSourceOwner,
   ];
@@ -5625,12 +5602,6 @@ async function scrapeDomeggookShipUpload(fileBase64, fileName, tar) {
 KidItemDomains.register({
   producerPrefixes: ["orders", "inventory"],
   externalActions: {
-    collectSellpiaSaleSummary: {
-      validate: KidItemSellpiaSalesSourceOwner.parseAction,
-      handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
-        sellpiaSalesSourceOwner.run({ attemptId, environmentId }),
-      ),
-    },
     collectSellpiaProductProfit: {
       validate: KidItemSellpiaProductProfitabilitySourceOwner.parseAction,
       handle: ({ attemptId }, environmentId) => KidItemWorkerKeepAlive.during(
@@ -5661,8 +5632,6 @@ KidItemDomains.register({
     clearCoupangCookies: true,
     boriboriOrders: true,
     collectKakaoOrders: true,
-    collectSellpiaSaleSummary: true,
-    collectSellpiaSaleSummaryAuthoritativeV1: true,
     collectSellpiaProductProfit: true,
     collectSellpiaProductProfitEvidenceV2: true,
     sellpiaProductProfitabilitySourceOwnerV1: true,

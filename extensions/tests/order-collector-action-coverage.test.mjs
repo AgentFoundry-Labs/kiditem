@@ -303,8 +303,6 @@ test('order worker imports failure evidence, session lifecycle, and focused Sell
   );
   assert.doesNotMatch(worker, /^importScripts\(/m);
   assert.match(worker, /browserCollectionSessions:\s*true/);
-  assert.match(worker, /collectSellpiaSaleSummary:\s*true/);
-  assert.match(worker, /collectSellpiaSaleSummaryAuthoritativeV1:\s*true/);
   assert.match(worker, /collectSellpiaProductProfit:\s*true/);
   assert.match(worker, /collectSellpiaProductProfitEvidenceV2:\s*true/);
   assert.match(worker, /sellpiaProductProfitabilitySourceOwnerV1:\s*true/);

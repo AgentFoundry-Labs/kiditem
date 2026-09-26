@@ -1,9 +1,11 @@
 import { registerSite } from '../registry';
 import type { TabPages } from '../tab-page';
 import { createSellpiaInventory } from './inventory';
+import { createSellpiaSales } from './sales';
 import { createSellpiaTracking } from './tracking';
 
 export { SELLPIA_INVENTORY_FILE, SELLPIA_INVENTORY_URL, type SellpiaInventoryRow } from './inventory';
+export { SELLPIA_SALES_FILE, SELLPIA_SALES_URL, type SellpiaSalesRow } from './sales';
 export { SELLPIA_ORIGIN, SELLPIA_PAGE_GUARD, SELLPIA_REPRINT_URL, SELLPIA_SHIPMENT_TRACKING_FILE, type SellpiaTrackingRow } from './tracking';
 
 /**
@@ -16,6 +18,7 @@ export function createSellpiaSite(tabs: TabPages) {
   return {
     ...createSellpiaTracking(tabs),
     ...createSellpiaInventory(tabs),
+    ...createSellpiaSales(tabs),
   };
 }
 

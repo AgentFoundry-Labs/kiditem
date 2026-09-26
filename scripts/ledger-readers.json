@@ -104,8 +104,8 @@
       ],
       "ownerPublications": [
         {
-          "path": "apps/server/src/analytics/sellpia-sales/sellpia-sales-source.service.ts",
-          "reason": "Stages and validates daily facts, writes per-date coverage evidence, and publishes the completed Sellpia sales generation atomically."
+          "path": "apps/server/src/analytics/sellpia-sales/sellpia-sales-publication.repository.ts",
+          "reason": "Replaces the operation window's daily facts inside the analytics.sellpia_sales finish transaction (KID-361)."
         }
       ],
       "legacyReaders": []

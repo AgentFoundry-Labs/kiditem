@@ -1,28 +1,12 @@
 import {
   BadRequestException,
-  Body,
   Controller,
   Get,
-  Headers,
-  HttpCode,
-  NotFoundException,
-  Param,
-  ParseUUIDPipe,
-  Post,
   Query,
 } from '@nestjs/common';
-import type { SellpiaSalesSourceStatus } from '@kiditem/shared/dashboard';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 import { SellpiaSalesService, parseCalendarDate } from './sellpia-sales.service';
-import {
-  SellpiaSalesIngestBodyDto,
-  SellpiaSalesQueryDto,
-  SellpiaSalesSourceFailureDto,
-} from './dto/sellpia-sales.dto';
-import {
-  normalizeSellpiaSalesSourceRequest,
-  SellpiaSalesSourceService,
-} from './sellpia-sales-source.service';
+import { SellpiaSalesQueryDto } from './dto/sellpia-sales.dto';
 import type {
   SellpiaSalesSummary,
 } from '@kiditem/shared/dashboard';
@@ -33,87 +17,10 @@ import {
   shiftBusinessDateKey,
 } from '../../common/kst';
 
+// 수집은 실행 kind `analytics.sellpia_sales`(ADR-0025, KID-361) — 시작·진행·중단은 `/api/operations`가 맡는다.
 @Controller('sellpia-sales')
 export class SellpiaSalesController {
-  constructor(
-    private readonly service: SellpiaSalesService,
-    private readonly source: SellpiaSalesSourceService,
-  ) {}
-
-  @Post('attempts')
-  beginAttempt(
-    @Body() rawBody: unknown,
-    @Headers('idempotency-key') idempotencyKey: string | undefined,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.source.beginAttempt(
-      organizationId,
-      idempotencyKey,
-      normalizeSellpiaSalesSourceRequest(rawBody),
-    );
-  }
-
-  @Get('attempts/:attemptId')
-  async readAttempt(
-    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    const attempt = await this.source.readAttempt(organizationId, attemptId);
-    if (!attempt) throw new NotFoundException('SELLPIA_SALES_ATTEMPT_NOT_FOUND');
-    return attempt;
-  }
-
-  @Get('attempts/:attemptId/control')
-  async readAttemptControl(
-    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    const attempt = await this.source.readAttemptControl(organizationId, attemptId);
-    if (!attempt) throw new NotFoundException('SELLPIA_SALES_ATTEMPT_NOT_FOUND');
-    return attempt;
-  }
-
-  @Post('attempts/:attemptId/complete')
-  completeAttempt(
-    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
-    @Headers('x-source-attempt-token') attemptToken: string | undefined,
-    @Body() body: SellpiaSalesIngestBodyDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    if (!attemptToken) throw new BadRequestException('INVALID_SOURCE_ATTEMPT_TOKEN');
-    return this.source.completeAttempt(organizationId, attemptId, attemptToken, body);
-  }
-
-  @Post('attempts/:attemptId/fail')
-  failAttempt(
-    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
-    @Headers('x-source-attempt-token') attemptToken: string | undefined,
-    @Body() body: SellpiaSalesSourceFailureDto,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    if (!attemptToken) throw new BadRequestException('INVALID_SOURCE_ATTEMPT_TOKEN');
-    return this.source.failAttempt(
-      organizationId,
-      attemptId,
-      attemptToken,
-      body.errorCode,
-      body.errorMessage,
-    );
-  }
-
-  @Post('attempts/:attemptId/cancel')
-  @HttpCode(200)
-  cancelAttempt(
-    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
-    @CurrentOrganization() organizationId: string,
-  ) {
-    return this.source.cancelAttempt(organizationId, attemptId);
-  }
-
-  @Get('source')
-  readSourceStatus(@CurrentOrganization() organizationId: string): Promise<SellpiaSalesSourceStatus> {
-    return this.source.readSourceStatus(organizationId);
-  }
+  constructor(private readonly service: SellpiaSalesService) {}
 
   // 대시보드 '몰별 매출' read. 기본 범위는 현재 KST 월의 닫힌 날짜만 포함한다.
   @Get()

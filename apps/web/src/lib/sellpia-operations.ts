@@ -96,14 +96,17 @@ export function sellpiaOperationState(status: OperationListResponse | undefined)
  * 공용 수집 컨트롤에 거는 셀피아 실행 kind 하나. 시작 = 확장 `operation.start`, 중단 = 확장 `operation.cancel` →
  * 서버 cancel. 성공한 실행이 새로 보이면 `onNewComplete`로 그 kind가 발행한 읽기를 새로 한다.
  */
-export function sellpiaOperationControl(options: Readonly<{
+export function sellpiaOperationControl<TInput = void>(options: Readonly<{
   kind: OperationKind;
   sourceKey: string;
   label: string;
-  scope: () => Record<string, unknown>;
+  /** 시작 입력(화면이 넘긴 범위 등) → 실행 scope. */
+  scope: (input: TInput) => Record<string, unknown>;
+  /** 도는 실행의 범위 표시(예: 매출 창). */
+  scopeLabel?: (operation: OperationView) => string | null;
   onNewComplete: (queryClient: QueryClient) => void;
   enabled?: boolean;
-}>): CollectionSourceAdapter<OperationListResponse> {
+}>): CollectionSourceAdapter<OperationListResponse, TInput> {
   return {
     sourceKey: options.sourceKey,
     label: options.label,
@@ -117,9 +120,9 @@ export function sellpiaOperationControl(options: Readonly<{
     }),
     readRunning: (status) => {
       const { running } = sellpiaOperationState(status);
-      return running ? { attemptId: running.id, scopeLabel: null } : null;
+      return running ? { attemptId: running.id, scopeLabel: options.scopeLabel?.(running) ?? null } : null;
     },
-    start: () => startSellpiaOperation(options.kind, options.scope()),
+    start: (input) => startSellpiaOperation(options.kind, options.scope(input)),
     readProgress: (status) => {
       const { running } = sellpiaOperationState(status);
       return running ? `${running.id}:${JSON.stringify(running.progress ?? null)}` : null;
