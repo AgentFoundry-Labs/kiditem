@@ -11,6 +11,7 @@ import {
 } from '@/lib/extension-bridge';
 import { queryKeys } from '@/lib/query-keys';
 import { resolveWingTrafficCollectionRange } from '../hooks/use-wing-traffic-collection';
+import { wingTrafficSourceQueryKey } from '../lib/wing-traffic-collection';
 import { WingDailyTrafficCollection } from './WingDailyTrafficCollection';
 
 vi.mock('@/lib/api-client', () => ({ apiClient: { get: vi.fn(), post: vi.fn() } }));
@@ -108,6 +109,10 @@ beforeEach(() => {
   });
   vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
     if (path === OPERATIONS_PATH) return { operations };
+    if (path.startsWith('/api/operations/')) {
+      const found = operations.find((entry) => entry.id === path.slice('/api/operations/'.length));
+      if (found) return { operation: found };
+    }
     if (path === ACCOUNTS_PATH) {
       return [{ id: ACCOUNT_ID, channel: 'coupang', name: 'Wing', externalAccountId: null, vendorId: 'A123', sellerId: null, isPrimary: true }];
     }
@@ -280,6 +285,17 @@ describe('WingDailyTrafficCollection', () => {
     renderControl();
 
     expect(await screen.findByText(/2일 확인 · 대상 7일/)).toBeInTheDocument();
+  });
+
+  it('while a run is live it re-reads only that run by id, and the account read is not repeated (S3)', async () => {
+    operations = [operation('executing')];
+    const view = renderControl();
+    expect(await screen.findByRole('button', { name: '수집 중단' })).toBeEnabled();
+    vi.mocked(apiClient.get).mockClear();
+
+    await act(() => view.client.refetchQueries({ queryKey: wingTrafficSourceQueryKey }));
+
+    expect(vi.mocked(apiClient.get).mock.calls.map(([path]) => path)).toEqual([`/api/operations/${OPERATION_ID}`]);
   });
 
   it('names a failed operation with its operator sentence', async () => {

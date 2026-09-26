@@ -6,14 +6,19 @@
 
 import { z } from 'zod';
 import { WING_ITEMWINNER_KIND } from '@kiditem/shared/advertising-operations';
-import { OperationListResponseSchema, type OperationListResponse, type OperationView } from '@kiditem/shared/operation';
+import type { OperationListResponse, OperationView } from '@kiditem/shared/operation';
 import type { QueryKey } from '@tanstack/react-query';
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
 import { queryKeys } from '@/lib/query-keys';
-import { WING_DAILY_OPERATION_CAPABILITY, resolvePrimaryCoupangAccountId } from '@/lib/wing-daily-operations';
+import {
+  WING_DAILY_OPERATION_CAPABILITY,
+  isLiveOperation,
+  refreshedOperations,
+  resolvePrimaryCoupangAccountId,
+} from '@/lib/wing-daily-operations';
 
 const RUNNING_POLL_MS = 2_000;
 /** 최근 실행 몇 개를 읽는다. 첫 행이 가장 최근 실행이다. */
@@ -22,9 +27,7 @@ const OPERATIONS_PATH = `/api/operations?kinds=${WING_ITEMWINNER_KIND}&limit=${R
 
 const PlanSchema = z.object({ businessDate: z.string() }).passthrough();
 
-function live(operation: OperationView): boolean {
-  return operation.status === 'executing' || operation.status === 'prepared';
-}
+const live = isLiveOperation;
 
 /** 가장 최근 아이템위너 실행(끝났거나 도는 것). */
 export function latestItemwinnerOperation(status: OperationListResponse | undefined): OperationView | null {
@@ -37,7 +40,7 @@ export const wingItemwinnerCollection: CollectionSourceAdapter<OperationListResp
   label: 'Wing 아이템위너',
   statusQuery: collectionSourceStatusQueryOptions<OperationListResponse, Error, OperationListResponse, QueryKey>({
     queryKey: queryKeys.ads.itemwinnerOperations(),
-    queryFn: async () => OperationListResponseSchema.parse(await apiClient.get(OPERATIONS_PATH)),
+    queryFn: async ({ client }) => ({ operations: await refreshedOperations(client, queryKeys.ads.itemwinnerOperations(), OPERATIONS_PATH) }),
     refetchInterval: (query) => ((query.state.data?.operations ?? []).some(live) ? RUNNING_POLL_MS : false),
     meta: { suppressGlobalErrorToast: true },
   }),

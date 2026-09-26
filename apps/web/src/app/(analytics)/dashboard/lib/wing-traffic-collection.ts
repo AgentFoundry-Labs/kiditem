@@ -6,8 +6,8 @@
 
 import { WING_TRAFFIC_KIND, WingTrafficProgressSchema, WingTrafficResultSchema } from '@kiditem/shared/advertising-operations';
 import { businessDateKey, evidenceCutoffDate } from '@kiditem/shared/common';
-import { OperationListResponseSchema, type OperationView } from '@kiditem/shared/operation';
-import type { QueryKey } from '@tanstack/react-query';
+import type { OperationView } from '@kiditem/shared/operation';
+import type { QueryClient, QueryKey } from '@tanstack/react-query';
 import { z } from 'zod';
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
@@ -17,8 +17,13 @@ import { queryKeys } from '@/lib/query-keys';
 import {
   WING_COUPANG_ACCOUNT_REQUIRED,
   WING_DAILY_OPERATION_CAPABILITY,
+  isLiveOperation,
+  primaryCoupangAccountId,
   readPrimaryCoupangAccountId,
+  refreshedOperations,
 } from '@/lib/wing-daily-operations';
+
+export { isLiveOperation };
 
 export type WingTrafficRange = Readonly<{ startDate: string; endDate: string }>;
 
@@ -55,10 +60,6 @@ export function formatWingTrafficRange(range: WingTrafficRange): string {
   return `${range.startDate} ~ ${range.endDate}`;
 }
 
-export function isLiveOperation(operation: OperationView): boolean {
-  return operation.status === 'executing' || operation.status === 'prepared';
-}
-
 export function wingTrafficRun(operation: OperationView | null | undefined): WingTrafficRun | null {
   if (!operation) return null;
   const plan = PlanSchema.safeParse(operation.plan);
@@ -80,15 +81,17 @@ export function wingTrafficReady(status: WingTrafficStatus | undefined): boolean
   return !!status && result.success && result.data.confirmedDates.includes(status.knownThrough);
 }
 
-async function readWingTrafficStatus(): Promise<WingTrafficStatus> {
-  const [channelAccountId, list] = await Promise.all([
-    readPrimaryCoupangAccountId(),
-    apiClient.get<unknown>(OPERATIONS_PATH).then((body) => OperationListResponseSchema.parse(body)),
+const STATUS_QUERY_KEY = [...wingTrafficSourceQueryKey, 'primary'] as const;
+
+async function readWingTrafficStatus(client: QueryClient): Promise<WingTrafficStatus> {
+  const [channelAccountId, operations] = await Promise.all([
+    primaryCoupangAccountId(client),
+    refreshedOperations(client, STATUS_QUERY_KEY, OPERATIONS_PATH),
   ]);
   return {
     knownThrough: businessDateKey(evidenceCutoffDate()),
     channelAccountId,
-    operations: list.operations.filter((operation) => operation.plan?.channelAccountId === channelAccountId),
+    operations: operations.filter((operation) => operation.plan?.channelAccountId === channelAccountId),
   };
 }
 
@@ -97,8 +100,8 @@ export const wingTrafficCollection: CollectionSourceAdapter<WingTrafficStatus, W
   sourceKey: WING_TRAFFIC_KIND,
   label: 'Wing 일별 트래픽',
   statusQuery: collectionSourceStatusQueryOptions<WingTrafficStatus, Error, WingTrafficStatus, QueryKey>({
-    queryKey: [...wingTrafficSourceQueryKey, 'primary'],
-    queryFn: readWingTrafficStatus,
+    queryKey: STATUS_QUERY_KEY,
+    queryFn: ({ client }) => readWingTrafficStatus(client),
     refetchInterval: (query) => ((query.state.data?.operations ?? []).some(isLiveOperation) ? RUNNING_POLL_MS : false),
     refetchIntervalInBackground: false,
     meta: { suppressGlobalErrorToast: true },

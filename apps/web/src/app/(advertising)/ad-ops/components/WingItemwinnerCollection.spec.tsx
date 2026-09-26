@@ -72,6 +72,10 @@ beforeEach(() => {
   });
   vi.mocked(apiClient.get).mockImplementation(async (path: string) => {
     if (path === OPERATIONS_PATH) return { operations };
+    if (path.startsWith('/api/operations/')) {
+      const found = operations.find((entry) => entry.id === path.slice('/api/operations/'.length));
+      if (found) return { operation: found };
+    }
     if (path === '/api/channels/accounts') {
       return [
         { id: '44444444-4444-4444-8444-444444444444', channel: 'naver', name: 'Naver', externalAccountId: null, vendorId: null, sellerId: null, isPrimary: true },
