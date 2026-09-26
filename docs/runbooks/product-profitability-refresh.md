@@ -69,10 +69,11 @@ dialog does not invent a pending ABC lifecycle.
 1. Sign in to the intended organization and Sellpia browser session. Keep the
    supported extension installed and enabled; the browser transports the
    original provider data and never writes canonical facts directly.
-2. Start the owner attempt from Product Hub **상품 전체 데이터 갱신** or the
-   existing Sellpia source-owner entrypoint. A lost page response is recovered
-   by reading the server attempt; do not start a second attempt to guess what
-   happened.
+2. Start the operation kind `analytics.sellpia_product_profitability` from
+   the Product Hub Sellpia product-profit control (the extension's
+   `operation.start`). A lost page response is recovered by reading the
+   operation (`GET /api/operations/:id`); the Sellpia login lock refuses a
+   second concurrent Sellpia operation.
 3. The server-owned plan covers the fixed 401 inclusive days ending KST
    yesterday. The current source parser is `sellpia-profitability-v2` and its
    provenance must be `sellpia_stat_prd_profit`,
@@ -81,13 +82,13 @@ dialog does not invent a pending ABC lifecycle.
    `total_in_amount`/`total_in_qty` evidence. Reconcile provider totals before
    terminal publication. Never distribute a monthly total across days, replace
    missing rows with zero, or substitute current purchase price times quantity.
-5. The owner validates identity, mapping generation, covered months, totals,
-   checksums, and the attempt token before atomically publishing the complete
-   generation. Unmapped valid rows remain auditable warnings; provider
+5. The owner's finalize validates identity, mapping generation, covered
+   months, totals, and checksums inside the finish transaction and publishes
+   the succeeded operation as one immutable generation. Unmapped valid rows remain auditable warnings; provider
    pagination/total/checksum/range failures fail the generation.
 
 Inventory stock and Sellpia product-profit facts remain separate owner outputs.
-An inventory failure must not suppress a profitability attempt, and a
+An inventory failure must not suppress a profitability operation, and a
 profitability failure must not blank the last complete inventory or profit
 read.
 
