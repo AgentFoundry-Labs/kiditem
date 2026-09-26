@@ -12,7 +12,11 @@ import {
   readLatestOperationOutcomes,
   type OperationOutcomeRow,
 } from '../common/operation/transaction/latest-operation-outcomes';
-import { OPERATION_FAILURE_HREFS, OPERATION_FAILURE_KINDS } from './operation-failure-sources';
+import {
+  OPERATION_FAILURE_HREFS,
+  OPERATION_FAILURE_IGNORED_CODES,
+  OPERATION_FAILURE_KINDS,
+} from './operation-failure-sources';
 
 export type { SourceFailureAlertInput } from '@kiditem/shared/alerts';
 
@@ -140,7 +144,11 @@ export class SourceFailureAlerts {
   /** 옮긴 kind의 실행 표에서 만든 알림(KID-355 정책 B). 읽음은 이 모듈 표의 `operation_failure` 행이 말한다. */
   private async operationFailures(organizationId: string): Promise<AlertItem[]> {
     const [outcomes, reads] = await Promise.all([
-      readLatestOperationOutcomes(this.prisma, { organizationId, kinds: OPERATION_FAILURE_KINDS }),
+      readLatestOperationOutcomes(this.prisma, {
+        organizationId,
+        kinds: OPERATION_FAILURE_KINDS,
+        ignoredErrorCodes: OPERATION_FAILURE_IGNORED_CODES,
+      }),
       this.prisma.alert.findMany({
         where: { organizationId, type: OPERATION_FAILURE_ALERT_TYPE, readAt: { not: null } },
         select: { attemptId: true },

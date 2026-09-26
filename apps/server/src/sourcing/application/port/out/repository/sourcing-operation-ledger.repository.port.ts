@@ -1,7 +1,6 @@
 import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 import type { AdmittedSourceRecord } from './source-record.repository.port';
 import type { AuthorizedCollectionOutput, SourcingCollectionPermit } from './sourcing-collection.repository.port';
-import type { SourcingBrowserSourceFailureAlert } from './sourcing-browser-source-attempt.repository.port';
 
 export const SOURCING_OPERATION_LEDGER_REPOSITORY_PORT = Symbol('SOURCING_OPERATION_LEDGER_REPOSITORY_PORT');
 
@@ -25,8 +24,8 @@ export interface SourcingOperationPublicationInput {
 }
 
 /**
- * 실행 계약 finish 트랜잭션(KID-360) 안에서 Sourcing 원장을 쓰는 persistence 조합. 원장 사실과 발행 이력,
- * 원천 실패 알림은 모두 이 한 트랜잭션에서 커밋된다 — 실행 행은 계약이, 원장은 이 포트가 쓴다.
+ * 실행 계약 finish 트랜잭션(KID-360) 안에서 Sourcing 원장을 쓰는 persistence 조합. 원장 사실과 발행 이력은
+ * 이 한 트랜잭션에서 커밋된다 — 실행 행은 계약이, 원장은 이 포트가 쓴다. 실패는 실행 행에만 남는다(KID-355).
  */
 export interface SourcingOperationLedgerRepositoryPort {
   /** 원천이 이 조직에 허용·켜짐인가(수집 설정). null이면 쓸 수 있다. */
@@ -37,6 +36,4 @@ export interface SourcingOperationLedgerRepositoryPort {
   countWingCatalogSnapshots(transaction: OwnerTransaction, organizationId: string, operationId: string): Promise<Map<string, number>>;
   /** 발행 1행을 쓰고 같은 대상의 이전 현재 발행을 내린다. */
   publish(transaction: OwnerTransaction, organizationId: string, operationId: string, publication: SourcingOperationPublicationInput): Promise<void>;
-  recordSourceFailure(transaction: OwnerTransaction, input: { organizationId: string; operationId: string; alert: SourcingBrowserSourceFailureAlert; code: string; message: string }): Promise<void>;
-  resolveSourceFailure(transaction: OwnerTransaction, input: { organizationId: string; operationId: string; alert: SourcingBrowserSourceFailureAlert }): Promise<void>;
 }

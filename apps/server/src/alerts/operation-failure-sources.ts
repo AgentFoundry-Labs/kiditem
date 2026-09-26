@@ -74,3 +74,9 @@ export const OPERATION_FAILURE_HREFS: Readonly<Record<string, string>> = {
 };
 
 export const OPERATION_FAILURE_KINDS: readonly string[] = Object.keys(OPERATION_FAILURE_HREFS);
+
+/**
+ * 실행은 실패로 닫혔지만 원천이 실패한 것이 아닌 코드 — 알림이 아니다(취소 `*_CANCELLED`와 같은 자리). 이미 수집한 원본을
+ * 다시 넣으려던 소싱 상품 수집(KID-313)은 옛 owner도 알림을 남기지 않았다.
+ */
+export const OPERATION_FAILURE_IGNORED_CODES: readonly string[] = ['SOURCING_DUPLICATE_RECORD'];

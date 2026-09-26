@@ -1,6 +1,5 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { sourcingWingCatalogKeywordIdentity } from '@kiditem/shared/sourcing';
-import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -9,7 +8,6 @@ import {
   SALES_PRODUCT_DRAFT_PORT,
   type SalesProductDraftPort,
 } from '../../../application/port/out/cross-domain/sales-product-draft.port';
-import type { SourcingBrowserSourceFailureAlert } from '../../../application/port/out/repository/sourcing-browser-source-attempt.repository.port';
 import type {
   AuthorizedCollectionOutput,
   SourcingCollectionPermit,
@@ -24,14 +22,13 @@ import { publishSourceSnapshot } from './sourcing-source-publication.repository.
 
 /**
  * 확장 구동 소싱 kind(KID-360)의 finish 트랜잭션 persistence. 원장 쓰기는 옛 attempt 종료와 같은
- * `persistBrowserSourceAttemptFacts`, 발행은 `publishSourceSnapshot`, 원천 실패 알림은 `SourceFailureAlerts`다.
- * 모두 계약이 넘긴 owner 트랜잭션에서 돈다.
+ * `persistBrowserSourceAttemptFacts`, 발행은 `publishSourceSnapshot`이고 모두 계약이 넘긴 owner 트랜잭션에서 돈다.
+ * 실패는 실행 행에만 남는다(알림 reader가 읽는다, KID-355 정책 B).
  */
 @Injectable()
 export class SourcingOperationLedgerRepositoryAdapter implements SourcingOperationLedgerRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly alerts: SourceFailureAlerts,
     @Inject(SALES_PRODUCT_DRAFT_PORT) private readonly drafts: SalesProductDraftPort,
   ) {}
 
@@ -92,33 +89,6 @@ export class SourcingOperationLedgerRepositoryAdapter implements SourcingOperati
       contentChecksum: publication.contentChecksum,
       qualityReport: publication.qualityReport,
       completedAt: publication.completedAt,
-    });
-  }
-
-  recordSourceFailure(
-    transaction: OwnerTransaction,
-    input: { organizationId: string; operationId: string; alert: SourcingBrowserSourceFailureAlert; code: string; message: string },
-  ): Promise<void> {
-    return this.alerts.recordTerminalOutcome(ownerTransactionClient(transaction), {
-      code: input.code,
-      organizationId: input.organizationId,
-      dedupeKey: input.alert.dedupeKey,
-      sourceType: input.alert.sourceType,
-      attemptId: input.operationId,
-      title: input.alert.title,
-      message: input.message,
-      href: input.alert.href,
-    });
-  }
-
-  resolveSourceFailure(
-    transaction: OwnerTransaction,
-    input: { organizationId: string; operationId: string; alert: SourcingBrowserSourceFailureAlert },
-  ): Promise<void> {
-    return this.alerts.resolveSourceFailure(ownerTransactionClient(transaction), {
-      organizationId: input.organizationId,
-      dedupeKey: input.alert.dedupeKey,
-      attemptId: input.operationId,
     });
   }
 }
