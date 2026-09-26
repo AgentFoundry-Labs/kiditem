@@ -7,7 +7,7 @@ import type { CoupangDirectPo } from './coupang-directship-api';
 
 const PATH = '/api/orders/collection/coupang-directship/snapshot';
 
-/** 저장한 스냅샷을 달력이 쓰는 CoupangDirectPo 형태로 되돌린다. */
+/** 달력 칸을 달력이 쓰는 CoupangDirectPo 형태로 되돌린다. */
 export function snapshotEntriesToPo(
   entries: readonly CoupangDirectPoSnapshotEntry[],
 ): CoupangDirectPo[] {
@@ -29,11 +29,23 @@ export function snapshotEntriesToPo(
   })) as CoupangDirectPo[];
 }
 
+/** 입고예정일 달력의 근거: 그 계정의 가장 최근 성공한 직배송 수집(없으면 `operationId: null`, KID-370). */
+export type CoupangDirectCalendarSnapshot = {
+  operationId: string | null;
+  collectedAt: string | null;
+  pos: CoupangDirectPo[];
+};
+
+/** 서버가 마지막 성공 캡처에서 읽어 준 달력. 읽기만 하고 수집을 시작하지 않는다. */
 export async function readCoupangDirectSnapshot(
   channelAccountId: string,
-): Promise<CoupangDirectPo[]> {
+): Promise<CoupangDirectCalendarSnapshot> {
   const res = await apiClient.get<CoupangDirectPoSnapshotResponse>(
     `${PATH}?channelAccountId=${encodeURIComponent(channelAccountId)}`,
   );
-  return snapshotEntriesToPo(res.entries ?? []);
+  return {
+    operationId: res.operationId ?? null,
+    collectedAt: res.collectedAt ?? null,
+    pos: snapshotEntriesToPo(res.entries ?? []),
+  };
 }

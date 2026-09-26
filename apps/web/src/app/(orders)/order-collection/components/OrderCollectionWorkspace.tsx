@@ -90,16 +90,7 @@ import {
 } from '../lib/order-tracking-actions';
 
 import { CoupangDirectCalendarModal } from './CoupangDirectCalendarModal';
-import type { CoupangDirectData, CoupangDirectPo } from '../lib/coupang-directship-api';
-import {
-  createCoupangDirectPoMemoryCache,
-  readCachedDirectshipPos,
-  readMemoryCachedDirectshipPos,
-  writeCachedDirectshipPos,
-  writeMemoryCachedDirectshipPos,
-  type CoupangDirectPoCacheScope,
-} from '../lib/coupang-directship-po-cache';
-import { readCoupangDirectSnapshot } from '../lib/coupang-directship-snapshot-api';
+import { useCoupangDirectshipCalendar } from '../hooks/use-coupang-directship-calendar';
 
 /** 오늘 주문은 수집이 끝나야 바뀐다. 원천 목록(2초)과 달리 자주 물을 이유가 없다. */
 const TODAY_ORDERS_POLL_MS = 60_000;
@@ -110,17 +101,6 @@ export function OrderCollectionWorkspace() {
   const sellpiaShipmentTracking = useSellpiaShipmentTracking();
   const showConfirm = useStore((store) => store.showConfirm);
   const historyRef = useRef<ConversionHistoryItem[]>([]);
-  // 쿠팡직배송은 바로 수집하지 않고 입고예정일 달력에서 처리할 날짜를 먼저 고른다.
-  const [directshipModal, setDirectshipModal] = useState<{
-    account: OrderCollectionMallAccount;
-    run: OrderCollectionExtensionRun | null;
-    pos: CoupangDirectPo[];
-    data: CoupangDirectData | null;
-    loading: boolean;
-  } | null>(null);
-  // 한 번 불러온 발주 목록은 들고 있는다. 달력을 다시 열 때 로딩을 보지 않게 하려는 것으로,
-  // 여는 즉시 캐시를 그리고 뒤에서 조용히 새로 받아 갱신한다.
-  const directshipPosRef = useRef(createCoupangDirectPoMemoryCache());
   const sellpiaTransmissionQueueRef = useRef<Promise<void>>(Promise.resolve());
   const [generatedFileActionLock] = useState(createGeneratedFileActionLock);
   const [state, setState] = useState<ConversionState>('idle');
@@ -153,21 +133,6 @@ export function OrderCollectionWorkspace() {
   const selectedRocketAccount = rocketAccounts.find(
     ({ id }) => id === selectedRocketAccountId,
   ) ?? rocketAccounts[0] ?? null;
-  const directshipCacheScope = useMemo<CoupangDirectPoCacheScope | null>(() => {
-    if (!user?.organizationId || !selectedRocketAccount?.id) return null;
-    return {
-      organizationId: user.organizationId,
-      channelAccountId: selectedRocketAccount.id,
-    };
-  }, [selectedRocketAccount?.id, user?.organizationId]);
-  const cachedDirectshipPos = (): CoupangDirectPo[] => {
-    if (!directshipCacheScope) return [];
-    const memory = readMemoryCachedDirectshipPos(directshipPosRef.current, directshipCacheScope);
-    if (memory) return memory;
-    const stored = readCachedDirectshipPos(directshipCacheScope)?.pos ?? [];
-    writeMemoryCachedDirectshipPos(directshipPosRef.current, directshipCacheScope, stored);
-    return stored;
-  };
   const mallLoading = mallAccountsQuery.isLoading;
   const mallError = mallAccountsQuery.error instanceof Error
     ? mallAccountsQuery.error.message
@@ -463,7 +428,7 @@ export function OrderCollectionWorkspace() {
   };
 
   /**
-   * 달력이 아직 자기 손으로 여는 직배송 시작이 owner 에게 409 를 받았을 때.
+   * 달력의 불러오기·수집이 여는 직배송 시작이 owner 에게 409 를 받았을 때.
    * 진행 중은 실패가 아니므로(KID-106 Q6) 몰 카드와 같은 안내만 내고 owner
    * 상태를 다시 읽어 카드의 공용 컨트롤이 그 수집을 그리게 한다.
    */
@@ -479,79 +444,9 @@ export function OrderCollectionWorkspace() {
     return true;
   };
 
-  // 카드 영역 클릭 전용 — 카드는 제 원천이 고르는 화면을 연다고 답할 때만 이리로 온다
-  // (KID-255). 수집 버튼은 이 경로를 타지 않고 곧바로 수집한다.
-  const handleOpenDirectshipCalendar = async (account: OrderCollectionMallAccount) => {
-    const cached = cachedDirectshipPos();
-    // 캐시가 있으면 즉시 달력을 띄운다. 없을 때만 로딩을 보여준다.
-    setDirectshipModal({
-      account,
-      run: null,
-      pos: cached,
-      data: null,
-      loading: cached.length === 0,
-    });
-    // 로컬 캐시가 비었으면(다른 PC·시크릿창 등) DB 스냅샷을 먼저 보여준다.
-    if (cached.length === 0 && directshipCacheScope) {
-      void readCoupangDirectSnapshot(directshipCacheScope.channelAccountId)
-        .then((snapshot) => {
-          if (snapshot.length === 0) return;
-          writeMemoryCachedDirectshipPos(directshipPosRef.current, directshipCacheScope, snapshot);
-          writeCachedDirectshipPos(directshipCacheScope, snapshot);
-          // 아직 확장 수집 전이면 스냅샷으로 달력을 채운다.
-          setDirectshipModal((cur) => (cur && cur.pos.length === 0
-            ? { ...cur, pos: snapshot, loading: false }
-            : cur));
-        })
-        .catch(() => {/* 스냅샷은 편의 기능이라 실패해도 무시하고 확장 수집으로 간다 */});
-    }
-    let run: OrderCollectionExtensionRun | null = null;
-    try {
-      run = await sessionControls.prepareDirectRun(account);
-      if (!run) throw new Error('주문수집 확장프로그램을 찾을 수 없습니다.');
-      setDirectshipModal((cur) => (cur ? { ...cur, run } : cur));
-      // 발주 화면 로그인은 확장 사이트가 확인한다(KID-359 — 로그인 화면이면 실행이 SITE_LOGIN_REQUIRED로 끝난다).
-      const { collectCoupangDirectFromExtension } = await import(
-        '../lib/coupang-directship-api'
-      );
-      const data = await collectCoupangDirectFromExtension(run);
-      if (directshipCacheScope) {
-        writeMemoryCachedDirectshipPos(directshipPosRef.current, directshipCacheScope, data.pos);
-        writeCachedDirectshipPos(directshipCacheScope, data.pos);
-      }
-      setDirectshipModal((cur) => (cur ? {
-        ...cur,
-        run,
-        pos: data.pos,
-        data,
-        loading: false,
-      } : cur));
-    } catch (err) {
-      // 운영자 중단이 이 조회를 끊었으면 terminal 은 owner 취소의 몫이다(KID-159).
-      const stopped = run
-        ? !(await sessionControls.failRunUnlessStopped(
-          run,
-          'COLLECTION_FAILED',
-          `${account.name} 발주 조회에 실패했습니다: ${friendlyError(err) ?? '조회 실패'}`,
-        ))
-        : false;
-      if (run) sessionControls.releaseRun(account.key, run.attemptId);
-      const message = err instanceof Error ? err.message : '쿠팡 발주를 불러오지 못했습니다.';
-      // 캐시로 이미 보여주고 있으면 화면을 닫지 않고 갱신 실패만 알린다.
-      setDirectshipModal((cur) => (cur && cur.pos.length > 0 ? { ...cur, loading: false } : null));
-      if (stopped) {
-        toast.info(COLLECTION_STOPPED_MESSAGE);
-        return;
-      }
-      // 이미 수집 중인 직배송은 실패가 아니다. 카드의 공용 컨트롤이 그 수집을 그린다.
-      if (directshipAlreadyRunning(err)) return;
-      toast.error(message);
-    }
-  };
-
   /**
-   * 쿠팡직배송만 입고예정일 달력에서 고른 날짜로 수집한다. 달력이 이미 연 시도를
-   * 그대로 이어받고, 다른 몰은 카드의 공용 시작 컨트롤이 시작한다(KID-189).
+   * 쿠팡직배송만 입고예정일 달력에서 고른 날짜로 수집한다. 달력이 보여 준 캡처의 성공한
+   * 실행으로 변환하고(KID-198), 다른 몰은 카드의 공용 시작 컨트롤이 시작한다(KID-189).
    */
   const handleCollectDirectship = async (
     account: OrderCollectionMallAccount,
@@ -584,6 +479,15 @@ export function OrderCollectionWorkspace() {
       ));
     }
   };
+
+  // 카드 영역 클릭 전용 — 카드는 제 원천이 고르는 화면을 연다고 답할 때만 이리로 온다
+  // (KID-255). 달력은 마지막 수집분을 읽기만 하고, 실행은 운영자가 불러오기·수집을 누를 때 시작한다(KID-198).
+  const directshipCalendar = useCoupangDirectshipCalendar({
+    channelAccountId: selectedRocketAccount?.id ?? null,
+    sessionControls,
+    collect: (account, operationId, selection) => handleCollectDirectship(account, operationId, selection),
+    alreadyRunning: (err) => directshipAlreadyRunning(err),
+  });
 
   /**
    * 아직 수집할 수 없는 몰은 시작 자리에 이유를 보여 준다. 화면이 모든 몰에 똑같이 대는
@@ -986,7 +890,7 @@ export function OrderCollectionWorkspace() {
             ? <MallCollectionControl {...card} buildAdapter={mallOperationCollectionAdapter} />
             : <MallCollectionControl {...card} buildAdapter={mallCollectionAdapter} />;
         }}
-        onOpenChooser={(account) => void handleOpenDirectshipCalendar(account)}
+        onOpenChooser={(account) => void directshipCalendar.open(account)}
         onDraftChange={setMallDraft}
         onOpenMall={() => {
           if (mallDraft.siteUrl) window.open(mallDraft.siteUrl, '_blank', 'noopener,noreferrer');
@@ -1034,30 +938,19 @@ export function OrderCollectionWorkspace() {
         onSendSelectedToSellpia={(items) => void handleSendSelectedToSellpia(items)}
       />
 
-      {directshipModal ? (
+      {directshipCalendar.calendar ? (
         <CoupangDirectCalendarModal
           open
-          loading={directshipModal.loading}
-          pos={directshipModal.pos}
+          loading={directshipCalendar.calendar.loading}
+          refreshing={directshipCalendar.calendar.refreshing}
+          hasCapture={directshipCalendar.calendar.operationId !== null}
+          collectedAt={directshipCalendar.calendar.collectedAt}
+          pos={directshipCalendar.calendar.pos}
           collectedSeqs={collectedDirectshipSeqs}
           today={todayYmd()}
-          onClose={() => {
-            const pending = directshipModal;
-            setDirectshipModal(null);
-            if (pending.run) {
-              void sessionControls.cancelRun(pending.account).catch((error: unknown) => {
-                toast.error(friendlyError(error) ?? `${pending.account.name} 수집 중단에 실패했습니다.`);
-              });
-            }
-          }}
-          onCollect={(eddDates) => {
-            const { account, run } = directshipModal;
-            setDirectshipModal(null);
-            void handleCollectDirectship(account, run?.attemptId, {
-              eddDates,
-              data: directshipModal.data ?? undefined,
-            });
-          }}
+          onClose={directshipCalendar.close}
+          onRefresh={() => void directshipCalendar.refresh()}
+          onCollect={(eddDates) => void directshipCalendar.collect(eddDates)}
         />
       ) : null}
 
