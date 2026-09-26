@@ -32,7 +32,10 @@ esbuild로 IIFE 하나(`globalName: KidItemRuntime`)로 묶어
 세션이 탭에 묶인 사이트(롯데ON)는 `withFreshTab(..., { reuseTabMatching })`으로 열린 탭을 재사용한다. 엑셀·blob을 내려받는
 몰(꼬망세·롯데ON·보리보리·티쳐몰·GS샵·올웨이즈)은 MAIN world 파일(`content/page-call/*`)이 blob을 잡아 base64 청크로
 보내고, 개인정보 다운로드 사유·엑셀 템플릿 번호·벤더명 같은 몰 상수는 옛 값 그대로 사이트 모듈 상수다. 다운로드 암호로
-계정 비밀번호를 쓰는 몰(보리보리)은 `lease.credentials.password`를 페이지 호출 인자로만 넘긴다(자격 노출 규칙 동일).
+계정 비밀번호를 쓰는 몰(보리보리)은 `lease.credentials.password`를 페이지 호출 인자로만 넘긴다. 이 호출은 MAIN world
+처리기라 인자가 ISOLATED 브리지 → MAIN 러너로 같은 출처 `window.postMessage`를 건너므로, 그 몰 화면의 어느 스크립트든
+볼 수 있다(옛 `executeScript` 인자보다 넓다 — 리더 수용, KID-380). 로그인 폼 채우기는 ISOLATED 전용(`isolatedOnly`)이라
+페이지로 가지 않는다. 서버·plan·progress·result·청크·로그·오류 details에는 싣지 않는다.
 SMS·본인확인 화면(GS샵)은 `waitForOperator`로 멈췄다 잇는다.
 
 새 수집은 collectors/sites에만 추가하고, 서버 통신은 operation client만 쓴다. 등록은 `entry/index.ts`의
