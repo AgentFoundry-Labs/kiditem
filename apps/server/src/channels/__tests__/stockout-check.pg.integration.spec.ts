@@ -11,6 +11,8 @@ import { RegistrationExecutionRepositoryAdapter } from '../adapter/out/repositor
 import type { PrismaService } from '../../prisma/prisma.service';
 import { ownerTransaction } from '../../prisma/owner-transaction';
 import { makeWingCatalogOperations } from '../../test-helpers/wing-catalog-operations';
+import { makeChannelsOperations } from '../../test-helpers/channels-operations';
+import { SABANGNET_MALL_LISTINGS_KIND } from '@kiditem/shared/channels-operations';
 
 const POLICY = 'capacity_at_or_below_safety_stock' as const;
 describe('explicit stockout transaction fence (PostgreSQL)', () => {
@@ -125,5 +127,21 @@ describe('explicit stockout transaction fence (PostgreSQL)', () => {
     await expect(prisma.channelListingOption.findUniqueOrThrow({ where: { id: f.option.id } })).resolves.toMatchObject({ lastOperationId: listed.id, lastImportRunId: null });
     const [subject] = await persistence.readSubjects(ORG, [f.listing.id]);
     expect(subject?.options[0]).toMatchObject({ status: 'SUSPENSION' });
+  });
+  it('dates a status written by a Sabangnet listings operation by that operation, so an older sold-out observation does not outlive the fresh import (KID-363)', async () => {
+    const mall = await prisma.channelAccount.create({ data: { organizationId: ORG, channel: 'kidsnote', externalAccountId: 'kidsnote', name: '키즈노트', status: 'active' } });
+    const channels = makeChannelsOperations(prisma);
+    const begun = await channels.operations.begin(ORG, { kind: SABANGNET_MALL_LISTINGS_KIND, scope: {} }, { userId: null });
+    const row = { sendSerial: '1', sabangnetShopId: 'shop0472', mallProductCode: 'KN-1', sabangnetProductNo: '1', modelName: null, ownProductCode: null, productName: '네일팁', salePrice: 1000, supplyStatus: '공급중', firstSentAt: null };
+    const imported = await channels.runBegun(begun, (plan) => [
+      { chunkKind: 'listing_rows', items: [row] },
+      { chunkKind: 'listing_scan', items: [{ collection: { totalRecords: 1, recordsRead: 1, pagesRead: 1, totalPages: 1, truncated: false, skippedByShop: {}, missingMallCode: 0 }, proof: { dateFrom: '20000101', dateTo: String(plan.dateTo), pageSize: 500, validatedList: true } }] },
+    ]);
+    const listing = await prisma.channelListing.findFirstOrThrow({ where: { organizationId: ORG, channelAccountId: mall.id, externalId: 'KN-1' }, include: { options: true } });
+    expect(listing).toMatchObject({ lastOperationId: imported.id, lastImportRunId: null });
+    // 가져오기보다 먼저 본 품절 관측은 새 가져오기를 이기지 않는다.
+    await prisma.channelListingOptionDailySnapshot.create({ data: { organizationId: ORG, listingId: listing.id, listingOptionId: listing.options[0]!.id, channel: 'kidsnote', externalId: 'KN-1', externalOptionId: 'KN-1', businessDate: new Date('2026-01-02'), stockQty: 0, lastObservedAt: new Date('2026-01-02T00:00:00Z') } });
+    const [subject] = await persistence.readSubjects(ORG, [listing.id]);
+    expect(subject?.options[0]).toMatchObject({ status: '사방넷 공급중' });
   });
 });
