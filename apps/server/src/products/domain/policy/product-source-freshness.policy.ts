@@ -120,6 +120,7 @@ export function toCollectionStatusView(
       : null,
     lastAttempt: latest
       ? {
+        kind: latest.kind,
         attemptedAt: latest.startedAt.toISOString(),
         trigger: publicTrigger(latest.trigger),
         scope: 'inventory',

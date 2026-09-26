@@ -249,6 +249,32 @@ describe('셀피아 재고 수집 상태', () => {
   });
 });
 
+describe('셀피아 수집 상태 — 실패한 kind', () => {
+  const failedView = (kind: string | null, errorCode = 'NETWORK_FAILED') => buildPipeSnapshot(
+    inputs({
+      collectionStatus: {
+        data: {
+          status: 'failed',
+          lastCompletedAttemptId: null,
+          lastCompletedAt: null,
+          lastAttemptId: null,
+          lastAttempt: { kind, errorCode, errorMessage: null, attemptedAt: ago(3) },
+          activeSync: null,
+        } as unknown as SellpiaInventoryCollectionStatusView,
+        failed: false,
+      },
+    }),
+  );
+
+  it('실패한 셀피아 실행의 kind로 이름을 붙인다 — 매출·상품 손익 실패를 재고 실패로 적지 않는다(KID-355)', () => {
+    expect(failedView('analytics.sellpia_sales').inbox[0]?.title).toBe('셀피아 매출 · 수집 실패');
+    expect(failedView('analytics.sellpia_product_profitability').inbox[0]?.title).toBe('셀피아 상품 손익 · 수집 실패');
+    expect(failedView('products.sellpia_inventory').inbox[0]?.title).toBe('셀피아 재고 · 수집 실패');
+    expect(failedView(null).inbox[0]?.title).toBe('셀피아 재고 · 수집 실패');
+    expect(failedView('analytics.sellpia_sales', 'SITE_LOGIN_REQUIRED').inbox[0]?.title).toBe('셀피아 · 로그인 필요');
+  });
+});
+
 describe('셀피아 수집 상태 — 만료', () => {
   it('임대가 끝나 만료로 닫힌 셀피아 실행은 울타리 사유(`expired`)가 아니라 코드의 한국어 문장이 사유다', () => {
     const view = stage(

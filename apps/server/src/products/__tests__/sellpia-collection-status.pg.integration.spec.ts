@@ -127,7 +127,7 @@ describe('셀피아 수집 상태 — 실행 표에서 읽는다 (PostgreSQL)', 
       status: 'failed',
       lastAttemptId: failed,
       activeSync: null,
-      lastAttempt: { errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '셀피아 로그인이 필요합니다.' },
+      lastAttempt: { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND, errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '셀피아 로그인이 필요합니다.' },
       lastCompletedAttemptId: done,
     });
   });
