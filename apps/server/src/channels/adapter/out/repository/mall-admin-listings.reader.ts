@@ -1,4 +1,5 @@
 import type { Prisma } from '@prisma/client';
+import { isMallAdminListingOperationMall } from '@kiditem/shared/channels-operations';
 import {
   MALL_ADMIN_LISTING_MALL_KEYS,
   MALL_ADMIN_LISTING_READERS,
@@ -103,7 +104,8 @@ export async function readMallAdminListingsSource(
   const malls = [];
   for (const mallKey of MALL_ADMIN_LISTING_MALL_KEYS) {
     const channelAccountId = accounts.get(mallKey) ?? null;
-    const [latest, complete] = channelAccountId
+    // 실행 kind로 옮긴 몰은 옛 시도를 읽지 않는다(ADR-0025) — 실행은 서비스가 실행 계약에서 채운다.
+    const [latest, complete] = channelAccountId && !isMallAdminListingOperationMall(mallKey)
       ? await Promise.all([
           tx.sourceImportRun.findFirst({
             where: mallAdminListingsRunWhere(organizationId, channelAccountId),
@@ -128,6 +130,8 @@ export async function readMallAdminListingsSource(
       latestAttempt: latest ? mallAdminListingsAttempt(latest) : null,
       latestComplete: complete ? mallAdminListingsAttempt(complete) : null,
       latestPublication: complete ? publicationOf(complete.qualityReport) : null,
+      latestOperation: null,
+      latestSucceeded: null,
     });
   }
   return { malls } satisfies MallAdminListingsSource;

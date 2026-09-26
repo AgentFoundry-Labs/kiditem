@@ -1,3 +1,4 @@
+import { randomUUID } from 'node:crypto';
 import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import {
@@ -63,27 +64,17 @@ describe('keyword and rank readers through the public service', () => {
     });
   });
 
+  /** 성공한 실행이 발행한 행은 operationId가 있다. 'unpublished'는 실행 없이 남은 옛 행이다(읽지 않는다). */
   async function wingRank(
     businessDate: Date,
     salesRank: number,
-    status: 'completed' | 'failed' = 'completed',
+    provenance: 'published' | 'unpublished' = 'published',
   ) {
     generation += 1;
-    const source = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: ORG,
-        sourceType: 'coupang_wing_rank',
-        parserVersion: 'wing-rank-v1',
-        status,
-        rankKeyword: '슬라임',
-        freshnessGeneration: BigInt(generation),
-        importedAt: new Date(businessDate.getTime() + 12 * 60 * 60 * 1000),
-      },
-    });
     await prisma.coupangWingSalesRankDailySnapshot.create({
       data: {
         organizationId: ORG,
-        sourceImportRunId: source.id,
+        operationId: provenance === 'published' ? randomUUID() : null,
         keyword: '슬라임',
         vendorItemId: 'vendor-1',
         businessDate,
@@ -91,7 +82,7 @@ describe('keyword and rank readers through the public service', () => {
         salesRank,
         salesLast28d: 40,
         collectedCount: 100,
-        capturedAt: source.importedAt!,
+        capturedAt: new Date(businessDate.getTime() + 12 * 60 * 60 * 1000),
       },
     });
   }
@@ -100,7 +91,7 @@ describe('keyword and rank readers through the public service', () => {
     const today = currentBusinessDate();
     const previousBusinessDate = new Date(today.getTime() - 86_400_000);
     await wingRank(new Date(today.getTime() - 2 * 86_400_000), 30);
-    await wingRank(previousBusinessDate, 15, 'failed');
+    await wingRank(previousBusinessDate, 15, 'unpublished');
     await wingRank(today, 20);
 
     const result = await service.getProductRankOverview(7, ORG);
@@ -132,34 +123,14 @@ describe('keyword and rank readers through the public service', () => {
     expect(result.summary).toMatchObject({ risingCount: 1, fallingCount: 0 });
   });
 
-  it('reads only COMPLETE SERP generations from the requested organization', async () => {
+  it('reads only operation-published SERP snapshots', async () => {
     const today = currentBusinessDate();
     const completedDate = new Date(today.getTime() - 86_400_000);
-    const completed = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: ORG,
-        sourceType: 'coupang_keyword_serp',
-        parserVersion: 'keyword-serp-v1',
-        status: 'completed',
-        rankKeyword: '슬라임',
-        freshnessGeneration: BigInt(1),
-      },
-    });
-    const failed = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: ORG,
-        sourceType: 'coupang_keyword_serp',
-        parserVersion: 'keyword-serp-v1',
-        status: 'failed',
-        rankKeyword: '슬라임',
-        freshnessGeneration: BigInt(2),
-      },
-    });
     await prisma.coupangKeywordSerpDailySnapshot.createMany({
       data: [
         {
           organizationId: ORG,
-          sourceImportRunId: completed.id,
+          operationId: randomUUID(),
           keyword: '슬라임',
           businessDate: completedDate,
           capturedAt: new Date(completedDate.getTime() + 12 * 60 * 60 * 1000),
@@ -169,13 +140,12 @@ describe('keyword and rank readers through the public service', () => {
         },
         {
           organizationId: ORG,
-          sourceImportRunId: failed.id,
           keyword: '슬라임',
           businessDate: today,
           capturedAt: new Date(today.getTime() + 12 * 60 * 60 * 1000),
           pagesScanned: 3,
           itemCount: 2,
-          items: { marker: 'failed' },
+          items: { marker: 'legacy' },
         },
       ],
     });

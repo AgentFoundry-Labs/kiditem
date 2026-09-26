@@ -18,7 +18,7 @@ describe('ReadinessService rebuild status', () => {
         })),
       },
     };
-    const service = new ReadinessService(prisma as never, {} as never, {} as never);
+    const service = new ReadinessService(prisma as never, {} as never, {} as never, {} as never);
 
     await expect(service.getRebuildStatus(organizationId)).resolves.toEqual({
       state: 'snapshot_required',

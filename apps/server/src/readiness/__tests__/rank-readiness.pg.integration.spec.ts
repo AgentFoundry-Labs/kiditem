@@ -1,6 +1,4 @@
 import { randomUUID } from 'node:crypto';
-import type { INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
 import type { PrismaClient } from '@prisma/client';
 import request from 'supertest';
 import {
@@ -20,66 +18,43 @@ import {
   TEST_ORGANIZATION_ID as ORG,
   TEST_USER_ID as USER,
 } from '../../test-helpers/real-prisma';
-import { SourceFailureAlerts } from '../../alerts/alerts.service';
-import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
-import { WingRankSourceController } from '../../advertising/adapter/in/http/wing-rank-source.controller';
-import { WingRankSourceRepository } from '../../advertising/adapter/out/repository/wing-rank-source.repository';
-import { KeywordRankRepositoryAdapter } from '../../advertising/adapter/out/repository/keyword-rank.repository.adapter';
-import { KeywordRankService } from '../../advertising/application/service/keyword-rank.service';
-import { WingSalesRankIngestHandler } from '../../advertising/application/service/wing-sales-rank-ingest.handler';
+import { advertisingKeywordOperationsApp } from '../../test-helpers/advertising-operations';
+import { AdvertisingKeywordRankReadAdapter } from '../../advertising/adapter/out/repository/keyword-rank-read.adapter';
 import { ReadinessController } from '../readiness.controller';
 import { ReadinessService } from '../readiness.service';
 import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
 import { ChannelAccountPersistenceAdapter } from '../../channels/adapter/out/persistence/channel-account.persistence.adapter';
 import { ChannelCredentialsAdapter } from '../../channels/adapter/out/credentials/channel-credentials.adapter';
 import type { ReadinessResponse } from '@kiditem/shared/readiness';
+import { WING_RANK_CHUNK_KIND, WING_RANK_KIND } from '@kiditem/shared/advertising-operations';
 import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
 import { ProductMappingGenerationRepositoryAdapter } from "../../products/adapter/out/persistence/product-mapping-generation.repository.adapter";
 
-const base = '/api/ads/keyword-rank/wing';
-describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', () => {
+describe('Wing rank readiness over advertising.wing_rank operations through public Readiness HTTP + PostgreSQL', () => {
   let prisma: PrismaClient;
-  let app: INestApplication;
+  let harness: Awaited<ReturnType<typeof advertisingKeywordOperationsApp>>;
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    const channelFacts = channelFactTestPorts(prisma as never);
-    const rank = new KeywordRankRepositoryAdapter(channelFacts.listings, channelFacts.recipes, prisma as never);
-    const owner = new WingRankSourceRepository(
-      prisma as never,
-      new SourceFailureAlerts(prisma as never),
-      rank,
-      new WingSalesRankIngestHandler(rank),
-      new KeywordRankService(rank),
-    );
-    const module = await Test.createTestingModule({
-      controllers: [ReadinessController, WingRankSourceController],
-      providers: [
-        {
-          provide: ReadinessService,
-          useValue: new ReadinessService(
-            prisma as never,
-            new ChannelAccountService(
-              new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
-              new ChannelCredentialsAdapter(),
-            ),
-            { catalogFreshness: async () => ({ syncedAt: null }) },
+    harness = await advertisingKeywordOperationsApp(prisma, {
+      controllers: [ReadinessController],
+      providers: [{
+        provide: ReadinessService,
+        useValue: new ReadinessService(
+          prisma as never,
+          new ChannelAccountService(
+            new ChannelAccountPersistenceAdapter(prisma as never, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
+            new ChannelCredentialsAdapter(),
           ),
-        },
-        { provide: WingRankSourceRepository, useValue: owner },
-      ],
-    }).compile();
-    app = module.createNestApplication({ logger: false });
-    app.setGlobalPrefix('api');
-    app.use((req: { authUser?: unknown }, _res: unknown, next: () => void) => {
-      req.authUser = { id: USER, organizationId: ORG };
-      next();
+          { catalogFreshness: async () => ({ syncedAt: null }) },
+          new AdvertisingKeywordRankReadAdapter(prisma as never),
+        ),
+      }],
     });
-    await app.init();
   });
   afterAll(async () => {
     vi.useRealTimers();
-    await app?.close();
+    await harness?.app.close();
     await prisma?.$disconnect();
   });
   afterEach(() => {
@@ -121,51 +96,27 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
     }
   });
   const status = async (): Promise<ReadinessResponse> =>
-    (await request(app.getHttpServer()).get('/api/readiness').expect(200)).body;
+    (await request(harness.httpUrl).get('/api/readiness').expect(200)).body;
   const wing = (response: ReadinessResponse) =>
-    response.checks.find((check) => check.key === 'wing_kpi')!;
-  const begin = async (keyword = '슬라임') =>
-    (
-      await request(app.getHttpServer())
-        .post(`${base}/attempts`)
-        .set('Idempotency-Key', randomUUID())
-        .send({ keyword })
-        .expect(201)
-    ).body;
+    response.checks.find((check) => check.key === 'wing_rank')!;
+  const primaryAccount = async () =>
+    (await prisma.channelAccount.findFirstOrThrow({ where: { organizationId: ORG, isPrimary: true } })).id;
+  const begin = async (keyword = '슬라임', channelAccountId?: string) =>
+    harness.beginRun(WING_RANK_KIND, { channelAccountId: channelAccountId ?? await primaryAccount(), keywords: [keyword] });
+  /** 확장 수집기처럼: 키워드 한 장(결과 없음 = 모두 순위권 밖)을 올리고 finish. */
   const complete = async (
     capturedAt = '2026-09-05T03:00:00.000Z',
     keyword = '슬라임',
+    channelAccountId?: string,
   ) => {
-    const attempt = await begin(keyword);
-    const result = await request(app.getHttpServer())
-      .put(`${base}/attempts/${attempt.attemptId}`)
-      .set('x-source-attempt-token', attempt.attemptToken)
-      .send({
-        keyword,
-        capturedAt,
-        pagesScanned: 1,
-        collectedCount: 0,
-        totalResults: null,
-        items: [],
-        proof: {
-          maxPages: 5,
-          stopReason: 'empty_page',
-          pages: [
-            {
-              searchPage: 0,
-              itemCount: 0,
-              nextSearchPage: null,
-              resultArrayObserved: true,
-            },
-          ],
-        },
-      })
-      .expect(200);
-    expect(result.body.state).toBe('COMPLETE');
-    return attempt;
+    const run = await begin(keyword, channelAccountId);
+    await harness.put(run, [{ chunkKind: WING_RANK_CHUNK_KIND, payload: [{ keyword, capturedAt, pagesScanned: 1, items: [] }] }]);
+    const done = await harness.finish(run).expect(200);
+    expect(done.body.operation.status).toBe('succeeded');
+    return run;
   };
 
-  it('ignores unlinked legacy rows, then recognizes owner COMPLETE observed-empty null misses through yesterday coverage', async () => {
+  it('ignores legacy rows without an operation, then recognizes an operation-published observed-empty null miss through yesterday coverage', async () => {
     await prisma.coupangWingSalesRankDailySnapshot.createMany({
       data: ['OWN', 'MISS'].map((vendorItemId) => ({
         organizationId: ORG,
@@ -206,61 +157,26 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
       referenceDate: '2026-09-05',
       detail: expect.stringContaining('2/2상품'),
     });
-    expect(after.checks.filter((check) => check.key !== 'wing_kpi')).toEqual(
-      before.checks.filter((check) => check.key !== 'wing_kpi'),
+    expect(after.checks.filter((check) => check.key !== 'wing_rank')).toEqual(
+      before.checks.filter((check) => check.key !== 'wing_rank'),
     );
   });
 
-  it('excludes nonterminal, failed, wrong-source/parser/org rows from latest date, coverage and count', async () => {
+  it('excludes legacy, failed-operation and other-organization rows from latest date, coverage and count', async () => {
     const foreign = await prisma.organization.create({
       data: { name: 'Other organization', slug: randomUUID() },
     });
-    for (const [
-      kind,
-      statusValue,
-      sourceType,
-      parserVersion,
-      organizationId,
-    ] of [
-      ['running', 'running', 'coupang_wing_rank', 'wing-rank-v1', ORG],
-      ['failed', 'failed', 'coupang_wing_rank', 'wing-rank-v1', ORG],
-      [
-        'wrong-source',
-        'completed',
-        'coupang_keyword_serp',
-        'wing-rank-v1',
-        ORG,
-      ],
-      ['wrong-parser', 'completed', 'coupang_wing_rank', 'other-parser', ORG],
-      [
-        'wrong-org',
-        'completed',
-        'coupang_wing_rank',
-        'wing-rank-v1',
-        foreign.id,
-      ],
-    ]) {
-      const run = await prisma.sourceImportRun.create({
-        data: {
-          organizationId,
-          rankKeyword: kind,
-          sourceType,
-          parserVersion,
-          status: statusValue,
-        },
-      });
-      await prisma.coupangWingSalesRankDailySnapshot.createMany({
-        data: ['OWN', 'MISS'].map((vendorItemId) => ({
-          organizationId,
-          sourceImportRunId: run.id,
-          keyword: kind,
-          vendorItemId,
-          businessDate: new Date('2026-09-06'),
-          capturedAt: new Date(),
-          salesRank: 1,
-        })),
-      });
-    }
+    // 옛 attempt 행(operationId 없음)과 다른 조직의 실행 행은 세지 않는다.
+    await prisma.coupangWingSalesRankDailySnapshot.createMany({
+      data: ['OWN', 'MISS'].flatMap((vendorItemId) => [
+        { organizationId: ORG, keyword: 'legacy', vendorItemId, businessDate: new Date('2026-09-06'), capturedAt: new Date(), salesRank: 1 },
+        { organizationId: foreign.id, operationId: randomUUID(), keyword: 'foreign', vendorItemId, businessDate: new Date('2026-09-06'), capturedAt: new Date(), salesRank: 1 },
+      ]),
+    });
+    // 실패로 끝난 실행은 원장에 아무것도 쓰지 않는다.
+    const failed = await begin();
+    await harness.put(failed, [{ chunkKind: WING_RANK_CHUNK_KIND, payload: [{ keyword: '슬라임', capturedAt: '2026-09-06T01:00:00.000Z', pagesScanned: 1, items: [] }] }]);
+    await harness.finish(failed, { outcome: 'failed', errorCode: 'SITE_REQUEST_FAILED' }).expect(200);
     expect(wing(await status())).toMatchObject({
       basis: {
         measured: false,
@@ -316,17 +232,13 @@ describe('Wing COMPLETE provenance through public Readiness HTTP + PostgreSQL', 
     });
   });
 
-  it('retains the prior COMPLETE readiness after a newer owner attempt fails', async () => {
+  it('retains the prior succeeded readiness while a newer operation runs and after it fails', async () => {
     await complete();
     const baseline = await status();
-    const attempt = await begin();
+    const run = await begin();
     expect(await status()).toEqual(baseline);
-    const failed = await request(app.getHttpServer())
-      .post(`${base}/attempts/${attempt.attemptId}/fail`)
-      .set('x-source-attempt-token', attempt.attemptToken)
-      .send({ code: 'PROVIDER_FAILED', message: 'Wing provider failed.' })
-      .expect(201);
-    expect(failed.body.state).toBe('FAILED');
+    const failed = await harness.finish(run, { outcome: 'failed', errorCode: 'SITE_REQUEST_FAILED' }).expect(200);
+    expect(failed.body.operation.status).toBe('failed');
     expect(await status()).toEqual(baseline);
   });
 

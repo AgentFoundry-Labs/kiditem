@@ -24,10 +24,6 @@ const sourcePaths = {
     repoRoot,
     'extensions/kiditem-os/background/coupang/ad-center-collector.js',
   ),
-  wingReport: path.join(
-    repoRoot,
-    'extensions/kiditem-os/background/coupang/wing-report-collector.js',
-  ),
   attemptWire: path.join(
     repoRoot,
     'extensions/kiditem-os/background/sourcing/source-attempt-wire.js',
@@ -35,10 +31,6 @@ const sourcePaths = {
   adCampaignOwner: path.join(
     repoRoot,
     'extensions/kiditem-os/background/coupang/ad-campaign-source-owner.js',
-  ),
-  wingTrafficOwner: path.join(
-    repoRoot,
-    'extensions/kiditem-os/background/coupang/wing-traffic-source-owner.js',
   ),
 };
 
@@ -348,25 +340,17 @@ function createRuntime({ phase, collectorKind, harness }) {
   });
   const runtime = loadRuntime(harness, binding);
   binding.environment = runtime.environment;
-  const collector = collectorKind === 'ad'
-    ? runtime.context.KidItemAdCenterCollector.create({
-      window: runtime.window,
-      chrome: harness.chrome,
-      sessions: runtime.sessions,
-      statusKey: 'ad-status',
-      cancelKey: 'ad-cancel',
-      bindTab: binding.bindTab,
-      delay: async () => {},
-    })
-    : runtime.context.KidItemWingReportCollector.create({
-      window: runtime.window,
-      chrome: harness.chrome,
-      sessions: runtime.sessions,
-      statusKey: 'wing-status',
-      cancelKey: 'wing-cancel',
-      bindTab: binding.bindTab,
-      delay: async () => {},
-    });
+  // Wing traffic left the collection window for the operation runtime (KID-362).
+  assert.equal(collectorKind, 'ad');
+  const collector = runtime.context.KidItemAdCenterCollector.create({
+    window: runtime.window,
+    chrome: harness.chrome,
+    sessions: runtime.sessions,
+    statusKey: 'ad-status',
+    cancelKey: 'ad-cancel',
+    bindTab: binding.bindTab,
+    delay: async () => {},
+  });
   return {
     ...runtime,
     collector,
@@ -376,24 +360,11 @@ function createRuntime({ phase, collectorKind, harness }) {
   };
 }
 
-function collectorInvocation(collectorKind, collector, attemptId) {
-  if (collectorKind === 'ad') {
-    return collector.collectKeywords({
-      environmentId: 'local',
-      attemptId,
-      control: {},
-    });
-  }
-  return collector.collectTraffic({
+function collectorInvocation(_collectorKind, collector, attemptId) {
+  return collector.collectKeywords({
     environmentId: 'local',
     attemptId,
-    control: {
-      plan: {
-        startDate: '2026-09-01',
-        endDate: '2026-09-02',
-        targetUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date=2026-09-01&end_date=2026-09-02',
-      },
-    },
+    control: {},
   });
 }
 
@@ -410,11 +381,6 @@ const collectorCases = [
     name: 'ad keyword',
     kind: 'ad',
     producer: 'advertising.ad_keyword',
-  },
-  {
-    name: 'Wing traffic',
-    kind: 'wing',
-    producer: 'dashboard.wing_sales',
   },
 ];
 
@@ -567,34 +533,6 @@ function adCampaignControl(id) {
   };
 }
 
-function wingTrafficControl(id) {
-  return {
-    attemptId: id,
-    attemptToken: OWNER_ATTEMPT_TOKEN,
-    channelAccountId: OWNER_CHANNEL_ACCOUNT,
-    state: 'RUNNING',
-    expiresAt: '2030-01-02T00:00:00.000Z',
-    manifestChecksum: 'b'.repeat(64),
-    errorCode: null,
-    errorMessage: null,
-    plan: {
-      sourceType: 'coupang_wing_traffic',
-      parserVersion: 'wing-traffic-daily-v2',
-      channelAccountId: OWNER_CHANNEL_ACCOUNT,
-      expectedAdvertiserId: 'A0001',
-      providerVendorId: 'A0001',
-      startDate: '2026-09-05',
-      endDate: '2026-09-06',
-      businessDate: '2026-09-06',
-      periodDays: 2,
-      expectedDates: ['2026-09-05', '2026-09-06'],
-      filterScope: 'ALL_NORMAL_RFM',
-      targetUrl: 'https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date=2026-09-05&end_date=2026-09-06',
-    },
-    receipts: [],
-  };
-}
-
 // A minimal source-owner server: attempt control reads and failure reports.
 function createOwnerServer() {
   const controls = new Map();
@@ -627,7 +565,9 @@ function createOwnerServer() {
   };
 }
 
-// Wires two Coupang source owners onto one shared collection window, the way
+// Wires the Coupang campaign owner onto the shared collection window (Wing
+// traffic is an operation kind now, KID-362; a second campaign attempt plays the
+// other collection), the way
 // the Coupang worker does: each owner takes the window's turn for its whole
 // run, never waits for it, and reports whether an earlier attempt has ended.
 function createOwnerRuntime(harness, adCenterOptions = {}) {
@@ -643,14 +583,10 @@ function createOwnerRuntime(harness, adCenterOptions = {}) {
       if (session.producer === 'advertising.ad_sync') {
         return owners.adCampaign.attemptEnded('local', session.attemptId);
       }
-      if (session.producer === 'dashboard.wing_sales') {
-        return owners.wingTraffic.attemptEnded('local', session.attemptId);
-      }
       return false;
     },
     collectionName: (session) => ({
       'advertising.ad_sync': '쿠팡 광고 캠페인',
-      'dashboard.wing_sales': '쿠팡 Wing 트래픽',
     })[session.producer] || null,
   });
   binding.environment = runtime.environment;
@@ -658,7 +594,6 @@ function createOwnerRuntime(harness, adCenterOptions = {}) {
   const server = createOwnerServer();
   const collectorOptions = { window, chrome: harness.chrome, sessions, bindTab: binding.bindTab, delay: async () => {} };
   const adCenter = context.KidItemAdCenterCollector.create({ ...collectorOptions, ...adCenterOptions, statusKey: 'ad-status', cancelKey: 'ad-cancel' });
-  const wingReport = context.KidItemWingReportCollector.create({ ...collectorOptions, statusKey: 'wing-status', cancelKey: 'wing-cancel' });
   const ownerOptions = {
     chrome: harness.chrome,
     sessions,
@@ -675,74 +610,19 @@ function createOwnerRuntime(harness, adCenterOptions = {}) {
     takeWindowTurn: windowTurn('advertising.ad_sync'),
     collect: (input) => adCenter.collectCampaigns(input),
   });
-  owners.wingTraffic = context.KidItemWingTrafficSourceOwnerV2.create({
-    ...ownerOptions,
-    takeWindowTurn: windowTurn('dashboard.wing_sales'),
-    collect: (input) => wingReport.collectTraffic(input),
-  });
   return { ...runtime, server, owners };
 }
-
-test('a collection started while another holds the window is refused and opens nothing, then takes the free window', async () => {
-  const harness = createChromeHarness();
-  const runtime = createOwnerRuntime(harness);
-  const adId = attemptId(31);
-  const wingId = attemptId(32);
-  const nextWingId = attemptId(33);
-  runtime.server.put(adCampaignControl(adId));
-  runtime.server.put(wingTrafficControl(wingId));
-  runtime.server.put(wingTrafficControl(nextWingId));
-  harness.responses.push(
-    { success: false, error: '광고 캠페인 상세 페이지를 열지 못했습니다.' },
-    { success: false, error: 'Wing 매출분석 표를 읽지 못했습니다.' },
-  );
-  const adReporting = runtime.server.gate(`/api/ads/ad-campaigns/attempts/${adId}/fail`);
-
-  const adRun = runtime.owners.adCampaign.run({ environmentId: 'local', attemptId: adId });
-  await adReporting.entered;
-  // Incident 2026-09-14: Wing traffic started while the ad sweep was still
-  // reporting its failure waited behind it. The window refuses it instead.
-  await assert.rejects(
-    within(
-      runtime.owners.wingTraffic.run({ environmentId: 'local', attemptId: wingId }),
-      2000,
-      'the Wing collection waited for the window instead of being refused',
-    ),
-    (error) => {
-      assert.equal(error.code, 'collection_window_owner_conflict');
-      assert.equal(error.message, '쿠팡 광고 캠페인 수집이 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.');
-      return true;
-    },
-  );
-  assert.equal(harness.calls.messages.length, 1, 'the refused collection sent nothing to a page');
-  assert.equal(harness.calls.windowsCreate.length, 1, 'and opened no window');
-  assert.equal(await runtime.sessions.get(wingId), null, 'and started no session');
-
-  adReporting.release();
-  const adOutcome = await adRun;
-  const wingOutcome = await runtime.owners.wingTraffic.run({ environmentId: 'local', attemptId: nextWingId });
-
-  assert.equal(adOutcome.terminalState, 'FAILED');
-  assert.equal(adOutcome.error, '광고 캠페인 상세 페이지를 열지 못했습니다.');
-  assert.equal(wingOutcome.terminalState, 'FAILED');
-  assert.equal(wingOutcome.errorCode, 'WING_TRAFFIC_COLLECTION_FAILED', 'the next collection ran in the free window');
-  assert.equal(wingOutcome.error, 'Wing 매출분석 표를 읽지 못했습니다.');
-  assert.deepEqual(harness.calls.messages.map(({ message }) => message.syncMode), ['campaign_sweep', 'wing_traffic']);
-  assert.deepEqual(harness.calls.windowsRemove, [20, 21], 'the ad window closed before the Wing window opened');
-  assert.equal(await runtime.sessions.get(adId), null);
-  assert.equal(await runtime.sessions.get(nextWingId), null);
-});
 
 test('another collection clears the attention leftover of an ended ad attempt through its owner read', async () => {
   const harness = createChromeHarness();
   const runtime = createOwnerRuntime(harness);
   const adId = attemptId(41);
-  const wingId = attemptId(42);
+  const nextId = attemptId(42);
   runtime.server.put(adCampaignControl(adId));
-  runtime.server.put(wingTrafficControl(wingId));
+  runtime.server.put(adCampaignControl(nextId));
   harness.responses.push(
     { success: false, pendingLogin: true, error: '쿠팡 광고센터 로그인이 필요합니다.' },
-    { success: false, error: 'Wing 매출분석 표를 읽지 못했습니다.' },
+    { success: false, error: '두 번째 캠페인 표를 읽지 못했습니다.' },
   );
 
   const adOutcome = await runtime.owners.adCampaign.run({ environmentId: 'local', attemptId: adId });
@@ -751,13 +631,13 @@ test('another collection clears the attention leftover of an ended ad attempt th
     'finish keeps the attention session of the failed attempt');
   assert.equal(harness.storage['owned-window']?.runId, adId, 'and leaves its window open');
 
-  const wingOutcome = await runtime.owners.wingTraffic.run({ environmentId: 'local', attemptId: wingId });
+  const nextOutcome = await runtime.owners.adCampaign.run({ environmentId: 'local', attemptId: nextId });
 
-  assert.equal(wingOutcome.terminalState, 'FAILED');
-  assert.equal(wingOutcome.errorCode, 'WING_TRAFFIC_COLLECTION_FAILED', 'the leftover did not refuse the Wing collection');
+  assert.equal(nextOutcome.terminalState, 'FAILED');
+  assert.equal(nextOutcome.error, '두 번째 캠페인 표를 읽지 못했습니다.', 'the leftover did not refuse the next collection');
   assert.equal(await runtime.sessions.get(adId), null, 'the leftover session is cleared');
   assert.deepEqual(harness.calls.windowsRemove, [20, 21]);
-  assert.deepEqual(harness.calls.messages.map(({ message }) => message.syncMode), ['campaign_sweep', 'wing_traffic']);
+  assert.deepEqual(harness.calls.messages.map(({ message }) => message.syncMode), ['campaign_sweep', 'campaign_sweep']);
 });
 
 function within(promise, milliseconds, message) {
@@ -768,35 +648,30 @@ function within(promise, milliseconds, message) {
   return Promise.race([promise, timeout]).finally(() => clearTimeout(timer));
 }
 
-test('a sweep page held by a native dialog fails its capture and hands the window to the next collection', async () => {
+test('a sweep page held by a native dialog fails its capture and releases the window', async () => {
   const harness = createChromeHarness();
   const runtime = createOwnerRuntime(harness, { pageScriptTimeoutMs: 20 });
   const adId = attemptId(51);
-  const wingId = attemptId(52);
   runtime.server.put(adCampaignControl(adId));
-  runtime.server.put(wingTrafficControl(wingId));
   const executeScript = harness.chrome.scripting.executeScript;
   // A native Coupang dialog holds the ads page, so it never answers a script.
   harness.chrome.scripting.executeScript = (details) =>
     details.world === 'MAIN' && details.func?.name === 'installAdsDialogRecorder'
       ? new Promise(() => {})
       : executeScript(details);
-  harness.responses.push({ success: false, error: 'Wing 매출분석 표를 읽지 못했습니다.' });
 
   const adOutcome = await within(
     runtime.owners.adCampaign.run({ environmentId: 'local', attemptId: adId }),
     3000,
     'a page held by a dialog kept the collection window',
   );
-  const wingOutcome = await runtime.owners.wingTraffic.run({ environmentId: 'local', attemptId: wingId });
 
   assert.equal(adOutcome.terminalState, 'FAILED');
   assert.equal(adOutcome.errorCode, 'AD_PAGE_DIALOG_BLOCKED');
   assert.equal(adOutcome.error, '쿠팡 광고 화면이 알림 창에 멈춰 수집을 진행하지 못했습니다. 잠시 뒤 다시 시도해 주세요.');
   assert.deepEqual(harness.calls.tabsReload, [200], 'one reload before the capture gives up');
   assert.equal(await runtime.sessions.get(adId), null);
-  assert.equal(wingOutcome.errorCode, 'WING_TRAFFIC_COLLECTION_FAILED', 'the next collection took the window');
-  assert.deepEqual(harness.calls.messages.map(({ message }) => message.syncMode), ['wing_traffic']);
+  assert.equal(harness.storage['owned-window'], undefined, 'the window was released for the next collection');
 });
 
 test('a dashboard that does not load fails the attempt without leaving a login attention session', async () => {

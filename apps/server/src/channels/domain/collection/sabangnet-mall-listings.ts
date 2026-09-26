@@ -2,7 +2,7 @@ import {
   SABANGNET_MALL_LISTINGS_SOURCE_TYPE,
   type SabangnetMallListingRow,
   type SabangnetMallListingsPlan,
-  type SabangnetMallListingsSubmission,
+  type SabangnetMallListingsScan,
 } from '@kiditem/shared/sabangnet-mall-listings';
 
 /**
@@ -58,13 +58,12 @@ export type SabangnetSubmissionProblem =
  */
 export function sabangnetSubmissionProblem(
   plan: SabangnetMallListingsPlan,
-  runId: string,
-  submission: SabangnetMallListingsSubmission,
+  scan: SabangnetMallListingsScan,
+  rows: readonly SabangnetMallListingRow[],
 ): SabangnetSubmissionProblem | null {
-  const { collection, proof, rows } = submission;
+  const { collection, proof } = scan;
   if (
-    collection.collectionRunId !== runId
-    || proof.dateFrom !== plan.dateFrom
+    proof.dateFrom !== plan.dateFrom
     || proof.dateTo !== plan.dateTo
     || proof.pageSize !== plan.pageSize
   ) return 'plan_fence_lost';

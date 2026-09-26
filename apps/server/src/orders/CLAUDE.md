@@ -42,7 +42,10 @@ Action, collection, transmission, and reconciliation behavior is executable in
   operation's ID, persists deterministic collection identities
   (`Order.operationId`), reconciles exact rows with the active Supply-owned
   Rocket workbook, and exports every collected row for the selected transport.
-  Unmatched rows remain selectable.
+  Unmatched rows remain selectable. The arrival-date calendar reads the
+  account's latest succeeded capture (`GET …/coupang-directship/snapshot`,
+  carrying its `operationId`); reading it starts no operation and nothing is
+  stored for it.
 - Non-empty output carries the stable operation/transport transmission key.
   An empty SHIPMENT or MILKRUN probe persists no-match evidence and returns no
   transmission key.

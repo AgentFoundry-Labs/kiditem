@@ -31,6 +31,7 @@ import type {
   MallAccountTransaction,
   MallAccountWrite,
 } from '../../../application/port/out/persistence/channel-account.persistence.port';
+import { LOGIN_ACCOUNT_MARKETS } from '../../../application/port/out/persistence/channel-account.persistence.port';
 
 const CHANNEL_ACCOUNT_LIST_SELECT = {
   id: true,
@@ -468,11 +469,13 @@ export class ChannelAccountPersistenceAdapter implements ChannelAccountPersisten
 
 function mallAccountWhere(organizationId: string) {
   const { own, shared } = orderCollectionMallAccountChannels();
+  // 로그인만 두는 마켓 행(쿠팡 윙, KID-377)도 읽는다 — 몰 목록은 몰 행만 고르므로 목록에는 들어가지 않는다.
+  const loginMarkets = LOGIN_ACCOUNT_MARKETS.map((market) => market.sharedAccountChannel);
   return {
     organizationId,
     OR: [
       { channel: { in: own }, externalAccountId: { in: own } },
-      { channel: { in: shared } },
+      { channel: { in: [...new Set([...shared, ...loginMarkets])] } },
     ],
   };
 }

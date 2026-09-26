@@ -1,8 +1,7 @@
 import { apiClient } from '@/lib/api-client';
-import { detectExtensionId } from '@/lib/extension-bridge';
 
 // `/api/ads/wing-tracked-products/*` — 쿠팡 Wing 카탈로그 상품 추적 CRUD + 일별 지표 스냅샷 read.
-// 수집은 Ads source owner가 발행한 attempt를 KidItem OS가 직접 실행한다.
+// 지표 수집은 실행 kind `advertising.wing_tracked_products`다(KID-362, `wing-tracked-products-collection.ts`).
 
 export interface WingTrackedSnapshot {
   trackedProductId: string;
@@ -65,41 +64,6 @@ export interface WingTrackedHistoriesResponse {
   items: WingTrackedHistory[];
 }
 
-export interface WingTrackedProductAttemptPlan {
-  attemptId: string;
-  attemptToken: string;
-  state: 'RUNNING' | 'COMPLETE' | 'FAILED';
-  expiresAt: string;
-  businessDate: string;
-  sourceKeywordFallback: 'any_requested_keyword_for_unassigned_product';
-  keywords: string[];
-  products: Array<{
-    productId: string;
-    sourceKeyword: string | null;
-  }>;
-}
-
-export interface WingTrackedProductSourceStatus {
-  ready: boolean;
-  latestAttempt: {
-    attemptId: string;
-    state: 'RUNNING' | 'COMPLETE' | 'FAILED';
-    startedAt: string;
-    capturedAt: string | null;
-    expiresAt: string;
-    errorCode: string | null;
-    errorMessage: string | null;
-  } | null;
-  latestComplete: {
-    sourceImportRunId: string;
-    businessDate: string;
-    capturedAt: string;
-    expectedProductCount: number;
-    capturedProductCount: number;
-    failedProductCount: number;
-  } | null;
-}
-
 const BASE = '/api/ads/wing-tracked-products';
 
 export function listWingTrackedProducts(): Promise<WingTrackedProduct[]> {
@@ -129,30 +93,4 @@ export function fetchWingTrackedHistories(
     `${BASE}/history?days=${encodeURIComponent(String(days))}`,
     { timeoutMs: 10_000 },
   );
-}
-
-export function beginWingTrackedProductAttempt(input: {
-  idempotencyKey: string;
-  keywords: string[];
-}): Promise<WingTrackedProductAttemptPlan> {
-  return apiClient.post<WingTrackedProductAttemptPlan>(
-    `${BASE}/attempts`,
-    { keywords: input.keywords },
-    { headers: { 'Idempotency-Key': input.idempotencyKey } },
-  );
-}
-
-export function fetchWingTrackedProductSourceStatus(): Promise<WingTrackedProductSourceStatus> {
-  return apiClient.get<WingTrackedProductSourceStatus>(`${BASE}/attempts/current`);
-}
-
-/** The owner's operator stop for a running tracked Wing products attempt; it needs no attempt token. */
-export function cancelWingTrackedProductAttempt(attemptId: string): Promise<unknown> {
-  return apiClient.post(`${BASE}/attempts/${encodeURIComponent(attemptId)}/cancel`);
-}
-
-export async function requireWingTrackedProductExtension(): Promise<string> {
-  const extensionId = await detectExtensionId();
-  if (!extensionId) throw new Error('KidItem OS 익스텐션을 연결한 뒤 다시 시도해주세요.');
-  return extensionId;
 }

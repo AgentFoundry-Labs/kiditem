@@ -7,10 +7,7 @@ import { friendlyError } from '@/lib/api-error';
 import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
 import { queryKeys } from '@/lib/query-keys';
 import { formatNumber } from '@/lib/utils';
-import {
-  createBrowserMallCollector,
-  ensureMallLoginForRun,
-} from '@/app/(orders)/order-collection/lib/browser-mall-collection';
+import { createBrowserMallCollector } from '@/app/(orders)/order-collection/lib/browser-mall-collection';
 import {
   collectMallOrderOperation,
   collectsViaMallOrderOperation,
@@ -473,14 +470,7 @@ export function useAllMarketplaceOrderCollection({
       organizationId,
       account,
       handOff: (handoff) => handOffMallOperation(account, handoff, report),
-      ensureLogin: (target, { extensionId, selectionMode }) => ensureMallLoginForRun(target, {
-        attemptId: '',
-        attemptToken: '',
-        extensionId,
-        date: null,
-        selectionMode,
-        sourceOwner: 'mall_orders_operation',
-      }),
+      // 로그인은 확장이 실행 안에서 저장 자격으로 한다(KID-377) — 자격은 어댑터가 차단·간격 규칙대로 싣는다.
       abortLocalRun: abortOperationRun,
     })
   ), [abortOperationRun, handOffMallOperation, organizationId]);

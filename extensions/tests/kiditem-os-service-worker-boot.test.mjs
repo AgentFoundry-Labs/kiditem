@@ -845,34 +845,6 @@ const catalogPermit = {
   },
 };
 
-const popupItemwinnerAttemptId = '11111111-1111-4111-8111-111111111111';
-const popupItemwinnerSecondAttemptId = '44444444-4444-4444-8444-444444444444';
-const popupItemwinnerAttemptToken = '22222222-2222-4222-8222-222222222222';
-const popupItemwinnerAccountId = '33333333-3333-4333-8333-333333333333';
-const popupItemwinnerVendorId = 'A00000000';
-const popupItemwinnerUrl = 'https://wing.coupang.com/tenants/seller-price-management?scope=one';
-
-function popupItemwinnerAttempt(state, targetUrl = popupItemwinnerUrl, attemptId = popupItemwinnerAttemptId) {
-  return {
-    attemptId,
-    attemptToken: popupItemwinnerAttemptToken,
-    state,
-    channelAccountId: popupItemwinnerAccountId,
-    expiresAt: '2030-01-02T00:00:00.000Z',
-    errorCode: state === 'FAILED' ? 'SOURCE_COLLECTION_FAILED' : null,
-    errorMessage: state === 'FAILED' ? 'fixture failure' : null,
-    plan: {
-      sourceType: 'coupang_wing_itemwinner',
-      parserVersion: 'wing-itemwinner-v1',
-      pageType: 'itemwinner',
-      channelAccountId: popupItemwinnerAccountId,
-      expectedVendorId: popupItemwinnerVendorId,
-      businessDate: '2026-09-06',
-      targetUrl,
-    },
-  };
-}
-
 test('retired generic scrape ingress has no external responder', async () => {
   const { fake } = bootServiceWorker();
   const responders = externalResponderCount(fake, { action: 'scrapeTargets', producer: 'advertising.ad_keyword',
@@ -1100,25 +1072,6 @@ function coupangKeywordAttempt(attemptId, state = 'RUNNING') {
   };
 }
 
-function coupangTrafficAttempt(attemptId, state = 'RUNNING', parserVersion = 'wing-traffic-daily-v2') {
-  const dates = ['2026-09-05', '2026-09-06'];
-  return {
-    attemptId, attemptToken: coupangWindowAttemptToken, state, channelAccountId: coupangWindowAccount,
-    expiresAt: '2030-01-02T00:00:00.000Z', manifestChecksum: 'b'.repeat(64),
-    errorCode: state === 'FAILED' ? 'WING_TRAFFIC_COLLECTION_FAILED' : null,
-    errorMessage: state === 'FAILED' ? 'fixture failure' : null,
-    plan: {
-      sourceType: 'coupang_wing_traffic', parserVersion, channelAccountId: coupangWindowAccount,
-      expectedAdvertiserId: 'A0001', startDate: dates[0], endDate: dates[1], businessDate: dates[1], periodDays: 2,
-      targetUrl: `https://wing.coupang.com/tenants/business-insight/sales-analysis?start_date=${dates[0]}&end_date=${dates[1]}`,
-      ...(parserVersion === 'wing-traffic-daily-v2'
-        ? { providerVendorId: 'A0001', expectedDates: dates, filterScope: 'ALL_NORMAL_RFM' }
-        : {}),
-    },
-    receipts: [],
-  };
-}
-
 function coupangProfitabilityPlan(attemptId) {
   return {
     attemptId, attemptToken: coupangWindowAttemptToken, expiresAt: '2030-01-02T00:00:00.000Z',
@@ -1270,14 +1223,14 @@ test('starts that arrive together admit one collection and answer the others wit
   try {
     const replies = await within(Promise.all([
       externalRequest(h.fake, startCollectionMessage('advertising.ad_keyword')),
-      externalRequest(h.fake, startCollectionMessage('dashboard.wing_sales', { startDate: '2026-09-05', endDate: '2026-09-06' })),
+      externalRequest(h.fake, startCollectionMessage('advertising.profitability_import')),
       externalRequest(h.fake, startCollectionMessage('advertising.ad_keyword')),
     ]), 2000, 'a start waited for another start');
 
     assert.deepEqual(replies.map(startResult), [
       { success: true, outcome: 'started', producer: 'advertising.ad_keyword', attemptId },
       {
-        success: true, outcome: 'refused', producer: 'dashboard.wing_sales',
+        success: true, outcome: 'refused', producer: 'advertising.profitability_import',
         holder: { producer: 'advertising.ad_keyword', name: '쿠팡 광고 키워드', attemptId: null },
         message: KEYWORD_HOLDER_REFUSAL,
       },
@@ -1299,13 +1252,11 @@ test('a running collection keeps the window: another collection is refused and t
     startResult(await externalRequest(h.fake, startCollectionMessage('advertising.ad_keyword')));
     await within(collecting.promise, 2000, 'the admitted collection never ran');
 
-    const refused = startResult(await externalRequest(h.fake, startCollectionMessage(
-      'dashboard.wing_sales', { startDate: '2026-09-05', endDate: '2026-09-06' },
-    )));
+    const refused = startResult(await externalRequest(h.fake, startCollectionMessage('advertising.profitability_import')));
     const running = startResult(await externalRequest(h.fake, startCollectionMessage('advertising.ad_keyword')));
 
     assert.deepEqual(refused, {
-      success: true, outcome: 'refused', producer: 'dashboard.wing_sales',
+      success: true, outcome: 'refused', producer: 'advertising.profitability_import',
       holder: { producer: 'advertising.ad_keyword', name: '쿠팡 광고 키워드', attemptId },
       message: KEYWORD_HOLDER_REFUSAL,
     });
@@ -1354,8 +1305,8 @@ test('after a restart a session whose attempt still runs protects the window and
       begins.push(href);
       return coupangWindowJson(coupangAttemptView(randomUUID()));
     }
-    if (href.endsWith(`/api/ads/traffic/attempts/${trafficId}/control`)) {
-      return coupangWindowJson(coupangTrafficAttempt(trafficId, 'RUNNING'));
+    if (href.endsWith(`/api/ads/ad-keywords/attempts/${trafficId}/control`)) {
+      return coupangWindowJson(coupangKeywordAttempt(trafficId, 'RUNNING'));
     }
     return coupangWindowJson({});
   } });
@@ -1363,19 +1314,17 @@ test('after a restart a session whose attempt still runs protects the window and
   const { removedWindows } = installLeftoverWindow(h, trafficId);
   try {
     const sessions = vm.runInContext('collectionSessions', h.context);
-    await sessions.start({ attemptId: trafficId, environmentId: 'local', producer: 'dashboard.wing_sales' });
+    await sessions.start({ attemptId: trafficId, environmentId: 'local', producer: 'advertising.ad_keyword' });
 
     const refused = startResult(await externalRequest(h.fake, startCollectionMessage('advertising.ad_sync')));
-    const running = startResult(await externalRequest(h.fake, startCollectionMessage(
-      'dashboard.wing_sales', { startDate: '2026-09-05', endDate: '2026-09-06' },
-    )));
+    const running = startResult(await externalRequest(h.fake, startCollectionMessage('advertising.ad_keyword')));
 
     assert.deepEqual(refused, {
       success: true, outcome: 'refused', producer: 'advertising.ad_sync',
-      holder: { producer: 'dashboard.wing_sales', name: '쿠팡 Wing 트래픽', attemptId: trafficId },
-      message: '쿠팡 Wing 트래픽 수집이 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.',
+      holder: { producer: 'advertising.ad_keyword', name: '쿠팡 광고 키워드', attemptId: trafficId },
+      message: '쿠팡 광고 키워드 수집이 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.',
     });
-    assert.deepEqual(running, { success: true, outcome: 'running', producer: 'dashboard.wing_sales', attemptId: trafficId });
+    assert.deepEqual(running, { success: true, outcome: 'running', producer: 'advertising.ad_keyword', attemptId: trafficId });
     assert.deepEqual(begins, []);
     assert.deepEqual(removedWindows, []);
     assert.ok(await sessions.get(trafficId), 'the running collection keeps its session');
@@ -1391,30 +1340,28 @@ test('a leftover whose attempt an operator stopped on the server frees the windo
   const h = bootServiceWorker({ fetch: async (url, init = {}) => {
     const href = String(url);
     if (href.endsWith(`/api/ads/ad-campaigns/attempts/${leftoverId}/control`)) return coupangWindowJson(cancelled);
-    if (init.method === 'POST' && href.endsWith('/api/ads/traffic/attempts')) {
+    if (init.method === 'POST' && href.endsWith('/api/ads/ad-keywords/attempts')) {
       return coupangWindowJson(coupangAttemptView(trafficId));
     }
-    if (href.endsWith(`/api/ads/traffic/attempts/${trafficId}/control`)) {
-      return coupangWindowJson(coupangTrafficAttempt(trafficId));
+    if (href.endsWith(`/api/ads/ad-keywords/attempts/${trafficId}/control`)) {
+      return coupangWindowJson(coupangKeywordAttempt(trafficId));
     }
     return coupangWindowJson({});
   } });
   h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
   const { removedWindows } = installLeftoverWindow(h, leftoverId);
-  h.context.trafficCollector = {
-    collectTraffic: async () => ({ success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' }),
+  h.context.keywordCollector = {
+    collectKeywords: async () => ({ success: false, errorCode: 'SOURCE_OWNER_UNAVAILABLE', error: 'fixture stop' }),
   };
-  vm.runInContext('wingReportCollectors.local = { collectTraffic: (input) => trafficCollector.collectTraffic(input) };', h.context);
+  vm.runInContext('adCenterCollectors.local = { collectKeywords: (input) => keywordCollector.collectKeywords(input) };', h.context);
   try {
     const sessions = vm.runInContext('collectionSessions', h.context);
     await sessions.start({ attemptId: leftoverId, environmentId: 'local', producer: 'advertising.ad_sync' });
     await sessions.requireAttention(leftoverId, { reason: 'marketplace_login', message: '로그인이 필요합니다.' });
 
-    const reply = startResult(await externalRequest(h.fake, startCollectionMessage(
-      'dashboard.wing_sales', { startDate: '2026-09-05', endDate: '2026-09-06' },
-    )));
+    const reply = startResult(await externalRequest(h.fake, startCollectionMessage('advertising.ad_keyword')));
 
-    assert.deepEqual(reply, { success: true, outcome: 'started', producer: 'dashboard.wing_sales', attemptId: trafficId });
+    assert.deepEqual(reply, { success: true, outcome: 'started', producer: 'advertising.ad_keyword', attemptId: trafficId });
     assert.deepEqual(removedWindows, [7], 'the stopped collection window is closed');
     assert.equal(await sessions.get(leftoverId), null, 'and its session is cleared');
     await settleCollections(h);
@@ -1431,21 +1378,21 @@ test('a begin the owner answers with ATTEMPT_IN_PROGRESS answers running with th
   ]) {
     const collected = [];
     const h = bootServiceWorker({ fetch: async (url, init = {}) => {
-      if (init.method === 'POST' && String(url).endsWith('/api/ads/wing-itemwinner/attempts')) {
+      if (init.method === 'POST' && String(url).endsWith('/api/ads/ad-keywords/attempts')) {
         return coupangWindowJson(conflict, 409);
       }
       return coupangWindowJson({});
     } });
     h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-    h.context.itemwinnerCollector = { collectItemwinner: async (input) => { collected.push(input.attemptId); return { success: false }; } };
-    vm.runInContext('wingReportCollectors.local = { collectItemwinner: (input) => itemwinnerCollector.collectItemwinner(input) };', h.context);
+    h.context.keywordCollector = { collectKeywords: async (input) => { collected.push(input.attemptId); return { success: false }; } };
+    vm.runInContext('adCenterCollectors.local = { collectKeywords: (input) => keywordCollector.collectKeywords(input) };', h.context);
     try {
-      const reply = startResult(await externalRequest(h.fake, startCollectionMessage('dashboard.wing_kpi')));
-      assert.deepEqual(reply, { success: true, outcome: 'running', producer: 'dashboard.wing_kpi', attemptId: runningId });
+      const reply = startResult(await externalRequest(h.fake, startCollectionMessage('advertising.ad_keyword')));
+      assert.deepEqual(reply, { success: true, outcome: 'running', producer: 'advertising.ad_keyword', attemptId: runningId });
       await settleCollections(h);
       assert.deepEqual(collected, []);
 
-      const next = startResult(await externalRequest(h.fake, startCollectionMessage('dashboard.wing_kpi')));
+      const next = startResult(await externalRequest(h.fake, startCollectionMessage('advertising.ad_keyword')));
       assert.equal(next.outcome, 'running', 'the answered start left the window free');
     } finally {
       h.close();
@@ -1507,18 +1454,6 @@ test('each window collection opens its attempt with its own owner and scope, the
       producer: 'advertising.ad_keyword', scope: {}, path: '/api/ads/ad-keywords/attempts',
       controlPath: (id) => `/api/ads/ad-keywords/attempts/${id}/control`, control: (id) => coupangKeywordAttempt(id),
       collector: 'adCenterCollectors', method: 'collectKeywords',
-    },
-    {
-      producer: 'dashboard.wing_sales', scope: { channelAccountId: account, startDate: '2026-09-05', endDate: '2026-09-06' },
-      path: '/api/ads/traffic/attempts',
-      controlPath: (id) => `/api/ads/traffic/attempts/${id}/control`, control: (id) => coupangTrafficAttempt(id),
-      collector: 'wingReportCollectors', method: 'collectTraffic',
-    },
-    {
-      producer: 'dashboard.wing_kpi', scope: { channelAccountId: account }, path: '/api/ads/wing-itemwinner/attempts',
-      controlPath: (id) => `/api/ads/wing-itemwinner/attempts/${id}`,
-      control: (id) => popupItemwinnerAttempt('RUNNING', popupItemwinnerUrl, id),
-      collector: 'wingReportCollectors', method: 'collectItemwinner',
     },
     {
       producer: 'advertising.profitability_import', scope: {}, path: '/api/ads/profitability-imports',
@@ -1589,11 +1524,11 @@ test('the start request is validated exactly like the shared contract', () => {
     start('advertising.ad_keyword', { startDate: '2026-09-01' }),
     start('advertising.profitability_import', {}),
     start('advertising.profitability_import', { channelAccountId: account }),
-    start('dashboard.wing_sales', { startDate: '2026-09-05', endDate: '2026-09-06' }),
-    start('dashboard.wing_sales', { channelAccountId: account, startDate: '2024-02-29', endDate: '2024-03-01' }),
-    start('dashboard.wing_sales', { startDate: '2026-02-29', endDate: '2026-03-01' }),
-    start('dashboard.wing_sales', { startDate: '2026-09-06', endDate: '2026-09-05' }),
-    start('dashboard.wing_sales', { startDate: '2026-09-05' }),
+    start('advertising.ad_keyword', { startDate: '2026-09-05', endDate: '2026-09-06' }),
+    start('advertising.ad_keyword', { channelAccountId: account, startDate: '2024-02-29', endDate: '2024-03-01' }),
+    start('advertising.ad_keyword', { startDate: '2026-02-29', endDate: '2026-03-01' }),
+    start('advertising.ad_keyword', { startDate: '2026-09-06', endDate: '2026-09-05' }),
+    start('advertising.ad_keyword', { startDate: '2026-09-05' }),
     start('dashboard.wing_kpi', { channelAccountId: account }),
     start('dashboard.wing_kpi', { channelAccountId: account }, { environmentId: 'office' }),
     start('dashboard.wing_kpi', undefined),
@@ -1840,8 +1775,6 @@ function storedSession(attemptId, producer) {
 test('a restarted worker continues its collections only while a connected KidItem tab is confirmed', async () => {
   const ids = {
     profitability: '9a111111-1111-4111-8111-111111111111',
-    tracked: '9a222222-2222-4222-8222-222222222222',
-    competitor: '9a333333-3333-4333-8333-333333333333',
   };
   for (const presence of ['confirmed', 'unknown']) {
     const reads = [];
@@ -1851,8 +1784,6 @@ test('a restarted worker continues its collections only while a connected KidIte
         kiditem_environment_profiles_v1: { local: { accessToken: 'fixture' } },
         kiditem_collection_sessions: {
           [ids.profitability]: storedSession(ids.profitability, 'advertising.profitability_import'),
-          [ids.tracked]: storedSession(ids.tracked, 'advertising.wing_tracked_products'),
-          [ids.competitor]: storedSession(ids.competitor, 'advertising.competitor_catalog'),
         },
       },
       fetch: async (url, init = {}) => {
@@ -1860,10 +1791,6 @@ test('a restarted worker continues its collections only while a connected KidIte
         if ((init.method || 'GET') === 'GET') reads.push(pathname);
         if (pathname === `/api/ads/profitability-imports/${ids.profitability}`) {
           return coupangWindowJson(coupangProfitabilityPlan(ids.profitability));
-        }
-        if (pathname.startsWith('/api/ads/wing-tracked-products/attempts/') ||
-          pathname.startsWith('/api/ads/competitor-catalogs/attempts/')) {
-          return coupangWindowJson({ message: 'not found' }, 404);
         }
         return coupangWindowJson({});
       },
@@ -1881,8 +1808,6 @@ test('a restarted worker continues its collections only while a connected KidIte
       await settleCollections(h);
       const recoveryReads = [
         `/api/ads/profitability-imports/${ids.profitability}`,
-        `/api/ads/wing-tracked-products/attempts/${ids.tracked}`,
-        `/api/ads/competitor-catalogs/attempts/${ids.competitor}`,
       ];
       if (presence === 'confirmed') {
         assert.deepEqual(collected, [ids.profitability], 'the running import continues in the window');
@@ -1906,7 +1831,7 @@ test('a restarted profitability import is not continued while another collection
     storage: {
       kiditem_environment_profiles_v1: { local: { accessToken: 'fixture' } },
       kiditem_collection_sessions: {
-        [trafficId]: storedSession(trafficId, 'dashboard.wing_sales'),
+        [trafficId]: storedSession(trafficId, 'advertising.ad_keyword'),
         [profitabilityId]: storedSession(profitabilityId, 'advertising.profitability_import'),
       },
     },
@@ -1916,8 +1841,8 @@ test('a restarted profitability import is not continued while another collection
       if (pathname === `/api/ads/profitability-imports/${profitabilityId}`) {
         return coupangWindowJson(coupangProfitabilityPlan(profitabilityId));
       }
-      if (pathname === `/api/ads/traffic/attempts/${trafficId}/control`) {
-        return coupangWindowJson(coupangTrafficAttempt(trafficId, 'RUNNING'));
+      if (pathname === `/api/ads/ad-keywords/attempts/${trafficId}/control`) {
+        return coupangWindowJson(coupangKeywordAttempt(trafficId, 'RUNNING'));
       }
       return coupangWindowJson({});
     },
@@ -2044,14 +1969,11 @@ test('a start clears ended sessions that hold no window and is refused by the on
     if (href.endsWith(`/api/ads/ad-keywords/attempts/${ids.keyword}/control`)) {
       return coupangWindowJson({ message: 'not found' }, 404);
     }
-    if (href.endsWith(`/api/ads/traffic/attempts/${ids.traffic}/control`)) {
-      return coupangWindowJson(coupangTrafficAttempt(ids.traffic, 'RUNNING'));
+    if (href.endsWith(`/api/ads/ad-keywords/attempts/${ids.traffic}/control`)) {
+      return coupangWindowJson(coupangKeywordAttempt(ids.traffic, 'RUNNING'));
     }
     if (href.endsWith(`/api/ads/ad-campaigns/attempts/${ids.unreadable}/control`)) {
       return coupangWindowJson({ message: 'forbidden' }, 403);
-    }
-    if (href.endsWith(`/api/ads/wing-itemwinner/attempts/${ids.itemwinner}`)) {
-      return coupangWindowJson(popupItemwinnerAttempt('RUNNING', popupItemwinnerUrl, ids.itemwinner));
     }
     return coupangWindowJson({});
   } });
@@ -2061,10 +1983,10 @@ test('a start clears ended sessions that hold no window and is refused by the on
   await sessions.start({ attemptId: ids.campaign, environmentId: 'local', producer: 'advertising.ad_sync' });
   await sessions.requireAttention(ids.campaign, { reason: 'marketplace_login', message: '로그인이 필요합니다.' });
   await sessions.start({ attemptId: ids.keyword, environmentId: 'local', producer: 'advertising.ad_keyword' });
-  await sessions.start({ attemptId: ids.traffic, environmentId: 'local', producer: 'dashboard.wing_sales' });
+  await sessions.start({ attemptId: ids.traffic, environmentId: 'local', producer: 'advertising.ad_keyword' });
   await sessions.start({ attemptId: ids.unreadable, environmentId: 'local', producer: 'advertising.ad_sync' });
   try {
-    const reply = startResult(await externalRequest(h.fake, startCollectionMessage('dashboard.wing_kpi')));
+    const reply = startResult(await externalRequest(h.fake, startCollectionMessage('advertising.profitability_import')));
 
     assert.deepEqual(
       [...(await sessions.list('local'))].map((session) => session.attemptId).sort(),
@@ -2072,9 +1994,9 @@ test('a start clears ended sessions that hold no window and is refused by the on
       'the failed attention session and the unknown attempt are cleared; running and unreadable ones stay',
     );
     assert.deepEqual(reply, {
-      success: true, outcome: 'refused', producer: 'dashboard.wing_kpi',
-      holder: { producer: 'dashboard.wing_sales', name: '쿠팡 Wing 트래픽', attemptId: ids.traffic },
-      message: '쿠팡 Wing 트래픽 수집이 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.',
+      success: true, outcome: 'refused', producer: 'advertising.profitability_import',
+      holder: { producer: 'advertising.ad_keyword', name: '쿠팡 광고 키워드', attemptId: ids.traffic },
+      message: '쿠팡 광고 키워드 수집이 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.',
     });
     assert.deepEqual(begins, [], 'a kept session protects the window, so nothing is opened');
   } finally {
@@ -2086,7 +2008,6 @@ test('the shared Coupang window clears a leftover whose attempt ended and names 
   const leftoverId = '61111111-1111-4111-8111-111111111111';
   const incomingId = '62222222-2222-4222-8222-222222222222';
   const campaignPath = `/api/ads/ad-campaigns/attempts/${leftoverId}/control`;
-  const trafficPath = `/api/ads/traffic/attempts/${leftoverId}/control`;
   const scenarios = [
     {
       label: 'ad campaign', producer: 'advertising.ad_sync', name: '쿠팡 광고 캠페인', path: campaignPath,
@@ -2102,19 +2023,6 @@ test('the shared Coupang window clears a leftover whose attempt ended and names 
       reply: (ended) => coupangWindowJson(coupangKeywordAttempt(leftoverId, ended ? 'FAILED' : 'RUNNING')),
     },
     {
-      label: 'Wing traffic', producer: 'dashboard.wing_sales', name: '쿠팡 Wing 트래픽', path: trafficPath,
-      reply: (ended) => coupangWindowJson(coupangTrafficAttempt(leftoverId, ended ? 'COMPLETE' : 'RUNNING')),
-    },
-    {
-      label: 'legacy Wing traffic', producer: 'dashboard.wing_sales', name: '쿠팡 Wing 트래픽', path: trafficPath,
-      reply: (ended) => coupangWindowJson(coupangTrafficAttempt(leftoverId, ended ? 'FAILED' : 'RUNNING', 'wing-traffic-v1')),
-    },
-    {
-      label: 'Wing itemwinner', producer: 'dashboard.wing_kpi', name: '쿠팡 Wing 아이템위너',
-      path: `/api/ads/wing-itemwinner/attempts/${leftoverId}`,
-      reply: (ended) => coupangWindowJson(popupItemwinnerAttempt(ended ? 'FAILED' : 'RUNNING', popupItemwinnerUrl, leftoverId)),
-    },
-    {
       label: 'ad profitability', producer: 'advertising.profitability_import', name: '쿠팡 상품별 광고 보고서',
       path: `/api/ads/profitability-imports/${leftoverId}`,
       reply: (ended) => ended
@@ -2125,8 +2033,6 @@ test('the shared Coupang window clears a leftover whose attempt ended and names 
     ...[
       ['ad campaign', 'advertising.ad_sync', '쿠팡 광고 캠페인', campaignPath],
       ['ad keyword', 'advertising.ad_keyword', '쿠팡 광고 키워드', `/api/ads/ad-keywords/attempts/${leftoverId}/control`],
-      ['Wing traffic', 'dashboard.wing_sales', '쿠팡 Wing 트래픽', trafficPath],
-      ['Wing itemwinner', 'dashboard.wing_kpi', '쿠팡 Wing 아이템위너', `/api/ads/wing-itemwinner/attempts/${leftoverId}`],
     ].map(([label, producer, name, path]) => ({
       label: `${label} the owner no longer knows`, producer, name, path, endedOnly: true,
       reply: () => coupangWindowJson({ message: 'not found' }, 404),
@@ -2384,1221 +2290,6 @@ test('Wing tab completion still resolves and cleans up listeners before timeout'
   assert.equal(events.updatedListeners.size, 0);
 });
 
-// Exercise the production collector from the fully loaded worker. Only Chrome
-// browser IO and time are simulated; capture, pagination and normalization run.
-function bootRankCollector(pages, { loadFailureAt, redirectAt, fetch } = {}) {
-  const { fake, context } = bootServiceWorker({ fetch });
-  // Public collectors now create an inactive about:blank owner tab and then
-  // navigate it. Keep the provider fixture aligned with the navigation trace:
-  // a leading null is the blank-tab slot when a scenario did not provide one.
-  const providerPages = pages[0] === null ? pages : [null, ...pages];
-  const urls = [], delays = [];
-  const updatedListeners = new Set();
-  let navigationCount = 0;
-  fake.chrome.tabs.onUpdated = {
-    addListener: (listener) => updatedListeners.add(listener),
-    removeListener: (listener) => updatedListeners.delete(listener),
-  };
-  let tab;
-  fake.chrome.tabs.create = (properties, callback) => {
-    urls.push(properties.url);
-    navigationCount = 0;
-    tab = { id: 41, windowId: 7, status: 'complete', ...properties };
-    callback?.(tab);
-    return Promise.resolve(tab);
-  };
-  fake.chrome.tabs.get = (_id, callback) => {
-    callback?.(tab);
-    return Promise.resolve(tab);
-  };
-  fake.chrome.tabs.update = (_id, properties, callback) => {
-    urls.push(properties.url);
-    navigationCount += 1;
-    if (navigationCount === loadFailureAt) {
-      fake.chrome.runtime.lastError = { message: 'navigation failed' };
-      callback?.();
-      fake.chrome.runtime.lastError = null;
-    } else {
-      tab = { ...tab, ...properties,
-        url: navigationCount === redirectAt ? 'https://login.coupang.com/' : properties.url };
-      callback?.(tab);
-      queueMicrotask(() => {
-        for (const listener of updatedListeners) listener(tab.id, { status: 'loading' }, tab);
-        for (const listener of updatedListeners) listener(tab.id, { status: 'complete' }, tab);
-      });
-    }
-    return Promise.resolve(tab);
-  };
-  fake.chrome.scripting.executeScript = async ({ func, args = [] }) => {
-    // Session/lifetime notifications are best-effort UI hints and are not
-    // provider page executions. Keep them out of the provider page queue so
-    // this harness can model both streams on the same Chrome API.
-    const source = String(func);
-    if (source.includes('publishKidItemExtensionEvent') || source.includes('requestKidItemExtensionAuth')) {
-      return [{ result: undefined }];
-    }
-    const page = providerPages[navigationCount];
-    if (page instanceof Error) throw page;
-    if (page && typeof page === 'object' && Array.isArray(page.products) &&
-      String(func).includes('selectNewestInPage')) {
-      return [{ result: true }];
-    }
-    if (typeof page === 'string') {
-      const dom = new JSDOM(page, { url: tab.url, runScripts: 'outside-only' });
-      try {
-        dom.window.collectorArgs = args;
-        dom.window.scrollTo = () => {};
-        dom.window.setTimeout = (callback, ms) => { delays.push(ms); queueMicrotask(callback); return 1; };
-        return [{ result: await vm.runInContext(`(${func.toString()})(...collectorArgs)`, dom.getInternalVMContext()) }];
-      } finally { dom.window.close(); }
-    }
-    return [{ result: page }];
-  };
-  context.setTimeout = (callback, ms) => {
-    if (ms < 10_000) {
-      delays.push(ms);
-      queueMicrotask(callback);
-    }
-    return 1;
-  };
-  context.clearTimeout = () => {};
-  vm.runInContext('Math.random = () => 0;', context);
-  return {
-    urls, delays, fake, context,
-    capture: async (maxPages = 2) => JSON.parse(JSON.stringify(
-      await (async () => {
-        const attemptId = '11111111-1111-4111-8111-111111111111';
-        await vm.runInContext(`collectionSessions.start({
-          environmentId: 'local',
-          attemptId: '${attemptId}',
-          producer: 'advertising.keyword_rank',
-        })`, context);
-        return context.captureCoupangKeywordSerp('연필 세트', maxPages, {
-          environmentId: 'local',
-          attemptId,
-        });
-      })(),
-    )),
-  };
-}
-
-function bootWingSearch(
-  responses,
-  { fetch, producer = 'advertising.wing_rank', environmentId = 'local' } = {},
-) {
-  const { fake, context, close } = bootServiceWorker({ fetch });
-  const requests = [], delays = [], urls = [];
-  let injections = 0;
-  let tab;
-  fake.chrome.tabs.create = (properties, callback) => {
-    urls.push(properties.url);
-    tab = { id: 42, windowId: 7, status: 'complete', ...properties };
-    callback?.(tab);
-    return Promise.resolve(tab);
-  };
-  fake.chrome.tabs.get = (_id, callback) => { callback?.(tab); return Promise.resolve(tab); };
-  fake.chrome.tabs.remove = async (_id, callback) => { tab = null; callback?.(); };
-  const pageAbortSignal = { timeout: () => new AbortController().signal };
-  fake.chrome.scripting.executeScript = async ({ func, args }) => {
-    const source = String(func);
-    if (source.includes('publishKidItemExtensionEvent') || source.includes('requestKidItemExtensionAuth')) {
-      return [{ result: undefined }];
-    }
-    const response = responses[injections++];
-    if (response instanceof Error) throw response;
-    return [{ result: await vm.runInNewContext(`(${func.toString()})(...args)`, {
-      args, document: { cookie: 'XSRF-TOKEN=fixture' }, AbortSignal: pageAbortSignal,
-      fetch: async (url, init) => {
-        requests.push({ url, ...init, body: JSON.parse(init.body) });
-        return { ok: response.status === 200, status: response.status,
-          headers: new Headers({ 'content-type': response.contentType || 'application/json' }),
-          text: async () => JSON.stringify(response.body) };
-      },
-    }) }];
-  };
-  context.setTimeout = (callback, ms) => {
-    if ([1000, 1850, 2000, 4000, 7000, 8000, 16000, 2200].includes(ms)) { delays.push(ms); queueMicrotask(callback); }
-    return 1;
-  };
-  context.clearTimeout = () => {};
-  vm.runInContext('Math.random = () => 0.5;', context);
-  return { requests, delays, urls, fake, context, close, search: async (maxPages = 5) => {
-    // The collector receives an already-started progress session from its caller.
-    await vm.runInContext(`collectionSessions.start({environmentId: '${environmentId}',
-      attemptId: '11111111-1111-4111-8111-111111111111', producer: '${producer}'})`, context);
-    return JSON.parse(JSON.stringify(await vm.runInContext(`wingSearchCollector.collect(${JSON.stringify({
-      keyword: '연필 세트', maxPages, environmentId,
-      attemptId: '11111111-1111-4111-8111-111111111111',
-    })})`, context)));
-  } };
-}
-
-test('SERP batch publishes original keyword captures before admitting sequential seller enrichment owners', { timeout: 3000 }, async (t) => {
-  for (const catalogState of ['COMPLETE', 'FAILED']) await t.test(catalogState, async () => {
-    const key = '99999999-9999-4999-8999-999999999999';
-    const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
-    const catalogId = '33333333-3333-4333-8333-333333333333';
-    const identityId = '44444444-4444-4444-8444-444444444444';
-    const token = '55555555-5555-4555-8555-555555555555';
-    const phases = [];
-    const h = bootRankCollector(ids.map((id, i) => ({ items: [{ productId: String(i + 1), name: '연필' }] })), {
-      fetch: async (url, init) => {
-        const path = new URL(url).pathname;
-        if (path.endsWith('/serp/batch-attempts')) {
-          assert.equal(init.method, 'GET');
-          return { ok: true, json: async () => ({ attempts: ids.map((attemptId) => ({ attemptId, state: 'RUNNING' })) }) };
-        }
-        const serpId = ids.find((id) => path.endsWith(`/serp/attempts/${id}`));
-        if (serpId) {
-          if (init.method === 'PUT') {
-            phases.push(`serp:${serpId}`);
-            return { ok: true, json: async () => ({ attemptId: serpId, state: 'COMPLETE' }) };
-          }
-          return { ok: true, json: async () => ({ attemptId: serpId, attemptToken: token, state: 'RUNNING',
-            expiresAt: new Date(Date.now() + 600_000).toISOString(),
-            plan: { sourceType: 'coupang_keyword_serp', parserVersion: 'keyword-serp-v1', keyword: `연필${ids.indexOf(serpId)}`, maxPages: 1 },
-          }) };
-        }
-        if (path.endsWith('/competitor-catalogs/attempts')) {
-          const input = JSON.parse(init.body);
-          assert.equal(phases.filter((phase) => phase.startsWith('serp:')).length, 2);
-          assert.equal(input.target, 'rank_enrichment');
-          if (input.excludeCompletedAttemptId) {
-            assert.equal(input.excludeCompletedAttemptId, catalogId);
-            assert.equal(phases.at(-1), 'identity');
-            phases.push('catalog:new');
-          } else phases.push('catalog:initial');
-          return { ok: true, json: async () => ({ attemptId: catalogId, attemptToken: token, state: catalogState,
-            expiresAt: new Date(Date.now() + 600_000).toISOString(), input, targets: [],
-          }) };
-        }
-        if (path.includes('/competitor-seller-identities/attempts')) {
-          assert.equal(catalogState, 'COMPLETE');
-          if (init.method === 'POST') {
-            assert.deepEqual(JSON.parse(init.body), {});
-            assert.equal(phases.at(-1), 'catalog:initial');
-            phases.push('identity');
-          }
-          return { ok: true, json: async () => ({ attemptId: identityId, attemptToken: token, state: 'COMPLETE',
-            expiresAt: new Date(Date.now() + 600_000).toISOString(),
-            plan: { sourceType: 'coupang_competitor_seller_identity', parserVersion: 'seller-identity-v1', days: 30, limit: 200, targets: [] },
-          }) };
-        }
-        assert.equal(path.includes('/extension/sync'), false, 'unfenced rank/enrichment ingress is retired');
-        return { ok: true, json: async () => ({}) };
-      },
-    });
-    h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
-    h.fake.chrome.tabs.remove = async (_id, callback) => callback?.();
-    const ack = await externalRequest(h.fake, { action: 'collectAdvertisingKeywordSerpBatch', idempotencyKey: key });
-    assert.deepEqual(JSON.parse(JSON.stringify(ack)), { success: true, started: true });
-    for (let spin = 0; spin < 100; spin += 1) await new Promise(setImmediate);
-    assert.deepEqual(phases, [`serp:${ids[0]}`, `serp:${ids[1]}`, 'catalog:initial',
-      ...(catalogState === 'COMPLETE' ? ['identity', 'catalog:new'] : [])]);
-    assert.deepEqual(h.delays, [1200, 4000, 1200]);
-    assert.deepEqual(h.urls, ['about:blank',
-      'https://www.coupang.com/np/search?q=%EC%97%B0%ED%95%840&channel=user&page=1&listSize=36',
-      'about:blank',
-      'https://www.coupang.com/np/search?q=%EC%97%B0%ED%95%841&channel=user&page=1&listSize=36']);
-  });
-});
-
-test('SERP batch cancellation during enrichment admission settles its exact owner before provider IO', async () => {
-  const key = '99999999-9999-4999-8999-999999999999';
-  const attemptId = '11111111-1111-4111-8111-111111111111';
-  const target = { keyword: '문구', sellerId: 'A123', sellerName: '문구마켓', sellerStoreUrl: 'https://shop.coupang.com/A123' };
-  let state = 'RUNNING';
-  let failures = 0;
-  const control = () => ({ attemptId, state, attemptToken: '22222222-2222-4222-8222-222222222222',
-    expiresAt: new Date(Date.now() + 600_000).toISOString(), input: { target: 'rank_enrichment' }, targets: [target] });
-  const h = bootRankCollector([], { fetch: async (url, init) => {
-    const path = new URL(url).pathname;
-    assert.equal(path.includes('/competitor-seller-identities/'), false);
-    if (path.endsWith('/serp/batch-attempts')) return { ok: true, json: async () => ({ attempts: [
-      { attemptId: '33333333-3333-4333-8333-333333333333', state: 'COMPLETE' },
-    ] }) };
-    if (path.endsWith('/serp/batch-attempts/cancel')) {
-      assert.equal(init.method, 'POST');
-      return { ok: true, json: async () => ({ attempts: [
-        { attemptId: '33333333-3333-4333-8333-333333333333', state: 'COMPLETE' },
-      ] }) };
-    }
-    if (path.endsWith('/competitor-catalogs/attempts')) {
-      await externalRequest(h.fake, { action: 'cancelAdvertisingKeywordSerpBatch', idempotencyKey: key });
-      return { ok: true, json: async () => control() };
-    }
-    if (path.includes('/competitor-catalogs/attempts/')) {
-      if (path.endsWith('/fail')) {
-        failures += 1;
-        state = 'FAILED';
-        return { ok: true, json: async () => ({ latestAttempt: { attemptId, state } }) };
-      }
-      assert.equal(init.method, 'GET');
-      return { ok: true, json: async () => control() };
-    }
-    return { ok: true, json: async () => ({}) };
-  } });
-  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
-  await externalRequest(h.fake, { action: 'collectAdvertisingKeywordSerpBatch', idempotencyKey: key });
-  for (let spin = 0; spin < 100; spin += 1) await new Promise(setImmediate);
-  assert.equal(state, 'FAILED');
-  assert.equal(failures, 1, 'cancellation is one owner transition, not a later capture failure');
-  assert.deepEqual(h.urls, []);
-});
-
-test('competitor catalog source preserves standalone100 and SERP enrichment500 through the real DOM collector', { timeout: 3000 }, async (t) => {
-  for (const targetMode of ['all', 'rank_enrichment']) await t.test(targetMode, async () => {
-    const attemptId = '11111111-1111-4111-8111-111111111111';
-    const target = { keyword: '문구', sellerId: 'A123', sellerName: '문구마켓', sellerStoreUrl: 'https://shop.coupang.com/A123' };
-    const reviewCount = targetMode === 'all' ? '<span class="rating-total-count">0</span>' : '';
-    const html = '<button>최신순</button>' + Array.from({ length: 500 }, (_, i) =>
-      `<a href="https://www.coupang.com/vp/products/${i + 1}?vendorItemId=${i + 1000}"><span class="name">연필 ${i + 1}</span><span class="price-value">1,200</span>${reviewCount}</a>`).join('');
-    const uploads = [];
-    const closes = [];
-    const h = bootRankCollector([html, html], { fetch: async (url, init) => {
-      if (!String(url).includes('/competitor-catalogs/')) return { ok: true, json: async () => ({}) };
-      if (init.method === 'PUT') {
-        uploads.push(JSON.parse(init.body));
-        return { ok: true, json: async () => ({ latestAttempt: { attemptId, state: 'COMPLETE' } }) };
-      }
-      assert.equal(init.method, 'POST');
-      assert.deepEqual(JSON.parse(init.body), { target: targetMode });
-      return { ok: true, json: async () => ({ attemptId, state: 'RUNNING',
-        attemptToken: '22222222-2222-4222-8222-222222222222', expiresAt: new Date(Date.now() + 600_000).toISOString(),
-        input: { target: targetMode }, targets: [target],
-      }) };
-    } });
-    h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
-    h.fake.chrome.tabs.remove = async (id, callback) => { closes.push(id); callback?.(); };
-    const result = await externalRequest(h.fake, { action: 'collectAdvertisingCompetitorCatalog', idempotencyKey: 'catalog-key', target: targetMode });
-    assert.equal(result.terminalState, 'COMPLETE', result.error);
-    const count = targetMode === 'all' ? 100 : 500;
-    assert.equal(uploads.length, 1);
-    assert.equal(uploads[0].catalogs[0].products.length, count);
-    assert.equal(uploads[0].catalogs[0].collectedProductCount, count);
-    assert.deepEqual(uploads[0].catalogs[0].products.at(-1), { sourceRank: count,
-      productId: String(count), itemId: null, vendorItemId: String(count + 999),
-      name: `연필 ${count}`, priceKrw: 1200, reviewCount: targetMode === 'all' ? 0 : null, imageUrl: null,
-      link: `https://www.coupang.com/vp/products/${count}?vendorItemId=${count + 999}`,
-    });
-    assert.deepEqual(h.urls, ['about:blank', target.sellerStoreUrl]);
-    assert.deepEqual(h.delays, [1200, 1200]);
-    assert.deepEqual(closes, [41], 'source completion closes its owned tab');
-  });
-});
-
-test('competitor catalog reconciles terminal acknowledgements with the exact owner, never a contradictory failure', async (t) => {
-  for (const scenario of ['lost complete ACK', 'unconfirmed ACK', 'server failed', 'newer attempt response']) await t.test(scenario, async () => {
-    const attemptId = '11111111-1111-4111-8111-111111111111';
-    const target = { keyword: '문구', sellerId: 'A123', sellerName: '문구마켓', sellerStoreUrl: 'https://shop.coupang.com/A123' };
-    const capture = { products: [{ sourceRank: 1, productId: '11', itemId: null, vendorItemId: '101',
-      name: '연필', priceKrw: null, reviewCount: null, imageUrl: null, link: 'https://www.coupang.com/vp/products/11' }], totalProductCount: 1 };
-    const calls = [];
-    const h = bootRankCollector([null, capture], { fetch: async (url, init) => {
-      if (!String(url).includes('/competitor-catalogs/')) return { ok: true, json: async () => ({}) };
-      calls.push({ method: init.method, url: String(url), body: init.body });
-      if (String(url).endsWith('/fail')) return { ok: true, json: async () => ({ latestAttempt: { attemptId, state: 'FAILED' } }) };
-      if (init.method === 'PUT') {
-        if (scenario.includes('ACK')) throw new Error('network response lost');
-        return { ok: true, json: async () => ({ latestAttempt: {
-          attemptId: scenario === 'newer attempt response' ? '33333333-3333-4333-8333-333333333333' : attemptId,
-          state: 'FAILED',
-        } }) };
-      }
-      return { ok: true, json: async () => ({ attemptId,
-        state: init.method === 'GET' && scenario !== 'unconfirmed ACK' ? 'COMPLETE' : 'RUNNING',
-        attemptToken: '22222222-2222-4222-8222-222222222222', expiresAt: new Date(Date.now() + 600_000).toISOString(),
-        input: { target: 'rank_enrichment' }, targets: [target],
-      }) };
-    } });
-    h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
-    h.fake.chrome.tabs.remove = async (_id, callback) => callback?.();
-    const result = await externalRequest(h.fake, { action: 'collectAdvertisingCompetitorCatalog', target: 'rank_enrichment', idempotencyKey: 'ack-key' });
-    assert.equal(calls.some((call) => call.url.endsWith('/fail')), false);
-    const state = scenario === 'server failed' ? 'FAILED' : scenario === 'unconfirmed ACK' ? 'RUNNING' : 'COMPLETE';
-    assert.equal(result.terminalState, state);
-    assert.equal(result.success, state === 'COMPLETE');
-    if (scenario !== 'server failed') assert.equal(calls.filter((call) => call.method === 'GET').length, 1);
-    if (state === 'RUNNING') assert.equal(result.errorCode, 'SOURCE_RESULT_UNCONFIRMED');
-    const puts = calls.filter((call) => call.method === 'PUT');
-    assert.ok(puts.length >= 1 && puts.length <= 3);
-    assert.equal(new Set(puts.map((call) => call.body)).size, 1, 'retries preserve the exact captured artifact');
-    assert.equal(h.urls.length, 2, 'terminal retries do not recollect');
-  });
-});
-
-test('seller identity source dispatch preserves frozen targets, DOM extraction, dedupe and field mapping', async () => {
-  const attemptId = '11111111-1111-4111-8111-111111111111';
-  const targets = [
-    { keyword: '연필', productKey: '101', productId: '11', vendorItemId: '101', link: 'https://www.coupang.com/vp/products/11?itemId=7' },
-    { keyword: '문구', productKey: '101', productId: '11', vendorItemId: '101', link: 'https://www.coupang.com/vp/products/11?itemId=8' },
-    { keyword: '지우개', productKey: '22', productId: '22', vendorItemId: null, link: 'https://www.coupang.com/vp/products/22' },
-  ];
-  const uploads = [];
-  const h = bootRankCollector([null,
-    '<a href="https://shop.coupang.com/vid/A123?source=detail">문구마켓 판매자 상품 보러가기</a>',
-    '<a href="https://shop.coupang.com/B456">완구마켓 판매자 상품 보러가기</a>',
-  ], { fetch: async (url, init) => {
-    if (!String(url).includes('/competitor-seller-identities/')) return { ok: true, status: 200, json: async () => ({}) };
-    if (String(url).endsWith('/fail')) {
-      const failure = JSON.parse(init.body);
-      return { ok: true, status: 200, json: async () => ({ attemptId, state: 'FAILED', errorCode: failure.code, errorMessage: failure.message }) };
-    }
-    assert.equal(String(url).endsWith(`/attempts/${attemptId}`), true);
-    if (init.method === 'PUT') {
-      uploads.push(JSON.parse(init.body));
-      assert.equal(new Headers(init.headers).get('x-source-attempt-token'), '22222222-2222-4222-8222-222222222222');
-      return { ok: true, status: 200, json: async () => ({ attemptId, state: 'COMPLETE', itemCount: 3 }) };
-    }
-    assert.equal(init.method, 'GET');
-    return { ok: true, status: 200, json: async () => ({ attemptId,
-      attemptToken: '22222222-2222-4222-8222-222222222222', state: 'RUNNING',
-      expiresAt: new Date(Date.now() + 600_000).toISOString(),
-      plan: { sourceType: 'coupang_competitor_seller_identity', parserVersion: 'seller-identity-v1', days: 30, limit: 200, targets },
-    }) };
-  } });
-  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
-  h.fake.chrome.tabs.remove = async (_id, callback) => callback?.();
-  const result = await externalRequest(h.fake, { action: 'collectAdvertisingSellerIdentities', attemptId });
-  assert.deepEqual(JSON.parse(JSON.stringify(result)), { success: true, attemptId, terminalState: 'COMPLETE', itemCount: 3 });
-  assert.equal(uploads.length, 1);
-  assert.deepEqual(uploads[0].identities.map(({ capturedAt, ...identity }) => identity), [
-    { keyword: '연필', productKey: '101', productId: '11', vendorItemId: '101', link: 'https://www.coupang.com/vp/products/11?itemId=7', sellerName: '문구마켓', sellerId: 'A123', sellerStoreUrl: 'https://shop.coupang.com/vid/A123' },
-    { keyword: '문구', productKey: '101', productId: '11', vendorItemId: '101', link: 'https://www.coupang.com/vp/products/11?itemId=8', sellerName: '문구마켓', sellerId: 'A123', sellerStoreUrl: 'https://shop.coupang.com/vid/A123' },
-    { keyword: '지우개', productKey: '22', productId: '22', vendorItemId: null, link: 'https://www.coupang.com/vp/products/22', sellerName: '완구마켓', sellerId: 'B456', sellerStoreUrl: 'https://shop.coupang.com/B456' },
-  ]);
-  assert.ok(Number.isFinite(Date.parse(uploads[0].capturedAt)));
-  assert.ok(uploads[0].identities.every((row) => Number.isFinite(Date.parse(row.capturedAt))));
-  assert.deepEqual(h.urls, ['about:blank', targets[0].link, targets[2].link]);
-  assert.deepEqual(h.delays, [1200, 900, 1200]);
-  const rejected = await externalRequest(h.fake, { action: 'collectAdvertisingSellerIdentities', attemptId, targets: [] });
-  assert.equal(rejected.success, false);
-  assert.equal(uploads.length, 1, 'client-supplied targets are rejected before IO');
-});
-
-test('seller identity source retains two null reads and later successful rows without claiming an empty result', async () => {
-  const attemptId = '11111111-1111-4111-8111-111111111111';
-  const targets = [1, 2].map((id) => ({ keyword: '연필', productKey: String(id), productId: String(id),
-    vendorItemId: null, link: `https://www.coupang.com/vp/products/${id}` }));
-  const uploads = [];
-  const h = bootRankCollector([null, '<p>판매자 확인 불가</p>',
-    '<a href="https://shop.coupang.com/A123">문구마켓</a>',
-  ], { fetch: async (url, init) => {
-    if (!String(url).includes('/competitor-seller-identities/')) return { ok: true, json: async () => ({}) };
-    assert.equal(String(url).endsWith(`/attempts/${attemptId}`), true);
-    if (init.method === 'PUT') {
-      uploads.push(JSON.parse(init.body));
-      return { ok: true, json: async () => ({ attemptId, state: 'FAILED', itemCount: 0,
-        errorCode: 'IDENTITY_EVIDENCE_INCOMPLETE', errorMessage: 'Missing product evidence.' }) };
-    }
-    return { ok: true, json: async () => ({ attemptId, state: 'RUNNING',
-      attemptToken: '22222222-2222-4222-8222-222222222222', expiresAt: new Date(Date.now() + 600_000).toISOString(),
-      plan: { sourceType: 'coupang_competitor_seller_identity', parserVersion: 'seller-identity-v1', days: 30, limit: 200, targets },
-    }) };
-  } });
-  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
-  h.fake.chrome.tabs.remove = async (_id, callback) => callback?.();
-  const result = await externalRequest(h.fake, { action: 'collectAdvertisingSellerIdentities', attemptId });
-  assert.equal(result.terminalState, 'FAILED');
-  assert.equal(result.errorCode, 'IDENTITY_EVIDENCE_INCOMPLETE');
-  assert.deepEqual(h.urls, ['about:blank', ...targets.map((target) => target.link)]);
-  assert.deepEqual(h.delays, [1200, 1200, 900, 1200]);
-  assert.equal(uploads.length, 1);
-  assert.deepEqual(uploads[0].identities.map(({ productKey }) => productKey), ['2']);
-});
-
-test('seller identity source publishes a server-confirmed empty plan without opening a provider tab', async () => {
-  const attemptId = '11111111-1111-4111-8111-111111111111';
-  const uploads = [];
-  const h = bootRankCollector([], { fetch: async (url, init) => {
-    if (!String(url).includes('/competitor-seller-identities/')) return { ok: true, json: async () => ({}) };
-    if (init.method === 'PUT') {
-      uploads.push(JSON.parse(init.body));
-      return { ok: true, json: async () => ({ attemptId, state: 'COMPLETE', itemCount: 0 }) };
-    }
-    assert.equal(init.method, 'GET');
-    return { ok: true, json: async () => ({ attemptId, state: 'RUNNING',
-      attemptToken: '22222222-2222-4222-8222-222222222222', expiresAt: new Date(Date.now() + 300_000).toISOString(),
-      plan: { sourceType: 'coupang_competitor_seller_identity', parserVersion: 'seller-identity-v1', days: 30, limit: 200, targets: [] },
-    }) };
-  } });
-  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
-  const result = await externalRequest(h.fake, { action: 'collectAdvertisingSellerIdentities', attemptId });
-  assert.equal(result.terminalState, 'COMPLETE');
-  assert.equal(result.itemCount, 0);
-  assert.deepEqual(h.urls, []);
-  assert.equal(uploads.length, 1);
-  assert.deepEqual(uploads[0].identities, []);
-});
-
-test('seller identity source stops provider IO and publication after confirmed cancellation or fixed expiry', async (t) => {
-  for (const stop of ['cancel', 'expire']) await t.test(stop, async () => {
-    const attemptId = '11111111-1111-4111-8111-111111111111';
-    const targets = [1, 2].map((id) => ({ keyword: '연필', productKey: String(id), productId: String(id),
-      vendorItemId: null, link: `https://www.coupang.com/vp/products/${id}` }));
-    let state = 'RUNNING';
-    const writes = [];
-    const expires = Date.now() + 600_000;
-    const h = bootRankCollector([null, '<a href="https://shop.coupang.com/A123">문구마켓</a>',
-      '<a href="https://shop.coupang.com/B456">완구마켓</a>',
-    ], { fetch: async (url, init) => {
-      if (!String(url).includes('/competitor-seller-identities/')) return { ok: true, json: async () => ({}) };
-      if (init.method !== 'GET') {
-        writes.push({ method: init.method, body: JSON.parse(init.body) });
-        state = 'FAILED';
-      }
-      return { ok: true, json: async () => ({ attemptId, state,
-        errorCode: state === 'FAILED' ? (stop === 'cancel' ? 'COLLECTION_CANCELLED' : 'SOURCE_ATTEMPT_EXPIRED') : null,
-        attemptToken: '22222222-2222-4222-8222-222222222222', expiresAt: new Date(expires).toISOString(),
-        plan: { sourceType: 'coupang_competitor_seller_identity', parserVersion: 'seller-identity-v1', days: 30, limit: 200, targets },
-      }) };
-    } });
-    h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
-    let entered, release;
-    const extracting = new Promise((resolve) => { entered = resolve; });
-    const resume = new Promise((resolve) => { release = resolve; });
-    const extract = h.fake.chrome.scripting.executeScript;
-    let injections = 0;
-    h.fake.chrome.scripting.executeScript = async (...args) => {
-      if (!String(args[0]?.func).includes('extractSellerLinkInPage')) return extract(...args);
-      injections++;
-      entered();
-      await resume;
-      return extract(...args);
-    };
-    h.fake.chrome.tabs.remove = async (_id, callback) => { assert.equal(state, 'FAILED'); callback?.(); };
-    const collecting = externalRequest(h.fake, { action: 'collectAdvertisingSellerIdentities', attemptId });
-    await extracting;
-    try {
-      if (stop === 'cancel') {
-        const cancelled = await externalRequest(h.fake, { action: 'cancelCollectionSession', attemptId });
-        assert.equal(cancelled.terminalState, 'FAILED');
-      } else {
-        vm.runInContext(`Date.now = () => ${expires + 1}`, h.context);
-      }
-    } finally { release(); }
-    const result = await collecting;
-    assert.equal(result.terminalState, 'FAILED');
-    assert.equal(injections, 1, 'no extraction after cancellation or expiry');
-    assert.deepEqual(h.urls, ['about:blank', targets[0].link], 'no next product IO');
-    assert.equal(writes.length, 1);
-    assert.equal(writes[0].method, 'POST', 'no partial success submission after cancellation or expiry');
-    if (stop === 'cancel') assert.equal(writes[0].body.code, 'COLLECTION_CANCELLED');
-  });
-});
-
-test('Wing rank source dispatch transports the frozen plan with original sales sorting and observed page proof', async () => {
-  const attemptId = '11111111-1111-4111-8111-111111111111';
-  const attemptToken = '22222222-2222-4222-8222-222222222222';
-  const uploads = [];
-  const h = bootWingSearch([{ status: 200, body: { result: [
-    { productId: 101, vendorItemId: 301, productName: '연필', salesLast28d: 3, salePrice: 1000 },
-    { productId: 102, vendorItemId: 302, productName: '색연필', salesLast28d: 5, salePrice: 2000 },
-  ], nextSearchPage: null } }], { fetch: async (url, init) => {
-    assert.ok(String(url).endsWith(`/wing/attempts/${attemptId}`));
-    if (init.method === 'PUT') {
-      uploads.push({ body: JSON.parse(init.body), token: new Headers(init.headers).get('x-source-attempt-token') });
-      return { ok: true, status: 200, json: async () => ({ attemptId, state: 'COMPLETE', itemCount: 2 }) };
-    }
-    return { ok: true, status: 200, json: async () => ({
-      attemptId, attemptToken, state: 'RUNNING', keyword: '연필 세트',
-      expiresAt: new Date(Date.now() + 1_500_000).toISOString(),
-      plan: { sourceType: 'coupang_wing_rank', parserVersion: 'wing-rank-v1',
-        keyword: '연필 세트', maxPages: 2, targets: [{ vendorItemId: '301' }] },
-    }) };
-  } });
-  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-  const action = h.context.KidItemDomains.forExternalAction('collectAdvertisingWingRank');
-  assert.equal(typeof action?.handle, 'function');
-  for (const extra of [{ keyword: 'forged' }, { maxPages: 5 }, { attemptToken }, { runId: attemptId }]) {
-    assert.throws(() => action.validate({ action: 'collectAdvertisingWingRank', attemptId, ...extra }));
-  }
-  const [reply, duplicate] = await Promise.all([0, 1].map(() => externalRequest(h.fake, {
-    action: 'collectAdvertisingWingRank', attemptId,
-  })));
-  assert.deepEqual(reply, duplicate);
-  assert.deepEqual(JSON.parse(JSON.stringify(reply)), { success: true, attemptId, terminalState: 'COMPLETE', itemCount: 2 });
-  assert.equal(uploads.length, 1);
-  assert.equal(uploads[0].token, attemptToken);
-  assert.deepEqual(uploads[0].body.items.map(({ vendorItemId, salesRank }) => ({ vendorItemId, salesRank })), [
-    { vendorItemId: '302', salesRank: 1 }, { vendorItemId: '301', salesRank: 2 },
-  ]);
-  assert.deepEqual(uploads[0].body.proof, { maxPages: 2, stopReason: 'no_next_search_page',
-    pages: [{ searchPage: 0, itemCount: 2, nextSearchPage: null, resultArrayObserved: true }] });
-  assert.equal(uploads[0].body.keyword, '연필 세트');
-  assert.equal(uploads[0].body.pagesScanned, 1);
-  assert.equal(uploads[0].body.collectedCount, 2);
-  assert.equal(uploads[0].body.totalResults, null);
-  assert.ok(Number.isFinite(Date.parse(uploads[0].body.capturedAt)));
-  assert.equal(h.requests.length, 1);
-  assert.deepEqual(h.urls, ['https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2']);
-});
-
-test('Wing rank source retains the existing two keyword tries on a failed browser request', async () => {
-  const attemptId = '11111111-1111-4111-8111-111111111111';
-  const writes = [];
-  const h = bootWingSearch([new Error('injected frame unavailable'), { status: 200, body: { result: [] } }], {
-    fetch: async (url, init) => {
-      // The not-yet-retired startup poll is outside this source seam.
-      if (!String(url).includes('/wing/attempts/')) return { ok: true, status: 200, json: async () => ({}) };
-      if (init.method !== 'GET') writes.push({ url: String(url), method: init.method });
-      return { ok: true, status: 200, json: async () => ({
-        attemptId, attemptToken: '22222222-2222-4222-8222-222222222222',
-        state: init.method === 'GET' ? 'RUNNING' : init.method === 'PUT' ? 'COMPLETE' : 'FAILED', itemCount: 0,
-        expiresAt: new Date(Date.now() + 1_500_000).toISOString(),
-        plan: { sourceType: 'coupang_wing_rank', parserVersion: 'wing-rank-v1', keyword: '연필 세트', maxPages: 5 },
-      }) };
-    },
-  });
-  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-  const result = await externalRequest(h.fake, { action: 'collectAdvertisingWingRank', attemptId });
-  assert.equal(result.terminalState, 'COMPLETE');
-  assert.deepEqual(writes, [{ url: `http://localhost:4000/api/ads/keyword-rank/wing/attempts/${attemptId}`, method: 'PUT' }]);
-  assert.deepEqual(h.delays, [7000]);
-  assert.equal(h.urls.length, 2);
-  assert.equal(h.requests.length, 1);
-});
-
-test('Wing rank batch dispatch reads frozen owner membership and continues after page acknowledgement', async () => {
-  const idempotencyKey = '33333333-3333-4333-8333-333333333333';
-  const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
-  const states = ['RUNNING', 'RUNNING'];
-  const uploads = [];
-  let releaseFirst;
-  const firstUpload = new Promise((resolve) => { releaseFirst = resolve; });
-  const h = bootWingSearch([
-    { status: 200, body: { result: [], nextSearchPage: null } },
-    { status: 200, body: { result: [], nextSearchPage: null } },
-  ], { fetch: async (url, init) => {
-    if (!String(url).includes('/keyword-rank/')) return { ok: true, status: 200, json: async () => ({}) };
-    if (String(url).endsWith('/wing/batch-attempts')) {
-      assert.equal(new Headers(init.headers).get('Idempotency-Key'), idempotencyKey);
-      return { ok: true, status: 200, json: async () => ({ attempts: ids.map((attemptId, i) => ({ attemptId, state: states[i] })) }) };
-    }
-    const index = ids.findIndex((id) => String(url).endsWith(`/attempts/${id}`));
-    assert.notEqual(index, -1);
-    if (init.method === 'PUT') {
-      uploads.push(JSON.parse(init.body));
-      if (index === 0) await firstUpload;
-      states[index] = 'COMPLETE';
-    }
-    return { ok: true, status: 200, json: async () => ({
-      attemptId: ids[index], attemptToken: '44444444-4444-4444-8444-444444444444',
-      state: states[index], itemCount: 0, expiresAt: new Date(Date.now() + 3_000_000).toISOString(),
-      plan: { sourceType: 'coupang_wing_rank', parserVersion: 'wing-rank-v1',
-        keyword: ['연필 세트', '색연필'][index], maxPages: 5 },
-    }) };
-  } });
-  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-  const action = h.context.KidItemDomains.forExternalAction('collectAdvertisingWingRankBatch');
-  assert.equal(typeof action?.handle, 'function');
-  for (const extra of [{ targets: [] }, { runId: ids[0] }, { environmentId: 'office' }]) {
-    assert.throws(() => action.validate({ action: 'collectAdvertisingWingRankBatch', idempotencyKey, ...extra }));
-  }
-  const reply = await externalRequest(h.fake, { action: 'collectAdvertisingWingRankBatch', idempotencyKey });
-  assert.deepEqual(JSON.parse(JSON.stringify(reply)), { success: true, started: true });
-  const duplicate = await externalRequest(h.fake, { action: 'collectAdvertisingWingRankBatch', idempotencyKey });
-  assert.deepEqual(duplicate, reply);
-  assert.equal(states[0], 'RUNNING', 'dispatch ACK is not a source result');
-  releaseFirst();
-  for (let tick = 0; tick < 100 && states[1] !== 'COMPLETE'; tick++) await new Promise(setImmediate);
-  assert.deepEqual(states, ['COMPLETE', 'COMPLETE']);
-  assert.deepEqual(uploads.map((body) => body.keyword), ['연필 세트', '색연필']);
-  assert.deepEqual(h.requests.map(({ body }) => body.keyword), ['연필 세트', '색연필']);
-  assert.ok(h.delays.includes(1850), 'original1.2–2.5s between-keyword pacing');
-});
-
-test('Wing rank batch cancellation fails queued owners before returning and prevents their provider IO', async () => {
-  const idempotencyKey = '33333333-3333-4333-8333-333333333333';
-  const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
-  const states = ['RUNNING', 'RUNNING'];
-  const failures = [];
-  let cancellations = 0;
-  let releaseUpload, uploadStarted;
-  const uploaded = new Promise((resolve) => { uploadStarted = resolve; });
-  const release = new Promise((resolve) => { releaseUpload = resolve; });
-  const h = bootWingSearch([{ status: 200, body: { result: [], nextSearchPage: null } }], { fetch: async (url, init) => {
-    if (!String(url).includes('/keyword-rank/')) return { ok: true, status: 200, json: async () => ({}) };
-    if (String(url).endsWith('/batch-attempts')) return {
-      ok: true, status: 200, json: async () => ({ attempts: ids.map((attemptId, i) => ({ attemptId, state: states[i] })) }),
-    };
-    if (String(url).endsWith('/batch-attempts/cancel')) {
-      assert.equal(init.method, 'POST');
-      cancellations += 1;
-      for (let i = 0; i < states.length; i += 1) states[i] = 'FAILED';
-      return { ok: true, status: 200, json: async () => ({
-        attempts: ids.map((attemptId, i) => ({ attemptId, state: states[i] })),
-      }) };
-    }
-    const index = ids.findIndex((id) => String(url).includes(`/attempts/${id}`));
-    assert.notEqual(index, -1);
-    if (init.method === 'PUT') { uploadStarted(); await release; }
-    if (String(url).endsWith('/fail')) {
-      assert.equal(new Headers(init.headers).get('x-source-attempt-token'), '44444444-4444-4444-8444-444444444444');
-      failures.push({ attemptId: ids[index], ...JSON.parse(init.body) });
-      states[index] = 'FAILED';
-    }
-    return { ok: true, status: 200, json: async () => ({
-      attemptId: ids[index], attemptToken: '44444444-4444-4444-8444-444444444444', state: states[index],
-      errorCode: states[index] === 'FAILED' ? 'COLLECTION_CANCELLED' : null,
-      expiresAt: new Date(Date.now() + 3_000_000).toISOString(),
-      plan: { sourceType: 'coupang_wing_rank', parserVersion: 'wing-rank-v1', keyword: ['연필', '색연필'][index], maxPages: 5 },
-    }) };
-  } });
-  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-  const cancelAction = h.context.KidItemDomains.forExternalAction('cancelAdvertisingWingRankBatch');
-  assert.equal(typeof cancelAction?.handle, 'function');
-  await externalRequest(h.fake, { action: 'collectAdvertisingWingRankBatch', idempotencyKey });
-  await uploaded;
-  const cancelled = await externalRequest(h.fake, { action: 'cancelAdvertisingWingRankBatch', idempotencyKey });
-  assert.equal(cancelled.success, true);
-  assert.deepEqual(states, ['FAILED', 'FAILED']);
-  assert.equal(cancellations, 1);
-  assert.deepEqual(failures, []);
-  releaseUpload();
-  for (let tick = 0; tick < 10; tick++) await new Promise(setImmediate);
-  assert.equal(h.requests.length, 1);
-  assert.equal(await vm.runInContext(`collectionSessions.get('${ids[0]}')`, h.context), null);
-});
-
-for (const reason of ['provider wall', 'missing terminal ACK']) test(`Wing rank batch stops on ${reason} and explicitly fails only unstarted members`, async () => {
-  const idempotencyKey = '33333333-3333-4333-8333-333333333333';
-  const ids = ['11111111-1111-4111-8111-111111111111', '22222222-2222-4222-8222-222222222222'];
-  const states = ['RUNNING', 'RUNNING'];
-  const failures = [];
-  const h = bootWingSearch([{ status: reason === 'provider wall' ? 401 : 200, body: { result: [], nextSearchPage: null } }], { fetch: async (url, init) => {
-    if (!String(url).includes('/keyword-rank/')) return { ok: true, status: 200, json: async () => ({}) };
-    if (String(url).endsWith('/batch-attempts')) return {
-      ok: true, status: 200, json: async () => ({ attempts: ids.map((attemptId, i) => ({ attemptId, state: states[i] })) }),
-    };
-    const index = ids.findIndex((id) => String(url).includes(`/attempts/${id}`));
-    assert.notEqual(index, -1);
-    if (init.method === 'PUT') throw new Error('connection lost before ACK');
-    if (String(url).endsWith('/fail')) {
-      failures.push({ attemptId: ids[index], ...JSON.parse(init.body) });
-      states[index] = 'FAILED';
-    }
-    return { ok: true, status: 200, json: async () => ({
-      attemptId: ids[index], attemptToken: '44444444-4444-4444-8444-444444444444', state: states[index],
-      errorCode: failures.find((failure) => failure.attemptId === ids[index])?.code,
-      expiresAt: new Date(Date.now() + 3_000_000).toISOString(),
-      plan: { sourceType: 'coupang_wing_rank', parserVersion: 'wing-rank-v1', keyword: ['연필', '색연필'][index], maxPages: 5 },
-    }) };
-  } });
-  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-  await externalRequest(h.fake, { action: 'collectAdvertisingWingRankBatch', idempotencyKey });
-  for (let tick = 0; tick < 100 && states[1] !== 'FAILED'; tick++) await new Promise(setImmediate);
-  assert.deepEqual(states, [reason === 'provider wall' ? 'FAILED' : 'RUNNING', 'FAILED']);
-  assert.equal(failures.find((failure) => failure.attemptId === ids[1])?.code, 'COLLECTION_INTERRUPTED');
-  assert.equal(h.requests.length, 1, 'no next keyword after blocked or unconfirmed result');
-  if (reason === 'missing terminal ACK') assert.equal(failures.length, 1, 'never contradict the uncertain current submission');
-  else {
-    const session = await externalRequest(h.fake, { action: 'getCollectionSession', attemptId: ids[0] });
-    assert.equal(session.attention.reason, 'marketplace_login');
-    assert.equal(BrowserCollectionSessionViewSchema.safeParse(session).success, true,
-      'owner attention must remain readable through the shared page contract');
-  }
-});
-
-test('Wing rank source cancellation is owner-confirmed and stops the next page or HTTP retry', async (t) => {
-  for (const phase of ['page', 'HTTP retry']) await t.test(phase, async () => {
-  const attemptId = '11111111-1111-4111-8111-111111111111';
-  const writes = [];
-  let state = 'RUNNING';
-  const h = bootWingSearch(phase === 'page' ? [
-    { status: 200, body: { result: [{ productId: 101 }], nextSearchPage: 5 } },
-    { status: 200, body: { result: [] } },
-  ] : [{ status: 429, body: {} }, { status: 200, body: { result: [] } }], { fetch: async (url, init) => {
-    if (!String(url).includes('/wing/attempts/')) return { ok: true, status: 200, json: async () => ({}) };
-    if (init.method !== 'GET') {
-      writes.push({ url: String(url), body: JSON.parse(init.body) });
-      state = 'FAILED';
-    }
-    return { ok: true, status: 200, json: async () => ({
-      attemptId, attemptToken: '22222222-2222-4222-8222-222222222222', state, itemCount: 0,
-      expiresAt: new Date(Date.now() + 1_500_000).toISOString(),
-      plan: { sourceType: 'coupang_wing_rank', parserVersion: 'wing-rank-v1', keyword: '연필 세트', maxPages: 2 },
-    }) };
-  } });
-  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-  let entered, release;
-  const extracting = new Promise((resolve) => { entered = resolve; });
-  const resume = new Promise((resolve) => { release = resolve; });
-  if (phase === 'page') {
-    const extract = h.fake.chrome.scripting.executeScript;
-    h.fake.chrome.scripting.executeScript = async (...args) => {
-      if (!String(args[0]?.func).includes('executeWingCatalogSearchInPage')) return extract(...args);
-      entered();
-      await resume;
-      return extract(...args);
-    };
-  } else {
-    const timer = h.context.setTimeout;
-    h.context.setTimeout = (callback, ms) => {
-      if (ms !== 4000) return timer(callback, ms);
-      entered(); resume.then(callback); return 1;
-    };
-  }
-  const closed = [];
-  h.fake.chrome.tabs.remove = async (tabId, callback) => {
-    assert.equal(state, 'FAILED'); closed.push(tabId); callback?.();
-  };
-  const collecting = externalRequest(h.fake, { action: 'collectAdvertisingWingRank', attemptId });
-  await extracting;
-  let cancellation;
-  try { cancellation = await externalRequest(h.fake, { action: 'cancelCollectionSession', attemptId }); }
-  finally { release(); }
-  const result = await collecting;
-  assert.equal(cancellation?.terminalState, 'FAILED');
-  assert.equal(result.terminalState, 'FAILED');
-  assert.equal(writes.length, 1);
-  assert.equal(writes[0].url.endsWith(`/${attemptId}/fail`), true);
-  assert.equal(writes[0].body.code, 'COLLECTION_CANCELLED');
-  assert.equal(h.requests.length, 1, 'the cancelled attempt must not request the next page');
-  assert.deepEqual(closed, [42]);
-  });
-});
-
-test('Wing rank source preserves rate-limit and login attention after the owner records failure', async (t) => {
-  for (const reason of ['rate_limited', 'marketplace_login']) await t.test(reason, async () => {
-    const attemptId = '11111111-1111-4111-8111-111111111111';
-    const failures = [];
-    const h = bootWingSearch(reason === 'rate_limited'
-      ? Array.from({ length: 4 }, () => ({ status: 429, body: {} }))
-      : [{ status: 403, contentType: 'text/html', body: 'login required' }], {
-      fetch: async (url, init) => {
-        if (!String(url).includes('/wing/attempts/')) return { ok: true, status: 200, json: async () => ({}) };
-        if (init.method === 'POST') {
-          assert.ok(String(url).endsWith(`/${attemptId}/fail`));
-          failures.push(JSON.parse(init.body));
-          return { ok: true, status: 200, json: async () => ({ attemptId, state: 'FAILED', itemCount: 0,
-            errorCode: 'WING_RANK_PROVIDER_WALL', errorMessage: 'Provider attention required.' }) };
-        }
-        assert.equal(init.method, 'GET');
-        return { ok: true, status: 200, json: async () => ({
-          attemptId, attemptToken: '22222222-2222-4222-8222-222222222222', state: 'RUNNING',
-          expiresAt: new Date(Date.now() + 1_500_000).toISOString(),
-          plan: { sourceType: 'coupang_wing_rank', parserVersion: 'wing-rank-v1', keyword: '연필 세트', maxPages: 5 },
-        }) };
-      },
-    });
-    h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'fixture' } };
-    const result = await externalRequest(h.fake, { action: 'collectAdvertisingWingRank', attemptId });
-    assert.equal(result.terminalState, 'FAILED');
-    assert.equal(failures.length, 1);
-    assert.equal(failures[0].code, 'WING_RANK_PROVIDER_WALL');
-    assert.equal(h.requests.length, reason === 'rate_limited' ? 4 : 1);
-    assert.deepEqual(h.delays, reason === 'rate_limited' ? [4000, 8000, 16000] : []);
-    const session = await externalRequest(h.fake, { action: 'getCollectionSession', attemptId });
-    assert.equal(session?.attention?.reason, reason);
-    const focused = [];
-    h.fake.chrome.tabs.update = async (tabId, options) => { focused.push({ tabId, ...options }); };
-    await externalRequest(h.fake, { action: 'openCollectionAttentionTab', attemptId });
-    assert.deepEqual(focused, [{ tabId: 42, active: true }]);
-  });
-});
-
-test('Wing search records whether the successful JSON response actually contained a result array', async () => {
-  for (const [body, observed] of [[{ result: [] }, true], [{}, false], [{ result: null }, false]]) {
-    const h = bootWingSearch([{ status: 200, body }]);
-    const result = await h.search();
-    assert.equal(result.success, true, 'observation does not rewrite the original collector result');
-    assert.equal(result.stopReason, 'empty_page');
-    assert.deepEqual(result.rows, []);
-    assert.equal(result.pages[0].resultArrayObserved, observed);
-    assert.equal(h.requests.length, 1);
-  }
-});
-
-test('Wing search preserves request cursors, 429 retry delays, deduplication and normalized product fields', async () => {
-  const product = { productId: 101, itemId: 201, vendorItemId: 301, productName: '연필',
-    salePrice: 1000, salesLast28d: 3, pvLast28Day: 12, rating: 4.5, ratingCount: 8,
-    displayCategoryInfo: [{ categoryHierarchy: '문구 > 연필' }] };
-  const h = bootWingSearch([
-    { status: 429, body: {} }, { status: 429, body: {} },
-    { status: 200, body: { result: [product], nextSearchPage: 5 } },
-    { status: 200, body: { result: [product, { ...product, productId: 102, vendorItemId: 302 }], nextSearchPage: null } },
-  ]);
-  const result = await h.search();
-  assert.deepEqual(h.urls, ['https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2']);
-  assert.deepEqual(h.requests.map(({ url, method, credentials, body }) => ({ url, method, credentials, body })),
-    [0, 0, 0, 5].map((searchPage) => ({ url: '/tenants/seller-web/pre-matching/search', method: 'POST', credentials: 'include',
-      body: { keyword: '연필 세트', excludedProductIds: [], searchPage, searchOrder: 'DEFAULT', sortType: 'DEFAULT' } })));
-  assert.deepEqual(h.delays, [4000, 8000, 2200]);
-  assert.equal(result.stopReason, 'no_next_search_page');
-  assert.deepEqual(result.pages, [
-    { searchPage: 0, itemCount: 1, resultArrayObserved: true, nextSearchPage: 5, total: null },
-    { searchPage: 5, itemCount: 2, resultArrayObserved: true, nextSearchPage: null, total: null },
-  ]);
-  assert.equal(result.collectedCount, 2);
-  assert.equal(result.upstreamTotal, null);
-  assert.deepEqual(result.rows[0], { productId: '101', itemId: '201', vendorItemId: '301', productName: '연필',
-    itemName: null, brandName: null, manufacture: null, categoryHierarchy: '문구 > 연필', imagePath: null,
-    salePrice: 1000, rating: 4.5, ratingCount: 8, pvLast28Day: 12, salesLast28d: 3,
-    estimatedRevenue28d: 3000, conversionRate28d: 0.25, deliveryInfo: null });
-});
-
-test('Wing search keeps partial rows and original 5xx exhaustion while exposing the incomplete stop reason', async () => {
-  const h = bootWingSearch([
-    { status: 200, body: { result: [{ productId: 101, productName: '연필' }], nextSearchPage: 1 } },
-    ...Array.from({ length: 4 }, () => ({ status: 503, body: {} })),
-  ]);
-  const result = await h.search();
-  assert.equal(result.success, true, 'the owner validates completeness; collection output remains unchanged');
-  assert.equal(result.rows.length, 1);
-  assert.equal(result.stopReason, 'non_json_response');
-  assert.equal(result.pages.length, 1);
-  assert.deepEqual(h.requests.map((request) => request.body.searchPage), [0, 1, 1, 1, 1]);
-  assert.deepEqual(h.delays, [2200, 1000, 2000, 4000]);
-});
-
-test('Wing catalog search reuses the existing session for both owners and rejects missing or foreign environments', async () => {
-  for (const producer of [
-    'advertising.wing_rank',
-    'advertising.wing_tracked_products',
-  ]) {
-    const h = bootWingSearch([{ status: 200, body: { result: [] } }], { producer });
-    try {
-      const result = await h.search(1);
-      assert.equal(result.success, true, producer);
-      assert.equal(result.stopReason, 'empty_page', producer);
-    } finally {
-      h.close();
-    }
-  }
-
-  const missing = bootWingSearch([]);
-  try {
-    await assert.rejects(
-      vm.runInContext(`wingSearchCollector.collect(${JSON.stringify({
-        keyword: '연필 세트', maxPages: 1, environmentId: 'local',
-      })})`, missing.context),
-      /source_owner_attempt_required/,
-    );
-  } finally {
-    missing.close();
-  }
-
-  const foreign = bootWingSearch([], { producer: 'advertising.wing_tracked_products' });
-  try {
-    await vm.runInContext(`collectionSessions.start({
-      attemptId: '11111111-1111-4111-8111-111111111111',
-      producer: 'advertising.wing_tracked_products',
-      environmentId: 'local',
-    })`, foreign.context);
-    await assert.rejects(
-      vm.runInContext(`wingSearchCollector.collect(${JSON.stringify({
-        keyword: '연필 세트', maxPages: 1,
-        attemptId: '11111111-1111-4111-8111-111111111111', environmentId: 'office',
-      })})`, foreign.context),
-      /source_owner_session_invalid/,
-    );
-  } finally {
-    foreign.close();
-  }
-});
-
-test('SERP source dispatch collects the server plan and returns only its acknowledged owner result', async () => {
-  const attemptId = '11111111-1111-4111-8111-111111111111';
-  const attemptToken = '22222222-2222-4222-8222-222222222222';
-  const control = {
-    attemptId, attemptToken, state: 'RUNNING', keyword: '연필 세트', itemCount: 0,
-    expiresAt: new Date(Date.now() + 600_000).toISOString(),
-    plan: { sourceType: 'coupang_keyword_serp', parserVersion: 'keyword-serp-v1',
-      keyword: '연필 세트', maxPages: 1, explicitVendorItemIds: [], ownItems: [] },
-  };
-  const uploads = [];
-  const h = bootRankCollector([{ items: [{ productId: '1', vendorItemId: '10', name: '연필' }] }], { fetch: async (url, init) => {
-    if (String(url).endsWith(`/serp/attempts/${attemptId}`)) {
-      if (init.method === 'PUT') {
-        uploads.push({ body: JSON.parse(init.body), token: new Headers(init.headers).get('x-source-attempt-token') });
-        return { ok: true, status: 200, json: async () => ({ attemptId, state: 'COMPLETE', itemCount: 1 }) };
-      }
-      return { ok: true, status: 200, json: async () => control };
-    }
-    return { ok: true, status: 200, json: async () => ({}) };
-  } });
-  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
-  const contract = h.context.KidItemDomains.forExternalAction('collectAdvertisingKeywordSerp');
-  assert.equal(typeof contract?.handle, 'function');
-  for (const extra of [{ keyword: 'forged' }, { attemptToken }, { runId: attemptId }]) {
-    assert.throws(() => contract.validate({ action: 'collectAdvertisingKeywordSerp', attemptId, ...extra }));
-  }
-  const dispatch = () => new Promise((resolve) => {
-    let responders = 0;
-    for (const listener of h.fake.externalMessageListeners) {
-      if (listener({ action: 'collectAdvertisingKeywordSerp', attemptId },
-        { url: 'http://localhost:3000/advertising/keyword-rank' }, resolve) === true) responders += 1;
-    }
-    assert.equal(responders, 1);
-  });
-  const [reply, replay] = await Promise.all([dispatch(), dispatch()]);
-  assert.deepEqual(reply, replay);
-  assert.deepEqual(JSON.parse(JSON.stringify(reply)), {
-    success: true, attemptId, terminalState: 'COMPLETE', itemCount: 1,
-  });
-  assert.equal(uploads.length, 1);
-  assert.equal(uploads[0].token, attemptToken);
-  assert.equal(uploads[0].body.keyword, '연필 세트');
-  assert.equal(uploads[0].body.items[0].vendorItemId, '10');
-  assert.ok(Number.isFinite(Date.parse(uploads[0].body.capturedAt)));
-  assert.deepEqual(uploads[0].body.pagination, { requestedMaxPages: 1, stoppedAtPage: 1, stopReason: 'page_limit' });
-    assert.equal(h.urls.length, 2);
-});
-
-test('SERP source dispatch reconciles lost terminal replies without submitting a contradictory failure', async (t) => {
-  for (const outcome of ['COMPLETE', 'FAILED', 'UNAVAILABLE']) await t.test(outcome, async () => {
-    const attemptId = '11111111-1111-4111-8111-111111111111';
-    const uploads = [];
-    let reads = 0;
-    const h = bootRankCollector([{ items: [{ productId: '1', name: '연필' }] }], {
-      fetch: async (url, init) => {
-        if (!String(url).includes('/serp/attempts/')) return { ok: true, status: 200, json: async () => ({}) };
-        assert.equal(String(url).endsWith(`/serp/attempts/${attemptId}`), true, 'never send /fail after an uncertain upload');
-        if (init.method === 'PUT') {
-          uploads.push(init.body);
-          throw new TypeError('response connection lost');
-        }
-        reads += 1;
-        if (reads > 1 && outcome === 'UNAVAILABLE') throw new TypeError('server unavailable');
-        return { ok: true, status: 200, json: async () => reads === 1 ? {
-          attemptId, attemptToken: '22222222-2222-4222-8222-222222222222', state: 'RUNNING',
-          expiresAt: new Date(Date.now() + 600_000).toISOString(),
-          plan: { sourceType: 'coupang_keyword_serp', parserVersion: 'keyword-serp-v1', keyword: '연필 세트', maxPages: 1 },
-        } : { attemptId, state: outcome, itemCount: outcome === 'COMPLETE' ? 1 : 0,
-          errorCode: 'INCOMPLETE_SERP_CAPTURE', errorMessage: 'Source proof rejected.' } };
-      },
-    });
-    h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
-    const action = h.context.KidItemDomains.forExternalAction('collectAdvertisingKeywordSerp');
-    const result = await action.handle({ attemptId }, 'local');
-    assert.equal(result.success, outcome === 'COMPLETE');
-    assert.equal(result.terminalState, outcome === 'UNAVAILABLE' ? 'RUNNING' : outcome);
-    assert.equal(uploads.length, 3);
-    assert.equal(new Set(uploads).size, 1, 'the exact capture timestamp/body is preserved across retries');
-    assert.equal(h.urls.length, 2, 'a transport retry does not recollect the source');
-    const session = await externalRequest(h.fake, { action: 'getCollectionSession', attemptId });
-    assert.equal(Boolean(session), outcome === 'UNAVAILABLE', 'uncertainty retains only local correlation');
-  });
-});
-
-test('SERP source dispatch records provider login failure and retains the owned attention tab', async () => {
-  const attemptId = '11111111-1111-4111-8111-111111111111';
-  const failures = [];
-  const h = bootRankCollector([{ items: [], wall: 'login' }], { fetch: async (url, init) => {
-    if (!String(url).includes('/serp/attempts/')) return { ok: true, status: 200, json: async () => ({}) };
-    if (init.method === 'POST') {
-      assert.equal(String(url).endsWith(`/${attemptId}/fail`), true);
-      failures.push(JSON.parse(init.body));
-      return { ok: true, status: 201, json: async () => ({ attemptId, state: 'FAILED', itemCount: 0,
-        errorCode: 'SERP_PROVIDER_WALL', errorMessage: 'Login required.' }) };
-    }
-    assert.equal(init.method, 'GET');
-    return { ok: true, status: 200, json: async () => ({
-      attemptId, attemptToken: '22222222-2222-4222-8222-222222222222', state: 'RUNNING',
-      expiresAt: new Date(Date.now() + 600_000).toISOString(),
-      plan: { sourceType: 'coupang_keyword_serp', parserVersion: 'keyword-serp-v1', keyword: '연필 세트', maxPages: 1 },
-    }) };
-  } });
-  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
-  const result = await h.context.KidItemDomains.forExternalAction('collectAdvertisingKeywordSerp')
-    .handle({ attemptId }, 'local');
-  assert.equal(result.success, false);
-  assert.equal(result.terminalState, 'FAILED');
-  assert.equal(failures.length, 1);
-  const session = await externalRequest(h.fake, { action: 'getCollectionSession', attemptId });
-  assert.equal(session?.attention?.reason, 'marketplace_login');
-  const focused = [];
-  h.fake.chrome.tabs.update = async (tabId, options) => { focused.push({ tabId, ...options }); };
-  await externalRequest(h.fake, { action: 'openCollectionAttentionTab', attemptId });
-  assert.deepEqual(focused, [{ tabId: 41, active: true }]);
-});
-
-test('SERP source cancellation is owner-confirmed before closing the tab and stops further pagination', async () => {
-  const attemptId = '11111111-1111-4111-8111-111111111111';
-  const writes = [];
-  let state = 'RUNNING';
-  const h = bootRankCollector([{ items: [{ productId: '1' }] }, { items: [{ productId: '2' }] }], {
-    fetch: async (url, init) => {
-      if (!String(url).includes('/serp/attempts/')) return { ok: true, status: 200, json: async () => ({}) };
-      if (init.method !== 'GET') {
-        writes.push({ url: String(url), body: JSON.parse(init.body) });
-        state = 'FAILED';
-      }
-      return { ok: true, status: 200, json: async () => ({
-        attemptId, attemptToken: '22222222-2222-4222-8222-222222222222', state,
-        errorCode: state === 'FAILED' ? 'COLLECTION_CANCELLED' : null, itemCount: 0,
-        expiresAt: new Date(Date.now() + 600_000).toISOString(),
-        plan: { sourceType: 'coupang_keyword_serp', parserVersion: 'keyword-serp-v1', keyword: '연필 세트', maxPages: 2 },
-      }) };
-    },
-  });
-  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
-  let entered, release;
-  const extracting = new Promise((resolve) => { entered = resolve; });
-  const resume = new Promise((resolve) => { release = resolve; });
-  const extract = h.fake.chrome.scripting.executeScript;
-  h.fake.chrome.scripting.executeScript = async (...args) => {
-    if (!String(args[0]?.func).includes('extractCoupangSerpInPage')) return extract(...args);
-    entered();
-    await resume;
-    return extract(...args);
-  };
-  const closed = [];
-  h.fake.chrome.tabs.remove = async (tabId) => { assert.equal(state, 'FAILED'); closed.push(tabId); };
-  const collecting = h.context.KidItemDomains.forExternalAction('collectAdvertisingKeywordSerp').handle({ attemptId }, 'local');
-  await extracting;
-  let cancellation;
-  try { cancellation = await externalRequest(h.fake, { action: 'cancelCollectionSession', attemptId }); }
-  finally { release(); }
-  const result = await collecting;
-  assert.equal(cancellation?.terminalState, 'FAILED');
-  assert.equal(result.terminalState, 'FAILED');
-  assert.equal(writes.length, 1);
-  assert.equal(writes[0].url.endsWith(`/${attemptId}/fail`), true);
-  assert.equal(writes[0].body.code, 'COLLECTION_CANCELLED');
-  assert.equal(h.urls.length, 2);
-  assert.deepEqual(closed, [41]);
-});
-
-test('SERP source records a definitive payload rejection as FAILED rather than leaving an unconfirmed RUNNING source', async () => {
-  const attemptId = '11111111-1111-4111-8111-111111111111';
-  const writes = [];
-  const h = bootRankCollector([{ items: [{ productId: '1' }] }], { fetch: async (url, init) => {
-    if (!String(url).includes('/serp/attempts/')) return { ok: true, status: 200, json: async () => ({}) };
-    if (init.method === 'PUT') {
-      writes.push('PUT');
-      return { ok: false, status: 400, json: async () => ({ message: 'INVALID_SERP_CAPTURE' }) };
-    }
-    if (init.method === 'POST') {
-      writes.push('FAIL');
-      return { ok: true, status: 201, json: async () => ({ attemptId, state: 'FAILED', itemCount: 0,
-        errorCode: 'SERP_RESPONSE_INVALID', errorMessage: 'Invalid capture.' }) };
-    }
-    return { ok: true, status: 200, json: async () => ({
-      attemptId, attemptToken: '22222222-2222-4222-8222-222222222222', state: 'RUNNING',
-      expiresAt: new Date(Date.now() + 600_000).toISOString(),
-      plan: { sourceType: 'coupang_keyword_serp', parserVersion: 'keyword-serp-v1', keyword: '연필 세트', maxPages: 1 },
-    }) };
-  } });
-  h.fake.storage.kiditem_environment_profiles_v1 = { local: { accessToken: 'test-token' } };
-  const result = await h.context.KidItemDomains.forExternalAction('collectAdvertisingKeywordSerp').handle({ attemptId }, 'local');
-  assert.equal(result.terminalState, 'FAILED');
-  assert.deepEqual(writes, ['PUT', 'FAIL']);
-  assert.equal(h.urls.length, 2);
-});
-
-test('SERP capture preserves URLs, DOM order and normalized fields while proving the page limit', async () => {
-  const h = bootRankCollector([
-    { items: [{ productId: '1', vendorItemId: '10', name: '연필', isAd: true,
-      priceKrw: 1200, reviewCount: 0, ratingScore: 4.5, link: 'https://www.coupang.com/vp/products/1' }] },
-    { items: [{ productId: '1', itemId: '2', vendorItemId: '10', name: '연필' }], usedFallback: true },
-  ]);
-  const capture = await h.capture();
-  assert.deepEqual(capture, {
-    success: true, tabId: 41, keyword: '연필 세트', pagesScanned: 2,
-    items: [
-      { rank: 1, page: 1, positionInPage: 1, isAd: true, productId: '1', itemId: null,
-        vendorItemId: '10', name: '연필', priceKrw: 1200, reviewCount: 0,
-        ratingScore: 4.5, link: 'https://www.coupang.com/vp/products/1' },
-      { rank: 2, page: 2, positionInPage: 1, isAd: false, productId: '1', itemId: '2',
-        vendorItemId: '10', name: '연필', priceKrw: null, reviewCount: null,
-        ratingScore: null, link: null },
-    ],
-    usedFallback: true, wall: null,
-    pagination: { requestedMaxPages: 2, stoppedAtPage: 2, stopReason: 'page_limit' },
-  });
-  assert.deepEqual(h.urls, [
-    'about:blank',
-    'https://www.coupang.com/np/search?q=%EC%97%B0%ED%95%84%20%EC%84%B8%ED%8A%B8&channel=user&page=1&listSize=36',
-    'https://www.coupang.com/np/search?q=%EC%97%B0%ED%95%84%20%EC%84%B8%ED%8A%B8&channel=user&page=2&listSize=36',
-  ]);
-  assert.deepEqual(h.delays, [1200, 1500, 1200]);
-});
-
-test('SERP capture distinguishes an observed last empty page without changing first-page-empty failure', async () => {
-  const later = bootRankCollector([{ items: [{ productId: '1' }] }, { items: [], resultListObserved: true }]);
-  const capture = await later.capture(3);
-  assert.equal(capture.success, true);
-  assert.equal(capture.items.length, 1);
-  assert.equal(capture.pagesScanned, 1);
-  assert.deepEqual(capture.pagination, {
-    requestedMaxPages: 3, stoppedAtPage: 2, stopReason: 'empty_page',
-  });
-  assert.equal(later.urls.length, 3);
-  const first = bootRankCollector([{ items: [] }]);
-  const missing = await first.capture(3);
-  assert.equal(missing.success, false);
-  assert.match(missing.error, /검색 결과가 비어/);
-  assert.equal(first.urls.length, 2);
-});
-
-test('SERP capture reports interrupted pagination without changing the previously collected rows or retries', async () => {
-  const first = { items: [{ productId: '1' }] };
-  const scenarios = [
-    { pages: [first, null], reason: 'extraction_failed' },
-    { pages: [first, new Error('script failed')], reason: 'extraction_failed' },
-    { pages: [first, {}], reason: 'invalid_result' },
-    { pages: [first, { items: 'not an array' }], reason: 'invalid_result' },
-    { pages: [first, { items: [], wall: 'captcha' }], reason: 'provider_wall' },
-    { pages: [first, { items: [], wall: 'login' }], reason: 'provider_wall' },
-    { pages: [first], loadFailureAt: 2, reason: 'load_failed' },
-    { pages: [first], redirectAt: 2, reason: 'redirect' },
-  ];
-  for (const scenario of scenarios) {
-    const h = bootRankCollector(scenario.pages, scenario);
-    const capture = await h.capture(3);
-    assert.equal(capture.success, true, 'capture retains its original artifact result');
-    assert.equal(capture.items.length, 1);
-    assert.equal(capture.items[0].productId, '1');
-    assert.equal(capture.pagesScanned, 1);
-    assert.deepEqual(capture.pagination, {
-      requestedMaxPages: 3, stoppedAtPage: 2, stopReason: scenario.reason,
-    });
-    assert.equal(h.urls.length, 3, 'proof must not add navigation or retries');
-  }
-});
-
-test('SERP capture cannot prove completion from product rows rendered with an access wall', async () => {
-  for (const pages of [
-    [{ items: [{ productId: '1' }], wall: 'captcha' }],
-    [{ items: [{ productId: '1' }], wall: 'login' }, { items: [{ productId: '2' }] }],
-  ]) {
-    const h = bootRankCollector(pages);
-    const capture = await h.capture(pages.length);
-    assert.equal(capture.success, true);
-    assert.equal(capture.items.length, pages.length);
-    assert.deepEqual(capture.pagination, {
-      requestedMaxPages: pages.length, stoppedAtPage: pages.length, stopReason: 'provider_wall',
-    });
-    assert.equal(h.urls.length, pages.length + 1);
-  }
-});
-
-test('SERP capture does not certify the live Access Denied page as an empty result', async () => {
-  // Observed in isolated Chrome/CDP on 2026-09-06; edge reference IDs redacted.
-  const denied = `<html><head><title>Access Denied</title></head><body>
-    <h1>Access Denied</h1>
-    You don't have permission to access "http://www.coupang.com/np/search?" on this server.
-    <p>Reference [redacted]</p><p>https://errors.edgesuite.net/[redacted]</p>
-    </body></html>`;
-  for (const [html, expectedReason] of [
-    [denied, 'invalid_result'],
-    ['<html><body><main>Unrecognized page</main></body></html>', 'invalid_result'],
-    ['<html><body><ul id="productList"></ul></body></html>', 'empty_page'],
-  ]) {
-    const h = bootRankCollector([{ items: [{ productId: '1' }] }, html]);
-    const capture = await h.capture(3);
-    assert.equal(capture.success, true, 'source proof does not rewrite collector success');
-    assert.equal(capture.items.length, 1);
-    assert.equal(capture.pagesScanned, 1);
-    assert.equal(capture.usedFallback, true);
-    assert.deepEqual(capture.pagination, {
-      requestedMaxPages: 3, stoppedAtPage: 2, stopReason: expectedReason,
-    });
-    assert.equal(h.urls.length, 3);
-  }
-});
 
 test('통합 서비스워커가 두 도메인 워커를 싣고 부팅한다', () => {
   const { fake, context } = bootServiceWorker();
@@ -3654,8 +2345,6 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
   for (const capability of [
     // 주문수집
     'orderCollectionIcecreamMall',
-    'collectSellpiaManualMatchV1',
-    'collectSellpiaManualMatchPortV1',
     'orderCollectionFailureEvidenceV1',
     'orderCollectionConfirmedCoverageV1',
     'mallSessionProbeV1',
@@ -3664,10 +2353,14 @@ test('ping 이 도메인과 새 런타임의 capabilities 를 합쳐 한 번만 
     'profitabilityAdvertisingSourceOwnerV1',
     'coupangCatalogSnapshot',
     'wingFormPortV1',
-    'coupangKeywordRank',
-    // 새 런타임(소싱 실행 kind, KID-360)
+    // 새 런타임(소싱 실행 kind KID-360, 광고 키워드·경쟁사 kind KID-362)
     'operationRuntime',
     'sourcingOperationKindsV1',
+    'advertisingKeywordOperationKindsV1',
+    // Channels 기타 kind(사방넷·몰 관리자·셀피아 수동매칭, KID-363)
+    'channelsOperationKindsV1',
+    // 새 런타임이 operation.start의 사이트 로그인 자격을 받는다(KID-377)
+    'operationLoginV1',
     // 공통
     'browserCollectionSessions',
     'kiditemEnvironmentProfilesV1',
@@ -3686,7 +2379,7 @@ test('도메인이 서로 겹치지 않는 producer 접두사를 등록한다', 
     'inventory.sellpia': 'cancelCollectionSession',
     'advertising.ad_sync': 'cancelCollectionSession',
     'channels.coupang_catalog': 'cancelCollectionSession',
-    'dashboard.wing_sales': 'cancelCollectionSession',
+    'advertising.ad_keyword': 'cancelCollectionSession',
   };
   for (const [producer, operation] of Object.entries(expected)) {
     const domain = domains.forProducer(producer);
@@ -3768,7 +2461,8 @@ test('외부 장기 실행 포트를 공용 dispatch 하나가 소유 도메인�
   assert.equal(fake.connectExternalListeners.length, 1);
   const [dispatch] = fake.connectExternalListeners;
 
-  for (const name of ['kiditem-wing-form-v1', 'kiditem-sellpia-manual-match-v1']) {
+  // 셀피아 수동매칭 포트(kiditem-sellpia-manual-match-v1)는 실행 계약 kind로 옮겨 없다(KID-363).
+  for (const name of ['kiditem-wing-form-v1']) {
     const messageListeners = [];
     let disconnected = 0;
     dispatch({

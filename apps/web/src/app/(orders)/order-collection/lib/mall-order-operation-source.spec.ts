@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OperationView } from '@kiditem/shared/operation';
 import { apiClient } from '@/lib/api-client';
+import { mallAutoLoginBlock, resetMallLoginBlocksForTest } from '@/lib/mall-login-block';
 import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
 import type { OrderCollectionMallAccount } from '@/lib/order-mall-account-api';
 import { detectOrderCollectionSessionExtensionStatus } from './order-collection-extension';
@@ -68,15 +69,19 @@ function operation(id: string, status: OperationView['status'], patch: Partial<O
   };
 }
 
+const CREDENTIALS = { loginId: 'fake-id', password: 'fake-password' };
+
 function source(overrides: Partial<Parameters<typeof mallOrderOperationSource>[0]> = {}) {
   const handOff = vi.fn().mockResolvedValue(undefined);
-  const ensureLogin = vi.fn().mockResolvedValue(undefined);
-  const adapter = mallOrderOperationSource({ organizationId: 'org-1', account, handOff, ensureLogin, ...overrides });
-  return { adapter, handOff, ensureLogin };
+  const loadLoginCredentials = vi.fn().mockResolvedValue(CREDENTIALS);
+  const adapter = mallOrderOperationSource({ organizationId: 'org-1', account, handOff, loadLoginCredentials, ...overrides });
+  return { adapter, handOff, loadLoginCredentials };
 }
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
+  resetMallLoginBlocksForTest();
   vi.mocked(detectOrderCollectionSessionExtensionStatus).mockResolvedValue({ status: 'ready', extensionId: 'ext-1' } as never);
 });
 
@@ -86,12 +91,12 @@ describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
     expect(collectsViaMallOrderOperation('kidsnote')).toBe(false);
   });
 
-  it('시작: 로그인을 먼저 맞추고 그 계정·오늘·선택 방식으로 실행을 연 뒤 절차에 넘긴다', async () => {
+  it('시작: 저장 자격(차단·간격 규칙을 지난 것)을 실어 그 계정·오늘·선택 방식으로 실행을 연 뒤 절차에 넘긴다(KID-377 — 확장이 실행 안에서 로그인)', async () => {
     vi.mocked(requestOperationStart).mockResolvedValue({ outcome: 'started', operationId: OPERATION_ID });
-    const { adapter, handOff, ensureLogin } = source();
+    const { adapter, handOff, loadLoginCredentials } = source();
     const outcome = await adapter.start!({ selectionMode: 'automatic', seenRowKeys: ['A'] }, { status: undefined });
     expect(outcome).toEqual({ outcome: 'started', attemptId: OPERATION_ID });
-    expect(ensureLogin).toHaveBeenCalledWith(account, { extensionId: 'ext-1', selectionMode: 'automatic' });
+    expect(loadLoginCredentials).toHaveBeenCalledWith(account, { automatic: true });
     expect(requestOperationStart).toHaveBeenCalledWith('orders.mall_orders', {
       channelAccountId: ACCOUNT_ID,
       mallKey: 'kidkids',
@@ -99,15 +104,23 @@ describe('mall order operation source (orders.mall_orders, KID-359 H3)', () => {
       collectionMode: 'browser',
       selectionMode: 'automatic',
       seenRowKeys: ['A'],
-    }, { capability: 'orderCaptureOperationKindsV1' });
+    }, { capability: 'orderCaptureOperationKindsV1', credentials: CREDENTIALS });
     expect(handOff).toHaveBeenCalledWith({ extensionId: 'ext-1', operationId: OPERATION_ID, input: { selectionMode: 'automatic', seenRowKeys: ['A'] }, collectionDate: '2026-09-26' });
-    expect(ensureLogin.mock.invocationCallOrder[0]).toBeLessThan(vi.mocked(requestOperationStart).mock.invocationCallOrder[0]!);
+  });
+
+  it('시작: 보낼 자격이 없으면(막힌 몰·한 시간 간격·저장 안 됨) 자격 없이 연다 — 세션이 살아 있으면 그대로 수집된다', async () => {
+    vi.mocked(requestOperationStart).mockResolvedValue({ outcome: 'started', operationId: OPERATION_ID });
+    const loadLoginCredentials = vi.fn().mockResolvedValue(undefined);
+    const { adapter } = source({ loadLoginCredentials });
+    await adapter.start!({}, { status: undefined });
+    expect(loadLoginCredentials).toHaveBeenCalledWith(account, { automatic: false });
+    expect(vi.mocked(requestOperationStart).mock.calls[0]![2]).toEqual({ capability: 'orderCaptureOperationKindsV1' });
   });
 
   it('계정 행이 없는 몰은 아무것도 부르지 않고 설정 안내, 같은 계정이 이미 돌면 거절 문장이나 그 실행', async () => {
     const unconfigured = source({ account: { ...account, channelAccountId: null } });
     await expect(unconfigured.adapter.start!({}, { status: undefined })).resolves.toMatchObject({ outcome: 'refused' });
-    expect(unconfigured.ensureLogin).not.toHaveBeenCalled();
+    expect(unconfigured.loadLoginCredentials).not.toHaveBeenCalled();
 
     vi.mocked(requestOperationStart).mockResolvedValueOnce({ outcome: 'refused', message: '같은 실행이 이미 진행 중입니다.' });
     const refused = source();
@@ -233,5 +246,16 @@ describe('collectMallOrderOperation — 실행이 끝나면 실행 id로 변환�
     vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(OPERATION_ID, 'failed', { errorCode: 'SITE_LOGIN_REQUIRED', errorMessage: '키드키즈 로그인이 필요합니다.' }) });
     await expect(collectMallOrderOperation({ account, operationId: OPERATION_ID, collectionDate: '2026-09-26', addGeneratedFile, sleep }))
       .rejects.toMatchObject({ errorCode: 'login_required', message: '키드키즈 로그인이 필요합니다.' });
+  });
+
+  it('몰이 저장된 아이디·비밀번호를 거부해 멈춘 실행은 그 몰의 자동 로그인을 멈추고 로그인 필요로 실패한다(KID-377)', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation(OPERATION_ID, 'failed', {
+      errorCode: 'SITE_LOGIN_REQUIRED',
+      errorMessage: '키드키즈 로그인이 필요합니다. 저장된 아이디·비밀번호로 로그인하지 못했습니다: 아이디 또는 비밀번호가 일치하지 않습니다.',
+      result: { login: { reason: 'credentials_rejected', mallMessage: '아이디 또는 비밀번호가 일치하지 않습니다.' } },
+    }) });
+    await expect(collectMallOrderOperation({ account, operationId: OPERATION_ID, collectionDate: '2026-09-26', addGeneratedFile: vi.fn(), sleep }))
+      .rejects.toMatchObject({ errorCode: 'login_required' });
+    expect(mallAutoLoginBlock('kidkids')).toMatchObject({ reason: '아이디 또는 비밀번호가 일치하지 않습니다.' });
   });
 });

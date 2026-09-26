@@ -4,6 +4,7 @@ import { createSellpiaInventory } from './inventory';
 import { createSellpiaProfit } from './profit';
 import { createSellpiaSales } from './sales';
 import { createSellpiaTracking } from './tracking';
+import { createSellpiaManualMatch } from './manual-match';
 
 export { SELLPIA_INVENTORY_FILE, SELLPIA_INVENTORY_URL, type SellpiaInventoryRow } from './inventory';
 export { SELLPIA_PROFIT_FILE, SELLPIA_PROFIT_URL, type SellpiaProfitRowProduct, type SellpiaProfitRows } from './profit';
@@ -22,6 +23,7 @@ export function createSellpiaSite(tabs: TabPages) {
     ...createSellpiaInventory(tabs),
     ...createSellpiaSales(tabs),
     ...createSellpiaProfit(tabs),
+    ...createSellpiaManualMatch(tabs),
   };
 }
 

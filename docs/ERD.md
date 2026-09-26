@@ -34,7 +34,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | [Finance](erd/finance.md) | 1 |
 | [Inventory](erd/inventory.md) | 3 |
 | [Operation](erd/operation.md) | 3 |
-| [Orders](erd/orders.md) | 13 |
+| [Orders](erd/orders.md) | 12 |
 | [Products](erd/products.md) | 6 |
 | [Sourcing](erd/sourcing.md) | 35 |
 | [Supply](erd/supply.md) | 13 |
@@ -100,7 +100,6 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | Operation | Operation | `operations` | One run of any kind (collection, AI generation, ad action, registration) under the single operation contract (ADR-0025). Owned by common/operation; owner-specific values live in plan/progress/result JSON. |
 | OperationChunk | Operation | `operation_chunks` | A staged chunk of an executing operation. Deleted in the finish transaction whether the operation succeeded or failed. |
 | OperationLock | Operation | `operation_locks` | An overlap key an executing operation holds. Unique per organization without the kind, so one key fences across kinds (ADR-0025). |
-| CoupangDirectPoSnapshot | Orders | `coupang_direct_po_snapshots` | 쿠팡직배송 발주확정 스냅샷. 입고예정일 달력이 매번 쿠팡을 다시 긁지 않도록 |
 | CoupangDirectTransportConsumption | Orders | `coupang_direct_transport_consumptions` | Immutable alias from one completed source attempt and transport selection to its canonical downstream effect receipt. |
 | CoupangDirectTransportReceipt | Orders | `coupang_direct_transport_receipts` | Immutable transport effect receipt for one normalized Coupang direct-order payload. It owns downstream publication identity, not source collection state. |
 | CoupangShipmentDateSummary | Orders | `coupang_shipment_date_summaries` | Persisted Coupang shipment 발송일별 건수/박스 요약 snapshot so the calendar survives reload and only new dates are collected. |
@@ -414,6 +413,7 @@ erDiagram
     DateTime firstObservedAt
     DateTime lastObservedAt
     String rawSnapshotId FK
+    String operationId
     Json metaJson
     DateTime createdAt
     DateTime updatedAt
@@ -462,6 +462,7 @@ erDiagram
     DateTime firstObservedAt
     DateTime lastObservedAt
     String rawSnapshotId FK
+    String operationId
     Json metaJson
     DateTime createdAt
     DateTime updatedAt
@@ -572,24 +573,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  CoupangDirectPoSnapshot {
-    String id PK
-    String organizationId FK
-    String channelAccountId
-    String purchaseOrderSeq
-    String centerName
-    String transport
-    String deliveryDate
-    String orderedDate
-    Boolean isUrgent
-    Int skuCount
-    Int orderQuantity
-    Int orderAmount
-    Json itemsJson
-    DateTime collectedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
   CoupangDirectTransportConsumption {
     String id PK
     String organizationId FK
@@ -640,6 +623,7 @@ erDiagram
     Int reviewCount
     String source
     DateTime capturedAt
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }
@@ -653,6 +637,7 @@ erDiagram
     Int itemCount
     Int pagesScanned
     DateTime capturedAt
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }
@@ -714,6 +699,7 @@ erDiagram
     Int collectedCount
     Int totalResults
     DateTime capturedAt
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }
@@ -747,6 +733,7 @@ erDiagram
     Decimal conversionRate28d
     String sourceKeyword
     DateTime capturedAt
+    String operationId
     DateTime createdAt
     DateTime updatedAt
   }
@@ -2460,7 +2447,6 @@ erDiagram
   Organization ||--o{ ChannelAdTargetDailySnapshot : "organization"
   Organization ||--o{ ContentAsset : "organization"
   Organization ||--o{ ContentWorkspace : "organization"
-  Organization ||--o{ CoupangDirectPoSnapshot : "organization"
   Organization ||--o{ CoupangDirectTransportConsumption : "organization"
   Organization ||--o{ CoupangDirectTransportReceipt : "organization"
   Organization ||--o{ CoupangKeywordRankDailySnapshot : "organization"

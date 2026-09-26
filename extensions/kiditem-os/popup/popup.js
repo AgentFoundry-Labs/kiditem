@@ -8,22 +8,6 @@ let environmentGeneration = 0;
 
 const OWNER_STATUS_SOURCES = Object.freeze([
   {
-    key: 'traffic',
-    path: '/api/ads/traffic/source',
-    valueId: 'trafficSync',
-    detailId: 'trafficSyncDetail',
-    countField: 'rowCount',
-    countUnit: '행',
-  },
-  {
-    key: 'itemwinner',
-    path: '/api/ads/wing-itemwinner/source',
-    valueId: 'winnerSync',
-    detailId: 'winnerSyncDetail',
-    countField: 'itemCount',
-    countUnit: '개',
-  },
-  {
     key: 'campaigns',
     path: '/api/ads/ad-campaigns/source',
     valueId: 'adsSync',

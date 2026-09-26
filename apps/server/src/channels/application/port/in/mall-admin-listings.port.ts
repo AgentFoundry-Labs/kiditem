@@ -22,6 +22,10 @@ export interface MallAdminListingsPort {
     organizationId: string;
     attemptId: string;
   }): Promise<MallAdminListingsControl>;
+  /**
+   * 몰마다의 현재. 실행 kind로 옮긴 1차 몰은 이 kind의 최근 200개 실행(상태별) 안에서 그 몰 계정의 실행을 고른다 —
+   * 그 창 밖으로 밀린 몰은 실행이 없는 것처럼 보인다(`MallAdminListingsService.RECENT_OPERATIONS`).
+   */
   readSource(input: { organizationId: string }): Promise<MallAdminListingsSource>;
   complete(input: {
     organizationId: string;

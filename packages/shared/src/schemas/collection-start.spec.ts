@@ -16,8 +16,6 @@ describe('collection start request', () => {
       'advertising.ad_keyword',
       'advertising.ad_sync',
       'advertising.profitability_import',
-      'dashboard.wing_kpi',
-      'dashboard.wing_sales',
     ]);
     expect(CollectionStartRequestSchema.safeParse({
       action: 'startCollection',
@@ -68,23 +66,6 @@ describe('collection start request', () => {
     ).toBe(false);
   });
 
-  it('requires an ordered date range for Wing traffic', () => {
-    const base = { action: 'startCollection', producer: 'dashboard.wing_sales', idempotencyKey };
-    expect(
-      CollectionStartRequestSchema.safeParse({
-        ...base,
-        scope: { startDate: '2026-09-01', endDate: '2026-09-13' },
-      }).success,
-    ).toBe(true);
-    expect(CollectionStartRequestSchema.safeParse({ ...base, scope: {} }).success).toBe(false);
-    expect(
-      CollectionStartRequestSchema.safeParse({
-        ...base,
-        scope: { startDate: '2026-09-13', endDate: '2026-09-01' },
-      }).success,
-    ).toBe(false);
-  });
-
   it('rejects unknown scope fields, other producers and a missing idempotency key', () => {
     expect(
       CollectionStartRequestSchema.safeParse({
@@ -106,7 +87,16 @@ describe('collection start request', () => {
       CollectionStartRequestSchema.safeParse({
         action: 'startCollection',
         producer: 'dashboard.wing_kpi',
+        idempotencyKey,
         scope: {},
+      }).success,
+    ).toBe(false);
+    expect(
+      CollectionStartRequestSchema.safeParse({
+        action: 'startCollection',
+        producer: 'dashboard.wing_sales',
+        idempotencyKey,
+        scope: { startDate: '2026-09-01', endDate: '2026-09-13' },
       }).success,
     ).toBe(false);
   });
@@ -133,7 +123,7 @@ describe('collection start result', () => {
     const refused = CollectionStartResultSchema.parse({
       success: true,
       outcome: 'refused',
-      producer: 'dashboard.wing_sales',
+      producer: 'advertising.profitability_import',
       holder: { producer: 'advertising.ad_sync', name: '쿠팡 광고 캠페인', attemptId },
       message: '쿠팡 광고 캠페인 수집이 수집 창을 쓰고 있습니다. 끝난 뒤 다시 시작해 주세요.',
     });
@@ -145,7 +135,7 @@ describe('collection start result', () => {
       CollectionStartResultSchema.safeParse({
         success: true,
         outcome: 'refused',
-        producer: 'dashboard.wing_sales',
+        producer: 'advertising.profitability_import',
         holder: { producer: 'advertising.ad_sync', name: '', attemptId: null },
         message: '',
       }).success,

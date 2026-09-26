@@ -82,22 +82,26 @@ summary, Rocket PO and directship are operation kinds collected by
   mall key to `sites/<mallKey>`, which opens its own inactive tab and returns
   the old convert body's rows. Their worker collectors are gone; the other
   malls keep the owner/lifecycle/converter path until the remaining malls move (나머지 몰이 옮겨질 때까지).
-- Login before an operation runs from the web without an attempt
-  (`ensureMallLoggedIn` with no `attemptId` logs in only); a mall site that
-  still meets a login form stops with `SITE_LOGIN_REQUIRED` and keeps the tab.
+- Operation-kind sites log in inside the run (KID-377): the web sends the
+  mall's stored credentials with `operation.start`, and `src/sites/site-login.ts`
+  logs in once on a login screen and retries once. A site that still meets a
+  login form stops with `SITE_LOGIN_REQUIRED` (`details.reason`) and keeps the
+  tab. Old-path malls and `testMallLogin` keep `mall-session.js`.
 - i-Scream reads its delivery grid in the frame that scores highest in
   `content/orders/icecream-frames.js` (`TabPage.frames`), in the MAIN world;
   the server picks unseen rows from the plan's `seenRowKeys`.
 
 ## Sabangnet Listing Import
 
-- `orders.sabangnet_mall_listings` (Channels owner) reads Sabangnet's send
-  records — one row per mall × product with the mall product code — from the
-  fixed list API on the frozen plan's origin, all pages, in a fresh inactive
-  tab. It never opens send, save, or delete screens.
-- That list response also carries mall login IDs and passwords. Copy only the
-  schema's whitelisted fields; never return, log, or forward the rest. The
-  Sabangnet session token stays inside the injected function.
+- `channels.sabangnet_mall_listings` (Channels owner, KID-363) is a runtime
+  kind: `src/sites/sabangnet` opens one fresh inactive tab on the plan's origin
+  and calls `content/orders/sabangnet-mall-listings.js` once per page (500 rows,
+  800 ms apart); `src/collectors/channels.sabangnet_mall_listings` pages to the
+  end, emits `listing_rows`, then one `listing_scan` completeness proof. It
+  never opens send, save, or delete screens.
+- That list response also carries mall login IDs and passwords. The page file
+  copies only whitelisted fields; never return, log, or forward the rest. The
+  Sabangnet session token stays inside the page file.
 - A total that moves between pages, a short page, or an unknown response code
   stops the run; the owner publishes only a complete list.
 
@@ -108,7 +112,13 @@ summary, Rocket PO and directship are operation kinds collected by
   one attempt for one mall account; the frozen plan names the
   mall, its origin, and its page-size cap. It opens only list and read-only
   product-view screens, never save, approval, or delete.
-- The reader lives in `mall-admin-listings.js`, keyed by mall in `READERS`.
+- The first batch (Kidkids, i-Scream, 아트공구, 도매꾹) is the runtime kind
+  `channels.mall_admin_listings` (KID-363): `src/sites/mall-admin-listings`
+  routes the plan's mall to `sites/<mall>/listings.ts`, which runs that mall's
+  reader moved verbatim into `content/orders/<mall>-listings.js` in a fresh tab;
+  a login page signs in once with the run's credentials (the mall's order
+  login spec, KID-377) and reads again.
+- The other readers live in `mall-admin-listings.js`, keyed by mall in `READERS`.
   Adding a mall is one reader plus one key there and one contract entry in
   `@kiditem/shared/mall-admin-listings`; the reader's origin and page size must
   match that contract, which the owner re-validates.
@@ -190,5 +200,5 @@ This guide inherits the extension verification gate; run the focused
 `ensureMallLoggedIn` 은 보통 `runOwnedOrderCollection` 을 거쳐 **몰 소유자**(`orders.mall`) 안에서
 돈다. 제 소유자가 따로 있는 수집을 몰 소유자로 감싸면 몰 쪽에 없는 시도를 조회해 404
 (`ORDER_COLLECTION_ATTEMPT_NOT_FOUND`)로 로그인 문턱에서 끝난다(쿠팡직배송, 2026-09-21 라이브).
-쿠팡직배송은 이제 실행 kind `orders.coupang_directship`(`extensions/src`)이고, 로그인 문턱은
-`sites/coupang-supplier`의 주소 확인이 `SITE_LOGIN_REQUIRED`로 알린다.
+쿠팡직배송은 이제 실행 kind `orders.coupang_directship`(`extensions/src`)이고, 로그인은
+`sites/coupang-supplier`가 실행 자격으로 한 번 하고, 그래도 막히면 `SITE_LOGIN_REQUIRED`로 알린다.

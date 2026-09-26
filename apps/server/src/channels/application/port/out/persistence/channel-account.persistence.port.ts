@@ -8,6 +8,16 @@ import type {
 
 export const CHANNEL_ACCOUNT_PERSISTENCE_PORT = Symbol('CHANNEL_ACCOUNT_PERSISTENCE_PORT');
 
+/**
+ * 주문 수집 몰은 아니지만 몰과 같은 저장 로그인(`config.orderCollection`)을 두는 마켓 행(KID-377). 쿠팡 윙 로그인은
+ * 대표 윙 계정 행에 둔다 — 확장이 윙 실행 안에서 그 자격으로 로그인한다. 행을 새로 만들지 않고, 주문 수집 몰 목록·순서에는
+ * 넣지 않는다(주문 수집 화면이 윙을 몰로 돌리지 않게).
+ */
+export const LOGIN_ACCOUNT_MARKETS = [
+  { key: 'coupang', name: '쿠팡 WING', sharedAccountChannel: 'coupang' },
+] as const;
+export type LoginAccountMarketKey = (typeof LOGIN_ACCOUNT_MARKETS)[number]['key'];
+
 
 export interface MallAccountRecord {
   id: string;

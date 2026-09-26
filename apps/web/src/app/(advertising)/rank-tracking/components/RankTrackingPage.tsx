@@ -1,38 +1,14 @@
 'use client';
 
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertCircle, LineChart, RefreshCw } from 'lucide-react';
+import { LineChart, RefreshCw } from 'lucide-react';
 import { queryKeys } from '@/lib/query-keys';
-import {
-  detectRankExtensionGate,
-  rankExtensionGateMessage,
-  type RankExtensionGate,
-} from '../lib/rank-extension';
 import BatchRankCheck from './BatchRankCheck';
 import ProductKeywordRankOverview from './ProductKeywordRankOverview';
 
-type GateState = RankExtensionGate | { status: 'checking' };
-
 export default function RankTrackingPage() {
   const queryClient = useQueryClient();
-  const [gate, setGate] = useState<GateState>({ status: 'checking' });
-
-  const detectGate = useCallback(() => {
-    setGate({ status: 'checking' });
-    detectRankExtensionGate()
-      .then(setGate)
-      .catch(() => setGate({ status: 'missing' }));
-  }, []);
-
-  useEffect(() => {
-    detectGate();
-  }, [detectGate]);
-
-  const extensionId = gate.status === 'ready' ? gate.extensionId : null;
-  const gateMessage =
-    gate.status === 'checking' ? null : rankExtensionGateMessage(gate as RankExtensionGate);
-
   const invalidateRankData = useCallback(() => {
     queryClient.invalidateQueries({ queryKey: queryKeys.ads.keywordRank() });
   }, [queryClient]);
@@ -49,11 +25,7 @@ export default function RankTrackingPage() {
           </span>
         </div>
         <div className="flex items-center gap-2">
-          <BatchRankCheck
-            extensionId={extensionId}
-            disabledReason={gateMessage}
-            onCompleted={invalidateRankData}
-          />
+          <BatchRankCheck onCompleted={invalidateRankData} />
           <button
             type="button"
             onClick={invalidateRankData}
@@ -64,23 +36,6 @@ export default function RankTrackingPage() {
           </button>
         </div>
       </div>
-
-      {/* 확장 게이트 안내 */}
-      {gateMessage && (
-        <div className="flex items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3">
-          <div className="flex items-center gap-2 text-sm text-amber-800">
-            <AlertCircle size={16} className="shrink-0 text-amber-500" />
-            {gateMessage}
-          </div>
-          <button
-            type="button"
-            onClick={detectGate}
-            className="shrink-0 rounded-lg border border-amber-300 bg-white px-3 py-1.5 text-xs font-semibold text-amber-700 hover:bg-amber-100"
-          >
-            다시 확인
-          </button>
-        </div>
-      )}
 
       {/* 자사 상품 × 대표 키워드 현재 순위와 변동 */}
       <ProductKeywordRankOverview />

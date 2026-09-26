@@ -1,38 +1,16 @@
-import { createHash, randomUUID } from 'node:crypto';
-import { operatorErrorText } from '@kiditem/shared/errors';
-import {
-  ConflictException,
-  Inject,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { createHash } from 'node:crypto';
+import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
+import { KiditemConflictError, KiditemInvalidValueError } from '@kiditem/shared/errors';
 import {
-  SELLPIA_MANUAL_MATCH_PARSER_VERSION,
-  SELLPIA_MANUAL_MATCH_SOURCE_ORIGIN,
-  SELLPIA_MANUAL_MATCH_SOURCE_PATH,
   SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
   MAX_SELLPIA_MANUAL_MATCH_TARGETS,
-  SellpiaManualMatchPlanSchema,
-  type SellpiaManualMatchAttempt,
-  type SellpiaManualMatchPlan,
-  type SellpiaManualMatchSnapshot,
   type SellpiaManualMatchSnapshotStatus,
-  type SellpiaManualMatchPublicAttempt,
-  type SellpiaManualMatchSourceStatus,
   type SellpiaManualMatchRow,
 } from '@kiditem/shared/sellpia-manual-match';
-import {
-  SOURCE_IMPORT_RUN_COMPLETED_STATUS,
-  SOURCE_IMPORT_RUN_FAILED_STATUS,
-  SOURCE_IMPORT_RUN_RUNNING_STATUS,
-} from '@kiditem/shared/source-import';
-import { SourceFailureAlerts } from '../../../../alerts/alerts.service';
-import {
-  OPERATOR_CANCEL_CODE,
-  OPERATOR_CANCEL_MESSAGE,
-} from '../../../../common/operator-cancel';
+import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import {
   readCompletedCatalogRunIds,
   publishedCatalogOptionWhere,
@@ -46,30 +24,26 @@ import {
 import { normalizeSellpiaManualMatchAlias } from '../../../domain/listing/sellpia-manual-match-alias';
 import type {
   SellpiaManualMatchAliasRecord,
-  SellpiaManualMatchAttemptInput,
   SellpiaManualMatchRepositoryPort,
 } from '../../../application/port/out/repository/sellpia-manual-match.repository.port';
 
 const CREATE_BATCH_SIZE = 5_000;
-const ATTEMPT_TTL_MS = 30 * 60_000;
-const DB_RUNNING = SOURCE_IMPORT_RUN_RUNNING_STATUS;
-const DB_COMPLETE = SOURCE_IMPORT_RUN_COMPLETED_STATUS;
-const DB_FAILED = SOURCE_IMPORT_RUN_FAILED_STATUS;
-const ALERT_DEDUPE_KEY = 'source:sellpia-manual-match';
-const ALERT_HREF = '/product-hub/matching';
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
 type Transaction = Prisma.TransactionClient;
-type SourceAttempt = Prisma.SourceImportRunGetPayload<{}>;
 type ActiveSku = { id: string; code: string };
 type ChannelListingClient = Pick<Prisma.TransactionClient, 'channelListing' | 'sourceImportRun'>;
 
+/**
+ * 셀피아 수동상품매칭 kind(KID-363)의 Channels 원장. 스냅샷은 조직마다 하나(`SellpiaManualMatchSnapshot`, 실행 열
+ * 없음)이고 finish 트랜잭션이 통째로 바꾼다. 활성 SKU는 Products 거래 읽기 포트로 상품 잠금 아래에서 읽는다.
+ * 실행 겹침은 실행 잠금(`resource:sellpia:login`)이 막는다.
+ */
 @Injectable()
 export class SellpiaManualMatchRepositoryAdapter
 implements SellpiaManualMatchRepositoryPort {
   constructor(
     private readonly prisma: PrismaService,
-    private readonly alerts: SourceFailureAlerts,
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly productTransactionalRead: ProductTransactionalReadPort,
   ) {}
@@ -77,17 +51,7 @@ implements SellpiaManualMatchRepositoryPort {
   async getCurrentStatus(
     organizationId: string,
   ): Promise<SellpiaManualMatchSnapshotStatus | null> {
-    const snapshot = await this.prisma.sellpiaManualMatchSnapshot.findUnique({
-      where: { organizationId },
-      select: {
-        targetCount: true,
-        matchedTargetCount: true,
-        aliasCount: true,
-        snapshotHash: true,
-        capturedAt: true,
-      },
-    });
-    return snapshot ? toStatus(snapshot) : null;
+    return currentStatusIn(this.prisma, organizationId);
   }
 
   async findByNormalizedAliases(
@@ -121,333 +85,47 @@ implements SellpiaManualMatchRepositoryPort {
     }));
   }
 
-  async beginAttempt(input: SellpiaManualMatchAttemptInput): Promise<SellpiaManualMatchAttempt> {
-    const requestFingerprint = hashJson({
-      sourceType: SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
-      parserVersion: SELLPIA_MANUAL_MATCH_PARSER_VERSION,
-      sourceOrigin: SELLPIA_MANUAL_MATCH_SOURCE_ORIGIN,
-      sourcePath: SELLPIA_MANUAL_MATCH_SOURCE_PATH,
-      requestBody: {},
-    });
+  readActiveTargetCodes(organizationId: string): Promise<string[]> {
     return this.prisma.$transaction(async (tx) => {
-      const productContext = { client: tx };
-      const productLock = await this.productTransactionalRead.lock(
-        productContext,
-        input.organizationId,
-      );
-      await lockManualMatchSource(tx, input.organizationId);
-      const now = new Date();
-      const existing = await findAttemptByIdempotency(
-        tx,
-        input.organizationId,
-        input.idempotencyKey,
-      );
-      if (existing) {
-        if (existing.requestFingerprint !== requestFingerprint) {
-          throw new ConflictException('SOURCE_IDEMPOTENCY_KEY_REUSED');
-        }
-        if (effectiveState(existing, now) === 'FAILED' && existing.status === DB_RUNNING) {
-          const expired = await this.expireAttempt(tx, existing);
-          return controlAttempt(expired);
-        }
-        return controlAttempt(existing);
-      }
-
-      const active = await listActiveSkus(
-        this.productTransactionalRead,
-        productContext,
-        productLock,
-        input.organizationId,
-      );
-      const targetCodes = normalizeTargetCodes(active.map((sku) => sku.code));
-      const running = await tx.sourceImportRun.findFirst({
-        where: {
-          organizationId: input.organizationId,
-          sourceType: SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
-          status: DB_RUNNING,
-        },
-      });
-      if (running) {
-        if (effectiveState(running, now) !== 'FAILED') {
-          throw new ConflictException({ code: 'ATTEMPT_IN_PROGRESS', attemptId: running.id });
-        }
-        await this.expireAttempt(tx, running);
-      }
-
-      const plan: SellpiaManualMatchPlan = {
-        sourceType: SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
-        parserVersion: SELLPIA_MANUAL_MATCH_PARSER_VERSION,
-        sourceOrigin: SELLPIA_MANUAL_MATCH_SOURCE_ORIGIN,
-        sourcePath: SELLPIA_MANUAL_MATCH_SOURCE_PATH,
-        targetCount: targetCodes.length,
-        targetCodes,
-      };
-      const run = await tx.sourceImportRun.create({
-        data: {
-          organizationId: input.organizationId,
-          sourceType: SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
-          status: DB_RUNNING,
-          rowCount: 0,
-          attemptToken: randomUUID(),
-          idempotencyKey: input.idempotencyKey,
-          requestFingerprint,
-          expiresAt: new Date(now.getTime() + ATTEMPT_TTL_MS),
-          plan: plan as unknown as Prisma.InputJsonValue,
-          parserVersion: SELLPIA_MANUAL_MATCH_PARSER_VERSION,
-        },
-      });
-      return controlAttempt(run);
+      const context = { client: tx };
+      const lock = await this.productTransactionalRead.lock(context, organizationId);
+      const active = await listActiveSkus(this.productTransactionalRead, context, lock, organizationId);
+      return normalizeTargetCodes(active.map((sku) => sku.code));
     }, TRANSACTION_OPTIONS);
   }
 
-  async readAttempt(input: {
-    organizationId: string;
-    attemptId: string;
-  }): Promise<SellpiaManualMatchAttempt> {
-    const attempt = await this.prisma.sourceImportRun.findFirst({
-      where: {
-        id: input.attemptId,
-        organizationId: input.organizationId,
-        sourceType: SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
-      },
-    });
-    if (!attempt) throw new NotFoundException('SELLPIA_MANUAL_MATCH_ATTEMPT_NOT_FOUND');
-    return controlAttempt(attempt);
-  }
-
-  async readCurrent(input: {
-    organizationId: string;
-  }): Promise<SellpiaManualMatchSourceStatus> {
-    return this.prisma.$transaction(async (tx) => {
-      const [latestAttempt, currentSnapshot] = await Promise.all([
-        tx.sourceImportRun.findFirst({
-          where: {
-            organizationId: input.organizationId,
-            sourceType: SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
-          },
-          orderBy: [{ createdAt: 'desc' }, { id: 'desc' }],
-        }),
-        currentStatusIn(tx, input.organizationId),
-      ]);
-      return {
-        latestAttempt: latestAttempt ? publicAttempt(latestAttempt) : null,
-        currentSnapshot,
-      } satisfies SellpiaManualMatchSourceStatus;
-    }, { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead });
-  }
-
-  async completeAttempt(input: {
-    organizationId: string;
-    attemptId: string;
-    attemptToken: string;
-    snapshot: SellpiaManualMatchSnapshot;
-  }): Promise<SellpiaManualMatchAttempt> {
-    return this.prisma.$transaction(async (tx) => {
-      const productContext = { client: tx };
-      const productLock = await this.productTransactionalRead.lock(
-        productContext,
-        input.organizationId,
-      );
-      await lockManualMatchSource(tx, input.organizationId);
-      const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
-      assertAttemptToken(attempt, input.attemptToken);
-      const plan = parseAttemptPlan(attempt.plan);
-      const payloadHash = hashJson({
-        sourceType: plan.sourceType,
-        parserVersion: plan.parserVersion,
-        plan,
-        snapshot: input.snapshot,
-      });
-      const state = effectiveState(attempt, new Date());
-      if (state === 'COMPLETE') {
-        if (attempt.contentChecksum !== payloadHash) {
-          throw new ConflictException('SELLPIA_MANUAL_MATCH_REPLAY_CONFLICT');
-        }
-        return controlAttempt(attempt);
-      }
-      if (state === 'FAILED') throw new ConflictException(
-        attempt.status === DB_RUNNING ? 'ATTEMPT_EXPIRED' : 'ATTEMPT_TERMINAL',
-      );
-
-      assertSnapshotMatchesPlan(input.snapshot, plan);
-      const active = await listActiveSkus(
-        this.productTransactionalRead,
-        productContext,
-        productLock,
-        input.organizationId,
-      );
-      assertTargetCodesUnchanged(active, plan.targetCodes);
-      const activeByCode = new Map(active.map((sku) => [sku.code, sku]));
-      const currentChannelAliases = await listCurrentChannelAliasCandidates(
-        tx,
-        input.organizationId,
-      );
-      const normalizedChannelAliases = [...new Set(currentChannelAliases
-        .map(normalizeSellpiaManualMatchAlias)
-        .filter(Boolean))].sort();
-      const rows = aggregateRows(
-        input.snapshot.rows,
-        activeByCode,
-        new Set(normalizedChannelAliases),
-      );
-      const capturedAt = new Date();
-      const status = {
-        targetCount: input.snapshot.targetCount,
-        matchedTargetCount: new Set(rows.map((row) => row.masterProductId)).size,
-        aliasCount: rows.length,
-        snapshotHash: hashJson({
-          snapshot: input.snapshot,
-          normalizedChannelAliases,
-        }),
-        capturedAt: capturedAt.toISOString(),
-      } satisfies SellpiaManualMatchSnapshotStatus;
-      await replaceCurrentIn(tx, {
-        organizationId: input.organizationId,
-        status,
-        rows,
-      });
-      const updated = await tx.sourceImportRun.updateMany({
-        where: {
-          id: input.attemptId,
-          organizationId: input.organizationId,
-          sourceType: SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
-          status: DB_RUNNING,
-          attemptToken: input.attemptToken,
-        },
-        data: {
-          status: DB_COMPLETE,
-          importedAt: capturedAt,
-          lastVerifiedAt: capturedAt,
-          verificationCount: { increment: 1 },
-          contentChecksum: payloadHash,
-          contentByteCount: Buffer.byteLength(JSON.stringify(input.snapshot)),
-          rowCount: input.snapshot.rowCount,
-          errorCode: null,
-          errorMessage: null,
-        },
-      });
-      if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
-      await this.alerts.resolveSourceFailure(tx, {
-        organizationId: input.organizationId,
-        dedupeKey: ALERT_DEDUPE_KEY,
-        attemptId: input.attemptId,
-      });
-      const completed = await findAttempt(tx, input.organizationId, input.attemptId);
-      return controlAttempt(completed);
-    }, TRANSACTION_OPTIONS);
-  }
-
-  async failAttempt(input: {
-    organizationId: string;
-    attemptId: string;
-    attemptToken: string;
-    errorCode: string;
-    errorMessage: string;
-  }): Promise<SellpiaManualMatchAttempt> {
-    return this.prisma.$transaction(async (tx) => {
-      await this.productTransactionalRead.lock({ client: tx }, input.organizationId);
-      await lockManualMatchSource(tx, input.organizationId);
-      const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
-      assertAttemptToken(attempt, input.attemptToken);
-      if (attempt.status === DB_COMPLETE) throw new ConflictException('ATTEMPT_TERMINAL');
-      if (attempt.status === DB_FAILED) {
-        if (
-          attempt.errorCode !== input.errorCode
-          || attempt.errorMessage !== input.errorMessage
-        ) throw new ConflictException('ATTEMPT_TERMINAL');
-        return controlAttempt(attempt);
-      }
-      if (effectiveState(attempt, new Date()) === 'FAILED') {
-        throw new ConflictException('ATTEMPT_EXPIRED');
-      }
-      const updated = await tx.sourceImportRun.updateMany({
-        where: {
-          id: input.attemptId,
-          organizationId: input.organizationId,
-          sourceType: SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
-          status: DB_RUNNING,
-          attemptToken: input.attemptToken,
-        },
-        data: {
-          status: DB_FAILED,
-          errorCode: input.errorCode,
-          errorMessage: input.errorMessage,
-        },
-      });
-      if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
-      await this.alerts.recordTerminalOutcome(tx, failureAlert({
-        organizationId: input.organizationId,
-        attemptId: input.attemptId,
-        errorCode: input.errorCode,
-        errorMessage: input.errorMessage,
-      }));
-      return controlAttempt(await findAttempt(tx, input.organizationId, input.attemptId));
-    }, TRANSACTION_OPTIONS);
-  }
-
-  /**
-   * Operator stop without the attempt token. It fails through the same terminal
-   * path as an extension-reported failure, so `USER_CANCELLED` is suppressed by
-   * the alert rule; a terminal attempt is returned as is.
-   */
-  async cancelAttempt(input: {
-    organizationId: string;
-    attemptId: string;
-  }): Promise<SellpiaManualMatchPublicAttempt> {
-    return this.prisma.$transaction(async (tx) => {
-      await this.productTransactionalRead.lock({ client: tx }, input.organizationId);
-      await lockManualMatchSource(tx, input.organizationId);
-      const attempt = await findAttempt(tx, input.organizationId, input.attemptId);
-      if (attempt.status !== DB_RUNNING) return publicAttempt(attempt);
-      if (effectiveState(attempt, new Date()) === 'FAILED') {
-        return publicAttempt(await this.expireAttempt(tx, attempt));
-      }
-      const updated = await tx.sourceImportRun.updateMany({
-        where: {
-          id: input.attemptId,
-          organizationId: input.organizationId,
-          sourceType: SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
-          status: DB_RUNNING,
-        },
-        data: {
-          status: DB_FAILED,
-          errorCode: OPERATOR_CANCEL_CODE,
-          errorMessage: OPERATOR_CANCEL_MESSAGE,
-        },
-      });
-      if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
-      await this.alerts.recordTerminalOutcome(tx, failureAlert({
-        organizationId: input.organizationId,
-        attemptId: input.attemptId,
-        errorCode: OPERATOR_CANCEL_CODE,
-        errorMessage: OPERATOR_CANCEL_MESSAGE,
-      }));
-      return publicAttempt(await findAttempt(tx, input.organizationId, input.attemptId));
-    }, TRANSACTION_OPTIONS);
-  }
-
-  private async expireAttempt(tx: Transaction, attempt: SourceAttempt): Promise<SourceAttempt> {
-    const updated = await tx.sourceImportRun.updateMany({
-      where: {
-        id: attempt.id,
-        organizationId: attempt.organizationId,
-        sourceType: SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
-        status: DB_RUNNING,
-      },
-      data: {
-        status: DB_FAILED,
-        errorCode: 'ATTEMPT_EXPIRED',
-        errorMessage: operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
-      },
-    });
-    if (updated.count !== 1) throw new ConflictException('ATTEMPT_TERMINAL');
-    await this.alerts.recordTerminalOutcome(tx, failureAlert({
-      organizationId: attempt.organizationId,
-      attemptId: attempt.id,
-      errorCode: 'ATTEMPT_EXPIRED',
-      errorMessage: operatorErrorText({ code: 'ATTEMPT_EXPIRED' }),
-    }));
-    return findAttempt(tx, attempt.organizationId, attempt.id);
+  async publish(
+    transaction: OwnerTransaction,
+    input: Parameters<SellpiaManualMatchRepositoryPort['publish']>[1],
+  ): Promise<SellpiaManualMatchSnapshotStatus> {
+    const tx = ownerTransactionClient(transaction);
+    const context = { client: tx };
+    const lock = await this.productTransactionalRead.lock(context, input.organizationId);
+    const active = await listActiveSkus(this.productTransactionalRead, context, lock, input.organizationId);
+    assertTargetCodesUnchanged(active, input.plan.targetCodes);
+    const activeByCode = new Map(active.map((sku) => [sku.code, sku]));
+    const currentChannelAliases = await listCurrentChannelAliasCandidates(tx, input.organizationId);
+    const normalizedChannelAliases = [...new Set(currentChannelAliases
+      .map(normalizeSellpiaManualMatchAlias)
+      .filter(Boolean))].sort();
+    const rows = aggregateRows(input.rows, activeByCode, new Set(normalizedChannelAliases));
+    const snapshot = {
+      source: SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
+      version: 1,
+      targetCount: input.plan.targetCount,
+      targetCodes: input.plan.targetCodes,
+      rowCount: input.rows.length,
+      rows: input.rows,
+    };
+    const status = {
+      targetCount: input.plan.targetCount,
+      matchedTargetCount: new Set(rows.map((row) => row.masterProductId)).size,
+      aliasCount: rows.length,
+      snapshotHash: hashJson({ snapshot, normalizedChannelAliases }),
+      capturedAt: new Date().toISOString(),
+    } satisfies SellpiaManualMatchSnapshotStatus;
+    await replaceCurrentIn(tx, { organizationId: input.organizationId, status, rows });
+    return status;
   }
 }
 
@@ -554,7 +232,7 @@ async function listActiveSkus(
 }
 
 async function currentStatusIn(
-  tx: Transaction,
+  tx: Pick<Transaction, 'sellpiaManualMatchSnapshot'>,
   organizationId: string,
 ): Promise<SellpiaManualMatchSnapshotStatus | null> {
   const snapshot = await tx.sellpiaManualMatchSnapshot.findUnique({
@@ -570,55 +248,15 @@ async function currentStatusIn(
   return snapshot ? toStatus(snapshot) : null;
 }
 
-async function findAttemptByIdempotency(
-  tx: Transaction,
-  organizationId: string,
-  idempotencyKey: string,
-): Promise<SourceAttempt | null> {
-  return tx.sourceImportRun.findFirst({
-    where: {
-      organizationId,
-      sourceType: SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
-      idempotencyKey,
-    },
-  });
-}
-
-async function findAttempt(
-  tx: Transaction,
-  organizationId: string,
-  attemptId: string,
-): Promise<SourceAttempt> {
-  const attempt = await tx.sourceImportRun.findFirst({
-    where: {
-      id: attemptId,
-      organizationId,
-      sourceType: SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
-    },
-  });
-  if (!attempt) throw new NotFoundException('SELLPIA_MANUAL_MATCH_ATTEMPT_NOT_FOUND');
-  return attempt;
-}
-
-async function lockManualMatchSource(
-  tx: Pick<Prisma.TransactionClient, '$queryRaw'>,
-  organizationId: string,
-): Promise<void> {
-  await tx.$queryRaw(Prisma.sql`
-    -- queryraw-tenancy-exempt: organization-scoped manual-match owner lock.
-    SELECT pg_advisory_xact_lock(
-      hashtextextended(${`channels.sellpia-manual-match:${organizationId}`}, 0)
-    )::text AS "lock"
-  `);
-}
-
 function normalizeTargetCodes(values: readonly string[]): string[] {
   const targetCodes = [...new Set(values)].sort();
   if (
     targetCodes.length > MAX_SELLPIA_MANUAL_MATCH_TARGETS
     || targetCodes.some((code) => !/^\d+(?:-\d+)*$/u.test(code))
   ) {
-    throw new ConflictException('SELLPIA_MANUAL_MATCH_TARGET_PLAN_INVALID');
+    throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+      details: { reason: 'sellpia_targets_invalid', targetCount: targetCodes.length },
+    });
   }
   return targetCodes;
 }
@@ -629,23 +267,8 @@ function assertTargetCodesUnchanged(
 ): void {
   const current = normalizeTargetCodes(active.map((sku) => sku.code));
   if (current.length !== targetCodes.length || current.some((code, index) => code !== targetCodes[index])) {
-    throw new ConflictException(
-      'Active Sellpia inventory changed during manual-match collection; collect again',
-    );
-  }
-}
-
-function assertSnapshotMatchesPlan(
-  snapshot: SellpiaManualMatchSnapshot,
-  plan: SellpiaManualMatchPlan,
-): void {
-  if (
-    snapshot.source !== SELLPIA_MANUAL_MATCH_SOURCE_TYPE
-    || snapshot.targetCount !== plan.targetCount
-    || snapshot.targetCodes.length !== plan.targetCodes.length
-    || snapshot.targetCodes.some((code, index) => code !== plan.targetCodes[index])
-  ) {
-    throw new ConflictException('SELLPIA_MANUAL_MATCH_TARGET_PLAN_CONFLICT');
+    // 수집하는 사이 활성 셀피아 재고가 바뀌었다 — 다시 수집해야 한다.
+    throw new KiditemInvalidValueError('SOURCE_SNAPSHOT_INVALID', { details: { reason: 'sellpia_targets_changed' } });
   }
 }
 
@@ -658,9 +281,7 @@ function aggregateRows(
   for (const row of rows) {
     const sku = activeByCode.get(row.productCode);
     if (!sku) {
-      throw new ConflictException(
-        `Sellpia manual-match row references inactive code ${row.productCode}`,
-      );
+      throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'sellpia_match_row_inactive_code', productCode: row.productCode } });
     }
     const normalizedAlias = normalizeSellpiaManualMatchAlias(row.aliasTitle);
     if (!normalizedAlias || !currentChannelAliases.has(normalizedAlias)) continue;
@@ -699,74 +320,6 @@ function strongerMatchedType(
   return priority[left] >= priority[right] ? left : right;
 }
 
-function parseAttemptPlan(value: Prisma.JsonValue | null): SellpiaManualMatchPlan {
-  return SellpiaManualMatchPlanSchema.parse(value);
-}
-
-/**
- * 상태 읽기가 내보내는 시도. 쿠팡 쉽먼트 요약 리더와 같은 자리에서 fence 토큰을
- * 벗긴다 — 토큰은 확장이 부르는 제어 읽기에만 나간다.
- */
-function publicAttempt(attempt: SourceAttempt): SellpiaManualMatchPublicAttempt {
-  const { attemptToken: _token, ...status } = controlAttempt(attempt);
-  return status;
-}
-
-/** 확장이 부르는 제어 읽기용. 시도를 이어가려면 fence 토큰이 필요하다. */
-function controlAttempt(attempt: SourceAttempt): SellpiaManualMatchAttempt {
-  const plan = parseAttemptPlan(attempt.plan);
-  return {
-    attemptId: attempt.id,
-    attemptToken: attempt.attemptToken,
-    state: effectiveState(attempt, new Date()),
-    expiresAt: attempt.expiresAt?.toISOString() ?? attempt.createdAt.toISOString(),
-    plan,
-    contentChecksum: attempt.contentChecksum,
-    capturedAt: attempt.importedAt?.toISOString() ?? null,
-    errorCode: attempt.status === DB_RUNNING && effectiveState(attempt, new Date()) === 'FAILED'
-      ? 'ATTEMPT_EXPIRED'
-      : attempt.errorCode,
-    errorMessage: attempt.status === DB_RUNNING && effectiveState(attempt, new Date()) === 'FAILED'
-      ? operatorErrorText({ code: 'ATTEMPT_EXPIRED' })
-      : attempt.errorMessage,
-  };
-}
-
-function effectiveState(
-  attempt: SourceAttempt,
-  now: Date,
-): 'RUNNING' | 'COMPLETE' | 'FAILED' {
-  if (attempt.status === DB_COMPLETE) return 'COMPLETE';
-  if (
-    attempt.status === DB_RUNNING
-    && attempt.expiresAt !== null
-    && attempt.expiresAt.getTime() > now.getTime()
-  ) return 'RUNNING';
-  return 'FAILED';
-}
-
-function assertAttemptToken(attempt: SourceAttempt, attemptToken: string): void {
-  if (attempt.attemptToken !== attemptToken) throw new ConflictException('ATTEMPT_FENCE_LOST');
-}
-
-function failureAlert(input: {
-  organizationId: string;
-  attemptId: string;
-  errorCode: string;
-  errorMessage: string;
-}) {
-  return {
-    organizationId: input.organizationId,
-    dedupeKey: ALERT_DEDUPE_KEY,
-    sourceType: SELLPIA_MANUAL_MATCH_SOURCE_TYPE,
-    attemptId: input.attemptId,
-    code: input.errorCode,
-    title: 'Sellpia 수동상품매칭 수집 실패',
-    message: input.errorMessage,
-    href: ALERT_HREF,
-  };
-}
-
 function hashJson(value: unknown): string {
   return createHash('sha256').update(JSON.stringify(value)).digest('hex');
 }
@@ -783,5 +336,5 @@ function toStatus(value: {
 
 function checkedMatchedType(value: string): 'M' | 'P' | 'E' {
   if (value === 'M' || value === 'P' || value === 'E') return value;
-  throw new Error(`Unsupported Sellpia manual-match type: ${value}`);
+  throw new KiditemConflictError('STATE_CONFLICT', { details: { reason: 'sellpia_match_type_unsupported', matchedType: value } });
 }

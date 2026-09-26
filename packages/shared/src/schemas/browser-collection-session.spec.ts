@@ -53,19 +53,10 @@ describe('BrowserCollectionSessionViewSchema', () => {
       'advertising.ad_keyword',
       'advertising.ad_sync',
       'advertising.profitability_import',
-      'advertising.competitor_catalog',
-      'advertising.competitor_seller_identity',
-      'advertising.keyword_rank',
-      'advertising.wing_rank',
-      'advertising.wing_tracked_products',
       'channels.coupang_catalog',
       'dashboard.coupang_products',
-      'dashboard.wing_kpi',
-      'dashboard.wing_sales',
       'orders.mall',
       'orders.mall_admin_listings',
-      'orders.sabangnet_mall_listings',
-      'orders.sellpia_manual_match',
     ]);
     for (const producer of BROWSER_COLLECTION_PRODUCERS) {
       expect(BrowserCollectionProducerSchema.parse(producer)).toBe(producer);

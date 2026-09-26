@@ -13,6 +13,7 @@ import { apiClient } from '@/lib/api-client';
 import { ApiError } from '@/lib/api-error';
 import { safeStorageGet, safeStorageSet } from '@/lib/browser-storage';
 import { attemptFailureText } from '@/lib/operator-error';
+import { noteOperationLoginFailureForMall, operationLoginOptions, ROCKET_LOGIN_MALL_KEY } from '@/lib/operation-login';
 import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
 import { createSecureRandomUuid } from '@/lib/secure-random-uuid';
 import {
@@ -140,8 +141,14 @@ export async function readRecentCoupangDirectOperations(): Promise<OperationView
 export async function beginCoupangDirectAttempt(
   idempotencyKey: string,
   channelAccountId: string,
+  /** 스스로 도는 수집이면 로켓 계정 자격을 한 시간에 한 번만 싣는다(KID-377). */
+  options: { automatic?: boolean } = {},
 ): Promise<CoupangDirectOwnerAttemptControl> {
-  const outcome = await requestOperationStart(COUPANG_DIRECTSHIP_KIND, { channelAccountId }, { idempotencyKey });
+  // 로그인 화면이면 확장이 로켓 계정의 저장 자격으로 로그인한다(KID-377).
+  const outcome = await requestOperationStart(COUPANG_DIRECTSHIP_KIND, { channelAccountId }, {
+    idempotencyKey,
+    ...(await operationLoginOptions(ROCKET_LOGIN_MALL_KEY, options)),
+  });
   if (outcome.outcome === 'refused' || outcome.operationId === null) {
     const existing = outcome.outcome === 'refused' ? outcome.existingOperationId : null;
     throw new ApiError(409, 'ATTEMPT_IN_PROGRESS', outcome.outcome === 'refused' ? outcome.message : null, { attemptId: existing ?? undefined });
@@ -165,6 +172,8 @@ export async function beginCoupangDirectAttempt(
 export async function readCoupangDirectAttempt(attemptId: string): Promise<CoupangDirectOwnerAttempt> {
   const { operation } = await apiClient.getParsed(`${OPERATIONS_PATH}/${encodeURIComponent(attemptId)}`, OperationGetResponseSchema);
   if (operation.kind !== COUPANG_DIRECTSHIP_KIND) throw new ApiError(404, 'OPERATION_NOT_FOUND', null, { reason: 'coupang_directship_operation' });
+  // 로켓 계정 자격을 서플라이어 허브가 거절했으면 그 계정의 자동 로그인을 멈춘다(KID-377).
+  noteOperationLoginFailureForMall(ROCKET_LOGIN_MALL_KEY, operation);
   return directshipAttemptView(operation);
 }
 

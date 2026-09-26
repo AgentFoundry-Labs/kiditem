@@ -1,7 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { entrySites, createSiteHandles, ownTabSites } from './site-handles';
+import '../collectors/advertising.wing_itemwinner';
+import '../collectors/advertising.wing_traffic';
 import '../collectors/analytics.sellpia_product_profitability';
 import '../collectors/analytics.sellpia_sales';
+import '../collectors/channels.mall_admin_listings';
+import '../collectors/channels.sabangnet_mall_listings';
+import '../collectors/channels.sellpia_manual_match';
 import '../collectors/channels.wing_catalog_details';
 import '../collectors/channels.wing_catalog_excel';
 import '../collectors/channels.wing_catalog_list';
@@ -18,12 +23,16 @@ import '../sites/art09';
 import '../sites/domeggook';
 import '../sites/icecream-mall';
 import '../sites/kidkids';
+import '../sites/mall-admin-listings';
 import '../sites/mall-orders';
 import '../sites/product-page';
+import '../sites/sabangnet';
 import '../sites/sellpia';
 import '../sites/wing';
+import '../sites/wing/itemwinner';
 import '../sites/wing/pre-matching-search';
 import '../sites/wing/reviews';
+import '../sites/wing/traffic';
 import { wingCatalogDetailsCollector, type WingCatalogDetailsSite } from '../collectors/channels.wing_catalog_details';
 import { PRODUCT_TAB_REQUIRED } from '../sites/product-page';
 import type { TabPages } from '../sites/tab-page';
@@ -52,26 +61,52 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     }
   });
 
-  it('셀피아 kind에는 화면별 읽기를 합친 sellpia 핸들을 주고, 셀피아는 탭을 스스로 열어 브라우저 자원 표에 없다', () => {
-    expect(keys(createSiteHandles(deps)('orders.sellpia_shipment_tracking', { tabId: null }))).toEqual(['inventory', 'productProfit', 'sales', 'shipmentTracking']);
-    expect(keys(createSiteHandles(deps)('products.sellpia_inventory', { tabId: null }))).toEqual(['inventory', 'productProfit', 'sales', 'shipmentTracking']);
-    expect(keys(createSiteHandles(deps)('analytics.sellpia_sales', { tabId: null }))).toEqual(['inventory', 'productProfit', 'sales', 'shipmentTracking']);
+  it('셀피아 kind(송장·수동매칭·재고·매출·상품 손익)에는 화면별 파일을 합친 sellpia 핸들을 주고, 셀피아는 탭을 스스로 열어 브라우저 자원 표에 없다', () => {
+    const sellpiaKeys = ['closeManualMatch', 'inventory', 'manualMatchSearch', 'manualMatchStatus', 'productProfit', 'sales', 'shipmentTracking'];
+    for (const kind of ['orders.sellpia_shipment_tracking', 'channels.sellpia_manual_match', 'products.sellpia_inventory', 'analytics.sellpia_sales', 'analytics.sellpia_product_profitability'] as const) {
+      expect(keys(createSiteHandles(deps)(kind, { tabId: null }))).toEqual(sellpiaKeys);
+    }
     expect(entrySites()).not.toHaveProperty('sellpia');
+  });
+
+  it('몰 관리자 목록 kind에는 1차 몰 넷만 찾는 라우터를 주고, 그 몰 사이트는 목록 읽기를 가진다', () => {
+    const handle = createSiteHandles(deps)('channels.mall_admin_listings', { tabId: null }) as { reader(mallKey: string): unknown };
+    expect(keys(handle)).toEqual(['reader']);
+    for (const mallKey of ['kidkids', 'icecream-mall', 'art09', 'domeggook']) {
+      expect(keys(handle.reader(mallKey))).toContain('readListings');
+    }
+    expect(handle.reader('onch')).toBeNull();
+    expect(handle.reader('sellpia')).toBeNull();
+    expect(ownTabSites().has('mall-admin-listings')).toBe(true);
+  });
+
+  it('사방넷 몰 목록 kind에는 쪽 읽기와 닫기를 가진 sabangnet 핸들을 주고, 사방넷도 탭을 스스로 연다', () => {
+    expect(keys(createSiteHandles(deps)('channels.sabangnet_mall_listings', { tabId: null }))).toEqual(['close', 'mallListingPage']);
+    expect(entrySites()).not.toHaveProperty('sabangnet');
+    expect(ownTabSites().has('sabangnet')).toBe(true);
   });
 
   it('몰 주문 kind에는 몰 키로 그 몰 사이트를 찾는 라우터를 주고, 라우터는 탭을 스스로 여는 사이트다', () => {
     const handle = createSiteHandles(deps)('orders.mall_orders', { tabId: null }) as { reader(mallKey: string): unknown };
     expect(keys(handle)).toEqual(['reader']);
-    expect(keys(handle.reader('kidkids'))).toEqual(['readOrders']);
-    expect(keys(handle.reader('art09'))).toEqual(['readOrders']);
-    expect(keys(handle.reader('domeggook'))).toEqual(['readOrders']);
-    expect(keys(handle.reader('icecream-mall'))).toEqual(['readOrders']);
+    expect(keys(handle.reader('kidkids'))).toEqual(['readListings', 'readOrders']);
+    expect(keys(handle.reader('art09'))).toEqual(['readListings', 'readOrders']);
+    expect(keys(handle.reader('domeggook'))).toEqual(['readListings', 'readOrders']);
+    expect(keys(handle.reader('icecream-mall'))).toEqual(['readListings', 'readOrders']);
     expect(handle.reader('no-such-mall')).toBeNull();
     expect(handle.reader('mall-orders')).toBeNull();
     // 등록된 사이트라도 몰 주문 kind로 옮긴 몰이 아니면 주지 않는다(리뷰 S9).
     expect(handle.reader('sellpia')).toBeNull();
     expect(handle.reader('wing')).toBeNull();
     expect(ownTabSites().has('mall-orders')).toBe(true);
+  });
+
+  it('아이템위너 kind에는 목록 읽기만 가진 wing-itemwinner 핸들을 준다(KID-362)', () => {
+    expect(keys(createSiteHandles(deps)('advertising.wing_itemwinner', { tabId: null }))).toEqual(['readItemwinnerList', 'readVendorId']);
+  });
+
+  it('트래픽 kind에는 공개 기간·상세 쪽·요약 읽기를 가진 wing-traffic 핸들을 준다(KID-362)', () => {
+    expect(keys(createSiteHandles(deps)('advertising.wing_traffic', { tabId: null }))).toEqual(['readDetailPage', 'readFreshness', 'readSummary', 'readVendorId']);
   });
 
   it('상품평 kind에는 상품평 검색만 가진 wing-reviews 핸들을 준다', () => {
@@ -100,10 +135,12 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
     expect(siteFor('unknown.kind' as never, { tabId: null })).toBeNull();
   });
 
-  it('브라우저 자원에 넘길 사이트 표는 origin을 둔 윙 두 곳이다', () => {
+  it('브라우저 자원에 넘길 사이트 표는 origin을 둔 윙 사이트들이다', () => {
     expect(entrySites()).toEqual({
       wing: { origin: 'https://wing.coupang.com' },
+      'wing-itemwinner': { origin: 'https://wing.coupang.com' },
       'wing-reviews': { origin: 'https://wing.coupang.com' },
+      'wing-traffic': { origin: 'https://wing.coupang.com' },
     });
   });
 

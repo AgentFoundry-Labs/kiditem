@@ -150,9 +150,6 @@ describe('channel product matching query keys', () => {
     expect(queryKeys.channelProductMappings.productCandidates('listing-1', { search: 'KI-1' })).toEqual([
       'channelProductMappings', 'product-candidates', 'listing-1', { search: 'KI-1' },
     ]);
-    expect(queryKeys.channelProductMappings.sellpiaManualMatchTargets()).toEqual([
-      'channelProductMappings', 'sellpia-manual-match-targets',
-    ]);
   });
 });
 

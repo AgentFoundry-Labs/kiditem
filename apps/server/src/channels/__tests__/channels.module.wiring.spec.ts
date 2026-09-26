@@ -57,6 +57,10 @@ import { SellpiaRecipeEvidenceAdapter } from '../adapter/out/inventory/sellpia-r
 import { ChannelProductMatchingService } from '../application/service/listing/channel-product-matching.service';
 import { ChannelRecipeSuggestionService } from '../application/service/listing/channel-recipe-suggestion.service';
 import { SellpiaManualMatchService } from '../application/service/listing/sellpia-manual-match.service';
+import { SellpiaManualMatchOperationOwner } from '../adapter/in/operation/sellpia-manual-match-operation-owner';
+import { SabangnetMallListingsOperationOwner } from '../adapter/in/operation/sabangnet-mall-listings-operation-owner';
+import { RocketMatchingCsvOperationOwner } from '../adapter/in/operation/rocket-matching-csv-operation-owner';
+import { MallAdminListingsOperationOwner } from '../adapter/in/operation/mall-admin-listings-operation-owner';
 import { CHANNEL_PRODUCT_MATCHING_REPOSITORY_PORT } from '../application/port/out/repository/channel-product-matching.repository.port';
 import { CATALOG_DISPLAY_MEDIA_PORT } from '../../content/application/port/in/workspace/catalog-display-media.port';
 import { PRODUCT_AVAILABILITY_PORT } from '../../products/application/port/in/product-availability.port';
@@ -222,8 +226,18 @@ describe('ChannelsModule canonical owner wiring', () => {
       SELLPIA_RECIPE_EVIDENCE_PORT,
       SELLPIA_MANUAL_MATCH_REPOSITORY_PORT,
     ]);
-    expectFactoryBinding(providers, SellpiaManualMatchService, [
-      SELLPIA_RECIPE_EVIDENCE_PORT,
+    // Channels 기타 실행 kind(KID-363): 서비스는 Nest DI, owner는 provider로 두면 실행 계약이 부팅 때 모은다.
+    expect(providers).toEqual(expect.arrayContaining([
+      SellpiaManualMatchService,
+      SellpiaManualMatchOperationOwner,
+      SabangnetMallListingsOperationOwner,
+      RocketMatchingCsvOperationOwner,
+      MallAdminListingsOperationOwner,
+    ]));
+    const manualMatchInjectTokens: Array<{ index: number; param: unknown }> =
+      Reflect.getMetadata('self:paramtypes', SellpiaManualMatchService) ?? [];
+    expect([...manualMatchInjectTokens].sort((a, b) => a.index - b.index).map((entry) => entry.param)).toEqual([
+      OPERATION_PORT,
       SELLPIA_MANUAL_MATCH_REPOSITORY_PORT,
     ]);
     expectFactoryBinding(providers, ChannelSkuAvailabilityService, [

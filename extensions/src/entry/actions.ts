@@ -9,11 +9,22 @@ import { OperationKindSchema } from '@kiditem/shared/operation';
 export const OPERATION_START_ACTION = 'operation.start' as const;
 export const OPERATION_CANCEL_ACTION = 'operation.cancel' as const;
 
+/**
+ * 사이트 자동 로그인에 쓸 저장 자격(KID-377). 웹이 그 몰의 저장 비밀번호를 읽어 실어 보내고, 확장은 그 실행 동안 메모리에만
+ * 둔다(사이트 lease). 서버·plan·progress·result·로그·오류 details에 싣지 않는다.
+ */
+export const OperationStartCredentialsSchema = z.object({
+  loginId: z.string().min(1).max(200),
+  password: z.string().min(1).max(500),
+  supplierLoginId: z.string().min(1).max(200).nullable().optional(),
+}).strict();
+
 export const OperationStartMessageSchema = z.object({
   action: z.literal(OPERATION_START_ACTION),
   kind: OperationKindSchema,
   scope: z.record(z.string(), z.unknown()).default({}),
   idempotencyKey: z.string().min(1).max(128).optional(),
+  credentials: OperationStartCredentialsSchema.optional(),
 }).strict();
 export type OperationStartMessage = z.infer<typeof OperationStartMessageSchema>;
 

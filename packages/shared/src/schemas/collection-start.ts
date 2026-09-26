@@ -4,9 +4,10 @@ import { shiftBusinessDateKey } from '../common';
 /**
  * Producers whose collection needs a browser resource that one collection in a
  * browser environment holds at a time. Any path that starts one of them asks
- * the extension through the single start contract below (KID-147): the five
+ * the extension through the single start contract below (KID-147): the
  * collections that take turns in the Coupang collection window. The Wing
- * catalog is an operation kind now (`operation.start`, KID-354).
+ * catalog (KID-354) and the Wing traffic and itemwinner (KID-362) are operation kinds now
+ * (`operation.start`).
  * The extension takes the resource's turn and opens the attempt with the
  * source owner. When another collection holds it, the extension refuses
  * without opening an attempt.
@@ -15,8 +16,6 @@ export const COLLECTION_START_PRODUCERS = [
   'advertising.ad_sync',
   'advertising.ad_keyword',
   'advertising.profitability_import',
-  'dashboard.wing_sales',
-  'dashboard.wing_kpi',
 ] as const;
 
 export const CollectionStartProducerSchema = z.enum(COLLECTION_START_PRODUCERS);
@@ -79,21 +78,6 @@ export const CollectionStartRequestSchema = z.discriminatedUnion('producer', [
   ),
   startRequest('advertising.ad_keyword', AccountScopeSchema),
   startRequest('advertising.profitability_import', z.object({}).strict()),
-  startRequest(
-    'dashboard.wing_sales',
-    z
-      .object({
-        channelAccountId: z.string().uuid().optional(),
-        startDate: CalendarDateSchema,
-        endDate: CalendarDateSchema,
-      })
-      .strict()
-      .refine((scope) => scope.startDate <= scope.endDate, {
-        message: 'startDate must not be after endDate',
-        path: ['endDate'],
-      }),
-  ),
-  startRequest('dashboard.wing_kpi', AccountScopeSchema),
 ]);
 export type CollectionStartRequest = z.infer<typeof CollectionStartRequestSchema>;
 

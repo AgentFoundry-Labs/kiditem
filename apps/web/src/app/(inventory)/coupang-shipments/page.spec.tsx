@@ -131,7 +131,7 @@ describe("쿠팡 쉽먼트 발송일 조회 — 실행 계약 읽기와 달력(H
       return { outcome: "started", operationId: OPERATION_ID };
     });
     await user.click(screen.getByRole("button", { name: /다시 조회/ }));
-    expect(start.requestOperationStart).toHaveBeenCalledWith("orders.coupang_shipment_summary", {});
+    expect(start.requestOperationStart).toHaveBeenCalledWith("orders.coupang_shipment_summary", {}, {});
     expect(await screen.findByRole("button", { name: "수집 중단" })).toBeInTheDocument();
     latest = operation({ result: { dates: 2, rows: 4 } });
     expect(await screen.findByText(/최근 조회 결과 2일/, {}, { timeout: 2500 })).toBeInTheDocument();

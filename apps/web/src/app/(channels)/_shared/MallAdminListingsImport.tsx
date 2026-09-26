@@ -7,11 +7,12 @@ import { toast } from 'sonner';
 import type { MallAdminListingMallKey } from '@kiditem/shared/mall-admin-listings';
 import { CollectionStartControl } from '@/components/collection/CollectionStartControl';
 import { useCollectionSourceControl } from '@/hooks/use-collection-source-control';
-import { COLLECTION_STOPPED_MESSAGE, stoppedAttempt } from '@/lib/collection-source-status-query';
+import { COLLECTION_STOPPED_MESSAGE } from '@/lib/collection-source-status-query';
 import { cn, formatNumber, timeAgo } from '@/lib/utils';
 import {
   linkMallAdminListings,
   mallAdminListingsCollection,
+  mallAdminRunView,
   mallFrom,
   MALL_ADMIN_NO_ACCOUNT,
 } from './mall-admin-listings-collection';
@@ -56,11 +57,8 @@ export function MallAdminListingsImport({
   const mallName = mall?.mallName ?? '몰';
   const publication = mall?.latestPublication ?? null;
   const listings = publication?.listings ?? 0;
-  const completedAt = mall?.latestComplete?.completedAt ?? null;
-  const latest = mall?.latestAttempt ?? null;
-  // 멈춘 것은 실패가 아니다. 이전에 가져온 결과가 그대로 쓰인다.
-  const stopped = stoppedAttempt(latest);
-  const failure = latest?.state === 'FAILED' && !stopped ? latest : null;
+  // 1차 몰은 실행, 나머지 몰은 옛 시도에서 읽는다(KID-363). 멈춘 것은 실패가 아니다.
+  const { completedAt, stopped, failure } = mallAdminRunView(mall);
   const hasAccount = mall ? mall.channelAccountId !== null : true;
   const statusTitle = publication
     ? Object.entries(publication.statuses)
@@ -101,7 +99,7 @@ export function MallAdminListingsImport({
         <span className="flex min-h-[26px] items-center whitespace-nowrap text-[11px]">
           {stopped ? (
             <span role="status" className="text-slate-500" title={COLLECTION_STOPPED_MESSAGE}>중단함</span>
-          ) : failure?.errorMessage ? (
+          ) : failure ? (
             <span role="status" className="max-w-[9rem] truncate text-red-600" title={attemptFailureText(failure, 'mall_admin_listings') ?? undefined}>
               {attemptFailureText(failure, 'mall_admin_listings')}
             </span>
@@ -128,7 +126,7 @@ export function MallAdminListingsImport({
       ) : null}
       {stopped ? (
         <span role="status" className="text-xs text-slate-500">{COLLECTION_STOPPED_MESSAGE}</span>
-      ) : failure?.errorMessage ? (
+      ) : failure ? (
         <span role="status" className="max-w-xs text-xs text-red-600">
           {attemptFailureText(failure, 'mall_admin_listings')}
         </span>

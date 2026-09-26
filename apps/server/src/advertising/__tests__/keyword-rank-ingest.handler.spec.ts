@@ -297,7 +297,7 @@ describe("KeywordRankIngestHandler", () => {
       sellerId: "seller-1",
       sellerStoreUrl: "https://shop.coupang.com/seller-1",
       sellerIdentityCapturedAt: "2026-07-14T03:30:00.000Z",
-      sellerIdentitySourceImportRunId: "identity-source-1",
+      sellerIdentityOperationId: "identity-source-1",
     });
     expect(savedItems[1]).toMatchObject({
       vendorItemId: "not-selected",

@@ -1,5 +1,6 @@
 import { profitCatalogTestReaders } from '../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
+import { seedWingTrafficOperation } from '../../test-helpers/__tests__/wing-traffic-operation-seeds';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import { WingTrafficAggregationRepositoryAdapter } from '../../analytics/adapter/out/repository/dashboard/wing-traffic-aggregation.repository.adapter';
 import {
@@ -486,15 +487,15 @@ describe('listing daily facts reader (PG integration)', () => {
     const publish = deferred<void>();
     const publication = publisher.$transaction(async (tx) => {
       await tx.$executeRawUnsafe(
-        'LOCK TABLE source_import_runs IN ACCESS EXCLUSIVE MODE',
+        'LOCK TABLE operations IN ACCESS EXCLUSIVE MODE',
       );
       publicationLocked.resolve();
       await publish.promise;
-      await tx.sourceImportRun.update({
+      await tx.operation.update({
         where: { id: next.id },
         data: {
-          status: 'completed',
-          importedAt: new Date('2026-09-01T06:00:00.000Z'),
+          status: 'succeeded',
+          finishedAt: new Date('2026-09-01T06:00:00.000Z'),
         },
       });
     }, { timeout: 15_000 });
@@ -512,7 +513,7 @@ describe('listing daily facts reader (PG integration)', () => {
         },
         knownThrough: '2026-09-01',
       });
-      await waitForBlockedSourceImportRead(observer);
+      await waitForBlockedOperationRead(observer);
       publish.resolve();
       await publication;
 
@@ -602,18 +603,12 @@ describe('listing daily facts reader (PG integration)', () => {
         where: { id: listingId },
         data: { createdAt: new Date('2026-08-01T00:00:00.000Z') },
       });
-      const attempt = await prisma.sourceImportRun.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: accountId,
-          sourceType: 'coupang_wing_traffic',
-          status: 'completed',
-          freshnessGeneration: 1n,
-          providerBackedEmptyProof: false,
-          qualityReport: { confirmedDates },
-          createdAt: attemptStartedAt,
-          importedAt: new Date('2026-09-04T02:30:00.000Z'),
-        },
+      const attempt = await seedWingTrafficOperation(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: accountId,
+        confirmedDates,
+        startedAt: attemptStartedAt,
+        finishedAt: new Date('2026-09-04T02:30:00.000Z'),
       });
       await prisma.channelListingDailySnapshot.createMany({
         data: confirmedDates.map((date) => trafficRow({
@@ -756,18 +751,12 @@ describe('listing daily facts reader (PG integration)', () => {
         createdAt: afterStart,
         createdOn: '2026-09-02 10:00:00',
       });
-      const newer = await prisma.sourceImportRun.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID,
-          channelAccountId: accountId,
-          sourceType: 'coupang_wing_traffic',
-          status: 'completed',
-          freshnessGeneration: 2n,
-          providerBackedEmptyProof: false,
-          qualityReport: { confirmedDates },
-          createdAt: new Date('2026-09-04T04:00:00.000Z'),
-          importedAt: new Date('2026-09-04T04:30:00.000Z'),
-        },
+      const newer = await seedWingTrafficOperation(prisma, {
+        organizationId: TEST_ORGANIZATION_ID,
+        channelAccountId: accountId,
+        confirmedDates,
+        startedAt: new Date('2026-09-04T04:00:00.000Z'),
+        finishedAt: new Date('2026-09-04T04:30:00.000Z'),
       });
       await prisma.channelListingDailySnapshot.updateMany({
         where: { organizationId: TEST_ORGANIZATION_ID, listingId },
@@ -808,6 +797,8 @@ describe('listing daily facts reader (PG integration)', () => {
     return { listingId: listing.id, accountId: account.id };
   }
 
+  // A Wing traffic run is an `advertising.wing_traffic` operation now (KID-362).
+  // The generation orders runs by start time, as the reader does.
   async function seedTrafficAttempt(input: {
     accountId: string;
     status: 'completed' | 'running' | 'failed';
@@ -816,19 +807,18 @@ describe('listing daily facts reader (PG integration)', () => {
     providerBackedEmptyProof: boolean;
     importedAt?: Date;
   }) {
-    return prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: input.accountId,
-        sourceType: 'coupang_wing_traffic',
-        status: input.status,
-        freshnessGeneration: input.generation,
-        providerBackedEmptyProof: input.providerBackedEmptyProof,
-        qualityReport: { confirmedDates: input.confirmedDates },
-        importedAt: input.importedAt,
-      },
+    const startedAt = new Date(Date.parse('2026-09-01T00:00:00.000Z') + Number(input.generation) * 60_000);
+    return seedWingTrafficOperation(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      channelAccountId: input.accountId,
+      confirmedDates: input.confirmedDates,
+      providerBackedEmptyDates: input.providerBackedEmptyProof ? input.confirmedDates : [],
+      startedAt,
+      finishedAt: input.importedAt ?? startedAt,
+      status: input.status === 'completed' ? 'succeeded' : input.status === 'running' ? 'executing' : 'failed',
     });
   }
+
 });
 
 function deferred<T>() {
@@ -839,7 +829,7 @@ function deferred<T>() {
   return { promise, resolve };
 }
 
-async function waitForBlockedSourceImportRead(prisma: PrismaClient): Promise<void> {
+async function waitForBlockedOperationRead(prisma: PrismaClient): Promise<void> {
   for (let attempt = 0; attempt < 200; attempt += 1) {
     const [activity] = await prisma.$queryRaw<Array<{ waiting: boolean }>>`
       SELECT EXISTS (
@@ -849,7 +839,7 @@ async function waitForBlockedSourceImportRead(prisma: PrismaClient): Promise<voi
           AND pid <> pg_backend_pid()
           AND state = 'active'
           AND wait_event_type = 'Lock'
-          AND query ILIKE '%source_import_runs%'
+          AND query ILIKE '%operations%'
       ) AS waiting
     `;
     if (activity?.waiting) return;

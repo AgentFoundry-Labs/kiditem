@@ -61,7 +61,6 @@ model Organization {
   sellpiaInventoryState                         SellpiaInventoryState?
   sellpiaOrderTransmissionIntents               SellpiaOrderTransmissionIntent[]
   sellpiaOrderTransmissionIntentReconciliations SellpiaOrderTransmissionIntentReconciliation[]
-  coupangDirectPoSnapshots                      CoupangDirectPoSnapshot[]
 
   // Record-only returns
   returnTransfers ReturnTransfer[]

@@ -1,3 +1,4 @@
+import type { OwnerTransaction } from '../../../../../common/owner-transaction';
 // Outgoing port for Coupang keyword rank tracking persistence
 // (`CoupangKeywordTracker`, `CoupangKeywordRankDailySnapshot`,
 // `CoupangKeywordSerpDailySnapshot`, own-catalog reads on
@@ -67,7 +68,8 @@ export interface RepresentativeKeywordOverrideRow {
 }
 
 export interface UpsertRankSnapshotInput {
-  sourceImportRunId: string;
+  /** 이 행을 쓴 실행(`advertising.keyword_serp`, ADR-0025). */
+  operationId: string;
   organizationId: string;
   keyword: string;
   vendorItemId: string;
@@ -87,7 +89,8 @@ export interface UpsertRankSnapshotInput {
 }
 
 export interface UpsertSerpSnapshotInput {
-  sourceImportRunId: string;
+  /** 이 행을 쓴 실행(`advertising.keyword_serp`, ADR-0025). */
+  operationId: string;
   organizationId: string;
   keyword: string;
   businessDate: Date;
@@ -99,7 +102,8 @@ export interface UpsertSerpSnapshotInput {
 }
 
 export interface ReplaceWingSalesRankSnapshotInput {
-  sourceImportRunId: string;
+  /** 이 행을 쓴 실행(`advertising.wing_rank`, ADR-0025). */
+  operationId: string;
   organizationId: string;
   keyword: string;
   vendorItemId: string;
@@ -217,4 +221,6 @@ export interface KeywordRankRepositoryPort {
     organizationId: string,
     days: number,
   ): Promise<SerpSnapshotRow[]>;
+  /** 실행 finish 트랜잭션(`tx`) 안에서 이 포트의 쓰기를 돌린다(원장 사실은 finish 트랜잭션에서만 쓴다, ADR-0025). */
+  runInTransaction<T>(tx: OwnerTransaction, work: () => Promise<T>): Promise<T>;
 }

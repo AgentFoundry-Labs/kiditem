@@ -1,7 +1,7 @@
 import { Controller, Get, Query } from '@nestjs/common';
 import { TrafficService } from '../../../../application/service/traffic/traffic.service';
 import { CurrentOrganization } from '../../../../../auth/decorators/current-organization.decorator';
-import type { AdTrafficSourceReconciliation } from '@kiditem/shared/advertising';
+import type { AdTrafficSourceReconciliation } from '@kiditem/shared/advertising-operations';
 
 interface MonthlyTrafficResponse {
   year: number;

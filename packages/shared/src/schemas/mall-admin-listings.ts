@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { OperationViewSchema } from './operation.js';
 
 /**
  * 몰 관리자 화면에서 등록 상품(몰 상품코드)을 직접 가져오는 원천의 계약(KID-246 2단계).
@@ -263,8 +264,16 @@ export const MallAdminListingsSourceMallSchema = z.object({
   channelAccountId: z.string().uuid().nullable(),
   latestAttempt: MallAdminListingsAttemptSchema.nullable(),
   latestComplete: MallAdminListingsAttemptSchema.nullable(),
-  /** `latestComplete` 가 남긴 결과. */
+  /**
+   * `latestComplete`(실행 kind로 옮긴 몰은 `latestSucceeded`)가 남긴 결과.
+   */
   latestPublication: MallAdminListingsPublicationSchema.nullable(),
+  /**
+   * 실행 kind(`channels.mall_admin_listings`, KID-363)로 옮긴 몰(`MALL_ADMIN_LISTING_OPERATION_MALLS`)의 최근 실행과 최근
+   * 성공 실행. 옮긴 몰은 옛 시도(`latestAttempt`·`latestComplete`)를 읽지 않아 그 둘이 null이고, 나머지 몰은 이 둘이 null이다.
+   */
+  latestOperation: OperationViewSchema.nullable(),
+  latestSucceeded: OperationViewSchema.nullable(),
 }).strict();
 export type MallAdminListingsSourceMall = z.infer<typeof MallAdminListingsSourceMallSchema>;
 
@@ -329,6 +338,22 @@ export const MallAdminListingsSubmissionSchema = z.object({
   }).strict(),
 }).strict();
 export type MallAdminListingsSubmission = z.infer<typeof MallAdminListingsSubmissionSchema>;
+
+/**
+ * 목록을 끝까지 읽었다는 증거(`listing_scan` 청크 하나, KID-363). 옛 제출의 `collection`(시도 id 없이)과 `proof`다.
+ * owner finalize가 이것으로 목록 전체인지 보고, 아니면 아무것도 쓰지 않는다.
+ */
+export const MallAdminListingsScanSchema = z.object({
+  collection: MallAdminListingsCollectionSchema.omit({ collectionRunId: true }),
+  proof: MallAdminListingsSubmissionSchema.shape.proof,
+}).strict();
+export type MallAdminListingsScan = z.infer<typeof MallAdminListingsScanSchema>;
+
+/** `channels.mall_admin_listings` 실행의 `result`: 발행 결과와 받은 상품 줄 수. */
+export const MallAdminListingsResultSchema = MallAdminListingsPublicationSchema.extend({
+  rows: z.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT),
+}).strict();
+export type MallAdminListingsResult = z.infer<typeof MallAdminListingsResultSchema>;
 
 /** 확장이 돌려주는 실패 이유. 화면이 한국어 문장으로 바꾼다. */
 export const MALL_ADMIN_LISTINGS_FAILURE_CODES = [

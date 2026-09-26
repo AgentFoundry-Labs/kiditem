@@ -764,7 +764,7 @@ describe('useAllMarketplaceOrderCollection — 실행 kind로 옮긴 몰(KID-359
     }));
   });
 
-  it('⭐ 1차 몰은 옛 시도를 열지 않고 로그인 → 실행 시작 → 실행 id로 변환해 성공으로 센다', async () => {
+  it('⭐ 1차 몰은 옛 시도·옛 로그인 없이 실행 시작(로그인은 확장이 실행 안에서, KID-377) → 실행 id로 변환해 성공으로 센다', async () => {
     const addGeneratedFile = vi.fn();
     const { result } = renderHook(
       () => useAllMarketplaceOrderCollection({ mallAccounts: [kidkids], rocketChannelAccountId: null, addGeneratedFile }),
@@ -778,7 +778,7 @@ describe('useAllMarketplaceOrderCollection — 실행 kind로 옮긴 몰(KID-359
     expect(batch).toMatchObject({ successCount: 1, failedCount: 0 });
     expect(mocks.begin).not.toHaveBeenCalled();
     expect(mocks.collectMall).not.toHaveBeenCalled();
-    expect(mocks.ensureLogin).toHaveBeenCalledWith(kidkids, expect.objectContaining({ sourceOwner: 'mall_orders_operation', extensionId: 'order-extension' }));
+    expect(mocks.ensureLogin).not.toHaveBeenCalled();
     expect(mocks.startOperation).toHaveBeenCalledWith('orders.mall_orders', expect.objectContaining({ mallKey: 'kidkids', channelAccountId: kidkids.channelAccountId }), expect.anything());
     expect(apiClient.fetchRaw).toHaveBeenCalledWith(`/api/orders/collection/attempts/${OPERATION_ID}/convert`, expect.objectContaining({ body: JSON.stringify({ operationId: OPERATION_ID }) }));
     expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({ mallKey: 'kidkids', collectedRows: 2 }));
