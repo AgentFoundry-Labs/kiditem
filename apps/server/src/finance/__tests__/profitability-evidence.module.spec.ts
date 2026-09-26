@@ -30,7 +30,7 @@ function monthEnd(yearMonth: string): string {
 
 function sellpiaGeneration(overrides: Record<string, unknown> = {}) {
   return {
-    sourceImportRunId: SELLPIA_RUN_ID,
+    operationId: SELLPIA_RUN_ID,
     publicationSequence: '7',
     mappingGeneration: '3',
     coverage: { from: '2025-09-01', to: '2026-08-31', coveredMonths: MONTHS },
@@ -80,7 +80,7 @@ function sellpiaFacts(overrides: Record<string, unknown> = {}) {
   return {
     generation,
     facts: MONTHS.map((yearMonth) => ({
-      sourceImportRunId: SELLPIA_RUN_ID,
+      operationId: SELLPIA_RUN_ID,
       sellpiaInventorySkuId: '00000000-0000-4000-8000-000000000020',
       masterProductId: PRODUCT_ID,
       productCode: 'SKU-1',
@@ -278,7 +278,7 @@ describe('ProfitabilityEvidence', () => {
       .toEqual(MONTHS);
     expect(sellpia.readGenerationFacts).toHaveBeenCalledWith(expect.objectContaining({
       organizationId: ORGANIZATION_ID,
-      sourceImportRunId: SELLPIA_RUN_ID,
+      operationId: SELLPIA_RUN_ID,
       yearMonths: MONTHS,
     }));
     expect(advertising.readGeneration).toHaveBeenCalledWith({
@@ -621,12 +621,12 @@ describe('ProfitabilityEvidence', () => {
 
   it('selects an older compatible pair when the newest source generations disagree on mapping', async () => {
     const olderSellpia = sellpiaGeneration({
-      sourceImportRunId: '00000000-0000-4000-8000-000000000012',
+      operationId: '00000000-0000-4000-8000-000000000012',
       publicationSequence: '6',
       mappingGeneration: '3',
     });
     const newerSellpia = sellpiaGeneration({
-      sourceImportRunId: '00000000-0000-4000-8000-000000000013',
+      operationId: '00000000-0000-4000-8000-000000000013',
       publicationSequence: '8',
       mappingGeneration: '4',
       quality: {
@@ -651,7 +651,7 @@ describe('ProfitabilityEvidence', () => {
     });
 
     expect(result.sourceVector.sellpia).toMatchObject({
-      sourceImportRunId: olderSellpia.sourceImportRunId,
+      sourceImportRunId: olderSellpia.operationId,
       publicationSequence: '6',
       mappingGeneration: '3',
     });
@@ -792,7 +792,7 @@ describe('ProfitabilityEvidence', () => {
       generation: completeFacts.generation,
       facts: [...completeFacts.facts, ...multiMasterFacts, invalidMappingFact],
       unmappedFacts: [{
-        sourceImportRunId: SELLPIA_RUN_ID,
+        operationId: SELLPIA_RUN_ID,
         sellpiaInventorySkuId: null,
         masterProductId: null,
         productCode: 'SKU-UNMAPPED',
@@ -816,7 +816,7 @@ describe('ProfitabilityEvidence', () => {
 
     expect(sellpia.readGenerationFacts).toHaveBeenCalledWith({
       organizationId: ORGANIZATION_ID,
-      sourceImportRunId: SELLPIA_RUN_ID,
+      operationId: SELLPIA_RUN_ID,
       masterProductIds: [PRODUCT_ID, MULTI_MASTER_PRODUCT_ID],
       yearMonths: MONTHS,
     });

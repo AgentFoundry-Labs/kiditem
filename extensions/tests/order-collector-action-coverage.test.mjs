@@ -303,9 +303,6 @@ test('order worker imports failure evidence, session lifecycle, and focused Sell
   );
   assert.doesNotMatch(worker, /^importScripts\(/m);
   assert.match(worker, /browserCollectionSessions:\s*true/);
-  assert.match(worker, /collectSellpiaProductProfit:\s*true/);
-  assert.match(worker, /collectSellpiaProductProfitEvidenceV2:\s*true/);
-  assert.match(worker, /sellpiaProductProfitabilitySourceOwnerV1:\s*true/);
   assert.match(worker, /orderCollectionFailureEvidenceV1:\s*true/);
   assert.match(worker, /orderCollectionConfirmedCoverageV1:\s*true/);
   assert.doesNotMatch(worker, /collectSellpiaProductStock/);
@@ -342,20 +339,6 @@ test('order collector manifest publishes normalized failure evidence and scoped 
   const worker = readFileSync(workerPath, 'utf8');
   assert.match(worker, /sellpiaOrderFileUploadEvidenceV1:\s*true/);
   assert.match(worker, /sellpiaScopedAutoInvoiceV1:\s*true/);
-});
-
-test('Sellpia profitability owner binds its task-owned tab to the collection session', () => {
-  const worker = readFileSync(workerPath, 'utf8');
-  const collector = readFileSync(
-    path.join(repoRoot, 'extensions/kiditem-os/background/orders/sellpia-product-profit-collector.js'),
-    'utf8',
-  );
-  assert.match(worker, /collect: \(\{ plan, \.\.\.collection \}\) =>/);
-  assert.match(collector, /if \(collection\?\.attachTab\)/);
-  assert.match(collector, /collection\.attachTab\(tab, \{ owned: true \}\)/);
-  assert.match(collector, /collection\.detachTab\(tab, \{ owned: true \}\)/);
-  assert.match(worker, /KidItemSellpiaProductProfitabilitySourceOwner\.parseAction/);
-  assert.match(worker, /sellpiaProductProfitabilitySourceOwner\.run\(\{ attemptId, environmentId \}\)/);
 });
 
 test('web bridge reaches local and Office KidItem origins', () => {

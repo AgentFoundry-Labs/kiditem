@@ -1,96 +1,14 @@
-import {
-  Body,
-  Controller,
-  Get,
-  Headers,
-  HttpCode,
-  Param,
-  ParseUUIDPipe,
-  Post,
-  Query,
-} from '@nestjs/common';
+import { Controller, Get, Query } from '@nestjs/common';
+import type { SellpiaProductSalesSummary } from '@kiditem/shared/dashboard';
 import { CurrentOrganization } from '../../auth/decorators/current-organization.decorator';
 import { SellpiaProductSalesService } from './sellpia-product-sales.service';
-import { SellpiaProfitabilitySourceService } from './sellpia-profitability-source.service';
-import {
-  SellpiaProfitabilityBeginBodyDto,
-  SellpiaProfitabilityFailureBodyDto,
-  SellpiaProfitabilitySubmitBodyDto,
-  SellpiaProductSalesQueryDto,
-} from './dto/sellpia-product-sales.dto';
-import type {
-  SellpiaProfitabilityAttempt,
-  SellpiaProfitabilityAttemptControl,
-  SellpiaProfitabilityAttemptSummary,
-  SellpiaProfitabilitySourceStatus,
-} from '@kiditem/shared/source-import';
-import type { SellpiaProductSalesSummary } from '@kiditem/shared/dashboard';
+import { SellpiaProductSalesQueryDto } from './dto/sellpia-product-sales.dto';
 
+// 상품 손익 수집은 실행 kind `analytics.sellpia_product_profitability`(ADR-0025, KID-361) — 시작·진행·중단은
+// `/api/operations`가 맡는다. 여기에는 읽기만 남는다.
 @Controller('sellpia-product-sales')
 export class SellpiaProductSalesController {
-  constructor(
-    private readonly service: SellpiaProductSalesService,
-    private readonly source: SellpiaProfitabilitySourceService,
-  ) {}
-
-  @Post('attempts')
-  beginAttempt(
-    @Headers('idempotency-key') idempotencyKey: string | undefined,
-    @Body() body: SellpiaProfitabilityBeginBodyDto,
-    @CurrentOrganization() organizationId: string,
-  ): Promise<SellpiaProfitabilityAttempt> {
-    return this.source.beginAttempt(organizationId, idempotencyKey, body);
-  }
-
-  @Post('attempts/:attemptId')
-  submitAttempt(
-    @Param('attemptId') attemptId: string,
-    @Body() body: SellpiaProfitabilitySubmitBodyDto,
-    @CurrentOrganization() organizationId: string,
-  ): Promise<SellpiaProfitabilityAttempt> {
-    return this.source.submitAttempt(organizationId, attemptId, body);
-  }
-
-  @Post('attempts/:attemptId/fail')
-  failAttempt(
-    @Param('attemptId') attemptId: string,
-    @Body() body: SellpiaProfitabilityFailureBodyDto,
-    @CurrentOrganization() organizationId: string,
-  ): Promise<SellpiaProfitabilityAttempt> {
-    return this.source.failAttempt(organizationId, attemptId, body);
-  }
-
-  @Post('attempts/:attemptId/cancel')
-  @HttpCode(200)
-  cancelAttempt(
-    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
-    @CurrentOrganization() organizationId: string,
-  ): Promise<SellpiaProfitabilityAttemptSummary> {
-    return this.source.cancelAttempt(organizationId, attemptId);
-  }
-
-  @Get('attempts/:attemptId')
-  readAttemptControl(
-    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
-    @CurrentOrganization() organizationId: string,
-  ): Promise<SellpiaProfitabilityAttemptControl> {
-    return this.source.readAttemptControl(organizationId, attemptId);
-  }
-
-  @Get('attempts/:attemptId/status')
-  async readAttemptStatus(
-    @Param('attemptId', new ParseUUIDPipe({ version: '4' })) attemptId: string,
-    @CurrentOrganization() organizationId: string,
-  ): Promise<SellpiaProfitabilityAttemptSummary> {
-    return this.source.readAttemptStatus(organizationId, attemptId);
-  }
-
-  @Get('status')
-  readSourceStatus(
-    @CurrentOrganization() organizationId: string,
-  ): Promise<SellpiaProfitabilitySourceStatus> {
-    return this.source.readSourceStatus(organizationId);
-  }
+  constructor(private readonly service: SellpiaProductSalesService) {}
 
   // 재고 분석 '상품별 소진' — 상품별 1개월/2개월 평균 소진량 + 월별 추이 + 현재고/발주.
   @Get()

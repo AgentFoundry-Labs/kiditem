@@ -98,3 +98,51 @@ export const SellpiaSalesResultSchema = z.object({
   rows: z.number().int().nonnegative(),
 }).strict();
 export type SellpiaSalesResult = z.infer<typeof SellpiaSalesResultSchema>;
+
+const nonNegativeInt4 = z.number().int().min(0).max(2_147_483_647);
+
+/** 상품 손익 한 달(판매 그래프의 판매 값 + 그 달 구매기간의 매입 합계, 옛 `products[].months[]`). */
+export const SellpiaProfitMonthSchema = z.object({
+  yearMonth: z.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/, 'YYYY-MM'),
+  orderQty: nonNegativeInt4,
+  orderAmount: nonNegativeInt4,
+  inQty: nonNegativeInt4,
+  inAmount: nonNegativeInt4,
+}).strict();
+
+/**
+ * 상품 손익 청크(`profit_months`) 한 항목 = 상품·옵션 하나와 그 월별 사실(옛 v2 제출 `products[]` 한 줄 그대로). 월 합이
+ * 셀피아 상단 합계(`total*`)와 맞는지는 owner가 다시 본다 — 한 상품의 달들이 한 항목에 있어야 그 대조가 된다.
+ */
+export const SellpiaProfitProductSchema = z.object({
+  productCode: z.string().trim().min(1).max(64),
+  optionCode: z.string().max(64),
+  productName: z.string().trim().min(1).max(400),
+  optionName: z.string().max(400).optional(),
+  providerName: z.string().max(200).optional(),
+  salePrice: nonNegativeInt4,
+  buyPrice: nonNegativeInt4,
+  barcode: z.string().max(64).optional(),
+  totalOrderAmount: nonNegativeInt4,
+  totalOrderQty: nonNegativeInt4,
+  totalInAmount: nonNegativeInt4,
+  totalInQty: nonNegativeInt4,
+  months: z.array(SellpiaProfitMonthSchema).max(24),
+}).strict();
+export type SellpiaProfitProduct = z.infer<typeof SellpiaProfitProductSchema>;
+
+/**
+ * 상품 손익 finish 결과: 덮은 달 수·넣은 월 사실 줄 수와, ABC 근거가 세대를 검증하는 품질 값(매핑된/안 된 줄, 받은 본문
+ * 체크섬·바이트). 매핑 세대·원가 출처는 plan이 말한다.
+ */
+export const SellpiaProductProfitabilityResultSchema = z.object({
+  months: z.number().int().nonnegative(),
+  rows: z.number().int().nonnegative(),
+  quality: z.object({
+    mappedRows: z.number().int().nonnegative(),
+    unmappedRows: z.number().int().nonnegative(),
+    contentChecksum: z.string().regex(/^[a-f0-9]{64}$/),
+    contentByteCount: z.number().int().positive(),
+  }).strict(),
+}).strict();
+export type SellpiaProductProfitabilityResult = z.infer<typeof SellpiaProductProfitabilityResultSchema>;

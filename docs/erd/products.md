@@ -59,6 +59,7 @@ erDiagram
     DateTime gradeBasisCutoffDate
     DateTime saleStartDate
     String sellpiaSourceImportRunId FK
+    String sellpiaOperationId
     String advertisingSourceImportRunId FK
     BigInt sellpiaGeneration
     BigInt advertisingGeneration
@@ -72,6 +73,7 @@ erDiagram
     Int publicationRevision
     DateTime officialCutoffDate
     String publishedSellpiaSourceImportRunId FK
+    String publishedSellpiaOperationId
     String publishedAdvertisingSourceImportRunId FK
     BigInt publishedMappingGeneration
     BigInt mappingGeneration
@@ -100,6 +102,8 @@ erDiagram
     Decimal operatingMargin
     String previousSellpiaSourceImportRunId FK
     String nextSellpiaSourceImportRunId FK
+    String previousSellpiaOperationId
+    String nextSellpiaOperationId
     String previousAdvertisingSourceImportRunId FK
     String nextAdvertisingSourceImportRunId FK
     Int formulaRevision

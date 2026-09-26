@@ -3,15 +3,11 @@ import {
   SellpiaProductSalesSummarySchema,
   type SellpiaProductSalesSummary,
 } from '@kiditem/shared/dashboard';
-import {
-  SellpiaProfitabilityAttemptSchema,
-  type SellpiaProfitabilityAttempt,
-} from '@kiditem/shared/source-import';
 
-// Sellpia 상품별 소진(재고관리) 백엔드 read 래퍼.
+// Sellpia 상품별 소진(재고관리) 백엔드 read 래퍼. 상품 손익 수집은 실행 kind
+// `analytics.sellpia_product_profitability`(lib/sellpia-product-profitability-collection).
 
 const FETCH_TIMEOUT_MS = 15_000;
-export const SELLPIA_PROFITABILITY_SOURCE_PATH = '/api/sellpia-product-sales';
 
 export async function fetchSellpiaProductSales(params?: {
   months?: number;
@@ -32,19 +28,4 @@ export async function fetchSellpiaProductSales(params?: {
   } finally {
     clearTimeout(timeout);
   }
-}
-
-export function beginSellpiaProductProfitabilitySourceAttempt(input: {
-  idempotencyKey: string;
-  normalizedSourceAvailabilityDate?: string;
-}): Promise<SellpiaProfitabilityAttempt> {
-  return apiClient
-    .post<unknown>(
-      `${SELLPIA_PROFITABILITY_SOURCE_PATH}/attempts`,
-      input.normalizedSourceAvailabilityDate
-        ? { normalizedSourceAvailabilityDate: input.normalizedSourceAvailabilityDate }
-        : {},
-      { headers: { 'Idempotency-Key': input.idempotencyKey } },
-    )
-    .then((response) => SellpiaProfitabilityAttemptSchema.parse(response));
 }

@@ -43,6 +43,9 @@ model SellpiaProductMonthlySales {
   id                          String  @id @default(uuid()) @db.Uuid
   organizationId              String  @map("organization_id") @db.Uuid
   sourceImportRunId           String? @map("source_import_run_id") @db.Uuid
+  /// 이 월 사실을 발행한 셀피아 상품 손익 실행(`analytics.sellpia_product_profitability`, ADR-0025). 스칼라 id(FK 없음).
+  /// 실행마다 한 벌(불변 세대)이고 ABC 평가가 이 id로 정확한 세대를 가리킨다. 옛 run 줄은 null.
+  operationId                 String? @map("operation_id") @db.Uuid
   legacySellpiaInventorySkuId String? @map("sellpia_inventory_sku_id") @db.Uuid
   masterProductId             String? @map("master_product_id") @db.Uuid
 
@@ -70,10 +73,11 @@ model SellpiaProductMonthlySales {
   sourceImportRun SourceImportRun? @relation("SellpiaProductMonthlySourceImport", fields: [sourceImportRunId, organizationId], references: [id, organizationId], onDelete: Restrict)
 
   @@unique([organizationId, sourceImportRunId, productCode, optionCode, yearMonth], map: "sellpia_product_monthly_sales_generation_identity_key", where: raw("source_import_run_id IS NOT NULL"))
-  @@unique([organizationId, productCode, optionCode, yearMonth], map: "sellpia_product_monthly_sales_legacy_identity_key", where: raw("source_import_run_id IS NULL"))
+  @@unique([organizationId, operationId, productCode, optionCode, yearMonth], map: "sellpia_product_monthly_sales_operation_identity_key", where: raw("operation_id IS NOT NULL"))
   @@index([organizationId, yearMonth])
   @@index([organizationId, sourceImportRunId, yearMonth])
   @@index([sourceImportRunId, organizationId])
+  @@index([organizationId, operationId, yearMonth])
   @@index([organizationId, legacySellpiaInventorySkuId])
   @@index([organizationId, masterProductId])
   @@index([organizationId, productCode, optionCode])

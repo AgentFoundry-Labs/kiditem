@@ -20,6 +20,7 @@ erDiagram
     String id PK
     String organizationId FK
     String sourceImportRunId FK
+    String operationId
     String legacySellpiaInventorySkuId
     String masterProductId
     String productCode

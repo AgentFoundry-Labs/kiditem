@@ -14,6 +14,7 @@ import { DashboardInventoryService } from '../../analytics/application/service/d
 import { buildDashboardContext } from '../../analytics/domain/dashboard/context';
 import { SellpiaProductInventoryReader } from '../../analytics/sellpia-product-sales/sellpia-product-inventory-reader';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
+import { publishSellpiaProfitability } from '../../test-helpers/__tests__/sellpia-profitability-operation';
 import { SellpiaMasterProductProfitFactReader } from '../../analytics/sellpia-product-sales/sellpia-master-product-profit-fact.reader';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
 import { ProductAvailabilityRepositoryAdapter } from '../adapter/out/persistence/product-availability.repository.adapter';
@@ -75,11 +76,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
     const profitCatalogReaders = profitCatalogTestReaders(prismaService);
     const channelAccounts = channelFacts.accounts;
     const alerts = new SourceFailureAlerts(prismaService);
-    sellpia = new SellpiaProfitabilitySourceService(
-      prismaService,
-      alerts,
-      new ProductTransactionalReadRepositoryAdapter(),
-    );
+    sellpia = new SellpiaProfitabilitySourceService(prismaService);
     advertising = new ProfitabilityAdImportRepositoryAdapter(
       channelFacts.accounts,
       channelFacts.recipes,
@@ -250,13 +247,14 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
     const dayBefore = addCalendarDays(ownedCutoff, -1);
     const previousMonthEnd = previousMonthEndKst(new Date());
     const coverageEnd = previousMonthEnd < dayBefore ? previousMonthEnd : dayBefore;
-    await prisma.sourceImportRun.updateMany({
+    // 셀피아 세대 = 성공한 상품 손익 실행(KID-361 J3) — 그 창의 끝을 당긴다.
+    await prisma.operation.updateMany({
       where: {
         organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'sellpia_product_profitability',
-        status: 'completed',
+        kind: 'analytics.sellpia_product_profitability',
+        status: 'succeeded',
       },
-      data: { coverageEndDate: new Date(`${coverageEnd}T00:00:00.000Z`) },
+      data: { windowEnd: new Date(`${coverageEnd}T00:00:00.000Z`) },
     });
     return coverageEnd;
   }
@@ -302,23 +300,22 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
       lastVerifiedAt: importedAt,
       lastCompletedOperationId: inventoryRun.id,
     } });
-    const attempt = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, 'abc-display-status');
-    const months = attempt.plan.coveredMonths.map((yearMonth) => ({
-      yearMonth, orderQty: 1, orderAmount: 10_000_000, inQty: 1, inAmount: 1_000_000,
-    }));
-    await sellpia.submitAttempt(TEST_ORGANIZATION_ID, attempt.attemptId, {
-      attemptToken: attempt.attemptToken, parserVersion: 'sellpia-profitability-v2',
-      providerBackedEmptyProof: true, coveredMonths: attempt.plan.coveredMonths,
-      provenance: { source: 'sellpia_stat_prd_profit', costBasis: 'ORDER_TIME_SUPPLY_COST', vatIncluded: true },
-      products: [{
-        productCode: 'SKU-OWN', optionCode: '', productName: 'Own product',
-        salePrice: 10_000_000, buyPrice: 1_000_000,
-        totalOrderAmount: months.length * 10_000_000,
-        totalOrderQty: months.length,
-        totalInAmount: months.length * 1_000_000,
-        totalInQty: months.length,
-        months,
-      }],
+    await publishSellpiaProfitability(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      products: (plan) => {
+        const months = plan.coveredMonths.map((yearMonth) => ({
+          yearMonth, orderQty: 1, orderAmount: 10_000_000, inQty: 1, inAmount: 1_000_000,
+        }));
+        return [{
+          productCode: 'SKU-OWN', optionCode: '', productName: 'Own product',
+          salePrice: 10_000_000, buyPrice: 1_000_000,
+          totalOrderAmount: months.length * 10_000_000,
+          totalOrderQty: months.length,
+          totalInAmount: months.length * 1_000_000,
+          totalInQty: months.length,
+          months,
+        }];
+      },
     });
     const ad = await advertising.beginAttempt({
       organizationId: TEST_ORGANIZATION_ID, idempotencyKey: 'abc-display-status-ad',

@@ -502,7 +502,7 @@ export const DashboardInventorySummarySchema = z.object({
       publicationRevision: z.number().int().positive().nullable(),
       officialCutoffDate: DashboardCalendarDateSchema.nullable(),
       publishedAt: zIsoDate.nullable(),
-      sellpiaSourceImportRunId: z.string().uuid().nullable(),
+      sellpiaOperationId: z.string().uuid().nullable(),
       advertisingSourceImportRunId: z.string().uuid().nullable(),
       mappingGeneration: z.string().regex(/^\d+$/).nullable(),
       includedProductCount: z.number().int().nonnegative(),

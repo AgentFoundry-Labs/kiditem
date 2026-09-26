@@ -32,8 +32,9 @@ export type SellpiaProfitabilityQuality = Readonly<{
   provenance: SellpiaProfitabilityProvenance;
 }>;
 
+/** 셀피아 상품 손익 세대 = 성공한 `analytics.sellpia_product_profitability` 실행 하나(KID-361). */
 export type SellpiaProfitabilityGenerationMetadata = Readonly<{
-  sourceImportRunId: string;
+  operationId: string;
   publicationSequence: string;
   mappingGeneration: string;
   coverage: Readonly<{
@@ -51,7 +52,7 @@ export type SellpiaProfitabilitySourceCatalog = Readonly<{
 }>;
 
 export type SellpiaProfitabilityFact = Readonly<{
-  sourceImportRunId: string;
+  operationId: string;
   sellpiaInventorySkuId: string;
   masterProductId: string;
   productCode: string;
@@ -67,7 +68,7 @@ export type SellpiaProfitabilityFact = Readonly<{
 }>;
 
 export type SellpiaUnmappedProfitabilityFact = Readonly<{
-  sourceImportRunId: string;
+  operationId: string;
   sellpiaInventorySkuId: string | null;
   masterProductId: string | null;
   productCode: string;
@@ -97,7 +98,7 @@ export interface SellpiaProfitabilitySourceReadPort {
 
   readGenerationFacts(input: {
     organizationId: string;
-    sourceImportRunId: string;
+    operationId: string;
     masterProductIds?: readonly string[];
     yearMonths?: readonly string[];
   }): Promise<SellpiaProfitabilityGenerationFacts>;

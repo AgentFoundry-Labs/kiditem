@@ -1102,7 +1102,9 @@ code, and a unique normalized barcode are deterministic resolution signals; miss
 or ambiguous candidates remain `mapping_required`, never synthetic
 zero stock. Products reuses this projection for operating-product summary
 badges while `/stock-ops?tab=product-outflow` preserves every linked product/
-variant destination. Analytics persists raw Sellpia product-profit coverage;
+variant destination. Analytics persists raw Sellpia product-profit coverage
+through the operation kind `analytics.sellpia_product_profitability` (one
+immutable monthly fact set per succeeded operation, KID-361);
 Finance assembles source-freshness and time-decayed contribution-profit
 evidence; Products owns the absolute ABC formula, explicit evaluation,
 publication and actual grade-transition history. Fixed anchors and thresholds

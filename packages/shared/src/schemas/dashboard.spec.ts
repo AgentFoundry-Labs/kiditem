@@ -20,7 +20,7 @@ function contributionBasis(denominator: number | null) {
     publicationRevision: 1,
     officialCutoffDate: '2026-08-31',
     publishedAt: '2026-09-01T00:00:00.000Z',
-    sellpiaSourceImportRunId: '00000000-0000-4000-8000-000000000001',
+    sellpiaOperationId: '00000000-0000-4000-8000-000000000001',
     advertisingSourceImportRunId: '00000000-0000-4000-8000-000000000002',
     mappingGeneration: '1',
     includedProductCount: 3,

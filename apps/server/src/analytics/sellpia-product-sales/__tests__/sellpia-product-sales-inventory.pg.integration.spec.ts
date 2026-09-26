@@ -13,6 +13,7 @@ import { ProductAvailabilityRepositoryAdapter } from '../../../products/adapter/
 import { ProductAvailabilityUseCase } from '../../../products/application/service/product-availability.usecase';
 import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { seedSourceProduct } from '../../../test-helpers/inventory-seeds';
+import { seedSellpiaProfitabilityOperation } from '../../../test-helpers/__tests__/sellpia-profitability-operation';
 import {
   makeTestPrisma,
   OTHER_ORGANIZATION_ID,
@@ -41,7 +42,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
     );
     const alerts = new SourceFailureAlerts(prismaService);
     const evidence = new MasterProductProfitabilityReadService(
-      new SellpiaProfitabilitySourceService(prismaService, alerts, new ProductTransactionalReadRepositoryAdapter()),
+      new SellpiaProfitabilitySourceService(prismaService),
       new ProfitabilityAdImportRepositoryAdapter(channelFactTestPorts(prismaService).accounts, channelFactTestPorts(prismaService).recipes, channelFactTestPorts(prismaService).listings, prismaService, alerts), prismaService,
       new ProductTransactionalReadRepositoryAdapter());
     service = new SellpiaProductSalesService(
@@ -65,19 +66,9 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
   beforeEach(async () => {
     await resetDb(prisma);
     await seedBaseFixture(prisma);
-    const owner = new SellpiaProfitabilitySourceService(
-      prisma as never, new SourceFailureAlerts(prisma as never),
-      new ProductTransactionalReadRepositoryAdapter());
-    async function publishEmpty(organizationId: string) {
-      const attempt = await owner.beginAttempt(organizationId, 'inventory-depletion-fixture');
-      await owner.submitAttempt(organizationId, attempt.attemptId, {
-        attemptToken: attempt.attemptToken, parserVersion: 'sellpia-profitability-v2',
-        providerBackedEmptyProof: true, coveredMonths: attempt.plan.coveredMonths,
-        provenance: { source: 'sellpia_stat_prd_profit', costBasis: 'ORDER_TIME_SUPPLY_COST', vatIncluded: true },
-        products: [],
-      });
-      return attempt.attemptId;
-    }
+    // 빈 상품 손익 세대(성공한 실행) — 사실은 각 테스트가 그 실행 id로 넣는다(KID-361 J3).
+    const publishEmpty = async (organizationId: string) =>
+      (await seedSellpiaProfitabilityOperation(prisma, { organizationId, finishedAt: new Date(Date.now() - 60_000) })).id;
     canonicalProfitabilityRunId = await publishEmpty(TEST_ORGANIZATION_ID);
     foreignProfitabilityRunId = await publishEmpty(OTHER_ORGANIZATION_ID);
   });
@@ -365,7 +356,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
         {
           ...metricSales('METRIC-ELIGIBLE', completedMonth, 999, 100),
           organizationId: OTHER_ORGANIZATION_ID,
-          sourceImportRunId: foreignProfitabilityRunId,
+          operationId: foreignProfitabilityRunId,
           legacySellpiaInventorySkuId: null,
           masterProductId: foreign.masterProductId,
           productName: 'Foreign metric',
@@ -438,15 +429,10 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
       code: 'MONTHLY-SALES-FOREIGN',
       currentStock: 1,
     });
-    const failedRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'sellpia_product_profitability',
-        status: 'failed',
-        rowCount: 1,
-        errorCode: 'TEST_FAILED_GENERATION',
-        errorMessage: 'ignored by the canonical reader',
-      },
+    const failedRun = await seedSellpiaProfitabilityOperation(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      status: 'failed',
+      rows: 1,
     });
 
     await prisma.sellpiaProductMonthlySales.createMany({
@@ -486,7 +472,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
         {
           ...metricSales(stale.code, yearMonth, 999, 999),
           optionCode: 'STALE',
-          sourceImportRunId: failedRun.id,
+          operationId: failedRun.id,
           masterProductId: stale.id,
           coverageStartDate,
           coverageEndDate,
@@ -495,7 +481,7 @@ describe('SellpiaProductSalesService canonical inventory projection (PG)', () =>
           ...metricSales(foreign.code, yearMonth, 999, 999),
           optionCode: 'FOREIGN',
           organizationId: OTHER_ORGANIZATION_ID,
-          sourceImportRunId: foreignProfitabilityRunId,
+          operationId: foreignProfitabilityRunId,
           masterProductId: foreign.id,
           coverageStartDate,
           coverageEndDate,
@@ -693,7 +679,7 @@ async function seedInventoryState(prisma: PrismaClient, verifiedAt: Date) {
 function sales(productCode: string, optionCode: string, barcode: string | null) {
   return {
     organizationId: TEST_ORGANIZATION_ID,
-    sourceImportRunId: canonicalProfitabilityRunId,
+    operationId: canonicalProfitabilityRunId,
     productCode,
     optionCode,
     orderQty: 10,

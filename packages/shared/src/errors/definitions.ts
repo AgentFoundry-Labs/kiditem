@@ -236,6 +236,8 @@ export const ERROR_DEFINITIONS = {
   EXECUTION_REPORT_INVALID_TRANSITION: def('advertising', 'conflict', '실행 보고를 반영할 수 없습니다. 최근 실행 작업 상태와 맞지 않습니다.'),
   ADVERTISING_RESULT_UNREADABLE: def('advertising', 'external', '광고센터 결과를 읽지 못했습니다. 잠시 뒤 다시 수집해 주세요.', { retryable: true }),
   ANALYTICS_QUERY_FAILED: def('analytics', 'internal', '통계를 계산하지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
+  ANALYTICS_SELLPIA_PROFIT_MAPPING_CHANGED: def('analytics', 'conflict', '수집하는 동안 상품 매핑이 바뀌었습니다. 셀피아 상품 손익을 다시 수집해 주세요.'),
+  ANALYTICS_SELLPIA_PROFIT_EMPTY_UNPROVEN: def('analytics', 'validation', '셀피아 상품 손익에 판매 기록이 없는 상품만 있습니다. 셀피아 화면을 확인한 뒤 다시 수집해 주세요.'),
   FINANCE_QUERY_FAILED: def('finance', 'internal', '재무 데이터를 읽지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
 } as const satisfies Record<string, ErrorDefinition>;
 

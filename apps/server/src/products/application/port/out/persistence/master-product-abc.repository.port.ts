@@ -18,7 +18,7 @@ export type MasterProductAbcFormulaStateRecord = Readonly<{
   publicationRevision: number;
   officialCutoffDate: string | null;
   publishedAt: string | null;
-  publishedSellpiaSourceImportRunId: string | null;
+  publishedSellpiaOperationId: string | null;
   publishedAdvertisingSourceImportRunId: string | null;
   publishedMappingGeneration: string | null;
   mappingGeneration: string;
@@ -42,7 +42,7 @@ export type MasterProductAbcCandidateRecord = Readonly<{
   marginScore: number | null;
   consistencyScore: number;
   economicScore: number;
-  sellpiaSourceImportRunId: string;
+  sellpiaOperationId: string;
   /** Null only under a formula that excludes advertising. */
   advertisingSourceImportRunId: string | null;
   sellpiaGeneration: string;

@@ -72,7 +72,7 @@ describe('MasterProductProfitabilityReadService', () => {
 
   it('keeps a valid completed generation ready while a newer attempt has failed', async () => {
     const sellpiaGeneration = {
-      sourceImportRunId: '00000000-0000-4000-8000-000000000031',
+      operationId: '00000000-0000-4000-8000-000000000031',
       publicationSequence: '12',
       mappingGeneration: '0',
       coverage: {
@@ -249,8 +249,8 @@ describe('MasterProductProfitabilityReadService', () => {
     ]);
   });
   it('pairs only generations ending on the same day inside the cutoff month', async () => {
-    const sellpiaGeneration = (sourceImportRunId: string, publicationSequence: string, to: string) => ({
-      sourceImportRunId,
+    const sellpiaGeneration = (operationId: string, publicationSequence: string, to: string) => ({
+      operationId,
       publicationSequence,
       mappingGeneration: '0',
       coverage: {
@@ -290,15 +290,15 @@ describe('MasterProductProfitabilityReadService', () => {
       targetCutoff = '2026-09-06',
       advertisingMode?: 'required' | 'excluded',
     ) => {
-      const sellpiaByRun = new Map(sellpiaGenerations.map((generation) => [generation.sourceImportRunId, generation]));
+      const sellpiaByRun = new Map(sellpiaGenerations.map((generation) => [generation.operationId, generation]));
       const advertisingByRun = new Map(advertisingGenerations.map((generation) => [generation.sourceImportRunId, generation]));
       const sellpia = {
         readGenerationCatalog: vi.fn().mockResolvedValue({
           latestAttempt: null,
           completeGenerations: sellpiaGenerations,
         }),
-        readGenerationFacts: vi.fn(async ({ sourceImportRunId }: { sourceImportRunId: string }) => ({
-          generation: sellpiaByRun.get(sourceImportRunId),
+        readGenerationFacts: vi.fn(async ({ operationId }: { operationId: string }) => ({
+          generation: sellpiaByRun.get(operationId),
           facts: [],
         })),
       };
@@ -349,7 +349,7 @@ describe('MasterProductProfitabilityReadService', () => {
     await expect(loadWith([sellpiaThrough6, sellpiaThrough5], [advertisingThrough5])).resolves.toMatchObject({
       actualCutoff: '2026-09-05',
       sourceVector: {
-        sellpia: { sourceImportRunId: sellpiaThrough5.sourceImportRunId },
+        sellpia: { sourceImportRunId: sellpiaThrough5.operationId },
         advertising: { sourceImportRunId: advertisingThrough5.sourceImportRunId },
       },
       sources: {
@@ -367,7 +367,7 @@ describe('MasterProductProfitabilityReadService', () => {
     await expect(loadWith([sellpiaThrough6, sellpiaThrough5], [advertisingHeldThrough5])).resolves.toMatchObject({
       actualCutoff: '2026-09-05',
       sourceVector: {
-        sellpia: { sourceImportRunId: sellpiaThrough5.sourceImportRunId },
+        sellpia: { sourceImportRunId: sellpiaThrough5.operationId },
         advertising: { sourceImportRunId: advertisingHeldThrough5.sourceImportRunId },
       },
       sources: {
@@ -379,7 +379,7 @@ describe('MasterProductProfitabilityReadService', () => {
     await expect(loadWith([sellpiaThrough5], [advertisingThrough6, advertisingThrough5])).resolves.toMatchObject({
       actualCutoff: '2026-09-05',
       sourceVector: {
-        sellpia: { sourceImportRunId: sellpiaThrough5.sourceImportRunId },
+        sellpia: { sourceImportRunId: sellpiaThrough5.operationId },
         advertising: { sourceImportRunId: advertisingThrough5.sourceImportRunId },
       },
       sources: {
@@ -408,7 +408,7 @@ describe('MasterProductProfitabilityReadService', () => {
     await expect(loadWith([sellpiaThrough6, sellpiaThrough5], [], '2026-09-06', 'excluded')).resolves.toMatchObject({
       actualCutoff: '2026-09-06',
       sourceVector: {
-        sellpia: { sourceImportRunId: sellpiaThrough6.sourceImportRunId },
+        sellpia: { sourceImportRunId: sellpiaThrough6.operationId },
         advertising: { sourceImportRunId: null },
       },
       sources: { sellpia: { ready: true }, advertising: { ready: false } },

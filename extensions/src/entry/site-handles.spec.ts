@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { entrySites, createSiteHandles, ownTabSites } from './site-handles';
+import '../collectors/analytics.sellpia_product_profitability';
 import '../collectors/analytics.sellpia_sales';
 import '../collectors/channels.wing_catalog_details';
 import '../collectors/channels.wing_catalog_excel';
@@ -52,9 +53,9 @@ describe('entry/site-handles — 수집기가 선언한 사이트 이름으로 �
   });
 
   it('셀피아 kind에는 화면별 읽기를 합친 sellpia 핸들을 주고, 셀피아는 탭을 스스로 열어 브라우저 자원 표에 없다', () => {
-    expect(keys(createSiteHandles(deps)('orders.sellpia_shipment_tracking', { tabId: null }))).toEqual(['inventory', 'sales', 'shipmentTracking']);
-    expect(keys(createSiteHandles(deps)('products.sellpia_inventory', { tabId: null }))).toEqual(['inventory', 'sales', 'shipmentTracking']);
-    expect(keys(createSiteHandles(deps)('analytics.sellpia_sales', { tabId: null }))).toEqual(['inventory', 'sales', 'shipmentTracking']);
+    expect(keys(createSiteHandles(deps)('orders.sellpia_shipment_tracking', { tabId: null }))).toEqual(['inventory', 'productProfit', 'sales', 'shipmentTracking']);
+    expect(keys(createSiteHandles(deps)('products.sellpia_inventory', { tabId: null }))).toEqual(['inventory', 'productProfit', 'sales', 'shipmentTracking']);
+    expect(keys(createSiteHandles(deps)('analytics.sellpia_sales', { tabId: null }))).toEqual(['inventory', 'productProfit', 'sales', 'shipmentTracking']);
     expect(entrySites()).not.toHaveProperty('sellpia');
   });
 

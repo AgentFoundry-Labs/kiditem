@@ -14,6 +14,7 @@ import { SourceFailureAlerts } from '../../../alerts/alerts.service';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { MasterProductProfitabilityReadService } from '../../../finance/application/service/master-product-profitability-read.service';
 import { SellpiaProfitabilitySourceService } from '../../sellpia-product-sales/sellpia-profitability-source.service';
+import { publishSellpiaProfitability, seedSellpiaProfitabilityOperation } from '../../../test-helpers/__tests__/sellpia-profitability-operation';
 import { DashboardInventoryRepositoryAdapter } from '../../adapter/out/repository/dashboard/dashboard-inventory.repository.adapter';
 import { DashboardInventoryService } from '../../application/service/dashboard/dashboard-inventory.service';
 import { buildDashboardContext } from '../../domain/dashboard/context';
@@ -37,7 +38,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     await seedBaseFixture(prisma);
     const alerts = new SourceFailureAlerts(prisma as never);
     const inventoryTransactionalRead = new ProductTransactionalReadRepositoryAdapter();
-    sellpia = new SellpiaProfitabilitySourceService(prisma as never, alerts, inventoryTransactionalRead);
+    sellpia = new SellpiaProfitabilitySourceService(prisma as never);
     advertising = new ProfitabilityAdImportRepositoryAdapter(channelFactTestPorts(prisma as never).accounts, channelFactTestPorts(prisma as never).recipes, channelFactTestPorts(prisma as never).listings, prisma as never, alerts);
     evidence = new MasterProductProfitabilityReadService(sellpia, advertising, prisma as never, new ProductTransactionalReadRepositoryAdapter());
     availability = new ProductAvailabilityUseCase(
@@ -124,10 +125,7 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
   it.each(['sellpia', 'advertising'] as const)('retains the official grade and actual complete cutoff after a newer %s failure', async (source) => {
     const cutoff = await publishProduct();
     if (source === 'sellpia') {
-      const attempt = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, 'newer-sellpia-failure');
-      await sellpia.failAttempt(TEST_ORGANIZATION_ID, attempt.attemptId, {
-        attemptToken: attempt.attemptToken, errorCode: 'COLLECTION_FAILED', errorMessage: 'Provider unavailable',
-      });
+      await seedSellpiaProfitabilityOperation(prisma, { organizationId: TEST_ORGANIZATION_ID, status: 'failed' });
     } else {
       const attempt = await advertising.beginAttempt({ organizationId: TEST_ORGANIZATION_ID, idempotencyKey: 'newer-ad-failure' });
       await advertising.failAttempt({ organizationId: TEST_ORGANIZATION_ID, attemptId: attempt.attemptId,
@@ -290,25 +288,24 @@ describe('Analytics inventory ABC reads (PostgreSQL)', () => {
     await prisma.channelListingOptionInventoryComponent.create({ data: {
       organizationId: TEST_ORGANIZATION_ID, channelListingOptionId: option.id, masterProductId: product.id, quantity: 1,
     } });
-    const attempt = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, 'analytics-own-source');
-    const months = attempt.plan.coveredMonths.map((yearMonth) => ({
-      yearMonth,
-      orderQty: 1,
-      orderAmount: 10_000_000,
-      inQty: 1,
-      inAmount: 1_000_000,
-    }));
-    await sellpia.submitAttempt(TEST_ORGANIZATION_ID, attempt.attemptId, {
-      attemptToken: attempt.attemptToken, parserVersion: 'sellpia-profitability-v2',
-      providerBackedEmptyProof: true, coveredMonths: attempt.plan.coveredMonths,
-      provenance: { source: 'sellpia_stat_prd_profit', costBasis: 'ORDER_TIME_SUPPLY_COST', vatIncluded: true },
-      products: [{ productCode: 'SKU-OWN', optionCode: '', productName: 'Own product', salePrice: 10_000_000, buyPrice: 1_000_000,
-        totalOrderAmount: months.length * 10_000_000,
-        totalOrderQty: months.length,
-        totalInAmount: months.length * 1_000_000,
-        totalInQty: months.length,
-        months,
-      }],
+    const attempt = await publishSellpiaProfitability(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      products: (plan) => {
+        const months = plan.coveredMonths.map((yearMonth) => ({
+          yearMonth,
+          orderQty: 1,
+          orderAmount: 10_000_000,
+          inQty: 1,
+          inAmount: 1_000_000,
+        }));
+        return [{ productCode: 'SKU-OWN', optionCode: '', productName: 'Own product', salePrice: 10_000_000, buyPrice: 1_000_000,
+          totalOrderAmount: months.length * 10_000_000,
+          totalOrderQty: months.length,
+          totalInAmount: months.length * 1_000_000,
+          totalInQty: months.length,
+          months,
+        }];
+      },
     });
     const ad = await advertising.beginAttempt({ organizationId: TEST_ORGANIZATION_ID, idempotencyKey: 'analytics-ad' });
     expect(ad.accounts).toEqual([]);

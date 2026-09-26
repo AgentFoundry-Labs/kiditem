@@ -14,10 +14,10 @@ here affect every route.
   extension handoff, expiry, and signed-out redirect ownership
 - React Query devtools lazy loading policy
 - Sellpia freshness projection. `SellpiaInventorySyncProvider` only keeps
-  freshness query state warm; the server-issued source attempt and extension
-  browser runtime own scoped collection, upload, and finalization. `inventory`
-  collects only physical stock; `full` additionally stores product-profit
-  evidence before completing the inventory generation.
+  the inventory status and operation reads warm; the operation kind
+  `products.sellpia_inventory` (extension runtime + server finish) owns
+  collection and publication of physical stock only. Product-profit evidence is
+  the separate kind `analytics.sellpia_product_profitability`.
 
 ## State Rules
 

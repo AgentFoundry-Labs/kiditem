@@ -110,7 +110,7 @@ describe('ProductQueryUseCase', () => {
       organizationId,
       basisFromDate: '2026-02-01',
       basisCutoffDate: '2026-08-31',
-      sellpiaSourceImportRunId: '00000000-0000-4000-8000-000000000011',
+      sellpiaOperationId: '00000000-0000-4000-8000-000000000011',
       advertisingSourceImportRunId: '00000000-0000-4000-8000-000000000012',
       masterProductIds: [productId],
     });
@@ -731,7 +731,7 @@ function officialEvaluation() {
     publicationRevision: 4,
     gradeBasisCutoffDate: '2026-07-31',
     saleStartDate: '2026-06-01',
-    sellpiaSourceImportRunId: '00000000-0000-4000-8000-000000000011',
+    sellpiaOperationId: '00000000-0000-4000-8000-000000000011',
     advertisingSourceImportRunId: '00000000-0000-4000-8000-000000000012',
     sellpiaGeneration: '4',
     advertisingGeneration: '5',
@@ -801,7 +801,7 @@ function contributionAnalytics(): ProductAbcContributionAnalytics {
       fromDate: '2026-02-01',
       cutoffDate: '2026-08-31',
       sourceCutoffDate: '2026-08-31',
-      sellpiaSourceImportRunId: '00000000-0000-4000-8000-000000000011',
+      sellpiaOperationId: '00000000-0000-4000-8000-000000000011',
       advertisingSourceImportRunId: '00000000-0000-4000-8000-000000000012',
     },
     totals: {

@@ -39,6 +39,7 @@ import { ProductDataStatusUseCase } from '../application/service/product-data-st
 import { productAbcEvidenceCutoff } from '../domain/product-abc-display-status';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
+import { publishSellpiaProfitability } from '../../test-helpers/__tests__/sellpia-profitability-operation';
 import { SellpiaMasterProductProfitFactReader } from '../../analytics/sellpia-product-sales/sellpia-master-product-profit-fact.reader';
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
@@ -68,11 +69,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     const transactionalRead = new ProductTransactionalReadRepositoryAdapter();
     const channelFacts = channelFactTestPorts(prismaService);
     channelAccounts = channelFacts.accounts;
-    sellpia = new SellpiaProfitabilitySourceService(
-      prismaService,
-      alerts,
-      transactionalRead,
-    );
+    sellpia = new SellpiaProfitabilitySourceService(prismaService);
     advertising = new ProfitabilityAdImportRepositoryAdapter(
       channelFacts.accounts,
       channelFacts.recipes,
@@ -2264,15 +2261,8 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         formulaChecksum: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD_HASH,
       },
     });
-    const sellpiaSource = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, randomUUID());
-    await sellpia.submitAttempt(TEST_ORGANIZATION_ID, sellpiaSource.attemptId, {
-      attemptToken: sellpiaSource.attemptToken,
-      parserVersion: 'sellpia-profitability-v2',
-      providerBackedEmptyProof: true,
-      coveredMonths: sellpiaSource.plan.coveredMonths,
-      provenance: { source: 'sellpia_stat_prd_profit', costBasis: 'ORDER_TIME_SUPPLY_COST', vatIncluded: true },
-      products: [],
-    });
+    const sellpiaPublished = await publishSellpiaProfitability(prisma, { organizationId: TEST_ORGANIZATION_ID, products: () => [] });
+    const sellpiaSource = { attemptId: sellpiaPublished.operationId, plan: sellpiaPublished.plan };
     const advertisingSource = await advertising.beginAttempt({ organizationId: TEST_ORGANIZATION_ID, idempotencyKey: randomUUID() });
     expect(advertisingSource.accounts).toEqual([]);
     await advertising.finalizeAttempt({ organizationId: TEST_ORGANIZATION_ID,
@@ -2285,7 +2275,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
           formulaRevision: 1,
           publicationRevision: 1,
           officialCutoffDate: coverageEndDate,
-          publishedSellpiaSourceImportRunId: sellpiaSource.attemptId,
+          publishedSellpiaOperationId: sellpiaSource.attemptId,
           publishedAdvertisingSourceImportRunId: advertisingSource.attemptId,
           publishedMappingGeneration: 0n,
           mappingGeneration: 0n,
@@ -2313,7 +2303,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
           formulaRevision: 1,
           publicationRevision: 1,
           gradeBasisCutoffDate: coverageEndDate,
-          sellpiaSourceImportRunId: sellpiaSource.attemptId,
+          sellpiaOperationId: sellpiaSource.attemptId,
           advertisingSourceImportRunId: advertisingSource.attemptId,
           sellpiaGeneration: 1n,
           advertisingGeneration: 1n,

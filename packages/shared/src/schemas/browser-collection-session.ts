@@ -17,7 +17,6 @@ export const BROWSER_COLLECTION_PRODUCERS = [
   'orders.mall_admin_listings',
   'orders.sabangnet_mall_listings',
   'orders.sellpia_manual_match',
-  'orders.sellpia_product_profitability',
 ] as const;
 
 export const BROWSER_COLLECTION_ATTENTION_REASONS = [

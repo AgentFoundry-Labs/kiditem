@@ -66,7 +66,6 @@ describe('BrowserCollectionSessionViewSchema', () => {
       'orders.mall_admin_listings',
       'orders.sabangnet_mall_listings',
       'orders.sellpia_manual_match',
-      'orders.sellpia_product_profitability',
     ]);
     for (const producer of BROWSER_COLLECTION_PRODUCERS) {
       expect(BrowserCollectionProducerSchema.parse(producer)).toBe(producer);

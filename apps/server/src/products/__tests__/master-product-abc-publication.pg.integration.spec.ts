@@ -10,6 +10,7 @@ import {
   ProfitabilityAdImportRepositoryAdapter,
 } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { SellpiaProfitabilitySourceService } from '../../analytics/sellpia-product-sales/sellpia-profitability-source.service';
+import { publishSellpiaProfitability, seedSellpiaProfitabilityOperation } from '../../test-helpers/__tests__/sellpia-profitability-operation';
 import { MasterProductProfitabilityReadService } from '../../finance/application/service/master-product-profitability-read.service';
 import {
   makeTestPrisma,
@@ -424,11 +425,7 @@ function productOperationsDataStatus(prisma: PrismaClient): ProductDataStatusUse
 function profitabilityEvidence(prisma: PrismaClient): MasterProductProfitabilityReadService {
   const alerts = new SourceFailureAlerts(prisma as never);
   return new MasterProductProfitabilityReadService(
-    new SellpiaProfitabilitySourceService(
-      prisma as never,
-      alerts,
-      new ProductTransactionalReadRepositoryAdapter(),
-    ),
+    new SellpiaProfitabilitySourceService(prisma as never),
     advertisingSource(prisma, alerts),
     prisma as never,
    new ProductTransactionalReadRepositoryAdapter());
@@ -599,50 +596,18 @@ async function collectSources(
   options: { skuCode: string; daysAgo: number; holeMonthsBack?: number },
 ): Promise<{ cutoff: string }> {
   const alerts = new SourceFailureAlerts(prisma as never);
-  const sellpia = new SellpiaProfitabilitySourceService(
-    prisma as never,
-    alerts,
-    new ProductTransactionalReadRepositoryAdapter(),
-  );
   const advertising = advertisingSource(prisma, alerts);
   vi.useFakeTimers({ toFake: ['Date'] });
   vi.setSystemTime(new Date(Date.now() - options.daysAgo * 86_400_000));
   try {
-    const attempt = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, `abc-${randomUUID()}`);
-    const hole = options.holeMonthsBack === undefined
-      ? null
-      : monthsBefore(attempt.plan.to.slice(0, 7), options.holeMonthsBack);
-    const months = attempt.plan.coveredMonths
-      .filter((yearMonth) => yearMonth !== hole)
-      .map((yearMonth) => ({
-        yearMonth,
-        orderQty: 10,
-        orderAmount: 1_000_000,
-        inQty: 10,
-        inAmount: 200_000,
-      }));
-    await sellpia.submitAttempt(TEST_ORGANIZATION_ID, attempt.attemptId, {
-      attemptToken: attempt.attemptToken,
-      parserVersion: 'sellpia-profitability-v2',
-      providerBackedEmptyProof: true,
-      coveredMonths: attempt.plan.coveredMonths,
-      provenance: {
-        source: 'sellpia_stat_prd_profit',
-        costBasis: 'ORDER_TIME_SUPPLY_COST',
-        vatIncluded: true,
+    const { plan } = await publishSellpiaProfitability(prisma, {
+      organizationId: TEST_ORGANIZATION_ID,
+      products: (planned) => {
+        const hole = options.holeMonthsBack === undefined
+          ? null
+          : monthsBefore(planned.to.slice(0, 7), options.holeMonthsBack);
+        return [abcProduct(options.skuCode, planned.coveredMonths.filter((yearMonth) => yearMonth !== hole))];
       },
-      products: [{
-        productCode: options.skuCode,
-        optionCode: '',
-        productName: 'ABC product',
-        salePrice: 100_000,
-        buyPrice: 20_000,
-        totalOrderAmount: months.length * 1_000_000,
-        totalOrderQty: months.length * 10,
-        totalInAmount: months.length * 200_000,
-        totalInQty: months.length * 10,
-        months,
-      }],
     });
 
     // This Rocket-only selling fixture has no retained Coupang advertising
@@ -656,7 +621,7 @@ async function collectSources(
       attemptId: adAttempt.attemptId,
       attemptToken: adAttempt.attemptToken,
     });
-    return { cutoff: attempt.plan.to };
+    return { cutoff: plan.to };
   } finally {
     vi.useRealTimers();
   }
@@ -725,43 +690,11 @@ async function collectAt(
     });
     return status.latestComplete!.coveredThrough;
   }
-  const sellpia = new SellpiaProfitabilitySourceService(
-    prisma as never,
-    alerts,
-    new ProductTransactionalReadRepositoryAdapter(),
-  );
-  const attempt = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, `abc-${randomUUID()}`);
-  const months = attempt.plan.coveredMonths.map((yearMonth) => ({
-    yearMonth,
-    orderQty: 10,
-    orderAmount: 1_000_000,
-    inQty: 10,
-    inAmount: 200_000,
-  }));
-  await sellpia.submitAttempt(TEST_ORGANIZATION_ID, attempt.attemptId, {
-    attemptToken: attempt.attemptToken,
-    parserVersion: 'sellpia-profitability-v2',
-    providerBackedEmptyProof: true,
-    coveredMonths: attempt.plan.coveredMonths,
-    provenance: {
-      source: 'sellpia_stat_prd_profit',
-      costBasis: 'ORDER_TIME_SUPPLY_COST',
-      vatIncluded: true,
-    },
-    products: [{
-      productCode: options.skuCode,
-      optionCode: '',
-      productName: 'ABC product',
-      salePrice: 100_000,
-      buyPrice: 20_000,
-      totalOrderAmount: months.length * 1_000_000,
-      totalOrderQty: months.length * 10,
-      totalInAmount: months.length * 200_000,
-      totalInQty: months.length * 10,
-      months,
-    }],
+  const { plan } = await publishSellpiaProfitability(prisma, {
+    organizationId: TEST_ORGANIZATION_ID,
+    products: (planned) => [abcProduct(options.skuCode, planned.coveredMonths)],
   });
-  return attempt.plan.to;
+  return plan.to;
 }
 
 /**
@@ -772,19 +705,34 @@ async function startNewerSellpiaAttempt(
   prisma: PrismaClient,
   outcome: 'RUNNING' | 'FAILED',
 ): Promise<void> {
-  const sellpia = new SellpiaProfitabilitySourceService(
-    prisma as never,
-    new SourceFailureAlerts(prisma as never),
-    new ProductTransactionalReadRepositoryAdapter(),
-  );
-  const attempt = await sellpia.beginAttempt(TEST_ORGANIZATION_ID, `abc-newer-${randomUUID()}`);
-  if (outcome === 'FAILED') {
-    await sellpia.failAttempt(TEST_ORGANIZATION_ID, attempt.attemptId, {
-      attemptToken: attempt.attemptToken,
-      errorCode: 'COLLECTION_FAILED',
-      errorMessage: 'provider page never loaded',
-    });
-  }
+  // 끝나지 않았거나 실패한 더 새 실행 — 어느 쪽이든 세대를 발행하지 않는다.
+  await seedSellpiaProfitabilityOperation(prisma, {
+    organizationId: TEST_ORGANIZATION_ID,
+    status: outcome === 'RUNNING' ? 'executing' : 'failed',
+  });
+}
+
+/** 셀피아 상품 손익 제출 상품 하나 — 덮은 달마다 같은 판매·매입 사실. */
+function abcProduct(skuCode: string, coveredMonths: readonly string[]) {
+  const months = coveredMonths.map((yearMonth) => ({
+    yearMonth,
+    orderQty: 10,
+    orderAmount: 1_000_000,
+    inQty: 10,
+    inAmount: 200_000,
+  }));
+  return {
+    productCode: skuCode,
+    optionCode: '',
+    productName: 'ABC product',
+    salePrice: 100_000,
+    buyPrice: 20_000,
+    totalOrderAmount: months.length * 1_000_000,
+    totalOrderQty: months.length * 10,
+    totalInAmount: months.length * 200_000,
+    totalInQty: months.length * 10,
+    months,
+  };
 }
 
 function latestClosedKstDate(now = new Date()): string {

@@ -121,8 +121,8 @@
       ],
       "ownerPublications": [
         {
-          "path": "apps/server/src/analytics/sellpia-product-sales/sellpia-profitability-source.service.ts",
-          "reason": "Stages, verifies, and publishes immutable Sellpia profitability facts under a completed source generation."
+          "path": "apps/server/src/analytics/sellpia-product-sales/sellpia-profitability-publication.repository.ts",
+          "reason": "Publishes and counts immutable Sellpia profitability facts under the succeeded analytics.sellpia_product_profitability operation (KID-361)."
         },
         {
           "path": "apps/server/src/analytics/sellpia-product-sales/sellpia-profitability-source.internal.ts",

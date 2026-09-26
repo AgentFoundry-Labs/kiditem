@@ -27,8 +27,8 @@ workflow.
   publication, current grade, and grade history. Source completion never calls
   ABC. Only the authenticated Product Hub **등급 새로고침** and Dashboard
   수익성 ABC **재계산** actions call `POST /api/products/abc/recalculate`.
-- A source `RUNNING` or `FAILED` attempt never replaces its owner's current
-  complete pointer. Readers show the latest attempt and the previous complete
+- A source `RUNNING` or `FAILED` attempt (for Sellpia, an executing or failed
+  operation) never replaces its owner's current complete pointer. Readers show the latest attempt and the previous complete
   cutoff together. A failed or stale source leaves the last normal official
   grade, evaluation, cache, publication provenance, and history unchanged.
 
@@ -36,8 +36,8 @@ workflow.
 
 | Responsibility | Current owner/interface | Operator-visible boundary |
 | --- | --- | --- |
-| Sellpia product-profit source | Analytics `SellpiaProfitabilitySourceService` and `SELLPIA_PROFITABILITY_SOURCE_READ_PORT` | `/api/sellpia-product-sales/attempts`, `/status`, and attempt status/control endpoints; the extension action is `collectSellpiaProductProfit` |
-| Sellpia inventory source | Inventory source-owner hook and API | Product Hub **상품 전체 데이터 갱신** starts `manual_request` inventory collection independently from product-profit collection |
+| Sellpia product-profit source | Analytics operation kind `analytics.sellpia_product_profitability` (KID-361; lock `resource:sellpia:login`) and `SELLPIA_PROFITABILITY_SOURCE_READ_PORT` (a generation is one succeeded operation) | Started through the extension's `operation.start`; state from `GET /api/operations?kinds=analytics.sellpia_product_profitability` |
+| Sellpia inventory source | Products operation kind `products.sellpia_inventory` | Product Hub starts inventory collection independently from product-profit collection |
 | Advertising profitability source | Advertising `PROFITABILITY_AD_IMPORT_PORT` and `ADVERTISING_PROFITABILITY_READ_PORT` | `/api/ads/profitability-imports`; the installed extension owner action is `collectAdvertisingProfitability` with capability `profitabilityAdvertisingSourceOwnerV1` |
 | Combined evidence | Finance `ProfitabilityEvidence.load({ organizationId, targetCutoff })` | Reads owner-published facts; it does not write source or ABC state |
 | ABC calculation/publication | Products `MasterProductAbcService` through `MASTER_PRODUCT_ABC_RECALCULATION_PORT` | Product Hub **ABC 등급 현황 → 등급 새로고침** and Dashboard 수익성 ABC **재계산**; response is `PUBLISHED` or `SOURCE_NOT_READY` |
