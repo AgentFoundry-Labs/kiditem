@@ -102,8 +102,9 @@ export type CoupangDirectOrderCollectionRequest = z.infer<
   typeof CoupangDirectOrderCollectionRequestSchema
 >;
 
-// ── 입고예정일 달력용 발주 스냅샷 (조회 편의 캐시) ──
-// 달력이 매번 쿠팡을 다시 긁지 않도록 마지막 수집분을 서버에 저장/조회한다.
+// ── 입고예정일 달력용 발주 스냅샷 ──
+// 계정의 가장 최근 성공한 directship 실행(`orders.coupang_directship`)이 보관한 캡처를 서버가 달력 모양으로 줄여 준다
+// (KID-370). 따로 저장하는 표는 없다.
 
 export const CoupangDirectPoSnapshotItemSchema = z.object({
   barcode: z.string(),
@@ -131,18 +132,11 @@ export type CoupangDirectPoSnapshotEntry = z.infer<
   typeof CoupangDirectPoSnapshotEntrySchema
 >;
 
-export const SaveCoupangDirectPoSnapshotRequestSchema = z.object({
-  channelAccountId: z.string().uuid(),
-  /** 이 스냅샷의 근거인 성공한 directship 실행(`orders.coupang_directship`, KID-359). */
-  operationId: z.string().uuid(),
-  entries: z.array(CoupangDirectPoSnapshotEntrySchema).max(4_000),
-}).strict();
-export type SaveCoupangDirectPoSnapshotRequest = z.infer<
-  typeof SaveCoupangDirectPoSnapshotRequestSchema
->;
-
 export const CoupangDirectPoSnapshotResponseSchema = z.object({
   channelAccountId: z.string(),
+  /** 이 달력의 근거인 성공한 directship 실행. 변환은 이 실행으로 보낸다. 아직 성공한 수집이 없으면 null. */
+  operationId: z.string().uuid().nullable(),
+  /** 그 실행이 끝난 시각. */
   collectedAt: z.string().nullable(),
   entries: z.array(CoupangDirectPoSnapshotEntrySchema),
 });

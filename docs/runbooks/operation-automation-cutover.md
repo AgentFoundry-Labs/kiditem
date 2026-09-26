@@ -176,7 +176,9 @@ the writer-stopped target after its dump. Rehearse on the local QA database
    Automation Marketplace models and their Organization/User relations. The
    KID-90 drop in the same schema removes `action_tasks`,
    `rules_evaluation_applications`, and the other retired tables and columns
-   with their rows under the data-loss policy; Channels marketplace
+   with their rows under the data-loss policy. The KID-370 drop removes
+   `coupang_direct_po_snapshots` without migrating it; the directship calendar
+   reads the latest succeeded capture instead. Channels marketplace
    registration models remain:
 
    ```powershell

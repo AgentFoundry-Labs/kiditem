@@ -9,7 +9,6 @@
 
 | Model | Table | Description |
 |---|---|---|
-| CoupangDirectPoSnapshot | `coupang_direct_po_snapshots` | 쿠팡직배송 발주확정 스냅샷. 입고예정일 달력이 매번 쿠팡을 다시 긁지 않도록 |
 | CoupangDirectTransportConsumption | `coupang_direct_transport_consumptions` | Immutable alias from one completed source attempt and transport selection to its canonical downstream effect receipt. |
 | CoupangDirectTransportReceipt | `coupang_direct_transport_receipts` | Immutable transport effect receipt for one normalized Coupang direct-order payload. It owns downstream publication identity, not source collection state. |
 | CoupangShipmentDateSummary | `coupang_shipment_date_summaries` | Persisted Coupang shipment 발송일별 건수/박스 요약 snapshot so the calendar survives reload and only new dates are collected. |
@@ -27,24 +26,6 @@
 
 ```mermaid
 erDiagram
-  CoupangDirectPoSnapshot {
-    String id PK
-    String organizationId FK
-    String channelAccountId
-    String purchaseOrderSeq
-    String centerName
-    String transport
-    String deliveryDate
-    String orderedDate
-    Boolean isUrgent
-    Int skuCount
-    Int orderQuantity
-    Int orderAmount
-    Json itemsJson
-    DateTime collectedAt
-    DateTime createdAt
-    DateTime updatedAt
-  }
   CoupangDirectTransportConsumption {
     String id PK
     String organizationId FK
@@ -266,7 +247,6 @@ erDiagram
 
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
-| CoupangDirectPoSnapshot | organization | references external | Core | Organization |
 | CoupangDirectTransportConsumption | organization | references external | Core | Organization |
 | CoupangDirectTransportConsumption | sourceImportRun | references external | Core | SourceImportRun |
 | CoupangDirectTransportReceipt | effectSourceImportRun | references external | Core | SourceImportRun |
