@@ -73,13 +73,7 @@ describe("AGENT_DEFINITIONS", () => {
         "supply.create_purchase_order_draft",
         "supply.submit_purchase_order",
       ],
-      channel_operations: [
-        "channels.get_target_execution",
-        "channels.prepare_target_execution",
-        "channels.report_target_execution",
-        "channels.start_target_execution",
-        "channels.submit_representative_image",
-      ],
+      channel_operations: [],
       advertising: [],
     });
   });

@@ -65,9 +65,10 @@ describe('CapabilityInvocationCard', () => {
   });
 
   it.each([
-    ['channels.report_target_execution', '몰 등록 실행 결과', '몰에 보낸 등록 실행 결과를 기록합니다.'],
-    ['channels.submit_representative_image', '몰 대표이미지', '대표이미지를 몰 상품 수정 화면에 올립니다.'],
-  ])('presents the mall-neutral channels capability %s', async (capabilityKey, target, effect) => {
+    ['supply.create_purchase_order_draft', '발주 초안', '발주 초안을 생성합니다.'],
+    // KID-364: a receipt of a retired Channels capability falls back to the generic wording.
+    ['channels.submit_representative_image', '요청한 업무', '업무 변경을 실행합니다.'],
+  ])('presents the approval of capability %s', async (capabilityKey, target, effect) => {
     vi.mocked(apiClient.get).mockResolvedValue({
       id: '00000000-0000-4000-8000-000000000009',
       capabilityKey,

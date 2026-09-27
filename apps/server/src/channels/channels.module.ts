@@ -93,8 +93,6 @@ import { MALL_PUBLISHING_REPOSITORY_PORT } from './application/port/out/reposito
 import { SELLPIA_RECIPE_EVIDENCE_PORT } from './application/port/out/cross-domain/sellpia-recipe-evidence.port';
 import { CHANNEL_RECIPE_SUGGESTION_CONTEXT_REPOSITORY_PORT } from './application/port/out/repository/channel-recipe-suggestion-context.repository.port';
 import { SELLPIA_MANUAL_MATCH_REPOSITORY_PORT } from './application/port/out/repository/sellpia-manual-match.repository.port';
-import { ChannelsRepresentativeImageCapabilityAdapter } from './adapter/in/agent/channels-representative-image-capability.adapter';
-import { CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT } from './application/port/in/capability/representative-image.port';
 import { ThumbnailExecutionController } from './adapter/in/web/thumbnail-execution.controller';
 import { ThumbnailExecutionPersistenceAdapter } from './adapter/out/persistence/thumbnail-execution.persistence.adapter';
 import { CoupangRepresentativeImageRunnerAdapter } from './adapter/out/channel/coupang/representative-image-runner.adapter';
@@ -176,7 +174,6 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
     { provide: CHANNEL_PRODUCT_AVAILABILITY_PORT, useExisting: ProductAvailabilityAdapter },
     ChannelsProductMappingGenerationAdapter,
     { provide: CHANNELS_PRODUCT_MAPPING_GENERATION_PORT, useExisting: ChannelsProductMappingGenerationAdapter },
-    ChannelsRepresentativeImageCapabilityAdapter,
     // 대표이미지 몰 반영 실행(thumbnail_update). Content 는 승인 사진만 준다.
     ThumbnailExecutionPersistenceAdapter,
     CoupangRepresentativeImageRunnerAdapter,
@@ -210,7 +207,6 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
       provide: CHANNEL_REGISTRATION_PORT,
       useExisting: ChannelRegistrationService,
     },
-    { provide: CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT, useExisting: ChannelsRepresentativeImageCapabilityAdapter },
     {
       provide: ROCKET_SELLPIA_MATCHING_CSV_IMPORT_REPOSITORY_PORT,
       useExisting: RocketSellpiaMatchingCsvImportRepositoryAdapter,
@@ -271,7 +267,6 @@ import { REGISTRATION_STATE_PORT } from './application/port/in/registration-stat
     ChannelCatalogModule,
     CHANNEL_SKU_AVAILABILITY_PORT,
     CHANNEL_REGISTRATION_PORT,
-    CHANNELS_REPRESENTATIVE_IMAGE_CAPABILITY_PORT,
     CHANNEL_ADAPTER_REGISTRY_PORT,
     CHANNEL_REGISTRABLE_THUMBNAIL_PORT,
   ],
