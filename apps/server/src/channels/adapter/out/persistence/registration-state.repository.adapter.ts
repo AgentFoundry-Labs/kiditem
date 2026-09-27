@@ -6,6 +6,7 @@ import {
   LISTING_SHAPING_EXECUTION_KINDS,
   type FrozenRegistrationFacts,
 } from '../../../domain/registration/registration-account-state';
+import { OPERATION_EXPIRED_ERROR_CODE, OPERATION_EXPIRED_ERROR_MESSAGE } from '../../../../common/operation/domain/operation-fence';
 import { frozenSnapshot, isFillOnly, readRegistrationOperations, type RegistrationOperationFact } from '../repository/registration-operation-facts';
 import type {
   RegistrationStateAccountFacts,
@@ -156,8 +157,9 @@ export class RegistrationStateRepositoryAdapter implements RegistrationStatePers
       id: operation.id,
       registration_target_id: operation.plan.registrationTargetId!,
       execution_kind: operation.plan.executionKind,
-      status: operation.status,
-      provider_outcome: providerOutcomeOf(operation),
+      // 제출하던 실행이 브라우저를 잃고 임대로 끝났으면 몰에 올라갔을 수 있다 — 실패가 아니라 확인 대기로 읽는다(중복 등록 방지).
+      status: lapsedWhileSubmitting(operation) ? 'reconciling' : operation.status,
+      provider_outcome: lapsedWhileSubmitting(operation) ? 'uncertain' : providerOutcomeOf(operation),
       created_at: operation.startedAt,
       completed_at: operation.finishedAt,
     }));
@@ -224,6 +226,12 @@ function latestPer(operations: readonly RegistrationOperationFact[], key: (opera
     if (id && !latest.has(id)) latest.set(id, operation);
   }
   return [...latest.values()];
+}
+
+/** `submit` 이 허락된 문서 실행이 결과 보고 없이 임대 만료로 끝났다(계약의 만료 코드 · 문장). */
+function lapsedWhileSubmitting(operation: RegistrationOperationFact): boolean {
+  return operation.plan.submit && operation.status === 'failed'
+    && operation.errorCode === OPERATION_EXPIRED_ERROR_CODE && operation.errorMessage === OPERATION_EXPIRED_ERROR_MESSAGE;
 }
 
 /** 실행 `result.providerOutcome`(확장 · owner 가 적은 것). 없으면 상태로 비춘다. */

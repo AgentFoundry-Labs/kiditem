@@ -268,6 +268,19 @@ describe('channels.registration owner over the operation contract + disposable P
     expect(refused.body).toMatchObject({ code: 'CHANNELS_EXECUTION_EVIDENCE_REJECTED', details: { reason: 'PROVIDER_LISTING_MISSING' } });
   });
 
+  it('reads a submitting register whose lease lapsed as awaiting confirmation, not as a failure', async () => {
+    const fixture = await createFixture(prisma, targets);
+    const begun = await beginOk(registerScope(fixture));
+    expect(planOf(begun).submit).toBe(true);
+    await prisma.operation.update({ where: { id: begun.operation.id }, data: { expiresAt: new Date(Date.now() - 1_000) } });
+    const [state] = (await registrationStates().readForSalesProducts(ORG, [fixture.productId])).get(fixture.productId)!.accounts;
+    expect(state).toMatchObject({ state: 'confirming', lastExecution: expect.objectContaining({ providerOutcome: 'uncertain' }) });
+    // 만료 처분이 끝나도(실패로 닫힘) 같다 — 몰에 올라갔을 수 있으니 다시 올리게 하지 않는다.
+    await request(httpUrl).get(`/api/operations/${begun.operation.id}`).expect(200);
+    const [after] = (await registrationStates().readForSalesProducts(ORG, [fixture.productId])).get(fixture.productId)!.accounts;
+    expect(after).toMatchObject({ state: 'confirming' });
+  });
+
   it('refuses a malformed evidence chunk and a succeeded finish that submitted without a confirmation as evidence rejections', async () => {
     const fixture = await createFixture(prisma, targets);
     const begun = await beginOk(registerScope(fixture));
