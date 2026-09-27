@@ -466,6 +466,19 @@ describe('advertising.ad_report owner over the operation contract + disposable P
     await expect(prisma.channelAdProductDailySnapshot.count()).resolves.toBe(0);
   });
 
+  it('refuses a capture when the account stopped being an active Coupang account during the run', async () => {
+    const run = await beginRun();
+    await collect(run, { products: [productRow({ date: day(0) })] });
+    await prisma.channelAccount.update({ where: { id: accountId }, data: { status: 'inactive' } });
+    const refused = await finish(run).expect(400);
+    expect(refused.body).toMatchObject({
+      code: 'VALIDATION_FAILED',
+      message: '수집하는 동안 쿠팡 계정 설정이 바뀌었습니다. 다시 수집해 주세요.',
+      details: { reason: 'account_changed' },
+    });
+    await expect(prisma.channelAdProductDailySnapshot.count()).resolves.toBe(0);
+  });
+
   it('an account with no ads in the window succeeds: both reports were made, zero rows is a measured zero and clears the old rows (KID-45)', async () => {
     const first = await beginRun();
     await collect(first, {

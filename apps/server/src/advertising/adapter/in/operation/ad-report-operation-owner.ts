@@ -80,7 +80,10 @@ export class AdReportOperationOwner implements OperationOwnerPort {
     // 수집 중 계정이 꺼졌거나 업체코드가 바뀌었으면 그 보고서를 이 계정에 쓰지 않는다.
     const account = await this.repository.readAccount(context.organizationId, plan.channelAccountId, context.tx);
     if (!account || account.vendorId !== plan.vendorId) {
-      throw new KiditemInvalidValueError('VALIDATION_FAILED', { details: { reason: 'account_changed', channelAccountId: plan.channelAccountId } });
+      throw new KiditemInvalidValueError('VALIDATION_FAILED', {
+        details: { reason: 'account_changed', channelAccountId: plan.channelAccountId },
+        message: '수집하는 동안 쿠팡 계정 설정이 바뀌었습니다. 다시 수집해 주세요.',
+      });
     }
     await this.repository.publish(context.tx, {
       organizationId: context.organizationId,
