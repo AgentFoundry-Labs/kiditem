@@ -13345,6 +13345,89 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "kidsnote", create: (deps, lease) => createKidsnoteSite(deps.tabs, createSiteSignIn(KIDSNOTE_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/kidsnote/registration.ts
+  var KIDSNOTE_REGISTER_FILE = "content/page-call/kidsnote-register.js";
+  var REGISTER_ORIGIN = "https://shop.kidsnote.com";
+  var REGISTER_PATH = "/_manage/";
+  var REGISTER_BODY = "product@product_register";
+  var IMAGE_SLOTS = /* @__PURE__ */ new Set(["upfile1", "upfile2", "upfile3"]);
+  var FILL_TIMEOUT_MS2 = 12e4;
+  function isKidsnoteRegisterUrl(value) {
+    if (typeof value !== "string" || !value.trim()) return false;
+    let url;
+    try {
+      url = new URL(value.trim());
+    } catch {
+      return false;
+    }
+    return url.origin === REGISTER_ORIGIN && url.pathname === REGISTER_PATH && url.searchParams.get("body") === REGISTER_BODY;
+  }
+  function normalizeKidsnoteForm(value) {
+    const raw = requireRaw(value, "\uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
+    if (!isKidsnoteRegisterUrl(raw.url)) throw planInvalid("\uD0A4\uC988\uB178\uD2B8 \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.");
+    if (raw.formId !== "prdFrm") throw planInvalid("\uC54C \uC218 \uC5C6\uB294 \uD3FC\uC785\uB2C8\uB2E4.");
+    const fields = {};
+    for (const [name, fieldValue] of Object.entries(asRaw(raw.fields))) {
+      if (name) fields[name] = fieldValue === null || fieldValue === void 0 ? "" : String(fieldValue);
+    }
+    const radios = {};
+    for (const [name, radioValue] of Object.entries(asRaw(raw.radios))) if (name) radios[name] = String(radioValue);
+    const list2 = (entry) => Array.isArray(entry) ? entry : [];
+    return {
+      url: String(raw.url).trim(),
+      fields,
+      checks: list2(raw.checks).filter((name) => typeof name === "string"),
+      radios,
+      fileUploads: list2(raw.fileUploads).map(asRaw).filter((entry) => IMAGE_SLOTS.has(String(entry.name)) && typeof entry.url === "string").map((entry) => ({ name: String(entry.name), url: String(entry.url) })),
+      // 상세설명 이미지는 몰 호스팅에 올린 뒤 그 주소로 HTML을 만든다.
+      detailUploads: list2(raw.detailUploads).map(asRaw).filter((entry) => typeof entry.url === "string").map((entry) => ({ url: String(entry.url) })),
+      detailHtmlTarget: typeof raw.detailHtmlTarget === "string" ? raw.detailHtmlTarget : "",
+      manualSteps: list2(raw.manualSteps).filter((step) => typeof step === "string")
+    };
+  }
+  async function fillKidsnote(context, page, input) {
+    const form = normalizeKidsnoteForm(input.form);
+    const loaded = await toDataUrls(context.fetch, form.fileUploads);
+    const detail = await toDataUrls(context.fetch, form.detailUploads.map((entry, index) => ({ name: `detail${index + 1}`, url: entry.url })));
+    const failures = [
+      ...loaded.filter((image) => image.error).map((image) => `\uC774\uBBF8\uC9C0 \uB2E4\uC6B4\uB85C\uB4DC \uC2E4\uD328 \u2014 ${image.name}: ${image.error}`),
+      ...detail.filter((image) => image.error).map((image) => `\uC0C1\uC138 \uC774\uBBF8\uC9C0 \uB2E4\uC6B4\uB85C\uB4DC \uC2E4\uD328 \u2014 ${image.name}: ${image.error}`)
+    ];
+    const outcome = await callPage(page, "kidsnote.fill", {
+      ...form,
+      images: loaded.filter((image) => image.dataUrl),
+      detailImages: detail.filter((image) => image.dataUrl)
+    }, {
+      timeoutMs: FILL_TIMEOUT_MS2,
+      guard: context.guard,
+      main: [DIALOG_GUARD_FILE, FORM_FILL_FILE, KIDSNOTE_REGISTER_FILE],
+      displayName: context.displayName
+    });
+    if (outcome?.ok !== true) {
+      if (outcome?.noForm) throw new RuntimeError(SITE_LOGIN_REQUIRED, context.guard.loginMessage, { url: form.url, reason: "no_form" });
+      throw new RuntimeError(REGISTRATION_FILL_FAILED, outcome?.error ?? "\uD0A4\uC988\uB178\uD2B8 \uC0C1\uD488\uB4F1\uB85D \uD3FC\uC744 \uCC44\uC6B0\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { mallKey: "kidsnote", steps: outcome?.steps ?? [] });
+    }
+    return {
+      fill: { steps: outcome.steps ?? [], warnings: [...failures, ...outcome.warnings ?? []], manualSteps: form.manualSteps, dialogs: outcome.dialogs ?? [] },
+      providerAccountId: null
+    };
+  }
+  registerMallWriter({
+    mallKey: "kidsnote",
+    displayName: "\uD0A4\uC988\uB178\uD2B8",
+    guard: registrationGuard(KIDSNOTE_PAGE_GUARD, "\uD0A4\uC988\uB178\uD2B8"),
+    dialogHosts: ["shop.kidsnote.com"],
+    login: KIDSNOTE_LOGIN,
+    custom: {
+      url: (form) => {
+        const raw = asRaw(form);
+        if (!isKidsnoteRegisterUrl(raw.url)) throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uD0A4\uC988\uB178\uD2B8 \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.", { reason: "register_url" });
+        return String(raw.url).trim();
+      },
+      fill: fillKidsnote
+    }
+  });
+
   // extensions/src/sites/kkomangse/listings.ts
   var KKOMANGSE_LISTINGS_URL = "https://nstore.edupre.co.kr/subAdmin/_product.list.php";
   var KKOMANGSE_LISTINGS_FILE = "content/orders/kkomangse-listings.js";
