@@ -200,6 +200,15 @@ describe('registration operation regressions carried over from the execution fen
     });
   });
 
+  it('keeps the scope submit for a price update even on a mall whose registration is not pressed by the browser (price send is not [등록])', async () => {
+    const fixture = await createFixture(prisma, targets, { listing: true, channel: 'kidsnote' });
+    const update = await begin({ executionKind: 'update', registrationTargetId: fixture.targetId, expectedVersion: 1, channelListingId: fixture.listingId, updateFields: ['salePrice'], submit: true });
+    expect(planOf(update).submit).toBe(true);
+    await operations.cancel(ORG, update.operation.id);
+    const registerPlan = planOf(await register(fixture, { channelListingId: fixture.listingId }));
+    expect(registerPlan.submit).toBe(false);
+  });
+
   describe('freezing', () => {
     it('freezes the detail and representative image only for register and composition change, and never writes run values into the target', async () => {
       const fixture = await createFixture(prisma, targets, { listing: true, channel: 'kakao' });
