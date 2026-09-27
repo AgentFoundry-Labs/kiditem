@@ -203,7 +203,7 @@ export function useMallPublishRun() {
             const message = toMessage(error);
             errorMessage = adapter.describeError?.(message) ?? message;
             errorCode = error instanceof OperationStartFailure
-              ? error.code
+              ? error.reason
               : isApiError(error) ? error.details.reason ?? (error.code === 'UNKNOWN' ? null : error.code) : null;
           }
           const result = {

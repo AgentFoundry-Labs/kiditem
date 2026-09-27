@@ -144,7 +144,7 @@ describe('RegistrationPendingSection checking actions', () => {
     serve([], (href) => (href.includes('listing-choices')
       ? { items: [{ channelListingId: '00000000-0000-4000-8000-0000000000a2', channelName: 'B', channelAccountName: 'Wing', externalId: '2' }] }
       : undefined));
-    const starts = extensionStarts({ success: false, errorCode: 'ambiguous_listing', error: '리스팅이 여럿입니다 — 하나를 고르세요' });
+    const starts = extensionStarts({ success: false, errorCode: 'VALIDATION_FAILED', error: '리스팅이 여럿입니다 — 하나를 고르세요', details: { reason: 'ambiguous_listing' } });
     renderSection();
 
     fireEvent.click(await screen.findByRole('button', { name: '쿠팡 등록 선택' }));

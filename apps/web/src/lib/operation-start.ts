@@ -28,20 +28,28 @@ export type OperationStartOutcome =
   /** `existingOperationId`: 잠금을 쥔 실행(확장이 거절에 실어 줄 때만). */
   | Readonly<{ outcome: 'refused'; message: string; existingOperationId?: string | null }>;
 
-/** 확장·서버가 시작을 거절했다. `code`는 서버 등록 코드(있으면) — 화면은 문장이 아니라 코드로 까닭을 가른다. */
+/** 확장·서버가 시작을 거절했다. `code`는 서버 등록 코드, `reason`은 `details.reason ?? code` — 화면은 문장이 아니라 이 값으로 가른다. */
 export class OperationStartFailure extends Error {
   readonly code: string | null;
+  /** 거절 봉투의 `details`(예: `{ reason: 'ambiguous_listing' }`). 없으면 빈 객체. */
+  readonly details: Readonly<Record<string, unknown>>;
 
-  constructor(message: string, code: string | null) {
+  constructor(message: string, code: string | null, details: Record<string, unknown> | null = null) {
     super(message);
     this.name = 'OperationStartFailure';
     this.code = code;
+    this.details = details ?? {};
+  }
+
+  /** 화면이 가를 까닭: `details.reason`이 있으면 그것, 없으면 등록 코드. */
+  get reason(): string | null {
+    return typeof this.details.reason === 'string' ? this.details.reason : this.code;
   }
 }
 
 type StartReply =
   | { success: true; operationId: string; reused: boolean }
-  | { success: false; errorCode?: string; error?: string; details?: { existing?: { operationId?: unknown } | null } | null };
+  | { success: false; errorCode?: string; error?: string; details?: ({ existing?: { operationId?: unknown } | null } & Record<string, unknown>) | null };
 
 async function extensionWithRuntime(capability: string | readonly string[]): Promise<{ extensionId: string; acceptsLogin: boolean; acceptsLoginBlocked: boolean }> {
   const extensionId = await detectExtensionId();
@@ -110,7 +118,7 @@ export async function requestOperationStart(
       ...(typeof existing === 'string' ? { existingOperationId: existing } : {}),
     };
   }
-  throw new OperationStartFailure(operatorReason(failure?.error, START_FAILED), failure?.errorCode ?? null);
+  throw new OperationStartFailure(operatorReason(failure?.error, START_FAILED), failure?.errorCode ?? null, failure?.details ?? null);
 }
 
 /** 이 브라우저에서 돌고 있는 실행을 멈춘다(`operation.cancel` — 확장이 서버 cancel도 부른다). */

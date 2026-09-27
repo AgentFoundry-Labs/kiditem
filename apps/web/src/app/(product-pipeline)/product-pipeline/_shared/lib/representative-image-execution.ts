@@ -97,7 +97,7 @@ async function startThumbnail(subject: RepresentativeImageSubject, channelListin
       },
     }));
   } catch (error) {
-    if (error instanceof OperationStartFailure && error.code === THUMBNAIL_LISTING_CHOICE_REQUIRED_CODE) {
+    if (error instanceof OperationStartFailure && error.reason === THUMBNAIL_LISTING_CHOICE_REQUIRED_CODE) {
       throw new ListingChoiceRequiredError(subject.salesProductId, error.message);
     }
     throw error;

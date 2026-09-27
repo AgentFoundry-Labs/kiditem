@@ -80,6 +80,16 @@ describe('requestOperationStart', () => {
     await expect(started).rejects.toMatchObject({ code: 'REGISTRATION_ALREADY_REGISTERED', message: '이미 이 몰 계정에 등록된 상품입니다.' });
   });
 
+  it('거절 봉투의 details(까닭 reason 등)를 그대로 싣는다 — 등록 코드가 VALIDATION_FAILED여도 화면은 reason으로 가른다', async () => {
+    vi.mocked(sendToExtension).mockImplementation(async (_id, message) =>
+      (message as { action: string }).action === 'ping'
+        ? { success: true, capabilities: { operationRuntime: true } }
+        : { success: false, errorCode: 'VALIDATION_FAILED', error: '어느 리스팅에 올릴지 골라 주세요.', details: { reason: 'ambiguous_listing' } });
+    await expect(requestOperationStart('channels.registration', {})).rejects.toMatchObject({
+      code: 'VALIDATION_FAILED', details: { reason: 'ambiguous_listing' }, reason: 'ambiguous_listing',
+    });
+  });
+
   it('extensionAcceptsOperationLogin은 ping의 operationLoginV1을 본다', async () => {
     await expect(extensionAcceptsOperationLogin('ext-1')).resolves.toBe(true);
     vi.mocked(sendToExtension).mockResolvedValueOnce({ success: true, capabilities: { operationRuntime: true } });

@@ -69,7 +69,8 @@ describe('submitRepresentativeImageViaExtension', () => {
   });
 
   it('리스팅이 여럿이라 서버가 거절하면 운영자에게 고르게 한다', async () => {
-    op.start.mockRejectedValue(new OperationStartFailure('어느 리스팅에 올릴지 골라 주세요.', 'ambiguous_listing'));
+    // 실제 서버 봉투: 등록 코드 VALIDATION_FAILED + details.reason ambiguous_listing.
+    op.start.mockRejectedValue(new OperationStartFailure('어느 리스팅에 올릴지 골라 주세요.', 'VALIDATION_FAILED', { reason: 'ambiguous_listing' }));
     await expect(submitRepresentativeImageViaExtension(SUBJECT)).rejects.toBeInstanceOf(ListingChoiceRequiredError);
   });
 });
