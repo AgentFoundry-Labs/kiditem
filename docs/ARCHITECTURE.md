@@ -981,13 +981,17 @@ through `/api/products/sales-products/:salesProductId` (`GET`, `PATCH`,
 `PUT …/options`, `DELETE`); only a draft is deleted, and a selling product is
 archived. Registration settings per channel account live under
 `/api/channels/registration-targets`, one unarchived target per organization,
-sales product, and account. The fence lifecycle — state, prepare, match
-preview, start, status, unresolved, not-submitted, confirm — is Channels' own
-route family, `/api/products/sales-products/:salesProductId/registration/*`
-beside `/api/channels/registration-targets/:id/executions` and
-`/api/channels/registration-executions/:id`, and the product-pipeline
-registration screens and the mall wizard reach it through the one web client
-`(channels)/_shared/registration-execution-api.ts`.
+sales product, and account. Every mall write — register, fill-only quick
+registration, update, composition change, sold-out, resume, price and
+representative image — is one `channels.registration` operation (KID-364):
+the web builds the adapter's form instruction and asks the extension to start
+it (`operation.start`), Channels' owner plans and locks it, and the web reads it
+through `GET /api/operations/:id`. A run the extension submitted but could not
+read back stays `reconciling` until an operator confirms it with the mall
+listing id or closes it (`/api/channels/registration-operations/:id/confirm|close`).
+The product-pipeline, catalog and mall screens reach all of this through the one
+web client `(channels)/_shared/registration-operation.ts`; `/mall-tasks` lists
+the runs.
 
 Historical sourcing migrations populated compatibility rows for older candidate
 and content models. This reconstruction intentionally adds no registration or
