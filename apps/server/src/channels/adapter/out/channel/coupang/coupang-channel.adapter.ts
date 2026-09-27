@@ -52,6 +52,7 @@ export class CoupangChannelAdapter implements ChannelAdapter {
       evidence,
       isTrustedAdminUrl: (url) => url.origin === WING_ADMIN_ORIGIN,
       externalListingIdPattern: WING_LISTING_ID_PATTERN,
+      requireProviderAccount: true,
     });
   }
 

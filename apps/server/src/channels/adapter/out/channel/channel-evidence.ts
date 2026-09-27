@@ -14,17 +14,23 @@ export function decideConfirmationEvidence(input: {
   evidence: ConfirmationEvidenceInput;
   isTrustedAdminUrl: (url: URL) => boolean;
   externalListingIdPattern: RegExp | null;
+  /**
+   * 몰 화면이 판매자 식별자를 늘 보여 주는 몰(Wing vendorId)만 true — 증거에 없으면 `missing_account`, 준비가 얼린 값과
+   * 다르면 거절. false 인 몰은 두 값이 모두 있을 때만 대조한다(KID-364: 몰이 계정 식별자를 주지 않는다).
+   */
+  requireProviderAccount: boolean;
 }): ProviderEvidenceDecision {
   const providerAccountId = trimmed(input.evidence.providerAccountId);
   const observedUrl = trimmed(input.evidence.observedUrl);
   const externalListingId = trimmed(input.evidence.externalListingId);
   const expected = trimmed(input.expectedProviderAccountId);
-  if (providerAccountId !== null && providerAccountId !== expected) return { ok: false, reason: 'account_mismatch' };
+  const compared = input.requireProviderAccount ? providerAccountId !== null : providerAccountId !== null && expected !== null;
+  if (compared && providerAccountId !== expected) return { ok: false, reason: 'account_mismatch' };
   if (observedUrl !== null && !trustedUrl(observedUrl, input.isTrustedAdminUrl)) return { ok: false, reason: 'untrusted_url' };
   if (externalListingId !== null && input.externalListingIdPattern && !input.externalListingIdPattern.test(externalListingId)) {
     return { ok: false, reason: 'invalid_listing_id' };
   }
-  if (expected !== null && providerAccountId === null) return { ok: false, reason: 'missing_account' };
+  if (input.requireProviderAccount && expected !== null && providerAccountId === null) return { ok: false, reason: 'missing_account' };
   return { ok: true };
 }
 
