@@ -1,7 +1,7 @@
 import { ORDER_COLLECTION_TODAY_ORDERS_PORT } from '../../../orders/application/port/in/order-collection-today-orders.port';
 import { seedWingTrafficOperation } from '../../../test-helpers/__tests__/wing-traffic-operation-seeds';
 import { todayOrdersTestAdapter } from '../../../test-helpers/orders-operations';
-import { profitCatalogTestReaders } from '../../../test-helpers/channel-fact-ports';
+import { profitCatalogTestReaders, advertisingLedgerTestReader } from '../../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts, channelFactTestProviders } from '../../../test-helpers/channel-fact-ports';
 import { randomUUID } from 'node:crypto';
 import { describe, it, expect, afterEach, beforeAll, afterAll, beforeEach, vi } from 'vitest';
@@ -1528,10 +1528,10 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
       const topProducts = await new DashboardSalesRepositoryAdapter(channelFactTestPorts(client).accounts, channelFactTestPorts(client).listings, channelFactTestPorts(client).recipes,
         client,
         new ProductTransactionalReadRepositoryAdapter(),
-        productAbcRead(prisma), profitCatalogTestReaders(client as never).content, todayOrdersTestAdapter(prisma),
+        productAbcRead(prisma), profitCatalogTestReaders(client as never).content, todayOrdersTestAdapter(prisma), advertisingLedgerTestReader(client as never),
       )
         .fetchTopProducts(TEST_ORGANIZATION_ID, FROM, TO);
-      const profitLoss = await new ProfitLossService(client, new ProductTransactionalReadRepositoryAdapter(), profitCatalogTestReaders(client as never).accounts, profitCatalogTestReaders(client as never).listings, profitCatalogTestReaders(client as never).recipes, profitCatalogTestReaders(client as never).content)
+      const profitLoss = await new ProfitLossService(client, new ProductTransactionalReadRepositoryAdapter(), profitCatalogTestReaders(client as never).accounts, profitCatalogTestReaders(client as never).listings, profitCatalogTestReaders(client as never).recipes, profitCatalogTestReaders(client as never).content, advertisingLedgerTestReader(client as never))
         .findAll(TEST_ORGANIZATION_ID, 2026, 3, AFTER);
       return {
         card: card.netProfit,

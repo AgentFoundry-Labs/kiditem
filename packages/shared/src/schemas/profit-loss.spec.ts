@@ -33,7 +33,7 @@ const unavailableTotals = {
   profitRate: null,
   adCostRate: null,
   unallocatedAdCost: null,
-  adCostGrainDifference: null,
+  adAccountAdjustment: null,
   unallocatedShipping: null,
 };
 
@@ -214,14 +214,15 @@ describe('values the server publishes so the browser does no finance arithmetic 
       profitRate: 42.5,
       adCostRate: 15,
       unallocatedAdCost: 1_000,
-      adCostGrainDifference: -200,
+      adAccountAdjustment: 330,
       unallocatedShipping: 500,
-    })).toMatchObject({ adCostRate: 15, unallocatedAdCost: 1_000, adCostGrainDifference: -200, unallocatedShipping: 500 });
+    })).toMatchObject({ adCostRate: 15, unallocatedAdCost: 1_000, adAccountAdjustment: 330, unallocatedShipping: 500 });
   });
 
-  it('requires the advertising grain difference beside the parts no product row carries', () => {
-    const { adCostGrainDifference: _omitted, ...withoutGrain } = unavailableTotals;
-    expect(FinanceWindowTotalsSchema.safeParse(withoutGrain).success).toBe(false);
+  it('requires the account adjustment line and rejects the retired advertising grain difference', () => {
+    const { adAccountAdjustment: _omitted, ...withoutAdjustment } = unavailableTotals;
+    expect(FinanceWindowTotalsSchema.safeParse(withoutAdjustment).success).toBe(false);
+    expect(FinanceWindowTotalsSchema.safeParse({ ...unavailableTotals, adCostGrainDifference: 0 }).success).toBe(false);
   });
 
   it('carries each plan target achievement as a published rate', () => {

@@ -163,3 +163,56 @@ export async function seedAdCampaign(
     },
   });
 }
+
+/**
+ * 리스팅 하루 광고 한 줄을 "측정한 날"로 심는다(KID-372 ①b 소비처 스펙용). 리스팅의 채널 계정에 그 날을 덮는 성공 실행이
+ * 없으면 하루 창 실행을 만들고, 그 실행에 상품 사실 행을 붙인다. 측정은 활성 쿠팡 계정 **모두**가 덮어야 하므로 계정이
+ * 여럿인 스펙은 다른 계정에도 `seedAdReportRun`을 따로 심는다. `vendorItemId`는 리스팅마다 다르게 기본값을 준다.
+ */
+export async function seedListingAdDay(
+  prisma: PrismaClient,
+  input: Omit<AdProductDaySeed, 'channelAccountId' | 'operationId' | 'listingId'> & { listingId: string },
+): Promise<{ operationId: string; channelAccountId: string }> {
+  const listing = await prisma.channelListing.findFirstOrThrow({
+    where: { id: input.listingId, organizationId: input.organizationId },
+    select: { channelAccountId: true, externalId: true },
+  });
+  const operationId = await ensureAdReportDay(prisma, {
+    organizationId: input.organizationId,
+    channelAccountId: listing.channelAccountId,
+    date: input.date,
+  });
+  await seedAdProductDays(prisma, [{
+    ...input,
+    channelAccountId: listing.channelAccountId,
+    operationId,
+    vendorItemId: input.vendorItemId ?? `VI-${listing.externalId}`,
+  }]);
+  return { operationId, channelAccountId: listing.channelAccountId };
+}
+
+/** 계정의 그 날을 덮는 성공 실행 id. 없으면 하루 창 실행을 만든다. */
+export async function ensureAdReportDay(
+  prisma: PrismaClient,
+  input: { organizationId: string; channelAccountId: string; date: string },
+): Promise<string> {
+  const existing = await prisma.operation.findFirst({
+    where: {
+      organizationId: input.organizationId,
+      kind: AD_REPORT_KIND,
+      status: 'succeeded',
+      windowStart: { lte: day(input.date) },
+      windowEnd: { gte: day(input.date) },
+      plan: { path: ['channelAccountId'], equals: input.channelAccountId },
+    },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+  const run = await seedAdReportRun(prisma, {
+    organizationId: input.organizationId,
+    channelAccountId: input.channelAccountId,
+    start: input.date,
+    end: input.date,
+  });
+  return run.id;
+}
