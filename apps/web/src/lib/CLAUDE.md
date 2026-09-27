@@ -55,6 +55,11 @@ multiple route groups.
 - Trend consumers use `src/hooks/use-trend-source-collection.ts`, the shared
   control over `trend-source-collection.ts`. Sellpia callers use the route-local
   source-owner helper instead of a generic operation action.
+- `operation-start.ts` starts every extension-run operation kind. A kind that
+  needs a per-site module passes all required capabilities (for mall writes:
+  `channelsRegistrationOperationKindV1` plus `mallWriteSite.<key>`); a start the
+  server refuses throws `OperationStartFailure` with the server `code`, so screens
+  branch on the code, not the sentence.
 - Shipment summary is the operation kind `orders.coupang_shipment_summary`:
   `coupang-shipment-summary-operation.ts` starts it through `operation-start.ts`,
   reads progress from `GET /api/operations` and the calendar from the owner;

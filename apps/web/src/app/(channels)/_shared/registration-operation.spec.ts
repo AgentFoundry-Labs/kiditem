@@ -1,3 +1,5 @@
+import { execFileSync } from 'node:child_process';
+import path from 'node:path';
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OperationView } from '@kiditem/shared/operation';
 import { apiClient } from '@/lib/api-client';
@@ -277,5 +279,32 @@ describe('확인·닫기(KID-218) · 목록', () => {
     const list = await listRegistrationOperations(50);
     expect(apiClient.get).toHaveBeenCalledWith('/api/operations?kinds=channels.registration&limit=50');
     expect(list.operations).toHaveLength(1);
+  });
+});
+
+/**
+ * 몰 쓰기의 길은 등록 실행 하나다(ADR-0014 · KID-364). 옛 등록 실행 · 품절 실행 · 대표이미지 실행 경로와 확장 액션을
+ * 웹이 들고 있지 않고, 확인·닫기 경로는 이 파일 하나만 부른다 — 화면마다 호출을 두면 "두 번 보내지 않는다"가 갈라진다.
+ */
+describe('몰 쓰기 경로 잠금', () => {
+  const webSrc = path.resolve(__dirname, '../../..');
+  const filesMatching = (pattern: string) => {
+    try {
+      return execFileSync('rg', ['--files-with-matches', '--glob', '*.{ts,tsx}', '--glob', '!**/*.spec.*', '--glob', '!**/*.test.*', '-e', pattern, webSrc], { encoding: 'utf8' })
+        .split('\n').filter(Boolean).map((file) => path.relative(webSrc, file));
+    } catch {
+      return [];
+    }
+  };
+
+  it('옛 실행 경로와 확장 쓰기 액션이 웹에 없다', () => {
+    expect(filesMatching(
+      'registration-executions|registration-targets/[^\'"`]*/executions|listing-availability-executions|thumbnail-executions/[^\'"`]*/(report|resend|applied|not-applied)'
+      + '|registerToMallForm|registerToKidsnoteForm|registerToWingForm|registerRepresentativeImage|\'sendMallAvailability\'|\'readMallAvailability\'|\'sendMallPrice\'',
+    )).toEqual([]);
+  });
+
+  it('확인·닫기 경로는 registration-operation.ts 하나만 부른다', () => {
+    expect(filesMatching('registration-operations')).toEqual(['app/(channels)/_shared/registration-operation.ts']);
   });
 });
