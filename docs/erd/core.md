@@ -145,9 +145,7 @@ erDiagram
 | Organization | organization | referenced by external | Advertising | ChannelAdCampaignAd |
 | Organization | organization | referenced by external | Advertising | ChannelAdDailyBilling |
 | Organization | organization | referenced by external | Advertising | ChannelAdKeywordDailySnapshot |
-| Organization | organization | referenced by external | Advertising | ChannelAdListingProductMonthlyFact |
 | Organization | organization | referenced by external | Advertising | ChannelAdProductDailySnapshot |
-| Organization | organization | referenced by external | Advertising | ChannelAdTargetDailySnapshot |
 | Organization | organization | referenced by external | Advertising | CoupangKeywordRankDailySnapshot |
 | Organization | organization | referenced by external | Advertising | CoupangKeywordSerpDailySnapshot |
 | Organization | organization | referenced by external | Advertising | CoupangKeywordTracker |
@@ -245,8 +243,6 @@ erDiagram
 | SourceImportRun | previousSellpiaSourceImportRun | referenced by external | Products | MasterProductAbcGradeHistory |
 | SourceImportRun | publishedSellpiaSourceImportRun | referenced by external | Products | MasterProductAbcFormulaState |
 | SourceImportRun | sellpiaSourceImportRun | referenced by external | Products | MasterProductAbcEvaluation |
-| SourceImportRun | sourceImportRun | referenced by external | Advertising | ChannelAdListingProductMonthlyFact |
-| SourceImportRun | sourceImportRun | referenced by external | Advertising | ChannelAdTargetDailySnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Advertising | CoupangKeywordRankDailySnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Advertising | CoupangKeywordSerpDailySnapshot |
 | SourceImportRun | sourceImportRun | referenced by external | Advertising | CoupangWingSalesRankDailySnapshot |

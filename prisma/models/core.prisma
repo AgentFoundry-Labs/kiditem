@@ -95,10 +95,6 @@ model Organization {
 
   // Channels — market-data snapshots (Wave C0)
 
-  // Channels — daily fact extensions (Hard rewrite H1)
-  channelAdTargetDailySnapshots       ChannelAdTargetDailySnapshot[]
-  channelAdListingProductMonthlyFacts ChannelAdListingProductMonthlyFact[]
-
   // Advertising — 광고 보고서 원장 5표(advertising.ad_report, KID-371)
   channelAdProductDailySnapshots ChannelAdProductDailySnapshot[]
   channelAdKeywordDailySnapshots ChannelAdKeywordDailySnapshot[]
@@ -319,8 +315,6 @@ model SourceImportRun {
   keywordRankDailyProjections             CoupangKeywordRankDailySnapshot[]        @relation("KeywordRankSource")
   keywordSerpDailyProjections             CoupangKeywordSerpDailySnapshot[]        @relation("KeywordSerpSource")
   wingRankDailyProjections                CoupangWingSalesRankDailySnapshot[]      @relation("WingRankSource")
-  adListingProductMonthlyFacts            ChannelAdListingProductMonthlyFact[]     @relation("AdListingProductMonthlyFacts")
-  adTargetDailySnapshots                  ChannelAdTargetDailySnapshot[]           @relation("AdTargetSourceImport")
   lastCompletedSellpiaInventoryStates     SellpiaInventoryState[]                  @relation("SellpiaInventoryStateLastCompletedRun")
   rocketPurchaseConfirmations             RocketPurchaseConfirmation[]
   rocketPurchaseConfirmationTransmissions RocketPurchaseConfirmationTransmission[]
@@ -344,17 +338,10 @@ model SourceImportRun {
   // PostgreSQL stores IN (...) as = ANY (ARRAY[...]); any other spelling makes db push re-plan the index (KID-143).
   @@unique([organizationId, sourceType, rankKeyword], map: "source_import_runs_keyword_serp_running_key", where: raw("source_type = ANY (ARRAY['coupang_keyword_serp'::text, 'coupang_wing_rank'::text]) AND status = 'running'"))
   @@unique([organizationId, sourceType, rankKeyword, freshnessGeneration], map: "source_import_runs_keyword_serp_generation_key", where: raw("source_type = ANY (ARRAY['coupang_keyword_serp'::text, 'coupang_wing_rank'::text]) AND freshness_generation IS NOT NULL"))
-  @@unique([organizationId, sourceType, channelAccountId], map: "source_import_runs_ad_keyword_running_key", where: raw("source_type = 'coupang_ad_keyword' AND status = 'running'"))
-  @@unique([organizationId, sourceType, channelAccountId, freshnessGeneration], map: "source_import_runs_ad_keyword_generation_key", where: raw("source_type = 'coupang_ad_keyword' AND freshness_generation IS NOT NULL"))
-  @@unique([organizationId, sourceType, channelAccountId], map: "source_import_runs_ad_campaign_running_key", where: raw("source_type = 'coupang_ad_campaign' AND status = 'running'"))
-  @@unique([organizationId, sourceType, channelAccountId, freshnessGeneration], map: "source_import_runs_ad_campaign_generation_key", where: raw("source_type = 'coupang_ad_campaign' AND freshness_generation IS NOT NULL"))
-  @@unique([organizationId, sourceType], map: "source_import_runs_ads_daily_running_key", where: raw("source_type = 'coupang_ads_daily' AND status = 'running'"))
-  @@unique([organizationId, sourceType, channelAccountId, freshnessGeneration], map: "source_import_runs_ads_daily_generation_key", where: raw("source_type = 'coupang_ads_daily' AND channel_account_id IS NOT NULL AND freshness_generation IS NOT NULL"))
   @@unique([organizationId, sourceType, channelAccountId], map: "source_import_runs_wing_itemwinner_running_key", where: raw("source_type = 'coupang_wing_itemwinner' AND channel_account_id IS NOT NULL AND status = 'running'"))
   @@unique([organizationId, sourceType, channelAccountId, freshnessGeneration], map: "source_import_runs_wing_itemwinner_generation_key", where: raw("source_type = 'coupang_wing_itemwinner' AND channel_account_id IS NOT NULL AND freshness_generation IS NOT NULL"))
   @@unique([organizationId, sourceType], map: "source_import_runs_sellpia_profitability_running_key", where: raw("source_type = 'sellpia_product_profitability' AND status = 'running'"))
   @@unique([organizationId, sourceType], map: "source_import_runs_sellpia_sales_running_key", where: raw("source_type = 'sellpia_sales_daily' AND status = 'running'"))
-  @@unique([organizationId, sourceType], map: "source_import_runs_coupang_ad_profitability_running_key", where: raw("source_type = 'coupang_ad_profitability' AND status = 'running'"))
   @@unique([organizationId, sourceType, publicationSequence], map: "source_import_runs_org_source_publication_key", where: raw("publication_sequence IS NOT NULL"))
   @@unique([organizationId, sourceType], map: "source_import_runs_shipment_summary_running_key", where: raw("source_type = 'coupang_shipment_summary' AND status = 'running'"))
   @@unique([organizationId, sourceType], map: "source_import_runs_coupang_reviews_running_key", where: raw("source_type = 'coupang_reviews' AND status = 'running'"))

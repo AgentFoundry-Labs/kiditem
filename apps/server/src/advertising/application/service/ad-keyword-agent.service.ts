@@ -97,7 +97,7 @@ export class AdKeywordAgentService {
 
     if (batches.length === 0) {
       return emptyResult(
-        '판정할 광고 키워드가 없습니다. 대시보드에서 광고 키워드 수집을 먼저 실행해 주세요.',
+        '판정할 광고 키워드가 없습니다. 광고 보고서 수집을 먼저 실행해 주세요.',
       );
     }
 

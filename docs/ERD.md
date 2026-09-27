@@ -25,7 +25,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 
 | Domain | Models |
 |---|---:|
-| [Advertising](erd/advertising.md) | 16 |
+| [Advertising](erd/advertising.md) | 14 |
 | [AgentOS](erd/agentos.md) | 1 |
 | [AI](erd/ai.md) | 10 |
 | [Analytics](erd/analytics.md) | 2 |
@@ -49,9 +49,7 @@ This ERD is a development-time navigation aid. The source of truth is the Prisma
 | ChannelAdCampaignAd | Advertising | `channel_ad_campaign_ads` | ChannelAdCampaignAd canonical state owned by advertising. |
 | ChannelAdDailyBilling | Advertising | `channel_ad_daily_billings` | ChannelAdDailyBilling canonical state owned by advertising. |
 | ChannelAdKeywordDailySnapshot | Advertising | `channel_ad_keyword_daily_snapshots` | ChannelAdKeywordDailySnapshot canonical state owned by advertising. |
-| ChannelAdListingProductMonthlyFact | Advertising | `channel_ad_listing_product_monthly_facts` | ChannelAdListingProductMonthlyFact canonical state owned by advertising. |
 | ChannelAdProductDailySnapshot | Advertising | `channel_ad_product_daily_snapshots` | ChannelAdProductDailySnapshot canonical state owned by advertising. |
-| ChannelAdTargetDailySnapshot | Advertising | `channel_ad_target_daily_snapshots` | ChannelAdTargetDailySnapshot canonical state owned by advertising. |
 | CoupangKeywordRankDailySnapshot | Advertising | `coupang_keyword_rank_daily_snapshots` | CoupangKeywordRankDailySnapshot canonical state owned by advertising. |
 | CoupangKeywordSerpDailySnapshot | Advertising | `coupang_keyword_serp_daily_snapshots` | CoupangKeywordSerpDailySnapshot canonical state owned by advertising. |
 | CoupangKeywordTracker | Advertising | `coupang_keyword_trackers` | CoupangKeywordTracker canonical state owned by advertising. |
@@ -372,23 +370,6 @@ erDiagram
     DateTime createdAt
     DateTime updatedAt
   }
-  ChannelAdListingProductMonthlyFact {
-    String id PK
-    String organizationId FK
-    String sourceImportRunId FK
-    String channelAccountId
-    String channelListingId
-    String masterProductId
-    DateTime month
-    DateTime coveredStartDate
-    DateTime coveredEndDate
-    Int wholeRecipeWeight
-    BigInt mappingGeneration
-    Int observedTargetDayCount
-    BigInt allocatedSpend
-    DateTime createdAt
-    DateTime updatedAt
-  }
   ChannelAdProductDailySnapshot {
     String id PK
     String organizationId FK
@@ -407,46 +388,6 @@ erDiagram
     Int revenue
     Int billedSpend
     String operationId
-    DateTime createdAt
-    DateTime updatedAt
-  }
-  ChannelAdTargetDailySnapshot {
-    String id PK
-    String organizationId FK
-    String channelAccountId
-    String channel
-    DateTime businessDate
-    String listingId
-    String listingOptionId
-    String externalId
-    String externalOptionId
-    String targetType
-    String targetKey
-    String campaignId
-    String campaignIdentity
-    String campaignName
-    String adGroup
-    String adGroupId
-    String keyword
-    String placement
-    String status
-    String onOff
-    Int currentBid
-    Int dailyBudget
-    Int spend
-    Int revenue
-    Int impressions
-    Int clicks
-    Int conversions
-    Int orders
-    Int adSpend
-    Int adRevenue
-    String rawSnapshotId
-    String sourceImportRunId FK
-    Json metaJson
-    Int sampleCount
-    DateTime firstObservedAt
-    DateTime lastObservedAt
     DateTime createdAt
     DateTime updatedAt
   }
@@ -2522,9 +2463,7 @@ erDiagram
   Organization ||--o{ ChannelAdCampaignAd : "organization"
   Organization ||--o{ ChannelAdDailyBilling : "organization"
   Organization ||--o{ ChannelAdKeywordDailySnapshot : "organization"
-  Organization ||--o{ ChannelAdListingProductMonthlyFact : "organization"
   Organization ||--o{ ChannelAdProductDailySnapshot : "organization"
-  Organization ||--o{ ChannelAdTargetDailySnapshot : "organization"
   Organization ||--o{ ContentAsset : "organization"
   Organization ||--o{ ContentWorkspace : "organization"
   Organization ||--o{ CoupangDirectTransportConsumption : "organization"
@@ -2633,8 +2572,6 @@ erDiagram
   SalesProductOption ||--o{ SalesProductOptionComponent : "salesProductOption"
   SellpiaManualMatchSnapshot ||--o{ SellpiaManualMatchAlias : "snapshot"
   SellpiaOrderTransmissionIntent ||--o{ SellpiaOrderTransmissionIntentReconciliation : "intent"
-  SourceImportRun ||--o{ ChannelAdListingProductMonthlyFact : "sourceImportRun"
-  SourceImportRun o|--o{ ChannelAdTargetDailySnapshot : "sourceImportRun"
   SourceImportRun o|--o{ CoupangDirectTransportConsumption : "sourceImportRun"
   SourceImportRun o|--o{ CoupangDirectTransportReceipt : "effectSourceImportRun"
   SourceImportRun o|--o{ CoupangKeywordRankDailySnapshot : "sourceImportRun"

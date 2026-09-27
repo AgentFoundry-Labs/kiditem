@@ -91,13 +91,6 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
         status: 'completed',
       },
     });
-    const advertisingRun = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: ORG,
-        sourceType: 'coupang_ad_profitability',
-        status: 'completed',
-      },
-    });
     const formula = await prisma.masterProductAbcFormulaVersion.create({
       data: {
         organizationId: ORG,

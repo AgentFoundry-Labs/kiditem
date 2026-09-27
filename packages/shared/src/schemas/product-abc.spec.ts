@@ -179,12 +179,8 @@ describe('absolute product profitability ABC contracts', () => {
     }))).not.toThrow();
     // ABC grades without advertising (KID-373): no advertising spend or provenance,
     // and only the advertising-free formula publishes.
-    expect(() => ProductAbcEvaluationSchema.parse(evaluation({
-      weightedAdvertisingSpend: 0,
-    }))).toThrow();
-    expect(() => ProductAbcEvaluationSchema.parse(evaluation({
-      advertisingSourceImportRunId: null,
-    }))).toThrow();
+    expect(Object.keys(ProductAbcEvaluationSchema.innerType().shape)
+      .filter((key) => /advertising/i.test(key))).toEqual([]);
     expect(() => ProductAbcEvaluationSchema.parse(evaluation({
       formula: PRODUCT_ABC_ABSOLUTE_CURRENT_PAYLOAD,
     }))).toThrow();

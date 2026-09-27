@@ -64,15 +64,14 @@ describe('advertising-free ABC formula (version 3)', () => {
   });
 
   it('keeps no advertising provenance or spend on an evaluation or its source freshness', () => {
-    const evaluationKeys = Object.keys(ProductAbcEvaluationProvenanceSchema.shape);
-    expect(evaluationKeys).not.toContain('advertisingSourceImportRunId');
-    expect(evaluationKeys).not.toContain('advertisingGeneration');
+    expect(Object.keys(ProductAbcEvaluationProvenanceSchema.shape)
+      .filter((key) => /advertising/i.test(key))).toEqual([]);
     expect(Object.keys(ProductAbcSourceFreshnessSchema.shape)).toEqual([
       'evaluationCutoffDate',
       'sellpia',
       'mapping',
     ]);
-    expect(Object.keys(ProductAbcGradeHistorySchema.innerType().shape))
-      .not.toContain('nextAdvertisingSourceImportRunId');
+    expect(Object.keys(ProductAbcGradeHistorySchema.innerType().shape)
+      .filter((key) => /advertising/i.test(key))).toEqual([]);
   });
 });

@@ -19,7 +19,6 @@ import {
   OTHER_ORGANIZATION_ID,
   IDOR_SENTINEL,
 } from '../../../test-helpers/real-prisma';
-import { seedCompletedAdSweepRun } from '../../../test-helpers/finance-seeds';
 import { seedAdReportWindow, seedListingAdDay } from '../../../test-helpers/ad-ledger-seeds';
 import { addDays, businessDateKey, evidenceCutoffDate } from '../../../common/kst';
 import type { PrismaClient } from '@prisma/client';

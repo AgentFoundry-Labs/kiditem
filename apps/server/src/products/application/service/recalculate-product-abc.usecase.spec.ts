@@ -237,8 +237,7 @@ describe('RecalculateProductAbcUseCase', () => {
     const publication = products.publish.mock.calls[0]![0] as ProductAbcPublicationInput;
     expect(Object.keys(publication.sourceFences)).toEqual(['sellpia']);
     expect(publication.candidates[0]).toMatchObject({ sellpiaOperationId: sellpiaRunId });
-    expect(publication.candidates[0]).not.toHaveProperty('advertisingSourceImportRunId');
-    expect(publication.candidates[0]).not.toHaveProperty('weightedAdvertisingSpend');
+    expect(Object.keys(publication.candidates[0]!).filter((key) => /advertising/i.test(key))).toEqual([]);
   });
 
   it('refuses to grade under a formula that still counts advertising', async () => {

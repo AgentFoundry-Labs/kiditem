@@ -42,7 +42,7 @@ describe('isMallAlert', () => {
     expect(isMallAlert(alert('a'))).toBe(true);
     expect(isMallAlert(alert('b', { sourceType: 'order_collection_mall' }))).toBe(true);
     expect(isMallAlert(alert('c', { sourceType: 'orders.coupang_directship' }))).toBe(true);
-    expect(isMallAlert(alert('d', { sourceType: 'coupang_ad_campaign' }))).toBe(false);
+    expect(isMallAlert(alert('d', { sourceType: 'advertising.keyword_serp' }))).toBe(false);
     expect(isMallAlert(alert('e', { sourceType: '1688.hot_product' }))).toBe(false);
     expect(isMallAlert(alert('f', { sourceType: 'products.sellpia_inventory' }))).toBe(false);
     expect(isMallAlert(alert('g', { sourceType: null }))).toBe(false);
@@ -105,7 +105,7 @@ describe('mallAlertsFrom', () => {
       alert('done_new', { status: 'RESOLVED', updatedAt: '2026-09-11T03:00:00.000Z' }),
       alert('read', { isRead: true, updatedAt: '2026-09-11T00:30:00.000Z' }),
       alert('failed', { updatedAt: '2026-09-11T00:10:00.000Z' }),
-      alert('ads', { sourceType: 'coupang_ad_campaign' }),
+      alert('ads', { sourceType: 'advertising.keyword_serp' }),
     ];
     expect(mallAlertsFrom(alerts).map((item) => item.id)).toEqual(['failed', 'read', 'done_new', 'done_old']);
   });
@@ -278,7 +278,7 @@ describe('몰 원천 → 채널 키', () => {
   });
 
   it('몰 원천이 아닌 알림은 몰 알림이 아니다', () => {
-    expect(isMallAlert(alert('a', { sourceType: 'coupang_ad_campaign' }))).toBe(false);
+    expect(isMallAlert(alert('a', { sourceType: 'advertising.keyword_serp' }))).toBe(false);
     expect(isMallAlert(alert('a', { sourceType: null }))).toBe(false);
   });
 });

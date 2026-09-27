@@ -39,7 +39,6 @@ describe("data migration registry", () => {
       "v0.1.7:001_record_sellpia_rocket_inventory_sync_release",
       "v0.1.18:001_migrate_representative_keyword_overrides",
       "v0.1.24:001_dedupe_detail_page_artifacts",
-      "v0.1.25:003_repair_ad_campaign_target_conversions",
       "v0.1.30:003_move_variant_recipes_to_channel_options",
       "v0.1.30:005_reset_sourcing_display_state",
       "v0.1.31:001_reset_absolute_product_abc",
@@ -180,6 +179,27 @@ describe("data migration registry", () => {
       replacementMigrations: [],
       noReplacementReason:
         "0.1.25에서 승격돼 Office가 실행 기록을 가짐; 새 DB에는 옮길 옛 행이 없어 대체 migration이 없다",
+    });
+  });
+
+  it("retires the promoted campaign target conversion repair without a replacement when its table drops (KID-373)", () => {
+    expect(DATA_MIGRATION_IDS).not.toContain("v0.1.25:003_repair_ad_campaign_target_conversions");
+    expect(
+      retiredDataMigrations.find(
+        (migration) => migration.id === "v0.1.25:003_repair_ad_campaign_target_conversions",
+      ),
+    ).toEqual({
+      id: "v0.1.25:003_repair_ad_campaign_target_conversions",
+      releaseVersion: "0.1.25",
+      name: "Repair campaign target conversions from observed count headers",
+      sourcePath:
+        "scripts/data-migrations/v0.1.25/003_repair_ad_campaign_target_conversions.ts",
+      sourceSha256:
+        "1bfefe7c91029d5b14e23b0722789704f1aac516912f38a70acefa94eea4f515",
+      baselineCommit: "9d213b49f06d64a0fa1af20feae73575ad0cad3a",
+      replacementMigrations: [],
+      noReplacementReason:
+        "0.1.25에서 승격돼 Office가 실행 기록을 가짐; KID-373이 고칠 대상인 channel_ad_target_daily_snapshots 표를 지워 새 DB에는 고칠 행이 없어 대체 migration이 없다",
     });
   });
 

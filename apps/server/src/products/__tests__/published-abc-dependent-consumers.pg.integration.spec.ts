@@ -166,11 +166,6 @@ async function seedOfficialEvaluation(prisma: PrismaClient, masterProductId: str
     sourceType: 'sellpia_product_profitability',
     status: 'completed',
   } });
-  const advertising = await prisma.sourceImportRun.create({ data: {
-    organizationId: ORG,
-    sourceType: 'coupang_ad_profitability',
-    status: 'completed',
-  } });
   const cutoff = new Date('2026-08-31T00:00:00.000Z');
   await prisma.masterProductAbcFormulaState.create({ data: {
     organizationId: ORG,

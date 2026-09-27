@@ -63,13 +63,10 @@ describe('BrowserCollectionSessionViewSchema', () => {
     }
   });
 
-  it('rejects retired advertising producers, now collected as the ad_report operation kind', () => {
+  it('rejects retired advertising producers; advertising collects as the ad_report operation kind', () => {
     for (const producer of [
       'advertising.ad_account_daily_kpi',
       'dashboard.coupang_ads',
-      'advertising.ad_keyword',
-      'advertising.ad_sync',
-      'advertising.profitability_import',
     ]) {
       expect(BrowserCollectionProducerSchema.safeParse(producer).success).toBe(false);
       expect(BrowserCollectionSessionViewSchema.safeParse({

@@ -217,10 +217,10 @@ describe('SourceFailureAlerts — 실행 표의 실패를 알림으로 읽는다
       data: {
         organizationId: ORG,
         dedupeKey: 'source:legacy',
-        sourceType: 'coupang_ad_campaign',
+        sourceType: 'coupang_wing_itemwinner',
         type: 'source_failure',
         status: 'OPEN',
-        title: '광고 캠페인 수집 실패',
+        title: '아이템위너 수집 실패',
         message: '네트워크 오류',
         href: '/ad-ops',
         updatedAt: new Date('2026-09-26T03:00:00Z'),

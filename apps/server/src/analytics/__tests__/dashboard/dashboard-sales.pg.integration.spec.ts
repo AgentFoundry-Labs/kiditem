@@ -1,4 +1,5 @@
 import { ORDER_COLLECTION_TODAY_ORDERS_PORT } from '../../../orders/application/port/in/order-collection-today-orders.port';
+import { seedSellpiaProfitabilityOperation } from '../../../test-helpers/__tests__/sellpia-profitability-operation';
 import { seedWingTrafficOperation } from '../../../test-helpers/__tests__/wing-traffic-operation-seeds';
 import { todayOrdersTestAdapter } from '../../../test-helpers/orders-operations';
 import { profitCatalogTestReaders, advertisingLedgerTestReader } from '../../../test-helpers/channel-fact-ports';
@@ -994,13 +995,6 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         status: 'completed',
       },
     });
-    const advertising = await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'coupang_ad_profitability',
-        status: 'completed',
-      },
-    });
     await prisma.masterProductAbcEvaluation.create({
       data: {
         organizationId: TEST_ORGANIZATION_ID,
@@ -1052,14 +1046,9 @@ describe('DashboardSalesService.getSummary (PG integration)', () => {
         mappingGeneration: 5n,
       },
     });
-    await prisma.sourceImportRun.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        sourceType: 'coupang_ad_profitability',
-        status: 'failed',
-        errorCode: 'COLLECTION_FAILED',
-      },
-    });
+
+    // A newer Sellpia profitability collection failed after the publication.
+    await seedSellpiaProfitabilityOperation(prisma, { organizationId: TEST_ORGANIZATION_ID, status: 'failed' });
 
     const result = await readMeasuredSummary(buildDashboardContext());
 

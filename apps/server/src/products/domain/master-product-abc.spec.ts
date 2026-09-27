@@ -138,7 +138,7 @@ describe('PRODUCT_ABC_ABSOLUTE current evaluator', () => {
       candidate.weightedRevenue - candidate.weightedOrderTimeSupplyCost,
       5,
     );
-    expect(candidate).not.toHaveProperty('weightedAdvertisingSpend');
+    expect(Object.keys(candidate).filter((key) => /advertising/i.test(key))).toEqual([]);
   });
 
   it('refuses a formula that counts advertising', () => {

@@ -67,7 +67,7 @@ test("reports the retired grade event emitted by a source owner", async () => {
       "apps/server/src/advertising/traffic-ingest.handler.ts":
         "this.eventEmitter.emit('products.classify-grades');\n",
     },
-    { "advertising.ad_sync": "advertising" },
+    { "advertising.example_source": "advertising" },
     async (root) => {
       const result = await scanOperationAutomationCutover(root);
       assert.deepEqual(result.sourceToAbcReferences, [
@@ -227,7 +227,7 @@ test("reports the retired generic advertising write ingress without banning its 
       "apps/server/src/advertising/legacy-writer.ts":
         "const writePath = '/api/ads/extension/sync';\nconst readPath = '/api/ads/extension/status';\n",
     },
-    { "advertising.ad_sync": "advertising" },
+    { "advertising.example_source": "advertising" },
     async (root) => {
       const result = await scanOperationAutomationCutover(root);
       assert.deepEqual(result.legacyReferences, [
