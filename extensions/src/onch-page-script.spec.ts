@@ -43,19 +43,21 @@ const modal = (name: string) => `<html><body>
 
 type Answer = { status: string; orders?: Array<Record<string, unknown>>; error?: string };
 
-function load(options: { list?: { url?: string; html: string }; detail?: (code: string) => string | Error } = {}) {
+function load(options: { list?: { url?: string; html: string; status?: number }; detail?: (code: string) => string | Error | { status: number } } = {}) {
   const requests: Array<{ url: string; body?: string }> = [];
   const isolated: Record<string, unknown> = {};
   const fetch = async (url: string, init?: RequestInit) => {
     requests.push({ url, ...(init?.body ? { body: String(init.body) } : {}) });
     if (url === LIST_URL) {
       const list = options.list ?? { html: LIST_HTML };
-      return { url: list.url ?? `https://www.onch3.co.kr${LIST_URL}`, text: async () => list.html };
+      const status = list.status ?? 200;
+      return { ok: status < 300, status, url: list.url ?? `https://www.onch3.co.kr${LIST_URL}`, text: async () => list.html };
     }
     const code = new URLSearchParams(String(init?.body)).get('orderCode') ?? '';
     const detail = options.detail ? options.detail(code) : modal(`상품 ${code}`);
     if (detail instanceof Error) throw detail;
-    return { url: `https://www.onch3.co.kr${url}`, text: async () => detail };
+    if (typeof detail !== 'string') return { ok: false, status: detail.status, url: `https://www.onch3.co.kr${url}`, text: async () => '<html>error</html>' };
+    return { ok: true, status: 200, url: `https://www.onch3.co.kr${url}`, text: async () => detail };
   };
   new Function('globalThis', 'fetch', source)(isolated, fetch);
   const handler = (isolated.__kiditemIsolatedPageCalls as Record<string, (args: unknown) => Promise<Answer>>)['onch.orders']!;
@@ -103,5 +105,15 @@ describe('onch orders page script', () => {
       .resolves.toEqual({ status: 'login_required' });
     await expect(load({ list: { html: '<html><body><p>점검 중</p></body></html>' } }).handler({ dateFilter: '2026-09-26' }))
       .resolves.toEqual({ status: 'failed', error: '온채널 주문 목록을 찾지 못했습니다. onch3.co.kr 로그인을 확인하세요.' });
+  });
+
+  it('목록이 HTTP 오류면 점검 화면은 maintenance, 그 밖은 상태를 싣고 failed — 상세가 HTTP 오류면 그 주문은 최소 정보만(실기기 R2)', async () => {
+    await expect(load({ list: { status: 503, html: '<html><body>시스템 점검 중입니다</body></html>' } }).handler({ dateFilter: '2026-09-26' }))
+      .resolves.toEqual({ status: 'maintenance' });
+    await expect(load({ list: { status: 500, html: '<html><body>error</body></html>' } }).handler({ dateFilter: '2026-09-26' }))
+      .resolves.toMatchObject({ status: 'failed', httpStatus: 500 });
+    const answer = await load({ detail: () => ({ status: 500 }) }).handler({ dateFilter: '2026-09-26' });
+    expect(answer.status).toBe('ok');
+    for (const order of answer.orders ?? []) expect(Object.keys(order).sort()).toEqual(['date', 'orderCode']);
   });
 });

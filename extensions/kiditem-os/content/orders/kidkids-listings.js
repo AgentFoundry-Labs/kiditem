@@ -25,7 +25,16 @@
     const drift = (stage) => {
       throw new Error(`CONTRACT_DRIFT:${stage}`);
     };
-    const decoder = new TextDecoder("euc-kr");
+    /** 응답 머리의 문자셋으로 읽는다. 없거나 모르는 이름이면 EUC-KR(키드키즈 기본). */
+    function decodeBody(buffer, response) {
+      const contentType = response && response.headers && typeof response.headers.get === "function" ? response.headers.get("content-type") || "" : "";
+      const match = /charset=["']?([\w-]+)/i.exec(contentType);
+      try {
+        return new TextDecoder(match ? match[1] : "euc-kr").decode(buffer);
+      } catch {
+        return new TextDecoder("euc-kr").decode(buffer);
+      }
+    }
 
     function text(value, maximum) {
       if (typeof value !== "string") return null;
@@ -52,10 +61,14 @@
         if (landed.origin !== plan.sourceOrigin || /login/i.test(landed.pathname)) {
           throw new Error("LOGIN_REQUIRED");
         }
-        if (!response.ok) throw new Error("NETWORK_FAILED");
         const buffer = await response.arrayBuffer();
+        if (!response.ok) {
+          // 점검 화면은 404 UTF-8로 온다 — 응답 문자셋으로 읽어 점검인지 본다(실기기 R2).
+          if (buffer.byteLength <= maxBytes && /(?:서비스|시스템|서버|사이트)\s*점검|점검\s*(?:안내|중|시간)/.test(decodeBody(buffer, response))) throw new Error("MAINTENANCE");
+          throw new Error("NETWORK_FAILED");
+        }
         if (buffer.byteLength > maxBytes) throw new Error("INVALID_RESPONSE");
-        return decoder.decode(buffer);
+        return decodeBody(buffer, response);
       } finally {
         clearTimeout(timer);
       }
@@ -151,6 +164,7 @@
     } catch (error) {
       if (error?.name === "AbortError") return fail("mall_timeout");
       if (error?.message === "LOGIN_REQUIRED") return fail("mall_login_required");
+      if (error?.message === "MAINTENANCE") return fail("mall_maintenance");
       if (error?.message === "INVALID_RESPONSE") return fail("mall_invalid_snapshot");
       if (error?.message?.startsWith("CONTRACT_DRIFT:")) {
         return fail("mall_contract_drift", error.message.slice("CONTRACT_DRIFT:".length, 160));

@@ -10633,7 +10633,7 @@ var KidItemRuntime = (() => {
           if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE8, { url: KIDKIDS_ORDER_URL });
           if (answer?.status === "maintenance") throw mallMaintenance("\uD0A4\uB4DC\uD0A4\uC988", KIDKIDS_ORDER_URL);
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uB4DC\uD0A4\uC988 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
-            status: null,
+            status: answer?.status === "failed" && typeof answer.httpStatus === "number" ? answer.httpStatus : null,
             reason: "page_error",
             url: KIDKIDS_ORDER_URL
           });
@@ -10993,8 +10993,9 @@ var KidItemRuntime = (() => {
           });
           if (answer?.status === "ok") return { rows: answer.orders };
           if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE12, { url: ONCH_ORDER_URL });
+          if (answer?.status === "maintenance") throw mallMaintenance("\uC628\uCC44\uB110", ONCH_ORDER_URL);
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC628\uCC44\uB110 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
-            status: null,
+            status: answer?.status === "failed" && typeof answer.httpStatus === "number" ? answer.httpStatus : null,
             reason: "page_error",
             url: ONCH_ORDER_URL
           });
