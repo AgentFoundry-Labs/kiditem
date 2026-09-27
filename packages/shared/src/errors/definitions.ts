@@ -250,7 +250,7 @@ export const ERROR_DEFINITIONS = {
   ADVERTISING_COMPETITOR_SELLER_NOT_FOUND: def('advertising', 'not_found', '추적 중인 경쟁 판매자가 아닙니다. 판매자 목록을 새로고침한 뒤 다시 시도해 주세요.'),
   ADVERTISING_TRACKED_PRODUCT_NOT_FOUND: def('advertising', 'conflict', '윙 검색에서 찾지 못한 추적 상품이 있습니다. 추적 키워드를 확인한 뒤 다시 수집해 주세요.'),
   // 광고 보고서 kind(KID-371): 광고센터 세션의 업체코드가 계정의 업체코드와 다르다(확장·서버 finalize 모두 보낸다).
-  ADVERTISER_IDENTITY_MISMATCH: def('advertising', 'conflict', '광고센터에 다른 업체로 로그인돼 있습니다. 수집할 쿠팡 계정의 업체로 다시 로그인한 뒤 시작해 주세요.'),
+  ADVERTISING_IDENTITY_MISMATCH: def('advertising', 'conflict', '광고센터에 다른 업체로 로그인돼 있습니다. 수집할 쿠팡 계정의 업체로 다시 로그인한 뒤 시작해 주세요.'),
   ADVERTISING_AD_REPORT_DAY_NOT_READY: def('advertising', 'conflict', '어제 광고비가 아직 집계되지 않았습니다. 잠시 뒤 다시 수집해 주세요.', { retryable: true }),
   ANALYTICS_QUERY_FAILED: def('analytics', 'internal', '통계를 계산하지 못했습니다. 잠시 뒤 다시 시도해 주세요.', { retryable: true }),
   ANALYTICS_SELLPIA_PROFIT_MAPPING_CHANGED: def('analytics', 'conflict', '수집하는 동안 상품 매핑이 바뀌었습니다. 셀피아 상품 손익을 다시 수집해 주세요.'),
@@ -275,6 +275,8 @@ export function errorDefinition(code: KiditemErrorCode): ErrorDefinition {
  * 보내는 쪽을 바꾸면 그때 지운다). 저장된 attempt `errorCode`도 이 표로 다시 읽는다.
  */
 export const EXTENSION_CODE_ALIASES: Readonly<Record<string, KiditemErrorCode>> = {
+  /** 옛 광고 콘텐츠 스크립트(`wing-unified.js`·`ads-report.js`, KID-373에서 삭제)가 보내는 옛 철자. */
+  ADVERTISER_IDENTITY_MISMATCH: 'ADVERTISING_IDENTITY_MISMATCH',
   auth_required: 'AUTH_REQUIRED',
   insufficient_role: 'FORBIDDEN',
   no_organization_context: 'NO_ORGANIZATION_CONTEXT',

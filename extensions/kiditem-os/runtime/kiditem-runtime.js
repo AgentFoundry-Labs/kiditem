@@ -4094,7 +4094,7 @@ var KidItemRuntime = (() => {
   // packages/shared/src/schemas/operation.ts
   var OPERATION_STATUSES = ["prepared", "executing", "reconciling", "succeeded", "failed", "cancelled"];
   var OperationStatusSchema = external_exports.enum(OPERATION_STATUSES);
-  var OPERATION_OUTCOMES = ["succeeded", "failed"];
+  var OPERATION_OUTCOMES = ["succeeded", "failed", "reconciling"];
   var OperationOutcomeSchema = external_exports.enum(OPERATION_OUTCOMES);
   var OPERATION_CANCEL_CODE = "USER_CANCELLED";
   var OPERATION_LEASE_MS = 30 * 60 * 1e3;
@@ -4190,6 +4190,9 @@ var KidItemRuntime = (() => {
   ).refine(
     (value) => value.outcome === "failed" || value.retryAfterMs === void 0,
     { message: "retryAfterMs\uB294 failed\uC5D0\uB9CC \uC4F4\uB2E4", path: ["retryAfterMs"] }
+  ).refine(
+    (value) => value.outcome !== "reconciling" || value.result !== void 0,
+    { message: "\uD655\uC778 \uC911\uC73C\uB85C \uBA48\uCD9C \uB54C\uB294 `result` \uBCF8\uBB38\uC774 \uD544\uC694\uD569\uB2C8\uB2E4", path: ["result"] }
   );
   var OperationFinishResponseSchema = external_exports.object({
     operation: OperationViewSchema
@@ -4972,7 +4975,7 @@ var KidItemRuntime = (() => {
 
   // extensions/src/collectors/advertising.ad_report/index.ts
   var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
-  var ADVERTISER_IDENTITY_MISMATCH = "ADVERTISER_IDENTITY_MISMATCH";
+  var ADVERTISING_IDENTITY_MISMATCH = "ADVERTISING_IDENTITY_MISMATCH";
   var AD_REPORT_POLL_INTERVAL_MS = 5e3;
   var AD_REPORT_POLL_LIMIT_MS = 5 * 60 * 1e3;
   var AD_CENTER_PAGE_SIZE = 500;
@@ -4993,7 +4996,7 @@ var KidItemRuntime = (() => {
       if (plan.vendorId !== null) {
         vendorId2 = await site.readVendorId();
         if (vendorId2 !== plan.vendorId) {
-          throw new RuntimeError(ADVERTISER_IDENTITY_MISMATCH, "\uAD11\uACE0\uC13C\uD130 \uC5C5\uCCB4\uCF54\uB4DC\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uD560 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", {
+          throw new RuntimeError(ADVERTISING_IDENTITY_MISMATCH, "\uAD11\uACE0\uC13C\uD130 \uC5C5\uCCB4\uCF54\uB4DC\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uD560 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", {
             plannedVendorId: plan.vendorId,
             observedVendorId: vendorId2
           });
@@ -5214,7 +5217,7 @@ var KidItemRuntime = (() => {
   function settlementRow(value, domain, index) {
     const item = record(value);
     const date = settlementDate(item?.date);
-    const money = (field) => {
+    const money2 = (field) => {
       const parsed3 = number(item?.[field]);
       if (parsed3 === null) throw rowInvalid("settlement", index, field);
       return Math.round(parsed3);
@@ -5227,10 +5230,10 @@ var KidItemRuntime = (() => {
       settlementDomain: domain,
       campaignId,
       campaignName: text(item.campaignName),
-      deliveredSpend: money("deliveredAdcost"),
-      billedSpend: money("billableAmount"),
-      promotionAdjustment: money("promotionAdjustment"),
-      billableAdjustment: money("billableAdjustment")
+      deliveredSpend: money2("deliveredAdcost"),
+      billedSpend: money2("billableAmount"),
+      promotionAdjustment: money2("promotionAdjustment"),
+      billableAdjustment: money2("billableAdjustment")
     };
   }
   function campaignIdsRejected(error) {
@@ -6036,6 +6039,11 @@ var KidItemRuntime = (() => {
     dialogs: external_exports.array(external_exports.string())
   }).strict();
   var RegistrationEvidenceSchema = external_exports.object({
+    /**
+     * 이 증거가 가리키는 얼린 문서(plan `payloadHash`). 다르면 이 실행의 증거가 아니다(`OPERATION`이 아니라 등록 fence의 거절,
+     * `CHANNELS_EXECUTION_FENCE_LOST{PAYLOAD_HASH_MISMATCH}`). KID-364 M1 추가.
+     */
+    payloadHash: external_exports.string().min(1),
     channelAccountId: external_exports.string().uuid(),
     externalListingId: external_exports.string().trim().min(1).nullable(),
     observedUrl: external_exports.string().url().nullable(),
@@ -6046,7 +6054,17 @@ var KidItemRuntime = (() => {
       salesProductOptionId: external_exports.string().uuid(),
       externalOptionId: external_exports.string().trim().min(1),
       sellerSku: external_exports.string().nullable()
-    }).strict())
+    }).strict()),
+    /**
+     * 품절 · 재개만(KID-364 M1 추가, 리더 결정): 보낸 뒤 몰에서 다시 읽은 옵션 상태. 옵션 단위 몰은 얼린 옵션마다 한 줄이 있어야
+     * 확인이다(sold_out은 재고 0 또는 판매중지, resume은 판매중). 리스팅 단위 몰은 `observedStatus`로 확인한다. 묶음 실행은 리스팅마다
+     * 증거 청크 하나를 보낸다.
+     */
+    observedOptions: external_exports.array(external_exports.object({
+      externalOptionId: external_exports.string().trim().min(1),
+      stock: external_exports.number().int().nonnegative().nullable(),
+      status: external_exports.string().nullable()
+    }).strict()).max(1e3).optional()
   }).strict();
   var REGISTRATION_MALL_OUTCOMES = ["not_submitted", "uncertain", "submitted", "awaiting_approval", "confirmed"];
   var RegistrationMallOutcomeSchema = external_exports.enum(REGISTRATION_MALL_OUTCOMES);
@@ -6058,7 +6076,9 @@ var KidItemRuntime = (() => {
     externalListingId: external_exports.string().nullable(),
     mallMessage: external_exports.string().nullable(),
     fill: RegistrationFillSchema,
-    evidence: RegistrationEvidenceSchema.nullable()
+    evidence: RegistrationEvidenceSchema.nullable(),
+    /** owner finalize가 연결 · 생성한 리스팅(확인된 등록만). 확장은 보내지 않는다. KID-364 M1 추가. */
+    channelListingId: external_exports.string().uuid().nullable().optional()
   }).strict();
   var RegistrationConfirmRequestSchema = external_exports.object({
     externalListingId: external_exports.string().trim().min(1).max(64),
@@ -6099,6 +6119,765 @@ var KidItemRuntime = (() => {
     /** 요청했지만 몰에서 못 찾은 리스팅. */
     missingExternalListingIds: external_exports.array(external_exports.string()),
     rows: external_exports.array(MallAvailabilityRowSchema)
+  }).strict();
+
+  // packages/shared/src/schemas/registration-state.ts
+  var MallListingStateSchema = external_exports.enum([
+    "published",
+    "reviewing",
+    "error",
+    "paused",
+    "discontinued",
+    "unknown",
+    "unregistered"
+  ]);
+  var REGISTRATION_ACCOUNT_STATES = [
+    "unregistered",
+    "preparing",
+    "submitting",
+    "confirming",
+    "registered",
+    "failed"
+  ];
+  var RegistrationAccountStateValueSchema = external_exports.enum(REGISTRATION_ACCOUNT_STATES);
+  var RegistrationAccountLastExecutionSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    kind: external_exports.string(),
+    status: external_exports.string(),
+    providerOutcome: external_exports.string(),
+    createdAt: external_exports.string(),
+    completedAt: external_exports.string().nullable()
+  }).strict();
+  var RegistrationAccountStateSchema = external_exports.object({
+    channelAccountId: external_exports.string().uuid(),
+    channel: external_exports.string(),
+    channelAccountName: external_exports.string().nullable(),
+    /** 이 계정의 등록 설정(상품 × 계정당 하나). 리스팅만 있고 설정이 없으면 null. */
+    registrationTargetId: external_exports.string().uuid().nullable(),
+    /** 몰에 있는 리스팅(활성이든 내렸든 가장 최근 것). 없으면 null. */
+    channelListingId: external_exports.string().uuid().nullable(),
+    externalListingId: external_exports.string().nullable(),
+    /** 그 리스팅을 몰이 보고한 상태(우리 어휘). 등록됨 배지는 `published` 일 때만 초록이고, 그 밖은 몰 상태를 옆에 보인다. */
+    listingState: MallListingStateSchema.nullable(),
+    /** 몰이 준 원문 상태. 툴팁용. */
+    listingRawStatus: external_exports.string().nullable(),
+    /** 리스팅이 몰에 살아 있는가. 카탈로그 부재로 내린 리스팅은 false — "등록됨 · 내림". 리스팅이 없으면 false. */
+    listingActive: external_exports.boolean(),
+    state: RegistrationAccountStateValueSchema,
+    /** 등록됨 위 품절 표시. 등록되지 않았으면 false. */
+    soldOut: external_exports.boolean(),
+    /** 등록 뒤 상품 · 옵션 · 등록 설정 · 상세 revision · 대표이미지가 바뀌어 재전송이 필요하다. 등록되지 않았으면 false. */
+    changedSinceRegistration: external_exports.boolean(),
+    /** 등록 설정이 고른 콘텐츠(Content id). 비면 워크스페이스의 현재 값. */
+    selectedThumbnailAssetId: external_exports.string().uuid().nullable(),
+    selectedDetailPageRevisionId: external_exports.string().uuid().nullable(),
+    lastExecution: RegistrationAccountLastExecutionSchema.nullable()
+  }).strict();
+  var SalesProductRegistrationStateSchema = external_exports.object({
+    accounts: external_exports.array(RegistrationAccountStateSchema)
+  }).strict();
+
+  // packages/shared/src/schemas/sales-product.ts
+  var SALES_PRODUCT_STATUSES = ["draft", "active", "archived"];
+  var SalesProductStatusSchema = external_exports.enum(SALES_PRODUCT_STATUSES);
+  var SALES_PRODUCT_OPTION_SUPPLY_STATUSES = ["selling", "sold_out", "unused"];
+  var SalesProductOptionSupplyStatusSchema = external_exports.enum(SALES_PRODUCT_OPTION_SUPPLY_STATUSES);
+  var SALES_PRODUCT_TAX_TYPES = ["taxable", "tax_free", "zero_rated", "unknown"];
+  var SalesProductTaxTypeSchema = external_exports.enum(SALES_PRODUCT_TAX_TYPES);
+  var SALES_PRODUCT_KC_STATUSES = ["unknown", "none", "exists"];
+  var SalesProductKcStatusSchema = external_exports.enum(SALES_PRODUCT_KC_STATUSES);
+  var SALES_PRODUCT_DELIVERY_FEE_TYPES = ["free", "collect", "prepay", "collect_or_prepay"];
+  var SalesProductDeliveryFeeTypeSchema = external_exports.enum(SALES_PRODUCT_DELIVERY_FEE_TYPES);
+  var SALES_PRODUCT_MAX_OPTION_AXES = 3;
+  var SALES_PRODUCT_MAX_OPTIONS = 200;
+  var SALES_PRODUCT_OPTION_FORBIDDEN_CHARS = [":", "|", "^", "<", ">"];
+  var MAX_KRW = 1e9;
+  var money = external_exports.number().int().min(0).max(MAX_KRW);
+  var optionalText = (max) => external_exports.string().trim().max(max).nullable().optional();
+  var requiredText = (max) => external_exports.string().trim().min(1).max(max);
+  function hasForbiddenOptionChar(value) {
+    return SALES_PRODUCT_OPTION_FORBIDDEN_CHARS.some((char) => value.includes(char));
+  }
+  var optionText = requiredText(100).refine(
+    (value) => !hasForbiddenOptionChar(value),
+    { message: `\uC635\uC158\uC5D0\uB294 ${SALES_PRODUCT_OPTION_FORBIDDEN_CHARS.join(" ")} \uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.` }
+  );
+  function salesProductOptionKey(values) {
+    return values.map((value) => value.trim()).join(":");
+  }
+  var SalesProductCertificationSchema = external_exports.object({
+    number: requiredText(100),
+    issuer: optionalText(100),
+    field: optionalText(100),
+    validFrom: optionalText(10),
+    validTo: optionalText(10),
+    issuedAt: optionalText(10),
+    certifiedAt: optionalText(10),
+    imageUrl: optionalText(1e3)
+  }).strict();
+  var SalesProductOptionComponentInputSchema = external_exports.object({
+    masterProductId: external_exports.string().uuid(),
+    quantity: external_exports.number().int().min(1).max(999)
+  }).strict();
+  var SalesProductOptionInputSchema = external_exports.object({
+    /** 이미 있는 단품을 고칠 때 그 단품 id. 없으면 값(optionKey)으로 찾고, 그래도 없으면 새로 만든다. */
+    id: external_exports.string().uuid().optional(),
+    optionCode: external_exports.string().trim().min(1).max(80).optional(),
+    values: external_exports.array(optionText).max(SALES_PRODUCT_MAX_OPTION_AXES),
+    alias: optionalText(100),
+    barcode: optionalText(60),
+    /** 초안은 판매가가 아직 없다. 비어 있으면 상품이 `draft` 로 내려간다. */
+    salePrice: money.nullable().default(null),
+    normalPrice: money.nullable().default(null),
+    supplyStatus: SalesProductOptionSupplyStatusSchema.default("selling"),
+    safetyStock: external_exports.number().int().min(0).max(1e6).nullable().optional(),
+    components: external_exports.array(SalesProductOptionComponentInputSchema).max(10).default([])
+  }).strict();
+  var OptionSetSchema = external_exports.object({
+    optionAxes: external_exports.array(optionText).max(SALES_PRODUCT_MAX_OPTION_AXES).default([]),
+    options: external_exports.array(SalesProductOptionInputSchema).min(1).max(SALES_PRODUCT_MAX_OPTIONS)
+  });
+  function refineOptionSet(value, ctx) {
+    const axes = value.optionAxes;
+    if (new Set(axes).size !== axes.length) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["optionAxes"], message: "\uC635\uC158 \uB2E8 \uC774\uB984\uC774 \uACB9\uCE69\uB2C8\uB2E4." });
+    }
+    if (axes.length === 0 && value.options.length !== 1) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["options"], message: "\uC635\uC158 \uB2E8\uC774 \uC5C6\uC73C\uBA74 \uB2E8\uD488\uC740 \uD558\uB098\uC785\uB2C8\uB2E4." });
+    }
+    const keys = /* @__PURE__ */ new Set();
+    value.options.forEach((option, index) => {
+      if (option.values.length !== axes.length) {
+        ctx.addIssue({
+          code: external_exports.ZodIssueCode.custom,
+          path: ["options", index, "values"],
+          message: `\uC635\uC158 \uAC12\uC740 \uB2E8 \uC218(${axes.length})\uB9CC\uD07C \uC788\uC5B4\uC57C \uD569\uB2C8\uB2E4.`
+        });
+        return;
+      }
+      const key = salesProductOptionKey(option.values);
+      if (keys.has(key)) {
+        ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["options", index, "values"], message: "\uAC19\uC740 \uC635\uC158\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4." });
+      }
+      keys.add(key);
+      const skuIds = option.components.map((component) => component.masterProductId);
+      if (new Set(skuIds).size !== skuIds.length) {
+        ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["options", index, "components"], message: "\uAC19\uC740 \uC140\uD53C\uC544 \uC0C1\uD488\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4." });
+      }
+    });
+    const codes = value.options.map((option) => option.optionCode).filter(Boolean);
+    if (new Set(codes).size !== codes.length) {
+      ctx.addIssue({ code: external_exports.ZodIssueCode.custom, path: ["options"], message: "\uB2E8\uD488\uCF54\uB4DC\uAC00 \uACB9\uCE69\uB2C8\uB2E4." });
+    }
+  }
+  var SalesProductBasicsInputSchema = external_exports.object({
+    name: requiredText(255),
+    ownCode: optionalText(100),
+    shortName: optionalText(255),
+    englishName: optionalText(255),
+    printName: optionalText(255),
+    modelName: optionalText(60),
+    modelNo: optionalText(60),
+    brand: optionalText(50),
+    manufacturer: optionalText(50),
+    originCountry: optionalText(50),
+    originRegion: optionalText(50),
+    keywords: external_exports.array(requiredText(60)).max(30).default([]),
+    standardCategory: optionalText(40),
+    /** 상세설명 본문(사람이 쓰는 글). 몰 상세 HTML 은 Content 의 상세 페이지 revision 이 정본이다(KID-313 W2). */
+    description: external_exports.string().max(2e4).default(""),
+    targetAudience: optionalText(200),
+    ageGroup: optionalText(100),
+    productSize: optionalText(200),
+    colorVariantNames: external_exports.array(requiredText(60)).max(30).default([]),
+    boxSetQuantity: external_exports.number().int().min(1).max(1e5).nullable().optional(),
+    /** 몰 공통 등록 문서 입력값. 몰별 값은 RegistrationTarget.registrationInput 이다. */
+    registrationDefaults: external_exports.record(external_exports.string(), external_exports.unknown()).nullable().optional(),
+    taxType: SalesProductTaxTypeSchema.default("taxable"),
+    deliveryFeeType: SalesProductDeliveryFeeTypeSchema.nullable().optional(),
+    deliveryFee: money.nullable().optional(),
+    stockManaged: external_exports.boolean().default(false),
+    imageUrls: external_exports.array(requiredText(1e3)).max(30).default([]),
+    noticeCategory: optionalText(10),
+    noticeValues: external_exports.array(external_exports.string().max(1e3)).max(40).default([]),
+    certifications: external_exports.array(SalesProductCertificationSchema).max(10).default([]),
+    /** KC 가 이 상품에 어떻게 걸리는가. '해당 없음'은 여기서만 말할 수 있다. */
+    kcStatus: SalesProductKcStatusSchema.default("unknown"),
+    importDeclarationNo: optionalText(60),
+    adminMemo: optionalText(2e3)
+  }).strict();
+  var SalesProductCreateInputSchema = SalesProductBasicsInputSchema.extend({
+    /** 판매상품코드. 비우면 서버가 만든다. */
+    code: external_exports.string().trim().min(1).max(60).optional(),
+    optionAxes: OptionSetSchema.shape.optionAxes,
+    options: OptionSetSchema.shape.options
+  }).strict().superRefine(refineOptionSet);
+  var SalesProductUpdateInputSchema = SalesProductBasicsInputSchema.partial().extend({
+    expectedVersion: external_exports.number().int().min(1),
+    status: external_exports.literal("archived").optional()
+  }).strict();
+  var SalesProductOptionsReplaceInputSchema = OptionSetSchema.extend({
+    expectedVersion: external_exports.number().int().min(1)
+  }).strict().superRefine(refineOptionSet);
+  var SalesProductOptionComponentSchema = external_exports.object({
+    masterProductId: external_exports.string().uuid(),
+    sellpiaCode: external_exports.string(),
+    name: external_exports.string(),
+    optionName: external_exports.string().nullable(),
+    quantity: external_exports.number().int(),
+    currentStock: external_exports.number().int().nullable()
+  });
+  var SalesProductOptionSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    /** 발급된 KID. 초안의 단품은 비어 있다. */
+    optionCode: external_exports.string().nullable(),
+    values: external_exports.array(external_exports.string()),
+    optionKey: external_exports.string(),
+    alias: external_exports.string().nullable(),
+    barcode: external_exports.string().nullable(),
+    /** 초안은 아직 정하지 않아 비어 있다. */
+    salePrice: money.nullable(),
+    normalPrice: money.nullable(),
+    supplyStatus: SalesProductOptionSupplyStatusSchema,
+    safetyStock: external_exports.number().int().nullable(),
+    sortOrder: external_exports.number().int(),
+    components: external_exports.array(SalesProductOptionComponentSchema),
+    /**
+     * 참고 원가(원). 구성 원천 상품의 지금 매입가 × 수량의 합이다. 구성이 없거나 매입가가 빠진
+     * 원천이 하나라도 있으면 null(계산 불가). 읽기 전용 표시이며 손익 · ABC 계산과 무관하다.
+     */
+    // 이 칸이 생기기 전에 동결한 실행 payload 도 읽히도록 비어 있으면 null 이다.
+    referenceCost: external_exports.number().int().nullable().default(null),
+    /** 이 단품에 연결된 몰 옵션 수. 연결된 단품은 지우지 않는다. */
+    linkedChannelOptionCount: external_exports.number().int().min(0)
+  });
+  var SalesProductChannelOverrideSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    mallKey: external_exports.string(),
+    mallName: external_exports.string(),
+    salePrice: external_exports.number().int().nullable(),
+    stockPercent: external_exports.number().int().nullable(),
+    adapterValues: external_exports.record(external_exports.string(), external_exports.string()).nullable(),
+    version: external_exports.number().int(),
+    updatedAt: zIsoDate
+  });
+  var SalesProductChannelListingSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    mallKey: external_exports.string(),
+    mallName: external_exports.string(),
+    externalId: external_exports.string(),
+    displayName: external_exports.string().nullable(),
+    status: external_exports.string().nullable(),
+    isActive: external_exports.boolean(),
+    /** 몰 옵션 — 가져올 때 읽은 몰 판매가와 이어진 단품. */
+    options: external_exports.array(external_exports.object({
+      id: external_exports.string().uuid(),
+      externalOptionId: external_exports.string(),
+      itemName: external_exports.string().nullable(),
+      salePrice: external_exports.number().int().nullable(),
+      salesProductOptionId: external_exports.string().uuid().nullable()
+    }))
+  });
+  var SalesProductSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 비어 있다(화면은 '미발급'). */
+    code: external_exports.string().nullable(),
+    ownCode: external_exports.string().nullable(),
+    sabangnetGoodsNo: external_exports.string().nullable(),
+    /** 이 상품을 만든 원본 기록(SourceRecord) id. 직접 작성 · 사방넷 상품은 없다. 초안을 지우면 함께 지워진다. */
+    sourceRecordId: external_exports.string().uuid().nullable(),
+    /** 원천 장터(`1688` · `coupang` · `sabangnet` …). 초안을 만들 때 복사하고 바꾸지 않는다. */
+    sourcePlatform: external_exports.string().nullable(),
+    sourceUrl: external_exports.string().nullable(),
+    name: external_exports.string(),
+    shortName: external_exports.string().nullable(),
+    englishName: external_exports.string().nullable(),
+    printName: external_exports.string().nullable(),
+    modelName: external_exports.string().nullable(),
+    modelNo: external_exports.string().nullable(),
+    brand: external_exports.string().nullable(),
+    manufacturer: external_exports.string().nullable(),
+    originCountry: external_exports.string().nullable(),
+    originRegion: external_exports.string().nullable(),
+    keywords: external_exports.array(external_exports.string()),
+    standardCategory: external_exports.string().nullable(),
+    description: external_exports.string(),
+    targetAudience: external_exports.string().nullable(),
+    ageGroup: external_exports.string().nullable(),
+    productSize: external_exports.string().nullable(),
+    colorVariantNames: external_exports.array(external_exports.string()),
+    boxSetQuantity: external_exports.number().int().nullable(),
+    registrationDefaults: external_exports.record(external_exports.string(), external_exports.unknown()).nullable(),
+    status: SalesProductStatusSchema,
+    taxType: SalesProductTaxTypeSchema,
+    deliveryFeeType: SalesProductDeliveryFeeTypeSchema.nullable(),
+    deliveryFee: external_exports.number().int().nullable(),
+    optionAxes: external_exports.array(external_exports.string()),
+    stockManaged: external_exports.boolean(),
+    imageUrls: external_exports.array(external_exports.string()),
+    noticeCategory: external_exports.string().nullable(),
+    noticeValues: external_exports.array(external_exports.string()),
+    certifications: external_exports.array(SalesProductCertificationSchema),
+    kcStatus: SalesProductKcStatusSchema,
+    importDeclarationNo: external_exports.string().nullable(),
+    adminMemo: external_exports.string().nullable(),
+    version: external_exports.number().int(),
+    createdAt: zIsoDate,
+    updatedAt: zIsoDate,
+    options: external_exports.array(SalesProductOptionSchema),
+    channelOverrides: external_exports.array(SalesProductChannelOverrideSchema),
+    channelListings: external_exports.array(SalesProductChannelListingSchema)
+  });
+  var SalesProductListQuerySchema = external_exports.object({
+    query: external_exports.string().trim().max(200).optional(),
+    status: SalesProductStatusSchema.optional(),
+    /** 원천 장터 탭(수집상품 화면의 1688 · 쿠팡 · 사방넷). 초안에 복사된 값으로 거른다. */
+    sourcePlatform: external_exports.string().trim().max(40).optional(),
+    /**
+     * `with_options`: 단품이 둘 이상 · `unlinked`: 셀피아 연결이 빠진 단품이 있는 상품 ·
+     * `unregistered`: KID 를 받은 판매 상품(`active`) 중 아직 어느 몰에도 올라가지 않은 것 ·
+     * `preparing`: 수집상품 화면 — 초안(`draft`, KID 없음)만(KID-313).
+     */
+    focus: external_exports.enum(["all", "with_options", "unlinked", "unregistered", "preparing"]).default("all"),
+    page: external_exports.coerce.number().int().min(1).default(1),
+    limit: external_exports.coerce.number().int().min(1).max(100).default(50)
+  });
+  var SalesProductListItemSchema = external_exports.object({
+    id: external_exports.string().uuid(),
+    /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 비어 있다. */
+    code: external_exports.string().nullable(),
+    ownCode: external_exports.string().nullable(),
+    /** 이 상품을 만든 원본 기록(SourceRecord) id. */
+    sourceRecordId: external_exports.string().uuid().nullable(),
+    sourcePlatform: external_exports.string().nullable(),
+    sourceUrl: external_exports.string().nullable(),
+    name: external_exports.string(),
+    status: SalesProductStatusSchema,
+    /** 팔 옵션 중 가장 싼 값. 초안이라 아직 정하지 않았으면 null. */
+    salePrice: external_exports.number().int().nullable(),
+    imageUrl: external_exports.string().nullable(),
+    optionAxes: external_exports.array(external_exports.string()),
+    optionCount: external_exports.number().int(),
+    sellingOptionCount: external_exports.number().int(),
+    /** 셀피아 구성이 비어 있는 단품 수(미사용 제외). */
+    unlinkedOptionCount: external_exports.number().int(),
+    channelListingCount: external_exports.number().int(),
+    /** 몰 계정별 등록 상태(KID-313 결정 11). 화면은 이것만 읽고 실행 · 리스팅 표를 조합하지 않는다. */
+    registrationAccounts: external_exports.array(RegistrationAccountStateSchema),
+    updatedAt: zIsoDate
+  });
+  var SalesProductListResponseSchema = external_exports.object({
+    items: external_exports.array(SalesProductListItemSchema),
+    total: external_exports.number().int(),
+    page: external_exports.number().int(),
+    limit: external_exports.number().int(),
+    summary: external_exports.object({
+      total: external_exports.number().int(),
+      withOptions: external_exports.number().int(),
+      withUnlinkedOptions: external_exports.number().int(),
+      /** 아직 어느 몰에도 올라가지 않은 판매상품 수. */
+      unregistered: external_exports.number().int(),
+      /** KID 를 아직 받지 않은 초안 수. */
+      draft: external_exports.number().int()
+    })
+  });
+  var SALES_PRODUCT_LINK_SOURCES = ["sabangnet_record", "send_record_file", "seller_code"];
+  var SalesProductLinkSourceSchema = external_exports.enum(SALES_PRODUCT_LINK_SOURCES);
+  var SalesProductLinkResultSchema = external_exports.object({
+    /** 이번에 판매상품을 새로 이은 몰 상품 수. */
+    linkedListings: external_exports.number().int(),
+    /** 이미 이어져 있던 몰 상품 수(그대로 둔다). */
+    alreadyLinked: external_exports.number().int(),
+    /** 몰 옵션 ↔ 단품을 이은 수(옵션 하나인 상품끼리만). */
+    linkedOptions: external_exports.number().int(),
+    /** 비어 있던 몰 옵션 레시피를 단품의 셀피아 구성으로 채운 수. */
+    recipesFilled: external_exports.number().int(),
+    /** 근거가 서로 다른 판매상품을 가리켜 잇지 않은 몰 상품 수. */
+    conflicts: external_exports.number().int(),
+    bySource: external_exports.record(SalesProductLinkSourceSchema, external_exports.number().int())
+  });
+  var SABANGNET_WORKBOOK_KINDS = [
+    "products",
+    "options",
+    "channel_overrides",
+    "send_records",
+    "mall_categories",
+    "mall_templates"
+  ];
+  var SabangnetWorkbookKindSchema = external_exports.enum(SABANGNET_WORKBOOK_KINDS);
+  var SabangnetImportIssueSchema = external_exports.object({
+    kind: SabangnetWorkbookKindSchema,
+    row: external_exports.number().int(),
+    code: external_exports.string().nullable(),
+    message: external_exports.string()
+  });
+  var SabangnetImportSelectionSchema = external_exports.array(external_exports.object({
+    salesProductId: external_exports.string().uuid(),
+    expectedVersion: external_exports.number().int().positive()
+  }).strict()).max(1e4);
+  var SabangnetImportPreviewSchema = external_exports.object({
+    dryRun: external_exports.boolean(),
+    existingChanges: external_exports.array(external_exports.object({
+      salesProductId: external_exports.string().uuid(),
+      code: external_exports.string(),
+      name: external_exports.string(),
+      sourceKey: external_exports.string(),
+      expectedVersion: external_exports.number().int().positive(),
+      changed: external_exports.boolean(),
+      /** 판매상품 값은 그대로이고 다음 가져오기가 비교할 저장된 원문(기준값)만 바뀐다. */
+      baselineOnly: external_exports.boolean(),
+      /** 파일 값이 달랐지만 지난 가져오기 뒤 사람이 고쳐서 지킨 칸(판매상품 필드 이름). */
+      preserved: external_exports.array(external_exports.string()),
+      /** 사람이 고치지 않아 파일 값으로 바꾸는 칸. */
+      updated: external_exports.array(external_exports.string())
+    })),
+    files: external_exports.array(external_exports.object({ name: external_exports.string(), kind: SabangnetWorkbookKindSchema, rows: external_exports.number().int() })),
+    products: external_exports.object({
+      total: external_exports.number().int(),
+      created: external_exports.number().int(),
+      updated: external_exports.number().int(),
+      unchanged: external_exports.number().int()
+    }),
+    options: external_exports.object({
+      total: external_exports.number().int(),
+      withOptionsProducts: external_exports.number().int(),
+      /** 셀피아 상품코드 · 옵션명이 정확히 맞아 연결한 단품 수. */
+      linked: external_exports.number().int(),
+      unlinked: external_exports.number().int()
+    }),
+    channelOverrides: external_exports.object({
+      total: external_exports.number().int(),
+      saved: external_exports.number().int(),
+      /** 우리 몰 계정이 없어 넘긴 사방넷 쇼핑몰 코드와 줄 수. */
+      skippedByShop: external_exports.record(external_exports.string(), external_exports.number().int())
+    }),
+    issues: external_exports.array(SabangnetImportIssueSchema).max(200),
+    issueCount: external_exports.number().int(),
+    /** 몰에 올라간 상품 ↔ 판매상품 잇기 결과. 옮길 때는 늘 잇고, 송신 기록 없이 미리볼 때만 null. */
+    links: SalesProductLinkResultSchema.nullable(),
+    /** 송신 기록에서 읽은 상품 × 몰의 사방넷 분류 · 부가정보. 송신 기록이 없으면 null. */
+    mallValues: external_exports.object({
+      pairs: external_exports.number().int(),
+      withCategory: external_exports.number().int(),
+      withTemplate: external_exports.number().int()
+    }).nullable()
+  });
+  var SalesProductExternalImagesSchema = external_exports.object({
+    /** 사방넷 서버에 남아 있어 옮겨야 하는 사진 수. */
+    images: external_exports.number().int(),
+    /** 그런 사진이 있는 판매상품 수. */
+    products: external_exports.number().int()
+  });
+  var SalesProductImageMirrorResultSchema = external_exports.object({
+    mirrored: external_exports.number().int(),
+    failedCount: external_exports.number().int(),
+    failed: external_exports.array(external_exports.object({ url: external_exports.string(), reason: external_exports.string() })).max(20),
+    productsUpdated: external_exports.number().int(),
+    /** 그사이 누가 고쳐 이번에 쓰지 못한 판매상품. 다음 묶음에서 다시 옮긴다. */
+    productsSkipped: external_exports.number().int(),
+    /** 아직 옮기지 못한 사진 수. */
+    remaining: external_exports.number().int(),
+    /** 다음 묶음을 부를 때 넘길 `skip` — 이번까지 못 옮긴 사진은 건너뛴다. */
+    nextSkip: external_exports.number().int()
+  });
+  var SalesProductMallCategoriesSchema = external_exports.object({
+    mallKey: external_exports.string(),
+    categories: external_exports.array(external_exports.object({
+      /** 몰 분류 경로(사방넷이 몰에 보낸 그대로, `>` 로 잇는다). */
+      path: external_exports.string(),
+      /** 사방넷에서 붙인 분류 이름. */
+      title: external_exports.string().nullable(),
+      /** 이 분류를 쓴 판매상품 수. */
+      count: external_exports.number().int()
+    }))
+  });
+  var SALES_PRODUCT_MALL_PRICE_CONFLICT_REASONS = ["options_disagree"];
+  var SalesProductMallPriceConflictReasonSchema = external_exports.enum(SALES_PRODUCT_MALL_PRICE_CONFLICT_REASONS);
+  var SalesProductMallPriceAdoptionSchema = external_exports.object({
+    /** false 면 미리보기 — 쓰지 않았다. */
+    applied: external_exports.boolean(),
+    /** 단품 판매가를 몰 가격으로 바꿀(바꾼) 상품의 가격 근거 상품 × 몰. */
+    pairs: external_exports.number().int(),
+    products: external_exports.number().int(),
+    /** 이미 같은 상품 × 몰. */
+    unchanged: external_exports.number().int(),
+    conflicts: external_exports.number().int(),
+    conflictSamples: external_exports.array(external_exports.object({
+      code: external_exports.string(),
+      name: external_exports.string(),
+      mallName: external_exports.string(),
+      reason: SalesProductMallPriceConflictReasonSchema,
+      prices: external_exports.array(external_exports.number().int())
+    })).max(20),
+    /** 몰 이름 → 바꿀(바꾼) 상품 수. */
+    byMall: external_exports.record(external_exports.string(), external_exports.number().int())
+  });
+  var SalesProductMallSheetSchema = external_exports.object({
+    sheetKey: external_exports.string(),
+    label: external_exports.string(),
+    /** 이 파일이 올라가는 몰 키(ESM 은 G마켓 · 옥션 둘). */
+    mallKeys: external_exports.array(external_exports.string()),
+    /** 몰 분류를 번호로 받는가(`code`, 몰 카테고리표로 경로를 번호로 바꾼다), 이름 그대로 받는가(`name`). */
+    categoryBy: external_exports.enum(["code", "name"]),
+    /** 몰이 한 파일에 받는 상품 수. */
+    maxProducts: external_exports.number().int(),
+    /** 몰 계정에 한 번 정하는 값(출하지 코드 · 스토어명 …)과 기본값. */
+    fixedFields: external_exports.array(external_exports.object({
+      key: external_exports.string(),
+      label: external_exports.string(),
+      required: external_exports.boolean(),
+      defaultValue: external_exports.string(),
+      help: external_exports.string().nullable()
+    })),
+    /** 올리는 곳 · 올린 뒤 할 일. */
+    notes: external_exports.array(external_exports.string())
+  });
+  var SalesProductMallSheetListSchema = external_exports.object({
+    sheets: external_exports.array(SalesProductMallSheetSchema),
+    /** 신규 등록 엑셀이 없는 몰과 그 까닭 — 폼 채우기 등록으로 간다. */
+    unavailable: external_exports.array(external_exports.object({ mallKey: external_exports.string(), reason: external_exports.string() }))
+  });
+  var SALES_PRODUCT_MALL_SHEET_MAX_IDS = 1e3;
+  var SalesProductMallSheetRequestSchema = external_exports.object({
+    /** 비우면(확인만) 이 몰에 아직 없는 판매상품 — 몰 상품과 이어지지 않았고 사방넷이 보낸 적도 없는 것. */
+    salesProductIds: external_exports.array(external_exports.string().uuid()).max(SALES_PRODUCT_MALL_SHEET_MAX_IDS).optional(),
+    /** 고정값. 빈 칸은 기본값을 쓴다. */
+    fixed: external_exports.record(external_exports.string(), external_exports.string().max(1e3)).default({})
+  }).strict();
+  var SalesProductMallSheetCategorySchema = external_exports.object({
+    mallKey: external_exports.string(),
+    path: external_exports.string().nullable(),
+    code: external_exports.string().nullable(),
+    source: external_exports.enum(["set", "sabangnet", "none"]),
+    /** 엑셀에 넣을 수 있는가(번호로 받는 몰은 번호가, 이름으로 받는 몰은 경로가 있어야). */
+    resolved: external_exports.boolean(),
+    /** 풀리지 않았을 때, 같은 상품이 다른 몰에서 쓰는 분류로 짐작한 이 몰 분류. 사람이 확인해 저장해야 쓴다. */
+    suggestion: external_exports.object({
+      path: external_exports.string(),
+      /** 투표한 몰들(또는 비슷한 이름의 판매상품들)이 이 분류에 준 몫의 평균(0~1). */
+      share: external_exports.number(),
+      voters: external_exports.number().int(),
+      /** 짐작 근거: 같은 상품의 다른 몰 분류 · 이름이 비슷한 판매상품의 이 몰 분류. */
+      basis: external_exports.enum(["other_malls", "similar_names"]),
+      /** 이 분류가 번호로 풀리는가(번호로 받는 몰). */
+      resolves: external_exports.boolean()
+    }).nullable()
+  });
+  var SalesProductMallSheetCheckSchema = external_exports.object({
+    sheetKey: external_exports.string(),
+    /** `missing`: 이 몰에 없는 판매상품을 서버가 골랐다. `selected`: 보낸 id 그대로. */
+    scope: external_exports.enum(["selected", "missing"]),
+    /** 비어 있는 필수 고정값 이름. 있으면 파일을 만들지 않는다. */
+    missingFixed: external_exports.array(external_exports.string()),
+    /**
+     * `missing` 에서 뺀 판매상품 수 — 몰 상품과 이어지지 않았지만 사방넷이 이 몰에 보낸 적이 있어 이미 올라가 있을 수
+     * 있는 것. 다시 올리면 몰에 같은 상품이 둘 생긴다.
+     */
+    maybeListed: external_exports.number().int(),
+    products: external_exports.array(external_exports.object({
+      salesProductId: external_exports.string().uuid(),
+      /** 발급된 KID. 아직 팔기로 정하지 않은 초안은 비어 있고, 파일을 만들 때 발급된다. */
+      code: external_exports.string().nullable(),
+      name: external_exports.string(),
+      /** 파일에 들어갈 행 수(쿠팡은 단품마다 한 줄). 못 넣는 상품은 0. */
+      rows: external_exports.number().int(),
+      problems: external_exports.array(external_exports.string()),
+      warnings: external_exports.array(external_exports.string()),
+      /** 이 파일에 들어갈 사진 중 몰이 못 읽어(우리 저장소) 막는 사진 수. [사진 올리기]가 공개 주소를 만든다. */
+      unreadableImages: external_exports.number().int(),
+      /** 이 파일이 다루는 몰마다의 분류. */
+      categories: external_exports.array(SalesProductMallSheetCategorySchema)
+    })),
+    ready: external_exports.number().int(),
+    blocked: external_exports.number().int()
+  });
+  var SalesProductMallSheetCategoryListSchema = external_exports.object({
+    sheetKey: external_exports.string(),
+    mallKey: external_exports.string(),
+    /** 찾은 분류 경로(`>` 로 이은 이름). 몰 분류표가 없는 몰이면 빈 배열. */
+    paths: external_exports.array(external_exports.string()),
+    /** 몰 분류표에 있는 전체 분류 수(0 이면 표가 없다). */
+    total: external_exports.number().int()
+  });
+  var SalesProductMallCategoryAssignRequestSchema = external_exports.object({
+    mallKey: external_exports.string().trim().min(1).max(40),
+    path: external_exports.string().trim().min(1).max(300),
+    salesProductIds: external_exports.array(external_exports.string().uuid()).min(1).max(SALES_PRODUCT_MALL_SHEET_MAX_IDS)
+  }).strict();
+  var SalesProductMallCategoryAssignResultSchema = external_exports.object({
+    /** 바뀐 상품 × 몰 줄 수(이미 같은 분류면 세지 않는다). */
+    written: external_exports.number().int(),
+    /** 몰 카테고리표에서 이 경로의 번호(번호로 받는 몰). 없으면 null — 엑셀은 여전히 막힌다. */
+    code: external_exports.string().nullable()
+  });
+  var CoupangCatalogChangeSchema = external_exports.object({
+    column: external_exports.string(),
+    before: external_exports.string(),
+    after: external_exports.string()
+  });
+  var CoupangCatalogRowSchema = external_exports.object({
+    /** 윙 옵션 ID. 한 줄은 상품이 아니라 옵션 하나다. */
+    optionId: external_exports.string(),
+    listingName: external_exports.string(),
+    optionName: external_exports.string(),
+    /** 이어진 판매상품 코드. 이어지지 않았으면 null. */
+    salesProductCode: external_exports.string().nullable(),
+    unlinked: external_exports.boolean(),
+    changes: external_exports.array(CoupangCatalogChangeSchema),
+    conflicts: external_exports.array(CoupangCatalogChangeSchema)
+  });
+  var CoupangCatalogPlanResultSchema = external_exports.object({
+    /** 파일의 옵션 줄 수. */
+    rows: external_exports.number().int(),
+    /** 우리 단품과 이어진 옵션 줄 수. */
+    linked: external_exports.number().int(),
+    /** 값이 바뀌는 줄 수. */
+    changedRows: external_exports.number().int(),
+    /** 바뀌는 칸 수. */
+    changedCells: external_exports.number().int(),
+    /** 다르지만 두고 센 칸 수. */
+    conflicts: external_exports.number().int(),
+    /** 칸 이름 → 그 칸을 채우는 줄 수. */
+    byColumn: external_exports.record(external_exports.string(), external_exports.number().int()),
+    /** 화면이 보여 줄 줄(바뀌는 줄 · 다른 줄 먼저). */
+    samples: external_exports.array(CoupangCatalogRowSchema)
+  });
+  var SalesProductPublicImagePendingSchema = external_exports.object({
+    urls: external_exports.array(external_exports.string()),
+    /** 그런 사진이 있는 판매상품 수. */
+    products: external_exports.number().int()
+  });
+  var SalesProductPublicImagePendingRequestSchema = external_exports.object({
+    salesProductIds: external_exports.array(external_exports.string().uuid()).min(1).max(SALES_PRODUCT_MALL_SHEET_MAX_IDS)
+  }).strict();
+  var SalesProductPublicImageSaveRequestSchema = external_exports.object({
+    images: external_exports.array(external_exports.object({
+      sourceUrl: external_exports.string().trim().min(1).max(2e3),
+      publicUrl: external_exports.string().trim().url().max(2e3),
+      host: external_exports.string().trim().min(1).max(40)
+    }).strict()).min(1).max(500)
+  }).strict();
+
+  // packages/shared/src/schemas/registration-target-execution.ts
+  var TargetExecutionKindSchema = external_exports.enum(TARGET_EXECUTION_KINDS);
+  var OptionTransitionSchema = external_exports.object({
+    channelListingOptionId: external_exports.string().uuid(),
+    salesProductOptionId: external_exports.string().uuid()
+  }).strict();
+  var PrepareTargetExecutionInputSchema = external_exports.object({
+    expectedVersion: external_exports.number().int().positive(),
+    kind: TargetExecutionKindSchema,
+    idempotencyKey: external_exports.string().trim().min(1).max(200),
+    channelListingId: external_exports.string().uuid().optional(),
+    /** Supported price update sends only this field, never the whole registration form. */
+    updateFields: external_exports.array(external_exports.literal("salePrice")).length(1).optional(),
+    /** Execution-only provider defaults; target settings remain authoritative overrides. */
+    adapterDefaults: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    /** Explicit values edited for this submission only; never writes reusable settings. */
+    adapterValues: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    applyCompositionTemplate: external_exports.boolean().default(false),
+    /** Explicit old marketplace option → new common option; never match by order/name. */
+    optionTransitions: external_exports.array(OptionTransitionSchema).max(1e3).optional()
+  }).strict();
+  var TargetExecutionSnapshotSchema = external_exports.object({
+    targetId: external_exports.string().uuid(),
+    targetVersion: external_exports.number().int().positive(),
+    channelAccountId: external_exports.string().uuid(),
+    kind: TargetExecutionKindSchema,
+    channelListingId: external_exports.string().uuid().nullable(),
+    updateFields: external_exports.array(external_exports.literal("salePrice")).length(1).optional(),
+    /** Execution-only provider defaults; target settings remain authoritative overrides. */
+    adapterDefaults: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    /** Explicit values edited for this submission only; never writes reusable settings. */
+    adapterValues: external_exports.record(external_exports.string(), external_exports.string()).optional(),
+    applyCompositionTemplate: external_exports.boolean(),
+    optionTransitions: external_exports.array(OptionTransitionSchema).optional(),
+    product: SalesProductSchema,
+    /**
+     * 이 실행이 몰에 보낼 상세 — 준비 순간 Content 의 revision 을 읽어 동결한다(KID-313 W2). 등록 대상이 고른
+     * revision, 없으면 워크스페이스의 현재 revision. 상세가 없으면 null.
+     */
+    detailPage: external_exports.object({
+      revisionId: external_exports.string().uuid(),
+      html: external_exports.string()
+    }).strict().nullable(),
+    /** 등록 대상의 몰 전용 값(`RegistrationMallInputSchema`). 몰 공급가는 `mallFields.supplyPrice` 다. */
+    registrationInput: external_exports.record(external_exports.string(), external_exports.unknown()),
+    /**
+     * 준비 순간 채널 어댑터가 얼려 넣는 실행 시점 몰 사실(KID-321) — 쿠팡: 해석된 `wingProduct` ·
+     * Sellpia 매칭 · 기존 몰 상품 · vendorItemCode. 등록 대상에는 저장하지 않는다(대상에 남는 몰 값은
+     * `registrationInput.adapter[channel]` 뿐). 어댑터가 얼릴 것이 없으면 `{}`.
+     */
+    adapterPayload: external_exports.record(external_exports.string(), external_exports.unknown())
+  });
+  var TargetExecutionResultSchema = external_exports.object({
+    executionId: external_exports.string().uuid(),
+    targetId: external_exports.string().uuid(),
+    channelAccountId: external_exports.string().uuid(),
+    status: external_exports.enum(["prepared", "executing", "reconciling", "succeeded", "failed", "cancelled"]),
+    providerOutcome: external_exports.enum(["not_attempted", "uncertain", "succeeded", "definitive_failure"]),
+    payloadHash: external_exports.string(),
+    payload: TargetExecutionSnapshotSchema,
+    leaseToken: external_exports.string().uuid().nullable(),
+    /** Only the request that atomically starts this execution may perform provider IO. */
+    maySubmit: external_exports.boolean(),
+    externalListingId: external_exports.string().nullable(),
+    expectedProviderAccountId: external_exports.string().nullable().optional(),
+    result: external_exports.unknown().nullable(),
+    createdAt: zIsoDate.optional()
+  }).strict();
+  var ReportTargetExecutionInputSchema = external_exports.object({
+    leaseToken: external_exports.string().uuid(),
+    payloadHash: external_exports.string().min(1),
+    outcome: external_exports.enum(["not_submitted", "uncertain", "submitted", "awaiting_approval", "confirmed"]),
+    evidence: external_exports.object({
+      channelAccountId: external_exports.string().uuid(),
+      externalListingId: external_exports.string().trim().min(1).optional(),
+      observedUrl: external_exports.string().url().optional(),
+      providerAccountId: external_exports.string().optional(),
+      observedStatus: external_exports.string().optional(),
+      message: external_exports.string().optional(),
+      options: external_exports.array(external_exports.object({
+        salesProductOptionId: external_exports.string().uuid(),
+        externalOptionId: external_exports.string().trim().min(1),
+        sellerSku: external_exports.string().nullable().optional()
+      }).strict()).optional()
+    }).strict()
+  }).strict();
+
+  // packages/shared/src/schemas/registration-plan-payloads.ts
+  var RegistrationDocumentPayloadSchema = external_exports.object({
+    snapshot: TargetExecutionSnapshotSchema.nullable(),
+    form: external_exports.record(external_exports.string(), external_exports.unknown()).nullable()
+  }).strict().refine((payload) => payload.snapshot !== null || payload.form !== null, {
+    message: "\uC5BC\uB9B0 \uBB38\uC11C\uB098 \uD3FC \uC9C0\uC2DC\uAC00 \uD544\uC694\uD569\uB2C8\uB2E4"
+  });
+  var RegistrationAvailabilityOptionSchema = external_exports.object({
+    /** 판매 옵션에 연결되지 않은 몰 옵션(수집으로만 들어온 것)은 null. */
+    salesProductOptionId: external_exports.string().uuid().nullable(),
+    channelListingOptionId: external_exports.string().uuid(),
+    externalOptionId: external_exports.string().min(1),
+    sellerSku: external_exports.string().nullable()
+  }).strict();
+  var RegistrationAvailabilityListingSchema = external_exports.object({
+    channelListingId: external_exports.string().uuid(),
+    externalListingId: external_exports.string().min(1),
+    /** 바꿀 옵션. 리스팅 단위로 받는 몰은 그 리스팅의 살아 있는 옵션 전부다. */
+    options: external_exports.array(RegistrationAvailabilityOptionSchema).max(1e3)
+  }).strict();
+  var RegistrationAvailabilityPayloadSchema = external_exports.object({
+    action: external_exports.enum(["sold_out", "resume"]),
+    listings: external_exports.array(RegistrationAvailabilityListingSchema).min(1).max(MALL_AVAILABILITY_READ_MAX_LISTINGS)
+  }).strict();
+  var RegistrationThumbnailPayloadSchema = ThumbnailExecutionImageSchema.extend({
+    salesProductId: external_exports.string().uuid(),
+    channelListingId: external_exports.string().uuid().nullable(),
+    externalListingId: external_exports.string().min(1).nullable(),
+    assetId: external_exports.string().uuid(),
+    /** 몰 관리자에서 상품을 찾는 이름. */
+    productName: external_exports.string().min(1)
   }).strict();
 
   // packages/shared/src/schemas/mall-admin-listings.ts
@@ -6253,7 +7032,7 @@ var KidItemRuntime = (() => {
   var MallKeySchema = external_exports.enum(MALL_ADMIN_LISTING_MALL_KEYS);
   var YYYY_MM_DD = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var boundedText = (max) => external_exports.string().trim().max(max);
-  var requiredText = (max) => boundedText(max).min(1);
+  var requiredText2 = (max) => boundedText(max).min(1);
   var MallAdminListingsPlanSchema = external_exports.object({
     sourceType: external_exports.literal(MALL_ADMIN_LISTINGS_SOURCE_TYPE),
     parserVersion: external_exports.literal(MALL_ADMIN_LISTINGS_PARSER_VERSION),
@@ -6286,11 +7065,11 @@ var KidItemRuntime = (() => {
      */
     codedListings: external_exports.number().int().min(0).max(MALL_ADMIN_LISTING_ROW_LIMIT).default(0),
     /** 우리 상태 글자별 상품 수. */
-    statuses: external_exports.record(requiredText(20), external_exports.number().int().min(1).max(MALL_ADMIN_LISTING_ROW_LIMIT)).refine((value) => Object.keys(value).length <= 20, "Too many statuses")
+    statuses: external_exports.record(requiredText2(20), external_exports.number().int().min(1).max(MALL_ADMIN_LISTING_ROW_LIMIT)).refine((value) => Object.keys(value).length <= 20, "Too many statuses")
   }).strict();
   var MallAdminListingsSourceMallSchema = external_exports.object({
     mallKey: MallKeySchema,
-    mallName: requiredText(40),
+    mallName: requiredText2(40),
     /** 그 몰의 계정 행. 없으면 가져올 곳이 없다. */
     channelAccountId: external_exports.string().uuid().nullable(),
     /** `latestSucceeded`가 남긴 발행 결과. */
@@ -6304,23 +7083,23 @@ var KidItemRuntime = (() => {
   }).strict();
   var MallAdminListingRowSchema = external_exports.object({
     /** 몰 상품코드. 옵션 외부 ID 칸이 60자다. */
-    mallProductCode: requiredText(60),
+    mallProductCode: requiredText2(60),
     /**
      * 같은 상품을 다른 번호로 가져온 적이 있을 때 그 번호(사방넷이 ESM 사이트번호만 · 스마트스토어 원상품번호로 준 것).
      * 그 번호로 이미 이어진 리스팅이 있으면 서버가 그 번호를 쓴다 — 레시피가 그 리스팅에 붙어 있다.
      */
-    alternateCodes: external_exports.array(requiredText(60)).max(3).optional(),
-    productName: requiredText(400),
+    alternateCodes: external_exports.array(requiredText2(60)).max(3).optional(),
+    productName: requiredText2(400),
     /** 몰에 적어 둔 셀피아 상품 이름 — 키드키즈 송장용 상품명, 아이스크림몰 고시 품명. */
-    sellpiaName: requiredText(400).nullable(),
+    sellpiaName: requiredText2(400).nullable(),
     /**
      * 몰의 자체상품코드 칸에 우리가 심어 둔 셀피아 SKU 코드(키드키즈 `P 코드`, 아이스크림몰
      * `업체상품코드`). 사방넷이 `모델명`에 셀피아 코드를 넣어 보낸 것과 같은 자리다 — 이 값이
      * 있으면 이름이 아니라 코드로 정확히 잇는다. 아직 안 심은 상품은 비어 있다.
      */
-    sellerCode: requiredText(60).nullable(),
+    sellerCode: requiredText2(60).nullable(),
     salePrice: external_exports.number().int().nonnegative().max(1e9).nullable(),
-    statusWords: external_exports.array(requiredText(20)).min(1).max(4),
+    statusWords: external_exports.array(requiredText2(20)).min(1).max(4),
     registeredOn: YYYY_MM_DD.nullable(),
     /** 몰이 들고 있는 대표 사진. 목록에 사진이 있는 몰만 싣는다. */
     imageUrl: external_exports.string().url().max(2e3).optional()
@@ -6399,9 +7178,9 @@ var KidItemRuntime = (() => {
   var SHOP_ID = external_exports.string().regex(/^shop\d{4}$/);
   var YYYYMMDD = external_exports.string().regex(/^\d{8}$/);
   var boundedText2 = (max) => external_exports.string().trim().max(max);
-  var requiredText2 = (max) => boundedText2(max).min(1);
+  var requiredText3 = (max) => boundedText2(max).min(1);
   var SabangnetMallListingsPlanMallSchema = external_exports.object({
-    mallKey: requiredText2(40),
+    mallKey: requiredText3(40),
     channelAccountId: external_exports.string().uuid(),
     sabangnetShopIds: external_exports.array(SHOP_ID).min(1).max(10)
   }).strict();
@@ -6429,7 +7208,7 @@ var KidItemRuntime = (() => {
     }
   });
   var SabangnetMallListingsPublicationSchema = external_exports.object({
-    mallKey: requiredText2(40),
+    mallKey: requiredText3(40),
     channelAccountId: external_exports.string().uuid(),
     /** 이번에 받은 몰 상품코드 수. */
     listings: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT),
@@ -6437,7 +7216,7 @@ var KidItemRuntime = (() => {
     deactivated: external_exports.number().int().min(0).max(SABANGNET_MALL_LISTING_ROW_LIMIT)
   }).strict();
   var SabangnetMallListingsSourceMallSchema = external_exports.object({
-    mallKey: requiredText2(40),
+    mallKey: requiredText3(40),
     /** 그 몰의 계정 행. 없으면 가져올 곳이 없다. */
     channelAccountId: external_exports.string().uuid().nullable(),
     sabangnetShopIds: external_exports.array(SHOP_ID).min(1).max(10)
@@ -6460,17 +7239,17 @@ var KidItemRuntime = (() => {
     sendSerial: external_exports.string().regex(/^\d{1,30}$/),
     sabangnetShopId: SHOP_ID,
     /** 몰 상품코드(`shmaPrdNo`). 옵션 외부 ID 칸이 60자다. */
-    mallProductCode: requiredText2(60),
+    mallProductCode: requiredText3(60),
     /** 사방넷 품번(`prdNo`). */
     sabangnetProductNo: external_exports.string().regex(/^\d{1,30}$/),
     /** 사방넷 모델명(`modlNm`). 셀피아 재고 SKU 코드와 같다. */
-    modelName: requiredText2(120).nullable(),
+    modelName: requiredText3(120).nullable(),
     /** 사방넷 자체상품코드(`onsfPrdCd`). 바코드인 경우가 많다. */
-    ownProductCode: requiredText2(120).nullable(),
-    productName: requiredText2(400),
+    ownProductCode: requiredText3(120).nullable(),
+    productName: requiredText3(400),
     salePrice: external_exports.number().int().nonnegative().max(1e9).nullable(),
     /** 사방넷 공급상태 이름(`prdSplyStsCdNm`) — 공급중 · 일시중지 · 완전품절 · 대기중. */
-    supplyStatus: requiredText2(20),
+    supplyStatus: requiredText3(20),
     /** 첫 송신 시각(`prdRegsFstTrnmDt`, `yyyyMMdd HH:mm`). */
     firstSentAt: external_exports.string().regex(/^\d{8} \d{2}:\d{2}$/).nullable()
   }).strict();
@@ -7301,7 +8080,7 @@ var KidItemRuntime = (() => {
   var ROCKET_PO_ROW_LIMIT = 4e3;
   var ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT = 1e5;
   var boundedText3 = (max) => external_exports.string().trim().max(max);
-  var requiredText3 = (max) => boundedText3(max).min(1);
+  var requiredText4 = (max) => boundedText3(max).min(1);
   var isoDay5 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var RocketPoSourceBeginSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
@@ -7318,7 +8097,7 @@ var KidItemRuntime = (() => {
     totalListPages: external_exports.number().int().min(0).max(ROCKET_PO_LIST_PAGE_EVIDENCE_LIMIT),
     truncated: external_exports.boolean(),
     detailPoCount: external_exports.number().int().min(0).max(ROCKET_PO_ROW_LIMIT),
-    failedPoNumbers: external_exports.array(requiredText3(80)).max(ROCKET_PO_ROW_LIMIT)
+    failedPoNumbers: external_exports.array(requiredText4(80)).max(ROCKET_PO_ROW_LIMIT)
   }).strict().superRefine((value, ctx) => {
     if (new Set(value.failedPoNumbers).size !== value.failedPoNumbers.length) {
       ctx.addIssue({
@@ -7329,12 +8108,12 @@ var KidItemRuntime = (() => {
     }
   });
   var RocketPoCatalogRowSchema = external_exports.object({
-    poLineId: requiredText3(300),
-    poNumber: requiredText3(80),
+    poLineId: requiredText4(300),
+    poNumber: requiredText4(80),
     vendorId: boundedText3(120),
-    productNo: requiredText3(60),
+    productNo: requiredText4(60),
     barcode: boundedText3(80),
-    productName: requiredText3(240),
+    productName: requiredText4(240),
     orderQty: external_exports.number().int().nonnegative().max(1e7),
     plannedDeliveryDate: isoDay5,
     poStatusCode: boundedText3(20).optional(),
@@ -7371,14 +8150,14 @@ var KidItemRuntime = (() => {
   var RocketSavedPoSummarySchema = external_exports.object({
     /** 이 발주를 발행한 로켓 PO 수집 실행(Orders `orders.coupang_rocket_po`, KID-359). */
     rocketPoOperationId: external_exports.string().uuid(),
-    poNumber: requiredText3(80),
+    poNumber: requiredText4(80),
     orderedAt: boundedText3(40),
     plannedDeliveryDate: isoDay5,
     status: boundedText3(80),
     vendorId: boundedText3(120),
     centerName: boundedText3(120),
     inboundType: boundedText3(80),
-    firstProductName: requiredText3(240),
+    firstProductName: requiredText4(240),
     skuCount: external_exports.number().int().nonnegative(),
     orderQuantity: external_exports.number().int().nonnegative(),
     /** Null when any listed line has no provider-confirmed total. */
@@ -7396,7 +8175,7 @@ var KidItemRuntime = (() => {
     // 여러 수집본에 반복 등장한다(`poLineId` 는 수집본 간에 안정적). 운영자가 "이번에
     // 새로 들어온 것만" 보려면 이 집합을 빼야 한다. 행 스키마는 요청 본문으로도 쓰이므로
     // 행에 필드를 더하지 않고 별도 목록으로 내려준다.
-    exportedPoLineIds: external_exports.array(requiredText3(300)).max(ROCKET_PO_ROW_LIMIT)
+    exportedPoLineIds: external_exports.array(requiredText4(300)).max(ROCKET_PO_ROW_LIMIT)
   }).strict();
   var RocketPurchaseRequestBaseSchema = external_exports.object({
     channelAccountId: external_exports.string().uuid(),
@@ -7466,12 +8245,12 @@ var KidItemRuntime = (() => {
   var RocketShortageReasonSchema = external_exports.enum(ROCKET_SHORTAGE_REASONS);
   var RocketWorkbookDecisionRequestSchema = RocketPurchaseRequestBaseSchema.omit({ clampEditedQuantities: true }).extend({
     idempotencyKey: external_exports.string().uuid(),
-    selectedPoLineIds: external_exports.array(requiredText3(300)).min(1).max(4e3).optional(),
+    selectedPoLineIds: external_exports.array(requiredText4(300)).min(1).max(4e3).optional(),
     shortageReasons: external_exports.record(
       external_exports.string().min(1).max(300),
       RocketShortageReasonSchema
     ),
-    artifactFileName: requiredText3(240),
+    artifactFileName: requiredText4(240),
     artifactContentType: external_exports.literal(
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     )
@@ -7562,17 +8341,17 @@ var KidItemRuntime = (() => {
   }).strict();
   var RocketPurchasePreviewComponentSchema = external_exports.object({
     masterProductId: external_exports.string().uuid(),
-    code: requiredText3(120).nullable(),
-    name: requiredText3(240).nullable(),
+    code: requiredText4(120).nullable(),
+    name: requiredText4(240).nullable(),
     optionName: external_exports.string().trim().min(1).max(240).nullable(),
     quantity: external_exports.number().int().positive(),
     currentStock: external_exports.number().int().nonnegative().nullable()
   }).strict();
   var RocketPurchasePreviewRowSchema = external_exports.object({
-    poLineId: requiredText3(300),
-    poNumber: requiredText3(80),
-    productNo: requiredText3(60),
-    productName: requiredText3(240),
+    poLineId: requiredText4(300),
+    poNumber: requiredText4(80),
+    productNo: requiredText4(60),
+    productName: requiredText4(240),
     plannedDeliveryDate: isoDay5,
     orderQuantity: external_exports.number().int().nonnegative(),
     recommendedQuantity: external_exports.number().int().nonnegative().nullable(),
@@ -7604,7 +8383,7 @@ var KidItemRuntime = (() => {
     inventoryGeneration: external_exports.string().regex(/^\d+$/).nullable(),
     generatedAt: external_exports.string().datetime(),
     artifact: external_exports.object({
-      fileName: requiredText3(240),
+      fileName: requiredText4(240),
       contentType: external_exports.literal(
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
       ),
@@ -7618,7 +8397,7 @@ var KidItemRuntime = (() => {
       componentQuantity: external_exports.number().int().nonnegative()
     }).strict(),
     rows: external_exports.array(external_exports.object({
-      poLineId: requiredText3(300),
+      poLineId: requiredText4(300),
       workbookQuantity: external_exports.number().int().nonnegative(),
       shortageReason: RocketShortageReasonSchema.nullable()
     }).strict()).max(ROCKET_PO_ROW_LIMIT)
@@ -8277,12 +9056,12 @@ var KidItemRuntime = (() => {
   function listedPo(raw, status, page) {
     if (!raw || typeof raw !== "object" || Array.isArray(raw)) throw incomplete2(`\uBC1C\uC8FC \uBAA9\uB85D ${page}\uCABD\uC5D0 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC740 \uD589\uC774 \uC788\uC2B5\uB2C8\uB2E4.`);
     const row = raw;
-    const poNumber = requiredText4(row.purchaseOrderSeq, "\uBC1C\uC8FC\uC11C \uBC88\uD638");
-    const purchaseOrderStatus = requiredText4(row.purchaseOrderStatus || row.purchaseOrderStatusCode, `\uBC1C\uC8FC\uC11C ${poNumber} \uC0C1\uD0DC`).toUpperCase();
+    const poNumber = requiredText5(row.purchaseOrderSeq, "\uBC1C\uC8FC\uC11C \uBC88\uD638");
+    const purchaseOrderStatus = requiredText5(row.purchaseOrderStatus || row.purchaseOrderStatusCode, `\uBC1C\uC8FC\uC11C ${poNumber} \uC0C1\uD0DC`).toUpperCase();
     if (status && purchaseOrderStatus !== status) throw incomplete2(`\uBC1C\uC8FC\uC11C ${poNumber}\uAC00 ${status} \uC870\uD68C\uC5D0 ${purchaseOrderStatus} \uC0C1\uD0DC\uB85C \uC654\uC2B5\uB2C8\uB2E4.`);
     return {
       poNumber,
-      vendorId: requiredText4(row.vendorId, `\uBC1C\uC8FC\uC11C ${poNumber} \uACF5\uAE09\uC790 ID`),
+      vendorId: requiredText5(row.vendorId, `\uBC1C\uC8FC\uC11C ${poNumber} \uACF5\uAE09\uC790 ID`),
       purchaseOrderStatus,
       plannedDeliveryDate: requiredDate(row.expectedDeliveryDate, `\uBC1C\uC8FC\uC11C ${poNumber} \uC785\uACE0\uC608\uC815\uC77C`),
       listSkuCount: requiredInteger(row.skuCount, `\uBC1C\uC8FC\uC11C ${poNumber} SKU \uC218`),
@@ -8330,11 +9109,11 @@ var KidItemRuntime = (() => {
       skip = rowSpan - 1;
       if (!/^\d+$/.test(values[0] ?? "")) continue;
       if (values.length <= 9) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uCE78\uC774 \uBAA8\uC790\uB780 SKU \uD589\uC774 \uC788\uC2B5\uB2C8\uB2E4.`);
-      const lineNumber = requiredText4(values[0], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC904 \uBC88\uD638`);
+      const lineNumber = requiredText5(values[0], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC904 \uBC88\uD638`);
       if (lineNumbers.has(lineNumber)) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC5D0 \uAC19\uC740 \uC904 \uBC88\uD638\uAC00 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.`);
       lineNumbers.add(lineNumber);
-      const productNo = requiredText4(values[1], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488\uBC88\uD638`);
-      const productText = requiredText4(values[2], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488`);
+      const productNo = requiredText5(values[1], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488\uBC88\uD638`);
+      const productText = requiredText5(values[2], `\uBC1C\uC8FC\uC11C ${po.poNumber} \uC0C1\uD488`);
       const barcode = (/^\d{8,}/.exec(productText) ?? [""])[0];
       const productName = clean(productText, 240);
       if (!productName) throw incomplete2(`\uBC1C\uC8FC\uC11C ${po.poNumber}\uC758 \uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
@@ -8392,7 +9171,7 @@ var KidItemRuntime = (() => {
   function clean(value, max) {
     return String(value ?? "").replace(/[\u0000-\u001F]/g, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, max);
   }
-  function requiredText4(value, field) {
+  function requiredText5(value, field) {
     const text7 = norm(value);
     if (!text7) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
     return text7;
@@ -12877,7 +13656,7 @@ var KidItemRuntime = (() => {
       if (row.vendorId !== void 0 && (typeof row.vendorId !== "string" || expectedVendorId && row.vendorId !== expectedVendorId)) {
         throw new WingPayloadError(`Wing \uD310\uB9E4\uC790 ID\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4: ${externalProductId}`);
       }
-      requiredText5(row.productName, "Wing \uC0C1\uD488\uBA85");
+      requiredText6(row.productName, "Wing \uC0C1\uD488\uBA85");
       return buildCatalogBasicProduct(row);
     });
     return { page: requestedPage, pageSize, totalItems, totalPages, products };
@@ -12887,7 +13666,7 @@ var KidItemRuntime = (() => {
     const externalProductId = strictRequiredId(inventoryProduct.vendorInventoryId, "vendorInventoryId");
     const items = Array.isArray(inventoryProduct.vendorInventoryItems) ? inventoryProduct.vendorInventoryItems : [];
     if (items.length === 0) throw new WingPayloadError(`Wing \uC0C1\uD488 ${externalProductId}\uC5D0 vendorInventoryItems\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    const saleStatus = saleStatusFromWingProductStatus(requiredText5(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
+    const saleStatus = saleStatusFromWingProductStatus(requiredText6(inventoryProduct.productStatus, "Wing \uD310\uB9E4 \uC0C1\uD0DC"));
     const optionIds = /* @__PURE__ */ new Set();
     const options = items.map((item) => {
       const option = buildCatalogBasicOption(item);
@@ -13193,7 +13972,7 @@ var KidItemRuntime = (() => {
     const number3 = Number(value);
     return Number.isInteger(number3) && number3 >= 0 ? number3 : null;
   }
-  function requiredText5(value, name) {
+  function requiredText6(value, name) {
     const text7 = typeof value === "string" ? value.trim() : "";
     if (!text7) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
     return text7;

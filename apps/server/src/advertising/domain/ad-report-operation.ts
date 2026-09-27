@@ -123,7 +123,7 @@ export function completeAdReport(
   }
   // 다른 업체로 로그인한 광고센터 세션이 만든 보고서를 이 계정에 쓰지 않는다.
   if (plan.vendorId && period.vendorId && period.vendorId !== plan.vendorId) {
-    throw new KiditemConflictError('ADVERTISER_IDENTITY_MISMATCH', { details: { plannedVendorId: plan.vendorId, observedVendorId: period.vendorId } });
+    throw new KiditemConflictError('ADVERTISING_IDENTITY_MISMATCH', { details: { plannedVendorId: plan.vendorId, observedVendorId: period.vendorId } });
   }
   const productRows = chunkItems(chunks, AD_REPORT_PRODUCT_ROWS_CHUNK_KIND, AdReportProductRowSchema);
   const keywordRows = chunkItems(chunks, AD_REPORT_KEYWORD_ROWS_CHUNK_KIND, AdReportKeywordRowSchema);

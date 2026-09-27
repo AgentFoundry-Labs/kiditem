@@ -967,7 +967,7 @@
       "text": "윙 검색에서 찾지 못한 추적 상품이 있습니다. 추적 키워드를 확인한 뒤 다시 수집해 주세요.",
       "retryable": false
     },
-    "ADVERTISER_IDENTITY_MISMATCH": {
+    "ADVERTISING_IDENTITY_MISMATCH": {
       "owner": "advertising",
       "kind": "conflict",
       "httpStatus": 409,
@@ -1012,6 +1012,7 @@
   });
 
   var EXTENSION_CODE_ALIASES = deepFreeze({
+    "ADVERTISER_IDENTITY_MISMATCH": "ADVERTISING_IDENTITY_MISMATCH",
     "auth_required": "AUTH_REQUIRED",
     "insufficient_role": "FORBIDDEN",
     "no_organization_context": "NO_ORGANIZATION_CONTEXT",

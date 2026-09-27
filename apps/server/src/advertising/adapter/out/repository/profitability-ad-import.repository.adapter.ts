@@ -392,7 +392,7 @@ export class ProfitabilityAdImportRepositoryAdapter
       if (!expected) throw new UnprocessableEntityException('ADVERTISING_SLICE_NOT_PLANNED');
       const account = plan.accounts.find(({ channelAccountId }) => channelAccountId === expected.channelAccountId);
       if (!account || input.providerAdvertiserId !== account.expectedAdvertiserId) {
-        throw new UnprocessableEntityException('ADVERTISER_IDENTITY_MISMATCH');
+        throw new UnprocessableEntityException('ADVERTISING_IDENTITY_MISMATCH');
       }
       await assertAccountIdentity(this.channelAccounts, tx, input.organizationId, account);
       const receipt = await tx.channelScrapeRun.findFirst({

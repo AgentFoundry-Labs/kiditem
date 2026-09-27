@@ -52,7 +52,7 @@ export interface AdReportSite {
 
 const RUNTIME_PLAN_INVALID = 'RUNTIME_PLAN_INVALID' as const;
 /** 옛 광고 수집의 업체코드 대조 코드 그대로(`ads-report.js`·`profitability-source-owner.js`). */
-export const ADVERTISER_IDENTITY_MISMATCH = 'ADVERTISER_IDENTITY_MISMATCH' as const;
+export const ADVERTISING_IDENTITY_MISMATCH = 'ADVERTISING_IDENTITY_MISMATCH' as const;
 /** 보고서 목록을 보는 간격과 기다리는 상한(보고서 생성은 15일 창에서 약 11~16초, 문서 §13.9). */
 export const AD_REPORT_POLL_INTERVAL_MS = 5_000;
 export const AD_REPORT_POLL_LIMIT_MS = 5 * 60 * 1000;
@@ -85,7 +85,7 @@ export const adReportCollector: Collector<AdReportPlan, Record<string, unknown>,
     if (plan.vendorId !== null) {
       vendorId = await site.readVendorId();
       if (vendorId !== plan.vendorId) {
-        throw new RuntimeError(ADVERTISER_IDENTITY_MISMATCH, '광고센터 업체코드가 수집 계정과 일치하지 않습니다. 수집할 계정으로 다시 로그인한 뒤 시작해 주세요.', {
+        throw new RuntimeError(ADVERTISING_IDENTITY_MISMATCH, '광고센터 업체코드가 수집 계정과 일치하지 않습니다. 수집할 계정으로 다시 로그인한 뒤 시작해 주세요.', {
           plannedVendorId: plan.vendorId,
           observedVendorId: vendorId,
         });
