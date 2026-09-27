@@ -960,6 +960,13 @@
       "text": "윙 검색에서 찾지 못한 추적 상품이 있습니다. 추적 키워드를 확인한 뒤 다시 수집해 주세요.",
       "retryable": false
     },
+    "ADVERTISER_IDENTITY_MISMATCH": {
+      "owner": "advertising",
+      "kind": "conflict",
+      "httpStatus": 409,
+      "text": "광고센터에 다른 업체로 로그인돼 있습니다. 수집할 쿠팡 계정의 업체로 다시 로그인한 뒤 시작해 주세요.",
+      "retryable": false
+    },
     "ANALYTICS_QUERY_FAILED": {
       "owner": "analytics",
       "kind": "internal",
