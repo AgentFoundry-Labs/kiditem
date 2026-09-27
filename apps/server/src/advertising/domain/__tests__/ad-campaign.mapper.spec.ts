@@ -1,64 +1,119 @@
 import { describe, expect, it } from 'vitest';
-import { toAdKeywordSnapshot, toAdProductSnapshot, toAdTrendsData } from '../ad-campaign.mapper';
+import {
+  adCampaignIdentity,
+  campaignIdOfIdentity,
+  toAdKeywordSnapshot,
+  toAdProductSnapshot,
+  toAdTrendsData,
+} from '../ad-campaign.mapper';
 import type {
-  KeywordTargetRollup,
-  ProductTargetRollup,
-} from '../../application/port/out/repository/ad-campaign.repository.port';
+  AdKeywordWindowRollup,
+  AdProductWindowRollup,
+} from '../../application/port/out/repository/ad-ledger-read.repository.port';
+import type { ScopedAdListingReadModel } from '../../application/port/out/repository/ad-listing.repository.port';
 
-function keywordRollup(overrides: Partial<KeywordTargetRollup> = {}): KeywordTargetRollup {
+const ACCOUNT = '00000000-0000-4000-8000-000000000001';
+
+function keywordRollup(overrides: Partial<AdKeywordWindowRollup> = {}): AdKeywordWindowRollup {
   return {
-    targetKey: 'account:00000000-0000-4000-8000-000000000001:keyword:campaign:1::비눗방울',
-    channelAccountId: '00000000-0000-4000-8000-000000000001',
-    campaignIdentity: 'campaign:1',
-    campaignId: '1',
+    channelAccountId: ACCOUNT,
+    campaignId: '104640375',
     campaignName: '쿠팡윙 집중광고',
-    adGroup: 'group-1',
+    adGroupId: 'G1',
+    vendorItemId: '95514044205',
     keyword: '비눗방울',
+    nonSearch: false,
     listingId: null,
-    listingOptionId: null,
-    externalOptionId: '95514044205',
-    status: null,
-    onOff: null,
-    currentBid: null,
-    metaJson: {
-      'advertising.keyword.target': {
-        origin: 'smart_targeting',
-        productName: '캐릭터 문어발 비눗방울 1p',
-      },
-    },
-    lastObservedAt: new Date('2026-09-12T03:00:00.000Z'),
-    businessDate: new Date('2026-09-12T00:00:00.000Z'),
-    windowDays: 7,
+    optionName: '캐릭터 문어발 비눗방울 1p',
+    days: 3,
+    lastDate: '2026-09-12',
     spend: 3_000,
     revenue: 0,
     impressions: 400,
     clicks: 20,
-    conversions: 0,
     orders: 0,
-    conversionsObserved: true,
+    units: 0,
     ...overrides,
   };
 }
 
-describe('toAdKeywordSnapshot', () => {
-  it('publishes an observed zero conversion count as a measured zero CVR', () => {
-    const snapshot = toAdKeywordSnapshot(keywordRollup(), null);
+function productRollup(overrides: Partial<AdProductWindowRollup> = {}): AdProductWindowRollup {
+  return {
+    channelAccountId: ACCOUNT,
+    campaignId: '104640375',
+    campaignName: '쿠팡윙 집중광고',
+    adGroupId: 'G1',
+    vendorItemId: '95514044205',
+    listingId: 'listing-1',
+    optionName: null,
+    isActive: true,
+    status: 'APPROVED',
+    days: 2,
+    spend: 3_000,
+    billedSpend: 2_500,
+    revenue: 9_000,
+    impressions: 400,
+    clicks: 20,
+    orders: 1,
+    units: 1,
+    ...overrides,
+  };
+}
 
-    expect(snapshot.conversionsAvailable).toBe(true);
-    expect(snapshot.metrics).toMatchObject({ clicks: 20, conversions: 0, cvr: 0 });
+const listing: ScopedAdListingReadModel = {
+  id: 'listing-1',
+  externalId: '15000001',
+  channelName: '문어발 비눗방울',
+  masterProduct: { id: 'master-1', code: 'M-1', name: '마스터 비눗방울', abcGrade: 'A' },
+};
+
+describe('campaign identity round trip', () => {
+  it('issues campaign:<id> and reads back only that shape', () => {
+    expect(adCampaignIdentity('104640375')).toBe('campaign:104640375');
+    expect(campaignIdOfIdentity('campaign:104640375')).toBe('104640375');
+    expect(campaignIdOfIdentity('href:https://advertising.coupang.com/marketing/campaign/1')).toBeNull();
+    expect(campaignIdOfIdentity('campaign:')).toBeNull();
+  });
+});
+
+describe('toAdProductSnapshot', () => {
+  it('publishes delivered spend and orders, the catalog listing number, and no product URL', () => {
+    const snapshot = toAdProductSnapshot(productRollup(), listing, '7d');
+    expect(snapshot).toMatchObject({
+      campaignIdentity: 'campaign:104640375',
+      externalId: '15000001',
+      externalOptionId: '95514044205',
+      productName: '문어발 비눗방울',
+      onOff: 'ON',
+      productUrl: null,
+      imageUrl: null,
+      metrics: { spend: 3_000, conversions: 1, cvr: 5 },
+    });
   });
 
-  it('marks an unobserved conversion column unavailable and publishes no CVR', () => {
-    // The keyword table lacked the conversion column; ingest stored 0.
-    const snapshot = toAdKeywordSnapshot(
-      keywordRollup({ conversionsObserved: false }),
-      null,
-    );
+  it('names the product by its report option first and leaves the listing number empty without a listing', () => {
+    const snapshot = toAdProductSnapshot(productRollup({ optionName: '파랑 1개', isActive: null }), null, '7d');
+    expect(snapshot).toMatchObject({ productName: '파랑 1개', externalId: null, onOff: null, listing: null });
+  });
+});
 
-    expect(snapshot.conversionsAvailable).toBe(false);
-    expect(snapshot.metrics.cvr).toBeNull();
-    // Measured additive metrics stay published.
-    expect(snapshot.metrics).toMatchObject({ spend: 3_000, impressions: 400, clicks: 20 });
+describe('toAdKeywordSnapshot', () => {
+  it('publishes the period, the measured days it had rows on and orders as conversions', () => {
+    const snapshot = toAdKeywordSnapshot(keywordRollup(), null, null, '14d');
+    expect(snapshot).toMatchObject({
+      period: '14d',
+      windowDays: 3,
+      businessDate: '2026-09-12',
+      nonSearch: false,
+      adGroup: 'G1',
+      productName: '캐릭터 문어발 비눗방울 1p',
+      metrics: { clicks: 20, conversions: 0, cvr: 0 },
+    });
+  });
+
+  it('marks the non-search row', () => {
+    expect(toAdKeywordSnapshot(keywordRollup({ keyword: '', nonSearch: true }), null, null, '7d'))
+      .toMatchObject({ keyword: '', nonSearch: true });
   });
 });
 
@@ -74,14 +129,12 @@ describe('toAdTrendsData', () => {
     revenue: spend * 3,
     impressions: 100,
     clicks: 10,
-    conversions: 1,
     orders: 1,
-    conversionsObserved: true,
   });
 
   // ADR-0006: the summary carries facts only. A reader that wants to name
   // "nothing measured" reads `periodDayCount === 0`.
-  it('publishes a window the sweep never measured as zero measured days and no source word', () => {
+  it('publishes a window no ad report measured as zero measured days and no source word', () => {
     const trends = toAdTrendsData({ ...window, days: [], observedAt: null });
 
     expect(trends.summary).toEqual({
@@ -93,84 +146,21 @@ describe('toAdTrendsData', () => {
     });
   });
 
-  it('publishes measured days with their count and no source word', () => {
+  it('publishes measured days with their count, holes for the rest, and orders as conversions', () => {
     const trends = toAdTrendsData({
       ...window,
       days: [day('2026-09-10', 1_000), day('2026-09-12', 500)],
       observedAt: new Date('2026-09-13T00:00:00.000Z'),
     });
 
+    expect(trends.daily[1]).toEqual({ date: '2026-09-11', metrics: null, orders: null });
     expect(trends.summary).not.toHaveProperty('source');
     expect(trends.summary).toMatchObject({
       periodDayCount: 2,
       latestBusinessDate: '2026-09-12',
       observedAt: '2026-09-13T00:00:00.000Z',
-      metrics: { spend: 1_500, revenue: 4_500 },
+      metrics: { spend: 1_500, revenue: 4_500, conversions: 2, cvr: 10 },
       orders: 2,
-    });
-  });
-});
-
-function productRollup(overrides: Partial<ProductTargetRollup> = {}): ProductTargetRollup {
-  return {
-    targetKey: 'account:00000000-0000-4000-8000-000000000001:product:campaign:1::95514044205',
-    channelAccountId: '00000000-0000-4000-8000-000000000001',
-    campaignIdentity: 'campaign:1',
-    campaignId: '1',
-    campaignName: '쿠팡윙 집중광고',
-    listingId: null,
-    listingOptionId: null,
-    externalId: null,
-    externalOptionId: '95514044205',
-    keyword: null,
-    status: null,
-    onOff: null,
-    metaJson: null,
-    spend: 3_000,
-    revenue: 9_000,
-    impressions: 400,
-    clicks: 20,
-    conversions: 1,
-    orders: 1,
-    ...overrides,
-  };
-}
-
-// Since #493 ingest writes target descriptors as `{ source, data }`;
-// `keywordRollup` above still carries the older namespaced key.
-describe('ledger meta descriptors', () => {
-  it('reads an advertised product name, image, link and sale type from the meta data', () => {
-    const snapshot = toAdProductSnapshot(productRollup({
-      metaJson: {
-        source: 'advertising.campaign.target',
-        data: {
-          productName: '캐릭터 문어발 비눗방울 1p',
-          imageUrl: 'https://image.example.com/bubble.jpg',
-          productUrl: 'https://www.coupang.com/vp/products/1',
-          saleType: '판매자배송',
-        },
-      },
-    }), null, '7d');
-
-    expect(snapshot).toMatchObject({
-      productName: '캐릭터 문어발 비눗방울 1p',
-      imageUrl: 'https://image.example.com/bubble.jpg',
-      productUrl: 'https://www.coupang.com/vp/products/1',
-      saleType: '판매자배송',
-    });
-  });
-
-  it('reads a keyword product name and origin from the meta data', () => {
-    const snapshot = toAdKeywordSnapshot(keywordRollup({
-      metaJson: {
-        source: 'advertising.keyword.target',
-        data: { origin: 'registered', productName: '캐릭터 문어발 비눗방울 1p' },
-      },
-    }), null);
-
-    expect(snapshot).toMatchObject({
-      productName: '캐릭터 문어발 비눗방울 1p',
-      origin: 'registered',
     });
   });
 });

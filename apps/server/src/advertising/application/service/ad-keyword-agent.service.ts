@@ -24,7 +24,6 @@ import {
   type KeywordProductBatch,
   type KeywordRelevanceVerdict,
 } from '../../domain/ad-keyword-relevance';
-import { normalizeAdKeywordOrigin } from '../../domain/ad-keyword';
 import {
   AD_ACTION_REPOSITORY_PORT,
   type AdActionRepositoryPort,
@@ -200,13 +199,6 @@ function toJudgementSource(row: LatestTargetRow): KeywordJudgementSource {
     // ads, so this is set only when the keyword names exactly one product.
     externalOptionId: row.externalOptionId,
     listingId: row.listingId,
-    // `LatestTargetRow` carries no metaJson; a provider audit status is only
-    // present on keywords the advertiser registered.
-    origin: normalizeAdKeywordOrigin(
-      typeof row.status === 'string' && row.status.trim().length > 0
-        ? 'registered'
-        : 'smart_targeting',
-    ),
     impressions: row.impressions,
     clicks: row.clicks,
     spend: row.spend,

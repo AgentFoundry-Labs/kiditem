@@ -76,8 +76,7 @@ export class AdBudgetAllocatorService {
         const revenue = ag?.revenue ?? 0;
         const impressions = ag?.impressions ?? 0;
         const clicks = ag?.clicks ?? 0;
-        // `null` when the listing's rows never observed a conversion column;
-        // a listing without ad rows on measured dates converted nothing.
+        // A listing without ad rows on measured dates converted nothing.
         const conversions = ag ? ag.conversions : 0;
         // Listing has no signal at all — drop it.
         if (
@@ -90,7 +89,7 @@ export class AdBudgetAllocatorService {
         }
         const ctr = impressions > 0 ? Math.round((clicks / impressions) * 10000) / 100 : null;
         const roas = spend > 0 ? Math.round((revenue / spend) * 10000) / 100 : null;
-        const cvr = conversions !== null && clicks > 0
+        const cvr = clicks > 0
           ? Math.round((conversions / clicks) * 10000) / 100
           : null;
         return {

@@ -89,7 +89,7 @@ export class AdGradeRulesService {
         });
       }
 
-      if (clicks >= 50 && conversions !== null && conversions === 0 && spend > 0) {
+      if (clicks >= 50 && conversions === 0 && spend > 0) {
         recs.push({
           rule: 'C-5 전환0 조기손절',
           reason: `클릭 ${clicks}회, 전환 0 — 키워드 OFF 또는 캠페인 중단 (광고비 ${Math.round(spend).toLocaleString()}원 낭비)`,
@@ -258,7 +258,7 @@ export class AdGradeRulesService {
       const grade = gradeMap.get(listing.id) ?? normalizeGrade(listing.masterProduct.abcGrade);
       const summary = hydratedListingToSummary(listing);
 
-      if (spend > 0 && conversions !== null && conversions === 0) {
+      if (spend > 0 && conversions === 0) {
         zeroConversion.push({
           listing: summary,
           grade,

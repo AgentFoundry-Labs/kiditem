@@ -17,7 +17,6 @@ function source(
     campaignName: '쿠팡윙 집중광고',
     externalOptionId: '95514044205',
     listingId: 'listing-1',
-    origin: 'smart_targeting',
     impressions: 10,
     clicks: 1,
     spend: 500,

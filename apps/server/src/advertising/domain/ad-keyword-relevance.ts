@@ -40,7 +40,6 @@ export interface KeywordJudgementItem {
   /** Stable handle the model echoes back. Never a database id. */
   ref: string;
   keyword: string;
-  origin: 'registered' | 'smart_targeting';
   impressions: number;
   clicks: number;
   spend: number;
@@ -63,7 +62,6 @@ export interface KeywordJudgementSource {
   campaignName: string | null;
   externalOptionId: string | null;
   listingId: string | null;
-  origin: 'registered' | 'smart_targeting';
   impressions: number;
   clicks: number;
   spend: number;
@@ -153,7 +151,6 @@ export function buildKeywordProductBatches(
       return {
         ref,
         keyword: source.keyword,
-        origin: source.origin,
         impressions: source.impressions,
         clicks: source.clicks,
         spend: source.spend,
@@ -340,7 +337,6 @@ export function toKeywordPauseCandidates(
         productName: source.productName,
         campaignName: source.campaignName,
         externalOptionId: source.externalOptionId,
-        origin: source.origin,
         relevance: 'irrelevant',
         relevanceReason: reason,
         evidence: {

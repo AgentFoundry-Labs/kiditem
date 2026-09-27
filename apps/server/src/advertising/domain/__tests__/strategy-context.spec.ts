@@ -151,13 +151,13 @@ describe('domain/strategy-context — pure transforms', () => {
     expect(strict.has('L2')).toBe(false);
   });
 
-  it('toAdAggregateRows maps per-listing measured facts and publishes an unobserved conversion column as null', () => {
+  it('toAdAggregateRows maps per-listing measured facts with delivered spend and orders as conversions', () => {
     expect(toAdAggregateRows([
-      { listingId: 'L1', spend: 100, revenue: 500, clicks: 10, impressions: 1000, conversions: 1, conversionsObserved: true },
-      { listingId: 'L2', spend: 100, revenue: 500, clicks: 10, impressions: 1000, conversions: 0, conversionsObserved: false },
+      { listingId: 'L1', spend: 100, revenue: 500, clicks: 10, impressions: 1000, orders: 1 },
+      { listingId: 'L2', spend: 100, revenue: 500, clicks: 10, impressions: 1000, orders: 0 },
     ])).toEqual([
       { listingId: 'L1', spend: 100, revenue: 500, clicks: 10, impressions: 1000, conversions: 1 },
-      { listingId: 'L2', spend: 100, revenue: 500, clicks: 10, impressions: 1000, conversions: null },
+      { listingId: 'L2', spend: 100, revenue: 500, clicks: 10, impressions: 1000, conversions: 0 },
     ]);
   });
 

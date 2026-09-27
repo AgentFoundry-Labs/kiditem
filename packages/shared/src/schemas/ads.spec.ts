@@ -47,8 +47,10 @@ describe('advertising campaign identity contracts', () => {
       metricsAvailable: true,
       status: null,
       onOff: null,
+      isActive: true,
+      budget: null,
+      roasTarget: null,
       period: '7d',
-      conversionsAvailable: false,
       metrics,
     })).toThrow();
 
@@ -61,10 +63,12 @@ describe('advertising campaign identity contracts', () => {
       metricsAvailable: true,
       status: '운영중',
       onOff: 'ON',
+      isActive: true,
+      budget: 50_000,
+      roasTarget: 400,
       period: '7d',
-      conversionsAvailable: false,
       metrics,
-    })).toMatchObject({ campaignIdentity: expect.any(String) });
+    })).toMatchObject({ campaignIdentity: expect.any(String), budget: 50_000, roasTarget: 400 });
   });
 
   it('makes metadata-only campaign metrics explicitly unavailable', () => {
@@ -77,8 +81,10 @@ describe('advertising campaign identity contracts', () => {
       metricsAvailable: false,
       status: '일시정지',
       onOff: 'OFF',
+      isActive: false,
+      budget: null,
+      roasTarget: null,
       period: '14d',
-      conversionsAvailable: false,
       metrics: {
         spend: 0,
         impressions: 0,
@@ -129,7 +135,7 @@ describe('AdExtensionReplayIdempotencyKeySchema', () => {
   });
 });
 
-describe('keyword conversion availability', () => {
+describe('keyword rows over the chosen period (KID-372)', () => {
   const metrics = {
     spend: 3_000,
     impressions: 400,
@@ -138,7 +144,7 @@ describe('keyword conversion availability', () => {
     revenue: 0,
     ctr: 5,
     roas: 0,
-    cvr: null,
+    cvr: 0,
   };
   const keyword = {
     channelAccountId: '00000000-0000-4000-8000-000000000001',
@@ -147,15 +153,14 @@ describe('keyword conversion availability', () => {
     campaignName: '캠페인',
     adGroup: 'group-1',
     keyword: '비눗방울',
-    origin: 'smart_targeting',
+    nonSearch: false,
     status: null,
     onOff: null,
-    currentBid: null,
     externalOptionId: '95514044205',
     productName: '비눗방울 세트',
     listing: null,
-    period: '7d',
-    windowDays: 7,
+    period: '14d',
+    windowDays: 12,
     businessDate: '2026-09-12',
     metrics,
     relevance: null,
@@ -170,7 +175,7 @@ describe('keyword conversion availability', () => {
       executeStatus: 'failed',
       errorMessage: '실행 기한 초과',
     };
-    const row = { ...keyword, conversionsAvailable: true, pauseProposal: proposal };
+    const row = { ...keyword, pauseProposal: proposal };
 
     expect(AdKeywordSnapshotSchema.parse(row).pauseProposal).toEqual(proposal);
     expect(AdKeywordSnapshotSchema.parse({ ...row, pauseProposal: null }).pauseProposal).toBeNull();
@@ -181,31 +186,23 @@ describe('keyword conversion availability', () => {
     }).success).toBe(false);
   });
 
-  it('requires keyword snapshots to say whether the conversion count was collected', () => {
-    // A stored 0 from a table without the conversion column is not a count.
-    expect(AdKeywordSnapshotSchema.safeParse(keyword).success).toBe(false);
-    expect(AdKeywordSnapshotSchema.parse({ ...keyword, conversionsAvailable: false }))
-      .toMatchObject({ conversionsAvailable: false, metrics: { cvr: null } });
+  it('keeps the chosen period and its measured-day count, and marks the non-search row', () => {
+    expect(AdKeywordSnapshotSchema.parse(keyword)).toMatchObject({ period: '14d', windowDays: 12, nonSearch: false });
+    expect(AdKeywordSnapshotSchema.parse({ ...keyword, keyword: '', nonSearch: true })).toMatchObject({ keyword: '', nonSearch: true });
+    expect(AdKeywordSnapshotSchema.safeParse({ ...keyword, nonSearch: undefined }).success).toBe(false);
   });
 
-  it('requires the keyword product summary to carry the same availability', () => {
-    const summary = {
-      externalOptionId: '95514044205',
-      productName: '비눗방울 세트',
-      campaignId: '1',
-      campaignName: '캠페인',
-      listing: null,
-      keywordCount: 1,
-      registeredCount: 0,
-      smartTargetingCount: 1,
-      servingCount: 1,
-      irrelevantCount: 0,
-      unjudgedCount: 1,
-      metrics,
-    };
-    expect(AdKeywordProductSummarySchema.safeParse(summary).success).toBe(false);
-    expect(AdKeywordProductSummarySchema.parse({ ...summary, conversionsAvailable: true }))
-      .toMatchObject({ conversionsAvailable: true });
+  it('drops bid, registration origin and conversion-availability fields', () => {
+    const keys = Object.keys(AdKeywordSnapshotSchema.shape);
+    for (const removed of ['origin', 'currentBid', 'conversionsAvailable']) expect(keys).not.toContain(removed);
+    const summaryKeys = Object.keys(AdKeywordProductSummarySchema.shape);
+    for (const removed of ['registeredCount', 'smartTargetingCount', 'conversionsAvailable']) expect(summaryKeys).not.toContain(removed);
+    expect(Object.keys(AdCampaignSnapshotSchema.shape)).not.toContain('conversionsAvailable');
+    expect('AdKeywordOriginSchema' in adsContract).toBe(false);
+  });
+
+  it('measured metrics always carry a conversion count (orders)', () => {
+    expect(adsContract.AdMeasuredMetricsSchema.safeParse({ ...metrics, conversions: null }).success).toBe(false);
   });
 });
 

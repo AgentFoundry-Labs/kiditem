@@ -1,10 +1,10 @@
-import { cleanString, readProviderMetric, toNumberOrNull } from '../../domain/scrape-row-normalizers';
+import { cleanString, readProviderMetric } from '../../domain/scrape-row-normalizers';
 import {
   buildAdTargetKey,
   campaignIdFromCanonicalIdentity,
   canonicalCampaignIdentity,
 } from '../../domain/util/ad-target-key';
-import { normalizeAdKeywordOrigin, normalizeAdKeyword } from '../../domain/ad-keyword';
+import { normalizeAdKeyword } from '../../domain/ad-keyword';
 import type { ListingMap } from '../../domain/listing-match';
 import type { UpsertAdTargetDailyInput } from '../port/out/repository/channel-target-daily.repository.port';
 
@@ -80,12 +80,10 @@ export function normalizeAdKeywordTarget(
     keyword,
     status: cleanString(row.status),
     onOff: cleanString(row.onOff),
-    currentBid: toNumberOrNull(row.currentBid),
     rawSnapshotId,
     metaJson: {
       source: 'advertising.keyword.target',
       data: {
-        origin: normalizeAdKeywordOrigin(row.origin),
         // Width of the observation window these metrics cover. The
         // read side needs it to avoid treating them as one day.
         windowDays,

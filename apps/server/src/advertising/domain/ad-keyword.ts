@@ -14,8 +14,6 @@
 // domain boundary rather than filtered at each read site. Real keyword values
 // arrive from the per-ad keyword table (`ad_keyword`), never from that column.
 
-import type { AdKeywordOrigin } from '@kiditem/shared/advertising';
-
 /**
  * UI control labels that appear in a keyword-shaped cell but carry no keyword.
  * Matched after whitespace collapsing, case-insensitively.
@@ -55,14 +53,4 @@ export function isAdKeywordControlLabel(value: unknown): boolean {
     KEYWORD_CONTROL_LABELS.has(collapsed) ||
     KEYWORD_CONTROL_LABELS.has(collapsed.toLowerCase())
   );
-}
-
-/**
- * How the keyword became attached to the ad.
- *
- * Unknown values fall back to `smart_targeting`: a keyword the collector could
- * not prove was registered is, by definition, one Coupang matched on its own.
- */
-export function normalizeAdKeywordOrigin(value: unknown): AdKeywordOrigin {
-  return value === 'registered' ? 'registered' : 'smart_targeting';
 }

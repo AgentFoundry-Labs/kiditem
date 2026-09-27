@@ -1,7 +1,7 @@
 import { Inject, Injectable } from '@nestjs/common';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../channels/application/port/in/account/channel-account.port';
 import type { OwnerTransaction } from '../../../common/owner-transaction';
-import { AD_SWEEP_ACCOUNT_STATUS, AD_SWEEP_CHANNEL } from '../../domain/ad-sweep-coverage';
+import { activeAdAccountIds, AD_SWEEP_CHANNEL } from '../../domain/ad-sweep-coverage';
 import type {
   AdCalendarWindow,
   AdCoverage,
@@ -25,7 +25,7 @@ export class AdvertisingLedgerReadService implements AdvertisingLedgerReadPort {
 
   private async activeAccountIds(transaction: OwnerTransaction, organizationId: string): Promise<string[]> {
     const identities = await this.accounts.readProviderIdentities(transaction, { organizationId, channel: AD_SWEEP_CHANNEL });
-    return identities.filter((account) => account.status === AD_SWEEP_ACCOUNT_STATUS).map((account) => account.id);
+    return activeAdAccountIds(identities);
   }
 
   async advertisingApplies(transaction: OwnerTransaction, organizationId: string): Promise<boolean> {

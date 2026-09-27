@@ -16,8 +16,6 @@ import { AdCampaignSourceStatusSchema } from '@kiditem/shared/advertising';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import { AdCampaignSourceController } from '../adapter/in/http/ad-campaign-source.controller';
 import { AdCampaignSourceRepository } from '../adapter/out/repository/ad-campaign-source.repository';
-import { AdCampaignRepositoryAdapter } from '../adapter/out/repository/ad-campaign.repository.adapter';
-import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.repository.adapter';
 import { readAdWindowFacts } from '../adapter/out/persistence/read/ad-target-facts';
 import { businessDateKey, evidenceCutoffDate } from '../../common/kst';
 import type { PrismaClient } from '@prisma/client';
@@ -758,7 +756,7 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     ).resolves.toMatchObject({ status: 400 });
   });
 
-  it('keeps sweep campaign/action consumers authoritative while exact 7d reads select the latest successful manual report', async () => {
+  it('exact 7d reads select the latest successful manual report beside a completed sweep', async () => {
     vi.useFakeTimers({ toFake: ['Date'] });
     vi.setSystemTime(new Date('2026-09-06T14:59:00.000Z'));
 
@@ -882,12 +880,6 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     ).expect(200);
     await finish(firstManual, 201);
 
-    const campaignReader = new AdCampaignRepositoryAdapter(prisma as never, profitCatalogTestReaders(prisma as never).accounts);
-    const actionReader = new AdActionRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes, prisma as never, {} as never, profitCatalogTestReaders(prisma as never).accounts);
-    expect((await campaignReader.findCampaignSnapshot(ORG, '7d')).rollups).toMatchObject([
-      { spend: 77 },
-    ]);
-    expect((await actionReader.findLatestTargetRows(ORG)).map((row) => row.spend)).toContain(77);
     expect((await get('/reports?startDate=2026-08-30&endDate=2026-09-05')).body.reports).toMatchObject([
       { attemptId: firstManual.attemptId, payload: { data: [{ raw: 'displayed-range' }] } },
     ]);
@@ -923,10 +915,6 @@ describe('Ad campaign source incoming HTTP + disposable PostgreSQL', () => {
     expect((await get('/reports?startDate=2026-08-30&endDate=2026-09-05')).body.reports).toMatchObject([
       { attemptId: emptyManual.attemptId, payload: { data: [] } },
     ]);
-    expect((await campaignReader.findCampaignSnapshot(ORG, '7d')).rollups).toMatchObject([
-      { spend: 77 },
-    ]);
-    expect((await actionReader.findLatestTargetRows(ORG)).map((row) => row.spend)).toContain(77);
   });
 
   const manualReportBegin = {

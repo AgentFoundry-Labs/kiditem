@@ -75,11 +75,8 @@ export interface AdAggregateRow {
   spend: number;
   impressions: number;
   clicks: number;
-  /**
-   * `null` when a contributing ledger row's provider grid had no conversion
-   * column. The ledger stores 0 there, which is not a measured zero.
-   */
-  conversions: number | null;
+  /** The ad report's orders over the measured days. */
+  conversions: number;
   revenue: number;
 }
 

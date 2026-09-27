@@ -13,7 +13,6 @@ import {
   TEST_ORGANIZATION_ID as ORG,
 } from '../../test-helpers/real-prisma';
 import { AdActionRepositoryAdapter } from '../adapter/out/repository/ad-action.repository.adapter';
-import { AdCampaignRepositoryAdapter } from '../adapter/out/repository/ad-campaign.repository.adapter';
 import { AdListingRepositoryAdapter } from '../adapter/out/repository/ad-listing.repository.adapter';
 import { AdStrategyContextRepositoryAdapter } from '../adapter/out/repository/ad-strategy-context.repository.adapter';
 import { KeywordRankRepositoryAdapter } from '../adapter/out/repository/keyword-rank.repository.adapter';
@@ -188,7 +187,6 @@ describe('Advertising published product ABC consumers (PostgreSQL)', () => {
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter(),
     );
-    const campaignReader = new AdCampaignRepositoryAdapter(prisma as never, profitCatalogTestReaders(prisma as never).accounts);
     const keywordReader = new KeywordRankRepositoryAdapter(channelFactTestPorts(prisma as never).listings, channelFactTestPorts(prisma as never).recipes,
       prisma as never,
       new ProductTransactionalReadRepositoryAdapter(),

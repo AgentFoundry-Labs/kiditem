@@ -64,9 +64,9 @@ export type MockAdCampaignRepo = {
 
 export function buildMockAdCampaignRepo(): MockAdCampaignRepo {
   return {
-    findCampaignSnapshot: vi.fn(),
-    findProductTargetRollups: vi.fn(),
-    findKeywordTargetRollups: vi.fn(),
+    findCampaignRollups: vi.fn(),
+    findProductRollups: vi.fn(),
+    findKeywordRollups: vi.fn(),
     findAdWindowDays: vi.fn(),
   };
 }

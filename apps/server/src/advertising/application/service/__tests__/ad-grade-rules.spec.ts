@@ -199,22 +199,8 @@ describe('AdGradeRulesService.calcActions', () => {
     });
   });
 
-  describe('전환 컬럼 관측 근거', () => {
-    it('전환 컬럼 미관측이면 C-5 안 냄', () => {
-      // The campaign dashboard grid has no conversion-count column; the ledger
-      // stores 0 there with an unobserved marker, which the reader publishes
-      // as `conversions: null`.
-      const input = buildInput(
-        [adGroup({ spend: 8000, revenue: 20000, clicks: 80, conversions: null })],
-        [listingBase()],
-        'B',
-      );
-      const reasons = service.calcActions(input).map((action) => action.reason);
-      expect(reasons.join(' ')).not.toContain('전환 0');
-      expect(service.calcActions(input).some((action) => action.priority === 'urgent')).toBe(false);
-    });
-
-    it('관측된 전환 0 은 C-5 조기손절을 낸다', () => {
+  describe('전환 0 (주문수 0)', () => {
+    it('측정한 전환 0 은 C-5 조기손절을 낸다', () => {
       const input = buildInput(
         [adGroup({ spend: 8000, revenue: 20000, clicks: 80, conversions: 0 })],
         [listingBase()],
@@ -488,17 +474,6 @@ describe('AdGradeRulesService.calcAdIssues', () => {
     expect(result.zeroConversion).toHaveLength(1);
     expect(result.zeroConversion[0].actionType).toBe('stop');
     expect(result.zeroConversion[0].priority).toBe('urgent');
-  });
-
-  it('zeroConversion: an unobserved conversion column is not a zero-conversion issue', () => {
-    const input: AdIssuesInput = {
-      adGroups: [
-        { listingId: 'L1', spend: 5000, impressions: 1000, clicks: 50, conversions: null, revenue: 9000 },
-      ],
-      listings: [listingBase()],
-      gradeMap: new Map([['L1', 'A']]),
-    };
-    expect(service.calcAdIssues(input).zeroConversion).toHaveLength(0);
   });
 
   it('lowRoas: spend>0 + revenue>0 + roas<100 → high / decrease', () => {

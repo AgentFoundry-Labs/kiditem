@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest';
 import {
   isAdKeywordControlLabel,
   normalizeAdKeyword,
-  normalizeAdKeywordOrigin,
 } from '../ad-keyword';
 
 describe('normalizeAdKeyword', () => {
@@ -47,20 +46,5 @@ describe('isAdKeywordControlLabel', () => {
     expect(isAdKeywordControlLabel('키워드보기')).toBe(true);
     expect(isAdKeywordControlLabel('버블문어')).toBe(false);
     expect(isAdKeywordControlLabel(null)).toBe(false);
-  });
-});
-
-describe('normalizeAdKeywordOrigin', () => {
-  it('only trusts an explicit registered marker', () => {
-    expect(normalizeAdKeywordOrigin('registered')).toBe('registered');
-  });
-
-  it('defaults unknown values to smart targeting', () => {
-    // A keyword the collector could not prove was registered is one Coupang
-    // matched on its own.
-    expect(normalizeAdKeywordOrigin('smart_targeting')).toBe('smart_targeting');
-    expect(normalizeAdKeywordOrigin(undefined)).toBe('smart_targeting');
-    expect(normalizeAdKeywordOrigin('REGISTERED')).toBe('smart_targeting');
-    expect(normalizeAdKeywordOrigin(true)).toBe('smart_targeting');
   });
 });
