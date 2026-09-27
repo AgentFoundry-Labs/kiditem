@@ -273,7 +273,7 @@ function makeGsshopPage({
   return { window, document, schemas, get, log, nativeAlert, nativeConfirm };
 }
 
-async function runGsshopFill(page: any, payloadOverrides = {}) {
+async function runGsshopFill(page: any, payloadOverrides: Record<string, unknown> = {}): Promise<any> {
   for (const source of [guardSource, fillSource, gsshopSource.replace(/\bimport\(/g, '__importModule(')]) page.window.eval(source);
   const fill = page.window.__kiditemPageCalls['gsshop.fill'];
   // 몰 화면의 기다림을 가짜 시계로 바로 지나가게 한다 — 창의 Date도 가짜 시계를 쓴다.
