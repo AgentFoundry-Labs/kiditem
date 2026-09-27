@@ -96,6 +96,9 @@ function loginTab(options: {
     async close() {
       log.push('close');
     },
+    async leave() {
+      log.push('leave');
+    },
   };
   const deps = {
     now: () => clock.now,

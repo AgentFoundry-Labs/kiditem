@@ -69,5 +69,17 @@ visible이다(실기기 R1). 서비스워커가 다시 뜨면 입구가 `sweepDi
 업체코드는 탭 화면의 "업체코드" 항목을
 파일 주입(`content/ad-center/vendor-code.js`, 읽기만)으로 읽는다.
 
+몰 쓰기(KID-256, `channels.registration`·`channels.mall_availability_read`): 몰마다 `sites/<mall>/registration.ts`(등록 폼 명세나
+전용 흐름 — 페이지 쪽은 `content/page-call/form-fill.js`와 전용 몰 `<mall>-register.js`)와 `sites/<mall>/availability.ts`(품절·재개·
+가격·지금 상태 — 페이지 쪽은 `content/page-call/mall-availability*.js`)를 몰 키로 등록하고, 라우터 사이트 `sites/mall-write`가 plan의
+몰 키로 찾는다. [등록]을 누를지는 관문 한 곳 `sites/mall-write/submit-gate.ts`만 정한다 — plan `submit`, 검증된 누르기(Wing만),
+경고·수동 단계 없음 셋이 다 맞을 때만([ADR-0019](../../docs/adr/0019-mall-registrations-submit-all-the-way.md)). 채운 쓰기 탭은 성공해도
+운영자에게 남긴다(`TabPage.leave`). 쓰기 탭의 `confirm`은 거절하고 문장만 모은다(가드 write 모드). 몰의 `alert`·`confirm`은
+바꿔 끼우지 않는다 — 예외 둘은 채우는 동안만 바꾸고 되돌린다: 롯데ON 화면 알림 함수(`com.alert`·`com.confirm`, DOM 대화상자라 가드가
+닿지 않는다, `lotte-on-register.js`)와 도매꾹 작성하기 에디터 팝업 창의 `alert`(가드가 없는 새 창, `form-fill.js` `driveDetailEditor`).
+채우는 동안 허용된 몰 쓰기는 사진·상세 파일을 그 몰의 업로드 엔드포인트에 올리는 POST뿐이다(에디터 사진 버튼·업로드 창이 쓰는 곳 —
+상품을 만들거나 저장하지 않는다). 품절·재개는 보낸 뒤 몰을 다시 읽은 것만 리스팅마다 증거로 싣는다(옵션 단위 몰은 `observedOptions`, 리스팅 단위 몰은
+`observedStatus`). 대표이미지(`sites/wing/thumbnail.ts`)는 올리기만 하고 [저장]은 운영자가 누른다.
+
 새 수집은 collectors/sites에만 추가하고, 서버 통신은 operation client만 쓴다. 등록은 `entry/index.ts`의
 import 한 줄씩(수집기 하나, 사이트 하나)이다.

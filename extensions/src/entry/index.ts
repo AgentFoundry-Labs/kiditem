@@ -9,6 +9,8 @@ import '../collectors/advertising.wing_traffic';
 import '../collectors/analytics.sellpia_product_profitability';
 import '../collectors/analytics.sellpia_sales';
 import '../collectors/channels.mall_admin_listings';
+import '../collectors/channels.mall_availability_read';
+import '../collectors/channels.registration';
 import '../collectors/channels.sabangnet_mall_listings';
 import '../collectors/channels.sellpia_manual_match';
 import '../collectors/channels.wing_catalog_details';
@@ -28,54 +30,92 @@ import '../collectors/sourcing.tiktok_creative';
 import '../collectors/sourcing.trend_1688';
 import '../collectors/sourcing.wing_catalog';
 import '../collectors/test.echo';
+import '../sites/11st/availability';
 import '../sites/11st/listings';
+import '../sites/11st/registration';
 import '../sites/1688';
 import '../sites/ad-center';
 import '../sites/always';
+import '../sites/always/availability';
+import '../sites/always/registration';
 import '../sites/art09';
+import '../sites/art09/availability';
+import '../sites/art09/registration';
+import '../sites/auction/availability';
 import '../sites/auction/listings';
 import '../sites/boribori';
+import '../sites/boribori/registration';
 import '../sites/coupang-product';
 import '../sites/coupang-search';
 import '../sites/coupang-shop';
 import '../sites/coupang-supplier';
 import '../sites/domeggook';
+import '../sites/domeggook/availability';
+import '../sites/domeggook/registration';
+import '../sites/gmarket/availability';
 import '../sites/gmarket/listings';
+import '../sites/gmarket/registration';
 import '../sites/gs-shop';
+import '../sites/gs-shop/registration';
 import '../sites/haebub-mall';
 import '../sites/icecream-mall';
+import '../sites/icecream-mall/availability';
+import '../sites/icecream-mall/registration';
 import '../sites/kakao/listings';
+import '../sites/kakao/availability';
+import '../sites/kakao/registration';
 import '../sites/kidkids';
+import '../sites/kidkids/availability';
+import '../sites/kidkids/registration';
 import '../sites/kidsnote';
+import '../sites/kidsnote/availability';
+import '../sites/kidsnote/registration';
 import '../sites/kkomangse';
+import '../sites/kkomangse/availability';
+import '../sites/kkomangse/registration';
 import '../sites/live-commerce';
 import '../sites/lotte-on';
+import '../sites/lotte-on/availability';
+import '../sites/lotte-on/registration';
 import '../sites/mall-admin-listings';
 import '../sites/mall-orders';
+import '../sites/mall-write';
 import '../sites/onch';
+import '../sites/onch/availability';
+import '../sites/onch/registration';
 import '../sites/product-page';
 import '../sites/sabangnet';
 import '../sites/sellpia';
+import '../sites/smartstore/availability';
 import '../sites/smartstore/listings';
+import '../sites/smartstore/registration';
+import '../sites/ssg/registration';
 import '../sites/teacher-mall';
+import '../sites/teacher-mall/availability';
+import '../sites/teacher-mall/registration';
+import '../sites/thirtymall/availability';
 import '../sites/thirtymall/listings';
+import '../sites/thirtymall/registration';
 import '../sites/tiktok-cc';
 import '../sites/wing';
+import '../sites/wing/availability';
+import '../sites/wing/registration';
+import '../sites/wing/thumbnail';
 import '../sites/wing/itemwinner';
 import '../sites/wing/pre-matching-search';
 import '../sites/wing/reviews';
 import '../sites/wing/traffic';
 import { ADVERTISING_AD_REPORT_OPERATION_CAPABILITY } from '@kiditem/shared/advertising-operations';
-import { CHANNELS_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
+import { CHANNELS_OPERATION_CAPABILITY, CHANNELS_REGISTRATION_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
 import { SELLPIA_OPERATION_CAPABILITY } from '@kiditem/shared/sellpia-operations';
 import { createBrowserResources } from '../core/browser';
-import { createTabPages, installDialogGuardAnswer, sweepDialogGuards } from '../sites/tab-page';
+import { createTabPages, installDialogGuardAnswer, installTrustedInputAnswer, sweepDialogGuards } from '../sites/tab-page';
 import type { SiteDeps } from '../sites/registry';
 import { ACCOUNT_SITE, createSiteHandles, entrySites, ownTabSites } from './site-handles';
 import { legacyApiPort, legacyGlobalsPresent, legacyKeepAlive, registerWithLegacyDomains } from './legacy-bridge';
 import { createOperationActions } from './operation-actions';
 import { installProductCollect } from './sourcing-product-collect';
-import { mallSiteCapabilities } from './mall-site-capabilities';
+import { mallSiteCapabilities, mallWriteCapabilities } from './mall-site-capabilities';
 
 /**
  * 새 런타임을 옛 워커의 외부 메시지 표(`KidItemDomains`)에 건다. 옛 전역이 없으면(Vitest·번들 스펙) 아무것도 하지 않고
@@ -96,6 +136,8 @@ export function installEntry(): boolean {
   void sweepDialogGuards(chrome);
   // 가드 짝이 묻는 "이 탭이 수집 탭인가"에 답한다(실기기 R1).
   if (chrome.runtime?.onMessage) installDialogGuardAnswer(chrome, site.tabs);
+  // 쓰기 탭 처리기의 실제 입력 부탁(Wing 카테고리 검색칸, KID-256)에 답한다 — 이 런타임이 쥔 탭에서 온 것만.
+  if (chrome.runtime?.onMessage) installTrustedInputAnswer(chrome, site.tabs);
   const browser = createBrowserResources(chrome, entrySites(), { accountSite: ACCOUNT_SITE, ownTabSites: ownTabSites() });
   const channelSites = createSiteHandles(site);
   const externalActions = createOperationActions({
@@ -129,7 +171,11 @@ export function installEntry(): boolean {
       wingDailyOperationKindsV1: true,
       [SELLPIA_OPERATION_CAPABILITY]: true,
       [ADVERTISING_AD_REPORT_OPERATION_CAPABILITY]: true,
+      // channelsRegistrationOperationKindV1: 몰 쓰기 kind(`channels.registration`)를 돈다(KID-256·364). mallWriteSite.<몰>: 그 몰의
+      // 쓰기 모듈이 있다 — 웹은 몰마다 이것으로 등록·품절 버튼을 켠다.
+      [CHANNELS_REGISTRATION_OPERATION_CAPABILITY]: true,
       ...mallSiteCapabilities(),
+      ...mallWriteCapabilities(),
     },
   });
   installProductCollect(chrome, { apiFor: legacyApiPort, browser, site, getTab: (tabId) => chrome.tabs.get(tabId), keepAlive: legacyKeepAlive });

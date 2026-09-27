@@ -496,57 +496,14 @@ const KIDKIDS_ORDER_URL = "https://partner.kidkids.net/new/pages/logis/managemen
 const KIDKIDS_TAB_MATCHES = ["https://partner.kidkids.net/*"];
 const KAKAO_ORDER_URL = "https://shopping-seller.kakao.com/order/seller/store-order/integrate/list";
 const KAKAO_TAB_MATCHES = ["https://shopping-seller.kakao.com/*"];
-// 몰 상품등록. 주문수집이 이미 키즈노트 세션·탭을 소유하므로 그 옆에 둔다.
-// 폼만 채우고 제출은 사람이 한다.
-//
-// 첫 호출에서 만든다. 워커 로드 시점에 만들면 이 액션을 쓰지 않는 경로(테스트 하니스
-// 포함)까지 모듈 전역을 요구하게 된다.
-let kidsnoteProductRegisterInstance = null;
-function kidsnoteProductRegister() {
-  if (!kidsnoteProductRegisterInstance) {
-    kidsnoteProductRegisterInstance = KidItemKidsnoteProductRegister.create({
-      chrome,
-      fetch: (...args) => fetch(...args),
-      interactiveTabs,
-      tabReason: INTERACTIVE_TAB_REASONS.MALL_PRODUCT_REGISTER,
-    });
+// 몰 등록 보조 웹 액션(온채널 분류 목록 · 몰 대량등록 사진 올리기, KID-256). 몰 폼 채우기·제출·품절·재개·가격·지금 재고는
+// 확장 런타임 실행 kind(`channels.registration` · `channels.mall_availability_read`)로 옮겼다. 첫 호출에서 만든다.
+let mallUtilityActionsInstance = null;
+function mallUtilityActions() {
+  if (!mallUtilityActionsInstance) {
+    mallUtilityActionsInstance = KidItemMallUtilityActions.create({ fetch: (...args) => fetch(...args) });
   }
-  return kidsnoteProductRegisterInstance;
-}
-
-// 도매꾹·온채널 상품등록 폼 자동 채움. 키즈노트와 같은 자리지만 두 몰은 계단식 분류도
-// 자체 호스팅 업로더도 없어서 한 구현을 공유한다.
-let mallFormRegisterInstance = null;
-function mallFormRegister() {
-  if (!mallFormRegisterInstance) {
-    mallFormRegisterInstance = KidItemMallFormRegister.create({
-      chrome,
-      fetch: (...args) => fetch(...args),
-      interactiveTabs,
-      tabReason: INTERACTIVE_TAB_REASONS.MALL_PRODUCT_REGISTER,
-      // 로그인이 풀려 폼이 없을 때만 쓴다. 주문수집이 쓰는 것과 같은 폼 채움 로그인이고,
-      // 상품등록이 이미 열어 둔 탭 위에서 동작하므로 별도 탭·수집 lifecycle 을 만들지 않는다.
-      ensureLogin: (tabId, credentials, mallKey) =>
-        mallSession().ensureLoggedIn(mallKey, credentials, { tab: { id: tabId } }),
-    });
-  }
-  return mallFormRegisterInstance;
-}
-
-// 몰 품절 송신. 상품등록과 달리 **끝까지 보낸다** — 품절은 같은 화면에서 같은 값으로
-// 되돌릴 수 있어서다(매니페스트 supports.resume). 몰의 버튼을 누르는 대신 그 버튼이
-// 만들 폼을 그대로 직렬화해 보내므로 confirm 창이 끼어들 자리가 없다.
-let mallAvailabilitySendInstance = null;
-function mallAvailabilitySend() {
-  if (!mallAvailabilitySendInstance) {
-    mallAvailabilitySendInstance = KidItemMallAvailabilitySend.create({
-      chrome,
-      fetch: (...args) => fetch(...args),
-      interactiveTabs,
-      tabReason: INTERACTIVE_TAB_REASONS.MALL_AVAILABILITY_SEND,
-    });
-  }
-  return mallAvailabilitySendInstance;
+  return mallUtilityActionsInstance;
 }
 
 // 몰 세션 — 로그인 주소·로그인 표시·폼 채움은 하나의 세션 모듈이 소유한다.
@@ -693,57 +650,15 @@ chrome.runtime.onMessageExternal.addListener((msg, sender, sendResponse) => {
   // 메시지에 경쟁 응답하게 된다. 이 도메인의 cancellation 구현과
   // capabilities 는 파일 끝의 KidItemDomains.register 로 넘긴다.
 
-  // 키즈노트 상품등록 폼 자동 채움. 제출하지 않으므로 몰에 부작용이 없다.
-  if (msg?.action === "registerToKidsnoteForm") {
-    return respond(kidsnoteProductRegister().register(msg));
-  }
-
-  // 도매꾹·온채널 상품등록 폼 자동 채움. 제출하지 않으므로 몰에 부작용이 없다.
-  if (msg?.action === "registerToMallForm") {
-    // Target-backed callers send the lease as one context object. Keep the
-    // older top-level spelling accepted while the context crosses this worker
-    // boundary; availability messages below deliberately do not use it.
-    const hasTopLevelExecutionContext = ["executionId", "payloadHash", "leaseToken"]
-      .some((field) => Object.prototype.hasOwnProperty.call(msg, field));
-    const executionContext = msg.executionContext !== undefined
-      ? msg.executionContext
-      : hasTopLevelExecutionContext
-        ? {
-          executionId: msg.executionId,
-          payloadHash: msg.payloadHash,
-          leaseToken: msg.leaseToken,
-        }
-        : undefined;
-    return respond(mallFormRegister().register({
-      ...msg,
-      ...(executionContext !== undefined ? { executionContext } : {}),
-    }));
-  }
-
   // 몰 대량등록 사진 올리기 — 우리 저장소 사진을 우리 상점 첨부 저장소(키즈노트)에 올려 공개 주소를 받는다.
   // 상품을 만들지도 몰에 등록하지도 않는다. 사람이 [사진 올리기]를 누를 때만 온다.
   if (msg?.action === "hostPublicImages") {
-    return respond(mallFormRegister().hostPublicImages(msg));
+    return respond(mallUtilityActions().hostPublicImages(msg));
   }
 
   // 몰 분류 목록 한 단. 읽기만 한다 — 폼을 열지도, 값을 넣지도 않는다.
   if (msg?.action === "listMallCategories") {
-    return respond(mallFormRegister().listCategories(msg));
-  }
-
-  // 몰 품절 송신. 되돌릴 수 있는 명령이라 끝까지 보낸다(해제는 resume: true).
-  if (msg?.action === "sendMallAvailability") {
-    return respond(mallAvailabilitySend().send(msg));
-  }
-
-  // 몰 지금 재고(쿠팡 윙). 읽기만 한다 — 등록현황 칸의 창이 품절인지 보여 줄 때 쓴다.
-  if (msg?.action === "readMallAvailability") {
-    return respond(mallAvailabilitySend().read(msg));
-  }
-
-  // 몰 가격 보내기(KID-247). 사람이 판매상품 화면에서 누른 가격만 보내고, 몰을 다시 읽어 확인한다.
-  if (msg?.action === "sendMallPrice") {
-    return respond(mallAvailabilitySend().sendPrice(msg));
+    return respond(mallUtilityActions().listCategories(msg));
   }
 
   if (msg?.action === "sendOrderFileToSellpia") {
@@ -3337,46 +3252,13 @@ KidItemDomains.register({
     uploadDomeggookTracking: true,
     uploadOnchTracking: true,
     uploadKidkidsTracking: true,
-    // 키즈노트 상품등록 폼 자동 채움(제출은 사람이 한다).
-    kidsnoteFormRegister: true,
-    kidsnoteFormRegisterSource: "kidsnote-product-register-fill",
-    // 몰 상품등록 폼 자동 채움. [등록]까지 누르는 것은 확인한 몰만(ADR-0015) — 몰마다 `mallFormSubmit:<몰>` 이 켜진다.
-    mallFormRegister: true,
-    mallFormSubmitV1: true,
-    mallFormSubmitMalls: KidItemMallFormRegister.SUBMIT_MALL_KEYS,
-    ...Object.fromEntries(KidItemMallFormRegister.SUBMIT_MALL_KEYS.map((key) => [`mallFormSubmit:${key}`, true])),
-    mallFormRegisterMalls: Object.keys(KidItemMallFormRegister.SPECS),
-    // 몰 품절 송신(끝까지 보낸다. 해제도 같은 액션).
-    mallAvailabilitySend: true,
-    mallAvailabilitySendMalls: KidItemMallAvailabilitySend.MALL_KEYS,
-    // 꼬망세를 줄마다의 [개별수정]으로 보낸다(1.2.16). 옛 확장은 페이지 전체를 다시 저장했고 재개 때 재고 칸에
-    // "{stock}" 글자를 넣었다 — 웹은 이 값이 없는 확장으로 꼬망세를 보내지 않는다.
-    mallAvailabilityKkomangseDirectV1: true,
-    // 아이스크림몰을 판매상태 일괄변경 창의 [적용], 키즈노트를 [상태/노출일괄수정]과 같은 요청으로 보낸다(1.2.18).
-    // 옛 확장은 경로가 없다고 거절한다 — 웹은 이 값이 없는 확장으로 두 몰을 보내지 않는다.
-    mallAvailabilityIcecreamSaleStateV1: true,
-    mallAvailabilityKidsnoteStateV1: true,
-    // 지마켓 · 옥션(ESM) · 11번가 · 스마트스토어 판매중지 · 해제(1.2.19). 옛 확장은 이 몰들을 모른다.
-    mallAvailabilityMarketsV1: true,
-    // 키드키즈를 상품코드 검색 + [일시품절]과 같은 폼(commitType=change_use_flag, EUC-KR)으로 보낸다(1.2.20). 옛 확장은
-    // 틀린 값을 목록 1쪽에서만 보냈다 — 웹은 이 값이 없는 확장으로 키드키즈를 보내지 않는다.
-    mallAvailabilityKidkidsUseFlagV1: true,
-    // 떠리몰(샵바이 파트너 어드민)을 상품 목록 판매설정(판매중지 · 판매가능)과 같은 요청으로 보낸다(1.2.21). 옛 확장은 떠리몰
-    // 길이 없다 — 웹은 이 값이 없는 확장으로 떠리몰을 보내지 않는다.
-    mallAvailabilityThirtymallV1: true,
-    // 몰 가격 보내기(1.2.24, KID-247). 옛 확장은 이 액션을 모른다 — 웹은 이 값이 없는 확장으로 가격을 보내지 않는다.
-    mallPriceSendV1: true,
-    // 키즈노트 가격(가격 일괄수정 균일가, 1.2.25). 옛 확장은 카카오만 안다.
-    mallPriceSendKidsnoteV1: true,
-    mallPriceSendMalls: KidItemMallAvailabilitySend.PRICE_MALL_KEYS,
+    // 몰 상품등록 폼 채우기·[등록]·품절·재개·가격·지금 재고는 런타임 실행 kind다(KID-256) — 입구 `ping`의
+    // `channelsRegistrationOperationKindV1` · `mallWriteSite.<몰>`이 알린다.
     // 몰 대량등록 사진 올리기(1.2.27) — 우리 저장소 사진을 키즈노트 첨부 저장소에 올려 공개 주소를 받는다.
     publicImageHostV1: true,
-    // 몰 지금 재고 읽기(보내지 않는다).
-    mallAvailabilityRead: true,
-    mallAvailabilityReadMalls: KidItemMallAvailabilitySend.READ_MALL_KEYS,
     // 분류를 몰에서 그때그때 읽어 화면이 계단식으로 보여줄 수 있다.
     mallCategoryLookup: true,
-    mallCategoryLookupMalls: ["onch"],
+    mallCategoryLookupMalls: KidItemMallUtilityActions.CATEGORY_MALL_KEYS,
     // 몰 로그인 상태를 조용히 확인한다 — 읽기 전용 주소 한 번, 로그인하지 않는다.
     mallSessionProbeV1: true,
     mallLoginTestV1: true,

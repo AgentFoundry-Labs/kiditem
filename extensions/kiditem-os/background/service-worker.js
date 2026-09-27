@@ -18,8 +18,6 @@ importScripts(
   "domain-registry.js",
   // 몰·마켓 채널 목록. `packages/shared/src/channel-registry.ts` 에서 생성한 사본이다.
   "../shared/channel-registry.js",
-  // 몰 폼 [등록] 관문(KID-322) — 몰 폼 등록 모듈보다 먼저 싣는다.
-  "../shared/mall-form-submit-gate.js",
   // 공용 파운데이션 — 도메인마다 사본을 싣던 것을 정본 하나로 통일했다.
   "environment-context.js",
   "collection-session.js",
@@ -38,17 +36,12 @@ importScripts(
   "coupang/profitability-source-owner.js",
   "coupang/ad-keyword-source-owner.js",
   "coupang/ad-campaign-source-owner.js",
-  "coupang/wing-image-fetch.js",
-  "coupang/wing-form-runtime-compat.js",
-  "coupang/wing-form-readiness.js",
   // 주문수집 도메인 모듈
   "orders/collection-failure.js",
   "orders/order-collection-lifecycle.js",
   "orders/order-collection-source-owner.js",
   "orders/sellpia-post-processing.js",
-  "orders/kidsnote-product-register.js",
-  "orders/mall-form-register.js",
-  "orders/mall-availability-send.js",
+  "orders/mall-utility-actions.js",
   "orders/mall-session-probe.js",
   "orders/mall-session.js",
   // 소싱 수집(KID-360)과 광고 키워드·경쟁사 수집(KID-362)은 새 런타임(kiditem-runtime.js)의 실행 kind다.

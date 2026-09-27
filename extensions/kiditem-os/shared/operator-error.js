@@ -267,6 +267,27 @@
       "text": "수집 결과가 올바르지 않아 저장하지 않았습니다. 다시 수집해 주세요.",
       "retryable": false
     },
+    "REGISTRATION_FILL_FAILED": {
+      "owner": "extension",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "몰 상품등록 폼을 채우지 못했습니다. 열린 탭에서 확인해 주세요.",
+      "retryable": false
+    },
+    "REGISTRATION_ACCOUNT_MISMATCH": {
+      "owner": "extension",
+      "kind": "precondition",
+      "httpStatus": 422,
+      "text": "몰에 로그인된 판매자 계정이 등록할 계정과 다릅니다. 열린 탭의 계정을 확인해 주세요.",
+      "retryable": false
+    },
+    "MALL_WRITE_FAILED": {
+      "owner": "extension",
+      "kind": "external",
+      "httpStatus": 502,
+      "text": "몰에 판매 상태를 보내지 못했습니다. 몰 화면에서 확인해 주세요.",
+      "retryable": false
+    },
     "EXTENSION_UNKNOWN_FAILURE": {
       "owner": "extension",
       "kind": "internal",

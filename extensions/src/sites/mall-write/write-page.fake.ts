@@ -1,0 +1,146 @@
+import { vi } from 'vitest';
+import { normalizeForm, type MallFormSpec } from './form';
+import { fillPayload, type PreparedForm } from './form-register';
+import type { LoadedImage } from './images';
+
+/**
+ * 스펙용 — 몰 쓰기 페이지 처리기(`content/page-call/form-fill.js`와 전용 몰 `<mall>-register.js`)를 실제 파일 그대로 jsdom
+ * 문서(스펙이 `// @vitest-environment jsdom`)에서 돌린다. 파일 원문은 스펙이 `?raw`로 넘긴다(층 밖 import는 `src/` 바로 아래
+ * 스펙만 한다 — `check:extension-runtime-layers`): 알림 창 가드, 채우기 공용 파일, 전용 몰 파일 순서. 가짜는 페이지 경계(몰 화면 DOM)뿐이다. 기다림은 가짜 시계로 바로
+ * 지나간다(`runPageCall`). 확장 tsconfig에는 DOM 타입이 없어 문서는 느슨한 모양으로 본다.
+ */
+export type Dom = { document: any; window: any };
+export const dom = globalThis as unknown as Dom;
+
+type PageCall = (args: unknown) => Promise<Record<string, any>>;
+
+/** 저장·등록 버튼 글자(누르면 몰에 올라가거나 임시저장된다). */
+const SAVE_WORDS = /^(?:등록|저장|임시저장|저장하기|등록하기|상품등록|상품 등록|전체저장|임시 저장|상품정보 임시저장|판매요청|승인요청|등록 요청|등록요청|전송)$/;
+
+export interface WritePage {
+  calls: Record<string, PageCall>;
+  /** 누른 저장·등록 버튼 글자와 보낸 폼. 잠금 스펙이 비었는지 본다. */
+  saves: string[];
+}
+
+/** 몰 화면을 그리고 가드·채우기 처리기(와 전용 파일)를 넣는다. 앞 스펙의 처리기·가드 표시는 지운다. */
+export function loadWritePage(html: string, sources: readonly string[], options: { path?: string } = {}): WritePage {
+  const { window, document } = dom;
+  // 문서 주소(같은 출처 안의 경로) — 폼 프레임 주소를 보는 몰(떠리몰)은 그 경로여야 채운다.
+  window.history.replaceState({}, '', options.path ?? '/');
+  for (const key of ['__kiditemPageCalls', '__kiditemDialogGuard', '__kiditemDialogs', '__kiditemWriteTab', '__kiditemWriteDialogs', '__kiditemSaveDialogs']) delete window[key];
+  try {
+    window.sessionStorage?.clear();
+  } catch {
+    // 저장소 없는 문서.
+  }
+  document.documentElement.innerHTML = /<body[\s>]/i.test(html) ? html.replace(/^[\s\S]*?<html[^>]*>|<\/html>[\s\S]*$/gi, '') : `<head></head><body>${html}</body>`;
+  if (!window.CSS?.escape) window.CSS = { ...(window.CSS ?? {}), escape: (value: string) => String(value).replace(/[^a-zA-Z0-9_ -￿-]/g, (char) => `\\${char}`) };
+  if (typeof window.DataTransfer !== 'function') {
+    window.DataTransfer = class {
+      private list: unknown[] = [];
+      items = { add: (file: unknown) => this.list.push(file) };
+      get files() {
+        return this.list;
+      }
+    };
+  }
+  // 처리기가 파일 칸에 `files`를 넣는다 — jsdom은 진짜 FileList만 받으므로 넣은 목록을 그대로 쥔다(스펙이 읽는다).
+  Object.defineProperty(window.HTMLInputElement.prototype, 'files', {
+    configurable: true,
+    get(this: any) {
+      return this.__kiditemFiles ?? [];
+    },
+    set(this: any, value: unknown) {
+      this.__kiditemFiles = Array.from(value as ArrayLike<unknown>);
+    },
+  });
+  // jsdom은 배치를 하지 않아 `offsetParent`가 늘 null이다 — 처리기가 '보이는 칸'을 가릴 때 쓰므로 숨김(hidden·display none)만 가린다.
+  Object.defineProperty(window.HTMLElement.prototype, 'offsetParent', {
+    configurable: true,
+    get(this: any) {
+      if (this.hidden || this.style?.display === 'none') return null;
+      return this.parentElement ?? null;
+    },
+  });
+  const saves: string[] = [];
+  document.addEventListener('click', (event: any) => {
+    const target = event.target?.closest?.('button, a, input[type=button], input[type=submit]');
+    const text = String(target?.textContent || target?.value || '').replace(/\s+/g, ' ').trim();
+    if (target && SAVE_WORDS.test(text)) saves.push(`click ${text}`);
+  }, true);
+  document.addEventListener('submit', (event: any) => {
+    saves.push(`submit ${event.target?.getAttribute?.('name') ?? event.target?.id ?? 'form'}`);
+    event.preventDefault();
+  }, true);
+  const proto = window.HTMLFormElement.prototype;
+  proto.submit = function submit(this: any) {
+    saves.push(`form.submit ${this.getAttribute('name') ?? this.id ?? 'form'}`);
+  };
+  proto.requestSubmit = function requestSubmit(this: any) {
+    saves.push(`form.requestSubmit ${this.getAttribute('name') ?? this.id ?? 'form'}`);
+  };
+  for (const source of sources) new Function(source)();
+  return { calls: window.__kiditemPageCalls as Record<string, PageCall>, saves };
+}
+
+/** 일 하나를 가짜 시계로 끝까지 돌린다(처리기의 기다림·재시도가 바로 지나간다). `onFakeClock`은 가짜 시계 위에서 먼저 부른다. */
+export async function withFakeClock<T>(work: () => Promise<T>, onFakeClock?: () => void): Promise<T> {
+  vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
+  try {
+    // 화면이 늦게 하는 일(AJAX로 채우는 목록)은 가짜 시계 위에서 건다.
+    onFakeClock?.();
+    const running = work();
+    let settled = false;
+    void running.finally(() => {
+      settled = true;
+    }).catch(() => undefined);
+    for (let round = 0; round < 2_000 && !settled; round += 1) await vi.advanceTimersByTimeAsync(1_000);
+    return await running;
+  } finally {
+    vi.useRealTimers();
+  }
+}
+
+/** 페이지 호출 하나를 가짜 시계로 끝까지 돌린다. */
+export async function runPageCall(page: WritePage, call: string, args: unknown, options: { onFakeClock?(): void } = {}): Promise<Record<string, any>> {
+  const handler = page.calls[call];
+  if (!handler) throw new Error(`no page call ${call}`);
+  const answer = await withFakeClock(() => handler(structuredClone(args)), options.onFakeClock);
+  return JSON.parse(JSON.stringify(answer)) as Record<string, any>;
+}
+
+/** 서비스워커가 읽어 넘긴 사진 하나(`toDataUrls` 결과 모양). 바이트는 JPEG 머리 몇 바이트다. */
+export function loadedImage(name: string): LoadedImage {
+  return { name, dataUrl: 'data:image/jpeg;base64,/9j/4AAQ', fileName: `${name}.jpg` };
+}
+
+/**
+ * 명세와 폼 지시로 페이지 처리기 인자를 만든다. 사진·상세(`prepared`)는 서비스워커가 준비한 모양 그대로 넘긴다 — 없으면
+ * 사진·상세 없이(서비스워커 준비 자체는 `form-register.spec.ts`가 본다).
+ */
+export function payloadFor(
+  spec: MallFormSpec,
+  form: Record<string, unknown>,
+  prepared: Partial<Pick<PreparedForm, 'images' | 'imageGroups' | 'repImage' | 'detailImage' | 'detailHtml'>> = {},
+): { call: string; payload: Record<string, unknown> } {
+  const normalized = normalizeForm(spec, form);
+  const { call, payload } = fillPayload(spec, {
+    form: normalized, images: [], imageGroups: {}, repImage: null, detailImage: null, detailHtml: '', warnings: [], ...prepared,
+  });
+  return { call, payload };
+}
+
+/**
+ * jsdom 대신 가짜 창(`window`·`document`를 스펙이 만든 것)에서 페이지 파일들을 돌린다 — 몰 화면의 프레임워크(Vue·dhtmlx·
+ * WebSquare) 반응을 흉내 내야 하는 전용 처리기 몰(옛 node 스펙의 가짜 화면을 그대로 옮긴 것). 가드가 쓰는 창 함수
+ * (`addEventListener`)가 없으면 채운다. 처리기 표를 돌려준다.
+ */
+export function scopedPageCalls(sources: readonly string[], scope: Record<string, any>): Record<string, PageCall> {
+  const window = scope.window;
+  window.addEventListener ??= () => undefined;
+  window.location ??= scope.location ?? { origin: 'https://mall.test', href: 'https://mall.test/' };
+  const names = Object.keys(scope);
+  for (const source of sources) new Function(...names, source)(...names.map((name) => scope[name]));
+  return window.__kiditemPageCalls as Record<string, PageCall>;
+}

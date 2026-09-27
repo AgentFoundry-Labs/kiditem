@@ -16,6 +16,14 @@ export interface CollectContext {
   report?(progress: Record<string, unknown>): Promise<void>;
 }
 
+/** 수집기가 청크를 다 낸 뒤 finish에 실을 값(생성기 반환값). */
+export interface CollectFinish<TResult extends Record<string, unknown> = Record<string, unknown>> {
+  /** `reconciling`: 몰에 제출했지만 외부 결과를 못 읽은 등록(KID-364). 없으면 succeeded. */
+  outcome?: 'succeeded' | 'reconciling';
+  window?: OperationWindow;
+  result?: TResult;
+}
+
 /**
  * 수집기 = 서버 kind 문자열과 같은 이름의 폴더 하나. 서버·탭·토큰을 모른다.
  * `plan`은 begin 응답 `operation.plan`(owner가 정한 범위), `site`는 그 kind의 사이트 호출기.
@@ -33,7 +41,11 @@ export interface Collector<
    * `site`는 입구가 그 사이트로 조립해 넘기는 핸들이다. 수집기는 sites를 import하지 못하므로 필요한 모양을 자기
    * 폴더에 인터페이스로 선언하고(`TSite`), 입구가 `sites/<site>`의 구현을 넘긴다(KID-354).
    */
-  collect(plan: TPlan, site: TSite, context: CollectContext): AsyncIterable<CollectedChunk>;
+  /**
+   * 청크 스트림. 실행마다 다른 결과(등록 결과처럼 채운 과정이 정하는 것)는 생성기가 끝에 `CollectFinish`로 돌려준다 —
+   * `summarize`보다 앞선다.
+   */
+  collect(plan: TPlan, site: TSite, context: CollectContext): AsyncIterable<CollectedChunk> | AsyncGenerator<CollectedChunk, CollectFinish<TResult> | void, undefined>;
   summarize?(input: { chunks: number; items: number }): { window?: OperationWindow; result?: TResult };
 }
 

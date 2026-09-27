@@ -85,7 +85,7 @@
         "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2*"
       ],
       "js": [
-        "background/coupang/wing-form-runtime-compat.js"
+        "content/page-call/wing-form-compat.js"
       ],
       "run_at": "document_start",
       "world": "MAIN",
@@ -93,38 +93,10 @@
     },
     {
       "matches": [
-        "https://wing.coupang.com/*"
-      ],
-      "js": [
-        "content/coupang/wing-thumbnail-register.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
         "https://wing.coupang.com/vendor-inventory/list*"
       ],
       "js": [
         "content/coupang/wing-inventory-scraper.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://wing.coupang.com/vendor-inventory/list*"
-      ],
-      "js": [
-        "content/coupang/wing-product-edit.js"
-      ],
-      "run_at": "document_idle"
-    },
-    {
-      "matches": [
-        "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2*"
-      ],
-      "js": [
-        "shared/wing-account-identity.js",
-        "content/coupang/wing-registration-fill.js"
       ],
       "run_at": "document_idle"
     },
