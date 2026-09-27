@@ -10,6 +10,8 @@ import { addSeenOrderKeys } from './order-detect';
 import {
   collectMallOrderOperation,
   collectsViaMallOrderOperation,
+  followUpMallOrderOperation,
+  MALL_ORDER_FOLLOW_UP_POLL_MS,
   mallOrderOperationSource,
   mallOrderOperationWaitMs,
   uploadMallOrderFile,
@@ -222,6 +224,24 @@ describe('collectMallOrderOperation — 실행이 끝나면 실행 id로 변환�
       now.mockRestore();
       vi.mocked(apiClient.get).mockReset();
     }
+  });
+
+  it('기다림이 끝난 실행을 천천히 이어 읽어, 끝나면 같은 실행 id로 변환한다(KID-380 D7)', async () => {
+    const sleeps: number[] = [];
+    vi.mocked(apiClient.get)
+      .mockResolvedValueOnce({ operation: operation(OPERATION_ID, 'executing') })
+      .mockResolvedValueOnce({ operation: operation(OPERATION_ID, 'succeeded') });
+    vi.mocked(apiClient.fetchRaw).mockResolvedValueOnce(new Response('xls', {
+      status: 201,
+      headers: { 'X-Order-Collection-Source-Rows': '3', 'X-Order-Collection-Output-Rows': '3' },
+    }));
+    const addGeneratedFile = vi.fn();
+    await expect(followUpMallOrderOperation({
+      account, operationId: OPERATION_ID, collectionDate: '2026-09-26', addGeneratedFile, sleep: async (ms) => { sleeps.push(ms); },
+    })).resolves.toMatchObject({ rowCount: 3 });
+    expect(sleeps).toEqual([MALL_ORDER_FOLLOW_UP_POLL_MS]);
+    expect(MALL_ORDER_FOLLOW_UP_POLL_MS).toBeGreaterThanOrEqual(10_000);
+    expect(addGeneratedFile).toHaveBeenCalledWith(expect.objectContaining({ mallKey: 'kidkids', collectedRows: 3 }));
   });
 
   it('성공한 실행을 실행 id로 다시 변환하고(본문 operationId), 수집 행 수를 생성 파일에 적는다', async () => {

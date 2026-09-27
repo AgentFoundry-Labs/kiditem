@@ -193,6 +193,15 @@ export function mallOrderOperationSource({
  * 생성 파일을 남긴다. 주문이 없던 수집은 변환하지 않는다. 실패는 `OrderOperationFailure`로 올라가 몰 카드가
  * 로그인 필요·인증 필요·실패를 가른다.
  */
+type MallOrderOperationCollectInput = Readonly<{
+  account: OrderCollectionMallAccount;
+  operationId: string;
+  collectionDate: string;
+  addGeneratedFile: (historyItem: ConversionHistoryItem) => void;
+  signal?: AbortSignal;
+  sleep?: (ms: number) => Promise<void>;
+}>;
+
 export async function collectMallOrderOperation({
   account,
   operationId,
@@ -200,18 +209,14 @@ export async function collectMallOrderOperation({
   addGeneratedFile,
   signal,
   sleep,
-}: Readonly<{
-  account: OrderCollectionMallAccount;
-  operationId: string;
-  collectionDate: string;
-  addGeneratedFile: (historyItem: ConversionHistoryItem) => void;
-  signal?: AbortSignal;
-  sleep?: (ms: number) => Promise<void>;
-}>): Promise<BrowserMallCollectionResult> {
+  timeoutMs,
+  pollMs,
+}: MallOrderOperationCollectInput & Readonly<{ timeoutMs?: number; pollMs?: number }>): Promise<BrowserMallCollectionResult> {
   const operation = await waitForOrderOperation(MALL_ORDERS_KIND, operationId, {
     source: 'order_collection_mall',
     // 사이트 제한에서 계산한다 — GS샵은 SMS 인증을 운영자가 마칠 때까지 기다린다(KID-380).
-    timeoutMs: mallOrderOperationWaitMs(account.key),
+    timeoutMs: timeoutMs ?? mallOrderOperationWaitMs(account.key),
+    ...(pollMs ? { pollMs } : {}),
     ...(signal ? { signal } : {}),
     ...(sleep ? { sleep } : {}),
   }).catch((error: unknown) => {
@@ -249,6 +254,22 @@ export async function collectMallOrderOperation({
   // 이번에 고른 행을 다음 자동 선택의 본 행으로 적는다.
   if (continuation && continuation.selectedRowKeys.length > 0) addSeenOrderKeys(account.key, continuation.selectedRowKeys);
   return { rowCount: collectedRows, masked, date: collectionDate };
+}
+
+/** 기다림이 끝난 뒤 이어 읽는 상한 — 실행 임대(30분)와 같다. */
+export const MALL_ORDER_FOLLOW_UP_MS = 30 * 60_000;
+/**
+ * 이어 읽는 간격. 몰 하나에 분당 네 번이다 — 몰 27곳이 한꺼번에 기다림을 넘겨도 탭당 분당 108번으로 API 제한(600) 안이다.
+ */
+export const MALL_ORDER_FOLLOW_UP_POLL_MS = 15_000;
+
+/**
+ * 화면의 기다림 상한이 지나 `OrderOperationStillRunning`으로 끝난 실행을 이어 읽는다(KID-380 D7). 실행이 끝나면
+ * `collectMallOrderOperation`과 같은 길로 결과를 낸다 — 성공이면 변환해 생성 파일을 남기고, 실패면 `OrderOperationFailure`.
+ * 화면은 이 결과로 "아직 끝나지 않았습니다" 활동 행을 바꿔 적는다.
+ */
+export function followUpMallOrderOperation(input: MallOrderOperationCollectInput): Promise<BrowserMallCollectionResult> {
+  return collectMallOrderOperation({ ...input, timeoutMs: MALL_ORDER_FOLLOW_UP_MS, pollMs: MALL_ORDER_FOLLOW_UP_POLL_MS });
 }
 
 /**

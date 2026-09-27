@@ -76,8 +76,23 @@ export class OrderOperationFailure extends Error {
 }
 
 /**
+ * 기다림 상한이 지났는데 실행이 아직 도는 중(KID-380 D7). 실행은 확장에서 이어지므로 화면은 이 실행 id로 나중에 결과를
+ * 다시 읽어 활동 기록을 바꿔 적는다.
+ */
+export class OrderOperationStillRunning extends Error {
+  readonly operationId: string;
+
+  constructor(operationId: string) {
+    super('실행이 아직 끝나지 않았습니다. 잠시 후 다시 확인해 주세요.');
+    this.name = 'OrderOperationStillRunning';
+    this.operationId = operationId;
+  }
+}
+
+/**
  * 실행이 끝날 때까지 그 실행 하나(`GET /api/operations/:id`)를 2초마다 읽는다 — 끝나면 더 읽지 않는다. 성공이면 그 실행, 실패·중단이면 운영자 문장(`OrderOperationFailure`),
- * 상한을 넘기면 아직 끝나지 않았다는 문장을 던진다(실행은 확장에서 계속되고 화면의 공용 컨트롤이 이어서 보여 준다).
+ * 상한을 넘기면 `OrderOperationStillRunning`을 던진다(실행은 확장에서 계속되고 화면의 공용 컨트롤이 이어서 보여 준다).
+ * `pollMs`는 읽는 간격(기본 2초 — 끝난 뒤 이어 읽는 쪽은 더 느리게 읽는다).
  * `signal`이 끊기면 기다리기만 멈춘다(실행 중단은 컨트롤의 몫).
  */
 export async function waitForOrderOperation(
@@ -87,6 +102,7 @@ export async function waitForOrderOperation(
     sleep?: (ms: number) => Promise<void>;
     now?: () => number;
     timeoutMs?: number;
+    pollMs?: number;
     source?: string;
     signal?: AbortSignal;
   } = {},
@@ -102,8 +118,8 @@ export async function waitForOrderOperation(
       if (current.status === 'succeeded') return current;
       throw new OrderOperationFailure(current, attemptFailureText(current, options.source ?? null) ?? '실행이 실패했습니다.');
     }
-    if (now() >= deadline) throw new Error('실행이 아직 끝나지 않았습니다. 잠시 후 다시 확인해 주세요.');
-    await sleep(COLLECTION_RUNNING_POLL_MS);
+    if (now() >= deadline) throw new OrderOperationStillRunning(operationId);
+    await sleep(options.pollMs ?? COLLECTION_RUNNING_POLL_MS);
   }
 }
 

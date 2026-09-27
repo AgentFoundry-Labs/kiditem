@@ -11,10 +11,12 @@ import { createBrowserMallCollector } from '@/app/(orders)/order-collection/lib/
 import {
   collectMallOrderOperation,
   collectsViaMallOrderOperation,
+  followUpMallOrderOperation,
   mallOrderOperationSource,
   type MallOrderOperationHandoff,
 } from '@/app/(orders)/order-collection/lib/mall-order-operation-source';
 import type { OperationListResponse } from '@kiditem/shared/operation';
+import { OrderOperationStillRunning } from '@/app/(orders)/order-collection/lib/order-operations';
 import { isDuplicateGeneratedFile } from '@/app/(orders)/order-collection/lib/generated-file-dedup';
 import {
   loadGeneratedOrderFiles,
@@ -448,6 +450,45 @@ export function useAllMarketplaceOrderCollection({
     }
   }, [addGeneratedFile, clearMallErrorActivity, logActivity, setPreviewId]);
 
+  /**
+   * 화면 기다림 상한이 지나 "아직 끝나지 않았습니다"로 적은 실행을 이어 읽는다(KID-380 D7). 실행이 끝나면 그 몰의 오류 행을
+   * 지우고 실제 결과(신규 주문 없음·로그인 필요·실패)로 다시 적는다. 성공이면 생성 파일도 남긴다. 중단하면 그만 읽는다.
+   */
+  const followUpMallOperation = useCallback(async (
+    account: OrderCollectionMallAccount,
+    { operationId, collectionDate }: MallOrderOperationHandoff,
+    signal: AbortSignal,
+    report: boolean,
+  ): Promise<void> => {
+    try {
+      const collected = await followUpMallOrderOperation({
+        account,
+        operationId,
+        collectionDate,
+        signal,
+        addGeneratedFile: (historyItem) => {
+          addGeneratedFile(historyItem);
+          setPreviewId(historyItem.id);
+        },
+      });
+      clearMallErrorActivity(account.name);
+      if (collected.rowCount === 0) logActivity('empty', account.name);
+      else if (report) toast.success(`${account.name} 수집 완료`);
+    } catch (error) {
+      // 중단했거나 이어 읽기도 끝나지 않았으면 적어 둔 행을 그대로 둔다.
+      if (signal.aborted || error instanceof OrderOperationStillRunning) return;
+      const evidence = orderCollectionFailureEvidence(error);
+      const message = mallCollectionFailureMessage(
+        account.name,
+        evidence,
+        friendlyError(error, '브라우저 수집 실패') ?? '브라우저 수집 실패',
+      );
+      const failureKind = classifyOrderCollectionFailure(error, evidence || message);
+      clearMallErrorActivity(account.name);
+      logActivity(failureKind === 'auth' || failureKind === 'login' ? failureKind : 'error', account.name, message);
+    }
+  }, [addGeneratedFile, clearMallErrorActivity, logActivity, setPreviewId]);
+
   const handOffMallOperation = useCallback((
     account: OrderCollectionMallAccount,
     handoff: MallOrderOperationHandoff,
@@ -455,14 +496,23 @@ export function useAllMarketplaceOrderCollection({
   ) => {
     const controller = new AbortController();
     operationRunsRef.current.set(handoff.operationId, controller);
-    const collection = collectMallOperationAccount(account, handoff, controller.signal).finally(() => {
+    const release = () => {
       if (operationRunsRef.current.get(handoff.operationId) === controller) {
         operationRunsRef.current.delete(handoff.operationId);
       }
+    };
+    const collection = collectMallOperationAccount(account, handoff, controller.signal);
+    collection.then(release, (error: unknown) => {
+      // 기다림만 끝났고 실행은 확장에서 이어진다 — 중단 신호를 쥔 채로 이어 읽는다(KID-380 D7).
+      if (error instanceof OrderOperationStillRunning && !controller.signal.aborted) {
+        void followUpMallOperation(account, handoff, controller.signal, report).finally(release);
+        return;
+      }
+      release();
     });
     startCollectionProcedure(account, controller.signal, collection, report);
     return Promise.resolve();
-  }, [collectMallOperationAccount, startCollectionProcedure]);
+  }, [collectMallOperationAccount, followUpMallOperation, startCollectionProcedure]);
 
   /** 실행 kind로 옮긴 몰 카드의 어댑터. 상태는 실행 reader 한 읽기를 네 몰이 나눠 본다. */
   const mallOperationCollectionAdapter = useCallback((
