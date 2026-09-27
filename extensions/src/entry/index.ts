@@ -1,3 +1,4 @@
+import '../collectors/advertising.ad_report';
 import '../collectors/advertising.competitor_catalog';
 import '../collectors/advertising.competitor_seller_identity';
 import '../collectors/advertising.keyword_serp';
@@ -31,6 +32,7 @@ import '../collectors/test.echo';
 import '../sites/11st/listings';
 import '../sites/11st/registration';
 import '../sites/1688';
+import '../sites/ad-center';
 import '../sites/always';
 import '../sites/always/registration';
 import '../sites/art09';
@@ -82,6 +84,7 @@ import '../sites/wing/itemwinner';
 import '../sites/wing/pre-matching-search';
 import '../sites/wing/reviews';
 import '../sites/wing/traffic';
+import { ADVERTISING_AD_REPORT_OPERATION_CAPABILITY } from '@kiditem/shared/advertising-operations';
 import { CHANNELS_OPERATION_CAPABILITY, CHANNELS_REGISTRATION_OPERATION_CAPABILITY } from '@kiditem/shared/channels-operations';
 import { SELLPIA_OPERATION_CAPABILITY } from '@kiditem/shared/sellpia-operations';
 import { createBrowserResources } from '../core/browser';
@@ -129,6 +132,7 @@ export function installEntry(): boolean {
   // advertisingKeywordOperationKindsV1: 광고 키워드·경쟁사 kind 5종을 돈다(KID-362 K-a).
   // wingDailyOperationKindsV1: Wing 일별 사실 kind(트래픽·아이템위너)를 돈다(KID-362 K-b).
   // sellpiaOperationKindsV1: 셀피아 재고·매출·상품 손익 kind를 돈다(KID-361).
+  // advertisingAdReportOperationKindV1: 광고센터 보고서 kind `advertising.ad_report`를 돈다(KID-371).
   // mallOrderSite.<몰>·mallListingSite.<몰>: 이 빌드가 사이트를 가진 몰(KID-380 T4) — 웹은 몰마다 이것으로 옛 빌드를 거른다.
   registerWithLegacyDomains({
     externalActions,
@@ -143,6 +147,7 @@ export function installEntry(): boolean {
       advertisingKeywordOperationKindsV1: true,
       wingDailyOperationKindsV1: true,
       [SELLPIA_OPERATION_CAPABILITY]: true,
+      [ADVERTISING_AD_REPORT_OPERATION_CAPABILITY]: true,
       // channelsRegistrationOperationKindV1: 몰 쓰기 kind(`channels.registration`)를 돈다(KID-256·364). mallWriteSite.<몰>: 그 몰의
       // 쓰기 모듈이 있다 — 웹은 몰마다 이것으로 등록·품절 버튼을 켠다.
       [CHANNELS_REGISTRATION_OPERATION_CAPABILITY]: true,

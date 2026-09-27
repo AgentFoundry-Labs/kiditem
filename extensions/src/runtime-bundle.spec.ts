@@ -34,6 +34,7 @@ describe('committed runtime bundle', () => {
     const runtime = loadRuntime({});
 
     expect((runtime.runtime as { kinds(): string[] }).kinds()).toEqual([
+      'advertising.ad_report',
       'advertising.competitor_catalog',
       'advertising.competitor_seller_identity',
       'advertising.keyword_serp',
@@ -116,6 +117,7 @@ describe('committed runtime bundle', () => {
       advertisingKeywordOperationKindsV1: true,
       wingDailyOperationKindsV1: true,
       sellpiaOperationKindsV1: true,
+      advertisingAdReportOperationKindV1: true,
       channelsRegistrationOperationKindV1: true,
     });
     expect(Object.keys(writeSite).sort()).toEqual(MALL_WRITE_SITES.map((mallKey) => `mallWriteSite.${mallKey}`));

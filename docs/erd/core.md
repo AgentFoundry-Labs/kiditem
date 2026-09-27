@@ -141,7 +141,12 @@ erDiagram
 | Local model | Relation | Direction | External domain | External model |
 |---|---|---|---|---|
 | Organization | organization | referenced by external | Advertising | AdAction |
+| Organization | organization | referenced by external | Advertising | ChannelAdCampaign |
+| Organization | organization | referenced by external | Advertising | ChannelAdCampaignAd |
+| Organization | organization | referenced by external | Advertising | ChannelAdDailyBilling |
+| Organization | organization | referenced by external | Advertising | ChannelAdKeywordDailySnapshot |
 | Organization | organization | referenced by external | Advertising | ChannelAdListingProductMonthlyFact |
+| Organization | organization | referenced by external | Advertising | ChannelAdProductDailySnapshot |
 | Organization | organization | referenced by external | Advertising | ChannelAdTargetDailySnapshot |
 | Organization | organization | referenced by external | Advertising | CoupangKeywordRankDailySnapshot |
 | Organization | organization | referenced by external | Advertising | CoupangKeywordSerpDailySnapshot |

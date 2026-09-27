@@ -169,6 +169,7 @@ describe('원천 실패 알림', () => {
       ['analytics.sellpia_product_profitability', 'inventory'],
       ['orders.coupang_reviews', 'cs'],
       ['advertising.wing_traffic', 'ads'],
+      ['advertising.ad_report', 'ads'],
     ];
     for (const [sourceType, stageId] of cases) {
       const snapshot = buildPipeSnapshot(

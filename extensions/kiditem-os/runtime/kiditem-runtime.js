@@ -4104,8 +4104,8 @@ var KidItemRuntime = (() => {
   var OperationKindSchema = external_exports.string().regex(OPERATION_KIND_PATTERN, "kind\uB294 owner.work \uD615\uC2DD\uC774\uC5B4\uC57C \uD569\uB2C8\uB2E4");
   var OPERATION_LOCK_KEY_PATTERN = /^(org|account:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|resource:[a-z][a-z0-9-]*:[^\s]+)$/;
   var OperationLockKeySchema = external_exports.string().max(256).regex(OPERATION_LOCK_KEY_PATTERN, "lockKey\uB294 org \xB7 account:<id> \xB7 resource:<site>:<id> \uC911 \uD558\uB098\uC5EC\uC57C \uD569\uB2C8\uB2E4");
-  function resourceLockKey(site, id) {
-    return `resource:${site}:${id}`;
+  function resourceLockKey(site, id3) {
+    return `resource:${site}:${id3}`;
   }
   var OPERATION_FENCE_LOST_REASONS = ["expired", "terminal", "chunk_conflict"];
   var OperationFenceLostReasonSchema = external_exports.enum(OPERATION_FENCE_LOST_REASONS);
@@ -4684,6 +4684,8 @@ var KidItemRuntime = (() => {
     coverage: AdTrafficSourceCoverageSchema,
     reconciliation: AdTrafficSourceReconciliationSchema
   }).strict();
+  var AD_REPORT_KIND = "advertising.ad_report";
+  var ADVERTISING_AD_REPORT_OPERATION_CAPABILITY = "advertisingAdReportOperationKindV1";
   var AD_SETTLEMENT_DOMAINS = ["SELLER", "RETAIL"];
   var AdSettlementDomainSchema = external_exports.enum(AD_SETTLEMENT_DOMAINS);
   var adCalendarDate = external_exports.string().date();
@@ -4705,6 +4707,13 @@ var KidItemRuntime = (() => {
     settlementDomains: external_exports.array(AdSettlementDomainSchema).min(1),
     startedAt: external_exports.string().datetime({ offset: true })
   }).strict();
+  var AD_REPORT_ROWS_PER_CHUNK = 1500;
+  var AD_REPORT_CAMPAIGNS_CHUNK_KIND = "ad_campaigns";
+  var AD_REPORT_ADS_CHUNK_KIND = "ad_ads";
+  var AD_REPORT_PRODUCT_ROWS_CHUNK_KIND = "ad_product_rows";
+  var AD_REPORT_KEYWORD_ROWS_CHUNK_KIND = "ad_keyword_rows";
+  var AD_REPORT_SETTLEMENT_ROWS_CHUNK_KIND = "ad_settlement_rows";
+  var AD_REPORT_PERIOD_CHUNK_KIND = "ad_period";
   var AdReportCampaignSchema = external_exports.object({
     campaignId: external_exports.string().regex(/^[1-9]\d*$/),
     name: external_exports.string(),
@@ -4731,7 +4740,8 @@ var KidItemRuntime = (() => {
     date: adCalendarDate,
     campaignId: external_exports.string().regex(/^[1-9]\d*$/),
     campaignName: external_exports.string(),
-    adGroupId: external_exports.string().regex(/^[1-9]\d*$/),
+    /** 큰 보고서(TSV)에는 그룹 id가 없고 삭제 캠페인은 목록에도 없어 못 풀 수 있다 → null. owner는 키에 `''`로 넣는다. */
+    adGroupId: external_exports.string().regex(/^[1-9]\d*$/).nullable(),
     adGroupName: external_exports.string(),
     /** 광고한 옵션. */
     advertisedVendorItemId: external_exports.string().regex(/^[1-9]\d*$/),
@@ -4813,6 +4823,471 @@ var KidItemRuntime = (() => {
     accountAdjustmentRows: adCount,
     warnings: external_exports.array(AdReportReconciliationWarningSchema)
   }).strict();
+
+  // extensions/src/core/errors.ts
+  var ErrorEnvelopeSchema = external_exports.object({
+    statusCode: external_exports.number().int().min(400).max(599),
+    code: external_exports.string().min(1),
+    kind: external_exports.string(),
+    message: external_exports.string(),
+    errors: external_exports.array(external_exports.unknown()).optional(),
+    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
+  }).passthrough();
+  var RuntimeError = class extends Error {
+    constructor(code2, message, details = null, cause) {
+      super(message);
+      this.code = code2;
+      this.details = details;
+      this.cause = cause;
+      this.name = "RuntimeError";
+    }
+    code;
+    details;
+    cause;
+  };
+  function parseErrorEnvelope(body) {
+    const parsed3 = ErrorEnvelopeSchema.safeParse(body);
+    return parsed3.success ? parsed3.data : null;
+  }
+  function isRuntimeError(value) {
+    return value instanceof RuntimeError;
+  }
+
+  // extensions/src/core/site-caller.ts
+  function delayUntilNext(input) {
+    if (input.lastSentAt === null) return 0;
+    return Math.max(0, input.lastSentAt + input.minIntervalMs - input.now);
+  }
+  var SITE_REQUEST_FAILED = "SITE_REQUEST_FAILED";
+  var SITE_LOGIN_REQUIRED = "SITE_LOGIN_REQUIRED";
+  var BODY_HEAD_LENGTH = 120;
+  function bodyHeadOf(body) {
+    const head = body.replace(/\s+/g, " ").trim().slice(0, BODY_HEAD_LENGTH);
+    return head || null;
+  }
+  function createSiteCaller(options, deps) {
+    let lastSentAt = null;
+    let queue = Promise.resolve();
+    const loginMessage = options.displayName ? `${options.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.` : "\uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.";
+    async function send(url, { requireXsrf = false, ...init } = {}) {
+      const headers = new Headers(init.headers);
+      if (options.xsrf) {
+        const cookie = await deps.cookies.get({ url: options.xsrf.cookieUrl, name: options.xsrf.cookieName });
+        const token = decodeCookie(cookie?.value);
+        if (token) headers.set(options.xsrf.headerName, token);
+        else if (requireXsrf) throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { url, reason: "xsrf_cookie_missing" });
+      }
+      const wait = delayUntilNext({ lastSentAt, now: deps.now(), minIntervalMs: options.minIntervalMs });
+      if (wait > 0) await deps.sleep(wait);
+      lastSentAt = deps.now();
+      let response;
+      const timeout = options.timeoutMs === void 0 ? null : AbortSignal.timeout(options.timeoutMs);
+      const signal = timeout && init.signal ? AbortSignal.any([timeout, init.signal]) : timeout ?? init.signal;
+      try {
+        response = await deps.fetch(url, { credentials: "include", redirect: "manual", ...init, headers, ...signal ? { signal } : {} });
+      } catch (error) {
+        const timedOut = timeout?.aborted === true;
+        const failure2 = { status: null, url, reason: timedOut ? "timeout" : "network", bodyHead: null };
+        throw new RuntimeError(SITE_REQUEST_FAILED, timedOut ? "\uC0AC\uC774\uD2B8\uAC00 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : "\uC0AC\uC774\uD2B8\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", failure2, error);
+      }
+      if (response.status === 401 || response.status === 403 || response.type === "opaqueredirect") {
+        throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { status: response.status, url });
+      }
+      if (!response.ok) {
+        const failure2 = { status: response.status, url, reason: "http", bodyHead: bodyHeadOf(await safeText(response)) };
+        throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uC774\uD2B8 \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(${response.status}).`, failure2);
+      }
+      return response;
+    }
+    function enqueue(task) {
+      const next = queue.then(task);
+      queue = next.catch(() => void 0);
+      return next;
+    }
+    return {
+      json: (url, init) => enqueue(async () => {
+        const response = await send(url, init);
+        const body = await safeText(response);
+        try {
+          return JSON.parse(body);
+        } catch (error) {
+          const failure2 = { status: response.status, url, reason: "not_json", bodyHead: bodyHeadOf(body) };
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", failure2, error);
+        }
+      }),
+      text: (url, init) => enqueue(async () => (await send(url, init)).text()),
+      bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send(url, init)).arrayBuffer()))
+    };
+  }
+  async function safeText(response) {
+    try {
+      return await response.text();
+    } catch {
+      return "";
+    }
+  }
+  function decodeCookie(value) {
+    if (!value) return null;
+    try {
+      return decodeURIComponent(value) || null;
+    } catch {
+      return null;
+    }
+  }
+
+  // extensions/src/collectors/chunk-items.ts
+  var encoder = new TextEncoder();
+  var ChunkBuffer = class {
+    // "[]"
+    constructor(options) {
+      this.options = options;
+    }
+    options;
+    items = [];
+    bytes = 2;
+    /** 넣고 나서 내보낼 payload(있으면). */
+    push(item) {
+      const maxBytes = this.options.maxBytes ?? OPERATION_CHUNK_MAX_BYTES;
+      const itemBytes = encoder.encode(JSON.stringify(item)).byteLength;
+      if (itemBytes + 2 > maxBytes) {
+        throw new RuntimeError("RUNTIME_CHUNK_TOO_LARGE", `${this.options.label} \uD558\uB098\uAC00 \uCCAD\uD06C \uC0C1\uD55C(${maxBytes}\uBC14\uC774\uD2B8)\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, { bytes: itemBytes });
+      }
+      let flushed = null;
+      const separator = this.items.length > 0 ? 1 : 0;
+      if (this.items.length >= this.options.maxItems || this.bytes + separator + itemBytes > maxBytes) flushed = this.flush();
+      this.bytes += (this.items.length > 0 ? 1 : 0) + itemBytes;
+      this.items.push(item);
+      if (this.items.length >= this.options.maxItems) return flushed ?? this.flush();
+      return flushed;
+    }
+    /** 남은 원소(없으면 null). */
+    flush() {
+      if (this.items.length === 0) return null;
+      const out = this.items;
+      this.items = [];
+      this.bytes = 2;
+      return out;
+    }
+  };
+
+  // extensions/src/collectors/advertising.ad_report/index.ts
+  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
+  var ADVERTISER_IDENTITY_MISMATCH = "ADVERTISER_IDENTITY_MISMATCH";
+  var AD_REPORT_POLL_INTERVAL_MS = 5e3;
+  var AD_REPORT_POLL_LIMIT_MS = 5 * 60 * 1e3;
+  var AD_CENTER_PAGE_SIZE = 500;
+  var MAX_CAMPAIGN_PAGES = 20;
+  var MAX_AD_PAGES = 40;
+  var adReportCollector = {
+    kind: AD_REPORT_KIND,
+    site: "ad-center",
+    async *collect(rawPlan, site, { signal, report }) {
+      const parsed3 = AdReportPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uAD11\uACE0 \uBCF4\uACE0\uC11C \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: AD_REPORT_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uAD11\uACE0\uC13C\uD130 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: AD_REPORT_KIND });
+      const plan = parsed3.data;
+      const range = { startDate: plan.startDate, endDate: plan.endDate };
+      if (signal.aborted) return;
+      const reportCampaignIds = (await site.listReportCampaigns(range)).map((campaign) => campaign.id);
+      let vendorId2 = null;
+      if (plan.vendorId !== null) {
+        vendorId2 = await site.readVendorId();
+        if (vendorId2 !== plan.vendorId) {
+          throw new RuntimeError(ADVERTISER_IDENTITY_MISMATCH, "\uAD11\uACE0\uC13C\uD130 \uC5C5\uCCB4\uCF54\uB4DC\uAC00 \uC218\uC9D1 \uACC4\uC815\uACFC \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uD560 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", {
+            plannedVendorId: plan.vendorId,
+            observedVendorId: vendorId2
+          });
+        }
+      }
+      if (reportCampaignIds.length === 0) throw failed("no_report_campaigns", "\uBCF4\uACE0\uC11C\uB97C \uB9CC\uB4E4 \uCEA0\uD398\uC778\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
+      const requested = [];
+      for (const granularity of ["vendorItem", "keyword"]) {
+        const requestedAt = (/* @__PURE__ */ new Date()).toISOString();
+        const created = await site.requestReport({ ...range, campaignIds: reportCampaignIds, granularity });
+        requested.push({ granularity, reportId: created.id, requestedAt, isLargeReport: created.isLargeReport, completedAt: null });
+      }
+      for (let waited = 0; ; waited += AD_REPORT_POLL_INTERVAL_MS) {
+        if (signal.aborted) return;
+        const listed = new Map((await site.listReports()).map((entry) => [entry.id, entry]));
+        for (const entry of requested) {
+          const current = listed.get(entry.reportId);
+          if (!current || entry.completedAt) continue;
+          if (current.status === "error") throw failed("report_failed", "\uAD11\uACE0\uC13C\uD130\uAC00 \uBCF4\uACE0\uC11C\uB97C \uB9CC\uB4E4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { reportId: entry.reportId });
+          if (current.status === "completed") {
+            entry.completedAt = (/* @__PURE__ */ new Date()).toISOString();
+            entry.isLargeReport = current.isLargeReport;
+          }
+        }
+        if (requested.every((entry) => entry.completedAt)) break;
+        if (waited >= AD_REPORT_POLL_LIMIT_MS) {
+          throw failed("report_timeout", "\uAD11\uACE0\uC13C\uD130 \uBCF4\uACE0\uC11C\uAC00 5\uBD84 \uC548\uC5D0 \uB9CC\uB4E4\uC5B4\uC9C0\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", {
+            pending: requested.filter((entry) => !entry.completedAt).map((entry) => entry.reportId)
+          });
+        }
+        await report?.({ phase: "waiting_reports", waitedMs: waited + AD_REPORT_POLL_INTERVAL_MS, completed: requested.filter((entry) => entry.completedAt).length });
+        await site.pause(AD_REPORT_POLL_INTERVAL_MS);
+      }
+      const [productReport, keywordReport] = requested;
+      const campaigns = await readCampaigns(site);
+      const campaignGroups = /* @__PURE__ */ new Map();
+      for (const campaign of campaigns) {
+        for (const group of campaign.adGroups) {
+          const key = groupKey(campaign.campaignId, group.name);
+          if (!campaignGroups.has(key)) campaignGroups.set(key, group.adGroupId);
+        }
+      }
+      if (signal.aborted) return;
+      const productRecords = await site.downloadReport({ id: productReport.reportId, isLargeReport: productReport.isLargeReport });
+      const productRows2 = [];
+      const reportGroups = /* @__PURE__ */ new Map();
+      for (const [index, record4] of productRecords.entries()) {
+        const row = productRow(record4, index, campaignGroups);
+        productRows2.push(row);
+        const key = groupKey(row.campaignId, row.adGroupName);
+        if (row.adGroupId && !reportGroups.has(key)) reportGroups.set(key, row.adGroupId);
+      }
+      yield* chunked(AD_REPORT_PRODUCT_ROWS_CHUNK_KIND, productRows2, "\uC0C1\uD488 \uBCF4\uACE0\uC11C \uD589", {
+        phase: "product_rows",
+        advertisedFallbackRows: productRecords.filter(advertisedMissing).length
+      });
+      if (signal.aborted) return;
+      const keywordRecords = await site.downloadReport({ id: keywordReport.reportId, isLargeReport: keywordReport.isLargeReport });
+      const keywordRows = keywordRecords.map((record4, index) => keywordRow(record4, index, reportGroups));
+      yield* chunked(AD_REPORT_KEYWORD_ROWS_CHUNK_KIND, keywordRows, "\uD0A4\uC6CC\uB4DC \uBCF4\uACE0\uC11C \uD589", {
+        phase: "keyword_rows",
+        advertisedFallbackRows: keywordRecords.filter(advertisedMissing).length
+      });
+      yield* chunked(AD_REPORT_CAMPAIGNS_CHUNK_KIND, campaigns, "\uCEA0\uD398\uC778", { phase: "campaigns" });
+      const ads = [];
+      for (const campaign of campaigns) {
+        for (const group of campaign.adGroups) {
+          if (signal.aborted) return;
+          ads.push(...await readAds(site, campaign.campaignId, group.adGroupId));
+        }
+      }
+      yield* chunked(AD_REPORT_ADS_CHUNK_KIND, ads, "\uAD11\uACE0", { phase: "ads" });
+      const settlementCampaignIds = reportCampaignIds.map(Number);
+      const reportCampaigns = new Set(reportCampaignIds);
+      for (const domain of plan.settlementDomains) {
+        if (signal.aborted) return;
+        let items;
+        try {
+          items = await site.readSettlement({ ...range, domain, campaignIds: settlementCampaignIds });
+        } catch (error) {
+          if (!campaignIdsRejected(error)) throw error;
+          items = (await site.readSettlement({ ...range, domain, campaignIds: null })).filter((item) => {
+            const campaignId = record(item)?.campaignId;
+            return blank(campaignId) || reportCampaigns.has(id(campaignId) ?? "");
+          });
+        }
+        const rows = items.map((item, index) => settlementRow(item, domain, index));
+        yield* chunked(AD_REPORT_SETTLEMENT_ROWS_CHUNK_KIND, rows, "\uC815\uC0B0 \uD589", { phase: "settlement", domain });
+      }
+      if (signal.aborted) return;
+      const period = {
+        ...range,
+        capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
+        vendorId: vendorId2,
+        reports: [
+          { granularity: "vendorItem", reportId: productReport.reportId, requestedAt: productReport.requestedAt, completedAt: productReport.completedAt, rowCount: productRows2.length, isLargeReport: productReport.isLargeReport },
+          { granularity: "keyword", reportId: keywordReport.reportId, requestedAt: keywordReport.requestedAt, completedAt: keywordReport.completedAt, rowCount: keywordRows.length, isLargeReport: keywordReport.isLargeReport }
+        ],
+        campaignCount: campaigns.length,
+        adCount: ads.length
+      };
+      yield { chunkKind: AD_REPORT_PERIOD_CHUNK_KIND, payload: [period], progress: { phase: "done", productRows: productRows2.length, keywordRows: keywordRows.length } };
+    }
+  };
+  function* chunked(chunkKind, items, label, progress4) {
+    const buffer = new ChunkBuffer({ maxItems: AD_REPORT_ROWS_PER_CHUNK, label });
+    for (const item of items) {
+      const full = buffer.push(item);
+      if (full) yield { chunkKind, payload: full, progress: progress4 };
+    }
+    const rest = buffer.flush();
+    if (rest) yield { chunkKind, payload: rest, progress: progress4 };
+  }
+  async function readCampaigns(site) {
+    const campaigns = [];
+    for (let page = 0; ; page += 1) {
+      if (page >= MAX_CAMPAIGN_PAGES) throw failed("campaign_page_limit", "\uAD11\uACE0\uC13C\uD130 \uCEA0\uD398\uC778 \uBAA9\uB85D\uC774 \uB108\uBB34 \uAE41\uB2C8\uB2E4.", { page });
+      const list2 = await site.listCampaigns(page);
+      campaigns.push(...list2.map((value, index) => campaignOf(value, page * AD_CENTER_PAGE_SIZE + index)));
+      if (list2.length < AD_CENTER_PAGE_SIZE) return campaigns;
+    }
+  }
+  async function readAds(site, campaignId, adGroupId) {
+    const ads = [];
+    for (let page = 0; ; page += 1) {
+      if (page >= MAX_AD_PAGES) throw failed("ads_page_limit", "\uAD11\uACE0\uC13C\uD130 \uAD11\uACE0 \uBAA9\uB85D\uC774 \uB108\uBB34 \uAE41\uB2C8\uB2E4.", { adGroupId });
+      const { ads: list2, totalCount } = await site.listAds({ adGroupId, page });
+      ads.push(...list2.map((value) => adOf(value, campaignId, adGroupId)));
+      if (ads.length >= totalCount) return ads;
+      if (list2.length === 0) throw failed("ads_incomplete", "\uAD11\uACE0\uC13C\uD130 \uAD11\uACE0 \uBAA9\uB85D\uC774 \uC804\uCCB4 \uC218\uBCF4\uB2E4 \uC801\uAC8C \uC654\uC2B5\uB2C8\uB2E4.", { adGroupId, totalCount, received: ads.length });
+    }
+  }
+  function advertisedOf(record4) {
+    return id(record4.advertised_vendor_item_id) ?? (blank(record4.advertised_vendor_item_id) ? id(record4.vendor_item_id) : null);
+  }
+  function advertisedMissing(record4) {
+    return blank(record4.advertised_vendor_item_id) && id(record4.vendor_item_id) !== null;
+  }
+  function productRow(record4, index, campaignGroups) {
+    const advertisedVendorItemId = advertisedOf(record4);
+    const campaignId = id(record4.campaign_id);
+    const adGroupName = text(record4.ad_group_name);
+    const adGroupId = id(record4.ad_group_id) ?? (campaignId && adGroupName !== null ? campaignGroups.get(groupKey(campaignId, adGroupName)) ?? null : null);
+    const date = reportDate(record4.dt);
+    const vendorItemId = id(record4.vendor_item_id) ?? advertisedVendorItemId;
+    const campaignName = text(record4.campaign_name);
+    const placementGroup = text(record4.placement_group);
+    if (!date || !campaignId || !advertisedVendorItemId || !vendorItemId || campaignName === null || adGroupName === null || placementGroup === null) {
+      throw rowInvalid("product", index);
+    }
+    return { date, campaignId, campaignName, adGroupId, adGroupName, advertisedVendorItemId, vendorItemId, placementGroup, ...metrics(record4, "product", index) };
+  }
+  function keywordRow(record4, index, reportGroups) {
+    const advertisedVendorItemId = advertisedOf(record4);
+    const date = reportDate(record4.dt);
+    const campaignId = id(record4.campaign_id);
+    const adGroupName = text(record4.ad_group_name);
+    const vendorItemId = id(record4.vendor_item_id) ?? advertisedVendorItemId;
+    const keyword2 = blank(record4.keywords) ? "" : text(record4.keywords);
+    if (!date || !campaignId || !advertisedVendorItemId || !vendorItemId || adGroupName === null || keyword2 === null) throw rowInvalid("keyword", index);
+    const adGroupId = id(record4.ad_group_id) ?? reportGroups.get(groupKey(campaignId, adGroupName)) ?? null;
+    return { date, campaignId, adGroupId, adGroupName, advertisedVendorItemId, vendorItemId, keyword: keyword2, ...metrics(record4, "keyword", index) };
+  }
+  function metrics(record4, report, index) {
+    const value = (field) => {
+      const parsed3 = number(record4[field]);
+      if (parsed3 === null) throw rowInvalid(report, index, field);
+      return Math.round(parsed3);
+    };
+    const sum = (kind) => value(`direct_${kind}`) + value(`halo_${kind}`);
+    return {
+      impressions: value("impressions_count"),
+      clicks: value("clicks_count"),
+      spend: value("ad_cost_sum"),
+      orders: sum("order_14_days_by_cli_count"),
+      units: sum("unit_14_days_by_cli_count"),
+      revenue: sum("sale_14_days_by_cli_price")
+    };
+  }
+  function campaignOf(value, index) {
+    const campaign = record(value);
+    const campaignId = id(campaign?.id ?? campaign?.campaignId);
+    if (!campaign || !campaignId) throw failed("campaign_invalid", "\uAD11\uACE0\uC13C\uD130 \uCEA0\uD398\uC778 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { index });
+    const groups = Array.isArray(campaign.groupList) ? campaign.groupList : [];
+    return {
+      campaignId,
+      name: text(campaign.name) ?? "",
+      isActive: campaign.isActive === true,
+      status: text(campaign.status),
+      servingStatus: text(campaign.servingStatus),
+      budget: integerOrNull(campaign.budget),
+      budgetType: text(campaign.capType ?? campaign.budgetType),
+      roasTarget: number(campaign.roasTarget),
+      adSelectionType: text(campaign.adSelectionType ?? campaign.objective),
+      adGroups: groups.flatMap((group) => {
+        const entry = record(group);
+        const adGroupId = id(entry?.id ?? entry?.adGroupId);
+        return adGroupId ? [{ adGroupId, name: text(entry?.name) ?? "" }] : [];
+      }),
+      totalAdCount: count(campaign.totalAdCount)
+    };
+  }
+  function adOf(value, campaignId, adGroupId) {
+    const ad = record(value);
+    const adId = id(ad?.adId ?? ad?.id);
+    if (!ad || !adId) throw failed("ad_invalid", "\uAD11\uACE0\uC13C\uD130 \uAD11\uACE0 \uC751\uB2F5\uC5D0 \uAD11\uACE0 ID\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { adGroupId });
+    const vendorItem = record(ad.vendorItem);
+    const active = typeof ad.isActive === "boolean" ? ad.isActive : typeof ad.active === "boolean" ? ad.active : null;
+    return {
+      adId,
+      campaignId,
+      adGroupId,
+      vendorItemId: id(ad.vendorItemId ?? vendorItem?.vendorItemId ?? vendorItem?.id),
+      isActive: active,
+      status: text(ad.status ?? ad.adStatus)
+    };
+  }
+  function settlementRow(value, domain, index) {
+    const item = record(value);
+    const date = settlementDate(item?.date);
+    const money = (field) => {
+      const parsed3 = number(item?.[field]);
+      if (parsed3 === null) throw rowInvalid("settlement", index, field);
+      return Math.round(parsed3);
+    };
+    if (!item || !date) throw rowInvalid("settlement", index, "date");
+    const campaignId = blank(item.campaignId) ? null : id(item.campaignId);
+    if (!blank(item.campaignId) && campaignId === null) throw rowInvalid("settlement", index, "campaignId");
+    return {
+      date,
+      settlementDomain: domain,
+      campaignId,
+      campaignName: text(item.campaignName),
+      deliveredSpend: money("deliveredAdcost"),
+      billedSpend: money("billableAmount"),
+      promotionAdjustment: money("promotionAdjustment"),
+      billableAdjustment: money("billableAdjustment")
+    };
+  }
+  function campaignIdsRejected(error) {
+    if (!(isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.reason === "graphql_error")) return false;
+    const message = typeof error.details.graphqlMessage === "string" ? error.details.graphqlMessage : "";
+    return error.details.httpStatus === 400 || /campaignIds|\bInt\b|got invalid value/i.test(message);
+  }
+  function groupKey(campaignId, adGroupName) {
+    return JSON.stringify([campaignId, adGroupName]);
+  }
+  function reportDate(value) {
+    const digits3 = typeof value === "number" && Number.isSafeInteger(value) ? String(value) : typeof value === "string" ? value.trim() : "";
+    const match = /^(\d{4})(\d{2})(\d{2})$/.exec(digits3);
+    return match ? calendarDate2(`${match[1]}-${match[2]}-${match[3]}`) : null;
+  }
+  function settlementDate(value) {
+    if (typeof value === "string" && /^\d{4}-\d{2}-\d{2}$/.test(value.trim())) return calendarDate2(value.trim());
+    return reportDate(value);
+  }
+  function calendarDate2(value) {
+    const parsed3 = /* @__PURE__ */ new Date(`${value}T00:00:00Z`);
+    return Number.isNaN(parsed3.getTime()) || parsed3.toISOString().slice(0, 10) !== value ? null : value;
+  }
+  function id(value) {
+    const textValue = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
+    return /^[1-9]\d*$/.test(textValue) ? textValue : null;
+  }
+  function blank(value) {
+    return value === null || value === void 0 || typeof value === "string" && value.trim() === "";
+  }
+  function text(value) {
+    if (typeof value === "string") return value;
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    return null;
+  }
+  function number(value) {
+    const parsed3 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value.replace(/,/g, "")) : Number.NaN;
+    return Number.isFinite(parsed3) ? parsed3 : null;
+  }
+  function integerOrNull(value) {
+    const parsed3 = number(value);
+    return parsed3 === null ? null : Math.round(parsed3);
+  }
+  function count(value) {
+    const parsed3 = number(value);
+    return parsed3 !== null && Number.isSafeInteger(parsed3) && parsed3 >= 0 ? parsed3 : null;
+  }
+  function record(value) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  }
+  function rowInvalid(report, index, field) {
+    return failed("report_row_invalid", "\uAD11\uACE0\uC13C\uD130 \uBCF4\uACE0\uC11C \uD589 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { report, row: index + 1, ...field ? { field } : {} });
+  }
+  function failed(reason, message, details = {}) {
+    return new RuntimeError(SITE_REQUEST_FAILED, message, { reason, ...details });
+  }
+  registerCollector(adReportCollector);
 
   // extensions/src/collectors/collector.ts
   function attentionReporter(report, base) {
@@ -4918,87 +5393,23 @@ var KidItemRuntime = (() => {
   };
   registerCollector(advertisingKeywordSerpCollector);
 
-  // extensions/src/core/errors.ts
-  var ErrorEnvelopeSchema = external_exports.object({
-    statusCode: external_exports.number().int().min(400).max(599),
-    code: external_exports.string().min(1),
-    kind: external_exports.string(),
-    message: external_exports.string(),
-    errors: external_exports.array(external_exports.unknown()).optional(),
-    details: external_exports.record(external_exports.string(), external_exports.unknown()).optional()
-  }).passthrough();
-  var RuntimeError = class extends Error {
-    constructor(code2, message, details = null, cause) {
-      super(message);
-      this.code = code2;
-      this.details = details;
-      this.cause = cause;
-      this.name = "RuntimeError";
-    }
-    code;
-    details;
-    cause;
-  };
-  function parseErrorEnvelope(body) {
-    const parsed2 = ErrorEnvelopeSchema.safeParse(body);
-    return parsed2.success ? parsed2.data : null;
-  }
-  function isRuntimeError(value) {
-    return value instanceof RuntimeError;
-  }
-
-  // extensions/src/collectors/chunk-items.ts
-  var encoder = new TextEncoder();
-  var ChunkBuffer = class {
-    // "[]"
-    constructor(options) {
-      this.options = options;
-    }
-    options;
-    items = [];
-    bytes = 2;
-    /** 넣고 나서 내보낼 payload(있으면). */
-    push(item) {
-      const maxBytes = this.options.maxBytes ?? OPERATION_CHUNK_MAX_BYTES;
-      const itemBytes = encoder.encode(JSON.stringify(item)).byteLength;
-      if (itemBytes + 2 > maxBytes) {
-        throw new RuntimeError("RUNTIME_CHUNK_TOO_LARGE", `${this.options.label} \uD558\uB098\uAC00 \uCCAD\uD06C \uC0C1\uD55C(${maxBytes}\uBC14\uC774\uD2B8)\uC744 \uB118\uC2B5\uB2C8\uB2E4.`, { bytes: itemBytes });
-      }
-      let flushed = null;
-      const separator = this.items.length > 0 ? 1 : 0;
-      if (this.items.length >= this.options.maxItems || this.bytes + separator + itemBytes > maxBytes) flushed = this.flush();
-      this.bytes += (this.items.length > 0 ? 1 : 0) + itemBytes;
-      this.items.push(item);
-      if (this.items.length >= this.options.maxItems) return flushed ?? this.flush();
-      return flushed;
-    }
-    /** 남은 원소(없으면 null). */
-    flush() {
-      if (this.items.length === 0) return null;
-      const out = this.items;
-      this.items = [];
-      this.bytes = 2;
-      return out;
-    }
-  };
-
   // extensions/src/collectors/advertising.wing_itemwinner/index.ts
-  var RUNTIME_PLAN_INVALID = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
   var CHUNK_ITEMS = 500;
   var wingItemwinnerCollector = {
     kind: WING_ITEMWINNER_KIND,
     site: "wing-itemwinner",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = WingItemwinnerPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID, "\uC544\uC774\uD15C\uC704\uB108 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
+      const parsed3 = WingItemwinnerPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uC544\uC774\uD15C\uC704\uB108 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
       }
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_ITEMWINNER_KIND });
       if (signal.aborted) return;
       const vendorId2 = await site.readVendorId();
-      if (vendorId2 !== parsed2.data.vendorId) {
+      if (vendorId2 !== parsed3.data.vendorId) {
         throw new RuntimeError(WING_VENDOR_IDENTITY_MISMATCH, "Wing\uC5D0 \uB2E4\uB978 \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uB3FC \uC788\uC2B5\uB2C8\uB2E4. \uC218\uC9D1\uD560 \uACC4\uC815\uC73C\uB85C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD55C \uB4A4 \uC2DC\uC791\uD574 \uC8FC\uC138\uC694.", {
-          plannedVendorId: parsed2.data.vendorId,
+          plannedVendorId: parsed3.data.vendorId,
           observedVendorId: vendorId2
         });
       }
@@ -5135,7 +5546,7 @@ var KidItemRuntime = (() => {
   // extensions/src/collectors/advertising.wing_traffic/index.ts
   var PAGE_SIZE = 100;
   var CHUNK_ITEMS2 = 1e3;
-  var RUNTIME_PLAN_INVALID2 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
   var WING_TRAFFIC_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
   var WING_TRAFFIC_DATA_NOT_READY = "WING_TRAFFIC_DATA_NOT_READY";
   var WING_TRAFFIC_PAGE_CONFLICT = "WING_TRAFFIC_PAGE_CONFLICT";
@@ -5143,10 +5554,10 @@ var KidItemRuntime = (() => {
     kind: WING_TRAFFIC_KIND,
     site: "wing-traffic",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = WingTrafficPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "\uD2B8\uB798\uD53D \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID2, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
-      const plan = parsed2.data;
+      const parsed3 = WingTrafficPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uD2B8\uB798\uD53D \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: WING_TRAFFIC_KIND });
+      const plan = parsed3.data;
       if (signal.aborted) return;
       const vendorId2 = await site.readVendorId();
       if (vendorId2 !== plan.vendorId) {
@@ -5307,88 +5718,6 @@ var KidItemRuntime = (() => {
     }).strict()
   }).strict();
 
-  // extensions/src/core/site-caller.ts
-  function delayUntilNext(input) {
-    if (input.lastSentAt === null) return 0;
-    return Math.max(0, input.lastSentAt + input.minIntervalMs - input.now);
-  }
-  var SITE_REQUEST_FAILED = "SITE_REQUEST_FAILED";
-  var SITE_LOGIN_REQUIRED = "SITE_LOGIN_REQUIRED";
-  var BODY_HEAD_LENGTH = 120;
-  function bodyHeadOf(body) {
-    const head = body.replace(/\s+/g, " ").trim().slice(0, BODY_HEAD_LENGTH);
-    return head || null;
-  }
-  function createSiteCaller(options, deps) {
-    let lastSentAt = null;
-    let queue = Promise.resolve();
-    const loginMessage = options.displayName ? `${options.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.` : "\uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.";
-    async function send(url, { requireXsrf = false, ...init } = {}) {
-      const headers = new Headers(init.headers);
-      if (options.xsrf) {
-        const cookie = await deps.cookies.get({ url: options.xsrf.cookieUrl, name: options.xsrf.cookieName });
-        const token = decodeCookie(cookie?.value);
-        if (token) headers.set(options.xsrf.headerName, token);
-        else if (requireXsrf) throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { url, reason: "xsrf_cookie_missing" });
-      }
-      const wait = delayUntilNext({ lastSentAt, now: deps.now(), minIntervalMs: options.minIntervalMs });
-      if (wait > 0) await deps.sleep(wait);
-      lastSentAt = deps.now();
-      let response;
-      const timeout = options.timeoutMs === void 0 ? null : AbortSignal.timeout(options.timeoutMs);
-      const signal = timeout && init.signal ? AbortSignal.any([timeout, init.signal]) : timeout ?? init.signal;
-      try {
-        response = await deps.fetch(url, { credentials: "include", redirect: "manual", ...init, headers, ...signal ? { signal } : {} });
-      } catch (error) {
-        const timedOut = timeout?.aborted === true;
-        const failure2 = { status: null, url, reason: timedOut ? "timeout" : "network", bodyHead: null };
-        throw new RuntimeError(SITE_REQUEST_FAILED, timedOut ? "\uC0AC\uC774\uD2B8\uAC00 \uC81C\uB54C \uC751\uB2F5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." : "\uC0AC\uC774\uD2B8\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", failure2, error);
-      }
-      if (response.status === 401 || response.status === 403 || response.type === "opaqueredirect") {
-        throw new RuntimeError(SITE_LOGIN_REQUIRED, loginMessage, { status: response.status, url });
-      }
-      if (!response.ok) {
-        const failure2 = { status: response.status, url, reason: "http", bodyHead: bodyHeadOf(await safeText(response)) };
-        throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uC774\uD2B8 \uC694\uCCAD\uC774 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(${response.status}).`, failure2);
-      }
-      return response;
-    }
-    function enqueue(task) {
-      const next = queue.then(task);
-      queue = next.catch(() => void 0);
-      return next;
-    }
-    return {
-      json: (url, init) => enqueue(async () => {
-        const response = await send(url, init);
-        const body = await safeText(response);
-        try {
-          return JSON.parse(body);
-        } catch (error) {
-          const failure2 = { status: response.status, url, reason: "not_json", bodyHead: bodyHeadOf(body) };
-          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", failure2, error);
-        }
-      }),
-      text: (url, init) => enqueue(async () => (await send(url, init)).text()),
-      bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send(url, init)).arrayBuffer()))
-    };
-  }
-  async function safeText(response) {
-    try {
-      return await response.text();
-    } catch {
-      return "";
-    }
-  }
-  function decodeCookie(value) {
-    if (!value) return null;
-    try {
-      return decodeURIComponent(value) || null;
-    } catch {
-      return null;
-    }
-  }
-
   // extensions/src/collectors/analytics.sellpia_product_profitability/index.ts
   var isoDay3 = external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/);
   var PlanSchema = external_exports.object({
@@ -5397,7 +5726,7 @@ var KidItemRuntime = (() => {
     coveredMonths: external_exports.array(external_exports.string().regex(/^\d{4}-(0[1-9]|1[0-2])$/)).min(1)
   }).passthrough();
   var CHUNK_PRODUCTS = 500;
-  var RUNTIME_PLAN_INVALID3 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
   var MISMATCH_MESSAGE = "\uC140\uD53C\uC544 \uC0C1\uD488\uBCC4 \uC774\uC775\uD604\uD669 \uAD6C\uB9E4\uAE30\uAC04 \uC751\uB2F5\uC774 401\uC77C \uD310\uB9E4 \uC99D\uAC70\uC640 \uC77C\uCE58\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.";
   function purchasePeriods(plan) {
     return plan.coveredMonths.map((yearMonth) => {
@@ -5475,12 +5804,12 @@ var KidItemRuntime = (() => {
     kind: SELLPIA_PRODUCT_PROFITABILITY_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = PlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC140\uD53C\uC544 \uC0C1\uD488 \uC190\uC775 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID3, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
-      const periods = purchasePeriods(parsed2.data);
+      const parsed3 = PlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uC0C1\uD488 \uC190\uC775 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
+      const periods = purchasePeriods(parsed3.data);
       const read = await site.productProfit(
-        { start: parsed2.data.from, end: parsed2.data.to, periods, signal },
+        { start: parsed3.data.from, end: parsed3.data.to, periods, signal },
         async (done, total) => {
           await report?.({ months: total, monthsRead: done });
         }
@@ -5505,15 +5834,15 @@ var KidItemRuntime = (() => {
     range: external_exports.object({ from: isoDay4, to: isoDay4 })
   }).passthrough();
   var CHUNK_ROWS = 500;
-  var RUNTIME_PLAN_INVALID4 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
   var sellpiaSalesCollector = {
     kind: SELLPIA_SALES_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = PlanSchema2.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uB9E4\uCD9C \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
-      const { rows, sellers } = await site.sales({ startDate: parsed2.data.range.from, endDate: parsed2.data.range.to });
+      const parsed3 = PlanSchema2.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC140\uD53C\uC544 \uB9E4\uCD9C \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SALES_KIND });
+      const { rows, sellers } = await site.sales({ startDate: parsed3.data.range.from, endDate: parsed3.data.range.to });
       if (signal.aborted) return;
       const progress4 = { rows: rows.length, sellers };
       const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS, label: "\uC140\uD53C\uC544 \uD310\uB9E4\uCC98\xB7\uC77C \uD55C \uC904" });
@@ -5763,6 +6092,8 @@ var KidItemRuntime = (() => {
     /** 몰이 지금 팔고 있다고 보이는가(품절·판매중지는 false). */
     available: external_exports.boolean(),
     stock: external_exports.number().int().nonnegative().nullable(),
+    /** 쿠팡 로켓그로스 옵션인가(다른 몰은 false). 웹 품절 후보 화면이 구별해 보여 준다. */
+    rocket: external_exports.boolean(),
     /** 몰 화면의 상태 원문. */
     observedStatus: external_exports.string().nullable(),
     observedAt: external_exports.string().datetime({ offset: true })
@@ -6022,22 +6353,22 @@ var KidItemRuntime = (() => {
   }).strict();
 
   // extensions/src/collectors/channels.mall_admin_listings/index.ts
-  var RUNTIME_PLAN_INVALID5 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
   var SOURCE_SNAPSHOT_INVALID = "SOURCE_SNAPSHOT_INVALID";
   var CHUNK_ROWS2 = 1e3;
   var mallAdminListingsCollector = {
     kind: MALL_ADMIN_LISTINGS_KIND,
     site: "mall-admin-listings",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = MallAdminListingsPlanSchema.safeParse(rawPlan);
-      const reader = parsed2.success && site ? site.reader(parsed2.data.mallKey) : null;
-      if (!parsed2.success || !reader?.readListings) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID5, "\uC774 \uD655\uC7A5\uC774 \uAC00\uC838\uC62C \uC218 \uC5C6\uB294 \uBAB0 \uC0C1\uD488 \uBAA9\uB85D \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+      const parsed3 = MallAdminListingsPlanSchema.safeParse(rawPlan);
+      const reader = parsed3.success && site ? site.reader(parsed3.data.mallKey) : null;
+      if (!parsed3.success || !reader?.readListings) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID6, "\uC774 \uD655\uC7A5\uC774 \uAC00\uC838\uC62C \uC218 \uC5C6\uB294 \uBAB0 \uC0C1\uD488 \uBAA9\uB85D \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ADMIN_LISTINGS_KIND,
-          mallKey: parsed2.success ? parsed2.data.mallKey : null
+          mallKey: parsed3.success ? parsed3.data.mallKey : null
         });
       }
-      const plan = parsed2.data;
+      const plan = parsed3.data;
       const snapshot = await reader.readListings(plan);
       if (signal.aborted) return;
       const scan = MallAdminListingsScanSchema.safeParse({ collection: snapshot.collection, proof: snapshot.proof });
@@ -6089,10 +6420,10 @@ var KidItemRuntime = (() => {
   }).passthrough();
 
   // extensions/src/collectors/channels.registration/index.ts
-  var RUNTIME_PLAN_INVALID6 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
   var REGISTRATION_ACCOUNT_MISMATCH = "REGISTRATION_ACCOUNT_MISMATCH";
   function invalid(message, details) {
-    return new RuntimeError(RUNTIME_PLAN_INVALID6, message, { kind: REGISTRATION_KIND, ...details });
+    return new RuntimeError(RUNTIME_PLAN_INVALID7, message, { kind: REGISTRATION_KIND, ...details });
   }
   function mallOutcomeOf(submission, providerAccountId) {
     if (!submission) return { outcome: "not_submitted", observed: "not_submitted" };
@@ -6109,9 +6440,9 @@ var KidItemRuntime = (() => {
     kind: REGISTRATION_KIND,
     site: "mall-write",
     async *collect(rawPlan, site) {
-      const parsed2 = RegistrationPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw invalid("\uC774 \uD655\uC7A5\uC774 \uC2E4\uD589\uD560 \uC218 \uC5C6\uB294 \uB4F1\uB85D \uACC4\uD68D\uC785\uB2C8\uB2E4.", { mallKey: null });
-      const plan = parsed2.data;
+      const parsed3 = RegistrationPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw invalid("\uC774 \uD655\uC7A5\uC774 \uC2E4\uD589\uD560 \uC218 \uC5C6\uB294 \uB4F1\uB85D \uACC4\uD68D\uC785\uB2C8\uB2E4.", { mallKey: null });
+      const plan = parsed3.data;
       const writer = site?.writer(plan.mallKey) ?? null;
       if (!writer) throw invalid(`\uC774 \uD655\uC7A5\uC5D0 ${plan.mallKey} \uBAB0 \uC4F0\uAE30 \uBAA8\uB4C8\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`, { mallKey: plan.mallKey });
       const progress4 = { mallKey: plan.mallKey, executionKind: plan.executionKind };
@@ -6274,39 +6605,39 @@ var KidItemRuntime = (() => {
   }).strict();
 
   // extensions/src/collectors/channels.sabangnet_mall_listings/index.ts
-  var RUNTIME_PLAN_INVALID7 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID8 = "RUNTIME_PLAN_INVALID";
   var MALL_CONTRACT_CHANGED = "MALL_CONTRACT_CHANGED";
   var SOURCE_SNAPSHOT_INVALID2 = "SOURCE_SNAPSHOT_INVALID";
   var CHUNK_ROWS3 = 500;
   function drift(stage) {
     throw new RuntimeError(MALL_CONTRACT_CHANGED, "\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { stage, field: stage });
   }
-  function text(value, maximum) {
+  function text2(value, maximum) {
     if (typeof value !== "string" && typeof value !== "number") return null;
     const normalized = String(value).replace(/\s+/g, " ").trim();
     return normalized && normalized.length <= maximum ? normalized : null;
   }
   function digits(value, maximum) {
-    const normalized = text(value, maximum);
+    const normalized = text2(value, maximum);
     return normalized && /^\d+$/.test(normalized) ? normalized : null;
   }
   function price(value) {
     if (value === null || value === void 0 || value === "") return null;
-    const parsed2 = Number(value);
-    return Number.isSafeInteger(parsed2) && parsed2 >= 0 && parsed2 <= 1e9 ? parsed2 : null;
+    const parsed3 = Number(value);
+    return Number.isSafeInteger(parsed3) && parsed3 >= 0 && parsed3 <= 1e9 ? parsed3 : null;
   }
   function sentAt(value) {
-    const normalized = text(value, 20);
+    const normalized = text2(value, 20);
     return normalized && /^\d{8} \d{2}:\d{2}$/.test(normalized) ? normalized : null;
   }
   var sabangnetMallListingsCollector = {
     kind: SABANGNET_MALL_LISTINGS_KIND,
     site: "sabangnet",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = SabangnetMallListingsPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC0AC\uBC29\uB137 \uAC00\uC838\uC624\uAE30 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID7, "\uC0AC\uBC29\uB137 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
-      const plan = parsed2.data;
+      const parsed3 = SabangnetMallListingsPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC0AC\uBC29\uB137 \uAC00\uC838\uC624\uAE30 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC0AC\uBC29\uB137 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SABANGNET_MALL_LISTINGS_KIND });
+      const plan = parsed3.data;
       const planned = new Set(plan.malls.flatMap((mall) => mall.sabangnetShopIds));
       const query = { listPath: plan.listPath, dateFrom: plan.dateFrom, dateTo: plan.dateTo, pageSize: plan.pageSize };
       const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS3, label: "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D \uD55C \uC904" });
@@ -6336,7 +6667,7 @@ var KidItemRuntime = (() => {
           }
           pagesRead += 1;
           for (const item of page.items) {
-            const shopId = text(item.shmaId, 20);
+            const shopId = text2(item.shmaId, 20);
             if (!shopId || !/^shop\d{4}$/.test(shopId)) drift("shop");
             const sendSerial = digits(item.prdRegsTrnmSrno, 30);
             if (!sendSerial) drift("send_serial");
@@ -6347,14 +6678,14 @@ var KidItemRuntime = (() => {
               skippedByShop[shopId] = (skippedByShop[shopId] ?? 0) + 1;
               continue;
             }
-            const mallProductCode = text(item.shmaPrdNo, 60);
+            const mallProductCode = text2(item.shmaPrdNo, 60);
             if (!mallProductCode) {
               missingMallCode += 1;
               continue;
             }
             const sabangnetProductNo = digits(item.prdNo, 30);
-            const productName = text(item.prdNm, 400);
-            const supplyStatus = text(item.prdSplyStsCdNm, 20);
+            const productName = text2(item.prdNm, 400);
+            const supplyStatus = text2(item.prdSplyStsCdNm, 20);
             if (!sabangnetProductNo) drift("product_no");
             if (!productName) drift("product_name");
             if (!supplyStatus) drift("supply_status");
@@ -6364,8 +6695,8 @@ var KidItemRuntime = (() => {
               sabangnetShopId: shopId,
               mallProductCode,
               sabangnetProductNo,
-              modelName: text(item.modlNm, 120),
-              ownProductCode: text(item.onsfPrdCd, 120),
+              modelName: text2(item.modlNm, 120),
+              ownProductCode: text2(item.onsfPrdCd, 120),
               productName,
               salePrice: price(item.sepr),
               supplyStatus,
@@ -6458,7 +6789,7 @@ var KidItemRuntime = (() => {
   }).strict();
 
   // extensions/src/collectors/channels.sellpia_manual_match/index.ts
-  var RUNTIME_PLAN_INVALID8 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID9 = "RUNTIME_PLAN_INVALID";
   var MALL_CONTRACT_CHANGED2 = "MALL_CONTRACT_CHANGED";
   var SOURCE_SNAPSHOT_INVALID3 = "SOURCE_SNAPSHOT_INVALID";
   var SEARCH_BATCH = 100;
@@ -6471,10 +6802,10 @@ var KidItemRuntime = (() => {
     kind: SELLPIA_MANUAL_MATCH_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = SellpiaManualMatchPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID8, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
-      const { targetCodes } = parsed2.data;
+      const parsed3 = SellpiaManualMatchPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC140\uD53C\uC544 \uC218\uB3D9\uB9E4\uCE6D \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_MANUAL_MATCH_KIND });
+      const { targetCodes } = parsed3.data;
       try {
         const byMd5 = /* @__PURE__ */ new Map();
         const received = [];
@@ -6811,8 +7142,8 @@ var KidItemRuntime = (() => {
         }
       }
     }
-    for (const [optionId, count3] of mediaCountByOption.entries()) {
-      if (count3 > COUPANG_CATALOG_MAX_MEDIA_PER_OWNER) {
+    for (const [optionId, count5] of mediaCountByOption.entries()) {
+      if (count5 > COUPANG_CATALOG_MAX_MEDIA_PER_OWNER) {
         ctx.addIssue({
           code: external_exports.ZodIssueCode.custom,
           path: ["media"],
@@ -7646,7 +7977,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/collectors/orders.coupang_directship/index.ts
-  var RUNTIME_PLAN_INVALID9 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID10 = "RUNTIME_PLAN_INVALID";
   var MAX_LIST_PAGES = 40;
   var WINDOW_DAYS = 30;
   var DETAIL_CONCURRENCY = 5;
@@ -7657,9 +7988,9 @@ var KidItemRuntime = (() => {
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
       if (!CoupangDirectshipPlanSchema.safeParse(rawPlan).success) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+        throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uC9C1\uBC30\uC1A1 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       }
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID9, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_DIRECTSHIP_KIND });
       try {
         const now = Date.now();
         const query = { searchDateType: "WAREHOUSING_PLAN_DATE", from: kstDay(now, 0), to: kstDay(now, WINDOW_DAYS), status: "PA" };
@@ -7724,9 +8055,9 @@ var KidItemRuntime = (() => {
     const raw = String(value ?? "").trim();
     if (!raw) return "";
     if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) return raw;
-    const parsed2 = Date.parse(raw);
-    if (Number.isNaN(parsed2)) return raw.slice(0, 10);
-    return new Date(parsed2 + KST_OFFSET_MS).toISOString().slice(0, 10);
+    const parsed3 = Date.parse(raw);
+    if (Number.isNaN(parsed3)) return raw.slice(0, 10);
+    return new Date(parsed3 + KST_OFFSET_MS).toISOString().slice(0, 10);
   }
   function isUrgent(row) {
     const code2 = String(row.purchaseOrderType ?? "").trim().toUpperCase();
@@ -7756,15 +8087,15 @@ var KidItemRuntime = (() => {
     const list2 = Array.isArray(body) ? body : body?.body ?? [];
     const centers = {};
     for (const center of Array.isArray(list2) ? list2 : []) {
-      const record2 = center;
-      if (!record2?.centerName) continue;
+      const record4 = center;
+      if (!record4?.centerName) continue;
       const entry = {};
-      if (typeof record2.address === "string" && record2.address.trim()) entry.addr = record2.address.trim();
-      if (typeof record2.zipCode === "string" && record2.zipCode.trim() || typeof record2.zipCode === "number") {
-        entry.zip = typeof record2.zipCode === "number" ? record2.zipCode : String(record2.zipCode).trim();
+      if (typeof record4.address === "string" && record4.address.trim()) entry.addr = record4.address.trim();
+      if (typeof record4.zipCode === "string" && record4.zipCode.trim() || typeof record4.zipCode === "number") {
+        entry.zip = typeof record4.zipCode === "number" ? record4.zipCode : String(record4.zipCode).trim();
       }
-      if (typeof record2.contact === "string" && record2.contact.trim()) entry.contact = record2.contact.trim();
-      centers[String(record2.centerName).trim()] = entry;
+      if (typeof record4.contact === "string" && record4.contact.trim()) entry.contact = record4.contact.trim();
+      centers[String(record4.centerName).trim()] = entry;
     }
     return centers;
   }
@@ -7928,15 +8259,15 @@ var KidItemRuntime = (() => {
     maxPagesPerWindow: external_exports.number().int().min(1)
   });
   var COUPANG_REVIEWS_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
-  var RUNTIME_PLAN_INVALID10 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID11 = "RUNTIME_PLAN_INVALID";
   var coupangReviewsCollector = {
     kind: COUPANG_REVIEWS_KIND,
     site: "wing-reviews",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = CoupangReviewsPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID10, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID10, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
-      const plan = parsed2.data;
+      const parsed3 = CoupangReviewsPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uC0C1\uD488\uD3C9 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "Wing \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_REVIEWS_KIND });
+      const plan = parsed3.data;
       const done = [];
       for (const window of plan.windows) {
         const status = { index: window.index, pages: 0, items: 0, done: false };
@@ -7978,17 +8309,17 @@ var KidItemRuntime = (() => {
 
   // extensions/src/collectors/orders.coupang_rocket_po/index.ts
   var ROCKET_PO_COLLECTION_INCOMPLETE = "ROCKET_PO_COLLECTION_INCOMPLETE";
-  var RUNTIME_PLAN_INVALID11 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID12 = "RUNTIME_PLAN_INVALID";
   var DETAIL_CONCURRENCY2 = 5;
   var CHUNK_PURCHASE_ORDERS = 200;
   var coupangRocketPoCollector = {
     kind: COUPANG_ROCKET_PO_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = CoupangRocketPoPlanSchema.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID11, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
-      const plan = parsed2.data;
+      const parsed3 = CoupangRocketPoPlanSchema.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID12, "\uB85C\uCF13 \uBC1C\uC8FC \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID12, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_ROCKET_PO_KIND });
+      const plan = parsed3.data;
       try {
         const query = { searchDateType: plan.dateType, from: plan.from, to: plan.to, status: plan.status };
         const listed = [];
@@ -8169,9 +8500,9 @@ var KidItemRuntime = (() => {
     return String(value ?? "").replace(/[\u0000-\u001F]/g, " ").replace(/^\d{8,}\s*/, "").trim().slice(0, max);
   }
   function requiredText4(value, field) {
-    const text6 = norm(value);
-    if (!text6) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
-    return text6;
+    const text8 = norm(value);
+    if (!text8) throw incomplete2(`${field}\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+    return text8;
   }
   function requiredInteger(value, field) {
     if (typeof value === "number") {
@@ -8181,9 +8512,9 @@ var KidItemRuntime = (() => {
     if (typeof value !== "string") throw incomplete2(`${field}\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
     const raw = value.trim();
     if (!raw || !/^\d+$/.test(raw) && !/^\d{1,3}(?:,\d{3})+$/.test(raw)) throw incomplete2(`${field}\uAC00 \uC5C6\uAC70\uB098 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
-    const parsed2 = Number(raw.replace(/,/g, ""));
-    if (!Number.isSafeInteger(parsed2) || parsed2 < 0) throw incomplete2(`${field}\uAC00 \uBC94\uC704\uB97C \uBC97\uC5B4\uB0AC\uC2B5\uB2C8\uB2E4.`);
-    return parsed2;
+    const parsed3 = Number(raw.replace(/,/g, ""));
+    if (!Number.isSafeInteger(parsed3) || parsed3 < 0) throw incomplete2(`${field}\uAC00 \uBC94\uC704\uB97C \uBC97\uC5B4\uB0AC\uC2B5\uB2C8\uB2E4.`);
+    return parsed3;
   }
   function isCalendarDate(year, month, day) {
     if (month < 1 || month > 12 || day < 1) return false;
@@ -8198,24 +8529,24 @@ var KidItemRuntime = (() => {
       return raw;
     }
     const iso = /^(\d{4})-(\d{2})-(\d{2})T\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:\d{2})$/.exec(raw);
-    const parsed2 = iso ? Date.parse(raw) : Number.NaN;
-    if (!iso || !isCalendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3])) || Number.isNaN(parsed2)) throw incomplete2(`${field}\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
-    return new Date(parsed2 + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
+    const parsed3 = iso ? Date.parse(raw) : Number.NaN;
+    if (!iso || !isCalendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3])) || Number.isNaN(parsed3)) throw incomplete2(`${field}\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+    return new Date(parsed3 + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
   }
   registerCollector(coupangRocketPoCollector);
 
   // extensions/src/collectors/orders.coupang_shipment_summary/index.ts
   var PlanSchema3 = external_exports.object({ maxPages: external_exports.number().int().min(1).max(60) });
   var PAGE_FETCH_CONCURRENCY = 6;
-  var RUNTIME_PLAN_INVALID12 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID13 = "RUNTIME_PLAN_INVALID";
   var coupangShipmentSummaryCollector = {
     kind: COUPANG_SHIPMENT_SUMMARY_KIND,
     site: "coupang-supplier",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = PlanSchema3.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID12, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID12, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
-      const { maxPages } = parsed2.data;
+      const parsed3 = PlanSchema3.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID13, "\uC27D\uBA3C\uD2B8 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID13, "\uC11C\uD50C\uB77C\uC774\uC5B4 \uD5C8\uBE0C \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: COUPANG_SHIPMENT_SUMMARY_KIND });
+      const { maxPages } = parsed3.data;
       try {
         const seen = /* @__PURE__ */ new Set();
         const byDate = /* @__PURE__ */ new Map();
@@ -8294,20 +8625,20 @@ var KidItemRuntime = (() => {
     seenRowKeys: external_exports.array(external_exports.string()).optional()
   });
   var CHUNK_ROWS5 = 200;
-  var RUNTIME_PLAN_INVALID13 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID14 = "RUNTIME_PLAN_INVALID";
   var mallOrdersCollector = {
     kind: MALL_ORDERS_KIND,
     site: "mall-orders",
     async *collect(rawPlan, site, { signal, report }) {
-      const parsed2 = PlanSchema4.safeParse(rawPlan);
-      const reader = parsed2.success && site ? site.reader(parsed2.data.mallKey) : null;
-      if (!parsed2.success || !reader) {
-        throw new RuntimeError(RUNTIME_PLAN_INVALID13, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
+      const parsed3 = PlanSchema4.safeParse(rawPlan);
+      const reader = parsed3.success && site ? site.reader(parsed3.data.mallKey) : null;
+      if (!parsed3.success || !reader) {
+        throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC774 \uD655\uC7A5\uC774 \uC218\uC9D1\uD560 \uC218 \uC5C6\uB294 \uBAB0 \uC8FC\uBB38 \uACC4\uD68D\uC785\uB2C8\uB2E4.", {
           kind: MALL_ORDERS_KIND,
-          mallKey: parsed2.success ? parsed2.data.mallKey : null
+          mallKey: parsed3.success ? parsed3.data.mallKey : null
         });
       }
-      const plan = parsed2.data;
+      const plan = parsed3.data;
       try {
         const { rows, continuation } = await reader.readOrders({
           collectionDate: plan.collectionDate,
@@ -8339,15 +8670,15 @@ var KidItemRuntime = (() => {
     endDate: external_exports.string().regex(/^\d{4}-\d{2}-\d{2}$/)
   });
   var CHUNK_ROWS6 = 500;
-  var RUNTIME_PLAN_INVALID14 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID15 = "RUNTIME_PLAN_INVALID";
   var sellpiaShipmentTrackingCollector = {
     kind: SELLPIA_SHIPMENT_TRACKING_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = PlanSchema5.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID14, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
-      const { rows, total } = await site.shipmentTracking({ startDate: parsed2.data.startDate, endDate: parsed2.data.endDate });
+      const parsed3 = PlanSchema5.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uC870\uD68C \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_SHIPMENT_TRACKING_KIND });
+      const { rows, total } = await site.shipmentTracking({ startDate: parsed3.data.startDate, endDate: parsed3.data.endDate });
       if (signal.aborted) return;
       const progress4 = { rows: rows.length, listed: total };
       const buffer = new ChunkBuffer({ maxItems: CHUNK_ROWS6, label: "\uC140\uD53C\uC544 \uC1A1\uC7A5 \uD55C \uC904" });
@@ -8368,14 +8699,14 @@ var KidItemRuntime = (() => {
     sourceAccountKey: external_exports.literal("kiditem")
   }).passthrough();
   var CHUNK_ROWS7 = 5e3;
-  var RUNTIME_PLAN_INVALID15 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID16 = "RUNTIME_PLAN_INVALID";
   var sellpiaInventoryCollector = {
     kind: SELLPIA_INVENTORY_KIND,
     site: "sellpia",
     async *collect(rawPlan, site, { signal }) {
-      const parsed2 = PlanSchema6.safeParse(rawPlan);
-      if (!parsed2.success) throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC140\uD53C\uC544 \uC7AC\uACE0 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
-      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID15, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
+      const parsed3 = PlanSchema6.safeParse(rawPlan);
+      if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID16, "\uC140\uD53C\uC544 \uC7AC\uACE0 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
+      if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID16, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_INVENTORY_KIND });
       const { rows } = await site.inventory();
       if (signal.aborted) return;
       const progress4 = { rows: rows.length };
@@ -8834,7 +9165,7 @@ var KidItemRuntime = (() => {
     const scripting = chromeApi?.scripting;
     if (!scripting?.getRegisteredContentScripts || !scripting.unregisterContentScripts) return;
     try {
-      const ids = (await scripting.getRegisteredContentScripts()).map((script) => script.id).filter((id) => id.startsWith(DIALOG_GUARD_ID_PREFIX));
+      const ids = (await scripting.getRegisteredContentScripts()).map((script) => script.id).filter((id3) => id3.startsWith(DIALOG_GUARD_ID_PREFIX));
       if (ids.length > 0) await scripting.unregisterContentScripts({ ids });
     } catch {
     }
@@ -9017,19 +9348,19 @@ var KidItemRuntime = (() => {
       async guardDialogs(hosts) {
         const scripting = deps.chrome.scripting;
         dialogGuardSerial += 1;
-        const id = `${DIALOG_GUARD_ID_PREFIX}${deps.now()}-${dialogGuardSerial}`;
+        const id3 = `${DIALOG_GUARD_ID_PREFIX}${deps.now()}-${dialogGuardSerial}`;
         const matches = hosts.flatMap((host) => [`https://${host}/*`, `https://*.${host}/*`]);
         let registered = false;
         if (matches.length > 0 && scripting.registerContentScripts) {
           registered = await scripting.registerContentScripts([
-            { id, matches, js: [DIALOG_GUARD_FILE], world: "MAIN", runAt: "document_start", allFrames: true, persistAcrossSessions: false },
-            { id: `${id}-bridge`, matches, js: [DIALOG_GUARD_BRIDGE_FILE], world: "ISOLATED", runAt: "document_start", allFrames: true, persistAcrossSessions: false }
+            { id: id3, matches, js: [DIALOG_GUARD_FILE], world: "MAIN", runAt: "document_start", allFrames: true, persistAcrossSessions: false },
+            { id: `${id3}-bridge`, matches, js: [DIALOG_GUARD_BRIDGE_FILE], world: "ISOLATED", runAt: "document_start", allFrames: true, persistAcrossSessions: false }
           ]).then(() => true, () => false);
         }
         return async () => {
           if (!registered) return;
           registered = false;
-          await scripting.unregisterContentScripts?.({ ids: [id, `${id}-bridge`] }).catch(() => void 0);
+          await scripting.unregisterContentScripts?.({ ids: [id3, `${id3}-bridge`] }).catch(() => void 0);
         };
       },
       async fetchText(url, init) {
@@ -9229,9 +9560,9 @@ var KidItemRuntime = (() => {
     "password does not match"
   ];
   function mallRejectedCredentials(message) {
-    const text6 = (message ?? "").toLowerCase();
-    if (!text6) return false;
-    return MALL_CREDENTIAL_REJECTIONS.some((phrase) => text6.includes(phrase.toLowerCase()));
+    const text8 = (message ?? "").toLowerCase();
+    if (!text8) return false;
+    return MALL_CREDENTIAL_REJECTIONS.some((phrase) => text8.includes(phrase.toLowerCase()));
   }
 
   // extensions/src/sites/site-login.ts
@@ -9445,8 +9776,8 @@ var KidItemRuntime = (() => {
     login_unconfirmed: " \uC800\uC7A5\uB41C \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694."
   };
   function loginFailure(error, reason, mallMessage) {
-    const text6 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}.` : REASON_TEXT[reason];
-    return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text6}`, {
+    const text8 = reason === "credentials_rejected" ? `${REASON_TEXT[reason]}.` : REASON_TEXT[reason];
+    return new RuntimeError(SITE_LOGIN_REQUIRED, `${error.message}${text8}`, {
       ...error.details ?? {},
       reason,
       ...mallMessage ? { mallMessage } : {}
@@ -9454,7 +9785,7 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/mall-write/form.ts
-  var RUNTIME_PLAN_INVALID16 = "RUNTIME_PLAN_INVALID";
+  var RUNTIME_PLAN_INVALID17 = "RUNTIME_PLAN_INVALID";
   var isObject = (value) => typeof value === "object" && value !== null && !Array.isArray(value);
   var entries = (value) => isObject(value) ? Object.entries(value) : [];
   var list = (value) => Array.isArray(value) ? value : [];
@@ -9467,7 +9798,7 @@ var KidItemRuntime = (() => {
     return out;
   }
   function assertRegisterUrl(spec, value) {
-    const invalid2 = (suffix = "") => new RuntimeError(RUNTIME_PLAN_INVALID16, `${spec.label} \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.${suffix}`, { reason: "register_url" });
+    const invalid2 = (suffix = "") => new RuntimeError(RUNTIME_PLAN_INVALID17, `${spec.label} \uC0C1\uD488\uB4F1\uB85D \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.${suffix}`, { reason: "register_url" });
     let url;
     try {
       url = new URL(String(value ?? "").trim());
@@ -9481,7 +9812,7 @@ var KidItemRuntime = (() => {
     return url.toString();
   }
   function normalizeForm(spec, value) {
-    if (!isObject(value)) throw new RuntimeError(RUNTIME_PLAN_INVALID16, "\uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { reason: "form_missing" });
+    if (!isObject(value)) throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { reason: "form_missing" });
     const url = assertRegisterUrl(spec, value.url);
     const fields = {};
     for (const [name, fieldValue] of entries(value.fields)) {
@@ -10040,7 +10371,7 @@ var KidItemRuntime = (() => {
     const spec = definition.form;
     const custom2 = definition.custom;
     if (!spec && !custom2) {
-      throw new RuntimeError(RUNTIME_PLAN_INVALID16, `${definition.displayName}\uC740 \uC0C1\uD488\uB4F1\uB85D \uD3FC \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`, { mallKey: definition.mallKey });
+      throw new RuntimeError(RUNTIME_PLAN_INVALID17, `${definition.displayName}\uC740 \uC0C1\uD488\uB4F1\uB85D \uD3FC \uCC44\uC6B0\uAE30\uB97C \uC9C0\uC6D0\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`, { mallKey: definition.mallKey });
     }
     const normalized = spec ? normalizeForm(spec, input.form) : null;
     const prepared = spec && normalized ? await prepareMallForm(context, spec, normalized) : null;
@@ -10276,6 +10607,335 @@ var KidItemRuntime = (() => {
     return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword: keyword2 });
   }
   registerSite({ name: ALIBABA_1688_SITE.name, create: (deps) => create1688SearchSite(deps.tabs) });
+
+  // extensions/src/sites/wing/login.ts
+  var WING_LOGIN = {
+    displayName: "\uCFE0\uD321 \uC719",
+    loginUrl: "https://wing.coupang.com/",
+    hosts: ["wing.coupang.com", "xauth.coupang.com"],
+    isLoginUrl: (url) => hostWithin(url, ["xauth.coupang.com"]) || /\/(?:login|sign-in|signin)(?:[/?#]|$)/i.test(url.pathname),
+    fields: ["loginId", "password"]
+  };
+  function wingCallerWithLogin(caller, deps, lease) {
+    const credentials = lease.credentials;
+    const withLogin = createSiteLoginGate(credentials);
+    const login = (page) => credentials ? ensureLoggedIn(page, WING_LOGIN, credentials, deps) : Promise.resolve({ status: "unconfirmed" });
+    const gate = (call2) => lease.tabId !== null ? withLogin(call2, () => login(deps.tabs.attach(lease.tabId))) : withLoginTab(withLogin, call2, () => deps.tabs.open("about:blank"), login);
+    return {
+      json: (url, init) => gate(() => caller.json(url, init)),
+      text: (url, init) => gate(() => caller.text(url, init)),
+      bytes: (url, init) => gate(() => caller.bytes(url, init))
+    };
+  }
+
+  // extensions/src/sites/ad-center/login.ts
+  var AD_CENTER_LOGIN = {
+    displayName: "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130",
+    loginUrl: "https://advertising.coupang.com/marketing",
+    hosts: ["advertising.coupang.com", "xauth.coupang.com"],
+    // 광고센터 쪽은 옛 `startsWith('/user/login')`처럼 넓게 본다.
+    isLoginUrl: (url) => hostWithin(url, ["xauth.coupang.com"]) || isAccountChoiceUrl(url),
+    fields: WING_LOGIN.fields
+  };
+  var AD_CENTER_ACCOUNT_CHOICE_FILE = "content/ad-center/account-choice.js";
+  var NAVIGATION_TIMEOUT_MS6 = 3e4;
+  var CALL_TIMEOUT_MS2 = 5e3;
+  var FORM_WAIT_MS = 15e3;
+  var FORM_POLL_MS = 500;
+  function isAccountChoiceUrl(url) {
+    return url.hostname.toLowerCase() === "advertising.coupang.com" && url.pathname.startsWith("/user/login");
+  }
+  function parsed2(value) {
+    try {
+      return new URL(value);
+    } catch {
+      return null;
+    }
+  }
+  var GUARD = {
+    allows: (url) => hostWithin(url, AD_CENTER_LOGIN.hosts),
+    isLogin: () => false,
+    loginMessage: `${AD_CENTER_LOGIN.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.`
+  };
+  async function chooseWingAccount(page, deps) {
+    const loginUrl = (value) => {
+      const url2 = parsed2(value);
+      return url2 !== null && AD_CENTER_LOGIN.isLoginUrl(url2);
+    };
+    let current = await page.currentUrl().catch(() => "");
+    if (!loginUrl(current)) {
+      current = await page.navigate(AD_CENTER_LOGIN.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS6, continueOnTimeout: true, stopAt: loginUrl }).catch(() => "");
+    }
+    const url = parsed2(current);
+    if (!url || !isAccountChoiceUrl(url)) return;
+    const answer = await callPage(page, "adCenter.chooseWingAccount", {}, {
+      timeoutMs: CALL_TIMEOUT_MS2,
+      guard: GUARD,
+      displayName: AD_CENTER_LOGIN.displayName,
+      isolated: [AD_CENTER_ACCOUNT_CHOICE_FILE]
+    }).catch(() => null);
+    if (answer?.state !== "clicked") return;
+    const deadline = deps.now() + FORM_WAIT_MS;
+    while (deps.now() < deadline) {
+      const frames = await page.frames([LOGIN_FILL_FILE]).catch(() => []);
+      if (frames.some((frame) => frame.result?.loginForm === true)) return;
+      await deps.sleep(FORM_POLL_MS);
+    }
+  }
+
+  // extensions/src/sites/ad-center/index.ts
+  var AD_CENTER_ORIGIN = "https://advertising.coupang.com";
+  var AD_CENTER_HOME_URL = `${AD_CENTER_ORIGIN}/marketing`;
+  var AD_CENTER_GRAPHQL_URL = `${AD_CENTER_ORIGIN}/marketing-reporting/v2/graphql`;
+  var AD_CENTER_CHART_REPORT_URL = `${AD_CENTER_ORIGIN}/marketing-reporting/v2/api/chart-report`;
+  var AD_CENTER_EXCEL_REPORT_URL = `${AD_CENTER_ORIGIN}/marketing-reporting/v2/api/excel-report`;
+  var AD_CENTER_CAMPAIGNS_URL = `${AD_CENTER_ORIGIN}/marketing/tetris-api/campaigns`;
+  var AD_CENTER_VENDOR_FILE = "content/ad-center/vendor-code.js";
+  var AD_CENTER_PAGE_SIZE2 = 500;
+  var AD_CENTER_CALLER = { minIntervalMs: 1500, timeoutMs: 12e4, displayName: "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130" };
+  var NAVIGATION_TIMEOUT_MS7 = 3e4;
+  var VENDOR_READS = 10;
+  var VENDOR_READ_GAP_MS = 1e3;
+  var JSON_HEADERS = { Accept: "application/json", "Content-Type": "application/json" };
+  var CAMPAIGN_LIST_QUERY = `query ($startDate: Int!, $endDate: Int!, $reportType: ReportType!, $rbacReportType: String) {
+  getCampaignList(startDate: $startDate, endDate: $endDate, reportType: $reportType, rbacReportType: $rbacReportType) { id name }
+}`;
+  var REQUEST_REPORT_MUTATION = `mutation ($startDate: Int!, $endDate: Int!, $campaignIds: [ID], $reportType: ReportType!, $dateGroup: DateGroup!, $granularity: Granularity, $excludeIfNoClickCount: Boolean) {
+  requestReport(data: {startDate: $startDate, endDate: $endDate, campaignIds: $campaignIds, reportType: $reportType, dateGroup: $dateGroup, granularity: $granularity, excludeIfNoClickCount: $excludeIfNoClickCount}) {
+    id requestDate startDate endDate dateGroup granularity campaignCount status isLargeReport
+  }
+}`;
+  var REPORT_LIST_QUERY = `query ($reportType: ReportType!, $page: Int!, $pageSize: Int!, $duration: Int!) {
+  reportList(data: {reportType: $reportType, page: $page, pageSize: $pageSize, duration: $duration}) { reports { id status isLargeReport } }
+}`;
+  var SETTLEMENT_ITEMS = "items { date type settlementDomain campaignId campaignName adType goalType deliveredAdcost deliveredAdcostAdj deliveredAdcostAfterAdj budgetAmount budgetType priorSpend deliveredAdcostAfterCap billableAmount promotionAdjustment billableAdjustment }";
+  var SETTLEMENT_BY_CAMPAIGNS_MUTATION = `mutation ($startDate: Int!, $endDate: Int!, $settlementDomain: SettlementDomain!, $campaignIds: [Int!]!) {
+  getDailySettlementByCampaigns(startDate: $startDate, endDate: $endDate, settlementDomain: $settlementDomain, campaignIds: $campaignIds) { ${SETTLEMENT_ITEMS} }
+}`;
+  var SETTLEMENT_ACCOUNT_MUTATION = `mutation ($startDate: Int!, $endDate: Int!, $settlementDomain: SettlementDomain!) {
+  getDailySettlement(startDate: $startDate, endDate: $endDate, settlementDomain: $settlementDomain) { ${SETTLEMENT_ITEMS} }
+}`;
+  function createAdCenterSite(deps, lease) {
+    const caller = createSiteCaller(AD_CENTER_CALLER, deps);
+    const page = lease.tabId !== null ? deps.tabs.attach(lease.tabId) : null;
+    const call2 = adCenterCall(deps, lease, page);
+    async function graphql(query, variables, options = {}) {
+      const body = record2(await call2(() => caller.json(AD_CENTER_GRAPHQL_URL, {
+        method: "POST",
+        headers: JSON_HEADERS,
+        body: JSON.stringify({ query, variables })
+      }).catch((error) => {
+        throw graphqlRejection(error) ?? error;
+      }), { retryAfterWarmUp: options.write !== true }));
+      const errors = body?.errors;
+      if (Array.isArray(errors) && errors.length > 0) {
+        const first = record2(errors[0]);
+        throw graphqlError(typeof first?.message === "string" ? first.message : "", text3(record2(first?.extensions)?.code));
+      }
+      const data = record2(body?.data);
+      if (!data) throw failed2("graphql_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      return data;
+    }
+    return {
+      async readVendorId() {
+        if (!page) throw failed2("tab_missing", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uD0ED\uC774 \uC5C6\uC5B4 \uC5C5\uCCB4\uCF54\uB4DC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+        if (!(await page.currentUrl().catch(() => "")).startsWith(AD_CENTER_HOME_URL)) {
+          await page.navigate(AD_CENTER_HOME_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7, continueOnTimeout: true, stopAt: isLoginUrl });
+        }
+        for (let read = 0; read < VENDOR_READS; read += 1) {
+          if (read > 0) await deps.sleep(VENDOR_READ_GAP_MS);
+          const frames = await page.frames([AD_CENTER_VENDOR_FILE]).catch(() => []);
+          const found = frames.map((frame) => text3(frame.result?.vendorId)?.trim()).find(Boolean);
+          if (found) return found;
+        }
+        if (isLoginUrl(await page.currentUrl().catch(() => ""))) {
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.", { reason: "login_unconfirmed" });
+        }
+        throw failed2("vendor_code_missing", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uD654\uBA74\uC5D0\uC11C \uC5C5\uCCB4\uCF54\uB4DC\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
+      },
+      async listReportCampaigns(range) {
+        const data = await graphql(CAMPAIGN_LIST_QUERY, { ...reportRange(range), reportType: "pa", rbacReportType: "AD_REPORT" });
+        const list2 = data.getCampaignList;
+        if (!Array.isArray(list2)) throw failed2("graphql_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uCEA0\uD398\uC778 \uBAA9\uB85D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+        return list2.flatMap((value) => {
+          const campaign = record2(value);
+          const campaignId = id2(campaign?.id);
+          return campaignId ? [{ id: campaignId, name: text3(campaign?.name) ?? "" }] : [];
+        });
+      },
+      async requestReport(input) {
+        const data = await graphql(REQUEST_REPORT_MUTATION, {
+          ...reportRange(input),
+          campaignIds: input.campaignIds,
+          reportType: "pa",
+          dateGroup: "daily",
+          granularity: input.granularity,
+          // 상품 보고서는 클릭 없는 행까지(노출), 키워드 보고서는 클릭 있는 행만(광고비는 빠지지 않는다, 문서 §13.4).
+          excludeIfNoClickCount: input.granularity === "keyword"
+        }, { write: true });
+        const created = record2(data.requestReport);
+        const reportId = text3(created?.id);
+        if (!created || !reportId) throw failed2("graphql_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uBCF4\uACE0\uC11C \uC0DD\uC131 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+        return { id: reportId, isLargeReport: created.isLargeReport === true };
+      },
+      async listReports() {
+        const data = await graphql(REPORT_LIST_QUERY, { reportType: "pa", page: 1, pageSize: 10, duration: 90 });
+        const reports = record2(data.reportList)?.reports;
+        if (!Array.isArray(reports)) throw failed2("graphql_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uBCF4\uACE0\uC11C \uBAA9\uB85D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+        return reports.flatMap((value) => {
+          const entry = record2(value);
+          const reportId = text3(entry?.id);
+          return reportId ? [{ id: reportId, status: text3(entry?.status) ?? "", isLargeReport: entry?.isLargeReport === true }] : [];
+        });
+      },
+      async downloadReport(input) {
+        const url = `${input.isLargeReport ? AD_CENTER_EXCEL_REPORT_URL : AD_CENTER_CHART_REPORT_URL}?id=${encodeURIComponent(input.id)}`;
+        const body = await call2(() => caller.text(url, { headers: { Accept: "text/plain, application/x-ndjson, application/json" } }));
+        return input.isLargeReport ? parseReportTsv(body) : parseReportNdjson(body);
+      },
+      async listCampaigns(pageNumber) {
+        const body = record2(await call2(() => caller.json(AD_CENTER_CAMPAIGNS_URL, {
+          method: "POST",
+          headers: JSON_HEADERS,
+          body: JSON.stringify({ isDeleted: false, pagination: { page: pageNumber, size: AD_CENTER_PAGE_SIZE2 }, sortedBy: "IS_ACTIVE", isSortDesc: false })
+        })));
+        const campaigns = record2(body?.data)?.campaigns;
+        if (!Array.isArray(campaigns)) throw failed2("campaigns_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uCEA0\uD398\uC778 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { page: pageNumber });
+        return campaigns;
+      },
+      async listAds(input) {
+        const body = record2(await call2(() => caller.json(`${AD_CENTER_ORIGIN}/marketing/tetris-api/${encodeURIComponent(input.adGroupId)}/ads`, {
+          method: "POST",
+          headers: JSON_HEADERS,
+          body: JSON.stringify({ pagination: { page: input.page, size: AD_CENTER_PAGE_SIZE2 } })
+        })));
+        const data = record2(body?.data) ?? body;
+        const ads = [data?.ads, data?.adList, data?.content, data?.list, data?.items].find(Array.isArray);
+        const declared = count2(data?.totalCount ?? record2(data?.pageInfo)?.totalCount ?? body?.totalCount);
+        const totalCount = declared ?? (ads && ads.length < AD_CENTER_PAGE_SIZE2 ? input.page * AD_CENTER_PAGE_SIZE2 + ads.length : null);
+        if (!ads || totalCount === null) throw failed2("ads_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uAD11\uACE0 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { adGroupId: input.adGroupId, page: input.page });
+        return { ads, totalCount };
+      },
+      async readSettlement(input) {
+        const byCampaigns = input.campaignIds !== null;
+        const data = await graphql(byCampaigns ? SETTLEMENT_BY_CAMPAIGNS_MUTATION : SETTLEMENT_ACCOUNT_MUTATION, {
+          ...reportRange(input),
+          settlementDomain: input.domain,
+          ...byCampaigns ? { campaignIds: input.campaignIds } : {}
+        });
+        const items = record2(data[byCampaigns ? "getDailySettlementByCampaigns" : "getDailySettlement"])?.items;
+        if (!Array.isArray(items)) throw failed2("graphql_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uC815\uC0B0 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { domain: input.domain });
+        return items;
+      },
+      pause: (ms) => deps.sleep(ms)
+    };
+  }
+  function adCenterCall(deps, lease, page) {
+    const credentials = lease.credentials;
+    const withLogin = createSiteLoginGate(credentials);
+    const login = async (target) => {
+      if (!credentials) return { status: "unconfirmed" };
+      await chooseWingAccount(target, deps);
+      return ensureLoggedIn(target, AD_CENTER_LOGIN, credentials, deps);
+    };
+    let warmed = false;
+    const warm = async (request, retry) => {
+      try {
+        return await request();
+      } catch (error) {
+        if (!retry || warmed || !page || !(isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.status === 500)) throw error;
+        warmed = true;
+        await page.navigate(AD_CENTER_HOME_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7, continueOnTimeout: true, stopAt: isLoginUrl });
+        return request();
+      }
+    };
+    return (request, options = {}) => {
+      const retry = options.retryAfterWarmUp !== false;
+      return page ? withLogin(() => warm(request, retry), () => login(page)) : withLoginTab(withLogin, () => warm(request, retry), () => deps.tabs.open("about:blank"), login);
+    };
+  }
+  function parseReportNdjson(body) {
+    const rows = [];
+    for (const [index, raw] of body.split(/\r?\n/).entries()) {
+      const line = raw.trim();
+      if (!line) continue;
+      let parsed3;
+      try {
+        parsed3 = JSON.parse(line);
+      } catch {
+        parsed3 = null;
+      }
+      const row = record2(parsed3);
+      if (!row) throw failed2("report_invalid", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uBCF4\uACE0\uC11C \uD30C\uC77C \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { line: index + 1 });
+      rows.push(row);
+    }
+    return rows;
+  }
+  function parseReportTsv(body) {
+    if (body.startsWith("PK")) throw failed2("excel_report_not_tsv", "\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uD070 \uBCF4\uACE0\uC11C\uAC00 \uD0ED \uAD6C\uBD84 \uD45C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.");
+    const lines = body.replace(/^\uFEFF/, "").split(/\r?\n/).filter((line) => line.trim() !== "");
+    const [head, ...rest] = lines;
+    if (!head) return [];
+    const columns = head.split("	").map((column) => column.trim());
+    return rest.map((line) => {
+      const cells = line.split("	");
+      return Object.fromEntries(columns.map((column, index) => [column, cells[index] ?? ""]));
+    });
+  }
+  function isLoginUrl(value) {
+    try {
+      return AD_CENTER_LOGIN.isLoginUrl(new URL(value));
+    } catch {
+      return false;
+    }
+  }
+  function graphqlRejection(error) {
+    if (!isRuntimeError(error) || error.code !== SITE_REQUEST_FAILED || error.details?.reason !== "http") return null;
+    const head = typeof error.details.bodyHead === "string" ? error.details.bodyHead : "";
+    if (!/"errors"\s*:\s*\[/.test(head)) return null;
+    const match = /"message"\s*:\s*"((?:[^"\\]|\\.)*)"/.exec(head);
+    let message = match?.[1] ?? "";
+    try {
+      message = JSON.parse(`"${message}"`);
+    } catch {
+    }
+    return graphqlError(message, null, error.details.status);
+  }
+  function graphqlError(message, code2, status = 200) {
+    return new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAD11\uACE0\uC13C\uD130 \uC870\uD68C\uAC00 \uAC70\uC808\uB410\uC2B5\uB2C8\uB2E4: ${message || "\uC54C \uC218 \uC5C6\uC74C"}`, {
+      reason: "graphql_error",
+      httpStatus: status,
+      graphqlMessage: message,
+      ...code2 ? { graphqlCode: code2 } : {}
+    });
+  }
+  function reportRange(range) {
+    return { startDate: Number(range.startDate.replace(/-/g, "")), endDate: Number(range.endDate.replace(/-/g, "")) };
+  }
+  function id2(value) {
+    const textValue = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
+    return /^[1-9]\d*$/.test(textValue) ? textValue : null;
+  }
+  function text3(value) {
+    if (typeof value === "string") return value;
+    if (typeof value === "number" && Number.isFinite(value)) return String(value);
+    return null;
+  }
+  function count2(value) {
+    const parsed3 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+    return Number.isSafeInteger(parsed3) && parsed3 >= 0 ? parsed3 : null;
+  }
+  function record2(value) {
+    return value && typeof value === "object" && !Array.isArray(value) ? value : null;
+  }
+  function failed2(reason, message, details = {}) {
+    return new RuntimeError(SITE_REQUEST_FAILED, message, { reason, ...details });
+  }
+  registerSite({
+    name: "ad-center",
+    origin: AD_CENTER_HOME_URL,
+    create: (deps, lease) => createAdCenterSite(deps, lease)
+  });
 
   // extensions/src/sites/mall-excel.ts
   var MALL_FILE_PART_CHARS = 7e5;
@@ -10798,17 +11458,17 @@ var KidItemRuntime = (() => {
         providerError = autocomplete.status === 429 ? { reason: "rate_limited", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC694\uCCAD\uC774 \uB108\uBB34 \uB9CE\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574\uC8FC\uC138\uC694." } : { reason: "provider_denied", message: "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uCFE0\uD321 \uD0ED\uC5D0\uC11C \uB2E4\uC2DC \uB85C\uADF8\uC778\uD574\uC8FC\uC138\uC694." };
       }
     }
-    const text6 = autocomplete?.text.trim() ?? "";
-    if (text6 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text6))) {
+    const text8 = autocomplete?.text.trim() ?? "";
+    if (text8 && (autocomplete?.contentType.includes("application/json") || /^[[{]/.test(text8))) {
       try {
-        const parsed2 = JSON.parse(text6);
-        if (parsed2 && typeof parsed2 === "object") {
-          if (isErrorEnvelope(parsed2)) {
-            const message = errorEnvelopeMessage(parsed2);
+        const parsed3 = JSON.parse(text8);
+        if (parsed3 && typeof parsed3 === "object") {
+          if (isErrorEnvelope(parsed3)) {
+            const message = errorEnvelopeMessage(parsed3);
             providerError ??= { reason: "provider_denied", message };
           } else {
-            walk(parsed2);
-            structuredResponse = hasSuggestionCollection(parsed2);
+            walk(parsed3);
+            structuredResponse = hasSuggestionCollection(parsed3);
           }
         } else {
           warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uAD6C\uC870\uAC00 \uC720\uD6A8\uD558\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4");
@@ -10816,15 +11476,15 @@ var KidItemRuntime = (() => {
       } catch {
         warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 JSON \uD30C\uC2F1 \uC2E4\uD328");
       }
-    } else if (text6) {
+    } else if (text8) {
       warnings.push("\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4");
     }
     const beforeDom = candidates.length;
     for (const link of evidence.links) {
       add(link.text, "coupang-search-dom");
       try {
-        const parsed2 = new URL(link.href, origin);
-        add(parsed2.searchParams.get("q") || parsed2.searchParams.get("keyword") || "", "coupang-search-dom");
+        const parsed3 = new URL(link.href, origin);
+        add(parsed3.searchParams.get("q") || parsed3.searchParams.get("keyword") || "", "coupang-search-dom");
       } catch {
       }
     }
@@ -10860,19 +11520,19 @@ var KidItemRuntime = (() => {
   }
   function isErrorEnvelope(value) {
     if (Array.isArray(value)) return false;
-    const record2 = value;
-    if (record2.success === false || record2.ok === false) return true;
+    const record4 = value;
+    if (record4.success === false || record4.ok === false) return true;
     for (const key of ["error", "errors", "errorCode", "error_code"]) {
-      const nested = record2[key];
-      if (key in record2 && nested !== null && nested !== void 0 && String(nested).trim()) return true;
+      const nested = record4[key];
+      if (key in record4 && nested !== null && nested !== void 0 && String(nested).trim()) return true;
     }
-    if (record2.code !== void 0 && record2.code !== null && record2.code !== 0 && record2.code !== "0" && String(record2.code).trim() !== "") return true;
-    return typeof record2.message === "string" && PROVIDER_ATTENTION.test(record2.message);
+    if (record4.code !== void 0 && record4.code !== null && record4.code !== 0 && record4.code !== "0" && String(record4.code).trim() !== "") return true;
+    return typeof record4.message === "string" && PROVIDER_ATTENTION.test(record4.message);
   }
   function errorEnvelopeMessage(value) {
-    const record2 = value;
+    const record4 = value;
     for (const key of ["error", "errors", "message", "errorCode", "error_code", "code"]) {
-      const nested = record2[key];
+      const nested = record4[key];
       if (nested !== null && nested !== void 0 && String(nested).trim()) return String(nested);
     }
     return "\uCFE0\uD321 \uC790\uB3D9\uC644\uC131 \uC751\uB2F5\uC5D0\uC11C \uC624\uB958\uB97C \uBC18\uD658\uD588\uC2B5\uB2C8\uB2E4.";
@@ -10893,7 +11553,7 @@ var KidItemRuntime = (() => {
       const tokens = new Set(name.replace(/[()[\]{}"'`~!@#$%^&*_+=|\\:;,.<>/?·•]/g, " ").split(/\s+/).map((token) => token.trim()).filter((token) => token.length >= 2 && token.length <= 20).filter((token) => !/^[\d개입묶음세트]+$/.test(token)).filter((token) => !STOP_WORDS.has(token)));
       for (const token of tokens) counts.set(token, (counts.get(token) ?? 0) + 1);
     }
-    return [...counts.entries()].map(([keyword2, count3]) => ({ keyword: keyword2, count: count3 })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
+    return [...counts.entries()].map(([keyword2, count5]) => ({ keyword: keyword2, count: count5 })).sort((left, right) => right.count - left.count || left.keyword.localeCompare(right.keyword, "ko")).slice(0, maxResults);
   }
 
   // extensions/src/sites/coupang-search/serp.ts
@@ -11034,7 +11694,7 @@ var KidItemRuntime = (() => {
     for (const candidate of raw) {
       if (!candidate || typeof candidate !== "object") continue;
       const row = candidate;
-      const productId2 = text2(row.productId, 40);
+      const productId2 = text4(row.productId, 40);
       if (!productId2) continue;
       const position = items.length + 1;
       items.push({
@@ -11043,22 +11703,22 @@ var KidItemRuntime = (() => {
         positionInPage: position,
         isAd: row.isAd === true,
         productId: productId2,
-        itemId: text2(row.itemId, 40),
-        vendorItemId: text2(row.vendorItemId, 40),
-        name: text2(row.name, 300),
-        priceKrw: count(row.priceKrw),
-        reviewCount: count(row.reviewCount),
+        itemId: text4(row.itemId, 40),
+        vendorItemId: text4(row.vendorItemId, 40),
+        name: text4(row.name, 300),
+        priceKrw: count3(row.priceKrw),
+        reviewCount: count3(row.reviewCount),
         ratingScore: typeof row.ratingScore === "number" && row.ratingScore >= 0 && row.ratingScore <= 5 ? row.ratingScore : null,
-        imageUrl: text2(row.imageUrl, 2e3),
-        link: text2(row.link, 2e3)
+        imageUrl: text4(row.imageUrl, 2e3),
+        link: text4(row.link, 2e3)
       });
     }
     return items;
   }
-  function text2(value, max) {
+  function text4(value, max) {
     return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
   }
-  function count(value) {
+  function count3(value) {
     return typeof value === "number" && Number.isInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
   }
 
@@ -11102,15 +11762,15 @@ var KidItemRuntime = (() => {
           if (!evidence.links || !evidence.productNames) {
             throw new RuntimeError(SITE_REQUEST_FAILED, `\uCFE0\uD321 \uAC80\uC0C9 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${evidence.error}).`, { status: null, url });
           }
-          const parsed2 = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword2, maxResults);
-          if (!parsed2.ok) {
+          const parsed3 = parseCoupangSearchEvidence({ autocomplete: evidence.autocomplete ?? null, links: evidence.links, productNames: evidence.productNames }, keyword2, maxResults);
+          if (!parsed3.ok) {
             throw new RuntimeError(
-              parsed2.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
-              parsed2.message,
-              { status: parsed2.reason === "rate_limited" ? 429 : null, url, reason: parsed2.reason, warnings: parsed2.warnings }
+              parsed3.reason === "provider_denied" ? SITE_LOGIN_REQUIRED : SITE_REQUEST_FAILED,
+              parsed3.message,
+              { status: parsed3.reason === "rate_limited" ? 429 : null, url, reason: parsed3.reason, warnings: parsed3.warnings }
             );
           }
-          return { items: parsed2.items, productNameTokens: parsed2.productNameTokens, warnings: parsed2.warnings };
+          return { items: parsed3.items, productNameTokens: parsed3.productNameTokens, warnings: parsed3.warnings };
         } finally {
           await page.close();
         }
@@ -11208,10 +11868,10 @@ var KidItemRuntime = (() => {
     for (const raw of answer.products ?? []) {
       if (!raw || typeof raw !== "object") continue;
       const row = raw;
-      const productId2 = text3(row.productId, 200);
-      const itemId = text3(row.itemId, 200);
-      const vendorItemId = text3(row.vendorItemId, 200);
-      const name = text3(row.name, 500);
+      const productId2 = text5(row.productId, 200);
+      const itemId = text5(row.itemId, 200);
+      const vendorItemId = text5(row.vendorItemId, 200);
+      const name = text5(row.name, 500);
       if (!name || !productId2 && !itemId && !vendorItemId) continue;
       products.push({
         sourceRank: products.length + 1,
@@ -11219,19 +11879,19 @@ var KidItemRuntime = (() => {
         itemId,
         vendorItemId,
         name,
-        priceKrw: count2(row.priceKrw),
-        reviewCount: count2(row.reviewCount),
-        imageUrl: text3(row.imageUrl, 2e3),
-        link: text3(row.link, 2e3)
+        priceKrw: count4(row.priceKrw),
+        reviewCount: count4(row.reviewCount),
+        imageUrl: text5(row.imageUrl, 2e3),
+        link: text5(row.link, 2e3)
       });
       if (products.length >= productLimit) break;
     }
     if (products.length === 0) return null;
-    const totalProductCount = count2(answer.totalProductCount);
+    const totalProductCount = count4(answer.totalProductCount);
     return {
       keyword: target.keyword,
       sellerId: target.sellerId,
-      sellerName: text3(answer.sellerName, 300) ?? target.sellerName,
+      sellerName: text5(answer.sellerName, 300) ?? target.sellerName,
       sellerStoreUrl: target.sellerStoreUrl,
       totalProductCount,
       collectedProductCount: products.length,
@@ -11241,10 +11901,10 @@ var KidItemRuntime = (() => {
       products
     };
   }
-  function text3(value, max) {
+  function text5(value, max) {
     return typeof value === "string" && value.trim() ? value.trim().slice(0, max) : null;
   }
-  function count2(value) {
+  function count4(value) {
     return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 && value <= 2147483647 ? value : null;
   }
   registerSite({ name: COUPANG_SHOP_SITE.name, create: (deps) => createCoupangShopSite(deps.tabs, { sleep: deps.sleep }) });
@@ -11322,7 +11982,7 @@ var KidItemRuntime = (() => {
   // extensions/src/sites/coupang-supplier/po.ts
   var PO_BOOTSTRAP_URL = `${COUPANG_SUPPLIER_ORIGIN}/scm/purchase/order/list`;
   var PO_READY_PATH_PREFIX = "/po-web/purchase/order";
-  var NAVIGATION_TIMEOUT_MS6 = 3e4;
+  var NAVIGATION_TIMEOUT_MS8 = 3e4;
   function isReadyPoUrl(value) {
     try {
       const url = new URL(value);
@@ -11334,7 +11994,7 @@ var KidItemRuntime = (() => {
   async function preparePoSession(tab) {
     const page = supplierPage(tab);
     for (let attempt = 1; ; attempt += 1) {
-      const landed = await tab.navigate(PO_BOOTSTRAP_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS6 });
+      const landed = await tab.navigate(PO_BOOTSTRAP_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS8 });
       if (isReadyPoUrl(landed)) return page;
       const body = isSupplierUrl(landed) ? await page.bodyText().catch(() => "") : "";
       if (/HTTP Status 400|Bad Request/i.test(body)) throw cookieBloat(landed, 400);
@@ -11350,17 +12010,17 @@ var KidItemRuntime = (() => {
   }
   async function readPurchaseOrderListPage(page, path, pageNumber) {
     const fetched = await page.fetch(path, { headers: { accept: "application/json" } });
-    const text6 = fetched.text;
-    const failed6 = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
+    const text8 = fetched.text;
+    const failed8 = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
     if (fetched.status === 400 || fetched.status === 413 || fetched.status === 431) throw cookieBloat(path, fetched.status);
-    if (fetched.status < 200 || fetched.status >= 300 || text6.trim().charAt(0) === "<") throw failed6();
-    let parsed2;
+    if (fetched.status < 200 || fetched.status >= 300 || text8.trim().charAt(0) === "<") throw failed8();
+    let parsed3;
     try {
-      parsed2 = JSON.parse(text6);
+      parsed3 = JSON.parse(text8);
     } catch {
-      throw failed6();
+      throw failed8();
     }
-    const body = parsed2?.body;
+    const body = parsed3?.body;
     if (!body || !Array.isArray(body.body)) throw responseInvalid(path, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC5D0 \uD589 \uBC30\uC5F4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
     return { rows: body.body, lastPageNumber: body.lastPageNumber };
   }
@@ -11378,7 +12038,7 @@ var KidItemRuntime = (() => {
     return tables;
   }
   async function enterScmContext(tab, poNumber) {
-    await tab.navigate(`${COUPANG_SUPPLIER_ORIGIN}${purchaseOrderDetailPath(poNumber)}`, { timeoutMs: NAVIGATION_TIMEOUT_MS6 });
+    await tab.navigate(`${COUPANG_SUPPLIER_ORIGIN}${purchaseOrderDetailPath(poNumber)}`, { timeoutMs: NAVIGATION_TIMEOUT_MS8 });
   }
   async function readPurchasableCenters(page) {
     const path = "/po-web/app/center/purchasable/list";
@@ -11443,7 +12103,7 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/coupang-supplier/index.ts
-  var NAVIGATION_TIMEOUT_MS7 = 3e4;
+  var NAVIGATION_TIMEOUT_MS9 = 3e4;
   function purchaseOrderListPath(query, pageNumber) {
     return "/po-web/app/purchase-order/list?page=" + pageNumber + "&searchDateType=" + query.searchDateType + "&searchStartDate=" + query.from + "&searchEndDate=" + query.to + "&centerCode=&purchaseOrderIdArray=&vendorPaymentInfoSeq=&purchaseOrderStatus=" + query.status + "&purchaseOrderType=&skuIdArray=&crossdock=&transportType=";
   }
@@ -11475,7 +12135,7 @@ var KidItemRuntime = (() => {
       shipmentPage ??= (async () => {
         const tab = shipmentTab ?? await deps.tabs.open("about:blank");
         shipmentTab = tab;
-        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7, continueOnTimeout: true });
+        await tab.navigate(COUPANG_SHIPMENT_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS9, continueOnTimeout: true });
         return supplierPage(tab);
       })();
       return shipmentPage;
@@ -11565,10 +12225,10 @@ var KidItemRuntime = (() => {
     fields: ["loginId", "password"]
   };
   async function orderList(caller) {
-    const text6 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
+    const text8 = await caller.text(DOMEGGOOK_ORDER_LIST_API, { headers: { "x-requested-with": "XMLHttpRequest" } });
     let body = null;
     try {
-      body = text6.trim().startsWith("{") ? JSON.parse(text6) : null;
+      body = text8.trim().startsWith("{") ? JSON.parse(text8) : null;
     } catch {
       body = null;
     }
@@ -11880,7 +12540,7 @@ var KidItemRuntime = (() => {
   var GS_SHOP_ORDERS_FILE = "content/page-call/gs-shop-orders.js";
   var READ_TIMEOUT_MS5 = 14e4;
   var WALL_TIMEOUT_MS = 1e4;
-  var NAVIGATION_TIMEOUT_MS8 = 3e4;
+  var NAVIGATION_TIMEOUT_MS10 = 3e4;
   var LOGIN_MESSAGE5 = "GS\uC0F5 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
   var SMS_MESSAGE = "GS\uC0F5 SMS \uC778\uC99D\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. GS\uC0F5 \uD611\uB825\uC0AC \uB85C\uADF8\uC778\uC5D0\uC11C [\uC778\uC99D\uBC88\uD638 \uBC1B\uAE30]\uB85C \uC778\uC99D\uC744 \uC644\uB8CC\uD55C \uB4A4 \uB2E4\uC2DC '\uC218\uC9D1\uD558\uAE30'\uB97C \uB20C\uB7EC\uC8FC\uC138\uC694.";
   var OPERATOR_ACTION_REQUIRED3 = "OPERATOR_ACTION_REQUIRED";
@@ -11933,7 +12593,7 @@ var KidItemRuntime = (() => {
           throw new RuntimeError(OPERATOR_ACTION_REQUIRED3, message, { url: GS_SHOP_ORDER_URL });
         }
         waited = true;
-        await page.navigate(GS_SHOP_ORDER_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS8 });
+        await page.navigate(GS_SHOP_ORDER_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS10 });
       };
       for (; ; ) {
         let answer;
@@ -11966,14 +12626,14 @@ var KidItemRuntime = (() => {
     return value;
   }
   function planInvalid(message) {
-    return new RuntimeError(RUNTIME_PLAN_INVALID16, message, { reason: "form_values" });
+    return new RuntimeError(RUNTIME_PLAN_INVALID17, message, { reason: "form_values" });
   }
-  var text4 = (entry, max = 1e3) => (entry === null || entry === void 0 ? "" : String(entry)).slice(0, max);
+  var text6 = (entry, max = 1e3) => (entry === null || entry === void 0 ? "" : String(entry)).slice(0, max);
   var digits2 = (entry) => /^\d+$/.test(String(entry ?? "")) ? String(entry) : "";
   var code = (entry, pattern) => pattern.test(String(entry ?? "")) ? String(entry) : "";
   var amount = (entry) => {
-    const parsed2 = Number(entry);
-    return Number.isFinite(parsed2) && parsed2 >= 0 ? Math.round(parsed2) : 0;
+    const parsed3 = Number(entry);
+    return Number.isFinite(parsed3) && parsed3 >= 0 ? Math.round(parsed3) : 0;
   };
   var entriesOf = (value) => Object.entries(asRaw(value));
   function cutBytes(entry, maxBytes, measure) {
@@ -11990,7 +12650,7 @@ var KidItemRuntime = (() => {
   var gsBytes = (entry) => [...entry].reduce((sum, char) => sum + (/^[\x00-\x7f]$/.test(char) ? 1 : 2), 0);
   function normalizeGsshopForm(value) {
     const raw = requireRaw(value, "GS\uC0F5 \uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
-    const trimmed = (entry, max = 1e3) => text4(entry).trim().slice(0, max);
+    const trimmed = (entry, max = 1e3) => text6(entry).trim().slice(0, max);
     const category = code(raw.category, /^[A-Z]\d{8}$/);
     if (!category) throw planInvalid("GS\uC0F5 \uC0C1\uD488\uBD84\uB958 \uCF54\uB4DC(\uC608: B35012701)\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
     const sectionId = digits2(raw.sectionId);
@@ -12409,8 +13069,8 @@ var KidItemRuntime = (() => {
   var KAKAO_REGISTER_FILE = "content/page-call/kakao-register.js";
   function normalizeKakaoForm(value) {
     const raw = requireRaw(value, "\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4 \uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
-    const text6 = (entry, max = 1e3) => (entry === null || entry === void 0 ? "" : String(entry)).replace(/\s+/g, " ").trim().slice(0, max);
-    const productName = [...text6(raw.productName, 400).replace(/[<>]/g, "")].slice(0, 70).join("").trim();
+    const text8 = (entry, max = 1e3) => (entry === null || entry === void 0 ? "" : String(entry)).replace(/\s+/g, " ").trim().slice(0, max);
+    const productName = [...text8(raw.productName, 400).replace(/[<>]/g, "")].slice(0, 70).join("").trim();
     if (!productName) throw planInvalid("\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4 \uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
     const salePrice = amount(raw.salePrice);
     if (salePrice <= 0) throw planInvalid("\uCE74\uCE74\uC624 \uD1A1\uC2A4\uD1A0\uC5B4 \uD310\uB9E4\uAC00\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
@@ -12419,14 +13079,14 @@ var KidItemRuntime = (() => {
     const stock = amount(raw.stock);
     const originTypes = ["\uAD6D\uB0B4\uC0B0", "\uC218\uC785\uC0B0", "\uD63C\uD569", "\uAE30\uD0C0"];
     const origin = asRaw(raw.origin);
-    const originType = originTypes.includes(text6(origin.type, 10)) ? text6(origin.type, 10) : "\uC218\uC785\uC0B0";
+    const originType = originTypes.includes(text8(origin.type, 10)) ? text8(origin.type, 10) : "\uC218\uC785\uC0B0";
     const cert = asRaw(raw.cert);
-    const certNumber = text6(cert.number, 60);
+    const certNumber = text8(cert.number, 60);
     const notice = asRaw(raw.notice);
     const noticeValues = {};
     for (const [label, entry] of entriesOf(notice.values)) {
-      const key = text6(label, 60);
-      const noticeValue = text6(entry, 500);
+      const key = text8(label, 60);
+      const noticeValue = text8(entry, 500);
       if (key && noticeValue) noticeValues[key] = noticeValue;
     }
     return {
@@ -12436,15 +13096,15 @@ var KidItemRuntime = (() => {
       stock: stock >= 1 ? Math.min(stock, 99999) : 999,
       origin: {
         type: originType,
-        region: originType === "\uC218\uC785\uC0B0" ? text6(origin.region, 20) : "",
-        country: originType === "\uC218\uC785\uC0B0" ? text6(origin.country, 30) : ""
+        region: originType === "\uC218\uC785\uC0B0" ? text8(origin.region, 20) : "",
+        country: originType === "\uC218\uC785\uC0B0" ? text8(origin.country, 30) : ""
       },
-      cert: /^[A-Za-z0-9-]{4,40}$/.test(certNumber) ? { type: text6(cert.type, 40) || "[\uC5B4\uB9B0\uC774\uC81C\uD488] \uC548\uC804\uD655\uC778", number: certNumber } : null,
-      notice: { group: text6(notice.group, 40) || "\uC5B4\uB9B0\uC774\uC81C\uD488", values: noticeValues },
-      deliveryTemplate: text6(raw.deliveryTemplate, 60),
-      brand: text6(raw.brand, 30),
-      manufacturer: text6(raw.manufacturer, 30),
-      sellerCode: text6(raw.sellerCode, 50),
+      cert: /^[A-Za-z0-9-]{4,40}$/.test(certNumber) ? { type: text8(cert.type, 40) || "[\uC5B4\uB9B0\uC774\uC81C\uD488] \uC548\uC804\uD655\uC778", number: certNumber } : null,
+      notice: { group: text8(notice.group, 40) || "\uC5B4\uB9B0\uC774\uC81C\uD488", values: noticeValues },
+      deliveryTemplate: text8(raw.deliveryTemplate, 60),
+      brand: text8(raw.brand, 30),
+      manufacturer: text8(raw.manufacturer, 30),
+      sellerCode: text8(raw.sellerCode, 50),
       affiliate: raw.affiliate === true
     };
   }
@@ -12804,7 +13464,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/live-commerce/index.ts
-  var NAVIGATION_TIMEOUT_MS9 = 35e3;
+  var NAVIGATION_TIMEOUT_MS11 = 35e3;
   var EXTRACTION_TIMEOUT_MS3 = 25e3;
   var MAX_PRODUCTS = 100;
   var CONTENT_FILES = {
@@ -12844,14 +13504,14 @@ var KidItemRuntime = (() => {
         let keepOpen = false;
         try {
           const stopAt = (url) => isLiveVerificationUrl(url) || isLiveLoginUrl(url);
-          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS9, stopAt });
+          let landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS11, stopAt });
           for (let round = 1; isLiveVerificationUrl(landed) && !isLiveLoginUrl(landed); round += 1) {
             const cleared = round <= MAX_VERIFICATION_ROUNDS2 && await waitForOperator(page, isLiveVerificationUrl, { kind: "verification", site: "\uB77C\uC774\uBE0C \uBC29\uC1A1", label: "\uBC29\uC1A1" }, options.onAttention);
             if (!cleared) {
               keepOpen = true;
               throw verification2(landed);
             }
-            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS9, stopAt });
+            landed = await page.navigate(pageUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS11, stopAt });
           }
           if (isLiveLoginUrl(landed)) {
             keepOpen = true;
@@ -12960,7 +13620,7 @@ var KidItemRuntime = (() => {
   var utf8Bytes = (entry) => encoder2.encode(entry).length;
   function normalizeLotteonForm(value) {
     const raw = requireRaw(value, "\uB86F\uB370ON \uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
-    const trimmed = (entry, max = 1e3) => text4(entry).trim().slice(0, max);
+    const trimmed = (entry, max = 1e3) => text6(entry).trim().slice(0, max);
     const category = code(String(raw.category ?? "").trim().toUpperCase(), /^BC\d{8}$/);
     if (!category) throw planInvalid("\uB86F\uB370ON \uD45C\uC900\uCE74\uD14C\uACE0\uB9AC \uCF54\uB4DC(\uC608: BC55031100)\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
     const productName = cutBytes(trimmed(raw.productName, 400).replace(/[<>]/g, "").replace(/\s+/g, " "), 150, utf8Bytes);
@@ -13243,10 +13903,10 @@ var KidItemRuntime = (() => {
     const blocks = [];
     const seen = /* @__PURE__ */ new Set();
     for (const match of content.matchAll(/<(?:p|h[1-6]|li|td|th|div|span)[^>]*>([^<]{5,})<\//gi)) {
-      const text6 = match[1].replace(/&[^;]+;/g, " ").trim();
-      if (text6.length < 5 || text6.length > 2e3 || seen.has(text6)) continue;
-      seen.add(text6);
-      blocks.push(text6);
+      const text8 = match[1].replace(/&[^;]+;/g, " ").trim();
+      if (text8.length < 5 || text8.length > 2e3 || seen.has(text8)) continue;
+      seen.add(text8);
+      blocks.push(text8);
     }
     if (images.length === 0 && blocks.length === 0) return null;
     return { description_images: images, description_text: blocks.join("\n").slice(0, 1e4), description_image_count: images.length };
@@ -13279,8 +13939,8 @@ var KidItemRuntime = (() => {
         depth -= 1;
         if (depth === 0) {
           try {
-            const parsed2 = JSON.parse(html.substring(jsonStart, index + 1));
-            return typeof parsed2.content === "string" ? parsed2.content : null;
+            const parsed3 = JSON.parse(html.substring(jsonStart, index + 1));
+            return typeof parsed3.content === "string" ? parsed3.content : null;
           } catch {
             return null;
           }
@@ -13291,13 +13951,13 @@ var KidItemRuntime = (() => {
   }
   function allowedSupplierUrl(value) {
     try {
-      const parsed2 = new URL(String(value ?? "").trim());
-      const host = parsed2.hostname.toLowerCase().replace(/\.$/, "");
-      if (parsed2.protocol !== "https:" || parsed2.username || parsed2.password || parsed2.port && parsed2.port !== "443") return null;
+      const parsed3 = new URL(String(value ?? "").trim());
+      const host = parsed3.hostname.toLowerCase().replace(/\.$/, "");
+      if (parsed3.protocol !== "https:" || parsed3.username || parsed3.password || parsed3.port && parsed3.port !== "443") return null;
       if (!["1688.com", "alibaba.com"].some((suffix) => host === suffix || host.endsWith(`.${suffix}`))) return null;
-      parsed2.hostname = host;
-      parsed2.hash = "";
-      return parsed2.toString();
+      parsed3.hostname = host;
+      parsed3.hash = "";
+      return parsed3.toString();
     } catch {
       return null;
     }
@@ -13399,7 +14059,7 @@ var KidItemRuntime = (() => {
   var SABANGNET_ORIGIN = "https://sbadmin08.sabangnet.co.kr";
   var PAGE_URL = `${SABANGNET_ORIGIN}/`;
   var SABANGNET_MALL_LISTINGS_FILE = "content/orders/sabangnet-mall-listings.js";
-  var NAVIGATION_TIMEOUT_MS10 = 45e3;
+  var NAVIGATION_TIMEOUT_MS12 = 45e3;
   var PAGE_CALL_TIMEOUT_MS = 35e3;
   var SABANGNET_PAGE_DELAY_MS = 800;
   var LOGIN_MESSAGE13 = "\uC0AC\uBC29\uB137 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC0AC\uBC29\uB137 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.";
@@ -13418,7 +14078,7 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(PAGE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS10 });
+        await next.navigate(PAGE_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS12 });
         return next;
       })();
       return tab;
@@ -13525,13 +14185,13 @@ var KidItemRuntime = (() => {
   var REQUEST_TIMEOUT_MS2 = 45e3;
   var MAX_ROWS = 2e4;
   var MAX_BYTES = 10 * 1024 * 1024;
-  var CALL_TIMEOUT_MS2 = REQUEST_TIMEOUT_MS2 + 1e3;
+  var CALL_TIMEOUT_MS3 = REQUEST_TIMEOUT_MS2 + 1e3;
   function createSellpiaInventory(tabs) {
     return {
       inventory() {
         return withFreshTab(tabs, SELLPIA_INVENTORY_URL, async (page) => {
           const answer = await callPage(page, "sellpia.inventory", { timeoutMs: REQUEST_TIMEOUT_MS2, maxRows: MAX_ROWS, maxBytes: MAX_BYTES }, {
-            timeoutMs: CALL_TIMEOUT_MS2,
+            timeoutMs: CALL_TIMEOUT_MS3,
             guard: SELLPIA_PAGE_GUARD,
             main: [SELLPIA_INVENTORY_FILE],
             displayName: "\uC140\uD53C\uC544"
@@ -13542,21 +14202,21 @@ var KidItemRuntime = (() => {
             case "login_required":
               throw new RuntimeError(SITE_LOGIN_REQUIRED, SELLPIA_PAGE_GUARD.loginMessage, { url: SELLPIA_INVENTORY_URL });
             case "http_error":
-              throw failed(`\uC140\uD53C\uC544 \uC7AC\uACE0 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, { status: answer.httpStatus, reason: "http" });
+              throw failed3(`\uC140\uD53C\uC544 \uC7AC\uACE0 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, { status: answer.httpStatus, reason: "http" });
             case "timeout":
-              throw failed("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC870\uD68C\uAC00 \uC81C\uB54C \uB05D\uB098\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { status: null, reason: "timeout" });
+              throw failed3("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC870\uD68C\uAC00 \uC81C\uB54C \uB05D\uB098\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { status: null, reason: "timeout" });
             case "network_error":
-              throw failed("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC870\uD68C\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, reason: "network" });
+              throw failed3("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC870\uD68C\uC5D0 \uC5F0\uACB0\uD558\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, reason: "network" });
             case "unexpected_response":
-              throw failed("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json", detail: answer.reason ?? null });
+              throw failed3("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json", detail: answer.reason ?? null });
             default:
-              throw failed("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json" });
+              throw failed3("\uC140\uD53C\uC544 \uC7AC\uACE0 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json" });
           }
         });
       }
     };
   }
-  function failed(message, details) {
+  function failed3(message, details) {
     return new RuntimeError(SITE_REQUEST_FAILED, message, { url: SELLPIA_INVENTORY_URL, bodyHead: null, ...details });
   }
 
@@ -13596,14 +14256,14 @@ var KidItemRuntime = (() => {
       case "login_required":
         throw new RuntimeError(SITE_LOGIN_REQUIRED, SELLPIA_PAGE_GUARD.loginMessage, { url: SELLPIA_PROFIT_URL });
       case "http_error":
-        throw failed2(`\uC140\uD53C\uC544 \uC0C1\uD488\uBCC4 \uC774\uC775\uD604\uD669 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, { status: answer.httpStatus, reason: "http" });
+        throw failed4(`\uC140\uD53C\uC544 \uC0C1\uD488\uBCC4 \uC774\uC775\uD604\uD669 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, { status: answer.httpStatus, reason: "http" });
       case "unexpected_response":
-        throw failed2("\uC140\uD53C\uC544 \uC0C1\uD488\uBCC4 \uC774\uC775\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json", detail: answer.reason ?? null });
+        throw failed4("\uC140\uD53C\uC544 \uC0C1\uD488\uBCC4 \uC774\uC775\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json", detail: answer.reason ?? null });
       default:
-        throw failed2("\uC140\uD53C\uC544 \uC0C1\uD488\uBCC4 \uC774\uC775\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json" });
+        throw failed4("\uC140\uD53C\uC544 \uC0C1\uD488\uBCC4 \uC774\uC775\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json" });
     }
   }
-  function failed2(message, details) {
+  function failed4(message, details) {
     return new RuntimeError(SITE_REQUEST_FAILED, message, { url: SELLPIA_PROFIT_URL, bodyHead: null, ...details });
   }
 
@@ -13627,24 +14287,24 @@ var KidItemRuntime = (() => {
             case "login_required":
               throw new RuntimeError(SITE_LOGIN_REQUIRED, SELLPIA_PAGE_GUARD.loginMessage, { url: SELLPIA_SALES_URL });
             case "http_error":
-              throw failed3(`\uC140\uD53C\uC544 \uD310\uB9E4\uD604\uD669 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, { status: answer.httpStatus, reason: "http" });
+              throw failed5(`\uC140\uD53C\uC544 \uD310\uB9E4\uD604\uD669 \uC870\uD68C\uAC00 \uC2E4\uD328\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, { status: answer.httpStatus, reason: "http" });
             case "unexpected_response":
-              throw failed3("\uC140\uD53C\uC544 \uD310\uB9E4\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json", detail: answer.reason ?? null });
+              throw failed5("\uC140\uD53C\uC544 \uD310\uB9E4\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json", detail: answer.reason ?? null });
             default:
-              throw failed3("\uC140\uD53C\uC544 \uD310\uB9E4\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json" });
+              throw failed5("\uC140\uD53C\uC544 \uD310\uB9E4\uD604\uD669 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC608\uC0C1\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { status: null, reason: "not_json" });
           }
         });
       }
     };
   }
-  function failed3(message, details) {
+  function failed5(message, details) {
     return new RuntimeError(SITE_REQUEST_FAILED, message, { url: SELLPIA_SALES_URL, bodyHead: null, ...details });
   }
 
   // extensions/src/sites/sellpia/manual-match.ts
   var SELLPIA_MANUAL_MATCH_URL = `${SELLPIA_ORIGIN}/product_manual_match.html`;
   var SELLPIA_MANUAL_MATCH_FILE = "content/orders/sellpia-manual-match.js";
-  var NAVIGATION_TIMEOUT_MS11 = 45e3;
+  var NAVIGATION_TIMEOUT_MS13 = 45e3;
   var SEARCH_TIMEOUT_MS = 10 * 6e4;
   var STATUS_TIMEOUT_MS = 6e4;
   var LOGIN_MESSAGE15 = "\uC140\uD53C\uC544 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC218\uB3D9\uC0C1\uD488\uB9E4\uCE6D \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694.";
@@ -13657,7 +14317,7 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS11 });
+        await next.navigate(SELLPIA_MANUAL_MATCH_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS13 });
         return next;
       })();
       return tab;
@@ -13762,11 +14422,11 @@ var KidItemRuntime = (() => {
   function normalizeSmartstoreForm(value) {
     const raw = requireRaw(value, "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4 \uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
     const code2 = (entry) => /^[A-Z_]+$/.test(String(entry ?? "")) ? String(entry) : "";
-    const clean2 = (entry, max) => text4(entry, 1e3).trim().replace(/[\\*?"<>]/g, "").replace(/\s+/g, " ").trim().slice(0, max);
+    const clean2 = (entry, max) => text6(entry, 1e3).trim().replace(/[\\*?"<>]/g, "").replace(/\s+/g, " ").trim().slice(0, max);
     const utf8Length = (entry) => new TextEncoder().encode(entry).length;
     const category = asRaw(raw.category);
     const categoryId = digits2(category.id);
-    const categoryKeyword = text4(category.keyword, 60).trim();
+    const categoryKeyword = text6(category.keyword, 60).trim();
     if (!categoryId || !categoryKeyword) throw planInvalid("\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4 \uCE74\uD14C\uACE0\uB9AC(\uBC88\uD638\xB7\uAC80\uC0C9\uC5B4)\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
     const productName = clean2(raw.productName, 100);
     if (!productName) throw planInvalid("\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4 \uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
@@ -13774,9 +14434,9 @@ var KidItemRuntime = (() => {
     if (salePrice <= 0) throw planInvalid("\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4 \uD310\uB9E4\uAC00\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
     const discountWon = amount(raw.discountWon);
     const cert = asRaw(raw.childCert);
-    const childCert = digits2(cert.certId) && clean2(cert.number, 60) ? { certId: digits2(cert.certId), number: clean2(cert.number, 60), companyName: text4(cert.companyName, 60).trim() } : null;
+    const childCert = digits2(cert.certId) && clean2(cert.number, 60) ? { certId: digits2(cert.certId), number: clean2(cert.number, 60), companyName: text6(cert.companyName, 60).trim() } : null;
     const rawOrigin = asRaw(raw.origin);
-    const origin = code2(rawOrigin.exposureType) ? { exposureType: code2(rawOrigin.exposureType), firstSub: digits2(rawOrigin.firstSub), secondSub: digits2(rawOrigin.secondSub), importer: text4(rawOrigin.importer, 60).trim() } : null;
+    const origin = code2(rawOrigin.exposureType) ? { exposureType: code2(rawOrigin.exposureType), firstSub: digits2(rawOrigin.firstSub), secondSub: digits2(rawOrigin.secondSub), importer: text6(rawOrigin.importer, 60).trim() } : null;
     const tags = [];
     for (const entry of Array.isArray(raw.tags) ? raw.tags : []) {
       const tag = clean2(entry, 30).replace(/\s+/g, "");
@@ -13799,11 +14459,11 @@ var KidItemRuntime = (() => {
       childCert,
       notice: {
         type: code2(notice.type) || "ETC",
-        itemName: text4(notice.itemName, 200).trim(),
-        modelName: text4(notice.modelName, 200).trim(),
-        certificateDetails: text4(notice.certificateDetails, 500).trim(),
-        manufacturer: text4(notice.manufacturer, 100).trim(),
-        afterServiceDirector: text4(notice.afterServiceDirector, 100).trim()
+        itemName: text6(notice.itemName, 200).trim(),
+        modelName: text6(notice.modelName, 200).trim(),
+        certificateDetails: text6(notice.certificateDetails, 500).trim(),
+        manufacturer: text6(notice.manufacturer, 100).trim(),
+        afterServiceDirector: text6(notice.afterServiceDirector, 100).trim()
       },
       tags
     };
@@ -13867,32 +14527,32 @@ var KidItemRuntime = (() => {
     const raw = requireRaw(value, "\uC2E0\uC138\uACC4 \uD3FC \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
     const category = (entry, label) => {
       const box = asRaw(entry);
-      const id = digits2(box.id);
-      const keyword2 = text4(box.keyword, 60).trim();
-      if (!id || !keyword2) throw planInvalid(`\uC2E0\uC138\uACC4 ${label}(\uBC88\uD638\xB7\uAC80\uC0C9\uC5B4)\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
-      return { id, keyword: keyword2 };
+      const id3 = digits2(box.id);
+      const keyword2 = text6(box.keyword, 60).trim();
+      if (!id3 || !keyword2) throw planInvalid(`\uC2E0\uC138\uACC4 ${label}(\uBC88\uD638\xB7\uAC80\uC0C9\uC5B4)\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+      return { id: id3, keyword: keyword2 };
     };
     const notice = asRaw(raw.notice);
     const noticeValues = {};
     for (const [propId, entry] of entriesOf(notice.values)) {
-      if (digits2(propId) && entry !== null && entry !== void 0) noticeValues[propId] = text4(entry, 1e3);
+      if (digits2(propId) && entry !== null && entry !== void 0) noticeValues[propId] = text6(entry, 1e3);
     }
-    const itemName = text4(raw.itemName, 300).trim();
+    const itemName = text6(raw.itemName, 300).trim();
     if (!itemName) throw planInvalid("\uC2E0\uC138\uACC4 \uC0C1\uD488\uBA85\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.");
     const salePrice = amount(raw.salePrice);
     if (salePrice <= 0) throw planInvalid("\uC2E0\uC138\uACC4 \uD310\uB9E4\uAC00\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.");
     const shipping = asRaw(raw.shipping);
     return {
       itemName,
-      brandName: text4(raw.brandName, 60).trim(),
+      brandName: text6(raw.brandName, 60).trim(),
       siteNo: digits2(raw.siteNo),
       displayCategory: category(raw.displayCategory, "\uC804\uC2DC\uCE74\uD14C\uACE0\uB9AC"),
       standardCategory: category(raw.standardCategory, "\uD45C\uC900\uBD84\uB958"),
       salePrice,
       marginRate: amount(raw.marginRate),
       stock: amount(raw.stock),
-      modelName: text4(raw.modelName, 100).trim(),
-      searchKeywords: text4(raw.searchKeywords, 500).trim(),
+      modelName: text6(raw.modelName, 100).trim(),
+      searchKeywords: text6(raw.searchKeywords, 500).trim(),
       adultTypeCode: digits2(raw.adultTypeCode) || "90",
       returnExchangeButton: raw.returnExchangeButton === "N" ? "N" : "Y",
       notice: {
@@ -13901,8 +14561,8 @@ var KidItemRuntime = (() => {
         importPropId: digits2(notice.importPropId),
         importYn: notice.importYn === "N" ? "N" : "Y"
       },
-      manufacturer: text4(raw.manufacturer, 100).trim(),
-      originCountry: text4(raw.originCountry, 40).trim(),
+      manufacturer: text6(raw.manufacturer, 100).trim(),
+      originCountry: text6(raw.originCountry, 40).trim(),
       shipping: {
         leadDays: amount(shipping.leadDays),
         outboundAddrId: digits2(shipping.outboundAddrId),
@@ -14166,7 +14826,7 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/tiktok-cc/index.ts
-  var NAVIGATION_TIMEOUT_MS12 = 35e3;
+  var NAVIGATION_TIMEOUT_MS14 = 35e3;
   var EXTRACTION_TIMEOUT_MS5 = 25e3;
   var BASE_URLS = {
     hashtag: "https://ads.tiktok.com/business/creativecenter/inspiration/popular/hashtag/pc/en",
@@ -14237,14 +14897,14 @@ var KidItemRuntime = (() => {
     };
     async function readTarget(page2, target, defaultRegion, onAttention) {
       const stopAt = (url) => isTiktokBlockedUrl(url) || isTiktokVerificationUrl(url);
-      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS12, stopAt, continueOnTimeout: true });
+      let landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS14, stopAt, continueOnTimeout: true });
       for (let round = 1; isTiktokVerificationUrl(landed) && !isTiktokBlockedUrl(landed); round += 1) {
         const cleared = round <= MAX_VERIFICATION_ROUNDS3 && await waitForOperator(page2, isTiktokVerificationUrl, { kind: "verification", site: "TikTok", label: target.id }, onAttention);
         if (!cleared) {
           keepOpen = true;
           throw new RuntimeError(SITE_VERIFICATION_REQUIRED6, "TikTok\uC774 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 TikTok \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url: landed, target: target.id });
         }
-        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS12, stopAt, continueOnTimeout: true });
+        landed = await page2.navigate(target.url, { timeoutMs: NAVIGATION_TIMEOUT_MS14, stopAt, continueOnTimeout: true });
       }
       if (isTiktokBlockedUrl(landed)) {
         throw new RuntimeError(SITE_LOGIN_REQUIRED, "TikTok \uB85C\uADF8\uC778 \uB610\uB294 \uC9C0\uC5ED \uCC28\uB2E8\uC73C\uB85C \uC218\uC9D1\uD560 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { url: landed, target: target.id });
@@ -14514,8 +15174,8 @@ var KidItemRuntime = (() => {
         documentIds.push(document.id);
       }
       for (const image of Array.isArray(item.images) ? item.images : []) {
-        const record2 = isRecord2(image) ? image : {};
-        addDetailMedia(mediaByKey, "option", normalizeImageUrl(record2.cdnPath || record2.vendorPath), externalOptionId);
+        const record4 = isRecord2(image) ? image : {};
+        addDetailMedia(mediaByKey, "option", normalizeImageUrl(record4.cdnPath || record4.vendorPath), externalOptionId);
       }
       for (const sourceUrl of extractDetailImageUrls(item.contents)) {
         addDetailMedia(mediaByKey, "detail", sourceUrl, externalOptionId);
@@ -14541,11 +15201,11 @@ var KidItemRuntime = (() => {
     const mediaCountByOption = /* @__PURE__ */ new Map();
     for (const entry of media) {
       for (const owner of entry.externalOptionIds) {
-        const count3 = (mediaCountByOption.get(owner) ?? 0) + 1;
-        if (count3 > MAX_MEDIA_PER_OWNER) {
+        const count5 = (mediaCountByOption.get(owner) ?? 0) + 1;
+        if (count5 > MAX_MEDIA_PER_OWNER) {
           throw new WingPayloadError(`Wing \uC0C1\uC138 \uC0C1\uD488 ${externalProductId} \uC635\uC158 ${owner}\uC758 \uBBF8\uB514\uC5B4\uAC00 \uD5C8\uC6A9 \uAC1C\uC218\uB97C \uCD08\uACFC\uD588\uC2B5\uB2C8\uB2E4`);
         }
-        mediaCountByOption.set(owner, count3);
+        mediaCountByOption.set(owner, count5);
       }
     }
     if (documents.length > MAX_DOCUMENTS_PER_PRODUCT) {
@@ -14584,10 +15244,10 @@ var KidItemRuntime = (() => {
   }
   function normalizeDetailAttributes(attributes) {
     return (Array.isArray(attributes) ? attributes : []).map((attribute) => {
-      const record2 = isRecord2(attribute) ? attribute : {};
+      const record4 = isRecord2(attribute) ? attribute : {};
       return {
-        type: nullableText(record2.attributeTypeName || record2.attributeTypeId),
-        value: nullableText(record2.attributeValueName)
+        type: nullableText(record4.attributeTypeName || record4.attributeTypeId),
+        value: nullableText(record4.attributeValueName)
       };
     }).filter((attribute) => Boolean(attribute.type && attribute.value)).slice(0, MAX_ATTRIBUTES_PER_OPTION);
   }
@@ -14618,10 +15278,10 @@ var KidItemRuntime = (() => {
     mediaByKey.set(key, { sourceUrl, role, externalOptionIds: /* @__PURE__ */ new Set([externalOptionId]) });
   }
   function makeStableDocumentId(field, value, ordinal) {
-    const text6 = `${field}\0${stableStringify(value)}`;
+    const text8 = `${field}\0${stableStringify(value)}`;
     let hash = 2166136261;
-    for (let index = 0; index < text6.length; index += 1) {
-      hash ^= text6.charCodeAt(index);
+    for (let index = 0; index < text8.length; index += 1) {
+      hash ^= text8.charCodeAt(index);
       hash = Math.imul(hash, 16777619);
     }
     return `doc:${field}:${(hash >>> 0).toString(16).padStart(8, "0")}:${ordinal}`;
@@ -14644,19 +15304,19 @@ var KidItemRuntime = (() => {
     }
   }
   function normalizeImageUrl(value) {
-    const text6 = typeof value === "string" ? value.trim() : "";
-    if (!text6) return null;
-    if (text6.startsWith("//")) return `https:${text6}`;
-    if (/^https?:\/\//i.test(text6)) return text6;
-    return `https://image1.coupangcdn.com/image/${text6.replace(/^\/+/, "")}`;
+    const text8 = typeof value === "string" ? value.trim() : "";
+    if (!text8) return null;
+    if (text8.startsWith("//")) return `https:${text8}`;
+    if (/^https?:\/\//i.test(text8)) return text8;
+    return `https://image1.coupangcdn.com/image/${text8.replace(/^\/+/, "")}`;
   }
   function isRecord2(value) {
     return value !== null && typeof value === "object" && !Array.isArray(value);
   }
   function nullableText(value) {
     if (value === null || value === void 0) return null;
-    const text6 = String(value).trim();
-    return text6 || null;
+    const text8 = String(value).trim();
+    return text8 || null;
   }
   function optionalId(value) {
     if (value === null || value === void 0 || value === "") return null;
@@ -14669,9 +15329,9 @@ var KidItemRuntime = (() => {
     throw new WingPayloadError(`Wing ${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
   }
   function strictRequiredId(value, name) {
-    const id = strictOptionalId(value, name);
-    if (!id) throw new WingPayloadError(`Wing ${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    return id;
+    const id3 = strictOptionalId(value, name);
+    if (!id3) throw new WingPayloadError(`Wing ${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    return id3;
   }
   function strictNullableBoolean(value, name) {
     if (value === null || value === void 0) return null;
@@ -14691,13 +15351,13 @@ var KidItemRuntime = (() => {
   }
   function nullableInteger(value) {
     if (value === null || value === void 0 || value === "") return null;
-    const number2 = Number(value);
-    return Number.isInteger(number2) && number2 >= 0 ? number2 : null;
+    const number3 = Number(value);
+    return Number.isInteger(number3) && number3 >= 0 ? number3 : null;
   }
   function requiredText5(value, name) {
-    const text6 = typeof value === "string" ? value.trim() : "";
-    if (!text6) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
-    return text6;
+    const text8 = typeof value === "string" ? value.trim() : "";
+    if (!text8) throw new WingPayloadError(`${name} \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4`);
+    return text8;
   }
   function requiredPositiveInteger(value, name) {
     if (!Number.isSafeInteger(value) || value <= 0) throw new WingPayloadError(`${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
@@ -14706,26 +15366,6 @@ var KidItemRuntime = (() => {
   function requiredNonNegativeInteger(value, name) {
     if (!Number.isSafeInteger(value) || value < 0) throw new WingPayloadError(`${name} \uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4`);
     return value;
-  }
-
-  // extensions/src/sites/wing/login.ts
-  var WING_LOGIN = {
-    displayName: "\uCFE0\uD321 \uC719",
-    loginUrl: "https://wing.coupang.com/",
-    hosts: ["wing.coupang.com", "xauth.coupang.com"],
-    isLoginUrl: (url) => hostWithin(url, ["xauth.coupang.com"]) || /\/(?:login|sign-in|signin)(?:[/?#]|$)/i.test(url.pathname),
-    fields: ["loginId", "password"]
-  };
-  function wingCallerWithLogin(caller, deps, lease) {
-    const credentials = lease.credentials;
-    const withLogin = createSiteLoginGate(credentials);
-    const login = (page) => credentials ? ensureLoggedIn(page, WING_LOGIN, credentials, deps) : Promise.resolve({ status: "unconfirmed" });
-    const gate = (call2) => lease.tabId !== null ? withLogin(call2, () => login(deps.tabs.attach(lease.tabId))) : withLoginTab(withLogin, call2, () => deps.tabs.open("about:blank"), login);
-    return {
-      json: (url, init) => gate(() => caller.json(url, init)),
-      text: (url, init) => gate(() => caller.text(url, init)),
-      bytes: (url, init) => gate(() => caller.bytes(url, init))
-    };
   }
 
   // extensions/src/sites/wing/index.ts
@@ -14768,10 +15408,10 @@ var KidItemRuntime = (() => {
         try {
           return await caller.json(url, init);
         } catch (error) {
-          const failed6 = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
-          if (failed6 && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
+          const failed8 = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
+          if (failed8 && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
           const delay = READ_RETRY_DELAYS_MS[attempt];
-          if (!failed6) throw error;
+          if (!failed8) throw error;
           if (delay === void 0) throw withResponseHint(error);
           await deps.sleep(delay);
         }
@@ -14831,10 +15471,10 @@ var KidItemRuntime = (() => {
       async probeDeleted(externalProductIds) {
         const found = await productIdsOf(externalProductIds, true);
         const deleted = new Map([...found].filter(([, status]) => status === WING_DELETED_STATUS));
-        const liveFromDeletedSearch = new Set([...found.keys()].filter((id) => !deleted.has(id)));
-        const rest = externalProductIds.filter((id) => !found.has(id));
+        const liveFromDeletedSearch = new Set([...found.keys()].filter((id3) => !deleted.has(id3)));
+        const rest = externalProductIds.filter((id3) => !found.has(id3));
         const present = rest.length > 0 ? await productIdsOf(rest, false) : /* @__PURE__ */ new Map();
-        for (const id of liveFromDeletedSearch) present.set(id, null);
+        for (const id3 of liveFromDeletedSearch) present.set(id3, null);
         return externalProductIds.map((externalProductId) => {
           if (deleted.has(externalProductId)) return { externalProductId, outcome: "deleted", productStatus: deleted.get(externalProductId) ?? null };
           if (present.has(externalProductId)) return { externalProductId, outcome: "present", productStatus: null };
@@ -14855,9 +15495,9 @@ var KidItemRuntime = (() => {
           requestType: EXCEL_REQUEST_TYPE,
           selectedTypes: [...CATALOGUE_TYPES]
         }, true);
-        const record2 = asRecord(response);
-        if (record2?.success !== true) {
-          const message = typeof record2?.message === "string" && record2.message ? `: ${record2.message}` : "";
+        const record4 = asRecord(response);
+        if (record4?.success !== true) {
+          const message = typeof record4?.message === "string" && record4.message ? `: ${record4.message}` : "";
           throw new RuntimeError(CATALOG_EXCEL_FAILED2, `\uCFE0\uD321 \uC719\uC774 \uC0C1\uD488\uC815\uBCF4 \uC5D1\uC140 \uC0DD\uC131\uC744 \uAC70\uC808\uD588\uC2B5\uB2C8\uB2E4${message}`);
         }
       },
@@ -14877,9 +15517,9 @@ var KidItemRuntime = (() => {
           totalCount: Number(row.totalCount) || 0
         };
       },
-      downloadCatalogExcel(id) {
+      downloadCatalogExcel(id3) {
         return caller.bytes(
-          `${EXCEL_BASE}/file?requestType=${EXCEL_REQUEST_TYPE}&sellerRequestDownloadExcelId=${encodeURIComponent(id)}&sellerRequestDownloadExcelFileId=`,
+          `${EXCEL_BASE}/file?requestType=${EXCEL_REQUEST_TYPE}&sellerRequestDownloadExcelId=${encodeURIComponent(id3)}&sellerRequestDownloadExcelFileId=`,
           { requireXsrf: true }
         );
       },
@@ -14940,8 +15580,8 @@ var KidItemRuntime = (() => {
     for (const script of html.matchAll(INLINE_SCRIPT)) {
       for (const match of (script[1] ?? "").matchAll(SCRIPT_VENDOR_ID)) found.add(match[1]);
     }
-    const text6 = html.replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ");
-    for (const match of text6.matchAll(LABELED_VENDOR_ID)) found.add(match[1]);
+    const text8 = html.replace(/<script\b[\s\S]*?<\/script>/gi, " ").replace(/<[^>]+>/g, " ");
+    for (const match of text8.matchAll(LABELED_VENDOR_ID)) found.add(match[1]);
     for (const match of html.matchAll(DATA_VENDOR_ID)) found.add(match[1]);
     return [...found];
   }
@@ -14997,38 +15637,38 @@ var KidItemRuntime = (() => {
       headers: { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" },
       body: JSON.stringify(requestBody())
     });
-    if (!isRecord3(body) || !Array.isArray(body.result)) throw failed4("wing_itemwinner_response_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    if (!isRecord3(body) || !Array.isArray(body.result)) throw failed6("wing_itemwinner_response_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     const totalSize = integer(body.totalSize);
     const pageIndex = integer(body.page);
     const pageSize = integer(body.pageSize);
     const totalPages = integer(body.totalPages);
     if (totalSize === null || pageIndex !== 0 || pageSize === null || totalPages === null || totalSize < 0 || totalPages < 0) {
-      throw failed4("wing_itemwinner_response_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      throw failed6("wing_itemwinner_response_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     }
     if (totalSize > WING_ITEMWINNER_MAX_ITEMS) {
       throw new RuntimeError(WING_ITEMWINNER_PAGE_LIMIT_REACHED, `\uD310\uB9E4\uC911 \uC0C1\uD488\uC774 ${WING_ITEMWINNER_MAX_ITEMS}\uAC1C\uB97C \uB118\uC5B4 \uC544\uC774\uD15C\uC704\uB108\uB97C \uD55C \uBC88\uC5D0 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { totalSize });
     }
     const rows = body.result;
     const complete = totalSize === 0 ? rows.length === 0 && totalPages === 0 && pageSize === EMPTY_PAGE_SIZE : pageSize === PAGE_SIZE2 && totalPages === 1 && rows.length === totalSize;
-    if (!complete) throw failed4("wing_itemwinner_partial", "Wing \uC544\uC774\uD15C\uC704\uB108 \uBAA9\uB85D\uC774 \uD55C \uBC88\uC5D0 \uC624\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { totalSize, rows: rows.length, totalPages });
+    if (!complete) throw failed6("wing_itemwinner_partial", "Wing \uC544\uC774\uD15C\uC704\uB108 \uBAA9\uB85D\uC774 \uD55C \uBC88\uC5D0 \uC624\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { totalSize, rows: rows.length, totalPages });
     const normalized = rows.map(normalizeRow);
     if (new Set(normalized.map((row) => row.vendorItemId)).size !== normalized.length) {
-      throw failed4("wing_itemwinner_duplicate", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5\uC5D0 \uAC19\uC740 \uC0C1\uD488\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.", { totalSize });
+      throw failed6("wing_itemwinner_duplicate", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5\uC5D0 \uAC19\uC740 \uC0C1\uD488\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.", { totalSize });
     }
     return { rows: normalized, totalSize };
   }
   function normalizeRow(value) {
-    if (!isRecord3(value) || typeof value.winnerStatus !== "boolean" || typeof value.suppressed !== "boolean") throw rowInvalid("winnerStatus");
+    if (!isRecord3(value) || typeof value.winnerStatus !== "boolean" || typeof value.suppressed !== "boolean") throw rowInvalid2("winnerStatus");
     const vendorItemId = positiveId(value.vendorItemId);
-    if (!vendorItemId) throw rowInvalid("vendorItemId");
+    if (!vendorItemId) throw rowInvalid2("vendorItemId");
     const productName = typeof value.productName === "string" ? value.productName.trim() : "";
-    if (!productName) throw rowInvalid("productName");
+    if (!productName) throw rowInvalid2("productName");
     const myPrice = integer(value.currentPrice);
     const winnerPrice = integer(value.winnerPrice);
     const salesQty = value.myViSales === "" ? 0 : integer(value.myViSales);
-    if (myPrice === null) throw rowInvalid("currentPrice");
-    if (winnerPrice === null) throw rowInvalid("winnerPrice");
-    if (salesQty === null || salesQty < 0) throw rowInvalid("myViSales");
+    if (myPrice === null) throw rowInvalid2("currentPrice");
+    if (winnerPrice === null) throw rowInvalid2("winnerPrice");
+    if (salesQty === null || salesQty < 0) throw rowInvalid2("myViSales");
     return {
       vendorItemId,
       productName: productName.slice(0, 80),
@@ -15041,20 +15681,20 @@ var KidItemRuntime = (() => {
     };
   }
   function positiveId(value) {
-    const text6 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
-    return /^\d+$/.test(text6) && BigInt(text6) > 0n ? text6 : null;
+    const text8 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
+    return /^\d+$/.test(text8) && BigInt(text8) > 0n ? text8 : null;
   }
   function integer(value) {
-    const number2 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
-    return Number.isSafeInteger(number2) ? number2 : null;
+    const number3 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+    return Number.isSafeInteger(number3) ? number3 : null;
   }
   function isRecord3(value) {
     return !!value && typeof value === "object" && !Array.isArray(value);
   }
-  function rowInvalid(field) {
-    return failed4("wing_itemwinner_row_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uD589\uC5D0 \uD544\uC694\uD55C \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { field });
+  function rowInvalid2(field) {
+    return failed6("wing_itemwinner_row_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uD589\uC5D0 \uD544\uC694\uD55C \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { field });
   }
-  function failed4(reason, message, details = {}) {
+  function failed6(reason, message, details = {}) {
     return new RuntimeError(SITE_REQUEST_FAILED, message, { reason, url: WING_ITEMWINNER_URL, ...details });
   }
   function createWingItemwinnerSite(caller) {
@@ -15123,13 +15763,13 @@ var KidItemRuntime = (() => {
     };
   }
   function parseWingSearchPage(body) {
-    const record2 = asRecord2(body);
-    if (!record2 || !Array.isArray(record2.result)) {
+    const record4 = asRecord2(body);
+    if (!record4 || !Array.isArray(record4.result)) {
       throw new RuntimeError(WING_SEARCH_PAYLOAD_INVALID, "Wing \uAC80\uC0C9 \uC751\uB2F5\uC758 \uBAA8\uC591\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     }
-    const next = record2.nextSearchPage;
+    const next = record4.nextSearchPage;
     return {
-      rows: record2.result.map(normalizeWingSearchProduct).filter((row) => row !== null),
+      rows: record4.result.map(normalizeWingSearchProduct).filter((row) => row !== null),
       nextSearchPage: typeof next === "number" && Number.isInteger(next) ? next : null
     };
   }
@@ -15253,11 +15893,11 @@ var KidItemRuntime = (() => {
       externalReviewId: String(raw.reviewId),
       externalOptionId: raw.vendorItemId === null || raw.vendorItemId === void 0 ? null : String(raw.vendorItemId),
       externalProductId: raw.productId === null || raw.productId === void 0 ? null : String(raw.productId),
-      itemName: text5(raw.itemName),
+      itemName: text7(raw.itemName),
       rating: Math.round(rating),
-      title: text5(raw.reviewTitle),
-      content: text5(raw.reviewContent),
-      reviewerName: text5(raw.memberName),
+      title: text7(raw.reviewTitle),
+      content: text7(raw.reviewContent),
+      reviewerName: text7(raw.memberName),
       reviewedAt: Math.trunc(reviewedAt),
       imageCount: attachment.images,
       videoCount: attachment.videos,
@@ -15268,16 +15908,16 @@ var KidItemRuntime = (() => {
   function attachmentCounts(value) {
     if (typeof value !== "string" || !value) return { images: 0, videos: 0 };
     try {
-      const parsed2 = JSON.parse(value);
+      const parsed3 = JSON.parse(value);
       return {
-        images: Array.isArray(parsed2?.imageAttachments) ? parsed2.imageAttachments.length : 0,
-        videos: Array.isArray(parsed2?.videoAttachments) ? parsed2.videoAttachments.length : 0
+        images: Array.isArray(parsed3?.imageAttachments) ? parsed3.imageAttachments.length : 0,
+        videos: Array.isArray(parsed3?.videoAttachments) ? parsed3.videoAttachments.length : 0
       };
     } catch {
       return { images: 0, videos: 0 };
     }
   }
-  function text5(value) {
+  function text7(value) {
     if (typeof value !== "string") return null;
     const trimmed = value.trim();
     return trimmed || null;
@@ -15305,30 +15945,30 @@ var KidItemRuntime = (() => {
     displayName: "\uCFE0\uD321 \uC719",
     xsrf: { cookieUrl: WING_ORIGIN3, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
   };
-  var JSON_HEADERS = { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" };
+  var JSON_HEADERS2 = { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" };
   async function readWingTrafficFreshness(caller, now) {
     const body = await caller.json(`${WING_TRAFFIC_METADATA_URL}?platform=WING&date=${encodeURIComponent(now.toISOString())}`, {
       requireXsrf: true,
       headers: { Accept: "application/json, text/plain, */*" }
     });
-    const metrics = record(record(record(body)?.dataFreshness)?.metrics);
-    const viewable = record(record(record(body)?.viewablePeriods)?.sa);
+    const metrics2 = record3(record3(record3(body)?.dataFreshness)?.metrics);
+    const viewable = record3(record3(record3(body)?.viewablePeriods)?.sa);
     const freshness = {
-      salesLatest: koreaDate(record(metrics?.SALES_DAILY)?.latestDataDate),
-      trafficLatest: koreaDate(record(metrics?.TRAFFIC_DAILY)?.latestDataDate),
+      salesLatest: koreaDate(record3(metrics2?.SALES_DAILY)?.latestDataDate),
+      trafficLatest: koreaDate(record3(metrics2?.TRAFFIC_DAILY)?.latestDataDate),
       viewableStart: koreaDate(viewable?.startDate),
       viewableEnd: koreaDate(viewable?.endDate)
     };
     if (!freshness.salesLatest || !freshness.trafficLatest || !freshness.viewableStart || !freshness.viewableEnd) {
-      throw failed5("wing_traffic_metadata_invalid", "Wing \uB9E4\uCD9C\uBD84\uC11D \uACF5\uAC1C \uAE30\uAC04 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      throw failed7("wing_traffic_metadata_invalid", "Wing \uB9E4\uCD9C\uBD84\uC11D \uACF5\uAC1C \uAE30\uAC04 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     }
     return freshness;
   }
   async function readWingTrafficDetailPage(caller, input) {
-    const body = record(await caller.json(WING_TRAFFIC_DETAIL_URL, {
+    const body = record3(await caller.json(WING_TRAFFIC_DETAIL_URL, {
       method: "POST",
       requireXsrf: true,
-      headers: JSON_HEADERS,
+      headers: JSON_HEADERS2,
       body: JSON.stringify({
         startDate: input.businessDate,
         endDate: input.businessDate,
@@ -15340,63 +15980,63 @@ var KidItemRuntime = (() => {
         includeSoldVICount: true
       })
     }));
-    const pagination = record(body?.paginationDetails);
+    const pagination = record3(body?.paginationDetails);
     const items = body?.vendorItems;
     const totalResults = integer2(pagination?.totalResults);
     const totalPages = integer2(pagination?.totalPages);
     const pageSize = integer2(pagination?.pageSize);
     const pageNumber = integer2(pagination?.pageNumber);
     if (!Array.isArray(items) || totalResults === null || totalPages === null || pageSize === null || pageNumber === null) {
-      throw failed5("wing_traffic_response_invalid", "Wing \uD2B8\uB798\uD53D \uCABD \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { businessDate: input.businessDate, pageNumber: input.pageNumber });
+      throw failed7("wing_traffic_response_invalid", "Wing \uD2B8\uB798\uD53D \uCABD \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { businessDate: input.businessDate, pageNumber: input.pageNumber });
     }
     return { rows: items.map((item) => normalizeRow2(item, input.vendorId)), totalResults, totalPages, pageSize, pageNumber };
   }
   async function readWingTrafficSummary(caller, input) {
-    const body = record(await caller.json(WING_TRAFFIC_SUMMARY_URL, {
+    const body = record3(await caller.json(WING_TRAFFIC_SUMMARY_URL, {
       method: "POST",
       requireXsrf: true,
-      headers: JSON_HEADERS,
+      headers: JSON_HEADERS2,
       body: JSON.stringify({ startDate: input.startDate, endDate: input.endDate, registrationTypes: [...REGISTRATION_TYPES], searchIds: [] })
     }));
-    const metrics = record(body?.summaryMetrics);
+    const metrics2 = record3(body?.summaryMetrics);
     const summary = {
-      visitors: integer2(metrics?.totalUniqueVisitor),
-      views: integer2(metrics?.totalPageViews),
-      cartAdds: integer2(metrics?.totalAddToCart),
-      orders: integer2(metrics?.totalOrders),
-      salesQty: integer2(metrics?.totalUnitsSold),
-      revenue: integer2(metrics?.totalGmv)
+      visitors: integer2(metrics2?.totalUniqueVisitor),
+      views: integer2(metrics2?.totalPageViews),
+      cartAdds: integer2(metrics2?.totalAddToCart),
+      orders: integer2(metrics2?.totalOrders),
+      salesQty: integer2(metrics2?.totalUnitsSold),
+      revenue: integer2(metrics2?.totalGmv)
     };
     if (Object.values(summary).some((value) => value === null)) {
-      throw failed5("wing_traffic_summary_invalid", "Wing \uD2B8\uB798\uD53D \uC694\uC57D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", input);
+      throw failed7("wing_traffic_summary_invalid", "Wing \uD2B8\uB798\uD53D \uC694\uC57D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", input);
     }
-    const ratio = metrics?.pvToOrder;
-    const providerConversionRate = ratio === null || ratio === void 0 ? null : number(ratio);
+    const ratio = metrics2?.pvToOrder;
+    const providerConversionRate = ratio === null || ratio === void 0 ? null : number2(ratio);
     if (ratio !== null && ratio !== void 0 && providerConversionRate === null) {
-      throw failed5("wing_traffic_summary_invalid", "Wing \uD2B8\uB798\uD53D \uC694\uC57D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", input);
+      throw failed7("wing_traffic_summary_invalid", "Wing \uD2B8\uB798\uD53D \uC694\uC57D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", input);
     }
     return { ...summary, providerConversionRate: providerConversionRate === null ? null : providerConversionRate * 100 };
   }
   function normalizeRow2(value, vendorId2) {
-    const row = record(value);
-    const details = record(row?.vendorItemDetails);
-    const metrics = record(row?.businessInsightsMetricsResponse);
+    const row = record3(value);
+    const details = record3(row?.vendorItemDetails);
+    const metrics2 = record3(row?.businessInsightsMetricsResponse);
     const vendorItemId = positiveId2(details?.vendorItemId);
     const productId2 = positiveId2(details?.inventoryId);
-    if (!details || !metrics || !vendorItemId || !productId2) throw rowInvalid2("vendorItemDetails");
+    if (!details || !metrics2 || !vendorItemId || !productId2) throw rowInvalid3("vendorItemDetails");
     const rowVendorId = details.vendorId === null || details.vendorId === void 0 ? "" : String(details.vendorId).trim();
     if (rowVendorId !== vendorId2) {
-      throw failed5("advertiser_identity_mismatch", "Wing \uACC4\uC815 \uC2DD\uBCC4\uC790\uAC00 \uC218\uC9D1 \uACC4\uD68D\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uB2E4\uB978 Wing \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { vendorItemId });
+      throw failed7("advertiser_identity_mismatch", "Wing \uACC4\uC815 \uC2DD\uBCC4\uC790\uAC00 \uC218\uC9D1 \uACC4\uD68D\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uB2E4\uB978 Wing \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { vendorItemId });
     }
     const values = {
-      visitors: integer2(metrics.totalUniqueVisitor),
-      views: integer2(metrics.totalPageViews),
-      cartAdds: integer2(metrics.totalAddToCart),
-      orders: integer2(metrics.totalOrders),
-      salesQty: integer2(metrics.totalUnitsSold),
-      revenue: integer2(metrics.totalGmv)
+      visitors: integer2(metrics2.totalUniqueVisitor),
+      views: integer2(metrics2.totalPageViews),
+      cartAdds: integer2(metrics2.totalAddToCart),
+      orders: integer2(metrics2.totalOrders),
+      salesQty: integer2(metrics2.totalUnitsSold),
+      revenue: integer2(metrics2.totalGmv)
     };
-    for (const [field, metric2] of Object.entries(values)) if (metric2 === null) throw rowInvalid2(field);
+    for (const [field, metric2] of Object.entries(values)) if (metric2 === null) throw rowInvalid3(field);
     return { vendorItemId, productId: productId2, ...values };
   }
   function koreaDate(value) {
@@ -15405,24 +16045,24 @@ var KidItemRuntime = (() => {
     return new Date(timestamp + 9 * 60 * 60 * 1e3).toISOString().slice(0, 10);
   }
   function positiveId2(value) {
-    const text6 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
-    return /^[1-9]\d*$/.test(text6) ? text6 : null;
+    const text8 = typeof value === "number" ? Number.isSafeInteger(value) ? String(value) : "" : typeof value === "string" ? value.trim() : "";
+    return /^[1-9]\d*$/.test(text8) ? text8 : null;
   }
-  function number(value) {
-    const parsed2 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
-    return Number.isFinite(parsed2) ? parsed2 : null;
+  function number2(value) {
+    const parsed3 = typeof value === "number" ? value : typeof value === "string" && value.trim() !== "" ? Number(value) : Number.NaN;
+    return Number.isFinite(parsed3) ? parsed3 : null;
   }
   function integer2(value) {
-    const parsed2 = number(value);
-    return parsed2 !== null && Number.isSafeInteger(parsed2) ? parsed2 : null;
+    const parsed3 = number2(value);
+    return parsed3 !== null && Number.isSafeInteger(parsed3) ? parsed3 : null;
   }
-  function record(value) {
+  function record3(value) {
     return value && typeof value === "object" && !Array.isArray(value) ? value : null;
   }
-  function rowInvalid2(field) {
-    return failed5("wing_traffic_row_invalid", "Wing \uD2B8\uB798\uD53D \uD589\uC5D0 \uD544\uC694\uD55C \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { field });
+  function rowInvalid3(field) {
+    return failed7("wing_traffic_row_invalid", "Wing \uD2B8\uB798\uD53D \uD589\uC5D0 \uD544\uC694\uD55C \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { field });
   }
-  function failed5(reason, message, details = {}) {
+  function failed7(reason, message, details = {}) {
     return new RuntimeError(SITE_REQUEST_FAILED, message, { reason, ...details });
   }
   function createWingTrafficSite(caller) {
@@ -15586,14 +16226,14 @@ var KidItemRuntime = (() => {
       }
       throw new RuntimeError(envelope.code, envelope.message, envelope.details ?? null);
     }
-    const parsed2 = schema.safeParse(body);
-    if (!parsed2.success) {
+    const parsed3 = schema.safeParse(body);
+    if (!parsed3.success) {
       throw new RuntimeError(RUNTIME_API_UNREACHABLE, "KidItem \uC11C\uBC84 \uC751\uB2F5\uC774 \uC2E4\uD589 \uACC4\uC57D\uACFC \uB2E4\uB985\uB2C8\uB2E4.", { path, status: response.status });
     }
-    return parsed2.data;
+    return parsed3.data;
   }
-  async function sha256Hex(text6) {
-    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text6));
+  async function sha256Hex(text8) {
+    const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text8));
     return [...new Uint8Array(digest)].map((byte) => byte.toString(16).padStart(2, "0")).join("");
   }
 
@@ -15832,8 +16472,8 @@ var KidItemRuntime = (() => {
   function nextOperationFrom(result) {
     const next = result?.next;
     if (next === void 0 || next === null) return null;
-    const parsed2 = OperationNextSchema.safeParse(next);
-    return parsed2.success ? parsed2.data : null;
+    const parsed3 = OperationNextSchema.safeParse(next);
+    return parsed3.success ? parsed3.data : null;
   }
 
   // extensions/src/entry/actions.ts
@@ -15903,7 +16543,7 @@ var KidItemRuntime = (() => {
             }
           });
           const done = run.finally(() => {
-            for (const id of owned) running.delete(id);
+            for (const id3 of owned) running.delete(id3);
           });
           deps.keepAlive?.(done);
           return Promise.race([
@@ -15956,15 +16596,15 @@ var KidItemRuntime = (() => {
     return { success: false, errorCode: "RUNTIME_API_UNREACHABLE", error: error instanceof Error ? error.message : String(error) };
   }
   function validateWith(schema, message) {
-    const parsed2 = schema.safeParse(message);
-    if (parsed2.success) return { ok: true, message: parsed2.data };
+    const parsed3 = schema.safeParse(message);
+    if (parsed3.success) return { ok: true, message: parsed3.data };
     return {
       ok: false,
       response: {
         success: false,
         errorCode: "VALIDATION_FAILED",
         error: LOCAL_TEXT.VALIDATION_FAILED,
-        details: { errors: parsed2.error.issues.map((issue) => ({ field: issue.path.join("."), reason: issue.message })) }
+        details: { errors: parsed3.error.issues.map((issue) => ({ field: issue.path.join("."), reason: issue.message })) }
       }
     };
   }
@@ -15975,11 +16615,11 @@ var KidItemRuntime = (() => {
   function productExtensionScope(url) {
     if (!url) return null;
     try {
-      const parsed2 = new URL(url);
-      if (parsed2.protocol !== "https:") return null;
-      const host = parsed2.hostname.toLowerCase();
-      if (host === "1688.com" || host.endsWith(".1688.com")) return { platform: "1688", url: parsed2.toString() };
-      if (host === "alibaba.com" || host.endsWith(".alibaba.com")) return { platform: "alibaba", url: parsed2.toString() };
+      const parsed3 = new URL(url);
+      if (parsed3.protocol !== "https:") return null;
+      const host = parsed3.hostname.toLowerCase();
+      if (host === "1688.com" || host.endsWith(".1688.com")) return { platform: "1688", url: parsed3.toString() };
+      if (host === "alibaba.com" || host.endsWith(".alibaba.com")) return { platform: "alibaba", url: parsed3.toString() };
       return null;
     } catch {
       return null;
@@ -16006,10 +16646,10 @@ var KidItemRuntime = (() => {
   }
   function installProductCollect(chromeApi, deps) {
     chromeApi.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-      const record2 = message && typeof message === "object" ? message : null;
-      if (record2?.type !== COLLECT_CURRENT) return;
-      const tabId = record2.tabId;
-      const environmentId = record2.environmentId;
+      const record4 = message && typeof message === "object" ? message : null;
+      if (record4?.type !== COLLECT_CURRENT) return;
+      const tabId = record4.tabId;
+      const environmentId = record4.environmentId;
       if (typeof tabId !== "number" || typeof environmentId !== "string" || !environmentId) {
         sendResponse({ ok: false, error: "\uC218\uC9D1\uD560 \uD0ED\uACFC KidItem \uD658\uACBD\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694." });
         return;
@@ -16078,6 +16718,7 @@ var KidItemRuntime = (() => {
         advertisingKeywordOperationKindsV1: true,
         wingDailyOperationKindsV1: true,
         [SELLPIA_OPERATION_CAPABILITY]: true,
+        [ADVERTISING_AD_REPORT_OPERATION_CAPABILITY]: true,
         // channelsRegistrationOperationKindV1: 몰 쓰기 kind(`channels.registration`)를 돈다(KID-256·364). mallWriteSite.<몰>: 그 몰의
         // 쓰기 모듈이 있다 — 웹은 몰마다 이것으로 등록·품절 버튼을 켠다.
         [CHANNELS_REGISTRATION_OPERATION_CAPABILITY]: true,
