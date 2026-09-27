@@ -16,11 +16,18 @@ const SMS_WALL = `<main>
   <input type="text" name="authNo" placeholder="인증번호 6자리"><button type="button">인증번호 받기</button><button type="button">확인</button>
 </main>`;
 
+// 확장 tsconfig에는 DOM 타입이 없다 — jsdom 전역을 필요한 모양으로만 본다.
+const dom = globalThis as unknown as {
+  document: { body: { innerHTML: string } };
+  HTMLElement: { prototype: object };
+  getComputedStyle: unknown;
+};
+
 // jsdom에는 innerText가 없다 — 화면 글자로 판정하던 옛 규칙과 같은 값을 보게 textContent로 채운다.
-Object.defineProperty(HTMLElement.prototype, 'innerText', { configurable: true, get() { return this.textContent; } });
+Object.defineProperty(dom.HTMLElement.prototype, 'innerText', { configurable: true, get(this: { textContent: string }) { return this.textContent; } });
 
 function load(html: string, href = 'https://partners.gsshop.com/sign-in') {
-  document.body.innerHTML = html;
+  dom.document.body.innerHTML = html;
   const window: Record<string, unknown> = { __kiditemPageCalls: {} };
   const immediate = (callback: () => void) => callback();
   let now = 0;
@@ -31,7 +38,7 @@ function load(html: string, href = 'https://partners.gsshop.com/sign-in') {
     }
   };
   new Function('window', 'document', 'URL', 'Date', 'setTimeout', 'location', 'getComputedStyle', source)(
-    window, document, { createObjectURL: () => 'blob:x' }, FastDate, immediate, { href }, globalThis.getComputedStyle,
+    window, dom.document, { createObjectURL: () => 'blob:x' }, FastDate, immediate, { href }, dom.getComputedStyle,
   );
   const calls = window.__kiditemPageCalls as Record<string, () => Promise<Record<string, unknown>>>;
   return { orders: calls['gs-shop.orders']!, smsWall: calls['gs-shop.smsWall']! };
