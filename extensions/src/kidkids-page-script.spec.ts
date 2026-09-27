@@ -113,11 +113,14 @@ describe('kidkids orders page script', () => {
     await expect(load({ listHtml: empty }).handler({ dateFilter: '2026-09-26' })).resolves.toEqual({ status: 'ok', orders: [] });
   });
 
-  it('2xx 목록·발주서는 머리의 문자셋과 상관없이 EUC-KR로 읽는다 — .text()로 읽으면 주문자명이 깨졌다(리뷰 2 SHOULD 1)', async () => {
-    const page = load({ listContentType: 'text/html; charset=UTF-8' });
-    await expect(page.handler({ dateFilter: '2026-09-26' })).resolves.toMatchObject({ status: 'ok' });
-    expect(page.labels.length).toBeGreaterThanOrEqual(2);
-    expect(new Set(page.labels)).toEqual(new Set(['euc-kr']));
+  it('응답 머리의 문자셋을 따른다 — 키드키즈는 2xx에도 charset=utf-8을 보낸다(재QA 3 D2), 머리에 없을 때만 EUC-KR', async () => {
+    const utf8 = load({ listContentType: 'text/html; charset=utf-8' });
+    await expect(utf8.handler({ dateFilter: '2026-09-26' })).resolves.toMatchObject({ status: 'ok' });
+    expect(utf8.labels[0]).toBe('utf-8');
+
+    const bare = load({ listContentType: 'text/html' });
+    await expect(bare.handler({ dateFilter: '2026-09-26' })).resolves.toMatchObject({ status: 'ok' });
+    expect(new Set(bare.labels)).toEqual(new Set(['euc-kr']));
   });
 
   it('출고관리 목록이 404 UTF-8 점검 화면이면 응답의 문자셋으로 읽어 maintenance, 다른 HTTP 오류는 상태를 싣고 failed(실기기 R2)', async () => {

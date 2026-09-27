@@ -11,11 +11,12 @@
   const calls = globalThis.__kiditemIsolatedPageCalls || (globalThis.__kiditemIsolatedPageCalls = {});
 
   /**
-   * 키드키즈 화면은 EUC-KR이다(.text()로 읽으면 주문자명이 깨졌다) — 2xx는 늘 EUC-KR로 읽는다. HTTP 오류 화면(점검 404는
-   * UTF-8)만 응답 머리의 문자셋을 따른다(없거나 모르는 이름이면 EUC-KR, 리뷰 2 SHOULD 1).
+   * 응답 머리의 문자셋으로 읽고, 머리에 없거나 모르는 이름이면 EUC-KR(키드키즈 기본). 2026-09-27 실기기 재QA 3: 키드키즈는
+   * 2xx(goods_list_renewal·logis_index)에도 `charset=utf-8`을 보내고 본문도 UTF-8이다(`<meta>`만 euc-kr) — EUC-KR로
+   * 고정하면 건수 문구가 깨졌다. 점검 404도 UTF-8이다.
    */
   function decodeBody(buffer, response) {
-    if (!response || response.ok !== false) return new TextDecoder("euc-kr").decode(buffer);
+    if (!response) return new TextDecoder("euc-kr").decode(buffer);
     const contentType = response.headers && typeof response.headers.get === "function" ? response.headers.get("content-type") || "" : "";
     const match = /charset=["']?([\w-]+)/i.exec(contentType);
     try {
