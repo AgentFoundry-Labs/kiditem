@@ -130,7 +130,6 @@ export const AdProductSnapshotSchema = z.object({
   onOff: z.string().nullable(),
   productName: z.string().nullable(),
   imageUrl: z.string().nullable(),
-  productUrl: z.string().nullable(),
   saleType: z.string().nullable(),
   period: z.string(),
   metrics: AdMetricsSchema,

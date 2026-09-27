@@ -21,8 +21,7 @@ import { periodBounds } from '../domain/ad-metrics';
 
 /**
  * 광고 운영 탭(캠페인·상품·키워드·추세)이 새 광고 원장을 읽는다(KID-372 ①a). 잠그는 것: 캠페인 목록은 `ChannelAdCampaign`
- * 현재 상태에 측정한 날의 상품 행 합을 붙이고(광고비 = 집행액, 전환 = 주문수), 상품은 캠페인으로 좁히며 상품 URL은 만들지
- * 않고, 키워드는 고른 기간을 그대로 더하고 비검색 줄을 따로 내며, 추세는 측정하지 않은 날을 구멍으로 둔다.
+ * 현재 상태에 측정한 날의 상품 행 합을 붙이고(광고비 = 집행액, 전환 = 주문수), 상품은 캠페인으로 좁히며, 키워드는 고른 기간을 그대로 더하고 비검색 줄을 따로 내며, 추세는 측정하지 않은 날을 구멍으로 둔다.
  */
 describe('ad-ops tabs over the ad report ledger (PG)', () => {
   let prisma: PrismaClient;
@@ -96,7 +95,7 @@ describe('ad-ops tabs over the ad report ledger (PG)', () => {
     expect(campaign).toMatchObject({ campaignId: 'C1', metricsAvailable: false });
   });
 
-  it('상품 탭은 캠페인 식별자로 좁히고 옵션·리스팅 상품번호를 싣되 상품 URL은 만들지 않는다', async () => {
+  it('상품 탭은 캠페인 식별자로 좁히고 옵션·리스팅 상품번호를 싣는다', async () => {
     const { account, run } = await measured14Days();
     const l1 = await listing('L1', account.id);
     await seedAdCampaign(prisma, { organizationId: ORG, channelAccountId: account.id, operationId: run.id, campaignId: 'C1', name: '여름 물총' });
@@ -112,7 +111,7 @@ describe('ad-ops tabs over the ad report ledger (PG)', () => {
     expect(products).toHaveLength(1);
     expect(products[0]).toMatchObject({
       campaignIdentity: 'campaign:C1', campaignId: 'C1', campaignName: '여름 물총', externalOptionId: 'VI-L1', externalId: 'EXT-L1',
-      productName: '파랑 1개', onOff: 'ON', status: 'APPROVED', productUrl: null, imageUrl: null, keyword: null,
+      productName: '파랑 1개', onOff: 'ON', status: 'APPROVED', imageUrl: null, keyword: null,
       metrics: { spend: 300, conversions: 1, revenue: 9_000 },
     });
     expect((await service.getProducts('7d', ORG)).map((p) => p.externalOptionId)).toEqual(['VI-L1', 'VI-Z']);

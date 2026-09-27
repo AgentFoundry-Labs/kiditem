@@ -87,9 +87,9 @@ export function toAdCampaignSnapshot(
 
 /**
  * One advertised product (campaign × ad group × option). The Coupang listing
- * number comes from the scoped catalog listing. No product URL is built: the
- * report carries none and the catalog's Coupang storefront number is not
- * exposed to advertising (KID-372).
+ * number comes from the scoped catalog listing. The report carries no product
+ * link, image or sale type, so the snapshot has no product URL and publishes
+ * `imageUrl`/`saleType` as null (KID-372).
  */
 export function toAdProductSnapshot(
   rollup: AdProductWindowRollup,
@@ -109,7 +109,6 @@ export function toAdProductSnapshot(
     onOff: onOffWord(rollup.isActive),
     productName: rollup.optionName ?? listing?.channelName ?? listing?.masterProduct.name ?? null,
     imageUrl: null,
-    productUrl: null,
     saleType: null,
     period,
     metrics: performanceMetrics(rollup),

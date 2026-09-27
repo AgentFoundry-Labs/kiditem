@@ -115,7 +115,6 @@ describe('advertising campaign identity contracts', () => {
       onOff: null,
       productName: null,
       imageUrl: null,
-      productUrl: null,
       saleType: null,
       period: '7d',
       metrics,

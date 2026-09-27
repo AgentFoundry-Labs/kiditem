@@ -85,7 +85,6 @@ describe('toAdProductSnapshot', () => {
       externalOptionId: '95514044205',
       productName: '문어발 비눗방울',
       onOff: 'ON',
-      productUrl: null,
       imageUrl: null,
       metrics: { spend: 3_000, conversions: 1, cvr: 5 },
     });
