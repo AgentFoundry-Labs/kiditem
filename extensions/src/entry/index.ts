@@ -65,6 +65,7 @@ import '../sites/sabangnet';
 import '../sites/sellpia';
 import '../sites/smartstore/listings';
 import '../sites/teacher-mall';
+import '../sites/teacher-mall/registration';
 import '../sites/thirtymall/listings';
 import '../sites/tiktok-cc';
 import '../sites/wing';
