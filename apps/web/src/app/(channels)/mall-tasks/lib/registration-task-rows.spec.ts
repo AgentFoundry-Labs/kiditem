@@ -37,7 +37,8 @@ describe('registrationTaskRow — 등록 실행 한 줄', () => {
   });
 
   it('묶음 품절은 리스팅 수로, 모르는 몰 키는 키 그대로', () => {
-    const row = registrationTaskRow(operation({ plan: { executionKind: 'sold_out', mallKey: 'unknown-mall', items: [{}, {}, {}] } }));
+    // 묶음 품절의 리스팅은 plan.payload.listings에 있다(plan에 items 칸은 없다).
+    const row = registrationTaskRow(operation({ plan: { executionKind: 'sold_out', mallKey: 'unknown-mall', payload: { listings: [{}, {}, {}] } } }));
     expect(row).toMatchObject({ mallName: 'unknown-mall', kindLabel: '품절', target: '리스팅 3개' });
   });
 });

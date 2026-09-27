@@ -30,7 +30,9 @@ function text(value: unknown): string | null {
 
 function targetOf(plan: Record<string, unknown> | null): string {
   if (!plan) return '—';
-  if (Array.isArray(plan.items)) return `리스팅 ${plan.items.length}개`;
+  // 묶음 품절·재개: 서버 plan이 풀어 얼린 리스팅 목록(`payload.listings`).
+  const payload = plan.payload && typeof plan.payload === 'object' ? plan.payload as Record<string, unknown> : null;
+  if (Array.isArray(payload?.listings)) return `리스팅 ${payload.listings.length}개`;
   const listing = text(plan.externalListingId);
   if (listing) return `몰 상품 ${listing}`;
   const id = text(plan.registrationTargetId) ?? text(plan.salesProductId) ?? text(plan.channelListingId);

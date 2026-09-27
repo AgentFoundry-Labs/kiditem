@@ -23,7 +23,7 @@ beforeEach(() => {
   vi.clearAllMocks();
   vi.mocked(apiClient.get).mockResolvedValue({ operations: [
     operation('11111111-1111-4111-8111-111111111111', 'reconciling', { executionKind: 'register', mallKey: 'art09' }),
-    operation('22222222-2222-4222-8222-222222222222', 'executing', { executionKind: 'sold_out', mallKey: 'coupang', items: [{}, {}] }),
+    operation('22222222-2222-4222-8222-222222222222', 'executing', { executionKind: 'sold_out', mallKey: 'coupang', payload: { listings: [{}, {}] } }),
   ] });
 });
 afterEach(cleanup);
