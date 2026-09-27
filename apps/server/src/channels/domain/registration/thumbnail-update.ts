@@ -48,4 +48,3 @@ export function resolveThumbnailAccount(input: {
   if (accounts.length > 1) return { ok: false, reason: 'ambiguous_account' };
   return { ok: true, channelAccountId: accounts[0]! };
 }
-
