@@ -436,14 +436,16 @@ describe('<ChannelOverridesSection />', () => {
     await waitFor(() => expect(invalidate).toHaveBeenCalledWith(stateKey));
   });
 
-  it('starts an explicit composition transition as a registration operation without building a mall form', async () => {
+  it('⭐ starts an explicit composition transition as a registration run with the target’s mall form (no submit)', async () => {
     vi.mocked(registrationTargetApi.list).mockResolvedValue([target]);
     vi.mocked(salesProductApi.mallAccounts).mockResolvedValue([{
       channelAccountId: ACCOUNT_ID,
       mallKey: 'smartstore',
       mallName: '스마트스토어 본계정',
     }]);
-    vi.mocked(startRegistrationOperation).mockResolvedValue({ operationId: EXECUTION_ID, reused: false });
+    vi.mocked(executeTargetRegistration).mockResolvedValue({
+      operation: liveOperation(), outcome: { ok: false, confirmed: false, manualSteps: [], warnings: [] }, started: true,
+    });
 
     renderSection(compositionProduct, true);
     await waitFor(() => expect(screen.getByLabelText('구성 변경 대상 쇼핑몰 상품')).toBeInTheDocument());
@@ -451,34 +453,32 @@ describe('<ChannelOverridesSection />', () => {
     fireEvent.change(screen.getByLabelText('기존 몰 옵션 MALL-OPTION-1 새 판매상품 옵션'), { target: { value: OPTION_ONE } });
     fireEvent.click(screen.getByRole('button', { name: '구성 변경 실행' }));
 
-    await waitFor(() => expect(startRegistrationOperation).toHaveBeenCalledTimes(1));
-    expect(startRegistrationOperation).toHaveBeenCalledWith({
+    await waitFor(() => expect(executeTargetRegistration).toHaveBeenCalledTimes(1));
+    expect(executeTargetRegistration).toHaveBeenCalledWith(expect.objectContaining({
+      target,
       mallKey: 'smartstore',
+      executionKind: 'composition_change',
+      submit: false,
+      applyCompositionTemplate: false,
+      channelListingId: LISTING_ID,
+      optionTransitions: [{ channelListingOptionId: LISTING_OPTION_ID, salesProductOptionId: OPTION_ONE }],
       idempotencyKey: expect.any(String),
-      scope: {
-        executionKind: 'composition_change',
-        registrationTargetId: TARGET_ID,
-        expectedVersion: 2,
-        channelListingId: LISTING_ID,
-        applyCompositionTemplate: false,
-        submit: false,
-        optionTransitions: [{ channelListingOptionId: LISTING_OPTION_ID, salesProductOptionId: OPTION_ONE }],
-      },
-    });
-    expect(executeTargetRegistration).not.toHaveBeenCalled();
+      item: expect.objectContaining({ candidateId: PRODUCT_ID, source: 'sales_product' }),
+    }));
+    expect(startRegistrationOperation).not.toHaveBeenCalled();
     expect(await screen.findByText(/자동 재고 처리를 보류합니다/)).toBeInTheDocument();
   });
 
   it('keeps one composition intent when the operator clicks repeatedly', async () => {
-    let resolveStart!: (value: { operationId: string; reused: boolean }) => void;
-    const pending = new Promise<{ operationId: string; reused: boolean }>((resolve) => { resolveStart = resolve; });
+    let resolveRun!: (value: Awaited<ReturnType<typeof executeTargetRegistration>>) => void;
+    const pending = new Promise<Awaited<ReturnType<typeof executeTargetRegistration>>>((resolve) => { resolveRun = resolve; });
     vi.mocked(registrationTargetApi.list).mockResolvedValue([target]);
     vi.mocked(salesProductApi.mallAccounts).mockResolvedValue([{
       channelAccountId: ACCOUNT_ID,
       mallKey: 'smartstore',
       mallName: '스마트스토어 본계정',
     }]);
-    vi.mocked(startRegistrationOperation).mockReturnValue(pending);
+    vi.mocked(executeTargetRegistration).mockReturnValue(pending);
 
     renderSection(compositionProduct, true);
     await waitFor(() => expect(screen.getByLabelText('구성 변경 대상 쇼핑몰 상품')).toBeInTheDocument());
@@ -488,20 +488,23 @@ describe('<ChannelOverridesSection />', () => {
     fireEvent.click(submit);
     fireEvent.click(submit);
 
-    await waitFor(() => expect(startRegistrationOperation).toHaveBeenCalledTimes(1));
-    resolveStart({ operationId: EXECUTION_ID, reused: false });
+    await waitFor(() => expect(executeTargetRegistration).toHaveBeenCalledTimes(1));
+    resolveRun({ operation: liveOperation(), outcome: { ok: false, confirmed: false, manualSteps: [], warnings: [] }, started: true });
     await waitFor(() => expect(screen.getByRole('button', { name: '구성 변경 실행 기록됨' })).toBeInTheDocument());
-    expect(startRegistrationOperation).toHaveBeenCalledTimes(1);
+    expect(executeTargetRegistration).toHaveBeenCalledTimes(1);
   });
 
-  it('shows a start refusal and never builds a mall form', async () => {
+  it('shows why the composition run did not start (form or refusal) and records nothing', async () => {
     vi.mocked(registrationTargetApi.list).mockResolvedValue([target]);
     vi.mocked(salesProductApi.mallAccounts).mockResolvedValue([{
       channelAccountId: ACCOUNT_ID,
       mallKey: 'smartstore',
       mallName: '스마트스토어 본계정',
     }]);
-    vi.mocked(startRegistrationOperation).mockRejectedValue(new Error('구성 변경 실행이 거절됐습니다.'));
+    vi.mocked(executeTargetRegistration).mockResolvedValue({
+      operation: null, started: false,
+      outcome: { ok: false, confirmed: false, submitted: false, manualSteps: [], warnings: [], error: '구성 변경 실행이 거절됐습니다.' },
+    });
 
     renderSection(compositionProduct, true);
     await waitFor(() => expect(screen.getByLabelText('구성 변경 대상 쇼핑몰 상품')).toBeInTheDocument());
@@ -510,6 +513,6 @@ describe('<ChannelOverridesSection />', () => {
     fireEvent.click(screen.getByRole('button', { name: '구성 변경 실행' }));
 
     expect(await screen.findByRole('alert')).toHaveTextContent('구성 변경 실행이 거절됐습니다.');
-    expect(executeTargetRegistration).not.toHaveBeenCalled();
+    expect(screen.queryByRole('button', { name: '구성 변경 실행 기록됨' })).toBeNull();
   });
 });

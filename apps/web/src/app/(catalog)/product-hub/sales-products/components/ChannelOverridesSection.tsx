@@ -11,7 +11,6 @@ import {
   readRegistrationOperation,
   registrationOperationKeys,
   RegistrationOperationInProgress,
-  startRegistrationOperation,
   type RegistrationOperationRead,
 } from '@/app/(channels)/_shared/registration-operation';
 import { RegistrationOperationResolution } from '@/app/(channels)/_shared/RegistrationOperationResolution';
@@ -466,20 +465,30 @@ function CompositionChangeLauncher({
       if (intentKey.current?.signature !== signature) {
         intentKey.current = { signature, key: newRegistrationIdempotencyKey('composition') };
       }
-      // 구성 변경은 몰 폼을 채우지 않는다 — 제출 의도 없이 실행 하나만 연다.
-      return startRegistrationOperation({
+      const adapter = getMallPublishAdapter(mallKey);
+      if (!adapter) throw new Error('이 몰의 등록 어댑터가 없습니다.');
+      // 구성 변경도 대상 값으로 만든 몰 폼 지시를 싣는다(리더 결정: 폼 없는 시작은 없다). 제출 의도는 없다.
+      const run = await executeTargetRegistration({
+        target,
         mallKey,
-        idempotencyKey: intentKey.current.key,
-        scope: {
-          executionKind: 'composition_change',
-          registrationTargetId: target.id,
-          expectedVersion: target.version,
-          channelListingId: selectedListing.id,
-          optionTransitions: transitions,
-          applyCompositionTemplate: false,
-          submit: false,
+        adapter,
+        item: {
+          candidateId: product.id,
+          name: product.name,
+          salePrice: product.options[0]?.salePrice ?? null,
+          thumbnailUrl: product.imageUrls[0] ?? null,
+          source: 'sales_product',
+          optionCount: product.options.length,
         },
+        executionKind: 'composition_change',
+        submit: false,
+        applyCompositionTemplate: false,
+        channelListingId: selectedListing.id,
+        optionTransitions: transitions,
+        idempotencyKey: intentKey.current.key,
       });
+      if (!run.operation) throw new Error(run.outcome.error ?? '구성 변경 실행을 시작하지 못했습니다.');
+      return run;
     },
     onSuccess: () => {
       inFlight.current = false;
