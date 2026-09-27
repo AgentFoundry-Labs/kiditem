@@ -126,6 +126,34 @@ describe('useMallPublishRun target execution', () => {
     });
   });
 
+  it('⭐ 시작 전에 막힌 실행(폼을 못 만듦)의 까닭을 작업 줄의 오류로 올린다 — "실패"만 보이지 않게(QA D3)', async () => {
+    mocks.execute.mockResolvedValue({
+      operation: null,
+      started: false,
+      outcome: { ok: false, confirmed: false, submitted: false, manualSteps: [], warnings: [], error: '상세 이미지가 없습니다. 판매상품 상세에 이미지를 넣으세요.' },
+    });
+    const { result } = renderHook(() => useMallPublishRun());
+
+    await act(async () => { await result.current.start([task()]); });
+
+    expect(result.current.tasks[0]).toMatchObject({ status: 'failed', error: '상세 이미지가 없습니다. 판매상품 상세에 이미지를 넣으세요.' });
+  });
+
+  it('영어 까닭은 원문 대신 운영자 문장으로', async () => {
+    mocks.execute.mockResolvedValue({
+      operation: null,
+      started: false,
+      outcome: { ok: false, confirmed: false, submitted: false, manualSteps: [], warnings: [], error: 'Cannot read properties of undefined' },
+    });
+    const { result } = renderHook(() => useMallPublishRun());
+
+    await act(async () => { await result.current.start([task()]); });
+
+    expect(result.current.tasks[0]?.status).toBe('failed');
+    expect(result.current.tasks[0]?.error).not.toContain('Cannot read');
+    expect(result.current.tasks[0]?.error).toBeTruthy();
+  });
+
   it('stops before target creation when the selected mall has no exact account ID', async () => {
     const { result } = renderHook(() => useMallPublishRun());
 

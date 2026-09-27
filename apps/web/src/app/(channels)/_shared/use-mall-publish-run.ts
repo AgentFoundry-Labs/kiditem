@@ -2,7 +2,7 @@
 
 import { useCallback, useRef, useState } from 'react';
 import { registrationTargetApi } from '@/lib/registration-target-api';
-import { isApiError } from '@/lib/api-error';
+import { friendlyError, isApiError } from '@/lib/api-error';
 import { OperationStartFailure } from '@/lib/operation-start';
 import { executeTargetRegistration } from './target-registration-execution';
 import { newRegistrationIdempotencyKey, type RegistrationOperationRead } from './registration-operation';
@@ -195,7 +195,14 @@ export function useMallPublishRun() {
               const result = await executeItem(task, item);
               itemOutcomes.push(result.outcome);
               if (result.operation) operations.push(result.operation);
-              if (result.status === 'failed') finalStatus = 'failed';
+              if (result.status === 'failed') {
+                finalStatus = 'failed';
+                // 시작 전에 막힌 실행(검증 · 폼 만들기 실패)은 예외가 아니라 결과로 온다 — 그 까닭을 작업 줄에 올린다(QA D3).
+                if (!errorMessage && result.outcome.error) {
+                  const text = adapter.describeError?.(result.outcome.error) ?? result.outcome.error;
+                  errorMessage = friendlyError(new Error(text), `${task.mallName}에 보내지 못했습니다.`);
+                }
+              }
               else if (result.status === 'reconciling' && finalStatus !== 'failed') finalStatus = 'reconciling';
             }
           } catch (error) {
