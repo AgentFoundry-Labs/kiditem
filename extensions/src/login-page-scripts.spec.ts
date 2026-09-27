@@ -183,6 +183,24 @@ describe('content/page-call/dialog-guard.js — 불러오는 중 뜨는 알림 �
   });
 });
 
+describe('content/page-call/dialog-guard.js — 운영자 탭이면 진짜 창으로(리뷰 2 SHOULD 2·3)', () => {
+  it('짝이 "운영자 탭"이라 알리면 alert·confirm 모두 진짜 창이고, 수집 탭 표시가 다시 오면 기록·확인으로 돌아간다', () => {
+    const shown: string[] = [];
+    const page = guardedWindow({ alert: (message) => { shown.push(`alert ${message}`); }, confirm: (message) => { shown.push(`confirm ${message}`); return false; } });
+    page.post({ kiditemDialogGuard: 'run-tab' });
+    expect(page.confirm('자동')).toBe(true);
+    // 운영자에게 넘긴 탭(GS샵 SMS 인증·남긴 로그인 탭).
+    page.post({ kiditemDialogGuard: 'operator-tab' });
+    page.alert('인증번호가 발송되었습니다.');
+    expect(page.confirm('다시 받을까요?')).toBe(false);
+    expect(shown).toEqual(['alert 인증번호가 발송되었습니다.', 'confirm 다시 받을까요?']);
+    expect(page.window.__kiditemDialogs).toEqual(['자동']);
+    page.post({ kiditemDialogGuard: 'run-tab' });
+    page.alert('로드 중 알림');
+    expect(shown).toHaveLength(2);
+  });
+});
+
 describe('content/page-call/dialog-guard.js — 화면이 넘어가도 몰의 말을 잃지 않는다(실기기 R5)', () => {
   it('모은 문장을 그 출처의 sessionStorage에 두고, 다음 문서의 가드가 이어받아 로그인 알림 창 받기가 돌려준다', () => {
     const store = new Map<string, string>();
@@ -211,15 +229,17 @@ describe('content/page-call/dialog-guard-bridge.js — 수집 탭인지 런타�
   function bridge(answer: unknown, lastError: unknown = undefined) {
     const sent: unknown[] = [];
     const posted: Array<[unknown, string]> = [];
+    let onMessage: ((message: unknown, sender: unknown, sendResponse: (answer: unknown) => void) => unknown) | null = null;
     const chrome = {
       runtime: {
         get lastError() { return lastError; },
         sendMessage: (message: unknown, callback: (response: unknown) => void) => { sent.push(message); callback(answer); },
+        onMessage: { addListener: (listener: typeof onMessage) => { onMessage = listener; } },
       },
     };
     const window = { postMessage: (data: unknown, origin: string) => posted.push([data, origin]) };
     new Function('chrome', 'window', 'location', bridgeSource)(chrome, window, { origin: 'https://mall.test' });
-    return { sent, posted };
+    return { sent, posted, receive: (message: unknown) => onMessage?.(message, {}, () => undefined) };
   }
 
   it('런타임이 수집 탭이라 답하면 같은 출처로 MAIN 가드에 표시를 보낸다', () => {
@@ -228,8 +248,20 @@ describe('content/page-call/dialog-guard-bridge.js — 수집 탭인지 런타�
     expect(run.posted).toEqual([[{ kiditemDialogGuard: 'run-tab' }, 'https://mall.test']]);
   });
 
-  it('운영자 탭이거나 답이 없으면 아무것도 보내지 않는다', () => {
-    expect(bridge({ runTab: false }).posted).toEqual([]);
+  it('운영자 탭이라 답하면 운영자 탭 표시를, 답이 없으면 아무것도 보내지 않는다(리뷰 2 SHOULD 2)', () => {
+    expect(bridge({ runTab: false }).posted).toEqual([[{ kiditemDialogGuard: 'operator-tab' }, 'https://mall.test']]);
     expect(bridge(undefined, { message: 'Receiving end does not exist.' }).posted).toEqual([]);
+  });
+
+  it('런타임이 탭을 운영자에게 넘기거나(runTab false) 다시 쓰면(true) 그 표시를 MAIN에 보낸다(리뷰 2 SHOULD 2·3)', () => {
+    const run = bridge({ runTab: true });
+    run.receive({ action: 'kiditem.dialogGuard.setRunTab', runTab: false });
+    run.receive({ action: 'kiditem.dialogGuard.setRunTab', runTab: true });
+    run.receive({ action: 'other' });
+    expect(run.posted.map(([data]) => data)).toEqual([
+      { kiditemDialogGuard: 'run-tab' },
+      { kiditemDialogGuard: 'operator-tab' },
+      { kiditemDialogGuard: 'run-tab' },
+    ]);
   });
 });

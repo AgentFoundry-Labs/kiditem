@@ -468,3 +468,29 @@ describe('TabPage.ask — 시간 초과 뒤 주소 다시 보기(리뷰 2 MUST 2
     await expect(page.ask({ type: 'X' }, { timeoutMs: 5, guard: GUARD })).resolves.toEqual({ ok: false, error: 'timeout' });
   });
 });
+
+describe('운영자에게 넘긴 탭은 수집 탭이 아니다(리뷰 2 SHOULD 2·3)', () => {
+  it('focus(운영자 조치)·keep이면 수집 탭에서 빼고 그 탭의 가드 짝에 알리며, 이 런타임이 다시 옮기면 다시 수집 탭이다', async () => {
+    const sent: unknown[] = [];
+    const { chromeApi } = fakeChrome({ sendMessage: async (message) => { sent.push(message); return undefined; } });
+    const tabs = createTabPages(deps(chromeApi));
+    const page = await tabs.open('about:blank');
+    expect(tabs.isRunTab(9)).toBe(true);
+    await page.focus();
+    expect(tabs.isRunTab(9)).toBe(false);
+    expect(sent).toContainEqual({ action: 'kiditem.dialogGuard.setRunTab', runTab: false });
+    await page.navigate('https://mall.test/orders', { timeoutMs: 1_000 });
+    expect(tabs.isRunTab(9)).toBe(true);
+    sent.length = 0;
+    await tabs.keep('https://mall.test', page);
+    expect(tabs.isRunTab(9)).toBe(false);
+    expect(sent).toEqual([{ action: 'kiditem.dialogGuard.setRunTab', runTab: false }]);
+  });
+
+  it('붙인 운영자 탭은 옮겨도 수집 탭이 되지 않는다', async () => {
+    const { chromeApi } = fakeChrome({ sendMessage: async () => undefined });
+    const tabs = createTabPages(deps(chromeApi));
+    await tabs.attach(4).navigate('https://mall.test/orders', { timeoutMs: 1_000 });
+    expect(tabs.isRunTab(4)).toBe(false);
+  });
+});

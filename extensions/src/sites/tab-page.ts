@@ -130,6 +130,8 @@ export const DIALOG_GUARD_FILE = 'content/page-call/dialog-guard.js';
 /** 가드의 ISOLATED 짝 — 수집 탭인지 런타임에 묻는다(실기기 R1). */
 export const DIALOG_GUARD_BRIDGE_FILE = 'content/page-call/dialog-guard-bridge.js';
 export const DIALOG_GUARD_RUN_TAB_ACTION = 'kiditem.dialogGuard.isRunTab';
+/** 런타임 → 가드 짝: 이 탭을 운영자에게 넘겼다(`runTab: false`)·다시 쓴다(리뷰 2 SHOULD 2·3). */
+export const DIALOG_GUARD_SET_RUN_TAB_ACTION = 'kiditem.dialogGuard.setRunTab';
 
 /**
  * 가드 짝의 물음(`kiditem.dialogGuard.isRunTab`)에 답한다: 보낸 탭이 지금 실행이 쥔 수집 탭이면 `{runTab: true}`. 다른 메시지는
@@ -253,6 +255,11 @@ export function createTabPages(deps: TabPageDeps): TabPages {
   const kept = new Map<string, { tabId: number; url: string }>();
   /** 지금 실행이 쥔 수집 탭(이 런타임이 열었거나 다시 가져온 탭). 닫거나 운영자에게 남기면 뺀다(실기기 R1). */
   const runTabs = new Set<number>();
+  /** 탭을 운영자에게 넘긴다 — 수집 탭에서 빼고 그 탭의 가드 짝에 알려 진짜 창으로 돌린다(짝이 없으면 조용히 넘어간다). */
+  async function handToOperator(tabId: number): Promise<void> {
+    runTabs.delete(tabId);
+    await deps.chrome.tabs.sendMessage(tabId, { action: DIALOG_GUARD_SET_RUN_TAB_ACTION, runTab: false }).catch(() => undefined);
+  }
   /**
    * 남긴 탭을 이 확장이 다시 써도 되는가: 아직 열려 있고, 운영자가 보고 있지 않고(active 아님), 남길 때 주소나 로그인·빈 화면에
    * 머물러 있다. 운영자가 로그인해 다른 화면으로 옮긴 탭은 운영자 것이다(리뷰 SHOULD 3).
@@ -286,6 +293,8 @@ export function createTabPages(deps: TabPageDeps): TabPages {
         // 옮기기 전 문서의 주소. Chrome은 새 주소를 커밋할 때까지 pendingUrl에 두고 url은 옛 문서다 — 옛 로그인 문서에서
         // stopAt이 먼저 맞으면 새 화면이 뜨기 전에 옛 문서에 채우게 된다(리뷰 2 MUST 1).
         const before = (await deps.chrome.tabs.get(tabId).catch(() => null))?.url ?? null;
+        // 이 런타임이 연 탭을 옮기면 다시 수집 탭이다(운영자 조치 뒤 이어 읽기) — 새 문서의 가드 짝이 묻는다.
+        if (owned && !closed) runTabs.add(tabId);
         await deps.chrome.tabs.update(tabId, { url });
         const deadline = deps.now() + timeoutMs;
         let last = url;
@@ -320,6 +329,8 @@ export function createTabPages(deps: TabPageDeps): TabPages {
         }
       },
       async focus() {
+        // 운영자가 이 탭에서 할 일이 있다(GS샵 SMS 인증·운영자 조치) — 진짜 알림 창을 보게 넘긴다(리뷰 2 SHOULD 2).
+        await handToOperator(tabId);
         await deps.chrome.tabs.update(tabId, { active: true }).catch(() => undefined);
       },
       async currentUrl() {
@@ -395,7 +406,7 @@ export function createTabPages(deps: TabPageDeps): TabPages {
       return picked && typeof picked.id === 'number' ? page(picked.id, false) : null;
     },
     async keep(key, keptPage) {
-      runTabs.delete(keptPage.tabId);
+      await handToOperator(keptPage.tabId);
       const prior = kept.get(key);
       const tab = await deps.chrome.tabs.get(keptPage.tabId).catch(() => null);
       if (!tab) {

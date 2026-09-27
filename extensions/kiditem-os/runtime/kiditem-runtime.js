@@ -8367,6 +8367,7 @@ var KidItemRuntime = (() => {
   var DIALOG_GUARD_FILE = "content/page-call/dialog-guard.js";
   var DIALOG_GUARD_BRIDGE_FILE = "content/page-call/dialog-guard-bridge.js";
   var DIALOG_GUARD_RUN_TAB_ACTION = "kiditem.dialogGuard.isRunTab";
+  var DIALOG_GUARD_SET_RUN_TAB_ACTION = "kiditem.dialogGuard.setRunTab";
   function installDialogGuardAnswer(chromeApi, tabs) {
     chromeApi.runtime.onMessage.addListener((message, sender, sendResponse) => {
       if (!message || typeof message !== "object" || message.action !== DIALOG_GUARD_RUN_TAB_ACTION) return void 0;
@@ -8402,6 +8403,10 @@ var KidItemRuntime = (() => {
   function createTabPages(deps) {
     const kept = /* @__PURE__ */ new Map();
     const runTabs = /* @__PURE__ */ new Set();
+    async function handToOperator(tabId) {
+      runTabs.delete(tabId);
+      await deps.chrome.tabs.sendMessage(tabId, { action: DIALOG_GUARD_SET_RUN_TAB_ACTION, runTab: false }).catch(() => void 0);
+    }
     async function stillOurs(entry) {
       const tab = await deps.chrome.tabs.get(entry.tabId).catch(() => null);
       if (!tab || tab.active === true) return false;
@@ -8429,6 +8434,7 @@ var KidItemRuntime = (() => {
         tabId,
         async navigate(url, { timeoutMs, stopAt, continueOnTimeout = false }) {
           const before = (await deps.chrome.tabs.get(tabId).catch(() => null))?.url ?? null;
+          if (owned && !closed) runTabs.add(tabId);
           await deps.chrome.tabs.update(tabId, { url });
           const deadline = deps.now() + timeoutMs;
           let last = url;
@@ -8462,6 +8468,7 @@ var KidItemRuntime = (() => {
           }
         },
         async focus() {
+          await handToOperator(tabId);
           await deps.chrome.tabs.update(tabId, { active: true }).catch(() => void 0);
         },
         async currentUrl() {
@@ -8529,7 +8536,7 @@ var KidItemRuntime = (() => {
         return picked && typeof picked.id === "number" ? page(picked.id, false) : null;
       },
       async keep(key, keptPage) {
-        runTabs.delete(keptPage.tabId);
+        await handToOperator(keptPage.tabId);
         const prior = kept.get(key);
         const tab = await deps.chrome.tabs.get(keptPage.tabId).catch(() => null);
         if (!tab) {
