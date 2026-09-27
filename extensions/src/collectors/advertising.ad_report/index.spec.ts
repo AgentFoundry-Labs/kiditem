@@ -55,7 +55,10 @@ function fakeAdCenter(options: {
   productRows?: Record<string, unknown>[];
   keywordRows?: Record<string, unknown>[];
   adsBodies?: Record<string, unknown>;
-  settlementRejectsCampaignIds?: boolean;
+  /** campaignIds 정산 호출이 GraphQL 오류로 거절된다(HTTP 상태·메시지). */
+  settlementRejection?: { httpStatus: number; message: string };
+  /** 계정 전체 정산(`campaignIds: null`)에만 더 오는 항목. */
+  accountOnlyItems?: unknown[];
 } = {}) {
   const calls: Calls = { requests: [], downloads: [], listReports: 0, pauses: [], settlements: [], ads: [], vendorReads: 0 };
   const reportList = options.reportList ?? REPORT_LIST_SEQUENCE;
@@ -95,10 +98,12 @@ function fakeAdCenter(options: {
     },
     async readSettlement(input) {
       calls.settlements.push({ domain: input.domain, campaignIds: input.campaignIds });
-      if (options.settlementRejectsCampaignIds && input.campaignIds !== null) {
-        throw new RuntimeError('SITE_REQUEST_FAILED', '쿠팡 광고센터 조회가 거절됐습니다: Variable "$campaignIds" got invalid value', { reason: 'graphql_error' });
+      if (options.settlementRejection && input.campaignIds !== null) {
+        const { httpStatus, message } = options.settlementRejection;
+        throw new RuntimeError('SITE_REQUEST_FAILED', `쿠팡 광고센터 조회가 거절됐습니다: ${message}`, { reason: 'graphql_error', httpStatus, graphqlMessage: message });
       }
-      return SETTLEMENT_DATA[input.domain].getDailySettlementByCampaigns.items;
+      const items = SETTLEMENT_DATA[input.domain].getDailySettlementByCampaigns.items;
+      return input.campaignIds === null ? [...items, ...(options.accountOnlyItems ?? [])] : items;
     },
     async pause(ms) {
       calls.pauses.push(ms);
@@ -311,8 +316,10 @@ describe('collectors/advertising.ad_report — 광고센터 보고서 2개 + 캠
     expect(calls.requests).toEqual([]);
   });
 
-  it('정산이 campaignIds를 거절하면(GraphQL 오류) 계정 전체 정산으로 대신 읽는다', async () => {
-    const { site, calls } = fakeAdCenter({ settlementRejectsCampaignIds: true });
+  it('정산이 campaignIds를 거절하면(HTTP 400 GraphQL 오류) 계정 전체 정산으로 대신 읽고, 보고서 캠페인과 계정 조정 행만 남긴다', async () => {
+    // BPA·NCA처럼 보고서 캠페인 목록에 없는 캠페인의 청구액은 계정 조정으로 새지 않게 버린다.
+    const bpa = { date: '2026-09-10', settlementDomain: 'SELLER', campaignId: 999, campaignName: '인지도 캠페인', deliveredAdcost: 5000, billableAmount: 5000, promotionAdjustment: 0, billableAdjustment: 0 };
+    const { site, calls } = fakeAdCenter({ settlementRejection: { httpStatus: 400, message: 'Variable "$campaignIds" got invalid value' }, accountOnlyItems: [bpa] });
     const { chunks } = await collectAll(PLAN, site);
     expect(calls.settlements).toEqual([
       { domain: 'SELLER', campaignIds: [101, 102, 103] },
@@ -320,7 +327,19 @@ describe('collectors/advertising.ad_report — 광고센터 보고서 2개 + 캠
       { domain: 'RETAIL', campaignIds: [101, 102, 103] },
       { domain: 'RETAIL', campaignIds: null },
     ]);
-    expect(payloadOf(chunks, 'ad_settlement_rows')).toHaveLength(4);
+    const rows = payloadOf(chunks, 'ad_settlement_rows');
+    expect(rows).toHaveLength(4);
+    expect(rows.map((row) => row.campaignId)).toEqual(['101', '101', null, '102']);
+  });
+
+  it('campaignIds 메시지 거절이면 HTTP 200이어도 대신 읽고, 그 밖의 정산 GraphQL 오류는 대신하지 않고 멈춘다', async () => {
+    const byMessage = fakeAdCenter({ settlementRejection: { httpStatus: 200, message: 'Expected type Int!, found "101" at campaignIds' } });
+    await collectAll(PLAN, byMessage.site);
+    expect(byMessage.calls.settlements.filter((call) => call.campaignIds === null)).toHaveLength(2);
+
+    const other = fakeAdCenter({ settlementRejection: { httpStatus: 200, message: 'INTERNAL_SERVER_ERROR: settlement timeout' } });
+    await expect(collectAll(PLAN, other.site)).rejects.toMatchObject({ code: 'SITE_REQUEST_FAILED', details: { reason: 'graphql_error' } });
+    expect(other.calls.settlements).toEqual([{ domain: 'SELLER', campaignIds: [101, 102, 103] }]);
   });
 
   it('계획이 올바르지 않거나 사이트가 없으면 RUNTIME_PLAN_INVALID', async () => {

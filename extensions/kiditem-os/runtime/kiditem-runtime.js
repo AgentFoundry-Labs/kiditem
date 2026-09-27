@@ -5056,14 +5056,18 @@ var KidItemRuntime = (() => {
       }
       yield* chunked(AD_REPORT_ADS_CHUNK_KIND, ads, "\uAD11\uACE0", { phase: "ads" });
       const settlementCampaignIds = reportCampaignIds.map(Number);
+      const reportCampaigns = new Set(reportCampaignIds);
       for (const domain of plan.settlementDomains) {
         if (signal.aborted) return;
         let items;
         try {
           items = await site.readSettlement({ ...range, domain, campaignIds: settlementCampaignIds });
         } catch (error) {
-          if (!(isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.reason === "graphql_error")) throw error;
-          items = await site.readSettlement({ ...range, domain, campaignIds: null });
+          if (!campaignIdsRejected(error)) throw error;
+          items = (await site.readSettlement({ ...range, domain, campaignIds: null })).filter((item) => {
+            const campaignId = record(item)?.campaignId;
+            return blank(campaignId) || reportCampaigns.has(id(campaignId) ?? "");
+          });
         }
         const rows = items.map((item, index) => settlementRow(item, domain, index));
         yield* chunked(AD_REPORT_SETTLEMENT_ROWS_CHUNK_KIND, rows, "\uC815\uC0B0 \uD589", { phase: "settlement", domain });
@@ -5213,6 +5217,11 @@ var KidItemRuntime = (() => {
       promotionAdjustment: money("promotionAdjustment"),
       billableAdjustment: money("billableAdjustment")
     };
+  }
+  function campaignIdsRejected(error) {
+    if (!(isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.reason === "graphql_error")) return false;
+    const message = typeof error.details.graphqlMessage === "string" ? error.details.graphqlMessage : "";
+    return error.details.httpStatus === 400 || /campaignIds|\bInt\b|got invalid value/i.test(message);
   }
   function groupKey(campaignId, adGroupName) {
     return JSON.stringify([campaignId, adGroupName]);

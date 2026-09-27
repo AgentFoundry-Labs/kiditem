@@ -161,16 +161,21 @@ export const adReportCollector: Collector<AdReportPlan, Record<string, unknown>,
     }
     yield* chunked(AD_REPORT_ADS_CHUNK_KIND, ads, '광고', { phase: 'ads' });
 
-    // 6. 정산 — 영역마다 한 번. campaignIds 형식을 거절하면 계정 전체로 대신한다.
+    // 6. 정산 — 영역마다 한 번. campaignIds 형식을 거절하면 계정 전체로 대신하되, 보고서 캠페인과 캠페인 없는 조정 행만
+    // 남긴다(보고서에 없는 BPA·NCA 캠페인의 청구액이 계정 조정으로 새지 않게).
     const settlementCampaignIds = reportCampaignIds.map(Number);
+    const reportCampaigns = new Set(reportCampaignIds);
     for (const domain of plan.settlementDomains) {
       if (signal.aborted) return;
       let items: unknown[];
       try {
         items = await site.readSettlement({ ...range, domain, campaignIds: settlementCampaignIds });
       } catch (error) {
-        if (!(isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.reason === 'graphql_error')) throw error;
-        items = await site.readSettlement({ ...range, domain, campaignIds: null });
+        if (!campaignIdsRejected(error)) throw error;
+        items = (await site.readSettlement({ ...range, domain, campaignIds: null })).filter((item) => {
+          const campaignId = record(item)?.campaignId;
+          return blank(campaignId) || reportCampaigns.has(id(campaignId) ?? '');
+        });
       }
       const rows = items.map((item, index) => settlementRow(item, domain, index));
       yield* chunked(AD_REPORT_SETTLEMENT_ROWS_CHUNK_KIND, rows, '정산 행', { phase: 'settlement', domain });
@@ -341,6 +346,16 @@ function settlementRow(value: unknown, domain: AdSettlementDomain, index: number
     promotionAdjustment: money('promotionAdjustment'),
     billableAdjustment: money('billableAdjustment'),
   };
+}
+
+/**
+ * 정산 `campaignIds` 형식 거절인가: GraphQL 오류이고 HTTP 400(변수 형식 오류)이거나 메시지가 campaignIds·Int 형식을 말한다.
+ * 그 밖의 GraphQL 오류(서버 오류·시간 초과)는 계정 전체로 대신하지 않고 멈춘다.
+ */
+function campaignIdsRejected(error: unknown): boolean {
+  if (!(isRuntimeError(error) && error.code === SITE_REQUEST_FAILED && error.details?.reason === 'graphql_error')) return false;
+  const message = typeof error.details.graphqlMessage === 'string' ? error.details.graphqlMessage : '';
+  return error.details.httpStatus === 400 || /campaignIds|\bInt\b|got invalid value/i.test(message);
 }
 
 function groupKey(campaignId: string, adGroupName: string): string {
