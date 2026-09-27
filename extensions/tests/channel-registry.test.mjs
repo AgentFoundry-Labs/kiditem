@@ -60,4 +60,3 @@ test('레지스트리는 전역 하나만 만들고 얼려 둔다', () => {
   assert.equal(registry.channelFormSpec('auction'), 'gmarket');
   assert.equal(registry.channelOutcomeKey('coupang-direct'), 'rocket');
 });
-
