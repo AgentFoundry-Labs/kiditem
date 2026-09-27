@@ -223,7 +223,15 @@ export async function ensureAdReportDay(
  */
 export async function seedAdReportWindow(
   prisma: PrismaClient,
-  input: { organizationId: string; channelAccountId?: string; start: string; end: string; status?: string },
+  input: {
+    organizationId: string;
+    channelAccountId?: string;
+    start: string;
+    end: string;
+    status?: string;
+    /** 실행이 요청한 끝(`plan.endDate`). 비우면 `end` — 주면 `end`보다 늦은 날을 요청하고 보류한 실행이다. */
+    requestedEnd?: string;
+  },
 ): Promise<string> {
   const account = await prisma.channelAccount.findFirstOrThrow({
     where: {
@@ -241,6 +249,12 @@ export async function seedAdReportWindow(
     end: input.end,
     status: input.status,
   });
+  if (input.requestedEnd) {
+    await prisma.operation.update({
+      where: { id: run.id },
+      data: { plan: { channelAccountId: account.id, startDate: input.start, endDate: input.requestedEnd } },
+    });
+  }
   return run.id;
 }
 

@@ -25,7 +25,7 @@ import {
 } from '../../../../advertising/application/port/in/capability/advertising-ledger-read.port';
 import { profitAdCost } from '../../../../advertising/domain/ad-spend-rule';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
-import { addDays, businessDateKey, kstDayStart } from '../../../../common/kst';
+import { addDays, businessDateKey, kstDayStart, parseBusinessDate } from '../../../../common/kst';
 import { readOrderWindowFacts, readListingOptionOrderFacts, type ListingOptionOrderFacts } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import {
   readLatestListingSaleStatusFacts,
@@ -146,7 +146,7 @@ implements ProductOperationsRepositoryPort {
     @Inject(CHANNEL_ACCOUNT_PORT)
     private readonly channelAccounts: ChannelAccountPort,
     @Inject(ADVERTISING_LEDGER_READ_PORT)
-    private readonly adLedger: Pick<AdvertisingLedgerReadPort, 'advertisingApplies' | 'readAdCoverage' | 'readListingAdWindowFacts'>,
+    private readonly adLedger: Pick<AdvertisingLedgerReadPort, 'advertisingApplies' | 'readAdCoverage' | 'readListingAdWindowFacts' | 'readAdEvidenceCutoff'>,
   ) {}
 
   async listDisplayMediaTargets(
@@ -208,17 +208,13 @@ implements ProductOperationsRepositoryPort {
           rows,
         );
         // The ad window keeps the period length but ends at the ad evidence
-        // cutoff: yesterday, or the day before when the ad report has not
-        // confirmed yesterday yet (its confirmed window ends a day early).
+        // cutoff: yesterday, unless every account's newest ad report requested
+        // yesterday and held it as unreported (Advertising's rule).
         const transaction = ownerTransaction(tx);
-        const recent = await this.adLedger.readAdCoverage(transaction, {
+        const adCutoff = parseBusinessDate(await this.adLedger.readAdEvidenceCutoff(transaction, {
           organizationId,
-          from: businessDateKey(addDays(cutoff, -1)),
-          to: businessDateKey(addDays(cutoff, 1)),
-        });
-        const adCutoff = recent.latestMeasuredDate === businessDateKey(addDays(cutoff, -1))
-          ? addDays(cutoff, -1)
-          : cutoff;
+          closedDay: businessDateKey(cutoff),
+        })) ?? cutoff;
         const adPeriodStart = addDays(adCutoff, -(query.periodDays - 1));
         const adPeriodEnd = addDays(adCutoff, 1);
         const adWindow = { organizationId, from: businessDateKey(adPeriodStart), to: businessDateKey(adPeriodEnd) };

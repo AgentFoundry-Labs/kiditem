@@ -18,9 +18,13 @@ function adPublishedRow(
 
 type AdCoverageWindow = { organizationId: string; from?: string; to?: string };
 
-/** Advertising's ledger capability (`readAdCoverage`) — an owner boundary this unit spec fakes. */
-function fakeAdCoverage(rows: ReturnType<typeof adPublishedRow>[]) {
+/**
+ * Advertising's ledger capability (`readAdCoverage`, `readAdEvidenceCutoff`) — an owner boundary
+ * this unit spec fakes. `evidenceCutoff` is Advertising's answer; by default the closed day itself.
+ */
+function fakeAdCoverage(rows: ReturnType<typeof adPublishedRow>[], evidenceCutoff?: string) {
   return {
+    readAdEvidenceCutoff: vi.fn(async (_transaction: unknown, input: { closedDay: string }) => evidenceCutoff ?? input.closedDay),
     readAdCoverage: vi.fn(async (_transaction: unknown, window: AdCoverageWindow) => {
       const inWindow = rows
         .filter((row) => (!window.from || row.businessDate >= window.from) && (!window.to || row.businessDate < window.to))
@@ -45,8 +49,8 @@ let currentAds = fakeAdCoverage([]);
  * Sets the days the ad report measured for the next service and returns the
  * `$queryRaw` fake the remaining raw reads (Wing rank) use.
  */
-function adLedger(rows: ReturnType<typeof adPublishedRow>[] = []) {
-  currentAds = fakeAdCoverage(rows);
+function adLedger(rows: ReturnType<typeof adPublishedRow>[] = [], evidenceCutoff?: string) {
+  currentAds = fakeAdCoverage(rows, evidenceCutoff);
   return vi.fn(async () => []);
 }
 
@@ -553,7 +557,7 @@ describe('ReadinessService', () => {
     expect(readinessState(ads)).toBe('ok');
   });
 
-  it('ends the ad check a day early while the ad report has not confirmed yesterday, and stays stale two days behind', async () => {
+  it('ends the ad check at the evidence cutoff Advertising names, and keeps yesterday when it names yesterday', async () => {
     vi.useFakeTimers();
     // 2026-07-18 12:00 KST: yesterday is 2026-07-17.
     vi.setSystemTime(new Date('2026-07-18T03:00:00.000Z'));
@@ -563,7 +567,7 @@ describe('ReadinessService', () => {
       date.setUTCDate(date.getUTCDate() + index);
       return date.toISOString().slice(0, 10);
     });
-    const statusWith = async (lastMeasured: string) => {
+    const statusWith = async (evidenceCutoff: string) => {
       const prisma = {
         channelAccount: {
           findFirst: vi.fn(async () => ({ id: ACTIVE_COUPANG_ACCOUNT_ID })),
@@ -579,9 +583,8 @@ describe('ReadinessService', () => {
         sellpiaSalesDailySnapshot: { findMany: vi.fn(async () => []) },
       };
       const queryRaw = adLedger(
-        measuredDates
-          .filter((businessDate) => businessDate <= lastMeasured)
-          .map((businessDate) => adPublishedRow(businessDate, '2026-07-17T23:30:00.000Z')),
+        measuredDates.map((businessDate) => adPublishedRow(businessDate, '2026-07-17T23:30:00.000Z')),
+        evidenceCutoff,
       );
       (prisma as { $queryRaw?: unknown }).$queryRaw = queryRaw;
       const status = await readinessService(withSellpiaReaderTransaction(prisma)).getStatus(
@@ -594,8 +597,11 @@ describe('ReadinessService', () => {
       };
     };
 
-    // The ad report confirmed through 2026-07-16: Coupang has not settled yesterday yet.
+    // Every account's newest report requested 2026-07-17 and held it: nothing newer to collect yet.
     const held = await statusWith('2026-07-16');
+    expect(currentAds.readAdEvidenceCutoff).toHaveBeenCalledWith(expect.anything(), {
+      organizationId: ORGANIZATION_ID, closedDay: '2026-07-17',
+    });
     expect(held.queried).toEqual(['2026-06-17', '2026-07-17']);
     expect(held.ads).toMatchObject({
       referenceDate: '2026-07-16',
@@ -608,14 +614,14 @@ describe('ReadinessService', () => {
     // Sellpia keeps the closed day.
     expect(held.sales?.referenceDate).toBe('2026-07-17');
 
-    // Two days behind is not the report's one-day lag: the check stays at yesterday and is stale.
-    const stale = await statusWith('2026-07-15');
+    // A report that requested only 2026-07-16 has not looked at yesterday: the check stays at yesterday.
+    const stale = await statusWith('2026-07-17');
     expect(stale.queried).toEqual(['2026-06-18', '2026-07-18']);
     expect(stale.ads).toMatchObject({
       referenceDate: '2026-07-17',
-      missingDates: ['2026-07-16', '2026-07-17'],
+      missingDates: ['2026-07-17'],
       basis: { requiredAsOf: '2026-07-17' },
-      detail: '최신(2026-07-17) 미수집 — 누락 2/30일',
+      detail: '최신(2026-07-17) 미수집 — 누락 1/30일',
     });
     expect(readinessState(stale.ads)).toBe('stale');
   });

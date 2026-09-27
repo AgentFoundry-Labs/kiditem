@@ -90,4 +90,13 @@ export interface AdvertisingLedgerReadPort {
     transaction: OwnerTransaction,
     input: Readonly<{ organizationId: string; months: readonly string[]; from?: string; to?: string }>,
   ): Promise<MonthlyAdAllocation[]>;
+  /**
+   * 소비처가 광고에 요구할 마지막 날(`YYYY-MM-DD`, 옛 `readAdEvidenceCutoff` 규칙): 닫힌 날 `closedDay`. 단 활성 쿠팡 계정
+   * 모두의 가장 최근 성공한 광고 보고서가 그날을 **요청하고** 보류했으면(확정 창이 그 전날에 끝남) 그 확정 끝 중 가장 이른 날
+   * (`domain/ad-report-confirmation.ts` `adReportEvidenceCutoff`).
+   */
+  readAdEvidenceCutoff(
+    transaction: OwnerTransaction,
+    input: Readonly<{ organizationId: string; closedDay: string }>,
+  ): Promise<string>;
 }

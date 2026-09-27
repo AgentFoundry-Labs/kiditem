@@ -2,7 +2,7 @@ import type { PrismaClient } from '@prisma/client';
 import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import { makeTestPrisma, resetDb, seedBaseFixture, TEST_ORGANIZATION_ID as ORG } from '../../test-helpers/real-prisma';
 import { advertisingLedgerTestReader } from '../../test-helpers/channel-fact-ports';
-import { seedAdReportRun } from '../../test-helpers/ad-ledger-seeds';
+import { seedAdReportRun, seedAdReportWindow } from '../../test-helpers/ad-ledger-seeds';
 import { AdvertisingKeywordRankReadAdapter } from '../../advertising/adapter/out/repository/keyword-rank-read.adapter';
 import { ReadinessService } from '../readiness.service';
 import { ChannelAccountService } from '../../channels/application/service/account/channel-account.service';
@@ -12,8 +12,8 @@ import { ChannelsProductMappingGenerationAdapter } from '../../channels/adapter/
 import { ProductMappingGenerationRepositoryAdapter } from '../../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
 
 /**
- * 광고 readiness(KID-372 ①b): 기대일(어제까지 30일, 광고 보고서가 어제를 아직 확정하지 않았으면 그 전날까지)과 광고 원장이
- * 측정한 날(활성 쿠팡 계정 모두의 성공 실행 창)을 비교한다. 실패한 실행의 창은 측정이 아니다.
+ * 광고 readiness(KID-372 ①b): 기대일(어제까지 30일, 활성 계정 모두의 최근 보고서가 어제를 요청하고 보류했을 때만 그
+ * 전날까지)과 광고 원장이 측정한 날(성공 실행 창)을 비교한다. 실패한 실행의 창은 측정이 아니다.
  */
 describe('coupang_ads readiness over PostgreSQL', () => {
   let prisma: PrismaClient;
@@ -47,13 +47,22 @@ describe('coupang_ads readiness over PostgreSQL', () => {
     advertisingLedgerTestReader(prisma as never),
   ).getStatus(ORG)).checks.find((check) => check.key === 'coupang_ads');
 
-  it('reads a report confirmed through the day before yesterday as a complete window ending there', async () => {
-    await seedAdReportRun(prisma, { organizationId: ORG, channelAccountId: accountId, start: '2026-06-10', end: '2026-07-16' });
+  it('ends the window a day early when the newest report requested yesterday and held it', async () => {
+    await seedAdReportWindow(prisma, { organizationId: ORG, channelAccountId: accountId, start: '2026-06-10', end: '2026-07-16', requestedEnd: '2026-07-17' });
 
     expect(await adsCheck()).toMatchObject({
       referenceDate: '2026-07-16',
       missingDates: [],
       detail: '최근 30일치 (2026-06-17~2026-07-16) 모두 수집됨',
+    });
+  });
+
+  it('keeps yesterday required when the newest report asked only through the day before', async () => {
+    await seedAdReportWindow(prisma, { organizationId: ORG, channelAccountId: accountId, start: '2026-06-10', end: '2026-07-16' });
+
+    expect(await adsCheck()).toMatchObject({
+      referenceDate: '2026-07-17',
+      missingDates: ['2026-07-17'],
     });
   });
 

@@ -59,7 +59,7 @@ export class ReadinessService {
     @Inject(ADVERTISING_KEYWORD_RANK_READ_PORT)
     private readonly keywordRank: AdvertisingKeywordRankReadPort,
     @Inject(ADVERTISING_LEDGER_READ_PORT)
-    private readonly adLedger: Pick<AdvertisingLedgerReadPort, 'readAdCoverage'>,
+    private readonly adLedger: Pick<AdvertisingLedgerReadPort, 'readAdCoverage' | 'readAdEvidenceCutoff'>,
   ) {}
 
   /**
@@ -135,19 +135,14 @@ export class ReadinessService {
       { organizationId, channel: 'coupang' },
     );
 
-    // coupang_ads ends at the ad evidence cutoff: yesterday, or the day
-    // before while the ad report has not confirmed yesterday yet (Coupang
-    // settles a day late). Two days behind stays at yesterday and reads stale.
-    const dayBeforeYesterdayStr = businessDateKey(addDays(yesterdayKst, -1));
-    const recentAds = activeCoupangAccount
-      ? await this.adLedger.readAdCoverage(ownerTransaction(tx), {
+    // coupang_ads ends at the ad evidence cutoff: yesterday, unless every
+    // active account's newest succeeded ad report requested yesterday and
+    // held it as unreported (Advertising's rule).
+    const adsCutoffKst = activeCoupangAccount
+      ? parseBusinessDate(await this.adLedger.readAdEvidenceCutoff(ownerTransaction(tx), {
           organizationId,
-          from: dayBeforeYesterdayStr,
-          to: businessDateKey(addDays(yesterdayKst, 1)),
-        })
-      : null;
-    const adsCutoffKst = recentAds?.latestMeasuredDate === dayBeforeYesterdayStr
-      ? addDays(yesterdayKst, -1)
+          closedDay: businessDateKey(yesterdayKst),
+        })) ?? yesterdayKst
       : yesterdayKst;
     const adsCutoffKstStr = businessDateKey(adsCutoffKst);
     const adsLookbackStart = addDays(

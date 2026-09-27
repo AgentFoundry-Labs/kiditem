@@ -175,4 +175,25 @@ export class AdLedgerReadPersistenceAdapter implements AdLedgerReadRepositoryPor
       units: row.units,
     }));
   }
+
+  /** 활성 계정마다 가장 최근(끝난 시각) 성공한 `advertising.ad_report` 실행의 요청 끝(`plan.endDate`)·확정 창 끝. */
+  async readNewestAdReportEnds(
+    transaction: OwnerTransaction,
+    scope: Pick<AdLedgerReadScope, 'organizationId' | 'activeAccountIds'>,
+  ): Promise<Array<Readonly<{ requestedEnd: string; confirmedEnd: string }> | null>> {
+    if (scope.activeAccountIds.length === 0) return [];
+    const windows = await readOperationWindows(ownerTransactionClient(transaction), {
+      organizationId: scope.organizationId,
+      kind: AD_REPORT_KIND,
+      planKey: 'channelAccountId',
+      planValues: scope.activeAccountIds,
+      extraPlanKey: 'endDate',
+    });
+    // 끝난 시각 오름차순이라 계정마다 마지막 행이 가장 최근 실행이다.
+    const newest = new Map<string, { requestedEnd: string; confirmedEnd: string }>();
+    for (const row of windows) {
+      newest.set(row.planValue, { requestedEnd: row.extraPlanValue ?? row.windowEnd, confirmedEnd: row.windowEnd });
+    }
+    return scope.activeAccountIds.map((id) => newest.get(id) ?? null);
+  }
 }

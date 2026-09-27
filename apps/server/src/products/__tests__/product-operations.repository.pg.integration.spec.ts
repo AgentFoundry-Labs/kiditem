@@ -1089,13 +1089,13 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     expect(inactive.total).toBe(1);
   });
 
-  it('ends the advertising window at the last measured day while the ad report has not confirmed yesterday', async () => {
+  it('ends the advertising window at the evidence cutoff while the ad report holds yesterday as unreported', async () => {
     const { product, listing } = await linkedProductWithOptions('ADS-HELD', 1, 0, true);
-    // The ad report confirmed through 2026-09-05; yesterday (09-06) is not measured yet.
+    // The newest ad report requested yesterday (09-06) and held it: it confirmed through 09-05.
     await seedAdReportWindow(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId: listing.channelAccountId,
-      start: '2026-08-30', end: '2026-09-05',
+      start: '2026-08-30', end: '2026-09-05', requestedEnd: '2026-09-06',
     });
     await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
@@ -1160,11 +1160,11 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       endDate: '2026-09-06',
       orderIds: [order],
     });
-    // The ad report has not confirmed yesterday (2026-09-06), so ads close a day before sales.
+    // The ad report requested yesterday (2026-09-06) and held it, so ads close a day before sales.
     await seedAdReportWindow(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId: listing.channelAccountId,
-      start: '2026-08-30', end: '2026-09-05',
+      start: '2026-08-30', end: '2026-09-05', requestedEnd: '2026-09-06',
     });
     await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID,

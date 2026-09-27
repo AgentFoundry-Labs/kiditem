@@ -2,6 +2,7 @@ import { Inject, Injectable } from '@nestjs/common';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../channels/application/port/in/account/channel-account.port';
 import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../channels/application/port/in/channel-option-recipe.port';
 import { allocateBilledSpend } from '../../domain/ad-report-billing';
+import { adReportEvidenceCutoff } from '../../domain/ad-report-confirmation';
 import type { OwnerTransaction } from '../../../common/owner-transaction';
 import { AD_SWEEP_ACCOUNT_STATUS, AD_SWEEP_CHANNEL } from '../../domain/ad-sweep-coverage';
 import type {
@@ -111,6 +112,18 @@ export class AdvertisingLedgerReadService implements AdvertisingLedgerReadPort {
         measuredDays: measuredDaysByMonth.get(row.month) ?? 0,
       }));
     });
+  }
+
+  async readAdEvidenceCutoff(
+    transaction: OwnerTransaction,
+    input: Readonly<{ organizationId: string; closedDay: string }>,
+  ): Promise<string> {
+    const activeAccountIds = await this.activeAccountIds(transaction, input.organizationId);
+    const collections = await this.ledger.readNewestAdReportEnds(transaction, {
+      organizationId: input.organizationId,
+      activeAccountIds,
+    });
+    return adReportEvidenceCutoff({ closedDay: input.closedDay, collections });
   }
 }
 

@@ -8,6 +8,8 @@ export interface OperationWindowRow {
   windowStart: string;
   windowEnd: string;
   finishedAt: Date | null;
+  /** `extraPlanKey`가 가리키는 plan 최상위 칸의 문자열 값(요청하지 않았거나 없으면 `null`). */
+  extraPlanValue?: string | null;
 }
 
 /**
@@ -26,6 +28,8 @@ export async function readOperationWindows(
     planKey: string;
     planValues: readonly string[];
     statuses?: readonly string[];
+    /** 함께 돌려받을 plan 최상위 칸 하나(예: 광고 보고서의 요청 끝 `endDate`). */
+    extraPlanKey?: string;
   }>,
 ): Promise<OperationWindowRow[]> {
   if (input.planValues.length === 0) return [];
@@ -36,12 +40,14 @@ export async function readOperationWindows(
     window_start: string;
     window_end: string;
     finished_at: Date | null;
+    extra_plan_value: string | null;
   }>>(Prisma.sql`
     SELECT o.id,
       o.plan ->> ${input.planKey} AS plan_value,
       to_char(o.window_start, 'YYYY-MM-DD') AS window_start,
       to_char(o.window_end, 'YYYY-MM-DD') AS window_end,
-      o.finished_at
+      o.finished_at,
+      ${input.extraPlanKey ? Prisma.sql`o.plan ->> ${input.extraPlanKey}` : Prisma.sql`NULL::text`} AS extra_plan_value
     FROM operations o
     WHERE o.organization_id = ${input.organizationId}::uuid
       AND o.kind = ${input.kind}
@@ -57,5 +63,6 @@ export async function readOperationWindows(
     windowStart: row.window_start,
     windowEnd: row.window_end,
     finishedAt: row.finished_at,
+    ...(input.extraPlanKey ? { extraPlanValue: row.extra_plan_value } : {}),
   }));
 }

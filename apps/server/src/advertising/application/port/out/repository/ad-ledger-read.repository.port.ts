@@ -26,4 +26,9 @@ export interface AdLedgerReadRepositoryPort {
   readAdCoverage(transaction: OwnerTransaction, scope: AdLedgerReadScope): Promise<AdCoverage>;
   readAdWindowFacts(transaction: OwnerTransaction, scope: AdLedgerReadScope): Promise<AdWindowFacts>;
   readListingAdWindowFacts(transaction: OwnerTransaction, scope: AdLedgerReadScope): Promise<AdListingWindowFacts[]>;
+  /** 활성 계정마다 가장 최근 성공한 광고 보고서 실행의 요청 끝·확정 끝(없으면 `null`), `activeAccountIds` 순서. */
+  readNewestAdReportEnds(
+    transaction: OwnerTransaction,
+    scope: Pick<AdLedgerReadScope, 'organizationId' | 'activeAccountIds'>,
+  ): Promise<Array<Readonly<{ requestedEnd: string; confirmedEnd: string }> | null>>;
 }
