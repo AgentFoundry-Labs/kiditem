@@ -156,6 +156,43 @@ describe('ad-ledger rollups (PG)', () => {
     expect(oneDay.rows.map((row) => [row.keyword, row.spend])).toEqual([['물총', 50]]);
   });
 
+  it('두 계정이 같은 캠페인 id를 써도 캠페인·상품·키워드 합은 계정마다 따로이고 이름은 제 계정의 캠페인에서 온다', async () => {
+    const a = await seedCoupangAdAccount(prisma, { organizationId: ORG, externalAccountId: 'A' });
+    const b = await seedCoupangAdAccount(prisma, { organizationId: ORG, externalAccountId: 'B' });
+    const runA = await seedAdReportRun(prisma, { organizationId: ORG, channelAccountId: a.id, start: '2026-09-01', end: '2026-09-03' });
+    const runB = await seedAdReportRun(prisma, { organizationId: ORG, channelAccountId: b.id, start: '2026-09-01', end: '2026-09-03' });
+    await seedAdCampaign(prisma, { organizationId: ORG, channelAccountId: a.id, operationId: runA.id, campaignId: 'C1', name: 'A 캠페인', budget: 10_000 });
+    await seedAdCampaign(prisma, { organizationId: ORG, channelAccountId: b.id, operationId: runB.id, campaignId: 'C1', name: 'B 캠페인', budget: 20_000 });
+    await seedAdProductDays(prisma, [
+      { organizationId: ORG, channelAccountId: a.id, operationId: runA.id, date: '2026-09-01', campaignId: 'C1', adGroupId: 'G1', vendorItemId: 'VI-1', spend: 100 },
+      { organizationId: ORG, channelAccountId: b.id, operationId: runB.id, date: '2026-09-01', campaignId: 'C1', adGroupId: 'G1', vendorItemId: 'VI-1', spend: 700 },
+    ]);
+    await keywordDay({ channelAccountId: a.id, operationId: runA.id, date: '2026-09-02', keyword: '물총', campaignId: 'C1', vendorItemId: 'VI-1', spend: 10 });
+    await keywordDay({ channelAccountId: b.id, operationId: runB.id, date: '2026-09-02', keyword: '물총', campaignId: 'C1', vendorItemId: 'VI-1', spend: 70 });
+    const scope = { organizationId: ORG, activeAccountIds: [a.id, b.id] };
+    const byAccount = <T extends { channelAccountId: string }>(rows: readonly T[]) =>
+      [...rows].sort((x, y) => (x.channelAccountId === a.id ? -1 : 1) - (y.channelAccountId === a.id ? -1 : 1));
+    const tx = ownerTransaction(prisma);
+
+    const campaigns = byAccount((await adapter.readCampaignWindowRollups(tx, scope)).rows);
+    expect(campaigns.map((row) => [row.channelAccountId, row.campaignName, row.budget, row.spend])).toEqual([
+      [a.id, 'A 캠페인', 10_000, 100],
+      [b.id, 'B 캠페인', 20_000, 700],
+    ]);
+    const products = byAccount((await adapter.readProductWindowRollups(tx, scope)).rows);
+    expect(products.map((row) => [row.channelAccountId, row.campaignName, row.spend])).toEqual([
+      [a.id, 'A 캠페인', 100],
+      [b.id, 'B 캠페인', 700],
+    ]);
+    const keywords = byAccount((await adapter.readKeywordWindowRollups(tx, scope)).rows);
+    expect(keywords.map((row) => [row.channelAccountId, row.campaignName, row.spend])).toEqual([
+      [a.id, 'A 캠페인', 10],
+      [b.id, 'B 캠페인', 70],
+    ]);
+    const onlyB = await adapter.readProductWindowRollups(tx, { ...scope, campaign: { channelAccountId: b.id, campaignId: 'C1' } });
+    expect(onlyB.rows.map((row) => [row.channelAccountId, row.spend])).toEqual([[b.id, 700]]);
+  });
+
   it('규칙 입력은 최근 측정일 창(기본 14일)의 캠페인·키워드 합과 캠페인 현재 상태이고 그보다 오래된 측정일은 빠진다', async () => {
     const account = await seedCoupangAdAccount(prisma, { organizationId: ORG, externalAccountId: 'A' });
     const run = await seedAdReportRun(prisma, { organizationId: ORG, channelAccountId: account.id, start: '2026-08-01', end: '2026-08-20' });
