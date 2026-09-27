@@ -1,3 +1,4 @@
+import { USABLE_CHANNEL_ACCOUNT_STATUSES } from '../../../domain/account/channel-account-usability';
 import { Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import {
@@ -40,7 +41,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
     });
     if (!product) throw new FactNotFoundError('판매상품을 찾을 수 없습니다');
     const activeAccounts = await this.prisma.channelAccount.findMany({
-      where: { organizationId: input.organizationId, channel: { in: REPRESENTATIVE_IMAGE_CHANNELS }, status: 'active' },
+      where: { organizationId: input.organizationId, channel: { in: REPRESENTATIVE_IMAGE_CHANNELS }, status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] } },
       select: { id: true, channel: true },
       orderBy: { createdAt: 'asc' },
     });
@@ -49,7 +50,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
       organizationId: input.organizationId,
       isActive: true,
       salesProductId: input.salesProductId,
-      channelAccount: { channel: { in: REPRESENTATIVE_IMAGE_CHANNELS }, status: 'active' },
+      channelAccount: { channel: { in: REPRESENTATIVE_IMAGE_CHANNELS }, status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] } },
     } satisfies Prisma.ChannelListingWhereInput;
     const select = { id: true, channelAccountId: true, channelName: true, externalId: true, channelAccount: { select: { channel: true } } } as const;
     const evidence = (
@@ -99,7 +100,7 @@ export class ThumbnailExecutionPersistenceAdapter implements ThumbnailExecutionP
         organizationId: input.organizationId,
         isActive: true,
         salesProductId: input.salesProductId,
-        channelAccount: { channel: { in: REPRESENTATIVE_IMAGE_CHANNELS }, status: 'active' },
+        channelAccount: { channel: { in: REPRESENTATIVE_IMAGE_CHANNELS }, status: { in: [...USABLE_CHANNEL_ACCOUNT_STATUSES] } },
       },
       select: { id: true, channelName: true, externalId: true, channelAccount: { select: { name: true } } },
       orderBy: [{ createdAt: 'asc' }, { id: 'asc' }],
