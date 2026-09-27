@@ -18,7 +18,6 @@ const focusTokens = [
 const expectedOwnerFiles = [
   'extensions/kiditem-os/background/collection-session.js',
   'extensions/kiditem-os/background/interactive-tabs.js',
-  'extensions/kiditem-os/background/coupang/collection-window.js',
 ];
 const expectedLegacyFiles = [
   'extensions/kiditem-os/background/service-worker.js',
