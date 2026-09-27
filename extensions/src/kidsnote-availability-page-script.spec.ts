@@ -241,5 +241,3 @@ it('⭐ 키즈노트 가격은 가격 일괄수정(균일가 · 선택한 상품
   assert.ok(result.warnings[0].includes('본사 승인 전까지'), result.warnings.join(' / '));
   assert.ok(result.warnings.some((warning: any) => warning.includes('1,200원으로 바뀌어')), result.warnings.join(' / '));
 });
-
-

@@ -174,4 +174,3 @@ it('떠리몰 지금 상태 — 살 수 있으면 재고 모름, 아니면 몰�
   assert.deepEqual(plain(result.missing), ['999999999']);
   assert.equal(log.puts.length, 0, '읽기만 한다');
 });
-

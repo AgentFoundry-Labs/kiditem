@@ -184,4 +184,3 @@ it('⭐ 도중에 로그인이 풀려도 이미 몰에 보낸 건수는 버리�
   const failed = await none.api.send({ mallKey: 'kidkids', codes: ['1090904'] });
   assert.equal(failed.success, false);
 });
-

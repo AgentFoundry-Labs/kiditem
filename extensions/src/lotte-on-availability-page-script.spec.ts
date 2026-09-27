@@ -207,4 +207,3 @@ it('롯데ON — 방금 품절한 상품이 옛 SALE 로 보여도 잠시 뒤 �
   assert.equal(result.already, 0);
   assert.equal(result.confirmed, 1);
 });
-
