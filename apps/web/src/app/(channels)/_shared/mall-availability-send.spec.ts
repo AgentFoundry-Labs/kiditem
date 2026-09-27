@@ -202,9 +202,9 @@ describe('몰 지금 재고', () => {
         rowCount: 3,
         missingExternalListingIds: ['404'],
         rows: [
-          { externalListingId: '16340985357', externalOptionId: '95903875495', available: false, stock: 0, observedStatus: '품절', observedAt: '2026-09-27T09:00:30.000Z' },
-          { externalListingId: '16340985357', externalOptionId: '95903875496', available: true, stock: 12, observedStatus: null, observedAt: '2026-09-27T09:00:30.000Z' },
-          { externalListingId: '777', externalOptionId: null, available: true, stock: null, observedStatus: '판매중', observedAt: '2026-09-27T09:00:30.000Z' },
+          { externalListingId: '16340985357', externalOptionId: '95903875495', available: false, stock: 0, rocket: false, observedStatus: '품절', observedAt: '2026-09-27T09:00:30.000Z' },
+          { externalListingId: '16340985357', externalOptionId: '95903875496', available: true, stock: 12, rocket: true, observedStatus: null, observedAt: '2026-09-27T09:00:30.000Z' },
+          { externalListingId: '777', externalOptionId: null, available: true, stock: null, rocket: false, observedStatus: '판매중', observedAt: '2026-09-27T09:00:30.000Z' },
         ],
       },
     }) });
@@ -218,7 +218,8 @@ describe('몰 지금 재고', () => {
     }]);
     expect(products.get('16340985357')).toEqual([
       { optionCode: '95903875495', stock: 0, rocket: false, state: '품절' },
-      { optionCode: '95903875496', stock: 12, rocket: false },
+      // 로켓그로스 옵션은 쿠팡 재고라 칸이 세지 않는다 — 행의 `rocket`을 그대로 옮긴다.
+      { optionCode: '95903875496', stock: 12, rocket: true },
     ]);
     expect(products.get('777')).toEqual([{ optionCode: '777', stock: null, rocket: false }]);
     expect(products.has('404')).toBe(false);

@@ -290,8 +290,8 @@ function liveOption(row: MallAvailabilityRow): MallLiveOption {
     optionCode: row.externalOptionId ?? row.externalListingId,
     // 판매중이면 몰이 준 수(모르면 null), 못 사는 상태면 0 — 칸이 품절로 읽는다.
     stock: row.available ? row.stock : 0,
-    // 계약 행에 로켓그로스 표시가 없다 — 쿠팡 재고 옵션을 구별하지 못한다(파생: 행에 칸 추가 제안).
-    rocket: false,
+    // 로켓그로스 옵션은 쿠팡 재고다 — 칸이 품절로 세지 않는다.
+    rocket: row.rocket,
     ...(state ? { state } : {}),
   };
 }
