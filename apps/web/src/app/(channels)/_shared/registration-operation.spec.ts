@@ -5,6 +5,7 @@ import type { OperationView } from '@kiditem/shared/operation';
 import { apiClient } from '@/lib/api-client';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
 import { orderMallAccountApi } from '@/lib/order-mall-account-api';
+import { isMallAutoLoginBlocked } from '@/lib/mall-login-block';
 import {
   RegistrationOperationInProgress,
   closeRegistrationOperation,
@@ -232,6 +233,17 @@ describe('waitForRegistrationOperation', () => {
     expect(read.state).toBe('failed');
     expect(read.message).not.toContain('SITE_LOGIN_REQUIRED');
     expect(read.message).not.toContain('login required');
+  });
+
+  it('⭐ 저장 자격으로 로그인했는데 몰이 거절해 실패로 끝나면 그 몰의 자동 로그인을 멈춘다(D10)', async () => {
+    vi.mocked(apiClient.get).mockResolvedValueOnce({ operation: operation({
+      status: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', finishedAt: new Date().toISOString(),
+      plan: { executionKind: 'register', mallKey: 'art09' },
+      result: { login: { reason: 'credentials_rejected', mallMessage: '아이디 또는 비밀번호가 일치하지 않습니다.' } },
+    }) });
+    expect(isMallAutoLoginBlocked('art09')).toBe(false);
+    await waitForRegistrationOperation(OPERATION_ID, { sleep: noSleep });
+    expect(isMallAutoLoginBlocked('art09')).toBe(true);
   });
 
   it('상한을 넘기면 진행 중으로 돌려준다(실행은 확장에서 계속된다)', async () => {

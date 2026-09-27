@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import type { OperationView } from '@kiditem/shared/operation';
 import { apiClient } from '@/lib/api-client';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
+import { isMallAutoLoginBlocked } from '@/lib/mall-login-block';
 
 // 품절·재개 = 등록 실행(sold_out·resume), 지금 재고 = 판매 상태 읽기 실행(KID-364). 실행 시작은 진짜이고 가짜는
 // 확장 메시지 경계·서버 HTTP·저장 자격 API뿐이다.
@@ -242,6 +243,16 @@ describe('몰 지금 재고', () => {
     const read = readMallAvailabilityMany({ mallKey: 'coupang', channelAccountId: ACCOUNT, codes: ['1'] }, noSleep);
     await expect(read).rejects.toThrow();
     await expect(read).rejects.not.toThrow(/SITE_LOGIN_REQUIRED|login required/);
+  });
+
+  it('읽기 실행이 몰의 아이디·비밀번호 거절로 끝나면 그 몰의 자동 로그인을 멈춘다(D10)', async () => {
+    extension();
+    vi.mocked(apiClient.get).mockResolvedValue({ operation: operation({
+      kind: 'channels.mall_availability_read', status: 'failed', errorCode: 'SITE_LOGIN_REQUIRED', finishedAt: new Date().toISOString(),
+      result: { login: { reason: 'credentials_rejected', mallMessage: null } },
+    }) });
+    await expect(readMallAvailabilityMany({ mallKey: 'coupang', channelAccountId: ACCOUNT, codes: ['1'] }, noSleep)).rejects.toThrow();
+    expect(isMallAutoLoginBlocked('coupang')).toBe(true);
   });
 
   it('한 실행이 읽는 상품 수 상한(500)을 넘으면 나눠 시작한다', async () => {

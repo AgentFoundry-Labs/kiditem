@@ -7,7 +7,7 @@ import {
 } from '@kiditem/shared/channels-operations';
 import { isOperationTerminal, OperationFinishResponseSchema, type OperationView } from '@kiditem/shared/operation';
 import { apiClient } from '@/lib/api-client';
-import { operationLoginOptions } from '@/lib/operation-login';
+import { noteOperationLoginFailureForMall, operationLoginOptions } from '@/lib/operation-login';
 import { requestOperationStart } from '@/lib/operation-start';
 import { attemptFailureText } from '@/lib/operator-error';
 import { mallStopBadge, type MallStopKind } from './mall-presentation';
@@ -311,6 +311,8 @@ async function readChunk(
   const operationId = outcome.outcome === 'refused' ? outcome.existingOperationId : outcome.operationId;
   if (!operationId) throw new Error(outcome.outcome === 'refused' ? outcome.message : READ_FAILED);
   const operation = await waitForAvailabilityRead(operationId, options);
+  // 저장 자격이 몰에서 거절됐으면 그 몰의 자동 로그인을 멈춘다(D10 — 거듭 두드리면 계정이 잠긴다).
+  if (operation.status === 'failed') noteOperationLoginFailureForMall(input.mallKey, operation);
   if (operation.status !== 'succeeded') throw new Error(attemptFailureText(operation, MALL_AVAILABILITY_READ_KIND) ?? READ_FAILED);
   const result = MallAvailabilityReadResultSchema.safeParse(operation.result);
   if (!result.success) throw new Error(READ_FAILED);

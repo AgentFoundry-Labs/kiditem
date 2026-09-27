@@ -17,7 +17,7 @@ import {
 } from '@kiditem/shared/operation';
 import { apiClient } from '@/lib/api-client';
 import { detectExtensionId, sendToExtension } from '@/lib/extension-bridge';
-import { operationLoginOptions } from '@/lib/operation-login';
+import { noteOperationLoginFailureForMall, operationLoginOptions } from '@/lib/operation-login';
 import { requestOperationStart } from '@/lib/operation-start';
 import { attemptFailureText } from '@/lib/operator-error';
 import type { MallSendOutcome } from './mall-publish-adapter';
@@ -231,6 +231,15 @@ export async function readRegistrationOperation(operationId: string): Promise<Re
   return describeRegistrationOperation(operation);
 }
 
+/**
+ * 저장 자격을 실은 실행이 몰의 아이디·비밀번호 거절로 끝나면 그 몰의 자동 로그인을 멈춘다((channels)/CLAUDE.md, KID-380
+ * D10). 같은 자격으로 거듭 두드리면 계정이 잠긴다. 거절이 아닌 실패는 막지 않는다(`noteOperationLoginFailure`).
+ */
+function noteLoginFailure(operation: OperationView): void {
+  const mallKey = operation.plan?.mallKey;
+  if (typeof mallKey === 'string' && mallKey) noteOperationLoginFailureForMall(mallKey, operation);
+}
+
 /** 시작한 화면이 결과를 기다리는 상한. 폼 채우기·이미지 올리기까지 감안한다. */
 const WAIT_LIMIT_MS = 190_000;
 const POLL_MS = 2_000;
@@ -255,6 +264,7 @@ export async function waitForRegistrationOperation(
   for (;;) {
     options.signal?.throwIfAborted();
     const read = await readRegistrationOperation(operationId);
+    if (read.state === 'failed') noteLoginFailure(read.operation);
     if (read.state !== 'running' || now() >= deadline) return read;
     await sleep(options.pollMs ?? POLL_MS);
   }
