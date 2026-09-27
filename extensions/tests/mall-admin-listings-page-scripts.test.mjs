@@ -202,10 +202,17 @@ test("키드키즈 — 다운로드가 목록 건수를 다 담지 못하면 저
     { errorCode: "mall_contract_drift", stage: "duplicate" },
   );
 
-  const noCounter = await runKidkids({ serve: () => "<html><body>점검 중</body></html>" });
+  const noCounter = await runKidkids({ serve: () => "<html><body>상품 목록</body></html>" });
   assert.deepEqual(
     { errorCode: noCounter.result.errorCode, stage: noCounter.result.stage },
     { errorCode: "mall_contract_drift", stage: "counter" },
+  );
+
+  // 점검 안내 화면은 형식 변경이 아니라 점검이다(KID-380 D3).
+  const maintenance = await runKidkids({ serve: () => "<html><body>점검 중</body></html>" });
+  assert.deepEqual(
+    { errorCode: maintenance.result.errorCode, stage: maintenance.result.stage },
+    { errorCode: "mall_maintenance", stage: undefined },
   );
 
   const noLink = await runKidkids({
