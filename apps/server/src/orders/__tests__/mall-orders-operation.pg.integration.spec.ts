@@ -263,9 +263,9 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     ];
     await harness.put(run, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: rows }]);
     const finished = await harness.finish(run).expect(200);
-    // 아트공구 CSV는 주문마다 택배비 줄이 없어 출력 줄 = 상품 줄 — 셈법(orderCollectionOrderCount)이 0을 낸다(옛 경로와 같다,
-    // 파생 보고). 캡처는 있으므로(captured 2) 변환 파일은 나온다.
-    expect(finished.body.operation.result).toEqual({ rowCount: 0, mallKey: 'art09', captured: 2, orderNumbers: ['20260926-0000001'] });
+    // 아트공구 CSV는 주문마다 택배비 줄이 없어 출력 줄 = 상품 줄 — 주문 수는 서로 다른 주문번호 수다(KID-380 D6,
+    // mallOrdersOrderCount). 캡처는 있으므로(captured 2) 변환 파일은 나온다.
+    expect(finished.body.operation.result).toEqual({ rowCount: 1, mallKey: 'art09', captured: 2, orderNumbers: ['20260926-0000001'] });
     const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
     expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ rows });
     const converted = await convert('art09/convert', run.operation.id).expect(201);
@@ -347,11 +347,13 @@ describe('orders.mall_orders owner + today-orders capability over the operation 
     expect(run.operation.plan).toMatchObject({ mallKey: 'haebub-mall', mallName: '해법몰' });
     await harness.put(run, [{ chunkKind: MALL_ORDERS_CHUNK_KIND, payload: rows }]);
     const finished = await harness.finish(run).expect(200);
-    // 해법몰은 택배비가 같은 행의 칸이라 출력 줄 = 상품 줄 — 셈법(orderCollectionOrderCount)이 0을 낸다(옛 경로와 같다,
-    // 옛 웹은 주문번호를 따로 넘겼다 — 이제 result.orderNumbers). 캡처가 있으므로 변환 파일은 나온다.
+    // 해법몰은 택배비가 같은 행의 칸이라 출력 줄 = 상품 줄 — 주문 수는 서로 다른 주문번호 수다(KID-380 D6: 주문수집 화면 1
+    // 대 오늘 주문 0이던 것). 오늘 주문 capability가 이 rowCount를 센다. 캡처가 있으므로 변환 파일은 나온다.
     expect(finished.body.operation.result).toEqual({
-      rowCount: 0, mallKey: 'haebub-mall', captured: 3, orderNumbers: ['1001', '1002'], coverage: { startDate: TODAY, endDate: TODAY },
+      rowCount: 2, mallKey: 'haebub-mall', captured: 3, orderNumbers: ['1001', '1002'], coverage: { startDate: TODAY, endDate: TODAY },
     });
+    const today = await request(harness.httpUrl).get('/api/orders/collection/today-orders').set('x-test-org', ORG).expect(200);
+    expect(today.body.byMall['haebub-mall']).toBe(2);
     const artifact = await prisma.orderCollectionArtifact.findFirstOrThrow({ where: { operationId: run.operation.id } });
     expect(JSON.parse(Buffer.from(artifact.sourceBytes).toString('utf8'))).toEqual({ orders: rows });
     const converted = await convert('haebeop/convert', run.operation.id).expect(201);
