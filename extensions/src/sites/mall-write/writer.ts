@@ -172,3 +172,32 @@ export async function fillRegistration(definition: MallWriterDefinition, context
     throw error;
   }
 }
+
+/** 대표이미지를 올린 수정 화면 하나. `done`이 탭을 운영자에게 넘긴다 — [저장]은 운영자가 누른다. */
+export interface MallThumbnailSession {
+  fill: MallFill;
+  providerAccountId: string | null;
+  observedUrl: string | null;
+  done(): Promise<void>;
+}
+
+export interface MallThumbnailInput {
+  externalListingId: string | null;
+  productName: string;
+  expectedProviderAccountId: string | null;
+  image: { dataUrl: string; filename: string; mimeType: string };
+}
+
+export type MallThumbnailWriter = (context: MallWriteContext, input: MallThumbnailInput) => Promise<MallThumbnailSession>;
+
+const thumbnailWriters = new Map<string, MallThumbnailWriter>();
+
+/** 대표이미지를 바꿀 줄 아는 몰(지금 쿠팡 윙) — `sites/<mall>/thumbnail.ts`가 몰 키로 등록한다. 등록 폼 정의가 있는 몰만. */
+export function registerMallThumbnail(mallKey: string, writer: MallThumbnailWriter): void {
+  if (thumbnailWriters.has(mallKey)) throw new Error(`duplicate mall thumbnail writer: ${mallKey}`);
+  thumbnailWriters.set(mallKey, writer);
+}
+
+export function mallThumbnailFor(mallKey: string): MallThumbnailWriter | null {
+  return thumbnailWriters.get(mallKey) ?? null;
+}

@@ -4,6 +4,7 @@ import {
   REGISTRATION_KIND,
   RegistrationAvailabilityPayloadSchema,
   RegistrationPlanSchema,
+  RegistrationThumbnailPayloadSchema,
   type RegistrationEvidence,
   type RegistrationFill,
   type RegistrationMallOutcome,
@@ -58,7 +59,21 @@ export interface RegistrationPriceAnswer {
   results?: Array<{ code: string; before: number | null; after: number | null; confirmed: boolean; observedUrl?: string }>;
 }
 
+/** 대표이미지를 올린 수정 화면(`sites/mall-write`). `done`이 탭을 운영자에게 넘긴다 — [저장]은 운영자가 누른다. */
+export interface RegistrationThumbnailSession {
+  fill: RegistrationFill;
+  providerAccountId: string | null;
+  observedUrl: string | null;
+  done(): Promise<void>;
+}
+
 export interface RegistrationWriter {
+  thumbnail(input: {
+    externalListingId: string | null;
+    productName: string;
+    expectedProviderAccountId: string | null;
+    image: { dataUrl: string; filename: string; mimeType: string };
+  }): Promise<RegistrationThumbnailSession>;
   price(input: { externalListingId: string; price: number }): Promise<RegistrationPriceAnswer>;
   availability(input: {
     resume: boolean;
@@ -143,6 +158,54 @@ export const registrationCollector: Collector<RegistrationPlan, RegistrationResu
     const writer = site?.writer(plan.mallKey) ?? null;
     if (!writer) throw invalid(`이 확장에 ${plan.mallKey} 몰 쓰기 모듈이 없습니다.`, { mallKey: plan.mallKey });
     const progress = { mallKey: plan.mallKey, executionKind: plan.executionKind };
+
+    // 대표이미지: 몰 상품 수정 화면의 대표이미지 칸에 사진 하나를 올린다. [저장]은 누르지 않는다(plan submit false) — 운영자가
+    // 올린 화면을 보고 저장하므로 실행은 확인 대기(reconciling)로 멈춰 운영자 확인을 기다린다.
+    if (plan.executionKind === 'thumbnail_update') {
+      const payload = RegistrationThumbnailPayloadSchema.safeParse(plan.payload);
+      if (!payload.success || !writer.thumbnail) {
+        throw invalid('대표이미지 계획에 사진이 없거나 이 몰은 대표이미지를 바꾸지 못합니다.', { mallKey: plan.mallKey, executionKind: plan.executionKind });
+      }
+      const image = payload.data;
+      const session = await writer.thumbnail({
+        externalListingId: image.externalListingId,
+        productName: image.productName,
+        expectedProviderAccountId: plan.expectedProviderAccountId,
+        image: { dataUrl: image.dataUrl, filename: image.filename, mimeType: image.mimeType },
+      });
+      try {
+        if (plan.expectedProviderAccountId && session.providerAccountId && session.providerAccountId !== plan.expectedProviderAccountId) {
+          throw new RuntimeError(REGISTRATION_ACCOUNT_MISMATCH, '몰에 로그인된 판매자 계정이 실행할 계정과 다릅니다. 열린 탭의 계정을 확인해 주세요.', { mallKey: plan.mallKey });
+        }
+        yield { chunkKind: REGISTRATION_FILL_CHUNK_KIND, payload: [session.fill], progress: { ...progress, stage: 'uploaded' } };
+        const evidence: RegistrationEvidenceRow = {
+          payloadHash: plan.payloadHash,
+          channelAccountId: plan.channelAccountId,
+          externalListingId: image.externalListingId,
+          observedUrl: session.observedUrl,
+          providerAccountId: session.providerAccountId,
+          observedStatus: null,
+          message: '대표이미지를 수정 화면에 올렸습니다. [저장]은 운영자가 누릅니다.',
+          options: [],
+        };
+        yield { chunkKind: REGISTRATION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { ...progress, stage: 'uploaded' } };
+        return {
+          outcome: 'reconciling' as const,
+          result: {
+            providerOutcome: 'uncertain',
+            mallOutcome: 'uncertain',
+            submitted: false,
+            submitSkipped: 'operator_saves',
+            externalListingId: image.externalListingId,
+            mallMessage: null,
+            fill: session.fill,
+            evidence,
+          },
+        };
+      } finally {
+        await session.done();
+      }
+    }
 
     // 가격 수정(update는 판매가 하나만 — M1 plan 규칙): 얼린 판매 옵션의 판매가를 그 리스팅에 보내고 다시 읽는다. 등록 관문은 없다.
     if (plan.executionKind === 'update') {

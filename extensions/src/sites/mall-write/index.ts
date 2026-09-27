@@ -10,7 +10,16 @@ import {
   type AvailabilitySendAnswer,
   type PriceSendAnswer,
 } from './availability';
-import { fillRegistration, mallWriteContext, mallWriterFor, type MallFillInput, type MallFillSession } from './writer';
+import {
+  fillRegistration,
+  mallThumbnailFor,
+  mallWriteContext,
+  mallWriterFor,
+  type MallFillInput,
+  type MallFillSession,
+  type MallThumbnailInput,
+  type MallThumbnailSession,
+} from './writer';
 
 /**
  * 몰 쓰기 라우터(KID-256). 수집기 `channels.registration`은 사이트를 하나만 선언하므로 이 사이트가 plan의 몰 키로 그 몰의
@@ -29,6 +38,7 @@ export interface MallWriterHandle {
     observedUrl: string | null;
   }>;
   price?(input: { externalListingId: string; price: number }): Promise<PriceSendAnswer>;
+  thumbnail?(input: MallThumbnailInput): Promise<MallThumbnailSession>;
 }
 
 registerSite({
@@ -43,6 +53,8 @@ registerSite({
       if (definition) {
         const context = mallWriteContext(definition, deps, lease);
         handle.fill = (input) => fillRegistration(definition, context, input);
+        const thumbnail = mallThumbnailFor(mallKey);
+        if (thumbnail) handle.thumbnail = (input) => thumbnail(context, input);
       }
       if (availability) {
         const context = availabilityContext(availability, deps, lease);

@@ -367,3 +367,73 @@ describe('channels.registration — 가격 수정(update·salePrice, KID-256)', 
     await expect(run(pricePlan({ payload: { snapshot: { updateFields: ['salePrice'], product: { options: [] } }, form: null } }), priceSite({}))).rejects.toMatchObject({ code: 'RUNTIME_PLAN_INVALID' });
   });
 });
+
+const SALES_PRODUCT = '88888888-8888-4888-8888-888888888888';
+const ASSET = '99999999-9999-4999-8999-999999999999';
+
+function thumbnailPlan(overrides: Partial<RegistrationPlan> = {}): RegistrationPlan {
+  return plan({
+    executionKind: 'thumbnail_update',
+    mallKey: 'coupang',
+    registrationTargetId: null,
+    salesProductId: SALES_PRODUCT,
+    channelListingId: LISTING,
+    externalListingId: '15966710321',
+    expectedProviderAccountId: 'A00012345',
+    submit: false,
+    payload: {
+      dataUrl: 'data:image/png;base64,AAAA', filename: 'thumb.png', mimeType: 'image/png',
+      salesProductId: SALES_PRODUCT, channelListingId: LISTING, externalListingId: '15966710321', assetId: ASSET, productName: '말랑 키링',
+    },
+    ...overrides,
+  });
+}
+
+describe('channels.registration — 대표이미지(thumbnail_update, KID-256)', () => {
+  it('수정 화면에 사진을 올리고 [저장]은 운영자에게 남긴다 — 증거(관찰 주소·계정·말)와 함께 reconciling', async () => {
+    const log: Array<Record<string, unknown>> = [];
+    const done: string[] = [];
+    const site = {
+      writer: () => ({
+        async thumbnail(input: Record<string, unknown>) {
+          log.push(input);
+          return {
+            fill: { steps: ['원래 대표이미지 지우기', '새 대표이미지 올리기'], warnings: [], manualSteps: ['열린 쿠팡 윙 수정 화면에서 [저장]을 눌러 주세요.'], dialogs: [] },
+            providerAccountId: 'A00012345',
+            observedUrl: 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2',
+            done: async () => { done.push('done'); },
+          };
+        },
+      }),
+    } as unknown as RegistrationSite;
+    const { chunks, finish } = await run(thumbnailPlan(), site);
+    expect(log).toEqual([{
+      externalListingId: '15966710321', productName: '말랑 키링', expectedProviderAccountId: 'A00012345',
+      image: { dataUrl: 'data:image/png;base64,AAAA', filename: 'thumb.png', mimeType: 'image/png' },
+    }]);
+    expect(done).toEqual(['done']);
+    expect(chunks.map((chunk) => chunk.chunkKind)).toEqual(['registration_fill', 'registration_evidence']);
+    expect(chunks[1]!.payload).toEqual([{
+      payloadHash: 'hash', channelAccountId: ACCOUNT, externalListingId: '15966710321',
+      observedUrl: 'https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2', providerAccountId: 'A00012345', observedStatus: null,
+      message: '대표이미지를 수정 화면에 올렸습니다. [저장]은 운영자가 누릅니다.', options: [],
+    }]);
+    expect(finish).toMatchObject({
+      outcome: 'reconciling',
+      result: { providerOutcome: 'uncertain', mallOutcome: 'uncertain', submitted: false, submitSkipped: 'operator_saves', externalListingId: '15966710321' },
+    });
+  });
+
+  it('몰 화면 계정이 실행 계정과 다르면 증거 없이 멈춘다', async () => {
+    const site = {
+      writer: () => ({
+        thumbnail: async () => ({ fill: { steps: [], warnings: [], manualSteps: [], dialogs: [] }, providerAccountId: 'B999', observedUrl: null, done: async () => undefined }),
+      }),
+    } as unknown as RegistrationSite;
+    await expect(run(thumbnailPlan(), site)).rejects.toMatchObject({ code: 'REGISTRATION_ACCOUNT_MISMATCH' });
+  });
+
+  it('대표이미지를 바꾸는 모듈이 없는 몰이면 계획 오류다', async () => {
+    await expect(run(thumbnailPlan({ mallKey: 'domeggook' }), { writer: () => ({}) } as unknown as RegistrationSite)).rejects.toMatchObject({ code: 'RUNTIME_PLAN_INVALID' });
+  });
+});
