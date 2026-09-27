@@ -152,12 +152,15 @@ describe('도매꾹 상세 — 작성하기 에디터(mallForm.detailEditor, KID
     await expect(runPageCall(closed, 'mallForm.detailEditor', { ...EDITOR_ARGS, html: DETAIL_HTML })).resolves.toEqual({ ok: false, error: '상세내용 에디터 창이 열리지 않았습니다.' });
 
     const popup = editorPopup({ alertOnSubmit: '상품정보고시를 입력해주세요' });
+    const nativeAlert = popup.alert;
     let popupClosed = false;
     popup.close = () => { popupClosed = true; };
     const page = openEditorFrom(loadWritePage(PAGE), popup);
     const outcome = await runPageCall(page, 'mallForm.detailEditor', { ...EDITOR_ARGS, html: DETAIL_HTML });
     expect(outcome).toMatchObject({ ok: true, filled: false, alerts: ['상품정보고시를 입력해주세요'] });
     expect(popupClosed).toBe(true);
+    // 에디터 창의 alert은 모으는 동안만 바꿨다가 되돌린다.
+    expect(popup.alert).toBe(nativeAlert);
   });
 });
 

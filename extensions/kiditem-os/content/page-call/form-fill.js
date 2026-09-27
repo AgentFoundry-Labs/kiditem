@@ -1833,8 +1833,13 @@
       await sleep(400);
 
       // 그래도 몰이 할 말이 있으면 삼켜서 가져온다. 버리지 않고 경고로 올린다.
-      // 교체가 제출보다 먼저다 — 대화상자가 뜨면 이 화면도 같이 멈춘다.
-      try { popup.alert = (message) => { alerts.push(String(message)); }; } catch { /* 이미 닫힘 */ }
+      // 교체가 제출보다 먼저다 — 대화상자가 뜨면 이 화면도 같이 멈춘다. 에디터 [등록]의 답을 기다리는 동안만 바꾸고 되돌린다
+      // (쓰기 탭 대화상자 가드는 이 팝업 창에 닿지 않는다 — README 예외).
+      let popupAlert = null;
+      try {
+        popupAlert = popup.alert;
+        popup.alert = (message) => { alerts.push(String(message)); };
+      } catch { /* 이미 닫힘 */ }
       try { submit.click(); } catch { /* 이미 닫힘 */ }
 
       // 값은 이 화면으로 돌아온다. 에디터가 opener 콜백으로 채운다.
@@ -1845,6 +1850,8 @@
         if ((field && field.value) || alerts.length > 0) break;
         await sleep(200);
       }
+
+      try { if (popupAlert) popup.alert = popupAlert; } catch { /* 이미 닫힘 */ }
 
       const filled = Boolean(field && field.value);
       // 실패했으면 반쯤 열린 창을 남기지 않는다.
