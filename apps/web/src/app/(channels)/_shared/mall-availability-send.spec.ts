@@ -278,4 +278,3 @@ describe('품절 문장', () => {
     expect(mallSoldOutNote('kakao')).toBeNull();
   });
 });
-
