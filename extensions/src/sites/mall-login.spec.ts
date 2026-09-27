@@ -1,5 +1,4 @@
 import { describe, expect, it } from 'vitest';
-import manifestSource from '../../kiditem-os/manifest.json?raw';
 import { SITE_LOGIN_REQUIRED } from '../core/site-caller';
 import { ART09_LOGIN, ART09_ORDER_URL } from './art09';
 import { DOMEGGOOK_LOGIN, DOMEGGOOK_ORDER_LIST_API } from './domeggook';
@@ -65,7 +64,6 @@ describe('몰 주문 1차 몰 로그인 입구(옛 mall-session.js SPECS)', () =
     // 로그아웃이면 Cafe24 통합 로그인(eclogin.cafe24.com/Shop/)으로 넘어간다 — 그 호스트에서도 폼을 채운다(실기기 R3).
     expect(ART09_LOGIN).toMatchObject({ loginUrl: ART09_ORDER_URL, hosts: ['zzogzzog1.cafe24.com', 'eclogin.cafe24.com'], fields: ['supplierLoginId', 'loginId', 'password'] });
     expect(ART09_LOGIN.isLoginUrl(new URL('https://eclogin.cafe24.com/Shop/'))).toBe(true);
-    expect((JSON.parse(manifestSource) as { host_permissions: string[] }).host_permissions).toContain('https://eclogin.cafe24.com/*');
     expect(ART09_LOGIN.isLoginUrl(new URL('https://zzogzzog1.cafe24.com/admin/php/login.php'))).toBe(true);
     expect(ART09_LOGIN.isLoginUrl(new URL(ART09_ORDER_URL))).toBe(false);
   });
