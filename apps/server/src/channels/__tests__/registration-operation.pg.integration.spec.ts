@@ -38,6 +38,8 @@ import { OperationService } from '../../common/operation/application/service/ope
 import type { PrismaService } from '../../prisma/prisma.service';
 import { MallAvailabilityReadOperationOwner, RegistrationOperationOwner } from '../adapter/in/operation/registration-operation-owner';
 import { RegistrationOperationController } from '../adapter/in/web/registration-operation.controller';
+import { ThumbnailExecutionController } from '../adapter/in/web/thumbnail-execution.controller';
+import { CHANNELS_THUMBNAIL_EXECUTION_PORT } from '../application/port/in/thumbnail-execution.port';
 import { REGISTRATION_OPERATION_PORT } from '../application/port/in/registration-operation.port';
 import { ChannelIntegrityAdapter } from '../adapter/out/integrity/channel-integrity.adapter';
 import { ChannelOptionRecipeRepositoryAdapter } from '../adapter/out/persistence/channel-option-recipe.repository.adapter';
@@ -97,7 +99,7 @@ describe('channels.registration owner over the operation contract + disposable P
     const thumbnailExecutions = new ThumbnailExecutionService(thumbnails, new ThumbnailExecutionPersistenceAdapter(db));
     const module = await Test.createTestingModule({
       imports: [DiscoveryModule],
-      controllers: [OperationsController, RegistrationOperationController],
+      controllers: [OperationsController, RegistrationOperationController, ThumbnailExecutionController],
       providers: [
         OperationOwnerRegistry,
         OperationService,
@@ -112,6 +114,7 @@ describe('channels.registration owner over the operation contract + disposable P
           ),
         },
         { provide: REGISTRATION_OPERATION_PORT, useExisting: RegistrationOperationService },
+        { provide: CHANNELS_THUMBNAIL_EXECUTION_PORT, useValue: thumbnailExecutions },
         {
           provide: RegistrationOperationOwner,
           inject: [RegistrationOperationService],
@@ -340,6 +343,13 @@ describe('channels.registration owner over the operation contract + disposable P
     await finish(begun.operation.id, begun.token, { outcome: 'reconciling', result: { ...submittedResult, submitted: false } }).expect(200);
     const listed = await request(httpUrl).get(`/api/operations/${begun.operation.id}`).expect(200);
     expect(listed.body.operation.status).toBe('reconciling');
+    // 화면의 대표이미지 상태 읽기: executionId 는 실행 계약의 실행 id 다(확인 · 닫기 라우트에 그대로 넘긴다).
+    const status = await request(httpUrl).get(`/api/channels/thumbnail-executions?salesProductIds=${fixture.productId}`).expect(200);
+    expect(status.body.items).toEqual([expect.objectContaining({
+      salesProductId: fixture.productId, executionId: begun.operation.id, assetId: THUMBNAIL_ASSET_ID, status: 'reconciling', providerOutcome: 'uncertain',
+    })]);
+    const choices = await request(httpUrl).get(`/api/channels/thumbnail-executions/listing-choices?salesProductId=${fixture.productId}`).expect(200);
+    expect(choices.body.items).toEqual([expect.objectContaining({ channelListingId: fixture.listingId, externalId: 'provider-listing-1' })]);
   });
 
   it('keeps the mall availability rows it read in the result without touching the ledger', async () => {
