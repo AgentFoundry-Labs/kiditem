@@ -5652,10 +5652,22 @@ var KidItemRuntime = (() => {
       salesProductOptionId: external_exports.string().uuid()
     }).strict()).max(1e3).optional(),
     /** thumbnail_update만: 올릴 자산. 없으면 등록 대상이 고른 자산, 그것도 없으면 작업공간의 현재 대표이미지. */
-    assetId: external_exports.string().uuid().optional()
+    assetId: external_exports.string().uuid().optional(),
+    /**
+     * 몰별 폼 지시(웹 `*-registration-form.ts` 빌더 18개가 draft·values로 만든 것 — url·카테고리 경로·공급가·수량·상세 호스팅·
+     * manualSteps). 서버 plan이 `payload.form`에 얼려 `payloadHash`에 넣는다(2026-09-27 리더 결정 A: 빌더는 이 파동에서 웹에
+     * 남기고, 서버 채널 어댑터 freeze로 옮기는 일은 KID-364 파생). 서버는 모양만 검사한다.
+     */
+    form: external_exports.record(external_exports.string(), external_exports.unknown()).optional(),
+    /** 빠른 등록(등록 대상 없이 수집 상품 → 폼만 채우기)의 출처. 그때 `registrationTargetId`는 없고 `submit`은 false여야 한다. */
+    sourceProductId: external_exports.string().uuid().optional()
   }).strict().refine(
-    (scope) => scope.executionKind === "thumbnail_update" ? scope.salesProductId !== void 0 : scope.registrationTargetId !== void 0,
-    { message: "\uB4F1\uB85D \uB300\uC0C1(\uB610\uB294 \uC378\uB124\uC77C\uC740 \uD310\uB9E4 \uC0C1\uD488)\uC774 \uD544\uC694\uD569\uB2C8\uB2E4", path: ["registrationTargetId"] }
+    (scope) => {
+      if (scope.executionKind === "thumbnail_update") return scope.salesProductId !== void 0;
+      if (scope.registrationTargetId !== void 0) return true;
+      return scope.executionKind === "register" && scope.submit === false && scope.form !== void 0;
+    },
+    { message: "\uB4F1\uB85D \uB300\uC0C1\uC774 \uD544\uC694\uD569\uB2C8\uB2E4(\uC378\uB124\uC77C\uC740 \uD310\uB9E4 \uC0C1\uD488, \uBE60\uB978 \uB4F1\uB85D\uC740 \uD3FC\uB9CC \uCC44\uC6B0\uAE30 + submit false)", path: ["registrationTargetId"] }
   );
   var RegistrationPlanSchema = external_exports.object({
     executionKind: RegistrationExecutionKindSchema,

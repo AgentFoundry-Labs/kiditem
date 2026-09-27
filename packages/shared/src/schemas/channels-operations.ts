@@ -110,15 +110,28 @@ export const RegistrationScopeSchema = z.object({
   }).strict()).max(1000).optional(),
   /** thumbnail_update만: 올릴 자산. 없으면 등록 대상이 고른 자산, 그것도 없으면 작업공간의 현재 대표이미지. */
   assetId: z.string().uuid().optional(),
+  /**
+   * 몰별 폼 지시(웹 `*-registration-form.ts` 빌더 18개가 draft·values로 만든 것 — url·카테고리 경로·공급가·수량·상세 호스팅·
+   * manualSteps). 서버 plan이 `payload.form`에 얼려 `payloadHash`에 넣는다(2026-09-27 리더 결정 A: 빌더는 이 파동에서 웹에
+   * 남기고, 서버 채널 어댑터 freeze로 옮기는 일은 KID-364 파생). 서버는 모양만 검사한다.
+   */
+  form: z.record(z.string(), z.unknown()).optional(),
+  /** 빠른 등록(등록 대상 없이 수집 상품 → 폼만 채우기)의 출처. 그때 `registrationTargetId`는 없고 `submit`은 false여야 한다. */
+  sourceProductId: z.string().uuid().optional(),
 }).strict().refine(
-  (scope) => scope.executionKind === 'thumbnail_update' ? scope.salesProductId !== undefined : scope.registrationTargetId !== undefined,
-  { message: '등록 대상(또는 썸네일은 판매 상품)이 필요합니다', path: ['registrationTargetId'] },
+  (scope) => {
+    if (scope.executionKind === 'thumbnail_update') return scope.salesProductId !== undefined;
+    if (scope.registrationTargetId !== undefined) return true;
+    return scope.executionKind === 'register' && scope.submit === false && scope.form !== undefined;
+  },
+  { message: '등록 대상이 필요합니다(썸네일은 판매 상품, 빠른 등록은 폼만 채우기 + submit false)', path: ['registrationTargetId'] },
 );
 export type RegistrationScope = z.infer<typeof RegistrationScopeSchema>;
 
 /**
  * owner plan(확장 몰 쓰기 모듈이 받는 것). `payload`는 준비 순간 얼린 문서(`payloadHash`로 잠금): register·update·
- * composition_change는 `TargetExecutionSnapshot`, sold_out·resume는 옵션 재고 지시, thumbnail_update는 사진 하나.
+ * composition_change는 `{ snapshot: TargetExecutionSnapshot | null, form: Record | null }`(빠른 등록은 snapshot null·
+ * registrationTargetId null·submit false, 잠금은 `account:<id>`만), sold_out·resume는 옵션 재고 지시, thumbnail_update는 사진 하나.
  * executionKind별 payload 스키마는 `registration-plan-payloads.ts`에 둔다. 자격증명은 plan에 없고 lease로만 온다.
  */
 export const RegistrationPlanSchema = z.object({
