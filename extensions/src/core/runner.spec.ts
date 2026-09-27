@@ -512,6 +512,24 @@ describe('createRunner — 실행 하나의 순서', () => {
     expect(JSON.stringify(h.finishes)).not.toMatch(/fake-password/);
   });
 
+  it('웹이 차단 때문에 자격을 싣지 않은 실행(loginBlocked)은 no_credentials 대신 blocked로 적는다(실기기 R7)', async () => {
+    const h = harness();
+    const c = collector(() => (async function* (): AsyncIterable<RunnableChunk> {
+      throw new RuntimeError('SITE_LOGIN_REQUIRED', '테스트몰 로그인이 필요합니다.', { url: 'https://auth.test/login', reason: 'no_credentials' });
+    })());
+    const runner = createRunner({ client: h.client, browser: h.browser, siteFor: () => null }, () => c);
+    await runner.run({ kind: 'test.echo', scope: {}, signal: new AbortController().signal, loginBlocked: true });
+    expect(h.finishes[0]).toMatchObject({ result: { login: { reason: 'blocked' } } });
+
+    const plain = harness();
+    const again = collector(() => (async function* (): AsyncIterable<RunnableChunk> {
+      throw new RuntimeError('SITE_LOGIN_REQUIRED', '테스트몰 로그인이 필요합니다.', { url: 'https://auth.test/login', reason: 'no_credentials' });
+    })());
+    await createRunner({ client: plain.client, browser: plain.browser, siteFor: () => null }, () => again)
+      .run({ kind: 'test.echo', scope: {}, signal: new AbortController().signal });
+    expect(plain.finishes[0]).toMatchObject({ result: { login: { reason: 'no_credentials' } } });
+  });
+
   it('로그인 까닭이 없는 실패는 result 없이 finish(failed)한다', async () => {
     const h = harness();
     const c = collector(() => (async function* (): AsyncIterable<RunnableChunk> {

@@ -31,6 +31,8 @@ export interface RunInput {
    * finish·outcome에는 싣지 않는다.
    */
   credentials?: RunCredentials;
+  /** 웹이 그 몰의 자동 로그인 차단 때문에 자격을 싣지 않았다 — `no_credentials` 대신 `blocked`로 적는다(실기기 R7). */
+  loginBlocked?: boolean;
   signal: AbortSignal;
   /**
    * 새 실행의 begin이 성공한 직후(브라우저 자원·수집 전에). reused면 부르지 않는다. 입구가 웹앱에 바로 답할 때 쓴다.
@@ -129,9 +131,15 @@ export function createRunner(deps: RunnerDeps, collectorFor: (kind: OperationKin
         if (!next || input.signal.aborted) return outcome;
         // 이어지는 실행은 새 실행이다 — 앞 실행의 idempotencyKey를 물려주지 않는다. 자격은 다음 수집기가 같은 사이트일
         // 때만 넘긴다(한 사이트의 자격이 다른 사이트로 가지 않게, KID-377).
-        const { idempotencyKey: _previousKey, credentials, ...rest } = step;
-        const sameSite = credentials !== undefined && (collectorFor(next.kind)?.site ?? null) === (collectorFor(step.kind)?.site ?? null);
-        step = { ...rest, ...(sameSite ? { credentials } : {}), kind: next.kind, scope: next.scope };
+        const { idempotencyKey: _previousKey, credentials, loginBlocked, ...rest } = step;
+        const sameSite = (collectorFor(next.kind)?.site ?? null) === (collectorFor(step.kind)?.site ?? null);
+        step = {
+          ...rest,
+          ...(sameSite && credentials !== undefined ? { credentials } : {}),
+          ...(sameSite && loginBlocked ? { loginBlocked } : {}),
+          kind: next.kind,
+          scope: next.scope,
+        };
       }
     },
   };
@@ -298,7 +306,7 @@ async function execute(
     const stop = stopFor(error.code, error.details);
     if (stop.kind === 'fence_lost') return { kind: 'fence_lost', operationId, reason: stop.reason };
     await writes;
-    const login = loginFailureOf(error);
+    const login = loginFailureOf(error, input.loginBlocked === true);
     await deps.client
       .finish({
         operationId,
@@ -325,11 +333,13 @@ async function execute(
  * 까닭(`reason`)과 몰이 알림 창으로 남긴 말(`mallMessage`)만 싣는다 — 실행 표는 모든 읽는 사람이 보므로 그 밖의 details는
  * 싣지 않는다(자격은 details에도 없다).
  */
-function loginFailureOf(error: RuntimeError): Record<string, string> | null {
+function loginFailureOf(error: RuntimeError, loginBlocked: boolean): Record<string, string> | null {
   if (error.code !== SITE_LOGIN_REQUIRED || typeof error.details?.reason !== 'string') return null;
   const mallMessage = error.details.mallMessage;
+  // 자격이 없던 까닭이 웹의 차단이면 그렇게 적는다 — 저장 자격이 없는 것과 운영자가 할 일이 다르다(실기기 R7).
+  const reason = error.details.reason === 'no_credentials' && loginBlocked ? 'blocked' : error.details.reason;
   return {
-    reason: error.details.reason.slice(0, 64),
+    reason: reason.slice(0, 64),
     ...(typeof mallMessage === 'string' && mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {}),
   };
 }

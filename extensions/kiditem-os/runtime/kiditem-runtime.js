@@ -13094,9 +13094,15 @@ var KidItemRuntime = (() => {
           const outcome = await runOne(deps, collectorFor2, step);
           const next = outcome.kind === "finished" && outcome.operation.status === "succeeded" ? nextOperationFrom(outcome.operation.result) : null;
           if (!next || input.signal.aborted) return outcome;
-          const { idempotencyKey: _previousKey, credentials, ...rest } = step;
-          const sameSite = credentials !== void 0 && (collectorFor2(next.kind)?.site ?? null) === (collectorFor2(step.kind)?.site ?? null);
-          step = { ...rest, ...sameSite ? { credentials } : {}, kind: next.kind, scope: next.scope };
+          const { idempotencyKey: _previousKey, credentials, loginBlocked, ...rest } = step;
+          const sameSite = (collectorFor2(next.kind)?.site ?? null) === (collectorFor2(step.kind)?.site ?? null);
+          step = {
+            ...rest,
+            ...sameSite && credentials !== void 0 ? { credentials } : {},
+            ...sameSite && loginBlocked ? { loginBlocked } : {},
+            kind: next.kind,
+            scope: next.scope
+          };
         }
       }
     };
@@ -13240,7 +13246,7 @@ var KidItemRuntime = (() => {
       const stop = stopFor(error.code, error.details);
       if (stop.kind === "fence_lost") return { kind: "fence_lost", operationId, reason: stop.reason };
       await writes;
-      const login = loginFailureOf(error);
+      const login = loginFailureOf(error, input.loginBlocked === true);
       await deps.client.finish({
         operationId,
         token,
@@ -13259,11 +13265,12 @@ var KidItemRuntime = (() => {
       await lease?.release({ error: failure2 }).catch(() => void 0);
     }
   }
-  function loginFailureOf(error) {
+  function loginFailureOf(error, loginBlocked) {
     if (error.code !== SITE_LOGIN_REQUIRED || typeof error.details?.reason !== "string") return null;
     const mallMessage = error.details.mallMessage;
+    const reason = error.details.reason === "no_credentials" && loginBlocked ? "blocked" : error.details.reason;
     return {
-      reason: error.details.reason.slice(0, 64),
+      reason: reason.slice(0, 64),
       ...typeof mallMessage === "string" && mallMessage ? { mallMessage: mallMessage.slice(0, 300) } : {}
     };
   }
@@ -13304,7 +13311,9 @@ var KidItemRuntime = (() => {
     kind: OperationKindSchema,
     scope: external_exports.record(external_exports.string(), external_exports.unknown()).default({}),
     idempotencyKey: external_exports.string().min(1).max(128).optional(),
-    credentials: OperationStartCredentialsSchema.optional()
+    credentials: OperationStartCredentialsSchema.optional(),
+    /** 웹이 그 몰의 자동 로그인 차단 때문에 자격을 싣지 않았다 — 로그인 화면에서 멈추면 까닭을 `blocked`로 적는다(실기기 R7). */
+    loginBlocked: external_exports.literal(true).optional()
   }).strict();
   var OperationCancelMessageSchema = external_exports.object({
     action: external_exports.literal(OPERATION_CANCEL_ACTION),
@@ -13335,7 +13344,7 @@ var KidItemRuntime = (() => {
         validate: (message) => validateWith(OperationStartMessageSchema, message),
         async handle(input, environmentId) {
           if (!input.ok) return input.response;
-          const { kind, scope, idempotencyKey, credentials } = input.message;
+          const { kind, scope, idempotencyKey, credentials, loginBlocked } = input.message;
           const controller = new AbortController();
           const owned = [];
           let answer;
@@ -13347,6 +13356,7 @@ var KidItemRuntime = (() => {
             scope,
             ...idempotencyKey !== void 0 ? { idempotencyKey } : {},
             ...credentials !== void 0 ? { credentials } : {},
+            ...loginBlocked ? { loginBlocked } : {},
             signal: controller.signal,
             onBegun({ operationId, reused }) {
               running.set(operationId, controller);
@@ -13519,6 +13529,8 @@ var KidItemRuntime = (() => {
         orderCaptureOperationKindsV1: true,
         [CHANNELS_OPERATION_CAPABILITY]: true,
         operationLoginV1: true,
+        // operationLoginBlockedV1: operation.start의 loginBlocked(차단으로 자격을 싣지 않음, 실기기 R7)를 받는다.
+        operationLoginBlockedV1: true,
         advertisingKeywordOperationKindsV1: true,
         wingDailyOperationKindsV1: true,
         [SELLPIA_OPERATION_CAPABILITY]: true,

@@ -119,6 +119,8 @@ export function installEntry(): boolean {
       orderCaptureOperationKindsV1: true,
       [CHANNELS_OPERATION_CAPABILITY]: true,
       operationLoginV1: true,
+      // operationLoginBlockedV1: operation.start의 loginBlocked(차단으로 자격을 싣지 않음, 실기기 R7)를 받는다.
+      operationLoginBlockedV1: true,
       advertisingKeywordOperationKindsV1: true,
       wingDailyOperationKindsV1: true,
       [SELLPIA_OPERATION_CAPABILITY]: true,

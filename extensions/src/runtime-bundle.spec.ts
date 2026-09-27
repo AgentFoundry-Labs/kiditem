@@ -107,6 +107,7 @@ describe('committed runtime bundle', () => {
       orderCaptureOperationKindsV1: true,
       channelsOperationKindsV1: true,
       operationLoginV1: true,
+      operationLoginBlockedV1: true,
       advertisingKeywordOperationKindsV1: true,
       wingDailyOperationKindsV1: true,
       sellpiaOperationKindsV1: true,

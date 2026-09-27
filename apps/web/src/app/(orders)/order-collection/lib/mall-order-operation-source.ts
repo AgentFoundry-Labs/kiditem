@@ -10,6 +10,7 @@ import {
 import type { QueryKey } from '@tanstack/react-query';
 import { COLLECTION_IDLE_POLL_MS } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
+import { mallAutoLoginBlock } from '@/lib/mall-login-block';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
 import { loadOperationLoginCredentials, noteOperationLoginFailure, type OperationLoginCredentials } from '@/lib/operation-login';
 import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
@@ -167,7 +168,12 @@ export function mallOrderOperationSource({
         selectionMode,
         ...(input.seenRowKeys ? { seenRowKeys: [...input.seenRowKeys] } : {}),
       // 그 몰 사이트를 가진 빌드에만 보낸다 — 옛 빌드는 서버가 실행을 연 뒤 RUNTIME_PLAN_INVALID로 끝났다(KID-380 T4).
-      }, { capability: mallOrderSiteCapability(account.key), ...(credentials ? { credentials } : {}) });
+      }, {
+        capability: mallOrderSiteCapability(account.key),
+        ...(credentials ? { credentials } : {}),
+        // 막힌 몰이라 자격을 싣지 않았다 — 멈춘 실행의 까닭을 blocked로 적게 한다(실기기 R7).
+        ...(!credentials && mallAutoLoginBlock(account.key) ? { loginBlocked: true } : {}),
+      });
       if (outcome.outcome === 'refused') return outcome;
       if (outcome.outcome === 'running') return { outcome: 'running', attemptId: outcome.operationId };
       await handOff({ extensionId: extension.extensionId, operationId: outcome.operationId, input, collectionDate });

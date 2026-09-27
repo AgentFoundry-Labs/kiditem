@@ -100,13 +100,17 @@ export async function loadOperationLoginCredentialsForMall(
   };
 }
 
-/** `requestOperationStart` 옵션 조각: 그 몰 키의 저장 자격이 있으면 `{ credentials }`, 없으면 빈 조각. */
+/**
+ * `requestOperationStart` 옵션 조각: 그 몰 키의 저장 자격이 있으면 `{ credentials }`, 차단 때문에 싣지 않으면
+ * `{ loginBlocked: true }`(멈춘 실행의 까닭이 blocked가 된다, 실기기 R7), 그 밖은 빈 조각.
+ */
 export async function operationLoginOptions(
   mallKey: string,
   options: { automatic?: boolean } = {},
-): Promise<{ credentials?: OperationLoginCredentials }> {
+): Promise<{ credentials?: OperationLoginCredentials; loginBlocked?: true }> {
   const credentials = await loadOperationLoginCredentialsForMall(mallKey, options);
-  return credentials ? { credentials } : {};
+  if (credentials) return { credentials };
+  return mallAutoLoginBlock(mallKey) ? { loginBlocked: true } : {};
 }
 
 /** 로켓 계정의 저장 자격이 있는 몰 키(ADR-0012) — 서플라이어 허브(배송요약·로켓 PO·직배송) 로그인. */
