@@ -68,7 +68,7 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
           <thead>
             <tr>
               <th>캠페인명</th>
-              <th className="text-right">광고비</th>
+              <th className="text-right">집행 광고비</th>
               <th className="text-right">광고매출</th>
               <th className="text-right">ROAS</th>
               <th className="text-right">노출</th>
@@ -156,11 +156,9 @@ export function CampaignTable({ campaigns, sortBy, onSortChange, selectedCampaig
                   <td className="text-right">{hasMetrics ? formatNumber(c.metrics.impressions) : '-'}</td>
                   <td className="text-right">{hasMetrics ? formatNumber(c.metrics.clicks) : '-'}</td>
                   <td className="text-right">{hasMetrics && c.metrics.ctr != null ? `${c.metrics.ctr.toFixed(2)}%` : '-'}</td>
-                  {/* Coupang's campaign list grid has no conversion-count
-                      column, so a 0 here is "not collected", not "zero sales".
-                      Show unknown instead of fabricating a number. */}
-                  <td className="text-right" style={hasMetrics && c.conversionsAvailable ? undefined : { color: 'var(--text-tertiary)' }}>
-                    {hasMetrics && c.conversionsAvailable ? formatNumber(c.metrics.conversions) : '-'}
+                  {/* 전환 = 광고 보고서의 주문수. 측정한 날은 모두 관찰한 값이다. */}
+                  <td className="text-right" style={hasMetrics ? undefined : { color: 'var(--text-tertiary)' }}>
+                    {hasMetrics ? formatNumber(c.metrics.conversions) : '-'}
                   </td>
                   <td className="text-right">{hasMetrics && c.metrics.cvr != null ? `${c.metrics.cvr.toFixed(2)}%` : '-'}</td>
                 </tr>

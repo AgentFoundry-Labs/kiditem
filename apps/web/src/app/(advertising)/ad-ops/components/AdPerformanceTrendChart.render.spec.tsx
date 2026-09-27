@@ -101,7 +101,7 @@ describe('AdPerformanceTrendChart', () => {
   it('labels the series from the measured summary', () => {
     render(<AdPerformanceTrendChart period="7d" trends={buildTrends([measuredDay])} />);
 
-    expect(screen.getByText('쿠팡 광고 캠페인 합산 · 2026-07-17까지')).toBeTruthy();
+    expect(screen.getByText('쿠팡 광고 보고서 · 2026-07-17까지')).toBeTruthy();
   });
 
   it('keeps an unmeasured window on the chart and labels it 미수집', () => {

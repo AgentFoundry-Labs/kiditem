@@ -43,12 +43,12 @@ describe('KpiDashboard', () => {
     expect(screen.getByText('5,154원')).toBeInTheDocument();
     expect(screen.getByText('250건')).toBeInTheDocument();
     expect(screen.getByText('679.5%')).toBeInTheDocument();
-    expect(screen.getByText('광고비/전환매출')).toBeInTheDocument();
+    expect(screen.getByText('집행 광고비/전환매출')).toBeInTheDocument();
     expect(screen.getByText('14.7%')).toBeInTheDocument();
     expect(screen.getByText('2.5%')).toBeInTheDocument();
     expect(screen.getByText('8.3%')).toBeInTheDocument();
     expect(
-      screen.getAllByText('이번달 중 측정 23일 · 쿠팡 광고 캠페인 합산 · 2026-07-23까지'),
+      screen.getAllByText('이번달 중 측정 23일 · 쿠팡 광고 보고서 · 2026-07-23까지'),
     ).toHaveLength(2);
   });
 

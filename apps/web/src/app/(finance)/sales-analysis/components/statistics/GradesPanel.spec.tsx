@@ -26,7 +26,7 @@ describe('GradesPanel', () => {
 
     const toneOf = (label: string) => screen.getByText(label).nextElementSibling?.className;
 
-    expect(toneOf('광고비')).toBe(toneOf('순이익'));
+    expect(toneOf('광고비(청구·VAT 포함)')).toBe(toneOf('순이익'));
   });
 
   it('shows measured grade totals with their units', () => {

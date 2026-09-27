@@ -236,7 +236,7 @@ export function PipeBottomDashboard({
         tone="text-amber-400"
         label="ROAS"
         value={ad && ad.roas != null ? `${ad.roas.toFixed(0)}%` : missing(business?.adFailed)}
-        note={ad && ad.totalAdSpend != null ? `광고비 ${compactKrw(ad.totalAdSpend)}` : null}
+        note={ad && ad.totalAdSpend != null ? `집행 광고비 ${compactKrw(ad.totalAdSpend)}` : null}
         className="col-span-2 col-start-4 max-md:col-span-1 max-md:col-start-auto"
       />
       <MetricTile

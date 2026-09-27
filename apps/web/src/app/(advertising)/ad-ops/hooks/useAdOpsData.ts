@@ -15,6 +15,7 @@ import {
 } from '@kiditem/shared/advertising';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
+import { adProductCatalogHref } from '../lib/ad-product-display';
 
 export type CampaignProductData = {
   vendorItemId: string;
@@ -33,7 +34,7 @@ export type CampaignProductData = {
 };
 
 /**
- * Totals over the campaigns whose performance the sweep measured. Ratios
+ * Totals over the campaigns with measured performance in the period. Ratios
  * recompute from the summed raw values and are null on a zero denominator.
  */
 export type CampaignTotals = {
@@ -41,8 +42,8 @@ export type CampaignTotals = {
   adRevenue: number;
   impressions: number;
   clicks: number;
-  /** Null unless every counted campaign carried a collected conversion count. */
-  conversions: number | null;
+  /** The ad report's orders; every measured day observes them. */
+  conversions: number;
   roas: number | null;
   ctr: number | null;
   cvr: number | null;
@@ -113,11 +114,7 @@ function campaignTotals(campaigns: AdCampaignSnapshot[]): CampaignTotals | null 
   const adRevenue = sum((metrics) => metrics.revenue);
   const impressions = sum((metrics) => metrics.impressions);
   const clicks = sum((metrics) => metrics.clicks);
-  // Coupang's campaign grid has no conversion column: one uncollected
-  // campaign makes the conversion sum unknown, not smaller.
-  const conversions = measured.every((campaign) => campaign.conversionsAvailable)
-    ? sum((metrics) => metrics.conversions)
-    : null;
+  const conversions = sum((metrics) => metrics.conversions);
   return {
     adSpend,
     adRevenue,
@@ -217,7 +214,8 @@ export function useAdOpsData(period: string, tab: string) {
   };
 }
 
-export type AdProductRow = CampaignProductData & { campaignName: string };
+/** `catalogHref` is the catalog product page, only for a row matched to a listing. */
+export type AdProductRow = CampaignProductData & { campaignName: string; catalogHref: string | null };
 
 export function useAdProducts(period: string, enabled: boolean) {
   const campPeriod = period;
@@ -252,6 +250,7 @@ export function useAdProducts(period: string, enabled: boolean) {
     conversionRate: snapshot.metrics.cvr,
     roas: snapshot.metrics.roas,
     campaignName: snapshot.campaignName ?? '',
+    catalogHref: adProductCatalogHref(snapshot.listing),
   }));
 
   return {

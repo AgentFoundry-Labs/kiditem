@@ -5,6 +5,7 @@ import {
   AreaChart, Area, BarChart, Bar, Cell,
 } from 'recharts';
 import { cn, formatKRW } from '@/lib/utils';
+import { PROFIT_AD_COST_LABEL } from '@/lib/ad-spend-labels';
 import { basisSummary, DashboardDataBasis, type DashboardMetricBasis } from './DashboardDataBasis';
 
 interface TrendItem {
@@ -63,7 +64,7 @@ function formatTooltipValue(key: string, value: unknown): string {
 function tooltipLabel(key: string): string {
   if (key === 'revenue') return '매출';
   if (key === 'profitRate') return '이익률';
-  if (key === 'adCost') return '광고비';
+  if (key === 'adCost') return PROFIT_AD_COST_LABEL;
   return '광고비율';
 }
 
@@ -91,7 +92,7 @@ export function EvidenceTooltip({
         })}
         <div>매출 근거 · {basisSummary(point.evidence.revenue)}</div>
         <div>이익 근거 · {basisSummary(point.evidence.profit)}</div>
-        <div>광고비 근거 · {basisSummary(point.evidence.adCost)}</div>
+        <div>{PROFIT_AD_COST_LABEL} 근거 · {basisSummary(point.evidence.adCost)}</div>
       </div>
     </div>
   );
@@ -126,7 +127,7 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
         <div className="flex-1 flex flex-col p-5 min-h-0">
           <div className="flex items-center gap-5 mb-3 text-[13px] text-slate-400 shrink-0">
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-600" />매출</span>
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-700" />광고비 · 자체 축</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-amber-700" />{PROFIT_AD_COST_LABEL} · 자체 축</span>
             <span className="ml-auto text-slate-400">두 계열의 크기 차이가 커 축을 나눔</span>
           </div>
           <ResponsiveContainer width="100%" height={CHART_HEIGHT} initialDimension={CHART_INITIAL_DIMENSION}>
@@ -147,9 +148,9 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
               <YAxis yAxisId="spend" orientation="right" fontSize={10} tickLine={false} axisLine={false} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${(v / 10000).toFixed(0)}만`} domain={[0, 'auto']} />
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
               <Tooltip content={<EvidenceTooltip />} contentStyle={{ fontSize: 12, borderRadius: 10, background: '#fff', border: '1px solid #e2e8f0', color: '#0f172a' }} formatter={(v: any, name: any) => {
-                if (v == null) return ['—', name === 'revenue' ? '매출' : name === 'adCost' ? '광고비' : name === 'profitRate' ? '이익률' : '광고비율'];
+                if (v == null) return ['—', name === 'revenue' ? '매출' : name === 'adCost' ? PROFIT_AD_COST_LABEL : name === 'profitRate' ? '이익률' : '광고비율'];
                 if (name === 'revenue') return [`\u20A9${formatKRW(Number(v))}`, '매출'];
-                if (name === 'adCost') return [`\u20A9${formatKRW(Number(v))}`, '광고비'];
+                if (name === 'adCost') return [`\u20A9${formatKRW(Number(v))}`, PROFIT_AD_COST_LABEL];
                 return [`${Number(v).toFixed(1)}%`, name === 'profitRate' ? '이익률' : '광고비율'];
               }} />
               <Area yAxisId="rev" type="monotone" dataKey="revenue" stroke="#7c3aed" strokeWidth={2} fill="url(#gRevenue)" name="revenue" dot={{ r: 2, fill: '#7c3aed', strokeWidth: 0 }} connectNulls={false} />
@@ -169,7 +170,7 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
       {chartTab === 'rate' && hasTrend && (
         <div className="flex-1 flex flex-col p-5 min-h-0">
           <div className="flex items-center gap-5 mb-3 text-[13px] text-slate-400 shrink-0">
-            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-rose-400" />광고비</span>
+            <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-rose-400" />{PROFIT_AD_COST_LABEL}</span>
             <span className="flex items-center gap-1.5"><span className="w-2.5 h-2.5 rounded-sm bg-violet-500" />매출</span>
             <span className="flex items-center gap-1.5"><span className="w-3 h-0.5 bg-indigo-500 inline-block" /> 광고비율</span>
           </div>
@@ -186,9 +187,9 @@ export function DashboardCharts({ chartTab, dailyTrend, adChartData, benchmarkDa
               <YAxis yAxisId="pct" fontSize={10} tickLine={false} axisLine={{ stroke: '#e2e8f0' }} tick={{ fill: '#94a3b8' }} tickFormatter={(v: number) => `${v}%`} domain={[0, 'auto']} />
               {/* eslint-disable-next-line @typescript-eslint/no-explicit-any */}
               <Tooltip content={<EvidenceTooltip />} contentStyle={{ fontSize: 12, borderRadius: 10, background: '#fff', border: '1px solid #e2e8f0', color: '#0f172a' }} formatter={(v: any, name: any) => {
-                if (v == null) return ['—', name === 'adRate' ? '광고비율' : name === 'adCost' ? '광고비' : '매출'];
+                if (v == null) return ['—', name === 'adRate' ? '광고비율' : name === 'adCost' ? PROFIT_AD_COST_LABEL : '매출'];
                 if (name === 'adRate') return [`${Number(v).toFixed(1)}%`, '광고비율'];
-                return [`\u20A9${formatKRW(Number(v))}`, name === 'adCost' ? '광고비' : '매출'];
+                return [`\u20A9${formatKRW(Number(v))}`, name === 'adCost' ? PROFIT_AD_COST_LABEL : '매출'];
               }} />
               {/* Rates share a scale honestly — both are percentages of the
                   same revenue, so one axis is the whole point. */}

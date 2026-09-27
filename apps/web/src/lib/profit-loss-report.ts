@@ -1,4 +1,5 @@
 import type { PLData } from '@kiditem/shared/finance';
+import { PROFIT_AD_COST_LABEL } from './ad-spend-labels';
 
 export function mapProfitLossReportRow(row: PLData) {
   return {
@@ -10,7 +11,7 @@ export function mapProfitLossReportRow(row: PLData) {
     매입원가: row.cogs,
     수수료: row.commission,
     배송비: row.shippingCost,
-    광고비: row.adCost,
+    [PROFIT_AD_COST_LABEL]: row.adCost,
     기타비용: row.otherCost,
     순이익: row.netProfit,
     '이익률(%)': row.profitRate,

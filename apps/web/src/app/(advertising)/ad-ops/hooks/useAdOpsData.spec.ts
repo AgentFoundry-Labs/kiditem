@@ -35,7 +35,6 @@ function campaign(overrides: Partial<AdCampaignSnapshot>): AdCampaignSnapshot {
     campaignName: "운영 캠페인",
     period: "14d",
     metricsAvailable: true,
-    conversionsAvailable: true,
     status: "ON",
     onOff: "ON",
     metrics: {
@@ -49,7 +48,7 @@ function campaign(overrides: Partial<AdCampaignSnapshot>): AdCampaignSnapshot {
       cvr: 20,
     },
     ...overrides,
-  };
+  } as AdCampaignSnapshot;
 }
 
 describe("toCampaignsResponse", () => {
@@ -61,7 +60,6 @@ describe("toCampaignsResponse", () => {
         campaignId: "off",
         campaignName: "중단 캠페인",
         metricsAvailable: false,
-        conversionsAvailable: false,
         status: "OFF",
         onOff: "OFF",
         // A non-zero sentinel makes the regression explicit even though the
@@ -96,7 +94,6 @@ describe("toCampaignsResponse", () => {
       campaign({
         campaignIdentity: "campaign:off",
         metricsAvailable: false,
-        conversionsAvailable: false,
         status: "OFF",
         onOff: "OFF",
       }),
@@ -105,12 +102,11 @@ describe("toCampaignsResponse", () => {
     expect(response.totalKpi).toBeNull();
   });
 
-  it("keeps conversions and CVR unknown unless every counted campaign collected conversions", () => {
+  it("sums every counted campaign's orders as conversions, since a measured day observes them all", () => {
     const response = toCampaignsResponse([
       campaign({}),
       campaign({
-        campaignIdentity: "campaign:grid-only",
-        conversionsAvailable: false,
+        campaignIdentity: "campaign:no-orders",
         metrics: {
           spend: 100,
           revenue: 300,
@@ -119,7 +115,7 @@ describe("toCampaignsResponse", () => {
           conversions: 0,
           roas: 300,
           ctr: 1,
-          cvr: null,
+          cvr: 0,
         },
       }),
     ]);
@@ -129,10 +125,10 @@ describe("toCampaignsResponse", () => {
       adRevenue: 800,
       impressions: 2000,
       clicks: 20,
-      conversions: null,
+      conversions: 2,
       roas: 400,
       ctr: 1,
-      cvr: null,
+      cvr: 10,
     });
   });
 

@@ -1,5 +1,6 @@
 import { Info } from 'lucide-react';
 import { periodBasisStatus, type DashboardPeriodBasis } from '@kiditem/shared/dashboard';
+import { PROFIT_AD_COST_LABEL } from '@/lib/ad-spend-labels';
 import { periodDaysText } from '@/lib/period-days';
 import {
   financeCostInputState,
@@ -57,7 +58,7 @@ function costInputMessages(costInputs: FinanceCostInputsBasis): string[] {
   return [
     notAppliedMessage('판매수수료가', '0원', costInputs.commission),
     notAppliedMessage('기타비용이', '0원', costInputs.otherCost),
-    notAppliedMessage('광고가', '광고비 0원', costInputs.advertising),
+    notAppliedMessage('광고가', `${PROFIT_AD_COST_LABEL} 0원`, costInputs.advertising),
     unmeasuredMessage('판매수수료 원천이 없는', costInputs.commission),
     unmeasuredMessage('기타비용 원천이 없는', costInputs.otherCost),
     unmeasuredMessage('매입가가 없는', costInputs.purchaseCost),
@@ -98,7 +99,7 @@ export function FinanceBasisNotice({ basis }: { basis: FinanceBasisNoticeBasis }
     }
     if (basis.adCost && periodBasisStatus(basis.adCost) !== 'complete') {
       messages.push(
-        `쿠팡 광고 수집 ${periodDaysText(basis.adCost)} — 광고비와 순이익은 광고가 모든 날짜에 수집된 뒤 표시합니다.`,
+        `쿠팡 광고 수집 ${periodDaysText(basis.adCost)} — ${PROFIT_AD_COST_LABEL}와 순이익은 광고가 모든 날짜에 수집된 뒤 표시합니다.`,
       );
     }
     if (basis.costInputs) messages.push(...costInputMessages(basis.costInputs));

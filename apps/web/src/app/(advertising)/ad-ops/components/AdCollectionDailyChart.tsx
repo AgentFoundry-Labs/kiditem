@@ -86,7 +86,7 @@ export function isCustomRangeInvalid(
 }
 
 /**
- * 광고 성과 수집의 원본은 캠페인 순회다. 서버는 요청 기간의 모든 날짜를 주고
+ * 광고 성과 수집의 원본은 광고 보고서다. 서버는 요청 기간의 모든 날짜를 주고
  * 측정하지 않은 날은 `metrics: null` 로 비워 둔다. 그 날은 0이 아니라 빈 칸이다.
  */
 export function buildCollectionChartPoints(
@@ -394,7 +394,7 @@ export default function AdCollectionDailyChart({
                 yAxisId="won"
                 type="monotone"
                 dataKey="spend"
-                name="광고비"
+                name="집행 광고비"
                 stroke="#94a3b8"
                 strokeWidth={2}
                 fill="url(#gAdSpend)"
