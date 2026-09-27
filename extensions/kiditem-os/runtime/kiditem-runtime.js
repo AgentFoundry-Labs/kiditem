@@ -8549,6 +8549,16 @@ var KidItemRuntime = (() => {
     }
   }
 
+  // extensions/src/sites/mall-maintenance.ts
+  function mallMaintenance(displayName, url, verb = "\uC218\uC9D1\uD574", details = {}) {
+    return new RuntimeError(SITE_REQUEST_FAILED, `${displayName} \uC0AC\uC774\uD2B8\uAC00 \uC810\uAC80 \uC911\uC785\uB2C8\uB2E4. \uC810\uAC80\uC774 \uB05D\uB09C \uB4A4 \uB2E4\uC2DC ${verb} \uC8FC\uC138\uC694.`, {
+      status: null,
+      reason: "maintenance",
+      url,
+      ...details
+    });
+  }
+
   // extensions/src/sites/page-call.ts
   var PAGE_CALL_BRIDGE_FILE = "content/page-call/bridge.js";
   var PAGE_CALL_RUNNER_FILE = "content/page-call/runner.js";
@@ -8603,6 +8613,8 @@ var KidItemRuntime = (() => {
           throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `\uC77D\uB294 \uC0AC\uC774 ${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uBC14\uB00C\uC5C8\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uAC00\uC838\uC640 \uC8FC\uC138\uC694.`, { stage: "total_changed", mallKey: spec.mallKey });
         case "mall_invalid_snapshot":
           throw new RuntimeError(SOURCE_SNAPSHOT_INVALID4, `${spec.displayName} \uC0C1\uD488 \uBAA9\uB85D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC544 \uC800\uC7A5\uD558\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`, { stage, mallKey: spec.mallKey });
+        case "mall_maintenance":
+          throw mallMaintenance(spec.displayName, spec.startUrl, "\uAC00\uC838\uC640", { mallKey: spec.mallKey });
         case "mall_timeout":
           throw new RuntimeError(SITE_REQUEST_FAILED, `${spec.displayName} \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.`, { status: null, url: spec.startUrl, reason: "timeout", bodyHead: null });
         default:
@@ -10290,6 +10302,7 @@ var KidItemRuntime = (() => {
           });
           if (answer?.status === "ok") return { rows: answer.orders };
           if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE6, { url: HAEBUB_MALL_ORDER_URL });
+          if (answer?.status === "maintenance") throw mallMaintenance("\uD574\uBC95\uBAB0", HAEBUB_MALL_ORDER_URL);
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD574\uBC95\uBAB0 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -10547,6 +10560,7 @@ var KidItemRuntime = (() => {
           });
           if (answer?.status === "ok") return { rows: answer.orders };
           if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE8, { url: KIDKIDS_ORDER_URL });
+          if (answer?.status === "maintenance") throw mallMaintenance("\uD0A4\uB4DC\uD0A4\uC988", KIDKIDS_ORDER_URL);
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uB4DC\uD0A4\uC988 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",
@@ -10626,6 +10640,7 @@ var KidItemRuntime = (() => {
           });
           if (answer?.status === "ok") return { rows: answer.orders.map(kidsnoteConvertOrder) };
           if (answer?.status === "login_required") throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE9, { url: KIDSNOTE_ORDER_URL });
+          if (answer?.status === "maintenance") throw mallMaintenance("\uD0A4\uC988\uB178\uD2B8", KIDSNOTE_ORDER_URL);
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uD0A4\uC988\uB178\uD2B8 \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${answer?.status === "failed" ? answer.error : "\uC54C \uC218 \uC5C6\uC74C"}`, {
             status: null,
             reason: "page_error",

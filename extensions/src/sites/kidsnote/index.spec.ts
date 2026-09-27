@@ -152,4 +152,10 @@ describe('sites/kidsnote — 몰 주문 읽기(KID-380)', () => {
     expect(KIDSNOTE_LOGIN.isLoginUrl(new URL('https://shop.kidsnote.com/_manage/?body=3010&from=login'))).toBe(false);
     expect(KIDSNOTE_LOGIN.hosts).toEqual(['shop.kidsnote.com']);
   });
+
+  it('점검 안내면 SITE_REQUEST_FAILED{reason: maintenance}로 실행을 실패시킨다(KID-380 D3)', async () => {
+    const fake = fakeTabPages({ answer: () => ({ ok: true, value: { status: 'maintenance' } }) });
+    const error = await createKidsnoteSite(fake.tabs).readOrders(INPUT).then(() => null, (caught: unknown) => caught);
+    expect(error).toMatchObject({ code: 'SITE_REQUEST_FAILED', message: '키즈노트 사이트가 점검 중입니다. 점검이 끝난 뒤 다시 수집해 주세요.', details: { reason: 'maintenance', url: KIDSNOTE_ORDER_URL } });
+  });
 });

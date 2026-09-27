@@ -96,6 +96,10 @@ describe('kidkids orders page script', () => {
     expect(requests.some((request) => request.url.includes('sales_process'))).toBe(false);
   });
 
+  it('서비스 점검 안내 화면이면 0건 성공이 아니라 maintenance(KID-380 D3)', async () => {
+    await expect(load({ listHtml: '<html><body><h2>서비스 점검 안내</h2><p>보다 나은 서비스를 위해 시스템 점검을 진행하고 있습니다.</p></body></html>' }).handler({ dateFilter: '2026-09-26' })).resolves.toEqual({ status: 'maintenance' });
+  });
+
   it('로그인한 빈 목록은 0건 성공, 본인확인 화면·로그인 리다이렉트는 login_required', async () => {
     await expect(load({ listHtml: '<html><body><p>주문 없음</p></body></html>' }).handler({ dateFilter: '2026-09-26' }))
       .resolves.toEqual({ status: 'ok', orders: [] });

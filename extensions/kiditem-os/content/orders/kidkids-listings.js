@@ -69,6 +69,8 @@
       const listDoc = new DOMParser().parseFromString(listHtml, "text/html");
       if (listDoc.querySelector('input[type="password"]')) throw new Error("LOGIN_REQUIRED");
       const counter = COUNTER.exec(listHtml);
+      // 점검 안내 화면은 형식 변경이 아니다(KID-380 D3).
+      if (!counter && /(?:서비스|시스템|서버|사이트)\s*점검|점검\s*(?:안내|중|시간)/.test(listDoc.body ? listDoc.body.textContent : "")) return fail("mall_maintenance");
       if (!counter) drift("counter");
       const total = Number(counter[1].replace(/,/g, ""));
       if (!Number.isSafeInteger(total) || total < 0) drift("total");

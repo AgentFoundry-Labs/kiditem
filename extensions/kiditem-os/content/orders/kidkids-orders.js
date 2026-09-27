@@ -45,6 +45,9 @@
           isAuthenticationGateUrl(finalUrl) ||
           Boolean(ldoc.querySelector('input[type="password"]'));
         if (looksLikeLogin) return { status: "login_required" };
+        // 점검 안내 화면(목록 표 없이 "서비스 점검 안내")을 0건 성공으로 읽지 않는다(KID-380 D3).
+        const pageText = `${ldoc.body ? ldoc.body.textContent : ""} ${typeof document !== "undefined" && document.body ? document.body.textContent : ""}`;
+        if (/(?:서비스|시스템|서버|사이트)\s*점검|점검\s*(?:안내|중|시간)/.test(pageText)) return { status: "maintenance" };
         return { status: "ok", orders: [] }; // 로그인 상태의 빈 목록 = 정상 0건
       }
 

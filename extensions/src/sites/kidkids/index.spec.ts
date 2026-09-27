@@ -51,4 +51,11 @@ describe('sites/kidkids — 몰 주문 읽기', () => {
     expect(await failure(createKidkidsSite(broken.tabs).readOrders(INPUT))).toMatchObject({ code: 'SITE_REQUEST_FAILED', details: { reason: 'page_error' } });
     expect(broken.log.at(-1)).toBe('close 7');
   });
+
+  it('점검 안내면 0건 성공이 아니라 SITE_REQUEST_FAILED{reason: maintenance}로 실행을 실패시킨다(KID-380 D3)', async () => {
+    const fake = fakeTabPages({ answer: () => ({ ok: true, value: { status: 'maintenance' } }) });
+    const error = await failure(createKidkidsSite(fake.tabs).readOrders(INPUT));
+    expect(error).toMatchObject({ code: 'SITE_REQUEST_FAILED', details: { reason: 'maintenance', url: KIDKIDS_ORDER_URL } });
+    expect(error.message).toBe('키드키즈 사이트가 점검 중입니다. 점검이 끝난 뒤 다시 수집해 주세요.');
+  });
 });

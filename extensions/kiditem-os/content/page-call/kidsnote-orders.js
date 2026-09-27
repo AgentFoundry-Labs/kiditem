@@ -37,6 +37,8 @@
         );
         if (!table) {
           if (p === 1) {
+            // 점검 안내 화면은 0건도 로그인 화면도 아니다 — 안내문의 로그인 링크로 자동 로그인하지 않게 먼저 본다(KID-380 D3).
+            if (/(?:서비스|시스템|서버|사이트)\s*점검|점검\s*(?:안내|중|시간)/.test(doc.body ? doc.body.textContent : "")) return { status: "maintenance" };
             // 옛 수집기는 "관리자 로그인이 필요합니다"로 끝냈다 — 새 런타임은 로그인 문턱이 이 답으로 자동 로그인한다.
             if (/type=["']?password|로그인|login/i.test(html)) return { status: "login_required" };
             return { status: "ok", orders: [] };

@@ -1,6 +1,7 @@
 import { RuntimeError } from '../../core/errors';
 import { SITE_LOGIN_REQUIRED, SITE_REQUEST_FAILED } from '../../core/site-caller';
 import { withFreshTab } from '../fresh-tab';
+import { mallMaintenance } from '../mall-maintenance';
 import { callPage } from '../page-call';
 import { registerSite } from '../registry';
 import { createSiteSignIn, type LoginSpec, type SiteSignIn } from '../site-login';
@@ -59,6 +60,7 @@ interface KidsnoteScrapedOrder {
 type KidsnoteAnswer =
   | { status: 'ok'; orders: KidsnoteScrapedOrder[] }
   | { status: 'login_required' }
+  | { status: 'maintenance' }
   | { status: 'failed'; error: string };
 
 /**
@@ -106,6 +108,7 @@ export function createKidsnoteSite(tabs: TabPages, signIn?: SiteSignIn) {
         });
         if (answer?.status === 'ok') return { rows: answer.orders.map(kidsnoteConvertOrder) };
         if (answer?.status === 'login_required') throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE, { url: KIDSNOTE_ORDER_URL });
+        if (answer?.status === 'maintenance') throw mallMaintenance('키즈노트', KIDSNOTE_ORDER_URL);
         throw new RuntimeError(SITE_REQUEST_FAILED, `키즈노트 주문을 읽지 못했습니다: ${answer?.status === 'failed' ? answer.error : '알 수 없음'}`, {
           status: null,
           reason: 'page_error',
