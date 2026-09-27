@@ -239,7 +239,7 @@ export const OperationFinishRequestSchema = z.object({
   { message: 'retryAfterMs는 failed에만 쓴다', path: ['retryAfterMs'] },
 ).refine(
   (value) => value.outcome !== 'reconciling' || value.result !== undefined,
-  { message: 'reconciling에는 result가 필요합니다', path: ['result'] },
+  { message: '확인 중으로 멈출 때는 `result` 본문이 필요합니다', path: ['result'] },
 );
 export type OperationFinishRequest = z.infer<typeof OperationFinishRequestSchema>;
 
