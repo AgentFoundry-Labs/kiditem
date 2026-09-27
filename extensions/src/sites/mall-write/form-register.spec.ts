@@ -7,6 +7,7 @@ import './index';
 import '../domeggook/registration';
 import '../always/registration';
 import '../11st/registration';
+import '../thirtymall/registration';
 import type { MallWriterHandle } from './index';
 
 // 몰 쓰기 절차(옛 `mall-form-register.js` `register()` 이식, KID-256)를 몰 쓰기 라우터 경계에서 본다. 가짜는 탭 경계
@@ -198,5 +199,29 @@ describe('몰 쓰기 — 폼이 iframe에 있는 몰(11번가, KID-256)', () => 
     expect(session.fill.steps).toEqual(['상품명']);
     expect(asked).toEqual([0, 3]);
     expect(fake.log).toContain('frames content/page-call/form-frame.js');
+  });
+});
+
+describe('몰 쓰기 — 폼이 다른 도메인 iframe에 있는 몰(떠리몰, KID-256)', () => {
+  it('폼 프레임이 붙고 칸이 그려진 같은 문서가 가라앉을 때까지 기다린 뒤 그 프레임에서만 채운다', async () => {
+    const calls: string[] = [];
+    let states = 0;
+    const { writer } = writerFor('thirtymall', (message, injected, frameId) => {
+      if (!injected) return { ok: false, error: 'content_script_missing' };
+      calls.push(`${String(message.call)}@${frameId}`);
+      if (message.call === 'mallForm.state') {
+        states += 1;
+        // 처음엔 칸이 아직 없다(앱이 늦게 그린다).
+        return { ok: true, value: { form: true, ready: states > 1 } };
+      }
+      return { ok: true, value: { ok: true, steps: ['상품명'], warnings: [] } };
+    }, {
+      frames: [{ frameId: 0, result: { href: 'https://partner.shopby.co.kr/product/add', doc: 1 } }, { frameId: 5, result: { href: 'https://partner-remote.shopby.co.kr/product/management/single/add', doc: 7 } }],
+    });
+
+    const session = await writer.fill({ form: { url: 'https://partner.shopby.co.kr/product/add', manualSteps: [] }, submit: false, expectedProviderAccountId: null });
+
+    expect(session.fill.steps).toEqual(['상품명']);
+    expect(calls).toEqual(['mallForm.state@5', 'mallForm.state@5', 'mallForm.state@5', 'mallForm.fill@5']);
   });
 });

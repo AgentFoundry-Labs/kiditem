@@ -68,6 +68,7 @@ import '../sites/smartstore/listings';
 import '../sites/teacher-mall';
 import '../sites/teacher-mall/registration';
 import '../sites/thirtymall/listings';
+import '../sites/thirtymall/registration';
 import '../sites/tiktok-cc';
 import '../sites/wing';
 import '../sites/wing/itemwinner';

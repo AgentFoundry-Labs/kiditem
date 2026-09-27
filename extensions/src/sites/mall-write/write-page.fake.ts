@@ -44,6 +44,14 @@ export function loadWritePage(html: string, sources: readonly string[], options:
       }
     };
   }
+  // jsdom은 배치를 하지 않아 `offsetParent`가 늘 null이다 — 처리기가 '보이는 칸'을 가릴 때 쓰므로 숨김(hidden·display none)만 가린다.
+  Object.defineProperty(window.HTMLElement.prototype, 'offsetParent', {
+    configurable: true,
+    get(this: any) {
+      if (this.hidden || this.style?.display === 'none') return null;
+      return this.parentElement ?? null;
+    },
+  });
   const saves: string[] = [];
   document.addEventListener('click', (event: any) => {
     const target = event.target?.closest?.('button, a, input[type=button], input[type=submit]');
@@ -66,9 +74,11 @@ export function loadWritePage(html: string, sources: readonly string[], options:
 }
 
 /** 페이지 호출 하나를 가짜 시계로 끝까지 돌린다(처리기의 기다림·재시도가 바로 지나간다). */
-export async function runPageCall(page: WritePage, call: string, args: unknown): Promise<Record<string, any>> {
+export async function runPageCall(page: WritePage, call: string, args: unknown, options: { onFakeClock?(): void } = {}): Promise<Record<string, any>> {
   vi.useFakeTimers({ toFake: ['setTimeout', 'clearTimeout', 'setInterval', 'clearInterval', 'Date'] });
   try {
+    // 화면이 늦게 하는 일(AJAX로 채우는 목록)은 가짜 시계 위에서 건다.
+    options.onFakeClock?.();
     const handler = page.calls[call];
     if (!handler) throw new Error(`no page call ${call}`);
     const running = handler(structuredClone(args));

@@ -13469,6 +13469,39 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "thirtymall", create: (deps) => createThirtymallListings(deps.tabs) });
 
+  // extensions/src/sites/thirtymall/registration.ts
+  var THIRTYMALL_REGISTRATION_FORM = {
+    label: "\uB5A0\uB9AC\uBAB0",
+    origin: "https://partner.shopby.co.kr",
+    pathPrefix: "/product/add",
+    allFrames: true,
+    frameUrlIncludes: "/product/management/single/add",
+    frameWaitMs: 3e4,
+    formSelector: "body",
+    // 칸이 생겨야 준비된 것이다. 이 앱은 로딩이 끝나고도 몇 초 뒤에 칸을 그린다.
+    readySelector: 'input[data-cy="productName"]',
+    formWaitMs: 3e4,
+    tableForm: {
+      pickWaitMs: 6e3,
+      images: [
+        { key: "main", row: "\uB300\uD45C\uC774\uBBF8\uC9C0" },
+        // 칸이 처음엔 없다. `이미지 추가` 를 누를 때마다 파일 칸이 하나씩 생긴다(실측).
+        { key: "additional", row: "\uCD94\uAC00\uC774\uBBF8\uC9C0", addLabel: "\uC774\uBBF8\uC9C0 \uCD94\uAC00", max: 9 },
+        { key: "list", row: "\uB9AC\uC2A4\uD2B8 \uC774\uBBF8\uC9C0" }
+      ],
+      summernote: { row: "\uC0C1\uD488 \uC0C1\uC138", radio: "USE_CONFIG_VALUE", uploadWaitMs: 15e3 }
+    },
+    // 상세 이미지를 File 로 받아 와야 편집기에 올릴 수 있다.
+    detailSelfUpload: { editorTab: null }
+  };
+  registerMallWriter({
+    mallKey: "thirtymall",
+    displayName: "\uB5A0\uB9AC\uBAB0",
+    guard: registrationGuard(THIRTYMALL_LISTINGS_GUARD, "\uB5A0\uB9AC\uBAB0"),
+    dialogHosts: ["shopby.co.kr"],
+    form: THIRTYMALL_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/tiktok-cc/index.ts
   var NAVIGATION_TIMEOUT_MS12 = 35e3;
   var EXTRACTION_TIMEOUT_MS5 = 25e3;
