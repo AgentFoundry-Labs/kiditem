@@ -374,6 +374,8 @@ async function assertAccountNotRegistered(
     select: { id: true, externalId: true },
   });
   for (const operation of succeeded) {
+    // 빠른 등록(대상 없음)은 폼만 채웠다 — 몰에 올린 증거가 아니다.
+    if (jsonRecord(operation.plan).registrationTargetId == null) continue;
     const result = jsonRecord(operation.result);
     const listingId = typeof result.channelListingId === 'string' ? result.channelListingId : null;
     const externalListingId = typeof result.externalListingId === 'string' ? result.externalListingId : null;

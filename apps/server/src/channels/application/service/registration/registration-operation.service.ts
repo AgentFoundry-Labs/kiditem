@@ -210,13 +210,15 @@ export class RegistrationOperationService implements RegistrationOperationPort {
       throw new KiditemInvalidValueError('VALIDATION_FAILED', { message: '폼을 채울 몰 계정을 고르세요.' });
     }
     const account = await this.repository.readActiveAccount(organizationId, scope.channelAccountId);
+    // 판매 상품 초안에서 연 빠른 등록은 그 상품을 plan 에 남긴다(조직 확인 — 없으면 404). 수집 상품 출처(`sourceProductId`)는 plan 칸이 없다.
+    if (scope.salesProductId) await this.salesProducts.get(organizationId, scope.salesProductId);
     const form = this.adapters.get(account.channel).freezeForm(scope.form ?? null, {});
     return this.result({
       executionKind: 'register',
       mallKey: account.channel,
       channelAccountId: account.id,
       registrationTargetId: null,
-      salesProductId: null,
+      salesProductId: scope.salesProductId ?? null,
       channelListingId: null,
       externalListingId: null,
       expectedProviderAccountId: account.expectedProviderAccountId,

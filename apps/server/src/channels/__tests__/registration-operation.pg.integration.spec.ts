@@ -281,6 +281,21 @@ describe('channels.registration owner over the operation contract + disposable P
     expect(refused.body).toMatchObject({ code: 'VALIDATION_FAILED' });
   });
 
+  it('plans a quick register (fill only) on the account lock, keeping the draft sales product it came from', async () => {
+    const fixture = await createFixture(prisma, targets, { channel: 'kidkids' });
+    const begun = await beginOk({
+      executionKind: 'register', channelAccountId: fixture.accountId, salesProductId: fixture.productId, sourceProductId: randomUUID(),
+      idempotencyKey: 'quick-1', submit: false, form: { url: 'https://mall.example/new' },
+    });
+    expect(begun.operation.lockKeys).toEqual([`account:${fixture.accountId}`]);
+    expect(planOf(begun)).toMatchObject({ registrationTargetId: null, salesProductId: fixture.productId, submit: false, mallKey: 'kidkids' });
+    expect(parseRegistrationPayload('register', planOf(begun).payload)).toEqual({ snapshot: null, form: { url: 'https://mall.example/new' } });
+    const done = await finish(begun.operation.id, begun.token, { outcome: 'succeeded' }).expect(200);
+    expect(done.body.operation.result).toMatchObject({ providerOutcome: 'not_attempted', mallOutcome: 'not_submitted' });
+    // 폼만 채운 빠른 등록은 이 계정의 등록이 아니다: 대상 등록은 그대로 열린다.
+    await beginOk(registerScope(fixture));
+  });
+
   it('plans a sold-out batch per mall account: the account lock plus one per listing, options resolved from option ids', async () => {
     const fixture = await createFixture(prisma, targets, { listing: true, channel: 'kidkids' });
     const begun = await beginOk({
@@ -331,7 +346,7 @@ describe('channels.registration owner over the operation contract + disposable P
     const fixture = await createFixture(prisma, targets, { listing: true, channel: 'kidkids' });
     const begun = await beginOk({ channelAccountId: fixture.accountId, mallKey: 'kidkids', externalListingIds: ['provider-listing-1', 'gone-1'] }, MALL_AVAILABILITY_READ_KIND);
     expect(begun.operation.lockKeys).toEqual([`account:${fixture.accountId}`]);
-    const row = { externalListingId: 'provider-listing-1', externalOptionId: null, available: false, stock: 0, observedStatus: '품절', observedAt: new Date().toISOString() };
+    const row = { externalListingId: 'provider-listing-1', externalOptionId: null, rocket: false, available: false, stock: 0, observedStatus: '품절', observedAt: new Date().toISOString() };
     await put(begun.operation.id, begun.token, 'availability_rows', 1, [row, { ...row, externalListingId: 'not-asked' }]).expect(200);
     const done = await finish(begun.operation.id, begun.token, { outcome: 'succeeded' }).expect(200);
     expect(done.body.operation.result).toEqual({ rowCount: 1, missingExternalListingIds: ['gone-1'], rows: [row] });
