@@ -19,12 +19,12 @@ import { ProductStateException } from '../../../application/exception/product-st
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
 import { listingProductIdFromRecipes } from '../../../../channels/domain/listing/listing-product-summary';
 import {
-  advertisingApplies,
-  readAdEvidenceCutoff,
-  readAdWindowFacts,
-  readListingAdWindowFacts,
+  ADVERTISING_LEDGER_READ_PORT,
   type AdListingWindowFacts,
-} from '../../../../advertising/adapter/out/persistence/read/ad-target-facts';
+  type AdvertisingLedgerReadPort,
+} from '../../../../advertising/application/port/in/capability/advertising-ledger-read.port';
+import { profitAdCost } from '../../../../advertising/domain/ad-spend-rule';
+import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { addDays, businessDateKey, kstDayStart } from '../../../../common/kst';
 import { readOrderWindowFacts, readListingOptionOrderFacts, type ListingOptionOrderFacts } from '../../../../orders/adapter/out/persistence/read/order-facts.reader';
 import {
@@ -145,6 +145,8 @@ implements ProductOperationsRepositoryPort {
     private readonly inventorySkuRead: ProductSourceReadPort,
     @Inject(CHANNEL_ACCOUNT_PORT)
     private readonly channelAccounts: ChannelAccountPort,
+    @Inject(ADVERTISING_LEDGER_READ_PORT)
+    private readonly adLedger: Pick<AdvertisingLedgerReadPort, 'advertisingApplies' | 'readAdCoverage' | 'readListingAdWindowFacts'>,
   ) {}
 
   async listDisplayMediaTargets(
@@ -206,18 +208,28 @@ implements ProductOperationsRepositoryPort {
           rows,
         );
         // The ad window keeps the period length but ends at the ad evidence
-        // cutoff: yesterday, unless every account held yesterday as unreported.
-        const adCutoff = await readAdEvidenceCutoff(tx, { organizationId, closedDay: cutoff }, this.channelAccounts);
+        // cutoff: yesterday, or the day before when the ad report has not
+        // confirmed yesterday yet (its confirmed window ends a day early).
+        const transaction = ownerTransaction(tx);
+        const recent = await this.adLedger.readAdCoverage(transaction, {
+          organizationId,
+          from: businessDateKey(addDays(cutoff, -1)),
+          to: businessDateKey(addDays(cutoff, 1)),
+        });
+        const adCutoff = recent.latestMeasuredDate === businessDateKey(addDays(cutoff, -1))
+          ? addDays(cutoff, -1)
+          : cutoff;
         const adPeriodStart = addDays(adCutoff, -(query.periodDays - 1));
         const adPeriodEnd = addDays(adCutoff, 1);
-        const adByListing = await readListingAdWindowFacts(tx, { organizationId, from: adPeriodStart, to: adPeriodEnd }, this.channelAccounts);
-        const adWindow = await readAdWindowFacts(tx, { organizationId, from: adPeriodStart, to: adPeriodEnd }, this.channelAccounts);
-        const applies = await advertisingApplies(tx, organizationId, this.channelAccounts);
+        const adWindow = { organizationId, from: businessDateKey(adPeriodStart), to: businessDateKey(adPeriodEnd) };
+        const adByListing = await this.adLedger.readListingAdWindowFacts(transaction, adWindow);
+        const measured = await this.adLedger.readAdCoverage(transaction, adWindow);
+        const applies = await this.adLedger.advertisingApplies(transaction, organizationId);
         const adCoverage = {
-          ready: !applies || adWindow.days.length === query.periodDays,
+          ready: !applies || measured.measuredDates.length === query.periodDays,
           coverageStartDate: businessDateKey(adPeriodStart),
           coverageEndDate: businessDateKey(adCutoff),
-          capturedAt: adWindow.observedAt,
+          capturedAt: measured.observedAt,
         };
         const traffic = await readListingTrafficWindowFacts(tx, {
           organizationId, from: periodStart, to: periodEnd,
@@ -535,8 +547,9 @@ function toListItem(
   const orderCount = orderCoverage.ready ? new Set(productOrders.map(({ orderId }) => orderId)).size : null;
   const salesQuantity = orderCoverage.ready ? productOrders.reduce((sum, line) => sum + line.quantity, 0) : null;
   const salesAmount = orderCoverage.ready ? productOrders.reduce((sum, line) => sum + line.revenue, 0) : null;
-  const adSpend = adCoverage.ready
-    ? advertisingFacts.reduce((total, fact) => total + fact.spend, 0)
+  // Product Hub is a profit screen: billed spend with VAT (KID-368), rounded once per product.
+  const adCost = adCoverage.ready
+    ? profitAdCost({ billedSpend: advertisingFacts.reduce((total, fact) => total + fact.billedSpend, 0) })
     : null;
   // A rate over two measurements needs identical dates (ADR-0006): while the ad
   // window ends at an earlier evidence cutoff, the rate is unavailable.
@@ -568,9 +581,9 @@ function toListItem(
     orderCount,
     salesQuantity,
     salesAmount,
-    adSpend,
-    adSpendRate: adSpend !== null && salesAmount !== null && salesAmount > 0 && adAndSalesShareDates
-      ? (adSpend / salesAmount) * 100
+    adCost,
+    adCostRate: adCost !== null && salesAmount !== null && salesAmount > 0 && adAndSalesShareDates
+      ? (adCost / salesAmount) * 100
       : null,
     metricsFreshness: {
       traffic: trafficCoverage,

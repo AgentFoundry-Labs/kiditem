@@ -159,8 +159,8 @@ function listItemWithTrafficFreshness(traffic: Record<string, unknown>) {
     orderCount: null,
     salesQuantity: null,
     salesAmount: null,
-    adSpend: null,
-    adSpendRate: null,
+    adCost: null,
+    adCostRate: null,
     metricsFreshness: {
       orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       traffic,
@@ -270,8 +270,8 @@ describe('product operations contracts', () => {
         orderCount: null,
         salesQuantity: null,
         salesAmount: null,
-        adSpend: null,
-        adSpendRate: null,
+        adCost: null,
+        adCostRate: null,
         metricsFreshness: {
           orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
           traffic: { capturedAt: null, basis: uncoveredTrafficBasis },
@@ -488,8 +488,8 @@ describe('product operations contracts', () => {
       orderCount: null,
       salesQuantity: null,
       salesAmount: null,
-      adSpend: null,
-      adSpendRate: null,
+      adCost: null,
+      adCostRate: null,
       metricsFreshness: {
         orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
         traffic: { capturedAt: null, basis: uncoveredTrafficBasis },

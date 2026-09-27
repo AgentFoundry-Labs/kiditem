@@ -123,7 +123,7 @@ describe('Products publishes one ABC display status (PostgreSQL)', () => {
         new ProductSourceReadUseCase(
           new ProductSourceReadRepositoryAdapter(prismaService),
         ),
-        channelAccounts,
+        channelAccounts, advertisingLedgerTestReader(prismaService),
       ),
       inventory,
       { findByMasterProductIds: async () => new Map() } as never,

@@ -32,7 +32,7 @@ export const PRODUCT_ADVERTISING_LABELS = {
 
 /** Advertising activity for the selected measured period, independent of operator tags. */
 export function deriveProductAdvertisingStatus(
-  adSpend: number | null,
+  adCost: number | null,
 ): Exclude<ProductOperationsAdStatus, 'all'> {
-  return adSpend === null ? 'unconfigured' : adSpend > 0 ? 'active' : 'inactive';
+  return adCost === null ? 'unconfigured' : adCost > 0 ? 'active' : 'inactive';
 }
