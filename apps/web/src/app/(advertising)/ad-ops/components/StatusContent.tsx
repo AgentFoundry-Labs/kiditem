@@ -73,7 +73,7 @@ export function CampaignSummary({ campaigns, onSelect }: { campaigns: AdCampaign
                   )}
                 </div>
                 <div className="text-[11px] mt-0.5" style={{ color: "var(--text-tertiary)" }}>
-                  클릭 {formatNumber(c.metrics.clicks)} · 전환 {c.conversionsAvailable ? formatNumber(c.metrics.conversions) : "-"}
+                  클릭 {formatNumber(c.metrics.clicks)} · 전환 {formatNumber(c.metrics.conversions)}
                 </div>
               </div>
               <div className="text-right">

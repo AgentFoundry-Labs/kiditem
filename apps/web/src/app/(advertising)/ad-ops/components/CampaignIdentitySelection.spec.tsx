@@ -30,11 +30,10 @@ function campaign(channelAccountId: string, campaignIdentity: string): AdCampaig
     campaignName: '동일 캠페인명',
     period: '7d',
     metricsAvailable: true,
-    conversionsAvailable: true,
     status: 'ON',
     onOff: 'ON',
     metrics,
-  };
+  } as AdCampaignSnapshot;
 }
 
 function wrapper(children: React.ReactNode) {
@@ -69,12 +68,27 @@ describe('campaign account + identity selection', () => {
     });
   });
 
+  it("shows a measured campaign's orders as its conversions", () => {
+    render(wrapper(
+      <CampaignTable
+        campaigns={[campaign('11111111-1111-4111-8111-111111111111', 'campaign:measured')]}
+        sortBy="revenue"
+        onSortChange={vi.fn()}
+        selectedCampaign={null}
+        onSelectCampaign={vi.fn()}
+      />,
+    ));
+
+    const row = screen.getByRole('row', { name: /동일 캠페인명/ });
+    const cells = within(row).getAllByRole('cell');
+    expect(cells[cells.length - 2]).toHaveTextContent('4');
+  });
+
   it('renders metadata-only OFF campaigns without fabricated zero metrics or drill-down', () => {
     const metadataOnly = {
       ...campaign('11111111-1111-4111-8111-111111111111', 'campaign:off'),
       campaignName: '중단 캠페인',
       metricsAvailable: false,
-      conversionsAvailable: false,
       status: 'OFF',
       onOff: 'OFF',
     } satisfies AdCampaignSnapshot;

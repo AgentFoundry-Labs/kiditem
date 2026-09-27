@@ -35,7 +35,6 @@ function campaign(overrides: Partial<AdCampaignSnapshot>): AdCampaignSnapshot {
     campaignName: "중단 캠페인",
     period: "14d",
     metricsAvailable: false,
-    conversionsAvailable: false,
     status: "OFF",
     onOff: "OFF",
     metrics: {
@@ -49,7 +48,7 @@ function campaign(overrides: Partial<AdCampaignSnapshot>): AdCampaignSnapshot {
       cvr: null,
     },
     ...overrides,
-  };
+  } as AdCampaignSnapshot;
 }
 
 describe("wingKpiCount", () => {
@@ -160,7 +159,6 @@ describe("CampaignSummary", () => {
       campaignIdentity: "campaign:on",
       campaignName: "운영 캠페인",
       metricsAvailable: true,
-      conversionsAvailable: true,
       status: "ON",
       onOff: "ON",
       metrics: {
@@ -187,6 +185,7 @@ describe("CampaignSummary", () => {
     const activeButton = screen.getByRole("button", { name: /운영 캠페인ON/ });
     expect(activeButton).toBeEnabled();
     expect(within(activeButton).getByText("ROAS 500%")).toHaveClass("text-emerald-600");
+    expect(activeButton).toHaveTextContent("클릭 10 · 전환 2");
     expect(screen.queryByText(/중단 캠페인/)).not.toBeInTheDocument();
   });
 
@@ -198,7 +197,6 @@ describe("CampaignSummary", () => {
       campaignIdentity: "campaign:unknown-roas",
       campaignName: "ROAS 미수집",
       metricsAvailable: true,
-      conversionsAvailable: true,
       status: "ON",
       onOff: "ON",
     });
@@ -206,7 +204,6 @@ describe("CampaignSummary", () => {
       campaignIdentity: "campaign:zero-roas",
       campaignName: "ROAS 0",
       metricsAvailable: true,
-      conversionsAvailable: true,
       status: "ON",
       onOff: "ON",
       metrics: {

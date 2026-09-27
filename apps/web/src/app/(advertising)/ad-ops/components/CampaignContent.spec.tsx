@@ -120,7 +120,6 @@ describe("CampaignContent", () => {
       campaignName: name,
       period: "14d",
       metricsAvailable: true,
-      conversionsAvailable: true,
       status: "ON",
       onOff: "ON",
       metrics: {
@@ -212,7 +211,6 @@ describe("CampaignContent", () => {
       period: "14d",
       campaignId: "campaign-1",
       metricsAvailable: true,
-      conversionsAvailable: false,
       status: "ON",
       onOff: "ON",
       metrics: {
@@ -282,7 +280,6 @@ describe("CampaignContent", () => {
       campaignName: "중단 캠페인",
       period: "14d",
       metricsAvailable: false,
-      conversionsAvailable: false,
       status: "OFF",
       onOff: "OFF",
       metrics: {
@@ -360,7 +357,6 @@ describe("CampaignContent", () => {
       campaignName: "무노출 캠페인",
       period: "14d",
       metricsAvailable: true,
-      conversionsAvailable: false,
       status: "ON",
       onOff: "ON",
       metrics: {

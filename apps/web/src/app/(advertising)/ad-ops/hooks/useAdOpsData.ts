@@ -34,7 +34,7 @@ export type CampaignProductData = {
 };
 
 /**
- * Totals over the campaigns whose performance the sweep measured. Ratios
+ * Totals over the campaigns with measured performance in the period. Ratios
  * recompute from the summed raw values and are null on a zero denominator.
  */
 export type CampaignTotals = {
@@ -42,8 +42,8 @@ export type CampaignTotals = {
   adRevenue: number;
   impressions: number;
   clicks: number;
-  /** Null unless every counted campaign carried a collected conversion count. */
-  conversions: number | null;
+  /** The ad report's orders; every measured day observes them. */
+  conversions: number;
   roas: number | null;
   ctr: number | null;
   cvr: number | null;
@@ -114,11 +114,7 @@ function campaignTotals(campaigns: AdCampaignSnapshot[]): CampaignTotals | null 
   const adRevenue = sum((metrics) => metrics.revenue);
   const impressions = sum((metrics) => metrics.impressions);
   const clicks = sum((metrics) => metrics.clicks);
-  // Coupang's campaign grid has no conversion column: one uncollected
-  // campaign makes the conversion sum unknown, not smaller.
-  const conversions = measured.every((campaign) => campaign.conversionsAvailable)
-    ? sum((metrics) => metrics.conversions)
-    : null;
+  const conversions = sum((metrics) => metrics.conversions);
   return {
     adSpend,
     adRevenue,
