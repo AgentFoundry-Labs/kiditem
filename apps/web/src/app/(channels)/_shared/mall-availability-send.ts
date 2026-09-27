@@ -263,7 +263,8 @@ export async function sendMallAvailability(
  *
  * 읽기 폴링 예산(등록현황 한 화면, `use-mall-live-availability`): 페이지가 뜨면 읽을 수 있는 몰 열마다 읽기 실행 하나를
  * 함께 시작한다(옛 훅과 같은 주기 — 페이지당 한 번, 같은 동시 수 — 몰 열 수). 실행마다 끝날 때까지 분당 20번 읽으므로
- * 최악은 읽는 몰 15곳 × 20 = 분당 300회(탭 하나)이고, API 제한 분당 600회 안이다. 끝난 실행은 더 읽지 않는다.
+ * 최악은 읽는 몰 15곳 × 20 = 분당 300회(탭 하나)이고, API 스로틀러 분당 600회(`api-application.module.ts`) 안이다. 끝난
+ * 실행과 떠난 화면(`signal`)의 실행은 더 읽지 않는다.
  */
 const READ_POLL_MS = 3_000;
 /** 확장이 윙 상품목록을 뒤에서 열어 읽는다. 429로 쉬는 시간까지 넉넉히(옛 90초 + 시작). */
@@ -276,9 +277,12 @@ async function waitForAvailabilityRead(operationId: string, options: WaitOptions
   const now = options.now ?? Date.now;
   const deadline = now() + (options.timeoutMs ?? READ_WAIT_LIMIT_MS);
   for (;;) {
+    // 기다리던 화면이 떠났으면(페이지 이동 · 언마운트) 더 읽지 않는다. 실행은 확장에서 끝까지 돈다.
+    options.signal?.throwIfAborted();
     const { operation } = OperationFinishResponseSchema.parse(
       await apiClient.get(`/api/operations/${encodeURIComponent(operationId)}`),
     );
+    options.signal?.throwIfAborted();
     if (operation.kind !== MALL_AVAILABILITY_READ_KIND) throw new Error(READ_FAILED);
     if (isOperationTerminal(operation.status)) return operation;
     if (now() >= deadline) throw new Error(READ_STILL_RUNNING);

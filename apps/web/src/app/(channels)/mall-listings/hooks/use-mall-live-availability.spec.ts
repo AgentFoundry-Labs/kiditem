@@ -41,8 +41,21 @@ describe('useMallLiveAvailability', () => {
     await waitFor(() => expect(result.current.cells.get(liveCellKey('coupang', 'A'))?.status).toBe('ready'));
     // 도매꾹은 읽기 몰이 아니고, 톡스토어는 계정 행이 없다 — 쿠팡 한 번만.
     expect(read).toHaveBeenCalledTimes(1);
-    expect(read).toHaveBeenCalledWith({ mallKey: 'coupang', channelAccountId: ACCOUNT, codes: ['A', 'B'], automatic: true });
+    expect(read).toHaveBeenCalledWith(
+      { mallKey: 'coupang', channelAccountId: ACCOUNT, codes: ['A', 'B'], automatic: true },
+      { signal: expect.any(AbortSignal) },
+    );
     expect(result.current.cells.get(liveCellKey('coupang', 'B'))).toEqual({ status: 'error', message: '이 상품을 몰에서 찾지 못했습니다.' });
+  });
+
+  it('⭐ 페이지를 떠나면(언마운트) 기다리던 읽기를 멈춘다 — 끝난 페이지의 실행을 계속 폴링하지 않는다', async () => {
+    read.mockReturnValue(new Promise(() => {}));
+    const { unmount } = renderHook(() => useMallLiveAvailability(columns, rows));
+    await waitFor(() => expect(read).toHaveBeenCalledTimes(1));
+    const signal = (read.mock.calls[0]![1] as { signal: AbortSignal }).signal;
+    expect(signal.aborted).toBe(false);
+    unmount();
+    expect(signal.aborted).toBe(true);
   });
 
   it('칸 하나 다시 읽기는 사람이 누른 읽기다(자동 로그인 간격 없음)', async () => {
@@ -56,5 +69,6 @@ describe('useMallLiveAvailability', () => {
     const source = readFileSync(path.resolve(__dirname, 'use-mall-live-availability.ts'), 'utf8');
     expect(source).toMatch(/분당 300회/);
     expect(source).toMatch(/분당 600회/);
+    expect(source).toMatch(/api-application\.module\.ts/);
   });
 });

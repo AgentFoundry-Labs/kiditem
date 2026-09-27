@@ -36,8 +36,9 @@ export function liveCellKey(mallKey: string, mallProductCode: string) {
  *
  * 읽기 하나 = 판매 상태 읽기 실행(`channels.mall_availability_read`) 하나(KID-364). 주기와 동시 수는 옛 훅 그대로다 —
  * 페이지가 바뀔 때 한 번, 읽을 수 있는 몰 열마다 동시에 하나. 읽기 폴링 예산: 실행마다 끝날 때까지 3초에 한 번
- * `GET /api/operations/:id`(분당 20회)라 최악은 읽는 몰 15곳 × 20 = 분당 300회(탭 하나), API 제한 분당 600회 안이다.
- * 끝난 실행은 더 읽지 않고, 칸 하나 다시 읽기는 그 몰 실행 하나를 더한다.
+ * `GET /api/operations/:id`(분당 20회)라 최악은 읽는 몰 15곳 × 20 = 분당 300회(탭 하나)이고, API 스로틀러 분당 600회
+ * (`apps/server/src/api-application.module.ts`) 안이다. 끝난 실행은 더 읽지 않고, 페이지를 옮기거나 화면을 떠나면
+ * `AbortSignal`로 기다림을 멈춘다. 칸 하나 다시 읽기는 그 몰 실행 하나를 더한다.
  */
 export function useMallLiveAvailability(
   columns: readonly MallListingMatrixColumn[],
@@ -75,12 +76,14 @@ export function useMallLiveAvailability(
   useEffect(() => {
     if (targets.length === 0) return;
     const current = ++generation.current;
+    // 페이지가 바뀌거나 화면을 떠나면 이 페이지의 읽기 기다림을 멈춘다(끝난 페이지의 실행을 계속 폴링하지 않는다).
+    const controller = new AbortController();
     for (const target of targets) {
       put(target.codes.map((code) => [liveCellKey(target.mallKey, code), { status: 'loading' }]));
       // 화면이 스스로 읽는다 — 자동 로그인은 한 시간에 한 번만 싣는다(계정 잠금 방지).
       void readMallAvailabilityMany({
         mallKey: target.mallKey, channelAccountId: target.channelAccountId, codes: target.codes, automatic: true,
-      }).then(
+      }, { signal: controller.signal }).then(
         (products) => {
           if (generation.current !== current) return;
           const readAt = new Date();
@@ -92,12 +95,13 @@ export function useMallLiveAvailability(
           }));
         },
         (error: unknown) => {
-          if (generation.current !== current) return;
+          if (generation.current !== current || controller.signal.aborted) return;
           const message = friendlyError(error, '지금 재고를 읽지 못했습니다.') ?? '지금 재고를 읽지 못했습니다.';
           put(target.codes.map((code) => [liveCellKey(target.mallKey, code), { status: 'error', message }]));
         },
       );
     }
+    return () => controller.abort();
     // targetKey 가 곧 targets 의 내용이다 — 행 객체가 새로 만들어져도 같은 페이지면 다시 읽지 않는다.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [targetKey, put]);

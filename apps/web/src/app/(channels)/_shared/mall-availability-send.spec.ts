@@ -243,6 +243,18 @@ describe('몰 지금 재고', () => {
     expect(isMallAutoLoginBlocked('coupang')).toBe(true);
   });
 
+  it('기다리던 화면이 떠나면(signal) 실행을 더 읽지 않고 멈춘다', async () => {
+    extension();
+    const controller = new AbortController();
+    vi.mocked(apiClient.get).mockImplementation(async () => {
+      controller.abort();
+      return { operation: operation({ kind: 'channels.mall_availability_read', status: 'executing', finishedAt: null }) };
+    });
+    await expect(readMallAvailabilityMany({ mallKey: 'coupang', channelAccountId: ACCOUNT, codes: ['1'] }, { ...noSleep, signal: controller.signal }))
+      .rejects.toThrow();
+    expect(apiClient.get).toHaveBeenCalledTimes(1);
+  });
+
   it('한 실행이 읽는 상품 수 상한(500)을 넘으면 나눠 시작한다', async () => {
     const starts = extension();
     vi.mocked(apiClient.get).mockResolvedValue({ operation: operation({

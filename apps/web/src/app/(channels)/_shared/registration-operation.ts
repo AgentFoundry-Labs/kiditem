@@ -283,6 +283,7 @@ export const OTHER_OPERATION_RUNNING = '다른 실행이 진행 중입니다. �
 export interface WaitForOthersOptions {
   sleep?: (ms: number) => Promise<void>;
   now?: () => number;
+  signal?: AbortSignal;
 }
 
 /**
@@ -303,6 +304,7 @@ export async function startAfterOtherOperations<T>(
     if ('started' in outcome) return outcome.started;
     if (!outcome.busyWith) throw new Error(OTHER_OPERATION_RUNNING);
     for (;;) {
+      options.signal?.throwIfAborted();
       if (now() >= deadline) throw new Error(OTHER_OPERATION_RUNNING);
       const { operation } = OperationFinishResponseSchema.parse(
         await apiClient.get(`/api/operations/${encodeURIComponent(outcome.busyWith)}`),
