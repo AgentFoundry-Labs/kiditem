@@ -13,6 +13,10 @@ import { ChannelAccountService } from '../channels/application/service/account/c
 import { ProductTransactionalReadRepositoryAdapter } from '../products/adapter/out/persistence/product-transactional-read.repository.adapter';
 import { ChannelsProductMappingGenerationAdapter } from '../channels/adapter/out/products/product-mapping-generation.adapter';
 import { ProductMappingGenerationRepositoryAdapter } from '../products/adapter/out/persistence/product-mapping-generation.repository.adapter';
+import { ADVERTISING_LEDGER_READ_PORT } from '../advertising/application/port/in/capability/advertising-ledger-read.port';
+import { AdvertisingLedgerReadService } from '../advertising/application/service/advertising-ledger-read.service';
+import { AdLedgerReadPersistenceAdapter } from '../advertising/adapter/out/persistence/ad-ledger-read.persistence.adapter';
+import { AdLedgerMonthlyAllocationPersistenceAdapter } from '../advertising/adapter/out/persistence/ad-ledger-monthly-allocation.persistence.adapter';
 
 /** Compose real owner fact capabilities for adapter/PG tests using one database client. */
 export function channelFactTestPorts(prisma: PrismaService) {
@@ -38,8 +42,24 @@ export const channelFactTestProviders = [
   { provide: CHANNEL_LISTING_QUERY_PORT, inject: [PrismaService], useFactory: (prisma: PrismaService) => channelFactTestPorts(prisma).listings },
   { provide: CHANNEL_OPTION_RECIPE_PORT, inject: [PrismaService], useFactory: (prisma: PrismaService) => channelFactTestPorts(prisma).recipes },
   { provide: CHANNEL_ACCOUNT_PORT, inject: [PrismaService], useFactory: (prisma: PrismaService) => channelFactTestPorts(prisma).accounts },
+  { provide: ADVERTISING_LEDGER_READ_PORT, inject: [PrismaService], useFactory: (prisma: PrismaService) => advertisingLedgerTestReader(prisma) },
 ];
 
+/** 광고 원장 읽기 capability(KID-372) — 실제 계정 capability와 실제 원장 어댑터로 조립한다. */
+export function advertisingLedgerTestReader(prisma: PrismaService) {
+  const ports = channelFactTestPorts(prisma);
+  return new AdvertisingLedgerReadService(
+    ports.accounts,
+    new AdLedgerReadPersistenceAdapter(),
+    ports.recipes,
+    new AdLedgerMonthlyAllocationPersistenceAdapter(),
+  );
+}
+
 export function profitCatalogTestReaders(prisma: PrismaService) {
-  return { ...channelFactTestPorts(prisma), content: new ListingContentQueryRepositoryAdapter(prisma) };
+  return {
+    ...channelFactTestPorts(prisma),
+    content: new ListingContentQueryRepositoryAdapter(prisma),
+    ads: advertisingLedgerTestReader(prisma),
+  };
 }

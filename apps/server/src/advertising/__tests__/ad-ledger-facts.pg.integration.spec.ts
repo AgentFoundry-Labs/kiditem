@@ -9,6 +9,7 @@ import type { PrismaService } from '../../prisma/prisma.service';
 import { ownerTransaction } from '../../prisma/owner-transaction';
 import { AdvertisingLedgerReadService } from '../application/service/advertising-ledger-read.service';
 import { AdLedgerReadPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-read.persistence.adapter';
+import { AdLedgerMonthlyAllocationPersistenceAdapter } from '../adapter/out/persistence/ad-ledger-monthly-allocation.persistence.adapter';
 import { profitAdCost } from '../domain/ad-spend-rule';
 
 /**
@@ -23,7 +24,8 @@ describe('ad-ledger-facts (PG)', () => {
   beforeAll(async () => {
     prisma = makeTestPrisma();
     await prisma.$connect();
-    service = new AdvertisingLedgerReadService(channelFactTestPorts(prisma as unknown as PrismaService).accounts, new AdLedgerReadPersistenceAdapter());
+    const ports = channelFactTestPorts(prisma as unknown as PrismaService);
+    service = new AdvertisingLedgerReadService(ports.accounts, new AdLedgerReadPersistenceAdapter(), ports.recipes, new AdLedgerMonthlyAllocationPersistenceAdapter());
   });
   afterAll(async () => {
     await prisma.$disconnect();

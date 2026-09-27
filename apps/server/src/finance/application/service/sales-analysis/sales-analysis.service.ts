@@ -2,6 +2,7 @@ import { AI_LISTING_CONTENT_QUERY_PORT, type ListingContentQueryPort } from '../
 import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
 import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
+import { ADVERTISING_LEDGER_READ_PORT, type AdvertisingLedgerReadPort } from '../../../../advertising/application/port/in/capability/advertising-ledger-read.port';
 import { Inject, Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import type { SalesAnalysisData, ChannelAnalysis } from '@kiditem/shared/finance';
@@ -21,6 +22,7 @@ import {
   type AccountAdEvidence,
 } from '../../../../common/per-listing-profit';
 import { advertisingAppliesToSale } from '../../../../advertising/domain/ad-sweep-coverage';
+import { profitAdCost } from '../../../../advertising/domain/ad-spend-rule';
 import {
   PRODUCT_TRANSACTIONAL_READ_PORT,
   type ProductTransactionalReadPort,
@@ -60,7 +62,8 @@ function channelAdCost(
 ): number | null {
   if (!adApplies) return 0;
   if (!ad.coversWindow) return null;
-  return Math.round(adSpendByChannel.has(channel) ? adSpendByChannel.get(channel)! : 0);
+  // 이익 광고비: 채널에 묶인 리스팅 청구액 합 × 1.1(KID-368).
+  return profitAdCost({ billedSpend: adSpendByChannel.get(channel) ?? 0 });
 }
 
 /**
@@ -88,6 +91,7 @@ export class SalesAnalysisService {
     @Inject(CHANNEL_LISTING_QUERY_PORT) private readonly channelListings: ChannelListingQueryPort,
     @Inject(CHANNEL_OPTION_RECIPE_PORT) private readonly channelRecipes: ChannelOptionRecipePort,
     @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
+    @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
   ) {}
 
   async getAnalysis(
@@ -105,10 +109,10 @@ export class SalesAnalysisService {
         tx,
         organizationId,
         window,
-        this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent }
+        this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent, ads: this.adLedger }
       );
       const soldListingIds = new Set(facts.lines.map((line) => line.listing.listingId));
-      const unsoldAdListingIds = [...facts.listingAdSpend.keys()]
+      const unsoldAdListingIds = [...facts.listingBilledSpend.keys()]
         .filter((listingId) => !soldListingIds.has(listingId));
       const unsoldAdListings = unsoldAdListingIds.length === 0
         ? []
@@ -124,7 +128,7 @@ export class SalesAnalysisService {
     for (const listing of unsoldAdListings) channelByListing.set(listing.id, listing.channelAccount.channel);
 
     const adSpendByChannel = new Map<string, number>();
-    for (const [listingId, spend] of facts.listingAdSpend) {
+    for (const [listingId, spend] of facts.listingBilledSpend) {
       const channel = channelByListing.get(listingId);
       if (!channel) continue;
       adSpendByChannel.set(channel, (adSpendByChannel.get(channel) ?? 0) + spend);
@@ -156,7 +160,7 @@ export class SalesAnalysisService {
       };
       group.orderIds.add(line.orderId);
       group.adApplies = group.adApplies
-        || advertisingAppliesToListing(facts.ad, line.listing, facts.listingAdSpend);
+        || advertisingAppliesToListing(facts.ad, line.listing, facts.listingBilledSpend);
       group.revenue += line.revenue;
       group.shipping += line.shippingCost;
       group.costOfGoods = addOrUnavailable(group.costOfGoods, line.costOfGoods);

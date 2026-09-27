@@ -273,8 +273,8 @@ function product(): MasterProductOperationsListItem {
     orderCount: 4,
     salesQuantity: 5,
     salesAmount: 35_000,
-    adSpend: 3_500,
-    adSpendRate: 10,
+    adCost: 3_500,
+    adCostRate: 10,
     monthly: {
       yearMonth: '2026-09',
       revenue: 35_000,

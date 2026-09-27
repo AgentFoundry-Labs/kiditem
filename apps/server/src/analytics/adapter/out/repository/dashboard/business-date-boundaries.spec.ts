@@ -24,6 +24,10 @@ const AUGUST_START_KST = new Date("2026-07-31T15:00:00.000Z");
 describe("dashboard business-date boundaries", () => {
   it("keeps KST timestamp bounds for orders but normalizes daily ad facts", async () => {
     const queryRaw = vi.fn().mockResolvedValue([]);
+    const adLedger = {
+      advertisingApplies: vi.fn().mockResolvedValue(true),
+      readAdWindowFacts: vi.fn().mockResolvedValue({ days: [], observedAt: null }),
+    };
     const prisma = {
       $transaction: vi.fn(),
       channelListingOption: { findMany: vi.fn().mockResolvedValue([]) },
@@ -53,7 +57,7 @@ describe("dashboard business-date boundaries", () => {
 
     await new ProfitCalculationRepositoryAdapter(channelFactTestPorts(prisma as unknown as PrismaService).accounts, channelFactTestPorts(prisma as unknown as PrismaService).recipes,
       prisma as unknown as PrismaService,
-      new ProductTransactionalReadRepositoryAdapter(),
+      new ProductTransactionalReadRepositoryAdapter(), adLedger as never,
     ).calculateForRange(
       "organization-id",
       periodOf(JULY_START_KST, AUGUST_START_KST),
@@ -65,9 +69,9 @@ describe("dashboard business-date boundaries", () => {
       expect.objectContaining({ findByIds: expect.any(Function) }),
     );
     // The ad ledger is read over the window's KST business dates, half-open.
-    const sql = queryRaw.mock.calls[0]?.[0] as { values: unknown[] };
-    expect(sql.values).toEqual(
-      expect.arrayContaining(["organization-id", "2026-07-01", "2026-08-01"]),
+    expect(adLedger.readAdWindowFacts).toHaveBeenCalledWith(
+      expect.anything(),
+      { organizationId: "organization-id", from: "2026-07-01", to: "2026-08-01" },
     );
   });
 });

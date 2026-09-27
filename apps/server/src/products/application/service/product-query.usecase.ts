@@ -113,7 +113,7 @@ export class ProductQueryUseCase implements ProductQueryPort {
     });
     const advertisingFiltered = query.adStatus === 'all'
       ? hydrated
-      : hydrated.filter(({ adSpend }) => deriveProductAdvertisingStatus(adSpend) === query.adStatus);
+      : hydrated.filter(({ adCost }) => deriveProductAdvertisingStatus(adCost) === query.adStatus);
     const gradeFiltered = query.abcGrade === 'unclassified'
       ? advertisingFiltered.filter(({ abcGrade }) => abcGrade === null)
       : query.abcGrade
@@ -225,8 +225,6 @@ export class ProductQueryUseCase implements ProductQueryPort {
       organizationId,
       ...basis,
       sellpiaOperationId: dataStatus.sourceVector.sellpia!.sourceImportRunId,
-      advertisingSourceImportRunId:
-        dataStatus.sourceVector.advertising!.sourceImportRunId,
       masterProductIds,
     });
   }

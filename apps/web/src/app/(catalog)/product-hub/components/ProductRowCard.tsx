@@ -107,7 +107,7 @@ export function ProductRowCard({
     product.depletion.minMonthsOfAvailableStockLeft === null
       ? null
       : `가용재고 ${product.depletion.minMonthsOfAvailableStockLeft}개월`,
-    product.adSpend !== null && product.adSpend > 0 ? `${PROFIT_AD_COST_LABEL} ${formatKRW(product.adSpend)}원` : null,
+    product.adCost !== null && product.adCost > 0 ? `${PROFIT_AD_COST_LABEL} ${formatKRW(product.adCost)}원` : null,
   ].filter((fact): fact is string => fact !== null);
 
   return (

@@ -37,11 +37,10 @@ import {
   setupProductOption,
   setupChannelListing,
   seedOrderWithLineItems,
-  seedAd,
-  seedCompletedAdSweepRun,
   seedCompletedInventorySnapshot,
   seedCompletedOrderCoverageRun,
 } from '../../../test-helpers/finance-seeds';
+import { seedAdReportWindow, seedListingAdDay } from '../../../test-helpers/ad-ledger-seeds';
 import type { PrismaClient } from '@prisma/client';
 
 describe('DashboardInventoryService.getSummary (PG integration)', () => {
@@ -211,13 +210,11 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
    */
   let sweepGeneration = 0;
   async function coverMonth(short = 0): Promise<void> {
-    await seedCompletedAdSweepRun(prisma, {
+    sweepGeneration += 1;
+    await seedAdReportWindow(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
-      generation: ++sweepGeneration,
-      window: {
-        startDate: adDay(1),
-        endDate: shiftBusinessDateKey(lastClosedDate(warningContext())!, -short),
-      },
+      start: adDay(1),
+      end: shiftBusinessDateKey(lastClosedDate(warningContext())!, -short),
     });
   }
 
@@ -830,7 +827,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     // and the listing carries a zero row on the order's day.
     const lossDay = midMonth().toISOString().slice(0, 10);
     await coverMonth();
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID, listingId, date: lossDay, spend: 0,
     });
 
@@ -874,7 +871,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       organizationId: TEST_ORGANIZATION_ID, externalOrderId: 'INV-T-C-1', orderedAt: midMonth().toISOString(),
       shippingPrice: 0, lineItems: [{ quantity: 1, totalPrice: 100_000, optionId: cOpt.id, listingOptionId: cList.listingOptionId }],
     });
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID, listingId: cList.listingId,
       date: midMonth().toISOString().slice(0, 10), spend: 20_000,
     });
@@ -934,7 +931,7 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
     /** Record ad rows for a listing on each named day of the month. */
     async function seedAdDays(listingId: string, days: readonly number[]): Promise<void> {
       for (const day of days) {
-        await seedAd(prisma, {
+        await seedListingAdDay(prisma, {
           organizationId: TEST_ORGANIZATION_ID, listingId, date: adDay(day), spend: 1_000,
         });
       }
@@ -1176,10 +1173,9 @@ describe('DashboardInventoryService.getSummary (PG integration)', () => {
       await seedCompletedOrderCoverageRun(prisma, {
         organizationId: TEST_ORGANIZATION_ID, startDate: '2026-08-01', endDate: '2026-08-31',
       });
-      await seedCompletedAdSweepRun(prisma, {
+      await seedAdReportWindow(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
-        generation: ++sweepGeneration,
-        window: { startDate: '2026-08-01', endDate: '2026-08-31' },
+        start: '2026-08-01', end: '2026-08-31',
       });
       const firstOfMonth = buildDashboardContext(
         undefined, undefined, undefined, new Date('2026-09-01T03:00:00.000Z'),

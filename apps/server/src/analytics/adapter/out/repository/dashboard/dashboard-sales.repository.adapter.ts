@@ -1,6 +1,7 @@
 import { AI_LISTING_CONTENT_QUERY_PORT, type ListingContentQueryPort } from '../../../../../content/application/port/in/workspace/listing-content-query.port';
 import { ownerTransaction } from '../../../../../prisma/owner-transaction';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../../channels/application/port/in/account/channel-account.port';
+import { ADVERTISING_LEDGER_READ_PORT, type AdvertisingLedgerReadPort } from '../../../../../advertising/application/port/in/capability/advertising-ledger-read.port';
 import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../../channels/application/port/in/listing/channel-listing-query.port';
 import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../../channels/application/port/in/channel-option-recipe.port';
 import { PRODUCT_ABC_READ_PORT, type ProductAbcReadPort } from '../../../../../products/application/port/in/product-abc-read.port';
@@ -110,6 +111,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
     private readonly productAbc: ProductAbcReadPort,
     @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
     @Inject(ORDER_COLLECTION_TODAY_ORDERS_PORT) private readonly todayOrders: OrderCollectionTodayOrdersPort,
+    @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
   ) {}
 
   /**
@@ -436,7 +438,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
       tx,
       organizationId,
       from,
-      to, this.channelAccounts
+      to, this.adLedger
     );
     const rows = await buildPerListingProfit(
       tx,
@@ -444,7 +446,7 @@ export class DashboardSalesRepositoryAdapter implements DashboardSalesRepository
       from,
       to,
       adEvidence,
-      this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent }
+      this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent, ads: this.adLedger }
     );
     return new Map(rows.map((row) => [row.listingId, row]));
   }

@@ -22,7 +22,10 @@ import {
 } from '../channels/application/port/in/channel-catalog-freshness.port';
 import { countPublishedCatalogListings } from '../channels/adapter/out/repository/completed-catalog-run';
 import { readSellpiaSalesDailyFacts } from '../analytics/sellpia-sales/read/sellpia-sales-daily-facts';
-import { readAdEvidenceCutoff, readAdWindowFacts } from '../advertising/adapter/out/persistence/read/ad-target-facts';
+import {
+  ADVERTISING_LEDGER_READ_PORT,
+  type AdvertisingLedgerReadPort,
+} from '../advertising/application/port/in/capability/advertising-ledger-read.port';
 import {
   ADVERTISING_KEYWORD_RANK_READ_PORT,
   type AdvertisingKeywordRankReadPort,
@@ -39,7 +42,7 @@ import type {
  *
  * Schema mapping (main 의 ChannelScrape* 계층):
  *  - 일별 매출 → SellpiaSalesDailySnapshot (셀피아 판매현황 수집 결과)
- *  - 쿠팡 광고 일별 → 캠페인 sweep이 선언한 창 (광고 target-일 원장 리더)
+ *  - 쿠팡 광고 일별 → 광고 보고서가 측정한 날 (광고 원장 capability의 coverage, KID-372)
  *  - Wing 판매순위 → CoupangWingSalesRankDailySnapshot
  *  - 상품 마스터 → MasterProduct
  *
@@ -55,6 +58,8 @@ export class ReadinessService {
     private readonly catalogFreshness: ChannelCatalogFreshnessPort,
     @Inject(ADVERTISING_KEYWORD_RANK_READ_PORT)
     private readonly keywordRank: AdvertisingKeywordRankReadPort,
+    @Inject(ADVERTISING_LEDGER_READ_PORT)
+    private readonly adLedger: Pick<AdvertisingLedgerReadPort, 'readAdCoverage' | 'readAdEvidenceCutoff'>,
   ) {}
 
   /**
@@ -131,9 +136,13 @@ export class ReadinessService {
     );
 
     // coupang_ads ends at the ad evidence cutoff: yesterday, unless every
-    // active account's newest complete sweep held yesterday as unreported.
+    // active account's newest succeeded ad report requested yesterday and
+    // held it as unreported (Advertising's rule).
     const adsCutoffKst = activeCoupangAccount
-      ? await readAdEvidenceCutoff(tx, { organizationId, closedDay: yesterdayKst }, this.channelAccounts)
+      ? parseBusinessDate(await this.adLedger.readAdEvidenceCutoff(ownerTransaction(tx), {
+          organizationId,
+          closedDay: businessDateKey(yesterdayKst),
+        })) ?? yesterdayKst
       : yesterdayKst;
     const adsCutoffKstStr = businessDateKey(adsCutoffKst);
     const adsLookbackStart = addDays(
@@ -144,13 +153,13 @@ export class ReadinessService {
     const adsExpectedDates = datesInclusive(adsLookbackStart, adsCutoffKst)
       .map(businessDateKey);
 
-    // coupang_ads — 캠페인 sweep이 보고한 영업일 (광고 원장 리더)
-    const adsDailyKpiPublished = activeCoupangAccount
-      ? await readAdWindowFacts(tx, {
-            organizationId,
-          from: adsLookbackStart,
-          to: addDays(adsCutoffKst, 1),
-          }, this.channelAccounts)
+    // coupang_ads — 광고 보고서가 측정한 날(활성 쿠팡 계정 모두의 성공 실행 창) vs 기대일
+    const adsCoverage = activeCoupangAccount
+      ? await this.adLedger.readAdCoverage(ownerTransaction(tx), {
+          organizationId,
+          from: adsRangeStartKstStr,
+          to: businessDateKey(addDays(adsCutoffKst, 1)),
+        })
       : null;
     const activeWingVendorRows = activeCoupangAccount
       ? await tx.channelListingOption.findMany({
@@ -205,10 +214,10 @@ export class ReadinessService {
     const sellpiaActualCutoff = sellpiaSortedDates[sellpiaSortedDates.length - 1] ?? null;
 
     // coupang_ads — 캠페인 sweep 선언 창의 영업일
-    const adsPresent = new Set((adsDailyKpiPublished?.days ?? []).map((r) => r.businessDate));
+    const adsPresent = new Set(adsCoverage?.measuredDates ?? []);
     const adsMissing = adsExpectedDates.filter((d) => !adsPresent.has(d));
     const adsLatestOk = adsPresent.has(adsCutoffKstStr);
-    const adsLastDate = adsDailyKpiPublished?.observedAt?.toISOString() ?? null;
+    const adsLastDate = adsCoverage?.observedAt?.toISOString() ?? null;
     const adsSortedDates = [...adsPresent].sort();
     const adsActualCutoff = adsSortedDates[adsSortedDates.length - 1] ?? null;
 

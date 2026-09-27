@@ -26,7 +26,7 @@ describe('product source correction (PostgreSQL)', () => {
       new ChannelAccountService(
         new ChannelAccountPersistenceAdapter(prisma as unknown as PrismaService, new ChannelsProductMappingGenerationAdapter(new ProductMappingGenerationRepositoryAdapter())),
         new ChannelCredentialsAdapter(),
-      ),
+      ), {} as never,
     );
     const query = {
       getProduct: (organizationId: string, id: string) => prisma.masterProduct.findFirstOrThrow({ where: { id, organizationId } }),

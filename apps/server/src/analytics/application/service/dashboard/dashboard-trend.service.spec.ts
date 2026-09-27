@@ -168,6 +168,7 @@ describe('DashboardTrendService daily profit basis', () => {
     wing.fetchDailyAds.mockResolvedValue([{
       date,
       ad_cost: 0,
+      profit_ad_cost: 0,
     }]);
 
     const result = await new DashboardTrendService(profit, trend, wing).getTrend(buildDashboardContext('week'), 'org-1');
@@ -245,7 +246,8 @@ describe('DashboardTrendService daily profit basis', () => {
     wing.fetchDailyTrend.mockResolvedValue([]);
     wing.fetchDailyAds.mockResolvedValue([{
       date,
-      ad_cost: 5,
+      ad_cost: 9,
+      profit_ad_cost: 5,
     }]);
 
     const result = await new DashboardTrendService(profit, trend, wing).getTrend(buildDashboardContext('week'), 'org-1');

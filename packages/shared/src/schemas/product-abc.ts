@@ -624,7 +624,6 @@ export const ProductAbcContributionBasisSchema = z.object({
   cutoffDate: CalendarDateSchema,
   sourceCutoffDate: CalendarDateSchema.nullable(),
   sellpiaOperationId: UuidSchema.nullable(),
-  advertisingSourceImportRunId: UuidSchema.nullable(),
 }).strict().superRefine((basis, context) => {
   if (basis.fromDate > basis.cutoffDate) {
     context.addIssue({

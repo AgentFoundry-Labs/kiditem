@@ -111,7 +111,6 @@ describe('ProductQueryUseCase', () => {
       basisFromDate: '2026-02-01',
       basisCutoffDate: '2026-08-31',
       sellpiaOperationId: '00000000-0000-4000-8000-000000000011',
-      advertisingSourceImportRunId: '00000000-0000-4000-8000-000000000012',
       masterProductIds: [productId],
     });
     expect(result.items[0]).toMatchObject({
@@ -288,8 +287,8 @@ describe('ProductQueryUseCase', () => {
       orderCount: 4,
       salesQuantity: 5,
       salesAmount: 35_000,
-      adSpend: 3_500,
-      adSpendRate: 10,
+      adCost: 3_500,
+      adCostRate: 10,
     });
     expect(result.summary).toMatchObject({
       reorderProductCount: 1,
@@ -668,8 +667,8 @@ function rawListProduct(id: string) {
     orderCount: 4,
     salesQuantity: 5,
     salesAmount: 35_000,
-    adSpend: 3_500,
-    adSpendRate: 10,
+    adCost: 3_500,
+    adCostRate: 10,
     metricsFreshness: {
       orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       traffic: {
@@ -802,7 +801,6 @@ function contributionAnalytics(): ProductAbcContributionAnalytics {
       cutoffDate: '2026-08-31',
       sourceCutoffDate: '2026-08-31',
       sellpiaOperationId: '00000000-0000-4000-8000-000000000011',
-      advertisingSourceImportRunId: '00000000-0000-4000-8000-000000000012',
     },
     totals: {
       revenue: 1_000_000,

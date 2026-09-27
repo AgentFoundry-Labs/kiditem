@@ -230,7 +230,7 @@ describe('StrategyContent account totals', () => {
           revenue: 0,
           impressions: 0,
           clicks: 0,
-          conversions: null,
+          conversions: 0,
           roas: null,
           ctr: null,
           cvr: null,

@@ -238,21 +238,28 @@ describe('analytics.sellpia_sales owner over the operation contract + disposable
     }
   });
 
-  it('요약은 매출·광고 날짜 교집합으로 이익을 내고 음수 이익을 지킨다', async () => {
+  it('요약은 매출·광고 날짜 교집합으로 이익을 내고, 광고비는 끝에 한 번 반올림하며 음수 조정일도 받는다', async () => {
     await collect({ startDate: '2026-07-14', endDate: '2026-07-16' }, [
       row('2026-07-14', 100, { amount: 1, buyPrice: 40 }),
       row('2026-07-15', 200, { amount: 2, buyPrice: 80 }),
       row('2026-07-16', 300, { amount: 3, buyPrice: 120 }),
     ]);
-    dailyAdsRead = [{ date: '2026-07-14', ad_cost: 110 }, { date: '2026-07-16', ad_cost: 230 }];
+    // Profit reads the billed, VAT-included cost (exact per day, rounded once over the range);
+    // the delivered ad_cost is a performance figure. A promotion adjustment can make a day negative.
+    dailyAdsRead = [
+      { date: '2026-07-14', ad_cost: 100, profit_ad_cost: 110.4 },
+      { date: '2026-07-15', ad_cost: 0, profit_ad_cost: -3.3 },
+      { date: '2026-07-16', ad_cost: 210, profit_ad_cost: 253.4 },
+    ];
     const response = await summary('2026-07-14', '2026-07-16');
+    // 110.4 − 3.3 + 253.4 = 360.5 → 361 (rounding each day would give 360).
     expect(response.body).toMatchObject({
       totalRevenue: 600,
       totalCost: 240,
-      adCost: 340,
-      netProfit: -100,
-      profitRate: -25,
-      profitInputs: { revenue: 400, cost: 160, adCost: 340, qty: 4, basis: { includedDates: ['2026-07-14', '2026-07-16'] } },
+      adCost: 361,
+      netProfit: -1,
+      profitRate: -0.2,
+      profitInputs: { revenue: 600, cost: 240, adCost: 361, qty: 6, basis: { includedDates: ['2026-07-14', '2026-07-15', '2026-07-16'] } },
     });
   });
 

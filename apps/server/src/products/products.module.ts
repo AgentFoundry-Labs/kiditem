@@ -1,3 +1,4 @@
+import { AdvertisingLedgerReadModule } from '../advertising/advertising-ledger-read.module';
 import { ChannelCatalogModule } from '../channels/channel-catalog.module';
 import { PRODUCT_SOURCE_BINDING_PORT } from './application/port/in/product-source-binding.port';
 import { CorrectProductSourceBindingUseCase } from './application/service/correct-product-source-binding.usecase';
@@ -28,6 +29,7 @@ import { PRODUCTS_CAPABILITY_COMPOSITION_PORT } from './application/port/in/capa
 
 @Module({
   imports: [ChannelCatalogModule,
+    AdvertisingLedgerReadModule,
     CategoriesModule,
     ProductSourceModule,
     AnalyticsModule,

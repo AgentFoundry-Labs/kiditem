@@ -14,14 +14,13 @@ import {
   seedBaseFixture,
 } from '../../../test-helpers/real-prisma';
 import {
-  seedAd,
-  seedCompletedAdSweepRun,
   seedOrderWithLineItems,
   seedCompletedOrderCollection,
   setupChannelListing,
   setupMaster,
   setupProductOption,
 } from '../../../test-helpers/finance-seeds';
+import { seedAdReportWindow, seedListingAdDay } from '../../../test-helpers/ad-ledger-seeds';
 import { seedPublishedProductAbcGrades } from '../../../products/__tests__/test-helpers/published-product-abc';
 import { PRODUCT_TRANSACTIONAL_READ_PORT } from '../../../products/application/port/in/product-transactional-read.port';
 import { ProductTransactionalReadRepositoryAdapter } from '../../../products/adapter/out/persistence/product-transactional-read.repository.adapter';
@@ -221,24 +220,22 @@ describe('Statistics flow (PG integration)', () => {
     });
     await prisma.order.update({ where: { id: o5 }, data: { receiverName: 'D' } });
 
-    const runId = await seedCompletedAdSweepRun(prisma, {
+    // Ad spend is billed × 1.1 in profit (KID-368): 3_300 on L1, 1_100 on L2.
+    await seedAdReportWindow(prisma, {
       organizationId,
-      generation: 1,
-      window: { startDate: '2026-04-01', endDate: '2026-04-30' },
+      start: '2026-04-01', end: '2026-04-30',
     });
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId,
       listingId: listingL1.listingId,
       date: '2026-04-15',
       spend: 3_000,
-      runId,
     });
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId,
       listingId: listingL2.listingId,
       date: '2026-04-15',
       spend: 1_000,
-      runId,
     });
 
     await seedCompletedOrderCollection(prisma, {
@@ -265,8 +262,8 @@ describe('Statistics flow (PG integration)', () => {
     expect(result).toMatchObject({
       totalRevenue: 52_000,
       totalOrders: 3,
-      totalProfit: 26_000,
-      avgMargin: 0.5,
+      totalProfit: 25_600,
+      avgMargin: 0.4923,
       totalProducts: 2,
     });
     expect(result.basis).not.toBeNull();
@@ -292,10 +289,10 @@ describe('Statistics flow (PG integration)', () => {
         grade: null,
         thumbnailUrl: 'https://cdn/m1.jpg',
         totalRevenue: 32_000,
-        netProfit: 15_000,
+        netProfit: 14_700,
         orderCount: 1,
-        profitRate: 0.4688,
-        margin: 0.4688,
+        profitRate: 0.4594,
+        margin: 0.4594,
       },
       {
         listingId: listingL2,
@@ -308,10 +305,10 @@ describe('Statistics flow (PG integration)', () => {
         grade: 'B',
         thumbnailUrl: null,
         totalRevenue: 20_000,
-        netProfit: 11_000,
+        netProfit: 10_900,
         orderCount: 2,
-        profitRate: 0.55,
-        margin: 0.55,
+        profitRate: 0.545,
+        margin: 0.545,
       },
     ]);
     expect(periodBasisStatus(result.basis!.profit)).toBe('complete');
@@ -326,12 +323,12 @@ describe('Statistics flow (PG integration)', () => {
     ]);
 
     expect(categories.rows).toEqual([
-      { category: '유아용품', name: '유아용품', revenue: 32_000, orders: 1, profit: 15_000, productCount: 1 },
-      { category: '완구', name: '완구', revenue: 20_000, orders: 2, profit: 11_000, productCount: 1 },
+      { category: '유아용품', name: '유아용품', revenue: 32_000, orders: 1, profit: 14_700, productCount: 1 },
+      { category: '완구', name: '완구', revenue: 20_000, orders: 2, profit: 10_900, productCount: 1 },
     ]);
     expect(grades.rows).toEqual([
-      { grade: 'N/A', revenue: 32_000, profit: 15_000, count: 1, adCost: 3_000 },
-      { grade: 'B', revenue: 20_000, profit: 11_000, count: 1, adCost: 1_000 },
+      { grade: 'N/A', revenue: 32_000, profit: 14_700, count: 1, adCost: 3_300 },
+      { grade: 'B', revenue: 20_000, profit: 10_900, count: 1, adCost: 1_100 },
     ]);
     expect(periodBasisStatus(categories.basis!.revenue)).toBe('complete');
     expect(periodBasisStatus(grades.basis!.adCost)).toBe('complete');
@@ -493,7 +490,7 @@ describe('Statistics flow (PG integration)', () => {
   it('never leaks other-organization live metrics into the requested tenant', async () => {
     await seedStatisticsFixture(TEST_ORGANIZATION_ID);
     const other = await seedStatisticsFixture(OTHER_ORGANIZATION_ID);
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: OTHER_ORGANIZATION_ID,
       listingId: other.listingL1,
       date: '2026-04-16',

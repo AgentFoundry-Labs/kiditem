@@ -14,7 +14,7 @@ function metrics(spend: number, revenue: number): AdMeasuredMetrics {
     revenue,
     impressions: 0,
     clicks: 0,
-    conversions: null,
+    conversions: 0,
     roas: spend > 0 ? (revenue / spend) * 100 : null,
     ctr: null,
     cvr: null,

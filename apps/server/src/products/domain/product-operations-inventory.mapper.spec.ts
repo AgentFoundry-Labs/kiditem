@@ -109,8 +109,8 @@ function rawListItem(): ProductOperationsRepositoryListItem {
     orderCount: null,
     salesQuantity: null,
     salesAmount: null,
-    adSpend: null,
-    adSpendRate: null,
+    adCost: null,
+    adCostRate: null,
     metricsFreshness: {
       orders: { ready: false, coverageStartDate: null, coverageEndDate: null, capturedAt: null },
       traffic: {

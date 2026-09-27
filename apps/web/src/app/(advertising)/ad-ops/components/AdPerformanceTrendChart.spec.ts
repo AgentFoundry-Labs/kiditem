@@ -25,7 +25,7 @@ const measured: AdMeasuredMetrics = {
   revenue: 5000,
   impressions: 100,
   clicks: 10,
-  conversions: null,
+  conversions: 0,
   roas: 500,
   ctr: 10,
   cvr: null,

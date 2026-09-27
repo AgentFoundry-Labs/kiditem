@@ -1,4 +1,4 @@
-import { profitCatalogTestReaders } from '../../../../../../test-helpers/channel-fact-ports';
+import { profitCatalogTestReaders, advertisingLedgerTestReader } from '../../../../../../test-helpers/channel-fact-ports';
 import { channelFactTestPorts } from '../../../../../../test-helpers/channel-fact-ports';
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import {
@@ -49,7 +49,7 @@ vi.mock(
 type SalesAdapterArgs = ConstructorParameters<typeof DashboardSalesRepositoryAdapter>;
 function salesRepository(prisma: SalesAdapterArgs[3], products: SalesAdapterArgs[4], abc: SalesAdapterArgs[5]) {
   const facts = channelFactTestPorts(prisma);
-  return new DashboardSalesRepositoryAdapter(facts.accounts, facts.listings, facts.recipes, prisma, products, abc, profitCatalogTestReaders(prisma as never).content, { readTodayOrders: async () => ({ total: null, byMall: {} }) });
+  return new DashboardSalesRepositoryAdapter(facts.accounts, facts.listings, facts.recipes, prisma, products, abc, profitCatalogTestReaders(prisma as never).content, { readTodayOrders: async () => ({ total: null, byMall: {} }) }, advertisingLedgerTestReader(prisma as never));
 }
 
 const mockedReadProductAbcPublication = vi.mocked(readProductAbcPublication);

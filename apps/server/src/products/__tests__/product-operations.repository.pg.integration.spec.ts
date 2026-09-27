@@ -20,11 +20,10 @@ import {
 } from '../../test-helpers/real-prisma';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';
 import {
-  seedAd,
-  seedCompletedAdSweepRun,
   seedCompletedOrderCollection,
   seedOrderWithLineItems,
 } from '../../test-helpers/finance-seeds';
+import { seedAdReportWindow, seedListingAdDay } from '../../test-helpers/ad-ledger-seeds';
 import { addDays, businessDateKey, evidenceCutoffDate, kstDayStart } from '../../common/kst';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository.adapter';
 import { ProductTransactionalReadRepositoryAdapter } from '../adapter/out/persistence/product-transactional-read.repository.adapter';
@@ -45,7 +44,7 @@ import { SellpiaMasterProductProfitFactReader } from '../../analytics/sellpia-pr
 import { ProfitabilityAdImportRepositoryAdapter } from '../../advertising/adapter/out/repository/profitability-ad-import.repository.adapter';
 import { SourceFailureAlerts } from '../../alerts/alerts.service';
 import type { PrismaService } from '../../prisma/prisma.service';
-import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts, advertisingLedgerTestReader } from '../../test-helpers/channel-fact-ports';
 import type { PrismaClient } from '@prisma/client';
 import { ChannelsProductMappingGenerationAdapter } from "../../channels/adapter/out/products/product-mapping-generation.adapter";
 import { ProductMappingGenerationRepositoryAdapter } from "../adapter/out/persistence/product-mapping-generation.repository.adapter";
@@ -95,7 +94,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         new ProductSourceReadUseCase(
           new ProductSourceReadRepositoryAdapter(prismaService),
         ),
-        channelAccounts,
+        channelAccounts, advertisingLedgerTestReader(prismaService),
       ),
       inventory,
       {
@@ -999,7 +998,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     });
   });
 
-  it('filters advertising by measured spend', async () => {
+  it('filters advertising by measured ad cost (billed × 1.1)', async () => {
     const spent = await seedProduct(TEST_ORGANIZATION_ID, {
       code: 'ADS-SPENT',
       name: 'Measured advertising',
@@ -1060,21 +1059,17 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       },
     });
     const cutoff = evidenceCutoffDate();
-    const runId = await seedCompletedAdSweepRun(prisma, {
+    await seedAdReportWindow(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId: account.id,
-      generation: 1,
-      window: {
-        startDate: businessDateKey(addDays(cutoff, -6)),
-        endDate: businessDateKey(cutoff),
-      },
+      start: businessDateKey(addDays(cutoff, -6)),
+      end: businessDateKey(cutoff),
     });
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       listingId: listing.id,
       date: businessDateKey(cutoff),
       spend: 5_000,
-      runId,
     });
     const query = { activeStatus: 'all', periodDays: 7 };
     const active = await service.listProducts(TEST_ORGANIZATION_ID, {
@@ -1086,30 +1081,27 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       adStatus: 'inactive',
     });
 
-    expect(active.items.map(({ id, adSpend }) => ({ id, adSpend })))
-      .toEqual([{ id: spent.id, adSpend: 5_000 }]);
-    expect(inactive.items.map(({ id, adSpend }) => ({ id, adSpend })))
-      .toEqual([{ id: zero.id, adSpend: 0 }]);
+    expect(active.items.map(({ id, adCost }) => ({ id, adCost })))
+      .toEqual([{ id: spent.id, adCost: 5_500 }]);
+    expect(inactive.items.map(({ id, adCost }) => ({ id, adCost })))
+      .toEqual([{ id: zero.id, adCost: 0 }]);
     expect(active.total).toBe(1);
     expect(inactive.total).toBe(1);
   });
 
-  it('ends the advertising window at the evidence cutoff while the sweep holds yesterday as unreported', async () => {
+  it('ends the advertising window at the evidence cutoff while the ad report holds yesterday as unreported', async () => {
     const { product, listing } = await linkedProductWithOptions('ADS-HELD', 1, 0, true);
-    // The newest complete sweep requested 2026-09-06 and held it back.
-    const heldSweep = await seedCompletedAdSweepRun(prisma, {
+    // The newest ad report requested yesterday (09-06) and held it: it confirmed through 09-05.
+    await seedAdReportWindow(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId: listing.channelAccountId,
-      generation: 1,
-      window: { startDate: '2026-08-30', endDate: '2026-09-05' },
-      requestedEndDate: '2026-09-06',
+      start: '2026-08-30', end: '2026-09-05', requestedEnd: '2026-09-06',
     });
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       listingId: listing.id,
       date: '2026-09-05',
       spend: 5_000,
-      runId: heldSweep,
     });
     const query = { activeStatus: 'all', periodDays: 7 } as const;
     vi.useFakeTimers({ toFake: ['Date'] });
@@ -1118,29 +1110,28 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       vi.setSystemTime(new Date('2026-09-07T03:00:00.000Z'));
       const held = await service.listProducts(TEST_ORGANIZATION_ID, query);
       expect(held.items.find(({ id }) => id === product.id)).toMatchObject({
-        adSpend: 5_000,
+        adCost: 5_500,
         metricsFreshness: {
           advertising: { ready: true, coverageStartDate: '2026-08-30', coverageEndDate: '2026-09-05' },
         },
       });
 
-      // A later sweep that saw yesterday's spend confirms it.
-      const reportedSweep = await seedCompletedAdSweepRun(prisma, {
+      // A later report confirms yesterday; it replaces the rows of its window.
+      await seedAdReportWindow(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: listing.channelAccountId,
-        generation: 2,
-        window: { startDate: '2026-08-31', endDate: '2026-09-06' },
+        start: '2026-08-31', end: '2026-09-06',
       });
-      await seedAd(prisma, {
+      await prisma.channelAdProductDailySnapshot.deleteMany({ where: { organizationId: TEST_ORGANIZATION_ID } });
+      await seedListingAdDay(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
         listingId: listing.id,
         date: '2026-09-06',
         spend: 7_000,
-        runId: reportedSweep,
       });
       const reported = await service.listProducts(TEST_ORGANIZATION_ID, query);
       expect(reported.items.find(({ id }) => id === product.id)).toMatchObject({
-        adSpend: 7_000,
+        adCost: 7_700,
         metricsFreshness: {
           advertising: { ready: true, coverageStartDate: '2026-08-31', coverageEndDate: '2026-09-06' },
         },
@@ -1150,7 +1141,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
     }
   });
 
-  it('withholds the ad spend rate while the ad window and the sales window end on different days', async () => {
+  it('withholds the ad cost rate while the ad window and the sales window end on different days', async () => {
     const { product, listing, options } = await linkedProductWithOptions('ADS-RATE', 1, 0, true);
     const order = await seedOrderWithLineItems(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
@@ -1169,20 +1160,17 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       endDate: '2026-09-06',
       orderIds: [order],
     });
-    // The sweep held yesterday (2026-09-06), so ads close a day before sales.
-    const heldSweep = await seedCompletedAdSweepRun(prisma, {
+    // The ad report requested yesterday (2026-09-06) and held it, so ads close a day before sales.
+    await seedAdReportWindow(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       channelAccountId: listing.channelAccountId,
-      generation: 1,
-      window: { startDate: '2026-08-30', endDate: '2026-09-05' },
-      requestedEndDate: '2026-09-06',
+      start: '2026-08-30', end: '2026-09-05', requestedEnd: '2026-09-06',
     });
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       listingId: listing.id,
       date: '2026-09-03',
       spend: 2_000,
-      runId: heldSweep,
     });
     const query = {
       page: 1,
@@ -1198,33 +1186,26 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       const held = await service.listProducts(TEST_ORGANIZATION_ID, query);
       expect(held.items.find(({ id }) => id === product.id)).toMatchObject({
         salesAmount: 20_000,
-        adSpend: 2_000,
-        adSpendRate: null,
+        adCost: 2_200,
+        adCostRate: null,
         metricsFreshness: {
           advertising: { ready: true, coverageStartDate: '2026-08-30', coverageEndDate: '2026-09-05' },
           orders: { ready: true, coverageStartDate: '2026-08-31', coverageEndDate: '2026-09-06' },
         },
       });
 
-      // A later sweep confirms yesterday, so both windows cover the same dates.
-      const reportedSweep = await seedCompletedAdSweepRun(prisma, {
+      // A later report confirms yesterday, so both windows cover the same dates.
+      await seedAdReportWindow(prisma, {
         organizationId: TEST_ORGANIZATION_ID,
         channelAccountId: listing.channelAccountId,
-        generation: 2,
-        window: { startDate: '2026-08-31', endDate: '2026-09-06' },
-      });
-      await seedAd(prisma, {
-        organizationId: TEST_ORGANIZATION_ID,
-        listingId: listing.id,
-        date: '2026-09-03',
-        spend: 2_000,
-        runId: reportedSweep,
+        start: '2026-08-31', end: '2026-09-06',
       });
       const reported = await service.listProducts(TEST_ORGANIZATION_ID, query);
       expect(reported.items.find(({ id }) => id === product.id)).toMatchObject({
         salesAmount: 20_000,
-        adSpend: 2_000,
-        adSpendRate: 10,
+        // 2,200 / 20,000 (2,000 billed × 1.1).
+        adCost: 2_200,
+        adCostRate: 11,
         metricsFreshness: {
           advertising: { ready: true, coverageStartDate: '2026-08-31', coverageEndDate: '2026-09-06' },
           orders: { ready: true, coverageStartDate: '2026-08-31', coverageEndDate: '2026-09-06' },
@@ -1296,7 +1277,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
         },
       },
     });
-    await seedAd(prisma, {
+    await seedListingAdDay(prisma, {
       organizationId: TEST_ORGANIZATION_ID,
       listingId: listing.id,
       date: businessDate,
@@ -1334,7 +1315,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       traffic: null,
       orderCount: null,
       salesAmount: null,
-      adSpend: null,
+      adCost: null,
       abcEvaluation: null,
     });
     // Wing confirmed only yesterday, so views and cart adds sum that one day.
@@ -1347,7 +1328,7 @@ describe('ProductOperationsRepositoryAdapter (PG integration)', () => {
       orderCount: null,
       salesQuantity: null,
       salesAmount: null,
-      adSpend: null,
+      adCost: null,
       abcEvaluation: null,
     });
     expect(periodBasisStatus(byId.get(withFacts.id)!.metricsFreshness.traffic.basis)).toBe('partial');

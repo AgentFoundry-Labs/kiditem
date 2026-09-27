@@ -87,8 +87,7 @@ import { KEYWORD_RELEVANCE_JUDGE_PORT } from "./application/port/out/cross-domai
 import { KIDITEM_STOREFRONT_PORT } from "./application/port/out/provider/kiditem-storefront.port";
 import { COUPANG_MOMENTUM_READ_CAPABILITY_PORT } from "./application/port/in/capability/coupang-momentum-read.port";
 import { ADVERTISING_HUB_READ_PORT } from "./application/port/in/advertising-hub-read.port";
-import { ADVERTISING_LEDGER_READ_PORT } from "./application/port/in/capability/advertising-ledger-read.port";
-import { AdvertisingLedgerReadService } from "./application/service/advertising-ledger-read.service";
+import { AdvertisingLedgerReadModule } from "./advertising-ledger-read.module";
 import { AD_LEDGER_READ_REPOSITORY_PORT } from "./application/port/out/repository/ad-ledger-read.repository.port";
 import { AdLedgerReadPersistenceAdapter } from "./adapter/out/persistence/ad-ledger-read.persistence.adapter";
 
@@ -148,6 +147,7 @@ const REPOSITORY_PORT_BINDINGS = [
     ChannelsModule,
     AdvertisingProfitabilityReadModule,
     OperationModule,
+    AdvertisingLedgerReadModule,
   ],
   controllers: [
     AdvertisingConfigController,
@@ -233,7 +233,6 @@ const REPOSITORY_PORT_BINDINGS = [
     CompetitorTrackingService,
     WingTrackedProductService,
     CoupangMomentumReadService,
-    AdvertisingLedgerReadService,
     // application/service — source-owner support
     KeywordRankIngestHandler,
     WingSalesRankIngestHandler,
@@ -247,17 +246,13 @@ const REPOSITORY_PORT_BINDINGS = [
       provide: ADVERTISING_HUB_READ_PORT,
       useExisting: AdvertisingService,
     },
-    {
-      provide: ADVERTISING_LEDGER_READ_PORT,
-      useExisting: AdvertisingLedgerReadService,
-    },
   ],
   // Published cross-domain read capability (consumed by sourcing).
   exports: [
     COUPANG_MOMENTUM_READ_CAPABILITY_PORT,
     AD_TRAFFIC_READ_PORT,
     ADVERTISING_HUB_READ_PORT,
-    ADVERTISING_LEDGER_READ_PORT,
+    AdvertisingLedgerReadModule,
   ],
 })
 export class AdvertisingModule {}

@@ -31,7 +31,7 @@ import {
 } from '../../test-helpers/real-prisma';
 import { MasterProductAbcRepositoryAdapter } from '../adapter/out/persistence/master-product-abc.repository.adapter';
 import { ChannelOptionRecipeRepositoryAdapter } from '../../channels/adapter/out/persistence/channel-option-recipe.repository.adapter';
-import { channelFactTestPorts } from '../../test-helpers/channel-fact-ports';
+import { channelFactTestPorts, advertisingLedgerTestReader } from '../../test-helpers/channel-fact-ports';
 import { ProductOperationsDataStatusRepositoryAdapter } from '../adapter/out/persistence/product-operations-data-status.repository.adapter';
 import { ProductOperationsRepositoryAdapter } from '../adapter/out/persistence/product-operations.repository.adapter';
 import { RecalculateProductAbcUseCase } from '../application/service/recalculate-product-abc.usecase';
@@ -119,7 +119,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
         new ProductSourceReadUseCase(
           new ProductSourceReadRepositoryAdapter(prismaService),
         ),
-        channelAccounts,
+        channelAccounts, advertisingLedgerTestReader(prismaService),
       ),
       inventory,
       new SellpiaProductSalesService(prismaService, inventoryReader),
@@ -131,7 +131,7 @@ describe('Products recipe to ABC public reads (PostgreSQL)', () => {
         channelAccounts,
       ),
       new MasterProductContributionReadService(
-        new MasterProductContributionRepositoryAdapter(prismaService, new ProductTransactionalReadRepositoryAdapter()),
+        new MasterProductContributionRepositoryAdapter(prismaService, new ProductTransactionalReadRepositoryAdapter(), advertisingLedgerTestReader(prismaService)),
       ),
       new SellpiaMasterProductProfitFactReader(prismaService),
     );

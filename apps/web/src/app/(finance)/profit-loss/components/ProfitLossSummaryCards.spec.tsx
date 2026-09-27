@@ -14,6 +14,7 @@ const allocated: FinanceWindowTotals = {
   adCostRate: 10,
   unallocatedAdCost: 0,
   adAccountAdjustment: null,
+  unmatchedAdCost: null,
   unallocatedShipping: 0,
 };
 
@@ -54,8 +55,7 @@ describe('ProfitLossSummaryCards account adjustment', () => {
     expect(screen.queryByText(/계정 조정 광고비/)).toBeNull();
     unmount();
 
-    const { adAccountAdjustment: _omitted, ...withoutAdjustment } = allocated;
-    render(<ProfitLossSummaryCards totals={withoutAdjustment} />);
+    render(<ProfitLossSummaryCards totals={{ ...allocated, adAccountAdjustment: null }} />);
     expect(screen.queryByText(/계정 조정 광고비/)).toBeNull();
   });
 

@@ -1,5 +1,6 @@
 import { AI_LISTING_CONTENT_QUERY_PORT, type ListingContentQueryPort } from '../../../../content/application/port/in/workspace/listing-content-query.port';
 import { CHANNEL_ACCOUNT_PORT, type ChannelAccountPort } from '../../../../channels/application/port/in/account/channel-account.port';
+import { ADVERTISING_LEDGER_READ_PORT, type AdvertisingLedgerReadPort } from '../../../application/port/in/capability/advertising-ledger-read.port';
 import { ownerTransaction } from '../../../../prisma/owner-transaction';
 import { CHANNEL_OPTION_RECIPE_PORT, type ChannelOptionRecipePort } from '../../../../channels/application/port/in/channel-option-recipe.port';
 import { CHANNEL_LISTING_QUERY_PORT, type ChannelListingQueryPort } from '../../../../channels/application/port/in/listing/channel-listing-query.port';
@@ -56,6 +57,7 @@ export class AdStrategyContextRepositoryAdapter
     @Inject(CHANNEL_ACCOUNT_PORT) private readonly channelAccounts: ChannelAccountPort,
     @Inject(AI_LISTING_CONTENT_QUERY_PORT) private readonly listingContent: ListingContentQueryPort,
     @Inject(AD_LEDGER_READ_REPOSITORY_PORT) private readonly ledger: AdLedgerReadRepositoryPort,
+    @Inject(ADVERTISING_LEDGER_READ_PORT) private readonly adLedger: AdvertisingLedgerReadPort,
   ) {}
 
   async loadStrategyContext(
@@ -122,7 +124,7 @@ export class AdStrategyContextRepositoryAdapter
       tx,
       organizationId,
       profitWindow.from,
-      profitWindow.to, this.channelAccounts
+      profitWindow.to, this.adLedger
     );
     const coverage = await buildPerListingMetricsCoverage(
       tx,
@@ -131,7 +133,7 @@ export class AdStrategyContextRepositoryAdapter
       profitWindow.to,
       accountAdEvidence,
       listingIdSet,
-      this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent }
+      this.inventoryTransactionalRead, { listings: this.channelListings, recipes: this.channelRecipes, accounts: this.channelAccounts, content: this.listingContent, ads: this.adLedger }
     );
     const channelStateByListing = await this.loadChannelStateByListingIn(
       tx,
