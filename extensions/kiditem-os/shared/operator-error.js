@@ -414,6 +414,13 @@
       "text": "등록 설정이 그사이 바뀌었습니다. 새로고침한 뒤 다시 시도해 주세요.",
       "retryable": true
     },
+    "CHANNELS_REGISTRATION_NOT_FOUND_ON_MALL": {
+      "owner": "channels",
+      "kind": "not_found",
+      "httpStatus": 404,
+      "text": "운영자가 몰에서 등록되지 않았다고 확인했습니다.",
+      "retryable": false
+    },
     "CHANNELS_EXECUTION_NOT_FOUND": {
       "owner": "channels",
       "kind": "not_found",
