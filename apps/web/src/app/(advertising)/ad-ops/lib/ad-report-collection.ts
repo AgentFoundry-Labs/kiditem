@@ -17,6 +17,7 @@ import type { QueryKey } from '@tanstack/react-query';
 import type { CollectionSourceAdapter } from '@/hooks/use-collection-source-control';
 import { apiClient } from '@/lib/api-client';
 import { collectionSourceStatusQueryOptions } from '@/lib/collection-source-status-query';
+import { noteOperationLoginFailureForMall, operationLoginOptions, WING_LOGIN_MALL_KEY } from '@/lib/operation-login';
 import { requestOperationCancel, requestOperationStart } from '@/lib/operation-start';
 import { queryKeys } from '@/lib/query-keys';
 import { isLiveOperation, refreshedOperations, resolvePrimaryCoupangAccountId } from '@/lib/wing-daily-operations';
@@ -57,7 +58,12 @@ export const adReportCollection: CollectionSourceAdapter<OperationListResponse> 
   label: '광고 보고서',
   statusQuery: collectionSourceStatusQueryOptions<OperationListResponse, Error, OperationListResponse, QueryKey>({
     queryKey: adReportOperationsQueryKey,
-    queryFn: async ({ client }) => ({ operations: await refreshedOperations(client, adReportOperationsQueryKey, OPERATIONS_PATH) }),
+    queryFn: async ({ client }) => {
+      const operations = await refreshedOperations(client, adReportOperationsQueryKey, OPERATIONS_PATH);
+      // 광고센터는 쿠팡 윙과 같은 저장 자격으로 로그인한다. 그 자격이 거절됐으면 윙 자동 로그인을 멈춘다(계정 잠금 방지, KID-377).
+      if (operations[0]) noteOperationLoginFailureForMall(WING_LOGIN_MALL_KEY, operations[0]);
+      return { operations };
+    },
     refetchInterval: (query) => ((query.state.data?.operations ?? []).some(isLiveOperation) ? RUNNING_POLL_MS : false),
     meta: { suppressGlobalErrorToast: true },
   }),
@@ -70,7 +76,11 @@ export const adReportCollection: CollectionSourceAdapter<OperationListResponse> 
   readStatusIdentity: (status) => status.operations.map((operation) => `${operation.id}:${operation.status}`).join(','),
   start: async () => {
     const channelAccountId = await resolvePrimaryCoupangAccountId();
-    const outcome = await requestOperationStart(AD_REPORT_KIND, { channelAccountId }, { capability: ADVERTISING_AD_REPORT_OPERATION_CAPABILITY });
+    // 광고센터 로그인 폼은 윙과 같은 두 칸이라 대표 윙 계정의 저장 자격을 싣는다(operationLoginV1 빌드만 받는다).
+    const outcome = await requestOperationStart(AD_REPORT_KIND, { channelAccountId }, {
+      capability: ADVERTISING_AD_REPORT_OPERATION_CAPABILITY,
+      ...(await operationLoginOptions(WING_LOGIN_MALL_KEY)),
+    });
     if (outcome.outcome === 'refused') return outcome;
     return { outcome: outcome.outcome, attemptId: outcome.operationId };
   },

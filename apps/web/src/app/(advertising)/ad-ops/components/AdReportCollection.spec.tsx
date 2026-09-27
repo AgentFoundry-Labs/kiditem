@@ -80,6 +80,7 @@ function renderCollection(client = new QueryClient({ defaultOptions: { queries: 
 
 beforeEach(() => {
   vi.clearAllMocks();
+  window.localStorage.clear();
   operations = [];
   extensionReplies = {
     ping: () => ({ success: true, capabilities: { operationRuntime: true, advertisingAdReportOperationKindV1: true } }),
@@ -99,6 +100,7 @@ beforeEach(() => {
       const found = operations.find((entry) => entry.id === path.slice('/api/operations/'.length));
       if (found) return { operation: found };
     }
+    if (path === '/api/orders/collection/malls/coupang/password') return { key: 'coupang', loginId: 'fake-wing-id', supplierLoginId: null, password: 'fake-wing-password' };
     if (path === '/api/channels/accounts') {
       return [{ id: ACCOUNT_ID, channel: 'coupang', name: 'Wing', externalAccountId: null, vendorId: 'A001', sellerId: null, isPrimary: true }];
     }
@@ -124,6 +126,48 @@ describe('AdReportCollection', () => {
     const starts = vi.mocked(sendToExtension).mock.calls.map(([, message]) => message)
       .filter((message) => (message as { action: string }).action === 'operation.start');
     expect(starts).toEqual([{ action: 'operation.start', kind: 'advertising.ad_report', scope: { channelAccountId: ACCOUNT_ID } }]);
+  });
+
+  it('carries the stored Coupang login so the extension can fill the ad center login form', async () => {
+    extensionReplies.ping = () => ({ success: true, capabilities: { operationRuntime: true, operationLoginV1: true, advertisingAdReportOperationKindV1: true } });
+    extensionReplies['operation.start'] = () => {
+      operations = [operation('executing')];
+      return { success: true, operationId: OPERATION_ID, reused: false };
+    };
+    renderCollection();
+
+    fireEvent.click(await screen.findByRole('button', { name: '광고 보고서 수집' }));
+
+    expect(await screen.findByText('수집 중 · 2026-09-12 ~ 2026-09-26')).toBeInTheDocument();
+    const starts = vi.mocked(sendToExtension).mock.calls.map(([, message]) => message)
+      .filter((message) => (message as { action: string }).action === 'operation.start');
+    expect(starts).toEqual([{
+      action: 'operation.start',
+      kind: 'advertising.ad_report',
+      scope: { channelAccountId: ACCOUNT_ID },
+      credentials: { loginId: 'fake-wing-id', password: 'fake-wing-password' },
+    }]);
+  });
+
+  it('stops sending the stored login after the ad center rejected it, so the account is not locked', async () => {
+    operations = [{
+      ...operation('failed', { errorCode: 'SITE_LOGIN_REQUIRED', operationResult: { login: { reason: 'credentials_rejected' } } }),
+      finishedAt: new Date().toISOString(),
+    }];
+    extensionReplies.ping = () => ({
+      success: true,
+      capabilities: { operationRuntime: true, operationLoginV1: true, operationLoginBlockedV1: true, advertisingAdReportOperationKindV1: true },
+    });
+    extensionReplies['operation.start'] = () => ({ success: true, operationId: NEXT_OPERATION_ID, reused: false });
+    renderCollection();
+    expect(await screen.findByTestId('ad-report-failure')).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole('button', { name: '광고 보고서 수집' }));
+
+    await waitFor(() => expect(vi.mocked(sendToExtension).mock.calls.some(([, message]) => (message as { action: string }).action === 'operation.start')).toBe(true));
+    const start = vi.mocked(sendToExtension).mock.calls.map(([, message]) => message)
+      .find((message) => (message as { action: string }).action === 'operation.start');
+    expect(start).toEqual({ action: 'operation.start', kind: 'advertising.ad_report', scope: { channelAccountId: ACCOUNT_ID }, loginBlocked: true });
   });
 
   it('refuses to start on an extension build without the ad report kind', async () => {
