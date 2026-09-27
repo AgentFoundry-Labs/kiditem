@@ -7,6 +7,8 @@ import {
   sendMallAvailability,
   sendMallPrice,
   type AvailabilityContext,
+  type AvailabilitySendAnswer,
+  type PriceSendAnswer,
 } from './availability';
 import type { Fetch } from './images';
 
@@ -65,12 +67,31 @@ export function availabilityHarness(options: AvailabilityHarnessOptions) {
       sleeps.push(ms);
     },
   };
-  const context: AvailabilityContext = availabilityContext(module, deps as never, options.lease ?? { credentials: null } as never);
+  const lease = options.lease ?? ({ credentials: null } as never);
+  const context: AvailabilityContext = availabilityContext(module, deps as never, lease);
+  // 옛 스펙처럼 부를 때마다 몰 키를 줄 수 있다(지마켓·옥션이 가짜 ESM 하나를 같이 쓴다).
+  const target = (mallKey?: string) => {
+    const chosen = mallKey ? mallAvailabilityFor(mallKey) : module;
+    if (!chosen) return null;
+    return { module: chosen, context: chosen === module ? context : availabilityContext(chosen, deps as never, lease) };
+  };
+  const unknown = (mallKey?: string) => ({ success: false as const, error: `모르는 몰입니다: ${mallKey}` });
   const api = {
-    send: (msg: { codes: string[]; resume?: boolean; options?: Record<string, string[]> | null; expectedProviderAccountId?: string | null }) =>
-      sendMallAvailability(module, context, { codes: msg.codes, resume: msg.resume === true, options: msg.options ?? null, expectedProviderAccountId: msg.expectedProviderAccountId ?? null }),
-    read: (msg: { codes: string[] }) => readMallAvailability(module, context, msg.codes),
-    sendPrice: (msg: { items: Array<{ code: string; price: number; ifPrice?: number | null }> }) => sendMallPrice(module, context, msg.items),
+    send: async (msg: { mallKey?: string; codes: string[]; resume?: boolean; options?: Record<string, string[]> | null; expectedProviderAccountId?: string | null }) => {
+      const chosen = target(msg.mallKey);
+      if (!chosen) return unknown(msg.mallKey) as AvailabilitySendAnswer;
+      return sendMallAvailability(chosen.module, chosen.context, {
+        codes: msg.codes, resume: msg.resume === true, options: msg.options ?? null, expectedProviderAccountId: msg.expectedProviderAccountId ?? null,
+      });
+    },
+    read: async (msg: { mallKey?: string; codes: string[] }) => {
+      const chosen = target(msg.mallKey);
+      return chosen ? readMallAvailability(chosen.module, chosen.context, msg.codes) : unknown(msg.mallKey);
+    },
+    sendPrice: async (msg: { mallKey?: string; items: Array<{ code: string; price: number; ifPrice?: number | null }> }) => {
+      const chosen = target(msg.mallKey);
+      return chosen ? sendMallPrice(chosen.module, chosen.context, msg.items) : (unknown(msg.mallKey) as PriceSendAnswer);
+    },
   };
   return { api, module, context, calls, sleeps, log: fake.log, guards: fake.guards };
 }
@@ -83,12 +104,15 @@ function loadPageCalls(sources: readonly string[], page: Record<string, unknown>
   if (sources.length === 0) return {};
   const scope: Record<string, unknown> = { ...page };
   scope.globalThis = scope;
-  scope.window = scope;
+  // 화면 전역 `window`를 스펙이 주면(스마트스토어 Angular) 그 객체다 — MAIN 파일이 처리기를 거기에 둔다.
+  const window = (page.window as Record<string, unknown> | undefined) ?? scope;
+  scope.window = window;
   scope.self = scope;
   const names = Object.keys(scope);
   for (const source of sources) new Function(...names, source)(...names.map((name) => scope[name]));
   return {
     ...(scope.__kiditemIsolatedPageCalls as Record<string, (args: unknown) => unknown> | undefined),
     ...(scope.__kiditemPageCalls as Record<string, (args: unknown) => unknown> | undefined),
+    ...(window.__kiditemPageCalls as Record<string, (args: unknown) => unknown> | undefined),
   };
 }

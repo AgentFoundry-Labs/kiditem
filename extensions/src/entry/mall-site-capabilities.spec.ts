@@ -30,6 +30,12 @@ describe('mall write capabilities (KID-256)', () => {
     expect(capabilities['mallWriteSite.sellpia']).toBeUndefined();
   });
 
+  it('등록 폼이 없어도 판매 상태 모듈만 있는 몰(옥션)과 쿠팡 윙도 싣는다', () => {
+    const capabilities = mallWriteCapabilities();
+    expect(capabilities['mallWriteSite.auction']).toBe(true);
+    expect(capabilities['mallWriteSite.coupang']).toBe(true);
+  });
+
   it('쓰기 모듈이 없는 몰은 싣지 않는다', () => {
     expect(mallWriteCapabilities([{ mallKey: 'onch' }])).toEqual({ 'mallWriteSite.onch': true });
   });
