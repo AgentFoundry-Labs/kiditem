@@ -85,7 +85,8 @@ export function mallOrdersOrderCount(input: Readonly<{
   conversion: Readonly<{ outputRows: number | null; productRows: number | null }> | null;
   orderNumbers?: readonly string[];
 }>): number {
-  if (!input.conversion) return 0;
+  // 변환 결과가 0줄이면 화면이 "신규 주문 없음"이라 말한다 — 주문번호로 세지 않는다(리뷰 SHOULD 4).
+  if (!input.conversion || (input.conversion.outputRows ?? 0) === 0) return 0;
   if (MALL_ORDERS_COUNT_BY_ORDER_NUMBERS.includes(input.mallKey) && input.orderNumbers) return input.orderNumbers.length;
   return orderCollectionOrderCount(input.conversion) ?? 0;
 }

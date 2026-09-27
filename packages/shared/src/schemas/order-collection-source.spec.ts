@@ -18,5 +18,8 @@ describe('order collection order count', () => {
     expect(mallOrdersOrderCount({ mallKey: 'kidkids', conversion: { outputRows: 7, productRows: 4 }, orderNumbers: ['a', 'b', 'c', 'd'] })).toBe(3);
     expect(mallOrdersOrderCount({ mallKey: 'haebub-mall', conversion: null, orderNumbers: ['1001'] })).toBe(0);
     expect(mallOrdersOrderCount({ mallKey: 'kidkids', conversion: { outputRows: null, productRows: null } })).toBe(0);
+    // 변환 결과가 0줄이면(카드가 "신규 주문 없음") 주문번호가 있어도 0이다(리뷰 SHOULD 4).
+    expect(mallOrdersOrderCount({ mallKey: 'haebub-mall', conversion: { outputRows: 0, productRows: 0 }, orderNumbers: ['1001'] })).toBe(0);
+    expect(mallOrdersOrderCount({ mallKey: 'art09', conversion: { outputRows: null, productRows: null }, orderNumbers: ['1'] })).toBe(0);
   });
 });
