@@ -235,7 +235,7 @@ async function readAdWindowEvidence(
   organizationId: string,
   from: Date,
   to: Date,
-  ads: ProfitAdReader,
+  ads: Pick<ProfitAdReader, 'advertisingApplies' | 'readAdWindowFacts'>,
 ): Promise<AdWindowEvidence> {
   const businessDateFrom = kstBusinessDate(from);
   const businessDateTo = kstBusinessDate(to);
@@ -276,7 +276,7 @@ export async function readAdEvidenceFromLedger(
   ads: Pick<ProfitAdReader, 'advertisingApplies' | 'readAdWindowFacts'>,
 ): Promise<AccountAdEvidence> {
   const { requestedDates: _requested, measuredDates: _measured, ...evidence } =
-    await readAdWindowEvidence(tx, organizationId, from, to, ads as ProfitAdReader);
+    await readAdWindowEvidence(tx, organizationId, from, to, ads);
   return evidence;
 }
 

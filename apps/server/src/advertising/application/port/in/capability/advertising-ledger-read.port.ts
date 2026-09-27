@@ -61,7 +61,10 @@ export type AdListingWindowFacts = Readonly<{
   units: number;
 }>;
 
-/** 원천상품 한 달 광고비 배분(기여이익, 읽을 때 계산). 리스팅 광고비를 확정 레시피 무게로 원천상품에 나눈다. */
+/**
+ * 원천상품 한 달 광고비 배분(기여이익, 읽을 때 계산). 측정한 날의 리스팅 광고비를 현재 확정 레시피 무게로 원천상품에 나눈다.
+ * 계정 조정(캠페인 키 '')·리스팅에 못 맞춘 상품 행·레시피 없는 리스팅은 배분하지 않는다.
+ */
 export type MonthlyAdAllocation = Readonly<{
   masterProductId: string;
   channelListingId: string;

@@ -92,6 +92,8 @@ import { KIDITEM_STOREFRONT_PORT } from "./application/port/out/provider/kiditem
 import { COUPANG_MOMENTUM_READ_CAPABILITY_PORT } from "./application/port/in/capability/coupang-momentum-read.port";
 import { ADVERTISING_HUB_READ_PORT } from "./application/port/in/advertising-hub-read.port";
 import { AdvertisingLedgerReadModule } from "./advertising-ledger-read.module";
+import { AD_LEDGER_READ_REPOSITORY_PORT } from "./application/port/out/repository/ad-ledger-read.repository.port";
+import { AdLedgerReadPersistenceAdapter } from "./adapter/out/persistence/ad-ledger-read.persistence.adapter";
 
 // `application/port/out/*` ports bound to their adapters via `useExisting`
 // so application services depend on tokens, not concrete classes. Mirrors
@@ -207,6 +209,11 @@ const REPOSITORY_PORT_BINDINGS = [
     {
       provide: AD_REPORT_OPERATION_REPOSITORY_PORT,
       useExisting: AdReportOperationRepository,
+    },
+    AdLedgerReadPersistenceAdapter,
+    {
+      provide: AD_LEDGER_READ_REPOSITORY_PORT,
+      useExisting: AdLedgerReadPersistenceAdapter,
     },
     AdReportOperationOwner,
     WingTrafficReadRepository,
