@@ -23,7 +23,7 @@ import {
   seedCompletedAdSweepRun,
   seedCompletedOrderCoverageRun,
 } from '../../test-helpers/finance-seeds';
-import { seedAdListingDay } from '../../test-helpers/ad-ledger-listing-seeds';
+import { seedAdListingDay } from '../../test-helpers/__tests__/ad-ledger-listing-seeds';
 import { seedAdReportRun } from '../../test-helpers/ad-ledger-seeds';
 import { seedPublishedProductAbcGrades } from '../../products/__tests__/test-helpers/published-product-abc';
 import { seedSourceProduct } from '../../test-helpers/inventory-seeds';

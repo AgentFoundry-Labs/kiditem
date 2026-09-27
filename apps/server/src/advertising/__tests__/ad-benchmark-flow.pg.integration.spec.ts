@@ -12,7 +12,7 @@ import {
   TEST_ORGANIZATION_ID,
   OTHER_ORGANIZATION_ID,
 } from '../../test-helpers/real-prisma';
-import { seedAdListingDay } from '../../test-helpers/ad-ledger-listing-seeds';
+import { seedAdListingDay } from '../../test-helpers/__tests__/ad-ledger-listing-seeds';
 
 describe('AdBenchmark flow (PG integration)', () => {
   let prisma: PrismaClient;
