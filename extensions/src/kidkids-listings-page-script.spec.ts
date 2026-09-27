@@ -27,7 +27,8 @@ function load(listHtml: string, response: { status?: number; contentType?: strin
     }
   }
   new Function('globalThis', 'fetch', 'location', 'TextDecoder', source)(isolated, fetch, new URL(`${ORIGIN}/sales/goods_list_renewal.htm`), Utf8AsEucKr);
-  return (isolated.__kiditemIsolatedPageCalls as Record<string, (args: unknown) => Promise<Record<string, unknown>>>)['kidkids.listings']!;
+  const handler = (isolated.__kiditemIsolatedPageCalls as Record<string, (args: unknown) => Promise<Record<string, unknown>>>)['kidkids.listings']!;
+  return Object.assign(handler, { labels });
 }
 
 describe('kidkids listings page script', () => {
@@ -37,13 +38,16 @@ describe('kidkids listings page script', () => {
   });
 
   it('점검 안내가 아닌데 건수가 없으면 그대로 형식 변경이다', async () => {
-    const handler = load('<html><body><p>상품 목록</p></body></html>');
+    const handler = load('<html><body><p>상품 목록</p></body></html>', { contentType: 'text/html; charset=UTF-8' });
     await expect(handler({ plan: PLAN })).resolves.toEqual({ success: false, errorCode: 'mall_contract_drift', stage: 'counter' });
+    // 2xx는 머리의 문자셋과 상관없이 EUC-KR(리뷰 2 SHOULD 1).
+    expect(handler.labels).toEqual(['euc-kr']);
   });
 
   it('목록 화면이 404 UTF-8 점검 화면이면 mall_maintenance, 다른 HTTP 오류는 mall_network_failed(실기기 R2)', async () => {
-    await expect(load('<html><body><h1>서비스 점검 안내</h1></body></html>', { status: 404, contentType: 'text/html; charset=UTF-8' })({ plan: PLAN }))
-      .resolves.toEqual({ success: false, errorCode: 'mall_maintenance' });
+    const maintenance = load('<html><body><h1>서비스 점검 안내</h1></body></html>', { status: 404, contentType: 'text/html; charset=UTF-8' });
+    await expect(maintenance({ plan: PLAN })).resolves.toEqual({ success: false, errorCode: 'mall_maintenance' });
+    expect(maintenance.labels).toEqual(['utf-8']);
     await expect(load('<html><body>Bad Gateway</body></html>', { status: 502 })({ plan: PLAN }))
       .resolves.toEqual({ success: false, errorCode: 'mall_network_failed' });
   });

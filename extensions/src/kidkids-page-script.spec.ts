@@ -113,6 +113,13 @@ describe('kidkids orders page script', () => {
     await expect(load({ listHtml: empty }).handler({ dateFilter: '2026-09-26' })).resolves.toEqual({ status: 'ok', orders: [] });
   });
 
+  it('2xx 목록·발주서는 머리의 문자셋과 상관없이 EUC-KR로 읽는다 — .text()로 읽으면 주문자명이 깨졌다(리뷰 2 SHOULD 1)', async () => {
+    const page = load({ listContentType: 'text/html; charset=UTF-8' });
+    await expect(page.handler({ dateFilter: '2026-09-26' })).resolves.toMatchObject({ status: 'ok' });
+    expect(page.labels.length).toBeGreaterThanOrEqual(2);
+    expect(new Set(page.labels)).toEqual(new Set(['euc-kr']));
+  });
+
   it('출고관리 목록이 404 UTF-8 점검 화면이면 응답의 문자셋으로 읽어 maintenance, 다른 HTTP 오류는 상태를 싣고 failed(실기기 R2)', async () => {
     const maintenance = load({ listStatus: 404, listContentType: 'text/html; charset=UTF-8', listHtml: '<html><body><h1>서비스 점검 안내</h1></body></html>' });
     await expect(maintenance.handler({ dateFilter: '2026-09-26' })).resolves.toEqual({ status: 'maintenance' });

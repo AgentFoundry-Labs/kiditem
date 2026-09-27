@@ -10,9 +10,13 @@
   "use strict";
   const calls = globalThis.__kiditemIsolatedPageCalls || (globalThis.__kiditemIsolatedPageCalls = {});
 
-  /** 응답 머리의 문자셋으로 읽는다. 없거나 모르는 이름이면 EUC-KR(키드키즈 기본). */
+  /**
+   * 키드키즈 화면은 EUC-KR이다(.text()로 읽으면 주문자명이 깨졌다) — 2xx는 늘 EUC-KR로 읽는다. HTTP 오류 화면(점검 404는
+   * UTF-8)만 응답 머리의 문자셋을 따른다(없거나 모르는 이름이면 EUC-KR, 리뷰 2 SHOULD 1).
+   */
   function decodeBody(buffer, response) {
-    const contentType = response && response.headers && typeof response.headers.get === "function" ? response.headers.get("content-type") || "" : "";
+    if (!response || response.ok !== false) return new TextDecoder("euc-kr").decode(buffer);
+    const contentType = response.headers && typeof response.headers.get === "function" ? response.headers.get("content-type") || "" : "";
     const match = /charset=["']?([\w-]+)/i.exec(contentType);
     try {
       return new TextDecoder(match ? match[1] : "euc-kr").decode(buffer);
