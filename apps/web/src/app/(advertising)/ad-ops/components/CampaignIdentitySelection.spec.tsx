@@ -213,7 +213,6 @@ describe('campaign account + identity selection', () => {
             onOff: 'ON',
             productName: '무노출 상품',
             imageUrl: null,
-            productUrl: null,
             saleType: null,
             period: '7d',
             metrics: {

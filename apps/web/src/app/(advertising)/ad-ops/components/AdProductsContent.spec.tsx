@@ -26,6 +26,7 @@ function productRow(overrides: Partial<AdProductRow>): AdProductRow {
     conversionRate: 10,
     roas: 500,
     campaignName: "캠페인",
+    catalogHref: null,
     ...overrides,
   };
 }
@@ -133,5 +134,18 @@ describe("AdProductsContent", () => {
       "ROAS 0",
       "ROAS 미측정",
     ]);
+  });
+
+  it("links a product to its catalog page only when the ad row has a catalog listing", () => {
+    mockProducts([
+      productRow({ vendorItemId: "V1", productName: "매칭 상품", catalogHref: "/product-hub/p-1" }),
+      productRow({ vendorItemId: "V2", productName: "미매칭 상품", catalogHref: null }),
+    ]);
+
+    render(<AdProductsContent period="14d" />);
+
+    expect(screen.getByRole("link", { name: "매칭 상품" })).toHaveAttribute("href", "/product-hub/p-1");
+    expect(screen.queryByRole("link", { name: "미매칭 상품" })).not.toBeInTheDocument();
+    expect(screen.getByText("미매칭 상품")).toBeInTheDocument();
   });
 });

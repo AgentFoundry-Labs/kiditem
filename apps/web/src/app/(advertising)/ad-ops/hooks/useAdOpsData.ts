@@ -15,6 +15,7 @@ import {
 } from '@kiditem/shared/advertising';
 import { apiClient } from '@/lib/api-client';
 import { queryKeys } from '@/lib/query-keys';
+import { adProductCatalogHref } from '../lib/ad-product-display';
 
 export type CampaignProductData = {
   vendorItemId: string;
@@ -217,7 +218,8 @@ export function useAdOpsData(period: string, tab: string) {
   };
 }
 
-export type AdProductRow = CampaignProductData & { campaignName: string };
+/** `catalogHref` is the catalog product page, only for a row matched to a listing. */
+export type AdProductRow = CampaignProductData & { campaignName: string; catalogHref: string | null };
 
 export function useAdProducts(period: string, enabled: boolean) {
   const campPeriod = period;
@@ -252,6 +254,7 @@ export function useAdProducts(period: string, enabled: boolean) {
     conversionRate: snapshot.metrics.cvr,
     roas: snapshot.metrics.roas,
     campaignName: snapshot.campaignName ?? '',
+    catalogHref: adProductCatalogHref(snapshot.listing),
   }));
 
   return {

@@ -1,3 +1,5 @@
+import type { AdListingSummary } from '@kiditem/shared/advertising';
+
 /**
  * Display helpers for the per-campaign product detail table.
  *
@@ -42,6 +44,15 @@ export function displayKeyword(keyword: string | null): string | null {
   const trimmed = keyword.trim();
   if (trimmed.length === 0) return null;
   return KEYWORD_PLACEHOLDERS.has(trimmed) ? null : trimmed;
+}
+
+/**
+ * The product link of an ad row: the catalog product its listing resolved to.
+ * A row without a catalog listing has no product link (KID-372: the ad center
+ * page is not a product URL).
+ */
+export function adProductCatalogHref(listing: AdListingSummary | null): string | null {
+  return listing ? `/product-hub/${listing.masterProduct.id}` : null;
 }
 
 function escapeRegExp(value: string): string {

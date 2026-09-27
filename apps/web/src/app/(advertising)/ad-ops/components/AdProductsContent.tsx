@@ -1,6 +1,7 @@
 'use client';
 
 import { useMemo, useState, type ReactNode } from 'react';
+import Link from 'next/link';
 import { Package, RefreshCw } from 'lucide-react';
 import { cn, formatKRW, formatNumber, formatPercent } from '@/lib/utils';
 import { compareNullableLast } from '@/lib/nullable-sort';
@@ -262,9 +263,19 @@ export default function AdProductsContent({ period }: Props) {
                             ) : (
                               <div className="w-8 h-8 rounded flex-shrink-0" style={{ background: 'var(--surface-sunken)' }} />
                             )}
-                            <span className="font-medium truncate text-[13px]" style={{ color: 'var(--text-primary)' }}>
-                              {p.productName ?? '(이름 없음)'}
-                            </span>
+                            {p.catalogHref ? (
+                              <Link
+                                href={p.catalogHref}
+                                className="font-medium truncate text-[13px] hover:underline"
+                                style={{ color: 'var(--primary)' }}
+                              >
+                                {p.productName ?? '(이름 없음)'}
+                              </Link>
+                            ) : (
+                              <span className="font-medium truncate text-[13px]" style={{ color: 'var(--text-primary)' }}>
+                                {p.productName ?? '(이름 없음)'}
+                              </span>
+                            )}
                           </div>
                         </Td>
                         <Td>
