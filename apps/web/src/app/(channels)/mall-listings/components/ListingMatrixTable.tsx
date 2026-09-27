@@ -501,8 +501,7 @@ function MatrixRow({
  * 칸의 리스팅 행. 표 리더가 칸에 싣는 `channelListingId`(M1, KID-364)를 쓰고, 옛 응답이면 등록 상태의 리스팅으로 대신한다.
  */
 function cellListingId(cell: MallListingMatrixCell | null | undefined): string | null {
-  const own = (cell as { channelListingId?: unknown } | undefined)?.channelListingId;
-  return typeof own === 'string' && own ? own : cell?.registration?.channelListingId ?? null;
+  return cell?.channelListingId ?? cell?.registration?.channelListingId ?? null;
 }
 
 /**
