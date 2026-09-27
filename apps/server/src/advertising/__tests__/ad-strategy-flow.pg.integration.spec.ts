@@ -675,7 +675,7 @@ describe('AdStrategy flow (PG integration)', () => {
     /**
      * An A-grade listing sold once at noon KST on `businessDate` through a
      * Rocket account and advertised that day: 20,000 revenue − 10,000 purchase
-     * cost − 2,000 shipping − 2,000 ad spend = 6,000, a 30% profit rate.
+     * cost − 2,000 shipping − 2,200 ad cost (2,000 billed × 1.1, KID-368) = 5,800, a 29% profit rate.
      */
     async function seedRocketSale(suffix: string, businessDate: string): Promise<string> {
       const listing = await seedGradedListing({
@@ -722,7 +722,7 @@ describe('AdStrategy flow (PG integration)', () => {
       const plan = await service.getWeeklyPlan('14d', TEST_ORGANIZATION_ID);
 
       // Both sources stop at the 19th; the open 20th is not asked for.
-      expect(proposedRate(plan, listingId)).toBe(30);
+      expect(proposedRate(plan, listingId)).toBe(29);
       expect(plan.profitWithheldListings).toBe(0);
       expect(plan.orderWindowComplete).toBe(true);
     });

@@ -72,7 +72,7 @@ describe('KpiDashboard', () => {
     expect(screen.queryAllByText(/^0(원|건|%)?$/)).toEqual([]);
   });
 
-  it('keeps measured zeros while unmeasured ratios and conversion counts stay unknown', () => {
+  it('keeps measured zeros (conversions are always measured) while unmeasured ratios stay unknown', () => {
     render(
       <KpiDashboard
         period="7d"
@@ -95,7 +95,7 @@ describe('KpiDashboard', () => {
 
     expect(screen.getAllByText('0')).toHaveLength(4);
     expect(screen.getAllByText('0원')).toHaveLength(2);
-    expect(screen.getAllByText('-')).toHaveLength(7);
+    expect(screen.getAllByText('-')).toHaveLength(6);
     expect(screen.queryByText('0%')).not.toBeInTheDocument();
     expect(screen.queryByText('0.0%')).not.toBeInTheDocument();
   });

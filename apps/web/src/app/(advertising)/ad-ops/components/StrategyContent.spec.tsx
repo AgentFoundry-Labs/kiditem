@@ -245,7 +245,7 @@ describe('StrategyContent account totals', () => {
     expect(within(card).getByText('집행 광고비')).toBeInTheDocument();
     expect(within(card).getByText('1,000원')).toBeInTheDocument();
     expect(within(card).getByText('-')).toBeInTheDocument();
-    expect(within(card).getAllByText('- / -')).toHaveLength(2);
+    expect(within(card).getAllByText('- / -')).toHaveLength(1);
     expect(card).not.toHaveTextContent('0.00%');
   });
 });

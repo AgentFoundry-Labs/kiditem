@@ -83,7 +83,7 @@ describe('buildPerformancePoints', () => {
       ctr: null,
       cvr: null,
     });
-    expect(points[0]).toMatchObject({ spend: 1000, roas: 500, conversions: null, cvr: null });
+    expect(points[0]).toMatchObject({ spend: 1000, roas: 500, conversions: 0, cvr: null });
     expect(points[2]).toMatchObject({ spend: 0, revenue: 0, roas: null, ctr: null, cvr: null });
   });
 
