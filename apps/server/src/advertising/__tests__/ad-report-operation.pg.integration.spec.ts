@@ -454,6 +454,18 @@ describe('advertising.ad_report owner over the operation contract + disposable P
     expect(keywords.map((row) => [row.keyword, row.adGroupId])).toEqual([['블록', '101']]);
   });
 
+  it('refuses a one-day window on yesterday whose spend is still zero instead of storing a reversed window', async () => {
+    const run = await beginRun({ channelAccountId: accountId, startDate: day(0), endDate: day(0) });
+    await collect(run, { products: [productRow({ date: day(0), spend: 0 })] });
+    const refused = await finish(run).expect(409);
+    expect(refused.body).toMatchObject({
+      code: 'ADVERTISING_AD_REPORT_DAY_NOT_READY',
+      message: '어제 광고비가 아직 집계되지 않았습니다. 잠시 뒤 다시 수집해 주세요.',
+    });
+    await finish(run, { outcome: 'failed', errorCode: 'ADVERTISING_AD_REPORT_DAY_NOT_READY' }).expect(200);
+    await expect(prisma.channelAdProductDailySnapshot.count()).resolves.toBe(0);
+  });
+
   it('an account with no ads in the window succeeds: both reports were made, zero rows is a measured zero and clears the old rows (KID-45)', async () => {
     const first = await beginRun();
     await collect(first, {

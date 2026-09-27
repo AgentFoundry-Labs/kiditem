@@ -142,6 +142,10 @@ export function completeAdReport(
     closedDay,
     daySpend: (date) => (inPlan(date) ? daySpend.get(date) ?? 0 : undefined),
   });
+  // 창이 보류된 하루뿐이면(하루짜리 창의 마감일 광고비가 아직 0) 확정할 날이 없다. 뒤집힌 창을 쓰지 않고 다시 수집하게 한다.
+  if (confirmedEnd < plan.startDate) {
+    throw new KiditemConflictError('ADVERTISING_AD_REPORT_DAY_NOT_READY', { details: { startDate: plan.startDate, endDate: plan.endDate } });
+  }
   const inWindow = (date: string) => date >= plan.startDate && date <= confirmedEnd;
 
   const adGroupIdByName = adGroupIdsByName(campaigns, productRows);
