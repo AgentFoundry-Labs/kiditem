@@ -6,7 +6,7 @@ import { fileURLToPath } from 'node:url';
 import vm from 'node:vm';
 
 const repoRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '../..');
-const modulePath = path.join(repoRoot, 'extensions/kiditem-os/background/orders/mall-form-register.js');
+const modulePath = path.join(repoRoot, 'extensions/kiditem-os/background/orders/mall-utility-actions.js');
 
 function loadModule() {
   const context = {
@@ -15,9 +15,8 @@ function loadModule() {
   };
   context.globalThis = context;
   vm.createContext(context);
-  vm.runInContext(readFileSync(path.join(repoRoot, 'extensions/kiditem-os/shared/mall-form-submit-gate.js'), 'utf8'), context);
   vm.runInContext(readFileSync(modulePath, 'utf8'), context, { filename: modulePath });
-  return context.self.KidItemMallFormRegister;
+  return context.self.KidItemMallUtilityActions;
 }
 
 const text = (body, status = 200) => ({
@@ -51,12 +50,8 @@ function harness({ signedIn = true, contentType = 'image/jpeg' } = {}) {
     }
     throw new Error(`예상하지 않은 요청 ${target}`);
   };
-  const api = loadModule().create({
-    chrome: { runtime: {}, scripting: {}, tabs: {} },
-    fetch,
-    interactiveTabs: { createTab: async () => { throw new Error('창을 열면 안 된다'); } },
-    tabReason: 'test',
-  });
+  // 창을 열지 않는다 — 서비스워커 fetch 하나만 받는다.
+  const api = loadModule().create({ fetch });
   return { api, calls };
 }
 
@@ -106,4 +101,25 @@ test('키즈노트 관리자에서 로그아웃이면 첫 사진에서 멈추고
   assert.equal(result.needsLogin, true);
   assert.equal(result.images.length, 1);
   assert.match(result.images[0].error, /키즈노트 관리자에 로그인되어 있지 않습니다/);
+});
+
+/**
+ * 온채널 분류 목록 — 상품등록 화면의 계단식 4단 분류를 단계마다 앞 단계 값으로 받는다(`listMallCategories`, KID-256에서
+ * 옛 `mall-form-register.js`로부터 떼어 남긴 웹 보조 액션).
+ */
+test('온채널 분류 목록은 단계마다 앞 단계 값을 실어 이름만 돌려준다 · 다른 몰은 거절한다', async () => {
+  const calls = [];
+  const fetch = async (url, init = {}) => {
+    calls.push([String(url), init.credentials]);
+    return { ok: true, status: 200, json: async () => ({ datas: [{ name: '완구' }, { name: ' 문구 ' }, { name: '' }] }) };
+  };
+  const api = loadModule().create({ fetch });
+  const result = await api.listCategories({ mall: 'onch', path: ['유아동', '장난감'] });
+  assert.deepEqual(JSON.parse(JSON.stringify(result)), { success: true, ok: true, mall: 'onch', path: ['유아동', '장난감'], names: ['완구', '문구'] });
+  const url = new URL(calls[0][0]);
+  assert.equal(url.origin + url.pathname, 'https://www.onch3.co.kr/access/ajax_pending_product_access.php');
+  assert.deepEqual([...url.searchParams.entries()], [['ubr', 'getCategory'], ['depth', '2'], ['cate_first', '유아동'], ['cate_second', '장난감']]);
+  assert.equal(calls[0][1], 'include');
+  assert.deepEqual(JSON.parse(JSON.stringify(await api.listCategories({ mall: 'onch', path: ['a', 'b', 'c', 'd'] }))), { mall: 'onch', path: ['a', 'b', 'c', 'd'], names: [] });
+  await assert.rejects(api.listCategories({ mall: 'domeggook', path: [] }), /분류 목록을 제공하지 않는 몰/);
 });

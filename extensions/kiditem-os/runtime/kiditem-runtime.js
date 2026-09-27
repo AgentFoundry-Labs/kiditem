@@ -4872,7 +4872,7 @@ var KidItemRuntime = (() => {
     let lastSentAt = null;
     let queue = Promise.resolve();
     const loginMessage = options.displayName ? `${options.displayName} \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.` : "\uC0AC\uC774\uD2B8 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4.";
-    async function send14(url, { requireXsrf = false, ...init } = {}) {
+    async function send16(url, { requireXsrf = false, ...init } = {}) {
       const headers = new Headers(init.headers);
       if (options.xsrf) {
         const cookie = await deps.cookies.get({ url: options.xsrf.cookieUrl, name: options.xsrf.cookieName });
@@ -4909,7 +4909,7 @@ var KidItemRuntime = (() => {
     }
     return {
       json: (url, init) => enqueue(async () => {
-        const response = await send14(url, init);
+        const response = await send16(url, init);
         const body = await safeText(response);
         try {
           return JSON.parse(body);
@@ -4918,8 +4918,8 @@ var KidItemRuntime = (() => {
           throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uC774\uD2B8 \uC751\uB2F5\uC774 JSON\uC774 \uC544\uB2D9\uB2C8\uB2E4.", failure2, error);
         }
       }),
-      text: (url, init) => enqueue(async () => (await send14(url, init)).text()),
-      bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send14(url, init)).arrayBuffer()))
+      text: (url, init) => enqueue(async () => (await send16(url, init)).text()),
+      bytes: (url, init) => enqueue(async () => new Uint8Array(await (await send16(url, init)).arrayBuffer()))
     };
   }
   async function safeText(response) {
@@ -5379,10 +5379,10 @@ var KidItemRuntime = (() => {
       try {
         for (const [index, { keyword: keyword2, maxPages }] of plan.keywords.entries()) {
           if (signal.aborted) return;
-          const read13 = await site.serp(keyword2, maxPages, {
+          const read15 = await site.serp(keyword2, maxPages, {
             onAttention: attentionReporter(report, { current: index, total: plan.keywords.length, label: keyword2 })
           });
-          const chunk = { keyword: keyword2, capturedAt: (/* @__PURE__ */ new Date()).toISOString(), ...read13 };
+          const chunk = { keyword: keyword2, capturedAt: (/* @__PURE__ */ new Date()).toISOString(), ...read15 };
           yield {
             chunkKind: KEYWORD_SERP_CHUNK_KIND,
             payload: [chunk],
@@ -5473,13 +5473,13 @@ var KidItemRuntime = (() => {
     site: "wing-search",
     async *collect(plan, site, { signal }) {
       for (const [index, { keyword: keyword2 }] of plan.keywords.entries()) {
-        const read13 = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
-        if (read13 === null) return;
+        const read15 = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
+        if (read15 === null) return;
         const chunk = {
           keyword: keyword2,
           capturedAt: (/* @__PURE__ */ new Date()).toISOString(),
-          pagesScanned: read13.pagesScanned,
-          items: rankBySales(read13.rows)
+          pagesScanned: read15.pagesScanned,
+          items: rankBySales(read15.rows)
         };
         yield {
           chunkKind: WING_RANK_CHUNK_KIND,
@@ -5517,10 +5517,10 @@ var KidItemRuntime = (() => {
     async *collect(plan, site, { signal }) {
       const planned = new Set(plan.products.map((product) => product.productId));
       for (const [index, keyword2] of plan.keywords.entries()) {
-        const read13 = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
-        if (read13 === null) return;
+        const read15 = await readWingSearchKeyword(site, keyword2, plan.maxPages, signal);
+        if (read15 === null) return;
         const items = /* @__PURE__ */ new Map();
-        for (const row of read13.rows) {
+        for (const row of read15.rows) {
           if (planned.has(row.productId) && !items.has(row.productId)) items.set(row.productId, trackedItem(row));
         }
         const chunk = { keyword: keyword2, items: [...items.values()] };
@@ -5811,15 +5811,15 @@ var KidItemRuntime = (() => {
       if (!parsed3.success) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uC0C1\uD488 \uC190\uC775 \uC218\uC9D1 \uACC4\uD68D\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
       if (!site) throw new RuntimeError(RUNTIME_PLAN_INVALID4, "\uC140\uD53C\uC544 \uC0AC\uC774\uD2B8\uB97C \uC4F8 \uC218 \uC5C6\uC2B5\uB2C8\uB2E4.", { kind: SELLPIA_PRODUCT_PROFITABILITY_KIND });
       const periods = purchasePeriods(parsed3.data);
-      const read13 = await site.productProfit(
+      const read15 = await site.productProfit(
         { start: parsed3.data.from, end: parsed3.data.to, periods, signal },
         async (done, total) => {
           await report?.({ months: total, monthsRead: done });
         }
       );
       if (signal.aborted) return;
-      const products = assembleProfitProducts(read13.baseline, read13.periods);
-      const progress4 = { months: periods.length, monthsRead: periods.length, products: products.length, skippedAdjustments: read13.baseline.skippedAdjustmentCount };
+      const products = assembleProfitProducts(read15.baseline, read15.periods);
+      const progress4 = { months: periods.length, monthsRead: periods.length, products: products.length, skippedAdjustments: read15.baseline.skippedAdjustmentCount };
       const buffer = new ChunkBuffer({ maxItems: CHUNK_PRODUCTS, label: "\uC140\uD53C\uC544 \uC0C1\uD488 \uC190\uC775 \uD55C \uC0C1\uD488" });
       for (const product of products) {
         const full = buffer.push(product);
@@ -7238,9 +7238,9 @@ var KidItemRuntime = (() => {
       const missing = [];
       for (let start = 0; start < codes.length; start += READ_BATCH) {
         const batch = codes.slice(start, start + READ_BATCH);
-        const read13 = await reader.read(batch);
+        const read15 = await reader.read(batch);
         const observedAt = (/* @__PURE__ */ new Date()).toISOString();
-        const batchRows = read13.products.flatMap((product) => product.options.map((option) => ({
+        const batchRows = read15.products.flatMap((product) => product.options.map((option) => ({
           externalListingId: product.code,
           externalOptionId: byOption ? option.optionCode : null,
           available: option.stock !== 0,
@@ -7249,7 +7249,7 @@ var KidItemRuntime = (() => {
           observedStatus: option.state ?? null,
           observedAt
         })));
-        missing.push(...read13.missing);
+        missing.push(...read15.missing);
         rows.push(...batchRows);
         if (batchRows.length > 0) {
           yield { chunkKind: MALL_AVAILABILITY_ROWS_CHUNK_KIND, payload: batchRows, progress: { mallKey: plan.mallKey, read: Math.min(start + batch.length, codes.length), total: codes.length } };
@@ -7303,6 +7303,51 @@ var KidItemRuntime = (() => {
       const writer = site?.writer(plan.mallKey) ?? null;
       if (!writer) throw invalid(`\uC774 \uD655\uC7A5\uC5D0 ${plan.mallKey} \uBAB0 \uC4F0\uAE30 \uBAA8\uB4C8\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`, { mallKey: plan.mallKey });
       const progress4 = { mallKey: plan.mallKey, executionKind: plan.executionKind };
+      if (plan.executionKind === "thumbnail_update") {
+        const payload = RegistrationThumbnailPayloadSchema.safeParse(plan.payload);
+        if (!payload.success || !writer.thumbnail) {
+          throw invalid("\uB300\uD45C\uC774\uBBF8\uC9C0 \uACC4\uD68D\uC5D0 \uC0AC\uC9C4\uC774 \uC5C6\uAC70\uB098 \uC774 \uBAB0\uC740 \uB300\uD45C\uC774\uBBF8\uC9C0\uB97C \uBC14\uAFB8\uC9C0 \uBABB\uD569\uB2C8\uB2E4.", { mallKey: plan.mallKey, executionKind: plan.executionKind });
+        }
+        const image = payload.data;
+        const session = await writer.thumbnail({
+          externalListingId: image.externalListingId,
+          productName: image.productName,
+          expectedProviderAccountId: plan.expectedProviderAccountId,
+          image: { dataUrl: image.dataUrl, filename: image.filename, mimeType: image.mimeType }
+        });
+        try {
+          if (plan.expectedProviderAccountId && session.providerAccountId && session.providerAccountId !== plan.expectedProviderAccountId) {
+            throw new RuntimeError(REGISTRATION_ACCOUNT_MISMATCH, "\uBAB0\uC5D0 \uB85C\uADF8\uC778\uB41C \uD310\uB9E4\uC790 \uACC4\uC815\uC774 \uC2E4\uD589\uD560 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC758 \uACC4\uC815\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { mallKey: plan.mallKey });
+          }
+          yield { chunkKind: REGISTRATION_FILL_CHUNK_KIND, payload: [session.fill], progress: { ...progress4, stage: "uploaded" } };
+          const evidence = {
+            payloadHash: plan.payloadHash,
+            channelAccountId: plan.channelAccountId,
+            externalListingId: image.externalListingId,
+            observedUrl: session.observedUrl,
+            providerAccountId: session.providerAccountId,
+            observedStatus: null,
+            message: "\uB300\uD45C\uC774\uBBF8\uC9C0\uB97C \uC218\uC815 \uD654\uBA74\uC5D0 \uC62C\uB838\uC2B5\uB2C8\uB2E4. [\uC800\uC7A5]\uC740 \uC6B4\uC601\uC790\uAC00 \uB204\uB985\uB2C8\uB2E4.",
+            options: []
+          };
+          yield { chunkKind: REGISTRATION_EVIDENCE_CHUNK_KIND, payload: [evidence], progress: { ...progress4, stage: "uploaded" } };
+          return {
+            outcome: "reconciling",
+            result: {
+              providerOutcome: "uncertain",
+              mallOutcome: "uncertain",
+              submitted: false,
+              submitSkipped: "operator_saves",
+              externalListingId: image.externalListingId,
+              mallMessage: null,
+              fill: session.fill,
+              evidence
+            }
+          };
+        } finally {
+          await session.done();
+        }
+      }
       if (plan.executionKind === "update") {
         const payload = RegistrationDocumentPayloadSchema2.safeParse(plan.payload);
         const snapshot = payload.success ? payload.data.snapshot : null;
@@ -10249,7 +10294,7 @@ var KidItemRuntime = (() => {
     }
     function page(tabId, owned) {
       let closed = false;
-      async function send14(message, timeoutMs, frameId) {
+      async function send16(message, timeoutMs, frameId) {
         let timer;
         const timeout = new Promise((resolve) => {
           timer = setTimeout(() => resolve({ ok: false, error: "timeout" }), timeoutMs);
@@ -10342,7 +10387,7 @@ var KidItemRuntime = (() => {
             checkPageUrl(guard, tab.url ?? "");
           };
           await checkHere();
-          const first = await send14(message, timeoutMs, frameId);
+          const first = await send16(message, timeoutMs, frameId);
           if (!inject || !(isMissing(first) || isEmpty(first))) {
             if (isMissing(first) || isTimeout(first)) await checkHere();
             return first;
@@ -10355,7 +10400,7 @@ var KidItemRuntime = (() => {
             await deps.chrome.scripting.executeScript({ target, files: [...inject.main], world: "MAIN" });
           }
           await deps.sleep(500);
-          const second = await send14(message, timeoutMs, frameId);
+          const second = await send16(message, timeoutMs, frameId);
           if (isMissing(second) || isTimeout(second)) await checkHere();
           return second;
         },
@@ -10459,16 +10504,16 @@ var KidItemRuntime = (() => {
 
   // extensions/src/sites/fresh-tab.ts
   var NAVIGATION_TIMEOUT_MS = 3e4;
-  async function withFreshTab(tabs, url, read13, options = {}) {
+  async function withFreshTab(tabs, url, read15, options = {}) {
     const guardHosts = options.dialogGuardHosts ?? options.signIn?.hosts ?? [];
     const releaseGuard = guardHosts.length > 0 ? await tabs.guardDialogs(guardHosts) : null;
     try {
-      return await readInTab(tabs, url, read13, options);
+      return await readInTab(tabs, url, read15, options);
     } finally {
       await releaseGuard?.();
     }
   }
-  async function readInTab(tabs, url, read13, options) {
+  async function readInTab(tabs, url, read15, options) {
     const reused = options.reuseTabMatching ? await tabs.find(options.reuseTabMatching) : null;
     const site = siteKey(url);
     const page = reused ?? await tabs.reclaimKept(site) ?? await tabs.open("about:blank");
@@ -10476,7 +10521,7 @@ var KidItemRuntime = (() => {
     try {
       const stopAt = options.signIn ? (landed) => options.signIn.isLoginUrl(landed) : void 0;
       if (!reused) await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS, ...stopAt ? { stopAt } : {} });
-      return await (options.signIn ? options.signIn.onPage(page, url, () => read13(page)) : read13(page));
+      return await (options.signIn ? options.signIn.onPage(page, url, () => read15(page)) : read15(page));
     } catch (error) {
       if (leftForOperator(error)) keepOpen = true;
       const operatorStep = isRuntimeError(error) && (error.code === OPERATOR_ACTION_REQUIRED || error.code === SITE_LOGIN_REQUIRED && error.details?.reason === "verification_required");
@@ -10704,7 +10749,7 @@ var KidItemRuntime = (() => {
     return {
       hosts: spec.hosts,
       isLoginUrl: (url) => isLogin(spec, url),
-      onPage: (page, returnTo, read13) => withLogin(read13, async () => {
+      onPage: (page, returnTo, read15) => withLogin(read15, async () => {
         const outcome = await login(page);
         if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS2 });
         return outcome;
@@ -10815,12 +10860,12 @@ var KidItemRuntime = (() => {
     return selling ? { optionCode: code2, stock: null, rocket: false } : { optionCode: code2, stock: 0, rocket: false, ...state ? { state: String(state) } : {} };
   }
   function stoppedMidway(message, counts) {
-    const { sent, failed: failed8, confirmed, already, warnings, left } = counts;
+    const { sent, failed: failed9, confirmed, already, warnings, left } = counts;
     if (sent === 0) return { success: false, error: message };
     return {
       success: true,
       sent: sent + already,
-      failed: failed8 + left,
+      failed: failed9 + left,
       confirmed: confirmed + already,
       already,
       rocket: 0,
@@ -10830,8 +10875,8 @@ var KidItemRuntime = (() => {
     };
   }
   function readAnswer(status, text8) {
-    const failed8 = /로그인|login|오류|실패|error|권한/i.test(String(text8 || "").slice(0, 500));
-    return { status, accepted: status >= 200 && status < 400 && !failed8, failed: failed8 };
+    const failed9 = /로그인|login|오류|실패|error|권한/i.test(String(text8 || "").slice(0, 500));
+    return { status, accepted: status >= 200 && status < 400 && !failed9, failed: failed9 };
   }
   async function readJson(response) {
     const text8 = await response.text().catch(() => "");
@@ -10931,12 +10976,12 @@ var KidItemRuntime = (() => {
     if (!products && module.read && !answer.requestOnly) {
       products = [];
       for (let start = 0; start < codes.length; start += READ_LIMIT) {
-        const read13 = await readMallAvailability(module, context, codes.slice(start, start + READ_LIMIT));
-        if (!read13.success) {
-          answer.warnings = [...answer.warnings ?? [], `${module.displayName}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${read13.error}`];
+        const read15 = await readMallAvailability(module, context, codes.slice(start, start + READ_LIMIT));
+        if (!read15.success) {
+          answer.warnings = [...answer.warnings ?? [], `${module.displayName}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${read15.error}`];
           break;
         }
-        products.push(...read13.products);
+        products.push(...read15.products);
       }
     }
     return {
@@ -10947,9 +10992,9 @@ var KidItemRuntime = (() => {
     };
   }
   async function readAvailabilityOrThrow(module, context, codes) {
-    const read13 = await readMallAvailability(module, context, codes);
-    if (!read13.success) throw answerError(module, read13.error);
-    return { products: read13.products, missing: read13.missing };
+    const read15 = await readMallAvailability(module, context, codes);
+    if (!read15.success) throw answerError(module, read15.error);
+    return { products: read15.products, missing: read15.missing };
   }
   async function observedUrlOf(page, origin) {
     const raw = await page.currentUrl().catch(() => "");
@@ -11099,8 +11144,8 @@ var KidItemRuntime = (() => {
     const wanted = resume ? "103" : "105";
     const warnings = [];
     const products = codes.filter(isProductNo);
-    let failed8 = codes.length - products.length;
-    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
     let sent = 0;
     let confirmed = 0;
     let already = 0;
@@ -11115,7 +11160,7 @@ var KidItemRuntime = (() => {
       const found = products.filter((no) => rows.has(no));
       const missing = products.length - found.length;
       if (missing > 0) {
-        failed8 += missing;
+        failed9 += missing;
         warnings.push(`${missing}\uAC74\uC740 ${LABEL}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(\uC9C0\uC6B4 \uC0C1\uD488\uC77C \uC218 \uC788\uC2B5\uB2C8\uB2E4).`);
       }
       const stat = (no) => rows.get(no).selStatCd;
@@ -11124,14 +11169,14 @@ var KidItemRuntime = (() => {
         const stopped = found.filter((no) => stat(no) === "105");
         const empty = stopped.filter((no) => !(rows.get(no).stckQty > 0) && rows.get(no).setTypCd !== "02");
         if (empty.length > 0) {
-          failed8 += empty.length;
+          failed9 += empty.length;
           warnings.push(`${empty.length}\uAC74\uC740 ${LABEL} \uC7AC\uACE0\uAC00 0 \uC774\uB77C \uD310\uB9E4\uC911\uC9C0\uB97C \uD480\uC9C0 \uBABB\uD569\uB2C8\uB2E4 \u2014 \uC7AC\uACE0\uB97C \uB123\uC740 \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.`);
         }
         targets = stopped.filter((no) => !empty.includes(no));
         already += found.filter((no) => stat(no) === "103").length;
         const other = found.filter((no) => !["103", "105"].includes(stat(no))).length;
         if (other > 0) {
-          failed8 += other;
+          failed9 += other;
           warnings.push(`${other}\uAC74\uC740 ${LABEL}\uC5D0\uC11C \uD310\uB9E4\uC911\uC9C0\uAC00 \uC544\uB2C8\uB77C(\uD488\uC808 \xB7 \uC804\uC2DC\uC804 \uB4F1) \uD480 \uAC83\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
         }
       } else {
@@ -11148,7 +11193,7 @@ var KidItemRuntime = (() => {
           return null;
         }
         if (answer?.status !== 200 || answer.msg !== "SAVE_OK") {
-          failed8 += group.length;
+          failed9 += group.length;
           const said = answer?.alert || answer?.msg || answer?.error || `HTTP ${answer?.status ?? 0}`;
           warnings.push(`${LABEL}\uC774 ${resume ? "\uD310\uB9E4\uC911\uC9C0 \uD574\uC81C" : "\uD310\uB9E4\uC911\uC9C0"}\uB97C \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ${said}`);
         } else {
@@ -11178,8 +11223,8 @@ var KidItemRuntime = (() => {
       return null;
     });
     if (halted) return halted;
-    if (halt) return stoppedMidway(halt, { sent, failed: failed8, confirmed, already, warnings, left });
-    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
   }
   async function read(context, codes) {
     const valid = [...new Set(codes)].filter(isProductNo).slice(0, READ_LIMIT);
@@ -11427,12 +11472,12 @@ var KidItemRuntime = (() => {
       if (!/^https?:\/\//.test(url)) throw new Error("\uC5C5\uB85C\uB4DC \uACB0\uACFC\uAC00 \uC8FC\uC18C\uAC00 \uC544\uB2D9\uB2C8\uB2E4.");
       return url;
     }
-    const read13 = async (path) => {
+    const read15 = async (path) => {
       const response = await fetchApi(host.origin + path, { credentials: "include" });
       if (!response.ok) throw new Error(`HTTP ${response.status}`);
       return decode(await response.arrayBuffer());
     };
-    const page = await read13(host.registerPath ?? "");
+    const page = await read15(host.registerPath ?? "");
     const pno = (page.match(/name=["']?pno["']?[^>]*value=["']?(\d+)/i) || [])[1];
     if (!pno) throw new DetailHostLoginError("\uC0C1\uD488\uBC88\uD638\uB97C \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
     const body = new FormData();
@@ -11445,7 +11490,7 @@ var KidItemRuntime = (() => {
     const upload = await fetchApi(host.origin + host.uploadPath, { method: "POST", body, credentials: "include" });
     if (!upload.ok) throw new Error(`\uC5C5\uB85C\uB4DC \uC751\uB2F5 HTTP ${upload.status}`);
     await upload.arrayBuffer();
-    const list2 = await read13(`${host.listPath ?? ""}&pno=${pno}`);
+    const list2 = await read15(`${host.listPath ?? ""}&pno=${pno}`);
     const found = list2.match(HOSTED_URL);
     if (!found || found.length === 0) throw new Error("\uC62C\uB77C\uAC04 \uC8FC\uC18C\uB97C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.");
     return found[found.length - 1];
@@ -11845,6 +11890,14 @@ var KidItemRuntime = (() => {
       throw error;
     }
   }
+  var thumbnailWriters = /* @__PURE__ */ new Map();
+  function registerMallThumbnail(mallKey, writer) {
+    if (thumbnailWriters.has(mallKey)) throw new Error(`duplicate mall thumbnail writer: ${mallKey}`);
+    thumbnailWriters.set(mallKey, writer);
+  }
+  function mallThumbnailFor(mallKey) {
+    return thumbnailWriters.get(mallKey) ?? null;
+  }
 
   // extensions/src/sites/11st/registration.ts
   var ST11_REGISTRATION_FORM = {
@@ -12182,8 +12235,8 @@ var KidItemRuntime = (() => {
         if (!(await page.currentUrl().catch(() => "")).startsWith(AD_CENTER_HOME_URL)) {
           await page.navigate(AD_CENTER_HOME_URL, { timeoutMs: NAVIGATION_TIMEOUT_MS7, continueOnTimeout: true, stopAt: isLoginUrl });
         }
-        for (let read13 = 0; read13 < VENDOR_READS; read13 += 1) {
-          if (read13 > 0) await deps.sleep(VENDOR_READ_GAP_MS);
+        for (let read15 = 0; read15 < VENDOR_READS; read15 += 1) {
+          if (read15 > 0) await deps.sleep(VENDOR_READ_GAP_MS);
           const frames = await page.frames([AD_CENTER_VENDOR_FILE]).catch(() => []);
           const found = frames.map((frame) => text3(frame.result?.vendorId)?.trim()).find(Boolean);
           if (found) return found;
@@ -12480,20 +12533,20 @@ var KidItemRuntime = (() => {
     const { codes, resume } = input;
     const warnings = [];
     const ids = codes.filter(isItemId);
-    let failed8 = codes.length - ids.length;
-    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL2} \uC0C1\uD488 \uACE0\uC720\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let failed9 = codes.length - ids.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL2} \uC0C1\uD488 \uACE0\uC720\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
     let sent = 0;
     let confirmed = 0;
     let already = 0;
     const halted = await withSellerPage(context, ORIGIN2, PAGE_URL2, async (run) => {
       if (ids.length === 0) return null;
-      const read13 = await readItems(run, ids);
-      if (read13.loggedOut) return { success: false, error: LOGGED_OUT2 };
-      if (!read13.items) return { success: false, error: `${LABEL2} \uC0C1\uD488 \uC0C1\uD0DC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${read13.error}).` };
-      const byId = new Map(read13.items.map((item) => [String(item._id), item]));
+      const read15 = await readItems(run, ids);
+      if (read15.loggedOut) return { success: false, error: LOGGED_OUT2 };
+      if (!read15.items) return { success: false, error: `${LABEL2} \uC0C1\uD488 \uC0C1\uD0DC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${read15.error}).` };
+      const byId = new Map(read15.items.map((item) => [String(item._id), item]));
       const missing = ids.filter((id3) => !byId.has(id3));
       if (missing.length > 0) {
-        failed8 += missing.length;
+        failed9 += missing.length;
         warnings.push(`${missing.length}\uAC74\uC740 ${LABEL2}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
       }
       const targets = ids.filter((id3) => byId.has(id3) && Boolean(byId.get(id3).soldOut) === resume);
@@ -12503,7 +12556,7 @@ var KidItemRuntime = (() => {
       const answer = await run("alwayzRequestOnPage", [`${BACKEND}${path}`, { itemIdList: targets }, TOKEN_KEY]);
       const ok = answer.status === 200 && (answer.json?.status === void 0 || Number(answer.json.status) === 200);
       if (!ok) {
-        failed8 += targets.length;
+        failed9 += targets.length;
         warnings.push(`${LABEL2}\uC774 ${resume ? "\uD310\uB9E4\uC7AC\uAC1C" : "\uD488\uC808"}\uB97C \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status}).`);
         return null;
       }
@@ -12515,7 +12568,7 @@ var KidItemRuntime = (() => {
       return null;
     });
     if (halted) return halted;
-    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
   }
   async function read2(context, codes) {
     const ids = [...new Set(codes)].filter(isItemId).slice(0, READ_LIMIT);
@@ -12734,8 +12787,8 @@ var KidItemRuntime = (() => {
     const { codes, resume } = input;
     const warnings = [];
     const products = codes.filter((code2) => /^\d{1,12}$/.test(code2));
-    let failed8 = codes.length - products.length;
-    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL3} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL3} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
     let sent = 0;
     let confirmed = 0;
     let already = 0;
@@ -12748,18 +12801,18 @@ var KidItemRuntime = (() => {
       const found = products.filter((no) => rows.has(no));
       const missing = products.length - found.length;
       if (missing > 0) {
-        failed8 += missing;
+        failed9 += missing;
         warnings.push(`${missing}\uAC74\uC740 ${LABEL3} \uC0C1\uD488\uBAA9\uB85D\uC5D0 \uC5C6\uC2B5\uB2C8\uB2E4.`);
       }
       const sets = found.filter((no) => rows.get(no).set).length;
       if (sets > 0) {
-        failed8 += sets;
+        failed9 += sets;
         warnings.push(`\uC138\uD2B8\uC0C1\uD488 ${sets}\uAC1C\uB294 ${LABEL3} \uD654\uBA74\uB3C4 \uD310\uB9E4\uC0C1\uD0DC\uB97C \uBC14\uAFB8\uC9C0 \uBABB\uD558\uAC8C \uB9C9\uC544 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
       }
       const readable = (no) => rows.get(no).selling !== null && rows.get(no).display !== null;
       const unknown = found.filter((no) => !rows.get(no).set && !readable(no)).length;
       if (unknown > 0) {
-        failed8 += unknown;
+        failed9 += unknown;
         warnings.push(`${unknown}\uAC74\uC740 ${LABEL3} \uC0C1\uD488\uBAA9\uB85D\uC5D0\uC11C \uD310\uB9E4 \xB7 \uC9C4\uC5F4 \uC0C1\uD0DC\uB97C \uC77D\uC9C0 \uBABB\uD574 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
       }
       const known = found.filter((no) => !rows.get(no).set && readable(no));
@@ -12779,7 +12832,7 @@ var KidItemRuntime = (() => {
         }
         const answer = await run("requestOnPage", [STATE_PATH, "POST", "application/x-www-form-urlencoded; charset=UTF-8", body.toString(), { "X-Requested-With": "XMLHttpRequest" }]);
         if (answer.status < 200 || answer.status >= 300 || !answer.json || answer.json.passed === false) {
-          failed8 += group.length;
+          failed9 += group.length;
           const reason = answer.json?.msg ? `: ${String(answer.json.msg).slice(0, 120)}` : "";
           warnings.push(`${LABEL3}\uC774 \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status})${reason}.`);
           continue;
@@ -12795,7 +12848,7 @@ var KidItemRuntime = (() => {
       return null;
     });
     if (halted) return halted;
-    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
   }
   async function read3(context, codes) {
     const products = [...new Set(codes)].filter((code2) => /^\d{1,12}$/.test(code2)).slice(0, READ_LIMIT);
@@ -12880,7 +12933,7 @@ var KidItemRuntime = (() => {
       }
       return { items };
     }
-    async function send14(context, input) {
+    async function send16(context, input) {
       const { codes, resume } = input;
       const wanted = resume ? "11" : "21";
       const from = resume ? "21" : "11";
@@ -12890,8 +12943,8 @@ var KidItemRuntime = (() => {
         const siteNo = siteNoOf(code2);
         if (siteNo) bySite.set(siteNo, code2);
       }
-      let failed8 = codes.length - bySite.size;
-      if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${label} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+      let failed9 = codes.length - bySite.size;
+      if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${label} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
       let sent = 0;
       let confirmed = 0;
       let already = 0;
@@ -12907,18 +12960,18 @@ var KidItemRuntime = (() => {
         const found = siteNos.filter((no) => items.has(no));
         const missing = siteNos.length - found.length;
         if (missing > 0) {
-          failed8 += missing;
+          failed9 += missing;
           warnings.push(`${missing}\uAC74\uC740 ${label}(ESM)\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
         }
         const combined = found.filter((no) => items.get(no).siteGoodsNo.gmkt && items.get(no).siteGoodsNo.iac);
         if (combined.length > 0) {
-          failed8 += combined.length;
+          failed9 += combined.length;
           warnings.push(`${combined.length}\uAC74\uC740 \uC9C0\uB9C8\uCF13 \xB7 \uC625\uC158 \uD1B5\uD569\uC0C1\uD488\uC774\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 \u2014 ESM \uC5D0\uC11C \uC0AC\uC774\uD2B8\uB97C \uACE8\uB77C \uBC14\uAFB8\uC138\uC694.`);
         }
         const single = found.filter((no) => !combined.includes(no));
         const locked = single.filter((no) => ![from, wanted].includes(items.get(no).sellStatus[site])).length;
         if (resume && locked > 0) {
-          failed8 += locked;
+          failed9 += locked;
           warnings.push(`${locked}\uAC74\uC740 \uD310\uB9E4\uBD88\uAC00 \xB7 SKU\uD488\uC808 \xB7 \uB4F1\uB85D\uB300\uAE30\uB77C ${label} \uD654\uBA74\uB3C4 \uD310\uB9E4\uAC00\uB2A5\uC73C\uB85C \uBABB \uBC14\uAFC9\uB2C8\uB2E4.`);
         }
         if (!resume) already += locked;
@@ -12945,7 +12998,7 @@ var KidItemRuntime = (() => {
             sent += 1;
             accepted.push(no);
           } else {
-            failed8 += 1;
+            failed9 += 1;
             const said = siteResult?.message || answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}`;
             warnings.push(`${label}\uC774 ${no} \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ${said}`);
           }
@@ -12969,10 +13022,10 @@ var KidItemRuntime = (() => {
         return null;
       });
       if (halted) return halted;
-      if (halt) return stoppedMidway(halt, { sent, failed: failed8, confirmed, already, warnings, left });
-      return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+      if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+      return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
     }
-    async function read13(context, codes) {
+    async function read15(context, codes) {
       const valid = [...new Set(codes)].filter((code2) => Boolean(siteNoOf(code2))).slice(0, READ_LIMIT);
       if (valid.length === 0) return { success: false, error: `\uC77D\uC744 ${label} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
       let found = [];
@@ -13002,8 +13055,8 @@ var KidItemRuntime = (() => {
       displayName: label,
       guard: availabilityGuard(esmListingsGuard(label), label),
       dialogHosts: ["item.esmplus.com"],
-      send: send14,
-      read: read13
+      send: send16,
+      read: read15
     });
   }
 
@@ -13386,7 +13439,7 @@ var KidItemRuntime = (() => {
     let keepOpen = false;
     let keywordsRead = 0;
     const between = ([low, high]) => deps.sleep(Math.floor(low + deps.random() * (high - low)));
-    async function read13(current, url) {
+    async function read15(current, url) {
       const landed = await current.navigate(url, { timeoutMs: PAGE_TIMEOUT_MS2, continueOnTimeout: true });
       if (!isExpectedSerpUrl(landed, url)) return { landed, read: null };
       await deps.sleep(RENDER_WAIT_MS2);
@@ -13416,7 +13469,7 @@ var KidItemRuntime = (() => {
           await onAttention?.(attention);
         }
         const here = await current.currentUrl().catch(() => "");
-        const again = isExpectedSerpUrl(here, url) ? await readInPlace(current) : await read13(current, url).then((result) => result.read);
+        const again = isExpectedSerpUrl(here, url) ? await readInPlace(current) : await read15(current, url).then((result) => result.read);
         if (again && again.ok && again.wall !== "captcha") {
           await onAttention?.(null);
           return again;
@@ -13441,7 +13494,7 @@ var KidItemRuntime = (() => {
         let pagesScanned = 0;
         for (let pageNumber = 1; pageNumber <= maxPages; pageNumber += 1) {
           const url = buildCoupangSerpUrl(keyword2, pageNumber);
-          const first = await read13(current, url);
+          const first = await read15(current, url);
           let answer = first.read;
           if (answer === null) failIfLeftSite(first.landed, () => {
             keepOpen = true;
@@ -13806,14 +13859,14 @@ var KidItemRuntime = (() => {
   async function readPurchaseOrderListPage(page, path, pageNumber) {
     const fetched = await page.fetch(path, { headers: { accept: "application/json" } });
     const text8 = fetched.text;
-    const failed8 = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
+    const failed9 = () => pageNumber === 1 ? loginRequired(fetched.url) : new RuntimeError(SITE_REQUEST_FAILED, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { status: fetched.status, url: path, reason: "http", bodyHead: null });
     if (fetched.status === 400 || fetched.status === 413 || fetched.status === 431) throw cookieBloat(path, fetched.status);
-    if (fetched.status < 200 || fetched.status >= 300 || text8.trim().charAt(0) === "<") throw failed8();
+    if (fetched.status < 200 || fetched.status >= 300 || text8.trim().charAt(0) === "<") throw failed9();
     let parsed3;
     try {
       parsed3 = JSON.parse(text8);
     } catch {
-      throw failed8();
+      throw failed9();
     }
     const body = parsed3?.body;
     if (!body || !Array.isArray(body.body)) throw responseInvalid(path, `\uBC1C\uC8FC \uBAA9\uB85D ${pageNumber}\uCABD\uC5D0 \uD589 \uBC30\uC5F4\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
@@ -13943,8 +13996,8 @@ var KidItemRuntime = (() => {
       })();
       return poPage;
     }
-    const onShipments = (read13) => remember(withLogin(() => shipments().then(read13), shipmentLogin));
-    const onPurchaseOrders = (read13) => remember(withLogin(() => purchaseOrders().then(read13), poLogin));
+    const onShipments = (read15) => remember(withLogin(() => shipments().then(read15), shipmentLogin));
+    const onPurchaseOrders = (read15) => remember(withLogin(() => purchaseOrders().then(read15), poLogin));
     return {
       /** 쉽먼트 목록 한 쪽(1부터). 여러 쪽을 함께 불러도 된다(탭 하나). */
       parcelPage(pageNumber) {
@@ -14154,7 +14207,7 @@ var KidItemRuntime = (() => {
     const wanted = resume ? SHOWN.show : SHOWN.hide;
     const warnings = [];
     let sent = 0;
-    let failed8 = 0;
+    let failed9 = 0;
     let confirmed = 0;
     let already = 0;
     const missing = [];
@@ -14178,13 +14231,13 @@ var KidItemRuntime = (() => {
         });
         const { json } = await readJson(response);
         if (!response.ok || !json || json.res !== true) {
-          failed8 += targets.length;
+          failed9 += targets.length;
           warnings.push(`${LABEL4}\uC774 \uC218\uC815\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4${json?.msg ? `: ${String(json.msg).slice(0, 120)}` : ""}.`);
         } else {
           const counted = typeof json.success === "number" || typeof json.success === "string" && /^\d+$/.test(json.success) ? Number(json.success) : null;
           const ok = counted === null ? targets.length : Math.min(counted, targets.length);
           sent += ok;
-          failed8 += targets.length - ok;
+          failed9 += targets.length - ok;
           if (ok < targets.length) warnings.push(`${LABEL4}\uC774 ${targets.length}\uAC74 \uC911 ${ok}\uAC74\uB9CC \uBC14\uAFE8\uB2E4\uACE0 \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`);
         }
         await context.sleep(PACE_MS5);
@@ -14195,7 +14248,7 @@ var KidItemRuntime = (() => {
     }
     if (already > 0) warnings.push(`${already}\uAC74\uC740 \uC774\uBBF8 ${wanted}\uC774\uC5C8\uC2B5\uB2C8\uB2E4.`);
     if (missing.length > 0) warnings.push(`${missing.length}\uAC74\uC740 ${LABEL4} \uC0C1\uD488\uBC88\uD638\uB85C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
-    return { success: true, sent: sent + already, failed: failed8 + missing.length, confirmed, requestOnly: false, warnings };
+    return { success: true, sent: sent + already, failed: failed9 + missing.length, confirmed, requestOnly: false, warnings };
   }
   async function read4(context, codes) {
     const products = [...new Set(codes)].filter((code2) => /^\d{1,12}$/.test(code2)).slice(0, READ_LIMIT);
@@ -14486,7 +14539,7 @@ var KidItemRuntime = (() => {
       main: [GS_SHOP_ORDERS_FILE],
       displayName: "GS\uC0F5"
     }).catch(() => null);
-    async function read13(page, onAttention) {
+    async function read15(page, onAttention) {
       let waited = false;
       const stillWalled = async (value) => {
         let url;
@@ -14524,7 +14577,7 @@ var KidItemRuntime = (() => {
     }
     return {
       readOrders(input = {}) {
-        return withFreshTab(tabs, GS_SHOP_ORDER_URL, (page) => read13(page, input.onAttention), signIn ? { signIn } : {});
+        return withFreshTab(tabs, GS_SHOP_ORDER_URL, (page) => read15(page, input.onAttention), signIn ? { signIn } : {});
       }
     };
   }
@@ -14908,8 +14961,8 @@ var KidItemRuntime = (() => {
     const from = resume ? "20" : "10";
     const warnings = [];
     const products = codes.filter((code2) => /^\d{5,15}$/.test(code2));
-    let failed8 = codes.length - products.length;
-    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL5} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL5} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
     let sent = 0;
     let confirmed = 0;
     let already = 0;
@@ -14924,12 +14977,12 @@ var KidItemRuntime = (() => {
       const found = products.filter((no) => rows.has(no));
       const missing = products.length - found.length;
       if (missing > 0) {
-        failed8 += missing;
+        failed9 += missing;
         warnings.push(`${missing}\uAC74\uC740 ${LABEL5}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
       }
       const ended = found.filter((no) => !["10", "20"].includes(rows.get(no).saleStatCd)).length;
       if (resume && ended > 0) {
-        failed8 += ended;
+        failed9 += ended;
         warnings.push(`${ended}\uAC74\uC740 ${LABEL5}\uC5D0\uC11C \uD310\uB9E4\uC885\uB8CC\uB41C \uC0C1\uD488\uC774\uB77C \uB418\uC0B4\uB9AC\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
       }
       if (!resume) already += ended;
@@ -14937,7 +14990,7 @@ var KidItemRuntime = (() => {
       already += found.filter((no) => rows.get(no).saleStatCd === wanted).length;
       const reserved = resume ? movable.filter((no) => rows.get(no).saleMethCd === "20") : [];
       if (reserved.length > 0) {
-        failed8 += reserved.length;
+        failed9 += reserved.length;
         warnings.push(`${reserved.length}\uAC74\uC740 \uC608\uC57D\uC0C1\uD488\uC774\uB77C ${LABEL5} \uD654\uBA74\uB3C4 \uD310\uB9E4\uC911\uC73C\uB85C \uB418\uB3CC\uB9AC\uC9C0 \uBABB\uD569\uB2C8\uB2E4.`);
       }
       const targets = movable.filter((no) => !reserved.includes(no));
@@ -14961,7 +15014,7 @@ var KidItemRuntime = (() => {
           }
           processed += slice.length;
           if (answer?.status !== 200 || answer.succeeded !== true) {
-            failed8 += slice.length;
+            failed9 += slice.length;
             const reason = answer?.message ? `: ${answer.message}` : "";
             warnings.push(`${LABEL5}\uC774 \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer?.status ?? 0})${reason}.`);
           } else {
@@ -14989,8 +15042,8 @@ var KidItemRuntime = (() => {
       return null;
     });
     if (halted) return halted;
-    if (halt) return stoppedMidway(halt, { sent, failed: failed8, confirmed, already, warnings, left });
-    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
   }
   async function read5(context, codes) {
     const products = [...new Set(codes)].filter((code2) => /^\d{5,15}$/.test(code2)).slice(0, READ_LIMIT);
@@ -15141,8 +15194,8 @@ var KidItemRuntime = (() => {
     const quantity = resume ? RESUME_QUANTITY : 0;
     const warnings = [];
     const products = codes.filter((code2) => /^\d{1,15}$/.test(code2));
-    let failed8 = codes.length - products.length;
-    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL6} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL6} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
     let sent = 0;
     let confirmed = 0;
     let already = 0;
@@ -15151,24 +15204,24 @@ var KidItemRuntime = (() => {
       const targets = [];
       for (let index = 0; index < products.length; index += 1) {
         if (index > 0) await context.sleep(PACE_MS7);
-        const read13 = await readProduct(run, products[index]);
-        if (read13.loggedOut) return { success: false, error: LOGGED_OUT5 };
-        if (!read13.product) {
-          failed8 += 1;
-          warnings.push(`${products[index]}: ${LABEL6}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4${read13.error ? `(${read13.error})` : ""}.`);
+        const read15 = await readProduct(run, products[index]);
+        if (read15.loggedOut) return { success: false, error: LOGGED_OUT5 };
+        if (!read15.product) {
+          failed9 += 1;
+          warnings.push(`${products[index]}: ${LABEL6}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4${read15.error ? `(${read15.error})` : ""}.`);
           continue;
         }
-        if (hasOptions(read13.product)) {
+        if (hasOptions(read15.product)) {
           withOptions += 1;
-          failed8 += 1;
+          failed9 += 1;
           continue;
         }
-        const stock = Number(read13.product.stockQuantity);
+        const stock = Number(read15.product.stockQuantity);
         if (!(resume ? stock === 0 : stock !== 0)) {
           already += 1;
           continue;
         }
-        targets.push(read13.product);
+        targets.push(read15.product);
       }
       if (targets.length === 0) return null;
       const edits = targets.map((product) => ({
@@ -15181,7 +15234,7 @@ var KidItemRuntime = (() => {
       }));
       const answer = await run("requestOnPage", [GRID_PATH, "PUT", "application/json", JSON.stringify(edits)]);
       if (answer.status < 200 || answer.status >= 300) {
-        failed8 += targets.length;
+        failed9 += targets.length;
         const reason = answer.json?.message || answer.json?.errorMessage || "";
         warnings.push(`${LABEL6}\uC774 \uC7AC\uACE0 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status})${reason ? `: ${String(reason).slice(0, 120)}` : ""}.`);
         return null;
@@ -15189,7 +15242,7 @@ var KidItemRuntime = (() => {
       const counted = Number.isSafeInteger(answer.json?.successCount) ? Math.max(0, Math.min(answer.json.successCount, targets.length)) : null;
       sent += counted ?? targets.length;
       if (counted !== null && counted < targets.length) {
-        failed8 += targets.length - counted;
+        failed9 += targets.length - counted;
         warnings.push(`${LABEL6}\uC774 ${targets.length}\uAC74 \uC911 ${counted}\uAC74\uB9CC \uBC14\uAFE8\uB2E4\uACE0 \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`);
       }
       for (const product of targets) {
@@ -15201,13 +15254,13 @@ var KidItemRuntime = (() => {
     });
     if (halted) return halted;
     if (withOptions > 0) warnings.push(`\uC635\uC158\uC774 \uC788\uB294 \uC0C1\uD488 ${withOptions}\uAC1C\uB294 \uC635\uC158\uB9C8\uB2E4 \uC7AC\uACE0\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 \u2014 ${LABEL6}\uC5D0\uC11C \uC635\uC158 \uC7AC\uACE0\uB97C \uACE0\uCCD0 \uC8FC\uC138\uC694.`);
-    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
   }
   async function sendPrice(context, items) {
     const warnings = [];
     const valid = items.filter((item) => /^\d{1,15}$/.test(item.code));
-    let failed8 = items.length - valid.length;
-    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL6} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let failed9 = items.length - valid.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL6} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
     let sent = 0;
     let confirmed = 0;
     let withOptions = 0;
@@ -15218,25 +15271,25 @@ var KidItemRuntime = (() => {
       for (let index = 0; index < valid.length; index += 1) {
         if (index > 0) await context.sleep(PACE_MS7);
         const item = valid[index];
-        const read13 = await readProduct(run, item.code);
-        if (read13.loggedOut) return { success: false, error: LOGGED_OUT5 };
-        if (!read13.product) {
-          failed8 += 1;
-          warnings.push(`${item.code}: ${LABEL6}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4${read13.error ? `(${read13.error})` : ""}.`);
+        const read15 = await readProduct(run, item.code);
+        if (read15.loggedOut) return { success: false, error: LOGGED_OUT5 };
+        if (!read15.product) {
+          failed9 += 1;
+          warnings.push(`${item.code}: ${LABEL6}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4${read15.error ? `(${read15.error})` : ""}.`);
           continue;
         }
-        if (hasOptions(read13.product)) {
+        if (hasOptions(read15.product)) {
           withOptions += 1;
-          failed8 += 1;
+          failed9 += 1;
           continue;
         }
-        const current = priceNumber(read13.product.salePrice);
+        const current = priceNumber(read15.product.salePrice);
         if (item.ifPrice !== null && current !== item.ifPrice) {
-          failed8 += 1;
+          failed9 += 1;
           warnings.push(`${item.code}: ${LABEL6} \uAC00\uACA9\uC774 \uADF8\uC0AC\uC774 ${Number.isFinite(current) ? `${current.toLocaleString("ko-KR")}\uC6D0` : "\uBAA8\uB974\uB294 \uAC12"}\uC73C\uB85C \uBC14\uB00C\uC5B4 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uBAB0 \uC0C1\uD488\uC744 \uB2E4\uC2DC \uAC00\uC838\uC628 \uB4A4 \uBCF4\uB0B4\uC138\uC694.`);
           continue;
         }
-        targets.push({ product: read13.product, price: item.price });
+        targets.push({ product: read15.product, price: item.price });
       }
       if (targets.length === 0) return null;
       const edits = targets.map(({ product, price: price2 }) => ({
@@ -15250,7 +15303,7 @@ var KidItemRuntime = (() => {
       submissionAttempted = true;
       const answer = await run("requestOnPage", [GRID_PATH, "PUT", "application/json", JSON.stringify(edits)]);
       if (answer.status < 200 || answer.status >= 300) {
-        failed8 += targets.length;
+        failed9 += targets.length;
         const reason = answer.json?.message || answer.json?.errorMessage || "";
         warnings.push(`${LABEL6}\uC774 \uAC00\uACA9 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status})${reason ? `: ${String(reason).slice(0, 120)}` : ""}.`);
         return null;
@@ -15258,7 +15311,7 @@ var KidItemRuntime = (() => {
       const counted = Number.isSafeInteger(answer.json?.successCount) ? Math.max(0, Math.min(answer.json.successCount, targets.length)) : null;
       sent += counted ?? targets.length;
       if (counted !== null && counted < targets.length) {
-        failed8 += targets.length - counted;
+        failed9 += targets.length - counted;
         warnings.push(`${LABEL6}\uC774 ${targets.length}\uAC74 \uC911 ${counted}\uAC74\uB9CC \uBC14\uAFE8\uB2E4\uACE0 \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`);
       }
       for (const { product, price: price2 } of targets) {
@@ -15281,7 +15334,7 @@ var KidItemRuntime = (() => {
     });
     if (halted) return { ...halted, submissionAttempted };
     if (withOptions > 0) warnings.push(`\uC635\uC158\uC774 \uC788\uB294 \uC0C1\uD488 ${withOptions}\uAC1C\uB294 \uC635\uC158\uB9C8\uB2E4 \uAC00\uACA9\uC774\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 \u2014 ${LABEL6}\uC5D0\uC11C \uC635\uC158 \uAC00\uACA9\uC744 \uACE0\uCCD0 \uC8FC\uC138\uC694.`);
-    return { success: true, sent, failed: failed8, confirmed, results, warnings, submissionAttempted };
+    return { success: true, sent, failed: failed9, confirmed, results, warnings, submissionAttempted };
   }
   async function read6(context, codes) {
     const products = [...new Set(codes)].filter((code2) => /^\d{1,15}$/.test(code2)).slice(0, READ_LIMIT);
@@ -15450,6 +15503,145 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "kidkids", create: (deps, lease) => createKidkidsSite(deps.tabs, createSiteSignIn(KIDKIDS_LOGIN, lease.credentials, deps)) });
 
+  // extensions/src/sites/kidkids/availability.ts
+  var ORIGIN12 = "https://partner.kidkids.net";
+  var PAGE_URL7 = "https://partner.kidkids.net/sales/goods_list_renewal.htm?pNum=1";
+  var LIST_PATH5 = "/sales/goods_list_renewal.htm";
+  var SAVE_PATH3 = "/sales/proc_logis.htm";
+  var PACE_MS8 = 700;
+  var READ_PACE_MS = 200;
+  var RECHECK_MS4 = 2e3;
+  var RECHECK_TIMES4 = 3;
+  var LABEL7 = "\uD0A4\uB4DC\uD0A4\uC988";
+  var LOGGED_OUT6 = `${LABEL7} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var isGoodsCode = (code2) => /^\d{3,10}$/.test(code2);
+  var readRow = async (run, code2) => await run("kidkidsRowOnPage", [LIST_PATH5, code2]);
+  async function send7(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? "\uD310\uB9E4" : "\uD488\uC808";
+    const from = resume ? "\uD488\uC808" : "\uD310\uB9E4";
+    const warnings = [];
+    const products = [...new Set(codes)].filter(isGoodsCode);
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL7} \uC0C1\uD488\uCF54\uB4DC \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    const notFound = [];
+    const other = [];
+    const noTax = [];
+    const accepted = [];
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN12, PAGE_URL7, async (run) => {
+      for (let index = 0; index < products.length; index += 1) {
+        const code2 = products[index];
+        if (index > 0) await context.sleep(PACE_MS8);
+        const row = await readRow(run, code2);
+        if (row?.loggedOut) {
+          halt = LOGGED_OUT6;
+          left = products.length - index;
+          return null;
+        }
+        if (row?.error) {
+          failed9 += 1;
+          warnings.push(`${code2}: ${LABEL7} \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${row.error}).`);
+          continue;
+        }
+        if (!row?.found) {
+          failed9 += 1;
+          notFound.push(code2);
+          continue;
+        }
+        if (row.word === wanted) {
+          already += 1;
+          continue;
+        }
+        if (row.word !== from) {
+          failed9 += 1;
+          other.push(`${code2}(${row.word || "?"})`);
+          continue;
+        }
+        if (!row.taxType) {
+          failed9 += 1;
+          noTax.push(code2);
+          continue;
+        }
+        const pairs = row.pairs.map(([name, value]) => {
+          if (name === "commitType") return [name, "change_use_flag"];
+          if (name === "use_flag") return [name, resume ? "Y" : "N"];
+          return [name, value];
+        });
+        const answer = await run("kidkidsSaveOnPage", [SAVE_PATH3, pairs]);
+        if (answer?.loggedOut) {
+          halt = LOGGED_OUT6;
+          left = products.length - index;
+          return null;
+        }
+        if (answer?.status !== 200) {
+          failed9 += 1;
+          warnings.push(`${code2}: ${LABEL7}\uC774 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(${answer?.error || `HTTP ${answer?.status ?? 0}`}).`);
+          continue;
+        }
+        sent += 1;
+        accepted.push(code2);
+        if (answer.alert && /실패|오류|권한|불가|없습니다/.test(answer.alert)) warnings.push(`${code2}: ${LABEL7} \uB2F5 "${answer.alert}"`);
+      }
+      let pending = [...accepted];
+      for (let attempt = 0; attempt <= RECHECK_TIMES4 && pending.length > 0; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS4);
+        const still = [];
+        for (const code2 of pending) {
+          const row = await readRow(run, code2);
+          if (row?.found && row.word === wanted) confirmed += 1;
+          else still.push(code2);
+        }
+        pending = still;
+      }
+      if (pending.length > 0) warnings.push(`${LABEL7} \uBAA9\uB85D\uC774 ${pending.length}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 \uC0C1\uD488\uAD00\uB9AC\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      return null;
+    });
+    if (halted) return halted;
+    if (notFound.length > 0) warnings.push(`${notFound.length}\uAC74\uC740 ${LABEL7}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+    if (other.length > 0) warnings.push(`${other.length}\uAC74\uC740 ${LABEL7}\uC5D0\uC11C ${from}\uC774 \uC544\uB2C8\uB77C \uBC14\uAFB8\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ${other.slice(0, 5).join(", ")}`);
+    if (noTax.length > 0) warnings.push(`${noTax.length}\uAC74\uC740 ${LABEL7} \uC138\uAE08 \uAD6C\uBD84\uC774 \uBBF8\uB4F1\uB85D\uC774\uB77C \uD654\uBA74\uB3C4 \uBC14\uAFB8\uC9C0 \uBABB\uD569\uB2C8\uB2E4: ${noTax.slice(0, 5).join(", ")}`);
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read7(context, codes) {
+    const products = [...new Set(codes)].filter(isGoodsCode).slice(0, READ_LIMIT);
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL7} \uC0C1\uD488\uCF54\uB4DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    const found = [];
+    const missing = [];
+    const halted = await withSellerPage(context, ORIGIN12, PAGE_URL7, async (run) => {
+      for (let index = 0; index < products.length; index += 1) {
+        if (index > 0) await context.sleep(READ_PACE_MS);
+        const code2 = products[index];
+        const row = await readRow(run, code2);
+        if (row?.loggedOut) return { success: false, error: LOGGED_OUT6 };
+        if (row?.error) return { success: false, error: `${LABEL7} \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${row.error}).` };
+        if (!row?.found) {
+          missing.push(code2);
+          continue;
+        }
+        const selling = row.word === "\uD310\uB9E4";
+        found.push({ code: code2, options: [{ optionCode: code2, stock: selling ? null : 0, rocket: false, ...selling ? {} : { state: row.word || "\uD488\uC808" } }] });
+      }
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "kidkids",
+    displayName: LABEL7,
+    guard: availabilityGuard(KIDKIDS_PAGE_GUARD, LABEL7),
+    dialogHosts: ["partner.kidkids.net"],
+    login: KIDKIDS_LOGIN,
+    send: send7,
+    read: read7
+  });
+
   // extensions/src/sites/kidkids/registration.ts
   var KIDKIDS_REGISTRATION_FORM = {
     label: "\uD0A4\uB4DC\uD0A4\uC988",
@@ -15586,18 +15778,18 @@ var KidItemRuntime = (() => {
   registerSite({ name: "kidsnote", create: (deps, lease) => createKidsnoteSite(deps.tabs, createSiteSignIn(KIDSNOTE_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/kidsnote/availability.ts
-  var ORIGIN12 = "https://shop.kidsnote.com";
-  var PAGE_URL7 = "https://shop.kidsnote.com/_manage/?body=2010";
-  var LIST_PATH5 = "/_manage/";
-  var SAVE_PATH3 = "/_manage/";
+  var ORIGIN13 = "https://shop.kidsnote.com";
+  var PAGE_URL8 = "https://shop.kidsnote.com/_manage/?body=2010";
+  var LIST_PATH6 = "/_manage/";
+  var SAVE_PATH4 = "/_manage/";
   var PAGE_SIZE3 = 100;
   var MAX_PAGES2 = 60;
   var PAGE_PACE_MS = 200;
-  var PACE_MS8 = 700;
-  var RECHECK_MS4 = 2e3;
-  var RECHECK_TIMES4 = 2;
-  var LABEL7 = "\uD0A4\uC988\uB178\uD2B8";
-  var LOGGED_OUT6 = `${LABEL7} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var PACE_MS9 = 700;
+  var RECHECK_MS5 = 2e3;
+  var RECHECK_TIMES5 = 2;
+  var LABEL8 = "\uD0A4\uC988\uB178\uD2B8";
+  var LOGGED_OUT7 = `${LABEL8} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
   var KIDSNOTE_PRICE_NOTE = "\uD0A4\uC988\uB178\uD2B8\uB294 \uAC00\uACA9\uC744 \uBC14\uAFB8\uBA74 \uBCF8\uC0AC \uC2B9\uC778 \uC804\uAE4C\uC9C0 \uADF8 \uC0C1\uD488 \uD310\uB9E4\uAC00 \uBA48\uCDA5\uB2C8\uB2E4.";
   async function readRows4(context, run, codes, withForm, formId = "edt_layer_4") {
     const wanted = new Set(codes);
@@ -15605,7 +15797,7 @@ var KidItemRuntime = (() => {
     let form = null;
     for (let page = 1; page <= MAX_PAGES2; page += 1) {
       if (page > 1) await context.sleep(PAGE_PACE_MS);
-      const answer = await run("kidsnoteListOnPage", [LIST_PATH5, page, PAGE_SIZE3, Boolean(withForm && page === 1), formId]);
+      const answer = await run("kidsnoteListOnPage", [LIST_PATH6, page, PAGE_SIZE3, Boolean(withForm && page === 1), formId]);
       if (answer?.loggedOut) return { loggedOut: true };
       if (!Array.isArray(answer?.rows)) return { error: answer?.error || "\uBAA9\uB85D \uC870\uD68C \uC2E4\uD328" };
       if (withForm && page === 1) form = answer.form;
@@ -15614,41 +15806,41 @@ var KidItemRuntime = (() => {
     }
     return { rows, form };
   }
-  async function send7(context, input) {
+  async function send8(context, input) {
     const { codes, resume } = input;
     const wanted = resume ? "\uC815\uC0C1" : "\uD488\uC808";
     const from = resume ? "\uD488\uC808" : "\uC815\uC0C1";
     const value = resume ? "2" : "3";
     const warnings = [];
     const products = codes.filter((code2) => /^\d{1,10}$/.test(code2));
-    let failed8 = codes.length - products.length;
-    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL7} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL8} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
     let sent = 0;
     let confirmed = 0;
     let already = 0;
     let halt = null;
     let left = 0;
-    const halted = await withSellerPage(context, ORIGIN12, PAGE_URL7, async (run) => {
+    const halted = await withSellerPage(context, ORIGIN13, PAGE_URL8, async (run) => {
       if (products.length === 0) return null;
       const before = await readRows4(context, run, products, true);
-      if (before.loggedOut) return { success: false, error: LOGGED_OUT6 };
-      if (!before.rows) return { success: false, error: `${LABEL7} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT7 };
+      if (!before.rows) return { success: false, error: `${LABEL8} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
       const rows = before.rows;
       const form = before.form ?? [];
       const names = new Set(form.map(([name]) => name));
       if (!["body", "nums", "exec", "where", "change_stat"].every((name) => names.has(name))) {
-        return { success: false, error: `${LABEL7} \uC0C1\uD0DC/\uB178\uCD9C\uC77C\uAD04\uC218\uC815 \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.` };
+        return { success: false, error: `${LABEL8} \uC0C1\uD0DC/\uB178\uCD9C\uC77C\uAD04\uC218\uC815 \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.` };
       }
       const found = products.filter((no) => rows.has(no));
       const missing = products.length - found.length;
       if (missing > 0) {
-        failed8 += missing;
-        warnings.push(`${missing}\uAC74\uC740 ${LABEL7} \uC0C1\uD488\uBAA9\uB85D\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+        failed9 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL8} \uC0C1\uD488\uBAA9\uB85D\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
       }
       const hidden = found.filter((no) => ![from, wanted].includes(rows.get(no).stat)).length;
       if (resume && hidden > 0) {
-        failed8 += hidden;
-        warnings.push(`${hidden}\uAC74\uC740 ${LABEL7}\uC5D0\uC11C \uC228\uAE40(\uB610\uB294 \uB2E4\uB978 \uC0C1\uD0DC)\uC774\uB77C \uD480\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+        failed9 += hidden;
+        warnings.push(`${hidden}\uAC74\uC740 ${LABEL8}\uC5D0\uC11C \uC228\uAE40(\uB610\uB294 \uB2E4\uB978 \uC0C1\uD0DC)\uC774\uB77C \uD480\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
       }
       if (!resume) already += hidden;
       const targets = found.filter((no) => rows.get(no).stat === from);
@@ -15663,78 +15855,78 @@ var KidItemRuntime = (() => {
           if (name === "change_stat") return [name, value];
           return [name, current];
         });
-        const answer = await run("kidsnoteSaveOnPage", [SAVE_PATH3, pairs]);
+        const answer = await run("kidsnoteSaveOnPage", [SAVE_PATH4, pairs]);
         if (answer?.loggedOut) {
-          halt = LOGGED_OUT6;
+          halt = LOGGED_OUT7;
           left = targets.length - start;
           return null;
         }
         if (answer?.alert) answered = answer.alert;
         if (answer?.status !== 200) {
-          failed8 += group.length;
-          warnings.push(`${LABEL7}\uC774 \uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer?.status ?? 0}).`);
+          failed9 += group.length;
+          warnings.push(`${LABEL8}\uC774 \uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer?.status ?? 0}).`);
         } else {
           sent += group.length;
           accepted.push(...group);
         }
-        await context.sleep(PACE_MS8);
+        await context.sleep(PACE_MS9);
       }
       if (accepted.length === 0) return null;
       let seen = null;
-      for (let attempt = 0; attempt <= RECHECK_TIMES4; attempt += 1) {
-        if (attempt > 0) await context.sleep(RECHECK_MS4);
+      for (let attempt = 0; attempt <= RECHECK_TIMES5; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS5);
         const after = await readRows4(context, run, accepted, false);
         if (!after.rows) continue;
         seen = accepted.filter((no) => after.rows.get(no)?.stat === wanted).length;
         if (seen >= accepted.length) break;
       }
       if (seen === null) {
-        warnings.push(`${LABEL7}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uD310\uB9E4 \uC0C1\uD488 \uB0B4\uC5ED\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+        warnings.push(`${LABEL8}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uD310\uB9E4 \uC0C1\uD488 \uB0B4\uC5ED\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
       } else {
         confirmed += seen;
         if (seen < accepted.length) {
           const said = answered ? ` \uBAB0 \uB2F5: "${answered}"` : "";
-          warnings.push(`${LABEL7} \uBAA9\uB85D\uC774 ${accepted.length - seen}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4.${said}`);
+          warnings.push(`${LABEL8} \uBAA9\uB85D\uC774 ${accepted.length - seen}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4.${said}`);
         }
       }
       return null;
     });
     if (halted) return halted;
-    if (halt) return stoppedMidway(halt, { sent, failed: failed8, confirmed, already, warnings, left });
-    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
   }
   async function sendPrice2(context, items) {
     const warnings = [KIDSNOTE_PRICE_NOTE];
     const valid = items.filter((item) => /^\d{1,10}$/.test(item.code));
-    let failed8 = items.length - valid.length;
-    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL7} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let failed9 = items.length - valid.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL8} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
     let sent = 0;
     let confirmed = 0;
     let submissionAttempted = false;
     const results = [];
-    const halted = await withSellerPage(context, ORIGIN12, PAGE_URL7, async (run, page) => {
+    const halted = await withSellerPage(context, ORIGIN13, PAGE_URL8, async (run, page) => {
       if (valid.length === 0) return null;
       const before = await readRows4(context, run, valid.map((item) => item.code), true, "edt_layer_2");
-      if (before.loggedOut) return { success: false, error: LOGGED_OUT6 };
-      if (!before.rows) return { success: false, error: `${LABEL7} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT7 };
+      if (!before.rows) return { success: false, error: `${LABEL8} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
       const rows = before.rows;
       const form = before.form ?? [];
       const names = new Set(form.map(([name]) => name));
       const exec = form.find(([name]) => name === "exec")?.[1];
       if (!["body", "nums", "exec", "where", "prc_chg_type", "o3", "replace_prc"].every((name) => names.has(name)) || exec !== "sell_prc") {
-        return { success: false, error: `${LABEL7} \uAC00\uACA9 \uC77C\uAD04\uC218\uC815 \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.` };
+        return { success: false, error: `${LABEL8} \uAC00\uACA9 \uC77C\uAD04\uC218\uC815 \uD654\uBA74\uC774 \uBC14\uB00C\uC5B4 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.` };
       }
       const byPrice = /* @__PURE__ */ new Map();
       for (const item of valid) {
         const row = rows.get(item.code);
         if (!row) {
-          failed8 += 1;
-          warnings.push(`${item.code}: ${LABEL7} \uC0C1\uD488\uBAA9\uB85D\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+          failed9 += 1;
+          warnings.push(`${item.code}: ${LABEL8} \uC0C1\uD488\uBAA9\uB85D\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
           continue;
         }
         if (item.ifPrice !== null && row.price !== item.ifPrice) {
-          failed8 += 1;
-          warnings.push(`${item.code}: ${LABEL7} \uAC00\uACA9\uC774 \uADF8\uC0AC\uC774 ${row.price === null ? "\uBAA8\uB974\uB294 \uAC12" : `${row.price.toLocaleString("ko-KR")}\uC6D0`}\uC73C\uB85C \uBC14\uB00C\uC5B4 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uBAB0 \uC0C1\uD488\uC744 \uB2E4\uC2DC \uAC00\uC838\uC628 \uB4A4 \uBCF4\uB0B4\uC138\uC694.`);
+          failed9 += 1;
+          warnings.push(`${item.code}: ${LABEL8} \uAC00\uACA9\uC774 \uADF8\uC0AC\uC774 ${row.price === null ? "\uBAA8\uB974\uB294 \uAC12" : `${row.price.toLocaleString("ko-KR")}\uC6D0`}\uC73C\uB85C \uBC14\uB00C\uC5B4 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4. \uBAB0 \uC0C1\uD488\uC744 \uB2E4\uC2DC \uAC00\uC838\uC628 \uB4A4 \uBCF4\uB0B4\uC138\uC694.`);
           continue;
         }
         byPrice.set(item.price, [...byPrice.get(item.price) || [], { code: item.code, before: row.price }]);
@@ -15752,22 +15944,22 @@ var KidItemRuntime = (() => {
             return [name, current];
           });
           submissionAttempted = true;
-          const answer = await run("kidsnoteSaveOnPage", [SAVE_PATH3, pairs]);
-          if (answer?.loggedOut) return { success: false, error: LOGGED_OUT6 };
+          const answer = await run("kidsnoteSaveOnPage", [SAVE_PATH4, pairs]);
+          if (answer?.loggedOut) return { success: false, error: LOGGED_OUT7 };
           if (answer?.status !== 200) {
-            failed8 += chunk.length;
-            warnings.push(`${LABEL7}\uC774 \uAC00\uACA9 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer?.status ?? 0}).`);
+            failed9 += chunk.length;
+            warnings.push(`${LABEL8}\uC774 \uAC00\uACA9 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer?.status ?? 0}).`);
           } else {
             sent += chunk.length;
             accepted.push(...chunk.map((entry) => ({ ...entry, price: price2 })));
           }
-          await context.sleep(PACE_MS8);
+          await context.sleep(PACE_MS9);
         }
       }
       if (accepted.length === 0) return null;
       let after = null;
-      for (let attempt = 0; attempt <= RECHECK_TIMES4; attempt += 1) {
-        if (attempt > 0) await context.sleep(RECHECK_MS4);
+      for (let attempt = 0; attempt <= RECHECK_TIMES5; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS5);
         after = await readRows4(context, run, accepted.map((entry) => entry.code), false);
         if (after.rows && accepted.every((entry) => after.rows.get(entry.code)?.price === entry.price)) break;
       }
@@ -15775,23 +15967,23 @@ var KidItemRuntime = (() => {
         const now = after?.rows?.get(entry.code)?.price ?? null;
         const ok = now === entry.price;
         if (ok) confirmed += 1;
-        const observedUrl = typeof now === "number" && Number.isFinite(now) ? await observedUrlOf(page, ORIGIN12) : null;
+        const observedUrl = typeof now === "number" && Number.isFinite(now) ? await observedUrlOf(page, ORIGIN13) : null;
         results.push({ code: entry.code, before: entry.before, after: now, confirmed: ok, ...observedUrl ? { observedUrl } : {} });
       }
       return null;
     });
     if (halted) return { ...halted, submissionAttempted };
-    return { success: true, sent, failed: failed8, confirmed, results, warnings, submissionAttempted };
+    return { success: true, sent, failed: failed9, confirmed, results, warnings, submissionAttempted };
   }
-  async function read7(context, codes) {
+  async function read8(context, codes) {
     const products = [...new Set(codes)].filter((code2) => /^\d{1,10}$/.test(code2)).slice(0, READ_LIMIT);
-    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL7} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL8} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
     let found = [];
     let missing = [];
-    const halted = await withSellerPage(context, ORIGIN12, PAGE_URL7, async (run) => {
+    const halted = await withSellerPage(context, ORIGIN13, PAGE_URL8, async (run) => {
       const result = await readRows4(context, run, products, false);
-      if (result.loggedOut) return { success: false, error: LOGGED_OUT6 };
-      if (!result.rows) return { success: false, error: `${LABEL7} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT7 };
+      if (!result.rows) return { success: false, error: `${LABEL8} \uC0C1\uD488\uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
       const rows = result.rows;
       found = products.filter((no) => rows.has(no)).map((no) => ({ code: no, options: [flagOption(no, rows.get(no).stat === "\uC815\uC0C1", rows.get(no).stat)] }));
       missing = products.filter((no) => !rows.has(no));
@@ -15802,12 +15994,12 @@ var KidItemRuntime = (() => {
   }
   registerMallAvailability({
     mallKey: "kidsnote",
-    displayName: LABEL7,
-    guard: availabilityGuard(KIDSNOTE_PAGE_GUARD, LABEL7),
+    displayName: LABEL8,
+    guard: availabilityGuard(KIDSNOTE_PAGE_GUARD, LABEL8),
     dialogHosts: ["shop.kidsnote.com"],
     login: KIDSNOTE_LOGIN,
-    send: send7,
-    read: read7,
+    send: send8,
+    read: read8,
     sendPrice: sendPrice2
   });
 
@@ -15949,41 +16141,41 @@ var KidItemRuntime = (() => {
   registerSite({ name: "kkomangse", create: (deps, lease) => createKkomangseSite(deps.tabs, createSiteSignIn(KKOMANGSE_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/kkomangse/availability.ts
-  var ORIGIN13 = "https://nstore.edupre.co.kr";
-  var PAGE_URL8 = "https://nstore.edupre.co.kr/subAdmin/_product_mass.view.php";
+  var ORIGIN14 = "https://nstore.edupre.co.kr";
+  var PAGE_URL9 = "https://nstore.edupre.co.kr/subAdmin/_product_mass.view.php";
   var VIEW_PATH2 = "/subAdmin/_product_mass.view.php";
   var CHANGE_PATH = "/subAdmin/_product_mass.pro.php";
   var RESUME_STOCK = 999;
-  var PACE_MS9 = 700;
-  var READ_PACE_MS = 400;
-  var LABEL8 = "\uAF2C\uB9DD\uC138";
-  var LOGGED_OUT7 = `${LABEL8} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var PACE_MS10 = 700;
+  var READ_PACE_MS2 = 400;
+  var LABEL9 = "\uAF2C\uB9DD\uC138";
+  var LOGGED_OUT8 = `${LABEL9} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
   var isZero = (stock) => String(stock).trim() !== "" && Number(stock) === 0;
-  async function send8(context, input) {
+  async function send9(context, input) {
     const { codes, resume } = input;
     const wanted = resume ? String(RESUME_STOCK) : "0";
     const warnings = [];
     let sent = 0;
-    let failed8 = 0;
+    let failed9 = 0;
     let confirmed = 0;
     let already = 0;
     let missing = 0;
     let halt = null;
     let left = 0;
-    const halted = await withSellerPage(context, ORIGIN13, PAGE_URL8, async (run) => {
+    const halted = await withSellerPage(context, ORIGIN14, PAGE_URL9, async (run) => {
       for (let index = 0; index < codes.length; index += 1) {
         const code2 = codes[index];
-        if (index > 0) await context.sleep(PACE_MS9);
+        if (index > 0) await context.sleep(PACE_MS10);
         const row = await run("kkomangseRowOnPage", [VIEW_PATH2, code2]);
         if (row?.loggedOut) {
-          halt = LOGGED_OUT7;
+          halt = LOGGED_OUT8;
           left = codes.length - index;
           return null;
         }
         if (!row?.found) {
           if (row?.error) {
-            failed8 += 1;
-            warnings.push(`${code2}: ${LABEL8} \uC124\uC815 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${row.error}).`);
+            failed9 += 1;
+            warnings.push(`${code2}: ${LABEL9} \uC124\uC815 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${row.error}).`);
           } else {
             missing += 1;
           }
@@ -15995,8 +16187,8 @@ var KidItemRuntime = (() => {
           continue;
         }
         if (!["Y", "N"].includes(row.view) || !["Y", "N"].includes(row.stockControl)) {
-          failed8 += 1;
-          warnings.push(`${code2}: ${LABEL8} \uC124\uC815 \uD654\uBA74\uC5D0\uC11C \uB178\uCD9C \xB7 \uC7AC\uACE0\uAD00\uB9AC \uAC12\uC744 \uC77D\uC9C0 \uBABB\uD574 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+          failed9 += 1;
+          warnings.push(`${code2}: ${LABEL9} \uC124\uC815 \uD654\uBA74\uC5D0\uC11C \uB178\uCD9C \xB7 \uC7AC\uACE0\uAD00\uB9AC \uAC12\uC744 \uC77D\uC9C0 \uBABB\uD574 \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
           continue;
         }
         const body = new URLSearchParams([
@@ -16011,8 +16203,8 @@ var KidItemRuntime = (() => {
         ]);
         const answer = await run("requestOnPage", [CHANGE_PATH, "POST", "application/x-www-form-urlencoded; charset=UTF-8", body.toString(), { "X-Requested-With": "XMLHttpRequest" }]);
         if (answer.status < 200 || answer.status >= 300 || answer.json?.res !== "success") {
-          failed8 += 1;
-          warnings.push(`${code2}: ${LABEL8}\uC774 \uC7AC\uACE0 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status}).`);
+          failed9 += 1;
+          warnings.push(`${code2}: ${LABEL9}\uC774 \uC7AC\uACE0 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status}).`);
           continue;
         }
         sent += 1;
@@ -16023,23 +16215,23 @@ var KidItemRuntime = (() => {
     });
     if (halted) return halted;
     if (missing > 0) {
-      failed8 += missing;
-      warnings.push(`${missing}\uAC74\uC740 ${LABEL8}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+      failed9 += missing;
+      warnings.push(`${missing}\uAC74\uC740 ${LABEL9}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
     }
-    if (halt) return stoppedMidway(halt, { sent, failed: failed8, confirmed, already, warnings, left });
-    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
   }
-  async function read8(context, codes) {
+  async function read9(context, codes) {
     const products = [...new Set(codes)].slice(0, READ_LIMIT);
-    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL8} \uC0C1\uD488\uCF54\uB4DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL9} \uC0C1\uD488\uCF54\uB4DC\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
     const found = [];
     const missing = [];
-    const halted = await withSellerPage(context, ORIGIN13, PAGE_URL8, async (run) => {
+    const halted = await withSellerPage(context, ORIGIN14, PAGE_URL9, async (run) => {
       for (let index = 0; index < products.length; index += 1) {
-        if (index > 0) await context.sleep(READ_PACE_MS);
+        if (index > 0) await context.sleep(READ_PACE_MS2);
         const row = await run("kkomangseRowOnPage", [VIEW_PATH2, products[index]]);
-        if (row?.loggedOut) return { success: false, error: LOGGED_OUT7 };
-        if (row?.error) return { success: false, error: `${LABEL8} \uC124\uC815 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${row.error}).` };
+        if (row?.loggedOut) return { success: false, error: LOGGED_OUT8 };
+        if (row?.error) return { success: false, error: `${LABEL9} \uC124\uC815 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${row.error}).` };
         if (!row?.found) {
           missing.push(products[index]);
           continue;
@@ -16053,12 +16245,12 @@ var KidItemRuntime = (() => {
   }
   registerMallAvailability({
     mallKey: "kkomangse",
-    displayName: LABEL8,
-    guard: availabilityGuard(KKOMANGSE_PAGE_GUARD, LABEL8),
+    displayName: LABEL9,
+    guard: availabilityGuard(KKOMANGSE_PAGE_GUARD, LABEL9),
     dialogHosts: ["nstore.edupre.co.kr"],
     login: KKOMANGSE_LOGIN,
-    send: send8,
-    read: read8
+    send: send9,
+    read: read9
   });
 
   // extensions/src/sites/kkomangse/registration.ts
@@ -16289,26 +16481,26 @@ var KidItemRuntime = (() => {
   registerSite({ name: "lotte-on", create: (deps, lease) => createLotteOnSite(deps.tabs, createSiteSignIn(LOTTE_ON_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/lotte-on/availability.ts
-  var ORIGIN14 = "https://store.lotteon.com";
-  var PAGE_URL9 = "https://store.lotteon.com/cm/main/index_SO.wsp";
+  var ORIGIN15 = "https://store.lotteon.com";
+  var PAGE_URL10 = "https://store.lotteon.com/cm/main/index_SO.wsp";
   var API = "https://soapi.lotteon.com";
-  var LIST_PATH6 = "/soapi/v1/product/information/selectProductList";
+  var LIST_PATH7 = "/soapi/v1/product/information/selectProductList";
   var UPDATE_PATH = "/soapi/v1/product/registration/updateProductBatch";
   var BATCH_SIZE4 = 100;
-  var PACE_MS10 = 700;
-  var RECHECK_MS5 = 3e3;
-  var RECHECK_TIMES5 = 8;
+  var PACE_MS11 = 700;
+  var RECHECK_MS6 = 3e3;
+  var RECHECK_TIMES6 = 8;
   var SETTLE_TIMES = 4;
-  var LABEL9 = "\uB86F\uB370ON";
-  var LOGGED_OUT8 = `${LABEL9} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var LABEL10 = "\uB86F\uB370ON";
+  var LOGGED_OUT9 = `${LABEL10} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
   var STATUS_WORDS2 = { SOUT: "\uD488\uC808", STP: "\uD310\uB9E4\uC911\uC9C0", END: "\uD310\uB9E4\uC885\uB8CC" };
   var isProductNo2 = (code2) => /^LO\d{4,20}$/.test(code2);
   async function readRows5(context, run, codes) {
     const rows = /* @__PURE__ */ new Map();
     for (let start = 0; start < codes.length; start += BATCH_SIZE4) {
-      if (start > 0) await context.sleep(PACE_MS10);
+      if (start > 0) await context.sleep(PACE_MS11);
       const group = codes.slice(start, start + BATCH_SIZE4);
-      const answer = await run("lotteonPostOnPage", [`${API}${LIST_PATH6}`, { spdNo: group.join("\n"), pageNo: 1, rowsPerPage: BATCH_SIZE4 }, true], "main");
+      const answer = await run("lotteonPostOnPage", [`${API}${LIST_PATH7}`, { spdNo: group.join("\n"), pageNo: 1, rowsPerPage: BATCH_SIZE4 }, true], "main");
       if (answer?.loggedOut) return { loggedOut: true };
       if (answer?.status !== 200 || answer.returnCode !== "SUCCESS" || !Array.isArray(answer.rows)) {
         return { error: `HTTP ${answer?.status ?? 0}${answer?.returnCode ? ` ${answer.returnCode}` : ""}` };
@@ -16329,41 +16521,41 @@ var KidItemRuntime = (() => {
       return null;
     }
   }
-  async function send9(context, input) {
+  async function send10(context, input) {
     const { codes, resume } = input;
     const wanted = resume ? "SALE" : "SOUT";
     const from = resume ? "SOUT" : "SALE";
     const warnings = [];
     const products = codes.filter(isProductNo2);
-    let failed8 = codes.length - products.length;
-    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL9} \uD310\uB9E4\uC790\uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL10} \uD310\uB9E4\uC790\uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
     let sent = 0;
     let confirmed = 0;
     let already = 0;
     let halt = null;
     let left = 0;
-    const halted = await withSellerPage(context, ORIGIN14, PAGE_URL9, async (run) => {
+    const halted = await withSellerPage(context, ORIGIN15, PAGE_URL10, async (run) => {
       if (products.length === 0) return null;
       const before = await readRows5(context, run, products);
-      if (before.loggedOut) return { success: false, error: LOGGED_OUT8 };
-      if (!before.rows) return { success: false, error: `${LABEL9} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT9 };
+      if (!before.rows) return { success: false, error: `${LABEL10} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
       const rows = before.rows;
       const found = products.filter((no) => rows.has(no));
       const missing = products.length - found.length;
       if (missing > 0) {
-        failed8 += missing;
-        warnings.push(`${missing}\uAC74\uC740 ${LABEL9}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+        failed9 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL10}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
       }
       const locked = found.filter((no) => !["SALE", "SOUT"].includes(rows.get(no).slStatCd));
       if (resume && locked.length > 0) {
-        failed8 += locked.length;
-        warnings.push(`${locked.length}\uAC74\uC740 ${LABEL9}\uC774 \uD310\uB9E4\uC911\uC9C0 \xB7 \uD310\uB9E4\uC885\uB8CC\uD55C \uC0C1\uD488\uC774\uB77C \uD480\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+        failed9 += locked.length;
+        warnings.push(`${locked.length}\uAC74\uC740 ${LABEL10}\uC774 \uD310\uB9E4\uC911\uC9C0 \xB7 \uD310\uB9E4\uC885\uB8CC\uD55C \uC0C1\uD488\uC774\uB77C \uD480\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
       }
       if (!resume) already += locked.length;
       let targets = found.filter((no) => rows.get(no).slStatCd === from);
       let settled = found.filter((no) => rows.get(no).slStatCd === wanted);
       for (let attempt = 0; attempt < SETTLE_TIMES && settled.length > 0; attempt += 1) {
-        await context.sleep(RECHECK_MS5);
+        await context.sleep(RECHECK_MS6);
         const again = await readRows5(context, run, settled);
         if (!again.rows) break;
         const flipped = settled.filter((no) => again.rows.get(no)?.slStatCd === from);
@@ -16391,55 +16583,55 @@ var KidItemRuntime = (() => {
         });
         const answer = await run("lotteonPostOnPage", [`${API}${UPDATE_PATH}`, params, false], "main");
         if (answer?.loggedOut) {
-          halt = LOGGED_OUT8;
+          halt = LOGGED_OUT9;
           left = targets.length - start;
           return null;
         }
         if (answer?.status !== 200 || answer.json?.returnCode && answer.json.returnCode !== "SUCCESS") {
-          failed8 += group.length;
+          failed9 += group.length;
           const reason = answer?.json?.message ? `: ${String(answer.json.message).slice(0, 120)}` : "";
-          warnings.push(`${LABEL9}\uC774 \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer?.status ?? 0})${reason}.`);
+          warnings.push(`${LABEL10}\uC774 \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer?.status ?? 0})${reason}.`);
           continue;
         }
         const counts = batchCounts(answer.json);
         const ok = Math.max(0, Math.min(counts?.successCnt ?? group.length - (counts?.failCnt ?? 0), group.length));
         sent += ok;
         if (ok < group.length) {
-          failed8 += group.length - ok;
-          warnings.push(`${LABEL9}\uC774 ${group.length}\uAC74 \uC911 ${group.length - ok}\uAC74\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uB2E4\uACE0 \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`);
+          failed9 += group.length - ok;
+          warnings.push(`${LABEL10}\uC774 ${group.length}\uAC74 \uC911 ${group.length - ok}\uAC74\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uB2E4\uACE0 \uB2F5\uD588\uC2B5\uB2C8\uB2E4.`);
         }
-        await context.sleep(PACE_MS10);
+        await context.sleep(PACE_MS11);
       }
       if (sent === 0) return null;
       let seen = null;
-      for (let attempt = 0; attempt <= RECHECK_TIMES5; attempt += 1) {
-        if (attempt > 0) await context.sleep(RECHECK_MS5);
+      for (let attempt = 0; attempt <= RECHECK_TIMES6; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS6);
         const after = await readRows5(context, run, targets);
         if (!after.rows) continue;
         seen = targets.filter((no) => after.rows.get(no)?.slStatCd === wanted).length;
         if (seen >= sent) break;
       }
       if (seen === null) {
-        warnings.push(`${LABEL9}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C1\uD488 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+        warnings.push(`${LABEL10}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C1\uD488 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
       } else {
         confirmed += Math.min(seen, sent);
-        if (seen < sent) warnings.push(`${LABEL9} \uC0C1\uD488 \uC870\uD68C\uAC00 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB97C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uD655\uC778\uD558\uC138\uC694.`);
+        if (seen < sent) warnings.push(`${LABEL10} \uC0C1\uD488 \uC870\uD68C\uAC00 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB97C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 \uC7A0\uC2DC \uB4A4 \uB2E4\uC2DC \uD655\uC778\uD558\uC138\uC694.`);
       }
       return null;
     });
     if (halted) return halted;
-    if (halt) return stoppedMidway(halt, { sent, failed: failed8, confirmed, already, warnings, left });
-    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
   }
-  async function read9(context, codes) {
+  async function read10(context, codes) {
     const products = [...new Set(codes)].filter(isProductNo2).slice(0, READ_LIMIT);
-    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL9} \uD310\uB9E4\uC790\uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL10} \uD310\uB9E4\uC790\uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
     let found = [];
     let missing = [];
-    const halted = await withSellerPage(context, ORIGIN14, PAGE_URL9, async (run) => {
+    const halted = await withSellerPage(context, ORIGIN15, PAGE_URL10, async (run) => {
       const result = await readRows5(context, run, products);
-      if (result.loggedOut) return { success: false, error: LOGGED_OUT8 };
-      if (!result.rows) return { success: false, error: `${LABEL9} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT9 };
+      if (!result.rows) return { success: false, error: `${LABEL10} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
       const rows = result.rows;
       found = products.filter((no) => rows.has(no)).map((no) => {
         const status = String(rows.get(no).slStatCd);
@@ -16453,12 +16645,12 @@ var KidItemRuntime = (() => {
   }
   registerMallAvailability({
     mallKey: "lotte-on",
-    displayName: LABEL9,
-    guard: availabilityGuard(LOTTE_ON_PAGE_GUARD, LABEL9),
+    displayName: LABEL10,
+    guard: availabilityGuard(LOTTE_ON_PAGE_GUARD, LABEL10),
     dialogHosts: ["store.lotteon.com"],
     login: LOTTE_ON_LOGIN,
-    send: send9,
-    read: read9
+    send: send10,
+    read: read10
   });
 
   // extensions/src/sites/lotte-on/registration.ts
@@ -16584,6 +16776,8 @@ var KidItemRuntime = (() => {
         if (definition) {
           const context = mallWriteContext(definition, deps, lease);
           handle.fill = (input) => fillRegistration(definition, context, input);
+          const thumbnail = mallThumbnailFor(mallKey);
+          if (thumbnail) handle.thumbnail = (input) => thumbnail(context, input);
         }
         if (availability) {
           const context = availabilityContext(availability, deps, lease);
@@ -16663,28 +16857,28 @@ var KidItemRuntime = (() => {
   registerSite({ name: "onch", create: (deps, lease) => createOnchSite(deps.tabs, createSiteSignIn(ONCH_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/onch/availability.ts
-  var ORIGIN15 = "https://www.onch3.co.kr";
+  var ORIGIN16 = "https://www.onch3.co.kr";
   var PATH = "/access/product_access.php?ubr=option_state_modi";
-  var LABEL10 = "\uC628\uCC44\uB110";
-  async function send10(context, input) {
+  var LABEL11 = "\uC628\uCC44\uB110";
+  async function send11(context, input) {
     const body = input.resume ? { prd_code_str: input.codes.join("/"), sec: "1", comment: "\uC7AC\uC785\uACE0" } : { prd_code_str: input.codes.join("/"), sec: "4", comment: "\uC7AC\uACE0 \uC18C\uC9C4" };
-    const answer = await postForm(context.fetch, ORIGIN15, PATH, Object.entries(body));
-    if (answer.loggedOut) return { success: false, error: `${LABEL10} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.` };
+    const answer = await postForm(context.fetch, ORIGIN16, PATH, Object.entries(body));
+    if (answer.loggedOut) return { success: false, error: `${LABEL11} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.` };
     return {
       success: true,
       sent: answer.accepted ? input.codes.length : 0,
       failed: answer.accepted ? 0 : input.codes.length,
       requestOnly: true,
-      warnings: [`${LABEL10}\uC740 \uAD00\uB9AC\uC790 \uC2B9\uC778\uC744 \uAC70\uCE69\uB2C8\uB2E4 \u2014 \uBCF4\uB0B8 \uAC83\uC774 \uACE7 \uBC18\uC601\uC740 \uC544\uB2D9\uB2C8\uB2E4.`]
+      warnings: [`${LABEL11}\uC740 \uAD00\uB9AC\uC790 \uC2B9\uC778\uC744 \uAC70\uCE69\uB2C8\uB2E4 \u2014 \uBCF4\uB0B8 \uAC83\uC774 \uACE7 \uBC18\uC601\uC740 \uC544\uB2D9\uB2C8\uB2E4.`]
     };
   }
   registerMallAvailability({
     mallKey: "onch",
-    displayName: LABEL10,
-    guard: availabilityGuard(ONCH_PAGE_GUARD, LABEL10),
+    displayName: LABEL11,
+    guard: availabilityGuard(ONCH_PAGE_GUARD, LABEL11),
     dialogHosts: ["onch3.co.kr"],
     login: ONCH_LOGIN,
-    send: send10
+    send: send11
   });
 
   // extensions/src/sites/onch/registration.ts
@@ -16946,7 +17140,7 @@ var KidItemRuntime = (() => {
 
   // extensions/src/sites/sabangnet/index.ts
   var SABANGNET_ORIGIN = "https://sbadmin08.sabangnet.co.kr";
-  var PAGE_URL10 = `${SABANGNET_ORIGIN}/`;
+  var PAGE_URL11 = `${SABANGNET_ORIGIN}/`;
   var SABANGNET_MALL_LISTINGS_FILE = "content/orders/sabangnet-mall-listings.js";
   var NAVIGATION_TIMEOUT_MS12 = 45e3;
   var PAGE_CALL_TIMEOUT_MS = 35e3;
@@ -16967,12 +17161,12 @@ var KidItemRuntime = (() => {
       tab ??= (async () => {
         const next = await tabs.open("about:blank");
         opened = next;
-        await next.navigate(PAGE_URL10, { timeoutMs: NAVIGATION_TIMEOUT_MS12 });
+        await next.navigate(PAGE_URL11, { timeoutMs: NAVIGATION_TIMEOUT_MS12 });
         return next;
       })();
       return tab;
     }
-    async function read13(query, currentPage) {
+    async function read15(query, currentPage) {
       if (pagesRead > 0) await sleep(SABANGNET_PAGE_DELAY_MS);
       pagesRead += 1;
       const answer = await callPage(await page(), "sabangnet.mallListingPage", { ...query, currentPage }, {
@@ -16985,27 +17179,27 @@ var KidItemRuntime = (() => {
         case "ok":
           return { total: answer.total, items: answer.items };
         case "login_required":
-          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE13, { url: PAGE_URL10 });
+          throw new RuntimeError(SITE_LOGIN_REQUIRED, LOGIN_MESSAGE13, { url: PAGE_URL11 });
         case "http_error":
           throw new RuntimeError(SITE_REQUEST_FAILED, `\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(HTTP ${answer.httpStatus}).`, {
             status: answer.httpStatus,
-            url: PAGE_URL10,
+            url: PAGE_URL11,
             reason: "http",
             bodyHead: null
           });
         case "contract_drift":
           throw new RuntimeError(MALL_CONTRACT_CHANGED5, "\uC0AC\uBC29\uB137 \uBAA9\uB85D \uD615\uC2DD\uC774 \uBC14\uB00C\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { stage: answer.stage, field: answer.stage });
         case "timeout":
-          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL10, reason: "timeout", bodyHead: null });
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC751\uB2F5\uC774 \uB2A6\uC5B4 \uAC00\uC838\uC624\uAE30\uB97C \uBA48\uCDC4\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL11, reason: "timeout", bodyHead: null });
         default:
-          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL10, reason: "network", bodyHead: null });
+          throw new RuntimeError(SITE_REQUEST_FAILED, "\uC0AC\uBC29\uB137 \uC1A1\uC2E0 \uAE30\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", { status: null, url: PAGE_URL11, reason: "network", bodyHead: null });
       }
     }
     return {
       /** "쇼핑몰상품수정" 목록 한 쪽(1부터). 실패 이력 줄은 뺀다. `total`은 사방넷이 알린 전체 송신 기록 수. */
       async mallListingPage(query, currentPage) {
         try {
-          return await read13(query, currentPage);
+          return await read15(query, currentPage);
         } catch (error) {
           if (leftForOperator(error)) keepOpen = true;
           throw error;
@@ -17307,18 +17501,18 @@ var KidItemRuntime = (() => {
   registerSite({ name: "smartstore", create: (deps) => createSmartstoreListings(deps.tabs) });
 
   // extensions/src/sites/smartstore/availability.ts
-  var ORIGIN16 = "https://sell.smartstore.naver.com";
-  var PAGE_URL11 = "https://sell.smartstore.naver.com/#/products/origin-list";
+  var ORIGIN17 = "https://sell.smartstore.naver.com";
+  var PAGE_URL12 = "https://sell.smartstore.naver.com/#/products/origin-list";
   var SEARCH_PATH2 = "/api/products/list/search";
   var UPDATE_PATH2 = "/api/products/bulk-update?_action=updateProductStatusType";
   var PROGRESS_PATH = "/api/products/bulk-update?_action=getBulkUpdateProgressResult";
   var BATCH_SIZE5 = 50;
-  var PACE_MS11 = 700;
-  var RECHECK_MS6 = 2e3;
-  var RECHECK_TIMES6 = 3;
+  var PACE_MS12 = 700;
+  var RECHECK_MS7 = 2e3;
+  var RECHECK_TIMES7 = 3;
   var PROGRESS_WAITS_MS = [1e3, 1e3, 1e3, 3e3, 3e3, 3e3, 5e3, 5e3, 5e3, 5e3, 5e3, 5e3, 5e3, 5e3];
-  var LABEL11 = "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4";
-  var LOGGED_OUT9 = `${LABEL11}\uC13C\uD130 \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var LABEL12 = "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4";
+  var LOGGED_OUT10 = `${LABEL12}\uC13C\uD130 \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
   var NAVER_WORDS = { OUTOFSTOCK: "\uD488\uC808", SUSPENSION: "\uD310\uB9E4\uC911\uC9C0", WAIT: "\uD310\uB9E4\uB300\uAE30", CLOSE: "\uD310\uB9E4\uC885\uB8CC", PROHIBITION: "\uD310\uB9E4\uAE08\uC9C0" };
   async function readRows7(context, run, codes) {
     const rows = /* @__PURE__ */ new Map();
@@ -17338,34 +17532,34 @@ var KidItemRuntime = (() => {
         for (const row of answer.rows) {
           for (const code2 of group) if (row.id === code2 || row.channelProductNos.includes(code2)) rows.set(code2, row);
         }
-        await context.sleep(PACE_MS11);
+        await context.sleep(PACE_MS12);
       }
     }
     return { rows };
   }
-  async function send11(context, input) {
+  async function send12(context, input) {
     const { codes, resume } = input;
     const wanted = resume ? "SALE" : "SUSPENSION";
     const warnings = [];
     const products = [...new Set(codes)].filter((code2) => /^\d{6,15}$/.test(code2));
-    let failed8 = codes.length - products.length;
-    if (failed8 > 0) warnings.push(`${failed8}\uAC74\uC740 ${LABEL11} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL12} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
     let sent = 0;
     let confirmed = 0;
     let already = 0;
     let halt = null;
     let left = 0;
-    const halted = await withSellerPage(context, ORIGIN16, PAGE_URL11, async (run) => {
+    const halted = await withSellerPage(context, ORIGIN17, PAGE_URL12, async (run) => {
       if (products.length === 0) return null;
       const before = await readRows7(context, run, products);
-      if (before.loggedOut) return { success: false, error: LOGGED_OUT9 };
-      if (!before.rows) return { success: false, error: `${LABEL11} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT10 };
+      if (!before.rows) return { success: false, error: `${LABEL12} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
       const rows = before.rows;
       const found = products.filter((code2) => rows.has(code2));
       const missing = products.length - found.length;
       if (missing > 0) {
-        failed8 += missing;
-        warnings.push(`${missing}\uAC74\uC740 ${LABEL11}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+        failed9 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL12}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
       }
       const stat = (code2) => rows.get(code2).productStatusType;
       let targets;
@@ -17374,8 +17568,8 @@ var KidItemRuntime = (() => {
         already += found.filter((code2) => stat(code2) === "SALE").length;
         const other = found.filter((code2) => !["SALE", "SUSPENSION"].includes(stat(code2))).length;
         if (other > 0) {
-          failed8 += other;
-          warnings.push(`${other}\uAC74\uC740 ${LABEL11}\uC5D0\uC11C \uD310\uB9E4\uC911\uC9C0\uAC00 \uC544\uB2C8\uB77C(\uD488\uC808 \xB7 \uD310\uB9E4\uB300\uAE30 \xB7 \uD310\uB9E4\uC885\uB8CC \uB4F1) \uD480 \uAC83\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+          failed9 += other;
+          warnings.push(`${other}\uAC74\uC740 ${LABEL12}\uC5D0\uC11C \uD310\uB9E4\uC911\uC9C0\uAC00 \uC544\uB2C8\uB77C(\uD488\uC808 \xB7 \uD310\uB9E4\uB300\uAE30 \xB7 \uD310\uB9E4\uC885\uB8CC \uB4F1) \uD480 \uAC83\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
         }
       } else {
         targets = found.filter((code2) => stat(code2) === "SALE");
@@ -17393,14 +17587,14 @@ var KidItemRuntime = (() => {
           productBulkUpdateType: wanted
         }], "main");
         if (answer?.loggedOut) {
-          halt = LOGGED_OUT9;
+          halt = LOGGED_OUT10;
           left = originNos.length - start;
           return null;
         }
         if (answer?.state !== "STARTED") {
-          failed8 += group.length;
+          failed9 += group.length;
           const said = answer?.state === "ALREADY_PROGRESS" ? "\uC774\uBBF8 \uC218\uC815\uC911\uC778 \uC0C1\uD488\uC774 \uC788\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694." : answer?.state === "BUSY" ? "\uC2A4\uB9C8\uD2B8\uC2A4\uD1A0\uC5B4\uC5D0 \uC9C4\uD589\uC911 \uC791\uC5C5\uC774 \uB9CE\uC2B5\uB2C8\uB2E4. \uC7A0\uC2DC \uD6C4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694." : answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}`;
-          warnings.push(`${LABEL11}\uC774 \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ${said}`);
+          warnings.push(`${LABEL12}\uC774 \uD310\uB9E4\uC0C1\uD0DC \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ${said}`);
           continue;
         }
         let result = null;
@@ -17410,7 +17604,7 @@ var KidItemRuntime = (() => {
           if (progress4?.loggedOut) {
             sent += group.length;
             accepted.push(...group.map((no) => origin.get(no)));
-            halt = LOGGED_OUT9;
+            halt = LOGGED_OUT10;
             left = originNos.length - start - group.length;
             return null;
           }
@@ -17421,19 +17615,19 @@ var KidItemRuntime = (() => {
           if (progress4?.completed === null || progress4?.state === "ALREADY_PROGRESS") break;
         }
         if (!result) {
-          warnings.push(`${LABEL11} \uC77C\uAD04\uBCC0\uACBD \uACB0\uACFC\uB97C \uB05D\uAE4C\uC9C0 \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4 \u2014 \uBAA9\uB85D\uC744 \uB2E4\uC2DC \uC77D\uC5B4 \uD655\uC778\uD569\uB2C8\uB2E4.`);
+          warnings.push(`${LABEL12} \uC77C\uAD04\uBCC0\uACBD \uACB0\uACFC\uB97C \uB05D\uAE4C\uC9C0 \uBC1B\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4 \u2014 \uBAA9\uB85D\uC744 \uB2E4\uC2DC \uC77D\uC5B4 \uD655\uC778\uD569\uB2C8\uB2E4.`);
           accepted.push(...group.map((no) => origin.get(no)));
           sent += group.length;
           continue;
         }
         if (result.errorMessage) {
-          failed8 += group.length;
-          warnings.push(`${LABEL11}: ${result.errorMessage}`);
+          failed9 += group.length;
+          warnings.push(`${LABEL12}: ${result.errorMessage}`);
           continue;
         }
         const successIds = Array.isArray(result.successIds) ? result.successIds.map(String) : null;
         if (successIds && !group.some((no) => successIds.includes(String(no)))) {
-          warnings.push(`${LABEL11} \uC77C\uAD04\uBCC0\uACBD \uACB0\uACFC\uAC00 \uC774 \uBB36\uC74C\uACFC \uB9DE\uC9C0 \uC54A\uC544 \uBAA9\uB85D\uC744 \uB2E4\uC2DC \uC77D\uC5B4 \uD655\uC778\uD569\uB2C8\uB2E4.`);
+          warnings.push(`${LABEL12} \uC77C\uAD04\uBCC0\uACBD \uACB0\uACFC\uAC00 \uC774 \uBB36\uC74C\uACFC \uB9DE\uC9C0 \uC54A\uC544 \uBAA9\uB85D\uC744 \uB2E4\uC2DC \uC77D\uC5B4 \uD655\uC778\uD569\uB2C8\uB2E4.`);
           accepted.push(...group.map((no) => origin.get(no)));
           sent += group.length;
           continue;
@@ -17442,45 +17636,45 @@ var KidItemRuntime = (() => {
         sent += ok.length;
         accepted.push(...ok.map((no) => origin.get(no)));
         if (ok.length < group.length) {
-          failed8 += group.length - ok.length;
+          failed9 += group.length - ok.length;
           const said = result.failures?.length ? ` \u2014 ${result.failures.join(" / ")}` : "";
-          warnings.push(`${LABEL11}\uC774 ${group.length}\uAC74 \uC911 ${group.length - ok.length}\uAC74\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4${said}.`);
+          warnings.push(`${LABEL12}\uC774 ${group.length}\uAC74 \uC911 ${group.length - ok.length}\uAC74\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4${said}.`);
         }
       }
       if (accepted.length === 0) return null;
       let seen = null;
-      for (let attempt = 0; attempt <= RECHECK_TIMES6; attempt += 1) {
-        if (attempt > 0) await context.sleep(RECHECK_MS6);
+      for (let attempt = 0; attempt <= RECHECK_TIMES7; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS7);
         const after = await readRows7(context, run, accepted);
         if (!after.rows) continue;
         seen = accepted.filter((code2) => after.rows.get(code2)?.productStatusType === wanted).length;
         if (resume) {
           const outOfStock = accepted.filter((code2) => after.rows.get(code2)?.productStatusType === "OUTOFSTOCK").length;
-          if (outOfStock > 0 && attempt === RECHECK_TIMES6) warnings.push(`${outOfStock}\uAC74\uC740 \uC7AC\uACE0\uAC00 \uC5C6\uC5B4 ${LABEL11}\uC774 \uD310\uB9E4\uC911 \uB300\uC2E0 \uD488\uC808\uB85C \uB450\uC5C8\uC2B5\uB2C8\uB2E4.`);
+          if (outOfStock > 0 && attempt === RECHECK_TIMES7) warnings.push(`${outOfStock}\uAC74\uC740 \uC7AC\uACE0\uAC00 \uC5C6\uC5B4 ${LABEL12}\uC774 \uD310\uB9E4\uC911 \uB300\uC2E0 \uD488\uC808\uB85C \uB450\uC5C8\uC2B5\uB2C8\uB2E4.`);
         }
         if (seen >= accepted.length) break;
       }
       if (seen === null) {
-        warnings.push(`${LABEL11}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C1\uD488 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+        warnings.push(`${LABEL12}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C1\uD488 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
       } else {
         confirmed += seen;
-        if (seen < accepted.length) warnings.push(`${LABEL11} \uBAA9\uB85D\uC774 ${accepted.length - seen}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 \uC0C1\uD488 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+        if (seen < accepted.length) warnings.push(`${LABEL12} \uBAA9\uB85D\uC774 ${accepted.length - seen}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 \uC0C1\uD488 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
       }
       return null;
     });
     if (halted) return halted;
-    if (halt) return stoppedMidway(halt, { sent, failed: failed8, confirmed, already, warnings, left });
-    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
   }
-  async function read10(context, codes) {
+  async function read11(context, codes) {
     const valid = [...new Set(codes)].filter((code2) => /^\d{6,15}$/.test(code2)).slice(0, READ_LIMIT);
-    if (valid.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL11} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    if (valid.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL12} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
     let found = [];
     let missing = [];
-    const halted = await withSellerPage(context, ORIGIN16, PAGE_URL11, async (run) => {
+    const halted = await withSellerPage(context, ORIGIN17, PAGE_URL12, async (run) => {
       const result = await readRows7(context, run, valid);
-      if (result.loggedOut) return { success: false, error: LOGGED_OUT9 };
-      if (!result.rows) return { success: false, error: `${LABEL11} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT10 };
+      if (!result.rows) return { success: false, error: `${LABEL12} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
       const rows = result.rows;
       found = valid.filter((code2) => rows.has(code2)).map((code2) => {
         const stat = String(rows.get(code2).productStatusType);
@@ -17494,11 +17688,11 @@ var KidItemRuntime = (() => {
   }
   registerMallAvailability({
     mallKey: "smartstore",
-    displayName: LABEL11,
-    guard: availabilityGuard(SMARTSTORE_LISTINGS_GUARD, LABEL11),
+    displayName: LABEL12,
+    guard: availabilityGuard(SMARTSTORE_LISTINGS_GUARD, LABEL12),
     dialogHosts: ["sell.smartstore.naver.com"],
-    send: send11,
-    read: read10
+    send: send12,
+    read: read11
   });
 
   // extensions/src/sites/smartstore/registration.ts
@@ -17754,44 +17948,44 @@ var KidItemRuntime = (() => {
   registerSite({ name: "teacher-mall", create: (deps, lease) => createTeacherMallSite(deps.tabs, createSiteSignIn(TEACHER_MALL_LOGIN, lease.credentials, deps)) });
 
   // extensions/src/sites/teacher-mall/availability.ts
-  var ORIGIN17 = "https://shop.teacherville.co.kr";
-  var PAGE_URL12 = "https://shop.teacherville.co.kr/selleradmin/goods/catalog";
+  var ORIGIN18 = "https://shop.teacherville.co.kr";
+  var PAGE_URL13 = "https://shop.teacherville.co.kr/selleradmin/goods/catalog";
   var BATCH_PATH = "/selleradmin/goods/batch_modify";
-  var SAVE_PATH4 = "/selleradmin/goods_process/batch_goods_modify";
+  var SAVE_PATH5 = "/selleradmin/goods_process/batch_goods_modify";
   var CATALOG_PATH = "/selleradmin/goods/catalog";
   var RESUME_STOCK2 = 999;
-  var PACE_MS12 = 700;
-  var READ_PACE_MS2 = 400;
-  var LABEL12 = "\uD2F0\uCCD0\uBAB0";
-  var LOGGED_OUT10 = `${LABEL12} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var PACE_MS13 = 700;
+  var READ_PACE_MS3 = 400;
+  var LABEL13 = "\uD2F0\uCCD0\uBAB0";
+  var LOGGED_OUT11 = `${LABEL13} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
   var isZero2 = (stock) => String(stock).trim() !== "" && Number(stock) === 0;
-  async function send12(context, input) {
+  async function send13(context, input) {
     const { codes, resume } = input;
     const wanted = resume ? String(RESUME_STOCK2) : "0";
     const expectedState = resume ? "\uC815\uC0C1" : "\uD488\uC808";
     const warnings = [];
     let sent = 0;
-    let failed8 = 0;
+    let failed9 = 0;
     let confirmed = 0;
     let already = 0;
     let missing = 0;
     let withOptions = 0;
     let halt = null;
     let left = 0;
-    const halted = await withSellerPage(context, ORIGIN17, PAGE_URL12, async (run) => {
+    const halted = await withSellerPage(context, ORIGIN18, PAGE_URL13, async (run) => {
       for (let index = 0; index < codes.length; index += 1) {
         const code2 = codes[index];
-        if (index > 0) await context.sleep(PACE_MS12);
+        if (index > 0) await context.sleep(PACE_MS13);
         const form = await run("teacherBatchFormOnPage", [BATCH_PATH, code2]);
         if (form?.loggedOut) {
-          halt = LOGGED_OUT10;
+          halt = LOGGED_OUT11;
           left = codes.length - index;
           return null;
         }
         if (!form?.found) {
           if (form?.error) {
-            failed8 += 1;
-            warnings.push(`${code2}: ${LABEL12} \uC77C\uAD04 \uC5C5\uB370\uC774\uD2B8 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${form.error}).`);
+            failed9 += 1;
+            warnings.push(`${code2}: ${LABEL13} \uC77C\uAD04 \uC5C5\uB370\uC774\uD2B8 \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${form.error}).`);
           } else {
             missing += 1;
           }
@@ -17799,7 +17993,7 @@ var KidItemRuntime = (() => {
         }
         if (form.stocks.length !== 1) {
           withOptions += 1;
-          failed8 += 1;
+          failed9 += 1;
           continue;
         }
         const [[option, stock]] = form.stocks;
@@ -17810,10 +18004,10 @@ var KidItemRuntime = (() => {
         }
         const pairs = form.pairs.map(([name, value]) => [name, name === `stock[${option}]` ? wanted : value]);
         for (const pair of form.search) pairs.push(pair);
-        const answer = await run("requestOnPage", [SAVE_PATH4, "POST", "application/x-www-form-urlencoded; charset=UTF-8", new URLSearchParams(pairs).toString()]);
+        const answer = await run("requestOnPage", [SAVE_PATH5, "POST", "application/x-www-form-urlencoded; charset=UTF-8", new URLSearchParams(pairs).toString()]);
         if (answer.status < 200 || answer.status >= 400 || /login|로그인/i.test(`${answer.url || ""}`)) {
-          failed8 += 1;
-          warnings.push(`${code2}: ${LABEL12}\uC774 \uC7AC\uACE0 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status}).`);
+          failed9 += 1;
+          warnings.push(`${code2}: ${LABEL13}\uC774 \uC7AC\uACE0 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status}).`);
           continue;
         }
         sent += 1;
@@ -17821,11 +18015,11 @@ var KidItemRuntime = (() => {
         const status = await run("teacherCatalogStatusOnPage", [CATALOG_PATH, code2]);
         const stockChanged = after?.found && after.stocks.length === 1 && String(Number(after.stocks[0][1])) === wanted;
         if (status?.approval === "\uBBF8\uC2B9\uC778") {
-          warnings.push(`${code2}: ${LABEL12} \uC2B9\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4(\uBBF8\uC2B9\uC778) \u2014 \uD2F0\uCCD0\uBAB0\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+          warnings.push(`${code2}: ${LABEL13} \uC2B9\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4(\uBBF8\uC2B9\uC778) \u2014 \uD2F0\uCCD0\uBAB0\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
         } else if (stockChanged) {
           confirmed += 1;
           if (status?.found && status.state && status.state !== expectedState) {
-            warnings.push(`${code2}: \uC7AC\uACE0\uB294 \uBC14\uB00C\uC5C8\uB294\uB370 ${LABEL12} \uC0C1\uD488\uBAA9\uB85D \uC0C1\uD0DC\uAC00 \uC544\uC9C1 '${status.approval || ""}${status.state}'\uC785\uB2C8\uB2E4.`);
+            warnings.push(`${code2}: \uC7AC\uACE0\uB294 \uBC14\uB00C\uC5C8\uB294\uB370 ${LABEL13} \uC0C1\uD488\uBAA9\uB85D \uC0C1\uD0DC\uAC00 \uC544\uC9C1 '${status.approval || ""}${status.state}'\uC785\uB2C8\uB2E4.`);
           }
         }
       }
@@ -17833,24 +18027,24 @@ var KidItemRuntime = (() => {
     });
     if (halted) return halted;
     if (missing > 0) {
-      failed8 += missing;
-      warnings.push(`${missing}\uAC74\uC740 ${LABEL12}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+      failed9 += missing;
+      warnings.push(`${missing}\uAC74\uC740 ${LABEL13}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
     }
-    if (withOptions > 0) warnings.push(`\uC635\uC158\uC774 \uC5EC\uB7FF\uC778 \uC0C1\uD488 ${withOptions}\uAC1C\uB294 \uC635\uC158\uB9C8\uB2E4 \uC7AC\uACE0\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 \u2014 ${LABEL12}\uC5D0\uC11C \uC635\uC158 \uC7AC\uACE0\uB97C \uACE0\uCCD0 \uC8FC\uC138\uC694.`);
-    if (halt) return stoppedMidway(halt, { sent, failed: failed8, confirmed, already, warnings, left });
-    return { success: true, sent: sent + already, failed: failed8, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+    if (withOptions > 0) warnings.push(`\uC635\uC158\uC774 \uC5EC\uB7FF\uC778 \uC0C1\uD488 ${withOptions}\uAC1C\uB294 \uC635\uC158\uB9C8\uB2E4 \uC7AC\uACE0\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 \u2014 ${LABEL13}\uC5D0\uC11C \uC635\uC158 \uC7AC\uACE0\uB97C \uACE0\uCCD0 \uC8FC\uC138\uC694.`);
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
   }
-  async function read11(context, codes) {
+  async function read12(context, codes) {
     const products = [...new Set(codes)].filter((code2) => /^\d{1,12}$/.test(code2)).slice(0, READ_LIMIT);
-    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL12} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL13} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
     const found = [];
     const missing = [];
-    const halted = await withSellerPage(context, ORIGIN17, PAGE_URL12, async (run) => {
+    const halted = await withSellerPage(context, ORIGIN18, PAGE_URL13, async (run) => {
       for (let index = 0; index < products.length; index += 1) {
-        if (index > 0) await context.sleep(READ_PACE_MS2);
+        if (index > 0) await context.sleep(READ_PACE_MS3);
         const form = await run("teacherBatchFormOnPage", [BATCH_PATH, products[index]]);
-        if (form?.loggedOut) return { success: false, error: LOGGED_OUT10 };
-        if (form?.error) return { success: false, error: `${LABEL12} \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${form.error}).` };
+        if (form?.loggedOut) return { success: false, error: LOGGED_OUT11 };
+        if (form?.error) return { success: false, error: `${LABEL13} \uD654\uBA74\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${form.error}).` };
         if (!form?.found || form.stocks.length === 0) {
           missing.push(products[index]);
           continue;
@@ -17867,12 +18061,12 @@ var KidItemRuntime = (() => {
   }
   registerMallAvailability({
     mallKey: "teacher-mall",
-    displayName: LABEL12,
-    guard: availabilityGuard(TEACHER_MALL_PAGE_GUARD, LABEL12),
+    displayName: LABEL13,
+    guard: availabilityGuard(TEACHER_MALL_PAGE_GUARD, LABEL13),
     dialogHosts: ["shop.teacherville.co.kr"],
     login: TEACHER_MALL_LOGIN,
-    send: send12,
-    read: read11
+    send: send13,
+    read: read12
   });
 
   // extensions/src/sites/teacher-mall/registration.ts
@@ -17997,6 +18191,179 @@ var KidItemRuntime = (() => {
     };
   }
   registerSite({ name: "thirtymall", create: (deps) => createThirtymallListings(deps.tabs) });
+
+  // extensions/src/sites/thirtymall/availability.ts
+  var ORIGIN19 = "https://partner.shopby.co.kr";
+  var API2 = {
+    pageUrl: "https://partner.shopby.co.kr/product/list",
+    apiOrigin: "https://admin-api.e-ncp.com",
+    searchPath: "/products/search-by-key",
+    updatePath: "/products/sale-status",
+    clientLocation: "https://partner-remote.shopby.co.kr/product/management/list",
+    tokenCookie: "SHOPBY_PARTNER_SESSAT",
+    mallNo: 78859,
+    batchSize: 50
+  };
+  var ESM_PACE_MS2 = 300;
+  var RECHECK_MS8 = 2e3;
+  var RECHECK_TIMES8 = 3;
+  var LABEL14 = "\uB5A0\uB9AC\uBAB0";
+  var LOGGED_OUT12 = `${LABEL14} \uD30C\uD2B8\uB108 \uC5B4\uB4DC\uBBFC \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.`;
+  var isProductNo3 = (code2) => /^\d{6,12}$/.test(code2);
+  async function readRows8(context, run, codes) {
+    const rows = /* @__PURE__ */ new Map();
+    for (let start = 0; start < codes.length; start += API2.batchSize) {
+      const group = codes.slice(start, start + API2.batchSize);
+      const answer = await run("shopbyApiOnPage", [API2, "search", { mallNos: [API2.mallNo], mallProductNos: group }]);
+      if (answer?.loggedOut) return { loggedOut: true };
+      if (!Array.isArray(answer?.rows)) return { error: answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}` };
+      for (const row of answer.rows) if (row.mallNo === API2.mallNo && group.includes(row.no)) rows.set(row.no, row);
+      if (start + API2.batchSize < codes.length) await context.sleep(ESM_PACE_MS2);
+    }
+    return { rows };
+  }
+  function shopbyWord(row) {
+    const apply = String(row.applyStatusType ?? "");
+    if (/REJECTION$/.test(apply)) return "\uC2B9\uC778\uAC70\uBD80";
+    if (/READY$/.test(apply)) return "\uC2B9\uC778\uB300\uAE30";
+    if (row.saleSettingStatusType === "PROHIBITION_SALE") return "\uD310\uB9E4\uAE08\uC9C0";
+    if (row.saleSettingStatusType === "STOP_SELLING") return "\uD310\uB9E4\uC911\uC9C0";
+    if (row.saleStatusType === "END_SALE") return "\uD310\uB9E4\uC885\uB8CC";
+    if (row.saleStatusType === "WAITING_SALE") return "\uD310\uB9E4\uB300\uAE30";
+    if (row.isSoldOut) return "\uD488\uC808";
+    if (row.saleSettingStatusType === "AVAILABLE_FOR_SALE" && ["ON_SALE", "ON_PRE_SALE"].includes(row.saleStatusType)) return true;
+    return "\uD655\uC778\uD544\uC694";
+  }
+  async function send14(context, input) {
+    const { codes, resume } = input;
+    const wanted = resume ? "AVAILABLE_FOR_SALE" : "STOP_SELLING";
+    const warnings = [];
+    const products = [...new Set(codes)].filter(isProductNo3);
+    let failed9 = codes.length - products.length;
+    if (failed9 > 0) warnings.push(`${failed9}\uAC74\uC740 ${LABEL14} \uC0C1\uD488\uBC88\uD638 \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    let sent = 0;
+    let confirmed = 0;
+    let already = 0;
+    let halt = null;
+    let left = 0;
+    const halted = await withSellerPage(context, ORIGIN19, API2.pageUrl, async (run) => {
+      if (products.length === 0) return null;
+      const before = await readRows8(context, run, products);
+      if (before.loggedOut) return { success: false, error: LOGGED_OUT12 };
+      if (!before.rows) return { success: false, error: `${LABEL14} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${before.error}).` };
+      const rows = before.rows;
+      const found = products.filter((code2) => rows.has(code2));
+      const missing = products.length - found.length;
+      if (missing > 0) {
+        failed9 += missing;
+        warnings.push(`${missing}\uAC74\uC740 ${LABEL14}\uC5D0\uC11C \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`);
+      }
+      const row = (code2) => rows.get(code2);
+      let targets;
+      if (resume) {
+        targets = found.filter((code2) => row(code2).saleSettingStatusType === "STOP_SELLING");
+        const selling = found.filter((code2) => shopbyWord(row(code2)) === true);
+        already += selling.length;
+        const prohibited = found.filter((code2) => row(code2).saleSettingStatusType === "PROHIBITION_SALE").length;
+        const stockOut = found.filter((code2) => row(code2).saleSettingStatusType === "AVAILABLE_FOR_SALE" && shopbyWord(row(code2)) === "\uD488\uC808").length;
+        const other = found.length - targets.length - selling.length - prohibited - stockOut;
+        if (prohibited > 0) {
+          failed9 += prohibited;
+          warnings.push(`${prohibited}\uAC74\uC740 ${LABEL14}\uC774 \uD310\uB9E4\uAE08\uC9C0\uD55C \uC0C1\uD488\uC774\uB77C \uD480\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4 \u2014 \uD30C\uD2B8\uB108 \uC5B4\uB4DC\uBBFC\uC5D0\uC11C \uAE4C\uB2ED\uC744 \uD655\uC778\uD558\uC138\uC694.`);
+        }
+        if (stockOut > 0) {
+          failed9 += stockOut;
+          warnings.push(`${stockOut}\uAC74\uC740 \uC7AC\uACE0\uAC00 \uC5C6\uC5B4 \uD488\uC808\uC785\uB2C8\uB2E4 \u2014 \uD310\uB9E4 \uC7AC\uAC1C\uB85C \uD480\uB9AC\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.`);
+        }
+        if (other > 0) {
+          failed9 += other;
+          warnings.push(`${other}\uAC74\uC740 ${LABEL14}\uC5D0\uC11C \uD310\uB9E4\uC911\uC9C0\uAC00 \uC544\uB2C8\uB77C(\uD310\uB9E4\uC885\uB8CC \xB7 \uC2B9\uC778 \uC804 \uB4F1) \uD480 \uAC83\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+        }
+      } else {
+        targets = found.filter((code2) => shopbyWord(row(code2)) === true);
+        already += found.length - targets.length;
+      }
+      const accepted = [];
+      for (let start = 0; start < targets.length; start += API2.batchSize) {
+        const group = targets.slice(start, start + API2.batchSize);
+        const answer = await run("shopbyApiOnPage", [API2, "status", { productNos: group.map((code2) => Number(code2)), saleSettingStatusType: wanted }]);
+        if (answer?.loggedOut) {
+          halt = LOGGED_OUT12;
+          left = targets.length - start;
+          return null;
+        }
+        if (!Array.isArray(answer?.failures)) {
+          failed9 += group.length;
+          warnings.push(`${LABEL14}\uC774 \uD310\uB9E4\uC124\uC815 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4: ${answer?.message || answer?.error || `HTTP ${answer?.status ?? 0}`}`);
+          continue;
+        }
+        const failures = answer.failures;
+        const refused = new Set(failures.map((entry) => entry.no).filter(Boolean));
+        const ok = group.filter((code2) => !refused.has(code2));
+        sent += ok.length;
+        accepted.push(...ok);
+        const said = failures.map((entry) => entry.message).filter(Boolean).slice(0, 2).join(" / ");
+        if (ok.length < group.length) {
+          failed9 += group.length - ok.length;
+          warnings.push(`${LABEL14}\uC774 ${group.length}\uAC74 \uC911 ${group.length - ok.length}\uAC74\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4${said ? ` \u2014 ${said}` : ""}.`);
+        }
+        const unnamed = failures.filter((entry) => !entry.no).length;
+        if (unnamed > 0) warnings.push(`${LABEL14}\uC774 ${unnamed}\uAC74 \uC2E4\uD328\uB97C \uC54C\uB838\uC2B5\uB2C8\uB2E4${said ? ` \u2014 ${said}` : ""}. \uB2E4\uC2DC \uC77D\uC5B4 \uD655\uC778\uD569\uB2C8\uB2E4.`);
+        if (start + API2.batchSize < targets.length) await context.sleep(ESM_PACE_MS2);
+      }
+      if (accepted.length === 0) return null;
+      let seen = null;
+      for (let attempt = 0; attempt <= RECHECK_TIMES8; attempt += 1) {
+        if (attempt > 0) await context.sleep(RECHECK_MS8);
+        const after = await readRows8(context, run, accepted);
+        if (!after.rows) continue;
+        seen = accepted.filter((code2) => after.rows.get(code2)?.saleSettingStatusType === wanted).length;
+        if (resume && (seen >= accepted.length || attempt === RECHECK_TIMES8)) {
+          const stockOut = accepted.filter((code2) => after.rows.get(code2)?.isSoldOut === true).length;
+          if (stockOut > 0) warnings.push(`${stockOut}\uAC74\uC740 \uC7AC\uACE0\uAC00 \uC5C6\uC5B4 \uD310\uB9E4 \uC7AC\uAC1C \uB4A4\uC5D0\uB3C4 ${LABEL14}\uC5D0 \uD488\uC808\uB85C \uBCF4\uC785\uB2C8\uB2E4.`);
+        }
+        if (seen >= accepted.length) break;
+      }
+      if (seen === null) {
+        warnings.push(`${LABEL14}\uC5D0\uC11C \uBC14\uB010 \uC0C1\uD0DC\uB97C \uB2E4\uC2DC \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uC0C1\uD488\uC815\uBCF4 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      } else {
+        confirmed += seen;
+        if (seen < accepted.length) warnings.push(`${LABEL14} \uBAA9\uB85D\uC774 ${accepted.length - seen}\uAC74\uC744 \uC544\uC9C1 \uC61B \uC0C1\uD0DC\uB85C \uBCF4\uC5EC \uC90D\uB2C8\uB2E4 \u2014 \uC0C1\uD488\uC815\uBCF4 \uC870\uD68C/\uC218\uC815\uC5D0\uC11C \uD655\uC778\uD558\uC138\uC694.`);
+      }
+      return null;
+    });
+    if (halted) return halted;
+    if (halt) return stoppedMidway(halt, { sent, failed: failed9, confirmed, already, warnings, left });
+    return { success: true, sent: sent + already, failed: failed9, confirmed: confirmed + already, already, rocket: 0, requestOnly: false, warnings };
+  }
+  async function read13(context, codes) {
+    const valid = [...new Set(codes)].filter(isProductNo3).slice(0, READ_LIMIT);
+    if (valid.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL14} \uC0C1\uD488\uBC88\uD638\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    let found = [];
+    let missing = [];
+    const halted = await withSellerPage(context, ORIGIN19, API2.pageUrl, async (run) => {
+      const result = await readRows8(context, run, valid);
+      if (result.loggedOut) return { success: false, error: LOGGED_OUT12 };
+      if (!result.rows) return { success: false, error: `${LABEL14} \uC0C1\uD488\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(${result.error}).` };
+      const rows = result.rows;
+      found = valid.filter((code2) => rows.has(code2)).map((code2) => {
+        const word = shopbyWord(rows.get(code2));
+        return { code: code2, options: [flagOption(code2, word === true, word === true ? null : word)] };
+      });
+      missing = valid.filter((code2) => !rows.has(code2));
+      return null;
+    });
+    if (halted) return halted;
+    return { success: true, products: found, missing };
+  }
+  registerMallAvailability({
+    mallKey: "thirtymall",
+    displayName: LABEL14,
+    guard: availabilityGuard(THIRTYMALL_LISTINGS_GUARD, LABEL14),
+    dialogHosts: ["partner.shopby.co.kr"],
+    send: send14,
+    read: read13
+  });
 
   // extensions/src/sites/thirtymall/registration.ts
   var THIRTYMALL_REGISTRATION_FORM = {
@@ -18575,10 +18942,10 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/wing/index.ts
-  var ORIGIN18 = "https://wing.coupang.com";
-  var SEARCH_URL = `${ORIGIN18}/tenants/seller-web/v2/vendor-inventory/search`;
-  var DETAIL_URL = `${ORIGIN18}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
-  var EXCEL_BASE = `${ORIGIN18}/tenants/seller-web/excel/request/download`;
+  var ORIGIN20 = "https://wing.coupang.com";
+  var SEARCH_URL = `${ORIGIN20}/tenants/seller-web/v2/vendor-inventory/search`;
+  var DETAIL_URL = `${ORIGIN20}/tenants/seller-web/v2/vendor-inventory/seller-product/`;
+  var EXCEL_BASE = `${ORIGIN20}/tenants/seller-web/excel/request/download`;
   var EXCEL_REQUEST_TYPE = "EDITABLE_CATALOGUE";
   var CATALOGUE_TYPES = [
     "DISPLAY_PRODUCT_NAME",
@@ -18600,12 +18967,12 @@ var KidItemRuntime = (() => {
   var WING_CATALOG_PAYLOAD_INVALID = "WING_CATALOG_PAYLOAD_INVALID";
   var WING_SITE = {
     name: "wing",
-    origin: ORIGIN18,
+    origin: ORIGIN20,
     caller: {
       minIntervalMs: 2e3,
       timeoutMs: WING_TIMEOUT_MS,
       displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN18, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+      xsrf: { cookieUrl: ORIGIN20, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingSite(caller, deps) {
@@ -18614,10 +18981,10 @@ var KidItemRuntime = (() => {
         try {
           return await caller.json(url, init);
         } catch (error) {
-          const failed8 = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
-          if (failed8 && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
+          const failed9 = isRuntimeError(error) && error.code === SITE_REQUEST_FAILED;
+          if (failed9 && notFoundIsAnswer && error.details?.status === 404) return NOT_FOUND;
           const delay = READ_RETRY_DELAYS_MS[attempt];
-          if (!failed8) throw error;
+          if (!failed9) throw error;
           if (delay === void 0) throw withResponseHint(error);
           await deps.sleep(delay);
         }
@@ -18881,18 +19248,18 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/wing/availability.ts
-  var ORIGIN19 = "https://wing.coupang.com";
-  var LABEL13 = "\uCFE0\uD321 \uC719";
+  var ORIGIN21 = "https://wing.coupang.com";
+  var LABEL15 = "\uCFE0\uD321 \uC719";
   var ITEMS_PATH = "/tenants/seller-web/v2/vendor-inventory/vendor-inventory-items-with-vendorItems/";
   var ITEMS_QUERY = "hasProgressiveDiscountRule=true&queryNonVariationJustificationProof=true&queryMpnProof=true";
   var CHANGE_PATH2 = "/tenants/seller-web/vendorinventory/stock-manager/remain-change/request";
   var RESUME_QUANTITY2 = 999;
   var PRODUCT_PACE_MS = 400;
-  var PACE_MS13 = 700;
+  var PACE_MS14 = 700;
   var RATE_LIMIT_WAITS_MS = [5e3, 15e3, 3e4];
-  var RECHECK_MS7 = 1500;
+  var RECHECK_MS9 = 1500;
   function wingListUrl(keyword2 = "") {
-    return `${ORIGIN19}/vendor-inventory/list?searchKeywordType=ALL&searchKeywords=${encodeURIComponent(keyword2)}&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&shippingFeeSearchType=ALL&displayCategoryCodes=&listingStartTime=null&listingEndTime=null&saleEndDateSearchType=ALL&bundledShippingSearchType=ALL&upBundling=ALL&displayDeletedProduct=false&shippingMethod=ALL&exposureStatus=ALL&locale=ko_KR&sortMethod=SORT_BY_REGISTRATION_DATE&countPerPage=50&page=1`;
+    return `${ORIGIN21}/vendor-inventory/list?searchKeywordType=ALL&searchKeywords=${encodeURIComponent(keyword2)}&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&shippingFeeSearchType=ALL&displayCategoryCodes=&listingStartTime=null&listingEndTime=null&saleEndDateSearchType=ALL&bundledShippingSearchType=ALL&upBundling=ALL&displayDeletedProduct=false&shippingMethod=ALL&exposureStatus=ALL&locale=ko_KR&sortMethod=SORT_BY_REGISTRATION_DATE&countPerPage=50&page=1`;
   }
   function wingTools(context, run) {
     const inPage = async (path, method, contentType, body) => {
@@ -18915,13 +19282,13 @@ var KidItemRuntime = (() => {
     return { inPage, readItems: readItems2, readIdentity };
   }
   function withWingPage(context, work) {
-    return withSellerPage(context, ORIGIN19, wingListUrl(), (run) => work(run), { isolated: [WING_IDENTITY_FILE] });
+    return withSellerPage(context, ORIGIN21, wingListUrl(), (run) => work(run), { isolated: [WING_IDENTITY_FILE] });
   }
   var isOptionId = (code2) => /^\d{1,15}$/.test(code2);
   function observedNormalOptions(items, selected) {
     return items.filter((item) => selected.has(String(item.vendorItemId)) && item.registrationType === "NORMAL" && (typeof item.stockQuantity === "number" || typeof item.stockQuantity === "string" && /^\d+$/.test(item.stockQuantity)) && Number.isSafeInteger(Number(item.stockQuantity)) && Number(item.stockQuantity) >= 0).map((item) => ({ optionCode: String(item.vendorItemId), stock: Number(item.stockQuantity), rocket: false }));
   }
-  async function send13(context, input) {
+  async function send15(context, input) {
     const { codes, options, resume, expectedProviderAccountId } = input;
     if (expectedProviderAccountId !== null && !/^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/.test(expectedProviderAccountId)) {
       return { success: false, error: "Wing \uC2E4\uD589\uC758 \uACC4\uC815 \uC2DD\uBCC4\uAC12\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4." };
@@ -18932,9 +19299,9 @@ var KidItemRuntime = (() => {
     let providerAccountId = null;
     const products = codes.filter(isOptionId);
     const invalid2 = codes.length - products.length;
-    if (invalid2 > 0) warnings.push(`${invalid2}\uAC74\uC740 ${LABEL13} \uB4F1\uB85D\uC0C1\uD488ID \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+    if (invalid2 > 0) warnings.push(`${invalid2}\uAC74\uC740 ${LABEL15} \uB4F1\uB85D\uC0C1\uD488ID \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
     let sent = 0;
-    let failed8 = invalid2;
+    let failed9 = invalid2;
     let confirmed = 0;
     let already = 0;
     let rocket = 0;
@@ -18956,43 +19323,43 @@ var KidItemRuntime = (() => {
         const wanted = wantedOf(product);
         const badOptions = badOptionsOf(product);
         if (badOptions > 0) {
-          failed8 += badOptions;
-          warnings.push(`${product}: \uC635\uC158\uCF54\uB4DC ${badOptions}\uAC1C\uAC00 ${LABEL13} \uC635\uC158ID \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
+          failed9 += badOptions;
+          warnings.push(`${product}: \uC635\uC158\uCF54\uB4DC ${badOptions}\uAC1C\uAC00 ${LABEL15} \uC635\uC158ID \uBAA8\uC591\uC774 \uC544\uB2C8\uB77C \uBCF4\uB0B4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.`);
         }
         if (wanted && wanted.size === 0) continue;
         const identity2 = expectedProviderAccountId ? await readIdentity(expectedProviderAccountId) : null;
         if (expectedProviderAccountId && (!identity2?.ok || identity2.vendorId !== expectedProviderAccountId)) {
           if (sent === 0) return { success: false, error: "Wing \uACC4\uC815\uC774 \uC2E4\uD589\uC5D0 \uC9C0\uC815\uB41C \uACC4\uC815\uACFC \uB2E4\uB974\uAC70\uB098 \uD655\uC778\uB418\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4." };
-          failed8 += products.length - index;
+          failed9 += products.length - index;
           warnings.push("Wing \uACC4\uC815\uC774 \uBC14\uB00C\uC5B4 \uB0A8\uC740 \uC804\uC1A1\uC744 \uC911\uB2E8\uD588\uC2B5\uB2C8\uB2E4.");
           break;
         }
-        const read13 = await readItems2(product);
-        if (!read13.items) {
-          if (read13.loggedOut) {
-            if (sent === 0) return { success: false, error: `${LABEL13} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.` };
+        const read15 = await readItems2(product);
+        if (!read15.items) {
+          if (read15.loggedOut) {
+            if (sent === 0) return { success: false, error: `${LABEL15} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.` };
             loggedOutAt = index;
             break;
           }
-          if (read13.rateLimited) {
+          if (read15.rateLimited) {
             stoppedAt = index;
             break;
           }
-          failed8 += wanted ? wanted.size : 1;
-          warnings.push(`${product}: ${LABEL13} \uC635\uC158 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(HTTP ${read13.status}).`);
+          failed9 += wanted ? wanted.size : 1;
+          warnings.push(`${product}: ${LABEL15} \uC635\uC158 \uBAA9\uB85D\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4(HTTP ${read15.status}).`);
           continue;
         }
-        const items = read13.items.filter((item) => !wanted || wanted.has(String(item.vendorItemId)));
-        if (!wanted && read13.items.length === 0) {
-          failed8 += 1;
-          warnings.push(`${product}: ${LABEL13} \uC635\uC158 \uBAA9\uB85D\uC774 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.`);
+        const items = read15.items.filter((item) => !wanted || wanted.has(String(item.vendorItemId)));
+        if (!wanted && read15.items.length === 0) {
+          failed9 += 1;
+          warnings.push(`${product}: ${LABEL15} \uC635\uC158 \uBAA9\uB85D\uC774 \uBE44\uC5B4 \uC788\uC2B5\uB2C8\uB2E4.`);
           continue;
         }
         if (wanted) {
-          const missing = [...wanted].filter((code2) => !read13.items.some((item) => String(item.vendorItemId) === code2));
+          const missing = [...wanted].filter((code2) => !read15.items.some((item) => String(item.vendorItemId) === code2));
           if (missing.length > 0) {
-            failed8 += missing.length;
-            warnings.push(`${product}: \uC635\uC158 ${missing.length}\uAC1C\uAC00 ${LABEL13}\uC5D0 \uC5C6\uC2B5\uB2C8\uB2E4.`);
+            failed9 += missing.length;
+            warnings.push(`${product}: \uC635\uC158 ${missing.length}\uAC1C\uAC00 ${LABEL15}\uC5D0 \uC5C6\uC2B5\uB2C8\uB2E4.`);
           }
         }
         const editable = items.filter((item) => item.registrationType !== "RFM");
@@ -19008,27 +19375,27 @@ var KidItemRuntime = (() => {
           observed.push({ code: product, options: observedNormalOptions(reread, selected) });
         };
         if (targets.length === 0) {
-          await recordEvidence(read13.items);
+          await recordEvidence(read15.items);
           continue;
         }
         const dtos = targets.map((item) => ({ vendorInventoryItemId: item.vendorInventoryItemId, vendorItemId: item.vendorItemId, inventoryQuantity: quantity }));
         const answer = await inPage(CHANGE_PATH2, "POST", "application/x-www-form-urlencoded; charset=UTF-8", `stockManageItems=${encodeURIComponent(JSON.stringify({ dtos }))}`);
         if (answer.status === 429) {
-          failed8 += targets.length;
+          failed9 += targets.length;
           blockedOnSend = 1;
           stoppedAt = index + 1;
           break;
         }
         const results = Array.isArray(answer.json) ? answer.json : null;
         if (answer.status < 200 || answer.status >= 300 || !results) {
-          failed8 += targets.length;
-          warnings.push(`${product}: ${LABEL13}\uC774 \uC7AC\uACE0 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status}).`);
+          failed9 += targets.length;
+          warnings.push(`${product}: ${LABEL15}\uC774 \uC7AC\uACE0 \uBCC0\uACBD\uC744 \uBC1B\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4(HTTP ${answer.status}).`);
           continue;
         }
         const ok = new Set(results.filter((entry) => entry && entry.success === true).map((entry) => String(entry.vendorItemId)));
         const okCount = targets.filter((item) => ok.has(String(item.vendorItemId))).length;
         sent += okCount;
-        failed8 += targets.length - okCount;
+        failed9 += targets.length - okCount;
         if (okCount < targets.length) {
           const reasons = [...new Set(results.filter((entry) => entry && entry.success !== true).map((entry) => String(entry.message || "").trim()).filter(Boolean))].slice(0, 2);
           warnings.push(`${product}: ${targets.length - okCount}\uAC1C \uC635\uC158\uC744 \uBC14\uAFB8\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4${reasons.length ? ` \u2014 ${reasons.join(" / ").slice(0, 160)}` : ""}.`);
@@ -19040,32 +19407,32 @@ var KidItemRuntime = (() => {
         let after = await readItems2(product);
         let seen = after.items ? countChanged(after.items) : 0;
         if (after.items && seen < okCount) {
-          await context.sleep(RECHECK_MS7);
+          await context.sleep(RECHECK_MS9);
           after = await readItems2(product);
           if (after.items) seen = Math.max(seen, countChanged(after.items));
         }
         confirmed += seen;
         await recordEvidence(after.items);
-        await context.sleep(PACE_MS13);
+        await context.sleep(PACE_MS14);
       }
       return null;
     });
     if (halted) return halted;
     if (stoppedAt !== null) {
       const rest = products.slice(stoppedAt);
-      failed8 += rest.reduce((sum, product) => sum + (wantedOf(product)?.size || 1), 0);
-      warnings.push(`${LABEL13}\uC774 \uC694\uCCAD\uC744 \uC7A0\uC2DC \uB9C9\uC558\uC2B5\uB2C8\uB2E4(HTTP 429). \uC0C1\uD488 ${rest.length + blockedOnSend}\uAC1C\uB294 \uBCF4\uB0B4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4 \u2014 \uBA87 \uBD84 \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.`);
+      failed9 += rest.reduce((sum, product) => sum + (wantedOf(product)?.size || 1), 0);
+      warnings.push(`${LABEL15}\uC774 \uC694\uCCAD\uC744 \uC7A0\uC2DC \uB9C9\uC558\uC2B5\uB2C8\uB2E4(HTTP 429). \uC0C1\uD488 ${rest.length + blockedOnSend}\uAC1C\uB294 \uBCF4\uB0B4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4 \u2014 \uBA87 \uBD84 \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.`);
     }
     if (loggedOutAt !== null) {
       const rest = products.slice(loggedOutAt);
-      failed8 += rest.reduce((sum, product) => sum + (wantedOf(product)?.size || 1), 0);
-      warnings.push(`${LABEL13} \uB85C\uADF8\uC778\uC774 \uD480\uB824 \uBA48\uCDC4\uC2B5\uB2C8\uB2E4 \u2014 \uC0C1\uD488 ${rest.length}\uAC1C\uB294 \uBCF4\uB0B4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.`);
+      failed9 += rest.reduce((sum, product) => sum + (wantedOf(product)?.size || 1), 0);
+      warnings.push(`${LABEL15} \uB85C\uADF8\uC778\uC774 \uD480\uB824 \uBA48\uCDC4\uC2B5\uB2C8\uB2E4 \u2014 \uC0C1\uD488 ${rest.length}\uAC1C\uB294 \uBCF4\uB0B4\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uBCF4\uB0B4\uC138\uC694.`);
     }
     return {
       success: true,
       // 이미 원하는 재고인 옵션은 보낼 것이 없었을 뿐 끝난 일이다.
       sent: sent + already,
-      failed: failed8,
+      failed: failed9,
       confirmed: confirmed + already,
       already,
       rocket,
@@ -19077,9 +19444,9 @@ var KidItemRuntime = (() => {
       ...stoppedAt !== null ? { stopped: "rate_limited" } : loggedOutAt !== null ? { stopped: "logged_out" } : {}
     };
   }
-  async function read12(context, codes) {
+  async function read14(context, codes) {
     const products = [...new Set(codes)].filter(isOptionId).slice(0, READ_LIMIT);
-    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL13} \uB4F1\uB85D\uC0C1\uD488ID\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
+    if (products.length === 0) return { success: false, error: `\uC77D\uC744 ${LABEL15} \uB4F1\uB85D\uC0C1\uD488ID\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.` };
     const found = [];
     const missing = [];
     const halted = await withWingPage(context, async (run) => {
@@ -19089,8 +19456,8 @@ var KidItemRuntime = (() => {
         const product = products[index];
         const result = await readItems2(product);
         if (!result.items) {
-          if (result.loggedOut) return { success: false, error: `${LABEL13} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.` };
-          if (result.rateLimited) return { success: false, error: `${LABEL13}\uC774 \uC694\uCCAD\uC744 \uC7A0\uC2DC \uB9C9\uC558\uC2B5\uB2C8\uB2E4(HTTP 429). \uBA87 \uBD84 \uB4A4 \uB2E4\uC2DC \uD655\uC778\uD558\uC138\uC694.` };
+          if (result.loggedOut) return { success: false, error: `${LABEL15} \uB85C\uADF8\uC778\uC774 \uD480\uB838\uC2B5\uB2C8\uB2E4. \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD558\uC138\uC694.` };
+          if (result.rateLimited) return { success: false, error: `${LABEL15}\uC774 \uC694\uCCAD\uC744 \uC7A0\uC2DC \uB9C9\uC558\uC2B5\uB2C8\uB2E4(HTTP 429). \uBA87 \uBD84 \uB4A4 \uB2E4\uC2DC \uD655\uC778\uD558\uC138\uC694.` };
           missing.push(product);
           continue;
         }
@@ -19110,13 +19477,97 @@ var KidItemRuntime = (() => {
   }
   registerMallAvailability({
     mallKey: "coupang",
-    displayName: LABEL13,
+    displayName: LABEL15,
     guard: { ...WING_WRITE_GUARD, loginMessage: "\uCFE0\uD321 \uC719 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uCFE0\uD321 \uC719 \uD654\uBA74\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC2DC\uB3C4\uD574 \uC8FC\uC138\uC694." },
     dialogHosts: ["wing.coupang.com"],
     login: WING_LOGIN,
-    send: send13,
-    read: read12
+    send: send15,
+    read: read14
   });
+
+  // extensions/src/sites/wing/thumbnail.ts
+  var WING_ORIGIN = "https://wing.coupang.com";
+  var WING_FORM_URL2 = "https://wing.coupang.com/tenants/seller-web/vendor-inventory/formV2";
+  var WING_THUMBNAIL_FILE = "content/page-call/wing-thumbnail.js";
+  var FIND_TIMEOUT_MS = 6e4;
+  var UPLOAD_TIMEOUT_MS = 3 * 6e4;
+  var IDENTITY_TIMEOUT_MS = 15e3;
+  var VENDOR_ID2 = /^[A-Za-z0-9][A-Za-z0-9_-]{0,79}$/;
+  function wingProductSearchUrl(productName) {
+    return `${WING_ORIGIN}/vendor-inventory/list?searchKeywordType=PRODUCT_NAME&searchKeywords=${encodeURIComponent(productName)}&salesMethod=ALL&productStatus=ALL&stockSearchType=ALL&locale=ko_KR&sortMethod=SORT_BY_ITEM_LEVEL_UNIT_SOLD&countPerPage=50&page=1`;
+  }
+  function failed6(message, stage) {
+    return new RuntimeError(REGISTRATION_FILL_FAILED, message, { mallKey: "coupang", stage });
+  }
+  async function editUrlOf(context, input) {
+    const id3 = input.externalListingId?.trim() ?? "";
+    if (/^\d{6,}$/.test(id3)) return `${WING_FORM_URL2}?vendorInventoryId=${id3}`;
+    if (!input.productName.trim()) throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uB300\uD45C\uC774\uBBF8\uC9C0\uB97C \uBC14\uAFC0 \uCFE0\uD321 \uC719 \uC0C1\uD488\uC744 \uCC3E\uC744 \uC774\uB984\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang" });
+    const list2 = await openWriteTab(context, wingProductSearchUrl(input.productName), { signIn: context.signIn, dialogHosts: ["wing.coupang.com"] });
+    let found = null;
+    try {
+      found = await list2.run((page) => callPage(page, "wingThumb.findEdit", { productName: input.productName }, {
+        timeoutMs: FIND_TIMEOUT_MS,
+        guard: context.guard,
+        isolated: [WING_THUMBNAIL_FILE],
+        displayName: context.displayName
+      }));
+      if (found?.ok !== true || !found.editUrl) throw failed6(found?.error ?? "\uCFE0\uD321 \uC719 \uC0C1\uD488 \uC218\uC815 \uD654\uBA74\uC744 \uCC3E\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", "find_edit");
+      const url = new URL(found.editUrl, WING_ORIGIN);
+      if (url.origin !== WING_ORIGIN) throw failed6("\uCFE0\uD321 \uC719 \uBC16\uC758 \uC218\uC815 \uD654\uBA74 \uC8FC\uC18C\uB77C \uC5F4\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", "find_edit");
+      return url.href;
+    } finally {
+      if (found?.ok === true) await list2.page.close().catch(() => void 0);
+      await list2.done();
+    }
+  }
+  async function updateWingThumbnail(context, input) {
+    if (!input.image.dataUrl.startsWith("data:image/")) {
+      throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uB300\uD45C\uC774\uBBF8\uC9C0 \uB370\uC774\uD130\uAC00 \uC5C6\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang" });
+    }
+    const expected = input.expectedProviderAccountId?.trim() ?? "";
+    if (expected && !VENDOR_ID2.test(expected)) {
+      throw new RuntimeError(RUNTIME_PLAN_INVALID17, "\uCFE0\uD321 \uC719 \uD310\uB9E4\uC790 \uC2DD\uBCC4\uC790\uAC00 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { mallKey: "coupang", reason: "provider_account" });
+    }
+    const url = await editUrlOf(context, input);
+    const tab = await openWriteTab(context, url, { signIn: context.signIn, dialogHosts: ["wing.coupang.com"], bootstrapFile: WING_COMPAT_FILE });
+    try {
+      const uploaded = await tab.run(async (page) => {
+        let providerAccountId = null;
+        if (expected) {
+          const identity2 = await callPage(page, "availability.wingIdentityOnPage", [expected], {
+            timeoutMs: IDENTITY_TIMEOUT_MS,
+            guard: context.guard,
+            isolated: [WING_IDENTITY_FILE, AVAILABILITY_FILE],
+            displayName: context.displayName
+          });
+          if (identity2?.ok !== true || identity2.vendorId !== expected) {
+            throw new RuntimeError("REGISTRATION_ACCOUNT_MISMATCH", "\uCFE0\uD321 \uC719\uC5D0 \uB85C\uADF8\uC778\uB41C \uD310\uB9E4\uC790 \uACC4\uC815\uC744 \uD655\uC778\uD558\uC9C0 \uBABB\uD588\uAC70\uB098 \uC2E4\uD589\uD560 \uACC4\uC815\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uC5F4\uB9B0 \uD0ED\uC758 \uACC4\uC815\uC744 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { mallKey: "coupang" });
+          }
+          providerAccountId = identity2.vendorId;
+        }
+        const answer = await callPage(page, "wingThumb.upload", { productName: input.productName, image: input.image }, {
+          timeoutMs: UPLOAD_TIMEOUT_MS,
+          guard: context.guard,
+          isolated: [WING_THUMBNAIL_FILE],
+          displayName: context.displayName
+        });
+        if (answer?.ok !== true) throw failed6(answer?.error ?? "\uCFE0\uD321 \uC719 \uB300\uD45C\uC774\uBBF8\uC9C0\uB97C \uC62C\uB9AC\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.", "upload");
+        return { steps: answer.steps ?? [], providerAccountId };
+      });
+      const observed = await tab.page.currentUrl().catch(() => null);
+      return {
+        fill: { steps: uploaded.steps, warnings: [], manualSteps: ["\uC5F4\uB9B0 \uCFE0\uD321 \uC719 \uC218\uC815 \uD654\uBA74\uC5D0\uC11C [\uC800\uC7A5]\uC744 \uB20C\uB7EC \uC8FC\uC138\uC694."], dialogs: [] },
+        providerAccountId: uploaded.providerAccountId,
+        observedUrl: observed ? observed.split(/[?#]/)[0] : null,
+        done: () => tab.done()
+      };
+    } catch (error) {
+      await tab.done();
+      throw error;
+    }
+  }
+  registerMallThumbnail("coupang", updateWingThumbnail);
 
   // extensions/src/sites/wing/vendor-identity.ts
   var WING_VENDOR_IDENTITY_UNAVAILABLE = "WING_VENDOR_IDENTITY_UNAVAILABLE";
@@ -19149,16 +19600,16 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/wing/itemwinner.ts
-  var WING_ORIGIN = "https://wing.coupang.com";
-  var WING_ITEMWINNER_URL = `${WING_ORIGIN}/tenants/seller-price-management/getProductList`;
-  var WING_ITEMWINNER_PAGE_URL = `${WING_ORIGIN}/tenants/seller-price-management`;
+  var WING_ORIGIN2 = "https://wing.coupang.com";
+  var WING_ITEMWINNER_URL = `${WING_ORIGIN2}/tenants/seller-price-management/getProductList`;
+  var WING_ITEMWINNER_PAGE_URL = `${WING_ORIGIN2}/tenants/seller-price-management`;
   var PAGE_SIZE4 = 1e3;
   var EMPTY_PAGE_SIZE = 10;
   var WING_ITEMWINNER_CALLER = {
     minIntervalMs: 1e3,
     timeoutMs: 3e4,
     displayName: "\uCFE0\uD321 \uC719",
-    xsrf: { cookieUrl: WING_ORIGIN, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+    xsrf: { cookieUrl: WING_ORIGIN2, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
   };
   var WING_ITEMWINNER_PAGE_LIMIT_REACHED = "RUNTIME_PAGE_LIMIT_REACHED";
   function requestBody() {
@@ -19188,23 +19639,23 @@ var KidItemRuntime = (() => {
       headers: { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" },
       body: JSON.stringify(requestBody())
     });
-    if (!isRecord3(body) || !Array.isArray(body.result)) throw failed6("wing_itemwinner_response_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+    if (!isRecord3(body) || !Array.isArray(body.result)) throw failed7("wing_itemwinner_response_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     const totalSize = integer(body.totalSize);
     const pageIndex = integer(body.page);
     const pageSize = integer(body.pageSize);
     const totalPages = integer(body.totalPages);
     if (totalSize === null || pageIndex !== 0 || pageSize === null || totalPages === null || totalSize < 0 || totalPages < 0) {
-      throw failed6("wing_itemwinner_response_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      throw failed7("wing_itemwinner_response_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     }
     if (totalSize > WING_ITEMWINNER_MAX_ITEMS) {
       throw new RuntimeError(WING_ITEMWINNER_PAGE_LIMIT_REACHED, `\uD310\uB9E4\uC911 \uC0C1\uD488\uC774 ${WING_ITEMWINNER_MAX_ITEMS}\uAC1C\uB97C \uB118\uC5B4 \uC544\uC774\uD15C\uC704\uB108\uB97C \uD55C \uBC88\uC5D0 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`, { totalSize });
     }
     const rows = body.result;
     const complete = totalSize === 0 ? rows.length === 0 && totalPages === 0 && pageSize === EMPTY_PAGE_SIZE : pageSize === PAGE_SIZE4 && totalPages === 1 && rows.length === totalSize;
-    if (!complete) throw failed6("wing_itemwinner_partial", "Wing \uC544\uC774\uD15C\uC704\uB108 \uBAA9\uB85D\uC774 \uD55C \uBC88\uC5D0 \uC624\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { totalSize, rows: rows.length, totalPages });
+    if (!complete) throw failed7("wing_itemwinner_partial", "Wing \uC544\uC774\uD15C\uC704\uB108 \uBAA9\uB85D\uC774 \uD55C \uBC88\uC5D0 \uC624\uC9C0 \uC54A\uC558\uC2B5\uB2C8\uB2E4.", { totalSize, rows: rows.length, totalPages });
     const normalized = rows.map(normalizeRow);
     if (new Set(normalized.map((row) => row.vendorItemId)).size !== normalized.length) {
-      throw failed6("wing_itemwinner_duplicate", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5\uC5D0 \uAC19\uC740 \uC0C1\uD488\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.", { totalSize });
+      throw failed7("wing_itemwinner_duplicate", "Wing \uC544\uC774\uD15C\uC704\uB108 \uC751\uB2F5\uC5D0 \uAC19\uC740 \uC0C1\uD488\uC774 \uB450 \uBC88 \uC788\uC2B5\uB2C8\uB2E4.", { totalSize });
     }
     return { rows: normalized, totalSize };
   }
@@ -19243,9 +19694,9 @@ var KidItemRuntime = (() => {
     return !!value && typeof value === "object" && !Array.isArray(value);
   }
   function rowInvalid2(field) {
-    return failed6("wing_itemwinner_row_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uD589\uC5D0 \uD544\uC694\uD55C \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { field });
+    return failed7("wing_itemwinner_row_invalid", "Wing \uC544\uC774\uD15C\uC704\uB108 \uD589\uC5D0 \uD544\uC694\uD55C \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { field });
   }
-  function failed6(reason, message, details = {}) {
+  function failed7(reason, message, details = {}) {
     return new RuntimeError(SITE_REQUEST_FAILED, message, { reason, url: WING_ITEMWINNER_URL, ...details });
   }
   function createWingItemwinnerSite(caller) {
@@ -19256,23 +19707,23 @@ var KidItemRuntime = (() => {
   }
   registerSite({
     name: "wing-itemwinner",
-    origin: WING_ORIGIN,
+    origin: WING_ORIGIN2,
     create: (deps) => createWingItemwinnerSite(createSiteCaller(WING_ITEMWINNER_CALLER, deps))
   });
 
   // extensions/src/sites/wing/pre-matching-search.ts
-  var ORIGIN20 = "https://wing.coupang.com";
-  var SEARCH_URL2 = `${ORIGIN20}/tenants/seller-web/pre-matching/search`;
+  var ORIGIN22 = "https://wing.coupang.com";
+  var SEARCH_URL2 = `${ORIGIN22}/tenants/seller-web/pre-matching/search`;
   var RETRY_ATTEMPTS = 4;
   var REQUEST_TIMEOUT_MS3 = 2e4;
   var WING_SEARCH_PAYLOAD_INVALID = "WING_SEARCH_PAYLOAD_INVALID";
   var WING_SEARCH_SITE = {
     name: "wing-search",
-    origin: ORIGIN20,
+    origin: ORIGIN22,
     caller: {
       minIntervalMs: 2200,
       displayName: "\uCFE0\uD321 \uC719",
-      xsrf: { cookieUrl: ORIGIN20, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+      xsrf: { cookieUrl: ORIGIN22, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
     }
   };
   function createWingPreMatchingSearch(caller, deps) {
@@ -19397,8 +19848,8 @@ var KidItemRuntime = (() => {
   });
 
   // extensions/src/sites/wing/reviews.ts
-  var WING_ORIGIN2 = "https://wing.coupang.com";
-  var WING_REVIEW_SEARCH_URL = `${WING_ORIGIN2}/tenants/cs/product/review/search`;
+  var WING_ORIGIN3 = "https://wing.coupang.com";
+  var WING_REVIEW_SEARCH_URL = `${WING_ORIGIN3}/tenants/cs/product/review/search`;
   var WING_REVIEW_PAGE_SIZE = 50;
   var WING_REVIEW_CALLER = { minIntervalMs: 350 };
   var WING_REVIEW_TIMEOUT_MS = 2e4;
@@ -19478,23 +19929,23 @@ var KidItemRuntime = (() => {
   }
   registerSite({
     name: "wing-reviews",
-    origin: WING_ORIGIN2,
+    origin: WING_ORIGIN3,
     create: (deps, lease) => createWingReviewsSite(wingCallerWithLogin(createSiteCaller(WING_REVIEW_CALLER, deps), deps, lease))
   });
 
   // extensions/src/sites/wing/traffic.ts
-  var WING_ORIGIN3 = "https://wing.coupang.com";
-  var WING_TRAFFIC_DETAIL_URL = `${WING_ORIGIN3}/tenants/rfm-ss/api/business-insight/vi-detail-search`;
-  var WING_TRAFFIC_SUMMARY_URL = `${WING_ORIGIN3}/tenants/rfm-ss/api/business-insight/vendor-summary`;
-  var WING_TRAFFIC_METADATA_URL = `${WING_ORIGIN3}/tenants/rfm-ss/api/metadata/business-insights`;
+  var WING_ORIGIN4 = "https://wing.coupang.com";
+  var WING_TRAFFIC_DETAIL_URL = `${WING_ORIGIN4}/tenants/rfm-ss/api/business-insight/vi-detail-search`;
+  var WING_TRAFFIC_SUMMARY_URL = `${WING_ORIGIN4}/tenants/rfm-ss/api/business-insight/vendor-summary`;
+  var WING_TRAFFIC_METADATA_URL = `${WING_ORIGIN4}/tenants/rfm-ss/api/metadata/business-insights`;
   var WING_TRAFFIC_PAGE_SIZE = 100;
-  var WING_TRAFFIC_PAGE_URL = `${WING_ORIGIN3}/tenants/business-insight/sales-analysis`;
+  var WING_TRAFFIC_PAGE_URL = `${WING_ORIGIN4}/tenants/business-insight/sales-analysis`;
   var REGISTRATION_TYPES = ["NORMAL", "RFM"];
   var WING_TRAFFIC_CALLER = {
     minIntervalMs: 300,
     timeoutMs: 3e4,
     displayName: "\uCFE0\uD321 \uC719",
-    xsrf: { cookieUrl: WING_ORIGIN3, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
+    xsrf: { cookieUrl: WING_ORIGIN4, cookieName: "XSRF-TOKEN", headerName: "X-XSRF-TOKEN" }
   };
   var JSON_HEADERS2 = { Accept: "application/json, text/plain, */*", "Content-Type": "application/json" };
   async function readWingTrafficFreshness(caller, now) {
@@ -19511,7 +19962,7 @@ var KidItemRuntime = (() => {
       viewableEnd: koreaDate(viewable?.endDate)
     };
     if (!freshness.salesLatest || !freshness.trafficLatest || !freshness.viewableStart || !freshness.viewableEnd) {
-      throw failed7("wing_traffic_metadata_invalid", "Wing \uB9E4\uCD9C\uBD84\uC11D \uACF5\uAC1C \uAE30\uAC04 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
+      throw failed8("wing_traffic_metadata_invalid", "Wing \uB9E4\uCD9C\uBD84\uC11D \uACF5\uAC1C \uAE30\uAC04 \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.");
     }
     return freshness;
   }
@@ -19538,7 +19989,7 @@ var KidItemRuntime = (() => {
     const pageSize = integer2(pagination?.pageSize);
     const pageNumber = integer2(pagination?.pageNumber);
     if (!Array.isArray(items) || totalResults === null || totalPages === null || pageSize === null || pageNumber === null) {
-      throw failed7("wing_traffic_response_invalid", "Wing \uD2B8\uB798\uD53D \uCABD \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { businessDate: input.businessDate, pageNumber: input.pageNumber });
+      throw failed8("wing_traffic_response_invalid", "Wing \uD2B8\uB798\uD53D \uCABD \uC751\uB2F5 \uD615\uC2DD\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", { businessDate: input.businessDate, pageNumber: input.pageNumber });
     }
     return { rows: items.map((item) => normalizeRow2(item, input.vendorId)), totalResults, totalPages, pageSize, pageNumber };
   }
@@ -19559,12 +20010,12 @@ var KidItemRuntime = (() => {
       revenue: integer2(metrics2?.totalGmv)
     };
     if (Object.values(summary).some((value) => value === null)) {
-      throw failed7("wing_traffic_summary_invalid", "Wing \uD2B8\uB798\uD53D \uC694\uC57D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", input);
+      throw failed8("wing_traffic_summary_invalid", "Wing \uD2B8\uB798\uD53D \uC694\uC57D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", input);
     }
     const ratio = metrics2?.pvToOrder;
     const providerConversionRate = ratio === null || ratio === void 0 ? null : number2(ratio);
     if (ratio !== null && ratio !== void 0 && providerConversionRate === null) {
-      throw failed7("wing_traffic_summary_invalid", "Wing \uD2B8\uB798\uD53D \uC694\uC57D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", input);
+      throw failed8("wing_traffic_summary_invalid", "Wing \uD2B8\uB798\uD53D \uC694\uC57D \uC751\uB2F5\uC774 \uC62C\uBC14\uB974\uC9C0 \uC54A\uC2B5\uB2C8\uB2E4.", input);
     }
     return { ...summary, providerConversionRate: providerConversionRate === null ? null : providerConversionRate * 100 };
   }
@@ -19577,7 +20028,7 @@ var KidItemRuntime = (() => {
     if (!details || !metrics2 || !vendorItemId || !productId2) throw rowInvalid3("vendorItemDetails");
     const rowVendorId = details.vendorId === null || details.vendorId === void 0 ? "" : String(details.vendorId).trim();
     if (rowVendorId !== vendorId2) {
-      throw failed7("advertiser_identity_mismatch", "Wing \uACC4\uC815 \uC2DD\uBCC4\uC790\uAC00 \uC218\uC9D1 \uACC4\uD68D\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uB2E4\uB978 Wing \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { vendorItemId });
+      throw failed8("advertiser_identity_mismatch", "Wing \uACC4\uC815 \uC2DD\uBCC4\uC790\uAC00 \uC218\uC9D1 \uACC4\uD68D\uACFC \uB2E4\uB985\uB2C8\uB2E4. \uB2E4\uB978 Wing \uACC4\uC815\uC73C\uB85C \uB85C\uADF8\uC778\uD588\uB294\uC9C0 \uD655\uC778\uD574 \uC8FC\uC138\uC694.", { vendorItemId });
     }
     const values = {
       visitors: integer2(metrics2.totalUniqueVisitor),
@@ -19611,9 +20062,9 @@ var KidItemRuntime = (() => {
     return value && typeof value === "object" && !Array.isArray(value) ? value : null;
   }
   function rowInvalid3(field) {
-    return failed7("wing_traffic_row_invalid", "Wing \uD2B8\uB798\uD53D \uD589\uC5D0 \uD544\uC694\uD55C \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { field });
+    return failed8("wing_traffic_row_invalid", "Wing \uD2B8\uB798\uD53D \uD589\uC5D0 \uD544\uC694\uD55C \uAC12\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.", { field });
   }
-  function failed7(reason, message, details = {}) {
+  function failed8(reason, message, details = {}) {
     return new RuntimeError(SITE_REQUEST_FAILED, message, { reason, ...details });
   }
   function createWingTrafficSite(caller) {
@@ -19626,7 +20077,7 @@ var KidItemRuntime = (() => {
   }
   registerSite({
     name: "wing-traffic",
-    origin: WING_ORIGIN3,
+    origin: WING_ORIGIN4,
     create: (deps) => createWingTrafficSite(createSiteCaller(WING_TRAFFIC_CALLER, deps))
   });
 
@@ -19852,8 +20303,8 @@ var KidItemRuntime = (() => {
     if (input.signal.aborted) local.abort(input.signal.reason);
     else input.signal.addEventListener("abort", onAbort, { once: true });
     let writes = Promise.resolve();
-    const write = (send14) => {
-      const next = writes.then(send14);
+    const write = (send16) => {
+      const next = writes.then(send16);
       writes = next.catch(() => void 0);
       return next;
     };
