@@ -46,6 +46,7 @@ import '../sites/gmarket/listings';
 import '../sites/gs-shop';
 import '../sites/haebub-mall';
 import '../sites/icecream-mall';
+import '../sites/icecream-mall/registration';
 import '../sites/kakao/listings';
 import '../sites/kidkids';
 import '../sites/kidkids/registration';
