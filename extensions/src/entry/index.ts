@@ -44,6 +44,7 @@ import '../sites/coupang-supplier';
 import '../sites/domeggook';
 import '../sites/domeggook/registration';
 import '../sites/gmarket/listings';
+import '../sites/gmarket/registration';
 import '../sites/gs-shop';
 import '../sites/haebub-mall';
 import '../sites/icecream-mall';

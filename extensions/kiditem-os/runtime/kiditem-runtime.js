@@ -11699,6 +11699,126 @@ var KidItemRuntime = (() => {
     form: DOMEGGOOK_REGISTRATION_FORM
   });
 
+  // extensions/src/sites/gmarket/registration.ts
+  var GMARKET_REGISTRATION_FORM = {
+    label: "\uC9C0\uB9C8\uCF13\xB7\uC625\uC158",
+    origin: "https://item.esmplus.com",
+    pathPrefix: "/goods/new",
+    // `<form>` 이 없다. 화면이 그려졌는지만 보는 표식으로 쓴다.
+    formSelector: "main.box__wrap",
+    /**
+     * ⚠️ 이 화면은 `load` 뒤에도 **8~10초** 더 지나야 칸이 그려진다(라이브 실측).
+     * 껍데기(`main.box__wrap`)만 보고 진행하면 칸이 하나도 없어 전부 실패한다.
+     * 그래서 칸 하나가 실제로 생길 때까지 기다린다.
+     */
+    readySelector: "div.box__filter-item",
+    formWaitMs: 25e3,
+    sectionForm: {
+      itemSelector: "div.box__filter-item",
+      headSelector: ".box__filter-head",
+      contentSelector: ".box__filter-content",
+      inputSelector: "input.form__input, textarea",
+      dropdownSelector: "div.box__dropdown",
+      openerSelector: "button.button__opener",
+      // ⚠️ `li` 가 아니라 이 버튼을 눌러야 한다. li 클릭은 아무 일도 안 일어난다.
+      optionSelector: "button.button__option",
+      labelSelector: "label.form__label"
+    },
+    sectionCategory: {
+      section: "\uCE74\uD14C\uACE0\uB9AC",
+      queryInput: 'input.form__input[placeholder*="\uCE74\uD14C\uACE0\uB9AC"]',
+      searchButton: "button.button__search",
+      waitMs: 2500
+    },
+    /**
+     * 상세설명.
+     *
+     * ⭐ **ESM 자체 업로드가 주 경로다.** 예전엔 키즈노트(diskn)에 먼저 올려 주소를
+     * 받아 HTML 로 넣었는데, 키즈노트 로그인이 풀리면 ESM 등록이 통째로 막혔다
+     * (사장님 지적 2026-09-11: "esm 인데 왜 키즈노트를 쓰냐"). 남의 몰 세션이 우리
+     * 등록을 막는 구조라 버렸다.
+     *
+     * `이미지 업로드` 탭 안에 전용 파일 칸이 있다(라이브 실증: 넣으니 안내 문구가
+     * "등록된 이미지가 없습니다" → "등록된 이미지가 있습니다"로 바뀌었다).
+     * ⚠️ 파일 칸 이름이 상품이미지와 똑같은 `btnSelectFile` 이라 문서 전체에서 찾으면
+     * 대표이미지 칸을 집는다. 반드시 `div.box__board` 안에서 찾는다.
+     */
+    sectionDetail: {
+      tabSelector: "ul.list__tab-board button.button__tab",
+      /** 주 경로 — 파일을 직접 올린다. */
+      uploadTabLabel: "\uC774\uBBF8\uC9C0 \uC5C5\uB85C\uB4DC",
+      uploadBoardSelector: "div.box__board",
+      uploadFileSelector: "input.form__file",
+      uploadDoneText: "\uB4F1\uB85D\uB41C \uC774\uBBF8\uC9C0\uAC00 \uC788\uC2B5\uB2C8\uB2E4",
+      /** 대비 경로 — 이미 몰이 읽을 수 있는 주소일 때만 쓴다. */
+      tabLabel: "HTML \uC791\uC131",
+      textareaSelector: "textarea.box__board-textarea"
+    },
+    /** 상세 이미지를 File 로 받아 와야 몰에 올릴 수 있다. */
+    detailSelfUpload: { editorTab: null },
+    // 칸이 하나뿐인데 `multiple` 이다. 대표·추가를 한 번에 넣고 첫 장이 대표가 된다.
+    sectionImages: {
+      groupKey: "esmplus",
+      label: "\uC0C1\uD488\uC774\uBBF8\uC9C0",
+      fileInputSelector: "input.form__file",
+      max: 15
+    },
+    /**
+     * 화면을 덮는 안내 팝업을 닫는다(사장님 요청 2026-09-11).
+     *
+     * 실물 예: "[G kiditem / A kiditem] 이벤트에 참여중입니다 … [확인]".
+     * 덮여 있는 동안에는 우리 클릭이 전부 그 창으로 먹어서 폼이 안 채워진다.
+     *
+     * ⚠️ 판단은 **버튼 글자로만** 한다. 글자 있는 버튼이 하나뿐이고 그게 `확인`·`닫기`
+     * 일 때만 누른다 — 확인/취소가 같이 있는 '되묻는 창' 은 사람의 결정이라 건드리지
+     * 않는다. 이 안내창은 본문에 '등록' 이 들어 있어서(신규로 등록되는 상품은 …)
+     * 본문으로 거르면 오히려 못 닫는다.
+     */
+    dismissDialogs: {
+      label: "\uC548\uB0B4 \uD31D\uC5C5",
+      /** 이 글자를 누른다. */
+      closeLabels: ["\uD655\uC778", "\uB2EB\uAE30"],
+      /**
+       * 창 안에서 '고르라는 자리' 인지 판단할 낱말들.
+       *
+       * 여기 있는 낱말 중 닫기류가 아닌 것이 하나라도 창에 있으면 손대지 않는다 —
+       * `취소` 가 같이 있으면 되묻는 창이고, 그건 사람의 결정이다.
+       */
+      actionWords: [
+        "\uD655\uC778",
+        "\uB2EB\uAE30",
+        "\uCDE8\uC18C",
+        "\uB4F1\uB85D",
+        "\uC800\uC7A5",
+        "\uC0AD\uC81C",
+        "\uC804\uC1A1",
+        "\uC81C\uCD9C",
+        "\uACC4\uC18D",
+        "\uB2E4\uC74C",
+        "\uC774\uC804",
+        "\uC608",
+        "\uC544\uB2C8\uC624",
+        "\uB4F1\uB85D\uD558\uAE30",
+        "\uC800\uC7A5\uD558\uAE30"
+      ],
+      /** 묻는 말로 끝나는 창은 닫기류만 있어도 사람의 결정이다. */
+      questionPattern: "\uD558\uC2DC\uACA0\uC2B5\uB2C8\uAE4C|\uD558\uC2DC\uACA0\uC5B4\uC694|\uACC4\uC18D\uD560\uAE4C\uC694|\uC9C4\uD589\uD560\uAE4C\uC694",
+      /** 안내 문구가 이만큼은 있어야 '읽으라고 띄운 창' 이다. */
+      minMessageLength: 10,
+      retries: 4,
+      waitMs: 700
+    }
+    // ⚠️ `detailHost` 를 두지 않는다. 두면 키즈노트에 먼저 올리려다 그 몰 로그인이
+    // 풀렸을 때 ESM 등록까지 막힌다 — 실제로 그렇게 막혔다(라이브 2026-09-11).
+  };
+  registerMallWriter({
+    mallKey: "gmarket",
+    displayName: "\uC9C0\uB9C8\uCF13",
+    guard: registrationGuard(esmListingsGuard("\uC9C0\uB9C8\uCF13"), "\uC9C0\uB9C8\uCF13"),
+    dialogHosts: ["esmplus.com"],
+    form: GMARKET_REGISTRATION_FORM
+  });
+
   // extensions/src/sites/gs-shop/index.ts
   var GS_SHOP_ORDER_URL = "https://partners.gsshop.com/logistics/partner-logistics-mng";
   var GS_SHOP_ORDERS_FILE = "content/page-call/gs-shop-orders.js";
