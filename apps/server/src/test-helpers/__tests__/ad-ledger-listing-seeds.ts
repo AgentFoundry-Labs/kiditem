@@ -62,7 +62,8 @@ export async function seedAdListingDay(
   return { operationId, channelAccountId };
 }
 
-async function measuredRunCovering(
+/** A succeeded ad report run of the account whose window covers `date`, created as a one-day run when none does. */
+export async function measuredRunCovering(
   prisma: PrismaClient,
   organizationId: string,
   channelAccountId: string,

@@ -15,11 +15,12 @@ import {
   AdKeywordPauseProposalSchema,
 } from '@kiditem/shared/advertising';
 import { PrismaService } from '../../../../prisma/prisma.service';
+import { AdLedgerReadPersistenceAdapter } from '../persistence/ad-ledger-read.persistence.adapter';
 import {
-  readAdTargetRowEvidence,
-  readCompleteAdKeywordFacts,
-  readCurrentAdTargetRows,
-} from '../persistence/read/ad-target-facts';
+  AD_LEDGER_READ_REPOSITORY_PORT,
+  type AdLedgerReadRepositoryPort,
+} from '../../../application/port/out/repository/ad-ledger-read.repository.port';
+import { activeAdAccountIds, AD_SWEEP_CHANNEL } from '../../../domain/ad-sweep-coverage';
 import {
   deriveAdActionExecution,
   derivedExecuteStatusIn,
@@ -59,7 +60,7 @@ import type {
   ExistingAdActionDedupRow,
   KeywordPauseProposalRow,
   HydratedAdAction,
-  LatestTargetRow,
+  AdRuleTarget,
 } from '../../../application/port/out/repository/ad-action.repository.port';
 
 const OPEN_ACTION_APPROVAL_STATUSES = ['pending_review', 'approved'] as const;
@@ -129,8 +130,6 @@ const AD_ACTION_ROW_SELECT = {
   id: true,
   organizationId: true,
   listingId: true,
-  listingOptionId: true,
-  adTargetDailyId: true,
   actionType: true,
   targetType: true,
   externalId: true,
@@ -145,7 +144,7 @@ const AD_ACTION_ROW_SELECT = {
   createdAt: true,
 } as const;
 
-type AdActionRow = Omit<AdAction, keyof AdActionExecution>;
+type AdActionRow = Omit<AdAction, keyof AdActionExecution | 'listingOptionId' | 'adTargetDailyId'>;
 
 interface AdActionReviewCounts {
   pendingReview: number;
@@ -169,6 +168,11 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     @Optional()
     @Inject(PRODUCT_TRANSACTIONAL_READ_PORT)
     private readonly products?: ProductTransactionalReadPort,
+    // The owner's ledger read adapter; the stateless default serves adapter
+    // specs that compose this adapter by hand.
+    @Optional()
+    @Inject(AD_LEDGER_READ_REPOSITORY_PORT)
+    private readonly ledger: AdLedgerReadRepositoryPort = new AdLedgerReadPersistenceAdapter(),
   ) {}
 
   async findAdActionsForReview(
@@ -267,154 +271,110 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
     };
   }
 
-  async findLatestTargetRows(organizationId: string): Promise<LatestTargetRow[]> {
+  async findRuleTargets(organizationId: string): Promise<AdRuleTarget[]> {
     return this.prisma.$transaction(
       async (tx) => {
-        // Both target sets come from the advertising ledger's reader: the
-        // current campaign/product targets of each account's newest completed
-        // sweep, and the current COMPLETE keyword observations.
-        const currentRows = await readCurrentAdTargetRows(tx, organizationId, this.channelAccounts);
-        const { rows: keywordRows } = await readCompleteAdKeywordFacts(tx, organizationId);
-        const candidates = [
-          ...currentRows.map((row) => ({
-            id: row.id,
-            target_type: row.targetType,
-            target_key: row.targetKey,
-            listing_id: row.listingId,
-            listing_option_id: row.listingOptionId,
-            external_id: row.externalId,
-            external_option_id: row.externalOptionId,
-            campaign_id: row.campaignId,
-            campaign_name: row.campaignName,
-            keyword: row.keyword,
-            status: row.status,
-            current_bid: row.currentBid,
-            daily_budget: row.dailyBudget,
-            spend: row.spend,
-            revenue: row.revenue,
-            impressions: row.impressions,
-            clicks: row.clicks,
-            conversions: row.conversionsObserved ? row.conversions : null,
-            meta_json: row.metaJson,
-          })),
-          ...keywordRows.map((row) => ({
-            id: row.id,
-            target_type: row.targetType,
-            target_key: row.targetKey,
-            listing_id: row.listingId,
-            listing_option_id: row.listingOptionId,
-            external_id: row.externalId,
-            external_option_id: row.externalOptionId,
-            campaign_id: row.campaignId,
-            campaign_name: row.campaignName,
-            keyword: row.keyword,
-            status: row.status,
-            current_bid: row.currentBid,
-            daily_budget: row.dailyBudget,
-            spend: row.spend,
-            revenue: row.revenue,
-            impressions: row.impressions,
-            clicks: row.clicks,
-            conversions: row.conversionsObserved ? row.conversions : null,
-            meta_json: row.metaJson,
-          })),
-        ];
-        if (candidates.length === 0) return [];
-        const catalog = await this.channelListings.readCatalogFacts(ownerTransaction(tx), {
+        const handle = ownerTransaction(tx);
+        const identities = await this.channelAccounts.readProviderIdentities(handle, {
+          organizationId,
+          channel: AD_SWEEP_CHANNEL,
+        });
+        // Current campaigns and search keywords of the recent measured window
+        // of the ad report ledger (KID-372).
+        const current = await this.ledger.readCurrentAdTargets(handle, {
+          organizationId,
+          activeAccountIds: activeAdAccountIds(identities),
+        });
+        const businessDate = current.latestMeasuredDate;
+        if (businessDate === null) return [];
+        const measuredDays = current.measuredDates.length;
+        const catalog = await this.channelListings.readCatalogFacts(handle, {
           organizationId, channels: ['coupang'], activeAccountsOnly: true, activeOnly: true,
         });
-        const scopedListings = catalog.map(row => ({ id: row.id, organization_id: organizationId, channel_account_id: row.accountId,
-          display_name: row.displayName, channel_name: row.channelName, external_id: row.externalId, account_channel: row.channel }));
-        const scopedOptions = catalog.flatMap(row => row.options.map(option => ({ id: option.id, listing_id: row.id })));
-        const targets = await tx.$queryRaw<Array<Omit<LatestTargetRow, 'abcGrade'> & {
-          masterProductId: string | null;
-        }>>(
-          Prisma.sql`
-        WITH scoped_listings AS (
-          SELECT * FROM jsonb_to_recordset(${JSON.stringify(scopedListings)}::jsonb)
-            AS listing(id uuid, organization_id uuid, channel_account_id uuid, display_name text, channel_name text, external_id text, account_channel text)
-          WHERE listing.organization_id = ${organizationId}::uuid
-        ), scoped_options AS (
-          SELECT * FROM jsonb_to_recordset(${JSON.stringify(scopedOptions)}::jsonb)
-            AS option(id uuid, listing_id uuid)
-        ),
-        latest AS (
-          SELECT * FROM jsonb_to_recordset(${JSON.stringify(candidates)}::jsonb) AS candidate (
-            id uuid, target_type text, target_key text, listing_id uuid, listing_option_id uuid,
-            external_id text, external_option_id text, campaign_id text, campaign_name text,
-            keyword text, status text, current_bid integer, daily_budget integer,
-            spend integer, revenue integer, impressions integer, clicks integer,
-            conversions integer, meta_json jsonb
-          )
-        )
-        SELECT
-          latest.id,
-          latest.target_type           AS "targetType",
-          latest.target_key            AS "targetKey",
-          cl.id                        AS "listingId",
-          clo.id                       AS "listingOptionId",
-          latest.external_id           AS "externalId",
-          latest.external_option_id    AS "externalOptionId",
-          latest.campaign_id           AS "campaignId",
-          latest.campaign_name         AS "campaignName",
-          latest.keyword,
-          latest.status,
-          latest.current_bid           AS "currentBid",
-          latest.daily_budget          AS "dailyBudget",
-          latest.spend,
-          latest.revenue,
-          latest.impressions,
-          latest.clicks,
-          latest.conversions,
-          NULL::uuid                  AS "masterProductId",
-          cl.account_channel           AS "listingChannel",
-          -- Keyword rows frequently have no listing match (7,432 of 9,266 in
-          -- the live account), but the advertised item name is always stamped
-          -- by ingest. Relevance cannot be judged without a product name, so
-          -- fall back to it after the catalog-derived names.
-          COALESCE(
-            cl.display_name,
-            cl.channel_name,
-            cl.external_id,
-            latest.meta_json -> 'advertising.keyword.target' ->> 'productName',
-            latest.meta_json -> 'advertising.campaign.target' ->> 'productName',
-            latest.meta_json -> 'data' ->> 'productName'
-          )                            AS "productName"
-        FROM latest
-        LEFT JOIN scoped_listings cl
-              ON cl.id = latest.listing_id
-        LEFT JOIN scoped_options clo
-              ON clo.id = latest.listing_option_id
-              AND clo.listing_id = cl.id
-      `,
-        );
-        const summaries = await this.channelRecipes.readListingProductSummaries(ownerTransaction(tx), { organizationId, listingIds: targets.flatMap((target) => target.listingId ? [target.listingId] : []) });
-        for (const target of targets) target.masterProductId = target.listingId ? summaries.get(target.listingId) ?? null : null;
-        const masterProductIds = [...new Set(targets.flatMap((target) =>
-          target.masterProductId ? [target.masterProductId] : []))];
-        const identities = this.products
+        const listingById = new Map(catalog.map((row) => [row.id, row]));
+        const scoped = (id: string | null) => (id && listingById.has(id) ? id : null);
+        const targets: Array<Omit<AdRuleTarget, 'abcGrade'>> = [
+          ...current.campaigns.map((campaign) => {
+            const listingIds = campaign.listingIds.filter((id) => listingById.has(id));
+            const listingId = listingIds.length === 1 ? listingIds[0] : null;
+            return {
+              targetType: 'campaign' as const,
+              channelAccountId: campaign.channelAccountId,
+              campaignId: campaign.campaignId,
+              campaignName: campaign.campaignName,
+              adGroupId: null,
+              keyword: null,
+              vendorItemId: null,
+              vendorItemIds: [...campaign.vendorItemIds],
+              listingIds,
+              listingId,
+              listingChannel: listingId ? listingById.get(listingId)!.channel : null,
+              productName: null,
+              isActive: campaign.isActive,
+              budget: campaign.budget,
+              spend: campaign.spend,
+              revenue: campaign.revenue,
+              impressions: campaign.impressions,
+              clicks: campaign.clicks,
+              orders: campaign.orders,
+              businessDate,
+              measuredDays,
+            };
+          }),
+          ...current.keywords.filter((row) => !row.nonSearch).map((row) => {
+            const listingId = scoped(row.listingId);
+            const campaign = current.campaigns.find((item) =>
+              item.channelAccountId === row.channelAccountId && item.campaignId === row.campaignId);
+            return {
+              targetType: 'keyword' as const,
+              channelAccountId: row.channelAccountId,
+              campaignId: row.campaignId,
+              campaignName: row.campaignName,
+              adGroupId: row.adGroupId,
+              keyword: row.keyword,
+              vendorItemId: row.vendorItemId,
+              vendorItemIds: [row.vendorItemId],
+              listingIds: listingId ? [listingId] : [],
+              listingId,
+              listingChannel: listingId ? listingById.get(listingId)!.channel : null,
+              productName: row.optionName,
+              isActive: campaign?.isActive ?? null,
+              budget: null,
+              spend: row.spend,
+              revenue: row.revenue,
+              impressions: row.impressions,
+              clicks: row.clicks,
+              orders: row.orders,
+              businessDate,
+              measuredDays,
+            };
+          }),
+        ];
+        if (targets.length === 0) return [];
+        const listingIds = [...new Set(targets.flatMap((target) => (target.listingId ? [target.listingId] : [])))];
+        const summaries = await this.channelRecipes.readListingProductSummaries(handle, { organizationId, listingIds });
+        const masterProductIds = [...new Set(listingIds.flatMap((id) => {
+          const masterProductId = summaries.get(id);
+          return masterProductId ? [masterProductId] : [];
+        }))];
+        const identitiesById = new Map((this.products
           ? await this.products.readSourceIdentities(
             { client: tx },
             { organizationId, selector: { kind: 'ids', values: masterProductIds } },
           )
-          : [];
-        const identityById = new Map(identities.map((identity) => [
-          identity.masterProductId,
-          identity,
-        ]));
-        const gradeByProductId = await readPublishedProductAbcGrades(tx, {
-          organizationId,
-          masterProductIds,
+          : []).map((identity) => [identity.masterProductId, identity]));
+        const gradeByProductId = await readPublishedProductAbcGrades(tx, { organizationId, masterProductIds });
+        return targets.map((target) => {
+          const listing = target.listingId ? listingById.get(target.listingId) ?? null : null;
+          const masterProductId = target.listingId ? summaries.get(target.listingId) ?? null : null;
+          return {
+            ...target,
+            productName:
+              (masterProductId ? identitiesById.get(masterProductId)?.name : null) ??
+              listing?.displayName ?? listing?.channelName ?? target.productName ?? listing?.externalId ?? null,
+            abcGrade: masterProductId ? gradeByProductId.get(masterProductId) ?? null : null,
+          };
         });
-        return targets.map(({ masterProductId, ...target }) => ({
-          ...target,
-          productName: masterProductId
-            ? identityById.get(masterProductId)?.name ?? target.productName
-            : target.productName,
-          abcGrade: masterProductId
-            ? gradeByProductId.get(masterProductId) ?? null
-            : null,
-        }));
       },
       { isolationLevel: Prisma.TransactionIsolationLevel.RepeatableRead },
     );
@@ -552,7 +512,6 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
           data: {
             organizationId,
             listingId: candidate.listingId,
-            adTargetDailyId: candidate.adTargetDailyId,
             actionType: candidate.actionType,
             targetType: candidate.targetType,
             externalId: candidate.externalId,
@@ -867,19 +826,6 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
       organizationId,
       actions.map((action) => action.listingId),
     );
-    const dailyIds = Array.from(
-      new Set(
-        actions
-          .map((action) => action.adTargetDailyId)
-          .filter((id): id is string => id != null),
-      ),
-    );
-    const dailies = await readAdTargetRowEvidence(this.prisma, {
-      organizationId,
-      ids: dailyIds,
-    });
-    const dailyMap = new Map(dailies.map((daily) => [daily.id, daily]));
-
     return actions.map((action) => {
       const listing = action.listingId
         ? listingMap.get(action.listingId)
@@ -898,9 +844,6 @@ export class AdActionRepositoryAdapter implements AdActionRepositoryPort {
                 abcGrade: listing.masterProduct.abcGrade,
               },
             }
-          : null,
-        adTargetDaily: action.adTargetDailyId
-          ? dailyMap.get(action.adTargetDailyId) ?? null
           : null,
       };
     });

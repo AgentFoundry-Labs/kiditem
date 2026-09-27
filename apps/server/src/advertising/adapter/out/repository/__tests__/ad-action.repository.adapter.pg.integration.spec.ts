@@ -30,32 +30,8 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
     await seedBaseFixture(observerPrisma);
   });
 
-  async function seedKeywordTarget() {
-    const channelAccount = await observerPrisma.channelAccount.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channel: 'coupang',
-        name: 'Advertising proposal test',
-        externalAccountId: 'advertising-proposal-test',
-      },
-    });
-    return observerPrisma.channelAdTargetDailySnapshot.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: channelAccount.id,
-        channel: 'coupang',
-        businessDate: new Date('2026-07-31T00:00:00.000Z'),
-        targetType: 'keyword',
-        targetKey: 'account:proposal-test:keyword:콩순이 비눗방울',
-        externalId: 'vendor-item-proposal-test',
-        keyword: '콩순이 비눗방울',
-      },
-    });
-  }
-
-  function pauseCandidate(adTargetDailyId: string): ActionCandidate {
+  function pauseCandidate(): ActionCandidate {
     return {
-      adTargetDailyId,
       listingId: null,
       actionType: 'pause_keyword',
       targetType: 'keyword',
@@ -70,28 +46,7 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
   }
 
   it('serializes competing proposals on the organization advisory lock and creates one open action', async () => {
-    const channelAccount = await observerPrisma.channelAccount.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channel: 'coupang',
-        name: 'Advertising concurrency test',
-        externalAccountId: 'advertising-concurrency-test',
-      },
-    });
-    const target = await observerPrisma.channelAdTargetDailySnapshot.create({
-      data: {
-        organizationId: TEST_ORGANIZATION_ID,
-        channelAccountId: channelAccount.id,
-        channel: 'coupang',
-        businessDate: new Date('2026-07-31T00:00:00.000Z'),
-        targetType: 'keyword',
-        targetKey: 'account:concurrency-test:keyword:콩순이 비눗방울',
-        externalId: 'vendor-item-concurrency-test',
-        keyword: '콩순이 비눗방울',
-      },
-    });
     const candidate: ActionCandidate = {
-      adTargetDailyId: target.id,
       listingId: null,
       actionType: 'pause_keyword',
       targetType: 'keyword',
@@ -180,7 +135,7 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
   });
 
   it('keeps one open pause_keyword proposal across duplicates in a run and a serial rerun', async () => {
-    const candidate = pauseCandidate((await seedKeywordTarget()).id);
+    const candidate = pauseCandidate();
     const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts);
 
     const first = await repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [
@@ -199,7 +154,7 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
   });
 
   it('keeps an approved keyword pause open until the operator closes it, and proposes the keyword again once it is closed (KID-138 decision A)', async () => {
-    const candidate = pauseCandidate((await seedKeywordTarget()).id);
+    const candidate = pauseCandidate();
     const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts);
     const propose = () => repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]);
 
@@ -227,7 +182,7 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
   const minutesAgo = (minutes: number) => new Date(Date.now() - minutes * 60 * 1000);
 
   it('blocks a keyword only with the proposal the keyword read shows: an older approved pause behind a newer rejected proposal neither shows nor blocks (KID-138 review)', async () => {
-    const candidate = pauseCandidate((await seedKeywordTarget()).id);
+    const candidate = pauseCandidate();
     const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts);
     const propose = () => repository.createAdActionsFromCandidates(TEST_ORGANIZATION_ID, [candidate]);
     const shown = async () =>
@@ -286,7 +241,6 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
   });
 
   it('never blocks a keyword the keyword read does not show, whatever its latest proposal holds (KID-138 review)', async () => {
-    const adTargetDailyId = (await seedKeywordTarget()).id;
     const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts);
     const keywordProposal = async (
       targetLabel: string,
@@ -294,7 +248,7 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
       attempt: { status: string; startedAt?: Date; finishedAt?: Date; errorMessage?: string } | null,
       createdAt = minutesAgo(10),
     ) => {
-      const base = pauseCandidate(adTargetDailyId);
+      const base = pauseCandidate();
       await observerPrisma.adAction.create({
         data: {
           organizationId: TEST_ORGANIZATION_ID,
@@ -332,7 +286,7 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
       .map((row) => row.targetLabel);
     const created = await repository.createAdActionsFromCandidates(
       TEST_ORGANIZATION_ID,
-      labels.map((targetLabel) => ({ ...pauseCandidate(adTargetDailyId), targetLabel })),
+      labels.map((targetLabel) => ({ ...pauseCandidate(), targetLabel })),
     );
     const blocked = labels.filter((label) => !created.some((action) => action.targetLabel === label));
 
@@ -347,10 +301,9 @@ describe('AdActionRepositoryAdapter pause_keyword concurrency (PG integration)',
   });
 
   it('releases a keyword whose approved pause ran before decision A, and keeps one whose earlier attempt failed', async () => {
-    const adTargetDailyId = (await seedKeywordTarget()).id;
     const repository = new AdActionRepositoryAdapter(channelFactTestPorts(observerPrisma as never).listings, channelFactTestPorts(observerPrisma as never).recipes, observerPrisma as never, {} as never, profitCatalogTestReaders(observerPrisma as never).accounts);
-    const paused = { ...pauseCandidate(adTargetDailyId), targetLabel: '이미 끈 키워드' };
-    const unpaused = { ...pauseCandidate(adTargetDailyId), targetLabel: '못 끈 키워드' };
+    const paused = { ...pauseCandidate(), targetLabel: '이미 끈 키워드' };
+    const unpaused = { ...pauseCandidate(), targetLabel: '못 끈 키워드' };
     // Before decision A the extension still executed keyword pauses. Executors
     // can no longer report, so these attempts are written directly.
     for (const [candidate, attempt] of [

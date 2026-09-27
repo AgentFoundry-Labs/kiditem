@@ -27,7 +27,7 @@ import {
 import {
   AD_ACTION_REPOSITORY_PORT,
   type AdActionRepositoryPort,
-  type LatestTargetRow,
+  type AdRuleTarget,
 } from '../port/out/repository/ad-action.repository.port';
 import {
   KEYWORD_RELEVANCE_JUDGE_PORT,
@@ -79,13 +79,13 @@ export class AdKeywordAgentService {
     triggeredByUserId: string | null;
     externalOptionId?: string | null;
   }): Promise<KeywordRelevanceRunResult> {
-    const rows = await this.actionRepo.findLatestTargetRows(input.organizationId);
+    const rows = await this.actionRepo.findRuleTargets(input.organizationId);
     const sources = rows
       .filter((row) => row.targetType === 'keyword')
       .filter(
         (row) =>
           !input.externalOptionId ||
-          row.externalOptionId === input.externalOptionId,
+          row.vendorItemId === input.externalOptionId,
       )
       .map((row) => toJudgementSource(row));
 
@@ -189,21 +189,23 @@ export class AdKeywordAgentService {
   }
 }
 
-function toJudgementSource(row: LatestTargetRow): KeywordJudgementSource {
+function toJudgementSource(row: AdRuleTarget): KeywordJudgementSource {
   return {
-    adTargetDailyId: row.id,
+    campaignId: row.campaignId,
+    adGroupId: row.adGroupId,
     keyword: row.keyword ?? '',
     productName: row.productName,
     campaignName: row.campaignName,
-    // Keyword ingest clears the option link when a keyword serves several
-    // ads, so this is set only when the keyword names exactly one product.
-    externalOptionId: row.externalOptionId,
+    // The keyword report names the advertised option of every row.
+    externalOptionId: row.vendorItemId,
     listingId: row.listingId,
     impressions: row.impressions,
     clicks: row.clicks,
     spend: row.spend,
     revenue: row.revenue,
-    conversions: row.conversions,
+    conversions: row.orders,
+    measuredDays: row.measuredDays,
+    businessDate: row.businessDate,
   };
 }
 

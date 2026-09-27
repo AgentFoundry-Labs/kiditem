@@ -10,7 +10,6 @@ import {
   type ActionCandidate,
   type ChannelSkuAdEvidence,
 } from '../../domain/ad-action-rules';
-import { computeChannelSkuPurchaseCost } from '../../domain/strategy-context';
 import {
   CHANNEL_SKU_AVAILABILITY_PORT,
   type ChannelSkuAvailabilityPort,
@@ -22,8 +21,9 @@ const ACTION_DEDUP_HOURS = 24;
 /**
  * Application orchestration for `AdAction` lifecycle. The service:
  *
- * - reads the latest target-daily rows + canonical ChannelSku availability,
- * - feeds each row to the pure 5-rule selector (`domain/ad-action-rules`),
+ * - reads the campaign and keyword rule targets of the ad report ledger +
+ *   canonical ChannelSku availability,
+ * - feeds each target to the pure rule selector (`domain/ad-action-rules`),
  * - dedupes against in-flight rows the same organization already has open, and
  * - hands the resulting candidates / state transitions to the
  *   tenant-scoped persistence helpers.
@@ -60,39 +60,30 @@ export class AdActionService {
   }
 
   /**
-   * Generate `AdAction` rows from `ChannelAdTargetDailySnapshot`.
+   * Generate `AdAction` rows from the ad report ledger (KID-372).
    *
-   * Rules apply to one latest-businessDate row per `targetKey`. Rule 1 (zero
-   * stock) uses the exact confirmed ChannelSku component recipe. An unmapped
-   * SKU yields `sellableStock = null` and does not trigger the zero-stock rule.
+   * Rules apply to each current campaign and search keyword over the recent
+   * measured window. The zero-stock rule uses the exact confirmed ChannelSku
+   * component recipe of the advertised options; an unmapped SKU yields
+   * `sellableStock = null` and does not trigger it.
    *
-   * Each created `AdAction` carries `adTargetDailyId` pointing at the source
-   * target-daily row for audit/replay.
+   * Each created `AdAction` carries the ad report evidence it was judged on in
+   * `payload.adTarget` (campaign, ad group, option, keyword, last measured day).
    */
   async generateActions(organizationId: string) {
     const dedupCutoff = new Date(
       Date.now() - ACTION_DEDUP_HOURS * 60 * 60 * 1000,
     );
 
-    const latestRows = await this.repo.findLatestTargetRows(organizationId);
+    const latestRows = await this.repo.findRuleTargets(organizationId);
 
-    const listingOptionIds = Array.from(
-      new Set(
-        latestRows
-          .map((r) => r.listingOptionId)
-          .filter((id): id is string => id != null),
-      ),
-    );
-    const availability = await this.channelSkuAvailability.findByChannelSkuIds(
-      organizationId,
-      listingOptionIds,
-    );
+    const listingIds = [...new Set(latestRows.flatMap((row) => row.listingIds))];
+    const availability = listingIds.length > 0
+      ? await this.channelSkuAvailability.findByListingIds(organizationId, listingIds)
+      : [];
+    // Keyed by advertised option: a ChannelSku's external id is the Coupang vendorItemId.
     const channelSkuEvidenceMap = new Map<string, ChannelSkuAdEvidence>(
-      availability.map((item) => [item.sku.id, {
-        sellableStock: item.sku.sellableStock,
-        purchaseCost: computeChannelSkuPurchaseCost(item.components),
-        salePrice: item.sku.salePrice,
-      }]),
+      availability.map((item) => [item.sku.externalSkuId, { sellableStock: item.sku.sellableStock }]),
     );
 
     const existingActions = await this.repo.findExistingInflightActions(
@@ -134,8 +125,8 @@ export class AdActionService {
       const targetCount = latestRows.length;
       const reason =
         latestRows.length === 0
-          ? '광고 일별 fact 가 아직 없습니다. 광고센터에서 익스텐션 동기화를 먼저 해주세요.'
-          : '현재 규칙에 걸린 광고 액션이 없습니다. 최근 일별 fact 기준으로는 즉시 조정할 항목이 없습니다.';
+          ? '측정한 광고 보고서가 아직 없습니다. 광고 보고서 수집을 먼저 실행해 주세요.'
+          : '현재 규칙에 걸린 광고 액션이 없습니다. 최근 측정한 광고 보고서 기준으로는 즉시 조정할 항목이 없습니다.';
 
       return {
         generated: 0,

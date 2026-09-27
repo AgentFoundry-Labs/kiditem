@@ -2,40 +2,41 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { AdKeywordAgentService } from '../ad-keyword-agent.service';
 import type {
   AdActionRepositoryPort,
-  LatestTargetRow,
+  AdRuleTarget,
 } from '../../port/out/repository/ad-action.repository.port';
 import type { KeywordRelevanceJudgePort } from '../../port/out/cross-domain/keyword-relevance-judge.port';
 
-function keywordRow(overrides: Partial<LatestTargetRow> = {}): LatestTargetRow {
+function keywordRow(overrides: Partial<AdRuleTarget> = {}): AdRuleTarget {
   return {
-    id: 'target-1',
     targetType: 'keyword',
-    targetKey: 'account:a:keyword:1::콩순이 비눗방울',
-    listingId: 'listing-1',
-    listingOptionId: 'listing-option-1',
-    externalId: null,
-    externalOptionId: '95514044205',
+    channelAccountId: 'account-1',
     campaignId: '104640375',
     campaignName: '쿠팡윙 집중광고',
+    adGroupId: 'G1',
     keyword: '콩순이 비눗방울',
-    status: null,
-    currentBid: null,
-    dailyBudget: null,
+    vendorItemId: '95514044205',
+    vendorItemIds: ['95514044205'],
+    listingIds: ['listing-1'],
+    listingId: 'listing-1',
+    listingChannel: 'coupang',
+    productName: '캐릭터 문어발 비눗방울 1p',
+    isActive: true,
+    budget: null,
     spend: 500,
     revenue: 0,
     impressions: 10,
     clicks: 1,
-    conversions: 0,
+    orders: 0,
     abcGrade: null,
-    listingChannel: 'coupang',
-    productName: '캐릭터 문어발 비눗방울 1p',
+    businessDate: '2026-09-20',
+    measuredDays: 14,
     ...overrides,
   };
 }
 
 describe('AdKeywordAgentService', () => {
   let actionRepo: {
-    findLatestTargetRows: ReturnType<typeof vi.fn>;
+    findRuleTargets: ReturnType<typeof vi.fn>;
     createAdActionsFromCandidates: ReturnType<typeof vi.fn>;
   };
   let judge: { judge: ReturnType<typeof vi.fn> };
@@ -43,7 +44,7 @@ describe('AdKeywordAgentService', () => {
 
   beforeEach(() => {
     actionRepo = {
-      findLatestTargetRows: vi.fn().mockResolvedValue([keywordRow()]),
+      findRuleTargets: vi.fn().mockResolvedValue([keywordRow()]),
       createAdActionsFromCandidates: vi
         .fn()
         .mockImplementation(async (_org, candidates) => candidates),
@@ -86,11 +87,10 @@ describe('AdKeywordAgentService', () => {
   });
 
   it('asks about one product per call, with that product in the prompt', async () => {
-    actionRepo.findLatestTargetRows.mockResolvedValue([
+    actionRepo.findRuleTargets.mockResolvedValue([
       keywordRow(),
       keywordRow({
-        id: 'target-2',
-        externalOptionId: '90083778090',
+        vendorItemId: '90083778090',
         productName: '펌프 롱스틱 물총 3종 세트',
         keyword: '유아 물놀이 용품',
         spend: 0,
@@ -113,11 +113,10 @@ describe('AdKeywordAgentService', () => {
   });
 
   it('narrows the run to one product when asked', async () => {
-    actionRepo.findLatestTargetRows.mockResolvedValue([
+    actionRepo.findRuleTargets.mockResolvedValue([
       keywordRow(),
       keywordRow({
-        id: 'target-2',
-        externalOptionId: '90083778090',
+        vendorItemId: '90083778090',
         productName: '다른 상품',
         keyword: '다른 키워드',
       }),
@@ -135,11 +134,10 @@ describe('AdKeywordAgentService', () => {
   });
 
   it('keeps the verdicts it already has when one product fails', async () => {
-    actionRepo.findLatestTargetRows.mockResolvedValue([
+    actionRepo.findRuleTargets.mockResolvedValue([
       keywordRow({ spend: 9000 }),
       keywordRow({
-        id: 'target-2',
-        externalOptionId: 'other',
+        vendorItemId: 'other',
         productName: '실패 상품',
         keyword: '실패 키워드',
         spend: 1,
@@ -192,7 +190,7 @@ describe('AdKeywordAgentService', () => {
   });
 
   it('tells the operator to collect keywords first when there are none', async () => {
-    actionRepo.findLatestTargetRows.mockResolvedValue([]);
+    actionRepo.findRuleTargets.mockResolvedValue([]);
 
     const result = await service.run({
       organizationId: 'org-1',
