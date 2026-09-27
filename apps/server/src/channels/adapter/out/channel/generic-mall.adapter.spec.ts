@@ -32,12 +32,8 @@ describe('GenericMallChannelAdapter', () => {
     expect(adapter.validateConfirmationEvidence('s-1', evidence({ providerAccountId: 's-1' }))).toEqual({ ok: true });
     expect(adapter.validateConfirmationEvidence('s-1', evidence({ providerAccountId: 's-2' })))
       .toEqual({ ok: false, reason: 'account_mismatch' });
-    expect(adapter.validateConfirmationEvidence('s-1', evidence()))
-      .toEqual({ ok: false, reason: 'missing_account' });
-    // 기준은 준비가 얼린 식별자다 — 그 뒤 바뀐 살아 있는 계정 값이 아니다.
-    expect(adapter.validateConfirmationEvidence('s-1', evidence({ providerAccountId: 's-1' }))).toEqual({ ok: true });
-    // 준비가 식별자를 얼리지 않았으면 증거가 댄 식별자는 맞출 대상이 없다.
-    expect(adapter.validateConfirmationEvidence(null, evidence({ providerAccountId: 's-1' })))
-      .toEqual({ ok: false, reason: 'account_mismatch' });
+    // 몰 화면이 계정 식별자를 주지 않는 몰(KID-364): 증거에 없으면 대조하지 않고, 준비가 얼리지 않았어도 대조하지 않는다.
+    expect(adapter.validateConfirmationEvidence('s-1', evidence())).toEqual({ ok: true });
+    expect(adapter.validateConfirmationEvidence(null, evidence({ providerAccountId: 's-1' }))).toEqual({ ok: true });
   });
 });

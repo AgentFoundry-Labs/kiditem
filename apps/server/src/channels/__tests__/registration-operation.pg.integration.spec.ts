@@ -460,7 +460,10 @@ describe('channels.registration owner over the operation contract + disposable P
     expect(parseRegistrationPayload('thumbnail_update', plan.payload)).toMatchObject({
       dataUrl: 'data:image/png;base64,AAAA', assetId: THUMBNAIL_ASSET_ID, externalListingId: 'provider-listing-1', productName: 'smartstore',
     });
-    await finish(begun.operation.id, begun.token, { outcome: 'reconciling', result: { ...submittedResult, submitted: false } }).expect(200);
+    // 확장은 사진만 넣고 [저장]은 운영자 몫이다(M2): submitted false · operator_saves · uncertain 으로 멈춘다.
+    await finish(begun.operation.id, begun.token, {
+      outcome: 'reconciling', result: { ...submittedResult, submitted: false, submitSkipped: 'operator_saves', mallOutcome: 'uncertain', providerOutcome: 'uncertain' },
+    }).expect(200);
     const listed = await request(httpUrl).get(`/api/operations/${begun.operation.id}`).expect(200);
     expect(listed.body.operation.status).toBe('reconciling');
     // 화면의 대표이미지 상태 읽기: executionId 는 실행 계약의 실행 id 다(확인 · 닫기 라우트에 그대로 넘긴다).
@@ -470,6 +473,14 @@ describe('channels.registration owner over the operation contract + disposable P
     })]);
     const choices = await request(httpUrl).get(`/api/channels/thumbnail-executions/listing-choices?salesProductId=${fixture.productId}`).expect(200);
     expect(choices.body.items).toEqual([expect.objectContaining({ channelListingId: fixture.listingId, externalId: 'provider-listing-1' })]);
+    // 운영자가 몰에서 저장을 확인하면 확인 라우트가 성공으로 닫는다(리스팅 · 원장 쓰기 없음).
+    const confirmed = await request(httpUrl).post(`/api/channels/registration-operations/${begun.operation.id}/confirm`)
+      .send({ externalListingId: 'provider-listing-1' }).expect(201);
+    expect(confirmed.body.operation).toMatchObject({
+      status: 'succeeded', lockKeys: [], result: { providerOutcome: 'succeeded', mallOutcome: 'confirmed', submitSkipped: 'operator_saves' },
+    });
+    const after = await request(httpUrl).get(`/api/channels/thumbnail-executions?salesProductIds=${fixture.productId}`).expect(200);
+    expect(after.body.items).toEqual([expect.objectContaining({ executionId: begun.operation.id, status: 'succeeded', providerOutcome: 'succeeded' })]);
   });
 
   it('keeps the mall availability rows it read in the result without touching the ledger', async () => {

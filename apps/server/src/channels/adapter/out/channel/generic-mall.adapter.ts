@@ -33,6 +33,7 @@ export class GenericMallChannelAdapter implements ChannelAdapter {
       evidence,
       isTrustedAdminUrl: (url) => this.adminOrigin !== null && url.origin === this.adminOrigin,
       externalListingIdPattern: null,
+      requireProviderAccount: false,
     });
   }
 
