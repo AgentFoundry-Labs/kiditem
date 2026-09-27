@@ -239,14 +239,10 @@ erDiagram
 | Organization | organization | referenced by external | System | Alert |
 | Organization | organization | referenced by external | System | SystemSetting |
 | Organization | organization | referenced by external | System | TodoItem |
-| SourceImportRun | advertisingSourceImportRun | referenced by external | Products | MasterProductAbcEvaluation |
 | SourceImportRun | effectSourceImportRun | referenced by external | Orders | CoupangDirectTransportReceipt |
 | SourceImportRun | lastCompletedImportRun | referenced by external | Products | SellpiaInventoryState |
-| SourceImportRun | nextAdvertisingSourceImportRun | referenced by external | Products | MasterProductAbcGradeHistory |
 | SourceImportRun | nextSellpiaSourceImportRun | referenced by external | Products | MasterProductAbcGradeHistory |
-| SourceImportRun | previousAdvertisingSourceImportRun | referenced by external | Products | MasterProductAbcGradeHistory |
 | SourceImportRun | previousSellpiaSourceImportRun | referenced by external | Products | MasterProductAbcGradeHistory |
-| SourceImportRun | publishedAdvertisingSourceImportRun | referenced by external | Products | MasterProductAbcFormulaState |
 | SourceImportRun | publishedSellpiaSourceImportRun | referenced by external | Products | MasterProductAbcFormulaState |
 | SourceImportRun | sellpiaSourceImportRun | referenced by external | Products | MasterProductAbcEvaluation |
 | SourceImportRun | sourceImportRun | referenced by external | Advertising | ChannelAdListingProductMonthlyFact |

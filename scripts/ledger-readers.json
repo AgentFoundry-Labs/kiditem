@@ -33,24 +33,6 @@
   },
   "ledgers": [
     {
-      "name": "Advertising target day",
-      "owner": "advertising",
-      "table": "channel_ad_target_daily_snapshots",
-      "prismaModel": "channelAdTargetDailySnapshot",
-      "prismaType": "ChannelAdTargetDailySnapshot",
-      "relationNames": [
-        "adTargetDailySnapshots",
-        "channelAdTargetDailySnapshots"
-      ],
-      "ownerPublications": [
-        {
-          "path": "apps/server/src/advertising/adapter/out/repository/profitability-ad-import.repository.adapter.ts",
-          "reason": "Validates newly inserted target rows and publishes the matching profitability generation in the same owner workflow."
-        }
-      ],
-      "legacyReaders": []
-    },
-    {
       "name": "Advertising product day",
       "owner": "advertising",
       "table": "channel_ad_product_daily_snapshots",
@@ -784,7 +766,6 @@
       "relationNames": [
         "masterProductAbcEvaluations",
         "sellpiaAbcEvaluations",
-        "advertisingAbcEvaluations",
         "abcEvaluation",
         "evaluations"
       ],
@@ -792,24 +773,6 @@
         {
           "path": "apps/server/src/products/adapter/out/persistence/master-product-abc.repository.adapter.ts",
           "reason": "Publishes, carries forward, and reads Products-owned official ABC evaluation rows inside the explicit publication boundary."
-        }
-      ],
-      "legacyReaders": []
-    },
-    {
-      "name": "Advertising listing-product monthly allocations",
-      "owner": "advertising",
-      "table": "channel_ad_listing_product_monthly_facts",
-      "prismaModel": "channelAdListingProductMonthlyFact",
-      "prismaType": "ChannelAdListingProductMonthlyFact",
-      "relationNames": [
-        "channelAdListingProductMonthlyFacts",
-        "adListingProductMonthlyFacts"
-      ],
-      "ownerPublications": [
-        {
-          "path": "apps/server/src/advertising/adapter/out/repository/profitability-ad-import.repository.adapter.ts",
-          "reason": "Stages, verifies, allocates, and publishes immutable monthly advertising facts within the source owner's fenced terminal workflow."
         }
       ],
       "legacyReaders": []

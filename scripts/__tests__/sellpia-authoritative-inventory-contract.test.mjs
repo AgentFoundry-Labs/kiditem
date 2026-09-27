@@ -59,7 +59,6 @@ const CURRENT_STOCK_WRITE_ALLOWLIST = new Set([
   "apps/server/src/inventory/adapter/out/persistence/sellpia-snapshot-publication.repository.adapter.ts",
   "apps/server/src/advertising/__tests__/ad-action-flow.pg.integration.spec.ts",
   "apps/server/src/advertising/__tests__/ad-strategy-flow.pg.integration.spec.ts",
-  "apps/server/src/advertising/__tests__/profitability-ad-import.repository.pg.integration.spec.ts",
   "apps/server/src/analytics/__tests__/dashboard/dashboard-inventory.pg.integration.spec.ts",
   "apps/server/src/analytics/__tests__/dashboard/inventory-abc-read.pg.integration.spec.ts",
   "apps/server/src/analytics/sellpia-product-sales/__tests__/sellpia-product-sales-inventory.pg.integration.spec.ts",

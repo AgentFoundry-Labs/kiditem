@@ -1026,7 +1026,6 @@ erDiagram
     String abcGrade
     Decimal weightedRevenue
     Decimal weightedOrderTimeSupplyCost
-    Decimal weightedAdvertisingSpend
     Decimal weightedOperatingProfit
     Decimal operatingProfitVelocity30
     Decimal operatingMargin
@@ -1042,9 +1041,7 @@ erDiagram
     DateTime saleStartDate
     String sellpiaSourceImportRunId FK
     String sellpiaOperationId
-    String advertisingSourceImportRunId FK
     BigInt sellpiaGeneration
-    BigInt advertisingGeneration
     BigInt mappingGeneration
     DateTime calculatedAt
   }
@@ -1056,7 +1053,6 @@ erDiagram
     DateTime officialCutoffDate
     String publishedSellpiaSourceImportRunId FK
     String publishedSellpiaOperationId
-    String publishedAdvertisingSourceImportRunId FK
     BigInt publishedMappingGeneration
     BigInt mappingGeneration
     DateTime publishedAt
@@ -1086,8 +1082,6 @@ erDiagram
     String nextSellpiaSourceImportRunId FK
     String previousSellpiaOperationId
     String nextSellpiaOperationId
-    String previousAdvertisingSourceImportRunId FK
-    String nextAdvertisingSourceImportRunId FK
     Int formulaRevision
     Int publicationRevision
     DateTime sourceCutoffDate
@@ -2647,13 +2641,9 @@ erDiagram
   SourceImportRun o|--o{ CoupangKeywordSerpDailySnapshot : "sourceImportRun"
   SourceImportRun o|--o{ CoupangShipmentDateSummary : "sourceImportRun"
   SourceImportRun o|--o{ CoupangWingSalesRankDailySnapshot : "sourceImportRun"
-  SourceImportRun o|--o{ MasterProductAbcEvaluation : "advertisingSourceImportRun"
   SourceImportRun o|--o{ MasterProductAbcEvaluation : "sellpiaSourceImportRun"
-  SourceImportRun o|--o{ MasterProductAbcFormulaState : "publishedAdvertisingSourceImportRun"
   SourceImportRun o|--o{ MasterProductAbcFormulaState : "publishedSellpiaSourceImportRun"
-  SourceImportRun o|--o{ MasterProductAbcGradeHistory : "nextAdvertisingSourceImportRun"
   SourceImportRun o|--o{ MasterProductAbcGradeHistory : "nextSellpiaSourceImportRun"
-  SourceImportRun o|--o{ MasterProductAbcGradeHistory : "previousAdvertisingSourceImportRun"
   SourceImportRun o|--o{ MasterProductAbcGradeHistory : "previousSellpiaSourceImportRun"
   SourceImportRun o|--o{ Order : "sourceImportRun"
   SourceImportRun o|--o| OrderCollectionArtifact : "sourceImportRun"
