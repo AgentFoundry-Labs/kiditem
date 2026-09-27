@@ -1,3 +1,4 @@
+import { seedRegistrationOperation } from '../../../../__tests__/registration-operation-seeds';
 import { ListingContentQueryRepositoryAdapter } from '../../../../../content/adapter/out/repository/listing-content-query.repository.adapter';
 import { randomUUID } from 'node:crypto';
 import { afterAll, beforeAll, beforeEach, describe, expect, it } from 'vitest';
@@ -775,12 +776,9 @@ describe('MallPublishingRepositoryAdapter (PG integration)', () => {
       const target = await prisma.registrationTarget.create({
         data: { organizationId: TEST_ORGANIZATION_ID, salesProductId: salesProduct.id, channelAccountId: COUPANG_ACCOUNT },
       });
-      await prisma.productRegistrationExecution.create({
-        data: {
-          organizationId: TEST_ORGANIZATION_ID, registrationTargetId: target.id, channelAccountId: COUPANG_ACCOUNT,
-          executionKind: 'register', idempotencyKey: randomUUID(), requestHash: 'a'.repeat(64),
-          status: 'succeeded', providerOutcome: 'succeeded',
-        },
+      await seedRegistrationOperation(prisma, {
+        executionKind: 'register', mallKey: 'coupang', registrationTargetId: target.id, salesProductId: salesProduct.id,
+        channelAccountId: COUPANG_ACCOUNT, payload: { snapshot: null, form: {} }, status: 'succeeded',
       });
       for (const [externalId, master, salesProductId] of [
         ['EXT-601', linkedMaster, salesProduct.id],

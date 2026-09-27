@@ -2,7 +2,7 @@ import { resolveMallListingState } from '../../../domain/listing/mall-listing-st
 import { readListingRawSections, readOptionRawSections } from '../../../domain/collection/channel-listing-raw-sections';
 import { normalizeStoredAttributes } from '../../../domain/collection/channel-listing-attributes';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
-import { readRegistrationFailureCounts } from '../repository/registration-execution-ledger.reader';
+import { readRegistrationFailureCounts } from '../repository/registration-operation-facts';
 import type { ChannelListingFactQueries } from '../../../application/port/in/listing/channel-listing-query.port';
 import { readListingTrafficWindowFacts, readLatestListingStateFacts, readLatestListingSaleStatusFacts } from './channel-listing-daily-facts';
 import { Injectable } from '@nestjs/common';

@@ -1,3 +1,4 @@
+import { LIVE_OPERATION_STATUSES, readRegistrationOperations } from '../repository/registration-operation-facts';
 import { Inject, Injectable } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 import { PrismaService } from '../../../../prisma/prisma.service';
@@ -219,14 +220,12 @@ export class RegistrationTargetRepositoryAdapter implements RegistrationTargetRe
         select: { id: true },
       });
       if (!current) throw new KiditemNotFoundError('CHANNELS_REGISTRATION_TARGET_NOT_FOUND');
-      const live = await tx.productRegistrationExecution.count({
-        where: {
-          organizationId,
-          registrationTargetId: targetId,
-          status: { in: ['prepared', 'executing', 'reconciling'] },
-        },
+      const live = await readRegistrationOperations(tx, {
+        organizationId,
+        planContainsAny: [{ registrationTargetId: targetId }],
+        statuses: LIVE_OPERATION_STATUSES,
       });
-      if (live > 0) {
+      if (live.length > 0) {
         throw new KiditemConflictError('CHANNELS_LISTING_EXECUTION_ACTIVE', { details: { reason: 'TARGET_HAS_LIVE_EXECUTION' } });
       }
       await tx.registrationTarget.updateMany({

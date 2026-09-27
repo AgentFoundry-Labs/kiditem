@@ -1,4 +1,4 @@
-import { readUnresolvedCompositionOptionIds } from "./registration-execution-ledger.reader";
+import { readUnresolvedCompositionOptionIds } from "./registration-operation-facts";
 import { Inject, Injectable } from '@nestjs/common';
 import { KiditemError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
 import { Prisma } from '@prisma/client';

@@ -1,4 +1,3 @@
-import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
 import { ownerTransaction, ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
 import type { ChannelRecipeFactQueries } from '../../../application/port/in/channel-option-recipe.port';
@@ -24,12 +23,9 @@ import type {
   ChannelRecipeComponentInput,
   ConfirmedCompositionTransition,
 } from '../../../application/port/in/channel-option-recipe.port';
-import { readPreparedRegistrationRecipes } from '../repository/registration-execution-ledger.reader';
+import { readPreparedRegistrationRecipes } from '../repository/registration-operation-facts';
 import { preparedRegistrationRecipe } from '../../../domain/registration/registration-item-code';
-import { hashRegistrationSubmissionPayload } from '../../../domain/registration/registration-submission-payload';
 import { KiditemConflictError, KiditemInvalidValueError, KiditemNotFoundError } from '@kiditem/shared/errors';
-
-const channelIntegrity = new ChannelIntegrityAdapter();
 
 const TRANSACTION_OPTIONS = { maxWait: 10_000, timeout: 30_000 } as const;
 
@@ -283,10 +279,8 @@ implements ChannelOptionRecipeRepositoryPort {
         if (!missingRegisteredOptions.has(mutation.channelListingOptionId)) continue;
         const option = optionById.get(mutation.channelListingOptionId)!;
         const historicalRegistration = facts.some((fact) => {
-          if (fact.channelListingId !== option.listingId || !fact.submissionPayloadJson) return false;
-          const hash = hashRegistrationSubmissionPayload(fact.submissionPayloadJson, channelIntegrity.sha256);
-          if (hash !== fact.submissionPayloadHash) return false;
-          const recipe = preparedRegistrationRecipe(fact.submissionPayloadJson);
+          if (fact.channelListingId !== option.listingId) return false;
+          const recipe = preparedRegistrationRecipe(fact.snapshot);
           return recipe !== null
             && recipe.kidItemCode === mutation.preparedKidItemCode
             && recipe.masterProductId === mutation.expectedMasterProductId

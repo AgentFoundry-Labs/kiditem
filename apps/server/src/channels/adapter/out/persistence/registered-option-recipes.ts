@@ -1,13 +1,8 @@
-import { KiditemError } from '@kiditem/shared/errors';
-import { ChannelIntegrityAdapter } from '../integrity/channel-integrity.adapter';
 import { ownerTransactionClient } from '../../../../prisma/owner-transaction';
 import type { OwnerTransaction } from '../../../../common/owner-transaction';
-import { readPreparedRegistrationRecipes } from '../repository/registration-execution-ledger.reader';
+import { readPreparedRegistrationRecipes } from '../repository/registration-operation-facts';
 import { preparedRegistrationRecipe, type PreparedRegistrationRecipe } from '../../../domain/registration/registration-item-code';
-import { freezeProductRegistrationPayload, type RegistrationSubmissionJson } from '../../../domain/registration/registration-submission-payload';
 import type { ChannelOptionRecipePort } from '../../../application/port/in/channel-option-recipe.port';
-
-const channelIntegrity = new ChannelIntegrityAdapter();
 
 /** Attach only real catalog options. A listing ID alone is not an external option identity. */
 export async function applyPreparedRecipeToOptions(
@@ -32,7 +27,7 @@ export async function applyPreparedRecipeToOptions(
   });
 }
 
-/** Catalog publication completes links from successful immutable registration facts. */
+/** Catalog publication completes links from successful registration operations (hash-checked by the reader). */
 export async function applyRegisteredOptionRecipes(
   transaction: OwnerTransaction,
   recipes: ChannelOptionRecipePort,
@@ -42,12 +37,7 @@ export async function applyRegisteredOptionRecipes(
   const facts = await readPreparedRegistrationRecipes(tx, input);
   const seen = new Set<string>();
   for (const fact of facts) {
-    if (!fact.channelListingId || !fact.submissionPayloadJson) continue;
-    const frozen = freezeProductRegistrationPayload(fact.submissionPayloadJson as RegistrationSubmissionJson, channelIntegrity.sha256);
-    if (frozen.hash !== fact.submissionPayloadHash) {
-      throw new KiditemError('INTERNAL_ERROR', { details: { reason: 'REGISTERED_RECIPE_HASH_MISMATCH' } });
-    }
-    const recipe = preparedRegistrationRecipe(frozen.payload);
+    const recipe = preparedRegistrationRecipe(fact.snapshot);
     if (!recipe) continue;
     const key = `${fact.channelListingId}:${recipe.kidItemCode}`;
     if (seen.has(key)) continue;
