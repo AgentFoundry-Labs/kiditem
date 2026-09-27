@@ -3,7 +3,8 @@ import { checkPageUrl, type InjectFiles, type PageAnswer, type PageGuard, type T
 /** 스펙용 가짜 탭 묶음. 주소 이동·질문·주입·닫기를 기록하고, 질문의 답은 `answer`가 정한다. */
 export function fakeTabPages(options: {
   landAt?: (url: string) => string;
-  answer: (message: Record<string, unknown>, injected: boolean) => unknown;
+  /** 질문의 답. `frameId`는 프레임을 골라 물었을 때만(모든 프레임 몰). */
+  answer: (message: Record<string, unknown>, injected: boolean, frameId?: number) => unknown;
   fetchText?: (url: string) => string | null;
   /** `find(urlPattern)`이 돌려줄 열린 탭 id(없으면 null). */
   existingTab?: (urlPattern: string) => number | null;
@@ -64,14 +65,14 @@ export function fakeTabPages(options: {
         const here = () => current ?? options.currentUrl ?? 'about:blank';
         if (guard) checkPageUrl(guard, here());
         log.push(`ask ${String(message.type)}${frameId !== undefined ? ` frame ${frameId}` : ''}`);
-        let answer = options.answer(message, injected);
+        let answer = options.answer(message, injected, frameId);
         if (inject && (answer as { error?: string })?.error === 'content_script_missing') {
           if (options.urlBeforeInject) current = options.urlBeforeInject;
           if (guard) checkPageUrl(guard, here());
           injected = true;
           log.push(`inject ${[...inject.isolated, ...(inject.main ?? [])].join(',')}`);
           log.push(`ask ${String(message.type)}${frameId !== undefined ? ` frame ${frameId}` : ''}`);
-          answer = options.answer(message, injected);
+          answer = options.answer(message, injected, frameId);
         }
         return answer as T;
       },

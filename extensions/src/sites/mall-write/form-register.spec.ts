@@ -6,6 +6,7 @@ import { fakeTabPages } from '../tab-page.fake';
 import './index';
 import '../domeggook/registration';
 import '../always/registration';
+import '../11st/registration';
 import type { MallWriterHandle } from './index';
 
 // 몰 쓰기 절차(옛 `mall-form-register.js` `register()` 이식, KID-256)를 몰 쓰기 라우터 경계에서 본다. 가짜는 탭 경계
@@ -44,12 +45,13 @@ function storageFetch(options: { kidsnoteLoggedOut?: boolean } = {}) {
   return { fetch, requests };
 }
 
-function writerFor(mallKey: string, answer: (message: Answer, injected: boolean) => unknown, options: { credentials?: typeof CREDENTIALS | null; loginAt?: string; kidsnoteLoggedOut?: boolean } = {}) {
+function writerFor(mallKey: string, answer: (message: Answer, injected: boolean, frameId?: number) => unknown, options: { credentials?: typeof CREDENTIALS | null; loginAt?: string; kidsnoteLoggedOut?: boolean; frames?: Array<{ frameId: number; result: unknown }> } = {}) {
   const login = options.loginAt ? fakeLoginScreen({ loginAt: options.loginAt }) : null;
   const fake = fakeTabPages({
     ...(login ? { landAt: login.landAt, frames: login.frames } : {}),
+    ...(options.frames ? { frames: () => options.frames! } : {}),
     logBookkeeping: true,
-    answer: (message, injected) => login?.answer(message) ?? answer(message, injected),
+    answer: (message, injected, frameId) => login?.answer(message) ?? answer(message, injected, frameId),
   });
   const storage = storageFetch(options);
   const deps: SiteDeps = {
@@ -175,5 +177,26 @@ describe('몰 쓰기 — 등록 폼 채우기(도매꾹, KID-256)', () => {
     await expect(writer.fill({ form: { url: 'https://alwayzseller.ilevit.com/items/registrations', manualSteps: [] }, submit: false, expectedProviderAccountId: null }))
       .rejects.toMatchObject({ code: SITE_LOGIN_REQUIRED });
     expect(fake.log).toContain('leave 7');
+  });
+});
+
+describe('몰 쓰기 — 폼이 iframe에 있는 몰(11번가, KID-256)', () => {
+  it('모든 프레임을 살펴 맨 위부터 차례로 채우고, 폼이 없는 프레임의 답(noForm)은 실패로 올리지 않는다', async () => {
+    const asked: Array<number | undefined> = [];
+    const { fake, writer } = writerFor('11st', (message, injected, frameId) => {
+      if (!injected) return { ok: false, error: 'content_script_missing' };
+      asked.push(frameId);
+      return frameId === 3
+        ? { ok: true, value: { ok: true, steps: ['상품명'], warnings: [] } }
+        : { ok: true, value: { ok: false, noForm: true, error: '상품등록 폼이 없습니다.' } };
+    }, {
+      frames: [{ frameId: 3, result: { href: 'https://soffice.11st.co.kr/pages/product-reg/index.html', doc: 2 } }, { frameId: 0, result: { href: 'https://soffice.11st.co.kr/view/123124025', doc: 1 } }],
+    });
+
+    const session = await writer.fill({ form: { url: 'https://soffice.11st.co.kr/view/123124025', manualSteps: [] }, submit: false, expectedProviderAccountId: null });
+
+    expect(session.fill.steps).toEqual(['상품명']);
+    expect(asked).toEqual([0, 3]);
+    expect(fake.log).toContain('frames content/page-call/form-frame.js');
   });
 });

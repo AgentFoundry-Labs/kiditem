@@ -9204,191 +9204,6 @@ var KidItemRuntime = (() => {
   }
   registerSite({ name: "11st", create: (deps) => create11stListings(deps.tabs) });
 
-  // extensions/src/sites/1688/index.ts
-  var SEARCH_ORIGIN = "https://s.1688.com";
-  var NAVIGATION_TIMEOUT_MS3 = 3e4;
-  var EXTRACTION_TIMEOUT_MS = 2e4;
-  var MAX_RESULTS_PER_KEYWORD = 20;
-  var MAX_VERIFICATION_ROUNDS = 5;
-  var ALIBABA_CONTENT_FILES = {
-    isolated: [
-      "content/sourcing/extractors/common.js",
-      "content/sourcing/extractors/alibaba.js",
-      "content/sourcing/extractors/1688.js",
-      "content/sourcing/content.js"
-    ]
-  };
-  var SITE_VERIFICATION_REQUIRED = "SITE_VERIFICATION_REQUIRED";
-  var ALIBABA_1688_PAGE_GUARD = {
-    allows: (url) => hostWithin(url, ["1688.com"]),
-    isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "passport.taobao.com"]),
-    loginMessage: "1688 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
-  };
-  var ALIBABA_1688_SITE = {
-    name: "ali1688",
-    origin: SEARCH_ORIGIN,
-    caller: { minIntervalMs: 0, displayName: "1688" }
-  };
-  function build1688SearchUrl(keyword2) {
-    return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword2)}&charset=utf8`;
-  }
-  function is1688VerificationUrl(value) {
-    try {
-      const url = new URL(value);
-      return url.pathname.includes("/punish") || url.pathname.includes("/_____tmd_____/") || url.searchParams.get("action") === "captcha";
-    } catch {
-      return false;
-    }
-  }
-  function create1688SearchSite(tabs) {
-    let page = null;
-    let keepOpen = false;
-    return {
-      /**
-       * 키워드 하나. 슬라이더 검증이 뜨면 실패하지 않고 운영자를 기다렸다가(`onAttention`으로 알림) 같은 키워드를 다시
-       * 시도한다 — 실행과 이미 올린 청크는 그대로다(KID-355 QA). 10분 안에 통과하지 않으면 `SITE_VERIFICATION_REQUIRED`.
-       */
-      async offers(keyword2, options = {}) {
-        page ??= await tabs.open("about:blank");
-        const current = page;
-        const attention = { kind: "verification", site: "1688", label: keyword2 };
-        const waitOrFail = async (url) => {
-          if (await waitForOperator(current, is1688VerificationUrl, attention, options.onAttention)) return;
-          throw verification(url, keyword2, () => {
-            keepOpen = true;
-          });
-        };
-        for (let round = 1; ; round += 1) {
-          const landed = await current.navigate(build1688SearchUrl(keyword2), { timeoutMs: NAVIGATION_TIMEOUT_MS3, stopAt: is1688VerificationUrl, continueOnTimeout: true });
-          if (is1688VerificationUrl(landed)) {
-            if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword2, () => {
-              keepOpen = true;
-            });
-            await waitOrFail(landed);
-            continue;
-          }
-          let extracted;
-          try {
-            extracted = await current.ask(
-              { type: "TRIGGER_1688_TREND_EXTRACT", maxResults: MAX_RESULTS_PER_KEYWORD },
-              { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: ALIBABA_CONTENT_FILES, guard: ALIBABA_1688_PAGE_GUARD }
-            );
-          } catch (error) {
-            if (leftForOperator(error)) keepOpen = true;
-            throw error;
-          }
-          if (extracted.status === "verification_required") {
-            const here = await current.currentUrl().catch(() => extracted.verificationUrl ?? landed);
-            if (round > MAX_VERIFICATION_ROUNDS || !is1688VerificationUrl(here)) {
-              throw verification(extracted.verificationUrl ?? landed, keyword2, () => {
-                keepOpen = true;
-              });
-            }
-            await waitOrFail(here);
-            continue;
-          }
-          if (!extracted.ok) {
-            throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword2}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword: keyword2 });
-          }
-          return (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => typeof item?.offerId === "string" && item.offerId.length > 0).slice(0, MAX_RESULTS_PER_KEYWORD);
-        }
-      },
-      /** 수집이 끝나면 탭을 닫는다. 검증 화면에서 멈췄으면 운영자가 풀 수 있게 남긴다. */
-      async close() {
-        if (page && !keepOpen) await page.close();
-        page = null;
-      }
-    };
-  }
-  function verification(url, keyword2, keep) {
-    keep();
-    return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword: keyword2 });
-  }
-  registerSite({ name: ALIBABA_1688_SITE.name, create: (deps) => create1688SearchSite(deps.tabs) });
-
-  // extensions/src/sites/mall-excel.ts
-  var MALL_FILE_PART_CHARS = 7e5;
-  var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
-  var OPERATOR_ACTION_REQUIRED2 = "OPERATOR_ACTION_REQUIRED";
-  function filePartRows(fileName, base642, partChars = MALL_FILE_PART_CHARS) {
-    const parts = Math.max(1, Math.ceil(base642.length / partChars));
-    return Array.from({ length: parts }, (_, part) => ({
-      fileName,
-      part,
-      parts,
-      base64: base642.slice(part * partChars, (part + 1) * partChars)
-    }));
-  }
-  function mallExcelRows(answer, context) {
-    const message = answer?.error || `${context.displayName} \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`;
-    if (answer?.success === true) {
-      if (answer.empty === true) return { rows: [] };
-      const base642 = typeof answer.xlsxBase64 === "string" ? answer.xlsxBase64.trim() : "";
-      if (!base642) {
-        throw new RuntimeError(SITE_REQUEST_FAILED, `${context.displayName} \uC8FC\uBB38 \uC6D0\uBCF8 \uD30C\uC77C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "page_error", url: context.url });
-      }
-      return { rows: filePartRows(answer.fileName || context.fileName, base642) };
-    }
-    if (answer?.pendingLogin === true || answer?.errorCode === "login_required") {
-      throw new RuntimeError(SITE_LOGIN_REQUIRED, message, { url: context.url });
-    }
-    if (answer?.errorCode === "provider_contract_changed") {
-      throw new RuntimeError(MALL_CONTRACT_CHANGED4, message, { url: context.url });
-    }
-    if (answer?.pendingAuth === true || answer?.errorCode === "operator_action_required") {
-      throw new RuntimeError(OPERATOR_ACTION_REQUIRED2, message, { url: context.url });
-    }
-    throw new RuntimeError(SITE_REQUEST_FAILED, message, {
-      status: null,
-      reason: answer?.errorCode === "network_failed" ? "network" : "page_error",
-      url: context.url
-    });
-  }
-
-  // extensions/src/sites/always/listings.ts
-  var ALWAYS_LISTINGS_URL = "https://alwayzseller.ilevit.com/items/management";
-  var ALWAYS_LISTINGS_FILE = "content/orders/always-listings.js";
-  function createAlwaysListings(tabs) {
-    return {
-      readListings: (plan) => readMallListings(tabs, {
-        mallKey: "always",
-        displayName: "\uC62C\uC6E8\uC774\uC988",
-        startUrl: ALWAYS_LISTINGS_URL,
-        file: ALWAYS_LISTINGS_FILE,
-        call: "always.listings",
-        guard: ALWAYS_PAGE_GUARD
-      }, plan)
-    };
-  }
-
-  // extensions/src/sites/always/index.ts
-  var ALWAYS_ORDER_URL = "https://alwayzseller.ilevit.com/shippings";
-  var ALWAYS_ORDERS_FILE = "content/page-call/always-orders.js";
-  var READ_TIMEOUT_MS2 = 12e4;
-  var LOGIN_MESSAGE = "\uC62C\uC6E8\uC774\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC62C\uC6E8\uC774\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
-  var ALWAYS_PAGE_GUARD = {
-    allows: (url) => hostWithin(url, ["alwayzseller.ilevit.com"]),
-    isLogin: (url) => hostWithin(url, ["alwayzseller.ilevit.com"]) && /\/login(?:[/?#.]|$)/i.test(url.pathname),
-    loginMessage: LOGIN_MESSAGE
-  };
-  function createAlwaysSite(tabs) {
-    return {
-      ...createAlwaysListings(tabs),
-      readOrders() {
-        return withFreshTab(tabs, ALWAYS_ORDER_URL, async (page) => {
-          const answer = await callPage(page, "always.orders", {}, {
-            timeoutMs: READ_TIMEOUT_MS2,
-            guard: ALWAYS_PAGE_GUARD,
-            main: [ALWAYS_ORDERS_FILE],
-            displayName: "\uC62C\uC6E8\uC774\uC988"
-          });
-          return mallExcelRows(answer, { displayName: "\uC62C\uC6E8\uC774\uC988", url: ALWAYS_ORDER_URL, fileName: "\uC62C\uC6E8\uC774\uC988.xlsx" });
-        });
-      }
-    };
-  }
-  registerSite({ name: "always", create: (deps) => createAlwaysSite(deps.tabs) });
-
   // extensions/src/sites/mall-write/guard.ts
   function registrationGuard(site, displayName, isLogin2) {
     return {
@@ -9426,7 +9241,7 @@ var KidItemRuntime = (() => {
   var FILL_RETRY_MS = 500;
   var AFTER_SUBMIT_MS = 1500;
   var AFTER_REDIRECT_MS = 1200;
-  var NAVIGATION_TIMEOUT_MS4 = 3e4;
+  var NAVIGATION_TIMEOUT_MS3 = 3e4;
   var CALL_TIMEOUT_MS = 5e3;
   var REMAIN_CHECKS = 3;
   var REMAIN_CHECK_GAP_MS = 1500;
@@ -9437,7 +9252,7 @@ var KidItemRuntime = (() => {
     if (isVerification(spec, await safeUrl(page))) return { status: "verification_required" };
     const first = await loginFrame(page);
     if (typeof first !== "number" && !isLogin(spec, await safeUrl(page))) {
-      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS4, continueOnTimeout: true, stopAt: (url) => isLogin(spec, url) });
+      await page.navigate(spec.loginUrl, { timeoutMs: NAVIGATION_TIMEOUT_MS3, continueOnTimeout: true, stopAt: (url) => isLogin(spec, url) });
     }
     const deadline = deps.now() + (options.timeoutMs ?? LOGIN_FILL_WINDOW_MS);
     const watching = /* @__PURE__ */ new Set();
@@ -9580,7 +9395,7 @@ var KidItemRuntime = (() => {
       isLoginUrl: (url) => isLogin(spec, url),
       onPage: (page, returnTo, read) => withLogin(read, async () => {
         const outcome = await login(page);
-        if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS4 });
+        if (outcome.status !== "verification_required") await page.navigate(returnTo, { timeoutMs: NAVIGATION_TIMEOUT_MS3 });
         return outcome;
       }),
       beforeTab: async (tabs, call2) => {
@@ -10156,7 +9971,7 @@ var KidItemRuntime = (() => {
   }
 
   // extensions/src/sites/mall-write/write-tab.ts
-  var NAVIGATION_TIMEOUT_MS5 = 45e3;
+  var NAVIGATION_TIMEOUT_MS4 = 45e3;
   var SETTLE_MS = 1200;
   async function openWriteTab(deps, url, options) {
     const signIn = options.signIn ?? null;
@@ -10177,7 +9992,7 @@ var KidItemRuntime = (() => {
     try {
       page = await deps.tabs.open("about:blank");
       const stopAt = signIn ? (landed) => signIn.isLoginUrl(landed) : void 0;
-      await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS5, ...stopAt ? { stopAt } : {} });
+      await page.navigate(url, { timeoutMs: options.navigationTimeoutMs ?? NAVIGATION_TIMEOUT_MS4, ...stopAt ? { stopAt } : {} });
       reached = true;
       await deps.sleep(SETTLE_MS);
     } catch (error) {
@@ -10259,6 +10074,291 @@ var KidItemRuntime = (() => {
       throw error;
     }
   }
+
+  // extensions/src/sites/11st/registration.ts
+  var ST11_REGISTRATION_FORM = {
+    label: "11\uBC88\uAC00",
+    origin: "https://soffice.11st.co.kr",
+    /**
+     * 셀러오피스는 메뉴를 번호로 연다. `123124025` 가 '신규상품 등록'이다.
+     * 접두어를 `/view/` 로만 두면 아무 메뉴에나 값을 넣을 수 있으니 번호까지 건다.
+     */
+    pathPrefix: "/view/123124025",
+    /**
+     * ⭐ 폼이 **iframe 안**에 있다. 겉은 셀러오피스 껍데기고, 실제 등록 화면은
+     * `/pages/product-reg/index.html`(Vue 앱)이다. 바깥 문서에 값을 넣으면 아무
+     * 칸도 못 찾는다(라이브 확인 2026-09-10).
+     */
+    allFrames: true,
+    formSelector: "#app.l-content--product",
+    imageSlots: [],
+    dynamic: null,
+    /**
+     * ⭐ 카테고리가 방아쇠다. 고르기 전에는 상품정보 제공고시 블록이
+     * `display:none` 이라 유형을 못 넣는다(라이브 확인: 고른 직후 나타났다).
+     * 그래서 이 몰만 분류를 맨 앞에서 끝낸다.
+     */
+    categoryFirst: true,
+    /**
+     * 분류는 검색해서 고른다. 올웨이즈와 비슷하지만 두 가지가 다르다.
+     *  1. 경로 구분자가 **공백 없는 `>`** 다 — `문구/사무용품>디자인/팬시용품>기능성 팬시`.
+     *  2. **띄어쓴 이름으로 검색하면 0건**이다(`기능성 팬시` → 없음, `팬시` → 20건).
+     *     그래서 마지막 단의 첫 낱말만 넣고, 결과에서 전체 경로가 똑같은 것을 누른다.
+     */
+    categorySearch: {
+      inputSelector: '#section-category input[placeholder="\uCE74\uD14C\uACE0\uB9AC\uBA85\uC744 \uC785\uB825\uD574\uC8FC\uC138\uC694"]',
+      optionSelector: "#section-category .c-dropdown li button",
+      joiner: ">",
+      queryFirstWord: true,
+      waitMs: 2200
+    },
+    /**
+     * 이 화면은 이름도 id도 거의 없다. 라디오 이름이 `nameRadio17207` 처럼 **런타임
+     * 해시**라 그대로 쓰면 다음 배포에 통째로 깨진다(라이브 실측 2026-09-10).
+     *
+     * 대신 마크업이 `블록(#section-*) > .b-box__row > .b-box__title | .b-box__cont`
+     * 로 규칙적이다. **블록 id + 행 제목**으로 잡으면 해시에 걸리지 않는다.
+     */
+    rowFields: [
+      { key: "productName", section: "section-name", row: "\uC0C1\uD488\uBA85", label: "\uC0C1\uD488\uBA85" },
+      { key: "promoText", section: "section-name", row: "\uD64D\uBCF4\uBB38\uAD6C", label: "\uD64D\uBCF4\uBB38\uAD6C" },
+      { key: "salePrice", section: "section-option", row: "\uD310\uB9E4\uAC00", label: "\uD310\uB9E4\uAC00" },
+      { key: "consumerPrice", section: "section-option", row: "\uAD8C\uC7A5 \uC18C\uBE44\uC790\uAC00", label: "\uAD8C\uC7A5 \uC18C\uBE44\uC790\uAC00" },
+      { key: "stock", section: "section-option", row: "\uC7AC\uACE0\uC218\uB7C9", label: "\uC7AC\uACE0\uC218\uB7C9" },
+      { key: "sellerPrdCd", section: "section-primary-info", row: "\uD310\uB9E4\uC790 \uC0C1\uD488\uCF54\uB4DC", label: "\uD310\uB9E4\uC790 \uC0C1\uD488\uCF54\uB4DC" }
+    ],
+    /** 값이 계정마다 다른 번호라 **보이는 글자**로 고른다(배송 템플릿이 그렇다). */
+    rowOptions: [
+      { key: "salePeriod", section: "section-sales-info", row: "\uD310\uB9E4\uAE30\uAC04", label: "\uD310\uB9E4\uAE30\uAC04" },
+      { key: "deliveryTemplate", section: "section-delivery", row: "\uD15C\uD50C\uB9BF \uBAA9\uB85D", label: "\uBC30\uC1A1\uC815\uBCF4 \uD15C\uD50C\uB9BF" }
+    ],
+    /** 고시 유형만 진짜 id 를 갖고 있다. 분류를 고른 뒤라야 보인다. */
+    selectorFields: [
+      { key: "noticeType", selector: "#prdInfoTypeOpt", label: "\uC0C1\uD488\uC815\uBCF4 \uC81C\uACF5\uACE0\uC2DC \uC720\uD615", waitMs: 1500 }
+    ],
+    /** 브랜드는 필수인데 우리 상품은 브랜드가 없다. '브랜드 없음'으로 통과시킨다. */
+    selectorChecks: [
+      { key: "noBrand", selector: "#lbCheckNobrand01", label: "\uBE0C\uB79C\uB4DC \uC5C6\uC74C" }
+    ],
+    /**
+     * 이미지는 **창을 열어서** 넣는다.
+     *
+     * 파일 칸이 화면에 붙어 있지 않다. `+` 를 누르면 '이미지 불러오기' 창이 뜨고
+     * 파일 칸은 그 창 안에 있는데, 창 id 가 `dialog-8c1a040468632` 처럼 매번 다르다
+     * (라이브 실측 2026-09-10). 그래서 열린 창에서 찾는다.
+     *
+     * ⚠️ 같은 이름으로 시작하는 줄이 둘이다 — `추가이미지` 라디오 줄과 사진 줄.
+     *    제목만 보면 라디오 줄을 집어서 `+` 를 못 찾는다. `+` 가 있는 줄만 고른다.
+     */
+    imageDialogs: [
+      { key: "representative", section: "section-image", row: "\uB300\uD45C \uC774\uBBF8\uC9C0", label: "\uB300\uD45C \uC774\uBBF8\uC9C0" },
+      { key: "additional", section: "section-image", row: "\uCD94\uAC00\uC774\uBBF8\uC9C0", label: "\uCD94\uAC00 \uC774\uBBF8\uC9C0" }
+    ],
+    /**
+     * 상세설명은 `HTML` / `11에디터` 라디오인데 **HTML 이 기본 선택**이라 그대로
+     * textarea 에 넣으면 된다(라이브 확인 2026-09-10). 이름이 없어 선택자로 잡는다.
+     */
+    detailSelector: "#section-description textarea",
+    detailHost: "kidsnote",
+    /**
+     * ⚠️ 광고 블록(`#section-advertisement`)에는 포커스클릭·리스팅광고가 있고
+     * 켜지면 셀러캐시에서 돈이 나간다. 이 몰의 어떤 단계도 그 블록을 건드리지 않는다.
+     * 규칙은 시험(`mall-form-11st.test.mjs`)이 지킨다.
+     */
+    forbiddenSelector: "#section-advertisement"
+  };
+  registerMallWriter({
+    mallKey: "11st",
+    displayName: "11\uBC88\uAC00",
+    guard: registrationGuard(ST11_LISTINGS_GUARD, "11\uBC88\uAC00"),
+    dialogHosts: ["11st.co.kr"],
+    form: ST11_REGISTRATION_FORM
+  });
+
+  // extensions/src/sites/1688/index.ts
+  var SEARCH_ORIGIN = "https://s.1688.com";
+  var NAVIGATION_TIMEOUT_MS5 = 3e4;
+  var EXTRACTION_TIMEOUT_MS = 2e4;
+  var MAX_RESULTS_PER_KEYWORD = 20;
+  var MAX_VERIFICATION_ROUNDS = 5;
+  var ALIBABA_CONTENT_FILES = {
+    isolated: [
+      "content/sourcing/extractors/common.js",
+      "content/sourcing/extractors/alibaba.js",
+      "content/sourcing/extractors/1688.js",
+      "content/sourcing/content.js"
+    ]
+  };
+  var SITE_VERIFICATION_REQUIRED = "SITE_VERIFICATION_REQUIRED";
+  var ALIBABA_1688_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["1688.com"]),
+    isLogin: (url) => hostWithin(url, ["login.taobao.com", "login.1688.com", "passport.1688.com", "passport.taobao.com"]),
+    loginMessage: "1688 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694."
+  };
+  var ALIBABA_1688_SITE = {
+    name: "ali1688",
+    origin: SEARCH_ORIGIN,
+    caller: { minIntervalMs: 0, displayName: "1688" }
+  };
+  function build1688SearchUrl(keyword2) {
+    return `${SEARCH_ORIGIN}/selloffer/offer_search.htm?keywords=${encodeURIComponent(keyword2)}&charset=utf8`;
+  }
+  function is1688VerificationUrl(value) {
+    try {
+      const url = new URL(value);
+      return url.pathname.includes("/punish") || url.pathname.includes("/_____tmd_____/") || url.searchParams.get("action") === "captcha";
+    } catch {
+      return false;
+    }
+  }
+  function create1688SearchSite(tabs) {
+    let page = null;
+    let keepOpen = false;
+    return {
+      /**
+       * 키워드 하나. 슬라이더 검증이 뜨면 실패하지 않고 운영자를 기다렸다가(`onAttention`으로 알림) 같은 키워드를 다시
+       * 시도한다 — 실행과 이미 올린 청크는 그대로다(KID-355 QA). 10분 안에 통과하지 않으면 `SITE_VERIFICATION_REQUIRED`.
+       */
+      async offers(keyword2, options = {}) {
+        page ??= await tabs.open("about:blank");
+        const current = page;
+        const attention = { kind: "verification", site: "1688", label: keyword2 };
+        const waitOrFail = async (url) => {
+          if (await waitForOperator(current, is1688VerificationUrl, attention, options.onAttention)) return;
+          throw verification(url, keyword2, () => {
+            keepOpen = true;
+          });
+        };
+        for (let round = 1; ; round += 1) {
+          const landed = await current.navigate(build1688SearchUrl(keyword2), { timeoutMs: NAVIGATION_TIMEOUT_MS5, stopAt: is1688VerificationUrl, continueOnTimeout: true });
+          if (is1688VerificationUrl(landed)) {
+            if (round > MAX_VERIFICATION_ROUNDS) throw verification(landed, keyword2, () => {
+              keepOpen = true;
+            });
+            await waitOrFail(landed);
+            continue;
+          }
+          let extracted;
+          try {
+            extracted = await current.ask(
+              { type: "TRIGGER_1688_TREND_EXTRACT", maxResults: MAX_RESULTS_PER_KEYWORD },
+              { timeoutMs: EXTRACTION_TIMEOUT_MS, inject: ALIBABA_CONTENT_FILES, guard: ALIBABA_1688_PAGE_GUARD }
+            );
+          } catch (error) {
+            if (leftForOperator(error)) keepOpen = true;
+            throw error;
+          }
+          if (extracted.status === "verification_required") {
+            const here = await current.currentUrl().catch(() => extracted.verificationUrl ?? landed);
+            if (round > MAX_VERIFICATION_ROUNDS || !is1688VerificationUrl(here)) {
+              throw verification(extracted.verificationUrl ?? landed, keyword2, () => {
+                keepOpen = true;
+              });
+            }
+            await waitOrFail(here);
+            continue;
+          }
+          if (!extracted.ok) {
+            throw new RuntimeError(SITE_REQUEST_FAILED, `1688 \uAC80\uC0C9 '${keyword2}' \uACB0\uACFC\uB97C \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4: ${extracted.error ?? "\uC54C \uC218 \uC5C6\uC74C"}`, { status: null, keyword: keyword2 });
+          }
+          return (Array.isArray(extracted.items) ? extracted.items : []).filter((item) => typeof item?.offerId === "string" && item.offerId.length > 0).slice(0, MAX_RESULTS_PER_KEYWORD);
+        }
+      },
+      /** 수집이 끝나면 탭을 닫는다. 검증 화면에서 멈췄으면 운영자가 풀 수 있게 남긴다. */
+      async close() {
+        if (page && !keepOpen) await page.close();
+        page = null;
+      }
+    };
+  }
+  function verification(url, keyword2, keep) {
+    keep();
+    return new RuntimeError(SITE_VERIFICATION_REQUIRED, "1688\uC774 \uC2AC\uB77C\uC774\uB354 \uAC80\uC99D\uC744 \uC694\uAD6C\uD569\uB2C8\uB2E4. \uC5F4\uB824 \uC788\uB294 1688 \uD0ED\uC5D0\uC11C \uAC80\uC99D\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574 \uC8FC\uC138\uC694.", { url, keyword: keyword2 });
+  }
+  registerSite({ name: ALIBABA_1688_SITE.name, create: (deps) => create1688SearchSite(deps.tabs) });
+
+  // extensions/src/sites/mall-excel.ts
+  var MALL_FILE_PART_CHARS = 7e5;
+  var MALL_CONTRACT_CHANGED4 = "MALL_CONTRACT_CHANGED";
+  var OPERATOR_ACTION_REQUIRED2 = "OPERATOR_ACTION_REQUIRED";
+  function filePartRows(fileName, base642, partChars = MALL_FILE_PART_CHARS) {
+    const parts = Math.max(1, Math.ceil(base642.length / partChars));
+    return Array.from({ length: parts }, (_, part) => ({
+      fileName,
+      part,
+      parts,
+      base64: base642.slice(part * partChars, (part + 1) * partChars)
+    }));
+  }
+  function mallExcelRows(answer, context) {
+    const message = answer?.error || `${context.displayName} \uC8FC\uBB38\uC744 \uC77D\uC9C0 \uBABB\uD588\uC2B5\uB2C8\uB2E4.`;
+    if (answer?.success === true) {
+      if (answer.empty === true) return { rows: [] };
+      const base642 = typeof answer.xlsxBase64 === "string" ? answer.xlsxBase64.trim() : "";
+      if (!base642) {
+        throw new RuntimeError(SITE_REQUEST_FAILED, `${context.displayName} \uC8FC\uBB38 \uC6D0\uBCF8 \uD30C\uC77C\uC774 \uC5C6\uC2B5\uB2C8\uB2E4.`, { status: null, reason: "page_error", url: context.url });
+      }
+      return { rows: filePartRows(answer.fileName || context.fileName, base642) };
+    }
+    if (answer?.pendingLogin === true || answer?.errorCode === "login_required") {
+      throw new RuntimeError(SITE_LOGIN_REQUIRED, message, { url: context.url });
+    }
+    if (answer?.errorCode === "provider_contract_changed") {
+      throw new RuntimeError(MALL_CONTRACT_CHANGED4, message, { url: context.url });
+    }
+    if (answer?.pendingAuth === true || answer?.errorCode === "operator_action_required") {
+      throw new RuntimeError(OPERATOR_ACTION_REQUIRED2, message, { url: context.url });
+    }
+    throw new RuntimeError(SITE_REQUEST_FAILED, message, {
+      status: null,
+      reason: answer?.errorCode === "network_failed" ? "network" : "page_error",
+      url: context.url
+    });
+  }
+
+  // extensions/src/sites/always/listings.ts
+  var ALWAYS_LISTINGS_URL = "https://alwayzseller.ilevit.com/items/management";
+  var ALWAYS_LISTINGS_FILE = "content/orders/always-listings.js";
+  function createAlwaysListings(tabs) {
+    return {
+      readListings: (plan) => readMallListings(tabs, {
+        mallKey: "always",
+        displayName: "\uC62C\uC6E8\uC774\uC988",
+        startUrl: ALWAYS_LISTINGS_URL,
+        file: ALWAYS_LISTINGS_FILE,
+        call: "always.listings",
+        guard: ALWAYS_PAGE_GUARD
+      }, plan)
+    };
+  }
+
+  // extensions/src/sites/always/index.ts
+  var ALWAYS_ORDER_URL = "https://alwayzseller.ilevit.com/shippings";
+  var ALWAYS_ORDERS_FILE = "content/page-call/always-orders.js";
+  var READ_TIMEOUT_MS2 = 12e4;
+  var LOGIN_MESSAGE = "\uC62C\uC6E8\uC774\uC988 \uB85C\uADF8\uC778\uC774 \uD544\uC694\uD569\uB2C8\uB2E4. \uC5F4\uB9B0 \uC62C\uC6E8\uC774\uC988 \uD0ED\uC5D0\uC11C \uB85C\uADF8\uC778\uD55C \uB4A4 \uB2E4\uC2DC \uC218\uC9D1\uD574\uC8FC\uC138\uC694.";
+  var ALWAYS_PAGE_GUARD = {
+    allows: (url) => hostWithin(url, ["alwayzseller.ilevit.com"]),
+    isLogin: (url) => hostWithin(url, ["alwayzseller.ilevit.com"]) && /\/login(?:[/?#.]|$)/i.test(url.pathname),
+    loginMessage: LOGIN_MESSAGE
+  };
+  function createAlwaysSite(tabs) {
+    return {
+      ...createAlwaysListings(tabs),
+      readOrders() {
+        return withFreshTab(tabs, ALWAYS_ORDER_URL, async (page) => {
+          const answer = await callPage(page, "always.orders", {}, {
+            timeoutMs: READ_TIMEOUT_MS2,
+            guard: ALWAYS_PAGE_GUARD,
+            main: [ALWAYS_ORDERS_FILE],
+            displayName: "\uC62C\uC6E8\uC774\uC988"
+          });
+          return mallExcelRows(answer, { displayName: "\uC62C\uC6E8\uC774\uC988", url: ALWAYS_ORDER_URL, fileName: "\uC62C\uC6E8\uC774\uC988.xlsx" });
+        });
+      }
+    };
+  }
+  registerSite({ name: "always", create: (deps) => createAlwaysSite(deps.tabs) });
 
   // extensions/src/sites/always/registration.ts
   var ALWAYS_REGISTRATION_FORM = {
