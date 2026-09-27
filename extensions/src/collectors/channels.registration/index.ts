@@ -222,7 +222,7 @@ export const registrationCollector: Collector<RegistrationPlan, RegistrationResu
       const warnings = run.answer.warnings ?? [];
       const byListing = new Map(run.observed.map((observed) => [observed.externalListingId, observed]));
       const confirmed = listings.filter((listing) => listingConfirms(resume, byOption, listing.externalOptionIds, byListing.get(listing.externalListingId)));
-      if (sent === 0 && confirmed.length < listings.length && !run.answer.requestOnly) {
+      if (sent === 0 && confirmed.length < listings.length) {
         throw new RuntimeError(MALL_WRITE_FAILED, warnings.length > 0 ? warnings.join(' ') : '몰이 판매 상태 변경을 받지 않았습니다.', { mallKey: plan.mallKey });
       }
       const fill: RegistrationFill = {

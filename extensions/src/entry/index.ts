@@ -70,6 +70,7 @@ import '../sites/mall-admin-listings';
 import '../sites/mall-orders';
 import '../sites/mall-write';
 import '../sites/onch';
+import '../sites/onch/availability';
 import '../sites/onch/registration';
 import '../sites/product-page';
 import '../sites/sabangnet';
