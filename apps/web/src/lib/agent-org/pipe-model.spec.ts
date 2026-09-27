@@ -114,10 +114,10 @@ describe('모름은 0이 아니다', () => {
 describe('원천 실패 알림', () => {
   it('⭐ 열린 알림은 그 원천의 실패로 서고 확인 필요 한 장이 된다', () => {
     const snapshot = buildPipeSnapshot(
-      inputs({ alerts: { data: [alert({ sourceType: 'coupang_ads_daily', title: '광고 일별 성과 수집 실패', message: '응답이 비어 있습니다.' })], failed: false } }),
+      inputs({ alerts: { data: [alert({ sourceType: 'advertising.ad_report', title: '광고 보고서 수집 실패', message: '응답이 비어 있습니다.' })], failed: false } }),
     );
     expect(stage(snapshot.stages, 'ads')).toMatchObject({ state: 'failed', reason: '응답이 비어 있습니다.' });
-    expect(snapshot.inbox[0]).toMatchObject({ key: 'fail:coupang_ads_daily', state: 'failed', title: '광고 일별 성과 수집 실패', stageIds: ['ads'] });
+    expect(snapshot.inbox[0]).toMatchObject({ key: 'fail:advertising.ad_report', state: 'failed', title: '광고 보고서 수집 실패', stageIds: ['ads'] });
   });
 
   it('⭐ 같은 원천이 다시 성공해 알림이 닫혔으면 빨강이 아니고, 지난 실패는 레인 숫자로만 남는다', () => {
